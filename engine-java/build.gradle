@@ -64,6 +64,9 @@ teavm.js {
     // virtual-method impls in this codebase (methods reached via map-key or
     // recursive-walk dispatch got pruned; see docs/phase0-findings.md P1.2 notes).
     fastGlobalAnalysis = true
+    // NOTE: strict = true is NOT usable — it breaks util.ArrayList.clone with
+    // ClassCastException. JS Math transcendentals (pow/log) differ from Java's
+    // by 1-2 ULPs; difftest.mjs allows 1e-13 relative tolerance for that.
 }
 
 teavm.wasmGC {

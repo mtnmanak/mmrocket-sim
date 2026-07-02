@@ -29,6 +29,48 @@ public final class GoldenMain {
         atmosphereScenarios();
         quaternionScenarios();
         massScenarios();
+        aeroScenarios();
+    }
+
+    /** P1.3: Extended-Barrowman CP and force coefficients across Mach and AoA. */
+    private static void aeroScenarios() {
+        Rocket rocket = buildReferenceRocket();
+        FlightConfiguration config = rocket.getSelectedConfiguration();
+        info.openrocket.core.aerodynamics.BarrowmanCalculator calc =
+                new info.openrocket.core.aerodynamics.BarrowmanCalculator();
+        info.openrocket.core.logging.WarningSet warnings =
+                new info.openrocket.core.logging.WarningSet();
+
+        double[] machs = { 0.1, 0.3, 0.5, 0.8, 0.95, 1.05, 1.5, 2.0 };
+        double[] aoasDeg = { 0, 2, 5, 15 };
+
+        for (double mach : machs) {
+            for (double aoaDeg : aoasDeg) {
+                info.openrocket.core.aerodynamics.FlightConditions conditions =
+                        new info.openrocket.core.aerodynamics.FlightConditions(config);
+                conditions.setMach(mach);
+                conditions.setAOA(Math.toRadians(aoaDeg));
+
+                warnings.clear();
+                Coordinate cp = calc.getCP(config, conditions, warnings);
+                info.openrocket.core.aerodynamics.AerodynamicForces forces =
+                        calc.getAerodynamicForces(config, conditions, warnings);
+
+                line("aero.cp", mach, aoaDeg, cp.x, cp.weight);
+                line("aero.forces", mach, aoaDeg,
+                        forces.getCN(), forces.getCm(), forces.getCD(),
+                        forces.getCDaxial(), forces.getPressureCD(),
+                        forces.getBaseCD(), forces.getFrictionCD());
+            }
+        }
+        line("aero.warnings", warnings.size());
+
+        // Static helper functions (pure math, worth pinning).
+        for (double m : machs) {
+            line("aero.staticCD", m,
+                    info.openrocket.core.aerodynamics.BarrowmanCalculator.calculateStagnationCD(m),
+                    info.openrocket.core.aerodynamics.BarrowmanCalculator.calculateBaseCD(m));
+        }
     }
 
     /**
@@ -97,12 +139,18 @@ public final class GoldenMain {
         }
 
         // Instance-context counts — masses aggregate through these transforms.
-        int ei = 0;
-        for (java.util.Map.Entry<info.openrocket.core.rocketcomponent.RocketComponent,
-                java.util.ArrayList<info.openrocket.core.rocketcomponent.InstanceContext>> e
-                : config.getActiveInstances().entrySet()) {
-            line("tree.ctx." + (ei++), e.getValue().size());
+        // Sorted (HashMap iteration order differs between JVM and TeaVM).
+        java.util.List<Integer> ctxCounts = new java.util.ArrayList<>();
+        for (java.util.ArrayList<info.openrocket.core.rocketcomponent.InstanceContext> v
+                : config.getActiveInstances().values()) {
+            ctxCounts.add(v.size());
         }
+        java.util.Collections.sort(ctxCounts);
+        double[] sortedCounts = new double[ctxCounts.size()];
+        for (int i = 0; i < ctxCounts.size(); i++) {
+            sortedCounts[i] = ctxCounts.get(i);
+        }
+        line("tree.ctx.sorted", sortedCounts);
 
         // Direct probes at the JVM/JS divergence point (fin instance expansion).
         TrapezoidFinSet finProbe = null;

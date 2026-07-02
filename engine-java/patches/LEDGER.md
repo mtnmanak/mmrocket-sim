@@ -34,6 +34,19 @@ git diff --no-index <openrocket-src>/<path> patches/<path>
 - **Change:** return `new java.util.ArrayList<>()` (empty, mutable). Behavior-identical.
 - **Upstreamable:** yes — this is arguably an upstream latent bug worth a PR.
 
+### aerodynamics/BarrowmanCalculator.java
+- **Why:** `buildCalcMap` constructs per-component calculators via
+  `Reflection.construct(...)` — walks the component class hierarchy calling
+  `Class.forName(<SimpleName> + "Calc")`. No reflection metadata exists under TeaVM
+  ("BUG: Suitable constructor for component ... not found" at runtime).
+- **Change:** replaced the reflective call with an explicit `createCalcObject()`
+  instanceof chain that reproduces the hierarchy-walk resolution exactly
+  (FinSet→FinSetCalc, TubeFinSet→TubeFinSetCalc, LaunchLug→LaunchLugCalc,
+  RailButton→RailButtonCalc, SymmetricComponent→SymmetricComponentCalc,
+  ComponentAssembly→ComponentAssemblyCalc; TubeCalc is abstract and was never
+  directly instantiable via reflection either).
+- **Note:** must be revisited if upstream adds new `*Calc` classes.
+
 ## Rules
 
 1. A patch NEVER changes physics or observable behavior (except documented quirks-ledger

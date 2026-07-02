@@ -64,10 +64,42 @@ const norm = (s) => s.split(/\r?\n/).map((l) => l.trimEnd()).filter(Boolean);
 const jvm = norm(jvmRaw);
 const js = jsLines.flatMap((l) => norm(l));
 
+// Comparison: bit-identical required, EXCEPT numeric fields may differ by
+// <= 1e-13 relative — JS Math transcendentals (pow/log/exp) are not
+// bit-specified and differ from Java's by 1-2 ULPs. Everything structural
+// (tags, counts, rational arithmetic) still compares exactly.
+const REL_TOL = 1e-13;
+
+function linesMatch(a, b) {
+  if (a === b) return 'exact';
+  if (a === undefined || b === undefined) return false;
+  const fa = a.split('|');
+  const fb = b.split('|');
+  if (fa.length !== fb.length || fa[0] !== fb[0]) return false;
+  let ulp = false;
+  for (let i = 1; i < fa.length; i++) {
+    if (fa[i] === fb[i]) continue;
+    const na = Number(fa[i]);
+    const nb = Number(fb[i]);
+    if (!Number.isFinite(na) || !Number.isFinite(nb)) return false;
+    const denom = Math.max(Math.abs(na), Math.abs(nb));
+    if (Math.abs(na - nb) / denom > REL_TOL) return false;
+    ulp = true;
+  }
+  return ulp ? 'ulp' : false;
+}
+
 let failures = 0;
+let ulpLines = 0;
+let exactLines = 0;
 const n = Math.max(jvm.length, js.length);
 for (let i = 0; i < n; i++) {
-  if (jvm[i] !== js[i]) {
+  const m = linesMatch(jvm[i], js[i]);
+  if (m === 'exact') {
+    exactLines++;
+  } else if (m === 'ulp') {
+    ulpLines++;
+  } else {
     if (failures < 10) {
       console.error(`DIFF line ${i + 1}:\n  jvm: ${jvm[i] ?? '<missing>'}\n  js : ${js[i] ?? '<missing>'}`);
     }
@@ -79,4 +111,4 @@ if (failures) {
   console.error(`\nDIFFERENTIAL FAILURE: ${failures} mismatched line(s) of ${n}.`);
   process.exit(1);
 }
-console.log(`differential ok: ${jvm.length} lines bit-identical (JVM vs TeaVM-JS)`);
+console.log(`differential ok: ${n} lines (${exactLines} bit-identical, ${ulpLines} within 1e-13 rel — JS Math ULP noise)`);
