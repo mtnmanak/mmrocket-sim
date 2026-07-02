@@ -1,0 +1,23 @@
+# Files carved (copied verbatim) from openrocket-release-24.12/core/src/main/java
+# into engine-java/src/carved/java by scripts/carve.mjs.
+# One path per line, relative to the core java root. '#' starts a comment.
+#
+# RULE: files listed here are NEVER edited. Fixes go through docs/upstream-bugs-triage.md
+# (quirks ledger) as explicit patches — none exist yet.
+
+# --- P1.1 slice: atmosphere + core math (validated bit-identical in Phase 0) ---
+info/openrocket/core/models/atmosphere/AtmosphericConditions.java
+info/openrocket/core/models/atmosphere/AtmosphericModel.java
+info/openrocket/core/models/atmosphere/ExtendedISAModel.java
+info/openrocket/core/models/atmosphere/InterpolatingAtmosphericModel.java
+info/openrocket/core/util/MathUtil.java
+info/openrocket/core/util/ModID.java
+info/openrocket/core/util/BugException.java
+info/openrocket/core/util/FatalException.java
+info/openrocket/core/util/Monitorable.java
+info/openrocket/core/util/Coordinate.java
+info/openrocket/core/util/Quaternion.java
+
+# --- P1.2 adds rocketcomponent + masscalc here ---
+# --- P1.3 adds aerodynamics/barrowman here ---
+# --- P1.4 adds simulation + motor here ---

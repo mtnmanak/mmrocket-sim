@@ -24,6 +24,7 @@ Thumbs.db
 spikes/**/*.jar
 !spikes/**/gradle-wrapper.jar
 
-# Gradle (TeaVM spike)
+# Gradle
 .gradle/
 spikes/**/build/
+engine-java/build/

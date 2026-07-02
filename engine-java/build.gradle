@@ -1,0 +1,47 @@
+// engine-java: OpenRocket physics kernel (carved, unmodified) + shims,
+// compiled to JS/WASM via TeaVM and validated bit-identical against the JVM.
+plugins {
+    id 'java'
+    id 'org.teavm' version '0.15.0'   // >= 0.15 REQUIRED: 0.10's JS backend inverts NaN comparisons
+}
+
+repositories {
+    mavenCentral()
+}
+
+sourceSets {
+    main {
+        java {
+            srcDir 'src/carved/java'   // verbatim OpenRocket sources (see carve-manifest.txt)
+            srcDir 'src/shims/java'    // our replacements for JVM-only surface
+            srcDir 'src/harness/java'  // golden-scenario harness (runs on JVM and TeaVM)
+        }
+    }
+}
+
+dependencies {
+    implementation 'org.slf4j:slf4j-api:1.7.36'
+    // TeaVM-safe slf4j substitution (real slf4j's binding discovery breaks under TeaVM).
+    implementation 'org.teavm:teavm-extras-slf4j:0.15.0'
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+teavm.js {
+    mainClass = 'harness.GoldenMain'
+    obfuscated = false
+}
+
+teavm.wasmGC {
+    mainClass = 'harness.GoldenMain'
+}
+
+// Run the golden harness on the JVM (reference output).
+tasks.register('goldenJvm', JavaExec) {
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'harness.GoldenMain'
+}
