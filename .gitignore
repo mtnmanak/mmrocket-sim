@@ -22,3 +22,8 @@ Thumbs.db
 
 # Spike artifacts (large JARs are fetched, not committed)
 spikes/**/*.jar
+!spikes/**/gradle-wrapper.jar
+
+# Gradle (TeaVM spike)
+.gradle/
+spikes/**/build/
