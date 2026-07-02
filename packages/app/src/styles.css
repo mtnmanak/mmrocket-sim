@@ -197,3 +197,19 @@
   padding: 40px;
   text-align: center;
 }
+
+/* --- File buttons --- */
+.file-btn {
+  font-size: 12px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface-1);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.file-btn:hover {
+  background: #eceae6;
+}

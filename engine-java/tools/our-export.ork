@@ -1,0 +1,130 @@
+<?xml version='1.0' encoding='utf-8'?>
+<openrocket version="1.10" creator="Online OpenRocket">
+  <rocket>
+    <name>Reference Rocket</name>
+    <id>d571c1bb-625c-4d1c-b24d-4860d8a039e1</id>
+    <axialoffset method="absolute">0.0</axialoffset>
+    <position type="absolute">0.0</position>
+    <designtype>original</designtype>
+    <motorconfiguration configid="73e9e5eb-e499-484b-80d8-f6ca716f047a" default="true">
+      <stage number="0" active="true"/>
+    </motorconfiguration>
+    <referencetype>maximum</referencetype>
+
+    <subcomponents>
+      <stage>
+        <name>Sustainer</name>
+        <id>2218e2b2-9eb8-4022-802c-2387e53acefa</id>
+
+        <subcomponents>
+          <nosecone>
+            <name>Nose Cone</name>
+            <id>edf5ebd3-e111-4281-8515-7564df7ff634</id>
+            <finish>normal</finish>
+            <material type="bulk" density="680" group="Custom">custom</material>
+            <length>0.07</length>
+            <thickness>0.002</thickness>
+            <shape>ogive</shape>
+            <shapeparameter>1.0</shapeparameter>
+            <aftradius>0.012</aftradius>
+            <aftshoulderradius>0.0</aftshoulderradius>
+            <aftshoulderlength>0.0</aftshoulderlength>
+            <aftshoulderthickness>0.0</aftshoulderthickness>
+            <aftshouldercapped>false</aftshouldercapped>
+            <isflipped>false</isflipped>
+          </nosecone>
+
+          <bodytube>
+            <name>Body Tube</name>
+            <id>1b1a5878-4d9c-43d6-840b-90ffb3f0fb00</id>
+            <finish>normal</finish>
+            <material type="bulk" density="950" group="Custom">custom</material>
+            <length>0.3</length>
+            <thickness>0.0003</thickness>
+            <radius>0.012</radius>
+
+            <subcomponents>
+              <trapezoidfinset>
+                <name>Trapezoidal Fin Set</name>
+                <id>0e8e6508-a8cb-499a-aa45-8c4431b941c6</id>
+                <instancecount>3</instancecount>
+                <fincount>3</fincount>
+                <radiusoffset method="surface">0.0</radiusoffset>
+                <angleoffset method="relative">0.0</angleoffset>
+                <rotation>0.0</rotation>
+                <axialoffset method="bottom">0.0</axialoffset>
+                <position type="bottom">0.0</position>
+                <finish>normal</finish>
+                <material type="bulk" density="680" group="Custom">custom</material>
+                <thickness>0.003</thickness>
+                <crosssection>square</crosssection>
+                <cant>0.0</cant>
+                <filletradius>0.0</filletradius>
+                <filletmaterial type="bulk" density="680.0" group="PaperProducts">Cardboard</filletmaterial>
+                <rootchord>0.05</rootchord>
+                <tipchord>0.03</tipchord>
+                <sweeplength>0.02</sweeplength>
+                <height>0.03</height>
+              </trapezoidfinset>
+
+              <innertube>
+                <name>Inner Tube</name>
+                <id>048fcf8e-2936-4795-838e-5befc3109a6a</id>
+                <axialoffset method="bottom">0.0</axialoffset>
+                <position type="bottom">0.0</position>
+                <material type="bulk" density="680.0" group="PaperProducts">Cardboard</material>
+                <length>0.07</length>
+                <radialposition>0.0</radialposition>
+                <radialdirection>0.0</radialdirection>
+                <outerradius>0.0095</outerradius>
+                <thickness>0.0005000000000000004</thickness>
+                <clusterconfiguration>single</clusterconfiguration>
+                <clusterscale>1.0</clusterscale>
+                <clusterrotation>0.0</clusterrotation>
+                <motormount>
+                  <ignitionevent>automatic</ignitionevent>
+                  <ignitiondelay>0.0</ignitiondelay>
+                  <overhang>0.0</overhang>
+                  <motor configid="73e9e5eb-e499-484b-80d8-f6ca716f047a">
+                    <type>single</type>
+                    <manufacturer>custom</manufacturer>
+                    <designation>C6</designation>
+                    <diameter>0.018</diameter>
+                    <length>0.07</length>
+                    <delay>5</delay>
+                  </motor>
+                  <ignitionconfiguration configid="73e9e5eb-e499-484b-80d8-f6ca716f047a">
+                    <ignitionevent>automatic</ignitionevent>
+                    <ignitiondelay>0.0</ignitiondelay>
+                  </ignitionconfiguration>
+                </motormount>
+              </innertube>
+              <parachute>
+                <name>Parachute</name>
+                <id>5631a9b2-d1d8-4e7f-9447-e70984e6d828</id>
+                <axialoffset method="top">0.0</axialoffset>
+                <position type="top">0.0</position>
+                <packedlength>0.025</packedlength>
+                <packedradius>0.012</packedradius>
+                <radialposition>0.0</radialposition>
+                <radialdirection>0.0</radialdirection>
+                <cd>auto</cd>
+                <material type="surface" density="0.067" group="Fabrics">Ripstop nylon</material>
+                <deployevent>ejection</deployevent>
+                <deployaltitude>200.0</deployaltitude>
+                <deploydelay>0.0</deploydelay>
+                <diameter>0.3</diameter>
+                <linecount>6</linecount>
+                <linelength>0.3</linelength>
+                <linematerial type="line" density="0.0018" group="ThreadsLines">Elastic cord (round 2 mm, 1/16 in)</linematerial>
+              </parachute>
+            </subcomponents>
+          </bodytube>
+        </subcomponents>
+      </stage>
+    </subcomponents>
+  </rocket>
+
+  <simulations>
+  </simulations>
+</openrocket>

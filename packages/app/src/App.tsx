@@ -11,6 +11,7 @@ import { FlightCharts } from './components/FlightCharts.js';
 import { Schematic } from './components/Schematic.js';
 import { DesignStats, FlightStats } from './components/StatTiles.js';
 import { BUILT_IN_MOTORS } from './motors.js';
+import { exportOrk, importOrk } from './services/orkFile.js';
 import './styles.css';
 
 const DEFAULT_SPEC: RocketSpec = {
@@ -40,6 +41,57 @@ export function App() {
   const [result, setResult] = useState<FlightResult | null>(null);
   const [simulating, setSimulating] = useState(false);
   const [buildError, setBuildError] = useState<string | null>(null);
+  const [fileNote, setFileNote] = useState<string | null>(null);
+
+  const onSaveOrk = () => {
+    const xml = exportOrk({
+      name: 'My Rocket',
+      spec: form.spec,
+      motor: {
+        designation: form.motor.designation,
+        diameter: form.motor.diameter,
+        length: form.motor.length,
+        delay: form.motor.ejectionDelay,
+      },
+    });
+    const blob = new Blob([xml], { type: 'application/octet-stream' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'rocket.ork';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
+  const onOpenOrk = async (file: File) => {
+    try {
+      const imported = importOrk(await file.arrayBuffer());
+      const notes: string[] = [`Loaded “${imported.name}”.`];
+
+      // Try to match the referenced motor against the built-ins by designation.
+      let motorLabel = form.motorLabel;
+      let motor = form.motor;
+      if (imported.motor) {
+        const match = Object.entries(BUILT_IN_MOTORS).find(
+          ([k]) => k.startsWith(imported.motor!.designation),
+        );
+        if (match) {
+          [motorLabel, motor] = match;
+          notes.push(`Motor: ${motorLabel} (matched built-in).`);
+        } else {
+          notes.push(
+            `Motor “${imported.motor.designation}” isn't built-in — pick it via thrustcurve.org search.`,
+          );
+        }
+      }
+      if (imported.ignored.length) {
+        notes.push(`Ignored unsupported components: ${imported.ignored.join(', ')}.`);
+      }
+      setForm({ ...form, spec: imported.spec, motorLabel, motor });
+      setFileNote(notes.join(' '));
+    } catch (e) {
+      setFileNote(String(e));
+    }
+  };
 
   // Rebuild + static analysis on every design change (fast: pure JS kernel).
   const built = useMemo(() => {
@@ -94,9 +146,26 @@ export function App() {
         </aside>
         <main className="results-column">
           <div className="panel">
-            <h2>Rocket</h2>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+              <h2 style={{ flex: 1 }}>Rocket</h2>
+              <label className="file-btn">
+                Open .ork
+                <input
+                  type="file"
+                  accept=".ork"
+                  style={{ display: 'none' }}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) onOpenOrk(f);
+                    e.target.value = '';
+                  }}
+                />
+              </label>
+              <button className="file-btn" onClick={onSaveOrk}>Save .ork</button>
+            </div>
             <Schematic spec={form.spec} info={built?.info ?? null} />
             {built && <DesignStats info={built.info} />}
+            {fileNote && <p style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{fileNote}</p>}
             {buildError && <p className="stability-bad">{buildError}</p>}
           </div>
           {result ? (
