@@ -1,7 +1,19 @@
 package harness;
 
+import info.openrocket.core.masscalc.MassCalculator;
+import info.openrocket.core.masscalc.RigidBody;
+import info.openrocket.core.material.Material;
 import info.openrocket.core.models.atmosphere.AtmosphericConditions;
 import info.openrocket.core.models.atmosphere.ExtendedISAModel;
+import info.openrocket.core.rocketcomponent.AxialStage;
+import info.openrocket.core.rocketcomponent.BodyTube;
+import info.openrocket.core.rocketcomponent.FlightConfiguration;
+import info.openrocket.core.rocketcomponent.InnerTube;
+import info.openrocket.core.rocketcomponent.NoseCone;
+import info.openrocket.core.rocketcomponent.Parachute;
+import info.openrocket.core.rocketcomponent.Rocket;
+import info.openrocket.core.rocketcomponent.Transition;
+import info.openrocket.core.rocketcomponent.TrapezoidFinSet;
 import info.openrocket.core.util.Coordinate;
 import info.openrocket.core.util.Quaternion;
 
@@ -16,6 +28,125 @@ public final class GoldenMain {
     public static void main(String[] args) {
         atmosphereScenarios();
         quaternionScenarios();
+        massScenarios();
+    }
+
+    /**
+     * Reference rocket (Alpha-III class): ogive nose, body tube, 3 trapezoid
+     * fins, inner-tube motor mount, parachute. Mix of default materials
+     * (exercises the shimmed preference defaults, identical both sides) and
+     * explicit materials.
+     */
+    private static Rocket buildReferenceRocket() {
+        Rocket rocket = new Rocket();
+        AxialStage stage = new AxialStage();
+        rocket.addChild(stage);
+
+        NoseCone nose = new NoseCone(Transition.Shape.OGIVE, 0.07, 0.012);
+        nose.setThickness(0.002);
+        stage.addChild(nose);
+
+        BodyTube body = new BodyTube(0.30, 0.012, 0.0003);
+        body.setMaterial(Material.newMaterial(Material.Type.BULK, "Kraft phenolic", 950, false));
+        stage.addChild(body);
+
+        TrapezoidFinSet fins = new TrapezoidFinSet(3, 0.05, 0.03, 0.02, 0.03);
+        fins.setThickness(0.003);
+        body.addChild(fins);
+
+        InnerTube mount = new InnerTube();
+        mount.setLength(0.07);
+        mount.setOuterRadius(0.0095);
+        mount.setThickness(0.0005);
+        body.addChild(mount);
+
+        Parachute chute = new Parachute();
+        chute.setDiameter(0.30);
+        body.addChild(chute);
+
+        rocket.enableEvents();
+        return rocket;
+    }
+
+    private static void massScenarios() {
+        Rocket rocket = buildReferenceRocket();
+        FlightConfiguration config = rocket.getSelectedConfiguration();
+
+        // Direct per-class calls to the bounds API. These are real golden values
+        // AND they force TeaVM's dependency analyzer to link every implementation
+        // (it under-links impls reached only via map-key virtual dispatch).
+        int bi = 0;
+        for (info.openrocket.core.rocketcomponent.RocketComponent c : config.getAllComponents()) {
+            double boundsSize = c.getComponentBounds().size();
+            double instBox = (c instanceof info.openrocket.core.rocketcomponent.BoxBounded)
+                    ? ((info.openrocket.core.rocketcomponent.BoxBounded) c).getInstanceBoundingBox().span().x
+                    : -1;
+            line("comp.bounds." + (bi++), boundsSize, instBox);
+        }
+
+        // Structural counts — golden values AND the first divergence tripwire.
+        line("tree.counts", rocket.getChildCount(), config.getAllComponents().size(),
+                config.getActiveComponents().size(), config.getActiveStages().size(),
+                config.getStageCount(), config.getActiveInstances().size());
+
+        // Per-component masses — localizes any mass divergence to a component.
+        // (Indexed tag, not getSimpleName(): TeaVM strips class name metadata.)
+        int ci = 0;
+        for (info.openrocket.core.rocketcomponent.RocketComponent c : config.getAllComponents()) {
+            line("comp.mass." + (ci++), c.getMass(), c.getLength());
+        }
+
+        // Instance-context counts — masses aggregate through these transforms.
+        int ei = 0;
+        for (java.util.Map.Entry<info.openrocket.core.rocketcomponent.RocketComponent,
+                java.util.ArrayList<info.openrocket.core.rocketcomponent.InstanceContext>> e
+                : config.getActiveInstances().entrySet()) {
+            line("tree.ctx." + (ei++), e.getValue().size());
+        }
+
+        // Direct probes at the JVM/JS divergence point (fin instance expansion).
+        TrapezoidFinSet finProbe = null;
+        for (info.openrocket.core.rocketcomponent.RocketComponent c : config.getAllComponents()) {
+            if (c instanceof TrapezoidFinSet) {
+                finProbe = (TrapezoidFinSet) c;
+            }
+        }
+        line("fins.instances", finProbe.getFinCount(), finProbe.getInstanceCount(),
+                finProbe.getInstanceAngles().length, finProbe.getInstanceOffsets().length);
+
+        // Virtual dispatch check: the tree walk calls getInstanceCount() through
+        // a RocketComponent-typed reference — must hit FinSet's override (=3).
+        info.openrocket.core.rocketcomponent.RocketComponent rcRef = finProbe;
+        line("fins.virtual", rcRef.getInstanceCount(), rcRef.getInstanceAngles().length);
+
+        // ConcurrentHashMap emplace probe: repeated emplace on the same key must
+        // append (list grows), not replace. InstanceMap extends ConcurrentHashMap.
+        info.openrocket.core.rocketcomponent.InstanceMap im =
+                new info.openrocket.core.rocketcomponent.InstanceMap();
+        im.emplace(finProbe, 0, info.openrocket.core.util.Transformation.IDENTITY);
+        im.emplace(finProbe, 1, info.openrocket.core.util.Transformation.IDENTITY);
+        im.emplace(finProbe, 2, info.openrocket.core.util.Transformation.IDENTITY);
+        line("im.count", im.count(finProbe), im.size());
+
+        // Does an explicit post-enableEvents change event rebuild the contexts?
+        line("fins.ctx.before", config.getActiveInstances().count(finProbe));
+        finProbe.setFinCount(4);
+        line("fins.ctx.after4", config.getActiveInstances().count(finProbe));
+        finProbe.setFinCount(3);
+        line("fins.ctx.after3", config.getActiveInstances().count(finProbe));
+
+        RigidBody structure = MassCalculator.calculateStructure(config);
+        line("mass.structure", structure.getMass(),
+                structure.getCM().x, structure.getCM().y, structure.getCM().z,
+                structure.getIxx(), structure.getIyy(), structure.getIzz(),
+                structure.getLongitudinalInertia(), structure.getRotationalInertia());
+
+        RigidBody burnout = MassCalculator.calculateBurnout(config);
+        line("mass.burnout", burnout.getMass(),
+                burnout.getCM().x, burnout.getCM().y, burnout.getCM().z,
+                burnout.getLongitudinalInertia(), burnout.getRotationalInertia());
+
+        line("rocket.length", rocket.getLength());
     }
 
     private static void atmosphereScenarios() {

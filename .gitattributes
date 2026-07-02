@@ -2,3 +2,4 @@
 # no EOL conversion, ever (the carve script sha256-compares against upstream).
 # (See CLAUDE.md "engine" section for the carve workflow.)
 engine-java/src/carved/** -text
+engine-java/patches/** -text

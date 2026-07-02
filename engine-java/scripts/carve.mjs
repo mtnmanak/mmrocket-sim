@@ -4,6 +4,12 @@
  * src/carved/java. Idempotent; verifies existing copies match upstream so
  * accidental local edits of carved files are caught loudly.
  *
+ * PATCHES: if patches/<same-relative-path> exists, THAT file is the source
+ * of truth instead of upstream (used for TeaVM-classlib gaps and quirks-
+ * ledger bug fixes). Every patch must be documented in patches/LEDGER.md.
+ * The upstream file must still exist (so upstream updates that touch a
+ * patched file are noticed at upgrade time).
+ *
  * Usage: node scripts/carve.mjs [--source <path-to-openrocket-core-java-root>]
  */
 import { createHash } from 'node:crypto';
@@ -36,18 +42,27 @@ const sha = (p) => createHash('sha256').update(readFileSync(p)).digest('hex');
 
 let copied = 0;
 let verified = 0;
+let patched = 0;
 let drifted = [];
 
 for (const rel of manifest) {
-  const src = join(sourceRoot, rel);
+  const upstream = join(sourceRoot, rel);
+  const patchFile = join(engineRoot, 'patches', rel);
   const dst = join(targetRoot, rel);
-  if (!existsSync(src)) {
-    console.error(`MISSING upstream file: ${src}`);
+  if (!existsSync(upstream)) {
+    console.error(`MISSING upstream file: ${upstream}`);
     process.exit(1);
   }
+  const isPatched = existsSync(patchFile);
+  const src = isPatched ? patchFile : upstream;
+  if (isPatched) patched++;
   if (existsSync(dst)) {
     if (sha(src) === sha(dst)) {
       verified++;
+    } else if (isPatched) {
+      // The patch file changed — refresh the carved copy from it.
+      copyFileSync(src, dst);
+      copied++;
     } else {
       drifted.push(rel);
     }
@@ -65,4 +80,4 @@ if (drifted.length) {
   process.exit(1);
 }
 
-console.log(`carve ok: ${copied} copied, ${verified} verified unchanged, ${manifest.length} total`);
+console.log(`carve ok: ${copied} copied, ${verified} verified unchanged, ${patched} patched, ${manifest.length} total`);

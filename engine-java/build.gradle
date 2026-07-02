@@ -17,6 +17,27 @@ sourceSets {
             srcDir 'src/harness/java'  // golden-scenario harness (runs on JVM and TeaVM)
         }
     }
+    // java.awt.geom stand-ins for TeaVM (its classlib has no java.awt).
+    // Compiled separately with --patch-module (JPMS forbids java.* in the
+    // unnamed module). On the JVM the real JDK classes win via parent
+    // delegation, so these affect the TeaVM transpile only.
+    awtStubs {
+        java {
+            srcDir 'src/awtstubs/java'
+        }
+    }
+}
+
+compileAwtStubsJava {
+    options.compilerArgs += ['--patch-module', "java.desktop=${file('src/awtstubs/java')}"]
+}
+
+// Make the stub classes visible to TeaVM's transpiler (it reads bytecode
+// from the runtime classpath; package names are all that matter to it).
+dependencies {
+    implementation files(sourceSets.awtStubs.output.classesDirs) {
+        builtBy 'compileAwtStubsJava'
+    }
 }
 
 dependencies {
@@ -34,6 +55,15 @@ java {
 teavm.js {
     mainClass = 'harness.GoldenMain'
     obfuscated = false
+    // TeaVM's devirtualizer miscompiles the kernel: at FlightConfiguration's
+    // tree walk it inlined RocketComponent.getInstanceCount()'s `return 1`,
+    // ignoring FinSet's override (fin contexts collapsed 3→1, masses zeroed),
+    // and pruned virtual methods reached only via map-key dispatch.
+    optimization = org.teavm.gradle.api.OptimizationLevel.NONE
+    // Class-hierarchy-based analysis: TeaVM's precise flow analysis under-links
+    // virtual-method impls in this codebase (methods reached via map-key or
+    // recursive-walk dispatch got pruned; see docs/phase0-findings.md P1.2 notes).
+    fastGlobalAnalysis = true
 }
 
 teavm.wasmGC {
