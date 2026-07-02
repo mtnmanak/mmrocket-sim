@@ -1,0 +1,18 @@
+{
+  "name": "online-open-rocket",
+  "private": true,
+  "version": "0.0.1",
+  "description": "Browser-based re-creation of the OpenRocket model-rocketry design and flight-simulation tool",
+  "license": "GPL-3.0-or-later",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w @online-openrocket/app",
+    "build": "npm run build -w @online-openrocket/engine && npm run build -w @online-openrocket/app",
+    "test": "npm run test -w @online-openrocket/engine"
+  },
+  "allowScripts": {
+    "esbuild@0.21.5": true
+  }
+}
