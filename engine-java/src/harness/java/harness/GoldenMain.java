@@ -30,6 +30,118 @@ public final class GoldenMain {
         quaternionScenarios();
         massScenarios();
         aeroScenarios();
+        randomScenarios();
+        flightScenarios();
+    }
+
+    /** java.util.Random is algorithm-specified (LCG) — verify TeaVM matches. */
+    private static void randomScenarios() {
+        java.util.Random r = new java.util.Random(42);
+        line("random.seeded42", r.nextDouble(), r.nextDouble(), r.nextGaussian(), r.nextGaussian());
+    }
+
+    /** P1.4: full 6DOF flight — C6-class motor, no wind, ISA, WGS gravity. */
+    private static void flightScenarios() {
+        Rocket rocket = buildReferenceRocket();
+        // Dedicated flight configuration (motors cannot attach to the default config).
+        info.openrocket.core.rocketcomponent.FlightConfigurationId fcid =
+                new info.openrocket.core.rocketcomponent.FlightConfigurationId(
+                        "00000001-0001-4001-8001-000000000001");
+        rocket.createFlightConfiguration(fcid);
+        rocket.setSelectedConfiguration(fcid);
+
+        // C6-class motor built from explicit data points (deterministic; no db).
+        info.openrocket.core.motor.ThrustCurveMotor motor =
+                new info.openrocket.core.motor.ThrustCurveMotor.Builder()
+                        .setManufacturer(info.openrocket.core.motor.Manufacturer.getManufacturer("Estes"))
+                        .setDesignation("C6")
+                        .setCommonName("C6")
+                        .setMotorType(info.openrocket.core.motor.Motor.Type.SINGLE)
+                        .setStandardDelays(new double[] { 3, 5, 7 })
+                        .setDiameter(0.018)
+                        .setLength(0.070)
+                        .setTimePoints(new double[] { 0, 0.1, 0.3, 0.5, 1.0, 1.5, 1.85, 2.0 })
+                        .setThrustPoints(new double[] { 0, 12.0, 6.0, 5.1, 4.9, 4.8, 4.5, 0 })
+                        .setCGPoints(new Coordinate[] {
+                                new Coordinate(0.035, 0, 0, 0.0240), new Coordinate(0.035, 0, 0, 0.0231),
+                                new Coordinate(0.035, 0, 0, 0.0215), new Coordinate(0.035, 0, 0, 0.0202),
+                                new Coordinate(0.035, 0, 0, 0.0174), new Coordinate(0.035, 0, 0, 0.0147),
+                                new Coordinate(0.035, 0, 0, 0.0133), new Coordinate(0.035, 0, 0, 0.0132) })
+                        .setDigest("harness-c6")
+                        .build();
+
+        // Attach to the inner-tube mount.
+        InnerTube mount = null;
+        for (info.openrocket.core.rocketcomponent.RocketComponent c
+                : rocket.getSelectedConfiguration().getAllComponents()) {
+            if (c instanceof InnerTube) {
+                mount = (InnerTube) c;
+            }
+        }
+        mount.setMotorMount(true);
+        info.openrocket.core.motor.MotorConfiguration mc =
+                new info.openrocket.core.motor.MotorConfiguration(mount, fcid);
+        mc.setMotor(motor);
+        mc.setEjectionDelay(5.0);
+        mount.setMotorConfig(mc, fcid);
+
+        info.openrocket.core.simulation.SimulationConditions conditions =
+                new info.openrocket.core.simulation.SimulationConditions();
+        conditions.setSimulation(new info.openrocket.core.document.Simulation(rocket, fcid));
+        conditions.setLaunchRodLength(1.0);
+        conditions.setLaunchRodAngle(0.0);
+        conditions.setLaunchRodDirection(Math.PI / 2);
+        conditions.setLaunchSite(new info.openrocket.core.util.WorldCoordinate(28.61, -80.60, 0));
+        conditions.setGeodeticComputation(info.openrocket.core.util.GeodeticComputationStrategy.SPHERICAL);
+        conditions.setAtmosphericModel(new ExtendedISAModel());
+        conditions.setGravityModel(new info.openrocket.core.models.gravity.WGSGravityModel());
+        info.openrocket.core.models.wind.PinkNoiseWindModel wind =
+                new info.openrocket.core.models.wind.PinkNoiseWindModel();
+        wind.setAverage(0.0);
+        wind.setStandardDeviation(0.0);
+        conditions.setWindModel(wind);
+        conditions.setAerodynamicCalculator(new info.openrocket.core.aerodynamics.BarrowmanCalculator());
+        conditions.setMassCalculator(new MassCalculator());
+        conditions.setTimeStep(0.05);
+        conditions.setMaxSimulationTime(1200);
+        conditions.setRandomSeed(42);
+
+        try {
+            info.openrocket.core.simulation.BasicEventSimulationEngine engine =
+                    new info.openrocket.core.simulation.BasicEventSimulationEngine();
+            engine.simulate(conditions);
+            info.openrocket.core.simulation.FlightData data = engine.getFlightData();
+
+            line("flight.summary", data.getMaxAltitude(), data.getMaxVelocity(),
+                    data.getMaxAcceleration(), data.getTimeToApogee(),
+                    data.getFlightTime(), data.getGroundHitVelocity(), data.getBranchCount());
+
+            info.openrocket.core.simulation.FlightDataBranch branch = data.getBranch(0);
+            for (info.openrocket.core.simulation.FlightEvent ev : branch.getEvents()) {
+                line("flight.event." + ev.getType().name(), ev.getTime());
+                if (ev.getData() != null) {
+                    System.out.println("flight.eventdata|" + ev.getType().name() + "|" + ev.getData());
+                }
+            }
+
+            java.util.List<Double> t = branch.get(
+                    info.openrocket.core.simulation.FlightDataType.TYPE_TIME);
+            java.util.List<Double> alt = branch.get(
+                    info.openrocket.core.simulation.FlightDataType.TYPE_ALTITUDE);
+            java.util.List<Double> vel = branch.get(
+                    info.openrocket.core.simulation.FlightDataType.TYPE_VELOCITY_TOTAL);
+            java.util.List<Double> acc = branch.get(
+                    info.openrocket.core.simulation.FlightDataType.TYPE_ACCELERATION_TOTAL);
+            line("flight.rows", t.size());
+            if (alt != null && vel != null && acc != null) {
+                for (int i = 0; i < t.size(); i += 25) {
+                    line("flight.sample." + i, t.get(i), alt.get(i), vel.get(i), acc.get(i));
+                }
+            }
+        } catch (info.openrocket.core.simulation.exception.SimulationException e) {
+            line("flight.exception", -1);
+            System.out.println("EXCEPTION: " + e);
+        }
     }
 
     /** P1.3: Extended-Barrowman CP and force coefficients across Mach and AoA. */

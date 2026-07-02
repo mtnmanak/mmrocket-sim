@@ -29,7 +29,10 @@ sourceSets {
 }
 
 compileAwtStubsJava {
+    // Files are assigned to the patched module owning their package
+    // (java.awt.geom -> java.desktop, java.text -> java.base).
     options.compilerArgs += ['--patch-module', "java.desktop=${file('src/awtstubs/java')}"]
+    options.compilerArgs += ['--patch-module', "java.base=${file('src/awtstubs/java')}"]
 }
 
 // Make the stub classes visible to TeaVM's transpiler (it reads bytecode
