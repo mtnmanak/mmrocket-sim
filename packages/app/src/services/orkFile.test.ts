@@ -35,6 +35,66 @@ describe('.ork import', () => {
   });
 });
 
+describe('.ork import — permissive handling of real desktop designs', () => {
+  const DESKTOP_STYLE = `<?xml version='1.0' encoding='utf-8'?>
+<openrocket version="1.10" creator="OpenRocket 24.12">
+  <rocket>
+    <name>Minimum Diameter</name>
+    <subcomponents>
+      <stage>
+        <name>Sustainer</name>
+        <subcomponents>
+          <nosecone>
+            <name>Nose</name><length>0.1</length><thickness>0.001</thickness>
+            <shape>haack</shape><aftradius>0.0125</aftradius>
+          </nosecone>
+          <bodytube>
+            <name>Body</name><length>0.45</length><thickness>0.0005</thickness><radius>0.0125</radius>
+            <subcomponents>
+              <ellipticalfinset>
+                <name>Fins</name><fincount>4</fincount><rootchord>0.06</rootchord><height>0.04</height>
+              </ellipticalfinset>
+              <launchlug><name>Lug</name><length>0.03</length></launchlug>
+              <streamer><name>Streamer</name><striplength>0.5</striplength></streamer>
+            </subcomponents>
+            <motormount>
+              <ignitionevent>automatic</ignitionevent>
+              <motor configid="abc"><type>single</type><manufacturer>Estes</manufacturer>
+                <designation>D12</designation><diameter>0.024</diameter><length>0.07</length><delay>5.0</delay></motor>
+            </motormount>
+          </bodytube>
+        </subcomponents>
+      </stage>
+    </subcomponents>
+  </rocket>
+</openrocket>`;
+
+  it('imports body-tube motor mounts, defaults unsupported fins, reports everything', () => {
+    const result = importOrk(DESKTOP_STYLE);
+
+    expect(result.name).toBe('Minimum Diameter');
+    // Body tube became the mount host.
+    expect(result.spec.motorMount.outerRadius).toBeCloseTo(0.0125, 12);
+    expect(result.spec.motorMount.length).toBeCloseTo(0.45, 12);
+    // Motor reference still extracted.
+    expect(result.motor?.designation).toBe('D12');
+    expect(result.motor?.diameter).toBeCloseTo(0.024, 12);
+    // Elliptical fins -> defaults with a note; streamer/lug reported.
+    expect(result.notes.join(' ')).toMatch(/elliptical/i);
+    expect(result.notes.join(' ')).toMatch(/Motor mounts directly/i);
+    expect(result.notes.join(' ')).toMatch(/parachute/i);
+    expect(result.ignored).toContain('launchlug');
+    expect(result.ignored).toContain('streamer');
+  });
+
+  it('accepts bare XML delivered as an ArrayBuffer (browser file input path)', () => {
+    const bytes = new TextEncoder().encode(DESKTOP_STYLE);
+    const buf = bytes.buffer.slice(0, bytes.byteLength) as ArrayBuffer;
+    const result = importOrk(buf);
+    expect(result.name).toBe('Minimum Diameter');
+  });
+});
+
 describe('.ork round trip', () => {
   it('export -> import preserves the design', () => {
     const original = importOrk(goldenOrk());

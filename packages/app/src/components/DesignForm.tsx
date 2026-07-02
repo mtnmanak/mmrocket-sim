@@ -115,6 +115,19 @@ export function DesignForm({ state, onChange, onLaunch, simulating }: {
       </div>
 
       <div className="panel" style={{ marginTop: 10 }}>
+        <h2>Motor mount</h2>
+        <div className="field-grid">
+          <NumField label="Inner diameter (mm)" value={mm((spec.motorMount.outerRadius - spec.motorMount.thickness) * 2)} step={0.5}
+            onChange={(v) => {
+              const inner = toM(v) / 2;
+              set({ motorMount: { ...spec.motorMount, outerRadius: inner + spec.motorMount.thickness } });
+            }} />
+          <NumField label="Length (mm)" value={mm(spec.motorMount.length)}
+            onChange={(v) => set({ motorMount: { ...spec.motorMount, length: toM(v) } })} />
+        </div>
+      </div>
+
+      <div className="panel" style={{ marginTop: 10 }}>
         <h2>Motor</h2>
         <MotorPicker
           mountDiameterMm={Math.round((spec.motorMount.outerRadius - spec.motorMount.thickness) * 2000)}

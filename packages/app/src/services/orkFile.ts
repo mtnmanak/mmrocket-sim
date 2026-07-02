@@ -25,6 +25,8 @@ export interface OrkImportResult {
   };
   /** Elements we don't support yet, reported not silently dropped. */
   ignored: string[];
+  /** Substitutions and defaults applied during import. */
+  notes: string[];
 }
 
 // ---------------- import ----------------
@@ -58,97 +60,131 @@ export function importOrk(data: ArrayBuffer | string): OrkImportResult {
   if (!rocketEl) throw new Error('Not a .ork file (missing <rocket>)');
 
   const ignored: string[] = [];
+  const notes: string[] = [];
   const name = text(rocketEl, ':scope > name') ?? 'Imported rocket';
 
-  const stage = rocketEl.querySelector(':scope > subcomponents > stage');
-  if (!stage) throw new Error('No stage found');
+  // PERMISSIVE search-based import: find the best candidates anywhere in the
+  // tree, synthesize defaults for anything missing, and REPORT every
+  // substitution — real designs vary far more than the MVP's fixed layout.
 
-  let noseCone: RocketSpec['noseCone'] | null = null;
-  let bodyTube: RocketSpec['bodyTube'] | null = null;
-  let fins: RocketSpec['fins'] | null = null;
-  let motorMount: RocketSpec['motorMount'] | null = null;
-  let parachute: RocketSpec['parachute'] | undefined;
+  // Nose cone: first one anywhere.
+  const noseEl = rocketEl.querySelector('nosecone');
+  const noseCone: RocketSpec['noseCone'] = noseEl
+    ? {
+        length: num(noseEl, 'length', 0.07),
+        aftRadius: num(noseEl, 'aftradius', 0.012),
+        thickness: num(noseEl, 'thickness', 0.002),
+        shape: (text(noseEl, ':scope > shape') ?? 'ogive') as NoseShape,
+        materialDensity: matDensity(noseEl),
+      }
+    : { length: 0.07, aftRadius: 0.012, thickness: 0.002, shape: 'ogive' };
+  if (!noseEl) notes.push('No nose cone found — using a default ogive.');
+
+  // Body tube: prefer the one containing fins or a motor mount, else longest.
+  const bodyEls = Array.from(rocketEl.querySelectorAll('bodytube'));
+  const bodyEl =
+    bodyEls.find((b) => b.querySelector('trapezoidfinset, motormount')) ??
+    bodyEls.sort((a, b) => num(b, 'length', 0) - num(a, 'length', 0))[0];
+  const bodyTube: RocketSpec['bodyTube'] = bodyEl
+    ? {
+        length: num(bodyEl, 'length', 0.3),
+        outerRadius: num(bodyEl, 'radius', 0.012),
+        thickness: num(bodyEl, 'thickness', 0.0003),
+        materialDensity: matDensity(bodyEl),
+      }
+    : { length: 0.3, outerRadius: 0.012, thickness: 0.0003 };
+  if (!bodyEl) notes.push('No body tube found — using a default tube.');
+  if (bodyEls.length > 1) {
+    notes.push(`Design has ${bodyEls.length} body tubes — imported the primary one (MVP supports one).`);
+  }
+
+  if (!noseEl && !bodyEls.length) {
+    throw new Error('No nose cone or body tube found — not a rocket design this MVP can import.');
+  }
+
+  // Fins: first trapezoid set anywhere.
+  const finEl = rocketEl.querySelector('trapezoidfinset');
+  const fins: RocketSpec['fins'] = finEl
+    ? {
+        count: Math.round(num(finEl, 'fincount', 3)),
+        rootChord: num(finEl, 'rootchord', 0.05),
+        tipChord: num(finEl, 'tipchord', 0.03),
+        sweep: num(finEl, 'sweeplength', 0.02),
+        height: num(finEl, 'height', 0.03),
+        thickness: num(finEl, 'thickness', 0.003),
+        materialDensity: matDensity(finEl),
+      }
+    : { count: 3, rootChord: 0.05, tipChord: 0.03, sweep: 0.02, height: 0.03, thickness: 0.003 };
+  if (!finEl) {
+    const otherFins = rocketEl.querySelector('freeformfinset, ellipticalfinset, tubefinset');
+    notes.push(otherFins
+      ? `Fins are ${otherFins.tagName.replace('finset', '')} — the MVP only supports trapezoidal; using defaults.`
+      : 'No trapezoid fin set found — using default fins.');
+  }
+
+  // Motor mount: an innertube acting as mount, else any component with a
+  // <motormount> child (commonly the body tube itself), else defaults.
+  const mountHostEl =
+    Array.from(rocketEl.querySelectorAll('innertube')).find((t) => t.querySelector(':scope > motormount')) ??
+    rocketEl.querySelector('innertube') ??
+    rocketEl.querySelectorAll('motormount')[0]?.parentElement ??
+    null;
+  let motorMount: RocketSpec['motorMount'];
+  if (mountHostEl && mountHostEl.tagName === 'innertube') {
+    motorMount = {
+      length: num(mountHostEl, 'length', 0.07),
+      outerRadius: num(mountHostEl, 'outerradius', 0.0095),
+      thickness: num(mountHostEl, 'thickness', 0.0005),
+    };
+  } else if (mountHostEl) {
+    // e.g. minimum-diameter designs: the body tube IS the motor mount.
+    const r = num(mountHostEl, 'radius', num(mountHostEl, 'outerradius', 0.0095));
+    motorMount = { length: num(mountHostEl, 'length', 0.07), outerRadius: r, thickness: num(mountHostEl, 'thickness', 0.0005) };
+    notes.push(`Motor mounts directly in the ${mountHostEl.tagName} — synthesized an equivalent mount tube.`);
+  } else {
+    motorMount = { length: 0.07, outerRadius: 0.0095, thickness: 0.0005 };
+    notes.push('No motor mount found — added a default 18 mm mount.');
+  }
+
+  // Motor reference: first configured motor anywhere.
   let motor: OrkImportResult['motor'];
+  const motorEl = rocketEl.querySelector('motormount > motor');
+  if (motorEl) {
+    motor = {
+      designation: text(motorEl, ':scope > designation') ?? 'unknown',
+      manufacturer: text(motorEl, ':scope > manufacturer') ?? 'unknown',
+      diameter: num(motorEl, 'diameter', 0.018),
+      length: num(motorEl, 'length', 0.07),
+      delay: num(motorEl, 'delay', 0),
+    };
+  }
 
-  for (const el of children(stage, 'subcomponents')) {
-    switch (el.tagName) {
-      case 'nosecone': {
-        noseCone = {
-          length: num(el, 'length', 0.07),
-          aftRadius: num(el, 'aftradius', 0.012),
-          thickness: num(el, 'thickness', 0.002),
-          shape: (text(el, ':scope > shape') ?? 'ogive') as NoseShape,
-          materialDensity: matDensity(el),
-        };
-        break;
-      }
-      case 'bodytube': {
-        bodyTube = {
-          length: num(el, 'length', 0.3),
-          outerRadius: num(el, 'radius', 0.012),
-          thickness: num(el, 'thickness', 0.0003),
-          materialDensity: matDensity(el),
-        };
-        for (const sub of children(el, 'subcomponents')) {
-          switch (sub.tagName) {
-            case 'trapezoidfinset': {
-              fins = {
-                count: Math.round(num(sub, 'fincount', 3)),
-                rootChord: num(sub, 'rootchord', 0.05),
-                tipChord: num(sub, 'tipchord', 0.03),
-                sweep: num(sub, 'sweeplength', 0.02),
-                height: num(sub, 'height', 0.03),
-                thickness: num(sub, 'thickness', 0.003),
-                materialDensity: matDensity(sub),
-              };
-              break;
-            }
-            case 'innertube': {
-              motorMount = {
-                length: num(sub, 'length', 0.07),
-                outerRadius: num(sub, 'outerradius', 0.0095),
-                thickness: num(sub, 'thickness', 0.0005),
-              };
-              const motorEl = sub.querySelector(':scope > motormount > motor');
-              if (motorEl) {
-                motor = {
-                  designation: text(motorEl, ':scope > designation') ?? 'unknown',
-                  manufacturer: text(motorEl, ':scope > manufacturer') ?? 'unknown',
-                  diameter: num(motorEl, 'diameter', 0.018),
-                  length: num(motorEl, 'length', 0.07),
-                  delay: num(motorEl, 'delay', 0),
-                };
-              }
-              break;
-            }
-            case 'parachute': {
-              const cdText = text(sub, ':scope > cd');
-              parachute = {
-                diameter: num(sub, 'diameter', 0.3),
-                dragCoefficient: cdText && cdText !== 'auto' ? Number(cdText) : undefined,
-              };
-              break;
-            }
-            default:
-              ignored.push(sub.tagName);
-          }
-        }
-        break;
-      }
-      default:
-        ignored.push(el.tagName);
+  // Recovery: first parachute anywhere.
+  let parachute: RocketSpec['parachute'];
+  const chuteEl = rocketEl.querySelector('parachute');
+  if (chuteEl) {
+    const cdText = text(chuteEl, ':scope > cd');
+    parachute = {
+      diameter: num(chuteEl, 'diameter', 0.3),
+      dragCoefficient: cdText && cdText !== 'auto' ? Number(cdText) : undefined,
+    };
+  } else {
+    notes.push('No parachute found — the rocket will fly without recovery.');
+  }
+
+  // Report every component type present that the MVP does not model.
+  const SUPPORTED = new Set(['nosecone', 'bodytube', 'trapezoidfinset', 'innertube', 'parachute',
+    'stage', 'subcomponents', 'motormount', 'motor', 'ignitionconfiguration']);
+  const seen = new Set<string>();
+  for (const el of Array.from(rocketEl.querySelectorAll('subcomponents *'))) {
+    const tag = el.tagName;
+    if (!SUPPORTED.has(tag) && el.parentElement?.tagName === 'subcomponents' && !seen.has(tag)) {
+      seen.add(tag);
+      ignored.push(tag);
     }
   }
 
-  if (!noseCone || !bodyTube || !fins || !motorMount) {
-    const missing = [
-      !noseCone && 'nose cone', !bodyTube && 'body tube',
-      !fins && 'trapezoid fins', !motorMount && 'inner-tube motor mount',
-    ].filter(Boolean).join(', ');
-    throw new Error(`Unsupported design for the MVP — missing: ${missing}`);
-  }
-
-  return { name, spec: { noseCone, bodyTube, fins, motorMount, parachute }, motor, ignored };
+  return { name, spec: { noseCone, bodyTube, fins, motorMount, parachute }, motor, ignored, notes };
 }
 
 // ---------------- export ----------------

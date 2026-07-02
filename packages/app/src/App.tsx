@@ -65,7 +65,7 @@ export function App() {
   const onOpenOrk = async (file: File) => {
     try {
       const imported = importOrk(await file.arrayBuffer());
-      const notes: string[] = [`Loaded “${imported.name}”.`];
+      const notes: string[] = [`Loaded “${imported.name}”.`, ...imported.notes];
 
       // Try to match the referenced motor against the built-ins by designation.
       let motorLabel = form.motorLabel;
@@ -87,9 +87,9 @@ export function App() {
         notes.push(`Ignored unsupported components: ${imported.ignored.join(', ')}.`);
       }
       setForm({ ...form, spec: imported.spec, motorLabel, motor });
-      setFileNote(notes.join(' '));
+      setFileNote(notes.join('\n'));
     } catch (e) {
-      setFileNote(String(e));
+      setFileNote(`Could not open that .ork file: ${e instanceof Error ? e.message : String(e)}`);
     }
   };
 
@@ -165,7 +165,12 @@ export function App() {
             </div>
             <Schematic spec={form.spec} info={built?.info ?? null} />
             {built && <DesignStats info={built.info} />}
-            {fileNote && <p style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{fileNote}</p>}
+            {fileNote && (
+              <div className="file-note" role="alert">
+                {fileNote}
+                <button className="file-note-dismiss" onClick={() => setFileNote(null)} aria-label="Dismiss">×</button>
+              </div>
+            )}
             {buildError && <p className="stability-bad">{buildError}</p>}
           </div>
           {result ? (

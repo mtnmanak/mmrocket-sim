@@ -213,3 +213,28 @@
 .file-btn:hover {
   background: #eceae6;
 }
+
+/* --- Import/file feedback banner --- */
+.file-note {
+  position: relative;
+  margin-top: 8px;
+  padding: 8px 28px 8px 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-line;
+  background: #fdf6e3;
+  border: 1px solid #e6d9a8;
+  border-radius: 6px;
+  color: var(--text-primary);
+}
+
+.file-note-dismiss {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  border: none;
+  background: none;
+  font-size: 14px;
+  cursor: pointer;
+  color: var(--text-muted);
+}
