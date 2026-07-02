@@ -15,6 +15,7 @@ sourceSets {
             srcDir 'src/carved/java'   // verbatim OpenRocket sources (see carve-manifest.txt)
             srcDir 'src/shims/java'    // our replacements for JVM-only surface
             srcDir 'src/harness/java'  // golden-scenario harness (runs on JVM and TeaVM)
+            srcDir 'src/api/java'      // @JSExport facade consumed by @online-openrocket/engine
         }
     }
     // java.awt.geom stand-ins for TeaVM (its classlib has no java.awt).
@@ -47,6 +48,8 @@ dependencies {
     implementation 'org.slf4j:slf4j-api:1.7.36'
     // TeaVM-safe slf4j substitution (real slf4j's binding discovery breaks under TeaVM).
     implementation 'org.teavm:teavm-extras-slf4j:0.15.0'
+    // @JSExport / JS interop annotations for the API facade.
+    implementation 'org.teavm:teavm-jso:0.15.0'
 }
 
 java {
@@ -56,7 +59,7 @@ java {
 }
 
 teavm.js {
-    mainClass = 'harness.GoldenMain'
+    mainClass = 'api.OrkEngine'
     obfuscated = false
     // TeaVM's devirtualizer miscompiles the kernel: at FlightConfiguration's
     // tree walk it inlined RocketComponent.getInstanceCount()'s `return 1`,
@@ -73,11 +76,11 @@ teavm.js {
 }
 
 teavm.wasmGC {
-    mainClass = 'harness.GoldenMain'
+    mainClass = 'api.OrkEngine'
 }
 
 // Run the golden harness on the JVM (reference output).
 tasks.register('goldenJvm', JavaExec) {
     classpath = sourceSets.main.runtimeClasspath
-    mainClass = 'harness.GoldenMain'
+    mainClass = 'api.OrkEngine'
 }

@@ -13,11 +13,25 @@
  *  - After recovery deployment the simulation drops from 6DOF to 3DOF
  *    (position only); parachute Cd defaults to 0.8 referenced to canopy area.
  *
- * Engine-track decision (TeaVM transpile of the Java core vs. TS rewrite) is
- * Phase 0 — see docs/online-openrocket-plan.md. This package is the home for
- * the engine either way: as TS source, or as the typed wrapper around a
- * transpiled artifact.
+ * Engine track (decided in Phase 0, validated in P1.1–P1.4): the REAL
+ * OpenRocket physics kernel, carved from info.openrocket.core and compiled
+ * to JS by TeaVM, differentially tested against the JVM. See engine-java/.
+ * This package is the typed wrapper around that artifact.
  */
+
+export {
+  OrkRocket,
+  resetEngine,
+  type FlightEvent,
+  type FlightResult,
+  type FlightSeries,
+  type FlightSummary,
+  type MotorSpec,
+  type NoseShape,
+  type RocketSpec,
+  type SimulationOptions,
+  type StaticInfo,
+} from './orkEngine.js';
 
 export const ENGINE_VERSION = '0.0.1';
 
