@@ -76,6 +76,45 @@ export interface StaticInfo {
   stabilityCalibers: number;
   refDiameter: number;
   warnings: number;
+  /** Engine warning messages (geometry problems etc.). */
+  warningTexts: string[];
+}
+
+// ---------- Component-tree API (P2.1) ----------
+
+export type ComponentType =
+  | 'nosecone' | 'transition' | 'bodytube'
+  | 'trapezoidfinset' | 'ellipticalfinset' | 'tubefinset'
+  | 'innertube' | 'tubecoupler' | 'centeringring' | 'bulkhead' | 'engineblock'
+  | 'launchlug' | 'railbutton'
+  | 'parachute' | 'streamer' | 'shockcord' | 'masscomponent';
+
+export interface ComponentPosition {
+  method: 'top' | 'middle' | 'bottom' | 'absolute';
+  /** meters, per the method's convention */
+  offset: number;
+}
+
+/**
+ * A component-tree node. `type` selects the component; the remaining keys are
+ * that type's parameters (SI units, radians — see engine-java ComponentFactory
+ * for the full per-type list). Nodes with an `id` can be addressed later,
+ * e.g. as motor mounts.
+ */
+export interface ComponentNode {
+  type: ComponentType;
+  id?: string;
+  name?: string;
+  /** Bulk material density (kg/m^3). */
+  density?: number;
+  position?: ComponentPosition;
+  children?: ComponentNode[];
+  [param: string]: unknown;
+}
+
+export interface RocketTree {
+  name?: string;
+  components: ComponentNode[];
 }
 
 export interface FlightSummary {
@@ -113,6 +152,22 @@ export class OrkRocket {
   private constructor(handle: number, mountHandle: number) {
     this.handle = handle;
     this.mountHandle = mountHandle;
+  }
+
+  /**
+   * Builds a rocket from an arbitrary component tree (Phase 2 API).
+   * Give the motor-mount inner tube an `id` and pass it to setMotorById.
+   */
+  static buildTree(tree: RocketTree): OrkRocket {
+    const handle = ork.buildRocket(JSON.stringify(tree));
+    return new OrkRocket(handle, -1);
+  }
+
+  /** Attaches a motor to the mount with the given node id (buildTree rockets). */
+  setMotorById(componentId: string, motor: MotorSpec): void {
+    ork.setMotorById(
+      this.handle, componentId, motor.designation, motor.diameter, motor.length,
+      motor.times, motor.thrusts, motor.masses, motor.cgX, motor.ejectionDelay);
   }
 
   static build(spec: RocketSpec): OrkRocket {

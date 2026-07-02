@@ -32,6 +32,63 @@ public final class GoldenMain {
         aeroScenarios();
         randomScenarios();
         flightScenarios();
+        treeApiScenarios();
+    }
+
+    /**
+     * P2.1: the JSON tree API must produce identical physics to direct
+     * construction, and the extended component set must compute consistent
+     * mass/CP on both JVM and TeaVM.
+     */
+    private static void treeApiScenarios() {
+        // Same reference rocket, built via the JSON tree API.
+        String reference = "{\"name\":\"Ref\",\"components\":["
+                + "{\"type\":\"nosecone\",\"length\":0.07,\"aftRadius\":0.012,\"thickness\":0.002,\"shape\":\"ogive\"},"
+                + "{\"type\":\"bodytube\",\"length\":0.30,\"outerRadius\":0.012,\"thickness\":0.0003,\"density\":950,\"children\":["
+                + "  {\"type\":\"trapezoidfinset\",\"finCount\":3,\"rootChord\":0.05,\"tipChord\":0.03,\"sweep\":0.02,\"height\":0.03,\"thickness\":0.003},"
+                + "  {\"type\":\"innertube\",\"id\":\"mount\",\"length\":0.07,\"outerRadius\":0.0095,\"thickness\":0.0005,\"motorMount\":true},"
+                + "  {\"type\":\"parachute\",\"diameter\":0.30}"
+                + "]}]}";
+        int r1 = api.OrkEngine.buildRocket(reference);
+        line("tree.api.ref", 1);
+        lineStaticInfo("tree.info.ref", api.OrkEngine.getStaticInfo(r1));
+
+        // Extended component set: transition, coupler, rings, lug, streamer,
+        // shock cord, mass component, elliptical fins.
+        String extended = "{\"name\":\"Extended\",\"components\":["
+                + "{\"type\":\"nosecone\",\"length\":0.1,\"aftRadius\":0.0125,\"thickness\":0.002,\"shape\":\"haack\"},"
+                + "{\"type\":\"bodytube\",\"length\":0.35,\"outerRadius\":0.0125,\"thickness\":0.0005,\"density\":950,\"children\":["
+                + "  {\"type\":\"ellipticalfinset\",\"finCount\":4,\"rootChord\":0.06,\"height\":0.04,\"thickness\":0.003},"
+                + "  {\"type\":\"launchlug\",\"length\":0.05,\"outerRadius\":0.0025,\"thickness\":0.0004,"
+                + "   \"position\":{\"method\":\"middle\",\"offset\":0}},"
+                + "  {\"type\":\"innertube\",\"id\":\"mount\",\"length\":0.08,\"outerRadius\":0.012,\"thickness\":0.0005,\"motorMount\":true,"
+                + "   \"position\":{\"method\":\"bottom\",\"offset\":0},\"children\":["
+                + "    {\"type\":\"engineblock\",\"length\":0.005,\"thickness\":0.001,\"position\":{\"method\":\"top\",\"offset\":0}}"
+                + "  ]},"
+                + "  {\"type\":\"centeringring\",\"length\":0.002,\"position\":{\"method\":\"bottom\",\"offset\":-0.01}},"
+                + "  {\"type\":\"centeringring\",\"length\":0.002,\"position\":{\"method\":\"bottom\",\"offset\":-0.07}},"
+                + "  {\"type\":\"streamer\",\"stripLength\":0.6,\"stripWidth\":0.05,\"position\":{\"method\":\"top\",\"offset\":0.02}},"
+                + "  {\"type\":\"shockcord\",\"cordLength\":0.4,\"position\":{\"method\":\"top\",\"offset\":0.01}},"
+                + "  {\"type\":\"masscomponent\",\"mass\":0.015,\"length\":0.02,\"radius\":0.006,\"position\":{\"method\":\"top\",\"offset\":0.05}}"
+                + "]},"
+                + "{\"type\":\"transition\",\"length\":0.04,\"foreRadius\":0.0125,\"aftRadius\":0.009,\"thickness\":0.001,\"shape\":\"conical\",\"density\":680}"
+                + "]}";
+        int r2 = api.OrkEngine.buildRocket(extended);
+        lineStaticInfo("tree.info.ext", api.OrkEngine.getStaticInfo(r2));
+    }
+
+    /** Re-parse the API's JSON (JsonLite) into numeric golden fields so the
+     *  differential comparator can apply per-field ULP tolerance. */
+    private static void lineStaticInfo(String tag, String json) {
+        java.util.Map<String, Object> info = api.JsonLite.parseObject(json);
+        line(tag,
+                api.JsonLite.dbl(info, "length", Double.NaN),
+                api.JsonLite.dbl(info, "mass", Double.NaN),
+                api.JsonLite.dbl(info, "cg", Double.NaN),
+                api.JsonLite.dbl(info, "cp", Double.NaN),
+                api.JsonLite.dbl(info, "cna", Double.NaN),
+                api.JsonLite.dbl(info, "stabilityCalibers", Double.NaN),
+                api.JsonLite.dbl(info, "warnings", Double.NaN));
     }
 
     /** java.util.Random is algorithm-specified (LCG) — verify TeaVM matches. */

@@ -101,6 +101,53 @@ public final class OrkEngine {
         return register(new RocketCtx(rocket, stage, fcid));
     }
 
+    /**
+     * Builds a complete rocket from a JSON component tree (P2.1 API):
+     * { "name": "...", "components": [ {"type": "nosecone", "id": "n1", ...,
+     *   "children": [...]}, ... ] }
+     * Components with an "id" can be addressed later (setMotorById).
+     * Returns rocket handle; throws with a descriptive message on bad input.
+     */
+    @JSExport
+    public static int buildRocket(String treeJson) {
+        Map<String, Object> tree = JsonLite.parseObject(treeJson);
+        Rocket rocket = new Rocket();
+        String name = JsonLite.str(tree, "name", null);
+        if (name != null) {
+            rocket.setName(name);
+        }
+        AxialStage stage = new AxialStage();
+        rocket.addChild(stage);
+        FlightConfigurationId fcid = new FlightConfigurationId();
+        rocket.createFlightConfiguration(fcid);
+        rocket.setSelectedConfiguration(fcid);
+
+        RocketCtx ctx = new RocketCtx(rocket, stage, fcid);
+        // The root node's "components" behave like children of the stage.
+        Map<String, Object> stageNode = new java.util.LinkedHashMap<>();
+        stageNode.put("children", tree.get("components"));
+        ComponentFactory.attachChildren(stage, stageNode, ctx.ids);
+
+        rocket.enableEvents();
+        return register(ctx);
+    }
+
+    /** Attaches a motor to the identified mount component (see buildRocket ids). */
+    @JSExport
+    public static void setMotorById(int rocketHandle, String componentId, String designation,
+            double diameter, double length, double[] times, double[] thrusts,
+            double[] masses, double cgX, double ejectionDelay) {
+        RocketCtx ctx = (RocketCtx) get(rocketHandle);
+        RocketComponent comp = ctx.ids.get(componentId);
+        if (!(comp instanceof InnerTube)) {
+            throw new IllegalArgumentException(
+                    "Component id '" + componentId + "' is not an inner-tube motor mount");
+        }
+        int mountHandle = register(comp);
+        setMotor(rocketHandle, mountHandle, designation, diameter, length,
+                times, thrusts, masses, cgX, ejectionDelay);
+    }
+
     /** shape: "ogive" | "conical" | "ellipsoid" | "power" | "parabolic" | "haack". Returns component handle. */
     @JSExport
     public static int addNoseCone(int rocketHandle, double length, double aftRadius,
@@ -227,7 +274,15 @@ public final class OrkEngine {
         num(sb, "cna", cp.weight).append(',');
         num(sb, "stabilityCalibers", stabilityCal).append(',');
         num(sb, "refDiameter", refDiameter).append(',');
-        num(sb, "warnings", warnings.size());
+        num(sb, "warnings", warnings.size()).append(',');
+        sb.append("\"warningTexts\":[");
+        boolean first = true;
+        for (info.openrocket.core.logging.Warning w : warnings) {
+            if (!first) sb.append(',');
+            first = false;
+            sb.append('"').append(escape(String.valueOf(w))).append('"');
+        }
+        sb.append(']');
         return sb.append('}').toString();
     }
 
@@ -277,6 +332,7 @@ public final class OrkEngine {
         final Rocket rocket;
         final AxialStage stage;
         final FlightConfigurationId fcid;
+        final Map<String, RocketComponent> ids = new HashMap<>();
 
         RocketCtx(Rocket rocket, AxialStage stage, FlightConfigurationId fcid) {
             this.rocket = rocket;

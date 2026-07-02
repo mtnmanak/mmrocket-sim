@@ -22,6 +22,9 @@
 export {
   OrkRocket,
   resetEngine,
+  type ComponentNode,
+  type ComponentPosition,
+  type ComponentType,
   type FlightEvent,
   type FlightResult,
   type FlightSeries,
@@ -29,6 +32,7 @@ export {
   type MotorSpec,
   type NoseShape,
   type RocketSpec,
+  type RocketTree,
   type SimulationOptions,
   type StaticInfo,
 } from './orkEngine.js';

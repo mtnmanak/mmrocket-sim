@@ -1,0 +1,295 @@
+package api;
+
+import java.util.List;
+import java.util.Map;
+
+import info.openrocket.core.material.Material;
+import info.openrocket.core.rocketcomponent.BodyTube;
+import info.openrocket.core.rocketcomponent.Bulkhead;
+import info.openrocket.core.rocketcomponent.CenteringRing;
+import info.openrocket.core.rocketcomponent.EllipticalFinSet;
+import info.openrocket.core.rocketcomponent.EngineBlock;
+import info.openrocket.core.rocketcomponent.ExternalComponent;
+import info.openrocket.core.rocketcomponent.InnerTube;
+import info.openrocket.core.rocketcomponent.LaunchLug;
+import info.openrocket.core.rocketcomponent.MassComponent;
+import info.openrocket.core.rocketcomponent.NoseCone;
+import info.openrocket.core.rocketcomponent.Parachute;
+import info.openrocket.core.rocketcomponent.RailButton;
+import info.openrocket.core.rocketcomponent.RocketComponent;
+import info.openrocket.core.rocketcomponent.ShockCord;
+import info.openrocket.core.rocketcomponent.Streamer;
+import info.openrocket.core.rocketcomponent.StructuralComponent;
+import info.openrocket.core.rocketcomponent.Transition;
+import info.openrocket.core.rocketcomponent.TrapezoidFinSet;
+import info.openrocket.core.rocketcomponent.TubeCoupler;
+import info.openrocket.core.rocketcomponent.TubeFinSet;
+import info.openrocket.core.rocketcomponent.position.AxialMethod;
+
+import static api.JsonLite.bool;
+import static api.JsonLite.dbl;
+import static api.JsonLite.obj;
+import static api.JsonLite.str;
+
+/**
+ * Builds carved RocketComponents from JSON tree nodes. Node shape:
+ * { "type": "bodytube", "id": "body", "name": "...", ...typed params...,
+ *   "position": {"method": "top|middle|bottom|absolute", "offset": 0.0},
+ *   "density": 950, "children": [ ...nodes... ] }
+ * All SI, radians. Unknown types throw — callers surface the message.
+ */
+final class ComponentFactory {
+
+    private ComponentFactory() {}
+
+    static RocketComponent create(Map<String, Object> node) {
+        String type = str(node, "type", "");
+        RocketComponent c;
+        switch (type) {
+            case "nosecone": {
+                NoseCone nose = new NoseCone(
+                        shapeOf(str(node, "shape", "ogive")),
+                        dbl(node, "length", 0.07),
+                        dbl(node, "aftRadius", 0.012));
+                nose.setThickness(dbl(node, "thickness", 0.002));
+                double shapeParam = dbl(node, "shapeParameter", Double.NaN);
+                if (!Double.isNaN(shapeParam)) {
+                    nose.setShapeParameter(shapeParam);
+                }
+                c = nose;
+                break;
+            }
+            case "transition": {
+                Transition t = new Transition();
+                t.setShapeType(shapeOf(str(node, "shape", "conical")));
+                t.setLength(dbl(node, "length", 0.05));
+                double fore = dbl(node, "foreRadius", Double.NaN);
+                if (Double.isNaN(fore)) {
+                    t.setForeRadiusAutomatic(true);
+                } else {
+                    t.setForeRadius(fore);
+                }
+                double aft = dbl(node, "aftRadius", Double.NaN);
+                if (Double.isNaN(aft)) {
+                    t.setAftRadiusAutomatic(true);
+                } else {
+                    t.setAftRadius(aft);
+                }
+                t.setThickness(dbl(node, "thickness", 0.002));
+                c = t;
+                break;
+            }
+            case "bodytube": {
+                c = new BodyTube(
+                        dbl(node, "length", 0.3),
+                        dbl(node, "outerRadius", 0.012),
+                        dbl(node, "thickness", 0.0003));
+                break;
+            }
+            case "trapezoidfinset": {
+                TrapezoidFinSet fins = new TrapezoidFinSet(
+                        (int) dbl(node, "finCount", 3),
+                        dbl(node, "rootChord", 0.05),
+                        dbl(node, "tipChord", 0.03),
+                        dbl(node, "sweep", 0.02),
+                        dbl(node, "height", 0.03));
+                fins.setThickness(dbl(node, "thickness", 0.003));
+                fins.setCantAngle(dbl(node, "cant", 0));
+                c = fins;
+                break;
+            }
+            case "ellipticalfinset": {
+                EllipticalFinSet fins = new EllipticalFinSet();
+                fins.setFinCount((int) dbl(node, "finCount", 3));
+                fins.setLength(dbl(node, "rootChord", 0.05));
+                fins.setHeight(dbl(node, "height", 0.03));
+                fins.setThickness(dbl(node, "thickness", 0.003));
+                fins.setCantAngle(dbl(node, "cant", 0));
+                c = fins;
+                break;
+            }
+            case "tubefinset": {
+                TubeFinSet fins = new TubeFinSet();
+                fins.setFinCount((int) dbl(node, "finCount", 6));
+                fins.setLength(dbl(node, "length", 0.1));
+                double or = dbl(node, "outerRadius", Double.NaN);
+                if (!Double.isNaN(or)) {
+                    fins.setOuterRadius(or);
+                }
+                c = fins;
+                break;
+            }
+            case "innertube": {
+                InnerTube tube = new InnerTube();
+                tube.setLength(dbl(node, "length", 0.07));
+                tube.setOuterRadius(dbl(node, "outerRadius", 0.0095));
+                tube.setThickness(dbl(node, "thickness", 0.0005));
+                tube.setMotorMount(bool(node, "motorMount", false));
+                c = tube;
+                break;
+            }
+            case "tubecoupler": {
+                TubeCoupler tc = new TubeCoupler();
+                tc.setLength(dbl(node, "length", 0.05));
+                double or = dbl(node, "outerRadius", Double.NaN);
+                if (Double.isNaN(or)) {
+                    tc.setOuterRadiusAutomatic(true);
+                } else {
+                    tc.setOuterRadius(or);
+                }
+                tc.setThickness(dbl(node, "thickness", 0.0005));
+                c = tc;
+                break;
+            }
+            case "centeringring": {
+                CenteringRing ring = new CenteringRing();
+                ring.setLength(dbl(node, "length", 0.002));
+                double or = dbl(node, "outerRadius", Double.NaN);
+                if (!Double.isNaN(or)) {
+                    ring.setOuterRadius(or);
+                }
+                double ir = dbl(node, "innerRadius", Double.NaN);
+                if (!Double.isNaN(ir)) {
+                    ring.setInnerRadius(ir);
+                }
+                c = ring;
+                break;
+            }
+            case "bulkhead": {
+                Bulkhead b = new Bulkhead();
+                b.setLength(dbl(node, "length", 0.002));
+                double or = dbl(node, "outerRadius", Double.NaN);
+                if (!Double.isNaN(or)) {
+                    b.setOuterRadius(or);
+                }
+                c = b;
+                break;
+            }
+            case "engineblock": {
+                EngineBlock eb = new EngineBlock();
+                eb.setLength(dbl(node, "length", 0.005));
+                double or = dbl(node, "outerRadius", Double.NaN);
+                if (!Double.isNaN(or)) {
+                    eb.setOuterRadius(or);
+                }
+                eb.setThickness(dbl(node, "thickness", 0.00095));
+                c = eb;
+                break;
+            }
+            case "launchlug": {
+                LaunchLug lug = new LaunchLug();
+                lug.setLength(dbl(node, "length", 0.05));
+                lug.setOuterRadius(dbl(node, "outerRadius", 0.0022));
+                lug.setThickness(dbl(node, "thickness", 0.0003));
+                c = lug;
+                break;
+            }
+            case "railbutton": {
+                RailButton rb = new RailButton();
+                double od = dbl(node, "outerDiameter", Double.NaN);
+                if (!Double.isNaN(od)) {
+                    rb.setOuterDiameter(od);
+                }
+                c = rb;
+                break;
+            }
+            case "parachute": {
+                Parachute p = new Parachute();
+                p.setDiameter(dbl(node, "diameter", 0.3));
+                double cd = dbl(node, "cd", Double.NaN);
+                if (!Double.isNaN(cd)) {
+                    p.setCD(cd);
+                }
+                p.setLineCount((int) dbl(node, "lineCount", 6));
+                p.setLineLength(dbl(node, "lineLength", 0.3));
+                c = p;
+                break;
+            }
+            case "streamer": {
+                Streamer s = new Streamer();
+                s.setStripLength(dbl(node, "stripLength", 0.5));
+                s.setStripWidth(dbl(node, "stripWidth", 0.05));
+                double cd = dbl(node, "cd", Double.NaN);
+                if (!Double.isNaN(cd)) {
+                    s.setCD(cd);
+                }
+                c = s;
+                break;
+            }
+            case "shockcord": {
+                ShockCord sc = new ShockCord();
+                sc.setCordLength(dbl(node, "cordLength", 0.3));
+                c = sc;
+                break;
+            }
+            case "masscomponent": {
+                MassComponent m = new MassComponent();
+                m.setComponentMass(dbl(node, "mass", 0.01));
+                m.setLength(dbl(node, "length", 0.02));
+                m.setRadius(dbl(node, "radius", 0.005));
+                c = m;
+                break;
+            }
+            default:
+                throw new IllegalArgumentException("Unknown component type: '" + type + "'");
+        }
+
+        // ---- common parameters ----
+        String name = str(node, "name", null);
+        if (name != null) {
+            c.setName(name);
+        }
+        double density = dbl(node, "density", Double.NaN);
+        if (!Double.isNaN(density) && density > 0) {
+            Material m = Material.newMaterial(Material.Type.BULK, "custom", density, true);
+            if (c instanceof ExternalComponent) {
+                ((ExternalComponent) c).setMaterial(m);
+            } else if (c instanceof StructuralComponent) {
+                ((StructuralComponent) c).setMaterial(m);
+            }
+        }
+        Map<String, Object> position = obj(node, "position");
+        if (position != null) {
+            c.setAxialMethod(axialMethodOf(str(position, "method", "top")));
+            c.setAxialOffset(dbl(position, "offset", 0));
+        }
+        return c;
+    }
+
+    /** Builds and attaches the node's children recursively. */
+    static void attachChildren(RocketComponent parent, Map<String, Object> node,
+            Map<String, RocketComponent> idIndex) {
+        List<Map<String, Object>> kids = JsonLite.objList(node, "children");
+        for (Map<String, Object> kid : kids) {
+            RocketComponent child = create(kid);
+            parent.addChild(child);
+            String id = str(kid, "id", null);
+            if (id != null) {
+                idIndex.put(id, child);
+            }
+            attachChildren(child, kid, idIndex);
+        }
+    }
+
+    private static Transition.Shape shapeOf(String name) {
+        switch (name.toLowerCase()) {
+            case "conical": return Transition.Shape.CONICAL;
+            case "ellipsoid": return Transition.Shape.ELLIPSOID;
+            case "power": return Transition.Shape.POWER;
+            case "parabolic": return Transition.Shape.PARABOLIC;
+            case "haack": return Transition.Shape.HAACK;
+            case "ogive":
+            default: return Transition.Shape.OGIVE;
+        }
+    }
+
+    private static AxialMethod axialMethodOf(String name) {
+        switch (name.toLowerCase()) {
+            case "absolute": return AxialMethod.ABSOLUTE;
+            case "middle": return AxialMethod.MIDDLE;
+            case "bottom": return AxialMethod.BOTTOM;
+            case "top":
+            default: return AxialMethod.TOP;
+        }
+    }
+}

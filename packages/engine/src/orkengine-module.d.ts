@@ -2,6 +2,11 @@
 declare module '*orkengine.mjs' {
   export function reset(): void;
   export function newRocket(): number;
+  export function buildRocket(treeJson: string): number;
+  export function setMotorById(
+    rocket: number, componentId: string, designation: string, diameter: number,
+    length: number, times: number[], thrusts: number[], masses: number[],
+    cgX: number, ejectionDelay: number): void;
   export function addNoseCone(
     rocket: number, length: number, aftRadius: number,
     thickness: number, shape: string, materialDensity: number): number;

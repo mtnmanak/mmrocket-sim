@@ -67,6 +67,62 @@ describe('OrkRocket (real OpenRocket kernel via TeaVM)', () => {
     expect(Math.max(...result.series.altitude)).toBeCloseTo(result.summary.maxAltitude, 9);
   });
 
+  it('builds arbitrary component trees with identical physics (P2.1)', () => {
+    const rocket = OrkRocket.buildTree({
+      name: 'Ref',
+      components: [
+        { type: 'nosecone', length: 0.07, aftRadius: 0.012, thickness: 0.002, shape: 'ogive' },
+        {
+          type: 'bodytube', length: 0.3, outerRadius: 0.012, thickness: 0.0003, density: 950,
+          children: [
+            { type: 'trapezoidfinset', finCount: 3, rootChord: 0.05, tipChord: 0.03, sweep: 0.02, height: 0.03, thickness: 0.003 },
+            { type: 'innertube', id: 'mount', length: 0.07, outerRadius: 0.0095, thickness: 0.0005, motorMount: true },
+            { type: 'parachute', diameter: 0.3 },
+          ],
+        },
+      ],
+    });
+    rocket.setMotorById('mount', C6_MOTOR);
+
+    const info = rocket.staticInfo();
+    expect(info.mass).toBeCloseTo(0.051335792158092, 9); // same as fixed-shape build
+    expect(info.warningTexts).toEqual([]);
+
+    const result = rocket.simulate({});
+    expect(result.summary.maxAltitude).toBeCloseTo(331.766872454628, 5);
+  });
+
+  it('supports the extended component set (transition, rings, streamer, ...)', () => {
+    const rocket = OrkRocket.buildTree({
+      components: [
+        { type: 'nosecone', length: 0.1, aftRadius: 0.0125, thickness: 0.002, shape: 'haack' },
+        {
+          type: 'bodytube', length: 0.35, outerRadius: 0.0125, thickness: 0.0005, density: 950,
+          children: [
+            { type: 'ellipticalfinset', finCount: 4, rootChord: 0.06, height: 0.04, thickness: 0.003 },
+            { type: 'launchlug', length: 0.05, outerRadius: 0.0025, thickness: 0.0004, position: { method: 'middle', offset: 0 } },
+            { type: 'innertube', id: 'mount', length: 0.08, outerRadius: 0.012, thickness: 0.0005, motorMount: true },
+            { type: 'centeringring', length: 0.002, position: { method: 'bottom', offset: -0.01 } },
+            { type: 'streamer', stripLength: 0.6, stripWidth: 0.05, position: { method: 'top', offset: 0.02 } },
+            { type: 'shockcord', cordLength: 0.4, position: { method: 'top', offset: 0.01 } },
+            { type: 'masscomponent', mass: 0.015, length: 0.02, radius: 0.006, position: { method: 'top', offset: 0.05 } },
+          ],
+        },
+        { type: 'transition', length: 0.04, foreRadius: 0.0125, aftRadius: 0.009, thickness: 0.001, shape: 'conical', density: 680 },
+      ],
+    });
+    const info = rocket.staticInfo();
+    expect(info.length).toBeCloseTo(0.49, 9);
+    expect(info.mass).toBeGreaterThan(0.05);
+    expect(Number.isFinite(info.cp)).toBe(true);
+  });
+
+  it('rejects unknown component types with a clear message', () => {
+    expect(() =>
+      OrkRocket.buildTree({ components: [{ type: 'warpdrive' as never }] }),
+    ).toThrow(/Unknown component type/);
+  });
+
   it('reports unstable designs via warnings/behavior rather than crashing', () => {
     const noFins: RocketSpec = { ...REFERENCE_ROCKET, fins: { ...REFERENCE_ROCKET.fins, count: 3, height: 0.001 } };
     const rocket = OrkRocket.build(noFins);
