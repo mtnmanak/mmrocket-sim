@@ -1,5 +1,5 @@
 /** Ambient types for the vendored TeaVM engine artifact (see engine-java/). */
-declare module '*orkengine.cjs' {
+declare module '*orkengine.mjs' {
   export function reset(): void;
   export function newRocket(): number;
   export function addNoseCone(

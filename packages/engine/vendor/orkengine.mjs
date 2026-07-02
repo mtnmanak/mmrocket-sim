@@ -1,15 +1,4 @@
 "use strict";
-(function(module) {
-    if (typeof define === 'function' && define.amd) {
-        define(['exports'], function(exports)  {
-            module(exports);
-        });
-    } else if (typeof exports === 'object' && exports !== null && typeof exports.nodeName !== 'string') {
-        module(exports);
-    } else {
-        module(typeof self !== 'undefined' ? self : this);
-}
-}(function($rt_exports) {
 let $rt_seed = 2463534242,
 $rt_nextId = () => {
     let x = $rt_seed;
@@ -47530,15 +47519,5 @@ let $rt_jso_marker = Symbol('jsoClass');
 (() => {
     let c;
 })();
-$rt_exports.main = $rt_export_main;
-$rt_exports.reset = a_OrkEngine_reset$exported$0;
-$rt_exports.newRocket = a_OrkEngine_newRocket$exported$1;
-$rt_exports.addNoseCone = a_OrkEngine_addNoseCone$exported$2;
-$rt_exports.addBodyTube = a_OrkEngine_addBodyTube$exported$3;
-$rt_exports.addTrapezoidFins = a_OrkEngine_addTrapezoidFins$exported$4;
-$rt_exports.addInnerTube = a_OrkEngine_addInnerTube$exported$5;
-$rt_exports.addParachute = a_OrkEngine_addParachute$exported$6;
-$rt_exports.setMotor = a_OrkEngine_setMotor$exported$7;
-$rt_exports.getStaticInfo = a_OrkEngine_getStaticInfo$exported$8;
-$rt_exports.simulate = a_OrkEngine_simulate$exported$9;
-}));
+export { $rt_export_main as main, a_OrkEngine_reset$exported$0 as reset, a_OrkEngine_newRocket$exported$1 as newRocket, a_OrkEngine_addNoseCone$exported$2 as addNoseCone, a_OrkEngine_addBodyTube$exported$3 as addBodyTube, a_OrkEngine_addTrapezoidFins$exported$4 as addTrapezoidFins, a_OrkEngine_addInnerTube$exported$5 as addInnerTube, a_OrkEngine_addParachute$exported$6 as addParachute, a_OrkEngine_setMotor$exported$7 as setMotor, a_OrkEngine_getStaticInfo$exported$8 as getStaticInfo, a_OrkEngine_simulate$exported$9 as simulate
+};

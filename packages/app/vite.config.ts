@@ -14,7 +14,8 @@ export default defineConfig({
   },
   build: {
     commonjsOptions: {
-      include: [/vendor\/orkengine\.cjs/, /node_modules/],
+      // Separator-agnostic: on Windows resolved ids may use backslashes.
+      include: [/vendor[\\/]orkengine\.cjs$/, /node_modules/],
     },
   },
 });

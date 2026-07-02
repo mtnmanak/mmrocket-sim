@@ -5,7 +5,7 @@
  * Engine invariants: pure SI units (m, kg, s, N), angles in RADIANS.
  * See engine-java/ for the kernel, shims, patches and differential tests.
  */
-import * as ork from '../vendor/orkengine.cjs';
+import * as ork from '../vendor/orkengine.mjs';
 
 export type NoseShape = 'ogive' | 'conical' | 'ellipsoid' | 'power' | 'parabolic' | 'haack';
 

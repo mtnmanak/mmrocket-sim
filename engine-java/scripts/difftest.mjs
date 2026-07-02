@@ -14,7 +14,7 @@ import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const engineRoot = resolve(here, '..');
@@ -52,7 +52,8 @@ const origWrite = process.stdout.write.bind(process.stdout);
 console.log = (msg) => { jsCaptured += String(msg) + '\n'; };
 process.stdout.write = (chunk) => { jsCaptured += String(chunk); return true; };
 try {
-  createRequire(import.meta.url)(jsPath).main();
+  const mod = await import(pathToFileURL(jsPath).href);
+  mod.main();
 } finally {
   console.log = origLog;
   process.stdout.write = origWrite;

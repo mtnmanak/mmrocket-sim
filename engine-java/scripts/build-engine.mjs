@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Builds the TeaVM JS engine artifact and copies it into
- * packages/engine/vendor/orkengine.cjs (committed — consumers of the npm
+ * packages/engine/vendor/orkengine.mjs (committed — consumers of the npm
  * workspace don't need a JDK; regenerate with `npm run engine:js`).
  */
 import { execFileSync } from 'node:child_process';
@@ -33,5 +33,5 @@ execFileSync(join(engineRoot, gradlew), ['generateJavaScript', '--console=plain'
 const src = join(engineRoot, 'build', 'generated', 'teavm', 'js', 'online-openrocket-engine-java.js');
 const dstDir = join(repoRoot, 'packages', 'engine', 'vendor');
 mkdirSync(dstDir, { recursive: true });
-copyFileSync(src, join(dstDir, 'orkengine.cjs'));
-console.log('engine artifact -> packages/engine/vendor/orkengine.cjs');
+copyFileSync(src, join(dstDir, 'orkengine.mjs'));
+console.log('engine artifact -> packages/engine/vendor/orkengine.mjs');

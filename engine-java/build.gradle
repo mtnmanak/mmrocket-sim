@@ -61,6 +61,10 @@ java {
 teavm.js {
     mainClass = 'api.OrkEngine'
     obfuscated = false
+    // Native ES module: real named exports. UMD's dynamically-assigned
+    // exports are invisible to rollup-commonjs static analysis — the whole
+    // engine got tree-shaken out of production bundles (blank page).
+    moduleType = org.teavm.gradle.api.JSModuleType.ES2015
     // TeaVM's devirtualizer miscompiles the kernel: at FlightConfiguration's
     // tree walk it inlined RocketComponent.getInstanceCount()'s `return 1`,
     // ignoring FinSet's override (fin contexts collapsed 3→1, masses zeroed),
