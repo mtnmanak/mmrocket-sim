@@ -24,14 +24,15 @@ const DEFAULT_SPEC: RocketSpec = {
 /** Builds an engine rocket for the current form state. */
 function buildRocket(state: DesignFormState): { rocket: OrkRocket; info: StaticInfo } {
   const rocket = OrkRocket.build(state.spec);
-  rocket.setMotor(BUILT_IN_MOTORS[state.motorKey]!);
+  rocket.setMotor(state.motor);
   return { rocket, info: rocket.staticInfo() };
 }
 
 export function App() {
   const [form, setForm] = useState<DesignFormState>({
     spec: DEFAULT_SPEC,
-    motorKey: 'C6-5',
+    motorLabel: 'C6-5',
+    motor: BUILT_IN_MOTORS['C6-5']!,
     launchRodLengthM: 1.0,
     launchRodAngleDeg: 0,
     windAverage: 0,

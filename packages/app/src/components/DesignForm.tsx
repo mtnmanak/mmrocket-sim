@@ -1,5 +1,5 @@
-import type { RocketSpec } from '@online-openrocket/engine';
-import { BUILT_IN_MOTORS } from '../motors.js';
+import type { MotorSpec, RocketSpec } from '@online-openrocket/engine';
+import { MotorPicker } from './MotorPicker.js';
 
 /**
  * Rocket design form. UI units: millimeters and degrees (the hobby's units);
@@ -8,7 +8,8 @@ import { BUILT_IN_MOTORS } from '../motors.js';
  */
 export interface DesignFormState {
   spec: RocketSpec;
-  motorKey: string;
+  motorLabel: string;
+  motor: MotorSpec;
   launchRodLengthM: number;
   launchRodAngleDeg: number;
   windAverage: number;
@@ -106,20 +107,20 @@ export function DesignForm({ state, onChange, onLaunch, simulating }: {
       </div>
 
       <div className="panel" style={{ marginTop: 10 }}>
-        <h2>Recovery & motor</h2>
+        <h2>Recovery</h2>
         <div className="field-grid">
           <NumField label="Chute diameter (mm)" value={mm(spec.parachute?.diameter ?? 0.3)} step={10}
             onChange={(v) => set({ parachute: { ...(spec.parachute ?? {}), diameter: toM(v) } })} />
-          <div className="field">
-            <label>Motor</label>
-            <select value={state.motorKey}
-              onChange={(e) => onChange({ ...state, motorKey: e.target.value })}>
-              {Object.keys(BUILT_IN_MOTORS).map((k) => (
-                <option key={k} value={k}>{k}</option>
-              ))}
-            </select>
-          </div>
         </div>
+      </div>
+
+      <div className="panel" style={{ marginTop: 10 }}>
+        <h2>Motor</h2>
+        <MotorPicker
+          mountDiameterMm={Math.round((spec.motorMount.outerRadius - spec.motorMount.thickness) * 2000)}
+          selectedLabel={state.motorLabel}
+          onSelect={(label, motor) => onChange({ ...state, motorLabel: label, motor })}
+        />
       </div>
 
       <div className="panel" style={{ marginTop: 10 }}>
