@@ -1,63 +1,124 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   OrkRocket,
   resetEngine,
+  type ComponentType,
   type FlightResult,
-  type RocketSpec,
+  type RocketTree,
   type StaticInfo,
 } from '@online-openrocket/engine';
-import { DesignForm, type DesignFormState } from './components/DesignForm.js';
+import { ComponentTree } from './components/ComponentTree.js';
 import { FlightCharts } from './components/FlightCharts.js';
-import { Schematic } from './components/Schematic.js';
+import { LaunchPanel, type LaunchConditions } from './components/LaunchPanel.js';
+import { MotorPicker } from './components/MotorPicker.js';
+import { PropertyPanel } from './components/PropertyPanel.js';
 import { DesignStats, FlightStats } from './components/StatTiles.js';
+import { TreeSchematic } from './components/TreeSchematic.js';
 import { BUILT_IN_MOTORS } from './motors.js';
 import { exportOrk, importOrk } from './services/orkFile.js';
+import { specToTree, treeToSpec } from './tree/specBridge.js';
+import {
+  addChild, defaultTree, findNode, makeNode, motorMounts, moveNode, removeNode, updateNode,
+} from './tree/treeModel.js';
 import './styles.css';
 
-const DEFAULT_SPEC: RocketSpec = {
-  noseCone: { length: 0.07, aftRadius: 0.012, thickness: 0.002, shape: 'ogive' },
-  bodyTube: { length: 0.3, outerRadius: 0.012, thickness: 0.0003, materialDensity: 950 },
-  fins: { count: 3, rootChord: 0.05, tipChord: 0.03, sweep: 0.02, height: 0.03, thickness: 0.003 },
-  motorMount: { length: 0.07, outerRadius: 0.0095, thickness: 0.0005 },
-  parachute: { diameter: 0.3 },
-};
-
-/** Builds an engine rocket for the current form state. */
-function buildRocket(state: DesignFormState): { rocket: OrkRocket; info: StaticInfo } {
-  const rocket = OrkRocket.build(state.spec);
-  rocket.setMotor(state.motor);
-  return { rocket, info: rocket.staticInfo() };
-}
-
 export function App() {
-  const [form, setForm] = useState<DesignFormState>({
-    spec: DEFAULT_SPEC,
-    motorLabel: 'C6-5',
-    motor: BUILT_IN_MOTORS['C6-5']!,
-    launchRodLengthM: 1.0,
-    launchRodAngleDeg: 0,
-    windAverage: 0,
+  const [tree, setTreeRaw] = useState<RocketTree>(() => defaultTree());
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [motorLabel, setMotorLabel] = useState('C6-5');
+  const [motor, setMotor] = useState(BUILT_IN_MOTORS['C6-5']!);
+  const [mountId, setMountId] = useState<string | null>(null);
+  const [launch, setLaunch] = useState<LaunchConditions>({
+    launchRodLengthM: 1, launchRodAngleDeg: 0, windAverage: 0,
   });
   const [result, setResult] = useState<FlightResult | null>(null);
   const [simulating, setSimulating] = useState(false);
   const [buildError, setBuildError] = useState<string | null>(null);
   const [fileNote, setFileNote] = useState<string | null>(null);
 
+  // ---- undo (Ctrl+Z / button) ----
+  const history = useRef<RocketTree[]>([]);
+  const setTree = useCallback((next: RocketTree) => {
+    setTreeRaw((prev) => {
+      history.current.push(prev);
+      if (history.current.length > 50) history.current.shift();
+      return next;
+    });
+  }, []);
+  const undo = useCallback(() => {
+    const prev = history.current.pop();
+    if (prev) setTreeRaw(prev);
+  }, []);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        undo();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [undo]);
+
+  // ---- engine build + static analysis on every tree change ----
+  const mounts = useMemo(() => motorMounts(tree), [tree]);
+  const activeMountId = mountId && mounts.some((m) => m.id === mountId)
+    ? mountId
+    : mounts[0]?.id ?? null;
+
+  const built = useMemo((): { rocket: OrkRocket; info: StaticInfo } | null => {
+    try {
+      resetEngine();
+      const rocket = OrkRocket.buildTree(tree);
+      if (activeMountId) {
+        rocket.setMotorById(activeMountId, motor);
+      }
+      const info = rocket.staticInfo();
+      setBuildError(null);
+      return { rocket, info };
+    } catch (e) {
+      setBuildError(e instanceof Error ? e.message : String(e));
+      return null;
+    }
+  }, [tree, motor, activeMountId]);
+
+  useEffect(() => setResult(null), [tree, motor, launch]);
+
+  const onLaunch = () => {
+    if (!built) return;
+    setSimulating(true);
+    requestAnimationFrame(() => {
+      try {
+        setResult(built.rocket.simulate({
+          launchRodLength: launch.launchRodLengthM,
+          launchRodAngle: (launch.launchRodAngleDeg * Math.PI) / 180,
+          windAverage: launch.windAverage,
+          windStdDeviation: launch.windAverage > 0 ? launch.windAverage * 0.1 : 0,
+        }));
+      } catch (e) {
+        setBuildError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setSimulating(false);
+      }
+    });
+  };
+
+  // ---- .ork I/O (via the fixed-shape bridge until P2.5) ----
   const onSaveOrk = () => {
     const xml = exportOrk({
-      name: 'My Rocket',
-      spec: form.spec,
+      name: tree.name ?? 'My Rocket',
+      spec: treeToSpec(tree),
       motor: {
-        designation: form.motor.designation,
-        diameter: form.motor.diameter,
-        length: form.motor.length,
-        delay: form.motor.ejectionDelay,
+        designation: motor.designation,
+        diameter: motor.diameter,
+        length: motor.length,
+        delay: motor.ejectionDelay,
       },
     });
     const blob = new Blob([xml], { type: 'application/octet-stream' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = 'rocket.ork';
+    a.download = `${(tree.name ?? 'rocket').replace(/[^\w-]+/g, '_')}.ork`;
     a.click();
     URL.revokeObjectURL(a.href);
   };
@@ -66,70 +127,34 @@ export function App() {
     try {
       const imported = importOrk(await file.arrayBuffer());
       const notes: string[] = [`Loaded “${imported.name}”.`, ...imported.notes];
-
-      // Try to match the referenced motor against the built-ins by designation.
-      let motorLabel = form.motorLabel;
-      let motor = form.motor;
       if (imported.motor) {
         const match = Object.entries(BUILT_IN_MOTORS).find(
           ([k]) => k.startsWith(imported.motor!.designation),
         );
         if (match) {
-          [motorLabel, motor] = match;
-          notes.push(`Motor: ${motorLabel} (matched built-in).`);
+          setMotorLabel(match[0]);
+          setMotor(match[1]);
+          notes.push(`Motor: ${match[0]} (matched built-in).`);
         } else {
-          notes.push(
-            `Motor “${imported.motor.designation}” isn't built-in — pick it via thrustcurve.org search.`,
-          );
+          notes.push(`Motor “${imported.motor.designation}” isn't built-in — pick it via thrustcurve.org search.`);
         }
       }
       if (imported.ignored.length) {
         notes.push(`Ignored unsupported components: ${imported.ignored.join(', ')}.`);
       }
-      setForm({ ...form, spec: imported.spec, motorLabel, motor });
+      setTree(specToTree(imported.name, imported.spec));
+      setSelectedId(null);
       setFileNote(notes.join('\n'));
     } catch (e) {
       setFileNote(`Could not open that .ork file: ${e instanceof Error ? e.message : String(e)}`);
     }
   };
 
-  // Rebuild + static analysis on every design change (fast: pure JS kernel).
-  const built = useMemo(() => {
-    try {
-      resetEngine(); // free previous engine-side objects
-      const b = buildRocket(form);
-      setBuildError(null);
-      return b;
-    } catch (e) {
-      setBuildError(String(e));
-      return null;
-    }
-  }, [form]);
-
-  // Invalidate stale flight results when the design changes.
-  useEffect(() => {
-    setResult(null);
-  }, [form]);
-
-  const onLaunch = () => {
-    if (!built) return;
-    setSimulating(true);
-    // Yield a frame so the button state paints before the ~0.3s sim.
-    requestAnimationFrame(() => {
-      try {
-        setResult(built.rocket.simulate({
-          launchRodLength: form.launchRodLengthM,
-          launchRodAngle: (form.launchRodAngleDeg * Math.PI) / 180,
-          windAverage: form.windAverage,
-          windStdDeviation: form.windAverage > 0 ? form.windAverage * 0.1 : 0,
-        }));
-      } catch (e) {
-        setBuildError(String(e));
-      } finally {
-        setSimulating(false);
-      }
-    });
-  };
+  const selectedNode = selectedId ? findNode(tree, selectedId) : null;
+  const mountNode = activeMountId ? findNode(tree, activeMountId) : null;
+  const mountInnerDiaMm = mountNode
+    ? Math.round(((mountNode['outerRadius'] as number ?? 0.0095) - (mountNode['thickness'] as number ?? 0.0005)) * 2000)
+    : 18;
 
   return (
     <div className="viz-root">
@@ -142,29 +167,92 @@ export function App() {
       </header>
       <div className="layout">
         <aside>
-          <DesignForm state={form} onChange={setForm} onLaunch={onLaunch} simulating={simulating} />
+          <div className="panel">
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+              <h2 style={{ flex: 1 }}>Components</h2>
+              <button className="file-btn" onClick={undo} title="Undo (Ctrl+Z)">↩ Undo</button>
+            </div>
+            <div className="field" style={{ marginBottom: 8 }}>
+              <label>Rocket name</label>
+              <input value={tree.name ?? ''} onChange={(e) => setTree({ ...tree, name: e.target.value })} />
+            </div>
+            <ComponentTree
+              tree={tree}
+              selectedId={selectedId}
+              onSelect={(id) => setSelectedId(id || null)}
+              onMove={(id, dir) => setTree(moveNode(tree, id, dir))}
+              onDelete={(id) => {
+                setTree(removeNode(tree, id));
+                if (selectedId === id) setSelectedId(null);
+              }}
+              onAdd={(parentId, type: ComponentType) => {
+                const node = makeNode(type);
+                setTree(addChild(tree, parentId, node));
+                setSelectedId(node.id!);
+              }}
+            />
+          </div>
+
+          {selectedNode && (
+            <PropertyPanel
+              tree={tree}
+              node={selectedNode}
+              onPatch={(patch) => setTree(updateNode(tree, selectedNode.id!, patch))}
+            />
+          )}
+
+          <div className="panel" style={{ marginTop: 10 }}>
+            <h2>Motor</h2>
+            {mounts.length > 1 && (
+              <div className="field" style={{ marginBottom: 8 }}>
+                <label>Mount</label>
+                <select value={activeMountId ?? ''} onChange={(e) => setMountId(e.target.value)}>
+                  {mounts.map((m) => (
+                    <option key={m.id} value={m.id}>{m.name ?? m.id}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {mounts.length === 0 && (
+              <p className="stability-bad" style={{ fontSize: 12 }}>
+                No motor mount — add an inner tube and check “acts as motor mount”.
+              </p>
+            )}
+            <MotorPicker
+              mountDiameterMm={mountInnerDiaMm}
+              selectedLabel={motorLabel}
+              onSelect={(label, m) => {
+                setMotorLabel(label);
+                setMotor(m);
+              }}
+            />
+          </div>
+
+          <LaunchPanel value={launch} onChange={setLaunch} onLaunch={onLaunch} simulating={simulating} />
         </aside>
+
         <main className="results-column">
           <div className="panel">
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
               <h2 style={{ flex: 1 }}>Rocket</h2>
               <label className="file-btn">
                 Open .ork
-                <input
-                  type="file"
-                  accept=".ork"
-                  style={{ display: 'none' }}
+                <input type="file" accept=".ork" style={{ display: 'none' }}
                   onChange={(e) => {
                     const f = e.target.files?.[0];
                     if (f) onOpenOrk(f);
                     e.target.value = '';
-                  }}
-                />
+                  }} />
               </label>
               <button className="file-btn" onClick={onSaveOrk}>Save .ork</button>
             </div>
-            <Schematic spec={form.spec} info={built?.info ?? null} />
+            <TreeSchematic tree={tree} info={built?.info ?? null} />
             {built && <DesignStats info={built.info} />}
+            {built && built.info.warningTexts.length > 0 && (
+              <div className="file-note" role="alert">
+                {built.info.warningTexts.join('\n')}
+              </div>
+            )}
             {fileNote && (
               <div className="file-note" role="alert">
                 {fileNote}

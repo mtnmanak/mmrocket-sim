@@ -238,3 +238,99 @@
   cursor: pointer;
   color: var(--text-muted);
 }
+
+/* --- Component tree --- */
+.tree-box {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 0;
+  font-size: 13px;
+  user-select: none;
+}
+
+.tree-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.tree-row:hover {
+  background: #efede9;
+}
+
+.tree-row-selected,
+.tree-row-selected:hover {
+  background: #dceafc;
+}
+
+.tree-row-root {
+  font-weight: 600;
+}
+
+.tree-icon {
+  width: 16px;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.tree-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tree-badge {
+  font-size: 9px;
+  text-transform: uppercase;
+  background: var(--series-1);
+  color: #fff;
+  border-radius: 3px;
+  padding: 1px 4px;
+}
+
+.tree-actions {
+  display: flex;
+  gap: 2px;
+}
+
+.tree-actions button {
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 11px;
+  padding: 1px 3px;
+  color: var(--text-secondary);
+}
+
+.tree-actions button:hover {
+  color: var(--text-primary);
+}
+
+/* --- Add-component menu --- */
+.add-menu {
+  margin-top: 6px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+}
+
+.add-menu-item {
+  text-align: left;
+  font-size: 12px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface-1);
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.add-menu-item:hover {
+  background: #eceae6;
+}
