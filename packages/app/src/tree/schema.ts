@@ -132,7 +132,7 @@ const CD: FieldDef = {
 export const FIELDS: Record<ComponentType, FieldDef[]> = {
   nosecone: [
     lenMM('length', 'Length'),
-    radMM('aftRadius', 'Base radius', 0.5, 80),
+    radMM('aftRadius', 'Base outer radius', 0.5, 80),
     lenMM('thickness', 'Wall thickness', 0.1, 10),
     { key: 'shape', label: 'Shape', unit: 'none', options: SHAPES },
     { key: 'filled', label: 'Solid (filled)', unit: 'none', bool: true },

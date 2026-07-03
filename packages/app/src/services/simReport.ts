@@ -61,7 +61,7 @@ export interface SimRun {
   groundHitVelocity: number;
   totalFlightTime: number;
   optimumDelayS: number | null;
-  /** Optimum snapped to the motor's available delays (or whole seconds). */
+  /** Optimum rounded to the nearest whole second (drill-to-fit rule). */
   recommendedDelayS: number | null;
 
   // Safety verdicts
@@ -99,16 +99,16 @@ function eventTime(result: FlightResult, type: string): number | null {
   return ev ? ev.time : null;
 }
 
-/** Nearest available delay to the optimum (whole seconds if none listed). */
-export function recommendDelay(optimum: number | null, available?: number[]): number | null {
+/**
+ * Recommended delay = the optimum rounded to the nearest WHOLE second.
+ * Real-world rule (the owner's): whatever the manufacturer prescribes, flyers
+ * drill the delay to the whole second they want — so an optimal 12.7 s
+ * recommends 13 s even if the prescribed list is 0/6/8/10/14. The
+ * prescribed list stays informational only.
+ */
+export function recommendDelay(optimum: number | null): number | null {
   if (optimum === null || !Number.isFinite(optimum)) return null;
-  const opts = (available ?? []).filter((d) => Number.isFinite(d));
-  if (opts.length === 0) return Math.max(0, Math.round(optimum));
-  let best = opts[0]!;
-  for (const d of opts) {
-    if (Math.abs(d - optimum) < Math.abs(best - optimum)) best = d;
-  }
-  return best;
+  return Math.max(0, Math.round(optimum));
 }
 
 export function buildSimRun(input: {
@@ -151,7 +151,7 @@ export function buildSimRun(input: {
     ?? (tDeploy !== null ? at(series.time, series.velocity, tDeploy) : null);
 
   const optimumDelayS = summary.optimumDelay ?? null;
-  const recommendedDelayS = recommendDelay(optimumDelayS, meta?.availableDelays);
+  const recommendedDelayS = recommendDelay(optimumDelayS);
 
   const safeLiftoffSpeed = rodExitVelocity !== null
     ? rodExitVelocity >= SAFETY.minRodExitVelocity : null;

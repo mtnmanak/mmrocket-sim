@@ -157,7 +157,7 @@ export function BatchSimulate({ rocket, info, mountId, mountDiameterMm, launch, 
         let res = rocket.simulate(simOpts);
         let flownDelay = provisional;
         if (criteria.autoDelay) {
-          const rec = recommendDelay(res.summary.optimumDelay, opts);
+          const rec = recommendDelay(res.summary.optimumDelay);
           if (rec !== null && rec !== provisional) {
             flownDelay = rec;
             rocket.setMotorById(mountId, { ...spec, ejectionDelay: rec });

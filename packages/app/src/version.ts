@@ -9,7 +9,7 @@
  * push.
  */
 
-export const APP_VERSION = '0.001';
+export const APP_VERSION = '0.002';
 
 export interface ChangelogEntry {
   version: string;
@@ -20,6 +20,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.002',
+    date: '2026-07-03',
+    title: 'Delay handling the way flyers actually do it + nose cone OD/ID sync',
+    items: [
+      'Ejection delay is editable right on the Motor panel — type any value without reloading the motor (typing overrides auto). The manufacturer\'s prescribed delays are shown for reference.',
+      'Motor browser delay picker adds "Custom (drilled)…" — enter any delay, not just the prescribed list.',
+      'Auto (optimal) delay now recommends the nearest WHOLE second to the simulated optimum (e.g. optimal 12.7 s → 13 s), matching how delays get drilled in the real world — it no longer snaps to the manufacturer\'s prescribed values. Batch simulation uses the same rule.',
+      'Nose cone base now syncs like a body tube: base outer diameter, base inner diameter, and wall thickness — editing any one updates the others.',
+    ],
+  },
   {
     version: '0.001',
     date: '2026-07-03',

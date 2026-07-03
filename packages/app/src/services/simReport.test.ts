@@ -53,17 +53,17 @@ const motor = {
 };
 
 describe('recommendDelay', () => {
-  it('snaps to the nearest available delay', () => {
-    expect(recommendDelay(4.9, [3, 5, 7])).toBe(5);
-    expect(recommendDelay(3.8, [3, 5, 7])).toBe(3);
-    expect(recommendDelay(8.2, [3, 5, 7])).toBe(7);
-  });
-  it('rounds to whole seconds when no list is available', () => {
+  it('rounds to the nearest whole second (delays get drilled, not bought)', () => {
+    // the owner's example: prescribed 0/6/8/10/14 but optimal 12.7 → drill to 13.
+    expect(recommendDelay(12.7)).toBe(13);
     expect(recommendDelay(4.9)).toBe(5);
-    expect(recommendDelay(4.4, [])).toBe(4);
+    expect(recommendDelay(4.4)).toBe(4);
+  });
+  it('never recommends a negative delay', () => {
+    expect(recommendDelay(-0.3)).toBe(0);
   });
   it('handles missing optimum', () => {
-    expect(recommendDelay(null, [3, 5])).toBeNull();
+    expect(recommendDelay(null)).toBeNull();
   });
 });
 

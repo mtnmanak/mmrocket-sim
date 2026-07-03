@@ -11,6 +11,7 @@ import {
 import { delayOptions, fetchMotorSpec } from '../services/thrustcurve.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { niceStep, siToUi, uiToSi } from '../prefs/units.js';
+import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
 import type { MotorMeta } from '../services/simReport.js';
 
@@ -73,7 +74,8 @@ export function MotorBrowser({ mountDiameterMm, onSelect, onClose }: {
   const [filters, setFiltersRaw] = useState<StoredFilters>(loadFilters);
   const [text, setText] = useState('');
   const [picked, setPicked] = useState<MotorDbEntry | null>(null);
-  const [delay, setDelay] = useState<number | 'auto'>(0);
+  const [delay, setDelay] = useState<number | 'auto' | 'custom'>(0);
+  const [customDelay, setCustomDelay] = useState(6);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [exMotors, setExMotors] = useState(() => loadExMotors());
@@ -146,12 +148,16 @@ export function MotorBrowser({ mountDiameterMm, onSelect, onClose }: {
     try {
       const opts = delayOptions(picked);
       // "auto" flies a provisional delay; each launch then re-runs with the
-      // simulated optimal delay snapped to this list (see App.onLaunch).
-      const provisional = delay === 'auto' ? opts[opts.length - 1] ?? 0 : delay;
-      const spec = await fetchMotorSpec(picked, provisional);
+      // simulated optimum rounded to the nearest whole second. "custom" is
+      // the drill-your-own value (delays get drilled to any whole second in
+      // the real world, whatever the manufacturer prescribes).
+      const chosen = delay === 'auto' ? opts[opts.length - 1] ?? 0
+        : delay === 'custom' ? customDelay
+        : delay;
+      const spec = await fetchMotorSpec(picked, chosen);
       const label = delay === 'auto'
         ? `${picked.commonName} (auto delay)`
-        : opts.length > 1 ? `${picked.commonName}-${delay}` : picked.commonName;
+        : `${picked.commonName}-${chosen}`;
       onSelect(label, spec, {
         label,
         manufacturer: picked.manufacturerAbbrev,
@@ -338,17 +344,25 @@ export function MotorBrowser({ mountDiameterMm, onSelect, onClose }: {
                 )}
                 {tooLong(picked) && <span className="stability-bad"> ⚠ exceeds max motor length</span>}
               </span>
-              {delayOptions(picked).length > 1 && (
-                <label className="motor-inline-label">
-                  Delay
-                  <select
-                    value={delay}
-                    onChange={(e) => setDelay(e.target.value === 'auto' ? 'auto' : Number(e.target.value))}
-                  >
-                    <option value="auto">Auto (optimal)</option>
-                    {delayOptions(picked).map((d) => <option key={d} value={d}>{d}s</option>)}
-                  </select>
-                </label>
+              <label className="motor-inline-label">
+                Delay
+                <select
+                  value={delay}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setDelay(v === 'auto' || v === 'custom' ? v : Number(v));
+                  }}
+                >
+                  <option value="auto">Auto (optimal)</option>
+                  {delayOptions(picked).map((d) => <option key={d} value={d}>{d}s</option>)}
+                  <option value="custom">Custom (drilled)…</option>
+                </select>
+              </label>
+              {delay === 'custom' && (
+                <span style={{ width: 70 }}>
+                  <NumField value={customDelay} step={1} max={60} ariaLabel="Custom delay (s)"
+                    onCommit={(v) => { if (v !== null) setCustomDelay(v); }} />
+                </span>
               )}
               <button className="launch-btn" style={{ width: 'auto', marginTop: 0, padding: '6px 16px' }}
                 onClick={load} disabled={busy}>

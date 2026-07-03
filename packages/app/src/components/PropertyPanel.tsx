@@ -305,11 +305,16 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll }: {
               </Fragment>
             );
           }
-          // Tubes: wall thickness and inner diameter are two views of one
-          // dimension — editing either updates the other.
-          if (f.key === 'thickness' && typeof node['outerRadius'] === 'number'
+          // Wall thickness and inner diameter are two views of one dimension
+          // — editing either updates the other. Tubes reference outerRadius;
+          // nose cones reference their base (aft) radius, so OD/ID/wall stay
+          // in sync with the body tube behind them.
+          const outerKeyForID = typeof node['outerRadius'] === 'number' ? 'outerRadius'
+            : node.type === 'nosecone' && typeof node['aftRadius'] === 'number' ? 'aftRadius'
+            : null;
+          if (f.key === 'thickness' && outerKeyForID
               && typeof node['thickness'] === 'number') {
-            const outerR = node['outerRadius'] as number;
+            const outerR = node[outerKeyForID] as number;
             const innerSi = Math.max(0, outerR - (node['thickness'] as number)) * 2;
             const idQuantity: Quantity = 'length';
             const idSym = prefs.units[idQuantity];
@@ -317,7 +322,10 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll }: {
               <Fragment key={f.key}>
                 {renderNumeric(f)}
                 <div className="field">
-                  <label>Inner diameter <UnitChip quantity="length" /></label>
+                  <label>
+                    {node.type === 'nosecone' ? 'Base inner diameter' : 'Inner diameter'}
+                    {' '}<UnitChip quantity="length" />
+                  </label>
                   <NumField
                     value={siToUi(idQuantity, idSym, innerSi)}
                     step={niceStep(siToUi(idQuantity, idSym, 0.001))}

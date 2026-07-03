@@ -13,6 +13,7 @@ import { ComponentTree } from './components/ComponentTree.js';
 import { FlightCharts } from './components/FlightCharts.js';
 import { DEFAULT_CONDITIONS, LaunchPanel, type LaunchConditions } from './components/LaunchPanel.js';
 import { builtInMeta, MotorPicker } from './components/MotorPicker.js';
+import { NumField } from './components/NumField.js';
 import { PropertyPanel } from './components/PropertyPanel.js';
 import { SimHistory, SimRunDetails } from './components/SimResults.js';
 import { DesignStats, FlightStats } from './components/StatTiles.js';
@@ -34,6 +35,12 @@ import './styles.css';
 
 /** Rocket names that mean "the user never named it" (desktop default is "Rocket"). */
 const GENERIC_ROCKET_NAMES = new Set(['rocket', 'new rocket', 'imported rocket', 'my rocket']);
+
+/** Rewrites a motor label's delay suffix ("H220-14" / "H220 (auto delay)"). */
+function labelWithDelay(label: string, delay: number | 'auto'): string {
+  const base = label.replace(/ \(auto delay\)$/, '').replace(/-\d+(\.\d+)?$/, '');
+  return delay === 'auto' ? `${base} (auto delay)` : `${base}-${delay}`;
+}
 
 export function App() {
   const { resolvedTheme } = usePrefs();
@@ -133,10 +140,10 @@ export function App() {
         let res = built.rocket.simulate(simOpts);
         let flownDelay = motor.ejectionDelay;
         // Auto delay: the first run yields the kernel's optimum (ballistic
-        // probe, independent of the flown delay) — snap it to the motor's
-        // available delays and fly the real run with that.
+        // probe, independent of the flown delay) — round it to the nearest
+        // whole second (drill-to-fit) and fly the real run with that.
         if (motorMeta.autoDelay && activeMountId) {
-          const rec = recommendDelay(res.summary.optimumDelay, motorMeta.availableDelays);
+          const rec = recommendDelay(res.summary.optimumDelay);
           if (rec !== null) {
             flownDelay = rec;
             built.rocket.setMotorById(activeMountId, { ...motor, ejectionDelay: rec });
@@ -388,6 +395,45 @@ export function App() {
                 setMotorMeta(meta);
               }}
             />
+            <div className="field" style={{ marginTop: 8 }}>
+              <label>
+                Ejection delay (s)
+                {motorMeta.availableDelays?.length
+                  ? ` — prescribed: ${motorMeta.availableDelays.join(', ')}`
+                  : ''}
+              </label>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <div style={{ flex: 1 }}>
+                  <NumField
+                    value={motor.ejectionDelay}
+                    step={1}
+                    max={60}
+                    ariaLabel="Ejection delay in seconds"
+                    onCommit={(v) => {
+                      if (v === null) return;
+                      // Typing a delay overrides auto — real motors get
+                      // drilled to whatever whole second the flyer wants.
+                      setMotor({ ...motor, ejectionDelay: v });
+                      setMotorMeta({ ...motorMeta, autoDelay: false });
+                      setMotorLabel(labelWithDelay(motorLabel, v));
+                    }}
+                  />
+                </div>
+                <label className="motor-inline-label" style={{ whiteSpace: 'nowrap' }}>
+                  <input
+                    type="checkbox"
+                    checked={motorMeta.autoDelay === true}
+                    style={{ width: 'auto' }}
+                    onChange={(e) => {
+                      setMotorMeta({ ...motorMeta, autoDelay: e.target.checked });
+                      setMotorLabel(labelWithDelay(
+                        motorLabel, e.target.checked ? 'auto' : motor.ejectionDelay));
+                    }}
+                  />
+                  auto (optimal)
+                </label>
+              </div>
+            </div>
             <button
               className="file-btn"
               style={{ marginTop: 8, width: '100%' }}
