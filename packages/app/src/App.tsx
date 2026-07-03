@@ -276,7 +276,13 @@ export function App() {
               <button className="file-btn" onClick={onSaveOrk}>Save .ork</button>
             </div>
             {view === '2d'
-              ? <TreeSchematic tree={tree} info={built?.info ?? null} />
+              ? (
+                <TreeSchematic
+                  tree={tree}
+                  info={built?.info ?? null}
+                  onPatchNode={(id, patch) => setTree(updateNode(tree, id, patch))}
+                />
+              )
               : <Rocket3D tree={tree} info={built?.info ?? null} />}
             {built && <DesignStats info={built.info} motorLabel={activeMountId ? motorLabel : undefined} />}
             {built && built.info.warningTexts.length > 0 && (

@@ -11,6 +11,8 @@ import type { ComponentNode, ComponentPosition, RocketTree, StaticInfo } from '@
  * Rocket axis = +X (nose tip at x=0, aft increasing), matching the engine.
  */
 
+const nodeColor = (n: ComponentNode, dflt: string): string => typeof n['color'] === 'string' ? (n['color'] as string) : dflt;
+
 const num = (n: ComponentNode, key: string, fb: number): number =>
   typeof n[key] === 'number' ? (n[key] as number) : fb;
 
@@ -117,7 +119,7 @@ function buildPieces(tree: RocketTree): { pieces: Piece[]; totalLen: number; max
       g.translate(start, pRadius, 0);
       const m = new THREE.Matrix4().makeRotationX(angle);
       g.applyMatrix4(m);
-      pieces.push({ key: `fin${k++}`, geometry: g, color: MAT.fin });
+      pieces.push({ key: `fin${k++}`, geometry: g, color: nodeColor(child, MAT.fin) });
     }
     geo.dispose();
   };
@@ -132,7 +134,7 @@ function buildPieces(tree: RocketTree): { pieces: Piece[]; totalLen: number; max
         const start = axialStart(child, len, pStart, pLen);
         const geo = new THREE.CylinderGeometry(r, r, len, 16);
         pieces.push({
-          key: `lug${k++}`, geometry: geo, color: MAT.lug,
+          key: `lug${k++}`, geometry: geo, color: nodeColor(child, MAT.lug),
           position: [start + len / 2, pRadius + r, 0],
           rotation: [0, 0, -Math.PI / 2],
         });
@@ -154,7 +156,7 @@ function buildPieces(tree: RocketTree): { pieces: Piece[]; totalLen: number; max
       }
       const geo = new THREE.LatheGeometry(pts, 48);
       pieces.push({
-        key: `nose${k++}`, geometry: geo, color: MAT.nose,
+        key: `nose${k++}`, geometry: geo, color: nodeColor(n, MAT.nose),
         position: [x, 0, 0],
         rotation: [0, 0, -Math.PI / 2],
       });
@@ -165,7 +167,7 @@ function buildPieces(tree: RocketTree): { pieces: Piece[]; totalLen: number; max
       const R = num(n, 'outerRadius', 0.012);
       const geo = new THREE.CylinderGeometry(R, R, len, 48);
       pieces.push({
-        key: `body${k++}`, geometry: geo, color: MAT.body,
+        key: `body${k++}`, geometry: geo, color: nodeColor(n, MAT.body),
         position: [x + len / 2, 0, 0],
         rotation: [0, 0, -Math.PI / 2],
       });
@@ -179,7 +181,7 @@ function buildPieces(tree: RocketTree): { pieces: Piece[]; totalLen: number; max
       // top radius = aft radius.
       const geo = new THREE.CylinderGeometry(ra, rf, len, 48);
       pieces.push({
-        key: `trans${k++}`, geometry: geo, color: MAT.transition,
+        key: `trans${k++}`, geometry: geo, color: nodeColor(n, MAT.transition),
         position: [x + len / 2, 0, 0],
         rotation: [0, 0, -Math.PI / 2],
       });

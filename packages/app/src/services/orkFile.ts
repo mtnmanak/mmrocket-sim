@@ -96,6 +96,8 @@ export function importOrk(data: ArrayBuffer | string): OrkTreeImportResult {
       if (nm) node.name = nm;
       const density = matDensity(el);
       if (density !== undefined) node.density = density;
+      const matName = matName_(el, 'bulk');
+      if (matName) node['materialName'] = matName;
       const fin = text(el, ':scope > finish');
       if (fin && fin !== 'normal') node['finish'] = fin;
       const om = num(el, 'overridemass', NaN);
@@ -259,6 +261,8 @@ export function importOrk(data: ArrayBuffer | string): OrkTreeImportResult {
         if (cdText && cdText !== 'auto') n['cd'] = Number(cdText);
         n['lineCount'] = Math.round(num(el, 'linecount', 6));
         n['lineLength'] = num(el, 'linelength', 0.3);
+        readSoftMaterial(el, n, 'surface', 'surfaceDensity', 'surfaceMaterialName');
+        readSoftMaterial(el, n, 'line', 'lineDensity', 'lineMaterialName', ':scope > linematerial');
         readDeployment(el, n);
         return n;
       }
@@ -268,12 +272,14 @@ export function importOrk(data: ArrayBuffer | string): OrkTreeImportResult {
         n['stripWidth'] = num(el, 'stripwidth', 0.05);
         const cdText = text(el, ':scope > cd');
         if (cdText && cdText !== 'auto') n['cd'] = Number(cdText);
+        readSoftMaterial(el, n, 'surface', 'surfaceDensity', 'surfaceMaterialName');
         readDeployment(el, n);
         return n;
       }
       case 'shockcord': {
         const n = base('shockcord', true);
         n['cordLength'] = num(el, 'cordlength', 0.3);
+        readSoftMaterial(el, n, 'line', 'lineDensity', 'lineMaterialName');
         return n;
       }
       case 'masscomponent': {
@@ -332,14 +338,29 @@ export function exportOrk({ name, tree, motor, mountId }: OrkTreeExportInput): s
   const emit = (depth: number, s: string) => lines.push('  '.repeat(depth) + s);
 
   const material = (depth: number, node: ComponentNode, kind: 'bulk' | 'surface' | 'line' = 'bulk') => {
-    if (kind === 'bulk' && typeof node.density === 'number' && node.density > 0) {
-      emit(depth, `<material type="bulk" density="${node.density}" group="Custom">custom</material>`);
-    } else if (kind === 'bulk') {
-      emit(depth, '<material type="bulk" density="680.0" group="PaperProducts">Cardboard</material>');
+    if (kind === 'bulk') {
+      const name = typeof node['materialName'] === 'string' ? (node['materialName'] as string) : 'custom';
+      if (typeof node.density === 'number' && node.density > 0) {
+        emit(depth, `<material type="bulk" density="${node.density}">${escapeXml(name)}</material>`);
+      } else {
+        emit(depth, '<material type="bulk" density="680.0" group="PaperProducts">Cardboard</material>');
+      }
     } else if (kind === 'surface') {
-      emit(depth, '<material type="surface" density="0.067" group="Fabrics">Ripstop nylon</material>');
+      if (typeof node['surfaceDensity'] === 'number') {
+        const name = typeof node['surfaceMaterialName'] === 'string'
+          ? (node['surfaceMaterialName'] as string) : 'custom';
+        emit(depth, `<material type="surface" density="${node['surfaceDensity']}">${escapeXml(name)}</material>`);
+      } else {
+        emit(depth, '<material type="surface" density="0.067" group="Fabrics">Ripstop nylon</material>');
+      }
     } else {
-      emit(depth, '<material type="line" density="0.0018" group="ThreadsLines">Elastic cord (round 2 mm, 1/16 in)</material>');
+      if (typeof node['lineDensity'] === 'number') {
+        const name = typeof node['lineMaterialName'] === 'string'
+          ? (node['lineMaterialName'] as string) : 'custom';
+        emit(depth, `<material type="line" density="${node['lineDensity']}">${escapeXml(name)}</material>`);
+      } else {
+        emit(depth, '<material type="line" density="0.0018" group="ThreadsLines">Elastic cord (round 2 mm, 1/16 in)</material>');
+      }
     }
   };
 
@@ -780,6 +801,25 @@ function matDensity(el: Element): number | undefined {
   if (!m || m.getAttribute('type') !== 'bulk') return undefined;
   const d = Number(m.getAttribute('density'));
   return Number.isFinite(d) && d > 0 ? d : undefined;
+}
+
+/** Material NAME if it's a real name (not the "custom" placeholder). */
+function matName_(el: Element, type: string, selector = ':scope > material'): string | undefined {
+  const m = el.querySelector(selector);
+  if (!m || m.getAttribute('type') !== type) return undefined;
+  const name = m.textContent?.trim();
+  return name && name.toLowerCase() !== 'custom' ? name : undefined;
+}
+
+/** Surface/line material density+name for recovery devices and cords. */
+function readSoftMaterial(el: Element, node: ComponentNode, kind: 'surface' | 'line',
+    densityKey: string, nameKey: string, selector = ':scope > material'): void {
+  const m = el.querySelector(selector);
+  if (!m || m.getAttribute('type') !== kind) return;
+  const d = Number(m.getAttribute('density'));
+  if (Number.isFinite(d) && d > 0) node[densityKey] = d;
+  const name = matName_(el, kind, selector);
+  if (name) node[nameKey] = name;
 }
 
 /** Mirrors Transition.Shape.defaultParameter() in the carved kernel. */

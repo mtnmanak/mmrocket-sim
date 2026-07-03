@@ -188,20 +188,25 @@ export const FIELDS: Record<ComponentType, FieldDef[]> = {
     lenMM('length', 'Length'),
     radMM('outerRadius', 'Outer radius', 0.5, 50),
     lenMM('thickness', 'Wall thickness', 0.1, 5),
+    DENSITY,
   ],
   tubecoupler: [
     lenMM('length', 'Length', 1, 200),
     lenMM('thickness', 'Wall thickness', 0.1, 5),
+    DENSITY,
   ],
   centeringring: [
     lenMM('length', 'Thickness (axial)', 0.5, 20),
+    DENSITY,
   ],
   bulkhead: [
     lenMM('length', 'Thickness (axial)', 0.5, 20),
+    DENSITY,
   ],
   engineblock: [
     lenMM('length', 'Length', 0.5, 20),
     lenMM('thickness', 'Wall thickness', 0.5, 10),
+    DENSITY,
   ],
   launchlug: [
     lenMM('length', 'Length', 1, 100),

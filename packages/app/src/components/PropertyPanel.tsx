@@ -1,11 +1,15 @@
-import { useRef } from 'react';
+import { Fragment, useRef, useState } from 'react';
 import type { ComponentNode, ComponentPosition, RocketTree } from '@online-openrocket/engine';
 import { FinPointsEditor, type FinPoint } from './FinPointsEditor.js';
 import { UnitChip } from './UnitChip.js';
 import { DISPLAY_NAME, FIELDS, POSITIONABLE, type FieldDef } from '../tree/schema.js';
 import { findParent } from '../tree/treeModel.js';
+import { anchorStarts, axialLength, offsetForStart, snapStart, startFromPosition } from '../tree/position.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { niceStep, siToUi, uiToSi, type Quantity } from '../prefs/units.js';
+import { BULK_MATERIALS, LINE_MATERIALS, SURFACE_MATERIALS, type MaterialDef } from '../data/materials.js';
+import { PresetPicker } from './PresetPicker.js';
+import { KIND_FOR_TYPE } from '../services/presets.js';
 
 /**
  * Schema fields are authored in "legacy" units (mm/deg/g/m/s/kg·m⁻³ — what the
@@ -58,12 +62,50 @@ function ValueSlider({ value, min, max, step, onChange }: {
   );
 }
 
+/**
+ * Named-material dropdown (desktop material database). Picking one writes the
+ * name + density into the node; "Custom" clears the name and keeps whatever
+ * density is set. Densities: bulk kg/m³, surface kg/m², line kg/m.
+ */
+function MaterialSelect({ label, list, nameKey, densityKey, densityUnit, node, onPatch }: {
+  label: string;
+  list: MaterialDef[];
+  nameKey: string;
+  densityKey: string;
+  densityUnit: string;
+  node: ComponentNode;
+  onPatch: (patch: Partial<ComponentNode>) => void;
+}) {
+  const current = node[nameKey];
+  const value = typeof current === 'string' && list.some((m) => m.name === current) ? current : '';
+  return (
+    <div className="field">
+      <label>{label}</label>
+      <select
+        value={value}
+        onChange={(e) => {
+          const mat = list.find((m) => m.name === e.target.value);
+          onPatch(mat
+            ? { [nameKey]: mat.name, [densityKey]: mat.density }
+            : { [nameKey]: undefined });
+        }}
+      >
+        <option value="">Custom</option>
+        {list.map((m) => (
+          <option key={m.name} value={m.name}>{m.name} ({m.density} {densityUnit})</option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 export function PropertyPanel({ tree, node, onPatch }: {
   tree: RocketTree;
   node: ComponentNode;
   onPatch: (patch: Partial<ComponentNode>) => void;
 }) {
   const { prefs } = usePrefs();
+  const [showPresets, setShowPresets] = useState(false);
   const fields = FIELDS[node.type] ?? [];
   const parent = findParent(tree, node.id!);
   const positionable = POSITIONABLE.has(node.type) && parent !== 'stage';
@@ -107,11 +149,14 @@ export function PropertyPanel({ tree, node, onPatch }: {
     const step = f.unit === 'count' ? 1 : niceStep(legacyToDisplay(f.step ?? 1));
 
     const commit = (ui: number) => {
-      onPatch({
+      const patch: Partial<ComponentNode> = {
         [f.key]: f.unit === 'count'
           ? Math.max(f.smin ?? 1, Math.round(ui))
           : fromDisplay(ui),
-      });
+      };
+      // A hand-typed density is no longer the named material's density.
+      if (f.key === 'density') patch['materialName'] = undefined;
+      onPatch(patch);
     };
 
     return (
@@ -153,6 +198,26 @@ export function PropertyPanel({ tree, node, onPatch }: {
         <label>Name</label>
         <input value={node.name ?? ''} onChange={(e) => onPatch({ name: e.target.value })} />
       </div>
+      {KIND_FOR_TYPE[node.type] && (
+        <button className="file-btn" style={{ marginTop: 6, width: '100%' }}
+          onClick={() => setShowPresets(true)}>
+          📦 Choose from preset database…
+        </button>
+      )}
+      {showPresets && (
+        <PresetPicker type={node.type} onApply={onPatch} onClose={() => setShowPresets(false)} />
+      )}
+      <div className="field" style={{ marginTop: 6 }}>
+        <label>Color (2D/3D display)</label>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <input type="color" style={{ width: 44, padding: 2, height: 26 }}
+            value={typeof node['color'] === 'string' ? (node['color'] as string) : '#d5d2cb'}
+            onChange={(e) => onPatch({ color: e.target.value })} />
+          {typeof node['color'] === 'string' && (
+            <button className="file-btn" onClick={() => onPatch({ color: undefined })}>reset</button>
+          )}
+        </div>
+      </div>
       <div className="field-grid" style={{ marginTop: 8 }}>
         {fields.map((f) => {
           if (f.bool) {
@@ -185,8 +250,29 @@ export function PropertyPanel({ tree, node, onPatch }: {
               </div>
             );
           }
+          if (f.key === 'density') {
+            return (
+              <Fragment key={f.key}>
+                <MaterialSelect label="Material" list={BULK_MATERIALS}
+                  nameKey="materialName" densityKey="density" densityUnit="kg/m³"
+                  node={node} onPatch={onPatch} />
+                {renderNumeric(f)}
+              </Fragment>
+            );
+          }
           return renderNumeric(f);
         })}
+        {(node.type === 'parachute' || node.type === 'streamer') && (
+          <MaterialSelect label="Canopy material" list={SURFACE_MATERIALS}
+            nameKey="surfaceMaterialName" densityKey="surfaceDensity" densityUnit="kg/m²"
+            node={node} onPatch={onPatch} />
+        )}
+        {(node.type === 'parachute' || node.type === 'shockcord') && (
+          <MaterialSelect label={node.type === 'parachute' ? 'Line material' : 'Cord material'}
+            list={LINE_MATERIALS}
+            nameKey="lineMaterialName" densityKey="lineDensity" densityUnit="kg/m"
+            node={node} onPatch={onPatch} />
+        )}
       </div>
 
       {node.type === 'nosecone' && (() => {
@@ -313,7 +399,14 @@ export function PropertyPanel({ tree, node, onPatch }: {
                 min={lenToUi(-parentLenSi)}
                 max={lenToUi(parentLenSi)}
                 step={niceStep(siToUi('length', lengthSym, 0.001))}
-                onChange={(v) => onPatch({ position: { ...pos, offset: lenFromUi(v) } })}
+                onChange={(v) => {
+                  // Magnetic slider: snap to structural anchors (tube/sibling ends).
+                  // `parent` is a ComponentNode here — positionable excludes 'stage'.
+                  const cLen = axialLength(node);
+                  const start = startFromPosition({ ...pos, offset: lenFromUi(v) }, cLen, parentLenSi);
+                  const snapped = snapStart(start, anchorStarts(parent as ComponentNode, node), parentLenSi * 0.015);
+                  onPatch({ position: { ...pos, offset: offsetForStart(pos.method, snapped, cLen, parentLenSi) } });
+                }}
               />
             </div>
           </div>

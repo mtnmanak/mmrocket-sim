@@ -272,6 +272,16 @@ final class ComponentFactory {
                 }
                 p.setLineCount((int) dbl(node, "lineCount", 6));
                 p.setLineLength(dbl(node, "lineLength", 0.3));
+                double chuteSurf = dbl(node, "surfaceDensity", Double.NaN);
+                if (!Double.isNaN(chuteSurf)) {
+                    p.setMaterial(Material.newMaterial(Material.Type.SURFACE,
+                            str(node, "surfaceMaterialName", "custom"), chuteSurf, true));
+                }
+                double chuteLine = dbl(node, "lineDensity", Double.NaN);
+                if (!Double.isNaN(chuteLine)) {
+                    p.setLineMaterial(Material.newMaterial(Material.Type.LINE,
+                            str(node, "lineMaterialName", "custom"), chuteLine, true));
+                }
                 applyDeployment(p, node);
                 c = p;
                 break;
@@ -284,6 +294,11 @@ final class ComponentFactory {
                 if (!Double.isNaN(cd)) {
                     s.setCD(cd);
                 }
+                double streamerSurf = dbl(node, "surfaceDensity", Double.NaN);
+                if (!Double.isNaN(streamerSurf)) {
+                    s.setMaterial(Material.newMaterial(Material.Type.SURFACE,
+                            str(node, "surfaceMaterialName", "custom"), streamerSurf, true));
+                }
                 applyDeployment(s, node);
                 c = s;
                 break;
@@ -291,6 +306,11 @@ final class ComponentFactory {
             case "shockcord": {
                 ShockCord sc = new ShockCord();
                 sc.setCordLength(dbl(node, "cordLength", 0.3));
+                double cordLine = dbl(node, "lineDensity", Double.NaN);
+                if (!Double.isNaN(cordLine)) {
+                    sc.setMaterial(Material.newMaterial(Material.Type.LINE,
+                            str(node, "lineMaterialName", "custom"), cordLine, true));
+                }
                 c = sc;
                 break;
             }
@@ -313,7 +333,8 @@ final class ComponentFactory {
         }
         double density = dbl(node, "density", Double.NaN);
         if (!Double.isNaN(density) && density > 0) {
-            Material m = Material.newMaterial(Material.Type.BULK, "custom", density, true);
+            Material m = Material.newMaterial(Material.Type.BULK,
+                    str(node, "materialName", "custom"), density, true);
             if (c instanceof ExternalComponent) {
                 ((ExternalComponent) c).setMaterial(m);
             } else if (c instanceof StructuralComponent) {
