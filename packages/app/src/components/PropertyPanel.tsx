@@ -1,4 +1,5 @@
 import type { ComponentNode, ComponentPosition, RocketTree } from '@online-openrocket/engine';
+import { FinPointsEditor, type FinPoint } from './FinPointsEditor.js';
 import { DISPLAY_NAME, FIELDS, POSITIONABLE, type FieldDef } from '../tree/schema.js';
 import { findParent } from '../tree/treeModel.js';
 
@@ -82,6 +83,13 @@ export function PropertyPanel({ tree, node, onPatch }: {
           );
         })}
       </div>
+
+      {node.type === 'freeformfinset' && (
+        <FinPointsEditor
+          points={(node['points'] as FinPoint[] | undefined) ?? []}
+          onChange={(points) => onPatch({ points })}
+        />
+      )}
 
       {node.type === 'innertube' && (
         <div className="field" style={{ marginTop: 8 }}>

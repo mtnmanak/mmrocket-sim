@@ -4,7 +4,7 @@ import { allowedChildren, DISPLAY_NAME } from '../tree/schema.js';
 
 const TYPE_ICON: Partial<Record<ComponentType, string>> = {
   nosecone: '▲', transition: '◣', bodytube: '▭',
-  trapezoidfinset: '◢', ellipticalfinset: '◠', tubefinset: '◎',
+  trapezoidfinset: '◢', ellipticalfinset: '◠', freeformfinset: '⟁', tubefinset: '◎',
   innertube: '▢', tubecoupler: '▣', centeringring: '◌', bulkhead: '●', engineblock: '▪',
   launchlug: '⌐', railbutton: '•',
   parachute: '☂', streamer: '≋', shockcord: '〜', masscomponent: '◆',

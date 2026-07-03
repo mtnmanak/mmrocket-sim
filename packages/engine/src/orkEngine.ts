@@ -92,7 +92,7 @@ export interface StaticInfo {
 
 export type ComponentType =
   | 'nosecone' | 'transition' | 'bodytube'
-  | 'trapezoidfinset' | 'ellipticalfinset' | 'tubefinset'
+  | 'trapezoidfinset' | 'ellipticalfinset' | 'freeformfinset' | 'tubefinset'
   | 'innertube' | 'tubecoupler' | 'centeringring' | 'bulkhead' | 'engineblock'
   | 'launchlug' | 'railbutton'
   | 'parachute' | 'streamer' | 'shockcord' | 'masscomponent';

@@ -68,14 +68,27 @@ function buildPieces(tree: RocketTree): { pieces: Piece[]; totalLen: number; max
 
   const addFins = (child: ComponentNode, pStart: number, pLen: number, pRadius: number) => {
     const count = Math.max(1, Math.round(num(child, 'finCount', 3)));
-    const root = num(child, 'rootChord', 0.05);
-    const height = num(child, 'height', 0.03);
+    const ffPoints = child.type === 'freeformfinset'
+      ? ((child['points'] as [number, number][] | undefined) ?? [])
+      : [];
+    const root = child.type === 'freeformfinset' && ffPoints.length
+      ? Math.max(...ffPoints.map((p) => p[0]))
+      : num(child, 'rootChord', 0.05);
+    const height = child.type === 'freeformfinset' && ffPoints.length
+      ? Math.max(...ffPoints.map((p) => p[1]))
+      : num(child, 'height', 0.03);
     const thickness = num(child, 'thickness', 0.003);
     const start = axialStart(child, root, pStart, pLen);
     maxR = Math.max(maxR, pRadius + height);
 
     const shape = new THREE.Shape();
-    if (child.type === 'ellipticalfinset') {
+    if (child.type === 'freeformfinset') {
+      const raw = (child['points'] as [number, number][] | undefined) ?? [[0, 0], [0.02, 0.03], [0.05, 0]];
+      shape.moveTo(raw[0]![0], raw[0]![1]);
+      for (let i = 1; i < raw.length; i++) {
+        shape.lineTo(raw[i]![0], raw[i]![1]);
+      }
+    } else if (child.type === 'ellipticalfinset') {
       // Half-ellipse fin profile.
       shape.moveTo(0, 0);
       const steps = 24;
@@ -111,7 +124,7 @@ function buildPieces(tree: RocketTree): { pieces: Piece[]; totalLen: number; max
 
   const addChildren = (parent: ComponentNode, pStart: number, pLen: number, pRadius: number) => {
     for (const child of parent.children ?? []) {
-      if (child.type === 'trapezoidfinset' || child.type === 'ellipticalfinset') {
+      if (child.type === 'trapezoidfinset' || child.type === 'ellipticalfinset' || child.type === 'freeformfinset') {
         addFins(child, pStart, pLen, pRadius);
       } else if (child.type === 'launchlug') {
         const len = num(child, 'length', 0.05);

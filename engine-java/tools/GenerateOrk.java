@@ -158,7 +158,20 @@ public final class GenerateOrk {
         efins.setLength(0.06);
         efins.setHeight(0.04);
         efins.setThickness(0.003);
+        efins.setCrossSection(info.openrocket.core.rocketcomponent.FinSet.CrossSection.AIRFOIL);
         body.addChild(efins);
+
+        info.openrocket.core.rocketcomponent.FreeformFinSet ffins =
+                new info.openrocket.core.rocketcomponent.FreeformFinSet();
+        ffins.setFinCount(3);
+        ffins.setThickness(0.0025);
+        ffins.setCrossSection(info.openrocket.core.rocketcomponent.FinSet.CrossSection.ROUNDED);
+        ffins.setPoints(new Coordinate[] {
+                new Coordinate(0, 0, 0),
+                new Coordinate(0.025, 0.032, 0),
+                new Coordinate(0.05, 0.032, 0),
+                new Coordinate(0.055, 0, 0) });
+        body.addChild(ffins);
 
         info.openrocket.core.rocketcomponent.LaunchLug lug =
                 new info.openrocket.core.rocketcomponent.LaunchLug();

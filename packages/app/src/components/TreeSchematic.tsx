@@ -144,7 +144,22 @@ function renderChildren(
 ) {
   for (const child of parent.children ?? []) {
     const t = child.type;
-    if (t === 'trapezoidfinset' || t === 'ellipticalfinset') {
+    if (t === 'freeformfinset') {
+      const raw = (child['points'] as [number, number][] | undefined) ?? [];
+      if (raw.length >= 3) {
+        const chord = Math.max(...raw.map((p) => p[0]));
+        const start = axialStart(child, chord, pStart, pLen);
+        for (const dir of [1, -1] as const) {
+          const ptsStr = raw
+            .map(([x, y]) => `${ctx.x0 + (start + x) * ctx.scale},${ctx.cy + dir * (pRadius + y) * ctx.scale}`)
+            .join(' ');
+          out.push(
+            <polygon key={nextKey()} points={ptsStr}
+              fill="#b9b7b0" stroke="#7a786f" strokeWidth="1" />,
+          );
+        }
+      }
+    } else if (t === 'trapezoidfinset' || t === 'ellipticalfinset') {
       const root = num(child, 'rootChord', 0.05);
       const tip = t === 'trapezoidfinset' ? num(child, 'tipChord', root * 0.6) : 0;
       const sweep = t === 'trapezoidfinset' ? num(child, 'sweep', 0.02) : root / 2;

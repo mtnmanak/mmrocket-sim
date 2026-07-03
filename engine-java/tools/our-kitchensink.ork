@@ -2,22 +2,22 @@
 <openrocket version="1.10" creator="Online OpenRocket">
   <rocket>
     <name>Kitchen Sink</name>
-    <id>27b788e9-3005-445d-b466-59b182cffb73</id>
+    <id>0705c5c9-880d-4d59-a6e4-16dda0a0920a</id>
     <axialoffset method="absolute">0.0</axialoffset>
     <position type="absolute">0.0</position>
     <designtype>original</designtype>
-    <motorconfiguration configid="b075bf53-4303-4e1e-9361-ef0017f32b4d" default="true">
+    <motorconfiguration configid="9afd2ed6-e427-4ac1-96a1-bbd3bcf43b4a" default="true">
       <stage number="0" active="true"/>
     </motorconfiguration>
     <referencetype>maximum</referencetype>
     <subcomponents>
       <stage>
         <name>Sustainer</name>
-        <id>0eb29a45-a625-4dfe-ad04-61049b23f60e</id>
+        <id>84fe1950-5014-4303-a736-38ef3603ec4d</id>
         <subcomponents>
           <nosecone>
             <name>Nose Cone</name>
-            <id>0766b34b-c759-4cd3-a4c7-5839720b4d0d</id>
+            <id>47fa24a6-bf95-41e2-8f55-96a6e06cdaa2</id>
             <finish>normal</finish>
             <material type="bulk" density="680" group="Custom">custom</material>
             <length>0.1</length>
@@ -34,7 +34,7 @@
             <subcomponents>
               <masscomponent>
                 <name>Mass Component</name>
-                <id>b71fc436-0840-4fbc-bda8-f676f8cb880c</id>
+                <id>3307d75c-1abe-41e9-8e13-98702aa58b13</id>
                 <axialoffset method="top">0</axialoffset>
                 <position type="top">0</position>
                 <packedlength>0.02</packedlength>
@@ -48,7 +48,7 @@
           </nosecone>
           <bodytube>
             <name>Body Tube</name>
-            <id>3ad8456e-b84d-4703-bdec-46ddd76228ae</id>
+            <id>bf6ece3e-cba7-4787-9f16-45ac7b412277</id>
             <finish>normal</finish>
             <material type="bulk" density="950" group="Custom">custom</material>
             <length>0.35</length>
@@ -57,7 +57,7 @@
             <subcomponents>
               <ellipticalfinset>
                 <name>Elliptical Fin Set</name>
-                <id>7a17a727-1935-456d-a4a2-8cbda09da7f3</id>
+                <id>4d6d2e2b-8276-44d2-8f24-aa1441bac35a</id>
                 <instancecount>4</instancecount>
                 <fincount>4</fincount>
                 <radiusoffset method="surface">0.0</radiusoffset>
@@ -68,16 +68,40 @@
                 <finish>normal</finish>
                 <material type="bulk" density="680" group="Custom">custom</material>
                 <thickness>0.003</thickness>
-                <crosssection>square</crosssection>
+                <crosssection>airfoil</crosssection>
                 <cant>0.0</cant>
                 <filletradius>0.0</filletradius>
                 <filletmaterial type="bulk" density="680.0" group="PaperProducts">Cardboard</filletmaterial>
                 <rootchord>0.06</rootchord>
                 <height>0.04</height>
               </ellipticalfinset>
+              <freeformfinset>
+                <name>Freeform Fin Set</name>
+                <id>39742bb2-eca4-4bd8-bcee-547f88e6426b</id>
+                <instancecount>3</instancecount>
+                <fincount>3</fincount>
+                <radiusoffset method="surface">0.0</radiusoffset>
+                <angleoffset method="relative">0.0</angleoffset>
+                <rotation>0.0</rotation>
+                <axialoffset method="bottom">0</axialoffset>
+                <position type="bottom">0</position>
+                <finish>normal</finish>
+                <material type="bulk" density="680" group="Custom">custom</material>
+                <thickness>0.0025</thickness>
+                <crosssection>rounded</crosssection>
+                <cant>0</cant>
+                <filletradius>0.0</filletradius>
+                <filletmaterial type="bulk" density="680.0" group="PaperProducts">Cardboard</filletmaterial>
+                <finpoints>
+                  <point x="0" y="0"/>
+                  <point x="0.025" y="0.032"/>
+                  <point x="0.05" y="0.032"/>
+                  <point x="0.05499999999999999" y="0"/>
+                </finpoints>
+              </freeformfinset>
               <launchlug>
                 <name>Launch Lug</name>
-                <id>7345891a-2bd6-4095-86f2-e40731f2fa6a</id>
+                <id>12a090a9-d6e2-4ca6-bb78-fe7cbdb2cfa9</id>
                 <instancecount>1</instancecount>
                 <instanceseparation>0.0</instanceseparation>
                 <angleoffset method="relative">180.0</angleoffset>
@@ -92,7 +116,7 @@
               </launchlug>
               <railbutton>
                 <name>Rail Button</name>
-                <id>17fa7088-1bf3-4d91-a137-97257d021c09</id>
+                <id>08c2ccab-a05a-4738-8d1d-81253629613a</id>
                 <instancecount>1</instancecount>
                 <instanceseparation>0.0</instanceseparation>
                 <angleoffset method="relative">180.0</angleoffset>
@@ -109,7 +133,7 @@
               </railbutton>
               <innertube>
                 <name>Inner Tube</name>
-                <id>54a5dbad-9d24-4391-bdc1-7b844a69acb0</id>
+                <id>2ad5319b-2bc2-4207-ba9d-79da2b59c6ba</id>
                 <axialoffset method="bottom">0</axialoffset>
                 <position type="bottom">0</position>
                 <material type="bulk" density="680" group="Custom">custom</material>
@@ -124,7 +148,7 @@
                 <subcomponents>
                   <engineblock>
                     <name>Engine Block</name>
-                    <id>2f36d27b-e20e-4284-b08c-f53b1e7a5a4d</id>
+                    <id>bd7c0b35-dba9-4b66-9fbd-efb0f0d82acc</id>
                     <axialoffset method="bottom">0</axialoffset>
                     <position type="bottom">0</position>
                     <material type="bulk" density="680" group="Custom">custom</material>
@@ -138,7 +162,7 @@
               </innertube>
               <centeringring>
                 <name>Centering Ring</name>
-                <id>18a58731-d4a0-4baf-8008-95e6ffc7fb2c</id>
+                <id>bc6c521b-7c65-481d-b97f-bd02a2274e88</id>
                 <instancecount>1</instancecount>
                 <instanceseparation>0.0</instanceseparation>
                 <axialoffset method="bottom">0</axialoffset>
@@ -152,7 +176,7 @@
               </centeringring>
               <tubecoupler>
                 <name>Tube Coupler</name>
-                <id>0e31ca00-b4ff-44c7-81f4-01499e1e6e89</id>
+                <id>f4766260-f05d-4aaa-bff0-0ae433c628b8</id>
                 <axialoffset method="bottom">0</axialoffset>
                 <position type="bottom">0</position>
                 <material type="bulk" density="680" group="Custom">custom</material>
@@ -164,7 +188,7 @@
                 <subcomponents>
                   <bulkhead>
                     <name>Bulkhead</name>
-                    <id>709463ce-5de3-4f04-a3cf-d1e781cc49f9</id>
+                    <id>7a265cf0-dd15-4908-b7f6-6f2fc4d5095c</id>
                     <instancecount>1</instancecount>
                     <instanceseparation>0.0</instanceseparation>
                     <axialoffset method="bottom">0</axialoffset>
@@ -179,7 +203,7 @@
               </tubecoupler>
               <parachute>
                 <name>Parachute</name>
-                <id>af71b137-d079-4185-9901-400766562fc5</id>
+                <id>f6cccc02-c6db-427d-8a1c-a847eadef6fb</id>
                 <axialoffset method="top">0</axialoffset>
                 <position type="top">0</position>
                 <packedlength>0.025</packedlength>
@@ -198,7 +222,7 @@
               </parachute>
               <streamer>
                 <name>Streamer</name>
-                <id>710a7dd8-2ee1-48f1-9de3-54ac4d7eb99c</id>
+                <id>20a2e307-4d4b-438f-98f5-f32f2e9cd38f</id>
                 <axialoffset method="top">0</axialoffset>
                 <position type="top">0</position>
                 <packedlength>0.025</packedlength>
@@ -215,7 +239,7 @@
               </streamer>
               <shockcord>
                 <name>Shock Cord</name>
-                <id>04a57e3e-7b99-4cf2-902b-683ebc72f295</id>
+                <id>0f99676d-7d7e-49f2-9fb3-2be6eb563271</id>
                 <axialoffset method="top">0</axialoffset>
                 <position type="top">0</position>
                 <packedlength>0.025</packedlength>
@@ -227,7 +251,7 @@
               </shockcord>
               <tubefinset>
                 <name>Tube Fin Set</name>
-                <id>89eef774-78f7-4b52-9a30-ded25554a8e7</id>
+                <id>f5d983b8-6b5a-42ae-b344-c5b345a5ab20</id>
                 <instancecount>3</instancecount>
                 <fincount>3</fincount>
                 <radiusoffset method="coaxial">0.0</radiusoffset>
@@ -245,7 +269,7 @@
           </bodytube>
           <transition>
             <name>Transition</name>
-            <id>488860e5-8662-4ef3-bc8a-f333dae33da1</id>
+            <id>a0fba250-300a-45e8-b70c-5f4726530bc9</id>
             <finish>normal</finish>
             <material type="bulk" density="680" group="Custom">custom</material>
             <length>0.04</length>

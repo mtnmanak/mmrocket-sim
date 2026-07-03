@@ -147,6 +147,21 @@ export function importOrk(data: ArrayBuffer | string): OrkTreeImportResult {
         if (cs && cs !== 'square') n['crossSection'] = cs;
         return n;
       }
+      case 'freeformfinset': {
+        const n = base('freeformfinset', true);
+        n['finCount'] = Math.round(num(el, 'fincount', 3));
+        n['thickness'] = num(el, 'thickness', 0.003);
+        const cantDegF = num(el, 'cant', 0);
+        if (cantDegF !== 0) n['cant'] = (cantDegF * Math.PI) / 180;
+        const csF = text(el, ':scope > crosssection');
+        if (csF && csF !== 'square') n['crossSection'] = csF;
+        const ptEls = Array.from(el.querySelectorAll(':scope > finpoints > point'));
+        const pts = ptEls
+          .map((pt) => [Number(pt.getAttribute('x')), Number(pt.getAttribute('y'))] as [number, number])
+          .filter((p) => Number.isFinite(p[0]) && Number.isFinite(p[1]));
+        if (pts.length >= 3) n['points'] = pts;
+        return n;
+      }
       case 'ellipticalfinset': {
         const n = base('ellipticalfinset', true);
         n['finCount'] = Math.round(num(el, 'fincount', 3));
@@ -422,6 +437,31 @@ export function exportOrk({ name, tree, motor, mountId }: OrkTreeExportInput): s
         emit(depth + 1, `<sweeplength>${n(node, 'sweep', 0.02)}</sweeplength>`);
         emit(depth + 1, `<height>${n(node, 'height', 0.03)}</height>`);
         close('trapezoidfinset');
+        break;
+      }
+      case 'freeformfinset': {
+        open('freeformfinset');
+        header(depth + 1, node, 'Freeform Fin Set');
+        emit(depth + 1, `<instancecount>${n(node, 'finCount', 3)}</instancecount>`);
+        emit(depth + 1, `<fincount>${n(node, 'finCount', 3)}</fincount>`);
+        emit(depth + 1, '<radiusoffset method="surface">0.0</radiusoffset>');
+        emit(depth + 1, '<angleoffset method="relative">0.0</angleoffset>');
+        emit(depth + 1, '<rotation>0.0</rotation>');
+        position(depth + 1, node, 'bottom');
+        emit(depth + 1, '<finish>normal</finish>');
+        material(depth + 1, node);
+        emit(depth + 1, `<thickness>${n(node, 'thickness', 0.003)}</thickness>`);
+        emit(depth + 1, `<crosssection>${node['crossSection'] ?? 'square'}</crosssection>`);
+        emit(depth + 1, `<cant>${(n(node, 'cant', 0) * 180) / Math.PI}</cant>`);
+        emit(depth + 1, '<filletradius>0.0</filletradius>');
+        emit(depth + 1, '<filletmaterial type="bulk" density="680.0" group="PaperProducts">Cardboard</filletmaterial>');
+        emit(depth + 1, '<finpoints>');
+        const ffPts = (node['points'] as [number, number][] | undefined) ?? [];
+        for (const [px, py] of ffPts) {
+          emit(depth + 2, `<point x="${px}" y="${py}"/>`);
+        }
+        emit(depth + 1, '</finpoints>');
+        close('freeformfinset');
         break;
       }
       case 'ellipticalfinset': {

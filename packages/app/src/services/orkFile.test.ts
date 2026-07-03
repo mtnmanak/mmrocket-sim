@@ -48,7 +48,7 @@ describe('.ork tree import', () => {
 
     const types = flatten(result.tree.components).map((c) => c.type);
     for (const t of [
-      'nosecone', 'masscomponent', 'bodytube', 'ellipticalfinset', 'launchlug',
+      'nosecone', 'masscomponent', 'bodytube', 'ellipticalfinset', 'freeformfinset', 'launchlug',
       'railbutton', 'innertube', 'engineblock', 'centeringring', 'tubecoupler',
       'bulkhead', 'parachute', 'streamer', 'shockcord', 'transition', 'tubefinset',
     ] as const) {
@@ -63,6 +63,16 @@ describe('.ork tree import', () => {
     // Positions read from axialoffset.
     const lug = all.find((n) => n.type === 'launchlug')!;
     expect(lug.position?.method).toBe('middle');
+    // Freeform fins: point array and cross-section preserved.
+    const ff = all.find((n) => n.type === 'freeformfinset')!;
+    const pts = ff['points'] as [number, number][];
+    expect(pts.length).toBe(4);
+    expect(pts[0]).toEqual([0, 0]);
+    expect(pts[1]![1]).toBeCloseTo(0.032, 12);
+    expect(ff['crossSection']).toBe('rounded');
+    // Elliptical fins carry their airfoil cross-section.
+    const ef = all.find((n) => n.type === 'ellipticalfinset')!;
+    expect(ef['crossSection']).toBe('airfoil');
     expect(result.ignored).toEqual([]);
   });
 });
@@ -127,8 +137,9 @@ describe('.ork permissive handling', () => {
     expect(result.motor?.designation).toBe('D12');
     expect(result.motor?.mountId).toBeUndefined();
     expect(result.notes.join(' ')).toMatch(/Motor mounts directly/);
-    expect(result.ignored).toContain('freeformfinset');
     expect(result.ignored).toContain('podset');
+    // freeformfinset is now supported — it imports rather than being ignored.
+    expect(result.ignored).not.toContain('freeformfinset');
   });
 
   it('accepts bare XML delivered as an ArrayBuffer', () => {

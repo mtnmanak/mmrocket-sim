@@ -12,6 +12,7 @@ export const DISPLAY_NAME: Record<ComponentType, string> = {
   bodytube: 'Body tube',
   trapezoidfinset: 'Trapezoidal fins',
   ellipticalfinset: 'Elliptical fins',
+  freeformfinset: 'Freeform fins',
   tubefinset: 'Tube fins',
   innertube: 'Inner tube',
   tubecoupler: 'Tube coupler',
@@ -30,7 +31,7 @@ export const DISPLAY_NAME: Record<ComponentType, string> = {
 const STAGE_CHILDREN: ComponentType[] = ['nosecone', 'bodytube', 'transition'];
 const INTERNAL: ComponentType[] = ['parachute', 'streamer', 'shockcord', 'masscomponent'];
 const BODY_CHILDREN: ComponentType[] = [
-  'trapezoidfinset', 'ellipticalfinset', 'tubefinset', 'launchlug', 'railbutton',
+  'trapezoidfinset', 'ellipticalfinset', 'freeformfinset', 'tubefinset', 'launchlug', 'railbutton',
   'innertube', 'tubecoupler', 'centeringring', 'bulkhead', 'engineblock', ...INTERNAL,
 ];
 
@@ -102,6 +103,13 @@ export const FIELDS: Record<ComponentType, FieldDef[]> = {
     { key: 'crossSection', label: 'Cross section', unit: 'none', options: CROSS_SECTIONS },
     { key: 'density', label: 'Material density', unit: 'kg/m3', step: 10 },
   ],
+  freeformfinset: [
+    { key: 'finCount', label: 'Fin count', unit: 'count' },
+    lenMM('thickness', 'Thickness', 0.5),
+    { key: 'cant', label: 'Cant angle', unit: 'deg', step: 0.5 },
+    { key: 'crossSection', label: 'Cross section', unit: 'none', options: CROSS_SECTIONS },
+    { key: 'density', label: 'Material density', unit: 'kg/m3', step: 10 },
+  ],
   ellipticalfinset: [
     { key: 'finCount', label: 'Fin count', unit: 'count' },
     lenMM('rootChord', 'Root chord'),
@@ -165,7 +173,7 @@ export const FIELDS: Record<ComponentType, FieldDef[]> = {
 
 /** Types that sit INSIDE their parent and use axial positioning. */
 export const POSITIONABLE: Set<ComponentType> = new Set([
-  'trapezoidfinset', 'ellipticalfinset', 'tubefinset', 'launchlug', 'railbutton',
+  'trapezoidfinset', 'ellipticalfinset', 'freeformfinset', 'tubefinset', 'launchlug', 'railbutton',
   'innertube', 'tubecoupler', 'centeringring', 'bulkhead', 'engineblock',
   'parachute', 'streamer', 'shockcord', 'masscomponent',
 ]);
@@ -178,6 +186,11 @@ export function defaultParams(type: ComponentType): Partial<ComponentNode> {
     case 'bodytube': return { length: 0.2, outerRadius: 0.012, thickness: 0.0005, density: 680 };
     case 'trapezoidfinset': return { finCount: 3, rootChord: 0.05, tipChord: 0.03, sweep: 0.02, height: 0.03, thickness: 0.003 };
     case 'ellipticalfinset': return { finCount: 3, rootChord: 0.05, height: 0.03, thickness: 0.003 };
+    case 'freeformfinset': return {
+      finCount: 3, thickness: 0.003,
+      points: [[0, 0], [0.02, 0.03], [0.045, 0.03], [0.05, 0]],
+      position: { method: 'bottom', offset: 0 },
+    };
     case 'tubefinset': return { finCount: 6, length: 0.1 };
     case 'innertube': return { length: 0.07, outerRadius: 0.0095, thickness: 0.0005, motorMount: true, position: { method: 'bottom', offset: 0 } };
     case 'tubecoupler': return { length: 0.05, thickness: 0.0005 };

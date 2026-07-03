@@ -401,3 +401,56 @@
 .series-chip-on .series-dot {
   opacity: 1;
 }
+
+/* --- Freeform fin point table --- */
+.fin-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+.fin-table th {
+  text-align: left;
+  color: var(--text-secondary);
+  font-weight: 500;
+  font-size: 11px;
+  padding: 2px 4px;
+}
+
+.fin-table td {
+  padding: 2px 4px;
+}
+
+.fin-table input {
+  width: 100%;
+  font: inherit;
+  font-size: 12px;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface-1);
+  box-sizing: border-box;
+}
+
+.fin-table input:disabled {
+  color: var(--text-muted);
+  background: var(--surface-2);
+}
+
+.fin-row-del {
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.fin-row-del:hover:not(:disabled) {
+  color: var(--status-serious);
+}
+
+.fin-row-del:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
