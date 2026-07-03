@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { OrkRocket, SimulationOptions, StaticInfo } from '@online-openrocket/engine';
 import {
-  classLabel, classesFittingMount, filterMotors, manufacturersForMount,
+  MOTOR_DB, classLabel, classesFittingMount, filterMotors, manufacturersForMount,
   sortMotors, type MotorDbEntry,
 } from '../services/motorDb.js';
+import { exToDbEntry, loadExMotors } from '../services/exMotors.js';
 import { fetchMotorSpec, delayOptions } from '../services/thrustcurve.js';
 import { buildSimRun, recommendDelay, type SimRun } from '../services/simReport.js';
 import { addRuns, runsToCsv } from '../services/simStore.js';
@@ -83,10 +84,14 @@ export function BatchSimulate({ rocket, info, mountId, mountDiameterMm, launch, 
     try { localStorage.setItem(CRITERIA_KEY, JSON.stringify(next)); } catch { /* best-effort */ }
   };
 
-  const fittingClasses = useMemo(() => classesFittingMount(mountDiameterMm), [mountDiameterMm]);
+  // Bundled DB + imported EX motors (they simulate like any other).
+  const allMotors = useMemo(() => [...MOTOR_DB, ...loadExMotors().map(exToDbEntry)], []);
+
+  const fittingClasses = useMemo(
+    () => classesFittingMount(mountDiameterMm, allMotors), [mountDiameterMm, allMotors]);
   const manufacturers = useMemo(
-    () => manufacturersForMount(mountDiameterMm, criteria.includeOOP),
-    [mountDiameterMm, criteria.includeOOP],
+    () => manufacturersForMount(mountDiameterMm, criteria.includeOOP, allMotors),
+    [mountDiameterMm, criteria.includeOOP, allMotors],
   );
 
   const candidates = useMemo(() => {
@@ -96,9 +101,9 @@ export function BatchSimulate({ rocket, info, mountId, mountDiameterMm, launch, 
       boreMm: mountDiameterMm,
       includeOOP: criteria.includeOOP,
       text: '',
-    });
+    }, allMotors);
     return sortMotors(filtered, 'totImpulseNs', -1);
-  }, [criteria, mountDiameterMm, fittingClasses]);
+  }, [criteria, mountDiameterMm, fittingClasses, allMotors]);
 
   useEffect(() => () => { cancelled.current = true; }, []);
 

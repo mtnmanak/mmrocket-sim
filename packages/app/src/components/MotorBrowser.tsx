@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { MotorSpec } from '@online-openrocket/engine';
 import {
-  MOTOR_DB_DATE, classLabel, classesFittingMount, diameterClass,
+  MOTOR_DB, MOTOR_DB_DATE, classLabel, classesFittingMount, diameterClass,
   filterMotors, manufacturersForMount, sortMotors,
   type MotorDbEntry, type MotorSortKey,
 } from '../services/motorDb.js';
+import {
+  addExMotors, deleteExMotor, exToDbEntry, loadExMotors, parseMotorFile,
+} from '../services/exMotors.js';
 import { delayOptions, fetchMotorSpec } from '../services/thrustcurve.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { niceStep, siToUi, uiToSi } from '../prefs/units.js';
@@ -73,6 +76,7 @@ export function MotorBrowser({ mountDiameterMm, onSelect, onClose }: {
   const [delay, setDelay] = useState<number | 'auto'>(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [exMotors, setExMotors] = useState(() => loadExMotors());
 
   const setFilters = (next: StoredFilters) => {
     setFiltersRaw(next);
@@ -81,10 +85,18 @@ export function MotorBrowser({ mountDiameterMm, onSelect, onClose }: {
     } catch { /* best-effort */ }
   };
 
-  const fittingClasses = useMemo(() => classesFittingMount(mountDiameterMm), [mountDiameterMm]);
+  // Bundled thrustcurve DB + imported EX motors under manufacturer "EX".
+  const allMotors = useMemo(
+    () => [...MOTOR_DB, ...exMotors.map(exToDbEntry)],
+    [exMotors],
+  );
+
+  const fittingClasses = useMemo(
+    () => classesFittingMount(mountDiameterMm, allMotors),
+    [mountDiameterMm, allMotors]);
   const manufacturers = useMemo(
-    () => manufacturersForMount(mountDiameterMm, filters.includeOOP),
-    [mountDiameterMm, filters.includeOOP],
+    () => manufacturersForMount(mountDiameterMm, filters.includeOOP, allMotors),
+    [mountDiameterMm, filters.includeOOP, allMotors],
   );
 
   const rows = useMemo(() => {
@@ -94,9 +106,22 @@ export function MotorBrowser({ mountDiameterMm, onSelect, onClose }: {
       boreMm: mountDiameterMm,
       includeOOP: filters.includeOOP,
       text,
-    });
+    }, allMotors);
     return sortMotors(filtered, filters.sortKey, filters.sortDir);
-  }, [filters, text, mountDiameterMm, fittingClasses]);
+  }, [filters, text, mountDiameterMm, fittingClasses, allMotors]);
+
+  const importMotorFile = async (file: File) => {
+    setError(null);
+    try {
+      const motors = parseMotorFile(file.name, await file.text());
+      setExMotors(addExMotors(motors));
+      setError(null);
+      setText('');
+      setFilters({ ...filters, manufacturers: [] });
+    } catch (e) {
+      setError(`Import failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
 
   useEffect(() => {
     if (picked) setDelay(delayOptions(picked)[delayOptions(picked).length - 1] ?? 0);
@@ -232,6 +257,15 @@ export function MotorBrowser({ mountDiameterMm, onSelect, onClose }: {
               />
               include out-of-production
             </label>
+            <label className="file-btn" title="Import experimental/EX motors from RASP (.eng) or RockSim (.rse) files — they appear under manufacturer EX">
+              ⬆ Import .eng/.rse
+              <input type="file" accept=".eng,.rse,.txt" style={{ display: 'none' }}
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) importMotorFile(f);
+                  e.target.value = '';
+                }} />
+            </label>
           </div>
         </div>
 
@@ -288,6 +322,20 @@ export function MotorBrowser({ mountDiameterMm, onSelect, onClose }: {
             <>
               <span style={{ flex: 1 }}>
                 <strong>{picked.manufacturerAbbrev} {picked.designation}</strong>
+                {picked.motorId.startsWith('ex:') && (
+                  <>
+                    {' '}
+                    <span className="motor-db-meta">
+                      ({exMotors.find((m) => m.motorId === picked.motorId)?.realManufacturer ?? 'imported'})
+                    </span>
+                    {' '}
+                    <button className="fin-row-del" title="Remove this imported motor"
+                      onClick={() => {
+                        setExMotors(deleteExMotor(picked.motorId));
+                        setPicked(null);
+                      }}>🗑</button>
+                  </>
+                )}
                 {tooLong(picked) && <span className="stability-bad"> ⚠ exceeds max motor length</span>}
               </span>
               {delayOptions(picked).length > 1 && (

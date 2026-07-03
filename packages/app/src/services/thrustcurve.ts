@@ -120,8 +120,38 @@ export function samplesToMotorSpec(
 
 const CACHE_PREFIX = 'tc:samples:';
 
-/** Fetches thrust samples (localStorage-cached) and builds the MotorSpec. */
+/**
+ * Fetches thrust samples (localStorage-cached) and builds the MotorSpec.
+ * Imported EX motors ("ex:" ids) build entirely from local data — .rse files
+ * carry measured per-sample masses, which beat the impulse-proportional
+ * approximation.
+ */
 export async function fetchMotorSpec(motor: TcMotor, ejectionDelay: number): Promise<MotorSpec> {
+  if (motor.motorId.startsWith('ex:')) {
+    const { getExMotor } = await import('./exMotors.js');
+    const ex = getExMotor(motor.motorId);
+    if (!ex) throw new Error(`Imported motor ${motor.designation} is no longer stored`);
+    if (ex.sampleMassesKg && ex.sampleMassesKg.length === ex.samples.length) {
+      const samples = [...ex.samples];
+      const masses = [...ex.sampleMassesKg];
+      if (samples[0]!.time > 0) {
+        samples.unshift({ time: 0, thrust: 0 });
+        masses.unshift(ex.totalWeightG / 1000);
+      }
+      return {
+        designation: ex.designation,
+        diameter: ex.diameter / 1000,
+        length: ex.length / 1000,
+        times: samples.map((s) => s.time),
+        thrusts: samples.map((s) => s.thrust),
+        masses,
+        cgX: ex.length / 2000,
+        ejectionDelay,
+      };
+    }
+    return samplesToMotorSpec(motor, ex.samples, ejectionDelay);
+  }
+
   const cacheKey = CACHE_PREFIX + motor.motorId;
   let samples: TcSample[] | null = null;
 
