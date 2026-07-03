@@ -541,3 +541,35 @@
 .fin-table input {
   color: var(--text-primary);
 }
+
+/* --- In-place unit switcher (click the unit next to any value) ---
+   select.unit-chip: must out-specify `.field select` (the boxy input style). */
+select.unit-chip {
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  background: transparent;
+  font-family: inherit;
+  font-size: inherit;
+  color: var(--accent);
+  padding: 0 1px;
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+  width: auto;
+}
+
+select.unit-chip:hover {
+  color: var(--series-1);
+}
+
+/* keep chips compact inside field labels, table headers, and stat tiles */
+.field label select.unit-chip,
+.fin-table th select.unit-chip,
+.chart-panel h3 select.unit-chip {
+  font-size: 11px;
+}
+
+.stat-unit select.unit-chip {
+  font-size: 12px;
+}

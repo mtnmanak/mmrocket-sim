@@ -3,7 +3,8 @@ import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import type { FlightResult, FlightSeries } from '@online-openrocket/engine';
 import { usePrefs, type Preferences } from '../prefs/PrefsContext.js';
-import { siToUi } from '../prefs/units.js';
+import { siToUi, type Quantity } from '../prefs/units.js';
+import { UnitChip } from './UnitChip.js';
 
 /**
  * Stacked single-series panels with synchronized crosshairs. Different-scale
@@ -24,6 +25,8 @@ interface SeriesDef {
   title: string;
   unit: string;
   color: string;
+  /** set for unit-preference-driven series: the title unit becomes a click-to-change chip */
+  quantity?: Quantity;
   /** display transform (SI -> UI unit) */
   f?: (v: number) => number;
 }
@@ -32,16 +35,16 @@ interface SeriesDef {
 function seriesCatalog(prefs: Preferences): SeriesDef[] {
   const u = prefs.units;
   return [
-    { key: 'altitude', title: 'Altitude', unit: u.distance, color: C[0]!, f: (v) => siToUi('distance', u.distance, v) },
-    { key: 'velocity', title: 'Velocity', unit: u.velocity, color: C[1]!, f: (v) => siToUi('velocity', u.velocity, v) },
-    { key: 'acceleration', title: 'Acceleration', unit: u.acceleration, color: C[2]!, f: (v) => siToUi('acceleration', u.acceleration, v) },
-    { key: 'mass', title: 'Mass', unit: u.mass, color: C[3]!, f: (v) => siToUi('mass', u.mass, v) },
+    { key: 'altitude', title: 'Altitude', unit: u.distance, quantity: 'distance', color: C[0]!, f: (v) => siToUi('distance', u.distance, v) },
+    { key: 'velocity', title: 'Velocity', unit: u.velocity, quantity: 'velocity', color: C[1]!, f: (v) => siToUi('velocity', u.velocity, v) },
+    { key: 'acceleration', title: 'Acceleration', unit: u.acceleration, quantity: 'acceleration', color: C[2]!, f: (v) => siToUi('acceleration', u.acceleration, v) },
+    { key: 'mass', title: 'Mass', unit: u.mass, quantity: 'mass', color: C[3]!, f: (v) => siToUi('mass', u.mass, v) },
     { key: 'thrust', title: 'Thrust', unit: 'N', color: C[4]! },
     { key: 'drag', title: 'Drag force', unit: 'N', color: C[5]! },
     { key: 'mach', title: 'Mach number', unit: '', color: C[6]! },
     { key: 'stability', title: 'Stability margin', unit: 'cal', color: C[7]! },
-    { key: 'cpLocation', title: 'CP location', unit: u.length, color: C[0]!, f: (v) => siToUi('length', u.length, v) },
-    { key: 'cgLocation', title: 'CG location', unit: u.length, color: C[1]!, f: (v) => siToUi('length', u.length, v) },
+    { key: 'cpLocation', title: 'CP location', unit: u.length, quantity: 'length', color: C[0]!, f: (v) => siToUi('length', u.length, v) },
+    { key: 'cgLocation', title: 'CG location', unit: u.length, quantity: 'length', color: C[1]!, f: (v) => siToUi('length', u.length, v) },
     { key: 'aoa', title: 'Angle of attack', unit: '°', color: C[2]!, f: (v) => (v * 180) / Math.PI },
   ];
 }
@@ -93,7 +96,12 @@ function Panel({ result, def }: { result: FlightResult; def: SeriesDef }) {
 
   return (
     <div className="chart-panel">
-      <h3>{def.title}{def.unit ? ` (${def.unit})` : ''}</h3>
+      <h3>
+        {def.title}
+        {def.quantity
+          ? <> <UnitChip quantity={def.quantity} /></>
+          : def.unit ? ` (${def.unit})` : ''}
+      </h3>
       <div ref={ref} />
     </div>
   );

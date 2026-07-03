@@ -1,5 +1,6 @@
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { niceStep, siToUi, uiToSi, type Quantity } from '../prefs/units.js';
+import { UnitChip } from './UnitChip.js';
 
 export interface LaunchConditions {
   launchRodLengthM: number;
@@ -58,7 +59,7 @@ export function LaunchPanel({ value, onChange, onLaunch, simulating }: {
     const step = spec && symbol ? niceStep(toUi(stepStored) - toUi(0)) : stepStored;
     return (
       <div className="field">
-        <label>{label}{symbol ? ` (${symbol})` : ''}</label>
+        <label>{label}{spec ? <> <UnitChip quantity={spec.quantity} /></> : ''}</label>
         <input
           type="number"
           step={step}

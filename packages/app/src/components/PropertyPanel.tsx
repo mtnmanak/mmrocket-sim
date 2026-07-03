@@ -1,6 +1,7 @@
 import { useRef } from 'react';
 import type { ComponentNode, ComponentPosition, RocketTree } from '@online-openrocket/engine';
 import { FinPointsEditor, type FinPoint } from './FinPointsEditor.js';
+import { UnitChip } from './UnitChip.js';
 import { DISPLAY_NAME, FIELDS, POSITIONABLE, type FieldDef } from '../tree/schema.js';
 import { findParent } from '../tree/treeModel.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
@@ -96,7 +97,7 @@ export function PropertyPanel({ tree, node, onPatch }: {
     const label = asDiameter
       ? f.label.replace(/radius/gi, (m) => (m[0] === 'R' ? 'Diameter' : 'diameter'))
       : f.label;
-    const suffix = symbol ?? PLAIN_SUFFIX[f.unit] ?? '';
+    const plainSuffix = PLAIN_SUFFIX[f.unit];
 
     // Step/range are authored in legacy units — convert, then snap the step
     // to a 1-2-5 value so spinners feel sane in any unit.
@@ -115,7 +116,10 @@ export function PropertyPanel({ tree, node, onPatch }: {
 
     return (
       <div className="field" key={f.key}>
-        <label>{label}{suffix && ` (${suffix})`}</label>
+        <label>
+          {label}
+          {quantity ? <> <UnitChip quantity={quantity} /></> : plainSuffix && ` (${plainSuffix})`}
+        </label>
         <input
           type="number"
           step={step}
@@ -229,7 +233,7 @@ export function PropertyPanel({ tree, node, onPatch }: {
         <h2>Overrides (blank = calculated)</h2>
         <div className="field-grid">
           <div className="field">
-            <label>Mass ({massSym})</label>
+            <label>Mass <UnitChip quantity="mass" /></label>
             <input
               type="number"
               step={niceStep(siToUi('mass', massSym, 0.0001))}
@@ -246,7 +250,7 @@ export function PropertyPanel({ tree, node, onPatch }: {
             />
           </div>
           <div className="field">
-            <label>CG from component top ({lengthSym})</label>
+            <label>CG from component top <UnitChip quantity="length" /></label>
             <input
               type="number"
               step={niceStep(siToUi('length', lengthSym, 0.001))}
@@ -294,7 +298,7 @@ export function PropertyPanel({ tree, node, onPatch }: {
               </select>
             </div>
             <div className="field">
-              <label>Offset ({lengthSym})</label>
+              <label>Offset <UnitChip quantity="length" /></label>
               <input
                 type="number"
                 step={niceStep(siToUi('length', lengthSym, 0.001))}

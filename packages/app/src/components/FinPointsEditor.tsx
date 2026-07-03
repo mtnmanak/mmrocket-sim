@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { niceStep, siToUi, uiToSi } from '../prefs/units.js';
+import { UnitChip } from './UnitChip.js';
 
 /**
  * Freeform fin planform editor: a visual editor and a coordinate table over
@@ -242,7 +243,12 @@ export function FinPointsEditor({ points, onChange }: {
 
       <table className="fin-table">
         <thead>
-          <tr><th>#</th><th>x ({lenSym})</th><th>y ({lenSym})</th><th></th></tr>
+          <tr>
+            <th>#</th>
+            <th>x <UnitChip quantity="length" /></th>
+            <th>y <UnitChip quantity="length" /></th>
+            <th></th>
+          </tr>
         </thead>
         <tbody>
           {pts.map((p, i) => {
