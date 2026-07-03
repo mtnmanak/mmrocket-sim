@@ -15,7 +15,7 @@
  * Usage: node packages/app/scripts/fetch-component-presets.mjs
  */
 
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { writeFileSync, mkdirSync, readdirSync, readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -23,6 +23,40 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const OUT_PATH = join(__dirname, '..', 'src', 'data', 'presets.json');
 
 const API_URL = 'https://api.github.com/repos/openrocket/openrocket-database/contents/orc';
+
+/**
+ * The DESKTOP app does not use the github orc/ set — it bundles its own,
+ * richer database under core/.../datafiles/components/internal/ (e.g.
+ * Fruity_Chutes_Enhanced.orc with 42 chutes, Spherachutes, Rocketman,
+ * FlisKits, rail buttons...). We merge those in, deduped against the github
+ * files (github wins on conflicts — it is the maintained source).
+ */
+const DESKTOP_COMPONENTS_DIR = process.env.OPENROCKET_SRC
+  ? join(process.env.OPENROCKET_SRC, 'core', 'src', 'main', 'resources', 'datafiles', 'components', 'internal')
+  : '<local path>/Open_Rocket_Source_Code/openrocket-release-24.12/core/src/main/resources/datafiles/components/internal';
+
+/** Manufacturer aliases (lowercased alphanumerics) so the same maker dedupes
+ *  across sources: desktop-internal files spell names differently. */
+const MFR_ALIASES = {
+  semrocastronautics: 'semroc',
+  loc: 'locprecision',
+  questaerospace: 'quest',
+  balsamachiningcom: 'balsamachining',
+  publicmissilesltd: 'publicmissiles',
+  pml: 'publicmissiles',
+  estesindustries: 'estes',
+};
+
+function normMfr(mfr) {
+  const k = String(mfr ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+  return MFR_ALIASES[k] ?? k;
+}
+
+/** Identity for dedupe across sources. */
+function presetKey(p) {
+  const pn = String(p.partNo ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+  return `${p.kind}|${normMfr(p.manufacturer)}|${pn}`;
+}
 
 // ---------------------------------------------------------------------------
 // Unit conversion tables (everything -> SI)
@@ -417,13 +451,50 @@ async function main() {
     }
   }
 
-  // Pass 2: parse components.
+  // Local pass: the desktop's bundled internal .orc files (see constant docs).
+  const localFiles = [];
+  if (existsSync(DESKTOP_COMPONENTS_DIR)) {
+    for (const name of readdirSync(DESKTOP_COMPONENTS_DIR)) {
+      if (!/\.orc$/i.test(name)) continue;
+      const xml = stripComments(readFileSync(join(DESKTOP_COMPONENTS_DIR, name), 'utf8'));
+      localFiles.push({ name: `desktop:${name}`, xml });
+      for (const [matName, byType] of parseMaterials(xml, name, [])) {
+        const existing = globalMaterials.get(matName) || {};
+        globalMaterials.set(matName, { ...byType, ...existing }); // github still wins
+      }
+    }
+    console.log(`Found ${localFiles.length} desktop-internal .orc files in ${DESKTOP_COMPONENTS_DIR}`);
+  } else {
+    console.warn(`WARNING: desktop components dir not found (${DESKTOP_COMPONENTS_DIR}) — desktop-only presets (Fruity Chutes etc.) will be missing. Set OPENROCKET_SRC.`);
+  }
+
+  // Pass 2: parse components. Github first (canonical), then desktop-internal
+  // files deduped against everything already collected.
+  const seen = new Set();
   for (const { name, xml } of fetched) {
     const { presets, skippedComponents: sk, warnings } = parseOrc(xml, name, globalMaterials);
+    for (const p of presets) seen.add(presetKey(p));
     allPresets.push(...presets);
     skippedComponents += sk;
     allWarnings.push(...warnings);
     console.log(`  ${name}: ${presets.length} presets${sk ? ` (${sk} skipped)` : ''}`);
+  }
+  for (const { name, xml } of localFiles) {
+    const { presets, skippedComponents: sk, warnings } = parseOrc(xml, name, globalMaterials);
+    let dupes = 0;
+    for (const p of presets) {
+      const key = presetKey(p);
+      if (seen.has(key)) {
+        dupes++;
+        continue;
+      }
+      seen.add(key);
+      p.source = 'desktop-24.12';
+      allPresets.push(p);
+    }
+    skippedComponents += sk;
+    allWarnings.push(...warnings);
+    console.log(`  ${name}: ${presets.length - dupes} presets added (${dupes} duplicates of github${sk ? `, ${sk} skipped` : ''})`);
   }
 
   allPresets.sort(
@@ -435,7 +506,7 @@ async function main() {
 
   const out = {
     generated: new Date().toISOString().slice(0, 10),
-    source: 'github.com/openrocket/openrocket-database',
+    source: 'github.com/openrocket/openrocket-database + OpenRocket 24.12 datafiles/components/internal',
     count: allPresets.length,
     presets: allPresets,
   };

@@ -9,7 +9,7 @@
  * push.
  */
 
-export const APP_VERSION = '0.003';
+export const APP_VERSION = '0.004';
 
 export interface ChangelogEntry {
   version: string;
@@ -20,6 +20,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.004',
+    date: '2026-07-03',
+    title: 'Preset database completeness — the desktop\'s own component files',
+    items: [
+      'The desktop app bundles its own component database beyond the public GitHub one — Fruity Chutes Enhanced (42 chutes, was 10 here), Spherachutes (46), Rocketman (107), FlisKits (160), Front Range, b2 Rocketry, Quest, and ~440 more legacy parts. All merged in: the preset database grows from 3,936 to 4,700 parts.',
+      'Investigated the "215 mph descent" report: the descent-rate math is correct — that number is the OPENING velocity of the main when the drogue stage is a 36"×1" streamer, which genuinely cannot brake an 800 g rocket (kernel-verified: the same 15" chute deployed at apogee descends at 26 mph). The per-device recovery table from v0.003 shows exactly this.',
+    ],
+  },
   {
     version: '0.003',
     date: '2026-07-03',
