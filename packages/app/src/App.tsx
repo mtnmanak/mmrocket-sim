@@ -8,6 +8,7 @@ import {
   type StaticInfo,
 } from '@online-openrocket/engine';
 import { BatchSimulate } from './components/BatchSimulate.js';
+import { ChangelogDialog } from './components/ChangelogDialog.js';
 import { ComponentTree } from './components/ComponentTree.js';
 import { FlightCharts } from './components/FlightCharts.js';
 import { DEFAULT_CONDITIONS, LaunchPanel, type LaunchConditions } from './components/LaunchPanel.js';
@@ -24,6 +25,7 @@ import { exportOrk, importOrk } from './services/orkFile.js';
 import { loadSession, saveSessionDebounced } from './services/session.js';
 import { buildSimRun, recommendDelay, type MotorMeta, type SimRun } from './services/simReport.js';
 import { addRun, loadRuns } from './services/simStore.js';
+import { APP_VERSION } from './version.js';
 import {
   addChild, defaultTree, duplicateNode, emptyTree, findNode, inheritDefaults,
   makeNode, motorMounts, moveNode, removeNode, updateAllNodes, updateNode,
@@ -57,6 +59,7 @@ export function App() {
   const [view, setView] = useState<'2d' | '3d'>('2d');
   const [confirmNew, setConfirmNew] = useState(false);
   const [showBatch, setShowBatch] = useState(false);
+  const [showChangelog, setShowChangelog] = useState(false);
 
   // Autosave the working state so a closed tab or crash never loses work.
   useEffect(() => {
@@ -236,7 +239,15 @@ export function App() {
     <div className="viz-root" data-theme={resolvedTheme}>
       <header className="app-header">
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-          <h1 style={{ flex: 1 }}>🚀 Online OpenRocket</h1>
+          <h1>🚀 Online OpenRocket</h1>
+          <button
+            className="version-badge"
+            style={{ flex: '0 0 auto', marginRight: 'auto' }}
+            title="What's new in this build"
+            onClick={() => setShowChangelog(true)}
+          >
+            v{APP_VERSION} beta
+          </button>
           <button className="file-btn" onClick={() => setShowPrefs(true)} title="Preferences">
             ⚙ Preferences
           </button>
@@ -247,6 +258,7 @@ export function App() {
         </p>
       </header>
       {showPrefs && <PreferencesDialog onClose={() => setShowPrefs(false)} />}
+      {showChangelog && <ChangelogDialog onClose={() => setShowChangelog(false)} />}
       {showBatch && built && activeMountId && (
         <BatchSimulate
           rocket={built.rocket}
