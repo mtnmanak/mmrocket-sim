@@ -1,5 +1,5 @@
 import { Fragment, useRef, useState } from 'react';
-import type { ComponentNode, ComponentPosition, RocketTree } from '@online-openrocket/engine';
+import type { ComponentInfo, ComponentNode, ComponentPosition, RocketTree } from '@online-openrocket/engine';
 import { FinPointsEditor, type FinPoint } from './FinPointsEditor.js';
 import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
@@ -7,7 +7,7 @@ import { DISPLAY_NAME, FIELDS, POSITIONABLE, type FieldDef } from '../tree/schem
 import { findParent } from '../tree/treeModel.js';
 import { anchorStarts, axialLength, offsetForStart, snapStart, startFromPosition } from '../tree/position.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
-import { niceStep, siToUi, uiToSi, type Quantity } from '../prefs/units.js';
+import { fmtSi, niceStep, siToUi, uiToSi, type Quantity } from '../prefs/units.js';
 import { BULK_MATERIALS, LINE_MATERIALS, SURFACE_MATERIALS, type MaterialDef } from '../data/materials.js';
 import { PresetPicker } from './PresetPicker.js';
 import { KIND_FOR_TYPE } from '../services/presets.js';
@@ -100,10 +100,20 @@ function MaterialSelect({ label, list, nameKey, densityKey, densityUnit, node, o
   );
 }
 
-export function PropertyPanel({ tree, node, onPatch }: {
+/** Quick palette for the display color (the owner: basic colors one click away). */
+const COLOR_PRESETS = [
+  '#ffffff', '#1c1c1c', '#e34948', '#f5871f', '#f2c230',
+  '#3fa34d', '#2a78d6', '#8e5bd1', '#9a978f', '#7a4a2b',
+];
+
+export function PropertyPanel({ tree, node, info, onPatch, onPatchAll }: {
   tree: RocketTree;
   node: ComponentNode;
+  /** Engine-computed stats for THIS component (null while a build is broken). */
+  info?: ComponentInfo | null;
   onPatch: (patch: Partial<ComponentNode>) => void;
+  /** Applies a patch to every component carrying those fields (bulk finish). */
+  onPatchAll?: (patch: Partial<ComponentNode>) => void;
 }) {
   const { prefs } = usePrefs();
   const [showPresets, setShowPresets] = useState(false);
@@ -198,6 +208,18 @@ export function PropertyPanel({ tree, node, onPatch }: {
   return (
     <div className="panel" style={{ marginTop: 10 }}>
       <h2>{DISPLAY_NAME[node.type]}</h2>
+      {info && (
+        <p className="comp-stats">
+          this component: {fmtSi('length', lengthSym, info.length)} {lengthSym}
+          {' · '}{fmtSi('mass', massSym, info.mass)} {massSym}
+          {node.type.endsWith('finset') ? ' (all fins)' : ''}
+          {info.sectionMass > info.mass + 1e-9 && (
+            <> · {fmtSi('mass', massSym, info.sectionMass)} {massSym} with children</>
+          )}
+          {' · '}CG {fmtSi('length', lengthSym, info.cgX)} {lengthSym} from its front
+          {' · '}starts {fmtSi('length', lengthSym, info.positionX)} {lengthSym} from nose
+        </p>
+      )}
       <div className="field">
         <label>Name</label>
         <input value={node.name ?? ''} onChange={(e) => onPatch({ name: e.target.value })} />
@@ -213,10 +235,15 @@ export function PropertyPanel({ tree, node, onPatch }: {
       )}
       <div className="field" style={{ marginTop: 6 }}>
         <label>Color (2D/3D display)</label>
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
           <input type="color" style={{ width: 44, padding: 2, height: 26 }}
             value={typeof node['color'] === 'string' ? (node['color'] as string) : '#d5d2cb'}
             onChange={(e) => onPatch({ color: e.target.value })} />
+          {COLOR_PRESETS.map((c) => (
+            <button key={c} className="color-swatch" style={{ background: c }}
+              title={c} aria-label={`Set color ${c}`}
+              onClick={() => onPatch({ color: c })} />
+          ))}
           {typeof node['color'] === 'string' && (
             <button className="file-btn" onClick={() => onPatch({ color: undefined })}>reset</button>
           )}
@@ -242,7 +269,19 @@ export function PropertyPanel({ tree, node, onPatch }: {
           if (f.options) {
             return (
               <div className="field" key={f.key}>
-                <label>{f.label}</label>
+                <label>
+                  {f.label}
+                  {f.key === 'finish' && onPatchAll && (
+                    <>
+                      {' '}
+                      <button className="finish-all-btn"
+                        title="Apply this finish to every component"
+                        onClick={() => onPatchAll({ finish: node['finish'] ?? 'normal' })}>
+                        → all
+                      </button>
+                    </>
+                  )}
+                </label>
                 <select
                   value={String(node[f.key] ?? f.options[0]![0])}
                   onChange={(e) => onPatch({ [f.key]: e.target.value })}
@@ -261,6 +300,33 @@ export function PropertyPanel({ tree, node, onPatch }: {
                   nameKey="materialName" densityKey="density" densityUnit="kg/m³"
                   node={node} onPatch={onPatch} />
                 {renderNumeric(f)}
+              </Fragment>
+            );
+          }
+          // Tubes: wall thickness and inner diameter are two views of one
+          // dimension — editing either updates the other.
+          if (f.key === 'thickness' && typeof node['outerRadius'] === 'number'
+              && typeof node['thickness'] === 'number') {
+            const outerR = node['outerRadius'] as number;
+            const innerSi = Math.max(0, outerR - (node['thickness'] as number)) * 2;
+            const idQuantity: Quantity = 'length';
+            const idSym = prefs.units[idQuantity];
+            return (
+              <Fragment key={f.key}>
+                {renderNumeric(f)}
+                <div className="field">
+                  <label>Inner diameter <UnitChip quantity="length" /></label>
+                  <NumField
+                    value={siToUi(idQuantity, idSym, innerSi)}
+                    step={niceStep(siToUi(idQuantity, idSym, 0.001))}
+                    max={siToUi(idQuantity, idSym, outerR * 2)}
+                    onCommit={(v) => {
+                      if (v === null) return;
+                      const idSi = uiToSi(idQuantity, idSym, v);
+                      onPatch({ thickness: Math.max(0, outerR - idSi / 2) });
+                    }}
+                  />
+                </div>
               </Fragment>
             );
           }
@@ -347,7 +413,18 @@ export function PropertyPanel({ tree, node, onPatch }: {
             <input
               type="checkbox"
               checked={node['motorMount'] === true}
-              onChange={(e) => onPatch({ motorMount: e.target.checked })}
+              onChange={(e) => {
+                const patch: Partial<ComponentNode> = { motorMount: e.target.checked };
+                // A tube that becomes a motor mount takes the conventional name
+                // (only when the user hasn't renamed it).
+                if (e.target.checked
+                    && (!node.name || node.name === DISPLAY_NAME.innertube)) {
+                  patch.name = 'Motor Mount Tube';
+                } else if (!e.target.checked && node.name === 'Motor Mount Tube') {
+                  patch.name = DISPLAY_NAME.innertube;
+                }
+                onPatch(patch);
+              }}
               style={{ width: 'auto', marginRight: 6 }}
             />
             Acts as motor mount
@@ -359,12 +436,13 @@ export function PropertyPanel({ tree, node, onPatch }: {
         <h2>Overrides (blank = calculated)</h2>
         <div className="field-grid">
           <div className="field">
-            <label>Mass <UnitChip quantity="mass" /></label>
+            <label>Mass{node.type.endsWith('finset') ? ' (all fins combined)' : ''} <UnitChip quantity="mass" /></label>
             <NumField
               value={typeof node['overrideMass'] === 'number'
                 ? siToUi('mass', massSym, node['overrideMass'] as number) : undefined}
               step={niceStep(siToUi('mass', massSym, 0.0001))}
               nullable
+              placeholder={info ? fmtSi('mass', massSym, info.mass) : undefined}
               onCommit={(v) => onPatch({
                 overrideMass: v === null ? undefined : uiToSi('mass', massSym, v),
               })}
@@ -378,6 +456,7 @@ export function PropertyPanel({ tree, node, onPatch }: {
               step={niceStep(siToUi('length', lengthSym, 0.001))}
               allowNegative
               nullable
+              placeholder={info ? fmtSi('length', lengthSym, info.cgX) : undefined}
               onCommit={(v) => onPatch({
                 overrideCGX: v === null ? undefined : lenFromUi(v),
               })}
@@ -389,6 +468,7 @@ export function PropertyPanel({ tree, node, onPatch }: {
               value={typeof node['overrideCD'] === 'number' ? (node['overrideCD'] as number) : undefined}
               step={0.05}
               nullable
+              placeholder="auto"
               onCommit={(v) => onPatch({ overrideCD: v === null ? undefined : v })}
             />
           </div>

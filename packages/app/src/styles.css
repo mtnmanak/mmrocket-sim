@@ -536,6 +536,44 @@
   cursor: default;
 }
 
+.schematic-reset {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 2;
+}
+
+/* --- Property panel extras --- */
+.comp-stats {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin: 2px 0 8px;
+  line-height: 1.5;
+}
+
+.color-swatch {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  padding: 0;
+}
+
+.finish-all-btn {
+  font-size: 10px;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface-1);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.finish-all-btn:hover {
+  color: var(--text-primary);
+}
+
 /* --- Batch simulate --- */
 .batch-progress {
   height: 6px;

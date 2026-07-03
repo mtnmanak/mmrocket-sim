@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ComponentNode, ComponentPosition, RocketTree, StaticInfo } from '@online-openrocket/engine';
 import { anchorStarts, axialLength, offsetForStart, snapStart, startFromPosition } from '../tree/position.js';
 
@@ -56,6 +56,9 @@ export function TreeSchematic({ tree, info, onPatchNode }: {
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const drag = useRef<DragState | null>(null);
+  // View transform (zoom & pan) in viewBox px; identity = whole rocket fits.
+  const [zoom, setZoom] = useState({ k: 1, x: 0, y: 0 });
+  const pan = useRef<{ pointerX: number; pointerY: number; x0: number; y0: number } | null>(null);
 
   // --- measure the axial chain ---
   let totalLen = 0;
@@ -84,7 +87,7 @@ export function TreeSchematic({ tree, info, onPatchNode }: {
       if (!onPatchNode || !child.id) return;
       const rect = svgRef.current?.getBoundingClientRect();
       if (!rect || rect.width === 0) return;
-      e.stopPropagation();
+      e.stopPropagation(); // don't also start a background pan
       const pos = (child.position ?? { method: 'top', offset: 0 }) as ComponentPosition;
       drag.current = {
         childId: child.id,
@@ -98,23 +101,68 @@ export function TreeSchematic({ tree, info, onPatchNode }: {
       (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
     };
 
-  const onMove = (e: React.PointerEvent) => {
-    const d = drag.current;
-    if (!d || !onPatchNode) return;
-    const dxModel = ((e.clientX - d.pointerX) * d.clientScale) / scale;
-    const anchors = anchorStarts(d.parent, d.child);
-    const epsilon = (6 * 1) / scale; // ~6 viewBox px of magnetism
-    const snapped = snapStart(d.relStart + dxModel, anchors, epsilon);
-    const pos = (d.child.position ?? { method: 'top', offset: 0 }) as ComponentPosition;
-    onPatchNode(d.childId, {
-      position: {
-        method: pos.method,
-        offset: offsetForStart(pos.method, snapped, axialLength(d.child), d.pLen),
-      },
-    });
+  const beginPan = (e: React.PointerEvent) => {
+    const rect = svgRef.current?.getBoundingClientRect();
+    if (!rect || rect.width === 0) return;
+    pan.current = { pointerX: e.clientX, pointerY: e.clientY, x0: zoom.x, y0: zoom.y };
+    (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
   };
 
-  const endDrag = () => { drag.current = null; };
+  const onMove = (e: React.PointerEvent) => {
+    const d = drag.current;
+    if (d && onPatchNode) {
+      const dxModel = ((e.clientX - d.pointerX) * d.clientScale) / (scale * zoom.k);
+      const anchors = anchorStarts(d.parent, d.child);
+      const epsilon = (6 * 1) / (scale * zoom.k); // ~6 screen px of magnetism
+      const snapped = snapStart(d.relStart + dxModel, anchors, epsilon);
+      const pos = (d.child.position ?? { method: 'top', offset: 0 }) as ComponentPosition;
+      onPatchNode(d.childId, {
+        position: {
+          method: pos.method,
+          offset: offsetForStart(pos.method, snapped, axialLength(d.child), d.pLen),
+        },
+      });
+      return;
+    }
+    const p = pan.current;
+    if (p) {
+      const rect = svgRef.current?.getBoundingClientRect();
+      if (!rect || rect.width === 0) return;
+      const clientScale = w / rect.width;
+      setZoom((z) => ({
+        ...z,
+        x: p.x0 + (e.clientX - p.pointerX) * clientScale,
+        y: p.y0 + (e.clientY - p.pointerY) * clientScale,
+      }));
+    }
+  };
+
+  const endDrag = () => { drag.current = null; pan.current = null; };
+
+  // Wheel zoom around the pointer. Native listener: React's onWheel is
+  // passive, so preventDefault (to stop page scroll) must be attached here.
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const rect = svg.getBoundingClientRect();
+      if (rect.width === 0) return;
+      const px = ((e.clientX - rect.left) / rect.width) * w;
+      const py = ((e.clientY - rect.top) / rect.height) * h;
+      setZoom((z) => {
+        const k = Math.min(12, Math.max(1, z.k * (e.deltaY < 0 ? 1.2 : 1 / 1.2)));
+        if (k === z.k) return z;
+        // Keep the model point under the cursor fixed while scaling.
+        const mx = (px - z.x) / z.k;
+        const my = (py - z.y) / z.k;
+        const next = { k, x: px - mx * k, y: py - my * k };
+        return k === 1 ? { k: 1, x: 0, y: 0 } : next;
+      });
+    };
+    svg.addEventListener('wheel', onWheel, { passive: false });
+    return () => svg.removeEventListener('wheel', onWheel);
+  }, []);
 
   // --- render chain + children ---
   const shapes: React.ReactNode[] = [];
@@ -217,11 +265,24 @@ export function TreeSchematic({ tree, info, onPatchNode }: {
     }
   };
 
+  // Dashed outline for a shoulder sliding inside the adjacent tube.
+  const shoulderRect = (startX: number, lenSi: number, rSi: number, color: string) => {
+    if (lenSi <= 0 || rSi <= 0) return;
+    shapes.push(
+      <rect key={key++} x={ctx.x0 + startX * scale} y={ctx.cy - rSi * scale}
+        width={Math.max(1.5, lenSi * scale)} height={2 * rSi * scale}
+        fill="rgba(127,127,127,0.001)" stroke={color} strokeWidth="1"
+        strokeDasharray="3 2" />,
+    );
+  };
+
   for (const n of tree.components) {
     const len = num(n, 'length', 0);
     if (n.type === 'nosecone') {
       const r = num(n, 'aftRadius', 0.012);
       shapes.push(<path key={key++} d={nosePath(ctx, x, len, r)} fill={fillOf(n, '#d5d2cb')} stroke="#7a786f" strokeWidth="1" />);
+      // Aft shoulder slides into the tube behind the nose.
+      shoulderRect(x + len, num(n, 'shoulderLength', 0), num(n, 'shoulderRadius', 0), '#9a978f');
       renderChildren(n, x, len, r);
       x += len;
     } else if (n.type === 'bodytube') {
@@ -242,6 +303,10 @@ export function TreeSchematic({ tree, info, onPatchNode }: {
           points={`${X},${ctx.cy - rf * scale} ${X + len * scale},${ctx.cy - ra * scale} ${X + len * scale},${ctx.cy + ra * scale} ${X},${ctx.cy + rf * scale}`}
           fill={fillOf(n, '#d5d2cb')} stroke="#7a786f" strokeWidth="1" />,
       );
+      // Shoulders slide into the tubes ahead of / behind the transition.
+      const fsl = num(n, 'foreShoulderLength', 0);
+      shoulderRect(x - fsl, fsl, num(n, 'foreShoulderRadius', 0), '#9a978f');
+      shoulderRect(x + len, num(n, 'aftShoulderLength', 0), num(n, 'aftShoulderRadius', 0), '#9a978f');
       renderChildren(n, x, len, Math.max(rf, ra));
       x += len;
     }
@@ -252,27 +317,40 @@ export function TreeSchematic({ tree, info, onPatchNode }: {
   const cpX = info ? ctx.x0 + info.cp * scale : null;
 
   return (
-    <svg ref={svgRef} viewBox={`0 0 ${w} ${h}`}
-        style={{ width: '100%', height: 'auto', display: 'block', touchAction: 'none' }}
-        role="img" aria-label="Rocket side view with CG and CP markers — drag components to reposition"
-        onPointerMove={onMove} onPointerUp={endDrag} onPointerLeave={endDrag}>
-      {shapes}
-      {cgX !== null && (
-        <g>
-          <circle cx={cgX} cy={ctx.cy} r={markerR} fill="var(--surface-1)" stroke="var(--text-primary)" strokeWidth="1.5" />
-          <path d={`M ${cgX} ${ctx.cy} L ${cgX + markerR} ${ctx.cy} A ${markerR} ${markerR} 0 0 1 ${cgX} ${ctx.cy + markerR} Z`} fill="var(--text-primary)" />
-          <path d={`M ${cgX} ${ctx.cy} L ${cgX - markerR} ${ctx.cy} A ${markerR} ${markerR} 0 0 1 ${cgX} ${ctx.cy - markerR} Z`} fill="var(--text-primary)" />
-          <text x={cgX} y={ctx.cy - markerR - 6} textAnchor="middle" fontSize="11" fill="var(--text-primary)">CG</text>
+    <div style={{ position: 'relative' }}>
+      <svg ref={svgRef} viewBox={`0 0 ${w} ${h}`}
+          style={{ width: '100%', height: 'auto', display: 'block', touchAction: 'none',
+            cursor: zoom.k > 1 ? 'grab' : undefined }}
+          role="img" aria-label="Rocket side view with CG and CP markers — drag components, wheel to zoom, drag background to pan"
+          onPointerDown={beginPan}
+          onPointerMove={onMove} onPointerUp={endDrag} onPointerLeave={endDrag}>
+        <g transform={`translate(${zoom.x} ${zoom.y}) scale(${zoom.k})`}>
+          {shapes}
+          {cgX !== null && (
+            <g>
+              <circle cx={cgX} cy={ctx.cy} r={markerR} fill="var(--surface-1)" stroke="var(--text-primary)" strokeWidth="1.5" />
+              <path d={`M ${cgX} ${ctx.cy} L ${cgX + markerR} ${ctx.cy} A ${markerR} ${markerR} 0 0 1 ${cgX} ${ctx.cy + markerR} Z`} fill="var(--text-primary)" />
+              <path d={`M ${cgX} ${ctx.cy} L ${cgX - markerR} ${ctx.cy} A ${markerR} ${markerR} 0 0 1 ${cgX} ${ctx.cy - markerR} Z`} fill="var(--text-primary)" />
+              <text x={cgX} y={ctx.cy - markerR - 6} textAnchor="middle" fontSize="11" fill="var(--text-primary)">CG</text>
+            </g>
+          )}
+          {cpX !== null && (
+            <g>
+              <circle cx={cpX} cy={ctx.cy} r={markerR} fill="none" stroke="#e34948" strokeWidth="2" />
+              <circle cx={cpX} cy={ctx.cy} r={3.5} fill="#e34948" />
+              <text x={cpX} y={ctx.cy + markerR + 15} textAnchor="middle" fontSize="11" fill="#e34948">CP</text>
+            </g>
+          )}
         </g>
+      </svg>
+      {zoom.k > 1 && (
+        <button className="file-btn schematic-reset"
+          title="Fit the whole rocket in view"
+          onClick={() => setZoom({ k: 1, x: 0, y: 0 })}>
+          ⤢ Reset view
+        </button>
       )}
-      {cpX !== null && (
-        <g>
-          <circle cx={cpX} cy={ctx.cy} r={markerR} fill="none" stroke="#e34948" strokeWidth="2" />
-          <circle cx={cpX} cy={ctx.cy} r={3.5} fill="#e34948" />
-          <text x={cpX} y={ctx.cy + markerR + 15} textAnchor="middle" fontSize="11" fill="#e34948">CP</text>
-        </g>
-      )}
-    </svg>
+    </div>
   );
 }
 

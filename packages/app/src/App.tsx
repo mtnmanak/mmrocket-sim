@@ -25,7 +25,8 @@ import { loadSession, saveSessionDebounced } from './services/session.js';
 import { buildSimRun, recommendDelay, type MotorMeta, type SimRun } from './services/simReport.js';
 import { addRun, loadRuns } from './services/simStore.js';
 import {
-  addChild, defaultTree, emptyTree, findNode, makeNode, motorMounts, moveNode, removeNode, updateNode,
+  addChild, defaultTree, duplicateNode, emptyTree, findNode, inheritDefaults,
+  makeNode, motorMounts, moveNode, removeNode, updateAllNodes, updateNode,
 } from './tree/treeModel.js';
 import './styles.css';
 
@@ -217,6 +218,15 @@ export function App() {
   };
 
   const selectedNode = selectedId ? findNode(tree, selectedId) : null;
+  // Per-component static info (mass covers ALL fins of a set, per OpenRocket).
+  const selectedInfo = useMemo(() => {
+    if (!built || !selectedNode?.id) return null;
+    try {
+      return built.rocket.componentInfo(selectedNode.id);
+    } catch {
+      return null;
+    }
+  }, [built, selectedNode]);
   const mountNode = activeMountId ? findNode(tree, activeMountId) : null;
   const mountInnerDiaMm = mountNode
     ? Math.round(((mountNode['outerRadius'] as number ?? 0.0095) - (mountNode['thickness'] as number ?? 0.0005)) * 2000)
@@ -310,8 +320,20 @@ export function App() {
                 setTree(removeNode(tree, id));
                 if (selectedId === id) setSelectedId(null);
               }}
+              onDuplicate={(id) => {
+                const { tree: next, newId } = duplicateNode(tree, id);
+                setTree(next);
+                if (newId) setSelectedId(newId);
+              }}
               onAdd={(parentId, type: ComponentType) => {
-                const node = makeNode(type);
+                // New components inherit diameter/material/finish from the
+                // component they follow (previous sibling, else the parent).
+                const parent = parentId === 'stage' ? 'stage' as const : findNode(tree, parentId);
+                const siblings = parent === 'stage'
+                  ? tree.components
+                  : parent?.children ?? [];
+                const prev = siblings.length ? siblings[siblings.length - 1]! : null;
+                const node = inheritDefaults(makeNode(type), parent, prev);
                 setTree(addChild(tree, parentId, node));
                 setSelectedId(node.id!);
               }}
@@ -322,7 +344,9 @@ export function App() {
             <PropertyPanel
               tree={tree}
               node={selectedNode}
+              info={selectedInfo}
               onPatch={(patch) => setTree(updateNode(tree, selectedNode.id!, patch))}
+              onPatchAll={(patch) => setTree(updateAllNodes(tree, patch))}
             />
           )}
 

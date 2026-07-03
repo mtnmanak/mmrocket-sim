@@ -1,5 +1,5 @@
 import type { ComponentNode, ComponentType, RocketTree } from '@online-openrocket/engine';
-import { defaultParams, DISPLAY_NAME } from './schema.js';
+import { defaultParams, DISPLAY_NAME, FIELDS } from './schema.js';
 
 /**
  * Immutable tree-editing helpers. Every node carries a unique editor id
@@ -101,6 +101,89 @@ export function moveNode(tree: RocketTree, id: string, dir: -1 | 1): RocketTree 
     return nodes.map((n) => (n.children ? ({ ...n, children: shift(n.children) } as ComponentNode) : n));
   };
   return { ...tree, components: shift(tree.components) };
+}
+
+function cloneSubtree(node: ComponentNode): ComponentNode {
+  return {
+    ...node,
+    id: freshId(),
+    children: node.children?.map(cloneSubtree),
+  } as ComponentNode;
+}
+
+/**
+ * Deep-copies a node (fresh ids throughout) and inserts the copy right after
+ * the original among its siblings. Returns the new tree and the copy's id.
+ */
+export function duplicateNode(tree: RocketTree, id: string): { tree: RocketTree; newId: string | null } {
+  let newId: string | null = null;
+  const walk = (nodes: ComponentNode[]): ComponentNode[] => {
+    const idx = nodes.findIndex((n) => n.id === id);
+    if (idx >= 0) {
+      const copy = cloneSubtree(nodes[idx]!);
+      copy.name = nodes[idx]!.name ? `${nodes[idx]!.name} (copy)` : copy.name;
+      newId = copy.id!;
+      return [...nodes.slice(0, idx + 1), copy, ...nodes.slice(idx + 1)];
+    }
+    return nodes.map((n) => (n.children ? ({ ...n, children: walk(n.children) } as ComponentNode) : n));
+  };
+  return { tree: { ...tree, components: walk(tree.components) }, newId };
+}
+
+/** Applies a patch to EVERY node that carries the patched fields. */
+export function updateAllNodes(tree: RocketTree, patch: Partial<ComponentNode>): RocketTree {
+  const keys = Object.keys(patch);
+  const walk = (nodes: ComponentNode[]): ComponentNode[] =>
+    nodes.map((n) => {
+      const applicable = keys.every((k) => FIELDS[n.type]?.some((f) => f.key === k));
+      const next = applicable ? ({ ...n, ...patch } as ComponentNode) : n;
+      return next.children ? ({ ...next, children: walk(next.children) } as ComponentNode) : next;
+    });
+  return { ...tree, components: walk(tree.components) };
+}
+
+/** The radius a component presents at its AFT end (for chain continuity). */
+function aftRadiusOf(n: ComponentNode): number | null {
+  if (typeof n['aftRadius'] === 'number') return n['aftRadius'] as number;
+  if (typeof n['outerRadius'] === 'number') return n['outerRadius'] as number;
+  return null;
+}
+
+/**
+ * New components default to the specs of the component they follow: outer
+ * diameter continues the airframe line, and material/finish carry over
+ * (from the previous sibling, else the parent).
+ */
+export function inheritDefaults(
+  node: ComponentNode,
+  parent: ComponentNode | 'stage' | null,
+  prevSibling: ComponentNode | null,
+): ComponentNode {
+  const src = prevSibling ?? (parent && parent !== 'stage' ? parent : null);
+  if (!src) return node;
+  const out: ComponentNode = { ...node };
+
+  const fields = FIELDS[node.type] ?? [];
+  for (const key of ['density', 'materialName', 'finish'] as const) {
+    if (src[key] !== undefined
+        && (key === 'materialName' || fields.some((f) => f.key === key))) {
+      (out as Record<string, unknown>)[key] = src[key];
+    }
+  }
+
+  // Airframe diameter continuity along the top-level chain.
+  const srcAft = aftRadiusOf(src);
+  if (srcAft !== null) {
+    if (node.type === 'bodytube') out['outerRadius'] = srcAft;
+    if (node.type === 'transition') out['foreRadius'] = srcAft;
+  }
+  // Tube walls: carry the previous tube's thickness.
+  if (typeof src['thickness'] === 'number'
+      && (node.type === 'bodytube' || node.type === 'innertube' || node.type === 'tubecoupler')
+      && fields.some((f) => f.key === 'thickness')) {
+    out['thickness'] = src['thickness'];
+  }
+  return out;
 }
 
 /** All inner tubes flagged as motor mounts (for the motor panel). */
