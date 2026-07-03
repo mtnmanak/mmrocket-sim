@@ -13,7 +13,8 @@
     "test": "npm run test -w @online-openrocket/engine && npm run test -w @online-openrocket/app",
     "engine:carve": "node engine-java/scripts/carve.mjs",
     "engine:difftest": "node engine-java/scripts/difftest.mjs",
-    "engine:js": "node engine-java/scripts/build-engine.mjs"
+    "engine:js": "node engine-java/scripts/build-engine.mjs",
+    "motors:refresh": "node packages/app/scripts/fetch-motor-db.mjs"
   },
   "allowScripts": {
     "esbuild@0.21.5": true

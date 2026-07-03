@@ -62,7 +62,11 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
             <label>Theme</label>
             <select
               value={prefs.theme}
-              onChange={(e) => setPrefs({ ...prefs, theme: e.target.value as 'light' | 'dark' | 'system' })}
+              onChange={(e) => setPrefs({
+                ...prefs,
+                theme: e.target.value as 'light' | 'dark' | 'system',
+                themeExplicit: true,
+              })}
             >
               <option value="light">Light</option>
               <option value="dark">Dark</option>

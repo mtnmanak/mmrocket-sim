@@ -12,12 +12,18 @@ export interface Preferences {
   /** How round components are entered/displayed. Engine always stores radius (SI). */
   radiusMode: 'radius' | 'diameter';
   theme: 'light' | 'dark' | 'system';
+  /**
+   * True once the user picks a theme themselves. Stored themes without this
+   * flag were incidental snapshots of an old default and yield to the current
+   * default (lets us change the default without overriding real choices).
+   */
+  themeExplicit?: boolean;
 }
 
 export const DEFAULT_PREFS: Preferences = {
   units: INITIAL_UNITS,
   radiusMode: 'diameter',
-  theme: 'light',
+  theme: 'dark',
 };
 
 const STORAGE_KEY = 'online-openrocket.prefs.v1';
@@ -27,6 +33,7 @@ function load(): Preferences {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return DEFAULT_PREFS;
     const parsed = JSON.parse(raw) as Partial<Preferences>;
+    if (!parsed.themeExplicit) delete parsed.theme;
     return {
       ...DEFAULT_PREFS,
       ...parsed,

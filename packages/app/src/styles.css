@@ -573,3 +573,154 @@ select.unit-chip:hover {
 .stat-unit select.unit-chip {
   font-size: 12px;
 }
+
+/* --- Motor database browser --- */
+.motor-browser {
+  max-width: 860px;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 80px);
+}
+
+.motor-db-meta {
+  font-size: 11px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text-muted);
+  margin-left: 8px;
+}
+
+.motor-filter-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.motor-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+
+.motor-chip-caption {
+  font-size: 11px;
+  color: var(--text-secondary);
+  min-width: 58px;
+}
+
+.motor-chip-count {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.motor-filter-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.motor-filter-row input[type='search'] {
+  font: inherit;
+  font-size: 13px;
+  padding: 5px 7px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface-1);
+  color: var(--text-primary);
+  min-width: 160px;
+}
+
+.motor-inline-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.motor-inline-label input,
+.motor-inline-label select {
+  font: inherit;
+  font-size: 12px;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface-1);
+  color: var(--text-primary);
+}
+
+.motor-table-wrap {
+  overflow-y: auto;
+  flex: 1;
+  min-height: 120px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-1);
+}
+
+.motor-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.motor-table th {
+  position: sticky;
+  top: 0;
+  background: var(--surface-2);
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  padding: 5px 8px;
+  cursor: pointer;
+  user-select: none;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.motor-table td {
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.motor-row {
+  cursor: pointer;
+}
+
+.motor-row:hover {
+  background: var(--hover);
+}
+
+.motor-row-picked,
+.motor-row-picked:hover {
+  background: var(--selected);
+}
+
+.motor-row-long td {
+  color: var(--text-muted);
+}
+
+.motor-oop {
+  font-size: 9px;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0 3px;
+  margin-left: 5px;
+  vertical-align: middle;
+}
+
+.motor-load-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  font-size: 13px;
+}
