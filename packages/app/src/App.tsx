@@ -7,11 +7,13 @@ import {
   type RocketTree,
   type StaticInfo,
 } from '@online-openrocket/engine';
+import { BatchSimulate } from './components/BatchSimulate.js';
 import { ComponentTree } from './components/ComponentTree.js';
 import { FlightCharts } from './components/FlightCharts.js';
 import { DEFAULT_CONDITIONS, LaunchPanel, type LaunchConditions } from './components/LaunchPanel.js';
-import { MotorPicker } from './components/MotorPicker.js';
+import { builtInMeta, MotorPicker } from './components/MotorPicker.js';
 import { PropertyPanel } from './components/PropertyPanel.js';
+import { SimHistory, SimRunDetails } from './components/SimResults.js';
 import { DesignStats, FlightStats } from './components/StatTiles.js';
 import { Rocket3D } from './components/Rocket3D.js';
 import { TreeSchematic } from './components/TreeSchematic.js';
@@ -20,6 +22,8 @@ import { PreferencesDialog } from './components/PreferencesDialog.js';
 import { usePrefs } from './prefs/PrefsContext.js';
 import { exportOrk, importOrk } from './services/orkFile.js';
 import { loadSession, saveSessionDebounced } from './services/session.js';
+import { buildSimRun, recommendDelay, type MotorMeta, type SimRun } from './services/simReport.js';
+import { addRun, loadRuns } from './services/simStore.js';
 import {
   addChild, defaultTree, emptyTree, findNode, makeNode, motorMounts, moveNode, removeNode, updateNode,
 } from './tree/treeModel.js';
@@ -37,9 +41,13 @@ export function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [motorLabel, setMotorLabel] = useState(session?.motorLabel ?? 'C6-5');
   const [motor, setMotor] = useState(session?.motor ?? BUILT_IN_MOTORS['C6-5']!);
+  const [motorMeta, setMotorMeta] = useState<MotorMeta>(
+    session?.motorMeta ?? builtInMeta(session?.motorLabel ?? 'C6-5'));
   const [mountId, setMountId] = useState<string | null>(session?.mountId ?? null);
   const [launch, setLaunch] = useState<LaunchConditions>(session?.launch ?? DEFAULT_CONDITIONS);
   const [result, setResult] = useState<FlightResult | null>(null);
+  const [lastRun, setLastRun] = useState<SimRun | null>(null);
+  const [runs, setRuns] = useState<SimRun[]>(() => loadRuns());
   const [simulating, setSimulating] = useState(false);
   const [buildError, setBuildError] = useState<string | null>(null);
   const [fileNote, setFileNote] = useState<string | null>(
@@ -47,11 +55,12 @@ export function App() {
   );
   const [view, setView] = useState<'2d' | '3d'>('2d');
   const [confirmNew, setConfirmNew] = useState(false);
+  const [showBatch, setShowBatch] = useState(false);
 
   // Autosave the working state so a closed tab or crash never loses work.
   useEffect(() => {
-    saveSessionDebounced({ tree, motorLabel, motor, mountId, launch });
-  }, [tree, motorLabel, motor, mountId, launch]);
+    saveSessionDebounced({ tree, motorLabel, motor, motorMeta, mountId, launch });
+  }, [tree, motorLabel, motor, motorMeta, mountId, launch]);
 
   // ---- undo (Ctrl+Z / button) ----
   const history = useRef<RocketTree[]>([]);
@@ -99,14 +108,14 @@ export function App() {
     }
   }, [tree, motor, activeMountId]);
 
-  useEffect(() => setResult(null), [tree, motor, launch]);
+  useEffect(() => { setResult(null); setLastRun(null); }, [tree, motor, launch]);
 
   const onLaunch = () => {
     if (!built) return;
     setSimulating(true);
     requestAnimationFrame(() => {
       try {
-        setResult(built.rocket.simulate({
+        const simOpts = {
           launchRodLength: launch.launchRodLengthM,
           launchRodAngle: (launch.launchRodAngleDeg * Math.PI) / 180,
           windAverage: launch.windAverage,
@@ -115,7 +124,34 @@ export function App() {
           temperature: launch.temperatureC === null ? undefined : launch.temperatureC + 273.15,
           pressure: launch.pressureHPa === null ? undefined : launch.pressureHPa * 100,
           launchLatitude: launch.latitudeDeg,
-        }));
+        };
+        const t0 = performance.now();
+        let res = built.rocket.simulate(simOpts);
+        let flownDelay = motor.ejectionDelay;
+        // Auto delay: the first run yields the kernel's optimum (ballistic
+        // probe, independent of the flown delay) — snap it to the motor's
+        // available delays and fly the real run with that.
+        if (motorMeta.autoDelay && activeMountId) {
+          const rec = recommendDelay(res.summary.optimumDelay, motorMeta.availableDelays);
+          if (rec !== null) {
+            flownDelay = rec;
+            built.rocket.setMotorById(activeMountId, { ...motor, ejectionDelay: rec });
+            res = built.rocket.simulate(simOpts);
+          }
+        }
+        const execMs = performance.now() - t0;
+        setResult(res);
+        const run = buildSimRun({
+          result: res,
+          info: built.info,
+          motor: { ...motor, ejectionDelay: flownDelay },
+          meta: motorMeta,
+          launch,
+          rocketName: tree.name ?? 'Rocket',
+          execMs,
+        });
+        setLastRun(run);
+        setRuns(addRun(run));
       } catch (e) {
         setBuildError(e instanceof Error ? e.message : String(e));
       } finally {
@@ -201,6 +237,23 @@ export function App() {
         </p>
       </header>
       {showPrefs && <PreferencesDialog onClose={() => setShowPrefs(false)} />}
+      {showBatch && built && activeMountId && (
+        <BatchSimulate
+          rocket={built.rocket}
+          info={built.info}
+          mountId={activeMountId}
+          mountDiameterMm={mountInnerDiaMm}
+          launch={launch}
+          rocketName={tree.name ?? 'Rocket'}
+          onRunsChange={setRuns}
+          onClose={() => {
+            // Batch runs left some other motor on the engine-side rocket —
+            // restore the one the UI shows.
+            try { built.rocket.setMotorById(activeMountId, motor); } catch { /* rebuilt anyway */ }
+            setShowBatch(false);
+          }}
+        />
+      )}
       {confirmNew && (
         <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Start a new design">
           <div className="modal-card">
@@ -293,11 +346,21 @@ export function App() {
             <MotorPicker
               mountDiameterMm={mountInnerDiaMm}
               selectedLabel={motorLabel}
-              onSelect={(label, m) => {
+              onSelect={(label, m, meta) => {
                 setMotorLabel(label);
                 setMotor(m);
+                setMotorMeta(meta);
               }}
             />
+            <button
+              className="file-btn"
+              style={{ marginTop: 8, width: '100%' }}
+              disabled={!built || !activeMountId}
+              title="Simulate every motor that fits this rocket, with filters and acceptance criteria"
+              onClick={() => setShowBatch(true)}
+            >
+              ⚡ Batch simulate motors…
+            </button>
           </div>
 
           <LaunchPanel value={launch} onChange={setLaunch} onLaunch={onLaunch} simulating={simulating} />
@@ -350,6 +413,7 @@ export function App() {
           {result ? (
             <>
               <FlightStats summary={result.summary} />
+              {lastRun && <SimRunDetails run={lastRun} />}
               <FlightCharts result={result} />
             </>
           ) : (
@@ -358,6 +422,7 @@ export function App() {
               velocity and acceleration plots.
             </div>
           )}
+          <SimHistory runs={runs} onRunsChange={setRuns} />
         </main>
       </div>
     </div>

@@ -1,5 +1,6 @@
 import type { MotorSpec, RocketTree } from '@online-openrocket/engine';
 import type { LaunchConditions } from '../components/LaunchPanel.js';
+import type { MotorMeta } from './simReport.js';
 
 /**
  * Session autosave: the whole working state (design tree, selected motor,
@@ -15,6 +16,7 @@ export interface SessionState {
   tree: RocketTree;
   motorLabel: string;
   motor: MotorSpec;
+  motorMeta?: MotorMeta;
   mountId: string | null;
   launch: LaunchConditions;
   /** Last-save timestamp (ms epoch) — shown on restore. */

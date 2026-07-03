@@ -9,6 +9,7 @@ import { delayOptions, fetchMotorSpec } from '../services/thrustcurve.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { niceStep, siToUi, uiToSi } from '../prefs/units.js';
 import { UnitChip } from './UnitChip.js';
+import type { MotorMeta } from '../services/simReport.js';
 
 /**
  * Full-database motor browser: manufacturer + diameter-class toggles (motors
@@ -60,7 +61,7 @@ const SORTABLE: { key: MotorSortKey; label: string }[] = [
 
 export function MotorBrowser({ mountDiameterMm, onSelect, onClose }: {
   mountDiameterMm: number;
-  onSelect: (label: string, spec: MotorSpec) => void;
+  onSelect: (label: string, spec: MotorSpec, meta: MotorMeta) => void;
   onClose: () => void;
 }) {
   const { prefs } = usePrefs();
@@ -69,7 +70,7 @@ export function MotorBrowser({ mountDiameterMm, onSelect, onClose }: {
   const [filters, setFiltersRaw] = useState<StoredFilters>(loadFilters);
   const [text, setText] = useState('');
   const [picked, setPicked] = useState<MotorDbEntry | null>(null);
-  const [delay, setDelay] = useState(0);
+  const [delay, setDelay] = useState<number | 'auto'>(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -118,11 +119,20 @@ export function MotorBrowser({ mountDiameterMm, onSelect, onClose }: {
     setBusy(true);
     setError(null);
     try {
-      const spec = await fetchMotorSpec(picked, delay);
-      const label = delayOptions(picked).length > 1
-        ? `${picked.commonName}-${delay}`
-        : picked.commonName;
-      onSelect(label, spec);
+      const opts = delayOptions(picked);
+      // "auto" flies a provisional delay; each launch then re-runs with the
+      // simulated optimal delay snapped to this list (see App.onLaunch).
+      const provisional = delay === 'auto' ? opts[opts.length - 1] ?? 0 : delay;
+      const spec = await fetchMotorSpec(picked, provisional);
+      const label = delay === 'auto'
+        ? `${picked.commonName} (auto delay)`
+        : opts.length > 1 ? `${picked.commonName}-${delay}` : picked.commonName;
+      onSelect(label, spec, {
+        label,
+        manufacturer: picked.manufacturerAbbrev,
+        availableDelays: opts,
+        autoDelay: delay === 'auto',
+      });
       onClose();
     } catch (e) {
       setError(String(e instanceof Error ? e.message : e));
@@ -283,7 +293,11 @@ export function MotorBrowser({ mountDiameterMm, onSelect, onClose }: {
               {delayOptions(picked).length > 1 && (
                 <label className="motor-inline-label">
                   Delay
-                  <select value={delay} onChange={(e) => setDelay(Number(e.target.value))}>
+                  <select
+                    value={delay}
+                    onChange={(e) => setDelay(e.target.value === 'auto' ? 'auto' : Number(e.target.value))}
+                  >
+                    <option value="auto">Auto (optimal)</option>
                     {delayOptions(picked).map((d) => <option key={d} value={d}>{d}s</option>)}
                   </select>
                 </label>

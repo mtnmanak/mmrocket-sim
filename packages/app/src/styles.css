@@ -536,6 +536,51 @@
   cursor: default;
 }
 
+/* --- Batch simulate --- */
+.batch-progress {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  margin: 6px 0;
+}
+
+.batch-progress-fill {
+  height: 100%;
+  background: var(--series-1, #4a7dbd);
+  transition: width 0.15s;
+}
+
+/* --- Launch report --- */
+.simdet-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.simdet-grid td {
+  font-size: 12px;
+  padding: 3px 6px;
+}
+
+.simdet-label {
+  color: var(--text-secondary);
+}
+
+.simdet-delay {
+  font-size: 13px;
+  margin: 6px 0 0;
+}
+
+.simdet-comments {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 6px 0 0;
+  white-space: pre-wrap;
+}
+
 /* --- Confirmation modal (New design, etc.) --- */
 .modal-backdrop {
   position: fixed;
