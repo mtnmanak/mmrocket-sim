@@ -334,3 +334,26 @@
 .add-menu-item:hover {
   background: #eceae6;
 }
+
+/* --- 2D/3D view toggle --- */
+.view-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.view-toggle button {
+  font-size: 12px;
+  padding: 4px 10px;
+  border: none;
+  background: var(--surface-1);
+  cursor: pointer;
+  font-family: inherit;
+  color: var(--text-secondary);
+}
+
+.view-toggle button.active {
+  background: var(--series-1);
+  color: #fff;
+}

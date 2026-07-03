@@ -13,6 +13,7 @@ import { LaunchPanel, type LaunchConditions } from './components/LaunchPanel.js'
 import { MotorPicker } from './components/MotorPicker.js';
 import { PropertyPanel } from './components/PropertyPanel.js';
 import { DesignStats, FlightStats } from './components/StatTiles.js';
+import { Rocket3D } from './components/Rocket3D.js';
 import { TreeSchematic } from './components/TreeSchematic.js';
 import { BUILT_IN_MOTORS } from './motors.js';
 import { exportOrk, importOrk } from './services/orkFile.js';
@@ -35,6 +36,7 @@ export function App() {
   const [simulating, setSimulating] = useState(false);
   const [buildError, setBuildError] = useState<string | null>(null);
   const [fileNote, setFileNote] = useState<string | null>(null);
+  const [view, setView] = useState<'2d' | '3d'>('2d');
 
   // ---- undo (Ctrl+Z / button) ----
   const history = useRef<RocketTree[]>([]);
@@ -235,6 +237,12 @@ export function App() {
           <div className="panel">
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
               <h2 style={{ flex: 1 }}>Rocket</h2>
+              <div className="view-toggle" role="tablist">
+                <button className={view === '2d' ? 'active' : ''} role="tab"
+                  aria-selected={view === '2d'} onClick={() => setView('2d')}>2D</button>
+                <button className={view === '3d' ? 'active' : ''} role="tab"
+                  aria-selected={view === '3d'} onClick={() => setView('3d')}>3D</button>
+              </div>
               <label className="file-btn">
                 Open .ork
                 <input type="file" accept=".ork" style={{ display: 'none' }}
@@ -246,7 +254,9 @@ export function App() {
               </label>
               <button className="file-btn" onClick={onSaveOrk}>Save .ork</button>
             </div>
-            <TreeSchematic tree={tree} info={built?.info ?? null} />
+            {view === '2d'
+              ? <TreeSchematic tree={tree} info={built?.info ?? null} />
+              : <Rocket3D tree={tree} info={built?.info ?? null} />}
             {built && <DesignStats info={built.info} />}
             {built && built.info.warningTexts.length > 0 && (
               <div className="file-note" role="alert">
