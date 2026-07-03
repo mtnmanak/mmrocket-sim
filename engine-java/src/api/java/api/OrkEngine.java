@@ -295,26 +295,62 @@ public final class OrkEngine {
     @JSExport
     public static String simulate(int rocketHandle, double launchRodLength, double launchRodAngle,
             double windAverage, double windStdDeviation, double launchAltitude, double timeStep) {
+        return simulateJson(rocketHandle, "{"
+                + "\"rodLength\":" + launchRodLength + ",\"rodAngle\":" + launchRodAngle
+                + ",\"windAverage\":" + windAverage + ",\"windStdDeviation\":" + windStdDeviation
+                + ",\"launchAltitude\":" + launchAltitude + ",\"timeStep\":" + timeStep + "}");
+    }
+
+    /**
+     * Full-featured simulation entry point. Options JSON (all optional):
+     * { rodLength, rodAngle, rodDirection, windAverage, windStdDeviation,
+     *   launchAltitude, launchLatitude, launchLongitude,
+     *   temperature (K, launch-site), pressure (Pa, launch-site),
+     *   timeStep, maxTime, randomSeed }
+     * Custom temperature/pressure switch the atmosphere to an ISA model based
+     * at the launch site; otherwise standard ISA is used.
+     */
+    @JSExport
+    public static String simulateJson(int rocketHandle, String optionsJson) {
         RocketCtx ctx = (RocketCtx) get(rocketHandle);
+        Map<String, Object> o = JsonLite.parseObject(optionsJson);
+
+        double launchAltitude = JsonLite.dbl(o, "launchAltitude", 0);
+        double temperature = JsonLite.dbl(o, "temperature", Double.NaN);
+        double pressure = JsonLite.dbl(o, "pressure", Double.NaN);
+        double timeStep = JsonLite.dbl(o, "timeStep", 0.05);
 
         SimulationConditions conditions = new SimulationConditions();
         conditions.setSimulation(new Simulation(ctx.rocket, ctx.fcid));
-        conditions.setLaunchRodLength(launchRodLength);
-        conditions.setLaunchRodAngle(launchRodAngle);
-        conditions.setLaunchRodDirection(Math.PI / 2);
-        conditions.setLaunchSite(new WorldCoordinate(28.61, -80.60, launchAltitude));
+        conditions.setLaunchRodLength(JsonLite.dbl(o, "rodLength", 1.0));
+        conditions.setLaunchRodAngle(JsonLite.dbl(o, "rodAngle", 0));
+        conditions.setLaunchRodDirection(JsonLite.dbl(o, "rodDirection", Math.PI / 2));
+        conditions.setLaunchSite(new WorldCoordinate(
+                JsonLite.dbl(o, "launchLatitude", 28.61),
+                JsonLite.dbl(o, "launchLongitude", -80.60),
+                launchAltitude));
         conditions.setGeodeticComputation(GeodeticComputationStrategy.SPHERICAL);
-        conditions.setAtmosphericModel(new ExtendedISAModel());
+        if (!Double.isNaN(temperature) || !Double.isNaN(pressure)) {
+            conditions.setAtmosphericModel(new ExtendedISAModel(
+                    launchAltitude,
+                    Double.isNaN(temperature) ? ExtendedISAModel.STANDARD_TEMPERATURE : temperature,
+                    Double.isNaN(pressure) ? ExtendedISAModel.STANDARD_PRESSURE : pressure));
+        } else {
+            conditions.setAtmosphericModel(new ExtendedISAModel());
+        }
         conditions.setGravityModel(new WGSGravityModel());
-        PinkNoiseWindModel wind = new PinkNoiseWindModel();
-        wind.setAverage(windAverage);
-        wind.setStandardDeviation(windStdDeviation);
+        int randomSeed = (int) JsonLite.dbl(o, "randomSeed", 42);
+        // Seeded explicitly: the no-arg PinkNoiseWindModel constructor seeds
+        // from new Random().nextInt() — nondeterministic across runs.
+        PinkNoiseWindModel wind = new PinkNoiseWindModel(randomSeed);
+        wind.setAverage(JsonLite.dbl(o, "windAverage", 0));
+        wind.setStandardDeviation(JsonLite.dbl(o, "windStdDeviation", 0));
         conditions.setWindModel(wind);
         conditions.setAerodynamicCalculator(new BarrowmanCalculator());
         conditions.setMassCalculator(new MassCalculator());
         conditions.setTimeStep(timeStep > 0 ? timeStep : 0.05);
-        conditions.setMaxSimulationTime(1200);
-        conditions.setRandomSeed(42);
+        conditions.setMaxSimulationTime(JsonLite.dbl(o, "maxTime", 1200));
+        conditions.setRandomSeed(randomSeed);
 
         try {
             BasicEventSimulationEngine engine = new BasicEventSimulationEngine();
@@ -387,7 +423,15 @@ public final class OrkEngine {
         appendSeries(sb, "time", branch.get(FlightDataType.TYPE_TIME)).append(',');
         appendSeries(sb, "altitude", branch.get(FlightDataType.TYPE_ALTITUDE)).append(',');
         appendSeries(sb, "velocity", branch.get(FlightDataType.TYPE_VELOCITY_TOTAL)).append(',');
-        appendSeries(sb, "acceleration", branch.get(FlightDataType.TYPE_ACCELERATION_TOTAL));
+        appendSeries(sb, "acceleration", branch.get(FlightDataType.TYPE_ACCELERATION_TOTAL)).append(',');
+        appendSeries(sb, "mass", branch.get(FlightDataType.TYPE_MASS)).append(',');
+        appendSeries(sb, "thrust", branch.get(FlightDataType.TYPE_THRUST_FORCE)).append(',');
+        appendSeries(sb, "drag", branch.get(FlightDataType.TYPE_DRAG_FORCE)).append(',');
+        appendSeries(sb, "mach", branch.get(FlightDataType.TYPE_MACH_NUMBER)).append(',');
+        appendSeries(sb, "stability", branch.get(FlightDataType.TYPE_STABILITY)).append(',');
+        appendSeries(sb, "cpLocation", branch.get(FlightDataType.TYPE_CP_LOCATION)).append(',');
+        appendSeries(sb, "cgLocation", branch.get(FlightDataType.TYPE_CG_LOCATION)).append(',');
+        appendSeries(sb, "aoa", branch.get(FlightDataType.TYPE_AOA));
         return sb.append("}}").toString();
     }
 

@@ -9,7 +9,7 @@ import {
 } from '@online-openrocket/engine';
 import { ComponentTree } from './components/ComponentTree.js';
 import { FlightCharts } from './components/FlightCharts.js';
-import { LaunchPanel, type LaunchConditions } from './components/LaunchPanel.js';
+import { DEFAULT_CONDITIONS, LaunchPanel, type LaunchConditions } from './components/LaunchPanel.js';
 import { MotorPicker } from './components/MotorPicker.js';
 import { PropertyPanel } from './components/PropertyPanel.js';
 import { DesignStats, FlightStats } from './components/StatTiles.js';
@@ -29,9 +29,7 @@ export function App() {
   const [motorLabel, setMotorLabel] = useState('C6-5');
   const [motor, setMotor] = useState(BUILT_IN_MOTORS['C6-5']!);
   const [mountId, setMountId] = useState<string | null>(null);
-  const [launch, setLaunch] = useState<LaunchConditions>({
-    launchRodLengthM: 1, launchRodAngleDeg: 0, windAverage: 0,
-  });
+  const [launch, setLaunch] = useState<LaunchConditions>(DEFAULT_CONDITIONS);
   const [result, setResult] = useState<FlightResult | null>(null);
   const [simulating, setSimulating] = useState(false);
   const [buildError, setBuildError] = useState<string | null>(null);
@@ -95,7 +93,11 @@ export function App() {
           launchRodLength: launch.launchRodLengthM,
           launchRodAngle: (launch.launchRodAngleDeg * Math.PI) / 180,
           windAverage: launch.windAverage,
-          windStdDeviation: launch.windAverage > 0 ? launch.windAverage * 0.1 : 0,
+          windStdDeviation: launch.windStdDev,
+          launchAltitude: launch.launchAltitudeM,
+          temperature: launch.temperatureC === null ? undefined : launch.temperatureC + 273.15,
+          pressure: launch.pressureHPa === null ? undefined : launch.pressureHPa * 100,
+          launchLatitude: launch.latitudeDeg,
         }));
       } catch (e) {
         setBuildError(e instanceof Error ? e.message : String(e));

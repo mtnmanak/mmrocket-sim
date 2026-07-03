@@ -357,3 +357,47 @@
   background: var(--series-1);
   color: #fff;
 }
+
+/* --- Series picker (filter bar above charts) --- */
+.series-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  padding: 8px 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.series-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-family: inherit;
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-1);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.series-chip-on {
+  border-color: var(--text-secondary);
+  color: var(--text-primary);
+  background: #fff;
+}
+
+.series-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  opacity: 0.35;
+}
+
+.series-chip-on .series-dot {
+  opacity: 1;
+}

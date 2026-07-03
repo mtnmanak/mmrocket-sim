@@ -28,5 +28,6 @@ declare module '*orkengine.mjs' {
     rocket: number, launchRodLength: number, launchRodAngle: number,
     windAverage: number, windStdDeviation: number, launchAltitude: number,
     timeStep: number): string;
+  export function simulateJson(rocket: number, optionsJson: string): string;
   export function main(): void;
 }

@@ -64,7 +64,15 @@ export interface SimulationOptions {
   windAverage?: number;
   windStdDeviation?: number;
   launchAltitude?: number;
+  /** Launch-site temperature (K). Default: ISA standard. */
+  temperature?: number;
+  /** Launch-site pressure (Pa). Default: ISA standard. */
+  pressure?: number;
+  launchLatitude?: number;
+  launchLongitude?: number;
   timeStep?: number;
+  maxTime?: number;
+  randomSeed?: number;
 }
 
 export interface StaticInfo {
@@ -136,6 +144,16 @@ export interface FlightSeries {
   altitude: number[];
   velocity: number[];
   acceleration: number[];
+  mass: number[];
+  thrust: number[];
+  drag: number[];
+  mach: number[];
+  /** Stability margin (calibers). */
+  stability: number[];
+  cpLocation: number[];
+  cgLocation: number[];
+  /** Angle of attack (rad). */
+  aoa: number[];
 }
 
 export interface FlightResult {
@@ -202,14 +220,20 @@ export class OrkRocket {
   }
 
   simulate(options: SimulationOptions = {}): FlightResult {
-    const raw = ork.simulate(
-      this.handle,
-      options.launchRodLength ?? 1.0,
-      options.launchRodAngle ?? 0,
-      options.windAverage ?? 0,
-      options.windStdDeviation ?? 0,
-      options.launchAltitude ?? 0,
-      options.timeStep ?? 0.05);
+    const raw = ork.simulateJson(this.handle, JSON.stringify({
+      rodLength: options.launchRodLength ?? 1.0,
+      rodAngle: options.launchRodAngle ?? 0,
+      windAverage: options.windAverage ?? 0,
+      windStdDeviation: options.windStdDeviation ?? 0,
+      launchAltitude: options.launchAltitude ?? 0,
+      temperature: options.temperature,
+      pressure: options.pressure,
+      launchLatitude: options.launchLatitude,
+      launchLongitude: options.launchLongitude,
+      timeStep: options.timeStep ?? 0.05,
+      maxTime: options.maxTime,
+      randomSeed: options.randomSeed,
+    }));
     const parsed = JSON.parse(raw) as FlightResult & { error?: string };
     if (parsed.error) {
       throw new Error(`Simulation failed: ${parsed.error}`);
