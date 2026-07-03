@@ -63,6 +63,10 @@ const SHAPES: [string, string][] = [
   ['parabolic', 'Parabolic'], ['haack', 'Haack'], ['power', 'Power'],
 ];
 
+const CROSS_SECTIONS: [string, string][] = [
+  ['square', 'Square'], ['rounded', 'Rounded'], ['airfoil', 'Airfoil (pointed)'],
+];
+
 const lenMM = (key: string, label: string, step = 1): FieldDef => ({ key, label, unit: 'mm', step });
 
 export const FIELDS: Record<ComponentType, FieldDef[]> = {
@@ -95,6 +99,7 @@ export const FIELDS: Record<ComponentType, FieldDef[]> = {
     lenMM('height', 'Height'),
     lenMM('thickness', 'Thickness', 0.5),
     { key: 'cant', label: 'Cant angle', unit: 'deg', step: 0.5 },
+    { key: 'crossSection', label: 'Cross section', unit: 'none', options: CROSS_SECTIONS },
     { key: 'density', label: 'Material density', unit: 'kg/m3', step: 10 },
   ],
   ellipticalfinset: [
@@ -102,6 +107,7 @@ export const FIELDS: Record<ComponentType, FieldDef[]> = {
     lenMM('rootChord', 'Root chord'),
     lenMM('height', 'Height'),
     lenMM('thickness', 'Thickness', 0.5),
+    { key: 'crossSection', label: 'Cross section', unit: 'none', options: CROSS_SECTIONS },
     { key: 'density', label: 'Material density', unit: 'kg/m3', step: 10 },
   ],
   tubefinset: [

@@ -143,6 +143,8 @@ export function importOrk(data: ArrayBuffer | string): OrkTreeImportResult {
         n['thickness'] = num(el, 'thickness', 0.003);
         const cantDeg = num(el, 'cant', 0);
         if (cantDeg !== 0) n['cant'] = (cantDeg * Math.PI) / 180;
+        const cs = text(el, ':scope > crosssection');
+        if (cs && cs !== 'square') n['crossSection'] = cs;
         return n;
       }
       case 'ellipticalfinset': {
@@ -151,6 +153,8 @@ export function importOrk(data: ArrayBuffer | string): OrkTreeImportResult {
         n['rootChord'] = num(el, 'rootchord', 0.05);
         n['height'] = num(el, 'height', 0.03);
         n['thickness'] = num(el, 'thickness', 0.003);
+        const csE = text(el, ':scope > crosssection');
+        if (csE && csE !== 'square') n['crossSection'] = csE;
         return n;
       }
       case 'tubefinset': {
@@ -409,7 +413,7 @@ export function exportOrk({ name, tree, motor, mountId }: OrkTreeExportInput): s
         emit(depth + 1, '<finish>normal</finish>');
         material(depth + 1, node);
         emit(depth + 1, `<thickness>${n(node, 'thickness', 0.003)}</thickness>`);
-        emit(depth + 1, '<crosssection>square</crosssection>');
+        emit(depth + 1, `<crosssection>${node['crossSection'] ?? 'square'}</crosssection>`);
         emit(depth + 1, `<cant>${(n(node, 'cant', 0) * 180) / Math.PI}</cant>`);
         emit(depth + 1, '<filletradius>0.0</filletradius>');
         emit(depth + 1, '<filletmaterial type="bulk" density="680.0" group="PaperProducts">Cardboard</filletmaterial>');
@@ -432,7 +436,7 @@ export function exportOrk({ name, tree, motor, mountId }: OrkTreeExportInput): s
         emit(depth + 1, '<finish>normal</finish>');
         material(depth + 1, node);
         emit(depth + 1, `<thickness>${n(node, 'thickness', 0.003)}</thickness>`);
-        emit(depth + 1, '<crosssection>square</crosssection>');
+        emit(depth + 1, `<crosssection>${node['crossSection'] ?? 'square'}</crosssection>`);
         emit(depth + 1, '<cant>0.0</cant>');
         emit(depth + 1, '<filletradius>0.0</filletradius>');
         emit(depth + 1, '<filletmaterial type="bulk" density="680.0" group="PaperProducts">Cardboard</filletmaterial>');

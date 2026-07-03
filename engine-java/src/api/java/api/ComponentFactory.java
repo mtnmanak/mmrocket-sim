@@ -10,6 +10,8 @@ import info.openrocket.core.rocketcomponent.CenteringRing;
 import info.openrocket.core.rocketcomponent.EllipticalFinSet;
 import info.openrocket.core.rocketcomponent.EngineBlock;
 import info.openrocket.core.rocketcomponent.ExternalComponent;
+import info.openrocket.core.rocketcomponent.FinSet;
+import info.openrocket.core.rocketcomponent.FreeformFinSet;
 import info.openrocket.core.rocketcomponent.InnerTube;
 import info.openrocket.core.rocketcomponent.LaunchLug;
 import info.openrocket.core.rocketcomponent.MassComponent;
@@ -25,6 +27,7 @@ import info.openrocket.core.rocketcomponent.TrapezoidFinSet;
 import info.openrocket.core.rocketcomponent.TubeCoupler;
 import info.openrocket.core.rocketcomponent.TubeFinSet;
 import info.openrocket.core.rocketcomponent.position.AxialMethod;
+import info.openrocket.core.util.Coordinate;
 
 import static api.JsonLite.bool;
 import static api.JsonLite.dbl;
@@ -95,6 +98,7 @@ final class ComponentFactory {
                         dbl(node, "height", 0.03));
                 fins.setThickness(dbl(node, "thickness", 0.003));
                 fins.setCantAngle(dbl(node, "cant", 0));
+                fins.setCrossSection(crossSectionOf(str(node, "crossSection", "square")));
                 c = fins;
                 break;
             }
@@ -105,6 +109,38 @@ final class ComponentFactory {
                 fins.setHeight(dbl(node, "height", 0.03));
                 fins.setThickness(dbl(node, "thickness", 0.003));
                 fins.setCantAngle(dbl(node, "cant", 0));
+                fins.setCrossSection(crossSectionOf(str(node, "crossSection", "square")));
+                c = fins;
+                break;
+            }
+            case "freeformfinset": {
+                FreeformFinSet fins = new FreeformFinSet();
+                fins.setFinCount((int) dbl(node, "finCount", 3));
+                fins.setThickness(dbl(node, "thickness", 0.003));
+                fins.setCantAngle(dbl(node, "cant", 0));
+                fins.setCrossSection(crossSectionOf(str(node, "crossSection", "square")));
+                Object rawPoints = node.get("points");
+                if (rawPoints instanceof List) {
+                    List<?> list = (List<?>) rawPoints;
+                    Coordinate[] pts = new Coordinate[list.size()];
+                    for (int i = 0; i < list.size(); i++) {
+                        Object row = list.get(i);
+                        if (!(row instanceof List) || ((List<?>) row).size() < 2
+                                || !(((List<?>) row).get(0) instanceof Double)
+                                || !(((List<?>) row).get(1) instanceof Double)) {
+                            throw new IllegalArgumentException(
+                                    "freeformfinset points must be [[x,y],...] numbers");
+                        }
+                        pts[i] = new Coordinate(
+                                (Double) ((List<?>) row).get(0),
+                                (Double) ((List<?>) row).get(1), 0);
+                    }
+                    if (pts.length < 3) {
+                        throw new IllegalArgumentException(
+                                "freeformfinset needs at least 3 points");
+                    }
+                    fins.setPoints(pts);
+                }
                 c = fins;
                 break;
             }
@@ -280,6 +316,15 @@ final class ComponentFactory {
             case "haack": return Transition.Shape.HAACK;
             case "ogive":
             default: return Transition.Shape.OGIVE;
+        }
+    }
+
+    private static FinSet.CrossSection crossSectionOf(String name) {
+        switch (name.toLowerCase()) {
+            case "rounded": return FinSet.CrossSection.ROUNDED;
+            case "airfoil": return FinSet.CrossSection.AIRFOIL;
+            case "square":
+            default: return FinSet.CrossSection.SQUARE;
         }
     }
 

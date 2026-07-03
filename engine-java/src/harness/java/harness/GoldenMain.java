@@ -34,6 +34,49 @@ public final class GoldenMain {
         flightScenarios();
         treeApiScenarios();
         conditionsScenarios();
+        finVariantScenarios();
+    }
+
+    /** Cross-sections and freeform fins through the tree API. */
+    private static void finVariantScenarios() {
+        // Same reference rocket, airfoil cross-section: CD must drop vs square.
+        for (String cs : new String[] { "square", "rounded", "airfoil" }) {
+            String json = "{\"components\":["
+                    + "{\"type\":\"nosecone\",\"length\":0.07,\"aftRadius\":0.012,\"thickness\":0.002},"
+                    + "{\"type\":\"bodytube\",\"length\":0.30,\"outerRadius\":0.012,\"thickness\":0.0003,\"density\":950,\"children\":["
+                    + "  {\"type\":\"trapezoidfinset\",\"finCount\":3,\"rootChord\":0.05,\"tipChord\":0.03,\"sweep\":0.02,\"height\":0.03,\"thickness\":0.003,\"crossSection\":\"" + cs + "\"}"
+                    + "]}]}";
+            int r = api.OrkEngine.buildRocket(json);
+            info.openrocket.core.rocketcomponent.FlightConfiguration config =
+                    ((info.openrocket.core.rocketcomponent.Rocket)
+                            getRocketFromInfo(r)).getSelectedConfiguration();
+            info.openrocket.core.aerodynamics.BarrowmanCalculator calc =
+                    new info.openrocket.core.aerodynamics.BarrowmanCalculator();
+            info.openrocket.core.aerodynamics.FlightConditions cond =
+                    new info.openrocket.core.aerodynamics.FlightConditions(config);
+            cond.setMach(0.3);
+            cond.setAOA(0);
+            info.openrocket.core.logging.WarningSet w = new info.openrocket.core.logging.WarningSet();
+            info.openrocket.core.aerodynamics.AerodynamicForces f =
+                    calc.getAerodynamicForces(config, cond, w);
+            line("fins.crosssection." + cs, f.getCD(), f.getFrictionCD(), f.getPressureCD());
+        }
+
+        // Freeform fin set: swept clipped-delta planform.
+        String freeform = "{\"components\":["
+                + "{\"type\":\"nosecone\",\"length\":0.07,\"aftRadius\":0.012,\"thickness\":0.002},"
+                + "{\"type\":\"bodytube\",\"length\":0.30,\"outerRadius\":0.012,\"thickness\":0.0003,\"density\":950,\"children\":["
+                + "  {\"type\":\"freeformfinset\",\"finCount\":3,\"thickness\":0.003,\"crossSection\":\"airfoil\","
+                + "   \"points\":[[0,0],[0.03,0.035],[0.055,0.035],[0.06,0.0]],"
+                + "   \"position\":{\"method\":\"bottom\",\"offset\":0}}"
+                + "]}]}";
+        int r2 = api.OrkEngine.buildRocket(freeform);
+        lineStaticInfo("fins.freeform.info", api.OrkEngine.getStaticInfo(r2));
+    }
+
+    /** Reflection-free accessor: rebuild handle context via the public API. */
+    private static Object getRocketFromInfo(int handle) {
+        return api.OrkEngine.getRocketForTesting(handle);
     }
 
     /** P2.4: custom launch conditions (wind + site atmosphere) through the API. */

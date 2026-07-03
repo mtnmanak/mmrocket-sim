@@ -79,6 +79,11 @@ public final class OrkEngine {
         return o;
     }
 
+    /** Testing hook: the underlying Rocket for a rocket handle (harness use). */
+    public static Rocket getRocketForTesting(int rocketHandle) {
+        return ((RocketCtx) get(rocketHandle)).rocket;
+    }
+
     /** Frees every handle (rockets, components, motors). */
     @JSExport
     public static void reset() {
