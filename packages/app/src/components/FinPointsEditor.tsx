@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { niceStep, siToUi, uiToSi } from '../prefs/units.js';
+import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
 
 /**
@@ -102,6 +103,8 @@ export function FinPointsEditor({ points, onChange }: {
 
   const svgRef = useRef<SVGSVGElement>(null);
   const dragIndex = useRef<number | null>(null);
+  // Row being edited in the table — its dot lights up in the canvas.
+  const [hotRow, setHotRow] = useState<number | null>(null);
 
   const clientToSvg = (e: { clientX: number; clientY: number }): [number, number] => {
     const rect = svgRef.current!.getBoundingClientRect();
@@ -225,14 +228,19 @@ export function FinPointsEditor({ points, onChange }: {
           const [sx, sy] = toScreen(t, p);
           const locked = i === 0;
           const draggingThis = dragIndex.current === i;
+          const hot = hotRow === i || draggingThis;
           return (
             <g key={i}>
               <circle cx={sx} cy={sy} r={HIT_RADIUS} fill="transparent"
                 style={{ cursor: locked ? 'not-allowed' : 'grab' }}
                 onPointerDown={onPointerDownPoint(i)}
                 onDoubleClick={() => removePoint(i)} />
-              <circle cx={sx} cy={sy} r={draggingThis ? 6 : 4.5}
-                fill={locked ? '#7a786f' : draggingThis ? '#e34948' : '#2a78d6'}
+              {hot && (
+                <circle cx={sx} cy={sy} r={9} fill="none" stroke="#e3a008"
+                  strokeWidth="2" style={{ pointerEvents: 'none' }} />
+              )}
+              <circle cx={sx} cy={sy} r={hot ? 6 : 4.5}
+                fill={locked ? '#7a786f' : draggingThis ? '#e34948' : hot ? '#e3a008' : '#2a78d6'}
                 stroke="#fff" strokeWidth="1.5" style={{ pointerEvents: 'none' }} />
               <text x={sx + 7} y={sy - 6} fontSize="9" fill="var(--text-secondary)"
                 style={{ pointerEvents: 'none' }}>{i + 1}</text>
@@ -255,16 +263,24 @@ export function FinPointsEditor({ points, onChange }: {
             const first = i === 0;
             const last = i === pts.length - 1;
             return (
-              <tr key={i}>
+              <tr key={i}
+                onFocusCapture={() => setHotRow(i)}
+                onBlurCapture={() => setHotRow((prev) => (prev === i ? null : prev))}>
                 <td>{i + 1}</td>
                 <td>
-                  <input type="number" step={tableStep} value={toUi(p[0])} disabled={first}
-                    onChange={(e) => setPoint(i, 0, Number(e.target.value))} />
+                  {first
+                    ? <input value={0} disabled />
+                    : <NumField value={toUi(p[0])} step={tableStep} allowNegative
+                        ariaLabel={`Point ${i + 1} x`}
+                        onCommit={(v) => { if (v !== null) setPoint(i, 0, v); }} />}
                 </td>
                 <td>
-                  <input type="number" step={tableStep} value={toUi(p[1])} disabled={first || last}
-                    title={last ? 'Trailing corner stays on the body (y = 0)' : undefined}
-                    onChange={(e) => setPoint(i, 1, Number(e.target.value))} />
+                  {first || last
+                    ? <input value={0} disabled
+                        title={last ? 'Trailing corner stays on the body (y = 0)' : undefined} />
+                    : <NumField value={toUi(p[1])} step={tableStep}
+                        ariaLabel={`Point ${i + 1} y`}
+                        onCommit={(v) => { if (v !== null) setPoint(i, 1, v); }} />}
                 </td>
                 <td>
                   <button className="fin-row-del" disabled={first || last || pts.length <= 3}

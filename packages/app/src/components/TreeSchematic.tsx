@@ -22,6 +22,16 @@ const num = (n: ComponentNode, key: string, fb: number): number =>
 const fillOf = (n: ComponentNode, dflt: string): string =>
   typeof n['color'] === 'string' ? (n['color'] as string) : dflt;
 
+/** Tab front edge from the fin's leading edge (AxialMethod.getAsPosition). */
+export function finTabFront(n: ComponentNode, finLen: number): number {
+  const offset = num(n, 'tabOffset', 0);
+  const tabLen = num(n, 'tabLength', 0);
+  const method = typeof n['tabOffsetMethod'] === 'string' ? (n['tabOffsetMethod'] as string) : 'middle';
+  if (method === 'top') return offset;
+  if (method === 'bottom') return offset + (finLen - tabLen);
+  return offset + (finLen - tabLen) / 2;
+}
+
 function axialStart(child: ComponentNode, childLen: number, pStart: number, pLen: number): number {
   const pos = (child.position ?? { method: 'top', offset: 0 }) as ComponentPosition;
   return pStart + startFromPosition(pos, childLen, pLen);
@@ -120,6 +130,25 @@ export function TreeSchematic({ tree, info, onPatchNode }: {
           style: { cursor: 'grab' } as React.CSSProperties,
         }
         : {};
+      // Through-the-wall fin tab: dashed rect from the body surface inward.
+      const renderTab = (finStart: number, finLen: number) => {
+        const tabH = Math.min(num(child, 'tabHeight', 0), pRadius);
+        const tabLen = num(child, 'tabLength', 0);
+        if (tabH <= 0 || tabLen <= 0) return;
+        const front = finStart + finTabFront(child, finLen);
+        for (const dir of [1, -1] as const) {
+          const yTop = dir === 1
+            ? ctx.cy + (pRadius - tabH) * ctx.scale
+            : ctx.cy - pRadius * ctx.scale;
+          shapes.push(
+            <rect key={key++} x={ctx.x0 + front * ctx.scale} y={yTop}
+              width={Math.max(2, tabLen * ctx.scale)} height={Math.max(1.5, tabH * ctx.scale)}
+              fill={fillOf(child, '#b9b7b0')} fillOpacity="0.35"
+              stroke="#7a786f" strokeWidth="1" strokeDasharray="3 2"
+              style={{ pointerEvents: 'none' }} />,
+          );
+        }
+      };
       if (t === 'freeformfinset') {
         const raw = (child['points'] as [number, number][] | undefined) ?? [];
         if (raw.length >= 3) {
@@ -134,6 +163,7 @@ export function TreeSchematic({ tree, info, onPatchNode }: {
                 fill={fillOf(child, '#b9b7b0')} stroke="#7a786f" strokeWidth="1" {...grab} />,
             );
           }
+          renderTab(start, chord);
         }
       } else if (t === 'trapezoidfinset' || t === 'ellipticalfinset') {
         const root = num(child, 'rootChord', 0.05);
@@ -157,6 +187,7 @@ export function TreeSchematic({ tree, info, onPatchNode }: {
             ),
           );
         }
+        renderTab(start, root);
       } else if (t === 'launchlug' || t === 'railbutton') {
         const len = num(child, 'length', 0.01);
         const r = num(child, 'outerRadius', 0.002);

@@ -177,6 +177,7 @@ export function importOrk(data: ArrayBuffer | string): OrkTreeImportResult {
         if (cantDeg !== 0) n['cant'] = (cantDeg * Math.PI) / 180;
         const cs = text(el, ':scope > crosssection');
         if (cs && cs !== 'square') n['crossSection'] = cs;
+        readFinTabs(el, n);
         return n;
       }
       case 'freeformfinset': {
@@ -187,6 +188,7 @@ export function importOrk(data: ArrayBuffer | string): OrkTreeImportResult {
         if (cantDegF !== 0) n['cant'] = (cantDegF * Math.PI) / 180;
         const csF = text(el, ':scope > crosssection');
         if (csF && csF !== 'square') n['crossSection'] = csF;
+        readFinTabs(el, n);
         const ptEls = Array.from(el.querySelectorAll(':scope > finpoints > point'));
         const pts = ptEls
           .map((pt) => [Number(pt.getAttribute('x')), Number(pt.getAttribute('y'))] as [number, number])
@@ -202,6 +204,7 @@ export function importOrk(data: ArrayBuffer | string): OrkTreeImportResult {
         n['thickness'] = num(el, 'thickness', 0.003);
         const csE = text(el, ':scope > crosssection');
         if (csE && csE !== 'square') n['crossSection'] = csE;
+        readFinTabs(el, n);
         return n;
       }
       case 'tubefinset': {
@@ -396,6 +399,24 @@ export function exportOrk({ name, tree, motor, mountId }: OrkTreeExportInput): s
     emit(depth, `<finish>${node['finish'] ?? 'normal'}</finish>`);
   };
 
+  // Fin tabs — written like the desktop's FinSetSaver: only when both depth
+  // and length are nonzero, with the legacy relativeto spelling first
+  // (front/center/end, OR 15.03 compat) then the modern one (top/middle/
+  // bottom); readers apply the last occurrence.
+  const finTabsXml = (depth: number, node: ComponentNode) => {
+    const h = n(node, 'tabHeight', 0);
+    const len = n(node, 'tabLength', 0);
+    if (h <= 0 || len <= 0) return;
+    const method = typeof node['tabOffsetMethod'] === 'string'
+      ? (node['tabOffsetMethod'] as string) : 'middle';
+    const legacy = method === 'top' ? 'front' : method === 'bottom' ? 'end' : 'center';
+    const offset = n(node, 'tabOffset', 0);
+    emit(depth, `<tabheight>${h}</tabheight>`);
+    emit(depth, `<tablength>${len}</tablength>`);
+    emit(depth, `<tabposition relativeto="${legacy}">${offset}</tabposition>`);
+    emit(depth, `<tabposition relativeto="${method}">${offset}</tabposition>`);
+  };
+
   // The desktop encodes "solid" as <thickness>filled</thickness>.
   const thicknessXml = (depth: number, node: ComponentNode, fb: number) => {
     emit(depth, node['filled'] === true
@@ -519,6 +540,7 @@ export function exportOrk({ name, tree, motor, mountId }: OrkTreeExportInput): s
         emit(depth + 1, `<thickness>${n(node, 'thickness', 0.003)}</thickness>`);
         emit(depth + 1, `<crosssection>${node['crossSection'] ?? 'square'}</crosssection>`);
         emit(depth + 1, `<cant>${(n(node, 'cant', 0) * 180) / Math.PI}</cant>`);
+        finTabsXml(depth + 1, node);
         emit(depth + 1, '<filletradius>0.0</filletradius>');
         emit(depth + 1, '<filletmaterial type="bulk" density="680.0" group="PaperProducts">Cardboard</filletmaterial>');
         emit(depth + 1, `<rootchord>${n(node, 'rootChord', 0.05)}</rootchord>`);
@@ -542,6 +564,7 @@ export function exportOrk({ name, tree, motor, mountId }: OrkTreeExportInput): s
         emit(depth + 1, `<thickness>${n(node, 'thickness', 0.003)}</thickness>`);
         emit(depth + 1, `<crosssection>${node['crossSection'] ?? 'square'}</crosssection>`);
         emit(depth + 1, `<cant>${(n(node, 'cant', 0) * 180) / Math.PI}</cant>`);
+        finTabsXml(depth + 1, node);
         emit(depth + 1, '<filletradius>0.0</filletradius>');
         emit(depth + 1, '<filletmaterial type="bulk" density="680.0" group="PaperProducts">Cardboard</filletmaterial>');
         emit(depth + 1, '<finpoints>');
@@ -567,6 +590,7 @@ export function exportOrk({ name, tree, motor, mountId }: OrkTreeExportInput): s
         emit(depth + 1, `<thickness>${n(node, 'thickness', 0.003)}</thickness>`);
         emit(depth + 1, `<crosssection>${node['crossSection'] ?? 'square'}</crosssection>`);
         emit(depth + 1, '<cant>0.0</cant>');
+        finTabsXml(depth + 1, node);
         emit(depth + 1, '<filletradius>0.0</filletradius>');
         emit(depth + 1, '<filletmaterial type="bulk" density="680.0" group="PaperProducts">Cardboard</filletmaterial>');
         emit(depth + 1, `<rootchord>${n(node, 'rootChord', 0.05)}</rootchord>`);
@@ -820,6 +844,30 @@ function readSoftMaterial(el: Element, node: ComponentNode, kind: 'surface' | 'l
   if (Number.isFinite(d) && d > 0) node[densityKey] = d;
   const name = matName_(el, kind, selector);
   if (name) node[nameKey] = name;
+}
+
+/**
+ * Fin tabs: <tabheight>, <tablength>, <tabposition relativeto="...">. Desktop
+ * files carry TWO tabposition elements (legacy front/center/end + modern
+ * top/middle/bottom) — like the desktop reader, the last one wins.
+ */
+function readFinTabs(el: Element, node: ComponentNode): void {
+  const h = num(el, 'tabheight', 0);
+  const len = num(el, 'tablength', 0);
+  if (h <= 0 || len <= 0) return;
+  node['tabHeight'] = h;
+  node['tabLength'] = len;
+  const positions = Array.from(el.querySelectorAll(':scope > tabposition'));
+  const last = positions[positions.length - 1];
+  if (last) {
+    const rel = (last.getAttribute('relativeto') ?? 'middle').toLowerCase();
+    const method = rel.includes('front') || rel === 'top' ? 'top'
+      : rel.includes('end') || rel === 'bottom' ? 'bottom'
+      : 'middle';
+    node['tabOffsetMethod'] = method;
+    const v = Number(last.textContent?.trim());
+    node['tabOffset'] = Number.isFinite(v) ? v : 0;
+  }
 }
 
 /** Mirrors Transition.Shape.defaultParameter() in the carved kernel. */

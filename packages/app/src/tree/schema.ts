@@ -110,6 +110,21 @@ const DENSITY: FieldDef = {
 };
 const FIN_COUNT: FieldDef = { key: 'finCount', label: 'Fin count', unit: 'count', smin: 1, smax: 8 };
 const CANT: FieldDef = { key: 'cant', label: 'Cant angle', unit: 'deg', step: 0.5, smin: -15, smax: 15 };
+
+/**
+ * Through-the-wall fin tabs. A tab exists when BOTH depth and length are > 0
+ * (OpenRocket semantics); the engine clamps depth to the body radius. Tab
+ * volume counts toward fin mass/CG.
+ */
+const FIN_TABS: FieldDef[] = [
+  lenMM('tabHeight', 'Tab depth (0 = none)', 0.5, 50),
+  lenMM('tabLength', 'Tab length', 1, 150),
+  { key: 'tabOffset', label: 'Tab offset', unit: 'mm', step: 1, smin: -100, smax: 100 },
+  {
+    key: 'tabOffsetMethod', label: 'Tab offset from', unit: 'none',
+    options: [['top', 'Front of fin'], ['middle', 'Middle of fin'], ['bottom', 'End of fin']],
+  },
+];
 const CD: FieldDef = {
   key: 'cd', label: 'Drag coefficient (blank = auto)', unit: 'none', step: 0.05, smin: 0, smax: 2,
 };
@@ -158,6 +173,7 @@ export const FIELDS: Record<ComponentType, FieldDef[]> = {
     lenMM('thickness', 'Thickness', 0.5, 10),
     CANT,
     { key: 'crossSection', label: 'Cross section', unit: 'none', options: CROSS_SECTIONS },
+    ...FIN_TABS,
     FINISH,
     DENSITY,
   ],
@@ -166,6 +182,7 @@ export const FIELDS: Record<ComponentType, FieldDef[]> = {
     lenMM('thickness', 'Thickness', 0.5, 10),
     CANT,
     { key: 'crossSection', label: 'Cross section', unit: 'none', options: CROSS_SECTIONS },
+    ...FIN_TABS,
     FINISH,
     DENSITY,
   ],
@@ -175,6 +192,7 @@ export const FIELDS: Record<ComponentType, FieldDef[]> = {
     lenMM('height', 'Height', 1, 150),
     lenMM('thickness', 'Thickness', 0.5, 10),
     { key: 'crossSection', label: 'Cross section', unit: 'none', options: CROSS_SECTIONS },
+    ...FIN_TABS,
     FINISH,
     DENSITY,
   ],

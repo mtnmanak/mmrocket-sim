@@ -1,6 +1,7 @@
 import { Fragment, useRef, useState } from 'react';
 import type { ComponentNode, ComponentPosition, RocketTree } from '@online-openrocket/engine';
 import { FinPointsEditor, type FinPoint } from './FinPointsEditor.js';
+import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
 import { DISPLAY_NAME, FIELDS, POSITIONABLE, type FieldDef } from '../tree/schema.js';
 import { findParent } from '../tree/treeModel.js';
@@ -159,23 +160,26 @@ export function PropertyPanel({ tree, node, onPatch }: {
       onPatch(patch);
     };
 
+    // Negative input is valid only where the schema's slider dips below zero
+    // (sweep, cant angle) — dimensions and counts reject a typed minus sign.
+    const allowNegative = f.smin !== undefined && f.smin < 0;
+
     return (
       <div className="field" key={f.key}>
         <label>
           {label}
           {quantity ? <> <UnitChip quantity={quantity} /></> : plainSuffix && ` (${plainSuffix})`}
         </label>
-        <input
-          type="number"
+        <NumField
+          value={typeof value === 'number' ? value : undefined}
           step={step}
-          value={value === '' ? '' : Number(value.toFixed(6))}
-          onChange={(e) => {
-            if (e.target.value === '') {
-              onPatch({ [f.key]: undefined });
-              return;
-            }
-            const v = Number(e.target.value);
-            if (Number.isFinite(v)) commit(v);
+          allowNegative={allowNegative}
+          integer={f.unit === 'count'}
+          min={f.unit === 'count' ? (f.smin ?? 1) : undefined}
+          nullable
+          onCommit={(v) => {
+            if (v === null) onPatch({ [f.key]: undefined });
+            else commit(v);
           }}
         />
         {f.smin !== undefined && f.smax !== undefined && typeof value === 'number' && (
@@ -275,6 +279,42 @@ export function PropertyPanel({ tree, node, onPatch }: {
         )}
       </div>
 
+      {(node.type === 'trapezoidfinset' || node.type === 'freeformfinset'
+        || node.type === 'ellipticalfinset') && (() => {
+        // Tab depth so the tab just touches the motor-mount tube (the owner's
+        // real-build default); falls back to the tube wall if no mount.
+        if (!parent || parent === 'stage') return null;
+        const p = parent as ComponentNode;
+        if (p.type !== 'bodytube' || typeof p['outerRadius'] !== 'number') return null;
+        const outerR = p['outerRadius'] as number;
+        const mount = (p.children ?? []).find(
+          (c) => c.type === 'innertube' && typeof c['outerRadius'] === 'number');
+        const depth = mount
+          ? outerR - (mount['outerRadius'] as number)
+          : ((p['thickness'] as number) ?? 0.001);
+        if (depth <= 0) return null;
+        const rootLen = node.type === 'freeformfinset'
+          ? Math.max(...(((node['points'] as FinPoint[] | undefined) ?? [[0, 0]]).map((pt) => pt[0])))
+          : ((node['rootChord'] as number) ?? 0.05);
+        const hasLength = typeof node['tabLength'] === 'number' && (node['tabLength'] as number) > 0;
+        return (
+          <button
+            className="file-btn"
+            style={{ marginTop: 6 }}
+            title={mount
+              ? `Set tab depth to reach the motor tube (${lenToUi(depth)} ${lengthSym})`
+              : `No motor tube found — set tab depth to the tube wall (${lenToUi(depth)} ${lengthSym})`}
+            onClick={() => onPatch({
+              tabHeight: depth,
+              ...(hasLength ? {} : { tabLength: rootLen * 0.6 }),
+              ...(typeof node['tabOffsetMethod'] === 'string' ? {} : { tabOffsetMethod: 'middle', tabOffset: 0 }),
+            })}
+          >
+            Fit tab to motor tube
+          </button>
+        );
+      })()}
+
       {node.type === 'nosecone' && (() => {
         // Snap the shoulder into the tube behind the nose: next top-level body tube.
         const idx = tree.components.findIndex((n) => n.id === node.id);
@@ -320,48 +360,36 @@ export function PropertyPanel({ tree, node, onPatch }: {
         <div className="field-grid">
           <div className="field">
             <label>Mass <UnitChip quantity="mass" /></label>
-            <input
-              type="number"
-              step={niceStep(siToUi('mass', massSym, 0.0001))}
-              min={0}
+            <NumField
               value={typeof node['overrideMass'] === 'number'
-                ? Number(siToUi('mass', massSym, node['overrideMass'] as number).toFixed(6)) : ''}
-              onChange={(e) => {
-                const v = Number(e.target.value);
-                onPatch({
-                  overrideMass: e.target.value === '' || !Number.isFinite(v)
-                    ? undefined : uiToSi('mass', massSym, v),
-                });
-              }}
+                ? siToUi('mass', massSym, node['overrideMass'] as number) : undefined}
+              step={niceStep(siToUi('mass', massSym, 0.0001))}
+              nullable
+              onCommit={(v) => onPatch({
+                overrideMass: v === null ? undefined : uiToSi('mass', massSym, v),
+              })}
             />
           </div>
           <div className="field">
             <label>CG from component top <UnitChip quantity="length" /></label>
-            <input
-              type="number"
-              step={niceStep(siToUi('length', lengthSym, 0.001))}
+            <NumField
               value={typeof node['overrideCGX'] === 'number'
-                ? lenToUi(node['overrideCGX'] as number) : ''}
-              onChange={(e) => {
-                const v = Number(e.target.value);
-                onPatch({
-                  overrideCGX: e.target.value === '' || !Number.isFinite(v)
-                    ? undefined : lenFromUi(v),
-                });
-              }}
+                ? lenToUi(node['overrideCGX'] as number) : undefined}
+              step={niceStep(siToUi('length', lengthSym, 0.001))}
+              allowNegative
+              nullable
+              onCommit={(v) => onPatch({
+                overrideCGX: v === null ? undefined : lenFromUi(v),
+              })}
             />
           </div>
           <div className="field">
             <label>Drag coefficient (Cd)</label>
-            <input
-              type="number"
+            <NumField
+              value={typeof node['overrideCD'] === 'number' ? (node['overrideCD'] as number) : undefined}
               step={0.05}
-              min={0}
-              value={typeof node['overrideCD'] === 'number' ? (node['overrideCD'] as number) : ''}
-              onChange={(e) => {
-                const v = Number(e.target.value);
-                onPatch({ overrideCD: e.target.value === '' || !Number.isFinite(v) ? undefined : v });
-              }}
+              nullable
+              onCommit={(v) => onPatch({ overrideCD: v === null ? undefined : v })}
             />
           </div>
         </div>
@@ -385,13 +413,12 @@ export function PropertyPanel({ tree, node, onPatch }: {
             </div>
             <div className="field">
               <label>Offset <UnitChip quantity="length" /></label>
-              <input
-                type="number"
-                step={niceStep(siToUi('length', lengthSym, 0.001))}
+              <NumField
                 value={lenToUi(pos.offset)}
-                onChange={(e) => {
-                  const v = Number(e.target.value);
-                  if (Number.isFinite(v)) onPatch({ position: { ...pos, offset: lenFromUi(v) } });
+                step={niceStep(siToUi('length', lengthSym, 0.001))}
+                allowNegative
+                onCommit={(v) => {
+                  if (v !== null) onPatch({ position: { ...pos, offset: lenFromUi(v) } });
                 }}
               />
               <ValueSlider

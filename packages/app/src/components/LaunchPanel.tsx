@@ -1,5 +1,6 @@
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { niceStep, siToUi, uiToSi, type Quantity } from '../prefs/units.js';
+import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
 
 export interface LaunchConditions {
@@ -57,25 +58,27 @@ export function LaunchPanel({ value, onChange, onLaunch, simulating }: {
       ? (uiToSi(spec.quantity, symbol, ui) - (spec.storedOffset ?? 0) * spec.storedToSI) / spec.storedToSI
       : ui;
     const step = spec && symbol ? niceStep(toUi(stepStored) - toUi(0)) : stepStored;
+    // Validation bounds live in stored units — convert to the display unit
+    // (toUi is affine and increasing, so the bounds map cleanly).
+    const uiMin = min === undefined ? undefined : toUi(min);
+    const uiMax = max === undefined ? undefined : toUi(max);
     return (
       <div className="field">
         <label>{label}{spec ? <> <UnitChip quantity={spec.quantity} /></> : ''}</label>
-        <input
-          type="number"
+        <NumField
+          value={value[key] === null ? undefined : toUi(value[key] as number)}
           step={step}
+          min={uiMin}
+          max={uiMax}
+          allowNegative={uiMin === undefined || uiMin < 0}
+          nullable={nullable}
           placeholder={nullable ? 'standard' : undefined}
-          value={value[key] === null ? '' : Number(toUi(value[key] as number).toFixed(4))}
-          onChange={(e) => {
-            if (nullable && e.target.value === '') {
-              onChange({ ...value, [key]: null });
+          onCommit={(ui) => {
+            if (ui === null) {
+              if (nullable) onChange({ ...value, [key]: null });
               return;
             }
-            const ui = Number(e.target.value);
-            if (!Number.isFinite(ui)) return;
-            let v = fromUi(ui);
-            if (min !== undefined) v = Math.max(min, v);
-            if (max !== undefined) v = Math.min(max, v);
-            onChange({ ...value, [key]: v });
+            onChange({ ...value, [key]: fromUi(ui) });
           }}
         />
       </div>

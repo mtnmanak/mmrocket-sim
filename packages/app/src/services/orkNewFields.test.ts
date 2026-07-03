@@ -80,3 +80,69 @@ describe('.ork round-trip of shoulder/filled/finish/override/deployment fields',
     expect(xml).toContain('<overridemass>0.05</overridemass>');
   });
 });
+
+describe('.ork round-trip of fin tabs', () => {
+  const tree: RocketTree = {
+    name: 'TabSample',
+    components: [
+      { type: 'nosecone', id: 'n1', length: 0.07, aftRadius: 0.012 },
+      {
+        type: 'bodytube', id: 'b1', length: 0.3, outerRadius: 0.012, thickness: 0.0005,
+        children: [
+          {
+            type: 'trapezoidfinset', id: 'f1', finCount: 3, rootChord: 0.05,
+            tipChord: 0.03, sweep: 0.02, height: 0.03, thickness: 0.003,
+            tabHeight: 0.008, tabLength: 0.03, tabOffset: -0.005, tabOffsetMethod: 'bottom',
+            position: { method: 'bottom', offset: 0 },
+          },
+          {
+            type: 'freeformfinset', id: 'f2', finCount: 4, thickness: 0.002,
+            points: [[0, 0], [0.02, 0.03], [0.045, 0.03], [0.05, 0]],
+            tabHeight: 0.006, tabLength: 0.02,
+            position: { method: 'bottom', offset: -0.06 },
+          },
+        ],
+      },
+    ],
+  };
+
+  it('preserves tab depth/length/offset/method through export → import', () => {
+    const back = importOrk(exportOrk({ name: 'TabSample', tree }));
+    const body = back.tree.components[1]!;
+
+    const trap = body.children!.find((c) => c.type === 'trapezoidfinset')!;
+    expect(trap['tabHeight']).toBeCloseTo(0.008);
+    expect(trap['tabLength']).toBeCloseTo(0.03);
+    expect(trap['tabOffset']).toBeCloseTo(-0.005);
+    expect(trap['tabOffsetMethod']).toBe('bottom');
+
+    const ff = body.children!.find((c) => c.type === 'freeformfinset')!;
+    expect(ff['tabHeight']).toBeCloseTo(0.006);
+    expect(ff['tabLength']).toBeCloseTo(0.02);
+    expect(ff['tabOffsetMethod']).toBe('middle'); // default when unspecified
+  });
+
+  it('writes desktop-compatible elements (legacy + modern tabposition)', () => {
+    const xml = exportOrk({ name: 'TabSample', tree });
+    expect(xml).toContain('<tabheight>0.008</tabheight>');
+    expect(xml).toContain('<tablength>0.03</tablength>');
+    expect(xml).toContain('<tabposition relativeto="end">-0.005</tabposition>');
+    expect(xml).toContain('<tabposition relativeto="bottom">-0.005</tabposition>');
+  });
+
+  it('omits tab elements entirely when there is no tab', () => {
+    const noTab: RocketTree = {
+      components: [
+        { type: 'nosecone', length: 0.07, aftRadius: 0.012 },
+        {
+          type: 'bodytube', length: 0.3, outerRadius: 0.012, thickness: 0.0005,
+          children: [{
+            type: 'trapezoidfinset', finCount: 3, rootChord: 0.05, tipChord: 0.03,
+            sweep: 0.02, height: 0.03, thickness: 0.003,
+          }],
+        },
+      ],
+    };
+    expect(exportOrk({ name: 'x', tree: noTab })).not.toContain('tabheight');
+  });
+});

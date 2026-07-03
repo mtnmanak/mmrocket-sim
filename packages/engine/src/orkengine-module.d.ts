@@ -24,6 +24,7 @@ declare module '*orkengine.mjs' {
     rocket: number, mount: number, designation: string, diameter: number, length: number,
     times: number[], thrusts: number[], masses: number[], cgX: number, ejectionDelay: number): void;
   export function getStaticInfo(rocket: number): string;
+  export function getComponentInfo(rocket: number, componentId: string): string;
   export function simulate(
     rocket: number, launchRodLength: number, launchRodAngle: number,
     windAverage: number, windStdDeviation: number, launchAltitude: number,

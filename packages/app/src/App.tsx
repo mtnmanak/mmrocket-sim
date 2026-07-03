@@ -19,25 +19,39 @@ import { BUILT_IN_MOTORS } from './motors.js';
 import { PreferencesDialog } from './components/PreferencesDialog.js';
 import { usePrefs } from './prefs/PrefsContext.js';
 import { exportOrk, importOrk } from './services/orkFile.js';
+import { loadSession, saveSessionDebounced } from './services/session.js';
 import {
   addChild, defaultTree, emptyTree, findNode, makeNode, motorMounts, moveNode, removeNode, updateNode,
 } from './tree/treeModel.js';
 import './styles.css';
 
+/** Rocket names that mean "the user never named it" (desktop default is "Rocket"). */
+const GENERIC_ROCKET_NAMES = new Set(['rocket', 'new rocket', 'imported rocket', 'my rocket']);
+
 export function App() {
   const { resolvedTheme } = usePrefs();
   const [showPrefs, setShowPrefs] = useState(false);
-  const [tree, setTreeRaw] = useState<RocketTree>(() => defaultTree());
+  // Restore the previous session (autosaved on every change) if one exists.
+  const session = useRef(loadSession()).current;
+  const [tree, setTreeRaw] = useState<RocketTree>(() => session?.tree ?? defaultTree());
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [motorLabel, setMotorLabel] = useState('C6-5');
-  const [motor, setMotor] = useState(BUILT_IN_MOTORS['C6-5']!);
-  const [mountId, setMountId] = useState<string | null>(null);
-  const [launch, setLaunch] = useState<LaunchConditions>(DEFAULT_CONDITIONS);
+  const [motorLabel, setMotorLabel] = useState(session?.motorLabel ?? 'C6-5');
+  const [motor, setMotor] = useState(session?.motor ?? BUILT_IN_MOTORS['C6-5']!);
+  const [mountId, setMountId] = useState<string | null>(session?.mountId ?? null);
+  const [launch, setLaunch] = useState<LaunchConditions>(session?.launch ?? DEFAULT_CONDITIONS);
   const [result, setResult] = useState<FlightResult | null>(null);
   const [simulating, setSimulating] = useState(false);
   const [buildError, setBuildError] = useState<string | null>(null);
-  const [fileNote, setFileNote] = useState<string | null>(null);
+  const [fileNote, setFileNote] = useState<string | null>(
+    session ? `Restored your previous session (“${session.tree.name ?? 'unnamed'}”, saved ${new Date(session.savedAt).toLocaleString()}).` : null,
+  );
   const [view, setView] = useState<'2d' | '3d'>('2d');
+  const [confirmNew, setConfirmNew] = useState(false);
+
+  // Autosave the working state so a closed tab or crash never loses work.
+  useEffect(() => {
+    saveSessionDebounced({ tree, motorLabel, motor, mountId, launch });
+  }, [tree, motorLabel, motor, mountId, launch]);
 
   // ---- undo (Ctrl+Z / button) ----
   const history = useRef<RocketTree[]>([]);
@@ -134,6 +148,16 @@ export function App() {
   const onOpenOrk = async (file: File) => {
     try {
       const imported = importOrk(await file.arrayBuffer());
+      // Desktop OpenRocket's default rocket name is literally "Rocket" (users
+      // name the file instead) — fall back to the filename in that case.
+      if (!imported.tree.name
+          || GENERIC_ROCKET_NAMES.has(imported.tree.name.trim().toLowerCase())) {
+        const fromFile = file.name.replace(/\.ork$/i, '').replace(/_+/g, ' ').trim();
+        if (fromFile) {
+          imported.tree.name = fromFile;
+          imported.name = fromFile;
+        }
+      }
       const notes: string[] = [`Loaded “${imported.name}”.`, ...imported.notes];
       if (imported.motor) {
         const match = Object.entries(BUILT_IN_MOTORS).find(
@@ -177,6 +201,35 @@ export function App() {
         </p>
       </header>
       {showPrefs && <PreferencesDialog onClose={() => setShowPrefs(false)} />}
+      {confirmNew && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Start a new design">
+          <div className="modal-card">
+            <h2>Start a new design?</h2>
+            <p>
+              This clears “{tree.name ?? 'the current rocket'}” — all components,
+              overrides and the current simulation. Make sure it's saved as an
+              .ork file first. (Ctrl+Z can still undo afterwards.)
+            </p>
+            <div className="modal-actions">
+              <button className="file-btn" onClick={() => { onSaveOrk(); }}>
+                💾 Save .ork first
+              </button>
+              <button
+                className="file-btn modal-danger"
+                onClick={() => {
+                  setTree(emptyTree());
+                  setSelectedId(null);
+                  setResult(null);
+                  setConfirmNew(false);
+                }}
+              >
+                Discard &amp; start new
+              </button>
+              <button className="file-btn" onClick={() => setConfirmNew(false)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="layout">
         <aside>
           <div className="panel">
@@ -184,12 +237,8 @@ export function App() {
               <h2 style={{ flex: 1 }}>Components</h2>
               <button
                 className="file-btn"
-                title="Clear all components and start from scratch (undoable with Ctrl+Z)"
-                onClick={() => {
-                  setTree(emptyTree());
-                  setSelectedId(null);
-                  setResult(null);
-                }}
+                title="Clear all components and start from scratch"
+                onClick={() => setConfirmNew(true)}
               >
                 ✕ New
               </button>
