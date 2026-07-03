@@ -283,7 +283,9 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll }: {
                   )}
                 </label>
                 <select
-                  value={String(node[f.key] ?? f.options[0]![0])}
+                  // Unset finish means the engine's 'normal' (regular paint) —
+                  // showing the first option ("Rough") would misreport it.
+                  value={String(node[f.key] ?? (f.key === 'finish' ? 'normal' : f.options[0]![0]))}
                   onChange={(e) => onPatch({ [f.key]: e.target.value })}
                 >
                   {f.options.map(([v, l]) => (

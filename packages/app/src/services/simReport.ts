@@ -135,10 +135,16 @@ export function buildSimRun(input: {
     ? thrustAtRod / (massAtRod * G0)
     : null;
 
+  // CP (and stability) can be null for the first samples (undefined at zero
+  // airspeed) — take the first finite sample, else the static-analysis value.
+  const firstFinite = (arr: number[]): number | null => {
+    for (const v of arr) if (v !== null && Number.isFinite(v)) return v;
+    return null;
+  };
   const launchMass = series.mass[0] ?? null;
-  const launchCG = series.cgLocation[0] ?? null;
-  const launchCP = series.cpLocation[0] ?? null;
-  const launchStaticMarginCal = series.stability[0] ?? info.stabilityCalibers ?? null;
+  const launchCG = firstFinite(series.cgLocation) ?? info.cg ?? null;
+  const launchCP = firstFinite(series.cpLocation) ?? info.cp ?? null;
+  const launchStaticMarginCal = firstFinite(series.stability) ?? info.stabilityCalibers ?? null;
 
   const altitudeAtDeployment = tDeploy !== null ? at(series.time, series.altitude, tDeploy) : null;
   const velocityAtDeployment = summary.deploymentVelocity
