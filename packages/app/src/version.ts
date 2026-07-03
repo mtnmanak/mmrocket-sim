@@ -9,7 +9,7 @@
  * push.
  */
 
-export const APP_VERSION = '0.002';
+export const APP_VERSION = '0.003';
 
 export interface ChangelogEntry {
   version: string;
@@ -20,6 +20,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.003',
+    date: '2026-07-03',
+    title: 'Dual-deployment aware recovery reporting',
+    items: [
+      'The launch report now lists EVERY recovery deployment by device name (drogue, main, …) with its own deploy time, altitude, opening velocity, descent rate, and verdict — safety warnings name the device that caused them.',
+      'Descent-rate safety uses the accepted dual-deploy numbers: descent under a drogue up to 70 ft/s is fine, landing target is 20 ft/s or lower. A main opening under a healthy drogue no longer trips a false "high velocity at deployment" warning.',
+      'New "Landing descent rate" line and verdict in the report; CSV gains Deployments, Drogue descent rate, Landing rate columns.',
+      'Engine: flight events now carry their source component name (differential-tested with a dual-deploy golden scenario).',
+    ],
+  },
   {
     version: '0.002',
     date: '2026-07-03',

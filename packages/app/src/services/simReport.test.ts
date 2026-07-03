@@ -111,6 +111,88 @@ describe('buildSimRun', () => {
   });
 });
 
+/**
+ * Dual deployment: drogue at apogee (7 s), main at 250 m (30 s). Velocity
+ * profile: drogue settles at `drogueRate`, main opens at that speed, lands
+ * at `landRate`.
+ */
+function dualDeployResult(drogueRate: number, landRate: number): FlightResult {
+  const time = [0, 2, 7, 7.5, 29.8, 30.0, 30.5, 90];
+  const zeros = time.map(() => 0);
+  return {
+    summary: {
+      maxAltitude: 800, maxVelocity: 150, maxAcceleration: 200,
+      maxMachNumber: 0.45, timeToApogee: 7, flightTime: 90,
+      groundHitVelocity: landRate, launchRodVelocity: 20,
+      deploymentVelocity: 2.0, optimumDelay: 5.0,
+    },
+    events: [
+      { type: 'LAUNCH', time: 0 },
+      { type: 'LAUNCHROD', time: 0.2 },
+      { type: 'BURNOUT', time: 2 },
+      { type: 'APOGEE', time: 7 },
+      { type: 'RECOVERY_DEVICE_DEPLOYMENT', time: 7.0, source: 'Drogue' },
+      { type: 'RECOVERY_DEVICE_DEPLOYMENT', time: 30.0, source: 'Main' },
+      { type: 'GROUND_HIT', time: 90 },
+      { type: 'SIMULATION_END', time: 90 },
+    ],
+    series: {
+      time,
+      altitude: [0, 300, 800, 780, 255, 250, 240, 0],
+      velocity: [0, 150, 2, drogueRate, drogueRate, drogueRate, landRate + 1, landRate],
+      acceleration: zeros, mass: time.map(() => 0.5), thrust: zeros, drag: zeros,
+      mach: zeros, stability: time.map(() => 1.5),
+      cpLocation: time.map(() => 0.9), cgLocation: time.map(() => 0.7), aoa: zeros,
+    },
+  };
+}
+
+describe('dual deployment attribution', () => {
+  const build = (drogueRate: number, landRate: number) => buildSimRun({
+    result: dualDeployResult(drogueRate, landRate), info, motor,
+    meta: { label: 'J350-auto', manufacturer: 'AT' },
+    launch: DEFAULT_CONDITIONS, rocketName: 'DD', execMs: 1,
+  });
+
+  it('reports each device with its own numbers', () => {
+    const run = build(19.5, 5.5); // 64 ft/s drogue, 18 ft/s landing — all good
+    expect(run.deployments).toHaveLength(2);
+    const [drogue, main] = run.deployments;
+    expect(drogue!.device).toBe('Drogue');
+    expect(drogue!.isLanding).toBe(false);
+    expect(drogue!.velocityAtDeployment).toBeCloseTo(2, 1); // opens at apogee
+    expect(drogue!.descentRate).toBeCloseTo(19.5, 1);
+    expect(drogue!.descentOk).toBe(true); // 64 ft/s within the 70 ft/s band
+    expect(main!.device).toBe('Main');
+    expect(main!.isLanding).toBe(true);
+    expect(main!.velocityAtDeployment).toBeCloseTo(19.5, 1);
+    expect(main!.openingOk).toBe(true); // opening under drogue speed is normal
+    expect(main!.descentRate).toBeCloseTo(5.5, 1);
+    expect(run.safeDeployment).toBe(true);
+    expect(run.safeLandingRate).toBe(true); // 18 ft/s ≤ 20 ft/s
+  });
+
+  it('names the offending device when a threshold is broken', () => {
+    const run = build(26, 8); // 85 ft/s under drogue, 26 ft/s landing
+    const [drogue, main] = run.deployments;
+    expect(drogue!.descentOk).toBe(false);
+    expect(main!.openingOk).toBe(false); // opens at 26 m/s > 70 ft/s
+    expect(main!.descentOk).toBe(false); // lands too fast
+    expect(run.safeDeployment).toBe(false);
+    expect(run.safeLandingRate).toBe(false);
+    expect(run.comments).toMatch(/Descent under Drogue/);
+    expect(run.comments).toMatch(/Main opens at/);
+    expect(run.comments).toMatch(/Landing under Main/);
+  });
+
+  it('a main opening under a healthy drogue does NOT trip the hard-opening flag', () => {
+    const run = build(20.5, 5.5); // 67 ft/s — inside the accepted band
+    expect(run.deployments[1]!.openingOk).toBe(true);
+    expect(run.safeDeployment).toBe(true);
+    expect(run.comments).not.toMatch(/hard opening/);
+  });
+});
+
 describe('runsToCsv', () => {
   it('produces one header + one row with quoting', () => {
     const run = buildSimRun({

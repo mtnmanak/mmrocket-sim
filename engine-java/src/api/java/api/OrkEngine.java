@@ -457,7 +457,14 @@ public final class OrkEngine {
             if (!first) sb.append(',');
             first = false;
             sb.append("{\"type\":\"").append(ev.getType().name()).append("\",\"time\":")
-                    .append(ev.getTime()).append('}');
+                    .append(ev.getTime());
+            // Source component name — tells dual-deployment rockets apart
+            // (WHICH recovery device deployed: drogue vs main).
+            RocketComponent src = ev.getSource();
+            if (src != null && src.getName() != null) {
+                sb.append(",\"source\":\"").append(escape(src.getName())).append('"');
+            }
+            sb.append('}');
         }
         sb.append("],\"series\":{");
         appendSeries(sb, "time", branch.get(FlightDataType.TYPE_TIME)).append(',');

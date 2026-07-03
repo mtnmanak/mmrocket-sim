@@ -67,6 +67,15 @@ const COLUMNS: [string, (r: SimRun) => string | number][] = [
   ['Launch static margin (cal)', (r) => round(r.launchStaticMarginCal)],
   ['Altitude at deployment (m)', (r) => round(r.altitudeAtDeployment)],
   ['Velocity at deployment (m/s)', (r) => round(r.velocityAtDeployment)],
+  ['Deployments', (r) => (r.deployments ?? [])
+    .map((d) => `${d.device}@${d.time.toFixed(1)}s opens ${d.velocityAtDeployment?.toFixed(1) ?? '?'}m/s descent ${d.descentRate?.toFixed(1) ?? '?'}m/s${d.openingOk === false || d.descentOk === false ? ' (!)' : ''}`)
+    .join('; ')],
+  ['Drogue descent rate (m/s)', (r) => {
+    const drogue = (r.deployments ?? []).find((d) => !d.isLanding);
+    return round(drogue?.descentRate ?? null);
+  }],
+  ['Landing rate (m/s)', (r) => round(r.landingRate ?? r.groundHitVelocity)],
+  ['Landing rate OK', (r) => flag(r.safeLandingRate ?? null)],
   ['Ground hit velocity (m/s)', (r) => round(r.groundHitVelocity)],
   ['Total flight time (s)', (r) => round(r.totalFlightTime)],
   ['Optimal delay (s)', (r) => round(r.optimumDelayS)],

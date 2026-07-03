@@ -154,6 +154,12 @@ export interface FlightSummary {
 export interface FlightEvent {
   type: string;
   time: number;
+  /**
+   * Name of the component that raised the event (present for events with a
+   * source, e.g. RECOVERY_DEVICE_DEPLOYMENT carries the parachute's name —
+   * how dual-deployment drogue and main are told apart).
+   */
+  source?: string;
 }
 
 export interface FlightSeries {

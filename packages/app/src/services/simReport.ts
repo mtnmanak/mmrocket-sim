@@ -18,18 +18,49 @@ export interface MotorMeta {
   autoDelay?: boolean;
 }
 
-/** Safety thresholds (SI). Sources: common HPR/NAR guidance, RockSim's checks. */
+/** Safety thresholds (SI). Sources: common HPR/NAR guidance + the owner's rules. */
 export const SAFETY = {
   /** Minimum speed leaving the launch guide (m/s) — ~50 ft/s guidance. */
   minRodExitVelocity: 15,
   /** Minimum thrust:weight at rod departure. */
   minThrustToWeight: 5,
-  /** Deployment faster than this risks a zippered tube / torn chute (m/s). */
-  maxDeploymentVelocity: 15,
+  /**
+   * Opening shock: a device deploying faster than ~70 ft/s risks a zippered
+   * tube / torn chute. 70 ft/s is also the top of the accepted drogue-descent
+   * band, so a main opening under a healthy drogue never trips this.
+   */
+  maxDeploymentVelocity: 21.34,
+  /** Descent under a drogue: accepted band tops out at 70 ft/s (the owner). */
+  maxDrogueDescentRate: 21.34,
+  /** Landing descent rate: 20 ft/s or lower (the owner). */
+  maxLandingRate: 6.1,
   /** Static margin sanity band (calibers). */
   minStaticMargin: 1.0,
   maxStaticMargin: 3.0,
 } as const;
+
+const FPS = 3.28084;
+const fps = (v: number) => `${(v * FPS).toFixed(0)} ft/s`;
+
+/** One recovery-device deployment (dual deploy: drogue + main = two rows). */
+export interface DeploymentReport {
+  /** Device name from the design tree (e.g. "Drogue", "Main Parachute"). */
+  device: string;
+  time: number;
+  altitude: number | null;
+  /** Speed when this device opened (opening shock). */
+  velocityAtDeployment: number | null;
+  /**
+   * Settled descent rate under this device: velocity just before the next
+   * deployment, or the ground-hit velocity for the last (landing) device.
+   */
+  descentRate: number | null;
+  isLanding: boolean;
+  /** Opening shock verdict (false = too fast — THIS device's problem). */
+  openingOk: boolean | null;
+  /** Descent-rate verdict: drogue band ≤70 ft/s, landing ≤20 ft/s. */
+  descentOk: boolean | null;
+}
 
 export interface SimRun {
   id: string;
@@ -56,8 +87,14 @@ export interface SimRun {
   launchCG: number | null;
   launchCP: number | null;
   launchStaticMarginCal: number | null;
+  /** First deployment (kept for CSV/back-compat; see `deployments`). */
   altitudeAtDeployment: number | null;
   velocityAtDeployment: number | null;
+  /** Every recovery deployment, in order — drogue first, main later. */
+  deployments: DeploymentReport[];
+  /** Final descent rate = ground-hit velocity (target ≤ 20 ft/s). */
+  landingRate: number | null;
+  safeLandingRate: boolean | null;
   groundHitVelocity: number;
   totalFlightTime: number;
   optimumDelayS: number | null;
@@ -126,6 +163,7 @@ export function buildSimRun(input: {
   const tRod = eventTime(result, 'LAUNCHROD');
   const tBurnout = eventTime(result, 'BURNOUT');
   const tDeploy = eventTime(result, 'RECOVERY_DEVICE_DEPLOYMENT');
+  const tGround = eventTime(result, 'GROUND_HIT');
 
   const rodExitVelocity = summary.launchRodVelocity
     ?? (tRod !== null ? at(series.time, series.velocity, tRod) : null);
@@ -150,6 +188,38 @@ export function buildSimRun(input: {
   const velocityAtDeployment = summary.deploymentVelocity
     ?? (tDeploy !== null ? at(series.time, series.velocity, tDeploy) : null);
 
+  // Per-device deployment reports (dual deploy: drogue at apogee, main at
+  // altitude). Descent rate under a device = velocity just before the NEXT
+  // deployment; the last device's descent rate is the landing rate.
+  const deployEvents = result.events.filter((e) => e.type === 'RECOVERY_DEVICE_DEPLOYMENT');
+  const deployments: DeploymentReport[] = deployEvents.map((ev, i) => {
+    const device = ev.source ?? `Recovery device ${i + 1}`;
+    const isLanding = i === deployEvents.length - 1;
+    const vDeploy = at(series.time, series.velocity, ev.time);
+    let descentRate: number | null;
+    if (isLanding) {
+      descentRate = Number.isFinite(summary.groundHitVelocity) ? summary.groundHitVelocity : null;
+    } else {
+      // Sample just before the next device opens — fully settled under this one.
+      const tNext = deployEvents[i + 1]!.time;
+      descentRate = at(series.time, series.velocity, Math.max(ev.time, tNext - 0.2));
+    }
+    return {
+      device,
+      time: ev.time,
+      altitude: at(series.time, series.altitude, ev.time),
+      velocityAtDeployment: vDeploy,
+      descentRate,
+      isLanding,
+      openingOk: vDeploy === null ? null : Math.abs(vDeploy) <= SAFETY.maxDeploymentVelocity,
+      descentOk: descentRate === null ? null
+        : descentRate <= (isLanding ? SAFETY.maxLandingRate : SAFETY.maxDrogueDescentRate),
+    };
+  });
+  const landingRate = Number.isFinite(summary.groundHitVelocity)
+    ? summary.groundHitVelocity : (tGround !== null ? at(series.time, series.velocity, tGround) : null);
+  const safeLandingRate = landingRate === null ? null : landingRate <= SAFETY.maxLandingRate;
+
   const optimumDelayS = summary.optimumDelay ?? null;
   const recommendedDelayS = recommendDelay(optimumDelayS);
 
@@ -157,8 +227,12 @@ export function buildSimRun(input: {
     ? rodExitVelocity >= SAFETY.minRodExitVelocity : null;
   const safeThrustToWeight = thrustToWeightAtRod !== null
     ? thrustToWeightAtRod >= SAFETY.minThrustToWeight : null;
-  const safeDeployment = velocityAtDeployment !== null
-    ? Math.abs(velocityAtDeployment) <= SAFETY.maxDeploymentVelocity : null;
+  // Overall "safe deployment" = no device had a hard opening. Per-device
+  // detail (WHICH one, drogue or main) lives in `deployments` + comments.
+  const safeDeployment = deployments.length > 0
+    ? deployments.every((d) => d.openingOk !== false)
+    : velocityAtDeployment !== null
+      ? Math.abs(velocityAtDeployment) <= SAFETY.maxDeploymentVelocity : null;
   const staticMarginOk = launchStaticMarginCal !== null
     ? launchStaticMarginCal >= SAFETY.minStaticMargin
       && launchStaticMarginCal <= SAFETY.maxStaticMargin
@@ -180,8 +254,22 @@ export function buildSimRun(input: {
   if (safeThrustToWeight === false) {
     comments.push(`Thrust:weight ${thrustToWeightAtRod!.toFixed(1)}:1 at rod exit < ${SAFETY.minThrustToWeight}:1.`);
   }
-  if (safeDeployment === false) {
-    comments.push(`Deployment at ${Math.abs(velocityAtDeployment!).toFixed(1)} m/s — expect hard opening (>${SAFETY.maxDeploymentVelocity} m/s).`);
+  for (const d of deployments) {
+    if (d.openingOk === false) {
+      comments.push(`${d.device} opens at ${Math.abs(d.velocityAtDeployment!).toFixed(1)} m/s (${fps(Math.abs(d.velocityAtDeployment!))}) — hard opening, over the ${fps(SAFETY.maxDeploymentVelocity)} threshold.`);
+    }
+    if (d.descentOk === false && !d.isLanding) {
+      comments.push(`Descent under ${d.device} is ${d.descentRate!.toFixed(1)} m/s (${fps(d.descentRate!)}) — faster than the accepted ${fps(SAFETY.maxDrogueDescentRate)} drogue band.`);
+    }
+    if (d.descentOk === false && d.isLanding) {
+      comments.push(`Landing under ${d.device} at ${d.descentRate!.toFixed(1)} m/s (${fps(d.descentRate!)}) — above the ${fps(SAFETY.maxLandingRate)} landing target.`);
+    }
+  }
+  if (deployments.length === 0 && safeDeployment === false) {
+    comments.push(`Deployment at ${Math.abs(velocityAtDeployment!).toFixed(1)} m/s (${fps(Math.abs(velocityAtDeployment!))}) — expect hard opening.`);
+  }
+  if (deployments.length === 0 && safeLandingRate === false) {
+    comments.push(`Landing at ${landingRate!.toFixed(1)} m/s (${fps(landingRate!)}) — above the ${fps(SAFETY.maxLandingRate)} landing target.`);
   }
   if (staticMarginOk === false && launchStaticMarginCal !== null) {
     comments.push(launchStaticMarginCal < SAFETY.minStaticMargin
@@ -216,6 +304,9 @@ export function buildSimRun(input: {
     launchStaticMarginCal,
     altitudeAtDeployment,
     velocityAtDeployment,
+    deployments,
+    landingRate,
+    safeLandingRate,
     groundHitVelocity: summary.groundHitVelocity,
     totalFlightTime: summary.flightTime,
     optimumDelayS,

@@ -64,6 +64,47 @@ export function SimRunDetails({ run }: { run: SimRun }) {
         </p>
       )}
       {run.comments && <p className="simdet-comments">{run.comments}</p>}
+      {(run.deployments ?? []).length > 0 && (
+        <div className="motor-table-wrap" style={{ marginTop: 8 }}>
+          <table className="motor-table">
+            <thead>
+              <tr>
+                <th>Recovery device</th>
+                <th>Deploys at</th>
+                <th>Altitude (<UnitChip quantity="distance" />)</th>
+                <th>Opens at (<UnitChip quantity="velocity" />)</th>
+                <th>Descent after (<UnitChip quantity="velocity" />)</th>
+                <th>Verdict</th>
+              </tr>
+            </thead>
+            <tbody>
+              {run.deployments.map((d, i) => {
+                const problems: string[] = [];
+                if (d.openingOk === false) problems.push('hard opening');
+                if (d.descentOk === false) {
+                  problems.push(d.isLanding ? 'landing too fast' : 'drogue descent too fast');
+                }
+                return (
+                  <tr key={i}>
+                    <td>{d.device}{d.isLanding ? ' (landing)' : ''}</td>
+                    <td>{d.time.toFixed(1)} s</td>
+                    <td>{d.altitude === null ? '—' : fmtSi('distance', dist, d.altitude)}</td>
+                    <td className={d.openingOk === false ? 'stability-bad' : undefined}>
+                      {d.velocityAtDeployment === null ? '—' : fmtSi('velocity', vel, Math.abs(d.velocityAtDeployment))}
+                    </td>
+                    <td className={d.descentOk === false ? 'stability-bad' : undefined}>
+                      {d.descentRate === null ? '—' : fmtSi('velocity', vel, d.descentRate)}
+                    </td>
+                    <td className={problems.length ? 'stability-bad' : 'stability-good'}>
+                      {problems.length ? `⚠ ${problems.join(', ')}` : '✓ ok'}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
       {open && (
         <div className="simdet-grid">
           <table className="fin-table">
@@ -94,13 +135,19 @@ export function SimRunDetails({ run }: { run: SimRun }) {
                 value={run.launchCP === null ? '—' : fmtSi('length', len, run.launchCP)} quantity="length" />
               <Row label="Launch static margin" value={s(run.launchStaticMarginCal)} unit="cal"
                 bad={run.staticMarginOk === false} />
-              <Row label="Altitude at deployment"
-                value={run.altitudeAtDeployment === null ? '—' : fmtSi('distance', dist, run.altitudeAtDeployment)}
-                quantity="distance" />
-              <Row label="Velocity at deployment"
-                value={run.velocityAtDeployment === null ? '—' : fmtSi('velocity', vel, Math.abs(run.velocityAtDeployment))}
-                quantity="velocity" bad={run.safeDeployment === false} />
-              <Row label="Ground hit velocity" value={fmtSi('velocity', vel, run.groundHitVelocity)} quantity="velocity" />
+              {(run.deployments ?? []).length === 0 && (
+                <>
+                  <Row label="Altitude at deployment"
+                    value={run.altitudeAtDeployment === null ? '—' : fmtSi('distance', dist, run.altitudeAtDeployment)}
+                    quantity="distance" />
+                  <Row label="Velocity at deployment"
+                    value={run.velocityAtDeployment === null ? '—' : fmtSi('velocity', vel, Math.abs(run.velocityAtDeployment))}
+                    quantity="velocity" bad={run.safeDeployment === false} />
+                </>
+              )}
+              <Row label="Landing descent rate"
+                value={run.landingRate == null ? fmtSi('velocity', vel, run.groundHitVelocity) : fmtSi('velocity', vel, run.landingRate)}
+                quantity="velocity" bad={run.safeLandingRate === false} />
             </tbody>
           </table>
           <table className="fin-table">
@@ -108,6 +155,7 @@ export function SimRunDetails({ run }: { run: SimRun }) {
               <Row label="Lift-off speed OK" {...(() => { const v = verdict(run.safeLiftoffSpeed); return { value: v.text, bad: v.bad }; })()} />
               <Row label="Thrust : weight OK" {...(() => { const v = verdict(run.safeThrustToWeight); return { value: v.text, bad: v.bad }; })()} />
               <Row label="Safe deployment" {...(() => { const v = verdict(run.safeDeployment); return { value: v.text, bad: v.bad }; })()} />
+              <Row label="Landing rate OK (≤ 20 ft/s)" {...(() => { const v = verdict(run.safeLandingRate ?? null); return { value: v.text, bad: v.bad }; })()} />
               <Row label="Static margin OK" {...(() => { const v = verdict(run.staticMarginOk); return { value: v.text, bad: v.bad }; })()} />
               <Row label="Weathercocking" value={run.weathercockRisk ?? '—'}
                 bad={run.weathercockRisk === 'high'} />
@@ -168,7 +216,9 @@ export function SimHistory({ runs, onRunsChange }: {
             <tbody>
               {runs.map((r) => {
                 const unsafe = r.safeLiftoffSpeed === false || r.safeDeployment === false
-                  || r.staticMarginOk === false || r.safeThrustToWeight === false;
+                  || r.staticMarginOk === false || r.safeThrustToWeight === false
+                  || r.safeLandingRate === false
+                  || (r.deployments ?? []).some((d) => d.descentOk === false);
                 return (
                   <tr key={r.id}>
                     <td title={r.rocket}>{r.manufacturer ? `${r.manufacturer} ` : ''}{r.motor}</td>

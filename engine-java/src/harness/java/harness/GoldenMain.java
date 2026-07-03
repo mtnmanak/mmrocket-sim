@@ -35,6 +35,54 @@ public final class GoldenMain {
         treeApiScenarios();
         conditionsScenarios();
         finVariantScenarios();
+        dualDeployScenarios();
+    }
+
+    /**
+     * Dual deployment: drogue at apogee + main at 150 m AGL. Events must
+     * carry their SOURCE component name so the app can tell WHICH device
+     * deployed (drogue vs main) — safety thresholds differ per stage.
+     */
+    private static void dualDeployScenarios() {
+        String rocket = "{\"name\":\"DualDeploy\",\"components\":["
+                + "{\"type\":\"nosecone\",\"length\":0.07,\"aftRadius\":0.012,\"thickness\":0.002},"
+                + "{\"type\":\"bodytube\",\"length\":0.30,\"outerRadius\":0.012,\"thickness\":0.0003,\"density\":950,\"children\":["
+                + "  {\"type\":\"trapezoidfinset\",\"finCount\":3,\"rootChord\":0.05,\"tipChord\":0.03,\"sweep\":0.02,\"height\":0.03,\"thickness\":0.003},"
+                + "  {\"type\":\"innertube\",\"id\":\"mount\",\"length\":0.07,\"outerRadius\":0.0095,\"thickness\":0.0005,\"motorMount\":true},"
+                + "  {\"type\":\"parachute\",\"name\":\"Drogue\",\"diameter\":0.15,\"deployEvent\":\"apogee\"},"
+                + "  {\"type\":\"parachute\",\"name\":\"Main\",\"diameter\":0.45,\"deployEvent\":\"altitude\",\"deployAltitude\":150}"
+                + "]}]}";
+        int r = api.OrkEngine.buildRocket(rocket);
+        api.OrkEngine.setMotorById(r, "mount", "C6", 0.018, 0.070,
+                new double[] { 0, 0.1, 0.3, 0.5, 1.0, 1.5, 1.85, 2.0 },
+                new double[] { 0, 12.0, 6.0, 5.1, 4.9, 4.8, 4.5, 0 },
+                new double[] { 0.0240, 0.0231, 0.0215, 0.0202, 0.0174, 0.0147, 0.0133, 0.0132 },
+                0.035, 5.0);
+        String result = api.OrkEngine.simulateJson(r, "{\"rodLength\":1.0}");
+        java.util.Map<String, Object> parsed = api.JsonLite.parseObject(result);
+        Object events = parsed.get("events");
+        StringBuilder sources = new StringBuilder("flight.dualdeploy.sources");
+        java.util.List<Double> times = new java.util.ArrayList<>();
+        if (events instanceof java.util.List) {
+            for (Object e : (java.util.List<?>) events) {
+                if (!(e instanceof java.util.Map)) continue;
+                java.util.Map<String, Object> ev = asMap(e);
+                if ("RECOVERY_DEVICE_DEPLOYMENT".equals(ev.get("type"))) {
+                    sources.append('|').append(ev.get("source"));
+                    times.add(api.JsonLite.dbl(ev, "time", Double.NaN));
+                }
+            }
+        }
+        // Sources compare exactly (strings); times get flight.* tolerance.
+        System.out.println(sources);
+        double[] t = new double[times.size()];
+        for (int i = 0; i < times.size(); i++) t[i] = times.get(i);
+        line("flight.dualdeploy.times", t);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static java.util.Map<String, Object> asMap(Object o) {
+        return (java.util.Map<String, Object>) o;
     }
 
     /** Cross-sections and freeform fins through the tree API. */
