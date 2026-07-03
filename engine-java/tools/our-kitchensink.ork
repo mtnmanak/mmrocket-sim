@@ -1,0 +1,273 @@
+<?xml version='1.0' encoding='utf-8'?>
+<openrocket version="1.10" creator="Online OpenRocket">
+  <rocket>
+    <name>Kitchen Sink</name>
+    <id>27b788e9-3005-445d-b466-59b182cffb73</id>
+    <axialoffset method="absolute">0.0</axialoffset>
+    <position type="absolute">0.0</position>
+    <designtype>original</designtype>
+    <motorconfiguration configid="b075bf53-4303-4e1e-9361-ef0017f32b4d" default="true">
+      <stage number="0" active="true"/>
+    </motorconfiguration>
+    <referencetype>maximum</referencetype>
+    <subcomponents>
+      <stage>
+        <name>Sustainer</name>
+        <id>0eb29a45-a625-4dfe-ad04-61049b23f60e</id>
+        <subcomponents>
+          <nosecone>
+            <name>Nose Cone</name>
+            <id>0766b34b-c759-4cd3-a4c7-5839720b4d0d</id>
+            <finish>normal</finish>
+            <material type="bulk" density="680" group="Custom">custom</material>
+            <length>0.1</length>
+            <thickness>0.002</thickness>
+            <shape>haack</shape>
+            <shapeclipped>false</shapeclipped>
+            <shapeparameter>0</shapeparameter>
+            <aftradius>0.0125</aftradius>
+            <aftshoulderradius>0.0</aftshoulderradius>
+            <aftshoulderlength>0.0</aftshoulderlength>
+            <aftshoulderthickness>0.0</aftshoulderthickness>
+            <aftshouldercapped>false</aftshouldercapped>
+            <isflipped>false</isflipped>
+            <subcomponents>
+              <masscomponent>
+                <name>Mass Component</name>
+                <id>b71fc436-0840-4fbc-bda8-f676f8cb880c</id>
+                <axialoffset method="top">0</axialoffset>
+                <position type="top">0</position>
+                <packedlength>0.02</packedlength>
+                <packedradius>0.005</packedradius>
+                <radialposition>0.0</radialposition>
+                <radialdirection>0.0</radialdirection>
+                <mass>0.008</mass>
+                <masscomponenttype>masscomponent</masscomponenttype>
+              </masscomponent>
+            </subcomponents>
+          </nosecone>
+          <bodytube>
+            <name>Body Tube</name>
+            <id>3ad8456e-b84d-4703-bdec-46ddd76228ae</id>
+            <finish>normal</finish>
+            <material type="bulk" density="950" group="Custom">custom</material>
+            <length>0.35</length>
+            <thickness>0.0005</thickness>
+            <radius>0.0125</radius>
+            <subcomponents>
+              <ellipticalfinset>
+                <name>Elliptical Fin Set</name>
+                <id>7a17a727-1935-456d-a4a2-8cbda09da7f3</id>
+                <instancecount>4</instancecount>
+                <fincount>4</fincount>
+                <radiusoffset method="surface">0.0</radiusoffset>
+                <angleoffset method="relative">0.0</angleoffset>
+                <rotation>0.0</rotation>
+                <axialoffset method="bottom">0</axialoffset>
+                <position type="bottom">0</position>
+                <finish>normal</finish>
+                <material type="bulk" density="680" group="Custom">custom</material>
+                <thickness>0.003</thickness>
+                <crosssection>square</crosssection>
+                <cant>0.0</cant>
+                <filletradius>0.0</filletradius>
+                <filletmaterial type="bulk" density="680.0" group="PaperProducts">Cardboard</filletmaterial>
+                <rootchord>0.06</rootchord>
+                <height>0.04</height>
+              </ellipticalfinset>
+              <launchlug>
+                <name>Launch Lug</name>
+                <id>7345891a-2bd6-4095-86f2-e40731f2fa6a</id>
+                <instancecount>1</instancecount>
+                <instanceseparation>0.0</instanceseparation>
+                <angleoffset method="relative">180.0</angleoffset>
+                <radialdirection>180.0</radialdirection>
+                <axialoffset method="middle">0</axialoffset>
+                <position type="middle">0</position>
+                <finish>normal</finish>
+                <material type="bulk" density="680" group="Custom">custom</material>
+                <radius>0.0025</radius>
+                <length>0.05</length>
+                <thickness>0.0004</thickness>
+              </launchlug>
+              <railbutton>
+                <name>Rail Button</name>
+                <id>17fa7088-1bf3-4d91-a137-97257d021c09</id>
+                <instancecount>1</instancecount>
+                <instanceseparation>0.0</instanceseparation>
+                <angleoffset method="relative">180.0</angleoffset>
+                <axialoffset method="middle">0</axialoffset>
+                <position type="middle">0</position>
+                <finish>normal</finish>
+                <material type="bulk" density="1420.0" group="Plastics">Delrin</material>
+                <outerdiameter>0.0097</outerdiameter>
+                <innerdiameter>0.008</innerdiameter>
+                <height>0.0097</height>
+                <baseheight>0.002</baseheight>
+                <flangeheight>0.002</flangeheight>
+                <screwheight>0.0</screwheight>
+              </railbutton>
+              <innertube>
+                <name>Inner Tube</name>
+                <id>54a5dbad-9d24-4391-bdc1-7b844a69acb0</id>
+                <axialoffset method="bottom">0</axialoffset>
+                <position type="bottom">0</position>
+                <material type="bulk" density="680" group="Custom">custom</material>
+                <length>0.08</length>
+                <radialposition>0.0</radialposition>
+                <radialdirection>0.0</radialdirection>
+                <outerradius>0.012</outerradius>
+                <thickness>0.0005000000000000004</thickness>
+                <clusterconfiguration>single</clusterconfiguration>
+                <clusterscale>1.0</clusterscale>
+                <clusterrotation>0.0</clusterrotation>
+                <subcomponents>
+                  <engineblock>
+                    <name>Engine Block</name>
+                    <id>2f36d27b-e20e-4284-b08c-f53b1e7a5a4d</id>
+                    <axialoffset method="bottom">0</axialoffset>
+                    <position type="bottom">0</position>
+                    <material type="bulk" density="680" group="Custom">custom</material>
+                    <length>0.005</length>
+                    <radialposition>0.0</radialposition>
+                    <radialdirection>0.0</radialdirection>
+                    <outerradius>auto</outerradius>
+                    <thickness>0</thickness>
+                  </engineblock>
+                </subcomponents>
+              </innertube>
+              <centeringring>
+                <name>Centering Ring</name>
+                <id>18a58731-d4a0-4baf-8008-95e6ffc7fb2c</id>
+                <instancecount>1</instancecount>
+                <instanceseparation>0.0</instanceseparation>
+                <axialoffset method="bottom">0</axialoffset>
+                <position type="bottom">0</position>
+                <material type="bulk" density="680" group="Custom">custom</material>
+                <length>0.002</length>
+                <radialposition>0.0</radialposition>
+                <radialdirection>0.0</radialdirection>
+                <outerradius>auto</outerradius>
+                <innerradius>auto</innerradius>
+              </centeringring>
+              <tubecoupler>
+                <name>Tube Coupler</name>
+                <id>0e31ca00-b4ff-44c7-81f4-01499e1e6e89</id>
+                <axialoffset method="bottom">0</axialoffset>
+                <position type="bottom">0</position>
+                <material type="bulk" density="680" group="Custom">custom</material>
+                <length>0.05</length>
+                <radialposition>0.0</radialposition>
+                <radialdirection>0.0</radialdirection>
+                <outerradius>auto</outerradius>
+                <thickness>0</thickness>
+                <subcomponents>
+                  <bulkhead>
+                    <name>Bulkhead</name>
+                    <id>709463ce-5de3-4f04-a3cf-d1e781cc49f9</id>
+                    <instancecount>1</instancecount>
+                    <instanceseparation>0.0</instanceseparation>
+                    <axialoffset method="bottom">0</axialoffset>
+                    <position type="bottom">0</position>
+                    <material type="bulk" density="680" group="Custom">custom</material>
+                    <length>0.003</length>
+                    <radialposition>0.0</radialposition>
+                    <radialdirection>0.0</radialdirection>
+                    <outerradius>auto</outerradius>
+                  </bulkhead>
+                </subcomponents>
+              </tubecoupler>
+              <parachute>
+                <name>Parachute</name>
+                <id>af71b137-d079-4185-9901-400766562fc5</id>
+                <axialoffset method="top">0</axialoffset>
+                <position type="top">0</position>
+                <packedlength>0.025</packedlength>
+                <packedradius>0.0125</packedradius>
+                <radialposition>0.0</radialposition>
+                <radialdirection>0.0</radialdirection>
+                <cd>auto</cd>
+                <material type="surface" density="0.067" group="Fabrics">Ripstop nylon</material>
+                <deployevent>ejection</deployevent>
+                <deployaltitude>200.0</deployaltitude>
+                <deploydelay>0.0</deploydelay>
+                <diameter>0.35</diameter>
+                <linecount>6</linecount>
+                <linelength>0.3</linelength>
+                <linematerial type="line" density="0.0018" group="ThreadsLines">Elastic cord (round 2 mm, 1/16 in)</linematerial>
+              </parachute>
+              <streamer>
+                <name>Streamer</name>
+                <id>710a7dd8-2ee1-48f1-9de3-54ac4d7eb99c</id>
+                <axialoffset method="top">0</axialoffset>
+                <position type="top">0</position>
+                <packedlength>0.025</packedlength>
+                <packedradius>0.0125</packedradius>
+                <radialposition>0.0</radialposition>
+                <radialdirection>0.0</radialdirection>
+                <cd>auto</cd>
+                <material type="surface" density="0.067" group="Fabrics">Ripstop nylon</material>
+                <deployevent>ejection</deployevent>
+                <deployaltitude>200.0</deployaltitude>
+                <deploydelay>0.0</deploydelay>
+                <striplength>0.6</striplength>
+                <stripwidth>0.05</stripwidth>
+              </streamer>
+              <shockcord>
+                <name>Shock Cord</name>
+                <id>04a57e3e-7b99-4cf2-902b-683ebc72f295</id>
+                <axialoffset method="top">0</axialoffset>
+                <position type="top">0</position>
+                <packedlength>0.025</packedlength>
+                <packedradius>0.0125</packedradius>
+                <radialposition>0.0</radialposition>
+                <radialdirection>0.0</radialdirection>
+                <cordlength>0.4</cordlength>
+                <material type="line" density="0.0018" group="ThreadsLines">Elastic cord (round 2 mm, 1/16 in)</material>
+              </shockcord>
+              <tubefinset>
+                <name>Tube Fin Set</name>
+                <id>89eef774-78f7-4b52-9a30-ded25554a8e7</id>
+                <instancecount>3</instancecount>
+                <fincount>3</fincount>
+                <radiusoffset method="coaxial">0.0</radiusoffset>
+                <angleoffset method="fixed">0.0</angleoffset>
+                <rotation>0.0</rotation>
+                <axialoffset method="bottom">0</axialoffset>
+                <position type="bottom">0</position>
+                <finish>normal</finish>
+                <material type="bulk" density="680" group="Custom">custom</material>
+                <radius>auto</radius>
+                <length>0.06</length>
+                <thickness>0.0005</thickness>
+              </tubefinset>
+            </subcomponents>
+          </bodytube>
+          <transition>
+            <name>Transition</name>
+            <id>488860e5-8662-4ef3-bc8a-f333dae33da1</id>
+            <finish>normal</finish>
+            <material type="bulk" density="680" group="Custom">custom</material>
+            <length>0.04</length>
+            <thickness>0.001</thickness>
+            <shape>conical</shape>
+            <shapeclipped>false</shapeclipped>
+            <shapeparameter>1</shapeparameter>
+            <foreradius>0.0125</foreradius>
+            <aftradius>0.009</aftradius>
+            <foreshoulderradius>0.0</foreshoulderradius>
+            <foreshoulderlength>0.0</foreshoulderlength>
+            <foreshoulderthickness>0.0</foreshoulderthickness>
+            <foreshouldercapped>false</foreshouldercapped>
+            <aftshoulderradius>0.0</aftshoulderradius>
+            <aftshoulderlength>0.0</aftshoulderlength>
+            <aftshoulderthickness>0.0</aftshoulderthickness>
+            <aftshouldercapped>false</aftshouldercapped>
+          </transition>
+        </subcomponents>
+      </stage>
+    </subcomponents>
+  </rocket>
+  <simulations>
+  </simulations>
+</openrocket>

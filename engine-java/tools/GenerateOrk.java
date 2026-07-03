@@ -58,6 +58,8 @@ public final class GenerateOrk {
 
         if (args.length == 2 && args[0].equals("generate")) {
             generate(new File(args[1]));
+        } else if (args.length == 2 && args[0].equals("kitchensink")) {
+            kitchenSink(new File(args[1]));
         } else if (args.length == 2 && args[0].equals("validate")) {
             validate(new File(args[1]));
         } else {
@@ -121,6 +123,111 @@ public final class GenerateOrk {
         mc.setEjectionDelay(5.0);
         mount.setMotorConfig(mc, fcid);
 
+        rocket.enableEvents();
+
+        StorageOptions opts = doc.getDefaultStorageOptions();
+        opts.setSaveSimulationData(false);
+        new GeneralRocketSaver().save(out, doc, opts);
+        System.out.println("saved: " + out.getAbsolutePath() + " (" + out.length() + " bytes)");
+    }
+
+    /** A rocket using every component type the web editor supports. */
+    private static void kitchenSink(File out) throws Exception {
+        OpenRocketDocument doc = OpenRocketDocumentFactory.createNewRocket();
+        Rocket rocket = doc.getRocket();
+        rocket.setName("Kitchen Sink");
+        AxialStage stage = (AxialStage) rocket.getChild(0);
+
+        NoseCone nose = new NoseCone(Transition.Shape.HAACK, 0.1, 0.0125);
+        nose.setThickness(0.002);
+        stage.addChild(nose);
+        info.openrocket.core.rocketcomponent.MassComponent noseWeight =
+                new info.openrocket.core.rocketcomponent.MassComponent();
+        noseWeight.setComponentMass(0.008);
+        noseWeight.setLength(0.02);
+        noseWeight.setRadius(0.005);
+        nose.addChild(noseWeight);
+
+        BodyTube body = new BodyTube(0.35, 0.0125, 0.0005);
+        body.setMaterial(Material.newMaterial(Material.Type.BULK, "custom", 950, true));
+        stage.addChild(body);
+
+        info.openrocket.core.rocketcomponent.EllipticalFinSet efins =
+                new info.openrocket.core.rocketcomponent.EllipticalFinSet();
+        efins.setFinCount(4);
+        efins.setLength(0.06);
+        efins.setHeight(0.04);
+        efins.setThickness(0.003);
+        body.addChild(efins);
+
+        info.openrocket.core.rocketcomponent.LaunchLug lug =
+                new info.openrocket.core.rocketcomponent.LaunchLug();
+        lug.setLength(0.05);
+        lug.setOuterRadius(0.0025);
+        lug.setThickness(0.0004);
+        body.addChild(lug);
+
+        info.openrocket.core.rocketcomponent.RailButton rb =
+                new info.openrocket.core.rocketcomponent.RailButton();
+        body.addChild(rb);
+
+        InnerTube mount = new InnerTube();
+        mount.setLength(0.08);
+        mount.setOuterRadius(0.012);
+        mount.setThickness(0.0005);
+        body.addChild(mount);
+        mount.setMotorMount(true);
+        info.openrocket.core.rocketcomponent.EngineBlock block =
+                new info.openrocket.core.rocketcomponent.EngineBlock();
+        block.setLength(0.005);
+        block.setThickness(0.001);
+        mount.addChild(block);
+
+        info.openrocket.core.rocketcomponent.CenteringRing ring =
+                new info.openrocket.core.rocketcomponent.CenteringRing();
+        ring.setLength(0.002);
+        body.addChild(ring);
+
+        info.openrocket.core.rocketcomponent.TubeCoupler coupler =
+                new info.openrocket.core.rocketcomponent.TubeCoupler();
+        coupler.setLength(0.05);
+        coupler.setThickness(0.0005);
+        body.addChild(coupler);
+        info.openrocket.core.rocketcomponent.Bulkhead bh =
+                new info.openrocket.core.rocketcomponent.Bulkhead();
+        bh.setLength(0.003);
+        coupler.addChild(bh);
+
+        Parachute chute = new Parachute();
+        chute.setDiameter(0.35);
+        body.addChild(chute);
+        info.openrocket.core.rocketcomponent.Streamer streamer =
+                new info.openrocket.core.rocketcomponent.Streamer();
+        streamer.setStripLength(0.6);
+        streamer.setStripWidth(0.05);
+        body.addChild(streamer);
+        info.openrocket.core.rocketcomponent.ShockCord cord =
+                new info.openrocket.core.rocketcomponent.ShockCord();
+        cord.setCordLength(0.4);
+        body.addChild(cord);
+
+        Transition tailcone = new Transition();
+        tailcone.setShapeType(Transition.Shape.CONICAL);
+        tailcone.setLength(0.04);
+        tailcone.setForeRadius(0.0125);
+        tailcone.setAftRadius(0.009);
+        tailcone.setThickness(0.001);
+        stage.addChild(tailcone);
+
+        info.openrocket.core.rocketcomponent.TubeFinSet tubeFins =
+                new info.openrocket.core.rocketcomponent.TubeFinSet();
+        tubeFins.setFinCount(3);
+        tubeFins.setLength(0.06);
+        body.addChild(tubeFins);
+
+        FlightConfigurationId fcid = new FlightConfigurationId();
+        rocket.createFlightConfiguration(fcid);
+        rocket.setSelectedConfiguration(fcid);
         rocket.enableEvents();
 
         StorageOptions opts = doc.getDefaultStorageOptions();

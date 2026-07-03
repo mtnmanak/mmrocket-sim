@@ -17,7 +17,6 @@ import { Rocket3D } from './components/Rocket3D.js';
 import { TreeSchematic } from './components/TreeSchematic.js';
 import { BUILT_IN_MOTORS } from './motors.js';
 import { exportOrk, importOrk } from './services/orkFile.js';
-import { specToTree, treeToSpec } from './tree/specBridge.js';
 import {
   addChild, defaultTree, findNode, makeNode, motorMounts, moveNode, removeNode, updateNode,
 } from './tree/treeModel.js';
@@ -111,13 +110,14 @@ export function App() {
   const onSaveOrk = () => {
     const xml = exportOrk({
       name: tree.name ?? 'My Rocket',
-      spec: treeToSpec(tree),
+      tree,
       motor: {
         designation: motor.designation,
         diameter: motor.diameter,
         length: motor.length,
         delay: motor.ejectionDelay,
       },
+      mountId: activeMountId,
     });
     const blob = new Blob([xml], { type: 'application/octet-stream' });
     const a = document.createElement('a');
@@ -143,11 +143,9 @@ export function App() {
           notes.push(`Motor “${imported.motor.designation}” isn't built-in — pick it via thrustcurve.org search.`);
         }
       }
-      if (imported.ignored.length) {
-        notes.push(`Ignored unsupported components: ${imported.ignored.join(', ')}.`);
-      }
-      setTree(specToTree(imported.name, imported.spec));
+      setTree(imported.tree);
       setSelectedId(null);
+      if (imported.motor?.mountId) setMountId(imported.motor.mountId);
       setFileNote(notes.join('\n'));
     } catch (e) {
       setFileNote(`Could not open that .ork file: ${e instanceof Error ? e.message : String(e)}`);
