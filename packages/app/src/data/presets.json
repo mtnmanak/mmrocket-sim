@@ -1,7 +1,7 @@
 {
  "generated": "2026-07-03",
  "source": "github.com/openrocket/openrocket-database",
- "count": 3449,
+ "count": 3936,
  "presets": [
   {
    "kind": "BodyTube",
@@ -54161,6 +54161,7736 @@
    "insideDiameter": 0.0120396,
    "outsideDiameter": 0.0130302,
    "length": 0.01905
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "Always Ready Rocketry",
+   "partNo": "10506",
+   "description": "5.5\" x 48\" Blue Tube",
+   "material": {
+    "name": "Blue tube",
+    "type": "BULK",
+    "density": 1300
+   },
+   "mass": 1.07813,
+   "insideDiameter": 0.136144,
+   "outsideDiameter": 0.140208,
+   "length": 1.2192,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "Apogee",
+   "partNo": "10063",
+   "description": "13 mm",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.0058,
+   "insideDiameter": 0.013208,
+   "outsideDiameter": 0.013716,
+   "length": 0.4572,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "Apogee",
+   "partNo": "10064",
+   "description": "18mm x 2.75\" Motor Mount",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.0081,
+   "insideDiameter": 0.018034,
+   "outsideDiameter": 0.018796,
+   "length": 0.06985,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "Apogee",
+   "partNo": "10086",
+   "description": "18 mm",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.0081,
+   "insideDiameter": 0.018034,
+   "outsideDiameter": 0.018796,
+   "length": 0.4572,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "Apogee",
+   "partNo": "10100",
+   "description": "24 mm",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.0109,
+   "insideDiameter": 0.02413,
+   "outsideDiameter": 0.024892,
+   "length": 0.4572,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "Apogee",
+   "partNo": "10102",
+   "description": "24mm x 6\" Clear Airframe",
+   "material": {
+    "name": "Polycarbonate (Lexan)",
+    "type": "BULK",
+    "density": 1200
+   },
+   "mass": 0.0046,
+   "insideDiameter": 0.02413,
+   "outsideDiameter": 0.024892,
+   "length": 0.1524,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "Apogee",
+   "partNo": "10111",
+   "description": "29mm x 13\" Motor Mount",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.013,
+   "insideDiameter": 0.028956,
+   "outsideDiameter": 0.029972,
+   "length": 0.3302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "Apogee",
+   "partNo": "10131",
+   "description": "33mm x 18\" Body Tube",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.02,
+   "insideDiameter": 0.032512,
+   "outsideDiameter": 0.033528,
+   "length": 0.4572,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "Apogee",
+   "partNo": "10134",
+   "description": "33mm x 18\" Clear Airframe",
+   "material": {
+    "name": "Polycarbonate (Lexan)",
+    "type": "BULK",
+    "density": 1200
+   },
+   "mass": 0.0318,
+   "insideDiameter": 0.032512,
+   "outsideDiameter": 0.033782,
+   "length": 0.4572,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "Apogee",
+   "partNo": "10139",
+   "description": "40mm x 9.9\" Body Tube",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.0086,
+   "insideDiameter": 0.040132,
+   "outsideDiameter": 0.04064,
+   "length": 0.25146,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "Apogee",
+   "partNo": "10141",
+   "description": "41.6mm x 18\" Body Tube",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.018,
+   "insideDiameter": 0.04064,
+   "outsideDiameter": 0.041656,
+   "length": 0.4572,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "Apogee",
+   "partNo": "10144",
+   "description": "41.6mm x 18\" Clear Airframe",
+   "material": {
+    "name": "Polycarbonate (Lexan)",
+    "type": "BULK",
+    "density": 1200
+   },
+   "mass": 0.0413,
+   "insideDiameter": 0.04064,
+   "outsideDiameter": 0.041656,
+   "length": 0.4572,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "Apogee",
+   "partNo": "10164",
+   "description": "56mm x 18\" Body Tube",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.0366,
+   "insideDiameter": 0.055372,
+   "outsideDiameter": 0.056388,
+   "length": 0.4572,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "Apogee",
+   "partNo": "10165",
+   "description": "56mm x 10\" Clear Airframe",
+   "material": {
+    "name": "Polycarbonate (Lexan)",
+    "type": "BULK",
+    "density": 1200
+   },
+   "mass": 0.0293,
+   "insideDiameter": 0.055372,
+   "outsideDiameter": 0.056134,
+   "length": 0.254,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "Apogee",
+   "partNo": "10171",
+   "description": "56mm x 18\" Clear Airframe",
+   "material": {
+    "name": "Polycarbonate (Lexan)",
+    "type": "BULK",
+    "density": 1200
+   },
+   "insideDiameter": 0.055372,
+   "outsideDiameter": 0.0563118,
+   "length": 0.4572,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "Apogee",
+   "partNo": "10190",
+   "description": "66mm x 18\" Clear Airframe",
+   "material": {
+    "name": "Polycarbonate (Lexan)",
+    "type": "BULK",
+    "density": 1200
+   },
+   "mass": 0.0675,
+   "insideDiameter": 0.065024,
+   "outsideDiameter": 0.06604,
+   "length": 0.4572,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "Apogee",
+   "partNo": "10198",
+   "description": "66mm x 18\" Body Tube",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.0382,
+   "insideDiameter": 0.065024,
+   "outsideDiameter": 0.06604,
+   "length": 0.4572,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "Apogee",
+   "partNo": "10202",
+   "description": "74mm x 18\" Body Tube",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.0792,
+   "insideDiameter": 0.074422,
+   "outsideDiameter": 0.0762,
+   "length": 0.4572,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "Apogee",
+   "partNo": "10205",
+   "description": "38mm Motor Mount",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.0411,
+   "insideDiameter": 0.038862,
+   "outsideDiameter": 0.041656,
+   "length": 0.2794,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "Apogee",
+   "partNo": "10215",
+   "description": "AT-98/1\" (4\" Dia. Thick Wall Switch Band)",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "insideDiameter": 0.09906,
+   "outsideDiameter": 0.1016,
+   "length": 0.0254,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "Apogee",
+   "partNo": "10220",
+   "description": "AT-98/18\" (4\" Dia. Thick Wall)",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "insideDiameter": 0.09906,
+   "outsideDiameter": 0.1016,
+   "length": 0.4572,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "Apogee",
+   "partNo": "10222",
+   "description": "54mm x 14\" Motor Mount",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.0781,
+   "insideDiameter": 0.054356,
+   "outsideDiameter": 0.057404,
+   "length": 0.3556,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "Apogee",
+   "partNo": "10253",
+   "description": "29mm x 7\" Thick Wall",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "insideDiameter": 0.028956,
+   "outsideDiameter": 0.030734,
+   "length": 0.1778,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "Apogee",
+   "partNo": "10251",
+   "description": "29mm x 34\" Thick Wall",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.068,
+   "insideDiameter": 0.028956,
+   "outsideDiameter": 0.030734,
+   "length": 0.8636,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "BalsaMachining",
+   "partNo": "T20-18",
+   "description": ".736 x.710 x.013 x18 Estes BT20",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "insideDiameter": 0.018034,
+   "outsideDiameter": 0.018796,
+   "length": 0.4572,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "Estes",
+   "partNo": "Estes",
+   "description": "BT-3",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "insideDiameter": 0.00889,
+   "outsideDiameter": 0.009652,
+   "length": 0.4572,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "LOC Precision",
+   "partNo": "11025",
+   "description": "5.38\" Body Tube",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.784,
+   "insideDiameter": 0.136652,
+   "outsideDiameter": 0.140716,
+   "length": 1.143,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "LOC Precision",
+   "partNo": "LOC MMT-2.14",
+   "description": "Motor mount tube",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "insideDiameter": 0.054356,
+   "outsideDiameter": 0.057404,
+   "length": 0.762,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "LOC Precision",
+   "partNo": "LOC TWT 7.01",
+   "description": "Secondary Tube",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "insideDiameter": 0.173,
+   "outsideDiameter": 0.178,
+   "length": 0.272,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "Mach I",
+   "partNo": "10630",
+   "description": "18mm x 48\" Fiberglass Body Tube",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "mass": 0.0782,
+   "insideDiameter": 0.01778,
+   "outsideDiameter": 0.01905,
+   "length": 1.2192,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "Mach I",
+   "partNo": "10633",
+   "description": "41.6mm x 48\" Fiberglass Body Tube",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "mass": 0.1917,
+   "insideDiameter": 0.039624,
+   "outsideDiameter": 0.041656,
+   "length": 1.2192,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "Mach I",
+   "partNo": "10634",
+   "description": "54mm x 48\" Fiberglass Body Tube",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "mass": 0.4643,
+   "insideDiameter": 0.054102,
+   "outsideDiameter": 0.056896,
+   "length": 1.2192,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "Mach I",
+   "partNo": "10635",
+   "description": "66mm x 48\" Fiberglass Body Tube",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "mass": 0.6335,
+   "insideDiameter": 0.065024,
+   "outsideDiameter": 0.06731,
+   "length": 1.2192,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "Mach I",
+   "partNo": "10636",
+   "description": "3 x 48\"\" Fiberglass Body Tube\"",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "mass": 0.6946,
+   "insideDiameter": 0.075946,
+   "outsideDiameter": 0.078486,
+   "length": 1.2192,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "Mach I",
+   "partNo": "10637",
+   "description": "98mm x 48\" Fiberglass Body Tube",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "mass": 1.2893,
+   "insideDiameter": 0.098806,
+   "outsideDiameter": 0.102616,
+   "length": 1.2192,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "Madcow",
+   "partNo": "10622",
+   "description": "38mm x 48\" Fiberglass Tube",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "mass": 0.273,
+   "insideDiameter": 0.038608,
+   "outsideDiameter": 0.04064,
+   "length": 1.2192,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "Madcow",
+   "partNo": "10623",
+   "description": "54mm x 48\" Fiberglass Tube",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "mass": 0.4132,
+   "insideDiameter": 0.05461,
+   "outsideDiameter": 0.056642,
+   "length": 1.2192,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "Madcow",
+   "partNo": "10632",
+   "description": "33mm x 48\" Fiberglass Tube",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "mass": 0.1601,
+   "insideDiameter": 0.032766,
+   "outsideDiameter": 0.034036,
+   "length": 1.2192,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "ProLine Composites",
+   "partNo": "10603",
+   "description": "54mm x 48\" Fiberglass Tube",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "mass": 0.6704,
+   "insideDiameter": 0.054356,
+   "outsideDiameter": 0.058674,
+   "length": 1.2192,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "ProLine Composites",
+   "partNo": "10607",
+   "description": "4\" x 48\" Fiberglass Tube",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "mass": 1.3453,
+   "insideDiameter": 0.098806,
+   "outsideDiameter": 0.103632,
+   "length": 1.2192,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "ProLine Composites",
+   "partNo": "10612",
+   "description": "5.5\" x 48\" Fiberglass Tube",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "mass": 2.134,
+   "insideDiameter": 0.136652,
+   "outsideDiameter": 0.141224,
+   "length": 1.2192,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "ProLine Composites",
+   "partNo": "10613",
+   "description": "6 x 48\"\" Fiberglass Tube\"",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "mass": 2.766,
+   "insideDiameter": 0.152654,
+   "outsideDiameter": 0.157226,
+   "length": 1.2192,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "ProLine Composites",
+   "partNo": "10616",
+   "description": "7.5\" x 48\" Fiberglass Tube",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "mass": 3.834,
+   "insideDiameter": 0.1905,
+   "outsideDiameter": 0.196596,
+   "length": 1.2192,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "ProLine Composites",
+   "partNo": "10617",
+   "description": "8\" x 48\" Fiberglass Tube",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "mass": 4.122,
+   "insideDiameter": 0.198374,
+   "outsideDiameter": 0.2032,
+   "length": 1.2192,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "Quest",
+   "partNo": "8062",
+   "description": "T3524",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "insideDiameter": 0.034036,
+   "outsideDiameter": 0.035052,
+   "length": 0.6096,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "Quest",
+   "partNo": "8066",
+   "description": "T3024",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "insideDiameter": 0.028956,
+   "outsideDiameter": 0.029972,
+   "length": 0.6096,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "Quest",
+   "partNo": "8070",
+   "description": "T2524",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "insideDiameter": 0.023876,
+   "outsideDiameter": 0.024892,
+   "length": 0.6096,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "Quest",
+   "partNo": "8074",
+   "description": "T2024",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "insideDiameter": 0.01905,
+   "outsideDiameter": 0.020066,
+   "length": 0.6096,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "Quest",
+   "partNo": "8078",
+   "description": "T1524",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "insideDiameter": 0.01397,
+   "outsideDiameter": 0.014986,
+   "length": 0.6096,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "SEMROC",
+   "partNo": "LT-150227",
+   "description": "Large Body Tube",
+   "insideDiameter": 0.0381,
+   "outsideDiameter": 0.040386,
+   "length": 0.57658,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "SEMROC",
+   "partNo": "LT-15057",
+   "description": "Large Body Tube",
+   "insideDiameter": 0.0381,
+   "outsideDiameter": 0.040386,
+   "length": 0.14478,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "LOC Precision",
+   "partNo": "13160",
+   "description": "2.56\" Tube Coupler",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.0235,
+   "insideDiameter": 0.063246,
+   "outsideDiameter": 0.065024,
+   "length": 0.127,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "LOC Precision",
+   "partNo": "13158",
+   "description": "54mm Tube Coupler",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.0291,
+   "insideDiameter": 0.051562,
+   "outsideDiameter": 0.054356,
+   "length": 0.14605,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "LOC Precision",
+   "partNo": "13156",
+   "description": "38mm Tube Coupler",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.0093,
+   "insideDiameter": 0.03683,
+   "outsideDiameter": 0.038608,
+   "length": 0.1016,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "LOC Precision",
+   "partNo": "13154",
+   "description": "29mm Tube Coupler",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.0067,
+   "insideDiameter": 0.0254,
+   "outsideDiameter": 0.028702,
+   "length": 0.0635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "LOC Precision",
+   "partNo": "13162",
+   "description": "75mm Tube Coupler",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.0378,
+   "insideDiameter": 0.073152,
+   "outsideDiameter": 0.075946,
+   "length": 0.1524,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "LOC Precision",
+   "partNo": "13164",
+   "description": "98mm Tube Coupler",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.0324,
+   "insideDiameter": 0.097282,
+   "outsideDiameter": 0.09906,
+   "length": 0.1524,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "LOC Precision",
+   "partNo": "13166",
+   "description": "5.38\" Tube Coupler",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.1114,
+   "insideDiameter": 0.134366,
+   "outsideDiameter": 0.136652,
+   "length": 0.254,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "LOC Precision",
+   "partNo": "13171",
+   "description": "2.56\" Stiffy",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.0502,
+   "insideDiameter": 0.05715,
+   "outsideDiameter": 0.062992,
+   "length": 0.1524,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "LOC Precision",
+   "partNo": "13172",
+   "description": "75mm Stiffy",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.0608,
+   "insideDiameter": 0.0687,
+   "outsideDiameter": 0.0744,
+   "length": 0.146,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "LOC Precision",
+   "partNo": "13173",
+   "description": "98mm Stiffy",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.08165,
+   "insideDiameter": 0.0934,
+   "outsideDiameter": 0.0991,
+   "length": 0.146,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "LOC Precision",
+   "partNo": "13174",
+   "description": "5.38\" Stiffy",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.2207,
+   "insideDiameter": 0.131,
+   "outsideDiameter": 0.137,
+   "length": 0.248,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "LOC Precision",
+   "partNo": "13168",
+   "description": "7.51\" Tube Coupler",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.248,
+   "insideDiameter": 0.188468,
+   "outsideDiameter": 0.190754,
+   "length": 0.3048,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "LOC Precision",
+   "partNo": "13175",
+   "description": "7.51\" Stiffy",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.676,
+   "insideDiameter": 0.1778,
+   "outsideDiameter": 0.187452,
+   "length": 0.3556,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Aerospace Speciality Products",
+   "partNo": "BH20",
+   "description": "Balsa Bulkhead Size 20 x 1.5\"",
+   "material": {
+    "name": "Balsa",
+    "type": "BULK",
+    "density": 170
+   },
+   "outsideDiameter": 0.0175,
+   "length": 0.0381,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Aerospace Speciality Products",
+   "partNo": "BH20T",
+   "description": "Balsa Bulkhead Size 20T x 1.75\"",
+   "material": {
+    "name": "Balsa",
+    "type": "BULK",
+    "density": 170
+   },
+   "outsideDiameter": 0.0188,
+   "length": 0.0444,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Aerospace Speciality Products",
+   "partNo": "BH5",
+   "description": "Balsa Bulkhead Size 5 x 1.5\"",
+   "material": {
+    "name": "Balsa",
+    "type": "BULK",
+    "density": 170
+   },
+   "outsideDiameter": 0.0124,
+   "length": 0.0381,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Aerospace Speciality Products",
+   "partNo": "BH50",
+   "description": "Balsa Bulkhead Size 50 x 2\"",
+   "material": {
+    "name": "Balsa",
+    "type": "BULK",
+    "density": 170
+   },
+   "outsideDiameter": 0.0234,
+   "length": 0.0508,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Aerospace Speciality Products",
+   "partNo": "BH55",
+   "description": "Balsa Bulkhead Size 55 x 3\"",
+   "material": {
+    "name": "Balsa",
+    "type": "BULK",
+    "density": 170
+   },
+   "outsideDiameter": 0.0318,
+   "length": 0.0762,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Aerospace Speciality Products",
+   "partNo": "BH60",
+   "description": "Balsa Bulkhead Size 60 x 4\"",
+   "material": {
+    "name": "Balsa",
+    "type": "BULK",
+    "density": 170
+   },
+   "outsideDiameter": 0.0396,
+   "length": 0.102,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Aerospace Speciality Products",
+   "partNo": "BH70H",
+   "description": "Balsa Bulkhead Size 70H x 4\"",
+   "material": {
+    "name": "Balsa",
+    "type": "BULK",
+    "density": 170
+   },
+   "outsideDiameter": 0.0544,
+   "length": 0.102,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Aerospace Speciality Products",
+   "partNo": "PBH-2.6/80H",
+   "description": "Plywood Bulkhead 2.6/80H (fits TC2.6/80 Coupler)",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "outsideDiameter": 0.062,
+   "length": 0.00317,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Aerospace Speciality Products",
+   "partNo": "PBH-60",
+   "description": "Plywood Bulkhead 60 (fits TC60 Coupler)",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "outsideDiameter": 0.0384,
+   "length": 0.00317,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Aerospace Speciality Products",
+   "partNo": "PBH-70",
+   "description": "Plywood Bulkhead 70 (fits TC70 Coupler)",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "outsideDiameter": 0.0523,
+   "length": 0.00317,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Apogee",
+   "partNo": "12209",
+   "description": "41.6mm Foam Coupler Bulkhead",
+   "outsideDiameter": 0.039116,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Apogee",
+   "partNo": "12210",
+   "description": "13mm Paper Tube Bulkhead",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "outsideDiameter": 0.0127,
+   "length": 0.00127,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Apogee",
+   "partNo": "12211",
+   "description": "18mm Paper Tube Bulkhead",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "outsideDiameter": 0.01778,
+   "length": 0.00127,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Apogee",
+   "partNo": "12212",
+   "description": "24mm Paper Tube Bulkhead",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "outsideDiameter": 0.023876,
+   "length": 0.00127,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Apogee",
+   "partNo": "12213",
+   "description": "29mm Plywood Tube Bulkhead",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "outsideDiameter": 0.028448,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Apogee",
+   "partNo": "12214",
+   "description": "33mm Plywood Tube Bulkhead",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "outsideDiameter": 0.032258,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Apogee",
+   "partNo": "12215",
+   "description": "38mm Plywood Tube Bulkhead",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "outsideDiameter": 0.038608,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Apogee",
+   "partNo": "12216",
+   "description": "41.6mm Plywood Tube Bulkhead",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "outsideDiameter": 0.040132,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Apogee",
+   "partNo": "12217",
+   "description": "54mm Plywood Tube Bulkhead",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "outsideDiameter": 0.054102,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Apogee",
+   "partNo": "12218",
+   "description": "56mm Plywood Tube Bulkhead",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "outsideDiameter": 0.055372,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Apogee",
+   "partNo": "12219",
+   "description": "2.56\" Plywood Tube Bulkhead",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "outsideDiameter": 0.065024,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Apogee",
+   "partNo": "12220",
+   "description": "75mm Plywood Tube Bulkhead",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "outsideDiameter": 0.075946,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Apogee",
+   "partNo": "12221",
+   "description": "98mm Plywood Tube Bulkhead",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "outsideDiameter": 0.098806,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Apogee",
+   "partNo": "12222",
+   "description": "5.38\" Plywood Tube Bulkhead",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "outsideDiameter": 0.136398,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Apogee",
+   "partNo": "12223",
+   "description": "6\" Plywood Tube Bulkhead (Fits BT)",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "outsideDiameter": 0.152146,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Apogee",
+   "partNo": "12224",
+   "description": "7.51\" Plywood Tube Bulkhead (Fits LOC)",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "outsideDiameter": 0.190754,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Apogee",
+   "partNo": "12225",
+   "description": "74mm Plywood Tube Bulkhead",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "outsideDiameter": 0.074168,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Apogee",
+   "partNo": "12248",
+   "description": "13mm Paper Coupler Bulkhead",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "outsideDiameter": 0.012192,
+   "length": 0.00127,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Apogee",
+   "partNo": "12250",
+   "description": "18mm Paper Coupler Bulkhead",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "outsideDiameter": 0.016764,
+   "length": 0.00127,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Apogee",
+   "partNo": "12251",
+   "description": "24mm Plywood Coupler Bulkhead",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "outsideDiameter": 0.02286,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Apogee",
+   "partNo": "12252",
+   "description": "24mm Paper Coupler Bulkhead",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "outsideDiameter": 0.023114,
+   "length": 0.00127,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Apogee",
+   "partNo": "12254",
+   "description": "29mm Paper Coupler Bulkhead",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "outsideDiameter": 0.02794,
+   "length": 0.00127,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Apogee",
+   "partNo": "12255",
+   "description": "29mm Plywood Coupler Bulkhead",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "outsideDiameter": 0.0254,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Apogee",
+   "partNo": "12258",
+   "description": "33mm Plywood Coupler Bulkhead",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "outsideDiameter": 0.031496,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Apogee",
+   "partNo": "12259",
+   "description": "38mm Plywood Coupler Bulkhead (Fits BT)",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "outsideDiameter": 0.035052,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Apogee",
+   "partNo": "12260",
+   "description": "38mm Plywood Coupler Bulkhead (Fits LOC)",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "outsideDiameter": 0.036068,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Apogee",
+   "partNo": "12261",
+   "description": "41.6mm Plywood Coupler Bulkhead",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "outsideDiameter": 0.039116,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Apogee",
+   "partNo": "12262",
+   "description": "54mm Plywood Coupler Bulkhead",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "outsideDiameter": 0.050292,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Apogee",
+   "partNo": "12263",
+   "description": "56mm Plywood Coupler Bulkhead",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "outsideDiameter": 0.05334,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Apogee",
+   "partNo": "12264",
+   "description": "2.6\" - 1/4\" Plywood Coupler Bulkhead",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "outsideDiameter": 0.062738,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Apogee",
+   "partNo": "12265",
+   "description": "75mm Plywood Coupler Bulkhead (LOC and BT)",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "outsideDiameter": 0.07239,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Apogee",
+   "partNo": "12267",
+   "description": "98mm Plywood Coupler Bulkhead (Fits Blue Tube Coupler)",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "mass": 0.0521,
+   "outsideDiameter": 0.0948182,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Apogee",
+   "partNo": "12268",
+   "description": "98mm Plywood Coupler Bulkhead (Fits LOC Coupler)",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "mass": 0.0531,
+   "outsideDiameter": 0.0962914,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Apogee",
+   "partNo": "12269",
+   "description": "5.38\" Plywood Coupler Bulkhead (Fits LOC)",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "outsideDiameter": 0.133604,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Apogee",
+   "partNo": "12270",
+   "description": "5.5 Plywood Coupler Bulkhead (Fits BT)",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "outsideDiameter": 0.131572,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Apogee",
+   "partNo": "12271",
+   "description": "6\" Plywood Coupler Bulkhead (Fits BT)",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "outsideDiameter": 0.147828,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Apogee",
+   "partNo": "12272",
+   "description": "98mm Plywood Coupler Bulkhead (Fits Apogee Coupler)",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "mass": 0.0528,
+   "outsideDiameter": 0.092075,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Apogee",
+   "partNo": "12273",
+   "description": "7.51\" Plywood Coupler Bulkhead (Fits LOC)",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "outsideDiameter": 0.187452,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Apogee",
+   "partNo": "12274",
+   "description": "2.6\" Plywood Coupler Bulkhead (Fits BT)",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "outsideDiameter": 0.060198,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Apogee",
+   "partNo": "12275",
+   "description": "74mm Plywood Coupler Bulkhead",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "outsideDiameter": 0.07239,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Apogee",
+   "partNo": "12276",
+   "description": "56mm Foam Core Coupler Bulkhead",
+   "outsideDiameter": 0.0534416,
+   "length": 0.00508,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Apogee",
+   "partNo": "12277",
+   "description": "66mm Foam Core Coupler Bulkhead",
+   "outsideDiameter": 0.0628142,
+   "length": 0.00508,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Apogee",
+   "partNo": "12278",
+   "description": "74mm Foam Core Coupler Bulkhead",
+   "outsideDiameter": 0.0723392,
+   "length": 0.00508,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Apogee",
+   "partNo": "12281",
+   "description": "2.6\" - 1/8\" Plywood Coupler Bulkhead",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "outsideDiameter": 0.062738,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Apogee",
+   "partNo": "14821",
+   "description": "ARC Foam 3in Single Vertical Egg Protector (Full Set)",
+   "mass": 0.0268,
+   "outsideDiameter": 0.074422,
+   "length": 0.08636,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Apogee",
+   "partNo": "20062",
+   "description": "40mm Foam plug",
+   "material": {
+    "name": "Styrofoam (generic EPS)",
+    "type": "BULK",
+    "density": 20
+   },
+   "outsideDiameter": 0.039878,
+   "length": 0.01905,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "LOC Precision",
+   "partNo": "LOC BP-1.52",
+   "description": "Bulkhead Plate",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "outsideDiameter": 0.0387,
+   "length": 0.00317,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "LOC Precision",
+   "partNo": "LOC BP-2.14",
+   "description": "Bulkhead Plate",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "outsideDiameter": 0.052578,
+   "length": 0.003175,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "LOC Precision",
+   "partNo": "LOC BP-2.56",
+   "description": "Bulkhead Plate",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "outsideDiameter": 0.063246,
+   "length": 0.003175,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "LOC Precision",
+   "partNo": "LOC BP-3.00",
+   "description": "Bulkhead Plate",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "outsideDiameter": 0.074422,
+   "length": 0.0047752,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "LOC Precision",
+   "partNo": "LOC BP-3.90",
+   "description": "Bulkhead Plate",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "outsideDiameter": 0.097282,
+   "length": 0.0047752,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "LOC Precision",
+   "partNo": "LOC BP-5.38",
+   "description": "Bulkhead Plate",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "outsideDiameter": 0.133604,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "LOC Precision",
+   "partNo": "LOC BP-7.51",
+   "description": "Bulkhead Plate",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "outsideDiameter": 0.187706,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Madcow",
+   "partNo": "ABP38",
+   "description": "38mm Aluminum Bulkplate",
+   "material": {
+    "name": "Aluminum",
+    "type": "BULK",
+    "density": 2700
+   },
+   "outsideDiameter": 0.0381,
+   "length": 0.003556,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Madcow",
+   "partNo": "ABP54",
+   "description": "54mm Aluminum Bulkplate",
+   "material": {
+    "name": "Aluminum",
+    "type": "BULK",
+    "density": 2700
+   },
+   "outsideDiameter": 0.054102,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Madcow",
+   "partNo": "ABP26",
+   "description": "2.6\" Aluminum Bulkplate",
+   "material": {
+    "name": "Aluminum",
+    "type": "BULK",
+    "density": 2700
+   },
+   "outsideDiameter": 0.065024,
+   "length": 0.00508,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Madcow",
+   "partNo": "ABP30",
+   "description": "3\" Aluminum Bulkplate",
+   "material": {
+    "name": "Aluminum",
+    "type": "BULK",
+    "density": 2700
+   },
+   "outsideDiameter": 0.075946,
+   "length": 0.005334,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Madcow",
+   "partNo": "ABP40",
+   "description": "4\" Aluminum Bulkplate",
+   "material": {
+    "name": "Aluminum",
+    "type": "BULK",
+    "density": 2700
+   },
+   "outsideDiameter": 0.098552,
+   "length": 0.006858,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "Madcow",
+   "partNo": "ABP55",
+   "description": "5.5\" Aluminum Bulkplate",
+   "material": {
+    "name": "Aluminum",
+    "type": "BULK",
+    "density": 2700
+   },
+   "outsideDiameter": 0.136398,
+   "length": 0.006858,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "ProLine Composites",
+   "partNo": "12504",
+   "description": "38mm Fiberglass Tube Bulkhead",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "outsideDiameter": 0.038608,
+   "length": 0.002286,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "ProLine Composites",
+   "partNo": "12505",
+   "description": "38mm Fiberglass Coupler Bulkhead",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "outsideDiameter": 0.034544,
+   "length": 0.002286,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "ProLine Composites",
+   "partNo": "12506",
+   "description": "54mm Fiberglass Tube Bulkhead",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "outsideDiameter": 0.054864,
+   "length": 0.002286,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "ProLine Composites",
+   "partNo": "12507",
+   "description": "54mm Fiberglass Coupler Bulkhead",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "outsideDiameter": 0.0508,
+   "length": 0.002286,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "ProLine Composites",
+   "partNo": "12508",
+   "description": "2.6\" Fiberglass Tube Bulkhead",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "outsideDiameter": 0.065278,
+   "length": 0.002286,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "ProLine Composites",
+   "partNo": "12509",
+   "description": "2.6\" Fiberglass Coupler Bulkhead",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "outsideDiameter": 0.062738,
+   "length": 0.002286,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "ProLine Composites",
+   "partNo": "12510",
+   "description": "3\" Fiberglass Tube Bulkhead",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "outsideDiameter": 0.076454,
+   "length": 0.002286,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "ProLine Composites",
+   "partNo": "12511",
+   "description": "3\" Fiberglass Coupler Bulkhead",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "outsideDiameter": 0.072898,
+   "length": 0.002286,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "ProLine Composites",
+   "partNo": "12512",
+   "description": "4\" Fiberglass Tube Bulkhead",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "outsideDiameter": 0.09906,
+   "length": 0.002286,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "ProLine Composites",
+   "partNo": "12513",
+   "description": "4\" Fiberglass Coupler Bulkhead",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "outsideDiameter": 0.09525,
+   "length": 0.002286,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "ProLine Composites",
+   "partNo": "12516",
+   "description": "5.5\" Fiberglass Tube Bulkhead",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "outsideDiameter": 0.136652,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "ProLine Composites",
+   "partNo": "12517",
+   "description": "5.5\" Fiberglass Coupler Bulkhead",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "outsideDiameter": 0.131826,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "ProLine Composites",
+   "partNo": "12518",
+   "description": "6\" Fiberglass Tube Bulkhead",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "outsideDiameter": 0.1524,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "ProLine Composites",
+   "partNo": "12519",
+   "description": "6\" Fiberglass Coupler Bulkhead",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "outsideDiameter": 0.1397,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "ProLine Composites",
+   "partNo": "12520",
+   "description": "7.5\" Fiberglass Tube Bulkhead",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "outsideDiameter": 0.1905,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "ProLine Composites",
+   "partNo": "12521",
+   "description": "7.5\" Fiberglass Coupler Bulkhead",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "outsideDiameter": 0.185674,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "ProLine Composites",
+   "partNo": "12522",
+   "description": "8\" Fiberglass Tube Bulkkhead",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "outsideDiameter": 0.198374,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "BulkHead",
+   "manufacturer": "ProLine Composites",
+   "partNo": "12523",
+   "description": "8\" Fiberglass Coupler Bulkhead",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "outsideDiameter": 0.1905,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Aerospace Speciality Products",
+   "partNo": "CR-10.5/5",
+   "description": "Centering Ring CR-10.5/5; 13mm Engine Block",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.00025,
+   "insideDiameter": 0.0115,
+   "outsideDiameter": 0.013,
+   "length": 0.00478,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Aerospace Speciality Products",
+   "partNo": "CR-20/50",
+   "description": "Centering Ring CR-20/50; 24mm Engine Block",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.0009,
+   "insideDiameter": 0.0189,
+   "outsideDiameter": 0.024,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Aerospace Speciality Products",
+   "partNo": "CR-5/20",
+   "description": "Centering Ring CR-5/20; 18mm Engine Block",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.0005,
+   "insideDiameter": 0.014,
+   "outsideDiameter": 0.0178,
+   "length": 0.00559,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Aerospace Speciality Products",
+   "partNo": "CR-50/55",
+   "description": "Centering Ring CR-50/55",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "mass": 0.0017,
+   "insideDiameter": 0.025,
+   "outsideDiameter": 0.0324,
+   "length": 0.00762,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Aerospace Speciality Products",
+   "partNo": "LCR-20/50",
+   "description": "Long Centering Ring CR-20/50",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.00325,
+   "insideDiameter": 0.0189,
+   "outsideDiameter": 0.024,
+   "length": 0.0254,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Aerospace Speciality Products",
+   "partNo": "LCR-24/29",
+   "description": "Long Centering Ring CR-24/29; 29mm Engine Block",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.00325,
+   "insideDiameter": 0.0257,
+   "outsideDiameter": 0.0287,
+   "length": 0.0254,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Aerospace Speciality Products",
+   "partNo": "PCR-2055",
+   "description": "Plywood Centering Ring CR-20/55",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "mass": 0.00075,
+   "insideDiameter": 0.0189,
+   "outsideDiameter": 0.0324,
+   "length": 0.00317,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Aerospace Speciality Products",
+   "partNo": "PCR-2060",
+   "description": "Plywood Centering Ring CR-20/60",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "mass": 0.0011,
+   "insideDiameter": 0.0189,
+   "outsideDiameter": 0.0403,
+   "length": 0.00317,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Aerospace Speciality Products",
+   "partNo": "PCR-2070H",
+   "description": "Plywood Centering Ring CR-20/70H",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "mass": 0.00235,
+   "insideDiameter": 0.0189,
+   "outsideDiameter": 0.0548,
+   "length": 0.00317,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Aerospace Speciality Products",
+   "partNo": "PCR-292.6/80",
+   "description": "Plywood Centering Ring CR-29/2.6 or 80H",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "mass": 0.0058,
+   "insideDiameter": 0.0312,
+   "outsideDiameter": 0.0645,
+   "length": 0.00317,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Aerospace Speciality Products",
+   "partNo": "PCR-2970H",
+   "description": "Plywood Centering Ring CR-29/70H",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "mass": 0.0035,
+   "insideDiameter": 0.0312,
+   "outsideDiameter": 0.0548,
+   "length": 0.00317,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Aerospace Speciality Products",
+   "partNo": "PCR-382.6/80",
+   "description": "Plywood Centering Ring CR-38/2.6 or 80H",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "mass": 0.00415,
+   "insideDiameter": 0.0422,
+   "outsideDiameter": 0.0645,
+   "length": 0.00317,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Aerospace Speciality Products",
+   "partNo": "PCR-502.6/80",
+   "description": "Plywood Centering Ring CR-50/2.6 or 80H",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "mass": 0.00575,
+   "insideDiameter": 0.0227,
+   "outsideDiameter": 0.0645,
+   "length": 0.00317,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Aerospace Speciality Products",
+   "partNo": "PCR-5060",
+   "description": "Plywood Centering Ring CR-50/60",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "mass": 0.00165,
+   "insideDiameter": 0.0227,
+   "outsideDiameter": 0.0403,
+   "length": 0.00317,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Aerospace Speciality Products",
+   "partNo": "PCR-5070H",
+   "description": "Plywood Centering Ring CR-50/70H",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "mass": 0.00225,
+   "insideDiameter": 0.0227,
+   "outsideDiameter": 0.0548,
+   "length": 0.00317,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "12282",
+   "description": "CR 56-AC66 and TBD56 Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.0563372,
+   "outsideDiameter": 0.0632968,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13021",
+   "description": "CR 10-13",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "insideDiameter": 0.0115062,
+   "outsideDiameter": 0.012954,
+   "length": 0.0047752,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13024",
+   "description": "CR 10-18",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "insideDiameter": 0.0115062,
+   "outsideDiameter": 0.0178816,
+   "length": 0.0047752,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13027",
+   "description": "CR 10-18L",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "insideDiameter": 0.0115062,
+   "outsideDiameter": 0.0178816,
+   "length": 0.0127,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13028",
+   "description": "CR 13-18",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.00044,
+   "insideDiameter": 0.0139446,
+   "outsideDiameter": 0.01778,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13032",
+   "description": "CR 18-24",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.00076,
+   "insideDiameter": 0.018796,
+   "outsideDiameter": 0.024003,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13036",
+   "description": "CR 18-29",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.00164,
+   "insideDiameter": 0.018796,
+   "outsideDiameter": 0.028702,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13037",
+   "description": "CR 24-29",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.00076,
+   "insideDiameter": 0.0249428,
+   "outsideDiameter": 0.028702,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13257",
+   "description": "CR 2x29 Thick-66 Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.029972,
+   "outsideDiameter": 0.0649732,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13380",
+   "description": "CR 24-56 Foam Core Board",
+   "insideDiameter": 0.0251968,
+   "outsideDiameter": 0.055245,
+   "length": 0.00508,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13381",
+   "description": "CR 24-66 Foam Core Board",
+   "insideDiameter": 0.0248412,
+   "outsideDiameter": 0.0648462,
+   "length": 0.00508,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13382",
+   "description": "CR 24-74 Foam Core Board",
+   "insideDiameter": 0.0249936,
+   "outsideDiameter": 0.0741426,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13383",
+   "description": "CR 29-56 Foam Core Board",
+   "mass": 0.0004,
+   "insideDiameter": 0.0296418,
+   "outsideDiameter": 0.055245,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13384",
+   "description": "CR 29-66 Foam Core Board",
+   "insideDiameter": 0.0296418,
+   "outsideDiameter": 0.064389,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13385",
+   "description": "CR 29-74 Foam",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.0296418,
+   "outsideDiameter": 0.0741426,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13390",
+   "description": "CR 13-18 Cardstock",
+   "material": {
+    "name": "Cardboard",
+    "type": "BULK",
+    "density": 680
+   },
+   "mass": 0.0001,
+   "insideDiameter": 0.01397,
+   "outsideDiameter": 0.018034,
+   "length": 0.0012192,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13391",
+   "description": "CR 13-24 Cardstock",
+   "material": {
+    "name": "Cardboard",
+    "type": "BULK",
+    "density": 680
+   },
+   "mass": 0.0003,
+   "insideDiameter": 0.0138684,
+   "outsideDiameter": 0.0240792,
+   "length": 0.0012192,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13393",
+   "description": "CR 13-33 Cardstock",
+   "material": {
+    "name": "Cardboard",
+    "type": "BULK",
+    "density": 680
+   },
+   "mass": 0.0007,
+   "insideDiameter": 0.0138684,
+   "outsideDiameter": 0.032512,
+   "length": 0.0012192,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13394",
+   "description": "CR 13-41.6 Cardstock",
+   "material": {
+    "name": "Cardboard",
+    "type": "BULK",
+    "density": 680
+   },
+   "mass": 0.001,
+   "insideDiameter": 0.0138684,
+   "outsideDiameter": 0.0404622,
+   "length": 0.00127,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13395",
+   "description": "CR 18-24 Cardstock",
+   "material": {
+    "name": "Cardboard",
+    "type": "BULK",
+    "density": 680
+   },
+   "mass": 0.0002,
+   "insideDiameter": 0.0187452,
+   "outsideDiameter": 0.0240792,
+   "length": 0.0012192,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13396",
+   "description": "CR 18-33 Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.0187452,
+   "outsideDiameter": 0.032512,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13397",
+   "description": "CR 18-41.6 Cardstock",
+   "material": {
+    "name": "Cardboard",
+    "type": "BULK",
+    "density": 680
+   },
+   "mass": 0.0009,
+   "insideDiameter": 0.0187452,
+   "outsideDiameter": 0.0402082,
+   "length": 0.00127,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13398",
+   "description": "CR 18-41.6 Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "mass": 0.002,
+   "insideDiameter": 0.0187452,
+   "outsideDiameter": 0.0402082,
+   "length": 0.003175,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13400",
+   "description": "CR 18-24 Forward Grooved Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.018796,
+   "outsideDiameter": 0.024003,
+   "length": 0.003175,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13401",
+   "description": "CR 24-33 Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.0248412,
+   "outsideDiameter": 0.032512,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13402",
+   "description": "CR 24-41.6 Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.0249682,
+   "outsideDiameter": 0.0403352,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13403",
+   "description": "CR 13-40 Cardstock",
+   "material": {
+    "name": "Cardboard",
+    "type": "BULK",
+    "density": 680
+   },
+   "mass": 0.0011,
+   "insideDiameter": 0.0139446,
+   "outsideDiameter": 0.0399796,
+   "length": 0.00127,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13404",
+   "description": "CR 18-33 Cardstock",
+   "material": {
+    "name": "Cardboard",
+    "type": "BULK",
+    "density": 680
+   },
+   "mass": 0.0005,
+   "insideDiameter": 0.0189484,
+   "outsideDiameter": 0.032131,
+   "length": 0.0012192,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13405",
+   "description": "CR 24-33 Cardstock",
+   "material": {
+    "name": "Cardboard",
+    "type": "BULK",
+    "density": 680
+   },
+   "mass": 0.0003,
+   "insideDiameter": 0.0252222,
+   "outsideDiameter": 0.032512,
+   "length": 0.0012192,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13406",
+   "description": "CR 29-41.6 Cardstock",
+   "material": {
+    "name": "Cardboard",
+    "type": "BULK",
+    "density": 680
+   },
+   "mass": 0.0006,
+   "insideDiameter": 0.0300736,
+   "outsideDiameter": 0.0403606,
+   "length": 0.0012192,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13407",
+   "description": "CR 33-41.6 Cardstock",
+   "material": {
+    "name": "Cardboard",
+    "type": "BULK",
+    "density": 680
+   },
+   "mass": 0.0003,
+   "insideDiameter": 0.0338328,
+   "outsideDiameter": 0.0403098,
+   "length": 0.0012192,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13408",
+   "description": "CR 24-54 Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.0250444,
+   "outsideDiameter": 0.054102,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13409",
+   "description": "CR 29-54 Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.0309118,
+   "outsideDiameter": 0.0541528,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13410",
+   "description": "CR 38-54 Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.0416814,
+   "outsideDiameter": 0.0542036,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13411",
+   "description": "CR 24-56 Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.0251968,
+   "outsideDiameter": 0.055245,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13412",
+   "description": "CR 29-56 Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.0296418,
+   "outsideDiameter": 0.055245,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13413",
+   "description": "CR 29 Thick-56 Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.0303784,
+   "outsideDiameter": 0.0552958,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13414",
+   "description": "CR 24-66 Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.0248412,
+   "outsideDiameter": 0.0648462,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13415",
+   "description": "CR 29 Thick-66 Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.0305054,
+   "outsideDiameter": 0.0649732,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13416",
+   "description": "CR 29-66 Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.0296418,
+   "outsideDiameter": 0.064389,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13417",
+   "description": "CR 38-66 Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.041402,
+   "outsideDiameter": 0.064897,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13418",
+   "description": "CR 54-66 Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.0576326,
+   "outsideDiameter": 0.0649224,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13419",
+   "description": "CR 24-75 Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.0250952,
+   "outsideDiameter": 0.0758698,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13421",
+   "description": "CR 29Thick-75 Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.0307848,
+   "outsideDiameter": 0.0759206,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13422",
+   "description": "CR 29BT-75 Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.0325374,
+   "outsideDiameter": 0.0760222,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13423",
+   "description": "CR 38-75 Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.0416814,
+   "outsideDiameter": 0.0760476,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13424",
+   "description": "CR 54-75 Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.0575056,
+   "outsideDiameter": 0.0759714,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13425",
+   "description": "CR 18-3in Thin Cardstock",
+   "material": {
+    "name": "Cardboard",
+    "type": "BULK",
+    "density": 680
+   },
+   "insideDiameter": 0.0189738,
+   "outsideDiameter": 0.0741934,
+   "length": 0.00127,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13426",
+   "description": "CR 24-74 Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.0249936,
+   "outsideDiameter": 0.0741426,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13427",
+   "description": "CR 29Thick-74 Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.0309626,
+   "outsideDiameter": 0.0742442,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13428",
+   "description": "CR 29-74 Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.0298704,
+   "outsideDiameter": 0.0740918,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13429",
+   "description": "CR 24-98 Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.0250444,
+   "outsideDiameter": 0.0988314,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13430",
+   "description": "CR 29BT-98 Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.0325374,
+   "outsideDiameter": 0.0988314,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13431",
+   "description": "CR 29Thick-98 Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.0308864,
+   "outsideDiameter": 0.0986536,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13432",
+   "description": "CR 38-98 Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.0413766,
+   "outsideDiameter": 0.0988822,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13433",
+   "description": "CR 54-98 Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "mass": 0.0184,
+   "insideDiameter": 0.0573532,
+   "outsideDiameter": 0.0988568,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13434",
+   "description": "CR 75BT-98 Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.0790702,
+   "outsideDiameter": 0.098806,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13435",
+   "description": "CR 75Thick-98 Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.080518,
+   "outsideDiameter": 0.098806,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13436",
+   "description": "CR 24-5.38in Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.0250444,
+   "outsideDiameter": 0.1363472,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13437",
+   "description": "CR 29BT-5.38in Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.0325628,
+   "outsideDiameter": 0.136271,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13438",
+   "description": "CR 29Thick-5.38in Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.0309372,
+   "outsideDiameter": 0.1363218,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13439",
+   "description": "CR 38-5.38in Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.0415798,
+   "outsideDiameter": 0.1363218,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13440",
+   "description": "CR 54-5.38in Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.0573786,
+   "outsideDiameter": 0.1362456,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13441",
+   "description": "CR 75BT-5.38in Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.0789178,
+   "outsideDiameter": 0.1363218,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13442",
+   "description": "CR 75LOC-5.38in Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.0805942,
+   "outsideDiameter": 0.136144,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13443",
+   "description": "CR 98BT-5.38in Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.101346,
+   "outsideDiameter": 0.1362456,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13444",
+   "description": "CR 98 Thick Wall -5.38in Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "mass": 0.0238,
+   "insideDiameter": 0.103505,
+   "outsideDiameter": 0.1363218,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13447",
+   "description": "CR 38-6in Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.0413004,
+   "outsideDiameter": 0.1516126,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13448",
+   "description": "CR 54-6in Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.0573532,
+   "outsideDiameter": 0.151892,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13449",
+   "description": "CR 75BT-6in Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.0790194,
+   "outsideDiameter": 0.15113,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13450",
+   "description": "CR 75LOC-6in Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.0803402,
+   "outsideDiameter": 0.1519682,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13451",
+   "description": "CR 98BT-6in Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.1022604,
+   "outsideDiameter": 0.1518158,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13452",
+   "description": "CR 98LOC-6in Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.103759,
+   "outsideDiameter": 0.151765,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13455",
+   "description": "CR 38-7.51in Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.0413004,
+   "outsideDiameter": 0.190754,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13456",
+   "description": "CR 54-7.51in Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.0574548,
+   "outsideDiameter": 0.1905,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13457",
+   "description": "CR 75BT-7.51in Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.0793496,
+   "outsideDiameter": 0.1905,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13458",
+   "description": "CR 75LOC-7.51in Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.0804926,
+   "outsideDiameter": 0.1905,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13459",
+   "description": "CR 98BT-7.51in Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.101854,
+   "outsideDiameter": 0.1905,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13460",
+   "description": "CR 98LOC-7.51in Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.103759,
+   "outsideDiameter": 0.1905,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13470",
+   "description": "CR 29-41.6 Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.0308102,
+   "outsideDiameter": 0.040386,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13471",
+   "description": "CR 2x29-66 Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.029972,
+   "outsideDiameter": 0.0649732,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13472",
+   "description": "CR 2x29-74 Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.0298704,
+   "outsideDiameter": 0.0649224,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13473",
+   "description": "CR 33-56 Foam Core Board",
+   "insideDiameter": 0.0337058,
+   "outsideDiameter": 0.0553212,
+   "length": 0.00508,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13474",
+   "description": "CR 33-66 Foam  Core Board",
+   "insideDiameter": 0.0337058,
+   "outsideDiameter": 0.0647192,
+   "length": 0.00508,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13475",
+   "description": "CR 41.6-56 Foam  Core Board",
+   "insideDiameter": 0.041656,
+   "outsideDiameter": 0.0553212,
+   "length": 0.00508,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13476",
+   "description": "CR 41.6-66 Foam Core Board",
+   "insideDiameter": 0.0419608,
+   "outsideDiameter": 0.0647192,
+   "length": 0.00508,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13477",
+   "description": "CR 18-56 Foam Core Board",
+   "mass": 0.0005,
+   "insideDiameter": 0.018034,
+   "outsideDiameter": 0.055245,
+   "length": 0.00508,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "13478",
+   "description": "CR 29-38 Plywood",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.030734,
+   "outsideDiameter": 0.038608,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "15002",
+   "description": "CR 10-24 Cardstock",
+   "material": {
+    "name": "Cardboard",
+    "type": "BULK",
+    "density": 680
+   },
+   "insideDiameter": 0.0115062,
+   "outsideDiameter": 0.024003,
+   "length": 0.001016,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "15016",
+   "description": "CR 24-41.6 Cardstock",
+   "material": {
+    "name": "Cardboard",
+    "type": "BULK",
+    "density": 680
+   },
+   "mass": 0.00073,
+   "insideDiameter": 0.0249428,
+   "outsideDiameter": 0.0403606,
+   "length": 0.0012192,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "15026",
+   "description": "CR 24-56",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.0018,
+   "insideDiameter": 0.0249428,
+   "outsideDiameter": 0.055118,
+   "length": 0.0012192,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Apogee",
+   "partNo": "15028",
+   "description": "CR 24-66 Cardstock",
+   "material": {
+    "name": "Cardboard",
+    "type": "BULK",
+    "density": 680
+   },
+   "insideDiameter": 0.0249428,
+   "outsideDiameter": 0.0648208,
+   "length": 0.00127,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Estes",
+   "partNo": "30125",
+   "description": "CR-20-55",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "insideDiameter": 0.0187,
+   "outsideDiameter": 0.0321,
+   "length": 0.00117,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Estes",
+   "partNo": "30162-2",
+   "description": "Eng. block BT-20",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "insideDiameter": 0.0165,
+   "outsideDiameter": 0.018,
+   "length": 0.005,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "Estes",
+   "partNo": "Eng. Hook Sleeve",
+   "description": "BT-20 Sleeve",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "insideDiameter": 0.0187,
+   "outsideDiameter": 0.0189,
+   "length": 0.008,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "LOC Precision",
+   "partNo": "LOC FCR-1.52-1.14",
+   "description": "Centering Ring",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.0033,
+   "insideDiameter": 0.02921,
+   "outsideDiameter": 0.0385826,
+   "length": 0.0127,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "LOC Precision",
+   "partNo": "LOC CR-2.14-1.52",
+   "description": "Centering Ring",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.041656,
+   "outsideDiameter": 0.054356,
+   "length": 0.003175,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "LOC Precision",
+   "partNo": "LOC CR-3.00-1.14",
+   "description": "Centering Ring",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.030734,
+   "outsideDiameter": 0.0762,
+   "length": 0.003175,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "LOC Precision",
+   "partNo": "LOC CR-3.00-1.52",
+   "description": "Centering Ring",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.041656,
+   "outsideDiameter": 0.0762,
+   "length": 0.003175,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "LOC Precision",
+   "partNo": "LOC CR-3.00-2.14",
+   "description": "Centering Ring",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.057404,
+   "outsideDiameter": 0.0762,
+   "length": 0.003175,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "LOC Precision",
+   "partNo": "LOC CR-3.9-1.14",
+   "description": "Centering Ring",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.030734,
+   "outsideDiameter": 0.09906,
+   "length": 0.003175,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "LOC Precision",
+   "partNo": "LOC CR-3.9-1.52",
+   "description": "Centering Ring",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.041656,
+   "outsideDiameter": 0.09906,
+   "length": 0.003175,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "LOC Precision",
+   "partNo": "LOC CR-3.9-2.14",
+   "description": "Centering Ring",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.057404,
+   "outsideDiameter": 0.09906,
+   "length": 0.003175,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "LOC Precision",
+   "partNo": "LOC CR-5.38-(3)2.14",
+   "description": "Centering Ring",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.0574,
+   "outsideDiameter": 0.137,
+   "length": 0.00478,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "LOC Precision",
+   "partNo": "LOC CR-5.38-1.52",
+   "description": "Centering Ring",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.041656,
+   "outsideDiameter": 0.136652,
+   "length": 0.0047752,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "LOC Precision",
+   "partNo": "LOC CR-5.38-2.14",
+   "description": "Centering Ring",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.057404,
+   "outsideDiameter": 0.136652,
+   "length": 0.0047752,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "LOC Precision",
+   "partNo": "LOC CR-5.38-3.00",
+   "description": "Centering Ring",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.080772,
+   "outsideDiameter": 0.136652,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "LOC Precision",
+   "partNo": "LOC CR-7.51-3.00",
+   "description": "Centering Ring",
+   "material": {
+    "name": "Plywood (birch)",
+    "type": "BULK",
+    "density": 630
+   },
+   "insideDiameter": 0.080772,
+   "outsideDiameter": 0.190754,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "ProLine Composites",
+   "partNo": "13809",
+   "description": "CR 29-38 Fiberglass",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "insideDiameter": 0.0315722,
+   "outsideDiameter": 0.0382778,
+   "length": 0.006858,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "ProLine Composites",
+   "partNo": "13810",
+   "description": "CR 29-54 Fiberglass",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "insideDiameter": 0.03175,
+   "outsideDiameter": 0.0548386,
+   "length": 0.00254,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "ProLine Composites",
+   "partNo": "13811",
+   "description": "CR 38-54 Fiberglass",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "insideDiameter": 0.0420624,
+   "outsideDiameter": 0.0546608,
+   "length": 0.00254,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "ProLine Composites",
+   "partNo": "13812",
+   "description": "CR 29-2.6in Fiberglass",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "insideDiameter": 0.0317246,
+   "outsideDiameter": 0.0649478,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "ProLine Composites",
+   "partNo": "13813",
+   "description": "CR 38-2.6in Fiberglass",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "insideDiameter": 0.0419354,
+   "outsideDiameter": 0.0649478,
+   "length": 0.002286,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "ProLine Composites",
+   "partNo": "13815",
+   "description": "CR 29-3in Fiberglass",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "insideDiameter": 0.0318516,
+   "outsideDiameter": 0.075946,
+   "length": 0.00254,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "ProLine Composites",
+   "partNo": "13816",
+   "description": "CR 38-3in Fiberglass",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "insideDiameter": 0.042037,
+   "outsideDiameter": 0.075946,
+   "length": 0.00254,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "ProLine Composites",
+   "partNo": "13817",
+   "description": "CR 54-3in Fiberglass",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "insideDiameter": 0.058039,
+   "outsideDiameter": 0.075946,
+   "length": 0.00254,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "ProLine Composites",
+   "partNo": "13818",
+   "description": "CR 29-4in Fiberglass",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "insideDiameter": 0.0318262,
+   "outsideDiameter": 0.0990092,
+   "length": 0.00254,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "ProLine Composites",
+   "partNo": "13819",
+   "description": "CR 38-4in Fiberglass",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "insideDiameter": 0.0414274,
+   "outsideDiameter": 0.1013206,
+   "length": 0.00254,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "ProLine Composites",
+   "partNo": "13821",
+   "description": "CR 75-4in Fiberglass",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "insideDiameter": 0.079883,
+   "outsideDiameter": 0.1013206,
+   "length": 0.00254,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "ProLine Composites",
+   "partNo": "13826",
+   "description": "CR 38-5.5in Fiberglass",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "insideDiameter": 0.0415798,
+   "outsideDiameter": 0.136652,
+   "length": 0.003048,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "ProLine Composites",
+   "partNo": "13827",
+   "description": "CR 54-5.5in Fiberglass",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "insideDiameter": 0.0578358,
+   "outsideDiameter": 0.136652,
+   "length": 0.003556,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "ProLine Composites",
+   "partNo": "13828",
+   "description": "CR 75-5.5in Fiberglass",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "insideDiameter": 0.0798322,
+   "outsideDiameter": 0.136652,
+   "length": 0.003556,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "ProLine Composites",
+   "partNo": "13829",
+   "description": "CR 98-5.5in Fiberglass",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "insideDiameter": 0.1021842,
+   "outsideDiameter": 0.136652,
+   "length": 0.003048,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "ProLine Composites",
+   "partNo": "13830",
+   "description": "CR 54-6in Fiberglass",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "insideDiameter": 0.0582676,
+   "outsideDiameter": 0.152781,
+   "length": 0.003048,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "ProLine Composites",
+   "partNo": "13831",
+   "description": "CR 75-6in Fiberglass",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "insideDiameter": 0.079629,
+   "outsideDiameter": 0.152781,
+   "length": 0.003048,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "ProLine Composites",
+   "partNo": "13832",
+   "description": "CR 98-6in Fiberglass",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "insideDiameter": 0.1027684,
+   "outsideDiameter": 0.152781,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "ProLine Composites",
+   "partNo": "13833",
+   "description": "CR 54-7.5in Fiberglass",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "insideDiameter": 0.0580644,
+   "outsideDiameter": 0.1905,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "ProLine Composites",
+   "partNo": "13834",
+   "description": "CR 75-7.5in Fiberglass",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "insideDiameter": 0.0792988,
+   "outsideDiameter": 0.1905,
+   "length": 0.003556,
+   "source": "rocksim"
+  },
+  {
+   "kind": "CenteringRing",
+   "manufacturer": "ProLine Composites",
+   "partNo": "13835",
+   "description": "CR 98-7.5in Fiberglass",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "insideDiameter": 0.1027684,
+   "outsideDiameter": 0.1905,
+   "length": 0.003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "EngineBlock",
+   "manufacturer": "Apogee",
+   "partNo": "13021",
+   "description": "CR 10-13 ring",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.00011,
+   "insideDiameter": 0.0115062,
+   "outsideDiameter": 0.012954,
+   "length": 0.0047752,
+   "source": "rocksim"
+  },
+  {
+   "kind": "EngineBlock",
+   "manufacturer": "Apogee",
+   "partNo": "13023",
+   "description": "CR 10-18 ring",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.00049,
+   "insideDiameter": 0.0115062,
+   "outsideDiameter": 0.0178816,
+   "length": 0.0047752,
+   "source": "rocksim"
+  },
+  {
+   "kind": "EngineBlock",
+   "manufacturer": "Apogee",
+   "partNo": "13028",
+   "description": "CR 13-18 ring",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.00044,
+   "insideDiameter": 0.0139446,
+   "outsideDiameter": 0.01778,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "EngineBlock",
+   "manufacturer": "Apogee",
+   "partNo": "13032",
+   "description": "CR 18-24 ring",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.00076,
+   "insideDiameter": 0.018796,
+   "outsideDiameter": 0.024003,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "EngineBlock",
+   "manufacturer": "Apogee",
+   "partNo": "13036",
+   "description": "CR 18-29 ring",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.00164,
+   "insideDiameter": 0.018796,
+   "outsideDiameter": 0.028702,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "EngineBlock",
+   "manufacturer": "Apogee",
+   "partNo": "13037",
+   "description": "CR 24-29 ring",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.0018,
+   "insideDiameter": 0.0249428,
+   "outsideDiameter": 0.028702,
+   "length": 0.00635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "EngineBlock",
+   "manufacturer": "Estes",
+   "partNo": "30162-2",
+   "description": "Eng. block BT-20",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "insideDiameter": 0.0165,
+   "outsideDiameter": 0.018,
+   "length": 0.005,
+   "source": "rocksim"
+  },
+  {
+   "kind": "EngineBlock",
+   "manufacturer": "SEMROC",
+   "partNo": "TB-5",
+   "description": "Thrust Block",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "insideDiameter": 0.0104902,
+   "outsideDiameter": 0.0130302,
+   "length": 0.0047752,
+   "source": "rocksim"
+  },
+  {
+   "kind": "EngineBlock",
+   "manufacturer": "SEMROC",
+   "partNo": "TB-7",
+   "description": "Thrust Block",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "insideDiameter": 0.014605,
+   "outsideDiameter": 0.0181102,
+   "length": 0.0047752,
+   "source": "rocksim"
+  },
+  {
+   "kind": "EngineBlock",
+   "manufacturer": "SEMROC",
+   "partNo": "TR-7",
+   "description": "Thrust Ring",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "insideDiameter": 0.014605,
+   "outsideDiameter": 0.0181102,
+   "length": 0.009525,
+   "source": "rocksim"
+  },
+  {
+   "kind": "EngineBlock",
+   "manufacturer": "SEMROC",
+   "partNo": "TS-9",
+   "description": "Thrust Spacer",
+   "insideDiameter": 0.021971,
+   "outsideDiameter": 0.0240792,
+   "length": 0.0254,
+   "source": "rocksim"
+  },
+  {
+   "kind": "LaunchLug",
+   "manufacturer": "Aerospace Speciality Products",
+   "partNo": "LL-1/4",
+   "description": "1/4\" Launch Lug",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "insideDiameter": 0.00719,
+   "outsideDiameter": 0.0081,
+   "length": 0.0254,
+   "source": "rocksim"
+  },
+  {
+   "kind": "LaunchLug",
+   "manufacturer": "Aerospace Speciality Products",
+   "partNo": "LL-1/8",
+   "description": "1/8\" Launch Lug",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "insideDiameter": 0.00361,
+   "outsideDiameter": 0.00411,
+   "length": 0.0286,
+   "source": "rocksim"
+  },
+  {
+   "kind": "LaunchLug",
+   "manufacturer": "Aerospace Speciality Products",
+   "partNo": "LL-3/16",
+   "description": "3/16\" Launch Lug",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "insideDiameter": 0.00556,
+   "outsideDiameter": 0.0061,
+   "length": 0.0508,
+   "source": "rocksim"
+  },
+  {
+   "kind": "LaunchLug",
+   "manufacturer": "Apogee",
+   "partNo": "13052",
+   "description": "1/8in X 1in Launch Lug",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.00006,
+   "insideDiameter": 0.0039624,
+   "outsideDiameter": 0.0043688,
+   "length": 0.0254,
+   "source": "rocksim"
+  },
+  {
+   "kind": "LaunchLug",
+   "manufacturer": "Apogee",
+   "partNo": "13057",
+   "description": "1/4in X 3in Launch Lug",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.0013,
+   "insideDiameter": 0.0072644,
+   "outsideDiameter": 0.0083312,
+   "length": 0.0762,
+   "source": "rocksim"
+  },
+  {
+   "kind": "LaunchLug",
+   "manufacturer": "Apogee",
+   "partNo": "13060",
+   "description": "Rail  Button 1010 with screw and flange",
+   "material": {
+    "name": "Delrin",
+    "type": "BULK",
+    "density": 1420
+   },
+   "mass": 0.0019,
+   "outsideDiameter": 0.0096774,
+   "length": 0.0096774,
+   "source": "rocksim"
+  },
+  {
+   "kind": "LaunchLug",
+   "manufacturer": "Apogee",
+   "partNo": "13063",
+   "description": "Large Rail Button 1515 with screw and flange",
+   "material": {
+    "name": "Delrin",
+    "type": "BULK",
+    "density": 1420
+   },
+   "mass": 0.0067,
+   "outsideDiameter": 0.016002,
+   "length": 0.011176,
+   "source": "rocksim"
+  },
+  {
+   "kind": "LaunchLug",
+   "manufacturer": "Estes",
+   "partNo": "ESTES 2321",
+   "description": "Launch Lug-1/8",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "insideDiameter": 0.0028702,
+   "outsideDiameter": 0.003175,
+   "length": 0.03175,
+   "source": "rocksim"
+  },
+  {
+   "kind": "LaunchLug",
+   "manufacturer": "Estes",
+   "partNo": "ESTES 2328",
+   "description": "Launch Lug-3/16",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "insideDiameter": 0.0042926,
+   "outsideDiameter": 0.0047752,
+   "length": 0.0508,
+   "source": "rocksim"
+  },
+  {
+   "kind": "LaunchLug",
+   "manufacturer": "Giant Leap",
+   "partNo": "LL",
+   "description": "ACME Launch Lug",
+   "material": {
+    "name": "Aluminum",
+    "type": "BULK",
+    "density": 2700
+   },
+   "insideDiameter": 0.00762,
+   "outsideDiameter": 0.0127,
+   "length": 0.047244,
+   "source": "rocksim"
+  },
+  {
+   "kind": "LaunchLug",
+   "manufacturer": "Giant Leap",
+   "partNo": "RG",
+   "description": "ACME Rail Guide",
+   "material": {
+    "name": "Aluminum",
+    "type": "BULK",
+    "density": 2700
+   },
+   "insideDiameter": 0.006604,
+   "outsideDiameter": 0.014224,
+   "length": 0.041148,
+   "source": "rocksim"
+  },
+  {
+   "kind": "LaunchLug",
+   "manufacturer": "LOC Precision",
+   "partNo": "LOC LL25",
+   "description": "Launch Lug-25",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "insideDiameter": 0.00571,
+   "outsideDiameter": 0.00635,
+   "length": 0.152,
+   "source": "rocksim"
+  },
+  {
+   "kind": "LaunchLug",
+   "manufacturer": "LOC Precision",
+   "partNo": "LOC LL50",
+   "description": "Launch Lug-50",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "insideDiameter": 0.0141,
+   "outsideDiameter": 0.0156,
+   "length": 0.152,
+   "source": "rocksim"
+  },
+  {
+   "kind": "LaunchLug",
+   "manufacturer": "LOC Precision",
+   "partNo": "LOC LL937",
+   "description": "Launch Lug-937",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "insideDiameter": 0.0251,
+   "outsideDiameter": 0.0264,
+   "length": 0.127,
+   "source": "rocksim"
+  },
+  {
+   "kind": "LaunchLug",
+   "manufacturer": "Public Missiles",
+   "partNo": "LL-0.25",
+   "description": "1/4in Brass Launch Lug",
+   "material": {
+    "name": "Brass",
+    "type": "BULK",
+    "density": 8600
+   },
+   "insideDiameter": 0.005715,
+   "outsideDiameter": 0.00635,
+   "length": 0.3048,
+   "source": "rocksim"
+  },
+  {
+   "kind": "LaunchLug",
+   "manufacturer": "Public Missiles",
+   "partNo": "LL-0.38",
+   "description": "3/8in Brass Launch Lug",
+   "material": {
+    "name": "Brass",
+    "type": "BULK",
+    "density": 8600
+   },
+   "insideDiameter": 0.0085852,
+   "outsideDiameter": 0.009525,
+   "length": 0.3048,
+   "source": "rocksim"
+  },
+  {
+   "kind": "LaunchLug",
+   "manufacturer": "Public Missiles",
+   "partNo": "LL-0.50",
+   "description": "1/2in Brass Launch Lug",
+   "material": {
+    "name": "Brass",
+    "type": "BULK",
+    "density": 8600
+   },
+   "insideDiameter": 0.01143,
+   "outsideDiameter": 0.0127,
+   "length": 0.3048,
+   "source": "rocksim"
+  },
+  {
+   "kind": "LaunchLug",
+   "manufacturer": "Public Missiles",
+   "partNo": "LL-0.75",
+   "description": "3/4in Copper Launch Lug",
+   "material": {
+    "name": "Brass",
+    "type": "BULK",
+    "density": 8600
+   },
+   "insideDiameter": 0.017145,
+   "outsideDiameter": 0.01905,
+   "length": 0.3048,
+   "source": "rocksim"
+  },
+  {
+   "kind": "TubeCoupler",
+   "manufacturer": "Aerospace Speciality Products",
+   "partNo": "TC2.6/80H",
+   "description": "Tube Coupler T-2.6/80H",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "insideDiameter": 0.0626,
+   "outsideDiameter": 0.0645,
+   "length": 0.152,
+   "source": "rocksim"
+  },
+  {
+   "kind": "TubeCoupler",
+   "manufacturer": "Aerospace Speciality Products",
+   "partNo": "TC20",
+   "description": "Tube Coupler T-20",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "insideDiameter": 0.0165,
+   "outsideDiameter": 0.0178,
+   "length": 0.0381,
+   "source": "rocksim"
+  },
+  {
+   "kind": "TubeCoupler",
+   "manufacturer": "Aerospace Speciality Products",
+   "partNo": "TC5",
+   "description": "Tube Coupler T-5",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "insideDiameter": 0.0118,
+   "outsideDiameter": 0.013,
+   "length": 0.0381,
+   "source": "rocksim"
+  },
+  {
+   "kind": "TubeCoupler",
+   "manufacturer": "Aerospace Speciality Products",
+   "partNo": "TC50",
+   "description": "Tube Coupler T-50",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "insideDiameter": 0.0227,
+   "outsideDiameter": 0.024,
+   "length": 0.0508,
+   "source": "rocksim"
+  },
+  {
+   "kind": "TubeCoupler",
+   "manufacturer": "Aerospace Speciality Products",
+   "partNo": "TC55",
+   "description": "Tube Coupler T-55",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "insideDiameter": 0.0311,
+   "outsideDiameter": 0.0325,
+   "length": 0.0762,
+   "source": "rocksim"
+  },
+  {
+   "kind": "TubeCoupler",
+   "manufacturer": "Aerospace Speciality Products",
+   "partNo": "TC60",
+   "description": "Tube Coupler T-60",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "insideDiameter": 0.0389,
+   "outsideDiameter": 0.0403,
+   "length": 0.0762,
+   "source": "rocksim"
+  },
+  {
+   "kind": "TubeCoupler",
+   "manufacturer": "Aerospace Speciality Products",
+   "partNo": "TC70H",
+   "description": "Tube Coupler T-70H",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "insideDiameter": 0.0532,
+   "outsideDiameter": 0.0548,
+   "length": 0.102,
+   "source": "rocksim"
+  },
+  {
+   "kind": "TubeCoupler",
+   "manufacturer": "Aerospace Speciality Products",
+   "partNo": "TCMM",
+   "description": "Tube Coupler - MicroMaxx",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "insideDiameter": 0.00533,
+   "outsideDiameter": 0.00635,
+   "length": 0.0381,
+   "source": "rocksim"
+  },
+  {
+   "kind": "TubeCoupler",
+   "manufacturer": "Aerotech",
+   "partNo": "Aerotech",
+   "description": "CP-1.9",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "insideDiameter": 0.04826,
+   "outsideDiameter": 0.04826,
+   "length": 0.0508,
+   "source": "rocksim"
+  },
+  {
+   "kind": "TubeCoupler",
+   "manufacturer": "Aerotech",
+   "partNo": "Aerotech",
+   "description": "CP-2.6",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "insideDiameter": 0.06604,
+   "outsideDiameter": 0.06604,
+   "length": 0.1524,
+   "source": "rocksim"
+  },
+  {
+   "kind": "TubeCoupler",
+   "manufacturer": "Always Ready Rocketry",
+   "partNo": "13106",
+   "description": "5.5\" BT Coupler",
+   "material": {
+    "name": "Blue tube",
+    "type": "BULK",
+    "density": 1300
+   },
+   "mass": 0.3014,
+   "insideDiameter": 0.1325118,
+   "outsideDiameter": 0.136144,
+   "length": 0.3048,
+   "source": "rocksim"
+  },
+  {
+   "kind": "TubeCoupler",
+   "manufacturer": "Always Ready Rocketry",
+   "partNo": "13116",
+   "description": "5.5\" BT Coupler (48)\"",
+   "material": {
+    "name": "Blue tube",
+    "type": "BULK",
+    "density": 1300
+   },
+   "mass": 1,
+   "insideDiameter": 0.1325118,
+   "outsideDiameter": 0.1367536,
+   "length": 1.2192,
+   "source": "rocksim"
+  },
+  {
+   "kind": "TubeCoupler",
+   "manufacturer": "Apogee",
+   "partNo": "13009",
+   "description": "AC-24B (Fits BT-50)",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.00185,
+   "insideDiameter": 0.0231394,
+   "outsideDiameter": 0.0237744,
+   "length": 0.0508,
+   "source": "rocksim"
+  },
+  {
+   "kind": "TubeCoupler",
+   "manufacturer": "Apogee",
+   "partNo": "13010",
+   "description": "AC-29A",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.0023,
+   "insideDiameter": 0.0278892,
+   "outsideDiameter": 0.0288036,
+   "length": 0.0635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "TubeCoupler",
+   "manufacturer": "Apogee",
+   "partNo": "13014",
+   "description": "AC-13A (Fits BT-5)",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.0007,
+   "insideDiameter": 0.0120904,
+   "outsideDiameter": 0.012954,
+   "length": 0.0508,
+   "source": "rocksim"
+  },
+  {
+   "kind": "TubeCoupler",
+   "manufacturer": "Apogee",
+   "partNo": "13015",
+   "description": "AC-18B (Fits BT-20)",
+   "material": {
+    "name": "Kraft phenolic",
+    "type": "BULK",
+    "density": 950
+   },
+   "mass": 0.0007,
+   "insideDiameter": 0.0166624,
+   "outsideDiameter": 0.01778,
+   "length": 0.0381,
+   "source": "rocksim"
+  },
+  {
+   "kind": "TubeCoupler",
+   "manufacturer": "Apogee",
+   "partNo": "13017",
+   "description": "AC-33 (Fits BT-55)",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.0024,
+   "insideDiameter": 0.03175,
+   "outsideDiameter": 0.032512,
+   "length": 0.07112,
+   "source": "rocksim"
+  },
+  {
+   "kind": "TubeCoupler",
+   "manufacturer": "Apogee",
+   "partNo": "13019",
+   "description": "AC-41.6 (Fits BT-60)",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.0038,
+   "insideDiameter": 0.03937,
+   "outsideDiameter": 0.040386,
+   "length": 0.0762,
+   "source": "rocksim"
+  },
+  {
+   "kind": "TubeCoupler",
+   "manufacturer": "Apogee",
+   "partNo": "13043",
+   "description": "AC-56A (Fits BT-70)",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.0118,
+   "insideDiameter": 0.053594,
+   "outsideDiameter": 0.055118,
+   "length": 0.1016,
+   "source": "rocksim"
+  },
+  {
+   "kind": "TubeCoupler",
+   "manufacturer": "Apogee",
+   "partNo": "13045",
+   "description": "AC-66A (Fits BT-80)",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.019,
+   "insideDiameter": 0.0631444,
+   "outsideDiameter": 0.0648716,
+   "length": 0.1016,
+   "source": "rocksim"
+  },
+  {
+   "kind": "TubeCoupler",
+   "manufacturer": "Apogee",
+   "partNo": "13047",
+   "description": "AC-74 (3\" Thin Wall)",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.02555,
+   "insideDiameter": 0.0724154,
+   "outsideDiameter": 0.0742442,
+   "length": 0.1524,
+   "source": "rocksim"
+  },
+  {
+   "kind": "TubeCoupler",
+   "manufacturer": "Apogee",
+   "partNo": "13125",
+   "description": "AC-98 (4\" Thick Wall)",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.1206,
+   "insideDiameter": 0.09398,
+   "outsideDiameter": 0.098552,
+   "length": 0.2286,
+   "source": "rocksim"
+  },
+  {
+   "kind": "TubeCoupler",
+   "manufacturer": "Estes",
+   "partNo": "Estes",
+   "description": "JT-70A",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "insideDiameter": 0.053086,
+   "outsideDiameter": 0.055118,
+   "length": 0.0508,
+   "source": "rocksim"
+  },
+  {
+   "kind": "TubeCoupler",
+   "manufacturer": "Estes",
+   "partNo": "Estes",
+   "description": "JT-101SV",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "insideDiameter": 0.096774,
+   "outsideDiameter": 0.098806,
+   "length": 0.035052,
+   "source": "rocksim"
+  },
+  {
+   "kind": "TubeCoupler",
+   "manufacturer": "Estes",
+   "partNo": "Estes",
+   "description": "JT-50C",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "insideDiameter": 0.022479,
+   "outsideDiameter": 0.024003,
+   "length": 0.0254,
+   "source": "rocksim"
+  },
+  {
+   "kind": "TubeCoupler",
+   "manufacturer": "Estes",
+   "partNo": "Estes",
+   "description": "JT-55C",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "insideDiameter": 0.030988,
+   "outsideDiameter": 0.032512,
+   "length": 0.03175,
+   "source": "rocksim"
+  },
+  {
+   "kind": "TubeCoupler",
+   "manufacturer": "LOC Precision",
+   "partNo": "13156",
+   "description": "38mm Tube Coupler",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.0093,
+   "insideDiameter": 0.03683,
+   "outsideDiameter": 0.038608,
+   "length": 0.1016,
+   "source": "rocksim"
+  },
+  {
+   "kind": "TubeCoupler",
+   "manufacturer": "LOC Precision",
+   "partNo": "13160",
+   "description": "2.56\" Tube Coupler",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.0235,
+   "insideDiameter": 0.063246,
+   "outsideDiameter": 0.065024,
+   "length": 0.127,
+   "source": "rocksim"
+  },
+  {
+   "kind": "TubeCoupler",
+   "manufacturer": "LOC Precision",
+   "partNo": "13164",
+   "description": "98mm Tube Coupler",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.0324,
+   "insideDiameter": 0.097282,
+   "outsideDiameter": 0.09906,
+   "length": 0.1524,
+   "source": "rocksim"
+  },
+  {
+   "kind": "TubeCoupler",
+   "manufacturer": "LOC Precision",
+   "partNo": "13166",
+   "description": "5.38\" Tube Coupler",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.1114,
+   "insideDiameter": 0.134366,
+   "outsideDiameter": 0.136652,
+   "length": 0.254,
+   "source": "rocksim"
+  },
+  {
+   "kind": "TubeCoupler",
+   "manufacturer": "LOC Precision",
+   "partNo": "13168",
+   "description": "7.51\" Tube Coupler",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.248,
+   "insideDiameter": 0.188468,
+   "outsideDiameter": 0.190754,
+   "length": 0.3048,
+   "source": "rocksim"
+  },
+  {
+   "kind": "TubeCoupler",
+   "manufacturer": "LOC Precision",
+   "partNo": "13172",
+   "description": "75mm Stiffy",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.0608,
+   "insideDiameter": 0.0687,
+   "outsideDiameter": 0.0744,
+   "length": 0.146,
+   "source": "rocksim"
+  },
+  {
+   "kind": "TubeCoupler",
+   "manufacturer": "LOC Precision",
+   "partNo": "13173",
+   "description": "98mm Stiffy",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.08165,
+   "insideDiameter": 0.0934009,
+   "outsideDiameter": 0.09906,
+   "length": 0.1459992,
+   "source": "rocksim"
+  },
+  {
+   "kind": "TubeCoupler",
+   "manufacturer": "LOC Precision",
+   "partNo": "13174",
+   "description": "5.38\" Stiffy",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.2207,
+   "insideDiameter": 0.131,
+   "outsideDiameter": 0.137,
+   "length": 0.248,
+   "source": "rocksim"
+  },
+  {
+   "kind": "TubeCoupler",
+   "manufacturer": "LOC Precision",
+   "partNo": "13175",
+   "description": "7.51\" Stiffy",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "mass": 0.676,
+   "insideDiameter": 0.1778,
+   "outsideDiameter": 0.187452,
+   "length": 0.3556,
+   "source": "rocksim"
+  },
+  {
+   "kind": "TubeCoupler",
+   "manufacturer": "Madcow",
+   "partNo": "3\" x 8\" Fiberglass Coupler",
+   "description": "3\" x 8\" Fiberglass Coupler",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "mass": 0.156,
+   "insideDiameter": 0.0724408,
+   "outsideDiameter": 0.076454,
+   "length": 0.2032,
+   "source": "rocksim"
+  },
+  {
+   "kind": "TubeCoupler",
+   "manufacturer": "Madcow",
+   "partNo": "7.5\" x 15\" Fiberglass Coupler",
+   "description": "7.5\" x 15\" Fiberglass Coupler",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "mass": 1.0037,
+   "insideDiameter": 0.18415,
+   "outsideDiameter": 0.1905,
+   "length": 0.381,
+   "source": "rocksim"
+  },
+  {
+   "kind": "TubeCoupler",
+   "manufacturer": "Madcow",
+   "partNo": "8\" x 15\" Fiberglass Coupler",
+   "description": "8\" x 15\" Fiberglass Coupler",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "mass": 1.6988,
+   "insideDiameter": 0.1905,
+   "outsideDiameter": 0.19685,
+   "length": 0.381,
+   "source": "rocksim"
+  },
+  {
+   "kind": "TubeCoupler",
+   "manufacturer": "SEMROC",
+   "partNo": "BTC-085",
+   "description": "Balsa Tube Coupler",
+   "material": {
+    "name": "Balsa",
+    "type": "BULK",
+    "density": 170
+   },
+   "outsideDiameter": 0.021971,
+   "length": 0.0381,
+   "source": "rocksim"
+  },
+  {
+   "kind": "TubeCoupler",
+   "manufacturer": "SEMROC",
+   "partNo": "BTC-10",
+   "description": "Balsa Tube Coupler",
+   "material": {
+    "name": "Balsa",
+    "type": "BULK",
+    "density": 170
+   },
+   "outsideDiameter": 0.0254,
+   "length": 0.03175,
+   "source": "rocksim"
+  },
+  {
+   "kind": "TubeCoupler",
+   "manufacturer": "SEMROC",
+   "partNo": "BTC-115",
+   "description": "Balsa Tube Coupler",
+   "material": {
+    "name": "Balsa",
+    "type": "BULK",
+    "density": 170
+   },
+   "outsideDiameter": 0.028956,
+   "length": 0.04318,
+   "source": "rocksim"
+  },
+  {
+   "kind": "TubeCoupler",
+   "manufacturer": "SEMROC",
+   "partNo": "BTC-125",
+   "description": "Balsa Tube Coupler",
+   "material": {
+    "name": "Balsa",
+    "type": "BULK",
+    "density": 170
+   },
+   "outsideDiameter": 0.03175,
+   "length": 0.0508,
+   "source": "rocksim"
+  },
+  {
+   "kind": "TubeCoupler",
+   "manufacturer": "SEMROC",
+   "partNo": "BTC-150",
+   "description": "Balsa Tube Coupler",
+   "material": {
+    "name": "Balsa",
+    "type": "BULK",
+    "density": 170
+   },
+   "outsideDiameter": 0.0381,
+   "length": 0.0508,
+   "source": "rocksim"
+  },
+  {
+   "kind": "TubeCoupler",
+   "manufacturer": "SEMROC",
+   "partNo": "BTC-175",
+   "description": "Balsa Tube Coupler",
+   "material": {
+    "name": "Balsa",
+    "type": "BULK",
+    "density": 170
+   },
+   "outsideDiameter": 0.04445,
+   "length": 0.05588,
+   "source": "rocksim"
+  },
+  {
+   "kind": "TubeCoupler",
+   "manufacturer": "SEMROC",
+   "partNo": "BTC-20",
+   "description": "Balsa Tube Coupler",
+   "material": {
+    "name": "Balsa",
+    "type": "BULK",
+    "density": 170
+   },
+   "outsideDiameter": 0.0508,
+   "length": 0.04445,
+   "source": "rocksim"
+  },
+  {
+   "kind": "TubeCoupler",
+   "manufacturer": "SEMROC",
+   "partNo": "BTC-225",
+   "description": "Balsa Tube Coupler",
+   "material": {
+    "name": "Balsa",
+    "type": "BULK",
+    "density": 170
+   },
+   "outsideDiameter": 0.05715,
+   "length": 0.0635,
+   "source": "rocksim"
+  },
+  {
+   "kind": "TubeCoupler",
+   "manufacturer": "SEMROC",
+   "partNo": "BTC-275",
+   "description": "Balsa Tube Coupler",
+   "material": {
+    "name": "Balsa",
+    "type": "BULK",
+    "density": 170
+   },
+   "outsideDiameter": 0.06985,
+   "length": 0.0762,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Aerospace Speciality Products",
+   "partNo": "BNC20TT",
+   "description": "TT-20 Balsa Nose Cone TT",
+   "material": {
+    "name": "Balsa",
+    "type": "BULK",
+    "density": 170
+   },
+   "mass": 0.0015,
+   "length": 0.06731,
+   "outsideDiameter": 0.0199,
+   "shoulderLength": 0.0159,
+   "shoulderDiameter": 0.0184,
+   "shape": "ELLIPSOID",
+   "filled": true,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Aerospace Speciality Products",
+   "partNo": "BNC60TB",
+   "description": "T-60 Balsa Nose Cone TB",
+   "material": {
+    "name": "Balsa",
+    "type": "BULK",
+    "density": 170
+   },
+   "mass": 0.009,
+   "length": 0.0825,
+   "outsideDiameter": 0.0416,
+   "shoulderLength": 0.0198,
+   "shoulderDiameter": 0.04,
+   "shape": "ELLIPSOID",
+   "filled": true,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Aerospace Speciality Products",
+   "partNo": "BNC70S",
+   "description": "T-70H Balsa Nose Cone S",
+   "material": {
+    "name": "Balsa",
+    "type": "BULK",
+    "density": 170
+   },
+   "mass": 0.02,
+   "length": 0.0825,
+   "outsideDiameter": 0.0563,
+   "shoulderLength": 0.0254,
+   "shoulderDiameter": 0.0545,
+   "shape": "ELLIPSOID",
+   "filled": true,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Aerospace Speciality Products",
+   "partNo": "BNC80S",
+   "description": "T-80H Balsa Nose Cone S",
+   "material": {
+    "name": "Balsa",
+    "type": "BULK",
+    "density": 170
+   },
+   "length": 0.0889,
+   "outsideDiameter": 0.0663,
+   "shoulderLength": 0.0381,
+   "shoulderDiameter": 0.0643,
+   "shape": "ELLIPSOID",
+   "filled": true,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Aerotech",
+   "partNo": "11191",
+   "description": "1.9in Nose Cone",
+   "material": {
+    "name": "Polystyrene",
+    "type": "BULK",
+    "density": 1050
+   },
+   "mass": 0.0481942,
+   "length": 0.2413,
+   "outsideDiameter": 0.04826,
+   "shoulderLength": 0.0635,
+   "shoulderDiameter": 0.044958,
+   "shape": "OGIVE",
+   "thickness": 0.003175,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Aerotech",
+   "partNo": "11261",
+   "description": "2.6in Nose Cone",
+   "material": {
+    "name": "Polystyrene",
+    "type": "BULK",
+    "density": 1050
+   },
+   "mass": 0.0680389,
+   "length": 0.3175,
+   "outsideDiameter": 0.06604,
+   "shoulderLength": 0.0762,
+   "shoulderDiameter": 0.062992,
+   "shape": "OGIVE",
+   "thickness": 0.003175,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Aerotech",
+   "partNo": "11401",
+   "description": "4in Nose Cone 4:1 Ogive",
+   "mass": 0.141,
+   "length": 0.40005,
+   "outsideDiameter": 0.1016,
+   "shoulderLength": 0.1016,
+   "shoulderDiameter": 0.098425,
+   "shape": "OGIVE",
+   "thickness": 0.0023622,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Aerotech",
+   "partNo": "11405",
+   "description": "4in Nose Cone - Sumo",
+   "mass": 0.255146,
+   "length": 0.4064,
+   "outsideDiameter": 0.1016,
+   "shoulderLength": 0.1016,
+   "shoulderDiameter": 0.098425,
+   "shape": "OGIVE",
+   "thickness": 0.00254,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Apogee",
+   "partNo": "14824",
+   "description": "74mm TARC Foam Nose cone",
+   "length": 0.0762,
+   "outsideDiameter": 0.0762,
+   "shoulderLength": 0.0254,
+   "shoulderDiameter": 0.0743,
+   "shape": "ELLIPSOID",
+   "filled": true,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Apogee",
+   "partNo": "19420",
+   "description": "Science Fair NC 1",
+   "material": {
+    "name": "Balsa",
+    "type": "BULK",
+    "density": 170
+   },
+   "mass": 0.0033,
+   "length": 0.0762,
+   "outsideDiameter": 0.0247904,
+   "shoulderLength": 0.01905,
+   "shoulderDiameter": 0.024003,
+   "shape": "CONICAL",
+   "filled": true,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Apogee",
+   "partNo": "19421",
+   "description": "Science Fair NC 2",
+   "material": {
+    "name": "Balsa",
+    "type": "BULK",
+    "density": 170
+   },
+   "length": 0.0254,
+   "outsideDiameter": 0.0247904,
+   "shoulderLength": 0.01905,
+   "shoulderDiameter": 0.024003,
+   "shape": "CONICAL",
+   "filled": true,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Apogee",
+   "partNo": "19422",
+   "description": "Science Fair NC 3",
+   "material": {
+    "name": "Balsa",
+    "type": "BULK",
+    "density": 170
+   },
+   "mass": 0.0049,
+   "length": 0.0762,
+   "outsideDiameter": 0.0247904,
+   "shoulderLength": 0.01905,
+   "shoulderDiameter": 0.024003,
+   "shape": "OGIVE",
+   "filled": true,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Apogee",
+   "partNo": "19423",
+   "description": "Science Fair NC 4",
+   "material": {
+    "name": "Balsa",
+    "type": "BULK",
+    "density": 170
+   },
+   "mass": 0.0045,
+   "length": 0.0762,
+   "outsideDiameter": 0.0247904,
+   "shoulderLength": 0.01905,
+   "shoulderDiameter": 0.024003,
+   "shape": "ELLIPSOID",
+   "filled": true,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Apogee",
+   "partNo": "19424",
+   "description": "Science Fair NC 5",
+   "material": {
+    "name": "Balsa",
+    "type": "BULK",
+    "density": 170
+   },
+   "mass": 0.0043,
+   "length": 0.0762,
+   "outsideDiameter": 0.0247904,
+   "shoulderLength": 0.01905,
+   "shoulderDiameter": 0.024003,
+   "shape": "POWER",
+   "filled": true,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Apogee",
+   "partNo": "19490",
+   "description": "PNC-74A (3in Thin Wall Nose Cone)",
+   "material": {
+    "name": "Polystyrene",
+    "type": "BULK",
+    "density": 1050
+   },
+   "length": 0.381,
+   "outsideDiameter": 0.0762,
+   "shoulderLength": 0.0762,
+   "shoulderDiameter": 0.07366,
+   "shape": "OGIVE",
+   "thickness": 0.0013843,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Apogee",
+   "partNo": "19493",
+   "description": "PNC-98mm (4 inch)",
+   "length": 0.503123,
+   "outsideDiameter": 0.1016,
+   "shoulderLength": 0.1016,
+   "shoulderDiameter": 0.09906,
+   "shape": "OGIVE",
+   "thickness": 0.001651,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Apogee",
+   "partNo": "19682",
+   "description": "VNC-13",
+   "material": {
+    "name": "Polystyrene",
+    "type": "BULK",
+    "density": 1050
+   },
+   "length": 0.029972,
+   "outsideDiameter": 0.0137998,
+   "shoulderLength": 0.0151994,
+   "shoulderDiameter": 0.0126009,
+   "shape": "ELLIPSOID",
+   "thickness": 0.0004064,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Apogee",
+   "partNo": "19700",
+   "description": "PNC-13A",
+   "material": {
+    "name": "Polystyrene",
+    "type": "BULK",
+    "density": 1050
+   },
+   "length": 0.0381,
+   "outsideDiameter": 0.0137998,
+   "shoulderLength": 0.0095301,
+   "shoulderDiameter": 0.0126009,
+   "shape": "PARABOLIC",
+   "thickness": 0.0010008,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Apogee",
+   "partNo": "19714",
+   "description": "PNC 29A",
+   "material": {
+    "name": "Polystyrene",
+    "type": "BULK",
+    "density": 1050
+   },
+   "mass": 0.0118,
+   "length": 0.108,
+   "outsideDiameter": 0.0299,
+   "shoulderLength": 0.03,
+   "shoulderDiameter": 0.0288,
+   "shape": "OGIVE",
+   "thickness": 0.001,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Apogee",
+   "partNo": "19800",
+   "description": "PNC-18A",
+   "material": {
+    "name": "Polystyrene",
+    "type": "BULK",
+    "density": 1050
+   },
+   "length": 0.0570992,
+   "outsideDiameter": 0.0186995,
+   "shoulderLength": 0.0102006,
+   "shoulderDiameter": 0.0175006,
+   "shape": "PARABOLIC",
+   "thickness": 0.000762,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Apogee",
+   "partNo": "19801",
+   "description": "PNC-18B",
+   "material": {
+    "name": "Polystyrene",
+    "type": "BULK",
+    "density": 1050
+   },
+   "length": 0.05715,
+   "outsideDiameter": 0.0186995,
+   "shoulderLength": 0.015875,
+   "shoulderDiameter": 0.0175006,
+   "shape": "OGIVE",
+   "thickness": 0.0007112,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Apogee",
+   "partNo": "19802",
+   "description": "PNC-18C",
+   "material": {
+    "name": "Polystyrene",
+    "type": "BULK",
+    "density": 1050
+   },
+   "length": 0.0762,
+   "outsideDiameter": 0.0186995,
+   "shoulderLength": 0.0159004,
+   "shoulderDiameter": 0.0175006,
+   "shape": "OGIVE",
+   "thickness": 0.0013462,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Apogee",
+   "partNo": "19803",
+   "description": "PNC-18D",
+   "material": {
+    "name": "Polystyrene",
+    "type": "BULK",
+    "density": 1050
+   },
+   "length": 0.04445,
+   "outsideDiameter": 0.0186995,
+   "shoulderLength": 0.0159004,
+   "shoulderDiameter": 0.0175006,
+   "shape": "OGIVE",
+   "thickness": 0.002413,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Apogee",
+   "partNo": "19807",
+   "description": "Vac Form VNC-18 ogive",
+   "material": {
+    "name": "Polystyrene",
+    "type": "BULK",
+    "density": 1050
+   },
+   "length": 0.047752,
+   "outsideDiameter": 0.0186944,
+   "shoulderLength": 0.01524,
+   "shoulderDiameter": 0.0179324,
+   "shape": "OGIVE",
+   "thickness": 0.0003302,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Apogee",
+   "partNo": "19997",
+   "description": "VFNC 24B",
+   "material": {
+    "name": "Polystyrene",
+    "type": "BULK",
+    "density": 1050
+   },
+   "length": 0.034798,
+   "outsideDiameter": 0.0247904,
+   "shoulderLength": 0.022098,
+   "shoulderDiameter": 0.02413,
+   "shape": "ELLIPSOID",
+   "thickness": 0.0003048,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Apogee",
+   "partNo": "19998",
+   "description": "PNC-24D",
+   "material": {
+    "name": "Polystyrene",
+    "type": "BULK",
+    "density": 1050
+   },
+   "length": 0.06985,
+   "outsideDiameter": 0.024892,
+   "shoulderLength": 0.015875,
+   "shoulderDiameter": 0.0240284,
+   "shape": "OGIVE",
+   "thickness": 0.0014732,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Apogee",
+   "partNo": "19999",
+   "description": "PNC-24C",
+   "material": {
+    "name": "Polystyrene",
+    "type": "BULK",
+    "density": 1050
+   },
+   "length": 0.104775,
+   "outsideDiameter": 0.024892,
+   "shoulderLength": 0.015875,
+   "shoulderDiameter": 0.0240284,
+   "shape": "OGIVE",
+   "thickness": 0.0014224,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Apogee",
+   "partNo": "20000",
+   "description": "PNC-24A",
+   "material": {
+    "name": "Polystyrene",
+    "type": "BULK",
+    "density": 1050
+   },
+   "length": 0.0762,
+   "outsideDiameter": 0.0248006,
+   "shoulderLength": 0.0191008,
+   "shoulderDiameter": 0.0235991,
+   "shape": "PARABOLIC",
+   "thickness": 0.0007874,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Apogee",
+   "partNo": "20060",
+   "description": "VNC-30mm (F.A.I. Style)",
+   "material": {
+    "name": "Polystyrene",
+    "type": "BULK",
+    "density": 1050
+   },
+   "length": 0.04445,
+   "outsideDiameter": 0.029972,
+   "shape": "ELLIPSOID",
+   "thickness": 0.0002286,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Apogee",
+   "partNo": "20061",
+   "description": "VNC-40 F.A.I. Style",
+   "material": {
+    "name": "Polystyrene",
+    "type": "BULK",
+    "density": 1050
+   },
+   "length": 0.058293,
+   "outsideDiameter": 0.039878,
+   "shape": "ELLIPSOID",
+   "thickness": 0.0001778,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Apogee",
+   "partNo": "20063",
+   "description": "VNC-40 Lightweight F.A.I. Style",
+   "material": {
+    "name": "Polystyrene",
+    "type": "BULK",
+    "density": 1050
+   },
+   "length": 0.057658,
+   "outsideDiameter": 0.039878,
+   "shoulderLength": 0.022352,
+   "shoulderDiameter": 0.039624,
+   "shape": "PARABOLIC",
+   "thickness": 0.0001067,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Apogee",
+   "partNo": "20068",
+   "description": "PNC-33 (BT-55 nose cone)",
+   "material": {
+    "name": "Polystyrene",
+    "type": "BULK",
+    "density": 1050
+   },
+   "length": 0.13462,
+   "outsideDiameter": 0.0336804,
+   "shoulderLength": 0.03429,
+   "shoulderDiameter": 0.032512,
+   "shape": "OGIVE",
+   "thickness": 0.0013538,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Apogee",
+   "partNo": "20069",
+   "description": "PNC-41.6",
+   "material": {
+    "name": "Polystyrene",
+    "type": "BULK",
+    "density": 1050
+   },
+   "length": 0.123952,
+   "outsideDiameter": 0.0416001,
+   "shoulderLength": 0.03683,
+   "shoulderDiameter": 0.0405003,
+   "shape": "OGIVE",
+   "thickness": 0.00127,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Apogee",
+   "partNo": "20070",
+   "description": "PNC-56A (Fits BT-70 tubes)",
+   "material": {
+    "name": "Polystyrene",
+    "type": "BULK",
+    "density": 1050
+   },
+   "length": 0.2667,
+   "outsideDiameter": 0.0562991,
+   "shoulderLength": 0.0566928,
+   "shoulderDiameter": 0.0531012,
+   "shape": "OGIVE",
+   "thickness": 0.001143,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Apogee",
+   "partNo": "20080",
+   "description": "PNC-66A (BT-80)",
+   "material": {
+    "name": "Polystyrene",
+    "type": "BULK",
+    "density": 1050
+   },
+   "length": 0.2286,
+   "outsideDiameter": 0.06604,
+   "shoulderLength": 0.0762,
+   "shoulderDiameter": 0.065786,
+   "shape": "OGIVE",
+   "thickness": 0.0011938,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Apogee",
+   "partNo": "20102-fwd",
+   "description": "VF Egg Capsule NC White Front Half",
+   "material": {
+    "name": "Polystyrene",
+    "type": "BULK",
+    "density": 1050
+   },
+   "length": 0.06223,
+   "outsideDiameter": 0.046228,
+   "shape": "ELLIPSOID",
+   "thickness": 0.0006096,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Apogee",
+   "partNo": "20104",
+   "description": "VF Egg Capsule NC Clear Front Half",
+   "material": {
+    "name": "Polystyrene",
+    "type": "BULK",
+    "density": 1050
+   },
+   "length": 0.06223,
+   "outsideDiameter": 0.046228,
+   "shape": "ELLIPSOID",
+   "thickness": 0.000508,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Estes",
+   "partNo": "BNC-20Y",
+   "description": "BNC-20Y",
+   "material": {
+    "name": "Balsa",
+    "type": "BULK",
+    "density": 170
+   },
+   "mass": 0.000567,
+   "length": 0.02413,
+   "outsideDiameter": 0.0186944,
+   "shoulderLength": 0.0127,
+   "shoulderDiameter": 0.0155194,
+   "shape": "CONICAL",
+   "thickness": 0.003175,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Estes",
+   "partNo": "BNC-70AJ",
+   "description": "BNC-70AJ",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "mass": 0.0240971,
+   "length": 0.11176,
+   "outsideDiameter": 0.056388,
+   "shoulderLength": 0.01905,
+   "shoulderDiameter": 0.053086,
+   "shape": "ELLIPSOID",
+   "thickness": 0.003175,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Estes",
+   "partNo": "DART",
+   "description": "DART",
+   "material": {
+    "name": "Polystyrene",
+    "type": "BULK",
+    "density": 1050
+   },
+   "length": 0.073152,
+   "outsideDiameter": 0.0186944,
+   "shoulderLength": 0.0127,
+   "shoulderDiameter": 0.018034,
+   "shape": "OGIVE",
+   "thickness": 0.0008128,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Estes",
+   "partNo": "PNC-20",
+   "description": "Reliant/Viking BT-20",
+   "material": {
+    "name": "Polystyrene",
+    "type": "BULK",
+    "density": 1050
+   },
+   "mass": 0.0051,
+   "length": 0.072,
+   "outsideDiameter": 0.0187,
+   "shoulderLength": 0.02,
+   "shoulderDiameter": 0.0175,
+   "shape": "OGIVE",
+   "thickness": 0.00175,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Estes",
+   "partNo": "PNC-60 Long A",
+   "description": "PNC-60 Long Pack NC A",
+   "material": {
+    "name": "Polystyrene",
+    "type": "BULK",
+    "density": 1050
+   },
+   "length": 0.13335,
+   "outsideDiameter": 0.041656,
+   "shoulderLength": 0.03175,
+   "shoulderDiameter": 0.0396875,
+   "shape": "ELLIPSOID",
+   "thickness": 0.00127,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Estes",
+   "partNo": "PNC-60 Long C",
+   "description": "PNC-60 Long Pack NC C",
+   "material": {
+    "name": "Polystyrene",
+    "type": "BULK",
+    "density": 1050
+   },
+   "length": 0.2032,
+   "outsideDiameter": 0.041656,
+   "shoulderLength": 0.03175,
+   "shoulderDiameter": 0.040386,
+   "shape": "OGIVE",
+   "thickness": 0.001016,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Madcow",
+   "partNo": "20146",
+   "description": "PNC-3.00\" (75mm) x 12.5\"",
+   "mass": 0.1333,
+   "length": 0.3175,
+   "outsideDiameter": 0.0762,
+   "shoulderLength": 0.060452,
+   "shoulderDiameter": 0.0749808,
+   "shape": "ELLIPSOID",
+   "filled": true,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Madcow",
+   "partNo": "20148",
+   "description": "PNC-4.00 (98mm) x 16.5in",
+   "length": 0.4191,
+   "outsideDiameter": 0.1016,
+   "shoulderLength": 0.08255,
+   "shoulderDiameter": 0.0979932,
+   "shape": "PARABOLIC",
+   "thickness": 0.0026822,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Madcow",
+   "partNo": "2.6\" Fiberglass 5:1 Ogive Nose Cone",
+   "description": "2.6\" Fiberglass 5:1 Ogive Nose Cone",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "mass": 0.1355,
+   "length": 0.4445,
+   "outsideDiameter": 0.068072,
+   "shoulderLength": 0.09525,
+   "shoulderDiameter": 0.065532,
+   "shape": "OGIVE",
+   "filled": true,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Public Missiles",
+   "partNo": "UNC-1.525",
+   "description": "Urethane nose cone",
+   "mass": 0.1133981,
+   "length": 0.2032,
+   "outsideDiameter": 0.04064,
+   "shoulderLength": 0.0381,
+   "shoulderDiameter": 0.037592,
+   "shape": "CONICAL",
+   "filled": true,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Quest",
+   "partNo": "Quest",
+   "description": "PNC35",
+   "material": {
+    "name": "Polystyrene",
+    "type": "BULK",
+    "density": 1050
+   },
+   "mass": 0.0102058,
+   "length": 0.104648,
+   "outsideDiameter": 0.035052,
+   "shoulderLength": 0.01905,
+   "shoulderDiameter": 0.03175,
+   "shape": "ELLIPSOID",
+   "thickness": 0.003175,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Quest",
+   "partNo": "Quest",
+   "description": "PNC35N",
+   "material": {
+    "name": "Polystyrene",
+    "type": "BULK",
+    "density": 1050
+   },
+   "mass": 0.0133243,
+   "length": 0.211074,
+   "outsideDiameter": 0.035052,
+   "shoulderLength": 0.01905,
+   "shoulderDiameter": 0.03175,
+   "shape": "CONICAL",
+   "thickness": 0.003175,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Retro Rocket Works",
+   "partNo": "Retro Rockets 19568",
+   "description": "2.75 Maple/Cherry",
+   "material": {
+    "name": "Maple",
+    "type": "BULK",
+    "density": 755
+   },
+   "mass": 0.255,
+   "length": 0.1905,
+   "outsideDiameter": 0.06985,
+   "shoulderLength": 0.026924,
+   "shoulderDiameter": 0.05715,
+   "shape": "OGIVE",
+   "filled": true,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Transition",
+   "manufacturer": "Aerospace Speciality Products",
+   "partNo": "BTS-60/70",
+   "description": "Balsa Transition Section 60/70",
+   "material": {
+    "name": "Balsa",
+    "type": "BULK",
+    "density": 170
+   },
+   "mass": 0.02,
+   "foreShoulderLength": 0.0222,
+   "foreShoulderDiameter": 0.04,
+   "foreOutsideDiameter": 0.0416,
+   "length": 0.0572,
+   "aftOutsideDiameter": 0.0563,
+   "aftShoulderLength": 0.0254,
+   "aftShoulderDiameter": 0.0545,
+   "shape": "CONICAL",
+   "filled": true,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Transition",
+   "manufacturer": "Apogee",
+   "partNo": "17081",
+   "description": "BT-70/BT-80 Blow Mold Transition",
+   "material": {
+    "name": "Polystyrene",
+    "type": "BULK",
+    "density": 1050
+   },
+   "mass": 0.0491,
+   "foreShoulderLength": 0.0508,
+   "foreShoulderDiameter": 0.0550012,
+   "foreOutsideDiameter": 0.0559994,
+   "length": 0.0508,
+   "aftOutsideDiameter": 0.06604,
+   "aftShoulderLength": 0.0762,
+   "aftShoulderDiameter": 0.0650189,
+   "shape": "ELLIPSOID",
+   "thickness": 0.0012954,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Transition",
+   "manufacturer": "Apogee",
+   "partNo": "19612",
+   "description": "VF Transition 13/18mm",
+   "material": {
+    "name": "Polystyrene",
+    "type": "BULK",
+    "density": 1050
+   },
+   "foreOutsideDiameter": 0.0186944,
+   "length": 0.027432,
+   "aftOutsideDiameter": 0.013,
+   "aftShoulderLength": 0.012192,
+   "aftShoulderDiameter": 0.013,
+   "shape": "OGIVE",
+   "thickness": 0.000254,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Transition",
+   "manufacturer": "Apogee",
+   "partNo": "20069",
+   "description": "BT-60 to BT-55 Transition",
+   "material": {
+    "name": "Polystyrene",
+    "type": "BULK",
+    "density": 1050
+   },
+   "mass": 0.016,
+   "foreShoulderLength": 0.0384175,
+   "foreShoulderDiameter": 0.040259,
+   "foreOutsideDiameter": 0.0416001,
+   "length": 0.029845,
+   "aftOutsideDiameter": 0.0335991,
+   "aftShoulderLength": 0.0384175,
+   "aftShoulderDiameter": 0.032512,
+   "shape": "CONICAL",
+   "thickness": 0.0010008,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Transition",
+   "manufacturer": "Apogee",
+   "partNo": "20070",
+   "description": "PNC-56  Transition",
+   "material": {
+    "name": "Polystyrene",
+    "type": "BULK",
+    "density": 1050
+   },
+   "foreOutsideDiameter": 0.029,
+   "length": 0.1825625,
+   "aftOutsideDiameter": 0.056261,
+   "aftShoulderLength": 0.0254,
+   "aftShoulderDiameter": 0.055118,
+   "shape": "OGIVE",
+   "thickness": 0.00127,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Transition",
+   "manufacturer": "Apogee",
+   "partNo": "20080",
+   "description": "PNC-66 Transition",
+   "material": {
+    "name": "Polystyrene",
+    "type": "BULK",
+    "density": 1050
+   },
+   "foreOutsideDiameter": 0.0289814,
+   "length": 0.1603375,
+   "aftOutsideDiameter": 0.06604,
+   "aftShoulderLength": 0.0254,
+   "aftShoulderDiameter": 0.06477,
+   "shape": "OGIVE",
+   "thickness": 0.001524,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Transition",
+   "manufacturer": "Apogee",
+   "partNo": "20102-aft",
+   "description": "VF Egg Capsule NC White Aft Half",
+   "material": {
+    "name": "Polystyrene",
+    "type": "BULK",
+    "density": 1050
+   },
+   "foreOutsideDiameter": 0.046228,
+   "length": 0.06223,
+   "aftOutsideDiameter": 0.023876,
+   "aftShoulderLength": 0.028575,
+   "aftShoulderDiameter": 0.023876,
+   "shape": "ELLIPSOID",
+   "thickness": 0.0004826,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Transition",
+   "manufacturer": "Estes",
+   "partNo": "30101",
+   "description": "BULL PUB BT-55 Tail cone",
+   "material": {
+    "name": "Polystyrene",
+    "type": "BULK",
+    "density": 1050
+   },
+   "mass": 0.004,
+   "foreShoulderLength": 0.022,
+   "foreShoulderDiameter": 0.0321,
+   "foreOutsideDiameter": 0.0337,
+   "length": 0.029,
+   "aftOutsideDiameter": 0.025,
+   "shape": "CONICAL",
+   "thickness": 0.00106,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Transition",
+   "manufacturer": "LOC Precision",
+   "partNo": "PTC-3.90",
+   "description": "Tail Cone",
+   "material": {
+    "name": "Polystyrene",
+    "type": "BULK",
+    "density": 1050
+   },
+   "mass": 0.108,
+   "foreShoulderLength": 0.0508,
+   "foreShoulderDiameter": 0.0986,
+   "foreOutsideDiameter": 0.102,
+   "length": 0.206,
+   "aftOutsideDiameter": 0.0704,
+   "shape": "OGIVE",
+   "thickness": 0.00317,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Transition",
+   "manufacturer": "LOC Precision",
+   "partNo": "PTC-5.38",
+   "description": "Tail Cone",
+   "material": {
+    "name": "Polystyrene",
+    "type": "BULK",
+    "density": 1050
+   },
+   "mass": 0.255,
+   "foreShoulderLength": 0.0462,
+   "foreShoulderDiameter": 0.136,
+   "foreOutsideDiameter": 0.141,
+   "length": 0.232,
+   "aftOutsideDiameter": 0.0825,
+   "shape": "OGIVE",
+   "thickness": 0.00203,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Transition",
+   "manufacturer": "LOC Precision",
+   "partNo": "PTC-7.51",
+   "description": "Tail Cone",
+   "material": {
+    "name": "Polystyrene",
+    "type": "BULK",
+    "density": 1050
+   },
+   "foreShoulderLength": 0.0508,
+   "foreShoulderDiameter": 0.19,
+   "foreOutsideDiameter": 0.195,
+   "length": 0.425,
+   "aftOutsideDiameter": 0.104,
+   "shape": "OGIVE",
+   "thickness": 0.00317,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Apogee",
+   "partNo": "29090",
+   "description": "12\" Nylon Hexagon",
+   "material": {
+    "name": "Ripstop nylon",
+    "type": "SURFACE",
+    "density": 0.067
+   },
+   "lineMaterial": {
+    "name": "Braided nylon (2 mm, 1/16 in)",
+    "type": "LINE",
+    "density": 0.001
+   },
+   "mass": 0.0061,
+   "sides": 6,
+   "diameter": 0.3048,
+   "lineCount": 6,
+   "lineLength": 0.3048,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Apogee",
+   "partNo": "29091",
+   "description": "15\" Nylon Hexagon",
+   "material": {
+    "name": "Ripstop nylon",
+    "type": "SURFACE",
+    "density": 0.067
+   },
+   "lineMaterial": {
+    "name": "Braided nylon (2 mm, 1/16 in)",
+    "type": "LINE",
+    "density": 0.001
+   },
+   "mass": 0.0075,
+   "sides": 6,
+   "diameter": 0.381,
+   "lineCount": 6,
+   "lineLength": 0.381,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Apogee",
+   "partNo": "29092",
+   "description": "18\" Nylon Hexagon",
+   "material": {
+    "name": "Ripstop nylon",
+    "type": "SURFACE",
+    "density": 0.067
+   },
+   "lineMaterial": {
+    "name": "Braided nylon (2 mm, 1/16 in)",
+    "type": "LINE",
+    "density": 0.001
+   },
+   "mass": 0.008,
+   "sides": 6,
+   "diameter": 0.4572,
+   "lineCount": 6,
+   "lineLength": 0.381,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Apogee",
+   "partNo": "29093",
+   "description": "24\" Nylon Hexagon",
+   "material": {
+    "name": "Ripstop nylon",
+    "type": "SURFACE",
+    "density": 0.067
+   },
+   "lineMaterial": {
+    "name": "Braided nylon (2 mm, 1/16 in)",
+    "type": "LINE",
+    "density": 0.001
+   },
+   "mass": 0.0169,
+   "sides": 6,
+   "diameter": 0.6096,
+   "lineCount": 6,
+   "lineLength": 0.6096,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Apogee",
+   "partNo": "29094",
+   "description": "30\" Nylon Octagon",
+   "material": {
+    "name": "Ripstop nylon",
+    "type": "SURFACE",
+    "density": 0.067
+   },
+   "lineMaterial": {
+    "name": "Braided nylon (2 mm, 1/16 in)",
+    "type": "LINE",
+    "density": 0.001
+   },
+   "mass": 0.0425,
+   "sides": 8,
+   "diameter": 0.762,
+   "lineCount": 8,
+   "lineLength": 0.762,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Apogee",
+   "partNo": "29095",
+   "description": "36\" Nylon Octagon",
+   "material": {
+    "name": "Ripstop nylon",
+    "type": "SURFACE",
+    "density": 0.067
+   },
+   "lineMaterial": {
+    "name": "Braided nylon (2 mm, 1/16 in)",
+    "type": "LINE",
+    "density": 0.001
+   },
+   "mass": 0.0516,
+   "sides": 8,
+   "diameter": 0.9144,
+   "lineCount": 8,
+   "lineLength": 0.8636,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Apogee",
+   "partNo": "29096",
+   "description": "48\" Nylon Octagon",
+   "material": {
+    "name": "Ripstop nylon",
+    "type": "SURFACE",
+    "density": 0.067
+   },
+   "lineMaterial": {
+    "name": "Braided nylon (2 mm, 1/16 in)",
+    "type": "LINE",
+    "density": 0.001
+   },
+   "mass": 0.0748,
+   "sides": 8,
+   "diameter": 1.2192,
+   "lineCount": 8,
+   "lineLength": 1.1176,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Apogee",
+   "partNo": "29097",
+   "description": "58\" Nylon Octagon",
+   "material": {
+    "name": "Ripstop nylon",
+    "type": "SURFACE",
+    "density": 0.067
+   },
+   "lineMaterial": {
+    "name": "Braided nylon (2 mm, 1/16 in)",
+    "type": "LINE",
+    "density": 0.001
+   },
+   "mass": 0.1032,
+   "sides": 8,
+   "diameter": 1.4732,
+   "lineCount": 8,
+   "lineLength": 1.4732,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Apogee",
+   "partNo": "29101",
+   "description": "24\" Cut to Size Plastic Octagon",
+   "material": {
+    "name": "Polyethylene (thin)",
+    "type": "SURFACE",
+    "density": 0.015
+   },
+   "lineMaterial": {
+    "name": "Braided nylon (2 mm, 1/16 in)",
+    "type": "LINE",
+    "density": 0.001
+   },
+   "sides": 8,
+   "diameter": 0.6096,
+   "lineCount": 8,
+   "lineLength": 0.813001,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Apogee",
+   "partNo": "29101",
+   "description": "32\" Plastic Octagon",
+   "material": {
+    "name": "Polyethylene (thin)",
+    "type": "SURFACE",
+    "density": 0.015
+   },
+   "lineMaterial": {
+    "name": "Braided nylon (2 mm, 1/16 in)",
+    "type": "LINE",
+    "density": 0.001
+   },
+   "sides": 8,
+   "diameter": 0.813,
+   "lineCount": 8,
+   "lineLength": 0.813,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Apogee",
+   "partNo": "29124",
+   "description": "12\" Plastic Hexagon",
+   "material": {
+    "name": "Polyethylene (thin)",
+    "type": "SURFACE",
+    "density": 0.015
+   },
+   "lineMaterial": {
+    "name": "Braided nylon (2 mm, 1/16 in)",
+    "type": "LINE",
+    "density": 0.001
+   },
+   "mass": 0.003,
+   "sides": 6,
+   "diameter": 0.3048,
+   "lineCount": 6,
+   "lineLength": 0.3048,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Apogee",
+   "partNo": "29126",
+   "description": "12\" Cut-To-Size Plastic Hexagon",
+   "material": {
+    "name": "Polyethylene (thin)",
+    "type": "SURFACE",
+    "density": 0.015
+   },
+   "lineMaterial": {
+    "name": "Braided nylon (2 mm, 1/16 in)",
+    "type": "LINE",
+    "density": 0.001
+   },
+   "mass": 0.009,
+   "sides": 6,
+   "diameter": 0.3048,
+   "lineCount": 6,
+   "lineLength": 0.4572,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Apogee",
+   "partNo": "29126",
+   "description": "15\" Cut-To-Size Plastic Hexagon",
+   "material": {
+    "name": "Polyethylene (thin)",
+    "type": "SURFACE",
+    "density": 0.015
+   },
+   "lineMaterial": {
+    "name": "Braided nylon (2 mm, 1/16 in)",
+    "type": "LINE",
+    "density": 0.001
+   },
+   "mass": 0.01,
+   "sides": 6,
+   "diameter": 0.381,
+   "lineCount": 6,
+   "lineLength": 0.4572,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Apogee",
+   "partNo": "29126",
+   "description": "18\" Cut-To-Size Plastic Hexagon",
+   "material": {
+    "name": "Polyethylene (thin)",
+    "type": "SURFACE",
+    "density": 0.015
+   },
+   "lineMaterial": {
+    "name": "Braided nylon (2 mm, 1/16 in)",
+    "type": "LINE",
+    "density": 0.001
+   },
+   "mass": 0.011,
+   "sides": 6,
+   "diameter": 0.4572,
+   "lineCount": 6,
+   "lineLength": 0.4572,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Dino Chutes",
+   "partNo": "29232",
+   "description": "12\" X Form Parachute",
+   "material": {
+    "name": "Ripstop nylon",
+    "type": "SURFACE",
+    "density": 0.067
+   },
+   "lineMaterial": {
+    "name": "Braided nylon (2 mm, 1/16 in)",
+    "type": "LINE",
+    "density": 0.001
+   },
+   "mass": 0.0069,
+   "sides": 12,
+   "diameter": 0.3048,
+   "lineCount": 8,
+   "lineLength": 0.1524,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Dino Chutes",
+   "partNo": "29234",
+   "description": "18\" X Form Parachute",
+   "material": {
+    "name": "Ripstop nylon",
+    "type": "SURFACE",
+    "density": 0.067
+   },
+   "lineMaterial": {
+    "name": "Braided nylon (2 mm, 1/16 in)",
+    "type": "LINE",
+    "density": 0.001
+   },
+   "mass": 0.0159,
+   "sides": 12,
+   "diameter": 0.4572,
+   "lineCount": 8,
+   "lineLength": 0.4572,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Dino Chutes",
+   "partNo": "29236",
+   "description": "24\" X Form Parachute",
+   "material": {
+    "name": "Ripstop nylon",
+    "type": "SURFACE",
+    "density": 0.067
+   },
+   "lineMaterial": {
+    "name": "Braided nylon (2 mm, 1/16 in)",
+    "type": "LINE",
+    "density": 0.001
+   },
+   "mass": 0.0247,
+   "sides": 12,
+   "diameter": 0.6096,
+   "lineCount": 8,
+   "lineLength": 0.6096,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Dino Chutes",
+   "partNo": "29238",
+   "description": "30\" X Form Parachute",
+   "material": {
+    "name": "Ripstop nylon",
+    "type": "SURFACE",
+    "density": 0.067
+   },
+   "lineMaterial": {
+    "name": "Braided nylon (2 mm, 1/16 in)",
+    "type": "LINE",
+    "density": 0.001
+   },
+   "mass": 0.03,
+   "sides": 8,
+   "diameter": 0.762,
+   "lineCount": 8,
+   "lineLength": 0.3556,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Dino Chutes",
+   "partNo": "29240",
+   "description": "36\" X Form Parachute",
+   "material": {
+    "name": "Ripstop nylon",
+    "type": "SURFACE",
+    "density": 0.067
+   },
+   "lineMaterial": {
+    "name": "Braided nylon (2 mm, 1/16 in)",
+    "type": "LINE",
+    "density": 0.001
+   },
+   "mass": 0.0412,
+   "sides": 8,
+   "diameter": 0.9144,
+   "lineCount": 8,
+   "lineLength": 0.4318,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Dino Chutes",
+   "partNo": "29241",
+   "description": "24\" Guide Chute",
+   "material": {
+    "name": "Ripstop nylon",
+    "type": "SURFACE",
+    "density": 0.067
+   },
+   "lineMaterial": {
+    "name": "Braided nylon (2 mm, 1/16 in)",
+    "type": "LINE",
+    "density": 0.001
+   },
+   "mass": 0.0197,
+   "sides": 4,
+   "diameter": 0.6096,
+   "lineCount": 4,
+   "lineLength": 0.4572,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Dino Chutes",
+   "partNo": "29242",
+   "description": "18\" Drogue Chute",
+   "material": {
+    "name": "Ripstop nylon",
+    "type": "SURFACE",
+    "density": 0.067
+   },
+   "lineMaterial": {
+    "name": "Braided nylon (2 mm, 1/16 in)",
+    "type": "LINE",
+    "density": 0.001
+   },
+   "mass": 0.0561,
+   "sides": 8,
+   "diameter": 0.4572,
+   "lineCount": 8,
+   "lineLength": 0.5588,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Dino Chutes",
+   "partNo": "29243",
+   "description": "24\" Drogue Chute",
+   "material": {
+    "name": "Ripstop nylon",
+    "type": "SURFACE",
+    "density": 0.067
+   },
+   "lineMaterial": {
+    "name": "Braided nylon (2 mm, 1/16 in)",
+    "type": "LINE",
+    "density": 0.001
+   },
+   "mass": 0.0722,
+   "sides": 8,
+   "diameter": 0.6096,
+   "lineCount": 8,
+   "lineLength": 0.7366,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Estes",
+   "partNo": "302260",
+   "description": "18 in. nylon",
+   "material": {
+    "name": "Ripstop nylon",
+    "type": "SURFACE",
+    "density": 0.067
+   },
+   "lineMaterial": {
+    "name": "Braided nylon (2 mm, 1/16 in)",
+    "type": "LINE",
+    "density": 0.001
+   },
+   "mass": 0.0105,
+   "sides": 6,
+   "diameter": 0.4572,
+   "lineCount": 8,
+   "lineLength": 0.6096,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Fruity Chutes",
+   "partNo": "29161",
+   "description": "15\" Drogue Chute",
+   "material": {
+    "name": "Ripstop nylon",
+    "type": "SURFACE",
+    "density": 0.067
+   },
+   "lineMaterial": {
+    "name": "Braided nylon (2 mm, 1/16 in)",
+    "type": "LINE",
+    "density": 0.001
+   },
+   "mass": 0.043,
+   "diameter": 0.381,
+   "lineCount": 18,
+   "lineLength": 0.4318,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Fruity Chutes",
+   "partNo": "29162",
+   "description": "18\" Drogue Chute",
+   "material": {
+    "name": "Ripstop nylon",
+    "type": "SURFACE",
+    "density": 0.067
+   },
+   "lineMaterial": {
+    "name": "Braided nylon (2 mm, 1/16 in)",
+    "type": "LINE",
+    "density": 0.001
+   },
+   "mass": 0.06,
+   "diameter": 0.4572,
+   "lineCount": 18,
+   "lineLength": 0.5334,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Fruity Chutes",
+   "partNo": "29163",
+   "description": "24\" Nylon Elliptical",
+   "material": {
+    "name": "Ripstop nylon",
+    "type": "SURFACE",
+    "density": 0.067
+   },
+   "lineMaterial": {
+    "name": "Braided nylon (2 mm, 1/16 in)",
+    "type": "LINE",
+    "density": 0.001
+   },
+   "mass": 0.062,
+   "diameter": 0.6096,
+   "lineCount": 16,
+   "lineLength": 0.7112,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Fruity Chutes",
+   "partNo": "29165",
+   "description": "36\" Nylon Elliptical",
+   "material": {
+    "name": "Ripstop nylon",
+    "type": "SURFACE",
+    "density": 0.067
+   },
+   "lineMaterial": {
+    "name": "Braided nylon (2 mm, 1/16 in)",
+    "type": "LINE",
+    "density": 0.001
+   },
+   "mass": 0.12757,
+   "diameter": 0.9144,
+   "lineCount": 18,
+   "lineLength": 1.0414,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Fruity Chutes",
+   "partNo": "29167",
+   "description": "48\" Nylon Elliptical",
+   "material": {
+    "name": "Ripstop nylon",
+    "type": "SURFACE",
+    "density": 0.067
+   },
+   "lineMaterial": {
+    "name": "Braided nylon (2 mm, 1/16 in)",
+    "type": "LINE",
+    "density": 0.001
+   },
+   "mass": 0.20695,
+   "diameter": 1.2192,
+   "lineCount": 18,
+   "lineLength": 1.397,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Fruity Chutes",
+   "partNo": "29181",
+   "description": "48\" Nylon Toroidal",
+   "material": {
+    "name": "Ripstop nylon",
+    "type": "SURFACE",
+    "density": 0.067
+   },
+   "lineMaterial": {
+    "name": "Braided nylon (2 mm, 1/16 in)",
+    "type": "LINE",
+    "density": 0.001
+   },
+   "mass": 0.2126,
+   "diameter": 1.2192,
+   "lineCount": 18,
+   "lineLength": 1.397,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Fruity Chutes",
+   "partNo": "29182",
+   "description": "60\" Nylon Toroidal",
+   "material": {
+    "name": "Ripstop nylon",
+    "type": "SURFACE",
+    "density": 0.067
+   },
+   "lineMaterial": {
+    "name": "Braided nylon (2 mm, 1/16 in)",
+    "type": "LINE",
+    "density": 0.001
+   },
+   "mass": 0.309,
+   "diameter": 1.524,
+   "lineCount": 18,
+   "lineLength": 1.7526,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Fruity Chutes",
+   "partNo": "29183",
+   "description": "72\" Nylon Toroidal",
+   "material": {
+    "name": "Ripstop nylon",
+    "type": "SURFACE",
+    "density": 0.067
+   },
+   "lineMaterial": {
+    "name": "Braided nylon (2 mm, 1/16 in)",
+    "type": "LINE",
+    "density": 0.001
+   },
+   "mass": 0.38,
+   "diameter": 1.8288,
+   "lineCount": 18,
+   "lineLength": 2.1082,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Fruity Chutes",
+   "partNo": "29184",
+   "description": "84\" Nylon Toroidal",
+   "material": {
+    "name": "Ripstop nylon",
+    "type": "SURFACE",
+    "density": 0.067
+   },
+   "lineMaterial": {
+    "name": "Braided nylon (2 mm, 1/16 in)",
+    "type": "LINE",
+    "density": 0.001
+   },
+   "mass": 0.539,
+   "diameter": 2.1336,
+   "lineCount": 18,
+   "lineLength": 2.4638,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Fruity Chutes",
+   "partNo": "29185",
+   "description": "96\" Nylon Toroidal",
+   "material": {
+    "name": "Ripstop nylon",
+    "type": "SURFACE",
+    "density": 0.067
+   },
+   "lineMaterial": {
+    "name": "Braided nylon (2 mm, 1/16 in)",
+    "type": "LINE",
+    "density": 0.001
+   },
+   "mass": 0.709,
+   "diameter": 2.4384,
+   "lineCount": 18,
+   "lineLength": 2.794,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "LOC Precision",
+   "partNo": "LP-50",
+   "description": "50 In. 16 lines",
+   "material": {
+    "name": "Ripstop nylon",
+    "type": "SURFACE",
+    "density": 0.067
+   },
+   "lineMaterial": {
+    "name": "Braided nylon (2 mm, 1/16 in)",
+    "type": "LINE",
+    "density": 0.001
+   },
+   "mass": 0.17,
+   "diameter": 1.27,
+   "lineCount": 16,
+   "lineLength": 1.35,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "LOC Precision",
+   "partNo": "LP-58",
+   "description": "58 In. 16 lines",
+   "material": {
+    "name": "Ripstop nylon",
+    "type": "SURFACE",
+    "density": 0.067
+   },
+   "lineMaterial": {
+    "name": "Braided nylon (2 mm, 1/16 in)",
+    "type": "LINE",
+    "density": 0.001
+   },
+   "mass": 0.142,
+   "diameter": 1.47,
+   "lineCount": 16,
+   "lineLength": 1.35,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "LOC Precision",
+   "partNo": "LP-86",
+   "description": "86 In. 20 lines",
+   "material": {
+    "name": "Ripstop nylon",
+    "type": "SURFACE",
+    "density": 0.067
+   },
+   "lineMaterial": {
+    "name": "Braided nylon (2 mm, 1/16 in)",
+    "type": "LINE",
+    "density": 0.001
+   },
+   "mass": 0.454,
+   "diameter": 2.18,
+   "lineCount": 20,
+   "lineLength": 2.01,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Quest",
+   "partNo": "12 in",
+   "description": "12 in plastic",
+   "material": {
+    "name": "Polyethylene (thin)",
+    "type": "SURFACE",
+    "density": 0.015
+   },
+   "lineMaterial": {
+    "name": "Kevlar thread 138  (0.4 mm, 1/64 in)",
+    "type": "LINE",
+    "density": 0.00014808
+   },
+   "mass": 0.0019845,
+   "diameter": 0.3048,
+   "lineCount": 6,
+   "lineLength": 0.3175,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "SEMROC",
+   "partNo": "PN-18",
+   "description": "18 In. Nylon Chute",
+   "material": {
+    "name": "Ripstop nylon",
+    "type": "SURFACE",
+    "density": 0.067
+   },
+   "lineMaterial": {
+    "name": "Braided nylon (2 mm, 1/16 in)",
+    "type": "LINE",
+    "density": 0.001
+   },
+   "sides": 8,
+   "diameter": 0.4572,
+   "lineCount": 8,
+   "lineLength": 0.508,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "SEMROC",
+   "partNo": "PN-24",
+   "description": "24 In. Nylon Chute",
+   "material": {
+    "name": "Ripstop nylon",
+    "type": "SURFACE",
+    "density": 0.067
+   },
+   "lineMaterial": {
+    "name": "Braided nylon (2 mm, 1/16 in)",
+    "type": "LINE",
+    "density": 0.001
+   },
+   "diameter": 0.6096,
+   "lineCount": 10,
+   "lineLength": 0.6604,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Sunward Group LTD",
+   "partNo": "29106",
+   "description": "12\" Nylon Hexagon",
+   "material": {
+    "name": "Ripstop nylon",
+    "type": "SURFACE",
+    "density": 0.067
+   },
+   "lineMaterial": {
+    "name": "Braided nylon (2 mm, 1/16 in)",
+    "type": "LINE",
+    "density": 0.001
+   },
+   "mass": 0.0061,
+   "sides": 6,
+   "diameter": 0.3048,
+   "lineCount": 6,
+   "lineLength": 0.3048,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Sunward Group LTD",
+   "partNo": "29107",
+   "description": "15\" Nylon Hexagon",
+   "material": {
+    "name": "Ripstop nylon",
+    "type": "SURFACE",
+    "density": 0.067
+   },
+   "lineMaterial": {
+    "name": "Braided nylon (2 mm, 1/16 in)",
+    "type": "LINE",
+    "density": 0.001
+   },
+   "mass": 0.0075,
+   "sides": 6,
+   "diameter": 0.381,
+   "lineCount": 6,
+   "lineLength": 0.381,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Sunward Group LTD",
+   "partNo": "29108",
+   "description": "15\" Nylon Round",
+   "material": {
+    "name": "Ripstop nylon",
+    "type": "SURFACE",
+    "density": 0.067
+   },
+   "lineMaterial": {
+    "name": "Braided nylon (2 mm, 1/16 in)",
+    "type": "LINE",
+    "density": 0.001
+   },
+   "mass": 0.0075,
+   "diameter": 0.381,
+   "lineCount": 6,
+   "lineLength": 0.381,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Sunward Group LTD",
+   "partNo": "29112",
+   "description": "18\" Nylon Hexagon",
+   "material": {
+    "name": "Ripstop nylon",
+    "type": "SURFACE",
+    "density": 0.067
+   },
+   "lineMaterial": {
+    "name": "Braided nylon (2 mm, 1/16 in)",
+    "type": "LINE",
+    "density": 0.001
+   },
+   "mass": 0.0137,
+   "sides": 6,
+   "diameter": 0.4572,
+   "lineCount": 6,
+   "lineLength": 0.4572,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Sunward Group LTD",
+   "partNo": "29127",
+   "description": "30\" Nylon Octagon",
+   "material": {
+    "name": "Ripstop nylon",
+    "type": "SURFACE",
+    "density": 0.067
+   },
+   "lineMaterial": {
+    "name": "Braided nylon (2 mm, 1/16 in)",
+    "type": "LINE",
+    "density": 0.001
+   },
+   "mass": 0.0309,
+   "sides": 8,
+   "diameter": 0.762,
+   "lineCount": 6,
+   "lineLength": 0.762,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Sunward Group LTD",
+   "partNo": "29128",
+   "description": "36\" Nylon Octagon",
+   "material": {
+    "name": "Ripstop nylon",
+    "type": "SURFACE",
+    "density": 0.067
+   },
+   "lineMaterial": {
+    "name": "Braided nylon (2 mm, 1/16 in)",
+    "type": "LINE",
+    "density": 0.001
+   },
+   "mass": 0.0567,
+   "sides": 8,
+   "diameter": 0.9144,
+   "lineCount": 6,
+   "lineLength": 0.9144,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Sunward Group LTD",
+   "partNo": "29129",
+   "description": "48\" Nylon Octagon",
+   "material": {
+    "name": "Ripstop nylon",
+    "type": "SURFACE",
+    "density": 0.067
+   },
+   "lineMaterial": {
+    "name": "Braided nylon (2 mm, 1/16 in)",
+    "type": "LINE",
+    "density": 0.001
+   },
+   "mass": 0.06464,
+   "sides": 8,
+   "diameter": 1.2192,
+   "lineCount": 6,
+   "lineLength": 1.2192,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Streamer",
+   "manufacturer": "LOC Precision",
+   "partNo": "SM-1",
+   "description": "Streamer",
+   "material": {
+    "name": "Polyethylene (thin)",
+    "type": "SURFACE",
+    "density": 0.015
+   },
+   "length": 1.83,
+   "width": 0.102,
+   "thickness": 0.000001,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Streamer",
+   "manufacturer": "Apogee",
+   "partNo": "30303",
+   "description": "2in x 56in Mylar",
+   "material": {
+    "name": "Mylar",
+    "type": "SURFACE",
+    "density": 0.021
+   },
+   "mass": 0.0039,
+   "length": 1.4224,
+   "width": 0.0508,
+   "thickness": 0.000001,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Streamer",
+   "manufacturer": "Apogee",
+   "partNo": "30305",
+   "description": "4in x 56in Mylar",
+   "material": {
+    "name": "Mylar",
+    "type": "SURFACE",
+    "density": 0.021
+   },
+   "mass": 0.0069,
+   "length": 1.4224,
+   "width": 0.1016,
+   "thickness": 0.000001,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Streamer",
+   "manufacturer": "Sunward Group LTD",
+   "partNo": "29052",
+   "description": "2in x 20in Nylon",
+   "material": {
+    "name": "Ripstop nylon",
+    "type": "SURFACE",
+    "density": 0.067
+   },
+   "length": 0.508,
+   "width": 0.0508,
+   "thickness": 0.0000249,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Streamer",
+   "manufacturer": "Sunward Group LTD",
+   "partNo": "29053",
+   "description": "3in x 30in Nylon",
+   "material": {
+    "name": "Ripstop nylon",
+    "type": "SURFACE",
+    "density": 0.067
+   },
+   "length": 0.762,
+   "width": 0.0762,
+   "thickness": 0.0000254,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Streamer",
+   "manufacturer": "Sunward Group LTD",
+   "partNo": "29054",
+   "description": "4in x 40in Nylon",
+   "material": {
+    "name": "Ripstop nylon",
+    "type": "SURFACE",
+    "density": 0.067
+   },
+   "length": 1.016,
+   "width": 0.1016,
+   "thickness": 0.0000254,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Streamer",
+   "manufacturer": "Sunward Group LTD",
+   "partNo": "29055",
+   "description": "5in x 50in Nylon",
+   "material": {
+    "name": "Ripstop nylon",
+    "type": "SURFACE",
+    "density": 0.067
+   },
+   "length": 1.27,
+   "width": 0.127,
+   "thickness": 0.0000254,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Streamer",
+   "manufacturer": "Sunward Group LTD",
+   "partNo": "29056",
+   "description": "6in x 60in Nylon",
+   "material": {
+    "name": "Ripstop nylon",
+    "type": "SURFACE",
+    "density": 0.067
+   },
+   "length": 1.524,
+   "width": 0.1524,
+   "thickness": 0.0000254,
+   "source": "rocksim"
+  },
+  {
+   "kind": "Streamer",
+   "manufacturer": "Sunward Group LTD",
+   "partNo": "29057",
+   "description": "7in x 70in Nylon",
+   "material": {
+    "name": "Ripstop nylon",
+    "type": "SURFACE",
+    "density": 0.067
+   },
+   "length": 1.778,
+   "width": 0.1778,
+   "thickness": 0.0000254,
+   "source": "rocksim"
   }
  ]
 }
