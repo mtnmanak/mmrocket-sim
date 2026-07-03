@@ -48,15 +48,20 @@ export function allowedChildren(parentType: ComponentType | 'stage'): ComponentT
   return CONTAINMENT[parentType] ?? [];
 }
 
-export type FieldUnit = 'mm' | 'deg' | 'g' | 'count' | 'kg/m3' | 'none';
+export type FieldUnit = 'mm' | 'm' | 's' | 'deg' | 'g' | 'count' | 'kg/m3' | 'none';
 
 export interface FieldDef {
   key: string;
   label: string;
   unit: FieldUnit;
   step?: number;
+  /** slider range in UI units; the slider extends itself if the typed value exceeds smax */
+  smin?: number;
+  smax?: number;
   /** select options (value -> label) — renders a dropdown instead of a number */
   options?: [string, string][];
+  /** renders a checkbox (true/false) instead of a number */
+  bool?: boolean;
 }
 
 const SHAPES: [string, string][] = [
@@ -68,106 +73,159 @@ const CROSS_SECTIONS: [string, string][] = [
   ['square', 'Square'], ['rounded', 'Rounded'], ['airfoil', 'Airfoil (pointed)'],
 ];
 
-const lenMM = (key: string, label: string, step = 1): FieldDef => ({ key, label, unit: 'mm', step });
+/** Desktop's surface-finish presets (surface roughness drives skin-friction drag). */
+const FINISHES: [string, string][] = [
+  ['rough', 'Rough (500 µm)'],
+  ['unfinished', 'Unfinished (150 µm)'],
+  ['normal', 'Regular paint (60 µm)'],
+  ['smooth', 'Smooth paint (20 µm)'],
+  ['polished', 'Aircraft sheet-metal (2 µm)'],
+  ['finishpolished', 'Polished (0.5 µm)'],
+];
+
+const FINISH: FieldDef = { key: 'finish', label: 'Surface finish', unit: 'none', options: FINISHES };
+
+const DEPLOY_EVENTS: [string, string][] = [
+  ['ejection', 'Motor ejection charge'],
+  ['apogee', 'Apogee'],
+  ['altitude', 'Altitude (descending)'],
+  ['launch', 'Launch'],
+  ['never', 'Never'],
+];
+
+const lenMM = (key: string, label: string, step = 1, smax = 300): FieldDef =>
+  ({ key, label, unit: 'mm', step, smin: 0, smax });
+
+const DENSITY: FieldDef = {
+  key: 'density', label: 'Material density', unit: 'kg/m3', step: 10, smin: 0, smax: 3000,
+};
+const FIN_COUNT: FieldDef = { key: 'finCount', label: 'Fin count', unit: 'count', smin: 1, smax: 8 };
+const CANT: FieldDef = { key: 'cant', label: 'Cant angle', unit: 'deg', step: 0.5, smin: -15, smax: 15 };
+const CD: FieldDef = {
+  key: 'cd', label: 'Drag coefficient (blank = auto)', unit: 'none', step: 0.05, smin: 0, smax: 2,
+};
 
 export const FIELDS: Record<ComponentType, FieldDef[]> = {
   nosecone: [
     lenMM('length', 'Length'),
-    lenMM('aftRadius', 'Base radius', 0.5),
-    lenMM('thickness', 'Wall thickness', 0.1),
+    lenMM('aftRadius', 'Base radius', 0.5, 80),
+    lenMM('thickness', 'Wall thickness', 0.1, 10),
     { key: 'shape', label: 'Shape', unit: 'none', options: SHAPES },
-    { key: 'density', label: 'Material density', unit: 'kg/m3', step: 10 },
+    { key: 'filled', label: 'Solid (filled)', unit: 'none', bool: true },
+    lenMM('shoulderRadius', 'Shoulder radius', 0.5, 80),
+    lenMM('shoulderLength', 'Shoulder length', 1, 150),
+    lenMM('shoulderThickness', 'Shoulder thickness', 0.1, 10),
+    { key: 'shoulderCapped', label: 'Shoulder end capped', unit: 'none', bool: true },
+    FINISH,
+    DENSITY,
   ],
   transition: [
     lenMM('length', 'Length'),
-    lenMM('foreRadius', 'Fore radius', 0.5),
-    lenMM('aftRadius', 'Aft radius', 0.5),
-    lenMM('thickness', 'Wall thickness', 0.1),
+    lenMM('foreRadius', 'Fore radius', 0.5, 80),
+    lenMM('aftRadius', 'Aft radius', 0.5, 80),
+    lenMM('thickness', 'Wall thickness', 0.1, 10),
     { key: 'shape', label: 'Shape', unit: 'none', options: SHAPES },
-    { key: 'density', label: 'Material density', unit: 'kg/m3', step: 10 },
+    { key: 'filled', label: 'Solid (filled)', unit: 'none', bool: true },
+    lenMM('foreShoulderRadius', 'Fore shoulder radius', 0.5, 80),
+    lenMM('foreShoulderLength', 'Fore shoulder length', 1, 150),
+    lenMM('aftShoulderRadius', 'Aft shoulder radius', 0.5, 80),
+    lenMM('aftShoulderLength', 'Aft shoulder length', 1, 150),
+    FINISH,
+    DENSITY,
   ],
   bodytube: [
-    lenMM('length', 'Length'),
-    lenMM('outerRadius', 'Outer radius', 0.5),
-    lenMM('thickness', 'Wall thickness', 0.1),
-    { key: 'density', label: 'Material density', unit: 'kg/m3', step: 10 },
+    lenMM('length', 'Length', 1, 1000),
+    lenMM('outerRadius', 'Outer radius', 0.5, 80),
+    lenMM('thickness', 'Wall thickness', 0.1, 10),
+    FINISH,
+    DENSITY,
   ],
   trapezoidfinset: [
-    { key: 'finCount', label: 'Fin count', unit: 'count' },
-    lenMM('rootChord', 'Root chord'),
-    lenMM('tipChord', 'Tip chord'),
-    lenMM('sweep', 'Sweep'),
-    lenMM('height', 'Height'),
-    lenMM('thickness', 'Thickness', 0.5),
-    { key: 'cant', label: 'Cant angle', unit: 'deg', step: 0.5 },
+    FIN_COUNT,
+    lenMM('rootChord', 'Root chord', 1, 200),
+    lenMM('tipChord', 'Tip chord', 1, 200),
+    { key: 'sweep', label: 'Sweep', unit: 'mm', step: 1, smin: -100, smax: 200 },
+    lenMM('height', 'Height', 1, 150),
+    lenMM('thickness', 'Thickness', 0.5, 10),
+    CANT,
     { key: 'crossSection', label: 'Cross section', unit: 'none', options: CROSS_SECTIONS },
-    { key: 'density', label: 'Material density', unit: 'kg/m3', step: 10 },
+    FINISH,
+    DENSITY,
   ],
   freeformfinset: [
-    { key: 'finCount', label: 'Fin count', unit: 'count' },
-    lenMM('thickness', 'Thickness', 0.5),
-    { key: 'cant', label: 'Cant angle', unit: 'deg', step: 0.5 },
+    FIN_COUNT,
+    lenMM('thickness', 'Thickness', 0.5, 10),
+    CANT,
     { key: 'crossSection', label: 'Cross section', unit: 'none', options: CROSS_SECTIONS },
-    { key: 'density', label: 'Material density', unit: 'kg/m3', step: 10 },
+    FINISH,
+    DENSITY,
   ],
   ellipticalfinset: [
-    { key: 'finCount', label: 'Fin count', unit: 'count' },
-    lenMM('rootChord', 'Root chord'),
-    lenMM('height', 'Height'),
-    lenMM('thickness', 'Thickness', 0.5),
+    FIN_COUNT,
+    lenMM('rootChord', 'Root chord', 1, 200),
+    lenMM('height', 'Height', 1, 150),
+    lenMM('thickness', 'Thickness', 0.5, 10),
     { key: 'crossSection', label: 'Cross section', unit: 'none', options: CROSS_SECTIONS },
-    { key: 'density', label: 'Material density', unit: 'kg/m3', step: 10 },
+    FINISH,
+    DENSITY,
   ],
   tubefinset: [
-    { key: 'finCount', label: 'Fin count', unit: 'count' },
-    lenMM('length', 'Length'),
-    lenMM('outerRadius', 'Outer radius', 0.5),
+    { ...FIN_COUNT, smax: 12 },
+    lenMM('length', 'Length', 1, 200),
+    lenMM('outerRadius', 'Outer radius', 0.5, 50),
+    FINISH,
   ],
   innertube: [
     lenMM('length', 'Length'),
-    lenMM('outerRadius', 'Outer radius', 0.5),
-    lenMM('thickness', 'Wall thickness', 0.1),
+    lenMM('outerRadius', 'Outer radius', 0.5, 50),
+    lenMM('thickness', 'Wall thickness', 0.1, 5),
   ],
   tubecoupler: [
-    lenMM('length', 'Length'),
-    lenMM('thickness', 'Wall thickness', 0.1),
+    lenMM('length', 'Length', 1, 200),
+    lenMM('thickness', 'Wall thickness', 0.1, 5),
   ],
   centeringring: [
-    lenMM('length', 'Thickness (axial)', 0.5),
+    lenMM('length', 'Thickness (axial)', 0.5, 20),
   ],
   bulkhead: [
-    lenMM('length', 'Thickness (axial)', 0.5),
+    lenMM('length', 'Thickness (axial)', 0.5, 20),
   ],
   engineblock: [
-    lenMM('length', 'Length', 0.5),
-    lenMM('thickness', 'Wall thickness', 0.5),
+    lenMM('length', 'Length', 0.5, 20),
+    lenMM('thickness', 'Wall thickness', 0.5, 10),
   ],
   launchlug: [
-    lenMM('length', 'Length'),
-    lenMM('outerRadius', 'Outer radius', 0.2),
-    lenMM('thickness', 'Wall thickness', 0.1),
+    lenMM('length', 'Length', 1, 100),
+    lenMM('outerRadius', 'Outer radius', 0.2, 10),
+    lenMM('thickness', 'Wall thickness', 0.1, 2),
   ],
   railbutton: [
-    lenMM('outerDiameter', 'Outer diameter', 0.5),
+    lenMM('outerDiameter', 'Outer diameter', 0.5, 20),
   ],
   parachute: [
-    lenMM('diameter', 'Canopy diameter', 10),
-    { key: 'cd', label: 'Drag coefficient (blank = auto)', unit: 'none', step: 0.05 },
-    { key: 'lineCount', label: 'Line count', unit: 'count' },
-    lenMM('lineLength', 'Line length', 10),
+    lenMM('diameter', 'Canopy diameter', 10, 1500),
+    CD,
+    { key: 'lineCount', label: 'Line count', unit: 'count', smin: 0, smax: 16 },
+    lenMM('lineLength', 'Line length', 10, 1000),
+    { key: 'deployEvent', label: 'Deploy at', unit: 'none', options: DEPLOY_EVENTS },
+    { key: 'deployAltitude', label: 'Deploy altitude (AGL)', unit: 'm', step: 10, smin: 0, smax: 500 },
+    { key: 'deployDelay', label: 'Deploy delay', unit: 's', step: 0.5, smin: 0, smax: 10 },
   ],
   streamer: [
-    lenMM('stripLength', 'Strip length', 10),
-    lenMM('stripWidth', 'Strip width', 5),
-    { key: 'cd', label: 'Drag coefficient (blank = auto)', unit: 'none', step: 0.05 },
+    lenMM('stripLength', 'Strip length', 10, 2000),
+    lenMM('stripWidth', 'Strip width', 5, 150),
+    CD,
+    { key: 'deployEvent', label: 'Deploy at', unit: 'none', options: DEPLOY_EVENTS },
+    { key: 'deployAltitude', label: 'Deploy altitude (AGL)', unit: 'm', step: 10, smin: 0, smax: 500 },
+    { key: 'deployDelay', label: 'Deploy delay', unit: 's', step: 0.5, smin: 0, smax: 10 },
   ],
   shockcord: [
-    lenMM('cordLength', 'Cord length', 10),
+    lenMM('cordLength', 'Cord length', 10, 2000),
   ],
   masscomponent: [
-    { key: 'mass', label: 'Mass', unit: 'g', step: 1 },
-    lenMM('length', 'Length'),
-    lenMM('radius', 'Radius', 0.5),
+    { key: 'mass', label: 'Mass', unit: 'g', step: 1, smin: 0, smax: 500 },
+    lenMM('length', 'Length', 1, 200),
+    lenMM('radius', 'Radius', 0.5, 50),
   ],
 };
 
@@ -184,14 +242,14 @@ export function defaultParams(type: ComponentType): Partial<ComponentNode> {
     case 'nosecone': return { length: 0.07, aftRadius: 0.012, thickness: 0.002, shape: 'ogive' };
     case 'transition': return { length: 0.04, foreRadius: 0.012, aftRadius: 0.009, thickness: 0.002, shape: 'conical' };
     case 'bodytube': return { length: 0.2, outerRadius: 0.012, thickness: 0.0005, density: 680 };
-    case 'trapezoidfinset': return { finCount: 3, rootChord: 0.05, tipChord: 0.03, sweep: 0.02, height: 0.03, thickness: 0.003 };
-    case 'ellipticalfinset': return { finCount: 3, rootChord: 0.05, height: 0.03, thickness: 0.003 };
+    case 'trapezoidfinset': return { finCount: 3, rootChord: 0.05, tipChord: 0.03, sweep: 0.02, height: 0.03, thickness: 0.003, position: { method: 'bottom', offset: 0 } };
+    case 'ellipticalfinset': return { finCount: 3, rootChord: 0.05, height: 0.03, thickness: 0.003, position: { method: 'bottom', offset: 0 } };
     case 'freeformfinset': return {
       finCount: 3, thickness: 0.003,
       points: [[0, 0], [0.02, 0.03], [0.045, 0.03], [0.05, 0]],
       position: { method: 'bottom', offset: 0 },
     };
-    case 'tubefinset': return { finCount: 6, length: 0.1 };
+    case 'tubefinset': return { finCount: 6, length: 0.1, position: { method: 'bottom', offset: 0 } };
     case 'innertube': return { length: 0.07, outerRadius: 0.0095, thickness: 0.0005, motorMount: true, position: { method: 'bottom', offset: 0 } };
     case 'tubecoupler': return { length: 0.05, thickness: 0.0005 };
     case 'centeringring': return { length: 0.002, position: { method: 'bottom', offset: -0.01 } };

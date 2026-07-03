@@ -77,7 +77,13 @@ export interface SimulationOptions {
 
 export interface StaticInfo {
   length: number;
+  /** Launch mass (kg) — includes the motor when one is set. */
   mass: number;
+  /** Dry structure mass (kg) — no motor. */
+  massEmpty: number;
+  /** Dry structure CG (m from nose tip) — no motor. */
+  cgEmpty: number;
+  /** Launch CG (m from nose tip) — includes the motor when one is set. */
   cg: number;
   cp: number;
   cna: number;

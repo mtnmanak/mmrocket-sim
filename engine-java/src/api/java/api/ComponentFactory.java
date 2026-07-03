@@ -7,6 +7,7 @@ import info.openrocket.core.material.Material;
 import info.openrocket.core.rocketcomponent.BodyTube;
 import info.openrocket.core.rocketcomponent.Bulkhead;
 import info.openrocket.core.rocketcomponent.CenteringRing;
+import info.openrocket.core.rocketcomponent.DeploymentConfiguration;
 import info.openrocket.core.rocketcomponent.EllipticalFinSet;
 import info.openrocket.core.rocketcomponent.EngineBlock;
 import info.openrocket.core.rocketcomponent.ExternalComponent;
@@ -18,6 +19,7 @@ import info.openrocket.core.rocketcomponent.MassComponent;
 import info.openrocket.core.rocketcomponent.NoseCone;
 import info.openrocket.core.rocketcomponent.Parachute;
 import info.openrocket.core.rocketcomponent.RailButton;
+import info.openrocket.core.rocketcomponent.RecoveryDevice;
 import info.openrocket.core.rocketcomponent.RocketComponent;
 import info.openrocket.core.rocketcomponent.ShockCord;
 import info.openrocket.core.rocketcomponent.Streamer;
@@ -59,6 +61,21 @@ final class ComponentFactory {
                 if (!Double.isNaN(shapeParam)) {
                     nose.setShapeParameter(shapeParam);
                 }
+                nose.setFilled(bool(node, "filled", false));
+                // Nose cones use the AFT shoulder (into the tube behind them).
+                double shR = dbl(node, "shoulderRadius", Double.NaN);
+                if (!Double.isNaN(shR)) {
+                    nose.setAftShoulderRadius(shR);
+                }
+                double shL = dbl(node, "shoulderLength", Double.NaN);
+                if (!Double.isNaN(shL)) {
+                    nose.setAftShoulderLength(shL);
+                }
+                double shT = dbl(node, "shoulderThickness", Double.NaN);
+                if (!Double.isNaN(shT)) {
+                    nose.setAftShoulderThickness(shT);
+                }
+                nose.setAftShoulderCapped(bool(node, "shoulderCapped", false));
                 c = nose;
                 break;
             }
@@ -79,6 +96,23 @@ final class ComponentFactory {
                     t.setAftRadius(aft);
                 }
                 t.setThickness(dbl(node, "thickness", 0.002));
+                t.setFilled(bool(node, "filled", false));
+                double fShR = dbl(node, "foreShoulderRadius", Double.NaN);
+                if (!Double.isNaN(fShR)) {
+                    t.setForeShoulderRadius(fShR);
+                }
+                double fShL = dbl(node, "foreShoulderLength", Double.NaN);
+                if (!Double.isNaN(fShL)) {
+                    t.setForeShoulderLength(fShL);
+                }
+                double aShR = dbl(node, "aftShoulderRadius", Double.NaN);
+                if (!Double.isNaN(aShR)) {
+                    t.setAftShoulderRadius(aShR);
+                }
+                double aShL = dbl(node, "aftShoulderLength", Double.NaN);
+                if (!Double.isNaN(aShL)) {
+                    t.setAftShoulderLength(aShL);
+                }
                 c = t;
                 break;
             }
@@ -238,6 +272,7 @@ final class ComponentFactory {
                 }
                 p.setLineCount((int) dbl(node, "lineCount", 6));
                 p.setLineLength(dbl(node, "lineLength", 0.3));
+                applyDeployment(p, node);
                 c = p;
                 break;
             }
@@ -249,6 +284,7 @@ final class ComponentFactory {
                 if (!Double.isNaN(cd)) {
                     s.setCD(cd);
                 }
+                applyDeployment(s, node);
                 c = s;
                 break;
             }
@@ -284,12 +320,79 @@ final class ComponentFactory {
                 ((StructuralComponent) c).setMaterial(m);
             }
         }
+        String finish = str(node, "finish", null);
+        if (finish != null && c instanceof ExternalComponent) {
+            ((ExternalComponent) c).setFinish(finishOf(finish));
+        }
+        // Mass / CG / CD overrides — absent key means "not overridden".
+        double overrideMass = dbl(node, "overrideMass", Double.NaN);
+        if (!Double.isNaN(overrideMass)) {
+            c.setOverrideMass(overrideMass);
+            c.setMassOverridden(true);
+        }
+        double overrideCGX = dbl(node, "overrideCGX", Double.NaN);
+        if (!Double.isNaN(overrideCGX)) {
+            c.setOverrideCGX(overrideCGX);
+            c.setCGOverridden(true);
+        }
+        double overrideCD = dbl(node, "overrideCD", Double.NaN);
+        if (!Double.isNaN(overrideCD)) {
+            c.setOverrideCD(overrideCD);
+            c.setCDOverridden(true);
+        }
         Map<String, Object> position = obj(node, "position");
         if (position != null) {
             c.setAxialMethod(axialMethodOf(str(position, "method", "top")));
             c.setAxialOffset(dbl(position, "offset", 0));
         }
         return c;
+    }
+
+    /**
+     * Deployment settings for recovery devices, applied to the DEFAULT
+     * deployment configuration (inherited by every flight configuration).
+     * Keys: deployEvent (launch|ejection|apogee|altitude|never),
+     * deployAltitude (m AGL, for "altitude"), deployDelay (s).
+     */
+    private static void applyDeployment(RecoveryDevice device, Map<String, Object> node) {
+        DeploymentConfiguration config = device.getDeploymentConfigurations().getDefault();
+        String event = str(node, "deployEvent", null);
+        if (event != null) {
+            config.setDeployEvent(deployEventOf(event));
+        }
+        double altitude = dbl(node, "deployAltitude", Double.NaN);
+        if (!Double.isNaN(altitude)) {
+            config.setDeployAltitude(altitude);
+        }
+        double delay = dbl(node, "deployDelay", Double.NaN);
+        if (!Double.isNaN(delay)) {
+            config.setDeployDelay(delay);
+        }
+    }
+
+    private static DeploymentConfiguration.DeployEvent deployEventOf(String name) {
+        switch (name.toLowerCase()) {
+            case "launch": return DeploymentConfiguration.DeployEvent.LAUNCH;
+            case "apogee": return DeploymentConfiguration.DeployEvent.APOGEE;
+            case "altitude": return DeploymentConfiguration.DeployEvent.ALTITUDE;
+            case "never": return DeploymentConfiguration.DeployEvent.NEVER;
+            case "ejection":
+            default: return DeploymentConfiguration.DeployEvent.EJECTION;
+        }
+    }
+
+    private static ExternalComponent.Finish finishOf(String name) {
+        switch (name.toLowerCase()) {
+            case "rough": return ExternalComponent.Finish.ROUGH;
+            case "roughunfinished": return ExternalComponent.Finish.ROUGHUNFINISHED;
+            case "unfinished": return ExternalComponent.Finish.UNFINISHED;
+            case "smooth": return ExternalComponent.Finish.SMOOTH;
+            case "polished": return ExternalComponent.Finish.POLISHED;
+            case "finishpolished": return ExternalComponent.Finish.FINISHPOLISHED;
+            case "normal":
+            case "regular":
+            default: return ExternalComponent.Finish.NORMAL;
+        }
     }
 
     /** Builds and attaches the node's children recursively. */

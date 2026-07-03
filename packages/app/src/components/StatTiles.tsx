@@ -17,19 +17,38 @@ function Tile({ label, value, unit, className }: {
   );
 }
 
-export function DesignStats({ info }: { info: StaticInfo }) {
+export function DesignStats({ info, motorLabel }: { info: StaticInfo; motorLabel?: string }) {
   const stable = info.stabilityCalibers >= 1;
+  const stabilityPct = info.length > 0
+    ? ((info.cp - info.cg) / info.length) * 100
+    : 0;
   return (
-    <div className="stat-row">
-      <Tile label="Mass" value={(info.mass * 1000).toFixed(1)} unit="g" />
-      <Tile label="Length" value={(info.length * 100).toFixed(1)} unit="cm" />
-      <Tile
-        label="Stability"
-        value={`${stable ? '✓' : '⚠'} ${info.stabilityCalibers.toFixed(2)}`}
-        unit="cal"
-        className={stable ? 'stability-good' : 'stability-bad'}
-      />
-    </div>
+    <>
+      <div className="stat-row">
+        <Tile label="Length" value={(info.length * 100).toFixed(1)} unit="cm" />
+        <Tile label="Max diameter" value={(info.refDiameter * 1000).toFixed(1)} unit="mm" />
+        <Tile label="Mass (empty)" value={(info.massEmpty * 1000).toFixed(1)} unit="g" />
+        <Tile label="Mass (loaded)" value={(info.mass * 1000).toFixed(1)} unit="g" />
+        {motorLabel && <Tile label="Motor" value={motorLabel} />}
+      </div>
+      <div className="stat-row">
+        <Tile label="CG (empty)" value={(info.cgEmpty * 100).toFixed(1)} unit="cm" />
+        <Tile label="CG (loaded)" value={(info.cg * 100).toFixed(1)} unit="cm" />
+        <Tile label="CP" value={(info.cp * 100).toFixed(1)} unit="cm" />
+        <Tile
+          label="Stability"
+          value={`${stable ? '✓' : '⚠'} ${info.stabilityCalibers.toFixed(2)}`}
+          unit="cal"
+          className={stable ? 'stability-good' : 'stability-bad'}
+        />
+        <Tile
+          label="Stability"
+          value={stabilityPct.toFixed(1)}
+          unit="%"
+          className={stable ? 'stability-good' : 'stability-bad'}
+        />
+      </div>
+    </>
   );
 }
 

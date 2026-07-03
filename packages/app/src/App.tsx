@@ -18,7 +18,7 @@ import { TreeSchematic } from './components/TreeSchematic.js';
 import { BUILT_IN_MOTORS } from './motors.js';
 import { exportOrk, importOrk } from './services/orkFile.js';
 import {
-  addChild, defaultTree, findNode, makeNode, motorMounts, moveNode, removeNode, updateNode,
+  addChild, defaultTree, emptyTree, findNode, makeNode, motorMounts, moveNode, removeNode, updateNode,
 } from './tree/treeModel.js';
 import './styles.css';
 
@@ -172,6 +172,17 @@ export function App() {
           <div className="panel">
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
               <h2 style={{ flex: 1 }}>Components</h2>
+              <button
+                className="file-btn"
+                title="Clear all components and start from scratch (undoable with Ctrl+Z)"
+                onClick={() => {
+                  setTree(emptyTree());
+                  setSelectedId(null);
+                  setResult(null);
+                }}
+              >
+                ✕ New
+              </button>
               <button className="file-btn" onClick={undo} title="Undo (Ctrl+Z)">↩ Undo</button>
             </div>
             <div className="field" style={{ marginBottom: 8 }}>
@@ -257,7 +268,7 @@ export function App() {
             {view === '2d'
               ? <TreeSchematic tree={tree} info={built?.info ?? null} />
               : <Rocket3D tree={tree} info={built?.info ?? null} />}
-            {built && <DesignStats info={built.info} />}
+            {built && <DesignStats info={built.info} motorLabel={activeMountId ? motorLabel : undefined} />}
             {built && built.info.warningTexts.length > 0 && (
               <div className="file-note" role="alert">
                 {built.info.warningTexts.join('\n')}

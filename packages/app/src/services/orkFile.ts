@@ -96,6 +96,14 @@ export function importOrk(data: ArrayBuffer | string): OrkTreeImportResult {
       if (nm) node.name = nm;
       const density = matDensity(el);
       if (density !== undefined) node.density = density;
+      const fin = text(el, ':scope > finish');
+      if (fin && fin !== 'normal') node['finish'] = fin;
+      const om = num(el, 'overridemass', NaN);
+      if (!Number.isNaN(om)) node['overrideMass'] = om;
+      const ocg = num(el, 'overridecg', NaN);
+      if (!Number.isNaN(ocg)) node['overrideCGX'] = ocg;
+      const ocd = num(el, 'overridecd', NaN);
+      if (!Number.isNaN(ocd)) node['overrideCD'] = ocd;
       if (withPosition) {
         const pos = readPosition(el);
         if (pos) node.position = pos;
@@ -108,9 +116,21 @@ export function importOrk(data: ArrayBuffer | string): OrkTreeImportResult {
         const n = base('nosecone', false);
         n['length'] = num(el, 'length', 0.07);
         n['aftRadius'] = num(el, 'aftradius', 0.012);
-        n['thickness'] = num(el, 'thickness', 0.002);
+        // Desktop writes <thickness>filled</thickness> for solid components.
+        if (text(el, ':scope > thickness') === 'filled') {
+          n['filled'] = true;
+        } else {
+          n['thickness'] = num(el, 'thickness', 0.002);
+        }
         n['shape'] = text(el, ':scope > shape') ?? 'ogive';
-        n['shapeParameter'] = num(el, 'shapeparameter', 1.0);
+        n['shapeParameter'] = num(el, 'shapeparameter', shapeParamDefault(String(n['shape'])));
+        const shR = num(el, 'aftshoulderradius', 0);
+        const shL = num(el, 'aftshoulderlength', 0);
+        if (shR > 0) n['shoulderRadius'] = shR;
+        if (shL > 0) n['shoulderLength'] = shL;
+        const shT = num(el, 'aftshoulderthickness', 0);
+        if (shT > 0) n['shoulderThickness'] = shT;
+        if (text(el, ':scope > aftshouldercapped') === 'true') n['shoulderCapped'] = true;
         return n;
       }
       case 'transition': {
@@ -120,9 +140,19 @@ export function importOrk(data: ArrayBuffer | string): OrkTreeImportResult {
         const aft = num(el, 'aftradius', NaN);
         if (!Number.isNaN(fore)) n['foreRadius'] = fore;
         if (!Number.isNaN(aft)) n['aftRadius'] = aft;
-        n['thickness'] = num(el, 'thickness', 0.002);
+        if (text(el, ':scope > thickness') === 'filled') {
+          n['filled'] = true;
+        } else {
+          n['thickness'] = num(el, 'thickness', 0.002);
+        }
         n['shape'] = text(el, ':scope > shape') ?? 'conical';
-        n['shapeParameter'] = num(el, 'shapeparameter', 1.0);
+        n['shapeParameter'] = num(el, 'shapeparameter', shapeParamDefault(String(n['shape'])));
+        for (const [side, key] of [['fore', 'foreShoulder'], ['aft', 'aftShoulder']] as const) {
+          const r = num(el, `${side}shoulderradius`, 0);
+          const l = num(el, `${side}shoulderlength`, 0);
+          if (r > 0) n[`${key}Radius`] = r;
+          if (l > 0) n[`${key}Length`] = l;
+        }
         return n;
       }
       case 'bodytube': {
@@ -229,6 +259,7 @@ export function importOrk(data: ArrayBuffer | string): OrkTreeImportResult {
         if (cdText && cdText !== 'auto') n['cd'] = Number(cdText);
         n['lineCount'] = Math.round(num(el, 'linecount', 6));
         n['lineLength'] = num(el, 'linelength', 0.3);
+        readDeployment(el, n);
         return n;
       }
       case 'streamer': {
@@ -237,6 +268,7 @@ export function importOrk(data: ArrayBuffer | string): OrkTreeImportResult {
         n['stripWidth'] = num(el, 'stripwidth', 0.05);
         const cdText = text(el, ':scope > cd');
         if (cdText && cdText !== 'auto') n['cd'] = Number(cdText);
+        readDeployment(el, n);
         return n;
       }
       case 'shockcord': {
@@ -320,6 +352,34 @@ export function exportOrk({ name, tree, motor, mountId }: OrkTreeExportInput): s
   const header = (depth: number, node: ComponentNode, fallback: string) => {
     emit(depth, `<name>${escapeXml(node.name ?? fallback)}</name>`);
     emit(depth, `<id>${uuid()}</id>`);
+    overrides(depth, node);
+  };
+
+  // Mass/CG/Cd overrides, exactly as the desktop RocketComponentSaver writes them.
+  const overrides = (depth: number, node: ComponentNode) => {
+    if (typeof node['overrideMass'] === 'number') {
+      emit(depth, `<overridemass>${node['overrideMass']}</overridemass>`);
+      emit(depth, '<overridesubcomponentsmass>false</overridesubcomponentsmass>');
+    }
+    if (typeof node['overrideCGX'] === 'number') {
+      emit(depth, `<overridecg>${node['overrideCGX']}</overridecg>`);
+      emit(depth, '<overridesubcomponentscg>false</overridesubcomponentscg>');
+    }
+    if (typeof node['overrideCD'] === 'number') {
+      emit(depth, `<overridecd>${node['overrideCD']}</overridecd>`);
+      emit(depth, '<overridesubcomponentscd>false</overridesubcomponentscd>');
+    }
+  };
+
+  const finishXml = (depth: number, node: ComponentNode) => {
+    emit(depth, `<finish>${node['finish'] ?? 'normal'}</finish>`);
+  };
+
+  // The desktop encodes "solid" as <thickness>filled</thickness>.
+  const thicknessXml = (depth: number, node: ComponentNode, fb: number) => {
+    emit(depth, node['filled'] === true
+      ? '<thickness>filled</thickness>'
+      : `<thickness>${typeof node['thickness'] === 'number' ? node['thickness'] : fb}</thickness>`);
   };
 
   const motorMountXml = (depth: number) => {
@@ -346,6 +406,13 @@ export function exportOrk({ name, tree, motor, mountId }: OrkTreeExportInput): s
   const n = (node: ComponentNode, key: string, fb: number): number =>
     typeof node[key] === 'number' ? (node[key] as number) : fb;
 
+  // Engine defaults from Transition.Shape.defaultParameter() — writing any
+  // other fallback silently reshapes the nose (haack's default is 0, not 1).
+  const shapeParamXml = (depth: number, node: ComponentNode) => {
+    const dflt = shapeParamDefault(String(node['shape'] ?? 'ogive'));
+    emit(depth, `<shapeparameter>${n(node, 'shapeParameter', dflt)}</shapeparameter>`);
+  };
+
   const emitChildren = (node: ComponentNode, depth: number) => {
     const kids = node.children ?? [];
     if (kids.length === 0) return;
@@ -368,18 +435,18 @@ export function exportOrk({ name, tree, motor, mountId }: OrkTreeExportInput): s
       case 'nosecone': {
         open('nosecone');
         header(depth + 1, node, 'Nose Cone');
-        emit(depth + 1, '<finish>normal</finish>');
+        finishXml(depth + 1, node);
         material(depth + 1, node);
         emit(depth + 1, `<length>${n(node, 'length', 0.07)}</length>`);
-        emit(depth + 1, `<thickness>${n(node, 'thickness', 0.002)}</thickness>`);
+        thicknessXml(depth + 1, node, 0.002);
         emit(depth + 1, `<shape>${node['shape'] ?? 'ogive'}</shape>`);
         emit(depth + 1, '<shapeclipped>false</shapeclipped>');
-        emit(depth + 1, `<shapeparameter>${n(node, 'shapeParameter', 1.0)}</shapeparameter>`);
+        shapeParamXml(depth + 1, node);
         emit(depth + 1, `<aftradius>${n(node, 'aftRadius', 0.012)}</aftradius>`);
-        emit(depth + 1, '<aftshoulderradius>0.0</aftshoulderradius>');
-        emit(depth + 1, '<aftshoulderlength>0.0</aftshoulderlength>');
-        emit(depth + 1, '<aftshoulderthickness>0.0</aftshoulderthickness>');
-        emit(depth + 1, '<aftshouldercapped>false</aftshouldercapped>');
+        emit(depth + 1, `<aftshoulderradius>${n(node, 'shoulderRadius', 0)}</aftshoulderradius>`);
+        emit(depth + 1, `<aftshoulderlength>${n(node, 'shoulderLength', 0)}</aftshoulderlength>`);
+        emit(depth + 1, `<aftshoulderthickness>${n(node, 'shoulderThickness', 0)}</aftshoulderthickness>`);
+        emit(depth + 1, `<aftshouldercapped>${node['shoulderCapped'] === true}</aftshouldercapped>`);
         emit(depth + 1, '<isflipped>false</isflipped>');
         close('nosecone');
         break;
@@ -387,18 +454,19 @@ export function exportOrk({ name, tree, motor, mountId }: OrkTreeExportInput): s
       case 'transition': {
         open('transition');
         header(depth + 1, node, 'Transition');
-        emit(depth + 1, '<finish>normal</finish>');
+        finishXml(depth + 1, node);
         material(depth + 1, node);
         emit(depth + 1, `<length>${n(node, 'length', 0.04)}</length>`);
-        emit(depth + 1, `<thickness>${n(node, 'thickness', 0.002)}</thickness>`);
+        thicknessXml(depth + 1, node, 0.002);
         emit(depth + 1, `<shape>${node['shape'] ?? 'conical'}</shape>`);
         emit(depth + 1, '<shapeclipped>false</shapeclipped>');
-        emit(depth + 1, `<shapeparameter>${n(node, 'shapeParameter', 1.0)}</shapeparameter>`);
+        shapeParamXml(depth + 1, node);
         emit(depth + 1, `<foreradius>${typeof node['foreRadius'] === 'number' ? node['foreRadius'] : 'auto'}</foreradius>`);
         emit(depth + 1, `<aftradius>${typeof node['aftRadius'] === 'number' ? node['aftRadius'] : 'auto'}</aftradius>`);
-        for (const side of ['fore', 'aft']) {
-          emit(depth + 1, `<${side}shoulderradius>0.0</${side}shoulderradius>`);
-          emit(depth + 1, `<${side}shoulderlength>0.0</${side}shoulderlength>`);
+        for (const side of ['fore', 'aft'] as const) {
+          const key = side === 'fore' ? 'foreShoulder' : 'aftShoulder';
+          emit(depth + 1, `<${side}shoulderradius>${n(node, `${key}Radius`, 0)}</${side}shoulderradius>`);
+          emit(depth + 1, `<${side}shoulderlength>${n(node, `${key}Length`, 0)}</${side}shoulderlength>`);
           emit(depth + 1, `<${side}shoulderthickness>0.0</${side}shoulderthickness>`);
           emit(depth + 1, `<${side}shouldercapped>false</${side}shouldercapped>`);
         }
@@ -408,7 +476,7 @@ export function exportOrk({ name, tree, motor, mountId }: OrkTreeExportInput): s
       case 'bodytube': {
         open('bodytube');
         header(depth + 1, node, 'Body Tube');
-        emit(depth + 1, '<finish>normal</finish>');
+        finishXml(depth + 1, node);
         material(depth + 1, node);
         emit(depth + 1, `<length>${n(node, 'length', 0.3)}</length>`);
         emit(depth + 1, `<thickness>${n(node, 'thickness', 0.0005)}</thickness>`);
@@ -425,7 +493,7 @@ export function exportOrk({ name, tree, motor, mountId }: OrkTreeExportInput): s
         emit(depth + 1, '<angleoffset method="relative">0.0</angleoffset>');
         emit(depth + 1, '<rotation>0.0</rotation>');
         position(depth + 1, node, 'bottom');
-        emit(depth + 1, '<finish>normal</finish>');
+        finishXml(depth + 1, node);
         material(depth + 1, node);
         emit(depth + 1, `<thickness>${n(node, 'thickness', 0.003)}</thickness>`);
         emit(depth + 1, `<crosssection>${node['crossSection'] ?? 'square'}</crosssection>`);
@@ -448,7 +516,7 @@ export function exportOrk({ name, tree, motor, mountId }: OrkTreeExportInput): s
         emit(depth + 1, '<angleoffset method="relative">0.0</angleoffset>');
         emit(depth + 1, '<rotation>0.0</rotation>');
         position(depth + 1, node, 'bottom');
-        emit(depth + 1, '<finish>normal</finish>');
+        finishXml(depth + 1, node);
         material(depth + 1, node);
         emit(depth + 1, `<thickness>${n(node, 'thickness', 0.003)}</thickness>`);
         emit(depth + 1, `<crosssection>${node['crossSection'] ?? 'square'}</crosssection>`);
@@ -473,7 +541,7 @@ export function exportOrk({ name, tree, motor, mountId }: OrkTreeExportInput): s
         emit(depth + 1, '<angleoffset method="relative">0.0</angleoffset>');
         emit(depth + 1, '<rotation>0.0</rotation>');
         position(depth + 1, node, 'bottom');
-        emit(depth + 1, '<finish>normal</finish>');
+        finishXml(depth + 1, node);
         material(depth + 1, node);
         emit(depth + 1, `<thickness>${n(node, 'thickness', 0.003)}</thickness>`);
         emit(depth + 1, `<crosssection>${node['crossSection'] ?? 'square'}</crosssection>`);
@@ -494,7 +562,7 @@ export function exportOrk({ name, tree, motor, mountId }: OrkTreeExportInput): s
         emit(depth + 1, '<angleoffset method="fixed">0.0</angleoffset>');
         emit(depth + 1, '<rotation>0.0</rotation>');
         position(depth + 1, node, 'bottom');
-        emit(depth + 1, '<finish>normal</finish>');
+        finishXml(depth + 1, node);
         material(depth + 1, node);
         emit(depth + 1, `<radius>${typeof node['outerRadius'] === 'number' ? node['outerRadius'] : 'auto'}</radius>`);
         emit(depth + 1, `<length>${n(node, 'length', 0.1)}</length>`);
@@ -571,7 +639,7 @@ export function exportOrk({ name, tree, motor, mountId }: OrkTreeExportInput): s
         emit(depth + 1, '<angleoffset method="relative">180.0</angleoffset>');
         emit(depth + 1, '<radialdirection>180.0</radialdirection>');
         position(depth + 1, node, 'middle');
-        emit(depth + 1, '<finish>normal</finish>');
+        finishXml(depth + 1, node);
         material(depth + 1, node);
         emit(depth + 1, `<radius>${n(node, 'outerRadius', 0.0022)}</radius>`);
         emit(depth + 1, `<length>${n(node, 'length', 0.05)}</length>`);
@@ -586,7 +654,7 @@ export function exportOrk({ name, tree, motor, mountId }: OrkTreeExportInput): s
         emit(depth + 1, '<instanceseparation>0.0</instanceseparation>');
         emit(depth + 1, '<angleoffset method="relative">180.0</angleoffset>');
         position(depth + 1, node, 'middle');
-        emit(depth + 1, '<finish>normal</finish>');
+        finishXml(depth + 1, node);
         emit(depth + 1, '<material type="bulk" density="1420.0" group="Plastics">Delrin</material>');
         emit(depth + 1, `<outerdiameter>${n(node, 'outerDiameter', 0.0097)}</outerdiameter>`);
         emit(depth + 1, '<innerdiameter>0.008</innerdiameter>');
@@ -607,9 +675,9 @@ export function exportOrk({ name, tree, motor, mountId }: OrkTreeExportInput): s
         emit(depth + 1, '<radialdirection>0.0</radialdirection>');
         emit(depth + 1, `<cd>${typeof node['cd'] === 'number' ? node['cd'] : 'auto'}</cd>`);
         material(depth + 1, node, 'surface');
-        emit(depth + 1, '<deployevent>ejection</deployevent>');
-        emit(depth + 1, '<deployaltitude>200.0</deployaltitude>');
-        emit(depth + 1, '<deploydelay>0.0</deploydelay>');
+        emit(depth + 1, `<deployevent>${node['deployEvent'] ?? 'ejection'}</deployevent>`);
+        emit(depth + 1, `<deployaltitude>${n(node, 'deployAltitude', 200)}</deployaltitude>`);
+        emit(depth + 1, `<deploydelay>${n(node, 'deployDelay', 0)}</deploydelay>`);
         emit(depth + 1, `<diameter>${n(node, 'diameter', 0.3)}</diameter>`);
         emit(depth + 1, `<linecount>${n(node, 'lineCount', 6)}</linecount>`);
         emit(depth + 1, `<linelength>${n(node, 'lineLength', 0.3)}</linelength>`);
@@ -627,9 +695,9 @@ export function exportOrk({ name, tree, motor, mountId }: OrkTreeExportInput): s
         emit(depth + 1, '<radialdirection>0.0</radialdirection>');
         emit(depth + 1, `<cd>${typeof node['cd'] === 'number' ? node['cd'] : 'auto'}</cd>`);
         material(depth + 1, node, 'surface');
-        emit(depth + 1, '<deployevent>ejection</deployevent>');
-        emit(depth + 1, '<deployaltitude>200.0</deployaltitude>');
-        emit(depth + 1, '<deploydelay>0.0</deploydelay>');
+        emit(depth + 1, `<deployevent>${node['deployEvent'] ?? 'ejection'}</deployevent>`);
+        emit(depth + 1, `<deployaltitude>${n(node, 'deployAltitude', 200)}</deployaltitude>`);
+        emit(depth + 1, `<deploydelay>${n(node, 'deployDelay', 0)}</deploydelay>`);
         emit(depth + 1, `<striplength>${n(node, 'stripLength', 0.5)}</striplength>`);
         emit(depth + 1, `<stripwidth>${n(node, 'stripWidth', 0.05)}</stripwidth>`);
         close('streamer');
@@ -712,6 +780,30 @@ function matDensity(el: Element): number | undefined {
   if (!m || m.getAttribute('type') !== 'bulk') return undefined;
   const d = Number(m.getAttribute('density'));
   return Number.isFinite(d) && d > 0 ? d : undefined;
+}
+
+/** Mirrors Transition.Shape.defaultParameter() in the carved kernel. */
+function shapeParamDefault(shape: string): number {
+  switch (shape) {
+    case 'ogive':
+    case 'parabolic':
+      return 1.0;
+    case 'power':
+      return 0.5;
+    default:
+      return 0.0; // conical, ellipsoid, haack
+  }
+}
+
+function readDeployment(el: Element, node: ComponentNode): void {
+  const event = text(el, ':scope > deployevent');
+  if (event) node['deployEvent'] = event;
+  if (text(el, ':scope > deployaltitude') !== null) {
+    node['deployAltitude'] = num(el, 'deployaltitude', 200);
+  }
+  if (text(el, ':scope > deploydelay') !== null) {
+    node['deployDelay'] = num(el, 'deploydelay', 0);
+  }
 }
 
 function readPosition(el: Element): ComponentPosition | undefined {

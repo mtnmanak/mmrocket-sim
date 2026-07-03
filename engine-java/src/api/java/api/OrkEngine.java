@@ -254,11 +254,16 @@ public final class OrkEngine {
 
     // ---------- Analysis ----------
 
-    /** Static design info: length, mass, CG, CP (at Mach 0.3, AoA 0), stability margin in calibers. */
+    /**
+     * Static design info: length, mass, CG, CP (at Mach 0.3, AoA 0), stability
+     * margin in calibers. "mass"/"cg" are launch values (motors loaded when
+     * set); "massEmpty"/"cgEmpty" are the dry structure.
+     */
     @JSExport
     public static String getStaticInfo(int rocketHandle) {
         RocketCtx ctx = (RocketCtx) get(rocketHandle);
         RigidBody structure = MassCalculator.calculateLaunch(ctx.rocket.getSelectedConfiguration());
+        RigidBody empty = MassCalculator.calculateStructure(ctx.rocket.getSelectedConfiguration());
 
         BarrowmanCalculator calc = new BarrowmanCalculator();
         FlightConditions conditions = new FlightConditions(ctx.rocket.getSelectedConfiguration());
@@ -274,6 +279,8 @@ public final class OrkEngine {
         StringBuilder sb = new StringBuilder("{");
         num(sb, "length", ctx.rocket.getLength()).append(',');
         num(sb, "mass", structure.getMass()).append(',');
+        num(sb, "massEmpty", empty.getMass()).append(',');
+        num(sb, "cgEmpty", empty.getCM().x).append(',');
         num(sb, "cg", cg).append(',');
         num(sb, "cp", cp.x).append(',');
         num(sb, "cna", cp.weight).append(',');

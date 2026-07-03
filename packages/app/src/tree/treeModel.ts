@@ -116,6 +116,11 @@ export function motorMounts(tree: RocketTree): ComponentNode[] {
   return out;
 }
 
+/** A blank design — no components — for starting from scratch. */
+export function emptyTree(): RocketTree {
+  return { name: 'New Rocket', components: [] };
+}
+
 /** The default (reference) rocket as a tree. */
 export function defaultTree(): RocketTree {
   const nose = makeNode('nosecone');
