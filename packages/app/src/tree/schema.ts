@@ -62,6 +62,11 @@ export interface FieldDef {
   options?: [string, string][];
   /** renders a checkbox (true/false) instead of a number */
   bool?: boolean;
+  /**
+   * SI value is a radius; when the user prefers diameter input the panel
+   * shows/accepts the doubled value and swaps "radius" → "diameter" in the label.
+   */
+  radius?: boolean;
 }
 
 const SHAPES: [string, string][] = [
@@ -96,6 +101,10 @@ const DEPLOY_EVENTS: [string, string][] = [
 const lenMM = (key: string, label: string, step = 1, smax = 300): FieldDef =>
   ({ key, label, unit: 'mm', step, smin: 0, smax });
 
+/** A radius field (subject to the radius/diameter preference). smax in mm of radius. */
+const radMM = (key: string, label: string, step = 1, smax = 300): FieldDef =>
+  ({ key, label, unit: 'mm', step, smin: 0, smax, radius: true });
+
 const DENSITY: FieldDef = {
   key: 'density', label: 'Material density', unit: 'kg/m3', step: 10, smin: 0, smax: 3000,
 };
@@ -108,11 +117,11 @@ const CD: FieldDef = {
 export const FIELDS: Record<ComponentType, FieldDef[]> = {
   nosecone: [
     lenMM('length', 'Length'),
-    lenMM('aftRadius', 'Base radius', 0.5, 80),
+    radMM('aftRadius', 'Base radius', 0.5, 80),
     lenMM('thickness', 'Wall thickness', 0.1, 10),
     { key: 'shape', label: 'Shape', unit: 'none', options: SHAPES },
     { key: 'filled', label: 'Solid (filled)', unit: 'none', bool: true },
-    lenMM('shoulderRadius', 'Shoulder radius', 0.5, 80),
+    radMM('shoulderRadius', 'Shoulder radius', 0.5, 80),
     lenMM('shoulderLength', 'Shoulder length', 1, 150),
     lenMM('shoulderThickness', 'Shoulder thickness', 0.1, 10),
     { key: 'shoulderCapped', label: 'Shoulder end capped', unit: 'none', bool: true },
@@ -121,21 +130,21 @@ export const FIELDS: Record<ComponentType, FieldDef[]> = {
   ],
   transition: [
     lenMM('length', 'Length'),
-    lenMM('foreRadius', 'Fore radius', 0.5, 80),
-    lenMM('aftRadius', 'Aft radius', 0.5, 80),
+    radMM('foreRadius', 'Fore radius', 0.5, 80),
+    radMM('aftRadius', 'Aft radius', 0.5, 80),
     lenMM('thickness', 'Wall thickness', 0.1, 10),
     { key: 'shape', label: 'Shape', unit: 'none', options: SHAPES },
     { key: 'filled', label: 'Solid (filled)', unit: 'none', bool: true },
-    lenMM('foreShoulderRadius', 'Fore shoulder radius', 0.5, 80),
+    radMM('foreShoulderRadius', 'Fore shoulder radius', 0.5, 80),
     lenMM('foreShoulderLength', 'Fore shoulder length', 1, 150),
-    lenMM('aftShoulderRadius', 'Aft shoulder radius', 0.5, 80),
+    radMM('aftShoulderRadius', 'Aft shoulder radius', 0.5, 80),
     lenMM('aftShoulderLength', 'Aft shoulder length', 1, 150),
     FINISH,
     DENSITY,
   ],
   bodytube: [
     lenMM('length', 'Length', 1, 1000),
-    lenMM('outerRadius', 'Outer radius', 0.5, 80),
+    radMM('outerRadius', 'Outer radius', 0.5, 80),
     lenMM('thickness', 'Wall thickness', 0.1, 10),
     FINISH,
     DENSITY,
@@ -172,12 +181,12 @@ export const FIELDS: Record<ComponentType, FieldDef[]> = {
   tubefinset: [
     { ...FIN_COUNT, smax: 12 },
     lenMM('length', 'Length', 1, 200),
-    lenMM('outerRadius', 'Outer radius', 0.5, 50),
+    radMM('outerRadius', 'Outer radius', 0.5, 50),
     FINISH,
   ],
   innertube: [
     lenMM('length', 'Length'),
-    lenMM('outerRadius', 'Outer radius', 0.5, 50),
+    radMM('outerRadius', 'Outer radius', 0.5, 50),
     lenMM('thickness', 'Wall thickness', 0.1, 5),
   ],
   tubecoupler: [
@@ -196,7 +205,7 @@ export const FIELDS: Record<ComponentType, FieldDef[]> = {
   ],
   launchlug: [
     lenMM('length', 'Length', 1, 100),
-    lenMM('outerRadius', 'Outer radius', 0.2, 10),
+    radMM('outerRadius', 'Outer radius', 0.2, 10),
     lenMM('thickness', 'Wall thickness', 0.1, 2),
   ],
   railbutton: [
@@ -225,7 +234,7 @@ export const FIELDS: Record<ComponentType, FieldDef[]> = {
   masscomponent: [
     { key: 'mass', label: 'Mass', unit: 'g', step: 1, smin: 0, smax: 500 },
     lenMM('length', 'Length', 1, 200),
-    lenMM('radius', 'Radius', 0.5, 50),
+    radMM('radius', 'Radius', 0.5, 50),
   ],
 };
 

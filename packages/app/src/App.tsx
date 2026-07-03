@@ -16,6 +16,8 @@ import { DesignStats, FlightStats } from './components/StatTiles.js';
 import { Rocket3D } from './components/Rocket3D.js';
 import { TreeSchematic } from './components/TreeSchematic.js';
 import { BUILT_IN_MOTORS } from './motors.js';
+import { PreferencesDialog } from './components/PreferencesDialog.js';
+import { usePrefs } from './prefs/PrefsContext.js';
 import { exportOrk, importOrk } from './services/orkFile.js';
 import {
   addChild, defaultTree, emptyTree, findNode, makeNode, motorMounts, moveNode, removeNode, updateNode,
@@ -23,6 +25,8 @@ import {
 import './styles.css';
 
 export function App() {
+  const { resolvedTheme } = usePrefs();
+  const [showPrefs, setShowPrefs] = useState(false);
   const [tree, setTreeRaw] = useState<RocketTree>(() => defaultTree());
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [motorLabel, setMotorLabel] = useState('C6-5');
@@ -159,14 +163,20 @@ export function App() {
     : 18;
 
   return (
-    <div className="viz-root">
+    <div className="viz-root" data-theme={resolvedTheme}>
       <header className="app-header">
-        <h1>🚀 Online OpenRocket</h1>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+          <h1 style={{ flex: 1 }}>🚀 Online OpenRocket</h1>
+          <button className="file-btn" onClick={() => setShowPrefs(true)} title="Preferences">
+            ⚙ Preferences
+          </button>
+        </div>
         <p>
           Design a model rocket and fly it — powered by the real OpenRocket physics
           engine (Extended Barrowman, 6-DOF RK4) compiled to JavaScript.
         </p>
       </header>
+      {showPrefs && <PreferencesDialog onClose={() => setShowPrefs(false)} />}
       <div className="layout">
         <aside>
           <div className="panel">

@@ -1,6 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App.js';
+import { PrefsProvider } from './prefs/PrefsContext.js';
 
 // Never a silently-blank page: uncaught errors paint into the root.
 function showFatal(message: string) {
@@ -20,7 +21,9 @@ window.addEventListener('unhandledrejection', (e) => showFatal(String(e.reason))
 try {
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
-      <App />
+      <PrefsProvider>
+        <App />
+      </PrefsProvider>
     </StrictMode>,
   );
 } catch (e) {

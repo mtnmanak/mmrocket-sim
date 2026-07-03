@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import type { FlightResult, FlightSeries } from '@online-openrocket/engine';
+import { usePrefs, type Preferences } from '../prefs/PrefsContext.js';
+import { siToUi } from '../prefs/units.js';
 
 /**
  * Stacked single-series panels with synchronized crosshairs. Different-scale
@@ -26,28 +28,37 @@ interface SeriesDef {
   f?: (v: number) => number;
 }
 
-export const SERIES_CATALOG: SeriesDef[] = [
-  { key: 'altitude', title: 'Altitude', unit: 'm', color: C[0]! },
-  { key: 'velocity', title: 'Velocity', unit: 'm/s', color: C[1]! },
-  { key: 'acceleration', title: 'Acceleration', unit: 'm/s²', color: C[2]! },
-  { key: 'mass', title: 'Mass', unit: 'g', color: C[3]!, f: (v) => v * 1000 },
-  { key: 'thrust', title: 'Thrust', unit: 'N', color: C[4]! },
-  { key: 'drag', title: 'Drag force', unit: 'N', color: C[5]! },
-  { key: 'mach', title: 'Mach number', unit: '', color: C[6]! },
-  { key: 'stability', title: 'Stability margin', unit: 'cal', color: C[7]! },
-  { key: 'cpLocation', title: 'CP location', unit: 'cm', color: C[0]!, f: (v) => v * 100 },
-  { key: 'cgLocation', title: 'CG location', unit: 'cm', color: C[1]!, f: (v) => v * 100 },
-  { key: 'aoa', title: 'Angle of attack', unit: '°', color: C[2]!, f: (v) => (v * 180) / Math.PI },
-];
+/** Series defs in the user's units — the engine data underneath stays SI. */
+function seriesCatalog(prefs: Preferences): SeriesDef[] {
+  const u = prefs.units;
+  return [
+    { key: 'altitude', title: 'Altitude', unit: u.distance, color: C[0]!, f: (v) => siToUi('distance', u.distance, v) },
+    { key: 'velocity', title: 'Velocity', unit: u.velocity, color: C[1]!, f: (v) => siToUi('velocity', u.velocity, v) },
+    { key: 'acceleration', title: 'Acceleration', unit: u.acceleration, color: C[2]!, f: (v) => siToUi('acceleration', u.acceleration, v) },
+    { key: 'mass', title: 'Mass', unit: u.mass, color: C[3]!, f: (v) => siToUi('mass', u.mass, v) },
+    { key: 'thrust', title: 'Thrust', unit: 'N', color: C[4]! },
+    { key: 'drag', title: 'Drag force', unit: 'N', color: C[5]! },
+    { key: 'mach', title: 'Mach number', unit: '', color: C[6]! },
+    { key: 'stability', title: 'Stability margin', unit: 'cal', color: C[7]! },
+    { key: 'cpLocation', title: 'CP location', unit: u.length, color: C[0]!, f: (v) => siToUi('length', u.length, v) },
+    { key: 'cgLocation', title: 'CG location', unit: u.length, color: C[1]!, f: (v) => siToUi('length', u.length, v) },
+    { key: 'aoa', title: 'Angle of attack', unit: '°', color: C[2]!, f: (v) => (v * 180) / Math.PI },
+  ];
+}
 
 const DEFAULT_SELECTED: (keyof FlightSeries)[] = ['altitude', 'velocity', 'acceleration'];
 
 function Panel({ result, def }: { result: FlightResult; def: SeriesDef }) {
   const ref = useRef<HTMLDivElement>(null);
+  const { resolvedTheme } = usePrefs();
 
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
+    const dark = resolvedTheme === 'dark';
+    const axis = dark ? '#8d8b82' : '#7a786f';
+    const grid = dark ? '#2b2a27' : '#e8e6e1';
+    const tick = dark ? '#3b3934' : '#dedcd7';
     const raw = result.series[def.key] ?? [];
     const values = def.f ? raw.map((v) => (v == null ? v : def.f!(v))) : raw;
     const data: uPlot.AlignedData = [result.series.time, values];
@@ -67,8 +78,8 @@ function Panel({ result, def }: { result: FlightResult; def: SeriesDef }) {
         },
       ],
       axes: [
-        { stroke: '#7a786f', grid: { stroke: '#e8e6e1', width: 1 }, ticks: { stroke: '#dedcd7', width: 1 }, font: '11px system-ui' },
-        { stroke: '#7a786f', grid: { stroke: '#e8e6e1', width: 1 }, ticks: { stroke: '#dedcd7', width: 1 }, font: '11px system-ui', size: 56 },
+        { stroke: axis, grid: { stroke: grid, width: 1 }, ticks: { stroke: tick, width: 1 }, font: '11px system-ui' },
+        { stroke: axis, grid: { stroke: grid, width: 1 }, ticks: { stroke: tick, width: 1 }, font: '11px system-ui', size: 56 },
       ],
     };
     const plot = new uPlot(opts, data, el);
@@ -78,7 +89,7 @@ function Panel({ result, def }: { result: FlightResult; def: SeriesDef }) {
       obs.disconnect();
       plot.destroy();
     };
-  }, [result, def]);
+  }, [result, def, resolvedTheme]);
 
   return (
     <div className="chart-panel">
@@ -88,8 +99,8 @@ function Panel({ result, def }: { result: FlightResult; def: SeriesDef }) {
   );
 }
 
-function exportCsv(result: FlightResult) {
-  const cols = SERIES_CATALOG.filter((d) => (result.series[d.key] ?? []).length > 0);
+function exportCsv(result: FlightResult, catalog: SeriesDef[]) {
+  const cols = catalog.filter((d) => (result.series[d.key] ?? []).length > 0);
   const header = ['time_s', ...cols.map((d) => `${String(d.key)}${d.unit ? `_${d.unit.replace('²', '2').replace('°', 'deg')}` : ''}`)];
   const rows = [header.join(',')];
   const t = result.series.time;
@@ -109,6 +120,8 @@ function exportCsv(result: FlightResult) {
 }
 
 export function FlightCharts({ result }: { result: FlightResult }) {
+  const { prefs } = usePrefs();
+  const catalog = useMemo(() => seriesCatalog(prefs), [prefs]);
   const [selected, setSelected] = useState<Set<keyof FlightSeries>>(new Set(DEFAULT_SELECTED));
 
   const toggle = (key: keyof FlightSeries) => {
@@ -123,7 +136,7 @@ export function FlightCharts({ result }: { result: FlightResult }) {
   return (
     <div>
       <div className="series-picker" role="group" aria-label="Plot series">
-        {SERIES_CATALOG.map((d) => {
+        {catalog.map((d) => {
           const available = (result.series[d.key] ?? []).length > 0;
           if (!available) return null;
           const on = selected.has(d.key);
@@ -137,11 +150,11 @@ export function FlightCharts({ result }: { result: FlightResult }) {
             </button>
           );
         })}
-        <button className="file-btn" style={{ marginLeft: 'auto' }} onClick={() => exportCsv(result)}>
+        <button className="file-btn" style={{ marginLeft: 'auto' }} onClick={() => exportCsv(result, catalog)}>
           ⬇ CSV
         </button>
       </div>
-      {SERIES_CATALOG.filter((d) => selected.has(d.key) && (result.series[d.key] ?? []).length > 0)
+      {catalog.filter((d) => selected.has(d.key) && (result.series[d.key] ?? []).length > 0)
         .map((d) => <Panel key={String(d.key)} result={result} def={d} />)}
       {selected.size === 0 && (
         <div className="panel placeholder">Select at least one series to plot.</div>

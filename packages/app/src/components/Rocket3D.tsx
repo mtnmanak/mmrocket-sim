@@ -228,7 +228,7 @@ export function Rocket3D({ tree, info }: { tree: RocketTree; info: StaticInfo | 
         <OrbitControls target={[center, 0, 0]} enableDamping dampingFactor={0.1} />
       </Canvas>
       <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '4px 0 0', textAlign: 'center' }}>
-        drag to rotate · scroll to zoom · <span style={{ color: '#0b0b0b' }}>●</span> CG ·{' '}
+        drag to rotate · scroll to zoom · <span style={{ color: 'var(--text-primary)' }}>●</span> CG ·{' '}
         <span style={{ color: '#e34948' }}>●</span> CP
       </p>
     </div>

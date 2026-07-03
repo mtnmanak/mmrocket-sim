@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import type { MotorSpec } from '@online-openrocket/engine';
 import { BUILT_IN_MOTORS } from '../motors.js';
+import { usePrefs } from '../prefs/PrefsContext.js';
+import { fmtSi } from '../prefs/units.js';
 import {
   delayOptions,
   fetchMotorSpec,
@@ -17,6 +19,8 @@ export function MotorPicker({ mountDiameterMm, selectedLabel, onSelect }: {
   selectedLabel: string;
   onSelect: (label: string, spec: MotorSpec) => void;
 }) {
+  const { prefs } = usePrefs();
+  const motorSym = prefs.units.motorDimensions;
   const [mode, setMode] = useState<'builtin' | 'search'>('builtin');
   const [name, setName] = useState('');
   const [impulseClass, setImpulseClass] = useState('');
@@ -103,7 +107,7 @@ export function MotorPicker({ mountDiameterMm, selectedLabel, onSelect }: {
           </div>
           <button className="launch-btn" style={{ marginTop: 8, fontSize: 13, padding: 7 }}
               onClick={runSearch} disabled={busy}>
-            {busy ? 'Searching…' : `Search ${mountDiameterMm} mm motors`}
+            {busy ? 'Searching…' : `Search ${fmtSi('motorDimensions', motorSym, mountDiameterMm / 1000)} ${motorSym} motors`}
           </button>
 
           {error && <p className="stability-bad" style={{ fontSize: 12 }}>{error}</p>}

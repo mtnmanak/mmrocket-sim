@@ -1,4 +1,6 @@
 import type { FlightSummary, StaticInfo } from '@online-openrocket/engine';
+import { usePrefs } from '../prefs/PrefsContext.js';
+import { fmtSi } from '../prefs/units.js';
 
 function Tile({ label, value, unit, className }: {
   label: string;
@@ -18,6 +20,9 @@ function Tile({ label, value, unit, className }: {
 }
 
 export function DesignStats({ info, motorLabel }: { info: StaticInfo; motorLabel?: string }) {
+  const { prefs } = usePrefs();
+  const len = prefs.units.length;
+  const mass = prefs.units.mass;
   const stable = info.stabilityCalibers >= 1;
   const stabilityPct = info.length > 0
     ? ((info.cp - info.cg) / info.length) * 100
@@ -25,16 +30,16 @@ export function DesignStats({ info, motorLabel }: { info: StaticInfo; motorLabel
   return (
     <>
       <div className="stat-row">
-        <Tile label="Length" value={(info.length * 100).toFixed(1)} unit="cm" />
-        <Tile label="Max diameter" value={(info.refDiameter * 1000).toFixed(1)} unit="mm" />
-        <Tile label="Mass (empty)" value={(info.massEmpty * 1000).toFixed(1)} unit="g" />
-        <Tile label="Mass (loaded)" value={(info.mass * 1000).toFixed(1)} unit="g" />
+        <Tile label="Length" value={fmtSi('length', len, info.length)} unit={len} />
+        <Tile label="Max diameter" value={fmtSi('length', len, info.refDiameter)} unit={len} />
+        <Tile label="Mass (empty)" value={fmtSi('mass', mass, info.massEmpty)} unit={mass} />
+        <Tile label="Mass (loaded)" value={fmtSi('mass', mass, info.mass)} unit={mass} />
         {motorLabel && <Tile label="Motor" value={motorLabel} />}
       </div>
       <div className="stat-row">
-        <Tile label="CG (empty)" value={(info.cgEmpty * 100).toFixed(1)} unit="cm" />
-        <Tile label="CG (loaded)" value={(info.cg * 100).toFixed(1)} unit="cm" />
-        <Tile label="CP" value={(info.cp * 100).toFixed(1)} unit="cm" />
+        <Tile label="CG (empty)" value={fmtSi('length', len, info.cgEmpty)} unit={len} />
+        <Tile label="CG (loaded)" value={fmtSi('length', len, info.cg)} unit={len} />
+        <Tile label="CP" value={fmtSi('length', len, info.cp)} unit={len} />
         <Tile
           label="Stability"
           value={`${stable ? '✓' : '⚠'} ${info.stabilityCalibers.toFixed(2)}`}
@@ -53,13 +58,17 @@ export function DesignStats({ info, motorLabel }: { info: StaticInfo; motorLabel
 }
 
 export function FlightStats({ summary }: { summary: FlightSummary }) {
+  const { prefs } = usePrefs();
+  const dist = prefs.units.distance;
+  const vel = prefs.units.velocity;
+  const acc = prefs.units.acceleration;
   return (
     <div className="stat-row">
-      <Tile label="Apogee" value={summary.maxAltitude.toFixed(1)} unit="m" />
-      <Tile label="Max velocity" value={summary.maxVelocity.toFixed(1)} unit="m/s" />
-      <Tile label="Max accel" value={summary.maxAcceleration.toFixed(0)} unit="m/s²" />
+      <Tile label="Apogee" value={fmtSi('distance', dist, summary.maxAltitude)} unit={dist} />
+      <Tile label="Max velocity" value={fmtSi('velocity', vel, summary.maxVelocity)} unit={vel} />
+      <Tile label="Max accel" value={fmtSi('acceleration', acc, summary.maxAcceleration)} unit={acc} />
       <Tile label="Apogee at" value={summary.timeToApogee.toFixed(1)} unit="s" />
-      <Tile label="Descent hits" value={summary.groundHitVelocity.toFixed(1)} unit="m/s" />
+      <Tile label="Descent hits" value={fmtSi('velocity', vel, summary.groundHitVelocity)} unit={vel} />
       <Tile label="Flight time" value={summary.flightTime.toFixed(0)} unit="s" />
     </div>
   );

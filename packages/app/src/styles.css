@@ -11,12 +11,42 @@
   --status-good: #008300;
   --status-serious: #e34948;
   --border: #dedcd7;
+  --hover: #eceae6;
+  --selected: #dceafc;
+  --note-bg: #fdf6e3;
+  --note-border: #e6d9a8;
+  --accent: #4a7dbd;
+  --chart-axis: #7a786f;
+  --chart-grid: #e8e6e1;
+  --chart-tick: #dedcd7;
 
   background: var(--surface-1);
   color: var(--text-primary);
   font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
   min-height: 100vh;
   margin: 0;
+}
+
+.viz-root[data-theme='dark'] {
+  --surface-1: #161614;
+  --surface-2: #201f1d;
+  --text-primary: #f0efec;
+  --text-secondary: #b8b6ae;
+  --text-muted: #8d8b82;
+  --series-1: #5a9be0; /* keep series hues, lifted for dark surfaces */
+  --series-2: #3cc492;
+  --series-3: #f0b23c;
+  --status-good: #4dbd4d;
+  --status-serious: #f0716f;
+  --border: #3b3934;
+  --hover: #2b2a27;
+  --selected: #24446b;
+  --note-bg: #2e2a1c;
+  --note-border: #57503a;
+  --accent: #6fa2dd;
+  --chart-axis: #8d8b82;
+  --chart-grid: #2b2a27;
+  --chart-tick: #3b3934;
 }
 
 .layout {
@@ -220,7 +250,7 @@
 }
 
 .file-btn:hover {
-  background: #eceae6;
+  background: var(--hover);
 }
 
 /* --- Import/file feedback banner --- */
@@ -231,8 +261,8 @@
   font-size: 12px;
   line-height: 1.5;
   white-space: pre-line;
-  background: #fdf6e3;
-  border: 1px solid #e6d9a8;
+  background: var(--note-bg);
+  border: 1px solid var(--note-border);
   border-radius: 6px;
   color: var(--text-primary);
 }
@@ -268,12 +298,12 @@
 }
 
 .tree-row:hover {
-  background: #efede9;
+  background: var(--hover);
 }
 
 .tree-row-selected,
 .tree-row-selected:hover {
-  background: #dceafc;
+  background: var(--selected);
 }
 
 .tree-row-root {
@@ -341,7 +371,7 @@
 }
 
 .add-menu-item:hover {
-  background: #eceae6;
+  background: var(--hover);
 }
 
 /* --- 2D/3D view toggle --- */
@@ -396,7 +426,7 @@
 .series-chip-on {
   border-color: var(--text-secondary);
   color: var(--text-primary);
-  background: #fff;
+  background: var(--surface-1);
 }
 
 .series-dot {
@@ -462,4 +492,52 @@
 .fin-row-del:disabled {
   opacity: 0.3;
   cursor: default;
+}
+
+/* --- Preferences dialog --- */
+.prefs-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 40px 16px;
+  z-index: 100;
+  overflow-y: auto;
+}
+
+.prefs-dialog {
+  width: 100%;
+  max-width: 520px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+}
+
+.prefs-section {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+  margin: 14px 0 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.prefs-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin: 12px 0 0;
+}
+
+/* Dark-mode gaps: components that inherit browser default text colors */
+.add-menu-item {
+  color: var(--text-primary);
+}
+
+.viz-root[data-theme='dark'] .u-legend {
+  color: var(--text-secondary);
+}
+
+.fin-table input {
+  color: var(--text-primary);
 }

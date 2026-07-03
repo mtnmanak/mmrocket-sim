@@ -1,4 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
+import { usePrefs } from '../prefs/PrefsContext.js';
+import { niceStep, siToUi, uiToSi } from '../prefs/units.js';
 
 /**
  * Freeform fin planform editor: a visual editor and a coordinate table over
@@ -84,6 +86,7 @@ export function FinPointsEditor({ points, onChange }: {
   points: FinPoint[];
   onChange: (next: FinPoint[]) => void;
 }) {
+  const { prefs } = usePrefs();
   const committed: FinPoint[] = points.length >= 3 ? points : [[0, 0], [0.02, 0.03], [0.05, 0]];
 
   // Live points during a drag (null = not dragging → render committed).
@@ -173,14 +176,17 @@ export function FinPointsEditor({ points, onChange }: {
     onChange(committed.filter((_, j) => j !== i));
   };
 
-  const mm = (v: number) => Number((v * 1000).toFixed(3));
+  // Coordinate table in the user's rocket-dimension unit (engine stays SI).
+  const lenSym = prefs.units.length;
+  const toUi = (si: number) => Number(siToUi('length', lenSym, si).toFixed(4));
+  const tableStep = niceStep(siToUi('length', lenSym, 0.001));
 
-  const setPoint = (i: number, axis: 0 | 1, valueMm: number) => {
-    if (!Number.isFinite(valueMm)) return;
+  const setPoint = (i: number, axis: 0 | 1, uiValue: number) => {
+    if (!Number.isFinite(uiValue)) return;
     const next = committed.map((p, j) => {
       if (j !== i) return [...p] as FinPoint;
       const q: FinPoint = [...p];
-      q[axis] = valueMm / 1000;
+      q[axis] = uiToSi('length', lenSym, uiValue);
       return constrain(i, q, committed.length);
     });
     next[0] = [0, 0];
@@ -236,7 +242,7 @@ export function FinPointsEditor({ points, onChange }: {
 
       <table className="fin-table">
         <thead>
-          <tr><th>#</th><th>x (mm)</th><th>y (mm)</th><th></th></tr>
+          <tr><th>#</th><th>x ({lenSym})</th><th>y ({lenSym})</th><th></th></tr>
         </thead>
         <tbody>
           {pts.map((p, i) => {
@@ -246,11 +252,11 @@ export function FinPointsEditor({ points, onChange }: {
               <tr key={i}>
                 <td>{i + 1}</td>
                 <td>
-                  <input type="number" step={1} value={mm(p[0])} disabled={first}
+                  <input type="number" step={tableStep} value={toUi(p[0])} disabled={first}
                     onChange={(e) => setPoint(i, 0, Number(e.target.value))} />
                 </td>
                 <td>
-                  <input type="number" step={1} value={mm(p[1])} disabled={first || last}
+                  <input type="number" step={tableStep} value={toUi(p[1])} disabled={first || last}
                     title={last ? 'Trailing corner stays on the body (y = 0)' : undefined}
                     onChange={(e) => setPoint(i, 1, Number(e.target.value))} />
                 </td>

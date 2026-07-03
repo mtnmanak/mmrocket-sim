@@ -94,10 +94,10 @@ export function TreeSchematic({ tree, info }: { tree: RocketTree; info: StaticIn
       {shapes}
       {cgX !== null && (
         <g>
-          <circle cx={cgX} cy={ctx.cy} r={markerR} fill="#fff" stroke="#0b0b0b" strokeWidth="1.5" />
-          <path d={`M ${cgX} ${ctx.cy} L ${cgX + markerR} ${ctx.cy} A ${markerR} ${markerR} 0 0 1 ${cgX} ${ctx.cy + markerR} Z`} fill="#0b0b0b" />
-          <path d={`M ${cgX} ${ctx.cy} L ${cgX - markerR} ${ctx.cy} A ${markerR} ${markerR} 0 0 1 ${cgX} ${ctx.cy - markerR} Z`} fill="#0b0b0b" />
-          <text x={cgX} y={ctx.cy - markerR - 6} textAnchor="middle" fontSize="11" fill="#0b0b0b">CG</text>
+          <circle cx={cgX} cy={ctx.cy} r={markerR} fill="var(--surface-1)" stroke="var(--text-primary)" strokeWidth="1.5" />
+          <path d={`M ${cgX} ${ctx.cy} L ${cgX + markerR} ${ctx.cy} A ${markerR} ${markerR} 0 0 1 ${cgX} ${ctx.cy + markerR} Z`} fill="var(--text-primary)" />
+          <path d={`M ${cgX} ${ctx.cy} L ${cgX - markerR} ${ctx.cy} A ${markerR} ${markerR} 0 0 1 ${cgX} ${ctx.cy - markerR} Z`} fill="var(--text-primary)" />
+          <text x={cgX} y={ctx.cy - markerR - 6} textAnchor="middle" fontSize="11" fill="var(--text-primary)">CG</text>
         </g>
       )}
       {cpX !== null && (
