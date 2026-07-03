@@ -135,9 +135,20 @@ export interface FlightSummary {
   maxAltitude: number;
   maxVelocity: number;
   maxAcceleration: number;
+  maxMachNumber: number;
   timeToApogee: number;
   flightTime: number;
   groundHitVelocity: number;
+  /** Velocity when clearing the launch rod/rail (m/s). */
+  launchRodVelocity: number;
+  /** Velocity at recovery-device deployment (m/s); null if never deployed. */
+  deploymentVelocity: number | null;
+  /**
+   * Kernel-computed optimum ejection delay (s): coast time from burnout to
+   * BALLISTIC apogee (a deployment-free probe flight — not the deployed
+   * flight's apogee). null when not computable.
+   */
+  optimumDelay: number | null;
 }
 
 export interface FlightEvent {
@@ -166,6 +177,23 @@ export interface FlightResult {
   summary: FlightSummary;
   events: FlightEvent[];
   series: FlightSeries;
+}
+
+/** Per-component static info (SI), from OrkRocket.componentInfo(). */
+export interface ComponentInfo {
+  /** Component's own length (m). */
+  length: number;
+  /**
+   * The component's own mass (kg), override-aware. For a fin SET this is the
+   * mass of ALL fins combined (OpenRocket semantics — overrides too).
+   */
+  mass: number;
+  /** Mass of the component plus all its children (kg). */
+  sectionMass: number;
+  /** CG measured from the component's own front (m). */
+  cgX: number;
+  /** Absolute position of the component's front from the nose tip (m). */
+  positionX: number;
 }
 
 /** A rocket design held inside the engine, addressed by handle. */
@@ -223,6 +251,11 @@ export class OrkRocket {
   /** Length, mass, CG/CP, stability margin — computed at Mach 0.3, AoA 0. */
   staticInfo(): StaticInfo {
     return JSON.parse(ork.getStaticInfo(this.handle)) as StaticInfo;
+  }
+
+  /** Static info for one component, addressed by its tree-node id. */
+  componentInfo(componentId: string): ComponentInfo {
+    return JSON.parse(ork.getComponentInfo(this.handle, componentId)) as ComponentInfo;
   }
 
   simulate(options: SimulationOptions = {}): FlightResult {

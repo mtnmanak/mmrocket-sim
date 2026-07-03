@@ -22,6 +22,7 @@
 export {
   OrkRocket,
   resetEngine,
+  type ComponentInfo,
   type ComponentNode,
   type ComponentPosition,
   type ComponentType,

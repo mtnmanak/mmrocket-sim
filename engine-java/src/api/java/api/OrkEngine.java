@@ -298,6 +298,30 @@ public final class OrkEngine {
         return sb.append('}').toString();
     }
 
+    /**
+     * Per-component info for a buildRocket() id: length, own mass (override-
+     * aware; a fin set's mass covers ALL its fins), subtree mass including
+     * children, CG from the component's own front, and the component's
+     * absolute position from the rocket nose (first instance).
+     */
+    @JSExport
+    public static String getComponentInfo(int rocketHandle, String componentId) {
+        RocketCtx ctx = (RocketCtx) get(rocketHandle);
+        RocketComponent c = ctx.ids.get(componentId);
+        if (c == null) {
+            throw new IllegalArgumentException("Unknown component id: '" + componentId + "'");
+        }
+        Coordinate[] locations = c.getComponentLocations();
+        double absX = locations.length > 0 ? locations[0].x : Double.NaN;
+        StringBuilder sb = new StringBuilder("{");
+        num(sb, "length", c.getLength()).append(',');
+        num(sb, "mass", c.getMass()).append(',');
+        num(sb, "sectionMass", c.getSectionMass()).append(',');
+        num(sb, "cgX", c.getCG().x).append(',');
+        num(sb, "positionX", absX);
+        return sb.append('}').toString();
+    }
+
     // ---------- Simulation ----------
 
     /**
@@ -418,9 +442,13 @@ public final class OrkEngine {
         num(sb, "maxAltitude", data.getMaxAltitude()).append(',');
         num(sb, "maxVelocity", data.getMaxVelocity()).append(',');
         num(sb, "maxAcceleration", data.getMaxAcceleration()).append(',');
+        num(sb, "maxMachNumber", data.getMaxMachNumber()).append(',');
         num(sb, "timeToApogee", data.getTimeToApogee()).append(',');
         num(sb, "flightTime", data.getFlightTime()).append(',');
-        num(sb, "groundHitVelocity", data.getGroundHitVelocity());
+        num(sb, "groundHitVelocity", data.getGroundHitVelocity()).append(',');
+        num(sb, "launchRodVelocity", data.getLaunchRodVelocity()).append(',');
+        num(sb, "deploymentVelocity", data.getDeploymentVelocity()).append(',');
+        num(sb, "optimumDelay", data.getOptimumDelay());
         sb.append("},\"events\":[");
 
         FlightDataBranch branch = data.getBranch(0);

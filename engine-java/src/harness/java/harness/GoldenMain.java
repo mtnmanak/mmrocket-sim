@@ -72,6 +72,63 @@ public final class GoldenMain {
                 + "]}]}";
         int r2 = api.OrkEngine.buildRocket(freeform);
         lineStaticInfo("fins.freeform.info", api.OrkEngine.getStaticInfo(r2));
+
+        finTabScenarios();
+    }
+
+    /**
+     * Fin tabs (through-the-wall): tab volume must add mass and shift CG;
+     * per-component info must expose the (all-fins) mass and subtree mass.
+     */
+    private static void finTabScenarios() {
+        // Trapezoid fins, no tab vs 10 mm-deep × 30 mm-long tab.
+        String noTab = "{\"components\":["
+                + "{\"type\":\"nosecone\",\"length\":0.07,\"aftRadius\":0.012,\"thickness\":0.002},"
+                + "{\"type\":\"bodytube\",\"id\":\"body\",\"length\":0.30,\"outerRadius\":0.012,\"thickness\":0.0003,\"density\":950,\"children\":["
+                + "  {\"type\":\"trapezoidfinset\",\"id\":\"fins\",\"finCount\":3,\"rootChord\":0.05,\"tipChord\":0.03,\"sweep\":0.02,\"height\":0.03,\"thickness\":0.003,\"density\":680,"
+                + "   \"position\":{\"method\":\"bottom\",\"offset\":0}}"
+                + "]}]}";
+        int rPlain = api.OrkEngine.buildRocket(noTab);
+        lineStaticInfo("fins.tab.none", api.OrkEngine.getStaticInfo(rPlain));
+        lineComponentInfo("fins.tab.none.comp", api.OrkEngine.getComponentInfo(rPlain, "fins"));
+
+        String withTab = noTab.replace("\"position\":{\"method\":\"bottom\",\"offset\":0}}",
+                "\"position\":{\"method\":\"bottom\",\"offset\":0},"
+                + "\"tabHeight\":0.010,\"tabLength\":0.030,\"tabOffset\":0,\"tabOffsetMethod\":\"middle\"}");
+        int rTab = api.OrkEngine.buildRocket(withTab);
+        lineStaticInfo("fins.tab.10mm", api.OrkEngine.getStaticInfo(rTab));
+        lineComponentInfo("fins.tab.10mm.comp", api.OrkEngine.getComponentInfo(rTab, "fins"));
+        lineComponentInfo("fins.tab.10mm.body", api.OrkEngine.getComponentInfo(rTab, "body"));
+
+        // Tab height beyond the body radius must clamp (kernel validation).
+        String clamped = noTab.replace("\"position\":{\"method\":\"bottom\",\"offset\":0}}",
+                "\"position\":{\"method\":\"bottom\",\"offset\":0},"
+                + "\"tabHeight\":0.5,\"tabLength\":0.030}");
+        int rClamp = api.OrkEngine.buildRocket(clamped);
+        lineComponentInfo("fins.tab.clamped.comp", api.OrkEngine.getComponentInfo(rClamp, "fins"));
+
+        // Freeform fins with a tab.
+        String ffTab = "{\"components\":["
+                + "{\"type\":\"nosecone\",\"length\":0.07,\"aftRadius\":0.012,\"thickness\":0.002},"
+                + "{\"type\":\"bodytube\",\"length\":0.30,\"outerRadius\":0.012,\"thickness\":0.0003,\"density\":950,\"children\":["
+                + "  {\"type\":\"freeformfinset\",\"id\":\"ff\",\"finCount\":3,\"thickness\":0.003,\"crossSection\":\"airfoil\",\"density\":680,"
+                + "   \"points\":[[0,0],[0.03,0.035],[0.055,0.035],[0.06,0.0]],"
+                + "   \"tabHeight\":0.008,\"tabLength\":0.025,\"tabOffset\":0,\"tabOffsetMethod\":\"middle\","
+                + "   \"position\":{\"method\":\"bottom\",\"offset\":0}}"
+                + "]}]}";
+        int rFf = api.OrkEngine.buildRocket(ffTab);
+        lineStaticInfo("fins.tab.freeform", api.OrkEngine.getStaticInfo(rFf));
+        lineComponentInfo("fins.tab.freeform.comp", api.OrkEngine.getComponentInfo(rFf, "ff"));
+    }
+
+    private static void lineComponentInfo(String tag, String json) {
+        java.util.Map<String, Object> info = api.JsonLite.parseObject(json);
+        line(tag,
+                api.JsonLite.dbl(info, "length", Double.NaN),
+                api.JsonLite.dbl(info, "mass", Double.NaN),
+                api.JsonLite.dbl(info, "sectionMass", Double.NaN),
+                api.JsonLite.dbl(info, "cgX", Double.NaN),
+                api.JsonLite.dbl(info, "positionX", Double.NaN));
     }
 
     /** Reflection-free accessor: rebuild handle context via the public API. */
@@ -96,10 +153,17 @@ public final class GoldenMain {
                 0.035, 5.0);
 
         // Windy launch from a hot high-altitude site with low pressure.
+        // maxTime caps the flight just past apogee (~6.8 s) and deployment
+        // (~7.2 s): a turbulent sim is chaotic, and over a ~100 s descent the
+        // JVM-vs-JS transcendental ULP noise amplifies until the adaptive
+        // stepper's ROW COUNT flips — a structural diff no numeric tolerance
+        // absorbs. 8 s keeps full coverage (wind, atmosphere, deployment,
+        // every series) while staying within comparable drift.
         String result = api.OrkEngine.simulateJson(r, "{"
                 + "\"rodLength\":1.2,\"rodAngle\":0.087,\"windAverage\":3.0,"
                 + "\"windStdDeviation\":0.6,\"launchAltitude\":1400,"
-                + "\"temperature\":303.15,\"pressure\":86000,\"randomSeed\":7}");
+                + "\"temperature\":303.15,\"pressure\":86000,\"randomSeed\":7,"
+                + "\"maxTime\":8}");
         java.util.Map<String, Object> parsed = api.JsonLite.parseObject(result);
         java.util.Map<String, Object> summary = api.JsonLite.obj(parsed, "summary");
         line("flight.conditions.summary",
@@ -107,6 +171,11 @@ public final class GoldenMain {
                 api.JsonLite.dbl(summary, "maxVelocity", Double.NaN),
                 api.JsonLite.dbl(summary, "timeToApogee", Double.NaN),
                 api.JsonLite.dbl(summary, "groundHitVelocity", Double.NaN));
+        line("flight.conditions.summaryext",
+                api.JsonLite.dbl(summary, "maxMachNumber", Double.NaN),
+                api.JsonLite.dbl(summary, "launchRodVelocity", Double.NaN),
+                api.JsonLite.dbl(summary, "deploymentVelocity", Double.NaN),
+                api.JsonLite.dbl(summary, "optimumDelay", Double.NaN));
 
         // Extended series exist and have consistent lengths.
         java.util.Map<String, Object> series = api.JsonLite.obj(parsed, "series");

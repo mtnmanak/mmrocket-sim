@@ -423,12 +423,33 @@ final class ComponentFactory {
         for (Map<String, Object> kid : kids) {
             RocketComponent child = create(kid);
             parent.addChild(child);
+            if (child instanceof FinSet) {
+                applyFinTabs((FinSet) child, kid);
+            }
             String id = str(kid, "id", null);
             if (id != null) {
                 idIndex.put(id, child);
             }
             attachChildren(child, kid, idIndex);
         }
+    }
+
+    /**
+     * Fin tabs (through-the-wall mounting). Applied AFTER the fin set is
+     * attached: setTabHeight() clamps against the parent body radius, which
+     * is only known post-attach. Keys: tabHeight, tabLength (both > 0 to
+     * enable), tabOffset, tabOffsetMethod (top|middle|bottom).
+     */
+    private static void applyFinTabs(FinSet fins, Map<String, Object> node) {
+        double tabHeight = dbl(node, "tabHeight", 0);
+        double tabLength = dbl(node, "tabLength", 0);
+        if (tabHeight <= 0 || tabLength <= 0) {
+            return;
+        }
+        fins.setTabOffsetMethod(axialMethodOf(str(node, "tabOffsetMethod", "middle")));
+        fins.setTabLength(tabLength);
+        fins.setTabOffset(dbl(node, "tabOffset", 0));
+        fins.setTabHeight(tabHeight);
     }
 
     private static Transition.Shape shapeOf(String name) {

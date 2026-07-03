@@ -117,6 +117,101 @@ describe('OrkRocket (real OpenRocket kernel via TeaVM)', () => {
     expect(Number.isFinite(info.cp)).toBe(true);
   });
 
+  it('applies fin tabs: mass increases and componentInfo reports it', () => {
+    const base = {
+      components: [
+        { type: 'nosecone' as const, length: 0.07, aftRadius: 0.012, thickness: 0.002 },
+        {
+          type: 'bodytube' as const, length: 0.3, outerRadius: 0.012, thickness: 0.0003, density: 950,
+          children: [
+            {
+              type: 'trapezoidfinset' as const, id: 'fins', finCount: 3, rootChord: 0.05,
+              tipChord: 0.03, sweep: 0.02, height: 0.03, thickness: 0.003, density: 680,
+              position: { method: 'bottom' as const, offset: 0 },
+            },
+          ],
+        },
+      ],
+    };
+    const plain = OrkRocket.buildTree(base);
+    const finsPlain = plain.componentInfo('fins');
+
+    const tabbed = structuredClone(base);
+    Object.assign(tabbed.components[1]!.children![0]!, {
+      tabHeight: 0.01, tabLength: 0.03, tabOffset: 0, tabOffsetMethod: 'middle',
+    });
+    const withTab = OrkRocket.buildTree(tabbed);
+    const finsTabbed = withTab.componentInfo('fins');
+
+    // 3 tabs × 30 mm × 10 mm × 3 mm × 680 kg/m³ ≈ 1.8 g extra.
+    expect(finsTabbed.mass).toBeGreaterThan(finsPlain.mass + 0.0015);
+    expect(finsTabbed.mass).toBeLessThan(finsPlain.mass + 0.0025);
+    // Tab hangs below the root chord: CG must not move forward.
+    expect(finsTabbed.cgX).toBeGreaterThan(0);
+    expect(finsPlain.length).toBeCloseTo(0.05, 9);
+  });
+
+  it('clamps an over-deep fin tab to the parent tube radius', () => {
+    const rocket = OrkRocket.buildTree({
+      components: [
+        { type: 'nosecone', length: 0.07, aftRadius: 0.012, thickness: 0.002 },
+        {
+          type: 'bodytube', length: 0.3, outerRadius: 0.012, thickness: 0.0003, density: 950,
+          children: [
+            {
+              type: 'trapezoidfinset', id: 'fins', finCount: 3, rootChord: 0.05,
+              tipChord: 0.03, sweep: 0.02, height: 0.03, thickness: 0.003, density: 680,
+              tabHeight: 0.5, tabLength: 0.03,
+            },
+          ],
+        },
+      ],
+    });
+    // A 0.5 m tab in a 12 mm-radius tube: kernel clamps, mass stays sane.
+    const fins = rocket.componentInfo('fins');
+    expect(fins.mass).toBeLessThan(0.05);
+  });
+
+  it('reports per-component info (mass, section mass, position)', () => {
+    const rocket = OrkRocket.buildTree({
+      components: [
+        { type: 'nosecone', id: 'nose', length: 0.07, aftRadius: 0.012, thickness: 0.002 },
+        {
+          type: 'bodytube', id: 'body', length: 0.3, outerRadius: 0.012, thickness: 0.0003, density: 950,
+          children: [
+            { type: 'masscomponent', id: 'ballast', mass: 0.015, length: 0.02, radius: 0.006, position: { method: 'top', offset: 0.05 } },
+          ],
+        },
+      ],
+    });
+    const nose = rocket.componentInfo('nose');
+    expect(nose.length).toBeCloseTo(0.07, 9);
+    expect(nose.positionX).toBeCloseTo(0, 9);
+    expect(nose.cgX).toBeGreaterThan(0);
+    expect(nose.cgX).toBeLessThan(0.07);
+
+    const body = rocket.componentInfo('body');
+    expect(body.positionX).toBeCloseTo(0.07, 9);
+    expect(body.sectionMass).toBeCloseTo(body.mass + 0.015, 9);
+
+    expect(() => rocket.componentInfo('nope')).toThrow(/Unknown component id/);
+  });
+
+  it('returns the extended flight summary (rod velocity, optimum delay)', () => {
+    const rocket = OrkRocket.build(REFERENCE_ROCKET);
+    rocket.setMotor(C6_MOTOR);
+    const { summary } = rocket.simulate({ launchRodLength: 1.0, timeStep: 0.05 });
+
+    expect(summary.maxMachNumber).toBeGreaterThan(0.3);
+    expect(summary.maxMachNumber).toBeLessThan(0.4);
+    expect(summary.launchRodVelocity).toBeGreaterThan(5);
+    expect(summary.launchRodVelocity).toBeLessThan(30);
+    expect(summary.deploymentVelocity).toBeGreaterThan(0);
+    // C6-5: burnout 2.0 s, ballistic apogee ≈ 6.9 s → optimum ≈ 4.9 s.
+    expect(summary.optimumDelay).toBeGreaterThan(4);
+    expect(summary.optimumDelay).toBeLessThan(6);
+  });
+
   it('rejects unknown component types with a clear message', () => {
     expect(() =>
       OrkRocket.buildTree({ components: [{ type: 'warpdrive' as never }] }),
