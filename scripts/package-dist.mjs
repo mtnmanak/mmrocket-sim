@@ -5,7 +5,7 @@
  * Usage: npm run package   (runs the build first via the npm script)
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -26,12 +26,14 @@ const zipPath = join(outDir, `online-openrocket-v${version}.zip`);
 rmSync(zipPath, { force: true });
 
 if (process.platform === 'win32') {
-  // Zip the CONTENTS of dist (not the folder) so it unzips straight into the
-  // web directory.
-  execFileSync('powershell.exe', [
-    '-NoProfile', '-Command',
-    `Compress-Archive -Path '${dist}\\*' -DestinationPath '${zipPath}'`,
-  ], { stdio: 'inherit' });
+  // NOT Compress-Archive: it writes BACKSLASH entry paths, which Linux-side
+  // unzip tools (web-host file managers!) mishandle — the assets/ folder
+  // never gets created and the deploy breaks. Windows 10+ ships bsdtar,
+  // which writes standard forward-slash zip entries.
+  // Absolute path: PATH may resolve tar.exe to Git's GNU tar (no zip support).
+  const bsdtar = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe');
+  execFileSync(bsdtar, ['-a', '-c', '-f', zipPath, '-C', dist,
+    ...readdirSync(dist)], { stdio: 'inherit' });
 } else {
   execFileSync('zip', ['-rq', zipPath, '.'], { cwd: dist, stdio: 'inherit' });
 }
