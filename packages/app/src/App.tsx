@@ -28,7 +28,8 @@ import { UnitChip } from './components/UnitChip.js';
 import { niceStep, siToUi, uiToSi } from './prefs/units.js';
 import { displayDesignation, findDbMotor, isHighPower } from './services/motorDb.js';
 import { delayOptions, fetchMotorSpec } from './services/thrustcurve.js';
-import { exportOrk, importOrk } from './services/orkFile.js';
+import { exportOrk, importOrk, type OrkExportMotor } from './services/orkFile.js';
+import { exportRkt, importRkt } from './services/rocksimFile.js';
 import { loadSession, saveSessionDebounced } from './services/session.js';
 import { buildSimRun, recommendDelay, type MotorMeta, type SimRun } from './services/simReport.js';
 import { addRun, loadRuns } from './services/simStore.js';
@@ -264,9 +265,9 @@ export function App() {
     });
   };
 
-  // ---- .ork I/O ----
-  const onSaveOrk = () => {
-    const motors: Record<string, { designation: string; diameter: number; length: number; delay: number; ignitionEvent?: string; ignitionDelay?: number }> = {};
+  // ---- design file I/O (.ork native, .rkt RockSim) ----
+  const exportMotorsMap = (): Record<string, OrkExportMotor> => {
+    const motors: Record<string, OrkExportMotor> = {};
     for (const [id, mm] of assigned) {
       motors[id] = {
         designation: mm.spec.designation,
@@ -277,23 +278,39 @@ export function App() {
         ignitionDelay: mm.ignition.delay,
       };
     }
-    const xml = exportOrk({ name: tree.name ?? 'My Rocket', tree, motors });
-    const blob = new Blob([xml], { type: 'application/octet-stream' });
+    return motors;
+  };
+
+  const download = (content: string, ext: string) => {
+    const blob = new Blob([content], { type: 'application/octet-stream' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `${(tree.name ?? 'rocket').replace(/[^\w-]+/g, '_')}.ork`;
+    a.download = `${(tree.name ?? 'rocket').replace(/[^\w-]+/g, '_')}.${ext}`;
     a.click();
     URL.revokeObjectURL(a.href);
   };
 
+  const onSaveOrk = () => {
+    download(exportOrk({ name: tree.name ?? 'My Rocket', tree, motors: exportMotorsMap() }), 'ork');
+  };
+
+  const onSaveRkt = () => {
+    try {
+      download(exportRkt({ name: tree.name ?? 'My Rocket', tree, motors: exportMotorsMap() }), 'rkt');
+    } catch (e) {
+      setFileNote(`RockSim export failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+
   const onOpenOrk = async (file: File) => {
     try {
-      const imported = importOrk(await file.arrayBuffer());
+      const buffer = await file.arrayBuffer();
+      const imported = /\.rkt$/i.test(file.name) ? importRkt(buffer) : importOrk(buffer);
       // Desktop OpenRocket's default rocket name is literally "Rocket" (users
       // name the file instead) — fall back to the filename in that case.
       if (!imported.tree.name
           || GENERIC_ROCKET_NAMES.has(imported.tree.name.trim().toLowerCase())) {
-        const fromFile = file.name.replace(/\.ork$/i, '').replace(/_+/g, ' ').trim();
+        const fromFile = file.name.replace(/\.(ork|rkt)$/i, '').replace(/_+/g, ' ').trim();
         if (fromFile) {
           imported.tree.name = fromFile;
           imported.name = fromFile;
@@ -316,7 +333,8 @@ export function App() {
           notes.push(`Motor: ${builtIn[0]} (matched built-in).`);
           continue;
         }
-        const dbMatch = findDbMotor(ref.designation, ref.diameter * 1000);
+        // RockSim refs carry no motor diameter (0) — match by designation only.
+        const dbMatch = findDbMotor(ref.designation, ref.diameter > 0 ? ref.diameter * 1000 : undefined);
         if (!dbMatch) {
           notes.push(`Motor “${ref.designation}” isn't in the motor database — pick one via Browse motor database.`);
           continue;
@@ -690,9 +708,9 @@ export function App() {
                 <button className={view === '3d' ? 'active' : ''} role="tab"
                   aria-selected={view === '3d'} onClick={() => setView('3d')}>3D</button>
               </div>
-              <label className="file-btn">
-                Open .ork
-                <input type="file" accept=".ork" style={{ display: 'none' }}
+              <label className="file-btn" title="Open an OpenRocket (.ork) or RockSim (.rkt) design">
+                Open .ork/.rkt
+                <input type="file" accept=".ork,.rkt" style={{ display: 'none' }}
                   onChange={(e) => {
                     const f = e.target.files?.[0];
                     if (f) onOpenOrk(f);
@@ -700,6 +718,10 @@ export function App() {
                   }} />
               </label>
               <button className="file-btn" onClick={onSaveOrk}>Save .ork</button>
+              <button className="file-btn" onClick={onSaveRkt}
+                title="Export as a RockSim design (max 3 stages; clusters split into individual tubes)">
+                Save .rkt
+              </button>
             </div>
             {view === '2d'
               ? (

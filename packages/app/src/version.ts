@@ -9,7 +9,7 @@
  * push.
  */
 
-export const APP_VERSION = '0.009';
+export const APP_VERSION = '0.010';
 
 export interface ChangelogEntry {
   version: string;
@@ -20,6 +20,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.010',
+    date: '2026-07-04',
+    title: 'RockSim files — import and export',
+    items: [
+      'Open .rkt: RockSim design files import whole — all stages (RockSim\'s three-slot model maps onto our stages), nose/transition shapes, tubes, all four ring types, trapezoid/elliptical/freeform fins with their point lists and tabs, tube fins, launch lugs, chutes, streamers, and mass objects. Units and quirks mirror the desktop\'s own RockSim reader (mm→m, diameters→radii, rear-referenced positions flip sign).',
+      'Better than the desktop: RockSim files carry their motor selections (EngineCode per mount) — the desktop throws them away; we match them against the motor database and load them onto the right mounts automatically, stale serial links and all.',
+      'Save .rkt: export any design (up to RockSim\'s 3-stage limit) for RockSim users — clusters split into individually-placed tubes exactly like the desktop does, and motors are written back as EngineSets.',
+      'Tested against the desktop\'s own RockSim fixture files (the 24.12 test suite) plus full export→import round-trips.',
+    ],
+  },
   {
     version: '0.009',
     date: '2026-07-04',
