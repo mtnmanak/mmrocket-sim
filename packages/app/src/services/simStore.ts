@@ -44,14 +44,34 @@ export function clearRuns(): SimRun[] {
   return persist([]);
 }
 
-/** CSV columns: label + SimRun key + formatter (SI values as plain numbers). */
+// Flight-day unit conversions for the leading columns (the owner's spec: the
+// numbers he compares at the field are ft / mph / Gs / grams).
+const FT = 3.28084;
+const MPH = 2.23694;
+const G_MS2 = 9.80665;
+
+/**
+ * CSV columns: label + SimRun key + formatter. The first 14 columns are
+ * the owner's flight-day comparison set, in his order and units; everything after
+ * follows in SI (order free per his spec).
+ */
 const COLUMNS: [string, (r: SimRun) => string | number][] = [
+  ['Designation', (r) => r.motor],
+  ['Apogee (ft)', (r) => round(r.maxAltitude * FT, 0)],
+  ['Velocity (mph)', (r) => round(r.maxVelocity * MPH, 1)],
+  ['Manufacturer', (r) => r.manufacturer],
+  ['Diameter (mm)', (r) => r.motorDiameterMm],
+  ['Type', (r) => r.motorType ?? ''],
+  ['Propellant', (r) => r.propellant ?? ''],
+  ['Case', (r) => r.motorCase ?? ''],
+  ['T:W', (r) => round(r.thrustToWeightAtRod, 1)],
+  ['Guide (mph)', (r) => round(r.rodExitVelocity === null ? null : r.rodExitVelocity * MPH, 1)],
+  ['Accel (Gs)', (r) => round(r.maxAcceleration / G_MS2, 1)],
+  ['Delay (s)', (r) => r.delayS],
+  ['Pad Weight (g)', (r) => round(r.launchMass === null ? null : r.launchMass * 1000, 1)],
+  ['Recovery Weight (g)', (r) => round(r.burnoutMass == null ? null : r.burnoutMass * 1000, 1)],
   ['Date', (r) => new Date(r.when).toISOString()],
   ['Rocket', (r) => r.rocket],
-  ['Motor', (r) => r.motor],
-  ['Manufacturer', (r) => r.manufacturer],
-  ['Motor diameter (mm)', (r) => r.motorDiameterMm],
-  ['Delay flown (s)', (r) => r.delayS],
   ['Max altitude (m)', (r) => round(r.maxAltitude)],
   ['Max velocity (m/s)', (r) => round(r.maxVelocity)],
   ['Max Mach', (r) => round(r.maxMach, 3)],
@@ -60,8 +80,8 @@ const COLUMNS: [string, (r: SimRun) => string | number][] = [
   ['Time to burnout (s)', (r) => round(r.timeToBurnout)],
   ['Time to launch guide departure (s)', (r) => round(r.timeToRodDeparture, 3)],
   ['Velocity at launch guide departure (m/s)', (r) => round(r.rodExitVelocity)],
-  ['Thrust:weight at launch guide departure', (r) => round(r.thrustToWeightAtRod)],
   ['Launch mass (kg)', (r) => round(r.launchMass, 4)],
+  ['Burnout mass (kg)', (r) => round(r.burnoutMass ?? null, 4)],
   ['Launch CG (m)', (r) => round(r.launchCG, 4)],
   ['Launch CP (m)', (r) => round(r.launchCP, 4)],
   ['Launch static margin (cal)', (r) => round(r.launchStaticMarginCal)],

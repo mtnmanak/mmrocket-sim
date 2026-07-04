@@ -21,6 +21,7 @@ const FIELDS = [
   'motorId', 'manufacturerAbbrev', 'designation', 'commonName', 'impulseClass',
   'diameter', 'length', 'type', 'avgThrustN', 'maxThrustN', 'totImpulseNs',
   'burnTimeS', 'totalWeightG', 'propWeightG', 'delays', 'availability',
+  'propInfo', 'caseInfo',
 ];
 
 async function getJson(url) {

@@ -26,6 +26,10 @@ export interface TcMotor {
   /** e.g. "0,3,5" */
   delays?: string;
   availability: string;
+  /** Propellant name (e.g. "Classic", "White Lightning"). */
+  propInfo?: string;
+  /** Reload case (e.g. "Pro29-6GXL"); absent for single-use. */
+  caseInfo?: string;
 }
 
 export interface MotorSearchQuery {

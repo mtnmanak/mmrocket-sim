@@ -22,6 +22,20 @@ const db = rawDb as { generated: string; count: number; motors: MotorDbEntry[] }
 export const MOTOR_DB: MotorDbEntry[] = db.motors;
 export const MOTOR_DB_DATE: string = db.generated;
 
+/**
+ * Display form of a motor designation (the owner's cleanup rules):
+ * - Cesaroni catalogs the total impulse in front of the real designation
+ *   ("381I224-15A" is the I224-15A) — strip the leading digits.
+ * - AeroTech/Loki sometimes prepend "HP-" ("HP-I140W") — strip it.
+ * The RAW designation stays the identity for .ork files and API calls;
+ * this is a display/report transform only.
+ */
+export function displayDesignation(designation: string, manufacturer?: string): string {
+  let d = designation.replace(/^HP-/i, '');
+  if (manufacturer === 'Cesaroni') d = d.replace(/^\d+(?=[A-O]\d)/, '');
+  return d;
+}
+
 /** Common casing sizes (mm). 76 intentionally absent — it snaps to 75. */
 const COMMON_CLASSES = [6, 13, 18, 24, 29, 38, 54, 75, 98, 132, 152];
 
@@ -83,6 +97,7 @@ export function filterMotors(filter: MotorFilter, motors: MotorDbEntry[] = MOTOR
     if (!filter.includeOOP && m.availability !== 'regular') return false;
     if (text
       && !m.designation.toLowerCase().includes(text)
+      && !displayDesignation(m.designation, m.manufacturerAbbrev).toLowerCase().includes(text)
       && !m.commonName.toLowerCase().includes(text)) return false;
     return true;
   });
@@ -97,14 +112,52 @@ export function sortMotors(
   key: MotorSortKey,
   dir: 1 | -1,
 ): MotorDbEntry[] {
+  // The Motor column shows the DISPLAY designation, so sort what's shown
+  // (Cesaroni's raw "381I224" would otherwise order by impulse prefix).
+  const val = (m: MotorDbEntry) => key === 'designation'
+    ? displayDesignation(m.designation, m.manufacturerAbbrev)
+    : m[key];
   return [...motors].sort((a, b) => {
-    const av = a[key];
-    const bv = b[key];
+    const av = val(a);
+    const bv = val(b);
     const cmp = typeof av === 'string' && typeof bv === 'string'
       ? av.localeCompare(bv)
       : (Number(av) || 0) - (Number(bv) || 0);
     return cmp !== 0 ? cmp * dir : a.designation.localeCompare(b.designation);
   });
+}
+
+/**
+ * Finds the bundled-DB motor a .ork file refers to. Desktop files store the
+ * catalog designation (sometimes the display form, sometimes with prefixes),
+ * so match raw designation, display designation, and common name — using the
+ * file's motor diameter as a tiebreaker and preferring in-production entries.
+ */
+export function findDbMotor(
+  designation: string,
+  diameterMm?: number,
+  motors: MotorDbEntry[] = MOTOR_DB,
+): MotorDbEntry | null {
+  const want = designation.trim().toLowerCase();
+  if (!want) return null;
+  const rank = (m: MotorDbEntry): number => {
+    const raw = m.designation.toLowerCase();
+    const disp = displayDesignation(m.designation, m.manufacturerAbbrev).toLowerCase();
+    if (raw === want || disp === want) return 0;
+    // Delay-suffix tolerance: "I224-15A" in the file vs "I224" cataloged, or
+    // the file omitting the delay the catalog lists.
+    if (raw.startsWith(want) || disp.startsWith(want)
+      || want.startsWith(disp) || m.commonName.toLowerCase() === want) return 1;
+    return -1;
+  };
+  const candidates = motors
+    .map((m) => ({ m, r: rank(m) }))
+    .filter(({ m, r }) => r >= 0
+      && (diameterMm === undefined || Math.abs(m.diameter - diameterMm) <= 1.5));
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => a.r - b.r
+    || Number(b.m.availability === 'regular') - Number(a.m.availability === 'regular'));
+  return candidates[0]!.m;
 }
 
 /** Manufacturers present among motors that fit the mount, with counts. */

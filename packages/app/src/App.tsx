@@ -22,6 +22,10 @@ import { TreeSchematic } from './components/TreeSchematic.js';
 import { BUILT_IN_MOTORS } from './motors.js';
 import { PreferencesDialog } from './components/PreferencesDialog.js';
 import { usePrefs } from './prefs/PrefsContext.js';
+import { UnitChip } from './components/UnitChip.js';
+import { niceStep, siToUi, uiToSi } from './prefs/units.js';
+import { displayDesignation, findDbMotor } from './services/motorDb.js';
+import { delayOptions, fetchMotorSpec } from './services/thrustcurve.js';
 import { exportOrk, importOrk } from './services/orkFile.js';
 import { loadSession, saveSessionDebounced } from './services/session.js';
 import { buildSimRun, recommendDelay, type MotorMeta, type SimRun } from './services/simReport.js';
@@ -36,6 +40,20 @@ import './styles.css';
 /** Rocket names that mean "the user never named it" (desktop default is "Rocket"). */
 const GENERIC_ROCKET_NAMES = new Set(['rocket', 'new rocket', 'imported rocket', 'my rocket']);
 
+/**
+ * Pre-v0.005 the max-motor-length input lived in the motor browser's filters
+ * — seed the rocket-level value from there so nobody has to re-enter it.
+ */
+function legacyMaxMotorLength(): number | null {
+  try {
+    const raw = localStorage.getItem('online-openrocket.motor-filters.v1');
+    const v = raw ? (JSON.parse(raw) as { maxLength?: unknown }).maxLength : null;
+    return typeof v === 'number' && Number.isFinite(v) ? v : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Rewrites a motor label's delay suffix ("H220-14" / "H220 (auto delay)"). */
 function labelWithDelay(label: string, delay: number | 'auto'): string {
   const base = label.replace(/ \(auto delay\)$/, '').replace(/-\d+(\.\d+)?$/, '');
@@ -43,7 +61,7 @@ function labelWithDelay(label: string, delay: number | 'auto'): string {
 }
 
 export function App() {
-  const { resolvedTheme } = usePrefs();
+  const { prefs, resolvedTheme } = usePrefs();
   const [showPrefs, setShowPrefs] = useState(false);
   // Restore the previous session (autosaved on every change) if one exists.
   const session = useRef(loadSession()).current;
@@ -54,6 +72,12 @@ export function App() {
   const [motorMeta, setMotorMeta] = useState<MotorMeta>(
     session?.motorMeta ?? builtInMeta(session?.motorLabel ?? 'C6-5'));
   const [mountId, setMountId] = useState<string | null>(session?.mountId ?? null);
+  // Max motor length is a physical property of the ROCKET (how much room the
+  // airframe has), so it lives here — not in the motor browser's filters.
+  const [maxMotorLenM, setMaxMotorLenM] = useState<number | null>(
+    session && 'maxMotorLengthM' in session
+      ? session.maxMotorLengthM ?? null
+      : legacyMaxMotorLength());
   const [launch, setLaunch] = useState<LaunchConditions>(session?.launch ?? DEFAULT_CONDITIONS);
   const [result, setResult] = useState<FlightResult | null>(null);
   const [lastRun, setLastRun] = useState<SimRun | null>(null);
@@ -70,8 +94,8 @@ export function App() {
 
   // Autosave the working state so a closed tab or crash never loses work.
   useEffect(() => {
-    saveSessionDebounced({ tree, motorLabel, motor, motorMeta, mountId, launch });
-  }, [tree, motorLabel, motor, motorMeta, mountId, launch]);
+    saveSessionDebounced({ tree, motorLabel, motor, motorMeta, mountId, launch, maxMotorLengthM: maxMotorLenM });
+  }, [tree, motorLabel, motor, motorMeta, mountId, launch, maxMotorLenM]);
 
   // ---- undo (Ctrl+Z / button) ----
   const history = useRef<RocketTree[]>([]);
@@ -210,12 +234,33 @@ export function App() {
         const match = Object.entries(BUILT_IN_MOTORS).find(
           ([k]) => k.startsWith(imported.motor!.designation),
         );
+        const dbMatch = match ? null
+          : findDbMotor(imported.motor.designation, imported.motor.diameter * 1000);
         if (match) {
           setMotorLabel(match[0]);
           setMotor(match[1]);
           notes.push(`Motor: ${match[0]} (matched built-in).`);
+        } else if (dbMatch) {
+          try {
+            const delay = imported.motor.delay;
+            const spec = await fetchMotorSpec(dbMatch, delay);
+            const label = `${dbMatch.commonName}-${delay}`;
+            setMotorLabel(label);
+            setMotor(spec);
+            setMotorMeta({
+              label,
+              manufacturer: dbMatch.manufacturerAbbrev,
+              availableDelays: delayOptions(dbMatch),
+              type: dbMatch.type,
+              propellant: dbMatch.propInfo,
+              motorCase: dbMatch.caseInfo,
+            });
+            notes.push(`Motor: ${dbMatch.manufacturerAbbrev} ${displayDesignation(dbMatch.designation, dbMatch.manufacturerAbbrev)}-${delay} (loaded from the motor database).`);
+          } catch {
+            notes.push(`Motor “${imported.motor.designation}” is in the motor database but its thrust curve couldn't be downloaded — pick it via Browse motor database.`);
+          }
         } else {
-          notes.push(`Motor “${imported.motor.designation}” isn't built-in — pick it via thrustcurve.org search.`);
+          notes.push(`Motor “${imported.motor.designation}” isn't in the motor database — pick one via Browse motor database.`);
         }
       }
       setTree(imported.tree);
@@ -272,6 +317,7 @@ export function App() {
           info={built.info}
           mountId={activeMountId}
           mountDiameterMm={mountInnerDiaMm}
+          maxMotorLengthM={maxMotorLenM}
           launch={launch}
           rocketName={tree.name ?? 'Rocket'}
           onRunsChange={setRuns}
@@ -386,8 +432,24 @@ export function App() {
                 No motor mount — add an inner tube and check “acts as motor mount”.
               </p>
             )}
+            <div className="field" style={{ marginBottom: 8 }}
+              title="Longest motor the airframe has room for — a physical property of this rocket. Longer motors are flagged in the browser and excluded from batch simulation.">
+              <label>Max motor length (<UnitChip quantity="motorDimensions" />)</label>
+              <NumField
+                value={maxMotorLenM === null
+                  ? undefined
+                  : siToUi('motorDimensions', prefs.units.motorDimensions, maxMotorLenM)}
+                step={niceStep(siToUi('motorDimensions', prefs.units.motorDimensions, 0.005))}
+                nullable
+                placeholder="no limit"
+                ariaLabel="Maximum motor length"
+                onCommit={(v) => setMaxMotorLenM(
+                  v === null ? null : uiToSi('motorDimensions', prefs.units.motorDimensions, v))}
+              />
+            </div>
             <MotorPicker
               mountDiameterMm={mountInnerDiaMm}
+              maxMotorLengthM={maxMotorLenM}
               selectedLabel={motorLabel}
               onSelect={(label, m, meta) => {
                 setMotorLabel(label);
@@ -498,13 +560,22 @@ export function App() {
               {lastRun && <SimRunDetails run={lastRun} />}
               <FlightCharts result={result} />
             </>
+          ) : lastRun ? (
+            // A saved run re-opened from the history: the stored report renders
+            // in full, but charts need a fresh simulation's series.
+            <SimRunDetails run={lastRun} />
           ) : (
             <div className="panel placeholder">
               Press <strong>Launch</strong> to fly this design and see altitude,
               velocity and acceleration plots.
             </div>
           )}
-          <SimHistory runs={runs} onRunsChange={setRuns} />
+          <SimHistory
+            runs={runs}
+            onRunsChange={setRuns}
+            selectedId={lastRun?.id ?? null}
+            onSelect={(r) => { setResult(null); setLastRun(r); }}
+          />
         </main>
       </div>
     </div>

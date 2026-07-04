@@ -18,6 +18,8 @@ export interface SessionState {
   motor: MotorSpec;
   motorMeta?: MotorMeta;
   mountId: string | null;
+  /** Rocket-level max motor length (SI m); null/absent = no limit. */
+  maxMotorLengthM?: number | null;
   launch: LaunchConditions;
   /** Last-save timestamp (ms epoch) — shown on restore. */
   savedAt: number;

@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { OrkRocket, SimulationOptions, StaticInfo } from '@online-openrocket/engine';
 import {
-  MOTOR_DB, classLabel, classesFittingMount, filterMotors, manufacturersForMount,
-  sortMotors, type MotorDbEntry,
+  MOTOR_DB, classLabel, classesFittingMount, displayDesignation, filterMotors,
+  manufacturersForMount, sortMotors, type MotorDbEntry,
 } from '../services/motorDb.js';
 import { exToDbEntry, loadExMotors } from '../services/exMotors.js';
 import { fetchMotorSpec, delayOptions } from '../services/thrustcurve.js';
@@ -59,11 +59,13 @@ interface BatchRow {
   failed: string[];
 }
 
-export function BatchSimulate({ rocket, info, mountId, mountDiameterMm, launch, rocketName, onRunsChange, onClose }: {
+export function BatchSimulate({ rocket, info, mountId, mountDiameterMm, maxMotorLengthM, launch, rocketName, onRunsChange, onClose }: {
   rocket: OrkRocket;
   info: StaticInfo;
   mountId: string;
   mountDiameterMm: number;
+  /** Rocket-level max motor length (SI m); null = no limit. Too-long motors are excluded. */
+  maxMotorLengthM: number | null;
   launch: LaunchConditions;
   rocketName: string;
   onRunsChange: (runs: SimRun[]) => void;
@@ -94,7 +96,9 @@ export function BatchSimulate({ rocket, info, mountId, mountDiameterMm, launch, 
     [mountDiameterMm, criteria.includeOOP, allMotors],
   );
 
-  const candidates = useMemo(() => {
+  // Motors longer than the rocket's max motor length are EXCLUDED here (not
+  // just flagged): in a batch there's no point flying motors that don't fit.
+  const { candidates, tooLongCount } = useMemo(() => {
     const filtered = filterMotors({
       manufacturers: new Set(criteria.manufacturers),
       classes: new Set(criteria.classes.filter((c) => fittingClasses.includes(c))),
@@ -102,8 +106,14 @@ export function BatchSimulate({ rocket, info, mountId, mountDiameterMm, launch, 
       includeOOP: criteria.includeOOP,
       text: '',
     }, allMotors);
-    return sortMotors(filtered, 'totImpulseNs', -1);
-  }, [criteria, mountDiameterMm, fittingClasses, allMotors]);
+    const fitting = maxMotorLengthM === null
+      ? filtered
+      : filtered.filter((m) => m.length / 1000 <= maxMotorLengthM);
+    return {
+      candidates: sortMotors(fitting, 'totImpulseNs', -1),
+      tooLongCount: filtered.length - fitting.length,
+    };
+  }, [criteria, mountDiameterMm, maxMotorLengthM, fittingClasses, allMotors]);
 
   useEffect(() => () => { cancelled.current = true; }, []);
 
@@ -145,7 +155,7 @@ export function BatchSimulate({ rocket, info, mountId, mountDiameterMm, launch, 
     for (let i = 0; i < candidates.length; i++) {
       if (cancelled.current) break;
       const entry = candidates[i]!;
-      setProgress({ done: i, total: candidates.length, current: `${entry.manufacturerAbbrev} ${entry.designation}` });
+      setProgress({ done: i, total: candidates.length, current: `${entry.manufacturerAbbrev} ${displayDesignation(entry.designation, entry.manufacturerAbbrev)}` });
       // Yield to the browser so the progress bar paints between sims.
       await new Promise((r) => setTimeout(r, 0));
       try {
@@ -175,6 +185,9 @@ export function BatchSimulate({ rocket, info, mountId, mountDiameterMm, launch, 
             manufacturer: entry.manufacturerAbbrev,
             availableDelays: opts,
             autoDelay: criteria.autoDelay,
+            type: entry.type,
+            propellant: entry.propInfo,
+            motorCase: entry.caseInfo,
           },
           launch,
           rocketName,
@@ -284,6 +297,7 @@ export function BatchSimulate({ rocket, info, mountId, mountDiameterMm, launch, 
         <div className="motor-load-row">
           <span style={{ flex: 1 }} className="motor-db-meta">
             {candidates.length} candidate motors
+            {tooLongCount > 0 && ` · ${tooLongCount} excluded (over max motor length)`}
             {criteria.autoDelay ? ' · 2 sims each (delay probe + final)' : ''}
             {progress && ` — simulating ${progress.done + 1}/${progress.total}: ${progress.current}`}
           </span>
@@ -324,7 +338,7 @@ export function BatchSimulate({ rocket, info, mountId, mountDiameterMm, launch, 
               <tbody>
                 {sorted.map(({ entry, run, error, failed }) => (
                   <tr key={entry.motorId} className={failed.length ? 'motor-row-long' : ''}>
-                    <td>{entry.manufacturerAbbrev} {entry.designation}</td>
+                    <td>{entry.manufacturerAbbrev} {displayDesignation(entry.designation, entry.manufacturerAbbrev)}</td>
                     <td>{run ? `${run.delayS}s` : '—'}</td>
                     <td>{run ? fmtSi('distance', dist, run.maxAltitude) : '—'}</td>
                     <td>{run?.rodExitVelocity != null ? fmtSi('velocity', vel, run.rodExitVelocity) : '—'}</td>

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { MotorSpec } from '@online-openrocket/engine';
 import {
   MOTOR_DB, MOTOR_DB_DATE, classLabel, classesFittingMount, diameterClass,
-  filterMotors, manufacturersForMount, sortMotors,
+  displayDesignation, filterMotors, manufacturersForMount, sortMotors,
   type MotorDbEntry, type MotorSortKey,
 } from '../services/motorDb.js';
 import {
@@ -10,7 +10,7 @@ import {
 } from '../services/exMotors.js';
 import { delayOptions, fetchMotorSpec } from '../services/thrustcurve.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
-import { niceStep, siToUi, uiToSi } from '../prefs/units.js';
+import { siToUi } from '../prefs/units.js';
 import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
 import type { MotorMeta } from '../services/simReport.js';
@@ -19,8 +19,9 @@ import type { MotorMeta } from '../services/simReport.js';
  * Full-database motor browser: manufacturer + diameter-class toggles (motors
  * larger than the mount never show; smaller classes ride in adapters), OOP
  * toggle, free-text search, and a sortable table. Motors longer than the
- * user's max motor length are flagged ⚠ but stay selectable — the length
- * limit is a heads-up (hidden internal components), not a hard rule.
+ * rocket's max motor length (set in the main Motor panel — it's a property
+ * of the rocket, not a browser filter) are flagged ⚠ but stay selectable —
+ * the length limit is a heads-up (hidden internal components), not a hard rule.
  */
 
 const FILTERS_KEY = 'online-openrocket.motor-filters.v1';
@@ -30,8 +31,6 @@ interface StoredFilters {
   manufacturers: string[];
   classes: number[];
   includeOOP: boolean;
-  /** SI meters; null = no limit. */
-  maxLength: number | null;
   sortKey: MotorSortKey;
   sortDir: 1 | -1;
 }
@@ -40,7 +39,6 @@ const DEFAULT_FILTERS: StoredFilters = {
   manufacturers: [],
   classes: [],
   includeOOP: false,
-  maxLength: null,
   sortKey: 'totImpulseNs',
   sortDir: -1,
 };
@@ -63,8 +61,10 @@ const SORTABLE: { key: MotorSortKey; label: string }[] = [
   { key: 'totImpulseNs', label: 'Impulse (Ns)' },
 ];
 
-export function MotorBrowser({ mountDiameterMm, onSelect, onClose }: {
+export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClose }: {
   mountDiameterMm: number;
+  /** Rocket-level max motor length (SI m); null = no limit. */
+  maxMotorLengthM: number | null;
   onSelect: (label: string, spec: MotorSpec, meta: MotorMeta) => void;
   onClose: () => void;
 }) {
@@ -130,7 +130,7 @@ export function MotorBrowser({ mountDiameterMm, onSelect, onClose }: {
   }, [picked]);
 
   const tooLong = (m: MotorDbEntry) =>
-    filters.maxLength !== null && m.length / 1000 > filters.maxLength;
+    maxMotorLengthM !== null && m.length / 1000 > maxMotorLengthM;
 
   const toggle = <T,>(list: T[], v: T): T[] =>
     list.includes(v) ? list.filter((x) => x !== v) : [...list, v];
@@ -163,6 +163,9 @@ export function MotorBrowser({ mountDiameterMm, onSelect, onClose }: {
         manufacturer: picked.manufacturerAbbrev,
         availableDelays: opts,
         autoDelay: delay === 'auto',
+        type: picked.type,
+        propellant: picked.propInfo,
+        motorCase: picked.caseInfo,
       });
       onClose();
     } catch (e) {
@@ -173,7 +176,6 @@ export function MotorBrowser({ mountDiameterMm, onSelect, onClose }: {
   };
 
   const dimUi = (mm: number) => siToUi('motorDimensions', motorSym, mm / 1000);
-  const maxLenStep = niceStep(siToUi('motorDimensions', motorSym, 0.005));
 
   return (
     <div className="prefs-overlay" role="presentation" onClick={onClose}>
@@ -232,28 +234,11 @@ export function MotorBrowser({ mountDiameterMm, onSelect, onClose }: {
               onChange={(e) => setText(e.target.value)}
               style={{ flex: 1 }}
             />
-            <label className="motor-inline-label">
-              Max length <UnitChip quantity="motorDimensions" />
-              <input
-                type="number"
-                min={0}
-                step={maxLenStep}
-                placeholder="no limit"
-                style={{ width: 90 }}
-                value={filters.maxLength === null
-                  ? ''
-                  : Number(siToUi('motorDimensions', motorSym, filters.maxLength).toFixed(4))}
-                onChange={(e) => {
-                  const v = Number(e.target.value);
-                  setFilters({
-                    ...filters,
-                    maxLength: e.target.value === '' || !Number.isFinite(v)
-                      ? null
-                      : uiToSi('motorDimensions', motorSym, v),
-                  });
-                }}
-              />
-            </label>
+            {maxMotorLengthM !== null && (
+              <span className="motor-db-meta" title="Set in the Motor panel — a property of the rocket. Longer motors are flagged ⚠ but stay selectable.">
+                max motor length {siToUi('motorDimensions', motorSym, maxMotorLengthM).toFixed(motorSym === 'mm' ? 0 : 2)} {motorSym}
+              </span>
+            )}
             <label className="motor-inline-label">
               <input
                 type="checkbox"
@@ -302,7 +287,7 @@ export function MotorBrowser({ mountDiameterMm, onSelect, onClose }: {
                       ? `Longer than your max motor length — may hit internal components. Still selectable.`
                       : undefined}
                   >
-                    <td>{flagged && '⚠ '}{m.designation}{m.availability !== 'regular' && <span className="motor-oop">OOP</span>}</td>
+                    <td>{flagged && '⚠ '}{displayDesignation(m.designation, m.manufacturerAbbrev)}{m.availability !== 'regular' && <span className="motor-oop">OOP</span>}</td>
                     <td>{m.manufacturerAbbrev}</td>
                     <td>{dimUi(m.diameter).toFixed(motorSym === 'mm' ? 0 : 2)}</td>
                     <td>{dimUi(m.length).toFixed(motorSym === 'mm' ? 0 : 2)}</td>
@@ -327,7 +312,7 @@ export function MotorBrowser({ mountDiameterMm, onSelect, onClose }: {
           {picked ? (
             <>
               <span style={{ flex: 1 }}>
-                <strong>{picked.manufacturerAbbrev} {picked.designation}</strong>
+                <strong>{picked.manufacturerAbbrev} {displayDesignation(picked.designation, picked.manufacturerAbbrev)}</strong>
                 {picked.motorId.startsWith('ex:') && (
                   <>
                     {' '}

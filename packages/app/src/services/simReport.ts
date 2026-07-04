@@ -1,6 +1,7 @@
 import type { FlightResult, MotorSpec, StaticInfo } from '@online-openrocket/engine';
 import { G0 } from '@online-openrocket/engine';
 import type { LaunchConditions } from '../components/LaunchPanel.js';
+import { displayDesignation } from './motorDb.js';
 
 /**
  * Post-simulation report: every attribute the owner's flight-day workflow needs,
@@ -16,6 +17,20 @@ export interface MotorMeta {
   availableDelays?: number[];
   /** User asked for the auto-computed optimal delay. */
   autoDelay?: boolean;
+  /** 'SU' | 'reload' | 'hybrid' (thrustcurve.org catalog). */
+  type?: string;
+  /** Propellant name (e.g. "Classic", "White Lightning"). */
+  propellant?: string;
+  /** Reload case (e.g. "Pro29-6GXL"); empty for single-use. */
+  motorCase?: string;
+}
+
+/** Human label for the catalog motor type. */
+export function motorTypeLabel(type: string | undefined): string {
+  return type === 'SU' ? 'single-use'
+    : type === 'reload' ? 'reload'
+    : type === 'hybrid' ? 'hybrid'
+    : type ?? '';
 }
 
 /** Safety thresholds (SI). Sources: common HPR/NAR guidance + the owner's rules. */
@@ -67,9 +82,15 @@ export interface SimRun {
   /** epoch ms */
   when: number;
   rocket: string;
+  /** Display designation (Cesaroni impulse prefix / "HP-" already stripped). */
   motor: string;
   manufacturer: string;
   motorDiameterMm: number;
+  /** 'single-use' | 'reload' | 'hybrid' (optional: older stored runs lack it). */
+  motorType?: string;
+  propellant?: string;
+  /** Reload case; empty for single-use motors. */
+  motorCase?: string;
   /** Ejection delay the sim flew with (s). */
   delayS: number;
 
@@ -84,6 +105,8 @@ export interface SimRun {
   rodExitVelocity: number | null;
   thrustToWeightAtRod: number | null;
   launchMass: number | null;
+  /** Rocket mass after motor burnout (kg) — the owner's "recovery weight". */
+  burnoutMass?: number | null;
   launchCG: number | null;
   launchCP: number | null;
   launchStaticMarginCal: number | null;
@@ -180,6 +203,7 @@ export function buildSimRun(input: {
     return null;
   };
   const launchMass = series.mass[0] ?? null;
+  const burnoutMass = tBurnout !== null ? at(series.time, series.mass, tBurnout) : null;
   const launchCG = firstFinite(series.cgLocation) ?? info.cg ?? null;
   const launchCP = firstFinite(series.cpLocation) ?? info.cp ?? null;
   const launchStaticMarginCal = firstFinite(series.stability) ?? info.stabilityCalibers ?? null;
@@ -285,9 +309,12 @@ export function buildSimRun(input: {
     id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
     when: Date.now(),
     rocket: rocketName,
-    motor: motor.designation,
+    motor: displayDesignation(motor.designation, meta?.manufacturer),
     manufacturer: meta?.manufacturer ?? '',
     motorDiameterMm: Math.round(motor.diameter * 1000 * 10) / 10,
+    motorType: motorTypeLabel(meta?.type),
+    propellant: meta?.propellant ?? '',
+    motorCase: meta?.motorCase ?? '',
     delayS: motor.ejectionDelay,
     maxAltitude: summary.maxAltitude,
     maxVelocity: summary.maxVelocity,
@@ -299,6 +326,7 @@ export function buildSimRun(input: {
     rodExitVelocity,
     thrustToWeightAtRod,
     launchMass,
+    burnoutMass,
     launchCG,
     launchCP,
     launchStaticMarginCal,

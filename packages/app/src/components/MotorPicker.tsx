@@ -17,11 +17,15 @@ export function builtInMeta(label: string): MotorMeta {
     label,
     manufacturer: 'Estes',
     availableDelays: Number.isFinite(delay) ? [delay] : undefined,
+    type: 'SU',
+    propellant: 'black powder',
   };
 }
 
-export function MotorPicker({ mountDiameterMm, selectedLabel, onSelect }: {
+export function MotorPicker({ mountDiameterMm, maxMotorLengthM, selectedLabel, onSelect }: {
   mountDiameterMm: number;
+  /** Rocket-level max motor length (SI m); null = no limit. */
+  maxMotorLengthM: number | null;
   selectedLabel: string;
   onSelect: (label: string, spec: MotorSpec, meta: MotorMeta) => void;
 }) {
@@ -54,6 +58,7 @@ export function MotorPicker({ mountDiameterMm, selectedLabel, onSelect }: {
       {browsing && (
         <MotorBrowser
           mountDiameterMm={mountDiameterMm}
+          maxMotorLengthM={maxMotorLengthM}
           onSelect={onSelect}
           onClose={() => setBrowsing(false)}
         />

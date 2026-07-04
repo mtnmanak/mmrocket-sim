@@ -9,7 +9,7 @@
  * push.
  */
 
-export const APP_VERSION = '0.004';
+export const APP_VERSION = '0.005';
 
 export interface ChangelogEntry {
   version: string;
@@ -20,6 +20,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.005',
+    date: '2026-07-03',
+    title: 'Motor workflow: max length as a rocket property, cleaner designations, richer CSV',
+    items: [
+      'Max motor length moved out of the motor browser into the main Motor panel — it\'s a physical property of the rocket, saved with your session. The browser still flags ⚠ too-long motors (selectable, as before); batch simulation now EXCLUDES them and says how many it skipped.',
+      'Motor designations cleaned up everywhere: Cesaroni\'s catalog impulse prefix is stripped (381I224-15A shows as I224-15A) and HP- prefixes (AeroTech/Loki) are removed. Sorting and search understand the clean form; .ork files keep the raw catalog designation.',
+      'Launch/batch CSV rebuilt to the flight-day column order: Designation, Apogee (ft), Velocity (mph), Manufacturer, Diameter, Type, Propellant, Case, T:W, Guide (mph), Accel (Gs), Delay (s), Pad Weight (g), Recovery Weight (g) — then the full SI detail columns. Motor type (single-use/reload/hybrid), propellant and reload case come from a refreshed thrustcurve.org bundle; recovery weight is the simulated rocket mass after burnout.',
+      'Opening an .ork no longer nags "isn\'t built-in" for motors we know: the file\'s motor is matched against the 1,129-motor database (designation, clean form, or common name + diameter) and loaded automatically, thrust curve and all.',
+      'Saved simulations are clickable — click a row to open that run\'s full launch report; the selected row highlights. Delete still works without opening the run.',
+    ],
+  },
   {
     version: '0.004',
     date: '2026-07-03',

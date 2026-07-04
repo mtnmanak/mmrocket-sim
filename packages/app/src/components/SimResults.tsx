@@ -162,6 +162,9 @@ export function SimRunDetails({ run }: { run: SimRun }) {
               <Row label="Wind average" value={fmtSi('windspeed', prefs.units.windspeed, run.windAvg)} quantity="windspeed" />
               <Row label="Motor diameter" value={`${run.motorDiameterMm} mm`} />
               <Row label="Manufacturer" value={run.manufacturer || '—'} />
+              <Row label="Motor type" value={run.motorType || '—'} />
+              <Row label="Propellant" value={run.propellant || '—'} />
+              <Row label="Motor case" value={run.motorCase || '—'} />
             </tbody>
           </table>
         </div>
@@ -170,9 +173,12 @@ export function SimRunDetails({ run }: { run: SimRun }) {
   );
 }
 
-export function SimHistory({ runs, onRunsChange }: {
+export function SimHistory({ runs, onRunsChange, onSelect, selectedId }: {
   runs: SimRun[];
   onRunsChange: (runs: SimRun[]) => void;
+  /** Click a row to load that run into the launch report. */
+  onSelect?: (run: SimRun) => void;
+  selectedId?: string | null;
 }) {
   const { prefs } = usePrefs();
   const [open, setOpen] = useState(false);
@@ -220,7 +226,12 @@ export function SimHistory({ runs, onRunsChange }: {
                   || r.safeLandingRate === false
                   || (r.deployments ?? []).some((d) => d.descentOk === false);
                 return (
-                  <tr key={r.id}>
+                  <tr
+                    key={r.id}
+                    className={`motor-row ${selectedId === r.id ? 'motor-row-picked' : ''}`}
+                    title="Click to open this run in the launch report"
+                    onClick={() => onSelect?.(r)}
+                  >
                     <td title={r.rocket}>{r.manufacturer ? `${r.manufacturer} ` : ''}{r.motor}</td>
                     <td>{r.delayS}s</td>
                     <td>{fmtSi('distance', dist, r.maxAltitude)}</td>
@@ -231,7 +242,7 @@ export function SimHistory({ runs, onRunsChange }: {
                     <td>{new Date(r.when).toLocaleTimeString()}</td>
                     <td>
                       <button className="fin-row-del" title="Delete run"
-                        onClick={() => onRunsChange(deleteRun(r.id))}>✕</button>
+                        onClick={(e) => { e.stopPropagation(); onRunsChange(deleteRun(r.id)); }}>✕</button>
                     </td>
                   </tr>
                 );

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   MOTOR_DB, allClasses, classLabel, classesFittingMount, diameterClass,
-  filterMotors, manufacturersForMount, sortMotors,
+  displayDesignation, filterMotors, findDbMotor, manufacturersForMount, sortMotors,
 } from './motorDb.js';
 
 describe('bundled motor database', () => {
@@ -98,5 +98,53 @@ describe('filtering and sorting', () => {
 
   it('every DB class is reachable through some mount size', () => {
     expect(classesFittingMount(200).length).toBe(allClasses().length);
+  });
+});
+
+describe('display designations (the owner\'s cleanup rules)', () => {
+  it('strips the Cesaroni total-impulse prefix', () => {
+    expect(displayDesignation('381I224-15A', 'Cesaroni')).toBe('I224-15A');
+    expect(displayDesignation('10347N10000-P', 'Cesaroni')).toBe('N10000-P');
+    expect(displayDesignation('107G83-14A', 'Cesaroni')).toBe('G83-14A');
+  });
+
+  it('leaves non-Cesaroni leading digits alone (Estes 1/2A etc.)', () => {
+    expect(displayDesignation('1/2A6', 'Estes')).toBe('1/2A6');
+    expect(displayDesignation('G80T', 'AeroTech')).toBe('G80T');
+  });
+
+  it('strips HP- prefixes regardless of manufacturer', () => {
+    expect(displayDesignation('HP-I140W', 'AeroTech')).toBe('I140W');
+    expect(displayDesignation('HP-G75M', 'Loki')).toBe('G75M');
+  });
+
+  it('every Cesaroni motor in the DB cleans to letter-first', () => {
+    for (const m of MOTOR_DB.filter((m) => m.manufacturerAbbrev === 'Cesaroni')) {
+      expect(displayDesignation(m.designation, 'Cesaroni')).toMatch(/^[A-O]\d/);
+    }
+  });
+});
+
+describe('findDbMotor (.ork motor matching)', () => {
+  it('finds an exact designation (the G80T case from the owner\'s report)', () => {
+    const m = findDbMotor('G80T');
+    expect(m).not.toBeNull();
+    expect(m!.manufacturerAbbrev).toBe('AeroTech');
+  });
+
+  it('finds Cesaroni motors by display designation', () => {
+    const m = findDbMotor('I224-15A');
+    expect(m?.designation).toBe('381I224-15A');
+  });
+
+  it('uses the file diameter to disambiguate', () => {
+    const m = findDbMotor('G80T', 29);
+    expect(m).not.toBeNull();
+    expect(Math.abs(m!.diameter - 29)).toBeLessThanOrEqual(1.5);
+  });
+
+  it('returns null for fantasy motors', () => {
+    expect(findDbMotor('Z9999-XX')).toBeNull();
+    expect(findDbMotor('')).toBeNull();
   });
 });
