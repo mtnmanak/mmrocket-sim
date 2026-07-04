@@ -9,7 +9,7 @@
  * push.
  */
 
-export const APP_VERSION = '0.010';
+export const APP_VERSION = '0.011';
 
 export interface ChangelogEntry {
   version: string;
@@ -20,6 +20,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.011',
+    date: '2026-07-04',
+    title: 'Printable fin templates (SVG, true scale)',
+    items: [
+      'Select any fin set (trapezoidal, elliptical, or freeform) and hit "📐 Fin template (SVG, 1:1)" — you get a true-scale cut template: hairline outline for laser cutting, the through-the-wall tab hanging below the root line, a dashed root-chord reference, the fin\'s specs, and a 50 mm calibration ruler so you can verify the printer didn\'t rescale.',
+      'The SVG uses physical millimeter units — print at 100% from any browser, or drop the file straight into a laser-cutter workflow.',
+    ],
+  },
   {
     version: '0.010',
     date: '2026-07-04',

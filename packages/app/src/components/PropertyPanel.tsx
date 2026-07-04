@@ -11,6 +11,7 @@ import { fmtSi, niceStep, siToUi, uiToSi, type Quantity } from '../prefs/units.j
 import { BULK_MATERIALS, LINE_MATERIALS, SURFACE_MATERIALS, type MaterialDef } from '../data/materials.js';
 import { PresetPicker } from './PresetPicker.js';
 import { KIND_FOR_TYPE } from '../services/presets.js';
+import { finTemplateSvg } from '../services/finTemplate.js';
 
 /**
  * Schema fields are authored in "legacy" units (mm/deg/g/m/s/kg·m⁻³ — what the
@@ -228,6 +229,21 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll }: {
         <button className="file-btn" style={{ marginTop: 6, width: '100%' }}
           onClick={() => setShowPresets(true)}>
           📦 Choose from preset database…
+        </button>
+      )}
+      {(node.type === 'trapezoidfinset' || node.type === 'ellipticalfinset'
+        || node.type === 'freeformfinset') && (
+        <button className="file-btn" style={{ marginTop: 6, width: '100%' }}
+          title="True-scale SVG cut template — print at 100% or send to a laser cutter; includes the through-the-wall tab and a 50 mm calibration ruler"
+          onClick={() => {
+            const svg = finTemplateSvg(node, tree.name ?? 'Rocket');
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
+            a.download = `${(node.name ?? 'fin').replace(/[^\w-]+/g, '_')}-template.svg`;
+            a.click();
+            URL.revokeObjectURL(a.href);
+          }}>
+          📐 Fin template (SVG, 1:1)
         </button>
       )}
       {showPresets && (
