@@ -7,6 +7,7 @@ import info.openrocket.core.material.Material;
 import info.openrocket.core.rocketcomponent.BodyTube;
 import info.openrocket.core.rocketcomponent.Bulkhead;
 import info.openrocket.core.rocketcomponent.CenteringRing;
+import info.openrocket.core.rocketcomponent.ClusterConfiguration;
 import info.openrocket.core.rocketcomponent.DeploymentConfiguration;
 import info.openrocket.core.rocketcomponent.EllipticalFinSet;
 import info.openrocket.core.rocketcomponent.EngineBlock;
@@ -195,6 +196,27 @@ final class ComponentFactory {
                 tube.setOuterRadius(dbl(node, "outerRadius", 0.0095));
                 tube.setThickness(dbl(node, "thickness", 0.0005));
                 tube.setMotorMount(bool(node, "motorMount", false));
+                // Cluster: pattern by its .ork XML name ("3-ring", "double"…).
+                // One motor definition serves the whole cluster — the kernel
+                // multiplies thrust by tube count and places mass/inertia at
+                // the cluster geometry points. Rotation is radians (SI/rad
+                // everywhere inside; degrees exist only at UI/.ork edges).
+                String clusterName = str(node, "cluster", null);
+                if (clusterName != null && !clusterName.isEmpty()) {
+                    ClusterConfiguration cc = null;
+                    for (ClusterConfiguration known : ClusterConfiguration.CONFIGURATIONS) {
+                        if (known.getXMLName().equals(clusterName)) {
+                            cc = known;
+                            break;
+                        }
+                    }
+                    if (cc == null) {
+                        throw new IllegalArgumentException("Unknown cluster configuration: " + clusterName);
+                    }
+                    tube.setClusterConfiguration(cc);
+                    tube.setClusterScale(dbl(node, "clusterScale", 1.0));
+                    tube.setClusterRotation(dbl(node, "clusterRotation", 0.0));
+                }
                 c = tube;
                 break;
             }

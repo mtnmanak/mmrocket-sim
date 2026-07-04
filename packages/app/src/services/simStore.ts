@@ -105,6 +105,7 @@ const COLUMNS: [string, (r: SimRun) => string | number][] = [
   ['Safe deployment', (r) => flag(r.safeDeployment)],
   ['Static margin OK', (r) => flag(r.staticMarginOk)],
   ['Weathercock risk', (r) => r.weathercockRisk ?? ''],
+  ['Motors (cluster)', (r) => r.motorCount ?? 1],
   ['Wind avg (m/s)', (r) => round(r.windAvg, 1)],
   ['Execution time (ms)', (r) => Math.round(r.execMs)],
   ['Comments', (r) => r.comments],

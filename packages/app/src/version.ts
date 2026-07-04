@@ -9,7 +9,7 @@
  * push.
  */
 
-export const APP_VERSION = '0.006';
+export const APP_VERSION = '0.007';
 
 export interface ChangelogEntry {
   version: string;
@@ -20,6 +20,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.007',
+    date: '2026-07-03',
+    title: 'Clustered motor mounts',
+    items: [
+      'Inner tubes can now be motor CLUSTERS: pick a layout (double, 3/4-row, 3–6-ring, 3–6-star, 9-grid, 9-star) plus tube spacing and rotation on the inner-tube panel. One motor choice fires the whole cluster — the real OpenRocket kernel multiplies thrust by tube count and places every motor\'s mass at its true position (differential-tested against the desktop JVM, 5× stable).',
+      'The 2D view draws each cluster tube at its actual position; the Motor panel and batch simulation show the ×N motor count; the launch report and CSV gain a "Motors (cluster)" field. Pad weight, thrust:weight and acceleration are automatically cluster-aware.',
+      '.ork files round-trip the cluster layout with the desktop (pattern, spacing, rotation) — and desktop files with clustered mounts now import them instead of collapsing to a single tube.',
+      'Batch simulate works on clustered mounts: every candidate motor flies ×N. (Reminder from the field: mixed motor types in one cluster must stay symmetric — full mixed-cluster support lands with per-mount motor assignment in the staging release.)',
+    ],
+  },
   {
     version: '0.006',
     date: '2026-07-03',

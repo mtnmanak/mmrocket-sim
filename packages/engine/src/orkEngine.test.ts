@@ -225,4 +225,51 @@ describe('OrkRocket (real OpenRocket kernel via TeaVM)', () => {
     const info = rocket.staticInfo();
     expect(info.stabilityCalibers).toBeLessThan(1.0);
   });
+
+  it('fires a clustered mount as thrust ×N with N motor masses (P3 clusters)', () => {
+    const airframe = (cluster: object) => ({
+      components: [
+        { type: 'nosecone' as const, length: 0.12, aftRadius: 0.033, thickness: 0.002 },
+        {
+          type: 'bodytube' as const, length: 0.45, outerRadius: 0.033, thickness: 0.001, density: 950,
+          children: [
+            { type: 'trapezoidfinset' as const, finCount: 3, rootChord: 0.09, tipChord: 0.05, sweep: 0.04, height: 0.06, thickness: 0.003 },
+            {
+              type: 'innertube' as const, id: 'mount', length: 0.075, outerRadius: 0.0095,
+              thickness: 0.0005, motorMount: true, position: { method: 'bottom' as const, offset: 0 },
+              ...cluster,
+            },
+          ],
+        },
+      ],
+    });
+
+    const single = OrkRocket.buildTree(airframe({}));
+    single.setMotorById('mount', C6_MOTOR);
+    const ring3 = OrkRocket.buildTree(airframe({ cluster: '3-ring', clusterScale: 1.0, clusterRotation: 0 }));
+    ring3.setMotorById('mount', C6_MOTOR);
+
+    // Loaded mass grows by exactly two extra motors (+ their tube copies).
+    const dm = ring3.staticInfo().mass - single.staticInfo().mass;
+    expect(dm).toBeGreaterThan(2 * 0.024);
+    expect(dm).toBeLessThan(2 * 0.024 + 0.01);
+
+    // Thrust ×3 on a same-mass rocket: max acceleration well above single's.
+    const one = single.simulate({ launchRodLength: 1.0 });
+    const three = ring3.simulate({ launchRodLength: 1.0 });
+    expect(three.summary.maxAcceleration).toBeGreaterThan(2 * one.summary.maxAcceleration);
+    expect(three.summary.maxAltitude).toBeGreaterThan(2 * one.summary.maxAltitude);
+  });
+
+  it('rejects unknown cluster configurations with a clear message', () => {
+    expect(() =>
+      OrkRocket.buildTree({
+        components: [
+          { type: 'bodytube', length: 0.3, outerRadius: 0.033, thickness: 0.001, children: [
+            { type: 'innertube', motorMount: true, cluster: '17-mega' },
+          ] },
+        ],
+      }),
+    ).toThrow(/Unknown cluster configuration/);
+  });
 });

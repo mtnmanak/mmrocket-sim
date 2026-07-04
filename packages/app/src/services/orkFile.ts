@@ -220,6 +220,13 @@ export function importOrk(data: ArrayBuffer | string): OrkTreeImportResult {
         n['length'] = num(el, 'length', 0.07);
         n['outerRadius'] = num(el, 'outerradius', 0.0095);
         n['thickness'] = num(el, 'thickness', 0.0005);
+        // Cluster (desktop stores rotation in DEGREES; we keep radians).
+        const cluster = text(el, ':scope > clusterconfiguration');
+        if (cluster && cluster !== 'single') {
+          n['cluster'] = cluster;
+          n['clusterScale'] = num(el, 'clusterscale', 1);
+          n['clusterRotation'] = (num(el, 'clusterrotation', 0) * Math.PI) / 180;
+        }
         readMotor(el, n, true);
         return n;
       }
@@ -625,9 +632,10 @@ export function exportOrk({ name, tree, motor, mountId }: OrkTreeExportInput): s
         emit(depth + 1, '<radialdirection>0.0</radialdirection>');
         emit(depth + 1, `<outerradius>${n(node, 'outerRadius', 0.0095)}</outerradius>`);
         emit(depth + 1, `<thickness>${n(node, 'thickness', 0.0005)}</thickness>`);
-        emit(depth + 1, '<clusterconfiguration>single</clusterconfiguration>');
-        emit(depth + 1, '<clusterscale>1.0</clusterscale>');
-        emit(depth + 1, '<clusterrotation>0.0</clusterrotation>');
+        // Desktop stores cluster rotation in DEGREES; we keep radians inside.
+        emit(depth + 1, `<clusterconfiguration>${typeof node['cluster'] === 'string' ? node['cluster'] : 'single'}</clusterconfiguration>`);
+        emit(depth + 1, `<clusterscale>${n(node, 'clusterScale', 1)}</clusterscale>`);
+        emit(depth + 1, `<clusterrotation>${(n(node, 'clusterRotation', 0) * 180) / Math.PI}</clusterrotation>`);
         if (motor && mountId && node.id === mountId) {
           motorMountXml(depth + 1);
         }

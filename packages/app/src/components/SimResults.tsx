@@ -165,6 +165,7 @@ export function SimRunDetails({ run }: { run: SimRun }) {
               <Row label="Motor type" value={run.motorType || '—'} />
               <Row label="Propellant" value={run.propellant || '—'} />
               <Row label="Motor case" value={run.motorCase || '—'} />
+              <Row label="Motors" value={(run.motorCount ?? 1) > 1 ? `${run.motorCount} (cluster)` : '1'} />
             </tbody>
           </table>
         </div>

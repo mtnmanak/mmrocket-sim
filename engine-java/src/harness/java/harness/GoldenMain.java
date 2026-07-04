@@ -36,6 +36,67 @@ public final class GoldenMain {
         conditionsScenarios();
         finVariantScenarios();
         dualDeployScenarios();
+        clusterScenarios();
+    }
+
+    /**
+     * Clustered motor mount: identical airframe flown with a single mount vs
+     * a 3-ring cluster of the same motor. The kernel fires the cluster as
+     * thrust×count with mass/inertia at the cluster geometry points — the
+     * cluster flight must show ~3× the loaded-motor mass delta and a much
+     * higher max acceleration. Also asserts the cluster geometry itself
+     * (count + tube offsets) so a silently-ignored cluster param can't pass.
+     */
+    private static void clusterScenarios() {
+        for (String pattern : new String[] { null, "3-ring" }) {
+            String name = pattern == null ? "single" : "ring3";
+            String clusterAttrs = pattern == null ? ""
+                    : ",\"cluster\":\"" + pattern + "\",\"clusterScale\":1.0,\"clusterRotation\":0.5235987755982988";
+            String json = "{\"name\":\"Cluster\",\"components\":["
+                    + "{\"type\":\"nosecone\",\"length\":0.12,\"aftRadius\":0.033,\"thickness\":0.002},"
+                    + "{\"type\":\"bodytube\",\"length\":0.45,\"outerRadius\":0.033,\"thickness\":0.001,\"density\":950,\"children\":["
+                    + "  {\"type\":\"trapezoidfinset\",\"finCount\":3,\"rootChord\":0.09,\"tipChord\":0.05,\"sweep\":0.04,\"height\":0.06,\"thickness\":0.003},"
+                    + "  {\"type\":\"innertube\",\"id\":\"mount\",\"length\":0.075,\"outerRadius\":0.0095,\"thickness\":0.0005,\"motorMount\":true"
+                    + clusterAttrs + ",\"position\":{\"method\":\"bottom\",\"offset\":0}},"
+                    + "  {\"type\":\"parachute\",\"diameter\":0.45}"
+                    + "]}]}";
+            int r = api.OrkEngine.buildRocket(json);
+
+            // Geometry assertion straight off the kernel component.
+            info.openrocket.core.rocketcomponent.Rocket rocket =
+                    (info.openrocket.core.rocketcomponent.Rocket) getRocketFromInfo(r);
+            info.openrocket.core.rocketcomponent.InnerTube mount = null;
+            for (info.openrocket.core.rocketcomponent.RocketComponent comp : rocket) {
+                if (comp instanceof info.openrocket.core.rocketcomponent.InnerTube) {
+                    mount = (info.openrocket.core.rocketcomponent.InnerTube) comp;
+                }
+            }
+            Coordinate[] offsets = mount.getInstanceOffsets();
+            double[] geom = new double[1 + offsets.length * 2];
+            geom[0] = mount.getInstanceCount();
+            for (int i = 0; i < offsets.length; i++) {
+                geom[1 + i * 2] = offsets[i].y;
+                geom[2 + i * 2] = offsets[i].z;
+            }
+            line("cluster." + name + ".geometry", geom);
+
+            api.OrkEngine.setMotorById(r, "mount", "C6", 0.018, 0.070,
+                    new double[] { 0, 0.1, 0.3, 0.5, 1.0, 1.5, 1.85, 2.0 },
+                    new double[] { 0, 12.0, 6.0, 5.1, 4.9, 4.8, 4.5, 0 },
+                    new double[] { 0.0240, 0.0231, 0.0215, 0.0202, 0.0174, 0.0147, 0.0133, 0.0132 },
+                    0.035, 4.0);
+            lineStaticInfo("cluster." + name + ".info", api.OrkEngine.getStaticInfo(r));
+
+            String result = api.OrkEngine.simulateJson(r, "{\"rodLength\":1.0}");
+            java.util.Map<String, Object> parsed = api.JsonLite.parseObject(result);
+            java.util.Map<String, Object> summary = asMap(parsed.get("summary"));
+            line("flight.cluster." + name,
+                    api.JsonLite.dbl(summary, "maxAltitude", Double.NaN),
+                    api.JsonLite.dbl(summary, "maxVelocity", Double.NaN),
+                    api.JsonLite.dbl(summary, "maxAcceleration", Double.NaN),
+                    api.JsonLite.dbl(summary, "timeToApogee", Double.NaN),
+                    api.JsonLite.dbl(summary, "flightTime", Double.NaN));
+        }
     }
 
     /**

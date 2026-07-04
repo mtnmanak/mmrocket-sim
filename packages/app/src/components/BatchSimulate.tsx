@@ -59,13 +59,15 @@ interface BatchRow {
   failed: string[];
 }
 
-export function BatchSimulate({ rocket, info, mountId, mountDiameterMm, maxMotorLengthM, launch, rocketName, onRunsChange, onClose }: {
+export function BatchSimulate({ rocket, info, mountId, mountDiameterMm, maxMotorLengthM, motorCount, launch, rocketName, onRunsChange, onClose }: {
   rocket: OrkRocket;
   info: StaticInfo;
   mountId: string;
   mountDiameterMm: number;
   /** Rocket-level max motor length (SI m); null = no limit. Too-long motors are excluded. */
   maxMotorLengthM: number | null;
+  /** Cluster count of the mount — each candidate fires ×N (thrust/mass automatic). */
+  motorCount: number;
   launch: LaunchConditions;
   rocketName: string;
   onRunsChange: (runs: SimRun[]) => void;
@@ -188,6 +190,7 @@ export function BatchSimulate({ rocket, info, mountId, mountDiameterMm, maxMotor
             type: entry.type,
             propellant: entry.propInfo,
             motorCase: entry.caseInfo,
+            motorCount,
           },
           launch,
           rocketName,
@@ -232,7 +235,10 @@ export function BatchSimulate({ rocket, info, mountId, mountDiameterMm, maxMotor
       <div className="prefs-dialog panel motor-browser" role="dialog" aria-label="Batch simulate motors"
         onClick={(e) => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-          <h2 style={{ flex: 1 }}>Batch simulate — every motor that fits</h2>
+          <h2 style={{ flex: 1 }}>
+            Batch simulate — every motor that fits
+            {motorCount > 1 && <span className="motor-db-meta"> cluster mount: each candidate fires ×{motorCount}</span>}
+          </h2>
           <button className="file-btn" onClick={onClose} disabled={running}>✕ Close</button>
         </div>
 

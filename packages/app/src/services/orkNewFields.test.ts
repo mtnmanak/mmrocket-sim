@@ -81,6 +81,55 @@ describe('.ork round-trip of shoulder/filled/finish/override/deployment fields',
   });
 });
 
+describe('.ork round-trip of cluster configuration', () => {
+  const tree: RocketTree = {
+    name: 'ClusterSample',
+    components: [
+      { type: 'nosecone', length: 0.12, aftRadius: 0.033, thickness: 0.002 },
+      {
+        type: 'bodytube', length: 0.45, outerRadius: 0.033, thickness: 0.001,
+        children: [
+          {
+            type: 'innertube', id: 'mt', length: 0.075, outerRadius: 0.0095,
+            thickness: 0.0005, motorMount: true,
+            cluster: '3-ring', clusterScale: 1.25, clusterRotation: Math.PI / 6,
+            position: { method: 'bottom', offset: 0 },
+          },
+        ],
+      },
+    ],
+  };
+
+  it('preserves cluster pattern/scale/rotation (degrees in the file, radians inside)', () => {
+    const xml = exportOrk({ name: 'ClusterSample', tree });
+    expect(xml).toContain('<clusterconfiguration>3-ring</clusterconfiguration>');
+    expect(xml).toContain('<clusterscale>1.25</clusterscale>');
+    // Desktop stores rotation in degrees.
+    expect(xml).toMatch(/<clusterrotation>29\.99999+\d*<\/clusterrotation>|<clusterrotation>30<\/clusterrotation>/);
+
+    const back = importOrk(xml);
+    const mount = back.tree.components[1]!.children!.find((c) => c.type === 'innertube')!;
+    expect(mount['cluster']).toBe('3-ring');
+    expect(mount['clusterScale']).toBeCloseTo(1.25);
+    expect(mount['clusterRotation']).toBeCloseTo(Math.PI / 6, 9);
+  });
+
+  it('omits nothing for single mounts (back-compat: literal single)', () => {
+    const plain: RocketTree = {
+      components: [
+        { type: 'bodytube', length: 0.3, outerRadius: 0.012, thickness: 0.0005, children: [
+          { type: 'innertube', id: 'mt', length: 0.07, outerRadius: 0.0095, thickness: 0.0005, motorMount: true },
+        ] },
+      ],
+    };
+    const xml = exportOrk({ name: 'Plain', tree: plain });
+    expect(xml).toContain('<clusterconfiguration>single</clusterconfiguration>');
+    const back = importOrk(xml);
+    const mount = back.tree.components[0]!.children!.find((c) => c.type === 'innertube')!;
+    expect(mount['cluster']).toBeUndefined();
+  });
+});
+
 describe('.ork round-trip of fin tabs', () => {
   const tree: RocketTree = {
     name: 'TabSample',

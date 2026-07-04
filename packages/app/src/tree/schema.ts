@@ -1,4 +1,5 @@
 import type { ComponentNode, ComponentType } from '@online-openrocket/engine';
+import { CLUSTER_OPTIONS } from './cluster.js';
 
 /**
  * Editor schema: display names, containment rules, default nodes, and the
@@ -206,6 +207,12 @@ export const FIELDS: Record<ComponentType, FieldDef[]> = {
     lenMM('length', 'Length'),
     radMM('outerRadius', 'Outer radius', 0.5, 50),
     lenMM('thickness', 'Wall thickness', 0.1, 5),
+    // Cluster: N copies of this tube (and its motor) at the pattern points.
+    // One motor choice serves the whole cluster — thrust ×N, mass at the
+    // real tube positions (kernel ClusterConfiguration).
+    { key: 'cluster', label: 'Cluster layout', unit: 'none', options: CLUSTER_OPTIONS },
+    { key: 'clusterScale', label: 'Cluster spacing (× tube ⌀)', unit: 'none', step: 0.05, smin: 1, smax: 3 },
+    { key: 'clusterRotation', label: 'Cluster rotation', unit: 'deg', step: 5, smin: -180, smax: 180 },
     DENSITY,
   ],
   tubecoupler: [

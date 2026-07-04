@@ -23,6 +23,8 @@ export interface MotorMeta {
   propellant?: string;
   /** Reload case (e.g. "Pro29-6GXL"); empty for single-use. */
   motorCase?: string;
+  /** Motors firing together (cluster count of the mount); 1 = no cluster. */
+  motorCount?: number;
 }
 
 /** Human label for the catalog motor type. */
@@ -91,6 +93,8 @@ export interface SimRun {
   propellant?: string;
   /** Reload case; empty for single-use motors. */
   motorCase?: string;
+  /** Motors firing together (cluster); absent/1 = single motor. */
+  motorCount?: number;
   /** Ejection delay the sim flew with (s). */
   delayS: number;
 
@@ -315,6 +319,7 @@ export function buildSimRun(input: {
     motorType: motorTypeLabel(meta?.type),
     propellant: meta?.propellant ?? '',
     motorCase: meta?.motorCase ?? '',
+    motorCount: meta?.motorCount ?? 1,
     delayS: motor.ejectionDelay,
     maxAltitude: summary.maxAltitude,
     maxVelocity: summary.maxVelocity,

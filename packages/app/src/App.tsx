@@ -35,6 +35,7 @@ import {
   addChild, defaultTree, duplicateNode, emptyTree, findNode, inheritDefaults,
   makeNode, motorMounts, moveNode, removeNode, updateAllNodes, updateNode,
 } from './tree/treeModel.js';
+import { clusterCount } from './tree/cluster.js';
 import './styles.css';
 
 /** Rocket names that mean "the user never named it" (desktop default is "Rocket"). */
@@ -180,7 +181,7 @@ export function App() {
           result: res,
           info: built.info,
           motor: { ...motor, ejectionDelay: flownDelay },
-          meta: motorMeta,
+          meta: { ...motorMeta, motorCount: mountMotorCount },
           launch,
           rocketName: tree.name ?? 'Rocket',
           execMs,
@@ -286,6 +287,9 @@ export function App() {
   const mountInnerDiaMm = mountNode
     ? Math.round(((mountNode['outerRadius'] as number ?? 0.0095) - (mountNode['thickness'] as number ?? 0.0005)) * 2000)
     : 18;
+  // Clustered mount: ONE motor choice fires N motors (kernel does thrust ×N
+  // and mass at the real tube positions).
+  const mountMotorCount = mountNode ? clusterCount(mountNode['cluster'] as string | undefined) : 1;
 
   return (
     <div className="viz-root" data-theme={resolvedTheme}>
@@ -327,6 +331,7 @@ export function App() {
           mountId={activeMountId}
           mountDiameterMm={mountInnerDiaMm}
           maxMotorLengthM={maxMotorLenM}
+          motorCount={mountMotorCount}
           launch={launch}
           rocketName={tree.name ?? 'Rocket'}
           onRunsChange={setRuns}
@@ -466,6 +471,12 @@ export function App() {
                 setMotorMeta(meta);
               }}
             />
+            {mountMotorCount > 1 && (
+              <p className="motor-db-meta" style={{ marginTop: 6 }}>
+                ⚡ Cluster mount ({mountNode?.['cluster'] as string}): this motor fires
+                ×{mountMotorCount} — thrust and motor weight multiply automatically.
+              </p>
+            )}
             <div className="field" style={{ marginTop: 8 }}>
               <label>
                 Ejection delay (s)
