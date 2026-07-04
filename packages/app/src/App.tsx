@@ -30,6 +30,8 @@ import { displayDesignation, findDbMotor, isHighPower } from './services/motorDb
 import { delayOptions, fetchMotorSpec } from './services/thrustcurve.js';
 import { exportOrk, importOrk, type OrkExportMotor } from './services/orkFile.js';
 import { exportRkt, importRkt } from './services/rocksimFile.js';
+import { rocketToObj } from './services/objExport.js';
+import { exportCdx1, importCdx1 } from './services/rasaeroFile.js';
 import { loadSession, saveSessionDebounced } from './services/session.js';
 import { buildSimRun, recommendDelay, type MotorMeta, type SimRun } from './services/simReport.js';
 import { addRun, loadRuns } from './services/simStore.js';
@@ -305,12 +307,14 @@ export function App() {
   const onOpenOrk = async (file: File) => {
     try {
       const buffer = await file.arrayBuffer();
-      const imported = /\.rkt$/i.test(file.name) ? importRkt(buffer) : importOrk(buffer);
+      const imported = /\.rkt$/i.test(file.name) ? importRkt(buffer)
+        : /\.cdx1$/i.test(file.name) ? importCdx1(buffer)
+        : importOrk(buffer);
       // Desktop OpenRocket's default rocket name is literally "Rocket" (users
       // name the file instead) — fall back to the filename in that case.
       if (!imported.tree.name
           || GENERIC_ROCKET_NAMES.has(imported.tree.name.trim().toLowerCase())) {
-        const fromFile = file.name.replace(/\.(ork|rkt)$/i, '').replace(/_+/g, ' ').trim();
+        const fromFile = file.name.replace(/\.(ork|rkt|cdx1)$/i, '').replace(/_+/g, ' ').trim();
         if (fromFile) {
           imported.tree.name = fromFile;
           imported.name = fromFile;
@@ -708,9 +712,9 @@ export function App() {
                 <button className={view === '3d' ? 'active' : ''} role="tab"
                   aria-selected={view === '3d'} onClick={() => setView('3d')}>3D</button>
               </div>
-              <label className="file-btn" title="Open an OpenRocket (.ork) or RockSim (.rkt) design">
-                Open .ork/.rkt
-                <input type="file" accept=".ork,.rkt" style={{ display: 'none' }}
+              <label className="file-btn" title="Open an OpenRocket (.ork), RockSim (.rkt), or RASAero II (.CDX1) design">
+                Open…
+                <input type="file" accept=".ork,.rkt,.CDX1" style={{ display: 'none' }}
                   onChange={(e) => {
                     const f = e.target.files?.[0];
                     if (f) onOpenOrk(f);
@@ -721,6 +725,33 @@ export function App() {
               <button className="file-btn" onClick={onSaveRkt}
                 title="Export as a RockSim design (max 3 stages; clusters split into individual tubes)">
                 Save .rkt
+              </button>
+              <button className="file-btn"
+                title="Export as a RASAero II design (aero geometry + recovery + launch weight; RASAero needs conical transitions and 3–8 trapezoid fins)"
+                onClick={() => {
+                  try {
+                    download(exportCdx1({
+                      name: tree.name ?? 'My Rocket',
+                      tree,
+                      launchMassKg: built?.info.mass,
+                      launchCgM: built?.info.cg,
+                    }), 'CDX1');
+                  } catch (e) {
+                    setFileNote(`RASAero export failed: ${e instanceof Error ? e.message : String(e)}`);
+                  }
+                }}>
+                Save .CDX1
+              </button>
+              <button className="file-btn"
+                title="Export the external 3D geometry as a Wavefront OBJ (meters) — print preview / CAD reference"
+                onClick={() => {
+                  try {
+                    download(rocketToObj(tree, tree.name ?? 'Rocket'), 'obj');
+                  } catch (e) {
+                    setFileNote(`OBJ export failed: ${e instanceof Error ? e.message : String(e)}`);
+                  }
+                }}>
+                Save .obj
               </button>
             </div>
             {view === '2d'

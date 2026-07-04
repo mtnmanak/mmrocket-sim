@@ -54,7 +54,7 @@ const MAT = {
   lug: '#9a978f',
 };
 
-interface Piece {
+export interface Piece {
   key: string;
   geometry: THREE.BufferGeometry;
   color: string;
@@ -62,7 +62,8 @@ interface Piece {
   rotation?: [number, number, number];
 }
 
-function buildPieces(tree: RocketTree): { pieces: Piece[]; totalLen: number; maxR: number } {
+/** Shared with the OBJ exporter — this IS the app's 3D geometry. */
+export function buildPieces(tree: RocketTree): { pieces: Piece[]; totalLen: number; maxR: number } {
   const pieces: Piece[] = [];
   let x = 0;
   let maxR = 0.005;

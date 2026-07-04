@@ -9,7 +9,7 @@
  * push.
  */
 
-export const APP_VERSION = '0.011';
+export const APP_VERSION = '0.012';
 
 export interface ChangelogEntry {
   version: string;
@@ -20,6 +20,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.012',
+    date: '2026-07-04',
+    title: 'RASAero II files + 3D model export — the file-format arc completes',
+    items: [
+      'Open .CDX1: RASAero II designs import — full geometry (flat inch-based part lists become proper stages; boosters, shoulders and boat tails included), fins with cross-sections, launch lugs, and both recovery slots as parachutes with their deployment settings. RASAero carries no material/mass data, so the import says so honestly (2 mm default walls, "review masses") and lists the motors named in the file so you can load them from our database.',
+      'Save .CDX1: exports designs that fit RASAero\'s model (up to 3 stages, conical transitions, 3–8 trapezoid fins per set) with recovery and the computed launch weight/CG for RASAero\'s simulation.',
+      'Save .obj: the rocket\'s external 3D geometry as a Wavefront OBJ (meters) — print previews, renders, CAD reference.',
+      'The file bar now covers: OpenRocket .ork (native), RockSim .rkt (both ways), RASAero .CDX1 (both ways), OBJ + SVG fin templates (out).',
+    ],
+  },
   {
     version: '0.011',
     date: '2026-07-04',
