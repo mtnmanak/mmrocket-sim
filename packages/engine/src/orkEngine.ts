@@ -97,11 +97,29 @@ export interface StaticInfo {
 // ---------- Component-tree API (P2.1) ----------
 
 export type ComponentType =
+  | 'stage'
   | 'nosecone' | 'transition' | 'bodytube'
   | 'trapezoidfinset' | 'ellipticalfinset' | 'freeformfinset' | 'tubefinset'
   | 'innertube' | 'tubecoupler' | 'centeringring' | 'bulkhead' | 'engineblock'
   | 'launchlug' | 'railbutton'
   | 'parachute' | 'streamer' | 'shockcord' | 'masscomponent';
+
+/**
+ * Stage separation trigger (lower stages only; desktop default "ejection").
+ * On a `stage` node: `separationEvent`, `separationDelay` (s),
+ * `separationAltitude` (m, for the altitude events).
+ */
+export type SeparationEvent =
+  | 'launch' | 'ignition' | 'burnout' | 'ejection' | 'upperignition'
+  | 'altitudeascending' | 'apogee' | 'altitudedescending' | 'never';
+
+/**
+ * When a mount's motor ignites. "automatic" = launch-stage motors at launch,
+ * upper-stage motors on the ejection charge of the stage below (the low/mid-
+ * power pattern). High-power sustainers use electronics: "burnout" or
+ * "launch" plus a timer delay.
+ */
+export type IgnitionEvent = 'automatic' | 'launch' | 'ejectioncharge' | 'burnout' | 'never';
 
 export interface ComponentPosition {
   method: 'top' | 'middle' | 'bottom' | 'absolute';
@@ -179,10 +197,25 @@ export interface FlightSeries {
   aoa: number[];
 }
 
+/**
+ * One flight branch of a staged rocket: branch 0 is the sustainer stack
+ * (same data as the top-level events/series); each further branch is a
+ * separated booster's own flight — its descent, recovery and ground hit.
+ */
+export interface FlightBranch {
+  /** Stage name from the design ("Sustainer", "Booster"…). */
+  name: string;
+  events: FlightEvent[];
+  series: FlightSeries;
+}
+
 export interface FlightResult {
+  /** Whole-flight summary (branch 0 = the sustainer stack). */
   summary: FlightSummary;
   events: FlightEvent[];
   series: FlightSeries;
+  /** Present only for staged flights that actually separated (≥2 branches). */
+  branches?: FlightBranch[];
 }
 
 /** Per-component static info (SI), from OrkRocket.componentInfo(). */
@@ -226,6 +259,16 @@ export class OrkRocket {
     ork.setMotorById(
       this.handle, componentId, motor.designation, motor.diameter, motor.length,
       motor.times, motor.thrusts, motor.masses, motor.cgX, motor.ejectionDelay);
+  }
+
+  /**
+   * Overrides WHEN this mount's motor ignites (call after setMotorById).
+   * Staged rockets: "automatic" is the low/mid-power default; high-power
+   * sustainers are electronics-timed — e.g. ('burnout', 1.0) for booster
+   * burnout + 1 s.
+   */
+  setMotorIgnitionById(componentId: string, event: IgnitionEvent, delayS = 0): void {
+    ork.setMotorIgnitionById(this.handle, componentId, event, delayS);
   }
 
   static build(spec: RocketSpec): OrkRocket {

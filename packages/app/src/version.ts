@@ -9,7 +9,7 @@
  * push.
  */
 
-export const APP_VERSION = '0.007';
+export const APP_VERSION = '0.008';
 
 export interface ChangelogEntry {
   version: string;
@@ -20,6 +20,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.008',
+    date: '2026-07-04',
+    title: 'Staging groundwork: the engine now flies multi-stage rockets',
+    items: [
+      'The simulation engine (the real OpenRocket kernel) now accepts serial multi-stage designs: stages with separation triggers (ejection charge, burnout, upper ignition, altitude, apogee…) and per-motor ignition settings — including the high-power standard, electronics-timed sustainer ignition (e.g. booster burnout + N seconds). Low/mid-power gap staging (sustainer lit by the booster\'s ejection charge) works with zero configuration.',
+      'Staged flights return EVERY flight branch: the sustainer\'s full flight plus each separated booster\'s own descent, recovery deployment, and ground hit — verified bit-for-bit against the desktop JVM with two new golden scenarios (5× stable, 229 differential lines).',
+      'One kernel patch (documented in the ledger): a log statement in the separation handler used a number format TeaVM doesn\'t implement, crashing every staged flight in the browser. Log-only fix, zero physics impact.',
+      'The design EDITOR for stages (stage rows, per-mount motors, per-branch launch reports) is the next release — this one is the physics foundation.',
+    ],
+  },
   {
     version: '0.007',
     date: '2026-07-03',

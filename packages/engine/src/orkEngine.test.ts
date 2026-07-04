@@ -261,6 +261,90 @@ describe('OrkRocket (real OpenRocket kernel via TeaVM)', () => {
     expect(three.summary.maxAltitude).toBeGreaterThan(2 * one.summary.maxAltitude);
   });
 
+  it('flies a serial two-stage rocket with separate booster branch (P3 staging)', () => {
+    const rocket = OrkRocket.buildTree({
+      name: 'TwoStage',
+      components: [
+        {
+          type: 'stage', name: 'Sustainer',
+          children: [
+            { type: 'nosecone', length: 0.07, aftRadius: 0.012, thickness: 0.002 },
+            {
+              type: 'bodytube', length: 0.3, outerRadius: 0.012, thickness: 0.0003, density: 950,
+              children: [
+                { type: 'trapezoidfinset', finCount: 3, rootChord: 0.05, tipChord: 0.03, sweep: 0.02, height: 0.025, thickness: 0.003 },
+                { type: 'innertube', id: 'smount', length: 0.07, outerRadius: 0.0095, thickness: 0.0005, motorMount: true, position: { method: 'bottom', offset: 0 } },
+                { type: 'parachute', name: 'SustainerChute', diameter: 0.35 },
+              ],
+            },
+          ],
+        },
+        {
+          type: 'stage', name: 'Booster', separationEvent: 'burnout',
+          children: [
+            {
+              type: 'bodytube', length: 0.12, outerRadius: 0.012, thickness: 0.0003, density: 950,
+              children: [
+                { type: 'trapezoidfinset', finCount: 3, rootChord: 0.05, tipChord: 0.03, sweep: 0.025, height: 0.035, thickness: 0.003 },
+                { type: 'innertube', id: 'bmount', length: 0.07, outerRadius: 0.0095, thickness: 0.0005, motorMount: true, position: { method: 'bottom', offset: 0 } },
+                { type: 'parachute', name: 'BoosterChute', diameter: 0.25 },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    rocket.setMotorById('smount', C6_MOTOR);
+    rocket.setMotorById('bmount', { ...C6_MOTOR, ejectionDelay: 0 });
+    // The high-power pattern: electronics-timed sustainer, burnout + 1 s.
+    rocket.setMotorIgnitionById('smount', 'burnout', 1.0);
+
+    const result = rocket.simulate({ launchRodLength: 1.0 });
+
+    // Two branches: the sustainer stack and the separated booster.
+    expect(result.branches).toBeDefined();
+    expect(result.branches!.length).toBe(2);
+    expect(result.branches![0]!.name).toBe('Sustainer');
+    expect(result.branches![1]!.name).toBe('Booster');
+
+    // Sustainer staging event chain, in order.
+    const types = result.events.map((e) => e.type);
+    expect(types.indexOf('STAGE_SEPARATION')).toBeGreaterThan(types.indexOf('BURNOUT'));
+    expect(types.filter((t) => t === 'IGNITION').length).toBe(2);
+
+    // Two-stage apogee far above a single C6 flight (~330 m reference).
+    expect(result.summary.maxAltitude).toBeGreaterThan(450);
+
+    // The booster flies its OWN recovery to its own ground hit.
+    const booster = result.branches![1]!;
+    const bTypes = booster.events.map((e) => e.type);
+    expect(bTypes).toContain('STAGE_SEPARATION');
+    expect(bTypes).toContain('RECOVERY_DEVICE_DEPLOYMENT');
+    expect(bTypes).toContain('GROUND_HIT');
+    expect(booster.events.find((e) => e.type === 'RECOVERY_DEVICE_DEPLOYMENT')?.source).toBe('BoosterChute');
+    const boosterApogee = Math.max(...booster.series.altitude.filter((v) => v !== null) as number[]);
+    expect(boosterApogee).toBeGreaterThan(20);
+    expect(boosterApogee).toBeLessThan(result.summary.maxAltitude / 2);
+  });
+
+  it('keeps single-stage flights branch-free (back-compat)', () => {
+    const rocket = OrkRocket.build(REFERENCE_ROCKET);
+    rocket.setMotor(C6_MOTOR);
+    const result = rocket.simulate({ launchRodLength: 1.0 });
+    expect(result.branches).toBeUndefined();
+  });
+
+  it('rejects mixed stage/component top levels with a clear message', () => {
+    expect(() =>
+      OrkRocket.buildTree({
+        components: [
+          { type: 'stage', children: [{ type: 'nosecone', length: 0.07, aftRadius: 0.012 }] },
+          { type: 'bodytube', length: 0.3, outerRadius: 0.012 },
+        ],
+      }),
+    ).toThrow(/EVERY top-level node must be a stage/);
+  });
+
   it('rejects unknown cluster configurations with a clear message', () => {
     expect(() =>
       OrkRocket.buildTree({

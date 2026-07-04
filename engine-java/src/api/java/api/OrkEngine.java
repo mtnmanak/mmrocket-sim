@@ -16,6 +16,7 @@ import info.openrocket.core.masscalc.RigidBody;
 import info.openrocket.core.models.atmosphere.ExtendedISAModel;
 import info.openrocket.core.models.gravity.WGSGravityModel;
 import info.openrocket.core.models.wind.PinkNoiseWindModel;
+import info.openrocket.core.motor.IgnitionEvent;
 import info.openrocket.core.motor.Manufacturer;
 import info.openrocket.core.motor.Motor;
 import info.openrocket.core.motor.MotorConfiguration;
@@ -28,6 +29,7 @@ import info.openrocket.core.rocketcomponent.NoseCone;
 import info.openrocket.core.rocketcomponent.Parachute;
 import info.openrocket.core.rocketcomponent.Rocket;
 import info.openrocket.core.rocketcomponent.RocketComponent;
+import info.openrocket.core.rocketcomponent.StageSeparationConfiguration;
 import info.openrocket.core.rocketcomponent.Transition;
 import info.openrocket.core.rocketcomponent.TrapezoidFinSet;
 import info.openrocket.core.simulation.BasicEventSimulationEngine;
@@ -110,6 +112,18 @@ public final class OrkEngine {
      * Builds a complete rocket from a JSON component tree (P2.1 API):
      * { "name": "...", "components": [ {"type": "nosecone", "id": "n1", ...,
      *   "children": [...]}, ... ] }
+     *
+     * Multi-stage (P3): the top level may instead be STAGE nodes —
+     * { "components": [ {"type":"stage", "name":"Sustainer", "children":[...]},
+     *   {"type":"stage", "name":"Booster", "separationEvent":"ejection",
+     *    "separationDelay":0, "children":[...]} ] }
+     * Stage 0 is the top (sustainer); order matches the desktop. A top level
+     * WITHOUT stage nodes keeps the legacy meaning: children of one implicit
+     * stage. Mixing stage and component nodes at the top level is an error.
+     * separationEvent: launch|ignition|burnout|ejection|upperignition|
+     * altitudeascending|apogee|altitudedescending|never (desktop default:
+     * ejection).
+     *
      * Components with an "id" can be addressed later (setMotorById).
      * Returns rocket handle; throws with a descriptive message on bad input.
      */
@@ -121,20 +135,105 @@ public final class OrkEngine {
         if (name != null) {
             rocket.setName(name);
         }
-        AxialStage stage = new AxialStage();
-        rocket.addChild(stage);
+
+        Object comps = tree.get("components");
+        List<?> topLevel = comps instanceof List ? (List<?>) comps : java.util.Collections.emptyList();
+        boolean staged = false;
+        for (Object o : topLevel) {
+            if (o instanceof Map && "stage".equals(((Map<?, ?>) o).get("type"))) {
+                staged = true;
+                break;
+            }
+        }
+
+        Map<String, RocketComponent> ids = new HashMap<>();
+        AxialStage firstStage = null;
+        if (staged) {
+            for (Object o : topLevel) {
+                if (!(o instanceof Map) || !"stage".equals(((Map<?, ?>) o).get("type"))) {
+                    throw new IllegalArgumentException(
+                            "Top level mixes stage and component nodes — with stages, EVERY top-level node must be a stage");
+                }
+                @SuppressWarnings("unchecked")
+                Map<String, Object> stageNode = (Map<String, Object>) o;
+                AxialStage stage = new AxialStage();
+                String stageName = JsonLite.str(stageNode, "name", null);
+                if (stageName != null) {
+                    stage.setName(stageName);
+                }
+                rocket.addChild(stage);
+                if (firstStage == null) {
+                    firstStage = stage;
+                }
+                String stageId = JsonLite.str(stageNode, "id", null);
+                if (stageId != null) {
+                    ids.put(stageId, stage);
+                }
+                applySeparationConfig(stage, stageNode);
+                ComponentFactory.attachChildren(stage, stageNode, ids);
+            }
+            if (firstStage == null) {
+                throw new IllegalArgumentException("Staged rocket has no stages");
+            }
+        } else {
+            firstStage = new AxialStage();
+            rocket.addChild(firstStage);
+        }
+
         FlightConfigurationId fcid = new FlightConfigurationId();
         rocket.createFlightConfiguration(fcid);
         rocket.setSelectedConfiguration(fcid);
 
-        RocketCtx ctx = new RocketCtx(rocket, stage, fcid);
-        // The root node's "components" behave like children of the stage.
-        Map<String, Object> stageNode = new java.util.LinkedHashMap<>();
-        stageNode.put("children", tree.get("components"));
-        ComponentFactory.attachChildren(stage, stageNode, ctx.ids);
+        RocketCtx ctx = new RocketCtx(rocket, firstStage, fcid);
+        ctx.ids.putAll(ids);
+        if (!staged) {
+            // The root node's "components" behave like children of the stage.
+            Map<String, Object> stageNode = new java.util.LinkedHashMap<>();
+            stageNode.put("children", tree.get("components"));
+            ComponentFactory.attachChildren(firstStage, stageNode, ctx.ids);
+        }
 
         rocket.enableEvents();
         return register(ctx);
+    }
+
+    /** Per-stage separation trigger/delay (defaults preserved when absent). */
+    private static void applySeparationConfig(AxialStage stage, Map<String, Object> stageNode) {
+        String event = JsonLite.str(stageNode, "separationEvent", null);
+        double delay = JsonLite.dbl(stageNode, "separationDelay", Double.NaN);
+        double altitude = JsonLite.dbl(stageNode, "separationAltitude", Double.NaN);
+        if (event == null && Double.isNaN(delay) && Double.isNaN(altitude)) {
+            return;
+        }
+        StageSeparationConfiguration sep = new StageSeparationConfiguration();
+        if (event != null) {
+            sep.setSeparationEvent(separationEventOf(event));
+        }
+        if (!Double.isNaN(delay)) {
+            sep.setSeparationDelay(delay);
+        }
+        if (!Double.isNaN(altitude)) {
+            sep.setSeparationAltitude(altitude);
+        }
+        // Default (not per-fcid): applies to the flight configuration created
+        // right after the stages, and to any future one.
+        stage.getSeparationConfigurations().setDefault(sep);
+    }
+
+    private static StageSeparationConfiguration.SeparationEvent separationEventOf(String name) {
+        switch (name.toLowerCase().replace("_", "")) {
+            case "launch": return StageSeparationConfiguration.SeparationEvent.LAUNCH;
+            case "ignition": return StageSeparationConfiguration.SeparationEvent.IGNITION;
+            case "burnout": return StageSeparationConfiguration.SeparationEvent.BURNOUT;
+            case "ejection": return StageSeparationConfiguration.SeparationEvent.EJECTION;
+            case "upperignition": return StageSeparationConfiguration.SeparationEvent.UPPER_IGNITION;
+            case "altitudeascending": return StageSeparationConfiguration.SeparationEvent.ALTITUDE_ASCENDING;
+            case "apogee": return StageSeparationConfiguration.SeparationEvent.APOGEE;
+            case "altitudedescending": return StageSeparationConfiguration.SeparationEvent.ALTITUDE_DESCENDING;
+            case "never": return StageSeparationConfiguration.SeparationEvent.NEVER;
+            default:
+                throw new IllegalArgumentException("Unknown separation event: " + name);
+        }
     }
 
     /** Attaches a motor to the identified mount component (see buildRocket ids). */
@@ -250,6 +349,44 @@ public final class OrkEngine {
         mc.setMotor(motor);
         mc.setEjectionDelay(ejectionDelay);
         mount.setMotorConfig(mc, ctx.fcid);
+    }
+
+    /**
+     * Overrides WHEN the identified mount's motor ignites (call after
+     * setMotorById). Default is "automatic": launch-stage motors light at
+     * launch, upper-stage motors on the ejection charge of the stage below —
+     * the low/mid-power pattern. High-power sustainers use electronics:
+     * "burnout" or "launch" plus a timer delay.
+     * ignitionEvent: automatic|launch|ejectioncharge|burnout|never.
+     */
+    @JSExport
+    public static void setMotorIgnitionById(int rocketHandle, String componentId,
+            String ignitionEvent, double ignitionDelay) {
+        RocketCtx ctx = (RocketCtx) get(rocketHandle);
+        RocketComponent comp = ctx.ids.get(componentId);
+        if (!(comp instanceof InnerTube)) {
+            throw new IllegalArgumentException(
+                    "Component id '" + componentId + "' is not an inner-tube motor mount");
+        }
+        MotorConfiguration mc = ((InnerTube) comp).getMotorConfig(ctx.fcid);
+        if (mc == null || mc.getMotor() == null) {
+            throw new IllegalArgumentException(
+                    "No motor loaded on mount '" + componentId + "' — call setMotorById first");
+        }
+        mc.setIgnitionEvent(ignitionEventOf(ignitionEvent));
+        mc.setIgnitionDelay(ignitionDelay);
+    }
+
+    private static IgnitionEvent ignitionEventOf(String name) {
+        switch (name.toLowerCase().replace("_", "")) {
+            case "automatic": return IgnitionEvent.AUTOMATIC;
+            case "launch": return IgnitionEvent.LAUNCH;
+            case "ejectioncharge": return IgnitionEvent.EJECTION_CHARGE;
+            case "burnout": return IgnitionEvent.BURNOUT;
+            case "never": return IgnitionEvent.NEVER;
+            default:
+                throw new IllegalArgumentException("Unknown ignition event: " + name);
+        }
     }
 
     // ---------- Analysis ----------
@@ -449,9 +586,32 @@ public final class OrkEngine {
         num(sb, "launchRodVelocity", data.getLaunchRodVelocity()).append(',');
         num(sb, "deploymentVelocity", data.getDeploymentVelocity()).append(',');
         num(sb, "optimumDelay", data.getOptimumDelay());
-        sb.append("},\"events\":[");
+        sb.append("},\"events\":");
+        appendEvents(sb, data.getBranch(0));
+        sb.append(",\"series\":");
+        appendBranchSeries(sb, data.getBranch(0));
+        // Staged flights: EVERY branch (sustainer = branch 0, then each
+        // separated booster's own descent), each with name, events, series.
+        // Omitted for single-branch flights — no payload change.
+        if (data.getBranchCount() > 1) {
+            sb.append(",\"branches\":[");
+            for (int i = 0; i < data.getBranchCount(); i++) {
+                if (i > 0) sb.append(',');
+                FlightDataBranch b = data.getBranch(i);
+                sb.append("{\"name\":\"").append(escape(String.valueOf(b.getName())))
+                        .append("\",\"events\":");
+                appendEvents(sb, b);
+                sb.append(",\"series\":");
+                appendBranchSeries(sb, b);
+                sb.append('}');
+            }
+            sb.append(']');
+        }
+        return sb.append('}').toString();
+    }
 
-        FlightDataBranch branch = data.getBranch(0);
+    private static void appendEvents(StringBuilder sb, FlightDataBranch branch) {
+        sb.append('[');
         boolean first = true;
         for (FlightEvent ev : branch.getEvents()) {
             if (!first) sb.append(',');
@@ -466,7 +626,11 @@ public final class OrkEngine {
             }
             sb.append('}');
         }
-        sb.append("],\"series\":{");
+        sb.append(']');
+    }
+
+    private static void appendBranchSeries(StringBuilder sb, FlightDataBranch branch) {
+        sb.append('{');
         appendSeries(sb, "time", branch.get(FlightDataType.TYPE_TIME)).append(',');
         appendSeries(sb, "altitude", branch.get(FlightDataType.TYPE_ALTITUDE)).append(',');
         appendSeries(sb, "velocity", branch.get(FlightDataType.TYPE_VELOCITY_TOTAL)).append(',');
@@ -479,7 +643,7 @@ public final class OrkEngine {
         appendSeries(sb, "cpLocation", branch.get(FlightDataType.TYPE_CP_LOCATION)).append(',');
         appendSeries(sb, "cgLocation", branch.get(FlightDataType.TYPE_CG_LOCATION)).append(',');
         appendSeries(sb, "aoa", branch.get(FlightDataType.TYPE_AOA));
-        return sb.append("}}").toString();
+        sb.append('}');
     }
 
     private static StringBuilder appendSeries(StringBuilder sb, String name, List<Double> values) {

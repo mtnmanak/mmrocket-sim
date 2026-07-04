@@ -37,6 +37,102 @@ public final class GoldenMain {
         finVariantScenarios();
         dualDeployScenarios();
         clusterScenarios();
+        stagingScenarios();
+    }
+
+    /**
+     * Serial two-stage flights through the tree API. Two patterns from the
+     * field (the owner's rules):
+     * - "auto": low/mid-power gap staging — booster motor's ejection charge
+     *   (delay 0) separates the booster AND lights the sustainer
+     *   (IgnitionEvent.AUTOMATIC). Chuteless booster falls on its own branch.
+     * - "timed": the high-power pattern — separation at booster burnout,
+     *   sustainer lit by electronics (burnout + 1 s); booster recovers under
+     *   its own chute on its own branch.
+     * Locks: branch count/names, per-branch event sequences, per-branch
+     * apogee/end-time (the sustainer must fly ~2 stages high; the booster
+     * branch must end on its own GROUND_HIT).
+     */
+    private static void stagingScenarios() {
+        runStagingScenario("auto", null, 0.0, false);
+        runStagingScenario("timed", "burnout", 1.0, true);
+    }
+
+    private static void runStagingScenario(String name, String sustainerIgnition,
+            double ignitionDelay, boolean boosterChute) {
+        String sustainer = "{\"type\":\"stage\",\"name\":\"Sustainer\",\"children\":["
+                + "{\"type\":\"nosecone\",\"length\":0.07,\"aftRadius\":0.012,\"thickness\":0.002},"
+                + "{\"type\":\"bodytube\",\"length\":0.30,\"outerRadius\":0.012,\"thickness\":0.0003,\"density\":950,\"children\":["
+                + "  {\"type\":\"trapezoidfinset\",\"finCount\":3,\"rootChord\":0.05,\"tipChord\":0.03,\"sweep\":0.02,\"height\":0.025,\"thickness\":0.003},"
+                + "  {\"type\":\"innertube\",\"id\":\"smount\",\"length\":0.07,\"outerRadius\":0.0095,\"thickness\":0.0005,\"motorMount\":true,"
+                + "   \"position\":{\"method\":\"bottom\",\"offset\":0}},"
+                + "  {\"type\":\"parachute\",\"name\":\"SustainerChute\",\"diameter\":0.35}"
+                + "]}]}";
+        String booster = "{\"type\":\"stage\",\"name\":\"Booster\","
+                + "\"separationEvent\":\"" + (sustainerIgnition == null ? "ejection" : "burnout") + "\",\"children\":["
+                + "{\"type\":\"bodytube\",\"length\":0.12,\"outerRadius\":0.012,\"thickness\":0.0003,\"density\":950,\"children\":["
+                + "  {\"type\":\"trapezoidfinset\",\"finCount\":3,\"rootChord\":0.05,\"tipChord\":0.03,\"sweep\":0.025,\"height\":0.035,\"thickness\":0.003},"
+                + "  {\"type\":\"innertube\",\"id\":\"bmount\",\"length\":0.07,\"outerRadius\":0.0095,\"thickness\":0.0005,\"motorMount\":true,"
+                + "   \"position\":{\"method\":\"bottom\",\"offset\":0}}"
+                + (boosterChute ? ",{\"type\":\"parachute\",\"name\":\"BoosterChute\",\"diameter\":0.25}" : "")
+                + "]}]}";
+        int r = api.OrkEngine.buildRocket(
+                "{\"name\":\"TwoStage\",\"components\":[" + sustainer + "," + booster + "]}");
+
+        double[] times = { 0, 0.1, 0.3, 0.5, 1.0, 1.5, 1.85, 2.0 };
+        double[] thrusts = { 0, 12.0, 6.0, 5.1, 4.9, 4.8, 4.5, 0 };
+        double[] masses = { 0.0240, 0.0231, 0.0215, 0.0202, 0.0174, 0.0147, 0.0133, 0.0132 };
+        api.OrkEngine.setMotorById(r, "smount", "C6", 0.018, 0.070, times, thrusts, masses, 0.035, 5.0);
+        api.OrkEngine.setMotorById(r, "bmount", "C6", 0.018, 0.070, times, thrusts, masses, 0.035, 0.0);
+        if (sustainerIgnition != null) {
+            api.OrkEngine.setMotorIgnitionById(r, "smount", sustainerIgnition, ignitionDelay);
+        }
+
+        String result = api.OrkEngine.simulateJson(r, "{\"rodLength\":1.0}");
+        java.util.Map<String, Object> parsed = api.JsonLite.parseObject(result);
+        Object branchesObj = parsed.get("branches");
+        if (!(branchesObj instanceof java.util.List)) {
+            System.out.println("staging." + name + ".branches|MISSING");
+            return;
+        }
+        java.util.List<?> branches = (java.util.List<?>) branchesObj;
+        StringBuilder names = new StringBuilder("staging." + name + ".branches|" + branches.size());
+        for (Object b : branches) {
+            names.append('|').append(asMap(b).get("name"));
+        }
+        System.out.println(names);
+
+        for (int i = 0; i < branches.size(); i++) {
+            java.util.Map<String, Object> b = asMap(branches.get(i));
+            StringBuilder evs = new StringBuilder("staging." + name + ".b" + i + ".events");
+            for (Object e : (java.util.List<?>) b.get("events")) {
+                java.util.Map<String, Object> ev = asMap(e);
+                evs.append('|').append(ev.get("type"));
+                Object src = ev.get("source");
+                if (src != null) evs.append('@').append(src);
+            }
+            System.out.println(evs);
+
+            java.util.Map<String, Object> series = asMap(b.get("series"));
+            java.util.List<?> alt = (java.util.List<?>) series.get("altitude");
+            double maxAlt = 0;
+            for (Object v : alt) {
+                if (v instanceof Double && (Double) v > maxAlt) maxAlt = (Double) v;
+            }
+            // Apogee + separation time only: the END of a ~3-minute chute
+            // descent accumulates transcendental ULP noise (end time drifts
+            // ~1e-6 rel, sample count ±1) — same class as the turbulent-
+            // scenario cap. The event SEQUENCES above are exact strings.
+            double sepTime = Double.NaN;
+            for (Object e : (java.util.List<?>) b.get("events")) {
+                java.util.Map<String, Object> ev = asMap(e);
+                if ("STAGE_SEPARATION".equals(ev.get("type"))) {
+                    sepTime = api.JsonLite.dbl(ev, "time", Double.NaN);
+                    break;
+                }
+            }
+            line("flight.staging." + name + ".b" + i, maxAlt, sepTime);
+        }
     }
 
     /**

@@ -8,6 +8,8 @@ import { CLUSTER_OPTIONS } from './cluster.js';
  */
 
 export const DISPLAY_NAME: Record<ComponentType, string> = {
+  // Engine-supported since Release B; editor UI arrives with Release C.
+  stage: 'Stage',
   nosecone: 'Nose cone',
   transition: 'Transition',
   bodytube: 'Body tube',
@@ -131,6 +133,7 @@ const CD: FieldDef = {
 };
 
 export const FIELDS: Record<ComponentType, FieldDef[]> = {
+  stage: [],
   nosecone: [
     lenMM('length', 'Length'),
     radMM('aftRadius', 'Base outer radius', 0.5, 80),
@@ -278,6 +281,7 @@ export const POSITIONABLE: Set<ComponentType> = new Set([
 /** Sensible starting parameters for a freshly added component (SI). */
 export function defaultParams(type: ComponentType): Partial<ComponentNode> {
   switch (type) {
+    case 'stage': return {};
     case 'nosecone': return { length: 0.07, aftRadius: 0.012, thickness: 0.002, shape: 'ogive' };
     case 'transition': return { length: 0.04, foreRadius: 0.012, aftRadius: 0.009, thickness: 0.002, shape: 'conical' };
     case 'bodytube': return { length: 0.2, outerRadius: 0.012, thickness: 0.0005, density: 680 };

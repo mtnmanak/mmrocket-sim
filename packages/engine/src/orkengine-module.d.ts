@@ -7,6 +7,8 @@ declare module '*orkengine.mjs' {
     rocket: number, componentId: string, designation: string, diameter: number,
     length: number, times: number[], thrusts: number[], masses: number[],
     cgX: number, ejectionDelay: number): void;
+  export function setMotorIgnitionById(
+    rocket: number, componentId: string, ignitionEvent: string, ignitionDelay: number): void;
   export function addNoseCone(
     rocket: number, length: number, aftRadius: number,
     thickness: number, shape: string, materialDensity: number): number;

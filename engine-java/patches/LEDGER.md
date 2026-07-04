@@ -10,6 +10,14 @@ git diff --no-index <openrocket-src>/<path> patches/<path>
 
 ## Active patches (all: TeaVM classlib gaps — not behavior changes)
 
+### simulation/BasicEventSimulationEngine.java
+- **Why:** TeaVM 0.15's `java.util.Formatter` does not implement the `%g`
+  conversion; the STAGE_SEPARATION handler logs `String.format("==>> @ %g; ...")`
+  and threw `UnknownFormatConversionException` on EVERY staged flight under JS.
+- **Change:** that one log line: `%g` → `%s` with `Double.toString(...)`.
+  Log-only (stderr); zero physics/goldens impact. Found by the staging golden
+  scenarios (2026-07-03, Phase 3 Release B).
+
 ### rocketcomponent/FlightConfigurationId.java + motor/MotorConfigurationId.java
 - **Why:** TeaVM 0.15's `java.util.UUID` is string-backed; it lacks `UUID(long, long)`,
   `getMostSignificantBits()`, and `compareTo` — all used by these two key classes.
