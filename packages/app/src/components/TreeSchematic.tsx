@@ -63,9 +63,12 @@ export function TreeSchematic({ tree, info, onPatchNode }: {
   const pan = useRef<{ pointerX: number; pointerY: number; x0: number; y0: number } | null>(null);
 
   // --- measure the axial chain ---
+  // Stages flatten into one nose-to-tail chain (sustainer first, boosters
+  // after — the desktop's stacking order); legacy flat trees pass through.
+  const chain = tree.components.flatMap((n) => (n.type === 'stage' ? n.children ?? [] : [n]));
   let totalLen = 0;
   let maxR = 0.001;
-  for (const n of tree.components) {
+  for (const n of chain) {
     if (n.type === 'nosecone' || n.type === 'bodytube' || n.type === 'transition') {
       totalLen += num(n, 'length', 0);
       maxR = Math.max(maxR, num(n, 'aftRadius', 0), num(n, 'outerRadius', 0), num(n, 'foreRadius', 0));
@@ -290,7 +293,7 @@ export function TreeSchematic({ tree, info, onPatchNode }: {
     );
   };
 
-  for (const n of tree.components) {
+  for (const n of chain) {
     const len = num(n, 'length', 0);
     if (n.type === 'nosecone') {
       const r = num(n, 'aftRadius', 0.012);

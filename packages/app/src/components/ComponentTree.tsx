@@ -3,6 +3,7 @@ import type { ComponentNode, ComponentType, RocketTree } from '@online-openrocke
 import { allowedChildren, DISPLAY_NAME } from '../tree/schema.js';
 
 const TYPE_ICON: Partial<Record<ComponentType, string>> = {
+  stage: '▤',
   nosecone: '▲', transition: '◣', bodytube: '▭',
   trapezoidfinset: '◢', ellipticalfinset: '◠', freeformfinset: '⟁', tubefinset: '◎',
   innertube: '▢', tubecoupler: '▣', centeringring: '◌', bulkhead: '●', engineblock: '▪',
@@ -29,6 +30,7 @@ function NodeRow({ node, depth, selectedId, onSelect, onMove, onDelete, onDuplic
       >
         <span className="tree-icon">{TYPE_ICON[node.type] ?? '·'}</span>
         <span className="tree-label">{node.name ?? DISPLAY_NAME[node.type]}</span>
+        {node.type === 'stage' && <span className="tree-badge">stage</span>}
         {node['motorMount'] === true && <span className="tree-badge">motor</span>}
         {selected && (
           <span className="tree-actions" onClick={(e) => e.stopPropagation()}>
@@ -47,7 +49,7 @@ function NodeRow({ node, depth, selectedId, onSelect, onMove, onDelete, onDuplic
   );
 }
 
-export function ComponentTree({ tree, selectedId, onSelect, onMove, onDelete, onDuplicate, onAdd }: {
+export function ComponentTree({ tree, selectedId, onSelect, onMove, onDelete, onDuplicate, onAdd, onAddStage }: {
   tree: RocketTree;
   selectedId: string | null;
   onSelect: (id: string) => void;
@@ -55,6 +57,8 @@ export function ComponentTree({ tree, selectedId, onSelect, onMove, onDelete, on
   onDelete: (id: string) => void;
   onDuplicate: (id: string) => void;
   onAdd: (parentId: string | 'stage', type: ComponentType) => void;
+  /** Appends a booster stage below the existing ones. */
+  onAddStage: () => void;
 }) {
   // Which add menu is open: the selected component's, or the rocket's.
   const [addOpen, setAddOpen] = useState<'selected' | 'rocket' | null>(null);
@@ -109,9 +113,15 @@ export function ComponentTree({ tree, selectedId, onSelect, onMove, onDelete, on
             + Add to {selLabel}
           </button>
         )}
-        <button className="file-btn"
-          onClick={() => setAddOpen(addOpen === 'rocket' ? null : 'rocket')}>
-          + Add to rocket
+        {(selAddable.length === 0 || selectedNode?.type === 'stage') && (
+          <button className="file-btn"
+            onClick={() => setAddOpen(addOpen === 'rocket' ? null : 'rocket')}>
+            + Add component
+          </button>
+        )}
+        <button className="file-btn" title="Add a booster stage below the current ones"
+          onClick={() => { setAddOpen(null); onAddStage(); }}>
+          + Add stage
         </button>
       </div>
       {addOpen === 'selected' && selectedNode && menu(selAddable, selectedNode.id!)}

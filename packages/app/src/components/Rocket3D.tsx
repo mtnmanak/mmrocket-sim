@@ -143,7 +143,9 @@ function buildPieces(tree: RocketTree): { pieces: Piece[]; totalLen: number; max
     }
   };
 
-  for (const n of tree.components) {
+  // Stages flatten into one nose-to-tail chain (sustainer first, boosters after).
+  const chain = tree.components.flatMap((n) => (n.type === 'stage' ? n.children ?? [] : [n]));
+  for (const n of chain) {
     const len = num(n, 'length', 0);
     if (n.type === 'nosecone') {
       const R = num(n, 'aftRadius', 0.012);

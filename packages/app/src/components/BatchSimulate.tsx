@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { OrkRocket, SimulationOptions, StaticInfo } from '@online-openrocket/engine';
 import {
   MOTOR_DB, classLabel, classesFittingMount, displayDesignation, filterMotors,
-  manufacturersForMount, sortMotors, type MotorDbEntry,
+  isHighPower, manufacturersForMount, sortMotors, type MotorDbEntry,
 } from '../services/motorDb.js';
 import { exToDbEntry, loadExMotors } from '../services/exMotors.js';
 import { fetchMotorSpec, delayOptions } from '../services/thrustcurve.js';
@@ -191,6 +191,7 @@ export function BatchSimulate({ rocket, info, mountId, mountDiameterMm, maxMotor
             propellant: entry.propInfo,
             motorCase: entry.caseInfo,
             motorCount,
+            highPower: isHighPower(entry),
           },
           launch,
           rocketName,

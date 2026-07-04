@@ -1,5 +1,6 @@
 import type { MotorSpec, RocketTree } from '@online-openrocket/engine';
 import type { LaunchConditions } from '../components/LaunchPanel.js';
+import type { MountMotor } from '../App.js';
 import type { MotorMeta } from './simReport.js';
 
 /**
@@ -14,10 +15,13 @@ const DEBOUNCE_MS = 400;
 
 export interface SessionState {
   tree: RocketTree;
-  motorLabel: string;
-  motor: MotorSpec;
+  /** Per-mount motors (v0.009+). */
+  mountMotors?: Record<string, MountMotor>;
+  /** Legacy single-motor fields (pre-v0.009 sessions) — migrated on load. */
+  motorLabel?: string;
+  motor?: MotorSpec;
   motorMeta?: MotorMeta;
-  mountId: string | null;
+  mountId?: string | null;
   /** Rocket-level max motor length (SI m); null/absent = no limit. */
   maxMotorLengthM?: number | null;
   launch: LaunchConditions;

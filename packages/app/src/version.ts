@@ -9,7 +9,7 @@
  * push.
  */
 
-export const APP_VERSION = '0.008';
+export const APP_VERSION = '0.009';
 
 export interface ChangelogEntry {
   version: string;
@@ -20,6 +20,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.009',
+    date: '2026-07-04',
+    title: 'Multi-stage rockets — design, fly, and recover every stage',
+    items: [
+      'Stages in the editor: "+ Add stage" appends a booster below the stack; each stage has a name and (for lower stages) a separation trigger + delay in its property panel. Existing designs and sessions migrate automatically into a single "Sustainer" stage — nothing changes until you add a second.',
+      'Every motor mount now holds ITS OWN motor — the Motors panel lists each mount by stage with its own picker, ejection delay, and (on staged rockets) ignition setting. Defaults follow the field rules: a high-power sustainer (above the G80 line) defaults to electronics-timed ignition (booster burnout + 1 s); low/mid-power staging lights the sustainer off the booster\'s ejection charge automatically. This also enables mixed symmetric clusters via two clustered mounts.',
+      'The launch report covers every stage: each separated booster gets its own section — apogee, its recovery deployments (or tumble), and its own landing verdict. A chuteless HIGH-POWER booster is flagged loudly (HPR requires active recovery); a low/mid booster may tumble in peace. CSV gains booster motor/apogee/landing columns.',
+      '.ork files now carry the full multi-stage design both ways — stages, separation settings, and every mount\'s motor with its ignition config. Desktop 2-stage files import whole (the old "imported the first stage" limitation is gone).',
+      'Batch simulate is intentionally unavailable on staged rockets (motor combinations explode); it still works on single-stage designs, clusters included.',
+    ],
+  },
   {
     version: '0.008',
     date: '2026-07-04',

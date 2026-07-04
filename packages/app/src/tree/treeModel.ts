@@ -33,7 +33,57 @@ export function findNode(tree: RocketTree, id: string): ComponentNode | null {
   return walk(tree.components);
 }
 
+/**
+ * Post-Release-C invariant: tree.components is ALWAYS a list of stage nodes
+ * (the desktop model — stage 0 on top, boosters after). Legacy flat trees
+ * (pre-v0.009 sessions/files) are wrapped by normalizeTree at every load
+ * boundary. The engine accepts both shapes.
+ */
+export function normalizeTree(tree: RocketTree): RocketTree {
+  if (tree.components.length === 0) {
+    return { ...tree, components: [makeStage('Sustainer')] };
+  }
+  if (tree.components.every((n) => n.type === 'stage')) {
+    // Already staged — just guarantee ids (older data may lack them).
+    let changed = false;
+    const components = tree.components.map((s) => {
+      if (s.id) return s;
+      changed = true;
+      return { ...s, id: freshId() } as ComponentNode;
+    });
+    return changed ? { ...tree, components } : tree;
+  }
+  return {
+    ...tree,
+    components: [{ ...makeStage('Sustainer'), children: tree.components } as ComponentNode],
+  };
+}
+
+export function makeStage(name: string): ComponentNode {
+  return { type: 'stage', id: freshId(), name, children: [] } as ComponentNode;
+}
+
+/** The stage nodes, top (sustainer) first. */
+export function stages(tree: RocketTree): ComponentNode[] {
+  return tree.components.filter((n) => n.type === 'stage');
+}
+
+/** Appends a booster stage below the existing ones. */
+export function addStage(tree: RocketTree): { tree: RocketTree; newId: string } {
+  const n = stages(tree).length;
+  const stage = makeStage(n === 0 ? 'Sustainer' : n === 1 ? 'Booster' : `Booster ${n}`);
+  return { tree: { ...tree, components: [...tree.components, stage] }, newId: stage.id! };
+}
+
+/** Index of the stage containing the node (0 = sustainer), or -1. */
+export function stageIndexOf(tree: RocketTree, id: string): number {
+  const contains = (n: ComponentNode): boolean =>
+    n.id === id || (n.children ?? []).some(contains);
+  return tree.components.findIndex((s) => s.id === id || (s.children ?? []).some(contains));
+}
+
 export function findParent(tree: RocketTree, id: string): ComponentNode | 'stage' | null {
+  // 'stage' now means "the rocket root" — only stage nodes live there.
   if (tree.components.some((n) => n.id === id)) return 'stage';
   const walk = (nodes: ComponentNode[]): ComponentNode | null => {
     for (const n of nodes) {
@@ -70,10 +120,12 @@ export function removeNode(tree: RocketTree, id: string): RocketTree {
   return { ...tree, components: walk(tree.components) };
 }
 
-/** Adds a child to the given parent id ('stage' = top level). */
+/** Adds a child to the given parent id ('stage' = the FIRST stage, legacy). */
 export function addChild(tree: RocketTree, parentId: string | 'stage', child: ComponentNode): RocketTree {
   if (parentId === 'stage') {
-    return { ...tree, components: [...tree.components, child] };
+    const first = stages(tree)[0];
+    if (!first) return { ...tree, components: [...tree.components, child] };
+    parentId = first.id!;
   }
   const walk = (nodes: ComponentNode[]): ComponentNode[] =>
     nodes.map((n) =>
@@ -159,7 +211,7 @@ export function inheritDefaults(
   parent: ComponentNode | 'stage' | null,
   prevSibling: ComponentNode | null,
 ): ComponentNode {
-  const src = prevSibling ?? (parent && parent !== 'stage' ? parent : null);
+  const src = prevSibling ?? (parent && parent !== 'stage' && parent.type !== 'stage' ? parent : null);
   if (!src) return node;
   const out: ComponentNode = { ...node };
 
@@ -199,9 +251,9 @@ export function motorMounts(tree: RocketTree): ComponentNode[] {
   return out;
 }
 
-/** A blank design — no components — for starting from scratch. */
+/** A blank design — one empty stage — for starting from scratch. */
 export function emptyTree(): RocketTree {
-  return { name: 'New Rocket', components: [] };
+  return { name: 'New Rocket', components: [makeStage('Sustainer')] };
 }
 
 /** The default (reference) rocket as a tree. */
@@ -211,8 +263,8 @@ export function defaultTree(): RocketTree {
   const fins = makeNode('trapezoidfinset');
   const mount = makeNode('innertube');
   const chute = makeNode('parachute');
-  return {
+  return normalizeTree({
     name: 'My Rocket',
     components: [nose, { ...body, children: [fins, mount, chute] } as ComponentNode],
-  };
+  });
 }

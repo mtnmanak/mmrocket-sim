@@ -101,6 +101,19 @@ const DEPLOY_EVENTS: [string, string][] = [
   ['never', 'Never'],
 ];
 
+/** Stage separation triggers (kernel SeparationEvent; desktop default: ejection). */
+const SEPARATION_EVENTS: [string, string][] = [
+  ['ejection', 'This stage\'s ejection charge'],
+  ['burnout', 'This stage\'s motor burnout'],
+  ['upperignition', 'Upper stage motor ignition'],
+  ['ignition', 'This stage\'s motor ignition'],
+  ['launch', 'Launch'],
+  ['apogee', 'Apogee'],
+  ['altitudeascending', 'Altitude (ascending)'],
+  ['altitudedescending', 'Altitude (descending)'],
+  ['never', 'Never'],
+];
+
 const lenMM = (key: string, label: string, step = 1, smax = 300): FieldDef =>
   ({ key, label, unit: 'mm', step, smin: 0, smax });
 
@@ -133,7 +146,12 @@ const CD: FieldDef = {
 };
 
 export const FIELDS: Record<ComponentType, FieldDef[]> = {
-  stage: [],
+  // Separation applies to lower stages (the booster separates FROM the stack
+  // above); the top stage ignores it — same as the desktop.
+  stage: [
+    { key: 'separationEvent', label: 'Separate at (lower stages)', unit: 'none', options: SEPARATION_EVENTS },
+    { key: 'separationDelay', label: 'Separation delay', unit: 's', step: 0.5, smin: 0, smax: 10 },
+  ],
   nosecone: [
     lenMM('length', 'Length'),
     radMM('aftRadius', 'Base outer radius', 0.5, 80),

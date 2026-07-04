@@ -42,7 +42,11 @@ export function MotorPicker({ mountDiameterMm, maxMotorLengthM, selectedLabel, o
             if (m) onSelect(e.target.value, m, builtInMeta(e.target.value));
           }}
         >
-          {!BUILT_IN_MOTORS[selectedLabel] && <option value="">{selectedLabel} (from database)</option>}
+          {!BUILT_IN_MOTORS[selectedLabel] && (
+            <option value="">
+              {selectedLabel ? `${selectedLabel} (from database)` : '— no motor —'}
+            </option>
+          )}
           {Object.keys(BUILT_IN_MOTORS).map((key) => (
             <option key={key} value={key}>{key}</option>
           ))}

@@ -26,13 +26,20 @@ function flatten(nodes: ComponentNode[]): ComponentNode[] {
   return out;
 }
 
+/** Release C: imports are stage-wrapped — this unwraps the first stage. */
+function firstStageChildren(result: { tree: { components: ComponentNode[] } }): ComponentNode[] {
+  expect(result.tree.components.every((c) => c.type === 'stage')).toBe(true);
+  return result.tree.components[0]!.children ?? [];
+}
+
 describe('.ork tree import', () => {
   it('imports the reference golden file with structure preserved', () => {
     const result = importOrk(golden('reference.ork'));
 
     expect(result.name).toBe('Reference Rocket');
-    expect(result.tree.components.map((c) => c.type)).toEqual(['nosecone', 'bodytube']);
-    const body = result.tree.components[1]!;
+    const chain = firstStageChildren(result);
+    expect(chain.map((c) => c.type)).toEqual(['nosecone', 'bodytube']);
+    const body = chain[1]!;
     expect((body.children ?? []).map((c) => c.type)).toEqual([
       'trapezoidfinset', 'innertube', 'parachute',
     ]);
@@ -40,6 +47,7 @@ describe('.ork tree import', () => {
     expect(mount['motorMount']).toBe(true);
     expect(result.motor?.designation).toBe('C6');
     expect(result.motor?.mountId).toBe(mount.id);
+    expect(result.motors[mount.id!]?.designation).toBe('C6');
     expect(result.ignored).toEqual([]);
   });
 

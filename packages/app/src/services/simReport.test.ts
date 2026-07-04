@@ -67,6 +67,80 @@ describe('recommendDelay', () => {
   });
 });
 
+describe('buildSimRun — staged branches (Release C)', () => {
+  /** Adds a booster branch to the fake flight. */
+  function stagedResult(boosterChute: boolean): FlightResult {
+    const base = fakeResult();
+    const bTime = [2, 3, 6, 25];
+    const boosterEvents = [
+      { type: 'STAGE_SEPARATION', time: 2, source: 'Booster' },
+      ...(boosterChute
+        ? [{ type: 'RECOVERY_DEVICE_DEPLOYMENT', time: 2.5, source: 'BoosterChute' }]
+        : [{ type: 'TUMBLE', time: 3 }]),
+      { type: 'GROUND_HIT', time: 25 },
+    ];
+    return {
+      ...base,
+      branches: [
+        { name: 'Sustainer', events: base.events, series: base.series },
+        {
+          name: 'Booster',
+          events: boosterEvents,
+          series: {
+            ...base.series,
+            time: bTime,
+            altitude: [180, 190, 120, 0],
+            velocity: [80, 20, boosterChute ? 5 : 28, boosterChute ? 5 : 30],
+          },
+        },
+      ],
+    };
+  }
+
+  const stagedInput = (boosterChute: boolean, highPower: boolean) => ({
+    result: stagedResult(boosterChute),
+    info,
+    motor,
+    launch: DEFAULT_CONDITIONS,
+    rocketName: 'TwoStage',
+    execMs: 10,
+    stageMotorInfo: { Booster: { label: highPower ? 'J420R-0' : 'C6-0', highPower } },
+    boosterMotors: [highPower ? 'J420R-0' : 'C6-0'],
+  });
+
+  it('reports the booster branch with its own recovery and landing verdict', () => {
+    const run = buildSimRun(stagedInput(true, false));
+    expect(run.branches?.length).toBe(1);
+    const b = run.branches![0]!;
+    expect(b.name).toBe('Booster');
+    expect(b.apogee).toBeCloseTo(190);
+    expect(b.deployments[0]?.device).toBe('BoosterChute');
+    expect(b.landingRate).toBeCloseTo(5);
+    expect(b.safeLandingRate).toBe(true);
+    expect(run.boosterMotors).toEqual(['C6-0']);
+  });
+
+  it('lets a LOW-POWER booster tumble without a warning (G80 rule)', () => {
+    const run = buildSimRun(stagedInput(false, false));
+    const b = run.branches![0]!;
+    expect(b.tumbles).toBe(true);
+    expect(b.deployments.length).toBe(0);
+    expect(run.comments).not.toMatch(/HIGH-POWER booster/);
+  });
+
+  it('flags a chuteless HIGH-POWER booster loudly (G80 rule)', () => {
+    const run = buildSimRun(stagedInput(false, true));
+    expect(run.comments).toMatch(/Booster has NO recovery device — a HIGH-POWER booster/);
+    expect(run.branches![0]!.safeLandingRate).toBe(false);
+  });
+
+  it('serializes booster columns into the CSV', () => {
+    const csv = runsToCsv([buildSimRun(stagedInput(true, false))]);
+    expect(csv.split('\n')[0]).toContain('Booster landing rate (m/s)');
+    expect(csv).toContain('C6-0');
+  });
+});
+
 describe('buildSimRun', () => {
   const run = buildSimRun({
     result: fakeResult(), info, motor,

@@ -45,8 +45,10 @@ describe('.ork round-trip of shoulder/filled/finish/override/deployment fields',
 
   it('preserves every new field through export → import', () => {
     const back = importOrk(exportOrk({ name: 'FeatureSample', tree }));
+    // Release C: imports are stage-wrapped — the chain sits in stage 0.
+    const chain = back.tree.components[0]!.children!;
 
-    const nose = back.tree.components[0]!;
+    const nose = chain[0]!;
     expect(nose['filled']).toBe(true);
     expect(nose['shoulderRadius']).toBeCloseTo(0.0115);
     expect(nose['shoulderLength']).toBeCloseTo(0.03);
@@ -57,11 +59,11 @@ describe('.ork round-trip of shoulder/filled/finish/override/deployment fields',
     // Engine default for haack is 0 — a 1.0 fallback silently reshapes the nose.
     expect(nose['shapeParameter']).toBe(0);
 
-    const body = back.tree.components[1]!;
+    const body = chain[1]!;
     expect(body['finish']).toBe('rough');
     expect(body['overrideCD']).toBeCloseTo(0.4);
 
-    const trans = back.tree.components.find((c) => c.type === 'transition')!;
+    const trans = chain.find((c) => c.type === 'transition')!;
     expect(trans['filled']).toBeUndefined();
     expect(trans['foreShoulderRadius']).toBeCloseTo(0.011);
     expect(trans['aftShoulderLength']).toBeCloseTo(0.015);
@@ -108,7 +110,7 @@ describe('.ork round-trip of cluster configuration', () => {
     expect(xml).toMatch(/<clusterrotation>29\.99999+\d*<\/clusterrotation>|<clusterrotation>30<\/clusterrotation>/);
 
     const back = importOrk(xml);
-    const mount = back.tree.components[1]!.children!.find((c) => c.type === 'innertube')!;
+    const mount = back.tree.components[0]!.children![1]!.children!.find((c) => c.type === 'innertube')!;
     expect(mount['cluster']).toBe('3-ring');
     expect(mount['clusterScale']).toBeCloseTo(1.25);
     expect(mount['clusterRotation']).toBeCloseTo(Math.PI / 6, 9);
@@ -125,8 +127,70 @@ describe('.ork round-trip of cluster configuration', () => {
     const xml = exportOrk({ name: 'Plain', tree: plain });
     expect(xml).toContain('<clusterconfiguration>single</clusterconfiguration>');
     const back = importOrk(xml);
-    const mount = back.tree.components[0]!.children!.find((c) => c.type === 'innertube')!;
+    const mount = back.tree.components[0]!.children![0]!.children!.find((c) => c.type === 'innertube')!;
     expect(mount['cluster']).toBeUndefined();
+  });
+});
+
+describe('.ork round-trip of serial stages (Release C)', () => {
+  const staged: RocketTree = {
+    name: 'TwoStage',
+    components: [
+      {
+        type: 'stage', id: 's0', name: 'Sustainer',
+        children: [
+          { type: 'nosecone', length: 0.07, aftRadius: 0.012, thickness: 0.002 },
+          {
+            type: 'bodytube', length: 0.3, outerRadius: 0.012, thickness: 0.0005,
+            children: [
+              { type: 'innertube', id: 'smount', length: 0.07, outerRadius: 0.0095, thickness: 0.0005, motorMount: true },
+              { type: 'parachute', diameter: 0.35 },
+            ],
+          },
+        ],
+      },
+      {
+        type: 'stage', id: 's1', name: 'Booster', separationEvent: 'burnout', separationDelay: 0.5,
+        children: [
+          {
+            type: 'bodytube', length: 0.12, outerRadius: 0.012, thickness: 0.0005,
+            children: [
+              { type: 'innertube', id: 'bmount', length: 0.07, outerRadius: 0.0095, thickness: 0.0005, motorMount: true },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const motors = {
+    smount: { designation: 'I224-15A', diameter: 0.029, length: 0.365, delay: 15, ignitionEvent: 'burnout', ignitionDelay: 1 },
+    bmount: { designation: 'J420R', diameter: 0.038, length: 0.35, delay: 0 },
+  };
+
+  it('round-trips stages, separation, and per-mount motors with ignition', () => {
+    const xml = exportOrk({ name: 'TwoStage', tree: staged, motors });
+    expect(xml).toContain('<separationevent>burnout</separationevent>');
+    expect(xml).toContain('<separationdelay>0.5</separationdelay>');
+    expect(xml).toContain('<stage number="1" active="true"/>');
+    expect(xml).toContain('<ignitionevent>burnout</ignitionevent>');
+
+    const back = importOrk(xml);
+    expect(back.tree.components.map((s) => s.name)).toEqual(['Sustainer', 'Booster']);
+    const booster = back.tree.components[1]!;
+    expect(booster['separationEvent']).toBe('burnout');
+    expect(booster['separationDelay']).toBeCloseTo(0.5);
+    // Sustainer stage carries no separation fields (top stage never separates).
+    expect(back.tree.components[0]!['separationEvent']).toBeUndefined();
+
+    // Both motors, on their own mounts, ignition preserved.
+    const refs = Object.values(back.motors);
+    expect(refs.length).toBe(2);
+    const sus = refs.find((r) => r.designation === 'I224-15A')!;
+    expect(sus.ignitionEvent).toBe('burnout');
+    expect(sus.ignitionDelay).toBeCloseTo(1);
+    const boo = refs.find((r) => r.designation === 'J420R')!;
+    expect(boo.ignitionEvent).toBe('automatic');
+    expect(boo.delay).toBe(0);
   });
 });
 
@@ -157,7 +221,7 @@ describe('.ork round-trip of fin tabs', () => {
 
   it('preserves tab depth/length/offset/method through export → import', () => {
     const back = importOrk(exportOrk({ name: 'TabSample', tree }));
-    const body = back.tree.components[1]!;
+    const body = back.tree.components[0]!.children![1]!;
 
     const trap = body.children!.find((c) => c.type === 'trapezoidfinset')!;
     expect(trap['tabHeight']).toBeCloseTo(0.008);

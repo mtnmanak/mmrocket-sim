@@ -20,12 +20,18 @@ export interface OrkMotorRef {
   delay: number;
   /** Editor node id of the mount it was attached to. */
   mountId?: string;
+  /** Kernel ignition-event name (automatic|launch|ejectioncharge|burnout|never). */
+  ignitionEvent?: string;
+  ignitionDelay?: number;
 }
 
 export interface OrkTreeImportResult {
   name: string;
   tree: RocketTree;
+  /** First motor found (legacy callers). */
   motor?: OrkMotorRef;
+  /** EVERY mount's motor, keyed by the mount's editor node id. */
+  motors: Record<string, OrkMotorRef>;
   ignored: string[];
   notes: string[];
 }
@@ -61,31 +67,36 @@ export function importOrk(data: ArrayBuffer | string): OrkTreeImportResult {
   const ignored = new Set<string>();
   const notes: string[] = [];
   let motor: OrkMotorRef | undefined;
+  const motors: Record<string, OrkMotorRef> = {};
 
   const name = text(rocketEl, ':scope > name') ?? 'Imported rocket';
   const stages = Array.from(rocketEl.querySelectorAll(':scope > subcomponents > stage'));
   if (stages.length === 0) throw new Error('No stage found');
-  if (stages.length > 1) {
-    notes.push(`Design has ${stages.length} stages — imported the first (staging arrives in Phase 3).`);
-  }
 
   const readMotor = (el: Element, node: ComponentNode, isInnerTube: boolean) => {
-    const motorEl = el.querySelector(':scope > motormount > motor');
-    if (!motorEl) return;
+    const mountEl = el.querySelector(':scope > motormount');
+    const motorEl = mountEl?.querySelector(':scope > motor');
+    if (!mountEl || !motorEl) return;
     if (isInnerTube) node['motorMount'] = true;
-    if (!motor) {
-      motor = {
-        designation: text(motorEl, ':scope > designation') ?? 'unknown',
-        manufacturer: text(motorEl, ':scope > manufacturer') ?? 'unknown',
-        diameter: num(motorEl, 'diameter', 0.018),
-        length: num(motorEl, 'length', 0.07),
-        delay: num(motorEl, 'delay', 0),
-        mountId: isInnerTube ? node.id : undefined,
-      };
-      if (!isInnerTube) {
-        notes.push('Motor mounts directly in the body tube — assign it to an inner tube in the editor.');
-      }
+    // Ignition: the per-config block wins over the bare default (desktop
+    // writes defaults bare, overrides in <ignitionconfiguration>).
+    const igEl = mountEl.querySelector(':scope > ignitionconfiguration') ?? mountEl;
+    const ref: OrkMotorRef = {
+      designation: text(motorEl, ':scope > designation') ?? 'unknown',
+      manufacturer: text(motorEl, ':scope > manufacturer') ?? 'unknown',
+      diameter: num(motorEl, 'diameter', 0.018),
+      length: num(motorEl, 'length', 0.07),
+      delay: num(motorEl, 'delay', 0),
+      mountId: isInnerTube ? node.id : undefined,
+      ignitionEvent: text(igEl, ':scope > ignitionevent') ?? undefined,
+      ignitionDelay: num(igEl, 'ignitiondelay', 0),
+    };
+    if (isInnerTube && node.id) {
+      motors[node.id] = ref;
+    } else if (!isInnerTube) {
+      notes.push('Motor mounts directly in the body tube — assign it to an inner tube in the editor.');
     }
+    if (!motor) motor = ref;
   };
 
   const convertElement = (el: Element): ComponentNode | null => {
@@ -321,28 +332,62 @@ export function importOrk(data: ArrayBuffer | string): OrkTreeImportResult {
     return out;
   };
 
-  const components = convertChildren(stages[0]!);
-  if (components.length === 0) {
+  // EVERY stage imports (Release C) — each becomes a stage node carrying its
+  // separation config (desktop writes defaults bare under <stage>).
+  const components: ComponentNode[] = stages.map((stageEl, i) => {
+    const stage: ComponentNode = {
+      type: 'stage',
+      id: freshId(),
+      name: text(stageEl, ':scope > name') ?? (i === 0 ? 'Sustainer' : `Booster ${i}`),
+    };
+    if (i > 0) {
+      const ev = text(stageEl, ':scope > separationevent');
+      if (ev && ev !== 'ejection') stage['separationEvent'] = ev;
+      const delay = num(stageEl, 'separationdelay', 0);
+      if (delay !== 0) stage['separationDelay'] = delay;
+      const alt = num(stageEl, 'separationaltitude', NaN);
+      if (!Number.isNaN(alt) && alt !== 200) stage['separationAltitude'] = alt;
+    }
+    const kids = convertChildren(stageEl);
+    if (kids.length > 0) stage.children = kids;
+    return stage;
+  });
+  if (components.every((s) => (s.children ?? []).length === 0)) {
     throw new Error('No supported components found in this design.');
   }
   if (ignored.size) {
     notes.push(`Ignored unsupported components: ${[...ignored].join(', ')}.`);
   }
 
-  return { name, tree: { name, components }, motor, ignored: [...ignored], notes };
+  return { name, tree: { name, components }, motor, motors, ignored: [...ignored], notes };
 }
 
 // ============================ EXPORT ============================
 
+export interface OrkExportMotor {
+  designation: string;
+  manufacturer?: string;
+  diameter: number;
+  length: number;
+  delay: number;
+  /** Kernel ignition-event name (automatic|launch|ejectioncharge|burnout|never). */
+  ignitionEvent?: string;
+  ignitionDelay?: number;
+}
+
 export interface OrkTreeExportInput {
   name: string;
   tree: RocketTree;
-  motor?: { designation: string; manufacturer?: string; diameter: number; length: number; delay: number };
-  /** Node id of the mount the motor is attached to. */
+  /** Motors keyed by mount node id (Release C: one per mount). */
+  motors?: Record<string, OrkExportMotor>;
+  /** Legacy single-motor form (tests/back-compat). */
+  motor?: OrkExportMotor;
   mountId?: string | null;
 }
 
-export function exportOrk({ name, tree, motor, mountId }: OrkTreeExportInput): string {
+export function exportOrk({ name, tree, motors, motor, mountId }: OrkTreeExportInput): string {
+  const motorMap: Record<string, OrkExportMotor> = { ...(motors ?? {}) };
+  if (motor && mountId && !motorMap[mountId]) motorMap[mountId] = motor;
   const configId = uuid();
   const lines: string[] = [];
   const emit = (depth: number, s: string) => lines.push('  '.repeat(depth) + s);
@@ -431,23 +476,24 @@ export function exportOrk({ name, tree, motor, mountId }: OrkTreeExportInput): s
       : `<thickness>${typeof node['thickness'] === 'number' ? node['thickness'] : fb}</thickness>`);
   };
 
-  const motorMountXml = (depth: number) => {
-    if (!motor) return;
+  const motorMountXml = (depth: number, m: OrkExportMotor) => {
+    const ev = m.ignitionEvent ?? 'automatic';
+    const evDelay = m.ignitionDelay ?? 0;
     emit(depth, '<motormount>');
-    emit(depth + 1, '<ignitionevent>automatic</ignitionevent>');
-    emit(depth + 1, '<ignitiondelay>0.0</ignitiondelay>');
+    emit(depth + 1, `<ignitionevent>${escapeXml(ev)}</ignitionevent>`);
+    emit(depth + 1, `<ignitiondelay>${evDelay}</ignitiondelay>`);
     emit(depth + 1, '<overhang>0.0</overhang>');
     emit(depth + 1, `<motor configid="${configId}">`);
     emit(depth + 2, '<type>single</type>');
-    emit(depth + 2, `<manufacturer>${escapeXml(motor.manufacturer ?? 'custom')}</manufacturer>`);
-    emit(depth + 2, `<designation>${escapeXml(motor.designation)}</designation>`);
-    emit(depth + 2, `<diameter>${motor.diameter}</diameter>`);
-    emit(depth + 2, `<length>${motor.length}</length>`);
-    emit(depth + 2, `<delay>${motor.delay}</delay>`);
+    emit(depth + 2, `<manufacturer>${escapeXml(m.manufacturer ?? 'custom')}</manufacturer>`);
+    emit(depth + 2, `<designation>${escapeXml(m.designation)}</designation>`);
+    emit(depth + 2, `<diameter>${m.diameter}</diameter>`);
+    emit(depth + 2, `<length>${m.length}</length>`);
+    emit(depth + 2, `<delay>${m.delay}</delay>`);
     emit(depth + 1, '</motor>');
     emit(depth + 1, `<ignitionconfiguration configid="${configId}">`);
-    emit(depth + 2, '<ignitionevent>automatic</ignitionevent>');
-    emit(depth + 2, '<ignitiondelay>0.0</ignitiondelay>');
+    emit(depth + 2, `<ignitionevent>${escapeXml(ev)}</ignitionevent>`);
+    emit(depth + 2, `<ignitiondelay>${evDelay}</ignitiondelay>`);
     emit(depth + 1, '</ignitionconfiguration>');
     emit(depth, '</motormount>');
   };
@@ -636,8 +682,8 @@ export function exportOrk({ name, tree, motor, mountId }: OrkTreeExportInput): s
         emit(depth + 1, `<clusterconfiguration>${typeof node['cluster'] === 'string' ? node['cluster'] : 'single'}</clusterconfiguration>`);
         emit(depth + 1, `<clusterscale>${n(node, 'clusterScale', 1)}</clusterscale>`);
         emit(depth + 1, `<clusterrotation>${(n(node, 'clusterRotation', 0) * 180) / Math.PI}</clusterrotation>`);
-        if (motor && mountId && node.id === mountId) {
-          motorMountXml(depth + 1);
+        if (node.id && motorMap[node.id]) {
+          motorMountXml(depth + 1, motorMap[node.id]!);
         }
         close('innertube');
         break;
@@ -793,20 +839,46 @@ export function exportOrk({ name, tree, motor, mountId }: OrkTreeExportInput): s
   emit(2, '<axialoffset method="absolute">0.0</axialoffset>');
   emit(2, '<position type="absolute">0.0</position>');
   emit(2, '<designtype>original</designtype>');
+  // Stage nodes at the top level export as sibling <stage> blocks (the
+  // desktop model); legacy flat trees wrap into one implicit stage.
+  const stageNodes: ComponentNode[] = tree.components.every((c) => c.type === 'stage')
+    ? tree.components
+    : [{ type: 'stage', name: 'Sustainer', children: tree.components } as ComponentNode];
   emit(2, `<motorconfiguration configid="${configId}" default="true">`);
-  emit(3, '<stage number="0" active="true"/>');
+  for (let i = 0; i < stageNodes.length; i++) {
+    emit(3, `<stage number="${i}" active="true"/>`);
+  }
   emit(2, '</motorconfiguration>');
   emit(2, '<referencetype>maximum</referencetype>');
   emit(2, '<subcomponents>');
-  emit(3, '<stage>');
-  emit(4, '<name>Sustainer</name>');
-  emit(4, `<id>${uuid()}</id>`);
-  emit(4, '<subcomponents>');
-  for (const node of tree.components) {
-    emitNode(node, 5);
+  for (let i = 0; i < stageNodes.length; i++) {
+    const st = stageNodes[i]!;
+    emit(3, '<stage>');
+    emit(4, `<name>${escapeXml(st.name ?? (i === 0 ? 'Sustainer' : `Booster ${i}`))}</name>`);
+    emit(4, `<id>${uuid()}</id>`);
+    if (i > 0) {
+      // Separation (lower stages only) — desktop writes the DEFAULT params
+      // bare, then a per-config block (AxialStageSaver).
+      const ev = typeof st['separationEvent'] === 'string' ? (st['separationEvent'] as string) : 'ejection';
+      const delay = typeof st['separationDelay'] === 'number' ? (st['separationDelay'] as number) : 0;
+      const alt = typeof st['separationAltitude'] === 'number' ? (st['separationAltitude'] as number) : 200;
+      const sep = (d: number) => {
+        emit(d, `<separationevent>${escapeXml(ev)}</separationevent>`);
+        emit(d, `<separationaltitude>${alt}</separationaltitude>`);
+        emit(d, `<separationdelay>${delay}</separationdelay>`);
+      };
+      sep(4);
+      emit(4, `<separationconfiguration configid="${configId}">`);
+      sep(5);
+      emit(4, '</separationconfiguration>');
+    }
+    emit(4, '<subcomponents>');
+    for (const node of st.children ?? []) {
+      emitNode(node, 5);
+    }
+    emit(4, '</subcomponents>');
+    emit(3, '</stage>');
   }
-  emit(4, '</subcomponents>');
-  emit(3, '</stage>');
   emit(2, '</subcomponents>');
   emit(1, '</rocket>');
   emit(1, '<simulations>');

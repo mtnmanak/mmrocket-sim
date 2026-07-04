@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import type { MotorSpec } from '@online-openrocket/engine';
 import {
   MOTOR_DB, MOTOR_DB_DATE, classLabel, classesFittingMount, diameterClass,
-  displayDesignation, filterMotors, manufacturersForMount, sortMotors,
-  type MotorDbEntry, type MotorSortKey,
+  displayDesignation, filterMotors, isHighPower, manufacturersForMount,
+  sortMotors, type MotorDbEntry, type MotorSortKey,
 } from '../services/motorDb.js';
 import {
   addExMotors, deleteExMotor, exToDbEntry, loadExMotors, parseMotorFile,
@@ -166,6 +166,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
         type: picked.type,
         propellant: picked.propInfo,
         motorCase: picked.caseInfo,
+        highPower: isHighPower(picked),
       });
       onClose();
     } catch (e) {

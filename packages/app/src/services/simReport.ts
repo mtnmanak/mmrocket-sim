@@ -1,4 +1,4 @@
-import type { FlightResult, MotorSpec, StaticInfo } from '@online-openrocket/engine';
+import type { FlightEvent, FlightResult, FlightSeries, MotorSpec, StaticInfo } from '@online-openrocket/engine';
 import { G0 } from '@online-openrocket/engine';
 import type { LaunchConditions } from '../components/LaunchPanel.js';
 import { displayDesignation } from './motorDb.js';
@@ -25,6 +25,8 @@ export interface MotorMeta {
   motorCase?: string;
   /** Motors firing together (cluster count of the mount); 1 = no cluster. */
   motorCount?: number;
+  /** High-power per the owner's G80 rule (>80 N avg or >160 Ns) — drives staging defaults/warnings. */
+  highPower?: boolean;
 }
 
 /** Human label for the catalog motor type. */
@@ -79,6 +81,21 @@ export interface DeploymentReport {
   descentOk: boolean | null;
 }
 
+/** One separated stage's own flight (staged rockets; branch 0 excluded). */
+export interface BranchReport {
+  /** Stage name ("Booster"…). */
+  name: string;
+  /** That stage's motor, when known. */
+  motorLabel?: string;
+  /** Branch apogee (m) — the altitude at separation, roughly. */
+  apogee: number | null;
+  /** True when the branch shows tumble recovery (no device, TUMBLE event). */
+  tumbles: boolean;
+  deployments: DeploymentReport[];
+  landingRate: number | null;
+  safeLandingRate: boolean | null;
+}
+
 export interface SimRun {
   id: string;
   /** epoch ms */
@@ -119,6 +136,10 @@ export interface SimRun {
   velocityAtDeployment: number | null;
   /** Every recovery deployment, in order — drogue first, main later. */
   deployments: DeploymentReport[];
+  /** Staged rockets: each separated stage's own flight (booster branches). */
+  branches?: BranchReport[];
+  /** Labels of booster/other-mount motors flown alongside the primary. */
+  boosterMotors?: string[];
   /** Final descent rate = ground-hit velocity (target ≤ 20 ft/s). */
   landingRate: number | null;
   safeLandingRate: boolean | null;
@@ -175,6 +196,39 @@ export function recommendDelay(optimum: number | null): number | null {
   return Math.max(0, Math.round(optimum));
 }
 
+/** Per-device deployments for ONE flight branch (drogue/main ordering). */
+function extractDeployments(
+  events: FlightEvent[],
+  series: FlightSeries,
+  groundHit: number | null,
+): DeploymentReport[] {
+  const deployEvents = events.filter((e) => e.type === 'RECOVERY_DEVICE_DEPLOYMENT');
+  return deployEvents.map((ev, i) => {
+    const device = ev.source ?? `Recovery device ${i + 1}`;
+    const isLanding = i === deployEvents.length - 1;
+    const vDeploy = at(series.time, series.velocity, ev.time);
+    let descentRate: number | null;
+    if (isLanding) {
+      descentRate = groundHit !== null && Number.isFinite(groundHit) ? groundHit : null;
+    } else {
+      // Sample just before the next device opens — fully settled under this one.
+      const tNext = deployEvents[i + 1]!.time;
+      descentRate = at(series.time, series.velocity, Math.max(ev.time, tNext - 0.2));
+    }
+    return {
+      device,
+      time: ev.time,
+      altitude: at(series.time, series.altitude, ev.time),
+      velocityAtDeployment: vDeploy,
+      descentRate,
+      isLanding,
+      openingOk: vDeploy === null ? null : Math.abs(vDeploy) <= SAFETY.maxDeploymentVelocity,
+      descentOk: descentRate === null ? null
+        : descentRate <= (isLanding ? SAFETY.maxLandingRate : SAFETY.maxDrogueDescentRate),
+    };
+  });
+}
+
 export function buildSimRun(input: {
   result: FlightResult;
   info: StaticInfo;
@@ -183,8 +237,11 @@ export function buildSimRun(input: {
   launch: LaunchConditions;
   rocketName: string;
   execMs: number;
+  /** Per-stage motor info by STAGE NAME (staged rockets; G80 safety rules). */
+  stageMotorInfo?: Record<string, { label: string; highPower: boolean }>;
+  boosterMotors?: string[];
 }): SimRun {
-  const { result, info, motor, meta, launch, rocketName, execMs } = input;
+  const { result, info, motor, meta, launch, rocketName, execMs, stageMotorInfo, boosterMotors } = input;
   const { summary, series } = result;
 
   const tRod = eventTime(result, 'LAUNCHROD');
@@ -219,31 +276,27 @@ export function buildSimRun(input: {
   // Per-device deployment reports (dual deploy: drogue at apogee, main at
   // altitude). Descent rate under a device = velocity just before the NEXT
   // deployment; the last device's descent rate is the landing rate.
-  const deployEvents = result.events.filter((e) => e.type === 'RECOVERY_DEVICE_DEPLOYMENT');
-  const deployments: DeploymentReport[] = deployEvents.map((ev, i) => {
-    const device = ev.source ?? `Recovery device ${i + 1}`;
-    const isLanding = i === deployEvents.length - 1;
-    const vDeploy = at(series.time, series.velocity, ev.time);
-    let descentRate: number | null;
-    if (isLanding) {
-      descentRate = Number.isFinite(summary.groundHitVelocity) ? summary.groundHitVelocity : null;
-    } else {
-      // Sample just before the next device opens — fully settled under this one.
-      const tNext = deployEvents[i + 1]!.time;
-      descentRate = at(series.time, series.velocity, Math.max(ev.time, tNext - 0.2));
-    }
-    return {
-      device,
-      time: ev.time,
-      altitude: at(series.time, series.altitude, ev.time),
-      velocityAtDeployment: vDeploy,
-      descentRate,
-      isLanding,
-      openingOk: vDeploy === null ? null : Math.abs(vDeploy) <= SAFETY.maxDeploymentVelocity,
-      descentOk: descentRate === null ? null
-        : descentRate <= (isLanding ? SAFETY.maxLandingRate : SAFETY.maxDrogueDescentRate),
-    };
-  });
+  const deployments = extractDeployments(result.events, series,
+    Number.isFinite(summary.groundHitVelocity) ? summary.groundHitVelocity : null);
+
+  // Booster branches (staged flights): each separated stage flies its OWN
+  // descent — apogee, recovery (or tumble), and landing verdict per stage.
+  const branches: BranchReport[] = [];
+  for (const b of result.branches?.slice(1) ?? []) {
+    const alt = b.series.altitude.filter((v): v is number => v !== null && Number.isFinite(v));
+    const groundEv = b.events.find((e) => e.type === 'GROUND_HIT');
+    const vHit = groundEv ? at(b.series.time, b.series.velocity, groundEv.time) : null;
+    const landing = vHit !== null && Number.isFinite(vHit) ? Math.abs(vHit) : null;
+    branches.push({
+      name: b.name,
+      motorLabel: stageMotorInfo?.[b.name]?.label,
+      apogee: alt.length ? Math.max(...alt) : null,
+      tumbles: b.events.some((e) => e.type === 'TUMBLE'),
+      deployments: extractDeployments(b.events, b.series, landing),
+      landingRate: landing,
+      safeLandingRate: landing === null ? null : landing <= SAFETY.maxLandingRate,
+    });
+  }
   const landingRate = Number.isFinite(summary.groundHitVelocity)
     ? summary.groundHitVelocity : (tGround !== null ? at(series.time, series.velocity, tGround) : null);
   const safeLandingRate = landingRate === null ? null : landingRate <= SAFETY.maxLandingRate;
@@ -308,6 +361,23 @@ export function buildSimRun(input: {
       && Math.abs(motor.ejectionDelay - optimumDelayS) > 1.5) {
     comments.push(`Flown delay ${motor.ejectionDelay}s vs optimal ${optimumDelayS.toFixed(1)}s.`);
   }
+  // Booster recovery — the owner's G80 rule: high-power boosters MUST have active
+  // recovery; low/mid boosters may tumble (no warning).
+  for (const b of branches) {
+    const landTxt = b.landingRate !== null ? `${b.landingRate.toFixed(1)} m/s (${fps(b.landingRate)})` : 'unknown speed';
+    if (b.deployments.length === 0) {
+      if (stageMotorInfo?.[b.name]?.highPower === true) {
+        comments.push(`${b.name} has NO recovery device — a HIGH-POWER booster must recover actively; it ${b.tumbles ? 'tumbles' : 'falls'} in at ${landTxt}.`);
+      }
+    } else if (b.safeLandingRate === false) {
+      comments.push(`${b.name} lands at ${landTxt} — above the ${fps(SAFETY.maxLandingRate)} landing target.`);
+    }
+    for (const d of b.deployments) {
+      if (d.openingOk === false) {
+        comments.push(`${b.name}: ${d.device} opens at ${Math.abs(d.velocityAtDeployment!).toFixed(1)} m/s (${fps(Math.abs(d.velocityAtDeployment!))}) — hard opening.`);
+      }
+    }
+  }
 
   return {
     id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
@@ -338,6 +408,8 @@ export function buildSimRun(input: {
     altitudeAtDeployment,
     velocityAtDeployment,
     deployments,
+    branches: branches.length > 0 ? branches : undefined,
+    boosterMotors: boosterMotors && boosterMotors.length > 0 ? boosterMotors : undefined,
     landingRate,
     safeLandingRate,
     groundHitVelocity: summary.groundHitVelocity,

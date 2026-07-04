@@ -105,6 +105,63 @@ export function SimRunDetails({ run }: { run: SimRun }) {
           </table>
         </div>
       )}
+      {(run.branches ?? []).map((b) => {
+        const landBad = b.safeLandingRate === false;
+        return (
+          <div key={b.name} style={{ marginTop: 10 }}>
+            <p style={{ margin: '4px 0', fontWeight: 600 }}>
+              {b.name}{b.motorLabel ? ` (${b.motorLabel})` : ''} — separate flight:
+              {' '}apogee {b.apogee === null ? '—' : fmtSi('distance', dist, b.apogee)} <UnitChip quantity="distance" />
+              {' '}· lands at{' '}
+              <span className={landBad ? 'stability-bad' : undefined}>
+                {b.landingRate === null ? '—' : fmtSi('velocity', vel, b.landingRate)} <UnitChip quantity="velocity" />
+              </span>
+              {b.deployments.length === 0 && (
+                <span className="simdet-comments"> · no recovery device{b.tumbles ? ' (tumbles)' : ''}</span>
+              )}
+            </p>
+            {b.deployments.length > 0 && (
+              <div className="motor-table-wrap">
+                <table className="motor-table">
+                  <thead>
+                    <tr>
+                      <th>Recovery device</th>
+                      <th>Deploys at</th>
+                      <th>Altitude (<UnitChip quantity="distance" />)</th>
+                      <th>Opens at (<UnitChip quantity="velocity" />)</th>
+                      <th>Descent after (<UnitChip quantity="velocity" />)</th>
+                      <th>Verdict</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {b.deployments.map((d, i) => {
+                      const problems: string[] = [];
+                      if (d.openingOk === false) problems.push('hard opening');
+                      if (d.descentOk === false) problems.push(d.isLanding ? 'landing too fast' : 'descent too fast');
+                      return (
+                        <tr key={i}>
+                          <td>{d.device}{d.isLanding ? ' (landing)' : ''}</td>
+                          <td>{d.time.toFixed(1)} s</td>
+                          <td>{d.altitude === null ? '—' : fmtSi('distance', dist, d.altitude)}</td>
+                          <td className={d.openingOk === false ? 'stability-bad' : undefined}>
+                            {d.velocityAtDeployment === null ? '—' : fmtSi('velocity', vel, Math.abs(d.velocityAtDeployment))}
+                          </td>
+                          <td className={d.descentOk === false ? 'stability-bad' : undefined}>
+                            {d.descentRate === null ? '—' : fmtSi('velocity', vel, d.descentRate)}
+                          </td>
+                          <td className={problems.length ? 'stability-bad' : 'stability-good'}>
+                            {problems.length ? `⚠ ${problems.join(', ')}` : '✓ ok'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        );
+      })}
       {open && (
         <div className="simdet-grid">
           <table className="fin-table">

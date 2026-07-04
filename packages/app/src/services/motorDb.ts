@@ -36,6 +36,16 @@ export function displayDesignation(designation: string, manufacturer?: string): 
   return d;
 }
 
+/**
+ * High-power line — the owner's G80 rule, which matches certification: high power
+ * ⇔ average thrust > 80 N or total impulse > 160 Ns. The G80 itself is
+ * low/mid. Drives staging defaults (electronics-timed HPR sustainers) and
+ * booster-recovery warnings (HPR boosters MUST have active recovery).
+ */
+export function isHighPower(m: { avgThrustN: number; totImpulseNs: number }): boolean {
+  return m.avgThrustN > 80 || m.totImpulseNs > 160;
+}
+
 /** Common casing sizes (mm). 76 intentionally absent — it snaps to 75. */
 const COMMON_CLASSES = [6, 13, 18, 24, 29, 38, 54, 75, 98, 132, 152];
 

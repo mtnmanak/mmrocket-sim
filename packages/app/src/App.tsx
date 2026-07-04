@@ -4,6 +4,8 @@ import {
   resetEngine,
   type ComponentType,
   type FlightResult,
+  type IgnitionEvent,
+  type MotorSpec,
   type RocketTree,
   type StaticInfo,
 } from '@online-openrocket/engine';
@@ -24,7 +26,7 @@ import { PreferencesDialog } from './components/PreferencesDialog.js';
 import { usePrefs } from './prefs/PrefsContext.js';
 import { UnitChip } from './components/UnitChip.js';
 import { niceStep, siToUi, uiToSi } from './prefs/units.js';
-import { displayDesignation, findDbMotor } from './services/motorDb.js';
+import { displayDesignation, findDbMotor, isHighPower } from './services/motorDb.js';
 import { delayOptions, fetchMotorSpec } from './services/thrustcurve.js';
 import { exportOrk, importOrk } from './services/orkFile.js';
 import { loadSession, saveSessionDebounced } from './services/session.js';
@@ -32,10 +34,24 @@ import { buildSimRun, recommendDelay, type MotorMeta, type SimRun } from './serv
 import { addRun, loadRuns } from './services/simStore.js';
 import { APP_VERSION } from './version.js';
 import {
-  addChild, defaultTree, duplicateNode, emptyTree, findNode, inheritDefaults,
-  makeNode, motorMounts, moveNode, removeNode, updateAllNodes, updateNode,
+  addChild, addStage, defaultTree, duplicateNode, emptyTree, findNode,
+  inheritDefaults, makeNode, motorMounts, moveNode, normalizeTree, removeNode,
+  stageIndexOf, stages, updateAllNodes, updateNode,
 } from './tree/treeModel.js';
 import { clusterCount } from './tree/cluster.js';
+
+/** One mount's assigned motor (Release C: every mount can hold its own). */
+export interface MountMotor {
+  label: string;
+  spec: MotorSpec;
+  meta: MotorMeta;
+  /**
+   * When this motor ignites. Assigned a power-class-aware default at
+   * selection time (the owner's G80 rule): high-power sustainers are
+   * electronics-timed (burnout + 1 s); everything else AUTOMATIC.
+   */
+  ignition: { event: IgnitionEvent; delay: number };
+}
 import './styles.css';
 
 /** Rocket names that mean "the user never named it" (desktop default is "Rocket"). */
@@ -65,14 +81,23 @@ export function App() {
   const { prefs, resolvedTheme } = usePrefs();
   const [showPrefs, setShowPrefs] = useState(false);
   // Restore the previous session (autosaved on every change) if one exists.
+  // normalizeTree wraps pre-v0.009 flat trees in one stage.
   const session = useRef(loadSession()).current;
-  const [tree, setTreeRaw] = useState<RocketTree>(() => session?.tree ?? defaultTree());
+  const [tree, setTreeRaw] = useState<RocketTree>(
+    () => normalizeTree(session?.tree ?? defaultTree()));
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [motorLabel, setMotorLabel] = useState(session?.motorLabel ?? 'C6-5');
-  const [motor, setMotor] = useState(session?.motor ?? BUILT_IN_MOTORS['C6-5']!);
-  const [motorMeta, setMotorMeta] = useState<MotorMeta>(
-    session?.motorMeta ?? builtInMeta(session?.motorLabel ?? 'C6-5'));
-  const [mountId, setMountId] = useState<string | null>(session?.mountId ?? null);
+  // Per-mount motors (Release C). Legacy sessions carried ONE motor + the
+  // mount it applied to — migrate it onto that mount.
+  const [mountMotors, setMountMotors] = useState<Record<string, MountMotor>>(() => {
+    if (session?.mountMotors) return session.mountMotors;
+    const legacyTree = normalizeTree(session?.tree ?? defaultTree());
+    const target = session?.mountId ?? motorMounts(legacyTree)[0]?.id;
+    if (!target) return {};
+    const label = session?.motorLabel ?? 'C6-5';
+    const spec = session?.motor ?? BUILT_IN_MOTORS['C6-5']!;
+    const meta = session?.motorMeta ?? builtInMeta(label);
+    return { [target]: { label, spec, meta, ignition: { event: 'automatic', delay: 0 } } };
+  });
   // Max motor length is a physical property of the ROCKET (how much room the
   // airframe has), so it lives here — not in the motor browser's filters.
   const [maxMotorLenM, setMaxMotorLenM] = useState<number | null>(
@@ -95,8 +120,8 @@ export function App() {
 
   // Autosave the working state so a closed tab or crash never loses work.
   useEffect(() => {
-    saveSessionDebounced({ tree, motorLabel, motor, motorMeta, mountId, launch, maxMotorLengthM: maxMotorLenM });
-  }, [tree, motorLabel, motor, motorMeta, mountId, launch, maxMotorLenM]);
+    saveSessionDebounced({ tree, mountMotors, launch, maxMotorLengthM: maxMotorLenM });
+  }, [tree, mountMotors, launch, maxMotorLenM]);
 
   // ---- undo (Ctrl+Z / button) ----
   const history = useRef<RocketTree[]>([]);
@@ -124,16 +149,30 @@ export function App() {
 
   // ---- engine build + static analysis on every tree change ----
   const mounts = useMemo(() => motorMounts(tree), [tree]);
-  const activeMountId = mountId && mounts.some((m) => m.id === mountId)
-    ? mountId
-    : mounts[0]?.id ?? null;
+  const stageList = useMemo(() => stages(tree), [tree]);
+  const isStaged = stageList.length > 1;
+  // Assigned motors on mounts that still exist in the tree.
+  const assigned = useMemo(
+    () => Object.entries(mountMotors).filter(([id]) => mounts.some((m) => m.id === id)),
+    [mountMotors, mounts],
+  );
+  // The PRIMARY mount drives the report's lead columns and auto-delay: the
+  // topmost-stage mount with a motor (the sustainer's).
+  const primaryMountId = useMemo(() => {
+    const byStage = [...assigned].sort(
+      (a, b) => stageIndexOf(tree, a[0]) - stageIndexOf(tree, b[0]));
+    return byStage[0]?.[0] ?? null;
+  }, [assigned, tree]);
 
   const built = useMemo((): { rocket: OrkRocket; info: StaticInfo } | null => {
     try {
       resetEngine();
       const rocket = OrkRocket.buildTree(tree);
-      if (activeMountId) {
-        rocket.setMotorById(activeMountId, motor);
+      for (const [id, mm] of assigned) {
+        rocket.setMotorById(id, mm.spec);
+        if (mm.ignition.event !== 'automatic' || mm.ignition.delay !== 0) {
+          rocket.setMotorIgnitionById(id, mm.ignition.event, mm.ignition.delay);
+        }
       }
       const info = rocket.staticInfo();
       setBuildError(null);
@@ -142,12 +181,25 @@ export function App() {
       setBuildError(e instanceof Error ? e.message : String(e));
       return null;
     }
-  }, [tree, motor, activeMountId]);
+  }, [tree, assigned]);
 
-  useEffect(() => { setResult(null); setLastRun(null); }, [tree, motor, launch]);
+  useEffect(() => { setResult(null); setLastRun(null); }, [tree, mountMotors, launch]);
+
+  /** Assigns a motor to a mount, with the G80 power-class ignition default. */
+  const assignMotor = (targetMountId: string, label: string, spec: MotorSpec, meta: MotorMeta) => {
+    const stIdx = stageIndexOf(tree, targetMountId);
+    const multiStage = stages(tree).length > 1;
+    // High-power sustainer in a staged rocket → electronics-timed (the owner:
+    // nobody lights an HPR sustainer off the booster's ejection charge).
+    const ignition: MountMotor['ignition'] = multiStage && stIdx === 0 && meta.highPower
+      ? { event: 'burnout', delay: 1 }
+      : { event: 'automatic', delay: 0 };
+    setMountMotors((prev) => ({ ...prev, [targetMountId]: { label, spec, meta, ignition } }));
+  };
 
   const onLaunch = () => {
-    if (!built) return;
+    if (!built || !primaryMountId) return;
+    const primary = mountMotors[primaryMountId]!;
     setSimulating(true);
     requestAnimationFrame(() => {
       try {
@@ -163,28 +215,44 @@ export function App() {
         };
         const t0 = performance.now();
         let res = built.rocket.simulate(simOpts);
-        let flownDelay = motor.ejectionDelay;
-        // Auto delay: the first run yields the kernel's optimum (ballistic
-        // probe, independent of the flown delay) — round it to the nearest
-        // whole second (drill-to-fit) and fly the real run with that.
-        if (motorMeta.autoDelay && activeMountId) {
+        let flownDelay = primary.spec.ejectionDelay;
+        // Auto delay (sustainer/primary mount): the first run yields the
+        // kernel's optimum (ballistic probe) — round to the nearest whole
+        // second (drill-to-fit) and fly the real run with that.
+        if (primary.meta.autoDelay) {
           const rec = recommendDelay(res.summary.optimumDelay);
           if (rec !== null) {
             flownDelay = rec;
-            built.rocket.setMotorById(activeMountId, { ...motor, ejectionDelay: rec });
+            built.rocket.setMotorById(primaryMountId, { ...primary.spec, ejectionDelay: rec });
             res = built.rocket.simulate(simOpts);
           }
         }
         const execMs = performance.now() - t0;
         setResult(res);
+        // Per-stage motor info so booster branches can be safety-checked
+        // (chuteless HIGH-POWER boosters must warn — the G80 rule).
+        const stageMotorInfo: Record<string, { label: string; highPower: boolean }> = {};
+        for (const [id, mm] of assigned) {
+          const st = stageList[stageIndexOf(tree, id)];
+          if (st?.name) {
+            stageMotorInfo[st.name] = { label: mm.label, highPower: mm.meta.highPower === true };
+          }
+        }
         const run = buildSimRun({
           result: res,
           info: built.info,
-          motor: { ...motor, ejectionDelay: flownDelay },
-          meta: { ...motorMeta, motorCount: mountMotorCount },
+          motor: { ...primary.spec, ejectionDelay: flownDelay },
+          meta: {
+            ...primary.meta,
+            motorCount: clusterCount(findNode(tree, primaryMountId)?.['cluster'] as string | undefined),
+          },
           launch,
           rocketName: tree.name ?? 'Rocket',
           execMs,
+          stageMotorInfo,
+          boosterMotors: assigned
+            .filter(([id]) => id !== primaryMountId)
+            .map(([, mm]) => mm.label),
         });
         setLastRun(run);
         setRuns(addRun(run));
@@ -196,19 +264,20 @@ export function App() {
     });
   };
 
-  // ---- .ork I/O (via the fixed-shape bridge until P2.5) ----
+  // ---- .ork I/O ----
   const onSaveOrk = () => {
-    const xml = exportOrk({
-      name: tree.name ?? 'My Rocket',
-      tree,
-      motor: {
-        designation: motor.designation,
-        diameter: motor.diameter,
-        length: motor.length,
-        delay: motor.ejectionDelay,
-      },
-      mountId: activeMountId,
-    });
+    const motors: Record<string, { designation: string; diameter: number; length: number; delay: number; ignitionEvent?: string; ignitionDelay?: number }> = {};
+    for (const [id, mm] of assigned) {
+      motors[id] = {
+        designation: mm.spec.designation,
+        diameter: mm.spec.diameter,
+        length: mm.spec.length,
+        delay: mm.spec.ejectionDelay,
+        ignitionEvent: mm.ignition.event,
+        ignitionDelay: mm.ignition.delay,
+      };
+    }
+    const xml = exportOrk({ name: tree.name ?? 'My Rocket', tree, motors });
     const blob = new Blob([xml], { type: 'application/octet-stream' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -231,42 +300,52 @@ export function App() {
         }
       }
       const notes: string[] = [`Loaded “${imported.name}”.`, ...imported.notes];
-      if (imported.motor) {
-        const match = Object.entries(BUILT_IN_MOTORS).find(
-          ([k]) => k.startsWith(imported.motor!.designation),
-        );
-        const dbMatch = match ? null
-          : findDbMotor(imported.motor.designation, imported.motor.diameter * 1000);
-        if (match) {
-          setMotorLabel(match[0]);
-          setMotor(match[1]);
-          notes.push(`Motor: ${match[0]} (matched built-in).`);
-        } else if (dbMatch) {
-          try {
-            const delay = imported.motor.delay;
-            const spec = await fetchMotorSpec(dbMatch, delay);
-            const label = `${dbMatch.commonName}-${delay}`;
-            setMotorLabel(label);
-            setMotor(spec);
-            setMotorMeta({
+      // Load EVERY mount's motor (staged/multi-mount files included).
+      const nextMotors: Record<string, MountMotor> = {};
+      for (const [nodeId, ref] of Object.entries(imported.motors)) {
+        const builtIn = Object.entries(BUILT_IN_MOTORS).find(
+          ([k]) => k.startsWith(ref.designation));
+        const ignition: MountMotor['ignition'] = {
+          event: (ref.ignitionEvent as IgnitionEvent | undefined) ?? 'automatic',
+          delay: ref.ignitionDelay ?? 0,
+        };
+        if (builtIn) {
+          nextMotors[nodeId] = {
+            label: builtIn[0], spec: builtIn[1], meta: builtInMeta(builtIn[0]), ignition,
+          };
+          notes.push(`Motor: ${builtIn[0]} (matched built-in).`);
+          continue;
+        }
+        const dbMatch = findDbMotor(ref.designation, ref.diameter * 1000);
+        if (!dbMatch) {
+          notes.push(`Motor “${ref.designation}” isn't in the motor database — pick one via Browse motor database.`);
+          continue;
+        }
+        try {
+          const spec = await fetchMotorSpec(dbMatch, ref.delay);
+          const label = `${dbMatch.commonName}-${ref.delay}`;
+          nextMotors[nodeId] = {
+            label,
+            spec,
+            meta: {
               label,
               manufacturer: dbMatch.manufacturerAbbrev,
               availableDelays: delayOptions(dbMatch),
               type: dbMatch.type,
               propellant: dbMatch.propInfo,
               motorCase: dbMatch.caseInfo,
-            });
-            notes.push(`Motor: ${dbMatch.manufacturerAbbrev} ${displayDesignation(dbMatch.designation, dbMatch.manufacturerAbbrev)}-${delay} (loaded from the motor database).`);
-          } catch {
-            notes.push(`Motor “${imported.motor.designation}” is in the motor database but its thrust curve couldn't be downloaded — pick it via Browse motor database.`);
-          }
-        } else {
-          notes.push(`Motor “${imported.motor.designation}” isn't in the motor database — pick one via Browse motor database.`);
+              highPower: isHighPower(dbMatch),
+            },
+            ignition,
+          };
+          notes.push(`Motor: ${dbMatch.manufacturerAbbrev} ${displayDesignation(dbMatch.designation, dbMatch.manufacturerAbbrev)}-${ref.delay} (loaded from the motor database).`);
+        } catch {
+          notes.push(`Motor “${ref.designation}” is in the motor database but its thrust curve couldn't be downloaded — pick it via Browse motor database.`);
         }
       }
-      setTree(imported.tree);
+      setTree(normalizeTree(imported.tree));
+      setMountMotors(nextMotors);
       setSelectedId(null);
-      if (imported.motor?.mountId) setMountId(imported.motor.mountId);
       setFileNote(notes.join('\n'));
     } catch (e) {
       setFileNote(`Could not open that .ork file: ${e instanceof Error ? e.message : String(e)}`);
@@ -283,13 +362,14 @@ export function App() {
       return null;
     }
   }, [built, selectedNode]);
-  const mountNode = activeMountId ? findNode(tree, activeMountId) : null;
-  const mountInnerDiaMm = mountNode
-    ? Math.round(((mountNode['outerRadius'] as number ?? 0.0095) - (mountNode['thickness'] as number ?? 0.0005)) * 2000)
+  const mountDiaMm = (m: ReturnType<typeof findNode>) => m
+    ? Math.round(((m['outerRadius'] as number ?? 0.0095) - (m['thickness'] as number ?? 0.0005)) * 2000)
     : 18;
-  // Clustered mount: ONE motor choice fires N motors (kernel does thrust ×N
-  // and mass at the real tube positions).
-  const mountMotorCount = mountNode ? clusterCount(mountNode['cluster'] as string | undefined) : 1;
+  // Batch simulate targets the PRIMARY (sustainer) mount; per the owner's rule
+  // batch never runs across staged rockets (combinatorics).
+  const primaryMountNode = primaryMountId ? findNode(tree, primaryMountId) : null;
+  const primaryMotorCount = clusterCount(primaryMountNode?.['cluster'] as string | undefined);
+  const primaryLabel = primaryMountId ? mountMotors[primaryMountId]?.label : undefined;
 
   return (
     <div className="viz-root" data-theme={resolvedTheme}>
@@ -324,21 +404,24 @@ export function App() {
       </header>
       {showPrefs && <PreferencesDialog onClose={() => setShowPrefs(false)} />}
       {showChangelog && <ChangelogDialog onClose={() => setShowChangelog(false)} />}
-      {showBatch && built && activeMountId && (
+      {showBatch && built && primaryMountId && !isStaged && (
         <BatchSimulate
           rocket={built.rocket}
           info={built.info}
-          mountId={activeMountId}
-          mountDiameterMm={mountInnerDiaMm}
+          mountId={primaryMountId}
+          mountDiameterMm={mountDiaMm(primaryMountNode)}
           maxMotorLengthM={maxMotorLenM}
-          motorCount={mountMotorCount}
+          motorCount={primaryMotorCount}
           launch={launch}
           rocketName={tree.name ?? 'Rocket'}
           onRunsChange={setRuns}
           onClose={() => {
             // Batch runs left some other motor on the engine-side rocket —
             // restore the one the UI shows.
-            try { built.rocket.setMotorById(activeMountId, motor); } catch { /* rebuilt anyway */ }
+            try {
+              const mm = mountMotors[primaryMountId];
+              if (mm) built.rocket.setMotorById(primaryMountId, mm.spec);
+            } catch { /* rebuilt anyway */ }
             setShowBatch(false);
           }}
         />
@@ -409,12 +492,17 @@ export function App() {
                 // component they follow (previous sibling, else the parent).
                 const parent = parentId === 'stage' ? 'stage' as const : findNode(tree, parentId);
                 const siblings = parent === 'stage'
-                  ? tree.components
+                  ? stages(tree)[0]?.children ?? []
                   : parent?.children ?? [];
                 const prev = siblings.length ? siblings[siblings.length - 1]! : null;
                 const node = inheritDefaults(makeNode(type), parent, prev);
                 setTree(addChild(tree, parentId, node));
                 setSelectedId(node.id!);
+              }}
+              onAddStage={() => {
+                const { tree: next, newId } = addStage(tree);
+                setTree(next);
+                setSelectedId(newId);
               }}
             />
           </div>
@@ -430,17 +518,7 @@ export function App() {
           )}
 
           <div className="panel" style={{ marginTop: 10 }}>
-            <h2>Motor</h2>
-            {mounts.length > 1 && (
-              <div className="field" style={{ marginBottom: 8 }}>
-                <label>Mount</label>
-                <select value={activeMountId ?? ''} onChange={(e) => setMountId(e.target.value)}>
-                  {mounts.map((m) => (
-                    <option key={m.id} value={m.id}>{m.name ?? m.id}</option>
-                  ))}
-                </select>
-              </div>
-            )}
+            <h2>Motors</h2>
             {mounts.length === 0 && (
               <p className="stability-bad" style={{ fontSize: 12 }}>
                 No motor mount — add an inner tube and check “acts as motor mount”.
@@ -461,66 +539,138 @@ export function App() {
                   v === null ? null : uiToSi('motorDimensions', prefs.units.motorDimensions, v))}
               />
             </div>
-            <MotorPicker
-              mountDiameterMm={mountInnerDiaMm}
-              maxMotorLengthM={maxMotorLenM}
-              selectedLabel={motorLabel}
-              onSelect={(label, m, meta) => {
-                setMotorLabel(label);
-                setMotor(m);
-                setMotorMeta(meta);
-              }}
-            />
-            {mountMotorCount > 1 && (
-              <p className="motor-db-meta" style={{ marginTop: 6 }}>
-                ⚡ Cluster mount ({mountNode?.['cluster'] as string}): this motor fires
-                ×{mountMotorCount} — thrust and motor weight multiply automatically.
-              </p>
-            )}
-            <div className="field" style={{ marginTop: 8 }}>
-              <label>
-                Ejection delay (s)
-                {motorMeta.availableDelays?.length
-                  ? ` — prescribed: ${motorMeta.availableDelays.join(', ')}`
-                  : ''}
-              </label>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <div style={{ flex: 1 }}>
-                  <NumField
-                    value={motor.ejectionDelay}
-                    step={1}
-                    max={60}
-                    ariaLabel="Ejection delay in seconds"
-                    onCommit={(v) => {
-                      if (v === null) return;
-                      // Typing a delay overrides auto — real motors get
-                      // drilled to whatever whole second the flyer wants.
-                      setMotor({ ...motor, ejectionDelay: v });
-                      setMotorMeta({ ...motorMeta, autoDelay: false });
-                      setMotorLabel(labelWithDelay(motorLabel, v));
-                    }}
+            {mounts.map((m) => {
+              const mm = mountMotors[m.id!];
+              const mNode = findNode(tree, m.id!);
+              const stIdx = stageIndexOf(tree, m.id!);
+              const stName = stageList[stIdx]?.name ?? `Stage ${stIdx + 1}`;
+              const count = clusterCount(mNode?.['cluster'] as string | undefined);
+              const isSustainerMount = stIdx === 0;
+              return (
+                <div key={m.id} className="mount-card" style={{ marginBottom: 10, paddingTop: 6, borderTop: '1px solid var(--border, #333)' }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                    <label style={{ flex: 1, fontWeight: 600 }}>
+                      {isStaged ? `${stName} · ` : ''}{m.name ?? 'Motor mount'}
+                      {count > 1 && ` (cluster ×${count})`}
+                    </label>
+                    {mm && (
+                      <button className="fin-row-del" title="Remove this motor"
+                        onClick={() => setMountMotors((prev) => {
+                          const next = { ...prev };
+                          delete next[m.id!];
+                          return next;
+                        })}>✕</button>
+                    )}
+                  </div>
+                  <MotorPicker
+                    mountDiameterMm={mountDiaMm(mNode)}
+                    maxMotorLengthM={maxMotorLenM}
+                    selectedLabel={mm?.label ?? ''}
+                    onSelect={(label, spec, meta) => assignMotor(m.id!, label, spec, meta)}
                   />
+                  {mm && (
+                    <div className="field" style={{ marginTop: 6 }}>
+                      <label>
+                        Ejection delay (s)
+                        {mm.meta.availableDelays?.length
+                          ? ` — prescribed: ${mm.meta.availableDelays.join(', ')}`
+                          : ''}
+                      </label>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <div style={{ flex: 1 }}>
+                          <NumField
+                            value={mm.spec.ejectionDelay}
+                            step={1}
+                            max={60}
+                            ariaLabel={`Ejection delay for ${m.name ?? m.id}`}
+                            onCommit={(v) => {
+                              if (v === null) return;
+                              // Typing a delay overrides auto — real motors get
+                              // drilled to whatever whole second the flyer wants.
+                              setMountMotors((prev) => ({
+                                ...prev,
+                                [m.id!]: {
+                                  ...mm,
+                                  spec: { ...mm.spec, ejectionDelay: v },
+                                  meta: { ...mm.meta, autoDelay: false },
+                                  label: labelWithDelay(mm.label, v),
+                                },
+                              }));
+                            }}
+                          />
+                        </div>
+                        {isSustainerMount && (
+                          <label className="motor-inline-label" style={{ whiteSpace: 'nowrap' }}>
+                            <input
+                              type="checkbox"
+                              checked={mm.meta.autoDelay === true}
+                              style={{ width: 'auto' }}
+                              onChange={(e) => {
+                                setMountMotors((prev) => ({
+                                  ...prev,
+                                  [m.id!]: {
+                                    ...mm,
+                                    meta: { ...mm.meta, autoDelay: e.target.checked },
+                                    label: labelWithDelay(
+                                      mm.label, e.target.checked ? 'auto' : mm.spec.ejectionDelay),
+                                  },
+                                }));
+                              }}
+                            />
+                            auto (optimal)
+                          </label>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  {mm && isStaged && (
+                    <div className="field" style={{ marginTop: 6 }}
+                      title="When this motor lights. Automatic = launch-stage motors at launch, upper motors on the ejection charge of the stage below (low/mid power). High-power sustainers are electronics-timed (e.g. booster burnout + delay).">
+                      <label>Ignition</label>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <select
+                          style={{ flex: 1 }}
+                          value={mm.ignition.event}
+                          onChange={(e) => setMountMotors((prev) => ({
+                            ...prev,
+                            [m.id!]: { ...mm, ignition: { ...mm.ignition, event: e.target.value as IgnitionEvent } },
+                          }))}
+                        >
+                          <option value="automatic">Automatic (launch / lower stage's ejection)</option>
+                          <option value="burnout">Lower stage burnout + delay (electronics)</option>
+                          <option value="launch">Launch + delay (timer)</option>
+                          <option value="ejectioncharge">Lower stage ejection charge + delay</option>
+                          <option value="never">Never</option>
+                        </select>
+                        <div style={{ width: 70 }}>
+                          <NumField
+                            value={mm.ignition.delay}
+                            step={0.5}
+                            max={60}
+                            ariaLabel={`Ignition delay for ${m.name ?? m.id}`}
+                            onCommit={(v) => {
+                              if (v === null) return;
+                              setMountMotors((prev) => ({
+                                ...prev,
+                                [m.id!]: { ...mm, ignition: { ...mm.ignition, delay: v } },
+                              }));
+                            }}
+                          />
+                        </div>
+                        <span className="motor-db-meta">s</span>
+                      </div>
+                    </div>
+                  )}
                 </div>
-                <label className="motor-inline-label" style={{ whiteSpace: 'nowrap' }}>
-                  <input
-                    type="checkbox"
-                    checked={motorMeta.autoDelay === true}
-                    style={{ width: 'auto' }}
-                    onChange={(e) => {
-                      setMotorMeta({ ...motorMeta, autoDelay: e.target.checked });
-                      setMotorLabel(labelWithDelay(
-                        motorLabel, e.target.checked ? 'auto' : motor.ejectionDelay));
-                    }}
-                  />
-                  auto (optimal)
-                </label>
-              </div>
-            </div>
+              );
+            })}
             <button
               className="file-btn"
               style={{ marginTop: 8, width: '100%' }}
-              disabled={!built || !activeMountId}
-              title="Simulate every motor that fits this rocket, with filters and acceptance criteria"
+              disabled={!built || !primaryMountId || isStaged}
+              title={isStaged
+                ? 'Batch simulation is not available on staged rockets — the motor combinations explode.'
+                : 'Simulate every motor that fits this rocket, with filters and acceptance criteria'}
               onClick={() => setShowBatch(true)}
             >
               ⚡ Batch simulate motors…
@@ -560,7 +710,14 @@ export function App() {
                 />
               )
               : <Rocket3D tree={tree} info={built?.info ?? null} />}
-            {built && <DesignStats info={built.info} motorLabel={activeMountId ? motorLabel : undefined} />}
+            {built && (
+              <DesignStats
+                info={built.info}
+                motorLabel={assigned.length > 1
+                  ? assigned.map(([, mm]) => mm.label).join(' + ')
+                  : primaryLabel}
+              />
+            )}
             {built && built.info.warningTexts.length > 0 && (
               <div className="file-note" role="alert">
                 {built.info.warningTexts.join('\n')}
