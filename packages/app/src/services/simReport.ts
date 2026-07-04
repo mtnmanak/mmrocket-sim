@@ -223,8 +223,10 @@ function extractDeployments(
       descentRate,
       isLanding,
       openingOk: vDeploy === null ? null : Math.abs(vDeploy) <= SAFETY.maxDeploymentVelocity,
+      // abs like openingOk — descent velocities are magnitudes today, but a
+      // signed series would make an unsigned ≤ check pass vacuously.
       descentOk: descentRate === null ? null
-        : descentRate <= (isLanding ? SAFETY.maxLandingRate : SAFETY.maxDrogueDescentRate),
+        : Math.abs(descentRate) <= (isLanding ? SAFETY.maxLandingRate : SAFETY.maxDrogueDescentRate),
     };
   });
 }
@@ -297,8 +299,9 @@ export function buildSimRun(input: {
       safeLandingRate: landing === null ? null : landing <= SAFETY.maxLandingRate,
     });
   }
-  const landingRate = Number.isFinite(summary.groundHitVelocity)
+  const landingRaw = Number.isFinite(summary.groundHitVelocity)
     ? summary.groundHitVelocity : (tGround !== null ? at(series.time, series.velocity, tGround) : null);
+  const landingRate = landingRaw === null ? null : Math.abs(landingRaw); // magnitude, like the branch reports
   const safeLandingRate = landingRate === null ? null : landingRate <= SAFETY.maxLandingRate;
 
   const optimumDelayS = summary.optimumDelay ?? null;

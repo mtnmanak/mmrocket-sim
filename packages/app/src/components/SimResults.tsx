@@ -203,7 +203,11 @@ export function SimRunDetails({ run }: { run: SimRun }) {
                 </>
               )}
               <Row label="Landing descent rate"
-                value={run.landingRate == null ? fmtSi('velocity', vel, run.groundHitVelocity) : fmtSi('velocity', vel, run.landingRate)}
+                value={run.landingRate != null ? fmtSi('velocity', vel, run.landingRate)
+                  // Pre-landingRate stored runs fall back to groundHitVelocity —
+                  // guard it: landingRate is null exactly when it was non-finite.
+                  : Number.isFinite(run.groundHitVelocity) ? fmtSi('velocity', vel, run.groundHitVelocity)
+                  : '—'}
                 quantity="velocity" bad={run.safeLandingRate === false} />
             </tbody>
           </table>

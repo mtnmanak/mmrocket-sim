@@ -1,4 +1,5 @@
 import type { ComponentNode, ComponentType } from '@online-openrocket/engine';
+import { csvCell } from './csvUtil.js';
 
 /**
  * Component preset database (openrocket-database .orc files → presets.json,
@@ -54,7 +55,11 @@ export function loadCustomPresets(): Preset[] {
 }
 
 export function saveCustomPresets(presets: Preset[]): void {
-  localStorage.setItem(CUSTOM_KEY, JSON.stringify(presets));
+  try {
+    localStorage.setItem(CUSTOM_KEY, JSON.stringify(presets));
+  } catch {
+    // Private browsing / quota — the presets still work for this session.
+  }
 }
 
 const n = (p: Preset, key: string): number | undefined =>
@@ -156,11 +161,6 @@ const CSV_COLS = [
   'aftShoulderDiameter', 'aftShoulderLength', 'diameter', 'lineCount', 'lineLength', 'width',
 ];
 
-const csvEscape = (v: unknown): string => {
-  const s = v === undefined || v === null ? '' : String(v);
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-};
-
 export function presetsToCsv(presets: Preset[]): string {
   const rows = [CSV_COLS.join(',')];
   for (const p of presets) {
@@ -170,37 +170,45 @@ export function presetsToCsv(presets: Preset[]): string {
       materialType: p.material?.type,
       materialDensity: p.material?.density,
     };
-    rows.push(CSV_COLS.map((c) => csvEscape(flat[c])).join(','));
+    rows.push(CSV_COLS.map((c) => csvCell(flat[c])).join(','));
   }
   return rows.join('\n') + '\n';
 }
 
-function splitCsvLine(line: string): string[] {
-  const out: string[] = [];
+/**
+ * Full-text CSV parser: records split on unquoted newlines (a quoted cell
+ * may contain commas, quotes AND newlines — presetsToCsv writes all three).
+ */
+function parseCsv(csv: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
   let cur = '';
   let quoted = false;
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i]!;
+  for (let i = 0; i < csv.length; i++) {
+    const ch = csv[i]!;
     if (quoted) {
-      if (ch === '"' && line[i + 1] === '"') { cur += '"'; i++; }
+      if (ch === '"' && csv[i + 1] === '"') { cur += '"'; i++; }
       else if (ch === '"') quoted = false;
       else cur += ch;
     } else if (ch === '"') quoted = true;
-    else if (ch === ',') { out.push(cur); cur = ''; }
-    else cur += ch;
+    else if (ch === ',') { row.push(cur); cur = ''; }
+    else if (ch === '\n' || ch === '\r') {
+      if (ch === '\r' && csv[i + 1] === '\n') i++;
+      row.push(cur); cur = '';
+      rows.push(row); row = [];
+    } else cur += ch;
   }
-  out.push(cur);
-  return out;
+  if (cur !== '' || row.length > 0) { row.push(cur); rows.push(row); }
+  return rows.filter((r) => r.some((c) => c.trim() !== ''));
 }
 
 /** Parses an edited CSV back into presets (SI values, same columns as export). */
 export function csvToPresets(csv: string): Preset[] {
-  const lines = csv.split(/\r?\n/).filter((l) => l.trim().length > 0);
-  if (lines.length < 2) return [];
-  const header = splitCsvLine(lines[0]!).map((h) => h.trim());
+  const records = parseCsv(csv);
+  if (records.length < 2) return [];
+  const header = records[0]!.map((h) => h.trim());
   const out: Preset[] = [];
-  for (const line of lines.slice(1)) {
-    const cells = splitCsvLine(line);
+  for (const cells of records.slice(1)) {
     const row: Record<string, string> = {};
     header.forEach((h, i) => { row[h] = cells[i] ?? ''; });
     if (!row['kind'] || !row['partNo']) continue;

@@ -155,4 +155,89 @@ describe('.ork permissive handling', () => {
     const buf = bytes.buffer.slice(0, bytes.byteLength) as ArrayBuffer;
     expect(importOrk(buf).name).toBe('MinDia');
   });
+
+  it('reads legacy <position type> files (OpenRocket ≤ 15.03)', () => {
+    const LEGACY = `<openrocket version="1.4" creator="OpenRocket 15.03"><rocket>
+      <name>Old</name><subcomponents><stage><name>S</name><subcomponents>
+        <bodytube><name>B</name><length>0.4</length><thickness>0.0005</thickness><radius>0.0125</radius>
+          <subcomponents>
+            <launchlug><name>L</name><position type="middle">0.03</position>
+              <radius>0.0022</radius><length>0.05</length><thickness>0.0003</thickness></launchlug>
+          </subcomponents>
+        </bodytube>
+      </subcomponents></stage></subcomponents></rocket></openrocket>`;
+    const result = importOrk(LEGACY);
+    const lug = flatten(result.tree.components).find((c) => c.type === 'launchlug')!;
+    expect(lug.position?.method).toBe('middle');
+    expect(lug.position?.offset).toBeCloseTo(0.03, 12);
+  });
+});
+
+describe('.ork export fidelity (v0.013 fixes)', () => {
+  it('round-trips parachute line material instead of pinning elastic cord', () => {
+    const tree = {
+      name: 'LM',
+      components: [{
+        type: 'stage' as const, id: 's', name: 'Sustainer',
+        children: [{
+          type: 'bodytube' as const, id: 'b', length: 0.4, outerRadius: 0.0125, thickness: 0.0005,
+          children: [{
+            type: 'parachute' as const, id: 'p', diameter: 0.45,
+            lineDensity: 0.005, lineMaterialName: 'Braided Kevlar',
+          }],
+        }],
+      }],
+    };
+    const back = importOrk(exportOrk({ name: 'LM', tree }));
+    const chute = flatten(back.tree.components).find((c) => c.type === 'parachute')!;
+    expect(chute['lineDensity']).toBeCloseTo(0.005, 12);
+    expect(chute['lineMaterialName']).toBe('Braided Kevlar');
+  });
+
+  it('round-trips elliptical fin cant and transition shoulder thickness', () => {
+    const tree = {
+      name: 'EC',
+      components: [{
+        type: 'stage' as const, id: 's', name: 'Sustainer',
+        children: [
+          {
+            type: 'bodytube' as const, id: 'b', length: 0.4, outerRadius: 0.0125, thickness: 0.0005,
+            children: [{
+              type: 'ellipticalfinset' as const, id: 'f', finCount: 3,
+              rootChord: 0.06, height: 0.04, thickness: 0.003, cant: 0.05,
+            }],
+          },
+          {
+            type: 'transition' as const, id: 't', length: 0.08,
+            foreRadius: 0.0125, aftRadius: 0.009, thickness: 0.002, shape: 'conical',
+            aftShoulderRadius: 0.0085, aftShoulderLength: 0.02, aftShoulderThickness: 0.0015,
+          },
+        ],
+      }],
+    };
+    const back = importOrk(exportOrk({ name: 'EC', tree }));
+    const all = flatten(back.tree.components);
+    const fins = all.find((c) => c.type === 'ellipticalfinset')!;
+    expect(fins['cant']).toBeCloseTo(0.05, 9);
+    const trans = all.find((c) => c.type === 'transition')!;
+    expect(trans['aftShoulderThickness']).toBeCloseTo(0.0015, 12);
+  });
+
+  it('escapes file-sourced free text on re-export (finish/shape)', () => {
+    const tree = {
+      name: 'ESC',
+      components: [{
+        type: 'stage' as const, id: 's', name: 'Sustainer',
+        children: [{
+          type: 'nosecone' as const, id: 'n', length: 0.1, aftRadius: 0.0125,
+          thickness: 0.001, shape: 'a<b&c', finish: 'x<y',
+        }],
+      }],
+    };
+    const xml = exportOrk({ name: 'ESC', tree });
+    expect(xml).toContain('<shape>a&lt;b&amp;c</shape>');
+    expect(xml).toContain('<finish>x&lt;y</finish>');
+    // Still parseable XML.
+    expect(() => importOrk(xml)).not.toThrow();
+  });
 });

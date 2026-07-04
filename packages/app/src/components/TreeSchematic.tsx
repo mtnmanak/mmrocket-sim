@@ -360,7 +360,7 @@ export function TreeSchematic({ tree, info, onPatchNode }: {
           )}
         </g>
       </svg>
-      {zoom.k > 1 && (
+      {(zoom.k > 1 || zoom.x !== 0 || zoom.y !== 0) && (
         <button className="file-btn schematic-reset"
           title="Fit the whole rocket in view"
           onClick={() => setZoom({ k: 1, x: 0, y: 0 })}>

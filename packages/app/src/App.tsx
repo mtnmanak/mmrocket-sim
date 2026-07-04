@@ -84,8 +84,9 @@ export function App() {
   const { prefs, resolvedTheme } = usePrefs();
   const [showPrefs, setShowPrefs] = useState(false);
   // Restore the previous session (autosaved on every change) if one exists.
-  // normalizeTree wraps pre-v0.009 flat trees in one stage.
-  const session = useRef(loadSession()).current;
+  // normalizeTree wraps pre-v0.009 flat trees in one stage. Lazy useState:
+  // loadSession parses the whole tree — never re-run it on re-renders.
+  const [session] = useState(loadSession);
   const [tree, setTreeRaw] = useState<RocketTree>(
     () => normalizeTree(session?.tree ?? defaultTree()));
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -112,7 +113,7 @@ export function App() {
   const [lastRun, setLastRun] = useState<SimRun | null>(null);
   const [runs, setRuns] = useState<SimRun[]>(() => loadRuns());
   const [simulating, setSimulating] = useState(false);
-  const [buildError, setBuildError] = useState<string | null>(null);
+  const [simError, setSimError] = useState<string | null>(null);
   const [fileNote, setFileNote] = useState<string | null>(
     session ? `Restored your previous session (“${session.tree.name ?? 'unnamed'}”, saved ${new Date(session.savedAt).toLocaleString()}).` : null,
   );
@@ -128,10 +129,18 @@ export function App() {
 
   // ---- undo (Ctrl+Z / button) ----
   const history = useRef<RocketTree[]>([]);
+  const lastEditAt = useRef(0);
   const setTree = useCallback((next: RocketTree) => {
     setTreeRaw((prev) => {
-      history.current.push(prev);
-      if (history.current.length > 50) history.current.shift();
+      // Coalesce rapid-fire edits (schematic drags, slider moves, keystrokes)
+      // into ONE undo step — otherwise a 2 s drag floods the 50-entry buffer
+      // and Ctrl+Z steps back a pixel at a time.
+      const now = Date.now();
+      if (now - lastEditAt.current > 800) {
+        history.current.push(prev);
+        if (history.current.length > 50) history.current.shift();
+      }
+      lastEditAt.current = now;
       return next;
     });
   }, []);
@@ -142,6 +151,12 @@ export function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        // Leave native text undo alone while the user is typing in a field.
+        const t = e.target;
+        if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement
+            || (t instanceof HTMLElement && t.isContentEditable)) {
+          return;
+        }
         e.preventDefault();
         undo();
       }
@@ -167,7 +182,9 @@ export function App() {
     return byStage[0]?.[0] ?? null;
   }, [assigned, tree]);
 
-  const built = useMemo((): { rocket: OrkRocket; info: StaticInfo } | null => {
+  // No setState in here — the error is part of the memo's value (setState
+  // during render breaks under StrictMode's double-invoke).
+  const buildResult = useMemo((): { rocket: OrkRocket; info: StaticInfo } | { error: string } => {
     try {
       resetEngine();
       const rocket = OrkRocket.buildTree(tree);
@@ -178,13 +195,13 @@ export function App() {
         }
       }
       const info = rocket.staticInfo();
-      setBuildError(null);
       return { rocket, info };
     } catch (e) {
-      setBuildError(e instanceof Error ? e.message : String(e));
-      return null;
+      return { error: e instanceof Error ? e.message : String(e) };
     }
   }, [tree, assigned]);
+  const built = 'error' in buildResult ? null : buildResult;
+  const buildError = 'error' in buildResult ? buildResult.error : simError;
 
   useEffect(() => { setResult(null); setLastRun(null); }, [tree, mountMotors, launch]);
 
@@ -259,8 +276,9 @@ export function App() {
         });
         setLastRun(run);
         setRuns(addRun(run));
+        setSimError(null);
       } catch (e) {
-        setBuildError(e instanceof Error ? e.message : String(e));
+        setSimError(e instanceof Error ? e.message : String(e));
       } finally {
         setSimulating(false);
       }
@@ -331,10 +349,17 @@ export function App() {
           delay: ref.ignitionDelay ?? 0,
         };
         if (builtIn) {
+          // Keep the FILE's ejection delay — the built-in key's own delay
+          // (e.g. C6-5 matching a saved C6-7) would silently change the flight.
+          const fileDelay = Number.isFinite(ref.delay) ? ref.delay : builtIn[1].ejectionDelay;
+          const label = labelWithDelay(builtIn[0], fileDelay);
           nextMotors[nodeId] = {
-            label: builtIn[0], spec: builtIn[1], meta: builtInMeta(builtIn[0]), ignition,
+            label,
+            spec: { ...builtIn[1], ejectionDelay: fileDelay },
+            meta: builtInMeta(builtIn[0]),
+            ignition,
           };
-          notes.push(`Motor: ${builtIn[0]} (matched built-in).`);
+          notes.push(`Motor: ${label} (matched built-in).`);
           continue;
         }
         // RockSim refs carry no motor diameter (0) — match by designation only.
@@ -465,8 +490,11 @@ export function App() {
                 className="file-btn modal-danger"
                 onClick={() => {
                   setTree(emptyTree());
+                  setMountMotors({});
+                  setMaxMotorLenM(null);
                   setSelectedId(null);
                   setResult(null);
+                  setLastRun(null);
                   setConfirmNew(false);
                 }}
               >

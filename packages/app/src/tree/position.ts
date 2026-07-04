@@ -1,4 +1,4 @@
-import type { ComponentNode, ComponentPosition } from '@online-openrocket/engine';
+import type { ComponentNode, ComponentPosition, RocketTree } from '@online-openrocket/engine';
 
 /**
  * Axial-position math shared by the 2D schematic (drag) and the property
@@ -39,6 +39,52 @@ export function offsetForStart(method: ComponentPosition['method'], start: numbe
     case 'top':
     default: return start;
   }
+}
+
+/**
+ * Rewrites every 'absolute' axial position (rocket-origin frame — only file
+ * importers produce it) into the equivalent parent-relative 'top' offset.
+ * The UI edits positions in the parent frame only: leaving 'absolute' in the
+ * tree makes the schematic/property panel (parent frame) disagree with the
+ * engine (rocket frame), so geometry drawn ≠ geometry simulated.
+ */
+export function resolveAbsolutePositions(tree: RocketTree): RocketTree {
+  let changed = false;
+  const chainTypes = new Set(['nosecone', 'bodytube', 'transition']);
+
+  const fixChildren = (parent: ComponentNode, pStart: number, pLen: number): ComponentNode => {
+    if (!parent.children?.length) return parent;
+    const children = parent.children.map((child) => {
+      let next = child;
+      const pos = (child.position ?? { method: 'top', offset: 0 }) as ComponentPosition;
+      if (pos.method === 'absolute') {
+        changed = true;
+        next = { ...child, position: { method: 'top', offset: pos.offset - pStart } } as ComponentNode;
+      }
+      const cLen = axialLength(next);
+      const nextPos = (next.position ?? { method: 'top', offset: 0 }) as ComponentPosition;
+      const start = pStart + startFromPosition(nextPos, cLen, pLen);
+      return fixChildren(next, start, cLen);
+    });
+    return { ...parent, children } as ComponentNode;
+  };
+
+  // Stages flatten into one nose-to-tail chain; chain members stack
+  // sequentially (their own position field is not used for layout).
+  let x = 0;
+  const components = tree.components.map((stage) => {
+    const kids = stage.type === 'stage' ? stage.children ?? [] : [stage];
+    const fixedKids = kids.map((n) => {
+      const len = chainTypes.has(n.type) ? (typeof n['length'] === 'number' ? (n['length'] as number) : 0) : 0;
+      const fixed = fixChildren(n, x, len);
+      x += len;
+      return fixed;
+    });
+    return stage.type === 'stage'
+      ? ({ ...stage, children: fixedKids } as ComponentNode)
+      : fixedKids[0]!;
+  });
+  return changed ? { ...tree, components } : tree;
 }
 
 /**

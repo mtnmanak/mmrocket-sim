@@ -1,7 +1,8 @@
 import { strFromU8 } from 'fflate';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
-import { freshId } from '../tree/treeModel.js';
-import type { OrkExportMotor, OrkMotorRef, OrkTreeImportResult } from './orkFile.js';
+import { asStageNodes, freshId } from '../tree/treeModel.js';
+import { escapeXml as esc, xmlNum as num, xmlText as text } from './xmlUtil.js';
+import type { OrkMotorRef, OrkTreeImportResult } from './orkFile.js';
 
 /**
  * RASAero II (.CDX1) design import/export — Phase 3 "file imports and
@@ -278,7 +279,6 @@ export function importCdx1(data: ArrayBuffer | string): OrkTreeImportResult {
 export interface Cdx1ExportInput {
   name: string;
   tree: RocketTree;
-  motors?: Record<string, OrkExportMotor>;
   /** Loaded launch mass (kg) and CG (m), for the mandatory simulation block. */
   launchMassKg?: number;
   launchCgM?: number;
@@ -288,9 +288,7 @@ const FIN_MIN = 3;
 const FIN_MAX = 8;
 
 export function exportCdx1({ name, tree, launchMassKg, launchCgM }: Cdx1ExportInput): string {
-  const stagesIn: ComponentNode[] = tree.components.every((c) => c.type === 'stage')
-    ? tree.components
-    : [{ type: 'stage', name: 'Sustainer', children: tree.components } as ComponentNode];
+  const stagesIn = asStageNodes(tree);
   if (stagesIn.length > 3) throw new Error('RASAero supports at most 3 stages.');
 
   const nnum = (node: ComponentNode, key: string, fb: number): number =>
@@ -299,32 +297,80 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM }: Cdx1ExportIn
     const s = v.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
     return s === '-0' ? '0' : s;
   };
-  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const lines: string[] = [];
   const emit = (s: string) => lines.push(s);
 
   let locM = 0; // running absolute location (nose tip origin)
 
+  /** Trapezoid planform of a fin set (m), or null when it has none. */
+  const finPlanform = (fin: ComponentNode): { root: number; tip: number; sweep: number; height: number } | null => {
+    if (fin.type === 'trapezoidfinset') {
+      return {
+        root: nnum(fin, 'rootChord', 0.05),
+        tip: nnum(fin, 'tipChord', 0.03),
+        sweep: nnum(fin, 'sweep', 0),
+        height: nnum(fin, 'height', 0.03),
+      };
+    }
+    if (fin.type === 'freeformfinset') {
+      // Exact conversion for trapezoid-shaped outlines — including the ones
+      // our own importer synthesizes for fins on transitions/boat tails.
+      const pts = (fin['points'] as [number, number][] | undefined) ?? [];
+      const eps = 1e-9;
+      const flat = (v: number) => Math.abs(v) < eps;
+      if (pts.length === 4 && flat(pts[0]![1]) && flat(pts[3]![1])
+          && Math.abs(pts[1]![1] - pts[2]![1]) < eps && pts[1]![1] > 0
+          && pts[2]![0] >= pts[1]![0] - eps) {
+        return {
+          root: pts[3]![0] - pts[0]![0],
+          tip: pts[2]![0] - pts[1]![0],
+          sweep: pts[1]![0] - pts[0]![0],
+          height: pts[1]![1],
+        };
+      }
+      if (pts.length === 3 && flat(pts[0]![1]) && flat(pts[2]![1]) && pts[1]![1] > 0) {
+        return {
+          root: pts[2]![0] - pts[0]![0],
+          tip: 0,
+          sweep: pts[1]![0] - pts[0]![0],
+          height: pts[1]![1],
+        };
+      }
+    }
+    return null;
+  };
+
   const finXml = (parent: ComponentNode): void => {
-    const fin = (parent.children ?? []).find((c) => c.type === 'trapezoidfinset');
-    if (!fin) return;
+    const finSets = (parent.children ?? []).filter((c) => c.type.endsWith('finset'));
+    if (finSets.length === 0) return;
+    if (finSets.length > 1) {
+      throw new Error('RASAero allows ONE fin set per tube — remove extras or export as .ork/.rkt.');
+    }
+    const fin = finSets[0]!;
+    const plan = finPlanform(fin);
+    if (!plan) {
+      // Never drop fins silently — an aero program with no fins is a
+      // radically different rocket.
+      throw new Error(fin.type === 'freeformfinset'
+        ? `RASAero fins are trapezoids — the freeform outline of “${fin.name ?? 'Fins'}” isn't a simple 3/4-point trapezoid. Simplify it or export as .ork/.rkt.`
+        : `RASAero has no ${fin.type === 'ellipticalfinset' ? 'elliptical' : 'tube'} fins — “${fin.name ?? 'Fins'}” can't be exported. Use trapezoid fins or export as .ork/.rkt.`);
+    }
     const count = Math.round(nnum(fin, 'finCount', 3));
     if (count < FIN_MIN || count > FIN_MAX) {
       throw new Error(`RASAero needs 3–8 fins per set (found ${count}). Adjust "${fin.name ?? 'Fins'}".`);
     }
-    const rootChord = nnum(fin, 'rootChord', 0.05);
     const pos = fin.position ?? { method: 'bottom', offset: 0 };
     const bottomOffset = pos.method === 'bottom' ? pos.offset : 0;
     // Fin Location = front edge from the tube bottom (inches).
-    const locIn = (rootChord - bottomOffset) * IN;
+    const locIn = (plan.root - bottomOffset) * IN;
     const cs = String(fin['crossSection'] ?? 'square');
     emit('<Fin>');
     emit('<PartType>Fin</PartType>');
     emit(`<Count>${count}</Count>`);
-    emit(`<Chord>${fmt(rootChord * IN)}</Chord>`);
-    emit(`<Span>${fmt(nnum(fin, 'height', 0.03) * IN)}</Span>`);
-    emit(`<SweepDistance>${fmt(nnum(fin, 'sweep', 0) * IN)}</SweepDistance>`);
-    emit(`<TipChord>${fmt(nnum(fin, 'tipChord', 0.03) * IN)}</TipChord>`);
+    emit(`<Chord>${fmt(plan.root * IN)}</Chord>`);
+    emit(`<Span>${fmt(plan.height * IN)}</Span>`);
+    emit(`<SweepDistance>${fmt(plan.sweep * IN)}</SweepDistance>`);
+    emit(`<TipChord>${fmt(plan.tip * IN)}</TipChord>`);
     emit(`<Thickness>${fmt(nnum(fin, 'thickness', 0.003) * IN)}</Thickness>`);
     emit('<LERadius>0</LERadius>');
     emit(`<Location>${fmt(locIn)}</Location>`);
@@ -332,11 +378,6 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM }: Cdx1ExportIn
     emit('<FX1>0</FX1>');
     emit('<FX3>0</FX3>');
     emit('</Fin>');
-    for (const c of parent.children ?? []) {
-      if (c.type.endsWith('finset') && c !== fin) {
-        throw new Error('RASAero allows ONE fin set per tube — remove extras or export as .ork/.rkt.');
-      }
-    }
   };
 
   const noseXml = (node: ComponentNode) => {
@@ -399,6 +440,7 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM }: Cdx1ExportIn
     emit(`<RearDiameter>${fmt(nnum(node, 'aftRadius', 0.009) * 2 * IN)}</RearDiameter>`);
     emit(`<Location>${fmt(locM * IN)}</Location>`);
     emit('<Color>Black</Color>');
+    finXml(node); // RASAero transitions/boat tails carry fins too
     emit('</Transition>');
     locM += len;
   };
@@ -415,33 +457,55 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM }: Cdx1ExportIn
     // internals/others have no RASAero representation — silently external-only
   }
 
-  // Boosters (each lower stage: aggregate body tube diameters/lengths).
+  // Boosters (each lower stage). A leading widening transition is the
+  // shoulder into the stage above; a trailing narrowing one is the boat
+  // tail — the same shapes our importer synthesizes, so this round-trips.
   for (let i = 1; i < stagesIn.length; i++) {
     const st = stagesIn[i]!;
-    const tubes = (st.children ?? []).filter((c) => c.type === 'bodytube');
+    const kids = st.children ?? [];
+    const tubes = kids.filter((c) => c.type === 'bodytube');
     if (tubes.length === 0) {
       throw new Error(`Stage "${st.name}" has no body tube — RASAero boosters need one.`);
     }
-    const totalLen = tubes.reduce((s, t) => s + nnum(t, 'length', 0.1), 0);
+    const bodyLen = tubes.reduce((s, t) => s + nnum(t, 'length', 0.1), 0);
+    const externals = kids.filter((c) => c.type === 'bodytube' || c.type === 'transition');
+    const first = externals[0];
+    const shoulder = first && first.type === 'transition'
+      && nnum(first, 'foreRadius', 0) <= nnum(first, 'aftRadius', 0) ? first : null;
+    const last = externals[externals.length - 1];
+    const boattail = last && last !== shoulder && last.type === 'transition'
+      && nnum(last, 'foreRadius', 0) > nnum(last, 'aftRadius', 0) ? last : null;
+    const extraTrans = kids.filter((c) => c.type === 'transition' && c !== shoulder && c !== boattail);
+    if (extraTrans.length > 0) {
+      throw new Error(`RASAero boosters support only a shoulder and a boat tail — stage "${st.name}" has other transitions; export as .ork/.rkt.`);
+    }
+    const shoulderLen = shoulder ? nnum(shoulder, 'length', 0) : 0;
+    const btLen = boattail ? nnum(boattail, 'length', 0) : 0;
+    const finParents = kids.filter((c) => (c.children ?? []).some((k) => k.type.endsWith('finset')));
+    if (finParents.length > 1) {
+      throw new Error(`RASAero allows ONE fin set per booster — stage "${st.name}" has several; export as .ork/.rkt.`);
+    }
     emit('<Booster>');
     emit('<PartType>Booster</PartType>');
-    emit(`<Length>${fmt(totalLen * IN)}</Length>`);
+    emit(`<Length>${fmt(bodyLen * IN)}</Length>`);
     emit(`<Diameter>${fmt(nnum(tubes[0]!, 'outerRadius', 0.012) * 2 * IN)}</Diameter>`);
-    emit(`<InsideDiameter>${fmt(nnum(tubes[0]!, 'outerRadius', 0.012) * 2 * IN)}</InsideDiameter>`);
+    emit(`<InsideDiameter>${fmt((shoulder ? nnum(shoulder, 'foreRadius', 0.012) : nnum(tubes[0]!, 'outerRadius', 0.012)) * 2 * IN)}</InsideDiameter>`);
     emit('<LaunchLugDiameter>0</LaunchLugDiameter>');
     emit('<LaunchLugLength>0</LaunchLugLength>');
     emit('<RailGuideDiameter>0</RailGuideDiameter>');
     emit('<RailGuideHeight>0</RailGuideHeight>');
     emit('<LaunchShoeArea>0</LaunchShoeArea>');
-    emit(`<Location>${fmt(locM * IN)}</Location>`);
+    // The booster body starts after the shoulder (which slides into the
+    // stage above in RASAero's model).
+    emit(`<Location>${fmt((locM + shoulderLen) * IN)}</Location>`);
     emit('<Color>Black</Color>');
-    emit('<ShoulderLength>0</ShoulderLength>');
+    emit(`<ShoulderLength>${fmt(shoulderLen * IN)}</ShoulderLength>`);
     emit('<NozzleExitDiameter>0</NozzleExitDiameter>');
-    emit('<BoattailLength>0</BoattailLength>');
-    emit('<BoattailRearDiameter>0</BoattailRearDiameter>');
-    finXml(tubes[0]!);
+    emit(`<BoattailLength>${fmt(btLen * IN)}</BoattailLength>`);
+    emit(`<BoattailRearDiameter>${fmt(boattail ? nnum(boattail, 'aftRadius', 0) * 2 * IN : 0)}</BoattailRearDiameter>`);
+    finXml(finParents[0] ?? tubes[0]!);
     emit('</Booster>');
-    locM += totalLen;
+    locM += shoulderLen + bodyLen + btLen;
   }
 
   // Global surface from the first finished external part.
@@ -517,16 +581,3 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM }: Cdx1ExportIn
   return lines.join('\n');
 }
 
-// ---------- DOM helpers ----------
-
-function text(el: Element, selector: string): string | null {
-  const t = el.querySelector(selector)?.textContent;
-  return t == null || t.trim() === '' ? null : t.trim();
-}
-
-function num(el: Element, tag: string, fb: number): number {
-  const t = text(el, `:scope > ${tag}`);
-  if (t === null) return fb;
-  const v = Number(t);
-  return Number.isFinite(v) ? v : fb;
-}

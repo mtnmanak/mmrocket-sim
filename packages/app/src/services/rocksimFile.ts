@@ -1,7 +1,8 @@
 import { strFromU8, unzipSync } from 'fflate';
 import type { ComponentNode, ComponentPosition, RocketTree } from '@online-openrocket/engine';
-import { freshId } from '../tree/treeModel.js';
+import { asStageNodes, freshId } from '../tree/treeModel.js';
 import { clusterOffsets } from '../tree/cluster.js';
+import { escapeXml as esc, xmlNum as num, xmlText as text } from './xmlUtil.js';
 import type { OrkExportMotor, OrkMotorRef, OrkTreeImportResult } from './orkFile.js';
 
 /**
@@ -118,10 +119,34 @@ export function importRkt(data: ArrayBuffer | string): OrkTreeImportResult {
   const tubeThickness = (el: Element): number =>
     Math.max(0, (num(el, 'OD', 0) - num(el, 'ID', 0)) / 2 / LEN);
 
+  /**
+   * Flatten a <SubAssembly> (any depth): its attached parts join the chain
+   * that `add` appends to. RockSim allows sub-assemblies both at stage level
+   * and inside AttachedParts.
+   */
+  const flattenSubAssembly = (el: Element, parent: ComponentNode | null, add: (n: ComponentNode) => void) => {
+    notes.push(`Sub-assembly “${text(el, ':scope > Name') ?? 'unnamed'}” flattened into its parent.`);
+    const wrap = el.querySelector(':scope > AttachedParts');
+    for (const sub of Array.from(wrap?.children ?? [])) {
+      if (sub.tagName === 'SubAssembly') {
+        flattenSubAssembly(sub, parent, add);
+        continue;
+      }
+      const node = convertPart(sub, parent);
+      if (node) add(node);
+    }
+  };
+
   const convertAttached = (el: Element, parentNode: ComponentNode) => {
     const wrap = el.querySelector(':scope > AttachedParts');
     if (!wrap) return;
     for (const child of Array.from(wrap.children)) {
+      if (child.tagName === 'SubAssembly') {
+        flattenSubAssembly(child, parentNode, (n) => {
+          parentNode.children = [...(parentNode.children ?? []), n];
+        });
+        continue;
+      }
       const node = convertPart(child, parentNode);
       if (node) {
         parentNode.children = [...(parentNode.children ?? []), node];
@@ -279,8 +304,9 @@ export function importRkt(data: ArrayBuffer | string): OrkTreeImportResult {
         const n = mk('streamer');
         n['stripLength'] = num(el, 'Len', 500) / LEN;
         n['stripWidth'] = num(el, 'Width', 50) / LEN;
+        // 0.75 is RockSim's "auto" default — keep our auto instead of pinning it.
         const cd = num(el, 'DragCoefficient', 0);
-        if (cd > 0) n['cd'] = cd;
+        if (cd > 0 && cd !== 0.75) n['cd'] = cd;
         return n;
       }
       case 'MassObject': {
@@ -295,11 +321,6 @@ export function importRkt(data: ArrayBuffer | string): OrkTreeImportResult {
         delete n['overrideMass'];
         delete n['overrideCGX'];
         return n;
-      }
-      case 'SubAssembly': {
-        // Flatten: its attached parts join the enclosing chain via a note.
-        notes.push(`Sub-assembly “${text(el, ':scope > Name') ?? 'unnamed'}” flattened into its parent.`);
-        return null;
       }
       case 'ExternalPod':
       case 'RingTail':
@@ -323,13 +344,7 @@ export function importRkt(data: ArrayBuffer | string): OrkTreeImportResult {
     const slotEl = design.querySelector(`:scope > ${slot}`);
     for (const el of Array.from(slotEl?.children ?? [])) {
       if (el.tagName === 'SubAssembly') {
-        // Flattened: the sub-assembly's externals join the stage chain.
-        convertPart(el, null);
-        const wrap = el.querySelector(':scope > AttachedParts');
-        for (const sub of Array.from(wrap?.children ?? [])) {
-          const node = convertPart(sub, null);
-          if (node) stage.children!.push(node);
-        }
+        flattenSubAssembly(el, null, (n) => stage.children!.push(n));
         continue;
       }
       const node = convertPart(el, null);
@@ -426,28 +441,29 @@ export function exportRkt({ name, tree, motors }: RktExportInput): string {
   /** node id → RockSim SerialNo (links motors back to mounts). */
   const nodeSerial = new Map<string, number>();
 
-  const stagesIn: ComponentNode[] = tree.components.every((c) => c.type === 'stage')
-    ? tree.components
-    : [{ type: 'stage', name: 'Sustainer', children: tree.components } as ComponentNode];
+  const stagesIn = asStageNodes(tree);
   if (stagesIn.length > 3) {
     throw new Error('RockSim supports at most 3 stages.');
   }
 
-  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const nnum = (node: ComponentNode, key: string, fb: number): number =>
     typeof node[key] === 'number' ? (node[key] as number) : fb;
 
-  const common = (node: ComponentNode, dfltName: string) => {
+  const common = (node: ComponentNode, dfltName: string, opts?: { knownMass?: number; useKnownCG?: boolean }) => {
     serial += 1;
-    if (node.id) nodeSerial.set(node.id, serial);
+    // First write wins: cluster copies re-emit the same node — motor
+    // references must point at the FIRST copy (the one carrying children).
+    if (node.id && !nodeSerial.has(node.id)) nodeSerial.set(node.id, serial);
     const override = typeof node['overrideMass'] === 'number' || typeof node['overrideCGX'] === 'number';
-    emit(`<KnownMass>${typeof node['overrideMass'] === 'number' ? (node['overrideMass'] as number) * MASS : 0}</KnownMass>`);
+    const knownMass = opts?.knownMass
+      ?? (typeof node['overrideMass'] === 'number' ? (node['overrideMass'] as number) * MASS : 0);
+    emit(`<KnownMass>${knownMass}</KnownMass>`);
     emit(`<Density>${nnum(node, 'density', 0)}</Density>`);
     emit('<DensityType>0</DensityType>');
     emit(`<Material>${esc(typeof node['materialName'] === 'string' ? (node['materialName'] as string) : 'custom')}</Material>`);
     emit(`<Name>${esc(node.name ?? dfltName)}</Name>`);
     emit(`<KnownCG>${typeof node['overrideCGX'] === 'number' ? (node['overrideCGX'] as number) * LEN : 0}</KnownCG>`);
-    emit(`<UseKnownCG>${override ? 1 : 0}</UseKnownCG>`);
+    emit(`<UseKnownCG>${(opts?.useKnownCG ?? override) ? 1 : 0}</UseKnownCG>`);
     emit(`<FinishCode>${FINISH_TO_CODE(node['finish'])}</FinishCode>`);
     emit(`<SerialNo>${serial}</SerialNo>`);
     const pos = (node.position ?? { method: 'top', offset: 0 }) as ComponentPosition;
@@ -459,18 +475,13 @@ export function exportRkt({ name, tree, motors }: RktExportInput): string {
 
   const attached = (node: ComponentNode) => {
     emit('<AttachedParts>');
-    for (const kid of node.children ?? []) emitPart(kid, node, true);
+    for (const kid of node.children ?? []) emitPart(kid, node);
     emit('</AttachedParts>');
   };
 
   const emitInnerTube = (node: ComponentNode, radialLocM = 0, radialAngle = 0, suffix = '') => {
     emit('<BodyTube>');
     common(node, `Inner Tube${suffix}`);
-    if (suffix) {
-      // Cluster copies share one editor node — retag the serial to the FIRST
-      // copy so a motor reference points at a single tube.
-      if (node.id && nodeSerial.get(node.id)! !== serial) nodeSerial.set(node.id, nodeSerial.get(node.id)!);
-    }
     emit(`<OD>${nnum(node, 'outerRadius', 0.0095) * RAD}</OD>`);
     emit(`<ID>${(nnum(node, 'outerRadius', 0.0095) - nnum(node, 'thickness', 0.0005)) * RAD}</ID>`);
     emit(`<Len>${nnum(node, 'length', 0.07) * LEN}</Len>`);
@@ -481,12 +492,12 @@ export function exportRkt({ name, tree, motors }: RktExportInput): string {
     emit(`<RadialLoc>${radialLocM * LEN}</RadialLoc>`);
     emit(`<RadialAngle>${radialAngle}</RadialAngle>`);
     emit('<AttachedParts>');
-    if (!suffix) for (const kid of node.children ?? []) emitPart(kid, node, true);
+    if (!suffix) for (const kid of node.children ?? []) emitPart(kid, node);
     emit('</AttachedParts>');
     emit('</BodyTube>');
   };
 
-  const emitPart = (node: ComponentNode, parent: ComponentNode | null, inside: boolean) => {
+  const emitPart = (node: ComponentNode, parent: ComponentNode | null) => {
     switch (node.type) {
       case 'nosecone': {
         emit('<NoseCone>');
@@ -646,11 +657,11 @@ export function exportRkt({ name, tree, motors }: RktExportInput): string {
       }
       case 'masscomponent': {
         emit('<MassObject>');
-        common(node, 'Mass');
+        // KnownMass/UseKnownCG must be emitted ONCE (readers take the first
+        // match) — pass the real mass through common() instead of duplicating.
+        common(node, 'Mass', { knownMass: nnum(node, 'mass', 0) * MASS, useKnownCG: true });
         emit('<TypeCode>0</TypeCode>');
         emit(`<Len>${nnum(node, 'length', 0.02) * LEN}</Len>`);
-        emit(`<KnownMass>${nnum(node, 'mass', 0) * MASS}</KnownMass>`);
-        emit('<UseKnownCG>1</UseKnownCG>');
         emit('</MassObject>');
         break;
       }
@@ -658,7 +669,6 @@ export function exportRkt({ name, tree, motors }: RktExportInput): string {
         // stage handled by the caller; unknown types dropped (like the desktop)
         break;
     }
-    void inside;
   };
 
   emit('<RockSimDocument>');
@@ -672,7 +682,7 @@ export function exportRkt({ name, tree, motors }: RktExportInput): string {
   for (let i = 0; i < 3; i++) {
     emit(`<${slots[i]}>`);
     if (i < stagesIn.length) {
-      for (const node of stagesIn[i]!.children ?? []) emitPart(node, null, false);
+      for (const node of stagesIn[i]!.children ?? []) emitPart(node, null);
     }
     emit(`</${slots[i]}>`);
   }
@@ -702,16 +712,3 @@ export function exportRkt({ name, tree, motors }: RktExportInput): string {
   return lines.join('\n');
 }
 
-// ---------- shared DOM helpers (match orkFile.ts conventions) ----------
-
-function text(el: Element, selector: string): string | null {
-  const t = el.querySelector(selector)?.textContent;
-  return t == null || t.trim() === '' ? null : t.trim();
-}
-
-function num(el: Element, tag: string, fb: number): number {
-  const t = text(el, `:scope > ${tag}`);
-  if (t === null) return fb;
-  const v = Number(t);
-  return Number.isFinite(v) ? v : fb;
-}

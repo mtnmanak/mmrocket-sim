@@ -1,4 +1,5 @@
 import type { ComponentNode } from '@online-openrocket/engine';
+import { escapeXml as esc } from './xmlUtil.js';
 
 /**
  * True-scale SVG fin templates — print at 100% (or feed to a laser cutter)
@@ -77,7 +78,9 @@ export function finTemplateSvg(node: ComponentNode, rocketName: string): string 
   const tab = tabOutline(node, rootLenM);
   const tabDepthMm = tab ? mm(tab.depth) : 0;
 
-  const minX = Math.min(0, ...xs);
+  // Tabs can extend past the outline on BOTH sides (a 'top' tab with a
+  // negative offset starts left of x=0) — include them or they get clipped.
+  const minX = Math.min(0, ...xs, tab ? mm(tab.x0) : 0);
   const maxX = Math.max(...xs, tab ? mm(tab.x1) : 0);
   const maxY = Math.max(...ys);
 
@@ -115,7 +118,6 @@ export function finTemplateSvg(node: ComponentNode, rocketName: string): string 
 
   // Label block + 50 mm calibration ruler.
   const ty = M + maxY + tabDepthMm + 8;
-  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   lines.push(`<g font-family="sans-serif" font-size="3.2" fill="#333">`);
   lines.push(`<text x="${M}" y="${ty}">${esc(rocketName)} — ${esc(name)} (cut ${count})</text>`);
   lines.push(`<text x="${M}" y="${ty + 5}">root ${(rootLenM * 1000).toFixed(1)} mm · height ${maxY.toFixed(1)} mm${thickness !== null ? ` · thickness ${thickness.toFixed(1)} mm` : ''} · ${esc(cross)} cross-section${tab ? ` · tab ${tabDepthMm.toFixed(1)} mm deep` : ''}</text>`);

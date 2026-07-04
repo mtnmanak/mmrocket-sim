@@ -161,7 +161,18 @@ export async function fetchMotorSpec(motor: TcMotor, ejectionDelay: number): Pro
 
   try {
     const cached = localStorage.getItem(cacheKey);
-    if (cached) samples = JSON.parse(cached) as TcSample[];
+    if (cached) {
+      const parsed = JSON.parse(cached) as unknown;
+      // Validate the shape — a corrupt entry parses fine but would break
+      // samplesToMotorSpec forever (the cache is never invalidated otherwise).
+      if (Array.isArray(parsed) && parsed.length > 0
+          && parsed.every((s) => typeof (s as TcSample)?.time === 'number'
+            && typeof (s as TcSample)?.thrust === 'number')) {
+        samples = parsed as TcSample[];
+      } else {
+        localStorage.removeItem(cacheKey);
+      }
+    }
   } catch {
     // storage unavailable (private mode etc.) — just fetch
   }

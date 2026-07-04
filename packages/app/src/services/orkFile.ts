@@ -1,6 +1,7 @@
 import { unzipSync, strFromU8 } from 'fflate';
 import type { ComponentNode, ComponentPosition, ComponentType, RocketTree } from '@online-openrocket/engine';
-import { freshId } from '../tree/treeModel.js';
+import { asStageNodes, freshId } from '../tree/treeModel.js';
+import { escapeXml, xmlText as text } from './xmlUtil.js';
 
 /**
  * .ork import/export for full component trees (P2.5 — all 17 editor types).
@@ -165,6 +166,8 @@ export function importOrk(data: ArrayBuffer | string): OrkTreeImportResult {
           const l = num(el, `${side}shoulderlength`, 0);
           if (r > 0) n[`${key}Radius`] = r;
           if (l > 0) n[`${key}Length`] = l;
+          const th = num(el, `${side}shoulderthickness`, 0);
+          if (th > 0) n[`${key}Thickness`] = th;
         }
         return n;
       }
@@ -201,7 +204,10 @@ export function importOrk(data: ArrayBuffer | string): OrkTreeImportResult {
         if (csF && csF !== 'square') n['crossSection'] = csF;
         readFinTabs(el, n);
         const ptEls = Array.from(el.querySelectorAll(':scope > finpoints > point'));
+        // A missing x/y attribute must SKIP the point (Number(null) is 0,
+        // which would silently drop a vertex onto the origin).
         const pts = ptEls
+          .filter((pt) => pt.getAttribute('x') !== null && pt.getAttribute('y') !== null)
           .map((pt) => [Number(pt.getAttribute('x')), Number(pt.getAttribute('y'))] as [number, number])
           .filter((p) => Number.isFinite(p[0]) && Number.isFinite(p[1]));
         if (pts.length >= 3) n['points'] = pts;
@@ -213,6 +219,8 @@ export function importOrk(data: ArrayBuffer | string): OrkTreeImportResult {
         n['rootChord'] = num(el, 'rootchord', 0.05);
         n['height'] = num(el, 'height', 0.03);
         n['thickness'] = num(el, 'thickness', 0.003);
+        const cantDegE = num(el, 'cant', 0);
+        if (cantDegE !== 0) n['cant'] = (cantDegE * Math.PI) / 180;
         const csE = text(el, ':scope > crosssection');
         if (csE && csE !== 'square') n['crossSection'] = csE;
         readFinTabs(el, n);
@@ -341,11 +349,14 @@ export function importOrk(data: ArrayBuffer | string): OrkTreeImportResult {
       name: text(stageEl, ':scope > name') ?? (i === 0 ? 'Sustainer' : `Booster ${i}`),
     };
     if (i > 0) {
-      const ev = text(stageEl, ':scope > separationevent');
+      // Like ignition: the per-config block overrides the bare defaults
+      // (desktop writes defaults bare, overrides in <separationconfiguration>).
+      const sepEl = stageEl.querySelector(':scope > separationconfiguration') ?? stageEl;
+      const ev = text(sepEl, ':scope > separationevent');
       if (ev && ev !== 'ejection') stage['separationEvent'] = ev;
-      const delay = num(stageEl, 'separationdelay', 0);
+      const delay = num(sepEl, 'separationdelay', 0);
       if (delay !== 0) stage['separationDelay'] = delay;
-      const alt = num(stageEl, 'separationaltitude', NaN);
+      const alt = num(sepEl, 'separationaltitude', NaN);
       if (!Number.isNaN(alt) && alt !== 200) stage['separationAltitude'] = alt;
     }
     const kids = convertChildren(stageEl);
@@ -448,7 +459,9 @@ export function exportOrk({ name, tree, motors, motor, mountId }: OrkTreeExportI
   };
 
   const finishXml = (depth: number, node: ComponentNode) => {
-    emit(depth, `<finish>${node['finish'] ?? 'normal'}</finish>`);
+    // finish (like shape/crosssection/cluster below) is file-sourced free
+    // text on import — escape it or a crafted file breaks the re-export.
+    emit(depth, `<finish>${escapeXml(String(node['finish'] ?? 'normal'))}</finish>`);
   };
 
   // Fin tabs — written like the desktop's FinSetSaver: only when both depth
@@ -534,7 +547,7 @@ export function exportOrk({ name, tree, motors, motor, mountId }: OrkTreeExportI
         material(depth + 1, node);
         emit(depth + 1, `<length>${n(node, 'length', 0.07)}</length>`);
         thicknessXml(depth + 1, node, 0.002);
-        emit(depth + 1, `<shape>${node['shape'] ?? 'ogive'}</shape>`);
+        emit(depth + 1, `<shape>${escapeXml(String(node['shape'] ?? 'ogive'))}</shape>`);
         emit(depth + 1, '<shapeclipped>false</shapeclipped>');
         shapeParamXml(depth + 1, node);
         emit(depth + 1, `<aftradius>${n(node, 'aftRadius', 0.012)}</aftradius>`);
@@ -553,7 +566,7 @@ export function exportOrk({ name, tree, motors, motor, mountId }: OrkTreeExportI
         material(depth + 1, node);
         emit(depth + 1, `<length>${n(node, 'length', 0.04)}</length>`);
         thicknessXml(depth + 1, node, 0.002);
-        emit(depth + 1, `<shape>${node['shape'] ?? 'conical'}</shape>`);
+        emit(depth + 1, `<shape>${escapeXml(String(node['shape'] ?? 'conical'))}</shape>`);
         emit(depth + 1, '<shapeclipped>false</shapeclipped>');
         shapeParamXml(depth + 1, node);
         emit(depth + 1, `<foreradius>${typeof node['foreRadius'] === 'number' ? node['foreRadius'] : 'auto'}</foreradius>`);
@@ -562,7 +575,7 @@ export function exportOrk({ name, tree, motors, motor, mountId }: OrkTreeExportI
           const key = side === 'fore' ? 'foreShoulder' : 'aftShoulder';
           emit(depth + 1, `<${side}shoulderradius>${n(node, `${key}Radius`, 0)}</${side}shoulderradius>`);
           emit(depth + 1, `<${side}shoulderlength>${n(node, `${key}Length`, 0)}</${side}shoulderlength>`);
-          emit(depth + 1, `<${side}shoulderthickness>0.0</${side}shoulderthickness>`);
+          emit(depth + 1, `<${side}shoulderthickness>${n(node, `${key}Thickness`, 0)}</${side}shoulderthickness>`);
           emit(depth + 1, `<${side}shouldercapped>false</${side}shouldercapped>`);
         }
         close('transition');
@@ -591,7 +604,7 @@ export function exportOrk({ name, tree, motors, motor, mountId }: OrkTreeExportI
         finishXml(depth + 1, node);
         material(depth + 1, node);
         emit(depth + 1, `<thickness>${n(node, 'thickness', 0.003)}</thickness>`);
-        emit(depth + 1, `<crosssection>${node['crossSection'] ?? 'square'}</crosssection>`);
+        emit(depth + 1, `<crosssection>${escapeXml(String(node['crossSection'] ?? 'square'))}</crosssection>`);
         emit(depth + 1, `<cant>${(n(node, 'cant', 0) * 180) / Math.PI}</cant>`);
         finTabsXml(depth + 1, node);
         emit(depth + 1, '<filletradius>0.0</filletradius>');
@@ -615,7 +628,7 @@ export function exportOrk({ name, tree, motors, motor, mountId }: OrkTreeExportI
         finishXml(depth + 1, node);
         material(depth + 1, node);
         emit(depth + 1, `<thickness>${n(node, 'thickness', 0.003)}</thickness>`);
-        emit(depth + 1, `<crosssection>${node['crossSection'] ?? 'square'}</crosssection>`);
+        emit(depth + 1, `<crosssection>${escapeXml(String(node['crossSection'] ?? 'square'))}</crosssection>`);
         emit(depth + 1, `<cant>${(n(node, 'cant', 0) * 180) / Math.PI}</cant>`);
         finTabsXml(depth + 1, node);
         emit(depth + 1, '<filletradius>0.0</filletradius>');
@@ -641,8 +654,8 @@ export function exportOrk({ name, tree, motors, motor, mountId }: OrkTreeExportI
         finishXml(depth + 1, node);
         material(depth + 1, node);
         emit(depth + 1, `<thickness>${n(node, 'thickness', 0.003)}</thickness>`);
-        emit(depth + 1, `<crosssection>${node['crossSection'] ?? 'square'}</crosssection>`);
-        emit(depth + 1, '<cant>0.0</cant>');
+        emit(depth + 1, `<crosssection>${escapeXml(String(node['crossSection'] ?? 'square'))}</crosssection>`);
+        emit(depth + 1, `<cant>${(n(node, 'cant', 0) * 180) / Math.PI}</cant>`);
         finTabsXml(depth + 1, node);
         emit(depth + 1, '<filletradius>0.0</filletradius>');
         emit(depth + 1, '<filletmaterial type="bulk" density="680.0" group="PaperProducts">Cardboard</filletmaterial>');
@@ -679,7 +692,7 @@ export function exportOrk({ name, tree, motors, motor, mountId }: OrkTreeExportI
         emit(depth + 1, `<outerradius>${n(node, 'outerRadius', 0.0095)}</outerradius>`);
         emit(depth + 1, `<thickness>${n(node, 'thickness', 0.0005)}</thickness>`);
         // Desktop stores cluster rotation in DEGREES; we keep radians inside.
-        emit(depth + 1, `<clusterconfiguration>${typeof node['cluster'] === 'string' ? node['cluster'] : 'single'}</clusterconfiguration>`);
+        emit(depth + 1, `<clusterconfiguration>${escapeXml(typeof node['cluster'] === 'string' ? (node['cluster'] as string) : 'single')}</clusterconfiguration>`);
         emit(depth + 1, `<clusterscale>${n(node, 'clusterScale', 1)}</clusterscale>`);
         emit(depth + 1, `<clusterrotation>${(n(node, 'clusterRotation', 0) * 180) / Math.PI}</clusterrotation>`);
         if (node.id && motorMap[node.id]) {
@@ -774,13 +787,18 @@ export function exportOrk({ name, tree, motors, motor, mountId }: OrkTreeExportI
         emit(depth + 1, '<radialdirection>0.0</radialdirection>');
         emit(depth + 1, `<cd>${typeof node['cd'] === 'number' ? node['cd'] : 'auto'}</cd>`);
         material(depth + 1, node, 'surface');
-        emit(depth + 1, `<deployevent>${node['deployEvent'] ?? 'ejection'}</deployevent>`);
+        emit(depth + 1, `<deployevent>${escapeXml(String(node['deployEvent'] ?? 'ejection'))}</deployevent>`);
         emit(depth + 1, `<deployaltitude>${n(node, 'deployAltitude', 200)}</deployaltitude>`);
         emit(depth + 1, `<deploydelay>${n(node, 'deployDelay', 0)}</deploydelay>`);
         emit(depth + 1, `<diameter>${n(node, 'diameter', 0.3)}</diameter>`);
         emit(depth + 1, `<linecount>${n(node, 'lineCount', 6)}</linecount>`);
         emit(depth + 1, `<linelength>${n(node, 'lineLength', 0.3)}</linelength>`);
-        emit(depth + 1, '<linematerial type="line" density="0.0018" group="ThreadsLines">Elastic cord (round 2 mm, 1/16 in)</linematerial>');
+        if (typeof node['lineDensity'] === 'number') {
+          const lname = typeof node['lineMaterialName'] === 'string' ? (node['lineMaterialName'] as string) : 'custom';
+          emit(depth + 1, `<linematerial type="line" density="${node['lineDensity']}">${escapeXml(lname)}</linematerial>`);
+        } else {
+          emit(depth + 1, '<linematerial type="line" density="0.0018" group="ThreadsLines">Elastic cord (round 2 mm, 1/16 in)</linematerial>');
+        }
         close('parachute');
         break;
       }
@@ -794,7 +812,7 @@ export function exportOrk({ name, tree, motors, motor, mountId }: OrkTreeExportI
         emit(depth + 1, '<radialdirection>0.0</radialdirection>');
         emit(depth + 1, `<cd>${typeof node['cd'] === 'number' ? node['cd'] : 'auto'}</cd>`);
         material(depth + 1, node, 'surface');
-        emit(depth + 1, `<deployevent>${node['deployEvent'] ?? 'ejection'}</deployevent>`);
+        emit(depth + 1, `<deployevent>${escapeXml(String(node['deployEvent'] ?? 'ejection'))}</deployevent>`);
         emit(depth + 1, `<deployaltitude>${n(node, 'deployAltitude', 200)}</deployaltitude>`);
         emit(depth + 1, `<deploydelay>${n(node, 'deployDelay', 0)}</deploydelay>`);
         emit(depth + 1, `<striplength>${n(node, 'stripLength', 0.5)}</striplength>`);
@@ -841,9 +859,7 @@ export function exportOrk({ name, tree, motors, motor, mountId }: OrkTreeExportI
   emit(2, '<designtype>original</designtype>');
   // Stage nodes at the top level export as sibling <stage> blocks (the
   // desktop model); legacy flat trees wrap into one implicit stage.
-  const stageNodes: ComponentNode[] = tree.components.every((c) => c.type === 'stage')
-    ? tree.components
-    : [{ type: 'stage', name: 'Sustainer', children: tree.components } as ComponentNode];
+  const stageNodes = asStageNodes(tree);
   emit(2, `<motorconfiguration configid="${configId}" default="true">`);
   for (let i = 0; i < stageNodes.length; i++) {
     emit(3, `<stage number="${i}" active="true"/>`);
@@ -888,10 +904,6 @@ export function exportOrk({ name, tree, motors, motor, mountId }: OrkTreeExportI
 }
 
 // ============================ helpers ============================
-
-function text(el: Element, selector: string): string | null {
-  return el.querySelector(selector)?.textContent?.trim() ?? null;
-}
 
 function num(el: Element, tag: string, fallback: number): number {
   const t = text(el, `:scope > ${tag}`);
@@ -975,9 +987,12 @@ function readDeployment(el: Element, node: ComponentNode): void {
 }
 
 function readPosition(el: Element): ComponentPosition | undefined {
-  const off = el.querySelector(':scope > axialoffset');
+  // Modern files write <axialoffset method="...">; OpenRocket ≤ 15.03 wrote
+  // only <position type="..."> — fall back to it or old files lose every
+  // fin/lug/inner-tube offset.
+  const off = el.querySelector(':scope > axialoffset') ?? el.querySelector(':scope > position');
   if (!off) return undefined;
-  const method = (off.getAttribute('method') ?? 'top') as ComponentPosition['method'];
+  const method = (off.getAttribute('method') ?? off.getAttribute('type') ?? 'top') as ComponentPosition['method'];
   const offset = Number(off.textContent ?? '0');
   if (!['top', 'middle', 'bottom', 'absolute'].includes(method)) return undefined;
   return { method, offset: Number.isFinite(offset) ? offset : 0 };
@@ -989,8 +1004,4 @@ function uuid(): string {
   }
   return 'xxxxxxxx-xxxx-4xxx-8xxx-xxxxxxxxxxxx'.replace(/x/g, () =>
     Math.floor(Math.random() * 16).toString(16));
-}
-
-function escapeXml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }

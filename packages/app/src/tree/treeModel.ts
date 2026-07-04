@@ -1,4 +1,5 @@
 import type { ComponentNode, ComponentType, RocketTree } from '@online-openrocket/engine';
+import { resolveAbsolutePositions } from './position.js';
 import { defaultParams, DISPLAY_NAME, FIELDS } from './schema.js';
 
 /**
@@ -10,6 +11,23 @@ let counter = 1;
 
 export function freshId(): string {
   return `c${counter++}`;
+}
+
+/**
+ * Bumps the id counter past every `c<N>` id already in the tree. Restored
+ * sessions and opened files carry ids minted by a PREVIOUS page load; without
+ * reseeding, the first freshId() after a reload collides with them (duplicate
+ * ids break selection, updateNode and setMotorById).
+ */
+function reseedIds(tree: RocketTree): void {
+  const walk = (nodes: ComponentNode[]) => {
+    for (const n of nodes) {
+      const m = n.id ? /^c(\d+)$/.exec(n.id) : null;
+      if (m) counter = Math.max(counter, Number(m[1]) + 1);
+      walk(n.children ?? []);
+    }
+  };
+  walk(tree.components);
 }
 
 export function makeNode(type: ComponentType): ComponentNode {
@@ -40,6 +58,8 @@ export function findNode(tree: RocketTree, id: string): ComponentNode | null {
  * boundary. The engine accepts both shapes.
  */
 export function normalizeTree(tree: RocketTree): RocketTree {
+  reseedIds(tree);
+  tree = resolveAbsolutePositions(tree);
   if (tree.components.length === 0) {
     return { ...tree, components: [makeStage('Sustainer')] };
   }
@@ -52,6 +72,24 @@ export function normalizeTree(tree: RocketTree): RocketTree {
       return { ...s, id: freshId() } as ComponentNode;
     });
     return changed ? { ...tree, components } : tree;
+  }
+  if (tree.components.some((n) => n.type === 'stage')) {
+    // Mixed list (no importer produces this, but defend the invariant):
+    // fold each loose node into the nearest preceding stage.
+    const components: ComponentNode[] = [];
+    for (const n of tree.components) {
+      if (n.type === 'stage') {
+        components.push(n.id ? n : ({ ...n, id: freshId() } as ComponentNode));
+      } else {
+        if (components.length === 0) components.push(makeStage('Sustainer'));
+        const last = components[components.length - 1]!;
+        components[components.length - 1] = {
+          ...last,
+          children: [...(last.children ?? []), n],
+        } as ComponentNode;
+      }
+    }
+    return { ...tree, components };
   }
   return {
     ...tree,
@@ -66,6 +104,17 @@ export function makeStage(name: string): ComponentNode {
 /** The stage nodes, top (sustainer) first. */
 export function stages(tree: RocketTree): ComponentNode[] {
   return tree.components.filter((n) => n.type === 'stage');
+}
+
+/**
+ * Tree components as a stage-node list for the file exporters — legacy flat
+ * trees (pre-v0.009 tests/back-compat callers) wrap into one implicit
+ * Sustainer. Normalized app trees pass through unchanged.
+ */
+export function asStageNodes(tree: RocketTree): ComponentNode[] {
+  return tree.components.every((c) => c.type === 'stage')
+    ? tree.components
+    : [{ type: 'stage', name: 'Sustainer', children: tree.components } as ComponentNode];
 }
 
 /** Appends a booster stage below the existing ones. */
@@ -217,8 +266,12 @@ export function inheritDefaults(
 
   const fields = FIELDS[node.type] ?? [];
   for (const key of ['density', 'materialName', 'finish'] as const) {
-    if (src[key] !== undefined
-        && (key === 'materialName' || fields.some((f) => f.key === key))) {
+    // materialName has no FIELDS entry; it travels with density — only copy
+    // it onto types that can hold the matching density.
+    const applies = key === 'materialName'
+      ? fields.some((f) => f.key === 'density')
+      : fields.some((f) => f.key === key);
+    if (src[key] !== undefined && applies) {
       (out as Record<string, unknown>)[key] = src[key];
     }
   }

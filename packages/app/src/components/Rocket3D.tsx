@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import * as THREE from 'three';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
@@ -199,6 +199,12 @@ export function buildPieces(tree: RocketTree): { pieces: Piece[]; totalLen: numb
 
 export function Rocket3D({ tree, info }: { tree: RocketTree; info: StaticInfo | null }) {
   const { pieces, totalLen, maxR } = useMemo(() => buildPieces(tree), [tree]);
+  // Mesh keys are stable across rebuilds, so R3F never unmounts/auto-disposes
+  // the swapped-out geometries — release them ourselves or every edit leaks
+  // a full set of GPU buffers.
+  useEffect(() => () => {
+    for (const p of pieces) p.geometry.dispose();
+  }, [pieces]);
   const center = totalLen / 2;
   const camDist = Math.max(totalLen * 1.1, maxR * 6, 0.25);
   const markerR = Math.max(totalLen * 0.012, maxR * 0.25);

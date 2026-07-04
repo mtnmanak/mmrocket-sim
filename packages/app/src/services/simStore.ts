@@ -1,3 +1,4 @@
+import { csvCell } from './csvUtil.js';
 import type { SimRun } from './simReport.js';
 
 /**
@@ -21,10 +22,12 @@ export function loadRuns(): SimRun[] {
 }
 
 function persist(runs: SimRun[]): SimRun[] {
+  const kept = runs.slice(0, MAX_RUNS);
   try {
-    localStorage.setItem(KEY, JSON.stringify(runs.slice(0, MAX_RUNS)));
+    localStorage.setItem(KEY, JSON.stringify(kept));
   } catch { /* quota — history is best-effort */ }
-  return runs;
+  // Return what was stored, so the in-memory table matches the next reload.
+  return kept;
 }
 
 /** Newest first. */
@@ -121,11 +124,6 @@ function round(v: number | null, digits = 2): string | number {
 
 function flag(v: boolean | null): string {
   return v === null ? '' : v ? 'yes' : 'NO';
-}
-
-function csvCell(v: string | number): string {
-  const s = String(v);
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
 export function runsToCsv(runs: SimRun[]): string {

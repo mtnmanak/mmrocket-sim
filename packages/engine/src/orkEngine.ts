@@ -271,6 +271,7 @@ export class OrkRocket {
     ork.setMotorIgnitionById(this.handle, componentId, event, delayS);
   }
 
+  /** @deprecated Fixed-layout builder kept for the engine tests; the app uses buildTree(). */
   static build(spec: RocketSpec): OrkRocket {
     const r = ork.newRocket();
     ork.addNoseCone(
@@ -291,6 +292,7 @@ export class OrkRocket {
     return new OrkRocket(r, mount);
   }
 
+  /** @deprecated Pairs with build(); the app assigns motors via setMotorById(). */
   setMotor(motor: MotorSpec): void {
     ork.setMotor(
       this.handle, this.mountHandle, motor.designation, motor.diameter, motor.length,
@@ -299,12 +301,16 @@ export class OrkRocket {
 
   /** Length, mass, CG/CP, stability margin — computed at Mach 0.3, AoA 0. */
   staticInfo(): StaticInfo {
-    return JSON.parse(ork.getStaticInfo(this.handle)) as StaticInfo;
+    const parsed = JSON.parse(ork.getStaticInfo(this.handle)) as StaticInfo & { error?: string };
+    if (parsed.error) throw new Error(`Static analysis failed: ${parsed.error}`);
+    return parsed;
   }
 
   /** Static info for one component, addressed by its tree-node id. */
   componentInfo(componentId: string): ComponentInfo {
-    return JSON.parse(ork.getComponentInfo(this.handle, componentId)) as ComponentInfo;
+    const parsed = JSON.parse(ork.getComponentInfo(this.handle, componentId)) as ComponentInfo & { error?: string };
+    if (parsed.error) throw new Error(`Component info failed: ${parsed.error}`);
+    return parsed;
   }
 
   simulate(options: SimulationOptions = {}): FlightResult {

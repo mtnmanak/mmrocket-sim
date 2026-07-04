@@ -9,7 +9,7 @@
  * push.
  */
 
-export const APP_VERSION = '0.012';
+export const APP_VERSION = '0.013';
 
 export interface ChangelogEntry {
   version: string;
@@ -20,6 +20,20 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.013',
+    date: '2026-07-04',
+    title: 'Debug & polish pass — a full-codebase review, 25+ fixes',
+    items: [
+      'Duplicate-ID bug fixed: after restoring a session, the first component you added could silently collide with an existing one (selection highlighting two rows, edits landing on both). IDs now always continue past the restored ones.',
+      'Undo is usable again: dragging a component or holding a slider now counts as ONE undo step instead of flooding the history — Ctrl+Z steps back a whole gesture. Ctrl+Z inside a text field leaves normal text editing alone.',
+      'RockSim round trip: mass components no longer import back as 0 g (a duplicate KnownMass field); sub-assemblies nested inside tubes keep their contents; streamers with RockSim\'s default drag stay on "auto".',
+      '.ork fidelity: files from OpenRocket 15.03 and older keep their component positions (legacy <position> fallback); parachute shroud-line materials, elliptical fin cant, and transition shoulder thickness now survive save/reload; per-configuration stage separation settings are read.',
+      'RASAero export honesty: fins RASAero can\'t represent now stop the export with a clear message instead of silently vanishing — and trapezoid-shaped freeform fins (including fins on boat tails) convert exactly. Booster shoulders and boat tails round-trip.',
+      '"Fit shoulder to tube ⌀" on nose cones works again (broken since the multi-stage release); "Discard & start new" clears motors and the max-motor-length; the schematic\'s Reset-view button appears whenever the view is panned; imported designs keep their saved ejection delay when a built-in motor matches.',
+      'Under the hood: 3D-view geometry no longer leaks GPU memory on every edit, per-device descent checks are sign-safe, corrupt cached thrust curves self-heal, preset CSVs with multi-line descriptions import correctly, and the file-format services share one XML/CSV toolkit.',
+    ],
+  },
   {
     version: '0.012',
     date: '2026-07-04',

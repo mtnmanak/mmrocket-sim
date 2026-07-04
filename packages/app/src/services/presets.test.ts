@@ -65,4 +65,17 @@ describe('CSV round-trip', () => {
     const back = csvToPresets(presetsToCsv([p]));
     expect(back[0]!.description).toBe('Tube, big, "the best"');
   });
+
+  it('handles NEWLINES inside quoted cells (the export writes them)', () => {
+    const p: Preset = {
+      kind: 'BodyTube', manufacturer: 'Me', partNo: 'X2',
+      description: 'line one\nline two', length: 0.25, outsideDiameter: 0.02,
+    };
+    const q: Preset = { kind: 'BodyTube', manufacturer: 'Me', partNo: 'X3', description: 'plain' };
+    const back = csvToPresets(presetsToCsv([p, q]));
+    expect(back).toHaveLength(2);
+    expect(back[0]!.description).toBe('line one\nline two');
+    expect(back[0]!['length']).toBeCloseTo(0.25, 9);
+    expect(back[1]!.partNo).toBe('X3');
+  });
 });

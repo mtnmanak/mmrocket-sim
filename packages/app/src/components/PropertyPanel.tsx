@@ -408,9 +408,14 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll }: {
       })()}
 
       {node.type === 'nosecone' && (() => {
-        // Snap the shoulder into the tube behind the nose: next top-level body tube.
-        const idx = tree.components.findIndex((n) => n.id === node.id);
-        const tube = tree.components.slice(idx + 1).find((n) => n.type === 'bodytube');
+        // Snap the shoulder into the tube behind the nose: the next body tube
+        // among the SIBLINGS (the enclosing stage's children — tree.components
+        // holds only stage nodes since v0.009).
+        const siblings = parent && parent !== 'stage'
+          ? ((parent as ComponentNode).children ?? [])
+          : tree.components;
+        const idx = siblings.findIndex((n) => n.id === node.id);
+        const tube = siblings.slice(idx + 1).find((n) => n.type === 'bodytube');
         if (!tube || typeof tube['outerRadius'] !== 'number') return null;
         const innerR = (tube['outerRadius'] as number) - ((tube['thickness'] as number) ?? 0);
         const shown = prefs.radiusMode === 'diameter' ? innerR * 2 : innerR;

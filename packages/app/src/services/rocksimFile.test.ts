@@ -187,6 +187,62 @@ describe('RockSim export → import round trip', () => {
     expect(tubes.length).toBe(3);
   });
 
+  it('round-trips a mass component (KnownMass must be emitted once)', () => {
+    const design = {
+      name: 'M',
+      tree: {
+        components: [{
+          type: 'stage' as const, id: 's', name: 'Sustainer',
+          children: [{
+            type: 'bodytube' as const, id: 'b', length: 0.3, outerRadius: 0.012, thickness: 0.0005,
+            children: [{ type: 'masscomponent' as const, id: 'w', mass: 0.05, length: 0.03 }],
+          }],
+        }],
+      },
+    };
+    const xml = exportRkt(design);
+    const back = importRkt(xml);
+    const mass = flatten(back.tree.components).find((c) => c.type === 'masscomponent')!;
+    expect(mass['mass']).toBeCloseTo(0.05, 9);
+  });
+
+  it('flattens sub-assemblies nested inside attached parts (not just stage level)', () => {
+    const xml = `<RockSimDocument><DesignInformation><RocketDesign>
+      <Name>SA</Name><StageCount>1</StageCount>
+      <Stage3Parts>
+        <BodyTube><Name>Tube</Name><Len>300</Len><OD>24</OD><ID>22</ID>
+          <AttachedParts>
+            <SubAssembly><Name>Bay</Name>
+              <AttachedParts>
+                <MassObject><Name>Weight</Name><TypeCode>0</TypeCode><KnownMass>20</KnownMass><Len>20</Len></MassObject>
+              </AttachedParts>
+            </SubAssembly>
+          </AttachedParts>
+        </BodyTube>
+      </Stage3Parts><Stage2Parts/><Stage1Parts/>
+    </RocketDesign></DesignInformation></RockSimDocument>`;
+    const r = importRkt(xml);
+    const mass = flatten(r.tree.components).find((c) => c.type === 'masscomponent')!;
+    expect(mass['mass']).toBeCloseTo(0.02, 9);
+    expect(r.notes.join(' ')).toMatch(/flattened/);
+  });
+
+  it('keeps a streamer with RockSim’s default 0.75 cd on auto', () => {
+    const xml = `<RockSimDocument><DesignInformation><RocketDesign>
+      <Name>ST</Name><StageCount>1</StageCount>
+      <Stage3Parts>
+        <BodyTube><Name>Tube</Name><Len>300</Len><OD>24</OD><ID>22</ID>
+          <AttachedParts>
+            <Streamer><Name>Str</Name><Len>500</Len><Width>50</Width><DragCoefficient>0.75</DragCoefficient></Streamer>
+          </AttachedParts>
+        </BodyTube>
+      </Stage3Parts><Stage2Parts/><Stage1Parts/>
+    </RocketDesign></DesignInformation></RockSimDocument>`;
+    const r = importRkt(xml);
+    const streamer = flatten(r.tree.components).find((c) => c.type === 'streamer')!;
+    expect(streamer['cd']).toBeUndefined();
+  });
+
   it('rejects more than 3 stages (RockSim limit)', () => {
     const four = {
       name: 'X',

@@ -126,6 +126,92 @@ describe('RASAero export', () => {
     expect(() => exportCdx1(bad)).toThrow(/3–8 fins/);
   });
 
+  it('converts trapezoid-shaped freeform fins instead of dropping them', () => {
+    const d = {
+      name: 'FF',
+      tree: {
+        components: [{
+          type: 'stage' as const, id: 's', name: 'Sustainer',
+          children: [
+            { type: 'nosecone' as const, id: 'n', length: 0.2, aftRadius: 0.025, thickness: 0.002, shape: 'ogive' },
+            {
+              type: 'bodytube' as const, id: 'b', length: 0.6, outerRadius: 0.025, thickness: 0.001,
+              children: [{
+                type: 'freeformfinset' as const, id: 'f', finCount: 3, thickness: 0.003,
+                points: [[0, 0], [0.04, 0.06], [0.09, 0.06], [0.12, 0]] as [number, number][],
+                position: { method: 'bottom' as const, offset: 0 },
+              }],
+            },
+          ],
+        }],
+      },
+    };
+    const xml = exportCdx1(d);
+    expect(xml).toContain('<Fin>');
+    const back = importCdx1(xml);
+    const fins = flatten(back.tree.components).find((c) => c.type === 'trapezoidfinset')!;
+    expect(fins['rootChord']).toBeCloseTo(0.12, 3);
+    expect(fins['tipChord']).toBeCloseTo(0.05, 3);
+    expect(fins['sweep']).toBeCloseTo(0.04, 3);
+    expect(fins['height']).toBeCloseTo(0.06, 3);
+  });
+
+  it('throws (never silently drops) fins RASAero cannot represent', () => {
+    const withFin = (fin: ComponentNode) => ({
+      name: 'X',
+      tree: {
+        components: [{
+          type: 'stage' as const, id: 's', name: 'Sustainer',
+          children: [
+            { type: 'nosecone' as const, id: 'n', length: 0.2, aftRadius: 0.025, thickness: 0.002, shape: 'ogive' },
+            { type: 'bodytube' as const, id: 'b', length: 0.6, outerRadius: 0.025, thickness: 0.001, children: [fin] },
+          ],
+        }],
+      },
+    });
+    expect(() => exportCdx1(withFin({
+      type: 'freeformfinset', id: 'f', finCount: 3, thickness: 0.003,
+      points: [[0, 0], [0.02, 0.04], [0.05, 0.06], [0.09, 0.05], [0.12, 0]],
+    } as ComponentNode))).toThrow(/trapezoid/i);
+    expect(() => exportCdx1(withFin({
+      type: 'ellipticalfinset', id: 'f', finCount: 3, rootChord: 0.08, height: 0.05, thickness: 0.003,
+    } as ComponentNode))).toThrow(/elliptical/i);
+  });
+
+  it('round-trips booster shoulder and boat-tail geometry', () => {
+    const d = {
+      name: 'B',
+      tree: {
+        components: [
+          {
+            type: 'stage' as const, id: 's0', name: 'Sustainer',
+            children: [
+              { type: 'nosecone' as const, id: 'n', length: 0.2, aftRadius: 0.02, thickness: 0.002, shape: 'conical' },
+              { type: 'bodytube' as const, id: 'b0', length: 0.5, outerRadius: 0.02, thickness: 0.001 },
+            ],
+          },
+          {
+            type: 'stage' as const, id: 's1', name: 'Booster',
+            children: [
+              { type: 'transition' as const, id: 'sh', length: 0.05, foreRadius: 0.02, aftRadius: 0.03, thickness: 0.002, shape: 'conical' },
+              { type: 'bodytube' as const, id: 'b1', length: 0.4, outerRadius: 0.03, thickness: 0.001 },
+              { type: 'transition' as const, id: 'bt', length: 0.06, foreRadius: 0.03, aftRadius: 0.02, thickness: 0.002, shape: 'conical' },
+            ],
+          },
+        ],
+      },
+    };
+    const xml = exportCdx1(d);
+    expect(xml).toContain('<ShoulderLength>1.9685</ShoulderLength>'); // 0.05 m in inches
+    const back = importCdx1(xml);
+    const booster = back.tree.components[1]!;
+    const trans = (booster.children ?? []).filter((c) => c.type === 'transition');
+    expect(trans.length).toBe(2);
+    expect(trans[0]!['length']).toBeCloseTo(0.05, 3);
+    expect(trans[1]!['length']).toBeCloseTo(0.06, 3);
+    expect(trans[1]!['aftRadius']).toBeCloseTo(0.02, 3);
+  });
+
   it('rejects non-conical transitions', () => {
     const bad = structuredClone(design);
     const children = bad.tree.components[0]!.children! as ComponentNode[];
