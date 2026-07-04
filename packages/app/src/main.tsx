@@ -1,7 +1,12 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { registerSW } from 'virtual:pwa-register';
 import { App } from './App.js';
 import { PrefsProvider } from './prefs/PrefsContext.js';
+
+// Offline-first: precache the app shell (engine included) so the sim works
+// at launch sites with no internet. Updates apply on the next visit.
+registerSW({ immediate: true });
 
 // Never a silently-blank page: uncaught errors paint into the root.
 function showFatal(message: string) {

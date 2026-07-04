@@ -1,0 +1,46 @@
+# Deploys the app to GitHub Pages.
+#
+# DORMANT until the repo goes public: GitHub Pages is paid-only on private
+# repos, so this runs on manual trigger only. When ready:
+#   1. Make the repository public (also satisfies the GPL source offer).
+#   2. Settings → Pages → Source: "GitHub Actions".
+#   3. Run this workflow from the Actions tab (or uncomment the push trigger
+#      below for deploy-on-every-push).
+#
+# The same relative-path build (base './') works here and on any web host.
+name: Deploy to GitHub Pages
+
+on:
+  workflow_dispatch:
+  # push:
+  #   branches: [main]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: packages/app/dist
+      - id: deployment
+        uses: actions/deploy-pages@v4

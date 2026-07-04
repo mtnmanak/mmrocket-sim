@@ -307,6 +307,15 @@ export function App() {
         <p>
           Design a model rocket and fly it — powered by the real OpenRocket physics
           engine (Extended Barrowman, 6-DOF RK4) compiled to JavaScript.
+          {' '}
+          <a
+            href="https://github.com/mtnmanak/online_open_rocket"
+            target="_blank"
+            rel="noreferrer"
+            title="This app is free software under the GPL v3 or later — source code for this build"
+          >
+            source&nbsp;(GPL)
+          </a>
         </p>
       </header>
       {showPrefs && <PreferencesDialog onClose={() => setShowPrefs(false)} />}

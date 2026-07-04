@@ -14,7 +14,8 @@
     "engine:carve": "node engine-java/scripts/carve.mjs",
     "engine:difftest": "node engine-java/scripts/difftest.mjs",
     "engine:js": "node engine-java/scripts/build-engine.mjs",
-    "motors:refresh": "node packages/app/scripts/fetch-motor-db.mjs"
+    "motors:refresh": "node packages/app/scripts/fetch-motor-db.mjs",
+    "package": "npm run build && node scripts/package-dist.mjs"
   },
   "allowScripts": {
     "esbuild@0.21.5": true

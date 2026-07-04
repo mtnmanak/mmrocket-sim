@@ -4,6 +4,9 @@ dist/
 coverage/
 *.tsbuildinfo
 
+# Versioned upload zips from `npm run package`
+deploy/
+
 # Logs
 *.log
 npm-debug.log*
