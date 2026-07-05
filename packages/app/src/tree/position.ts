@@ -1,4 +1,5 @@
 import type { ComponentNode, ComponentPosition, RocketTree } from '@online-openrocket/engine';
+import { assemblyChainLength, isAssembly } from './assembly.js';
 
 /**
  * Axial-position math shared by the 2D schematic (drag) and the property
@@ -18,6 +19,7 @@ export function axialLength(n: ComponentNode): number {
   if (n.type === 'trapezoidfinset' || n.type === 'ellipticalfinset') {
     return num(n, 'rootChord', 0.05);
   }
+  if (isAssembly(n.type)) return assemblyChainLength(n);
   return num(n, 'length', num(n, 'packedLength', 0.025));
 }
 

@@ -3,6 +3,10 @@ import * as THREE from 'three';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import type { ComponentNode, ComponentPosition, RocketTree, StaticInfo } from '@online-openrocket/engine';
+import {
+  assemblyBoundingRadius, assemblyChainLength, isAssembly,
+  resolveAssemblyRadius, ringInstanceOffsets,
+} from '../tree/assembly.js';
 
 /**
  * 3D rocket view (react-three-fiber). Geometry is generated from the
@@ -65,11 +69,27 @@ export interface Piece {
 /** Shared with the OBJ exporter — this IS the app's 3D geometry. */
 export function buildPieces(tree: RocketTree): { pieces: Piece[]; totalLen: number; maxR: number } {
   const pieces: Piece[] = [];
-  let x = 0;
   let maxR = 0.005;
   let k = 0;
 
-  const addFins = (child: ComponentNode, pStart: number, pLen: number, pRadius: number) => {
+  // Push a piece. For off-axis assemblies an instance transform `xform` is
+  // baked into the geometry (like addFins already does), so the flat Piece[]
+  // stays position/rotation-free there and the OBJ exporter needs no changes.
+  const place = (
+    key: string, geometry: THREE.BufferGeometry, color: string,
+    position?: [number, number, number], rotation?: [number, number, number],
+    xform?: THREE.Matrix4,
+  ) => {
+    if (!xform) { pieces.push({ key, geometry, color, position, rotation }); return; }
+    const g = geometry.clone();
+    const m = new THREE.Matrix4().copy(xform);
+    if (position) m.multiply(new THREE.Matrix4().makeTranslation(position[0], position[1], position[2]));
+    if (rotation) m.multiply(new THREE.Matrix4().makeRotationFromEuler(new THREE.Euler(rotation[0], rotation[1], rotation[2])));
+    g.applyMatrix4(m);
+    pieces.push({ key, geometry: g, color });
+  };
+
+  const addFins = (child: ComponentNode, pStart: number, pLen: number, pRadius: number, xform?: THREE.Matrix4) => {
     const count = Math.max(1, Math.round(num(child, 'finCount', 3)));
     const ffPoints = child.type === 'freeformfinset'
       ? ((child['points'] as [number, number][] | undefined) ?? [])
@@ -118,83 +138,93 @@ export function buildPieces(tree: RocketTree): { pieces: Piece[]; totalLen: numb
       // Fin lies in the XY plane, root on the surface (+Y), then rotate about X.
       const g = geo.clone();
       g.translate(start, pRadius, 0);
-      const m = new THREE.Matrix4().makeRotationX(angle);
-      g.applyMatrix4(m);
+      g.applyMatrix4(new THREE.Matrix4().makeRotationX(angle));
+      if (xform) g.applyMatrix4(xform); // off-axis pod instance
       pieces.push({ key: `fin${k++}`, geometry: g, color: nodeColor(child, MAT.fin) });
     }
     geo.dispose();
   };
 
-  const addChildren = (parent: ComponentNode, pStart: number, pLen: number, pRadius: number) => {
+  const addChildren = (parent: ComponentNode, pStart: number, pLen: number, pRadius: number, xform?: THREE.Matrix4) => {
     for (const child of parent.children ?? []) {
       if (child.type === 'trapezoidfinset' || child.type === 'ellipticalfinset' || child.type === 'freeformfinset') {
-        addFins(child, pStart, pLen, pRadius);
+        addFins(child, pStart, pLen, pRadius, xform);
       } else if (child.type === 'launchlug') {
         const len = num(child, 'length', 0.05);
         const r = num(child, 'outerRadius', 0.0022);
         const start = axialStart(child, len, pStart, pLen);
         const geo = new THREE.CylinderGeometry(r, r, len, 16);
-        pieces.push({
-          key: `lug${k++}`, geometry: geo, color: nodeColor(child, MAT.lug),
-          position: [start + len / 2, pRadius + r, 0],
-          rotation: [0, 0, -Math.PI / 2],
-        });
+        place(`lug${k++}`, geo, nodeColor(child, MAT.lug),
+          [start + len / 2, pRadius + r, 0], [0, 0, -Math.PI / 2], xform);
+      } else if (isAssembly(child.type)) {
+        // Off-axis pod / booster: place its whole sub-chain at the instance's
+        // radius + angle (the addFins rotate-about-X primitive, lifted from one
+        // fin to a mini-rocket). Nested pods compose transforms.
+        const podChain = child.children ?? [];
+        const podLen = assemblyChainLength(child);
+        const podRadius = resolveAssemblyRadius(child, pRadius);
+        const podStart = axialStart(child, podLen, pStart, pLen);
+        const count = Math.max(1, Math.round(num(child, 'instanceCount', 2)));
+        const angleOffset = num(child, 'angleOffset', 0);
+        maxR = Math.max(maxR, podRadius + assemblyBoundingRadius(child));
+        for (const off of ringInstanceOffsets(count, podRadius, angleOffset)) {
+          const m = new THREE.Matrix4().makeRotationX(off.angle)
+            .multiply(new THREE.Matrix4().makeTranslation(podStart, podRadius, 0));
+          addChain(podChain, xform ? new THREE.Matrix4().copy(xform).multiply(m) : m);
+        }
       }
-      // Internal components are not rendered in 3D (invisible inside tubes).
+      // Other internal components are not rendered in 3D (invisible in tubes).
     }
+  };
+
+  // Builds an axial nose→tail chain in its local frame; `xform` (when present)
+  // is baked into every piece to place an off-axis pod instance. Returns the
+  // chain's axial length.
+  const addChain = (nodes: ComponentNode[], xform?: THREE.Matrix4): number => {
+    let x = 0;
+    for (const n of nodes) {
+      const len = num(n, 'length', 0);
+      if (n.type === 'nosecone') {
+        const R = num(n, 'aftRadius', 0.012);
+        const shapeName = typeof n['shape'] === 'string' ? (n['shape'] as string) : 'ogive';
+        const pts: THREE.Vector2[] = [];
+        const steps = 32;
+        for (let i = 0; i <= steps; i++) {
+          const t = i / steps;
+          pts.push(new THREE.Vector2(Math.max(0.0001, noseProfile(shapeName, t, R, len)), t * len));
+        }
+        place(`nose${k++}`, new THREE.LatheGeometry(pts, 48), nodeColor(n, MAT.nose),
+          [x, 0, 0], [0, 0, -Math.PI / 2], xform);
+        maxR = Math.max(maxR, R);
+        addChildren(n, x, len, R, xform);
+        x += len;
+      } else if (n.type === 'bodytube') {
+        const R = num(n, 'outerRadius', 0.012);
+        place(`body${k++}`, new THREE.CylinderGeometry(R, R, len, 48), nodeColor(n, MAT.body),
+          [x + len / 2, 0, 0], [0, 0, -Math.PI / 2], xform);
+        maxR = Math.max(maxR, R);
+        addChildren(n, x, len, R, xform);
+        x += len;
+      } else if (n.type === 'transition') {
+        const rf = num(n, 'foreRadius', 0.012);
+        const ra = num(n, 'aftRadius', 0.009);
+        // After rotation.z = -π/2 the cylinder's +Y axis points along +X (aft):
+        // top radius = aft radius.
+        place(`trans${k++}`, new THREE.CylinderGeometry(ra, rf, len, 48), nodeColor(n, MAT.transition),
+          [x + len / 2, 0, 0], [0, 0, -Math.PI / 2], xform);
+        maxR = Math.max(maxR, rf, ra);
+        addChildren(n, x, len, Math.max(rf, ra), xform);
+        x += len;
+      }
+    }
+    return x;
   };
 
   // Stages flatten into one nose-to-tail chain (sustainer first, boosters after).
   const chain = tree.components.flatMap((n) => (n.type === 'stage' ? n.children ?? [] : [n]));
-  for (const n of chain) {
-    const len = num(n, 'length', 0);
-    if (n.type === 'nosecone') {
-      const R = num(n, 'aftRadius', 0.012);
-      const shapeName = typeof n['shape'] === 'string' ? (n['shape'] as string) : 'ogive';
-      const pts: THREE.Vector2[] = [];
-      const steps = 32;
-      for (let i = 0; i <= steps; i++) {
-        const t = i / steps;
-        pts.push(new THREE.Vector2(Math.max(0.0001, noseProfile(shapeName, t, R, len)), t * len));
-      }
-      const geo = new THREE.LatheGeometry(pts, 48);
-      pieces.push({
-        key: `nose${k++}`, geometry: geo, color: nodeColor(n, MAT.nose),
-        position: [x, 0, 0],
-        rotation: [0, 0, -Math.PI / 2],
-      });
-      maxR = Math.max(maxR, R);
-      addChildren(n, x, len, R);
-      x += len;
-    } else if (n.type === 'bodytube') {
-      const R = num(n, 'outerRadius', 0.012);
-      const geo = new THREE.CylinderGeometry(R, R, len, 48);
-      pieces.push({
-        key: `body${k++}`, geometry: geo, color: nodeColor(n, MAT.body),
-        position: [x + len / 2, 0, 0],
-        rotation: [0, 0, -Math.PI / 2],
-      });
-      maxR = Math.max(maxR, R);
-      addChildren(n, x, len, R);
-      x += len;
-    } else if (n.type === 'transition') {
-      const rf = num(n, 'foreRadius', 0.012);
-      const ra = num(n, 'aftRadius', 0.009);
-      // After rotation.z = -π/2 the cylinder's +Y axis points along +X (aft):
-      // top radius = aft radius.
-      const geo = new THREE.CylinderGeometry(ra, rf, len, 48);
-      pieces.push({
-        key: `trans${k++}`, geometry: geo, color: nodeColor(n, MAT.transition),
-        position: [x + len / 2, 0, 0],
-        rotation: [0, 0, -Math.PI / 2],
-      });
-      maxR = Math.max(maxR, rf, ra);
-      addChildren(n, x, len, Math.max(rf, ra));
-      x += len;
-    }
-  }
+  const totalLen = addChain(chain);
 
-  return { pieces, totalLen: Math.max(x, 0.05), maxR };
+  return { pieces, totalLen: Math.max(totalLen, 0.05), maxR };
 }
 
 export function Rocket3D({ tree, info }: { tree: RocketTree; info: StaticInfo | null }) {

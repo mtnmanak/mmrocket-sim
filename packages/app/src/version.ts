@@ -9,7 +9,7 @@
  * push.
  */
 
-export const APP_VERSION = '0.019';
+export const APP_VERSION = '0.020';
 
 export interface ChangelogEntry {
   version: string;
@@ -20,6 +20,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.020',
+    date: '2026-07-05',
+    title: 'Pods & boosters drawn off-axis (2D & 3D)',
+    items: [
+      'Pod sets and parallel boosters are now drawn where they actually sit — ringed around the airframe at their radius and angle — in both the 2D side view (projected above/below the body) and the rotatable 3D model, and they export to OBJ too. Fins on a pod/booster draw as well.',
+      'They are still not part of the flight simulation yet — that is the next step (it needs the engine build). A booster shows in the drawing but does not yet change the predicted flight.',
+    ],
+  },
   {
     version: '0.019',
     date: '2026-07-05',
