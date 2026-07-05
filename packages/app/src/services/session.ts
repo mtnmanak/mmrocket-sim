@@ -22,7 +22,9 @@ export interface SessionState {
   motor?: MotorSpec;
   motorMeta?: MotorMeta;
   mountId?: string | null;
-  /** Rocket-level max motor length (SI m); null/absent = no limit. */
+  /** Per-STAGE max motor length keyed by stage node id (SI m); null/absent = no limit. */
+  maxMotorLengthByStage?: Record<string, number | null>;
+  /** Legacy universal max motor length (pre-v0.015) — migrated onto every stage on load. */
   maxMotorLengthM?: number | null;
   launch: LaunchConditions;
   /** Last-save timestamp (ms epoch) — shown on restore. */

@@ -9,7 +9,7 @@
  * push.
  */
 
-export const APP_VERSION = '0.014';
+export const APP_VERSION = '0.015';
 
 export interface ChangelogEntry {
   version: string;
@@ -20,6 +20,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.015',
+    date: '2026-07-04',
+    title: 'Max motor length is now per stage',
+    items: [
+      'On a staged rocket, each stage\'s airframe has its own room — the Motors panel now groups mounts by stage, and every stage gets its own "Max motor length" limit (flagging in the motor browser and batch-simulation exclusion use the right stage\'s value).',
+      'Single-stage rockets look exactly as before: one input. An existing universal limit carries over onto every stage automatically.',
+    ],
+  },
   {
     version: '0.014',
     date: '2026-07-04',

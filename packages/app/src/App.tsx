@@ -118,12 +118,21 @@ export function App() {
     const meta = session?.motorMeta ?? builtInMeta(label);
     return { [target]: { label, spec, meta, ignition: { event: 'automatic', delay: 0 } } };
   });
-  // Max motor length is a physical property of the ROCKET (how much room the
-  // airframe has), so it lives here — not in the motor browser's filters.
-  const [maxMotorLenM, setMaxMotorLenM] = useState<number | null>(
-    session && 'maxMotorLengthM' in session
+  // Max motor length is a physical property of each STAGE's airframe (a
+  // staged rocket's booster and sustainer have different room), keyed by
+  // stage node id. Legacy sessions carried ONE universal value — seed every
+  // stage with it.
+  const [maxMotorLen, setMaxMotorLen] = useState<Record<string, number | null>>(() => {
+    if (session?.maxMotorLengthByStage) return session.maxMotorLengthByStage;
+    const legacy = session && 'maxMotorLengthM' in session
       ? session.maxMotorLengthM ?? null
-      : legacyMaxMotorLength());
+      : legacyMaxMotorLength();
+    if (legacy === null) return {};
+    return Object.fromEntries(
+      stages(normalizeTree(session?.tree ?? defaultTree()))
+        .filter((st) => st.id)
+        .map((st) => [st.id!, legacy]));
+  });
   const [launch, setLaunch] = useState<LaunchConditions>(session?.launch ?? DEFAULT_CONDITIONS);
   const [result, setResult] = useState<FlightResult | null>(null);
   const [lastRun, setLastRun] = useState<SimRun | null>(null);
@@ -140,8 +149,12 @@ export function App() {
 
   // Autosave the working state so a closed tab or crash never loses work.
   useEffect(() => {
-    saveSessionDebounced({ tree, mountMotors, launch, maxMotorLengthM: maxMotorLenM });
-  }, [tree, mountMotors, launch, maxMotorLenM]);
+    // Prune limits for stages that no longer exist before persisting.
+    const stageIds = new Set(stages(tree).map((s) => s.id));
+    const maxMotorLengthByStage = Object.fromEntries(
+      Object.entries(maxMotorLen).filter(([id]) => stageIds.has(id)));
+    saveSessionDebounced({ tree, mountMotors, launch, maxMotorLengthByStage });
+  }, [tree, mountMotors, launch, maxMotorLen]);
 
   // ---- undo (Ctrl+Z / button) ----
   const history = useRef<RocketTree[]>([]);
@@ -408,6 +421,7 @@ export function App() {
       }
       setTree(normalizeTree(imported.tree));
       setMountMotors(nextMotors);
+      setMaxMotorLen({}); // imported stages have fresh ids — old limits don't apply
       setSelectedId(null);
       setFileNote(notes.join('\n'));
     } catch (e) {
@@ -487,7 +501,7 @@ export function App() {
           info={built.info}
           mountId={primaryMountId}
           mountDiameterMm={mountDiaMm(primaryMountNode)}
-          maxMotorLengthM={maxMotorLenM}
+          maxMotorLengthM={maxMotorLen[stageList[stageIndexOf(tree, primaryMountId)]?.id ?? ''] ?? null}
           motorCount={primaryMotorCount}
           launch={launch}
           rocketName={tree.name ?? 'Rocket'}
@@ -521,7 +535,7 @@ export function App() {
                 onClick={() => {
                   setTree(emptyTree());
                   setMountMotors({});
-                  setMaxMotorLenM(null);
+                  setMaxMotorLen({});
                   setSelectedId(null);
                   setResult(null);
                   setLastRun(null);
@@ -604,33 +618,41 @@ export function App() {
                 No motor mount — add an inner tube and check “acts as motor mount”.
               </p>
             )}
-            <div className="field" style={{ marginBottom: 8 }}
-              title="Longest motor the airframe has room for — a physical property of this rocket. Longer motors are flagged in the browser and excluded from batch simulation.">
-              <label>Max motor length (<UnitChip quantity="motorDimensions" />)</label>
-              <NumField
-                value={maxMotorLenM === null
-                  ? undefined
-                  : siToUi('motorDimensions', prefs.units.motorDimensions, maxMotorLenM)}
-                step={niceStep(siToUi('motorDimensions', prefs.units.motorDimensions, 0.005))}
-                nullable
-                placeholder="no limit"
-                ariaLabel="Maximum motor length"
-                onCommit={(v) => setMaxMotorLenM(
-                  v === null ? null : uiToSi('motorDimensions', prefs.units.motorDimensions, v))}
-              />
-            </div>
-            {mounts.map((m) => {
+            {stageList.map((st, stIdx) => {
+              const stMounts = mounts.filter((m) => stageIndexOf(tree, m.id!) === stIdx);
+              if (stMounts.length === 0) return null;
+              const stName = st.name ?? `Stage ${stIdx + 1}`;
+              const stMax = st.id ? maxMotorLen[st.id] ?? null : null;
+              return (
+                <div key={st.id}>
+                  {isStaged && <div className="motor-stage-header">{stName}</div>}
+                  <div className="field" style={{ marginBottom: 8 }}
+                    title={`Longest motor ${isStaged ? `the ${stName} stage's` : 'the'} airframe has room for — each stage has its own limit. Longer motors are flagged in the browser and excluded from batch simulation.`}>
+                    <label>Max motor length (<UnitChip quantity="motorDimensions" />)</label>
+                    <NumField
+                      value={stMax === null
+                        ? undefined
+                        : siToUi('motorDimensions', prefs.units.motorDimensions, stMax)}
+                      step={niceStep(siToUi('motorDimensions', prefs.units.motorDimensions, 0.005))}
+                      nullable
+                      placeholder="no limit"
+                      ariaLabel={`Maximum motor length for ${stName}`}
+                      onCommit={(v) => setMaxMotorLen((prev) => ({
+                        ...prev,
+                        [st.id!]: v === null ? null : uiToSi('motorDimensions', prefs.units.motorDimensions, v),
+                      }))}
+                    />
+                  </div>
+                  {stMounts.map((m) => {
               const mm = mountMotors[m.id!];
               const mNode = findNode(tree, m.id!);
-              const stIdx = stageIndexOf(tree, m.id!);
-              const stName = stageList[stIdx]?.name ?? `Stage ${stIdx + 1}`;
               const count = clusterCount(mNode?.['cluster'] as string | undefined);
               const isSustainerMount = stIdx === 0;
               return (
                 <div key={m.id} className="mount-card" style={{ marginBottom: 10, paddingTop: 6, borderTop: '1px solid var(--border, #333)' }}>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
                     <label style={{ flex: 1, fontWeight: 600 }}>
-                      {isStaged ? `${stName} · ` : ''}{m.name ?? 'Motor mount'}
+                      {m.name ?? 'Motor mount'}
                       {count > 1 && ` (cluster ×${count})`}
                     </label>
                     {mm && (
@@ -644,7 +666,7 @@ export function App() {
                   </div>
                   <MotorPicker
                     mountDiameterMm={mountDiaMm(mNode)}
-                    maxMotorLengthM={maxMotorLenM}
+                    maxMotorLengthM={stMax}
                     selectedLabel={mm?.label ?? ''}
                     onSelect={(label, spec, meta) => assignMotor(m.id!, label, spec, meta)}
                   />
@@ -741,6 +763,9 @@ export function App() {
                       </div>
                     </div>
                   )}
+                </div>
+              );
+                  })}
                 </div>
               );
             })}
