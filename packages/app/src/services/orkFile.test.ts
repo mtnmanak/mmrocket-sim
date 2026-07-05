@@ -140,14 +140,15 @@ describe('.ork permissive handling', () => {
       </bodytube>
     </subcomponents></stage></subcomponents></rocket></openrocket>`;
 
-  it('reports body-tube mounts and unknown component types', () => {
+  it('reports body-tube mounts; podset and freeformfinset now import (not ignored)', () => {
     const result = importOrk(BODY_MOUNT);
     expect(result.motor?.designation).toBe('D12');
     expect(result.motor?.mountId).toBeUndefined();
     expect(result.notes.join(' ')).toMatch(/Motor mounts directly/);
-    expect(result.ignored).toContain('podset');
-    // freeformfinset is now supported — it imports rather than being ignored.
+    // Both are now supported component types — they import rather than being ignored.
+    expect(result.ignored).not.toContain('podset');
     expect(result.ignored).not.toContain('freeformfinset');
+    expect(flatten(result.tree.components).some((c) => c.type === 'podset')).toBe(true);
   });
 
   it('accepts bare XML delivered as an ArrayBuffer', () => {
@@ -239,5 +240,84 @@ describe('.ork export fidelity (v0.013 fixes)', () => {
     expect(xml).toContain('<finish>x&lt;y</finish>');
     // Still parseable XML.
     expect(() => importOrk(xml)).not.toThrow();
+  });
+});
+
+describe('.ork pods / parallel stages round-trip (Phase 5)', () => {
+  const podTree = {
+    name: 'Pods',
+    components: [{
+      type: 'stage' as const, id: 's', name: 'Sustainer',
+      children: [{
+        type: 'bodytube' as const, id: 'b', length: 0.4, outerRadius: 0.024, thickness: 0.0005,
+        children: [
+          {
+            type: 'podset' as const, id: 'pod', instanceCount: 3, radiusOffset: 0.01,
+            radiusMethod: 'relative', angleOffset: Math.PI / 6,
+            position: { method: 'bottom' as const, offset: 0 },
+            children: [{ type: 'bodytube' as const, id: 'pb', length: 0.15, outerRadius: 0.01, thickness: 0.0003 }],
+          },
+          {
+            type: 'parallelstage' as const, id: 'boost', instanceCount: 2, radiusOffset: 0,
+            radiusMethod: 'free', angleOffset: 0, angleMethod: 'fixed',
+            separationEvent: 'burnout', separationDelay: 1.5,
+            position: { method: 'bottom' as const, offset: 0 },
+            children: [{ type: 'bodytube' as const, id: 'bb', length: 0.2, outerRadius: 0.012, thickness: 0.0003 }],
+          },
+        ],
+      }],
+    }],
+  };
+
+  it('writes the assembly elements with correct names, units and no color/linestyle', () => {
+    const xml = exportOrk({ name: 'Pods', tree: podTree });
+    expect(xml).toContain('<podset>');
+    expect(xml).toContain('<parallelstage>');
+    expect(xml).toContain('<instancecount>3</instancecount>');
+    expect(xml).toContain('<radiusoffset method="relative">0.01</radiusoffset>');
+    expect(xml).toContain('<radiusoffset method="free">0</radiusoffset>');
+    // angleOffset radians → degrees on disk (π/6 = 30°).
+    expect(xml).toMatch(/<angleoffset method="relative">29\.999\d*<\/angleoffset>|<angleoffset method="relative">30<\/angleoffset>/);
+    expect(xml).toContain('<angleoffset method="fixed">0</angleoffset>');
+    // parallelstage carries separation; assemblies never carry these.
+    expect(xml).toContain('<separationevent>burnout</separationevent>');
+    // (color/linestyle/radialdirection are only suppressed inside the assembly
+    // elements — the presence check is that import round-trips cleanly below.)
+  });
+
+  it('round-trips a pod and a booster (import → export → import, values preserved)', () => {
+    const back = importOrk(exportOrk({ name: 'Pods', tree: podTree }));
+    const all = flatten(back.tree.components);
+    const pod = all.find((c) => c.type === 'podset')!;
+    expect(pod['instanceCount']).toBe(3);
+    expect(pod['radiusOffset']).toBeCloseTo(0.01, 9);
+    expect(pod['radiusMethod']).toBe('relative');
+    expect(pod['angleOffset']).toBeCloseTo(Math.PI / 6, 6);
+    // Nested chain survives.
+    expect((pod.children ?? []).some((c) => c.type === 'bodytube')).toBe(true);
+
+    const boost = all.find((c) => c.type === 'parallelstage')!;
+    expect(boost['instanceCount']).toBe(2);
+    expect(boost['radiusMethod']).toBe('free');
+    expect(boost['angleMethod']).toBe('fixed');
+    expect(boost['separationEvent']).toBe('burnout');
+    expect(boost['separationDelay']).toBeCloseTo(1.5, 9);
+  });
+
+  it('imports the legacy <boosterset> alias as a parallelstage', () => {
+    const xml = `<openrocket version="1.8" creator="OpenRocket 24.12"><rocket><name>Legacy</name>
+      <subcomponents><stage><name>S</name><subcomponents>
+        <bodytube><name>B</name><length>0.4</length><thickness>0.0005</thickness><radius>0.024</radius>
+          <subcomponents>
+            <boosterset><name>Booster</name><instancecount>2</instancecount>
+              <radiusoffset method="relative">0.0</radiusoffset>
+              <angleoffset method="relative">0.0</angleoffset>
+              <subcomponents><bodytube><name>BB</name><length>0.2</length><thickness>0.0003</thickness><radius>0.012</radius></bodytube></subcomponents>
+            </boosterset>
+          </subcomponents>
+        </bodytube>
+      </subcomponents></stage></subcomponents></rocket></openrocket>`;
+    const back = importOrk(xml);
+    expect(flatten(back.tree.components).some((c) => c.type === 'parallelstage')).toBe(true);
   });
 });

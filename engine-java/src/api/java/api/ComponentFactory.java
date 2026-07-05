@@ -29,7 +29,14 @@ import info.openrocket.core.rocketcomponent.Transition;
 import info.openrocket.core.rocketcomponent.TrapezoidFinSet;
 import info.openrocket.core.rocketcomponent.TubeCoupler;
 import info.openrocket.core.rocketcomponent.TubeFinSet;
+import info.openrocket.core.rocketcomponent.AxialStage;
+import info.openrocket.core.rocketcomponent.ComponentAssembly;
+import info.openrocket.core.rocketcomponent.ParallelStage;
+import info.openrocket.core.rocketcomponent.PodSet;
+import info.openrocket.core.rocketcomponent.RingInstanceable;
+import info.openrocket.core.rocketcomponent.position.AngleMethod;
 import info.openrocket.core.rocketcomponent.position.AxialMethod;
+import info.openrocket.core.rocketcomponent.position.RadiusMethod;
 import info.openrocket.core.util.Coordinate;
 
 import static api.JsonLite.bool;
@@ -344,6 +351,18 @@ final class ComponentFactory {
                 c = m;
                 break;
             }
+            case "podset": {
+                // Off-axis pod (non-separating). Geometry is applied post-attach
+                // (applyAssembly) — the setters NPE without a parent.
+                c = new PodSet();
+                break;
+            }
+            case "parallelstage": {
+                // Strap-on booster: a ParallelStage IS an AxialStage, so it
+                // separates and flies its own branch. Config applied post-attach.
+                c = new ParallelStage();
+                break;
+            }
             default:
                 throw new IllegalArgumentException("Unknown component type: '" + type + "'");
         }
@@ -384,7 +403,10 @@ final class ComponentFactory {
             c.setCDOverridden(true);
         }
         Map<String, Object> position = obj(node, "position");
-        if (position != null) {
+        // Off-axis assemblies (PodSet/ParallelStage) have no parent here yet, and
+        // their setAxialMethod NPEs without one — their position is applied
+        // post-attach in applyAssembly. Every other component positions here.
+        if (position != null && !(c instanceof ComponentAssembly)) {
             c.setAxialMethod(axialMethodOf(str(position, "method", "top")));
             c.setAxialOffset(dbl(position, "offset", 0));
         }
@@ -445,6 +467,14 @@ final class ComponentFactory {
         for (Map<String, Object> kid : kids) {
             RocketComponent child = create(kid);
             parent.addChild(child);
+            // Assemblies and fin tabs configure AFTER addChild (they read the
+            // parent for reprojection / radius clamping). Guard on
+            // ComponentAssembly, NOT RingInstanceable — FinSet/SymmetricComponent
+            // ALSO implement RingInstanceable, and applyAssembly would clobber
+            // their instance count with the pod default.
+            if (child instanceof ComponentAssembly) {
+                applyAssembly(child, kid);
+            }
             if (child instanceof FinSet) {
                 applyFinTabs((FinSet) child, kid);
             }
@@ -472,6 +502,54 @@ final class ComponentFactory {
         fins.setTabLength(tabLength);
         fins.setTabOffset(dbl(node, "tabOffset", 0));
         fins.setTabHeight(tabHeight);
+    }
+
+    /**
+     * PodSet / ParallelStage placement — MUST run AFTER parent.addChild(child):
+     * setRadiusMethod/setAxialMethod read getParent() and NPE with no parent.
+     * Radial uses OFFSET/GAP semantics (setRadiusMethod + setRadiusOffset), NEVER
+     * setRadius(method,value) (which is radius-from-centerline and double-subtracts
+     * the parent radius). PodSet.setAngleMethod is a no-op (pods are always
+     * RELATIVE), so angleMethod is applied for parallelstage only. AFTER axial
+     * method is downgraded by the kernel — the app never offers it.
+     */
+    private static void applyAssembly(RocketComponent child, Map<String, Object> node) {
+        RingInstanceable ring = (RingInstanceable) child;
+        ring.setInstanceCount((int) dbl(node, "instanceCount", 2));
+        ring.setRadiusMethod(radiusMethodOf(str(node, "radiusMethod", "relative")));
+        ring.setRadiusOffset(dbl(node, "radiusOffset", 0)); // gap in metres, stored raw for RELATIVE/FREE
+        ring.setAngleOffset(dbl(node, "angleOffset", 0));    // radians
+        if (child instanceof ParallelStage) {
+            ring.setAngleMethod(angleMethodOf(str(node, "angleMethod", "relative")));
+        }
+        Map<String, Object> position = obj(node, "position");
+        if (position != null) {
+            child.setAxialMethod(axialMethodOf(str(position, "method", "bottom")));
+            child.setAxialOffset(dbl(position, "offset", 0));
+        }
+        if (child instanceof ParallelStage) {
+            // A ParallelStage separates — reuse OrkEngine's stage-separation
+            // writer (same package, package-private).
+            OrkEngine.applySeparationConfig((AxialStage) child, node);
+        }
+    }
+
+    private static RadiusMethod radiusMethodOf(String name) {
+        switch (name.toLowerCase()) {
+            case "free": return RadiusMethod.FREE;
+            case "surface": return RadiusMethod.SURFACE;
+            case "coaxial": return RadiusMethod.COAXIAL;
+            case "relative":
+            default: return RadiusMethod.RELATIVE;
+        }
+    }
+
+    private static AngleMethod angleMethodOf(String name) {
+        switch (name.toLowerCase()) {
+            case "fixed": return AngleMethod.FIXED;
+            case "relative":
+            default: return AngleMethod.RELATIVE;
+        }
     }
 
     private static Transition.Shape shapeOf(String name) {

@@ -9,7 +9,7 @@
  * push.
  */
 
-export const APP_VERSION = '0.020';
+export const APP_VERSION = '0.021';
 
 export interface ChangelogEntry {
   version: string;
@@ -20,6 +20,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.021',
+    date: '2026-07-05',
+    title: 'Pods & boosters now fly — and save to .ork',
+    items: [
+      'Parallel boosters and pods are now part of the flight simulation. A strap-on booster adds its mass, drag and thrust, separates on its trigger, and flies (and lands) on its own tracked branch — using the real OpenRocket kernel, verified bit-identical to the desktop. A non-separating pod adds its mass and drag rigidly. This completes the pods feature: design it, see it off-axis in 2D/3D, and fly it.',
+      'Pods and boosters round-trip through .ork files (and open in OpenRocket desktop), so a strap-on design saves and reloads intact. Batch motor simulation is switched off while a separating booster is present, the same as for serial staging (the motor combinations explode).',
+    ],
+  },
   {
     version: '0.020',
     date: '2026-07-05',

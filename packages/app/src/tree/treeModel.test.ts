@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
-import { findNode, makeNode, motorMounts, normalizeTree, treeForEngine } from './treeModel.js';
+import { findNode, hasParallelStage, makeNode, motorMounts, normalizeTree } from './treeModel.js';
 import { allowedChildren, defaultParams, DISPLAY_NAME, FIELDS } from './schema.js';
 
 describe('off-axis assemblies (pods / parallel stages) — Phase 1 foundation', () => {
@@ -42,30 +42,22 @@ describe('off-axis assemblies (pods / parallel stages) — Phase 1 foundation', 
     expect(FIELDS.podset.some((f) => f.key === 'separationEvent')).toBe(false);
   });
 
-  it('treeForEngine strips assembly subtrees (temporary bridge guard)', () => {
-    const stripped = treeForEngine(withPod());
-    const types = (function walk(ns: ComponentNode[]): string[] {
-      return ns.flatMap((n) => [n.type, ...walk(n.children ?? [])]);
-    })(stripped.components);
-    expect(types).not.toContain('parallelstage');
-    expect(types).not.toContain('podset');
-    // The core rocket survives intact.
-    expect(types).toEqual(['stage', 'nosecone', 'bodytube', 'innertube']);
-  });
-
-  it('treeForEngine keeps pod-internal motor mounts out of motorMounts()', () => {
+  it('exposes pod-internal motor mounts to motorMounts() (pods now build in the engine)', () => {
     const full = withPod();
-    // Full tree exposes both mounts; the engine tree only the core one.
     expect(motorMounts(full).map((m) => m.id).sort()).toEqual(['c4', 'c7']);
-    expect(motorMounts(treeForEngine(full)).map((m) => m.id)).toEqual(['c4']);
   });
 
-  it('treeForEngine returns the SAME reference when there are no assemblies', () => {
-    const plain: RocketTree = {
-      name: 'x',
-      components: [{ type: 'stage', id: 's', children: [{ type: 'bodytube', id: 'b', length: 0.3 } as ComponentNode] } as ComponentNode],
+  it('hasParallelStage detects a nested booster (drives the batch-sim gate)', () => {
+    expect(hasParallelStage(withPod())).toBe(true);
+    const podOnly: RocketTree = {
+      name: 'p',
+      components: [{
+        type: 'stage', id: 's',
+        children: [{ type: 'bodytube', id: 'b', length: 0.3, children: [{ type: 'podset', id: 'pd' } as ComponentNode] } as ComponentNode],
+      } as ComponentNode],
     };
-    expect(treeForEngine(plain)).toBe(plain);
+    // A non-separating pod is NOT a parallel stage.
+    expect(hasParallelStage(podOnly)).toBe(false);
   });
 
   it('normalizeTree leaves a nested pod nested (top-level stage invariant holds)', () => {

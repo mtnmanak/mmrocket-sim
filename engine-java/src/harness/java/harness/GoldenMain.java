@@ -38,6 +38,105 @@ public final class GoldenMain {
         dualDeployScenarios();
         clusterScenarios();
         stagingScenarios();
+        podScenarios();
+    }
+
+    /**
+     * Off-axis assemblies (PodSet / ParallelStage) through the tree API — the
+     * newly-reachable ComponentAssemblyCalc / off-axis MassCalculation paths.
+     * A symmetric 2-pod ring keeps CG on-axis but gains transverse/roll inertia
+     * (parallel-axis term); a 1-instance pod shifts CG laterally (CM.y != 0);
+     * a separating ParallelStage must spawn an extra flight branch.
+     */
+    private static void podScenarios() {
+        // --- (A) Symmetric 2-pod set: on-axis CG, off-axis inertia ---
+        String podJson = "{\"name\":\"Pod\",\"components\":[{\"type\":\"stage\",\"name\":\"Core\",\"children\":["
+                + "{\"type\":\"nosecone\",\"length\":0.07,\"aftRadius\":0.012,\"thickness\":0.002},"
+                + "{\"type\":\"bodytube\",\"length\":0.30,\"outerRadius\":0.012,\"thickness\":0.0003,\"density\":950,\"children\":["
+                + "  {\"type\":\"podset\",\"id\":\"pod\",\"instanceCount\":2,\"radiusMethod\":\"relative\",\"radiusOffset\":0.005,"
+                + "   \"angleOffset\":0,\"position\":{\"method\":\"bottom\",\"offset\":0},\"children\":["
+                + "    {\"type\":\"bodytube\",\"length\":0.10,\"outerRadius\":0.008,\"thickness\":0.0003,\"density\":950,\"children\":["
+                + "      {\"type\":\"trapezoidfinset\",\"finCount\":3,\"rootChord\":0.03,\"tipChord\":0.02,\"sweep\":0.01,\"height\":0.02,\"thickness\":0.002}"
+                + "    ]}"
+                + "  ]}"
+                + "]}]}]}";
+        int r = api.OrkEngine.buildRocket(podJson);
+
+        info.openrocket.core.rocketcomponent.Rocket rocket =
+                (info.openrocket.core.rocketcomponent.Rocket) getRocketFromInfo(r);
+        info.openrocket.core.rocketcomponent.PodSet pod = null;
+        for (info.openrocket.core.rocketcomponent.RocketComponent comp : rocket) {
+            if (comp instanceof info.openrocket.core.rocketcomponent.PodSet) {
+                pod = (info.openrocket.core.rocketcomponent.PodSet) comp;
+            }
+        }
+        Coordinate[] offs = pod.getInstanceOffsets();
+        double[] geom = new double[2 + offs.length * 2];
+        geom[0] = pod.getInstanceCount();
+        geom[1] = pod.getAngleOffset();
+        for (int i = 0; i < offs.length; i++) {
+            geom[2 + i * 2] = offs[i].y;
+            geom[3 + i * 2] = offs[i].z;
+        }
+        line("pod.geometry", geom);
+        lineStaticInfo("pod.info", api.OrkEngine.getStaticInfo(r));
+        lineComponentInfo("pod.comp", api.OrkEngine.getComponentInfo(r, "pod"));
+
+        RigidBody podStruct = MassCalculator.calculateStructure(rocket.getSelectedConfiguration());
+        line("mass.pod.structure", podStruct.getMass(),
+                podStruct.getCM().x, podStruct.getCM().y, podStruct.getCM().z,
+                podStruct.getIxx(), podStruct.getIyy(), podStruct.getIzz(),
+                podStruct.getLongitudinalInertia(), podStruct.getRotationalInertia());
+
+        // --- (B) Asymmetric 1-instance pod: lateral CG shift (CM.y != 0) ---
+        int r1 = api.OrkEngine.buildRocket(podJson.replace("\"instanceCount\":2", "\"instanceCount\":1"));
+        RigidBody s1 = MassCalculator.calculateStructure(
+                ((info.openrocket.core.rocketcomponent.Rocket) getRocketFromInfo(r1)).getSelectedConfiguration());
+        line("mass.pod1.offaxis", s1.getMass(), s1.getCM().x, s1.getCM().y, s1.getCM().z,
+                s1.getIxx(), s1.getIyy(), s1.getIzz());
+
+        // --- (C) Separating ParallelStage booster -> extra flight branch ---
+        String boosterJson = "{\"name\":\"Booster\",\"components\":[{\"type\":\"stage\",\"name\":\"Core\",\"children\":["
+                + "{\"type\":\"nosecone\",\"length\":0.07,\"aftRadius\":0.012,\"thickness\":0.002},"
+                + "{\"type\":\"bodytube\",\"length\":0.30,\"outerRadius\":0.012,\"thickness\":0.0003,\"density\":950,\"children\":["
+                + "  {\"type\":\"trapezoidfinset\",\"finCount\":3,\"rootChord\":0.05,\"tipChord\":0.03,\"sweep\":0.02,\"height\":0.03,\"thickness\":0.003},"
+                + "  {\"type\":\"innertube\",\"id\":\"cmount\",\"length\":0.07,\"outerRadius\":0.0095,\"thickness\":0.0005,\"motorMount\":true,\"position\":{\"method\":\"bottom\",\"offset\":0}},"
+                + "  {\"type\":\"parachute\",\"diameter\":0.30},"
+                + "  {\"type\":\"parallelstage\",\"id\":\"boost\",\"instanceCount\":2,\"radiusMethod\":\"relative\",\"radiusOffset\":0,"
+                + "   \"angleOffset\":0,\"angleMethod\":\"relative\",\"separationEvent\":\"burnout\",\"separationDelay\":0,\"position\":{\"method\":\"bottom\",\"offset\":0},\"children\":["
+                + "    {\"type\":\"bodytube\",\"length\":0.12,\"outerRadius\":0.010,\"thickness\":0.0003,\"density\":950,\"children\":["
+                + "      {\"type\":\"trapezoidfinset\",\"finCount\":3,\"rootChord\":0.04,\"tipChord\":0.02,\"sweep\":0.02,\"height\":0.03,\"thickness\":0.003},"
+                + "      {\"type\":\"innertube\",\"id\":\"bmount\",\"length\":0.07,\"outerRadius\":0.0095,\"thickness\":0.0005,\"motorMount\":true,\"position\":{\"method\":\"bottom\",\"offset\":0}}"
+                + "    ]}"
+                + "  ]}"
+                + "]}]}]}";
+        int rb = api.OrkEngine.buildRocket(boosterJson);
+        double[] times = { 0, 0.1, 0.3, 0.5, 1.0, 1.5, 1.85, 2.0 };
+        double[] thrusts = { 0, 12.0, 6.0, 5.1, 4.9, 4.8, 4.5, 0 };
+        double[] masses = { 0.0240, 0.0231, 0.0215, 0.0202, 0.0174, 0.0147, 0.0133, 0.0132 };
+        api.OrkEngine.setMotorById(rb, "cmount", "C6", 0.018, 0.070, times, thrusts, masses, 0.035, 5.0);
+        api.OrkEngine.setMotorById(rb, "bmount", "C6", 0.018, 0.070, times, thrusts, masses, 0.035, 0.0);
+        lineStaticInfo("para.info", api.OrkEngine.getStaticInfo(rb));
+
+        // maxTime cap: turbulent-descent ULP row-count drift (same reasoning as
+        // conditions/staging). Assert branch COUNT + names EXACTLY; summary at tol.
+        String result = api.OrkEngine.simulateJson(rb, "{\"rodLength\":1.2,\"maxTime\":6}");
+        java.util.Map<String, Object> parsed = api.JsonLite.parseObject(result);
+        Object branchesObj = parsed.get("branches");
+        StringBuilder names = new StringBuilder("para.branches|");
+        if (branchesObj instanceof java.util.List) {
+            java.util.List<?> branches = (java.util.List<?>) branchesObj;
+            names.append(branches.size());
+            for (Object b : branches) names.append('|').append(asMap(b).get("name"));
+        } else {
+            names.append("MISSING");
+        }
+        System.out.println(names);
+        java.util.Map<String, Object> summary = asMap(parsed.get("summary"));
+        line("flight.para.summary",
+                api.JsonLite.dbl(summary, "maxAltitude", Double.NaN),
+                api.JsonLite.dbl(summary, "maxVelocity", Double.NaN),
+                api.JsonLite.dbl(summary, "timeToApogee", Double.NaN));
     }
 
     /**

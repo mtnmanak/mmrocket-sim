@@ -39,8 +39,8 @@ import { addRun, loadRuns } from './services/simStore.js';
 import { APP_VERSION } from './version.js';
 import {
   addChild, addStage, defaultTree, duplicateNode, emptyTree, findNode,
-  inheritDefaults, makeNode, motorMounts, moveNode, normalizeTree, removeNode,
-  stageIndexOf, stages, treeForEngine, updateAllNodes, updateNode,
+  hasParallelStage, inheritDefaults, makeNode, motorMounts, moveNode,
+  normalizeTree, removeNode, stageIndexOf, stages, updateAllNodes, updateNode,
 } from './tree/treeModel.js';
 import { clusterCount } from './tree/cluster.js';
 
@@ -197,14 +197,12 @@ export function App() {
   }, [undo]);
 
   // ---- engine build + static analysis on every tree change ----
-  // Pods Phase 1: off-axis assemblies aren't buildable by the JS bridge yet —
-  // strip them so the core rocket still builds/simulates (identity-stable when
-  // there are none). Mounts come from the stripped tree so pod-internal mounts
-  // aren't offered motors they can't fly yet.
-  const engineTree = useMemo(() => treeForEngine(tree), [tree]);
-  const mounts = useMemo(() => motorMounts(engineTree), [engineTree]);
+  const mounts = useMemo(() => motorMounts(tree), [tree]);
   const stageList = useMemo(() => stages(tree), [tree]);
-  const isStaged = stageList.length > 1;
+  // "Staged" for the batch-sim gate: a serial stage OR a separating parallel
+  // booster — both make the flight multi-branch (batch across them explodes
+  // combinatorially, per the owner's rule). A non-separating pod alone is fine.
+  const isStaged = stageList.length > 1 || hasParallelStage(tree);
   // Assigned motors on mounts that still exist in the tree.
   const assigned = useMemo(
     () => Object.entries(mountMotors).filter(([id]) => mounts.some((m) => m.id === id)),
@@ -223,7 +221,7 @@ export function App() {
   const buildResult = useMemo((): { rocket: OrkRocket; info: StaticInfo } | { error: string } => {
     try {
       resetEngine();
-      const rocket = OrkRocket.buildTree(engineTree);
+      const rocket = OrkRocket.buildTree(tree);
       for (const [id, mm] of assigned) {
         rocket.setMotorById(id, mm.spec);
         if (mm.ignition.event !== 'automatic' || mm.ignition.delay !== 0) {
@@ -235,7 +233,7 @@ export function App() {
     } catch (e) {
       return { error: e instanceof Error ? e.message : String(e) };
     }
-  }, [engineTree, assigned]);
+  }, [tree, assigned]);
   const built = 'error' in buildResult ? null : buildResult;
   const buildError = 'error' in buildResult ? buildResult.error : simError;
 

@@ -197,8 +197,12 @@ public final class OrkEngine {
         return register(ctx);
     }
 
-    /** Per-stage separation trigger/delay (defaults preserved when absent). */
-    private static void applySeparationConfig(AxialStage stage, Map<String, Object> stageNode) {
+    /**
+     * Per-stage separation trigger/delay (defaults preserved when absent).
+     * Package-private so ComponentFactory can reuse it for a parallelstage
+     * (ParallelStage IS an AxialStage) — no duplication.
+     */
+    static void applySeparationConfig(AxialStage stage, Map<String, Object> stageNode) {
         String event = JsonLite.str(stageNode, "separationEvent", null);
         double delay = JsonLite.dbl(stageNode, "separationDelay", Double.NaN);
         double altitude = JsonLite.dbl(stageNode, "separationAltitude", Double.NaN);

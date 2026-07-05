@@ -318,6 +318,42 @@ export function importOrk(data: ArrayBuffer | string): OrkTreeImportResult {
         n['radius'] = num(el, 'packedradius', 0.005);
         return n;
       }
+      case 'podset':
+      case 'parallelstage':
+      case 'boosterset': {
+        // <boosterset> is the legacy alias for <parallelstage>. The nested
+        // nose/body/fin chain imports via convertChildren (the caller recurses).
+        const asmType: ComponentType = tag === 'podset' ? 'podset' : 'parallelstage';
+        const n = base(asmType, true); // name + overrides + axialoffset/position
+        n['instanceCount'] = Math.round(num(el, 'instancecount', 2));
+        const radEl = el.querySelector(':scope > radiusoffset');
+        if (radEl) {
+          const rv = Number(radEl.textContent?.trim());
+          n['radiusOffset'] = Number.isFinite(rv) ? rv : 0; // metres, no conversion
+          n['radiusMethod'] = (radEl.getAttribute('method') ?? 'relative').toLowerCase() === 'free'
+            ? 'free' : 'relative';
+        }
+        const angEl = el.querySelector(':scope > angleoffset');
+        if (angEl) {
+          const av = Number(angEl.textContent?.trim());
+          n['angleOffset'] = (Number.isFinite(av) ? av : 0) * Math.PI / 180; // deg → rad, like cant
+          if (asmType === 'parallelstage') {
+            n['angleMethod'] = (angEl.getAttribute('method') ?? 'relative').toLowerCase() === 'fixed'
+              ? 'fixed' : 'relative';
+          }
+        }
+        if (asmType === 'parallelstage') {
+          // Same separation read as a booster <stage> — per-config wins over bare.
+          const sepEl = el.querySelector(':scope > separationconfiguration') ?? el;
+          const ev = text(sepEl, ':scope > separationevent');
+          if (ev && ev !== 'ejection') n['separationEvent'] = ev;
+          const delay = num(sepEl, 'separationdelay', 0);
+          if (delay !== 0) n['separationDelay'] = delay;
+          const alt = num(sepEl, 'separationaltitude', NaN);
+          if (!Number.isNaN(alt) && alt !== 200) n['separationAltitude'] = alt;
+        }
+        return n;
+      }
       default:
         return null;
     }
@@ -844,6 +880,37 @@ export function exportOrk({ name, tree, motors, motor, mountId }: OrkTreeExportI
         emit(depth + 1, `<mass>${n(node, 'mass', 0.01)}</mass>`);
         emit(depth + 1, '<masscomponenttype>masscomponent</masscomponenttype>');
         close('masscomponent');
+        break;
+      }
+      case 'podset':
+      case 'parallelstage': {
+        open(t);
+        header(depth + 1, node, t === 'podset' ? 'Pod set' : 'Booster');
+        // ComponentAssembly: NO <color>/<linestyle>/<radialdirection> — the
+        // desktop savers suppress all three for assemblies.
+        emit(depth + 1, `<instancecount>${n(node, 'instanceCount', 2)}</instancecount>`);
+        const rMethod = node['radiusMethod'] === 'free' ? 'free' : 'relative';
+        emit(depth + 1, `<radiusoffset method="${rMethod}">${n(node, 'radiusOffset', 0)}</radiusoffset>`); // metres
+        const aMethod = node['angleMethod'] === 'fixed' ? 'fixed' : 'relative';
+        // angleOffset is stored in radians → DEGREES on disk (same as cant).
+        emit(depth + 1, `<angleoffset method="${aMethod}">${(n(node, 'angleOffset', 0) * 180) / Math.PI}</angleoffset>`);
+        position(depth + 1, node, 'bottom');
+        if (t === 'parallelstage') {
+          // Same separation block a booster <stage> writes (bare default + config).
+          const ev = typeof node['separationEvent'] === 'string' ? (node['separationEvent'] as string) : 'ejection';
+          const delay = typeof node['separationDelay'] === 'number' ? (node['separationDelay'] as number) : 0;
+          const alt = typeof node['separationAltitude'] === 'number' ? (node['separationAltitude'] as number) : 200;
+          const sep = (d: number) => {
+            emit(d, `<separationevent>${escapeXml(ev)}</separationevent>`);
+            emit(d, `<separationaltitude>${alt}</separationaltitude>`);
+            emit(d, `<separationdelay>${delay}</separationdelay>`);
+          };
+          sep(depth + 1);
+          emit(depth + 1, `<separationconfiguration configid="${configId}">`);
+          sep(depth + 2);
+          emit(depth + 1, '</separationconfiguration>');
+        }
+        close(t);
         break;
       }
     }
