@@ -9,7 +9,7 @@
  * push.
  */
 
-export const APP_VERSION = '0.016';
+export const APP_VERSION = '0.017';
 
 export interface ChangelogEntry {
   version: string;
@@ -20,6 +20,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.017',
+    date: '2026-07-05',
+    title: 'Fix: CG/CP markers now visible in the 3D view',
+    items: [
+      'The center-of-gravity and center-of-pressure spheres in the 3D view sit on the rocket\'s axis — inside the body tube — so they were hidden by the opaque shell. They now render on top (like the 2D markers), are a bit larger, and the CG sphere uses a visible neutral color instead of near-black. You can once again see the stability margin in space.',
+    ],
+  },
   {
     version: '0.016',
     date: '2026-07-04',

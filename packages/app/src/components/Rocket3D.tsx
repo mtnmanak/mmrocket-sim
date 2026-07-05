@@ -207,7 +207,7 @@ export function Rocket3D({ tree, info }: { tree: RocketTree; info: StaticInfo | 
   }, [pieces]);
   const center = totalLen / 2;
   const camDist = Math.max(totalLen * 1.1, maxR * 6, 0.25);
-  const markerR = Math.max(totalLen * 0.012, maxR * 0.25);
+  const markerR = Math.max(totalLen * 0.015, maxR * 0.35);
 
   return (
     <div style={{ height: 300 }}>
@@ -223,23 +223,26 @@ export function Rocket3D({ tree, info }: { tree: RocketTree; info: StaticInfo | 
               <meshStandardMaterial color={p.color} roughness={0.6} metalness={0.05} />
             </mesh>
           ))}
-          {info && (
-            <>
-              <mesh position={[info.cg, 0, 0]}>
-                <sphereGeometry args={[markerR, 24, 24]} />
-                <meshStandardMaterial color="#0b0b0b" />
-              </mesh>
-              <mesh position={[info.cp, 0, 0]}>
-                <sphereGeometry args={[markerR, 24, 24]} />
-                <meshStandardMaterial color="#e34948" />
-              </mesh>
-            </>
+          {/* CG/CP sit on the rocket axis — inside the shell — so they must
+              render ON TOP (depthTest off, high renderOrder) to be visible,
+              exactly like the 2D markers. Otherwise the opaque body hides them. */}
+          {info && Number.isFinite(info.cg) && (
+            <mesh position={[info.cg, 0, 0]} renderOrder={10}>
+              <sphereGeometry args={[markerR, 24, 24]} />
+              <meshStandardMaterial color="#e9edf1" emissive="#8891a0" depthTest={false} />
+            </mesh>
+          )}
+          {info && Number.isFinite(info.cp) && (
+            <mesh position={[info.cp, 0, 0]} renderOrder={11}>
+              <sphereGeometry args={[markerR, 24, 24]} />
+              <meshStandardMaterial color="#e34948" emissive="#5a1010" depthTest={false} />
+            </mesh>
           )}
         </group>
         <OrbitControls target={[center, 0, 0]} enableDamping dampingFactor={0.1} />
       </Canvas>
       <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '4px 0 0', textAlign: 'center' }}>
-        drag to rotate · scroll to zoom · <span style={{ color: 'var(--text-primary)' }}>●</span> CG ·{' '}
+        drag to rotate · scroll to zoom · <span style={{ color: '#aab2bd' }}>●</span> CG ·{' '}
         <span style={{ color: '#e34948' }}>●</span> CP
       </p>
     </div>
