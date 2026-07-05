@@ -112,7 +112,8 @@ export type ComponentType =
 /**
  * Stage separation trigger (lower stages only; desktop default "ejection").
  * On a `stage` node: `separationEvent`, `separationDelay` (s),
- * `separationAltitude` (m, for the altitude events).
+ * `separationAltitude` (m, for the altitude events), and `nozzleExitDiameter`
+ * (m; RASAero power-on base-drag reduction, 0/absent = power-off, all stages).
  */
 export type SeparationEvent =
   | 'launch' | 'ignition' | 'burnout' | 'ejection' | 'upperignition'

@@ -203,6 +203,14 @@ public final class OrkEngine {
      * (ParallelStage IS an AxialStage) — no duplication.
      */
     static void applySeparationConfig(AxialStage stage, Map<String, Object> stageNode) {
+        // RASAero power-on base-drag: per-stage nozzle exit diameter (metres).
+        // Applies to every stage (incl. the sustainer), so read it before the
+        // separation-only early return below. Absent/0 => power-off (no effect).
+        double nozzleExitDiameter = JsonLite.dbl(stageNode, "nozzleExitDiameter", Double.NaN);
+        if (!Double.isNaN(nozzleExitDiameter)) {
+            stage.setNozzleExitDiameter(nozzleExitDiameter);
+        }
+
         String event = JsonLite.str(stageNode, "separationEvent", null);
         double delay = JsonLite.dbl(stageNode, "separationDelay", Double.NaN);
         double altitude = JsonLite.dbl(stageNode, "separationAltitude", Double.NaN);

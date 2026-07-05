@@ -39,6 +39,52 @@ public final class GoldenMain {
         clusterScenarios();
         stagingScenarios();
         podScenarios();
+        nozzleBaseDragScenarios();
+    }
+
+    /**
+     * RASAero power-on base-drag reduction (feature #2). The reference rocket's
+     * body tube has an exposed aft base; setting a stage nozzle exit diameter
+     * must LOWER the base CD (and total CD) while that stage's motor is thrusting
+     * (power-on), and leave it unchanged during coast (power-off). Power-off must
+     * exactly equal the no-nozzle base CD. Both JVM and JS run the patched
+     * calculator, so the values must match bit-for-bit.
+     */
+    private static void nozzleBaseDragScenarios() {
+        Rocket rocket = buildReferenceRocket();
+        AxialStage stage = (AxialStage) rocket.getChild(0);
+        // 16 mm nozzle vs the 24 mm body base diameter — a large-nozzle case.
+        stage.setNozzleExitDiameter(0.016);
+        FlightConfiguration config = rocket.getSelectedConfiguration();
+        info.openrocket.core.aerodynamics.BarrowmanCalculator calc =
+                new info.openrocket.core.aerodynamics.BarrowmanCalculator();
+        info.openrocket.core.logging.WarningSet w =
+                new info.openrocket.core.logging.WarningSet();
+
+        double[] machs = { 0.3, 0.9, 1.5 };
+        for (double mach : machs) {
+            // Power-off (coast): no thrusting stages.
+            info.openrocket.core.aerodynamics.FlightConditions off =
+                    new info.openrocket.core.aerodynamics.FlightConditions(config);
+            off.setMach(mach);
+            off.setAOA(0);
+            info.openrocket.core.aerodynamics.AerodynamicForces fOff =
+                    calc.getAerodynamicForces(config, off, w);
+
+            // Power-on (boost): stage 0's motor thrusting.
+            info.openrocket.core.aerodynamics.FlightConditions on =
+                    new info.openrocket.core.aerodynamics.FlightConditions(config);
+            on.setMach(mach);
+            on.setAOA(0);
+            java.util.Set<Integer> thrusting = new java.util.HashSet<>();
+            thrusting.add(0);
+            on.setThrustingStages(thrusting);
+            info.openrocket.core.aerodynamics.AerodynamicForces fOn =
+                    calc.getAerodynamicForces(config, on, w);
+
+            line("nozzle.basecd." + mach,
+                    fOff.getBaseCD(), fOn.getBaseCD(), fOff.getCD(), fOn.getCD());
+        }
     }
 
     /**

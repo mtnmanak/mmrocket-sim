@@ -178,6 +178,10 @@ export const FIELDS: Record<ComponentType, FieldDef[]> = {
   stage: [
     { key: 'separationEvent', label: 'Separate at (lower stages)', unit: 'none', options: SEPARATION_EVENTS },
     { key: 'separationDelay', label: 'Separation delay', unit: 's', step: 0.5, smin: 0, smax: 10 },
+    // RASAero power-on drag: motor exhaust pressurizes the base during burn,
+    // lowering base drag. 0 (default) = power-on CD equals power-off CD. For a
+    // cluster, enter the single equivalent nozzle (sum the exit AREAS).
+    lenMM('nozzleExitDiameter', 'Nozzle exit diameter (0 = power-off drag)', 1, 200),
   ],
   nosecone: [
     lenMM('length', 'Length'),

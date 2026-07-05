@@ -78,10 +78,47 @@ git diff --no-index <openrocket-src>/<path> patches/<path>
 - **Upstreamable:** arguably — upstream simulations are nondeterministic at the
   ULP level run-to-run because of this.
 
+## Feature patches (documented physics extension — RASAero gap features)
+
+These add capability OpenRocket lacks. Each is designed to be **default-off**: with
+its new input at its zero default, every drag value is bit-identical to upstream, so
+all pre-existing goldens/differential lines are unaffected. New behavior appears only
+when a design opts in.
+
+### RASAero feature #2 — power-on vs power-off base drag (nozzle-exit plume model)
+
+RASAero computes a distinct power-on drag coefficient: during motor burn the exhaust
+plume pressurizes the base area over the nozzle-exit footprint, recovering that area's
+base pressure and lowering base drag (nozzle exit dia = 0 → power-on CD = power-off CD).
+OpenRocket's `calculateBaseCD` is Mach-only with no thrust/nozzle term. Model chosen
+(no published formula exists): **power-on base area = max(0, baseArea − nozzleExitArea)**
+while the owning stage's motor thrusts — the literal geometric mechanism the RASAero
+Manual and Rogers & Cooper (2011) describe. Reproduces the exact ARCAS power-off↔power-on
+CD split (constant ~0.017 at low Mach). Supersonic large-nozzle *augmentation* (beyond
+neutralizing base drag) is deferred to feature #1. Four files:
+
+- **rocketcomponent/AxialStage.java** — add `double nozzleExitDiameter` (metres, default
+  0) + getter/setter. Primitive, so `copyWithOriginalID`'s clone copies it; no other change.
+- **aerodynamics/FlightConditions.java** — add `Set<Integer> thrustingStages` (empty =
+  coast) + getter/setter/`isStageThrusting(int)`; deep-copied in `clone()`. Excluded from
+  `equals()/hashCode()` (transient force-model input, not a defining condition).
+- **simulation/AbstractSimulationStepper.java** — in `calculateFlightConditions`, populate
+  `thrustingStages` from `status.getActiveMotors()` (thrust > 0 → add mount's stage number),
+  mirroring `RK4SimulationStepper.calculateThrust`. Applied on all exit paths.
+- **aerodynamics/BarrowmanCalculator.java** — in the instance `calculateBaseCD` aft-base
+  block, subtract the owning stage's nozzle-exit area from the base area when that stage
+  `isStageThrusting`. (This file already carried a TeaVM reflection patch — see below.)
+- Bridge (not a patch): `api/OrkEngine.applySeparationConfig` reads `nozzleExitDiameter`
+  off the stage node and calls the setter. App side: `<nozzleexitdiameter>` in `.ork`
+  (metres) + a per-stage schema field.
+- **Guard:** default 0 keeps all goldens bit-identical; the `nozzle.basecd.*` golden
+  scenario exercises the power-on path (power-off must equal the no-nozzle base CD, power-on
+  must be strictly lower). Run difftest AND engine vitest after rebuild.
+
 ## Rules
 
 1. A patch NEVER changes physics or observable behavior (except documented quirks-ledger
-   bug fixes, which get their own section here with upstream issue links).
+   bug fixes and the documented FEATURE patches above, which get their own section here).
 2. Prefer shims over patches; patch only when the carved file itself must change.
 3. On upstream upgrade: re-diff every patched file against its new upstream version and
    re-apply the minimal change.

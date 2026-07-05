@@ -858,6 +858,21 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 			// base CD
 			if (nextRadius < aftRadius) {
 				double area = Math.PI * (pow2(aftRadius) - pow2(nextRadius));
+
+				// PATCH (RASAero power-on base drag, see engine-java/patches/LEDGER.md):
+				// while this component's stage motor is thrusting, the exhaust plume
+				// pressurizes the base over the nozzle-exit footprint, removing that
+				// area's base drag (base-pressure recovery). nozzleExitDiameter
+				// defaults to 0 (no effect), so power-off flight and every existing
+				// golden stay bit-identical. The supersonic large-nozzle extension
+				// (thrust augmentation beyond the base area) is deferred to feature #1.
+				AxialStage stage = s.getStage();
+				double nozzleDia = (stage != null) ? stage.getNozzleExitDiameter() : 0.0;
+				if (nozzleDia > 0.0 && stage != null && conditions.isStageThrusting(stage.getStageNumber())) {
+					double nozzleArea = Math.PI * pow2(nozzleDia / 2.0);
+					area = Math.max(0.0, area - nozzleArea);
+				}
+
 				double cd = base * area / conditions.getRefArea();
 				total += instanceCount * cd;
 				if (forceMap != null) {

@@ -321,3 +321,47 @@ describe('.ork pods / parallel stages round-trip (Phase 5)', () => {
     expect(flatten(back.tree.components).some((c) => c.type === 'parallelstage')).toBe(true);
   });
 });
+
+describe('.ork nozzle exit diameter round-trip (RASAero power-on drag, #2)', () => {
+  const tree = {
+    name: 'Nozzle',
+    components: [
+      {
+        type: 'stage' as const, id: 's0', name: 'Sustainer', nozzleExitDiameter: 0.016,
+        children: [
+          { type: 'nosecone' as const, length: 0.07, aftRadius: 0.012, thickness: 0.002 },
+          { type: 'bodytube' as const, id: 'b', length: 0.3, outerRadius: 0.012, thickness: 0.0005 },
+        ],
+      },
+      {
+        type: 'stage' as const, id: 's1', name: 'Booster', nozzleExitDiameter: 0.038,
+        separationEvent: 'burnout',
+        children: [{ type: 'bodytube' as const, length: 0.2, outerRadius: 0.012, thickness: 0.0005 }],
+      },
+    ],
+  };
+
+  it('writes <nozzleexitdiameter> in metres for every stage that sets it', () => {
+    const xml = exportOrk({ name: 'Nozzle', tree });
+    expect(xml).toContain('<nozzleexitdiameter>0.016</nozzleexitdiameter>');
+    expect(xml).toContain('<nozzleexitdiameter>0.038</nozzleexitdiameter>');
+  });
+
+  it('omits the element when the value is absent or zero (plain designs stay clean)', () => {
+    const plain = {
+      name: 'Plain',
+      components: [{
+        type: 'stage' as const, name: 'Sustainer',
+        children: [{ type: 'bodytube' as const, length: 0.3, outerRadius: 0.012, thickness: 0.0005 }],
+      }],
+    };
+    expect(exportOrk({ name: 'Plain', tree: plain })).not.toContain('nozzleexitdiameter');
+  });
+
+  it('round-trips the per-stage value (import → export → import)', () => {
+    const back = importOrk(exportOrk({ name: 'Nozzle', tree }));
+    const stages = back.tree.components.filter((c) => c.type === 'stage');
+    expect(stages[0]!['nozzleExitDiameter']).toBeCloseTo(0.016, 9);
+    expect(stages[1]!['nozzleExitDiameter']).toBeCloseTo(0.038, 9);
+  });
+});

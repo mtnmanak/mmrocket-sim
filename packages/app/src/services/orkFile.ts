@@ -384,6 +384,9 @@ export function importOrk(data: ArrayBuffer | string): OrkTreeImportResult {
       id: freshId(),
       name: text(stageEl, ':scope > name') ?? (i === 0 ? 'Sustainer' : `Booster ${i}`),
     };
+    // RASAero power-on base-drag input (metres) — every stage, incl. sustainer.
+    const nozzle = num(stageEl, 'nozzleexitdiameter', NaN);
+    if (!Number.isNaN(nozzle) && nozzle > 0) stage['nozzleExitDiameter'] = nozzle;
     if (i > 0) {
       // Like ignition: the per-config block overrides the bare defaults
       // (desktop writes defaults bare, overrides in <separationconfiguration>).
@@ -939,6 +942,12 @@ export function exportOrk({ name, tree, motors, motor, mountId }: OrkTreeExportI
     emit(3, '<stage>');
     emit(4, `<name>${escapeXml(st.name ?? (i === 0 ? 'Sustainer' : `Booster ${i}`))}</name>`);
     emit(4, `<id>${uuid()}</id>`);
+    // RASAero power-on base-drag input (metres, no conversion). Non-standard
+    // element (OpenRocket desktop ignores it); only emitted when set > 0 so a
+    // plain design round-trips exactly. Applies to every stage incl. sustainer.
+    if (typeof st['nozzleExitDiameter'] === 'number' && (st['nozzleExitDiameter'] as number) > 0) {
+      emit(4, `<nozzleexitdiameter>${st['nozzleExitDiameter']}</nozzleexitdiameter>`);
+    }
     if (i > 0) {
       // Separation (lower stages only) — desktop writes the DEFAULT params
       // bare, then a per-config block (AxialStageSaver).
