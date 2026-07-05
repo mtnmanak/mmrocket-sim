@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { ComponentNode, ComponentType, RocketTree } from '@online-openrocket/engine';
 import { allowedChildren, DISPLAY_NAME } from '../tree/schema.js';
+import { findParent, stageIndexOf } from '../tree/treeModel.js';
 
 const TYPE_ICON: Partial<Record<ComponentType, string>> = {
   stage: '▤',
@@ -60,8 +61,8 @@ export function ComponentTree({ tree, selectedId, onSelect, onMove, onDelete, on
   /** Appends a booster stage below the existing ones. */
   onAddStage: () => void;
 }) {
-  // Which add menu is open: the selected component's, or the rocket's.
-  const [addOpen, setAddOpen] = useState<'selected' | 'rocket' | null>(null);
+  // Which add menu is open, keyed by the target parent's id ('stage' = first stage).
+  const [addOpen, setAddOpen] = useState<string | null>(null);
 
   const selectedNode = selectedId
     ? (function find(nodes: ComponentNode[]): ComponentNode | null {
@@ -73,11 +74,45 @@ export function ComponentTree({ tree, selectedId, onSelect, onMove, onDelete, on
         return null;
       })(tree.components)
     : null;
-  const selType: ComponentType | 'stage' = selectedNode?.type ?? 'stage';
-  const selAddable = selectedNode ? allowedChildren(selType) : [];
-  const rocketAddable = allowedChildren('stage');
-  const selLabel = selectedNode?.name
-    ?? (selType !== 'stage' ? DISPLAY_NAME[selType as ComponentType] : '');
+
+  /**
+   * Every place the current selection can add INTO: the selected component
+   * itself (when it holds children), its immediate parent, and its enclosing
+   * stage — e.g. a selected nose cone offers "Add to Nose cone" AND
+   * "Add to Sustainer".
+   */
+  interface AddTarget { id: string | 'stage'; label: string; types: ComponentType[] }
+  const targets: AddTarget[] = [];
+  if (selectedNode) {
+    const selAddable = allowedChildren(selectedNode.type);
+    if (selAddable.length > 0) {
+      targets.push({
+        id: selectedNode.id!,
+        label: selectedNode.name ?? DISPLAY_NAME[selectedNode.type],
+        types: selAddable,
+      });
+    }
+    if (selectedNode.type !== 'stage') {
+      const parent = findParent(tree, selectedNode.id!);
+      if (parent && parent !== 'stage' && parent.type !== 'stage' && parent.id) {
+        targets.push({
+          id: parent.id,
+          label: parent.name ?? DISPLAY_NAME[parent.type],
+          types: allowedChildren(parent.type),
+        });
+      }
+      const stage = tree.components[stageIndexOf(tree, selectedNode.id!)];
+      if (stage?.id) {
+        targets.push({
+          id: stage.id,
+          label: stage.name ?? 'Stage',
+          types: allowedChildren('stage'),
+        });
+      }
+    }
+  } else {
+    targets.push({ id: 'stage', label: '', types: allowedChildren('stage') });
+  }
 
   const menu = (list: ComponentType[], parentId: string | 'stage') => (
     <div className="add-menu">
@@ -107,25 +142,21 @@ export function ComponentTree({ tree, selectedId, onSelect, onMove, onDelete, on
       </div>
 
       <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-        {selAddable.length > 0 && (
-          <button className="file-btn"
-            onClick={() => setAddOpen(addOpen === 'selected' ? null : 'selected')}>
-            + Add to {selLabel}
+        {targets.map((t) => (
+          <button key={t.id} className="file-btn"
+            onClick={() => setAddOpen(addOpen === t.id ? null : t.id)}>
+            {t.label ? `+ Add to ${t.label}` : '+ Add component'}
           </button>
-        )}
-        {(selAddable.length === 0 || selectedNode?.type === 'stage') && (
-          <button className="file-btn"
-            onClick={() => setAddOpen(addOpen === 'rocket' ? null : 'rocket')}>
-            + Add component
-          </button>
-        )}
+        ))}
         <button className="file-btn" title="Add a booster stage below the current ones"
           onClick={() => { setAddOpen(null); onAddStage(); }}>
           + Add stage
         </button>
       </div>
-      {addOpen === 'selected' && selectedNode && menu(selAddable, selectedNode.id!)}
-      {addOpen === 'rocket' && menu(rocketAddable, 'stage')}
+      {(() => {
+        const open = targets.find((t) => t.id === addOpen);
+        return open ? menu(open.types, open.id) : null;
+      })()}
     </div>
   );
 }

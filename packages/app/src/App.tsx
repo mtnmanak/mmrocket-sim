@@ -61,6 +61,22 @@ import './styles.css';
 const GENERIC_ROCKET_NAMES = new Set(['rocket', 'new rocket', 'imported rocket', 'my rocket']);
 
 /**
+ * mountainmanrockets.com site menu — the app embeds in the site and should
+ * feel like one of its pages. target="_top" makes clicks navigate the WHOLE
+ * tab (escaping the WordPress iframe), never a nested frame.
+ */
+const SITE_MENU: { label: string; url: string }[] = [
+  { label: 'Home', url: 'https://www.mountainmanrockets.com/' },
+  { label: 'Builds', url: 'https://www.mountainmanrockets.com/index.php/builds/' },
+  { label: 'HPR Primer', url: 'https://www.mountainmanrockets.com/index.php/hpr-primer/' },
+  { label: 'Tools and Tips', url: 'https://www.mountainmanrockets.com/index.php/tools_tech/' },
+  { label: 'Online Tools', url: 'https://www.mountainmanrockets.com/online_tools/' },
+  { label: 'Gallery', url: 'https://www.mountainmanrockets.com/index.php/gallery/' },
+  { label: 'Videos', url: 'https://www.mountainmanrockets.com/index.php/videos/' },
+  { label: 'Links', url: 'https://www.mountainmanrockets.com/index.php/links/' },
+];
+
+/**
  * Pre-v0.005 the max-motor-length input lived in the motor browser's filters
  * — seed the rocket-level value from there so nobody has to re-enter it.
  */
@@ -399,6 +415,15 @@ export function App() {
     }
   };
 
+  // Loaded motor dimensions per mount — the 2D schematic draws each motor
+  // to scale inside its mount tube (the owner's request: real case length).
+  const motorDims = useMemo(
+    () => Object.fromEntries(assigned.map(([id, mm]) => [
+      id, { length: mm.spec.length, diameter: mm.spec.diameter },
+    ])),
+    [assigned],
+  );
+
   const selectedNode = selectedId ? findNode(tree, selectedId) : null;
   // Per-component static info (mass covers ALL fins of a set, per OpenRocket).
   const selectedInfo = useMemo(() => {
@@ -420,6 +445,11 @@ export function App() {
 
   return (
     <div className="viz-root" data-theme={resolvedTheme}>
+      <nav className="site-nav" aria-label="Mountain Man Rockets site menu">
+        {SITE_MENU.map((item) => (
+          <a key={item.url} href={item.url} target="_top">{item.label}</a>
+        ))}
+      </nav>
       <header className="app-header">
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
           <h1>🚀 Online OpenRocket</h1>
@@ -787,6 +817,7 @@ export function App() {
                 <TreeSchematic
                   tree={tree}
                   info={built?.info ?? null}
+                  motors={motorDims}
                   onPatchNode={(id, patch) => setTree(updateNode(tree, id, patch))}
                 />
               )

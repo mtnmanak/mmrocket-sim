@@ -9,7 +9,7 @@
  * push.
  */
 
-export const APP_VERSION = '0.013';
+export const APP_VERSION = '0.014';
 
 export interface ChangelogEntry {
   version: string;
@@ -20,6 +20,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.014',
+    date: '2026-07-04',
+    title: 'Issue batch 2026-07-04a — add-to-parent, site menu, motors drawn to scale',
+    items: [
+      'Adding components: selecting a component now offers every sensible target — the component itself (when it can hold children), its parent tube, and its stage. Click the nose cone and you get both "Add to Nose cone" and "Add to Sustainer".',
+      'Mountain Man Rockets site menu across the top (Home, Builds, HPR Primer, Tools and Tips, Online Tools, Gallery, Videos, Links) — links open in the same tab, escaping the page embed, so the app feels like part of the site.',
+      'Loaded motors are drawn in the 2D rocket view: a brownish silhouette at the motor\'s REAL case length and diameter, seated flush against the mount\'s aft end — every mount, clusters included.',
+    ],
+  },
   {
     version: '0.013',
     date: '2026-07-04',

@@ -51,9 +51,11 @@ interface DragState {
   clientScale: number;
 }
 
-export function TreeSchematic({ tree, info, onPatchNode }: {
+export function TreeSchematic({ tree, info, motors, onPatchNode }: {
   tree: RocketTree;
   info: StaticInfo | null;
+  /** Loaded motor case dimensions (m) keyed by mount node id — drawn to scale. */
+  motors?: Record<string, { length: number; diameter: number }>;
   onPatchNode?: (id: string, patch: Partial<ComponentNode>) => void;
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
@@ -268,6 +270,9 @@ export function TreeSchematic({ tree, info, onPatchNode }: {
             num(child, 'clusterRotation', 0),
           )
           : [{ y: 0, z: 0 }];
+        // Loaded motor: a brownish silhouette at the REAL case size, seated
+        // flush against the mount's aft end (how motors actually load).
+        const motor = child.type === 'innertube' && child.id ? motors?.[child.id] : undefined;
         for (const off of offsets) {
           shapes.push(
             <rect key={key++} x={ctx.x0 + start * ctx.scale}
@@ -276,6 +281,18 @@ export function TreeSchematic({ tree, info, onPatchNode }: {
               fill="rgba(127,127,127,0.001)" stroke={fillOf(child, '#9a978f')} strokeWidth="1"
               strokeDasharray="3 2" {...grab} />,
           );
+          if (motor) {
+            const mR = motor.diameter / 2;
+            const mStart = start + len - motor.length;
+            shapes.push(
+              <rect key={key++} x={ctx.x0 + mStart * ctx.scale}
+                y={ctx.cy + (off.y - mR) * ctx.scale}
+                width={Math.max(2, motor.length * ctx.scale)} height={Math.max(2, 2 * mR * ctx.scale)}
+                rx="1" fill="#8b5a2b" fillOpacity="0.45"
+                stroke="#6b4520" strokeWidth="0.8"
+                style={{ pointerEvents: 'none' }} />,
+            );
+          }
         }
         renderChildren(child, start, len, r);
       }
