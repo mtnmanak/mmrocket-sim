@@ -9,7 +9,7 @@
  * push.
  */
 
-export const APP_VERSION = '0.017';
+export const APP_VERSION = '0.018';
 
 export interface ChangelogEntry {
   version: string;
@@ -20,6 +20,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.018',
+    date: '2026-07-05',
+    title: 'Motor mount sizes shown at a glance',
+    items: [
+      'The Rocket panel now shows each motor mount\'s size (the nominal motor diameter it accepts — 24/29/38/54/75-76 mm, etc.), labeled by stage and with the cluster count. No more clicking into the mount tube in the component tree just to recall what the rocket takes.',
+      'The same size is shown next to each mount in the Motors panel, right where you pick a motor.',
+    ],
+  },
   {
     version: '0.017',
     date: '2026-07-05',

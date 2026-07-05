@@ -27,7 +27,7 @@ import { PreferencesDialog } from './components/PreferencesDialog.js';
 import { usePrefs } from './prefs/PrefsContext.js';
 import { UnitChip } from './components/UnitChip.js';
 import { niceStep, siToUi, uiToSi } from './prefs/units.js';
-import { displayDesignation, findDbMotor, isHighPower } from './services/motorDb.js';
+import { classLabel, diameterClass, displayDesignation, findDbMotor, isHighPower } from './services/motorDb.js';
 import { delayOptions, fetchMotorSpec } from './services/thrustcurve.js';
 import { exportOrk, importOrk, type OrkExportMotor } from './services/orkFile.js';
 import { exportRkt, importRkt } from './services/rocksimFile.js';
@@ -459,6 +459,20 @@ export function App() {
   const primaryMotorCount = clusterCount(primaryMountNode?.['cluster'] as string | undefined);
   const primaryLabel = primaryMountId ? mountMotors[primaryMountId]?.label : undefined;
 
+  // Motor-mount sizes (nominal motor diameter each mount accepts), per stage —
+  // surfaced in the Rocket panel and Motors panel so the flyer never has to
+  // open the mount tube in the tree to recall what the rocket takes.
+  const mountSizes = useMemo(() => mounts.map((m) => {
+    const node = findNode(tree, m.id!);
+    const stIdx = stageIndexOf(tree, m.id!);
+    return {
+      id: m.id!,
+      size: classLabel(diameterClass(mountDiaMm(node))),
+      stage: stageList[stIdx]?.name ?? `Stage ${stIdx + 1}`,
+      count: clusterCount(node?.['cluster'] as string | undefined),
+    };
+  }), [mounts, tree, stageList]);
+
   return (
     <div className="viz-root" data-theme={resolvedTheme}>
       <nav className="site-nav" aria-label="Mountain Man Rockets site menu">
@@ -659,6 +673,7 @@ export function App() {
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
                     <label style={{ flex: 1, fontWeight: 600 }}>
                       {m.name ?? 'Motor mount'}
+                      <span className="mount-size-inline">⌀&nbsp;{classLabel(diameterClass(mountDiaMm(mNode)))}&nbsp;mm</span>
                       {count > 1 && ` (cluster ×${count})`}
                     </label>
                     {mm && (
@@ -853,6 +868,18 @@ export function App() {
                 />
               )
               : <Rocket3D tree={tree} info={built?.info ?? null} />}
+            {mountSizes.length > 0 && (
+              <div className="mount-sizes" title="Motor mount inner diameter — the nominal motor size each mount accepts">
+                <span className="mount-sizes-label">
+                  Motor mount{mountSizes.length > 1 ? 's' : ''}:
+                </span>
+                {mountSizes.map((s) => (
+                  <span key={s.id} className="mount-size-chip">
+                    {isStaged ? `${s.stage} · ` : ''}⌀&nbsp;{s.size}&nbsp;mm{s.count > 1 ? ` ×${s.count}` : ''}
+                  </span>
+                ))}
+              </div>
+            )}
             {built && (
               <DesignStats
                 info={built.info}

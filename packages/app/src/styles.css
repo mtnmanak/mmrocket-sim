@@ -94,6 +94,39 @@
   padding: 16px 16px 0;
 }
 
+/* Motor-mount size readout in the Rocket panel. */
+.mount-sizes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 8px;
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+.mount-sizes-label {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.mount-size-chip {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 9px;
+  color: var(--text-primary);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* Inline mount size next to the mount name in the Motors panel. */
+.mount-size-inline {
+  margin-left: 6px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
 /* Stage grouping inside the Motors panel (staged rockets). */
 .motor-stage-header {
   font-size: 12px;
