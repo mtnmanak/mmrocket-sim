@@ -9,7 +9,7 @@
  * push.
  */
 
-export const APP_VERSION = '0.015';
+export const APP_VERSION = '0.016';
 
 export interface ChangelogEntry {
   version: string;
@@ -20,6 +20,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.016',
+    date: '2026-07-04',
+    title: 'Built-in user guide',
+    items: [
+      'New "❓ Guide" button in the header opens a full user guide without leaving the app: a one-minute Quick Start, an in-depth reference to every feature (designing, motors, launch conditions, simulating, staging/clusters, files, units), and a "How It Works" section documenting the physics and math with proper citations.',
+      'The physics documentation explains the models the sim actually runs — Extended Barrowman aerodynamics, 6-DOF RK4 integration, the ISA atmosphere, WGS84 gravity, the thrust-curve model, and why our results are deterministic — with honest assumptions/limitations and a references list (Barrowman, Niskanen\'s OpenRocket technical documentation, NASA drag data, ISA, WGS84, and the OpenRocket project).',
+      'The same guide is included in the repository as docs/user-guide.md.',
+    ],
+  },
   {
     version: '0.015',
     date: '2026-07-04',

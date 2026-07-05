@@ -11,6 +11,7 @@ import {
 } from '@online-openrocket/engine';
 import { BatchSimulate } from './components/BatchSimulate.js';
 import { ChangelogDialog } from './components/ChangelogDialog.js';
+import { GuideDialog } from './components/GuideDialog.js';
 import { ComponentTree } from './components/ComponentTree.js';
 import { FlightCharts } from './components/FlightCharts.js';
 import { DEFAULT_CONDITIONS, LaunchPanel, type LaunchConditions } from './components/LaunchPanel.js';
@@ -146,6 +147,7 @@ export function App() {
   const [confirmNew, setConfirmNew] = useState(false);
   const [showBatch, setShowBatch] = useState(false);
   const [showChangelog, setShowChangelog] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
 
   // Autosave the working state so a closed tab or crash never loses work.
   useEffect(() => {
@@ -475,6 +477,9 @@ export function App() {
           >
             v{APP_VERSION} beta
           </button>
+          <button className="file-btn" onClick={() => setShowGuide(true)} title="User guide — quick start, features, and the physics behind the sim">
+            ❓ Guide
+          </button>
           <button className="file-btn" onClick={() => setShowPrefs(true)} title="Preferences">
             ⚙ Preferences
           </button>
@@ -494,6 +499,7 @@ export function App() {
         </p>
       </header>
       {showPrefs && <PreferencesDialog onClose={() => setShowPrefs(false)} />}
+      {showGuide && <GuideDialog onClose={() => setShowGuide(false)} />}
       {showChangelog && <ChangelogDialog onClose={() => setShowChangelog(false)} />}
       {showBatch && built && primaryMountId && !isStaged && (
         <BatchSimulate
