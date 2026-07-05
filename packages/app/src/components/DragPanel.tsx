@@ -1,0 +1,205 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import uPlot from 'uplot';
+import 'uplot/dist/uPlot.min.css';
+import type { DragSweep, OrkRocket } from '@online-openrocket/engine';
+import { usePrefs } from '../prefs/PrefsContext.js';
+
+/**
+ * Drag analysis (RASAero-style Aero Plots): CD vs Mach with power-off/power-on
+ * curves and a per-component (or per-drag-type) breakdown. A STATIC design
+ * property — computed straight from the geometry, no flight needed. Collapsed by
+ * default; the sweep is only computed while the panel is open (it runs ~3 aero
+ * solves per Mach step).
+ *
+ * Honesty note surfaced in the UI: the kernel is Extended Barrowman — accurate
+ * subsonic/transonic, approximate above ~Mach 1.5-2 (full supersonic fidelity
+ * is the later supersonic-aero feature).
+ */
+
+// Validated categorical palette (same slots as FlightCharts).
+const C = ['#2a78d6', '#1baf7a', '#eda100', '#008300', '#4a3aa7', '#e34948', '#e87ba4', '#eb6834'];
+
+interface Line {
+  label: string;
+  color: string;
+  values: number[];
+  /** dashed stroke (for the power-on overlay) */
+  dash?: boolean;
+}
+
+/** A single multi-series uPlot line chart (all series share the CD y-scale). */
+function LineChart({ x, lines, xLabel, height = 190 }: {
+  x: number[];
+  lines: Line[];
+  xLabel: string;
+  height?: number;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const { resolvedTheme } = usePrefs();
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const dark = resolvedTheme === 'dark';
+    const axis = dark ? '#8d8b82' : '#7a786f';
+    const grid = dark ? '#2b2a27' : '#e8e6e1';
+    const tick = dark ? '#3b3934' : '#dedcd7';
+
+    const data: uPlot.AlignedData = [x, ...lines.map((l) => l.values)];
+    const opts: uPlot.Options = {
+      width: el.clientWidth || 640,
+      height,
+      cursor: { points: { size: 6 } },
+      scales: { x: { time: false } },
+      legend: { live: true },
+      series: [
+        { label: xLabel, value: (_u, v) => (v == null ? '–' : v.toFixed(2)) },
+        ...lines.map((l): uPlot.Series => ({
+          label: l.label,
+          stroke: l.color,
+          width: 2,
+          ...(l.dash ? { dash: [6, 4] } : {}),
+          value: (_u, v) => (v == null ? '–' : v.toFixed(3)),
+        })),
+      ],
+      axes: [
+        { stroke: axis, grid: { stroke: grid, width: 1 }, ticks: { stroke: tick, width: 1 }, font: '11px system-ui' },
+        { stroke: axis, grid: { stroke: grid, width: 1 }, ticks: { stroke: tick, width: 1 }, font: '11px system-ui', size: 48 },
+      ],
+    };
+    const plot = new uPlot(opts, data, el);
+    const obs = new ResizeObserver(() => plot.setSize({ width: el.clientWidth, height }));
+    obs.observe(el);
+    return () => {
+      obs.disconnect();
+      plot.destroy();
+    };
+  }, [x, lines, xLabel, height, resolvedTheme]);
+
+  return <div ref={ref} />;
+}
+
+function exportCsv(sweep: DragSweep) {
+  const cols: [string, number[]][] = [
+    ['mach', sweep.machs],
+    ['cd_power_off', sweep.powerOff.total],
+    ['cd_power_on', sweep.powerOn.total],
+    ['friction', sweep.powerOff.friction],
+    ['pressure', sweep.powerOff.pressure],
+    ['base_power_off', sweep.powerOff.base],
+    ['base_power_on', sweep.powerOn.base],
+    ...sweep.components.map((c): [string, number[]] => [`cd_${c.name.replace(/[,\s]+/g, '_')}`, c.cd]),
+  ];
+  const rows = [cols.map(([h]) => h).join(',')];
+  for (let i = 0; i < sweep.machs.length; i++) {
+    rows.push(cols.map(([, v]) => (v[i] == null ? '' : v[i])).join(','));
+  }
+  const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'drag-analysis.csv';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+type BreakdownMode = 'component' | 'type';
+
+export function DragPanel({ rocket }: { rocket: OrkRocket }) {
+  const [open, setOpen] = useState(false);
+  const [machMax, setMachMax] = useState(3);
+  const [mode, setMode] = useState<BreakdownMode>('component');
+
+  // Only pay the sweep cost while the panel is open. Recomputes when the design
+  // (rocket handle) or the range changes.
+  const sweep = useMemo<DragSweep | { error: string } | null>(() => {
+    if (!open) return null;
+    try {
+      return rocket.dragSweep({ machMax });
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : String(e) };
+    }
+  }, [open, rocket, machMax]);
+
+  const totalLines = useMemo<Line[]>(() => {
+    if (!sweep || 'error' in sweep) return [];
+    const lines: Line[] = [{ label: 'CD power-off', color: C[0]!, values: sweep.powerOff.total }];
+    if (sweep.hasNozzle) {
+      lines.push({ label: 'CD power-on', color: C[5]!, values: sweep.powerOn.total, dash: true });
+    }
+    return lines;
+  }, [sweep]);
+
+  const breakdownLines = useMemo<Line[]>(() => {
+    if (!sweep || 'error' in sweep) return [];
+    if (mode === 'type') {
+      return [
+        { label: 'Friction', color: C[1]!, values: sweep.powerOff.friction },
+        { label: 'Pressure / wave', color: C[2]!, values: sweep.powerOff.pressure },
+        { label: 'Base', color: C[4]!, values: sweep.powerOff.base },
+      ];
+    }
+    return sweep.components.map((c, i) => ({ label: c.name, color: C[i % C.length]!, values: c.cd }));
+  }, [sweep, mode]);
+
+  return (
+    <div className="panel">
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+        <h2 style={{ flex: 1 }}>Drag analysis</h2>
+        <button className="file-btn" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+          {open ? 'Hide' : 'Show CD vs Mach'}
+        </button>
+      </div>
+
+      {open && (!sweep ? null : 'error' in sweep ? (
+        <p className="stability-bad">{sweep.error}</p>
+      ) : (
+        <>
+          <div className="series-picker" role="group" aria-label="Drag analysis controls">
+            <label className="motor-inline-label" style={{ whiteSpace: 'nowrap' }}>
+              Max Mach
+              <select value={machMax} onChange={(e) => setMachMax(Number(e.target.value))} style={{ marginLeft: 4 }}>
+                <option value={1}>1</option>
+                <option value={2}>2</option>
+                <option value={3}>3</option>
+                <option value={5}>5</option>
+              </select>
+            </label>
+            <span style={{ flex: 1 }} />
+            <button className="file-btn" onClick={() => exportCsv(sweep)}>⬇ CSV</button>
+          </div>
+
+          <div className="chart-panel">
+            <h3>Drag coefficient vs Mach</h3>
+            <LineChart x={sweep.machs} lines={totalLines} xLabel="Mach" />
+            {!sweep.hasNozzle && (
+              <p className="motor-db-meta" style={{ marginTop: 4 }}>
+                Set a stage <strong>nozzle exit diameter</strong> to see a distinct power-on curve
+                (motor exhaust lowers base drag during boost).
+              </p>
+            )}
+          </div>
+
+          <div className="chart-panel">
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+              <h3 style={{ flex: 1 }}>Breakdown (power-off)</h3>
+              <div className="view-toggle" role="tablist">
+                <button className={mode === 'component' ? 'active' : ''} role="tab"
+                  aria-selected={mode === 'component'} onClick={() => setMode('component')}>By component</button>
+                <button className={mode === 'type' ? 'active' : ''} role="tab"
+                  aria-selected={mode === 'type'} onClick={() => setMode('type')}>By type</button>
+              </div>
+            </div>
+            <LineChart x={sweep.machs} lines={breakdownLines} xLabel="Mach" />
+          </div>
+
+          {machMax > 1.5 && (
+            <p className="motor-db-meta" style={{ marginTop: 2 }}>
+              Above ~Mach&nbsp;1.5 these are Extended-Barrowman estimates (approximate);
+              full supersonic/hypersonic fidelity is planned. Transonic drag rise begins near Mach&nbsp;0.9.
+            </p>
+          )}
+        </>
+      ))}
+    </div>
+  );
+}

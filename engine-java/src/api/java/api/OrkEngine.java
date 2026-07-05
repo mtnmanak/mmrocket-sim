@@ -23,6 +23,8 @@ import info.openrocket.core.motor.MotorConfiguration;
 import info.openrocket.core.motor.ThrustCurveMotor;
 import info.openrocket.core.rocketcomponent.AxialStage;
 import info.openrocket.core.rocketcomponent.BodyTube;
+import info.openrocket.core.rocketcomponent.ComponentAssembly;
+import info.openrocket.core.rocketcomponent.FlightConfiguration;
 import info.openrocket.core.rocketcomponent.FlightConfigurationId;
 import info.openrocket.core.rocketcomponent.InnerTube;
 import info.openrocket.core.rocketcomponent.NoseCone;
@@ -469,6 +471,149 @@ public final class OrkEngine {
         num(sb, "cgX", c.getCG().x).append(',');
         num(sb, "positionX", absX);
         return sb.append('}').toString();
+    }
+
+    /**
+     * Drag polar sweep (RASAero-style Aero Plots). For each Mach across the
+     * requested range it returns total CD plus the friction / pressure / base
+     * split, for BOTH power-off (coast) and power-on (all stages thrusting —
+     * the nozzle-exit base-drag reduction from feature #2), and a per-component
+     * power-off CD breakdown. Zero-alpha by default. This is a static design
+     * property (no flight needed).
+     *
+     * Options JSON: { machMin=0.05, machMax=3.0, machStep=0.05, aoaDeg=0 }.
+     * Returns: { machs:[], hasNozzle:bool,
+     *            powerOff:{total[],friction[],pressure[],base[]},
+     *            powerOn:{...}, components:[{name,cd[]}...] }.
+     * NOTE: the underlying method is Extended Barrowman — accurate subsonic/
+     * transonic, degrading above ~Mach 1.5-2 (full supersonic fidelity is
+     * feature #1). The UI labels the supersonic region accordingly.
+     */
+    @JSExport
+    public static String getDragSweep(int rocketHandle, String optionsJson) {
+        RocketCtx ctx = (RocketCtx) get(rocketHandle);
+        FlightConfiguration config = ctx.rocket.getSelectedConfiguration();
+        Map<String, Object> o = JsonLite.parseObject(optionsJson);
+        double machMin = JsonLite.dbl(o, "machMin", 0.05);
+        double machMax = JsonLite.dbl(o, "machMax", 3.0);
+        double machStep = JsonLite.dbl(o, "machStep", 0.05);
+        double aoa = Math.toRadians(JsonLite.dbl(o, "aoaDeg", 0));
+        if (machStep <= 0) {
+            machStep = 0.05;
+        }
+
+        java.util.List<Double> machList = new java.util.ArrayList<>();
+        for (double m = machMin; m <= machMax + 1e-9; m += machStep) {
+            machList.add(m);
+        }
+        int n = machList.size();
+
+        // Every stage number -> the power-on thrusting set; note if any nozzle set.
+        java.util.Set<Integer> allStages = new java.util.HashSet<>();
+        boolean hasNozzle = false;
+        for (RocketComponent c : ctx.rocket) {
+            if (c instanceof AxialStage) {
+                allStages.add(((AxialStage) c).getStageNumber());
+                if (((AxialStage) c).getNozzleExitDiameter() > 0) {
+                    hasNozzle = true;
+                }
+            }
+        }
+
+        BarrowmanCalculator calc = new BarrowmanCalculator();
+        WarningSet warnings = new WarningSet();
+
+        double[] offTotal = new double[n], offFric = new double[n], offPress = new double[n], offBase = new double[n];
+        double[] onTotal = new double[n], onFric = new double[n], onPress = new double[n], onBase = new double[n];
+        java.util.LinkedHashMap<String, double[]> byComp = new java.util.LinkedHashMap<>();
+
+        for (int i = 0; i < n; i++) {
+            double mach = machList.get(i);
+
+            FlightConditions off = new FlightConditions(config);
+            off.setMach(mach);
+            off.setAOA(aoa);
+            AerodynamicForces fOff = calc.getAerodynamicForces(config, off, warnings);
+            offTotal[i] = fOff.getCD();
+            offFric[i] = fOff.getFrictionCD();
+            offPress[i] = fOff.getPressureCD();
+            offBase[i] = fOff.getBaseCD();
+
+            FlightConditions on = new FlightConditions(config);
+            on.setMach(mach);
+            on.setAOA(aoa);
+            on.setThrustingStages(new java.util.HashSet<>(allStages));
+            AerodynamicForces fOn = calc.getAerodynamicForces(config, on, warnings);
+            onTotal[i] = fOn.getCD();
+            onFric[i] = fOn.getFrictionCD();
+            onPress[i] = fOn.getPressureCD();
+            onBase[i] = fOn.getBaseCD();
+
+            // Per-component power-off breakdown (skip the aggregate assembly nodes).
+            Map<RocketComponent, AerodynamicForces> offMap = calc.getForceAnalysis(config, off, warnings);
+            for (Map.Entry<RocketComponent, AerodynamicForces> e : offMap.entrySet()) {
+                RocketComponent c = e.getKey();
+                if (!c.isAerodynamic() || c instanceof ComponentAssembly) {
+                    continue;
+                }
+                double cd = e.getValue().getCD();
+                if (Double.isNaN(cd)) {
+                    cd = 0;
+                }
+                double[] row = byComp.get(c.getName());
+                if (row == null) {
+                    row = new double[n];
+                    byComp.put(c.getName(), row);
+                }
+                row[i] += cd;
+            }
+        }
+
+        double[] machArr = new double[n];
+        for (int i = 0; i < n; i++) {
+            machArr[i] = machList.get(i);
+        }
+
+        StringBuilder sb = new StringBuilder("{\"machs\":");
+        nums(sb, machArr);
+        sb.append(",\"hasNozzle\":").append(hasNozzle);
+        sb.append(",\"powerOff\":");
+        dragBlock(sb, offTotal, offFric, offPress, offBase);
+        sb.append(",\"powerOn\":");
+        dragBlock(sb, onTotal, onFric, onPress, onBase);
+        sb.append(",\"components\":[");
+        boolean first = true;
+        for (Map.Entry<String, double[]> e : byComp.entrySet()) {
+            if (!first) sb.append(',');
+            first = false;
+            sb.append("{\"name\":\"").append(escape(e.getKey())).append("\",\"cd\":");
+            nums(sb, e.getValue());
+            sb.append('}');
+        }
+        sb.append("]}");
+        return sb.toString();
+    }
+
+    private static void dragBlock(StringBuilder sb, double[] total, double[] fric, double[] press, double[] base) {
+        sb.append("{\"total\":");
+        nums(sb, total);
+        sb.append(",\"friction\":");
+        nums(sb, fric);
+        sb.append(",\"pressure\":");
+        nums(sb, press);
+        sb.append(",\"base\":");
+        nums(sb, base);
+        sb.append('}');
+    }
+
+    private static StringBuilder nums(StringBuilder sb, double[] values) {
+        sb.append('[');
+        for (int i = 0; i < values.length; i++) {
+            if (i > 0) sb.append(',');
+            double v = values[i];
+            sb.append((Double.isNaN(v) || Double.isInfinite(v)) ? "null" : Double.toString(v));
+        }
+        return sb.append(']');
     }
 
     // ---------- Simulation ----------

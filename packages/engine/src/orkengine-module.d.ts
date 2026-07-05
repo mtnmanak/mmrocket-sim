@@ -32,5 +32,6 @@ declare module '*orkengine.mjs' {
     windAverage: number, windStdDeviation: number, launchAltitude: number,
     timeStep: number): string;
   export function simulateJson(rocket: number, optionsJson: string): string;
+  export function getDragSweep(rocket: number, optionsJson: string): string;
   export function main(): void;
 }

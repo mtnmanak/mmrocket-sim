@@ -40,6 +40,38 @@ public final class GoldenMain {
         stagingScenarios();
         podScenarios();
         nozzleBaseDragScenarios();
+        dragSweepScenarios();
+    }
+
+    /**
+     * Drag polar sweep bridge method (feature #5). Exercises getDragSweep over a
+     * small Mach grid on a rocket with a stage nozzle set — power-off vs power-on
+     * total/base CD must match JVM↔JS, and power-on base CD must be lower.
+     */
+    private static void dragSweepScenarios() {
+        String json = "{\"components\":[{\"type\":\"stage\",\"name\":\"S\",\"nozzleExitDiameter\":0.016,\"children\":["
+                + "{\"type\":\"nosecone\",\"length\":0.07,\"aftRadius\":0.012,\"thickness\":0.002},"
+                + "{\"type\":\"bodytube\",\"length\":0.30,\"outerRadius\":0.012,\"thickness\":0.0005,\"density\":950,\"children\":["
+                + "  {\"type\":\"trapezoidfinset\",\"finCount\":3,\"rootChord\":0.05,\"tipChord\":0.03,\"sweep\":0.02,\"height\":0.03,\"thickness\":0.003}"
+                + "]}]}]}";
+        int r = api.OrkEngine.buildRocket(json);
+        String sweep = api.OrkEngine.getDragSweep(r, "{\"machMin\":0.3,\"machMax\":1.5,\"machStep\":0.6}");
+        java.util.Map<String, Object> parsed = api.JsonLite.parseObject(sweep);
+        java.util.List<?> machs = (java.util.List<?>) parsed.get("machs");
+        java.util.Map<String, Object> off = asMap(parsed.get("powerOff"));
+        java.util.Map<String, Object> on = asMap(parsed.get("powerOn"));
+        java.util.List<?> offTotal = (java.util.List<?>) off.get("total");
+        java.util.List<?> onTotal = (java.util.List<?>) on.get("total");
+        java.util.List<?> offBase = (java.util.List<?>) off.get("base");
+        java.util.List<?> onBase = (java.util.List<?>) on.get("base");
+        for (int i = 0; i < machs.size(); i++) {
+            line("dragsweep." + i,
+                    (Double) machs.get(i),
+                    (Double) offTotal.get(i), (Double) onTotal.get(i),
+                    (Double) offBase.get(i), (Double) onBase.get(i));
+        }
+        java.util.List<?> comps = (java.util.List<?>) parsed.get("components");
+        System.out.println("dragsweep.compcount|" + comps.size());
     }
 
     /**

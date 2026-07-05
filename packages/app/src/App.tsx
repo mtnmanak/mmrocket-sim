@@ -14,6 +14,7 @@ import { ChangelogDialog } from './components/ChangelogDialog.js';
 import { GuideDialog } from './components/GuideDialog.js';
 import { ComponentTree } from './components/ComponentTree.js';
 import { FlightCharts } from './components/FlightCharts.js';
+import { DragPanel } from './components/DragPanel.js';
 import { DEFAULT_CONDITIONS, LaunchPanel, type LaunchConditions } from './components/LaunchPanel.js';
 import { builtInMeta, MotorPicker } from './components/MotorPicker.js';
 import { NumField } from './components/NumField.js';
@@ -904,6 +905,7 @@ export function App() {
             )}
             {buildError && <p className="stability-bad">{buildError}</p>}
           </div>
+          {built && <DragPanel rocket={built.rocket} />}
           {result ? (
             <>
               <FlightStats summary={result.summary} />

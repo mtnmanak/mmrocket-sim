@@ -241,6 +241,49 @@ export interface ComponentInfo {
   positionX: number;
 }
 
+/** Options for {@link OrkRocket.dragSweep}; a Mach grid at a fixed angle. */
+export interface DragSweepOptions {
+  /** First Mach (default 0.05). */
+  machMin?: number;
+  /** Last Mach (default 3.0). */
+  machMax?: number;
+  /** Mach increment (default 0.05). */
+  machStep?: number;
+  /** Angle of attack in degrees (default 0 — the zero-alpha drag polar). */
+  aoaDeg?: number;
+}
+
+/** One power state's drag coefficients across the Mach grid (index-aligned to `machs`). */
+export interface DragCurve {
+  /** Total CD per Mach. */
+  total: number[];
+  /** Skin-friction CD per Mach. */
+  friction: number[];
+  /** Pressure/wave CD per Mach. */
+  pressure: number[];
+  /** Base CD per Mach (the power-on curve reflects the nozzle-exit reduction). */
+  base: number[];
+}
+
+/**
+ * Drag polar sweep (RASAero-style Aero Plots). A static design property — no
+ * flight required. NOTE: the underlying method is Extended Barrowman: accurate
+ * subsonic/transonic, approximate above ~Mach 1.5-2 (full supersonic fidelity
+ * is a later feature). The UI labels the supersonic region accordingly.
+ */
+export interface DragSweep {
+  /** Mach grid (x-axis for every curve). */
+  machs: number[];
+  /** Whether any stage sets a nozzle exit diameter (so power-on differs from power-off). */
+  hasNozzle: boolean;
+  /** Coast (motors off) drag. */
+  powerOff: DragCurve;
+  /** Boost (all stages thrusting) drag — differs from powerOff only when hasNozzle. */
+  powerOn: DragCurve;
+  /** Per-component power-off total CD (index-aligned to `machs`). */
+  components: { name: string; cd: number[] }[];
+}
+
 /** A rocket design held inside the engine, addressed by handle. */
 export class OrkRocket {
   private readonly handle: number;
@@ -316,6 +359,22 @@ export class OrkRocket {
   componentInfo(componentId: string): ComponentInfo {
     const parsed = JSON.parse(ork.getComponentInfo(this.handle, componentId)) as ComponentInfo & { error?: string };
     if (parsed.error) throw new Error(`Component info failed: ${parsed.error}`);
+    return parsed;
+  }
+
+  /**
+   * Drag polar sweep (CD vs Mach) with power-off/power-on curves and a
+   * per-component breakdown. Static — no flight needed. See {@link DragSweep}.
+   */
+  dragSweep(options: DragSweepOptions = {}): DragSweep {
+    const raw = ork.getDragSweep(this.handle, JSON.stringify({
+      machMin: options.machMin ?? 0.05,
+      machMax: options.machMax ?? 3.0,
+      machStep: options.machStep ?? 0.05,
+      aoaDeg: options.aoaDeg ?? 0,
+    }));
+    const parsed = JSON.parse(raw) as DragSweep & { error?: string };
+    if (parsed.error) throw new Error(`Drag sweep failed: ${parsed.error}`);
     return parsed;
   }
 
