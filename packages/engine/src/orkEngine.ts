@@ -102,7 +102,12 @@ export type ComponentType =
   | 'trapezoidfinset' | 'ellipticalfinset' | 'freeformfinset' | 'tubefinset'
   | 'innertube' | 'tubecoupler' | 'centeringring' | 'bulkhead' | 'engineblock'
   | 'launchlug' | 'railbutton'
-  | 'parachute' | 'streamer' | 'shockcord' | 'masscomponent';
+  | 'parachute' | 'streamer' | 'shockcord' | 'masscomponent'
+  // Off-axis assemblies (ComponentAssembly): a non-separating pod, or a
+  // separable parallel booster. Nested under a body component, never at the
+  // rocket root. Kernel support (PodSet/ParallelStage) is compiled in; the
+  // JS-bridge build path lands in a later phase.
+  | 'podset' | 'parallelstage';
 
 /**
  * Stage separation trigger (lower stages only; desktop default "ejection").

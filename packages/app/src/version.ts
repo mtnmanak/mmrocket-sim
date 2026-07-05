@@ -9,7 +9,7 @@
  * push.
  */
 
-export const APP_VERSION = '0.018';
+export const APP_VERSION = '0.019';
 
 export interface ChangelogEntry {
   version: string;
@@ -20,6 +20,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.019',
+    date: '2026-07-05',
+    title: 'Groundwork for parallel boosters & pods',
+    items: [
+      'You can now add a Pod set or a Booster (parallel stage) onto a body component and give it its own nose/body/fin/motor-mount chain, with controls for how many, how far out from the airframe, and at what angle around it.',
+      'This is the design foundation only: a pod or booster is saved in your design, but off-axis 2D/3D rendering and flight simulation of it arrive in upcoming updates — for now it does not yet change the simulated flight (your core rocket still simulates normally).',
+    ],
+  },
   {
     version: '0.018',
     date: '2026-07-05',

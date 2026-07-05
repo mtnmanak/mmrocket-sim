@@ -179,6 +179,9 @@ export function TreeSchematic({ tree, info, motors, onPatchNode }: {
   const renderChildren = (parent: ComponentNode, pStart: number, pLen: number, pRadius: number) => {
     for (const child of parent.children ?? []) {
       const t = child.type;
+      // Off-axis assemblies (pods/boosters) get true off-axis rendering in a
+      // later phase; skip them here rather than drawing a misleading in-body box.
+      if (t === 'podset' || t === 'parallelstage') continue;
       const grab = onPatchNode && child.id
         ? {
           onPointerDown: beginDrag(child, parent, pLen),

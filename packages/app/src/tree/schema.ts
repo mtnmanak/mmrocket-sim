@@ -28,6 +28,8 @@ export const DISPLAY_NAME: Record<ComponentType, string> = {
   streamer: 'Streamer',
   shockcord: 'Shock cord',
   masscomponent: 'Mass component',
+  podset: 'Pod set',
+  parallelstage: 'Booster (parallel stage)',
 };
 
 /** Which children each AXIAL/container type accepts (subset of OpenRocket's rules). */
@@ -38,13 +40,19 @@ const BODY_CHILDREN: ComponentType[] = [
   'innertube', 'tubecoupler', 'centeringring', 'bulkhead', 'engineblock', ...INTERNAL,
 ];
 
+// Off-axis assemblies attach to any body component; each holds its own
+// axial chain (nose/body/transition), exactly like a mini-rocket.
+const ASSEMBLIES: ComponentType[] = ['podset', 'parallelstage'];
+
 export const CONTAINMENT: Partial<Record<ComponentType | 'stage', ComponentType[]>> = {
   stage: STAGE_CHILDREN,
-  bodytube: BODY_CHILDREN,
-  nosecone: INTERNAL,
-  transition: INTERNAL,
+  bodytube: [...BODY_CHILDREN, ...ASSEMBLIES],
+  nosecone: [...INTERNAL, ...ASSEMBLIES],
+  transition: [...INTERNAL, ...ASSEMBLIES],
   innertube: ['engineblock', 'masscomponent'],
   tubecoupler: ['bulkhead', 'centeringring', ...INTERNAL],
+  podset: STAGE_CHILDREN,
+  parallelstage: STAGE_CHILDREN,
 };
 
 export function allowedChildren(parentType: ComponentType | 'stage'): ComponentType[] {
@@ -144,6 +152,25 @@ const FIN_TABS: FieldDef[] = [
 const CD: FieldDef = {
   key: 'cd', label: 'Drag coefficient (blank = auto)', unit: 'none', step: 0.05, smin: 0, smax: 2,
 };
+
+/**
+ * Off-axis assembly placement (PodSet / ParallelStage). The radial reference
+ * matters: RELATIVE treats radialDistance as a GAP from the parent surface
+ * (0 = touching); FREE treats it as distance from the parent centerline.
+ */
+const RADIUS_METHODS: [string, string][] = [
+  ['relative', 'Gap from parent surface'],
+  ['free', 'From parent centerline'],
+];
+const ANGLE_METHODS: [string, string][] = [['relative', 'Relative'], ['fixed', 'Fixed']];
+const ASSEMBLY_FIELDS: FieldDef[] = [
+  { key: 'instanceCount', label: 'Instances (around body)', unit: 'count', smin: 1, smax: 8 },
+  // radiusOffset matches the kernel field + .ork <radiusoffset> (gap semantics
+  // under RELATIVE) — keep the name aligned so the round-trip is 1:1.
+  lenMM('radiusOffset', 'Radial distance', 1, 200),
+  { key: 'radiusMethod', label: 'Radial reference', unit: 'none', options: RADIUS_METHODS },
+  { key: 'angleOffset', label: 'Angle around body', unit: 'deg', step: 5, smin: -180, smax: 180 },
+];
 
 export const FIELDS: Record<ComponentType, FieldDef[]> = {
   // Separation applies to lower stages (the booster separates FROM the stack
@@ -287,6 +314,16 @@ export const FIELDS: Record<ComponentType, FieldDef[]> = {
     lenMM('length', 'Length', 1, 200),
     radMM('radius', 'Radius', 0.5, 50),
   ],
+  // A pod never separates (angle method is fixed to relative in the kernel).
+  podset: ASSEMBLY_FIELDS,
+  // A parallel booster separates and flies its own branch — add the angle
+  // reference (meaningful only here) and the separation trigger.
+  parallelstage: [
+    ...ASSEMBLY_FIELDS,
+    { key: 'angleMethod', label: 'Angle reference', unit: 'none', options: ANGLE_METHODS },
+    { key: 'separationEvent', label: 'Separate at', unit: 'none', options: SEPARATION_EVENTS },
+    { key: 'separationDelay', label: 'Separation delay', unit: 's', step: 0.5, smin: 0, smax: 10 },
+  ],
 };
 
 /** Types that sit INSIDE their parent and use axial positioning. */
@@ -294,6 +331,7 @@ export const POSITIONABLE: Set<ComponentType> = new Set([
   'trapezoidfinset', 'ellipticalfinset', 'freeformfinset', 'tubefinset', 'launchlug', 'railbutton',
   'innertube', 'tubecoupler', 'centeringring', 'bulkhead', 'engineblock',
   'parachute', 'streamer', 'shockcord', 'masscomponent',
+  'podset', 'parallelstage',
 ]);
 
 /** Sensible starting parameters for a freshly added component (SI). */
@@ -322,5 +360,16 @@ export function defaultParams(type: ComponentType): Partial<ComponentNode> {
     case 'streamer': return { stripLength: 0.5, stripWidth: 0.05, position: { method: 'top', offset: 0.02 } };
     case 'shockcord': return { cordLength: 0.3, position: { method: 'top', offset: 0.01 } };
     case 'masscomponent': return { mass: 0.01, length: 0.02, radius: 0.005, position: { method: 'top', offset: 0.02 } };
+    // Assemblies default to 2 instances, tangent to the parent (radiusOffset 0
+    // under RELATIVE = surfaces touching), aft-aligned — the desktop default.
+    case 'podset': return {
+      instanceCount: 2, radiusOffset: 0, radiusMethod: 'relative', angleOffset: 0,
+      position: { method: 'bottom', offset: 0 }, children: [],
+    };
+    case 'parallelstage': return {
+      instanceCount: 2, radiusOffset: 0, radiusMethod: 'relative', angleOffset: 0, angleMethod: 'relative',
+      separationEvent: 'ejection', separationDelay: 0,
+      position: { method: 'bottom', offset: 0 }, children: [],
+    };
   }
 }

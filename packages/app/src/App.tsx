@@ -40,7 +40,7 @@ import { APP_VERSION } from './version.js';
 import {
   addChild, addStage, defaultTree, duplicateNode, emptyTree, findNode,
   inheritDefaults, makeNode, motorMounts, moveNode, normalizeTree, removeNode,
-  stageIndexOf, stages, updateAllNodes, updateNode,
+  stageIndexOf, stages, treeForEngine, updateAllNodes, updateNode,
 } from './tree/treeModel.js';
 import { clusterCount } from './tree/cluster.js';
 
@@ -197,7 +197,12 @@ export function App() {
   }, [undo]);
 
   // ---- engine build + static analysis on every tree change ----
-  const mounts = useMemo(() => motorMounts(tree), [tree]);
+  // Pods Phase 1: off-axis assemblies aren't buildable by the JS bridge yet —
+  // strip them so the core rocket still builds/simulates (identity-stable when
+  // there are none). Mounts come from the stripped tree so pod-internal mounts
+  // aren't offered motors they can't fly yet.
+  const engineTree = useMemo(() => treeForEngine(tree), [tree]);
+  const mounts = useMemo(() => motorMounts(engineTree), [engineTree]);
   const stageList = useMemo(() => stages(tree), [tree]);
   const isStaged = stageList.length > 1;
   // Assigned motors on mounts that still exist in the tree.
@@ -218,7 +223,7 @@ export function App() {
   const buildResult = useMemo((): { rocket: OrkRocket; info: StaticInfo } | { error: string } => {
     try {
       resetEngine();
-      const rocket = OrkRocket.buildTree(tree);
+      const rocket = OrkRocket.buildTree(engineTree);
       for (const [id, mm] of assigned) {
         rocket.setMotorById(id, mm.spec);
         if (mm.ignition.event !== 'automatic' || mm.ignition.delay !== 0) {
@@ -230,7 +235,7 @@ export function App() {
     } catch (e) {
       return { error: e instanceof Error ? e.message : String(e) };
     }
-  }, [tree, assigned]);
+  }, [engineTree, assigned]);
   const built = 'error' in buildResult ? null : buildResult;
   const buildError = 'error' in buildResult ? buildResult.error : simError;
 

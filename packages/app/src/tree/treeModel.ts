@@ -291,6 +291,34 @@ export function inheritDefaults(
   return out;
 }
 
+/** Component types the JS kernel bridge cannot build yet (off-axis assemblies). */
+const UNBUILT_TYPES = new Set(['podset', 'parallelstage']);
+
+/**
+ * TEMPORARY (pods Phase 1): strips off-axis assembly subtrees before the tree
+ * reaches the engine, so a design containing a pod/booster still builds and
+ * simulates its core rocket instead of throwing "unknown component type".
+ * Also keeps pod-internal motor mounts out of motorMounts()/setMotorById.
+ * Returns the SAME tree reference when there is nothing to strip (preserves
+ * memo identity). Remove once the bridge builds assemblies.
+ */
+export function treeForEngine(tree: RocketTree): RocketTree {
+  let has = false;
+  const scan = (nodes: ComponentNode[]) => {
+    for (const n of nodes) {
+      if (UNBUILT_TYPES.has(n.type)) has = true;
+      else scan(n.children ?? []);
+    }
+  };
+  scan(tree.components);
+  if (!has) return tree;
+  const strip = (nodes: ComponentNode[]): ComponentNode[] =>
+    nodes
+      .filter((n) => !UNBUILT_TYPES.has(n.type))
+      .map((n) => (n.children ? ({ ...n, children: strip(n.children) } as ComponentNode) : n));
+  return { ...tree, components: strip(tree.components) };
+}
+
 /** All inner tubes flagged as motor mounts (for the motor panel). */
 export function motorMounts(tree: RocketTree): ComponentNode[] {
   const out: ComponentNode[] = [];
