@@ -41,6 +41,44 @@ public final class GoldenMain {
         podScenarios();
         nozzleBaseDragScenarios();
         dragSweepScenarios();
+        rogersKbfScenarios();
+    }
+
+    /**
+     * Opt-in Rogers Modified Barrowman body-fin interference (feature #3). With
+     * the flag ON the fin set adds the Kbf body carryover (τ·cna at the fin root
+     * quarter-chord), so total CNα rises and CP moves slightly AFT (more
+     * conservative margin) vs classic Barrowman. Flag OFF must reproduce the
+     * plain-Barrowman CP exactly (covered by the existing aero.cp goldens; here
+     * we assert on≠off and the direction). Both JVM and JS run the patched calc.
+     */
+    private static void rogersKbfScenarios() {
+        Rocket rocket = buildReferenceRocket();
+        info.openrocket.core.rocketcomponent.FlightConfiguration config =
+                rocket.getSelectedConfiguration();
+        info.openrocket.core.logging.WarningSet w =
+                new info.openrocket.core.logging.WarningSet();
+        double[] machs = { 0.3, 0.8 };
+        for (double mach : machs) {
+            info.openrocket.core.aerodynamics.BarrowmanCalculator off =
+                    new info.openrocket.core.aerodynamics.BarrowmanCalculator();
+            info.openrocket.core.aerodynamics.FlightConditions cOff =
+                    new info.openrocket.core.aerodynamics.FlightConditions(config);
+            cOff.setMach(mach);
+            cOff.setAOA(Math.toRadians(2));
+            Coordinate cpOff = off.getCP(config, cOff, w);
+
+            info.openrocket.core.aerodynamics.BarrowmanCalculator on =
+                    new info.openrocket.core.aerodynamics.BarrowmanCalculator();
+            on.setRogersKbf(true);
+            info.openrocket.core.aerodynamics.FlightConditions cOn =
+                    new info.openrocket.core.aerodynamics.FlightConditions(config);
+            cOn.setMach(mach);
+            cOn.setAOA(Math.toRadians(2));
+            Coordinate cpOn = on.getCP(config, cOn, w);
+
+            line("rogerskbf." + mach, cpOff.x, cpOff.weight, cpOn.x, cpOn.weight);
+        }
     }
 
     /**

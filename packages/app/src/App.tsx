@@ -223,6 +223,10 @@ export function App() {
     try {
       resetEngine();
       const rocket = OrkRocket.buildTree(tree);
+      // Opt-in Rogers Modified Barrowman (Kbf) — set before staticInfo() so the
+      // reported CP/stability reflects it, and it persists onto this build's
+      // handle for later simulate() calls.
+      rocket.setRogersModifiedBarrowman(prefs.rogersKbf ?? false);
       for (const [id, mm] of assigned) {
         rocket.setMotorById(id, mm.spec);
         if (mm.ignition.event !== 'automatic' || mm.ignition.delay !== 0) {
@@ -234,7 +238,7 @@ export function App() {
     } catch (e) {
       return { error: e instanceof Error ? e.message : String(e) };
     }
-  }, [tree, assigned]);
+  }, [tree, assigned, prefs.rogersKbf]);
   const built = 'error' in buildResult ? null : buildResult;
   const buildError = 'error' in buildResult ? buildResult.error : simError;
 

@@ -33,5 +33,6 @@ declare module '*orkengine.mjs' {
     timeStep: number): string;
   export function simulateJson(rocket: number, optionsJson: string): string;
   export function getDragSweep(rocket: number, optionsJson: string): string;
+  export function setRogersModifiedBarrowman(rocket: number, enabled: boolean): void;
   export function main(): void;
 }

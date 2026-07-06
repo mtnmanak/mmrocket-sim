@@ -75,6 +75,24 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
           </div>
         </div>
 
+        <h3 className="prefs-section">Aerodynamics</h3>
+        <div className="field">
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={prefs.rogersKbf ?? false}
+              onChange={(e) => setPrefs({ ...prefs, rogersKbf: e.target.checked })}
+            />
+            Rogers Modified Barrowman — body-fin interference (Kbf)
+          </label>
+        </div>
+        <p className="prefs-hint">
+          Adds the body-in-presence-of-fins lift carryover (NACA&nbsp;1307) that classic
+          Barrowman drops. Gives a slightly more aft, more conservative CP and stability
+          margin — affects the reported stability and the flight simulation. Off = standard
+          Barrowman.
+        </p>
+
         <p className="prefs-hint">
           Values are stored in SI internally — switching units never changes your design,
           only how numbers are shown and typed.

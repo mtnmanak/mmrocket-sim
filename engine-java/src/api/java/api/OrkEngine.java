@@ -410,6 +410,17 @@ public final class OrkEngine {
      * margin in calibers. "mass"/"cg" are launch values (motors loaded when
      * set); "massEmpty"/"cgEmpty" are the dry structure.
      */
+    /**
+     * Opt-in "Rogers Modified Barrowman" body-in-presence-of-fins interference
+     * (Kbf), feature #3. When enabled, the displayed CP/stability and the flight
+     * sim both include the body carryover load classic Barrowman drops (a more
+     * conservative, slightly more aft CP). Off by default; a per-design setting.
+     */
+    @JSExport
+    public static void setRogersModifiedBarrowman(int rocketHandle, boolean enabled) {
+        ((RocketCtx) get(rocketHandle)).rogersKbf = enabled;
+    }
+
     @JSExport
     public static String getStaticInfo(int rocketHandle) {
         RocketCtx ctx = (RocketCtx) get(rocketHandle);
@@ -417,6 +428,7 @@ public final class OrkEngine {
         RigidBody empty = MassCalculator.calculateStructure(ctx.rocket.getSelectedConfiguration());
 
         BarrowmanCalculator calc = new BarrowmanCalculator();
+        calc.setRogersKbf(ctx.rogersKbf); // feature #3: opt-in body-fin interference
         FlightConditions conditions = new FlightConditions(ctx.rocket.getSelectedConfiguration());
         conditions.setMach(0.3);
         conditions.setAOA(0);
@@ -669,6 +681,8 @@ public final class OrkEngine {
             conditions.setAtmosphericModel(new ExtendedISAModel());
         }
         conditions.setGravityModel(new WGSGravityModel());
+        BarrowmanCalculator aeroCalc = new BarrowmanCalculator();
+        aeroCalc.setRogersKbf(ctx.rogersKbf); // feature #3: opt-in body-fin interference
         int randomSeed = (int) JsonLite.dbl(o, "randomSeed", 42);
         // Seeded explicitly: the no-arg PinkNoiseWindModel constructor seeds
         // from new Random().nextInt() — nondeterministic across runs.
@@ -676,7 +690,7 @@ public final class OrkEngine {
         wind.setAverage(JsonLite.dbl(o, "windAverage", 0));
         wind.setStandardDeviation(JsonLite.dbl(o, "windStdDeviation", 0));
         conditions.setWindModel(wind);
-        conditions.setAerodynamicCalculator(new BarrowmanCalculator());
+        conditions.setAerodynamicCalculator(aeroCalc);
         conditions.setMassCalculator(new MassCalculator());
         conditions.setTimeStep(timeStep > 0 ? timeStep : 0.05);
         conditions.setMaxSimulationTime(JsonLite.dbl(o, "maxTime", 1200));
@@ -699,6 +713,8 @@ public final class OrkEngine {
         final AxialStage stage;
         final FlightConfigurationId fcid;
         final Map<String, RocketComponent> ids = new HashMap<>();
+        /** Opt-in Rogers Modified Barrowman body-fin interference (feature #3). */
+        boolean rogersKbf = false;
 
         RocketCtx(Rocket rocket, AxialStage stage, FlightConfigurationId fcid) {
             this.rocket = rocket;

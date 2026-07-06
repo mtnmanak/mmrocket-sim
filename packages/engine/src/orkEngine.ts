@@ -348,6 +348,16 @@ export class OrkRocket {
       motor.times, motor.thrusts, motor.masses, motor.cgX, motor.ejectionDelay);
   }
 
+  /**
+   * Enable the opt-in "Rogers Modified Barrowman" body-in-presence-of-fins
+   * interference (Kbf). Affects both the reported static CP/stability and the
+   * flight sim. Call before {@link staticInfo}/{@link simulate}. Off by default;
+   * off ⇒ classic Barrowman (bit-identical to before).
+   */
+  setRogersModifiedBarrowman(enabled: boolean): void {
+    ork.setRogersModifiedBarrowman(this.handle, enabled);
+  }
+
   /** Length, mass, CG/CP, stability margin — computed at Mach 0.3, AoA 0. */
   staticInfo(): StaticInfo {
     const parsed = JSON.parse(ork.getStaticInfo(this.handle)) as StaticInfo & { error?: string };

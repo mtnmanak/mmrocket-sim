@@ -60,9 +60,17 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 	private static final String BARROWMAN_SUFFIX = "Calc";
 	
 	private Map<RocketComponent, RocketComponentCalc> calcMap = null;
-	
+
 	private double cacheDiameter = -1;
 	private double cacheLength = -1;
+
+	/**
+	 * PATCH (RASAero feature #3, see engine-java/patches/LEDGER.md): opt-in
+	 * "Rogers Modified Barrowman" body-in-presence-of-fins interference (Kbf).
+	 * Default false ⇒ bit-identical to classic Barrowman. Threaded into each
+	 * FinSetCalc at construction (createCalcObject).
+	 */
+	private boolean rogersKbf = false;
 
 	private final double stallAngle = 17.5 * Math.PI / 180;
 	private double stallMargin;
@@ -74,7 +82,22 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 	
 	@Override
 	public BarrowmanCalculator newInstance() {
-		return new BarrowmanCalculator();
+		BarrowmanCalculator c = new BarrowmanCalculator();
+		c.rogersKbf = this.rogersKbf; // PATCH: preserve the opt-in flag on clone
+		return c;
+	}
+
+	/**
+	 * PATCH (RASAero feature #3): enable the opt-in Rogers Modified Barrowman
+	 * body-fin interference (Kbf). Must be set before the first CP/force call
+	 * (the per-component calculators bind the flag when calcMap is built).
+	 */
+	public void setRogersKbf(boolean enabled) {
+		this.rogersKbf = enabled;
+	}
+
+	public boolean isRogersKbf() {
+		return rogersKbf;
 	}
 
 	/**
@@ -1108,9 +1131,13 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 	 * The instanceof chain reproduces the hierarchy-walk order exactly
 	 * (most-derived class first; TubeFinSet/LaunchLug before Tube).
 	 */
-	private static RocketComponentCalc createCalcObject(RocketComponent comp) {
-		if (comp instanceof FinSet)
-			return new FinSetCalc((FinSet) comp);
+	private RocketComponentCalc createCalcObject(RocketComponent comp) {
+		if (comp instanceof FinSet) {
+			// PATCH (feature #3): bind the opt-in Rogers Kbf flag onto the fin calc.
+			FinSetCalc finCalc = new FinSetCalc((FinSet) comp);
+			finCalc.setRogersKbf(rogersKbf);
+			return finCalc;
+		}
 		if (comp instanceof TubeFinSet)
 			return new TubeFinSetCalc(comp);
 		if (comp instanceof LaunchLug)

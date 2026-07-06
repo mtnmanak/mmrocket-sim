@@ -115,6 +115,33 @@ neutralizing base drag) is deferred to feature #1. Four files:
   scenario exercises the power-on path (power-off must equal the no-nozzle base CD, power-on
   must be strictly lower). Run difftest AND engine vitest after rebuild.
 
+### RASAero feature #3 — opt-in Rogers Modified Barrowman body-fin interference (Kbf)
+
+Classic Barrowman (and OpenRocket) applies only the "fins in presence of body" factor
+`Kfb = 1 + τ` (τ = r/(s+r)) to the fins and DROPS the reciprocal body carryover `Kbf`
+(NACA 1307 `K_B(W)`). RASAero's "Rogers Modified Barrowman" adds it back. Opt-in: default
+OFF ⇒ CP/CNα bit-identical to classic Barrowman. Model: slender-body theory gives total
+fin+carryover load `(1+τ)² · (fin-alone)`; OpenRocket already credits `(1+τ)`, so the body
+carryover that completes it is `τ(1+τ)·(fin-alone) = τ·cna`, placed at the fin ROOT
+quarter-chord (NACA 1307 puts the carryover near the root; forward of the swept-fin MAC).
+Net effect: CP moves slightly AFT (more conservative margin). Two files + bridge:
+
+- **aerodynamics/BarrowmanCalculator.java** (extends the existing TeaVM-reflection patch):
+  add `boolean rogersKbf` + `setRogersKbf`/`isRogersKbf`; `newInstance()` preserves it;
+  `createCalcObject` becomes an instance method and binds the flag onto each `FinSetCalc`.
+- **aerodynamics/barrowman/FinSetCalc.java** (NEW patch): add `boolean rogersKbf` +
+  `setRogersKbf`; in `calculateNonaxialForces`, when enabled and τ>0, average a
+  `Coordinate(rootQuarterChord, 0, 0, τ·cna)` carryover into the emitted fin CP (and use
+  the combined weight for CN/Cm). Flag off ⇒ the original `Coordinate(x,0,0,cna)`.
+- Bridge (not a patch): `api/OrkEngine` — a per-design `RocketCtx.rogersKbf` set by the
+  `setRogersModifiedBarrowman(handle, bool)` @JSExport; `getStaticInfo` and `simulateJson`
+  build the `BarrowmanCalculator` with the flag so the displayed CP AND the flight sim agree.
+- **Guard:** default off keeps all goldens bit-identical; the `rogerskbf.*` golden scenario
+  asserts on≠off (CP shifts aft) and JVM↔JS parity. Deferred (per the research, mixed
+  foundation): the low-α nose→body carryover (unpublished Rogers formula) and upgrading the
+  existing Galejs body-lift term to full Jorgensen η·Cd_c (proprietary DATCOM Cd_c). See the
+  session's #3 research (wcs25co8u) — OpenRocket's Galejs term is ALREADY a ∝sin²α crossflow.
+
 ## Rules
 
 1. A patch NEVER changes physics or observable behavior (except documented quirks-ledger

@@ -13,6 +13,12 @@ export interface Preferences {
   radiusMode: 'radius' | 'diameter';
   theme: 'light' | 'dark' | 'system';
   /**
+   * Opt-in "Rogers Modified Barrowman" body-in-presence-of-fins interference
+   * (Kbf). When on, the CP/stability and flight sim include the body carryover
+   * classic Barrowman drops — a slightly more aft, more conservative CP.
+   */
+  rogersKbf?: boolean;
+  /**
    * True once the user picks a theme themselves. Stored themes without this
    * flag were incidental snapshots of an old default and yield to the current
    * default (lets us change the default without overriding real choices).
