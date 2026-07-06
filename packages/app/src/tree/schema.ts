@@ -217,6 +217,9 @@ export const FIELDS: Record<ComponentType, FieldDef[]> = {
     // Min-diameter rockets: the motor loads directly in the body tube (no
     // inner mount tube) — same kernel path as the desktop's body-tube mount.
     { key: 'motorMount', label: 'Motor mount (motor loads in this tube)', unit: 'none', bool: true },
+    // Aft protrusion of the motor past the tube end (~6 mm is standard
+    // min-diameter practice) — shifts the motor mass aft in the sim.
+    { key: 'motorOverhang', label: 'Motor overhang (past aft end)', unit: 'mm', step: 1, smin: -50, smax: 100 },
     FINISH,
     DENSITY,
   ],
@@ -268,6 +271,7 @@ export const FIELDS: Record<ComponentType, FieldDef[]> = {
     { key: 'cluster', label: 'Cluster layout', unit: 'none', options: CLUSTER_OPTIONS },
     { key: 'clusterScale', label: 'Cluster spacing (× tube ⌀)', unit: 'none', step: 0.05, smin: 1, smax: 3 },
     { key: 'clusterRotation', label: 'Cluster rotation', unit: 'deg', step: 5, smin: -180, smax: 180 },
+    { key: 'motorOverhang', label: 'Motor overhang (past aft end)', unit: 'mm', step: 1, smin: -50, smax: 100 },
     DENSITY,
   ],
   tubecoupler: [

@@ -164,16 +164,18 @@ describe('.ork permissive handling', () => {
           { type: 'nosecone' as const, length: 0.1, aftRadius: 0.0125, thickness: 0.001 },
           {
             type: 'bodytube' as const, id: 'body', length: 0.45, outerRadius: 0.0125,
-            thickness: 0.0005, motorMount: true,
+            thickness: 0.0005, motorMount: true, motorOverhang: 0.006,
           },
         ],
       }],
     };
     const xml = exportOrk({ name: 'MinDia', tree });
     expect(xml).toContain('<motormount>');
+    expect(xml).toContain('<overhang>0.006</overhang>');
     const back = importOrk(xml);
     const body = flatten(back.tree.components).find((c) => c.type === 'bodytube')!;
     expect(body['motorMount']).toBe(true);
+    expect(body['motorOverhang']).toBeCloseTo(0.006, 9);
   });
 
   it('accepts bare XML delivered as an ArrayBuffer', () => {

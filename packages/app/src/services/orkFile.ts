@@ -81,6 +81,9 @@ export function importOrk(data: ArrayBuffer | string): OrkTreeImportResult {
     // on a minimum-diameter rocket (kernel BodyTube implements MotorMount,
     // same as the desktop). The flag survives even with no motor loaded.
     node['motorMount'] = true;
+    // Motor overhang (m): aft protrusion past the mount — min-diameter practice.
+    const overhang = num(mountEl, 'overhang', 0);
+    if (overhang !== 0) node['motorOverhang'] = overhang;
     const motorEl = mountEl.querySelector(':scope > motor');
     if (!motorEl) return;
     // Ignition: the per-config block wins over the bare default (desktop
@@ -532,13 +535,13 @@ export function exportOrk({ name, tree, motors, motor, mountId }: OrkTreeExportI
 
   // m may be absent: a mount with no motor loaded still writes <motormount>
   // so the mount flag survives the round trip (desktop does the same).
-  const motorMountXml = (depth: number, m?: OrkExportMotor) => {
+  const motorMountXml = (depth: number, m?: OrkExportMotor, overhangM = 0) => {
     const ev = m?.ignitionEvent ?? 'automatic';
     const evDelay = m?.ignitionDelay ?? 0;
     emit(depth, '<motormount>');
     emit(depth + 1, `<ignitionevent>${escapeXml(ev)}</ignitionevent>`);
     emit(depth + 1, `<ignitiondelay>${evDelay}</ignitiondelay>`);
-    emit(depth + 1, '<overhang>0.0</overhang>');
+    emit(depth + 1, `<overhang>${overhangM}</overhang>`);
     if (m) {
       emit(depth + 1, `<motor configid="${configId}">`);
       emit(depth + 2, '<type>single</type>');
@@ -636,7 +639,7 @@ export function exportOrk({ name, tree, motors, motor, mountId }: OrkTreeExportI
         emit(depth + 1, `<radius>${n(node, 'outerRadius', 0.012)}</radius>`);
         // Min-diameter: the body tube itself is the motor mount.
         if (node['motorMount'] === true || (node.id && motorMap[node.id])) {
-          motorMountXml(depth + 1, node.id ? motorMap[node.id] : undefined);
+          motorMountXml(depth + 1, node.id ? motorMap[node.id] : undefined, n(node, 'motorOverhang', 0));
         }
         close('bodytube');
         break;
@@ -745,7 +748,7 @@ export function exportOrk({ name, tree, motors, motor, mountId }: OrkTreeExportI
         emit(depth + 1, `<clusterscale>${n(node, 'clusterScale', 1)}</clusterscale>`);
         emit(depth + 1, `<clusterrotation>${(n(node, 'clusterRotation', 0) * 180) / Math.PI}</clusterrotation>`);
         if (node['motorMount'] === true || (node.id && motorMap[node.id])) {
-          motorMountXml(depth + 1, node.id ? motorMap[node.id] : undefined);
+          motorMountXml(depth + 1, node.id ? motorMap[node.id] : undefined, n(node, 'motorOverhang', 0));
         }
         close('innertube');
         break;

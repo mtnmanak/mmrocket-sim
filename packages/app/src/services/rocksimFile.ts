@@ -217,6 +217,8 @@ export function importRkt(data: ArrayBuffer | string): OrkTreeImportResult {
         // (kernel BodyTube implements MotorMount, same as the desktop).
         if (num(el, 'IsMotorMount', 0) === 1) {
           n['motorMount'] = true;
+          const overhang = num(el, 'EngineOverhang', 0) / LEN;
+          if (overhang !== 0) n['motorOverhang'] = overhang;
         }
         convertAttached(el, n);
         return n;
@@ -485,7 +487,7 @@ export function exportRkt({ name, tree, motors }: RktExportInput): string {
     emit(`<Len>${nnum(node, 'length', 0.07) * LEN}</Len>`);
     emit(`<IsMotorMount>${node['motorMount'] === true ? 1 : 0}</IsMotorMount>`);
     emit(`<MotorDia>${(nnum(node, 'outerRadius', 0.0095) - nnum(node, 'thickness', 0.0005)) * RAD}</MotorDia>`);
-    emit('<EngineOverhang>0.</EngineOverhang>');
+    emit(`<EngineOverhang>${nnum(node, 'motorOverhang', 0) * LEN}</EngineOverhang>`);
     emit('<IsInsideTube>1</IsInsideTube>');
     emit(`<RadialLoc>${radialLocM * LEN}</RadialLoc>`);
     emit(`<RadialAngle>${radialAngle}</RadialAngle>`);
@@ -539,7 +541,7 @@ export function exportRkt({ name, tree, motors }: RktExportInput): string {
         emit(`<IsMotorMount>${node['motorMount'] === true ? 1 : 0}</IsMotorMount>`);
         if (node['motorMount'] === true) {
           emit(`<MotorDia>${(nnum(node, 'outerRadius', 0.012) - nnum(node, 'thickness', 0.0005)) * RAD}</MotorDia>`);
-          emit('<EngineOverhang>0.</EngineOverhang>');
+          emit(`<EngineOverhang>${nnum(node, 'motorOverhang', 0) * LEN}</EngineOverhang>`);
         }
         emit('<IsInsideTube>0</IsInsideTube>');
         attached(node);

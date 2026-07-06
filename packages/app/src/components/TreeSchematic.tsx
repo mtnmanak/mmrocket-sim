@@ -317,7 +317,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode }: {
           );
           if (motor) {
             const mR = motor.diameter / 2;
-            const mStart = start + len - motor.length;
+            const mStart = start + len - motor.length + num(child, 'motorOverhang', 0);
             shapes.push(
               <rect key={key++} x={ctx.x0 + mStart * ctx.scale}
                 y={baseY + (off.y - mR) * ctx.scale}
@@ -368,7 +368,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode }: {
         const tubeMotor = n.id ? motors?.[n.id] : undefined;
         if (tubeMotor) {
           const mR = tubeMotor.diameter / 2;
-          const mStart = cx + len - tubeMotor.length;
+          const mStart = cx + len - tubeMotor.length + num(n, 'motorOverhang', 0);
           shapes.push(
             <rect key={key++} x={ctx.x0 + mStart * scale}
               y={baseY - mR * scale}

@@ -132,6 +132,9 @@ final class ComponentFactory {
                 // Min-diameter rockets: the body tube itself is the motor mount
                 // (kernel BodyTube implements MotorMount, same as the desktop).
                 bodyTube.setMotorMount(bool(node, "motorMount", false));
+                // Motor overhang (m): protrusion past the mount's aft end —
+                // standard min-diameter practice (~6 mm); shifts the motor mass.
+                bodyTube.setMotorOverhang(dbl(node, "motorOverhang", 0));
                 c = bodyTube;
                 break;
             }
@@ -207,6 +210,7 @@ final class ComponentFactory {
                 tube.setOuterRadius(dbl(node, "outerRadius", 0.0095));
                 tube.setThickness(dbl(node, "thickness", 0.0005));
                 tube.setMotorMount(bool(node, "motorMount", false));
+                tube.setMotorOverhang(dbl(node, "motorOverhang", 0));
                 // Cluster: pattern by its .ork XML name ("3-ring", "double"…).
                 // One motor definition serves the whole cluster — the kernel
                 // multiplies thrust by tube count and places mass/inertia at

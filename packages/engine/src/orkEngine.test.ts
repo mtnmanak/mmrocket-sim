@@ -103,7 +103,7 @@ describe('OrkRocket (real OpenRocket kernel via TeaVM)', () => {
           { type: 'nosecone', length: 0.10, aftRadius: 0.012, thickness: 0.002 },
           {
             type: 'bodytube', id: 'body', length: 0.45, outerRadius: 0.012,
-            thickness: 0.0005, density: 950, motorMount: true,
+            thickness: 0.0005, density: 950, motorMount: true, motorOverhang: 0.006,
             children: [
               { type: 'trapezoidfinset', finCount: 3, rootChord: 0.05, tipChord: 0.03, sweep: 0.02, height: 0.025, thickness: 0.003 },
               { type: 'parachute', diameter: 0.3 },
@@ -120,9 +120,9 @@ describe('OrkRocket (real OpenRocket kernel via TeaVM)', () => {
     expect(info.mass).toBeGreaterThan(0.055);
     expect(info.stabilityCalibers).toBeGreaterThan(1);
 
-    // Matches the JVM golden flight.mindia line.
+    // Matches the JVM golden flight.mindia line (incl. the 6 mm overhang).
     const result = rocket.simulate({});
-    expect(result.summary.maxAltitude).toBeCloseTo(333.4644713833003, 4);
+    expect(result.summary.maxAltitude).toBeCloseTo(333.4644714919658, 4);
   });
 
   it('rejects a motor on a component that is not a mount', () => {
