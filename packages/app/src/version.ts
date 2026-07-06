@@ -9,7 +9,7 @@
  * push.
  */
 
-export const APP_VERSION = '0.021';
+export const APP_VERSION = '0.022';
 
 export interface ChangelogEntry {
   version: string;
@@ -20,6 +20,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.022',
+    date: '2026-07-06',
+    title: 'RASAero-style drag & stability: power-on drag, a CD-vs-Mach chart, and Rogers Kbf',
+    items: [
+      'Power-on vs power-off drag. Give a stage a nozzle exit diameter (in the Stage panel) and the sim now models how the motor exhaust pressurizes the base during boost, lowering base drag — so boost drag is lower than coast drag, just like RASAero. 0 (the default) means no change, so existing designs fly exactly as before.',
+      'New Drag analysis panel (under the rocket view). Shows drag coefficient vs Mach with separate power-off and power-on curves, plus a breakdown by component (nose/body/fins) or by type (friction/pressure/base), with CSV export. A static design property — no need to run a flight. Above ~Mach 1.5 the values are labelled as approximate (full supersonic fidelity is still to come).',
+      'Optional "Rogers Modified Barrowman" stability (Preferences → Aerodynamics). Adds the body-in-presence-of-fins lift carryover (NACA 1307) that classic Barrowman leaves out, for a slightly more aft, more conservative CP and stability margin. Off by default — turning it off is exactly the old behaviour.',
+    ],
+  },
   {
     version: '0.021',
     date: '2026-07-05',
