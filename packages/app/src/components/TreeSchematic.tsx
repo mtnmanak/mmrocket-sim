@@ -363,6 +363,21 @@ export function TreeSchematic({ tree, info, motors, onPatchNode }: {
             width={len * scale} height={2 * r * scale}
             fill={fillOf(n, '#e7e5e0')} stroke="#7a786f" strokeWidth="1" />,
         );
+        // Min-diameter: a motor loaded directly in this body tube draws at its
+        // real case size, seated flush against the tube's aft end.
+        const tubeMotor = n.id ? motors?.[n.id] : undefined;
+        if (tubeMotor) {
+          const mR = tubeMotor.diameter / 2;
+          const mStart = cx + len - tubeMotor.length;
+          shapes.push(
+            <rect key={key++} x={ctx.x0 + mStart * scale}
+              y={baseY - mR * scale}
+              width={Math.max(2, tubeMotor.length * scale)} height={Math.max(2, 2 * mR * scale)}
+              rx="1" fill="#8b5a2b" fillOpacity="0.45"
+              stroke="#6b4520" strokeWidth="0.8"
+              style={{ pointerEvents: 'none' }} />,
+          );
+        }
         renderChildren(n, cx, len, r, baseY);
         cx += len;
       } else if (n.type === 'transition') {

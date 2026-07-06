@@ -214,6 +214,9 @@ export const FIELDS: Record<ComponentType, FieldDef[]> = {
     lenMM('length', 'Length', 1, 1000),
     radMM('outerRadius', 'Outer radius', 0.5, 80),
     lenMM('thickness', 'Wall thickness', 0.1, 10),
+    // Min-diameter rockets: the motor loads directly in the body tube (no
+    // inner mount tube) — same kernel path as the desktop's body-tube mount.
+    { key: 'motorMount', label: 'Motor mount (motor loads in this tube)', unit: 'none', bool: true },
     FINISH,
     DENSITY,
   ],

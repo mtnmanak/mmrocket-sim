@@ -213,12 +213,10 @@ export function importRkt(data: ArrayBuffer | string): OrkTreeImportResult {
         n['length'] = num(el, 'Len', 100) / LEN;
         n['outerRadius'] = num(el, 'OD', 24) / RAD;
         n['thickness'] = tubeThickness(el);
+        // Inner tube OR a min-diameter body tube — both are real mounts now
+        // (kernel BodyTube implements MotorMount, same as the desktop).
         if (num(el, 'IsMotorMount', 0) === 1) {
-          if (inside) {
-            n['motorMount'] = true;
-          } else {
-            notes.push('Motor mounts directly in the body tube — assign it to an inner tube in the editor.');
-          }
+          n['motorMount'] = true;
         }
         convertAttached(el, n);
         return n;
@@ -369,7 +367,7 @@ export function importRkt(data: ArrayBuffer | string): OrkTreeImportResult {
   const mountsIn = (nodes: ComponentNode[]): ComponentNode[] => {
     const out: ComponentNode[] = [];
     for (const n of nodes) {
-      if (n.type === 'innertube' && n['motorMount'] === true) out.push(n);
+      if ((n.type === 'innertube' || n.type === 'bodytube') && n['motorMount'] === true) out.push(n);
       out.push(...mountsIn(n.children ?? []));
     }
     return out;
@@ -537,7 +535,12 @@ export function exportRkt({ name, tree, motors }: RktExportInput): string {
         emit(`<OD>${nnum(node, 'outerRadius', 0.012) * RAD}</OD>`);
         emit(`<ID>${(nnum(node, 'outerRadius', 0.012) - nnum(node, 'thickness', 0.0005)) * RAD}</ID>`);
         emit(`<Len>${nnum(node, 'length', 0.2) * LEN}</Len>`);
-        emit('<IsMotorMount>0</IsMotorMount>');
+        // Min-diameter: RockSim's BodyTube carries the same mount flag.
+        emit(`<IsMotorMount>${node['motorMount'] === true ? 1 : 0}</IsMotorMount>`);
+        if (node['motorMount'] === true) {
+          emit(`<MotorDia>${(nnum(node, 'outerRadius', 0.012) - nnum(node, 'thickness', 0.0005)) * RAD}</MotorDia>`);
+          emit('<EngineOverhang>0.</EngineOverhang>');
+        }
         emit('<IsInsideTube>0</IsInsideTube>');
         attached(node);
         emit('</BodyTube>');

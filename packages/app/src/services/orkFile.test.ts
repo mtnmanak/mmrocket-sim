@@ -140,15 +140,40 @@ describe('.ork permissive handling', () => {
       </bodytube>
     </subcomponents></stage></subcomponents></rocket></openrocket>`;
 
-  it('reports body-tube mounts; podset and freeformfinset now import (not ignored)', () => {
+  it('imports a body-tube motor mount as a REAL mount (minimum-diameter)', () => {
     const result = importOrk(BODY_MOUNT);
+    const body = flatten(result.tree.components).find((c) => c.type === 'bodytube')!;
+    // The body tube IS the mount (kernel BodyTube implements MotorMount) —
+    // the motor attaches to it instead of surfacing as an orphan note.
+    expect(body['motorMount']).toBe(true);
     expect(result.motor?.designation).toBe('D12');
-    expect(result.motor?.mountId).toBeUndefined();
-    expect(result.notes.join(' ')).toMatch(/Motor mounts directly/);
+    expect(result.motor?.mountId).toBe(body.id);
+    expect(result.notes.join(' ')).not.toMatch(/Motor mounts directly/);
     // Both are now supported component types — they import rather than being ignored.
     expect(result.ignored).not.toContain('podset');
     expect(result.ignored).not.toContain('freeformfinset');
     expect(flatten(result.tree.components).some((c) => c.type === 'podset')).toBe(true);
+  });
+
+  it('round-trips a body-tube mount (flag survives even without a motor)', () => {
+    const tree = {
+      name: 'MinDia',
+      components: [{
+        type: 'stage' as const, name: 'S',
+        children: [
+          { type: 'nosecone' as const, length: 0.1, aftRadius: 0.0125, thickness: 0.001 },
+          {
+            type: 'bodytube' as const, id: 'body', length: 0.45, outerRadius: 0.0125,
+            thickness: 0.0005, motorMount: true,
+          },
+        ],
+      }],
+    };
+    const xml = exportOrk({ name: 'MinDia', tree });
+    expect(xml).toContain('<motormount>');
+    const back = importOrk(xml);
+    const body = flatten(back.tree.components).find((c) => c.type === 'bodytube')!;
+    expect(body['motorMount']).toBe(true);
   });
 
   it('accepts bare XML delivered as an ArrayBuffer', () => {

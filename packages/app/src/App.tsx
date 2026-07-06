@@ -643,7 +643,7 @@ export function App() {
             <h2>Motors</h2>
             {mounts.length === 0 && (
               <p className="stability-bad" style={{ fontSize: 12 }}>
-                No motor mount — add an inner tube and check “acts as motor mount”.
+                No motor mount — add an inner tube, or check “Motor mount” on a body tube (minimum-diameter).
               </p>
             )}
             {stageList.map((st, stIdx) => {

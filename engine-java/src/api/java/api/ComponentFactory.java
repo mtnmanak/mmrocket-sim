@@ -125,10 +125,14 @@ final class ComponentFactory {
                 break;
             }
             case "bodytube": {
-                c = new BodyTube(
+                BodyTube bodyTube = new BodyTube(
                         dbl(node, "length", 0.3),
                         dbl(node, "outerRadius", 0.012),
                         dbl(node, "thickness", 0.0003));
+                // Min-diameter rockets: the body tube itself is the motor mount
+                // (kernel BodyTube implements MotorMount, same as the desktop).
+                bodyTube.setMotorMount(bool(node, "motorMount", false));
+                c = bodyTube;
                 break;
             }
             case "trapezoidfinset": {

@@ -42,6 +42,38 @@ public final class GoldenMain {
         nozzleBaseDragScenarios();
         dragSweepScenarios();
         rogersKbfScenarios();
+        minDiameterScenarios();
+    }
+
+    /**
+     * Minimum-diameter rocket: the BODY TUBE itself is the motor mount (no
+     * inner tube) — kernel BodyTube implements MotorMount, and setMotorById
+     * must accept it. 24 mm airframe flying a 18 mm C6 loaded directly in the
+     * tube, with a nozzle exit near the body diameter (the power-on base-drag
+     * case min-diameter rockets exist for). Locks static info + flight summary.
+     */
+    private static void minDiameterScenarios() {
+        String json = "{\"name\":\"MinDia\",\"components\":[{\"type\":\"stage\",\"name\":\"S\",\"nozzleExitDiameter\":0.014,\"children\":["
+                + "{\"type\":\"nosecone\",\"length\":0.10,\"aftRadius\":0.012,\"thickness\":0.002},"
+                + "{\"type\":\"bodytube\",\"id\":\"body\",\"length\":0.45,\"outerRadius\":0.012,\"thickness\":0.0005,\"density\":950,\"motorMount\":true,\"children\":["
+                + "  {\"type\":\"trapezoidfinset\",\"finCount\":3,\"rootChord\":0.05,\"tipChord\":0.03,\"sweep\":0.02,\"height\":0.025,\"thickness\":0.003},"
+                + "  {\"type\":\"parachute\",\"diameter\":0.30}"
+                + "]}]}]}";
+        int r = api.OrkEngine.buildRocket(json);
+        api.OrkEngine.setMotorById(r, "body", "C6", 0.018, 0.070,
+                new double[] { 0, 0.1, 0.3, 0.5, 1.0, 1.5, 1.85, 2.0 },
+                new double[] { 0, 12.0, 6.0, 5.1, 4.9, 4.8, 4.5, 0 },
+                new double[] { 0.0240, 0.0231, 0.0215, 0.0202, 0.0174, 0.0147, 0.0133, 0.0132 },
+                0.035, 5.0);
+        lineStaticInfo("mindia.info", api.OrkEngine.getStaticInfo(r));
+
+        String result = api.OrkEngine.simulateJson(r, "{\"rodLength\":1.0}");
+        java.util.Map<String, Object> parsed = api.JsonLite.parseObject(result);
+        java.util.Map<String, Object> summary = asMap(parsed.get("summary"));
+        line("flight.mindia",
+                api.JsonLite.dbl(summary, "maxAltitude", Double.NaN),
+                api.JsonLite.dbl(summary, "maxVelocity", Double.NaN),
+                api.JsonLite.dbl(summary, "timeToApogee", Double.NaN));
     }
 
     /**

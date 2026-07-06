@@ -92,6 +92,49 @@ describe('OrkRocket (real OpenRocket kernel via TeaVM)', () => {
     expect(result.summary.maxAltitude).toBeCloseTo(331.766872454628, 5);
   });
 
+  it('flies a minimum-diameter rocket: the body tube IS the motor mount', () => {
+    // No inner tube — the motor loads directly in the airframe (kernel
+    // BodyTube implements MotorMount). Mirrors the mindia golden scenario.
+    const rocket = OrkRocket.buildTree({
+      name: 'MinDia',
+      components: [{
+        type: 'stage', name: 'S', nozzleExitDiameter: 0.014,
+        children: [
+          { type: 'nosecone', length: 0.10, aftRadius: 0.012, thickness: 0.002 },
+          {
+            type: 'bodytube', id: 'body', length: 0.45, outerRadius: 0.012,
+            thickness: 0.0005, density: 950, motorMount: true,
+            children: [
+              { type: 'trapezoidfinset', finCount: 3, rootChord: 0.05, tipChord: 0.03, sweep: 0.02, height: 0.025, thickness: 0.003 },
+              { type: 'parachute', diameter: 0.3 },
+            ],
+          },
+        ],
+      }],
+    });
+    rocket.setMotorById('body', C6_MOTOR);
+
+    const info = rocket.staticInfo();
+    // Launch mass must include the 24 g motor (a silently-dropped motor
+    // config on a body-tube mount would show up right here).
+    expect(info.mass).toBeGreaterThan(0.055);
+    expect(info.stabilityCalibers).toBeGreaterThan(1);
+
+    // Matches the JVM golden flight.mindia line.
+    const result = rocket.simulate({});
+    expect(result.summary.maxAltitude).toBeCloseTo(333.4644713833003, 4);
+  });
+
+  it('rejects a motor on a component that is not a mount', () => {
+    const rocket = OrkRocket.buildTree({
+      components: [
+        { type: 'nosecone', id: 'nose', length: 0.07, aftRadius: 0.012, thickness: 0.002 },
+        { type: 'bodytube', length: 0.3, outerRadius: 0.012, thickness: 0.0005 },
+      ],
+    });
+    expect(() => rocket.setMotorById('nose', C6_MOTOR)).toThrow(/not a motor mount/);
+  });
+
   it('supports the extended component set (transition, rings, streamer, ...)', () => {
     const rocket = OrkRocket.buildTree({
       components: [

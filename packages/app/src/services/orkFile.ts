@@ -74,11 +74,15 @@ export function importOrk(data: ArrayBuffer | string): OrkTreeImportResult {
   const stages = Array.from(rocketEl.querySelectorAll(':scope > subcomponents > stage'));
   if (stages.length === 0) throw new Error('No stage found');
 
-  const readMotor = (el: Element, node: ComponentNode, isInnerTube: boolean) => {
+  const readMotor = (el: Element, node: ComponentNode) => {
     const mountEl = el.querySelector(':scope > motormount');
-    const motorEl = mountEl?.querySelector(':scope > motor');
-    if (!mountEl || !motorEl) return;
-    if (isInnerTube) node['motorMount'] = true;
+    if (!mountEl) return;
+    // Any tube with a <motormount> IS a mount — an inner tube, or a body tube
+    // on a minimum-diameter rocket (kernel BodyTube implements MotorMount,
+    // same as the desktop). The flag survives even with no motor loaded.
+    node['motorMount'] = true;
+    const motorEl = mountEl.querySelector(':scope > motor');
+    if (!motorEl) return;
     // Ignition: the per-config block wins over the bare default (desktop
     // writes defaults bare, overrides in <ignitionconfiguration>).
     const igEl = mountEl.querySelector(':scope > ignitionconfiguration') ?? mountEl;
@@ -88,14 +92,12 @@ export function importOrk(data: ArrayBuffer | string): OrkTreeImportResult {
       diameter: num(motorEl, 'diameter', 0.018),
       length: num(motorEl, 'length', 0.07),
       delay: num(motorEl, 'delay', 0),
-      mountId: isInnerTube ? node.id : undefined,
+      mountId: node.id,
       ignitionEvent: text(igEl, ':scope > ignitionevent') ?? undefined,
       ignitionDelay: num(igEl, 'ignitiondelay', 0),
     };
-    if (isInnerTube && node.id) {
+    if (node.id) {
       motors[node.id] = ref;
-    } else if (!isInnerTube) {
-      notes.push('Motor mounts directly in the body tube — assign it to an inner tube in the editor.');
     }
     if (!motor) motor = ref;
   };
@@ -176,7 +178,7 @@ export function importOrk(data: ArrayBuffer | string): OrkTreeImportResult {
         n['length'] = num(el, 'length', 0.3);
         n['outerRadius'] = num(el, 'radius', 0.012);
         n['thickness'] = num(el, 'thickness', 0.0005);
-        readMotor(el, n, false);
+        readMotor(el, n);
         return n;
       }
       case 'trapezoidfinset': {
@@ -246,7 +248,7 @@ export function importOrk(data: ArrayBuffer | string): OrkTreeImportResult {
           n['clusterScale'] = num(el, 'clusterscale', 1);
           n['clusterRotation'] = (num(el, 'clusterrotation', 0) * Math.PI) / 180;
         }
-        readMotor(el, n, true);
+        readMotor(el, n);
         return n;
       }
       case 'tubecoupler': {
@@ -528,25 +530,29 @@ export function exportOrk({ name, tree, motors, motor, mountId }: OrkTreeExportI
       : `<thickness>${typeof node['thickness'] === 'number' ? node['thickness'] : fb}</thickness>`);
   };
 
-  const motorMountXml = (depth: number, m: OrkExportMotor) => {
-    const ev = m.ignitionEvent ?? 'automatic';
-    const evDelay = m.ignitionDelay ?? 0;
+  // m may be absent: a mount with no motor loaded still writes <motormount>
+  // so the mount flag survives the round trip (desktop does the same).
+  const motorMountXml = (depth: number, m?: OrkExportMotor) => {
+    const ev = m?.ignitionEvent ?? 'automatic';
+    const evDelay = m?.ignitionDelay ?? 0;
     emit(depth, '<motormount>');
     emit(depth + 1, `<ignitionevent>${escapeXml(ev)}</ignitionevent>`);
     emit(depth + 1, `<ignitiondelay>${evDelay}</ignitiondelay>`);
     emit(depth + 1, '<overhang>0.0</overhang>');
-    emit(depth + 1, `<motor configid="${configId}">`);
-    emit(depth + 2, '<type>single</type>');
-    emit(depth + 2, `<manufacturer>${escapeXml(m.manufacturer ?? 'custom')}</manufacturer>`);
-    emit(depth + 2, `<designation>${escapeXml(m.designation)}</designation>`);
-    emit(depth + 2, `<diameter>${m.diameter}</diameter>`);
-    emit(depth + 2, `<length>${m.length}</length>`);
-    emit(depth + 2, `<delay>${m.delay}</delay>`);
-    emit(depth + 1, '</motor>');
-    emit(depth + 1, `<ignitionconfiguration configid="${configId}">`);
-    emit(depth + 2, `<ignitionevent>${escapeXml(ev)}</ignitionevent>`);
-    emit(depth + 2, `<ignitiondelay>${evDelay}</ignitiondelay>`);
-    emit(depth + 1, '</ignitionconfiguration>');
+    if (m) {
+      emit(depth + 1, `<motor configid="${configId}">`);
+      emit(depth + 2, '<type>single</type>');
+      emit(depth + 2, `<manufacturer>${escapeXml(m.manufacturer ?? 'custom')}</manufacturer>`);
+      emit(depth + 2, `<designation>${escapeXml(m.designation)}</designation>`);
+      emit(depth + 2, `<diameter>${m.diameter}</diameter>`);
+      emit(depth + 2, `<length>${m.length}</length>`);
+      emit(depth + 2, `<delay>${m.delay}</delay>`);
+      emit(depth + 1, '</motor>');
+      emit(depth + 1, `<ignitionconfiguration configid="${configId}">`);
+      emit(depth + 2, `<ignitionevent>${escapeXml(ev)}</ignitionevent>`);
+      emit(depth + 2, `<ignitiondelay>${evDelay}</ignitiondelay>`);
+      emit(depth + 1, '</ignitionconfiguration>');
+    }
     emit(depth, '</motormount>');
   };
 
@@ -628,6 +634,10 @@ export function exportOrk({ name, tree, motors, motor, mountId }: OrkTreeExportI
         emit(depth + 1, `<length>${n(node, 'length', 0.3)}</length>`);
         emit(depth + 1, `<thickness>${n(node, 'thickness', 0.0005)}</thickness>`);
         emit(depth + 1, `<radius>${n(node, 'outerRadius', 0.012)}</radius>`);
+        // Min-diameter: the body tube itself is the motor mount.
+        if (node['motorMount'] === true || (node.id && motorMap[node.id])) {
+          motorMountXml(depth + 1, node.id ? motorMap[node.id] : undefined);
+        }
         close('bodytube');
         break;
       }
@@ -734,8 +744,8 @@ export function exportOrk({ name, tree, motors, motor, mountId }: OrkTreeExportI
         emit(depth + 1, `<clusterconfiguration>${escapeXml(typeof node['cluster'] === 'string' ? (node['cluster'] as string) : 'single')}</clusterconfiguration>`);
         emit(depth + 1, `<clusterscale>${n(node, 'clusterScale', 1)}</clusterscale>`);
         emit(depth + 1, `<clusterrotation>${(n(node, 'clusterRotation', 0) * 180) / Math.PI}</clusterrotation>`);
-        if (node.id && motorMap[node.id]) {
-          motorMountXml(depth + 1, motorMap[node.id]!);
+        if (node['motorMount'] === true || (node.id && motorMap[node.id])) {
+          motorMountXml(depth + 1, node.id ? motorMap[node.id] : undefined);
         }
         close('innertube');
         break;

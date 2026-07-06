@@ -9,7 +9,7 @@
  * push.
  */
 
-export const APP_VERSION = '0.022';
+export const APP_VERSION = '0.023';
 
 export interface ChangelogEntry {
   version: string;
@@ -20,6 +20,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.023',
+    date: '2026-07-06',
+    title: 'Minimum-diameter rockets: a body tube can be the motor mount',
+    items: [
+      'A body tube can now be a motor mount — check "Motor mount" in its properties and the motor loads directly in the tube, no inner tube needed. This is how minimum-diameter rockets are built (the motor case is essentially the airframe), and they are exactly the high-performance designs the new power-on drag and drag-analysis features target. Same kernel path as the desktop app.',
+      'Imported files with body-tube mounts (.ork from the desktop, RockSim .rkt) now come in as real, working mounts instead of a "move it onto an inner tube" note, and the mount flag round-trips through save/reload even before a motor is loaded. The 2D view draws the motor case seated in the body tube.',
+      'The user guide is updated for everything recent: pods & parallel boosters, the drag analysis panel, power-on drag, the Rogers Kbf stability option, and body-tube mounts.',
+    ],
+  },
   {
     version: '0.022',
     date: '2026-07-06',

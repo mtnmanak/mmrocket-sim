@@ -27,6 +27,7 @@ import info.openrocket.core.rocketcomponent.ComponentAssembly;
 import info.openrocket.core.rocketcomponent.FlightConfiguration;
 import info.openrocket.core.rocketcomponent.FlightConfigurationId;
 import info.openrocket.core.rocketcomponent.InnerTube;
+import info.openrocket.core.rocketcomponent.MotorMount;
 import info.openrocket.core.rocketcomponent.NoseCone;
 import info.openrocket.core.rocketcomponent.Parachute;
 import info.openrocket.core.rocketcomponent.Rocket;
@@ -257,9 +258,11 @@ public final class OrkEngine {
             double[] masses, double cgX, double ejectionDelay) {
         RocketCtx ctx = (RocketCtx) get(rocketHandle);
         RocketComponent comp = ctx.ids.get(componentId);
-        if (!(comp instanceof InnerTube)) {
+        // Inner tube OR a body tube flagged as a mount (min-diameter rockets) —
+        // the kernel treats both through the MotorMount interface.
+        if (!(comp instanceof MotorMount)) {
             throw new IllegalArgumentException(
-                    "Component id '" + componentId + "' is not an inner-tube motor mount");
+                    "Component id '" + componentId + "' is not a motor mount");
         }
         int mountHandle = register(comp);
         setMotor(rocketHandle, mountHandle, designation, diameter, length,
@@ -339,7 +342,7 @@ public final class OrkEngine {
             double diameter, double length, double[] times, double[] thrusts,
             double[] masses, double cgX, double ejectionDelay) {
         RocketCtx ctx = (RocketCtx) get(rocketHandle);
-        InnerTube mount = (InnerTube) get(mountHandle);
+        MotorMount mount = (MotorMount) get(mountHandle);
 
         Coordinate[] cgPoints = new Coordinate[times.length];
         for (int i = 0; i < times.length; i++) {
@@ -378,11 +381,11 @@ public final class OrkEngine {
             String ignitionEvent, double ignitionDelay) {
         RocketCtx ctx = (RocketCtx) get(rocketHandle);
         RocketComponent comp = ctx.ids.get(componentId);
-        if (!(comp instanceof InnerTube)) {
+        if (!(comp instanceof MotorMount)) {
             throw new IllegalArgumentException(
-                    "Component id '" + componentId + "' is not an inner-tube motor mount");
+                    "Component id '" + componentId + "' is not a motor mount");
         }
-        MotorConfiguration mc = ((InnerTube) comp).getMotorConfig(ctx.fcid);
+        MotorConfiguration mc = ((MotorMount) comp).getMotorConfig(ctx.fcid);
         if (mc == null || mc.getMotor() == null) {
             throw new IllegalArgumentException(
                     "No motor loaded on mount '" + componentId + "' — call setMotorById first");

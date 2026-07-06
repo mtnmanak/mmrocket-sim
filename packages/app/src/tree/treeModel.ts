@@ -298,12 +298,16 @@ export function hasParallelStage(tree: RocketTree): boolean {
   return scan(tree.components);
 }
 
-/** All inner tubes flagged as motor mounts (for the motor panel). */
+/**
+ * All tubes flagged as motor mounts (for the motor panel): inner tubes, plus
+ * body tubes for minimum-diameter rockets where the motor loads directly in
+ * the airframe (kernel BodyTube implements MotorMount, same as the desktop).
+ */
 export function motorMounts(tree: RocketTree): ComponentNode[] {
   const out: ComponentNode[] = [];
   const walk = (nodes: ComponentNode[]) => {
     for (const n of nodes) {
-      if (n.type === 'innertube' && n['motorMount'] === true) out.push(n);
+      if ((n.type === 'innertube' || n.type === 'bodytube') && n['motorMount'] === true) out.push(n);
       walk(n.children ?? []);
     }
   };
