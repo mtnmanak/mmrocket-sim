@@ -5,8 +5,10 @@
  * 1.0.0. The npm package versions stay independent (they're internal
  * workspace plumbing; npm requires strict semver).
  *
- * Release checklist: bump APP_VERSION, prepend a CHANGELOG entry, commit,
- * push.
+ * Release checklist: bump APP_VERSION, prepend a CHANGELOG entry, update
+ * /version.json at the repo root (version + released + a short user-facing
+ * note — the owner's online-tools page polls it to prompt refreshes; the package
+ * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
 export const APP_VERSION = '0.026';

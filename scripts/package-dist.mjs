@@ -5,7 +5,7 @@
  * Usage: npm run package   (runs the build first via the npm script)
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -20,6 +20,24 @@ if (!existsSync(join(dist, 'index.html'))) {
 
 const versionTs = readFileSync(join(root, 'packages', 'app', 'src', 'version.ts'), 'utf8');
 const version = versionTs.match(/APP_VERSION\s*=\s*'([^']+)'/)?.[1] ?? 'unknown';
+
+// version.json (repo root, hand-maintained per release) ships at the app's
+// root so the owner's online-tools page can poll it and prompt a refresh. It is
+// copied AFTER the build, so the service worker never precaches it — polls
+// always hit the network. Release checklist enforcement: its version must
+// match APP_VERSION or the package fails.
+const versionJsonPath = join(root, 'version.json');
+if (!existsSync(versionJsonPath)) {
+  console.error('version.json is missing from the repo root — create it before packaging.');
+  process.exit(1);
+}
+const versionJson = JSON.parse(readFileSync(versionJsonPath, 'utf8'));
+if (versionJson.version !== version) {
+  console.error(`version.json says ${versionJson.version} but APP_VERSION is ${version} — `
+    + 'update version.json (version, released, note) before packaging.');
+  process.exit(1);
+}
+copyFileSync(versionJsonPath, join(dist, 'version.json'));
 
 mkdirSync(outDir, { recursive: true });
 const zipPath = join(outDir, `online-openrocket-v${version}.zip`);
