@@ -263,7 +263,7 @@ export function SimHistory({ runs, onRunsChange, onSelect, selectedId }: {
   };
 
   return (
-    <div className="panel" style={{ marginTop: 10 }}>
+    <div className={open ? 'panel' : 'panel panel-dormant'} style={{ marginTop: 10 }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
         <h2 style={{ flex: 1 }}>Saved simulations ({runs.length})</h2>
         <button className="file-btn" onClick={downloadCsv}>⬇ CSV</button>

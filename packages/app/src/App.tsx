@@ -713,42 +713,57 @@ export function App() {
         </div>
       )}
       <div className="workspace">
-        {/* Always-visible vitals: the tweak-and-refly loop never needs a tab
-            switch to check stability/mass or start a flight. */}
+        {/* Always-visible vitals, styled as an instrument readout: the
+            tweak-and-refly loop never needs a tab switch to check stability/
+            mass or start a flight. */}
         <div className="vitals-strip">
-          <span className="vitals-name" title="Rocket name — edit it in the Design workspace">
-            {tree.name || 'Rocket'}
+          <span className="vitals-item vitals-item-name" title="Rocket name — edit it in the Design workspace">
+            <span className="vitals-label">Rocket</span>
+            <span className="vitals-value">{tree.name || 'Rocket'}</span>
           </span>
-          {built && (
+          {built ? (
             <>
-              <span
-                className={`vitals-chip ${built.info.stabilityCalibers >= 1 ? 'stability-good' : 'stability-bad'}`}
-                title="Static stability margin (calibers)"
-              >
-                {built.info.stabilityCalibers >= 1 ? '✓' : '⚠'} {built.info.stabilityCalibers.toFixed(2)} cal
+              <span className="vitals-item" title="Static stability margin (calibers)">
+                <span className="vitals-label">Stability</span>
+                <span className={`vitals-value ${built.info.stabilityCalibers >= 1 ? 'stability-good' : 'stability-bad'}`}>
+                  {built.info.stabilityCalibers >= 1 ? '✓' : '⚠'} {built.info.stabilityCalibers.toFixed(2)} cal
+                </span>
               </span>
-              <span className="vitals-chip" title="Mass, loaded (with motors)">
-                {fmtSi('mass', prefs.units.mass, built.info.mass)}&nbsp;<UnitChip quantity="mass" />
+              <span className="vitals-item" title="Mass, loaded (with motors)">
+                <span className="vitals-label">Mass</span>
+                <span className="vitals-value">
+                  {fmtSi('mass', prefs.units.mass, built.info.mass)}&nbsp;<UnitChip quantity="mass" />
+                </span>
               </span>
             </>
+          ) : buildError && (
+            <span className="vitals-item" title={buildError}>
+              <span className="vitals-label">Build</span>
+              <span className="vitals-value stability-bad">⚠ error</span>
+            </span>
           )}
-          {!built && buildError && (
-            <span className="vitals-chip stability-bad" title={buildError}>⚠ build error</span>
-          )}
-          <span className="vitals-chip" title="Motor on the primary (sustainer) mount — assign it in Motors & Launch">
-            {primaryLabel ?? 'no motor'}{assigned.length > 1 ? ` +${assigned.length - 1}` : ''}
+          <span className="vitals-item" title="Motor on the primary (sustainer) mount — assign it in Motors & Launch">
+            <span className="vitals-label">Motor</span>
+            <span className="vitals-value">
+              {primaryLabel ?? <span className="vitals-none">none</span>}
+              {assigned.length > 1 ? ` +${assigned.length - 1}` : ''}
+            </span>
           </span>
           {effectiveSupersonic && (
-            <span className="vitals-chip"
+            <span className="vitals-item"
               title={aeroMode === 'auto'
                 ? 'Auto aero: this design flew past Mach 0.9, so stability, drag analysis and flights use the supersonic model'
                 : 'Supersonic aerodynamics model active (Preferences → Aerodynamics)'}>
-              M+ aero
+              <span className="vitals-label">Aero</span>
+              <span className="vitals-value vitals-aero">M+ supersonic</span>
             </span>
           )}
           {lastApogee !== null && (
-            <span className="vitals-chip" title="Apogee of the most recent flight">
-              ⬆ {fmtSi('distance', prefs.units.distance, lastApogee)}&nbsp;<UnitChip quantity="distance" />
+            <span className="vitals-item" title="Apogee of the most recent flight">
+              <span className="vitals-label">Apogee</span>
+              <span className="vitals-value">
+                {fmtSi('distance', prefs.units.distance, lastApogee)}&nbsp;<UnitChip quantity="distance" />
+              </span>
             </span>
           )}
           <button
@@ -854,16 +869,18 @@ export function App() {
                   aria-selected={view === '3d'} onClick={() => setView('3d')}>3D</button>
               </div>
             </div>
-            {view === '2d'
-              ? (
-                <TreeSchematic
-                  tree={tree}
-                  info={built?.info ?? null}
-                  motors={motorDims}
-                  onPatchNode={(id, patch) => setTree(updateNode(tree, id, patch))}
-                />
-              )
-              : <Rocket3D tree={tree} info={built?.info ?? null} />}
+            <div className="rocket-stage">
+              {view === '2d'
+                ? (
+                  <TreeSchematic
+                    tree={tree}
+                    info={built?.info ?? null}
+                    motors={motorDims}
+                    onPatchNode={(id, patch) => setTree(updateNode(tree, id, patch))}
+                  />
+                )
+                : <Rocket3D tree={tree} info={built?.info ?? null} />}
+            </div>
             {mountSizes.length > 0 && (
               <div className="mount-sizes" title="Motor mount inner diameter — the nominal motor size each mount accepts">
                 <span className="mount-sizes-label">
@@ -902,8 +919,9 @@ export function App() {
               onPatchAll={(patch) => setTree(updateAllNodes(tree, patch))}
             />
           ) : (
-            <div className="panel placeholder">
-              Select a component in the tree to edit its properties here.
+            <div className="panel placeholder empty-state">
+              <Icon name="wrench" size={22} />
+              <p>Select a component in the tree to edit its properties here.</p>
             </div>
           )}
         </aside>
@@ -914,12 +932,14 @@ export function App() {
         <div className="motors-layout">
           <div className="panel motors-schematic">
             <h2>Rocket — motors drawn to scale</h2>
-            <TreeSchematic
-              tree={tree}
-              info={built?.info ?? null}
-              motors={motorDims}
-              onPatchNode={(id, patch) => setTree(updateNode(tree, id, patch))}
-            />
+            <div className="rocket-stage">
+              <TreeSchematic
+                tree={tree}
+                info={built?.info ?? null}
+                motors={motorDims}
+                onPatchNode={(id, patch) => setTree(updateNode(tree, id, patch))}
+              />
+            </div>
           </div>
 
           <div className="panel">
@@ -1135,9 +1155,13 @@ export function App() {
             // in full, but charts need a fresh simulation's series.
             <SimRunDetails run={lastRun} />
           ) : (
-            <div className="panel placeholder">
-              This design hasn't flown yet — press <strong>Launch</strong> (above)
-              to fly it and see altitude, velocity and acceleration plots.
+            <div className="panel placeholder empty-state">
+              <Icon name="rocket" size={30} />
+              <p><strong>This design hasn't flown yet</strong></p>
+              <p>
+                Press <strong>Launch</strong> (above) to fly it and see altitude,
+                velocity and acceleration plots.
+              </p>
             </div>
           )}
           {built && <DragPanel rocket={built.rocket} supersonicModel={effectiveSupersonic} />}

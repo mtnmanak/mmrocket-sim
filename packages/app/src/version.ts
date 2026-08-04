@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.027';
+export const APP_VERSION = '0.028';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.028',
+    date: '2026-08-04',
+    title: 'Identity pass 2: the telemetry bar, a stage for the rocket, real empty states',
+    items: [
+      'The always-visible vitals bar is now a proper instrument readout: each value gets a labeled station (ROCKET · STABILITY · MASS · MOTOR · APOGEE) with hairline dividers, ending in the orange Launch button — mission control at the top of every workspace.',
+      'The rocket view sits on a subtle dusk-sky stage in both the Design and Motors workspaces, so the vehicle reads as the subject instead of floating on panel gray.',
+      'Empty states now invite instead of apologize: a proper "This design hasn\'t flown yet" card on Results, a matching hint in the property column, and collapsed panels (Drag analysis, Saved simulations) that look intentionally dormant.',
+    ],
+  },
   {
     version: '0.027',
     date: '2026-08-04',

@@ -172,7 +172,7 @@ export function DragPanel({ rocket, supersonicModel }: {
   }, [sweep, mode]);
 
   return (
-    <div className="panel">
+    <div className={open ? 'panel' : 'panel panel-dormant'}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
         <h2 style={{ flex: 1 }}>Drag analysis</h2>
         <button className="file-btn" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
