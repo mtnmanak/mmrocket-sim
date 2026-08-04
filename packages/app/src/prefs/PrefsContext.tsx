@@ -18,6 +18,8 @@ export interface Preferences {
    * classic Barrowman drops — a slightly more aft, more conservative CP.
    */
   rogersKbf?: boolean;
+  /** Opt-in RASAero-class supersonic aerodynamics (feature #1). Default off. */
+  supersonicAero?: boolean;
   /**
    * True once the user picks a theme themselves. Stored themes without this
    * flag were incidental snapshots of an old default and yield to the current

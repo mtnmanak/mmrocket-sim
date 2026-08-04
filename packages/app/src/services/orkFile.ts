@@ -196,6 +196,7 @@ export function importOrk(data: ArrayBuffer | string): OrkTreeImportResult {
         if (cantDeg !== 0) n['cant'] = (cantDeg * Math.PI) / 180;
         const cs = text(el, ':scope > crosssection');
         if (cs && cs !== 'square') n['crossSection'] = cs;
+        readAirfoil(el, n);
         readFinTabs(el, n);
         return n;
       }
@@ -207,6 +208,7 @@ export function importOrk(data: ArrayBuffer | string): OrkTreeImportResult {
         if (cantDegF !== 0) n['cant'] = (cantDegF * Math.PI) / 180;
         const csF = text(el, ':scope > crosssection');
         if (csF && csF !== 'square') n['crossSection'] = csF;
+        readAirfoil(el, n);
         readFinTabs(el, n);
         const ptEls = Array.from(el.querySelectorAll(':scope > finpoints > point'));
         // A missing x/y attribute must SKIP the point (Number(null) is 0,
@@ -228,6 +230,7 @@ export function importOrk(data: ArrayBuffer | string): OrkTreeImportResult {
         if (cantDegE !== 0) n['cant'] = (cantDegE * Math.PI) / 180;
         const csE = text(el, ':scope > crosssection');
         if (csE && csE !== 'square') n['crossSection'] = csE;
+        readAirfoil(el, n);
         readFinTabs(el, n);
         return n;
       }
@@ -502,6 +505,23 @@ export function exportOrk({ name, tree, motors, motor, mountId }: OrkTreeExportI
     }
   };
 
+  // RASAero feature #4: supersonic airfoil section — our extension tags,
+  // written only when set (the desktop loader warns-and-continues on them).
+  const airfoilXml = (depth: number, node: ComponentNode) => {
+    const section = node['airfoilSection'];
+    if (typeof section === 'string' && section) {
+      emit(depth, `<airfoilsection>${escapeXml(section)}</airfoilsection>`);
+    }
+    for (const [key, tag] of [
+      ['airfoilLeDiamond', 'airfoillediamond'],
+      ['airfoilTeDiamond', 'airfoiltediamond'],
+      ['finLeRadius', 'finleradius'],
+    ] as const) {
+      const v = node[key];
+      if (typeof v === 'number' && v > 0) emit(depth, `<${tag}>${v}</${tag}>`);
+    }
+  };
+
   const finishXml = (depth: number, node: ComponentNode) => {
     // finish (like shape/crosssection/cluster below) is file-sourced free
     // text on import — escape it or a crafted file breaks the re-export.
@@ -657,6 +677,7 @@ export function exportOrk({ name, tree, motors, motor, mountId }: OrkTreeExportI
         material(depth + 1, node);
         emit(depth + 1, `<thickness>${n(node, 'thickness', 0.003)}</thickness>`);
         emit(depth + 1, `<crosssection>${escapeXml(String(node['crossSection'] ?? 'square'))}</crosssection>`);
+        airfoilXml(depth + 1, node);
         emit(depth + 1, `<cant>${(n(node, 'cant', 0) * 180) / Math.PI}</cant>`);
         finTabsXml(depth + 1, node);
         emit(depth + 1, '<filletradius>0.0</filletradius>');
@@ -681,6 +702,7 @@ export function exportOrk({ name, tree, motors, motor, mountId }: OrkTreeExportI
         material(depth + 1, node);
         emit(depth + 1, `<thickness>${n(node, 'thickness', 0.003)}</thickness>`);
         emit(depth + 1, `<crosssection>${escapeXml(String(node['crossSection'] ?? 'square'))}</crosssection>`);
+        airfoilXml(depth + 1, node);
         emit(depth + 1, `<cant>${(n(node, 'cant', 0) * 180) / Math.PI}</cant>`);
         finTabsXml(depth + 1, node);
         emit(depth + 1, '<filletradius>0.0</filletradius>');
@@ -707,6 +729,7 @@ export function exportOrk({ name, tree, motors, motor, mountId }: OrkTreeExportI
         material(depth + 1, node);
         emit(depth + 1, `<thickness>${n(node, 'thickness', 0.003)}</thickness>`);
         emit(depth + 1, `<crosssection>${escapeXml(String(node['crossSection'] ?? 'square'))}</crosssection>`);
+        airfoilXml(depth + 1, node);
         emit(depth + 1, `<cant>${(n(node, 'cant', 0) * 180) / Math.PI}</cant>`);
         finTabsXml(depth + 1, node);
         emit(depth + 1, '<filletradius>0.0</filletradius>');
@@ -1032,6 +1055,22 @@ function readSoftMaterial(el: Element, node: ComponentNode, kind: 'surface' | 'l
  * files carry TWO tabposition elements (legacy front/center/end + modern
  * top/middle/bottom) — like the desktop reader, the last one wins.
  */
+/**
+ * RASAero feature #4: supersonic airfoil section (our extension tags — the
+ * desktop loader warns on unknown elements and continues, so files stay
+ * openable there). Absent tags leave the classic cross-section behavior.
+ */
+function readAirfoil(el: Element, node: ComponentNode): void {
+  const section = text(el, ':scope > airfoilsection');
+  if (section) node['airfoilSection'] = section;
+  const led = num(el, 'airfoillediamond', 0);
+  if (led > 0) node['airfoilLeDiamond'] = led;
+  const ted = num(el, 'airfoiltediamond', 0);
+  if (ted > 0) node['airfoilTeDiamond'] = ted;
+  const ler = num(el, 'finleradius', 0);
+  if (ler > 0) node['finLeRadius'] = ler;
+}
+
 function readFinTabs(el: Element, node: ComponentNode): void {
   const h = num(el, 'tabheight', 0);
   const len = num(el, 'tablength', 0);

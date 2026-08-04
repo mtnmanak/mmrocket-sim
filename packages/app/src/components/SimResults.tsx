@@ -174,6 +174,9 @@ export function SimRunDetails({ run }: { run: SimRun }) {
               <Row label="Time to burnout" value={s(run.timeToBurnout)} unit="s" />
               <Row label="Time to apogee" value={s(run.timeToApogee)} unit="s" />
               <Row label="Total flight time" value={s(run.totalFlightTime, 1)} unit="s" />
+              <Row label="Aero model" value={run.aeroModel === 'supersonic'
+                ? 'Supersonic (RASAero-class)'
+                : run.aeroModel === 'classic' ? 'Classic (Extended Barrowman)' : '—'} />
               <Row label="Execution time" value={`${Math.round(run.execMs)} ms`} />
             </tbody>
           </table>

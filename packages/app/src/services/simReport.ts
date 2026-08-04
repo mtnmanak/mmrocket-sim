@@ -158,6 +158,12 @@ export interface SimRun {
 
   windAvg: number;
   execMs: number;
+  /**
+   * Which aerodynamics model produced this run: 'classic' Extended Barrowman
+   * (desktop parity) or the opt-in 'supersonic' RASAero-class model.
+   * Absent on runs stored before v0.025.
+   */
+  aeroModel?: 'classic' | 'supersonic';
   comments: string;
 }
 
@@ -242,8 +248,9 @@ export function buildSimRun(input: {
   /** Per-stage motor info by STAGE NAME (staged rockets; G80 safety rules). */
   stageMotorInfo?: Record<string, { label: string; highPower: boolean }>;
   boosterMotors?: string[];
+  aeroModel?: 'classic' | 'supersonic';
 }): SimRun {
-  const { result, info, motor, meta, launch, rocketName, execMs, stageMotorInfo, boosterMotors } = input;
+  const { result, info, motor, meta, launch, rocketName, execMs, stageMotorInfo, boosterMotors, aeroModel } = input;
   const { summary, series } = result;
 
   const tRod = eventTime(result, 'LAUNCHROD');
@@ -426,6 +433,7 @@ export function buildSimRun(input: {
     weathercockRisk,
     windAvg: launch.windAverage,
     execMs,
+    aeroModel,
     comments: comments.join(' | '),
   };
 }

@@ -80,10 +80,14 @@ function LineChart({ x, lines, xLabel, height = 190 }: {
 }
 
 function exportCsv(sweep: DragSweep) {
+  // RASAero feature #6: the full aerodynamic-coefficient table (CD both power
+  // states + CP + CNa vs Mach) — usable as input to external trajectory codes.
   const cols: [string, number[]][] = [
     ['mach', sweep.machs],
     ['cd_power_off', sweep.powerOff.total],
     ['cd_power_on', sweep.powerOn.total],
+    ['cp_m_from_nose', sweep.cp],
+    ['cna_per_rad', sweep.cna],
     ['friction', sweep.powerOff.friction],
     ['pressure', sweep.powerOff.pressure],
     ['base_power_off', sweep.powerOff.base],
@@ -104,10 +108,19 @@ function exportCsv(sweep: DragSweep) {
 
 type BreakdownMode = 'component' | 'type';
 
-export function DragPanel({ rocket }: { rocket: OrkRocket }) {
+export function DragPanel({ rocket, supersonicModel }: {
+  rocket: OrkRocket;
+  /** Whether the opt-in supersonic aero model is active (Preferences → Aerodynamics). */
+  supersonicModel?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const [machMax, setMachMax] = useState(3);
   const [mode, setMode] = useState<BreakdownMode>('component');
+
+  // High-Mach ranges only make sense with the supersonic model on.
+  useEffect(() => {
+    if (!supersonicModel && machMax > 5) setMachMax(5);
+  }, [supersonicModel, machMax]);
 
   // Only pay the sweep cost while the panel is open. Recomputes when the design
   // (rocket handle) or the range changes.
@@ -119,6 +132,23 @@ export function DragPanel({ rocket }: { rocket: OrkRocket }) {
       return { error: e instanceof Error ? e.message : String(e) };
     }
   }, [open, rocket, machMax]);
+
+  // CP as % of body length (the wind-tunnel convention for CP-vs-Mach plots).
+  const cpLines = useMemo<Line[]>(() => {
+    if (!sweep || 'error' in sweep) return [];
+    let length = 0;
+    try {
+      length = rocket.staticInfo().length;
+    } catch {
+      return [];
+    }
+    if (length <= 0) return [];
+    return [{
+      label: 'CP (% of length from nose)',
+      color: C[3]!,
+      values: sweep.cp.map((v) => (v / length) * 100),
+    }];
+  }, [sweep, rocket]);
 
   const totalLines = useMemo<Line[]>(() => {
     if (!sweep || 'error' in sweep) return [];
@@ -162,6 +192,8 @@ export function DragPanel({ rocket }: { rocket: OrkRocket }) {
                 <option value={2}>2</option>
                 <option value={3}>3</option>
                 <option value={5}>5</option>
+                {supersonicModel && <option value={10}>10</option>}
+                {supersonicModel && <option value={25}>25</option>}
               </select>
             </label>
             <span style={{ flex: 1 }} />
@@ -179,6 +211,26 @@ export function DragPanel({ rocket }: { rocket: OrkRocket }) {
             )}
           </div>
 
+          {cpLines.length > 0 && (
+            <div className="chart-panel">
+              <h3>Center of pressure vs Mach</h3>
+              <LineChart x={sweep.machs} lines={cpLines} xLabel="Mach" height={160} />
+              {supersonicModel ? (
+                <p className="motor-db-meta" style={{ marginTop: 4 }}>
+                  Supersonic CP travel is the stability hazard on fast flights — check your
+                  margin at max Mach, not just at rest. RASAero practice: keep ≥ 2 calibers
+                  through the transonic and supersonic regime.
+                </p>
+              ) : (
+                <p className="motor-db-meta" style={{ marginTop: 4 }}>
+                  The classic model freezes body CP above Mach 1 — enable
+                  <strong> Supersonic aerodynamics</strong> in Preferences → Aerodynamics for
+                  wind-tunnel-validated CP travel.
+                </p>
+              )}
+            </div>
+          )}
+
           <div className="chart-panel">
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
               <h3 style={{ flex: 1 }}>Breakdown (power-off)</h3>
@@ -192,12 +244,20 @@ export function DragPanel({ rocket }: { rocket: OrkRocket }) {
             <LineChart x={sweep.machs} lines={breakdownLines} xLabel="Mach" />
           </div>
 
-          {machMax > 1.5 && (
+          {machMax > 1.5 && (supersonicModel ? (
             <p className="motor-db-meta" style={{ marginTop: 2 }}>
-              Above ~Mach&nbsp;1.5 these are Extended-Barrowman estimates (approximate);
-              full supersonic/hypersonic fidelity is planned. Transonic drag rise begins near Mach&nbsp;0.9.
+              Supersonic aero model active — CP and drag validated against NASA wind-tunnel
+              data (ARCAS, Basic Finner) to ~Mach&nbsp;4.6 and physical to Mach&nbsp;25
+              (above ~Mach&nbsp;10 treat as extrapolation). Transonic peak values
+              (M0.95–1.2) run conservative-low against tunnel data.
             </p>
-          )}
+          ) : (
+            <p className="motor-db-meta" style={{ marginTop: 2 }}>
+              Above ~Mach&nbsp;1.5 these are classic Extended-Barrowman estimates
+              (approximate). Enable <strong>Supersonic aerodynamics</strong> in
+              Preferences&nbsp;→&nbsp;Aerodynamics for the validated supersonic model.
+            </p>
+          ))}
         </>
       ))}
     </div>

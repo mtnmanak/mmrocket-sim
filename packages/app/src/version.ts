@@ -9,7 +9,7 @@
  * push.
  */
 
-export const APP_VERSION = '0.024';
+export const APP_VERSION = '0.025';
 
 export interface ChangelogEntry {
   version: string;
@@ -20,6 +20,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.025',
+    date: '2026-08-04',
+    title: 'Supersonic aerodynamics (beta): RASAero-class CP & drag, Mach 0–25',
+    items: [
+      'New opt-in aero model (Preferences → Aerodynamics → "Supersonic aerodynamics"): corrected supersonic fin lift, exact NACA-1307 body-fin interference, Mach-dependent nose lift, per-shape wave drag with physical hypersonic decay, vacuum-limited base drag, and Van Driest II friction. CP and drag now move with Mach the way wind tunnels measure — validated against NASA ARCAS and Army-Navy Basic Finner data to ~Mach 4.6 (supersonic CP within ±2% of body length, matching the tunnel even where RASAero’s own prediction diverges). Off by default during beta — off is bit-identical to desktop OpenRocket. Every saved run records which model produced it.',
+      'Supersonic fin airfoils: fins can now declare a RASAero-style section — hexagonal, NACA, double wedge, biconvex, hexagonal blunt-base, or single wedge — plus chamfer lengths and a leading-edge bluntness radius. Each gets its proper supersonic thickness wave drag; blunt-base sections add fin base drag. Round-trips through .ork files.',
+      'Drag analysis panel upgrades: a CP-vs-Mach chart (the pre-flight stability check for fast rockets — keep ≥2 cal through the supersonic regime), Mach range to 25 with the supersonic model, and the CSV export is now a full aerodynamic-coefficient table (CD power-off/on, CP, CNα vs Mach) for external trajectory programs.',
+      'Under the hood: an automated validation harness (validation/ in the repo) scores every physics change against published wind-tunnel and free-flight anchors — classic Barrowman scores 8/137 points, the new model 65/137, with the remaining gaps documented honestly (transonic peak drag, free-flight base-drag environment, blunt/flare bodies).',
+    ],
+  },
   {
     version: '0.024',
     date: '2026-08-03',

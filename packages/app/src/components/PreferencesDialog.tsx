@@ -92,6 +92,26 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
           margin — affects the reported stability and the flight simulation. Off = standard
           Barrowman.
         </p>
+        <div className="field">
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={prefs.supersonicAero ?? false}
+              onChange={(e) => setPrefs({ ...prefs, supersonicAero: e.target.checked })}
+            />
+            Supersonic aerodynamics (beta) — RASAero-class CP &amp; drag, Mach&nbsp;0–25
+          </label>
+        </div>
+        <p className="prefs-hint">
+          Corrected supersonic fin lift (2D Busemann level), exact NACA&nbsp;1307 body-fin
+          interference, Mach-dependent nose lift, per-shape wave drag with physical
+          hypersonic decay, and Van&nbsp;Driest&nbsp;II friction. CP and drag then move with
+          Mach the way wind tunnels measure (validated against NASA ARCAS and Basic Finner
+          data to Mach&nbsp;4.6). Affects stability, drag analysis and the flight sim at all
+          speeds — including a modest subsonic lift increase from the interference term.
+          Off&nbsp;=&nbsp;classic OpenRocket, identical to the desktop app. Recommended for
+          flights beyond Mach&nbsp;1; supersedes the Kbf option above when on.
+        </p>
 
         <p className="prefs-hint">
           Values are stored in SI internally — switching units never changes your design,

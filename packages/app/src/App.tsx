@@ -242,6 +242,9 @@ export function App() {
       // reported CP/stability reflects it, and it persists onto this build's
       // handle for later simulate() calls.
       rocket.setRogersModifiedBarrowman(prefs.rogersKbf ?? false);
+      // Opt-in RASAero-class supersonic aerodynamics (feature #1) — CP/drag
+      // move with Mach; affects staticInfo, dragSweep and simulate alike.
+      rocket.setSupersonicAero(prefs.supersonicAero ?? false);
       for (const [id, mm] of assigned) {
         rocket.setMotorById(id, mm.spec);
         if (mm.ignition.event !== 'automatic' || mm.ignition.delay !== 0) {
@@ -253,7 +256,7 @@ export function App() {
     } catch (e) {
       return { error: e instanceof Error ? e.message : String(e) };
     }
-  }, [tree, assigned, prefs.rogersKbf]);
+  }, [tree, assigned, prefs.rogersKbf, prefs.supersonicAero]);
   const built = 'error' in buildResult ? null : buildResult;
   const buildError = 'error' in buildResult ? buildResult.error : simError;
 
@@ -329,6 +332,7 @@ export function App() {
           boosterMotors: assigned
             .filter(([id]) => id !== primaryMountId)
             .map(([, mm]) => mm.label),
+          aeroModel: prefs.supersonicAero ? 'supersonic' : 'classic',
         });
         setLastRun(run);
         setRuns(addRun(run));
@@ -1046,7 +1050,7 @@ export function App() {
               altitude, velocity and acceleration plots.
             </div>
           )}
-          {built && <DragPanel rocket={built.rocket} />}
+          {built && <DragPanel rocket={built.rocket} supersonicModel={prefs.supersonicAero ?? false} />}
           <SimHistory
             runs={runs}
             onRunsChange={setRuns}

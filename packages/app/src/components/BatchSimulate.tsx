@@ -196,6 +196,7 @@ export function BatchSimulate({ rocket, info, mountId, mountDiameterMm, maxMotor
           launch,
           rocketName,
           execMs: performance.now() - t0,
+          aeroModel: prefs.supersonicAero ? 'supersonic' : 'classic',
         });
         const failed = gradeRun(run);
         out.push({ entry, run, failed });

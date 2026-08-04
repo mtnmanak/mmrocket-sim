@@ -89,6 +89,23 @@ const CROSS_SECTIONS: [string, string][] = [
   ['square', 'Square'], ['rounded', 'Rounded'], ['airfoil', 'Airfoil (pointed)'],
 ];
 
+/**
+ * RASAero-class supersonic airfoil sections (feature #4). Unset ⇒ the classic
+ * cross-section above drives the drag model (bit-identical to before). Each
+ * section gets its proper supersonic thickness wave drag; blunt-base sections
+ * add fin base drag; the LE radius adds bluntness drag (not for NACA, whose
+ * nose radius is implicit).
+ */
+const AIRFOIL_SECTIONS: [string, string][] = [
+  ['', 'Classic (from cross section)'],
+  ['hexagonal', 'Hexagonal'],
+  ['naca', 'NACA (round LE)'],
+  ['doublewedge', 'Double wedge (diamond)'],
+  ['biconvex', 'Biconvex'],
+  ['hexbluntbase', 'Hexagonal, blunt base'],
+  ['singlewedge', 'Single wedge (blunt base)'],
+];
+
 /** Desktop's surface-finish presets (surface roughness drives skin-friction drag). */
 const FINISHES: [string, string][] = [
   ['rough', 'Rough (500 µm)'],
@@ -152,6 +169,14 @@ const FIN_TABS: FieldDef[] = [
 const CD: FieldDef = {
   key: 'cd', label: 'Drag coefficient (blank = auto)', unit: 'none', step: 0.05, smin: 0, smax: 2,
 };
+
+/** Feature #4: supersonic airfoil section + its geometry inputs (see AIRFOIL_SECTIONS). */
+const AIRFOIL_FIELDS: FieldDef[] = [
+  { key: 'airfoilSection', label: 'Supersonic airfoil', unit: 'none', options: AIRFOIL_SECTIONS },
+  lenMM('airfoilLeDiamond', 'LE chamfer length', 0.5, 100),
+  lenMM('airfoilTeDiamond', 'TE chamfer length', 0.5, 100),
+  lenMM('finLeRadius', 'LE bluntness radius', 0.1, 5),
+];
 
 /**
  * Off-axis assembly placement (PodSet / ParallelStage). The radial reference
@@ -232,6 +257,7 @@ export const FIELDS: Record<ComponentType, FieldDef[]> = {
     lenMM('thickness', 'Thickness', 0.5, 10),
     CANT,
     { key: 'crossSection', label: 'Cross section', unit: 'none', options: CROSS_SECTIONS },
+    ...AIRFOIL_FIELDS,
     ...FIN_TABS,
     FINISH,
     DENSITY,
@@ -241,6 +267,7 @@ export const FIELDS: Record<ComponentType, FieldDef[]> = {
     lenMM('thickness', 'Thickness', 0.5, 10),
     CANT,
     { key: 'crossSection', label: 'Cross section', unit: 'none', options: CROSS_SECTIONS },
+    ...AIRFOIL_FIELDS,
     ...FIN_TABS,
     FINISH,
     DENSITY,
@@ -251,6 +278,7 @@ export const FIELDS: Record<ComponentType, FieldDef[]> = {
     lenMM('height', 'Height', 1, 150),
     lenMM('thickness', 'Thickness', 0.5, 10),
     { key: 'crossSection', label: 'Cross section', unit: 'none', options: CROSS_SECTIONS },
+    ...AIRFOIL_FIELDS,
     ...FIN_TABS,
     FINISH,
     DENSITY,
