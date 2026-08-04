@@ -1,0 +1,24 @@
+{
+  "name": "ARCAS Short (NASA TN D-4013/D-4014 half-scale tunnel model, Config 1)",
+  "_notes": [
+    "Geometry from docs/research/validation-anchors-2026-08-03.md §1.2. d = 2.250 in = 0.05715 m.",
+    "Fins physically sit over the boattail station; modeled flush with the body tube aft end (the RASAero equal-volume convention region). Kernel cannot place fins on a transition.",
+    "Boattail modeled from its dimensioned values (length 1.81 in, base dia 1.470 in); the nominal '15 deg half-angle' label is inconsistent with those (reflexed base lip ignored, as RASAero did).",
+    "Fin section is a double wedge (1.47 deg half-angle, LE radius 0.030 in); closest kernel cross-section is 'airfoil' — a known fidelity gap until feature #4 (8 airfoils).",
+    "Thicknesses are nominal: mass does not affect CP/CD scoring."
+  ],
+  "components": [
+    { "type": "nosecone", "shape": "ogive", "shapeParameter": 1.0, "length": 0.269240, "aftRadius": 0.0285750, "thickness": 0.0015 },
+    {
+      "type": "bodytube", "length": 0.724916, "outerRadius": 0.0285750, "thickness": 0.0015,
+      "children": [
+        {
+          "type": "trapezoidfinset", "finCount": 4, "rootChord": 0.0858520, "tipChord": 0.0530860,
+          "sweep": 0.0308400, "height": 0.0534162, "thickness": 0.0038100, "crossSection": "airfoil",
+          "position": { "method": "bottom", "offset": 0 }
+        }
+      ]
+    },
+    { "type": "transition", "shape": "conical", "length": 0.045974, "foreRadius": 0.0285750, "aftRadius": 0.0186690, "thickness": 0.0015 }
+  ]
+}

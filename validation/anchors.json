@@ -1,0 +1,119 @@
+{
+  "_readme": [
+    "Machine-readable validation anchors, derived from docs/research/validation-anchors-2026-08-03.md (see it for provenance, tolerances, and caveats).",
+    "Scored by validation/score.mjs. Each series: quantity is one of cd | cpPctL | cpOverL | cnaPerRad | cnaPerDeg.",
+    "cd series carry base: 'included' (compare kernel total CD) or 'excluded' (compare kernel total minus base CD) to match each dataset's accounting.",
+    "tol is absolute in the anchor's unit; relTol is relative (fraction of the anchor value); gate=false series are informational (reported, never counted).",
+    "gateMinMach/gateMaxMach restrict which points count toward the gate; outside points report as info.",
+    "refAreaScale converts kernel-referenced coefficients (max body diameter area) to the dataset's reference area (kernel value x scale).",
+    "KNOWN LIMITATION (v1): the kernel sweep computes Reynolds number at ISA sea level; the tunnels ran fixed Re/ft (ARCAS 3.0e6/ft, Cajun 2.0e6/ft) and RASAero's curves are Re-matched via its Mach-Alt table. Expect a friction-CD bias, worst subsonic. Re-matching is a planned harness upgrade."
+  ],
+  "arcas-short": {
+    "fixture": "arcas-short.json",
+    "refAreaScale": 1.0,
+    "maxMach": 5.0,
+    "series": [
+      {
+        "id": "cd-supersonic-tunnel", "quantity": "cd", "base": "included", "gate": true, "tol": 0.02,
+        "source": "TN D-4014 Fig 5(b) CA a=0 via RASAero comparison dots (read +/-0.005; CA not base-corrected)",
+        "points": [[1.19, 0.595], [1.49, 0.532], [1.8, 0.470], [2.29, 0.376], [2.95, 0.300], [3.95, 0.223], [4.65, 0.198]]
+      },
+      {
+        "id": "cd-transonic-tunnel", "quantity": "cd", "base": "excluded", "gate": true, "tol": 0.03,
+        "source": "TN D-4013 CA,corr fins-on dF=0 (corrected to free-stream base pressure => base excluded)",
+        "points": [[0.6, 0.295], [0.7, 0.300], [0.8, 0.309], [0.9, 0.350], [0.95, 0.46], [1.0, 0.683], [1.05, 0.685], [1.1, 0.666], [1.15, 0.635], [1.2, 0.596]]
+      },
+      {
+        "id": "cp-supersonic-tunnel", "quantity": "cpPctL", "gate": true, "tol": 2.0, "gateMaxMach": 3.5,
+        "source": "TN D-4014 Fig 7 via RASAero comparison (markers +/-0.3 %L); above M3.5 report-only (RASAero itself diverges from the tunnel there)",
+        "points": [[1.5, 78.2], [2.0, 75.3], [2.5, 72.3], [3.0, 68.1], [3.5, 64.9], [4.0, 60.7], [4.5, 57.7], [4.63, 57.2]]
+      },
+      {
+        "id": "cd-rasaero-parity", "quantity": "cd", "base": "included", "gate": false, "tol": 0.02,
+        "source": "RASAero II curve reads p17 (+/-0.01, Re-matched via Mach-Alt) - parity tracking only",
+        "points": [[0.3, 0.280], [0.5, 0.291], [0.8, 0.304], [0.9, 0.319], [1.05, 0.552], [1.15, 0.575], [1.5, 0.465], [2.0, 0.385], [2.5, 0.330], [3.0, 0.295], [3.5, 0.263], [4.0, 0.240], [4.63, 0.214], [5.0, 0.207]]
+      }
+    ]
+  },
+  "arcas-long": {
+    "fixture": "arcas-long.json",
+    "refAreaScale": 1.0,
+    "maxMach": 5.0,
+    "series": [
+      {
+        "id": "cd-supersonic-tunnel", "quantity": "cd", "base": "included", "gate": true, "tol": 0.02,
+        "source": "TN D-4014 Fig 6(b) CA a=0 via RASAero comparison dots (no M1.5 Long data)",
+        "points": [[1.19, 0.607], [1.8, 0.508], [2.29, 0.410], [2.95, 0.336], [3.95, 0.269], [4.65, 0.225]]
+      },
+      {
+        "id": "cd-transonic-tunnel", "quantity": "cd", "base": "excluded", "gate": true, "tol": 0.03,
+        "source": "TN D-4013 CA,corr fins-on (base excluded); peak region +/-0.03",
+        "points": [[0.6, 0.348], [0.7, 0.348], [0.8, 0.353], [0.9, 0.385], [0.95, 0.47], [1.0, 0.63], [1.05, 0.72], [1.1, 0.735], [1.15, 0.665], [1.2, 0.635]]
+      },
+      {
+        "id": "cp-supersonic-tunnel", "quantity": "cpPctL", "gate": true, "tol": 2.0, "gateMaxMach": 3.5,
+        "source": "TN D-4014 WT Config 2 (starts ~M1.8); above M3.5 report-only",
+        "points": [[2.0, 75.3], [2.5, 72.3], [3.0, 67.9], [3.5, 64.7], [4.0, 59.9], [4.5, 56.6], [4.63, 56.0]]
+      },
+      {
+        "id": "cd-rasaero-parity", "quantity": "cd", "base": "included", "gate": false, "tol": 0.02,
+        "source": "RASAero II curve reads p19 - parity tracking only",
+        "points": [[0.3, 0.342], [0.5, 0.349], [0.8, 0.363], [0.9, 0.380], [1.15, 0.628], [1.5, 0.514], [2.0, 0.41], [2.5, 0.365], [3.0, 0.325], [3.5, 0.291], [4.0, 0.263], [4.63, 0.229], [5.0, 0.22]]
+      }
+    ]
+  },
+  "basic-finner": {
+    "fixture": "basic-finner.json",
+    "refAreaScale": 1.0,
+    "maxMach": 5.0,
+    "series": [
+      {
+        "id": "cd0-freeflight", "quantity": "cd", "base": "included", "gate": true, "tol": 0.03, "gateMaxMach": 4.2,
+        "source": "DREV-TM-9703 Table VIII Cx0 (6-DOF fits, includes base at flight Re); M>4.2 shots had fin ablation - info only",
+        "points": [[1.056, 0.868], [1.058, 0.868], [1.116, 0.854], [1.254, 0.760], [1.332, 0.701], [1.377, 0.708], [1.799, 0.594], [1.846, 0.598], [1.85, 0.567], [2.348, 0.500], [2.364, 0.478], [2.414, 0.473], [2.663, 0.446], [2.741, 0.400], [2.749, 0.452], [2.969, 0.385], [2.97, 0.376], [3.312, 0.350], [3.338, 0.376], [3.682, 0.310], [3.745, 0.309], [3.775, 0.308], [4.127, 0.285], [4.425, 0.268], [4.473, 0.257]]
+      },
+      {
+        "id": "cna-freeflight", "quantity": "cnaPerRad", "gate": true, "relTol": 0.10, "gateMaxMach": 4.2,
+        "source": "DREV-TM-9703 Table VIII CNa per rad (shot-to-shot scatter ~5-8%)",
+        "points": [[1.056, 18.73], [1.058, 18.02], [1.116, 18.5], [1.254, 18.81], [1.332, 16.29], [1.377, 16.37], [1.799, 11.29], [1.846, 11.8], [1.85, 11.8], [2.348, 10.37], [2.364, 10.17], [2.414, 9.92], [2.663, 8.95], [2.741, 8.92], [2.749, 9.0], [2.969, 8.0], [2.97, 8.72], [3.312, 8.41], [3.338, 8.19], [3.682, 8.13], [3.745, 8.45], [3.775, 7.92], [4.127, 7.65]]
+      },
+      {
+        "id": "cp-freeflight", "quantity": "cpPctL", "gate": true, "tol": 1.5, "gateMaxMach": 4.2,
+        "source": "DREV-TM-9703 Table VIII x_cp = 5.5 - Cma/CNa (%L; 82->66 %L over M1.06-4.13 is the shape to match)",
+        "points": [[1.056, 82.0], [1.058, 83.6], [1.116, 84.5], [1.254, 83.0], [1.332, 85.6], [1.377, 83.0], [1.799, 80.7], [1.846, 78.3], [1.85, 78.3], [2.348, 74.0], [2.364, 73.7], [2.414, 73.3], [2.663, 72.8], [2.741, 71.6], [2.749, 72.1], [2.969, 72.4], [2.97, 70.5], [3.312, 68.7], [3.338, 68.7], [3.682, 67.5], [3.745, 66.2], [3.775, 66.7], [4.127, 66.0]]
+      }
+    ]
+  },
+  "hb2": {
+    "fixture": "hb2.json",
+    "refAreaScale": 2.56,
+    "maxMach": 10.5,
+    "series": [
+      {
+        "id": "cna-aedc", "quantity": "cnaPerDeg", "gate": true, "tol": 0.005,
+        "source": "AEDC-TDR-64-137 Fig 15a correlation fairings at max Re (digitized +/-0.001/deg; cylinder ref area)",
+        "points": [[1.5, 0.08], [2.0, 0.0835], [3.0, 0.0835], [4.0, 0.0805], [5.0, 0.074], [6.0, 0.0665], [7.0, 0.062], [8.0, 0.056], [10.0, 0.054]]
+      },
+      {
+        "id": "xcp-aedc", "quantity": "cpOverL", "gate": true, "tol": 0.03,
+        "source": "AEDC-TDR-64-137 Fig 15b xcp/l from nose (non-monotone: flare body)",
+        "points": [[1.5, 0.46], [2.0, 0.465], [3.0, 0.52], [4.0, 0.55], [5.0, 0.555], [6.0, 0.535], [7.0, 0.53], [8.0, 0.52], [10.0, 0.475]]
+      },
+      {
+        "id": "ca0-aedc", "quantity": "cd", "base": "included", "gate": true, "tol": 0.05, "gateMinMach": 2.0,
+        "source": "AEDC CA0 = CAf + CAb (cylinder ref). Below M2 report-only: base drag facility-disputed (AEDC ~1.17 vs VTI/ONERA ~1.5 at M1.4-1.5)",
+        "points": [[1.5, 1.17], [2.0, 1.08], [3.0, 0.90], [4.0, 0.78], [5.0, 0.69], [6.0, 0.63], [7.0, 0.62], [8.0, 0.59], [10.0, 0.58]]
+      },
+      {
+        "id": "ca0-vti-transonic", "quantity": "cd", "base": "included", "gate": false, "tol": 0.05,
+        "source": "VTI T-38 2025 Tables 4/5, 75mm Able Mk18 (EXACT published; sting/base caveats; info only)",
+        "points": [[0.7, 0.759], [0.79, 0.81], [0.9, 0.986], [1.0, 1.541], [1.1, 1.833], [1.19, 1.716], [1.28, 1.65], [1.39, 1.575]]
+      },
+      {
+        "id": "cna-vti-transonic", "quantity": "cnaPerRad", "gate": false, "tol": 0.3,
+        "source": "VTI T-38 2025 75mm Able Mk18 CNa per rad (EXACT published; info only)",
+        "points": [[0.7, 4.74], [0.79, 4.96], [0.9, 5.53], [1.0, 4.78], [1.1, 4.79], [1.19, 4.76], [1.28, 4.69], [1.39, 4.66]]
+      }
+    ]
+  }
+}

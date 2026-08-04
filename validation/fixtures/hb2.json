@@ -1,0 +1,14 @@
+{
+  "name": "AGARD/STA HB-2 hypersonic standard model (75 mm, approximated)",
+  "_notes": [
+    "Geometry from docs/research/validation-anchors-2026-08-03.md §3.2. d = 75 mm; overall 4.900 d = 0.3675 m; base 1.600 d.",
+    "APPROXIMATIONS (kernel limits, to be revisited when nose bluntness lands): the 0.300 d spherical nose cap + 25 deg cone + 0.700 d fairing arc are modeled as a sharp cone ending at the true shoulder-cylinder tangency (0.818 d); the 4.000 d cylinder-flare fairing arc is split into cylinder to the fairing-flare tangency (3.553 d) + a conical flare to the base.",
+    "No fins — pure body aero (that is the point of this fixture).",
+    "DATASET REFERENCE AREA IS THE CYLINDER (d), NOT THE BASE: the kernel references the max diameter (1.6 d), so scored coefficients are multiplied by 2.56 (refAreaScale in anchors.json)."
+  ],
+  "components": [
+    { "type": "nosecone", "shape": "conical", "length": 0.061350, "aftRadius": 0.0375, "thickness": 0.0015 },
+    { "type": "bodytube", "length": 0.205125, "outerRadius": 0.0375, "thickness": 0.0015 },
+    { "type": "transition", "shape": "conical", "length": 0.101025, "foreRadius": 0.0375, "aftRadius": 0.060, "thickness": 0.0015 }
+  ]
+}

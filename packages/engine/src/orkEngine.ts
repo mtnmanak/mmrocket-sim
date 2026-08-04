@@ -276,6 +276,14 @@ export interface DragSweep {
   machs: number[];
   /** Whether any stage sets a nozzle exit diameter (so power-on differs from power-off). */
   hasNozzle: boolean;
+  /**
+   * CP location per Mach (m from the nose tip), at the sweep's angle of attack.
+   * Power state doesn't move CP, so one curve serves both. Feeds the
+   * validation harness and CP-vs-Mach plotting.
+   */
+  cp: number[];
+  /** Normal-force-coefficient slope CNα per Mach (per radian, kernel reference area). */
+  cna: number[];
   /** Coast (motors off) drag. */
   powerOff: DragCurve;
   /** Boost (all stages thrusting) drag — differs from powerOff only when hasNozzle. */

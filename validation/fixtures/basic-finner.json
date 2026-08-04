@@ -1,0 +1,22 @@
+{
+  "name": "Army-Navy Basic Finner (DRDC 30 mm free-flight model)",
+  "_notes": [
+    "Geometry from docs/research/validation-anchors-2026-08-03.md §4.2. d = 30.00 mm, total 10.0 cal.",
+    "Nose: 10 deg half-angle sharp cone, length 2.836 cal (meplat 0.004 cal ignored).",
+    "Fins: 4 rectangular, 1.0 x 1.0 cal, flush with base. Section is a sharp-LE wedge thickening to 0.08 cal at the TE; closest kernel cross-section is 'airfoil' — expect Cx0 underprediction until per-shape thickness wave drag exists (feature #4).",
+    "Anchor Cx0 includes base drag at flight Re (free-flight data)."
+  ],
+  "components": [
+    { "type": "nosecone", "shape": "conical", "length": 0.08508, "aftRadius": 0.015, "thickness": 0.0015 },
+    {
+      "type": "bodytube", "length": 0.21492, "outerRadius": 0.015, "thickness": 0.0015,
+      "children": [
+        {
+          "type": "trapezoidfinset", "finCount": 4, "rootChord": 0.030, "tipChord": 0.030,
+          "sweep": 0, "height": 0.030, "thickness": 0.0024, "crossSection": "airfoil",
+          "position": { "method": "bottom", "offset": 0 }
+        }
+      ]
+    }
+  ]
+}

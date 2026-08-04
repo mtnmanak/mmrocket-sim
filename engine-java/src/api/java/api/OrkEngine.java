@@ -536,10 +536,16 @@ public final class OrkEngine {
         }
 
         BarrowmanCalculator calc = new BarrowmanCalculator();
+        calc.setRogersKbf(ctx.rogersKbf); // keep sweep CP consistent with staticInfo
         WarningSet warnings = new WarningSet();
 
         double[] offTotal = new double[n], offFric = new double[n], offPress = new double[n], offBase = new double[n];
         double[] onTotal = new double[n], onFric = new double[n], onPress = new double[n], onBase = new double[n];
+        // CP location (m from nose) and CNa (per rad) per Mach — power state does
+        // not affect them (thrust only changes base drag), so one set from fOff.
+        // Feeds the validation harness (ARCAS/HB-2/Finner anchors) and a future
+        // CP-vs-Mach panel.
+        double[] cp = new double[n], cna = new double[n];
         java.util.LinkedHashMap<String, double[]> byComp = new java.util.LinkedHashMap<>();
 
         for (int i = 0; i < n; i++) {
@@ -553,6 +559,9 @@ public final class OrkEngine {
             offFric[i] = fOff.getFrictionCD();
             offPress[i] = fOff.getPressureCD();
             offBase[i] = fOff.getBaseCD();
+            Coordinate cpc = fOff.getCP();
+            cp[i] = cpc.x;
+            cna[i] = cpc.weight;
 
             FlightConditions on = new FlightConditions(config);
             on.setMach(mach);
@@ -592,6 +601,10 @@ public final class OrkEngine {
         StringBuilder sb = new StringBuilder("{\"machs\":");
         nums(sb, machArr);
         sb.append(",\"hasNozzle\":").append(hasNozzle);
+        sb.append(",\"cp\":");
+        nums(sb, cp);
+        sb.append(",\"cna\":");
+        nums(sb, cna);
         sb.append(",\"powerOff\":");
         dragBlock(sb, offTotal, offFric, offPress, offBase);
         sb.append(",\"powerOn\":");

@@ -160,6 +160,37 @@ describe('OrkRocket (real OpenRocket kernel via TeaVM)', () => {
     expect(Number.isFinite(info.cp)).toBe(true);
   });
 
+  it('dragSweep emits CP and CNa aligned with the Mach grid (validation harness)', () => {
+    const rocket = OrkRocket.buildTree({
+      components: [
+        { type: 'nosecone', length: 0.1, aftRadius: 0.0125, thickness: 0.002 },
+        {
+          type: 'bodytube', length: 0.35, outerRadius: 0.0125, thickness: 0.0005,
+          children: [
+            {
+              type: 'trapezoidfinset', finCount: 4, rootChord: 0.05, tipChord: 0.03,
+              sweep: 0.02, height: 0.03, thickness: 0.003,
+              position: { method: 'bottom', offset: 0 },
+            },
+          ],
+        },
+      ],
+    });
+    const sweep = rocket.dragSweep({ machMin: 0.1, machMax: 2.0, machStep: 0.1 });
+    expect(sweep.cp).toHaveLength(sweep.machs.length);
+    expect(sweep.cna).toHaveLength(sweep.machs.length);
+    const info = rocket.staticInfo();
+    for (let i = 0; i < sweep.machs.length; i++) {
+      expect(sweep.cp[i]).toBeGreaterThan(0);
+      expect(sweep.cp[i]).toBeLessThan(info.length);
+      expect(sweep.cna[i]).toBeGreaterThan(0);
+    }
+    // staticInfo computes CP at Mach 0.3 — the sweep's M0.3 point must agree.
+    const i03 = sweep.machs.findIndex((m) => Math.abs(m - 0.3) < 1e-9);
+    expect(sweep.cp[i03]).toBeCloseTo(info.cp, 9);
+    expect(sweep.cna[i03]).toBeCloseTo(info.cna, 9);
+  });
+
   it('applies fin tabs: mass increases and componentInfo reports it', () => {
     const base = {
       components: [
