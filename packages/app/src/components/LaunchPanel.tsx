@@ -1,5 +1,6 @@
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { niceStep, siToUi, uiToSi, type Quantity } from '../prefs/units.js';
+import { Icon } from './Icon.js';
 import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
 
@@ -99,7 +100,7 @@ export function LaunchPanel({ value, onChange, onLaunch, simulating }: {
         {numField('Pressure', 'pressureHPa', 5, 300, 1100, true)}
       </div>
       <button className="launch-btn" onClick={onLaunch} disabled={simulating}>
-        {simulating ? 'Simulating…' : '🚀 Launch'}
+        {simulating ? 'Simulating…' : <><Icon name="rocket" size={15} /> Launch</>}
       </button>
     </div>
   );

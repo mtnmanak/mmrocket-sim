@@ -15,7 +15,11 @@
   --selected: #dceafc;
   --note-bg: #fdf6e3;
   --note-border: #e6d9a8;
-  --accent: #4a7dbd;
+  /* Identity: exhaust orange — the Mountain Man Rockets accent. All
+     INTERACTIVE color goes through --accent; the blue/green/amber series
+     colors are data-only (charts, schematic marks). */
+  --accent: #b8511d;
+  --launch: #c65420;
   --chart-axis: #7a786f;
   --chart-grid: #e8e6e1;
   --chart-tick: #dedcd7;
@@ -43,7 +47,8 @@
   --selected: #24446b;
   --note-bg: #2e2a1c;
   --note-border: #57503a;
-  --accent: #6fa2dd;
+  --accent: #ef8a52;
+  --launch: #c65420;
   --chart-axis: #8d8b82;
   --chart-grid: #2b2a27;
   --chart-tick: #3b3934;
@@ -116,6 +121,9 @@
   color: var(--text-secondary);
   cursor: pointer;
   border-radius: 6px 6px 0 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .workspace-tabs button:hover {
@@ -219,12 +227,15 @@
 .site-nav {
   display: flex;
   flex-wrap: wrap;
-  gap: 2px 18px;
+  gap: 2px 20px;
   align-items: center;
   padding: 8px 16px;
   background: var(--surface-2);
   border-bottom: 1px solid var(--border);
-  font-size: 13px;
+  /* match the WordPress nav voice: tracked caps, orange hover */
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
 }
 
 .site-nav a {
@@ -236,7 +247,6 @@
 
 .site-nav a:hover {
   color: var(--accent);
-  text-decoration: underline;
 }
 
 .app-header {
@@ -290,15 +300,33 @@
   border-top: 2px solid var(--border);
 }
 
+/* Wordmark: tracked caps, echoing the Mountain Man Rockets tagline treatment;
+   the rocket glyph is the one accent-colored element in the header. */
 .app-header h1 {
-  font-size: 20px;
+  font-size: 16.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.11em;
   margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  white-space: nowrap;
+}
+
+.app-header h1 svg {
+  color: var(--accent);
 }
 
 .app-header p {
   color: var(--text-secondary);
   font-size: 13px;
   margin: 4px 0 0;
+}
+
+/* All in-app links take the accent (browser default blue fights the palette). */
+.viz-root a {
+  color: var(--accent);
 }
 
 /* --- Form --- */
@@ -404,12 +432,17 @@
   padding: 10px;
   font: inherit;
   font-size: 15px;
-  font-weight: 600;
+  font-weight: 650;
+  letter-spacing: 0.02em;
   color: #fff;
-  background: var(--series-1);
+  background: var(--launch);
   border: none;
   border-radius: 6px;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
 }
 
 .launch-btn:hover {
@@ -509,6 +542,9 @@
   color: var(--text-primary);
   cursor: pointer;
   font-family: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
 }
 
 .file-btn:hover {
@@ -589,10 +625,12 @@
 .tree-badge {
   font-size: 9px;
   text-transform: uppercase;
-  background: var(--series-1);
-  color: #fff;
+  letter-spacing: 0.05em;
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
   border-radius: 3px;
-  padding: 1px 4px;
+  padding: 0 4px;
 }
 
 .tree-actions {
@@ -655,7 +693,7 @@
 }
 
 .view-toggle button.active {
-  background: var(--series-1);
+  background: var(--launch);
   color: #fff;
 }
 
@@ -870,7 +908,7 @@
 
 .batch-progress-fill {
   height: 100%;
-  background: var(--series-1, #4a7dbd);
+  background: var(--accent);
   transition: width 0.15s;
 }
 
@@ -1136,6 +1174,31 @@
   font-size: 11px;
   color: var(--text-muted);
   margin: 12px 0 0;
+}
+
+/* Checkboxes inside .field must not take the 100%-width input rule (it pushes
+   their labels across the row — seen in the Preferences Aerodynamics section). */
+.field input[type='checkbox'] {
+  width: auto;
+}
+
+/* Session-restore note: routine good news, not an alert — one quiet line
+   that the App fades out after a few seconds. */
+.session-note {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0 0 10px;
+  transition: opacity 0.6s;
+}
+
+.session-note.fading {
+  opacity: 0;
+}
+
+/* Chart hover legends: mute the uPlot defaults so they read as readouts. */
+.chart-panel .u-legend {
+  font-size: 10.5px;
+  opacity: 0.8;
 }
 
 /* Dark-mode gaps: components that inherit browser default text colors */

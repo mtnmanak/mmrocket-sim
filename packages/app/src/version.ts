@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.026';
+export const APP_VERSION = '0.027';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.027',
+    date: '2026-08-04',
+    title: 'Identity pass: Mountain Man orange, real icons, quieter chrome',
+    items: [
+      'The app now wears the Mountain Man Rockets colors: exhaust orange is the single interactive accent (Launch button, active tab, links, unit chips), so the chart blues/greens are unambiguously data. The top site menu matches the main site’s tracked-caps style, and the wordmark is a proper line-art rocket mark instead of an emoji.',
+      'Every emoji icon replaced with a crisp built-in icon set that renders identically on every device and follows the theme.',
+      'Quieter chrome: the "session restored" message is now a subtle line that fades away by itself instead of a banner; stage/motor badges in the tree are neutral outlines; chart hover legends are muted; assorted label and dialog-layout fixes (including the Preferences checkbox row).',
+      'version.json now ships at the app root with every release so the Online Tools page can detect new versions automatically.',
+    ],
+  },
   {
     version: '0.026',
     date: '2026-08-04',

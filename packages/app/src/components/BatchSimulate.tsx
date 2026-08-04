@@ -10,6 +10,7 @@ import { buildSimRun, recommendDelay, type SimRun } from '../services/simReport.
 import { addRuns, runsToCsv } from '../services/simStore.js';
 import type { LaunchConditions } from './LaunchPanel.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
+import { Icon } from './Icon.js';
 import { fmtSi, siToUi, uiToSi } from '../prefs/units.js';
 import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
@@ -323,7 +324,7 @@ export function BatchSimulate({ rocket, info, mountId, mountDiameterMm, maxMotor
           ) : (
             <button className="launch-btn" style={{ width: 'auto', marginTop: 0, padding: '6px 16px' }}
               onClick={start} disabled={candidates.length === 0}>
-              🚀 Simulate {candidates.length} motors
+              <Icon name="rocket" /> Simulate {candidates.length} motors
             </button>
           )}
         </div>

@@ -10,6 +10,7 @@ import {
   type StaticInfo,
 } from '@online-openrocket/engine';
 import { BatchSimulate } from './components/BatchSimulate.js';
+import { Icon } from './components/Icon.js';
 import { ChangelogDialog } from './components/ChangelogDialog.js';
 import { GuideDialog } from './components/GuideDialog.js';
 import { ComponentTree } from './components/ComponentTree.js';
@@ -141,9 +142,19 @@ export function App() {
   const [runs, setRuns] = useState<SimRun[]>(() => loadRuns());
   const [simulating, setSimulating] = useState(false);
   const [simError, setSimError] = useState<string | null>(null);
-  const [fileNote, setFileNote] = useState<string | null>(
+  const [fileNote, setFileNote] = useState<string | null>(null);
+  // Session restore is routine good news — one quiet line that fades out,
+  // not an alert banner (identity pass v0.027).
+  const [sessionNote, setSessionNote] = useState<string | null>(
     session ? `Restored your previous session (“${session.tree.name ?? 'unnamed'}”, saved ${new Date(session.savedAt).toLocaleString()}).` : null,
   );
+  const [sessionNoteFading, setSessionNoteFading] = useState(false);
+  useEffect(() => {
+    if (!sessionNote) return;
+    const fade = setTimeout(() => setSessionNoteFading(true), 7000);
+    const clear = setTimeout(() => setSessionNote(null), 7800);
+    return () => { clearTimeout(fade); clearTimeout(clear); };
+  }, [sessionNote]);
   const [view, setView] = useState<'2d' | '3d'>('2d');
   const [confirmNew, setConfirmNew] = useState(false);
   const [showBatch, setShowBatch] = useState(false);
@@ -576,7 +587,7 @@ export function App() {
       </nav>
       <header className="app-header">
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-          <h1>🚀 Online OpenRocket</h1>
+          <h1><Icon name="rocket" size={19} /> Online OpenRocket</h1>
           <button
             className="version-badge"
             style={{ flex: '0 0 auto', marginRight: 'auto' }}
@@ -586,7 +597,7 @@ export function App() {
             v{APP_VERSION} beta
           </button>
           <label className="file-btn" title="Open an OpenRocket (.ork), RockSim (.rkt), or RASAero II (.CDX1) design">
-            📂 Open…
+            <Icon name="folder" /> Open…
             <input type="file" accept=".ork,.rkt,.CDX1" style={{ display: 'none' }}
               onChange={(e) => {
                 const f = e.target.files?.[0];
@@ -597,7 +608,7 @@ export function App() {
           <div className="file-menu-wrap">
             <button className="file-btn" onClick={() => setShowFileMenu((v) => !v)}
               aria-haspopup="menu" aria-expanded={showFileMenu}>
-              💾 Save / Export ▾
+              <Icon name="save" /> Save / Export ▾
             </button>
             {showFileMenu && (
               <>
@@ -621,15 +632,15 @@ export function App() {
             )}
           </div>
           <button className="file-btn" onClick={() => setShowGuide(true)} title="User guide — quick start, features, and the physics behind the sim">
-            ❓ Guide
+            <Icon name="book" /> Guide
           </button>
           <button className="file-btn" onClick={() => setShowPrefs(true)} title="Preferences">
-            ⚙ Preferences
+            <Icon name="sliders" /> Preferences
           </button>
         </div>
         <p>
-          Design a model rocket and fly it — powered by the real OpenRocket physics
-          engine (Extended Barrowman, 6-DOF RK4) compiled to JavaScript.
+          Design a model rocket and fly it — the real OpenRocket physics engine
+          (Extended Barrowman, 6-DOF RK4), in your browser.
           {' '}
           <a
             href="https://github.com/mtnmanak/online_open_rocket"
@@ -680,7 +691,7 @@ export function App() {
             </p>
             <div className="modal-actions">
               <button className="file-btn" onClick={() => { onSaveOrk(); }}>
-                💾 Save .ork first
+                <Icon name="save" /> Save .ork first
               </button>
               <button
                 className="file-btn modal-danger"
@@ -746,25 +757,28 @@ export function App() {
             disabled={!built || !primaryMountId || simulating}
             title={!primaryMountId ? 'Assign a motor first (Motors & Launch workspace)' : 'Simulate the flight'}
           >
-            {simulating ? 'Simulating…' : '🚀 Launch'}
+            {simulating ? 'Simulating…' : <><Icon name="rocket" size={15} /> Launch</>}
           </button>
         </div>
 
         <div className="workspace-tabs" role="tablist" aria-label="Workspace">
           <button role="tab" aria-selected={tab === 'design'}
             className={tab === 'design' ? 'active' : ''} onClick={() => setTab('design')}>
-            🛠 Design
+            <Icon name="wrench" size={13} /> Design
           </button>
           <button role="tab" aria-selected={tab === 'motors'}
             className={tab === 'motors' ? 'active' : ''} onClick={() => setTab('motors')}>
-            🔥 Motors &amp; Launch
+            <Icon name="flame" size={13} /> Motors &amp; Launch
           </button>
           <button role="tab" aria-selected={tab === 'results'}
             className={tab === 'results' ? 'active' : ''} onClick={() => setTab('results')}>
-            📈 Results
+            <Icon name="chart" size={13} /> Results
           </button>
         </div>
 
+        {sessionNote && (
+          <p className={`session-note${sessionNoteFading ? ' fading' : ''}`}>{sessionNote}</p>
+        )}
         {fileNote && (
           <div className="file-note" role="alert" style={{ margin: '0 0 12px' }}>
             {fileNote}
@@ -925,7 +939,7 @@ export function App() {
                   {isStaged && <div className="motor-stage-header">{stName}</div>}
                   <div className="field" style={{ marginBottom: 8 }}
                     title={`Longest motor ${isStaged ? `the ${stName} stage's` : 'the'} airframe has room for — each stage has its own limit. Longer motors are flagged in the browser and excluded from batch simulation.`}>
-                    <label>Max motor length (<UnitChip quantity="motorDimensions" />)</label>
+                    <label>Max motor length <UnitChip quantity="motorDimensions" /></label>
                     <NumField
                       value={stMax === null
                         ? undefined
@@ -1076,7 +1090,7 @@ export function App() {
                 : 'Simulate every motor that fits this rocket, with filters and acceptance criteria'}
               onClick={() => setShowBatch(true)}
             >
-              ⚡ Batch simulate motors…
+              <Icon name="zap" /> Batch simulate motors…
             </button>
           </div>
 
@@ -1122,8 +1136,8 @@ export function App() {
             <SimRunDetails run={lastRun} />
           ) : (
             <div className="panel placeholder">
-              Press <strong>🚀 Launch</strong> (above) to fly this design and see
-              altitude, velocity and acceleration plots.
+              This design hasn't flown yet — press <strong>Launch</strong> (above)
+              to fly it and see altitude, velocity and acceleration plots.
             </div>
           )}
           {built && <DragPanel rocket={built.rocket} supersonicModel={effectiveSupersonic} />}

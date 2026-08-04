@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { ComponentNode, ComponentType, RocketTree } from '@online-openrocket/engine';
 import { allowedChildren, DISPLAY_NAME } from '../tree/schema.js';
+import { Icon } from './Icon.js';
 import { findParent, stageIndexOf } from '../tree/treeModel.js';
 
 const TYPE_ICON: Partial<Record<ComponentType, string>> = {
@@ -132,7 +133,7 @@ export function ComponentTree({ tree, selectedId, onSelect, onMove, onDelete, on
     <div>
       <div className="tree-box">
         <div className="tree-row tree-row-root" onClick={() => onSelect('')}>
-          <span className="tree-icon">🚀</span>
+          <span className="tree-icon"><Icon name="rocket" size={12} /></span>
           <span className="tree-label">{tree.name ?? 'Rocket'}</span>
         </div>
         {tree.components.map((n) => (

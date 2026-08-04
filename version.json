@@ -1,5 +1,5 @@
 {
-  "version": "0.026",
+  "version": "0.027",
   "released": "2026-08-04",
-  "note": "New Auto aerodynamics mode: flights past Mach 0.9 automatically use the wind-tunnel-validated supersonic model, and supersonic flights on the classic model now alert you that the better model exists. Preferences > Aerodynamics has the full three-way choice."
+  "note": "A fresh coat of paint: the app now matches the Mountain Man Rockets look (exhaust-orange accents, crisp icons, cleaner header) - plus quieter notifications. No changes to the physics or your designs."
 }
