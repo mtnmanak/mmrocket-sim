@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.029';
+export const APP_VERSION = '0.030';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.030',
+    date: '2026-08-04',
+    title: 'Big screens: the rocket gets the room',
+    items: [
+      'On a large monitor the app now uses the whole screen instead of sitting in a fixed centered column. The rocket drawing takes the full width of its panel and sizes its height to the rocket\'s own proportions — on a 27" display it draws roughly twice as large as before, larger still on the Motors & Launch workspace.',
+      'Visible zoom controls on the rocket view (+ / − / Fit). Scroll-wheel zoom around the cursor and drag-to-pan were already there — now they\'re discoverable.',
+      'Wide-screen layout (1600px and up): wider component-tree and properties columns, flight plots paired two-up (three-up on ultrawide) with taller panels, a 3D view that grows with the window, and text in the working panels steps up a size so labels and inputs read comfortably at desk distance.',
+      'Smaller screens keep the dense layout — laptops and phones are unchanged. Cosmetic only; physics and your designs are untouched.',
+    ],
+  },
   {
     version: '0.029',
     date: '2026-08-04',

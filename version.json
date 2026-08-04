@@ -1,5 +1,5 @@
 {
-  "version": "0.029",
+  "version": "0.030",
   "released": "2026-08-04",
-  "note": "Design refresh part 3 (final): new instrument-style typeface for headings, numbers and the Launch button - bundled with the app so it still works fully offline. Cosmetic only; physics and your designs are untouched."
+  "note": "Big-screen layout: on large monitors the app now uses the whole screen - the rocket drawing grows to fit, with visible zoom controls, side-by-side flight plots and comfortably larger text. Laptops and phones unchanged. Cosmetic only; physics and your designs are untouched."
 }

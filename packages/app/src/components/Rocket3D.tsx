@@ -240,7 +240,7 @@ export function Rocket3D({ tree, info }: { tree: RocketTree; info: StaticInfo | 
   const markerR = Math.max(totalLen * 0.015, maxR * 0.35);
 
   return (
-    <div style={{ height: 300 }}>
+    <div className="rocket3d-wrap">
       <Canvas camera={{ position: [center + camDist * 0.5, camDist * 0.45, camDist * 0.8], fov: 40 }}>
         <ambientLight intensity={0.7} />
         <directionalLight position={[1, 2, 2]} intensity={1.1} />

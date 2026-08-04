@@ -58,11 +58,11 @@
   --chart-tick: #3b3934;
 }
 
-/* --- Workspace: vitals strip + tabs + one layout per task --- */
+/* --- Workspace: vitals strip + tabs + one layout per task ---
+   Fluid width: the side rails stay dense and fixed, the stage (rocket
+   viewport, charts) absorbs whatever the monitor offers. */
 .workspace {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 12px 16px 16px;
+  padding: 12px clamp(16px, 2vw, 40px) 16px;
 }
 
 /* The signature element: a telemetry bar. Each reading is a labeled
@@ -193,12 +193,6 @@
   grid-column: 1 / -1;
 }
 
-/* Full-width panel would otherwise render the schematic huge — cap it and
-   keep the aspect ratio (viewBox letterboxes inside the capped height). */
-.motors-schematic svg {
-  max-height: 240px;
-}
-
 @media (max-width: 1100px) {
   .design-layout {
     grid-template-columns: 280px minmax(0, 1fr);
@@ -287,9 +281,7 @@
 }
 
 .app-header {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 16px 16px 0;
+  padding: 16px clamp(16px, 2vw, 40px) 0;
 }
 
 /* Motor-mount size readout in the Rocket panel. */
@@ -635,6 +627,11 @@
   background: linear-gradient(180deg, #14161d 0%, #191c25 55%, #20222b 100%);
 }
 
+/* 3D viewport: grows with the monitor instead of a fixed 300px letterbox. */
+.rocket3d-wrap {
+  height: clamp(300px, 42vh, 560px);
+}
+
 /* --- File buttons --- */
 .file-btn {
   font-size: 12px;
@@ -961,11 +958,26 @@
   white-space: pre-line;
 }
 
-.schematic-reset {
+/* Zoom cluster over the rocket viewport (+ / − / fit). Wheel-zoom and
+   drag-pan exist too — these make them discoverable. */
+.schematic-controls {
   position: absolute;
   top: 6px;
   right: 6px;
   z-index: 2;
+  display: flex;
+  gap: 4px;
+}
+
+.schematic-controls .file-btn {
+  padding: 2px 8px;
+  min-width: 26px;
+  justify-content: center;
+}
+
+.schematic-controls .file-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 /* --- Property panel extras --- */
@@ -1500,4 +1512,164 @@ select.unit-chip:hover {
   gap: 10px;
   margin-top: 8px;
   font-size: 13px;
+}
+
+/* --- Large screens: chrome stays dense, the stage takes the width. ---
+   KEEP THIS BLOCK LAST: these overrides share specificity with the base
+   rules above, so they only win by source order. */
+@media (min-width: 1600px) {
+  .design-layout {
+    grid-template-columns: 320px minmax(0, 1fr) 380px;
+    gap: 16px;
+  }
+
+  /* Motors & Launch is form work — cap the columns at a readable width and
+     center them; the full-span to-scale schematic above keeps the combined
+     width. */
+  .motors-layout {
+    grid-template-columns: repeat(2, minmax(0, 760px));
+    justify-content: center;
+  }
+
+  /* Readout tiles stop stretching: an oversized instrument reads emptier,
+     not clearer. */
+  .stat-row {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 260px));
+  }
+
+  /* Flight charts pair up — comparing altitude against velocity side by
+     side beats scrolling one 1500px-wide ribbon at a time. */
+  .charts-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    margin-top: 12px;
+  }
+
+  .charts-grid .chart-panel {
+    margin-top: 0;
+  }
+
+  /* Type scale steps up one notch: 11–13px control text was sized for a
+     dense 1200px layout and reads squinty on a 27"+ monitor. Working
+     panels first; the display faces (vitals, tabs, tiles) follow in
+     proportion so the hierarchy holds. */
+  .panel h2 {
+    font-size: 16px;
+  }
+
+  .field label {
+    font-size: 12.5px;
+  }
+
+  .field input,
+  .field select {
+    font-size: 14px;
+  }
+
+  .tree-box {
+    font-size: 14px;
+  }
+
+  .tree-badge {
+    font-size: 10px;
+  }
+
+  .tree-actions button {
+    font-size: 12.5px;
+  }
+
+  .add-menu-item {
+    font-size: 13.5px;
+  }
+
+  .file-btn {
+    font-size: 13px;
+  }
+
+  .view-toggle button {
+    font-size: 13px;
+  }
+
+  .comp-stats {
+    font-size: 12.5px;
+  }
+
+  .mount-sizes {
+    font-size: 13px;
+  }
+
+  .mount-size-inline,
+  .motor-inline-label {
+    font-size: 12.5px;
+  }
+
+  .motor-stage-header {
+    font-size: 14px;
+  }
+
+  .fin-table,
+  .fin-table input {
+    font-size: 13px;
+  }
+
+  .fin-table th {
+    font-size: 12px;
+  }
+
+  .file-menu button {
+    font-size: 13.5px;
+  }
+
+  .workspace-tabs button {
+    font-size: 16px;
+  }
+
+  .vitals-label {
+    font-size: 11px;
+  }
+
+  .vitals-value {
+    font-size: 18px;
+  }
+
+  .stat-tile .stat-label {
+    font-size: 12.5px;
+  }
+
+  .stat-tile .stat-value {
+    font-size: 28px;
+  }
+
+  .chart-panel h3 {
+    font-size: 14.5px;
+  }
+
+  .series-chip {
+    font-size: 13px;
+  }
+
+  .simdet-grid td {
+    font-size: 13px;
+  }
+
+  .placeholder {
+    font-size: 15px;
+  }
+
+  .field label select.unit-chip,
+  .fin-table th select.unit-chip,
+  .chart-panel h3 select.unit-chip {
+    font-size: 12px;
+  }
+
+  .stat-unit select.unit-chip {
+    font-size: 13px;
+  }
+}
+
+@media (min-width: 2400px) {
+  .charts-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }

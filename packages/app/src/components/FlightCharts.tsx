@@ -65,9 +65,12 @@ function Panel({ result, def }: { result: FlightResult; def: SeriesDef }) {
     const raw = result.series[def.key] ?? [];
     const values = def.f ? raw.map((v) => (v == null ? v : def.f!(v))) : raw;
     const data: uPlot.AlignedData = [result.series.time, values];
+    // Panels widen a lot on big screens — let height follow (capped) so a
+    // 1500px-wide chart doesn't flatten into a ribbon.
+    const chartH = () => Math.max(160, Math.min(240, Math.round((el.clientWidth || 640) * 0.22)));
     const opts: uPlot.Options = {
       width: el.clientWidth || 640,
-      height: 160,
+      height: chartH(),
       cursor: { sync: { key: SYNC_KEY }, points: { size: 7 } },
       scales: { x: { time: false } },
       legend: { live: true },
@@ -86,7 +89,7 @@ function Panel({ result, def }: { result: FlightResult; def: SeriesDef }) {
       ],
     };
     const plot = new uPlot(opts, data, el);
-    const obs = new ResizeObserver(() => plot.setSize({ width: el.clientWidth, height: 160 }));
+    const obs = new ResizeObserver(() => plot.setSize({ width: el.clientWidth, height: chartH() }));
     obs.observe(el);
     return () => {
       obs.disconnect();
@@ -162,8 +165,10 @@ export function FlightCharts({ result }: { result: FlightResult }) {
           ⬇ CSV
         </button>
       </div>
-      {catalog.filter((d) => selected.has(d.key) && (result.series[d.key] ?? []).length > 0)
-        .map((d) => <Panel key={String(d.key)} result={result} def={d} />)}
+      <div className="charts-grid">
+        {catalog.filter((d) => selected.has(d.key) && (result.series[d.key] ?? []).length > 0)
+          .map((d) => <Panel key={String(d.key)} result={result} def={d} />)}
+      </div>
       {selected.size === 0 && (
         <div className="panel placeholder">Select at least one series to plot.</div>
       )}

@@ -938,6 +938,7 @@ export function App() {
                 info={built?.info ?? null}
                 motors={motorDims}
                 onPatchNode={(id, patch) => setTree(updateNode(tree, id, patch))}
+                maxHeight={300}
               />
             </div>
           </div>

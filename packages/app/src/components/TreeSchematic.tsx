@@ -55,15 +55,22 @@ interface DragState {
   clientScale: number;
 }
 
-export function TreeSchematic({ tree, info, motors, onPatchNode }: {
+export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480 }: {
   tree: RocketTree;
   info: StaticInfo | null;
   /** Loaded motor case dimensions (m) keyed by mount node id — drawn to scale. */
   motors?: Record<string, { length: number; diameter: number }>;
   onPatchNode?: (id: string, patch: Partial<ComponentNode>) => void;
+  /** Cap on the drawing's on-screen height (px). */
+  maxHeight?: number;
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
   const drag = useRef<DragState | null>(null);
+  // Container width (CSS px). The viewBox adopts it 1:1, so the drawing fills
+  // the column at native pixel scale on any monitor instead of a fixed 640px
+  // canvas stretched to fit.
+  const [cw, setCw] = useState(640);
   // View transform (zoom & pan) in viewBox px; identity = whole rocket fits.
   const [zoom, setZoom] = useState({ k: 1, x: 0, y: 0 });
   const pan = useRef<{ pointerX: number; pointerY: number; x0: number; y0: number } | null>(null);
@@ -105,9 +112,11 @@ export function TreeSchematic({ tree, info, motors, onPatchNode }: {
   };
   scanRadial(chain, maxR);
 
-  const w = 640;
-  const h = 210;
+  const w = Math.max(320, cw);
   const pad = 26;
+  // Height follows the rocket's own proportions (clamped): a long thin
+  // rocket gets a wide low band, not a fixed frame of empty sky.
+  const h = Math.round(Math.min(maxHeight, Math.max(200, 2 * vHalf * ((w - 2 * pad) / totalLen) + 2 * pad)));
   const scale = Math.min((w - 2 * pad) / totalLen, (h - 2 * pad) / (2 * vHalf));
   const ctx: Ctx = { scale, cy: h / 2, x0: pad };
 
@@ -168,6 +177,17 @@ export function TreeSchematic({ tree, info, motors, onPatchNode }: {
 
   const endDrag = () => { drag.current = null; pan.current = null; };
 
+  // Track the container's width so the viewBox can follow it.
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const obs = new ResizeObserver(() => {
+      if (el.clientWidth > 0) setCw(el.clientWidth);
+    });
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
+
   // Wheel zoom around the pointer. Native listener: React's onWheel is
   // passive, so preventDefault (to stop page scroll) must be attached here.
   useEffect(() => {
@@ -191,7 +211,17 @@ export function TreeSchematic({ tree, info, motors, onPatchNode }: {
     };
     svg.addEventListener('wheel', onWheel, { passive: false });
     return () => svg.removeEventListener('wheel', onWheel);
-  }, []);
+  }, [w, h]);
+
+  // Button zoom steps around the view center (the wheel handles precise
+  // pointer-anchored zoom; these make the capability visible).
+  const zoomBy = (f: number) => setZoom((z) => {
+    const k = Math.min(12, Math.max(1, z.k * f));
+    if (k === z.k) return z;
+    const mx = (w / 2 - z.x) / z.k;
+    const my = (h / 2 - z.y) / z.k;
+    return k === 1 ? { k: 1, x: 0, y: 0 } : { k, x: w / 2 - mx * k, y: h / 2 - my * k };
+  });
 
   // --- render chain + children ---
   const shapes: React.ReactNode[] = [];
@@ -405,7 +435,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode }: {
   const cpX = info ? ctx.x0 + info.cp * scale : null;
 
   return (
-    <div style={{ position: 'relative' }}>
+    <div ref={wrapRef} style={{ position: 'relative' }}>
       <svg ref={svgRef} viewBox={`0 0 ${w} ${h}`}
           style={{ width: '100%', height: 'auto', display: 'block', touchAction: 'none',
             cursor: zoom.k > 1 ? 'grab' : undefined }}
@@ -431,13 +461,19 @@ export function TreeSchematic({ tree, info, motors, onPatchNode }: {
           )}
         </g>
       </svg>
-      {(zoom.k > 1 || zoom.x !== 0 || zoom.y !== 0) && (
-        <button className="file-btn schematic-reset"
-          title="Fit the whole rocket in view"
-          onClick={() => setZoom({ k: 1, x: 0, y: 0 })}>
-          ⤢ Reset view
-        </button>
-      )}
+      <div className="schematic-controls">
+        {(zoom.k > 1 || zoom.x !== 0 || zoom.y !== 0) && (
+          <button className="file-btn"
+            title="Fit the whole rocket in view"
+            onClick={() => setZoom({ k: 1, x: 0, y: 0 })}>
+            ⤢ Fit
+          </button>
+        )}
+        <button className="file-btn" title="Zoom in — or scroll on the drawing; drag to pan"
+          aria-label="Zoom in" onClick={() => zoomBy(1.5)} disabled={zoom.k >= 12}>+</button>
+        <button className="file-btn" title="Zoom out"
+          aria-label="Zoom out" onClick={() => zoomBy(1 / 1.5)} disabled={zoom.k <= 1}>−</button>
+      </div>
     </div>
   );
 }
