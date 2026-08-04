@@ -1,8 +1,9 @@
 /**
  * Typed wrapper around the TeaVM-compiled OpenRocket kernel
- * (vendor/orkengine.cjs — regenerate with `npm run engine:js`).
+ * (vendor/orkengine.mjs — regenerate with `npm run engine:js`).
  *
  * Engine invariants: pure SI units (m, kg, s, N), angles in RADIANS.
+ * Documented exceptions: launchLatitude/launchLongitude are DEGREES.
  * See engine-java/ for the kernel, shims, patches and differential tests.
  */
 import * as ork from '../vendor/orkengine.mjs';
@@ -68,7 +69,9 @@ export interface SimulationOptions {
   temperature?: number;
   /** Launch-site pressure (Pa). Default: ISA standard. */
   pressure?: number;
+  /** DEGREES (exception to the radians rule — WorldCoordinate's own unit). */
   launchLatitude?: number;
+  /** DEGREES (exception to the radians rule). */
   launchLongitude?: number;
   timeStep?: number;
   maxTime?: number;

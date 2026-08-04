@@ -13,8 +13,8 @@
  * Usage: node scripts/carve.mjs [--source <path-to-openrocket-core-java-root>]
  */
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
+import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -39,6 +39,31 @@ const manifest = readFileSync(join(engineRoot, 'carve-manifest.txt'), 'utf8')
   .filter((l) => l && !l.startsWith('#'));
 
 const sha = (p) => createHash('sha256').update(readFileSync(p)).digest('hex');
+
+// Orphan check: every .java under patches/ MUST match a manifest entry at its
+// full manifest-relative path, or it is silently ignored by the loop below.
+// (That exact failure hid the InstanceMap determinism patch for a month —
+// see LEDGER.md "Determinism fixes" INCIDENT note.)
+const patchesRoot = join(engineRoot, 'patches');
+const manifestSet = new Set(manifest);
+const orphans = [];
+const walk = (dir) => {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const p = join(dir, entry.name);
+    if (entry.isDirectory()) walk(p);
+    else if (entry.name.endsWith('.java')) {
+      const rel = relative(patchesRoot, p).replaceAll('\\', '/');
+      if (!manifestSet.has(rel)) orphans.push(rel);
+    }
+  }
+};
+if (existsSync(patchesRoot)) walk(patchesRoot);
+if (orphans.length) {
+  console.error('ORPHANED patch files (path does not match any carve-manifest entry — they would be silently ignored):');
+  for (const f of orphans) console.error('  patches/' + f);
+  console.error('Move each to patches/<manifest-relative-path> or delete it.');
+  process.exit(1);
+}
 
 let copied = 0;
 let verified = 0;

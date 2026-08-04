@@ -36,16 +36,9 @@ export default defineConfig({
     }),
   ],
   base: './',
-  // The engine is a linked workspace package whose entry imports a CJS
-  // artifact (vendor/orkengine.cjs). Prebundle it so dev mode gets the same
-  // CJS->ESM interop the production build gets from rollup-commonjs.
+  // The engine is a linked workspace package (entry imports the ESM artifact
+  // vendor/orkengine.mjs). Prebundle it so dev mode resolves it like prod.
   optimizeDeps: {
     include: ['@online-openrocket/engine'],
-  },
-  build: {
-    commonjsOptions: {
-      // Separator-agnostic: on Windows resolved ids may use backslashes.
-      include: [/vendor[\\/]orkengine\.cjs$/, /node_modules/],
-    },
   },
 });

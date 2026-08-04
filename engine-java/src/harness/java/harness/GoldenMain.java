@@ -1021,8 +1021,9 @@ public final class GoldenMain {
         info.openrocket.core.rocketcomponent.RocketComponent rcRef = finProbe;
         line("fins.virtual", rcRef.getInstanceCount(), rcRef.getInstanceAngles().length);
 
-        // ConcurrentHashMap emplace probe: repeated emplace on the same key must
-        // append (list grows), not replace. InstanceMap extends ConcurrentHashMap.
+        // Map emplace probe: repeated emplace on the same key must append (list
+        // grows), not replace. InstanceMap extends LinkedHashMap (patched from
+        // upstream's ConcurrentHashMap — see patches/LEDGER.md determinism fix).
         info.openrocket.core.rocketcomponent.InstanceMap im =
                 new info.openrocket.core.rocketcomponent.InstanceMap();
         im.emplace(finProbe, 0, info.openrocket.core.util.Transformation.IDENTITY);

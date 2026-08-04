@@ -220,4 +220,16 @@ describe('RASAero export', () => {
     } as ComponentNode);
     expect(() => exportCdx1(bad)).toThrow(/conical/);
   });
+
+  it('keeps top/middle-positioned fins in place instead of snapping them to the tube bottom', () => {
+    const d = structuredClone(design);
+    const fin = d.tree.components[0]!.children![1]!.children![0] as ComponentNode;
+    fin['position'] = { method: 'top', offset: 0 }; // fins at the tube TOP
+    const back = importCdx1(exportCdx1(d));
+    const fins = flatten(back.tree.components).find((c) => c.type === 'trapezoidfinset')!;
+    // Tube 1.0 m, root 0.15 m: bottom-referenced offset −0.85 puts the fin
+    // front edge at the tube top (the old code exported offset 0 = bottom).
+    expect(fins.position?.method).toBe('bottom');
+    expect(fins.position?.offset).toBeCloseTo(-0.85, 6);
+  });
 });

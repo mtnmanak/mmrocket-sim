@@ -114,6 +114,9 @@ const COLUMNS: [string, (r: SimRun) => string | number][] = [
   ['Booster landing rate (m/s)', (r) => round(r.branches?.[0]?.landingRate ?? null)],
   ['Booster landing OK', (r) => flag(r.branches?.[0]?.safeLandingRate ?? null)],
   ['Wind avg (m/s)', (r) => round(r.windAvg, 1)],
+  // Under Auto, different rows can have flown different models — without this
+  // column the comparison table can't tell them apart.
+  ['Aero model', (r) => r.aeroModel ?? 'classic'],
   ['Execution time (ms)', (r) => Math.round(r.execMs)],
   ['Comments', (r) => r.comments],
 ];

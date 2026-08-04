@@ -8,11 +8,10 @@ Length 1.0401 m, kernel ref diameter 0.0571 m, dataset ref-area scale x1.
 
 ### cd-supersonic-tunnel (cd, base included)
 
-_TN D-4014 Fig 5(b) CA a=0 via RASAero comparison dots (read +/-0.005; CA not base-corrected)_
+_TN D-4014 Fig 5(b) CA a=0 via RASAero comparison dots (read +/-0.005; CA not base-corrected). M1.19 row removed 2026-08-04: D-4014 data starts at M1.5; the M1.19 dot is D-4013 CA,corr (base-corrected), the same measurement already gated base-EXCLUDED as cd-transonic-tunnel's M1.2 point - keeping it here double-counted it under the wrong base convention._
 
 | Mach | anchor | model | delta | tol | result |
 |---|---|---|---|---|---|
-| 1.19 | 0.595 | 0.5972 | +0.0022 | ±0.0200 | PASS |
 | 1.49 | 0.532 | 0.5377 | +0.0057 | ±0.0200 | PASS |
 | 1.8 | 0.47 | 0.5226 | +0.0526 | ±0.0200 | **FAIL** |
 | 2.29 | 0.376 | 0.4981 | +0.1221 | ±0.0200 | **FAIL** |
@@ -79,11 +78,10 @@ Length 1.3589 m, kernel ref diameter 0.0571 m, dataset ref-area scale x1.
 
 ### cd-supersonic-tunnel (cd, base included)
 
-_TN D-4014 Fig 6(b) CA a=0 via RASAero comparison dots (no M1.5 Long data)_
+_TN D-4014 Fig 6(b) CA a=0 via RASAero comparison dots (no M1.5 Long data). M1.19 row removed 2026-08-04: same base-convention double-count as arcas-short (it was D-4013 base-corrected data; see cd-transonic-tunnel M1.2)._
 
 | Mach | anchor | model | delta | tol | result |
 |---|---|---|---|---|---|
-| 1.19 | 0.607 | 0.6437 | +0.0367 | ±0.0200 | **FAIL** |
 | 1.8 | 0.508 | 0.5637 | +0.0557 | ±0.0200 | **FAIL** |
 | 2.29 | 0.41 | 0.5351 | +0.1251 | ±0.0200 | **FAIL** |
 | 2.95 | 0.336 | 0.5004 | +0.1644 | ±0.0200 | **FAIL** |
@@ -321,5 +319,5 @@ _VTI T-38 2025 75mm Able Mk18 CNa per rad (EXACT published; info only)_
 
 ## Summary
 
-**Gate points: 8/137 within tolerance** (5.8%). Informational rows excluded.
+**Gate points: 7/135 within tolerance** (5.2%). Informational rows excluded.
 

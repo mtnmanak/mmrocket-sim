@@ -3,6 +3,7 @@
   "_notes": [
     "Geometry from docs/research/validation-anchors-2026-08-03.md section 1.2. d = 2.250 in = 0.05715 m.",
     "Fins physically sit over the boattail station; modeled flush with the body tube aft end (the RASAero equal-volume convention region). Kernel cannot place fins on a transition.",
+    "Tip chord: the research doc gives two values (1.568 in 'tip-region chord' vs 2.09 in per the D-4013 figure); this fixture uses 2.09 in = 0.93 d, matching the drawn planform.",
     "Boattail modeled from its dimensioned values (length 1.81 in, base dia 1.470 in); the nominal '15 deg half-angle' label is inconsistent with those (reflexed base lip ignored, as RASAero did).",
     "Fin section is a double wedge (1.47 deg half-angle, LE radius 0.030 in); closest kernel cross-section is 'airfoil' - a known fidelity gap until feature #4 (8 airfoils).",
     "Finish: polished (machined tunnel model, boundary-layer trips = fully turbulent, not roughness-limited).",

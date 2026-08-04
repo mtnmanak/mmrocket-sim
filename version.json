@@ -1,5 +1,5 @@
 {
-  "version": "0.030",
+  "version": "0.031",
   "released": "2026-08-04",
-  "note": "Big-screen layout: on large monitors the app now uses the whole screen - the rocket drawing grows to fit, with visible zoom controls, side-by-side flight plots and comfortably larger text. Laptops and phones unchanged. Cosmetic only; physics and your designs are untouched."
+  "note": "Audit release: 20+ fixes. Highlights - renaming your rocket no longer clears flight results, plugged (-P) motors import correctly and never eject, strap-on boosters get their high-power recovery warning, and a batch of file import/export fidelity fixes (.ork, RockSim, RASAero, preset CSV). Physics verified against the reference JVM 5x."
 }

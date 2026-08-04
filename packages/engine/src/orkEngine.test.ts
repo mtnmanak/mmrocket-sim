@@ -160,6 +160,25 @@ describe('OrkRocket (real OpenRocket kernel via TeaVM)', () => {
     expect(Number.isFinite(info.cp)).toBe(true);
   });
 
+  it('applies override-for-all-subcomponents mass (desktop .ork semantics)', () => {
+    const mk = (extra: Record<string, unknown>) => OrkRocket.buildTree({
+      components: [
+        { type: 'nosecone', length: 0.07, aftRadius: 0.012, thickness: 0.002 },
+        {
+          type: 'bodytube', length: 0.3, outerRadius: 0.012, thickness: 0.0005,
+          overrideMass: 0.05, ...extra,
+          children: [
+            { type: 'masscomponent', mass: 0.1, length: 0.02, radius: 0.006, position: { method: 'top', offset: 0.05 } },
+          ],
+        },
+      ],
+    });
+    const perComponent = mk({}).staticInfo();
+    const subtree = mk({ overrideSubcomponentsMass: true }).staticInfo();
+    // Subtree override replaces tube + child (0.05 + 0.1) with 0.05 flat.
+    expect(perComponent.mass - subtree.mass).toBeCloseTo(0.1, 9);
+  });
+
   it('dragSweep emits CP and CNa aligned with the Mach grid (validation harness)', () => {
     const rocket = OrkRocket.buildTree({
       components: [

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   OrkRocket,
   resetEngine,
+  type ComponentNode,
   type ComponentType,
   type FlightResult,
   type IgnitionEvent,
@@ -40,7 +41,7 @@ import { buildSimRun, recommendDelay, type MotorMeta, type SimRun } from './serv
 import { addRun, loadRuns } from './services/simStore.js';
 import { APP_VERSION } from './version.js';
 import {
-  addChild, addStage, defaultTree, duplicateNode, emptyTree, findNode,
+  addChild, addStage, defaultTree, duplicateNode, emptyTree, findNode, findParent,
   hasParallelStage, inheritDefaults, makeNode, motorMounts, moveNode,
   normalizeTree, removeNode, stageIndexOf, stages, updateAllNodes, updateNode,
 } from './tree/treeModel.js';
@@ -106,15 +107,19 @@ export function App() {
   // normalizeTree wraps pre-v0.009 flat trees in one stage. Lazy useState:
   // loadSession parses the whole tree — never re-run it on re-renders.
   const [session] = useState(loadSession);
-  const [tree, setTreeRaw] = useState<RocketTree>(
+  // Normalize ONCE and derive every dependent initializer from the SAME tree:
+  // each normalizeTree/defaultTree call mints fresh ids for nodes it creates,
+  // so a second call yields ids that don't exist in the tree state — the
+  // default-motor assignment and legacy migrations would key onto ghosts.
+  const [initialTree] = useState<RocketTree>(
     () => normalizeTree(session?.tree ?? defaultTree()));
+  const [tree, setTreeRaw] = useState<RocketTree>(initialTree);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // Per-mount motors (Release C). Legacy sessions carried ONE motor + the
   // mount it applied to — migrate it onto that mount.
   const [mountMotors, setMountMotors] = useState<Record<string, MountMotor>>(() => {
     if (session?.mountMotors) return session.mountMotors;
-    const legacyTree = normalizeTree(session?.tree ?? defaultTree());
-    const target = session?.mountId ?? motorMounts(legacyTree)[0]?.id;
+    const target = session?.mountId ?? motorMounts(initialTree)[0]?.id;
     if (!target) return {};
     const label = session?.motorLabel ?? 'C6-5';
     const spec = session?.motor ?? BUILT_IN_MOTORS['C6-5']!;
@@ -132,7 +137,7 @@ export function App() {
       : legacyMaxMotorLength();
     if (legacy === null) return {};
     return Object.fromEntries(
-      stages(normalizeTree(session?.tree ?? defaultTree()))
+      stages(initialTree)
         .filter((st) => st.id)
         .map((st) => [st.id!, legacy]));
   });
@@ -212,7 +217,13 @@ export function App() {
   }, []);
   const undo = useCallback(() => {
     const prev = history.current.pop();
-    if (prev) setTreeRaw(prev);
+    if (prev) {
+      setTreeRaw(prev);
+      // Never coalesce ACROSS an undo: without this, an edit within 800 ms
+      // of the last pre-undo edit skips the history push and the state the
+      // user just restored becomes unrecoverable.
+      lastEditAt.current = 0;
+    }
   }, []);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -286,11 +297,23 @@ export function App() {
   const built = 'error' in buildResult ? null : buildResult;
   const buildError = 'error' in buildResult ? buildResult.error : simError;
 
+  // Cosmetic edits (rocket/component names, display colors) must NOT wipe the
+  // current flight result — reset on a physics-relevant projection of the
+  // tree, not on tree identity (renaming used to clear Results per keystroke).
+  const physicsKey = useMemo(() => {
+    const strip = (n: ComponentNode): unknown => {
+      const { name: _n, color: _c, children, ...rest } = n as ComponentNode & { color?: string };
+      return { ...rest, children: (children ?? []).map(strip) };
+    };
+    return JSON.stringify(tree.components.map(strip));
+  }, [tree]);
+
   useEffect(() => {
     setResult(null);
     setLastRun(null);
     setAutoSupersonic(false); // re-evaluate the auto threshold on the next flight
-  }, [tree, mountMotors, launch, aeroMode]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- physicsKey stands in for tree
+  }, [physicsKey, mountMotors, launch, aeroMode]);
 
   /** Assigns a motor to a mount, with the G80 power-class ignition default. */
   const assignMotor = (targetMountId: string, label: string, spec: MotorSpec, meta: MotorMeta) => {
@@ -351,12 +374,23 @@ export function App() {
         const execMs = performance.now() - t0;
         setResult(res);
         // Per-stage motor info so booster branches can be safety-checked
-        // (chuteless HIGH-POWER boosters must warn — the G80 rule).
+        // (chuteless HIGH-POWER boosters must warn — the G80 rule). Branches
+        // are named after the SERIAL stage — except mounts inside a parallel
+        // stage (strap-on booster), whose branch carries the parallelstage
+        // node's own name. Key by the name the branch will actually have, so
+        // a strap-on booster neither misses its warning nor overwrites its
+        // host stage's entry.
         const stageMotorInfo: Record<string, { label: string; highPower: boolean }> = {};
         for (const [id, mm] of assigned) {
-          const st = stageList[stageIndexOf(tree, id)];
-          if (st?.name) {
-            stageMotorInfo[st.name] = { label: mm.label, highPower: mm.meta.highPower === true };
+          let branchName: string | undefined;
+          let p = findParent(tree, id);
+          while (p && p !== 'stage') {
+            if (p.type === 'parallelstage') { branchName = p.name; break; }
+            p = p.id ? findParent(tree, p.id) : null;
+          }
+          branchName ??= stageList[stageIndexOf(tree, id)]?.name;
+          if (branchName) {
+            stageMotorInfo[branchName] = { label: mm.label, highPower: mm.meta.highPower === true };
           }
         }
         const run = buildSimRun({
@@ -494,7 +528,9 @@ export function App() {
         }
         try {
           const spec = await fetchMotorSpec(dbMatch, ref.delay);
-          const label = `${dbMatch.commonName}-${ref.delay}`;
+          // Plugged motors (Infinity delay) display the standard "-P" suffix.
+          const delayTag = Number.isFinite(ref.delay) ? String(ref.delay) : 'P';
+          const label = `${dbMatch.commonName}-${delayTag}`;
           nextMotors[nodeId] = {
             label,
             spec,
@@ -509,7 +545,7 @@ export function App() {
             },
             ignition,
           };
-          notes.push(`Motor: ${dbMatch.manufacturerAbbrev} ${displayDesignation(dbMatch.designation, dbMatch.manufacturerAbbrev)}-${ref.delay} (loaded from the motor database).`);
+          notes.push(`Motor: ${dbMatch.manufacturerAbbrev} ${displayDesignation(dbMatch.designation, dbMatch.manufacturerAbbrev)}-${delayTag} (loaded from the motor database).`);
         } catch {
           notes.push(`Motor “${ref.designation}” is in the motor database but its thrust curve couldn't be downloaded — pick it via Browse motor database.`);
         }
@@ -829,6 +865,10 @@ export function App() {
               onSelect={(id) => setSelectedId(id || null)}
               onMove={(id, dir) => setTree(moveNode(tree, id, dir))}
               onDelete={(id) => {
+                // Never delete the last stage — an empty top level breaks the
+                // "components are always stage nodes" invariant until reload.
+                const stageList = stages(tree);
+                if (stageList.length === 1 && stageList[0]!.id === id) return;
                 setTree(removeNode(tree, id));
                 if (selectedId === id) setSelectedId(null);
               }}

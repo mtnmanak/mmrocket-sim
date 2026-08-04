@@ -392,3 +392,89 @@ describe('.ork nozzle exit diameter round-trip (RASAero power-on drag, #2)', () 
     expect(stages[1]!['nozzleExitDiameter']).toBeCloseTo(0.038, 9);
   });
 });
+
+describe('.ork audit regressions (2026-08-04)', () => {
+  const PLUGGED = `<openrocket version="1.10" creator="OpenRocket 24.12"><rocket>
+    <name>Plugged</name><subcomponents><stage><name>S</name><subcomponents>
+    <nosecone><name>Nose</name><length>0.07</length><thickness>0.002</thickness>
+      <shape>ogive</shape><shapeparameter>1.0</shapeparameter><aftradius>0.012</aftradius></nosecone>
+    <bodytube><name>Body</name><length>0.3</length><thickness>0.0005</thickness><radius>0.012</radius>
+      <motormount>
+        <ignitionevent>automatic</ignitionevent><ignitiondelay>0.0</ignitiondelay>
+        <overhang>0.0</overhang>
+        <motor configid="cfg"><type>single</type><manufacturer>Cesaroni</manufacturer>
+          <designation>K550</designation><diameter>0.054</diameter><length>0.404</length>
+          <delay>none</delay></motor>
+      </motormount>
+    </bodytube>
+    </subcomponents></stage></subcomponents></rocket></openrocket>`;
+
+  it("imports a plugged motor (<delay>none</delay>) as Infinity, never 0", () => {
+    const bytes = new TextEncoder().encode(PLUGGED);
+    const result = importOrk(bytes.buffer.slice(0, bytes.byteLength) as ArrayBuffer);
+    expect(result.motor?.delay).toBe(Infinity);
+    expect(result.notes.some((n) => n.includes('plugged'))).toBe(true);
+  });
+
+  it('exports a plugged motor back as the literal "none"', () => {
+    const bytes = new TextEncoder().encode(PLUGGED);
+    const original = importOrk(bytes.buffer.slice(0, bytes.byteLength) as ArrayBuffer);
+    const xml = exportOrk({
+      name: original.name, tree: original.tree,
+      motor: original.motor, mountId: original.motor?.mountId,
+    });
+    expect(xml).toContain('<delay>none</delay>');
+    expect(importOrk(xml).motor?.delay).toBe(Infinity);
+  });
+
+  it('round-trips tube-fin thickness instead of resetting it to the 0.5 mm fallback', () => {
+    const tree = {
+      name: 'Tubefins',
+      components: [{
+        type: 'stage' as const, name: 'Sustainer',
+        children: [{
+          type: 'bodytube' as const, length: 0.3, outerRadius: 0.012, thickness: 0.0005,
+          children: [{
+            type: 'tubefinset' as const, finCount: 3, length: 0.1,
+            outerRadius: 0.0125, thickness: 0.001,
+            position: { method: 'bottom' as const, offset: 0 },
+          }],
+        }],
+      }],
+    };
+    const back = importOrk(exportOrk({ name: 'Tubefins', tree }));
+    const tf = flatten(back.tree.components).find((c) => c.type === 'tubefinset')!;
+    expect(tf['thickness']).toBeCloseTo(0.001, 9);
+  });
+
+  it('round-trips override-for-all-subcomponents flags (per-quantity and legacy)', () => {
+    const tree = {
+      name: 'Override',
+      components: [{
+        type: 'stage' as const, name: 'Sustainer',
+        children: [{
+          type: 'bodytube' as const, length: 0.3, outerRadius: 0.012, thickness: 0.0005,
+          overrideMass: 0.25, overrideSubcomponentsMass: true, overrideCD: 0.4,
+        }],
+      }],
+    };
+    const xml = exportOrk({ name: 'Override', tree });
+    expect(xml).toContain('<overridesubcomponentsmass>true</overridesubcomponentsmass>');
+    expect(xml).toContain('<overridesubcomponentscd>false</overridesubcomponentscd>');
+    const back = importOrk(xml);
+    const body = flatten(back.tree.components).find((c) => c.type === 'bodytube')!;
+    expect(body['overrideSubcomponentsMass']).toBe(true);
+    expect(body['overrideSubcomponentsCD']).toBeUndefined();
+
+    // Legacy single-flag files (<overridesubcomponents>) cover every override.
+    const LEGACY = `<openrocket version="1.4" creator="OpenRocket 15.03"><rocket>
+      <name>Legacy</name><subcomponents><stage><name>S</name><subcomponents>
+      <bodytube><name>Body</name><length>0.3</length><thickness>0.0005</thickness><radius>0.012</radius>
+        <overridemass>0.5</overridemass><overridesubcomponents>true</overridesubcomponents>
+      </bodytube></subcomponents></stage></subcomponents></rocket></openrocket>`;
+    const bytes = new TextEncoder().encode(LEGACY);
+    const legacy = importOrk(bytes.buffer.slice(0, bytes.byteLength) as ArrayBuffer);
+    const lb = flatten(legacy.tree.components).find((c) => c.type === 'bodytube')!;
+    expect(lb['overrideSubcomponentsMass']).toBe(true);
+  });
+});

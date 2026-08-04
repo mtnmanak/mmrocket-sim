@@ -255,4 +255,34 @@ describe('RockSim export → import round trip', () => {
     };
     expect(() => exportRkt(four)).toThrow(/at most 3 stages/);
   });
+
+  it('converts middle positions to front-referenced Xb (RockSim has no middle mode)', () => {
+    const d = {
+      name: 'Mid',
+      tree: {
+        name: 'Mid',
+        components: [{
+          type: 'stage' as const, id: 's0', name: 'Sustainer',
+          children: [
+            { type: 'nosecone' as const, length: 0.1, aftRadius: 0.0125, thickness: 0.002 },
+            {
+              type: 'bodytube' as const, id: 'b', length: 0.4, outerRadius: 0.0125, thickness: 0.001,
+              children: [
+                { type: 'launchlug' as const, id: 'lug', length: 0.05, outerRadius: 0.0025, thickness: 0.0004, position: { method: 'middle' as const, offset: 0 } },
+              ],
+            },
+          ],
+        }],
+      },
+    };
+    const xml = exportRkt(d);
+    // Desktop BasePartDTO parity: xb = 0 + (0.4 - 0.05)/2 = 0.175 m = 175 mm.
+    expect(xml).toMatch(/<Xb>175(\.0+\d?)?<\/Xb>/);
+    const back = importRkt(xml);
+    const lug = back.tree.components[0]!.children!
+      .flatMap((c) => c.children ?? []).find((c) => c.type === 'launchlug')!;
+    // Physical location preserved (comes back front-referenced).
+    expect(lug.position?.method).toBe('top');
+    expect(lug.position?.offset).toBeCloseTo(0.175, 9);
+  });
 });

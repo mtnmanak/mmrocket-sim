@@ -78,4 +78,18 @@ describe('CSV round-trip', () => {
     expect(back[0]!['length']).toBeCloseTo(0.25, 9);
     expect(back[1]!.partNo).toBe('X3');
   });
+
+  it('round-trips parachute shroud-line material through the CSV', () => {
+    const chute: Preset = {
+      kind: 'parachute', manufacturer: 'Test', partNo: 'PC-1', description: 'Chute',
+      material: { name: 'Ripstop nylon', type: 'SURFACE', density: 0.067 },
+      lineMaterial: { name: 'Braided Kevlar', type: 'LINE', density: 0.0018 },
+      diameter: 0.45, lineCount: 8, lineLength: 0.5,
+    };
+    const back = csvToPresets(presetsToCsv([chute]));
+    expect(back).toHaveLength(1);
+    expect(back[0]!.lineMaterial?.name).toBe('Braided Kevlar');
+    expect(back[0]!.lineMaterial?.density).toBeCloseTo(0.0018, 9);
+    expect(back[0]!.lineMaterial?.type).toBe('LINE');
+  });
 });

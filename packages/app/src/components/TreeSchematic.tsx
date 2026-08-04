@@ -87,11 +87,20 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
       maxR = Math.max(maxR, num(n, 'aftRadius', 0), num(n, 'outerRadius', 0), num(n, 'foreRadius', 0));
     }
   }
-  const finH = Math.max(
-    0,
-    ...collect(tree.components, (n) =>
-      n.type.endsWith('finset') ? num(n, 'height', 0.03) : 0),
-  );
+  // A fin set's vertical span: freeform fins carry no 'height' key — their
+  // reach is the outline's y-max (the 0.03 default clipped tall freeform fins
+  // out of the adaptive-height frame).
+  const finSpan = (n: ComponentNode): number => {
+    if (!n.type.endsWith('finset')) return 0;
+    if (n.type === 'freeformfinset') {
+      const pts = n['points'];
+      if (Array.isArray(pts) && pts.length > 0) {
+        return Math.max(0, ...pts.map((p) => (Array.isArray(p) ? Number(p[1]) || 0 : 0)));
+      }
+    }
+    return num(n, 'height', 0.03);
+  };
+  const finH = Math.max(0, ...collect(tree.components, finSpan));
   totalLen = Math.max(totalLen, 0.05);
 
   // Vertical half-extent (m): the core body + fins, plus any off-axis pod's
@@ -100,8 +109,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   const scanRadial = (nodes: ComponentNode[], parentR: number) => {
     for (const n of nodes) {
       if (isAssembly(n.type)) {
-        const podFin = Math.max(0, ...collect(n.children ?? [],
-          (c) => c.type.endsWith('finset') ? num(c, 'height', 0.03) : 0));
+        const podFin = Math.max(0, ...collect(n.children ?? [], finSpan));
         vHalf = Math.max(vHalf, resolveAssemblyRadius(n, parentR) + assemblyBoundingRadius(n) + podFin);
         scanRadial(n.children ?? [], assemblyBoundingRadius(n));
       } else {
@@ -308,8 +316,11 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
         }
         renderTab(start, root);
       } else if (t === 'launchlug' || t === 'railbutton') {
-        const len = num(child, 'length', 0.01);
-        const r = num(child, 'outerRadius', 0.002);
+        // Rail buttons are edited via 'outerDiameter' (their only size field)
+        // and have no axial 'length' — a button is about as long as it is wide.
+        const btnDia = t === 'railbutton' ? num(child, 'outerDiameter', 0.004) : 0;
+        const len = t === 'railbutton' ? btnDia : num(child, 'length', 0.01);
+        const r = t === 'railbutton' ? btnDia / 2 : num(child, 'outerRadius', 0.002);
         const start = axialStart(child, len, pStart, pLen);
         shapes.push(
           <rect key={key++} x={ctx.x0 + start * ctx.scale}

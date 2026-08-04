@@ -400,7 +400,23 @@ final class ComponentFactory {
             FinSet fs = (FinSet) c;
             String section = str(node, "airfoilSection", null);
             if (section != null) {
-                fs.setAirfoilSection(section.toLowerCase());
+                String s = section.toLowerCase();
+                // Validate here so a bad name fails the build with a clear
+                // message instead of an UnsupportedOperationException from
+                // FinSetCalc mid-simulation.
+                switch (s) {
+                    case "hexagonal":
+                    case "naca":
+                    case "doublewedge":
+                    case "biconvex":
+                    case "hexbluntbase":
+                    case "singlewedge":
+                        break;
+                    default:
+                        throw new IllegalArgumentException(
+                                "Unknown airfoilSection '" + section + "'");
+                }
+                fs.setAirfoilSection(s);
             }
             fs.setAirfoilLeDiamond(dbl(node, "airfoilLeDiamond", 0));
             fs.setAirfoilTeDiamond(dbl(node, "airfoilTeDiamond", 0));
@@ -421,6 +437,18 @@ final class ComponentFactory {
         if (!Double.isNaN(overrideCD)) {
             c.setOverrideCD(overrideCD);
             c.setCDOverridden(true);
+        }
+        // "Override for all subcomponents" flags (desktop .ork
+        // <overridesubcomponents*> — the override replaces the whole subtree's
+        // computed value, not just this component's).
+        if (bool(node, "overrideSubcomponentsMass", false)) {
+            c.setSubcomponentsOverriddenMass(true);
+        }
+        if (bool(node, "overrideSubcomponentsCG", false)) {
+            c.setSubcomponentsOverriddenCG(true);
+        }
+        if (bool(node, "overrideSubcomponentsCD", false)) {
+            c.setSubcomponentsOverriddenCD(true);
         }
         Map<String, Object> position = obj(node, "position");
         // Off-axis assemblies (PodSet/ParallelStage) have no parent here yet, and

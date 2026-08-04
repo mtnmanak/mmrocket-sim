@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.030';
+export const APP_VERSION = '0.031';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,22 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.031',
+    date: '2026-08-04',
+    title: 'Full-codebase audit: 20+ fixes',
+    items: [
+      'Renaming your rocket (or changing a display color) no longer clears the current flight results.',
+      'Plugged motors (e.g. Cesaroni -P) now import from .ork files correctly — they used to import as a 0-second delay, firing the ejection charge at burnout. They display with the standard "-P" suffix and never eject.',
+      'Strap-on (parallel-stage) boosters now get the high-power chuteless-booster safety warning — the check was keyed so it could never fire for them.',
+      'File fidelity: .ork tube-fin wall thickness now imports; "override for all subcomponents" mass/CG/CD flags now round-trip AND apply in the simulation; RockSim export places middle-positioned parts correctly (a centered launch lug used to land at the tube front) and no longer flattens editor-created power-series noses; RASAero export keeps fins positioned away from the tube bottom in place; parachute shroud-line materials survive the preset CSV round-trip.',
+      'The saved-runs CSV gains an "Aero model" column so classic vs supersonic vs auto flights are distinguishable.',
+      'Rail buttons now draw at their entered size in the 2D view; tall freeform fins no longer clip the top of the drawing.',
+      'You can no longer delete the last stage (which left the design broken until reload), and the first edit after an undo is never merged into the undone step.',
+      'Engine internals: restored a determinism patch that had been silently inactive (simulation iteration order is again pinned identically in the browser and the reference JVM), plus several kernel-bridge hardening fixes. Differential test re-verified 5× (258 lines).',
+      'Validation harness: removed a double-counted ARCAS anchor that flattered the supersonic score by one point (now 64/135 gates under the corrected accounting).',
+    ],
+  },
   {
     version: '0.030',
     date: '2026-08-04',

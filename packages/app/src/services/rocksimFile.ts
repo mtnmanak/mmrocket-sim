@@ -3,6 +3,7 @@ import type { ComponentNode, ComponentPosition, RocketTree } from '@online-openr
 import { asStageNodes, freshId } from '../tree/treeModel.js';
 import { clusterOffsets } from '../tree/cluster.js';
 import { escapeXml as esc, xmlNum as num, xmlText as text } from './xmlUtil.js';
+import { shapeParamDefault } from './orkFile.js';
 import type { OrkExportMotor, OrkMotorRef, OrkTreeImportResult } from './orkFile.js';
 
 /**
@@ -449,6 +450,9 @@ export function exportRkt({ name, tree, motors }: RktExportInput): string {
   const nnum = (node: ComponentNode, key: string, fb: number): number =>
     typeof node[key] === 'number' ? (node[key] as number) : fb;
 
+  // Parent of the part currently being emitted (set at emitPart dispatch).
+  let curParent: ComponentNode | null = null;
+
   const common = (node: ComponentNode, dfltName: string, opts?: { knownMass?: number; useKnownCG?: boolean }) => {
     serial += 1;
     // First write wins: cluster copies re-emit the same node — motor
@@ -468,7 +472,13 @@ export function exportRkt({ name, tree, motors }: RktExportInput): string {
     emit(`<SerialNo>${serial}</SerialNo>`);
     const pos = (node.position ?? { method: 'top', offset: 0 }) as ComponentPosition;
     const mode = pos.method === 'absolute' ? 1 : pos.method === 'bottom' ? 2 : 0;
-    const xb = pos.method === 'bottom' ? -pos.offset : pos.offset;
+    let xb = pos.method === 'bottom' ? -pos.offset : pos.offset;
+    // RockSim has no "middle" mode — convert to front-referenced, mirroring
+    // the desktop's BasePartDTO: xb = offset + (parentLen - componentLen)/2.
+    if (pos.method === 'middle' && curParent) {
+      const compLen = nnum(node, 'length', nnum(node, 'rootChord', 0));
+      xb = pos.offset + (nnum(curParent, 'length', 0) - compLen) / 2;
+    }
     emit(`<LocationMode>${mode}</LocationMode>`);
     emit(`<Xb>${xb * LEN}</Xb>`);
   };
@@ -498,6 +508,10 @@ export function exportRkt({ name, tree, motors }: RktExportInput): string {
   };
 
   const emitPart = (node: ComponentNode, parent: ComponentNode | null) => {
+    // common() needs the parent's length for the middle-position conversion;
+    // set before dispatch (every common() call happens inside this frame,
+    // always before the recursive attached() walk).
+    curParent = parent;
     switch (node.type) {
       case 'nosecone': {
         emit('<NoseCone>');
@@ -506,7 +520,9 @@ export function exportRkt({ name, tree, motors }: RktExportInput): string {
         emit(`<BaseDia>${nnum(node, 'aftRadius', 0.012) * RAD}</BaseDia>`);
         emit(`<WallThickness>${nnum(node, 'thickness', 0.002) * LEN}</WallThickness>`);
         emit(`<ShapeCode>${NOSE_SHAPE_TO_CODE[String(node['shape'] ?? 'ogive')] ?? 1}</ShapeCode>`);
-        emit(`<ShapeParameter>${nnum(node, 'shapeParameter', 0)}</ShapeParameter>`);
+        // Fallback mirrors the kernel default — writing 0 for a power-law nose
+        // degenerates it to a blunt cylinder on re-import (Haack war story).
+        emit(`<ShapeParameter>${nnum(node, 'shapeParameter', shapeParamDefault(String(node['shape'] ?? 'ogive')))}</ShapeParameter>`);
         emit(`<ConstructionType>${node['filled'] === true ? 0 : 1}</ConstructionType>`);
         emit(`<ShoulderLen>${nnum(node, 'shoulderLength', 0) * LEN}</ShoulderLen>`);
         emit(`<ShoulderOD>${nnum(node, 'shoulderRadius', 0) * RAD}</ShoulderOD>`);

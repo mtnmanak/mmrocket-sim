@@ -159,6 +159,7 @@ const CSV_COLS = [
   'filled', 'shoulderDiameter', 'shoulderLength', 'thickness', 'foreOutsideDiameter',
   'aftOutsideDiameter', 'foreShoulderDiameter', 'foreShoulderLength',
   'aftShoulderDiameter', 'aftShoulderLength', 'diameter', 'lineCount', 'lineLength', 'width',
+  'lineMaterialName', 'lineMaterialDensity',
 ];
 
 export function presetsToCsv(presets: Preset[]): string {
@@ -169,6 +170,8 @@ export function presetsToCsv(presets: Preset[]): string {
       materialName: p.material?.name,
       materialType: p.material?.type,
       materialDensity: p.material?.density,
+      lineMaterialName: p.lineMaterial?.name,
+      lineMaterialDensity: p.lineMaterial?.density,
     };
     rows.push(CSV_COLS.map((c) => csvCell(flat[c])).join(','));
   }
@@ -225,8 +228,15 @@ export function csvToPresets(csv: string): Preset[] {
         density: Number(row['materialDensity']),
       };
     }
+    if (row['lineMaterialName'] && row['lineMaterialDensity']) {
+      p.lineMaterial = {
+        name: row['lineMaterialName']!,
+        type: 'LINE',
+        density: Number(row['lineMaterialDensity']),
+      };
+    }
     for (const c of CSV_COLS) {
-      if (['kind', 'manufacturer', 'partNo', 'description', 'materialName', 'materialType', 'materialDensity', 'shape', 'filled'].includes(c)) continue;
+      if (['kind', 'manufacturer', 'partNo', 'description', 'materialName', 'materialType', 'materialDensity', 'shape', 'filled', 'lineMaterialName', 'lineMaterialDensity'].includes(c)) continue;
       const v = Number(row[c]);
       if (row[c] !== '' && Number.isFinite(v)) p[c] = v;
     }

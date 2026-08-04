@@ -360,7 +360,14 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM }: Cdx1ExportIn
       throw new Error(`RASAero needs 3–8 fins per set (found ${count}). Adjust "${fin.name ?? 'Fins'}".`);
     }
     const pos = fin.position ?? { method: 'bottom', offset: 0 };
-    const bottomOffset = pos.method === 'bottom' ? pos.offset : 0;
+    // Convert any position method to a bottom-referenced offset (of the fin's
+    // trailing edge vs the tube's aft end) — silently zeroing top/middle
+    // offsets used to shift the fins to the tube bottom.
+    const tubeLen = nnum(parent, 'length', 0);
+    const bottomOffset = pos.method === 'bottom' ? pos.offset
+      : pos.method === 'top' ? pos.offset + plan.root - tubeLen
+      : pos.method === 'middle' ? pos.offset + (plan.root - tubeLen) / 2
+      : 0; // 'absolute' has no tube-relative meaning here
     // Fin Location = front edge from the tube bottom (inches).
     const locIn = (plan.root - bottomOffset) * IN;
     const cs = String(fin['crossSection'] ?? 'square');

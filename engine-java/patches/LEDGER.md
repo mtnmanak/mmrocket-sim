@@ -58,9 +58,11 @@ git diff --no-index <openrocket-src>/<path> patches/<path>
 ## Determinism fixes (documented behavior change — within upstream's own envelope)
 
 ### rocketcomponent/InstanceMap.java
-- **Why:** `InstanceMap extends HashMap<RocketComponent, ...>` and `RocketComponent`
-  has no `hashCode()` override, so iteration order follows *identity hash codes*,
-  which vary per JVM process (HotSpot's identity-hash PRNG is time-seeded).
+- **Why:** upstream `InstanceMap extends ConcurrentHashMap<RocketComponent, ...>`.
+  Two problems: (a) TeaVM's classlib needs a plain `java.util` map here; (b)
+  `RocketComponent` has no `hashCode()` override, so hash-map iteration order
+  follows *identity hash codes*, which vary per JVM process (HotSpot's
+  identity-hash PRNG is time-seeded).
   `BarrowmanCalculator` iterates this map when accumulating per-component forces
   every simulation step; a run-to-run change in FP summation order produces
   ULP-level differences that chaos-amplify over a flight. Observed 2026-07-03: the
@@ -68,9 +70,19 @@ git diff --no-index <openrocket-src>/<path> patches/<path>
   e.g. 866 vs 867 rows in the windy scenario) across two fresh JVM runs — making
   the bit-identical JVM↔TeaVM differential intermittently impossible to pass.
   Reproduced under `-Xint`, so not JIT-related.
-- **Change:** `extends HashMap` → `extends LinkedHashMap` (import + extends, 2
-  tokens). Iteration becomes insertion order — the deterministic configuration
-  tree-walk order — identical on JVM and TeaVM.
+- **Change:** `extends ConcurrentHashMap` → `extends LinkedHashMap` (import +
+  extends, 2 tokens). Iteration becomes insertion order — the deterministic
+  configuration tree-walk order — identical on JVM and TeaVM. LinkedHashMap is
+  plain classlib, so it also satisfies the TeaVM constraint.
+- **INCIDENT (2026-08-04 audit):** the LinkedHashMap version had been sitting at
+  the dead path `patches/rocketcomponent/InstanceMap.java` since it was written
+  (carve.mjs resolves patches at the full manifest-relative path
+  `patches/info/openrocket/core/...`), while the active path carried an
+  undocumented interim `ConcurrentHashMap → HashMap` classlib-only patch — so
+  the shipped kernel had identity-hash iteration order the whole time (the
+  differential passed on tolerances + the JS side's deterministic object ids).
+  Restored 2026-08-04; carve.mjs now FAILS on any patch file that doesn't match
+  a manifest entry, so a mis-pathed patch can't go silent again.
 - **Physics note:** this *selects one* FP summation order from the set upstream
   randomly wanders across runs; every result stays inside upstream's own
   run-to-run envelope (ULP-level). Aligned with this project's "deterministic

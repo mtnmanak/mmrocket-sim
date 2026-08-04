@@ -16,13 +16,24 @@ node validation/score.mjs --strict           # exit 1 unless every gate point pa
 
 ## Scoreboard
 
+**ANCHOR REVISION (2026-08-04 audit, 137 → 135 gates):** the ARCAS M1.19 rows
+in `cd-supersonic-tunnel` (both configs) were removed — they were TN D-4013
+CA,corr measurements (base-corrected ⇒ base-EXCLUDED accounting), but sat in a
+base-INCLUDED series sourced to D-4014 (whose data starts at M1.5), and the
+same measurement was already gated base-excluded as the transonic series' M1.2
+point. The old convention had flattered the score by one spurious pass (kernel
+base CD ≈ 0.09 at M1.19 vs the ±0.02 tolerance). Phase-1..4 scorecards below
+are historical (scored against the 137-gate anchors); the current state under
+revised anchors is `scorecard-audit-2026-08-04.md`.
+
 | Model | Gate points | Scorecard |
 |---|---|---|
-| Classic Extended Barrowman | **8/137 (5.8%)** | `baseline-classic-2026-08-04.md` |
-| + Phase 1 (supersonic CP/CNα) | **52/137 (38.0%)** | `scorecard-phase1-2026-08-04.md` |
-| + Phase 2 (drag fidelity) | **68/137 (49.6%)** | `scorecard-phase2-2026-08-04.md` |
-| + Phase 3 (fin airfoil sections) | **65/137 (47.4%)** | `scorecard-phase3-2026-08-04.md` |
-| + Phase 4 (hypersonic corrections) | **65/137 (47.4%)** | `scorecard-phase4-2026-08-04.md` |
+| Classic Extended Barrowman | **7/135 (5.2%)** | `baseline-classic-2026-08-04.md` (regenerated post-revision) |
+| + Phase 1 (supersonic CP/CNα) | 52/137 historical | `scorecard-phase1-2026-08-04.md` |
+| + Phase 2 (drag fidelity) | 68/137 historical | `scorecard-phase2-2026-08-04.md` |
+| + Phase 3 (fin airfoil sections) | 65/137 historical | `scorecard-phase3-2026-08-04.md` |
+| + Phase 4 (hypersonic corrections) | 65/137 historical | `scorecard-phase4-2026-08-04.md` |
+| Current (Phase 4, revised anchors) | **64/135 (47.4%)** | `scorecard-audit-2026-08-04.md` |
 
 Phase 4 (Van Driest II friction above M4; cone wave-drag coefficient fading
 2.1 → Cp_max(M) over M4–8) moved no gates but cut HB-2's high-Mach CA0 excess
@@ -43,7 +54,8 @@ and get thin-airfoil wave drag; boattails get supersonic wave drag; nose wave
 drag decays past its table end; base drag gets the vacuum-limit cap; fin-body
 junction interference (+80% of fin friction, from the D-4013 fins-on/off
 increment); fixtures polished + tunnel-Re-matched (`machAlt`). ARCAS-Short
-supersonic CD 7/7, Long 5/6, subsonic green. Remaining red, documented: the
+supersonic CD 6/7 (M1.49 misses by +0.033), Long 5/6, subsonic green.
+(An earlier claim of 7/7 counted the since-removed M1.19 row.) Remaining red, documented: the
 transonic peak band M0.95–1.2 (tunnel shows fin transonic drag ≈4× subsonic;
 RASAero underpredicts these same anchors by 0.10–0.22), Finner Cx0 (wedge
 blunt-TE fin base drag → feature #4 airfoils), HB-2 (flare/bluntness →
@@ -82,7 +94,9 @@ node validation/score.mjs > validation/scorecard.md
 - `score.mjs` — builds each fixture, runs `dragSweep` (which emits CD
   power-off/on + CP + CNα per Mach), interpolates at anchor Machs, grades
 - `baseline-classic-2026-08-04.md` — the classic Extended Barrowman scorecard
-  (flag off, regenerated whenever the harness changes): **8/137 gate points**
+  (flag off, regenerated whenever the harness changes): **7/135 gate points**
+- `scorecard-audit-2026-08-04.md` — the current supersonic-model scorecard
+  under the revised (135-gate) anchors
 - `scorecard-phase1-2026-08-04.md` — the Phase-1 supersonic-model scorecard
 
 ## Baseline reading (why almost everything fails, and why that's fine)
@@ -99,10 +113,9 @@ The harness exists to turn red rows green, phase by phase. The classic kernel:
 3. **The transonic rise starts too early and peaks too low** vs the ARCAS
    tunnel (kernel rises from M0.8; tunnel peaks ≈0.685 at M1.05, kernel
    ≈0.61 at M1.1).
-4. **Subsonic CD runs high** on the tunnel fixtures; part of this is the
-   harness's known Re mismatch (kernel sweeps at ISA sea level, tunnels ran
-   fixed Re/ft — see `anchors.json` `_readme`). Re-matching is a planned
-   harness upgrade before drag-phase tuning is judged subsonic.
+4. **Subsonic CD runs high** on the tunnel fixtures. For ARCAS this is now
+   Re-matched (the fixtures carry RASAero's `machAlt` table); Finner and HB-2
+   still sweep at ISA sea level — see `anchors.json` `_readme`.
 
 Keep gates honest: never widen a tolerance to make a phase pass — the
 tolerances come from the datasets' own stated accuracies.
@@ -113,4 +126,4 @@ tolerances come from the datasets' own stated accuracies.
   reconstruction + manual forum retrievals — see anchors doc §2/§6)
 - Cajun (fin semispan not in our extract; retrievable from NASA TM X-1771)
 - Power-on ΔCD series (Nike-Apache deck) — needs the fixture nozzle-exit data
-- Reynolds matching (tunnel Re vs sea-level sweep)
+- Reynolds matching for Finner and HB-2 (ARCAS is machAlt-matched already)

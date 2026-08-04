@@ -3,7 +3,7 @@ package info.openrocket.core.rocketcomponent;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 
 import info.openrocket.core.util.Transformation;
 
@@ -12,7 +12,17 @@ import info.openrocket.core.util.Transformation;
  * @author teyrana (aka Daniel Williams) <equipoise@gmail.com>
  *
  */
-public class InstanceMap extends HashMap<RocketComponent, ArrayList<InstanceContext>> {
+// PATCH(online-openrocket): ConcurrentHashMap -> LinkedHashMap. Two reasons:
+// (1) TeaVM's classlib needs a plain java.util map here; (2) RocketComponent
+// has no hashCode() override, so hash-map iteration order follows identity
+// hash codes, which vary per JVM process. BarrowmanCalculator iterates this
+// map when summing per-component aerodynamic forces every simulation step; a
+// varying summation order produces ULP-level differences that chaos-amplify
+// over a flight, making simulations nondeterministic run-to-run (and
+// JVM-vs-TeaVM differential comparison impossible). LinkedHashMap iterates in
+// insertion order — the deterministic tree-walk order — identically on JVM
+// and TeaVM. See patches/LEDGER.md.
+public class InstanceMap extends LinkedHashMap<RocketComponent, ArrayList<InstanceContext>> {
 
 	// =========== Public Functions ========================
 

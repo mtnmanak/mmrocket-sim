@@ -6,7 +6,7 @@
     "tol is absolute in the anchor's unit; relTol is relative (fraction of the anchor value); gate=false series are informational (reported, never counted).",
     "gateMinMach/gateMaxMach restrict which points count toward the gate; outside points report as info.",
     "refAreaScale converts kernel-referenced coefficients (max body diameter area) to the dataset's reference area (kernel value x scale).",
-    "KNOWN LIMITATION (v1): the kernel sweep computes Reynolds number at ISA sea level; the tunnels ran fixed Re/ft (ARCAS 3.0e6/ft, Cajun 2.0e6/ft) and RASAero's curves are Re-matched via its Mach-Alt table. Expect a friction-CD bias, worst subsonic. Re-matching is a planned harness upgrade."
+    "Re matching: fixtures MAY carry a machAlt table (Mach -> altitude m) which the sweep uses to evaluate each point at tunnel-matched Reynolds number (ARCAS carries RASAero's own Mach-Alt table). Fixtures WITHOUT machAlt (basic-finner, hb2) still sweep at ISA sea level - expect a friction-CD bias there, worst subsonic."
   ],
   "arcas-short": {
     "fixture": "arcas-short.json",
@@ -17,8 +17,8 @@
     "series": [
       {
         "id": "cd-supersonic-tunnel", "quantity": "cd", "base": "included", "gate": true, "tol": 0.02,
-        "source": "TN D-4014 Fig 5(b) CA a=0 via RASAero comparison dots (read +/-0.005; CA not base-corrected)",
-        "points": [[1.19, 0.595], [1.49, 0.532], [1.8, 0.470], [2.29, 0.376], [2.95, 0.300], [3.95, 0.223], [4.65, 0.198]]
+        "source": "TN D-4014 Fig 5(b) CA a=0 via RASAero comparison dots (read +/-0.005; CA not base-corrected). M1.19 row removed 2026-08-04: D-4014 data starts at M1.5; the M1.19 dot is D-4013 CA,corr (base-corrected), the same measurement already gated base-EXCLUDED as cd-transonic-tunnel's M1.2 point - keeping it here double-counted it under the wrong base convention.",
+        "points": [[1.49, 0.532], [1.8, 0.470], [2.29, 0.376], [2.95, 0.300], [3.95, 0.223], [4.65, 0.198]]
       },
       {
         "id": "cd-transonic-tunnel", "quantity": "cd", "base": "excluded", "gate": true, "tol": 0.03,
@@ -45,8 +45,8 @@
     "series": [
       {
         "id": "cd-supersonic-tunnel", "quantity": "cd", "base": "included", "gate": true, "tol": 0.02,
-        "source": "TN D-4014 Fig 6(b) CA a=0 via RASAero comparison dots (no M1.5 Long data)",
-        "points": [[1.19, 0.607], [1.8, 0.508], [2.29, 0.410], [2.95, 0.336], [3.95, 0.269], [4.65, 0.225]]
+        "source": "TN D-4014 Fig 6(b) CA a=0 via RASAero comparison dots (no M1.5 Long data). M1.19 row removed 2026-08-04: same base-convention double-count as arcas-short (it was D-4013 base-corrected data; see cd-transonic-tunnel M1.2).",
+        "points": [[1.8, 0.508], [2.29, 0.410], [2.95, 0.336], [3.95, 0.269], [4.65, 0.225]]
       },
       {
         "id": "cd-transonic-tunnel", "quantity": "cd", "base": "excluded", "gate": true, "tol": 0.03,

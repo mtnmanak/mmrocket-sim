@@ -4,8 +4,9 @@
  * docs/research/validation-anchors-2026-08-03.md for provenance).
  *
  * Usage:
- *   node validation/score.mjs            # markdown scorecard to stdout
- *   node validation/score.mjs --strict   # exit 1 if any gate point fails
+ *   node validation/score.mjs               # classic model (flag off) scorecard to stdout
+ *   node validation/score.mjs --supersonic  # score with the supersonicAero flag ON
+ *   node validation/score.mjs --strict      # exit 1 if any gate point fails
  *
  * Requires the engine to be built first (`npm run build`, or
  * `npm run build -w @online-openrocket/engine`).

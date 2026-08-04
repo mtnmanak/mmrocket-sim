@@ -89,16 +89,25 @@ export function importOrk(data: ArrayBuffer | string): OrkTreeImportResult {
     // Ignition: the per-config block wins over the bare default (desktop
     // writes defaults bare, overrides in <ignitionconfiguration>).
     const igEl = mountEl.querySelector(':scope > ignitionconfiguration') ?? mountEl;
+    // Plugged motors (no ejection charge): the desktop writes the literal
+    // string "none" (Motor.PLUGGED_DELAY). Represent as Infinity — the kernel
+    // treats a +Inf ejection delay as "never fires", matching the desktop.
+    const delayText = text(motorEl, ':scope > delay');
+    const delay = delayText === 'none' ? Infinity : num(motorEl, 'delay', 0);
     const ref: OrkMotorRef = {
       designation: text(motorEl, ':scope > designation') ?? 'unknown',
       manufacturer: text(motorEl, ':scope > manufacturer') ?? 'unknown',
       diameter: num(motorEl, 'diameter', 0.018),
       length: num(motorEl, 'length', 0.07),
-      delay: num(motorEl, 'delay', 0),
+      delay,
       mountId: node.id,
       ignitionEvent: text(igEl, ':scope > ignitionevent') ?? undefined,
       ignitionDelay: num(igEl, 'ignitiondelay', 0),
     };
+    if (delayText === 'none') {
+      notes.push(
+        `Motor ${ref.designation}: plugged (no ejection charge) — make sure recovery deploys on apogee/altitude, not the ejection charge.`);
+    }
     if (node.id) {
       motors[node.id] = ref;
     }
@@ -123,6 +132,18 @@ export function importOrk(data: ArrayBuffer | string): OrkTreeImportResult {
       if (!Number.isNaN(ocg)) node['overrideCGX'] = ocg;
       const ocd = num(el, 'overridecd', NaN);
       if (!Number.isNaN(ocd)) node['overrideCD'] = ocd;
+      // "Override for all subcomponents": per-quantity flags (24.x format);
+      // legacy files carry a single <overridesubcomponents> covering all.
+      const legacyAll = text(el, ':scope > overridesubcomponents') === 'true';
+      if (legacyAll || text(el, ':scope > overridesubcomponentsmass') === 'true') {
+        node['overrideSubcomponentsMass'] = true;
+      }
+      if (legacyAll || text(el, ':scope > overridesubcomponentscg') === 'true') {
+        node['overrideSubcomponentsCG'] = true;
+      }
+      if (legacyAll || text(el, ':scope > overridesubcomponentscd') === 'true') {
+        node['overrideSubcomponentsCD'] = true;
+      }
       if (withPosition) {
         const pos = readPosition(el);
         if (pos) node.position = pos;
@@ -240,6 +261,8 @@ export function importOrk(data: ArrayBuffer | string): OrkTreeImportResult {
         n['length'] = num(el, 'length', 0.1);
         const r = num(el, 'radius', NaN);
         if (!Number.isNaN(r)) n['outerRadius'] = r;
+        const th = num(el, 'thickness', NaN);
+        if (!Number.isNaN(th)) n['thickness'] = th;
         return n;
       }
       case 'innertube': {
@@ -491,17 +514,18 @@ export function exportOrk({ name, tree, motors, motor, mountId }: OrkTreeExportI
 
   // Mass/CG/Cd overrides, exactly as the desktop RocketComponentSaver writes them.
   const overrides = (depth: number, node: ComponentNode) => {
+    const sub = (key: string) => (node[key] === true ? 'true' : 'false');
     if (typeof node['overrideMass'] === 'number') {
       emit(depth, `<overridemass>${node['overrideMass']}</overridemass>`);
-      emit(depth, '<overridesubcomponentsmass>false</overridesubcomponentsmass>');
+      emit(depth, `<overridesubcomponentsmass>${sub('overrideSubcomponentsMass')}</overridesubcomponentsmass>`);
     }
     if (typeof node['overrideCGX'] === 'number') {
       emit(depth, `<overridecg>${node['overrideCGX']}</overridecg>`);
-      emit(depth, '<overridesubcomponentscg>false</overridesubcomponentscg>');
+      emit(depth, `<overridesubcomponentscg>${sub('overrideSubcomponentsCG')}</overridesubcomponentscg>`);
     }
     if (typeof node['overrideCD'] === 'number') {
       emit(depth, `<overridecd>${node['overrideCD']}</overridecd>`);
-      emit(depth, '<overridesubcomponentscd>false</overridesubcomponentscd>');
+      emit(depth, `<overridesubcomponentscd>${sub('overrideSubcomponentsCD')}</overridesubcomponentscd>`);
     }
   };
 
@@ -569,7 +593,8 @@ export function exportOrk({ name, tree, motors, motor, mountId }: OrkTreeExportI
       emit(depth + 2, `<designation>${escapeXml(m.designation)}</designation>`);
       emit(depth + 2, `<diameter>${m.diameter}</diameter>`);
       emit(depth + 2, `<length>${m.length}</length>`);
-      emit(depth + 2, `<delay>${m.delay}</delay>`);
+      // Plugged (no ejection charge) → the desktop's literal "none".
+      emit(depth + 2, `<delay>${Number.isFinite(m.delay) ? m.delay : 'none'}</delay>`);
       emit(depth + 1, '</motor>');
       emit(depth + 1, `<ignitionconfiguration configid="${configId}">`);
       emit(depth + 2, `<ignitionevent>${escapeXml(ev)}</ignitionevent>`);
@@ -1091,7 +1116,7 @@ function readFinTabs(el: Element, node: ComponentNode): void {
 }
 
 /** Mirrors Transition.Shape.defaultParameter() in the carved kernel. */
-function shapeParamDefault(shape: string): number {
+export function shapeParamDefault(shape: string): number {
   switch (shape) {
     case 'ogive':
     case 'parabolic':

@@ -52,7 +52,9 @@ import info.openrocket.core.util.WorldCoordinate;
  * a registry and are addressed by integer handles; parameters are primitives
  * or arrays; results are JSON strings (built by hand — no JSON library in
  * the kernel). All values SI (meters, kilograms, seconds, newtons), angles
- * in radians — conversions belong to the caller.
+ * in radians — conversions belong to the caller. Documented exceptions:
+ * launchLatitude/launchLongitude are DEGREES (WorldCoordinate's own unit)
+ * and getDragSweep's aoaDeg is degrees (converted here).
  */
 public final class OrkEngine {
 
@@ -264,8 +266,7 @@ public final class OrkEngine {
             throw new IllegalArgumentException(
                     "Component id '" + componentId + "' is not a motor mount");
         }
-        int mountHandle = register(comp);
-        setMotor(rocketHandle, mountHandle, designation, diameter, length,
+        applyMotor(ctx, (MotorMount) comp, designation, diameter, length,
                 times, thrusts, masses, cgX, ejectionDelay);
     }
 
@@ -343,7 +344,13 @@ public final class OrkEngine {
             double[] masses, double cgX, double ejectionDelay) {
         RocketCtx ctx = (RocketCtx) get(rocketHandle);
         MotorMount mount = (MotorMount) get(mountHandle);
+        applyMotor(ctx, mount, designation, diameter, length,
+                times, thrusts, masses, cgX, ejectionDelay);
+    }
 
+    private static void applyMotor(RocketCtx ctx, MotorMount mount, String designation,
+            double diameter, double length, double[] times, double[] thrusts,
+            double[] masses, double cgX, double ejectionDelay) {
         Coordinate[] cgPoints = new Coordinate[times.length];
         for (int i = 0; i < times.length; i++) {
             cgPoints[i] = new Coordinate(cgX, 0, 0, masses[i]);
@@ -449,7 +456,7 @@ public final class OrkEngine {
         WarningSet warnings = new WarningSet();
         Coordinate cp = calc.getCP(ctx.rocket.getSelectedConfiguration(), conditions, warnings);
 
-        double refDiameter = 2 * conditions.getRefLength() / 2; // refLength IS the reference diameter
+        double refDiameter = conditions.getRefLength(); // refLength IS the reference diameter
         double cg = structure.getCM().x;
         double stabilityCal = (cp.x - cg) / conditions.getRefLength();
 
@@ -914,6 +921,31 @@ public final class OrkEngine {
     }
 
     private static String escape(String s) {
-        return s.replace("\\", "\\\\").replace("\"", "\\\"");
+        // Control characters must be escaped too: component names arrive through
+        // buildRocket JSON (JsonLite decodes \n etc. into real chars) and are
+        // re-emitted inside JSON string literals — a raw newline there makes the
+        // whole payload unparseable by JSON.parse on the JS side.
+        StringBuilder sb = new StringBuilder(s.length() + 8);
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            switch (c) {
+                case '\\': sb.append("\\\\"); break;
+                case '"': sb.append("\\\""); break;
+                case '\n': sb.append("\\n"); break;
+                case '\r': sb.append("\\r"); break;
+                case '\t': sb.append("\\t"); break;
+                default:
+                    if (c < 0x20) {
+                        // Hand-rolled backslash-u00XX (avoid String.format —
+                        // TeaVM's Formatter is incomplete, see the %g ledger note).
+                        sb.append("\\u00");
+                        sb.append(Character.forDigit((c >> 4) & 0xF, 16));
+                        sb.append(Character.forDigit(c & 0xF, 16));
+                    } else {
+                        sb.append(c);
+                    }
+            }
+        }
+        return sb.toString();
     }
 }

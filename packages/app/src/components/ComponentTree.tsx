@@ -13,10 +13,12 @@ const TYPE_ICON: Partial<Record<ComponentType, string>> = {
   parachute: '☂', streamer: '≋', shockcord: '〜', masscomponent: '◆',
 };
 
-function NodeRow({ node, depth, selectedId, onSelect, onMove, onDelete, onDuplicate }: {
+function NodeRow({ node, depth, selectedId, soleStageId, onSelect, onMove, onDelete, onDuplicate }: {
   node: ComponentNode;
   depth: number;
   selectedId: string | null;
+  /** The only stage's id when exactly one stage exists — it can't be deleted. */
+  soleStageId: string | null;
   onSelect: (id: string) => void;
   onMove: (id: string, dir: -1 | 1) => void;
   onDelete: (id: string) => void;
@@ -39,12 +41,14 @@ function NodeRow({ node, depth, selectedId, onSelect, onMove, onDelete, onDuplic
             <button title="Move up" onClick={() => onMove(node.id!, -1)}>↑</button>
             <button title="Move down" onClick={() => onMove(node.id!, 1)}>↓</button>
             <button title="Duplicate (deep copy)" onClick={() => onDuplicate(node.id!)}>⧉</button>
-            <button title="Delete" onClick={() => onDelete(node.id!)}>✕</button>
+            {node.id !== soleStageId && (
+              <button title="Delete" onClick={() => onDelete(node.id!)}>✕</button>
+            )}
           </span>
         )}
       </div>
       {(node.children ?? []).map((c) => (
-        <NodeRow key={c.id} node={c} depth={depth + 1} selectedId={selectedId}
+        <NodeRow key={c.id} node={c} depth={depth + 1} selectedId={selectedId} soleStageId={soleStageId}
           onSelect={onSelect} onMove={onMove} onDelete={onDelete} onDuplicate={onDuplicate} />
       ))}
     </>
@@ -138,6 +142,7 @@ export function ComponentTree({ tree, selectedId, onSelect, onMove, onDelete, on
         </div>
         {tree.components.map((n) => (
           <NodeRow key={n.id} node={n} depth={1} selectedId={selectedId}
+            soleStageId={tree.components.length === 1 ? tree.components[0]!.id ?? null : null}
             onSelect={onSelect} onMove={onMove} onDelete={onDelete} onDuplicate={onDuplicate} />
         ))}
       </div>
