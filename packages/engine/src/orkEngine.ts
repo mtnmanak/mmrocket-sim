@@ -251,6 +251,12 @@ export interface DragSweepOptions {
   machStep?: number;
   /** Angle of attack in degrees (default 0 — the zero-alpha drag polar). */
   aoaDeg?: number;
+  /**
+   * Optional Reynolds matching: [mach, altitude m] pairs pin the ISA
+   * atmosphere (hence Re) per Mach point, linearly interpolated — the same
+   * mechanism as RASAero's Mach-Alt table. Absent ⇒ sea level throughout.
+   */
+  machAlt?: [number, number][];
 }
 
 /** One power state's drag coefficients across the Mach grid (index-aligned to `machs`). */
@@ -402,6 +408,7 @@ export class OrkRocket {
       machMax: options.machMax ?? 3.0,
       machStep: options.machStep ?? 0.05,
       aoaDeg: options.aoaDeg ?? 0,
+      machAlt: options.machAlt,
     }));
     const parsed = JSON.parse(raw) as DragSweep & { error?: string };
     if (parsed.error) throw new Error(`Drag sweep failed: ${parsed.error}`);

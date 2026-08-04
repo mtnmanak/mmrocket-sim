@@ -12,6 +12,8 @@
     "fixture": "arcas-short.json",
     "refAreaScale": 1.0,
     "maxMach": 5.0,
+    "machAlt": [[0.0, 0], [0.42, 0.3], [0.9, 7620], [1.05, 9296.4], [1.2, 10058.4], [1.5, 11277.6], [2.0, 13411.2], [4.0, 17983.2], [5.0, 19202.4]],
+    "_machAltNote": "RASAero's own tunnel-Re-matching Mach-Alt table for the ARCAS comparison (comparison doc p.9, ft converted to m) - pins sweep Re to the Langley tunnels' 3.0e6/ft.",
     "series": [
       {
         "id": "cd-supersonic-tunnel", "quantity": "cd", "base": "included", "gate": true, "tol": 0.02,
@@ -39,6 +41,7 @@
     "fixture": "arcas-long.json",
     "refAreaScale": 1.0,
     "maxMach": 5.0,
+    "machAlt": [[0.0, 0], [0.42, 0.3], [0.9, 7620], [1.05, 9296.4], [1.2, 10058.4], [1.5, 11277.6], [2.0, 13411.2], [4.0, 17983.2], [5.0, 19202.4]],
     "series": [
       {
         "id": "cd-supersonic-tunnel", "quantity": "cd", "base": "included", "gate": true, "tol": 0.02,

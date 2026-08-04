@@ -225,6 +225,10 @@ public class SymmetricComponentCalc extends RocketComponentCalc {
 	}
 
 	private LinearInterpolator interpolator = null;
+	/** PATCH (feature #1 Phase 2): conical/ogive noses have an analytic branch
+	 * that can be evaluated beyond the interpolator's sampled range. */
+	private boolean analyticNose = false;
+	private double analyticMul = 1.0;
 
 	@Override
 	public double calculatePressureCD(FlightConditions conditions,
@@ -244,12 +248,39 @@ public class SymmetricComponentCalc extends RocketComponentCalc {
 
 		// Boattail drag computed directly from base drag
 		if (aftRadius < foreRadius) {
-			if (fineness >= 3)
-				return 0;
-			double cd = baseCD * frontalArea / conditions.getRefArea();
-			if (fineness <= 1)
-				return cd;
-			return cd * (3 - fineness) / 2;
+			double cdSub;
+			if (fineness >= 3) {
+				cdSub = 0;
+			} else {
+				cdSub = baseCD * frontalArea / conditions.getRefArea();
+				if (fineness > 1) {
+					cdSub *= (3 - fineness) / 2;
+				}
+			}
+			// PATCH (feature #1 Phase 2): the classic model has NO Mach dependence
+			// for boattails/reducers — the base-scaled subsonic estimate is used at
+			// every speed. Flag on: supersonic wave drag from the linearized strip
+			// estimate Cp = -2*theta/beta on the expansion surface (RASAero's
+			// "Other Body Wave Drag" bucket), blended in over M0.8-1.2. Scored
+			// against the ARCAS supersonic CD anchors (its 12deg boattail).
+			double machB = conditions.getMach();
+			if (!supersonicAero || machB <= 0.8) {
+				return cdSub;
+			}
+			double theta = Math.atan2(foreRadius - aftRadius, length);
+			double frontalRatio = frontalArea / conditions.getRefArea();
+			// The linearized 1/beta form diverges approaching M1 — bridge the
+			// transonic band by blending from the subsonic estimate at M0.8 to
+			// the wave value at M1.5 (first Mach where linearized theory is
+			// trustworthy), matching the ARCAS body-alone transonic data trend.
+			double beta15 = MathUtil.safeSqrt(1.5 * 1.5 - 1);
+			double wave15 = (2 * theta / beta15) * frontalRatio;
+			if (machB >= 1.5) {
+				double beta = MathUtil.safeSqrt(machB * machB - 1);
+				return (2 * theta / beta) * frontalRatio;
+			}
+			double t = (machB - 0.8) / 0.7;
+			return cdSub * (1 - t) + wave15 * t;
 		}
 
 		// All nose cones and shoulders from pre-calculated and interpolating
@@ -257,7 +288,33 @@ public class SymmetricComponentCalc extends RocketComponentCalc {
 			calculateNoseInterpolator();
 		}
 
-		return interpolator.getValue(conditions.getMach()) * frontalArea / conditions.getRefArea();
+		// PATCH (feature #1 Phase 2): the interpolators clamp FLAT beyond their
+		// last data point (M2-4 depending on shape) — wave drag never decays.
+		// Flag on: conical/ogive noses continue on their own analytic branch
+		// (2.1*sinphi^2 + 0.5*sinphi/beta, which has the physical 1/beta decay
+		// and the correct high-M asymptote); table shapes decay with the
+		// Fleeman/Bonney correlation Mach shape (1.59 + 1.83/M^2).
+		double mach = conditions.getMach();
+		double cd;
+		if (supersonicAero && mach > interpolatorMaxMach()) {
+			double mEnd = interpolatorMaxMach();
+			if (analyticNose) {
+				cd = analyticMul * (2.1 * pow2(sinphi) +
+						0.5 * sinphi / MathUtil.safeSqrt(mach * mach - 1));
+			} else {
+				cd = interpolator.getValue(mEnd) *
+						(1.59 + 1.83 / (mach * mach)) / (1.59 + 1.83 / (mEnd * mEnd));
+			}
+		} else {
+			cd = interpolator.getValue(mach);
+		}
+		return cd * frontalArea / conditions.getRefArea();
+	}
+
+	/** PATCH (feature #1 Phase 2): last Mach with real data in the interpolator. */
+	private double interpolatorMaxMach() {
+		double[] xs = interpolator.getXPoints();
+		return xs[xs.length - 1];
 	}
 
 	/*
@@ -342,10 +399,14 @@ public class SymmetricComponentCalc extends RocketComponentCalc {
 		switch (shape) {
 			case CONICAL:
 				interpolator = calculateOgiveNoseInterpolator(0, sinphi); // param==0 -> conical
+				analyticNose = true; // PATCH (feature #1 Phase 2)
+				analyticMul = 0.72 * pow2(0 - 0.5) + 0.82;
 				break;
 
 			case OGIVE:
 				interpolator = calculateOgiveNoseInterpolator(param, sinphi);
+				analyticNose = true; // PATCH (feature #1 Phase 2)
+				analyticMul = 0.72 * pow2(param - 0.5) + 0.82;
 				break;
 
 			case ELLIPSOID:

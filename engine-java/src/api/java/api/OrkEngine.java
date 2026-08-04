@@ -534,6 +534,25 @@ public final class OrkEngine {
         }
         int n = machList.size();
 
+        // Optional Reynolds matching: "machAlt": [[mach, altitude_m], ...] pins
+        // the atmosphere (hence Re) per Mach point, linearly interpolated — the
+        // validation harness uses it to match wind-tunnel Re/ft, the same
+        // mechanism as RASAero's Mach-Alt table. Absent ⇒ ISA sea level.
+        double[] maMach = null;
+        double[] maAlt = null;
+        Object maRaw = o.get("machAlt");
+        if (maRaw instanceof java.util.List && !((java.util.List<?>) maRaw).isEmpty()) {
+            java.util.List<?> rows = (java.util.List<?>) maRaw;
+            maMach = new double[rows.size()];
+            maAlt = new double[rows.size()];
+            for (int i = 0; i < rows.size(); i++) {
+                java.util.List<?> row = (java.util.List<?>) rows.get(i);
+                maMach[i] = ((Number) row.get(0)).doubleValue();
+                maAlt[i] = ((Number) row.get(1)).doubleValue();
+            }
+        }
+        ExtendedISAModel isa = (maMach != null) ? new ExtendedISAModel() : null;
+
         // Every stage number -> the power-on thrusting set; note if any nozzle set.
         java.util.Set<Integer> allStages = new java.util.HashSet<>();
         boolean hasNozzle = false;
@@ -563,7 +582,28 @@ public final class OrkEngine {
         for (int i = 0; i < n; i++) {
             double mach = machList.get(i);
 
+            info.openrocket.core.models.atmosphere.AtmosphericConditions atm = null;
+            if (isa != null) {
+                double alt;
+                if (mach <= maMach[0]) {
+                    alt = maAlt[0];
+                } else if (mach >= maMach[maMach.length - 1]) {
+                    alt = maAlt[maAlt.length - 1];
+                } else {
+                    int j = 1;
+                    while (maMach[j] < mach) {
+                        j++;
+                    }
+                    double t = (mach - maMach[j - 1]) / (maMach[j] - maMach[j - 1]);
+                    alt = maAlt[j - 1] + t * (maAlt[j] - maAlt[j - 1]);
+                }
+                atm = isa.getConditions(alt);
+            }
+
             FlightConditions off = new FlightConditions(config);
+            if (atm != null) {
+                off.setAtmosphericConditions(atm);
+            }
             off.setMach(mach);
             off.setAOA(aoa);
             AerodynamicForces fOff = calc.getAerodynamicForces(config, off, warnings);
@@ -576,6 +616,9 @@ public final class OrkEngine {
             cna[i] = cpc.weight;
 
             FlightConditions on = new FlightConditions(config);
+            if (atm != null) {
+                on.setAtmosphericConditions(atm);
+            }
             on.setMach(mach);
             on.setAOA(aoa);
             on.setThrustingStages(new java.util.HashSet<>(allStages));

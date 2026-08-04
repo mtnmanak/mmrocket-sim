@@ -777,8 +777,17 @@ public class FinSetCalc extends RocketComponentCalc {
 		if (finArea < MathUtil.EPSILON || macLength < MathUtil.EPSILON) {
 			return 0.0;
 		}
-		
+
 		double cd = componentCf * (1 + 2 * thickness / macLength) * 2 * finArea / conditions.getRefArea();
+		// PATCH (feature #1 Phase 2): fin-body junction interference drag.
+		// The ARCAS fins-on/fins-off tunnel increment (NASA TN D-4013: the fin
+		// set adds ~0.073-0.08 CD where bare fin friction accounts for ~0.036)
+		// shows the interference is comparable to the fin friction itself, and
+		// RASAero prints a "Fin Interference" drag component of that same
+		// relative size. Flag on: +80% of the fin friction drag.
+		if (supersonicAero) {
+			cd *= 1.8;
+		}
 		return cd;
 	}
 	
@@ -793,7 +802,33 @@ public class FinSetCalc extends RocketComponentCalc {
 
 		double mach = conditions.getMach();
 		double cd = 0;
-		
+
+		// PATCH (feature #1 Phase 2): a sharp streamlined (AIRFOIL) section has
+		// no blunt leading edge — the classic model charges it the swept-cylinder
+		// LE drag plateau (~1.2 on the LE frontal area), which neither decays
+		// with Mach nor belongs on a sharp section, and whose subsonic form
+		// (1-M^2)^-0.417 blows up approaching M0.9 (a spurious early transonic
+		// rise). Flag on: subsonic thickness/profile drag stays in the friction
+		// form factor (1 + 2t/c); supersonic wave drag is thin-airfoil
+		// K*4*(t/c)^2/beta (K = 4/3, biconvex), swept by cos^2(GammaLead),
+		// blended in over M0.9-1.2, referenced to fin planform area. Sharp TE ⇒
+		// no base term. Scored against the ARCAS/Finner CD anchors.
+		if (supersonicAero && crossSection == FinSet.CrossSection.AIRFOIL) {
+			double tc = (macLength > MathUtil.EPSILON) ? thickness / macLength : 0;
+			double wave = 0;
+			if (mach > 0.9) {
+				double beta12 = MathUtil.safeSqrt(1.2 * 1.2 - 1);
+				double wave12 = (4.0 / 3.0) * 4 * pow2(tc) / beta12;
+				if (mach >= 1.2) {
+					double beta = MathUtil.safeSqrt(mach * mach - 1);
+					wave = (4.0 / 3.0) * 4 * pow2(tc) / beta;
+				} else {
+					wave = wave12 * (mach - 0.9) / 0.3;
+				}
+			}
+			return wave * pow2(cosGammaLead) * finArea / conditions.getRefArea();
+		}
+
 		// Pressure fore-drag
 		if (crossSection == FinSet.CrossSection.AIRFOIL ||
 				crossSection == FinSet.CrossSection.ROUNDED) {

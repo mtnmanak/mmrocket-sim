@@ -54,7 +54,10 @@ for (const [name, spec] of Object.entries(anchors)) {
   const rocket = OrkRocket.buildTree(tree);
   if (supersonic) rocket.setSupersonicAero(true);
   const info = rocket.staticInfo();
-  const sweep = rocket.dragSweep({ machMin: 0.05, machMax: spec.maxMach ?? 10, machStep: 0.025, aoaDeg: spec.aoaDeg ?? 0 });
+  const sweep = rocket.dragSweep({
+    machMin: 0.05, machMax: spec.maxMach ?? 10, machStep: 0.025,
+    aoaDeg: spec.aoaDeg ?? 0, machAlt: spec.machAlt,
+  });
   const scale = spec.refAreaScale ?? 1;
 
   out.push(`## ${name} — ${tree.name}`);

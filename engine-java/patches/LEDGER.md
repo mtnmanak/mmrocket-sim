@@ -177,6 +177,40 @@ docs/research/validation-anchors-2026-08-03.md and the spec doc areas 6/7. Files
   scenarios lock CP/CNα at M1.2/2/4/8 for both flag states JVM↔JS. Scored result:
   validation harness gate points 8/137 (classic) → see the Phase-1 scorecard.
 
+**Phase 2 additions (drag fidelity, same `supersonicAero` flag, same files):**
+
+- **FinSetCalc.calculatePressureCD**: AIRFOIL (sharp streamlined) sections no longer
+  get the swept-cylinder blunt-LE drag plateau (~1.2 on LE frontal area, Mach-flat,
+  with a (1−M²)^−0.417 subsonic form that blows up at M0.9). Flag on: subsonic
+  pressure ≈ 0 (profile drag lives in the friction form factor), supersonic
+  thin-airfoil wave drag K·4(t/c)²/β (K=4/3 biconvex) × cos²(LE sweep) on planform
+  area, blended M0.9–1.2. ROUNDED/SQUARE unchanged (their bluntness is real).
+- **FinSetCalc.calculateFrictionCD**: flag on ×1.8 — fin-body junction interference
+  drag, calibrated to the D-4013 fins-on/off tunnel increment (fin set adds ~2× bare
+  fin friction) and consistent with RASAero's printed "Fin Interference" component.
+- **SymmetricComponentCalc.calculatePressureCD**: (a) boattails/reducers get
+  supersonic wave drag (linearized strip Cp = −2θ/β on the expansion surface),
+  blended M0.8→1.5 from the classic subsonic estimate (the 1/β form diverges near
+  M1, so the bridge skips the divergent region); classic flag-off path returns the
+  identical old values. (b) Nose interpolators no longer clamp flat past their last
+  data point: conical/ogive continue on their analytic branch (2.1 sinφ² + 0.5 sinφ/β,
+  physical 1/β decay, any Mach); TR R-100 table shapes decay with the Fleeman/Bonney
+  Mach shape (1.59 + 1.83/M²).
+- **BarrowmanCalculator.effectiveBaseCD**: flag on caps 0.25/M at 1.2/M² (≈0.85 of
+  the vacuum base limit 2/(γM²)) — crossover ≈ M4.8, matches HB-2 base data trend.
+- **Bridge getDragSweep**: optional `machAlt` [[M, alt_m], …] table pins the ISA
+  atmosphere (hence Re) per Mach point — the harness matches wind-tunnel Re/ft with
+  it (same mechanism as RASAero's Mach-Alt input). Not a physics change.
+- **Goldens:** `ssaerocd.*` lines lock the flag-on CD decomposition at M1.2/2/4/8
+  (differential 252 → 256 lines).
+- **Scored result:** 52/137 → **68/137**; ARCAS-Short supersonic CD 7/7, Long 5/6,
+  subsonic green with polished fixtures + Re-matching. Documented limitations: the
+  transonic peak band M0.95–1.2 underpredicts against the tunnel by up to ~0.2–0.3
+  CD (fin transonic drag rise ≈4× subsonic in the tunnel data; RASAero underpredicts
+  the same anchors by 0.10–0.22) — the transonic-refinement backlog item; Basic
+  Finner Cx0 low ~0.05–0.13 pending its wedge fins' blunt-TE base drag (feature #4
+  airfoils); HB-2 flare/bluntness unchanged (hypersonic phase).
+
 ## Rules
 
 1. A patch NEVER changes physics or observable behavior (except documented quirks-ledger

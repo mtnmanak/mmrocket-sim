@@ -219,15 +219,15 @@ describe('OrkRocket (real OpenRocket kernel via TeaVM)', () => {
     // Supersonic: corrected fin CNa (~2x) keeps the CP from racing forward —
     // flag-on CP must sit AFT of the classic collapse, increasingly with Mach.
     for (const m of [2.0, 3.0, 4.0]) {
-      expect(on.cp[at(on, m)]).toBeGreaterThan(off.cp[at(off, m)]);
-      expect(on.cna[at(on, m)]).toBeGreaterThan(1.5 * off.cna[at(off, m)]);
+      expect(on.cp[at(on, m)]!).toBeGreaterThan(off.cp[at(off, m)]!);
+      expect(on.cna[at(on, m)]!).toBeGreaterThan(1.5 * off.cna[at(off, m)]!);
     }
     // Subsonic: NACA-1307 interference (the Rogers-Modified physics) raises fin
     // CNa moderately; CP change stays small.
     const i05on = at(on, 0.5), i05off = at(off, 0.5);
-    expect(on.cna[i05on]).toBeGreaterThan(off.cna[i05off]);
-    expect(on.cna[i05on]).toBeLessThan(1.5 * off.cna[i05off]);
-    expect(Math.abs(on.cp[i05on] - off.cp[i05off])).toBeLessThan(0.02);
+    expect(on.cna[i05on]!).toBeGreaterThan(off.cna[i05off]!);
+    expect(on.cna[i05on]!).toBeLessThan(1.5 * off.cna[i05off]!);
+    expect(Math.abs(on.cp[i05on]! - off.cp[i05off]!)).toBeLessThan(0.02);
     // Turning the flag back off must reproduce the classic sweep exactly.
     ss.setSupersonicAero(false);
     const offAgain = ss.dragSweep({ machMin: 0.5, machMax: 4.0, machStep: 0.5 });

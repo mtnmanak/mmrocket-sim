@@ -81,6 +81,13 @@ public final class GoldenMain {
             Coordinate cpOn = on.getCP(config, cOn, w);
 
             line("ssaero." + mach, cpOff.x, cpOff.weight, cpOn.x, cpOn.weight);
+
+            // Phase 2: lock the flag-on drag decomposition too (fin wave drag,
+            // boattail wave, nose extension, base cap, fin interference).
+            info.openrocket.core.aerodynamics.AerodynamicForces fOn =
+                    on.getAerodynamicForces(config, cOn, w);
+            line("ssaerocd." + mach, fOn.getCD(), fOn.getFrictionCD(),
+                    fOn.getPressureCD(), fOn.getBaseCD());
         }
     }
 

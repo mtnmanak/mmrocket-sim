@@ -20,6 +20,18 @@ node validation/score.mjs --strict           # exit 1 unless every gate point pa
 |---|---|---|
 | Classic Extended Barrowman | **8/137 (5.8%)** | `baseline-classic-2026-08-04.md` |
 | + Phase 1 (supersonic CP/CNα) | **52/137 (38.0%)** | `scorecard-phase1-2026-08-04.md` |
+| + Phase 2 (drag fidelity) | **68/137 (49.6%)** | `scorecard-phase2-2026-08-04.md` |
+
+Phase 2 (same flag): sharp-airfoil fins lose the spurious blunt-LE drag plateau
+and get thin-airfoil wave drag; boattails get supersonic wave drag; nose wave
+drag decays past its table end; base drag gets the vacuum-limit cap; fin-body
+junction interference (+80% of fin friction, from the D-4013 fins-on/off
+increment); fixtures polished + tunnel-Re-matched (`machAlt`). ARCAS-Short
+supersonic CD 7/7, Long 5/6, subsonic green. Remaining red, documented: the
+transonic peak band M0.95–1.2 (tunnel shows fin transonic drag ≈4× subsonic;
+RASAero underpredicts these same anchors by 0.10–0.22), Finner Cx0 (wedge
+blunt-TE fin base drag → feature #4 airfoils), HB-2 (flare/bluntness →
+hypersonic phase).
 
 Phase 1 (opt-in `supersonicAero` flag — corrected supersonic fin normal force,
 NACA-1307 interference, Mach-dependent nose CNα; see LEDGER.md) turns the CP

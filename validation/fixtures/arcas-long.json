@@ -4,17 +4,17 @@
     "Identical to arcas-short.json except the body tube (41.09 in vs 28.54 in). See that fixture's notes."
   ],
   "components": [
-    { "type": "nosecone", "shape": "ogive", "shapeParameter": 1.0, "length": 0.269240, "aftRadius": 0.0285750, "thickness": 0.0015 },
+    { "type": "nosecone", "finish": "polished", "shape": "ogive", "shapeParameter": 1.0, "length": 0.269240, "aftRadius": 0.0285750, "thickness": 0.0015 },
     {
-      "type": "bodytube", "length": 1.043686, "outerRadius": 0.0285750, "thickness": 0.0015,
+      "type": "bodytube", "finish": "polished", "length": 1.043686, "outerRadius": 0.0285750, "thickness": 0.0015,
       "children": [
         {
-          "type": "trapezoidfinset", "finCount": 4, "rootChord": 0.0858520, "tipChord": 0.0530860,
+          "type": "trapezoidfinset", "finish": "polished", "finCount": 4, "rootChord": 0.0858520, "tipChord": 0.0530860,
           "sweep": 0.0308400, "height": 0.0534162, "thickness": 0.0038100, "crossSection": "airfoil",
           "position": { "method": "bottom", "offset": 0 }
         }
       ]
     },
-    { "type": "transition", "shape": "conical", "length": 0.045974, "foreRadius": 0.0285750, "aftRadius": 0.0186690, "thickness": 0.0015 }
+    { "type": "transition", "finish": "polished", "shape": "conical", "length": 0.045974, "foreRadius": 0.0285750, "aftRadius": 0.0186690, "thickness": 0.0015 }
   ]
 }

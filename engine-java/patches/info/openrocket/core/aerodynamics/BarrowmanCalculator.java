@@ -785,7 +785,7 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 			buildCalcMap(configuration);
 		
 		stagnation = calculateStagnationCD(conditions.getMach());
-		base = calculateBaseCD(conditions.getMach());
+		base = effectiveBaseCD(conditions.getMach());
 
 		total = 0;
 		final InstanceMap imap = configuration.getActiveInstances();
@@ -863,7 +863,7 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 		if (calcMap == null)
 			buildCalcMap(configuration);
 		
-		base = calculateBaseCD(conditions.getMach());
+		base = effectiveBaseCD(conditions.getMach());
 		total = 0;
 		
 		final InstanceMap imap = configuration.getActiveInstances();
@@ -960,6 +960,20 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 		} else {
 			return 0.25 / m;
 		}
+	}
+
+	/**
+	 * PATCH (feature #1 Phase 2): flag-aware base drag. The Hoerner 0.25/M law
+	 * crosses the physical vacuum-base limit region around M≈5; flag on caps it
+	 * at 1.2/M² (≈0.85 of the vacuum limit 2/(γM²), per Hoerner Ch. 16
+	 * supersonic base-pressure recovery data). Flag off ⇒ classic values.
+	 */
+	private double effectiveBaseCD(double m) {
+		double cd = calculateBaseCD(m);
+		if (supersonicAero && m > 1) {
+			cd = Math.min(cd, 1.2 / (m * m));
+		}
+		return cd;
 	}
 	
 	
