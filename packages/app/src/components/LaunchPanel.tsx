@@ -86,7 +86,7 @@ export function LaunchPanel({ value, onChange, onLaunch, simulating }: {
   };
 
   return (
-    <div className="panel" style={{ marginTop: 10 }}>
+    <div className="panel">
       <h2>Launch conditions</h2>
       <div className="field-grid">
         {numField('Rod length', 'launchRodLengthM', 0.1, 0)}

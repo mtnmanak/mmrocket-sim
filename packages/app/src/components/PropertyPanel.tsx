@@ -207,7 +207,7 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll }: {
   };
 
   return (
-    <div className="panel" style={{ marginTop: 10 }}>
+    <div className="panel">
       <h2>{DISPLAY_NAME[node.type]}</h2>
       {info && (
         <p className="comp-stats">

@@ -9,7 +9,7 @@
  * push.
  */
 
-export const APP_VERSION = '0.023';
+export const APP_VERSION = '0.024';
 
 export interface ChangelogEntry {
   version: string;
@@ -20,6 +20,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.024',
+    date: '2026-08-03',
+    title: 'A cleaner workflow: Design / Motors & Launch / Results workspaces',
+    items: [
+      'The app is now organized into three workspaces, one per task: Design (component tree, 2D/3D view, and a dedicated property-editor column), Motors & Launch (motor selection and launch conditions side by side, with the to-scale schematic above), and Results (flight stats, launch report, plots, drag analysis, and saved runs). No more one long page doing everything at once.',
+      'A vitals strip stays visible above the tabs on every workspace: rocket name, stability margin, loaded mass, current motor, last apogee, and the Launch button — so the tweak-and-refly loop never needs a tab switch. Launching switches you to Results automatically, and the app remembers which workspace you were on.',
+      'Editing a component no longer reshuffles the page: the property editor has its own column on the Design workspace, to the right of the rocket view.',
+      'The five file buttons are consolidated into the header: Open… plus one Save / Export menu (.ork, .rkt, .CDX1, .obj).',
+    ],
+  },
   {
     version: '0.023',
     date: '2026-07-06',

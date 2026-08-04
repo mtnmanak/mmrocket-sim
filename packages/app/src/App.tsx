@@ -27,7 +27,7 @@ import { BUILT_IN_MOTORS } from './motors.js';
 import { PreferencesDialog } from './components/PreferencesDialog.js';
 import { usePrefs } from './prefs/PrefsContext.js';
 import { UnitChip } from './components/UnitChip.js';
-import { niceStep, siToUi, uiToSi } from './prefs/units.js';
+import { fmtSi, niceStep, siToUi, uiToSi } from './prefs/units.js';
 import { classLabel, diameterClass, displayDesignation, findDbMotor, isHighPower } from './services/motorDb.js';
 import { delayOptions, fetchMotorSpec } from './services/thrustcurve.js';
 import { exportOrk, importOrk, type OrkExportMotor } from './services/orkFile.js';
@@ -149,6 +149,21 @@ export function App() {
   const [showBatch, setShowBatch] = useState(false);
   const [showChangelog, setShowChangelog] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
+  // Workspace tab (Design / Motors & Launch / Results) — persisted so a
+  // reload lands the user back where they were working.
+  const [tab, setTabRaw] = useState<'design' | 'motors' | 'results'>(() => {
+    try {
+      const t = localStorage.getItem('online-openrocket.workspace.v1');
+      return t === 'motors' || t === 'results' ? t : 'design';
+    } catch {
+      return 'design';
+    }
+  });
+  const setTab = useCallback((t: 'design' | 'motors' | 'results') => {
+    setTabRaw(t);
+    try { localStorage.setItem('online-openrocket.workspace.v1', t); } catch { /* ignore */ }
+  }, []);
+  const [showFileMenu, setShowFileMenu] = useState(false);
 
   // Autosave the working state so a closed tab or crash never loses work.
   useEffect(() => {
@@ -260,6 +275,8 @@ export function App() {
     if (!built || !primaryMountId) return;
     const primary = mountMotors[primaryMountId]!;
     setSimulating(true);
+    // Flying hands off to the Results workspace — land the user there.
+    setTab('results');
     requestAnimationFrame(() => {
       try {
         const simOpts = {
@@ -358,6 +375,27 @@ export function App() {
       download(exportRkt({ name: tree.name ?? 'My Rocket', tree, motors: exportMotorsMap() }), 'rkt');
     } catch (e) {
       setFileNote(`RockSim export failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+
+  const onSaveCdx1 = () => {
+    try {
+      download(exportCdx1({
+        name: tree.name ?? 'My Rocket',
+        tree,
+        launchMassKg: built?.info.mass,
+        launchCgM: built?.info.cg,
+      }), 'CDX1');
+    } catch (e) {
+      setFileNote(`RASAero export failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+
+  const onSaveObj = () => {
+    try {
+      download(rocketToObj(tree, tree.name ?? 'Rocket'), 'obj');
+    } catch (e) {
+      setFileNote(`OBJ export failed: ${e instanceof Error ? e.message : String(e)}`);
     }
   };
 
@@ -481,6 +519,9 @@ export function App() {
     };
   }), [mounts, tree, stageList]);
 
+  // Vitals strip: apogee of the most recent flight (fresh sim or reopened run).
+  const lastApogee = result?.summary.maxAltitude ?? lastRun?.maxAltitude ?? null;
+
   return (
     <div className="viz-root" data-theme={resolvedTheme}>
       <nav className="site-nav" aria-label="Mountain Man Rockets site menu">
@@ -499,6 +540,41 @@ export function App() {
           >
             v{APP_VERSION} beta
           </button>
+          <label className="file-btn" title="Open an OpenRocket (.ork), RockSim (.rkt), or RASAero II (.CDX1) design">
+            📂 Open…
+            <input type="file" accept=".ork,.rkt,.CDX1" style={{ display: 'none' }}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) onOpenOrk(f);
+                e.target.value = '';
+              }} />
+          </label>
+          <div className="file-menu-wrap">
+            <button className="file-btn" onClick={() => setShowFileMenu((v) => !v)}
+              aria-haspopup="menu" aria-expanded={showFileMenu}>
+              💾 Save / Export ▾
+            </button>
+            {showFileMenu && (
+              <>
+                <div className="file-menu-backdrop" onClick={() => setShowFileMenu(false)} />
+                <div className="file-menu" role="menu" onClick={() => setShowFileMenu(false)}>
+                  <button onClick={onSaveOrk}>Save .ork — OpenRocket design</button>
+                  <button onClick={onSaveRkt}
+                    title="RockSim design (max 3 stages; clusters split into individual tubes)">
+                    Save .rkt — RockSim
+                  </button>
+                  <button onClick={onSaveCdx1}
+                    title="RASAero II design (aero geometry + recovery + launch weight; RASAero needs conical transitions and 3–8 trapezoid fins)">
+                    Save .CDX1 — RASAero II
+                  </button>
+                  <button onClick={onSaveObj}
+                    title="External 3D geometry as a Wavefront OBJ (meters) — print preview / CAD reference">
+                    Export .obj — 3D geometry
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
           <button className="file-btn" onClick={() => setShowGuide(true)} title="User guide — quick start, features, and the physics behind the sim">
             ❓ Guide
           </button>
@@ -577,7 +653,74 @@ export function App() {
           </div>
         </div>
       )}
-      <div className="layout">
+      <div className="workspace">
+        {/* Always-visible vitals: the tweak-and-refly loop never needs a tab
+            switch to check stability/mass or start a flight. */}
+        <div className="vitals-strip">
+          <span className="vitals-name" title="Rocket name — edit it in the Design workspace">
+            {tree.name || 'Rocket'}
+          </span>
+          {built && (
+            <>
+              <span
+                className={`vitals-chip ${built.info.stabilityCalibers >= 1 ? 'stability-good' : 'stability-bad'}`}
+                title="Static stability margin (calibers)"
+              >
+                {built.info.stabilityCalibers >= 1 ? '✓' : '⚠'} {built.info.stabilityCalibers.toFixed(2)} cal
+              </span>
+              <span className="vitals-chip" title="Mass, loaded (with motors)">
+                {fmtSi('mass', prefs.units.mass, built.info.mass)}&nbsp;<UnitChip quantity="mass" />
+              </span>
+            </>
+          )}
+          {!built && buildError && (
+            <span className="vitals-chip stability-bad" title={buildError}>⚠ build error</span>
+          )}
+          <span className="vitals-chip" title="Motor on the primary (sustainer) mount — assign it in Motors & Launch">
+            {primaryLabel ?? 'no motor'}{assigned.length > 1 ? ` +${assigned.length - 1}` : ''}
+          </span>
+          {lastApogee !== null && (
+            <span className="vitals-chip" title="Apogee of the most recent flight">
+              ⬆ {fmtSi('distance', prefs.units.distance, lastApogee)}&nbsp;<UnitChip quantity="distance" />
+            </span>
+          )}
+          <button
+            className="launch-btn vitals-launch"
+            onClick={onLaunch}
+            disabled={!built || !primaryMountId || simulating}
+            title={!primaryMountId ? 'Assign a motor first (Motors & Launch workspace)' : 'Simulate the flight'}
+          >
+            {simulating ? 'Simulating…' : '🚀 Launch'}
+          </button>
+        </div>
+
+        <div className="workspace-tabs" role="tablist" aria-label="Workspace">
+          <button role="tab" aria-selected={tab === 'design'}
+            className={tab === 'design' ? 'active' : ''} onClick={() => setTab('design')}>
+            🛠 Design
+          </button>
+          <button role="tab" aria-selected={tab === 'motors'}
+            className={tab === 'motors' ? 'active' : ''} onClick={() => setTab('motors')}>
+            🔥 Motors &amp; Launch
+          </button>
+          <button role="tab" aria-selected={tab === 'results'}
+            className={tab === 'results' ? 'active' : ''} onClick={() => setTab('results')}>
+            📈 Results
+          </button>
+        </div>
+
+        {fileNote && (
+          <div className="file-note" role="alert" style={{ margin: '0 0 12px' }}>
+            {fileNote}
+            <button className="file-note-dismiss" onClick={() => setFileNote(null)} aria-label="Dismiss">×</button>
+          </div>
+        )}
+        {buildError && (
+          <p className="stability-bad" style={{ margin: '0 0 12px', fontSize: 13 }}>{buildError}</p>
+        )}
+
+        {tab === 'design' && (
+        <div className="design-layout">
         <aside>
           <div className="panel">
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
@@ -628,8 +771,59 @@ export function App() {
               }}
             />
           </div>
+        </aside>
 
-          {selectedNode && (
+        <main>
+          <div className="panel">
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+              <h2 style={{ flex: 1 }}>Rocket</h2>
+              <div className="view-toggle" role="tablist">
+                <button className={view === '2d' ? 'active' : ''} role="tab"
+                  aria-selected={view === '2d'} onClick={() => setView('2d')}>2D</button>
+                <button className={view === '3d' ? 'active' : ''} role="tab"
+                  aria-selected={view === '3d'} onClick={() => setView('3d')}>3D</button>
+              </div>
+            </div>
+            {view === '2d'
+              ? (
+                <TreeSchematic
+                  tree={tree}
+                  info={built?.info ?? null}
+                  motors={motorDims}
+                  onPatchNode={(id, patch) => setTree(updateNode(tree, id, patch))}
+                />
+              )
+              : <Rocket3D tree={tree} info={built?.info ?? null} />}
+            {mountSizes.length > 0 && (
+              <div className="mount-sizes" title="Motor mount inner diameter — the nominal motor size each mount accepts">
+                <span className="mount-sizes-label">
+                  Motor mount{mountSizes.length > 1 ? 's' : ''}:
+                </span>
+                {mountSizes.map((s) => (
+                  <span key={s.id} className="mount-size-chip">
+                    {isStaged ? `${s.stage} · ` : ''}⌀&nbsp;{s.size}&nbsp;mm{s.count > 1 ? ` ×${s.count}` : ''}
+                  </span>
+                ))}
+              </div>
+            )}
+            {built && (
+              <DesignStats
+                info={built.info}
+                motorLabel={assigned.length > 1
+                  ? assigned.map(([, mm]) => mm.label).join(' + ')
+                  : primaryLabel}
+              />
+            )}
+            {built && built.info.warningTexts.length > 0 && (
+              <div className="file-note" role="alert">
+                {built.info.warningTexts.join('\n')}
+              </div>
+            )}
+          </div>
+        </main>
+
+        <aside className="design-props">
+          {selectedNode ? (
             <PropertyPanel
               tree={tree}
               node={selectedNode}
@@ -637,9 +831,28 @@ export function App() {
               onPatch={(patch) => setTree(updateNode(tree, selectedNode.id!, patch))}
               onPatchAll={(patch) => setTree(updateAllNodes(tree, patch))}
             />
+          ) : (
+            <div className="panel placeholder">
+              Select a component in the tree to edit its properties here.
+            </div>
           )}
+        </aside>
+        </div>
+        )}
 
-          <div className="panel" style={{ marginTop: 10 }}>
+        {tab === 'motors' && (
+        <div className="motors-layout">
+          <div className="panel motors-schematic">
+            <h2>Rocket — motors drawn to scale</h2>
+            <TreeSchematic
+              tree={tree}
+              info={built?.info ?? null}
+              motors={motorDims}
+              onPatchNode={(id, patch) => setTree(updateNode(tree, id, patch))}
+            />
+          </div>
+
+          <div className="panel">
             <h2>Motors</h2>
             {mounts.length === 0 && (
               <p className="stability-bad" style={{ fontSize: 12 }}>
@@ -812,104 +1025,11 @@ export function App() {
           </div>
 
           <LaunchPanel value={launch} onChange={setLaunch} onLaunch={onLaunch} simulating={simulating} />
-        </aside>
+        </div>
+        )}
 
+        {tab === 'results' && (
         <main className="results-column">
-          <div className="panel">
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-              <h2 style={{ flex: 1 }}>Rocket</h2>
-              <div className="view-toggle" role="tablist">
-                <button className={view === '2d' ? 'active' : ''} role="tab"
-                  aria-selected={view === '2d'} onClick={() => setView('2d')}>2D</button>
-                <button className={view === '3d' ? 'active' : ''} role="tab"
-                  aria-selected={view === '3d'} onClick={() => setView('3d')}>3D</button>
-              </div>
-              <label className="file-btn" title="Open an OpenRocket (.ork), RockSim (.rkt), or RASAero II (.CDX1) design">
-                Open…
-                <input type="file" accept=".ork,.rkt,.CDX1" style={{ display: 'none' }}
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) onOpenOrk(f);
-                    e.target.value = '';
-                  }} />
-              </label>
-              <button className="file-btn" onClick={onSaveOrk}>Save .ork</button>
-              <button className="file-btn" onClick={onSaveRkt}
-                title="Export as a RockSim design (max 3 stages; clusters split into individual tubes)">
-                Save .rkt
-              </button>
-              <button className="file-btn"
-                title="Export as a RASAero II design (aero geometry + recovery + launch weight; RASAero needs conical transitions and 3–8 trapezoid fins)"
-                onClick={() => {
-                  try {
-                    download(exportCdx1({
-                      name: tree.name ?? 'My Rocket',
-                      tree,
-                      launchMassKg: built?.info.mass,
-                      launchCgM: built?.info.cg,
-                    }), 'CDX1');
-                  } catch (e) {
-                    setFileNote(`RASAero export failed: ${e instanceof Error ? e.message : String(e)}`);
-                  }
-                }}>
-                Save .CDX1
-              </button>
-              <button className="file-btn"
-                title="Export the external 3D geometry as a Wavefront OBJ (meters) — print preview / CAD reference"
-                onClick={() => {
-                  try {
-                    download(rocketToObj(tree, tree.name ?? 'Rocket'), 'obj');
-                  } catch (e) {
-                    setFileNote(`OBJ export failed: ${e instanceof Error ? e.message : String(e)}`);
-                  }
-                }}>
-                Save .obj
-              </button>
-            </div>
-            {view === '2d'
-              ? (
-                <TreeSchematic
-                  tree={tree}
-                  info={built?.info ?? null}
-                  motors={motorDims}
-                  onPatchNode={(id, patch) => setTree(updateNode(tree, id, patch))}
-                />
-              )
-              : <Rocket3D tree={tree} info={built?.info ?? null} />}
-            {mountSizes.length > 0 && (
-              <div className="mount-sizes" title="Motor mount inner diameter — the nominal motor size each mount accepts">
-                <span className="mount-sizes-label">
-                  Motor mount{mountSizes.length > 1 ? 's' : ''}:
-                </span>
-                {mountSizes.map((s) => (
-                  <span key={s.id} className="mount-size-chip">
-                    {isStaged ? `${s.stage} · ` : ''}⌀&nbsp;{s.size}&nbsp;mm{s.count > 1 ? ` ×${s.count}` : ''}
-                  </span>
-                ))}
-              </div>
-            )}
-            {built && (
-              <DesignStats
-                info={built.info}
-                motorLabel={assigned.length > 1
-                  ? assigned.map(([, mm]) => mm.label).join(' + ')
-                  : primaryLabel}
-              />
-            )}
-            {built && built.info.warningTexts.length > 0 && (
-              <div className="file-note" role="alert">
-                {built.info.warningTexts.join('\n')}
-              </div>
-            )}
-            {fileNote && (
-              <div className="file-note" role="alert">
-                {fileNote}
-                <button className="file-note-dismiss" onClick={() => setFileNote(null)} aria-label="Dismiss">×</button>
-              </div>
-            )}
-            {buildError && <p className="stability-bad">{buildError}</p>}
-          </div>
-          {built && <DragPanel rocket={built.rocket} />}
           {result ? (
             <>
               <FlightStats summary={result.summary} />
@@ -922,10 +1042,11 @@ export function App() {
             <SimRunDetails run={lastRun} />
           ) : (
             <div className="panel placeholder">
-              Press <strong>Launch</strong> to fly this design and see altitude,
-              velocity and acceleration plots.
+              Press <strong>🚀 Launch</strong> (above) to fly this design and see
+              altitude, velocity and acceleration plots.
             </div>
           )}
+          {built && <DragPanel rocket={built.rocket} />}
           <SimHistory
             runs={runs}
             onRunsChange={setRuns}
@@ -933,6 +1054,7 @@ export function App() {
             onSelect={(r) => { setResult(null); setLastRun(r); }}
           />
         </main>
+        )}
       </div>
     </div>
   );

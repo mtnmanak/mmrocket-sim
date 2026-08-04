@@ -49,19 +49,170 @@
   --chart-tick: #3b3934;
 }
 
-.layout {
-  display: grid;
-  grid-template-columns: 340px 1fr;
-  gap: 20px;
+/* --- Workspace: vitals strip + tabs + one layout per task --- */
+.workspace {
   max-width: 1200px;
   margin: 0 auto;
-  padding: 16px;
+  padding: 12px 16px 16px;
+}
+
+.vitals-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.vitals-name {
+  font-weight: 650;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vitals-chip {
+  display: inline-flex;
+  align-items: baseline;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Must out-specify .launch-btn (defined later with width:100%/margin-top). */
+.vitals-strip .vitals-launch {
+  width: auto;
+  margin: 0 0 0 auto;
+  padding: 6px 18px;
+  font-size: 14px;
+}
+
+.workspace-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 2px solid var(--border);
+  margin-bottom: 12px;
+}
+
+.workspace-tabs button {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 7px 16px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  background: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: 6px 6px 0 0;
+}
+
+.workspace-tabs button:hover {
+  background: var(--hover);
+  color: var(--text-primary);
+}
+
+.workspace-tabs button.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+/* Design: tree | view | properties. minmax(0,1fr) lets the schematic shrink. */
+.design-layout {
+  display: grid;
+  grid-template-columns: 290px minmax(0, 1fr) 320px;
+  gap: 12px;
+  align-items: start;
+}
+
+/* Motors & Launch: full-width schematic above two columns. */
+.motors-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  align-items: start;
+}
+
+.motors-schematic {
+  grid-column: 1 / -1;
+}
+
+/* Full-width panel would otherwise render the schematic huge — cap it and
+   keep the aspect ratio (viewBox letterboxes inside the capped height). */
+.motors-schematic svg {
+  max-height: 240px;
+}
+
+@media (max-width: 1100px) {
+  .design-layout {
+    grid-template-columns: 280px minmax(0, 1fr);
+  }
+  .design-props {
+    grid-column: 1 / -1;
+  }
 }
 
 @media (max-width: 900px) {
-  .layout {
+  .design-layout,
+  .motors-layout {
     grid-template-columns: 1fr;
   }
+  .design-props {
+    grid-column: auto;
+  }
+}
+
+/* --- Save/Export dropdown (header) --- */
+.file-menu-wrap {
+  position: relative;
+}
+
+.file-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  min-width: 240px;
+  padding: 4px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+
+.file-menu button {
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  padding: 7px 10px;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--text-primary);
+}
+
+.file-menu button:hover {
+  background: var(--hover);
+}
+
+.file-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
 }
 
 /* --- mountainmanrockets.com site menu (banner across the top) --- */
