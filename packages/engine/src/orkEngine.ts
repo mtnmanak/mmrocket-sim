@@ -366,6 +366,18 @@ export class OrkRocket {
     ork.setRogersModifiedBarrowman(this.handle, enabled);
   }
 
+  /**
+   * Enable the opt-in supersonic aerodynamics model (RASAero feature #1,
+   * Phase 1): corrected supersonic fin normal force, exact NACA-1307 body-fin
+   * interference, and Mach-dependent nose CNα — CP moves with Mach above M1
+   * instead of collapsing forward. Affects staticInfo, simulate and dragSweep.
+   * Off by default; off ⇒ classic Extended Barrowman (bit-identical).
+   * Validated against the wind-tunnel anchor suite in validation/.
+   */
+  setSupersonicAero(enabled: boolean): void {
+    ork.setSupersonicAero(this.handle, enabled);
+  }
+
   /** Length, mass, CG/CP, stability margin — computed at Mach 0.3, AoA 0. */
   staticInfo(): StaticInfo {
     const parsed = JSON.parse(ork.getStaticInfo(this.handle)) as StaticInfo & { error?: string };

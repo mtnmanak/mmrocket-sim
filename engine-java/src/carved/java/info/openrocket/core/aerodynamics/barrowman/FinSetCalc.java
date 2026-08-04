@@ -63,6 +63,37 @@ public class FinSetCalc extends RocketComponentCalc {
 	public void setRogersKbf(boolean enabled) {
 		this.rogersKbf = enabled;
 	}
+
+	/**
+	 * PATCH (RASAero feature #1 Phase 1, see engine-java/patches/LEDGER.md):
+	 * opt-in supersonic aerodynamics. Three fin-side corrections, all
+	 * calibrated against the ARCAS (NASA TN D-4013/D-4014) and Basic Finner
+	 * (DREV-TM-9703) wind-tunnel/free-flight anchors (validation/score.mjs):
+	 *
+	 * 1. Supersonic panel normal force: classic kernel uses the single-surface
+	 *    Busemann coefficient K1 = 2/beta as if it were the whole slope —
+	 *    HALF of 2D linear theory (4/beta). Flag on: scale the Busemann triple
+	 *    by 2*(1 - 1/(2*AR*beta)) — the 2D value with the standard finite-span
+	 *    tip correction (valid AR*beta > 1, floored at 0.25).
+	 * 2. Body-fin interference: replace Barrowman's truncated (1+tau) with the
+	 *    exact NACA Report 1307 (Eq. 14) slender-body split K_W(B) + K_B(W),
+	 *    the body-carryover part weighted by an afterbody factor
+	 *    min(1, 0.5 + afterbody/rootChord) (carryover needs body behind the
+	 *    fin to act on; fins flush with the base get half). Applied at ALL
+	 *    Mach — this IS the "Rogers Modified Barrowman" Kbf physics, so the
+	 *    separate rogersKbf term is suppressed while this flag is on.
+	 * 3. The K1/K2/K3 interpolation grid stops at Mach 4.9 (clamped flat
+	 *    above); flag on evaluates the Busemann terms analytically at any M.
+	 *
+	 * Default false ⇒ bit-identical to classic Barrowman.
+	 */
+	private boolean supersonicAero = false;
+	private double afterbodyFactor = 1.0;
+
+	/** PATCH (feature #1 Phase 1): enable the opt-in supersonic aero model. */
+	public void setSupersonicAero(boolean enabled) {
+		this.supersonicAero = enabled;
+	}
 	
 	/**
 	 * builds a calculator of aerodynamic forces a specified fin
@@ -85,6 +116,41 @@ public class FinSetCalc extends RocketComponentCalc {
 		calculateFinGeometry(component);
 		calculatePoly();
 		calculateInterferenceFinCount(component);
+		calculateAfterbodyFactor(component);
+	}
+
+	/**
+	 * PATCH (feature #1 Phase 1): how much body extends behind the fin
+	 * trailing edge, in root chords — drives the NACA-1307 carryover weight
+	 * min(1, 0.5 + afterbody/rootChord). Walks the parent body and any
+	 * symmetric siblings aft of it inside the same (pod/)stage.
+	 */
+	private void calculateAfterbodyFactor(FinSet component) {
+		double rootChord = component.getLength();
+		double afterLen = 0;
+		RocketComponent parent = component.getParent();
+		if (parent != null && rootChord > MathUtil.EPSILON) {
+			double finTopInParent = component.getAxialOffset(
+					info.openrocket.core.rocketcomponent.position.AxialMethod.TOP);
+			afterLen = Math.max(0, parent.getLength() - (finTopInParent + rootChord));
+			RocketComponent grand = parent.getParent();
+			if (grand != null) {
+				boolean after = false;
+				for (int i = 0; i < grand.getChildCount(); i++) {
+					RocketComponent c = grand.getChild(i);
+					if (c == parent) {
+						after = true;
+						continue;
+					}
+					if (after && c instanceof info.openrocket.core.rocketcomponent.SymmetricComponent) {
+						afterLen += c.getLength();
+					}
+				}
+			}
+			afterbodyFactor = Math.min(1.0, 0.5 + afterLen / rootChord);
+		} else {
+			afterbodyFactor = 1.0;
+		}
 	}
 	
 	/*
@@ -163,7 +229,16 @@ public class FinSetCalc extends RocketComponentCalc {
 		double tau = r / (span + r);
 		if (Double.isNaN(tau) || Double.isInfinite(tau))
 			tau = 0;
-		cna *= 1 + tau; // Classical Barrowman
+		if (supersonicAero) {
+			// PATCH (feature #1 Phase 1): exact NACA 1307 slender-body split.
+			// K_W(B) multiplies the fin panels; K_B(W) is the body carryover,
+			// weighted by the afterbody factor. Total <= (1+tau)^2.
+			double kwb = kWB1307(tau);
+			double kbw = pow2(1 + tau) - kwb;
+			cna *= kwb + afterbodyFactor * kbw;
+		} else {
+			cna *= 1 + tau; // Classical Barrowman
+		}
 		//		cna *= pow2(1 + tau);	// Barrowman thesis (too optimistic??)
 		//		logger.debug("Component cna = {}", cna);
 		
@@ -199,8 +274,11 @@ public class FinSetCalc extends RocketComponentCalc {
 		// acts on the body near the fin root; placed at the root quarter-chord
 		// (forward of the swept-fin MAC) it nudges the total CP aft — a more
 		// conservative static margin. Flag off ⇒ identical to before.
+		// (feature #1 Phase 1: the NACA-1307 interference above already contains
+		// the full body carryover, so the separate Kbf term is suppressed while
+		// supersonicAero is on — it would double-count.)
 		Coordinate cp = new Coordinate(x, 0, 0, cna);
-		if (rogersKbf && tau > 0) {
+		if (rogersKbf && !supersonicAero && tau > 0) {
 			double rootLead = chordLead[0];
 			double rootTrail = chordTrail[0];
 			double xCarry = x;
@@ -462,24 +540,78 @@ public class FinSetCalc extends RocketComponentCalc {
 		
 		// Supersonic case
 		if (mach >= CNA_SUPERSONIC) {
+			if (supersonicAero) {
+				// PATCH (feature #1 Phase 1): analytic Busemann terms (no grid,
+				// no M4.9 clamp) scaled to the 2D 4/beta level with the standard
+				// finite-span tip correction.
+				return finArea * ssaeroScale(mach) * (k1Analytic(mach) + k2Analytic(mach) * alpha +
+						k3Analytic(mach) * pow2(alpha)) / ref;
+			}
 			return finArea * (K1.getValue(mach) + K2.getValue(mach) * alpha +
 					K3.getValue(mach) * pow2(alpha)) / ref;
 		}
-		
+
 		// Transonic case, interpolate
 		double subV, superV;
 		double subD, superD;
-		
+
 		double sq = MathUtil.safeSqrt(1 + (1 - pow2(CNA_SUBSONIC)) * pow2(span * span / (finArea * cosGamma)));
 		subV = 2 * Math.PI * pow2(span) / ref / (1 + sq);
 		subD = 2 * mach * Math.PI * pow(span, 6) / (pow2(finArea * cosGamma) * ref *
 				sq * pow2(1 + sq));
-		
-		superV = finArea * (K1.getValue(CNA_SUPERSONIC) + K2.getValue(CNA_SUPERSONIC) * alpha +
+
+		// (feature #1 Phase 1: the supersonic endpoint of the bridge scales with
+		// the corrected level so the transonic interpolation stays continuous.)
+		double sscale = supersonicAero ? ssaeroScale(CNA_SUPERSONIC) : 1.0;
+		superV = sscale * finArea * (K1.getValue(CNA_SUPERSONIC) + K2.getValue(CNA_SUPERSONIC) * alpha +
 				K3.getValue(CNA_SUPERSONIC) * pow2(alpha)) / ref;
-		superD = -finArea / ref * 2 * CNA_SUPERSONIC / CNA_SUPERSONIC_B;
-		
+		superD = sscale * (-finArea / ref * 2 * CNA_SUPERSONIC / CNA_SUPERSONIC_B);
+
 		return cnaInterpolator.interpolate(mach, subV, superV, subD, superD, 0);
+	}
+
+	/**
+	 * PATCH (feature #1 Phase 1): flag-on scale factor turning the kernel's
+	 * single-surface Busemann level (K1 = 2/beta) into 2D linear theory
+	 * (4/beta) with the finite-span tip correction (1 - 1/(2*AR*beta)),
+	 * floored at 0.25 for very low AR*beta where the linear result degrades.
+	 */
+	private double ssaeroScale(double mach) {
+		double beta = MathUtil.safeSqrt(mach * mach - 1);
+		double corr = Math.max(1 - 1 / (2 * ar * beta), 0.25);
+		return 2 * corr;
+	}
+
+	private static double k1Analytic(double M) {
+		return 2.0 / MathUtil.safeSqrt(M * M - 1);
+	}
+
+	private static double k2Analytic(double M) {
+		double beta = MathUtil.safeSqrt(M * M - 1);
+		return ((GAMMA + 1) * pow(M, 4) - 4 * pow2(beta)) / (4 * pow(beta, 4));
+	}
+
+	private static double k3Analytic(double M) {
+		double beta = MathUtil.safeSqrt(M * M - 1);
+		return ((GAMMA + 1) * pow(M, 8) + (2 * pow2(GAMMA) - 7 * GAMMA - 5) * pow(M, 6) +
+				10 * (GAMMA + 1) * pow(M, 4) + 8) / (6 * pow(beta, 7));
+	}
+
+	/**
+	 * PATCH (feature #1 Phase 1): NACA Report 1307 Eq. (14) — exact
+	 * slender-body wing-in-presence-of-body factor K_W(B) for radius/span
+	 * ratio lambda = r/(s+r). Limits: 1 as lambda→0, 2 as lambda→1.
+	 */
+	private static double kWB1307(double lam) {
+		if (lam <= MathUtil.EPSILON) {
+			return 1;
+		}
+		if (lam >= 1 - 1e-9) {
+			return 2;
+		}
+		double num = (1 + pow(lam, 4)) * (0.5 * Math.atan(0.5 * (1 / lam - lam)) + Math.PI / 4)
+				- pow2(lam) * ((1 / lam - lam) + 2 * Math.atan(lam));
+		return (2 / Math.PI) * num / pow2(1 - lam);
 	}
 	
 	private double calculateDampingMoment(FlightConditions conditions) {

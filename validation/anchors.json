@@ -66,6 +66,8 @@
     "fixture": "basic-finner.json",
     "refAreaScale": 1.0,
     "maxMach": 5.0,
+    "aoaDeg": 2.0,
+    "_aoaNote": "DREV free-flight coefficients are linear fits over finite yaw (Table VII mean-squared yaw 1-25 deg^2); scoring the sweep at alpha=2 deg matches the fit condition and samples the kernel's alpha-dependent crossflow terms, which a pure alpha->0 slope misses.",
     "series": [
       {
         "id": "cd0-freeflight", "quantity": "cd", "base": "included", "gate": true, "tol": 0.03, "gateMaxMach": 4.2,

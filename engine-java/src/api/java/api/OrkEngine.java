@@ -424,6 +424,16 @@ public final class OrkEngine {
         ((RocketCtx) get(rocketHandle)).rogersKbf = enabled;
     }
 
+    /**
+     * RASAero feature #1 (Phase 1): opt-in supersonic aerodynamics — corrected
+     * supersonic fin normal force, NACA-1307 body-fin interference, and
+     * Mach-dependent nose CNa. Applies to staticInfo, simulate and getDragSweep.
+     */
+    @JSExport
+    public static void setSupersonicAero(int rocketHandle, boolean enabled) {
+        ((RocketCtx) get(rocketHandle)).supersonicAero = enabled;
+    }
+
     @JSExport
     public static String getStaticInfo(int rocketHandle) {
         RocketCtx ctx = (RocketCtx) get(rocketHandle);
@@ -432,6 +442,7 @@ public final class OrkEngine {
 
         BarrowmanCalculator calc = new BarrowmanCalculator();
         calc.setRogersKbf(ctx.rogersKbf); // feature #3: opt-in body-fin interference
+        calc.setSupersonicAero(ctx.supersonicAero); // feature #1 Phase 1
         FlightConditions conditions = new FlightConditions(ctx.rocket.getSelectedConfiguration());
         conditions.setMach(0.3);
         conditions.setAOA(0);
@@ -537,6 +548,7 @@ public final class OrkEngine {
 
         BarrowmanCalculator calc = new BarrowmanCalculator();
         calc.setRogersKbf(ctx.rogersKbf); // keep sweep CP consistent with staticInfo
+        calc.setSupersonicAero(ctx.supersonicAero); // feature #1 Phase 1
         WarningSet warnings = new WarningSet();
 
         double[] offTotal = new double[n], offFric = new double[n], offPress = new double[n], offBase = new double[n];
@@ -699,6 +711,7 @@ public final class OrkEngine {
         conditions.setGravityModel(new WGSGravityModel());
         BarrowmanCalculator aeroCalc = new BarrowmanCalculator();
         aeroCalc.setRogersKbf(ctx.rogersKbf); // feature #3: opt-in body-fin interference
+        aeroCalc.setSupersonicAero(ctx.supersonicAero); // feature #1 Phase 1
         int randomSeed = (int) JsonLite.dbl(o, "randomSeed", 42);
         // Seeded explicitly: the no-arg PinkNoiseWindModel constructor seeds
         // from new Random().nextInt() — nondeterministic across runs.
@@ -731,6 +744,8 @@ public final class OrkEngine {
         final Map<String, RocketComponent> ids = new HashMap<>();
         /** Opt-in Rogers Modified Barrowman body-fin interference (feature #3). */
         boolean rogersKbf = false;
+        /** Opt-in supersonic aerodynamics (feature #1 Phase 1). */
+        boolean supersonicAero = false;
 
         RocketCtx(Rocket rocket, AxialStage stage, FlightConfigurationId fcid) {
             this.rocket = rocket;

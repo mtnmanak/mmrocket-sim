@@ -34,5 +34,6 @@ declare module '*orkengine.mjs' {
   export function simulateJson(rocket: number, optionsJson: string): string;
   export function getDragSweep(rocket: number, optionsJson: string): string;
   export function setRogersModifiedBarrowman(rocket: number, enabled: boolean): void;
+  export function setSupersonicAero(rocket: number, enabled: boolean): void;
   export function main(): void;
 }

@@ -142,6 +142,41 @@ Net effect: CP moves slightly AFT (more conservative margin). Two files + bridge
   existing Galejs body-lift term to full Jorgensen η·Cd_c (proprietary DATCOM Cd_c). See the
   session's #3 research (wcs25co8u) — OpenRocket's Galejs term is ALREADY a ∝sin²α crossflow.
 
+### RASAero feature #1 Phase 1 — opt-in supersonic aerodynamics (CP/CNα vs Mach)
+
+The classic kernel freezes body CNα/CP at the slender-body value for ALL Mach and uses
+the single-surface Busemann coefficient (K1 = 2/β) as the whole supersonic fin slope —
+HALF of 2D linear theory. Result (measured by validation/score.mjs): combined CP races
+forward ~2× too far (ARCAS model 27 %L vs tunnel 57 %L at M4.63) and CNα is ~half of
+free-flight data. Opt-in flag `supersonicAero`, default OFF ⇒ bit-identical. Model
+calibrated against NASA TN D-4013/D-4014 (ARCAS), DREV-TM-9703 (Basic Finner) — see
+docs/research/validation-anchors-2026-08-03.md and the spec doc areas 6/7. Files:
+
+- **aerodynamics/BarrowmanCalculator.java** (extends existing patch): `boolean
+  supersonicAero` + setter/getter, preserved in `newInstance()`, bound onto each
+  `FinSetCalc` AND `SymmetricComponentCalc` in `createCalcObject`.
+- **aerodynamics/barrowman/FinSetCalc.java** (extends existing patch), flag-on only:
+  (1) supersonic branch scaled by `2·(1 − 1/(2·AR·β))` (2D 4/β level with the standard
+  finite-span tip correction, floored at 0.25), evaluated ANALYTICALLY (no grid ⇒ no
+  M4.9 clamp); the transonic bridge endpoint scales identically so the 0.9–1.5 quintic
+  stays continuous. (2) Body-fin interference `(1+τ)` replaced by the exact NACA Report
+  1307 Eq. 14 split `K_W(B) + fa·K_B(W)` at all Mach, with afterbody carryover factor
+  `fa = min(1, 0.5 + afterbody/rootChord)` (computed in the constructor by walking the
+  parent body + aft symmetric siblings; fins flush with the base get half carryover).
+  The `rogersKbf` term is suppressed while this flag is on (1307 already contains the
+  full carryover — double counting otherwise).
+- **aerodynamics/barrowman/SymmetricComponentCalc.java** (NEW patch — first SCC patch):
+  flag-on, for NOSE components only (foreRadius ≈ 0): `CNα(M) = CNα_slender · (1 +
+  g·(min(M,5) − 1))` above M1, g = 0.10 conical / 0.07 ogive-class — a calibrated
+  surrogate bracketed by exact Taylor–Maccoll values (Sims SP-3004 class results reach
+  ~1.2–1.4× slender by M4–5), pending full SOSE. Transitions/boattails stay slender
+  (Phase-2+ work; HB-2's flare physics is documented as out of Phase-1 scope).
+- Bridge (not a patch): `RocketCtx.supersonicAero`, `setSupersonicAero(handle, bool)`
+  @JSExport, applied in `getStaticInfo`, `simulateJson` AND `getDragSweep`.
+- **Guard:** default off keeps all goldens bit-identical; the `ssaero.*` golden
+  scenarios lock CP/CNα at M1.2/2/4/8 for both flag states JVM↔JS. Scored result:
+  validation harness gate points 8/137 (classic) → see the Phase-1 scorecard.
+
 ## Rules
 
 1. A patch NEVER changes physics or observable behavior (except documented quirks-ledger

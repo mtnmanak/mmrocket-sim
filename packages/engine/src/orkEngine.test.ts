@@ -191,6 +191,50 @@ describe('OrkRocket (real OpenRocket kernel via TeaVM)', () => {
     expect(sweep.cna[i03]).toBeCloseTo(info.cna, 9);
   });
 
+  it('supersonic aero flag: CP stops collapsing forward; off stays classic', () => {
+    const tree = {
+      components: [
+        { type: 'nosecone' as const, length: 0.1, aftRadius: 0.0125, thickness: 0.002 },
+        {
+          type: 'bodytube' as const, length: 0.35, outerRadius: 0.0125, thickness: 0.0005,
+          children: [
+            {
+              type: 'trapezoidfinset' as const, finCount: 4, rootChord: 0.05, tipChord: 0.03,
+              sweep: 0.02, height: 0.03, thickness: 0.003,
+              position: { method: 'bottom' as const, offset: 0 },
+            },
+          ],
+        },
+      ],
+    };
+    const classic = OrkRocket.buildTree(tree);
+    const off = classic.dragSweep({ machMin: 0.5, machMax: 4.0, machStep: 0.5 });
+
+    const ss = OrkRocket.buildTree(tree);
+    ss.setSupersonicAero(true);
+    const on = ss.dragSweep({ machMin: 0.5, machMax: 4.0, machStep: 0.5 });
+
+    const at = (sweep: typeof off, m: number) =>
+      sweep.machs.findIndex((x) => Math.abs(x - m) < 1e-9);
+    // Supersonic: corrected fin CNa (~2x) keeps the CP from racing forward —
+    // flag-on CP must sit AFT of the classic collapse, increasingly with Mach.
+    for (const m of [2.0, 3.0, 4.0]) {
+      expect(on.cp[at(on, m)]).toBeGreaterThan(off.cp[at(off, m)]);
+      expect(on.cna[at(on, m)]).toBeGreaterThan(1.5 * off.cna[at(off, m)]);
+    }
+    // Subsonic: NACA-1307 interference (the Rogers-Modified physics) raises fin
+    // CNa moderately; CP change stays small.
+    const i05on = at(on, 0.5), i05off = at(off, 0.5);
+    expect(on.cna[i05on]).toBeGreaterThan(off.cna[i05off]);
+    expect(on.cna[i05on]).toBeLessThan(1.5 * off.cna[i05off]);
+    expect(Math.abs(on.cp[i05on] - off.cp[i05off])).toBeLessThan(0.02);
+    // Turning the flag back off must reproduce the classic sweep exactly.
+    ss.setSupersonicAero(false);
+    const offAgain = ss.dragSweep({ machMin: 0.5, machMax: 4.0, machStep: 0.5 });
+    expect(offAgain.cp).toEqual(off.cp);
+    expect(offAgain.cna).toEqual(off.cna);
+  });
+
   it('applies fin tabs: mass increases and componentInfo reports it', () => {
     const base = {
       components: [

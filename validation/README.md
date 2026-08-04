@@ -9,9 +9,29 @@ datasets. Provenance, tolerances, and every caveat live in
 
 ```
 npm run build -w @online-openrocket/engine   # harness imports packages/engine/dist
-node validation/score.mjs                    # markdown scorecard to stdout
+node validation/score.mjs                    # classic Extended Barrowman (flag off)
+node validation/score.mjs --supersonic       # the opt-in supersonic aero model
 node validation/score.mjs --strict           # exit 1 unless every gate point passes
 ```
+
+## Scoreboard
+
+| Model | Gate points | Scorecard |
+|---|---|---|
+| Classic Extended Barrowman | **8/137 (5.8%)** | `baseline-classic-2026-08-04.md` |
+| + Phase 1 (supersonic CP/CNα) | **52/137 (38.0%)** | `scorecard-phase1-2026-08-04.md` |
+
+Phase 1 (opt-in `supersonicAero` flag — corrected supersonic fin normal force,
+NACA-1307 interference, Mach-dependent nose CNα; see LEDGER.md) turns the CP
+series green: ARCAS supersonic CP 9/9 gated on both configs (matching the
+tunnel where RASAero itself diverges above M3.5), Finner CP 17/23 and CNα
+16/23 (remaining fails: the transonic band M1.05–1.4, whose measured lift
+overshoot is Phase-2 physics, plus marginals inside free-flight shot scatter).
+Still red by design: every CD series (drag is Phase 2), HB-2 CNα (the flare
+body needs Phase-2+/hypersonic treatment).
+
+Scoring conditions: Basic Finner scores at α = 2° (its free-flight fits ride
+at finite yaw — see the `_aoaNote` in anchors.json); everything else at α = 0.
 
 After any engine rebuild, regenerate and eyeball the scorecard:
 
@@ -33,8 +53,9 @@ node validation/score.mjs > validation/scorecard.md
   `_readme`; `gate: false` series are informational)
 - `score.mjs` — builds each fixture, runs `dragSweep` (which emits CD
   power-off/on + CP + CNα per Mach), interpolates at anchor Machs, grades
-- `baseline-classic-2026-08-04.md` — the frozen scorecard of the CLASSIC
-  Extended Barrowman kernel before any supersonic work: **8/137 gate points**
+- `baseline-classic-2026-08-04.md` — the classic Extended Barrowman scorecard
+  (flag off, regenerated whenever the harness changes): **8/137 gate points**
+- `scorecard-phase1-2026-08-04.md` — the Phase-1 supersonic-model scorecard
 
 ## Baseline reading (why almost everything fails, and why that's fine)
 

@@ -72,6 +72,16 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 	 */
 	private boolean rogersKbf = false;
 
+	/**
+	 * PATCH (RASAero feature #1 Phase 1, see engine-java/patches/LEDGER.md):
+	 * opt-in supersonic aerodynamics — corrected supersonic fin normal force
+	 * (2D Busemann level + finite-span correction), exact NACA-1307 body-fin
+	 * interference, and Mach-dependent nose CNa growth. Threaded into
+	 * FinSetCalc and SymmetricComponentCalc at calcMap build. Default false
+	 * ⇒ bit-identical to classic Extended Barrowman.
+	 */
+	private boolean supersonicAero = false;
+
 	private final double stallAngle = 17.5 * Math.PI / 180;
 	private double stallMargin;
 	
@@ -84,6 +94,7 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 	public BarrowmanCalculator newInstance() {
 		BarrowmanCalculator c = new BarrowmanCalculator();
 		c.rogersKbf = this.rogersKbf; // PATCH: preserve the opt-in flag on clone
+		c.supersonicAero = this.supersonicAero; // PATCH (feature #1 Phase 1)
 		return c;
 	}
 
@@ -98,6 +109,19 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 
 	public boolean isRogersKbf() {
 		return rogersKbf;
+	}
+
+	/**
+	 * PATCH (RASAero feature #1 Phase 1): enable the opt-in supersonic aero
+	 * model. Must be set before the first CP/force call (the per-component
+	 * calculators bind the flag when calcMap is built).
+	 */
+	public void setSupersonicAero(boolean enabled) {
+		this.supersonicAero = enabled;
+	}
+
+	public boolean isSupersonicAero() {
+		return supersonicAero;
 	}
 
 	/**
@@ -1136,6 +1160,7 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 			// PATCH (feature #3): bind the opt-in Rogers Kbf flag onto the fin calc.
 			FinSetCalc finCalc = new FinSetCalc((FinSet) comp);
 			finCalc.setRogersKbf(rogersKbf);
+			finCalc.setSupersonicAero(supersonicAero); // PATCH (feature #1 Phase 1)
 			return finCalc;
 		}
 		if (comp instanceof TubeFinSet)
@@ -1144,8 +1169,12 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 			return new LaunchLugCalc(comp);
 		if (comp instanceof RailButton)
 			return new RailButtonCalc(comp);
-		if (comp instanceof SymmetricComponent)
-			return new SymmetricComponentCalc(comp);
+		if (comp instanceof SymmetricComponent) {
+			// PATCH (feature #1 Phase 1): bind the supersonic-aero flag.
+			SymmetricComponentCalc scc = new SymmetricComponentCalc(comp);
+			scc.setSupersonicAero(supersonicAero);
+			return scc;
+		}
 		if (comp instanceof ComponentAssembly)
 			return new ComponentAssemblyCalc(comp);
 		throw new info.openrocket.core.util.BugException(

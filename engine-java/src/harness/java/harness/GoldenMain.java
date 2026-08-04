@@ -43,6 +43,45 @@ public final class GoldenMain {
         dragSweepScenarios();
         rogersKbfScenarios();
         minDiameterScenarios();
+        supersonicAeroScenarios();
+    }
+
+    /**
+     * Opt-in supersonic aerodynamics (RASAero feature #1, Phase 1). With the
+     * flag ON: corrected supersonic fin normal force (2D Busemann level with
+     * finite-span correction — roughly doubles the clamped classic value),
+     * exact NACA-1307 body-fin interference, Mach-dependent nose CNa growth,
+     * and no M4.9 grid clamp. Locks CP/CNa at transonic, supersonic and
+     * hypersonic Mach for both flag states — flag OFF must stay identical to
+     * the classic values (also covered by existing goldens).
+     */
+    private static void supersonicAeroScenarios() {
+        Rocket rocket = buildReferenceRocket();
+        info.openrocket.core.rocketcomponent.FlightConfiguration config =
+                rocket.getSelectedConfiguration();
+        info.openrocket.core.logging.WarningSet w =
+                new info.openrocket.core.logging.WarningSet();
+        double[] machs = { 1.2, 2.0, 4.0, 8.0 };
+        for (double mach : machs) {
+            info.openrocket.core.aerodynamics.BarrowmanCalculator off =
+                    new info.openrocket.core.aerodynamics.BarrowmanCalculator();
+            info.openrocket.core.aerodynamics.FlightConditions cOff =
+                    new info.openrocket.core.aerodynamics.FlightConditions(config);
+            cOff.setMach(mach);
+            cOff.setAOA(Math.toRadians(2));
+            Coordinate cpOff = off.getCP(config, cOff, w);
+
+            info.openrocket.core.aerodynamics.BarrowmanCalculator on =
+                    new info.openrocket.core.aerodynamics.BarrowmanCalculator();
+            on.setSupersonicAero(true);
+            info.openrocket.core.aerodynamics.FlightConditions cOn =
+                    new info.openrocket.core.aerodynamics.FlightConditions(config);
+            cOn.setMach(mach);
+            cOn.setAOA(Math.toRadians(2));
+            Coordinate cpOn = on.getCP(config, cOn, w);
+
+            line("ssaero." + mach, cpOff.x, cpOff.weight, cpOn.x, cpOn.weight);
+        }
     }
 
     /**
