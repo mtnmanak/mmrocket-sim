@@ -299,7 +299,16 @@ public class SymmetricComponentCalc extends RocketComponentCalc {
 		if (supersonicAero && mach > interpolatorMaxMach()) {
 			double mEnd = interpolatorMaxMach();
 			if (analyticNose) {
-				cd = analyticMul * (2.1 * pow2(sinphi) +
+				// PATCH (feature #1 Phase 4): the 2.1*sinphi^2 asymptote is a
+				// transonic-range calibration; exact cone solutions and modified
+				// Newtonian theory (Cp_max*sin^2) sit lower at hypersonic Mach.
+				// Fade the coefficient from 2.1 to Cp_max(M) over M4-8.
+				double coeff = 2.1;
+				double t = MathUtil.clamp((mach - 4) / 4, 0, 1);
+				if (t > 0) {
+					coeff = 2.1 * (1 - t) + stagnationCpMax(mach) * t;
+				}
+				cd = analyticMul * (coeff * pow2(sinphi) +
 						0.5 * sinphi / MathUtil.safeSqrt(mach * mach - 1));
 			} else {
 				cd = interpolator.getValue(mEnd) *
@@ -309,6 +318,19 @@ public class SymmetricComponentCalc extends RocketComponentCalc {
 			cd = interpolator.getValue(mach);
 		}
 		return cd * frontalArea / conditions.getRefArea();
+	}
+
+	/**
+	 * PATCH (feature #1 Phase 4): stagnation pressure coefficient behind a
+	 * normal shock (Rayleigh pitot, NACA Report 1135 Eq. 100) — the modified-
+	 * Newtonian Cp_max. Limit 1.839 as M → infinity (gamma = 1.4).
+	 */
+	private static double stagnationCpMax(double m) {
+		double m2 = m * m;
+		double a = Math.pow((GAMMA + 1) * (GAMMA + 1) * m2
+				/ (4 * GAMMA * m2 - 2 * (GAMMA - 1)), GAMMA / (GAMMA - 1));
+		double b = (1 - GAMMA + 2 * GAMMA * m2) / (GAMMA + 1);
+		return (2 / (GAMMA * m2)) * (a * b - 1);
 	}
 
 	/** PATCH (feature #1 Phase 2): last Mach with real data in the interpolator. */

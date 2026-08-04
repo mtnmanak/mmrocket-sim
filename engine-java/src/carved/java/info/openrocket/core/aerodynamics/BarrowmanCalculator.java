@@ -722,12 +722,21 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 			}
 			
 			// Compressibility correction
-			
+
 			if (mach < 1.1) {
 				c1 = 1 - 0.1 * pow2(mach);
 			}
 			if (mach > 0.9) {
 				c2 = 1 / Math.pow(1 + 0.15 * pow2(mach), 0.58);
+				// PATCH (feature #1 Phase 4): the ^0.58 fit tracks Van Driest II
+				// only to M≈4. Flag on: above M4 fade to the standard VD-II
+				// adiabatic-wall engineering fit 1/(1+0.144 M^2)^0.65
+				// (Hopkins & Inouye, NASA TN D-6945), fully in by M4.5.
+				if (supersonicAero && mach > 3.5) {
+					double cVD = 1 / Math.pow(1 + 0.144 * pow2(mach), 0.65);
+					double t = MathUtil.clamp((mach - 3.5) / 1.0, 0, 1);
+					c2 = c2 * (1 - t) + cVD * t;
+				}
 			}
 			// Applying continuously around Mach 1
 			if (mach < 0.9) {

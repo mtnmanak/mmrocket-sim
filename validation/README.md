@@ -22,6 +22,13 @@ node validation/score.mjs --strict           # exit 1 unless every gate point pa
 | + Phase 1 (supersonic CP/CNα) | **52/137 (38.0%)** | `scorecard-phase1-2026-08-04.md` |
 | + Phase 2 (drag fidelity) | **68/137 (49.6%)** | `scorecard-phase2-2026-08-04.md` |
 | + Phase 3 (fin airfoil sections) | **65/137 (47.4%)** | `scorecard-phase3-2026-08-04.md` |
+| + Phase 4 (hypersonic corrections) | **65/137 (47.4%)** | `scorecard-phase4-2026-08-04.md` |
+
+Phase 4 (Van Driest II friction above M4; cone wave-drag coefficient fading
+2.1 → Cp_max(M) over M4–8) moved no gates but cut HB-2's high-Mach CA0 excess
+~45% (+0.25 → +0.14 at M8–10) with ARCAS M4.65 tightening to −0.003. HB-2's
+remaining gaps are deliberate non-goals for a hobby-rocket code, documented in
+LEDGER: spherical-cap nose bluntness and flare-effectiveness decay.
 
 Phase 3's score DECREASE is deliberate honesty: Finner's fixture switched from
 the biconvex placeholder to its true `singlewedge` section, and the correct

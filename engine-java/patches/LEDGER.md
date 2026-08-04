@@ -244,6 +244,26 @@ feature #2 (no flag): absent inputs ⇒ bit-identical classic behavior. Files:
   its biconvex-class 'airfoil' (its rounded-LE double wedge is well-approximated
   and all its CD/CP series stay green).
 
+### RASAero feature #1 Phase 4 — hypersonic corrections (same `supersonicAero` flag)
+
+- **BarrowmanCalculator.calculateFrictionCD**: the turbulent compressibility fit
+  `1/(1+0.15M²)^0.58` tracks Van Driest II only to M≈4; flag on fades to the VD-II
+  adiabatic-wall engineering fit `1/(1+0.144M²)^0.65` (Hopkins & Inouye, NASA TN
+  D-6945) over M3.5–4.5.
+- **SymmetricComponentCalc**: the analytic cone/ogive extension's `2.1·sinφ²`
+  asymptote is a transonic-range calibration; exact cone solutions and modified-
+  Newtonian theory sit lower hypersonically. Flag on fades the coefficient from 2.1
+  to `Cp_max(M)` (Rayleigh-pitot stagnation Cp, NACA Rep. 1135 Eq. 100, → 1.839)
+  over M4–8. New helper `stagnationCpMax`.
+- **Scored:** score unchanged at 65/137, but the physics moved the right way where
+  it matters: HB-2 CA0 excess at M8–10 fell ~45% (+0.25 → +0.14) and ARCAS M4.65
+  tightened to −0.003. Remaining HB-2 gaps are DOCUMENTED limitations, deliberately
+  unmodeled: (a) spherical-cap nose bluntness (HB-2's 0.300 d cap — needs a tip-
+  radius input + MNT cap/Jackson matching); (b) flare-effectiveness decay with Mach
+  (HB-2 CNα measured 4.6→3.1 /rad over M2→10 while slender flare theory is
+  Mach-flat — flare-specific physics with no hobby-rocket relevance and only one
+  dataset to calibrate on). Both parked as the "blunt/flare body" refinement item.
+
 ## Rules
 
 1. A patch NEVER changes physics or observable behavior (except documented quirks-ledger

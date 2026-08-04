@@ -22207,7 +22207,7 @@ function iocab_SymmetricComponentCalc() {
     a.$planformCenter = 0.0;
     a.$wetArea0 = 0.0;
     a.$sinphi = 0.0;
-    a.$supersonicAero1 = 0;
+    a.$supersonicAero2 = 0;
     a.$isNoseShape = 0;
     a.$isTube = 0;
     a.$cnaCache = 0.0;
@@ -22233,13 +22233,13 @@ iocab_SymmetricComponentCalc_$callClinit = () => {
     iocab_SymmetricComponentCalc__clinit_();
 },
 iocab_SymmetricComponentCalc_setSupersonicAero = ($this, $enabled) => {
-    $this.$supersonicAero1 = $enabled;
+    $this.$supersonicAero2 = $enabled;
 },
 iocab_SymmetricComponentCalc__init_ = ($this, $c) => {
     let var$2, var$3, var$4, $component, $componentMaxR, $r;
     iocab_SymmetricComponentCalc_$callClinit();
     iocab_RocketComponentCalc__init_($this, $c);
-    $this.$supersonicAero1 = 0;
+    $this.$supersonicAero2 = 0;
     $this.$isNoseShape = 0;
     $this.$isTube = 0;
     $this.$cnaCache = NaN;
@@ -22316,7 +22316,7 @@ iocab_SymmetricComponentCalc_calculateNonaxialForces = ($this, $conditions, $tra
         }
     }
     $cnaEff = $this.$cnaCache;
-    if ($this.$supersonicAero1 && !$this.$isTube && $this.$isNoseShape) {
+    if ($this.$supersonicAero2 && !$this.$isTube && $this.$isNoseShape) {
         $m = $conditions.$getMach();
         if ($m > 1.0) {
             var$12 = $this.$shape;
@@ -22362,7 +22362,7 @@ iocab_SymmetricComponentCalc_calculateFrictionCD = ($this, $conditions, $compone
     return $componentCf * $this.$wetArea0 / $conditions.$getRefArea();
 },
 iocab_SymmetricComponentCalc_calculatePressureCD = ($this, $conditions, $stagnationCD, $baseCD, $warnings) => {
-    let $mach, $mEnd, $cd, var$8, var$9, var$10, var$11, $cdSub, $machB, $theta, $frontalRatio, $beta15, $wave15, $beta, $t;
+    let $cdSub, $machB, $theta, $frontalRatio, $beta15, var$10, $wave15, $beta, $t, $mach, $mEnd, $cd, $coeff, var$18, var$19, var$20;
     if (iocu_MathUtil_equals($this.$foreRadius, $this.$aftRadius))
         return 0.0;
     if ($this.$length5 < 0.001) {
@@ -22370,47 +22370,59 @@ iocab_SymmetricComponentCalc_calculatePressureCD = ($this, $conditions, $stagnat
             return $baseCD * $this.$frontalArea / $conditions.$getRefArea();
         return $stagnationCD * $this.$frontalArea / $conditions.$getRefArea();
     }
-    if (!($this.$aftRadius < $this.$foreRadius)) {
-        if ($this.$interpolator0 === null)
-            iocab_SymmetricComponentCalc_calculateNoseInterpolator($this);
-        $mach = $conditions.$getMach();
-        if ($this.$supersonicAero1 && $mach > iocab_SymmetricComponentCalc_interpolatorMaxMach($this)) {
-            $mEnd = iocab_SymmetricComponentCalc_interpolatorMaxMach($this);
-            if (!$this.$analyticNose)
-                $cd = $this.$interpolator0.$getValue1($mEnd) * (1.59 + 1.83 / ($mach * $mach)) / (1.59 + 1.83 / ($mEnd * $mEnd));
-            else {
-                var$8 = $this.$analyticMul;
-                var$9 = 2.1 * iocu_MathUtil_pow2($this.$sinphi);
-                var$10 = 0.5 * $this.$sinphi;
-                var$11 = $mach * $mach - 1.0;
-                $cd = var$8 * (var$9 + var$10 / iocu_MathUtil_safeSqrt(var$11));
-            }
-        } else
-            $cd = $this.$interpolator0.$getValue1($mach);
-        return $cd * $this.$frontalArea / $conditions.$getRefArea();
-    }
-    if ($this.$fineness >= 3.0)
-        $cdSub = 0.0;
-    else {
-        $cdSub = $baseCD * $this.$frontalArea / $conditions.$getRefArea();
-        if ($this.$fineness > 1.0)
-            $cdSub = $cdSub * (3.0 - $this.$fineness) / 2.0;
-    }
-    $machB = $conditions.$getMach();
-    if ($this.$supersonicAero1 && !($machB <= 0.8)) {
-        $theta = jl_Math_atan2($this.$foreRadius - $this.$aftRadius, $this.$length5);
-        $frontalRatio = $this.$frontalArea / $conditions.$getRefArea();
-        $beta15 = iocu_MathUtil_safeSqrt(1.25);
-        var$8 = 2.0 * $theta;
-        $wave15 = var$8 / $beta15 * $frontalRatio;
-        if ($machB >= 1.5) {
-            $beta = iocu_MathUtil_safeSqrt($machB * $machB - 1.0);
-            return var$8 / $beta * $frontalRatio;
+    if ($this.$aftRadius < $this.$foreRadius) {
+        if ($this.$fineness >= 3.0)
+            $cdSub = 0.0;
+        else {
+            $cdSub = $baseCD * $this.$frontalArea / $conditions.$getRefArea();
+            if ($this.$fineness > 1.0)
+                $cdSub = $cdSub * (3.0 - $this.$fineness) / 2.0;
         }
-        $t = ($machB - 0.8) / 0.7;
-        return $cdSub * (1.0 - $t) + $wave15 * $t;
+        $machB = $conditions.$getMach();
+        if ($this.$supersonicAero2 && !($machB <= 0.8)) {
+            $theta = jl_Math_atan2($this.$foreRadius - $this.$aftRadius, $this.$length5);
+            $frontalRatio = $this.$frontalArea / $conditions.$getRefArea();
+            $beta15 = iocu_MathUtil_safeSqrt(1.25);
+            var$10 = 2.0 * $theta;
+            $wave15 = var$10 / $beta15 * $frontalRatio;
+            if ($machB >= 1.5) {
+                $beta = iocu_MathUtil_safeSqrt($machB * $machB - 1.0);
+                return var$10 / $beta * $frontalRatio;
+            }
+            $t = ($machB - 0.8) / 0.7;
+            return $cdSub * (1.0 - $t) + $wave15 * $t;
+        }
+        return $cdSub;
     }
-    return $cdSub;
+    if ($this.$interpolator0 === null)
+        iocab_SymmetricComponentCalc_calculateNoseInterpolator($this);
+    $mach = $conditions.$getMach();
+    if ($this.$supersonicAero2 && $mach > iocab_SymmetricComponentCalc_interpolatorMaxMach($this)) {
+        $mEnd = iocab_SymmetricComponentCalc_interpolatorMaxMach($this);
+        if (!$this.$analyticNose)
+            $cd = $this.$interpolator0.$getValue1($mEnd) * (1.59 + 1.83 / ($mach * $mach)) / (1.59 + 1.83 / ($mEnd * $mEnd));
+        else {
+            $coeff = 2.1;
+            $t = iocu_MathUtil_clamp(($mach - 4.0) / 4.0, 0.0, 1.0);
+            if ($t > 0.0)
+                $coeff = 2.1 * (1.0 - $t) + iocab_SymmetricComponentCalc_stagnationCpMax($mach) * $t;
+            var$10 = $this.$analyticMul;
+            var$18 = $coeff * iocu_MathUtil_pow2($this.$sinphi);
+            var$19 = 0.5 * $this.$sinphi;
+            var$20 = $mach * $mach - 1.0;
+            $cd = var$10 * (var$18 + var$19 / iocu_MathUtil_safeSqrt(var$20));
+        }
+    } else
+        $cd = $this.$interpolator0.$getValue1($mach);
+    return $cd * $this.$frontalArea / $conditions.$getRefArea();
+},
+iocab_SymmetricComponentCalc_stagnationCpMax = $m => {
+    let $m2, $a, $b;
+    iocab_SymmetricComponentCalc_$callClinit();
+    $m2 = $m * $m;
+    $a = jl_Math_pow(5.76 * $m2 / (5.6 * $m2 - 0.7999999999999998), 3.5000000000000004);
+    $b = ((-0.3999999999999999) + 2.8 * $m2) / 2.4;
+    return 2.0 / (1.4 * $m2) * ($a * $b - 1.0);
 },
 iocab_SymmetricComponentCalc_interpolatorMaxMach = $this => {
     let $xs, var$2;
@@ -31882,13 +31894,13 @@ function a_OrkEngine$RocketCtx() {
     a.$fcid1 = null;
     a.$ids = null;
     a.$rogersKbf = 0;
-    a.$supersonicAero0 = 0;
+    a.$supersonicAero1 = 0;
 }
 let a_OrkEngine$RocketCtx__init_0 = ($this, $rocket, $stage, $fcid) => {
     jl_Object__init_($this);
     $this.$ids = ju_HashMap__init_();
     $this.$rogersKbf = 0;
-    $this.$supersonicAero0 = 0;
+    $this.$supersonicAero1 = 0;
     $this.$rocket0 = $rocket;
     $this.$stage = $stage;
     $this.$fcid1 = $fcid;
@@ -45032,7 +45044,7 @@ function ioca_BarrowmanCalculator() {
     a.$cacheDiameter = 0.0;
     a.$cacheLength = 0.0;
     a.$rogersKbf1 = 0;
-    a.$supersonicAero2 = 0;
+    a.$supersonicAero0 = 0;
     a.$stallAngle = 0.30543261909900765;
     a.$stallMargin = 0.0;
 }
@@ -45050,7 +45062,7 @@ ioca_BarrowmanCalculator__init_0 = $this => {
     $this.$cacheDiameter = (-1.0);
     $this.$cacheLength = (-1.0);
     $this.$rogersKbf1 = 0;
-    $this.$supersonicAero2 = 0;
+    $this.$supersonicAero0 = 0;
     $this.$stallAngle = 0.30543261909900765;
 },
 ioca_BarrowmanCalculator__init_ = () => {
@@ -45062,7 +45074,7 @@ ioca_BarrowmanCalculator_setRogersKbf = ($this, $enabled) => {
     $this.$rogersKbf1 = $enabled;
 },
 ioca_BarrowmanCalculator_setSupersonicAero = ($this, $enabled) => {
-    $this.$supersonicAero2 = $enabled;
+    $this.$supersonicAero0 = $enabled;
 },
 ioca_BarrowmanCalculator_getStallMargin = $this => {
     return $this.$stallMargin;
@@ -45431,7 +45443,7 @@ ioca_BarrowmanCalculator_calculateReynoldsNumber = ($this, $configuration, $cond
     return var$3;
 },
 ioca_BarrowmanCalculator_calculateFrictionCoefficient = ($this, $configuration, $mach, $Re) => {
-    let $c1, $c2, $Cf, var$7, var$8, var$9;
+    let $c1, $c2, $Cf, var$7, $cVD, $t, var$10;
     $c1 = 1.0;
     $c2 = 1.0;
     if (!($configuration.$getRocket()).$isPerfectFinish()) {
@@ -45439,19 +45451,25 @@ ioca_BarrowmanCalculator_calculateFrictionCoefficient = ($this, $configuration, 
         var$7 = $rt_compare($mach, 1.1);
         if (var$7 < 0)
             $c1 = 1.0 - 0.1 * iocu_MathUtil_pow2($mach);
-        if ($mach > 0.9)
+        if ($mach > 0.9) {
             $c2 = 1.0 / jl_Math_pow(1.0 + 0.15 * iocu_MathUtil_pow2($mach), 0.58);
-        var$8 = $mach < 0.9 ? $Cf * $c1 : var$7 >= 0 ? $Cf * $c2 : $Cf * ($c2 * ($mach - 0.9) / 0.2 + $c1 * (1.1 - $mach) / 0.2);
+            if ($this.$supersonicAero0 && $mach > 3.5) {
+                $cVD = 1.0 / jl_Math_pow(1.0 + 0.144 * iocu_MathUtil_pow2($mach), 0.65);
+                $t = iocu_MathUtil_clamp(($mach - 3.5) / 1.0, 0.0, 1.0);
+                $c2 = $c2 * (1.0 - $t) + $cVD * $t;
+            }
+        }
+        var$10 = $mach < 0.9 ? $Cf * $c1 : var$7 >= 0 ? $Cf * $c2 : $Cf * ($c2 * ($mach - 0.9) / 0.2 + $c1 * (1.1 - $mach) / 0.2);
     } else {
         $Cf = $Re < 10000.0 ? 0.0133 : $Re < 539000.0 ? 1.328 / iocu_MathUtil_safeSqrt($Re) : 1.0 / iocu_MathUtil_pow2(1.5 * jl_Math_log($Re) - 5.6) - 1700.0 / $Re;
-        var$9 = $rt_compare($mach, 1.1);
-        if (var$9 < 0 && $Re > 1000000.0)
+        var$7 = $rt_compare($mach, 1.1);
+        if (var$7 < 0 && $Re > 1000000.0)
             $c1 = !($Re < 3000000.0) ? 1.0 - 0.1 * iocu_MathUtil_pow2($mach) : 1.0 - 0.1 * iocu_MathUtil_pow2($mach) * ($Re - 1000000.0) / 2000000.0;
         if ($mach > 0.9 && $Re > 1000000.0)
             $c2 = !($Re < 3000000.0) ? 1.0 / jl_Math_pow(1.0 + 0.045 * iocu_MathUtil_pow2($mach), 0.25) : 1.0 + (1.0 / jl_Math_pow(1.0 + 0.045 * iocu_MathUtil_pow2($mach), 0.25) - 1.0) * ($Re - 1000000.0) / 2000000.0;
-        var$8 = $mach < 0.9 ? $Cf * $c1 : var$9 >= 0 ? $Cf * $c2 : $Cf * ($c2 * ($mach - 0.9) / 0.2 + $c1 * (1.1 - $mach) / 0.2);
+        var$10 = $mach < 0.9 ? $Cf * $c1 : var$7 >= 0 ? $Cf * $c2 : $Cf * ($c2 * ($mach - 0.9) / 0.2 + $c1 * (1.1 - $mach) / 0.2);
     }
-    return var$8;
+    return var$10;
 },
 ioca_BarrowmanCalculator_calculateRoughnessCorrection = ($this, $mach) => {
     let $roughnessCorrection, $c1, $c2;
@@ -45567,7 +45585,7 @@ ioca_BarrowmanCalculator_calculateBaseCD0 = $m => {
 ioca_BarrowmanCalculator_effectiveBaseCD = ($this, $m) => {
     let $cd;
     $cd = ioca_BarrowmanCalculator_calculateBaseCD0($m);
-    if ($this.$supersonicAero2 && $m > 1.0)
+    if ($this.$supersonicAero0 && $m > 1.0)
         $cd = jl_Math_min0($cd, 1.2 / ($m * $m));
     return $cd;
 },
@@ -45681,7 +45699,7 @@ ioca_BarrowmanCalculator_createCalcObject = ($this, $comp) => {
     if ($comp instanceof iocr_FinSet) {
         $finCalc = iocab_FinSetCalc__init_0($comp);
         $finCalc.$setRogersKbf($this.$rogersKbf1);
-        $finCalc.$setSupersonicAero($this.$supersonicAero2);
+        $finCalc.$setSupersonicAero($this.$supersonicAero0);
         return $finCalc;
     }
     if ($comp instanceof iocr_TubeFinSet)
@@ -45692,7 +45710,7 @@ ioca_BarrowmanCalculator_createCalcObject = ($this, $comp) => {
         return iocab_RailButtonCalc__init_0($comp);
     if ($comp instanceof iocr_SymmetricComponent) {
         $scc = iocab_SymmetricComponentCalc__init_0($comp);
-        $scc.$setSupersonicAero($this.$supersonicAero2);
+        $scc.$setSupersonicAero($this.$supersonicAero0);
         return $scc;
     }
     if ($comp instanceof iocr_ComponentAssembly)
@@ -49646,7 +49664,7 @@ a_OrkEngine_setRogersModifiedBarrowman = ($rocketHandle, $enabled) => {
 },
 a_OrkEngine_setSupersonicAero = ($rocketHandle, $enabled) => {
     a_OrkEngine_$callClinit();
-    (a_OrkEngine_get($rocketHandle)).$supersonicAero0 = $enabled;
+    (a_OrkEngine_get($rocketHandle)).$supersonicAero1 = $enabled;
 },
 a_OrkEngine_getStaticInfo = $rocketHandle => {
     let $ctx, $structure, $empty, $calc, $conditions, $warnings, $cp, $refDiameter, $cg, $stabilityCal, $sb, $first, var$14, $w;
@@ -49656,7 +49674,7 @@ a_OrkEngine_getStaticInfo = $rocketHandle => {
     $empty = iocm_MassCalculator_calculateStructure($ctx.$rocket0.$getSelectedConfiguration());
     $calc = ioca_BarrowmanCalculator__init_();
     $calc.$setRogersKbf($ctx.$rogersKbf);
-    $calc.$setSupersonicAero($ctx.$supersonicAero0);
+    $calc.$setSupersonicAero($ctx.$supersonicAero1);
     $conditions = ioca_FlightConditions__init_($ctx.$rocket0.$getSelectedConfiguration());
     $conditions.$setMach(0.3);
     $conditions.$setAOA(0.0);
@@ -49770,7 +49788,7 @@ a_OrkEngine_getDragSweep = ($rocketHandle, $optionsJson) => {
     }
     $calc = ioca_BarrowmanCalculator__init_();
     $calc.$setRogersKbf($ctx.$rogersKbf);
-    $calc.$setSupersonicAero($ctx.$supersonicAero0);
+    $calc.$setSupersonicAero($ctx.$supersonicAero1);
     $warnings = iocl_WarningSet__init_();
     $offTotal = $rt_createDoubleArray($n);
     $offFric = $rt_createDoubleArray($n);
@@ -49965,7 +49983,7 @@ a_OrkEngine_simulateJson = ($rocketHandle, $optionsJson) => {
     $conditions.$setGravityModel(iocmg_WGSGravityModel__init_0());
     $aeroCalc = ioca_BarrowmanCalculator__init_();
     $aeroCalc.$setRogersKbf($ctx.$rogersKbf);
-    $aeroCalc.$setSupersonicAero($ctx.$supersonicAero0);
+    $aeroCalc.$setSupersonicAero($ctx.$supersonicAero1);
     $randomSeed = a_JsonLite_dbl($o, $rt_s(1673), 42.0) | 0;
     $wind = iocmw_PinkNoiseWindModel__init_2($randomSeed);
     $wind.$setAverage(a_JsonLite_dbl($o, $rt_s(1674), 0.0));
