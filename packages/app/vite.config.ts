@@ -28,7 +28,8 @@ export default defineConfig({
         ],
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,png,webmanifest}'],
+        // woff/woff2: the self-hosted Rajdhani display face must work offline.
+        globPatterns: ['**/*.{js,css,html,png,webmanifest,woff,woff2}'],
         // The engine chunk is ~2.5 MB — well over workbox's 2 MB default cap.
         maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
       },

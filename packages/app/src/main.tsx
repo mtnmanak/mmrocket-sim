@@ -1,6 +1,11 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { registerSW } from 'virtual:pwa-register';
+// Display face (identity pass 3): Rajdhani, self-hosted from @fontsource (OFL
+// license) so the PWA stays CDN-free and works offline — the woff2 files are
+// emitted into assets/ and precached (vite.config workbox globPatterns).
+import '@fontsource/rajdhani/latin-600.css';
+import '@fontsource/rajdhani/latin-700.css';
 import { App } from './App.js';
 import { PrefsProvider } from './prefs/PrefsContext.js';
 

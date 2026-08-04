@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.028';
+export const APP_VERSION = '0.029';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.029',
+    date: '2026-08-04',
+    title: 'Identity pass 3: the Rajdhani display face',
+    items: [
+      'Headings, tab labels, the wordmark, the Launch button and every instrument numeral now speak Rajdhani — an engineered, squared technical face that gives the app its own voice. Body text stays in your system font for reading density.',
+      'The font is bundled with the app (no CDN, ~30 KB) and precached, so it works fully offline at the launch site like everything else.',
+      'This completes the three-part design refresh: brand orange + icons (v0.027), the telemetry bar + rocket stage (v0.028), and typography (v0.029). Cosmetic only throughout — physics and designs untouched.',
+    ],
+  },
   {
     version: '0.028',
     date: '2026-08-04',

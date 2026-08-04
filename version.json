@@ -1,5 +1,5 @@
 {
-  "version": "0.028",
+  "version": "0.029",
   "released": "2026-08-04",
-  "note": "Design refresh part 2: the top vitals bar is now a labeled instrument readout, the rocket view gets a dusk-sky backdrop, and empty pages point you to the next step. Cosmetic only - no changes to physics or your designs."
+  "note": "Design refresh part 3 (final): new instrument-style typeface for headings, numbers and the Launch button - bundled with the app so it still works fully offline. Cosmetic only; physics and your designs are untouched."
 }

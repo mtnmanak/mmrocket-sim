@@ -12,6 +12,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@fontsource/rajdhani": "^5.3.0",
     "@online-openrocket/engine": "*",
     "@react-three/drei": "^9.122.0",
     "@react-three/fiber": "^8.18.0",
