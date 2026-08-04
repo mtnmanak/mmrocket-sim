@@ -1673,3 +1673,191 @@ select.unit-chip:hover {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
+
+/* ===================================================================
+   DAYLIGHT MODE — high contrast for reading the screen in direct sun
+   (Preferences → Display → High contrast, or the header Daylight button;
+   also auto-on for `prefers-contrast: more`).
+
+   Layers on top of either theme: `data-contrast='high'` with the existing
+   `data-theme`. Everything here must stay at the END of this file — the
+   sheet is one flat cascade, so equal-specificity rules are decided by
+   source order.
+
+   The principle is luminance, not decoration: push text to the extremes of
+   the range, replace fills with borders, thicken every hairline, and drop
+   the soft-focus effects (low opacity, gradients, shadows) that a sunlit
+   screen turns into mud. Contrast targets: body text >= 12:1, every chart
+   hue and control edge >= 4.5:1 against its surface.
+   =================================================================== */
+
+.viz-root[data-contrast='high'] {
+  --surface-1: #ffffff;
+  --surface-2: #ffffff;
+  --text-primary: #000000;
+  --text-secondary: #141414;
+  --text-muted: #2e2e2e;
+  --series-1: #0b4ea2;
+  --series-2: #00665c;
+  --series-3: #8a5000;
+  --status-good: #005c00;
+  --status-serious: #b00016;
+  --border: #000000;
+  --hover: #d8d8d8;
+  --selected: #ffd18a;
+  --note-bg: #fff8d0;
+  --note-border: #000000;
+  --accent: #8f3a0d;
+  --launch: #9c3d0e;
+  --chart-axis: #000000;
+  --chart-grid: #9a9a9a;
+  --chart-tick: #000000;
+  --chart-series-width: 3;
+  --chart-axis-font: 600 12px system-ui;
+  color-scheme: light;
+}
+
+.viz-root[data-contrast='high'][data-theme='dark'] {
+  --surface-1: #000000;
+  --surface-2: #000000;
+  --text-primary: #ffffff;
+  --text-secondary: #f2f2f2;
+  --text-muted: #d6d6d6;
+  --series-1: #6ab7ff;
+  --series-2: #3fe0b0;
+  --series-3: #ffc046;
+  --status-good: #4ce64c;
+  --status-serious: #ff8a86;
+  --border: #e8e8e8;
+  --hover: #3a3a3a;
+  --selected: #00459b;
+  --note-bg: #2a2400;
+  --note-border: #e8e8e8;
+  --accent: #ffa257;
+  --launch: #c2410c;
+  --chart-axis: #ffffff;
+  --chart-grid: #5e5e5e;
+  --chart-tick: #ffffff;
+  color-scheme: dark;
+}
+
+/* Every hairline doubles: at arm's length in sun, a 1px #dedcd7 edge is gone. */
+.viz-root[data-contrast='high'] .panel,
+.viz-root[data-contrast='high'] .vitals-strip,
+.viz-root[data-contrast='high'] .stat-tile,
+.viz-root[data-contrast='high'] .series-picker,
+.viz-root[data-contrast='high'] .series-chip,
+.viz-root[data-contrast='high'] .view-toggle,
+.viz-root[data-contrast='high'] .file-btn,
+.viz-root[data-contrast='high'] .version-badge,
+.viz-root[data-contrast='high'] .rocket-stage,
+.viz-root[data-contrast='high'] .field input,
+.viz-root[data-contrast='high'] .field select,
+.viz-root[data-contrast='high'] .field textarea,
+.viz-root[data-contrast='high'] .fin-table input,
+.viz-root[data-contrast='high'] .color-swatch,
+.viz-root[data-contrast='high'] .prefs-dialog,
+.viz-root[data-contrast='high'] .file-menu {
+  border-width: 2px;
+  border-style: solid;
+  border-color: var(--border);
+}
+
+/* Small type carries most of the readings — give it weight to survive glare. */
+.viz-root[data-contrast='high'] {
+  font-weight: 500;
+}
+
+.viz-root[data-contrast='high'] .vitals-label,
+.viz-root[data-contrast='high'] .comp-stats,
+.viz-root[data-contrast='high'] .prefs-hint,
+.viz-root[data-contrast='high'] .session-note,
+.viz-root[data-contrast='high'] .stat-label,
+.viz-root[data-contrast='high'] .series-chip,
+.viz-root[data-contrast='high'] .fin-table th,
+.viz-root[data-contrast='high'] .field label {
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+/* Dimming is a subtlety the sun erases — keep faded states legible. */
+.viz-root[data-contrast='high'] .empty-state svg,
+.viz-root[data-contrast='high'] .series-dot,
+.viz-root[data-contrast='high'] .fin-row-del:disabled,
+.viz-root[data-contrast='high'] .schematic-controls .file-btn:disabled,
+.viz-root[data-contrast='high'] .launch-btn:disabled,
+.viz-root[data-contrast='high'] .chart-panel .u-legend {
+  opacity: 1;
+}
+
+.viz-root[data-contrast='high'] .series-chip:not(.series-chip-on) .series-dot {
+  opacity: 0.55;
+}
+
+/* Selection must read without relying on a tint alone. */
+.viz-root[data-contrast='high'] .series-chip-on,
+.viz-root[data-contrast='high'] .view-toggle button.active {
+  outline: 2px solid var(--border);
+  outline-offset: -2px;
+  font-weight: 700;
+}
+
+/* Keyboard focus, visible in glare. */
+.viz-root[data-contrast='high'] :focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Soft shadows and the dusk-sky gradient behind the rocket both turn to haze
+   in sunlight — flatten them so the drawing sits on clean paper. */
+.viz-root[data-contrast='high'] .rocket-stage {
+  background: var(--surface-1);
+}
+
+.viz-root[data-contrast='high'] .panel,
+.viz-root[data-contrast='high'] .file-menu,
+.viz-root[data-contrast='high'] .prefs-dialog,
+.viz-root[data-contrast='high'] .add-menu,
+.viz-root[data-contrast='high'] .motor-dialog {
+  box-shadow: none;
+}
+
+/* The 2D schematic draws its outlines as SVG presentation attributes; the
+   attribute-value selector reaches exactly the default component stroke and
+   leaves the CG/CP markers and user colors alone. */
+.viz-root[data-contrast='high'] .rocket-stage svg [stroke='#7a786f'],
+.viz-root[data-contrast='high'] .rocket-stage svg [stroke='#9a978f'] {
+  stroke: var(--text-primary);
+  stroke-width: 1.6;
+}
+
+/* The launch button is the one saturated surface — keep its label at full
+   strength and give it an edge against a white or black page. (The 2D/3D
+   toggle keeps its outline instead of a border: a border would resize only
+   the active half and make the pair jump on every switch.) */
+.viz-root[data-contrast='high'] .launch-btn {
+  color: #ffffff;
+  border: 2px solid var(--border);
+}
+
+.viz-root[data-contrast='high'] .view-toggle button.active {
+  color: #ffffff;
+}
+
+/* Modal scrims: opaque enough that the dialog wins over what's behind it. */
+.viz-root[data-contrast='high'] .prefs-overlay,
+.viz-root[data-contrast='high'] .modal-overlay {
+  background: rgba(0, 0, 0, 0.72);
+}
+
+/* Header Daylight toggle: shows its own state (it is the control users reach
+   for when they can barely see the screen). */
+/* Label color is the page surface, not white: the accent is a dark burnt
+   orange on the light palette and a bright one on the dark palette, so only
+   an inverted label stays readable in both. */
+.hc-toggle.hc-on {
+  background: var(--accent);
+  color: var(--surface-1);
+  border-color: var(--accent);
+  font-weight: 700;
+}

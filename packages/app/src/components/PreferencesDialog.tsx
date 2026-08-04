@@ -73,7 +73,29 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
               <option value="system">Follow system</option>
             </select>
           </div>
+          <div className="field">
+            <label>High contrast (daylight)</label>
+            <select
+              value={prefs.highContrast === undefined ? 'system' : prefs.highContrast ? 'on' : 'off'}
+              onChange={(e) => setPrefs({
+                ...prefs,
+                highContrast: e.target.value === 'system' ? undefined : e.target.value === 'on',
+              })}
+            >
+              <option value="off">Off</option>
+              <option value="on">On — bright sunlight</option>
+              <option value="system">Follow system</option>
+            </select>
+          </div>
         </div>
+        <p className="prefs-hint">
+          <strong>High contrast</strong> is the launch-site mode: pure black-on-white (or
+          white-on-black in the dark theme), heavier borders, bolder small type, and darker
+          chart lines so a phone screen stays readable in direct sun. It layers on top of
+          whichever theme you picked — the <strong>Daylight</strong> button in the header is
+          the same switch. &ldquo;Follow system&rdquo; tracks your device&rsquo;s
+          increase-contrast accessibility setting.
+        </p>
 
         <h3 className="prefs-section">Aerodynamics</h3>
         <div className="field">

@@ -34,6 +34,12 @@ export interface Preferences {
    * default (lets us change the default without overriding real choices).
    */
   themeExplicit?: boolean;
+  /**
+   * Daylight mode: maximum-contrast palette for reading a phone screen in
+   * direct sun at the launch site. Undefined = follow the OS accessibility
+   * setting (`prefers-contrast: more`); true/false is an explicit choice.
+   */
+  highContrast?: boolean;
 }
 
 export const DEFAULT_PREFS: Preferences = {
@@ -67,12 +73,15 @@ interface PrefsContextValue {
   setPrefs: (next: Preferences) => void;
   /** Theme with 'system' resolved to what the OS reports right now. */
   resolvedTheme: 'light' | 'dark';
+  /** Daylight mode with 'unset' resolved to the OS accessibility setting. */
+  highContrast: boolean;
 }
 
 const PrefsContext = createContext<PrefsContextValue>({
   prefs: DEFAULT_PREFS,
   setPrefs: () => {},
   resolvedTheme: 'light',
+  highContrast: false,
 });
 
 export function PrefsProvider({ children }: { children: ReactNode }) {
@@ -80,11 +89,22 @@ export function PrefsProvider({ children }: { children: ReactNode }) {
   const [systemDark, setSystemDark] = useState<boolean>(
     () => typeof matchMedia !== 'undefined' && matchMedia('(prefers-color-scheme: dark)').matches,
   );
+  const [systemContrast, setSystemContrast] = useState<boolean>(
+    () => typeof matchMedia !== 'undefined' && matchMedia('(prefers-contrast: more)').matches,
+  );
 
   useEffect(() => {
     if (typeof matchMedia === 'undefined') return;
     const mq = matchMedia('(prefers-color-scheme: dark)');
     const onChange = (e: MediaQueryListEvent) => setSystemDark(e.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+
+  useEffect(() => {
+    if (typeof matchMedia === 'undefined') return;
+    const mq = matchMedia('(prefers-contrast: more)');
+    const onChange = (e: MediaQueryListEvent) => setSystemContrast(e.matches);
     mq.addEventListener('change', onChange);
     return () => mq.removeEventListener('change', onChange);
   }, []);
@@ -100,7 +120,8 @@ export function PrefsProvider({ children }: { children: ReactNode }) {
       }
     },
     resolvedTheme: prefs.theme === 'system' ? (systemDark ? 'dark' : 'light') : prefs.theme,
-  }), [prefs, systemDark]);
+    highContrast: prefs.highContrast ?? systemContrast,
+  }), [prefs, systemDark, systemContrast]);
 
   return <PrefsContext.Provider value={value}>{children}</PrefsContext.Provider>;
 }

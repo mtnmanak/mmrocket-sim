@@ -3,6 +3,7 @@ import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import type { DragSweep, OrkRocket } from '@online-openrocket/engine';
 import { usePrefs } from '../prefs/PrefsContext.js';
+import { chartInk, seriesPalette } from '../chartTheme.js';
 
 /**
  * Drag analysis (RASAero-style Aero Plots): CD vs Mach with power-off/power-on
@@ -16,8 +17,8 @@ import { usePrefs } from '../prefs/PrefsContext.js';
  * is the later supersonic-aero feature).
  */
 
-// Validated categorical palette (same slots as FlightCharts).
-const C = ['#2a78d6', '#1baf7a', '#eda100', '#008300', '#4a3aa7', '#e34948', '#e87ba4', '#eb6834'];
+// Validated categorical palette (same slots as FlightCharts) — swapped for the
+// high-contrast set in daylight mode. See chartTheme.ts.
 
 interface Line {
   label: string;
@@ -35,15 +36,12 @@ function LineChart({ x, lines, xLabel, height = 190 }: {
   height?: number;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const { resolvedTheme } = usePrefs();
+  const { resolvedTheme, highContrast } = usePrefs();
 
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const dark = resolvedTheme === 'dark';
-    const axis = dark ? '#8d8b82' : '#7a786f';
-    const grid = dark ? '#2b2a27' : '#e8e6e1';
-    const tick = dark ? '#3b3934' : '#dedcd7';
+    const ink = chartInk(el);
 
     const data: uPlot.AlignedData = [x, ...lines.map((l) => l.values)];
     const opts: uPlot.Options = {
@@ -57,14 +55,14 @@ function LineChart({ x, lines, xLabel, height = 190 }: {
         ...lines.map((l): uPlot.Series => ({
           label: l.label,
           stroke: l.color,
-          width: 2,
+          width: ink.strokeWidth,
           ...(l.dash ? { dash: [6, 4] } : {}),
           value: (_u, v) => (v == null ? '–' : v.toFixed(3)),
         })),
       ],
       axes: [
-        { stroke: axis, grid: { stroke: grid, width: 1 }, ticks: { stroke: tick, width: 1 }, font: '11px system-ui' },
-        { stroke: axis, grid: { stroke: grid, width: 1 }, ticks: { stroke: tick, width: 1 }, font: '11px system-ui', size: 48 },
+        { stroke: ink.axis, grid: { stroke: ink.grid, width: 1 }, ticks: { stroke: ink.tick, width: 1 }, font: ink.font },
+        { stroke: ink.axis, grid: { stroke: ink.grid, width: 1 }, ticks: { stroke: ink.tick, width: 1 }, font: ink.font, size: 48 },
       ],
     };
     const plot = new uPlot(opts, data, el);
@@ -74,7 +72,7 @@ function LineChart({ x, lines, xLabel, height = 190 }: {
       obs.disconnect();
       plot.destroy();
     };
-  }, [x, lines, xLabel, height, resolvedTheme]);
+  }, [x, lines, xLabel, height, resolvedTheme, highContrast]);
 
   return <div ref={ref} />;
 }
@@ -116,6 +114,8 @@ export function DragPanel({ rocket, supersonicModel }: {
   const [open, setOpen] = useState(false);
   const [machMax, setMachMax] = useState(3);
   const [mode, setMode] = useState<BreakdownMode>('component');
+  const { resolvedTheme, highContrast } = usePrefs();
+  const C = seriesPalette(highContrast, resolvedTheme === 'dark');
 
   // High-Mach ranges only make sense with the supersonic model on.
   useEffect(() => {
@@ -148,7 +148,7 @@ export function DragPanel({ rocket, supersonicModel }: {
       color: C[3]!,
       values: sweep.cp.map((v) => (v / length) * 100),
     }];
-  }, [sweep, rocket]);
+  }, [sweep, rocket, C]);
 
   const totalLines = useMemo<Line[]>(() => {
     if (!sweep || 'error' in sweep) return [];
@@ -157,7 +157,7 @@ export function DragPanel({ rocket, supersonicModel }: {
       lines.push({ label: 'CD power-on', color: C[5]!, values: sweep.powerOn.total, dash: true });
     }
     return lines;
-  }, [sweep]);
+  }, [sweep, C]);
 
   const breakdownLines = useMemo<Line[]>(() => {
     if (!sweep || 'error' in sweep) return [];
@@ -169,7 +169,7 @@ export function DragPanel({ rocket, supersonicModel }: {
       ];
     }
     return sweep.components.map((c, i) => ({ label: c.name, color: C[i % C.length]!, values: c.cd }));
-  }, [sweep, mode]);
+  }, [sweep, mode, C]);
 
   return (
     <div className={open ? 'panel' : 'panel panel-dormant'}>

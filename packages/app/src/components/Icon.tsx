@@ -8,7 +8,7 @@ import type { ReactNode } from 'react';
 
 export type IconName =
   | 'rocket' | 'wrench' | 'flame' | 'chart'
-  | 'folder' | 'save' | 'book' | 'sliders' | 'zap';
+  | 'folder' | 'save' | 'book' | 'sliders' | 'zap' | 'sun';
 
 const PATHS: Record<IconName, ReactNode> = {
   rocket: (
@@ -54,6 +54,12 @@ const PATHS: Record<IconName, ReactNode> = {
   ),
   zap: (
     <path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z" />
+  ),
+  sun: (
+    <>
+      <circle cx={12} cy={12} r={4} />
+      <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+    </>
   ),
 };
 

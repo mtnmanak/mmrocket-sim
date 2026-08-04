@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.031';
+export const APP_VERSION = '0.032';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.032',
+    date: '2026-08-04',
+    title: 'Daylight mode: readable in direct sun',
+    items: [
+      'New high-contrast "Daylight" mode for using the app outdoors — one tap on the Daylight button in the header, or Preferences → Display → High contrast.',
+      'It rebuilds the palette rather than just dimming: pure black on white (or white on black if you run the dark theme), doubled borders, bolder small type, and a flat white stage behind the rocket instead of the soft gradient, which is the first thing sunlight washes out.',
+      'The flight plots and drag charts switch to a darker line palette with thicker strokes and black axes, so altitude/velocity/acceleration stay separable on a phone screen at the pad.',
+      'Layers on top of whichever theme you use, and remembers your choice. Left on "Follow system" it turns on automatically when your phone or laptop has increase-contrast enabled.',
+      'Display only — no change to physics, designs, or saved files.',
+    ],
+  },
   {
     version: '0.031',
     date: '2026-08-04',

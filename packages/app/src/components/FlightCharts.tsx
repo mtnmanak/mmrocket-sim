@@ -4,6 +4,7 @@ import 'uplot/dist/uPlot.min.css';
 import type { FlightResult, FlightSeries } from '@online-openrocket/engine';
 import { usePrefs, type Preferences } from '../prefs/PrefsContext.js';
 import { siToUi, type Quantity } from '../prefs/units.js';
+import { chartInk, seriesPalette } from '../chartTheme.js';
 import { UnitChip } from './UnitChip.js';
 
 /**
@@ -17,8 +18,8 @@ import { UnitChip } from './UnitChip.js';
 const SYNC_KEY = 'flight';
 
 // Validated palette slots 1-8, then repeats (single-series panels: identity
-// is text-carried, so repeats are safe).
-const C = ['#2a78d6', '#1baf7a', '#eda100', '#008300', '#4a3aa7', '#e34948', '#e87ba4', '#eb6834'];
+// is text-carried, so repeats are safe). High contrast swaps in a darker /
+// brighter set — see chartTheme.ts.
 
 interface SeriesDef {
   key: keyof FlightSeries;
@@ -32,7 +33,7 @@ interface SeriesDef {
 }
 
 /** Series defs in the user's units — the engine data underneath stays SI. */
-function seriesCatalog(prefs: Preferences): SeriesDef[] {
+function seriesCatalog(prefs: Preferences, C: string[]): SeriesDef[] {
   const u = prefs.units;
   return [
     { key: 'altitude', title: 'Altitude', unit: u.distance, quantity: 'distance', color: C[0]!, f: (v) => siToUi('distance', u.distance, v) },
@@ -53,15 +54,12 @@ const DEFAULT_SELECTED: (keyof FlightSeries)[] = ['altitude', 'velocity', 'accel
 
 function Panel({ result, def }: { result: FlightResult; def: SeriesDef }) {
   const ref = useRef<HTMLDivElement>(null);
-  const { resolvedTheme } = usePrefs();
+  const { resolvedTheme, highContrast } = usePrefs();
 
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const dark = resolvedTheme === 'dark';
-    const axis = dark ? '#8d8b82' : '#7a786f';
-    const grid = dark ? '#2b2a27' : '#e8e6e1';
-    const tick = dark ? '#3b3934' : '#dedcd7';
+    const ink = chartInk(el);
     const raw = result.series[def.key] ?? [];
     const values = def.f ? raw.map((v) => (v == null ? v : def.f!(v))) : raw;
     const data: uPlot.AlignedData = [result.series.time, values];
@@ -79,13 +77,13 @@ function Panel({ result, def }: { result: FlightResult; def: SeriesDef }) {
         {
           label: `${def.title}${def.unit ? ` (${def.unit})` : ''}`,
           stroke: def.color,
-          width: 2,
+          width: ink.strokeWidth,
           value: (_u, v) => (v == null ? '–' : v.toFixed(2)),
         },
       ],
       axes: [
-        { stroke: axis, grid: { stroke: grid, width: 1 }, ticks: { stroke: tick, width: 1 }, font: '11px system-ui' },
-        { stroke: axis, grid: { stroke: grid, width: 1 }, ticks: { stroke: tick, width: 1 }, font: '11px system-ui', size: 56 },
+        { stroke: ink.axis, grid: { stroke: ink.grid, width: 1 }, ticks: { stroke: ink.tick, width: 1 }, font: ink.font },
+        { stroke: ink.axis, grid: { stroke: ink.grid, width: 1 }, ticks: { stroke: ink.tick, width: 1 }, font: ink.font, size: 56 },
       ],
     };
     const plot = new uPlot(opts, data, el);
@@ -95,7 +93,7 @@ function Panel({ result, def }: { result: FlightResult; def: SeriesDef }) {
       obs.disconnect();
       plot.destroy();
     };
-  }, [result, def, resolvedTheme]);
+  }, [result, def, resolvedTheme, highContrast]);
 
   return (
     <div className="chart-panel">
@@ -131,8 +129,11 @@ function exportCsv(result: FlightResult, catalog: SeriesDef[]) {
 }
 
 export function FlightCharts({ result }: { result: FlightResult }) {
-  const { prefs } = usePrefs();
-  const catalog = useMemo(() => seriesCatalog(prefs), [prefs]);
+  const { prefs, resolvedTheme, highContrast } = usePrefs();
+  const catalog = useMemo(
+    () => seriesCatalog(prefs, seriesPalette(highContrast, resolvedTheme === 'dark')),
+    [prefs, highContrast, resolvedTheme],
+  );
   const [selected, setSelected] = useState<Set<keyof FlightSeries>>(new Set(DEFAULT_SELECTED));
 
   const toggle = (key: keyof FlightSeries) => {
