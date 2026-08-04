@@ -1,5 +1,5 @@
 {
   "version": "0.032",
   "released": "2026-08-04",
-  "note": "Daylight mode: a new high-contrast display option for using the app outdoors in bright sun. One tap on the Daylight button in the header (or Preferences - Display - High contrast) switches to a black-on-white palette with heavier borders, bolder small type, and darker, thicker chart lines. It layers on top of whichever theme you use, and follows your device's increase-contrast setting if you leave it on Follow system. Display only - physics and designs untouched."
+  "note": "Daylight mode: a new display option for using the app outdoors in bright sun. One tap on the Daylight button in the header (or Preferences - Display - Daylight mode) switches to black on white at maximum contrast, with heavier borders, bolder small type, and darker, thicker chart lines. It overrides your theme while it is on; switch it off and your theme comes back. Display only - physics and designs untouched."
 }

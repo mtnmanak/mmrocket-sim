@@ -101,7 +101,7 @@ function labelWithDelay(label: string, delay: number | 'auto'): string {
 }
 
 export function App() {
-  const { prefs, setPrefs, resolvedTheme, highContrast } = usePrefs();
+  const { prefs, setPrefs, resolvedTheme, daylight } = usePrefs();
   const [showPrefs, setShowPrefs] = useState(false);
   // Restore the previous session (autosaved on every change) if one exists.
   // normalizeTree wraps pre-v0.009 flat trees in one stage. Lazy useState:
@@ -615,7 +615,7 @@ export function App() {
   }, [pendingRelaunch, built, primaryMountId]);
 
   return (
-    <div className="viz-root" data-theme={resolvedTheme} data-contrast={highContrast ? 'high' : undefined}>
+    <div className="viz-root" data-theme={resolvedTheme} data-contrast={daylight ? 'high' : undefined}>
       <nav className="site-nav" aria-label="Mountain Man Rockets site menu">
         {SITE_MENU.map((item) => (
           <a key={item.url} href={item.url} target="_top">{item.label}</a>
@@ -671,14 +671,14 @@ export function App() {
             <Icon name="book" /> Guide
           </button>
           {/* One tap, no menus: the field toggle for reading the screen in
-              direct sun. Also mirrored in Preferences (Display → High contrast). */}
+              direct sun. Also mirrored in Preferences (Display → Daylight). */}
           <button
-            className={`file-btn hc-toggle${highContrast ? ' hc-on' : ''}`}
-            aria-pressed={highContrast}
-            onClick={() => setPrefs({ ...prefs, highContrast: !highContrast })}
-            title={highContrast
-              ? 'Daylight mode is ON — maximum contrast for bright sunlight. Click to turn it off.'
-              : 'Daylight mode — maximum contrast for reading the screen in bright sunlight'}
+            className={`file-btn hc-toggle${daylight ? ' hc-on' : ''}`}
+            aria-pressed={daylight}
+            onClick={() => setPrefs({ ...prefs, daylight: !daylight })}
+            title={daylight
+              ? 'Daylight mode is ON — black on white at maximum contrast. Click to go back to your theme.'
+              : 'Daylight mode — black on white at maximum contrast, for reading the screen in bright sunlight'}
           >
             <Icon name="sun" /> Daylight
           </button>

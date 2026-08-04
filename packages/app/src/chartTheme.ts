@@ -15,16 +15,16 @@
 /** Validated categorical palette (the default, both light and dark). */
 export const SERIES = ['#2a78d6', '#1baf7a', '#eda100', '#008300', '#4a3aa7', '#e34948', '#e87ba4', '#eb6834'];
 
-/** High contrast on white: blue, teal, amber, red, purple, olive, magenta, cyan. */
-export const SERIES_HC_LIGHT = ['#0b4ea2', '#00665c', '#8a5000', '#b00016', '#5b2d8e', '#3d5200', '#9c0069', '#005066'];
+/**
+ * Daylight palette: blue, teal, amber, red, purple, olive, magenta, cyan —
+ * every one dark enough to hold its own against the white page daylight mode
+ * forces. There is no dark variant, because daylight mode has no dark variant.
+ */
+export const SERIES_DAYLIGHT = ['#0b4ea2', '#00665c', '#8a5000', '#b00016', '#5b2d8e', '#3d5200', '#9c0069', '#005066'];
 
-/** High contrast on black: the same hue order, lifted for a dark surface. */
-export const SERIES_HC_DARK = ['#6ab7ff', '#3fe0b0', '#ffc046', '#ff8a86', '#c79bff', '#b6e04a', '#ff8ad1', '#57e0e0'];
-
-/** The palette to draw with for the current theme + contrast mode. */
-export function seriesPalette(highContrast: boolean, dark: boolean): string[] {
-  if (!highContrast) return SERIES;
-  return dark ? SERIES_HC_DARK : SERIES_HC_LIGHT;
+/** The palette to draw with. Daylight overrides the theme, so it's the only input. */
+export function seriesPalette(daylight: boolean): string[] {
+  return daylight ? SERIES_DAYLIGHT : SERIES;
 }
 
 export interface ChartInk {

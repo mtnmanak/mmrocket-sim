@@ -54,7 +54,7 @@ const DEFAULT_SELECTED: (keyof FlightSeries)[] = ['altitude', 'velocity', 'accel
 
 function Panel({ result, def }: { result: FlightResult; def: SeriesDef }) {
   const ref = useRef<HTMLDivElement>(null);
-  const { resolvedTheme, highContrast } = usePrefs();
+  const { resolvedTheme, daylight } = usePrefs();
 
   useEffect(() => {
     const el = ref.current;
@@ -93,7 +93,7 @@ function Panel({ result, def }: { result: FlightResult; def: SeriesDef }) {
       obs.disconnect();
       plot.destroy();
     };
-  }, [result, def, resolvedTheme, highContrast]);
+  }, [result, def, resolvedTheme, daylight]);
 
   return (
     <div className="chart-panel">
@@ -129,10 +129,10 @@ function exportCsv(result: FlightResult, catalog: SeriesDef[]) {
 }
 
 export function FlightCharts({ result }: { result: FlightResult }) {
-  const { prefs, resolvedTheme, highContrast } = usePrefs();
+  const { prefs, daylight } = usePrefs();
   const catalog = useMemo(
-    () => seriesCatalog(prefs, seriesPalette(highContrast, resolvedTheme === 'dark')),
-    [prefs, highContrast, resolvedTheme],
+    () => seriesCatalog(prefs, seriesPalette(daylight)),
+    [prefs, daylight],
   );
   const [selected, setSelected] = useState<Set<keyof FlightSeries>>(new Set(DEFAULT_SELECTED));
 

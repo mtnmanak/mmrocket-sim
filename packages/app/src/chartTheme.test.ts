@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SERIES, SERIES_HC_DARK, SERIES_HC_LIGHT, seriesPalette } from './chartTheme.js';
+import { SERIES, SERIES_DAYLIGHT, seriesPalette } from './chartTheme.js';
 
 /** WCAG relative luminance of a #rrggbb color. */
 function luminance(hex: string): number {
@@ -17,28 +17,23 @@ function contrast(a: string, b: string): number {
 
 describe('chart palettes', () => {
   it('keeps the slot count aligned across palettes', () => {
-    expect(SERIES_HC_LIGHT).toHaveLength(SERIES.length);
-    expect(SERIES_HC_DARK).toHaveLength(SERIES.length);
+    expect(SERIES_DAYLIGHT).toHaveLength(SERIES.length);
   });
 
   // The whole point of daylight mode: every plotted line has to stay readable
   // on a phone in direct sun. 4.5:1 is the WCAG AA text threshold — a chart
-  // line is thinner than text, so treat it as the floor, not the target.
-  it('daylight hues clear 4.5:1 against their surface', () => {
-    for (const c of SERIES_HC_LIGHT) expect(contrast(c, '#ffffff')).toBeGreaterThanOrEqual(4.5);
-    for (const c of SERIES_HC_DARK) expect(contrast(c, '#000000')).toBeGreaterThanOrEqual(4.5);
+  // line is thinner than text, so treat it as the floor, not the target. The
+  // surface is always white; daylight mode forces the light palette.
+  it('daylight hues clear 4.5:1 against the white page', () => {
+    for (const c of SERIES_DAYLIGHT) expect(contrast(c, '#ffffff')).toBeGreaterThanOrEqual(4.5);
   });
 
   it('daylight hues stay distinguishable from each other', () => {
-    for (const palette of [SERIES_HC_LIGHT, SERIES_HC_DARK]) {
-      expect(new Set(palette).size).toBe(palette.length);
-    }
+    expect(new Set(SERIES_DAYLIGHT).size).toBe(SERIES_DAYLIGHT.length);
   });
 
-  it('picks the palette from contrast mode and theme', () => {
-    expect(seriesPalette(false, false)).toBe(SERIES);
-    expect(seriesPalette(false, true)).toBe(SERIES);
-    expect(seriesPalette(true, false)).toBe(SERIES_HC_LIGHT);
-    expect(seriesPalette(true, true)).toBe(SERIES_HC_DARK);
+  it('picks the palette from daylight mode alone', () => {
+    expect(seriesPalette(false)).toBe(SERIES);
+    expect(seriesPalette(true)).toBe(SERIES_DAYLIGHT);
   });
 });

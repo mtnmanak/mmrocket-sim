@@ -74,27 +74,23 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
             </select>
           </div>
           <div className="field">
-            <label>High contrast (daylight)</label>
+            <label>Daylight mode</label>
             <select
-              value={prefs.highContrast === undefined ? 'system' : prefs.highContrast ? 'on' : 'off'}
-              onChange={(e) => setPrefs({
-                ...prefs,
-                highContrast: e.target.value === 'system' ? undefined : e.target.value === 'on',
-              })}
+              value={prefs.daylight ? 'on' : 'off'}
+              onChange={(e) => setPrefs({ ...prefs, daylight: e.target.value === 'on' })}
             >
               <option value="off">Off</option>
               <option value="on">On — bright sunlight</option>
-              <option value="system">Follow system</option>
             </select>
           </div>
         </div>
         <p className="prefs-hint">
-          <strong>High contrast</strong> is the launch-site mode: pure black-on-white (or
-          white-on-black in the dark theme), heavier borders, bolder small type, and darker
-          chart lines so a phone screen stays readable in direct sun. It layers on top of
-          whichever theme you picked — the <strong>Daylight</strong> button in the header is
-          the same switch. &ldquo;Follow system&rdquo; tracks your device&rsquo;s
-          increase-contrast accessibility setting.
+          <strong>Daylight</strong> is the launch-site mode: black on white at maximum
+          contrast, with heavier borders, bolder small type, and darker, thicker chart lines,
+          so a phone screen stays readable in direct sun. It <strong>overrides the theme
+          above</strong> while it&rsquo;s on — a high-contrast <em>dark</em> screen is the
+          right answer indoors and the wrong one on the field. Turning it off puts your theme
+          back. The <strong>Daylight</strong> button in the header is the same switch.
         </p>
 
         <h3 className="prefs-section">Aerodynamics</h3>

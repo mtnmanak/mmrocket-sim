@@ -36,7 +36,7 @@ function LineChart({ x, lines, xLabel, height = 190 }: {
   height?: number;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const { resolvedTheme, highContrast } = usePrefs();
+  const { resolvedTheme, daylight } = usePrefs();
 
   useEffect(() => {
     const el = ref.current;
@@ -72,7 +72,7 @@ function LineChart({ x, lines, xLabel, height = 190 }: {
       obs.disconnect();
       plot.destroy();
     };
-  }, [x, lines, xLabel, height, resolvedTheme, highContrast]);
+  }, [x, lines, xLabel, height, resolvedTheme, daylight]);
 
   return <div ref={ref} />;
 }
@@ -114,8 +114,8 @@ export function DragPanel({ rocket, supersonicModel }: {
   const [open, setOpen] = useState(false);
   const [machMax, setMachMax] = useState(3);
   const [mode, setMode] = useState<BreakdownMode>('component');
-  const { resolvedTheme, highContrast } = usePrefs();
-  const C = seriesPalette(highContrast, resolvedTheme === 'dark');
+  const { daylight } = usePrefs();
+  const C = seriesPalette(daylight);
 
   // High-Mach ranges only make sense with the supersonic model on.
   useEffect(() => {

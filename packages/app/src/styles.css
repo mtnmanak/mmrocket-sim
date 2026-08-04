@@ -1675,20 +1675,27 @@ select.unit-chip:hover {
 }
 
 /* ===================================================================
-   DAYLIGHT MODE — high contrast for reading the screen in direct sun
-   (Preferences → Display → High contrast, or the header Daylight button;
-   also auto-on for `prefers-contrast: more`).
+   DAYLIGHT MODE — dark ink on white, for reading the screen in direct sun
+   (the header Daylight button, or Preferences → Display).
 
-   Layers on top of either theme: `data-contrast='high'` with the existing
-   `data-theme`. Everything here must stay at the END of this file — the
-   sheet is one flat cascade, so equal-specificity rules are decided by
-   source order.
+   `data-contrast='high'` OVERRIDES the theme rather than layering on it:
+   in sunlight the polarity is the whole point — a phone can't emit its way
+   past the sun, so the screen has to be mostly white and the ink has to be
+   black. High-contrast dark (white on black) is the right answer indoors
+   and the wrong one on the field, and the app's default theme is dark, so
+   "add contrast to whatever theme you're on" would hand most users exactly
+   the wrong thing. Turning Daylight off returns to the chosen theme
+   untouched — `data-theme` is still there, just outvoted.
+
+   These rules must stay at the END of this file: the sheet is one flat
+   cascade, and every override below ties the theme rules on specificity
+   (both are one class + one attribute), so source order is what decides.
 
    The principle is luminance, not decoration: push text to the extremes of
    the range, replace fills with borders, thicken every hairline, and drop
    the soft-focus effects (low opacity, gradients, shadows) that a sunlit
    screen turns into mud. Contrast targets: body text >= 12:1, every chart
-   hue and control edge >= 4.5:1 against its surface.
+   hue and control edge >= 4.5:1 against white.
    =================================================================== */
 
 .viz-root[data-contrast='high'] {
@@ -1715,30 +1722,6 @@ select.unit-chip:hover {
   --chart-series-width: 3;
   --chart-axis-font: 600 12px system-ui;
   color-scheme: light;
-}
-
-.viz-root[data-contrast='high'][data-theme='dark'] {
-  --surface-1: #000000;
-  --surface-2: #000000;
-  --text-primary: #ffffff;
-  --text-secondary: #f2f2f2;
-  --text-muted: #d6d6d6;
-  --series-1: #6ab7ff;
-  --series-2: #3fe0b0;
-  --series-3: #ffc046;
-  --status-good: #4ce64c;
-  --status-serious: #ff8a86;
-  --border: #e8e8e8;
-  --hover: #3a3a3a;
-  --selected: #00459b;
-  --note-bg: #2a2400;
-  --note-border: #e8e8e8;
-  --accent: #ffa257;
-  --launch: #c2410c;
-  --chart-axis: #ffffff;
-  --chart-grid: #5e5e5e;
-  --chart-tick: #ffffff;
-  color-scheme: dark;
 }
 
 /* Every hairline doubles: at arm's length in sun, a 1px #dedcd7 edge is gone. */
