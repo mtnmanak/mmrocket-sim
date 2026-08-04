@@ -394,6 +394,18 @@ final class ComponentFactory {
         if (finish != null && c instanceof ExternalComponent) {
             ((ExternalComponent) c).setFinish(finishOf(finish));
         }
+        // RASAero feature #4: fin airfoil cross-sections + LE bluntness radius.
+        // Absent keys keep the classic 3-value crossSection behavior.
+        if (c instanceof FinSet) {
+            FinSet fs = (FinSet) c;
+            String section = str(node, "airfoilSection", null);
+            if (section != null) {
+                fs.setAirfoilSection(section.toLowerCase());
+            }
+            fs.setAirfoilLeDiamond(dbl(node, "airfoilLeDiamond", 0));
+            fs.setAirfoilTeDiamond(dbl(node, "airfoilTeDiamond", 0));
+            fs.setFinLeRadius(dbl(node, "finLeRadius", 0));
+        }
         // Mass / CG / CD overrides — absent key means "not overridden".
         double overrideMass = dbl(node, "overrideMass", Double.NaN);
         if (!Double.isNaN(overrideMass)) {

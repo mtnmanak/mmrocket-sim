@@ -235,6 +235,53 @@ describe('OrkRocket (real OpenRocket kernel via TeaVM)', () => {
     expect(offAgain.cna).toEqual(off.cna);
   });
 
+  it('fin airfoil sections: blunt-base wedge adds fin base drag, sharp sections do not', () => {
+    const mk = (finExtra: Record<string, unknown>) => OrkRocket.buildTree({
+      components: [
+        { type: 'nosecone', shape: 'conical', length: 0.085, aftRadius: 0.015, thickness: 0.0015 },
+        {
+          type: 'bodytube', length: 0.215, outerRadius: 0.015, thickness: 0.0015,
+          children: [
+            {
+              type: 'trapezoidfinset', finCount: 4, rootChord: 0.03, tipChord: 0.03,
+              sweep: 0, height: 0.03, thickness: 0.0024,
+              position: { method: 'bottom' as const, offset: 0 }, ...finExtra,
+            },
+          ],
+        },
+      ],
+    });
+    const at = (s: { machs: number[] }, m: number) =>
+      s.machs.findIndex((x) => Math.abs(x - m) < 1e-9);
+    const opts = { machMin: 0.5, machMax: 2.5, machStep: 0.5 };
+
+    const classic = mk({}).dragSweep(opts);
+    const wedge = mk({ airfoilSection: 'singlewedge' }).dragSweep(opts);
+    const biconvex = mk({ airfoilSection: 'biconvex' }).dragSweep(opts);
+
+    // Subsonic there is no wave drag, so the wedge's blunt-TE fin base drag is
+    // the only pressure difference vs the sharp biconvex.
+    expect(wedge.powerOff.pressure[at(wedge, 0.5)]!)
+      .toBeGreaterThan(biconvex.powerOff.pressure[at(biconvex, 0.5)]!);
+    // Subsonic (no wave terms): the blunt-base hexagonal carries fin base drag
+    // the sharp hexagonal doesn't.
+    const hex = mk({ airfoilSection: 'hexagonal' }).dragSweep(opts);
+    const hexBase = mk({ airfoilSection: 'hexbluntbase' }).dragSweep(opts);
+    expect(hexBase.powerOff.pressure[at(hexBase, 0.5)]!)
+      .toBeGreaterThan(hex.powerOff.pressure[at(hex, 0.5)]!);
+    // Supersonic wave ordering: hexagonal (1/3 chamfers, factor 6) exceeds
+    // biconvex (16/3) for the same thickness.
+    expect(hex.powerOff.pressure[at(hex, 2.0)]!)
+      .toBeGreaterThan(biconvex.powerOff.pressure[at(biconvex, 2.0)]!);
+    // Sections only touch pressure drag: friction and CP stay classic.
+    expect(wedge.powerOff.friction).toEqual(classic.powerOff.friction);
+    expect(wedge.cp).toEqual(classic.cp);
+    // An explicit LE radius adds bluntness drag to a hexagonal section.
+    const hexBlunt = mk({ airfoilSection: 'hexagonal', finLeRadius: 0.0005 }).dragSweep(opts);
+    expect(hexBlunt.powerOff.pressure[at(hexBlunt, 2.0)]!)
+      .toBeGreaterThan(hex.powerOff.pressure[at(hex, 2.0)]!);
+  });
+
   it('applies fin tabs: mass increases and componentInfo reports it', () => {
     const base = {
       components: [

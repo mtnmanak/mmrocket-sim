@@ -211,6 +211,39 @@ docs/research/validation-anchors-2026-08-03.md and the spec doc areas 6/7. Files
   Finner Cx0 low ~0.05–0.13 pending its wedge fins' blunt-TE base drag (feature #4
   airfoils); HB-2 flare/bluntness unchanged (hypersonic phase).
 
+### RASAero feature #4 (build Phase 3) — fin airfoil cross-sections + LE radius
+
+RASAero's 8 fin sections vs the kernel's 3 (square/rounded/airfoil). Input-gated like
+feature #2 (no flag): absent inputs ⇒ bit-identical classic behavior. Files:
+
+- **rocketcomponent/FinSet.java** (NEW patch — additive only): properties
+  `airfoilSection` (null | "hexagonal" | "naca" | "doublewedge" | "biconvex" |
+  "hexbluntbase" | "singlewedge"), `airfoilLeDiamond` / `airfoilTeDiamond` (m,
+  chordwise chamfer lengths at mid-span), `finLeRadius` (m); accessors fire
+  AERODYNAMIC_CHANGE. RASAero's "Rounded"/"Square" sections stay the classic
+  CrossSection values.
+- **aerodynamics/barrowman/FinSetCalc.java** (extends existing patch):
+  `sectionPressureCD` — per-shape linearized thickness wave drag (DATCOM 4.1.5.1 /
+  Hoerner): hexagonal τ²/β(1/a1+1/a2); naca & biconvex (16/3)τ²/β (naca adds the
+  implicit nose radius 1.1019·τ²·c as LE bluntness); doublewedge τ²/(β·m(1−m));
+  hexbluntbase τ²/(β·a1) + base; singlewedge τ²/β + base. Wave blends in over
+  M0.9–1.2, swept by cos²Γ_LE, referenced to planform. Blunt-base sections carry
+  fin base drag baseCD·τ at all Mach (RASAero's "Fin Base" component). Optional LE
+  radius adds the kernel's swept-cylinder Mach fit on its 2r frontal height.
+  Sections do not alter CNα/CP (thickness is drag-only in linear theory).
+- Bridge: ComponentFactory parses the four inputs on any FinSet type.
+- **Goldens:** `finsection.wedge` / `finsection.hexle` lines (differential 256 → 258).
+- **Scored result:** 68 → 65/137 — an HONEST decrease: Basic Finner's fixture now
+  uses its true `singlewedge` section, and the correct wedge thickness term (τ²/β)
+  is smaller than the biconvex placeholder (16/3·τ²/β) that had been accidentally
+  masking a remaining systematic deficit. Finner Cx0 now reads −0.04 (M4) to −0.13
+  (M1.8) below free-flight across the board — suspected free-flight base-drag
+  environment (base pressure behind a FINNED body runs below the clean-cylinder
+  Hoerner law) + the transonic band; flagged for the refinement phase (candidates:
+  McCoy/BRL base-pressure correlation, NACA RM A53D02 digitization). ARCAS keeps
+  its biconvex-class 'airfoil' (its rounded-LE double wedge is well-approximated
+  and all its CD/CP series stay green).
+
 ## Rules
 
 1. A patch NEVER changes physics or observable behavior (except documented quirks-ledger

@@ -21,6 +21,15 @@ node validation/score.mjs --strict           # exit 1 unless every gate point pa
 | Classic Extended Barrowman | **8/137 (5.8%)** | `baseline-classic-2026-08-04.md` |
 | + Phase 1 (supersonic CP/CNα) | **52/137 (38.0%)** | `scorecard-phase1-2026-08-04.md` |
 | + Phase 2 (drag fidelity) | **68/137 (49.6%)** | `scorecard-phase2-2026-08-04.md` |
+| + Phase 3 (fin airfoil sections) | **65/137 (47.4%)** | `scorecard-phase3-2026-08-04.md` |
+
+Phase 3's score DECREASE is deliberate honesty: Finner's fixture switched from
+the biconvex placeholder to its true `singlewedge` section, and the correct
+(smaller) wedge thickness term unmasked a systematic Finner Cx0 deficit
+(−0.04…−0.13) that the placeholder had been accidentally covering. Suspected
+free-flight base-drag environment (base pressure behind a finned body runs
+below the clean-cylinder Hoerner law); flagged for the refinement phase. All
+ARCAS and CP series unchanged.
 
 Phase 2 (same flag): sharp-airfoil fins lose the spurious blunt-LE drag plateau
 and get thin-airfoil wave drag; boattails get supersonic wave drag; nose wave

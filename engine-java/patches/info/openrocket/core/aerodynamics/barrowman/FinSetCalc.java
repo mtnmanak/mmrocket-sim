@@ -53,6 +53,18 @@ public class FinSetCalc extends RocketComponentCalc {
 	private final FinSet.CrossSection crossSection;
 
 	/**
+	 * PATCH (RASAero feature #4, see engine-java/patches/LEDGER.md): fin airfoil
+	 * cross-sections. Non-null overrides the classic 3-value CrossSection for
+	 * pressure drag with per-shape linearized/Busemann thickness wave drag,
+	 * blunt-base terms, and optional LE-radius bluntness drag. Input-gated:
+	 * absent (null) ⇒ bit-identical classic behavior, no flag needed.
+	 */
+	private final String airfoilSection;
+	private final double airfoilLeDiamond;
+	private final double airfoilTeDiamond;
+	private final double finLeRadius;
+
+	/**
 	 * PATCH (RASAero feature #3, see engine-java/patches/LEDGER.md): opt-in
 	 * "Rogers Modified Barrowman" body-in-presence-of-fins interference (Kbf).
 	 * Default false ⇒ CP/CNα bit-identical to classic Barrowman.
@@ -112,6 +124,10 @@ public class FinSetCalc extends RocketComponentCalc {
 		this.span = component.getSpan();
 		this.finArea = component.getPlanformArea();
 		this.crossSection = component.getCrossSection();
+		this.airfoilSection = component.getAirfoilSection(); // PATCH (feature #4)
+		this.airfoilLeDiamond = component.getAirfoilLeDiamond();
+		this.airfoilTeDiamond = component.getAirfoilTeDiamond();
+		this.finLeRadius = component.getFinLeRadius();
 		
 		calculateFinGeometry(component);
 		calculatePoly();
@@ -803,6 +819,12 @@ public class FinSetCalc extends RocketComponentCalc {
 		double mach = conditions.getMach();
 		double cd = 0;
 
+		// PATCH (feature #4): RASAero-class airfoil sections — per-shape
+		// linearized/Busemann thickness wave drag + blunt-base + LE bluntness.
+		if (airfoilSection != null) {
+			return sectionPressureCD(conditions, baseCD);
+		}
+
 		// PATCH (feature #1 Phase 2): a sharp streamlined (AIRFOIL) section has
 		// no blunt leading edge — the classic model charges it the swept-cylinder
 		// LE drag plateau (~1.2 on the LE frontal area), which neither decays
@@ -865,6 +887,108 @@ public class FinSetCalc extends RocketComponentCalc {
 		return cd;
 	}
 	
+	/**
+	 * PATCH (RASAero feature #4): pressure drag for the RASAero airfoil
+	 * sections. Linearized supersonic thin-airfoil thickness terms (DATCOM
+	 * 4.1.5.1 / Hoerner lineage), referenced to fin planform area:
+	 *
+	 *   hexagonal:     tau^2/beta * (1/a1 + 1/a2)     (chamfer fractions a1, a2)
+	 *   naca:          (16/3) tau^2/beta  + implicit LE radius 1.1019 tau^2 c
+	 *   doublewedge:   tau^2 / (beta * m (1-m)),  m = LE diamond fraction
+	 *   biconvex:      (16/3) tau^2/beta
+	 *   hexbluntbase:  tau^2/beta * (1/a1)  + base
+	 *   singlewedge:   tau^2/beta           + base
+	 *
+	 * Wave terms blend in over M0.9-1.2 (zero subsonic — profile drag lives in
+	 * the friction form factor) and are swept by cos^2(GammaLead). Blunt-base
+	 * sections carry fin base drag baseCD*tau at ALL Mach (RASAero's "Fin
+	 * Base" component). An explicit LE radius adds swept-cylinder bluntness
+	 * drag on its 2r frontal height (the kernel's rounded-LE Mach fit).
+	 */
+	private double sectionPressureCD(FlightConditions conditions, double baseCD) {
+		double mach = conditions.getMach();
+		double tau = (macLength > MathUtil.EPSILON) ? thickness / macLength : 0;
+
+		// chamfer/diamond fractions of chord; RASAero-style defaults when the
+		// user leaves the lengths unset: symmetric (0.5) diamond, 1/3 chamfers.
+		double a1 = (airfoilLeDiamond > 0 && macLength > MathUtil.EPSILON)
+				? MathUtil.clamp(airfoilLeDiamond / macLength, 0.05, 0.95) : Double.NaN;
+		double a2 = (airfoilTeDiamond > 0 && macLength > MathUtil.EPSILON)
+				? MathUtil.clamp(airfoilTeDiamond / macLength, 0.05, 0.95) : Double.NaN;
+
+		double thicknessFactor; // cd_wave = thicknessFactor * tau^2 / beta
+		double baseFrac = 0;    // blunt-base height as a fraction of thickness
+		double leR = finLeRadius;
+
+		switch (airfoilSection) {
+			case "hexagonal": {
+				double f1 = Double.isNaN(a1) ? 1.0 / 3.0 : a1;
+				double f2 = Double.isNaN(a2) ? 1.0 / 3.0 : a2;
+				thicknessFactor = 1 / f1 + 1 / f2;
+				break;
+			}
+			case "naca":
+				thicknessFactor = 16.0 / 3.0;
+				leR = 1.1019 * tau * tau * macLength; // implicit NACA nose radius
+				break;
+			case "doublewedge": {
+				double m = Double.isNaN(a1) ? 0.5 : MathUtil.clamp(a1, 0.1, 0.9);
+				thicknessFactor = 1 / (m * (1 - m));
+				break;
+			}
+			case "biconvex":
+				thicknessFactor = 16.0 / 3.0;
+				break;
+			case "hexbluntbase": {
+				double f1 = Double.isNaN(a1) ? 1.0 / 3.0 : a1;
+				thicknessFactor = 1 / f1;
+				baseFrac = 1;
+				break;
+			}
+			case "singlewedge":
+				thicknessFactor = 1;
+				baseFrac = 1;
+				break;
+			default:
+				throw new UnsupportedOperationException(
+						"Unknown fin airfoil section: " + airfoilSection);
+		}
+
+		// Supersonic thickness wave drag, blended in over M0.9-1.2.
+		double wave = 0;
+		if (mach > 0.9 && tau > 0) {
+			double beta12 = MathUtil.safeSqrt(1.2 * 1.2 - 1);
+			double wave12 = thicknessFactor * tau * tau / beta12;
+			if (mach >= 1.2) {
+				double beta = MathUtil.safeSqrt(mach * mach - 1);
+				wave = thicknessFactor * tau * tau / beta;
+			} else {
+				wave = wave12 * (mach - 0.9) / 0.3;
+			}
+		}
+		wave *= pow2(cosGammaLead);
+
+		// Blunt trailing edge: fin base drag on the base frontal height.
+		double base = baseFrac * baseCD * tau;
+
+		// Blunt leading edge: swept-cylinder drag on the 2r frontal height
+		// (kernel rounded-LE Mach fit), force reduced by sweep.
+		double le = 0;
+		if (leR > 0 && macLength > MathUtil.EPSILON) {
+			double cdLE;
+			if (mach < 0.9) {
+				cdLE = Math.pow(1 - pow2(mach), -0.417) - 1;
+			} else if (mach < 1) {
+				cdLE = 1 - 1.785 * (mach - 0.9);
+			} else {
+				cdLE = 1.214 - 0.502 / pow2(mach) + 0.1095 / pow2(pow2(mach));
+			}
+			le = cdLE * pow2(cosGammaLead) * (2 * leR / macLength);
+		}
+
+		return (wave + base + le) * finArea / conditions.getRefArea();
+	}
+
 	private void calculateInterferenceFinCount(FinSet component) {
 		RocketComponent parent = component.getParent();
 		if (parent == null) {

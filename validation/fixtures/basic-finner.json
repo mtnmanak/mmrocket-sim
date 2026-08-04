@@ -3,7 +3,7 @@
   "_notes": [
     "Geometry from docs/research/validation-anchors-2026-08-03.md section 4.2. d = 30.00 mm, total 10.0 cal.",
     "Nose: 10 deg half-angle sharp cone, length 2.836 cal (meplat 0.004 cal ignored).",
-    "Fins: 4 rectangular, 1.0 x 1.0 cal, flush with base. Section is a sharp-LE wedge thickening to 0.08 cal at the TE; closest kernel cross-section is 'airfoil' - the wedge's blunt-TE fin base drag is NOT modeled until feature #4 airfoils, so expect a modest Cx0 underprediction.",
+    "Fins: 4 rectangular, 1.0 x 1.0 cal, flush with base. Section: sharp-LE single wedge thickening to 0.08 cal at the blunt TE - modeled exactly with the feature-#4 'singlewedge' airfoil section (thickness wave tau^2/beta + fin base drag; the 0.004-cal LE radius is essentially sharp, left 0).",
     "Finish: polished (machined steel free-flight model).",
     "Anchor Cx0 includes base drag at flight Re (free-flight data)."
   ],
@@ -14,7 +14,7 @@
       "children": [
         {
           "type": "trapezoidfinset", "finish": "polished", "finCount": 4, "rootChord": 0.030, "tipChord": 0.030,
-          "sweep": 0, "height": 0.030, "thickness": 0.0024, "crossSection": "airfoil",
+          "sweep": 0, "height": 0.030, "thickness": 0.0024, "crossSection": "airfoil", "airfoilSection": "singlewedge",
           "position": { "method": "bottom", "offset": 0 }
         }
       ]

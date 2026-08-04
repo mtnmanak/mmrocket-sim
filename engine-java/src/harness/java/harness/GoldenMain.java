@@ -89,6 +89,39 @@ public final class GoldenMain {
             line("ssaerocd." + mach, fOn.getCD(), fOn.getFrictionCD(),
                     fOn.getPressureCD(), fOn.getBaseCD());
         }
+
+        airfoilSectionScenarios();
+    }
+
+    /**
+     * RASAero feature #4: fin airfoil cross-sections. Input-gated (no flag):
+     * a single-wedge section (thickness wave + fin base drag) and a hexagonal
+     * section with an explicit LE radius, locked at subsonic/supersonic Mach.
+     * The same tree WITHOUT airfoilSection is covered by existing goldens
+     * (absent input = bit-identical classic).
+     */
+    private static void airfoilSectionScenarios() {
+        String base = "{\"components\":[{\"type\":\"stage\",\"name\":\"S\",\"children\":["
+                + "{\"type\":\"nosecone\",\"shape\":\"conical\",\"length\":0.085,\"aftRadius\":0.015,\"thickness\":0.0015},"
+                + "{\"type\":\"bodytube\",\"length\":0.215,\"outerRadius\":0.015,\"thickness\":0.0015,\"children\":["
+                + "  {\"type\":\"trapezoidfinset\",\"finCount\":4,\"rootChord\":0.03,\"tipChord\":0.03,\"sweep\":0,\"height\":0.03,\"thickness\":0.0024,%FIN%"
+                + "\"position\":{\"method\":\"bottom\",\"offset\":0}}"
+                + "]}]}]}";
+        String[][] variants = {
+                { "wedge", "\"airfoilSection\":\"singlewedge\"," },
+                { "hexle", "\"airfoilSection\":\"hexagonal\",\"airfoilLeDiamond\":0.008,\"airfoilTeDiamond\":0.008,\"finLeRadius\":0.0004," },
+        };
+        for (String[] v : variants) {
+            int r = api.OrkEngine.buildRocket(base.replace("%FIN%", v[1]));
+            String sweep = api.OrkEngine.getDragSweep(r, "{\"machMin\":0.5,\"machMax\":3.5,\"machStep\":1.0}");
+            java.util.Map<String, Object> parsed = api.JsonLite.parseObject(sweep);
+            java.util.Map<String, Object> off = asMap(parsed.get("powerOff"));
+            java.util.List<?> total = (java.util.List<?>) off.get("total");
+            java.util.List<?> press = (java.util.List<?>) off.get("pressure");
+            line("finsection." + v[0],
+                    ((Number) total.get(0)).doubleValue(), ((Number) press.get(0)).doubleValue(),
+                    ((Number) total.get(2)).doubleValue(), ((Number) press.get(2)).doubleValue());
+        }
     }
 
     /**
