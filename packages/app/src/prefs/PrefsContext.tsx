@@ -18,8 +18,16 @@ export interface Preferences {
    * classic Barrowman drops — a slightly more aft, more conservative CP.
    */
   rogersKbf?: boolean;
-  /** Opt-in RASAero-class supersonic aerodynamics (feature #1). Default off. */
+  /** Legacy boolean (v0.025) — migrated into aeroModel on load. */
   supersonicAero?: boolean;
+  /**
+   * Which aerodynamics model to use (feature #1):
+   * - 'classic' (default): Extended Barrowman, bit-identical to the desktop.
+   * - 'supersonic': the RASAero-class model at all speeds.
+   * - 'auto': fly classic; if the flight is projected past Mach 0.9
+   *   (transonic onset), re-fly the WHOLE flight on the supersonic model.
+   */
+  aeroModel?: 'classic' | 'supersonic' | 'auto';
   /**
    * True once the user picks a theme themselves. Stored themes without this
    * flag were incidental snapshots of an old default and yield to the current
@@ -42,6 +50,8 @@ function load(): Preferences {
     if (!raw) return DEFAULT_PREFS;
     const parsed = JSON.parse(raw) as Partial<Preferences>;
     if (!parsed.themeExplicit) delete parsed.theme;
+    // v0.025 stored a boolean; migrate it into the three-way aeroModel.
+    if (!parsed.aeroModel && parsed.supersonicAero) parsed.aeroModel = 'supersonic';
     return {
       ...DEFAULT_PREFS,
       ...parsed,

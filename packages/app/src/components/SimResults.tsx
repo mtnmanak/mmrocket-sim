@@ -176,6 +176,8 @@ export function SimRunDetails({ run }: { run: SimRun }) {
               <Row label="Total flight time" value={s(run.totalFlightTime, 1)} unit="s" />
               <Row label="Aero model" value={run.aeroModel === 'supersonic'
                 ? 'Supersonic (RASAero-class)'
+                : run.aeroModel === 'auto-supersonic'
+                ? `Supersonic (auto — flight exceeded Mach 0.9)`
                 : run.aeroModel === 'classic' ? 'Classic (Extended Barrowman)' : '—'} />
               <Row label="Execution time" value={`${Math.round(run.execMs)} ms`} />
             </tbody>

@@ -9,7 +9,7 @@
  * push.
  */
 
-export const APP_VERSION = '0.025';
+export const APP_VERSION = '0.026';
 
 export interface ChangelogEntry {
   version: string;
@@ -20,6 +20,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.026',
+    date: '2026-08-04',
+    title: 'Auto aero-model selection + supersonic-flight alert',
+    items: [
+      'The aerodynamics preference is now three-way: Classic (desktop parity, still the default during beta), Supersonic (the new model at all speeds), and Auto — every flight flies classic first, and if it is projected past Mach 0.9 the entire flight automatically re-flies on the validated supersonic model. Subsonic flights keep exact desktop parity; fast flights get the physics that matters.',
+      'Supersonic-flight alert: fly past Mach 0.9 on the Classic model and the results page (and the saved report) now tell you a validated supersonic model exists, with a one-click "Switch to Auto & re-fly" — no need to find the Preferences page. The alert is explicit that a model applies to the ENTIRE flight, so stability and apogee shift when it changes.',
+      'When the supersonic model is active, an "M+ aero" chip appears in the header strip, and Auto-selected runs are recorded as "Supersonic (auto)" in the launch report and run history.',
+    ],
+  },
   {
     version: '0.025',
     date: '2026-08-04',

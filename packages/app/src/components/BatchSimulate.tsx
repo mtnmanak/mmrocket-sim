@@ -59,7 +59,7 @@ interface BatchRow {
   failed: string[];
 }
 
-export function BatchSimulate({ rocket, info, mountId, mountDiameterMm, maxMotorLengthM, motorCount, launch, rocketName, onRunsChange, onClose }: {
+export function BatchSimulate({ rocket, info, mountId, mountDiameterMm, maxMotorLengthM, motorCount, launch, rocketName, aeroModelLabel, onRunsChange, onClose }: {
   rocket: OrkRocket;
   info: StaticInfo;
   mountId: string;
@@ -70,6 +70,8 @@ export function BatchSimulate({ rocket, info, mountId, mountDiameterMm, maxMotor
   motorCount: number;
   launch: LaunchConditions;
   rocketName: string;
+  /** Aero model on the design's engine handle (batch flies all candidates on it). */
+  aeroModelLabel: 'classic' | 'supersonic' | 'auto-supersonic';
   onRunsChange: (runs: SimRun[]) => void;
   onClose: () => void;
 }) {
@@ -196,7 +198,9 @@ export function BatchSimulate({ rocket, info, mountId, mountDiameterMm, maxMotor
           launch,
           rocketName,
           execMs: performance.now() - t0,
-          aeroModel: prefs.supersonicAero ? 'supersonic' : 'classic',
+          // Batch flies on whatever model the design's engine handle carries
+          // (Auto mode: the model chosen by the design's last single flight).
+          aeroModel: aeroModelLabel,
         });
         const failed = gradeRun(run);
         out.push({ entry, run, failed });

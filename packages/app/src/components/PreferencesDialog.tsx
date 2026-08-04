@@ -93,24 +93,32 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
           Barrowman.
         </p>
         <div className="field">
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-            <input
-              type="checkbox"
-              checked={prefs.supersonicAero ?? false}
-              onChange={(e) => setPrefs({ ...prefs, supersonicAero: e.target.checked })}
-            />
-            Supersonic aerodynamics (beta) — RASAero-class CP &amp; drag, Mach&nbsp;0–25
-          </label>
+          <label>Aerodynamics model (beta)</label>
+          <select
+            value={prefs.aeroModel ?? 'classic'}
+            onChange={(e) => setPrefs({
+              ...prefs,
+              aeroModel: e.target.value as 'classic' | 'supersonic' | 'auto',
+            })}
+          >
+            <option value="classic">Classic — Extended Barrowman (desktop parity)</option>
+            <option value="auto">Auto — supersonic model when the flight goes past Mach 0.9</option>
+            <option value="supersonic">Supersonic — RASAero-class model at all speeds</option>
+          </select>
         </div>
         <p className="prefs-hint">
-          Corrected supersonic fin lift (2D Busemann level), exact NACA&nbsp;1307 body-fin
-          interference, Mach-dependent nose lift, per-shape wave drag with physical
-          hypersonic decay, and Van&nbsp;Driest&nbsp;II friction. CP and drag then move with
-          Mach the way wind tunnels measure (validated against NASA ARCAS and Basic Finner
-          data to Mach&nbsp;4.6). Affects stability, drag analysis and the flight sim at all
-          speeds — including a modest subsonic lift increase from the interference term.
-          Off&nbsp;=&nbsp;classic OpenRocket, identical to the desktop app. Recommended for
-          flights beyond Mach&nbsp;1; supersedes the Kbf option above when on.
+          The <strong>supersonic model</strong> adds corrected supersonic fin lift (2D
+          Busemann level), exact NACA&nbsp;1307 body-fin interference, Mach-dependent nose
+          lift, per-shape wave drag with physical hypersonic decay, and
+          Van&nbsp;Driest&nbsp;II friction — CP and drag then move with Mach the way wind
+          tunnels measure (validated against NASA ARCAS and Basic Finner data to
+          Mach&nbsp;4.6). A model applies to the <strong>entire flight</strong>, subsonic
+          portions included (the interference term raises fin lift modestly even at low
+          speed), so expect stability and apogee to shift when the model changes.
+          <strong> Auto</strong> flies classic first and re-flies the whole flight on the
+          supersonic model only when it's projected past Mach&nbsp;0.9 — subsonic flights
+          keep exact desktop parity. Each saved run records which model flew it. The
+          supersonic model supersedes the Kbf option above when active.
         </p>
 
         <p className="prefs-hint">

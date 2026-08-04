@@ -160,10 +160,11 @@ export interface SimRun {
   execMs: number;
   /**
    * Which aerodynamics model produced this run: 'classic' Extended Barrowman
-   * (desktop parity) or the opt-in 'supersonic' RASAero-class model.
-   * Absent on runs stored before v0.025.
+   * (desktop parity), the opt-in 'supersonic' RASAero-class model, or
+   * 'auto-supersonic' (Auto mode crossed the Mach-0.9 threshold and re-flew
+   * on the supersonic model). Absent on runs stored before v0.025.
    */
-  aeroModel?: 'classic' | 'supersonic';
+  aeroModel?: 'classic' | 'supersonic' | 'auto-supersonic';
   comments: string;
 }
 
@@ -248,7 +249,7 @@ export function buildSimRun(input: {
   /** Per-stage motor info by STAGE NAME (staged rockets; G80 safety rules). */
   stageMotorInfo?: Record<string, { label: string; highPower: boolean }>;
   boosterMotors?: string[];
-  aeroModel?: 'classic' | 'supersonic';
+  aeroModel?: 'classic' | 'supersonic' | 'auto-supersonic';
 }): SimRun {
   const { result, info, motor, meta, launch, rocketName, execMs, stageMotorInfo, boosterMotors, aeroModel } = input;
   const { summary, series } = result;
@@ -339,6 +340,15 @@ export function buildSimRun(input: {
     : 'high';
 
   const comments: string[] = [...info.warningTexts];
+  // Supersonic flight on the classic model: the flyer should know a validated
+  // model exists — and that switching changes the model for the WHOLE flight.
+  if ((aeroModel ?? 'classic') === 'classic' && summary.maxMachNumber > 0.9) {
+    comments.push(
+      `Flight reaches Mach ${summary.maxMachNumber.toFixed(2)} on the classic aero model, `
+      + 'which is approximate past ~Mach 0.9 (supersonic CP travel is not modeled). '
+      + 'Preferences → Aerodynamics offers a validated supersonic model — switching '
+      + 'changes the model for the entire flight, so expect stability and apogee to shift.');
+  }
   if (safeLiftoffSpeed === false) {
     comments.push(`Rod-exit speed ${rodExitVelocity!.toFixed(1)} m/s < ${SAFETY.minRodExitVelocity} m/s guidance.`);
   }

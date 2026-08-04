@@ -99,7 +99,7 @@ function labelWithDelay(label: string, delay: number | 'auto'): string {
 }
 
 export function App() {
-  const { prefs, resolvedTheme } = usePrefs();
+  const { prefs, setPrefs, resolvedTheme } = usePrefs();
   const [showPrefs, setShowPrefs] = useState(false);
   // Restore the previous session (autosaved on every change) if one exists.
   // normalizeTree wraps pre-v0.009 flat trees in one stage. Lazy useState:
@@ -164,6 +164,14 @@ export function App() {
     try { localStorage.setItem('online-openrocket.workspace.v1', t); } catch { /* ignore */ }
   }, []);
   const [showFileMenu, setShowFileMenu] = useState(false);
+  // Auto aero mode: did the last flight of THIS design cross the Mach-0.9
+  // threshold and upgrade to the supersonic model? Sticky until the design/
+  // motors/launch (or the mode itself) changes, so the displayed statics
+  // match the model the flight actually used.
+  const [autoSupersonic, setAutoSupersonic] = useState(false);
+  // "Switch to Auto & re-fly" from the supersonic-flight alert: re-launch as
+  // soon as the engine rebuild with the new model lands.
+  const [pendingRelaunch, setPendingRelaunch] = useState(false);
 
   // Autosave the working state so a closed tab or crash never loses work.
   useEffect(() => {
@@ -232,6 +240,13 @@ export function App() {
     return byStage[0]?.[0] ?? null;
   }, [assigned, tree]);
 
+  // Three-way aero model (feature #1): classic / supersonic / auto. Auto uses
+  // classic until a flight crosses Mach 0.9, then the whole design (display,
+  // drag panel, subsequent flights) runs on the supersonic model.
+  const aeroMode: 'classic' | 'supersonic' | 'auto' =
+    prefs.aeroModel ?? (prefs.supersonicAero ? 'supersonic' : 'classic');
+  const effectiveSupersonic = aeroMode === 'supersonic' || (aeroMode === 'auto' && autoSupersonic);
+
   // No setState in here — the error is part of the memo's value (setState
   // during render breaks under StrictMode's double-invoke).
   const buildResult = useMemo((): { rocket: OrkRocket; info: StaticInfo } | { error: string } => {
@@ -244,7 +259,7 @@ export function App() {
       rocket.setRogersModifiedBarrowman(prefs.rogersKbf ?? false);
       // Opt-in RASAero-class supersonic aerodynamics (feature #1) — CP/drag
       // move with Mach; affects staticInfo, dragSweep and simulate alike.
-      rocket.setSupersonicAero(prefs.supersonicAero ?? false);
+      rocket.setSupersonicAero(effectiveSupersonic);
       for (const [id, mm] of assigned) {
         rocket.setMotorById(id, mm.spec);
         if (mm.ignition.event !== 'automatic' || mm.ignition.delay !== 0) {
@@ -256,11 +271,15 @@ export function App() {
     } catch (e) {
       return { error: e instanceof Error ? e.message : String(e) };
     }
-  }, [tree, assigned, prefs.rogersKbf, prefs.supersonicAero]);
+  }, [tree, assigned, prefs.rogersKbf, effectiveSupersonic]);
   const built = 'error' in buildResult ? null : buildResult;
   const buildError = 'error' in buildResult ? buildResult.error : simError;
 
-  useEffect(() => { setResult(null); setLastRun(null); }, [tree, mountMotors, launch]);
+  useEffect(() => {
+    setResult(null);
+    setLastRun(null);
+    setAutoSupersonic(false); // re-evaluate the auto threshold on the next flight
+  }, [tree, mountMotors, launch, aeroMode]);
 
   /** Assigns a motor to a mount, with the G80 power-class ignition default. */
   const assignMotor = (targetMountId: string, label: string, spec: MotorSpec, meta: MotorMeta) => {
@@ -294,6 +313,18 @@ export function App() {
         };
         const t0 = performance.now();
         let res = built.rocket.simulate(simOpts);
+        // Auto aero mode: the classic first pass projects the flight's Mach.
+        // Past 0.9 (transonic onset, where classic aero starts degrading) the
+        // WHOLE flight re-flies on the supersonic model, and the design's
+        // displayed statics follow (setAutoSupersonic rebuilds the engine
+        // handle with the flag on after this callback finishes).
+        let usedSupersonic = effectiveSupersonic;
+        if (aeroMode === 'auto' && !usedSupersonic && res.summary.maxMachNumber > 0.9) {
+          built.rocket.setSupersonicAero(true);
+          res = built.rocket.simulate(simOpts);
+          usedSupersonic = true;
+          setAutoSupersonic(true);
+        }
         let flownDelay = primary.spec.ejectionDelay;
         // Auto delay (sustainer/primary mount): the first run yields the
         // kernel's optimum (ballistic probe) — round to the nearest whole
@@ -332,7 +363,8 @@ export function App() {
           boosterMotors: assigned
             .filter(([id]) => id !== primaryMountId)
             .map(([, mm]) => mm.label),
-          aeroModel: prefs.supersonicAero ? 'supersonic' : 'classic',
+          aeroModel: aeroMode === 'auto' && usedSupersonic ? 'auto-supersonic'
+            : usedSupersonic ? 'supersonic' : 'classic',
         });
         setLastRun(run);
         setRuns(addRun(run));
@@ -526,6 +558,15 @@ export function App() {
   // Vitals strip: apogee of the most recent flight (fresh sim or reopened run).
   const lastApogee = result?.summary.maxAltitude ?? lastRun?.maxAltitude ?? null;
 
+  // "Use Auto & re-fly" from the supersonic-flight alert: once the pref
+  // change has propagated (aeroMode now 'auto'), fire a fresh launch.
+  useEffect(() => {
+    if (!pendingRelaunch || !built || !primaryMountId) return;
+    setPendingRelaunch(false);
+    onLaunch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingRelaunch, built, primaryMountId]);
+
   return (
     <div className="viz-root" data-theme={resolvedTheme}>
       <nav className="site-nav" aria-label="Mountain Man Rockets site menu">
@@ -613,6 +654,9 @@ export function App() {
           motorCount={primaryMotorCount}
           launch={launch}
           rocketName={tree.name ?? 'Rocket'}
+          aeroModelLabel={effectiveSupersonic
+            ? (aeroMode === 'auto' ? 'auto-supersonic' : 'supersonic')
+            : 'classic'}
           onRunsChange={setRuns}
           onClose={() => {
             // Batch runs left some other motor on the engine-side rocket —
@@ -683,6 +727,14 @@ export function App() {
           <span className="vitals-chip" title="Motor on the primary (sustainer) mount — assign it in Motors & Launch">
             {primaryLabel ?? 'no motor'}{assigned.length > 1 ? ` +${assigned.length - 1}` : ''}
           </span>
+          {effectiveSupersonic && (
+            <span className="vitals-chip"
+              title={aeroMode === 'auto'
+                ? 'Auto aero: this design flew past Mach 0.9, so stability, drag analysis and flights use the supersonic model'
+                : 'Supersonic aerodynamics model active (Preferences → Aerodynamics)'}>
+              M+ aero
+            </span>
+          )}
           {lastApogee !== null && (
             <span className="vitals-chip" title="Apogee of the most recent flight">
               ⬆ {fmtSi('distance', prefs.units.distance, lastApogee)}&nbsp;<UnitChip quantity="distance" />
@@ -1034,6 +1086,30 @@ export function App() {
 
         {tab === 'results' && (
         <main className="results-column">
+          {result && aeroMode === 'classic' && result.summary.maxMachNumber > 0.9 && (
+            <div className="file-note" role="alert">
+              ⚠ This flight reaches <strong>Mach {result.summary.maxMachNumber.toFixed(2)}</strong> on
+              the classic aero model, which is approximate past ~Mach 0.9 — supersonic CP travel
+              (the stability hazard on fast flights) is not modeled. A wind-tunnel-validated
+              supersonic model is available. Note: a model applies to the <strong>entire
+              flight</strong>, subsonic portions included, so stability and apogee will shift when
+              it changes.{' '}
+              <button className="file-btn" style={{ marginLeft: 6 }}
+                onClick={() => {
+                  setPrefs({ ...prefs, aeroModel: 'auto' });
+                  setPendingRelaunch(true);
+                }}>
+                Switch to Auto &amp; re-fly
+              </button>
+            </div>
+          )}
+          {result && lastRun?.aeroModel === 'auto-supersonic' && (
+            <div className="file-note">
+              Auto aero: this flight was projected past Mach 0.9, so the whole flight was flown
+              on the <strong>supersonic model</strong> (the displayed stability follows it too —
+              subsonic flights of this design would fly classic).
+            </div>
+          )}
           {result ? (
             <>
               <FlightStats summary={result.summary} />
@@ -1050,7 +1126,7 @@ export function App() {
               altitude, velocity and acceleration plots.
             </div>
           )}
-          {built && <DragPanel rocket={built.rocket} supersonicModel={prefs.supersonicAero ?? false} />}
+          {built && <DragPanel rocket={built.rocket} supersonicModel={effectiveSupersonic} />}
           <SimHistory
             runs={runs}
             onRunsChange={setRuns}
