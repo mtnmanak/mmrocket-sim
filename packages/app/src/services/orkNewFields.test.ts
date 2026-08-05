@@ -15,6 +15,7 @@ describe('.ork round-trip of fairing (camera shroud) and spill hole extensions',
     name: 'Ext',
     components: [{
       type: 'bodytube', id: 'b1', length: 0.4, outerRadius: 0.02, thickness: 0.001,
+      motorMount: true, caseAirframe: true,
       children: [
         {
           type: 'fairing', id: 'f1', length: 0.09, width: 0.03, height: 0.022,
@@ -50,6 +51,9 @@ describe('.ork round-trip of fairing (camera shroud) and spill hole extensions',
     expect(fins['rotation']).toBeCloseTo(Math.PI / 4, 9);
     const tubes = body.children!.find((c) => c.type === 'tubefinset')!;
     expect(tubes['rotation']).toBeCloseTo(Math.PI / 6, 9);
+    // Sub-minimum flag (2026-08-05e) rides its own extension tag.
+    expect(body['motorMount']).toBe(true);
+    expect(body['caseAirframe']).toBe(true);
   });
 });
 

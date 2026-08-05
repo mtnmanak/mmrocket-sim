@@ -184,6 +184,17 @@ export function AftView({ tree, motors }: {
         fill: colorOf(n, '#e7e5e0'), stroke: '#7a786f', title: n.name ?? n.type,
       });
       reach(cy, cz, r);
+      // Body-tube mounts (minimum/sub-minimum builds) draw their motor too —
+      // previously only inner tubes did.
+      if (n.type === 'bodytube' && n['motorMount'] === true) {
+        const motor = n.id ? motors?.[n.id] : undefined;
+        if (motor) {
+          inner.push({
+            kind: 'circle', y: cy, z: cz, r: motor.diameter / 2,
+            fill: '#8b5a2b', stroke: '#6b4520', title: 'Motor',
+          });
+        }
+      }
       walkChildren(n, r, cy, cz);
     }
   };

@@ -47,6 +47,8 @@ import {
   normalizeTree, removeNode, stageIndexOf, stages, updateAllNodes, updateNode,
 } from './tree/treeModel.js';
 import { clusterCount } from './tree/cluster.js';
+import { autoAlignFinSets } from './tree/finAlign.js';
+import { convertShrouds, findShroudCandidates, type ShroudCandidate } from './tree/shroudConvert.js';
 
 /** One mount's assigned motor (Release C: every mount can hold its own). */
 export interface MountMotor {
@@ -63,7 +65,11 @@ export interface MountMotor {
 import './styles.css';
 
 /** Rocket names that mean "the user never named it" (desktop default is "Rocket"). */
-const GENERIC_ROCKET_NAMES = new Set(['rocket', 'new rocket', 'imported rocket', 'my rocket']);
+const GENERIC_ROCKET_NAMES = new Set([
+  'rocket', 'new rocket', 'imported rocket', 'my rocket',
+  // Importer fallbacks for files with no <Name> — the filename beats these.
+  'imported rocksim rocket', 'imported rasaero rocket',
+]);
 
 /**
  * mountainmanrockets.com site menu — the app embeds in the site and should
@@ -153,6 +159,8 @@ export function App() {
   const [simulating, setSimulating] = useState(false);
   const [simError, setSimError] = useState<string | null>(null);
   const [fileNote, setFileNote] = useState<string | null>(null);
+  /** Imported hand-rolled camera shrouds awaiting the convert-to-native offer. */
+  const [shroudPrompt, setShroudPrompt] = useState<ShroudCandidate[] | null>(null);
   // Session restore is routine good news — one quiet line that fades out,
   // not an alert banner (identity pass v0.027).
   const [sessionNote, setSessionNote] = useState<string | null>(
@@ -592,11 +600,16 @@ export function App() {
           notes.push(`Motor “${ref.designation}” is in the motor database but its thrust curve couldn't be downloaded — pick it via Browse motor database.`);
         }
       }
-      setTree(normalizeTree(imported.tree));
+      const importedTree = normalizeTree(imported.tree);
+      setTree(importedTree);
       setMountMotors(nextMotors);
       setMaxMotorLen({}); // imported stages have fresh ids — old limits don't apply
       setSelectedId(null);
       setFileNote(notes.join('\n'));
+      // Hand-rolled shrouds (1-fin freeform sets named like "Camera Shroud")
+      // get an offer to become the native fairing component (2026-08-05e).
+      const shrouds = findShroudCandidates(importedTree);
+      setShroudPrompt(shrouds.length ? shrouds : null);
     } catch (e) {
       setFileNote(`Could not open that .ork file: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -621,8 +634,13 @@ export function App() {
       return null;
     }
   }, [built, selectedNode]);
+  // Sub-minimum mounts (caseAirframe): the motor case IS the airframe, so the
+  // fit reference is the tube's OUTER diameter — bore would hide the very
+  // motor the rocket is built around.
   const mountDiaMm = (m: ReturnType<typeof findNode>) => m
-    ? Math.round(((m['outerRadius'] as number ?? 0.0095) - (m['thickness'] as number ?? 0.0005)) * 2000)
+    ? Math.round((m['caseAirframe'] === true
+      ? (m['outerRadius'] as number ?? 0.0095)
+      : (m['outerRadius'] as number ?? 0.0095) - (m['thickness'] as number ?? 0.0005)) * 2000)
     : 18;
   // Batch simulate targets the PRIMARY (sustainer) mount; per the owner's rule
   // batch never runs across staged rockets (combinatorics).
@@ -807,11 +825,45 @@ export function App() {
                   // reads like the import happened again — clear both notes.
                   setFileNote(null);
                   setSimError(null);
+                  setShroudPrompt(null);
                 }}
               >
                 Discard &amp; start new
               </button>
               <button className="file-btn" onClick={() => setConfirmNew(false)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {shroudPrompt && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Convert camera shrouds">
+          <div className="modal-card">
+            <h2>Camera shroud detected</h2>
+            <p>
+              It looks like this file has {shroudPrompt.length === 1
+                ? <>a camera shroud modeled as a one-fin freeform set (<strong>{shroudPrompt[0]!.name}</strong>)</>
+                : <>{shroudPrompt.length} camera shrouds modeled as one-fin freeform sets ({shroudPrompt.map((s) => `“${s.name}”`).join(', ')})</>}.
+              Convert {shroudPrompt.length === 1 ? 'it' : 'them'} to this app&apos;s native
+              camera-shroud component? The native component models the shroud&apos;s real
+              frontal-area drag and mass instead of treating it as a lifting fin —
+              dimensions carry over, and you can fine-tune shape and as-built mass
+              in its properties. (Ctrl+Z undoes the conversion.)
+            </p>
+            <div className="modal-actions">
+              <button
+                className="file-btn"
+                onClick={() => {
+                  const res = convertShrouds(tree, shroudPrompt.map((s) => s.id));
+                  setTree(res.tree);
+                  setFileNote(res.notes.join('\n'));
+                  setShroudPrompt(null);
+                }}
+              >
+                Convert to camera shroud
+              </button>
+              <button className="file-btn" onClick={() => setShroudPrompt(null)}>
+                Keep as freeform fin
+              </button>
             </div>
           </div>
         </div>
@@ -1076,6 +1128,15 @@ export function App() {
               info={selectedInfo}
               onPatch={(patch) => setTree(updateNode(tree, selectedNode.id!, patch))}
               onPatchAll={(patch) => setTree(updateAllNodes(tree, patch))}
+              onAutoAlignFins={() => {
+                const res = autoAlignFinSets(tree);
+                if (res.changes.length) {
+                  setTree(res.tree);
+                  setFileNote(res.changes.join('\n'));
+                } else {
+                  setFileNote('Fin sets already sit at their widest clearance — nothing to rotate.');
+                }
+              }}
             />
           ) : (
             <div className="panel placeholder empty-state">

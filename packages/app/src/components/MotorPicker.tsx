@@ -55,9 +55,10 @@ export function MotorPicker({ mountDiameterMm, maxMotorLengthM, selectedLabel, o
       <button
         className="file-btn"
         style={{ marginTop: 8, width: '100%' }}
+        title="Full thrustcurve.org database, plus import of your own EX/research motors from RASP (.eng) or RockSim (.rse) files — single files or a whole folder"
         onClick={() => setBrowsing(true)}
       >
-        🔎 Browse motor database…
+        🔎 Browse motors / import EX (.eng, .rse)…
       </button>
       {browsing && (
         <MotorBrowser

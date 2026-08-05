@@ -78,6 +78,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
   const [customDelay, setCustomDelay] = useState(6);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [exMotors, setExMotors] = useState(() => loadExMotors());
 
   const setFilters = (next: StoredFilters) => {
@@ -112,16 +113,41 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
     return sortMotors(filtered, filters.sortKey, filters.sortDir);
   }, [filters, text, mountDiameterMm, fittingClasses, allMotors]);
 
-  const importMotorFile = async (file: File) => {
+  // Single files or a whole EX-motor folder (2026-08-05e): every .eng/.rse
+  // found is parsed and added to the persistent library; unreadable files are
+  // reported by name instead of aborting the batch.
+  const importMotorFiles = async (files: File[]) => {
     setError(null);
-    try {
-      const motors = parseMotorFile(file.name, await file.text());
-      setExMotors(addExMotors(motors));
-      setError(null);
+    setNotice(null);
+    const motorFiles = files.filter((f) => /\.(eng|rse|txt)$/i.test(f.name));
+    if (motorFiles.length === 0) {
+      setError('No .eng or .rse files found in that selection.');
+      return;
+    }
+    const imported: string[] = [];
+    const failed: string[] = [];
+    let next = exMotors;
+    for (const f of motorFiles) {
+      try {
+        const motors = parseMotorFile(f.name, await f.text());
+        next = addExMotors(motors);
+        imported.push(...motors.map((m) => m.designation));
+      } catch (e) {
+        failed.push(`${f.name}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    if (imported.length) {
+      setExMotors(next);
       setText('');
-      setFilters({ ...filters, manufacturers: [] });
-    } catch (e) {
-      setError(`Import failed: ${e instanceof Error ? e.message : String(e)}`);
+      // Clear the maker AND diameter chips: a persisted class selection would
+      // silently hide the motor that was just imported ("where did it go?").
+      setFilters({ ...filters, manufacturers: [], classes: [] });
+      setNotice(`Imported ${imported.length} EX motor${imported.length === 1 ? '' : 's'} `
+        + `(${imported.slice(0, 6).join(', ')}${imported.length > 6 ? ', …' : ''}) — `
+        + 'they live in this browser under manufacturer EX and survive reloads.');
+    }
+    if (failed.length) {
+      setError(`Skipped ${failed.length} file${failed.length === 1 ? '' : 's'} — ${failed.join(' · ')}`);
     }
   };
 
@@ -257,12 +283,22 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
               />
               include out-of-production
             </label>
-            <label className="file-btn" title="Import experimental/EX motors from RASP (.eng) or RockSim (.rse) files — they appear under manufacturer EX">
+            <label className="file-btn" title="Import experimental/EX motors from RASP (.eng) or RockSim (.rse) files — they appear under manufacturer EX and persist across sessions">
               ⬆ Import .eng/.rse
-              <input type="file" accept=".eng,.rse,.txt" style={{ display: 'none' }}
+              <input type="file" accept=".eng,.rse,.txt" multiple style={{ display: 'none' }}
                 onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) importMotorFile(f);
+                  const fs = Array.from(e.target.files ?? []);
+                  if (fs.length) importMotorFiles(fs);
+                  e.target.value = '';
+                }} />
+            </label>
+            <label className="file-btn" title="Pick the folder where you keep your EX motor files — every .eng/.rse inside is added to the library in one go">
+              📁 Import EX folder
+              <input type="file" style={{ display: 'none' }}
+                {...({ webkitdirectory: '' } as Record<string, string>)}
+                onChange={(e) => {
+                  const fs = Array.from(e.target.files ?? []);
+                  if (fs.length) importMotorFiles(fs);
                   e.target.value = '';
                 }} />
             </label>
@@ -379,6 +415,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
             </span>
           )}
         </div>
+        {notice && <p className="motor-db-meta" style={{ marginBottom: 0 }}>{notice}</p>}
         {error && <p className="stability-bad" style={{ marginBottom: 0 }}>{error}</p>}
       </div>
     </div>

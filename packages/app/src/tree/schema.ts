@@ -249,6 +249,11 @@ export const FIELDS: Record<ComponentType, FieldDef[]> = {
     // Min-diameter rockets: the motor loads directly in the body tube (no
     // inner mount tube) — same kernel path as the desktop's body-tube mount.
     { key: 'motorMount', label: 'Motor mount (motor loads in this tube)', unit: 'none', bool: true },
+    // Sub-minimum rockets: the motor case IS the airframe (fins bonded to a
+    // commercial case, or propellant cast into the airframe tube). The flag
+    // widens the motor browser's fit check to this tube's OUTER diameter —
+    // the sim itself never gated on motor fit (only shown when mount is on).
+    { key: 'caseAirframe', label: 'Sub-minimum: motor case is the airframe', unit: 'none', bool: true },
     // Aft protrusion of the motor past the tube end (~6 mm is standard
     // min-diameter practice) — shifts the motor mass aft in the sim.
     { key: 'motorOverhang', label: 'Motor overhang (past aft end)', unit: 'mm', step: 1, smin: -50, smax: 100 },

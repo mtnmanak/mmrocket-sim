@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.039';
+export const APP_VERSION = '0.040';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,19 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.040',
+    date: '2026-08-05',
+    title: 'Auto-align fin sets, shroud conversion on import, sub-minimum rockets, EX motor folders',
+    items: [
+      'NEW: 🧭 Auto-align fin sets button (on any fin set that shares its tube with another set) — rotates overlapping sets so their fins interleave with the widest possible clearance, no manual rotation math. 6 tube fins + 3 straight fins lands at 30°, two 4-fin sets at 45°, and it generalizes to three or more sets.',
+      'Imports now DETECT hand-rolled camera shrouds (one-fin freeform sets named like "Camera Shroud") and offer one-click conversion to the native camera-shroud component — real frontal-area drag and as-built mass instead of a pretend fin. Dimensions carry over; mass uses your override or a density-based estimate.',
+      'Tube-fin collision limits now hold with hand-typed values too: the outer-diameter field and slider cap at the touching radius for the current fin count, and the fin count caps at what physically fits the entered diameter. (Before, typing both values let the sliders push the tubes into each other.)',
+      'A blank tube-fin outer diameter now shows the auto-computed touching diameter grayed in the field — the number you need to actually build the fins — and stays auto until you type over it.',
+      'NEW: sub-minimum diameter rockets. On a body-tube motor mount, check "Sub-minimum: motor case is the airframe" — the motor browser then fits motors against the tube\'s OUTER diameter, so the case-diameter motor you\'re building around (fins bonded to the case, or propellant cast into the airframe) stays selectable. The aft view now draws the motor in body-tube mounts too. Flag round-trips through .ork.',
+      'EX/research motors: import several .eng/.rse files at once, or point "📁 Import EX folder" at the folder where you keep them — every RASP/RockSim motor file inside joins your local library in one go (it persists in this browser; nothing is uploaded). The mount button now says "Browse motors / import EX" so the feature is findable, and the guide gained an "EX motors & sub-minimum builds" section.',
+    ],
+  },
   {
     version: '0.039',
     date: '2026-08-05',

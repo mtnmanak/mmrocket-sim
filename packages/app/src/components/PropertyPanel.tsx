@@ -6,6 +6,7 @@ import { UnitChip } from './UnitChip.js';
 import { DISPLAY_NAME, FIELDS, POSITIONABLE, type FieldDef } from '../tree/schema.js';
 import { findParent } from '../tree/treeModel.js';
 import { anchorStarts, axialLength, offsetForStart, snapStart, startFromPosition } from '../tree/position.js';
+import { tubeFinMaxCount, tubeFinMaxRadius, tubeFinRadius } from '../tree/tubefins.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { fmtSi, niceStep, siToUi, uiToSi, type Quantity } from '../prefs/units.js';
 import { BULK_MATERIALS, LINE_MATERIALS, SURFACE_MATERIALS, type MaterialDef } from '../data/materials.js';
@@ -107,7 +108,7 @@ const COLOR_PRESETS = [
   '#3fa34d', '#2a78d6', '#8e5bd1', '#9a978f', '#7a4a2b',
 ];
 
-export function PropertyPanel({ tree, node, info, onPatch, onPatchAll }: {
+export function PropertyPanel({ tree, node, info, onPatch, onPatchAll, onAutoAlignFins }: {
   tree: RocketTree;
   node: ComponentNode;
   /** Engine-computed stats for THIS component (null while a build is broken). */
@@ -115,6 +116,8 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll }: {
   onPatch: (patch: Partial<ComponentNode>) => void;
   /** Applies a patch to every component carrying those fields (bulk finish). */
   onPatchAll?: (patch: Partial<ComponentNode>) => void;
+  /** Rotates overlapping sibling fin sets apart (tree/finAlign.ts). */
+  onAutoAlignFins?: () => void;
 }) {
   const { prefs } = usePrefs();
   const [showPresets, setShowPresets] = useState(false);
@@ -130,6 +133,15 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll }: {
   const lenToUi = (si: number) => Number(siToUi('length', lengthSym, si).toFixed(6));
   const lenFromUi = (ui: number) => uiToSi('length', lengthSym, ui);
   const massSym = prefs.units.mass;
+
+  // Tube-fin collision geometry: N tubes around a body of radius R touch at
+  // r = R·sin(π/N)/(1−sin(π/N)). The kernel enforces that only in auto mode
+  // (blank radius); explicit values get the same ceiling here so neither the
+  // slider nor typing can push the tubes into each other.
+  const tubeFinBodyR = node.type === 'tubefinset' && parent && parent !== 'stage'
+    && typeof parent['outerRadius'] === 'number' && (parent['outerRadius'] as number) > 0
+    ? (parent['outerRadius'] as number)
+    : null;
 
   const renderNumeric = (f: FieldDef) => {
     const legacy = LEGACY[f.unit];
@@ -148,6 +160,35 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll }: {
     const raw = node[f.key];
     const value = typeof raw === 'number' ? toDisplay(raw) : '';
 
+    // Cross-field ceilings for tube fins (issue 2026-08-05e): the outer
+    // radius is capped by the touching radius for the current fin count, and
+    // the fin count by how many tubes of the explicit radius fit. Blank
+    // radius shows the auto (touching) value grayed so builders can read the
+    // real as-built dimension without committing to an override.
+    let maxSi: number | undefined;
+    let maxCount: number | undefined;
+    let autoPlaceholder: string | undefined;
+    if (tubeFinBodyR !== null && f.key === 'outerRadius') {
+      const n = Math.round(typeof node['finCount'] === 'number' ? (node['finCount'] as number) : 6);
+      maxSi = tubeFinMaxRadius(n, tubeFinBodyR) ?? undefined;
+      if (typeof raw !== 'number') {
+        const autoUi = toDisplay(tubeFinRadius(node, tubeFinBodyR));
+        autoPlaceholder = `auto: ${Number(autoUi.toFixed(3))}`;
+      }
+    }
+    if (tubeFinBodyR !== null && f.key === 'finCount') {
+      const r = node['outerRadius'];
+      if (typeof r === 'number' && r > 0) {
+        maxCount = tubeFinMaxCount(r, tubeFinBodyR);
+      }
+    }
+    // NumField rejects typed values above max — round the display cap up a
+    // hair so typing the shown 3-decimal limit still lands; the commit clamp
+    // below keeps the stored SI value exactly at the ceiling.
+    const maxUi = f.unit === 'count'
+      ? maxCount
+      : maxSi !== undefined ? Math.ceil(toDisplay(maxSi) * 1e4) / 1e4 : undefined;
+
     const label = asDiameter
       ? f.label.replace(/radius/gi, (m) => (m[0] === 'R' ? 'Diameter' : 'diameter'))
       : f.label;
@@ -161,11 +202,12 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll }: {
     const step = f.unit === 'count' ? 1 : niceStep(legacyToDisplay(f.step ?? 1));
 
     const commit = (ui: number) => {
-      const patch: Partial<ComponentNode> = {
-        [f.key]: f.unit === 'count'
-          ? Math.max(f.smin ?? 1, Math.round(ui))
-          : fromDisplay(ui),
-      };
+      let next = f.unit === 'count'
+        ? Math.max(f.smin ?? 1, Math.round(ui))
+        : fromDisplay(ui);
+      if (f.unit === 'count' && maxCount !== undefined) next = Math.min(next, maxCount);
+      if (f.unit !== 'count' && maxSi !== undefined) next = Math.min(next, maxSi);
+      const patch: Partial<ComponentNode> = { [f.key]: next };
       // A hand-typed density is no longer the named material's density.
       if (f.key === 'density') patch['materialName'] = undefined;
       onPatch(patch);
@@ -187,6 +229,8 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll }: {
           allowNegative={allowNegative}
           integer={f.unit === 'count'}
           min={f.unit === 'count' ? (f.smin ?? 1) : undefined}
+          max={maxUi}
+          placeholder={autoPlaceholder}
           nullable
           onCommit={(v) => {
             if (v === null) onPatch({ [f.key]: undefined });
@@ -197,7 +241,10 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll }: {
           <ValueSlider
             value={value}
             min={f.unit === 'count' ? f.smin : legacyToDisplay(f.smin)}
-            max={f.unit === 'count' ? f.smax : legacyToDisplay(f.smax)}
+            max={Math.min(
+              f.unit === 'count' ? f.smax : legacyToDisplay(f.smax),
+              maxUi ?? Infinity,
+            )}
             step={step}
             onChange={commit}
           />
@@ -246,6 +293,14 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll }: {
           📐 Fin template (SVG, 1:1)
         </button>
       )}
+      {onAutoAlignFins && node.type.endsWith('finset') && parent && parent !== 'stage'
+        && (parent.children ?? []).filter((c) => c.type.endsWith('finset')).length >= 2 && (
+        <button className="file-btn" style={{ marginTop: 6, width: '100%' }}
+          title="Rotates this tube's overlapping fin sets so their fins interleave with the widest clearance — no manual rotation math needed"
+          onClick={onAutoAlignFins}>
+          🧭 Auto-align fin sets
+        </button>
+      )}
       {showPresets && (
         <PresetPicker type={node.type} onApply={onPatch} onClose={() => setShowPresets(false)} />
       )}
@@ -268,9 +323,13 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll }: {
       <div className="field-grid" style={{ marginTop: 8 }}>
         {fields.map((f) => {
           if (f.bool) {
+            // Sub-minimum only makes sense on a tube that already IS a mount.
+            if (f.key === 'caseAirframe' && node['motorMount'] !== true) return null;
             return (
               <div className="field" key={f.key} style={{ justifyContent: 'flex-end' }}>
-                <label>
+                <label title={f.key === 'caseAirframe'
+                  ? 'Sub-minimum build: the motor case IS the outer airframe (fins bond straight to the case, or propellant is cast into this tube). The motor browser then fits motors to this tube’s OUTER diameter. The motor file’s weight should include the case; keep the wall at 0 unless this tube adds real structure on top of it.'
+                  : undefined}>
                   <input
                     type="checkbox"
                     checked={node[f.key] === true}

@@ -1,5 +1,5 @@
 {
-  "version": "0.039",
+  "version": "0.040",
   "released": "2026-08-05",
-  "note": "Fin rotation: every fin set can now rotate about the body axis (real physics, 3D + aft view, .ork and RockSim round-trip), and RockSim imports automatically interleave fin sets that arrive on top of each other (the 4in Ultra Neon case). Plus 6-motor clusters can batch as three opposite pairs - mixed 4+2 and 2+2+2 motor configurations, the affordable way to fly a 6-ring."
+  "note": "One-click auto-align for overlapping fin sets, camera-shroud detection on import (convert hand-rolled shrouds to the native component), tube-fin collision limits that hold even with hand-typed values (plus the auto diameter shown grayed), sub-minimum diameter rockets (the motor case IS the airframe), and EX motor folder import (.eng/.rse in bulk)."
 }

@@ -203,6 +203,8 @@ export function importOrk(data: ArrayBuffer | string): OrkTreeImportResult {
         n['outerRadius'] = num(el, 'radius', 0.012);
         n['thickness'] = num(el, 'thickness', 0.0005);
         readMotor(el, n);
+        // Extension tag: sub-minimum flag (motor case is the airframe).
+        if (text(el, ':scope > caseairframe') === 'true') n['caseAirframe'] = true;
         return n;
       }
       case 'trapezoidfinset': {
@@ -704,6 +706,10 @@ export function exportOrk({ name, tree, motors, motor, mountId }: OrkTreeExportI
         emit(depth + 1, `<length>${n(node, 'length', 0.3)}</length>`);
         emit(depth + 1, `<thickness>${n(node, 'thickness', 0.0005)}</thickness>`);
         emit(depth + 1, `<radius>${n(node, 'outerRadius', 0.012)}</radius>`);
+        // Extension tag (desktop warns-and-ignores): sub-minimum flag.
+        if (node['caseAirframe'] === true) {
+          emit(depth + 1, '<caseairframe>true</caseairframe>');
+        }
         // Min-diameter: the body tube itself is the motor mount.
         if (node['motorMount'] === true || (node.id && motorMap[node.id])) {
           motorMountXml(depth + 1, node.id ? motorMap[node.id] : undefined, n(node, 'motorOverhang', 0));
