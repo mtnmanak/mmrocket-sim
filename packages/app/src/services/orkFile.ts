@@ -277,6 +277,9 @@ export function importOrk(data: ArrayBuffer | string): OrkTreeImportResult {
           n['clusterScale'] = num(el, 'clusterscale', 1);
           n['clusterRotation'] = (num(el, 'clusterrotation', 0) * Math.PI) / 180;
         }
+        // Our extension tag: the mount's physical motor-length limit.
+        const mml = num(el, 'maxmotorlength', 0);
+        if (mml > 0) n['maxMotorLength'] = mml;
         readMotor(el, n);
         return n;
       }
@@ -810,6 +813,11 @@ export function exportOrk({ name, tree, motors, motor, mountId }: OrkTreeExportI
         emit(depth + 1, `<clusterconfiguration>${escapeXml(typeof node['cluster'] === 'string' ? (node['cluster'] as string) : 'single')}</clusterconfiguration>`);
         emit(depth + 1, `<clusterscale>${n(node, 'clusterScale', 1)}</clusterscale>`);
         emit(depth + 1, `<clusterrotation>${(n(node, 'clusterRotation', 0) * 180) / Math.PI}</clusterrotation>`);
+        if (typeof node['maxMotorLength'] === 'number') {
+          // Extension tag (desktop warns-and-ignores): the mount's physical
+          // motor-length limit travels with the design.
+          emit(depth + 1, `<maxmotorlength>${node['maxMotorLength']}</maxmotorlength>`);
+        }
         if (node['motorMount'] === true || (node.id && motorMap[node.id])) {
           motorMountXml(depth + 1, node.id ? motorMap[node.id] : undefined, n(node, 'motorOverhang', 0));
         }

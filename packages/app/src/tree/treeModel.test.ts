@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
-import { engineTree, findNode, hasParallelStage, makeNode, motorMounts, normalizeTree } from './treeModel.js';
+import { engineTree, findNode, hasParallelStage, makeNode, motorMounts, normalizeTree, splitClusterTree } from './treeModel.js';
+import { clusterOffsets } from './cluster.js';
 import { allowedChildren, defaultParams, DISPLAY_NAME, FIELDS } from './schema.js';
 
 describe('engineTree — spill-hole Cd reduction at the engine boundary', () => {
@@ -34,6 +35,64 @@ describe('engineTree — spill-hole Cd reduction at the engine boundary', () => 
     const withHole = chuteTree({ cd: 1.5, spillHoleDiameter: 0.1 });
     engineTree(withHole);
     expect(findNode(withHole, 'p1')!['cd']).toBe(1.5); // source unmodified
+  });
+});
+
+describe('splitClusterTree — symmetric group split for combination batching', () => {
+  const clusterTree = (cluster: string, extra: Record<string, unknown> = {}): RocketTree => ({
+    name: 'c',
+    components: [{
+      type: 'stage', id: 's1',
+      children: [{
+        type: 'bodytube', id: 'b1', length: 0.4, outerRadius: 0.05,
+        children: [{
+          type: 'innertube', id: 'm1', length: 0.1, outerRadius: 0.015,
+          motorMount: true, cluster, ...extra,
+        } as ComponentNode],
+      } as ComponentNode],
+    } as ComponentNode],
+  });
+
+  /** Union of the split groups must occupy the ORIGINAL cluster's positions. */
+  const positionsMatch = (cluster: string, scale: number, rotation: number) => {
+    const split = splitClusterTree(clusterTree(cluster, { clusterScale: scale, clusterRotation: rotation }), 'm1')!;
+    expect(split).not.toBeNull();
+    const r = 0.015;
+    const original = clusterOffsets(cluster, r, scale, rotation);
+    const got = split.mountIds.flatMap((id) => {
+      const m = findNode(split.tree, id)!;
+      return clusterOffsets(m['cluster'] as string, r,
+        m['clusterScale'] as number, m['clusterRotation'] as number);
+    });
+    expect(got.length).toBe(original.length);
+    for (const o of original) {
+      const hit = got.find((g) => Math.hypot(g.y - o.y, g.z - o.z) < 1e-9);
+      expect(hit, `original tube at (${o.y}, ${o.z}) missing from split`).toBeDefined();
+    }
+  };
+
+  it('4-ring → two doubles on the diagonals (exact positions)', () => {
+    positionsMatch('4-ring', 1, 0);
+    positionsMatch('4-ring', 1.3, Math.PI / 5);
+  });
+
+  it('6-ring → two 3-rings on alternating tubes (exact positions)', () => {
+    positionsMatch('6-ring', 1, 0);
+    positionsMatch('6-ring', 1.15, -Math.PI / 7);
+  });
+
+  it('returns null for non-splittable mounts', () => {
+    expect(splitClusterTree(clusterTree('3-ring'), 'm1')).toBeNull();
+    expect(splitClusterTree(clusterTree('single'), 'm1')).toBeNull();
+    expect(splitClusterTree(clusterTree('4-ring'), 'nope')).toBeNull();
+  });
+
+  it('keeps the original tree untouched and both groups carry children', () => {
+    const src = clusterTree('4-ring');
+    const split = splitClusterTree(src, 'm1')!;
+    expect(findNode(src, 'm1')).not.toBeNull(); // source intact
+    expect(findNode(split.tree, 'm1')).toBeNull(); // replaced in the copy
+    expect(split.groupSize).toBe(2);
   });
 });
 

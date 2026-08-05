@@ -131,6 +131,7 @@ function buildColumns(u?: UnitSelection): [string, (r: SimRun) => string | numbe
   ['Static margin OK', (r) => flag(r.staticMarginOk)],
   ['Weathercock risk', (r) => r.weathercockRisk ?? ''],
   ['Motors (cluster)', (r) => r.motorCount ?? 1],
+  ['Motor config', (r) => r.motorConfig ?? ''],
   ['Booster motors', (r) => (r.boosterMotors ?? []).join('; ')],
   [`Booster apogee (${sym('distance', 'm')})`, (r) => cv('distance', r.branches?.[0]?.apogee ?? null)],
   [`Booster landing rate (${sym('velocity', 'm/s')})`, (r) => cv('velocity', r.branches?.[0]?.landingRate ?? null)],

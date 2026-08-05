@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { OrkRocket, SimulationOptions, StaticInfo } from '@online-openrocket/engine';
+import { OrkRocket, type RocketTree, type SimulationOptions, type StaticInfo } from '@online-openrocket/engine';
+import { engineTree, splitClusterTree } from '../tree/treeModel.js';
+import { sheetsToXlsx, type Sheet } from '../services/xlsx.js';
 import {
   MOTOR_DB, classLabel, classesFittingMount, displayDesignation, filterMotors,
   isHighPower, manufacturersForMount, sortMotors, type MotorDbEntry,
@@ -8,7 +10,7 @@ import { exToDbEntry, loadExMotors } from '../services/exMotors.js';
 import { fetchMotorSpec, delayOptions } from '../services/thrustcurve.js';
 import { buildSimRun, recommendDelay, type SimRun } from '../services/simReport.js';
 import { addRuns, runsToCsv, runsToTable } from '../services/simStore.js';
-import { tableToXlsx, XLSX_MIME } from '../services/xlsx.js';
+import { XLSX_MIME } from '../services/xlsx.js';
 import type { LaunchConditions } from './LaunchPanel.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { Icon } from './Icon.js';
@@ -55,14 +57,18 @@ function loadCriteria(): Criteria {
 
 interface BatchRow {
   entry: MotorDbEntry;
+  /** Display label override — combination rows ("2× A + 2× B"). */
+  label?: string;
   run?: SimRun;
   error?: string;
   /** Which acceptance criteria this flight failed (empty = accepted). */
   failed: string[];
 }
 
-export function BatchSimulate({ rocket, info, mountId, mountDiameterMm, maxMotorLengthM, motorCount, launch, rocketName, handleFlags, onRunsChange, onClose }: {
+export function BatchSimulate({ rocket, info, tree, mountId, mountDiameterMm, maxMotorLengthM, motorCount, launch, rocketName, handleFlags, onRunsChange, onClose }: {
   rocket: OrkRocket;
+  /** The editing tree — combination mode rebuilds a split-mount variant. */
+  tree: RocketTree;
   info: StaticInfo;
   mountId: string;
   mountDiameterMm: number;
@@ -90,6 +96,11 @@ export function BatchSimulate({ rocket, info, mountId, mountDiameterMm, maxMotor
   // routinely spans subsonic to supersonic flights, and one fixed model
   // would be wrong at one end or the other.
   const [batchModel, setBatchModel] = useState<'eb' | 'kbf' | 'auto' | 'supersonic'>('auto');
+  // Combination mode (opt-in, 4- and 6-motor clusters only): also fly every
+  // unordered PAIR of candidates split symmetrically across the cluster
+  // (2+2 / 3+3 — the owner's symmetry rule; larger clusters deliberately out).
+  const [comboMode, setComboMode] = useState(false);
+  const clusterSplit = useMemo(() => splitClusterTree(tree, mountId), [tree, mountId]);
   const [rows, setRows] = useState<BatchRow[]>([]);
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number; current: string } | null>(null);
@@ -170,10 +181,16 @@ export function BatchSimulate({ rocket, info, mountId, mountDiameterMm, maxMotor
       launchLatitude: launch.latitudeDeg,
     };
 
+    const comboActive = comboMode && clusterSplit !== null;
+    const comboCount = comboActive ? (candidates.length * (candidates.length - 1)) / 2 : 0;
+    const totalSims = candidates.length + comboCount;
+    // Motor specs fetched in the single pass, reused by the combination pass.
+    const specCache = new Map<string, Awaited<ReturnType<typeof fetchMotorSpec>>>();
+
     for (let i = 0; i < candidates.length; i++) {
       if (cancelled.current) break;
       const entry = candidates[i]!;
-      setProgress({ done: i, total: candidates.length, current: `${entry.manufacturerAbbrev} ${displayDesignation(entry.designation, entry.manufacturerAbbrev)}` });
+      setProgress({ done: i, total: totalSims, current: `${entry.manufacturerAbbrev} ${displayDesignation(entry.designation, entry.manufacturerAbbrev)}` });
       // Yield to the browser so the progress bar paints between sims.
       await new Promise((r) => setTimeout(r, 0));
       try {
@@ -183,6 +200,7 @@ export function BatchSimulate({ rocket, info, mountId, mountDiameterMm, maxMotor
         const opts = delayOptions(entry).filter((d) => Number.isFinite(d));
         const provisional = opts[opts.length - 1] ?? 0;
         const spec = await fetchMotorSpec(entry, provisional);
+        specCache.set(entry.motorId, spec);
         const t0 = performance.now();
         // Auto: each candidate flies the Kbf model first and re-flies wholly
         // supersonic when projected past Mach 0.9 — per MOTOR, exactly like
@@ -228,6 +246,7 @@ export function BatchSimulate({ rocket, info, mountId, mountDiameterMm, maxMotor
           aeroModel: batchModel === 'auto' && usedSupersonic ? 'auto-supersonic'
             : usedSupersonic ? 'supersonic' : 'classic',
           rogersKbf: kbf && !usedSupersonic,
+          ...(comboActive ? { motorConfig: 'single' } : {}),
         });
         const failed = gradeRun(run);
         out.push({ entry, run, failed });
@@ -236,6 +255,81 @@ export function BatchSimulate({ rocket, info, mountId, mountDiameterMm, maxMotor
         out.push({ entry, error: e instanceof Error ? e.message : String(e), failed: ['error'] });
       }
       setRows([...out]);
+    }
+
+    // ---- Combination pass (opt-in): every unordered pair of candidates,
+    // split symmetrically across the cluster (2+2 / 3+3). The split-mount
+    // variant is a SEPARATE engine handle; the design handle is untouched.
+    if (comboActive && !cancelled.current && clusterSplit) {
+      const group = clusterSplit.groupSize;
+      const configTag = `mixed ${group}+${group}`;
+      const comboRocket = OrkRocket.buildTree(engineTree(clusterSplit.tree));
+      comboRocket.setRogersModifiedBarrowman(kbf);
+      comboRocket.setSupersonicAero(batchModel === 'supersonic');
+      const [idA, idB] = clusterSplit.mountIds;
+      let done = candidates.length;
+      for (let i = 0; i < candidates.length && !cancelled.current; i++) {
+        for (let j = i + 1; j < candidates.length && !cancelled.current; j++) {
+          const eA = candidates[i]!;
+          const eB = candidates[j]!;
+          const label = `${group}× ${displayDesignation(eA.designation, eA.manufacturerAbbrev)} + ${group}× ${displayDesignation(eB.designation, eB.manufacturerAbbrev)}`;
+          setProgress({ done, total: totalSims, current: label });
+          done++;
+          await new Promise((r) => setTimeout(r, 0));
+          try {
+            const specA = specCache.get(eA.motorId) ?? await fetchMotorSpec(eA, 0);
+            const specB = specCache.get(eB.motorId) ?? await fetchMotorSpec(eB, 0);
+            const t0 = performance.now();
+            if (batchModel === 'auto') comboRocket.setSupersonicAero(false);
+            comboRocket.setMotorById(idA, specA);
+            comboRocket.setMotorById(idB, specB);
+            let res = comboRocket.simulate(simOpts);
+            let usedSupersonic = batchModel === 'supersonic';
+            if (batchModel === 'auto' && res.summary.maxMachNumber > 0.9) {
+              comboRocket.setSupersonicAero(true);
+              res = comboRocket.simulate(simOpts);
+              usedSupersonic = true;
+            }
+            let flownDelay = specA.ejectionDelay;
+            if (criteria.autoDelay) {
+              const rec = recommendDelay(res.summary.optimumDelay);
+              if (rec !== null) {
+                flownDelay = rec;
+                comboRocket.setMotorById(idA, { ...specA, ejectionDelay: rec });
+                comboRocket.setMotorById(idB, { ...specB, ejectionDelay: rec });
+                res = comboRocket.simulate(simOpts);
+              }
+            }
+            const run = buildSimRun({
+              result: res,
+              info,
+              motor: { ...specA, ejectionDelay: flownDelay },
+              meta: {
+                label,
+                manufacturer: eA.manufacturerAbbrev === eB.manufacturerAbbrev ? eA.manufacturerAbbrev : `${eA.manufacturerAbbrev}+${eB.manufacturerAbbrev}`,
+                autoDelay: criteria.autoDelay,
+                motorCount: group * 2,
+                highPower: isHighPower(eA) || isHighPower(eB),
+              },
+              launch,
+              rocketName,
+              execMs: performance.now() - t0,
+              aeroModel: batchModel === 'auto' && usedSupersonic ? 'auto-supersonic'
+                : usedSupersonic ? 'supersonic' : 'classic',
+              rogersKbf: kbf && !usedSupersonic,
+              motorConfig: configTag,
+            });
+            // The stored designation is the pair label so saved runs read right.
+            run.motor = label;
+            const failed = gradeRun(run);
+            out.push({ entry: eA, label, run, failed });
+            if (failed.length === 0) accepted.push(run);
+          } catch (e) {
+            out.push({ entry: eA, label, error: e instanceof Error ? e.message : String(e), failed: ['error'] });
+          }
+          setRows([...out]);
+        }
+      }
     }
 
     // Put the shared design handle back exactly as the app configured it —
@@ -261,14 +355,32 @@ export function BatchSimulate({ rocket, info, mountId, mountDiameterMm, maxMotor
     a.click();
     URL.revokeObjectURL(a.href);
   };
-  const downloadCsv = () => {
+  // Export ordering (the owner's spec): with combination results present, group by
+  // motor config — all single-motor rows first, then the mixed pairs — each
+  // group keeping the accepted-then-apogee sort.
+  const exportRuns = (): SimRun[] => {
     const runsOnly = sorted.filter((r) => r.run).map((r) => r.run!);
-    downloadAs(new Blob([runsToCsv(runsOnly, prefs.units)], { type: 'text/csv' }), 'csv');
+    if (!runsOnly.some((r) => r.motorConfig?.startsWith('mixed'))) return runsOnly;
+    return [
+      ...runsOnly.filter((r) => !r.motorConfig?.startsWith('mixed')),
+      ...runsOnly.filter((r) => r.motorConfig?.startsWith('mixed')),
+    ];
+  };
+  const downloadCsv = () => {
+    downloadAs(new Blob([runsToCsv(exportRuns(), prefs.units)], { type: 'text/csv' }), 'csv');
   };
   const downloadXlsx = () => {
-    const runsOnly = sorted.filter((r) => r.run).map((r) => r.run!);
-    const { headers, rows } = runsToTable(runsOnly, prefs.units);
-    downloadAs(new Blob([tableToXlsx(headers, rows, 'Batch') as BlobPart], { type: XLSX_MIME }), 'xlsx');
+    const all = exportRuns();
+    const mixed = all.filter((r) => r.motorConfig?.startsWith('mixed'));
+    // Combination batches get one tab per config PLUS an everything tab.
+    const sheets: Sheet[] = mixed.length === 0
+      ? [{ name: 'Batch', ...runsToTable(all, prefs.units) }]
+      : [
+        { name: 'All results', ...runsToTable(all, prefs.units) },
+        { name: 'Single motor', ...runsToTable(all.filter((r) => !r.motorConfig?.startsWith('mixed')), prefs.units) },
+        { name: `Mixed ${mixed[0]!.motorConfig!.replace('mixed ', '')}`, ...runsToTable(mixed, prefs.units) },
+      ];
+    downloadAs(new Blob([sheetsToXlsx(sheets) as BlobPart], { type: XLSX_MIME }), 'xlsx');
   };
 
   const velUi = (si: number | null) => (si === null ? undefined : siToUi('velocity', vel, si));
@@ -341,6 +453,14 @@ export function BatchSimulate({ rocket, info, mountId, mountDiameterMm, maxMotor
                 <option value="supersonic">Supersonic — all speeds</option>
               </select>
             </label>
+            {clusterSplit && (
+              <label className="motor-inline-label"
+                title={`Also fly every PAIR of candidates split symmetrically across the ${clusterSplit.groupSize * 2}-motor cluster (${clusterSplit.groupSize}+${clusterSplit.groupSize} in opposite tubes). Off = one motor type in every tube (the default). Pairs grow fast — n candidates add n·(n−1)/2 extra flights.`}>
+                <input type="checkbox" checked={comboMode} style={{ width: 'auto' }}
+                  onChange={(e) => setComboMode(e.target.checked)} />
+                mixed pairs ({clusterSplit.groupSize}+{clusterSplit.groupSize})
+              </label>
+            )}
             <label className="motor-inline-label">
               <input type="checkbox" checked={criteria.autoDelay} style={{ width: 'auto' }}
                 onChange={(e) => setCriteria({ ...criteria, autoDelay: e.target.checked })} />
@@ -357,6 +477,8 @@ export function BatchSimulate({ rocket, info, mountId, mountDiameterMm, maxMotor
         <div className="motor-load-row">
           <span style={{ flex: 1 }} className="motor-db-meta">
             {candidates.length} candidate motors
+            {comboMode && clusterSplit
+              && ` · +${(candidates.length * (candidates.length - 1)) / 2} mixed ${clusterSplit.groupSize}+${clusterSplit.groupSize} combinations`}
             {tooLongCount > 0 && ` · ${tooLongCount} excluded (over max motor length)`}
             {criteria.autoDelay ? ' · 2 sims each (delay probe + final)' : ''}
             {progress && ` — simulating ${progress.done + 1}/${progress.total}: ${progress.current}`}
@@ -400,9 +522,9 @@ export function BatchSimulate({ rocket, info, mountId, mountDiameterMm, maxMotor
                 </tr>
               </thead>
               <tbody>
-                {sorted.map(({ entry, run, error, failed }) => (
-                  <tr key={entry.motorId} className={failed.length ? 'motor-row-long' : ''}>
-                    <td>{entry.manufacturerAbbrev} {displayDesignation(entry.designation, entry.manufacturerAbbrev)}</td>
+                {sorted.map(({ entry, label, run, error, failed }, rowIdx) => (
+                  <tr key={label ?? `${entry.motorId}-${rowIdx}`} className={failed.length ? 'motor-row-long' : ''}>
+                    <td>{label ?? `${entry.manufacturerAbbrev} ${displayDesignation(entry.designation, entry.manufacturerAbbrev)}`}</td>
                     <td>{run ? (Number.isFinite(run.delayS) ? `${run.delayS}s` : 'P') : '—'}</td>
                     <td>{run ? fmtSi('distance', dist, run.maxAltitude) : '—'}</td>
                     <td>{run?.rodExitVelocity != null ? fmtSi('velocity', vel, run.rodExitVelocity) : '—'}</td>

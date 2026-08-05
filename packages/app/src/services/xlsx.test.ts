@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { strFromU8, unzipSync } from 'fflate';
-import { tableToXlsx } from './xlsx.js';
+import { sheetsToXlsx, tableToXlsx } from './xlsx.js';
 
 describe('minimal xlsx writer', () => {
   it('produces a valid workbook zip with typed cells', () => {
@@ -21,6 +21,21 @@ describe('minimal xlsx writer', () => {
     expect(sheet).toContain('<autoFilter ref="A1:C3"/>');
     // Header row is styled bold (s="1").
     expect(sheet).toContain('<c r="A1" s="1"');
+  });
+
+  it('writes multiple sheets with sanitized names', () => {
+    const bytes = sheetsToXlsx([
+      { name: 'All results', headers: ['A'], rows: [[1]] },
+      { name: 'Mixed 2+2: H100/H210', headers: ['A'], rows: [[2]] },
+    ]);
+    const files = unzipSync(bytes);
+    expect(Object.keys(files)).toContain('xl/worksheets/sheet1.xml');
+    expect(Object.keys(files)).toContain('xl/worksheets/sheet2.xml');
+    const wb = strFromU8(files['xl/workbook.xml']!);
+    expect(wb).toContain('name="All results"');
+    // ':' and '/' are illegal in sheet names — sanitized, not dropped.
+    expect(wb).toContain('name="Mixed 2+2  H100 H210"');
+    expect(strFromU8(files['xl/worksheets/sheet2.xml']!)).toContain('<v>2</v>');
   });
 
   it('escapes XML in text cells and skips empty cells', () => {

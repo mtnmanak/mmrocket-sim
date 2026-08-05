@@ -187,6 +187,11 @@ export interface SimRun {
    * interference and supersedes the option. Absent before v0.033.
    */
   rogersKbf?: boolean;
+  /**
+   * Combination-batch grouping: 'single' (one motor type in every tube) or
+   * 'mixed 2+2' / 'mixed 3+3'. Absent outside combination batches.
+   */
+  motorConfig?: string;
   comments: string;
 }
 
@@ -273,8 +278,9 @@ export function buildSimRun(input: {
   boosterMotors?: string[];
   aeroModel?: 'classic' | 'supersonic' | 'auto-supersonic';
   rogersKbf?: boolean;
+  motorConfig?: string;
 }): SimRun {
-  const { result, info, motor, meta, launch, rocketName, execMs, stageMotorInfo, boosterMotors, aeroModel, rogersKbf } = input;
+  const { result, info, motor, meta, launch, rocketName, execMs, stageMotorInfo, boosterMotors, aeroModel, rogersKbf, motorConfig } = input;
   const { summary, series } = result;
 
   const tRod = eventTime(result, 'LAUNCHROD');
@@ -474,6 +480,7 @@ export function buildSimRun(input: {
     execMs,
     aeroModel,
     ...(rogersKbf !== undefined ? { rogersKbf } : {}),
+    ...(motorConfig !== undefined ? { motorConfig } : {}),
     comments: comments.join(' | '),
   };
 }

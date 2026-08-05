@@ -757,9 +757,12 @@ export function App() {
         <BatchSimulate
           rocket={built.rocket}
           info={built.info}
+          tree={tree}
           mountId={primaryMountId}
           mountDiameterMm={mountDiaMm(primaryMountNode)}
-          maxMotorLengthM={maxMotorLen[stageList[stageIndexOf(tree, primaryMountId)]?.id ?? ''] ?? null}
+          maxMotorLengthM={maxMotorLen[stageList[stageIndexOf(tree, primaryMountId)]?.id ?? '']
+            ?? (typeof primaryMountNode?.['maxMotorLength'] === 'number'
+              ? (primaryMountNode['maxMotorLength'] as number) : null)}
           motorCount={primaryMotorCount}
           launch={launch}
           rocketName={tree.name ?? 'Rocket'}
@@ -1111,25 +1114,38 @@ export function App() {
               const stMounts = mounts.filter((m) => stageIndexOf(tree, m.id!) === stIdx);
               if (stMounts.length === 0) return null;
               const stName = st.name ?? `Stage ${stIdx + 1}`;
-              const stMax = st.id ? maxMotorLen[st.id] ?? null : null;
+              // Effective limit: the per-stage override when typed, else the
+              // first mount tube carrying a design-time maxMotorLength.
+              const designMax = stMounts
+                .map((m) => findNode(tree, m.id!)?.['maxMotorLength'])
+                .find((v): v is number => typeof v === 'number') ?? null;
+              const stMax = (st.id ? maxMotorLen[st.id] : null) ?? designMax;
               return (
                 <div key={st.id}>
                   {isStaged && <div className="motor-stage-header">{stName}</div>}
+                  {/* The PRIMARY limit lives on the mount tube in the design
+                      (persists in the tree and .ork). This field is a
+                      per-stage OVERRIDE on top; clearing it falls back to the
+                      design value (2026-08-05 chat). */}
                   <div className="field" style={{ marginBottom: 8 }}
-                    title={`Longest motor ${isStaged ? `the ${stName} stage's` : 'the'} airframe has room for — each stage has its own limit. Longer motors are flagged in the browser and excluded from batch simulation.`}>
-                    <label>Max motor length <UnitChip quantity="motorDimensions" /></label>
+                    title={`Longest motor ${isStaged ? `the ${stName} stage's` : 'the'} airframe has room for. The design value is set on the motor mount tube itself (Design tab) and travels with the rocket; typing here overrides it for this stage. Longer motors are flagged in the browser and excluded from batch simulation.`}>
+                    <label>Max motor length {stMax !== null && st.id && maxMotorLen[st.id] == null ? '(from design)' : '(override)'} <UnitChip quantity="motorDimensions" /></label>
                     <NumField
-                      value={stMax === null
-                        ? undefined
-                        : siToUi('motorDimensions', prefs.units.motorDimensions, stMax)}
+                      value={st.id && maxMotorLen[st.id] != null
+                        ? siToUi('motorDimensions', prefs.units.motorDimensions, maxMotorLen[st.id]!)
+                        : undefined}
                       step={niceStep(siToUi('motorDimensions', prefs.units.motorDimensions, 0.005))}
                       nullable
-                      placeholder="no limit"
-                      ariaLabel={`Maximum motor length for ${stName}`}
-                      onCommit={(v) => setMaxMotorLen((prev) => ({
-                        ...prev,
-                        [st.id!]: v === null ? null : uiToSi('motorDimensions', prefs.units.motorDimensions, v),
-                      }))}
+                      placeholder={stMax !== null
+                        ? `design: ${fmtSi('motorDimensions', prefs.units.motorDimensions, stMax)}`
+                        : 'no limit'}
+                      ariaLabel={`Maximum motor length override for ${stName}`}
+                      onCommit={(v) => setMaxMotorLen((prev) => {
+                        const next = { ...prev };
+                        if (v === null) delete next[st.id!]; // back to the design value
+                        else next[st.id!] = uiToSi('motorDimensions', prefs.units.motorDimensions, v);
+                        return next;
+                      })}
                     />
                   </div>
                   {stMounts.map((m) => {

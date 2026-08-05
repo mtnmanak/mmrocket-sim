@@ -283,6 +283,55 @@ export function engineTree(tree: RocketTree): RocketTree {
   return { ...tree, components: walk(tree.components) };
 }
 
+export interface ClusterSplit {
+  tree: RocketTree;
+  /** The two symmetric group mounts replacing the original cluster mount. */
+  mountIds: [string, string];
+  /** Motors per group (2 for a 4-ring split, 3 for a 6-ring split). */
+  groupSize: number;
+  pattern: '4-ring' | '6-ring';
+}
+
+/**
+ * Combination batching (2026-08-05 chat): split a 4-ring / 6-ring cluster
+ * mount into TWO symmetric group mounts occupying the SAME tube positions —
+ * a 4-ring becomes two 'double' mounts on its diagonals (scale ×√2, ±45°),
+ * a 6-ring two '3-ring' mounts on alternating tubes (scale ×√3, 0°/60°).
+ * One motor type per kernel cluster mount is the engine's rule, so this is
+ * exactly the two-group symmetric arrangement the owner described (2+2 / 3+3).
+ * Pure; returns null for anything that isn't a 4-ring/6-ring inner tube.
+ */
+export function splitClusterTree(tree: RocketTree, mountId: string): ClusterSplit | null {
+  const mount = findNode(tree, mountId);
+  if (!mount || mount.type !== 'innertube') return null;
+  const pattern = mount['cluster'];
+  if (pattern !== '4-ring' && pattern !== '6-ring') return null;
+  const s = typeof mount['clusterScale'] === 'number' ? (mount['clusterScale'] as number) : 1;
+  const phi = typeof mount['clusterRotation'] === 'number' ? (mount['clusterRotation'] as number) : 0;
+  const mk = (sub: string, scaleMul: number, rotAdd: number, suffix: string): ComponentNode => ({
+    ...mount,
+    id: freshId(),
+    name: `${mount.name ?? 'Motor mount'} ${suffix}`,
+    cluster: sub,
+    clusterScale: s * scaleMul,
+    clusterRotation: phi + rotAdd,
+    children: mount.children?.map(cloneSubtree),
+  } as ComponentNode);
+  const [a, b] = pattern === '4-ring'
+    ? [mk('double', Math.SQRT2, Math.PI / 4, '(pair A)'), mk('double', Math.SQRT2, (3 * Math.PI) / 4, '(pair B)')]
+    : [mk('3-ring', Math.sqrt(3), 0, '(trio A)'), mk('3-ring', Math.sqrt(3), Math.PI / 3, '(trio B)')];
+  const walk = (nodes: ComponentNode[]): ComponentNode[] => nodes.flatMap((n) => {
+    if (n.id === mountId) return [a, b];
+    return [n.children ? ({ ...n, children: walk(n.children) } as ComponentNode) : n];
+  });
+  return {
+    tree: { ...tree, components: walk(tree.components) },
+    mountIds: [a.id!, b.id!],
+    groupSize: pattern === '4-ring' ? 2 : 3,
+    pattern,
+  };
+}
+
 /** Deep copy with fresh ids at every level (clipboard paste, duplicate). */
 export function cloneSubtree(node: ComponentNode): ComponentNode {
   return {

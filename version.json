@@ -1,5 +1,5 @@
 {
-  "version": "0.036",
+  "version": "0.037",
   "released": "2026-08-05",
-  "note": "One clear aerodynamics picker (OpenRocket Extended Barrowman / Rogers Modified Barrowman default / Auto / our supersonic model - the confusing Kbf checkbox is gone); batch motor runs get their own model choice defaulting to Auto; new XLSX export with typed cells so spreadsheets never mangle your data; RockSim external pods and fin cant now import and export."
+  "note": "Mixed-motor combination batching: opt-in 'mixed pairs' in the batch dialog flies every candidate pair split symmetrically across 4- and 6-motor clusters (2+2 / 3+3), with results grouped by motor config in the CSV and on separate XLSX tabs. Max motor length now lives on the motor mount tube in the design so it persists with the rocket; the Motors & Launch field is a per-stage override."
 }

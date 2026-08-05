@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.036';
+export const APP_VERSION = '0.037';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.037',
+    date: '2026-08-05',
+    title: 'Mixed-motor combination batching + max motor length on the mount',
+    items: [
+      'NEW: combination batching for 4- and 6-motor clusters. An opt-in "mixed pairs" checkbox in the batch dialog (off by default — the default batch still flies one motor type in every tube) also flies every PAIR of candidates split symmetrically across the cluster: 2+2 in opposite tubes on a 4-motor, 3+3 alternating on a 6-motor. The tube positions are exact — the cluster is split into two symmetric groups occupying the same holes. Larger clusters are deliberately out (no symmetric mixed arrangement worth flying), and the dialog shows the flight count before you commit — pairs grow fast.',
+      'Combination results are grouped: a "Motor config" column (single / mixed 2+2) in every export, CSV sorted with single-motor rows first then the pairs, and the XLSX gets three tabs — All results, Single motor, Mixed pairs.',
+      'Max motor length now lives ON the motor mount tube (Design tab), so it persists with the design — through sessions, .ork saves, everything. The Motors & Launch field became a per-stage OVERRIDE: it shows the design value as its placeholder, typing overrides it, clearing it falls back. (The old field was session-only and silently vanished when a design was reopened from a file — that was the bug.)',
+      'Fixed: clearing the Motors & Launch limit now genuinely removes the override instead of storing a permanent "no limit".',
+    ],
+  },
   {
     version: '0.036',
     date: '2026-08-05',

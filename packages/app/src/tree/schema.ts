@@ -306,6 +306,10 @@ export const FIELDS: Record<ComponentType, FieldDef[]> = {
     { key: 'clusterScale', label: 'Cluster spacing (× tube ⌀)', unit: 'none', step: 0.05, smin: 1, smax: 3 },
     { key: 'clusterRotation', label: 'Cluster rotation', unit: 'deg', step: 5, smin: -180, smax: 180 },
     { key: 'motorOverhang', label: 'Motor overhang (past aft end)', unit: 'mm', step: 1, smin: -50, smax: 100 },
+    // A physical property of the airframe (how much room the mount really
+    // has), so it lives ON the mount and persists through sessions and .ork
+    // files. The Motors & Launch tab offers a per-stage override on top.
+    { key: 'maxMotorLength', label: 'Max motor length (blank = no limit)', unit: 'mm', step: 5 },
     DENSITY,
   ],
   tubecoupler: [
