@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { OrkRocket, type RocketTree, type SimulationOptions, type StaticInfo } from '@online-openrocket/engine';
+import { OrkRocket, type MotorSpec, type RocketTree, type SimulationOptions, type StaticInfo } from '@online-openrocket/engine';
 import { engineTree, splitClusterTree } from '../tree/treeModel.js';
 import { sheetsToXlsx, type Sheet } from '../services/xlsx.js';
 import {
@@ -65,25 +65,32 @@ interface BatchRow {
   failed: string[];
 }
 
-export function BatchSimulate({ rocket, info, tree, mountId, mountDiameterMm, maxMotorLengthM, motorCount, launch, rocketName, handleFlags, onRunsChange, onClose }: {
-  rocket: OrkRocket;
-  /** The editing tree — combination mode rebuilds a split-mount variant. */
+export interface BatchMountOption {
+  id: string;
+  label: string;
+  diameterMm: number;
+  /** Cluster count — each candidate fires ×N. */
+  motorCount: number;
+  /** Effective max motor length (override ?? mount design value), SI m. */
+  maxMotorLengthM: number | null;
+}
+
+export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMotors, launch, rocketName, onRunsChange, onClose }: {
+  /** The editing tree — the batch builds its OWN engine handles from it, so
+   *  the design's shared handle is never touched (no restore, no stale
+   *  motors left on unassigned mounts). */
   tree: RocketTree;
   info: StaticInfo;
-  mountId: string;
-  mountDiameterMm: number;
-  /** Rocket-level max motor length (SI m); null = no limit. Too-long motors are excluded. */
-  maxMotorLengthM: number | null;
-  /** Cluster count of the mount — each candidate fires ×N (thrust/mass automatic). */
-  motorCount: number;
+  /** Every motor mount in the (single-stage) design — the user picks which
+   *  one the batch targets (2026-08-05: a ring around a central mount needs
+   *  the ring selectable). */
+  mounts: BatchMountOption[];
+  initialMountId: string;
+  /** Currently assigned motors by mount id — mounts OTHER than the batch
+   *  target fly with these during every batch flight. */
+  assignedMotors: Record<string, MotorSpec>;
   launch: LaunchConditions;
   rocketName: string;
-  /**
-   * The design handle's current aero flags — the batch picks its OWN model
-   * (2026-08-05c: default Auto, since candidates straddle Mach 1) and must
-   * put the shared handle back exactly as found when it's done.
-   */
-  handleFlags: { rogersKbf: boolean; supersonic: boolean };
   onRunsChange: (runs: SimRun[]) => void;
   onClose: () => void;
 }) {
@@ -96,11 +103,18 @@ export function BatchSimulate({ rocket, info, tree, mountId, mountDiameterMm, ma
   // routinely spans subsonic to supersonic flights, and one fixed model
   // would be wrong at one end or the other.
   const [batchModel, setBatchModel] = useState<'eb' | 'kbf' | 'auto' | 'supersonic'>('auto');
+  // Which mount the batch targets (candidates, cluster count, max length and
+  // the combination split all follow it).
+  const [mountId, setMountId] = useState(initialMountId);
+  const sel = mounts.find((m) => m.id === mountId) ?? mounts[0]!;
+  const mountDiameterMm = sel.diameterMm;
+  const maxMotorLengthM = sel.maxMotorLengthM;
+  const motorCount = sel.motorCount;
   // Combination mode (opt-in, 4- and 6-motor clusters only): also fly every
   // unordered PAIR of candidates split symmetrically across the cluster
   // (2+2 / 3+3 — the owner's symmetry rule; larger clusters deliberately out).
   const [comboMode, setComboMode] = useState(false);
-  const clusterSplit = useMemo(() => splitClusterTree(tree, mountId), [tree, mountId]);
+  const clusterSplit = useMemo(() => splitClusterTree(tree, sel.id), [tree, sel.id]);
   const [rows, setRows] = useState<BatchRow[]>([]);
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number; current: string } | null>(null);
@@ -166,10 +180,22 @@ export function BatchSimulate({ rocket, info, tree, mountId, mountDiameterMm, ma
     setRows([]);
     const out: BatchRow[] = [];
     const accepted: SimRun[] = [];
-    // Apply the batch's model to the shared handle (restored at the end).
     const kbf = batchModel !== 'eb';
-    rocket.setRogersModifiedBarrowman(kbf);
-    rocket.setSupersonicAero(batchModel === 'supersonic');
+    // The batch flies its OWN handle built from the tree — the design's
+    // shared handle is never touched. Mounts other than the target keep
+    // their assigned motors for every flight.
+    const applyOthers = (r: OrkRocket, targetIds: string[]) => {
+      for (const [id, spec] of Object.entries(assignedMotors)) {
+        if (!targetIds.includes(id)) {
+          try { r.setMotorById(id, spec); } catch { /* mount absent in variant */ }
+        }
+      }
+    };
+    const batchRocket = OrkRocket.buildTree(engineTree(tree));
+    batchRocket.setRogersModifiedBarrowman(kbf);
+    batchRocket.setSupersonicAero(batchModel === 'supersonic');
+    applyOthers(batchRocket, [sel.id]);
+    const rocket = batchRocket;
     const simOpts: SimulationOptions = {
       launchRodLength: launch.launchRodLengthM,
       launchRodAngle: (launch.launchRodAngleDeg * Math.PI) / 180,
@@ -266,6 +292,7 @@ export function BatchSimulate({ rocket, info, tree, mountId, mountDiameterMm, ma
       const comboRocket = OrkRocket.buildTree(engineTree(clusterSplit.tree));
       comboRocket.setRogersModifiedBarrowman(kbf);
       comboRocket.setSupersonicAero(batchModel === 'supersonic');
+      applyOthers(comboRocket, [...clusterSplit.mountIds, sel.id]);
       const [idA, idB] = clusterSplit.mountIds;
       let done = candidates.length;
       for (let i = 0; i < candidates.length && !cancelled.current; i++) {
@@ -332,10 +359,6 @@ export function BatchSimulate({ rocket, info, tree, mountId, mountDiameterMm, ma
       }
     }
 
-    // Put the shared design handle back exactly as the app configured it —
-    // statics/drag charts read it after this dialog closes.
-    rocket.setRogersModifiedBarrowman(handleFlags.rogersKbf);
-    rocket.setSupersonicAero(handleFlags.supersonic);
     setProgress(null);
     setRunning(false);
     if (accepted.length > 0) onRunsChange(addRuns(accepted));
@@ -453,6 +476,16 @@ export function BatchSimulate({ rocket, info, tree, mountId, mountDiameterMm, ma
                 <option value="supersonic">Supersonic — all speeds</option>
               </select>
             </label>
+            {mounts.length > 1 && (
+              <label className="motor-inline-label"
+                title="Which motor mount the batch flies candidates in. Other mounts keep their currently loaded motors for every flight.">
+                mount
+                <select value={mountId} disabled={running}
+                  onChange={(e) => { setMountId(e.target.value); setComboMode(false); }}>
+                  {mounts.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+                </select>
+              </label>
+            )}
             {clusterSplit && (
               <label className="motor-inline-label"
                 title={`Also fly every PAIR of candidates split symmetrically across the ${clusterSplit.groupSize * 2}-motor cluster (${clusterSplit.groupSize}+${clusterSplit.groupSize} in opposite tubes). Off = one motor type in every tube (the default). Pairs grow fast — n candidates add n·(n−1)/2 extra flights.`}>

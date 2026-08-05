@@ -1,5 +1,5 @@
 {
-  "version": "0.037",
+  "version": "0.038",
   "released": "2026-08-05",
-  "note": "Mixed-motor combination batching: opt-in 'mixed pairs' in the batch dialog flies every candidate pair split symmetrically across 4- and 6-motor clusters (2+2 / 3+3), with results grouped by motor config in the CSV and on separate XLSX tabs. Max motor length now lives on the motor mount tube in the design so it persists with the rocket; the Motors & Launch field is a per-stage override."
+  "note": "RockSim cluster imports now survive RockSim's own rounding quirks (the reported 12in Darkstar's 6x75mm ring imports as a real 6-motor cluster around its central 98mm mount); the batch dialog gets a mount picker so you can batch the cluster ring while the central mount keeps its motor (this also surfaces the mixed 3+3 option on 6-motor clusters); and a new eject button in the vitals strip unloads all motors in one click to view the rocket clean."
 }

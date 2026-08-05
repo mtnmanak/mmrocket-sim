@@ -460,18 +460,27 @@ export function importRkt(data: ArrayBuffer | string): OrkTreeImportResult {
   const reconstructClusters = (nodes: ComponentNode[]) => {
     for (const parentNode of nodes) {
       const kids = parentNode.children ?? [];
-      const groups = new Map<string, ComponentNode[]>();
+      // TOLERANT grouping: RockSim rounds the same physical tube differently
+      // between copies (the owner's Darkstar cluster: OD 79.38 on tube 1 vs 79.375
+      // on tubes 2–6), so an exact-key match split the ring and killed the
+      // reconstruction. Tubes group when length/radius agree within 1% and
+      // axial position within 1 mm.
+      const groups: ComponentNode[][] = [];
+      const near = (a: number, b: number, rel: number, abs: number) =>
+        Math.abs(a - b) <= Math.max(abs, rel * Math.max(Math.abs(a), Math.abs(b)));
+      const nnum2 = (n: ComponentNode, key: string): number =>
+        typeof n[key] === 'number' ? (n[key] as number) : 0;
       for (const kid of kids) {
         if (kid.type !== 'innertube') continue;
-        const gk = [
-          Number(kid['length'] ?? 0).toFixed(6),
-          Number(kid['outerRadius'] ?? 0).toFixed(6),
-          kid.position?.method ?? '',
-          Number(kid.position?.offset ?? 0).toFixed(6),
-        ].join('|');
-        const g = groups.get(gk) ?? [];
-        g.push(kid);
-        groups.set(gk, g);
+        const g = groups.find((grp) => {
+          const ref = grp[0]!;
+          return (ref.position?.method ?? '') === (kid.position?.method ?? '')
+            && near(nnum2(ref, 'length'), nnum2(kid, 'length'), 0.01, 1e-4)
+            && near(nnum2(ref, 'outerRadius'), nnum2(kid, 'outerRadius'), 0.01, 5e-5)
+            && near(ref.position?.offset ?? 0, kid.position?.offset ?? 0, 0, 0.001);
+        });
+        if (g) g.push(kid);
+        else groups.push([kid]);
       }
       for (const g of groups.values()) {
         if (g.length < 2 || !g.some((t) => radialByNode.has(t))) continue;

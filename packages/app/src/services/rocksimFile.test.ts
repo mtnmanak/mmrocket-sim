@@ -192,6 +192,47 @@ describe('RockSim export → import round trip', () => {
     expect(back.notes.join(' ')).toMatch(/cluster/i);
   });
 
+  it('reconstructs a real-world ring despite RockSim rounding drift (Darkstar case)', () => {
+    // the owner's 12in Darkstar: 6×75mm ring (RadialLoc 95.25 mm, exact 60° steps
+    // in radians) around a central 98mm mount — but RockSim wrote tube 1's
+    // OD as 79.38 and tubes 2–6 as 79.375, which defeated exact-key grouping.
+    const tube = (name: string, od: number, angle: number) => `
+      <BodyTube><Name>${name}</Name><IsInsideTube>1</IsInsideTube><IsMotorMount>1</IsMotorMount>
+        <OD>${od}</OD><ID>${od - 2}</ID><Len>1219.2</Len><Xb>0.</Xb>
+        <RadialLoc>95.25</RadialLoc><RadialAngle>${angle}</RadialAngle>
+      </BodyTube>`;
+    const xml = `<RockSimDocument><DesignInformation><RocketDesign>
+      <Name>Darkstar-ish</Name><StageCount>1</StageCount>
+      <Stage3Parts>
+        <BodyTube><Name>Booster</Name><OD>310</OD><ID>305</ID><Len>1390.65</Len>
+          <AttachedParts>
+            <BodyTube><Name>central 98</Name><IsInsideTube>1</IsInsideTube><IsMotorMount>1</IsMotorMount>
+              <OD>102.</OD><ID>98</ID><Len>1390.65</Len><Xb>0.</Xb>
+              <RadialLoc>0.</RadialLoc><RadialAngle>0.</RadialAngle>
+            </BodyTube>
+            ${tube('cluster motor tube 1', 79.38, 0)}
+            ${tube('cluster motor tube 2', 79.375, 1.0472)}
+            ${tube('cluster motor tube 3', 79.375, 2.0944)}
+            ${tube('cluster motor tube 4', 79.375, 3.14159)}
+            ${tube('cluster motor tube 5', 79.375, -2.0944)}
+            ${tube('cluster motor tube 6', 79.375, -1.0472)}
+          </AttachedParts>
+        </BodyTube>
+      </Stage3Parts><Stage2Parts/><Stage1Parts/>
+    </RocketSimDocument-typo-guard></RocketDesign></DesignInformation></RockSimDocument>`
+      .replace('</RocketSimDocument-typo-guard>', '');
+    const r = importRkt(xml);
+    const tubes = flatten(r.tree.components).filter((c) => c.type === 'innertube');
+    expect(tubes.length).toBe(2); // central + ONE reconstructed 6-ring
+    const ring = tubes.find((t) => t['cluster'] === '6-ring')!;
+    expect(ring).toBeDefined();
+    // separation = 2·r·scale; circumradius (=separation for 6-ring) = 95.25mm.
+    expect((ring['clusterScale'] as number) * 2 * (ring['outerRadius'] as number)).toBeCloseTo(0.09525, 4);
+    const central = tubes.find((t) => t !== ring)!;
+    expect(central['cluster']).toBeUndefined();
+    expect(central['outerRadius']).toBeCloseTo(0.051, 9);
+  });
+
   it('reconstructs a rotated, spaced cluster with its scale and rotation', () => {
     const clustered = {
       name: 'C2', tree: {

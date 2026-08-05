@@ -755,28 +755,29 @@ export function App() {
       {showChangelog && <ChangelogDialog onClose={() => setShowChangelog(false)} />}
       {showBatch && built && primaryMountId && !isStaged && (
         <BatchSimulate
-          rocket={built.rocket}
           info={built.info}
           tree={tree}
-          mountId={primaryMountId}
-          mountDiameterMm={mountDiaMm(primaryMountNode)}
-          maxMotorLengthM={maxMotorLen[stageList[stageIndexOf(tree, primaryMountId)]?.id ?? '']
-            ?? (typeof primaryMountNode?.['maxMotorLength'] === 'number'
-              ? (primaryMountNode['maxMotorLength'] as number) : null)}
-          motorCount={primaryMotorCount}
+          // Every mount is batchable — a cluster ring around a central mount
+          // (the owner's Darkstar) needs the RING selectable, not just the primary.
+          mounts={mounts.map((m) => {
+            const mNode = findNode(tree, m.id!);
+            const stId = stageList[stageIndexOf(tree, m.id!)]?.id ?? '';
+            return {
+              id: m.id!,
+              label: `${m.name ?? 'Motor mount'} (⌀ ${classLabel(diameterClass(mountDiaMm(mNode)))} mm${clusterCount(mNode?.['cluster'] as string | undefined) > 1 ? ` ×${clusterCount(mNode?.['cluster'] as string | undefined)}` : ''})`,
+              diameterMm: mountDiaMm(mNode),
+              motorCount: clusterCount(mNode?.['cluster'] as string | undefined),
+              maxMotorLengthM: maxMotorLen[stId]
+                ?? (typeof mNode?.['maxMotorLength'] === 'number' ? (mNode['maxMotorLength'] as number) : null),
+            };
+          })}
+          initialMountId={primaryMountId}
+          assignedMotors={Object.fromEntries(
+            Object.entries(mountMotors).map(([id, mm]) => [id, mm.spec]))}
           launch={launch}
           rocketName={tree.name ?? 'Rocket'}
-          handleFlags={{ rogersKbf: prefs.rogersKbf ?? true, supersonic: effectiveSupersonic }}
           onRunsChange={setRuns}
-          onClose={() => {
-            // Batch runs left some other motor on the engine-side rocket —
-            // restore the one the UI shows.
-            try {
-              const mm = mountMotors[primaryMountId];
-              if (mm) built.rocket.setMotorById(primaryMountId, mm.spec);
-            } catch { /* rebuilt anyway */ }
-            setShowBatch(false);
-          }}
+          onClose={() => setShowBatch(false)}
         />
       )}
       {confirmNew && (
@@ -856,6 +857,13 @@ export function App() {
             <span className="vitals-value">
               {primaryLabel ?? <span className="vitals-none">none</span>}
               {assigned.length > 1 ? ` +${assigned.length - 1}` : ''}
+              {assigned.length > 0 && (
+                // One click from ANY tab: strip every loaded motor so the
+                // rocket can be viewed/weighed clean (2026-08-05 chat).
+                <button className="fin-row-del" style={{ marginLeft: 6 }}
+                  title="Unload all motors — view and weigh the rocket clean (empty mass, no motor silhouettes). Reload any time from Motors & Launch."
+                  onClick={() => setMountMotors({})}>⏏</button>
+              )}
             </span>
           </span>
           {effectiveSupersonic && (

@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.037';
+export const APP_VERSION = '0.038';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.038',
+    date: '2026-08-05',
+    title: 'Real-world cluster imports, batch mount picker, unload motors',
+    items: [
+      'RockSim cluster reconstruction now tolerates RockSim\'s own rounding drift — real files write the same physical tube with slightly different diameters between copies (79.38 vs 79.375 mm in the reported 12" Darkstar), which silently broke the ring detection. Tubes now group within 1%, and that Darkstar\'s 6×75mm ring imports as one tagged 6-motor cluster around its central 98mm mount.',
+      'The batch dialog gets a MOUNT picker: choose which motor mount the batch flies candidates in (the ring or the central mount, for example). Other mounts keep their currently loaded motors for every flight, so you can batch the ring while the central 98 carries its chosen motor. This is also why "mixed pairs (3+3)" seemed missing on 6-motor clusters — the option existed, but the batch was locked to the primary mount; pick the cluster mount and it appears.',
+      'Batch simulation no longer touches the design\'s engine state at all — it flies its own private copy, so a batch can never leave a stray motor on the design.',
+      'New ⏏ button in the vitals strip (visible on every tab, next to the Motor readout): unload ALL motors in one click to view and weigh the rocket clean. Reload any time from Motors & Launch.',
+    ],
+  },
   {
     version: '0.037',
     date: '2026-08-05',
