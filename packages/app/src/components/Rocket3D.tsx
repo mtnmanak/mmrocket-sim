@@ -135,7 +135,7 @@ export function buildPieces(tree: RocketTree): { pieces: Piece[]; totalLen: numb
     geo.translate(0, 0, -thickness / 2);
 
     for (let i = 0; i < count; i++) {
-      const angle = (2 * Math.PI * i) / count;
+      const angle = num(child, 'rotation', 0) + (2 * Math.PI * i) / count;
       // Fin lies in the XY plane, root on the surface (+Y), then rotate about X.
       const g = geo.clone();
       g.translate(start, pRadius, 0);
@@ -159,7 +159,7 @@ export function buildPieces(tree: RocketTree): { pieces: Piece[]; totalLen: numb
         const start = axialStart(child, len, pStart, pLen);
         maxR = Math.max(maxR, pRadius + 2 * rt);
         for (let i = 0; i < count; i++) {
-          const angle = (2 * Math.PI * i) / count;
+          const angle = num(child, 'rotation', 0) + (2 * Math.PI * i) / count;
           // Open tube: an annulus extruded along the body axis.
           const ring = new THREE.Shape();
           ring.absarc(0, 0, rt, 0, 2 * Math.PI, false);

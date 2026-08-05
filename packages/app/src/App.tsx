@@ -986,6 +986,18 @@ export function App() {
                   : parent?.children ?? [];
                 const prev = siblings.length ? siblings[siblings.length - 1]! : null;
                 const node = inheritDefaults(makeNode(type), parent, prev);
+                // Adding a second fin-type set to a tube: default it BETWEEN
+                // the existing set's fins instead of on top of them
+                // (2026-08-05d — tube fins + straight fins interleave).
+                if (type.endsWith('finset') && parent !== 'stage') {
+                  const existing = (parent?.children ?? []).find((c) => c.type.endsWith('finset'));
+                  if (existing) {
+                    const exRot = typeof existing['rotation'] === 'number' ? (existing['rotation'] as number) : 0;
+                    const exCount = Math.max(1, Math.round(
+                      typeof existing['finCount'] === 'number' ? (existing['finCount'] as number) : 3));
+                    node['rotation'] = exRot + Math.PI / exCount;
+                  }
+                }
                 setTree(addChild(tree, parentId, node));
                 setSelectedId(node.id!);
               }}

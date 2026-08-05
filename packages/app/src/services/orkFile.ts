@@ -219,6 +219,7 @@ export function importOrk(data: ArrayBuffer | string): OrkTreeImportResult {
         if (cs && cs !== 'square') n['crossSection'] = cs;
         readAirfoil(el, n);
         readFinTabs(el, n);
+        readFinRotation(el, n);
         return n;
       }
       case 'freeformfinset': {
@@ -231,6 +232,7 @@ export function importOrk(data: ArrayBuffer | string): OrkTreeImportResult {
         if (csF && csF !== 'square') n['crossSection'] = csF;
         readAirfoil(el, n);
         readFinTabs(el, n);
+        readFinRotation(el, n);
         const ptEls = Array.from(el.querySelectorAll(':scope > finpoints > point'));
         // A missing x/y attribute must SKIP the point (Number(null) is 0,
         // which would silently drop a vertex onto the origin).
@@ -253,6 +255,7 @@ export function importOrk(data: ArrayBuffer | string): OrkTreeImportResult {
         if (csE && csE !== 'square') n['crossSection'] = csE;
         readAirfoil(el, n);
         readFinTabs(el, n);
+        readFinRotation(el, n);
         return n;
       }
       case 'tubefinset': {
@@ -263,6 +266,7 @@ export function importOrk(data: ArrayBuffer | string): OrkTreeImportResult {
         if (!Number.isNaN(r)) n['outerRadius'] = r;
         const th = num(el, 'thickness', NaN);
         if (!Number.isNaN(th)) n['thickness'] = th;
+        readFinRotation(el, n);
         return n;
       }
       case 'innertube': {
@@ -714,7 +718,7 @@ export function exportOrk({ name, tree, motors, motor, mountId }: OrkTreeExportI
         emit(depth + 1, `<fincount>${n(node, 'finCount', 3)}</fincount>`);
         emit(depth + 1, '<radiusoffset method="surface">0.0</radiusoffset>');
         emit(depth + 1, '<angleoffset method="relative">0.0</angleoffset>');
-        emit(depth + 1, '<rotation>0.0</rotation>');
+        emit(depth + 1, `<rotation>${(n(node, 'rotation', 0) * 180) / Math.PI}</rotation>`);
         position(depth + 1, node, 'bottom');
         finishXml(depth + 1, node);
         material(depth + 1, node);
@@ -739,7 +743,7 @@ export function exportOrk({ name, tree, motors, motor, mountId }: OrkTreeExportI
         emit(depth + 1, `<fincount>${n(node, 'finCount', 3)}</fincount>`);
         emit(depth + 1, '<radiusoffset method="surface">0.0</radiusoffset>');
         emit(depth + 1, '<angleoffset method="relative">0.0</angleoffset>');
-        emit(depth + 1, '<rotation>0.0</rotation>');
+        emit(depth + 1, `<rotation>${(n(node, 'rotation', 0) * 180) / Math.PI}</rotation>`);
         position(depth + 1, node, 'bottom');
         finishXml(depth + 1, node);
         material(depth + 1, node);
@@ -766,7 +770,7 @@ export function exportOrk({ name, tree, motors, motor, mountId }: OrkTreeExportI
         emit(depth + 1, `<fincount>${n(node, 'finCount', 3)}</fincount>`);
         emit(depth + 1, '<radiusoffset method="surface">0.0</radiusoffset>');
         emit(depth + 1, '<angleoffset method="relative">0.0</angleoffset>');
-        emit(depth + 1, '<rotation>0.0</rotation>');
+        emit(depth + 1, `<rotation>${(n(node, 'rotation', 0) * 180) / Math.PI}</rotation>`);
         position(depth + 1, node, 'bottom');
         finishXml(depth + 1, node);
         material(depth + 1, node);
@@ -789,7 +793,7 @@ export function exportOrk({ name, tree, motors, motor, mountId }: OrkTreeExportI
         emit(depth + 1, `<fincount>${n(node, 'finCount', 6)}</fincount>`);
         emit(depth + 1, '<radiusoffset method="coaxial">0.0</radiusoffset>');
         emit(depth + 1, '<angleoffset method="fixed">0.0</angleoffset>');
-        emit(depth + 1, '<rotation>0.0</rotation>');
+        emit(depth + 1, `<rotation>${(n(node, 'rotation', 0) * 180) / Math.PI}</rotation>`);
         position(depth + 1, node, 'bottom');
         finishXml(depth + 1, node);
         material(depth + 1, node);
@@ -1136,6 +1140,12 @@ function readAirfoil(el: Element, node: ComponentNode): void {
   if (ted > 0) node['airfoilTeDiamond'] = ted;
   const ler = num(el, 'finleradius', 0);
   if (ler > 0) node['finLeRadius'] = ler;
+}
+
+/** Fin-set rotation about the body axis (.ork stores DEGREES; we keep rad). */
+function readFinRotation(el: Element, node: ComponentNode): void {
+  const deg = num(el, 'rotation', 0);
+  if (deg !== 0) node['rotation'] = (deg * Math.PI) / 180;
 }
 
 function readFinTabs(el: Element, node: ComponentNode): void {

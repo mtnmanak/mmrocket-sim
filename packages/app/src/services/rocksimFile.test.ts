@@ -233,6 +233,34 @@ describe('RockSim export → import round trip', () => {
     expect(central['outerRadius']).toBeCloseTo(0.051, 9);
   });
 
+  it('de-collides overlapping fin sets at the same angle (Ultra Neon case)', () => {
+    // Tube fins + straight fins on one tube, both at RadialAngle 0 (what
+    // RockSim actually writes) — physically impossible; the straight set
+    // must come in rotated by half the tube-fin pitch (6 tubes → 30°).
+    const xml = `<RockSimDocument><DesignInformation><RocketDesign>
+      <Name>UN</Name><StageCount>1</StageCount>
+      <Stage3Parts>
+        <BodyTube><Name>Booster</Name><OD>102</OD><ID>98</ID><Len>800</Len>
+          <AttachedParts>
+            <TubeFinSet><Name>Tube fins</Name><TubeCount>6</TubeCount><OD>50</OD><ID>48</ID><Len>150</Len>
+              <Xb>0.</Xb><LocationMode>2</LocationMode><RadialAngle>0.</RadialAngle></TubeFinSet>
+            <FinSet><Name>Straight Fin set</Name><ShapeCode>0</ShapeCode><FinCount>3</FinCount>
+              <RootChord>150</RootChord><TipChord>75</TipChord><SweepDistance>50</SweepDistance>
+              <SemiSpan>80</SemiSpan><Thickness>4</Thickness>
+              <Xb>0.</Xb><LocationMode>2</LocationMode><RadialAngle>0.</RadialAngle></FinSet>
+          </AttachedParts>
+        </BodyTube>
+      </Stage3Parts><Stage2Parts/><Stage1Parts/>
+    </RocketDesign></DesignInformation></RockSimDocument>`;
+    const r = importRkt(xml);
+    const all = flatten(r.tree.components);
+    const tubeFins = all.find((c) => c.type === 'tubefinset')!;
+    const straight = all.find((c) => c.type === 'trapezoidfinset')!;
+    expect(tubeFins['rotation']).toBeUndefined(); // first set keeps its angle
+    expect(straight['rotation']).toBeCloseTo(Math.PI / 6, 9); // +30° interleave
+    expect(r.notes.join(' ')).toMatch(/rotated 30/);
+  });
+
   it('reconstructs a rotated, spaced cluster with its scale and rotation', () => {
     const clustered = {
       name: 'C2', tree: {

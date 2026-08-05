@@ -21,6 +21,12 @@ describe('.ork round-trip of fairing (camera shroud) and spill hole extensions',
           fairingShape: 'streamlined', mass: 0.052, finish: 'smooth',
           position: { method: 'middle', offset: 0.01 },
         },
+        {
+          type: 'trapezoidfinset', id: 'fin1', finCount: 4, rootChord: 0.06,
+          tipChord: 0.03, sweep: 0.02, height: 0.04, thickness: 0.003,
+          rotation: Math.PI / 4,
+        },
+        { type: 'tubefinset', id: 'tf1', finCount: 6, length: 0.1, thickness: 0.0005, rotation: Math.PI / 6 },
         { type: 'parachute', id: 'p1', diameter: 0.45, cd: 2.2, spillHoleDiameter: 0.1 },
       ],
     }],
@@ -39,6 +45,11 @@ describe('.ork round-trip of fairing (camera shroud) and spill hole extensions',
     const chute = body.children!.find((c) => c.type === 'parachute')!;
     expect(chute['cd']).toBeCloseTo(2.2, 9);
     expect(chute['spillHoleDiameter']).toBeCloseTo(0.1, 9);
+    // Fin-set rotation (.ork stores degrees; we keep radians).
+    const fins = body.children!.find((c) => c.type === 'trapezoidfinset')!;
+    expect(fins['rotation']).toBeCloseTo(Math.PI / 4, 9);
+    const tubes = body.children!.find((c) => c.type === 'tubefinset')!;
+    expect(tubes['rotation']).toBeCloseTo(Math.PI / 6, 9);
   });
 });
 

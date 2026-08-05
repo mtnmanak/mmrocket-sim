@@ -153,6 +153,9 @@ const DENSITY: FieldDef = {
 };
 const FIN_COUNT: FieldDef = { key: 'finCount', label: 'Fin count', unit: 'count', smin: 1, smax: 8 };
 const CANT: FieldDef = { key: 'cant', label: 'Cant angle', unit: 'deg', step: 0.5, smin: -15, smax: 15 };
+// Rotation of the whole set about the body axis (kernel FinSet/TubeFinSet
+// baseRotation) — lets straight fins sit BETWEEN tube fins (2026-08-05d).
+const FIN_ROTATION: FieldDef = { key: 'rotation', label: 'Rotation (about body axis)', unit: 'deg', step: 5, smin: -180, smax: 180 };
 
 /**
  * Through-the-wall fin tabs. A tab exists when BOTH depth and length are > 0
@@ -260,6 +263,7 @@ export const FIELDS: Record<ComponentType, FieldDef[]> = {
     lenMM('height', 'Height', 1, 150),
     lenMM('thickness', 'Thickness', 0.5, 10),
     CANT,
+    FIN_ROTATION,
     { key: 'crossSection', label: 'Cross section', unit: 'none', options: CROSS_SECTIONS },
     ...AIRFOIL_FIELDS,
     ...FIN_TABS,
@@ -270,6 +274,7 @@ export const FIELDS: Record<ComponentType, FieldDef[]> = {
     FIN_COUNT,
     lenMM('thickness', 'Thickness', 0.5, 10),
     CANT,
+    FIN_ROTATION,
     { key: 'crossSection', label: 'Cross section', unit: 'none', options: CROSS_SECTIONS },
     ...AIRFOIL_FIELDS,
     ...FIN_TABS,
@@ -281,6 +286,7 @@ export const FIELDS: Record<ComponentType, FieldDef[]> = {
     lenMM('rootChord', 'Root chord', 1, 200),
     lenMM('height', 'Height', 1, 150),
     lenMM('thickness', 'Thickness', 0.5, 10),
+    FIN_ROTATION,
     { key: 'crossSection', label: 'Cross section', unit: 'none', options: CROSS_SECTIONS },
     ...AIRFOIL_FIELDS,
     ...FIN_TABS,
@@ -292,6 +298,7 @@ export const FIELDS: Record<ComponentType, FieldDef[]> = {
     lenMM('length', 'Length', 1, 200),
     radMM('outerRadius', 'Outer radius', 0.5, 50),
     lenMM('thickness', 'Wall thickness', 0.1, 5),
+    FIN_ROTATION,
     FINISH,
     DENSITY,
   ],

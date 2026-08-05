@@ -1,5 +1,5 @@
 {
-  "version": "0.038",
+  "version": "0.039",
   "released": "2026-08-05",
-  "note": "RockSim cluster imports now survive RockSim's own rounding quirks (the reported 12in Darkstar's 6x75mm ring imports as a real 6-motor cluster around its central 98mm mount); the batch dialog gets a mount picker so you can batch the cluster ring while the central mount keeps its motor (this also surfaces the mixed 3+3 option on 6-motor clusters); and a new eject button in the vitals strip unloads all motors in one click to view the rocket clean."
+  "note": "Fin rotation: every fin set can now rotate about the body axis (real physics, 3D + aft view, .ork and RockSim round-trip), and RockSim imports automatically interleave fin sets that arrive on top of each other (the 4in Ultra Neon case). Plus 6-motor clusters can batch as three opposite pairs - mixed 4+2 and 2+2+2 motor configurations, the affordable way to fly a 6-ring."
 }

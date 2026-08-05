@@ -201,6 +201,11 @@ final class ComponentFactory {
                 if (!Double.isNaN(or)) {
                     fins.setOuterRadius(or);
                 }
+                // TubeFinSet is not a FinSet — rotation applies here directly.
+                double tubeRot = dbl(node, "rotation", 0);
+                if (tubeRot != 0) {
+                    fins.setBaseRotation(tubeRot);
+                }
                 c = fins;
                 break;
             }
@@ -398,6 +403,12 @@ final class ComponentFactory {
         // Absent keys keep the classic 3-value crossSection behavior.
         if (c instanceof FinSet) {
             FinSet fs = (FinSet) c;
+            // Fin-set rotation about the body axis (radians; issue
+            // 2026-08-05d: interleaving straight fins between tube fins).
+            double rot = dbl(node, "rotation", 0);
+            if (rot != 0) {
+                fs.setBaseRotation(rot);
+            }
             String section = str(node, "airfoilSection", null);
             if (section != null) {
                 String s = section.toLowerCase();

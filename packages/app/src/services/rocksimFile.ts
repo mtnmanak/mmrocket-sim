@@ -3,6 +3,7 @@ import type { ComponentNode, ComponentPosition, RocketTree } from '@online-openr
 import { asStageNodes, freshId } from '../tree/treeModel.js';
 import { CLUSTER_POINTS, clusterOffsets } from '../tree/cluster.js';
 import { resolveAssemblyRadius } from '../tree/assembly.js';
+import { axialLength, startFromPosition } from '../tree/position.js';
 import { escapeXml as esc, xmlNum as num, xmlText as text } from './xmlUtil.js';
 import { shapeParamDefault } from './orkFile.js';
 import type { OrkExportMotor, OrkMotorRef, OrkTreeImportResult } from './orkFile.js';
@@ -286,6 +287,9 @@ export function importRkt(data: ArrayBuffer | string): OrkTreeImportResult {
         // its importer drops this, so we're a step ahead of desktop parity).
         const cant = num(el, 'CantAngle', 0);
         if (cant !== 0) n['cant'] = cant;
+        // Set rotation about the body axis (RockSim RadialAngle, radians).
+        const finRot = num(el, 'RadialAngle', 0);
+        if (finRot !== 0) n['rotation'] = finRot;
         return n;
       }
       case 'LaunchLug': {
@@ -301,6 +305,8 @@ export function importRkt(data: ArrayBuffer | string): OrkTreeImportResult {
         n['length'] = num(el, 'Len', 100) / LEN;
         n['outerRadius'] = num(el, 'OD', 24) / RAD;
         n['thickness'] = tubeThickness(el);
+        const tubeRot = num(el, 'RadialAngle', 0);
+        if (tubeRot !== 0) n['rotation'] = tubeRot;
         return n;
       }
       case 'Parachute': {
@@ -508,6 +514,44 @@ export function importRkt(data: ArrayBuffer | string): OrkTreeImportResult {
     }
   };
   reconstructClusters(components);
+
+  // ---- Fin de-collision (2026-08-05d) ----
+  // RockSim renders interleaved fin sets without storing an angle, so tube
+  // fins + straight fins routinely arrive at the SAME rotation — physically
+  // impossible. Any fin-type set that axially overlaps an earlier set at the
+  // same angle gets rotated by half the earlier set's pitch (adjustable
+  // afterwards via the set's Rotation field).
+  const deCollideFins = (nodes: ComponentNode[]) => {
+    for (const parentNode of nodes) {
+      const kids = parentNode.children ?? [];
+      const finSets = kids.filter((k) => k.type.endsWith('finset'));
+      if (finSets.length >= 2) {
+        const pLen = typeof parentNode['length'] === 'number' ? (parentNode['length'] as number) : 0.2;
+        const range = (k: ComponentNode): [number, number] => {
+          const len = axialLength(k);
+          const start = startFromPosition(
+            (k.position ?? { method: 'top', offset: 0 }) as ComponentPosition, len, pLen);
+          return [start, start + len];
+        };
+        const overlaps = (a: [number, number], b: [number, number]) => a[0] < b[1] && b[0] < a[1];
+        const rotOf = (k: ComponentNode) => (typeof k['rotation'] === 'number' ? (k['rotation'] as number) : 0);
+        for (let i = 1; i < finSets.length; i++) {
+          const me = finSets[i]!;
+          const clash = finSets.slice(0, i).find((other) =>
+            Math.abs(rotOf(other) - rotOf(me)) < 1e-6 && overlaps(range(other), range(me)));
+          if (clash) {
+            const count = Math.max(1, Math.round(
+              typeof clash['finCount'] === 'number' ? (clash['finCount'] as number) : 3));
+            me['rotation'] = rotOf(me) + Math.PI / count;
+            notes.push(`“${me.name ?? me.type}” sat at the same angle as “${clash.name ?? clash.type}” — rotated ${Math.round(180 / count)}° to interleave (fine-tune via the set's Rotation field).`);
+          }
+        }
+      }
+      deCollideFins(kids);
+    }
+  };
+  deCollideFins(components);
+
   if (ignored.size) {
     notes.push(`Ignored unsupported RockSim components: ${[...ignored].join(', ')}.`);
   }
@@ -798,6 +842,9 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
         if (nnum(node, 'cant', 0) !== 0) {
           emit(`<CantAngle>${nnum(node, 'cant', 0)}</CantAngle>`);
         }
+        if (nnum(node, 'rotation', 0) !== 0) {
+          emit(`<RadialAngle>${nnum(node, 'rotation', 0)}</RadialAngle>`);
+        }
         emit(isCustom ? '</CustomFinSet>' : '</FinSet>');
         break;
       }
@@ -844,6 +891,9 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
         emit(`<OD>${nnum(node, 'outerRadius', 0.012) * RAD}</OD>`);
         emit(`<ID>${Math.max(0, nnum(node, 'outerRadius', 0.012) - nnum(node, 'thickness', 0.0005)) * RAD}</ID>`);
         emit(`<Len>${nnum(node, 'length', 0.1) * LEN}</Len>`);
+        if (nnum(node, 'rotation', 0) !== 0) {
+          emit(`<RadialAngle>${nnum(node, 'rotation', 0)}</RadialAngle>`);
+        }
         emit('</TubeFinSet>');
         break;
       }

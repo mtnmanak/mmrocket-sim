@@ -61,16 +61,16 @@ describe('combination batch flight path (split cluster through the kernel)', () 
     const split = splitClusterTree(tree, 'm1')!;
     expect(split).not.toBeNull();
     const same = OrkRocket.buildTree(engineTree(split.tree));
-    same.setMotorById(split.mountIds[0], spec('C6', 4));
-    same.setMotorById(split.mountIds[1], spec('C6', 4));
+    same.setMotorById(split.mountIds[0]!, spec('C6', 4));
+    same.setMotorById(split.mountIds[1]!, spec('C6', 4));
     const sameRes = same.simulate({});
     expect(Math.abs(sameRes.summary.maxAltitude - origRes.summary.maxAltitude)
       / origRes.summary.maxAltitude).toBeLessThan(0.01);
 
     // Mixed pair: one hotter group — must fly higher than the baseline.
     const mixed = OrkRocket.buildTree(engineTree(split.tree));
-    mixed.setMotorById(split.mountIds[0], spec('C6', 4));
-    mixed.setMotorById(split.mountIds[1], spec('D9', 8));
+    mixed.setMotorById(split.mountIds[0]!, spec('C6', 4));
+    mixed.setMotorById(split.mountIds[1]!, spec('D9', 8));
     const mixedRes = mixed.simulate({});
     expect(mixedRes.summary.maxAltitude).toBeGreaterThan(origRes.summary.maxAltitude * 1.1);
   }, 30000);

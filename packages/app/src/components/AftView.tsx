@@ -97,8 +97,9 @@ export function AftView({ tree, motors }: {
         const span = finSpan(child);
         const thick = num(child, 'thickness', 0.003);
         for (let i = 0; i < count; i++) {
-          // First fin straight up, like the desktop's rear view.
-          const angle = Math.PI / 2 + (2 * Math.PI * i) / count;
+          // First fin straight up (desktop rear-view convention) plus the
+          // set's own rotation about the body axis.
+          const angle = Math.PI / 2 + num(child, 'rotation', 0) + (2 * Math.PI * i) / count;
           outer.push({
             kind: 'fin', y: cy, z: cz, angle, from: pRadius, to: pRadius + span,
             thick, fill: colorOf(child, '#b9b7b0'), stroke: '#7a786f',
@@ -110,7 +111,7 @@ export function AftView({ tree, motors }: {
         const count = Math.max(1, Math.round(num(child, 'finCount', 6)));
         const rt = tubeFinRadius(child, pRadius);
         for (let i = 0; i < count; i++) {
-          const angle = Math.PI / 2 + (2 * Math.PI * i) / count;
+          const angle = Math.PI / 2 + num(child, 'rotation', 0) + (2 * Math.PI * i) / count;
           const d = pRadius + rt;
           outer.push({
             kind: 'circle', y: cy + d * Math.cos(angle), z: cz + d * Math.sin(angle), r: rt,

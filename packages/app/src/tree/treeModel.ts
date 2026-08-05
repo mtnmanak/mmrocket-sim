@@ -285,9 +285,9 @@ export function engineTree(tree: RocketTree): RocketTree {
 
 export interface ClusterSplit {
   tree: RocketTree;
-  /** The two symmetric group mounts replacing the original cluster mount. */
-  mountIds: [string, string];
-  /** Motors per group (2 for a 4-ring split, 3 for a 6-ring split). */
+  /** The symmetric group mounts replacing the original cluster mount. */
+  mountIds: string[];
+  /** Motors per group. */
   groupSize: number;
   pattern: '4-ring' | '6-ring';
 }
@@ -317,18 +317,57 @@ export function splitClusterTree(tree: RocketTree, mountId: string): ClusterSpli
     clusterRotation: phi + rotAdd,
     children: mount.children?.map(cloneSubtree),
   } as ComponentNode);
-  const [a, b] = pattern === '4-ring'
+  const groups = pattern === '4-ring'
     ? [mk('double', Math.SQRT2, Math.PI / 4, '(pair A)'), mk('double', Math.SQRT2, (3 * Math.PI) / 4, '(pair B)')]
     : [mk('3-ring', Math.sqrt(3), 0, '(trio A)'), mk('3-ring', Math.sqrt(3), Math.PI / 3, '(trio B)')];
   const walk = (nodes: ComponentNode[]): ComponentNode[] => nodes.flatMap((n) => {
-    if (n.id === mountId) return [a, b];
+    if (n.id === mountId) return groups;
     return [n.children ? ({ ...n, children: walk(n.children) } as ComponentNode) : n];
   });
   return {
     tree: { ...tree, components: walk(tree.components) },
-    mountIds: [a.id!, b.id!],
+    mountIds: groups.map((g) => g.id!),
     groupSize: pattern === '4-ring' ? 2 : 3,
     pattern,
+  };
+}
+
+/**
+ * PAIR-level split of a 6-ring: THREE 'double' mounts, one per opposite-tube
+ * pair (hexagon diagonals at 90°/30°/−30° + the base rotation, scale ×2 so
+ * each pair's tubes land on the original circumradius). Every pair is
+ * individually thrust-balanced, so ANY per-pair motor assignment is
+ * symmetric — the owner's real-world 2+2+2 (and 4+2) practice (2026-08-05d).
+ * A 4-ring's pair split is already splitClusterTree. Null otherwise.
+ */
+export function splitClusterPairsTree(tree: RocketTree, mountId: string): ClusterSplit | null {
+  const mount = findNode(tree, mountId);
+  if (!mount || mount.type !== 'innertube' || mount['cluster'] !== '6-ring') return null;
+  const s = typeof mount['clusterScale'] === 'number' ? (mount['clusterScale'] as number) : 1;
+  const phi = typeof mount['clusterRotation'] === 'number' ? (mount['clusterRotation'] as number) : 0;
+  const mk = (rotAdd: number, suffix: string): ComponentNode => ({
+    ...mount,
+    id: freshId(),
+    name: `${mount.name ?? 'Motor mount'} ${suffix}`,
+    cluster: 'double',
+    clusterScale: s * 2,
+    clusterRotation: phi + rotAdd,
+    children: mount.children?.map(cloneSubtree),
+  } as ComponentNode);
+  const groups = [
+    mk(Math.PI / 2, '(pair A)'),
+    mk(Math.PI / 6, '(pair B)'),
+    mk(-Math.PI / 6, '(pair C)'),
+  ];
+  const walk = (nodes: ComponentNode[]): ComponentNode[] => nodes.flatMap((n) => {
+    if (n.id === mountId) return groups;
+    return [n.children ? ({ ...n, children: walk(n.children) } as ComponentNode) : n];
+  });
+  return {
+    tree: { ...tree, components: walk(tree.components) },
+    mountIds: groups.map((g) => g.id!),
+    groupSize: 2,
+    pattern: '6-ring',
   };
 }
 

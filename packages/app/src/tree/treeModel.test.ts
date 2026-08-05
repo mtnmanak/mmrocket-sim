@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
-import { engineTree, findNode, hasParallelStage, makeNode, motorMounts, normalizeTree, splitClusterTree } from './treeModel.js';
+import { engineTree, findNode, hasParallelStage, makeNode, motorMounts, normalizeTree, splitClusterPairsTree, splitClusterTree } from './treeModel.js';
 import { clusterOffsets } from './cluster.js';
 import { allowedChildren, defaultParams, DISPLAY_NAME, FIELDS } from './schema.js';
 
@@ -79,6 +79,29 @@ describe('splitClusterTree — symmetric group split for combination batching', 
   it('6-ring → two 3-rings on alternating tubes (exact positions)', () => {
     positionsMatch('6-ring', 1, 0);
     positionsMatch('6-ring', 1.15, -Math.PI / 7);
+  });
+
+  it('6-ring PAIR split → three doubles on the diagonals (exact positions)', () => {
+    for (const [scale, rotation] of [[1, 0], [1.2, Math.PI / 5]] as const) {
+      const split = splitClusterPairsTree(
+        clusterTree('6-ring', { clusterScale: scale, clusterRotation: rotation }), 'm1')!;
+      expect(split).not.toBeNull();
+      expect(split.mountIds.length).toBe(3);
+      expect(split.groupSize).toBe(2);
+      const r = 0.015;
+      const original = clusterOffsets('6-ring', r, scale, rotation);
+      const got = split.mountIds.flatMap((id) => {
+        const m = findNode(split.tree, id)!;
+        return clusterOffsets(m['cluster'] as string, r,
+          m['clusterScale'] as number, m['clusterRotation'] as number);
+      });
+      expect(got.length).toBe(6);
+      for (const o of original) {
+        expect(got.find((g) => Math.hypot(g.y - o.y, g.z - o.z) < 1e-9),
+          `tube at (${o.y}, ${o.z}) missing`).toBeDefined();
+      }
+    }
+    expect(splitClusterPairsTree(clusterTree('4-ring'), 'm1')).toBeNull();
   });
 
   it('returns null for non-splittable mounts', () => {

@@ -17055,6 +17055,16 @@ iocr_FinSet_setFinCount = ($this, $n) => {
 iocr_FinSet_getBoundingRadius = $this => {
     return 0.0;
 },
+iocr_FinSet_setBaseRotation = ($this, $r) => {
+    let var$2, $listener;
+    var$2 = $this.$configListeners.$iterator();
+    while (var$2.$hasNext()) {
+        $listener = var$2.$next();
+        if ($listener instanceof iocr_FinSet)
+            $listener.$setBaseRotation($r);
+    }
+    $this.$setAngleOffset($r);
+},
 iocr_FinSet_getCantAngle = $this => {
     return $this.$cantRadians;
 },
@@ -17418,8 +17428,8 @@ iocr_FinSet_translateToCenterline = ($this, $fromRoot) => {
     let $finRoot;
     $finRoot = $this.$getFinFront();
     return iocr_FinSet_translatePoints($fromRoot, 0.0, $finRoot.$y);
-},
-iocr_FinSet_calculateSinglePlanformCentroid = $this => {
+};
+let iocr_FinSet_calculateSinglePlanformCentroid = $this => {
     let $finLead, $xFinTrail, $upperCurve, $lowerCurve, $totalCurve, $planformCentroid;
     $finLead = $this.$getFinFront();
     $xFinTrail = $finLead.$x + $this.$getLength();
@@ -17428,8 +17438,8 @@ iocr_FinSet_calculateSinglePlanformCentroid = $this => {
     $totalCurve = iocr_FinSet_combineCurves($this, $upperCurve, $lowerCurve);
     $planformCentroid = iocr_FinSet_calculateCurveIntegral($totalCurve);
     return $planformCentroid;
-};
-let iocr_FinSet_combineCurves = ($this, $c1, $c2) => {
+},
+iocr_FinSet_combineCurves = ($this, $c1, $c2) => {
     let var$3, var$4, var$5, $combined, $revCurve, $writeCount;
     var$3 = $c1.data;
     var$4 = $c2.data;
@@ -31735,6 +31745,16 @@ iocr_TubeFinSet_setFinCount = ($this, $n) => {
 iocr_TubeFinSet_getBaseRotation = $this => {
     return $this.$getAngleOffset();
 },
+iocr_TubeFinSet_setBaseRotation = ($this, $r) => {
+    let var$2, $listener;
+    var$2 = $this.$configListeners.$iterator();
+    while (var$2.$hasNext()) {
+        $listener = var$2.$next();
+        if ($listener instanceof iocr_TubeFinSet)
+            $listener.$setBaseRotation($r);
+    }
+    $this.$setAngleOffset($r);
+},
 iocr_TubeFinSet_setAxialMethod = ($this, $position) => {
     iocr_RocketComponent_setAxialMethod($this, $position);
     iocr_ComponentChangeEvent_$callClinit();
@@ -40056,7 +40076,7 @@ otcic_JSStderrPrintStream_print = ($this, $s) => {
 },
 a_ComponentFactory = $rt_classWithoutFields(),
 a_ComponentFactory_create = $node => {
-    let $type, var$3, $c, var$5, var$6, $shapeParam, $shR, $shL, $shT, $fore, $aft, $fShR, $fShL, $aShR, $aShL, var$17, var$18, $rawPoints, $list, $pts, $i, $row, var$24, var$25, var$26, $or, $clusterName, $cc, var$30, $known, $ir, $od, $cd, $chuteSurf, $chuteLine, $streamerSurf, $cordLine, $name, $density, $m, $finish, $fs, $section, $s, $overrideMass, $overrideCGX, $overrideCD, $position;
+    let $type, var$3, $c, var$5, var$6, $shapeParam, $shR, $shL, $shT, $fore, $aft, $fShR, $fShL, $aShR, $aShL, var$17, var$18, $rawPoints, $list, $pts, $i, $row, var$24, var$25, var$26, $or, $tubeRot, $clusterName, $cc, var$31, $known, $ir, $od, $cd, $chuteSurf, $chuteLine, $streamerSurf, $cordLine, $name, $density, $m, $finish, $fs, $rot, $section, $s, $overrideMass, $overrideCGX, $overrideCD, $position;
     a: {
         $type = a_JsonLite_str($node, $rt_s(686), $rt_s(13));
         var$3 = (-1);
@@ -40291,6 +40311,9 @@ a_ComponentFactory_create = $node => {
                 $or = a_JsonLite_dbl($node, $rt_s(1345), NaN);
                 if (!(isNaN($or) ? 1 : 0))
                     $c.$setOuterRadius($or);
+                $tubeRot = a_JsonLite_dbl($node, $rt_s(1358), 0.0);
+                if ($tubeRot !== 0.0)
+                    $c.$setBaseRotation($tubeRot);
                 break b;
             case 7:
                 $c = iocr_InnerTube__init_();
@@ -40299,35 +40322,35 @@ a_ComponentFactory_create = $node => {
                 $c.$setThickness(a_JsonLite_dbl($node, $rt_s(1332), 5.0E-4));
                 $c.$setMotorMount(a_JsonLite_bool($node, $rt_s(1346), 0));
                 $c.$setMotorOverhang(a_JsonLite_dbl($node, $rt_s(1347), 0.0));
-                $clusterName = a_JsonLite_str($node, $rt_s(1358), null);
+                $clusterName = a_JsonLite_str($node, $rt_s(1359), null);
                 if ($clusterName !== null && !jl_String_isEmpty($clusterName)) {
                     $cc = null;
                     iocr_ClusterConfiguration_$callClinit();
                     var$25 = iocr_ClusterConfiguration_CONFIGURATIONS.data;
                     var$3 = var$25.length;
-                    var$30 = 0;
+                    var$31 = 0;
                     d: {
                         while (true) {
-                            if (var$30 >= var$3) {
+                            if (var$31 >= var$3) {
                                 $known = $cc;
                                 break d;
                             }
-                            $known = var$25[var$30];
+                            $known = var$25[var$31];
                             if (jl_String_equals($known.$getXMLName(), $clusterName))
                                 break;
-                            var$30 = var$30 + 1 | 0;
+                            var$31 = var$31 + 1 | 0;
                         }
                     }
                     if ($known === null) {
                         var$24 = new jl_IllegalArgumentException;
                         var$5 = jl_StringBuilder__init_();
-                        jl_StringBuilder_append(jl_StringBuilder_append(var$5, $rt_s(1359)), $clusterName);
+                        jl_StringBuilder_append(jl_StringBuilder_append(var$5, $rt_s(1360)), $clusterName);
                         jl_IllegalArgumentException__init_(var$24, jl_StringBuilder_toString(var$5));
                         $rt_throw(var$24);
                     }
                     $c.$setClusterConfiguration($known);
-                    $c.$setClusterScale(a_JsonLite_dbl($node, $rt_s(1360), 1.0));
-                    $c.$setClusterRotation(a_JsonLite_dbl($node, $rt_s(1361), 0.0));
+                    $c.$setClusterScale(a_JsonLite_dbl($node, $rt_s(1361), 1.0));
+                    $c.$setClusterRotation(a_JsonLite_dbl($node, $rt_s(1362), 0.0));
                 }
                 break b;
             case 8:
@@ -40346,7 +40369,7 @@ a_ComponentFactory_create = $node => {
                 $or = a_JsonLite_dbl($node, $rt_s(1345), NaN);
                 if (!(isNaN($or) ? 1 : 0))
                     $c.$setOuterRadius($or);
-                $ir = a_JsonLite_dbl($node, $rt_s(1362), NaN);
+                $ir = a_JsonLite_dbl($node, $rt_s(1363), NaN);
                 if (!(isNaN($ir) ? 1 : 0))
                     $c.$setInnerRadius($ir);
                 break b;
@@ -40373,58 +40396,58 @@ a_ComponentFactory_create = $node => {
                 break b;
             case 13:
                 $c = iocr_RailButton__init_0();
-                $od = a_JsonLite_dbl($node, $rt_s(1363), NaN);
+                $od = a_JsonLite_dbl($node, $rt_s(1364), NaN);
                 if (!(isNaN($od) ? 1 : 0))
                     $c.$setOuterDiameter($od);
                 break b;
             case 14:
                 $c = iocr_Parachute__init_();
-                $c.$setDiameter0(a_JsonLite_dbl($node, $rt_s(1364), 0.3));
-                $cd = a_JsonLite_dbl($node, $rt_s(1365), NaN);
+                $c.$setDiameter0(a_JsonLite_dbl($node, $rt_s(1365), 0.3));
+                $cd = a_JsonLite_dbl($node, $rt_s(1366), NaN);
                 if (!(isNaN($cd) ? 1 : 0))
                     $c.$setCD($cd);
-                iocr_Parachute_setLineCount($c, a_JsonLite_dbl($node, $rt_s(1366), 6.0) | 0);
-                iocr_Parachute_setLineLength($c, a_JsonLite_dbl($node, $rt_s(1367), 0.3));
-                $chuteSurf = a_JsonLite_dbl($node, $rt_s(1368), NaN);
+                iocr_Parachute_setLineCount($c, a_JsonLite_dbl($node, $rt_s(1367), 6.0) | 0);
+                iocr_Parachute_setLineLength($c, a_JsonLite_dbl($node, $rt_s(1368), 0.3));
+                $chuteSurf = a_JsonLite_dbl($node, $rt_s(1369), NaN);
                 if (!(isNaN($chuteSurf) ? 1 : 0)) {
                     iocm_Material$Type_$callClinit();
                     var$24 = iocm_Material$Type_SURFACE;
-                    var$5 = a_JsonLite_str($node, $rt_s(1369), $rt_s(1370));
+                    var$5 = a_JsonLite_str($node, $rt_s(1370), $rt_s(1371));
                     iocr_RecoveryDevice_setMaterial($c, iocm_Material_newMaterial(var$24, var$5, $chuteSurf, 1));
                 }
-                $chuteLine = a_JsonLite_dbl($node, $rt_s(1371), NaN);
+                $chuteLine = a_JsonLite_dbl($node, $rt_s(1372), NaN);
                 if (!(isNaN($chuteLine) ? 1 : 0)) {
                     iocm_Material$Type_$callClinit();
                     var$24 = iocm_Material$Type_LINE;
-                    var$5 = a_JsonLite_str($node, $rt_s(1372), $rt_s(1370));
+                    var$5 = a_JsonLite_str($node, $rt_s(1373), $rt_s(1371));
                     iocr_Parachute_setLineMaterial($c, iocm_Material_newMaterial(var$24, var$5, $chuteLine, 1));
                 }
                 a_ComponentFactory_applyDeployment($c, $node);
                 break b;
             case 15:
                 $c = iocr_Streamer__init_0();
-                $c.$setStripLength(a_JsonLite_dbl($node, $rt_s(1373), 0.5));
-                $c.$setStripWidth(a_JsonLite_dbl($node, $rt_s(1374), 0.05));
-                $cd = a_JsonLite_dbl($node, $rt_s(1365), NaN);
+                $c.$setStripLength(a_JsonLite_dbl($node, $rt_s(1374), 0.5));
+                $c.$setStripWidth(a_JsonLite_dbl($node, $rt_s(1375), 0.05));
+                $cd = a_JsonLite_dbl($node, $rt_s(1366), NaN);
                 if (!(isNaN($cd) ? 1 : 0))
                     $c.$setCD($cd);
-                $streamerSurf = a_JsonLite_dbl($node, $rt_s(1368), NaN);
+                $streamerSurf = a_JsonLite_dbl($node, $rt_s(1369), NaN);
                 if (!(isNaN($streamerSurf) ? 1 : 0)) {
                     iocm_Material$Type_$callClinit();
                     var$24 = iocm_Material$Type_SURFACE;
-                    var$5 = a_JsonLite_str($node, $rt_s(1369), $rt_s(1370));
+                    var$5 = a_JsonLite_str($node, $rt_s(1370), $rt_s(1371));
                     iocr_RecoveryDevice_setMaterial($c, iocm_Material_newMaterial(var$24, var$5, $streamerSurf, 1));
                 }
                 a_ComponentFactory_applyDeployment($c, $node);
                 break b;
             case 16:
                 $c = iocr_ShockCord__init_0();
-                $c.$setCordLength(a_JsonLite_dbl($node, $rt_s(1375), 0.3));
-                $cordLine = a_JsonLite_dbl($node, $rt_s(1371), NaN);
+                $c.$setCordLength(a_JsonLite_dbl($node, $rt_s(1376), 0.3));
+                $cordLine = a_JsonLite_dbl($node, $rt_s(1372), NaN);
                 if (!(isNaN($cordLine) ? 1 : 0)) {
                     iocm_Material$Type_$callClinit();
                     var$24 = iocm_Material$Type_LINE;
-                    var$5 = a_JsonLite_str($node, $rt_s(1372), $rt_s(1370));
+                    var$5 = a_JsonLite_str($node, $rt_s(1373), $rt_s(1371));
                     $c.$setMaterial(iocm_Material_newMaterial(var$24, var$5, $cordLine, 1));
                 }
                 break b;
@@ -40432,7 +40455,7 @@ a_ComponentFactory_create = $node => {
                 $c = iocr_MassComponent__init_0();
                 $c.$setComponentMass(a_JsonLite_dbl($node, $rt_s(735), 0.01));
                 $c.$setLength(a_JsonLite_dbl($node, $rt_s(734), 0.02));
-                $c.$setRadius(a_JsonLite_dbl($node, $rt_s(1376), 0.005));
+                $c.$setRadius(a_JsonLite_dbl($node, $rt_s(1377), 0.005));
                 break b;
             case 18:
                 $c = iocr_PodSet__init_0();
@@ -40444,31 +40467,34 @@ a_ComponentFactory_create = $node => {
         }
         var$24 = new jl_IllegalArgumentException;
         var$5 = jl_StringBuilder__init_();
-        jl_StringBuilder_append0(jl_StringBuilder_append(jl_StringBuilder_append(var$5, $rt_s(1377)), $type), 39);
+        jl_StringBuilder_append0(jl_StringBuilder_append(jl_StringBuilder_append(var$5, $rt_s(1378)), $type), 39);
         jl_IllegalArgumentException__init_(var$24, jl_StringBuilder_toString(var$5));
         $rt_throw(var$24);
     }
     $name = a_JsonLite_str($node, $rt_s(666), null);
     if ($name !== null)
         iocr_RocketComponent_setName($c, $name);
-    $density = a_JsonLite_dbl($node, $rt_s(1378), NaN);
+    $density = a_JsonLite_dbl($node, $rt_s(1379), NaN);
     if (!(isNaN($density) ? 1 : 0) && $density > 0.0) {
         iocm_Material$Type_$callClinit();
         var$24 = iocm_Material$Type_BULK;
-        var$5 = a_JsonLite_str($node, $rt_s(1379), $rt_s(1370));
+        var$5 = a_JsonLite_str($node, $rt_s(1380), $rt_s(1371));
         $m = iocm_Material_newMaterial(var$24, var$5, $density, 1);
         if ($c instanceof iocr_ExternalComponent)
             $c.$setMaterial($m);
         else if ($c instanceof iocr_StructuralComponent)
             iocr_StructuralComponent_setMaterial($c, $m);
     }
-    $finish = a_JsonLite_str($node, $rt_s(1380), null);
+    $finish = a_JsonLite_str($node, $rt_s(1381), null);
     if ($finish !== null && $c instanceof iocr_ExternalComponent)
         $c.$setFinish(a_ComponentFactory_finishOf($finish));
     if ($c instanceof iocr_FinSet) {
+        $fs = $c;
+        $rot = a_JsonLite_dbl($node, $rt_s(1358), 0.0);
+        if ($rot !== 0.0)
+            $fs.$setBaseRotation($rot);
         e: {
-            $fs = $c;
-            $section = a_JsonLite_str($node, $rt_s(1381), null);
+            $section = a_JsonLite_str($node, $rt_s(1382), null);
             if ($section !== null) {
                 f: {
                     $s = jl_String_toLowerCase($section);
@@ -40520,53 +40546,53 @@ a_ComponentFactory_create = $node => {
                 }
                 var$24 = new jl_IllegalArgumentException;
                 var$5 = jl_StringBuilder__init_();
-                jl_StringBuilder_append0(jl_StringBuilder_append(jl_StringBuilder_append(var$5, $rt_s(1382)), $section), 39);
+                jl_StringBuilder_append0(jl_StringBuilder_append(jl_StringBuilder_append(var$5, $rt_s(1383)), $section), 39);
                 jl_IllegalArgumentException__init_(var$24, jl_StringBuilder_toString(var$5));
                 $rt_throw(var$24);
             }
         }
-        $fs.$setAirfoilLeDiamond(a_JsonLite_dbl($node, $rt_s(1383), 0.0));
-        $fs.$setAirfoilTeDiamond(a_JsonLite_dbl($node, $rt_s(1384), 0.0));
-        $fs.$setFinLeRadius(a_JsonLite_dbl($node, $rt_s(1385), 0.0));
+        $fs.$setAirfoilLeDiamond(a_JsonLite_dbl($node, $rt_s(1384), 0.0));
+        $fs.$setAirfoilTeDiamond(a_JsonLite_dbl($node, $rt_s(1385), 0.0));
+        $fs.$setFinLeRadius(a_JsonLite_dbl($node, $rt_s(1386), 0.0));
     }
-    $overrideMass = a_JsonLite_dbl($node, $rt_s(1386), NaN);
+    $overrideMass = a_JsonLite_dbl($node, $rt_s(1387), NaN);
     if (!(isNaN($overrideMass) ? 1 : 0)) {
         iocr_RocketComponent_setOverrideMass($c, $overrideMass);
         iocr_RocketComponent_setMassOverridden($c, 1);
     }
-    $overrideCGX = a_JsonLite_dbl($node, $rt_s(1387), NaN);
+    $overrideCGX = a_JsonLite_dbl($node, $rt_s(1388), NaN);
     if (!(isNaN($overrideCGX) ? 1 : 0)) {
         iocr_RocketComponent_setOverrideCGX($c, $overrideCGX);
         iocr_RocketComponent_setCGOverridden($c, 1);
     }
-    $overrideCD = a_JsonLite_dbl($node, $rt_s(1388), NaN);
+    $overrideCD = a_JsonLite_dbl($node, $rt_s(1389), NaN);
     if (!(isNaN($overrideCD) ? 1 : 0)) {
         iocr_RocketComponent_setOverrideCD($c, $overrideCD);
         iocr_RocketComponent_setCDOverridden($c, 1);
     }
-    if (a_JsonLite_bool($node, $rt_s(1389), 0))
-        $c.$setSubcomponentsOverriddenMass(1);
     if (a_JsonLite_bool($node, $rt_s(1390), 0))
-        $c.$setSubcomponentsOverriddenCG(1);
+        $c.$setSubcomponentsOverriddenMass(1);
     if (a_JsonLite_bool($node, $rt_s(1391), 0))
+        $c.$setSubcomponentsOverriddenCG(1);
+    if (a_JsonLite_bool($node, $rt_s(1392), 0))
         $c.$setSubcomponentsOverriddenCD(1);
-    $position = a_JsonLite_obj($node, $rt_s(1392));
+    $position = a_JsonLite_obj($node, $rt_s(1393));
     if ($position !== null && !($c instanceof iocr_ComponentAssembly)) {
-        $c.$setAxialMethod(a_ComponentFactory_axialMethodOf(a_JsonLite_str($position, $rt_s(1393), $rt_s(1394))));
-        $c.$setAxialOffset0(a_JsonLite_dbl($position, $rt_s(1395), 0.0));
+        $c.$setAxialMethod(a_ComponentFactory_axialMethodOf(a_JsonLite_str($position, $rt_s(1394), $rt_s(1395))));
+        $c.$setAxialOffset0(a_JsonLite_dbl($position, $rt_s(1396), 0.0));
     }
     return $c;
 },
 a_ComponentFactory_applyDeployment = ($device, $node) => {
     let $config, $event, $altitude, $delay;
     $config = ($device.$getDeploymentConfigurations()).$getDefault();
-    $event = a_JsonLite_str($node, $rt_s(1396), null);
+    $event = a_JsonLite_str($node, $rt_s(1397), null);
     if ($event !== null)
         $config.$setDeployEvent(a_ComponentFactory_deployEventOf($event));
-    $altitude = a_JsonLite_dbl($node, $rt_s(1397), NaN);
+    $altitude = a_JsonLite_dbl($node, $rt_s(1398), NaN);
     if (!(isNaN($altitude) ? 1 : 0))
         $config.$setDeployAltitude($altitude);
-    $delay = a_JsonLite_dbl($node, $rt_s(1398), NaN);
+    $delay = a_JsonLite_dbl($node, $rt_s(1399), NaN);
     if (!(isNaN($delay) ? 1 : 0))
         $config.$setDeployDelay($delay);
 },
@@ -40582,17 +40608,17 @@ a_ComponentFactory_deployEventOf = $name => {
                 var$3 = 4;
                 break a;
             case -1411096281:
-                if (!jl_String_equals(var$2, $rt_s(1399)))
+                if (!jl_String_equals(var$2, $rt_s(1400)))
                     break a;
                 var$3 = 1;
                 break a;
             case -1109843021:
-                if (!jl_String_equals(var$2, $rt_s(1400)))
+                if (!jl_String_equals(var$2, $rt_s(1401)))
                     break a;
                 var$3 = 0;
                 break a;
             case 104712844:
-                if (!jl_String_equals(var$2, $rt_s(1401)))
+                if (!jl_String_equals(var$2, $rt_s(1402)))
                     break a;
                 var$3 = 3;
                 break a;
@@ -40635,42 +40661,42 @@ a_ComponentFactory_finishOf = $name => {
         var$3 = (-1);
         switch (jl_String_hashCode(var$2)) {
             case -1124793468:
-                if (!jl_String_equals(var$2, $rt_s(1402)))
+                if (!jl_String_equals(var$2, $rt_s(1403)))
                     break a;
                 var$3 = 1;
                 break a;
             case -1039745817:
-                if (!jl_String_equals(var$2, $rt_s(1403)))
+                if (!jl_String_equals(var$2, $rt_s(1404)))
                     break a;
                 var$3 = 6;
                 break a;
             case -898533970:
-                if (!jl_String_equals(var$2, $rt_s(1404)))
+                if (!jl_String_equals(var$2, $rt_s(1405)))
                     break a;
                 var$3 = 3;
                 break a;
             case 108703929:
-                if (!jl_String_equals(var$2, $rt_s(1405)))
+                if (!jl_String_equals(var$2, $rt_s(1406)))
                     break a;
                 var$3 = 0;
                 break a;
             case 547369840:
-                if (!jl_String_equals(var$2, $rt_s(1406)))
+                if (!jl_String_equals(var$2, $rt_s(1407)))
                     break a;
                 var$3 = 4;
                 break a;
             case 852567563:
-                if (!jl_String_equals(var$2, $rt_s(1407)))
+                if (!jl_String_equals(var$2, $rt_s(1408)))
                     break a;
                 var$3 = 2;
                 break a;
             case 1086463900:
-                if (!jl_String_equals(var$2, $rt_s(1408)))
+                if (!jl_String_equals(var$2, $rt_s(1409)))
                     break a;
                 var$3 = 7;
                 break a;
             case 1269398787:
-                if (!jl_String_equals(var$2, $rt_s(1409)))
+                if (!jl_String_equals(var$2, $rt_s(1410)))
                     break a;
                 var$3 = 5;
                 break a;
@@ -40710,7 +40736,7 @@ a_ComponentFactory_finishOf = $name => {
 },
 a_ComponentFactory_attachChildren = ($parent, $node, $idIndex) => {
     let $kids, var$5, $kid, $child, $id;
-    $kids = a_JsonLite_objList($node, $rt_s(1410));
+    $kids = a_JsonLite_objList($node, $rt_s(1411));
     var$5 = $kids.$iterator();
     while (var$5.$hasNext()) {
         $kid = var$5.$next();
@@ -40720,7 +40746,7 @@ a_ComponentFactory_attachChildren = ($parent, $node, $idIndex) => {
             a_ComponentFactory_applyAssembly($child, $kid);
         if ($child instanceof iocr_FinSet)
             a_ComponentFactory_applyFinTabs($child, $kid);
-        $id = a_JsonLite_str($kid, $rt_s(1411), null);
+        $id = a_JsonLite_str($kid, $rt_s(1412), null);
         if ($id !== null)
             $idIndex.$put($id, $child);
         a_ComponentFactory_attachChildren($child, $kid, $idIndex);
@@ -40728,12 +40754,12 @@ a_ComponentFactory_attachChildren = ($parent, $node, $idIndex) => {
 },
 a_ComponentFactory_applyFinTabs = ($fins, $node) => {
     let $tabHeight, $tabLength;
-    $tabHeight = a_JsonLite_dbl($node, $rt_s(1412), 0.0);
-    $tabLength = a_JsonLite_dbl($node, $rt_s(1413), 0.0);
+    $tabHeight = a_JsonLite_dbl($node, $rt_s(1413), 0.0);
+    $tabLength = a_JsonLite_dbl($node, $rt_s(1414), 0.0);
     if (!($tabHeight <= 0.0) && !($tabLength <= 0.0)) {
-        $fins.$setTabOffsetMethod(a_ComponentFactory_axialMethodOf(a_JsonLite_str($node, $rt_s(1414), $rt_s(1415))));
+        $fins.$setTabOffsetMethod(a_ComponentFactory_axialMethodOf(a_JsonLite_str($node, $rt_s(1415), $rt_s(1416))));
         $fins.$setTabLength0($tabLength);
-        $fins.$setTabOffset(a_JsonLite_dbl($node, $rt_s(1416), 0.0));
+        $fins.$setTabOffset(a_JsonLite_dbl($node, $rt_s(1417), 0.0));
         $fins.$setTabHeight0($tabHeight);
         return;
     }
@@ -40741,17 +40767,17 @@ a_ComponentFactory_applyFinTabs = ($fins, $node) => {
 a_ComponentFactory_applyAssembly = ($child, $node) => {
     let $ring, var$4, $position;
     $ring = $child;
-    $ring.$setInstanceCount(a_JsonLite_dbl($node, $rt_s(1417), 2.0) | 0);
-    $ring.$setRadiusMethod(a_ComponentFactory_radiusMethodOf(a_JsonLite_str($node, $rt_s(1418), $rt_s(1419))));
-    $ring.$setRadiusOffset(a_JsonLite_dbl($node, $rt_s(1420), 0.0));
-    $ring.$setAngleOffset(a_JsonLite_dbl($node, $rt_s(1421), 0.0));
+    $ring.$setInstanceCount(a_JsonLite_dbl($node, $rt_s(1418), 2.0) | 0);
+    $ring.$setRadiusMethod(a_ComponentFactory_radiusMethodOf(a_JsonLite_str($node, $rt_s(1419), $rt_s(1420))));
+    $ring.$setRadiusOffset(a_JsonLite_dbl($node, $rt_s(1421), 0.0));
+    $ring.$setAngleOffset(a_JsonLite_dbl($node, $rt_s(1422), 0.0));
     var$4 = $child instanceof iocr_ParallelStage;
     if (var$4)
-        $ring.$setAngleMethod(a_ComponentFactory_angleMethodOf(a_JsonLite_str($node, $rt_s(1422), $rt_s(1419))));
-    $position = a_JsonLite_obj($node, $rt_s(1392));
+        $ring.$setAngleMethod(a_ComponentFactory_angleMethodOf(a_JsonLite_str($node, $rt_s(1423), $rt_s(1420))));
+    $position = a_JsonLite_obj($node, $rt_s(1393));
     if ($position !== null) {
-        $child.$setAxialMethod(a_ComponentFactory_axialMethodOf(a_JsonLite_str($position, $rt_s(1393), $rt_s(1423))));
-        $child.$setAxialOffset0(a_JsonLite_dbl($position, $rt_s(1395), 0.0));
+        $child.$setAxialMethod(a_ComponentFactory_axialMethodOf(a_JsonLite_str($position, $rt_s(1394), $rt_s(1424))));
+        $child.$setAxialOffset0(a_JsonLite_dbl($position, $rt_s(1396), 0.0));
     }
     if (var$4)
         a_OrkEngine_applySeparationConfig($child, $node);
@@ -40763,22 +40789,22 @@ a_ComponentFactory_radiusMethodOf = $name => {
         var$3 = (-1);
         switch (jl_String_hashCode(var$2)) {
             case -1853231955:
-                if (!jl_String_equals(var$2, $rt_s(1424)))
+                if (!jl_String_equals(var$2, $rt_s(1425)))
                     break a;
                 var$3 = 1;
                 break a;
             case -554435892:
-                if (!jl_String_equals(var$2, $rt_s(1419)))
+                if (!jl_String_equals(var$2, $rt_s(1420)))
                     break a;
                 var$3 = 3;
                 break a;
             case 3151468:
-                if (!jl_String_equals(var$2, $rt_s(1425)))
+                if (!jl_String_equals(var$2, $rt_s(1426)))
                     break a;
                 var$3 = 0;
                 break a;
             case 939647441:
-                if (!jl_String_equals(var$2, $rt_s(1426)))
+                if (!jl_String_equals(var$2, $rt_s(1427)))
                     break a;
                 var$3 = 2;
                 break a;
@@ -40813,12 +40839,12 @@ a_ComponentFactory_angleMethodOf = $name => {
         var$3 = (-1);
         switch (jl_String_hashCode(var$2)) {
             case -554435892:
-                if (!jl_String_equals(var$2, $rt_s(1419)))
+                if (!jl_String_equals(var$2, $rt_s(1420)))
                     break a;
                 var$3 = 1;
                 break a;
             case 97445748:
-                if (!jl_String_equals(var$2, $rt_s(1427)))
+                if (!jl_String_equals(var$2, $rt_s(1428)))
                     break a;
                 var$3 = 0;
                 break a;
@@ -40847,7 +40873,7 @@ a_ComponentFactory_shapeOf = $name => {
         var$3 = (-1);
         switch (jl_String_hashCode(var$2)) {
             case 99032304:
-                if (!jl_String_equals(var$2, $rt_s(1428)))
+                if (!jl_String_equals(var$2, $rt_s(1429)))
                     break a;
                 var$3 = 4;
                 break a;
@@ -40857,7 +40883,7 @@ a_ComponentFactory_shapeOf = $name => {
                 var$3 = 5;
                 break a;
             case 106858757:
-                if (!jl_String_equals(var$2, $rt_s(1429)))
+                if (!jl_String_equals(var$2, $rt_s(1430)))
                     break a;
                 var$3 = 2;
                 break a;
@@ -40867,12 +40893,12 @@ a_ComponentFactory_shapeOf = $name => {
                 var$3 = 0;
                 break a;
             case 1554829059:
-                if (!jl_String_equals(var$2, $rt_s(1430)))
+                if (!jl_String_equals(var$2, $rt_s(1431)))
                     break a;
                 var$3 = 1;
                 break a;
             case 1944592185:
-                if (!jl_String_equals(var$2, $rt_s(1431)))
+                if (!jl_String_equals(var$2, $rt_s(1432)))
                     break a;
                 var$3 = 3;
                 break a;
@@ -40955,22 +40981,22 @@ a_ComponentFactory_axialMethodOf = $name => {
         var$3 = (-1);
         switch (jl_String_hashCode(var$2)) {
             case -1383228885:
-                if (!jl_String_equals(var$2, $rt_s(1423)))
+                if (!jl_String_equals(var$2, $rt_s(1424)))
                     break a;
                 var$3 = 2;
                 break a;
             case -1074341483:
-                if (!jl_String_equals(var$2, $rt_s(1415)))
+                if (!jl_String_equals(var$2, $rt_s(1416)))
                     break a;
                 var$3 = 1;
                 break a;
             case 115029:
-                if (!jl_String_equals(var$2, $rt_s(1394)))
+                if (!jl_String_equals(var$2, $rt_s(1395)))
                     break a;
                 var$3 = 3;
                 break a;
             case 1728122231:
-                if (!jl_String_equals(var$2, $rt_s(1432)))
+                if (!jl_String_equals(var$2, $rt_s(1433)))
                     break a;
                 var$3 = 0;
                 break a;
@@ -41207,7 +41233,7 @@ iocr_Transition_setShapeType = ($this, $type) => {
             $listener.$setShapeType($type);
     }
     if ($type === null)
-        $rt_throw(jl_IllegalArgumentException__init_0($rt_s(1433)));
+        $rt_throw(jl_IllegalArgumentException__init_0($rt_s(1434)));
     if ($this.$type0 === $type)
         return;
     $this.$type0 = $type;
@@ -41577,7 +41603,7 @@ iocr_Transition_calculateProperties = $this => {
 },
 iocr_Transition_getComponentName = $this => {
     iocr_Transition_$callClinit();
-    return iocr_Transition_trans.$get1($rt_s(1434));
+    return iocr_Transition_trans.$get1($rt_s(1435));
 },
 iocr_Transition_componentChanged = ($this, $e) => {
     iocr_SymmetricComponent_componentChanged($this, $e);
@@ -41648,7 +41674,7 @@ iocr_NoseCone_setClipped = ($this, $b) => {
 },
 iocr_NoseCone_getComponentName = $this => {
     iocr_NoseCone_$callClinit();
-    return iocr_NoseCone_trans.$get1($rt_s(1435));
+    return iocr_NoseCone_trans.$get1($rt_s(1436));
 },
 iocr_NoseCone_getInsideColorComponentHandler = $this => {
     return $this.$insideColorComponentHandler3;
@@ -41747,7 +41773,7 @@ let ju_IllegalFormatConversionException__init_0 = ($this, $conversion, $argument
     let var$3, var$4;
     var$3 = jl_String_valueOf($argumentClass);
     var$4 = jl_StringBuilder__init_();
-    jl_StringBuilder_append(jl_StringBuilder_append0(jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(var$4, $rt_s(1436)), var$3), $rt_s(1437)), $conversion), $rt_s(1438));
+    jl_StringBuilder_append(jl_StringBuilder_append0(jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(var$4, $rt_s(1437)), var$3), $rt_s(1438)), $conversion), $rt_s(1439));
     ju_IllegalFormatException__init_($this, jl_StringBuilder_toString(var$4));
     $this.$conversion = $conversion;
     $this.$argumentClass = $argumentClass;
@@ -41950,7 +41976,7 @@ jur_PreviousMatch_hasConsumed = ($this, $matchResult) => {
     return 0;
 },
 jur_PreviousMatch_getName = $this => {
-    return $rt_s(1439);
+    return $rt_s(1440);
 },
 juf_DoubleSupplier = $rt_classWithoutFields(0),
 jur_NonCapFSet = $rt_classWithoutFields(jur_FSet),
@@ -41969,7 +41995,7 @@ jur_NonCapFSet_matches = ($this, $stringIndex, $testString, $matchResult) => {
     return $this.$next6.$matches0($stringIndex, $testString, $matchResult);
 },
 jur_NonCapFSet_getName = $this => {
-    return $rt_s(1440);
+    return $rt_s(1441);
 },
 jur_NonCapFSet_hasConsumed = ($this, $mr) => {
     return 0;
@@ -42017,7 +42043,7 @@ iocm_RigidBody__init_0 = ($this, $_cm, $Ixx, $Iyy, $Izz) => {
         $this.$Izz = $Izz;
         return;
     }
-    $rt_throw(iocu_BugException__init_0($rt_s(1441)));
+    $rt_throw(iocu_BugException__init_0($rt_s(1442)));
 },
 iocm_RigidBody__init_ = (var_0, var_1, var_2, var_3) => {
     let var_4 = new iocm_RigidBody();
@@ -42101,7 +42127,7 @@ iocm_RigidBody_toString = $this => {
     var$1 = $this.$toCMString();
     var$2 = $this.$toMOIString();
     var$3 = jl_StringBuilder__init_();
-    jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(var$3, var$1), $rt_s(1442)), var$2);
+    jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(var$3, var$1), $rt_s(1443)), var$2);
     return jl_StringBuilder_toString(var$3);
 },
 iocm_RigidBody_toCMString = $this => {
@@ -42112,7 +42138,7 @@ iocm_RigidBody_toCMString = $this => {
     var$2[1] = jl_Double_valueOf($this.$cm.$x);
     var$2[2] = jl_Double_valueOf($this.$cm.$y);
     var$2[3] = jl_Double_valueOf($this.$cm.$z);
-    return jl_String_format($rt_s(1443), var$1);
+    return jl_String_format($rt_s(1444), var$1);
 },
 iocm_RigidBody_toMOIString = $this => {
     let var$1, var$2;
@@ -42121,7 +42147,7 @@ iocm_RigidBody_toMOIString = $this => {
     var$2[0] = jl_Double_valueOf($this.$Ixx);
     var$2[1] = jl_Double_valueOf($this.$Iyy);
     var$2[2] = jl_Double_valueOf($this.$Izz);
-    return jl_String_format($rt_s(1444), var$1);
+    return jl_String_format($rt_s(1445), var$1);
 },
 iocm_RigidBody__clinit_ = () => {
     let var$1;
@@ -42311,7 +42337,7 @@ jl_System_arraycopy = ($src, $srcPos, $dest, $destPos, $length) => {
         }
         $rt_throw(jl_IndexOutOfBoundsException__init_());
     }
-    $rt_throw(jl_NullPointerException__init_($rt_s(1445)));
+    $rt_throw(jl_NullPointerException__init_($rt_s(1446)));
 },
 jl_System_fastArraycopy = ($src, $srcPos, $dest, $destPos, $length) => {
     let var$6;
@@ -42348,19 +42374,19 @@ jl_System_initPropertiesIfNeeded = () => {
     let var$1;
     if (jl_System_properties === null) {
         var$1 = ju_Properties__init_1();
-        var$1.$put($rt_s(1446), $rt_s(1447));
-        var$1.$put($rt_s(1448), $rt_s(1449));
-        var$1.$put($rt_s(1450), !(otrf_VirtualFileSystemProvider_getInstance()).$isWindows() ? $rt_s(1081) : $rt_s(1451));
-        var$1.$put($rt_s(1452), !(otrf_VirtualFileSystemProvider_getInstance()).$isWindows() ? $rt_s(1453) : $rt_s(1454));
-        var$1.$put($rt_s(1455), jl_System_lineSeparator());
-        var$1.$put($rt_s(1456), jl_System_getTempDir());
-        var$1.$put($rt_s(1457), $rt_s(1447));
-        var$1.$put($rt_s(1458), jl_System_getHomeDir());
+        var$1.$put($rt_s(1447), $rt_s(1448));
+        var$1.$put($rt_s(1449), $rt_s(1450));
+        var$1.$put($rt_s(1451), !(otrf_VirtualFileSystemProvider_getInstance()).$isWindows() ? $rt_s(1081) : $rt_s(1452));
+        var$1.$put($rt_s(1453), !(otrf_VirtualFileSystemProvider_getInstance()).$isWindows() ? $rt_s(1454) : $rt_s(1455));
+        var$1.$put($rt_s(1456), jl_System_lineSeparator());
+        var$1.$put($rt_s(1457), jl_System_getTempDir());
+        var$1.$put($rt_s(1458), $rt_s(1448));
+        var$1.$put($rt_s(1459), jl_System_getHomeDir());
         jl_System_properties = ju_Properties__init_2(var$1);
     }
 },
 jl_System_getTempDir = () => {
-    return $rt_s(1459);
+    return $rt_s(1460);
 },
 jl_System_getHomeDir = () => {
     return $rt_s(1081);
@@ -42435,23 +42461,23 @@ jm_Conversion_toDecimalScaledString = ($val, $scale) => {
             case 0:
                 break;
             case 1:
-                return $rt_s(1460);
-            case 2:
                 return $rt_s(1461);
-            case 3:
+            case 2:
                 return $rt_s(1462);
-            case 4:
+            case 3:
                 return $rt_s(1463);
-            case 5:
+            case 4:
                 return $rt_s(1464);
-            case 6:
+            case 5:
                 return $rt_s(1465);
+            case 6:
+                return $rt_s(1466);
             default:
                 $result1 = jl_StringBuilder__init_();
                 if ($scale >= 0)
-                    $result1.$append1($rt_s(1466));
-                else
                     $result1.$append1($rt_s(1467));
+                else
+                    $result1.$append1($rt_s(1468));
                 $result1.$append3( -$scale | 0);
                 return $result1.$toString();
         }
@@ -42606,24 +42632,24 @@ jm_Conversion_toDecimalScaledString0 = ($v, $scale) => {
             case 0:
                 break;
             case 1:
-                return $rt_s(1460);
-            case 2:
                 return $rt_s(1461);
-            case 3:
+            case 2:
                 return $rt_s(1462);
-            case 4:
+            case 3:
                 return $rt_s(1463);
-            case 5:
+            case 4:
                 return $rt_s(1464);
-            case 6:
+            case 5:
                 return $rt_s(1465);
+            case 6:
+                return $rt_s(1466);
             default:
                 $result1 = jl_StringBuilder__init_();
                 if ($scale >= 0)
-                    $result1.$append1($rt_s(1466));
-                else
                     $result1.$append1($rt_s(1467));
-                $result1.$append1($scale == (-2147483648) ? $rt_s(1468) : jl_Integer_toString( -$scale | 0));
+                else
+                    $result1.$append1($rt_s(1468));
+                $result1.$append1($scale == (-2147483648) ? $rt_s(1469) : jl_Integer_toString( -$scale | 0));
                 return $result1.$toString();
         }
         return $rt_s(342);
@@ -42898,7 +42924,7 @@ iocm_MassCalculation_toCMDebug = $this => {
     var$2[1] = jl_Double_valueOf($this.$centerOfMass.$x);
     var$2[2] = jl_Double_valueOf($this.$centerOfMass.$y);
     var$2[3] = jl_Double_valueOf($this.$centerOfMass.$z);
-    return jl_String_format($rt_s(1469), var$1);
+    return jl_String_format($rt_s(1470), var$1);
 },
 iocm_MassCalculation_toString = $this => {
     return $this.$toCMDebug();
@@ -43017,7 +43043,7 @@ iocm_MassCalculation_calculateStructure = $this => {
             $eachChild = $this.$copy1($child, $currentTransform);
             var$19 = $this.$prefix;
             var$20 = jl_StringBuilder__init_();
-            jl_StringBuilder_append(jl_StringBuilder_append(var$20, var$19), $rt_s(1470));
+            jl_StringBuilder_append(jl_StringBuilder_append(var$20, var$19), $rt_s(1471));
             $eachChild.$prefix = jl_StringBuilder_toString(var$20);
             $eachChild.$calculateStructure0();
             $children.$merge0($eachChild);
@@ -43081,7 +43107,7 @@ iocm_MassCalculation_calculateMotors = $this => {
             $eachChild = $this.$copy1($child, $currentTransform);
             var$13 = $this.$prefix;
             var$14 = jl_StringBuilder__init_();
-            jl_StringBuilder_append(jl_StringBuilder_append(var$14, var$13), $rt_s(1470));
+            jl_StringBuilder_append(jl_StringBuilder_append(var$14, var$13), $rt_s(1471));
             $eachChild.$prefix = jl_StringBuilder_toString(var$14);
             $eachChild.$calculateMotors();
             $children.$merge0($eachChild);
@@ -43147,7 +43173,7 @@ iocr_InnerTube_getInnerRadius = ($this, $x) => {
 },
 iocr_InnerTube_getComponentName = $this => {
     iocr_InnerTube_$callClinit();
-    return iocr_InnerTube_trans.$get1($rt_s(1471));
+    return iocr_InnerTube_trans.$get1($rt_s(1472));
 },
 iocr_InnerTube_isCompatible = ($this, $type) => {
     return jl_Class_isAssignableFrom($rt_cls(iocr_InternalComponent), $type);
@@ -43188,9 +43214,9 @@ iocr_InnerTube_setInstanceCount = ($this, $newCount) => {
     var$3 = new jl_UnsupportedOperationException;
     var$4 = jl_Class_getSimpleName(jl_Object_getClass($this));
     var$5 = jl_StringBuilder__init_();
-    jl_StringBuilder_append(jl_StringBuilder_append(var$5, $rt_s(1472)), var$4);
+    jl_StringBuilder_append(jl_StringBuilder_append(var$5, $rt_s(1473)), var$4);
     jl_UnsupportedOperationException__init_0(var$3, jl_StringBuilder_toString(var$5));
-    var$2.$error0($rt_s(1473), var$3);
+    var$2.$error0($rt_s(1474), var$3);
 },
 iocr_InnerTube_isAfter = $this => {
     return 0;
@@ -43267,7 +43293,7 @@ iocr_InnerTube_setMotorConfig = ($this, $newMotorConfig, $fcid) => {
         $this.$motors.$set($fcid, null);
     else {
         if ($this !== $newMotorConfig.$getMount())
-            $rt_throw(iocu_BugException__init_0($rt_s(1474)));
+            $rt_throw(iocu_BugException__init_0($rt_s(1475)));
         $this.$motors.$set($fcid, $newMotorConfig);
     }
     $this.$isActingMount0 = 1;
@@ -43310,9 +43336,9 @@ iocr_InnerTube_copyWithOriginalID = $this => {
     let $copy;
     $copy = iocr_RocketComponent_copyWithOriginalID($this);
     if ($copy === $this)
-        jl_IllegalArgumentException__init_(new jl_IllegalArgumentException, $rt_s(1475));
-    if ($copy.$motors === $this.$motors)
         jl_IllegalArgumentException__init_(new jl_IllegalArgumentException, $rt_s(1476));
+    if ($copy.$motors === $this.$motors)
+        jl_IllegalArgumentException__init_(new jl_IllegalArgumentException, $rt_s(1477));
     $copy.$motors = iocm_MotorConfigurationSet__init_($this.$motors, $copy);
     return $copy;
 },
@@ -43412,17 +43438,17 @@ iocr_ComponentChangeEvent$TYPE_$values = () => {
     return var$1;
 },
 iocr_ComponentChangeEvent$TYPE__clinit_ = () => {
-    iocr_ComponentChangeEvent$TYPE_ERROR = iocr_ComponentChangeEvent$TYPE__init_($rt_s(1477), 0, (-1), $rt_s(1478));
-    iocr_ComponentChangeEvent$TYPE_NON_FUNCTIONAL = iocr_ComponentChangeEvent$TYPE__init_($rt_s(1479), 1, 1, $rt_s(1480));
-    iocr_ComponentChangeEvent$TYPE_MASS = iocr_ComponentChangeEvent$TYPE__init_($rt_s(1481), 2, 2, $rt_s(1482));
-    iocr_ComponentChangeEvent$TYPE_AERODYNAMIC = iocr_ComponentChangeEvent$TYPE__init_($rt_s(1483), 3, 4, $rt_s(1484));
-    iocr_ComponentChangeEvent$TYPE_TREE = iocr_ComponentChangeEvent$TYPE__init_($rt_s(1485), 4, 8, $rt_s(1485));
-    iocr_ComponentChangeEvent$TYPE_UNDO = iocr_ComponentChangeEvent$TYPE__init_($rt_s(1486), 5, 16, $rt_s(1486));
-    iocr_ComponentChangeEvent$TYPE_MOTOR = iocr_ComponentChangeEvent$TYPE__init_($rt_s(1487), 6, 32, $rt_s(1488));
-    iocr_ComponentChangeEvent$TYPE_EVENT = iocr_ComponentChangeEvent$TYPE__init_($rt_s(1489), 7, 64, $rt_s(1490));
-    iocr_ComponentChangeEvent$TYPE_TEXTURE = iocr_ComponentChangeEvent$TYPE__init_($rt_s(1491), 8, 128, $rt_s(1492));
-    iocr_ComponentChangeEvent$TYPE_GRAPHIC = iocr_ComponentChangeEvent$TYPE__init_($rt_s(1493), 9, 256, $rt_s(1494));
-    iocr_ComponentChangeEvent$TYPE_TREE_CHILDREN = iocr_ComponentChangeEvent$TYPE__init_($rt_s(1495), 10, 512, $rt_s(1495));
+    iocr_ComponentChangeEvent$TYPE_ERROR = iocr_ComponentChangeEvent$TYPE__init_($rt_s(1478), 0, (-1), $rt_s(1479));
+    iocr_ComponentChangeEvent$TYPE_NON_FUNCTIONAL = iocr_ComponentChangeEvent$TYPE__init_($rt_s(1480), 1, 1, $rt_s(1481));
+    iocr_ComponentChangeEvent$TYPE_MASS = iocr_ComponentChangeEvent$TYPE__init_($rt_s(1482), 2, 2, $rt_s(1483));
+    iocr_ComponentChangeEvent$TYPE_AERODYNAMIC = iocr_ComponentChangeEvent$TYPE__init_($rt_s(1484), 3, 4, $rt_s(1485));
+    iocr_ComponentChangeEvent$TYPE_TREE = iocr_ComponentChangeEvent$TYPE__init_($rt_s(1486), 4, 8, $rt_s(1486));
+    iocr_ComponentChangeEvent$TYPE_UNDO = iocr_ComponentChangeEvent$TYPE__init_($rt_s(1487), 5, 16, $rt_s(1487));
+    iocr_ComponentChangeEvent$TYPE_MOTOR = iocr_ComponentChangeEvent$TYPE__init_($rt_s(1488), 6, 32, $rt_s(1489));
+    iocr_ComponentChangeEvent$TYPE_EVENT = iocr_ComponentChangeEvent$TYPE__init_($rt_s(1490), 7, 64, $rt_s(1491));
+    iocr_ComponentChangeEvent$TYPE_TEXTURE = iocr_ComponentChangeEvent$TYPE__init_($rt_s(1492), 8, 128, $rt_s(1493));
+    iocr_ComponentChangeEvent$TYPE_GRAPHIC = iocr_ComponentChangeEvent$TYPE__init_($rt_s(1494), 9, 256, $rt_s(1495));
+    iocr_ComponentChangeEvent$TYPE_TREE_CHILDREN = iocr_ComponentChangeEvent$TYPE__init_($rt_s(1496), 10, 512, $rt_s(1496));
     iocr_ComponentChangeEvent$TYPE_$VALUES = iocr_ComponentChangeEvent$TYPE_$values();
 };
 function ju_LinkedList$Entry() {
@@ -43684,7 +43710,7 @@ jur_Matcher_toString = $this => {
     var$4 = $this.$matchResult.$getLeftBound();
     var$5 = $this.$matchResult.$getRightBound();
     var$6 = jl_StringBuilder__init_();
-    jl_StringBuilder_append0(jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append2(jl_StringBuilder_append0(jl_StringBuilder_append2(jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(var$6, $rt_s(1496)), var$3), $rt_s(1497)), var$4), 44), var$5), $rt_s(1498)), var$2), 93);
+    jl_StringBuilder_append0(jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append2(jl_StringBuilder_append0(jl_StringBuilder_append2(jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(var$6, $rt_s(1497)), var$3), $rt_s(1498)), var$4), 44), var$5), $rt_s(1499)), var$2), 93);
     return jl_StringBuilder_toString(var$6);
 },
 jur_DotAllSet = $rt_classWithoutFields(jur_JointSet),
@@ -43716,7 +43742,7 @@ jur_DotAllSet_matches = ($this, $stringIndex, $testString, $matchResult) => {
     return $this.$next6.$matches0(var$5, $testString, $matchResult);
 },
 jur_DotAllSet_getName = $this => {
-    return $rt_s(1499);
+    return $rt_s(1500);
 },
 jur_DotAllSet_setNext = ($this, $next) => {
     $this.$next6 = $next;
@@ -43763,7 +43789,7 @@ jt_FieldPosition_toString = $this => {
     var$4 = $this.$beginIndex;
     var$5 = $this.$endIndex;
     var$6 = jl_StringBuilder__init_();
-    jl_StringBuilder_append0(jl_StringBuilder_append2(jl_StringBuilder_append(jl_StringBuilder_append2(jl_StringBuilder_append(jl_StringBuilder_append2(jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(var$6, var$1), $rt_s(1500)), var$2), $rt_s(1501)), var$3), $rt_s(1502)), var$4), $rt_s(1503)), var$5), 93);
+    jl_StringBuilder_append0(jl_StringBuilder_append2(jl_StringBuilder_append(jl_StringBuilder_append2(jl_StringBuilder_append(jl_StringBuilder_append2(jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(var$6, var$1), $rt_s(1501)), var$2), $rt_s(1502)), var$3), $rt_s(1503)), var$4), $rt_s(1504)), var$5), 93);
     return jl_StringBuilder_toString(var$6);
 };
 function jur_AbstractCharClass$LazyJavaLowerCase$1() {
@@ -43816,7 +43842,7 @@ iocu_FixedPrecisionUnit__init_0 = ($this, $unit, $p, $multiplier, $displayTraili
         $decimals = $decimals + 1 | 0;
     }
     var$6 = jl_StringBuilder__init_();
-    jl_StringBuilder_append0(jl_StringBuilder_append2(jl_StringBuilder_append(var$6, $rt_s(1504)), $decimals), 102);
+    jl_StringBuilder_append0(jl_StringBuilder_append2(jl_StringBuilder_append(var$6, $rt_s(1505)), $decimals), 102);
     $this.$formatString0 = jl_StringBuilder_toString(var$6);
     $symbols = jt_DecimalFormatSymbols__init_1();
     $pattern = jl_StringBuilder__init_1($rt_s(342));
@@ -44022,7 +44048,7 @@ iocr_FlightConfiguration__setStageActive = ($this, $stageNumber, $_active, $acti
     iocr_FlightConfiguration_$callClinit();
     var$6 = iocr_FlightConfiguration_log;
     var$4 = jl_StringBuilder__init_();
-    jl_StringBuilder_append2(jl_StringBuilder_append(var$4, $rt_s(1505)), $stageNumber);
+    jl_StringBuilder_append2(jl_StringBuilder_append(var$4, $rt_s(1506)), $stageNumber);
     var$6.$error1(jl_StringBuilder_toString(var$4));
 },
 iocr_FlightConfiguration_isStageActive = ($this, $stageNumber) => {
@@ -44392,7 +44418,7 @@ iocr_FlightConfiguration_clone1 = $this => {
 iocr_FlightConfiguration__clinit_ = () => {
     iocr_FlightConfiguration_log = os_LoggerFactory_getLogger($rt_cls(iocr_FlightConfiguration));
     iocr_FlightConfiguration_prefs = iocs_Application_getPreferences();
-    iocr_FlightConfiguration_DEFAULT_CONFIG_NAME = $rt_s(1506);
+    iocr_FlightConfiguration_DEFAULT_CONFIG_NAME = $rt_s(1507);
     iocr_FlightConfiguration_configurationInstanceCount = 0;
 };
 function jl_Object$monitorExit$lambda$_8_1() {
@@ -44453,7 +44479,7 @@ function ju_DuplicateFormatFlagsException() {
 let ju_DuplicateFormatFlagsException__init_ = ($this, $flags) => {
     let var$2;
     var$2 = jl_StringBuilder__init_();
-    jl_StringBuilder_append(jl_StringBuilder_append(var$2, $rt_s(1507)), $flags);
+    jl_StringBuilder_append(jl_StringBuilder_append(var$2, $rt_s(1508)), $flags);
     ju_IllegalFormatException__init_($this, jl_StringBuilder_toString(var$2));
     $this.$flags5 = $flags;
 },
@@ -44490,7 +44516,7 @@ jur_HangulDecomposedCharSet_getName = $this => {
     let var$1, var$2;
     var$1 = jur_HangulDecomposedCharSet_getDecomposedChar($this);
     var$2 = jl_StringBuilder__init_();
-    jl_StringBuilder_append(jl_StringBuilder_append(var$2, $rt_s(1508)), var$1);
+    jl_StringBuilder_append(jl_StringBuilder_append(var$2, $rt_s(1509)), var$1);
     return jl_StringBuilder_toString(var$2);
 },
 jur_HangulDecomposedCharSet_matches = ($this, $strIndex, $testString, $matchResult) => {
@@ -44627,7 +44653,7 @@ iocr_PodSet__init_0 = () => {
 },
 iocr_PodSet_getComponentName = $this => {
     iocr_PodSet_$callClinit();
-    return iocr_PodSet_trans.$get1($rt_s(1509));
+    return iocr_PodSet_trans.$get1($rt_s(1510));
 },
 iocr_PodSet_isCompatible = ($this, $type) => {
     return jl_Class_isAssignableFrom($rt_cls(iocr_BodyComponent), $type);
@@ -44684,7 +44710,7 @@ iocr_PodSet_getAxialOffset = ($this, $method) => {
     var$4 = iocr_RocketComponent_getName($this);
     var$5 = jl_Enum_name(iocr_RocketComponent_getAxialMethod($this));
     var$6 = jl_StringBuilder__init_();
-    jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(var$6, $rt_s(1510)), var$4), $rt_s(1511)), var$5);
+    jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(var$6, $rt_s(1511)), var$4), $rt_s(1512)), var$5);
     iocu_BugException__init_(var$3, jl_StringBuilder_toString(var$6));
     $rt_throw(var$3);
 },
@@ -44806,7 +44832,7 @@ function ju_MissingFormatWidthException() {
 let ju_MissingFormatWidthException__init_0 = ($this, $formatSpecifier) => {
     let var$2;
     var$2 = jl_StringBuilder__init_();
-    jl_StringBuilder_append(jl_StringBuilder_append(var$2, $rt_s(1512)), $formatSpecifier);
+    jl_StringBuilder_append(jl_StringBuilder_append(var$2, $rt_s(1513)), $formatSpecifier);
     ju_IllegalFormatException__init_($this, jl_StringBuilder_toString(var$2));
     $this.$formatSpecifier = $formatSpecifier;
 },
@@ -45005,7 +45031,7 @@ iocr_BodyTube_setInnerRadius = ($this, $r) => {
 },
 iocr_BodyTube_getComponentName = $this => {
     iocr_BodyTube_$callClinit();
-    return iocr_BodyTube_trans.$get1($rt_s(1513));
+    return iocr_BodyTube_trans.$get1($rt_s(1514));
 },
 iocr_BodyTube_getRadius = ($this, $x) => {
     return $this.$getOuterRadius();
@@ -45082,7 +45108,7 @@ iocr_BodyTube_setMotorConfig = ($this, $newMotorConfig, $fcid) => {
         $this.$motors1.$set($fcid, null);
     else {
         if ($this !== $newMotorConfig.$getMount())
-            $rt_throw(iocu_BugException__init_0($rt_s(1514)));
+            $rt_throw(iocu_BugException__init_0($rt_s(1515)));
         $this.$motors1.$set($fcid, $newMotorConfig);
     }
     $this.$isActingMount = 1;
@@ -45242,7 +45268,7 @@ ioca_BarrowmanCalculator_calculateForceAnalysis = ($this, $configuration, $conds
             var$10 = new jl_NullPointerException;
             var$11 = $comp.$getComponentName();
             var$12 = jl_StringBuilder__init_();
-            jl_StringBuilder_append(jl_StringBuilder_append(var$12, $rt_s(1515)), var$11);
+            jl_StringBuilder_append(jl_StringBuilder_append(var$12, $rt_s(1516)), var$11);
             jl_NullPointerException__init_1(var$10, jl_StringBuilder_toString(var$12));
             $rt_throw(var$10);
         }
@@ -45521,7 +45547,7 @@ ioca_BarrowmanCalculator_calculateFrictionCD = ($this, $configuration, $conditio
                 var$29 = jl_System_out();
                 var$30 = jl_String_valueOf($c);
                 var$31 = jl_StringBuilder__init_();
-                jl_StringBuilder_append(jl_StringBuilder_append(var$31, $rt_s(1516)), var$30);
+                jl_StringBuilder_append(jl_StringBuilder_append(var$31, $rt_s(1517)), var$30);
                 var$29.$println(jl_StringBuilder_toString(var$31));
             }
             ($forceMap.$get($c)).$setFrictionCD($componentFrictionCD);
@@ -45825,7 +45851,7 @@ ioca_BarrowmanCalculator_createCalcObject = ($this, $comp) => {
     var$4 = new iocu_BugException;
     var$5 = jl_String_valueOf($comp);
     var$6 = jl_StringBuilder__init_();
-    jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(var$6, $rt_s(1517)), var$5), $rt_s(1518));
+    jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(var$6, $rt_s(1518)), var$5), $rt_s(1519));
     iocu_BugException__init_(var$4, jl_StringBuilder_toString(var$6));
     $rt_throw(var$4);
 },
@@ -46023,7 +46049,7 @@ iocr_LaunchLug_getComponentCG = $this => {
 },
 iocr_LaunchLug_getComponentName = $this => {
     iocr_LaunchLug_$callClinit();
-    return iocr_LaunchLug_trans.$get1($rt_s(1519));
+    return iocr_LaunchLug_trans.$get1($rt_s(1520));
 },
 iocr_LaunchLug_getLongitudinalUnitInertia = $this => {
     return (3.0 * (iocu_MathUtil_pow2($this.$getOuterRadius()) + iocu_MathUtil_pow2($this.$getInnerRadius())) + iocu_MathUtil_pow2($this.$getLength())) / 12.0;
@@ -46283,7 +46309,7 @@ jm_Multiplication_powerOf10 = $exp => {
         return (jm_Multiplication_bigFivePows.data[1].$pow1($intExp)).$shiftLeft($intExp);
     $byteArraySize = Long_add(Long_fromInt(1), Long_fromNumber(Long_toNumber($exp) / 2.4082399653118496));
     if (Long_gt($byteArraySize, Long_fromInt(1000000)))
-        $rt_throw(jl_ArithmeticException__init_($rt_s(1520)));
+        $rt_throw(jl_ArithmeticException__init_($rt_s(1521)));
     if (Long_le($exp, Long_fromInt(2147483647)))
         return (jm_Multiplication_bigFivePows.data[1].$pow1($intExp)).$shiftLeft($intExp);
     $powerOfFive = jm_Multiplication_bigFivePows.data[1].$pow1(2147483647);
@@ -46384,7 +46410,7 @@ jur_WordBoundary_hasConsumed = ($this, $matchResult) => {
     return 0;
 },
 jur_WordBoundary_getName = $this => {
-    return $rt_s(1521);
+    return $rt_s(1522);
 },
 jur_WordBoundary_isSpace = ($this, $ch, $index, $leftBound, $testString) => {
     let var$5;
@@ -46569,9 +46595,9 @@ jl_Double_parseDouble = $string => {
                             $start = $start + 1 | 0;
                         }
                     } else {
-                        if ($c == 73 && ($end - $start | 0) == 8 && jl_String_regionMatches($string, 0, $start, $rt_s(1522), 0, 8))
+                        if ($c == 73 && ($end - $start | 0) == 8 && jl_String_regionMatches($string, 0, $start, $rt_s(1523), 0, 8))
                             return !$negative ? Infinity : (-Infinity);
-                        if ($c == 78 && ($end - $start | 0) == 3 && jl_String_regionMatches($string, 0, $start, $rt_s(1523), 0, 3))
+                        if ($c == 78 && ($end - $start | 0) == 3 && jl_String_regionMatches($string, 0, $start, $rt_s(1524), 0, 3))
                             return NaN;
                         $rt_throw(jl_NumberFormatException__init_0());
                     }
@@ -46757,17 +46783,17 @@ iocm_MaterialGroup_compareTo = ($this, var$1) => {
 iocm_MaterialGroup__clinit_ = () => {
     let var$1, var$2;
     iocm_MaterialGroup_trans = iocs_Application_getTranslator();
-    iocm_MaterialGroup_METALS = iocm_MaterialGroup__init_(iocm_MaterialGroup_trans.$get1($rt_s(1524)), $rt_s(1525), 0, 0);
-    iocm_MaterialGroup_WOODS = iocm_MaterialGroup__init_(iocm_MaterialGroup_trans.$get1($rt_s(1526)), $rt_s(1527), 10, 0);
-    iocm_MaterialGroup_PLASTICS = iocm_MaterialGroup__init_(iocm_MaterialGroup_trans.$get1($rt_s(1528)), $rt_s(1529), 20, 0);
-    iocm_MaterialGroup_FABRICS = iocm_MaterialGroup__init_(iocm_MaterialGroup_trans.$get1($rt_s(1530)), $rt_s(1531), 30, 0);
-    iocm_MaterialGroup_PAPER = iocm_MaterialGroup__init_(iocm_MaterialGroup_trans.$get1($rt_s(1532)), $rt_s(1533), 40, 0);
-    iocm_MaterialGroup_FOAMS = iocm_MaterialGroup__init_(iocm_MaterialGroup_trans.$get1($rt_s(1534)), $rt_s(1535), 50, 0);
-    iocm_MaterialGroup_COMPOSITES = iocm_MaterialGroup__init_(iocm_MaterialGroup_trans.$get1($rt_s(1536)), $rt_s(1537), 60, 0);
-    iocm_MaterialGroup_FIBERS = iocm_MaterialGroup__init_(iocm_MaterialGroup_trans.$get1($rt_s(1538)), $rt_s(1539), 70, 0);
-    iocm_MaterialGroup_THREADS_LINES = iocm_MaterialGroup__init_(iocm_MaterialGroup_trans.$get1($rt_s(1540)), $rt_s(1541), 80, 0);
-    iocm_MaterialGroup_OTHER = iocm_MaterialGroup__init_(iocm_MaterialGroup_trans.$get1($rt_s(1542)), $rt_s(1543), 90, 0);
-    iocm_MaterialGroup_CUSTOM = iocm_MaterialGroup__init_(iocm_MaterialGroup_trans.$get1($rt_s(1544)), $rt_s(1545), 1000, 1);
+    iocm_MaterialGroup_METALS = iocm_MaterialGroup__init_(iocm_MaterialGroup_trans.$get1($rt_s(1525)), $rt_s(1526), 0, 0);
+    iocm_MaterialGroup_WOODS = iocm_MaterialGroup__init_(iocm_MaterialGroup_trans.$get1($rt_s(1527)), $rt_s(1528), 10, 0);
+    iocm_MaterialGroup_PLASTICS = iocm_MaterialGroup__init_(iocm_MaterialGroup_trans.$get1($rt_s(1529)), $rt_s(1530), 20, 0);
+    iocm_MaterialGroup_FABRICS = iocm_MaterialGroup__init_(iocm_MaterialGroup_trans.$get1($rt_s(1531)), $rt_s(1532), 30, 0);
+    iocm_MaterialGroup_PAPER = iocm_MaterialGroup__init_(iocm_MaterialGroup_trans.$get1($rt_s(1533)), $rt_s(1534), 40, 0);
+    iocm_MaterialGroup_FOAMS = iocm_MaterialGroup__init_(iocm_MaterialGroup_trans.$get1($rt_s(1535)), $rt_s(1536), 50, 0);
+    iocm_MaterialGroup_COMPOSITES = iocm_MaterialGroup__init_(iocm_MaterialGroup_trans.$get1($rt_s(1537)), $rt_s(1538), 60, 0);
+    iocm_MaterialGroup_FIBERS = iocm_MaterialGroup__init_(iocm_MaterialGroup_trans.$get1($rt_s(1539)), $rt_s(1540), 70, 0);
+    iocm_MaterialGroup_THREADS_LINES = iocm_MaterialGroup__init_(iocm_MaterialGroup_trans.$get1($rt_s(1541)), $rt_s(1542), 80, 0);
+    iocm_MaterialGroup_OTHER = iocm_MaterialGroup__init_(iocm_MaterialGroup_trans.$get1($rt_s(1543)), $rt_s(1544), 90, 0);
+    iocm_MaterialGroup_CUSTOM = iocm_MaterialGroup__init_(iocm_MaterialGroup_trans.$get1($rt_s(1545)), $rt_s(1546), 1000, 1);
     var$1 = $rt_createArray(iocm_MaterialGroup, 11);
     var$2 = var$1.data;
     var$2[0] = iocm_MaterialGroup_METALS;
@@ -47026,20 +47052,20 @@ iocp_ApplicationPreferences_getDefaultComponentMaterial = ($this, $componentClas
             break;
         case 2:
             iocm_Material$Type_$callClinit();
-            return iocd_Databases_findMaterial(iocm_Material$Type_SURFACE, $rt_s(1546));
+            return iocd_Databases_findMaterial(iocm_Material$Type_SURFACE, $rt_s(1547));
         case 3:
             iocm_Material$Type_$callClinit();
-            return iocd_Databases_findMaterial(iocm_Material$Type_BULK, $rt_s(1547));
+            return iocd_Databases_findMaterial(iocm_Material$Type_BULK, $rt_s(1548));
         default:
             var$3 = new jl_IllegalArgumentException;
             var$4 = jl_String_valueOf($type);
             var$5 = jl_StringBuilder__init_();
-            jl_StringBuilder_append(jl_StringBuilder_append(var$5, $rt_s(1548)), var$4);
+            jl_StringBuilder_append(jl_StringBuilder_append(var$5, $rt_s(1549)), var$4);
             jl_IllegalArgumentException__init_(var$3, jl_StringBuilder_toString(var$5));
             $rt_throw(var$3);
     }
     iocm_Material$Type_$callClinit();
-    return iocd_Databases_findMaterial(iocm_Material$Type_LINE, $rt_s(1549));
+    return iocd_Databases_findMaterial(iocm_Material$Type_LINE, $rt_s(1550));
 };
 function ju_LinkedList$SequentialListIterator() {
     let a = this; jl_Object.call(a);
@@ -47167,7 +47193,7 @@ iocu_Quaternion__init_0 = ($this, $w, $x, $y, $z) => {
                     var$5 = iocu_Quaternion_log;
                     var$6 = iocu_Quaternion_count;
                     var$7 = jl_StringBuilder__init_();
-                    jl_StringBuilder_append(jl_StringBuilder_append2(jl_StringBuilder_append(var$7, $rt_s(1550)), var$6), $rt_s(583));
+                    jl_StringBuilder_append(jl_StringBuilder_append2(jl_StringBuilder_append(var$7, $rt_s(1551)), var$6), $rt_s(583));
                     var$5.$debug(jl_StringBuilder_toString(var$7));
                 }
                 jl_Object_monitorExitSync($rt_cls(iocu_Quaternion));
@@ -47218,7 +47244,7 @@ iocu_Quaternion_normalize = $this => {
     let $n;
     $n = $this.$norm();
     if ($n < 1.0E-7)
-        $rt_throw(jl_IllegalStateException__init_1($rt_s(1551)));
+        $rt_throw(jl_IllegalStateException__init_1($rt_s(1552)));
     return iocu_Quaternion__init_($this.$w / $n, $this.$x0 / $n, $this.$y0 / $n, $this.$z0 / $n);
 },
 iocu_Quaternion_normalizeIfNecessary = $this => {
@@ -47243,7 +47269,7 @@ iocu_Quaternion_rotate = ($this, $coord) => {
         var$2 = new jl_AssertionError;
         var$3 = jl_String_valueOf($this);
         var$4 = jl_StringBuilder__init_();
-        jl_StringBuilder_append(jl_StringBuilder_append(var$4, $rt_s(1552)), var$3);
+        jl_StringBuilder_append(jl_StringBuilder_append(var$4, $rt_s(1553)), var$3);
         jl_AssertionError__init_0(var$2, jl_StringBuilder_toString(var$4));
         $rt_throw(var$2);
     }
@@ -47257,7 +47283,7 @@ iocu_Quaternion_rotate = ($this, $coord) => {
         var$3 = jl_String_valueOf($this);
         var$4 = jl_String_valueOf($coord);
         var$10 = jl_StringBuilder__init_();
-        jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append1(jl_StringBuilder_append(var$10, $rt_s(1553)), var$9), $rt_s(869)), var$3), $rt_s(1554)), var$4);
+        jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append1(jl_StringBuilder_append(var$10, $rt_s(1554)), var$9), $rt_s(869)), var$3), $rt_s(1555)), var$4);
         jl_AssertionError__init_0(var$2, jl_StringBuilder_toString(var$10));
         $rt_throw(var$2);
     }
@@ -47273,7 +47299,7 @@ iocu_Quaternion_invRotate = ($this, $coord) => {
         var$2 = new jl_AssertionError;
         var$3 = jl_String_valueOf($this);
         var$4 = jl_StringBuilder__init_();
-        jl_StringBuilder_append(jl_StringBuilder_append(var$4, $rt_s(1552)), var$3);
+        jl_StringBuilder_append(jl_StringBuilder_append(var$4, $rt_s(1553)), var$3);
         jl_AssertionError__init_0(var$2, jl_StringBuilder_toString(var$4));
         $rt_throw(var$2);
     }
@@ -47287,7 +47313,7 @@ iocu_Quaternion_invRotate = ($this, $coord) => {
         var$3 = jl_String_valueOf($this);
         var$4 = jl_String_valueOf($coord);
         var$10 = jl_StringBuilder__init_();
-        jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append1(jl_StringBuilder_append(var$10, $rt_s(1553)), var$9), $rt_s(869)), var$3), $rt_s(1554)), var$4);
+        jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append1(jl_StringBuilder_append(var$10, $rt_s(1554)), var$9), $rt_s(869)), var$3), $rt_s(1555)), var$4);
         jl_AssertionError__init_0(var$2, jl_StringBuilder_toString(var$10));
         $rt_throw(var$2);
     }
@@ -47305,13 +47331,13 @@ iocu_Quaternion_toString = $this => {
     var$2[2] = jl_Double_valueOf($this.$y0);
     var$2[3] = jl_Double_valueOf($this.$z0);
     var$2[4] = jl_Double_valueOf($this.$norm());
-    return jl_String_format($rt_s(1555), var$1);
+    return jl_String_format($rt_s(1556), var$1);
 },
 iocu_Quaternion__clinit_ = () => {
     let $str, $diff, var$3, $$je;
     iocu_Quaternion_$assertionsDisabled = jl_Class_desiredAssertionStatus($rt_cls(iocu_Quaternion)) ? 0 : 1;
     iocu_Quaternion_log = os_LoggerFactory_getLogger($rt_cls(iocu_Quaternion));
-    $str = jl_System_getProperty($rt_s(1556));
+    $str = jl_System_getProperty($rt_s(1557));
     $diff = 0;
     if ($str === null) {
         iocu_Quaternion_COUNT_DEBUG = 0;
@@ -47380,7 +47406,7 @@ iocr_Parachute__init_ = () => {
 },
 iocr_Parachute_getComponentName = $this => {
     iocr_Parachute_$callClinit();
-    return iocr_Parachute_trans.$get1($rt_s(1557));
+    return iocr_Parachute_trans.$get1($rt_s(1558));
 },
 iocr_Parachute_setDiameter = ($this, $d) => {
     let var$2, $listener;
@@ -47461,7 +47487,7 @@ iocr_Parachute_setLineMaterial = ($this, $mat) => {
         var$2 = new jl_IllegalArgumentException;
         var$4 = jl_String_valueOf($mat);
         var$5 = jl_StringBuilder__init_();
-        jl_StringBuilder_append(jl_StringBuilder_append(var$5, $rt_s(1558)), var$4);
+        jl_StringBuilder_append(jl_StringBuilder_append(var$5, $rt_s(1559)), var$4);
         jl_IllegalArgumentException__init_(var$2, jl_StringBuilder_toString(var$5));
         $rt_throw(var$2);
     }
@@ -47537,8 +47563,8 @@ iocm_MassCalculation$Type_$values = () => {
     return var$1;
 },
 iocm_MassCalculation$Type__clinit_ = () => {
-    iocm_MassCalculation$Type_STRUCTURE = iocm_MassCalculation$Type__init_($rt_s(1559), 0, 1, 0, 0);
-    iocm_MassCalculation$Type_MOTOR = iocm_MassCalculation$Type__init_($rt_s(1487), 1, 0, 1, 1);
+    iocm_MassCalculation$Type_STRUCTURE = iocm_MassCalculation$Type__init_($rt_s(1560), 0, 1, 0, 0);
+    iocm_MassCalculation$Type_MOTOR = iocm_MassCalculation$Type__init_($rt_s(1488), 1, 0, 1, 1);
     iocm_MassCalculation$Type_BURNOUT = iocm_MassCalculation$Type__init_($rt_s(132), 2, 1, 1, 0);
     iocm_MassCalculation$Type_LAUNCH = iocm_MassCalculation$Type__init_($rt_s(128), 3, 1, 1, 1);
     iocm_MassCalculation$Type_$VALUES = iocm_MassCalculation$Type_$values();
@@ -47612,23 +47638,23 @@ iocs_FlightEvent$Type__clinit_ = () => {
     let var$1;
     var$1 = new iocs_FlightEvent$Type;
     iocs_FlightEvent_$callClinit();
-    iocs_FlightEvent$Type__init_0(var$1, $rt_s(128), 0, iocs_FlightEvent_trans.$get1($rt_s(1560)));
+    iocs_FlightEvent$Type__init_0(var$1, $rt_s(128), 0, iocs_FlightEvent_trans.$get1($rt_s(1561)));
     iocs_FlightEvent$Type_LAUNCH = var$1;
-    iocs_FlightEvent$Type_IGNITION = iocs_FlightEvent$Type__init_($rt_s(130), 1, iocs_FlightEvent_trans.$get1($rt_s(1561)));
-    iocs_FlightEvent$Type_LIFTOFF = iocs_FlightEvent$Type__init_($rt_s(1562), 2, iocs_FlightEvent_trans.$get1($rt_s(1563)));
-    iocs_FlightEvent$Type_LAUNCHROD = iocs_FlightEvent$Type__init_($rt_s(1564), 3, iocs_FlightEvent_trans.$get1($rt_s(1565)));
-    iocs_FlightEvent$Type_BURNOUT = iocs_FlightEvent$Type__init_($rt_s(132), 4, iocs_FlightEvent_trans.$get1($rt_s(1566)));
-    iocs_FlightEvent$Type_EJECTION_CHARGE = iocs_FlightEvent$Type__init_($rt_s(572), 5, iocs_FlightEvent_trans.$get1($rt_s(1567)));
-    iocs_FlightEvent$Type_STAGE_SEPARATION = iocs_FlightEvent$Type__init_($rt_s(690), 6, iocs_FlightEvent_trans.$get1($rt_s(1568)));
-    iocs_FlightEvent$Type_APOGEE = iocs_FlightEvent$Type__init_($rt_s(140), 7, iocs_FlightEvent_trans.$get1($rt_s(1569)));
-    iocs_FlightEvent$Type_RECOVERY_DEVICE_DEPLOYMENT = iocs_FlightEvent$Type__init_($rt_s(709), 8, iocs_FlightEvent_trans.$get1($rt_s(1570)));
-    iocs_FlightEvent$Type_GROUND_HIT = iocs_FlightEvent$Type__init_($rt_s(1571), 9, iocs_FlightEvent_trans.$get1($rt_s(1572)));
-    iocs_FlightEvent$Type_SIMULATION_END = iocs_FlightEvent$Type__init_($rt_s(1573), 10, iocs_FlightEvent_trans.$get1($rt_s(1574)));
-    iocs_FlightEvent$Type_ALTITUDE = iocs_FlightEvent$Type__init_($rt_s(611), 11, iocs_FlightEvent_trans.$get1($rt_s(1575)));
-    iocs_FlightEvent$Type_TUMBLE = iocs_FlightEvent$Type__init_($rt_s(1576), 12, iocs_FlightEvent_trans.$get1($rt_s(1577)));
-    iocs_FlightEvent$Type_SIM_WARN = iocs_FlightEvent$Type__init_($rt_s(1578), 13, iocs_FlightEvent_trans.$get1($rt_s(1579)));
-    iocs_FlightEvent$Type_SIM_ABORT = iocs_FlightEvent$Type__init_($rt_s(1580), 14, iocs_FlightEvent_trans.$get1($rt_s(1581)));
-    iocs_FlightEvent$Type_EXCEPTION = iocs_FlightEvent$Type__init_($rt_s(1582), 15, iocs_FlightEvent_trans.$get1($rt_s(1583)));
+    iocs_FlightEvent$Type_IGNITION = iocs_FlightEvent$Type__init_($rt_s(130), 1, iocs_FlightEvent_trans.$get1($rt_s(1562)));
+    iocs_FlightEvent$Type_LIFTOFF = iocs_FlightEvent$Type__init_($rt_s(1563), 2, iocs_FlightEvent_trans.$get1($rt_s(1564)));
+    iocs_FlightEvent$Type_LAUNCHROD = iocs_FlightEvent$Type__init_($rt_s(1565), 3, iocs_FlightEvent_trans.$get1($rt_s(1566)));
+    iocs_FlightEvent$Type_BURNOUT = iocs_FlightEvent$Type__init_($rt_s(132), 4, iocs_FlightEvent_trans.$get1($rt_s(1567)));
+    iocs_FlightEvent$Type_EJECTION_CHARGE = iocs_FlightEvent$Type__init_($rt_s(572), 5, iocs_FlightEvent_trans.$get1($rt_s(1568)));
+    iocs_FlightEvent$Type_STAGE_SEPARATION = iocs_FlightEvent$Type__init_($rt_s(690), 6, iocs_FlightEvent_trans.$get1($rt_s(1569)));
+    iocs_FlightEvent$Type_APOGEE = iocs_FlightEvent$Type__init_($rt_s(140), 7, iocs_FlightEvent_trans.$get1($rt_s(1570)));
+    iocs_FlightEvent$Type_RECOVERY_DEVICE_DEPLOYMENT = iocs_FlightEvent$Type__init_($rt_s(709), 8, iocs_FlightEvent_trans.$get1($rt_s(1571)));
+    iocs_FlightEvent$Type_GROUND_HIT = iocs_FlightEvent$Type__init_($rt_s(1572), 9, iocs_FlightEvent_trans.$get1($rt_s(1573)));
+    iocs_FlightEvent$Type_SIMULATION_END = iocs_FlightEvent$Type__init_($rt_s(1574), 10, iocs_FlightEvent_trans.$get1($rt_s(1575)));
+    iocs_FlightEvent$Type_ALTITUDE = iocs_FlightEvent$Type__init_($rt_s(611), 11, iocs_FlightEvent_trans.$get1($rt_s(1576)));
+    iocs_FlightEvent$Type_TUMBLE = iocs_FlightEvent$Type__init_($rt_s(1577), 12, iocs_FlightEvent_trans.$get1($rt_s(1578)));
+    iocs_FlightEvent$Type_SIM_WARN = iocs_FlightEvent$Type__init_($rt_s(1579), 13, iocs_FlightEvent_trans.$get1($rt_s(1580)));
+    iocs_FlightEvent$Type_SIM_ABORT = iocs_FlightEvent$Type__init_($rt_s(1581), 14, iocs_FlightEvent_trans.$get1($rt_s(1582)));
+    iocs_FlightEvent$Type_EXCEPTION = iocs_FlightEvent$Type__init_($rt_s(1583), 15, iocs_FlightEvent_trans.$get1($rt_s(1584)));
     iocs_FlightEvent$Type_$VALUES = iocs_FlightEvent$Type_$values();
 },
 jur_ReluctantAltQuantifierSet = $rt_classWithoutFields(jur_AltQuantifierSet),
@@ -47941,9 +47967,9 @@ iocrp_AngleMethod_$values = () => {
     return var$1;
 },
 iocrp_AngleMethod__clinit_ = () => {
-    iocrp_AngleMethod_RELATIVE = iocrp_AngleMethod$1__init_($rt_s(803), 0, (iocs_Application_getTranslator()).$get1($rt_s(1584)));
-    iocrp_AngleMethod_FIXED = iocrp_AngleMethod$2__init_0($rt_s(1585), 1, (iocs_Application_getTranslator()).$get1($rt_s(1586)));
-    iocrp_AngleMethod_MIRROR_XY = iocrp_AngleMethod$3__init_($rt_s(1587), 2, (iocs_Application_getTranslator()).$get1($rt_s(1588)));
+    iocrp_AngleMethod_RELATIVE = iocrp_AngleMethod$1__init_($rt_s(803), 0, (iocs_Application_getTranslator()).$get1($rt_s(1585)));
+    iocrp_AngleMethod_FIXED = iocrp_AngleMethod$2__init_0($rt_s(1586), 1, (iocs_Application_getTranslator()).$get1($rt_s(1587)));
+    iocrp_AngleMethod_MIRROR_XY = iocrp_AngleMethod$3__init_($rt_s(1588), 2, (iocs_Application_getTranslator()).$get1($rt_s(1589)));
     iocrp_AngleMethod_$VALUES = iocrp_AngleMethod_$values();
 };
 function iocab_TubeFinSetCalc() {
@@ -48030,7 +48056,7 @@ iocab_TubeFinSetCalc__init_ = ($this, $component) => {
     var$15 = $this.$ar0;
     var$16 = $this.$cnaconst;
     var$3 = jl_StringBuilder__init_();
-    jl_StringBuilder_append1(jl_StringBuilder_append(jl_StringBuilder_append1(jl_StringBuilder_append(var$3, $rt_s(1589)), var$15), $rt_s(1590)), var$16);
+    jl_StringBuilder_append1(jl_StringBuilder_append(jl_StringBuilder_append1(jl_StringBuilder_append(var$3, $rt_s(1590)), var$15), $rt_s(1591)), var$16);
     var$2.$debug(jl_StringBuilder_toString(var$3));
 },
 iocab_TubeFinSetCalc__init_0 = var_0 => {
@@ -48058,7 +48084,7 @@ iocab_TubeFinSetCalc_calculateNonaxialForces = ($this, $conditions, $transform, 
     var$6 = $this.$bodyRadius0;
     var$7 = $conditions.$getRefArea();
     var$8 = jl_StringBuilder__init_();
-    jl_StringBuilder_append1(jl_StringBuilder_append(jl_StringBuilder_append1(jl_StringBuilder_append(var$8, $rt_s(1591)), var$6), $rt_s(1592)), var$7);
+    jl_StringBuilder_append1(jl_StringBuilder_append(jl_StringBuilder_append1(jl_StringBuilder_append(var$8, $rt_s(1592)), var$6), $rt_s(1593)), var$7);
     var$5.$debug(jl_StringBuilder_toString(var$8));
     $cna = $this.$cnaconst / $conditions.$getRefArea();
     $x = iocab_TubeFinSetCalc_calculateCPPos($this, $conditions) * $this.$chord;
@@ -48381,11 +48407,11 @@ ju_Formatter$FormatWriter_formatFloat = ($this, $specifier, $upperCase) => {
     $format.$setMinimumFractionDigits($this.$precision0);
     $format.$setGroupingUsed(!($this.$flags & 64) ? 0 : 1);
     if ($this.$flags & 128) {
-        $format.$setNegativePrefix($rt_s(1593));
-        $format.$setNegativeSuffix($rt_s(1594));
+        $format.$setNegativePrefix($rt_s(1594));
+        $format.$setNegativeSuffix($rt_s(1595));
     }
     if ($this.$flags & 8)
-        $format.$setPositivePrefix($rt_s(1595));
+        $format.$setPositivePrefix($rt_s(1596));
     else if ($this.$flags & 16)
         $format.$setPositivePrefix($rt_s(115));
     $str = jt_Format_format($format, $arg);
@@ -48408,9 +48434,9 @@ ju_Formatter$FormatWriter_predictDecimalSize = ($this, $negative, $format) => {
 },
 ju_Formatter$FormatWriter_verifyFloatFlags = $this => {
     if ($this.$flags & 8 && $this.$flags & 16)
-        $rt_throw(ju_IllegalFormatFlagsException__init_($rt_s(1596)));
-    if ($this.$flags & 32 && $this.$flags & 1)
         $rt_throw(ju_IllegalFormatFlagsException__init_($rt_s(1597)));
+    if ($this.$flags & 32 && $this.$flags & 1)
+        $rt_throw(ju_IllegalFormatFlagsException__init_($rt_s(1598)));
     if ($this.$flags & 1 && $this.$width < 0)
         $rt_throw(ju_MissingFormatWidthException__init_(jl_String_substring($this.$format10, $this.$formatSpecifierStart, $this.$index1)));
 },
@@ -48553,7 +48579,7 @@ ju_Formatter$FormatWriter_formatRadixInt = ($this, $specifier, $radixLog2, $uppe
     }
     $sb = jl_StringBuilder__init_();
     if ($this.$flags & 4) {
-        $prefix = $radixLog2 != 4 ? $rt_s(342) : $rt_s(1598);
+        $prefix = $radixLog2 != 4 ? $rt_s(342) : $rt_s(1599);
         var$8 = jl_StringBuilder__init_();
         jl_StringBuilder_append(jl_StringBuilder_append(var$8, $prefix), $str);
         $str = jl_StringBuilder_toString(var$8);
@@ -48574,9 +48600,9 @@ ju_Formatter$FormatWriter_formatRadixInt = ($this, $specifier, $radixLog2, $uppe
 },
 ju_Formatter$FormatWriter_verifyIntFlags = $this => {
     if ($this.$flags & 8 && $this.$flags & 16)
-        $rt_throw(ju_IllegalFormatFlagsException__init_($rt_s(1596)));
-    if ($this.$flags & 32 && $this.$flags & 1)
         $rt_throw(ju_IllegalFormatFlagsException__init_($rt_s(1597)));
+    if ($this.$flags & 32 && $this.$flags & 1)
+        $rt_throw(ju_IllegalFormatFlagsException__init_($rt_s(1598)));
     if ($this.$precision0 >= 0)
         $rt_throw(ju_IllegalFormatPrecisionException__init_0($this.$precision0));
     if ($this.$flags & 1 && $this.$width < 0)
@@ -48606,7 +48632,7 @@ ju_Formatter$FormatWriter_verifyFlags = ($this, $conversion, $mask) => {
 ju_Formatter$FormatWriter_flagsToString = ($this, $flags) => {
     let $flagIndex;
     $flagIndex = jl_Integer_numberOfTrailingZeros($flags);
-    return jl_String_valueOf0(jl_String_charAt($rt_s(1599), $flagIndex));
+    return jl_String_valueOf0(jl_String_charAt($rt_s(1600), $flagIndex));
 },
 ju_Formatter$FormatWriter_mayBeAppendSpaces = ($this, $str) => {
     let $diff, $sb, $i;
@@ -48826,7 +48852,7 @@ jur_SOLSet_hasConsumed = ($this, $matchResult) => {
     return 0;
 },
 jur_SOLSet_getName = $this => {
-    return $rt_s(1600);
+    return $rt_s(1601);
 };
 function otpp_AsyncCallbackWrapper() {
     jl_Object.call(this);
@@ -49091,14 +49117,14 @@ jm_RoundingMode_$values = () => {
     return var$1;
 },
 jm_RoundingMode__clinit_ = () => {
-    jm_RoundingMode_UP = jm_RoundingMode__init_($rt_s(1601), 0, 0);
-    jm_RoundingMode_DOWN = jm_RoundingMode__init_($rt_s(1602), 1, 1);
-    jm_RoundingMode_CEILING = jm_RoundingMode__init_($rt_s(1603), 2, 2);
-    jm_RoundingMode_FLOOR = jm_RoundingMode__init_($rt_s(1604), 3, 3);
-    jm_RoundingMode_HALF_UP = jm_RoundingMode__init_($rt_s(1605), 4, 4);
-    jm_RoundingMode_HALF_DOWN = jm_RoundingMode__init_($rt_s(1606), 5, 5);
-    jm_RoundingMode_HALF_EVEN = jm_RoundingMode__init_($rt_s(1607), 6, 6);
-    jm_RoundingMode_UNNECESSARY = jm_RoundingMode__init_($rt_s(1608), 7, 7);
+    jm_RoundingMode_UP = jm_RoundingMode__init_($rt_s(1602), 0, 0);
+    jm_RoundingMode_DOWN = jm_RoundingMode__init_($rt_s(1603), 1, 1);
+    jm_RoundingMode_CEILING = jm_RoundingMode__init_($rt_s(1604), 2, 2);
+    jm_RoundingMode_FLOOR = jm_RoundingMode__init_($rt_s(1605), 3, 3);
+    jm_RoundingMode_HALF_UP = jm_RoundingMode__init_($rt_s(1606), 4, 4);
+    jm_RoundingMode_HALF_DOWN = jm_RoundingMode__init_($rt_s(1607), 5, 5);
+    jm_RoundingMode_HALF_EVEN = jm_RoundingMode__init_($rt_s(1608), 6, 6);
+    jm_RoundingMode_UNNECESSARY = jm_RoundingMode__init_($rt_s(1609), 7, 7);
     jm_RoundingMode_$VALUES = jm_RoundingMode_$values();
 },
 iocd_Databases = $rt_classWithoutFields(),
@@ -49111,37 +49137,37 @@ iocd_Databases_densityFor = ($type, $name) => {
         var$3 = (-1);
         switch (jl_String_hashCode($name)) {
             case -1445318666:
-                if (!jl_String_equals($name, $rt_s(1609)))
+                if (!jl_String_equals($name, $rt_s(1610)))
                     break a;
                 var$3 = 5;
                 break a;
             case 12050827:
-                if (!jl_String_equals($name, $rt_s(1610)))
+                if (!jl_String_equals($name, $rt_s(1611)))
                     break a;
                 var$3 = 3;
                 break a;
             case 63949563:
-                if (!jl_String_equals($name, $rt_s(1611)))
+                if (!jl_String_equals($name, $rt_s(1612)))
                     break a;
                 var$3 = 2;
                 break a;
             case 127238704:
-                if (!jl_String_equals($name, $rt_s(1612)))
+                if (!jl_String_equals($name, $rt_s(1613)))
                     break a;
                 var$3 = 4;
                 break a;
             case 169962939:
-                if (!jl_String_equals($name, $rt_s(1546)))
+                if (!jl_String_equals($name, $rt_s(1547)))
                     break a;
                 var$3 = 6;
                 break a;
             case 1476333900:
-                if (!jl_String_equals($name, $rt_s(1549)))
+                if (!jl_String_equals($name, $rt_s(1550)))
                     break a;
                 var$3 = 7;
                 break a;
             case 1761541558:
-                if (!jl_String_equals($name, $rt_s(1547)))
+                if (!jl_String_equals($name, $rt_s(1548)))
                     break a;
                 var$3 = 0;
                 break a;
@@ -49174,7 +49200,7 @@ iocd_Databases_densityFor = ($type, $name) => {
             var$4 = new jl_IllegalArgumentException;
             var$5 = jl_String_valueOf($type);
             var$6 = jl_StringBuilder__init_();
-            jl_StringBuilder_append0(jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(var$6, $rt_s(1613)), $name), $rt_s(1614)), var$5), 41);
+            jl_StringBuilder_append0(jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(var$6, $rt_s(1614)), $name), $rt_s(1615)), var$5), 41);
             jl_IllegalArgumentException__init_(var$4, jl_StringBuilder_toString(var$6));
             $rt_throw(var$4);
     }
@@ -49217,7 +49243,7 @@ iocma_ExtendedISAModel__init_ = ($this, $altitude, $temperature, $pressure) => {
     if ($altitude >= iocma_ExtendedISAModel_STANDARD_LAYERS.data[1]) {
         var$4 = new jl_IllegalArgumentException;
         var$5 = jl_StringBuilder__init_();
-        jl_StringBuilder_append1(jl_StringBuilder_append(var$5, $rt_s(1615)), $altitude);
+        jl_StringBuilder_append1(jl_StringBuilder_append(var$5, $rt_s(1616)), $altitude);
         jl_IllegalArgumentException__init_(var$4, jl_StringBuilder_toString(var$5));
         $rt_throw(var$4);
     }
@@ -49335,7 +49361,7 @@ iocu_Mutable_check = $this => {
     var$2 = $this.$immuteTrace;
     var$2 = var$2.$getMessage();
     var$3 = jl_StringBuilder__init_();
-    jl_StringBuilder_append(jl_StringBuilder_append(var$3, $rt_s(1616)), var$2);
+    jl_StringBuilder_append(jl_StringBuilder_append(var$3, $rt_s(1617)), var$2);
     jl_IllegalStateException__init_2(var$1, jl_StringBuilder_toString(var$3), $this.$immuteTrace);
     $rt_throw(var$1);
 },
@@ -49366,7 +49392,7 @@ a_OrkEngine_get = $handle => {
         return $o;
     var$3 = new jl_IllegalArgumentException;
     var$4 = jl_StringBuilder__init_();
-    jl_StringBuilder_append2(jl_StringBuilder_append(var$4, $rt_s(1617)), $handle);
+    jl_StringBuilder_append2(jl_StringBuilder_append(var$4, $rt_s(1618)), $handle);
     jl_IllegalArgumentException__init_(var$3, jl_StringBuilder_toString(var$4));
     $rt_throw(var$3);
 },
@@ -49406,7 +49432,7 @@ a_OrkEngine_buildRocket = $treeJson => {
     a: {
         while (var$8.$hasNext()) {
             $o = var$8.$next();
-            if ($rt_isInstance($o, ju_Map) && jl_String_equals($rt_s(1618), $o.$get($rt_s(686)))) {
+            if ($rt_isInstance($o, ju_Map) && jl_String_equals($rt_s(1619), $o.$get($rt_s(686)))) {
                 $staged = 1;
                 break a;
             }
@@ -49423,14 +49449,14 @@ a_OrkEngine_buildRocket = $treeJson => {
             while (true) {
                 if (!var$12.$hasNext()) {
                     if ($firstStage === null)
-                        $rt_throw(jl_IllegalArgumentException__init_0($rt_s(1619)));
+                        $rt_throw(jl_IllegalArgumentException__init_0($rt_s(1620)));
                     break b;
                 }
                 $o = var$12.$next();
                 if (!$rt_isInstance($o, ju_Map))
                     break;
                 var$8 = $o;
-                if (!jl_String_equals($rt_s(1618), var$8.$get($rt_s(686))))
+                if (!jl_String_equals($rt_s(1619), var$8.$get($rt_s(686))))
                     break;
                 $stage = iocr_AxialStage__init_();
                 $stageName = a_JsonLite_str(var$8, $rt_s(666), null);
@@ -49439,13 +49465,13 @@ a_OrkEngine_buildRocket = $treeJson => {
                 iocr_RocketComponent_addChild($rocket, $stage);
                 if ($firstStage === null)
                     $firstStage = $stage;
-                $stageId = a_JsonLite_str(var$8, $rt_s(1411), null);
+                $stageId = a_JsonLite_str(var$8, $rt_s(1412), null);
                 if ($stageId !== null)
                     $ids.$put($stageId, $stage);
                 a_OrkEngine_applySeparationConfig($stage, var$8);
                 a_ComponentFactory_attachChildren($stage, var$8, $ids);
             }
-            $rt_throw(jl_IllegalArgumentException__init_0($rt_s(1620)));
+            $rt_throw(jl_IllegalArgumentException__init_0($rt_s(1621)));
         }
     }
     $fcid = iocr_FlightConfigurationId__init_();
@@ -49455,7 +49481,7 @@ a_OrkEngine_buildRocket = $treeJson => {
     $ctx.$ids.$putAll($ids);
     if (!$staged) {
         $stageNode = ju_LinkedHashMap__init_();
-        $stageNode.$put($rt_s(1410), $tree.$get($rt_s(646)));
+        $stageNode.$put($rt_s(1411), $tree.$get($rt_s(646)));
         a_ComponentFactory_attachChildren($firstStage, $stageNode, $ctx.$ids);
     }
     $rocket.$enableEvents();
@@ -49464,12 +49490,12 @@ a_OrkEngine_buildRocket = $treeJson => {
 a_OrkEngine_applySeparationConfig = ($stage, $stageNode) => {
     let $nozzleExitDiameter, $event, $delay, $altitude, $sep;
     a_OrkEngine_$callClinit();
-    $nozzleExitDiameter = a_JsonLite_dbl($stageNode, $rt_s(1621), NaN);
+    $nozzleExitDiameter = a_JsonLite_dbl($stageNode, $rt_s(1622), NaN);
     if (!(isNaN($nozzleExitDiameter) ? 1 : 0))
         $stage.$setNozzleExitDiameter($nozzleExitDiameter);
-    $event = a_JsonLite_str($stageNode, $rt_s(1622), null);
-    $delay = a_JsonLite_dbl($stageNode, $rt_s(1623), NaN);
-    $altitude = a_JsonLite_dbl($stageNode, $rt_s(1624), NaN);
+    $event = a_JsonLite_str($stageNode, $rt_s(1623), null);
+    $delay = a_JsonLite_dbl($stageNode, $rt_s(1624), NaN);
+    $altitude = a_JsonLite_dbl($stageNode, $rt_s(1625), NaN);
     if ($event === null && (isNaN($delay) ? 1 : 0) && (isNaN($altitude) ? 1 : 0))
         return;
     $sep = iocr_StageSeparationConfiguration__init_();
@@ -49485,11 +49511,11 @@ a_OrkEngine_separationEventOf = $name => {
     let var$2, var$3, var$4;
     a_OrkEngine_$callClinit();
     a: {
-        var$2 = jl_String_replace(jl_String_toLowerCase($name), $rt_s(1625), $rt_s(13));
+        var$2 = jl_String_replace(jl_String_toLowerCase($name), $rt_s(1626), $rt_s(13));
         var$3 = (-1);
         switch (jl_String_hashCode(var$2)) {
             case -1865686897:
-                if (!jl_String_equals(var$2, $rt_s(1626)))
+                if (!jl_String_equals(var$2, $rt_s(1627)))
                     break a;
                 var$3 = 4;
                 break a;
@@ -49499,22 +49525,22 @@ a_OrkEngine_separationEventOf = $name => {
                 var$3 = 3;
                 break a;
             case -1515173395:
-                if (!jl_String_equals(var$2, $rt_s(1627)))
+                if (!jl_String_equals(var$2, $rt_s(1628)))
                     break a;
                 var$3 = 1;
                 break a;
             case -1411096281:
-                if (!jl_String_equals(var$2, $rt_s(1399)))
+                if (!jl_String_equals(var$2, $rt_s(1400)))
                     break a;
                 var$3 = 6;
                 break a;
             case -1109843021:
-                if (!jl_String_equals(var$2, $rt_s(1400)))
+                if (!jl_String_equals(var$2, $rt_s(1401)))
                     break a;
                 var$3 = 0;
                 break a;
             case 104712844:
-                if (!jl_String_equals(var$2, $rt_s(1401)))
+                if (!jl_String_equals(var$2, $rt_s(1402)))
                     break a;
                 var$3 = 8;
                 break a;
@@ -49524,12 +49550,12 @@ a_OrkEngine_separationEventOf = $name => {
                 var$3 = 2;
                 break a;
             case 920537718:
-                if (!jl_String_equals(var$2, $rt_s(1628)))
+                if (!jl_String_equals(var$2, $rt_s(1629)))
                     break a;
                 var$3 = 5;
                 break a;
             case 1803457306:
-                if (!jl_String_equals(var$2, $rt_s(1629)))
+                if (!jl_String_equals(var$2, $rt_s(1630)))
                     break a;
                 var$3 = 7;
                 break a;
@@ -49566,7 +49592,7 @@ a_OrkEngine_separationEventOf = $name => {
         default:
             var$2 = new jl_IllegalArgumentException;
             var$4 = jl_StringBuilder__init_();
-            jl_StringBuilder_append(jl_StringBuilder_append(var$4, $rt_s(1630)), $name);
+            jl_StringBuilder_append(jl_StringBuilder_append(var$4, $rt_s(1631)), $name);
             jl_IllegalArgumentException__init_(var$2, jl_StringBuilder_toString(var$4));
             $rt_throw(var$2);
     }
@@ -49584,7 +49610,7 @@ a_OrkEngine_setMotorById = ($rocketHandle, $componentId, $designation, $diameter
     }
     var$13 = new jl_IllegalArgumentException;
     var$14 = jl_StringBuilder__init_();
-    jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(var$14, $rt_s(1631)), $componentId), $rt_s(1632));
+    jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(var$14, $rt_s(1632)), $componentId), $rt_s(1633));
     jl_IllegalArgumentException__init_(var$13, jl_StringBuilder_toString(var$14));
     $rt_throw(var$13);
 },
@@ -49660,7 +49686,7 @@ a_OrkEngine_applyMotor = ($ctx, $mount, $designation, $diameter, $length, $times
         $i = $i + 1 | 0;
     }
     var$15 = iocm_ThrustCurveMotor$Builder__init_0();
-    var$15 = var$15.$setManufacturer(iocm_Manufacturer_getManufacturer($rt_s(1370)));
+    var$15 = var$15.$setManufacturer(iocm_Manufacturer_getManufacturer($rt_s(1371)));
     var$15 = var$15.$setDesignation($designation);
     var$15 = var$15.$setCommonName($designation);
     iocm_Motor$Type_$callClinit();
@@ -49675,7 +49701,7 @@ a_OrkEngine_applyMotor = ($ctx, $mount, $designation, $diameter, $length, $times
     var$15 = var$15.$setThrustPoints($thrusts);
     var$16 = var$15.$setCGPoints($cgPoints);
     var$17 = jl_StringBuilder__init_();
-    jl_StringBuilder_append(jl_StringBuilder_append(var$17, $rt_s(1633)), $designation);
+    jl_StringBuilder_append(jl_StringBuilder_append(var$17, $rt_s(1634)), $designation);
     var$15 = jl_StringBuilder_toString(var$17);
     var$15 = var$16.$setDigest(var$15);
     $motor = var$15.$build();
@@ -49692,7 +49718,7 @@ a_OrkEngine_setMotorIgnitionById = ($rocketHandle, $componentId, $ignitionEvent,
     if (!$rt_isInstance($comp, iocr_MotorMount)) {
         var$7 = new jl_IllegalArgumentException;
         var$8 = jl_StringBuilder__init_();
-        jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(var$8, $rt_s(1631)), $componentId), $rt_s(1632));
+        jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(var$8, $rt_s(1632)), $componentId), $rt_s(1633));
         jl_IllegalArgumentException__init_(var$7, jl_StringBuilder_toString(var$8));
         $rt_throw(var$7);
     }
@@ -49704,7 +49730,7 @@ a_OrkEngine_setMotorIgnitionById = ($rocketHandle, $componentId, $ignitionEvent,
     }
     var$7 = new jl_IllegalArgumentException;
     var$8 = jl_StringBuilder__init_();
-    jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(var$8, $rt_s(1634)), $componentId), $rt_s(1635));
+    jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(var$8, $rt_s(1635)), $componentId), $rt_s(1636));
     jl_IllegalArgumentException__init_(var$7, jl_StringBuilder_toString(var$8));
     $rt_throw(var$7);
 },
@@ -49712,16 +49738,16 @@ a_OrkEngine_ignitionEventOf = $name => {
     let var$2, var$3, var$4;
     a_OrkEngine_$callClinit();
     a: {
-        var$2 = jl_String_replace(jl_String_toLowerCase($name), $rt_s(1625), $rt_s(13));
+        var$2 = jl_String_replace(jl_String_toLowerCase($name), $rt_s(1626), $rt_s(13));
         var$3 = (-1);
         switch (jl_String_hashCode(var$2)) {
             case -1109843021:
-                if (!jl_String_equals(var$2, $rt_s(1400)))
+                if (!jl_String_equals(var$2, $rt_s(1401)))
                     break a;
                 var$3 = 1;
                 break a;
             case 104712844:
-                if (!jl_String_equals(var$2, $rt_s(1401)))
+                if (!jl_String_equals(var$2, $rt_s(1402)))
                     break a;
                 var$3 = 4;
                 break a;
@@ -49731,12 +49757,12 @@ a_OrkEngine_ignitionEventOf = $name => {
                 var$3 = 3;
                 break a;
             case 1673671211:
-                if (!jl_String_equals(var$2, $rt_s(1636)))
+                if (!jl_String_equals(var$2, $rt_s(1637)))
                     break a;
                 var$3 = 0;
                 break a;
             case 1913156363:
-                if (!jl_String_equals(var$2, $rt_s(1637)))
+                if (!jl_String_equals(var$2, $rt_s(1638)))
                     break a;
                 var$3 = 2;
                 break a;
@@ -49761,7 +49787,7 @@ a_OrkEngine_ignitionEventOf = $name => {
         default:
             var$2 = new jl_IllegalArgumentException;
             var$4 = jl_StringBuilder__init_();
-            jl_StringBuilder_append(jl_StringBuilder_append(var$4, $rt_s(1638)), $name);
+            jl_StringBuilder_append(jl_StringBuilder_append(var$4, $rt_s(1639)), $name);
             jl_IllegalArgumentException__init_(var$2, jl_StringBuilder_toString(var$4));
             $rt_throw(var$2);
     }
@@ -49793,18 +49819,18 @@ a_OrkEngine_getStaticInfo = $rocketHandle => {
     $refDiameter = $conditions.$getRefLength();
     $cg = ($structure.$getCM()).$x;
     $stabilityCal = ($cp.$x - $cg) / $conditions.$getRefLength();
-    $sb = jl_StringBuilder__init_1($rt_s(1639));
+    $sb = jl_StringBuilder__init_1($rt_s(1640));
     (a_OrkEngine_num($sb, $rt_s(734), $ctx.$rocket0.$getLength())).$append0(44);
     (a_OrkEngine_num($sb, $rt_s(735), $structure.$getMass())).$append0(44);
-    (a_OrkEngine_num($sb, $rt_s(1640), $empty.$getMass())).$append0(44);
-    (a_OrkEngine_num($sb, $rt_s(1641), ($empty.$getCM()).$x)).$append0(44);
+    (a_OrkEngine_num($sb, $rt_s(1641), $empty.$getMass())).$append0(44);
+    (a_OrkEngine_num($sb, $rt_s(1642), ($empty.$getCM()).$x)).$append0(44);
     (a_OrkEngine_num($sb, $rt_s(761), $cg)).$append0(44);
     (a_OrkEngine_num($sb, $rt_s(762), $cp.$x)).$append0(44);
     (a_OrkEngine_num($sb, $rt_s(763), $cp.$weight)).$append0(44);
     (a_OrkEngine_num($sb, $rt_s(764), $stabilityCal)).$append0(44);
-    (a_OrkEngine_num($sb, $rt_s(1642), $refDiameter)).$append0(44);
+    (a_OrkEngine_num($sb, $rt_s(1643), $refDiameter)).$append0(44);
     (a_OrkEngine_num($sb, $rt_s(765), $warnings.$size())).$append0(44);
-    $sb.$append1($rt_s(1643));
+    $sb.$append1($rt_s(1644));
     $first = 1;
     var$14 = $warnings.$iterator();
     while (var$14.$hasNext()) {
@@ -49825,14 +49851,14 @@ a_OrkEngine_getComponentInfo = ($rocketHandle, $componentId) => {
     if ($c === null) {
         var$5 = new jl_IllegalArgumentException;
         var$6 = jl_StringBuilder__init_();
-        jl_StringBuilder_append0(jl_StringBuilder_append(jl_StringBuilder_append(var$6, $rt_s(1644)), $componentId), 39);
+        jl_StringBuilder_append0(jl_StringBuilder_append(jl_StringBuilder_append(var$6, $rt_s(1645)), $componentId), 39);
         jl_IllegalArgumentException__init_(var$5, jl_StringBuilder_toString(var$6));
         $rt_throw(var$5);
     }
     $locations = $c.$getComponentLocations();
     var$8 = $locations.data;
     $absX = var$8.length <= 0 ? NaN : var$8[0].$x;
-    $sb = jl_StringBuilder__init_1($rt_s(1639));
+    $sb = jl_StringBuilder__init_1($rt_s(1640));
     (a_OrkEngine_num($sb, $rt_s(734), $c.$getLength())).$append0(44);
     (a_OrkEngine_num($sb, $rt_s(735), iocr_RocketComponent_getMass($c))).$append0(44);
     (a_OrkEngine_num($sb, $rt_s(736), iocr_RocketComponent_getSectionMass($c))).$append0(44);
@@ -49846,10 +49872,10 @@ a_OrkEngine_getDragSweep = ($rocketHandle, $optionsJson) => {
     $ctx = a_OrkEngine_get($rocketHandle);
     $config = $ctx.$rocket0.$getSelectedConfiguration();
     $o = a_JsonLite_parseObject($optionsJson);
-    $m = a_JsonLite_dbl($o, $rt_s(1645), 0.05);
-    $machMax = a_JsonLite_dbl($o, $rt_s(1646), 3.0);
-    $machStep = a_JsonLite_dbl($o, $rt_s(1647), 0.05);
-    $aoa = jl_Math_toRadians(a_JsonLite_dbl($o, $rt_s(1648), 0.0));
+    $m = a_JsonLite_dbl($o, $rt_s(1646), 0.05);
+    $machMax = a_JsonLite_dbl($o, $rt_s(1647), 3.0);
+    $machStep = a_JsonLite_dbl($o, $rt_s(1648), 0.05);
+    $aoa = jl_Math_toRadians(a_JsonLite_dbl($o, $rt_s(1649), 0.0));
     if ($machStep <= 0.0)
         $machStep = 0.05;
     $machList = ju_ArrayList__init_();
@@ -49860,7 +49886,7 @@ a_OrkEngine_getDragSweep = ($rocketHandle, $optionsJson) => {
     $n = $machList.$size();
     $maMach = null;
     $maAlt = null;
-    $maRaw = $o.$get($rt_s(1649));
+    $maRaw = $o.$get($rt_s(1650));
     if (!$rt_isInstance($maRaw, ju_List)) {
         var$15 = $maMach;
         var$16 = $maAlt;
@@ -49996,18 +50022,18 @@ a_OrkEngine_getDragSweep = ($rocketHandle, $optionsJson) => {
         $machArr.data[$i] = ($machList.$get0($i)).$doubleValue();
         $i = $i + 1 | 0;
     }
-    $sb = jl_StringBuilder__init_1($rt_s(1650));
+    $sb = jl_StringBuilder__init_1($rt_s(1651));
     a_OrkEngine_nums($sb, $machArr);
-    ($sb.$append1($rt_s(1651))).$append29($hasNozzle);
-    $sb.$append1($rt_s(1652));
-    a_OrkEngine_nums($sb, $cp);
+    ($sb.$append1($rt_s(1652))).$append29($hasNozzle);
     $sb.$append1($rt_s(1653));
-    a_OrkEngine_nums($sb, $cna);
+    a_OrkEngine_nums($sb, $cp);
     $sb.$append1($rt_s(1654));
-    a_OrkEngine_dragBlock($sb, $offTotal, $offFric, $offPress, $offBase);
+    a_OrkEngine_nums($sb, $cna);
     $sb.$append1($rt_s(1655));
-    a_OrkEngine_dragBlock($sb, $onTotal, $onFric, $onPress, $onBase);
+    a_OrkEngine_dragBlock($sb, $offTotal, $offFric, $offPress, $offBase);
     $sb.$append1($rt_s(1656));
+    a_OrkEngine_dragBlock($sb, $onTotal, $onFric, $onPress, $onBase);
+    $sb.$append1($rt_s(1657));
     $first = 1;
     var$25 = ($byComp.$entrySet()).$iterator();
     while (var$25.$hasNext()) {
@@ -50015,7 +50041,7 @@ a_OrkEngine_getDragSweep = ($rocketHandle, $optionsJson) => {
         if (!$first)
             $sb.$append0(44);
         $first = 0;
-        (($sb.$append1($rt_s(1657))).$append1(a_OrkEngine_escape($e.$getKey()))).$append1($rt_s(1658));
+        (($sb.$append1($rt_s(1658))).$append1(a_OrkEngine_escape($e.$getKey()))).$append1($rt_s(1659));
         a_OrkEngine_nums($sb, $e.$getValue());
         $sb.$append0(125);
     }
@@ -50024,13 +50050,13 @@ a_OrkEngine_getDragSweep = ($rocketHandle, $optionsJson) => {
 },
 a_OrkEngine_dragBlock = ($sb, $total, $fric, $press, $base) => {
     a_OrkEngine_$callClinit();
-    $sb.$append1($rt_s(1659));
-    a_OrkEngine_nums($sb, $total);
     $sb.$append1($rt_s(1660));
-    a_OrkEngine_nums($sb, $fric);
+    a_OrkEngine_nums($sb, $total);
     $sb.$append1($rt_s(1661));
-    a_OrkEngine_nums($sb, $press);
+    a_OrkEngine_nums($sb, $fric);
     $sb.$append1($rt_s(1662));
+    a_OrkEngine_nums($sb, $press);
+    $sb.$append1($rt_s(1663));
     a_OrkEngine_nums($sb, $base);
     $sb.$append0(125);
 },
@@ -50055,7 +50081,7 @@ a_OrkEngine_simulate = ($rocketHandle, $launchRodLength, $launchRodAngle, $windA
     let var$8;
     a_OrkEngine_$callClinit();
     var$8 = jl_StringBuilder__init_();
-    jl_StringBuilder_append0(jl_StringBuilder_append1(jl_StringBuilder_append(jl_StringBuilder_append1(jl_StringBuilder_append(jl_StringBuilder_append1(jl_StringBuilder_append(jl_StringBuilder_append1(jl_StringBuilder_append(jl_StringBuilder_append1(jl_StringBuilder_append(jl_StringBuilder_append1(jl_StringBuilder_append(var$8, $rt_s(1663)), $launchRodLength), $rt_s(1664)), $launchRodAngle), $rt_s(1665)), $windAverage), $rt_s(1666)), $windStdDeviation), $rt_s(1667)), $launchAltitude), $rt_s(1668)), $timeStep),
+    jl_StringBuilder_append0(jl_StringBuilder_append1(jl_StringBuilder_append(jl_StringBuilder_append1(jl_StringBuilder_append(jl_StringBuilder_append1(jl_StringBuilder_append(jl_StringBuilder_append1(jl_StringBuilder_append(jl_StringBuilder_append1(jl_StringBuilder_append(jl_StringBuilder_append1(jl_StringBuilder_append(var$8, $rt_s(1664)), $launchRodLength), $rt_s(1665)), $launchRodAngle), $rt_s(1666)), $windAverage), $rt_s(1667)), $windStdDeviation), $rt_s(1668)), $launchAltitude), $rt_s(1669)), $timeStep),
     125);
     return a_OrkEngine_simulateJson($rocketHandle, jl_StringBuilder_toString(var$8));
 },
@@ -50064,18 +50090,18 @@ a_OrkEngine_simulateJson = ($rocketHandle, $optionsJson) => {
     a_OrkEngine_$callClinit();
     $ctx = a_OrkEngine_get($rocketHandle);
     $o = a_JsonLite_parseObject($optionsJson);
-    $launchAltitude = a_JsonLite_dbl($o, $rt_s(1669), 0.0);
-    $temperature = a_JsonLite_dbl($o, $rt_s(1670), NaN);
+    $launchAltitude = a_JsonLite_dbl($o, $rt_s(1670), 0.0);
+    $temperature = a_JsonLite_dbl($o, $rt_s(1671), NaN);
     $pressure = a_JsonLite_dbl($o, $rt_s(627), NaN);
-    $timeStep = a_JsonLite_dbl($o, $rt_s(1671), 0.05);
+    $timeStep = a_JsonLite_dbl($o, $rt_s(1672), 0.05);
     $conditions = iocs_SimulationConditions__init_0();
     $conditions.$setSimulation(iocd_Simulation__init_0($ctx.$rocket0, $ctx.$fcid1));
-    $conditions.$setLaunchRodLength(a_JsonLite_dbl($o, $rt_s(1672), 1.0));
-    $conditions.$setLaunchRodAngle(a_JsonLite_dbl($o, $rt_s(1673), 0.0));
-    $conditions.$setLaunchRodDirection(a_JsonLite_dbl($o, $rt_s(1674), 1.5707963267948966));
+    $conditions.$setLaunchRodLength(a_JsonLite_dbl($o, $rt_s(1673), 1.0));
+    $conditions.$setLaunchRodAngle(a_JsonLite_dbl($o, $rt_s(1674), 0.0));
+    $conditions.$setLaunchRodDirection(a_JsonLite_dbl($o, $rt_s(1675), 1.5707963267948966));
     var$10 = new iocu_WorldCoordinate;
-    var$11 = a_JsonLite_dbl($o, $rt_s(1675), 28.61);
-    iocu_WorldCoordinate__init_0(var$10, var$11, a_JsonLite_dbl($o, $rt_s(1676), (-80.6)), $launchAltitude);
+    var$11 = a_JsonLite_dbl($o, $rt_s(1676), 28.61);
+    iocu_WorldCoordinate__init_0(var$10, var$11, a_JsonLite_dbl($o, $rt_s(1677), (-80.6)), $launchAltitude);
     $conditions.$setLaunchSite(var$10);
     iocu_GeodeticComputationStrategy_$callClinit();
     $conditions.$setGeodeticComputation(iocu_GeodeticComputationStrategy_SPHERICAL);
@@ -50094,17 +50120,17 @@ a_OrkEngine_simulateJson = ($rocketHandle, $optionsJson) => {
     $aeroCalc = ioca_BarrowmanCalculator__init_();
     $aeroCalc.$setRogersKbf($ctx.$rogersKbf);
     $aeroCalc.$setSupersonicAero($ctx.$supersonicAero1);
-    $randomSeed = a_JsonLite_dbl($o, $rt_s(1677), 42.0) | 0;
+    $randomSeed = a_JsonLite_dbl($o, $rt_s(1678), 42.0) | 0;
     $wind = iocmw_PinkNoiseWindModel__init_2($randomSeed);
-    $wind.$setAverage(a_JsonLite_dbl($o, $rt_s(1678), 0.0));
-    $wind.$setStandardDeviation(a_JsonLite_dbl($o, $rt_s(1679), 0.0));
+    $wind.$setAverage(a_JsonLite_dbl($o, $rt_s(1679), 0.0));
+    $wind.$setStandardDeviation(a_JsonLite_dbl($o, $rt_s(1680), 0.0));
     $conditions.$setWindModel($wind);
     $conditions.$setAerodynamicCalculator($aeroCalc);
     $conditions.$setMassCalculator(iocm_MassCalculator__init_());
     if (!($timeStep > 0.0))
         $timeStep = 0.05;
     $conditions.$setTimeStep($timeStep);
-    $conditions.$setMaxSimulationTime(a_JsonLite_dbl($o, $rt_s(1680), 1200.0));
+    $conditions.$setMaxSimulationTime(a_JsonLite_dbl($o, $rt_s(1681), 1200.0));
     $conditions.$setRandomSeed($randomSeed);
     a: {
         try {
@@ -50125,7 +50151,7 @@ a_OrkEngine_simulateJson = ($rocketHandle, $optionsJson) => {
     }
     var$12 = a_OrkEngine_escape(jl_String_valueOf($e.$getMessage()));
     var$10 = jl_StringBuilder__init_();
-    jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(var$10, $rt_s(1681)), var$12), $rt_s(1682));
+    jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(var$10, $rt_s(1682)), var$12), $rt_s(1683));
     return jl_StringBuilder_toString(var$10);
 },
 a_OrkEngine_shapeOf = $name => {
@@ -50136,7 +50162,7 @@ a_OrkEngine_shapeOf = $name => {
         var$3 = (-1);
         switch (jl_String_hashCode(var$2)) {
             case 99032304:
-                if (!jl_String_equals(var$2, $rt_s(1428)))
+                if (!jl_String_equals(var$2, $rt_s(1429)))
                     break a;
                 var$3 = 4;
                 break a;
@@ -50146,7 +50172,7 @@ a_OrkEngine_shapeOf = $name => {
                 var$3 = 5;
                 break a;
             case 106858757:
-                if (!jl_String_equals(var$2, $rt_s(1429)))
+                if (!jl_String_equals(var$2, $rt_s(1430)))
                     break a;
                 var$3 = 2;
                 break a;
@@ -50156,12 +50182,12 @@ a_OrkEngine_shapeOf = $name => {
                 var$3 = 0;
                 break a;
             case 1554829059:
-                if (!jl_String_equals(var$2, $rt_s(1430)))
+                if (!jl_String_equals(var$2, $rt_s(1431)))
                     break a;
                 var$3 = 1;
                 break a;
             case 1944592185:
-                if (!jl_String_equals(var$2, $rt_s(1431)))
+                if (!jl_String_equals(var$2, $rt_s(1432)))
                     break a;
                 var$3 = 3;
                 break a;
@@ -50201,7 +50227,7 @@ a_OrkEngine_setBulkMaterial = ($c, $density) => {
     if ($density <= 0.0)
         return;
     iocm_Material$Type_$callClinit();
-    $m = iocm_Material_newMaterial(iocm_Material$Type_BULK, $rt_s(1370), $density, 1);
+    $m = iocm_Material_newMaterial(iocm_Material$Type_BULK, $rt_s(1371), $density, 1);
     if ($c instanceof iocr_ExternalComponent)
         $c.$setMaterial($m);
     else if ($c instanceof iocr_StructuralComponent)
@@ -50210,7 +50236,7 @@ a_OrkEngine_setBulkMaterial = ($c, $density) => {
 a_OrkEngine_flightDataToJson = $data => {
     let $sb, $i, $b, var$5;
     a_OrkEngine_$callClinit();
-    $sb = jl_StringBuilder__init_1($rt_s(1683));
+    $sb = jl_StringBuilder__init_1($rt_s(1684));
     (a_OrkEngine_num($sb, $rt_s(635), $data.$getMaxAltitude())).$append0(44);
     (a_OrkEngine_num($sb, $rt_s(636), $data.$getMaxVelocity())).$append0(44);
     (a_OrkEngine_num($sb, $rt_s(705), $data.$getMaxAcceleration())).$append0(44);
@@ -50221,21 +50247,21 @@ a_OrkEngine_flightDataToJson = $data => {
     (a_OrkEngine_num($sb, $rt_s(744), $data.$getLaunchRodVelocity())).$append0(44);
     (a_OrkEngine_num($sb, $rt_s(745), $data.$getDeploymentVelocity())).$append0(44);
     a_OrkEngine_num($sb, $rt_s(746), $data.$getOptimumDelay());
-    $sb.$append1($rt_s(1684));
-    a_OrkEngine_appendEvents($sb, $data.$getBranch(0));
     $sb.$append1($rt_s(1685));
+    a_OrkEngine_appendEvents($sb, $data.$getBranch(0));
+    $sb.$append1($rt_s(1686));
     a_OrkEngine_appendBranchSeries($sb, $data.$getBranch(0));
     if ($data.$getBranchCount() > 1) {
-        $sb.$append1($rt_s(1686));
+        $sb.$append1($rt_s(1687));
         $i = 0;
         while ($i < $data.$getBranchCount()) {
             if ($i > 0)
                 $sb.$append0(44);
             $b = $data.$getBranch($i);
-            var$5 = ($sb.$append1($rt_s(1657))).$append1(a_OrkEngine_escape(jl_String_valueOf($b.$getName())));
-            var$5.$append1($rt_s(1687));
+            var$5 = ($sb.$append1($rt_s(1658))).$append1(a_OrkEngine_escape(jl_String_valueOf($b.$getName())));
+            var$5.$append1($rt_s(1688));
             a_OrkEngine_appendEvents($sb, $b);
-            $sb.$append1($rt_s(1685));
+            $sb.$append1($rt_s(1686));
             a_OrkEngine_appendBranchSeries($sb, $b);
             $sb.$append0(125);
             $i = $i + 1 | 0;
@@ -50255,11 +50281,11 @@ a_OrkEngine_appendEvents = ($sb, $branch) => {
         if (!$first)
             $sb.$append0(44);
         $first = 0;
-        var$6 = (($sb.$append1($rt_s(1688))).$append1(jl_Enum_name($ev.$getType0()))).$append1($rt_s(1689));
+        var$6 = (($sb.$append1($rt_s(1689))).$append1(jl_Enum_name($ev.$getType0()))).$append1($rt_s(1690));
         var$6.$append4($ev.$getTime());
         $src = $ev.$getSource();
         if ($src !== null && iocr_RocketComponent_getName($src) !== null)
-            (($sb.$append1($rt_s(1690))).$append1(a_OrkEngine_escape(iocr_RocketComponent_getName($src)))).$append0(34);
+            (($sb.$append1($rt_s(1691))).$append1(a_OrkEngine_escape(iocr_RocketComponent_getName($src)))).$append0(34);
         $sb.$append0(125);
     }
     $sb.$append0(93);
@@ -50286,7 +50312,7 @@ a_OrkEngine_appendSeries = ($sb, $name, $values) => {
     let $i, $v;
     a_OrkEngine_$callClinit();
     a: {
-        (($sb.$append0(34)).$append1($name)).$append1($rt_s(1691));
+        (($sb.$append0(34)).$append1($name)).$append1($rt_s(1692));
         if ($values !== null) {
             $i = 0;
             while (true) {
@@ -50304,7 +50330,7 @@ a_OrkEngine_appendSeries = ($sb, $name, $values) => {
 },
 a_OrkEngine_num = ($sb, $key, $value) => {
     a_OrkEngine_$callClinit();
-    (($sb.$append0(34)).$append1($key)).$append1($rt_s(1692));
+    (($sb.$append0(34)).$append1($key)).$append1($rt_s(1693));
     if (!(isNaN($value) ? 1 : 0) && !jl_Double_isInfinite($value))
         return $sb.$append4($value);
     return $sb.$append1($rt_s(37));
@@ -50321,28 +50347,28 @@ a_OrkEngine_escape = $s => {
                 case 9:
                     break;
                 case 10:
-                    $sb.$append1($rt_s(1693));
-                    break a;
-                case 13:
                     $sb.$append1($rt_s(1694));
                     break a;
-                case 34:
+                case 13:
                     $sb.$append1($rt_s(1695));
                     break a;
-                case 92:
+                case 34:
                     $sb.$append1($rt_s(1696));
+                    break a;
+                case 92:
+                    $sb.$append1($rt_s(1697));
                     break a;
                 default:
                     if ($c >= 32) {
                         $sb.$append0($c);
                         break a;
                     }
-                    $sb.$append1($rt_s(1697));
+                    $sb.$append1($rt_s(1698));
                     $sb.$append0(jl_Character_forDigit($c >> 4 & 15, 16));
                     $sb.$append0(jl_Character_forDigit($c & 15, 16));
                     break a;
             }
-            $sb.$append1($rt_s(1698));
+            $sb.$append1($rt_s(1699));
         }
         $i = $i + 1 | 0;
     }
@@ -50455,9 +50481,9 @@ iocm_MotorConfiguration__init_ = ($this, $_mount, $_fcid) => {
     iocu_ModID_$callClinit();
     $this.$modID9 = iocu_ModID_INVALID;
     if (null === $_mount)
-        $rt_throw(jl_NullPointerException__init_($rt_s(1699)));
-    if (null === $_fcid)
         $rt_throw(jl_NullPointerException__init_($rt_s(1700)));
+    if (null === $_fcid)
+        $rt_throw(jl_NullPointerException__init_($rt_s(1701)));
     $this.$mount = $_mount;
     $this.$fcid2 = $_fcid;
     $this.$mid = iocm_MotorConfigurationId__init_0($_mount, $_fcid);
@@ -50757,7 +50783,7 @@ iocs_FlightEvent_toString = $this => {
     var$3 = jl_String_valueOf($this.$source);
     var$4 = jl_String_valueOf($this.$data1);
     var$5 = jl_StringBuilder__init_();
-    jl_StringBuilder_append0(jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append1(jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(var$5, $rt_s(1701)), var$1), $rt_s(1702)), var$2), $rt_s(1703)), var$3), $rt_s(1704)), var$4), 93);
+    jl_StringBuilder_append0(jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append1(jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(var$5, $rt_s(1702)), var$1), $rt_s(1703)), var$2), $rt_s(1704)), var$3), $rt_s(1705)), var$4), 93);
     return jl_StringBuilder_toString(var$5);
 },
 iocs_FlightEvent_validate = $this => {
@@ -50766,7 +50792,7 @@ iocs_FlightEvent_validate = $this => {
         var$1 = new jl_IllegalStateException;
         var$2 = jl_Enum_name($this.$type);
         var$3 = jl_StringBuilder__init_();
-        jl_StringBuilder_append(jl_StringBuilder_append(var$3, var$2), $rt_s(1705));
+        jl_StringBuilder_append(jl_StringBuilder_append(var$3, var$2), $rt_s(1706));
         jl_IllegalStateException__init_0(var$1, jl_StringBuilder_toString(var$3));
         $rt_throw(var$1);
     }
@@ -50782,7 +50808,7 @@ iocs_FlightEvent_validate = $this => {
                             var$3 = jl_Class_getSimpleName($rt_cls(iocr_MotorMount));
                             var$4 = jl_Class_getSimpleName(jl_Object_getClass($this.$getSource()));
                             var$5 = jl_StringBuilder__init_();
-                            jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(var$5, var$2), $rt_s(1706)), var$3), $rt_s(1707)), var$4);
+                            jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(var$5, var$2), $rt_s(1707)), var$3), $rt_s(1708)), var$4);
                             jl_IllegalStateException__init_0(var$1, jl_StringBuilder_toString(var$5));
                             $rt_throw(var$1);
                         }
@@ -50794,7 +50820,7 @@ iocs_FlightEvent_validate = $this => {
                         var$3 = jl_Enum_name($this.$type);
                         var$2 = jl_Class_getSimpleName($rt_cls(iocs_MotorClusterState));
                         var$4 = jl_StringBuilder__init_();
-                        jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(var$4, var$3), $rt_s(1706)), var$2), $rt_s(1708));
+                        jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(var$4, var$3), $rt_s(1707)), var$2), $rt_s(1709));
                         jl_IllegalStateException__init_0(var$1, jl_StringBuilder_toString(var$4));
                         $rt_throw(var$1);
                     case 2:
@@ -50807,7 +50833,7 @@ iocs_FlightEvent_validate = $this => {
                             var$2 = jl_Enum_name($this.$type);
                             var$3 = jl_String_valueOf($this.$source);
                             var$4 = jl_StringBuilder__init_();
-                            jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(var$4, var$2), $rt_s(1709)), var$3);
+                            jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(var$4, var$2), $rt_s(1710)), var$3);
                             jl_IllegalStateException__init_0(var$1, jl_StringBuilder_toString(var$4));
                             $rt_throw(var$1);
                         }
@@ -50816,7 +50842,7 @@ iocs_FlightEvent_validate = $this => {
                         var$1 = new jl_IllegalStateException;
                         var$2 = jl_Enum_name($this.$type);
                         var$3 = jl_StringBuilder__init_();
-                        jl_StringBuilder_append(jl_StringBuilder_append(var$3, var$2), $rt_s(1710));
+                        jl_StringBuilder_append(jl_StringBuilder_append(var$3, var$2), $rt_s(1711));
                         jl_IllegalStateException__init_0(var$1, jl_StringBuilder_toString(var$3));
                         $rt_throw(var$1);
                     case 5:
@@ -50841,7 +50867,7 @@ iocs_FlightEvent_validate = $this => {
                 var$1 = new jl_IllegalStateException;
                 var$2 = jl_Enum_name($this.$type);
                 var$3 = jl_StringBuilder__init_();
-                jl_StringBuilder_append(jl_StringBuilder_append(var$3, var$2), $rt_s(1711));
+                jl_StringBuilder_append(jl_StringBuilder_append(var$3, var$2), $rt_s(1712));
                 jl_IllegalStateException__init_0(var$1, jl_StringBuilder_toString(var$3));
                 $rt_throw(var$1);
             }
@@ -50851,7 +50877,7 @@ iocs_FlightEvent_validate = $this => {
                 var$3 = jl_Class_getSimpleName($rt_cls(iocr_MotorMount));
                 var$4 = jl_Class_getSimpleName(jl_Object_getClass($this.$getSource()));
                 var$5 = jl_StringBuilder__init_();
-                jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(var$5, var$2), $rt_s(1706)), var$3), $rt_s(1707)), var$4);
+                jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(var$5, var$2), $rt_s(1707)), var$3), $rt_s(1708)), var$4);
                 jl_IllegalStateException__init_0(var$1, jl_StringBuilder_toString(var$5));
                 $rt_throw(var$1);
             }
@@ -50863,7 +50889,7 @@ iocs_FlightEvent_validate = $this => {
             var$2 = jl_Enum_name($this.$type);
             var$3 = jl_Class_getSimpleName($rt_cls(iocs_MotorClusterState));
             var$4 = jl_StringBuilder__init_();
-            jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(var$4, var$2), $rt_s(1712)), var$3), $rt_s(1708));
+            jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(var$4, var$2), $rt_s(1713)), var$3), $rt_s(1709));
             jl_IllegalStateException__init_0(var$1, jl_StringBuilder_toString(var$4));
             $rt_throw(var$1);
         }
@@ -50873,7 +50899,7 @@ iocs_FlightEvent_validate = $this => {
             var$3 = jl_Class_getSimpleName($rt_cls(iocr_AxialStage));
             var$4 = jl_Class_getSimpleName(jl_Object_getClass($this.$getSource()));
             var$5 = jl_StringBuilder__init_();
-            jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(var$5, var$2), $rt_s(1706)), var$3), $rt_s(1707)), var$4);
+            jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(var$5, var$2), $rt_s(1707)), var$3), $rt_s(1708)), var$4);
             jl_IllegalStateException__init_0(var$1, jl_StringBuilder_toString(var$5));
             $rt_throw(var$1);
         }
@@ -50882,7 +50908,7 @@ iocs_FlightEvent_validate = $this => {
             var$2 = jl_Enum_name($this.$type);
             var$3 = jl_Class_getSimpleName($rt_cls(iocs_MotorClusterState));
             var$4 = jl_StringBuilder__init_();
-            jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(var$4, var$2), $rt_s(1706)), var$3), $rt_s(1708));
+            jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(jl_StringBuilder_append(var$4, var$2), $rt_s(1707)), var$3), $rt_s(1709));
             jl_IllegalStateException__init_0(var$1, jl_StringBuilder_toString(var$4));
             $rt_throw(var$1);
         }
@@ -50966,18 +50992,18 @@ iocs_FlightDataTypeGroup_compareTo = ($this, var$1) => {
 iocs_FlightDataTypeGroup__clinit_ = () => {
     let var$1, var$2;
     iocs_FlightDataTypeGroup_trans = iocs_Application_getTranslator();
-    iocs_FlightDataTypeGroup_TIME = iocs_FlightDataTypeGroup__init_(iocs_FlightDataTypeGroup_trans.$get1($rt_s(1713)), 0);
-    iocs_FlightDataTypeGroup_POSITION_AND_MOTION = iocs_FlightDataTypeGroup__init_(iocs_FlightDataTypeGroup_trans.$get1($rt_s(1714)), 10);
-    iocs_FlightDataTypeGroup_ORIENTATION = iocs_FlightDataTypeGroup__init_(iocs_FlightDataTypeGroup_trans.$get1($rt_s(1715)), 20);
-    iocs_FlightDataTypeGroup_MASS_AND_INERTIA = iocs_FlightDataTypeGroup__init_(iocs_FlightDataTypeGroup_trans.$get1($rt_s(1716)), 30);
-    iocs_FlightDataTypeGroup_STABILITY = iocs_FlightDataTypeGroup__init_(iocs_FlightDataTypeGroup_trans.$get1($rt_s(1717)), 40);
-    iocs_FlightDataTypeGroup_THRUST_AND_DRAG = iocs_FlightDataTypeGroup__init_(iocs_FlightDataTypeGroup_trans.$get1($rt_s(1718)), 50);
-    iocs_FlightDataTypeGroup_COEFFICIENTS = iocs_FlightDataTypeGroup__init_(iocs_FlightDataTypeGroup_trans.$get1($rt_s(1719)), 60);
-    iocs_FlightDataTypeGroup_ATMOSPHERIC_CONDITIONS = iocs_FlightDataTypeGroup__init_(iocs_FlightDataTypeGroup_trans.$get1($rt_s(1720)), 70);
-    iocs_FlightDataTypeGroup_CHARACTERISTIC_NUMBERS = iocs_FlightDataTypeGroup__init_(iocs_FlightDataTypeGroup_trans.$get1($rt_s(1721)), 80);
-    iocs_FlightDataTypeGroup_REFERENCE_VALUES = iocs_FlightDataTypeGroup__init_(iocs_FlightDataTypeGroup_trans.$get1($rt_s(1722)), 90);
-    iocs_FlightDataTypeGroup_SIMULATION_INFORMATION = iocs_FlightDataTypeGroup__init_(iocs_FlightDataTypeGroup_trans.$get1($rt_s(1723)), 100);
-    iocs_FlightDataTypeGroup_CUSTOM = iocs_FlightDataTypeGroup__init_(iocs_FlightDataTypeGroup_trans.$get1($rt_s(1724)), 200);
+    iocs_FlightDataTypeGroup_TIME = iocs_FlightDataTypeGroup__init_(iocs_FlightDataTypeGroup_trans.$get1($rt_s(1714)), 0);
+    iocs_FlightDataTypeGroup_POSITION_AND_MOTION = iocs_FlightDataTypeGroup__init_(iocs_FlightDataTypeGroup_trans.$get1($rt_s(1715)), 10);
+    iocs_FlightDataTypeGroup_ORIENTATION = iocs_FlightDataTypeGroup__init_(iocs_FlightDataTypeGroup_trans.$get1($rt_s(1716)), 20);
+    iocs_FlightDataTypeGroup_MASS_AND_INERTIA = iocs_FlightDataTypeGroup__init_(iocs_FlightDataTypeGroup_trans.$get1($rt_s(1717)), 30);
+    iocs_FlightDataTypeGroup_STABILITY = iocs_FlightDataTypeGroup__init_(iocs_FlightDataTypeGroup_trans.$get1($rt_s(1718)), 40);
+    iocs_FlightDataTypeGroup_THRUST_AND_DRAG = iocs_FlightDataTypeGroup__init_(iocs_FlightDataTypeGroup_trans.$get1($rt_s(1719)), 50);
+    iocs_FlightDataTypeGroup_COEFFICIENTS = iocs_FlightDataTypeGroup__init_(iocs_FlightDataTypeGroup_trans.$get1($rt_s(1720)), 60);
+    iocs_FlightDataTypeGroup_ATMOSPHERIC_CONDITIONS = iocs_FlightDataTypeGroup__init_(iocs_FlightDataTypeGroup_trans.$get1($rt_s(1721)), 70);
+    iocs_FlightDataTypeGroup_CHARACTERISTIC_NUMBERS = iocs_FlightDataTypeGroup__init_(iocs_FlightDataTypeGroup_trans.$get1($rt_s(1722)), 80);
+    iocs_FlightDataTypeGroup_REFERENCE_VALUES = iocs_FlightDataTypeGroup__init_(iocs_FlightDataTypeGroup_trans.$get1($rt_s(1723)), 90);
+    iocs_FlightDataTypeGroup_SIMULATION_INFORMATION = iocs_FlightDataTypeGroup__init_(iocs_FlightDataTypeGroup_trans.$get1($rt_s(1724)), 100);
+    iocs_FlightDataTypeGroup_CUSTOM = iocs_FlightDataTypeGroup__init_(iocs_FlightDataTypeGroup_trans.$get1($rt_s(1725)), 200);
     var$1 = $rt_createArray(iocs_FlightDataTypeGroup, 12);
     var$2 = var$1.data;
     var$2[0] = iocs_FlightDataTypeGroup_TIME;
@@ -51026,7 +51052,7 @@ jur_UMultiLineEOLSet_hasConsumed = ($this, $matchResult) => {
     return $res;
 },
 jur_UMultiLineEOLSet_getName = $this => {
-    return $rt_s(1725);
+    return $rt_s(1726);
 },
 ju_LinkedHashMapIterator$KeyIterator = $rt_classWithoutFields(ju_LinkedHashMapIterator),
 ju_LinkedHashMapIterator$KeyIterator__init_ = ($this, $map, $reversed) => {
@@ -51324,9 +51350,9 @@ iocm_MotorConfigurationId__init_ = ($this, $_mount, $_fcid) => {
     iocm_MotorConfigurationId_$callClinit();
     jl_Object__init_($this);
     if (null === $_mount)
-        $rt_throw(jl_NullPointerException__init_($rt_s(1699)));
-    if (null === $_fcid)
         $rt_throw(jl_NullPointerException__init_($rt_s(1700)));
+    if (null === $_fcid)
+        $rt_throw(jl_NullPointerException__init_($rt_s(1701)));
     $mountHash = Long_shl(Long_fromInt(($_mount.$getID()).$hashCode()), 32);
     $fcidLower = iocu_LongUUID_getMostSignificantBits($_fcid.$key0);
     $this.$key2 = iocu_LongUUID__init_($mountHash, $fcidLower);
@@ -51357,7 +51383,7 @@ iocm_MotorConfigurationId_toString = $this => {
     return iocu_LongUUID_toString($this.$key2);
 },
 iocm_MotorConfigurationId__clinit_ = () => {
-    iocm_MotorConfigurationId_ERROR_ID_TEXT = $rt_intern($rt_s(1726));
+    iocm_MotorConfigurationId_ERROR_ID_TEXT = $rt_intern($rt_s(1727));
     iocm_MotorConfigurationId_ERROR_KEY = iocu_LongUUID__init_(Long_fromInt(62274413), Long_fromInt(56768908));
 },
 otr_StringInfo = $rt_classWithoutFields(otrr_ReflectionInfo);
@@ -51469,10 +51495,10 @@ iocu_UnitGroup_resetDefaultUnits = () => {
 },
 iocu_UnitGroup_addStabilityUnits = $stabilityUnit => {
     iocu_UnitGroup_$callClinit();
-    $stabilityUnit.$addUnit(iocu_GeneralUnit__init_(0.001, $rt_s(1727)));
-    $stabilityUnit.$addUnit(iocu_GeneralUnit__init_(0.01, $rt_s(1728)));
+    $stabilityUnit.$addUnit(iocu_GeneralUnit__init_(0.001, $rt_s(1728)));
+    $stabilityUnit.$addUnit(iocu_GeneralUnit__init_(0.01, $rt_s(1729)));
     $stabilityUnit.$addUnit(iocu_GeneralUnit__init_(1.0, $rt_s(953)));
-    $stabilityUnit.$addUnit(iocu_GeneralUnit__init_(0.0254, $rt_s(1729)));
+    $stabilityUnit.$addUnit(iocu_GeneralUnit__init_(0.0254, $rt_s(1730)));
     $stabilityUnit.$addUnit(iocu_CaliberUnit__init_0(null));
     $stabilityUnit.$addUnit(iocu_PercentageOfLengthUnit__init_0(null));
 },
@@ -51487,7 +51513,7 @@ let iocu_UnitGroup_setDefaultUnit = ($this, $n) => {
     }
     var$2 = new jl_IllegalArgumentException;
     var$3 = jl_StringBuilder__init_();
-    jl_StringBuilder_append2(jl_StringBuilder_append(var$3, $rt_s(1730)), $n);
+    jl_StringBuilder_append2(jl_StringBuilder_append(var$3, $rt_s(1731)), $n);
     jl_IllegalArgumentException__init_(var$2, jl_StringBuilder_toString(var$3));
     $rt_throw(var$2);
 },
@@ -51554,61 +51580,61 @@ iocu_UnitGroup__clinit_ = () => {
     iocu_Unit_$callClinit();
     var$1.$addUnit(iocu_Unit_NOUNIT);
     iocu_UnitGroup_UNITS_ENERGY = iocu_UnitGroup__init_();
-    iocu_UnitGroup_UNITS_ENERGY.$addUnit(iocu_GeneralUnit__init_(1.0, $rt_s(1731)));
-    iocu_UnitGroup_UNITS_ENERGY.$addUnit(iocu_GeneralUnit__init_(1.0E-7, $rt_s(1732)));
-    iocu_UnitGroup_UNITS_ENERGY.$addUnit(iocu_GeneralUnit__init_(1.055, $rt_s(1733)));
+    iocu_UnitGroup_UNITS_ENERGY.$addUnit(iocu_GeneralUnit__init_(1.0, $rt_s(1732)));
+    iocu_UnitGroup_UNITS_ENERGY.$addUnit(iocu_GeneralUnit__init_(1.0E-7, $rt_s(1733)));
+    iocu_UnitGroup_UNITS_ENERGY.$addUnit(iocu_GeneralUnit__init_(1.055, $rt_s(1734)));
     iocu_UnitGroup_UNITS_ENERGY.$addUnit(iocu_GeneralUnit__init_(4.184, $rt_s(1030)));
-    iocu_UnitGroup_UNITS_ENERGY.$addUnit(iocu_GeneralUnit__init_(1.3558179483314, $rt_s(1734)));
+    iocu_UnitGroup_UNITS_ENERGY.$addUnit(iocu_GeneralUnit__init_(1.3558179483314, $rt_s(1735)));
     iocu_UnitGroup_UNITS_POWER = iocu_UnitGroup__init_();
-    iocu_UnitGroup_UNITS_POWER.$addUnit(iocu_GeneralUnit__init_(0.001, $rt_s(1735)));
+    iocu_UnitGroup_UNITS_POWER.$addUnit(iocu_GeneralUnit__init_(0.001, $rt_s(1736)));
     iocu_UnitGroup_UNITS_POWER.$addUnit(iocu_GeneralUnit__init_(1.0, $rt_s(176)));
-    iocu_UnitGroup_UNITS_POWER.$addUnit(iocu_GeneralUnit__init_(1000.0, $rt_s(1736)));
-    iocu_UnitGroup_UNITS_POWER.$addUnit(iocu_GeneralUnit__init_(1.0E-7, $rt_s(1737)));
-    iocu_UnitGroup_UNITS_POWER.$addUnit(iocu_GeneralUnit__init_(745.699872, $rt_s(1738)));
+    iocu_UnitGroup_UNITS_POWER.$addUnit(iocu_GeneralUnit__init_(1000.0, $rt_s(1737)));
+    iocu_UnitGroup_UNITS_POWER.$addUnit(iocu_GeneralUnit__init_(1.0E-7, $rt_s(1738)));
+    iocu_UnitGroup_UNITS_POWER.$addUnit(iocu_GeneralUnit__init_(745.699872, $rt_s(1739)));
     iocu_UnitGroup_UNITS_MOMENTUM = iocu_UnitGroup__init_();
-    iocu_UnitGroup_UNITS_MOMENTUM.$addUnit(iocu_GeneralUnit__init_(1.0, $rt_s(1739)));
+    iocu_UnitGroup_UNITS_MOMENTUM.$addUnit(iocu_GeneralUnit__init_(1.0, $rt_s(1740)));
     iocu_UnitGroup_UNITS_VOLTAGE = iocu_UnitGroup__init_();
-    iocu_UnitGroup_UNITS_VOLTAGE.$addUnit(iocu_GeneralUnit__init_(0.001, $rt_s(1740)));
-    iocu_UnitGroup_UNITS_VOLTAGE.$addUnit(iocu_GeneralUnit__init_(1.0, $rt_s(1741)));
+    iocu_UnitGroup_UNITS_VOLTAGE.$addUnit(iocu_GeneralUnit__init_(0.001, $rt_s(1741)));
+    iocu_UnitGroup_UNITS_VOLTAGE.$addUnit(iocu_GeneralUnit__init_(1.0, $rt_s(1742)));
     iocu_UnitGroup_UNITS_CURRENT = iocu_UnitGroup__init_();
-    iocu_UnitGroup_UNITS_CURRENT.$addUnit(iocu_GeneralUnit__init_(0.001, $rt_s(1742)));
+    iocu_UnitGroup_UNITS_CURRENT.$addUnit(iocu_GeneralUnit__init_(0.001, $rt_s(1743)));
     iocu_UnitGroup_UNITS_CURRENT.$addUnit(iocu_GeneralUnit__init_(1.0, $rt_s(1177)));
     iocu_UnitGroup_UNITS_LENGTH = iocu_UnitGroup__init_();
-    iocu_UnitGroup_UNITS_LENGTH.$addUnit(iocu_GeneralUnit__init_(0.001, $rt_s(1727)));
-    iocu_UnitGroup_UNITS_LENGTH.$addUnit(iocu_GeneralUnit__init_(0.01, $rt_s(1728)));
+    iocu_UnitGroup_UNITS_LENGTH.$addUnit(iocu_GeneralUnit__init_(0.001, $rt_s(1728)));
+    iocu_UnitGroup_UNITS_LENGTH.$addUnit(iocu_GeneralUnit__init_(0.01, $rt_s(1729)));
     iocu_UnitGroup_UNITS_LENGTH.$addUnit(iocu_GeneralUnit__init_(1.0, $rt_s(953)));
-    iocu_UnitGroup_UNITS_LENGTH.$addUnit(iocu_InchUnit__init_0(0.0254, $rt_s(1729), 1.0));
-    iocu_UnitGroup_UNITS_LENGTH.$addUnit(iocu_FractionalUnit__init_0(0.0254, $rt_s(1743), $rt_s(1729), 64, 0.0625, 0.0078125));
-    iocu_UnitGroup_UNITS_LENGTH.$addUnit(iocu_GeneralUnit__init_(0.3048, $rt_s(1744)));
+    iocu_UnitGroup_UNITS_LENGTH.$addUnit(iocu_InchUnit__init_0(0.0254, $rt_s(1730), 1.0));
+    iocu_UnitGroup_UNITS_LENGTH.$addUnit(iocu_FractionalUnit__init_0(0.0254, $rt_s(1744), $rt_s(1730), 64, 0.0625, 0.0078125));
+    iocu_UnitGroup_UNITS_LENGTH.$addUnit(iocu_GeneralUnit__init_(0.3048, $rt_s(1745)));
     iocu_UnitGroup_UNITS_MOTOR_DIMENSIONS = iocu_UnitGroup__init_();
-    iocu_UnitGroup_UNITS_MOTOR_DIMENSIONS.$addUnit(iocu_GeneralUnit__init_(0.001, $rt_s(1727)));
-    iocu_UnitGroup_UNITS_MOTOR_DIMENSIONS.$addUnit(iocu_GeneralUnit__init_(0.01, $rt_s(1728)));
+    iocu_UnitGroup_UNITS_MOTOR_DIMENSIONS.$addUnit(iocu_GeneralUnit__init_(0.001, $rt_s(1728)));
+    iocu_UnitGroup_UNITS_MOTOR_DIMENSIONS.$addUnit(iocu_GeneralUnit__init_(0.01, $rt_s(1729)));
     iocu_UnitGroup_UNITS_MOTOR_DIMENSIONS.$addUnit(iocu_GeneralUnit__init_(1.0, $rt_s(953)));
-    iocu_UnitGroup_UNITS_MOTOR_DIMENSIONS.$addUnit(iocu_GeneralUnit__init_(0.0254, $rt_s(1729)));
+    iocu_UnitGroup_UNITS_MOTOR_DIMENSIONS.$addUnit(iocu_GeneralUnit__init_(0.0254, $rt_s(1730)));
     iocu_UnitGroup_UNITS_DISTANCE = iocu_UnitGroup__init_();
     iocu_UnitGroup_UNITS_DISTANCE.$addUnit(iocu_GeneralUnit__init_(1.0, $rt_s(953)));
-    iocu_UnitGroup_UNITS_DISTANCE.$addUnit(iocu_GeneralUnit__init_(1000.0, $rt_s(1745)));
-    iocu_UnitGroup_UNITS_DISTANCE.$addUnit(iocu_GeneralUnit__init_(0.3048, $rt_s(1744)));
-    iocu_UnitGroup_UNITS_DISTANCE.$addUnit(iocu_GeneralUnit__init_(0.9144, $rt_s(1746)));
-    iocu_UnitGroup_UNITS_DISTANCE.$addUnit(iocu_GeneralUnit__init_(1609.344, $rt_s(1747)));
-    iocu_UnitGroup_UNITS_DISTANCE.$addUnit(iocu_GeneralUnit__init_(1852.0, $rt_s(1748)));
+    iocu_UnitGroup_UNITS_DISTANCE.$addUnit(iocu_GeneralUnit__init_(1000.0, $rt_s(1746)));
+    iocu_UnitGroup_UNITS_DISTANCE.$addUnit(iocu_GeneralUnit__init_(0.3048, $rt_s(1745)));
+    iocu_UnitGroup_UNITS_DISTANCE.$addUnit(iocu_GeneralUnit__init_(0.9144, $rt_s(1747)));
+    iocu_UnitGroup_UNITS_DISTANCE.$addUnit(iocu_GeneralUnit__init_(1609.344, $rt_s(1748)));
+    iocu_UnitGroup_UNITS_DISTANCE.$addUnit(iocu_GeneralUnit__init_(1852.0, $rt_s(1749)));
     iocu_UnitGroup_UNITS_ALL_LENGTHS = iocu_UnitGroup__init_();
-    iocu_UnitGroup_UNITS_ALL_LENGTHS.$addUnit(iocu_GeneralUnit__init_(0.001, $rt_s(1727)));
-    iocu_UnitGroup_UNITS_ALL_LENGTHS.$addUnit(iocu_GeneralUnit__init_(0.01, $rt_s(1728)));
+    iocu_UnitGroup_UNITS_ALL_LENGTHS.$addUnit(iocu_GeneralUnit__init_(0.001, $rt_s(1728)));
+    iocu_UnitGroup_UNITS_ALL_LENGTHS.$addUnit(iocu_GeneralUnit__init_(0.01, $rt_s(1729)));
     iocu_UnitGroup_UNITS_ALL_LENGTHS.$addUnit(iocu_GeneralUnit__init_(1.0, $rt_s(953)));
-    iocu_UnitGroup_UNITS_ALL_LENGTHS.$addUnit(iocu_GeneralUnit__init_(1000.0, $rt_s(1745)));
-    iocu_UnitGroup_UNITS_ALL_LENGTHS.$addUnit(iocu_GeneralUnit__init_(0.0254, $rt_s(1729)));
-    iocu_UnitGroup_UNITS_ALL_LENGTHS.$addUnit(iocu_FractionalUnit__init_0(0.0254, $rt_s(1743), $rt_s(1729), 64, 0.0625, 0.0078125));
-    iocu_UnitGroup_UNITS_ALL_LENGTHS.$addUnit(iocu_GeneralUnit__init_(0.3048, $rt_s(1744)));
-    iocu_UnitGroup_UNITS_ALL_LENGTHS.$addUnit(iocu_GeneralUnit__init_(0.9144, $rt_s(1746)));
-    iocu_UnitGroup_UNITS_ALL_LENGTHS.$addUnit(iocu_GeneralUnit__init_(1609.344, $rt_s(1747)));
-    iocu_UnitGroup_UNITS_ALL_LENGTHS.$addUnit(iocu_GeneralUnit__init_(1852.0, $rt_s(1748)));
+    iocu_UnitGroup_UNITS_ALL_LENGTHS.$addUnit(iocu_GeneralUnit__init_(1000.0, $rt_s(1746)));
+    iocu_UnitGroup_UNITS_ALL_LENGTHS.$addUnit(iocu_GeneralUnit__init_(0.0254, $rt_s(1730)));
+    iocu_UnitGroup_UNITS_ALL_LENGTHS.$addUnit(iocu_FractionalUnit__init_0(0.0254, $rt_s(1744), $rt_s(1730), 64, 0.0625, 0.0078125));
+    iocu_UnitGroup_UNITS_ALL_LENGTHS.$addUnit(iocu_GeneralUnit__init_(0.3048, $rt_s(1745)));
+    iocu_UnitGroup_UNITS_ALL_LENGTHS.$addUnit(iocu_GeneralUnit__init_(0.9144, $rt_s(1747)));
+    iocu_UnitGroup_UNITS_ALL_LENGTHS.$addUnit(iocu_GeneralUnit__init_(1609.344, $rt_s(1748)));
+    iocu_UnitGroup_UNITS_ALL_LENGTHS.$addUnit(iocu_GeneralUnit__init_(1852.0, $rt_s(1749)));
     iocu_UnitGroup_UNITS_AREA = iocu_UnitGroup__init_();
-    iocu_UnitGroup_UNITS_AREA.$addUnit(iocu_GeneralUnit__init_(iocu_MathUtil_pow2(0.001), $rt_s(1749)));
-    iocu_UnitGroup_UNITS_AREA.$addUnit(iocu_GeneralUnit__init_(iocu_MathUtil_pow2(0.01), $rt_s(1750)));
-    iocu_UnitGroup_UNITS_AREA.$addUnit(iocu_GeneralUnit__init_(1.0, $rt_s(1751)));
-    iocu_UnitGroup_UNITS_AREA.$addUnit(iocu_GeneralUnit__init_(iocu_MathUtil_pow2(0.0254), $rt_s(1752)));
-    iocu_UnitGroup_UNITS_AREA.$addUnit(iocu_GeneralUnit__init_(iocu_MathUtil_pow2(0.3048), $rt_s(1753)));
+    iocu_UnitGroup_UNITS_AREA.$addUnit(iocu_GeneralUnit__init_(iocu_MathUtil_pow2(0.001), $rt_s(1750)));
+    iocu_UnitGroup_UNITS_AREA.$addUnit(iocu_GeneralUnit__init_(iocu_MathUtil_pow2(0.01), $rt_s(1751)));
+    iocu_UnitGroup_UNITS_AREA.$addUnit(iocu_GeneralUnit__init_(1.0, $rt_s(1752)));
+    iocu_UnitGroup_UNITS_AREA.$addUnit(iocu_GeneralUnit__init_(iocu_MathUtil_pow2(0.0254), $rt_s(1753)));
+    iocu_UnitGroup_UNITS_AREA.$addUnit(iocu_GeneralUnit__init_(iocu_MathUtil_pow2(0.3048), $rt_s(1754)));
     iocu_UnitGroup_UNITS_SHAPE_PARAMETER = iocu_UnitGroup__init_();
     iocu_UnitGroup_UNITS_SHAPE_PARAMETER.$addUnit(iocu_GeneralUnit__init_5(1.0, $rt_s(343), 1, 10, 0.1));
     iocu_UnitGroup_UNITS_STABILITY = iocu_UnitGroup__init_();
@@ -51618,205 +51644,205 @@ iocu_UnitGroup__clinit_ = () => {
     iocu_UnitGroup_UNITS_STABILITY_CALIBERS = iocu_UnitGroup__init_();
     iocu_UnitGroup_UNITS_STABILITY_CALIBERS.$addUnit(iocu_GeneralUnit__init_(1.0, $rt_s(1030)));
     iocu_UnitGroup_UNITS_VELOCITY = iocu_UnitGroup__init_();
-    iocu_UnitGroup_UNITS_VELOCITY.$addUnit(iocu_GeneralUnit__init_(1.0, $rt_s(1754)));
-    iocu_UnitGroup_UNITS_VELOCITY.$addUnit(iocu_GeneralUnit__init_(0.2777777777777778, $rt_s(1755)));
-    iocu_UnitGroup_UNITS_VELOCITY.$addUnit(iocu_GeneralUnit__init_(0.3048, $rt_s(1756)));
-    iocu_UnitGroup_UNITS_VELOCITY.$addUnit(iocu_GeneralUnit__init_(0.44704, $rt_s(1757)));
-    iocu_UnitGroup_UNITS_VELOCITY.$addUnit(iocu_GeneralUnit__init_(0.51444445, $rt_s(1758)));
+    iocu_UnitGroup_UNITS_VELOCITY.$addUnit(iocu_GeneralUnit__init_(1.0, $rt_s(1755)));
+    iocu_UnitGroup_UNITS_VELOCITY.$addUnit(iocu_GeneralUnit__init_(0.2777777777777778, $rt_s(1756)));
+    iocu_UnitGroup_UNITS_VELOCITY.$addUnit(iocu_GeneralUnit__init_(0.3048, $rt_s(1757)));
+    iocu_UnitGroup_UNITS_VELOCITY.$addUnit(iocu_GeneralUnit__init_(0.44704, $rt_s(1758)));
+    iocu_UnitGroup_UNITS_VELOCITY.$addUnit(iocu_GeneralUnit__init_(0.51444445, $rt_s(1759)));
     iocu_UnitGroup_UNITS_WINDSPEED = iocu_UnitGroup__init_();
-    iocu_UnitGroup_UNITS_WINDSPEED.$addUnit(iocu_GeneralUnit__init_(1.0, $rt_s(1754)));
-    iocu_UnitGroup_UNITS_WINDSPEED.$addUnit(iocu_GeneralUnit__init_(0.2777777777777778, $rt_s(1755)));
-    iocu_UnitGroup_UNITS_WINDSPEED.$addUnit(iocu_GeneralUnit__init_(0.3048, $rt_s(1756)));
-    iocu_UnitGroup_UNITS_WINDSPEED.$addUnit(iocu_GeneralUnit__init_(0.44704, $rt_s(1757)));
-    iocu_UnitGroup_UNITS_WINDSPEED.$addUnit(iocu_GeneralUnit__init_(0.51444445, $rt_s(1758)));
+    iocu_UnitGroup_UNITS_WINDSPEED.$addUnit(iocu_GeneralUnit__init_(1.0, $rt_s(1755)));
+    iocu_UnitGroup_UNITS_WINDSPEED.$addUnit(iocu_GeneralUnit__init_(0.2777777777777778, $rt_s(1756)));
+    iocu_UnitGroup_UNITS_WINDSPEED.$addUnit(iocu_GeneralUnit__init_(0.3048, $rt_s(1757)));
+    iocu_UnitGroup_UNITS_WINDSPEED.$addUnit(iocu_GeneralUnit__init_(0.44704, $rt_s(1758)));
+    iocu_UnitGroup_UNITS_WINDSPEED.$addUnit(iocu_GeneralUnit__init_(0.51444445, $rt_s(1759)));
     iocu_UnitGroup_UNITS_LATITUDE = iocu_UnitGroup__init_();
     var$2 = iocu_UnitGroup_UNITS_LATITUDE;
     var$3 = new iocu_FixedPrecisionUnit;
-    var$1 = iocu_UnitGroup_trans.$get1($rt_s(1759));
+    var$1 = iocu_UnitGroup_trans.$get1($rt_s(1760));
     var$4 = jl_StringBuilder__init_();
-    jl_StringBuilder_append(jl_StringBuilder_append(var$4, $rt_s(1760)), var$1);
+    jl_StringBuilder_append(jl_StringBuilder_append(var$4, $rt_s(1761)), var$1);
     iocu_FixedPrecisionUnit__init_0(var$3, jl_StringBuilder_toString(var$4), 1.0E-5, 1.0, 0);
     var$2.$addUnit(var$3);
     var$1 = iocu_UnitGroup_UNITS_LATITUDE;
     var$2 = new iocu_FixedPrecisionUnit;
-    var$3 = iocu_UnitGroup_trans.$get1($rt_s(1761));
+    var$3 = iocu_UnitGroup_trans.$get1($rt_s(1762));
     var$4 = jl_StringBuilder__init_();
-    jl_StringBuilder_append(jl_StringBuilder_append(var$4, $rt_s(1760)), var$3);
+    jl_StringBuilder_append(jl_StringBuilder_append(var$4, $rt_s(1761)), var$3);
     iocu_FixedPrecisionUnit__init_0(var$2, jl_StringBuilder_toString(var$4), 1.0E-5, (-1.0), 0);
     var$1.$addUnit(var$2);
     iocu_UnitGroup_UNITS_LONGITUDE = iocu_UnitGroup__init_();
     var$1 = iocu_UnitGroup_UNITS_LONGITUDE;
     var$2 = new iocu_FixedPrecisionUnit;
-    var$3 = iocu_UnitGroup_trans.$get1($rt_s(1762));
+    var$3 = iocu_UnitGroup_trans.$get1($rt_s(1763));
     var$4 = jl_StringBuilder__init_();
-    jl_StringBuilder_append(jl_StringBuilder_append(var$4, $rt_s(1760)), var$3);
+    jl_StringBuilder_append(jl_StringBuilder_append(var$4, $rt_s(1761)), var$3);
     iocu_FixedPrecisionUnit__init_0(var$2, jl_StringBuilder_toString(var$4), 1.0E-5, 1.0, 0);
     var$1.$addUnit(var$2);
     var$1 = iocu_UnitGroup_UNITS_LONGITUDE;
     var$2 = new iocu_FixedPrecisionUnit;
-    var$3 = iocu_UnitGroup_trans.$get1($rt_s(1763));
+    var$3 = iocu_UnitGroup_trans.$get1($rt_s(1764));
     var$4 = jl_StringBuilder__init_();
-    jl_StringBuilder_append(jl_StringBuilder_append(var$4, $rt_s(1760)), var$3);
+    jl_StringBuilder_append(jl_StringBuilder_append(var$4, $rt_s(1761)), var$3);
     iocu_FixedPrecisionUnit__init_0(var$2, jl_StringBuilder_toString(var$4), 1.0E-5, (-1.0), 0);
     var$1.$addUnit(var$2);
     iocu_UnitGroup_UNITS_ACCELERATION = iocu_UnitGroup__init_();
-    iocu_UnitGroup_UNITS_ACCELERATION.$addUnit(iocu_GeneralUnit__init_(1.0, $rt_s(1764)));
-    iocu_UnitGroup_UNITS_ACCELERATION.$addUnit(iocu_GeneralUnit__init_(0.3048, $rt_s(1765)));
-    iocu_UnitGroup_UNITS_ACCELERATION.$addUnit(iocu_GeneralUnit__init_(9.80665, $rt_s(1766)));
+    iocu_UnitGroup_UNITS_ACCELERATION.$addUnit(iocu_GeneralUnit__init_(1.0, $rt_s(1765)));
+    iocu_UnitGroup_UNITS_ACCELERATION.$addUnit(iocu_GeneralUnit__init_(0.3048, $rt_s(1766)));
+    iocu_UnitGroup_UNITS_ACCELERATION.$addUnit(iocu_GeneralUnit__init_(9.80665, $rt_s(1767)));
     iocu_UnitGroup_UNITS_MASS = iocu_UnitGroup__init_();
     iocu_UnitGroup_UNITS_MASS.$addUnit(iocu_GeneralUnit__init_(0.001, $rt_s(961)));
-    iocu_UnitGroup_UNITS_MASS.$addUnit(iocu_GeneralUnit__init_(1.0, $rt_s(1767)));
-    iocu_UnitGroup_UNITS_MASS.$addUnit(iocu_GeneralUnit__init_(0.0283495231, $rt_s(1768)));
-    iocu_UnitGroup_UNITS_MASS.$addUnit(iocu_GeneralUnit__init_(0.45359237, $rt_s(1769)));
+    iocu_UnitGroup_UNITS_MASS.$addUnit(iocu_GeneralUnit__init_(1.0, $rt_s(1768)));
+    iocu_UnitGroup_UNITS_MASS.$addUnit(iocu_GeneralUnit__init_(0.0283495231, $rt_s(1769)));
+    iocu_UnitGroup_UNITS_MASS.$addUnit(iocu_GeneralUnit__init_(0.45359237, $rt_s(1770)));
     iocu_UnitGroup_UNITS_INERTIA = iocu_UnitGroup__init_();
-    iocu_UnitGroup_UNITS_INERTIA.$addUnit(iocu_GeneralUnit__init_(1.0E-4, $rt_s(1770)));
-    iocu_UnitGroup_UNITS_INERTIA.$addUnit(iocu_GeneralUnit__init_(1.0, $rt_s(1771)));
-    iocu_UnitGroup_UNITS_INERTIA.$addUnit(iocu_GeneralUnit__init_(1.82899783E-5, $rt_s(1772)));
-    iocu_UnitGroup_UNITS_INERTIA.$addUnit(iocu_GeneralUnit__init_(2.92639653E-4, $rt_s(1773)));
-    iocu_UnitGroup_UNITS_INERTIA.$addUnit(iocu_GeneralUnit__init_(0.0421401101, $rt_s(1774)));
-    iocu_UnitGroup_UNITS_INERTIA.$addUnit(iocu_GeneralUnit__init_(1.35581795, $rt_s(1775)));
+    iocu_UnitGroup_UNITS_INERTIA.$addUnit(iocu_GeneralUnit__init_(1.0E-4, $rt_s(1771)));
+    iocu_UnitGroup_UNITS_INERTIA.$addUnit(iocu_GeneralUnit__init_(1.0, $rt_s(1772)));
+    iocu_UnitGroup_UNITS_INERTIA.$addUnit(iocu_GeneralUnit__init_(1.82899783E-5, $rt_s(1773)));
+    iocu_UnitGroup_UNITS_INERTIA.$addUnit(iocu_GeneralUnit__init_(2.92639653E-4, $rt_s(1774)));
+    iocu_UnitGroup_UNITS_INERTIA.$addUnit(iocu_GeneralUnit__init_(0.0421401101, $rt_s(1775)));
+    iocu_UnitGroup_UNITS_INERTIA.$addUnit(iocu_GeneralUnit__init_(1.35581795, $rt_s(1776)));
     iocu_UnitGroup_UNITS_ANGLE = iocu_UnitGroup__init_();
     iocu_UnitGroup_UNITS_ANGLE.$addUnit(iocu_DegreeUnit__init_0());
-    iocu_UnitGroup_UNITS_ANGLE.$addUnit(iocu_FixedPrecisionUnit__init_1($rt_s(1776), 0.01));
-    iocu_UnitGroup_UNITS_ANGLE.$addUnit(iocu_GeneralUnit__init_(2.9088820866613954E-4, $rt_s(1777)));
+    iocu_UnitGroup_UNITS_ANGLE.$addUnit(iocu_FixedPrecisionUnit__init_1($rt_s(1777), 0.01));
+    iocu_UnitGroup_UNITS_ANGLE.$addUnit(iocu_GeneralUnit__init_(2.9088820866613954E-4, $rt_s(1778)));
     iocu_UnitGroup_UNITS_DENSITY_BULK = iocu_UnitGroup__init_();
-    iocu_UnitGroup_UNITS_DENSITY_BULK.$addUnit(iocu_GeneralUnit__init_(1000.0, $rt_s(1778)));
-    iocu_UnitGroup_UNITS_DENSITY_BULK.$addUnit(iocu_GeneralUnit__init_(1000999.0, $rt_s(1779)));
-    iocu_UnitGroup_UNITS_DENSITY_BULK.$addUnit(iocu_GeneralUnit__init_(1000.0, $rt_s(1780)));
-    iocu_UnitGroup_UNITS_DENSITY_BULK.$addUnit(iocu_GeneralUnit__init_(1.0, $rt_s(1781)));
-    iocu_UnitGroup_UNITS_DENSITY_BULK.$addUnit(iocu_GeneralUnit__init_(1729.99404, $rt_s(1782)));
-    iocu_UnitGroup_UNITS_DENSITY_BULK.$addUnit(iocu_GeneralUnit__init_(16.0184634, $rt_s(1783)));
+    iocu_UnitGroup_UNITS_DENSITY_BULK.$addUnit(iocu_GeneralUnit__init_(1000.0, $rt_s(1779)));
+    iocu_UnitGroup_UNITS_DENSITY_BULK.$addUnit(iocu_GeneralUnit__init_(1000999.0, $rt_s(1780)));
+    iocu_UnitGroup_UNITS_DENSITY_BULK.$addUnit(iocu_GeneralUnit__init_(1000.0, $rt_s(1781)));
+    iocu_UnitGroup_UNITS_DENSITY_BULK.$addUnit(iocu_GeneralUnit__init_(1.0, $rt_s(1782)));
+    iocu_UnitGroup_UNITS_DENSITY_BULK.$addUnit(iocu_GeneralUnit__init_(1729.99404, $rt_s(1783)));
+    iocu_UnitGroup_UNITS_DENSITY_BULK.$addUnit(iocu_GeneralUnit__init_(16.0184634, $rt_s(1784)));
     iocu_UnitGroup_UNITS_DENSITY_SURFACE = iocu_UnitGroup__init_();
-    iocu_UnitGroup_UNITS_DENSITY_SURFACE.$addUnit(iocu_GeneralUnit__init_(10.0, $rt_s(1784)));
-    iocu_UnitGroup_UNITS_DENSITY_SURFACE.$addUnit(iocu_GeneralUnit__init_(0.001, $rt_s(1785)));
-    iocu_UnitGroup_UNITS_DENSITY_SURFACE.$addUnit(iocu_GeneralUnit__init_(10000.0, $rt_s(1786)));
-    iocu_UnitGroup_UNITS_DENSITY_SURFACE.$addUnit(iocu_GeneralUnit__init_(100.0, $rt_s(1787)));
-    iocu_UnitGroup_UNITS_DENSITY_SURFACE.$addUnit(iocu_GeneralUnit__init_(1.0, $rt_s(1788)));
-    iocu_UnitGroup_UNITS_DENSITY_SURFACE.$addUnit(iocu_GeneralUnit__init_(43.9418487, $rt_s(1789)));
-    iocu_UnitGroup_UNITS_DENSITY_SURFACE.$addUnit(iocu_GeneralUnit__init_(0.305151727, $rt_s(1790)));
-    iocu_UnitGroup_UNITS_DENSITY_SURFACE.$addUnit(iocu_GeneralUnit__init_(4.88242764, $rt_s(1791)));
+    iocu_UnitGroup_UNITS_DENSITY_SURFACE.$addUnit(iocu_GeneralUnit__init_(10.0, $rt_s(1785)));
+    iocu_UnitGroup_UNITS_DENSITY_SURFACE.$addUnit(iocu_GeneralUnit__init_(0.001, $rt_s(1786)));
+    iocu_UnitGroup_UNITS_DENSITY_SURFACE.$addUnit(iocu_GeneralUnit__init_(10000.0, $rt_s(1787)));
+    iocu_UnitGroup_UNITS_DENSITY_SURFACE.$addUnit(iocu_GeneralUnit__init_(100.0, $rt_s(1788)));
+    iocu_UnitGroup_UNITS_DENSITY_SURFACE.$addUnit(iocu_GeneralUnit__init_(1.0, $rt_s(1789)));
+    iocu_UnitGroup_UNITS_DENSITY_SURFACE.$addUnit(iocu_GeneralUnit__init_(43.9418487, $rt_s(1790)));
+    iocu_UnitGroup_UNITS_DENSITY_SURFACE.$addUnit(iocu_GeneralUnit__init_(0.305151727, $rt_s(1791)));
+    iocu_UnitGroup_UNITS_DENSITY_SURFACE.$addUnit(iocu_GeneralUnit__init_(4.88242764, $rt_s(1792)));
     iocu_UnitGroup_UNITS_DENSITY_LINE = iocu_UnitGroup__init_();
-    iocu_UnitGroup_UNITS_DENSITY_LINE.$addUnit(iocu_GeneralUnit__init_(0.1, $rt_s(1792)));
-    iocu_UnitGroup_UNITS_DENSITY_LINE.$addUnit(iocu_GeneralUnit__init_(0.001, $rt_s(1793)));
-    iocu_UnitGroup_UNITS_DENSITY_LINE.$addUnit(iocu_GeneralUnit__init_(100.0, $rt_s(1794)));
-    iocu_UnitGroup_UNITS_DENSITY_LINE.$addUnit(iocu_GeneralUnit__init_(10.0, $rt_s(1795)));
-    iocu_UnitGroup_UNITS_DENSITY_LINE.$addUnit(iocu_GeneralUnit__init_(1.0, $rt_s(1796)));
-    iocu_UnitGroup_UNITS_DENSITY_LINE.$addUnit(iocu_GeneralUnit__init_(0.0930102465, $rt_s(1797)));
+    iocu_UnitGroup_UNITS_DENSITY_LINE.$addUnit(iocu_GeneralUnit__init_(0.1, $rt_s(1793)));
+    iocu_UnitGroup_UNITS_DENSITY_LINE.$addUnit(iocu_GeneralUnit__init_(0.001, $rt_s(1794)));
+    iocu_UnitGroup_UNITS_DENSITY_LINE.$addUnit(iocu_GeneralUnit__init_(100.0, $rt_s(1795)));
+    iocu_UnitGroup_UNITS_DENSITY_LINE.$addUnit(iocu_GeneralUnit__init_(10.0, $rt_s(1796)));
+    iocu_UnitGroup_UNITS_DENSITY_LINE.$addUnit(iocu_GeneralUnit__init_(1.0, $rt_s(1797)));
+    iocu_UnitGroup_UNITS_DENSITY_LINE.$addUnit(iocu_GeneralUnit__init_(0.0930102465, $rt_s(1798)));
     iocu_UnitGroup_UNITS_FORCE = iocu_UnitGroup__init_();
     iocu_UnitGroup_UNITS_FORCE.$addUnit(iocu_GeneralUnit__init_(1.0, $rt_s(314)));
-    iocu_UnitGroup_UNITS_FORCE.$addUnit(iocu_GeneralUnit__init_(4.44822162, $rt_s(1798)));
-    iocu_UnitGroup_UNITS_FORCE.$addUnit(iocu_GeneralUnit__init_(9.80665, $rt_s(1799)));
+    iocu_UnitGroup_UNITS_FORCE.$addUnit(iocu_GeneralUnit__init_(4.44822162, $rt_s(1799)));
+    iocu_UnitGroup_UNITS_FORCE.$addUnit(iocu_GeneralUnit__init_(9.80665, $rt_s(1800)));
     iocu_UnitGroup_UNITS_IMPULSE = iocu_UnitGroup__init_();
-    iocu_UnitGroup_UNITS_IMPULSE.$addUnit(iocu_GeneralUnit__init_(1.0, $rt_s(1800)));
-    iocu_UnitGroup_UNITS_IMPULSE.$addUnit(iocu_GeneralUnit__init_(4.44822162, $rt_s(1801)));
+    iocu_UnitGroup_UNITS_IMPULSE.$addUnit(iocu_GeneralUnit__init_(1.0, $rt_s(1801)));
+    iocu_UnitGroup_UNITS_IMPULSE.$addUnit(iocu_GeneralUnit__init_(4.44822162, $rt_s(1802)));
     iocu_UnitGroup_UNITS_TIME_STEP = iocu_UnitGroup__init_();
-    iocu_UnitGroup_UNITS_TIME_STEP.$addUnit(iocu_FixedPrecisionUnit__init_($rt_s(1802), 1.0, 0.001));
+    iocu_UnitGroup_UNITS_TIME_STEP.$addUnit(iocu_FixedPrecisionUnit__init_($rt_s(1803), 1.0, 0.001));
     iocu_UnitGroup_UNITS_TIME_STEP.$addUnit(iocu_FixedPrecisionUnit__init_1($rt_s(177), 0.01));
     iocu_UnitGroup_UNITS_SHORT_TIME = iocu_UnitGroup__init_();
     iocu_UnitGroup_UNITS_SHORT_TIME.$addUnit(iocu_GeneralUnit__init_(1.0, $rt_s(177)));
     iocu_UnitGroup_UNITS_LONG_TIME = iocu_UnitGroup__init_();
     iocu_UnitGroup_UNITS_LONG_TIME.$addUnit(iocu_GeneralUnit__init_(1.0, $rt_s(177)));
-    iocu_UnitGroup_UNITS_LONG_TIME.$addUnit(iocu_GeneralUnit__init_(60.0, $rt_s(1803)));
+    iocu_UnitGroup_UNITS_LONG_TIME.$addUnit(iocu_GeneralUnit__init_(60.0, $rt_s(1804)));
     iocu_UnitGroup_UNITS_ROLL = iocu_UnitGroup__init_();
-    iocu_UnitGroup_UNITS_ROLL.$addUnit(iocu_GeneralUnit__init_(1.0, $rt_s(1804)));
-    iocu_UnitGroup_UNITS_ROLL.$addUnit(iocu_GeneralUnit__init_(0.017453292519943295, $rt_s(1805)));
-    iocu_UnitGroup_UNITS_ROLL.$addUnit(iocu_GeneralUnit__init_(6.283185307179586, $rt_s(1806)));
-    iocu_UnitGroup_UNITS_ROLL.$addUnit(iocu_GeneralUnit__init_(0.10471975511965977, $rt_s(1807)));
+    iocu_UnitGroup_UNITS_ROLL.$addUnit(iocu_GeneralUnit__init_(1.0, $rt_s(1805)));
+    iocu_UnitGroup_UNITS_ROLL.$addUnit(iocu_GeneralUnit__init_(0.017453292519943295, $rt_s(1806)));
+    iocu_UnitGroup_UNITS_ROLL.$addUnit(iocu_GeneralUnit__init_(6.283185307179586, $rt_s(1807)));
+    iocu_UnitGroup_UNITS_ROLL.$addUnit(iocu_GeneralUnit__init_(0.10471975511965977, $rt_s(1808)));
     iocu_UnitGroup_UNITS_TEMPERATURE = iocu_UnitGroup__init_();
     iocu_UnitGroup_UNITS_TEMPERATURE.$addUnit(iocu_FixedPrecisionUnit__init_1($rt_s(1237), 0.01));
-    iocu_UnitGroup_UNITS_TEMPERATURE.$addUnit(iocu_TemperatureUnit__init_0(1.0, 273.15, 0.01, $rt_s(1808)));
-    iocu_UnitGroup_UNITS_TEMPERATURE.$addUnit(iocu_TemperatureUnit__init_0(0.5555555555555556, 459.67, 0.01, $rt_s(1809)));
+    iocu_UnitGroup_UNITS_TEMPERATURE.$addUnit(iocu_TemperatureUnit__init_0(1.0, 273.15, 0.01, $rt_s(1809)));
+    iocu_UnitGroup_UNITS_TEMPERATURE.$addUnit(iocu_TemperatureUnit__init_0(0.5555555555555556, 459.67, 0.01, $rt_s(1810)));
     iocu_UnitGroup_UNITS_PRESSURE = iocu_UnitGroup__init_();
-    iocu_UnitGroup_UNITS_PRESSURE.$addUnit(iocu_FixedPrecisionUnit__init_($rt_s(1810), 0.01, 100.0));
-    iocu_UnitGroup_UNITS_PRESSURE.$addUnit(iocu_FixedPrecisionUnit__init_($rt_s(1811), 0.001, 100000.0));
-    iocu_UnitGroup_UNITS_PRESSURE.$addUnit(iocu_FixedPrecisionUnit__init_($rt_s(1812), 0.001, 101325.0));
-    iocu_UnitGroup_UNITS_PRESSURE.$addUnit(iocu_FixedPrecisionUnit__init_($rt_s(1813), 0.01, 133.32236842105263));
-    iocu_UnitGroup_UNITS_PRESSURE.$addUnit(iocu_FixedPrecisionUnit__init_($rt_s(1814), 0.01, 3386.389));
-    iocu_UnitGroup_UNITS_PRESSURE.$addUnit(iocu_FixedPrecisionUnit__init_($rt_s(1815), 0.01, 6894.75729));
-    iocu_UnitGroup_UNITS_PRESSURE.$addUnit(iocu_GeneralUnit__init_(1.0, $rt_s(1816)));
+    iocu_UnitGroup_UNITS_PRESSURE.$addUnit(iocu_FixedPrecisionUnit__init_($rt_s(1811), 0.01, 100.0));
+    iocu_UnitGroup_UNITS_PRESSURE.$addUnit(iocu_FixedPrecisionUnit__init_($rt_s(1812), 0.001, 100000.0));
+    iocu_UnitGroup_UNITS_PRESSURE.$addUnit(iocu_FixedPrecisionUnit__init_($rt_s(1813), 0.001, 101325.0));
+    iocu_UnitGroup_UNITS_PRESSURE.$addUnit(iocu_FixedPrecisionUnit__init_($rt_s(1814), 0.01, 133.32236842105263));
+    iocu_UnitGroup_UNITS_PRESSURE.$addUnit(iocu_FixedPrecisionUnit__init_($rt_s(1815), 0.01, 3386.389));
+    iocu_UnitGroup_UNITS_PRESSURE.$addUnit(iocu_FixedPrecisionUnit__init_($rt_s(1816), 0.01, 6894.75729));
+    iocu_UnitGroup_UNITS_PRESSURE.$addUnit(iocu_GeneralUnit__init_(1.0, $rt_s(1817)));
     iocu_UnitGroup_UNITS_RELATIVE = iocu_UnitGroup__init_();
     iocu_UnitGroup_UNITS_RELATIVE.$addUnit(iocu_FixedPrecisionUnit__init_($rt_s(343), 0.01, 1.0));
     iocu_UnitGroup_UNITS_RELATIVE.$addUnit(iocu_GeneralUnit__init_(0.01, $rt_s(537)));
-    iocu_UnitGroup_UNITS_RELATIVE.$addUnit(iocu_FixedPrecisionUnit__init_($rt_s(1817), 1.0, 0.001));
+    iocu_UnitGroup_UNITS_RELATIVE.$addUnit(iocu_FixedPrecisionUnit__init_($rt_s(1818), 1.0, 0.001));
     iocu_UnitGroup_UNITS_ROUGHNESS = iocu_UnitGroup__init_();
-    iocu_UnitGroup_UNITS_ROUGHNESS.$addUnit(iocu_GeneralUnit__init_(1.0E-6, $rt_s(1818)));
-    iocu_UnitGroup_UNITS_ROUGHNESS.$addUnit(iocu_GeneralUnit__init_(2.54E-5, $rt_s(1819)));
-    iocu_UnitGroup_UNITS_ROUGHNESS.$addUnit(iocu_GeneralUnit__init_(0.0254, $rt_s(1729)));
+    iocu_UnitGroup_UNITS_ROUGHNESS.$addUnit(iocu_GeneralUnit__init_(1.0E-6, $rt_s(1819)));
+    iocu_UnitGroup_UNITS_ROUGHNESS.$addUnit(iocu_GeneralUnit__init_(2.54E-5, $rt_s(1820)));
+    iocu_UnitGroup_UNITS_ROUGHNESS.$addUnit(iocu_GeneralUnit__init_(0.0254, $rt_s(1730)));
     iocu_UnitGroup_UNITS_ROUGHNESS.$addUnit(iocu_GeneralUnit__init_(1.0, $rt_s(953)));
     iocu_UnitGroup_UNITS_COEFFICIENT = iocu_UnitGroup__init_();
     iocu_UnitGroup_UNITS_COEFFICIENT.$addUnit(iocu_FixedPrecisionUnit__init_1($rt_s(343), 0.001));
     iocu_UnitGroup_UNITS_SCALING = iocu_UnitGroup__init_();
     iocu_UnitGroup_UNITS_SCALING.$addUnit(iocu_FixedPrecisionUnit__init_1($rt_s(343), 0.1));
     iocu_UnitGroup_UNITS_STROKE_WIDTH = iocu_UnitGroup__init_();
-    iocu_UnitGroup_UNITS_STROKE_WIDTH.$addUnit(iocu_GeneralUnit__init_(1.0, $rt_s(1727)));
-    iocu_UnitGroup_UNITS_STROKE_WIDTH.$addUnit(iocu_GeneralUnit__init_(0.1, $rt_s(1818)));
-    iocu_UnitGroup_UNITS_STROKE_WIDTH.$addUnit(iocu_GeneralUnit__init_(0.0254, $rt_s(1819)));
+    iocu_UnitGroup_UNITS_STROKE_WIDTH.$addUnit(iocu_GeneralUnit__init_(1.0, $rt_s(1728)));
+    iocu_UnitGroup_UNITS_STROKE_WIDTH.$addUnit(iocu_GeneralUnit__init_(0.1, $rt_s(1819)));
+    iocu_UnitGroup_UNITS_STROKE_WIDTH.$addUnit(iocu_GeneralUnit__init_(0.0254, $rt_s(1820)));
     iocu_UnitGroup_UNITS_FREQUENCY = iocu_UnitGroup__init_();
-    iocu_UnitGroup_UNITS_FREQUENCY.$addUnit(iocu_FrequencyUnit__init_(0.001, $rt_s(1820)));
-    iocu_UnitGroup_UNITS_FREQUENCY.$addUnit(iocu_FrequencyUnit__init_(1.0, $rt_s(1821)));
-    iocu_UnitGroup_UNITS_FREQUENCY.$addUnit(iocu_FrequencyUnit__init_(1000.0, $rt_s(1822)));
+    iocu_UnitGroup_UNITS_FREQUENCY.$addUnit(iocu_FrequencyUnit__init_(0.001, $rt_s(1821)));
+    iocu_UnitGroup_UNITS_FREQUENCY.$addUnit(iocu_FrequencyUnit__init_(1.0, $rt_s(1822)));
+    iocu_UnitGroup_UNITS_FREQUENCY.$addUnit(iocu_FrequencyUnit__init_(1000.0, $rt_s(1823)));
     iocu_UnitGroup_resetDefaultUnits();
     $map = ju_HashMap__init_();
-    $map.$put($rt_s(1823), iocu_UnitGroup_UNITS_NONE);
-    $map.$put($rt_s(1824), iocu_UnitGroup_UNITS_LENGTH);
-    $map.$put($rt_s(1825), iocu_UnitGroup_UNITS_ALL_LENGTHS);
-    $map.$put($rt_s(1826), iocu_UnitGroup_UNITS_MOTOR_DIMENSIONS);
-    $map.$put($rt_s(1827), iocu_UnitGroup_UNITS_DISTANCE);
-    $map.$put($rt_s(1828), iocu_UnitGroup_UNITS_VELOCITY);
-    $map.$put($rt_s(1829), iocu_UnitGroup_UNITS_ACCELERATION);
-    $map.$put($rt_s(1830), iocu_UnitGroup_UNITS_AREA);
-    $map.$put($rt_s(1831), iocu_UnitGroup_UNITS_STABILITY);
-    $map.$put($rt_s(1832), iocu_UnitGroup_UNITS_SECONDARY_STABILITY);
-    $map.$put($rt_s(1481), iocu_UnitGroup_UNITS_MASS);
-    $map.$put($rt_s(1833), iocu_UnitGroup_UNITS_INERTIA);
-    $map.$put($rt_s(1834), iocu_UnitGroup_UNITS_ANGLE);
-    $map.$put($rt_s(1835), iocu_UnitGroup_UNITS_DENSITY_BULK);
-    $map.$put($rt_s(1836), iocu_UnitGroup_UNITS_DENSITY_SURFACE);
-    $map.$put($rt_s(1837), iocu_UnitGroup_UNITS_DENSITY_LINE);
-    $map.$put($rt_s(1838), iocu_UnitGroup_UNITS_FORCE);
-    $map.$put($rt_s(1839), iocu_UnitGroup_UNITS_IMPULSE);
-    $map.$put($rt_s(1840), iocu_UnitGroup_UNITS_TIME_STEP);
-    $map.$put($rt_s(1841), iocu_UnitGroup_UNITS_SHORT_TIME);
-    $map.$put($rt_s(1842), iocu_UnitGroup_UNITS_LONG_TIME);
-    $map.$put($rt_s(1843), iocu_UnitGroup_UNITS_ROLL);
-    $map.$put($rt_s(1844), iocu_UnitGroup_UNITS_TEMPERATURE);
-    $map.$put($rt_s(1845), iocu_UnitGroup_UNITS_PRESSURE);
+    $map.$put($rt_s(1824), iocu_UnitGroup_UNITS_NONE);
+    $map.$put($rt_s(1825), iocu_UnitGroup_UNITS_LENGTH);
+    $map.$put($rt_s(1826), iocu_UnitGroup_UNITS_ALL_LENGTHS);
+    $map.$put($rt_s(1827), iocu_UnitGroup_UNITS_MOTOR_DIMENSIONS);
+    $map.$put($rt_s(1828), iocu_UnitGroup_UNITS_DISTANCE);
+    $map.$put($rt_s(1829), iocu_UnitGroup_UNITS_VELOCITY);
+    $map.$put($rt_s(1830), iocu_UnitGroup_UNITS_ACCELERATION);
+    $map.$put($rt_s(1831), iocu_UnitGroup_UNITS_AREA);
+    $map.$put($rt_s(1832), iocu_UnitGroup_UNITS_STABILITY);
+    $map.$put($rt_s(1833), iocu_UnitGroup_UNITS_SECONDARY_STABILITY);
+    $map.$put($rt_s(1482), iocu_UnitGroup_UNITS_MASS);
+    $map.$put($rt_s(1834), iocu_UnitGroup_UNITS_INERTIA);
+    $map.$put($rt_s(1835), iocu_UnitGroup_UNITS_ANGLE);
+    $map.$put($rt_s(1836), iocu_UnitGroup_UNITS_DENSITY_BULK);
+    $map.$put($rt_s(1837), iocu_UnitGroup_UNITS_DENSITY_SURFACE);
+    $map.$put($rt_s(1838), iocu_UnitGroup_UNITS_DENSITY_LINE);
+    $map.$put($rt_s(1839), iocu_UnitGroup_UNITS_FORCE);
+    $map.$put($rt_s(1840), iocu_UnitGroup_UNITS_IMPULSE);
+    $map.$put($rt_s(1841), iocu_UnitGroup_UNITS_TIME_STEP);
+    $map.$put($rt_s(1842), iocu_UnitGroup_UNITS_SHORT_TIME);
+    $map.$put($rt_s(1843), iocu_UnitGroup_UNITS_LONG_TIME);
+    $map.$put($rt_s(1844), iocu_UnitGroup_UNITS_ROLL);
+    $map.$put($rt_s(1845), iocu_UnitGroup_UNITS_TEMPERATURE);
+    $map.$put($rt_s(1846), iocu_UnitGroup_UNITS_PRESSURE);
     $map.$put($rt_s(803), iocu_UnitGroup_UNITS_RELATIVE);
-    $map.$put($rt_s(1846), iocu_UnitGroup_UNITS_ROUGHNESS);
-    $map.$put($rt_s(1847), iocu_UnitGroup_UNITS_COEFFICIENT);
-    $map.$put($rt_s(1848), iocu_UnitGroup_UNITS_SCALING);
-    $map.$put($rt_s(1849), iocu_UnitGroup_UNITS_STROKE_WIDTH);
-    $map.$put($rt_s(1850), iocu_UnitGroup_UNITS_VOLTAGE);
-    $map.$put($rt_s(1851), iocu_UnitGroup_UNITS_CURRENT);
-    $map.$put($rt_s(1852), iocu_UnitGroup_UNITS_ENERGY);
+    $map.$put($rt_s(1847), iocu_UnitGroup_UNITS_ROUGHNESS);
+    $map.$put($rt_s(1848), iocu_UnitGroup_UNITS_COEFFICIENT);
+    $map.$put($rt_s(1849), iocu_UnitGroup_UNITS_SCALING);
+    $map.$put($rt_s(1850), iocu_UnitGroup_UNITS_STROKE_WIDTH);
+    $map.$put($rt_s(1851), iocu_UnitGroup_UNITS_VOLTAGE);
+    $map.$put($rt_s(1852), iocu_UnitGroup_UNITS_CURRENT);
+    $map.$put($rt_s(1853), iocu_UnitGroup_UNITS_ENERGY);
     $map.$put($rt_s(525), iocu_UnitGroup_UNITS_POWER);
-    $map.$put($rt_s(1853), iocu_UnitGroup_UNITS_MOMENTUM);
-    $map.$put($rt_s(1854), iocu_UnitGroup_UNITS_FREQUENCY);
-    $map.$put($rt_s(1855), iocu_UnitGroup_UNITS_WINDSPEED);
-    $map.$put($rt_s(1856), iocu_UnitGroup_UNITS_LATITUDE);
-    $map.$put($rt_s(1857), iocu_UnitGroup_UNITS_LONGITUDE);
+    $map.$put($rt_s(1854), iocu_UnitGroup_UNITS_MOMENTUM);
+    $map.$put($rt_s(1855), iocu_UnitGroup_UNITS_FREQUENCY);
+    $map.$put($rt_s(1856), iocu_UnitGroup_UNITS_WINDSPEED);
+    $map.$put($rt_s(1857), iocu_UnitGroup_UNITS_LATITUDE);
+    $map.$put($rt_s(1858), iocu_UnitGroup_UNITS_LONGITUDE);
     iocu_UnitGroup_UNITS = ju_Collections_unmodifiableMap($map);
     $simap = ju_HashMap__init_();
     $simap.$put($rt_s(953), iocu_UnitGroup_UNITS_ALL_LENGTHS);
-    $simap.$put($rt_s(1858), iocu_UnitGroup_UNITS_AREA);
-    $simap.$put($rt_s(1754), iocu_UnitGroup_UNITS_VELOCITY);
-    $simap.$put($rt_s(1859), iocu_UnitGroup_UNITS_ACCELERATION);
-    $simap.$put($rt_s(1767), iocu_UnitGroup_UNITS_MASS);
-    $simap.$put($rt_s(1860), iocu_UnitGroup_UNITS_INERTIA);
-    $simap.$put($rt_s(1861), iocu_UnitGroup_UNITS_DENSITY_BULK);
+    $simap.$put($rt_s(1859), iocu_UnitGroup_UNITS_AREA);
+    $simap.$put($rt_s(1755), iocu_UnitGroup_UNITS_VELOCITY);
+    $simap.$put($rt_s(1860), iocu_UnitGroup_UNITS_ACCELERATION);
+    $simap.$put($rt_s(1768), iocu_UnitGroup_UNITS_MASS);
+    $simap.$put($rt_s(1861), iocu_UnitGroup_UNITS_INERTIA);
+    $simap.$put($rt_s(1862), iocu_UnitGroup_UNITS_DENSITY_BULK);
     $simap.$put($rt_s(314), iocu_UnitGroup_UNITS_FORCE);
-    $simap.$put($rt_s(1800), iocu_UnitGroup_UNITS_IMPULSE);
+    $simap.$put($rt_s(1801), iocu_UnitGroup_UNITS_IMPULSE);
     $simap.$put($rt_s(177), iocu_UnitGroup_UNITS_LONG_TIME);
-    $simap.$put($rt_s(1816), iocu_UnitGroup_UNITS_PRESSURE);
-    $simap.$put($rt_s(1741), iocu_UnitGroup_UNITS_VOLTAGE);
+    $simap.$put($rt_s(1817), iocu_UnitGroup_UNITS_PRESSURE);
+    $simap.$put($rt_s(1742), iocu_UnitGroup_UNITS_VOLTAGE);
     $simap.$put($rt_s(1177), iocu_UnitGroup_UNITS_CURRENT);
-    $simap.$put($rt_s(1731), iocu_UnitGroup_UNITS_ENERGY);
+    $simap.$put($rt_s(1732), iocu_UnitGroup_UNITS_ENERGY);
     $simap.$put($rt_s(176), iocu_UnitGroup_UNITS_POWER);
-    $simap.$put($rt_s(1862), iocu_UnitGroup_UNITS_MOMENTUM);
-    $simap.$put($rt_s(1821), iocu_UnitGroup_UNITS_FREQUENCY);
+    $simap.$put($rt_s(1863), iocu_UnitGroup_UNITS_MOMENTUM);
+    $simap.$put($rt_s(1822), iocu_UnitGroup_UNITS_FREQUENCY);
     $simap.$put($rt_s(1237), iocu_UnitGroup_UNITS_TEMPERATURE);
     iocu_UnitGroup_SIUNITS = ju_Collections_unmodifiableMap($simap);
-    iocu_UnitGroup_STRING_PATTERN = jur_Pattern_compile($rt_s(1863));
+    iocu_UnitGroup_STRING_PATTERN = jur_Pattern_compile($rt_s(1864));
 };
 function jur_Lexer() {
     let a = this; jl_Object.call(a);
@@ -52234,7 +52260,7 @@ jur_Lexer_movePointer = $this => {
                                         if ($nonCap > 57)
                                             break a;
                                         if ($nameBuilder === null) {
-                                            var$8 = jur_PatternSyntaxException__init_($rt_s(1864), $this.$toString(), $this.$index0);
+                                            var$8 = jur_PatternSyntaxException__init_($rt_s(1865), $this.$toString(), $this.$index0);
                                             $rt_throw(var$8);
                                         }
                                         $nameBuilder.$append0($nonCap);
@@ -52325,7 +52351,7 @@ jur_Lexer_parseCharClassName = $this => {
         if ($this.$pattern0.data[$this.$index0] != 123) {
             var$2 = jl_String__init_($this.$pattern0, jur_Lexer_nextIndex($this), 1);
             var$3 = jl_StringBuilder__init_();
-            jl_StringBuilder_append(jl_StringBuilder_append(var$3, $rt_s(1865)), var$2);
+            jl_StringBuilder_append(jl_StringBuilder_append(var$3, $rt_s(1866)), var$2);
             return jl_StringBuilder_toString(var$3);
         }
         jur_Lexer_nextIndex($this);
@@ -52346,15 +52372,15 @@ jur_Lexer_parseCharClassName = $this => {
     $res = $sb.$toString();
     if (jl_String_length($res) == 1) {
         var$2 = jl_StringBuilder__init_();
-        jl_StringBuilder_append(jl_StringBuilder_append(var$2, $rt_s(1865)), $res);
+        jl_StringBuilder_append(jl_StringBuilder_append(var$2, $rt_s(1866)), $res);
         return jl_StringBuilder_toString(var$2);
     }
     b: {
         c: {
             if (jl_String_length($res) > 3) {
-                if (jl_String_startsWith0($res, $rt_s(1865)))
-                    break c;
                 if (jl_String_startsWith0($res, $rt_s(1866)))
+                    break c;
+                if (jl_String_startsWith0($res, $rt_s(1867)))
                     break c;
             }
             break b;
@@ -52723,7 +52749,7 @@ iocr_EngineBlock_setOuterRadiusAutomatic = ($this, $auto) => {
 },
 iocr_EngineBlock_getComponentName = $this => {
     iocr_EngineBlock_$callClinit();
-    return iocr_EngineBlock_trans.$get1($rt_s(1867));
+    return iocr_EngineBlock_trans.$get1($rt_s(1868));
 },
 iocr_EngineBlock_isCompatible = ($this, $type) => {
     return 0;
@@ -52738,7 +52764,7 @@ function ju_IllegalFormatFlagsException() {
 let ju_IllegalFormatFlagsException__init_0 = ($this, $flags) => {
     let var$2;
     var$2 = jl_StringBuilder__init_();
-    jl_StringBuilder_append(jl_StringBuilder_append(var$2, $rt_s(1868)), $flags);
+    jl_StringBuilder_append(jl_StringBuilder_append(var$2, $rt_s(1869)), $flags);
     ju_IllegalFormatException__init_($this, jl_StringBuilder_toString(var$2));
     $this.$flags4 = $flags;
 },
@@ -52751,7 +52777,7 @@ iocu_BugException = $rt_classWithoutFields(iocu_FatalException),
 iocu_BugException__init_ = ($this, $message) => {
     let var$2;
     var$2 = jl_StringBuilder__init_();
-    jl_StringBuilder_append(jl_StringBuilder_append(var$2, $rt_s(1869)), $message);
+    jl_StringBuilder_append(jl_StringBuilder_append(var$2, $rt_s(1870)), $message);
     iocu_FatalException__init_0($this, jl_StringBuilder_toString(var$2));
 },
 iocu_BugException__init_0 = var_0 => {
@@ -52763,7 +52789,7 @@ iocu_BugException__init_3 = ($this, $cause) => {
     let var$2, var$3;
     var$2 = $cause.$getMessage();
     var$3 = jl_StringBuilder__init_();
-    jl_StringBuilder_append(jl_StringBuilder_append(var$3, $rt_s(1869)), var$2);
+    jl_StringBuilder_append(jl_StringBuilder_append(var$3, $rt_s(1870)), var$2);
     iocu_FatalException__init_($this, jl_StringBuilder_toString(var$3), $cause);
 },
 iocu_BugException__init_4 = var_0 => {
@@ -52774,7 +52800,7 @@ iocu_BugException__init_4 = var_0 => {
 iocu_BugException__init_2 = ($this, $message, $cause) => {
     let var$3;
     var$3 = jl_StringBuilder__init_();
-    jl_StringBuilder_append(jl_StringBuilder_append(var$3, $rt_s(1869)), $message);
+    jl_StringBuilder_append(jl_StringBuilder_append(var$3, $rt_s(1870)), $message);
     iocu_FatalException__init_($this, jl_StringBuilder_toString(var$3), $cause);
 },
 iocu_BugException__init_1 = (var_0, var_1) => {
@@ -52835,7 +52861,7 @@ iocr_EllipticalFinSet_getSpan = $this => {
 },
 iocr_EllipticalFinSet_getComponentName = $this => {
     iocr_EllipticalFinSet_$callClinit();
-    return iocr_EllipticalFinSet_trans.$get1($rt_s(1870));
+    return iocr_EllipticalFinSet_trans.$get1($rt_s(1871));
 },
 iocr_EllipticalFinSet_setHeight = ($this, $height) => {
     let var$2, $listener;
@@ -52924,7 +52950,7 @@ iocr_InstanceMap_toString = $this => {
     let $buffer, $outerIndex, var$3, $entry, $key, $contexts, var$7, var$8, $innerIndex, var$10, $ctxt;
     $buffer = jl_StringBuffer__init_();
     $outerIndex = 0;
-    $buffer.$append16($rt_s(1871));
+    $buffer.$append16($rt_s(1872));
     var$3 = ($this.$entrySet()).$iterator();
     while (var$3.$hasNext()) {
         $entry = var$3.$next();
@@ -52934,7 +52960,7 @@ iocr_InstanceMap_toString = $this => {
         var$8 = var$7.data;
         var$8[0] = jl_Integer_valueOf($outerIndex);
         var$8[1] = iocr_RocketComponent_getName($key);
-        $buffer.$append16(jl_String_format($rt_s(1872), var$7));
+        $buffer.$append16(jl_String_format($rt_s(1873), var$7));
         $outerIndex = $outerIndex + 1 | 0;
         $innerIndex = 0;
         var$10 = $contexts.$iterator();
@@ -52945,7 +52971,7 @@ iocr_InstanceMap_toString = $this => {
             var$7[0] = jl_Integer_valueOf($innerIndex);
             var$7[1] = jl_Integer_valueOf($ctxt.$instanceNumber);
             var$7[2] = iocu_Coordinate_toPreciseString($ctxt.$getLocation());
-            $buffer.$append16(jl_String_format($rt_s(1873), var$8));
+            $buffer.$append16(jl_String_format($rt_s(1874), var$8));
             $innerIndex = $innerIndex + 1 | 0;
         }
     }
@@ -52963,7 +52989,7 @@ iocm_DesignationComparator_$callClinit = () => {
 iocm_DesignationComparator__init_ = $this => {
     iocm_DesignationComparator_$callClinit();
     jl_Object__init_($this);
-    $this.$pattern2 = jur_Pattern_compile($rt_s(1874));
+    $this.$pattern2 = jur_Pattern_compile($rt_s(1875));
 },
 iocm_DesignationComparator__init_0 = () => {
     let var_0 = new iocm_DesignationComparator();
@@ -52986,9 +53012,9 @@ iocm_DesignationComparator_compare = ($this, $o1, $o2) => {
             $sub2 = jur_Matcher_group($m2, 2);
             if (!($sub1 === null && $sub2 === null)) {
                 if ($sub1 === null)
-                    $sub1 = $rt_s(1875);
+                    $sub1 = $rt_s(1876);
                 if ($sub2 === null)
-                    $sub2 = $rt_s(1875);
+                    $sub2 = $rt_s(1876);
                 iocm_DesignationComparator_$callClinit();
                 $value =  -iocm_DesignationComparator_COLLATOR.$compare1($sub1, $sub2) | 0;
                 if ($value)
@@ -53476,16 +53502,17 @@ os_ILoggerFactory, 0, jl_Object, [], 1537, 0, 0, 0,
 otes_TeaVMLoggerFactory, "TeaVMLoggerFactory", 19, jl_Object, [os_ILoggerFactory], 1, [0,0,0], 0, ["$_init_0", $rt_wrapFunction0(otes_TeaVMLoggerFactory__init_)],
 iocp_ApplicationPreferences$1, 0, jl_Object, [], 32768, 0, () => iocp_ApplicationPreferences$1_$callClinit(), 0,
 iocr_InsideColorComponent, 0, jl_Object, [], 1537, 0, 0, 0,
-iocr_FinSet, "FinSet", 47, iocr_ExternalComponent, [iocrp_AxialPositionable, iocr_BoxBounded, iocr_RingInstanceable, iocr_InsideColorComponent], 1025, [0,0,0], () => iocr_FinSet_$callClinit(), ["$_init_0", $rt_wrapFunction0(iocr_FinSet__init_), "$isAfter", $rt_wrapFunction0(iocr_FinSet_isAfter), "$getFinCount", $rt_wrapFunction0(iocr_FinSet_getFinCount), "$setFinCount", $rt_wrapFunction1(iocr_FinSet_setFinCount), "$getBoundingRadius", $rt_wrapFunction0(iocr_FinSet_getBoundingRadius), "$getCantAngle", $rt_wrapFunction0(iocr_FinSet_getCantAngle),
-"$setCantAngle", $rt_wrapFunction1(iocr_FinSet_setCantAngle), "$getCantRotation", $rt_wrapFunction0(iocr_FinSet_getCantRotation), "$getThickness", $rt_wrapFunction0(iocr_FinSet_getThickness), "$setThickness", $rt_wrapFunction1(iocr_FinSet_setThickness), "$getAirfoilSection", $rt_wrapFunction0(iocr_FinSet_getAirfoilSection), "$setAirfoilSection", $rt_wrapFunction1(iocr_FinSet_setAirfoilSection), "$getAirfoilLeDiamond", $rt_wrapFunction0(iocr_FinSet_getAirfoilLeDiamond), "$setAirfoilLeDiamond", $rt_wrapFunction1(iocr_FinSet_setAirfoilLeDiamond),
-"$getAirfoilTeDiamond", $rt_wrapFunction0(iocr_FinSet_getAirfoilTeDiamond), "$setAirfoilTeDiamond", $rt_wrapFunction1(iocr_FinSet_setAirfoilTeDiamond), "$getFinLeRadius", $rt_wrapFunction0(iocr_FinSet_getFinLeRadius), "$setFinLeRadius", $rt_wrapFunction1(iocr_FinSet_setFinLeRadius), "$getCrossSection", $rt_wrapFunction0(iocr_FinSet_getCrossSection), "$setCrossSection", $rt_wrapFunction1(iocr_FinSet_setCrossSection), "$getTabHeight", $rt_wrapFunction0(iocr_FinSet_getTabHeight), "$setTabHeight0", $rt_wrapFunction1(iocr_FinSet_setTabHeight),
-"$setTabHeight", $rt_wrapFunction2(iocr_FinSet_setTabHeight0), "$getTabLength", $rt_wrapFunction0(iocr_FinSet_getTabLength), "$setTabLength0", $rt_wrapFunction1(iocr_FinSet_setTabLength0), "$setTabLength", $rt_wrapFunction2(iocr_FinSet_setTabLength), "$updateTabPosition", $rt_wrapFunction0(iocr_FinSet_updateTabPosition), "$setTabOffset", $rt_wrapFunction1(iocr_FinSet_setTabOffset), "$setTabOffsetMethod", $rt_wrapFunction1(iocr_FinSet_setTabOffsetMethod), "$getTabFrontEdge", $rt_wrapFunction0(iocr_FinSet_getTabFrontEdge),
-"$getTabTrailingEdge", $rt_wrapFunction0(iocr_FinSet_getTabTrailingEdge), "$validateFinTabLength", $rt_wrapFunction0(iocr_FinSet_validateFinTabLength), "$getMaxTabHeight", $rt_wrapFunction0(iocr_FinSet_getMaxTabHeight), "$getParentFrontRadius0", $rt_wrapFunction1(iocr_FinSet_getParentFrontRadius), "$getParentFrontRadius", $rt_wrapFunction0(iocr_FinSet_getParentFrontRadius0), "$getParentTrailingRadius0", $rt_wrapFunction1(iocr_FinSet_getParentTrailingRadius0), "$getParentTrailingRadius", $rt_wrapFunction0(iocr_FinSet_getParentTrailingRadius),
-"$getPlanformArea", $rt_wrapFunction0(iocr_FinSet_getPlanformArea), "$getComponentMass", $rt_wrapFunction0(iocr_FinSet_getComponentMass), "$getComponentVolume", $rt_wrapFunction0(iocr_FinSet_getComponentVolume), "$getComponentCG", $rt_wrapFunction0(iocr_FinSet_getComponentCG), "$calculateFilletVolumeCentroid", $rt_wrapFunction0(iocr_FinSet_calculateFilletVolumeCentroid), "$reverse", $rt_wrapFunction1(iocr_FinSet_reverse), "$getLongitudinalUnitInertia", $rt_wrapFunction0(iocr_FinSet_getLongitudinalUnitInertia),
-"$getRotationalUnitInertia", $rt_wrapFunction0(iocr_FinSet_getRotationalUnitInertia), "$getInstanceBoundingBox", $rt_wrapFunction0(iocr_FinSet_getInstanceBoundingBox), "$getComponentBounds", $rt_wrapFunction0(iocr_FinSet_getComponentBounds), "$componentChanged", $rt_wrapFunction1(iocr_FinSet_componentChanged), "$getBodyRadius", $rt_wrapFunction0(iocr_FinSet_getBodyRadius), "$getFinFront", $rt_wrapFunction0(iocr_FinSet_getFinFront), "$isCompatible", $rt_wrapFunction1(iocr_FinSet_isCompatible), "$isTabTrivial",
-$rt_wrapFunction0(iocr_FinSet_isTabTrivial), "$getRootPoints0", $rt_wrapFunction1(iocr_FinSet_getRootPoints), "$getRootPoints", $rt_wrapFunction0(iocr_FinSet_getRootPoints0), "$getFinPointsWithRoot", $rt_wrapFunction0(iocr_FinSet_getFinPointsWithRoot), "$hasTab", $rt_wrapFunction0(iocr_FinSet_hasTab), "$getTabPointsWithRoot", $rt_wrapFunction0(iocr_FinSet_getTabPointsWithRoot), "$getTabPoints", $rt_wrapFunction0(iocr_FinSet_getTabPoints), "$getAngleOffset", $rt_wrapFunction0(iocr_FinSet_getAngleOffset), "$setAngleOffset",
-$rt_wrapFunction1(iocr_FinSet_setAngleOffset), "$getInstanceAngleIncrement", $rt_wrapFunction0(iocr_FinSet_getInstanceAngleIncrement), "$getInstanceAngles", $rt_wrapFunction0(iocr_FinSet_getInstanceAngles), "$setAngleMethod", $rt_wrapFunction1(iocr_FinSet_setAngleMethod), "$getRadiusMethod", $rt_wrapFunction0(iocr_FinSet_getRadiusMethod), "$setRadiusMethod", $rt_wrapFunction1(iocr_FinSet_setRadiusMethod), "$setRadius0", $rt_wrapFunction2(iocr_FinSet_setRadius), "$setRadiusOffset", $rt_wrapFunction1(iocr_FinSet_setRadiusOffset),
-"$setInstanceCount", $rt_wrapFunction1(iocr_FinSet_setInstanceCount), "$getInstanceCount", $rt_wrapFunction0(iocr_FinSet_getInstanceCount), "$toDebugDetail", $rt_wrapFunction0(iocr_FinSet_toDebugDetail), "$getInstanceOffsets", $rt_wrapFunction0(iocr_FinSet_getInstanceOffsets), "$getInsideColorComponentHandler", $rt_wrapFunction0(iocr_FinSet_getInsideColorComponentHandler), "$setInsideColorComponentHandler", $rt_wrapFunction1(iocr_FinSet_setInsideColorComponentHandler)],
+iocr_FinSet, "FinSet", 47, iocr_ExternalComponent, [iocrp_AxialPositionable, iocr_BoxBounded, iocr_RingInstanceable, iocr_InsideColorComponent], 1025, [0,0,0], () => iocr_FinSet_$callClinit(), ["$_init_0", $rt_wrapFunction0(iocr_FinSet__init_), "$isAfter", $rt_wrapFunction0(iocr_FinSet_isAfter), "$getFinCount", $rt_wrapFunction0(iocr_FinSet_getFinCount), "$setFinCount", $rt_wrapFunction1(iocr_FinSet_setFinCount), "$getBoundingRadius", $rt_wrapFunction0(iocr_FinSet_getBoundingRadius), "$setBaseRotation", $rt_wrapFunction1(iocr_FinSet_setBaseRotation),
+"$getCantAngle", $rt_wrapFunction0(iocr_FinSet_getCantAngle), "$setCantAngle", $rt_wrapFunction1(iocr_FinSet_setCantAngle), "$getCantRotation", $rt_wrapFunction0(iocr_FinSet_getCantRotation), "$getThickness", $rt_wrapFunction0(iocr_FinSet_getThickness), "$setThickness", $rt_wrapFunction1(iocr_FinSet_setThickness), "$getAirfoilSection", $rt_wrapFunction0(iocr_FinSet_getAirfoilSection), "$setAirfoilSection", $rt_wrapFunction1(iocr_FinSet_setAirfoilSection), "$getAirfoilLeDiamond", $rt_wrapFunction0(iocr_FinSet_getAirfoilLeDiamond),
+"$setAirfoilLeDiamond", $rt_wrapFunction1(iocr_FinSet_setAirfoilLeDiamond), "$getAirfoilTeDiamond", $rt_wrapFunction0(iocr_FinSet_getAirfoilTeDiamond), "$setAirfoilTeDiamond", $rt_wrapFunction1(iocr_FinSet_setAirfoilTeDiamond), "$getFinLeRadius", $rt_wrapFunction0(iocr_FinSet_getFinLeRadius), "$setFinLeRadius", $rt_wrapFunction1(iocr_FinSet_setFinLeRadius), "$getCrossSection", $rt_wrapFunction0(iocr_FinSet_getCrossSection), "$setCrossSection", $rt_wrapFunction1(iocr_FinSet_setCrossSection), "$getTabHeight",
+$rt_wrapFunction0(iocr_FinSet_getTabHeight), "$setTabHeight0", $rt_wrapFunction1(iocr_FinSet_setTabHeight), "$setTabHeight", $rt_wrapFunction2(iocr_FinSet_setTabHeight0), "$getTabLength", $rt_wrapFunction0(iocr_FinSet_getTabLength), "$setTabLength0", $rt_wrapFunction1(iocr_FinSet_setTabLength0), "$setTabLength", $rt_wrapFunction2(iocr_FinSet_setTabLength), "$updateTabPosition", $rt_wrapFunction0(iocr_FinSet_updateTabPosition), "$setTabOffset", $rt_wrapFunction1(iocr_FinSet_setTabOffset), "$setTabOffsetMethod",
+$rt_wrapFunction1(iocr_FinSet_setTabOffsetMethod), "$getTabFrontEdge", $rt_wrapFunction0(iocr_FinSet_getTabFrontEdge), "$getTabTrailingEdge", $rt_wrapFunction0(iocr_FinSet_getTabTrailingEdge), "$validateFinTabLength", $rt_wrapFunction0(iocr_FinSet_validateFinTabLength), "$getMaxTabHeight", $rt_wrapFunction0(iocr_FinSet_getMaxTabHeight), "$getParentFrontRadius0", $rt_wrapFunction1(iocr_FinSet_getParentFrontRadius), "$getParentFrontRadius", $rt_wrapFunction0(iocr_FinSet_getParentFrontRadius0), "$getParentTrailingRadius0",
+$rt_wrapFunction1(iocr_FinSet_getParentTrailingRadius0), "$getParentTrailingRadius", $rt_wrapFunction0(iocr_FinSet_getParentTrailingRadius), "$getPlanformArea", $rt_wrapFunction0(iocr_FinSet_getPlanformArea), "$getComponentMass", $rt_wrapFunction0(iocr_FinSet_getComponentMass), "$getComponentVolume", $rt_wrapFunction0(iocr_FinSet_getComponentVolume), "$getComponentCG", $rt_wrapFunction0(iocr_FinSet_getComponentCG), "$calculateFilletVolumeCentroid", $rt_wrapFunction0(iocr_FinSet_calculateFilletVolumeCentroid),
+"$reverse", $rt_wrapFunction1(iocr_FinSet_reverse), "$getLongitudinalUnitInertia", $rt_wrapFunction0(iocr_FinSet_getLongitudinalUnitInertia), "$getRotationalUnitInertia", $rt_wrapFunction0(iocr_FinSet_getRotationalUnitInertia), "$getInstanceBoundingBox", $rt_wrapFunction0(iocr_FinSet_getInstanceBoundingBox), "$getComponentBounds", $rt_wrapFunction0(iocr_FinSet_getComponentBounds), "$componentChanged", $rt_wrapFunction1(iocr_FinSet_componentChanged), "$getBodyRadius", $rt_wrapFunction0(iocr_FinSet_getBodyRadius),
+"$getFinFront", $rt_wrapFunction0(iocr_FinSet_getFinFront), "$isCompatible", $rt_wrapFunction1(iocr_FinSet_isCompatible), "$isTabTrivial", $rt_wrapFunction0(iocr_FinSet_isTabTrivial), "$getRootPoints0", $rt_wrapFunction1(iocr_FinSet_getRootPoints), "$getRootPoints", $rt_wrapFunction0(iocr_FinSet_getRootPoints0), "$getFinPointsWithRoot", $rt_wrapFunction0(iocr_FinSet_getFinPointsWithRoot), "$hasTab", $rt_wrapFunction0(iocr_FinSet_hasTab), "$getTabPointsWithRoot", $rt_wrapFunction0(iocr_FinSet_getTabPointsWithRoot),
+"$getTabPoints", $rt_wrapFunction0(iocr_FinSet_getTabPoints), "$getAngleOffset", $rt_wrapFunction0(iocr_FinSet_getAngleOffset), "$setAngleOffset", $rt_wrapFunction1(iocr_FinSet_setAngleOffset), "$getInstanceAngleIncrement", $rt_wrapFunction0(iocr_FinSet_getInstanceAngleIncrement), "$getInstanceAngles", $rt_wrapFunction0(iocr_FinSet_getInstanceAngles), "$setAngleMethod", $rt_wrapFunction1(iocr_FinSet_setAngleMethod), "$getRadiusMethod", $rt_wrapFunction0(iocr_FinSet_getRadiusMethod), "$setRadiusMethod", $rt_wrapFunction1(iocr_FinSet_setRadiusMethod),
+"$setRadius0", $rt_wrapFunction2(iocr_FinSet_setRadius), "$setRadiusOffset", $rt_wrapFunction1(iocr_FinSet_setRadiusOffset), "$setInstanceCount", $rt_wrapFunction1(iocr_FinSet_setInstanceCount), "$getInstanceCount", $rt_wrapFunction0(iocr_FinSet_getInstanceCount), "$toDebugDetail", $rt_wrapFunction0(iocr_FinSet_toDebugDetail), "$getInstanceOffsets", $rt_wrapFunction0(iocr_FinSet_getInstanceOffsets), "$getInsideColorComponentHandler", $rt_wrapFunction0(iocr_FinSet_getInsideColorComponentHandler), "$setInsideColorComponentHandler",
+$rt_wrapFunction1(iocr_FinSet_setInsideColorComponentHandler)],
 iocr_TrapezoidFinSet, "TrapezoidFinSet", 47, iocr_FinSet, [], 1, [0,0,0], () => iocr_TrapezoidFinSet_$callClinit(), ["$_init_99", function(var_1, var_2, var_3, var_4, var_5) { iocr_TrapezoidFinSet__init_(this, var_1, var_2, var_3, var_4, var_5); }, "$getFinPoints", $rt_wrapFunction0(iocr_TrapezoidFinSet_getFinPoints), "$getSpan", $rt_wrapFunction0(iocr_TrapezoidFinSet_getSpan), "$getComponentName", $rt_wrapFunction0(iocr_TrapezoidFinSet_getComponentName)],
 ju_IllegalFormatCodePointException, "IllegalFormatCodePointException", 1, ju_IllegalFormatException, [], 1, [0,0,0], 0, ["$_init_3", $rt_wrapFunction1(ju_IllegalFormatCodePointException__init_)]]);
 $rt_metadata([ju_HashMap$AbstractMapIterator, "HashMap$AbstractMapIterator", 1, jl_Object, [], 0, [ju_HashMap,0,0], 0, ["$_init_37", $rt_wrapFunction1(ju_HashMap$AbstractMapIterator__init_), "$hasNext", $rt_wrapFunction0(ju_HashMap$AbstractMapIterator_hasNext), "$checkConcurrentMod", $rt_wrapFunction0(ju_HashMap$AbstractMapIterator_checkConcurrentMod), "$makeNext", $rt_wrapFunction0(ju_HashMap$AbstractMapIterator_makeNext), "$remove0", $rt_wrapFunction0(ju_HashMap$AbstractMapIterator_remove)],
@@ -53697,10 +53724,10 @@ iocs_BasicEventSimulationEngine, "BasicEventSimulationEngine", 37, jl_Object, [i
 jur_AbstractCharClass$LazyJavaLetterOrDigit, "AbstractCharClass$LazyJavaLetterOrDigit", 2, jur_AbstractCharClass$LazyCharClass, [], 0, [jur_AbstractCharClass,0,0], 0, ["$_init_0", $rt_wrapFunction0(jur_AbstractCharClass$LazyJavaLetterOrDigit__init_), "$computeValue", $rt_wrapFunction0(jur_AbstractCharClass$LazyJavaLetterOrDigit_computeValue)],
 iocr_TubeFinSet, "TubeFinSet", 47, iocr_Tube, [iocrp_AxialPositionable, iocr_BoxBounded, iocr_RingInstanceable, iocr_InsideColorComponent], 1, [0,0,0], () => iocr_TubeFinSet_$callClinit(), ["$_init_0", $rt_wrapFunction0(iocr_TubeFinSet__init_), "$setLength", $rt_wrapFunction1(iocr_TubeFinSet_setLength), "$getOuterRadius", $rt_wrapFunction0(iocr_TubeFinSet_getOuterRadius), "$getTubeSeparation", $rt_wrapFunction0(iocr_TubeFinSet_getTubeSeparation), "$setOuterRadius", $rt_wrapFunction1(iocr_TubeFinSet_setOuterRadius),
 "$getInnerRadius", $rt_wrapFunction0(iocr_TubeFinSet_getInnerRadius), "$setInnerRadius", $rt_wrapFunction1(iocr_TubeFinSet_setInnerRadius), "$getThickness", $rt_wrapFunction0(iocr_TubeFinSet_getThickness), "$setThickness", $rt_wrapFunction1(iocr_TubeFinSet_setThickness), "$getFinCount", $rt_wrapFunction0(iocr_TubeFinSet_getFinCount), "$isAfter", $rt_wrapFunction0(iocr_TubeFinSet_isAfter), "$setFinCount", $rt_wrapFunction1(iocr_TubeFinSet_setFinCount), "$getBaseRotation", $rt_wrapFunction0(iocr_TubeFinSet_getBaseRotation),
-"$setAxialMethod", $rt_wrapFunction1(iocr_TubeFinSet_setAxialMethod), "$getComponentVolume", $rt_wrapFunction0(iocr_TubeFinSet_getComponentVolume), "$getComponentName", $rt_wrapFunction0(iocr_TubeFinSet_getComponentName), "$getComponentCG", $rt_wrapFunction0(iocr_TubeFinSet_getComponentCG), "$getLongitudinalUnitInertia", $rt_wrapFunction0(iocr_TubeFinSet_getLongitudinalUnitInertia), "$getRotationalUnitInertia", $rt_wrapFunction0(iocr_TubeFinSet_getRotationalUnitInertia), "$isCompatible", $rt_wrapFunction1(iocr_TubeFinSet_isCompatible),
-"$getComponentBounds", $rt_wrapFunction0(iocr_TubeFinSet_getComponentBounds), "$getInstanceBoundingBox", $rt_wrapFunction0(iocr_TubeFinSet_getInstanceBoundingBox), "$getBodyRadius", $rt_wrapFunction0(iocr_TubeFinSet_getBodyRadius), "$getInstanceCount", $rt_wrapFunction0(iocr_TubeFinSet_getInstanceCount), "$setInstanceCount", $rt_wrapFunction1(iocr_TubeFinSet_setInstanceCount), "$getBoundingRadius", $rt_wrapFunction0(iocr_TubeFinSet_getBoundingRadius), "$setRadius0", $rt_wrapFunction2(iocr_TubeFinSet_setRadius),
-"$setAngleOffset", $rt_wrapFunction1(iocr_TubeFinSet_setAngleOffset), "$getAngleOffset", $rt_wrapFunction0(iocr_TubeFinSet_getAngleOffset), "$setAngleMethod", $rt_wrapFunction1(iocr_TubeFinSet_setAngleMethod), "$getInstanceAngleIncrement", $rt_wrapFunction0(iocr_TubeFinSet_getInstanceAngleIncrement), "$getInstanceAngles", $rt_wrapFunction0(iocr_TubeFinSet_getInstanceAngles), "$getInstanceOffsets", $rt_wrapFunction0(iocr_TubeFinSet_getInstanceOffsets), "$setRadiusOffset", $rt_wrapFunction1(iocr_TubeFinSet_setRadiusOffset),
-"$setRadiusMethod", $rt_wrapFunction1(iocr_TubeFinSet_setRadiusMethod), "$getInsideColorComponentHandler", $rt_wrapFunction0(iocr_TubeFinSet_getInsideColorComponentHandler), "$setInsideColorComponentHandler", $rt_wrapFunction1(iocr_TubeFinSet_setInsideColorComponentHandler)],
+"$setBaseRotation", $rt_wrapFunction1(iocr_TubeFinSet_setBaseRotation), "$setAxialMethod", $rt_wrapFunction1(iocr_TubeFinSet_setAxialMethod), "$getComponentVolume", $rt_wrapFunction0(iocr_TubeFinSet_getComponentVolume), "$getComponentName", $rt_wrapFunction0(iocr_TubeFinSet_getComponentName), "$getComponentCG", $rt_wrapFunction0(iocr_TubeFinSet_getComponentCG), "$getLongitudinalUnitInertia", $rt_wrapFunction0(iocr_TubeFinSet_getLongitudinalUnitInertia), "$getRotationalUnitInertia", $rt_wrapFunction0(iocr_TubeFinSet_getRotationalUnitInertia),
+"$isCompatible", $rt_wrapFunction1(iocr_TubeFinSet_isCompatible), "$getComponentBounds", $rt_wrapFunction0(iocr_TubeFinSet_getComponentBounds), "$getInstanceBoundingBox", $rt_wrapFunction0(iocr_TubeFinSet_getInstanceBoundingBox), "$getBodyRadius", $rt_wrapFunction0(iocr_TubeFinSet_getBodyRadius), "$getInstanceCount", $rt_wrapFunction0(iocr_TubeFinSet_getInstanceCount), "$setInstanceCount", $rt_wrapFunction1(iocr_TubeFinSet_setInstanceCount), "$getBoundingRadius", $rt_wrapFunction0(iocr_TubeFinSet_getBoundingRadius),
+"$setRadius0", $rt_wrapFunction2(iocr_TubeFinSet_setRadius), "$setAngleOffset", $rt_wrapFunction1(iocr_TubeFinSet_setAngleOffset), "$getAngleOffset", $rt_wrapFunction0(iocr_TubeFinSet_getAngleOffset), "$setAngleMethod", $rt_wrapFunction1(iocr_TubeFinSet_setAngleMethod), "$getInstanceAngleIncrement", $rt_wrapFunction0(iocr_TubeFinSet_getInstanceAngleIncrement), "$getInstanceAngles", $rt_wrapFunction0(iocr_TubeFinSet_getInstanceAngles), "$getInstanceOffsets", $rt_wrapFunction0(iocr_TubeFinSet_getInstanceOffsets),
+"$setRadiusOffset", $rt_wrapFunction1(iocr_TubeFinSet_setRadiusOffset), "$setRadiusMethod", $rt_wrapFunction1(iocr_TubeFinSet_setRadiusMethod), "$getInsideColorComponentHandler", $rt_wrapFunction0(iocr_TubeFinSet_getInsideColorComponentHandler), "$setInsideColorComponentHandler", $rt_wrapFunction1(iocr_TubeFinSet_setInsideColorComponentHandler)],
 otciu_UnicodeHelper$Range, "UnicodeHelper$Range", 16, jl_Object, [], 1, [otciu_UnicodeHelper,0,"Range"], 0, ["$_init_70", $rt_wrapFunction3(otciu_UnicodeHelper$Range__init_)],
 a_OrkEngine$RocketCtx, "OrkEngine$RocketCtx", 25, jl_Object, [], 16, [a_OrkEngine,0,"RocketCtx"], 0, ["$_init_181", $rt_wrapFunction3(a_OrkEngine$RocketCtx__init_0)],
 iocr_MassComponent$MassComponentType, "MassComponent$MassComponentType", 47, jl_Enum, [], 65553, [iocr_MassComponent,0,"MassComponentType"], () => iocr_MassComponent$MassComponentType_$callClinit(), ["$toString", $rt_wrapFunction0(iocr_MassComponent$MassComponentType_toString)],
@@ -54162,7 +54189,7 @@ $rt_stringPool(["Can\'t enter monitor from another thread synchronously", "(this
 "Kosdon by AeroTech", "K", "KBA", "K-AT", "KOS", "KOSDON", "KOSDON/AT", "KOSDON/AEROTECH", "LOC", "LOC/Precision", "Loki Research", "LOKI", "LR", "Public Missiles, Ltd.", "Public Missiles", "PM", "PML", "PUBLIC MISSILES LIMITED", "Propulsion Polymers", "PP", "PROP", "PROPULSION", "Quest", "Q", "QU", "RATT Works", "RATT", "RT", "RTW", "Roadrunner Rocketry", "RR", "ROADRUNNER", "Rocketvision", "RV", "ROCKET VISION", "Sky Ripper Systems", "SR", "SRS", "SKYR", "SKYRIPPER", "SKY RIPPER", "SKYRIPPER SYSTEMS", "West Coast Hybrids",
 "WCH", "WCR", "WEST COAST", "WEST COAST HYBRID", "WECO Feuerwerk", "WECO", "WECO FEUERWERKS", "SF", "SACHSEN", "SACHSEN FEUERWERK", "SACHSEN FEUERWERKS", "Pressure must be positive (Pascals)", "Temperature must be positive (Kelvin)", "CloneNotSupportedException encountered!", "AtmosphericConditions[T=%.2f,P=%.2f]", "initializing GroundStepper", "step:  position=", ", velocity=", "FreeformFinSet.FreeformFinSet", "request validation of non-existent fin edge segment: ", "Found intersection at %d-%d and %d-%d",
 "                   between (%g, %g) => (%g, %g)", "                       and (%g, %g) => (%g, %g)", "EOI", "%32s / %4s - %s", "No interpolation points defined.", "Wrong number of arguments ", " expected ", "Invalid UUID string: ", "^", "railbutton", "transition", "bulkhead", "ellipticalfinset", "masscomponent", "podset", "tubefinset", "launchlug", "innertube", "tubecoupler", "freeformfinset", "parallelstage", "centeringring", "nosecone", "bodytube", "engineblock", "streamer", "shockcord", "parachute", "trapezoidfinset",
-"shape", "ogive", "aftRadius", "thickness", "shapeParameter", "filled", "shoulderRadius", "shoulderLength", "shoulderThickness", "shoulderCapped", "conical", "foreRadius", "foreShoulderRadius", "foreShoulderLength", "aftShoulderRadius", "aftShoulderLength", "outerRadius", "motorMount", "motorOverhang", "finCount", "rootChord", "tipChord", "sweep", "height", "cant", "crossSection", "points", "freeformfinset needs at least 3 points", "freeformfinset points must be [[x,y],...] numbers", "cluster", "Unknown cluster configuration: ",
+"shape", "ogive", "aftRadius", "thickness", "shapeParameter", "filled", "shoulderRadius", "shoulderLength", "shoulderThickness", "shoulderCapped", "conical", "foreRadius", "foreShoulderRadius", "foreShoulderLength", "aftShoulderRadius", "aftShoulderLength", "outerRadius", "motorMount", "motorOverhang", "finCount", "rootChord", "tipChord", "sweep", "height", "cant", "crossSection", "points", "freeformfinset needs at least 3 points", "freeformfinset points must be [[x,y],...] numbers", "rotation", "cluster", "Unknown cluster configuration: ",
 "clusterScale", "clusterRotation", "innerRadius", "outerDiameter", "diameter", "cd", "lineCount", "lineLength", "surfaceDensity", "surfaceMaterialName", "custom", "lineDensity", "lineMaterialName", "stripLength", "stripWidth", "cordLength", "radius", "Unknown component type: \'", "density", "materialName", "finish", "airfoilSection", "Unknown airfoilSection \'", "airfoilLeDiamond", "airfoilTeDiamond", "finLeRadius", "overrideMass", "overrideCGX", "overrideCD", "overrideSubcomponentsMass", "overrideSubcomponentsCG",
 "overrideSubcomponentsCD", "position", "method", "top", "offset", "deployEvent", "deployAltitude", "deployDelay", "apogee", "launch", "never", "roughunfinished", "normal", "smooth", "rough", "polished", "unfinished", "regular", "finishpolished", "children", "id", "tabHeight", "tabLength", "tabOffsetMethod", "middle", "tabOffset", "instanceCount", "radiusMethod", "relative", "radiusOffset", "angleOffset", "angleMethod", "bottom", "surface", "free", "coaxial", "fixed", "haack", "power", "ellipsoid", "parabolic",
 "absolute", "setShapeType called with null argument", "Transition.Transition", "NoseCone.NoseCone", "Can\'t format argument of ", " using ", " conversion", "PreviousMatch", "NonCapFSet", "  attempted to initialize an InertiaMatrix with a negative inertia value.", " // ", "CoM: %.8fg @[%.8f,%.8f,%.8f]", "MOI: [ %.8f, %.8f, %.8f]", "Either src or dest is null", "java.version", "21", "os.name", "TeaVM", "file.separator", "\\", "path.separator", ":", ";", "line.separator", "java.io.tmpdir", "java.vm.version", "user.home",

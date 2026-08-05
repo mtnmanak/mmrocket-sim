@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.038';
+export const APP_VERSION = '0.039';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.039',
+    date: '2026-08-05',
+    title: 'Fin rotation, auto-interleave, and 4+2 / 2+2+2 cluster combos',
+    items: [
+      'NEW: every fin set (trapezoidal, elliptical, freeform, tube fins) has a Rotation field — turn the whole set about the body axis, so straight fins sit BETWEEN tube fins. It reaches the real physics (the kernel\'s base-rotation, an engine rebuild verified bit-identical at rotation 0), draws correctly in 3D and the aft view, and round-trips through .ork (the desktop\'s own tag) and RockSim (RadialAngle).',
+      'RockSim imports auto-interleave colliding fin sets: RockSim renders tube fins + straight fins interleaved without storing an angle, so they arrived on top of each other — physically impossible. Overlapping same-angle sets now rotate by half the other set\'s pitch, with a note telling you what moved (the reported 4" Ultra Neon\'s tube fins come in at 30°). Adding a second fin set in the editor also defaults between the existing fins.',
+      'NEW: 6-motor clusters batch as THREE opposite-tube pairs — the "mixed 4+2 / 2+2+2" checkbox flies every candidate combination across the three pairs, covering 4 of one + 2 of another AND three different motors in pairs (every pair is thrust-balanced, so all of it is symmetric — and much cheaper than buying 6 identical motors). Grouped in the exports like the other configs, each on its own XLSX tab. Watch the count line: this mode grows fast.',
+    ],
+  },
   {
     version: '0.038',
     date: '2026-08-05',
