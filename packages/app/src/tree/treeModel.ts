@@ -204,7 +204,8 @@ export function moveNode(tree: RocketTree, id: string, dir: -1 | 1): RocketTree 
   return { ...tree, components: shift(tree.components) };
 }
 
-function cloneSubtree(node: ComponentNode): ComponentNode {
+/** Deep copy with fresh ids at every level (clipboard paste, duplicate). */
+export function cloneSubtree(node: ComponentNode): ComponentNode {
   return {
     ...node,
     id: freshId(),

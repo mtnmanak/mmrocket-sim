@@ -180,10 +180,16 @@ export function niceStep(x: number): number {
   return nice * mag;
 }
 
-/** Format an SI value in the selected unit with a sensible precision. */
+/**
+ * Format an SI value in the selected unit with a sensible precision.
+ * With `digits`, shows UP TO that many decimals (trailing zeros stripped) —
+ * used for CP/CG/length/diameter readouts, which the owner wants to 3 decimals
+ * regardless of magnitude (the default ladder capped ≥10 at 1 dp, so inch
+ * readouts lost real precision).
+ */
 export function fmtSi(quantity: Quantity, symbol: string, si: number, digits?: number): string {
   const v = siToUi(quantity, symbol, si);
-  if (digits !== undefined) return v.toFixed(digits);
+  if (digits !== undefined) return String(Number(v.toFixed(digits)));
   const a = Math.abs(v);
   return v.toFixed(a >= 100 ? 0 : a >= 10 ? 1 : a >= 1 ? 2 : 3);
 }

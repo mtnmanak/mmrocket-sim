@@ -1,5 +1,5 @@
 {
-  "version": "0.032",
-  "released": "2026-08-04",
-  "note": "Daylight mode: a new display option for using the app outdoors in bright sun. One tap on the Daylight button in the header (or Preferences - Display - Daylight mode) switches to black on white at maximum contrast, with heavier borders, bolder small type, and darker, thicker chart lines. It overrides your theme while it is on; switch it off and your theme comes back. Display only - physics and designs untouched."
+  "version": "0.033",
+  "released": "2026-08-05",
+  "note": "Beta issue batch (16 items fixed): parachute presets now use their manufacturer-rated drag coefficient (Fruity Chutes descent rates were up to 1.66x too fast); a Plugged (no ejection charge) motor option for electronics deployment; a new Aft view showing clusters and pods from behind; RASAero exports open in RASAero II again; RockSim mass overrides, clusters and tube fins import/export correctly; over-stability is now a yellow caution instead of a red failure; saved sims are tagged to their rocket; component cut/copy/paste; the results CSV follows your unit preferences; and more - see What's new in the app."
 }

@@ -37,6 +37,12 @@ export function loadSession(): SessionState | null {
     if (!raw) return null;
     const s = JSON.parse(raw) as SessionState;
     if (!s || typeof s !== 'object' || !s.tree || !Array.isArray(s.tree.components)) return null;
+    // Revive plugged ejection delays (persisted as "Infinity" — JSON has no
+    // Infinity literal; a plain stringify would have stored null).
+    for (const mm of Object.values(s.mountMotors ?? {})) {
+      const d = mm?.spec?.ejectionDelay as unknown;
+      if (d === 'Infinity' || d === null) mm.spec.ejectionDelay = Infinity;
+    }
     return s;
   } catch {
     return null;
@@ -49,7 +55,10 @@ export function saveSessionDebounced(state: Omit<SessionState, 'savedAt'>): void
   if (timer) clearTimeout(timer);
   timer = setTimeout(() => {
     try {
-      localStorage.setItem(KEY, JSON.stringify({ ...state, savedAt: Date.now() }));
+      // Plugged motors carry ejectionDelay = Infinity; JSON.stringify would
+      // silently turn that into null, so round-trip it as a string.
+      localStorage.setItem(KEY, JSON.stringify({ ...state, savedAt: Date.now() }, (_k, v) =>
+        typeof v === 'number' && v === Infinity ? 'Infinity' : v));
     } catch {
       // Quota/serialization failures must never break editing.
     }

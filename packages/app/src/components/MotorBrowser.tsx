@@ -8,7 +8,7 @@ import {
 import {
   addExMotors, deleteExMotor, exToDbEntry, loadExMotors, parseMotorFile,
 } from '../services/exMotors.js';
-import { delayOptions, fetchMotorSpec } from '../services/thrustcurve.js';
+import { delayOptions, delayTag, fetchMotorSpec } from '../services/thrustcurve.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { siToUi } from '../prefs/units.js';
 import { NumField } from './NumField.js';
@@ -126,7 +126,14 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
   };
 
   useEffect(() => {
-    if (picked) setDelay(delayOptions(picked)[delayOptions(picked).length - 1] ?? 0);
+    // Default to the longest PRESCRIBED delay; plugged (Infinity) only when
+    // it's the motor's sole option — nobody should get a chute-less flight
+    // by default.
+    if (picked) {
+      const opts = delayOptions(picked);
+      const finite = opts.filter((d) => Number.isFinite(d));
+      setDelay(finite[finite.length - 1] ?? opts[opts.length - 1] ?? 0);
+    }
   }, [picked]);
 
   const tooLong = (m: MotorDbEntry) =>
@@ -151,13 +158,14 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
       // simulated optimum rounded to the nearest whole second. "custom" is
       // the drill-your-own value (delays get drilled to any whole second in
       // the real world, whatever the manufacturer prescribes).
-      const chosen = delay === 'auto' ? opts[opts.length - 1] ?? 0
+      const finite = opts.filter((d) => Number.isFinite(d));
+      const chosen = delay === 'auto' ? finite[finite.length - 1] ?? 0
         : delay === 'custom' ? customDelay
         : delay;
       const spec = await fetchMotorSpec(picked, chosen);
       const label = delay === 'auto'
         ? `${picked.commonName} (auto delay)`
-        : `${picked.commonName}-${chosen}`;
+        : `${picked.commonName}-${delayTag(chosen)}`;
       onSelect(label, spec, {
         label,
         manufacturer: picked.manufacturerAbbrev,
@@ -340,7 +348,17 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
                   }}
                 >
                   <option value="auto">Auto (optimal)</option>
-                  {delayOptions(picked).map((d) => <option key={d} value={d}>{d}s</option>)}
+                  {/* Plugged is ALWAYS offered — flyers using electronic deploy
+                      remove the ejection charge from any motor, not just ones
+                      sold with a factory "P" option. */}
+                  {(() => {
+                    const opts = delayOptions(picked);
+                    return (opts.includes(Infinity) ? opts : [...opts, Infinity]).map((d) => (
+                      <option key={d} value={d}>
+                        {Number.isFinite(d) ? `${d}s` : 'Plugged — no ejection charge'}
+                      </option>
+                    ));
+                  })()}
                   <option value="custom">Custom (drilled)…</option>
                 </select>
               </label>

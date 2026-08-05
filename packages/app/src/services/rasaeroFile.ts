@@ -371,8 +371,9 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM }: Cdx1ExportIn
     // Fin Location = front edge from the tube bottom (inches).
     const locIn = (plan.root - bottomOffset) * IN;
     const cs = String(fin['crossSection'] ?? 'square');
+    // No <PartType> inside <Fin> — neither RASAero's own files nor the
+    // desktop exporter write one, and RASAero's parser is rigid.
     emit('<Fin>');
-    emit('<PartType>Fin</PartType>');
     emit(`<Count>${count}</Count>`);
     emit(`<Chord>${fmt(plan.root * IN)}</Chord>`);
     emit(`<Span>${fmt(plan.height * IN)}</Span>`);
@@ -559,29 +560,65 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM }: Cdx1ExportIn
     }
   };
   findChutes(stagesIn);
-  emit('<Recovery>');
-  for (const slot of [1, 2] as const) {
+  // Recovery children are grouped BY FIELD (Altitude1, Altitude2, DeviceType1,
+  // …) — the order RASAero itself writes. Our old per-slot interleaving
+  // matched neither RASAero's files nor the desktop exporter.
+  const slotVals = ([1, 2] as const).map((slot) => {
     const c = chutes[slot - 1];
     const ev = c ? String(c['deployEvent'] ?? 'apogee') : 'none';
     const evType = ev === 'apogee' ? 'Apogee' : ev === 'altitude' ? 'Altitude' : 'None';
-    emit(`<Altitude${slot}>${fmt(c && evType === 'Altitude' ? nnum(c, 'deployAltitude', 150) * FT : 0)}</Altitude${slot}>`);
-    emit(`<DeviceType${slot}>${c ? 'Parachute' : 'None'}</DeviceType${slot}>`);
-    emit(`<Event${slot}>${c && evType !== 'None' ? 'True' : 'False'}</Event${slot}>`);
-    emit(`<Size${slot}>${fmt(c ? nnum(c, 'diameter', 0.9) * IN : 0)}</Size${slot}>`);
-    emit(`<EventType${slot}>${c ? evType : 'None'}</EventType${slot}>`);
-    emit(`<CD${slot}>${fmt(c ? nnum(c, 'cd', 0.75) : 0)}</CD${slot}>`);
-  }
+    return {
+      altitude: fmt(c && evType === 'Altitude' ? nnum(c, 'deployAltitude', 150) * FT : 0),
+      deviceType: c ? 'Parachute' : 'None',
+      event: c && evType !== 'None' ? 'True' : 'False',
+      size: fmt(c ? nnum(c, 'diameter', 0.9) * IN : 0),
+      eventType: c ? evType : 'None',
+      cd: fmt(c ? nnum(c, 'cd', 0.75) : 0),
+    };
+  });
+  emit('<Recovery>');
+  for (const slot of [1, 2] as const) emit(`<Altitude${slot}>${slotVals[slot - 1]!.altitude}</Altitude${slot}>`);
+  for (const slot of [1, 2] as const) emit(`<DeviceType${slot}>${slotVals[slot - 1]!.deviceType}</DeviceType${slot}>`);
+  for (const slot of [1, 2] as const) emit(`<Event${slot}>${slotVals[slot - 1]!.event}</Event${slot}>`);
+  for (const slot of [1, 2] as const) emit(`<Size${slot}>${slotVals[slot - 1]!.size}</Size${slot}>`);
+  for (const slot of [1, 2] as const) emit(`<EventType${slot}>${slotVals[slot - 1]!.eventType}</EventType${slot}>`);
+  for (const slot of [1, 2] as const) emit(`<CD${slot}>${slotVals[slot - 1]!.cd}</CD${slot}>`);
   emit('</Recovery>');
   emit('<MachAlt></MachAlt>');
 
-  // A minimal simulation block so RASAero has launch weight/CG to start from.
+  // Simulation block: RASAero's loader (GetSimulations) dereferences EVERY
+  // one of these nodes without null checks — its own files always carry all
+  // 21 numeric/boolean children, even for a motorless single-stage design.
+  // Our old 5-element "minimal" block crashed it with a NullReferenceException.
+  // The *Engine elements are the only optional ones and must be OMITTED (not
+  // written empty) when there is no motor — an empty name NREs the motor-list
+  // lookup instead.
   emit('<SimulationList>');
   emit('<Simulation>');
-  emit('<SustainerEngine></SustainerEngine>');
   emit(`<SustainerLaunchWt>${fmt((launchMassKg ?? 0) * LB)}</SustainerLaunchWt>`);
   emit('<SustainerNozzleDiameter>0</SustainerNozzleDiameter>');
   emit(`<SustainerCG>${fmt((launchCgM ?? 0) * IN)}</SustainerCG>`);
   emit('<SustainerIgnitionDelay>0</SustainerIgnitionDelay>');
+  emit('<Booster1LaunchWt>0</Booster1LaunchWt>');
+  emit('<Booster1SeparationDelay>0</Booster1SeparationDelay>');
+  emit('<Booster1IgnitionDelay>0</Booster1IgnitionDelay>');
+  emit('<Booster1CG>0</Booster1CG>');
+  emit('<Booster1NozzleDiameter>0</Booster1NozzleDiameter>');
+  // IncludeBooster stays False: we export no engines, and a sim that claims a
+  // booster without an engine is another null lookup waiting to happen. The
+  // design-level UseBooster flags still carry the staged geometry.
+  emit('<IncludeBooster1>False</IncludeBooster1>');
+  emit('<Booster2LaunchWt>0</Booster2LaunchWt>');
+  emit('<Booster2Delay>0</Booster2Delay>');
+  emit('<Booster2CG>0</Booster2CG>');
+  emit('<Booster2NozzleDiameter>0</Booster2NozzleDiameter>');
+  emit('<IncludeBooster2>False</IncludeBooster2>');
+  emit('<FlightTime>0</FlightTime>');
+  emit('<TimetoApogee>0</TimetoApogee>');
+  emit('<MaxAltitude>0</MaxAltitude>');
+  emit('<MaxVelocity>0</MaxVelocity>');
+  emit('<OptimumWt>0</OptimumWt>');
+  emit('<OptimumMaxAlt>0</OptimumMaxAlt>');
   emit('</Simulation>');
   emit('</SimulationList>');
   emit('</RASAeroDocument>');

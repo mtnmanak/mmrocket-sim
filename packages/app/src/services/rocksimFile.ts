@@ -1,7 +1,7 @@
 import { strFromU8, unzipSync } from 'fflate';
 import type { ComponentNode, ComponentPosition, RocketTree } from '@online-openrocket/engine';
 import { asStageNodes, freshId } from '../tree/treeModel.js';
-import { clusterOffsets } from '../tree/cluster.js';
+import { CLUSTER_POINTS, clusterOffsets } from '../tree/cluster.js';
 import { escapeXml as esc, xmlNum as num, xmlText as text } from './xmlUtil.js';
 import { shapeParamDefault } from './orkFile.js';
 import type { OrkExportMotor, OrkMotorRef, OrkTreeImportResult } from './orkFile.js';
@@ -83,6 +83,10 @@ export function importRkt(data: ArrayBuffer | string): OrkTreeImportResult {
   const ignored = new Set<string>();
   /** RockSim SerialNo → our node id (links EngineSets to mounts). */
   const serialToNode = new Map<string, ComponentNode>();
+  /** Off-axis inner tubes: node → cross-section offset (m), for cluster
+   *  reconstruction (RockSim has no cluster concept — files carry N separate
+   *  tubes at RadialLoc/RadialAngle). */
+  const radialByNode = new Map<ComponentNode, { y: number; z: number }>();
 
   const name = text(design, ':scope > Name') ?? 'Imported RockSim rocket';
   const stageCount = Math.max(1, Math.min(3, num(design, 'StageCount', 1)));
@@ -221,6 +225,13 @@ export function importRkt(data: ArrayBuffer | string): OrkTreeImportResult {
           const overhang = num(el, 'EngineOverhang', 0) / LEN;
           if (overhang !== 0) n['motorOverhang'] = overhang;
         }
+        // Radial placement (RadialAngle is radians): remembered so identical
+        // sibling tubes can be regrouped into one tagged cluster below.
+        const radialLoc = num(el, 'RadialLoc', 0) / LEN;
+        if (inside && radialLoc > 0) {
+          const ra = num(el, 'RadialAngle', 0);
+          radialByNode.set(n, { y: radialLoc * Math.cos(ra), z: radialLoc * Math.sin(ra) });
+        }
         convertAttached(el, n);
         return n;
       }
@@ -284,6 +295,7 @@ export function importRkt(data: ArrayBuffer | string): OrkTreeImportResult {
         n['finCount'] = Math.round(num(el, 'TubeCount', 6));
         n['length'] = num(el, 'Len', 100) / LEN;
         n['outerRadius'] = num(el, 'OD', 24) / RAD;
+        n['thickness'] = tubeThickness(el);
         return n;
       }
       case 'Parachute': {
@@ -357,6 +369,95 @@ export function importRkt(data: ArrayBuffer | string): OrkTreeImportResult {
   if (components.every((s) => (s.children ?? []).length === 0)) {
     throw new Error('No supported components found in this RockSim design.');
   }
+
+  // ---- Cluster reconstruction ----
+  // RockSim files carry a cluster as N separate inner tubes at radial
+  // positions. Regroup identical siblings whose offsets fit one of the
+  // kernel's cluster patterns into ONE tagged cluster tube (motor serials of
+  // the dropped twins re-point at the kept tube). Unmatched layouts stay as
+  // separate tubes (with a note) — our schema has no off-axis single tube.
+  const matchCluster = (
+    pts: { y: number; z: number }[], tubeR: number,
+  ): { pattern: string; scale: number; rotation: number } | null => {
+    const eps = 1e-6;
+    const p = pts.map((q) => ({ x: q.y, y: q.z }));
+    for (const [pattern, flat] of Object.entries(CLUSTER_POINTS)) {
+      if (pattern === 'single' || flat.length / 2 !== p.length) continue;
+      const u: { x: number; y: number }[] = [];
+      for (let i = 0; i < flat.length; i += 2) u.push({ x: flat[i]!, y: flat[i + 1]! });
+      const uNZ = u.filter((q) => Math.hypot(q.x, q.y) > eps);
+      const pNZ = p.filter((q) => Math.hypot(q.x, q.y) > eps);
+      if (uNZ.length !== pNZ.length || uNZ.length === 0) continue;
+      const su = uNZ.reduce((s, q) => s + Math.hypot(q.x, q.y), 0) / uNZ.length;
+      const sp = pNZ.reduce((s, q) => s + Math.hypot(q.x, q.y), 0) / pNZ.length;
+      const sep = sp / su;
+      if (!(sep > 0)) continue;
+      const tol = Math.max(0.15 * sep, 1e-4);
+      const u0 = uNZ[0]!;
+      for (const cand of pNZ) {
+        if (Math.abs(Math.hypot(cand.x, cand.y) - Math.hypot(u0.x, u0.y) * sep) > tol) continue;
+        const phi = Math.atan2(cand.y, cand.x) - Math.atan2(u0.y, u0.x);
+        const cos = Math.cos(phi);
+        const sin = Math.sin(phi);
+        const used = new Set<number>();
+        let ok = true;
+        for (const q of u) {
+          const tx = (q.x * cos - q.y * sin) * sep;
+          const ty = (q.x * sin + q.y * cos) * sep;
+          const idx = p.findIndex((pp, i) => !used.has(i) && Math.hypot(pp.x - tx, pp.y - ty) <= tol);
+          if (idx < 0) { ok = false; break; }
+          used.add(idx);
+        }
+        if (ok) {
+          const rot = Math.atan2(Math.sin(phi), Math.cos(phi)); // normalize (−π, π]
+          return { pattern, scale: sep / (2 * tubeR), rotation: rot };
+        }
+      }
+    }
+    return null;
+  };
+  const reconstructClusters = (nodes: ComponentNode[]) => {
+    for (const parentNode of nodes) {
+      const kids = parentNode.children ?? [];
+      const groups = new Map<string, ComponentNode[]>();
+      for (const kid of kids) {
+        if (kid.type !== 'innertube') continue;
+        const gk = [
+          Number(kid['length'] ?? 0).toFixed(6),
+          Number(kid['outerRadius'] ?? 0).toFixed(6),
+          kid.position?.method ?? '',
+          Number(kid.position?.offset ?? 0).toFixed(6),
+        ].join('|');
+        const g = groups.get(gk) ?? [];
+        g.push(kid);
+        groups.set(gk, g);
+      }
+      for (const g of groups.values()) {
+        if (g.length < 2 || !g.some((t) => radialByNode.has(t))) continue;
+        const tubeR = typeof g[0]!['outerRadius'] === 'number' ? (g[0]!['outerRadius'] as number) : 0.0095;
+        const m = matchCluster(g.map((t) => radialByNode.get(t) ?? { y: 0, z: 0 }), tubeR);
+        if (!m) {
+          notes.push(`${g.length} identical off-axis tubes in “${parentNode.name ?? parentNode.type}” don't fit a known cluster pattern — imported as separate centerline tubes.`);
+          continue;
+        }
+        // Keep the tube that carries children (our own exports put them on the
+        // first copy); default to the first.
+        const keep = g.find((t) => (t.children ?? []).length > 0) ?? g[0]!;
+        keep['cluster'] = m.pattern;
+        keep['clusterScale'] = Number(m.scale.toFixed(4));
+        if (Math.abs(m.rotation) > 1e-4) keep['clusterRotation'] = m.rotation;
+        keep.name = keep.name?.replace(/ \(\d+\)$/, '');
+        const dropped = new Set(g.filter((t) => t !== keep));
+        for (const [serial, node] of serialToNode) {
+          if (dropped.has(node)) serialToNode.set(serial, keep);
+        }
+        parentNode.children = (parentNode.children ?? []).filter((k) => !dropped.has(k));
+        notes.push(`Cluster: ${g.length} identical motor tubes in “${parentNode.name ?? parentNode.type}” imported as one ${m.pattern} cluster.`);
+      }
+      reconstructClusters(parentNode.children ?? []);
+    }
+  };
+  reconstructClusters(components);
   if (ignored.size) {
     notes.push(`Ignored unsupported RockSim components: ${[...ignored].join(', ')}.`);
   }
@@ -644,6 +745,7 @@ export function exportRkt({ name, tree, motors }: RktExportInput): string {
         emit(`<TubeCount>${Math.round(nnum(node, 'finCount', 6))}</TubeCount>`);
         emit(`<MaxTubesAllowed>${Math.round(nnum(node, 'finCount', 6))}</MaxTubesAllowed>`);
         emit(`<OD>${nnum(node, 'outerRadius', 0.012) * RAD}</OD>`);
+        emit(`<ID>${Math.max(0, nnum(node, 'outerRadius', 0.012) - nnum(node, 'thickness', 0.0005)) * RAD}</ID>`);
         emit(`<Len>${nnum(node, 'length', 0.1) * LEN}</Len>`);
         emit('</TubeFinSet>');
         break;
@@ -680,7 +782,13 @@ export function exportRkt({ name, tree, motors }: RktExportInput): string {
         emit('<MassObject>');
         // KnownMass/UseKnownCG must be emitted ONCE (readers take the first
         // match) — pass the real mass through common() instead of duplicating.
-        common(node, 'Mass', { knownMass: nnum(node, 'mass', 0) * MASS, useKnownCG: true });
+        // An override, when set, IS the component's real mass — passing the
+        // `mass` param unconditionally shipped the 10 g default for every
+        // override-edited mass component (big CG error in RockSim).
+        const massKg = typeof node['overrideMass'] === 'number'
+          ? (node['overrideMass'] as number)
+          : nnum(node, 'mass', 0);
+        common(node, 'Mass', { knownMass: massKg * MASS, useKnownCG: true });
         emit('<TypeCode>0</TypeCode>');
         emit(`<Len>${nnum(node, 'length', 0.02) * LEN}</Len>`);
         emit('</MassObject>');

@@ -1,7 +1,16 @@
 import type { FlightSummary, StaticInfo } from '@online-openrocket/engine';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { fmtSi, type Quantity } from '../prefs/units.js';
+import { stabilityState } from '../services/simReport.js';
 import { UnitChip } from './UnitChip.js';
+
+/** Shared tiered styling: under-stable = red, over-stable = yellow caution. */
+export function stabilityGlyphClass(cal: number | null | undefined): { glyph: string; cls: string } {
+  const st = stabilityState(cal);
+  return st === 'under' ? { glyph: '⚠', cls: 'stability-bad' }
+    : st === 'over' ? { glyph: '△', cls: 'stability-warn' }
+    : { glyph: '✓', cls: 'stability-good' };
+}
 
 function Tile({ label, value, unit, quantity, className }: {
   label: string;
@@ -28,34 +37,34 @@ export function DesignStats({ info, motorLabel }: { info: StaticInfo; motorLabel
   const { prefs } = usePrefs();
   const len = prefs.units.length;
   const mass = prefs.units.mass;
-  const stable = info.stabilityCalibers >= 1;
+  const { glyph, cls } = stabilityGlyphClass(info.stabilityCalibers);
   const stabilityPct = info.length > 0
     ? ((info.cp - info.cg) / info.length) * 100
     : 0;
   return (
     <>
       <div className="stat-row">
-        <Tile label="Length" value={fmtSi('length', len, info.length)} quantity="length" />
-        <Tile label="Max diameter" value={fmtSi('length', len, info.refDiameter)} quantity="length" />
+        <Tile label="Length" value={fmtSi('length', len, info.length, 3)} quantity="length" />
+        <Tile label="Max diameter" value={fmtSi('length', len, info.refDiameter, 3)} quantity="length" />
         <Tile label="Mass (empty)" value={fmtSi('mass', mass, info.massEmpty)} quantity="mass" />
         <Tile label="Mass (loaded)" value={fmtSi('mass', mass, info.mass)} quantity="mass" />
         {motorLabel && <Tile label="Motor" value={motorLabel} />}
       </div>
       <div className="stat-row">
-        <Tile label="CG (empty)" value={fmtSi('length', len, info.cgEmpty)} quantity="length" />
-        <Tile label="CG (loaded)" value={fmtSi('length', len, info.cg)} quantity="length" />
-        <Tile label="CP" value={fmtSi('length', len, info.cp)} quantity="length" />
+        <Tile label="CG (empty)" value={fmtSi('length', len, info.cgEmpty, 3)} quantity="length" />
+        <Tile label="CG (loaded)" value={fmtSi('length', len, info.cg, 3)} quantity="length" />
+        <Tile label="CP" value={fmtSi('length', len, info.cp, 3)} quantity="length" />
         <Tile
           label="Stability"
-          value={`${stable ? '✓' : '⚠'} ${info.stabilityCalibers.toFixed(2)}`}
+          value={`${glyph} ${info.stabilityCalibers.toFixed(2)}`}
           unit="cal"
-          className={stable ? 'stability-good' : 'stability-bad'}
+          className={cls}
         />
         <Tile
           label="Stability"
           value={stabilityPct.toFixed(1)}
           unit="%"
-          className={stable ? 'stability-good' : 'stability-bad'}
+          className={cls}
         />
       </div>
     </>

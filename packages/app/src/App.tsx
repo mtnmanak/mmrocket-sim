@@ -22,9 +22,10 @@ import { builtInMeta, MotorPicker } from './components/MotorPicker.js';
 import { NumField } from './components/NumField.js';
 import { PropertyPanel } from './components/PropertyPanel.js';
 import { SimHistory, SimRunDetails } from './components/SimResults.js';
-import { DesignStats, FlightStats } from './components/StatTiles.js';
+import { DesignStats, FlightStats, stabilityGlyphClass } from './components/StatTiles.js';
 import { Rocket3D } from './components/Rocket3D.js';
 import { TreeSchematic } from './components/TreeSchematic.js';
+import { AftView } from './components/AftView.js';
 import { BUILT_IN_MOTORS } from './motors.js';
 import { PreferencesDialog } from './components/PreferencesDialog.js';
 import { usePrefs } from './prefs/PrefsContext.js';
@@ -41,7 +42,7 @@ import { buildSimRun, recommendDelay, type MotorMeta, type SimRun } from './serv
 import { addRun, loadRuns } from './services/simStore.js';
 import { APP_VERSION } from './version.js';
 import {
-  addChild, addStage, defaultTree, duplicateNode, emptyTree, findNode, findParent,
+  addChild, addStage, cloneSubtree, defaultTree, duplicateNode, emptyTree, findNode, findParent,
   hasParallelStage, inheritDefaults, makeNode, motorMounts, moveNode,
   normalizeTree, removeNode, stageIndexOf, stages, updateAllNodes, updateNode,
 } from './tree/treeModel.js';
@@ -94,10 +95,11 @@ function legacyMaxMotorLength(): number | null {
   }
 }
 
-/** Rewrites a motor label's delay suffix ("H220-14" / "H220 (auto delay)"). */
+/** Rewrites a motor label's delay suffix ("H220-14" / "H220-P" / "H220 (auto delay)"). */
 function labelWithDelay(label: string, delay: number | 'auto'): string {
-  const base = label.replace(/ \(auto delay\)$/, '').replace(/-\d+(\.\d+)?$/, '');
-  return delay === 'auto' ? `${base} (auto delay)` : `${base}-${delay}`;
+  const base = label.replace(/ \(auto delay\)$/, '').replace(/-(\d+(\.\d+)?|P)$/, '');
+  if (delay === 'auto') return `${base} (auto delay)`;
+  return `${base}-${Number.isFinite(delay) ? delay : 'P'}`;
 }
 
 export function App() {
@@ -115,6 +117,9 @@ export function App() {
     () => normalizeTree(session?.tree ?? defaultTree()));
   const [tree, setTreeRaw] = useState<RocketTree>(initialTree);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Component clipboard (copy/cut → paste into another parent). Holds the
+  // node AS COPIED — a later cut/delete of the original doesn't affect it.
+  const [clipboard, setClipboard] = useState<ComponentNode | null>(null);
   // Per-mount motors (Release C). Legacy sessions carried ONE motor + the
   // mount it applied to — migrate it onto that mount.
   const [mountMotors, setMountMotors] = useState<Record<string, MountMotor>>(() => {
@@ -160,7 +165,7 @@ export function App() {
     const clear = setTimeout(() => setSessionNote(null), 7800);
     return () => { clearTimeout(fade); clearTimeout(clear); };
   }, [sessionNote]);
-  const [view, setView] = useState<'2d' | '3d'>('2d');
+  const [view, setView] = useState<'2d' | '3d' | 'aft'>('2d');
   const [confirmNew, setConfirmNew] = useState(false);
   const [showBatch, setShowBatch] = useState(false);
   const [showChangelog, setShowChangelog] = useState(false);
@@ -410,6 +415,8 @@ export function App() {
             .map(([, mm]) => mm.label),
           aeroModel: aeroMode === 'auto' && usedSupersonic ? 'auto-supersonic'
             : usedSupersonic ? 'supersonic' : 'classic',
+          // Kbf only matters on the classic model (supersonic supersedes it).
+          rogersKbf: (prefs.rogersKbf ?? false) && !usedSupersonic,
         });
         setLastRun(run);
         setRuns(addRun(run));
@@ -509,7 +516,10 @@ export function App() {
         if (builtIn) {
           // Keep the FILE's ejection delay — the built-in key's own delay
           // (e.g. C6-5 matching a saved C6-7) would silently change the flight.
-          const fileDelay = Number.isFinite(ref.delay) ? ref.delay : builtIn[1].ejectionDelay;
+          // Infinity is a VALID file delay (plugged, .ork "none") — only fall
+          // back to the built-in's delay when the file carried none.
+          const fileDelay = ref.delay === Infinity ? Infinity
+            : Number.isFinite(ref.delay) ? ref.delay : builtIn[1].ejectionDelay;
           const label = labelWithDelay(builtIn[0], fileDelay);
           nextMotors[nodeId] = {
             label,
@@ -667,6 +677,12 @@ export function App() {
               </>
             )}
           </div>
+          {/* Undo lives in the header so it's reachable from EVERY tab —
+              Ctrl+Z has worked globally since v0.013, but nothing advertised
+              it outside the Design tab (issue 2026-08-05a #20). */}
+          <button className="file-btn" onClick={undo} title="Undo the last design change (Ctrl+Z) — 50 steps">
+            ↩ Undo
+          </button>
           <button className="file-btn" onClick={() => setShowGuide(true)} title="User guide — quick start, features, and the physics behind the sim">
             <Icon name="book" /> Guide
           </button>
@@ -686,9 +702,18 @@ export function App() {
             <Icon name="sliders" /> Preferences
           </button>
         </div>
+        {/* The tagline tracks the ACTIVE aero model — a fixed "Extended
+            Barrowman" line over a supersonic flight misstated the physics
+            (issue 2026-08-05a #9; final wording is the owner's call). */}
         <p>
-          Design a model rocket and fly it — the real OpenRocket physics engine
-          (Extended Barrowman, 6-DOF RK4), in your browser.
+          Design a model rocket and fly it — OpenRocket's 6-DOF RK4 physics core,
+          {' '}{aeroMode === 'supersonic'
+            ? 'running our supersonic RASAero-class aero model,'
+            : aeroMode === 'auto'
+            ? 'with Extended Barrowman aero (auto-switching to our supersonic model past Mach 0.9),'
+            : (prefs.rogersKbf ?? false)
+            ? 'with Extended Barrowman + Rogers Kbf aero,'
+            : 'with Extended Barrowman aero (desktop parity),'} in your browser.
           {' '}
           <a
             href="https://github.com/mtnmanak/online_open_rocket"
@@ -751,6 +776,10 @@ export function App() {
                   setResult(null);
                   setLastRun(null);
                   setConfirmNew(false);
+                  // A stale "Loaded <old rocket>…" banner over a fresh design
+                  // reads like the import happened again — clear both notes.
+                  setFileNote(null);
+                  setSimError(null);
                 }}
               >
                 Discard &amp; start new
@@ -771,11 +800,17 @@ export function App() {
           </span>
           {built ? (
             <>
-              <span className="vitals-item" title="Static stability margin (calibers)">
+              <span className="vitals-item"
+                title="Static stability margin (calibers). ✓ = 1–3 cal, △ = over-stable (weathercocks in wind), ⚠ = under-stable">
                 <span className="vitals-label">Stability</span>
-                <span className={`vitals-value ${built.info.stabilityCalibers >= 1 ? 'stability-good' : 'stability-bad'}`}>
-                  {built.info.stabilityCalibers >= 1 ? '✓' : '⚠'} {built.info.stabilityCalibers.toFixed(2)} cal
-                </span>
+                {(() => {
+                  const { glyph, cls } = stabilityGlyphClass(built.info.stabilityCalibers);
+                  return (
+                    <span className={`vitals-value ${cls}`}>
+                      {glyph} {built.info.stabilityCalibers.toFixed(2)} cal
+                    </span>
+                  );
+                })()}
               </span>
               <span className="vitals-item" title="Mass, loaded (with motors)">
                 <span className="vitals-label">Mass</span>
@@ -889,6 +924,25 @@ export function App() {
                 setTree(next);
                 if (newId) setSelectedId(newId);
               }}
+              clipboard={clipboard}
+              onCopy={(id) => {
+                const n = findNode(tree, id);
+                if (n) setClipboard(n);
+              }}
+              onCut={(id) => {
+                const n = findNode(tree, id);
+                if (!n) return;
+                setClipboard(n);
+                setTree(removeNode(tree, id));
+                if (selectedId === id) setSelectedId(null);
+              }}
+              onPaste={(parentId) => {
+                if (!clipboard) return;
+                // Fresh ids at every level — pasting twice must never collide.
+                const copy = cloneSubtree(clipboard);
+                setTree(addChild(tree, parentId, copy));
+                setSelectedId(copy.id!);
+              }}
               onAdd={(parentId, type: ComponentType) => {
                 // New components inherit diameter/material/finish from the
                 // component they follow (previous sibling, else the parent).
@@ -919,6 +973,9 @@ export function App() {
                   aria-selected={view === '2d'} onClick={() => setView('2d')}>2D</button>
                 <button className={view === '3d' ? 'active' : ''} role="tab"
                   aria-selected={view === '3d'} onClick={() => setView('3d')}>3D</button>
+                <button className={view === 'aft' ? 'active' : ''} role="tab"
+                  title="Looking at the rocket from behind — clusters, pods and fin counts as they really sit"
+                  aria-selected={view === 'aft'} onClick={() => setView('aft')}>Aft</button>
               </div>
             </div>
             <div className="rocket-stage">
@@ -931,7 +988,9 @@ export function App() {
                     onPatchNode={(id, patch) => setTree(updateNode(tree, id, patch))}
                   />
                 )
-                : <Rocket3D tree={tree} info={built?.info ?? null} />}
+                : view === '3d'
+                ? <Rocket3D tree={tree} info={built?.info ?? null} />
+                : <AftView tree={tree} motors={motorDims} />}
             </div>
             {mountSizes.length > 0 && (
               <div className="mount-sizes" title="Motor mount inner diameter — the nominal motor size each mount accepts">
@@ -993,6 +1052,25 @@ export function App() {
                 maxHeight={300}
               />
             </div>
+            {/* Cluster/pod layouts only make sense from behind — live inset
+                while playing with layout, rotation and spacing (issue #13). */}
+            {(() => {
+              const hasRadial = (nodes: ComponentNode[]): boolean => nodes.some((n) =>
+                (n.type === 'innertube' && typeof n['cluster'] === 'string' && n['cluster'] !== 'single')
+                || n.type === 'podset' || n.type === 'parallelstage'
+                || hasRadial(n.children ?? []));
+              return hasRadial(tree.components) ? (
+                <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', marginTop: 8 }}>
+                  <div className="rocket-stage" style={{ flex: '0 1 300px' }}>
+                    <AftView tree={tree} motors={motorDims} />
+                  </div>
+                  <p className="comp-stats" style={{ margin: '4px 0', maxWidth: 260 }}>
+                    Aft view — the cluster / pod layout seen from behind, at the
+                    current layout, rotation and spacing settings.
+                  </p>
+                </div>
+              ) : null;
+            })()}
           </div>
 
           <div className="panel">
@@ -1060,15 +1138,18 @@ export function App() {
                       <label>
                         Ejection delay (s)
                         {mm.meta.availableDelays?.length
-                          ? ` — prescribed: ${mm.meta.availableDelays.join(', ')}`
+                          ? ` — prescribed: ${mm.meta.availableDelays.map((d) => (Number.isFinite(d) ? d : 'P')).join(', ')}`
                           : ''}
                       </label>
                       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                         <div style={{ flex: 1 }}>
                           <NumField
-                            value={mm.spec.ejectionDelay}
+                            // A plugged motor has no numeric delay — blank the
+                            // field (it used to render the literal "Infinity").
+                            value={Number.isFinite(mm.spec.ejectionDelay) ? mm.spec.ejectionDelay : undefined}
                             step={1}
                             max={60}
+                            placeholder={Number.isFinite(mm.spec.ejectionDelay) ? undefined : 'plugged'}
                             ariaLabel={`Ejection delay for ${m.name ?? m.id}`}
                             onCommit={(v) => {
                               if (v === null) return;
@@ -1086,6 +1167,32 @@ export function App() {
                             }}
                           />
                         </div>
+                        <label className="motor-inline-label" style={{ whiteSpace: 'nowrap' }}
+                          title="No ejection charge (removed for electronic deployment, or a factory -P motor). Recovery must deploy on apogee/altitude.">
+                          <input
+                            type="checkbox"
+                            checked={!Number.isFinite(mm.spec.ejectionDelay)}
+                            style={{ width: 'auto' }}
+                            onChange={(e) => {
+                              const plugged = e.target.checked;
+                              // Un-plugging restores the longest prescribed
+                              // delay (or 6 s when the motor lists none).
+                              const finite = (mm.meta.availableDelays ?? []).filter((d) => Number.isFinite(d));
+                              const restored = finite[finite.length - 1] ?? 6;
+                              const next = plugged ? Infinity : restored;
+                              setMountMotors((prev) => ({
+                                ...prev,
+                                [m.id!]: {
+                                  ...mm,
+                                  spec: { ...mm.spec, ejectionDelay: next },
+                                  meta: { ...mm.meta, autoDelay: false },
+                                  label: labelWithDelay(mm.label, next),
+                                },
+                              }));
+                            }}
+                          />
+                          plugged
+                        </label>
                         {isSustainerMount && (
                           <label className="motor-inline-label" style={{ whiteSpace: 'nowrap' }}>
                             <input

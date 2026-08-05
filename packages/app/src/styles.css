@@ -9,6 +9,7 @@
   --series-2: #1baf7a; /* velocity */
   --series-3: #eda100; /* acceleration */
   --status-good: #008300;
+  --status-warn: #a06b00;
   --status-serious: #e34948;
   --border: #dedcd7;
   --hover: #eceae6;
@@ -45,6 +46,7 @@
   --series-2: #3cc492;
   --series-3: #f0b23c;
   --status-good: #4dbd4d;
+  --status-warn: #e0a53d;
   --status-serious: #f0716f;
   --border: #3b3934;
   --hover: #2b2a27;
@@ -544,6 +546,11 @@
 
 .stability-bad {
   color: var(--status-serious);
+}
+
+/* Caution (e.g. over-stable): worth a look, not a red-flag failure. */
+.stability-warn {
+  color: var(--status-warn);
 }
 
 /* --- Charts --- */
@@ -1708,6 +1715,7 @@ select.unit-chip:hover {
   --series-2: #00665c;
   --series-3: #8a5000;
   --status-good: #005c00;
+  --status-warn: #6b4a00;
   --status-serious: #b00016;
   --border: #000000;
   --hover: #d8d8d8;

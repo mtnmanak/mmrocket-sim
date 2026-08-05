@@ -58,6 +58,22 @@ export const SAFETY = {
   maxStaticMargin: 3.0,
 } as const;
 
+/**
+ * Tiered stability verdict — one rule for the design page, vitals strip and
+ * launch report (they used to disagree: design showed a green check with no
+ * upper bound while the report red-flagged the same rocket as over-stable).
+ * Under-stability is the DANGEROUS case (red); over-stability mostly means
+ * weathercocking in wind — a caution (yellow), not a failure. Thresholds are
+ * provisional pending the owner's call (response-2026-08-05a.md #4).
+ */
+export type StabilityState = 'ok' | 'under' | 'over';
+export function stabilityState(cal: number | null | undefined): StabilityState | null {
+  if (cal == null || !Number.isFinite(cal)) return null;
+  if (cal < SAFETY.minStaticMargin) return 'under';
+  if (cal > SAFETY.maxStaticMargin) return 'over';
+  return 'ok';
+}
+
 const FPS = 3.28084;
 const fps = (v: number) => `${(v * FPS).toFixed(0)} ft/s`;
 
@@ -165,6 +181,12 @@ export interface SimRun {
    * on the supersonic model). Absent on runs stored before v0.025.
    */
   aeroModel?: 'classic' | 'supersonic' | 'auto-supersonic';
+  /**
+   * Rogers Modified Barrowman (Kbf) was on for this run. Only meaningful for
+   * classic-model runs — the supersonic model contains the full NACA-1307
+   * interference and supersedes the option. Absent before v0.033.
+   */
+  rogersKbf?: boolean;
   comments: string;
 }
 
@@ -250,8 +272,9 @@ export function buildSimRun(input: {
   stageMotorInfo?: Record<string, { label: string; highPower: boolean }>;
   boosterMotors?: string[];
   aeroModel?: 'classic' | 'supersonic' | 'auto-supersonic';
+  rogersKbf?: boolean;
 }): SimRun {
-  const { result, info, motor, meta, launch, rocketName, execMs, stageMotorInfo, boosterMotors, aeroModel } = input;
+  const { result, info, motor, meta, launch, rocketName, execMs, stageMotorInfo, boosterMotors, aeroModel, rogersKbf } = input;
   const { summary, series } = result;
 
   const tRod = eventTime(result, 'LAUNCHROD');
@@ -377,7 +400,13 @@ export function buildSimRun(input: {
       ? `Static margin ${launchStaticMarginCal.toFixed(2)} cal — under-stable.`
       : `Static margin ${launchStaticMarginCal.toFixed(2)} cal — over-stable (weathercocks readily).`);
   }
-  if (optimumDelayS !== null && Number.isFinite(optimumDelayS)
+  if (!Number.isFinite(motor.ejectionDelay)) {
+    // Plugged motor: no charge to compare against the optimum — instead note
+    // the optimum for anyone flying this motor WITH eject another day.
+    comments.push(optimumDelayS !== null && Number.isFinite(optimumDelayS)
+      ? `Plugged motor (no ejection charge) — recovery must deploy on apogee/altitude electronics. If flown with motor eject instead, the optimal delay is ${optimumDelayS.toFixed(1)}s.`
+      : 'Plugged motor (no ejection charge) — recovery must deploy on apogee/altitude electronics.');
+  } else if (optimumDelayS !== null && Number.isFinite(optimumDelayS)
       && Math.abs(motor.ejectionDelay - optimumDelayS) > 1.5) {
     comments.push(`Flown delay ${motor.ejectionDelay}s vs optimal ${optimumDelayS.toFixed(1)}s.`);
   }
@@ -444,6 +473,7 @@ export function buildSimRun(input: {
     windAvg: launch.windAverage,
     execMs,
     aeroModel,
+    ...(rogersKbf !== undefined ? { rogersKbf } : {}),
     comments: comments.join(' | '),
   };
 }

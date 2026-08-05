@@ -164,7 +164,10 @@ export function BatchSimulate({ rocket, info, mountId, mountDiameterMm, maxMotor
       // Yield to the browser so the progress bar paints between sims.
       await new Promise((r) => setTimeout(r, 0));
       try {
-        const opts = delayOptions(entry);
+        // Batch flies each motor's longest PRESCRIBED delay provisionally,
+        // then re-flies at the recommended optimum — never plugged (Infinity),
+        // which would turn the comparison flight ballistic.
+        const opts = delayOptions(entry).filter((d) => Number.isFinite(d));
         const provisional = opts[opts.length - 1] ?? 0;
         const spec = await fetchMotorSpec(entry, provisional);
         const t0 = performance.now();
@@ -226,7 +229,7 @@ export function BatchSimulate({ rocket, info, mountId, mountDiameterMm, maxMotor
 
   const downloadCsv = () => {
     const runsOnly = sorted.filter((r) => r.run).map((r) => r.run!);
-    const blob = new Blob([runsToCsv(runsOnly)], { type: 'text/csv' });
+    const blob = new Blob([runsToCsv(runsOnly, prefs.units)], { type: 'text/csv' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = `batch-${rocketName.replace(/[^\w-]+/g, '_')}.csv`;
@@ -352,7 +355,7 @@ export function BatchSimulate({ rocket, info, mountId, mountDiameterMm, maxMotor
                 {sorted.map(({ entry, run, error, failed }) => (
                   <tr key={entry.motorId} className={failed.length ? 'motor-row-long' : ''}>
                     <td>{entry.manufacturerAbbrev} {displayDesignation(entry.designation, entry.manufacturerAbbrev)}</td>
-                    <td>{run ? `${run.delayS}s` : '—'}</td>
+                    <td>{run ? (Number.isFinite(run.delayS) ? `${run.delayS}s` : 'P') : '—'}</td>
                     <td>{run ? fmtSi('distance', dist, run.maxAltitude) : '—'}</td>
                     <td>{run?.rodExitVelocity != null ? fmtSi('velocity', vel, run.rodExitVelocity) : '—'}</td>
                     <td>{run?.thrustToWeightAtRod != null ? run.thrustToWeightAtRod.toFixed(1) : '—'}</td>

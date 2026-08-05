@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.032';
+export const APP_VERSION = '0.033';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,29 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.033',
+    date: '2026-08-05',
+    title: 'Beta issue batch: descent rates, plugged motors, aft view, and 15 more',
+    items: [
+      'FIXED: parachute presets now apply their manufacturer-rated drag coefficient. Every preset that carries one (230 of 459, including all Fruity Chutes Iris Ultra at Cd 2.2) was silently simulated at the generic 0.8 — descent rates for those chutes were up to 1.66× too fast. Our IFC-144-S test case now lands within ~2% of Fruity Chutes\' own calculator. Still: always confirm against the manufacturer\'s guidance before flying.',
+      'Motor delays now offer "Plugged — no ejection charge" on every motor (for electronics deployment, or factory -P motors), plus a plugged checkbox on the mount. Plugged flights show "-P" labels, warn that recovery must fire on apogee/altitude electronics, and still report the optimal delay for flying that motor with motor eject another day.',
+      'New Aft view (Design tab: 2D / 3D / Aft) — the rocket from behind: cluster layouts, pod rings, fin counts and motor sizes as they really sit. The Motors & Launch tab shows it automatically beside the schematic while you adjust a cluster\'s layout, rotation and spacing.',
+      'RASAero .CDX1 exports open in RASAero II again — our simulation block was missing 17 fields RASAero\'s loader reads unconditionally (the "Object reference not set" crash), and an empty engine tag added a second crash path. Also removed a stray fin field and matched RASAero\'s own recovery-block field order.',
+      'RockSim fixes: mass components export their real (override) mass instead of the 10 g default (this was skewing CG in exported files); cluster mounts import as one tagged cluster again with layout, spacing and rotation recovered (they used to arrive as separate centerline tubes); tube fins now import their wall thickness.',
+      'Tube fins now DRAW — side silhouettes in 2D, the full ring of tubes in 3D and the Aft view. They simulated correctly all along; they were just invisible.',
+      'Couplers (and nose/transition shoulders) overhanging into the NEXT tube are now visible — e-bay couplers under a switch band used to show only their forward half.',
+      'Over-stability is now a yellow caution (△), not a red failure, and the design page, vitals strip and launch report finally agree: ⚠ red below 1.0 cal, ✓ green 1.0–3.0, △ yellow above 3.0 (it mostly means weathercocking in wind). Thresholds are provisional — see the response doc.',
+      'Saved simulations show which ROCKET flew them (new column + launch-report title) — no more guessing which sim belonged to which design.',
+      'Recovery weight (mass at burnout) now appears in the launch report details, not just the CSV.',
+      'The simulations CSV\'s detail columns now follow your unit preferences (headers say the unit); the 14 flight-day lead columns stay in the fixed ft/mph/Gs/g comparison format.',
+      'CP, CG, lengths and diameters read out to 3 decimal places everywhere.',
+      'Real component cut/copy/paste: ⎘ copy or ✂ cut any component from the tree, then "Paste into …" buttons appear for every legal destination — build one centering ring, paste it everywhere.',
+      'Undo moved into the header so it\'s visible on every tab (Ctrl+Z always worked; nothing said so outside the Design tab).',
+      'Inner components are now visually distinct in the 2D view: parachutes, streamers, shock cords, mass items, centering rings, bulkheads and engine blocks each get their own outline color and a small label at readable sizes.',
+      'The import/export notification now clears when you start a new design; the header tagline now names the aero model actually in use; the Rogers Kbf preference is greyed out (with the reason) when the supersonic model supersedes it, and each saved run records whether Kbf was on.',
+    ],
+  },
   {
     version: '0.032',
     date: '2026-08-04',

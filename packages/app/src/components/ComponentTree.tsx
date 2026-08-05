@@ -13,7 +13,7 @@ const TYPE_ICON: Partial<Record<ComponentType, string>> = {
   parachute: '☂', streamer: '≋', shockcord: '〜', masscomponent: '◆',
 };
 
-function NodeRow({ node, depth, selectedId, soleStageId, onSelect, onMove, onDelete, onDuplicate }: {
+function NodeRow({ node, depth, selectedId, soleStageId, onSelect, onMove, onDelete, onDuplicate, onCopy, onCut }: {
   node: ComponentNode;
   depth: number;
   selectedId: string | null;
@@ -23,6 +23,8 @@ function NodeRow({ node, depth, selectedId, soleStageId, onSelect, onMove, onDel
   onMove: (id: string, dir: -1 | 1) => void;
   onDelete: (id: string) => void;
   onDuplicate: (id: string) => void;
+  onCopy: (id: string) => void;
+  onCut: (id: string) => void;
 }) {
   const selected = node.id === selectedId;
   return (
@@ -41,6 +43,12 @@ function NodeRow({ node, depth, selectedId, soleStageId, onSelect, onMove, onDel
             <button title="Move up" onClick={() => onMove(node.id!, -1)}>↑</button>
             <button title="Move down" onClick={() => onMove(node.id!, 1)}>↓</button>
             <button title="Duplicate (deep copy)" onClick={() => onDuplicate(node.id!)}>⧉</button>
+            {node.type !== 'stage' && (
+              <>
+                <button title="Copy — then paste into another component" onClick={() => onCopy(node.id!)}>⎘</button>
+                <button title="Cut — then paste into another component" onClick={() => onCut(node.id!)}>✂</button>
+              </>
+            )}
             {node.id !== soleStageId && (
               <button title="Delete" onClick={() => onDelete(node.id!)}>✕</button>
             )}
@@ -49,13 +57,17 @@ function NodeRow({ node, depth, selectedId, soleStageId, onSelect, onMove, onDel
       </div>
       {(node.children ?? []).map((c) => (
         <NodeRow key={c.id} node={c} depth={depth + 1} selectedId={selectedId} soleStageId={soleStageId}
-          onSelect={onSelect} onMove={onMove} onDelete={onDelete} onDuplicate={onDuplicate} />
+          onSelect={onSelect} onMove={onMove} onDelete={onDelete} onDuplicate={onDuplicate}
+          onCopy={onCopy} onCut={onCut} />
       ))}
     </>
   );
 }
 
-export function ComponentTree({ tree, selectedId, onSelect, onMove, onDelete, onDuplicate, onAdd, onAddStage }: {
+export function ComponentTree({
+  tree, selectedId, onSelect, onMove, onDelete, onDuplicate, onAdd, onAddStage,
+  clipboard, onCopy, onCut, onPaste,
+}: {
   tree: RocketTree;
   selectedId: string | null;
   onSelect: (id: string) => void;
@@ -65,6 +77,12 @@ export function ComponentTree({ tree, selectedId, onSelect, onMove, onDelete, on
   onAdd: (parentId: string | 'stage', type: ComponentType) => void;
   /** Appends a booster stage below the existing ones. */
   onAddStage: () => void;
+  /** Copied/cut component awaiting paste (null = empty clipboard). */
+  clipboard: ComponentNode | null;
+  onCopy: (id: string) => void;
+  onCut: (id: string) => void;
+  /** Pastes the clipboard as a child of the given parent. */
+  onPaste: (parentId: string) => void;
 }) {
   // Which add menu is open, keyed by the target parent's id ('stage' = first stage).
   const [addOpen, setAddOpen] = useState<string | null>(null);
@@ -143,7 +161,8 @@ export function ComponentTree({ tree, selectedId, onSelect, onMove, onDelete, on
         {tree.components.map((n) => (
           <NodeRow key={n.id} node={n} depth={1} selectedId={selectedId}
             soleStageId={tree.components.length === 1 ? tree.components[0]!.id ?? null : null}
-            onSelect={onSelect} onMove={onMove} onDelete={onDelete} onDuplicate={onDuplicate} />
+            onSelect={onSelect} onMove={onMove} onDelete={onDelete} onDuplicate={onDuplicate}
+            onCopy={onCopy} onCut={onCut} />
         ))}
       </div>
 
@@ -158,7 +177,24 @@ export function ComponentTree({ tree, selectedId, onSelect, onMove, onDelete, on
           onClick={() => { setAddOpen(null); onAddStage(); }}>
           + Add stage
         </button>
+        {/* Paste appears only where the clipboard's type is a legal child —
+            real cut/copy/paste across parents (issue 2026-08-05a #19). */}
+        {clipboard && targets
+          .filter((t) => t.id !== 'stage' && t.types.includes(clipboard.type))
+          .map((t) => (
+            <button key={`paste-${t.id}`} className="file-btn"
+              title={`Paste ${clipboard.name ?? DISPLAY_NAME[clipboard.type]} into ${t.label}`}
+              onClick={() => { setAddOpen(null); onPaste(t.id as string); }}>
+              ⎗ Paste into {t.label}
+            </button>
+          ))}
       </div>
+      {clipboard && (
+        <p className="comp-stats" style={{ margin: '6px 0 0' }}>
+          Clipboard: {TYPE_ICON[clipboard.type] ?? '·'} {clipboard.name ?? DISPLAY_NAME[clipboard.type]}
+          {' '}— select a destination component, then Paste.
+        </p>
+      )}
       {(() => {
         const open = targets.find((t) => t.id === addOpen);
         return open ? menu(open.types, open.id) : null;

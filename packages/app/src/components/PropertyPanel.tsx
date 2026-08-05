@@ -211,14 +211,14 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll }: {
       <h2>{DISPLAY_NAME[node.type]}</h2>
       {info && (
         <p className="comp-stats">
-          this component: {fmtSi('length', lengthSym, info.length)} {lengthSym}
+          this component: {fmtSi('length', lengthSym, info.length, 3)} {lengthSym}
           {' · '}{fmtSi('mass', massSym, info.mass)} {massSym}
           {node.type.endsWith('finset') ? ' (all fins)' : ''}
           {info.sectionMass > info.mass + 1e-9 && (
             <> · {fmtSi('mass', massSym, info.sectionMass)} {massSym} with children</>
           )}
-          {' · '}CG {fmtSi('length', lengthSym, info.cgX)} {lengthSym} from its front
-          {' · '}starts {fmtSi('length', lengthSym, info.positionX)} {lengthSym} from nose
+          {' · '}CG {fmtSi('length', lengthSym, info.cgX, 3)} {lengthSym} from its front
+          {' · '}starts {fmtSi('length', lengthSym, info.positionX, 3)} {lengthSym} from nose
         </p>
       )}
       <div className="field">
@@ -487,7 +487,7 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll }: {
               step={niceStep(siToUi('length', lengthSym, 0.001))}
               allowNegative
               nullable
-              placeholder={info ? fmtSi('length', lengthSym, info.cgX) : undefined}
+              placeholder={info ? fmtSi('length', lengthSym, info.cgX, 3) : undefined}
               onCommit={(v) => onPatch({
                 overrideCGX: v === null ? undefined : lenFromUi(v),
               })}

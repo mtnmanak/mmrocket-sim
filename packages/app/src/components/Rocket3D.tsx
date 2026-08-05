@@ -7,6 +7,7 @@ import {
   assemblyBoundingRadius, assemblyChainLength, isAssembly,
   resolveAssemblyRadius, ringInstanceOffsets,
 } from '../tree/assembly.js';
+import { tubeFinRadius } from '../tree/tubefins.js';
 
 /**
  * 3D rocket view (react-three-fiber). Geometry is generated from the
@@ -149,6 +150,31 @@ export function buildPieces(tree: RocketTree): { pieces: Piece[]; totalLen: numb
     for (const child of parent.children ?? []) {
       if (child.type === 'trapezoidfinset' || child.type === 'ellipticalfinset' || child.type === 'freeformfinset') {
         addFins(child, pStart, pLen, pRadius, xform);
+      } else if (child.type === 'tubefinset') {
+        // Ring of open tubes around the body, each tangent to the surface.
+        const count = Math.max(1, Math.round(num(child, 'finCount', 6)));
+        const len = num(child, 'length', 0.1);
+        const rt = tubeFinRadius(child, pRadius);
+        const wall = Math.min(num(child, 'thickness', 0.0005), rt * 0.45);
+        const start = axialStart(child, len, pStart, pLen);
+        maxR = Math.max(maxR, pRadius + 2 * rt);
+        for (let i = 0; i < count; i++) {
+          const angle = (2 * Math.PI * i) / count;
+          // Open tube: an annulus extruded along the body axis.
+          const ring = new THREE.Shape();
+          ring.absarc(0, 0, rt, 0, 2 * Math.PI, false);
+          const bore = new THREE.Path();
+          bore.absarc(0, 0, Math.max(rt - wall, rt * 0.55), 0, 2 * Math.PI, true);
+          ring.holes.push(bore);
+          const geo = new THREE.ExtrudeGeometry(ring, { depth: len, bevelEnabled: false, curveSegments: 24 });
+          // Extrude runs along +Z; rotate so the tube runs along +X (body axis),
+          // then lift to the surface (+Y) and spin about X for the ring position.
+          geo.rotateY(Math.PI / 2);
+          geo.translate(start, pRadius + rt, 0);
+          geo.applyMatrix4(new THREE.Matrix4().makeRotationX(angle));
+          if (xform) geo.applyMatrix4(xform);
+          pieces.push({ key: `tubefin${k++}`, geometry: geo, color: nodeColor(child, MAT.fin) });
+        }
       } else if (child.type === 'launchlug') {
         const len = num(child, 'length', 0.05);
         const r = num(child, 'outerRadius', 0.0022);

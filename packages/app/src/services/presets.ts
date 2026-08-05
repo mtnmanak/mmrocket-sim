@@ -126,8 +126,13 @@ export function presetPatch(type: ComponentType, p: Preset): Partial<ComponentNo
       set('outerRadius', half(out));
       if (out !== undefined && inn !== undefined) set('thickness', (out - inn) / 2);
       break;
-    case 'parachute':
+    case 'parachute': {
       set('diameter', n(p, 'diameter'));
+      // Manufacturer-rated canopy Cd (referenced to the nominal diameter).
+      // Dropping this silently falls back to the kernel default 0.8 — a
+      // Fruity Chutes Iris Ultra (Cd 2.2) then descends 1.66× too fast.
+      const cd = n(p, 'dragCoefficient');
+      if (cd !== undefined && cd > 0) set('cd', cd);
       set('lineCount', n(p, 'lineCount'));
       set('lineLength', n(p, 'lineLength'));
       if (p.material?.type === 'SURFACE') {
@@ -139,14 +144,18 @@ export function presetPatch(type: ComponentType, p: Preset): Partial<ComponentNo
         set('lineDensity', p.lineMaterial.density);
       }
       break;
-    case 'streamer':
+    }
+    case 'streamer': {
       set('stripLength', n(p, 'length'));
       set('stripWidth', n(p, 'width'));
+      const scd = n(p, 'dragCoefficient');
+      if (scd !== undefined && scd > 0) set('cd', scd);
       if (p.material?.type === 'SURFACE') {
         set('surfaceMaterialName', p.material.name);
         set('surfaceDensity', p.material.density);
       }
       break;
+    }
   }
   return patch;
 }
@@ -158,7 +167,8 @@ const CSV_COLS = [
   'materialDensity', 'mass', 'length', 'outsideDiameter', 'insideDiameter', 'shape',
   'filled', 'shoulderDiameter', 'shoulderLength', 'thickness', 'foreOutsideDiameter',
   'aftOutsideDiameter', 'foreShoulderDiameter', 'foreShoulderLength',
-  'aftShoulderDiameter', 'aftShoulderLength', 'diameter', 'lineCount', 'lineLength', 'width',
+  'aftShoulderDiameter', 'aftShoulderLength', 'diameter', 'dragCoefficient',
+  'lineCount', 'lineLength', 'width',
   'lineMaterialName', 'lineMaterialDensity',
 ];
 

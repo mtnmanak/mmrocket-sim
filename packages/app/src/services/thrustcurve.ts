@@ -61,14 +61,29 @@ export async function searchMotors(query: MotorSearchQuery): Promise<TcMotor[]> 
   return body.results ?? [];
 }
 
-/** Delay options parsed from the motor's delays string ("0,3,5" → [0,3,5]). */
+/**
+ * Delay options parsed from the motor's delays string ("0,3,5" → [0,3,5]).
+ * "P" (plugged — no ejection charge) becomes Infinity, always listed last;
+ * 623 motors in the bundled DB carry it and it used to be silently dropped
+ * (a "P"-only motor even showed a bogus 0 s delay).
+ */
 export function delayOptions(motor: TcMotor): number[] {
   if (!motor.delays) return [0];
-  const opts = motor.delays
-    .split(',')
-    .map((s) => Number(s.trim()))
-    .filter((n) => Number.isFinite(n));
+  const opts: number[] = [];
+  let plugged = false;
+  for (const raw of motor.delays.split(',')) {
+    const s = raw.trim().toUpperCase();
+    if (s === 'P' || s === 'PLUGGED') { plugged = true; continue; }
+    const n = Number(s);
+    if (Number.isFinite(n)) opts.push(n);
+  }
+  if (plugged) opts.push(Infinity);
   return opts.length ? opts : [0];
+}
+
+/** Display tag for a delay value: "5" / "P" (plugged). */
+export function delayTag(delay: number): string {
+  return Number.isFinite(delay) ? String(delay) : 'P';
 }
 
 /**

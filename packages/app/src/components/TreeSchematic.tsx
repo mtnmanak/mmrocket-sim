@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import type { ComponentNode, ComponentPosition, RocketTree, StaticInfo } from '@online-openrocket/engine';
 import { anchorStarts, axialLength, offsetForStart, snapStart, startFromPosition } from '../tree/position.js';
 import { clusterOffsets } from '../tree/cluster.js';
+import { tubeFinRadius } from '../tree/tubefins.js';
+import { DISPLAY_NAME } from '../tree/schema.js';
 import {
   assemblyBoundingRadius, assemblyChainLength, isAssembly,
   resolveAssemblyRadius, ringInstanceOffsets,
@@ -98,6 +100,8 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
         return Math.max(0, ...pts.map((p) => (Array.isArray(p) ? Number(p[1]) || 0 : 0)));
       }
     }
+    // Tube fins reach one tube diameter above the body surface.
+    if (n.type === 'tubefinset') return 2 * tubeFinRadius(n, maxR);
     return num(n, 'height', 0.03);
   };
   const finH = Math.max(0, ...collect(tree.components, finSpan));
@@ -233,6 +237,11 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
 
   // --- render chain + children ---
   const shapes: React.ReactNode[] = [];
+  // Dashed "shadow" shapes (inner components, shoulders) paint AFTER the whole
+  // hull: SVG stacks by document order, so a coupler overhanging into the NEXT
+  // tube used to vanish under that tube's opaque fill (while the overhang into
+  // the PREVIOUS tube, already painted, stayed visible — the owner's ebay report).
+  const overlay: React.ReactNode[] = [];
   let key = 0;
 
   const renderChildren = (parent: ComponentNode, pStart: number, pLen: number, pRadius: number, baseY: number) => {
@@ -315,6 +324,28 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
           );
         }
         renderTab(start, root);
+      } else if (t === 'tubefinset') {
+        // Side view: the top and bottom tubes of the ring, sitting on the
+        // body surface (side tubes project onto the body — omitted). Each
+        // is drawn as its silhouette rectangle with a center line hinting
+        // at the tube bore.
+        const len = num(child, 'length', 0.1);
+        const rt = tubeFinRadius(child, pRadius);
+        const start = axialStart(child, len, pStart, pLen);
+        const X = ctx.x0 + start * ctx.scale;
+        for (const dir of [1, -1] as const) {
+          const yNear = baseY + dir * pRadius * ctx.scale;
+          const yFar = baseY + dir * (pRadius + 2 * rt) * ctx.scale;
+          shapes.push(
+            <rect key={key++} x={X} y={Math.min(yNear, yFar)}
+              width={Math.max(2, len * ctx.scale)} height={Math.abs(yFar - yNear)}
+              rx="2" fill={fillOf(child, '#c8c5be')} fillOpacity="0.6"
+              stroke="#7a786f" strokeWidth="1" {...grab} />,
+            <line key={key++} x1={X} y1={(yNear + yFar) / 2} x2={X + len * ctx.scale} y2={(yNear + yFar) / 2}
+              stroke="#7a786f" strokeWidth="0.8" strokeDasharray="4 3"
+              style={{ pointerEvents: 'none' }} />,
+          );
+        }
       } else if (t === 'launchlug' || t === 'railbutton') {
         // Rail buttons are edited via 'outerDiameter' (their only size field)
         // and have no axial 'length' — a button is about as long as it is wide.
@@ -331,6 +362,20 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
       } else {
         // Internal component: dashed outline inside the parent. A clustered
         // inner tube draws once per cluster position (side-view projection).
+        // Per-type stroke color + a small tag differentiate what used to be
+        // identical grey boxes (issue 2026-08-05a #21) — tubes/couplers stay
+        // neutral (they really are tube segments), payload-type parts get
+        // muted colors from the theme-safe midrange.
+        const TYPE_STYLE: Partial<Record<string, { stroke: string; tag: string }>> = {
+          parachute: { stroke: '#b06a35', tag: 'chute' },
+          streamer: { stroke: '#a08c2e', tag: 'strmr' },
+          shockcord: { stroke: '#8f7a8d', tag: 'cord' },
+          masscomponent: { stroke: '#a85f5c', tag: 'mass' },
+          centeringring: { stroke: '#6f8a5c', tag: 'CR' },
+          bulkhead: { stroke: '#66748c', tag: 'BH' },
+          engineblock: { stroke: '#7d7050', tag: 'EB' },
+        };
+        const style = TYPE_STYLE[child.type];
         const len = num(child, 'length', num(child, 'packedLength', 0.025));
         const r = Math.min(
           pRadius * 0.85,
@@ -349,17 +394,33 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
         // flush against the mount's aft end (how motors actually load).
         const motor = child.type === 'innertube' && child.id ? motors?.[child.id] : undefined;
         for (const off of offsets) {
-          shapes.push(
+          overlay.push(
             <rect key={key++} x={ctx.x0 + start * ctx.scale}
               y={baseY + (off.y - r) * ctx.scale}
               width={Math.max(2, len * ctx.scale)} height={2 * r * ctx.scale}
-              fill="rgba(127,127,127,0.001)" stroke={fillOf(child, '#9a978f')} strokeWidth="1"
-              strokeDasharray="3 2" {...grab} />,
+              fill="rgba(127,127,127,0.001)"
+              stroke={fillOf(child, style?.stroke ?? '#9a978f')} strokeWidth="1"
+              strokeDasharray="3 2" {...grab}>
+              <title>{child.name ?? DISPLAY_NAME[child.type]}</title>
+            </rect>,
           );
+          // Type tag, when the box has room for it.
+          if (style && len * ctx.scale > 26 && 2 * r * ctx.scale > 11) {
+            overlay.push(
+              <text key={key++}
+                x={ctx.x0 + (start + len / 2) * ctx.scale}
+                y={baseY + off.y * ctx.scale}
+                textAnchor="middle" dominantBaseline="central"
+                fontSize="8.5" fill={fillOf(child, style.stroke)}
+                style={{ pointerEvents: 'none', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                {style.tag}
+              </text>,
+            );
+          }
           if (motor) {
             const mR = motor.diameter / 2;
             const mStart = start + len - motor.length + num(child, 'motorOverhang', 0);
-            shapes.push(
+            overlay.push(
               <rect key={key++} x={ctx.x0 + mStart * ctx.scale}
                 y={baseY + (off.y - mR) * ctx.scale}
                 width={Math.max(2, motor.length * ctx.scale)} height={Math.max(2, 2 * mR * ctx.scale)}
@@ -374,10 +435,12 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
     }
   };
 
-  // Dashed outline for a shoulder sliding inside the adjacent tube.
+  // Dashed outline for a shoulder sliding inside the adjacent tube. Painted in
+  // the overlay pass — an aft shoulder lives inside the NEXT tube, which is
+  // drawn later and would otherwise cover it.
   const shoulderRect = (startX: number, lenSi: number, rSi: number, color: string, baseY: number) => {
     if (lenSi <= 0 || rSi <= 0) return;
-    shapes.push(
+    overlay.push(
       <rect key={key++} x={ctx.x0 + startX * scale} y={baseY - rSi * scale}
         width={Math.max(1.5, lenSi * scale)} height={2 * rSi * scale}
         fill="rgba(127,127,127,0.001)" stroke={color} strokeWidth="1"
@@ -455,6 +518,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
           onPointerMove={onMove} onPointerUp={endDrag} onPointerLeave={endDrag}>
         <g transform={`translate(${zoom.x} ${zoom.y}) scale(${zoom.k})`}>
           {shapes}
+          {overlay}
           {cgX !== null && (
             <g>
               <circle cx={cgX} cy={ctx.cy} r={markerR} fill="var(--surface-1)" stroke="var(--text-primary)" strokeWidth="1.5" />

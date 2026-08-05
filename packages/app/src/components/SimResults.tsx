@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { fmtSi } from '../prefs/units.js';
 import { UnitChip } from './UnitChip.js';
-import type { SimRun } from '../services/simReport.js';
+import { stabilityState, type SimRun } from '../services/simReport.js';
 import { clearRuns, deleteRun, runsToCsv } from '../services/simStore.js';
 
 /**
@@ -10,17 +10,19 @@ import { clearRuns, deleteRun, runsToCsv } from '../services/simStore.js';
  * workflow) + the stored-run history with CSV export for motor comparison.
  */
 
-function Row({ label, value, quantity, unit, bad }: {
+function Row({ label, value, quantity, unit, bad, warn }: {
   label: string;
   value: string;
   quantity?: Parameters<typeof UnitChip>[0]['quantity'];
   unit?: string;
   bad?: boolean;
+  /** Caution styling (yellow) — used when `bad` is false. */
+  warn?: boolean;
 }) {
   return (
     <tr>
       <td className="simdet-label">{label}</td>
-      <td className={bad ? 'stability-bad' : undefined}>
+      <td className={bad ? 'stability-bad' : warn ? 'stability-warn' : undefined}>
         {value}
         {quantity ? <> <UnitChip quantity={quantity} /></> : unit ? ` ${unit}` : ''}
       </td>
@@ -49,7 +51,10 @@ export function SimRunDetails({ run }: { run: SimRun }) {
   return (
     <div className="panel" style={{ marginTop: 10 }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-        <h2 style={{ flex: 1 }}>Launch report — {run.motor}{run.manufacturer ? ` (${run.manufacturer})` : ''}</h2>
+        <h2 style={{ flex: 1 }}>
+          Launch report — {run.rocket ? `${run.rocket} · ` : ''}{run.motor}
+          {run.manufacturer ? ` (${run.manufacturer})` : ''}
+        </h2>
         <button className="file-btn" onClick={() => setOpen(!open)}>
           {open ? 'Hide details' : 'Show all details'}
         </button>
@@ -60,7 +65,10 @@ export function SimRunDetails({ run }: { run: SimRun }) {
           {run.recommendedDelayS !== null && (
             <> · recommended (available) <strong>{run.recommendedDelayS} s</strong></>
           )}
-          {' '}· flown with <strong>{run.delayS} s</strong>
+          {' '}· flown with{' '}
+          <strong>
+            {Number.isFinite(run.delayS) ? `${run.delayS} s` : 'plugged (no ejection charge)'}
+          </strong>
         </p>
       )}
       {run.comments && <p className="simdet-comments">{run.comments}</p>}
@@ -178,7 +186,9 @@ export function SimRunDetails({ run }: { run: SimRun }) {
                 ? 'Supersonic (RASAero-class)'
                 : run.aeroModel === 'auto-supersonic'
                 ? `Supersonic (auto — flight exceeded Mach 0.9)`
-                : run.aeroModel === 'classic' ? 'Classic (Extended Barrowman)' : '—'} />
+                : run.aeroModel === 'classic'
+                ? `Classic (Extended Barrowman${run.rogersKbf ? ' + Rogers Kbf' : ''})`
+                : '—'} />
               <Row label="Execution time" value={`${Math.round(run.execMs)} ms`} />
             </tbody>
           </table>
@@ -191,12 +201,15 @@ export function SimRunDetails({ run }: { run: SimRun }) {
                 bad={run.safeThrustToWeight === false} />
               <Row label="Launch mass"
                 value={run.launchMass === null ? '—' : fmtSi('mass', mass, run.launchMass)} quantity="mass" />
+              <Row label="Recovery weight (at burnout)"
+                value={run.burnoutMass == null ? '—' : fmtSi('mass', mass, run.burnoutMass)} quantity="mass" />
               <Row label="Launch CG"
-                value={run.launchCG === null ? '—' : fmtSi('length', len, run.launchCG)} quantity="length" />
+                value={run.launchCG === null ? '—' : fmtSi('length', len, run.launchCG, 3)} quantity="length" />
               <Row label="Launch CP"
-                value={run.launchCP === null ? '—' : fmtSi('length', len, run.launchCP)} quantity="length" />
+                value={run.launchCP === null ? '—' : fmtSi('length', len, run.launchCP, 3)} quantity="length" />
               <Row label="Launch static margin" value={s(run.launchStaticMarginCal)} unit="cal"
-                bad={run.staticMarginOk === false} />
+                bad={stabilityState(run.launchStaticMarginCal) === 'under'}
+                warn={stabilityState(run.launchStaticMarginCal) === 'over'} />
               {(run.deployments ?? []).length === 0 && (
                 <>
                   <Row label="Altitude at deployment"
@@ -222,7 +235,16 @@ export function SimRunDetails({ run }: { run: SimRun }) {
               <Row label="Thrust : weight OK" {...(() => { const v = verdict(run.safeThrustToWeight); return { value: v.text, bad: v.bad }; })()} />
               <Row label="Safe deployment" {...(() => { const v = verdict(run.safeDeployment); return { value: v.text, bad: v.bad }; })()} />
               <Row label="Landing rate OK (≤ 20 ft/s)" {...(() => { const v = verdict(run.safeLandingRate ?? null); return { value: v.text, bad: v.bad }; })()} />
-              <Row label="Static margin OK" {...(() => { const v = verdict(run.staticMarginOk); return { value: v.text, bad: v.bad }; })()} />
+              <Row label="Static margin" {...(() => {
+                // Tiered: under-stable is the red failure; over-stable is a
+                // yellow caution (weathercocks in wind), matching the design
+                // page (issue 2026-08-05a #4/#6).
+                const st = stabilityState(run.launchStaticMarginCal);
+                return st === null ? { value: '—' }
+                  : st === 'under' ? { value: '⚠ under-stable', bad: true }
+                  : st === 'over' ? { value: '△ over-stable (caution)', warn: true }
+                  : { value: '✓ ok' };
+              })()} />
               <Row label="Weathercocking" value={run.weathercockRisk ?? '—'}
                 bad={run.weathercockRisk === 'high'} />
               <Row label="Wind average" value={fmtSi('windspeed', prefs.units.windspeed, run.windAvg)} quantity="windspeed" />
@@ -254,7 +276,7 @@ export function SimHistory({ runs, onRunsChange, onSelect, selectedId }: {
   if (runs.length === 0) return null;
 
   const downloadCsv = () => {
-    const blob = new Blob([runsToCsv(runs)], { type: 'text/csv' });
+    const blob = new Blob([runsToCsv(runs, prefs.units)], { type: 'text/csv' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = 'simulations.csv';
@@ -275,6 +297,7 @@ export function SimHistory({ runs, onRunsChange, onSelect, selectedId }: {
           <table className="motor-table">
             <thead>
               <tr>
+                <th>Rocket</th>
                 <th>Motor</th>
                 <th>Delay</th>
                 <th>Apogee (<UnitChip quantity="distance" />)</th>
@@ -288,10 +311,14 @@ export function SimHistory({ runs, onRunsChange, onSelect, selectedId }: {
             </thead>
             <tbody>
               {runs.map((r) => {
+                // Over-stability is a caution (△), not a failure — only real
+                // failures paint the row's Safe cell red.
                 const unsafe = r.safeLiftoffSpeed === false || r.safeDeployment === false
-                  || r.staticMarginOk === false || r.safeThrustToWeight === false
+                  || stabilityState(r.launchStaticMarginCal) === 'under'
+                  || r.safeThrustToWeight === false
                   || r.safeLandingRate === false
                   || (r.deployments ?? []).some((d) => d.descentOk === false);
+                const caution = !unsafe && stabilityState(r.launchStaticMarginCal) === 'over';
                 return (
                   <tr
                     key={r.id}
@@ -299,13 +326,16 @@ export function SimHistory({ runs, onRunsChange, onSelect, selectedId }: {
                     title="Click to open this run in the launch report"
                     onClick={() => onSelect?.(r)}
                   >
-                    <td title={r.rocket}>{r.manufacturer ? `${r.manufacturer} ` : ''}{r.motor}</td>
-                    <td>{r.delayS}s</td>
+                    <td>{r.rocket || '—'}</td>
+                    <td>{r.manufacturer ? `${r.manufacturer} ` : ''}{r.motor}</td>
+                    <td>{Number.isFinite(r.delayS) ? `${r.delayS}s` : 'P'}</td>
                     <td>{fmtSi('distance', dist, r.maxAltitude)}</td>
                     <td>{fmtSi('velocity', vel, r.maxVelocity)}</td>
                     <td>{r.optimumDelayS === null ? '—' : `${r.optimumDelayS.toFixed(1)}s`}</td>
                     <td>{r.rodExitVelocity === null ? '—' : fmtSi('velocity', vel, r.rodExitVelocity)}</td>
-                    <td className={unsafe ? 'stability-bad' : 'stability-good'}>{unsafe ? '⚠' : '✓'}</td>
+                    <td className={unsafe ? 'stability-bad' : caution ? 'stability-warn' : 'stability-good'}>
+                      {unsafe ? '⚠' : caution ? '△' : '✓'}
+                    </td>
                     <td>{new Date(r.when).toLocaleTimeString()}</td>
                     <td>
                       <button className="fin-row-del" title="Delete run"

@@ -182,9 +182,84 @@ describe('RockSim export → import round trip', () => {
     };
     const xml = exportRkt(clustered);
     expect((xml.match(/<IsInsideTube>1<\/IsInsideTube>/g) ?? []).length).toBe(3);
+    // Import reconstructs the fanned-out tubes into ONE tagged cluster
+    // (issue 2026-08-05a #16: they used to come back as 3 separate tubes).
     const back = importRkt(xml);
     const tubes = flatten(back.tree.components).filter((c) => c.type === 'innertube');
-    expect(tubes.length).toBe(3);
+    expect(tubes.length).toBe(1);
+    expect(tubes[0]!['cluster']).toBe('3-ring');
+    expect(tubes[0]!['clusterScale']).toBeCloseTo(1, 3);
+    expect(back.notes.join(' ')).toMatch(/cluster/i);
+  });
+
+  it('reconstructs a rotated, spaced cluster with its scale and rotation', () => {
+    const clustered = {
+      name: 'C2', tree: {
+        components: [{
+          type: 'stage' as const, id: 's', name: 'Sustainer',
+          children: [{
+            type: 'bodytube' as const, id: 'b', length: 0.3, outerRadius: 0.05, thickness: 0.001,
+            children: [{
+              type: 'innertube' as const, id: 'm', length: 0.07, outerRadius: 0.012,
+              thickness: 0.0005, motorMount: true, cluster: '4-ring',
+              clusterScale: 1.25, clusterRotation: Math.PI / 6,
+            }],
+          }],
+        }],
+      },
+    };
+    const back = importRkt(exportRkt(clustered));
+    const tube = flatten(back.tree.components).find((c) => c.type === 'innertube')!;
+    expect(tube['cluster']).toBe('4-ring');
+    expect(tube['clusterScale']).toBeCloseTo(1.25, 3);
+    // 4-ring has 90° symmetry — any equivalent rotation is fine.
+    const rot = ((tube['clusterRotation'] as number | undefined) ?? 0) % (Math.PI / 2);
+    const want = (Math.PI / 6) % (Math.PI / 2);
+    expect(Math.min(Math.abs(rot - want), Math.abs(Math.abs(rot - want) - Math.PI / 2))).toBeLessThan(0.01);
+  });
+
+  it('exports the OVERRIDE mass of a mass component, not the param default', () => {
+    const design = {
+      name: 'OV',
+      tree: {
+        components: [{
+          type: 'stage' as const, id: 's', name: 'Sustainer',
+          children: [{
+            type: 'bodytube' as const, id: 'b', length: 0.3, outerRadius: 0.012, thickness: 0.0005,
+            children: [{
+              // mass param at the 10 g default, override set to 250 g — the
+              // override is the real mass (issue 2026-08-05a #11).
+              type: 'masscomponent' as const, id: 'w', mass: 0.01, overrideMass: 0.25, length: 0.03,
+            }],
+          }],
+        }],
+      },
+    };
+    const xml = exportRkt(design);
+    expect(xml).toMatch(/<KnownMass>250<\/KnownMass>/);
+    expect(xml).not.toMatch(/<KnownMass>10<\/KnownMass>/);
+  });
+
+  it('round-trips tube fin wall thickness (OD/ID)', () => {
+    const design = {
+      name: 'TF',
+      tree: {
+        components: [{
+          type: 'stage' as const, id: 's', name: 'Sustainer',
+          children: [{
+            type: 'bodytube' as const, id: 'b', length: 0.3, outerRadius: 0.012, thickness: 0.0005,
+            children: [{
+              type: 'tubefinset' as const, id: 't', finCount: 6, length: 0.1,
+              outerRadius: 0.0093, thickness: 0.0004,
+            }],
+          }],
+        }],
+      },
+    };
+    const back = importRkt(exportRkt(design));
+    const tf = flatten(back.tree.components).find((c) => c.type === 'tubefinset')!;
+    expect(tf['outerRadius']).toBeCloseTo(0.0093, 9);
+    expect(tf['thickness']).toBeCloseTo(0.0004, 9);
   });
 
   it('round-trips a mass component (KnownMass must be emitted once)', () => {
