@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.033';
+export const APP_VERSION = '0.034';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,22 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.034',
+    date: '2026-08-05',
+    title: 'Camera shrouds, spill holes, custom result tiles — issue batch b',
+    items: [
+      'NEW: Camera shroud / fairing component (add it to any body tube) — the first hobby-sim shroud that actually computes CP shift AND drag. Length, width, height, three shapes (streamlined / half-round / box), as-built mass, color and finish. The physics: the side profile flies as a slender strake through the kernel\'s own low-aspect-ratio fin lift (the classic Jones model), drag uses Hoerner protuberance coefficients on the frontal area. Draws solid in 2D, 3D and the aft view; round-trips through .ork (desktop warns-and-skips); exports to RockSim as a mass object so CG survives.',
+      'NEW: parachute spill holes — a spill hole ⌀ field on every parachute, flown as the standard effective-area reduction (RockSim\'s treatment). RockSim files with spill holes now import and export them instead of dropping them.',
+      'The highlighted result tiles are now YOURS: a ⚙ button on the Results tab opens a picker with 14 metrics (recovery weight, thrust:weight, guide-departure velocity, drogue descent, pad weight, static margin, optimal delay and more). Your picks persist. The old "Descent hits" tile is now labeled honestly: Landing rate. Stored runs opened from the history show tiles too.',
+      'Rogers Modified Barrowman (Kbf) is now ON by default — it tracks real flight data better (the owner\'s testing). Turn it off in Preferences → Aerodynamics for exact desktop-OpenRocket parity; an explicit off stays off.',
+      'New tagline: "Design, simulate, fly — OpenRocket-derived physics, validated to Mach 4.6 against NASA wind-tunnel data."',
+      'The aft view zooms and pans: mouse wheel about the cursor, drag to pan, + / − / fit buttons.',
+      '2D view: parachutes, mass items, centering rings and shock cords now draw miniature GLYPHS (canopy, weight block, ring section, zigzag); bulkheads get an engineering hatch fill. Clicking any component in the drawing selects it in the tree, and the tree selection highlights it in the drawing (accent outline) — both directions.',
+      'RockSim export: a component with only ONE override (mass without CG, or CG without mass) now exports the calculated value for the other — RockSim couples them under one flag, so the missing half used to export as 0 and pin the CG to the component\'s front.',
+      'Overstability thresholds confirmed (red < 1.0 cal, green 1.0–3.0, yellow caution above 3.0).',
+    ],
+  },
   {
     version: '0.033',
     date: '2026-08-05',

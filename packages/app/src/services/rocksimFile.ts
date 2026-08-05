@@ -308,9 +308,8 @@ export function importRkt(data: ArrayBuffer | string): OrkTreeImportResult {
           n['lineCount'] = lines;
           n['lineLength'] = num(el, 'ShroudLineLen', 300) / LEN;
         }
-        if (num(el, 'SpillHoleDia', 0) > 0) {
-          notes.push('Parachute spill holes are not supported — ignored.');
-        }
+        const spill = num(el, 'SpillHoleDia', 0);
+        if (spill > 0) n['spillHoleDiameter'] = spill / LEN;
         return n;
       }
       case 'Streamer': {
@@ -534,9 +533,17 @@ export interface RktExportInput {
   name: string;
   tree: RocketTree;
   motors?: Record<string, OrkExportMotor>;
+  /**
+   * Per-component computed mass (kg, override-aware) and CG-from-front (m),
+   * keyed by node id — from the engine's componentInfo. RockSim couples mass
+   * and CG under ONE UseKnownCG flag, so a partial override (mass without CG,
+   * or CG without mass) must export the CALCULATED other value; without this
+   * map the un-overridden half exports as 0 (a real data error in RockSim).
+   */
+  compInfo?: Record<string, { mass: number; cgX: number }>;
 }
 
-export function exportRkt({ name, tree, motors }: RktExportInput): string {
+export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): string {
   const lines: string[] = [];
   const emit = (s: string) => lines.push(s);
   let serial = 0;
@@ -559,16 +566,25 @@ export function exportRkt({ name, tree, motors }: RktExportInput): string {
     // First write wins: cluster copies re-emit the same node — motor
     // references must point at the FIRST copy (the one carrying children).
     if (node.id && !nodeSerial.has(node.id)) nodeSerial.set(node.id, serial);
-    const override = typeof node['overrideMass'] === 'number' || typeof node['overrideCGX'] === 'number';
+    const hasMassOv = typeof node['overrideMass'] === 'number';
+    const hasCgOv = typeof node['overrideCGX'] === 'number';
+    const override = hasMassOv || hasCgOv;
+    const info = node.id ? compInfo?.[node.id] : undefined;
+    // Whenever UseKnownCG will be 1, BOTH values must be real: the overridden
+    // one verbatim, the other from the computed component info.
     const knownMass = opts?.knownMass
-      ?? (typeof node['overrideMass'] === 'number' ? (node['overrideMass'] as number) * MASS : 0);
+      ?? ((hasMassOv ? (node['overrideMass'] as number)
+        : override ? info?.mass ?? 0 : 0) * MASS);
     emit(`<KnownMass>${knownMass}</KnownMass>`);
     emit(`<Density>${nnum(node, 'density', 0)}</Density>`);
     emit('<DensityType>0</DensityType>');
     emit(`<Material>${esc(typeof node['materialName'] === 'string' ? (node['materialName'] as string) : 'custom')}</Material>`);
     emit(`<Name>${esc(node.name ?? dfltName)}</Name>`);
-    emit(`<KnownCG>${typeof node['overrideCGX'] === 'number' ? (node['overrideCGX'] as number) * LEN : 0}</KnownCG>`);
-    emit(`<UseKnownCG>${(opts?.useKnownCG ?? override) ? 1 : 0}</UseKnownCG>`);
+    const useKnown = opts?.useKnownCG ?? override;
+    const knownCG = hasCgOv ? (node['overrideCGX'] as number) * LEN
+      : useKnown ? (info?.cgX ?? 0) * LEN : 0;
+    emit(`<KnownCG>${knownCG}</KnownCG>`);
+    emit(`<UseKnownCG>${useKnown ? 1 : 0}</UseKnownCG>`);
     emit(`<FinishCode>${FINISH_TO_CODE(node['finish'])}</FinishCode>`);
     emit(`<SerialNo>${serial}</SerialNo>`);
     const pos = (node.position ?? { method: 'top', offset: 0 }) as ComponentPosition;
@@ -758,6 +774,7 @@ export function exportRkt({ name, tree, motors }: RktExportInput): string {
         emit(`<ShroudLineCount>${Math.round(nnum(node, 'lineCount', 6))}</ShroudLineCount>`);
         emit(`<ShroudLineLen>${nnum(node, 'lineLength', 0.3) * LEN}</ShroudLineLen>`);
         emit('<ChuteCount>1</ChuteCount>');
+        emit(`<SpillHoleDia>${nnum(node, 'spillHoleDiameter', 0) * LEN}</SpillHoleDia>`);
         emit('</Parachute>');
         break;
       }
@@ -775,6 +792,18 @@ export function exportRkt({ name, tree, motors }: RktExportInput): string {
         common(node, 'Shock cord');
         emit('<TypeCode>1</TypeCode>');
         emit(`<Len>${nnum(node, 'cordLength', 0.3) * LEN}</Len>`);
+        emit('</MassObject>');
+        break;
+      }
+      case 'fairing': {
+        // RockSim has no external-protuberance component — keep at least the
+        // MASS so CG survives the export (aero effect is lost, documented).
+        emit('<MassObject>');
+        common(node, `${node.name ?? 'Camera shroud'} (mass only)`, {
+          knownMass: nnum(node, 'mass', 0.03) * MASS, useKnownCG: true,
+        });
+        emit('<TypeCode>0</TypeCode>');
+        emit(`<Len>${nnum(node, 'length', 0.08) * LEN}</Len>`);
         emit('</MassObject>');
         break;
       }

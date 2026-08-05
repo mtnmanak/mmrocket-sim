@@ -28,6 +28,7 @@ export const DISPLAY_NAME: Record<ComponentType, string> = {
   streamer: 'Streamer',
   shockcord: 'Shock cord',
   masscomponent: 'Mass component',
+  fairing: 'Camera shroud / fairing',
   podset: 'Pod set',
   parallelstage: 'Booster (parallel stage)',
 };
@@ -37,6 +38,7 @@ const STAGE_CHILDREN: ComponentType[] = ['nosecone', 'bodytube', 'transition'];
 const INTERNAL: ComponentType[] = ['parachute', 'streamer', 'shockcord', 'masscomponent'];
 const BODY_CHILDREN: ComponentType[] = [
   'trapezoidfinset', 'ellipticalfinset', 'freeformfinset', 'tubefinset', 'launchlug', 'railbutton',
+  'fairing',
   'innertube', 'tubecoupler', 'centeringring', 'bulkhead', 'engineblock', ...INTERNAL,
 ];
 
@@ -335,6 +337,10 @@ export const FIELDS: Record<ComponentType, FieldDef[]> = {
   parachute: [
     lenMM('diameter', 'Canopy diameter', 10, 1500),
     CD,
+    // Spill hole: modeled as an area reduction — effective Cd scales by
+    // 1 − (hole ⌀ / canopy ⌀)², applied at the engine boundary (the kernel
+    // Parachute has no hole concept). RockSim SpillHoleDia round-trips.
+    lenMM('spillHoleDiameter', 'Spill hole ⌀ (0 = none)', 0, 500),
     { key: 'lineCount', label: 'Line count', unit: 'count', smin: 0, smax: 16 },
     lenMM('lineLength', 'Line length', 10, 1000),
     { key: 'deployEvent', label: 'Deploy at', unit: 'none', options: DEPLOY_EVENTS },
@@ -357,6 +363,25 @@ export const FIELDS: Record<ComponentType, FieldDef[]> = {
     lenMM('length', 'Length', 1, 200),
     radMM('radius', 'Radius', 0.5, 50),
   ],
+  // External protuberance (camera shroud, avionics fairing). The physics is
+  // synthesized at the engine boundary (treeModel.engineTree): slender-strake
+  // lift via a 1-fin Barrowman surface + Hoerner protuberance drag as a CD
+  // override. Radial mounting angle is not modeled (like launch lugs).
+  fairing: [
+    lenMM('length', 'Length (along body)', 5, 500),
+    lenMM('width', 'Width (across body)', 2, 200),
+    lenMM('height', 'Height (off the surface)', 2, 200),
+    {
+      key: 'fairingShape', label: 'Shape', unit: 'none',
+      options: [
+        ['streamlined', 'Streamlined (ramped ends)'],
+        ['halfround', 'Half-round'],
+        ['box', 'Box / squared'],
+      ],
+    },
+    { key: 'mass', label: 'Mass (as built)', unit: 'g', step: 1, smin: 0, smax: 500 },
+    FINISH,
+  ],
   // A pod never separates (angle method is fixed to relative in the kernel).
   podset: ASSEMBLY_FIELDS,
   // A parallel booster separates and flies its own branch — add the angle
@@ -372,6 +397,7 @@ export const FIELDS: Record<ComponentType, FieldDef[]> = {
 /** Types that sit INSIDE their parent and use axial positioning. */
 export const POSITIONABLE: Set<ComponentType> = new Set([
   'trapezoidfinset', 'ellipticalfinset', 'freeformfinset', 'tubefinset', 'launchlug', 'railbutton',
+  'fairing',
   'innertube', 'tubecoupler', 'centeringring', 'bulkhead', 'engineblock',
   'parachute', 'streamer', 'shockcord', 'masscomponent',
   'podset', 'parallelstage',
@@ -403,6 +429,11 @@ export function defaultParams(type: ComponentType): Partial<ComponentNode> {
     case 'streamer': return { stripLength: 0.5, stripWidth: 0.05, position: { method: 'top', offset: 0.02 } };
     case 'shockcord': return { cordLength: 0.3, position: { method: 'top', offset: 0.01 } };
     case 'masscomponent': return { mass: 0.01, length: 0.02, radius: 0.005, position: { method: 'top', offset: 0.02 } };
+    // A typical 3D-printed keychain-camera shroud on a mid/high-power bird.
+    case 'fairing': return {
+      length: 0.08, width: 0.025, height: 0.02, fairingShape: 'halfround',
+      mass: 0.03, position: { method: 'middle', offset: 0 },
+    };
     // Assemblies default to 2 instances, tangent to the parent (radiusOffset 0
     // under RELATIVE = surfaces touching), aft-aligned — the desktop default.
     case 'podset': return {

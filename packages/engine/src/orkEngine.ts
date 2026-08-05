@@ -105,6 +105,10 @@ export type ComponentType =
   | 'trapezoidfinset' | 'ellipticalfinset' | 'freeformfinset' | 'tubefinset'
   | 'innertube' | 'tubecoupler' | 'centeringring' | 'bulkhead' | 'engineblock'
   | 'launchlug' | 'railbutton'
+  // App-level component: the editor's engineTree() lowers a fairing to a
+  // kernel strake-fin + CD/mass overrides before buildTree — the kernel
+  // itself never sees this type.
+  | 'fairing'
   | 'parachute' | 'streamer' | 'shockcord' | 'masscomponent'
   // Off-axis assemblies (ComponentAssembly): a non-separating pod, or a
   // separable parallel booster. Nested under a body component, never at the

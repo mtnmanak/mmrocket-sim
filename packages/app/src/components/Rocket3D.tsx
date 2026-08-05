@@ -175,6 +175,16 @@ export function buildPieces(tree: RocketTree): { pieces: Piece[]; totalLen: numb
           if (xform) geo.applyMatrix4(xform);
           pieces.push({ key: `tubefin${k++}`, geometry: geo, color: nodeColor(child, MAT.fin) });
         }
+      } else if (child.type === 'fairing') {
+        // External shroud on the +Y surface (radial angle not modeled).
+        const len = num(child, 'length', 0.08);
+        const wid = num(child, 'width', 0.025);
+        const hgt = num(child, 'height', 0.02);
+        const start = axialStart(child, len, pStart, pLen);
+        maxR = Math.max(maxR, pRadius + hgt);
+        const geo = new THREE.BoxGeometry(len, hgt, wid);
+        place(`fairing${k++}`, geo, nodeColor(child, MAT.lug),
+          [start + len / 2, pRadius + hgt / 2, 0], [0, 0, 0], xform);
       } else if (child.type === 'launchlug') {
         const len = num(child, 'length', 0.05);
         const r = num(child, 'outerRadius', 0.0022);

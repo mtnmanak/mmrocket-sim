@@ -10,6 +10,38 @@ import type { RocketTree } from '@online-openrocket/engine';
  * against the real OpenRocket 24.12 loader with bit-exact mass AND CG parity
  * (see docs/testing/ notes); these assertions guard the mapping.
  */
+describe('.ork round-trip of fairing (camera shroud) and spill hole extensions', () => {
+  const tree: RocketTree = {
+    name: 'Ext',
+    components: [{
+      type: 'bodytube', id: 'b1', length: 0.4, outerRadius: 0.02, thickness: 0.001,
+      children: [
+        {
+          type: 'fairing', id: 'f1', length: 0.09, width: 0.03, height: 0.022,
+          fairingShape: 'streamlined', mass: 0.052, finish: 'smooth',
+          position: { method: 'middle', offset: 0.01 },
+        },
+        { type: 'parachute', id: 'p1', diameter: 0.45, cd: 2.2, spillHoleDiameter: 0.1 },
+      ],
+    }],
+  };
+
+  it('round-trips both extension tags', () => {
+    const back = importOrk(exportOrk({ name: 'Ext', tree }));
+    const chain = back.tree.components[0]!.children!;
+    const body = chain[0]!;
+    const fairing = body.children!.find((c) => c.type === 'fairing')!;
+    expect(fairing['length']).toBeCloseTo(0.09, 9);
+    expect(fairing['width']).toBeCloseTo(0.03, 9);
+    expect(fairing['height']).toBeCloseTo(0.022, 9);
+    expect(fairing['fairingShape']).toBe('streamlined');
+    expect(fairing['mass']).toBeCloseTo(0.052, 9);
+    const chute = body.children!.find((c) => c.type === 'parachute')!;
+    expect(chute['cd']).toBeCloseTo(2.2, 9);
+    expect(chute['spillHoleDiameter']).toBeCloseTo(0.1, 9);
+  });
+});
+
 describe('.ork round-trip of shoulder/filled/finish/override/deployment fields', () => {
   const tree: RocketTree = {
     name: 'FeatureSample',

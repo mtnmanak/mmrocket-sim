@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { clusterOffsets } from '../tree/cluster.js';
 import { tubeFinRadius } from '../tree/tubefins.js';
@@ -31,6 +32,37 @@ export function AftView({ tree, motors }: {
   /** Loaded motor dimensions per mount node id (real case sizes). */
   motors?: Record<string, MotorDims>;
 }) {
+  // Zoom/pan in viewBox (meter) coordinates — same pattern as TreeSchematic
+  // (issue 2026-08-05b #13: "the user needs to be able to zoom the aft view").
+  const [zoom, setZoom] = useState({ k: 1, x: 0, y: 0 });
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  const eRef = useRef(0.02);
+  const pan = useRef<{ px: number; py: number; x: number; y: number } | null>(null);
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const rect = svg.getBoundingClientRect();
+      const Ev = eRef.current;
+      const vx = -Ev + ((e.clientX - rect.left) / rect.width) * 2 * Ev;
+      const vy = -Ev + ((e.clientY - rect.top) / rect.height) * 2 * Ev;
+      setZoom((z) => {
+        const k = Math.min(12, Math.max(1, z.k * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
+        if (k === z.k) return z;
+        const mx = (vx - z.x) / z.k;
+        const my = (vy - z.y) / z.k;
+        return k === 1 ? { k: 1, x: 0, y: 0 } : { k, x: vx - mx * k, y: vy - my * k };
+      });
+    };
+    svg.addEventListener('wheel', onWheel, { passive: false });
+    return () => svg.removeEventListener('wheel', onWheel);
+  }, []);
+  const zoomBy = (f: number) => setZoom((z) => {
+    // About the viewBox origin — the rocket axis is always at (0,0) here.
+    const k = Math.min(12, Math.max(1, z.k * f));
+    return k === 1 ? { k: 1, x: 0, y: 0 } : { k, x: z.x * (k / z.k), y: z.y * (k / z.k) };
+  });
   // Painter's layers: hulls (opaque, big→small), then internals, then externals.
   const hulls: Shape[] = [];
   const inner: Shape[] = [];
@@ -86,6 +118,16 @@ export function AftView({ tree, motors }: {
           });
         }
         reach(cy, cz, pRadius + 2 * rt);
+      } else if (t === 'fairing') {
+        // Shroud cross-section at the top (radial angle not modeled).
+        const wid = num(child, 'width', 0.025);
+        const hgt = num(child, 'height', 0.02);
+        outer.push({
+          kind: 'fin', y: cy, z: cz, angle: Math.PI / 2, from: pRadius, to: pRadius + hgt,
+          thick: wid, fill: colorOf(child, '#c8c5be'), stroke: '#7a786f',
+          title: child.name ?? 'Camera shroud',
+        });
+        reach(cy, cz, pRadius + hgt);
       } else if (t === 'launchlug' || t === 'railbutton') {
         const r = t === 'railbutton' ? num(child, 'outerDiameter', 0.004) / 2 : num(child, 'outerRadius', 0.002);
         // Radial direction isn't modeled — shown at the right side.
@@ -151,6 +193,7 @@ export function AftView({ tree, motors }: {
   hulls.sort((a, b) => (b.kind === 'circle' ? b.r : 0) - (a.kind === 'circle' ? a.r : 0));
 
   const E = extent * 1.12;
+  eRef.current = E;
   const scale = 1; // viewBox is in meters — the SVG scales itself.
   const toSvg = (v: number) => v * scale;
 
@@ -188,16 +231,46 @@ export function AftView({ tree, motors }: {
   };
 
   let i = 0;
+  const toView = (clientX: number, clientY: number) => {
+    const rect = svgRef.current!.getBoundingClientRect();
+    return {
+      vx: -E + ((clientX - rect.left) / rect.width) * 2 * E,
+      vy: -E + ((clientY - rect.top) / rect.height) * 2 * E,
+    };
+  };
   return (
-    <svg viewBox={`${-E} ${-E} ${2 * E} ${2 * E}`}
-      style={{ width: '100%', height: 'auto', maxHeight: 360, display: 'block' }}
-      role="img" aria-label="Aft end view — looking at the rocket from behind">
-      {hulls.map((s) => drawShape(s, i++))}
-      {inner.map((s) => drawShape(s, i++))}
-      {outer.map((s) => drawShape(s, i++))}
-      {/* Center crosshair */}
-      <line x1={-E * 0.05} y1={0} x2={E * 0.05} y2={0} stroke="#9a978f" strokeWidth={E / 300} />
-      <line x1={0} y1={-E * 0.05} x2={0} y2={E * 0.05} stroke="#9a978f" strokeWidth={E / 300} />
-    </svg>
+    <div style={{ position: 'relative' }}>
+      <svg ref={svgRef} viewBox={`${-E} ${-E} ${2 * E} ${2 * E}`}
+        style={{ width: '100%', height: 'auto', maxHeight: 360, display: 'block',
+          touchAction: 'none', cursor: zoom.k > 1 ? 'grab' : undefined }}
+        role="img" aria-label="Aft end view — looking at the rocket from behind; wheel to zoom, drag to pan"
+        onPointerDown={(e) => {
+          if (zoom.k === 1) return;
+          const { vx, vy } = toView(e.clientX, e.clientY);
+          pan.current = { px: vx, py: vy, x: zoom.x, y: zoom.y };
+          (e.target as Element).setPointerCapture?.(e.pointerId);
+        }}
+        onPointerMove={(e) => {
+          if (!pan.current) return;
+          const { vx, vy } = toView(e.clientX, e.clientY);
+          setZoom((z) => ({ ...z, x: pan.current!.x + (vx - pan.current!.px), y: pan.current!.y + (vy - pan.current!.py) }));
+        }}
+        onPointerUp={() => { pan.current = null; }}
+        onPointerLeave={() => { pan.current = null; }}>
+        <g transform={`translate(${zoom.x} ${zoom.y}) scale(${zoom.k})`}>
+          {hulls.map((s) => drawShape(s, i++))}
+          {inner.map((s) => drawShape(s, i++))}
+          {outer.map((s) => drawShape(s, i++))}
+          {/* Center crosshair */}
+          <line x1={-E * 0.05} y1={0} x2={E * 0.05} y2={0} stroke="#9a978f" strokeWidth={E / 300} />
+          <line x1={0} y1={-E * 0.05} x2={0} y2={E * 0.05} stroke="#9a978f" strokeWidth={E / 300} />
+        </g>
+      </svg>
+      <div className="schematic-controls">
+        <button title="Zoom in" onClick={() => zoomBy(1.5)}>+</button>
+        <button title="Zoom out" onClick={() => zoomBy(1 / 1.5)}>−</button>
+        <button title="Fit" onClick={() => setZoom({ k: 1, x: 0, y: 0 })}>⤢</button>
+      </div>
+    </div>
   );
 }

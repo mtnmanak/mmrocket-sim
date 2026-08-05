@@ -11,6 +11,7 @@ const TYPE_ICON: Partial<Record<ComponentType, string>> = {
   innertube: '▢', tubecoupler: '▣', centeringring: '◌', bulkhead: '●', engineblock: '▪',
   launchlug: '⌐', railbutton: '•',
   parachute: '☂', streamer: '≋', shockcord: '〜', masscomponent: '◆',
+  fairing: '⌂',
 };
 
 function NodeRow({ node, depth, selectedId, soleStageId, onSelect, onMove, onDelete, onDuplicate, onCopy, onCut }: {

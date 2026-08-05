@@ -107,7 +107,7 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
               aeroModel: e.target.value as 'classic' | 'supersonic' | 'auto',
             })}
           >
-            <option value="classic">Classic — Extended Barrowman (desktop parity, the default)</option>
+            <option value="classic">Classic — Extended Barrowman (the default)</option>
             <option value="auto">Auto — supersonic model when the flight goes past Mach 0.9</option>
             <option value="supersonic">Supersonic — RASAero-class model at all speeds</option>
           </select>
@@ -120,7 +120,7 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
           }}>
             <input
               type="checkbox"
-              checked={prefs.rogersKbf ?? false}
+              checked={prefs.rogersKbf ?? true}
               disabled={(prefs.aeroModel ?? 'classic') === 'supersonic'}
               onChange={(e) => setPrefs({ ...prefs, rogersKbf: e.target.checked })}
             />
@@ -130,8 +130,9 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
         <p className="prefs-hint">
           Adds the body-in-presence-of-fins lift carryover (NACA&nbsp;1307) that classic
           Barrowman drops. Gives a slightly more aft, more conservative CP and stability
-          margin — affects the reported stability and the flight simulation. Off = standard
-          Extended Barrowman (desktop parity).
+          margin — affects the reported stability and the flight simulation. <strong>On by
+          default</strong> (it tracks real flight data better); turn it off for exact
+          desktop-OpenRocket parity.
           {(prefs.aeroModel ?? 'classic') === 'supersonic' && (
             <strong> Disabled: the supersonic model already contains the full
             NACA&nbsp;1307 interference.</strong>

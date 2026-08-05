@@ -1,5 +1,5 @@
 {
-  "version": "0.033",
+  "version": "0.034",
   "released": "2026-08-05",
-  "note": "Beta issue batch (16 items fixed): parachute presets now use their manufacturer-rated drag coefficient (Fruity Chutes descent rates were up to 1.66x too fast); a Plugged (no ejection charge) motor option for electronics deployment; a new Aft view showing clusters and pods from behind; RASAero exports open in RASAero II again; RockSim mass overrides, clusters and tube fins import/export correctly; over-stability is now a yellow caution instead of a red failure; saved sims are tagged to their rocket; component cut/copy/paste; the results CSV follows your unit preferences; and more - see What's new in the app."
+  "note": "Issue batch b: NEW camera shroud/fairing component that computes CP shift and drag (a first among hobby sims); parachute spill holes; customizable highlighted result tiles (pick from 14 metrics); Rogers Modified Barrowman now the default aero refinement; aft view zoom/pan; miniature component glyphs and click-to-select in the 2D drawing; RockSim partial-override exports fixed. See What's new in the app."
 }

@@ -240,6 +240,27 @@ describe('RockSim export → import round trip', () => {
     expect(xml).not.toMatch(/<KnownMass>10<\/KnownMass>/);
   });
 
+  it('partial overrides export the computed other value (mass↔CG coupling)', () => {
+    const design = {
+      name: 'PO',
+      tree: {
+        components: [{
+          type: 'stage' as const, id: 's', name: 'Sustainer',
+          children: [{
+            type: 'bodytube' as const, id: 'b', length: 0.3, outerRadius: 0.012, thickness: 0.0005,
+            // Mass override only — the CG must come from compInfo, not 0.
+            overrideMass: 0.123,
+          }],
+        }],
+      },
+      compInfo: { b: { mass: 0.05, cgX: 0.15 } },
+    };
+    const xml = exportRkt(design);
+    expect(xml).toMatch(/<KnownMass>123<\/KnownMass>/);
+    expect(xml).toMatch(/<KnownCG>150<\/KnownCG>/);
+    expect(xml).toMatch(/<UseKnownCG>1<\/UseKnownCG>/);
+  });
+
   it('round-trips tube fin wall thickness (OD/ID)', () => {
     const design = {
       name: 'TF',

@@ -42,8 +42,8 @@ import { buildSimRun, recommendDelay, type MotorMeta, type SimRun } from './serv
 import { addRun, loadRuns } from './services/simStore.js';
 import { APP_VERSION } from './version.js';
 import {
-  addChild, addStage, cloneSubtree, defaultTree, duplicateNode, emptyTree, findNode, findParent,
-  hasParallelStage, inheritDefaults, makeNode, motorMounts, moveNode,
+  addChild, addStage, cloneSubtree, defaultTree, duplicateNode, emptyTree, engineTree, findNode,
+  findParent, hasParallelStage, inheritDefaults, makeNode, motorMounts, moveNode,
   normalizeTree, removeNode, stageIndexOf, stages, updateAllNodes, updateNode,
 } from './tree/treeModel.js';
 import { clusterCount } from './tree/cluster.js';
@@ -279,11 +279,11 @@ export function App() {
   const buildResult = useMemo((): { rocket: OrkRocket; info: StaticInfo } | { error: string } => {
     try {
       resetEngine();
-      const rocket = OrkRocket.buildTree(tree);
+      const rocket = OrkRocket.buildTree(engineTree(tree));
       // Opt-in Rogers Modified Barrowman (Kbf) — set before staticInfo() so the
       // reported CP/stability reflects it, and it persists onto this build's
       // handle for later simulate() calls.
-      rocket.setRogersModifiedBarrowman(prefs.rogersKbf ?? false);
+      rocket.setRogersModifiedBarrowman(prefs.rogersKbf ?? true);
       // Opt-in RASAero-class supersonic aerodynamics (feature #1) — CP/drag
       // move with Mach; affects staticInfo, dragSweep and simulate alike.
       rocket.setSupersonicAero(effectiveSupersonic);
@@ -294,6 +294,20 @@ export function App() {
         }
       }
       const info = rocket.staticInfo();
+      // Camera shrouds lower to deliberately thick strake "fins" — the
+      // kernel's THICK_FIN warning is expected there and only alarms users.
+      const fairingNames = new Set<string>();
+      const scanF = (nodes: ComponentNode[]) => {
+        for (const nd of nodes) {
+          if (nd.type === 'fairing') fairingNames.add(nd.name ?? 'Camera shroud');
+          scanF(nd.children ?? []);
+        }
+      };
+      scanF(tree.components);
+      if (fairingNames.size > 0) {
+        info.warningTexts = info.warningTexts.filter((wtext) =>
+          !(wtext.includes('THICK_FIN') && [...fairingNames].some((fn) => wtext.includes(fn))));
+      }
       return { rocket, info };
     } catch (e) {
       return { error: e instanceof Error ? e.message : String(e) };
@@ -416,7 +430,7 @@ export function App() {
           aeroModel: aeroMode === 'auto' && usedSupersonic ? 'auto-supersonic'
             : usedSupersonic ? 'supersonic' : 'classic',
           // Kbf only matters on the classic model (supersonic supersedes it).
-          rogersKbf: (prefs.rogersKbf ?? false) && !usedSupersonic,
+          rogersKbf: (prefs.rogersKbf ?? true) && !usedSupersonic,
         });
         setLastRun(run);
         setRuns(addRun(run));
@@ -460,7 +474,25 @@ export function App() {
 
   const onSaveRkt = () => {
     try {
-      download(exportRkt({ name: tree.name ?? 'My Rocket', tree, motors: exportMotorsMap() }), 'rkt');
+      // Computed mass/CG per partially-overridden component: RockSim couples
+      // both under one flag, so the un-overridden half must export its
+      // CALCULATED value (issue 2026-08-05b #11).
+      const compInfo: Record<string, { mass: number; cgX: number }> = {};
+      if (built) {
+        const collect = (nodes: ComponentNode[]) => {
+          for (const n of nodes) {
+            if (n.id && (typeof n['overrideMass'] === 'number') !== (typeof n['overrideCGX'] === 'number')) {
+              try {
+                const info = built.rocket.componentInfo(n.id);
+                compInfo[n.id] = { mass: info.mass, cgX: info.cgX };
+              } catch { /* component not in the engine tree — skip */ }
+            }
+            collect(n.children ?? []);
+          }
+        };
+        collect(tree.components);
+      }
+      download(exportRkt({ name: tree.name ?? 'My Rocket', tree, motors: exportMotorsMap(), compInfo }), 'rkt');
     } catch (e) {
       setFileNote(`RockSim export failed: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -702,18 +734,11 @@ export function App() {
             <Icon name="sliders" /> Preferences
           </button>
         </div>
-        {/* The tagline tracks the ACTIVE aero model — a fixed "Extended
-            Barrowman" line over a supersonic flight misstated the physics
-            (issue 2026-08-05a #9; final wording is the owner's call). */}
+        {/* the owner's chosen identity line (2026-08-05b #9) — the per-model detail
+            lives in Preferences and the launch report's "Aero model" row. */}
         <p>
-          Design a model rocket and fly it — OpenRocket's 6-DOF RK4 physics core,
-          {' '}{aeroMode === 'supersonic'
-            ? 'running our supersonic RASAero-class aero model,'
-            : aeroMode === 'auto'
-            ? 'with Extended Barrowman aero (auto-switching to our supersonic model past Mach 0.9),'
-            : (prefs.rogersKbf ?? false)
-            ? 'with Extended Barrowman + Rogers Kbf aero,'
-            : 'with Extended Barrowman aero (desktop parity),'} in your browser.
+          Design, simulate, fly — OpenRocket-derived physics, validated to
+          Mach&nbsp;4.6 against NASA wind-tunnel data.
           {' '}
           <a
             href="https://github.com/mtnmanak/online_open_rocket"
@@ -986,6 +1011,8 @@ export function App() {
                     info={built?.info ?? null}
                     motors={motorDims}
                     onPatchNode={(id, patch) => setTree(updateNode(tree, id, patch))}
+                    selectedId={selectedId}
+                    onSelect={(id) => setSelectedId(id)}
                   />
                 )
                 : view === '3d'
@@ -1050,6 +1077,8 @@ export function App() {
                 motors={motorDims}
                 onPatchNode={(id, patch) => setTree(updateNode(tree, id, patch))}
                 maxHeight={300}
+                selectedId={selectedId}
+                onSelect={(id) => setSelectedId(id)}
               />
             </div>
             {/* Cluster/pod layouts only make sense from behind — live inset
@@ -1304,16 +1333,19 @@ export function App() {
               subsonic flights of this design would fly classic).
             </div>
           )}
-          {result ? (
+          {result && lastRun ? (
             <>
-              <FlightStats summary={result.summary} />
-              {lastRun && <SimRunDetails run={lastRun} />}
+              <FlightStats run={lastRun} />
+              <SimRunDetails run={lastRun} />
               <FlightCharts result={result} />
             </>
           ) : lastRun ? (
-            // A saved run re-opened from the history: the stored report renders
-            // in full, but charts need a fresh simulation's series.
-            <SimRunDetails run={lastRun} />
+            // A saved run re-opened from the history: tiles + the stored
+            // report render in full; charts need a fresh simulation's series.
+            <>
+              <FlightStats run={lastRun} />
+              <SimRunDetails run={lastRun} />
+            </>
           ) : (
             <div className="panel placeholder empty-state">
               <Icon name="rocket" size={30} />

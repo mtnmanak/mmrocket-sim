@@ -1,7 +1,78 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
-import { findNode, hasParallelStage, makeNode, motorMounts, normalizeTree } from './treeModel.js';
+import { engineTree, findNode, hasParallelStage, makeNode, motorMounts, normalizeTree } from './treeModel.js';
 import { allowedChildren, defaultParams, DISPLAY_NAME, FIELDS } from './schema.js';
+
+describe('engineTree — spill-hole Cd reduction at the engine boundary', () => {
+  const chuteTree = (params: Record<string, unknown>): RocketTree => ({
+    name: 's',
+    components: [{
+      type: 'stage', id: 's1',
+      children: [{
+        type: 'bodytube', id: 'b1', length: 0.3, outerRadius: 0.02,
+        children: [{ type: 'parachute', id: 'p1', diameter: 0.6, ...params } as ComponentNode],
+      } as ComponentNode],
+    } as ComponentNode],
+  });
+
+  it('reduces cd by the hole/canopy area ratio (explicit cd)', () => {
+    const out = engineTree(chuteTree({ cd: 2.2, spillHoleDiameter: 0.15 }));
+    const chute = findNode(out, 'p1')!;
+    // 2.2 · (1 − (0.15/0.6)²) = 2.2 · 0.9375
+    expect(chute['cd']).toBeCloseTo(2.0625, 9);
+  });
+
+  it('applies the reduction to the kernel default 0.8 when cd is auto', () => {
+    const out = engineTree(chuteTree({ spillHoleDiameter: 0.3 }));
+    expect(findNode(out, 'p1')!['cd']).toBeCloseTo(0.8 * 0.75, 9);
+  });
+
+  it('leaves the editing tree untouched and no-hole chutes alone', () => {
+    const src = chuteTree({ cd: 1.5 });
+    const out = engineTree(src);
+    expect(findNode(out, 'p1')!['cd']).toBe(1.5);
+    const withHole = chuteTree({ cd: 1.5, spillHoleDiameter: 0.1 });
+    engineTree(withHole);
+    expect(findNode(withHole, 'p1')!['cd']).toBe(1.5); // source unmodified
+  });
+});
+
+describe('engineTree — camera shroud (fairing) lowering', () => {
+  const fairingTree = (params: Record<string, unknown>): RocketTree => ({
+    name: 'f',
+    components: [{
+      type: 'stage', id: 's1',
+      children: [{
+        type: 'bodytube', id: 'b1', length: 0.6, outerRadius: 0.05,
+        children: [{
+          type: 'fairing', id: 'f1', length: 0.08, width: 0.025, height: 0.02,
+          mass: 0.045, position: { method: 'middle', offset: 0 }, ...params,
+        } as ComponentNode],
+      } as ComponentNode],
+    } as ComponentNode],
+  });
+
+  it('lowers to a 1-fin strake with mass + CD overrides, same id', () => {
+    const out = engineTree(fairingTree({ fairingShape: 'halfround' }));
+    const strake = findNode(out, 'f1')!;
+    expect(strake.type).toBe('freeformfinset');
+    expect(strake['finCount']).toBe(1);
+    expect(strake['thickness']).toBeCloseTo(0.025, 9);
+    expect(strake['overrideMass']).toBeCloseTo(0.045, 9);
+    // Hoerner half-round 0.55 · frontal (0.025·0.02) / (π·0.05²)
+    expect(strake['overrideCD']).toBeCloseTo((0.55 * 0.025 * 0.02) / (Math.PI * 0.05 * 0.05), 9);
+    const pts = strake['points'] as [number, number][];
+    expect(pts[2]).toEqual([0.08, 0.02]);
+  });
+
+  it('streamlined shape ramps the profile and drops the CD', () => {
+    const out = engineTree(fairingTree({ fairingShape: 'streamlined' }));
+    const strake = findNode(out, 'f1')!;
+    const pts = strake['points'] as [number, number][];
+    expect(pts[1]![0]).toBeCloseTo(0.024, 9); // 0.3·L ramp
+    expect(strake['overrideCD']).toBeCloseTo((0.25 * 0.025 * 0.02) / (Math.PI * 0.05 * 0.05), 9);
+  });
+});
 
 describe('off-axis assemblies (pods / parallel stages) — Phase 1 foundation', () => {
   const withPod = (): RocketTree => ({

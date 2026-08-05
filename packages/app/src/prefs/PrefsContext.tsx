@@ -13,9 +13,12 @@ export interface Preferences {
   radiusMode: 'radius' | 'diameter';
   theme: 'light' | 'dark' | 'system';
   /**
-   * Opt-in "Rogers Modified Barrowman" body-in-presence-of-fins interference
-   * (Kbf). When on, the CP/stability and flight sim include the body carryover
+   * "Rogers Modified Barrowman" body-in-presence-of-fins interference (Kbf).
+   * When on, the CP/stability and flight sim include the body carryover
    * classic Barrowman drops — a slightly more aft, more conservative CP.
+   * DEFAULT ON since v0.034 (the owner: matches his actual flight data better).
+   * Absent = the default; an explicit stored false is an intentional opt-out
+   * and is preserved. Turn it off for exact desktop-OpenRocket parity.
    */
   rogersKbf?: boolean;
   /** Legacy boolean (v0.025) — migrated into aeroModel on load. */
@@ -42,12 +45,19 @@ export interface Preferences {
    * users a black screen. Turning it off restores the chosen theme.
    */
   daylight?: boolean;
+  /**
+   * Which metrics show as the highlighted tiles on the Results tab, by
+   * catalog id (RESULT_TILE_METRICS in StatTiles.tsx), in catalog order.
+   * Absent = the default set. Unknown ids are ignored (forward compat).
+   */
+  resultTiles?: string[];
 }
 
 export const DEFAULT_PREFS: Preferences = {
   units: INITIAL_UNITS,
   radiusMode: 'diameter',
   theme: 'dark',
+  rogersKbf: true,
 };
 
 const STORAGE_KEY = 'online-openrocket.prefs.v1';

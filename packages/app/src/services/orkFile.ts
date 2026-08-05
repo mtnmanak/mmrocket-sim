@@ -314,6 +314,18 @@ export function importOrk(data: ArrayBuffer | string): OrkTreeImportResult {
         n['outerDiameter'] = num(el, 'outerdiameter', 0.0097);
         return n;
       }
+      // Our extension component (2026-08-05b #18) — the desktop warns about
+      // the unknown element and skips it.
+      case 'fairing': {
+        const n = base('fairing', true);
+        n['length'] = num(el, 'length', 0.08);
+        n['width'] = num(el, 'width', 0.025);
+        n['height'] = num(el, 'height', 0.02);
+        const fs = text(el, ':scope > fairingshape');
+        if (fs) n['fairingShape'] = fs;
+        n['mass'] = num(el, 'mass', 0.03);
+        return n;
+      }
       case 'parachute': {
         const n = base('parachute', true);
         n['diameter'] = num(el, 'diameter', 0.3);
@@ -324,6 +336,9 @@ export function importOrk(data: ArrayBuffer | string): OrkTreeImportResult {
         readSoftMaterial(el, n, 'surface', 'surfaceDensity', 'surfaceMaterialName');
         readSoftMaterial(el, n, 'line', 'lineDensity', 'lineMaterialName', ':scope > linematerial');
         readDeployment(el, n);
+        // Our extension tag (desktop warns-and-ignores) — spill hole diameter.
+        const spill = num(el, 'spillholediameter', 0);
+        if (spill > 0) n['spillHoleDiameter'] = spill;
         return n;
       }
       case 'streamer': {
@@ -843,6 +858,21 @@ export function exportOrk({ name, tree, motors, motor, mountId }: OrkTreeExportI
         close('engineblock');
         break;
       }
+      case 'fairing': {
+        // Extension element: our own reader round-trips it; the desktop
+        // warns-and-skips (same contract as the airfoil-section tags).
+        open('fairing');
+        header(depth + 1, node, 'Camera shroud');
+        position(depth + 1, node, 'middle');
+        finishXml(depth + 1, node);
+        emit(depth + 1, `<length>${n(node, 'length', 0.08)}</length>`);
+        emit(depth + 1, `<width>${n(node, 'width', 0.025)}</width>`);
+        emit(depth + 1, `<height>${n(node, 'height', 0.02)}</height>`);
+        emit(depth + 1, `<fairingshape>${escapeXml(String(node['fairingShape'] ?? 'halfround'))}</fairingshape>`);
+        emit(depth + 1, `<mass>${n(node, 'mass', 0.03)}</mass>`);
+        close('fairing');
+        break;
+      }
       case 'launchlug': {
         open('launchlug');
         header(depth + 1, node, 'Launch Lug');
@@ -891,6 +921,10 @@ export function exportOrk({ name, tree, motors, motor, mountId }: OrkTreeExportI
         emit(depth + 1, `<deployaltitude>${n(node, 'deployAltitude', 200)}</deployaltitude>`);
         emit(depth + 1, `<deploydelay>${n(node, 'deployDelay', 0)}</deploydelay>`);
         emit(depth + 1, `<diameter>${n(node, 'diameter', 0.3)}</diameter>`);
+        if (typeof node['spillHoleDiameter'] === 'number' && (node['spillHoleDiameter'] as number) > 0) {
+          // Extension tag (desktop warns-and-ignores, same as airfoilsection).
+          emit(depth + 1, `<spillholediameter>${node['spillHoleDiameter']}</spillholediameter>`);
+        }
         emit(depth + 1, `<linecount>${n(node, 'lineCount', 6)}</linecount>`);
         emit(depth + 1, `<linelength>${n(node, 'lineLength', 0.3)}</linelength>`);
         if (typeof node['lineDensity'] === 'number') {

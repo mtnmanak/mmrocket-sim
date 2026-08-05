@@ -204,6 +204,85 @@ export function moveNode(tree: RocketTree, id: string, dir: -1 | 1): RocketTree 
   return { ...tree, components: shift(tree.components) };
 }
 
+/**
+ * Hoerner protuberance drag coefficients referenced to FRONTAL area (W·H),
+ * interference with the body boundary layer included (Fluid-Dynamic Drag,
+ * ch. 5 & 8 — canonical surface-protuberance values, calibratable).
+ */
+const FAIRING_CD_FRONTAL: Record<string, number> = {
+  streamlined: 0.25,
+  halfround: 0.55,
+  box: 1.05,
+};
+
+/**
+ * Engine-boundary transform: app-level modeling the kernel doesn't carry.
+ * Pure — the editing tree is untouched; node ids are preserved (setMotorById,
+ * componentInfo and selection all keep working).
+ *
+ * 1. Parachute spill holes: the kernel Parachute knows only Cd, so a hole
+ *    becomes the standard area-equivalent reduction
+ *    cd_eff = cd · (1 − (d_hole/D)²) (RockSim's treatment).
+ * 2. Camera shrouds ('fairing'): lowered to a kernel 1-fin freeform strake of
+ *    the shroud's side profile — Barrowman's low-aspect-ratio fin lift IS the
+ *    slender-strake (Jones) model, so the CP shift comes out of the real
+ *    kernel — plus a component-CD override for the protuberance drag
+ *    (frontal-area Hoerner value scaled to the rocket reference area) and the
+ *    as-built mass as a mass override. Radial mounting angle not modeled.
+ */
+export function engineTree(tree: RocketTree): RocketTree {
+  const KERNEL_DEFAULT_CD = 0.8;
+  const nnum = (n: ComponentNode, key: string, fb: number): number =>
+    typeof n[key] === 'number' ? (n[key] as number) : fb;
+
+  // Rocket reference diameter = the airframe's max diameter (kernel rule).
+  let maxR = 0.001;
+  const scanR = (nodes: ComponentNode[]) => {
+    for (const n of nodes) {
+      maxR = Math.max(maxR, nnum(n, 'aftRadius', 0), nnum(n, 'outerRadius', 0), nnum(n, 'foreRadius', 0));
+      scanR(n.children ?? []);
+    }
+  };
+  scanR(tree.components);
+  const aRef = Math.PI * maxR * maxR;
+
+  const walk = (nodes: ComponentNode[]): ComponentNode[] => nodes.map((n) => {
+    if (n.type === 'fairing') {
+      const L = nnum(n, 'length', 0.08);
+      const W = nnum(n, 'width', 0.025);
+      const H = nnum(n, 'height', 0.02);
+      const shape = typeof n['fairingShape'] === 'string' ? (n['fairingShape'] as string) : 'halfround';
+      const cdFrontal = FAIRING_CD_FRONTAL[shape] ?? FAIRING_CD_FRONTAL['halfround']!;
+      const pts: [number, number][] = shape === 'streamlined'
+        ? [[0, 0], [0.3 * L, H], [0.7 * L, H], [L, 0]]
+        : [[0, 0], [0, H], [L, H], [L, 0]];
+      return {
+        type: 'freeformfinset',
+        id: n.id,
+        name: n.name ?? 'Camera shroud',
+        finCount: 1,
+        thickness: W,
+        crossSection: 'rounded',
+        points: pts,
+        position: n.position,
+        overrideMass: nnum(n, 'mass', 0.03),
+        overrideCD: (cdFrontal * W * H) / Math.max(aRef, 1e-9),
+        ...(typeof n['finish'] === 'string' ? { finish: n['finish'] } : {}),
+      } as ComponentNode;
+    }
+    let next: ComponentNode = n.children ? ({ ...n, children: walk(n.children) } as ComponentNode) : n;
+    const dh = typeof n['spillHoleDiameter'] === 'number' ? (n['spillHoleDiameter'] as number) : 0;
+    if (n.type === 'parachute' && dh > 0) {
+      const D = typeof n['diameter'] === 'number' ? (n['diameter'] as number) : 0.3;
+      const hole = Math.min(dh, D * 0.95);
+      const base = typeof n['cd'] === 'number' ? (n['cd'] as number) : KERNEL_DEFAULT_CD;
+      next = { ...next, cd: base * (1 - (hole / D) ** 2) } as ComponentNode;
+    }
+    return next;
+  });
+  return { ...tree, components: walk(tree.components) };
+}
+
 /** Deep copy with fresh ids at every level (clipboard paste, duplicate). */
 export function cloneSubtree(node: ComponentNode): ComponentNode {
   return {

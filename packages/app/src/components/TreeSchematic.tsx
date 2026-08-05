@@ -57,7 +57,7 @@ interface DragState {
   clientScale: number;
 }
 
-export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480 }: {
+export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480, selectedId, onSelect }: {
   tree: RocketTree;
   info: StaticInfo | null;
   /** Loaded motor case dimensions (m) keyed by mount node id — drawn to scale. */
@@ -65,10 +65,16 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   onPatchNode?: (id: string, patch: Partial<ComponentNode>) => void;
   /** Cap on the drawing's on-screen height (px). */
   maxHeight?: number;
+  /** Two-way selection sync with the component tree (2026-08-05b #21). */
+  selectedId?: string | null;
+  onSelect?: (id: string) => void;
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const drag = useRef<DragState | null>(null);
+  // True once the current gesture moved far enough to be a drag — a click
+  // that follows a real drag must not change the selection.
+  const dragMoved = useRef(false);
   // Container width (CSS px). The viewBox adopts it 1:1, so the drawing fills
   // the column at native pixel scale on any monitor instead of a fixed 640px
   // canvas stretched to fit.
@@ -104,7 +110,13 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
     if (n.type === 'tubefinset') return 2 * tubeFinRadius(n, maxR);
     return num(n, 'height', 0.03);
   };
-  const finH = Math.max(0, ...collect(tree.components, finSpan));
+  const protuberanceSpan = (n: ComponentNode): number =>
+    (n.type === 'fairing' ? num(n, 'height', 0.02) : 0);
+  const finH = Math.max(
+    0,
+    ...collect(tree.components, finSpan),
+    ...collect(tree.components, protuberanceSpan),
+  );
   totalLen = Math.max(totalLen, 0.05);
 
   // Vertical half-extent (m): the core body + fins, plus any off-axis pod's
@@ -138,6 +150,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
       const rect = svgRef.current?.getBoundingClientRect();
       if (!rect || rect.width === 0) return;
       e.stopPropagation(); // don't also start a background pan
+      dragMoved.current = false;
       const pos = (child.position ?? { method: 'top', offset: 0 }) as ComponentPosition;
       drag.current = {
         childId: child.id,
@@ -161,6 +174,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   const onMove = (e: React.PointerEvent) => {
     const d = drag.current;
     if (d && onPatchNode) {
+      if (Math.abs(e.clientX - d.pointerX) > 4) dragMoved.current = true;
       const dxModel = ((e.clientX - d.pointerX) * d.clientScale) / (scale * zoom.k);
       const anchors = anchorStarts(d.parent, d.child);
       const epsilon = (6 * 1) / (scale * zoom.k); // ~6 screen px of magnetism
@@ -235,6 +249,21 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
     return k === 1 ? { k: 1, x: 0, y: 0 } : { k, x: w / 2 - mx * k, y: h / 2 - my * k };
   });
 
+  // Selection sync: click any drawn component to select it in the tree; the
+  // selected component draws with an accent outline.
+  const isSel = (n: ComponentNode) => !!selectedId && n.id === selectedId;
+  const clickable = (n: ComponentNode) => (onSelect && n.id
+    ? {
+      onClick: (e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (!dragMoved.current) onSelect(n.id!);
+      },
+      style: { cursor: 'pointer' } as React.CSSProperties,
+    }
+    : {});
+  const selStroke = (n: ComponentNode, dflt: string) => (isSel(n) ? 'var(--accent)' : dflt);
+  const selWidth = (n: ComponentNode, dflt: number | string = 1) => (isSel(n) ? 2 : dflt);
+
   // --- render chain + children ---
   const shapes: React.ReactNode[] = [];
   // Dashed "shadow" shapes (inner components, shoulders) paint AFTER the whole
@@ -260,12 +289,15 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
         }
         continue;
       }
-      const grab = onPatchNode && child.id
-        ? {
-          onPointerDown: beginDrag(child, parent, pLen),
-          style: { cursor: 'grab' } as React.CSSProperties,
-        }
-        : {};
+      const grab = {
+        ...clickable(child),
+        ...(onPatchNode && child.id
+          ? {
+            onPointerDown: beginDrag(child, parent, pLen),
+            style: { cursor: 'grab' } as React.CSSProperties,
+          }
+          : {}),
+      };
       // Through-the-wall fin tab: dashed rect from the body surface inward.
       const renderTab = (finStart: number, finLen: number) => {
         const tabH = Math.min(num(child, 'tabHeight', 0), pRadius);
@@ -296,7 +328,8 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
               .join(' ');
             shapes.push(
               <polygon key={key++} points={ptsStr}
-                fill={fillOf(child, '#b9b7b0')} stroke="#7a786f" strokeWidth="1" {...grab} />,
+                fill={fillOf(child, '#b9b7b0')} stroke={selStroke(child, '#7a786f')}
+                strokeWidth={selWidth(child)} {...grab} />,
             );
           }
           renderTab(start, chord);
@@ -315,11 +348,13 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
             t === 'trapezoidfinset' ? (
               <polygon key={key++}
                 points={`${X},${y0} ${X + sweep * ctx.scale},${yh} ${X + (sweep + tip) * ctx.scale},${yh} ${X + root * ctx.scale},${y0}`}
-                fill={fillOf(child, '#b9b7b0')} stroke="#7a786f" strokeWidth="1" {...grab} />
+                fill={fillOf(child, '#b9b7b0')} stroke={selStroke(child, '#7a786f')}
+                strokeWidth={selWidth(child)} {...grab} />
             ) : (
               <path key={key++}
                 d={`M ${X} ${y0} Q ${X + (root / 2) * ctx.scale} ${yh + dir * 4} ${X + root * ctx.scale} ${y0} Z`}
-                fill={fillOf(child, '#b9b7b0')} stroke="#7a786f" strokeWidth="1" {...grab} />
+                fill={fillOf(child, '#b9b7b0')} stroke={selStroke(child, '#7a786f')}
+                strokeWidth={selWidth(child)} {...grab} />
             ),
           );
         }
@@ -340,12 +375,41 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
             <rect key={key++} x={X} y={Math.min(yNear, yFar)}
               width={Math.max(2, len * ctx.scale)} height={Math.abs(yFar - yNear)}
               rx="2" fill={fillOf(child, '#c8c5be')} fillOpacity="0.6"
-              stroke="#7a786f" strokeWidth="1" {...grab} />,
+              stroke={selStroke(child, '#7a786f')} strokeWidth={selWidth(child)} {...grab} />,
             <line key={key++} x1={X} y1={(yNear + yFar) / 2} x2={X + len * ctx.scale} y2={(yNear + yFar) / 2}
               stroke="#7a786f" strokeWidth="0.8" strokeDasharray="4 3"
               style={{ pointerEvents: 'none' }} />,
           );
         }
+      } else if (t === 'fairing') {
+        // External shroud: SOLID outline (it's on the outside — the owner's spec),
+        // drawn on the top surface; radial angle isn't modeled.
+        const len = num(child, 'length', 0.08);
+        const hgt = num(child, 'height', 0.02);
+        const fshape = String(child['fairingShape'] ?? 'halfround');
+        const start = axialStart(child, len, pStart, pLen);
+        const X = ctx.x0 + start * ctx.scale;
+        const y0 = baseY - pRadius * ctx.scale;
+        const yh = y0 - hgt * ctx.scale;
+        const Xe = X + len * ctx.scale;
+        shapes.push(
+          fshape === 'streamlined' ? (
+            <polygon key={key++}
+              points={`${X},${y0} ${X + 0.3 * len * ctx.scale},${yh} ${X + 0.7 * len * ctx.scale},${yh} ${Xe},${y0}`}
+              fill={fillOf(child, '#c8c5be')} stroke={selStroke(child, '#7a786f')}
+              strokeWidth={selWidth(child)} {...grab} />
+          ) : fshape === 'halfround' ? (
+            <path key={key++}
+              d={`M ${X} ${y0} L ${X} ${yh + 0.35 * (y0 - yh)} Q ${X} ${yh} ${X + Math.min(8, len * ctx.scale * 0.25)} ${yh} L ${Xe - Math.min(8, len * ctx.scale * 0.25)} ${yh} Q ${Xe} ${yh} ${Xe} ${yh + 0.35 * (y0 - yh)} L ${Xe} ${y0} Z`}
+              fill={fillOf(child, '#c8c5be')} stroke={selStroke(child, '#7a786f')}
+              strokeWidth={selWidth(child)} {...grab} />
+          ) : (
+            <rect key={key++} x={X} y={yh}
+              width={Math.max(2, len * ctx.scale)} height={Math.max(2, hgt * ctx.scale)}
+              fill={fillOf(child, '#c8c5be')} stroke={selStroke(child, '#7a786f')}
+              strokeWidth={selWidth(child)} {...grab} />
+          ),
+        );
       } else if (t === 'launchlug' || t === 'railbutton') {
         // Rail buttons are edited via 'outerDiameter' (their only size field)
         // and have no axial 'length' — a button is about as long as it is wide.
@@ -357,7 +421,8 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
           <rect key={key++} x={ctx.x0 + start * ctx.scale}
             y={baseY - (pRadius + 2 * r) * ctx.scale}
             width={Math.max(2, len * ctx.scale)} height={Math.max(2, 2 * r * ctx.scale)}
-            fill={fillOf(child, '#c8c5be')} stroke="#7a786f" strokeWidth="1" {...grab} />,
+            fill={fillOf(child, '#c8c5be')} stroke={selStroke(child, '#7a786f')}
+            strokeWidth={selWidth(child)} {...grab} />,
         );
       } else {
         // Internal component: dashed outline inside the parent. A clustered
@@ -394,18 +459,64 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
         // flush against the mount's aft end (how motors actually load).
         const motor = child.type === 'innertube' && child.id ? motors?.[child.id] : undefined;
         for (const off of offsets) {
+          const inkColor = isSel(child) ? 'var(--accent)' : fillOf(child, style?.stroke ?? '#9a978f');
           overlay.push(
             <rect key={key++} x={ctx.x0 + start * ctx.scale}
               y={baseY + (off.y - r) * ctx.scale}
               width={Math.max(2, len * ctx.scale)} height={2 * r * ctx.scale}
-              fill="rgba(127,127,127,0.001)"
-              stroke={fillOf(child, style?.stroke ?? '#9a978f')} strokeWidth="1"
+              fill={child.type === 'bulkhead' ? 'url(#bulkhead-hatch)' : 'rgba(127,127,127,0.001)'}
+              stroke={inkColor} strokeWidth={selWidth(child)}
               strokeDasharray="3 2" {...grab}>
               <title>{child.name ?? DISPLAY_NAME[child.type]}</title>
             </rect>,
           );
-          // Type tag, when the box has room for it.
-          if (style && len * ctx.scale > 26 && 2 * r * ctx.scale > 11) {
+          // Miniature glyphs (the owner's pick, 2026-08-05b #21): a picture inside
+          // the box for chutes, mass items, centering rings and shock cords,
+          // drawn whenever there's room; the text tag stays for the rest.
+          const bw = len * ctx.scale;
+          const bh = 2 * r * ctx.scale;
+          const gcx = ctx.x0 + (start + len / 2) * ctx.scale;
+          const gcy = baseY + off.y * ctx.scale;
+          const gs = Math.min(bw * 0.8, bh * 0.7); // glyph box size
+          if (gs >= 8) {
+            const g = gs / 2;
+            const glyphProps = { stroke: fillOf(child, style?.stroke ?? '#9a978f'), fill: 'none', strokeWidth: 1.2, style: { pointerEvents: 'none' as const } };
+            if (child.type === 'parachute') {
+              overlay.push(
+                <g key={key++} {...glyphProps}>
+                  <path d={`M ${gcx - g} ${gcy} A ${g} ${g} 0 0 1 ${gcx + g} ${gcy}`} />
+                  <path d={`M ${gcx - g} ${gcy} L ${gcx} ${gcy + g} L ${gcx + g} ${gcy} M ${gcx - g * 0.45} ${gcy - g * 0.65} L ${gcx} ${gcy + g} M ${gcx + g * 0.45} ${gcy - g * 0.65} L ${gcx} ${gcy + g}`} />
+                </g>,
+              );
+            } else if (child.type === 'masscomponent') {
+              overlay.push(
+                <g key={key++} {...glyphProps}>
+                  <rect x={gcx - g * 0.7} y={gcy - g * 0.35} width={g * 1.4} height={g * 1.05}
+                    fill={fillOf(child, style?.stroke ?? '#9a978f')} fillOpacity="0.35" />
+                  <path d={`M ${gcx - g * 0.35} ${gcy - g * 0.35} A ${g * 0.4} ${g * 0.5} 0 0 1 ${gcx + g * 0.35} ${gcy - g * 0.35}`} />
+                </g>,
+              );
+            } else if (child.type === 'centeringring') {
+              // Ring cross-section: material near the walls, bore in the middle.
+              overlay.push(
+                <g key={key++} {...glyphProps}>
+                  <line x1={gcx} y1={gcy - bh / 2 + 1.5} x2={gcx} y2={gcy - bh * 0.16} strokeWidth={Math.max(2, bw * 0.5)} />
+                  <line x1={gcx} y1={gcy + bh * 0.16} x2={gcx} y2={gcy + bh / 2 - 1.5} strokeWidth={Math.max(2, bw * 0.5)} />
+                </g>,
+              );
+            } else if (child.type === 'shockcord') {
+              const seg = gs / 4;
+              overlay.push(
+                <path key={key++} {...glyphProps}
+                  d={`M ${gcx - g} ${gcy} ${[1, 2, 3, 4].map((i) => `L ${gcx - g + i * seg * 2 - seg} ${gcy + (i % 2 ? -1 : 1) * g * 0.45} L ${gcx - g + i * seg * 2} ${gcy}`).join(' ')}`} />,
+              );
+            }
+          }
+          // Type tag, when the box has room for it — glyph types skip the
+          // text once their picture is drawn.
+          const hasGlyph = gs >= 8
+            && ['parachute', 'masscomponent', 'centeringring', 'shockcord'].includes(child.type);
+          if (style && !hasGlyph && len * ctx.scale > 26 && 2 * r * ctx.scale > 11) {
             overlay.push(
               <text key={key++}
                 x={ctx.x0 + (start + len / 2) * ctx.scale}
@@ -456,7 +567,8 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
       const len = num(n, 'length', 0);
       if (n.type === 'nosecone') {
         const r = num(n, 'aftRadius', 0.012);
-        shapes.push(<path key={key++} d={nosePath(ctx, cx, len, r, baseY)} fill={fillOf(n, '#d5d2cb')} stroke="#7a786f" strokeWidth="1" />);
+        shapes.push(<path key={key++} d={nosePath(ctx, cx, len, r, baseY)} fill={fillOf(n, '#d5d2cb')}
+          stroke={selStroke(n, '#7a786f')} strokeWidth={selWidth(n)} {...clickable(n)} />);
         shoulderRect(cx + len, num(n, 'shoulderLength', 0), num(n, 'shoulderRadius', 0), '#9a978f', baseY);
         renderChildren(n, cx, len, r, baseY);
         cx += len;
@@ -465,7 +577,8 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
         shapes.push(
           <rect key={key++} x={ctx.x0 + cx * scale} y={baseY - r * scale}
             width={len * scale} height={2 * r * scale}
-            fill={fillOf(n, '#e7e5e0')} stroke="#7a786f" strokeWidth="1" />,
+            fill={fillOf(n, '#e7e5e0')} stroke={selStroke(n, '#7a786f')}
+            strokeWidth={selWidth(n)} {...clickable(n)} />,
         );
         // Min-diameter: a motor loaded directly in this body tube draws at its
         // real case size, seated flush against the tube's aft end.
@@ -491,7 +604,8 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
         shapes.push(
           <polygon key={key++}
             points={`${X},${baseY - rf * scale} ${X + len * scale},${baseY - ra * scale} ${X + len * scale},${baseY + ra * scale} ${X},${baseY + rf * scale}`}
-            fill={fillOf(n, '#d5d2cb')} stroke="#7a786f" strokeWidth="1" />,
+            fill={fillOf(n, '#d5d2cb')} stroke={selStroke(n, '#7a786f')}
+            strokeWidth={selWidth(n)} {...clickable(n)} />,
         );
         const fsl = num(n, 'foreShoulderLength', 0);
         shoulderRect(cx - fsl, fsl, num(n, 'foreShoulderRadius', 0), '#9a978f', baseY);
@@ -516,6 +630,12 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
           role="img" aria-label="Rocket side view with CG and CP markers — drag components, wheel to zoom, drag background to pan"
           onPointerDown={beginPan}
           onPointerMove={onMove} onPointerUp={endDrag} onPointerLeave={endDrag}>
+        <defs>
+          {/* Bulkhead fill: the engineering-drawing diagonal hatch. */}
+          <pattern id="bulkhead-hatch" patternUnits="userSpaceOnUse" width="5" height="5">
+            <path d="M0 5 L5 0" stroke="#66748c" strokeWidth="0.9" />
+          </pattern>
+        </defs>
         <g transform={`translate(${zoom.x} ${zoom.y}) scale(${zoom.k})`}>
           {shapes}
           {overlay}
