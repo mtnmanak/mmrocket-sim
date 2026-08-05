@@ -94,66 +94,48 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
         </p>
 
         <h3 className="prefs-section">Aerodynamics</h3>
-        {/* The MODEL is the primary choice; Kbf is a refinement OF the classic
-            model and is greyed out when the supersonic model supersedes it
-            (issue 2026-08-05a #9: the live-looking checkbox with zero effect
-            was the confusion). */}
+        {/* ONE pulldown, four explicit choices (2026-08-05c #9 — the separate
+            Kbf checkbox next to a "Classic" option read as two things both
+            called classic). The select derives from and writes BOTH stored
+            prefs (aeroModel + rogersKbf) — no migration needed. */}
         <div className="field">
-          <label>Aerodynamics model (beta)</label>
+          <label>Aerodynamics model</label>
           <select
-            value={prefs.aeroModel ?? 'classic'}
-            onChange={(e) => setPrefs({
-              ...prefs,
-              aeroModel: e.target.value as 'classic' | 'supersonic' | 'auto',
-            })}
+            value={(prefs.aeroModel ?? 'classic') === 'classic'
+              ? ((prefs.rogersKbf ?? true) ? 'kbf' : 'eb')
+              : (prefs.aeroModel ?? 'classic')}
+            onChange={(e) => {
+              const v = e.target.value;
+              setPrefs({
+                ...prefs,
+                aeroModel: v === 'eb' || v === 'kbf' ? 'classic' : (v as 'supersonic' | 'auto'),
+                // Kbf rides along under Auto too (it's the better subsonic model).
+                rogersKbf: v !== 'eb',
+              });
+            }}
           >
-            <option value="classic">Classic — Extended Barrowman (the default)</option>
-            <option value="auto">Auto — supersonic model when the flight goes past Mach 0.9</option>
-            <option value="supersonic">Supersonic — RASAero-class model at all speeds</option>
+            <option value="eb">OpenRocket — Extended Barrowman (exact desktop parity)</option>
+            <option value="kbf">Rogers Modified Barrowman (Kbf) — the default</option>
+            <option value="auto">Auto — Rogers Kbf, switching to our supersonic model past Mach 0.9</option>
+            <option value="supersonic">Supersonic — our extended model at all speeds (validated to Mach 4.6)</option>
           </select>
         </div>
-        <div className="field">
-          <label style={{
-            display: 'flex', alignItems: 'center', gap: 8,
-            cursor: (prefs.aeroModel ?? 'classic') === 'supersonic' ? 'not-allowed' : 'pointer',
-            opacity: (prefs.aeroModel ?? 'classic') === 'supersonic' ? 0.5 : 1,
-          }}>
-            <input
-              type="checkbox"
-              checked={prefs.rogersKbf ?? true}
-              disabled={(prefs.aeroModel ?? 'classic') === 'supersonic'}
-              onChange={(e) => setPrefs({ ...prefs, rogersKbf: e.target.checked })}
-            />
-            Classic model: add Rogers Modified Barrowman body-fin interference (Kbf)
-          </label>
-        </div>
         <p className="prefs-hint">
-          Adds the body-in-presence-of-fins lift carryover (NACA&nbsp;1307) that classic
-          Barrowman drops. Gives a slightly more aft, more conservative CP and stability
-          margin — affects the reported stability and the flight simulation. <strong>On by
-          default</strong> (it tracks real flight data better); turn it off for exact
-          desktop-OpenRocket parity.
-          {(prefs.aeroModel ?? 'classic') === 'supersonic' && (
-            <strong> Disabled: the supersonic model already contains the full
-            NACA&nbsp;1307 interference.</strong>
-          )}
-          {(prefs.aeroModel ?? 'classic') === 'auto' && (
-            <strong> Under Auto it applies only to flights that stay classic
-            (below Mach&nbsp;0.9).</strong>
-          )}
-        </p>
-        <p className="prefs-hint">
-          The <strong>supersonic model</strong> adds corrected supersonic fin lift (2D
-          Busemann level), exact NACA&nbsp;1307 body-fin interference, Mach-dependent nose
-          lift, per-shape wave drag with physical hypersonic decay, and
-          Van&nbsp;Driest&nbsp;II friction — CP and drag then move with Mach the way wind
-          tunnels measure (validated against NASA ARCAS and Basic Finner data to
+          <strong>OpenRocket — Extended Barrowman</strong> is the desktop program's exact
+          physics, bit-for-bit. <strong>Rogers Modified Barrowman</strong> adds the
+          body-in-presence-of-fins lift carryover (NACA&nbsp;1307) that classic Barrowman
+          drops — a slightly more aft, more conservative CP that tracks real flight data
+          better, so it's the default. <strong>Our supersonic model</strong> extends the
+          same kernel with corrected supersonic fin lift (2D Busemann level), the exact
+          NACA&nbsp;1307 interference, Mach-dependent nose lift, per-shape wave drag with
+          physical hypersonic decay, and Van&nbsp;Driest&nbsp;II friction — CP and drag
+          then move with Mach the way wind tunnels measure (built from the open
+          literature and validated against NASA ARCAS and Basic Finner data to
           Mach&nbsp;4.6). A model applies to the <strong>entire flight</strong>, subsonic
-          portions included (the interference term raises fin lift modestly even at low
-          speed), so expect stability and apogee to shift when the model changes.
-          <strong> Auto</strong> flies classic first and re-flies the whole flight on the
-          supersonic model only when it's projected past Mach&nbsp;0.9 — subsonic flights
-          keep exact desktop parity. Each saved run records which model flew it.
+          portions included, so expect stability and apogee to shift when the model
+          changes. <strong>Auto</strong> flies Rogers Kbf and re-flies the whole flight
+          on the supersonic model only when it's projected past Mach&nbsp;0.9. Each
+          saved run records which model flew it.
         </p>
 
         <p className="prefs-hint">

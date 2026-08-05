@@ -261,6 +261,61 @@ describe('RockSim export → import round trip', () => {
     expect(xml).toMatch(/<UseKnownCG>1<\/UseKnownCG>/);
   });
 
+  it('round-trips pods as ExternalPods (split instances, radians, FREE radius)', () => {
+    const design = {
+      name: 'POD',
+      tree: {
+        components: [{
+          type: 'stage' as const, id: 's', name: 'Sustainer',
+          children: [{
+            type: 'bodytube' as const, id: 'b', length: 0.4, outerRadius: 0.03, thickness: 0.001,
+            children: [{
+              type: 'podset' as const, id: 'p', instanceCount: 2,
+              radiusMethod: 'free', radiusOffset: 0.05, angleOffset: Math.PI / 4,
+              position: { method: 'bottom' as const, offset: 0 },
+              children: [{
+                type: 'bodytube' as const, id: 'pb', length: 0.15, outerRadius: 0.012, thickness: 0.0005,
+              }],
+            }],
+          }],
+        }],
+      },
+    };
+    const xml = exportRkt(design);
+    expect((xml.match(/<ExternalPod>/g) ?? []).length).toBe(2); // instances split
+    expect(xml).toMatch(/<Detachable>0<\/Detachable>/);
+    const back = importRkt(xml);
+    const pods = flatten(back.tree.components).filter((c) => c.type === 'podset');
+    expect(pods.length).toBe(2); // RockSim is single-instance — 2 pods of 1
+    expect(pods[0]!['radiusMethod']).toBe('free');
+    expect(pods[0]!['radiusOffset']).toBeCloseTo(0.05, 9);
+    expect(pods[0]!['angleOffset']).toBeCloseTo(Math.PI / 4, 9);
+    expect(pods[1]!['angleOffset']).toBeCloseTo(Math.PI / 4 + Math.PI, 9);
+    expect(pods[0]!.children?.[0]?.type).toBe('bodytube');
+    expect(pods[0]!.children?.[0]?.['outerRadius']).toBeCloseTo(0.012, 9);
+  });
+
+  it('round-trips fin cant angle (radians, desktop exporter convention)', () => {
+    const design = {
+      name: 'CANT',
+      tree: {
+        components: [{
+          type: 'stage' as const, id: 's', name: 'Sustainer',
+          children: [{
+            type: 'bodytube' as const, id: 'b', length: 0.3, outerRadius: 0.012, thickness: 0.0005,
+            children: [{
+              type: 'trapezoidfinset' as const, id: 'f', finCount: 3, rootChord: 0.05,
+              tipChord: 0.02, sweep: 0.02, height: 0.04, thickness: 0.003, cant: 0.0524,
+            }],
+          }],
+        }],
+      },
+    };
+    const back = importRkt(exportRkt(design));
+    const fins = flatten(back.tree.components).find((c) => c.type === 'trapezoidfinset')!;
+    expect(fins['cant']).toBeCloseTo(0.0524, 9);
+  });
+
   it('round-trips tube fin wall thickness (OD/ID)', () => {
     const design = {
       name: 'TF',

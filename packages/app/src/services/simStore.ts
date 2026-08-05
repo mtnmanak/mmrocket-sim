@@ -163,3 +163,17 @@ export function runsToCsv(runs: SimRun[], units?: UnitSelection): string {
   const rows = runs.map((r) => cols.map(([, f]) => csvCell(f(r))).join(','));
   return [header, ...rows].join('\n');
 }
+
+/**
+ * Same catalog as the CSV, but typed: numbers stay numbers so a spreadsheet
+ * never reinterprets them (feeds the .xlsx export).
+ */
+export function runsToTable(runs: SimRun[], units?: UnitSelection): {
+  headers: string[]; rows: (string | number)[][];
+} {
+  const cols = buildColumns(units);
+  return {
+    headers: cols.map(([label]) => label),
+    rows: runs.map((r) => cols.map(([, f]) => f(r))),
+  };
+}

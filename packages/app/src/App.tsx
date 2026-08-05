@@ -763,9 +763,7 @@ export function App() {
           motorCount={primaryMotorCount}
           launch={launch}
           rocketName={tree.name ?? 'Rocket'}
-          aeroModelLabel={effectiveSupersonic
-            ? (aeroMode === 'auto' ? 'auto-supersonic' : 'supersonic')
-            : 'classic'}
+          handleFlags={{ rogersKbf: prefs.rogersKbf ?? true, supersonic: effectiveSupersonic }}
           onRunsChange={setRuns}
           onClose={() => {
             // Batch runs left some other motor on the engine-side rocket —

@@ -218,14 +218,14 @@ export function DragPanel({ rocket, supersonicModel }: {
               {supersonicModel ? (
                 <p className="motor-db-meta" style={{ marginTop: 4 }}>
                   Supersonic CP travel is the stability hazard on fast flights — check your
-                  margin at max Mach, not just at rest. RASAero practice: keep ≥ 2 calibers
-                  through the transonic and supersonic regime.
+                  margin at max Mach, not just at rest. High-performance practice: keep ≥ 2
+                  calibers through the transonic and supersonic regime.
                 </p>
               ) : (
                 <p className="motor-db-meta" style={{ marginTop: 4 }}>
-                  The classic model freezes body CP above Mach 1 — enable
-                  <strong> Supersonic aerodynamics</strong> in Preferences → Aerodynamics for
-                  wind-tunnel-validated CP travel.
+                  The Barrowman models freeze body CP above Mach 1 — pick
+                  <strong> Auto</strong> or <strong>Supersonic</strong> in Preferences →
+                  Aerodynamics for wind-tunnel-validated CP travel.
                 </p>
               )}
             </div>

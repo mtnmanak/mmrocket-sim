@@ -2,6 +2,7 @@ import { strFromU8, unzipSync } from 'fflate';
 import type { ComponentNode, ComponentPosition, RocketTree } from '@online-openrocket/engine';
 import { asStageNodes, freshId } from '../tree/treeModel.js';
 import { CLUSTER_POINTS, clusterOffsets } from '../tree/cluster.js';
+import { resolveAssemblyRadius } from '../tree/assembly.js';
 import { escapeXml as esc, xmlNum as num, xmlText as text } from './xmlUtil.js';
 import { shapeParamDefault } from './orkFile.js';
 import type { OrkExportMotor, OrkMotorRef, OrkTreeImportResult } from './orkFile.js';
@@ -281,6 +282,10 @@ export function importRkt(data: ArrayBuffer | string): OrkTreeImportResult {
           n['tabOffset'] = num(el, 'TabOffset', 0) / LEN;
           n['tabOffsetMethod'] = 'top';
         }
+        // Fin cant (radians — same convention the desktop exporter writes;
+        // its importer drops this, so we're a step ahead of desktop parity).
+        const cant = num(el, 'CantAngle', 0);
+        if (cant !== 0) n['cant'] = cant;
         return n;
       }
       case 'LaunchLug': {
@@ -334,8 +339,45 @@ export function importRkt(data: ArrayBuffer | string): OrkTreeImportResult {
         delete n['overrideCGX'];
         return n;
       }
-      case 'ExternalPod':
+      case 'ExternalPod': {
+        // Desktop PodHandler semantics: single instance, FREE radius from
+        // the parent centerline, RadialAngle in radians; a Detachable pod is
+        // a strap-on booster (ParallelStage).
+        const detachable = Math.round(num(el, 'Detachable', 0)) === 1;
+        const n = mk(detachable ? 'parallelstage' : 'podset');
+        n['instanceCount'] = 1;
+        n['radiusMethod'] = 'free';
+        n['radiusOffset'] = num(el, 'RadialLoc', 0) / LEN;
+        const ra = num(el, 'RadialAngle', 0);
+        if (ra !== 0) n['angleOffset'] = ra;
+        if (detachable) {
+          n['angleMethod'] = 'relative';
+          n['separationEvent'] = 'ejection';
+          n['separationDelay'] = 0;
+        }
+        // RockSim allows the pod's chain both directly under the pod and
+        // inside AttachedParts (desktop handles both) — collect from both.
+        const chain: ComponentNode[] = [];
+        const CHAIN_TAGS = ['NoseCone', 'BodyTube', 'Transition'];
+        for (const sub of Array.from(el.children)) {
+          if (CHAIN_TAGS.includes(sub.tagName)) {
+            const kid = convertPart(sub, null);
+            if (kid) chain.push(kid);
+          } else if (sub.tagName === 'AttachedParts') {
+            for (const sub2 of Array.from(sub.children)) {
+              if (CHAIN_TAGS.includes(sub2.tagName)) {
+                const kid = convertPart(sub2, null);
+                if (kid) chain.push(kid);
+              }
+            }
+          }
+        }
+        n.children = chain;
+        notes.push(`External pod “${n.name ?? 'Pod'}” imported as ${detachable ? 'a strap-on booster (parallel stage)' : 'a pod set'}.`);
+        return n;
+      }
       case 'RingTail':
+        // The desktop importer has no RingTail handler either — parity.
         ignored.add(tag);
         return null;
       default:
@@ -743,7 +785,37 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
           emit(`<TabDepth>${nnum(node, 'tabHeight', 0) * LEN}</TabDepth>`);
           emit(`<TabOffset>${nnum(node, 'tabOffset', 0) * LEN}</TabOffset>`);
         }
+        // Radians — matching the desktop's RockSim exporter (FinSetDTO).
+        if (nnum(node, 'cant', 0) !== 0) {
+          emit(`<CantAngle>${nnum(node, 'cant', 0)}</CantAngle>`);
+        }
         emit(isCustom ? '</CustomFinSet>' : '</FinSet>');
+        break;
+      }
+      case 'podset': case 'parallelstage': {
+        // RockSim pods are single-instance — split N instances into N
+        // <ExternalPod>s around the ring (the desktop does the same);
+        // parallel stages export as Detachable pods.
+        const count = Math.max(1, Math.round(nnum(node, 'instanceCount', 1)));
+        const parentR = curParent
+          ? Math.max(nnum(curParent, 'outerRadius', 0), nnum(curParent, 'aftRadius', 0), 0.012)
+          : 0.012;
+        const centerR = resolveAssemblyRadius(node, parentR);
+        const angle0 = nnum(node, 'angleOffset', 0);
+        for (let i = 0; i < count; i++) {
+          emit('<ExternalPod>');
+          common(node, node.type === 'podset' ? 'Pod' : 'Booster');
+          emit('<AutoCalcRadialDistance>0</AutoCalcRadialDistance>');
+          emit('<AutoCalcRadialAngle>0</AutoCalcRadialAngle>');
+          emit(`<Detachable>${node.type === 'parallelstage' ? 1 : 0}</Detachable>`);
+          emit('<Removed>0</Removed>');
+          emit(`<RadialLoc>${centerR * LEN}</RadialLoc>`);
+          emit(`<RadialAngle>${angle0 + (2 * Math.PI * i) / count}</RadialAngle>`);
+          emit('<AttachedParts>');
+          for (const kid of node.children ?? []) emitPart(kid, node);
+          emit('</AttachedParts>');
+          emit('</ExternalPod>');
+        }
         break;
       }
       case 'launchlug': {

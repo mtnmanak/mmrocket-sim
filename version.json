@@ -1,5 +1,5 @@
 {
-  "version": "0.035",
+  "version": "0.036",
   "released": "2026-08-05",
-  "note": "Hotfix: panning the zoomed aft view could crash the app when the mouse button was released mid-move. Fixed - nothing else changed from 0.034 (camera shrouds, spill holes, customizable result tiles)."
+  "note": "One clear aerodynamics picker (OpenRocket Extended Barrowman / Rogers Modified Barrowman default / Auto / our supersonic model - the confusing Kbf checkbox is gone); batch motor runs get their own model choice defaulting to Auto; new XLSX export with typed cells so spreadsheets never mangle your data; RockSim external pods and fin cant now import and export."
 }

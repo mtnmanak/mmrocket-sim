@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.035';
+export const APP_VERSION = '0.036';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.036',
+    date: '2026-08-05',
+    title: 'One clear model picker, batch aero choice, XLSX, RockSim pods',
+    items: [
+      'The aerodynamics choice is ONE pulldown now, with four explicit options: OpenRocket — Extended Barrowman (exact desktop parity) · Rogers Modified Barrowman (Kbf, the default) · Auto (Kbf, switching to our supersonic model past Mach 0.9) · Supersonic (our extended model at all speeds). The confusing separate Kbf checkbox is gone; your stored settings carry over unchanged.',
+      'The supersonic model is now labeled as what it is — OUR model. It was built from the open literature and validated directly against NASA wind-tunnel data (no RASAero code or equations exist in it, or anywhere public); the guide keeps RASAero as the historical reference.',
+      'Batch motor simulation gets its own aero-model pulldown, defaulting to Auto — each candidate motor flies the model its own flight calls for (a G stays subsonic-classic, an M goes supersonic), recorded per row. Your design\'s setting is untouched.',
+      'New ⬇ XLSX export beside CSV (saved simulations and batch results): typed cells so Excel/Google Sheets never mangle designations or delays into dates, bold frozen header, autofilter, sized columns. Built in ~2 KB — no bloated spreadsheet library in the offline bundle.',
+      'RockSim: external pods now import AND export (desktop semantics; a Detachable pod becomes a strap-on booster with its own flight branch; multi-instance pod sets split into N pods like the desktop); fin cant angle round-trips (the desktop only writes it — we read it back too). Ring tails remain unsupported, same as desktop OpenRocket, and the import notes say so.',
+    ],
+  },
   {
     version: '0.035',
     date: '2026-08-05',

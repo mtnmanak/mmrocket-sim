@@ -7,7 +7,8 @@ import {
 import { exToDbEntry, loadExMotors } from '../services/exMotors.js';
 import { fetchMotorSpec, delayOptions } from '../services/thrustcurve.js';
 import { buildSimRun, recommendDelay, type SimRun } from '../services/simReport.js';
-import { addRuns, runsToCsv } from '../services/simStore.js';
+import { addRuns, runsToCsv, runsToTable } from '../services/simStore.js';
+import { tableToXlsx, XLSX_MIME } from '../services/xlsx.js';
 import type { LaunchConditions } from './LaunchPanel.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { Icon } from './Icon.js';
@@ -60,7 +61,7 @@ interface BatchRow {
   failed: string[];
 }
 
-export function BatchSimulate({ rocket, info, mountId, mountDiameterMm, maxMotorLengthM, motorCount, launch, rocketName, aeroModelLabel, onRunsChange, onClose }: {
+export function BatchSimulate({ rocket, info, mountId, mountDiameterMm, maxMotorLengthM, motorCount, launch, rocketName, handleFlags, onRunsChange, onClose }: {
   rocket: OrkRocket;
   info: StaticInfo;
   mountId: string;
@@ -71,8 +72,12 @@ export function BatchSimulate({ rocket, info, mountId, mountDiameterMm, maxMotor
   motorCount: number;
   launch: LaunchConditions;
   rocketName: string;
-  /** Aero model on the design's engine handle (batch flies all candidates on it). */
-  aeroModelLabel: 'classic' | 'supersonic' | 'auto-supersonic';
+  /**
+   * The design handle's current aero flags — the batch picks its OWN model
+   * (2026-08-05c: default Auto, since candidates straddle Mach 1) and must
+   * put the shared handle back exactly as found when it's done.
+   */
+  handleFlags: { rogersKbf: boolean; supersonic: boolean };
   onRunsChange: (runs: SimRun[]) => void;
   onClose: () => void;
 }) {
@@ -81,6 +86,10 @@ export function BatchSimulate({ rocket, info, mountId, mountDiameterMm, maxMotor
   const vel = prefs.units.velocity;
 
   const [criteria, setCriteriaRaw] = useState<Criteria>(loadCriteria);
+  // Batch-local aero model. Auto is the sensible default: a candidate list
+  // routinely spans subsonic to supersonic flights, and one fixed model
+  // would be wrong at one end or the other.
+  const [batchModel, setBatchModel] = useState<'eb' | 'kbf' | 'auto' | 'supersonic'>('auto');
   const [rows, setRows] = useState<BatchRow[]>([]);
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number; current: string } | null>(null);
@@ -146,6 +155,10 @@ export function BatchSimulate({ rocket, info, mountId, mountDiameterMm, maxMotor
     setRows([]);
     const out: BatchRow[] = [];
     const accepted: SimRun[] = [];
+    // Apply the batch's model to the shared handle (restored at the end).
+    const kbf = batchModel !== 'eb';
+    rocket.setRogersModifiedBarrowman(kbf);
+    rocket.setSupersonicAero(batchModel === 'supersonic');
     const simOpts: SimulationOptions = {
       launchRodLength: launch.launchRodLengthM,
       launchRodAngle: (launch.launchRodAngleDeg * Math.PI) / 180,
@@ -171,8 +184,18 @@ export function BatchSimulate({ rocket, info, mountId, mountDiameterMm, maxMotor
         const provisional = opts[opts.length - 1] ?? 0;
         const spec = await fetchMotorSpec(entry, provisional);
         const t0 = performance.now();
+        // Auto: each candidate flies the Kbf model first and re-flies wholly
+        // supersonic when projected past Mach 0.9 — per MOTOR, exactly like
+        // the single-flight Auto loop.
+        if (batchModel === 'auto') rocket.setSupersonicAero(false);
         rocket.setMotorById(mountId, spec);
         let res = rocket.simulate(simOpts);
+        let usedSupersonic = batchModel === 'supersonic';
+        if (batchModel === 'auto' && res.summary.maxMachNumber > 0.9) {
+          rocket.setSupersonicAero(true);
+          res = rocket.simulate(simOpts);
+          usedSupersonic = true;
+        }
         let flownDelay = provisional;
         if (criteria.autoDelay) {
           const rec = recommendDelay(res.summary.optimumDelay);
@@ -202,9 +225,9 @@ export function BatchSimulate({ rocket, info, mountId, mountDiameterMm, maxMotor
           launch,
           rocketName,
           execMs: performance.now() - t0,
-          // Batch flies on whatever model the design's engine handle carries
-          // (Auto mode: the model chosen by the design's last single flight).
-          aeroModel: aeroModelLabel,
+          aeroModel: batchModel === 'auto' && usedSupersonic ? 'auto-supersonic'
+            : usedSupersonic ? 'supersonic' : 'classic',
+          rogersKbf: kbf && !usedSupersonic,
         });
         const failed = gradeRun(run);
         out.push({ entry, run, failed });
@@ -215,6 +238,10 @@ export function BatchSimulate({ rocket, info, mountId, mountDiameterMm, maxMotor
       setRows([...out]);
     }
 
+    // Put the shared design handle back exactly as the app configured it —
+    // statics/drag charts read it after this dialog closes.
+    rocket.setRogersModifiedBarrowman(handleFlags.rogersKbf);
+    rocket.setSupersonicAero(handleFlags.supersonic);
     setProgress(null);
     setRunning(false);
     if (accepted.length > 0) onRunsChange(addRuns(accepted));
@@ -227,14 +254,21 @@ export function BatchSimulate({ rocket, info, mountId, mountDiameterMm, maxMotor
     return b.run.maxAltitude - a.run.maxAltitude;
   }), [rows]);
 
-  const downloadCsv = () => {
-    const runsOnly = sorted.filter((r) => r.run).map((r) => r.run!);
-    const blob = new Blob([runsToCsv(runsOnly, prefs.units)], { type: 'text/csv' });
+  const downloadAs = (blob: Blob, ext: string) => {
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `batch-${rocketName.replace(/[^\w-]+/g, '_')}.csv`;
+    a.download = `batch-${rocketName.replace(/[^\w-]+/g, '_')}.${ext}`;
     a.click();
     URL.revokeObjectURL(a.href);
+  };
+  const downloadCsv = () => {
+    const runsOnly = sorted.filter((r) => r.run).map((r) => r.run!);
+    downloadAs(new Blob([runsToCsv(runsOnly, prefs.units)], { type: 'text/csv' }), 'csv');
+  };
+  const downloadXlsx = () => {
+    const runsOnly = sorted.filter((r) => r.run).map((r) => r.run!);
+    const { headers, rows } = runsToTable(runsOnly, prefs.units);
+    downloadAs(new Blob([tableToXlsx(headers, rows, 'Batch') as BlobPart], { type: XLSX_MIME }), 'xlsx');
   };
 
   const velUi = (si: number | null) => (si === null ? undefined : siToUi('velocity', vel, si));
@@ -297,6 +331,16 @@ export function BatchSimulate({ rocket, info, mountId, mountDiameterMm, maxMotor
               <NumField value={distUi(criteria.maxApogee)} step={10} nullable placeholder="—"
                 onCommit={(v) => setCriteria({ ...criteria, maxApogee: v === null ? null : uiToSi('distance', dist, v) })} />
             </label>
+            <label className="motor-inline-label" title="Which physics model the batch flies. Auto is recommended: candidates often straddle Mach 1, and each motor gets the model its own flight calls for.">
+              aero model
+              <select value={batchModel} disabled={running}
+                onChange={(e) => setBatchModel(e.target.value as typeof batchModel)}>
+                <option value="auto">Auto (recommended)</option>
+                <option value="kbf">Rogers Modified Barrowman</option>
+                <option value="eb">Extended Barrowman (desktop)</option>
+                <option value="supersonic">Supersonic — all speeds</option>
+              </select>
+            </label>
             <label className="motor-inline-label">
               <input type="checkbox" checked={criteria.autoDelay} style={{ width: 'auto' }}
                 onChange={(e) => setCriteria({ ...criteria, autoDelay: e.target.checked })} />
@@ -318,7 +362,11 @@ export function BatchSimulate({ rocket, info, mountId, mountDiameterMm, maxMotor
             {progress && ` — simulating ${progress.done + 1}/${progress.total}: ${progress.current}`}
           </span>
           {rows.some((r) => r.run) && (
-            <button className="file-btn" onClick={downloadCsv}>⬇ CSV</button>
+            <>
+              <button className="file-btn" onClick={downloadCsv}>⬇ CSV</button>
+              <button className="file-btn" onClick={downloadXlsx}
+                title="Excel workbook: typed cells (no date mangling), bold frozen header, filter">⬇ XLSX</button>
+            </>
           )}
           {running ? (
             <button className="file-btn modal-danger" onClick={() => { cancelled.current = true; }}>

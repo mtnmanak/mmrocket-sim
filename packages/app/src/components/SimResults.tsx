@@ -3,7 +3,8 @@ import { usePrefs } from '../prefs/PrefsContext.js';
 import { fmtSi } from '../prefs/units.js';
 import { UnitChip } from './UnitChip.js';
 import { stabilityState, type SimRun } from '../services/simReport.js';
-import { clearRuns, deleteRun, runsToCsv } from '../services/simStore.js';
+import { clearRuns, deleteRun, runsToCsv, runsToTable } from '../services/simStore.js';
+import { tableToXlsx, XLSX_MIME } from '../services/xlsx.js';
 
 /**
  * Detailed launch report (the full attribute list from the owner's flight-day
@@ -183,7 +184,7 @@ export function SimRunDetails({ run }: { run: SimRun }) {
               <Row label="Time to apogee" value={s(run.timeToApogee)} unit="s" />
               <Row label="Total flight time" value={s(run.totalFlightTime, 1)} unit="s" />
               <Row label="Aero model" value={run.aeroModel === 'supersonic'
-                ? 'Supersonic (RASAero-class)'
+                ? 'Supersonic (our extended model)'
                 : run.aeroModel === 'auto-supersonic'
                 ? `Supersonic (auto — flight exceeded Mach 0.9)`
                 : run.aeroModel === 'classic'
@@ -275,13 +276,18 @@ export function SimHistory({ runs, onRunsChange, onSelect, selectedId }: {
   const vel = prefs.units.velocity;
   if (runs.length === 0) return null;
 
-  const downloadCsv = () => {
-    const blob = new Blob([runsToCsv(runs, prefs.units)], { type: 'text/csv' });
+  const download = (blob: Blob, filename: string) => {
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = 'simulations.csv';
+    a.download = filename;
     a.click();
     URL.revokeObjectURL(a.href);
+  };
+  const downloadCsv = () =>
+    download(new Blob([runsToCsv(runs, prefs.units)], { type: 'text/csv' }), 'simulations.csv');
+  const downloadXlsx = () => {
+    const { headers, rows } = runsToTable(runs, prefs.units);
+    download(new Blob([tableToXlsx(headers, rows, 'Simulations') as BlobPart], { type: XLSX_MIME }), 'simulations.xlsx');
   };
 
   return (
@@ -289,6 +295,8 @@ export function SimHistory({ runs, onRunsChange, onSelect, selectedId }: {
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
         <h2 style={{ flex: 1 }}>Saved simulations ({runs.length})</h2>
         <button className="file-btn" onClick={downloadCsv}>⬇ CSV</button>
+        <button className="file-btn" onClick={downloadXlsx}
+          title="Excel workbook: typed cells (no date mangling), bold frozen header, filter">⬇ XLSX</button>
         <button className="file-btn" onClick={() => onRunsChange(clearRuns())}>Clear all</button>
         <button className="file-btn" onClick={() => setOpen(!open)}>{open ? 'Hide' : 'Show'}</button>
       </div>
