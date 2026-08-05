@@ -1,5 +1,5 @@
 {
-  "version": "0.034",
+  "version": "0.035",
   "released": "2026-08-05",
-  "note": "Issue batch b: NEW camera shroud/fairing component that computes CP shift and drag (a first among hobby sims); parachute spill holes; customizable highlighted result tiles (pick from 14 metrics); Rogers Modified Barrowman now the default aero refinement; aft view zoom/pan; miniature component glyphs and click-to-select in the 2D drawing; RockSim partial-override exports fixed. See What's new in the app."
+  "note": "Hotfix: panning the zoomed aft view could crash the app when the mouse button was released mid-move. Fixed - nothing else changed from 0.034 (camera shrouds, spill holes, customizable result tiles)."
 }

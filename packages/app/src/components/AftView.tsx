@@ -251,9 +251,14 @@ export function AftView({ tree, motors }: {
           (e.target as Element).setPointerCapture?.(e.pointerId);
         }}
         onPointerMove={(e) => {
-          if (!pan.current) return;
+          // Capture the pan state NOW: setZoom's updater runs after this
+          // handler returns, and a pointer-up in between nulls pan.current —
+          // reading it inside the updater crashed the app (live report,
+          // "Cannot read properties of null (reading 'x')").
+          const p = pan.current;
+          if (!p || !svgRef.current) return;
           const { vx, vy } = toView(e.clientX, e.clientY);
-          setZoom((z) => ({ ...z, x: pan.current!.x + (vx - pan.current!.px), y: pan.current!.y + (vy - pan.current!.py) }));
+          setZoom((z) => ({ ...z, x: p.x + (vx - p.px), y: p.y + (vy - p.py) }));
         }}
         onPointerUp={() => { pan.current = null; }}
         onPointerLeave={() => { pan.current = null; }}>

@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.034';
+export const APP_VERSION = '0.035';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.035',
+    date: '2026-08-05',
+    title: 'Hotfix: aft-view pan crash',
+    items: [
+      'Fixed a crash ("Cannot read properties of null") when panning the zoomed aft view and releasing the pointer mid-move — a timing race between the pan handler and the pointer-up. Reported from the live site within the hour; nothing else changed.',
+    ],
+  },
   {
     version: '0.034',
     date: '2026-08-05',
