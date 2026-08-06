@@ -1,0 +1,57 @@
+# Build and publish to the online-open-rocket Cloudflare Pages project.
+#
+# Why Actions rather than Cloudflare's own Git integration: the Pages project was
+# created by `wrangler pages deploy` (Direct Upload), and Cloudflare does not let a
+# Direct Upload project be converted to a Git-connected one. So the project stays as
+# it is and CI drives the same deploy command a human would run.
+#
+# `npm run build` is tsc + vite only — the TeaVM-compiled engine kernel is the
+# committed artifact packages/engine/vendor/orkengine.mjs, so no Java toolchain is
+# needed here. version.json is copied into dist the same way scripts/package-dist.mjs
+# does for release zips: the main site's Online Tools page reads it for the version
+# badge.
+#
+# Required repository secrets (Settings -> Secrets and variables -> Actions):
+#   CLOUDFLARE_API_TOKEN   API token with the "Cloudflare Pages: Edit" permission
+#   CLOUDFLARE_ACCOUNT_ID  the account id (also shown by `npx wrangler whoami`)
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Never let two deploys race; a Pages deploy replaces the live build wholesale.
+concurrency:
+  group: deploy-online-open-rocket
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run build
+
+      - run: cp version.json packages/app/dist/
+
+      - uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: "4"
+          # --branch is explicit because checkout leaves a detached HEAD, and
+          # without it the deploy would not be marked production.
+          command: pages deploy packages/app/dist --project-name=online-open-rocket --branch=main
