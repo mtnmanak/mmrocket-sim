@@ -25,6 +25,69 @@ const base = (extra: ComponentNode[] = []): RocketTree => ({
   } as ComponentNode],
 });
 
+// issue 2026-08-11a: shapes drew as fixed ogive/cone regardless of selection.
+describe('buildPieces — nose/transition shapes drive the geometry', () => {
+  const verts = (tree: RocketTree, keyPrefix: string): Float32Array => {
+    const { pieces } = buildPieces(tree);
+    const p = pieces.find((pc) => pc.key.startsWith(keyPrefix))!;
+    return p.geometry.getAttribute('position').array as Float32Array;
+  };
+  const maxDiff = (a: Float32Array, b: Float32Array): number => {
+    let d = 0;
+    for (let i = 0; i < a.length; i++) d = Math.max(d, Math.abs(a[i]! - b[i]!));
+    return d;
+  };
+  const noseTree = (shape: string, param?: number): RocketTree => ({
+    name: 't',
+    components: [{
+      type: 'stage', id: 's',
+      children: [
+        { type: 'nosecone', id: 'n', length: 0.07, aftRadius: 0.024, shape,
+          ...(param !== undefined ? { shapeParameter: param } : {}) } as ComponentNode,
+        { type: 'bodytube', id: 'b', length: 0.3, outerRadius: 0.024 } as ComponentNode,
+      ],
+    } as ComponentNode],
+  });
+  const transTree = (shape: string): RocketTree => ({
+    name: 't',
+    components: [{
+      type: 'stage', id: 's',
+      children: [
+        { type: 'bodytube', id: 'b1', length: 0.2, outerRadius: 0.012 } as ComponentNode,
+        { type: 'transition', id: 'tr', length: 0.05, foreRadius: 0.012, aftRadius: 0.024, shape } as ComponentNode,
+        { type: 'bodytube', id: 'b2', length: 0.2, outerRadius: 0.024 } as ComponentNode,
+      ],
+    } as ComponentNode],
+  });
+
+  it('nose cone: conical differs from ogive', () => {
+    expect(maxDiff(verts(noseTree('ogive'), 'nose'), verts(noseTree('conical'), 'nose')))
+      .toBeGreaterThan(0.001);
+  });
+
+  it('nose cone: shapeParameter changes a power-series profile', () => {
+    expect(maxDiff(verts(noseTree('power', 0.25), 'nose'), verts(noseTree('power', 0.75), 'nose')))
+      .toBeGreaterThan(0.001);
+  });
+
+  it('transition: ogive differs from conical (was always a straight cone)', () => {
+    expect(maxDiff(verts(transTree('conical'), 'trans'), verts(transTree('ogive'), 'trans')))
+      .toBeGreaterThan(0.0005);
+  });
+
+  it('transition lathe spans its fore/aft radii and axial slot', () => {
+    const { pieces } = buildPieces(transTree('ogive'));
+    const tr = pieces.find((p) => p.key.startsWith('trans'))!;
+    tr.geometry.computeBoundingBox();
+    const bb = tr.geometry.boundingBox!;
+    // Lathe local frame before rotation: axis +Y (0..len), radius in XZ.
+    expect(bb.min.y).toBeCloseTo(0, 6);
+    expect(bb.max.y).toBeCloseTo(0.05, 6);
+    expect(bb.max.x).toBeCloseTo(0.024, 3);
+    expect(tr.position![0]).toBeCloseTo(0.2, 9); // fore end at the joint
+  });
+});
+
 describe('buildPieces — off-axis pods (Phase 2)', () => {
   it('renders the core rocket unchanged when there are no pods', () => {
     const { pieces } = buildPieces(base());

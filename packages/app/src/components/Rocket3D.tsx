@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
@@ -8,11 +8,14 @@ import {
   resolveAssemblyRadius, ringInstanceOffsets,
 } from '../tree/assembly.js';
 import { tubeFinRadius } from '../tree/tubefins.js';
+import { outerProfile } from '../tree/shapeProfile.js';
+import { downloadBlob, snapshotWithHeader, type ExportData } from '../services/schematicExport.js';
 
 /**
  * 3D rocket view (react-three-fiber). Geometry is generated from the
- * component tree: lathe profiles for nose cones, cylinders for tubes and
- * transitions, extruded shapes for fins placed at their instance angles.
+ * component tree: lathe profiles for nose cones and transitions (kernel-exact
+ * shape math), cylinders for tubes, extruded shapes for fins placed at their
+ * instance angles.
  * Rocket axis = +X (nose tip at x=0, aft increasing), matching the engine.
  */
 
@@ -20,6 +23,9 @@ const nodeColor = (n: ComponentNode, dflt: string): string => typeof n['color'] 
 
 const num = (n: ComponentNode, key: string, fb: number): number =>
   typeof n[key] === 'number' ? (n[key] as number) : fb;
+
+const numOpt = (n: ComponentNode, key: string): number | undefined =>
+  typeof n[key] === 'number' ? (n[key] as number) : undefined;
 
 function axialStart(child: ComponentNode, childLen: number, pStart: number, pLen: number): number {
   const pos = (child.position ?? { method: 'top', offset: 0 }) as ComponentPosition;
@@ -31,24 +37,17 @@ function axialStart(child: ComponentNode, childLen: number, pStart: number, pLen
   }
 }
 
-/** Nose profile radius fraction at t∈[0,1] (tip→base) per shape. */
-function noseProfile(shape: string, t: number, R: number, L: number): number {
-  switch (shape) {
-    case 'conical': return R * t;
-    case 'ellipsoid': return R * Math.sqrt(1 - (1 - t) * (1 - t));
-    case 'parabolic': return R * (2 * t - t * t);
-    case 'power': return R * Math.sqrt(t);
-    case 'haack': {
-      const theta = Math.acos(1 - 2 * t);
-      return (R / Math.sqrt(Math.PI)) * Math.sqrt(theta - Math.sin(2 * theta) / 2);
-    }
-    case 'ogive':
-    default: {
-      const x = t * L;
-      const rho = (R * R + L * L) / (2 * R);
-      return Math.sqrt(Math.max(0, rho * rho - (L - x) * (L - x))) - (rho - R);
-    }
-  }
+/**
+ * Lathe points for a nose/transition outer profile (kernel-exact shapes from
+ * shapeProfile.ts). Lathe geometry revolves around +Y; the radius floor keeps
+ * the tip from degenerating.
+ */
+function lathePoints(
+  shape: string, param: number | undefined, length: number,
+  foreR: number, aftR: number,
+): THREE.Vector2[] {
+  return outerProfile(shape, param, length, foreR, aftR)
+    .map(([x, r]) => new THREE.Vector2(Math.max(0.0001, r), x));
 }
 
 const MAT = {
@@ -223,12 +222,7 @@ export function buildPieces(tree: RocketTree): { pieces: Piece[]; totalLen: numb
       if (n.type === 'nosecone') {
         const R = num(n, 'aftRadius', 0.012);
         const shapeName = typeof n['shape'] === 'string' ? (n['shape'] as string) : 'ogive';
-        const pts: THREE.Vector2[] = [];
-        const steps = 32;
-        for (let i = 0; i <= steps; i++) {
-          const t = i / steps;
-          pts.push(new THREE.Vector2(Math.max(0.0001, noseProfile(shapeName, t, R, len)), t * len));
-        }
+        const pts = lathePoints(shapeName, numOpt(n, 'shapeParameter'), len, 0, R);
         place(`nose${k++}`, new THREE.LatheGeometry(pts, 48), nodeColor(n, MAT.nose),
           [x, 0, 0], [0, 0, -Math.PI / 2], xform);
         maxR = Math.max(maxR, R);
@@ -244,10 +238,12 @@ export function buildPieces(tree: RocketTree): { pieces: Piece[]; totalLen: numb
       } else if (n.type === 'transition') {
         const rf = num(n, 'foreRadius', 0.012);
         const ra = num(n, 'aftRadius', 0.009);
-        // After rotation.z = -π/2 the cylinder's +Y axis points along +X (aft):
-        // top radius = aft radius.
-        place(`trans${k++}`, new THREE.CylinderGeometry(ra, rf, len, 48), nodeColor(n, MAT.transition),
-          [x + len / 2, 0, 0], [0, 0, -Math.PI / 2], xform);
+        const shapeName = typeof n['shape'] === 'string' ? (n['shape'] as string) : 'conical';
+        // Same lathe pattern as the nose: profile y runs fore→aft, and after
+        // rotation.z = -π/2 the lathe's +Y axis points along +X (aft).
+        const pts = lathePoints(shapeName, numOpt(n, 'shapeParameter'), len, rf, ra);
+        place(`trans${k++}`, new THREE.LatheGeometry(pts, 48), nodeColor(n, MAT.transition),
+          [x, 0, 0], [0, 0, -Math.PI / 2], xform);
         maxR = Math.max(maxR, rf, ra);
         addChildren(n, x, len, Math.max(rf, ra), xform);
         x += len;
@@ -263,8 +259,14 @@ export function buildPieces(tree: RocketTree): { pieces: Piece[]; totalLen: numb
   return { pieces, totalLen: Math.max(totalLen, 0.05), maxR };
 }
 
-export function Rocket3D({ tree, info }: { tree: RocketTree; info: StaticInfo | null }) {
+export function Rocket3D({ tree, info, exportData }: {
+  tree: RocketTree;
+  info: StaticInfo | null;
+  /** When set, a 📷 PNG snapshot button appears (issue 2026-08-11a). */
+  exportData?: Omit<ExportData, 'spanM'>;
+}) {
   const { pieces, totalLen, maxR } = useMemo(() => buildPieces(tree), [tree]);
+  const glCanvas = useRef<HTMLCanvasElement | null>(null);
   // Mesh keys are stable across rebuilds, so R3F never unmounts/auto-disposes
   // the swapped-out geometries — release them ourselves or every edit leaks
   // a full set of GPU buffers.
@@ -276,8 +278,25 @@ export function Rocket3D({ tree, info }: { tree: RocketTree; info: StaticInfo | 
   const markerR = Math.max(totalLen * 0.015, maxR * 0.35);
 
   return (
-    <div className="rocket3d-wrap">
-      <Canvas camera={{ position: [center + camDist * 0.5, camDist * 0.45, camDist * 0.8], fov: 40 }}>
+    <div className="rocket3d-wrap" style={{ position: 'relative' }}>
+      {exportData && (
+        <button className="file-btn"
+          style={{ position: 'absolute', top: 6, right: 6, zIndex: 2 }}
+          title="Snapshot the current 3D view as a PNG with design data — rotate/zoom first, then click"
+          onClick={async () => {
+            if (!glCanvas.current) return;
+            const data = { ...exportData, spanM: 2 * maxR };
+            downloadBlob(await snapshotWithHeader(glCanvas.current, data),
+              `${data.name.replace(/[^\w-]+/g, '_')}-3d.png`);
+          }}>
+          📷 PNG
+        </button>
+      )}
+      <Canvas camera={{ position: [center + camDist * 0.5, camDist * 0.45, camDist * 0.8], fov: 40 }}
+        // Snapshot export reads the drawing buffer after the frame — without
+        // this flag WebGL may have discarded it and toDataURL returns black.
+        gl={{ preserveDrawingBuffer: true }}
+        onCreated={(state) => { glCanvas.current = state.gl.domElement; }}>
         <ambientLight intensity={0.7} />
         <directionalLight position={[1, 2, 2]} intensity={1.1} />
         <directionalLight position={[-1, -0.5, -1]} intensity={0.3} />

@@ -36,6 +36,8 @@ import { delayOptions, fetchMotorSpec } from './services/thrustcurve.js';
 import { exportOrk, importOrk, type OrkExportMotor } from './services/orkFile.js';
 import { exportRkt, importRkt } from './services/rocksimFile.js';
 import { rocketToObj } from './services/objExport.js';
+import { componentCsv, componentTable } from './services/componentTable.js';
+import { tableToXlsx } from './services/xlsx.js';
 import { exportCdx1, importCdx1 } from './services/rasaeroFile.js';
 import { loadSession, saveSessionDebounced } from './services/session.js';
 import { buildSimRun, recommendDelay, type MotorMeta, type SimRun } from './services/simReport.js';
@@ -467,14 +469,24 @@ export function App() {
     return motors;
   };
 
-  const download = (content: string, ext: string) => {
-    const blob = new Blob([content], { type: 'application/octet-stream' });
+  const download = (content: string | Uint8Array, ext: string, suffix = '') => {
+    const blob = new Blob([content as BlobPart], { type: 'application/octet-stream' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `${(tree.name ?? 'rocket').replace(/[^\w-]+/g, '_')}.${ext}`;
+    a.download = `${(tree.name ?? 'rocket').replace(/[^\w-]+/g, '_')}${suffix}.${ext}`;
     a.click();
     URL.revokeObjectURL(a.href);
   };
+
+  // Component data table (issue 2026-08-11a): all components + attributes in
+  // the user's units, with engine-computed mass/CG/position where available.
+  const buildComponentTable = () => componentTable(
+    tree,
+    { units: prefs.units, radiusMode: prefs.radiusMode },
+    built ? (id) => {
+      try { return built.rocket.componentInfo(id); } catch { return null; }
+    } : undefined,
+  );
 
   const onSaveOrk = () => {
     download(exportOrk({ name: tree.name ?? 'My Rocket', tree, motors: exportMotorsMap() }), 'ork');
@@ -624,6 +636,16 @@ export function App() {
     [assigned],
   );
 
+  // Data header for the 2D/3D image exports (issue 2026-08-11a) — name,
+  // dimensions, mass, CG/CP/margin in the user's units.
+  const viewExportData = {
+    name: tree.name ?? 'Rocket',
+    info: built?.info ?? null,
+    units: prefs.units,
+    withMotors: assigned.length > 0,
+    appVersion: APP_VERSION,
+  };
+
   const selectedNode = selectedId ? findNode(tree, selectedId) : null;
   // Per-component static info (mass covers ALL fins of a set, per OpenRocket).
   const selectedInfo = useMemo(() => {
@@ -722,6 +744,17 @@ export function App() {
                   <button onClick={onSaveObj}
                     title="External 3D geometry as a Wavefront OBJ (meters) — print preview / CAD reference">
                     Export .obj — 3D geometry
+                  </button>
+                  <button onClick={() => download(componentCsv(buildComponentTable()), 'csv', '-components')}
+                    title="Every component and its attributes as one row per component, in your preferred units — dimensions, materials, and the computed mass/CG/position. For sharing measurement data.">
+                    Export .csv — component data
+                  </button>
+                  <button onClick={() => {
+                    const t = buildComponentTable();
+                    download(tableToXlsx(t.headers, t.rows, 'Components'), 'xlsx', '-components');
+                  }}
+                    title="The same component table as a spreadsheet — typed cells, frozen header, autofilter.">
+                    Export .xlsx — component data
                   </button>
                 </div>
               </>
@@ -1086,10 +1119,11 @@ export function App() {
                     onPatchNode={(id, patch) => setTree(updateNode(tree, id, patch))}
                     selectedId={selectedId}
                     onSelect={(id) => setSelectedId(id)}
+                    exportData={viewExportData}
                   />
                 )
                 : view === '3d'
-                ? <Rocket3D tree={tree} info={built?.info ?? null} />
+                ? <Rocket3D tree={tree} info={built?.info ?? null} exportData={viewExportData} />
                 : <AftView tree={tree} motors={motorDims} />}
             </div>
             {mountSizes.length > 0 && (

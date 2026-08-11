@@ -7,6 +7,7 @@ import { DISPLAY_NAME, FIELDS, POSITIONABLE, type FieldDef } from '../tree/schem
 import { findParent } from '../tree/treeModel.js';
 import { anchorStarts, axialLength, offsetForStart, snapStart, startFromPosition } from '../tree/position.js';
 import { tubeFinMaxCount, tubeFinMaxRadius, tubeFinRadius } from '../tree/tubefins.js';
+import { shapeParamDefault, shapeParamMax, shapeUsesParameter } from '../tree/shapeProfile.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { fmtSi, niceStep, siToUi, uiToSi, type Quantity } from '../prefs/units.js';
 import { BULK_MATERIALS, LINE_MATERIALS, SURFACE_MATERIALS, type MaterialDef } from '../data/materials.js';
@@ -182,6 +183,15 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll, onAutoAli
         maxCount = tubeFinMaxCount(r, tubeFinBodyR);
       }
     }
+    // Shape parameter: capped per shape (haack tops out at 1/3 = LV-Haack,
+    // matching the kernel's setShapeParameter clamp); blank = kernel default.
+    if (f.key === 'shapeParameter') {
+      const sh = String(node['shape'] ?? (node.type === 'transition' ? 'conical' : 'ogive'));
+      maxSi = shapeParamMax(sh);
+      if (typeof raw !== 'number') {
+        autoPlaceholder = `default: ${shapeParamDefault(sh)}`;
+      }
+    }
     // NumField rejects typed values above max — round the display cap up a
     // hair so typing the shown 3-decimal limit still lands; the commit clamp
     // below keeps the stored SI value exactly at the ceiling.
@@ -322,6 +332,11 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll, onAutoAli
       </div>
       <div className="field-grid" style={{ marginTop: 8 }}>
         {fields.map((f) => {
+          // Conical and ellipsoid profiles have no shape parameter.
+          if (f.key === 'shapeParameter'
+              && !shapeUsesParameter(String(node['shape'] ?? (node.type === 'transition' ? 'conical' : 'ogive')))) {
+            return null;
+          }
           if (f.bool) {
             // Sub-minimum only makes sense on a tube that already IS a mount.
             if (f.key === 'caseAirframe' && node['motorMount'] !== true) return null;

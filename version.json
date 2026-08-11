@@ -1,5 +1,5 @@
 {
-  "version": "0.040",
-  "released": "2026-08-05",
-  "note": "One-click auto-align for overlapping fin sets, camera-shroud detection on import (convert hand-rolled shrouds to the native component), tube-fin collision limits that hold even with hand-typed values (plus the auto diameter shown grayed), sub-minimum diameter rockets (the motor case IS the airframe), and EX motor folder import (.eng/.rse in bulk)."
+  "version": "0.041",
+  "released": "2026-08-11",
+  "note": "Nose cones and transitions now DRAW their true shape in 2D and 3D (ogive/conical/ellipsoid/parabolic/Haack/power, with an editable shape parameter), component data exports to CSV/Excel for sharing measurements, and the 2D/3D views export cert-packet-ready drawings: a print-at-100%-scale SVG and high-res PNGs with the design data (mass, CG, CP, margin) in the header."
 }

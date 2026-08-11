@@ -220,6 +220,9 @@ export const FIELDS: Record<ComponentType, FieldDef[]> = {
     radMM('aftRadius', 'Base outer radius', 0.5, 80),
     lenMM('thickness', 'Wall thickness', 0.1, 10),
     { key: 'shape', label: 'Shape', unit: 'none', options: SHAPES },
+    // Shown only for shapes that use it (ogive/power/parabolic/haack) —
+    // PropertyPanel hides it otherwise and caps it per shape (haack ≤ 1/3).
+    { key: 'shapeParameter', label: 'Shape parameter', unit: 'none', step: 0.05, smin: 0, smax: 1 },
     { key: 'filled', label: 'Solid (filled)', unit: 'none', bool: true },
     radMM('shoulderRadius', 'Shoulder radius', 0.5, 80),
     lenMM('shoulderLength', 'Shoulder length', 1, 150),
@@ -234,6 +237,7 @@ export const FIELDS: Record<ComponentType, FieldDef[]> = {
     radMM('aftRadius', 'Aft radius', 0.5, 80),
     lenMM('thickness', 'Wall thickness', 0.1, 10),
     { key: 'shape', label: 'Shape', unit: 'none', options: SHAPES },
+    { key: 'shapeParameter', label: 'Shape parameter', unit: 'none', step: 0.05, smin: 0, smax: 1 },
     { key: 'filled', label: 'Solid (filled)', unit: 'none', bool: true },
     radMM('foreShoulderRadius', 'Fore shoulder radius', 0.5, 80),
     lenMM('foreShoulderLength', 'Fore shoulder length', 1, 150),

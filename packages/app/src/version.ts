@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.040';
+export const APP_VERSION = '0.041';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,19 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.041',
+    date: '2026-08-11',
+    title: 'True nose/transition shapes in 2D & 3D, component data export, cert-packet drawings',
+    items: [
+      'FIXED: the 2D and 3D views now draw the exact mathematical profile for every nose-cone and transition shape (ogive, conical, ellipsoid, parabolic, Haack, power — including the shape parameter). Before, the 2D view always drew a fixed ogive-ish nose and a straight-taper transition regardless of the selected shape, and the 3D transition was always a cone. The drawing math is a direct port of the kernel\'s own Transition.Shape equations, so what you see is what the physics flies.',
+      'NEW: a Shape parameter field on nose cones and transitions, shown only for shapes that use it (ogive 1 = tangent / <1 = secant, Haack 0 = Von Karman / 1/3 = LV, power series exponent, parabolic segment). Blank = OpenRocket\'s default. It caps itself at each shape\'s legal maximum, and round-trips through .ork files as before.',
+      'NEW: Export component data as .csv or .xlsx (Save/Export menu) — every component as one row with its dimensions, material, shape, and the engine\'s computed mass/CG/position, in your preferred units. For sharing measurement data with builders who don\'t run a simulator.',
+      'NEW: 2D drawing export with a data header — ⬇ SVG / ⬇ PNG buttons on the 2D view. The header carries the name, length/diameter/span, dry & launch mass, CG, CP, and stability margin (the numbers cert packets want). The SVG is sized in physical millimetres so it prints at true 100% scale; the PNG is 3840 px wide.',
+      'NEW: 📷 PNG snapshot on the 3D view — rotate/zoom to taste, click, and get the current 3D render with the same data header.',
+      'Transition .ork export now writes the clipped-shape flag the way the engine actually simulates it (clipped for ellipsoid/power/Haack), so the desktop app reproduces our aerodynamics on those files.',
+    ],
+  },
   {
     version: '0.040',
     date: '2026-08-05',

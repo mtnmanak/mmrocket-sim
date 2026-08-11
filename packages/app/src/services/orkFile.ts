@@ -1,7 +1,11 @@
 import { unzipSync, strFromU8 } from 'fflate';
 import type { ComponentNode, ComponentPosition, ComponentType, RocketTree } from '@online-openrocket/engine';
 import { asStageNodes, freshId } from '../tree/treeModel.js';
+import { shapeIsClippable, shapeParamDefault } from '../tree/shapeProfile.js';
 import { escapeXml, xmlText as text } from './xmlUtil.js';
+
+// Re-export: rocksimFile.ts (and historical callers) import it from here.
+export { shapeParamDefault };
 
 /**
  * .ork import/export for full component trees (P2.5 — all 17 editor types).
@@ -684,7 +688,10 @@ export function exportOrk({ name, tree, motors, motor, mountId }: OrkTreeExportI
         emit(depth + 1, `<length>${n(node, 'length', 0.04)}</length>`);
         thicknessXml(depth + 1, node, 0.002);
         emit(depth + 1, `<shape>${escapeXml(String(node['shape'] ?? 'conical'))}</shape>`);
-        emit(depth + 1, '<shapeclipped>false</shapeclipped>');
+        // The bridge leaves the kernel's default clipped state, which
+        // setShapeType() sets to type.isClippable() — write what actually
+        // simulated so the desktop reproduces our aerodynamics.
+        emit(depth + 1, `<shapeclipped>${shapeIsClippable(String(node['shape'] ?? 'conical'))}</shapeclipped>`);
         shapeParamXml(depth + 1, node);
         emit(depth + 1, `<foreradius>${typeof node['foreRadius'] === 'number' ? node['foreRadius'] : 'auto'}</foreradius>`);
         emit(depth + 1, `<aftradius>${typeof node['aftRadius'] === 'number' ? node['aftRadius'] : 'auto'}</aftradius>`);
@@ -1170,19 +1177,6 @@ function readFinTabs(el: Element, node: ComponentNode): void {
     node['tabOffsetMethod'] = method;
     const v = Number(last.textContent?.trim());
     node['tabOffset'] = Number.isFinite(v) ? v : 0;
-  }
-}
-
-/** Mirrors Transition.Shape.defaultParameter() in the carved kernel. */
-export function shapeParamDefault(shape: string): number {
-  switch (shape) {
-    case 'ogive':
-    case 'parabolic':
-      return 1.0;
-    case 'power':
-      return 0.5;
-    default:
-      return 0.0; // conical, ellipsoid, haack
   }
 }
 
