@@ -14,17 +14,31 @@ import { useEffect, useState } from 'react';
  * This file is an ADAPTATION of the spec's reference hook (spec §5), not an
  * import: each tool owns its copy so the site can never break a tool by
  * shipping. The adaptations are the shared validator (`parseNav`) and the
- * split of cache/fetch into testable functions; the constants and the
- * fallback-first state machine are the spec's, unchanged.
+ * split of cache/fetch into testable functions; the fallback-first state
+ * machine is the spec's, unchanged. `CONTRACT` is NOT: it points at
+ * `www.mountainmanrockets.com`, the canonical post-cutover host, which is a
+ * correction to the literal printed in §5 — see the note on the constant
+ * itself before touching it.
  */
 
 /**
- * Spec constant, VERBATIM. www.mountainmanrockets.com serves the identical
- * bytes with the identical CORS header, but all four tools must agree on one
- * URL so a caching or CORS fault is diagnosed once, in one place (spec §7).
- * Changing this is a spec revision, not a tool decision.
+ * Spec constant AS CORRECTED — §5's own literal is pre-cutover. The canonical
+ * host is `www.mountainmanrockets.com`, the site's own origin. All
+ * four tools must agree on one URL so a caching or CORS fault is diagnosed
+ * once, in one place (spec §7); changing this is a spec revision, not a tool
+ * decision.
+ *
+ * DO NOT "restore" the `mountainmanrockets.pages.dev` literal that older docs
+ * — and this file, through v0.044 — still carry. It was copied from §5 while
+ * the spec's own literal was still pre-cutover, and it works today only
+ * because the Pages preview alias happens to still answer 200. Rename or
+ * retire that alias and the fetch fails, which by design is SILENT: `fetchNav`
+ * swallows every failure so the menu can never cost the user the app (MUST 1),
+ * so the band would simply freeze on its baked snapshot with nothing logged
+ * and nothing reported. The only visible symptom is `data-mmr-source` stuck at
+ * "fallback" in DevTools — on a machine where somebody happens to look.
  */
-const CONTRACT = 'https://mountainmanrockets.pages.dev/chrome/nav.v1.json';
+const CONTRACT = 'https://www.mountainmanrockets.com/chrome/nav.v1.json';
 const CACHE_KEY = 'mmr-chrome:v1';
 
 export interface MmrNavLink {

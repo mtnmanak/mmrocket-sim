@@ -359,6 +359,18 @@
 .mmr-band {
   display: flex;
   align-items: center;
+  /* Stated, not inherited: `nowrap` is already the initial value, but the row
+     it guarantees is the entire point of this strip, so it is written down
+     where someone reads the band's layout rather than left to be looked up.
+     The rows this app actually grew came from `.mmr-band-nav`, which wrapped
+     — through v0.044 the nowrap/scroll treatment lived only in the 767px block
+     below, so from 768px up to roughly 924px the eight labels broke over two
+     or three lines and shoved the tool's own header down the screen: exactly
+     the failure the phone rule exists to prevent, at a width nobody had
+     thought to drag to. Raising that breakpoint is NOT the fix — ~924px is a
+     measurement of today's eight labels and rots the moment the site
+     publishes a ninth. The menu scrolls instead, unconditionally. */
+  flex-wrap: nowrap;
   gap: 0 18px;
   padding: 8px 16px;
   background: var(--surface-2);
@@ -377,12 +389,48 @@
   flex: 0 0 auto;
 }
 
+/* The menu is the ONE element in the strip that gives. `overflow-x: auto`
+   makes it a scroll container, and a scroll container's automatic flex minimum
+   size is zero — so this is what shrinks and scrolls sideways while the brand
+   and the search box hold their full width (both already carry
+   `flex: 0 0 auto`, which is the reference block's `flex: none`). The
+   scrollbar is hidden in all three engines: this is site chrome on an 11.5px
+   strip, and a bar drawn across it reads as breakage rather than affordance.
+
+   The negative margin / positive padding pair below is a FOCUS-RING GUTTER,
+   not spacing. A scroll container clips its content at the PADDING edge, and
+   Chrome's 3px keyboard focus ring on these links was being shaved off top and
+   bottom; 4px of padding buys the ring room and the matching -4px margin gives
+   the height back, so the strip measures exactly as it did before. Delete
+   either half and the ring is clipped again or the band grows 8px. */
 .mmr-band-nav {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 2px 18px;
   min-width: 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  margin: -4px 0;
+  padding: 4px 0;
+}
+
+.mmr-band-nav::-webkit-scrollbar {
+  display: none;
+}
+
+/* TRANSLATED SELECTOR — the reference implementation (chrome.ref.js) writes
+   this as `.mmr-band-nav li`, because its band wraps the links in a list.
+   Ours has no list: SiteBand.tsx renders bare `<a>` children inside the
+   `<nav>`, and spec §5 makes the band each tool's own JSX, so the markup
+   differs on purpose and the reference rule would be a silent no-op here.
+   It is load-bearing, not cosmetic: the anchors already set
+   `white-space: nowrap`, but that only forbids a LINE BREAK — it does nothing
+   to stop a flex item being SHRUNK below the width of its own text. */
+.mmr-band-nav a {
+  flex: none;
 }
 
 .viz-root .mmr-band a {
@@ -472,29 +520,27 @@
   color: var(--accent);
 }
 
-/* Phones: the band collapses to a SINGLE ~30px row (spec §3). The menu
-   scrolls sideways with its scrollbar hidden rather than wrapping to three
-   stacked rows — this strip is the site's chrome, and it must never push
-   the tool's own header down the screen on the device where vertical space
-   is scarcest. The full search form is replaced by the magnifier link. */
+/* Phones: the band tightens to a SINGLE ~29px row (spec §3) and the full
+   search form gives way to the magnifier link. What is left here is only what
+   is genuinely width-conditional — the nowrap/scroll/hidden-scrollbar rules
+   that used to live in this block are now unconditional (see `.mmr-band-nav`
+   above), because they were needed from 768px up as well and two copies of
+   them is two places to keep in step. */
 @media (max-width: 767px) {
   .mmr-band {
-    gap: 0 12px;
+    /* Tighter than the 18px above, and the padding drop is most of what buys
+       the ~29px row on a 375px screen. */
+    gap: 0.6em;
     padding: 4px 10px;
-    flex-wrap: nowrap;
   }
 
-  .mmr-band-nav {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-  }
-
-  .mmr-band-nav::-webkit-scrollbar {
-    display: none;
-  }
-
+  /* TRANSLATED SELECTOR — the reference implementation writes this as
+     `.mmr-band-search form`, because there the class names a wrapper AROUND
+     the form. In SiteBand.tsx `.mmr-band-search` IS the `<form>`, so the
+     reference's descendant selector matches nothing here and the 130px search
+     input would go on rendering at 375px, which is the whole reason this rule
+     exists. Do not "fix" it by adding a wrapper — spec §5 leaves the markup to
+     each tool. */
   .mmr-band-search {
     display: none;
   }
@@ -1458,6 +1504,23 @@
 
 .session-note.fading {
   opacity: 0;
+}
+
+/* The line under the 🖨 print button. Splitting a part is a design decision
+   with a structural consequence (a glued joint), so it is never silent: the
+   quiet variant reports the size, and the amber one says the part will be cut
+   before the user clicks — not after, in a folder of files they did not
+   expect. Colour comes from --status-warn, which the daylight block at the end
+   of this file already redefines, so this needs no override down there. */
+.print-note {
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--text-muted);
+  margin: 4px 0 0;
+}
+
+.print-note-warn {
+  color: var(--status-warn);
 }
 
 /* Chart hover legends: mute the uPlot defaults so they read as readouts. */

@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.044';
+export const APP_VERSION = '0.045';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.045',
+    date: '2026-08-12',
+    title: 'Print parts too big for your printer, in pieces that fit — plus a framed 3D snapshot',
+    items: [
+      'NEW: 3D-printable parts that DON\'T FIT your printer are now split for you. Set your machine once in Preferences → 3D printing (Bambu H2D, X1C/P1S/A1, A1 mini, Prusa MK4S, Prusa XL, Ender 3, K1 Max, Neptune 4 Plus, or a custom build volume) and the 🖨 STL button becomes printer-aware: a part that fits exports exactly as before, and one that doesn\'t exports as a zip of numbered segments joined by a printed internal spigot, with a README covering print orientation, the joint clearance used, and the glue-up. A 3" 4:1 nose cone is 381 mm printed — 64 mm too tall for an H2D — and comes out as two pieces that each print base-down and support-free.',
+      'The spigot is a tapered offset of the part\'s own bore, so it registers along its whole length instead of just at its root, and the flat face at the cut is a hard stop — the joint sets the assembled length exactly. Slender parts get leaned in and printed whole instead of cut, but only when the shape\'s own wall angle allows it: a 4:1 ogive leans the full 30°, an ellipsoid nose (54° wall) is never leaned, because tipping it would print unsupported air.',
+      'If you have no printer configured, nothing changes at all — same button, same single STL, same filename.',
+      'NEW: "Fit rocket to frame" on the 3D image export (on by default). The snapshot now frames the rocket before rendering, so an 8K export is 8K of rocket instead of 8K of empty space — it keeps whatever angle you rotated to, and only moves the camera in and out. Untick it to export exactly the view on screen.',
+      'FIXED: the Mountain Man Rockets menu across the top wrapped to two or three rows on laptops between about 768 and 924 pixels wide. It is now a single row at every width, with the menu scrolling sideways when it runs out of room. The menu also now reads from the site\'s canonical address, so it keeps tracking the site if the old preview address ever goes away.',
+    ],
+  },
   {
     version: '0.044',
     date: '2026-08-12',

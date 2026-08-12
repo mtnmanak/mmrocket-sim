@@ -124,20 +124,59 @@ function calculateClip(shape: string, param: number, length: number, r1: number,
 }
 
 /**
+ * The abscissas outerProfile() samples: the even 0..length ladder, plus any
+ * caller-supplied `extra` merged in (sorted, deduped, clamped to the span).
+ *
+ * WHY the extras exist: a consumer that has to CUT the profile at some x — the
+ * 3D-print splitter in tree/splitSolid.ts — otherwise lands its cut plane on a
+ * chord between two samples instead of on the true curve. The error is tiny
+ * (a 3" 4:1 tangent ogive has a ~1238 mm ogive radius, so a 4.76 mm chord has
+ * a 0.0023 mm sagitta, three orders below print resolution, and it is the same
+ * on both sides of the cut so the pieces still mate) but asking for the exact
+ * sample costs nothing and keeps "the printed part is the geometry the engine
+ * flies" literally true.
+ *
+ * The no-extras path returns the SAME array, built by the same expression, in
+ * the same order as before this parameter existed — every existing call site
+ * is bit-identical, and shapeProfile.test.ts pins that.
+ */
+function sampleXs(length: number, steps: number, extra?: readonly number[]): number[] {
+  const xs: number[] = [];
+  for (let i = 0; i <= steps; i++) xs.push((i / steps) * length);
+  if (!extra || extra.length === 0) return xs;
+  for (const e of extra) {
+    if (!Number.isFinite(e) || e < 0 || e > length) continue;
+    // Within a collapse tolerance of an existing sample, REPLACE it: the
+    // caller's abscissa is the one that must survive (it is a cut plane), and
+    // two points 1 nm apart would be collapsed to one downstream anyway.
+    const j = xs.findIndex((v) => Math.abs(v - e) <= 1e-9);
+    if (j >= 0) xs[j] = e;
+    else xs.push(e);
+  }
+  xs.sort((a, b) => a - b);
+  return xs;
+}
+
+/**
  * Sampled outer profile of a nose cone or transition: steps+1 points
  * [x, r] with x from 0 (fore end) to `length` (aft end). The shape
  * parameter is clamped exactly like Transition.setShapeParameter().
  * Nose cones are this with foreR = 0.
+ *
+ * `extraX` (optional, meters, in this profile's own x) merges exact samples at
+ * the given abscissas — see sampleXs(). Purely additive: omit it and nothing
+ * changes.
  */
 export function outerProfile(
   shape: string, param: number | undefined, length: number,
-  foreR: number, aftR: number, steps = 32,
+  foreR: number, aftR: number, steps = 32, extraX?: readonly number[],
 ): [number, number][] {
   const p = Math.min(Math.max(param ?? shapeParamDefault(shape), 0), shapeParamMax(shape));
   const pts: [number, number][] = [];
+  const xs = sampleXs(length, steps, extraX);
 
   if (foreR === aftR || length <= 0) {
-    for (let i = 0; i <= steps; i++) pts.push([(i / steps) * length, foreR]);
+    for (const x of xs) pts.push([x, foreR]);
     return pts;
   }
 
@@ -156,8 +195,7 @@ export function outerProfile(
     return r1 + shapeRadius(shape, x, r2 - r1, length, p);
   };
 
-  for (let i = 0; i <= steps; i++) {
-    const x = (i / steps) * length;
+  for (const x of xs) {
     pts.push([x, radiusAt(flipped ? length - x : x)]);
   }
   return pts;

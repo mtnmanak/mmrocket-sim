@@ -1,4 +1,4 @@
-import { Fragment, useRef, useState } from 'react';
+import { Fragment, useMemo, useRef, useState } from 'react';
 import type { ComponentInfo, ComponentNode, ComponentPosition, RocketTree } from '@online-openrocket/engine';
 import { FinPointsEditor, type FinPoint } from './FinPointsEditor.js';
 import { NumField } from './NumField.js';
@@ -11,7 +11,9 @@ import { shapeParamDefault, shapeParamMax, shapeUsesParameter } from '../tree/sh
 import { componentSolid, type SolidContext } from '../tree/solidMesh.js';
 import { solidToStl, STL_MIME } from '../services/stlExport.js';
 import { componentDxf, DXF_CUTTABLE, DXF_MIME } from '../services/dxfExport.js';
+import { buildPrintPack, printOffer, SINGLE_BUTTON, ZIP_MIME } from '../services/printPack.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
+import { printerName, toPrinterVolume } from '../prefs/printers.js';
 import { fmtSi, niceStep, siToUi, uiToSi, type Quantity } from '../prefs/units.js';
 import { BULK_MATERIALS, LINE_MATERIALS, SURFACE_MATERIALS, type MaterialDef } from '../data/materials.js';
 import { PresetPicker } from './PresetPicker.js';
@@ -163,6 +165,24 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll, onAutoAli
   const parentLenSi = parent && parent !== 'stage' && typeof parent['length'] === 'number'
     ? parent['length']
     : 0.2;
+
+  /**
+   * What the 🖨 button offers for this component: its caption, the one line
+   * under it, and — only when the part does not fit the configured printer —
+   * the segments to pack into a zip. With no printer configured this is the
+   * untouched single-STL offer, which is the compatibility guarantee.
+   *
+   * Memoised because it plans the split and clips the profile; cheap in
+   * absolute terms, but this panel re-renders on every keystroke in the fields
+   * below and nothing here changes unless the node or the printer does.
+   */
+  const printer = prefs.printer;
+  const offer = useMemo(
+    () => (PRINTABLE.has(node.type)
+      ? printOffer(node, solidContextFor(parent), toPrinterVolume(printer), printerName(printer))
+      : null),
+    [node, parent, printer],
+  );
 
   const lengthSym = prefs.units.length;
   const lenToUi = (si: number) => Number(siToUi('length', lengthSym, si).toFixed(6));
@@ -356,20 +376,42 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll, onAutoAli
         </button>
       )}
       {PRINTABLE.has(node.type) && (
-        <button className="file-btn" style={{ marginTop: 6, width: '100%' }}
-          title="Watertight solid STL in millimetres, ready to slice. Hollow noses/transitions include shoulders and end caps at your wall thickness; fin sets export ONE fin as a flat prism with its tab (airfoil/cross-section shaping is left to sanding, cant not baked); rings, bulkheads and couplers take their diameters from the parent tube. Verify fit before a long print."
-          onClick={() => {
-            const solid = componentSolid(node, solidContextFor(parent));
-            if (!solid) return;
-            const stl = solidToStl(solid.mesh, node.name ?? solid.label);
-            const a = document.createElement('a');
-            a.href = URL.createObjectURL(new Blob([stl as BlobPart], { type: STL_MIME }));
-            a.download = `${(node.name ?? solid.label).replace(/[^\w-]+/g, '_')}-print.stl`;
-            a.click();
-            URL.revokeObjectURL(a.href);
-          }}>
-          🖨 STL for printing (mm)
-        </button>
+        <>
+          <button className="file-btn" style={{ marginTop: 6, width: '100%' }}
+            title={offer?.kind === 'split'
+              ? 'This part is taller than your printer, so it exports as a ZIP: one STL per segment plus a README with the print orientation, the glue, and the shrinkage rule that decides whether the halves fit each other. Each cut adds a tapered spigot and a flat land — the land sets the assembled length, so nothing is lost at the joint.'
+              : 'Watertight solid STL in millimetres, ready to slice. Hollow noses/transitions include shoulders and end caps at your wall thickness; fin sets export ONE fin as a flat prism with its tab (airfoil/cross-section shaping is left to sanding, cant not baked); rings, bulkheads and couplers take their diameters from the parent tube. Verify fit before a long print.'}
+            onClick={() => {
+              const a = document.createElement('a');
+              // Split path: a zip of segments. Everything else — no printer, a
+              // part that fits, a part that cannot be split — takes the single
+              // STL path below, byte-for-byte and filename-for-filename what
+              // this button has always produced.
+              if (offer?.kind === 'split' && offer.split) {
+                const vol = toPrinterVolume(printer);
+                if (!vol) return;
+                const name = node.name ?? offer.split.label;
+                const pack = buildPrintPack(offer.split, name, vol, printerName(printer));
+                a.href = URL.createObjectURL(new Blob([pack.bytes as BlobPart], { type: ZIP_MIME }));
+                a.download = pack.filename;
+              } else {
+                const solid = componentSolid(node, solidContextFor(parent));
+                if (!solid) return;
+                const stl = solidToStl(solid.mesh, node.name ?? solid.label);
+                a.href = URL.createObjectURL(new Blob([stl as BlobPart], { type: STL_MIME }));
+                a.download = `${(node.name ?? solid.label).replace(/[^\w-]+/g, '_')}-print.stl`;
+              }
+              a.click();
+              URL.revokeObjectURL(a.href);
+            }}>
+            {offer?.button ?? SINGLE_BUTTON}
+          </button>
+          {offer?.note && (
+            <p className={offer.tone === 'warn' ? 'print-note print-note-warn' : 'print-note'}>
+              {offer.note}
+            </p>
+          )}
+        </>
       )}
       {onAutoAlignFins && node.type.endsWith('finset') && parent && parent !== 'stage'
         && (parent.children ?? []).filter((c) => c.type.endsWith('finset')).length >= 2 && (

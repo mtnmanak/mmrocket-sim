@@ -300,13 +300,11 @@ function bodyLoop(
 }
 
 /** Annular tube (or solid rod/disc when the bore closes) along +X. */
-function ringSolid(outerR: number, innerR: number, length: number): SolidMesh {
+function ringLoop(outerR: number, innerR: number, length: number): Array<[number, number]> {
   const ri = Math.max(innerR, 0);
-  const loop: Array<[number, number]> =
-    ri > EPS
-      ? [[0, ri], [0, outerR], [length, outerR], [length, ri]]
-      : [[0, 0], [0, outerR], [length, outerR], [length, 0]];
-  return revolveProfile(loop);
+  return ri > EPS
+    ? [[0, ri], [0, outerR], [length, outerR], [length, ri]]
+    : [[0, 0], [0, outerR], [length, outerR], [length, 0]];
 }
 
 function shapeOf(node: ComponentNode): { shape: string; param: number | undefined } {
@@ -417,17 +415,48 @@ export function finCutOutline(node: ComponentNode): Array<[number, number]> | nu
   return pts;
 }
 
-/** Printable solid for one component (one fin / one tube fin per set), or null if unsupported. */
-export function componentSolid(node: ComponentNode, ctx: SolidContext): { mesh: SolidMesh; label: string } | null {
+/**
+ * The closed (x, r) profile ONE revolved printable part is built from, plus
+ * the two facts the loop alone cannot carry.
+ *
+ * Exported for tree/splitSolid.ts, which cuts oversized parts into
+ * printer-sized segments by clipping this 2-D loop and re-revolving — never
+ * by a boolean on the triangle soup. That consumer needs `bodySpan` because
+ * bodyLoop() DOUBLES BACK inside shoulder spans (see the aft-cap branch), so
+ * a cut plane there would slice a zero-width bridge instead of a face, and it
+ * needs `wall` to keep cuts away from the end faces.
+ */
+export interface PrintableLoop {
+  /** closed (x, r) loop, meters, ready for revolveProfile() */
+  loop: Array<[number, number]>;
+  label: string;
+  /** [x0, x1] of the PLAIN BODY in loop x — shoulders deliberately excluded */
+  bodySpan: [number, number];
+  /** nominal wall thickness as authored (m) */
+  wall: number;
+}
+
+/**
+ * Profile loop for one revolved printable component, or null if this type is
+ * not a revolve (fins) or not printable at all.
+ *
+ * `extraX` (meters, loop x) is forwarded to outerProfile() so a caller that
+ * intends to cut at those abscissas gets exact samples there instead of
+ * chords. Loop x and profile x share an origin — a fore shoulder occupies
+ * negative x — so no translation is needed.
+ */
+export function componentLoop(
+  node: ComponentNode, ctx: SolidContext, extraX?: readonly number[],
+): PrintableLoop | null {
   switch (node.type) {
     case 'nosecone': {
       const L = num(node, 'length', 0.1);
       const R = num(node, 'aftRadius', FALLBACK_RADIUS);
       const wall = num(node, 'thickness', 0.002);
       const { shape, param } = shapeOf(node);
-      const outer = outerProfile(shape, param, L, 0, R, PROFILE_STEPS);
+      const outer = outerProfile(shape, param, L, 0, R, PROFILE_STEPS, extraX);
       const loop = bodyLoop(outer, wall, node['filled'] === true, null, shoulderOf(node, '', wall));
-      return { mesh: revolveProfile(loop), label: 'Nose cone' };
+      return { loop, label: 'Nose cone', bodySpan: [0, L], wall };
     }
     case 'transition': {
       const L = num(node, 'length', 0.05);
@@ -435,12 +464,12 @@ export function componentSolid(node: ComponentNode, ctx: SolidContext): { mesh: 
       const Ra = num(node, 'aftRadius', FALLBACK_RADIUS);
       const wall = num(node, 'thickness', 0.002);
       const { shape, param } = shapeOf(node);
-      const outer = outerProfile(shape, param, L, Rf, Ra, PROFILE_STEPS);
+      const outer = outerProfile(shape, param, L, Rf, Ra, PROFILE_STEPS, extraX);
       const loop = bodyLoop(
         outer, wall, node['filled'] === true,
         shoulderOf(node, 'fore', wall), shoulderOf(node, 'aft', wall),
       );
-      return { mesh: revolveProfile(loop), label: 'Transition' };
+      return { loop, label: 'Transition', bodySpan: [0, L], wall };
     }
     case 'bodytube':
     case 'innertube':
@@ -449,34 +478,47 @@ export function componentSolid(node: ComponentNode, ctx: SolidContext): { mesh: 
       const wall = num(node, 'thickness', 0.001);
       const L = num(node, 'length', 0.1);
       const label = node.type === 'bodytube' ? 'Body tube' : node.type === 'innertube' ? 'Inner tube' : 'Launch lug';
-      return { mesh: ringSolid(R, R - wall, L), label };
+      return { loop: ringLoop(R, R - wall, L), label, bodySpan: [0, L], wall };
     }
     case 'tubecoupler':
     case 'engineblock': {
       const R = ctx.parentInnerRadius && ctx.parentInnerRadius > 0 ? ctx.parentInnerRadius : FALLBACK_RADIUS;
       const wall = num(node, 'thickness', 0.001);
       const L = num(node, 'length', 0.05);
-      return { mesh: ringSolid(R, R - wall, L), label: node.type === 'tubecoupler' ? 'Tube coupler' : 'Engine block' };
+      const label = node.type === 'tubecoupler' ? 'Tube coupler' : 'Engine block';
+      return { loop: ringLoop(R, R - wall, L), label, bodySpan: [0, L], wall };
     }
     case 'centeringring': {
       const R = ctx.parentInnerRadius && ctx.parentInnerRadius > 0 ? ctx.parentInnerRadius : FALLBACK_RADIUS;
       const L = num(node, 'length', 0.003);
       const bore = ctx.mountOuterRadius;
       if (typeof bore === 'number' && bore > EPS && bore < R - EPS) {
-        return { mesh: ringSolid(R, bore, L), label: 'Centering ring' };
+        return { loop: ringLoop(R, bore, L), label: 'Centering ring', bodySpan: [0, L], wall: R - bore };
       }
       // No bore is a bulkhead, not a ring — assume a half-radius bore and say so.
-      return { mesh: ringSolid(R, R * 0.5, L), label: 'Centering ring (assumed bore)' };
+      return { loop: ringLoop(R, R * 0.5, L), label: 'Centering ring (assumed bore)', bodySpan: [0, L], wall: R * 0.5 };
     }
     case 'bulkhead': {
       const R = ctx.parentInnerRadius && ctx.parentInnerRadius > 0 ? ctx.parentInnerRadius : FALLBACK_RADIUS;
-      return { mesh: ringSolid(R, 0, num(node, 'length', 0.003)), label: 'Bulkhead' };
+      const L = num(node, 'length', 0.003);
+      return { loop: ringLoop(R, 0, L), label: 'Bulkhead', bodySpan: [0, L], wall: R };
     }
     case 'tubefinset': {
       const r = tubeFinRadius(node, ctx.bodyRadius ?? FALLBACK_RADIUS);
       const wall = Math.min(num(node, 'thickness', 0.0005), r * 0.45);
-      return { mesh: ringSolid(r, r - wall, num(node, 'length', 0.1)), label: 'Tube fin' };
+      const L = num(node, 'length', 0.1);
+      return { loop: ringLoop(r, r - wall, L), label: 'Tube fin', bodySpan: [0, L], wall };
     }
+    default:
+      return null;
+  }
+}
+
+/** Printable solid for one component (one fin / one tube fin per set), or null if unsupported. */
+export function componentSolid(node: ComponentNode, ctx: SolidContext): { mesh: SolidMesh; label: string } | null {
+  const revolved = componentLoop(node, ctx);
+  if (revolved) return { mesh: revolveProfile(revolved.loop), label: revolved.label };
+  switch (node.type) {
     case 'trapezoidfinset':
     case 'ellipticalfinset':
     case 'freeformfinset': {

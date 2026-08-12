@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { INITIAL_UNITS, type UnitSelection } from './units.js';
+import { normalizePrinter, type PrinterPrefs } from './printers.js';
 
 /**
  * Persisted user preferences: per-quantity units (desktop UnitGroup style),
@@ -51,6 +52,13 @@ export interface Preferences {
    * Absent = the default set. Unknown ids are ignored (forward compat).
    */
   resultTiles?: string[];
+  /**
+   * The user's 3D printer, in METRES (see prefs/printers.ts for why metres and
+   * not the millimetres a slicer quotes). Absent = no printer configured, and
+   * that is a load-bearing default: the 🖨 STL export then behaves exactly as
+   * it did before part splitting existed — one file, one name, no extra copy.
+   */
+  printer?: PrinterPrefs;
 }
 
 export const DEFAULT_PREFS: Preferences = {
@@ -70,6 +78,12 @@ function load(): Preferences {
     if (!parsed.themeExplicit) delete parsed.theme;
     // v0.025 stored a boolean; migrate it into the three-way aeroModel.
     if (!parsed.aeroModel && parsed.supersonicAero) parsed.aeroModel = 'supersonic';
+    // A stored printer that isn't three positive numbers is dropped, not
+    // repaired — planning cuts for a half-parsed machine is worse than not
+    // offering to split at all. Absent stays absent (no printer configured).
+    const printer = normalizePrinter(parsed.printer);
+    if (printer) parsed.printer = printer;
+    else delete parsed.printer;
     return {
       ...DEFAULT_PREFS,
       ...parsed,

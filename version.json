@@ -1,5 +1,5 @@
 {
-  "version": "0.044",
+  "version": "0.045",
   "released": "2026-08-12",
-  "note": "New ✂ DXF export (CNC/laser, 1:1) for fins, centering rings, bulkheads and couplers — AutoCAD R12 in millimetres, one closed cut contour per part. FIXED: elliptical fin sets exported a sine curve instead of a true ellipse (~19% under area) — re-export any you cut or printed. The site menu across the top is now live from mountainmanrockets.com and gained a search box, with the built-in menu as the offline fallback."
+  "note": "Parts too big for your 3D printer are now split for you: set your machine in Preferences → 3D printing and an oversized nose cone or tube exports as a zip of numbered segments joined by a printed spigot, with a print-and-glue README. A 3\" nose cone becomes two pieces. Nothing changes if you don't set a printer. Also: a \"Fit rocket to frame\" option on the 3D image export, so an 8K export is 8K of rocket — and the site menu no longer wraps to two rows on laptops."
 }

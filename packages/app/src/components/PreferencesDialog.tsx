@@ -1,12 +1,52 @@
+import { NumField } from './NumField.js';
+import { UnitChip } from './UnitChip.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import {
-  IMPERIAL_UNITS, METRIC_UNITS, QUANTITY_LABEL, UNITS, type Quantity,
+  CUSTOM_PRESET, DEFAULT_PRINT_CLEARANCE, DEFAULT_PRINT_MARGIN, PRINTER_PRESETS,
+  presetMatching, printerFromPreset, type PrinterPrefs,
+} from '../prefs/printers.js';
+import {
+  IMPERIAL_UNITS, METRIC_UNITS, QUANTITY_LABEL, UNITS, niceStep, siToUi, uiToSi,
+  type Quantity,
 } from '../prefs/units.js';
 
 const QUANTITIES = Object.keys(UNITS) as Quantity[];
 
+/** Placeholder volume for "Custom" started from nothing — meant to be typed over. */
+const CUSTOM_SEED: PrinterPrefs = {
+  preset: CUSTOM_PRESET,
+  x: 0.2, y: 0.2, z: 0.2,
+  margin: DEFAULT_PRINT_MARGIN,
+  clearance: DEFAULT_PRINT_CLEARANCE,
+};
+
 export function PreferencesDialog({ onClose }: { onClose: () => void }) {
   const { prefs, setPrefs } = usePrefs();
+
+  // Build volumes are stored in metres and edited through the same
+  // siToUi/uiToSi plumbing as every other length (prefs/printers.ts explains
+  // why metres) — so a builder who works in inches types inches here too.
+  const lengthSym = prefs.units.length;
+  const toUi = (si: number) => siToUi('length', lengthSym, si);
+  const printer = prefs.printer;
+  const setPrinter = (next: PrinterPrefs | undefined) => setPrefs({ ...prefs, printer: next });
+  // Typing over any axis means this is no longer the preset's machine.
+  const setAxis = (axis: 'x' | 'y' | 'z', si: number) => {
+    if (!printer) return;
+    const next = { ...printer, [axis]: si };
+    setPrinter({ ...next, preset: presetMatching(next.x, next.y, next.z) });
+  };
+  const axisField = (axis: 'x' | 'y' | 'z', label: string) => (
+    <div className="field">
+      <label>{label} <UnitChip quantity="length" /></label>
+      <NumField
+        value={printer ? toUi(printer[axis]) : undefined}
+        step={niceStep(toUi(0.001))}
+        ariaLabel={label}
+        onCommit={(v) => { if (v !== null && v > 0) setAxis(axis, uiToSi('length', lengthSym, v)); }}
+      />
+    </div>
+  );
 
   return (
     <div className="prefs-overlay" role="presentation" onClick={onClose}>
@@ -136,6 +176,67 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
           changes. <strong>Auto</strong> flies Rogers Kbf and re-flies the whole flight
           on the supersonic model only when it's projected past Mach&nbsp;0.9. Each
           saved run records which model flew it.
+        </p>
+
+        <h3 className="prefs-section">3D printing</h3>
+        {/* Setting a printer is what lets the 🖨 STL button check a part
+            against it and offer to split an oversized one. Leaving it unset is
+            a first-class state: the export then behaves exactly as it did
+            before splitting existed. */}
+        <div className="field-grid">
+          <div className="field">
+            <label>Printer</label>
+            <select
+              value={printer
+                ? (PRINTER_PRESETS.some((p) => p.id === printer.preset) ? printer.preset : CUSTOM_PRESET)
+                : ''}
+              onChange={(e) => {
+                const id = e.target.value;
+                if (id === '') setPrinter(undefined);
+                else if (id === CUSTOM_PRESET) setPrinter({ ...(printer ?? CUSTOM_SEED), preset: CUSTOM_PRESET });
+                else setPrinter(printerFromPreset(id, printer) ?? undefined);
+              }}
+            >
+              <option value="">Not set — export parts whole</option>
+              {PRINTER_PRESETS.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.label} — {p.mm[0]} × {p.mm[1]} × {p.mm[2]} mm
+                </option>
+              ))}
+              <option value={CUSTOM_PRESET}>Custom…</option>
+            </select>
+          </div>
+          {printer && (
+            <>
+              {axisField('x', 'Bed X')}
+              {axisField('y', 'Bed Y')}
+              {axisField('z', 'Maximum Z')}
+              <div className="field">
+                <label>Joint clearance (per side) <UnitChip quantity="length" /></label>
+                <NumField
+                  value={toUi(printer.clearance)}
+                  step={niceStep(toUi(0.00005))}
+                  ariaLabel="Joint clearance"
+                  onCommit={(v) => {
+                    if (v !== null) setPrinter({ ...printer, clearance: uiToSi('length', lengthSym, v) });
+                  }}
+                />
+              </div>
+            </>
+          )}
+        </div>
+        <p className="prefs-hint">
+          With a printer set, the <strong>🖨 STL</strong> button on a component measures the
+          part against it and says so — and when a part is too tall, it offers to export it
+          as numbered segments with a glued spigot instead of one unprintable file. It never
+          splits silently: the piece count is in the button and in the file names.
+          {' '}<strong>{(DEFAULT_PRINT_MARGIN * 1000).toFixed(0)} mm</strong> is kept clear at
+          each end of every axis (brim and first layer at the bed, gantry clearance up top).
+          {' '}<strong>Joint clearance</strong> is the gap per side between a spigot and its
+          socket — 0.15&nbsp;mm suits FDM and 30-minute epoxy; drop it toward 0.05&nbsp;mm only
+          if you glue with thin CA, which seizes in a wider gap. Print every segment of a part
+          in the <strong>same material on the same printer</strong>: PLA shrinks about 0.3% and
+          ASA/ABS 0.6–0.8%, which only cancels out when both halves shrink alike.
         </p>
 
         <p className="prefs-hint">

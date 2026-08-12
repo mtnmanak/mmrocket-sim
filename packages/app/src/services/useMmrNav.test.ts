@@ -237,6 +237,33 @@ describe('the last-known-good cache', () => {
   });
 });
 
+/**
+ * The contract URL, guarded at the REQUEST rather than at the constant: a test
+ * that imported `CONTRACT` and compared strings would pass while a typo'd
+ * `fetch(somethingElse)` shipped, and the URL that actually goes on the wire is
+ * the thing that matters here.
+ *
+ * v0.044 shipped `mountainmanrockets.pages.dev` — copied from spec §5 while the
+ * spec's literal was still pre-cutover. It worked only because the Pages preview
+ * alias still answered 200, and the failure mode when an alias is retired is
+ * invisible: `fetchNav` swallows everything (MUST 1), so the band freezes on its
+ * baked fallback with nothing logged. Hence a cheap standing guard.
+ */
+describe('the contract URL', () => {
+  it('requests the canonical www host, not the pages.dev preview alias', async () => {
+    const spy = vi.fn(async (_url: unknown, _init?: unknown) => ({
+      ok: true,
+      json: async () => clone(LIVE),
+    }));
+    vi.stubGlobal('fetch', spy);
+    await fetchNav();
+    expect(spy).toHaveBeenCalledTimes(1);
+    const url = String(spy.mock.calls[0]![0]);
+    expect(url).toBe('https://www.mountainmanrockets.com/chrome/nav.v1.json');
+    expect(url).not.toContain('pages.dev');
+  });
+});
+
 describe('fetchNav — never rejects, whatever the network does', () => {
   it('returns the parsed contract on a good response', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => clone(LIVE) })));
