@@ -1,5 +1,5 @@
 {
-  "version": "0.043",
-  "released": "2026-08-11",
-  "note": "New 🐞 Feedback button in the header: report bugs and request features on the public tracker (no GitHub account needed — email works too), browse open issues, and the guide gained a Feedback section. Bug reports arrive with the tool and version prefilled."
+  "version": "0.044",
+  "released": "2026-08-12",
+  "note": "New ✂ DXF export (CNC/laser, 1:1) for fins, centering rings, bulkheads and couplers — AutoCAD R12 in millimetres, one closed cut contour per part. FIXED: elliptical fin sets exported a sine curve instead of a true ellipse (~19% under area) — re-export any you cut or printed. The site menu across the top is now live from mountainmanrockets.com and gained a search box, with the built-in menu as the offline fallback."
 }

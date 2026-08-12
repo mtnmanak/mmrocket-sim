@@ -28,6 +28,8 @@ import { TreeSchematic } from './components/TreeSchematic.js';
 import { AftView } from './components/AftView.js';
 import { BUILT_IN_MOTORS } from './motors.js';
 import { PreferencesDialog } from './components/PreferencesDialog.js';
+import { SiteBand, SiteBandFooter } from './components/SiteBand.js';
+import { MMR_NAV_FALLBACK, useMmrNav } from './services/useMmrNav.js';
 import { usePrefs } from './prefs/PrefsContext.js';
 import { UnitChip } from './components/UnitChip.js';
 import { fmtSi, niceStep, siToUi, uiToSi } from './prefs/units.js';
@@ -76,33 +78,46 @@ const GENERIC_ROCKET_NAMES = new Set([
   'imported rocksim rocket', 'imported rasaero rocket',
 ]);
 
-/**
- * mountainmanrockets.com site menu — the app embeds in the site and should
- * feel like one of its pages. target="_top" makes clicks navigate the WHOLE
- * tab (escaping the WordPress iframe), never a nested frame.
- */
 // Public feedback tracker — ONE tracker for the site and all tools
-// (adjudicated 2026-08-11; the kit in docs/feedback-repo-kit/ is its source).
+// (adjudicated 2026-08-11; docs/feedback-tracker.md in this repo is the record).
 // Standing rulings: GitHub links open a NEW TAB; mailto does not; plain
 // browse links go to /issues, /new only where the user already has a
 // concrete bug (these buttons are exactly that context).
+//
+// These constants are now the FALLBACK: the Nav Contract publishes the same
+// four routes (`nav.feedback`), so a tracker move is a site-side edit that
+// every tool picks up on the next load. They stay here because the band's
+// data can be a build-time snapshot and the Feedback menu must work either way.
 const FEEDBACK_REPO = 'https://github.com/mtnmanak/mountainmanrockets-feedback';
 const FEEDBACK_EMAIL = 'admin@mountainmanrockets.com';
-const feedbackIssueUrl = (template: string, withVersion: boolean) =>
-  `${FEEDBACK_REPO}/issues/new?template=${template}`
-  + `&tool=${encodeURIComponent('Online OpenRocket')}`
-  + (withVersion ? `&version=${encodeURIComponent(`v${APP_VERSION} beta`)}` : '');
+// NO `&tool=` PARAMETER. GitHub prefills issue-form fields from query
+// parameters ONLY for `input` and `textarea` types, and `tool` is a required
+// DROPDOWN — passing it does nothing at all, silently. `version` is a plain
+// input, so that one really does arrive filled in. See the prefill table in
+// docs/feedback-tracker.md before adding anything here.
+const feedbackIssueUrl = (template: string) =>
+  `${FEEDBACK_REPO}/issues/new?template=${template}`;
 
-const SITE_MENU: { label: string; url: string }[] = [
-  { label: 'Home', url: 'https://www.mountainmanrockets.com/' },
-  { label: 'Builds', url: 'https://www.mountainmanrockets.com/index.php/builds/' },
-  { label: 'HPR Primer', url: 'https://www.mountainmanrockets.com/index.php/hpr-primer/' },
-  { label: 'Tools and Tips', url: 'https://www.mountainmanrockets.com/index.php/tools_tech/' },
-  { label: 'Online Tools', url: 'https://www.mountainmanrockets.com/online_tools/' },
-  { label: 'Gallery', url: 'https://www.mountainmanrockets.com/index.php/gallery/' },
-  { label: 'Videos', url: 'https://www.mountainmanrockets.com/index.php/videos/' },
-  { label: 'Links', url: 'https://www.mountainmanrockets.com/index.php/links/' },
-];
+/**
+ * Stamp the running build onto a bug-report URL. Uses the URL API rather than
+ * string concatenation because the base may come from the contract, where a
+ * future revision could drop or reorder the query string — and it must never
+ * clobber `?template=`, without which GitHub bounces the filer to the template
+ * chooser and drops every parameter on the way.
+ */
+const withVersionParam = (url: string) => {
+  try {
+    const u = new URL(url);
+    u.searchParams.set('version', `v${APP_VERSION} beta`);
+    // URLSearchParams serializes a space as "+" (form encoding). Percent-
+    // encoding is what this app shipped before and what reads unambiguously
+    // in a GitHub prefill, so put it back.
+    u.search = u.search.replace(/\+/g, '%20');
+    return u.toString();
+  } catch {
+    return url;
+  }
+};
 
 /**
  * Pre-v0.005 the max-motor-length input lived in the motor browser's filters
@@ -127,6 +142,10 @@ function labelWithDelay(label: string, delay: number | 'auto'): string {
 
 export function App() {
   const { prefs, setPrefs, resolvedTheme, daylight } = usePrefs();
+  // Mountain Man Rockets site band + footer strip, and the feedback routes
+  // below. ONE call for all three: the hook fetches once per mount, so the
+  // contract is shared state, not three copies of the same request.
+  const { nav: mmrNav, source: mmrNavSource } = useMmrNav(MMR_NAV_FALLBACK);
   const [showPrefs, setShowPrefs] = useState(false);
   // Restore the previous session (autosaved on every change) if one exists.
   // normalizeTree wraps pre-v0.009 flat trees in one stage. Lazy useState:
@@ -731,11 +750,7 @@ export function App() {
 
   return (
     <div className="viz-root" data-theme={resolvedTheme} data-contrast={daylight ? 'high' : undefined}>
-      <nav className="site-nav" aria-label="Mountain Man Rockets site menu">
-        {SITE_MENU.map((item) => (
-          <a key={item.url} href={item.url} target="_top">{item.label}</a>
-        ))}
-      </nav>
+      <SiteBand nav={mmrNav} source={mmrNavSource} />
       <header className="app-header">
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
           <h1><Icon name="rocket" size={19} /> Online OpenRocket</h1>
@@ -819,20 +834,37 @@ export function App() {
             {showFeedback && (
               <>
                 <div className="file-menu-backdrop" onClick={() => setShowFeedback(false)} />
+                {/* Contract first, hardcoded constants second — see the
+                    FEEDBACK_REPO comment. GitHub links open a new tab (the owner's
+                    ruling: don't take the user away from the site); the mailto
+                    deliberately does NOT, because a mail client launched into a
+                    new tab leaves a blank tab behind. */}
                 <div className="file-menu" role="menu" onClick={() => setShowFeedback(false)}>
-                  <button onClick={() => window.open(feedbackIssueUrl('bug-report.yml', true), '_blank', 'noopener')}>
+                  <button onClick={() => window.open(
+                    withVersionParam(mmrNav.feedback?.bug ?? feedbackIssueUrl('bug-report.yml')),
+                    '_blank', 'noopener')}>
                     Report a bug — GitHub
                   </button>
-                  <button onClick={() => window.open(feedbackIssueUrl('feature-request.yml', false), '_blank', 'noopener')}>
+                  <button onClick={() => window.open(
+                    mmrNav.feedback?.feature ?? feedbackIssueUrl('feature-request.yml'),
+                    '_blank', 'noopener')}>
                     Request a feature — GitHub
                   </button>
+                  {/* Safe to concatenate: `parseNav` strips trailing slashes
+                      from `feedback.tracker`, so this can never become
+                      `…feedback//issues` (which GitHub 404s, dead-ending the
+                      only in-app route to the existing-issue list). Keep the
+                      normalisation there, at the contract boundary — not here,
+                      where every future concatenation site would need its own
+                      guard. */}
                   <button onClick={() => window.open(
-                    `${FEEDBACK_REPO}/issues?q=${encodeURIComponent('is:open label:tool:online-openrocket')}`,
+                    `${mmrNav.feedback?.tracker ?? FEEDBACK_REPO}/issues?q=${encodeURIComponent('is:open label:tool:online-openrocket')}`,
                     '_blank', 'noopener')}>
                     Browse open issues
                   </button>
                   <button onClick={() => {
-                    window.location.href = `mailto:${FEEDBACK_EMAIL}?subject=${encodeURIComponent(`Online OpenRocket v${APP_VERSION} feedback`)}`;
+                    const to = mmrNav.feedback?.email ?? FEEDBACK_EMAIL;
+                    window.location.href = `mailto:${to}?subject=${encodeURIComponent(`Online OpenRocket v${APP_VERSION} feedback`)}`;
                   }}>
                     Email instead — no account needed
                   </button>
@@ -1566,6 +1598,7 @@ export function App() {
         </main>
         )}
       </div>
+      <SiteBandFooter nav={mmrNav} />
     </div>
   );
 }

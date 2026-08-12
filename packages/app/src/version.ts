@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.043';
+export const APP_VERSION = '0.044';
 
 export interface ChangelogEntry {
   version: string;
@@ -23,11 +23,22 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.044',
+    date: '2026-08-12',
+    title: 'DXF export for CNC & laser, a live site menu, and an elliptical-fin fix',
+    items: [
+      'NEW: ✂ DXF (CNC/laser, 1:1) — select a fin, centering ring, bulkhead, tube coupler or engine block and export its flat cut profile as AutoCAD R12 (AC1009) DXF in millimetres, the format LightBurn, Carbide Create, Easel, Fusion 360\'s sketch import and essentially every cutter\'s own software read. A fin comes out as ONE closed contour with the through-the-wall tab merged into it, so CAM offsets it correctly in a single pass; rings and bulkheads come out as true circles a machine can bore, with the centering ring taking its real bore from the motor-mount tube. Cut geometry is on the CUT layer alone — REFERENCE (root chord, centre marks) and TEXT (the label block) are guides, so switch them off before cutting.',
+      'FIXED: elliptical fin sets exported the wrong outline. The 3D-printing STL (and any elliptical fin you had already exported) used a sine curve instead of a true ellipse, so the fin enclosed about 19% less area than the one the simulator flies and the one the 📐 SVG template prints. All three now use the kernel\'s own ellipse. Simulation results are unaffected — fin aerodynamics never read those points — but re-export any elliptical fin you cut or printed from an earlier build.',
+      'The Mountain Man Rockets menu across the top is now LIVE: it reads the site\'s published menu on each load, so when the site adds or renames a page this tool follows on the next visit instead of waiting for an app release. The menu now matches the new site (Rocketry U, Tools & Techniques, Checklists & Info, Media…), gained a site search box, and picked up a small footer strip. It fails safe in every direction — offline, or if the site is unreachable, the menu that ships inside the app renders instantly, and nothing about the simulator depends on it.',
+      'Bug reports: the report links no longer claim to preselect which tool you are reporting on — GitHub issue forms cannot prefill a dropdown, so you pick the tool yourself. The app version is still filled in for you.',
+    ],
+  },
+  {
     version: '0.043',
     date: '2026-08-11',
     title: 'Feedback button — report bugs and request features from inside the app',
     items: [
-      'NEW: 🐞 Feedback in the header — report a bug or request a feature on the public tracker (github.com/mtnmanak/mountainmanrockets-feedback, one tracker for mountainmanrockets.com and all its tools), browse open issues for this tool, or email instead (no GitHub account needed). Bug reports arrive with the tool and app version prefilled.',
+      'NEW: 🐞 Feedback in the header — report a bug or request a feature on the public tracker (github.com/mtnmanak/mountainmanrockets-feedback, one tracker for mountainmanrockets.com and all its tools), browse open issues for this tool, or email instead (no GitHub account needed). Bug reports arrive with the app version prefilled; you pick which tool from a dropdown.',
       'Guide: new "Feedback & Bug Reports" section with the same routes and tips for a useful report (version, browser, and a zipped .ork make fixes far faster).',
     ],
   },

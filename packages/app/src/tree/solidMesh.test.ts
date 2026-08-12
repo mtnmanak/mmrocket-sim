@@ -7,7 +7,8 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
 import {
-  componentSolid, extrudePolygon, isWatertight, revolveProfile, solidVolume, type SolidMesh,
+  collapseLoop, componentSolid, extrudePolygon, finCutOutline, isWatertight, revolveProfile,
+  solidVolume, type SolidMesh,
 } from './solidMesh.js';
 
 const node = (type: string, params: Record<string, unknown>): ComponentNode =>
@@ -50,6 +51,27 @@ describe('extrudePolygon', () => {
     const vCW = check(extrudePolygon(rect.slice().reverse(), 0.003));
     expect(relErr(vCCW, 0.04 * 0.02 * 0.003)).toBeLessThan(1e-9);
     expect(relErr(vCW, 0.04 * 0.02 * 0.003)).toBeLessThan(1e-9);
+  });
+});
+
+describe('collapseLoop', () => {
+  // Exported for the DXF writer, which has no other dedup on its path — a
+  // duplicated vertex there becomes a zero-length POLYLINE segment with no
+  // defined edge normal for CAM cutter compensation.
+  it('drops consecutive duplicates AND the closing wrap', () => {
+    expect(collapseLoop([[0, 0], [1, 0], [1, 0], [1, 1], [0, 0]]))
+      .toEqual([[0, 0], [1, 0], [1, 1]]);
+  });
+
+  it('leaves a clean loop untouched and never returns a degenerate edge', () => {
+    const clean: Array<[number, number]> = [[0, 0], [1, 0], [1, 1], [0, 1]];
+    expect(collapseLoop(clean)).toEqual(clean);
+    const out = collapseLoop([[0, 0], [0, 0], [2, 0], [2, 0], [2, 3], [0, 0]]);
+    for (let i = 0; i < out.length; i++) {
+      const a = out[i]!;
+      const b = out[(i + 1) % out.length]!;
+      expect(Math.hypot(b[0] - a[0], b[1] - a[1])).toBeGreaterThan(1e-9);
+    }
   });
 });
 
@@ -243,9 +265,28 @@ describe('componentSolid: fins', () => {
     expect(relErr(v, area * 0.002)).toBeLessThan(1e-9);
   });
 
-  it('elliptical fin volume is close to (2/PI)*root*height*thickness', () => {
+  it('elliptical fin volume is the TRUE half-ellipse: (PI/4)*root*height*thickness', () => {
+    // Semi-axes root/2 and height, half the ellipse: PI*(root/2)*height/2 =
+    // (PI/4)*root*height. This test used to enshrine (2/PI)*root*height, the
+    // area of the SINE HUMP the planform builder emitted before the kernel
+    // parametrisation went in (EllipticalFinSet.java lines 17-25) — 19% small.
     const v = check(solid(node('ellipticalfinset', { rootChord: 0.05, height: 0.04, thickness: 0.002 })).mesh);
-    expect(relErr(v, (2 / Math.PI) * 0.05 * 0.04 * 0.002)).toBeLessThan(0.01);
+    expect(relErr(v, (Math.PI / 4) * 0.05 * 0.04 * 0.002)).toBeLessThan(0.01);
+    // ...and is nowhere near the old value, so a silent revert cannot pass.
+    expect(relErr(v, (2 / Math.PI) * 0.05 * 0.04 * 0.002)).toBeGreaterThan(0.1);
+  });
+
+  it('elliptical planform vertices lie exactly on the ellipse', () => {
+    const outline = finCutOutline(node('ellipticalfinset', { rootChord: 0.09, height: 0.04 }))!;
+    expect(outline.length).toBeGreaterThan(8);
+    const a = 0.09 / 2;
+    for (const [x, y] of outline) {
+      expect(((x - a) / a) ** 2 + (y / 0.04) ** 2).toBeCloseTo(1, 9);
+    }
+    // Root corners land on the chord ends, apex at mid-chord and full span.
+    expect(outline[0]).toEqual([0, 0]);
+    expect(outline[outline.length - 1]![0]).toBeCloseTo(0.09, 12);
+    expect(Math.max(...outline.map((p) => p[1]))).toBeCloseTo(0.04, 12);
   });
 
   it('freeform concave (L-shaped) fin is watertight with exact volume', () => {

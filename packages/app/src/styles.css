@@ -256,32 +256,6 @@
   z-index: 55;
 }
 
-/* --- mountainmanrockets.com site menu (banner across the top) --- */
-.site-nav {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 2px 20px;
-  align-items: center;
-  padding: 8px 16px;
-  background: var(--surface-2);
-  border-bottom: 1px solid var(--border);
-  /* match the WordPress nav voice: tracked caps, orange hover */
-  font-size: 11.5px;
-  text-transform: uppercase;
-  letter-spacing: 0.09em;
-}
-
-.site-nav a {
-  color: var(--text-primary);
-  text-decoration: none;
-  padding: 2px 0;
-  white-space: nowrap;
-}
-
-.site-nav a:hover {
-  color: var(--accent);
-}
-
 .app-header {
   padding: 16px clamp(16px, 2vw, 40px) 0;
 }
@@ -358,17 +332,184 @@
 }
 
 /* All in-app links take the accent (browser default blue fights the palette).
-   The site-menu bar keeps quiet primary-text links (orange on hover only). */
+   The site band keeps quiet primary-text links (orange on hover only). */
 .viz-root a {
   color: var(--accent);
 }
 
-.viz-root .site-nav a {
-  color: var(--text-primary);
+/* ===================================================================
+   MOUNTAIN MAN ROCKETS SITE BAND — the published Nav Contract, rendered
+   (spec: docs/chrome-spec.md in the mountainmanrockets repo; component:
+   components/SiteBand.tsx).
+
+   Every selector here is namespaced `.mmr-band-*` and there is not one bare
+   element selector or `:root` write in the block — MUST 5. The band is one of
+   four independent implementations of the same strip, and the namespace is
+   what keeps a future spec revision from colliding with this app's own CSS.
+
+   The `.viz-root` prefix on the color rules is NOT redundant: `.viz-root a`
+   above ties them on specificity, so without it the whole band would go
+   accent-orange. (That exact regression cost a session on 2026-08-04, back
+   when this was `.site-nav` — see docs/working-notes.md.)
+
+   Colors come only from the existing theme tokens, so the band follows dark
+   mode and Daylight mode for free — `[data-contrast='high']` already repaints
+   --surface-2 white and --border black at the bottom of this file.
+   =================================================================== */
+.mmr-band {
+  display: flex;
+  align-items: center;
+  gap: 0 18px;
+  padding: 8px 16px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+  /* The site's nav voice, inherited from the bar this replaced: tracked
+     caps, orange hover. */
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
 }
 
-.viz-root .site-nav a:hover {
+.mmr-band-brand {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  flex: 0 0 auto;
+}
+
+.mmr-band-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 18px;
+  min-width: 0;
+}
+
+.viz-root .mmr-band a {
+  color: var(--text-primary);
+  text-decoration: none;
+  padding: 2px 0;
+  white-space: nowrap;
+}
+
+.viz-root .mmr-band a:hover {
   color: var(--accent);
+}
+
+/* Search sits hard right so the menu reads as one run of links, not two. */
+.mmr-band-search {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+
+.mmr-band-search input {
+  width: 130px;
+  padding: 2px 7px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 11px;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.mmr-band-search button {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.mmr-band-search button:hover {
+  color: var(--accent);
+}
+
+/* The narrow-screen half of the affordance; CSS picks one (see SiteBand.tsx). */
+.mmr-band-search-link {
+  display: none;
+}
+
+/* Footer strip (spec §4, opted in — this app had no footer at all). */
+.mmr-band-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 18px;
+  margin-top: 20px;
+  padding: 10px clamp(16px, 2vw, 40px);
+  background: var(--surface-2);
+  border-top: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 11.5px;
+}
+
+.mmr-band-footer-line {
+  margin-right: auto;
+}
+
+.mmr-band-footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+}
+
+.viz-root .mmr-band-footer a {
+  color: var(--text-secondary);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.viz-root .mmr-band-footer a:hover {
+  color: var(--accent);
+}
+
+/* Phones: the band collapses to a SINGLE ~30px row (spec §3). The menu
+   scrolls sideways with its scrollbar hidden rather than wrapping to three
+   stacked rows — this strip is the site's chrome, and it must never push
+   the tool's own header down the screen on the device where vertical space
+   is scarcest. The full search form is replaced by the magnifier link. */
+@media (max-width: 767px) {
+  .mmr-band {
+    gap: 0 12px;
+    padding: 4px 10px;
+    flex-wrap: nowrap;
+  }
+
+  .mmr-band-nav {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .mmr-band-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .mmr-band-search {
+    display: none;
+  }
+
+  .mmr-band-search-link {
+    display: inline-flex;
+    align-items: center;
+    margin-left: auto;
+    flex: 0 0 auto;
+  }
+
+  .mmr-band-footer {
+    gap: 4px 14px;
+    font-size: 11px;
+  }
 }
 
 /* --- Form --- */
@@ -1522,8 +1663,13 @@ select.unit-chip:hover {
 }
 
 /* --- Large screens: chrome stays dense, the stage takes the width. ---
-   KEEP THIS BLOCK LAST: these overrides share specificity with the base
-   rules above, so they only win by source order. */
+   KEEP THIS BLOCK LAST *OF THE LAYOUT RULES*: these overrides share
+   specificity with the base rules above, so they only win by source order.
+   The DAYLIGHT block at the end of the file legitimately follows this one —
+   it carries only color tokens, border widths and font weights, never a
+   layout property. If you ever add a grid/flex/max-width rule to Daylight it
+   WILL silently outrank this block; put it here instead. (Two comments once
+   both claimed to be last; this is the reconciliation.) */
 @media (min-width: 1600px) {
   .design-layout {
     grid-template-columns: 320px minmax(0, 1fr) 380px;
@@ -1697,6 +1843,9 @@ select.unit-chip:hover {
    These rules must stay at the END of this file: the sheet is one flat
    cascade, and every override below ties the theme rules on specificity
    (both are one class + one attribute), so source order is what decides.
+   Keep this block to COLOR TOKENS, BORDER WIDTHS AND FONT WEIGHTS only —
+   the wide-screen layout block above says "keep last" for the same
+   source-order reason, and a layout rule added down here would outrank it.
 
    The principle is luminance, not decoration: push text to the extremes of
    the range, replace fills with borders, thicken every hairline, and drop
@@ -1748,10 +1897,31 @@ select.unit-chip:hover {
 .viz-root[data-contrast='high'] .fin-table input,
 .viz-root[data-contrast='high'] .color-swatch,
 .viz-root[data-contrast='high'] .prefs-dialog,
+.viz-root[data-contrast='high'] .mmr-band-search input,
 .viz-root[data-contrast='high'] .file-menu {
   border-width: 2px;
   border-style: solid;
   border-color: var(--border);
+}
+
+/* The site band is the one surface Daylight can erase completely. Daylight
+   paints --surface-1 AND --surface-2 the same #ffffff, so the band strip, the
+   footer strip and the search box are white on a white page and the ONLY
+   thing separating them is a hairline — the same hairline the rule above
+   thickens everywhere else. The search input is in that list; these two carry
+   a single edge each (bottom, top) rather than a box, so a plain
+   `border-width` would draw three edges that were never there.
+
+   This lives in the Daylight block, not in the `.mmr-band` block, on purpose:
+   MUST 5 keeps the band's own CSS to the `.mmr-band-*` namespace and the
+   contrast POLICY belongs where the rest of the policy is, so a future
+   Daylight tune finds every hairline in one place. */
+.viz-root[data-contrast='high'] .mmr-band {
+  border-bottom-width: 2px;
+}
+
+.viz-root[data-contrast='high'] .mmr-band-footer {
+  border-top-width: 2px;
 }
 
 /* Small type carries most of the readings — give it weight to survive glare. */

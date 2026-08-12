@@ -10,6 +10,7 @@ import { tubeFinMaxCount, tubeFinMaxRadius, tubeFinRadius } from '../tree/tubefi
 import { shapeParamDefault, shapeParamMax, shapeUsesParameter } from '../tree/shapeProfile.js';
 import { componentSolid, type SolidContext } from '../tree/solidMesh.js';
 import { solidToStl, STL_MIME } from '../services/stlExport.js';
+import { componentDxf, DXF_CUTTABLE, DXF_MIME } from '../services/dxfExport.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { fmtSi, niceStep, siToUi, uiToSi, type Quantity } from '../prefs/units.js';
 import { BULK_MATERIALS, LINE_MATERIALS, SURFACE_MATERIALS, type MaterialDef } from '../data/materials.js';
@@ -111,6 +112,30 @@ const PRINTABLE = new Set([
   'centeringring', 'bulkhead', 'engineblock', 'launchlug', 'tubefinset',
   'trapezoidfinset', 'ellipticalfinset', 'freeformfinset',
 ]);
+
+/**
+ * Parent-derived diameters, shared by the STL and DXF exports: rings,
+ * bulkheads and couplers size to the parent tube's bore, and a centering
+ * ring's own bore comes from the motor-mount tube it centers. Both exporters
+ * must read the SAME context or the printed and the machined version of one
+ * part would come out different sizes.
+ */
+function solidContextFor(parent: ComponentNode | 'stage' | null): SolidContext {
+  const ctx: SolidContext = {};
+  if (parent && parent !== 'stage') {
+    const pOuter = typeof parent['outerRadius'] === 'number' ? (parent['outerRadius'] as number) : undefined;
+    const pThick = typeof parent['thickness'] === 'number' ? (parent['thickness'] as number) : 0.001;
+    if (pOuter !== undefined) {
+      ctx.parentInnerRadius = Math.max(0.0005, pOuter - pThick);
+      ctx.bodyRadius = pOuter;
+    }
+    const mount = (parent.children ?? []).find((c) => c.type === 'innertube');
+    if (mount && typeof mount['outerRadius'] === 'number') {
+      ctx.mountOuterRadius = mount['outerRadius'] as number;
+    }
+  }
+  return ctx;
+}
 
 /** Quick palette for the display color (the owner: basic colors one click away). */
 const COLOR_PRESETS = [
@@ -312,27 +337,29 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll, onAutoAli
           📐 Fin template (SVG, 1:1)
         </button>
       )}
+      {DXF_CUTTABLE.has(node.type) && (
+        // Scissors, NOT the 📐 the fin-template button above already owns. The
+        // two sit adjacent, and with a shared glyph a user scanning for the
+        // laser export stops at the print-and-trace template instead.
+        <button className="file-btn" style={{ marginTop: 6, width: '100%' }}
+          title="Flat 1:1 cut profile as R12 DXF in millimetres — for laser/router/waterjet CAM and Fusion 360 sketch import. Fin sets export ONE fin as a single closed contour with the through-the-wall tab merged into it (airfoil shaping, cant and sweep-into-the-tube are NOT represented); rings, bulkheads and couplers take their diameters from the parent tube, and a centering ring's bore from the motor mount. Cut geometry is on the CUT layer only — REFERENCE (root chord, centre marks) and TEXT are guides; switch them off before cutting."
+          onClick={() => {
+            const dxf = componentDxf(node, solidContextFor(parent), tree.name ?? 'Rocket');
+            if (!dxf) return;
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(new Blob([dxf.text], { type: DXF_MIME }));
+            a.download = `${(node.name ?? dxf.label).replace(/[^\w-]+/g, '_')}-cut.dxf`;
+            a.click();
+            URL.revokeObjectURL(a.href);
+          }}>
+          ✂ DXF (CNC/laser, 1:1)
+        </button>
+      )}
       {PRINTABLE.has(node.type) && (
         <button className="file-btn" style={{ marginTop: 6, width: '100%' }}
           title="Watertight solid STL in millimetres, ready to slice. Hollow noses/transitions include shoulders and end caps at your wall thickness; fin sets export ONE fin as a flat prism with its tab (airfoil/cross-section shaping is left to sanding, cant not baked); rings, bulkheads and couplers take their diameters from the parent tube. Verify fit before a long print."
           onClick={() => {
-            // Parent-derived diameters: rings/bulkheads/couplers size to the
-            // parent tube's bore; a centering ring's own bore comes from the
-            // mount tube it centers.
-            const ctx: SolidContext = {};
-            if (parent && parent !== 'stage') {
-              const pOuter = typeof parent['outerRadius'] === 'number' ? (parent['outerRadius'] as number) : undefined;
-              const pThick = typeof parent['thickness'] === 'number' ? (parent['thickness'] as number) : 0.001;
-              if (pOuter !== undefined) {
-                ctx.parentInnerRadius = Math.max(0.0005, pOuter - pThick);
-                ctx.bodyRadius = pOuter;
-              }
-              const mount = (parent.children ?? []).find((c) => c.type === 'innertube');
-              if (mount && typeof mount['outerRadius'] === 'number') {
-                ctx.mountOuterRadius = mount['outerRadius'] as number;
-              }
-            }
-            const solid = componentSolid(node, ctx);
+            const solid = componentSolid(node, solidContextFor(parent));
             if (!solid) return;
             const stl = solidToStl(solid.mesh, node.name ?? solid.label);
             const a = document.createElement('a');

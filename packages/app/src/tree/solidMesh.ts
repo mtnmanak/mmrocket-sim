@@ -42,8 +42,17 @@ const num = (n: ComponentNode, key: string, fb: number): number =>
 
 const emptyMesh = (): SolidMesh => ({ positions: new Float64Array(0), triangles: new Uint32Array(0) });
 
-/** Drop consecutive near-identical points, including across the loop wrap. */
-function collapseLoop(pts: Array<[number, number]>): Array<[number, number]> {
+/**
+ * Drop consecutive near-identical points, including across the loop wrap.
+ *
+ * Exported because every consumer of a CLOSED contour needs it, not just the
+ * mesh builders: a duplicated vertex is a zero-length segment, and a
+ * zero-length segment has no defined edge normal — which is precisely what
+ * CAM kerf/cutter compensation consumes. extrudePolygon() and revolveProfile()
+ * run it internally, so the DXF writer (services/dxfExport.ts) is the one path
+ * that has to call it by hand.
+ */
+export function collapseLoop(pts: Array<[number, number]>): Array<[number, number]> {
   const out: Array<[number, number]> = [];
   for (const [x, y] of pts) {
     const prev = out[out.length - 1];
@@ -321,8 +330,14 @@ function shoulderOf(node: ComponentNode, prefix: string, fallbackWall: number): 
  * Fin planform in (x = chordwise aft+, y = span), root edge on y = 0. The
  * tab merges into the outline along the closing root edge; for freeform fins
  * that edge only exists when both endpoints sit on y = 0.
+ *
+ * Exported because the DXF cut profile (services/dxfExport.ts) needs the same
+ * merged contour the extruded prism uses: CAM offsets ONE closed path
+ * correctly, while an outline overlapping a separate tab box cuts a slot
+ * through the root. finTemplate.ts's finOutline() is the unmerged variant —
+ * the SVG draws the tab as its own stroke, which is fine on paper.
  */
-function finOutline(node: ComponentNode): Array<[number, number]> | null {
+export function finCutOutline(node: ComponentNode): Array<[number, number]> | null {
   let pts: Array<[number, number]>;
   let rootLen: number;
   if (node.type === 'trapezoidfinset') {
@@ -335,11 +350,29 @@ function finOutline(node: ComponentNode): Array<[number, number]> | null {
   } else if (node.type === 'ellipticalfinset') {
     const root = num(node, 'rootChord', 0.05);
     const height = num(node, 'height', 0.03);
-    const steps = 24;
+    // A TRUE half-ellipse, not a sine hump. The kernel's own planform is
+    // EllipticalFinSet.java lines 17-25 (OpenRocket 24.12):
+    //   POINT_X[i] = (Math.cos(a) + 1) / 2;  POINT_Y[i] = Math.sin(a);
+    // i.e. x sweeps as cos and y as sin over the SAME parameter, which is what
+    // makes it an ellipse. Walking x linearly while y goes sinusoidal (the
+    // shape this used to emit) encloses (2/PI)*root*height instead of the
+    // ellipse's (PI/4)*root*height — 19% small, and visibly the wrong curve
+    // near the leading and trailing edges. The form below is the a -> PI - t
+    // relabelling of the kernel's, chosen so the walk still runs leading root
+    // -> tip -> trailing root; it is byte-for-byte the expression
+    // finTemplate.ts's finOutline() already used for the printable SVG, so the
+    // cut template, the DXF and the printed prism now describe one curve.
+    // STEPS matches finOutline()'s so the two agree vertex-for-vertex.
+    //
+    // This CHANGES previously-shipped STL geometry — deliberately, it is a bug
+    // fix. It is app-side mesh generation only: fin aerodynamics are computed
+    // by the Java kernel from rootChord/height, never from these points, so
+    // there is no simulation or differential-test impact.
+    const steps = 64;
     pts = [];
     for (let i = 0; i <= steps; i++) {
-      const u = i / steps;
-      pts.push([root * u, height * Math.sin(Math.PI * u)]);
+      const t = (Math.PI * i) / steps;
+      pts.push([(root / 2) * (1 - Math.cos(t)), height * Math.sin(t)]);
     }
     rootLen = root;
   } else {
@@ -447,7 +480,7 @@ export function componentSolid(node: ComponentNode, ctx: SolidContext): { mesh: 
     case 'trapezoidfinset':
     case 'ellipticalfinset':
     case 'freeformfinset': {
-      const outline = finOutline(node);
+      const outline = finCutOutline(node);
       if (!outline) return null;
       const mesh = extrudePolygon(outline, num(node, 'thickness', 0.003));
       const label = node.type === 'trapezoidfinset' ? 'Trapezoidal fin'

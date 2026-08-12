@@ -8,7 +8,7 @@ import type { ReactNode } from 'react';
 
 export type IconName =
   | 'rocket' | 'wrench' | 'flame' | 'chart'
-  | 'folder' | 'save' | 'book' | 'sliders' | 'zap' | 'sun' | 'bug';
+  | 'folder' | 'save' | 'book' | 'sliders' | 'zap' | 'sun' | 'bug' | 'search';
 
 const PATHS: Record<IconName, ReactNode> = {
   bug: (
@@ -74,6 +74,14 @@ const PATHS: Record<IconName, ReactNode> = {
     <>
       <circle cx={12} cy={12} r={4} />
       <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+    </>
+  ),
+  // Site-band search (Nav Contract, spec §3): the magnifier is both the
+  // submit glyph at >= 768px and the whole affordance below it.
+  search: (
+    <>
+      <circle cx={11} cy={11} r={7} />
+      <path d="m21 21-4.35-4.35" />
     </>
   ),
 };
