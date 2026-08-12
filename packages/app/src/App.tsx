@@ -81,6 +81,18 @@ const GENERIC_ROCKET_NAMES = new Set([
  * feel like one of its pages. target="_top" makes clicks navigate the WHOLE
  * tab (escaping the WordPress iframe), never a nested frame.
  */
+// Public feedback tracker — ONE tracker for the site and all tools
+// (adjudicated 2026-08-11; the kit in docs/feedback-repo-kit/ is its source).
+// Standing rulings: GitHub links open a NEW TAB; mailto does not; plain
+// browse links go to /issues, /new only where the user already has a
+// concrete bug (these buttons are exactly that context).
+const FEEDBACK_REPO = 'https://github.com/mtnmanak/mountainmanrockets-feedback';
+const FEEDBACK_EMAIL = 'admin@mountainmanrockets.com';
+const feedbackIssueUrl = (template: string, withVersion: boolean) =>
+  `${FEEDBACK_REPO}/issues/new?template=${template}`
+  + `&tool=${encodeURIComponent('Online OpenRocket')}`
+  + (withVersion ? `&version=${encodeURIComponent(`v${APP_VERSION} beta`)}` : '');
+
 const SITE_MENU: { label: string; url: string }[] = [
   { label: 'Home', url: 'https://www.mountainmanrockets.com/' },
   { label: 'Builds', url: 'https://www.mountainmanrockets.com/index.php/builds/' },
@@ -198,6 +210,7 @@ export function App() {
     try { localStorage.setItem('online-openrocket.workspace.v1', t); } catch { /* ignore */ }
   }, []);
   const [showFileMenu, setShowFileMenu] = useState(false);
+  const [showFeedback, setShowFeedback] = useState(false);
   // Auto aero mode: did the last flight of THIS design cross the Mach-0.9
   // threshold and upgrade to the supersonic model? Sticky until the design/
   // motors/launch (or the mode itself) changes, so the displayed statics
@@ -797,6 +810,36 @@ export function App() {
           <button className="file-btn" onClick={() => setShowGuide(true)} title="User guide — quick start, features, and the physics behind the sim">
             <Icon name="book" /> Guide
           </button>
+          <div className="file-menu-wrap">
+            <button className="file-btn" onClick={() => setShowFeedback((v) => !v)}
+              aria-haspopup="menu" aria-expanded={showFeedback}
+              title="Report a bug or request a feature — filed on the public tracker; email works too, no account needed">
+              <Icon name="bug" /> Feedback
+            </button>
+            {showFeedback && (
+              <>
+                <div className="file-menu-backdrop" onClick={() => setShowFeedback(false)} />
+                <div className="file-menu" role="menu" onClick={() => setShowFeedback(false)}>
+                  <button onClick={() => window.open(feedbackIssueUrl('bug-report.yml', true), '_blank', 'noopener')}>
+                    Report a bug — GitHub
+                  </button>
+                  <button onClick={() => window.open(feedbackIssueUrl('feature-request.yml', false), '_blank', 'noopener')}>
+                    Request a feature — GitHub
+                  </button>
+                  <button onClick={() => window.open(
+                    `${FEEDBACK_REPO}/issues?q=${encodeURIComponent('is:open label:tool:online-openrocket')}`,
+                    '_blank', 'noopener')}>
+                    Browse open issues
+                  </button>
+                  <button onClick={() => {
+                    window.location.href = `mailto:${FEEDBACK_EMAIL}?subject=${encodeURIComponent(`Online OpenRocket v${APP_VERSION} feedback`)}`;
+                  }}>
+                    Email instead — no account needed
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
           {/* One tap, no menus: the field toggle for reading the screen in
               direct sun. Also mirrored in Preferences (Display → Daylight). */}
           <button

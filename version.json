@@ -1,5 +1,5 @@
 {
-  "version": "0.042",
+  "version": "0.043",
   "released": "2026-08-11",
-  "note": "3D-printable parts: select a nose cone, fin, centering ring, or most other components and export a watertight STL sized in mm, ready to slice — hollow noses keep their shoulders, fins keep their tabs. Plus whole-rocket glTF (.glb) with your colors for modern 3D viewers, and the 2D/3D image exports now offer JPG and a resolution picker up to genuine 8K."
+  "note": "New 🐞 Feedback button in the header: report bugs and request features on the public tracker (no GitHub account needed — email works too), browse open issues, and the guide gained a Feedback section. Bug reports arrive with the tool and version prefilled."
 }

@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.042';
+export const APP_VERSION = '0.043';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.043',
+    date: '2026-08-11',
+    title: 'Feedback button — report bugs and request features from inside the app',
+    items: [
+      'NEW: 🐞 Feedback in the header — report a bug or request a feature on the public tracker (github.com/mtnmanak/mountainmanrockets-feedback, one tracker for mountainmanrockets.com and all its tools), browse open issues for this tool, or email instead (no GitHub account needed). Bug reports arrive with the tool and app version prefilled.',
+      'Guide: new "Feedback & Bug Reports" section with the same routes and tips for a useful report (version, browser, and a zipped .ork make fixes far faster).',
+    ],
+  },
   {
     version: '0.042',
     date: '2026-08-11',
