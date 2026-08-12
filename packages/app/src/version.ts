@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.041';
+export const APP_VERSION = '0.042';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.042',
+    date: '2026-08-11',
+    title: '3D-printable component STL, glTF with colors, image picker (JPG + up to 8K)',
+    items: [
+      'NEW: 🖨 STL for printing — select a nose cone, transition, fin, centering ring, bulkhead, tube, coupler, engine block, launch lug, or tube fin and export a WATERTIGHT solid STL (millimetres) built for slicers: hollow noses/transitions include their shoulders and end caps at your wall thickness, fins export one fin with the through-the-wall tab merged in, centering rings get their true bore from the mount tube. Every mesh is manifold-verified by the test suite. (We believe no other rocketry sim offers this.)',
+      'NEW: Export .glb — binary glTF of the whole rocket WITH your component colors as real materials. Opens directly in Windows 3D Viewer, PowerPoint, Blender, Fusion 360, and web viewers.',
+      'NEW: Export .stl — whole-rocket display shell (mm) for reference models.',
+      'The 2D ⬇ PNG and 3D 📷 PNG buttons became ⬇ Image / 📷 Image with a picker: PNG or JPG, at HD (1920), 4K (3840), or 8K (7680) width. The 3D snapshot re-renders the scene at the chosen resolution, so 8K is genuinely 8K — not an upscale.',
+      'Guide: a proper shape-parameter table for nose cones and transitions (what the parameter means per shape, its range, and the default), plus the new export formats.',
+    ],
+  },
   {
     version: '0.041',
     date: '2026-08-11',

@@ -1,5 +1,5 @@
 {
-  "version": "0.041",
+  "version": "0.042",
   "released": "2026-08-11",
-  "note": "Nose cones and transitions now DRAW their true shape in 2D and 3D (ogive/conical/ellipsoid/parabolic/Haack/power, with an editable shape parameter), component data exports to CSV/Excel for sharing measurements, and the 2D/3D views export cert-packet-ready drawings: a print-at-100%-scale SVG and high-res PNGs with the design data (mass, CG, CP, margin) in the header."
+  "note": "3D-printable parts: select a nose cone, fin, centering ring, or most other components and export a watertight STL sized in mm, ready to slice — hollow noses keep their shoulders, fins keep their tabs. Plus whole-rocket glTF (.glb) with your colors for modern 3D viewers, and the 2D/3D image exports now offer JPG and a resolution picker up to genuine 8K."
 }

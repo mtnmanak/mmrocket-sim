@@ -102,8 +102,23 @@ export function schematicSvg(
 </svg>`;
 }
 
-/** Rasterize an SVG string to a PNG blob at the given pixel width. */
-export function svgToPng(svgString: string, widthPx = 3840): Promise<Blob> {
+/** Raster formats for the image exports (issue 2026-08-11b: JPG for casual
+ *  users; both encode from the same white-composited canvas, so JPEG's
+ *  missing alpha never shows). */
+export type ImageFormat = 'png' | 'jpeg';
+export const IMAGE_FORMAT_EXT: Record<ImageFormat, string> = { png: 'png', jpeg: 'jpg' };
+/** Width presets for the resolution picker (RockSim capped far lower). */
+export const IMAGE_WIDTHS = [1920, 3840, 7680] as const;
+const JPEG_QUALITY = 0.92;
+
+const encodeCanvas = (canvas: HTMLCanvasElement, format: ImageFormat): Promise<Blob> =>
+  new Promise((resolve, reject) => {
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('image encode failed'))),
+      `image/${format}`, format === 'jpeg' ? JPEG_QUALITY : undefined);
+  });
+
+/** Rasterize an SVG string at the given pixel width. */
+export function svgToImage(svgString: string, widthPx = 3840, format: ImageFormat = 'png'): Promise<Blob> {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(new Blob([svgString], { type: 'image/svg+xml' }));
     const img = new Image();
@@ -117,7 +132,7 @@ export function svgToPng(svgString: string, widthPx = 3840): Promise<Blob> {
       c.fillRect(0, 0, canvas.width, canvas.height);
       c.drawImage(img, 0, 0, canvas.width, canvas.height);
       URL.revokeObjectURL(url);
-      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('PNG encode failed'))), 'image/png');
+      encodeCanvas(canvas, format).then(resolve, reject);
     };
     img.onerror = () => {
       URL.revokeObjectURL(url);
@@ -131,7 +146,7 @@ export function svgToPng(svgString: string, widthPx = 3840): Promise<Blob> {
  * Compose a 3D-view snapshot with the data header band above it.
  * The WebGL canvas must have preserveDrawingBuffer for toDataURL/drawImage.
  */
-export function snapshotWithHeader(glCanvas: HTMLCanvasElement, d: ExportData): Promise<Blob> {
+export function snapshotWithHeader(glCanvas: HTMLCanvasElement, d: ExportData, format: ImageFormat = 'png'): Promise<Blob> {
   const w = glCanvas.width;
   const fs = Math.max(12, Math.round(w * 0.016));
   const lineH = Math.round(fs * 1.45);
@@ -150,9 +165,7 @@ export function snapshotWithHeader(glCanvas: HTMLCanvasElement, d: ExportData): 
     c.fillText(l, Math.round(fs * 0.8), lineH * (i + 1));
   });
   c.drawImage(glCanvas, 0, headerH);
-  return new Promise((resolve, reject) => {
-    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('PNG encode failed'))), 'image/png');
-  });
+  return encodeCanvas(canvas, format);
 }
 
 /** Shared download-anchor dance for the export buttons. */

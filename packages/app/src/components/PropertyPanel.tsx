@@ -8,6 +8,8 @@ import { findParent } from '../tree/treeModel.js';
 import { anchorStarts, axialLength, offsetForStart, snapStart, startFromPosition } from '../tree/position.js';
 import { tubeFinMaxCount, tubeFinMaxRadius, tubeFinRadius } from '../tree/tubefins.js';
 import { shapeParamDefault, shapeParamMax, shapeUsesParameter } from '../tree/shapeProfile.js';
+import { componentSolid, type SolidContext } from '../tree/solidMesh.js';
+import { solidToStl, STL_MIME } from '../services/stlExport.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { fmtSi, niceStep, siToUi, uiToSi, type Quantity } from '../prefs/units.js';
 import { BULK_MATERIALS, LINE_MATERIALS, SURFACE_MATERIALS, type MaterialDef } from '../data/materials.js';
@@ -102,6 +104,13 @@ function MaterialSelect({ label, list, nameKey, densityKey, densityUnit, node, o
     </div>
   );
 }
+
+/** Component types the 🖨 print-STL button supports (tree/solidMesh.ts). */
+const PRINTABLE = new Set([
+  'nosecone', 'transition', 'bodytube', 'innertube', 'tubecoupler',
+  'centeringring', 'bulkhead', 'engineblock', 'launchlug', 'tubefinset',
+  'trapezoidfinset', 'ellipticalfinset', 'freeformfinset',
+]);
 
 /** Quick palette for the display color (the owner: basic colors one click away). */
 const COLOR_PRESETS = [
@@ -301,6 +310,38 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll, onAutoAli
             URL.revokeObjectURL(a.href);
           }}>
           📐 Fin template (SVG, 1:1)
+        </button>
+      )}
+      {PRINTABLE.has(node.type) && (
+        <button className="file-btn" style={{ marginTop: 6, width: '100%' }}
+          title="Watertight solid STL in millimetres, ready to slice. Hollow noses/transitions include shoulders and end caps at your wall thickness; fin sets export ONE fin as a flat prism with its tab (airfoil/cross-section shaping is left to sanding, cant not baked); rings, bulkheads and couplers take their diameters from the parent tube. Verify fit before a long print."
+          onClick={() => {
+            // Parent-derived diameters: rings/bulkheads/couplers size to the
+            // parent tube's bore; a centering ring's own bore comes from the
+            // mount tube it centers.
+            const ctx: SolidContext = {};
+            if (parent && parent !== 'stage') {
+              const pOuter = typeof parent['outerRadius'] === 'number' ? (parent['outerRadius'] as number) : undefined;
+              const pThick = typeof parent['thickness'] === 'number' ? (parent['thickness'] as number) : 0.001;
+              if (pOuter !== undefined) {
+                ctx.parentInnerRadius = Math.max(0.0005, pOuter - pThick);
+                ctx.bodyRadius = pOuter;
+              }
+              const mount = (parent.children ?? []).find((c) => c.type === 'innertube');
+              if (mount && typeof mount['outerRadius'] === 'number') {
+                ctx.mountOuterRadius = mount['outerRadius'] as number;
+              }
+            }
+            const solid = componentSolid(node, ctx);
+            if (!solid) return;
+            const stl = solidToStl(solid.mesh, node.name ?? solid.label);
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(new Blob([stl as BlobPart], { type: STL_MIME }));
+            a.download = `${(node.name ?? solid.label).replace(/[^\w-]+/g, '_')}-print.stl`;
+            a.click();
+            URL.revokeObjectURL(a.href);
+          }}>
+          🖨 STL for printing (mm)
         </button>
       )}
       {onAutoAlignFins && node.type.endsWith('finset') && parent && parent !== 'stage'

@@ -9,7 +9,11 @@ import {
 } from '../tree/assembly.js';
 import { tubeFinRadius } from '../tree/tubefins.js';
 import { outerProfile } from '../tree/shapeProfile.js';
-import { downloadBlob, snapshotWithHeader, type ExportData } from '../services/schematicExport.js';
+import {
+  downloadBlob, IMAGE_FORMAT_EXT, snapshotWithHeader,
+  type ExportData, type ImageFormat,
+} from '../services/schematicExport.js';
+import { ImageExportMenu } from './ImageExportMenu.js';
 
 /**
  * 3D rocket view (react-three-fiber). Geometry is generated from the
@@ -266,7 +270,30 @@ export function Rocket3D({ tree, info, exportData }: {
   exportData?: Omit<ExportData, 'spanM'>;
 }) {
   const { pieces, totalLen, maxR } = useMemo(() => buildPieces(tree), [tree]);
-  const glCanvas = useRef<HTMLCanvasElement | null>(null);
+  const r3f = useRef<{ gl: THREE.WebGLRenderer; scene: THREE.Scene; camera: THREE.Camera } | null>(null);
+
+  // Hi-res snapshot (issue 2026-08-11b): re-render the SAME scene/camera at
+  // the export width (updateStyle=false keeps the on-screen CSS size), grab
+  // the buffer, then restore — preserveDrawingBuffer makes the read reliable.
+  const snapshot = async (format: ImageFormat, widthPx: number) => {
+    const st = r3f.current;
+    if (!st || !exportData) return;
+    const el = st.gl.domElement;
+    const cssW = el.clientWidth || el.width || 1;
+    const cssH = el.clientHeight || el.height || 1;
+    const pr = st.gl.getPixelRatio();
+    try {
+      st.gl.setPixelRatio(1);
+      st.gl.setSize(widthPx, Math.max(1, Math.round(widthPx * (cssH / cssW))), false);
+      st.gl.render(st.scene, st.camera);
+      const blob = await snapshotWithHeader(el, { ...exportData, spanM: 2 * maxR }, format);
+      downloadBlob(blob, `${exportData.name.replace(/[^\w-]+/g, '_')}-3d.${IMAGE_FORMAT_EXT[format]}`);
+    } finally {
+      st.gl.setPixelRatio(pr);
+      st.gl.setSize(cssW, cssH, false);
+      st.gl.render(st.scene, st.camera);
+    }
+  };
   // Mesh keys are stable across rebuilds, so R3F never unmounts/auto-disposes
   // the swapped-out geometries — release them ourselves or every edit leaks
   // a full set of GPU buffers.
@@ -280,23 +307,17 @@ export function Rocket3D({ tree, info, exportData }: {
   return (
     <div className="rocket3d-wrap" style={{ position: 'relative' }}>
       {exportData && (
-        <button className="file-btn"
-          style={{ position: 'absolute', top: 6, right: 6, zIndex: 2 }}
-          title="Snapshot the current 3D view as a PNG with design data — rotate/zoom first, then click"
-          onClick={async () => {
-            if (!glCanvas.current) return;
-            const data = { ...exportData, spanM: 2 * maxR };
-            downloadBlob(await snapshotWithHeader(glCanvas.current, data),
-              `${data.name.replace(/[^\w-]+/g, '_')}-3d.png`);
-          }}>
-          📷 PNG
-        </button>
+        <div style={{ position: 'absolute', top: 6, right: 6, zIndex: 2 }}>
+          <ImageExportMenu label="📷 Image"
+            title="Snapshot the current 3D view with design data — rotate/zoom first, then pick PNG or JPG and a width (re-rendered at that resolution)"
+            onPick={snapshot} />
+        </div>
       )}
       <Canvas camera={{ position: [center + camDist * 0.5, camDist * 0.45, camDist * 0.8], fov: 40 }}
         // Snapshot export reads the drawing buffer after the frame — without
         // this flag WebGL may have discarded it and toDataURL returns black.
         gl={{ preserveDrawingBuffer: true }}
-        onCreated={(state) => { glCanvas.current = state.gl.domElement; }}>
+        onCreated={(state) => { r3f.current = { gl: state.gl, scene: state.scene, camera: state.camera }; }}>
         <ambientLight intensity={0.7} />
         <directionalLight position={[1, 2, 2]} intensity={1.1} />
         <directionalLight position={[-1, -0.5, -1]} intensity={0.3} />

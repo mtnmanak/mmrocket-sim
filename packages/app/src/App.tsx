@@ -36,6 +36,9 @@ import { delayOptions, fetchMotorSpec } from './services/thrustcurve.js';
 import { exportOrk, importOrk, type OrkExportMotor } from './services/orkFile.js';
 import { exportRkt, importRkt } from './services/rocksimFile.js';
 import { rocketToObj } from './services/objExport.js';
+import { rocketToGlb } from './services/gltfExport.js';
+import { piecesToStl } from './services/stlExport.js';
+import { buildPieces } from './components/Rocket3D.js';
 import { componentCsv, componentTable } from './services/componentTable.js';
 import { tableToXlsx } from './services/xlsx.js';
 import { exportCdx1, importCdx1 } from './services/rasaeroFile.js';
@@ -539,6 +542,23 @@ export function App() {
     }
   };
 
+  const onSaveGlb = async () => {
+    try {
+      download(new Uint8Array(await rocketToGlb(tree, tree.name ?? 'Rocket')), 'glb');
+    } catch (e) {
+      setFileNote(`glTF export failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+
+  const onSaveStl = () => {
+    try {
+      const { pieces } = buildPieces(tree);
+      download(piecesToStl(pieces, tree.name ?? 'Rocket'), 'stl');
+    } catch (e) {
+      setFileNote(`STL export failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+
   const onOpenOrk = async (file: File) => {
     try {
       const buffer = await file.arrayBuffer();
@@ -744,6 +764,14 @@ export function App() {
                   <button onClick={onSaveObj}
                     title="External 3D geometry as a Wavefront OBJ (meters) — print preview / CAD reference">
                     Export .obj — 3D geometry
+                  </button>
+                  <button onClick={onSaveGlb}
+                    title="Modern 3D model with your component colors (glTF binary, meters) — drops straight into Windows 3D Viewer, PowerPoint, Blender, and web viewers">
+                    Export .glb — 3D model with colors
+                  </button>
+                  <button onClick={onSaveStl}
+                    title="Whole-rocket display shell as binary STL (mm). Reference/display model — NOT watertight; for printable parts use the 🖨 button on a selected component">
+                    Export .stl — 3D shell (reference)
                   </button>
                   <button onClick={() => download(componentCsv(buildComponentTable()), 'csv', '-components')}
                     title="Every component and its attributes as one row per component, in your preferred units — dimensions, materials, and the computed mass/CG/position. For sharing measurement data.">
