@@ -1,7 +1,7 @@
 {
   "name": "@online-openrocket/app",
   "version": "0.0.1",
-  "description": "Web UI for Online OpenRocket (design editor, plots, 3D view)",
+  "description": "Web UI for MMRocket Sim (design editor, plots, 3D view)",
   "license": "GPL-3.0-or-later",
   "type": "module",
   "private": true,

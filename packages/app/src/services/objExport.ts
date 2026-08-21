@@ -27,7 +27,7 @@ export function rocketToObj(tree: RocketTree, name: string): string {
   group.updateMatrixWorld(true);
   const obj = new OBJExporter().parse(group);
   return [
-    `# Online OpenRocket — ${name}`,
+    `# MMRocket Sim — ${name}`,
     '# Units: METERS (rocket axis = +X, nose tip at x=0)',
     `# Overall length: ${(totalLen * 1000).toFixed(1)} mm`,
     obj,

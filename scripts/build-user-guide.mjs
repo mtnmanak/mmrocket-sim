@@ -222,7 +222,7 @@ const ascii = (s) => s.replace(/[^\x20-\x7e]/g, (c) => `\\u${c.charCodeAt(0).toS
 const field = (k, v) => `    ${JSON.stringify(k)}: ${ascii(JSON.stringify(v))}`;
 
 const ts = `/**
- * Online OpenRocket user guide content — the in-app rendered version of
+ * MMRocket Sim user guide content — the in-app rendered version of
  * docs/user-guide.md.
  *
  * GENERATED from docs/user-guide.md by scripts/build-user-guide.mjs — do NOT

@@ -104,7 +104,7 @@ export function finTemplateSvg(node: ComponentNode, rocketName: string): string 
 
   const lines: string[] = [];
   lines.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${w.toFixed(1)}mm" height="${h.toFixed(1)}mm" viewBox="0 0 ${w.toFixed(1)} ${h.toFixed(1)}">`);
-  lines.push('<!-- Online OpenRocket fin template — PRINT AT 100% SCALE -->');
+  lines.push('<!-- MMRocket Sim fin template — PRINT AT 100% SCALE -->');
   // Cut layer: hairline outline, no fill (laser-cutter friendly).
   lines.push('<g fill="none" stroke="#000" stroke-width="0.2">');
   lines.push(`<path d="${outlinePath}"/>`);

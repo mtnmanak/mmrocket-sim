@@ -15,8 +15,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.png', 'apple-touch-icon.png'],
       manifest: {
-        name: 'Online OpenRocket',
-        short_name: 'OpenRocket',
+        id: '/',
+        name: 'MMRocket Sim',
+        short_name: 'MMRocket Sim',
         description: 'Design model rockets and simulate flights — the real OpenRocket physics engine in your browser, offline-capable.',
         theme_color: '#101623',
         background_color: '#101623',

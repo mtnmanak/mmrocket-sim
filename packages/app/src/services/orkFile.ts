@@ -1173,7 +1173,7 @@ export function exportOrk({ name, tree, motors, motor, mountId, launch }: OrkTre
   };
 
   emit(0, "<?xml version='1.0' encoding='utf-8'?>");
-  emit(0, '<openrocket version="1.10" creator="Online OpenRocket">');
+  emit(0, '<openrocket version="1.10" creator="MMRocket Sim">');
   emit(1, '<rocket>');
   emit(2, `<name>${escapeXml(name)}</name>`);
   emit(2, `<id>${uuid()}</id>`);

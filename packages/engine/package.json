@@ -1,7 +1,7 @@
 {
   "name": "@online-openrocket/engine",
   "version": "0.0.1",
-  "description": "Flight-simulation engine for Online OpenRocket (6DOF, Extended Barrowman, ISA atmosphere)",
+  "description": "Flight-simulation engine for MMRocket Sim (6DOF, Extended Barrowman, ISA atmosphere)",
   "license": "GPL-3.0-or-later",
   "type": "module",
   "main": "./dist/index.js",

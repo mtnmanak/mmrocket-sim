@@ -920,7 +920,7 @@ export function App() {
               the cluster (not the badge) now carries the auto margin that
               pushes the buttons right whenever they share its line. */}
           <div className="app-header-brand">
-            <h1><Icon name="rocket" size={19} /> Online OpenRocket</h1>
+            <h1><Icon name="rocket" size={19} /> MMRocket Sim</h1>
             <button
               className="version-badge"
               title="What's new in this build"
@@ -1033,13 +1033,13 @@ export function App() {
                       where every future concatenation site would need its own
                       guard. */}
                   <button onClick={() => window.open(
-                    `${mmrNav.feedback?.tracker ?? FEEDBACK_REPO}/issues?q=${encodeURIComponent('is:open label:tool:online-openrocket')}`,
+                    `${mmrNav.feedback?.tracker ?? FEEDBACK_REPO}/issues?q=${encodeURIComponent('is:open label:tool:mmrocket-sim')}`,
                     '_blank', 'noopener')}>
                     Browse open issues
                   </button>
                   <button onClick={() => {
                     const to = mmrNav.feedback?.email ?? FEEDBACK_EMAIL;
-                    window.location.href = `mailto:${to}?subject=${encodeURIComponent(`Online OpenRocket v${APP_VERSION} feedback`)}`;
+                    window.location.href = `mailto:${to}?subject=${encodeURIComponent(`MMRocket Sim v${APP_VERSION} feedback`)}`;
                   }}>
                     Email instead — no account needed
                   </button>
@@ -1070,7 +1070,7 @@ export function App() {
           Mach&nbsp;4.6 against NASA wind-tunnel data.
           {' '}
           <a
-            href="https://github.com/mtnmanak/online_open_rocket"
+            href="https://github.com/mtnmanak/mmrocket-sim"
             target="_blank"
             rel="noreferrer"
             title="This app is free software under the GPL v3 or later — source code for this build"

@@ -1,5 +1,5 @@
 /**
- * Online OpenRocket — simulation engine package.
+ * MMRocket Sim — simulation engine package.
  *
  * ENGINE INVARIANTS (mirroring OpenRocket's info.openrocket.core):
  *  - All internal quantities are pure SI: meters, kilograms, seconds, newtons.

@@ -313,7 +313,7 @@ export function printPackReadme(
   }).join('\n');
 
   return `${partName} — printed in ${n} pieces
-Made by Online OpenRocket. Dimensions are millimetres; the STLs are too.
+Made by MMRocket Sim. Dimensions are millimetres; the STLs are too.
 
 WHAT IS IN HERE
 ${files}

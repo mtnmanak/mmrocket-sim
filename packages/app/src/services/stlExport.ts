@@ -10,7 +10,7 @@
  *   here.
  * - The 80-byte header must NOT begin with the ASCII bytes 'solid' — several
  *   parsers sniff that prefix and mis-read the file as text STL. Our fixed
- *   'Online OpenRocket ...' prefix guarantees it.
+ *   'MMRocket Sim ...' prefix guarantees it.
  * - Facet normals are recomputed from the winding (right-hand rule, unit
  *   length); a degenerate facet gets the zero vector, which the format
  *   permits (readers then derive the normal themselves).
@@ -31,7 +31,7 @@ function writeStl(soup: number[], name: string): Uint8Array {
   const bytes = new Uint8Array(HEADER_BYTES + 4 + TRIANGLE_BYTES * count);
   const dv = new DataView(bytes.buffer);
 
-  const header = `Online OpenRocket ${name} (units: mm)`;
+  const header = `MMRocket Sim ${name} (units: mm)`;
   for (let i = 0; i < HEADER_BYTES && i < header.length; i++) {
     const c = header.charCodeAt(i);
     bytes[i] = c >= 0x20 && c < 0x7f ? c : 0x3f; // printable ASCII, else '?'

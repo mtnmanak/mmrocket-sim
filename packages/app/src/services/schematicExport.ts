@@ -42,7 +42,7 @@ export function dataHeaderLines(d: ExportData): string[] {
       + `margin ${i.stabilityCalibers.toFixed(2)} cal`,
     );
   }
-  lines.push(`Online OpenRocket v${d.appVersion} — ${new Date().toISOString().slice(0, 10)}`);
+  lines.push(`MMRocket Sim v${d.appVersion} — ${new Date().toISOString().slice(0, 10)}`);
   return lines;
 }
 
