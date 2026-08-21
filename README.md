@@ -1,11 +1,14 @@
-# Online OpenRocket
+# MMRocket Sim
+
+Formerly "Online OpenRocket" — renamed 2026-08 (same app; the name now makes clear this
+is an independent derivative of OpenRocket, not the OpenRocket project's own).
 
 A browser-based re-creation of [OpenRocket](https://openrocket.info/) — model-rocketry
 design and flight simulation with the real OpenRocket 24.12 physics kernel compiled to
 JavaScript and verified bit-for-bit against the desktop application. Design, simulate,
 fly: nothing to install, works offline as a PWA.
 
-**Live app:** https://openrocket.mountainmanrockets.com
+**Live app:** https://mmrsim.mountainmanrockets.com
 
 Part of [mountainmanrockets.com](https://www.mountainmanrockets.com)'s online tools.
 
@@ -18,9 +21,9 @@ tool — go to one central public tracker,
 - **[Report a bug](https://github.com/mtnmanak/mountainmanrockets-feedback/issues/new?template=bug-report.yml)**
 - **[Request a feature](https://github.com/mtnmanak/mountainmanrockets-feedback/issues/new?template=feature-request.yml)**
   — content requests count too ("write up how to assemble an Aerotech RMS motor")
-- **[Browse this tool's open issues](https://github.com/mtnmanak/mountainmanrockets-feedback/issues?q=is%3Aopen+label%3Atool%3Aonline-openrocket)**
+- **[Browse this tool's open issues](https://github.com/mtnmanak/mountainmanrockets-feedback/issues?q=is%3Aopen+label%3Atool%3Ammrocket-sim)**
 
-Both forms ask which tool the report is about — pick **Online OpenRocket**. That
+Both forms ask which tool the report is about — pick **MMRocket Sim**. That
 dropdown is what routes the issue, and GitHub can't preselect it from a link, so the
 🐞 Feedback button in the app opens the same bug form with only the app version
 filled in for you.
