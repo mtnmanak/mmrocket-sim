@@ -38,7 +38,8 @@ tracker above, so nothing gets filed in two places.
 
 GPL-3.0-or-later, inherited from OpenRocket. The engine's physics kernel is carved from
 the OpenRocket 24.12 source (`info.openrocket.core`) and compiled to JavaScript with
-TeaVM; targeted modifications are documented in `engine-java/patches/LEDGER.md`.
+TeaVM; targeted modifications are documented in `engine-java/patches/LEDGER.md`. The
+full GPLv3 text is in this repository's [`LICENSE`](LICENSE) file.
 
 ## Repository layout
 
