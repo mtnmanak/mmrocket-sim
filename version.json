@@ -1,5 +1,5 @@
 {
-  "version": "0.051",
+  "version": "0.052",
   "released": "2026-08-21",
-  "note": "The floating stats readout on the design canvas is now genuinely floating: drag it anywhere, fold it to a one-line stability pill, and it remembers where you put it — no more fixed panel over a zoomed-in rocket."
+  "note": "The Design canvas's drawing surface now spans the full canvas — a zoomed-in rocket no longer clips at an invisible edge partway down the view."
 }

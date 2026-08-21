@@ -111,6 +111,21 @@ describe('calloutLayout', () => {
   });
 });
 
+describe('TreeSchematic — fillHeight (the hero canvas)', () => {
+  it('spans the container height instead of the adaptive content height', () => {
+    // Adaptive: the default rocket's content height is well under the
+    // measured-height fallback (480), so the two modes must disagree.
+    mount(infoOf(1.52));
+    const adaptive = Number(host.querySelector('svg')!.getAttribute('viewBox')!.split(' ')[3]);
+    act(() => root.unmount());
+    root = createRoot(host);
+    mount(infoOf(1.52), { fillHeight: true });
+    const filled = Number(host.querySelector('svg')!.getAttribute('viewBox')!.split(' ')[3]);
+    expect(filled).toBe(480); // happy-dom measures 0 → the state's fallback
+    expect(adaptive).toBeLessThan(filled);
+  });
+});
+
 describe('TreeSchematic — CG/CP callouts', () => {
   it('stable rocket: dashed leaders, dots, labels and a green margin text', () => {
     mount(infoOf(1.52));

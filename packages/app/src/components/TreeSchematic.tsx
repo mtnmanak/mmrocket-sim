@@ -123,7 +123,7 @@ interface DragState {
   clientScale: number;
 }
 
-export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480, selectedId, onSelect, exportData, vertical }: {
+export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480, selectedId, onSelect, exportData, vertical, fillHeight }: {
   tree: RocketTree;
   info: StaticInfo | null;
   /** Loaded motor case dimensions (m) keyed by mount node id — drawn to
@@ -141,6 +141,12 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
    *  one group to fit the container's HEIGHT. Read-mostly — drag, pan, zoom
    *  and the export/zoom controls are off; hover and click-select stay. */
   vertical?: boolean;
+  /** Hero canvas (batch 08-21e): the drawing surface spans the container's
+   *  FULL height instead of the adaptive content height — otherwise the svg's
+   *  invisible clip edges sit mid-canvas and a zoomed rocket "slides under"
+   *  what reads as a black box. Ignored in vertical mode (which fills by its
+   *  own rule); overrides maxHeight. */
+  fillHeight?: boolean;
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -228,7 +234,9 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   // otherwise a height-limited short/fat rocket would fill it and clip them.
   const lanes = info ? CALLOUT_LANES : 0;
   const crossCap = vertical ? Math.max(160, cw) : maxHeight;
-  const h = Math.round(Math.min(crossCap, Math.max(200, 2 * vHalf * ((w - 2 * pad) / totalLen) + 2 * pad + lanes)));
+  const h = vertical || !fillHeight
+    ? Math.round(Math.min(crossCap, Math.max(200, 2 * vHalf * ((w - 2 * pad) / totalLen) + 2 * pad + lanes)))
+    : Math.max(200, chPx);
   const scale = Math.min((w - 2 * pad) / totalLen, (h - 2 * pad - lanes) / (2 * vHalf));
   const ctx: Ctx = { scale, cy: h / 2, x0: pad };
 
@@ -794,7 +802,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   }
 
   return (
-    <div ref={wrapRef} style={{ position: 'relative', ...(vertical ? { height: '100%' } : null) }}>
+    <div ref={wrapRef} style={{ position: 'relative', ...(vertical || fillHeight ? { height: '100%' } : null) }}>
       <svg ref={svgRef} viewBox={vertical ? `0 0 ${h} ${w}` : `0 0 ${w} ${h}`}
           style={vertical
             ? { height: '100%', maxWidth: '100%', display: 'block', margin: '0 auto' }

@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.051';
+export const APP_VERSION = '0.052';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.052',
+    date: '2026-08-21',
+    title: 'The whole canvas is drawing surface now',
+    items: [
+      'FIXED: the drawing surface on the Design canvas was shorter than the canvas and sat centered in it, so a zoomed-in rocket clipped at an invisible edge partway down — reading as the rocket "sliding under" a black panel at the top. The drawing now spans the full canvas: zoom in and the rocket reaches every edge.',
+    ],
+  },
   {
     version: '0.051',
     date: '2026-08-21',

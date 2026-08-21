@@ -1721,6 +1721,7 @@ export function App() {
                       onSelect={(id) => setSelectedId(id)}
                       exportData={viewExportData}
                       vertical={vert2d}
+                      fillHeight
                     />
                   )
                   : view === '3d'
