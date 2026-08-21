@@ -110,6 +110,15 @@
   line-height: 1.15;
 }
 
+/* The unload control inside the Motor vitals cell: a real labeled button
+   (batch 08-21c), sized down so the strip's height doesn't grow. */
+.vitals-unload {
+  margin-left: 8px;
+  font-size: 11px;
+  padding: 2px 8px;
+  vertical-align: middle;
+}
+
 .vitals-item-name .vitals-value {
   max-width: 220px;
   overflow: hidden;
@@ -481,10 +490,21 @@
 
    The negative margin / positive padding pair below is a FOCUS-RING GUTTER,
    not spacing. A scroll container clips its content at the PADDING edge, and
-   Chrome's 3px keyboard focus ring on these links was being shaved off top and
-   bottom; 4px of padding buys the ring room and the matching -4px margin gives
-   the height back, so the strip measures exactly as it did before. Delete
-   either half and the ring is clipped again or the band grows 8px. */
+   Chrome's 3px keyboard focus ring on these links was being shaved off; 4px
+   of padding buys the ring room on ALL FOUR sides (ref 1.3.0 — vertical-only
+   still clipped the first link's left edge and the last link's right edge)
+   and the matching -4px margin gives the size back, so the strip measures
+   exactly as it did before. Delete either half and the ring is clipped again
+   or the band grows 8px each way.
+
+   The four stacked backgrounds are ref 1.3.0's overflow affordance: at
+   768–924px the eight labels overflow a hidden-scrollbar container with no
+   hint anything is cut off. The two `local` covers ride the content and park
+   over the two `scroll` shadows whenever that edge has nothing more to show,
+   so the edge fade paints ONLY while the nav actually overflows in that
+   direction. No extra element, no JS. Fade color = var(--border): every
+   theme (dark, light, daylight's black-on-white) keeps it visible against
+   var(--surface-2), which is also the cover color. */
 .mmr-band-nav {
   display: flex;
   flex-wrap: nowrap;
@@ -495,8 +515,17 @@
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
   -ms-overflow-style: none;
-  margin: -4px 0;
-  padding: 4px 0;
+  margin: -4px;
+  padding: 4px;
+  background-image:
+    linear-gradient(to right, var(--surface-2) 50%, transparent),
+    linear-gradient(to left, var(--surface-2) 50%, transparent),
+    radial-gradient(farthest-side at 0 50%, var(--border), transparent),
+    radial-gradient(farthest-side at 100% 50%, var(--border), transparent);
+  background-position: left center, right center, left center, right center;
+  background-size: 32px 100%, 32px 100%, 12px 100%, 12px 100%;
+  background-repeat: no-repeat;
+  background-attachment: local, local, scroll, scroll;
 }
 
 .mmr-band-nav::-webkit-scrollbar {
@@ -611,8 +640,10 @@
 @media (max-width: 767px) {
   .mmr-band {
     /* Tighter than the 18px above, and the padding drop is most of what buys
-       the ~29px row on a 375px screen. */
-    gap: 0.6em;
+       the ~29px row on a 375px screen. 8px, not .6em (ref 1.3.0): the lone em
+       resolved against each tool's band font-size and gave four gaps from one
+       rule — this blesses the tighter spacing that has measured fine. */
+    gap: 8px;
     padding: 4px 10px;
   }
 
@@ -897,6 +928,351 @@
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 4px;
+}
+
+/* --- S1: rocket as the hero of the Design tab (batch 08-21c) ---
+   The canvas fills the center column's height; the drawing centers in the
+   extra sky; the stat grid lives in the drawer overlay below. Desktop only —
+   phones keep the compact stacked flow (they have the Fly screen). */
+@media (min-width: 981px) {
+  .design-layout main .hero-panel {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .design-layout main .hero-stage {
+    position: relative;
+    /* A FIXED height, not min-height, and the view wrap absolutely
+       positioned below: the drawing must never size its own container, or
+       vertical mode's measure→draw→grow loop runs away (it reached 2900px
+       in testing). 100vh minus band+header+vitals+tabs+panel chrome at
+       default zoom; the 420px floor keeps short windows usable. */
+    height: max(420px, calc(100vh - 335px));
+    overflow: hidden;
+  }
+
+  /* The view box (schematic / 3D / aft) fills the stage without feeding
+     back into its size, and centers the drawing. Our own div — the
+     schematic's wrap carries inline positioning that would win over a rule
+     targeting it directly. */
+  .hero-view {
+    position: absolute;
+    inset: 4px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+
+  .hero-view > div {
+    max-height: 100%;
+  }
+}
+
+.stats-chip {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 170px;
+  padding: 9px 12px;
+  background: rgba(13, 14, 18, 0.85);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  z-index: 2;
+}
+
+.stats-chip-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+
+.stats-chip-label {
+  font-family: var(--font-display);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #8d8b82;
+}
+
+.stats-chip-value {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #f0efec;
+  white-space: nowrap;
+}
+
+/* The stability row keeps the tiered colors — dark-theme values, because the
+   chip is a fixed dark card on the canvas in BOTH themes. */
+.stats-chip-value.stability-good { color: #4dbd4d; }
+.stats-chip-value.stability-warn { color: #e0a53d; }
+.stats-chip-value.stability-bad { color: #f0716f; }
+
+.stats-drawer-chip {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  z-index: 2;
+}
+
+.stats-drawer {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  padding: 10px 12px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 3;
+  max-height: 75%;
+  overflow-y: auto;
+}
+
+.stats-drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+/* Compact tiles inside the drawer — it overlays the canvas, so it wants the
+   footprint of an instrument strip, not the old full-page grid (and it opts
+   out of the big-monitor 260px tile cap, which collapsed it to two columns). */
+.stats-drawer .stat-row {
+  grid-template-columns: repeat(auto-fill, minmax(126px, 1fr));
+}
+
+.stats-drawer .stat-tile {
+  padding: 7px 10px;
+}
+
+.stats-drawer .stat-tile .stat-value {
+  font-size: 19px;
+}
+
+.hero-mounts {
+  position: absolute;
+  bottom: 12px;
+  right: 12px;
+  margin: 0;
+  padding: 4px 10px;
+  background: rgba(13, 14, 18, 0.85);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: #b8b6ae;
+  z-index: 2;
+}
+
+/* Phones: the small canvas can't spare the sky — the chip and mount pill
+   would sit on the rocket itself. The drawer still works. */
+@media (max-width: 700px) {
+  .stats-chip,
+  .hero-mounts {
+    display: none;
+  }
+}
+
+/* --- S4: the Fly screen (batch 08-21c) ---
+   Launch-centered phone home. The layout is phone-first but renders fine on
+   a desktop that selects it; only the TAB VISIBILITY is phone-gated below. */
+.fly-screen {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.fly-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.fly-name {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.fly-stability {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.fly-main {
+  display: flex;
+  gap: 10px;
+  align-items: stretch;
+}
+
+/* Same no-feedback rule as the hero stage: the view box is absolute so the
+   drawing can never grow the row it measures itself against — the row's
+   height comes from the stats/conditions column alone. */
+.fly-rocket {
+  flex: 0 0 152px;
+  position: relative;
+  overflow: hidden;
+}
+
+.fly-view {
+  position: absolute;
+  inset: 4px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.fly-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fly-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.fly-stat {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.fly-stat .stat-value {
+  font-size: 20px;
+}
+
+/* Motor swap + compare rows: real 44px touch targets. */
+.fly-motor,
+.fly-compare {
+  font: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 44px;
+  padding: 8px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+}
+
+.fly-motor-name {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.fly-go {
+  color: var(--accent);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.fly-compare {
+  background: none;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.fly-conditions {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+
+.fly-launch {
+  font-size: 19px;
+  padding: 13px;
+  margin-top: 2px;
+}
+
+/* Desktop: Fly is a phone concept — hide its tab, keep everything else. */
+@media (min-width: 768px) {
+  .workspace-tabs .tab-fly {
+    display: none;
+  }
+}
+
+/* Phone: the workspace tabs become a bottom bar (icon over label), and the
+   workspace gets breathing room above it so nothing hides underneath. */
+@media (max-width: 767px) {
+  /* Field mode wastes no pixels (the approved S4 mockup's slim header): on
+     the Fly screen the header collapses to wordmark + version — every button
+     it hides is one tap away on the other tabs. */
+  .viz-root[data-tab='fly'] .app-header-row > :not(.app-header-brand),
+  .viz-root[data-tab='fly'] .app-tagline {
+    display: none;
+  }
+
+  .workspace {
+    padding-bottom: 76px;
+  }
+
+  .workspace-tabs {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 50;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0;
+    margin: 0;
+    padding: 0 0 max(4px, env(safe-area-inset-bottom));
+    background: var(--surface-2);
+    border-top: 1px solid var(--border);
+    border-bottom: none;
+  }
+
+  .workspace-tabs button {
+    flex-direction: column;
+    justify-content: center;
+    gap: 2px;
+    margin: 0;
+    padding: 8px 2px 6px;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    border-bottom: none;
+    border-top: 2px solid transparent;
+    border-radius: 0;
+  }
+
+  .workspace-tabs button.active {
+    border-top-color: var(--accent);
+  }
+
+  .fly-rocket {
+    flex-basis: 138px;
+  }
 }
 
 .viz-root[data-theme='dark'] .rocket-stage {
@@ -1409,11 +1785,24 @@
 
 /* --- First-run tour (S3) --- */
 /* Above the modal layer (100): the tour can point at things while a banner
-   or note is up, and nothing in the app stacks higher. */
+   or note is up, and nothing in the app stacks higher. Batch 08-21c: the tour
+   must visibly take the stage — the ring's oversized shadow is the spotlight
+   scrim (dims everything but the anchor), and the card sits on the NOTE
+   surface, the one background no app panel uses, so it can't be mistaken for
+   part of the UI it is pointing at. */
 .tour-ring {
   position: fixed;
   border: 2px solid var(--accent);
   border-radius: 8px;
+  pointer-events: none;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45);
+  z-index: 119;
+}
+
+.tour-scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
   pointer-events: none;
   z-index: 119;
 }
@@ -1421,10 +1810,10 @@
 .tour-card {
   position: fixed;
   width: 300px;
-  background: var(--surface-1);
-  border: 1px solid var(--border);
+  background: var(--note-bg);
+  border: 1.5px solid var(--accent);
   border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
   padding: 12px 14px;
   z-index: 120;
 }

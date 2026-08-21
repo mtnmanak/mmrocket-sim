@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.048';
+export const APP_VERSION = '0.049';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,21 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.049',
+    date: '2026-08-21',
+    title: 'The rocket takes the whole screen, phones get a launch-day home, and .ork configurations import right',
+    items: [
+      'NEW: on a desktop the Design canvas is now the hero — it fills the center column, the five numbers you check constantly (length, loaded mass, CG, CP, stability) float in a chip on the canvas sky, and the full stat-tile grid is one click away behind "▤ All stats" (closed by default). The motor-mount sizes ride the canvas too.',
+      'NEW: on a phone the app now opens on FLY — a launch-day home screen: your rocket beside the four numbers that matter at the pad (apogee, optimum delay, descent rate, max velocity), the stability verdict, a motor-swap row, the three launch conditions that change at the field (rod length, rod angle, wind), a full-width Launch button, and a shortcut into batch compare. The workspace tabs dock to the bottom of the screen, thumb-height. Desktop keeps its three tabs — Fly is a phone thing.',
+      'NEW: the 3D view got the same treatment as the drawing — a floating CG/CP callout beside the rocket (true stations, color-coded margin between them, readable from any angle), soft studio lighting, and a slightly translucent shell so the internals — including the loaded motor, now rendered in its mount — read through the wall.',
+      'NEW: the 2D drawing labels the loaded motor right in its mount (tinted, with the designation), and hovering any component highlights it and names it in a small tag.',
+      'NEW: multi-configuration .ork files now import honestly — every flight configuration is read with the desktop\'s own default-and-override rules (motor, ignition, deployment, stage separation), the file\'s default configuration is what opens (not whichever motor came first in the file, which could silently pair a motor with another configuration\'s ignition settings), and a file with several configurations asks which one you want. Dual-deploy altitude overrides finally survive the trip.',
+      'IMPROVED: the first-run tour now takes the stage — the page dims to a spotlight on each step\'s target and the card sits on a distinct note-yellow surface, so it cannot be mistaken for part of the app. The replay button moved out of the Guide into the header ("⟲ Tour").',
+      'IMPROVED: unloading motors is a real labeled button now ("⏏ Unload", in the vitals strip next to the motor name) instead of a bare glyph nobody found.',
+      'Housekeeping: the Mountain Man Rockets menu band adopted the site\'s latest refinements — the keyboard focus ring is no longer clipped at the row\'s ends, and when the menu overflows at mid widths an edge fade now shows there\'s more to scroll to.',
+    ],
+  },
   {
     version: '0.048',
     date: '2026-08-21',

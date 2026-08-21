@@ -15,6 +15,7 @@ import { Icon } from './components/Icon.js';
 import { ChangelogDialog } from './components/ChangelogDialog.js';
 import { GuideDialog } from './components/GuideDialog.js';
 import { FirstRunTour, shouldAutoStartTour } from './components/FirstRunTour.js';
+import { FlyScreen } from './components/FlyScreen.js';
 import { ComponentTree } from './components/ComponentTree.js';
 import { FlightCharts } from './components/FlightCharts.js';
 import { DragPanel } from './components/DragPanel.js';
@@ -24,7 +25,7 @@ import { builtInMeta, MotorPicker } from './components/MotorPicker.js';
 import { NumField } from './components/NumField.js';
 import { PropertyPanel } from './components/PropertyPanel.js';
 import { SimHistory, SimRunDetails } from './components/SimResults.js';
-import { DesignStats, FlightStats, stabilityGlyphClass } from './components/StatTiles.js';
+import { DesignStats, FlightStats, StatsChip, stabilityGlyphClass } from './components/StatTiles.js';
 import { Rocket3D } from './components/Rocket3D.js';
 import { TreeSchematic } from './components/TreeSchematic.js';
 import { AftView } from './components/AftView.js';
@@ -37,7 +38,7 @@ import { UnitChip } from './components/UnitChip.js';
 import { fmtSi, niceStep, siToUi, uiToSi } from './prefs/units.js';
 import { classLabel, diameterClass, displayDesignation, findDbMotor, isHighPower } from './services/motorDb.js';
 import { delayOptions, fetchMotorSpec } from './services/thrustcurve.js';
-import { exportOrk, importOrk, type OrkExportMotor, type OrkTreeImportResult } from './services/orkFile.js';
+import { exportOrk, importOrk, type OrkExportMotor, type OrkImportResult, type OrkTreeImportResult } from './services/orkFile.js';
 import { decodeShareFragment, encodeShareFragment, hasSharePayload, MAX_FRAGMENT_CHARS } from './services/shareLink.js';
 import { exportRkt, importRkt } from './services/rocksimFile.js';
 import { rocketToObj } from './services/objExport.js';
@@ -272,9 +273,19 @@ export function App() {
     return () => { clearTimeout(fade); clearTimeout(clear); };
   }, [sessionNote]);
   const [view, setView] = useState<'2d' | '3d' | 'aft'>('2d');
+  /** S1 stats drawer over the hero canvas — the owner's call: default closed. */
+  const [statsDrawer, setStatsDrawer] = useState(false);
+  /** S1's 90° toggle: draw the 2D view nose-up (viewing mode — drag/zoom off). */
+  const [vert2d, setVert2d] = useState(false);
   const [confirmNew, setConfirmNew] = useState(false);
   /** A decoded share-link design waiting for the user's OK to replace theirs. */
   const [shareOffer, setShareOffer] = useState<ImportedDesign | null>(null);
+  /** A multi-config .ork waiting for the user to pick which configuration. */
+  const [configOffer, setConfigOffer] = useState<{
+    buffer: ArrayBuffer;
+    imported: OrkImportResult;
+    fileName: string;
+  } | null>(null);
   const [showBatch, setShowBatch] = useState(false);
   const [showChangelog, setShowChangelog] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
@@ -295,20 +306,25 @@ export function App() {
   }, []);
   const closeTour = useCallback(() => {
     setTourOpen(false);
-    setTab('design'); // the tour walks through tabs; land back on Design
+    // The tour walks through tabs — land back on the device's home screen
+    // (phones open on Fly, everything else on Design).
+    setTab(typeof matchMedia !== 'undefined' && matchMedia('(max-width: 767px)').matches
+      ? 'fly' : 'design');
     // eslint-disable-next-line react-hooks/exhaustive-deps -- setTab is stable
   }, []);
-  // Workspace tab (Design / Motors & Launch / Results) — persisted so a
-  // reload lands the user back where they were working.
-  const [tab, setTabRaw] = useState<'design' | 'motors' | 'results'>(() => {
+  // Workspace tab (Fly / Design / Motors & Launch / Results) — persisted so a
+  // reload lands the user back where they were working. Fly (S4, batch
+  // 08-21c) is the phone home: launch-centered, first and default below the
+  // phone breakpoint; its tab button is CSS-hidden on desktop.
+  const [tab, setTabRaw] = useState<'fly' | 'design' | 'motors' | 'results'>(() => {
     try {
       const t = localStorage.getItem('online-openrocket.workspace.v1');
-      return t === 'motors' || t === 'results' ? t : 'design';
-    } catch {
-      return 'design';
-    }
+      if (t === 'fly' || t === 'motors' || t === 'results' || t === 'design') return t;
+    } catch { /* fall through */ }
+    return typeof matchMedia !== 'undefined' && matchMedia('(max-width: 767px)').matches
+      ? 'fly' : 'design';
   });
-  const setTab = useCallback((t: 'design' | 'motors' | 'results') => {
+  const setTab = useCallback((t: 'fly' | 'design' | 'motors' | 'results') => {
     setTabRaw(t);
     try { localStorage.setItem('online-openrocket.workspace.v1', t); } catch { /* ignore */ }
   }, []);
@@ -778,21 +794,37 @@ export function App() {
     setShroudPrompt(shrouds.length ? shrouds : null);
   };
 
+  // Desktop OpenRocket's default rocket name is literally "Rocket" (users
+  // name the file instead) — fall back to the filename in that case. A
+  // helper because the config picker re-parses (fresh node ids), and the
+  // fallback must re-run on whichever parse is actually applied.
+  const applyNameFallback = (imported: ImportedDesign, fileName: string) => {
+    if (!imported.tree.name
+        || GENERIC_ROCKET_NAMES.has(imported.tree.name.trim().toLowerCase())) {
+      const fromFile = fileName.replace(/\.(ork|rkt|cdx1)$/i, '').replace(/_+/g, ' ').trim();
+      if (fromFile) {
+        imported.tree.name = fromFile;
+        imported.name = fromFile;
+      }
+    }
+  };
+
   const onOpenOrk = async (file: File) => {
     try {
       const buffer = await file.arrayBuffer();
-      const imported = /\.rkt$/i.test(file.name) ? importRkt(buffer)
-        : /\.cdx1$/i.test(file.name) ? importCdx1(buffer)
-        : importOrk(buffer);
-      // Desktop OpenRocket's default rocket name is literally "Rocket" (users
-      // name the file instead) — fall back to the filename in that case.
-      if (!imported.tree.name
-          || GENERIC_ROCKET_NAMES.has(imported.tree.name.trim().toLowerCase())) {
-        const fromFile = file.name.replace(/\.(ork|rkt|cdx1)$/i, '').replace(/_+/g, ' ').trim();
-        if (fromFile) {
-          imported.tree.name = fromFile;
-          imported.name = fromFile;
-        }
+      if (/\.(rkt|cdx1)$/i.test(file.name)) {
+        const imported = /\.rkt$/i.test(file.name) ? importRkt(buffer) : importCdx1(buffer);
+        applyNameFallback(imported, file.name);
+        await applyImported(imported);
+        return;
+      }
+      const imported = importOrk(buffer);
+      applyNameFallback(imported, file.name);
+      // Multi-config .ork (Stage A, batch 08-21c): ask which configuration
+      // before applying anything. Only the .ork format carries configs.
+      if (imported.configs.length > 1) {
+        setConfigOffer({ buffer, imported, fileName: file.name });
+        return;
       }
       await applyImported(imported);
     } catch (e) {
@@ -867,7 +899,7 @@ export function App() {
   // to scale inside its mount tube (the owner's request: real case length).
   const motorDims = useMemo(
     () => Object.fromEntries(assigned.map(([id, mm]) => [
-      id, { length: mm.spec.length, diameter: mm.spec.diameter },
+      id, { length: mm.spec.length, diameter: mm.spec.diameter, label: mm.label },
     ])),
     [assigned],
   );
@@ -933,7 +965,8 @@ export function App() {
   }, [pendingRelaunch, built, primaryMountId]);
 
   return (
-    <div className="viz-root" data-theme={resolvedTheme} data-contrast={daylight ? 'high' : undefined}>
+    <div className="viz-root" data-theme={resolvedTheme} data-contrast={daylight ? 'high' : undefined}
+      data-tab={tab}>
       <SiteBand nav={mmrNav} source={mmrNavSource} />
       <header className="app-header">
         <div className="app-header-row">
@@ -1021,6 +1054,11 @@ export function App() {
           <button className="file-btn" data-tour="guide" onClick={() => setShowGuide(true)} title="User guide — quick start, features, and the physics behind the sim">
             <Icon name="book" /> Guide
           </button>
+          {/* Replay lives in the header, not inside the Guide (batch 08-21c). */}
+          <button className="file-btn" onClick={() => setTourOpen(true)}
+            title="Replay the six-step interface tour">
+            ⟲ Tour
+          </button>
           <div className="file-menu-wrap">
             <button className="file-btn" onClick={() => setShowFeedback((v) => !v)}
               aria-haspopup="menu" aria-expanded={showFeedback}
@@ -1086,7 +1124,7 @@ export function App() {
         </div>
         {/* the owner's chosen identity line (2026-08-05b #9) — the per-model detail
             lives in Preferences and the launch report's "Aero model" row. */}
-        <p>
+        <p className="app-tagline">
           Design, simulate, fly — OpenRocket-derived physics, validated to
           Mach&nbsp;4.6 against NASA wind-tunnel data.
           {' '}
@@ -1110,12 +1148,7 @@ export function App() {
         )}
       </header>
       {showPrefs && <PreferencesDialog onClose={() => setShowPrefs(false)} />}
-      {showGuide && (
-        <GuideDialog
-          onClose={() => setShowGuide(false)}
-          onReplayTour={() => { setShowGuide(false); setTourOpen(true); }}
-        />
-      )}
+      {showGuide && <GuideDialog onClose={() => setShowGuide(false)} />}
       {tourOpen && <FirstRunTour onSetTab={setTab} onClose={closeTour} />}
       {showChangelog && <ChangelogDialog onClose={() => setShowChangelog(false)} />}
       {showBatch && built && primaryMountId && !isStaged && (
@@ -1178,6 +1211,39 @@ export function App() {
                 Discard &amp; start new
               </button>
               <button className="file-btn" onClick={() => setConfirmNew(false)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {configOffer && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Choose a flight configuration">
+          <div className="modal-card">
+            <h2>Which flight configuration?</h2>
+            <p>
+              “{configOffer.imported.name}” carries {configOffer.imported.configs.length} flight
+              configurations. Pick the one to open — motors, ignition, deployment and
+              separation settings follow it. (Reopen the file any time to pick another.)
+            </p>
+            <div className="modal-actions" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
+              {configOffer.imported.configs.map((c) => (
+                <button key={c.id} className="file-btn"
+                  onClick={() => {
+                    const offer = configOffer;
+                    setConfigOffer(null);
+                    // Re-parse for a non-default pick: node ids are minted per
+                    // parse, so a result is always applied whole, never mixed.
+                    const chosen = c.id === offer.imported.chosenConfigId
+                      ? offer.imported
+                      : importOrk(offer.buffer, { configId: c.id });
+                    applyNameFallback(chosen, offer.fileName);
+                    void applyImported(chosen);
+                  }}>
+                  {c.name ?? c.id}{c.isDefault ? ' — the file’s default' : ''}
+                </button>
+              ))}
+              <button className="file-btn" onClick={() => setConfigOffer(null)}>
+                Cancel — open nothing
+              </button>
             </div>
           </div>
         </div>
@@ -1247,7 +1313,9 @@ export function App() {
       <div className="workspace">
         {/* Always-visible vitals, styled as an instrument readout: the
             tweak-and-refly loop never needs a tab switch to check stability/
-            mass or start a flight. */}
+            mass or start a flight. The Fly screen is the one exception — it
+            IS these numbers, phone-sized, so the strip would be a duplicate. */}
+        {tab !== 'fly' && (
         <div className="vitals-strip">
           <span className="vitals-item vitals-item-name" title="Rocket name — edit it in the Design workspace">
             <span className="vitals-label">Rocket</span>
@@ -1287,10 +1355,12 @@ export function App() {
               {assigned.length > 1 ? ` +${assigned.length - 1}` : ''}
               {assigned.length > 0 && (
                 // One click from ANY tab: strip every loaded motor so the
-                // rocket can be viewed/weighed clean (2026-08-05 chat).
-                <button className="fin-row-del" style={{ marginLeft: 6 }}
+                // rocket can be viewed/weighed clean (2026-08-05 chat). A
+                // labeled button — the bare ⏏ glyph was undiscoverable
+                // (batch 08-21c).
+                <button className="file-btn vitals-unload"
                   title="Unload all motors — view and weigh the rocket clean (empty mass, no motor silhouettes). Reload any time from Motors & Launch."
-                  onClick={() => setMountMotors({})}>⏏</button>
+                  onClick={() => setMountMotors({})}>⏏ Unload</button>
               )}
             </span>
           </span>
@@ -1321,8 +1391,13 @@ export function App() {
             {simulating ? 'Simulating…' : <><Icon name="rocket" size={15} /> Launch</>}
           </button>
         </div>
+        )}
 
         <div className="workspace-tabs" role="tablist" aria-label="Workspace">
+          <button role="tab" aria-selected={tab === 'fly'}
+            className={`tab-fly${tab === 'fly' ? ' active' : ''}`} onClick={() => setTab('fly')}>
+            <Icon name="flame" size={13} /> Fly
+          </button>
           <button role="tab" aria-selected={tab === 'design'}
             className={tab === 'design' ? 'active' : ''} onClick={() => setTab('design')}>
             <Icon name="wrench" size={13} /> Design
@@ -1348,6 +1423,25 @@ export function App() {
         )}
         {buildError && (
           <p className="stability-bad" style={{ margin: '0 0 12px', fontSize: 13 }}>{buildError}</p>
+        )}
+
+        {tab === 'fly' && (
+          <FlyScreen
+            tree={tree}
+            info={built?.info ?? null}
+            run={lastRun}
+            motorLabel={primaryLabel
+              ? `${primaryLabel}${assigned.length > 1 ? ` +${assigned.length - 1}` : ''}`
+              : null}
+            launch={launch}
+            onLaunchChange={setLaunch}
+            onLaunch={onLaunch}
+            simulating={simulating}
+            canLaunch={!!built && !!primaryMountId}
+            onChangeMotor={() => setTab('motors')}
+            onCompare={() => setShowBatch(true)}
+            canCompare={!!built && !!primaryMountId && !isStaged}
+          />
         )}
 
         {tab === 'design' && (
@@ -1440,9 +1534,17 @@ export function App() {
         </aside>
 
         <main>
-          <div className="panel">
+          {/* S1 (batch 08-21c): the canvas IS the center column now — it
+              flexes to the viewport, the stat grid lives in a drawer overlay,
+              and the five constants float in a chip on the canvas sky. */}
+          <div className="panel hero-panel">
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
               <h2 style={{ flex: 1 }}>Rocket</h2>
+              {view === '2d' && (
+                <button className={`file-btn${vert2d ? ' hc-on' : ''}`} aria-pressed={vert2d}
+                  title="Rotate the drawing 90° — nose up, the way it sits on the pad (viewing mode: drag and zoom pause while rotated)"
+                  onClick={() => setVert2d((v) => !v)}>⟳ 90°</button>
+              )}
               <div className="view-toggle" role="tablist">
                 <button className={view === '2d' ? 'active' : ''} role="tab"
                   aria-selected={view === '2d'} onClick={() => setView('2d')}>2D</button>
@@ -1453,43 +1555,62 @@ export function App() {
                   aria-selected={view === 'aft'} onClick={() => setView('aft')}>Aft</button>
               </div>
             </div>
-            <div className="rocket-stage" data-tour="canvas">
-              {view === '2d'
-                ? (
-                  <TreeSchematic
-                    tree={tree}
-                    info={built?.info ?? null}
-                    motors={motorDims}
-                    onPatchNode={(id, patch) => setTree(updateNode(tree, id, patch))}
-                    selectedId={selectedId}
-                    onSelect={(id) => setSelectedId(id)}
-                    exportData={viewExportData}
-                  />
-                )
-                : view === '3d'
-                ? <Rocket3D tree={tree} info={built?.info ?? null} exportData={viewExportData} />
-                : <AftView tree={tree} motors={motorDims} />}
-            </div>
-            {mountSizes.length > 0 && (
-              <div className="mount-sizes" title="Motor mount inner diameter — the nominal motor size each mount accepts">
-                <span className="mount-sizes-label">
-                  Motor mount{mountSizes.length > 1 ? 's' : ''}:
-                </span>
-                {mountSizes.map((s) => (
-                  <span key={s.id} className="mount-size-chip">
-                    {isStaged ? `${s.stage} · ` : ''}⌀&nbsp;{s.size}&nbsp;mm{s.count > 1 ? ` ×${s.count}` : ''}
-                  </span>
-                ))}
+            <div className="rocket-stage hero-stage" data-tour="canvas">
+              {/* .hero-view owns fill-and-center: the drawing must never size
+                  its own container (see the styles.css note on the feedback
+                  loop), and the schematic wrap carries inline positioning of
+                  its own, so the absolute box has to be ours. */}
+              <div className="hero-view">
+                {view === '2d'
+                  ? (
+                    <TreeSchematic
+                      tree={tree}
+                      info={built?.info ?? null}
+                      motors={motorDims}
+                      onPatchNode={(id, patch) => setTree(updateNode(tree, id, patch))}
+                      selectedId={selectedId}
+                      onSelect={(id) => setSelectedId(id)}
+                      exportData={viewExportData}
+                      vertical={vert2d}
+                    />
+                  )
+                  : view === '3d'
+                  ? <Rocket3D tree={tree} info={built?.info ?? null} motors={motorDims} exportData={viewExportData} />
+                  : <AftView tree={tree} motors={motorDims} />}
               </div>
-            )}
-            {built && (
-              <DesignStats
-                info={built.info}
-                motorLabel={assigned.length > 1
-                  ? assigned.map(([, mm]) => mm.label).join(' + ')
-                  : primaryLabel}
-              />
-            )}
+              {built && <StatsChip info={built.info} />}
+              {built && (statsDrawer
+                ? (
+                  <div className="stats-drawer">
+                    <div className="stats-drawer-head">
+                      <span>All stats</span>
+                      <button className="file-btn" onClick={() => setStatsDrawer(false)}>▾ Collapse</button>
+                    </div>
+                    <DesignStats
+                      info={built.info}
+                      motorLabel={assigned.length > 1
+                        ? assigned.map(([, mm]) => mm.label).join(' + ')
+                        : primaryLabel}
+                    />
+                  </div>
+                )
+                : (
+                  <button className="file-btn stats-drawer-chip" onClick={() => setStatsDrawer(true)}
+                    title="Every design stat, with unit switches">▤ All stats</button>
+                ))}
+              {mountSizes.length > 0 && (
+                <div className="mount-sizes hero-mounts" title="Motor mount inner diameter — the nominal motor size each mount accepts">
+                  <span className="mount-sizes-label">
+                    Motor mount{mountSizes.length > 1 ? 's' : ''}:
+                  </span>
+                  {mountSizes.map((s) => (
+                    <span key={s.id} className="mount-size-chip">
+                      {isStaged ? `${s.stage} · ` : ''}⌀&nbsp;{s.size}&nbsp;mm{s.count > 1 ? ` ×${s.count}` : ''}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
             {built && built.info.warningTexts.length > 0 && (
               <div className="file-note" role="alert">
                 {built.info.warningTexts.join('\n')}

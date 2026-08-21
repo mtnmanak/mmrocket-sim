@@ -48,11 +48,13 @@ export function dataHeaderLines(d: ExportData): string[] {
 
 /** Light-theme values for the CSS variables the schematic markup uses
  *  (--accent = the selection outline when a component is selected;
- *  --status-* = the CP/stability-margin callout inks, S2). */
+ *  --status-* = the CP/stability-margin callout inks, S2;
+ *  --launch = the loaded-motor case tint, S5). */
 export const EXPORT_VARS: [string, string][] = [
   ['var(--surface-1)', '#ffffff'],
   ['var(--text-primary)', '#20242c'],
   ['var(--accent)', '#b8511d'],
+  ['var(--launch)', '#c65420'],
   ['var(--status-good)', '#008300'],
   ['var(--status-warn)', '#a06b00'],
   ['var(--status-serious)', '#e34948'],

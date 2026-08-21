@@ -7,19 +7,23 @@ import {
   assemblyBoundingRadius, assemblyChainLength, isAssembly,
   resolveAssemblyRadius, ringInstanceOffsets,
 } from '../tree/assembly.js';
+import { clusterOffsets } from '../tree/cluster.js';
 import { tubeFinRadius } from '../tree/tubefins.js';
 import { outerProfile } from '../tree/shapeProfile.js';
 import {
   downloadBlob, IMAGE_FORMAT_EXT, snapshotWithHeader,
   type ExportData, type ImageFormat,
 } from '../services/schematicExport.js';
+import { stabilityState, type StabilityState } from '../services/simReport.js';
 import { ImageExportMenu, type ImageExportOptions } from './ImageExportMenu.js';
 
 /**
  * 3D rocket view (react-three-fiber). Geometry is generated from the
  * component tree: lathe profiles for nose cones and transitions (kernel-exact
  * shape math), cylinders for tubes, extruded shapes for fins placed at their
- * instance angles.
+ * instance angles. The external shell is slightly translucent so motor mounts
+ * and loaded motors read inside (S5), and a floating CG/CP callout hangs
+ * beside the hull (2026-08-21c).
  * Rocket axis = +X (nose tip at x=0, aft increasing), matching the engine.
  */
 
@@ -62,6 +66,8 @@ const MAT = {
   transition: '#c9c2b5',
   fin: '#a98f6f',
   lug: '#9a978f',
+  inner: '#8d8a82',
+  motor: '#c65420',
 };
 
 export interface Piece {
@@ -70,10 +76,17 @@ export interface Piece {
   color: string;
   position?: [number, number, number];
   rotation?: [number, number, number];
+  /** External shell (nose/tube/transition) — drawn slightly see-through so
+   *  mounts and motors read inside (S5, 2026-08-21c). */
+  translucent?: boolean;
 }
 
+/** Loaded motor case dimensions (m) keyed by mount node id — the same shape
+ *  TreeSchematic takes. */
+export type MotorDims = Record<string, { length: number; diameter: number; label?: string }>;
+
 /** Shared with the OBJ exporter — this IS the app's 3D geometry. */
-export function buildPieces(tree: RocketTree): { pieces: Piece[]; totalLen: number; maxR: number } {
+export function buildPieces(tree: RocketTree, motors?: MotorDims): { pieces: Piece[]; totalLen: number; maxR: number } {
   const pieces: Piece[] = [];
   let maxR = 0.005;
   let k = 0;
@@ -84,15 +97,15 @@ export function buildPieces(tree: RocketTree): { pieces: Piece[]; totalLen: numb
   const place = (
     key: string, geometry: THREE.BufferGeometry, color: string,
     position?: [number, number, number], rotation?: [number, number, number],
-    xform?: THREE.Matrix4,
+    xform?: THREE.Matrix4, translucent?: boolean,
   ) => {
-    if (!xform) { pieces.push({ key, geometry, color, position, rotation }); return; }
+    if (!xform) { pieces.push({ key, geometry, color, position, rotation, translucent }); return; }
     const g = geometry.clone();
     const m = new THREE.Matrix4().copy(xform);
     if (position) m.multiply(new THREE.Matrix4().makeTranslation(position[0], position[1], position[2]));
     if (rotation) m.multiply(new THREE.Matrix4().makeRotationFromEuler(new THREE.Euler(rotation[0], rotation[1], rotation[2])));
     g.applyMatrix4(m);
-    pieces.push({ key, geometry: g, color });
+    pieces.push({ key, geometry: g, color, translucent });
   };
 
   const addFins = (child: ComponentNode, pStart: number, pLen: number, pRadius: number, xform?: THREE.Matrix4) => {
@@ -197,6 +210,27 @@ export function buildPieces(tree: RocketTree): { pieces: Piece[]; totalLen: numb
         const geo = new THREE.CylinderGeometry(r, r, len, 16);
         place(`lug${k++}`, geo, nodeColor(child, MAT.lug),
           [start + len / 2, pRadius + r, 0], [0, 0, -Math.PI / 2], xform);
+      } else if (child.type === 'innertube') {
+        // Motor mount / inner tube, one per cluster position — visible through
+        // the translucent shell. A loaded motor seats flush against the
+        // mount's aft end (how motors actually load), same as the 2D view.
+        const len = num(child, 'length', 0.05);
+        const r = num(child, 'outerRadius', 0.0095);
+        const start = axialStart(child, len, pStart, pLen);
+        const motor = child.id ? motors?.[child.id] : undefined;
+        for (const off of clusterOffsets(
+          child['cluster'] as string | undefined, r,
+          num(child, 'clusterScale', 1), num(child, 'clusterRotation', 0),
+        )) {
+          place(`inner${k++}`, new THREE.CylinderGeometry(r, r, len, 32), nodeColor(child, MAT.inner),
+            [start + len / 2, off.y, off.z], [0, 0, -Math.PI / 2], xform);
+          if (motor) {
+            const mR = motor.diameter / 2;
+            const mStart = start + len - motor.length + num(child, 'motorOverhang', 0);
+            place(`motor${k++}`, new THREE.CylinderGeometry(mR, mR, motor.length, 32), MAT.motor,
+              [mStart + motor.length / 2, off.y, off.z], [0, 0, -Math.PI / 2], xform);
+          }
+        }
       } else if (isAssembly(child.type)) {
         // Off-axis pod / booster: place its whole sub-chain at the instance's
         // radius + angle (the addFins rotate-about-X primitive, lifted from one
@@ -230,15 +264,23 @@ export function buildPieces(tree: RocketTree): { pieces: Piece[]; totalLen: numb
         const shapeName = typeof n['shape'] === 'string' ? (n['shape'] as string) : 'ogive';
         const pts = lathePoints(shapeName, numOpt(n, 'shapeParameter'), len, 0, R);
         place(`nose${k++}`, new THREE.LatheGeometry(pts, 48), nodeColor(n, MAT.nose),
-          [x, 0, 0], [0, 0, -Math.PI / 2], xform);
+          [x, 0, 0], [0, 0, -Math.PI / 2], xform, true);
         maxR = Math.max(maxR, R);
         addChildren(n, x, len, R, xform);
         x += len;
       } else if (n.type === 'bodytube') {
         const R = num(n, 'outerRadius', 0.012);
         place(`body${k++}`, new THREE.CylinderGeometry(R, R, len, 48), nodeColor(n, MAT.body),
-          [x + len / 2, 0, 0], [0, 0, -Math.PI / 2], xform);
+          [x + len / 2, 0, 0], [0, 0, -Math.PI / 2], xform, true);
         maxR = Math.max(maxR, R);
+        // Min-diameter mount: a motor loaded directly in this body tube.
+        const tubeMotor = n.id ? motors?.[n.id] : undefined;
+        if (tubeMotor) {
+          const mR = tubeMotor.diameter / 2;
+          const mStart = x + len - tubeMotor.length + num(n, 'motorOverhang', 0);
+          place(`motor${k++}`, new THREE.CylinderGeometry(mR, mR, tubeMotor.length, 32), MAT.motor,
+            [mStart + tubeMotor.length / 2, 0, 0], [0, 0, -Math.PI / 2], xform);
+        }
         addChildren(n, x, len, R, xform);
         x += len;
       } else if (n.type === 'transition') {
@@ -252,7 +294,7 @@ export function buildPieces(tree: RocketTree): { pieces: Piece[]; totalLen: numb
         const pts = lathePoints(shapeName, numOpt(n, 'shapeParameter'), len, rf, ra,
           typeof n['clipped'] === 'boolean' ? (n['clipped'] as boolean) : undefined);
         place(`trans${k++}`, new THREE.LatheGeometry(pts, 48), nodeColor(n, MAT.transition),
-          [x, 0, 0], [0, 0, -Math.PI / 2], xform);
+          [x, 0, 0], [0, 0, -Math.PI / 2], xform, true);
         maxR = Math.max(maxR, rf, ra);
         addChildren(n, x, len, Math.max(rf, ra), xform);
         x += len;
@@ -266,6 +308,52 @@ export function buildPieces(tree: RocketTree): { pieces: Piece[]; totalLen: numb
   const totalLen = addChain(chain);
 
   return { pieces, totalLen: Math.max(totalLen, 0.05), maxR };
+}
+
+/** One size rule for the on-axis marker spheres AND the callout gadget. */
+const markerRadius = (totalLen: number, maxR: number): number =>
+  Math.max(totalLen * 0.015, maxR * 0.35);
+
+// DARK-theme status hexes on purpose: the 3D background is the dusk gradient
+// in both themes, so the dark-theme inks are the legible set here.
+const MARGIN_COLOR: Record<StabilityState, string> = {
+  ok: '#4dbd4d', over: '#e0a53d', under: '#f0716f',
+};
+
+export interface CalloutGadget {
+  /** Radial (z) offset of the gadget column, clear of the hull. */
+  off: number;
+  /** Gadget sphere radius — smaller than the on-axis markers. */
+  r: number;
+  cg: { pos: [number, number, number]; text: string; color: string };
+  cp: { pos: [number, number, number]; text: string; color: string };
+  /** Margin readout between the spheres; null when stability is unknown. */
+  margin: { pos: [number, number, number]; text: string; color: string } | null;
+}
+
+/**
+ * Floating CG/CP callout beside the rocket (the owner, 2026-08-21c: "RocketForge
+ * also uses callouts in 3D and it looks slick"): the two spheres sit at the
+ * TRUE axial stations, offset radially clear of the hull, with the static
+ * margin between them. Pure so the numbers are provable — the R3F canvas
+ * cannot mount in tests.
+ */
+export function calloutGadget(info: StaticInfo | null, maxR: number, totalLen: number): CalloutGadget | null {
+  if (!info || !Number.isFinite(info.cg) || !Number.isFinite(info.cp)) return null;
+  const markerR = markerRadius(totalLen, maxR);
+  const off = maxR + markerR * 2.2;
+  const state = stabilityState(info.stabilityCalibers);
+  return {
+    off,
+    r: markerR * 0.55,
+    cg: { pos: [info.cg, 0, off], text: 'CG', color: '#e9edf1' },
+    cp: { pos: [info.cp, 0, off], text: 'CP', color: '#e34948' },
+    margin: state === null ? null : {
+      pos: [(info.cg + info.cp) / 2, 0, off],
+      text: `${info.stabilityCalibers.toFixed(2)} cal`,
+      color: MARGIN_COLOR[state],
+    },
+  };
 }
 
 /**
@@ -448,13 +536,72 @@ export function exportCamera(
   return cam;
 }
 
-export function Rocket3D({ tree, info, exportData }: {
+/**
+ * Canvas-texture for a billboard label. Drawn at 3× the nominal glyph size so
+ * it stays devicePixel-sharp when zoomed; the thin dark outline keeps the ink
+ * legible over the light band of the dusk background.
+ */
+function labelTexture(text: string, color: string): { texture: THREE.CanvasTexture; aspect: number } {
+  const px = 96;
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d')!;
+  const font = `700 ${px}px system-ui, 'Segoe UI', sans-serif`;
+  ctx.font = font;
+  const w = Math.ceil(ctx.measureText(text).width + px * 0.3);
+  const h = Math.ceil(px * 1.25);
+  canvas.width = w;
+  canvas.height = h; // resizing resets the 2D context state — restyle below
+  ctx.font = font;
+  ctx.textBaseline = 'middle';
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = px * 0.14;
+  ctx.strokeStyle = 'rgba(10, 15, 22, 0.9)';
+  ctx.strokeText(text, px * 0.15, h / 2);
+  ctx.fillStyle = color;
+  ctx.fillText(text, px * 0.15, h / 2);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return { texture, aspect: w / h };
+}
+
+/**
+ * Billboard text beside a gadget sphere. The sprite `center` shifts it in
+ * SCREEN space by `gap` (world units), so every label hangs the same distance
+ * from its anchor at any camera angle — a world-space offset would swing
+ * around with the orbit. `place` splits the three labels vertically: CG and
+ * CP sit almost on one line, so hanging all three to the right piles them up
+ * exactly when the margin is small — the case that matters most.
+ */
+function CalloutLabel({ text, color, position, height, gap, place = 'right' }: {
+  text: string; color: string; position: [number, number, number];
+  height: number; gap: number; place?: 'right' | 'above' | 'below';
+}) {
+  const { texture, aspect } = useMemo(() => labelTexture(text, color), [text, color]);
+  // The JSX-declared material is R3F-disposed on unmount; its map is ours.
+  useEffect(() => () => texture.dispose(), [texture]);
+  const center = useMemo(
+    () => place === 'above' ? new THREE.Vector2(0.5, -(gap / height))
+      : place === 'below' ? new THREE.Vector2(0.5, 1 + gap / height)
+      : new THREE.Vector2(-(gap / (height * aspect)), 0.5),
+    [place, gap, height, aspect]);
+  return (
+    <sprite position={position} scale={[height * aspect, height, 1]}
+      center={center} renderOrder={13}>
+      <spriteMaterial map={texture} depthTest={false} transparent />
+    </sprite>
+  );
+}
+
+export function Rocket3D({ tree, info, motors, exportData }: {
   tree: RocketTree;
   info: StaticInfo | null;
+  /** Loaded motor cases keyed by mount node id — rendered seated at the
+   *  mount's aft end, showing through the translucent shell (S5). */
+  motors?: MotorDims;
   /** When set, a 📷 PNG snapshot button appears (issue 2026-08-11a). */
   exportData?: Omit<ExportData, 'spanM'>;
 }) {
-  const { pieces, totalLen, maxR } = useMemo(() => buildPieces(tree), [tree]);
+  const { pieces, totalLen, maxR } = useMemo(() => buildPieces(tree, motors), [tree, motors]);
   const r3f = useRef<{ gl: THREE.WebGLRenderer; scene: THREE.Scene; camera: THREE.Camera } | null>(null);
 
   // Hi-res snapshot (issue 2026-08-11b): re-render the SAME scene/camera at
@@ -512,7 +659,8 @@ export function Rocket3D({ tree, info, exportData }: {
   }, [pieces]);
   const center = totalLen / 2;
   const camDist = Math.max(totalLen * 1.1, maxR * 6, 0.25);
-  const markerR = Math.max(totalLen * 0.015, maxR * 0.35);
+  const markerR = markerRadius(totalLen, maxR);
+  const gadget = calloutGadget(info, maxR, totalLen);
 
   return (
     <div className="rocket3d-wrap" style={{ position: 'relative' }}>
@@ -528,31 +676,72 @@ export function Rocket3D({ tree, info, exportData }: {
         // this flag WebGL may have discarded it and toDataURL returns black.
         gl={{ preserveDrawingBuffer: true }}
         onCreated={(state) => { r3f.current = { gl: state.gl, scene: state.scene, camera: state.camera }; }}>
-        <ambientLight intensity={0.7} />
-        <directionalLight position={[1, 2, 2]} intensity={1.1} />
-        <directionalLight position={[-1, -0.5, -1]} intensity={0.3} />
+        {/* Soft studio setup (S5): warm-neutral key, cool fill, low rim —
+            subtle and blueprint-serious, no shadows or environment maps. */}
+        <ambientLight intensity={0.55} />
+        <directionalLight position={[1.5, 2.5, 2]} intensity={0.95} color="#fff7ee" />
+        <directionalLight position={[-2, 0.5, -1]} intensity={0.45} color="#e8eef8" />
+        <directionalLight position={[-0.5, -1.5, -2.5]} intensity={0.35} />
         <group>
           {pieces.map((p) => (
             <mesh key={p.key} geometry={p.geometry}
               position={p.position ?? [0, 0, 0]}
               rotation={p.rotation ?? [0, 0, 0]}>
-              <meshStandardMaterial color={p.color} roughness={0.6} metalness={0.05} />
+              {/* Shell pieces are slightly see-through so mounts and motors
+                  read inside; opaque internals render first, the shell blends
+                  over them — three's opaque-then-transparent order does the
+                  layering without any renderOrder fiddling. */}
+              <meshStandardMaterial color={p.color} roughness={0.6} metalness={0.05}
+                transparent={!!p.translucent} opacity={p.translucent ? 0.88 : 1} />
             </mesh>
           ))}
           {/* CG/CP sit on the rocket axis — inside the shell — so they must
               render ON TOP (depthTest off, high renderOrder) to be visible,
-              exactly like the 2D markers. Otherwise the opaque body hides them. */}
+              exactly like the 2D markers. `transparent` puts them in the
+              transparent queue AFTER the see-through shell, or the shell
+              would wash over them. */}
           {info && Number.isFinite(info.cg) && (
             <mesh position={[info.cg, 0, 0]} renderOrder={10}>
               <sphereGeometry args={[markerR, 24, 24]} />
-              <meshStandardMaterial color="#e9edf1" emissive="#8891a0" depthTest={false} />
+              <meshStandardMaterial color="#e9edf1" emissive="#8891a0" depthTest={false} transparent />
             </mesh>
           )}
           {info && Number.isFinite(info.cp) && (
             <mesh position={[info.cp, 0, 0]} renderOrder={11}>
               <sphereGeometry args={[markerR, 24, 24]} />
-              <meshStandardMaterial color="#e34948" emissive="#5a1010" depthTest={false} />
+              <meshStandardMaterial color="#e34948" emissive="#5a1010" depthTest={false} transparent />
             </mesh>
+          )}
+          {/* Floating CG/CP callout beside the hull (2026-08-21c). Same
+              always-on-top treatment as the axis markers; no pointer handlers,
+              so it never swallows OrbitControls' events. */}
+          {gadget && (
+            <group>
+              {Math.abs(gadget.cg.pos[0] - gadget.cp.pos[0]) > 1e-9 && (
+                <mesh position={[(gadget.cg.pos[0] + gadget.cp.pos[0]) / 2, 0, gadget.off]}
+                  rotation={[0, 0, -Math.PI / 2]} renderOrder={11}>
+                  <cylinderGeometry args={[gadget.r * 0.12, gadget.r * 0.12,
+                    Math.abs(gadget.cg.pos[0] - gadget.cp.pos[0]), 8]} />
+                  <meshBasicMaterial color="#8891a0" depthTest={false} transparent />
+                </mesh>
+              )}
+              <mesh position={gadget.cg.pos} renderOrder={12}>
+                <sphereGeometry args={[gadget.r, 24, 24]} />
+                <meshStandardMaterial color="#e9edf1" emissive="#8891a0" depthTest={false} transparent />
+              </mesh>
+              <mesh position={gadget.cp.pos} renderOrder={12}>
+                <sphereGeometry args={[gadget.r, 24, 24]} />
+                <meshStandardMaterial color="#e34948" emissive="#5a1010" depthTest={false} transparent />
+              </mesh>
+              <CalloutLabel text={gadget.cg.text} color={gadget.cg.color} place="above"
+                position={gadget.cg.pos} height={markerR * 1.2} gap={gadget.r * 1.5} />
+              <CalloutLabel text={gadget.cp.text} color={gadget.cp.color} place="below"
+                position={gadget.cp.pos} height={markerR * 1.2} gap={gadget.r * 1.5} />
+              {gadget.margin && (
+                <CalloutLabel text={gadget.margin.text} color={gadget.margin.color} place="right"
+                  position={gadget.margin.pos} height={markerR * 1.1} gap={markerR * 1.1} />
+              )}
+            </group>
           )}
         </group>
         <OrbitControls target={[center, 0, 0]} enableDamping dampingFactor={0.1} />

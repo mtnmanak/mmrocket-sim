@@ -1,5 +1,5 @@
 {
-  "version": "0.048",
+  "version": "0.049",
   "released": "2026-08-21",
-  "note": "First-run tour for new visitors (replayable from the Guide), CG/CP leader-line callouts with the color-coded stability margin written on the drawing, and a Type dropdown for mass components (altimeter, tracker, …) that travels into saved .ork files. The old openrocket.* address now redirects here permanently."
+  "note": "The Design canvas fills the screen with a floating stats chip (full grid one click away); phones open on a new launch-day Fly screen with bottom-docked tabs; the 3D view gains a floating CG/CP callout, studio lighting and a translucent shell showing the loaded motor; multi-configuration .ork files import correctly and ask which configuration you want; the tour spotlights its targets; and unloading motors is a real labeled button."
 }

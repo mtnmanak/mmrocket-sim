@@ -1,9 +1,10 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
-import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
+import type { ComponentNode, RocketTree, StaticInfo } from '@online-openrocket/engine';
 import {
-  buildPieces, exportCamera, fitCameraToBox, FIT_MARGIN, isFittableBox, piecesBounds,
+  buildPieces, calloutGadget, exportCamera, fitCameraToBox, FIT_MARGIN, isFittableBox,
+  piecesBounds,
 } from './Rocket3D.js';
 
 const centerY = (geo: THREE.BufferGeometry): number => {
@@ -479,5 +480,130 @@ describe('buildPieces — off-axis pods (Phase 2)', () => {
     const { pieces } = buildPieces(withFinnedBooster);
     // nose + body + 1 booster body + 3 booster fins.
     expect(pieces.filter((p) => p.key.startsWith('fin')).length).toBe(3);
+  });
+});
+
+/**
+ * Floating CG/CP callout beside the hull (2026-08-21c, after RocketForge).
+ * The R3F canvas cannot mount here, so the gadget's numbers — the only part
+ * with any logic — are pinned through the pure helper.
+ */
+describe('calloutGadget — the offset CG/CP gadget', () => {
+  const MAX_R = 0.024, LEN = 0.37;
+  // markerR = max(0.37·0.015, 0.024·0.35) = 0.0084 — the marker-sphere rule.
+  const MARKER_R = 0.0084;
+  const infoOf = (over: Partial<StaticInfo> = {}): StaticInfo => ({
+    length: LEN, mass: 0.12, massEmpty: 0.1, cgEmpty: 0.21, cg: 0.2, cp: 0.28,
+    cna: 10, stabilityCalibers: 1.67, refDiameter: 0.048, warnings: 0, warningTexts: [],
+    ...over,
+  });
+
+  it('floats the spheres at the TRUE axial stations, clear of the hull', () => {
+    const g = calloutGadget(infoOf(), MAX_R, LEN)!;
+    expect(g.off).toBeCloseTo(MAX_R + MARKER_R * 2.2, 12);
+    expect(g.r).toBeCloseTo(MARKER_R * 0.55, 12);
+    expect(g.cg.pos).toEqual([0.2, 0, g.off]);
+    expect(g.cp.pos).toEqual([0.28, 0, g.off]);
+    // Margin readout sits midway between the spheres, on the same column.
+    expect(g.margin!.pos[0]).toBeCloseTo(0.24, 12);
+    expect(g.margin!.pos[2]).toBeCloseTo(g.off, 12);
+  });
+
+  it('labels CG in neutral ink and CP in the CP red', () => {
+    const g = calloutGadget(infoOf(), MAX_R, LEN)!;
+    expect(g.cg).toMatchObject({ text: 'CG', color: '#e9edf1' });
+    expect(g.cp).toMatchObject({ text: 'CP', color: '#e34948' });
+  });
+
+  it('formats the margin and colors it by stability state (dark-theme hexes)', () => {
+    const at = (cal: number) => calloutGadget(infoOf({ stabilityCalibers: cal }), MAX_R, LEN)!.margin!;
+    expect(at(1.67)).toMatchObject({ text: '1.67 cal', color: '#4dbd4d' });  // ok
+    expect(at(0.42)).toMatchObject({ text: '0.42 cal', color: '#f0716f' });  // under: the dangerous case
+    expect(at(3.5)).toMatchObject({ text: '3.50 cal', color: '#e0a53d' });   // over: weathercocking caution
+  });
+
+  it('skips the margin when stability is unknown, the whole gadget without CG+CP', () => {
+    expect(calloutGadget(infoOf({ stabilityCalibers: NaN }), MAX_R, LEN)!.margin).toBeNull();
+    expect(calloutGadget(null, MAX_R, LEN)).toBeNull();
+    expect(calloutGadget(infoOf({ cg: NaN }), MAX_R, LEN)).toBeNull();
+    expect(calloutGadget(infoOf({ cp: Infinity }), MAX_R, LEN)).toBeNull();
+  });
+});
+
+/**
+ * S5 materials pass (2026-08-21c): inner tubes render as pieces, a loaded
+ * motor case seats at its mount's aft end, and the external shell is flagged
+ * translucent so both show through.
+ */
+describe('buildPieces — inner tubes and loaded motors (S5)', () => {
+  // Inner tube seated at the bottom of the 0.3 m body tube that starts at the
+  // nose joint (0.07): start = 0.07 + 0.3 − 0.07 = 0.3, centre 0.335.
+  const mountTree = (extra: Partial<ComponentNode> = {}): RocketTree => base([{
+    type: 'innertube', id: 'mt', length: 0.07, outerRadius: 0.012,
+    position: { method: 'bottom', offset: 0 },
+    ...extra,
+  } as ComponentNode]);
+
+  it('renders a motor mount tube inside the body', () => {
+    const { pieces } = buildPieces(mountTree());
+    const inner = pieces.filter((p) => p.key.startsWith('inner'));
+    expect(inner.length).toBe(1);
+    expect(inner[0]!.position![0]).toBeCloseTo(0.335, 9);
+    expect(inner[0]!.position![1]).toBe(0);
+    inner[0]!.geometry.computeBoundingBox();
+    const bb = inner[0]!.geometry.boundingBox!;
+    // Cylinder local frame before rotation: axis +Y, radius in XZ.
+    expect(bb.max.x).toBeCloseTo(0.012, 6);
+    expect(bb.max.y).toBeCloseTo(0.035, 6);
+  });
+
+  it("seats a loaded motor flush at the mount's aft end, launch orange", () => {
+    const { pieces } = buildPieces(mountTree(), { mt: { length: 0.055, diameter: 0.018 } });
+    const motor = pieces.filter((p) => p.key.startsWith('motor'));
+    expect(motor.length).toBe(1);
+    // Mount aft end at 0.37: motor spans 0.315..0.37, centre 0.3425.
+    expect(motor[0]!.position![0]).toBeCloseTo(0.3425, 9);
+    expect(motor[0]!.color).toBe('#c65420');
+    // No motors prop, or a motor on some other mount: no case drawn.
+    expect(buildPieces(mountTree()).pieces.some((p) => p.key.startsWith('motor'))).toBe(false);
+    expect(buildPieces(mountTree(), { other: { length: 0.055, diameter: 0.018 } })
+      .pieces.some((p) => p.key.startsWith('motor'))).toBe(false);
+  });
+
+  it('draws one tube and one motor per cluster position', () => {
+    const { pieces } = buildPieces(mountTree({ cluster: 'double' } as Partial<ComponentNode>),
+      { mt: { length: 0.055, diameter: 0.018 } });
+    const inner = pieces.filter((p) => p.key.startsWith('inner'));
+    const motor = pieces.filter((p) => p.key.startsWith('motor'));
+    expect(inner.length).toBe(2);
+    expect(motor.length).toBe(2);
+    // 'double' at separation 2·0.012: tube centres at y = ±0.012.
+    const ys = inner.map((p) => p.position![1]).sort((a, b) => a - b);
+    expect(ys[0]).toBeCloseTo(-0.012, 9);
+    expect(ys[1]).toBeCloseTo(0.012, 9);
+  });
+
+  it('min-diameter: a motor keyed to a body tube seats at the tube aft end', () => {
+    const { pieces } = buildPieces(base(), { b: { length: 0.07, diameter: 0.024 } });
+    const motor = pieces.filter((p) => p.key.startsWith('motor'));
+    expect(motor.length).toBe(1);
+    // Tube spans 0.07..0.37: motor spans 0.3..0.37, centre 0.335.
+    expect(motor[0]!.position![0]).toBeCloseTo(0.335, 9);
+  });
+
+  it('flags the external shell translucent, internals and fins opaque', () => {
+    const withFins = base([
+      { type: 'innertube', id: 'mt', length: 0.07, outerRadius: 0.012,
+        position: { method: 'bottom', offset: 0 } } as ComponentNode,
+      { type: 'trapezoidfinset', id: 'f', finCount: 3, rootChord: 0.04, tipChord: 0.02,
+        sweep: 0.02, height: 0.03, position: { method: 'bottom', offset: 0 } } as ComponentNode,
+    ]);
+    const { pieces } = buildPieces(withFins, { mt: { length: 0.055, diameter: 0.018 } });
+    const byPrefix = (pre: string) => pieces.filter((p) => p.key.startsWith(pre));
+    expect(byPrefix('nose').every((p) => p.translucent === true)).toBe(true);
+    expect(byPrefix('body').every((p) => p.translucent === true)).toBe(true);
+    expect(byPrefix('inner').every((p) => !p.translucent)).toBe(true);
+    expect(byPrefix('motor').every((p) => !p.translucent)).toBe(true);
+    expect(byPrefix('fin').every((p) => !p.translucent)).toBe(true);
   });
 });

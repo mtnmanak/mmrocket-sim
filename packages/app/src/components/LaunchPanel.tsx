@@ -40,51 +40,69 @@ const FIELD_SPEC: Partial<Record<keyof LaunchConditions, { quantity: Quantity; s
   pressureHPa: { quantity: 'pressure', storedToSI: 100 },
 };
 
+/**
+ * One unit-aware launch-condition field. Extracted from LaunchPanel's local
+ * closure so the phone Fly screen (S4) renders the SAME conversion and
+ * validation for its three field-side conditions instead of a copy.
+ */
+export function LaunchField({ label, field, value, onChange, stepStored, min, max, nullable = false }: {
+  label: string;
+  field: keyof LaunchConditions;
+  value: LaunchConditions;
+  onChange: (v: LaunchConditions) => void;
+  stepStored: number;
+  min?: number;
+  max?: number;
+  nullable?: boolean;
+}) {
+  const { prefs } = usePrefs();
+  const spec = FIELD_SPEC[field];
+  const symbol = spec ? prefs.units[spec.quantity] : null;
+  const toUi = (stored: number) => spec && symbol
+    ? siToUi(spec.quantity, symbol, stored * spec.storedToSI + (spec.storedOffset ?? 0) * spec.storedToSI)
+    : stored;
+  const fromUi = (ui: number) => spec && symbol
+    ? (uiToSi(spec.quantity, symbol, ui) - (spec.storedOffset ?? 0) * spec.storedToSI) / spec.storedToSI
+    : ui;
+  const step = spec && symbol ? niceStep(toUi(stepStored) - toUi(0)) : stepStored;
+  // Validation bounds live in stored units — convert to the display unit
+  // (toUi is affine and increasing, so the bounds map cleanly).
+  const uiMin = min === undefined ? undefined : toUi(min);
+  const uiMax = max === undefined ? undefined : toUi(max);
+  return (
+    <div className="field">
+      <label>{label}{spec ? <> <UnitChip quantity={spec.quantity} /></> : ''}</label>
+      <NumField
+        value={value[field] === null ? undefined : toUi(value[field] as number)}
+        step={step}
+        min={uiMin}
+        max={uiMax}
+        allowNegative={uiMin === undefined || uiMin < 0}
+        nullable={nullable}
+        placeholder={nullable ? 'standard' : undefined}
+        onCommit={(ui) => {
+          if (ui === null) {
+            if (nullable) onChange({ ...value, [field]: null });
+            return;
+          }
+          onChange({ ...value, [field]: fromUi(ui) });
+        }}
+      />
+    </div>
+  );
+}
+
 export function LaunchPanel({ value, onChange, onLaunch, simulating }: {
   value: LaunchConditions;
   onChange: (v: LaunchConditions) => void;
   onLaunch: () => void;
   simulating: boolean;
 }) {
-  const { prefs } = usePrefs();
-
   const numField = (label: string, key: keyof LaunchConditions, stepStored: number,
-      min?: number, max?: number, nullable = false) => {
-    const spec = FIELD_SPEC[key];
-    const symbol = spec ? prefs.units[spec.quantity] : null;
-    const toUi = (stored: number) => spec && symbol
-      ? siToUi(spec.quantity, symbol, stored * spec.storedToSI + (spec.storedOffset ?? 0) * spec.storedToSI)
-      : stored;
-    const fromUi = (ui: number) => spec && symbol
-      ? (uiToSi(spec.quantity, symbol, ui) - (spec.storedOffset ?? 0) * spec.storedToSI) / spec.storedToSI
-      : ui;
-    const step = spec && symbol ? niceStep(toUi(stepStored) - toUi(0)) : stepStored;
-    // Validation bounds live in stored units — convert to the display unit
-    // (toUi is affine and increasing, so the bounds map cleanly).
-    const uiMin = min === undefined ? undefined : toUi(min);
-    const uiMax = max === undefined ? undefined : toUi(max);
-    return (
-      <div className="field">
-        <label>{label}{spec ? <> <UnitChip quantity={spec.quantity} /></> : ''}</label>
-        <NumField
-          value={value[key] === null ? undefined : toUi(value[key] as number)}
-          step={step}
-          min={uiMin}
-          max={uiMax}
-          allowNegative={uiMin === undefined || uiMin < 0}
-          nullable={nullable}
-          placeholder={nullable ? 'standard' : undefined}
-          onCommit={(ui) => {
-            if (ui === null) {
-              if (nullable) onChange({ ...value, [key]: null });
-              return;
-            }
-            onChange({ ...value, [key]: fromUi(ui) });
-          }}
-        />
-      </div>
-    );
-  };
+      min?: number, max?: number, nullable = false) => (
+    <LaunchField label={label} field={key} value={value} onChange={onChange}
+      stepStored={stepStored} min={min} max={max} nullable={nullable} />
+  );
 
   return (
     <div className="panel">

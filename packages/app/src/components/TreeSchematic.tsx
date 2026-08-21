@@ -41,10 +41,10 @@ const MARKER_R = 9;
 export const CALLOUT_LANES = 34;
 /** Lane-center distance from the airframe edge (or marker edge, if wider). */
 const LANE_GAP = 13;
-/** CG label footprint in the upper lane, relative to cgX: dot (r 4) plus
- *  the "CG" text to its right — the margin text must not land on it. */
-const CG_LABEL_L = 6;
-const CG_LABEL_R = 27;
+/** CP label footprint in the lower lane, relative to cpX: dot (r 4) plus
+ *  the "CP" text to its right — the margin text must not land on it. */
+const CP_LABEL_L = 6;
+const CP_LABEL_R = 27;
 /** Rough half-width of the margin text (13 px bold ≈ 7.2 px per char). */
 const marginHalfW = (text: string) => (text.length * 7.2) / 2;
 
@@ -64,8 +64,11 @@ export interface CalloutLayout {
 /**
  * Leader-line callout geometry (S2): dashed leaders run from the centerline
  * markers to labeled dots in clear lanes above (CG) and below (CP) the drawn
- * airframe; the margin text sits in the upper lane midway between the two,
- * clamped inside the viewBox and nudged off the CG label when they'd collide.
+ * airframe; the margin text sits in the LOWER lane midway between the two —
+ * the upper-right corner belongs to the export/zoom control strip, which the
+ * text collided with the moment the canvas became the hero (batch 08-21c) —
+ * clamped inside the viewBox and nudged off the CP label when they'd collide
+ * (leftward as the fallback when the right side has no room).
  *
  * @param halfPx drawn vertical half-extent (viewBox px) = vHalf * scale
  */
@@ -82,11 +85,13 @@ export function calloutLayout(
   if (marginText !== null && cgX !== null && cpX !== null) {
     const halfW = marginHalfW(marginText);
     const clamp = (x: number) => Math.min(w - halfW - 2, Math.max(halfW + 2, x));
+    const collides = (x: number) => x + halfW > cpX - CP_LABEL_L && x - halfW < cpX + CP_LABEL_R;
     let x = clamp((cgX + cpX) / 2);
-    if (x + halfW > cgX - CG_LABEL_L && x - halfW < cgX + CG_LABEL_R) {
-      x = clamp(cpX >= cgX ? cgX + CG_LABEL_R + halfW : cgX - CG_LABEL_L - halfW);
+    if (collides(x)) {
+      const right = clamp(cpX + CP_LABEL_R + halfW);
+      x = collides(right) ? clamp(cpX - CP_LABEL_L - halfW) : right;
     }
-    margin = { x, y: laneTop };
+    margin = { x, y: laneBottom };
   }
   return { cg, cp, margin };
 }
@@ -118,11 +123,12 @@ interface DragState {
   clientScale: number;
 }
 
-export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480, selectedId, onSelect, exportData }: {
+export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480, selectedId, onSelect, exportData, vertical }: {
   tree: RocketTree;
   info: StaticInfo | null;
-  /** Loaded motor case dimensions (m) keyed by mount node id — drawn to scale. */
-  motors?: Record<string, { length: number; diameter: number }>;
+  /** Loaded motor case dimensions (m) keyed by mount node id — drawn to
+   *  scale; `label` is the designation printed in the case when it fits (S5). */
+  motors?: Record<string, { length: number; diameter: number; label?: string }>;
   onPatchNode?: (id: string, patch: Partial<ComponentNode>) => void;
   /** Cap on the drawing's on-screen height (px). */
   maxHeight?: number;
@@ -131,6 +137,10 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   onSelect?: (id: string) => void;
   /** When set, ⬇ SVG / ⬇ PNG export buttons appear (issue 2026-08-11a). */
   exportData?: Omit<ExportData, 'spanM'>;
+  /** Nose-up view (S1 rotate / S4 phone): the horizontal layout rotates as
+   *  one group to fit the container's HEIGHT. Read-mostly — drag, pan, zoom
+   *  and the export/zoom controls are off; hover and click-select stay. */
+  vertical?: boolean;
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -142,6 +152,12 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   // the column at native pixel scale on any monitor instead of a fixed 640px
   // canvas stretched to fit.
   const [cw, setCw] = useState(640);
+  // Container height (CSS px) — the length axis in vertical mode. Stays at
+  // the fallback when the wrap has no definite height to inherit.
+  const [chPx, setChPx] = useState(480);
+  // Hovered component (S5): accent wash + name tag drawn topmost. Enter/
+  // leave never fire from touch, so phones skip hover naturally.
+  const [hoverId, setHoverId] = useState<string | null>(null);
   // View transform (zoom & pan) in viewBox px; identity = whole rocket fits.
   const [zoom, setZoom] = useState({ k: 1, x: 0, y: 0 });
   const pan = useRef<{ pointerX: number; pointerY: number; x0: number; y0: number } | null>(null);
@@ -199,7 +215,11 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   };
   scanRadial(chain, maxR);
 
-  const w = Math.max(320, cw);
+  // Vertical mode swaps the container roles BEFORE layout: all layout math
+  // stays horizontal (length along x) and the finished drawing rotates
+  // nose-up as one group, so the length axis fits the container HEIGHT and
+  // the cross extent its width.
+  const w = Math.max(320, vertical ? chPx : cw);
   const pad = 26;
   // Height follows the rocket's own proportions (clamped): a long thin
   // rocket gets a wide low band, not a fixed frame of empty sky. When info
@@ -207,7 +227,8 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   // allowance is added to the height AND kept out of the vertical fit —
   // otherwise a height-limited short/fat rocket would fill it and clip them.
   const lanes = info ? CALLOUT_LANES : 0;
-  const h = Math.round(Math.min(maxHeight, Math.max(200, 2 * vHalf * ((w - 2 * pad) / totalLen) + 2 * pad + lanes)));
+  const crossCap = vertical ? Math.max(160, cw) : maxHeight;
+  const h = Math.round(Math.min(crossCap, Math.max(200, 2 * vHalf * ((w - 2 * pad) / totalLen) + 2 * pad + lanes)));
   const scale = Math.min((w - 2 * pad) / totalLen, (h - 2 * pad - lanes) / (2 * vHalf));
   const ctx: Ctx = { scale, cy: h / 2, x0: pad };
 
@@ -270,12 +291,14 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
 
   const endDrag = () => { drag.current = null; pan.current = null; };
 
-  // Track the container's width so the viewBox can follow it.
+  // Track the container's size so the viewBox can follow it (height feeds
+  // the vertical mode's length axis).
   useEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
     const obs = new ResizeObserver(() => {
       if (el.clientWidth > 0) setCw(el.clientWidth);
+      if (el.clientHeight > 0) setChPx(el.clientHeight);
     });
     obs.observe(el);
     return () => obs.disconnect();
@@ -285,7 +308,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   // passive, so preventDefault (to stop page scroll) must be attached here.
   useEffect(() => {
     const svg = svgRef.current;
-    if (!svg) return;
+    if (!svg || vertical) return;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       const rect = svg.getBoundingClientRect();
@@ -304,7 +327,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
     };
     svg.addEventListener('wheel', onWheel, { passive: false });
     return () => svg.removeEventListener('wheel', onWheel);
-  }, [w, h]);
+  }, [w, h, vertical]);
 
   // Button zoom steps around the view center (the wheel handles precise
   // pointer-anchored zoom; these make the capability visible).
@@ -319,17 +342,30 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   // Selection sync: click any drawn component to select it in the tree; the
   // selected component draws with an accent outline.
   const isSel = (n: ComponentNode) => !!selectedId && n.id === selectedId;
-  const clickable = (n: ComponentNode) => (onSelect && n.id
-    ? {
-      onClick: (e: React.MouseEvent) => {
-        e.stopPropagation();
-        if (!dragMoved.current) onSelect(n.id!);
-      },
-      style: { cursor: 'pointer' } as React.CSSProperties,
-    }
-    : {});
+  const clickable = (n: ComponentNode) => ({
+    ...(n.id
+      ? {
+        onPointerEnter: () => setHoverId(n.id!),
+        onPointerLeave: () => setHoverId((cur) => (cur === n.id ? null : cur)),
+      }
+      : {}),
+    ...(onSelect && n.id
+      ? {
+        onClick: (e: React.MouseEvent) => {
+          e.stopPropagation();
+          if (!dragMoved.current) onSelect(n.id!);
+        },
+        style: { cursor: 'pointer' } as React.CSSProperties,
+      }
+      : {}),
+  });
   const selStroke = (n: ComponentNode, dflt: string) => (isSel(n) ? 'var(--accent)' : dflt);
   const selWidth = (n: ComponentNode, dflt: number | string = 1) => (isSel(n) ? 2 : dflt);
+
+  // Nose-up rendering rotates the whole drawing; every text label counter-
+  // rotates about its own anchor so it still reads horizontally.
+  const textUp = (x: number, y: number) =>
+    (vertical ? { transform: `rotate(-90 ${x} ${y})` } : {});
 
   // --- render chain + children ---
   const shapes: React.ReactNode[] = [];
@@ -339,6 +375,46 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   // the PREVIOUS tube, already painted, stayed visible — the owner's ebay report).
   const overlay: React.ReactNode[] = [];
   let key = 0;
+
+  // Hovered component's drawn extent (layout px), unioned across instances
+  // (cluster copies, pod rings) as the shapes render.
+  const hoverBoxes: { x0: number; y0: number; x1: number; y1: number }[] = [];
+  let hoverName = '';
+  const noteHover = (n: ComponentNode, x0: number, y0: number, x1: number, y1: number) => {
+    if (!hoverId || n.id !== hoverId) return;
+    hoverName = n.name ?? DISPLAY_NAME[n.type];
+    hoverBoxes.push({
+      x0: Math.min(x0, x1), y0: Math.min(y0, y1),
+      x1: Math.max(x0, x1), y1: Math.max(y0, y1),
+    });
+  };
+
+  // Loaded motor case (S5): launch-orange tint at the real case size, with
+  // the designation printed in the case when it's long enough to carry it.
+  const motorShapes = (
+    motor: { length: number; diameter: number; label?: string },
+    mStart: number, cY: number,
+  ): React.ReactNode[] => {
+    const mR = motor.diameter / 2;
+    const out: React.ReactNode[] = [
+      <rect key={key++} x={ctx.x0 + mStart * ctx.scale} y={cY - mR * ctx.scale}
+        width={Math.max(2, motor.length * ctx.scale)} height={Math.max(2, 2 * mR * ctx.scale)}
+        rx="1" fill="var(--launch)" fillOpacity="0.85"
+        stroke="#e0764a" strokeWidth="0.8"
+        style={{ pointerEvents: 'none' }} />,
+    ];
+    if (motor.label && motor.length * ctx.scale > 36) {
+      const lx = ctx.x0 + (mStart + motor.length / 2) * ctx.scale;
+      out.push(
+        <text key={key++} x={lx} y={cY} textAnchor="middle" dominantBaseline="central"
+          fontSize="10" fontWeight="bold" fill="#ffffff" {...textUp(lx, cY)}
+          style={{ pointerEvents: 'none' }}>
+          {motor.label}
+        </text>,
+      );
+    }
+    return out;
+  };
 
   const renderChildren = (parent: ComponentNode, pStart: number, pLen: number, pRadius: number, baseY: number) => {
     for (const child of parent.children ?? []) {
@@ -358,7 +434,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
       }
       const grab = {
         ...clickable(child),
-        ...(onPatchNode && child.id
+        ...(onPatchNode && child.id && !vertical
           ? {
             onPointerDown: beginDrag(child, parent, pLen),
             style: { cursor: 'grab' } as React.CSSProperties,
@@ -389,6 +465,9 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
         if (raw.length >= 3) {
           const chord = Math.max(...raw.map((p) => p[0]));
           const start = axialStart(child, chord, pStart, pLen);
+          const ymax = Math.max(0, ...raw.map((p) => p[1]));
+          noteHover(child, ctx.x0 + start * ctx.scale, baseY - (pRadius + ymax) * ctx.scale,
+            ctx.x0 + (start + chord) * ctx.scale, baseY + (pRadius + ymax) * ctx.scale);
           for (const dir of [1, -1] as const) {
             const ptsStr = raw
               .map(([px, py]) => `${ctx.x0 + (start + px) * ctx.scale},${baseY + dir * (pRadius + py) * ctx.scale}`)
@@ -407,6 +486,9 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
         const sweep = t === 'trapezoidfinset' ? num(child, 'sweep', 0.02) : root / 2;
         const height = num(child, 'height', 0.03);
         const start = axialStart(child, root, pStart, pLen);
+        noteHover(child, ctx.x0 + start * ctx.scale, baseY - (pRadius + height) * ctx.scale,
+          ctx.x0 + (start + Math.max(root, sweep + tip)) * ctx.scale,
+          baseY + (pRadius + height) * ctx.scale);
         for (const dir of [1, -1] as const) {
           const y0 = baseY + dir * pRadius * ctx.scale;
           const yh = baseY + dir * (pRadius + height) * ctx.scale;
@@ -435,6 +517,8 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
         const rt = tubeFinRadius(child, pRadius);
         const start = axialStart(child, len, pStart, pLen);
         const X = ctx.x0 + start * ctx.scale;
+        noteHover(child, X, baseY - (pRadius + 2 * rt) * ctx.scale,
+          X + len * ctx.scale, baseY + (pRadius + 2 * rt) * ctx.scale);
         for (const dir of [1, -1] as const) {
           const yNear = baseY + dir * pRadius * ctx.scale;
           const yFar = baseY + dir * (pRadius + 2 * rt) * ctx.scale;
@@ -459,6 +543,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
         const y0 = baseY - pRadius * ctx.scale;
         const yh = y0 - hgt * ctx.scale;
         const Xe = X + len * ctx.scale;
+        noteHover(child, X, yh, Xe, y0);
         shapes.push(
           fshape === 'streamlined' ? (
             <polygon key={key++}
@@ -484,6 +569,8 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
         const len = t === 'railbutton' ? btnDia : num(child, 'length', 0.01);
         const r = t === 'railbutton' ? btnDia / 2 : num(child, 'outerRadius', 0.002);
         const start = axialStart(child, len, pStart, pLen);
+        noteHover(child, ctx.x0 + start * ctx.scale, baseY - (pRadius + 2 * r) * ctx.scale,
+          ctx.x0 + (start + len) * ctx.scale, baseY - pRadius * ctx.scale);
         shapes.push(
           <rect key={key++} x={ctx.x0 + start * ctx.scale}
             y={baseY - (pRadius + 2 * r) * ctx.scale}
@@ -527,6 +614,8 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
         const motor = child.type === 'innertube' && child.id ? motors?.[child.id] : undefined;
         for (const off of offsets) {
           const inkColor = isSel(child) ? 'var(--accent)' : fillOf(child, style?.stroke ?? '#9a978f');
+          noteHover(child, ctx.x0 + start * ctx.scale, baseY + (off.y - r) * ctx.scale,
+            ctx.x0 + (start + len) * ctx.scale, baseY + (off.y + r) * ctx.scale);
           overlay.push(
             <rect key={key++} x={ctx.x0 + start * ctx.scale}
               y={baseY + (off.y - r) * ctx.scale}
@@ -580,32 +669,29 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
             }
           }
           // Type tag, when the box has room for it — glyph types skip the
-          // text once their picture is drawn.
+          // text once their picture is drawn. Counter-rotated tags read
+          // horizontally in vertical mode, so the room roles swap.
           const hasGlyph = gs >= 8
             && ['parachute', 'masscomponent', 'centeringring', 'shockcord'].includes(child.type);
-          if (style && !hasGlyph && len * ctx.scale > 26 && 2 * r * ctx.scale > 11) {
+          const tagRoom = vertical
+            ? 2 * r * ctx.scale > 26 && len * ctx.scale > 11
+            : len * ctx.scale > 26 && 2 * r * ctx.scale > 11;
+          if (style && !hasGlyph && tagRoom) {
+            const tx = ctx.x0 + (start + len / 2) * ctx.scale;
+            const ty = baseY + off.y * ctx.scale;
             overlay.push(
-              <text key={key++}
-                x={ctx.x0 + (start + len / 2) * ctx.scale}
-                y={baseY + off.y * ctx.scale}
+              <text key={key++} x={tx} y={ty}
                 textAnchor="middle" dominantBaseline="central"
-                fontSize="8.5" fill={fillOf(child, style.stroke)}
+                fontSize="8.5" fill={fillOf(child, style.stroke)} {...textUp(tx, ty)}
                 style={{ pointerEvents: 'none', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                 {style.tag}
               </text>,
             );
           }
           if (motor) {
-            const mR = motor.diameter / 2;
-            const mStart = start + len - motor.length + num(child, 'motorOverhang', 0);
-            overlay.push(
-              <rect key={key++} x={ctx.x0 + mStart * ctx.scale}
-                y={baseY + (off.y - mR) * ctx.scale}
-                width={Math.max(2, motor.length * ctx.scale)} height={Math.max(2, 2 * mR * ctx.scale)}
-                rx="1" fill="#8b5a2b" fillOpacity="0.45"
-                stroke="#6b4520" strokeWidth="0.8"
-                style={{ pointerEvents: 'none' }} />,
-            );
+            overlay.push(...motorShapes(
+              motor, start + len - motor.length + num(child, 'motorOverhang', 0),
+              baseY + off.y * ctx.scale));
           }
         }
         renderChildren(child, start, len, r, baseY);
@@ -634,6 +720,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
       const len = num(n, 'length', 0);
       if (n.type === 'nosecone') {
         const r = num(n, 'aftRadius', 0.012);
+        noteHover(n, ctx.x0 + cx * scale, baseY - r * scale, ctx.x0 + (cx + len) * scale, baseY + r * scale);
         shapes.push(<path key={key++} d={profilePath(ctx, n, cx, len, 0, r, baseY)} fill={fillOf(n, '#d5d2cb')}
           stroke={selStroke(n, '#7a786f')} strokeWidth={selWidth(n)} {...clickable(n)} />);
         shoulderRect(cx + len, num(n, 'shoulderLength', 0), num(n, 'shoulderRadius', 0), '#9a978f', baseY);
@@ -641,6 +728,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
         cx += len;
       } else if (n.type === 'bodytube') {
         const r = num(n, 'outerRadius', 0.012);
+        noteHover(n, ctx.x0 + cx * scale, baseY - r * scale, ctx.x0 + (cx + len) * scale, baseY + r * scale);
         shapes.push(
           <rect key={key++} x={ctx.x0 + cx * scale} y={baseY - r * scale}
             width={len * scale} height={2 * r * scale}
@@ -651,22 +739,16 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
         // real case size, seated flush against the tube's aft end.
         const tubeMotor = n.id ? motors?.[n.id] : undefined;
         if (tubeMotor) {
-          const mR = tubeMotor.diameter / 2;
-          const mStart = cx + len - tubeMotor.length + num(n, 'motorOverhang', 0);
-          shapes.push(
-            <rect key={key++} x={ctx.x0 + mStart * scale}
-              y={baseY - mR * scale}
-              width={Math.max(2, tubeMotor.length * scale)} height={Math.max(2, 2 * mR * scale)}
-              rx="1" fill="#8b5a2b" fillOpacity="0.45"
-              stroke="#6b4520" strokeWidth="0.8"
-              style={{ pointerEvents: 'none' }} />,
-          );
+          shapes.push(...motorShapes(
+            tubeMotor, cx + len - tubeMotor.length + num(n, 'motorOverhang', 0), baseY));
         }
         renderChildren(n, cx, len, r, baseY);
         cx += len;
       } else if (n.type === 'transition') {
         const rf = num(n, 'foreRadius', 0.012);
         const ra = num(n, 'aftRadius', 0.009);
+        noteHover(n, ctx.x0 + cx * scale, baseY - Math.max(rf, ra) * scale,
+          ctx.x0 + (cx + len) * scale, baseY + Math.max(rf, ra) * scale);
         shapes.push(
           <path key={key++} d={profilePath(ctx, n, cx, len, rf, ra, baseY)}
             fill={fillOf(n, '#d5d2cb')} stroke={selStroke(n, '#7a786f')}
@@ -691,21 +773,53 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
     : null;
   const callouts = calloutLayout(cgX, cpX, ctx.cy, vHalf * scale, w, h, marginText);
 
+  // Hover overlay (S5): a light accent wash over the hovered component's
+  // extent plus a name tag — deliberately fainter than the solid width-2
+  // selection outline so the two stay distinguishable.
+  const hoverBox = hoverBoxes.length
+    ? hoverBoxes.reduce((a, b) => ({
+      x0: Math.min(a.x0, b.x0), y0: Math.min(a.y0, b.y0),
+      x1: Math.max(a.x1, b.x1), y1: Math.max(a.y1, b.y1),
+    }))
+    : null;
+  let hoverTag: { x: number; y: number; tw: number } | null = null;
+  if (hoverBox) {
+    const tw = hoverName.length * 6.2 + 14;
+    hoverTag = {
+      x: Math.min(w - tw / 2 - 2, Math.max(tw / 2 + 2, (hoverBox.x0 + hoverBox.x1) / 2)),
+      // Above the component unless that leaves the viewBox; then below.
+      y: hoverBox.y0 - 22 >= 2 ? hoverBox.y0 - 13 : Math.min(h - 11, hoverBox.y1 + 13),
+      tw,
+    };
+  }
+
   return (
-    <div ref={wrapRef} style={{ position: 'relative' }}>
-      <svg ref={svgRef} viewBox={`0 0 ${w} ${h}`}
-          style={{ width: '100%', height: 'auto', display: 'block', touchAction: 'none',
-            cursor: zoom.k > 1 ? 'grab' : undefined }}
-          role="img" aria-label="Rocket side view with CG and CP markers — drag components, wheel to zoom, drag background to pan"
-          onPointerDown={beginPan}
-          onPointerMove={onMove} onPointerUp={endDrag} onPointerLeave={endDrag}>
+    <div ref={wrapRef} style={{ position: 'relative', ...(vertical ? { height: '100%' } : null) }}>
+      <svg ref={svgRef} viewBox={vertical ? `0 0 ${h} ${w}` : `0 0 ${w} ${h}`}
+          style={vertical
+            ? { height: '100%', maxWidth: '100%', display: 'block', margin: '0 auto' }
+            : { width: '100%', height: 'auto', display: 'block', touchAction: 'none',
+              cursor: zoom.k > 1 ? 'grab' : undefined }}
+          role="img"
+          aria-label={vertical
+            ? 'Rocket side view, nose up, with CG and CP markers'
+            : 'Rocket side view with CG and CP markers — drag components, wheel to zoom, drag background to pan'}
+          onPointerDown={vertical ? undefined : beginPan}
+          onPointerMove={vertical ? undefined : onMove}
+          onPointerUp={vertical ? undefined : endDrag}
+          onPointerLeave={vertical ? undefined : endDrag}>
         <defs>
           {/* Bulkhead fill: the engineering-drawing diagonal hatch. */}
           <pattern id="bulkhead-hatch" patternUnits="userSpaceOnUse" width="5" height="5">
             <path d="M0 5 L5 0" stroke="#66748c" strokeWidth="0.9" />
           </pattern>
         </defs>
-        <g transform={`translate(${zoom.x} ${zoom.y}) scale(${zoom.k})`}>
+        {/* Vertical: one rigid rotation of the horizontal layout — the w×h
+            layout rect maps exactly onto the transposed h×w viewBox with the
+            nose (layout left) up. rotate(-90) would put it nose DOWN. */}
+        <g transform={vertical
+          ? `rotate(90 ${h / 2} ${h / 2})`
+          : `translate(${zoom.x} ${zoom.y}) scale(${zoom.k})`}>
           {shapes}
           {overlay}
           {cgX !== null && (
@@ -729,7 +843,8 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
                     stroke="var(--text-primary)" strokeWidth="1" strokeDasharray="4 3" />
                   <circle cx={callouts.cg.x} cy={callouts.cg.leaderY2} r={4} fill="var(--text-primary)" />
                   <text x={callouts.cg.x + 8} y={callouts.cg.leaderY2} dominantBaseline="central"
-                    fontSize="11" fontWeight="bold" fill="var(--text-primary)">CG</text>
+                    fontSize="11" fontWeight="bold" fill="var(--text-primary)"
+                    {...textUp(callouts.cg.x + 8, callouts.cg.leaderY2)}>CG</text>
                 </>
               )}
               {callouts.cp && (
@@ -738,18 +853,38 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
                     stroke="var(--status-serious)" strokeWidth="1" strokeDasharray="4 3" />
                   <circle cx={callouts.cp.x} cy={callouts.cp.leaderY2} r={4} fill="var(--status-serious)" />
                   <text x={callouts.cp.x + 8} y={callouts.cp.leaderY2} dominantBaseline="central"
-                    fontSize="11" fontWeight="bold" fill="var(--status-serious)">CP</text>
+                    fontSize="11" fontWeight="bold" fill="var(--status-serious)"
+                    {...textUp(callouts.cp.x + 8, callouts.cp.leaderY2)}>CP</text>
                 </>
               )}
               {callouts.margin && stab && (
                 <text x={callouts.margin.x} y={callouts.margin.y} textAnchor="middle" dominantBaseline="central"
-                  fontSize="13" fontWeight="bold" fill={STABILITY_VAR[stab]}>{marginText}</text>
+                  fontSize="13" fontWeight="bold" fill={STABILITY_VAR[stab]}
+                  {...textUp(callouts.margin.x, callouts.margin.y)}>{marginText}</text>
               )}
+            </g>
+          )}
+          {hoverBox && hoverTag && (
+            <g pointerEvents="none">
+              <rect x={hoverBox.x0 - 2} y={hoverBox.y0 - 2}
+                width={hoverBox.x1 - hoverBox.x0 + 4} height={hoverBox.y1 - hoverBox.y0 + 4}
+                rx="3" fill="var(--accent)" fillOpacity="0.14"
+                stroke="var(--accent)" strokeWidth="1" strokeOpacity="0.6" />
+              <g {...textUp(hoverTag.x, hoverTag.y)}>
+                <rect x={hoverTag.x - hoverTag.tw / 2} y={hoverTag.y - 9}
+                  width={hoverTag.tw} height={18} rx="4"
+                  fill="rgba(13,14,18,0.9)" stroke="var(--border)" strokeWidth="1" />
+                <text x={hoverTag.x} y={hoverTag.y} textAnchor="middle" dominantBaseline="central"
+                  fontSize="11" fill="#ffffff">{hoverName}</text>
+              </g>
             </g>
           )}
         </g>
       </svg>
-      <div className="schematic-controls">
+      {/* Vertical is read-mostly: no zoom to fit-reset, and the SVG/image
+          exports assume the horizontal drawing (identity view transform), so
+          the whole strip hides rather than export a sideways page. */}
+      {!vertical && <div className="schematic-controls">
         {exportData && (
           <>
             <button className="file-btn"
@@ -784,7 +919,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
           aria-label="Zoom in" onClick={() => zoomBy(1.5)} disabled={zoom.k >= 12}>+</button>
         <button className="file-btn" title="Zoom out"
           aria-label="Zoom out" onClick={() => zoomBy(1 / 1.5)} disabled={zoom.k <= 1}>−</button>
-      </div>
+      </div>}
     </div>
   );
 }

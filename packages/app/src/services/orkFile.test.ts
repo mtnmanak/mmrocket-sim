@@ -653,67 +653,179 @@ describe('.ork launch conditions (simulations block)', () => {
   });
 });
 
-describe('.ork multi-configuration honesty', () => {
-  // Desktop shape: rocket-level declarations (name only when overridden) +
-  // per-mount <motor configid> blocks written in declaration order.
-  const TWO_CONFIGS = `<openrocket version="1.10" creator="OpenRocket 24.12"><rocket>
-    <name>TwoCfg</name>
+describe('.ork multi-configuration import (Stage A)', () => {
+  // Desktop file shape (24.12 savers): rocket-level declarations with
+  // optional <name>/default="true" and <stage number active> children;
+  // per mount, bare ignition defaults + one <motor configid> per non-empty
+  // config + <ignitionconfiguration> only for overriding configs; recovery
+  // devices bare deploy tags + <deploymentconfiguration> overrides; stages
+  // bare separation tags + a <separationconfiguration> for EVERY config.
+  // cfg-b is a "sustainer only" flight: booster stage inactive, no booster
+  // motor.
+  const MULTI = `<openrocket version="1.10" creator="OpenRocket 24.12"><rocket>
+    <name>MultiCfg</name>
     <motorconfiguration configid="cfg-a" default="true">
       <name>Club field C6</name>
       <stage number="0" active="true"/>
+      <stage number="1" active="true"/>
     </motorconfiguration>
     <motorconfiguration configid="cfg-b">
+      <name>Demo day D12</name>
       <stage number="0" active="true"/>
+      <stage number="1" active="false"/>
     </motorconfiguration>
-    <subcomponents><stage><name>S</name><subcomponents>
-      <nosecone><name>N</name><length>0.07</length><thickness>0.002</thickness>
-        <shape>ogive</shape><aftradius>0.012</aftradius></nosecone>
-      <bodytube><name>B</name><length>0.3</length><thickness>0.0005</thickness><radius>0.012</radius>
-        <motormount>
-          <ignitionevent>automatic</ignitionevent><ignitiondelay>0.0</ignitiondelay>
-          <overhang>0.0</overhang>
-          <motor configid="cfg-a"><type>single</type><manufacturer>Estes</manufacturer>
-            <designation>C6</designation><diameter>0.018</diameter><length>0.07</length>
-            <delay>5.0</delay></motor>
-          <motor configid="cfg-b"><type>single</type><manufacturer>Estes</manufacturer>
-            <designation>D12</designation><diameter>0.024</diameter><length>0.07</length>
-            <delay>7.0</delay></motor>
-        </motormount>
-      </bodytube>
-    </subcomponents></stage></subcomponents></rocket></openrocket>`;
+    <subcomponents>
+      <stage><name>Sustainer</name><subcomponents>
+        <nosecone><name>N</name><length>0.07</length><thickness>0.002</thickness>
+          <shape>ogive</shape><aftradius>0.012</aftradius></nosecone>
+        <bodytube><name>B</name><length>0.3</length><thickness>0.0005</thickness><radius>0.012</radius>
+          <motormount>
+            <ignitionevent>automatic</ignitionevent><ignitiondelay>0.0</ignitiondelay>
+            <overhang>0.0</overhang>
+            <motor configid="cfg-a"><type>single</type><manufacturer>Estes</manufacturer>
+              <designation>C6</designation><diameter>0.018</diameter><length>0.07</length>
+              <delay>5.0</delay></motor>
+            <motor configid="cfg-b"><type>single</type><manufacturer>Estes</manufacturer>
+              <designation>D12</designation><diameter>0.024</diameter><length>0.07</length>
+              <delay>7.0</delay></motor>
+            <ignitionconfiguration configid="cfg-b">
+              <ignitionevent>launch</ignitionevent><ignitiondelay>1.5</ignitiondelay>
+            </ignitionconfiguration>
+          </motormount>
+          <subcomponents>
+            <parachute><name>Chute</name><diameter>0.3</diameter><cd>auto</cd>
+              <deployevent>ejection</deployevent><deployaltitude>200.0</deployaltitude><deploydelay>0.0</deploydelay>
+              <deploymentconfiguration configid="cfg-b">
+                <deployevent>altitude</deployevent><deployaltitude>150.0</deployaltitude><deploydelay>1.0</deploydelay>
+              </deploymentconfiguration>
+            </parachute>
+          </subcomponents>
+        </bodytube>
+      </subcomponents></stage>
+      <stage><name>Booster</name>
+        <separationevent>ejection</separationevent><separationaltitude>200.0</separationaltitude><separationdelay>0.0</separationdelay>
+        <separationconfiguration configid="cfg-a">
+          <separationevent>ejection</separationevent><separationaltitude>200.0</separationaltitude><separationdelay>0.0</separationdelay>
+        </separationconfiguration>
+        <separationconfiguration configid="cfg-b">
+          <separationevent>burnout</separationevent><separationaltitude>200.0</separationaltitude><separationdelay>2.0</separationdelay>
+        </separationconfiguration>
+        <subcomponents>
+          <bodytube><name>BB</name><length>0.2</length><thickness>0.0005</thickness><radius>0.012</radius>
+            <motormount>
+              <ignitionevent>automatic</ignitionevent><ignitiondelay>0.0</ignitiondelay>
+              <overhang>0.0</overhang>
+              <motor configid="cfg-a"><type>single</type><manufacturer>Estes</manufacturer>
+                <designation>D12</designation><diameter>0.024</diameter><length>0.07</length>
+                <delay>0.0</delay></motor>
+            </motormount>
+          </bodytube>
+        </subcomponents>
+      </stage>
+    </subcomponents></rocket></openrocket>`;
 
-  it('keeps the first configuration and says which one in a single note', () => {
-    const result = importOrk(TWO_CONFIGS);
-    // Kept: the first <motor> per mount = the earliest-declared config.
+  it('applies the default configuration when no pick is given', () => {
+    const result = importOrk(MULTI);
+    expect(result.configs).toEqual([
+      { id: 'cfg-a', name: 'Club field C6', isDefault: true },
+      { id: 'cfg-b', name: 'Demo day D12', isDefault: false },
+    ]);
+    expect(result.chosenConfigId).toBe('cfg-a');
+    // Both mounts carry a cfg-a motor.
     expect(result.motor?.designation).toBe('C6');
-    const notes = result.notes.filter((n) => n.includes('flight configurations'));
+    expect(result.motor?.delay).toBe(5);
+    expect(Object.values(result.motors).map((m) => m.designation).sort()).toEqual(['C6', 'D12']);
+    // Ignition: cfg-b's override block must NOT leak — bare defaults apply.
+    expect(result.motor?.ignitionEvent).toBe('automatic');
+    expect(result.motor?.ignitionDelay).toBe(0);
+    // Deployment: bare tags, not cfg-b's override block.
+    const chute = flatten(result.tree.components).find((c) => c.type === 'parachute')!;
+    expect(chute['deployEvent']).toBe('ejection');
+    expect(chute['deployAltitude']).toBeCloseTo(200, 12);
+    expect(chute['deployDelay']).toBeCloseTo(0, 12);
+    // Separation: cfg-a's block carries the sparse defaults — nothing stored.
+    const booster = result.tree.components[1]!;
+    expect(booster['separationEvent']).toBeUndefined();
+    expect(booster['separationDelay']).toBeUndefined();
+    const notes = result.notes.filter((n) => n.includes('flight configuration'));
     expect(notes).toHaveLength(1);
-    expect(notes[0]).toContain('2 flight configurations');
-    expect(notes[0]).toContain('Club field C6');
-    expect(notes[0]).toContain('1 was not imported');
+    expect(notes[0]).toBe('Opened flight configuration “Club field C6” (2 in the file — reopen the file to pick another).');
+    // cfg-a flies every stage — no activeness caveat.
+    expect(result.notes.some((n) => n.includes('deactivates'))).toBe(false);
   });
 
-  it('falls back to the configid when the kept configuration is unnamed', () => {
-    const unnamed = TWO_CONFIGS.replace('<name>Club field C6</name>', '');
-    const note = importOrk(unnamed).notes.find((n) => n.includes('flight configurations'))!;
-    expect(note).toContain('cfg-a');
+  it('opts.configId picks the other configuration, overrides included', () => {
+    const result = importOrk(MULTI, { configId: 'cfg-b' });
+    expect(result.chosenConfigId).toBe('cfg-b');
+    expect(result.motor?.designation).toBe('D12');
+    expect(result.motor?.delay).toBe(7);
+    // The booster mount has no cfg-b motor — it imports empty.
+    expect(Object.values(result.motors).map((m) => m.designation)).toEqual(['D12']);
+    // Ignition/deployment/separation: cfg-b's override blocks apply.
+    expect(result.motor?.ignitionEvent).toBe('launch');
+    expect(result.motor?.ignitionDelay).toBeCloseTo(1.5, 12);
+    const chute = flatten(result.tree.components).find((c) => c.type === 'parachute')!;
+    expect(chute['deployEvent']).toBe('altitude');
+    expect(chute['deployAltitude']).toBeCloseTo(150, 12);
+    expect(chute['deployDelay']).toBeCloseTo(1, 12);
+    const booster = result.tree.components[1]!;
+    expect(booster['separationEvent']).toBe('burnout');
+    expect(booster['separationDelay']).toBeCloseTo(2, 12);
+    const notes = result.notes.filter((n) => n.includes('flight configuration'));
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toContain('Opened flight configuration “Demo day D12”');
+    // cfg-b grounds the booster stage — activeness isn't applied yet, say so.
+    expect(result.notes.filter((n) => n.includes('deactivates'))).toHaveLength(1);
+    expect(result.notes.find((n) => n.includes('deactivates'))).toContain('all stages fly');
   });
 
-  it('stays silent for single-configuration files', () => {
+  it('falls back to the default when opts.configId names no declared config', () => {
+    const result = importOrk(MULTI, { configId: 'cfg-nope' });
+    expect(result.chosenConfigId).toBe('cfg-a');
+    expect(result.motor?.designation).toBe('C6');
+  });
+
+  it('separation falls back to the bare tags when the chosen config has no block', () => {
+    const stripped = MULTI
+      .replace(/<separationconfiguration configid="cfg-a">[\s\S]*?<\/separationconfiguration>/, '')
+      .replace('<separationdelay>0.0</separationdelay>', '<separationdelay>3.0</separationdelay>');
+    const booster = importOrk(stripped).tree.components[1]!;
+    expect(booster['separationDelay']).toBeCloseTo(3, 12);
+  });
+
+  it('single-config files behave exactly as before, config-note free', () => {
     const result = importOrk(golden('reference.ork'));
-    expect(result.notes.some((n) => n.includes('flight configurations'))).toBe(false);
+    expect(result.configs).toHaveLength(1);
+    expect(result.configs[0]!.isDefault).toBe(true);
+    expect(result.chosenConfigId).toBe(result.configs[0]!.id);
+    expect(result.motor?.designation).toBe('C6');
+    expect(result.notes.some((n) => n.includes('flight configuration'))).toBe(false);
   });
 
   it('says nothing was kept when the declared configs carry no motors at all', () => {
-    // Both <motor> blocks removed: two rocket-level declarations remain but
-    // every mount is empty — the note must not claim a configuration was kept.
-    const noMotors = TWO_CONFIGS.replace(/<motor configid[\s\S]*?<\/motor>/g, '');
+    // Both mounts' <motor> blocks removed: two rocket-level declarations
+    // remain but every mount is empty — the note must not claim a
+    // configuration was opened.
+    const noMotors = MULTI.replace(/<motor configid[\s\S]*?<\/motor>/g, '');
     const result = importOrk(noMotors);
     expect(Object.keys(result.motors)).toHaveLength(0);
     const notes = result.notes.filter((n) => n.includes('flight configurations'));
     expect(notes).toHaveLength(1);
     expect(notes[0]).toContain('carried no motors to import');
-    expect(notes[0]).not.toContain('kept');
+    expect(notes[0]).not.toContain('Opened');
+  });
+
+  it('keeps the legacy first-motor read and note for undeclared configids', () => {
+    // Hand-rolled shape: no rocket-level declarations, several stray
+    // <motor configid>s — the old behavior, preserved.
+    const undeclared = MULTI.replace(/<motorconfiguration[\s\S]*?<\/motorconfiguration>/g, '');
+    const result = importOrk(undeclared);
+    expect(result.configs).toEqual([]);
+    expect(result.chosenConfigId).toBeNull();
+    expect(result.motor?.designation).toBe('C6'); // first in document order
+    const note = result.notes.find((n) => n.includes('flight configurations'))!;
+    expect(note).toContain('kept “cfg-a”');
+    expect(note).toContain('1 was not imported');
   });
 });
 

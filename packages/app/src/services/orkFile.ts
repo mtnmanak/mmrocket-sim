@@ -48,9 +48,34 @@ export interface OrkTreeImportResult {
   launch?: Partial<LaunchConditions>;
 }
 
+/** One rocket-level <motorconfiguration> declaration. */
+export interface OrkFlightConfig {
+  id: string;
+  /** Desktop writes <name> only when the user renamed the configuration. */
+  name: string | null;
+  isDefault: boolean;
+}
+
+/**
+ * importOrk's result: OrkTreeImportResult (the shape importRkt/importCdx1
+ * also produce) plus the .ork flight-configuration table, so a caller can
+ * offer a picker and re-import with `{ configId }`.
+ */
+export interface OrkImportResult extends OrkTreeImportResult {
+  /** Declared flight configurations in file order (empty when none). */
+  configs: OrkFlightConfig[];
+  /**
+   * The configuration whose motors/ignition/deployment/separation were
+   * applied — opts.configId when it names a declared config, else the
+   * default="true" one, else the first declared; null when the file
+   * declares none (legacy first-element reads).
+   */
+  chosenConfigId: string | null;
+}
+
 // ============================ IMPORT ============================
 
-export function importOrk(data: ArrayBuffer | string): OrkTreeImportResult {
+export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string }): OrkImportResult {
   let xml: string;
   if (typeof data === 'string') {
     xml = data;
@@ -85,6 +110,34 @@ export function importOrk(data: ArrayBuffer | string): OrkTreeImportResult {
   const stages = Array.from(rocketEl.querySelectorAll(':scope > subcomponents > stage'));
   if (stages.length === 0) throw new Error('No stage found');
 
+  // Flight-configuration table: rocket-level <motorconfiguration> blocks
+  // (optional <name>, optional default="true" — desktop 24.12
+  // MotorConfigurationHandler).
+  const configEls = Array.from(rocketEl.querySelectorAll(':scope > motorconfiguration'));
+  const configs: OrkFlightConfig[] = configEls
+    .map((c) => ({
+      id: c.getAttribute('configid') ?? '',
+      name: text(c, ':scope > name'),
+      isDefault: c.getAttribute('default') === 'true',
+    }))
+    .filter((c) => c.id !== '');
+  const requested = opts?.configId;
+  const chosenConfigId =
+    (requested != null && configs.some((c) => c.id === requested) ? requested : null)
+    ?? configs.find((c) => c.isDefault)?.id
+    ?? configs[0]?.id
+    ?? null;
+
+  // The chosen configuration's child of `el` by tag name (per-config motor
+  // or override block). With no declared configs, the first such child —
+  // hand-rolled files may key <motor configid>s without declarations, and
+  // first-in-document-order is the long-standing read for them.
+  const configScoped = (el: Element, tag: string): Element | null =>
+    chosenConfigId === null
+      ? el.querySelector(`:scope > ${tag}`)
+      : Array.from(el.children).find(
+          (c) => c.tagName === tag && c.getAttribute('configid') === chosenConfigId) ?? null;
+
   const readMotor = (el: Element, node: ComponentNode) => {
     const mountEl = el.querySelector(':scope > motormount');
     if (!mountEl) return;
@@ -95,11 +148,12 @@ export function importOrk(data: ArrayBuffer | string): OrkTreeImportResult {
     // Motor overhang (m): aft protrusion past the mount — min-diameter practice.
     const overhang = num(mountEl, 'overhang', 0);
     if (overhang !== 0) node['motorOverhang'] = overhang;
-    const motorEl = mountEl.querySelector(':scope > motor');
+    // A mount with no motor for the chosen configuration imports empty.
+    const motorEl = configScoped(mountEl, 'motor');
     if (!motorEl) return;
-    // Ignition: the per-config block wins over the bare default (desktop
-    // writes defaults bare, overrides in <ignitionconfiguration>).
-    const igEl = mountEl.querySelector(':scope > ignitionconfiguration') ?? mountEl;
+    // Ignition: the chosen config's block wins over the bare default
+    // (desktop writes defaults bare, overrides in <ignitionconfiguration>).
+    const igEl = configScoped(mountEl, 'ignitionconfiguration') ?? mountEl;
     // Plugged motors (no ejection charge): the desktop writes the literal
     // string "none" (Motor.PLUGGED_DELAY). Represent as Infinity — the kernel
     // treats a +Inf ejection delay as "never fires", matching the desktop.
@@ -360,7 +414,10 @@ export function importOrk(data: ArrayBuffer | string): OrkTreeImportResult {
         n['lineLength'] = num(el, 'linelength', 0.3);
         readSoftMaterial(el, n, 'surface', 'surfaceDensity', 'surfaceMaterialName');
         readSoftMaterial(el, n, 'line', 'lineDensity', 'lineMaterialName', ':scope > linematerial');
-        readDeployment(el, n);
+        // <deploymentconfiguration> only overrides when a config was chosen —
+        // with no declarations the bare tags stay the whole story (a stray
+        // block in an undeclared file was never read, keep it that way).
+        readDeployment(el, n, chosenConfigId === null ? null : configScoped(el, 'deploymentconfiguration'));
         // Our extension tag (desktop warns-and-ignores) — spill hole diameter.
         const spill = num(el, 'spillholediameter', 0);
         if (spill > 0) n['spillHoleDiameter'] = spill;
@@ -373,7 +430,7 @@ export function importOrk(data: ArrayBuffer | string): OrkTreeImportResult {
         const cdText = text(el, ':scope > cd');
         if (cdText && cdText !== 'auto') n['cd'] = Number(cdText);
         readSoftMaterial(el, n, 'surface', 'surfaceDensity', 'surfaceMaterialName');
-        readDeployment(el, n);
+        readDeployment(el, n, chosenConfigId === null ? null : configScoped(el, 'deploymentconfiguration'));
         return n;
       }
       case 'shockcord': {
@@ -418,8 +475,9 @@ export function importOrk(data: ArrayBuffer | string): OrkTreeImportResult {
           }
         }
         if (asmType === 'parallelstage') {
-          // Same separation read as a booster <stage> — per-config wins over bare.
-          const sepEl = el.querySelector(':scope > separationconfiguration') ?? el;
+          // Same separation read as a booster <stage> — the chosen config's
+          // block wins over the bare defaults.
+          const sepEl = configScoped(el, 'separationconfiguration') ?? el;
           const ev = text(sepEl, ':scope > separationevent');
           if (ev && ev !== 'ejection') n['separationEvent'] = ev;
           const delay = num(sepEl, 'separationdelay', 0);
@@ -463,9 +521,9 @@ export function importOrk(data: ArrayBuffer | string): OrkTreeImportResult {
     const nozzle = num(stageEl, 'nozzleexitdiameter', NaN);
     if (!Number.isNaN(nozzle) && nozzle > 0) stage['nozzleExitDiameter'] = nozzle;
     if (i > 0) {
-      // Like ignition: the per-config block overrides the bare defaults
-      // (desktop writes defaults bare, overrides in <separationconfiguration>).
-      const sepEl = stageEl.querySelector(':scope > separationconfiguration') ?? stageEl;
+      // Like ignition: the chosen config's block overrides the bare defaults
+      // (24.12 writes a <separationconfiguration> for EVERY config id).
+      const sepEl = configScoped(stageEl, 'separationconfiguration') ?? stageEl;
       const ev = text(sepEl, ':scope > separationevent');
       if (ev && ev !== 'ejection') stage['separationEvent'] = ev;
       const delay = num(sepEl, 'separationdelay', 0);
@@ -484,41 +542,53 @@ export function importOrk(data: ArrayBuffer | string): OrkTreeImportResult {
     notes.push(`Ignored unsupported components: ${[...ignored].join(', ')}.`);
   }
 
-  // Multi-config honesty: readMotor keeps ONE flight configuration — the
-  // first <motor> child of each mount. The desktop writes a mount's motors
-  // in flight-configuration declaration order, so that is the earliest
-  // declared configuration carrying a motor. Say so instead of silently
-  // dropping the rest.
-  const configEls = Array.from(rocketEl.querySelectorAll(':scope > motorconfiguration'));
-  const configIds = new Set(configEls.map((c) => c.getAttribute('configid')).filter((v): v is string => !!v));
-  for (const m of Array.from(rocketEl.getElementsByTagName('motor'))) {
-    // Hand-rolled files may skip the rocket-level declarations.
-    const id = m.getAttribute('configid');
-    if (id) configIds.add(id);
-  }
-  if (configIds.size > 1) {
+  // Multi-config notes: the chosen configuration's values were applied by
+  // the config-scoped reads above — say which one, and how to get another.
+  if (configs.length > 1) {
     const mountMotorEls = Array.from(rocketEl.querySelectorAll('motormount > motor'));
     if (mountMotorEls.length === 0) {
-      // Declared configs but no <motor> in any mount: nothing was "kept" —
-      // claiming one was would send the user hunting for a motor that isn't
-      // loaded (the mounts are all empty).
+      // Declared configs but no <motor> in any mount: the pick changed no
+      // motors — claiming one was opened would send the user hunting for a
+      // motor that isn't loaded (the mounts are all empty).
       notes.push(
-        `File declares ${configIds.size} flight configurations but carried no motors to import.`);
+        `File declares ${configs.length} flight configurations but carried no motors to import.`);
     } else {
-      const keptId = mountMotorEls
+      const chosen = configs.find((c) => c.id === chosenConfigId)!;
+      notes.push(
+        `Opened flight configuration “${chosen.name ?? chosen.id}” (${configs.length} in the file — reopen the file to pick another).`);
+    }
+    // Stage activeness (<stage active="false">) is not applied (Stage C) —
+    // warn when the chosen configuration would actually ground a stage.
+    const chosenEl = configEls.find((c) => c.getAttribute('configid') === chosenConfigId);
+    if (chosenEl && Array.from(chosenEl.querySelectorAll(':scope > stage'))
+        .some((s) => s.getAttribute('active') === 'false')) {
+      notes.push(
+        'This configuration deactivates one or more stages — stage activeness isn’t applied here, so all stages fly in the simulation.');
+    }
+  } else if (configs.length === 0) {
+    // Hand-rolled files may key <motor configid>s without declaring the
+    // configs. Those kept the legacy first-motor read, so keep the legacy
+    // honesty note: the rest were silently dropped.
+    const strayIds = new Set<string>();
+    for (const m of Array.from(rocketEl.getElementsByTagName('motor'))) {
+      const id = m.getAttribute('configid');
+      if (id) strayIds.add(id);
+    }
+    if (strayIds.size > 1) {
+      const keptId = Array.from(rocketEl.querySelectorAll('motormount > motor'))
         .map((m) => m.getAttribute('configid'))
         .find((id) => id !== null);
-      const keptEl = configEls.find((c) => c.getAttribute('configid') === keptId);
-      // Desktop writes <name> only when the user renamed the configuration.
-      const keptName = (keptEl ? text(keptEl, ':scope > name') : null) ?? keptId ?? 'the first';
       notes.push(
-        `File has ${configIds.size} flight configurations — kept “${keptName}”; the other ${configIds.size - 1} ${configIds.size - 1 === 1 ? 'was' : 'were'} not imported.`);
+        `File has ${strayIds.size} flight configurations — kept “${keptId ?? 'the first'}”; the other ${strayIds.size - 1} ${strayIds.size - 1 === 1 ? 'was' : 'were'} not imported.`);
     }
   }
 
   const launch = readLaunchConditions(doc, notes);
 
-  return { name, tree: { name, components }, motor, motors, ignored: [...ignored], notes, ...(launch ? { launch } : {}) };
+  return {
+    name, tree: { name, components }, motor, motors, configs, chosenConfigId,
+    ignored: [...ignored], notes, ...(launch ? { launch } : {}),
+  };
 }
 
 /**
@@ -1370,14 +1440,22 @@ function readFinTabs(el: Element, node: ComponentNode): void {
   }
 }
 
-function readDeployment(el: Element, node: ComponentNode): void {
-  const event = text(el, ':scope > deployevent');
-  if (event) node['deployEvent'] = event;
-  if (text(el, ':scope > deployaltitude') !== null) {
-    node['deployAltitude'] = num(el, 'deployaltitude', 200);
-  }
-  if (text(el, ':scope > deploydelay') !== null) {
-    node['deployDelay'] = num(el, 'deploydelay', 0);
+/**
+ * Recovery-device deployment: the bare tags are the defaults; the chosen
+ * config's <deploymentconfiguration> block (same child tag names) overrides
+ * them PER FIELD — the desktop handler clones the default and applies only
+ * the fields the block carries.
+ */
+function readDeployment(el: Element, node: ComponentNode, configEl: Element | null = null): void {
+  for (const src of configEl ? [el, configEl] : [el]) {
+    const event = text(src, ':scope > deployevent');
+    if (event) node['deployEvent'] = event;
+    if (text(src, ':scope > deployaltitude') !== null) {
+      node['deployAltitude'] = num(src, 'deployaltitude', 200);
+    }
+    if (text(src, ':scope > deploydelay') !== null) {
+      node['deployDelay'] = num(src, 'deploydelay', 0);
+    }
   }
 }
 

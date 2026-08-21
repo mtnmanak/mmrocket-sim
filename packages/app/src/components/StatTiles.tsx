@@ -72,6 +72,33 @@ export function DesignStats({ info, motorLabel }: { info: StaticInfo; motorLabel
   );
 }
 
+/**
+ * Floating stats chip on the design canvas (S1, batch 08-21c): the five
+ * numbers the owner checks constantly, overlaid on canvas sky so the stat grid
+ * can live in a drawer. Read-only by design — units follow preferences but
+ * the chip offers no unit chips (that's the drawer's job).
+ */
+export function StatsChip({ info }: { info: StaticInfo }) {
+  const { prefs } = usePrefs();
+  const len = prefs.units.length;
+  const { glyph, cls } = stabilityGlyphClass(info.stabilityCalibers);
+  const row = (label: string, value: string, cls2?: string) => (
+    <div className="stats-chip-row">
+      <span className="stats-chip-label">{label}</span>
+      <span className={`stats-chip-value ${cls2 ?? ''}`}>{value}</span>
+    </div>
+  );
+  return (
+    <div className="stats-chip">
+      {row('Length', `${fmtSi('length', len, info.length, 3)} ${len}`)}
+      {row('Mass loaded', `${fmtSi('mass', prefs.units.mass, info.mass)} ${prefs.units.mass}`)}
+      {row('CG', `${fmtSi('length', len, info.cg, 3)} ${len}`)}
+      {row('CP', `${fmtSi('length', len, info.cp, 3)} ${len}`)}
+      {row('Stability', `${glyph} ${info.stabilityCalibers.toFixed(2)} cal`, cls)}
+    </div>
+  );
+}
+
 // ---- Customizable results tiles (issue 2026-08-05b #3) ----
 
 interface TileSpec {

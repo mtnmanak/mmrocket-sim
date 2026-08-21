@@ -44,7 +44,7 @@ const STEPS: TourStep[] = [
   },
   {
     target: 'guide', tab: 'design', title: 'When you need more',
-    body: 'The Guide has a quick start and the physics behind the sim — and the 🐞 button beside it files bugs or ideas, no account needed. Replay this tour from the Guide any time.',
+    body: 'The Guide has a quick start and the physics behind the sim — and the 🐞 button beside it files bugs or ideas, no account needed. The ⟲ Tour button next door replays this tour any time.',
   },
 ];
 
@@ -134,7 +134,10 @@ export function FirstRunTour({ onSetTab, onClose }: {
 
   return (
     <>
-      {anchor.rect && (
+      {/* Spotlight: the ring's huge box-shadow dims everything EXCEPT the
+          anchor (the owner, batch 08-21c — the tour must visibly take the stage).
+          With no anchor the plain scrim does the dimming. */}
+      {anchor.rect ? (
         <div
           className="tour-ring"
           style={{
@@ -144,6 +147,8 @@ export function FirstRunTour({ onSetTab, onClose }: {
             height: anchor.rect.height + 10,
           }}
         />
+      ) : (
+        <div className="tour-scrim" />
       )}
       <div className="tour-card" role="dialog" aria-label={`Tour step ${idx + 1} of ${STEPS.length}: ${step.title}`} style={cardStyle}>
         <button className="tour-close" onClick={close} aria-label="Close tour">×</button>
