@@ -662,6 +662,20 @@ export function Rocket3D({ tree, info, motors, exportData }: {
   const markerR = markerRadius(totalLen, maxR);
   const gadget = calloutGadget(info, maxR, totalLen);
 
+  // View presets + recovery (batch 08-21d): a pan or deep zoom could lose the
+  // rocket with no way back — these jump the camera to known-good stations.
+  // OrbitControls re-derives its state from the camera, so setting position +
+  // target + update() is the whole move.
+  const controls = useRef<import('three-stdlib').OrbitControls | null>(null);
+  const jumpTo = (pos: [number, number, number]) => {
+    const st = r3f.current;
+    const c = controls.current;
+    if (!st || !c) return;
+    st.camera.position.set(pos[0], pos[1], pos[2]);
+    c.target.set(center, 0, 0);
+    c.update();
+  };
+
   return (
     <div className="rocket3d-wrap" style={{ position: 'relative' }}>
       {exportData && (
@@ -671,6 +685,14 @@ export function Rocket3D({ tree, info, motors, exportData }: {
             onPick={snapshot} />
         </div>
       )}
+      <div style={{ position: 'absolute', top: 6, left: 6, zIndex: 2, display: 'flex', gap: 6 }}>
+        <button className="file-btn" title="Reset the camera to the standard three-quarter view"
+          onClick={() => jumpTo([center + camDist * 0.5, camDist * 0.45, camDist * 0.8])}>⟲ Reset</button>
+        <button className="file-btn" title="Straight-on side profile"
+          onClick={() => jumpTo([center, 0, camDist * 1.05])}>Side</button>
+        <button className="file-btn" title="From behind — clusters and fin count as they really sit"
+          onClick={() => jumpTo([totalLen + camDist * 0.9, 0, 0])}>Aft</button>
+      </div>
       <Canvas camera={{ position: [center + camDist * 0.5, camDist * 0.45, camDist * 0.8], fov: 40 }}
         // Snapshot export reads the drawing buffer after the frame — without
         // this flag WebGL may have discarded it and toDataURL returns black.
@@ -686,13 +708,17 @@ export function Rocket3D({ tree, info, motors, exportData }: {
           {pieces.map((p) => (
             <mesh key={p.key} geometry={p.geometry}
               position={p.position ?? [0, 0, 0]}
-              rotation={p.rotation ?? [0, 0, 0]}>
-              {/* Shell pieces are slightly see-through so mounts and motors
-                  read inside; opaque internals render first, the shell blends
-                  over them — three's opaque-then-transparent order does the
-                  layering without any renderOrder fiddling. */}
+              rotation={p.rotation ?? [0, 0, 0]}
+              renderOrder={p.translucent ? 2 : 0}>
+              {/* Shell pieces are genuinely see-through so mounts and motors
+                  read inside (batch 08-21d — 0.88 with depth writes on looked
+                  opaque in practice). depthWrite off + explicit renderOrder
+                  guarantees the internals paint first and always show through;
+                  DoubleSide draws the tube's far wall for the depth cue. */}
               <meshStandardMaterial color={p.color} roughness={0.6} metalness={0.05}
-                transparent={!!p.translucent} opacity={p.translucent ? 0.88 : 1} />
+                transparent={!!p.translucent} opacity={p.translucent ? 0.62 : 1}
+                depthWrite={!p.translucent}
+                side={p.translucent ? THREE.DoubleSide : THREE.FrontSide} />
             </mesh>
           ))}
           {/* CG/CP sit on the rocket axis — inside the shell — so they must
@@ -700,15 +726,17 @@ export function Rocket3D({ tree, info, motors, exportData }: {
               exactly like the 2D markers. `transparent` puts them in the
               transparent queue AFTER the see-through shell, or the shell
               would wash over them. */}
+          {/* 0.6× the shared size rule (batch 08-21d): full-size axis balls
+              overwhelmed small rockets; the gadget keeps the size rule. */}
           {info && Number.isFinite(info.cg) && (
             <mesh position={[info.cg, 0, 0]} renderOrder={10}>
-              <sphereGeometry args={[markerR, 24, 24]} />
+              <sphereGeometry args={[markerR * 0.6, 24, 24]} />
               <meshStandardMaterial color="#e9edf1" emissive="#8891a0" depthTest={false} transparent />
             </mesh>
           )}
           {info && Number.isFinite(info.cp) && (
             <mesh position={[info.cp, 0, 0]} renderOrder={11}>
-              <sphereGeometry args={[markerR, 24, 24]} />
+              <sphereGeometry args={[markerR * 0.6, 24, 24]} />
               <meshStandardMaterial color="#e34948" emissive="#5a1010" depthTest={false} transparent />
             </mesh>
           )}
@@ -744,7 +772,11 @@ export function Rocket3D({ tree, info, motors, exportData }: {
             </group>
           )}
         </group>
-        <OrbitControls target={[center, 0, 0]} enableDamping dampingFactor={0.1} />
+        {/* Distance limits (batch 08-21d): an unbounded zoom could bury the
+            camera inside the hull or fling it to where the rocket is a pixel;
+            the view buttons above are the recovery path either way. */}
+        <OrbitControls ref={controls} target={[center, 0, 0]} enableDamping dampingFactor={0.1}
+          minDistance={camDist * 0.12} maxDistance={camDist * 5} />
       </Canvas>
       <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '4px 0 0', textAlign: 'center' }}>
         drag to rotate · scroll to zoom · <span style={{ color: '#aab2bd' }}>●</span> CG ·{' '}

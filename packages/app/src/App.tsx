@@ -275,6 +275,20 @@ export function App() {
   const [view, setView] = useState<'2d' | '3d' | 'aft'>('2d');
   /** S1 stats drawer over the hero canvas — the owner's call: default closed. */
   const [statsDrawer, setStatsDrawer] = useState(false);
+  // Measured drawer height + gap: the hero view's bottom edge lifts above the
+  // open drawer so the drawing shrinks to the visible sky instead of being
+  // covered (batch 08-21d — vertical mode has no zoom/pan to escape with).
+  const drawerRef = useRef<HTMLDivElement | null>(null);
+  const [drawerClearance, setDrawerClearance] = useState(0);
+  useEffect(() => {
+    if (!statsDrawer || !drawerRef.current) { setDrawerClearance(0); return; }
+    const el = drawerRef.current;
+    const measure = () => setDrawerClearance(el.offsetHeight + 20);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [statsDrawer]);
   /** S1's 90° toggle: draw the 2D view nose-up (viewing mode — drag/zoom off). */
   const [vert2d, setVert2d] = useState(false);
   const [confirmNew, setConfirmNew] = useState(false);
@@ -1560,7 +1574,7 @@ export function App() {
                   its own container (see the styles.css note on the feedback
                   loop), and the schematic wrap carries inline positioning of
                   its own, so the absolute box has to be ours. */}
-              <div className="hero-view">
+              <div className="hero-view" style={drawerClearance ? { bottom: drawerClearance } : undefined}>
                 {view === '2d'
                   ? (
                     <TreeSchematic
@@ -1581,7 +1595,7 @@ export function App() {
               {built && <StatsChip info={built.info} />}
               {built && (statsDrawer
                 ? (
-                  <div className="stats-drawer">
+                  <div className="stats-drawer" ref={drawerRef}>
                     <div className="stats-drawer-head">
                       <span>All stats</span>
                       <button className="file-btn" onClick={() => setStatsDrawer(false)}>▾ Collapse</button>
