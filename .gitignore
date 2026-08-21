@@ -31,3 +31,4 @@ spikes/**/*.jar
 .gradle/
 spikes/**/build/
 engine-java/build/
+.playwright-mcp/

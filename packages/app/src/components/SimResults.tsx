@@ -1,9 +1,14 @@
 import { useState } from 'react';
+import type { FlightResult } from '@online-openrocket/engine';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { fmtSi } from '../prefs/units.js';
 import { UnitChip } from './UnitChip.js';
-import { stabilityState, type SimRun } from '../services/simReport.js';
+import {
+  ROLL_RATE_MEANINGFUL_RAD_S, stabilityState, WIND_BLOWS_TOWARD_DEG, type SimRun,
+} from '../services/simReport.js';
 import { clearRuns, deleteRun, runsToCsv, runsToTable } from '../services/simStore.js';
+import { formatWarning } from '../services/simWarnings.js';
+import { flightDataCsv } from '../services/flightDataCsv.js';
 import { tableToXlsx, XLSX_MIME } from '../services/xlsx.js';
 
 /**
@@ -40,9 +45,36 @@ function verdict(v: boolean | null): { text: string; bad: boolean } {
     : { text: '⚠ NO', bad: true };
 }
 
-export function SimRunDetails({ run }: { run: SimRun }) {
+/** 8-point compass name for a bearing (° clockwise from north). */
+function compassPoint(deg: number): string {
+  const pts = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+  return pts[Math.round(((deg % 360) + 360) % 360 / 45) % 8]!;
+}
+
+/**
+ * UTF-8 BOM, prepended to every CSV blob here: without it Excel's
+ * double-click import assumes the ANSI codepage and garbles the Greek and
+ * typographic characters in the headers (θl, dΦ, ρ, —). Every other reader
+ * ignores it.
+ */
+const CSV_BOM = '\uFEFF';
+
+/**
+ * `result` is the in-memory flight the report was just built from — series
+ * are not persisted, so it exists only for the most recent launch (a run
+ * reopened from history renders without it). `onFullSeries` re-flies that
+ * same flight with the full series payload (deterministic physics: identical
+ * flight, more columns) and powers the per-timestep flight-data CSV export.
+ */
+export function SimRunDetails({ run, result, onFullSeries }: {
+  run: SimRun;
+  result?: FlightResult | null;
+  onFullSeries?: () => Promise<FlightResult>;
+}) {
   const { prefs } = usePrefs();
   const [open, setOpen] = useState(false);
+  const [csvBusy, setCsvBusy] = useState(false);
+  const [csvError, setCsvError] = useState<string | null>(null);
   const dist = prefs.units.distance;
   const vel = prefs.units.velocity;
   const len = prefs.units.length;
@@ -56,10 +88,34 @@ export function SimRunDetails({ run }: { run: SimRun }) {
           Launch report — {run.rocket ? `${run.rocket} · ` : ''}{run.motor}
           {run.manufacturer ? ` (${run.manufacturer})` : ''}
         </h2>
+        {result && onFullSeries && (
+          <button className="file-btn" disabled={csvBusy}
+            title={'Re-flies the shown flight to capture every series the physics kernel records (deterministic — the same flight, more columns), one row per timestep, SI units. Booster stages append as name-prefixed column groups. Not stored with run history.'}
+            onClick={() => {
+              setCsvBusy(true);
+              setCsvError(null);
+              onFullSeries()
+                .then((full) => {
+                  const blob = new Blob([CSV_BOM, flightDataCsv(full)], { type: 'text/csv;charset=utf-8' });
+                  const a = document.createElement('a');
+                  a.href = URL.createObjectURL(blob);
+                  a.download = 'flight-data-full.csv';
+                  a.click();
+                  URL.revokeObjectURL(a.href);
+                })
+                .catch((e: unknown) => setCsvError(e instanceof Error ? e.message : String(e)))
+                .finally(() => setCsvBusy(false));
+            }}>{csvBusy ? '⏳ Re-flying…' : '⬇ Flight data .csv'}</button>
+        )}
         <button className="file-btn" onClick={() => setOpen(!open)}>
           {open ? 'Hide details' : 'Show all details'}
         </button>
       </div>
+      {csvError && (
+        <p className="simdet-comments stability-bad" style={{ margin: '4px 0 0' }}>
+          Flight-data export failed: {csvError}
+        </p>
+      )}
       {(run.optimumDelayS !== null || run.recommendedDelayS !== null) && (
         <p className="simdet-delay">
           Optimal delay <strong>{s(run.optimumDelayS, 1)} s</strong>
@@ -71,6 +127,23 @@ export function SimRunDetails({ run }: { run: SimRun }) {
             {Number.isFinite(run.delayS) ? `${run.delayS} s` : 'plugged (no ejection charge)'}
           </strong>
         </p>
+      )}
+      {(run.simWarnings ?? []).length > 0 && (
+        // Kernel flight warnings — deliberately separate from the comments
+        // blob below: HIGH priority is a flight-safety failure (red, like
+        // the verdict rows); the rest are cautions.
+        <div style={{ marginTop: 6 }}>
+          {(run.simWarnings ?? []).map((w, i) => {
+            const f = formatWarning(w);
+            return (
+              <p key={i} className={f.high ? 'simdet-comments stability-bad' : 'simdet-comments'}
+                style={{ margin: '2px 0 0' }}>
+                {f.high ? '⚠' : '△'} {f.label}
+                {f.detail && <span> — {f.detail}</span>}
+              </p>
+            );
+          })}
+        </div>
       )}
       {run.comments && <p className="simdet-comments">{run.comments}</p>}
       {(run.deployments ?? []).length > 0 && (
@@ -179,6 +252,14 @@ export function SimRunDetails({ run }: { run: SimRun }) {
               <Row label="Max velocity" value={fmtSi('velocity', vel, run.maxVelocity)} quantity="velocity" />
               <Row label="Max Mach" value={s(run.maxMach, 3)} />
               <Row label="Max acceleration" value={fmtSi('acceleration', acc, run.maxAcceleration)} quantity="acceleration" />
+              {/* Most rockets don't roll — below the noise floor the row is
+                  omitted rather than showing a meaningless 0.000. r/s matches
+                  the desktop's UNITS_ROLL default; °/s rides along because
+                  flyers think in degrees. */}
+              {run.maxRollRateRadS != null && run.maxRollRateRadS > ROLL_RATE_MEANINGFUL_RAD_S && (
+                <Row label="Max roll rate"
+                  value={`${(run.maxRollRateRadS / (2 * Math.PI)).toFixed(2)} r/s (${Math.round((run.maxRollRateRadS * 180) / Math.PI)}°/s)`} />
+              )}
               <Row label="Time to launch guide departure" value={s(run.timeToRodDeparture, 3)} unit="s" />
               <Row label="Time to burnout" value={s(run.timeToBurnout)} unit="s" />
               <Row label="Time to apogee" value={s(run.timeToApogee)} unit="s" />
@@ -228,6 +309,20 @@ export function SimRunDetails({ run }: { run: SimRun }) {
                   : Number.isFinite(run.groundHitVelocity) ? fmtSi('velocity', vel, run.groundHitVelocity)
                   : '—'}
                 quantity="velocity" bad={run.safeLandingRate === false} />
+              {run.landingDistanceM != null && (
+                <Row label="Landing distance from pad"
+                  value={fmtSi('distance', dist, run.landingDistanceM)} quantity="distance" />
+              )}
+              {run.landingDistanceM != null && run.landingBearingDeg != null && (
+                // Compass bearing (0° = north). The kernel's wind is a fixed
+                // east wind (the rocket drifts toward 270°), so a windy
+                // flight's drift reads "downwind" when it lands on that side.
+                <Row label="Landing bearing"
+                  value={`${Math.round(run.landingBearingDeg)}° (${compassPoint(run.landingBearingDeg)}${
+                    run.windAvg > 0
+                      && Math.abs(((run.landingBearingDeg - WIND_BLOWS_TOWARD_DEG) % 360 + 540) % 360 - 180) <= 45
+                      ? ', downwind' : ''})`} />
+              )}
             </tbody>
           </table>
           <table className="fin-table">
@@ -284,7 +379,7 @@ export function SimHistory({ runs, onRunsChange, onSelect, selectedId }: {
     URL.revokeObjectURL(a.href);
   };
   const downloadCsv = () =>
-    download(new Blob([runsToCsv(runs, prefs.units)], { type: 'text/csv' }), 'simulations.csv');
+    download(new Blob([CSV_BOM, runsToCsv(runs, prefs.units)], { type: 'text/csv;charset=utf-8' }), 'simulations.csv');
   const downloadXlsx = () => {
     const { headers, rows } = runsToTable(runs, prefs.units);
     download(new Blob([tableToXlsx(headers, rows, 'Simulations') as BlobPart], { type: XLSX_MIME }), 'simulations.xlsx');

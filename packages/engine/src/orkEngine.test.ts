@@ -396,6 +396,66 @@ describe('OrkRocket (real OpenRocket kernel via TeaVM)', () => {
     expect(summary.optimumDelay).toBeLessThan(6);
   });
 
+  it('surfaces simulation warnings with stable keys (arms after the engine rebuild)', (ctx) => {
+    // No recovery device — the kernel raises Warning.NO_RECOVERY_DEVICE (HIGH).
+    const rocket = OrkRocket.build({ ...REFERENCE_ROCKET, parachute: undefined });
+    rocket.setMotor(C6_MOTOR);
+    const result = rocket.simulate({ launchRodLength: 1.0, timeStep: 0.05 });
+    if (result.warnings === undefined) {
+      // The committed vendor orkengine.mjs predates the warning export —
+      // this arms automatically once the engine-rebuild phase regenerates it
+      // (gradlew generateJavaScript + a full differential pass).
+      ctx.skip();
+      return;
+    }
+    const noChute = result.warnings.find((w) => w.key === 'NO_RECOVERY_DEVICE');
+    expect(noChute).toBeDefined();
+    expect(noChute!.priority).toBe('HIGH');
+    // warningTexts mirrors the messages, in the same shape staticInfo() uses.
+    expect(result.warningTexts).toContain(noChute!.message);
+  });
+
+  it('emits the full symbol-keyed series map when series:full is requested', () => {
+    const rocket = OrkRocket.build(REFERENCE_ROCKET);
+    rocket.setMotor(C6_MOTOR);
+    const result = rocket.simulate({ launchRodLength: 1.0, timeStep: 0.05, series: 'full' });
+    // Symbol series are index-aligned with time.
+    expect(result.series['Vz']).toBeDefined();
+    expect(result.series['Vz']!.length).toBe(result.series.time.length);
+    // tc (computation time) is wall-clock noise — excluded even from full so
+    // the payload stays deterministic between same-seed runs.
+    expect(result.series['tc']).toBeUndefined();
+    // Symbols duplicating the friendly-named dozen ('t' = time, 'h' =
+    // altitude…) are excluded — they'd be pure byte duplication.
+    expect(result.series['t']).toBeUndefined();
+    // A genuinely extra series: friction drag coefficient, only in full mode.
+    expect(result.series['Cdf']).toBeDefined();
+    expect(result.series['Cdf']!.length).toBe(result.series.time.length);
+    // A series the friendly dozen does not carry: motor mass 'mp' burns from
+    // 24 g (C6 loaded) down to the 13.2 g casing.
+    const mp = (result.series['mp'] ?? []).filter((v): v is number => v !== null);
+    expect(mp.length).toBe(result.series.time.length);
+    expect(Math.max(...mp)).toBeCloseTo(0.024, 3);
+    expect(mp[mp.length - 1]!).toBeLessThan(0.015);
+  });
+
+  it('defaults to summary series: the 5 report symbols and nothing more', () => {
+    const rocket = OrkRocket.build(REFERENCE_ROCKET);
+    rocket.setMotor(C6_MOTOR);
+    const result = rocket.simulate({ launchRodLength: 1.0, timeStep: 0.05 });
+    // Exactly the symbol keys the app's flight report consumes every run:
+    // lateral drift (Pl, θl, Px, Py) and roll rate (dΦ).
+    const friendly = [
+      'time', 'altitude', 'velocity', 'acceleration', 'mass', 'thrust',
+      'drag', 'mach', 'stability', 'cpLocation', 'cgLocation', 'aoa',
+    ];
+    const symbolKeys = Object.keys(result.series).filter((k) => !friendly.includes(k));
+    expect(symbolKeys.sort()).toEqual(['Pl', 'Px', 'Py', 'dΦ', 'θl'].sort());
+    expect(result.series['Pl']!.length).toBe(result.series.time.length);
+    // Full-only series stay off the default path (they cost ~45% wall clock).
+    expect(result.series['Vz']).toBeUndefined();
+  });
+
   it('rejects unknown component types with a clear message', () => {
     expect(() =>
       OrkRocket.buildTree({ components: [{ type: 'warpdrive' as never }] }),

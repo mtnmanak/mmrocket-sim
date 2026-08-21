@@ -432,7 +432,8 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
     return [...runsOnly].sort((a, b) => configRank(a) - configRank(b));
   };
   const downloadCsv = () => {
-    downloadAs(new Blob([runsToCsv(exportRuns(), prefs.units)], { type: 'text/csv' }), 'csv');
+    // BOM: unit headers can carry non-ASCII; Excel needs it to decode UTF-8.
+    downloadAs(new Blob(['﻿', runsToCsv(exportRuns(), prefs.units)], { type: 'text/csv' }), 'csv');
   };
   const downloadXlsx = () => {
     const all = exportRuns();

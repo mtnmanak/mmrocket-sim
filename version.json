@@ -1,5 +1,5 @@
 {
-  "version": "0.045",
-  "released": "2026-08-12",
-  "note": "Parts too big for your 3D printer are now split for you: set your machine in Preferences → 3D printing and an oversized nose cone or tube exports as a zip of numbered segments joined by a printed spigot, with a print-and-glue README. A 3\" nose cone becomes two pieces. Nothing changes if you don't set a printer. Also: a \"Fit rocket to frame\" option on the 3D image export, so an 8K export is 8K of rocket — and the site menu no longer wraps to two rows on laptops."
+  "version": "0.046",
+  "released": "2026-08-20",
+  "note": "Share a design as a link — \"Copy share link\" packs the whole rocket, motors and launch conditions into the URL itself; no account, no upload, the link is the file. Launch conditions now travel inside .ork files both ways. The simulator's own warnings (no recovery device, high-speed deployment, and more) now show in the flight report, which also gains landing distance and bearing, peak roll rate, and a full per-timestep flight-data CSV. And the header finally fits a phone — no more sideways scrolling to find the Feedback button."
 }

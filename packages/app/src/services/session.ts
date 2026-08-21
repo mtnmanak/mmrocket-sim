@@ -51,6 +51,30 @@ export function loadSession(): SessionState | null {
 
 let timer: ReturnType<typeof setTimeout> | null = null;
 
+// Autosave health. Saves happen inside a debounced timeout — no caller sees a
+// return value — so unlike simStore's after-each-mutation getter, the UI needs
+// a push. The debounce fires ~2.5x/s while editing; listeners hear only the
+// TRANSITION between working and failing, not every refused write.
+let saveFailing = false;
+const saveListeners = new Set<(failing: boolean) => void>();
+
+/** True while autosave is failing — edits will NOT survive a reload. */
+export function sessionSaveFailing(): boolean {
+  return saveFailing;
+}
+
+/** Notified on each working<->failing transition. Returns an unsubscribe. */
+export function onSessionSaveStateChange(fn: (failing: boolean) => void): () => void {
+  saveListeners.add(fn);
+  return () => { saveListeners.delete(fn); };
+}
+
+function setSaveFailing(failing: boolean): void {
+  if (failing === saveFailing) return; // dedupe: signal the edge, not the level
+  saveFailing = failing;
+  for (const fn of saveListeners) fn(failing);
+}
+
 export function saveSessionDebounced(state: Omit<SessionState, 'savedAt'>): void {
   if (timer) clearTimeout(timer);
   timer = setTimeout(() => {
@@ -59,8 +83,11 @@ export function saveSessionDebounced(state: Omit<SessionState, 'savedAt'>): void
       // silently turn that into null, so round-trip it as a string.
       localStorage.setItem(KEY, JSON.stringify({ ...state, savedAt: Date.now() }, (_k, v) =>
         typeof v === 'number' && v === Infinity ? 'Infinity' : v));
+      setSaveFailing(false);
     } catch {
-      // Quota/serialization failures must never break editing.
+      // Quota/serialization failures must never break editing — but "your
+      // work saves itself" failing silently forever was the defect: flag it.
+      setSaveFailing(true);
     }
   }, DEBOUNCE_MS);
 }

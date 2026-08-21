@@ -1,4 +1,4 @@
-import type { FlightEvent, FlightResult, FlightSeries, MotorSpec, StaticInfo } from '@online-openrocket/engine';
+import type { EngineWarning, FlightEvent, FlightResult, FlightSeries, MotorSpec, StaticInfo } from '@online-openrocket/engine';
 import { G0 } from '@online-openrocket/engine';
 import type { LaunchConditions } from '../components/LaunchPanel.js';
 import { displayDesignation } from './motorDb.js';
@@ -172,6 +172,24 @@ export interface SimRun {
   staticMarginOk: boolean | null;
   weathercockRisk: 'low' | 'moderate' | 'high' | null;
 
+  /**
+   * Kernel simulation warnings (raw {key, message, priority} triples —
+   * simWarnings.ts renders them in the app's voice). Absent on runs stored
+   * before this field OR flown on an engine artifact predating the warning
+   * export; an empty array means the flight genuinely raised none.
+   */
+  simWarnings?: EngineWarning[];
+  /**
+   * Landing drift: lateral distance from the pad at touchdown (m, last Pl
+   * sample) and its compass bearing (° clockwise from north, from θl).
+   * Absent on runs stored before this build; null when the engine artifact
+   * carried no symbol-keyed series.
+   */
+  landingDistanceM?: number | null;
+  landingBearingDeg?: number | null;
+  /** Peak |roll rate| over the flight (rad/s, from dΦ). Same absence rules. */
+  maxRollRateRadS?: number | null;
+
   windAvg: number;
   execMs: number;
   /**
@@ -265,6 +283,77 @@ function extractDeployments(
   });
 }
 
+/** Last finite sample of a symbol-keyed series (wire NaN arrives as null). */
+function lastFinite(arr: (number | null)[] | undefined): number | null {
+  if (!arr) return null;
+  for (let i = arr.length - 1; i >= 0; i--) {
+    const v = arr[i];
+    if (v !== null && v !== undefined && Number.isFinite(v)) return v;
+  }
+  return null;
+}
+
+/**
+ * Where the engine's wind pushes the rocket. The kernel's PinkNoiseWindModel
+ * holds direction fixed at π/2 — "an East wind", meteorological convention:
+ * wind FROM the east. The stepper ADDS the wind vector to the rocket
+ * velocity to get airspeed (AbstractSimulationStepper), so the air mass
+ * itself moves toward −x = west and the rocket drifts downwind to compass
+ * 270°. Verified against a real windy sim in simReport.kernel.test.ts.
+ */
+export const WIND_BLOWS_TOWARD_DEG = 270;
+
+/**
+ * Landing drift from the pad, off the sustainer branch's series: distance is
+ * the last finite lateral-distance (Pl, TYPE_POSITION_XY) sample; bearing is
+ * the last finite lateral-direction (θl, TYPE_POSITION_DIRECTION) sample.
+ * θl is the right direction source — the kernel computes it as
+ * atan2(x, y) reduced to [0, 2π) with x = east, y = north ("(x, y) instead
+ * of (y, x) because 0 is north" — SimulationStatus.storeData), i.e. it IS
+ * the compass bearing; atan2(Py, Px) would be the math-convention angle
+ * (0 = east, counterclockwise) and would need remapping. Px/Py are kept
+ * only as a fallback for a series set that carries positions but no θl.
+ */
+export function extractLandingDrift(series: FlightSeries): {
+  distanceM: number | null; bearingDeg: number | null;
+} {
+  const distanceM = lastFinite(series['Pl']);
+  let bearingRad = lastFinite(series['θl']);
+  if (bearingRad === null) {
+    const x = lastFinite(series['Px']);
+    const y = lastFinite(series['Py']);
+    if (x !== null && y !== null && (x !== 0 || y !== 0)) {
+      bearingRad = (Math.atan2(x, y) + 2 * Math.PI) % (2 * Math.PI);
+    }
+  }
+  return {
+    distanceM,
+    bearingDeg: bearingRad === null ? null : (bearingRad * 180) / Math.PI,
+  };
+}
+
+/**
+ * Below this the "max roll rate" is integrator noise, not rotation: most
+ * rockets report ~1e-10…1e-3 rad/s of numerical drift, while the slowest
+ * deliberate roll (canted fins) is orders above. 0.01 rad/s ≈ 0.57 °/s
+ * ≈ 0.0016 r/s — under a tenth of a turn over a whole minute of flight.
+ */
+export const ROLL_RATE_MEANINGFUL_RAD_S = 0.01;
+
+/** Peak |roll rate| (rad/s) from the dΦ series; null when absent/empty. */
+export function extractMaxRollRate(series: FlightSeries): number | null {
+  const arr = series['dΦ'];
+  if (!arr) return null;
+  let max: number | null = null;
+  for (const v of arr) {
+    if (v !== null && v !== undefined && Number.isFinite(v)) {
+      const a = Math.abs(v);
+      if (max === null || a > max) max = a;
+    }
+  }
+  return max;
+}
+
 export function buildSimRun(input: {
   result: FlightResult;
   info: StaticInfo;
@@ -343,6 +432,11 @@ export function buildSimRun(input: {
 
   const optimumDelayS = summary.optimumDelay ?? null;
   const recommendedDelayS = recommendDelay(optimumDelayS);
+
+  // Landing drift + peak roll rate come from the symbol-keyed series (Pl /
+  // θl / dΦ) — null on an engine artifact that predates that export.
+  const drift = extractLandingDrift(series);
+  const maxRollRateRadS = extractMaxRollRate(series);
 
   const safeLiftoffSpeed = rodExitVelocity !== null
     ? rodExitVelocity >= SAFETY.minRodExitVelocity : null;
@@ -476,6 +570,12 @@ export function buildSimRun(input: {
     safeDeployment,
     staticMarginOk,
     weathercockRisk,
+    // Only stored when the engine emitted the field at all — an old artifact
+    // must leave simWarnings ABSENT (unknown), not [] (flew clean).
+    ...(result.warnings !== undefined ? { simWarnings: result.warnings } : {}),
+    landingDistanceM: drift.distanceM,
+    landingBearingDeg: drift.bearingDeg,
+    maxRollRateRadS,
     windAvg: launch.windAverage,
     execMs,
     aeroModel,

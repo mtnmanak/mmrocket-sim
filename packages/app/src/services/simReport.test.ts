@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import type { FlightResult, StaticInfo } from '@online-openrocket/engine';
-import { buildSimRun, recommendDelay, SAFETY } from './simReport.js';
+import type { FlightResult, FlightSeries, StaticInfo } from '@online-openrocket/engine';
+import {
+  buildSimRun, extractLandingDrift, extractMaxRollRate, recommendDelay,
+  ROLL_RATE_MEANINGFUL_RAD_S, SAFETY,
+} from './simReport.js';
 import { runsToCsv } from './simStore.js';
 import { DEFAULT_CONDITIONS } from '../components/LaunchPanel.js';
 
@@ -267,6 +270,87 @@ describe('dual deployment attribution', () => {
   });
 });
 
+describe('landing drift & max roll rate (symbol-keyed series)', () => {
+  /** fakeResult's series plus the lateral/roll symbol keys the engine emits. */
+  function withSymbols(over: Partial<Record<string, (number | null)[]>> = {}): FlightSeries {
+    const s = fakeResult().series;
+    // Rocket drifts east: lands 25 m out on compass bearing 90° (π/2).
+    s['Pl'] = [0, 0.1, 2, 8, 20, 24, 25];
+    s['θl'] = [null, 1.5707963, 1.5707963, 1.5707963, 1.5707963, 1.5707963, 1.5707963];
+    s['Px'] = [0, 0.1, 2, 8, 20, 24, 25];
+    s['Py'] = [0, 0, 0, 0, 0, 0, 0];
+    s['dΦ'] = [0, 0.1, -0.5, 0.3, null, 0.2, 0];
+    for (const [k, v] of Object.entries(over)) {
+      if (v === undefined) delete s[k]; else s[k] = v;
+    }
+    return s;
+  }
+
+  it('distance = last finite Pl sample; bearing from θl (the kernel compass bearing)', () => {
+    // θl is atan2(x, y) with 0 = north (SimulationStatus.storeData) — already
+    // a compass bearing, so it converts to degrees directly.
+    const d = extractLandingDrift(withSymbols({ 'Pl': [0, 5, 25, null, null, null, null] }));
+    expect(d.distanceM).toBe(25); // trailing nulls (NaN on the wire) skipped
+    expect(d.bearingDeg).toBeCloseTo(90, 3);
+  });
+
+  it('falls back to atan2(Px, Py) when θl is absent', () => {
+    const d = extractLandingDrift(withSymbols({ 'θl': undefined }));
+    expect(d.bearingDeg).toBeCloseTo(90, 3); // due east: x=25, y=0
+    const north = extractLandingDrift(withSymbols({
+      'θl': undefined, 'Px': [0, 0, 0, 0, 0, 0, 0], 'Py': [0, 1, 2, 3, 4, 5, 6],
+    }));
+    expect(north.bearingDeg).toBeCloseTo(0, 3);
+  });
+
+  it('old engine artifact (no symbol keys) → nulls, never a crash', () => {
+    const d = extractLandingDrift(fakeResult().series);
+    expect(d.distanceM).toBeNull();
+    expect(d.bearingDeg).toBeNull();
+    expect(extractMaxRollRate(fakeResult().series)).toBeNull();
+  });
+
+  it('max roll rate is the peak |dΦ|, nulls ignored', () => {
+    expect(extractMaxRollRate(withSymbols())).toBeCloseTo(0.5);
+    expect(extractMaxRollRate(withSymbols({ 'dΦ': [null, null] }))).toBeNull();
+  });
+
+  it('the noise floor separates integrator jitter from real roll', () => {
+    // 0.01 rad/s ≈ 0.57 °/s: non-rolling sims report ~1e-10…1e-3 rad/s of
+    // numerical drift; the slowest deliberate roll is orders of magnitude up.
+    expect(ROLL_RATE_MEANINGFUL_RAD_S).toBeCloseTo(0.01);
+    expect(1e-4).toBeLessThan(ROLL_RATE_MEANINGFUL_RAD_S);   // jitter → row hidden
+    expect(0.5).toBeGreaterThan(ROLL_RATE_MEANINGFUL_RAD_S); // real roll → shown
+  });
+
+  it('buildSimRun carries drift/roll fields and the raw sim warnings', () => {
+    const result = fakeResult();
+    result.series = withSymbols();
+    result.warnings = [
+      { key: 'NO_RECOVERY_DEVICE', message: '[Warning.NO_RECOVERY_DEVICE]', priority: 'HIGH' },
+    ];
+    const run = buildSimRun({
+      result, info, motor, meta: { label: 'C6-5' },
+      launch: DEFAULT_CONDITIONS, rocketName: 'x', execMs: 1,
+    });
+    expect(run.landingDistanceM).toBe(25);
+    expect(run.landingBearingDeg).toBeCloseTo(90, 3);
+    expect(run.maxRollRateRadS).toBeCloseTo(0.5);
+    expect(run.simWarnings).toEqual(result.warnings);
+  });
+
+  it('pre-warning engine artifact: simWarnings stays ABSENT (unknown ≠ flew clean)', () => {
+    const run = buildSimRun({
+      result: fakeResult(), info, motor, meta: { label: 'C6-5' },
+      launch: DEFAULT_CONDITIONS, rocketName: 'x', execMs: 1,
+    });
+    expect('simWarnings' in run).toBe(false);
+    expect(run.landingDistanceM).toBeNull();
+    expect(run.landingBearingDeg).toBeNull();
+    expect(run.maxRollRateRadS).toBeNull();
+  });
+});
+
 describe('runsToCsv', () => {
   it('produces one header + one row with quoting', () => {
     const run = buildSimRun({
@@ -283,5 +367,41 @@ describe('runsToCsv', () => {
     // Cell-count parity — split only on commas outside quoted cells.
     const cells = (s: string) => s.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/).length;
     expect(cells(lines[1]!)).toBe(cells(lines[0]!));
+  });
+
+  it('serializes sim warnings, landing drift and roll rate — blank on old runs', () => {
+    const result = fakeResult();
+    result.series['Pl'] = result.series.time.map((_, i) => i * 10);
+    result.series['θl'] = result.series.time.map(() => Math.PI / 2);
+    result.series['dΦ'] = result.series.time.map(() => Math.PI); // 0.5 r/s
+    result.warnings = [
+      { key: 'NO_RECOVERY_DEVICE', message: '[Warning.NO_RECOVERY_DEVICE]', priority: 'HIGH' },
+      { key: 'LargeAOA', message: '[Warning.LargeAOA.str1]', priority: 'NORMAL' },
+    ];
+    const run = buildSimRun({
+      result, info, motor, meta: { label: 'C6-5' },
+      launch: DEFAULT_CONDITIONS, rocketName: 'x', execMs: 1,
+    });
+    const [header, row] = runsToCsv([run]).split('\n');
+    const cells = (s: string) => s.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/);
+    const hc = cells(header!);
+    const rc = cells(row!);
+    expect(rc[hc.indexOf('Sim warnings')]).toBe('NO_RECOVERY_DEVICE; LargeAOA');
+    expect(rc[hc.indexOf('Landing distance (m)')]).toBe('60'); // last Pl sample
+    expect(rc[hc.indexOf('Landing bearing (deg from N)')]).toBe('90');
+    expect(rc[hc.indexOf('Max roll rate (r/s)')]).toBe('0.5'); // π rad/s = ½ rev/s
+
+    // A run stored before these fields existed: cells empty, no crash.
+    const old = buildSimRun({
+      result: fakeResult(), info, motor, meta: { label: 'C6-5' },
+      launch: DEFAULT_CONDITIONS, rocketName: 'x', execMs: 1,
+    });
+    delete old.simWarnings;
+    delete (old as Partial<typeof old>).landingDistanceM;
+    delete (old as Partial<typeof old>).maxRollRateRadS;
+    const [h2, r2] = runsToCsv([old]).split('\n');
+    expect(r2!.length).toBeGreaterThan(0);
+    expect(cells(r2!).length).toBe(cells(h2!).length);
+    expect(cells(r2!)[cells(h2!).indexOf('Sim warnings')]).toBe('');
   });
 });

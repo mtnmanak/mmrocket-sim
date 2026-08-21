@@ -31,9 +31,17 @@ const API_URL = 'https://api.github.com/repos/openrocket/openrocket-database/con
  * FlisKits, rail buttons...). We merge those in, deduped against the github
  * files (github wins on conflicts — it is the maintained source).
  */
-const DESKTOP_COMPONENTS_DIR = process.env.OPENROCKET_SRC
-  ? join(process.env.OPENROCKET_SRC, 'core', 'src', 'main', 'resources', 'datafiles', 'components', 'internal')
-  : '<local path>/Open_Rocket_Source_Code/openrocket-release-24.12/core/src/main/resources/datafiles/components/internal';
+/** The reference source lives in Dropbox at a different path on each machine
+ *  (see CLAUDE.md "Two machines"). OPENROCKET_SRC overrides; otherwise the
+ *  first known per-machine root that exists wins. */
+const KNOWN_SRC_ROOTS = [
+  '<local path>/Open_Rocket_Source_Code/openrocket-release-24.12', // desktop
+  '<local path>/Dropbox/Open_Rocket_Source_Code/openrocket-release-24.12', // laptop
+];
+const SRC_ROOT =
+  process.env.OPENROCKET_SRC ?? KNOWN_SRC_ROOTS.find((p) => existsSync(p)) ?? KNOWN_SRC_ROOTS[0];
+const DESKTOP_COMPONENTS_DIR =
+  join(SRC_ROOT, 'core', 'src', 'main', 'resources', 'datafiles', 'components', 'internal');
 
 /** Manufacturer aliases (lowercased alphanumerics) so the same maker dedupes
  *  across sources: desktop-internal files spell names differently. */
@@ -465,7 +473,7 @@ async function main() {
     }
     console.log(`Found ${localFiles.length} desktop-internal .orc files in ${DESKTOP_COMPONENTS_DIR}`);
   } else {
-    console.warn(`WARNING: desktop components dir not found (${DESKTOP_COMPONENTS_DIR}) — desktop-only presets (Fruity Chutes etc.) will be missing. Set OPENROCKET_SRC.`);
+    console.warn(`WARNING: desktop components dir not found (${DESKTOP_COMPONENTS_DIR}) — desktop-only presets (Fruity Chutes etc.) will be missing. Set OPENROCKET_SRC (probed: ${KNOWN_SRC_ROOTS.join(' , ')}).`);
   }
 
   // Pass 2: parse components. Github first (canonical), then desktop-internal

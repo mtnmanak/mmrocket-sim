@@ -35,7 +35,8 @@ import { UnitChip } from './components/UnitChip.js';
 import { fmtSi, niceStep, siToUi, uiToSi } from './prefs/units.js';
 import { classLabel, diameterClass, displayDesignation, findDbMotor, isHighPower } from './services/motorDb.js';
 import { delayOptions, fetchMotorSpec } from './services/thrustcurve.js';
-import { exportOrk, importOrk, type OrkExportMotor } from './services/orkFile.js';
+import { exportOrk, importOrk, type OrkExportMotor, type OrkTreeImportResult } from './services/orkFile.js';
+import { decodeShareFragment, encodeShareFragment, hasSharePayload, MAX_FRAGMENT_CHARS } from './services/shareLink.js';
 import { exportRkt, importRkt } from './services/rocksimFile.js';
 import { rocketToObj } from './services/objExport.js';
 import { rocketToGlb } from './services/gltfExport.js';
@@ -44,9 +45,10 @@ import { buildPieces } from './components/Rocket3D.js';
 import { componentCsv, componentTable } from './services/componentTable.js';
 import { tableToXlsx } from './services/xlsx.js';
 import { exportCdx1, importCdx1 } from './services/rasaeroFile.js';
-import { loadSession, saveSessionDebounced } from './services/session.js';
+import { loadSession, onSessionSaveStateChange, saveSessionDebounced, sessionSaveFailing } from './services/session.js';
 import { buildSimRun, recommendDelay, type MotorMeta, type SimRun } from './services/simReport.js';
-import { addRun, loadRuns } from './services/simStore.js';
+import { formatWarning } from './services/simWarnings.js';
+import { addRun, loadRuns, persistFailed } from './services/simStore.js';
 import { APP_VERSION } from './version.js';
 import {
   addChild, addStage, cloneSubtree, defaultTree, duplicateNode, emptyTree, engineTree, findNode,
@@ -70,6 +72,13 @@ export interface MountMotor {
   ignition: { event: IgnitionEvent; delay: number };
 }
 import './styles.css';
+
+/**
+ * What the design importers hand the shared apply path (file open AND share
+ * link). Structural subset of OrkTreeImportResult so importRkt/importCdx1
+ * results — same shape minus `launch` — fit too.
+ */
+type ImportedDesign = Pick<OrkTreeImportResult, 'name' | 'tree' | 'motors' | 'notes' | 'launch'>;
 
 /** Rocket names that mean "the user never named it" (desktop default is "Rocket"). */
 const GENERIC_ROCKET_NAMES = new Set([
@@ -140,6 +149,41 @@ function labelWithDelay(label: string, delay: number | 'auto'): string {
   return `${base}-${Number.isFinite(delay) ? delay : 'P'}`;
 }
 
+/**
+ * Kernel SimulationOptions from the launch panel — the ONE construction,
+ * shared by Launch and the full-series CSV re-run so both fly identical
+ * conditions (the physics is deterministic: same options, same flight).
+ */
+function kernelSimOptions(l: LaunchConditions) {
+  return {
+    launchRodLength: l.launchRodLengthM,
+    launchRodAngle: (l.launchRodAngleDeg * Math.PI) / 180,
+    windAverage: l.windAverage,
+    windStdDeviation: l.windStdDev,
+    launchAltitude: l.launchAltitudeM,
+    temperature: l.temperatureC === null ? undefined : l.temperatureC + 273.15,
+    pressure: l.pressureHPa === null ? undefined : l.pressureHPa * 100,
+    launchLatitude: l.latitudeDeg,
+  };
+}
+
+/**
+ * Is this tree still the untouched starter rocket? Compares against a fresh
+ * defaultTree() with ids stripped — every normalizeTree/defaultTree call
+ * mints new ids, so ids never match and everything else must. Used by the
+ * share-link loader: replacing the pristine default needs no confirmation,
+ * anything the user actually worked on does.
+ */
+function isPristineDefault(t: RocketTree): boolean {
+  const strip = (n: ComponentNode): unknown => {
+    const { id: _id, children, ...rest } = n;
+    return { ...rest, children: (children ?? []).map(strip) };
+  };
+  const ref = defaultTree();
+  return t.name === ref.name
+    && JSON.stringify(t.components.map(strip)) === JSON.stringify(ref.components.map(strip));
+}
+
 export function App() {
   const { prefs, setPrefs, resolvedTheme, daylight } = usePrefs();
   // Mountain Man Rockets site band + footer strip, and the feedback routes
@@ -192,6 +236,22 @@ export function App() {
   const [result, setResult] = useState<FlightResult | null>(null);
   const [lastRun, setLastRun] = useState<SimRun | null>(null);
   const [runs, setRuns] = useState<SimRun[]>(() => loadRuns());
+  // Storage-full surfacing. simStore mutations are synchronous, so checking
+  // persistFailed() right after each one is enough — recordRuns is that one
+  // funnel (App's own addRun plus the SimHistory/BatchSimulate callbacks).
+  // Set from the value on EVERY mutation — raise AND clear: a banner that
+  // only ever raised kept claiming storage was full while the table showed
+  // a freshly saved run. Dismissible; a later refused write raises it again.
+  const [runsQuotaWarn, setRunsQuotaWarn] = useState(false);
+  const recordRuns = useCallback((next: SimRun[]) => {
+    setRuns(next);
+    setRunsQuotaWarn(persistFailed());
+  }, []);
+  // Session autosave happens inside a debounce, so its health is pushed, not
+  // polled: subscribe for the working<->failing edges (deduped in session.ts).
+  // Non-dismissible while failing — it clears itself when a save sticks.
+  const [autosaveFailing, setAutosaveFailing] = useState(() => sessionSaveFailing());
+  useEffect(() => onSessionSaveStateChange(setAutosaveFailing), []);
   const [simulating, setSimulating] = useState(false);
   const [simError, setSimError] = useState<string | null>(null);
   const [fileNote, setFileNote] = useState<string | null>(null);
@@ -211,6 +271,8 @@ export function App() {
   }, [sessionNote]);
   const [view, setView] = useState<'2d' | '3d' | 'aft'>('2d');
   const [confirmNew, setConfirmNew] = useState(false);
+  /** A decoded share-link design waiting for the user's OK to replace theirs. */
+  const [shareOffer, setShareOffer] = useState<ImportedDesign | null>(null);
   const [showBatch, setShowBatch] = useState(false);
   const [showChangelog, setShowChangelog] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
@@ -399,16 +461,7 @@ export function App() {
     setTab('results');
     requestAnimationFrame(() => {
       try {
-        const simOpts = {
-          launchRodLength: launch.launchRodLengthM,
-          launchRodAngle: (launch.launchRodAngleDeg * Math.PI) / 180,
-          windAverage: launch.windAverage,
-          windStdDeviation: launch.windStdDev,
-          launchAltitude: launch.launchAltitudeM,
-          temperature: launch.temperatureC === null ? undefined : launch.temperatureC + 273.15,
-          pressure: launch.pressureHPa === null ? undefined : launch.pressureHPa * 100,
-          launchLatitude: launch.latitudeDeg,
-        };
+        const simOpts = kernelSimOptions(launch);
         const t0 = performance.now();
         let res = built.rocket.simulate(simOpts);
         // Auto aero mode: the classic first pass projects the flight's Mach.
@@ -478,7 +531,7 @@ export function App() {
           rogersKbf: (prefs.rogersKbf ?? true) && !usedSupersonic,
         });
         setLastRun(run);
-        setRuns(addRun(run));
+        recordRuns(addRun(run));
         setSimError(null);
       } catch (e) {
         setSimError(e instanceof Error ? e.message : String(e));
@@ -487,6 +540,30 @@ export function App() {
       }
     });
   };
+
+  /**
+   * Re-flies the LAST launch with `series: 'full'` for the flight-data CSV.
+   * simulate() now defaults to the summary series payload (all the report
+   * needs); the CSV wants every series the kernel records, and the physics
+   * is deterministic — same design/motor/conditions/seed reproduce the shown
+   * flight exactly, just with more columns. Reuses the Launch path's engine
+   * handle and kernelSimOptions — no second sim-setup.
+   */
+  const fetchFullSeriesResult = useCallback(async (): Promise<FlightResult> => {
+    if (!built || !primaryMountId || !lastRun) {
+      throw new Error('no flight in memory — press Launch first');
+    }
+    // Let the caller's busy state paint before the synchronous re-simulation.
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    const primary = mountMotors[primaryMountId]!;
+    if (lastRun.delayS !== primary.spec.ejectionDelay) {
+      // Auto delay flew the rounded optimum (recorded on the run); a handle
+      // rebuilt since launch (auto-supersonic flips the build memo) still
+      // holds the pre-probe spec — restore the flown delay before re-flying.
+      built.rocket.setMotorById(primaryMountId, { ...primary.spec, ejectionDelay: lastRun.delayS });
+    }
+    return built.rocket.simulate({ ...kernelSimOptions(launch), series: 'full' });
+  }, [built, primaryMountId, lastRun, mountMotors, launch]);
 
   // ---- design file I/O (.ork native, .rkt RockSim) ----
   const exportMotorsMap = (): Record<string, OrkExportMotor> => {
@@ -505,7 +582,11 @@ export function App() {
   };
 
   const download = (content: string | Uint8Array, ext: string, suffix = '') => {
-    const blob = new Blob([content as BlobPart], { type: 'application/octet-stream' });
+    // CSV gets a UTF-8 BOM: headers can carry non-ASCII (units, symbols), and
+    // Excel's double-click open decodes BOM-less CSV as the ANSI codepage.
+    // Same convention as the flight-data and run-history CSVs (SimResults).
+    const parts: BlobPart[] = ext === 'csv' ? ['﻿', content as BlobPart] : [content as BlobPart];
+    const blob = new Blob(parts, { type: 'application/octet-stream' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = `${(tree.name ?? 'rocket').replace(/[^\w-]+/g, '_')}${suffix}.${ext}`;
@@ -524,7 +605,9 @@ export function App() {
   );
 
   const onSaveOrk = () => {
-    download(exportOrk({ name: tree.name ?? 'My Rocket', tree, motors: exportMotorsMap() }), 'ork');
+    // WITH launch: the .ork's first <simulation> carries the pad and weather,
+    // so the file (and the desktop app) round-trips the whole flight setup.
+    download(exportOrk({ name: tree.name ?? 'My Rocket', tree, motors: exportMotorsMap(), launch }), 'ork');
   };
 
   const onSaveRkt = () => {
@@ -591,6 +674,88 @@ export function App() {
     }
   };
 
+  /**
+   * Applies an imported design to the app — the ONE apply path, shared by
+   * Open… and the share-link loader so a linked rocket behaves exactly like
+   * an opened file: per-mount motor matching (built-ins first, then the
+   * motor database), launch conditions, notes, the camera-shroud offer.
+   */
+  const applyImported = async (imported: ImportedDesign) => {
+    const notes: string[] = [`Loaded “${imported.name}”.`, ...imported.notes];
+    // Load EVERY mount's motor (staged/multi-mount files included).
+    const nextMotors: Record<string, MountMotor> = {};
+    for (const [nodeId, ref] of Object.entries(imported.motors)) {
+      const builtIn = Object.entries(BUILT_IN_MOTORS).find(
+        ([k]) => k.startsWith(ref.designation));
+      const ignition: MountMotor['ignition'] = {
+        event: (ref.ignitionEvent as IgnitionEvent | undefined) ?? 'automatic',
+        delay: ref.ignitionDelay ?? 0,
+      };
+      if (builtIn) {
+        // Keep the FILE's ejection delay — the built-in key's own delay
+        // (e.g. C6-5 matching a saved C6-7) would silently change the flight.
+        // Infinity is a VALID file delay (plugged, .ork "none") — only fall
+        // back to the built-in's delay when the file carried none.
+        const fileDelay = ref.delay === Infinity ? Infinity
+          : Number.isFinite(ref.delay) ? ref.delay : builtIn[1].ejectionDelay;
+        const label = labelWithDelay(builtIn[0], fileDelay);
+        nextMotors[nodeId] = {
+          label,
+          spec: { ...builtIn[1], ejectionDelay: fileDelay },
+          meta: builtInMeta(builtIn[0]),
+          ignition,
+        };
+        notes.push(`Motor: ${label} (matched built-in).`);
+        continue;
+      }
+      // RockSim refs carry no motor diameter (0) — match by designation only.
+      const dbMatch = findDbMotor(ref.designation, ref.diameter > 0 ? ref.diameter * 1000 : undefined);
+      if (!dbMatch) {
+        notes.push(`Motor “${ref.designation}” isn't in the motor database — pick one via Browse motor database.`);
+        continue;
+      }
+      try {
+        const spec = await fetchMotorSpec(dbMatch, ref.delay);
+        // Plugged motors (Infinity delay) display the standard "-P" suffix.
+        const delayTag = Number.isFinite(ref.delay) ? String(ref.delay) : 'P';
+        const label = `${dbMatch.commonName}-${delayTag}`;
+        nextMotors[nodeId] = {
+          label,
+          spec,
+          meta: {
+            label,
+            manufacturer: dbMatch.manufacturerAbbrev,
+            availableDelays: delayOptions(dbMatch),
+            type: dbMatch.type,
+            propellant: dbMatch.propInfo,
+            motorCase: dbMatch.caseInfo,
+            highPower: isHighPower(dbMatch),
+          },
+          ignition,
+        };
+        notes.push(`Motor: ${dbMatch.manufacturerAbbrev} ${displayDesignation(dbMatch.designation, dbMatch.manufacturerAbbrev)}-${delayTag} (loaded from the motor database).`);
+      } catch {
+        notes.push(`Motor “${ref.designation}” is in the motor database but its thrust curve couldn't be downloaded — pick it via Browse motor database.`);
+      }
+    }
+    const importedTree = normalizeTree(imported.tree);
+    setTree(importedTree);
+    setMountMotors(nextMotors);
+    setMaxMotorLen({}); // imported stages have fresh ids — old limits don't apply
+    setSelectedId(null);
+    // Launch conditions from the file (.ork's first <simulation>): apply
+    // EVERY field the file carried — explicit nulls included (an ISA file
+    // sets temperature/pressure to null deliberately) — and keep the
+    // panel's fields the file didn't mention. The importer already pushed
+    // a user-visible note about what it found.
+    if (imported.launch) setLaunch((prev) => ({ ...prev, ...imported.launch }));
+    setFileNote(notes.join('\n'));
+    // Hand-rolled shrouds (1-fin freeform sets named like "Camera Shroud")
+    // get an offer to become the native fairing component (2026-08-05e).
+    const shrouds = findShroudCandidates(importedTree);
+    setShroudPrompt(shrouds.length ? shrouds : null);
+  };
+
   const onOpenOrk = async (file: File) => {
     try {
       const buffer = await file.arrayBuffer();
@@ -607,75 +772,72 @@ export function App() {
           imported.name = fromFile;
         }
       }
-      const notes: string[] = [`Loaded “${imported.name}”.`, ...imported.notes];
-      // Load EVERY mount's motor (staged/multi-mount files included).
-      const nextMotors: Record<string, MountMotor> = {};
-      for (const [nodeId, ref] of Object.entries(imported.motors)) {
-        const builtIn = Object.entries(BUILT_IN_MOTORS).find(
-          ([k]) => k.startsWith(ref.designation));
-        const ignition: MountMotor['ignition'] = {
-          event: (ref.ignitionEvent as IgnitionEvent | undefined) ?? 'automatic',
-          delay: ref.ignitionDelay ?? 0,
-        };
-        if (builtIn) {
-          // Keep the FILE's ejection delay — the built-in key's own delay
-          // (e.g. C6-5 matching a saved C6-7) would silently change the flight.
-          // Infinity is a VALID file delay (plugged, .ork "none") — only fall
-          // back to the built-in's delay when the file carried none.
-          const fileDelay = ref.delay === Infinity ? Infinity
-            : Number.isFinite(ref.delay) ? ref.delay : builtIn[1].ejectionDelay;
-          const label = labelWithDelay(builtIn[0], fileDelay);
-          nextMotors[nodeId] = {
-            label,
-            spec: { ...builtIn[1], ejectionDelay: fileDelay },
-            meta: builtInMeta(builtIn[0]),
-            ignition,
-          };
-          notes.push(`Motor: ${label} (matched built-in).`);
-          continue;
-        }
-        // RockSim refs carry no motor diameter (0) — match by designation only.
-        const dbMatch = findDbMotor(ref.designation, ref.diameter > 0 ? ref.diameter * 1000 : undefined);
-        if (!dbMatch) {
-          notes.push(`Motor “${ref.designation}” isn't in the motor database — pick one via Browse motor database.`);
-          continue;
-        }
-        try {
-          const spec = await fetchMotorSpec(dbMatch, ref.delay);
-          // Plugged motors (Infinity delay) display the standard "-P" suffix.
-          const delayTag = Number.isFinite(ref.delay) ? String(ref.delay) : 'P';
-          const label = `${dbMatch.commonName}-${delayTag}`;
-          nextMotors[nodeId] = {
-            label,
-            spec,
-            meta: {
-              label,
-              manufacturer: dbMatch.manufacturerAbbrev,
-              availableDelays: delayOptions(dbMatch),
-              type: dbMatch.type,
-              propellant: dbMatch.propInfo,
-              motorCase: dbMatch.caseInfo,
-              highPower: isHighPower(dbMatch),
-            },
-            ignition,
-          };
-          notes.push(`Motor: ${dbMatch.manufacturerAbbrev} ${displayDesignation(dbMatch.designation, dbMatch.manufacturerAbbrev)}-${delayTag} (loaded from the motor database).`);
-        } catch {
-          notes.push(`Motor “${ref.designation}” is in the motor database but its thrust curve couldn't be downloaded — pick it via Browse motor database.`);
-        }
-      }
-      const importedTree = normalizeTree(imported.tree);
-      setTree(importedTree);
-      setMountMotors(nextMotors);
-      setMaxMotorLen({}); // imported stages have fresh ids — old limits don't apply
-      setSelectedId(null);
-      setFileNote(notes.join('\n'));
-      // Hand-rolled shrouds (1-fin freeform sets named like "Camera Shroud")
-      // get an offer to become the native fairing component (2026-08-05e).
-      const shrouds = findShroudCandidates(importedTree);
-      setShroudPrompt(shrouds.length ? shrouds : null);
+      await applyImported(imported);
     } catch (e) {
       setFileNote(`Could not open that .ork file: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+
+  // ---- "Open from a link": #d=<compressed .ork> in the URL fragment ----
+  // Decoded once at startup, then the fragment is cleared up front —
+  // declined and broken links included — so a reload never re-triggers it.
+  // Every failure lands in the file-note with the current design untouched;
+  // a bad link must never blank the app.
+  const shareHandled = useRef(false);
+  useEffect(() => {
+    if (shareHandled.current || !hasSharePayload(window.location.hash)) return;
+    shareHandled.current = true; // StrictMode double-invoke guard (the ref survives the remount)
+    const hash = window.location.hash;
+    // window.history explicitly — plain `history` is this component's undo ref.
+    window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    void (async () => {
+      try {
+        // Cheap pre-decode cap: no real share link approaches 1 MB of
+        // fragment, and a crafted one can inflate to hundreds of MB — refuse
+        // it before base64/inflate ever run (same soft-fail path as a
+        // corrupt link; the current design stays untouched either way).
+        if (hash.length > MAX_FRAGMENT_CHARS) {
+          throw new Error('the link is far longer than any real design — refusing to decode it');
+        }
+        const imported = importOrk(await decodeShareFragment(hash));
+        // A restored session still holding the untouched starter rocket is
+        // replaced silently; a design the user actually worked on gets a
+        // confirm dialog (declining keeps it — the link is simply dropped).
+        if (session && !isPristineDefault(initialTree)) setShareOffer(imported);
+        else await applyImported(imported);
+      } catch (e) {
+        setFileNote(`Couldn't open the design in this link — it looks damaged or cut short (chat apps sometimes truncate very long links). Ask for the link again, or for the .ork file. (${e instanceof Error ? e.message : String(e)})`);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot startup decode
+  }, []);
+
+  /**
+   * Copy-share-link (Save/Export menu): the WHOLE design — components,
+   * motors, launch conditions — deflated into the URL fragment, which never
+   * reaches a server (see services/shareLink.ts).
+   */
+  const onCopyShareLink = async () => {
+    try {
+      const xml = exportOrk({ name: tree.name ?? 'My Rocket', tree, motors: exportMotorsMap(), launch });
+      const frag = await encodeShareFragment(xml);
+      const url = `${window.location.origin}${window.location.pathname}${window.location.search}${frag}`;
+      // Chat apps truncate very long messages, and a truncated link decodes
+      // to nothing — warn at the copy, not after a confused report.
+      const sizeNote = url.length > 64 * 1024
+        ? '\nHeads up: this design is complex, so the link is very long — some chat apps truncate long messages, and a cut-off link won’t open. If it fails for the recipient, send the .ork file instead.'
+        : '';
+      try {
+        await navigator.clipboard.writeText(url);
+        setFileNote(`Share link copied — opening it loads “${tree.name ?? 'My Rocket'}” with its motors and launch conditions.${sizeNote}`);
+      } catch {
+        // Clipboard refused (permissions, iframe embed, non-secure context):
+        // hand the link over for a manual Ctrl+C — prompt() pre-selects it.
+        window.prompt('Copy this share link (Ctrl+C):', url);
+        if (sizeNote) setFileNote(sizeNote.trim());
+      }
+    } catch (e) {
+      setFileNote(`Share link failed: ${e instanceof Error ? e.message : String(e)}`);
     }
   };
 
@@ -752,19 +914,27 @@ export function App() {
     <div className="viz-root" data-theme={resolvedTheme} data-contrast={daylight ? 'high' : undefined}>
       <SiteBand nav={mmrNav} source={mmrNavSource} />
       <header className="app-header">
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-          <h1><Icon name="rocket" size={19} /> Online OpenRocket</h1>
-          <button
-            className="version-badge"
-            style={{ flex: '0 0 auto', marginRight: 'auto' }}
-            title="What's new in this build"
-            onClick={() => setShowChangelog(true)}
-          >
-            v{APP_VERSION} beta
-          </button>
+        <div className="app-header-row">
+          {/* Wordmark + badge are ONE flex item so a wrap never splits them;
+              the cluster (not the badge) now carries the auto margin that
+              pushes the buttons right whenever they share its line. */}
+          <div className="app-header-brand">
+            <h1><Icon name="rocket" size={19} /> Online OpenRocket</h1>
+            <button
+              className="version-badge"
+              title="What's new in this build"
+              onClick={() => setShowChangelog(true)}
+            >
+              v{APP_VERSION} beta
+            </button>
+          </div>
           <label className="file-btn" title="Open an OpenRocket (.ork), RockSim (.rkt), or RASAero II (.CDX1) design">
             <Icon name="folder" /> Open…
-            <input type="file" accept=".ork,.rkt,.CDX1" style={{ display: 'none' }}
+            {/* Visually hidden, NOT display:none — the input must stay in the
+                Tab order so the keyboard can reach it (Enter/Space opens the
+                picker); the label paints its focus ring via :focus-within. */}
+            <input type="file" accept=".ork,.rkt,.CDX1" className="file-btn-input"
+              aria-label="Open a design file"
               onChange={(e) => {
                 const f = e.target.files?.[0];
                 if (f) onOpenOrk(f);
@@ -781,6 +951,10 @@ export function App() {
                 <div className="file-menu-backdrop" onClick={() => setShowFileMenu(false)} />
                 <div className="file-menu" role="menu" onClick={() => setShowFileMenu(false)}>
                   <button onClick={onSaveOrk}>Save .ork — OpenRocket design</button>
+                  <button onClick={() => { void onCopyShareLink(); }}
+                    title="The whole design — components, motors, launch conditions — packed into a link you can paste in chat or email. It opens right in the browser; the design travels in the link itself and never touches a server.">
+                    🔗 Copy share link
+                  </button>
                   <button onClick={onSaveRkt}
                     title="RockSim design (max 3 stages; clusters split into individual tubes)">
                     Save .rkt — RockSim
@@ -903,6 +1077,14 @@ export function App() {
             source&nbsp;(GPL)
           </a>
         </p>
+        {autosaveFailing && (
+          // Persistent (not dismissible) on purpose: while this shows, edits
+          // do NOT survive a reload. It clears itself on the recovery edge.
+          <div className="file-note autosave-warn" role="alert">
+            ⚠ Autosave can&apos;t write (storage full or blocked) — save your
+            design to a file (Save / Export → .ork) to keep it safe.
+          </div>
+        )}
       </header>
       {showPrefs && <PreferencesDialog onClose={() => setShowPrefs(false)} />}
       {showGuide && <GuideDialog onClose={() => setShowGuide(false)} />}
@@ -930,7 +1112,7 @@ export function App() {
             Object.entries(mountMotors).map(([id, mm]) => [id, mm.spec]))}
           launch={launch}
           rocketName={tree.name ?? 'Rocket'}
-          onRunsChange={setRuns}
+          onRunsChange={recordRuns}
           onClose={() => setShowBatch(false)}
         />
       )}
@@ -967,6 +1149,35 @@ export function App() {
                 Discard &amp; start new
               </button>
               <button className="file-btn" onClick={() => setConfirmNew(false)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {shareOffer && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Open design from link">
+          <div className="modal-card">
+            <h2>Open design from this link?</h2>
+            <p>
+              This link opens “{shareOffer.name}”. Your current design
+              “{tree.name ?? 'Rocket'}” will be replaced. If you want to keep
+              it, save it as an .ork file first — declining simply drops the
+              link. (Ctrl+Z can still undo afterwards.)
+            </p>
+            <div className="modal-actions">
+              <button className="file-btn" onClick={() => { onSaveOrk(); }}>
+                <Icon name="save" /> Save mine first
+              </button>
+              <button
+                className="file-btn modal-danger"
+                onClick={() => {
+                  const offered = shareOffer;
+                  setShareOffer(null);
+                  void applyImported(offered);
+                }}
+              >
+                Open “{shareOffer.name}”
+              </button>
+              <button className="file-btn" onClick={() => setShareOffer(null)}>Keep my design</button>
             </div>
           </div>
         </div>
@@ -1558,6 +1769,21 @@ export function App() {
               </button>
             </div>
           )}
+          {(lastRun?.simWarnings ?? []).some((w) => w.priority === 'HIGH') && (
+            // The Launch flow lands here — a HIGH-priority kernel warning
+            // (no recovery device, deployment on the guide, …) must not be
+            // scrollable-past. Full list, cautions included, sits in the
+            // launch report below.
+            <div className="file-note" role="alert">
+              ⚠ <strong>This flight raised {
+                lastRun!.simWarnings!.filter((w) => w.priority === 'HIGH').length === 1
+                  ? 'a serious simulation warning'
+                  : 'serious simulation warnings'
+              }:</strong>{' '}
+              {lastRun!.simWarnings!.filter((w) => w.priority === 'HIGH')
+                .map((w) => formatWarning(w).label).join(' · ')}
+            </div>
+          )}
           {result && lastRun?.aeroModel === 'auto-supersonic' && (
             <div className="file-note">
               Auto aero: this flight was projected past Mach 0.9, so the whole flight was flown
@@ -1568,7 +1794,7 @@ export function App() {
           {result && lastRun ? (
             <>
               <FlightStats run={lastRun} />
-              <SimRunDetails run={lastRun} />
+              <SimRunDetails run={lastRun} result={result} onFullSeries={fetchFullSeriesResult} />
               <FlightCharts result={result} />
             </>
           ) : lastRun ? (
@@ -1589,9 +1815,24 @@ export function App() {
             </div>
           )}
           {built && <DragPanel rocket={built.rocket} supersonicModel={effectiveSupersonic} />}
+          {runsQuotaWarn && (
+            <div className="file-note" role="alert">
+              {runs.length === 0
+                // Nothing stored at all (private mode / storage blocked): the
+                // "table below / export the CSV" advice is unfollowable —
+                // SimHistory renders nothing with zero runs.
+                ? <>⚠ This flight&apos;s report is shown, but it could not be
+                  saved — browser storage is full or blocked (private
+                  browsing does this). Run history won&apos;t survive a reload.</>
+                : <>⚠ Run history is no longer being saved — browser storage is
+                  full. The table below shows what is actually stored; export the
+                  CSV to keep your results.</>}
+              <button className="file-note-dismiss" onClick={() => setRunsQuotaWarn(false)} aria-label="Dismiss">×</button>
+            </div>
+          )}
           <SimHistory
             runs={runs}
-            onRunsChange={setRuns}
+            onRunsChange={recordRuns}
             selectedId={lastRun?.id ?? null}
             onSelect={(r) => { setResult(null); setLastRun(r); }}
           />

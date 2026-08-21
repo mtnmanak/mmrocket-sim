@@ -5,11 +5,11 @@
 # Direct Upload project be converted to a Git-connected one. So the project stays as
 # it is and CI drives the same deploy command a human would run.
 #
-# `npm run build` is tsc + vite only — the TeaVM-compiled engine kernel is the
-# committed artifact packages/engine/vendor/orkengine.mjs, so no Java toolchain is
-# needed here. version.json is copied into dist the same way scripts/package-dist.mjs
-# does for release zips: the main site's Online Tools page reads it for the version
-# badge.
+# `npm run build` is the user-guide generator, then tsc + vite — the TeaVM-compiled
+# engine kernel is the committed artifact packages/engine/vendor/orkengine.mjs, so no
+# Java toolchain is needed here. version.json is copied into dist the same way
+# scripts/package-dist.mjs does for release zips: the main site's Online Tools page
+# reads it for the version badge.
 #
 # Required repository secrets (Settings -> Secrets and variables -> Actions):
 #   CLOUDFLARE_API_TOKEN   API token with the "Cloudflare Pages: Edit" permission
@@ -40,6 +40,26 @@ jobs:
         with:
           node-version: 22
           cache: npm
+
+      # A push IS a release here, so the release checklist's version pairing is
+      # enforced where it matters: fail the deploy when version.json and
+      # APP_VERSION drift (the failure mode that once let this repo sit 22
+      # releases ahead of what the live badge reported). Same regex as
+      # scripts/package-dist.mjs.
+      - name: version.json must match APP_VERSION
+        run: |
+          node -e "
+            const { readFileSync } = require('node:fs');
+            const app = readFileSync('packages/app/src/version.ts', 'utf8')
+              .match(/APP_VERSION\s*=\s*'([^']+)'/)?.[1];
+            const json = JSON.parse(readFileSync('version.json', 'utf8')).version;
+            if (!app || app !== json) {
+              console.error('version.json says ' + json + ' but APP_VERSION is ' + app
+                + ' — update both together (release checklist in packages/app/src/version.ts).');
+              process.exit(1);
+            }
+            console.log('version ' + app + ' is consistent');
+          "
 
       - run: npm ci
 

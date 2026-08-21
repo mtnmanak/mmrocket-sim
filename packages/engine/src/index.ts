@@ -29,6 +29,7 @@ export {
   type DragCurve,
   type DragSweep,
   type DragSweepOptions,
+  type EngineWarning,
   type FlightBranch,
   type FlightEvent,
   type FlightResult,

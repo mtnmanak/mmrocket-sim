@@ -2,6 +2,19 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      // Canonical-host redirect, BEFORE the app (or its service worker)
+      // loads: the pages.dev origin still answers — it is the deploy target —
+      // but the address testers bookmark and share must be the subdomain
+      // (docs/beta-invite.md hands out only that one). EXACT hostname match
+      // on purpose: branch previews live at <hash>.online-open-rocket
+      // .pages.dev and must keep working un-redirected. path+search+HASH all
+      // carry over — share links put the whole design in the fragment.
+      if (location.hostname === 'online-open-rocket.pages.dev') {
+        location.replace('https://openrocket.mountainmanrockets.com'
+          + location.pathname + location.search + location.hash);
+      }
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="Design, simulate, fly — OpenRocket-derived physics, validated to Mach 4.6 against NASA wind-tunnel data. In your browser, offline-capable." />
     <meta name="theme-color" content="#101623" />

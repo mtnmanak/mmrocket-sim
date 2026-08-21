@@ -12,6 +12,12 @@
  *   haack transitions simulate (and therefore must draw) CLIPPED: the profile
  *   is the continuation of the virtual nose shape, cut off at the fore radius.
  *   Conical / ogive / parabolic transitions are never clippable.
+ * - A node CAN override that default (the .ork <shapeclipped> flag, forwarded
+ *   to the engine bridge as node['clipped']): outerProfile's `clipped`
+ *   argument mirrors Transition.isClipped() — non-clippable shapes ignore it
+ *   entirely, absent means the kernel default (clipped), and an explicit
+ *   false draws the unclipped delta shape r1 + shape(x, r2−r1, length), the
+ *   same profile the engine then flies.
  */
 
 const MINFEATURE = 0.001;
@@ -166,10 +172,16 @@ function sampleXs(length: number, steps: number, extra?: readonly number[]): num
  * `extraX` (optional, meters, in this profile's own x) merges exact samples at
  * the given abscissas — see sampleXs(). Purely additive: omit it and nothing
  * changes.
+ *
+ * `clipped` (optional) is the node's stored clipped flag (node['clipped'],
+ * from .ork <shapeclipped>). Absent = kernel default = clipped; it only
+ * matters on clippable shapes (ellipsoid/power/haack) — exactly
+ * Transition.isClipped(), which returns false outright for the rest.
  */
 export function outerProfile(
   shape: string, param: number | undefined, length: number,
   foreR: number, aftR: number, steps = 32, extraX?: readonly number[],
+  clipped?: boolean,
 ): [number, number][] {
   const p = Math.min(Math.max(param ?? shapeParamDefault(shape), 0), shapeParamMax(shape));
   const pts: [number, number][] = [];
@@ -185,13 +197,15 @@ export function outerProfile(
   const flipped = foreR > aftR;
   const r1 = flipped ? aftR : foreR;
   const r2 = flipped ? foreR : aftR;
-  const clipped = r1 > 0 && shapeIsClippable(shape);
-  const clipLength = clipped ? calculateClip(shape, p, length, r1, r2) : 0;
+  // (clipped ?? true): the kernel default IS clipped; the flag can only turn
+  // clipping OFF, and only on clippable shapes (Transition.isClipped()).
+  const clip = r1 > 0 && shapeIsClippable(shape) && (clipped ?? true);
+  const clipLength = clip ? calculateClip(shape, p, length, r1, r2) : 0;
 
   const radiusAt = (x: number): number => {
     if (x <= 0) return r1;
     if (x >= length) return r2;
-    if (clipped) return shapeRadius(shape, clipLength + x, r2, clipLength + length, p);
+    if (clip) return shapeRadius(shape, clipLength + x, r2, clipLength + length, p);
     return r1 + shapeRadius(shape, x, r2 - r1, length, p);
   };
 

@@ -726,7 +726,8 @@ public final class OrkEngine {
      * { rodLength, rodAngle, rodDirection, windAverage, windStdDeviation,
      *   launchAltitude, launchLatitude, launchLongitude,
      *   temperature (K, launch-site), pressure (Pa, launch-site),
-     *   timeStep, maxTime, randomSeed }
+     *   timeStep, maxTime, randomSeed,
+     *   series: "summary" (default) | "full" — see appendBranchSeries }
      * Custom temperature/pressure switch the atmosphere to an ISA model based
      * at the launch site; otherwise standard ISA is used.
      */
@@ -739,6 +740,16 @@ public final class OrkEngine {
         double temperature = JsonLite.dbl(o, "temperature", Double.NaN);
         double pressure = JsonLite.dbl(o, "pressure", Double.NaN);
         double timeStep = JsonLite.dbl(o, "timeStep", 0.05);
+        // Series payload mode. "summary" (default) emits the friendly dozen
+        // plus only the symbol series the app's flight report reads on every
+        // run; "full" adds the branch's whole recording. Serializing all ~60
+        // series unconditionally cost ~45% extra single-sim wall clock, so
+        // full is strictly opt-in.
+        String seriesMode = JsonLite.str(o, "series", "summary");
+        if (!"summary".equals(seriesMode) && !"full".equals(seriesMode)) {
+            throw new IllegalArgumentException("Unknown series mode: " + seriesMode);
+        }
+        boolean fullSeries = "full".equals(seriesMode);
 
         SimulationConditions conditions = new SimulationConditions();
         conditions.setSimulation(new Simulation(ctx.rocket, ctx.fcid));
@@ -779,7 +790,7 @@ public final class OrkEngine {
             BasicEventSimulationEngine engine = new BasicEventSimulationEngine();
             engine.simulate(conditions);
             FlightData data = engine.getFlightData();
-            return flightDataToJson(data);
+            return flightDataToJson(data, fullSeries);
         } catch (SimulationException e) {
             return "{\"error\":\"" + escape(String.valueOf(e.getMessage())) + "\"}";
         }
@@ -828,7 +839,7 @@ public final class OrkEngine {
         }
     }
 
-    private static String flightDataToJson(FlightData data) {
+    private static String flightDataToJson(FlightData data, boolean fullSeries) {
         StringBuilder sb = new StringBuilder("{\"summary\":{");
         num(sb, "maxAltitude", data.getMaxAltitude()).append(',');
         num(sb, "maxVelocity", data.getMaxVelocity()).append(',');
@@ -840,10 +851,14 @@ public final class OrkEngine {
         num(sb, "launchRodVelocity", data.getLaunchRodVelocity()).append(',');
         num(sb, "deploymentVelocity", data.getDeploymentVelocity()).append(',');
         num(sb, "optimumDelay", data.getOptimumDelay());
-        sb.append("},\"events\":");
+        sb.append("},\"warnings\":");
+        appendWarnings(sb, data.getWarningSet());
+        sb.append(",\"warningTexts\":");
+        appendWarningTexts(sb, data.getWarningSet());
+        sb.append(",\"events\":");
         appendEvents(sb, data.getBranch(0));
         sb.append(",\"series\":");
-        appendBranchSeries(sb, data.getBranch(0));
+        appendBranchSeries(sb, data.getBranch(0), fullSeries);
         // Staged flights: EVERY branch (sustainer = branch 0, then each
         // separated booster's own descent), each with name, events, series.
         // Omitted for single-branch flights — no payload change.
@@ -856,12 +871,79 @@ public final class OrkEngine {
                         .append("\",\"events\":");
                 appendEvents(sb, b);
                 sb.append(",\"series\":");
-                appendBranchSeries(sb, b);
+                appendBranchSeries(sb, b, fullSeries);
                 sb.append('}');
             }
             sb.append(']');
         }
         return sb.append('}').toString();
+    }
+
+    /**
+     * Simulation warnings (FlightData.getWarningSet()) as structured entries:
+     * "key" — stable machine identity (see warningKey), "message" — the human
+     * text (Warning.toString(), source component names included), "priority" —
+     * LOW|NORMAL|HIGH (MessagePriority's own export labels).
+     */
+    private static void appendWarnings(StringBuilder sb, WarningSet warnings) {
+        sb.append('[');
+        boolean first = true;
+        for (info.openrocket.core.logging.Warning w : warnings) {
+            if (!first) sb.append(',');
+            first = false;
+            sb.append("{\"key\":\"").append(escape(warningKey(w)))
+                    .append("\",\"message\":\"").append(escape(String.valueOf(w)))
+                    .append("\",\"priority\":\"")
+                    .append(w.getPriority().getExportLabel()).append("\"}");
+        }
+        sb.append(']');
+    }
+
+    /**
+     * Plain warning messages, same "warningTexts" shape and naming as
+     * getStaticInfo() — the app treats static and flight warnings alike.
+     */
+    private static void appendWarningTexts(StringBuilder sb, WarningSet warnings) {
+        sb.append('[');
+        boolean first = true;
+        for (info.openrocket.core.logging.Warning w : warnings) {
+            if (!first) sb.append(',');
+            first = false;
+            sb.append('"').append(escape(String.valueOf(w))).append('"');
+        }
+        sb.append(']');
+    }
+
+    /**
+     * Stable machine identity for a Warning. No reflection — TeaVM's class
+     * metadata must never leak into difftest-compared output — so the typed
+     * Warning subclasses are enumerated by hand. Every other warning is a
+     * Warning.Other; the shim translator is a DebugTranslator, so those texts
+     * start with the bracketed l10n key ("[Warning.NO_RECOVERY_DEVICE]…"),
+     * and that key IS the identity. Anything else falls back to "Other".
+     */
+    private static String warningKey(info.openrocket.core.logging.Warning w) {
+        if (w instanceof info.openrocket.core.logging.Warning.LargeAOA) {
+            return "LargeAOA";
+        }
+        if (w instanceof info.openrocket.core.logging.Warning.HighSpeedDeployment) {
+            return "HighSpeedDeployment";
+        }
+        if (w instanceof info.openrocket.core.logging.Warning.EventAfterLanding) {
+            return "EventAfterLanding";
+        }
+        if (w instanceof info.openrocket.core.logging.Warning.MissingMotor) {
+            return "MissingMotor";
+        }
+        String text = w.getMessageDescription();
+        final String prefix = "[Warning.";
+        if (text != null && text.startsWith(prefix)) {
+            int end = text.indexOf(']');
+            if (end > prefix.length()) {
+                return text.substring(prefix.length(), end);
+            }
+        }
+        return "Other";
     }
 
     private static void appendEvents(StringBuilder sb, FlightDataBranch branch) {
@@ -883,7 +965,33 @@ public final class OrkEngine {
         sb.append(']');
     }
 
-    private static void appendBranchSeries(StringBuilder sb, FlightDataBranch branch) {
+    /**
+     * The 12 types serialized under friendly names in appendBranchSeries —
+     * re-emitting them under their symbols ("t", "h"…) would be pure byte
+     * duplication (~17% of the payload), so the symbol-keyed section always
+     * skips them.
+     */
+    private static final java.util.Set<FlightDataType> FRIENDLY_NAMED_TYPES =
+            new java.util.HashSet<>(java.util.Arrays.asList(
+                    FlightDataType.TYPE_TIME, FlightDataType.TYPE_ALTITUDE,
+                    FlightDataType.TYPE_VELOCITY_TOTAL, FlightDataType.TYPE_ACCELERATION_TOTAL,
+                    FlightDataType.TYPE_MASS, FlightDataType.TYPE_THRUST_FORCE,
+                    FlightDataType.TYPE_DRAG_FORCE, FlightDataType.TYPE_MACH_NUMBER,
+                    FlightDataType.TYPE_STABILITY, FlightDataType.TYPE_CP_LOCATION,
+                    FlightDataType.TYPE_CG_LOCATION, FlightDataType.TYPE_AOA));
+
+    /**
+     * The symbol series the app's flight report consumes on EVERY run —
+     * lateral drift (Pl, θl, Px, Py) and roll rate (dΦ) — the only
+     * symbol keys "summary" mode emits.
+     */
+    private static final java.util.Set<FlightDataType> SUMMARY_SYMBOL_TYPES =
+            new java.util.HashSet<>(java.util.Arrays.asList(
+                    FlightDataType.TYPE_POSITION_XY, FlightDataType.TYPE_POSITION_DIRECTION,
+                    FlightDataType.TYPE_POSITION_X, FlightDataType.TYPE_POSITION_Y,
+                    FlightDataType.TYPE_ROLL_RATE));
+
+    private static void appendBranchSeries(StringBuilder sb, FlightDataBranch branch, boolean fullSeries) {
         sb.append('{');
         appendSeries(sb, "time", branch.get(FlightDataType.TYPE_TIME)).append(',');
         appendSeries(sb, "altitude", branch.get(FlightDataType.TYPE_ALTITUDE)).append(',');
@@ -897,6 +1005,27 @@ public final class OrkEngine {
         appendSeries(sb, "cpLocation", branch.get(FlightDataType.TYPE_CP_LOCATION)).append(',');
         appendSeries(sb, "cgLocation", branch.get(FlightDataType.TYPE_CG_LOCATION)).append(',');
         appendSeries(sb, "aoa", branch.get(FlightDataType.TYPE_AOA));
+        // Symbol-keyed series ("Pl", "Cdf", "mp"…) beyond the friendly
+        // dozen, in getTypes()' natural sort order — only the types this
+        // branch actually carries. Key ORDER is deterministic; with
+        // TYPE_COMPUTATION_TIME (tc, wall-clock measurement noise) excluded
+        // the VALUES now are too, so difftest can compare the whole payload.
+        // Summary mode emits only SUMMARY_SYMBOL_TYPES; full mode emits
+        // everything except tc and the friendly-named duplicates.
+        for (FlightDataType type : branch.getTypes()) {
+            if (fullSeries
+                    ? (type.equals(FlightDataType.TYPE_COMPUTATION_TIME)
+                            || FRIENDLY_NAMED_TYPES.contains(type))
+                    : !SUMMARY_SYMBOL_TYPES.contains(type)) {
+                continue;
+            }
+            List<Double> values = branch.get(type);
+            if (values == null) {
+                continue;
+            }
+            sb.append(',');
+            appendSeries(sb, escape(type.getSymbol()), values);
+        }
         sb.append('}');
     }
 
@@ -906,7 +1035,10 @@ public final class OrkEngine {
             for (int i = 0; i < values.size(); i++) {
                 if (i > 0) sb.append(',');
                 Double v = values.get(i);
-                sb.append(v == null || v.isNaN() ? "null" : v.toString());
+                // isInfinite too: Java Double.toString(Infinity) is a bare
+                // 'Infinity', which JSON.parse rejects — one such sample
+                // would kill the whole result (num() already guards this).
+                sb.append(v == null || v.isNaN() || v.isInfinite() ? "null" : v.toString());
             }
         }
         return sb.append(']');

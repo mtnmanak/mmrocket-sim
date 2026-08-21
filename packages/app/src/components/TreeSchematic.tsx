@@ -725,7 +725,10 @@ function profilePath(
   const shape = typeof n['shape'] === 'string' ? (n['shape'] as string)
     : n.type === 'transition' ? 'conical' : 'ogive';
   const param = typeof n['shapeParameter'] === 'number' ? (n['shapeParameter'] as number) : undefined;
-  const pts = outerProfile(shape, param, len, foreR, aftR, 24);
+  // node['clipped'] (.ork <shapeclipped>) rides along so an unclipped
+  // transition draws the way it simulates; absent = kernel default (clipped).
+  const pts = outerProfile(shape, param, len, foreR, aftR, 24, undefined,
+    typeof n['clipped'] === 'boolean' ? (n['clipped'] as boolean) : undefined);
   const px = (xi: number) => ctx.x0 + (x + xi) * ctx.scale;
   const top = pts.map(([xi, r]) => `${px(xi)} ${baseY - r * ctx.scale}`);
   const bottom = pts.slice().reverse().map(([xi, r]) => `${px(xi)} ${baseY + r * ctx.scale}`);

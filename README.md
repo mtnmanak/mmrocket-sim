@@ -5,15 +5,31 @@ design and flight simulation with the real OpenRocket 24.12 physics kernel compi
 JavaScript and verified bit-for-bit against the desktop application. Design, simulate,
 fly: nothing to install, works offline as a PWA.
 
-**Live app:** https://online-open-rocket.pages.dev
-(after DNS cutover: https://openrocket.mountainmanrockets.com)
+**Live app:** https://openrocket.mountainmanrockets.com
 
 Part of [mountainmanrockets.com](https://www.mountainmanrockets.com)'s online tools.
 
-**Found a bug or want a feature?** File it at
-[mountainmanrockets-feedback](https://github.com/mtnmanak/mountainmanrockets-feedback/issues)
-— the public tracker for the site and all its tools — or use the 🐞 Feedback button in
-the app itself.
+## Feedback
+
+Bug reports and feature requests for this tool — and for every mountainmanrockets.com
+tool — go to one central public tracker,
+[mountainmanrockets-feedback](https://github.com/mtnmanak/mountainmanrockets-feedback/issues):
+
+- **[Report a bug](https://github.com/mtnmanak/mountainmanrockets-feedback/issues/new?template=bug-report.yml)**
+- **[Request a feature](https://github.com/mtnmanak/mountainmanrockets-feedback/issues/new?template=feature-request.yml)**
+  — content requests count too ("write up how to assemble an Aerotech RMS motor")
+- **[Browse this tool's open issues](https://github.com/mtnmanak/mountainmanrockets-feedback/issues?q=is%3Aopen+label%3Atool%3Aonline-openrocket)**
+
+Both forms ask which tool the report is about — pick **Online OpenRocket**. That
+dropdown is what routes the issue, and GitHub can't preselect it from a link, so the
+🐞 Feedback button in the app opens the same bug form with only the app version
+filled in for you.
+
+No GitHub account? Email **admin@mountainmanrockets.com** and I'll file it for you.
+(Reading the tracker needs no account; filing does.)
+
+**This repository's Issues tab is disabled on purpose** — all reports live in the one
+tracker above, so nothing gets filed in two places.
 
 ## Licensing
 

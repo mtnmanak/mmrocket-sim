@@ -140,7 +140,11 @@
 
 .workspace-tabs {
   display: flex;
-  gap: 4px;
+  /* Wraps on phones. The 6px row gap must stay larger than the 2px the
+     buttons pull down (margin-bottom: -2px, for the underline trick), or an
+     upper row's active underline gets overlapped by the row below. */
+  flex-wrap: wrap;
+  gap: 6px 4px;
   border-bottom: 2px solid var(--border);
   margin-bottom: 12px;
 }
@@ -181,6 +185,14 @@
   grid-template-columns: 290px minmax(0, 1fr) 320px;
   gap: 12px;
   align-items: start;
+}
+
+/* Grid items default to min-width:auto, so a long nowrap tree label's
+   min-content width propagates up and stretches the ≤900px single-column
+   layout into sideways scroll (a 90-char rocket name pushed it 636px wide).
+   min-width:0 lets the columns shrink and the existing ellipsis engage. */
+.design-layout > * {
+  min-width: 0;
 }
 
 /* Motors & Launch: full-width schematic above two columns. */
@@ -256,8 +268,78 @@
   z-index: 55;
 }
 
+/* Below 980px the header row wraps (.app-header-row), and a menu
+   right-anchored to its own BUTTON clips off the left edge of a phone
+   screen whenever that button lands in the row's left half (`right: 0`
+   grows the 240px menu leftward — measured left:-55px at 412px). Re-anchor
+   to the ROW: the wrap goes static so the row becomes the containing block,
+   and the menu drops below the whole button row hugging its right edge —
+   fully on-screen at any viewport ≥ 288px (240px menu + 16px header padding
+   and 8px body margin per side). ≥980px never wraps and keeps the
+   per-button anchor. */
+@media (max-width: 979px) {
+  .app-header-row {
+    position: relative;
+  }
+  .app-header-row .file-menu-wrap {
+    position: static;
+  }
+  .app-header-row .file-menu {
+    max-width: calc(100vw - 32px);
+  }
+}
+
 .app-header {
   padding: 16px clamp(16px, 2vw, 40px) 0;
+}
+
+/* The header button row WRAPS at phone widths (decided over sideways
+   scroll): every control stays visible, nothing hides behind a swipe —
+   Guide and Feedback are the two buttons the beta invite points testers at.
+   The wrap is gated to <980px so wider layouts keep the exact pre-class
+   behavior (one nowrap line; 980–1059px squeezes button labels a few px,
+   just as the inline-style row always did). */
+.app-header-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+/* Wordmark + version badge move as one unit when the row wraps. The auto
+   margin (formerly inline on the badge) splits brand from buttons whenever
+   they share a line. */
+.app-header-brand {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-right: auto;
+  /* Never shrinks on wide screens: Chrome will squeeze this nested flex box
+     BELOW its content minimum in the 980-1059px band, sliding the badge 14px
+     under the Open button. The buttons absorb the deficit instead — exactly
+     what the old flat h1/badge structure did. */
+  flex: 0 0 auto;
+}
+
+/* The badge never shrinks (formerly inline flex: 0 0 auto) — in the
+   980–1059px squeeze band the deficit must keep coming out of the buttons,
+   not wrap "v0.045 beta" onto two lines. */
+.app-header-brand .version-badge {
+  flex: 0 0 auto;
+}
+
+@media (max-width: 979px) {
+  .app-header-row {
+    flex-wrap: wrap;
+  }
+  /* The cluster itself may wrap INTERNALLY — the pair is 314px against a
+     312px row at 375px (257px at 320px), so the badge drops under the
+     wordmark rather than pushing the page sideways. Shrink must come back
+     on for that: a flex item only wraps its content once it is allowed
+     below its base size. */
+  .app-header-brand {
+    flex-shrink: 1;
+    flex-wrap: wrap;
+  }
 }
 
 /* Motor-mount size readout in the Rocket panel. */
@@ -845,6 +927,33 @@
   background: var(--hover);
 }
 
+/* File input inside a label.file-btn (the header's Open…): visually hidden
+   but focusable — display:none removed it from the Tab order entirely, so
+   the control was unreachable by keyboard. The label anchors it (relative)
+   and shows the focus ring on its behalf via :focus-within. */
+.file-btn:has(> .file-btn-input) {
+  position: relative;
+}
+
+.file-btn-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Scoped with :has so plain .file-btn buttons keep the browser's own
+   :focus-visible behavior (no ring on mouse clicks). */
+.file-btn:has(> .file-btn-input):focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 /* --- Import/file feedback banner --- */
 .file-note {
   position: relative;
@@ -868,6 +977,15 @@
   font-size: 14px;
   cursor: pointer;
   color: var(--text-muted);
+}
+
+/* Autosave-failure warning (header area): storage full or blocked, so edits
+   will NOT survive a reload. The plain .file-note look, bordered in the warn
+   status color; deliberately NO dismiss button — it clears itself the moment
+   a save sticks again (session.ts signals the recovery edge). */
+.autosave-warn {
+  margin: 10px 0 0;
+  border-color: var(--status-warn);
 }
 
 /* --- Component tree --- */

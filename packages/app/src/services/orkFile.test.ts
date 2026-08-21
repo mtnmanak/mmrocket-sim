@@ -478,3 +478,334 @@ describe('.ork audit regressions (2026-08-04)', () => {
     expect(lb['overrideSubcomponentsMass']).toBe(true);
   });
 });
+
+describe('.ork launch conditions (simulations block)', () => {
+  const SIMPLE_TREE = {
+    name: 'Cond',
+    components: [{
+      type: 'stage' as const, name: 'Sustainer',
+      children: [
+        { type: 'nosecone' as const, length: 0.07, aftRadius: 0.012, thickness: 0.002 },
+        { type: 'bodytube' as const, length: 0.3, outerRadius: 0.012, thickness: 0.0005 },
+      ],
+    }],
+  };
+
+  it('writes an empty <simulations> and imports no launch when none given', () => {
+    const xml = exportOrk({ name: 'Cond', tree: SIMPLE_TREE });
+    expect(xml).not.toContain('<simulation ');
+    expect(importOrk(xml).launch).toBeUndefined();
+  });
+
+  it('round-trips custom launch conditions through one <simulation>', () => {
+    const xml = exportOrk({
+      name: 'Cond', tree: SIMPLE_TREE,
+      launch: {
+        launchRodLengthM: 1.8288, launchRodAngleDeg: 5, windAverage: 4,
+        windStdDev: 0.8, launchAltitudeM: 1350, temperatureC: 25,
+        pressureHPa: 1015, latitudeDeg: 39.1,
+      },
+    });
+    // Desktop-required attributes (its loader warns on anything else).
+    expect(xml).toContain('<simulation status="notsimulated">');
+    expect(xml).toContain('<simulator>RK4Simulator</simulator>');
+    expect(xml).toContain('<calculator>BarrowmanCalculator</calculator>');
+    const back = importOrk(xml).launch!;
+    expect(back.launchRodLengthM).toBeCloseTo(1.8288, 12);
+    expect(back.launchRodAngleDeg).toBeCloseTo(5, 12); // degrees on disk, degrees in the type
+    expect(back.windAverage).toBeCloseTo(4, 12);
+    expect(back.windStdDev).toBeCloseTo(0.8, 12);
+    expect(back.launchAltitudeM).toBeCloseTo(1350, 12);
+    expect(back.temperatureC).toBeCloseTo(25, 9);  // Kelvin on disk
+    expect(back.pressureHPa).toBeCloseTo(1015, 9); // Pascal on disk
+    expect(back.latitudeDeg).toBeCloseTo(39.1, 12);
+  });
+
+  it('round-trips the ISA standard atmosphere as null temperature/pressure', () => {
+    const xml = exportOrk({
+      name: 'Cond', tree: SIMPLE_TREE,
+      launch: {
+        launchRodLengthM: 1, launchRodAngleDeg: 0, windAverage: 2, windStdDev: 0.2,
+        launchAltitudeM: 0, temperatureC: null, pressureHPa: null, latitudeDeg: 28.61,
+      },
+    });
+    expect(xml).toContain('<atmosphere model="isa"/>');
+    const back = importOrk(xml).launch!;
+    expect(back.temperatureC).toBeNull();
+    expect(back.pressureHPa).toBeNull();
+  });
+
+  it('round-trips zero wind without inventing turbulence (0/0 intensity)', () => {
+    const xml = exportOrk({
+      name: 'Cond', tree: SIMPLE_TREE,
+      launch: {
+        launchRodLengthM: 1, launchRodAngleDeg: 0, windAverage: 0, windStdDev: 0,
+        launchAltitudeM: 0, temperatureC: null, pressureHPa: null, latitudeDeg: 28.61,
+      },
+    });
+    expect(xml).toContain('<windturbulence>0</windturbulence>');
+    const back = importOrk(xml).launch!;
+    expect(back.windAverage).toBe(0);
+    expect(back.windStdDev).toBe(0);
+  });
+
+  // Shape copied from the desktop 24.12 OpenRocketSaver.saveSimulation():
+  // legacy trio + modern <wind model="average"> block, Kelvin/Pascal
+  // atmosphere, degrees rod angle. Second simulation must be ignored.
+  const DESKTOP_SIM = `<openrocket version="1.10" creator="OpenRocket 24.12"><rocket>
+    <name>CondTest</name>
+    <motorconfiguration configid="a1" default="true"><stage number="0" active="true"/></motorconfiguration>
+    <subcomponents><stage><name>S</name><subcomponents>
+      <nosecone><name>N</name><length>0.07</length><thickness>0.002</thickness>
+        <shape>ogive</shape><aftradius>0.012</aftradius></nosecone>
+      <bodytube><name>B</name><length>0.3</length><thickness>0.0005</thickness><radius>0.012</radius></bodytube>
+    </subcomponents></stage></subcomponents>
+  </rocket>
+  <simulations>
+    <simulation status="uptodate">
+      <name>Simulation 1</name>
+      <simulator>RK4Simulator</simulator>
+      <calculator>BarrowmanCalculator</calculator>
+      <conditions>
+        <configid>a1</configid>
+        <launchrodlength>1.8288</launchrodlength>
+        <launchintowind>true</launchintowind>
+        <launchrodangle>5.0</launchrodangle>
+        <launchroddirection>90.0</launchroddirection>
+        <windaverage>4.0</windaverage>
+        <windturbulence>0.1</windturbulence>
+        <winddirection>1.5707963267948966</winddirection>
+        <wind model="average">
+          <speed>4.0</speed>
+          <direction>1.5707963267948966</direction>
+          <standarddeviation>0.5</standarddeviation>
+        </wind>
+        <windmodeltype>Average</windmodeltype>
+        <launchaltitude>1350.0</launchaltitude>
+        <launchlatitude>39.1</launchlatitude>
+        <launchlongitude>-108.55</launchlongitude>
+        <geodeticmethod>wgs84</geodeticmethod>
+        <atmosphere model="extendedisa">
+          <basetemperature>298.15</basetemperature>
+          <basepressure>101500.0</basepressure>
+        </atmosphere>
+        <timestep>0.05</timestep>
+        <maxtime>1200.0</maxtime>
+      </conditions>
+    </simulation>
+    <simulation status="uptodate"><name>Other</name>
+      <conditions><launchrodlength>9.9</launchrodlength></conditions>
+    </simulation>
+  </simulations></openrocket>`;
+
+  it('imports a desktop-written conditions block (first simulation only)', () => {
+    const result = importOrk(DESKTOP_SIM);
+    const launch = result.launch!;
+    expect(launch.launchRodLengthM).toBeCloseTo(1.8288, 12); // not 9.9 — first sim wins
+    expect(launch.launchRodAngleDeg).toBeCloseTo(5, 12);
+    expect(launch.windAverage).toBeCloseTo(4, 12);
+    // Modern <wind> stddev wins over the legacy intensity pair (0.1 x 4 = 0.4).
+    expect(launch.windStdDev).toBeCloseTo(0.5, 12);
+    expect(launch.launchAltitudeM).toBeCloseTo(1350, 12);
+    expect(launch.latitudeDeg).toBeCloseTo(39.1, 12);
+    expect(launch.temperatureC).toBeCloseTo(25, 9);
+    expect(launch.pressureHPa).toBeCloseTo(1015, 9);
+    // Non-spherical geodetic model: the app simulates a spherical Earth.
+    expect(result.notes.filter((n) => n.includes('geodetic'))).toHaveLength(1);
+  });
+
+  it('falls back to the legacy windturbulence intensity ratio (pre-24.x files)', () => {
+    const LEGACY = DESKTOP_SIM
+      .replace(/<wind model="average">[\s\S]*?<\/wind>/, '')
+      .replace(/<windmodeltype>Average<\/windmodeltype>/, '')
+      .replace(/<geodeticmethod>wgs84<\/geodeticmethod>/, '<geodeticmethod>spherical</geodeticmethod>');
+    const result = importOrk(LEGACY);
+    // stddev = intensity x average = 0.1 x 4.
+    expect(result.launch!.windStdDev).toBeCloseTo(0.4, 12);
+    expect(result.notes.filter((n) => n.includes('geodetic'))).toHaveLength(0);
+  });
+
+  it('notes that a MultiLevel wind profile was replaced by the average-wind settings', () => {
+    const ml = DESKTOP_SIM
+      .replace('<windmodeltype>Average</windmodeltype>', '<windmodeltype>MultiLevel</windmodeltype>');
+    const result = importOrk(ml);
+    const notes = result.notes.filter((n) => n.includes('multilevel wind'));
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toContain('average-wind settings were imported instead');
+    // The average settings still import — the note explains them, not a failure.
+    expect(result.launch!.windAverage).toBeCloseTo(4, 12);
+  });
+
+  it('notes a multilevel <wind> element even without a windmodeltype tag', () => {
+    const ml = DESKTOP_SIM
+      .replace('<windmodeltype>Average</windmodeltype>', '')
+      .replace('<wind model="average">', '<wind model="multilevel">');
+    const notes = importOrk(ml).notes.filter((n) => n.includes('multilevel wind'));
+    expect(notes).toHaveLength(1);
+  });
+
+  it('stays silent on plain average-wind files', () => {
+    expect(importOrk(DESKTOP_SIM).notes.some((n) => n.includes('multilevel'))).toBe(false);
+  });
+});
+
+describe('.ork multi-configuration honesty', () => {
+  // Desktop shape: rocket-level declarations (name only when overridden) +
+  // per-mount <motor configid> blocks written in declaration order.
+  const TWO_CONFIGS = `<openrocket version="1.10" creator="OpenRocket 24.12"><rocket>
+    <name>TwoCfg</name>
+    <motorconfiguration configid="cfg-a" default="true">
+      <name>Club field C6</name>
+      <stage number="0" active="true"/>
+    </motorconfiguration>
+    <motorconfiguration configid="cfg-b">
+      <stage number="0" active="true"/>
+    </motorconfiguration>
+    <subcomponents><stage><name>S</name><subcomponents>
+      <nosecone><name>N</name><length>0.07</length><thickness>0.002</thickness>
+        <shape>ogive</shape><aftradius>0.012</aftradius></nosecone>
+      <bodytube><name>B</name><length>0.3</length><thickness>0.0005</thickness><radius>0.012</radius>
+        <motormount>
+          <ignitionevent>automatic</ignitionevent><ignitiondelay>0.0</ignitiondelay>
+          <overhang>0.0</overhang>
+          <motor configid="cfg-a"><type>single</type><manufacturer>Estes</manufacturer>
+            <designation>C6</designation><diameter>0.018</diameter><length>0.07</length>
+            <delay>5.0</delay></motor>
+          <motor configid="cfg-b"><type>single</type><manufacturer>Estes</manufacturer>
+            <designation>D12</designation><diameter>0.024</diameter><length>0.07</length>
+            <delay>7.0</delay></motor>
+        </motormount>
+      </bodytube>
+    </subcomponents></stage></subcomponents></rocket></openrocket>`;
+
+  it('keeps the first configuration and says which one in a single note', () => {
+    const result = importOrk(TWO_CONFIGS);
+    // Kept: the first <motor> per mount = the earliest-declared config.
+    expect(result.motor?.designation).toBe('C6');
+    const notes = result.notes.filter((n) => n.includes('flight configurations'));
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toContain('2 flight configurations');
+    expect(notes[0]).toContain('Club field C6');
+    expect(notes[0]).toContain('1 was not imported');
+  });
+
+  it('falls back to the configid when the kept configuration is unnamed', () => {
+    const unnamed = TWO_CONFIGS.replace('<name>Club field C6</name>', '');
+    const note = importOrk(unnamed).notes.find((n) => n.includes('flight configurations'))!;
+    expect(note).toContain('cfg-a');
+  });
+
+  it('stays silent for single-configuration files', () => {
+    const result = importOrk(golden('reference.ork'));
+    expect(result.notes.some((n) => n.includes('flight configurations'))).toBe(false);
+  });
+
+  it('says nothing was kept when the declared configs carry no motors at all', () => {
+    // Both <motor> blocks removed: two rocket-level declarations remain but
+    // every mount is empty — the note must not claim a configuration was kept.
+    const noMotors = TWO_CONFIGS.replace(/<motor configid[\s\S]*?<\/motor>/g, '');
+    const result = importOrk(noMotors);
+    expect(Object.keys(result.motors)).toHaveLength(0);
+    const notes = result.notes.filter((n) => n.includes('flight configurations'));
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toContain('carried no motors to import');
+    expect(notes[0]).not.toContain('kept');
+  });
+});
+
+describe('.ork mass-component type round trip', () => {
+  const ALTIMETER = `<openrocket version="1.10" creator="OpenRocket 24.12"><rocket>
+    <name>Alt</name><subcomponents><stage><name>S</name><subcomponents>
+      <bodytube><name>B</name><length>0.3</length><thickness>0.0005</thickness><radius>0.012</radius>
+        <subcomponents>
+          <masscomponent><name>Alt1</name><packedlength>0.02</packedlength>
+            <packedradius>0.005</packedradius><mass>0.02</mass>
+            <masscomponenttype>altimeter</masscomponenttype></masscomponent>
+        </subcomponents>
+      </bodytube>
+    </subcomponents></stage></subcomponents></rocket></openrocket>`;
+
+  it('preserves a non-default masscomponenttype through import and export', () => {
+    const result = importOrk(ALTIMETER);
+    const mc = flatten(result.tree.components).find((c) => c.type === 'masscomponent')!;
+    expect(mc['massComponentType']).toBe('altimeter');
+    const xml = exportOrk({ name: result.name, tree: result.tree });
+    expect(xml).toContain('<masscomponenttype>altimeter</masscomponenttype>');
+    const back = importOrk(xml);
+    const mc2 = flatten(back.tree.components).find((c) => c.type === 'masscomponent')!;
+    expect(mc2['massComponentType']).toBe('altimeter');
+  });
+
+  it('defaults to masscomponent when the node carries no type', () => {
+    const tree = {
+      name: 'M',
+      components: [{
+        type: 'stage' as const, name: 'S',
+        children: [{
+          type: 'bodytube' as const, length: 0.3, outerRadius: 0.012, thickness: 0.0005,
+          children: [{ type: 'masscomponent' as const, mass: 0.05 }],
+        }],
+      }],
+    };
+    const xml = exportOrk({ name: 'M', tree });
+    expect(xml).toContain('<masscomponenttype>masscomponent</masscomponenttype>');
+    // The default is NOT stored on the node (sparse, like finish/crosssection).
+    const mc = flatten(importOrk(xml).tree.components).find((c) => c.type === 'masscomponent')!;
+    expect(mc['massComponentType']).toBeUndefined();
+  });
+});
+
+describe('.ork transition shapeclipped preserve-through', () => {
+  const CLIPPED_OFF = `<openrocket version="1.10" creator="OpenRocket 24.12"><rocket>
+    <name>Clip</name><subcomponents><stage><name>S</name><subcomponents>
+      <bodytube><name>B</name><length>0.3</length><thickness>0.0005</thickness><radius>0.012</radius></bodytube>
+      <transition><name>T</name><length>0.05</length><thickness>0.002</thickness>
+        <shape>haack</shape><shapeclipped>false</shapeclipped><shapeparameter>0.0</shapeparameter>
+        <foreradius>0.012</foreradius><aftradius>0.009</aftradius></transition>
+    </subcomponents></stage></subcomponents></rocket></openrocket>`;
+
+  it('preserves an explicit shapeclipped=false on a clippable shape', () => {
+    const result = importOrk(CLIPPED_OFF);
+    const tr = flatten(result.tree.components).find((c) => c.type === 'transition')!;
+    expect(tr['clipped']).toBe(false);
+    const xml = exportOrk({ name: result.name, tree: result.tree });
+    expect(xml).toContain('<shapeclipped>false</shapeclipped>');
+    const back = importOrk(xml);
+    expect(flatten(back.tree.components).find((c) => c.type === 'transition')!['clipped']).toBe(false);
+  });
+
+  it('omits shapeclipped for non-clippable shapes, like the desktop saver', () => {
+    const tree = {
+      name: 'NC',
+      components: [{
+        type: 'stage' as const, name: 'S',
+        children: [
+          { type: 'bodytube' as const, length: 0.3, outerRadius: 0.012, thickness: 0.0005 },
+          { type: 'transition' as const, length: 0.05, thickness: 0.002, shape: 'conical', foreRadius: 0.012, aftRadius: 0.009 },
+        ],
+      }],
+    };
+    const xml = exportOrk({ name: 'NC', tree });
+    const trXml = xml.match(/<transition>[\s\S]*?<\/transition>/)![0];
+    expect(trXml).not.toContain('<shapeclipped>');
+    // Round trip: no clipped field is invented on the way back in.
+    const tr = flatten(importOrk(xml).tree.components).find((c) => c.type === 'transition')!;
+    expect(tr['clipped']).toBeUndefined();
+  });
+
+  it('writes the kernel default (clipped) for a clippable shape with no field', () => {
+    const tree = {
+      name: 'CD',
+      components: [{
+        type: 'stage' as const, name: 'S',
+        children: [
+          { type: 'bodytube' as const, length: 0.3, outerRadius: 0.012, thickness: 0.0005 },
+          { type: 'transition' as const, length: 0.05, thickness: 0.002, shape: 'haack', foreRadius: 0.012, aftRadius: 0.009 },
+        ],
+      }],
+    };
+    const xml = exportOrk({ name: 'CD', tree });
+    const trXml = xml.match(/<transition>[\s\S]*?<\/transition>/)![0];
+    expect(trXml).toContain('<shapeclipped>true</shapeclipped>');
+  });
+});

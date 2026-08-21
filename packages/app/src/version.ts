@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.045';
+export const APP_VERSION = '0.046';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,21 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.046',
+    date: '2026-08-20',
+    title: 'Share a design as a link, launch conditions that travel, and a sim that tells you what worried it',
+    items: [
+      'NEW: "🔗 Copy share link" in Save / Export packs your whole design — geometry, motors, launch conditions — into the link itself. No account, no upload, no server copy: the link IS the file (a typical design is a ~2.5 KB URL). Opening one asks before replacing a design you’re working on, a corrupt link fails with a note instead of a blank screen, and hostile oversized links are rejected outright.',
+      'NEW: .ork files now carry your launch conditions both ways — wind, launch rod, site altitude and latitude, temperature and pressure — written the way the desktop writes them, and applied when you open a desktop design instead of silently resetting to defaults. Files holding several flight configurations now say which one was imported; altimeters, trackers and other mass components keep their identity through open→save instead of flattening to generic ballast.',
+      'NEW: the simulator’s own warnings reach you — no recovery device, high-speed deployment, separation order, large angle of attack, and two dozen more — as a warnings block in the flight report, a banner when a serious one fires, and a column in the saved-runs table.',
+      'NEW: the report now says where the rocket lands — distance from the pad and compass bearing — plus your peak roll rate when fins are canted, and a "⬇ Flight data .csv" export with the full per-timestep recording (every series the kernel computes; it re-flies the shown flight to gather them, which the deterministic engine makes byte-exact).',
+      'FIXED: the header no longer forces the page to scroll sideways on phones — at a 375 px viewport the page was 946 px wide, with the Guide and 🐞 Feedback buttons off-screen. Buttons now wrap below 980 px, both dropdown menus stay fully on-screen down to 320 px, and nothing changes on desktop.',
+      'FIXED: a transition’s shape parameter and clipping flag now reach both the physics and the drawing — a secant-ogive reducer simulates the shape it draws, and an imported unclipped transition renders the way it flies.',
+      'FIXED: when browser storage fills up, saved runs and autosave now TELL you instead of silently losing work — the runs table shows what is actually stored, and a banner clears itself when saving recovers.',
+      'The source repository is now public on GitHub under the GPL (LICENSE included), so the header’s "source (GPL)" link works for everyone — and the old preview address now forwards to openrocket.mountainmanrockets.com.',
+    ],
+  },
   {
     version: '0.045',
     date: '2026-08-12',

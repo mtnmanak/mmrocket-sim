@@ -1,5 +1,6 @@
 import { unzipSync, strFromU8 } from 'fflate';
 import type { ComponentNode, ComponentPosition, ComponentType, RocketTree } from '@online-openrocket/engine';
+import type { LaunchConditions } from '../components/LaunchPanel.js';
 import { asStageNodes, freshId } from '../tree/treeModel.js';
 import { shapeIsClippable, shapeParamDefault } from '../tree/shapeProfile.js';
 import { escapeXml, xmlText as text } from './xmlUtil.js';
@@ -39,6 +40,12 @@ export interface OrkTreeImportResult {
   motors: Record<string, OrkMotorRef>;
   ignored: string[];
   notes: string[];
+  /**
+   * Launch conditions from the file's FIRST <simulation>'s <conditions> —
+   * only the fields the file actually carried (temperature/pressure are set
+   * to null when the file declares the ISA standard atmosphere).
+   */
+  launch?: Partial<LaunchConditions>;
 }
 
 // ============================ IMPORT ============================
@@ -191,6 +198,11 @@ export function importOrk(data: ArrayBuffer | string): OrkTreeImportResult {
         }
         n['shape'] = text(el, ':scope > shape') ?? 'conical';
         n['shapeParameter'] = num(el, 'shapeparameter', shapeParamDefault(String(n['shape'])));
+        // <shapeclipped>: clipped vs full profile (ellipsoid/power/haack).
+        // Forwarded to the kernel bridge as 'clipped'; absent keeps the
+        // kernel default (clipped, matching the desktop).
+        const clip = text(el, ':scope > shapeclipped');
+        if (clip === 'true' || clip === 'false') n['clipped'] = clip === 'true';
         for (const [side, key] of [['fore', 'foreShoulder'], ['aft', 'aftShoulder']] as const) {
           const r = num(el, `${side}shoulderradius`, 0);
           const l = num(el, `${side}shoulderlength`, 0);
@@ -375,6 +387,10 @@ export function importOrk(data: ArrayBuffer | string): OrkTreeImportResult {
         n['mass'] = num(el, 'mass', 0.01);
         n['length'] = num(el, 'packedlength', 0.02);
         n['radius'] = num(el, 'packedradius', 0.005);
+        // Preserve-through: what KIND of mass this is (altimeter, payload…).
+        // No mass/CG effect, but the desktop shows it and users set it there.
+        const mct = text(el, ':scope > masscomponenttype');
+        if (mct && mct !== 'masscomponent') n['massComponentType'] = mct;
         return n;
       }
       case 'podset':
@@ -468,7 +484,110 @@ export function importOrk(data: ArrayBuffer | string): OrkTreeImportResult {
     notes.push(`Ignored unsupported components: ${[...ignored].join(', ')}.`);
   }
 
-  return { name, tree: { name, components }, motor, motors, ignored: [...ignored], notes };
+  // Multi-config honesty: readMotor keeps ONE flight configuration — the
+  // first <motor> child of each mount. The desktop writes a mount's motors
+  // in flight-configuration declaration order, so that is the earliest
+  // declared configuration carrying a motor. Say so instead of silently
+  // dropping the rest.
+  const configEls = Array.from(rocketEl.querySelectorAll(':scope > motorconfiguration'));
+  const configIds = new Set(configEls.map((c) => c.getAttribute('configid')).filter((v): v is string => !!v));
+  for (const m of Array.from(rocketEl.getElementsByTagName('motor'))) {
+    // Hand-rolled files may skip the rocket-level declarations.
+    const id = m.getAttribute('configid');
+    if (id) configIds.add(id);
+  }
+  if (configIds.size > 1) {
+    const mountMotorEls = Array.from(rocketEl.querySelectorAll('motormount > motor'));
+    if (mountMotorEls.length === 0) {
+      // Declared configs but no <motor> in any mount: nothing was "kept" —
+      // claiming one was would send the user hunting for a motor that isn't
+      // loaded (the mounts are all empty).
+      notes.push(
+        `File declares ${configIds.size} flight configurations but carried no motors to import.`);
+    } else {
+      const keptId = mountMotorEls
+        .map((m) => m.getAttribute('configid'))
+        .find((id) => id !== null);
+      const keptEl = configEls.find((c) => c.getAttribute('configid') === keptId);
+      // Desktop writes <name> only when the user renamed the configuration.
+      const keptName = (keptEl ? text(keptEl, ':scope > name') : null) ?? keptId ?? 'the first';
+      notes.push(
+        `File has ${configIds.size} flight configurations — kept “${keptName}”; the other ${configIds.size - 1} ${configIds.size - 1 === 1 ? 'was' : 'were'} not imported.`);
+    }
+  }
+
+  const launch = readLaunchConditions(doc, notes);
+
+  return { name, tree: { name, components }, motor, motors, ignored: [...ignored], notes, ...(launch ? { launch } : {}) };
+}
+
+/**
+ * Launch conditions from the FIRST <simulation>'s <conditions> (the desktop
+ * saves one block per simulation; the app has a single launch panel). Units
+ * per the desktop OpenRocketSaver: rod angle in DEGREES, wind speeds m/s,
+ * altitude m, temperature KELVIN, pressure PASCAL. <wind model="average"> is
+ * the modern form; the bare windaverage/windturbulence pair — turbulence
+ * stored as the INTENSITY ratio stddev/average — is the ≤23.09 legacy form
+ * the desktop still writes alongside it.
+ */
+function readLaunchConditions(doc: Document, notes: string[]): Partial<LaunchConditions> | undefined {
+  const simEl = doc.querySelector('openrocket > simulations > simulation');
+  const condEl = simEl?.querySelector(':scope > conditions');
+  if (!condEl) return undefined;
+  const launch: Partial<LaunchConditions> = {};
+
+  const rodLen = num(condEl, 'launchrodlength', NaN);
+  if (!Number.isNaN(rodLen)) launch.launchRodLengthM = rodLen;
+  const rodAngle = num(condEl, 'launchrodangle', NaN);
+  if (!Number.isNaN(rodAngle)) launch.launchRodAngleDeg = rodAngle;
+
+  const windEls = Array.from(condEl.querySelectorAll(':scope > wind'));
+  // Honesty: a MultiLevel wind profile (24.x altitude-layered winds) is not
+  // modeled here — the average-wind settings below are what actually gets
+  // imported, and the flyer must hear that their simulated winds changed.
+  const windModelType = text(condEl, ':scope > windmodeltype');
+  if (windModelType?.toLowerCase() === 'multilevel'
+      || windEls.some((w) => (w.getAttribute('model') ?? '').toLowerCase() === 'multilevel')) {
+    notes.push(
+      'The file’s simulation used a multilevel wind profile (winds varying with altitude), which this app doesn’t model — its average-wind settings were imported instead.');
+  }
+  const windEl = windEls.find((w) => w.getAttribute('model') === 'average');
+  let avg = windEl ? num(windEl, 'speed', NaN) : NaN;
+  if (Number.isNaN(avg)) avg = num(condEl, 'windaverage', NaN);
+  if (!Number.isNaN(avg)) launch.windAverage = avg;
+  let sd = windEl ? num(windEl, 'standarddeviation', NaN) : NaN;
+  if (Number.isNaN(sd)) {
+    const turb = num(condEl, 'windturbulence', NaN);
+    if (!Number.isNaN(turb) && !Number.isNaN(avg)) sd = turb * avg;
+  }
+  if (!Number.isNaN(sd)) launch.windStdDev = sd;
+
+  const alt = num(condEl, 'launchaltitude', NaN);
+  if (!Number.isNaN(alt)) launch.launchAltitudeM = alt;
+  const lat = num(condEl, 'launchlatitude', NaN);
+  if (!Number.isNaN(lat)) launch.latitudeDeg = lat;
+
+  const atmEl = condEl.querySelector(':scope > atmosphere');
+  if (atmEl) {
+    if (atmEl.getAttribute('model') === 'isa') {
+      // ISA standard: null means "blank = standard" in LaunchConditions.
+      launch.temperatureC = null;
+      launch.pressureHPa = null;
+    } else {
+      const tK = num(atmEl, 'basetemperature', NaN);
+      if (!Number.isNaN(tK)) launch.temperatureC = tK - 273.15;
+      const pPa = num(atmEl, 'basepressure', NaN);
+      if (!Number.isNaN(pPa)) launch.pressureHPa = pPa / 100;
+    }
+  }
+
+  const gm = text(condEl, ':scope > geodeticmethod');
+  if (gm && gm !== 'spherical') {
+    notes.push(
+      `Simulation used the “${gm}” geodetic model — this app simulates a spherical Earth.`);
+  }
+
+  return Object.keys(launch).length > 0 ? launch : undefined;
 }
 
 // ============================ EXPORT ============================
@@ -492,9 +611,11 @@ export interface OrkTreeExportInput {
   /** Legacy single-motor form (tests/back-compat). */
   motor?: OrkExportMotor;
   mountId?: string | null;
+  /** Launch-site conditions — written as one <simulation> when present. */
+  launch?: LaunchConditions;
 }
 
-export function exportOrk({ name, tree, motors, motor, mountId }: OrkTreeExportInput): string {
+export function exportOrk({ name, tree, motors, motor, mountId, launch }: OrkTreeExportInput): string {
   const motorMap: Record<string, OrkExportMotor> = { ...(motors ?? {}) };
   if (motor && mountId && !motorMap[mountId]) motorMap[mountId] = motor;
   const configId = uuid();
@@ -688,10 +809,19 @@ export function exportOrk({ name, tree, motors, motor, mountId }: OrkTreeExportI
         emit(depth + 1, `<length>${n(node, 'length', 0.04)}</length>`);
         thicknessXml(depth + 1, node, 0.002);
         emit(depth + 1, `<shape>${escapeXml(String(node['shape'] ?? 'conical'))}</shape>`);
-        // The bridge leaves the kernel's default clipped state, which
-        // setShapeType() sets to type.isClippable() — write what actually
-        // simulated so the desktop reproduces our aerodynamics.
-        emit(depth + 1, `<shapeclipped>${shapeIsClippable(String(node['shape'] ?? 'conical'))}</shapeclipped>`);
+        // Write what actually simulated so the desktop reproduces our
+        // aerodynamics: an explicit imported/edited 'clipped' wins; otherwise
+        // the kernel's default clipped state, which setShapeType() sets to
+        // type.isClippable() (true for every shape that reaches this branch).
+        // Desktop TransitionSaver only writes <shapeclipped> for CLIPPABLE
+        // shapes — a conical transition carries no tag, and emitting one
+        // anyway would grow a 'clipped' field on re-import that the golden
+        // file never had (breaking bit-stable round trips).
+        if (shapeIsClippable(String(node['shape'] ?? 'conical'))) {
+          const clippedOut = typeof node['clipped'] === 'boolean'
+            ? (node['clipped'] as boolean) : true;
+          emit(depth + 1, `<shapeclipped>${clippedOut}</shapeclipped>`);
+        }
         shapeParamXml(depth + 1, node);
         emit(depth + 1, `<foreradius>${typeof node['foreRadius'] === 'number' ? node['foreRadius'] : 'auto'}</foreradius>`);
         emit(depth + 1, `<aftradius>${typeof node['aftRadius'] === 'number' ? node['aftRadius'] : 'auto'}</aftradius>`);
@@ -1001,7 +1131,10 @@ export function exportOrk({ name, tree, motors, motor, mountId }: OrkTreeExportI
         emit(depth + 1, '<radialposition>0.0</radialposition>');
         emit(depth + 1, '<radialdirection>0.0</radialdirection>');
         emit(depth + 1, `<mass>${n(node, 'mass', 0.01)}</mass>`);
-        emit(depth + 1, '<masscomponenttype>masscomponent</masscomponenttype>');
+        // Legal values = MassComponent.MassComponentType lowercased:
+        // masscomponent, altimeter, flightcomputer, deploymentcharge,
+        // tracker, payload, recoveryhardware, battery.
+        emit(depth + 1, `<masscomponenttype>${escapeXml(String(node['massComponentType'] ?? 'masscomponent'))}</masscomponenttype>`);
         close('masscomponent');
         break;
       }
@@ -1094,6 +1227,63 @@ export function exportOrk({ name, tree, motors, motor, mountId }: OrkTreeExportI
   emit(2, '</subcomponents>');
   emit(1, '</rocket>');
   emit(1, '<simulations>');
+  if (launch) {
+    // One <simulation> in the exact shape of the desktop's
+    // OpenRocketSaver.saveSimulation() so 24.12 opens it cleanly. Its loader
+    // tolerates missing elements but WARNS on any simulator/calculator other
+    // than RK4Simulator/BarrowmanCalculator and on unknown status values —
+    // write the only ones it accepts. <configid> ties the simulation to the
+    // motorconfiguration emitted above.
+    emit(2, '<simulation status="notsimulated">');
+    emit(3, '<name>Simulation 1</name>');
+    emit(3, '<simulator>RK4Simulator</simulator>');
+    emit(3, '<calculator>BarrowmanCalculator</calculator>');
+    emit(3, '<conditions>');
+    emit(4, `<configid>${configId}</configid>`);
+    emit(4, `<launchrodlength>${launch.launchRodLengthM}</launchrodlength>`);
+    // Desktop defaults for options we don't model: launch into wind, and
+    // rod/wind direction (rod direction is DEGREES on disk, 90 = π/2 rad).
+    emit(4, '<launchintowind>true</launchintowind>');
+    // Rod angle is DEGREES on disk (the saver multiplies by 180/π).
+    emit(4, `<launchrodangle>${launch.launchRodAngleDeg}</launchrodangle>`);
+    emit(4, '<launchroddirection>90.0</launchroddirection>');
+    // ≤23.09 legacy trio the desktop still writes: turbulence here is the
+    // INTENSITY ratio stddev/average (PinkNoiseWindModel maps zero wind to
+    // 0 or 1 — mirror it so old desktops recover the same stddev).
+    const turb = launch.windAverage !== 0 ? launch.windStdDev / launch.windAverage
+      : launch.windStdDev !== 0 ? 1 : 0;
+    emit(4, `<windaverage>${launch.windAverage}</windaverage>`);
+    emit(4, `<windturbulence>${turb}</windturbulence>`);
+    // Wind direction is RADIANS on disk (unlike the rod elements — the
+    // saver writes getDirection() raw); π/2 is the desktop default.
+    emit(4, `<winddirection>${Math.PI / 2}</winddirection>`);
+    emit(4, '<wind model="average">');
+    emit(5, `<speed>${launch.windAverage}</speed>`);
+    emit(5, `<direction>${Math.PI / 2}</direction>`);
+    emit(5, `<standarddeviation>${launch.windStdDev}</standarddeviation>`);
+    emit(4, '</wind>');
+    emit(4, '<windmodeltype>Average</windmodeltype>');
+    emit(4, `<launchaltitude>${launch.launchAltitudeM}</launchaltitude>`);
+    emit(4, `<launchlatitude>${launch.latitudeDeg}</launchlatitude>`);
+    // We don't model longitude — the desktop's preference default.
+    emit(4, '<launchlongitude>-80.6</launchlongitude>');
+    emit(4, '<geodeticmethod>spherical</geodeticmethod>');
+    if (launch.temperatureC === null && launch.pressureHPa === null) {
+      emit(4, '<atmosphere model="isa"/>');
+    } else {
+      // KELVIN / PASCAL on disk. The desktop stores both-or-ISA, so a
+      // single custom value fills the other with the ISA sea-level standard.
+      emit(4, '<atmosphere model="extendedisa">');
+      emit(5, `<basetemperature>${(launch.temperatureC ?? 15) + 273.15}</basetemperature>`);
+      emit(5, `<basepressure>${(launch.pressureHPa ?? 1013.25) * 100}</basepressure>`);
+      emit(4, '</atmosphere>');
+    }
+    // RK4SimulationStepper recommended defaults (the desktop's own values).
+    emit(4, '<timestep>0.05</timestep>');
+    emit(4, '<maxtime>1200.0</maxtime>');
+    emit(3, '</conditions>');
+    emit(2, '</simulation>');
+  }
   emit(1, '</simulations>');
   emit(0, '</openrocket>');
   return lines.join('\n') + '\n';

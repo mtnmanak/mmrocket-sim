@@ -90,6 +90,22 @@ final class ComponentFactory {
             case "transition": {
                 Transition t = new Transition();
                 t.setShapeType(shapeOf(str(node, "shape", "conical")));
+                // Shape parameter — the SAME Shape enum as the nose cone
+                // (ogive 0..1 secant fraction, power 0..1 exponent, parabolic
+                // 0..1 segment, haack 0..1/3; conical/ellipsoid ignore it).
+                // Must follow setShapeType, which resets it to the default.
+                double shapeParam = dbl(node, "shapeParameter", Double.NaN);
+                if (!Double.isNaN(shapeParam)) {
+                    t.setShapeParameter(shapeParam);
+                }
+                // Clipped vs full profile (ellipsoid/power/haack only —
+                // Shape.isClippable(); nose cones are never clipped). Absent
+                // keeps the kernel default: setShapeType resets clipped to
+                // isClippable(), i.e. clipped, matching the desktop.
+                Object clippedRaw = node.get("clipped");
+                if (clippedRaw instanceof Boolean) {
+                    t.setClipped((Boolean) clippedRaw);
+                }
                 t.setLength(dbl(node, "length", 0.05));
                 double fore = dbl(node, "foreRadius", Double.NaN);
                 if (Double.isNaN(fore)) {

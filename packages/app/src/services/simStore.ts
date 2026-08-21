@@ -1,5 +1,6 @@
 import { csvCell } from './csvUtil.js';
 import type { SimRun } from './simReport.js';
+import { warningKeysCell } from './simWarnings.js';
 import { siToUi, type Quantity, type UnitSelection } from '../prefs/units.js';
 
 /**
@@ -30,6 +31,20 @@ export function loadRuns(): SimRun[] {
   }
 }
 
+// Set when a write is refused (quota), cleared by the next write that sticks.
+// Every mutation goes through addRun/addRuns/deleteRun/clearRuns
+// synchronously, so a getter the caller checks after each mutation is enough —
+// no subscription machinery in a plain module.
+let lastPersistFailed = false;
+
+/**
+ * True when the latest mutation could not be written: the returned table is
+ * what localStorage still holds, not what the caller asked to save.
+ */
+export function persistFailed(): boolean {
+  return lastPersistFailed;
+}
+
 function persist(runs: SimRun[]): SimRun[] {
   const kept = runs.slice(0, MAX_RUNS);
   try {
@@ -37,7 +52,14 @@ function persist(runs: SimRun[]): SimRun[] {
     // corrupted stored plugged runs. Round-trip it as a string instead.
     localStorage.setItem(KEY, JSON.stringify(kept, (_k, v) =>
       typeof v === 'number' && v === Infinity ? 'Infinity' : v));
-  } catch { /* quota — history is best-effort */ }
+  } catch {
+    // Quota: setItem wrote NOTHING. Returning `kept` here showed runs in the
+    // Saved-simulations table that vanished on reload — return the stored
+    // truth instead, and flag it so the UI can say so.
+    lastPersistFailed = true;
+    return loadRuns();
+  }
+  lastPersistFailed = false;
   // Return what was stored, so the in-memory table matches the next reload.
   return kept;
 }
@@ -56,7 +78,18 @@ export function deleteRun(id: string): SimRun[] {
 }
 
 export function clearRuns(): SimRun[] {
-  return persist([]);
+  // removeItem frees space instead of needing it, so clearing works even at
+  // quota, where persist([])'s setItem could in principle still be refused.
+  // loadRuns() reads a missing key as [] — same result as storing "[]".
+  try {
+    localStorage.removeItem(KEY);
+    lastPersistFailed = false;
+  } catch {
+    // Storage inaccessible outright (blocked site data) — not a quota case;
+    // whatever is stored is still there and will be back on reload.
+    lastPersistFailed = true;
+  }
+  return loadRuns();
 }
 
 // Flight-day unit conversions for the leading columns (the owner's spec: the
@@ -101,6 +134,8 @@ function buildColumns(u?: UnitSelection): [string, (r: SimRun) => string | numbe
   [`Max velocity (${sym('velocity', 'm/s')})`, (r) => cv('velocity', r.maxVelocity)],
   ['Max Mach', (r) => round(r.maxMach, 3)],
   [`Max acceleration (${sym('acceleration', 'm/s2')})`, (r) => cv('acceleration', r.maxAcceleration)],
+  // r/s (revolutions/second) matches the desktop's UNITS_ROLL default unit.
+  ['Max roll rate (r/s)', (r) => round(r.maxRollRateRadS == null ? null : r.maxRollRateRadS / (2 * Math.PI), 3)],
   ['Time to apogee (s)', (r) => round(r.timeToApogee)],
   ['Time to burnout (s)', (r) => round(r.timeToBurnout)],
   ['Time to launch guide departure (s)', (r) => round(r.timeToRodDeparture, 3)],
@@ -121,6 +156,8 @@ function buildColumns(u?: UnitSelection): [string, (r: SimRun) => string | numbe
   }],
   [`Landing rate (${sym('velocity', 'm/s')})`, (r) => cv('velocity', r.landingRate ?? r.groundHitVelocity)],
   ['Landing rate OK', (r) => flag(r.safeLandingRate ?? null)],
+  [`Landing distance (${sym('distance', 'm')})`, (r) => cv('distance', r.landingDistanceM ?? null, 1)],
+  ['Landing bearing (deg from N)', (r) => round(r.landingBearingDeg ?? null, 0)],
   [`Ground hit velocity (${sym('velocity', 'm/s')})`, (r) => cv('velocity', r.groundHitVelocity)],
   ['Total flight time (s)', (r) => round(r.totalFlightTime)],
   ['Optimal delay (s)', (r) => round(r.optimumDelayS)],
@@ -141,6 +178,9 @@ function buildColumns(u?: UnitSelection): [string, (r: SimRun) => string | numbe
   // column the comparison table can't tell them apart.
   ['Aero model', (r) => `${r.aeroModel ?? 'classic'}${r.rogersKbf ? '+kbf' : ''}`],
   ['Execution time (ms)', (r) => Math.round(r.execMs)],
+  // Machine keys, not prose — greppable/filterable in a spreadsheet; the
+  // report renders the plain-language version (simWarnings.ts).
+  ['Sim warnings', (r) => warningKeysCell(r.simWarnings)],
   ['Comments', (r) => r.comments],
   ];
 }

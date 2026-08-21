@@ -48,9 +48,11 @@ function axialStart(child: ComponentNode, childLen: number, pStart: number, pLen
  */
 function lathePoints(
   shape: string, param: number | undefined, length: number,
-  foreR: number, aftR: number,
+  foreR: number, aftR: number, clipped?: boolean,
 ): THREE.Vector2[] {
-  return outerProfile(shape, param, length, foreR, aftR)
+  // `clipped` = the node's stored flag; absent keeps the kernel default
+  // (clipped), so the drawn transition matches the geometry the engine flies.
+  return outerProfile(shape, param, length, foreR, aftR, undefined, undefined, clipped)
     .map(([x, r]) => new THREE.Vector2(Math.max(0.0001, r), x));
 }
 
@@ -245,7 +247,10 @@ export function buildPieces(tree: RocketTree): { pieces: Piece[]; totalLen: numb
         const shapeName = typeof n['shape'] === 'string' ? (n['shape'] as string) : 'conical';
         // Same lathe pattern as the nose: profile y runs fore→aft, and after
         // rotation.z = -π/2 the lathe's +Y axis points along +X (aft).
-        const pts = lathePoints(shapeName, numOpt(n, 'shapeParameter'), len, rf, ra);
+        // node['clipped'] (.ork <shapeclipped>) rides along so an unclipped
+        // file draws the way it simulates.
+        const pts = lathePoints(shapeName, numOpt(n, 'shapeParameter'), len, rf, ra,
+          typeof n['clipped'] === 'boolean' ? (n['clipped'] as boolean) : undefined);
         place(`trans${k++}`, new THREE.LatheGeometry(pts, 48), nodeColor(n, MAT.transition),
           [x, 0, 0], [0, 0, -Math.PI / 2], xform);
         maxR = Math.max(maxR, rf, ra);

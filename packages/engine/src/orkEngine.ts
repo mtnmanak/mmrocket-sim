@@ -76,6 +76,16 @@ export interface SimulationOptions {
   timeStep?: number;
   maxTime?: number;
   randomSeed?: number;
+  /**
+   * Series payload mode. 'summary' (the default) returns the 12 friendly-named
+   * arrays plus only the symbol series the app's flight report reads every run
+   * (Pl, θl, Px, Py, dΦ). 'full' additionally returns every series the branch
+   * carries — except tc (wall-clock noise, nondeterministic) and the symbols
+   * duplicating the friendly dozen. Full costs ~45% extra single-sim wall
+   * clock in serialization, so request it only when the extra series are
+   * actually consumed (plot pickers, CSV export).
+   */
+  series?: 'summary' | 'full';
 }
 
 export interface StaticInfo {
@@ -208,6 +218,18 @@ export interface FlightSeries {
   cgLocation: number[];
   /** Angle of attack (rad). */
   aoa: number[];
+  /**
+   * Symbol-keyed series beyond the friendly-named dozen above. Which symbols
+   * are present depends on {@link SimulationOptions.series}: 'summary' (the
+   * default) carries only Pl, θl, Px, Py, dΦ — the ones the app's flight
+   * report reads every run; 'full' carries every series the branch records
+   * ("Vz", "Cdf", "ρ"…) except tc (wall-clock noise) and the symbols that
+   * would duplicate the friendly dozen ("t", "h"…). NaN/Infinity samples
+   * arrive as null (JSON), hence the (number | null)[] element type; the
+   * named arrays share that wire behavior. Always check for undefined
+   * before use.
+   */
+  [symbol: string]: (number | null)[] | undefined;
 }
 
 /**
@@ -222,6 +244,24 @@ export interface FlightBranch {
   series: FlightSeries;
 }
 
+/**
+ * One simulation warning (large AoA, high-speed deployment, no recovery
+ * device…). ABSENT on engine artifacts predating the warning export.
+ */
+export interface EngineWarning {
+  /**
+   * Stable machine key: the typed Warning subclass name ("LargeAOA",
+   * "HighSpeedDeployment", "EventAfterLanding", "MissingMotor") or the
+   * kernel's l10n key for the singleton warnings ("NO_RECOVERY_DEVICE",
+   * "TUMBLE_UNDER_THRUST", "SUPERSONIC"…); "Other" when neither applies.
+   */
+  key: string;
+  /** Human message incl. source component names (Warning.toString()). */
+  message: string;
+  /** MessagePriority export label. */
+  priority?: 'LOW' | 'NORMAL' | 'HIGH';
+}
+
 export interface FlightResult {
   /** Whole-flight summary (branch 0 = the sustainer stack). */
   summary: FlightSummary;
@@ -229,6 +269,14 @@ export interface FlightResult {
   series: FlightSeries;
   /** Present only for staged flights that actually separated (≥2 branches). */
   branches?: FlightBranch[];
+  /**
+   * Simulation warnings (whole flight, not per-branch). Optional: the
+   * committed vendor orkengine.mjs predates the export — arrives after the
+   * next engine rebuild (engine:js + differential pass).
+   */
+  warnings?: EngineWarning[];
+  /** The same warnings as plain text — the shape staticInfo() uses. */
+  warningTexts?: string[];
 }
 
 /** Per-component static info (SI), from OrkRocket.componentInfo(). */
@@ -436,6 +484,7 @@ export class OrkRocket {
       timeStep: options.timeStep ?? 0.05,
       maxTime: options.maxTime,
       randomSeed: options.randomSeed,
+      series: options.series,
     }));
     const parsed = JSON.parse(raw) as FlightResult & { error?: string };
     if (parsed.error) {

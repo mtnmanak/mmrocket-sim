@@ -97,6 +97,46 @@ describe('outerProfile — transition semantics (kernel Transition.getRadius)', 
     expect(interior[1]).toBeGreaterThan(r1 - 0.0005);
   });
 
+  it('honors an explicit clipped=false (node["clipped"]) — hand-derived radii', () => {
+    // Power series, param 0.5, is closed-form BOTH ways, so the expected
+    // numbers below are derived from Transition.getRadius() by hand — never
+    // from this code's own output. Geometry: r1=0.012, r2=0.024, L=0.06,
+    // sample at x = L/2 = 0.03 (steps=32 puts an exact sample at index 16).
+    //
+    // Pure shape: Shape.POWER.getRadius(ξ, R, Λ, 0.5) = R·sqrt(ξ/Λ).
+    //
+    // UNCLIPPED branch (getRadius: r1 + type.getRadius(x, r2−r1, length)):
+    //   r = 0.012 + 0.012·sqrt(0.03/0.06) = 0.012·(1 + sqrt(0.5)) ≈ 0.0204853.
+    //
+    // CLIPPED branch (kernel default): calculateClip solves
+    //   r1 = r2·sqrt(c/(c+L))  ⇒  r1²(c+L) = r2²c  ⇒  c = r1²L/(r2²−r1²)
+    //     = (0.012²·0.06)/(0.024²−0.012²) = 8.64e−6/4.32e−4 = 0.02 exactly,
+    //   then r = r2·sqrt((c+x)/(c+L)) = 0.024·sqrt(0.05/0.08)
+    //     = 0.024·sqrt(0.625) ≈ 0.0189737.
+    // The kernel's binary search stops at CLIP_PRECISION 1e−4 on c; with
+    // ∂r/∂c ≈ 0.071 that bounds the radius error under 4e−6 — digits=5 holds.
+    const L = 0.06, r1p = 0.012, r2p = 0.024;
+    const unclipped = outerProfile('power', 0.5, L, r1p, r2p, 32, undefined, false);
+    expect(unclipped[16]![1]).toBeCloseTo(0.012 * (1 + Math.sqrt(0.5)), 9);
+    const clipped = outerProfile('power', 0.5, L, r1p, r2p, 32);
+    expect(clipped[16]![1]).toBeCloseTo(0.024 * Math.sqrt(0.625), 5);
+    // Explicit true is the same as absent (the kernel default).
+    expect(outerProfile('power', 0.5, L, r1p, r2p, 32, undefined, true)[16]![1])
+      .toBeCloseTo(clipped[16]![1], 12);
+    // Both branches still hit the endpoints exactly.
+    expect(unclipped[0]![1]).toBeCloseTo(r1p, 9);
+    expect(unclipped[32]![1]).toBeCloseTo(r2p, 9);
+  });
+
+  it('ignores the clipped flag on non-clippable shapes (Transition.isClipped)', () => {
+    // An ogive transition with a stray clipped=true must draw the ogive's
+    // unclipped delta shape — the kernel returns false before reading the
+    // field when the type is not clippable.
+    const a = outerProfile('ogive', 1, L, r1, r2, 32);
+    const b = outerProfile('ogive', 1, L, r1, r2, 32, undefined, true);
+    for (let i = 0; i < a.length; i++) expect(b[i]![1]).toBe(a[i]![1]);
+  });
+
   it('reducing transition (fore > aft) mirrors the enlarging one', () => {
     const up = outerProfile('ogive', 1, L, r1, r2);
     const down = outerProfile('ogive', 1, L, r2, r1);

@@ -11,6 +11,7 @@
  * patched file are noticed at upgrade time).
  *
  * Usage: node scripts/carve.mjs [--source <path-to-openrocket-core-java-root>]
+ * (or set OPENROCKET_SRC to the openrocket-release-24.12 root)
  */
 import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
@@ -20,8 +21,16 @@ import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const engineRoot = resolve(here, '..');
 
-const DEFAULT_SOURCE =
-  '<local path>/Open_Rocket_Source_Code/openrocket-release-24.12/core/src/main/java';
+// The reference source lives in Dropbox at a different path on each machine
+// (see CLAUDE.md "Two machines"). Priority: --source > OPENROCKET_SRC (the
+// openrocket-release-24.12 root) > first known per-machine path that exists.
+const KNOWN_SOURCES = [
+  '<local path>/Open_Rocket_Source_Code/openrocket-release-24.12/core/src/main/java', // desktop
+  '<local path>/Dropbox/Open_Rocket_Source_Code/openrocket-release-24.12/core/src/main/java', // laptop
+];
+const DEFAULT_SOURCE = process.env.OPENROCKET_SRC
+  ? join(process.env.OPENROCKET_SRC, 'core', 'src', 'main', 'java')
+  : (KNOWN_SOURCES.find((p) => existsSync(p)) ?? KNOWN_SOURCES[0]);
 
 const argIdx = process.argv.indexOf('--source');
 const sourceRoot = argIdx >= 0 ? process.argv[argIdx + 1] : DEFAULT_SOURCE;
@@ -29,7 +38,9 @@ const targetRoot = join(engineRoot, 'src', 'carved', 'java');
 
 if (!existsSync(sourceRoot)) {
   console.error(`OpenRocket source not found at: ${sourceRoot}`);
-  console.error('Download openrocket release-24.12 source and pass --source <core/src/main/java>.');
+  console.error('Probed per-machine paths:');
+  for (const p of KNOWN_SOURCES) console.error('  ' + p);
+  console.error('Download openrocket release-24.12 source, then set OPENROCKET_SRC to its root or pass --source <core/src/main/java>.');
   process.exit(1);
 }
 
