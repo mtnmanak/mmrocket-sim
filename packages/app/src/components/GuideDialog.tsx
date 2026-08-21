@@ -8,7 +8,11 @@ import { APP_VERSION } from '../version.js';
  * contents on the left jumps between sections; content is our own trusted
  * static HTML.
  */
-export function GuideDialog({ onClose }: { onClose: () => void }) {
+export function GuideDialog({ onClose, onReplayTour }: {
+  onClose: () => void;
+  /** Close the guide and restart the first-run tour (proposal S3). */
+  onReplayTour?: () => void;
+}) {
   const [active, setActive] = useState(GUIDE_SECTIONS[0]?.id ?? '');
   const current = GUIDE_SECTIONS.find((s) => s.id === active) ?? GUIDE_SECTIONS[0];
 
@@ -18,6 +22,10 @@ export function GuideDialog({ onClose }: { onClose: () => void }) {
         onClick={(e) => e.stopPropagation()}>
         <div className="guide-header">
           <h2 style={{ flex: 1 }}>User Guide <span className="version-beta">v{APP_VERSION}</span></h2>
+          {onReplayTour && (
+            <button className="file-btn" onClick={onReplayTour}
+              title="Replay the six-step interface tour">⟲ Tour</button>
+          )}
           <button className="file-btn" onClick={onClose} aria-label="Close user guide">✕ Close</button>
         </div>
         {GUIDE_SECTIONS.length === 0 ? (

@@ -1,5 +1,5 @@
 {
-  "version": "0.047",
+  "version": "0.048",
   "released": "2026-08-21",
-  "note": "Online OpenRocket is now MMRocket Sim, at a new address: mmrsim.mountainmanrockets.com. Same app, same physics, same GPL source — the new name makes clear this is an independent derivative of OpenRocket, and drops the \"Online\" that undersold an offline-capable app. The old address shows a moved notice; export autosaved designs there and reopen them at the new one."
+  "note": "First-run tour for new visitors (replayable from the Guide), CG/CP leader-line callouts with the color-coded stability margin written on the drawing, and a Type dropdown for mass components (altimeter, tracker, …) that travels into saved .ork files. The old openrocket.* address now redirects here permanently."
 }

@@ -1407,6 +1407,81 @@
   color: #e34948;
 }
 
+/* --- First-run tour (S3) --- */
+/* Above the modal layer (100): the tour can point at things while a banner
+   or note is up, and nothing in the app stacks higher. */
+.tour-ring {
+  position: fixed;
+  border: 2px solid var(--accent);
+  border-radius: 8px;
+  pointer-events: none;
+  z-index: 119;
+}
+
+.tour-card {
+  position: fixed;
+  width: 300px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  padding: 12px 14px;
+  z-index: 120;
+}
+
+.tour-close {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 2px 6px;
+}
+
+.tour-title {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 700;
+  margin: 0 18px 4px 0;
+}
+
+.tour-body {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 0 0 12px;
+  line-height: 1.45;
+}
+
+.tour-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tour-skip {
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 4px 2px;
+}
+
+.tour-next {
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent);
+  border: none;
+  border-radius: 5px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
 /* --- Preferences dialog --- */
 .prefs-overlay {
   position: fixed;

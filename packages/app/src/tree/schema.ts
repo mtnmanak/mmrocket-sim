@@ -141,6 +141,18 @@ const SEPARATION_EVENTS: [string, string][] = [
   ['never', 'Never'],
 ];
 
+/** Desktop's mass-component types (kernel MassComponentType; cosmetic — round-trips via .ork). */
+const MASS_COMPONENT_TYPES: [string, string][] = [
+  ['masscomponent', 'Mass component'],
+  ['altimeter', 'Altimeter'],
+  ['flightcomputer', 'Flight computer'],
+  ['deploymentcharge', 'Deployment charge'],
+  ['tracker', 'Tracker'],
+  ['payload', 'Payload'],
+  ['recoveryhardware', 'Recovery hardware'],
+  ['battery', 'Battery'],
+];
+
 const lenMM = (key: string, label: string, step = 1, smax = 300): FieldDef =>
   ({ key, label, unit: 'mm', step, smin: 0, smax });
 
@@ -382,6 +394,7 @@ export const FIELDS: Record<ComponentType, FieldDef[]> = {
     { key: 'mass', label: 'Mass', unit: 'g', step: 1, smin: 0, smax: 500 },
     lenMM('length', 'Length', 1, 200),
     radMM('radius', 'Radius', 0.5, 50),
+    { key: 'massComponentType', label: 'Type', unit: 'none', options: MASS_COMPONENT_TYPES },
   ],
   // External protuberance (camera shroud, avionics fairing). The physics is
   // synthesized at the engine boundary (treeModel.engineTree): slender-strake

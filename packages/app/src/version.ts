@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.047';
+export const APP_VERSION = '0.048';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.048',
+    date: '2026-08-21',
+    title: 'A tour for first-timers, and a stability margin you can read from across the room',
+    items: [
+      'NEW: the CG and CP markers on the 2D drawing now carry leader-line callouts — a dashed line from each marker to a labeled dot in the clear sky above (CG) and below (CP) the rocket, with the stability margin written right on the drawing ("✓ 1.52 cal — ok"), color-coded like the stability card: green ok, amber over-stable, red under-stable. Best part: when CG and CP sit almost on top of each other — exactly the under-stable design you most need to catch — the two markers used to pile up illegibly; one leader up and one down keeps both readable. The callouts ride along into SVG and image exports.',
+      'NEW: a six-step first-run tour for new visitors — component tree, drawing, Motors & Launch, the Launch button, Results, and the Guide/Feedback buttons, one short card each. It shows exactly once (Skip any time), never interrupts an opened share link, and skips returning users. Replay it whenever you like with the Guide\'s "⟲ Tour" button, or turn the auto-show off in Preferences → Display.',
+      'NEW: mass components now have a Type dropdown — altimeter, flight computer, deployment charge, tracker, payload, recovery hardware, battery, or plain ballast. Purely descriptive (the physics only ever used the mass), but the identity now survives into .ork files you save, so the desktop app shows your altimeter as an altimeter instead of anonymous ballast. Imported types already survived since v0.046; now you can set one on components you create here.',
+      'The old openrocket.mountainmanrockets.com address now redirects here permanently — every pre-rename tester confirmed they had moved, so the grace period is over. Bookmarks and links just land at the new address, path and all.',
+    ],
+  },
   {
     version: '0.047',
     date: '2026-08-21',

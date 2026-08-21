@@ -53,6 +53,12 @@ export interface Preferences {
    */
   resultTiles?: string[];
   /**
+   * First-run tour opt-out. Absent = the tour may auto-show once (its own
+   * localStorage flag limits it to a single showing); true = never auto-show.
+   * The Guide's "⟲ Tour" replay button works either way.
+   */
+  tourOff?: boolean;
+  /**
    * The user's 3D printer, in METRES (see prefs/printers.ts for why metres and
    * not the millimetres a slicer quotes). Absent = no printer configured, and
    * that is a load-bearing default: the 🖨 STL export then behaves exactly as

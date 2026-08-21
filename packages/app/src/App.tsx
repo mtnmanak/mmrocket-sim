@@ -14,6 +14,7 @@ import { BatchSimulate } from './components/BatchSimulate.js';
 import { Icon } from './components/Icon.js';
 import { ChangelogDialog } from './components/ChangelogDialog.js';
 import { GuideDialog } from './components/GuideDialog.js';
+import { FirstRunTour, shouldAutoStartTour } from './components/FirstRunTour.js';
 import { ComponentTree } from './components/ComponentTree.js';
 import { FlightCharts } from './components/FlightCharts.js';
 import { DragPanel } from './components/DragPanel.js';
@@ -277,6 +278,26 @@ export function App() {
   const [showBatch, setShowBatch] = useState(false);
   const [showChangelog, setShowChangelog] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
+  const [tourOpen, setTourOpen] = useState(false);
+  // First-run tour: decided once at startup (ref = StrictMode double-invoke
+  // guard, same pattern as shareHandled below). A share link suppresses it —
+  // that visitor came for a design, don't stand in front of it.
+  const tourChecked = useRef(false);
+  useEffect(() => {
+    if (tourChecked.current) return;
+    tourChecked.current = true;
+    if (shouldAutoStartTour({
+      tourOff: prefs.tourOff ?? false,
+      hasShare: hasSharePayload(window.location.hash),
+      hasSession: session != null,
+    })) setTourOpen(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot startup decision
+  }, []);
+  const closeTour = useCallback(() => {
+    setTourOpen(false);
+    setTab('design'); // the tour walks through tabs; land back on Design
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- setTab is stable
+  }, []);
   // Workspace tab (Design / Motors & Launch / Results) — persisted so a
   // reload lands the user back where they were working.
   const [tab, setTabRaw] = useState<'design' | 'motors' | 'results'>(() => {
@@ -997,7 +1018,7 @@ export function App() {
           <button className="file-btn" onClick={undo} title="Undo the last design change (Ctrl+Z) — 50 steps">
             ↩ Undo
           </button>
-          <button className="file-btn" onClick={() => setShowGuide(true)} title="User guide — quick start, features, and the physics behind the sim">
+          <button className="file-btn" data-tour="guide" onClick={() => setShowGuide(true)} title="User guide — quick start, features, and the physics behind the sim">
             <Icon name="book" /> Guide
           </button>
           <div className="file-menu-wrap">
@@ -1089,7 +1110,13 @@ export function App() {
         )}
       </header>
       {showPrefs && <PreferencesDialog onClose={() => setShowPrefs(false)} />}
-      {showGuide && <GuideDialog onClose={() => setShowGuide(false)} />}
+      {showGuide && (
+        <GuideDialog
+          onClose={() => setShowGuide(false)}
+          onReplayTour={() => { setShowGuide(false); setTourOpen(true); }}
+        />
+      )}
+      {tourOpen && <FirstRunTour onSetTab={setTab} onClose={closeTour} />}
       {showChangelog && <ChangelogDialog onClose={() => setShowChangelog(false)} />}
       {showBatch && built && primaryMountId && !isStaged && (
         <BatchSimulate
@@ -1286,6 +1313,7 @@ export function App() {
           )}
           <button
             className="launch-btn vitals-launch"
+            data-tour="launch"
             onClick={onLaunch}
             disabled={!built || !primaryMountId || simulating}
             title={!primaryMountId ? 'Assign a motor first (Motors & Launch workspace)' : 'Simulate the flight'}
@@ -1299,7 +1327,7 @@ export function App() {
             className={tab === 'design' ? 'active' : ''} onClick={() => setTab('design')}>
             <Icon name="wrench" size={13} /> Design
           </button>
-          <button role="tab" aria-selected={tab === 'motors'}
+          <button role="tab" aria-selected={tab === 'motors'} data-tour="motors-tab"
             className={tab === 'motors' ? 'active' : ''} onClick={() => setTab('motors')}>
             <Icon name="flame" size={13} /> Motors &amp; Launch
           </button>
@@ -1325,7 +1353,7 @@ export function App() {
         {tab === 'design' && (
         <div className="design-layout">
         <aside>
-          <div className="panel">
+          <div className="panel" data-tour="tree">
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
               <h2 style={{ flex: 1 }}>Components</h2>
               <button
@@ -1425,7 +1453,7 @@ export function App() {
                   aria-selected={view === 'aft'} onClick={() => setView('aft')}>Aft</button>
               </div>
             </div>
-            <div className="rocket-stage">
+            <div className="rocket-stage" data-tour="canvas">
               {view === '2d'
                 ? (
                   <TreeSchematic
@@ -1753,7 +1781,7 @@ export function App() {
         )}
 
         {tab === 'results' && (
-        <main className="results-column">
+        <main className="results-column" data-tour="results-panel">
           {result && aeroMode === 'classic' && result.summary.maxMachNumber > 0.9 && (
             <div className="file-note" role="alert">
               ⚠ This flight reaches <strong>Mach {result.summary.maxMachNumber.toFixed(2)}</strong> on

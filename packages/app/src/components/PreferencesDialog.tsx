@@ -123,6 +123,16 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
               <option value="on">On — bright sunlight</option>
             </select>
           </div>
+          <div className="field">
+            <label>First-run tour</label>
+            <select
+              value={prefs.tourOff ? 'off' : 'on'}
+              onChange={(e) => setPrefs({ ...prefs, tourOff: e.target.value === 'off' })}
+            >
+              <option value="on">On — show once to new visitors</option>
+              <option value="off">Off</option>
+            </select>
+          </div>
         </div>
         <p className="prefs-hint">
           <strong>Daylight</strong> is the launch-site mode: black on white at maximum
