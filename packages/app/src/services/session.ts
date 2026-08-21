@@ -1,6 +1,6 @@
 import type { MotorSpec, RocketTree } from '@online-openrocket/engine';
 import type { LaunchConditions } from '../components/LaunchPanel.js';
-import type { MountMotor } from '../App.js';
+import type { MountMotor, SavedConfig } from '../App.js';
 import type { MotorMeta } from './simReport.js';
 
 /**
@@ -22,6 +22,10 @@ export interface SessionState {
   motor?: MotorSpec;
   motorMeta?: MotorMeta;
   mountId?: string | null;
+  /** The file's flight configurations as ready-to-apply presets (Stage B, v0.050+). */
+  savedConfigs?: SavedConfig[];
+  /** Which preset the working motor set came from; null/absent = custom/none. */
+  activeConfigId?: string | null;
   /** Per-STAGE max motor length keyed by stage node id (SI m); null/absent = no limit. */
   maxMotorLengthByStage?: Record<string, number | null>;
   /** Legacy universal max motor length (pre-v0.015) — migrated onto every stage on load. */
@@ -38,10 +42,17 @@ export function loadSession(): SessionState | null {
     const s = JSON.parse(raw) as SessionState;
     if (!s || typeof s !== 'object' || !s.tree || !Array.isArray(s.tree.components)) return null;
     // Revive plugged ejection delays (persisted as "Infinity" — JSON has no
-    // Infinity literal; a plain stringify would have stored null).
-    for (const mm of Object.values(s.mountMotors ?? {})) {
-      const d = mm?.spec?.ejectionDelay as unknown;
-      if (d === 'Infinity' || d === null) mm.spec.ejectionDelay = Infinity;
+    // Infinity literal; a plain stringify would have stored null). The
+    // Stage B config presets carry the same MountMotor shape.
+    const motorSets = [
+      s.mountMotors ?? {},
+      ...(s.savedConfigs ?? []).map((c) => c.motors ?? {}),
+    ];
+    for (const set of motorSets) {
+      for (const mm of Object.values(set)) {
+        const d = mm?.spec?.ejectionDelay as unknown;
+        if (d === 'Infinity' || d === null) mm.spec.ejectionDelay = Infinity;
+      }
     }
     return s;
   } catch {

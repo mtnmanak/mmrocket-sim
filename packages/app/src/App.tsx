@@ -11,6 +11,7 @@ import {
   type StaticInfo,
 } from '@online-openrocket/engine';
 import { BatchSimulate } from './components/BatchSimulate.js';
+import { ConfigPanel } from './components/ConfigPanel.js';
 import { Icon } from './components/Icon.js';
 import { ChangelogDialog } from './components/ChangelogDialog.js';
 import { GuideDialog } from './components/GuideDialog.js';
@@ -38,7 +39,7 @@ import { UnitChip } from './components/UnitChip.js';
 import { fmtSi, niceStep, siToUi, uiToSi } from './prefs/units.js';
 import { classLabel, diameterClass, displayDesignation, findDbMotor, isHighPower } from './services/motorDb.js';
 import { delayOptions, fetchMotorSpec } from './services/thrustcurve.js';
-import { exportOrk, importOrk, type OrkExportMotor, type OrkImportResult, type OrkTreeImportResult } from './services/orkFile.js';
+import { exportOrk, importOrk, type OrkExportConfig, type OrkExportMotor, type OrkImportResult, type OrkMotorRef, type OrkTreeImportResult } from './services/orkFile.js';
 import { decodeShareFragment, encodeShareFragment, hasSharePayload, MAX_FRAGMENT_CHARS } from './services/shareLink.js';
 import { exportRkt, importRkt } from './services/rocksimFile.js';
 import { rocketToObj } from './services/objExport.js';
@@ -74,14 +75,33 @@ export interface MountMotor {
    */
   ignition: { event: IgnitionEvent; delay: number };
 }
+
+/**
+ * One of the imported file's flight configurations, kept as a ready-to-apply
+ * preset (Stage B). `mountMotors` stays the live working set every consumer
+ * reads; applying a preset copies its motors in and marks it active.
+ */
+export interface SavedConfig {
+  /** The .ork configid — stable through save, so desktop round-trips keep it. */
+  id: string;
+  /** null = unnamed in the file (the desktop shows its motor list instead). */
+  name: string | null;
+  isDefault: boolean;
+  /** Matched motors keyed by mount node id; unmatched refs dropped out. */
+  motors: Record<string, MountMotor>;
+  /** Designations that couldn't be matched at import — reported when applied. */
+  unmatched?: string[];
+}
 import './styles.css';
 
 /**
  * What the design importers hand the shared apply path (file open AND share
  * link). Structural subset of OrkTreeImportResult so importRkt/importCdx1
- * results — same shape minus `launch` — fit too.
+ * results — same shape minus `launch` — fit too; only .ork parses carry the
+ * flight-configuration fields.
  */
-type ImportedDesign = Pick<OrkTreeImportResult, 'name' | 'tree' | 'motors' | 'notes' | 'launch'>;
+type ImportedDesign = Pick<OrkTreeImportResult, 'name' | 'tree' | 'motors' | 'notes' | 'launch'>
+  & Partial<Pick<OrkImportResult, 'configs' | 'chosenConfigId'>>;
 
 /** Rocket names that mean "the user never named it" (desktop default is "Rocket"). */
 const GENERIC_ROCKET_NAMES = new Set([
@@ -220,6 +240,13 @@ export function App() {
     const meta = session?.motorMeta ?? builtInMeta(label);
     return { [target]: { label, spec, meta, ignition: { event: 'automatic', delay: 0 } } };
   });
+  // Stage B: the imported file's flight configurations as presets, and which
+  // one the working set (mountMotors) came from. null = custom/none — manual
+  // motor edits KEEP the active id (the working set is that config's current
+  // truth, and export writes the live set into it); only unloading
+  // everything or applying "None" clears it.
+  const [savedConfigs, setSavedConfigs] = useState<SavedConfig[]>(session?.savedConfigs ?? []);
+  const [activeConfigId, setActiveConfigId] = useState<string | null>(session?.activeConfigId ?? null);
   // Max motor length is a physical property of each STAGE's airframe (a
   // staged rocket's booster and sustainer have different room), keyed by
   // stage node id. Legacy sessions carried ONE universal value — seed every
@@ -359,8 +386,8 @@ export function App() {
     const stageIds = new Set(stages(tree).map((s) => s.id));
     const maxMotorLengthByStage = Object.fromEntries(
       Object.entries(maxMotorLen).filter(([id]) => stageIds.has(id)));
-    saveSessionDebounced({ tree, mountMotors, launch, maxMotorLengthByStage });
-  }, [tree, mountMotors, launch, maxMotorLen]);
+    saveSessionDebounced({ tree, mountMotors, launch, maxMotorLengthByStage, savedConfigs, activeConfigId });
+  }, [tree, mountMotors, launch, maxMotorLen, savedConfigs, activeConfigId]);
 
   // ---- undo (Ctrl+Z / button) ----
   const history = useRef<RocketTree[]>([]);
@@ -562,6 +589,10 @@ export function App() {
             stageMotorInfo[branchName] = { label: mm.label, highPower: mm.meta.highPower === true };
           }
         }
+        // Stage B: which flight configuration flew, by display name (the
+        // CSV's trailing "Flight config" column; absent when none active).
+        const activeConfig = activeConfigId === null ? undefined
+          : savedConfigs.find((c) => c.id === activeConfigId);
         const run = buildSimRun({
           result: res,
           info: built.info,
@@ -581,6 +612,7 @@ export function App() {
             : usedSupersonic ? 'supersonic' : 'classic',
           // Kbf only matters on the classic model (supersonic supersedes it).
           rogersKbf: (prefs.rogersKbf ?? true) && !usedSupersonic,
+          ...(activeConfig ? { flightConfig: activeConfig.name ?? activeConfig.id } : {}),
         });
         setLastRun(run);
         recordRuns(addRun(run));
@@ -618,20 +650,33 @@ export function App() {
   }, [built, primaryMountId, lastRun, mountMotors, launch]);
 
   // ---- design file I/O (.ork native, .rkt RockSim) ----
+  const toExportMotor = (mm: MountMotor): OrkExportMotor => ({
+    designation: mm.spec.designation,
+    diameter: mm.spec.diameter,
+    length: mm.spec.length,
+    delay: mm.spec.ejectionDelay,
+    ignitionEvent: mm.ignition.event,
+    ignitionDelay: mm.ignition.delay,
+  });
+
   const exportMotorsMap = (): Record<string, OrkExportMotor> => {
     const motors: Record<string, OrkExportMotor> = {};
     for (const [id, mm] of assigned) {
-      motors[id] = {
-        designation: mm.spec.designation,
-        diameter: mm.spec.diameter,
-        length: mm.spec.length,
-        delay: mm.spec.ejectionDelay,
-        ignitionEvent: mm.ignition.event,
-        ignitionDelay: mm.ignition.delay,
-      };
+      motors[id] = toExportMotor(mm);
     }
     return motors;
   };
+
+  /**
+   * Stage B: the stored presets in exportOrk's shape. Stable ids ride
+   * through; the writer swaps the ACTIVE config's motors for the live
+   * working set, so in-app edits persist into the saved file.
+   */
+  const exportConfigs = (): OrkExportConfig[] => savedConfigs.map((c) => ({
+    id: c.id, name: c.name, isDefault: c.isDefault,
+    motors: Object.fromEntries(
+      Object.entries(c.motors).map(([id, mm]) => [id, toExportMotor(mm)])),
+  }));
 
   const download = (content: string | Uint8Array, ext: string, suffix = '') => {
     // CSV gets a UTF-8 BOM: headers can carry non-ASCII (units, symbols), and
@@ -659,7 +704,10 @@ export function App() {
   const onSaveOrk = () => {
     // WITH launch: the .ork's first <simulation> carries the pad and weather,
     // so the file (and the desktop app) round-trips the whole flight setup.
-    download(exportOrk({ name: tree.name ?? 'My Rocket', tree, motors: exportMotorsMap(), launch }), 'ork');
+    download(exportOrk({
+      name: tree.name ?? 'My Rocket', tree, motors: exportMotorsMap(), launch,
+      configs: exportConfigs(), activeConfigId,
+    }), 'ork');
   };
 
   const onSaveRkt = () => {
@@ -727,51 +775,49 @@ export function App() {
   };
 
   /**
-   * Applies an imported design to the app — the ONE apply path, shared by
-   * Open… and the share-link loader so a linked rocket behaves exactly like
-   * an opened file: per-mount motor matching (built-ins first, then the
-   * motor database), launch conditions, notes, the camera-shroud offer.
+   * Matches ONE imported motor reference: built-ins first, then the motor
+   * database — the per-mount pass applyImported always did, factored out so
+   * config presets run the same matching. Returns the loaded motor (absent
+   * when nothing matched) and the note describing what happened; the caller
+   * decides whether the note surfaces (applied config) or waits (presets).
    */
-  const applyImported = async (imported: ImportedDesign) => {
-    const notes: string[] = [`Loaded “${imported.name}”.`, ...imported.notes];
-    // Load EVERY mount's motor (staged/multi-mount files included).
-    const nextMotors: Record<string, MountMotor> = {};
-    for (const [nodeId, ref] of Object.entries(imported.motors)) {
-      const builtIn = Object.entries(BUILT_IN_MOTORS).find(
-        ([k]) => k.startsWith(ref.designation));
-      const ignition: MountMotor['ignition'] = {
-        event: (ref.ignitionEvent as IgnitionEvent | undefined) ?? 'automatic',
-        delay: ref.ignitionDelay ?? 0,
-      };
-      if (builtIn) {
-        // Keep the FILE's ejection delay — the built-in key's own delay
-        // (e.g. C6-5 matching a saved C6-7) would silently change the flight.
-        // Infinity is a VALID file delay (plugged, .ork "none") — only fall
-        // back to the built-in's delay when the file carried none.
-        const fileDelay = ref.delay === Infinity ? Infinity
-          : Number.isFinite(ref.delay) ? ref.delay : builtIn[1].ejectionDelay;
-        const label = labelWithDelay(builtIn[0], fileDelay);
-        nextMotors[nodeId] = {
+  const matchImportedMotor = async (ref: OrkMotorRef): Promise<{ motor?: MountMotor; note: string }> => {
+    const builtIn = Object.entries(BUILT_IN_MOTORS).find(
+      ([k]) => k.startsWith(ref.designation));
+    const ignition: MountMotor['ignition'] = {
+      event: (ref.ignitionEvent as IgnitionEvent | undefined) ?? 'automatic',
+      delay: ref.ignitionDelay ?? 0,
+    };
+    if (builtIn) {
+      // Keep the FILE's ejection delay — the built-in key's own delay
+      // (e.g. C6-5 matching a saved C6-7) would silently change the flight.
+      // Infinity is a VALID file delay (plugged, .ork "none") — only fall
+      // back to the built-in's delay when the file carried none.
+      const fileDelay = ref.delay === Infinity ? Infinity
+        : Number.isFinite(ref.delay) ? ref.delay : builtIn[1].ejectionDelay;
+      const label = labelWithDelay(builtIn[0], fileDelay);
+      return {
+        motor: {
           label,
           spec: { ...builtIn[1], ejectionDelay: fileDelay },
           meta: builtInMeta(builtIn[0]),
           ignition,
-        };
-        notes.push(`Motor: ${label} (matched built-in).`);
-        continue;
-      }
-      // RockSim refs carry no motor diameter (0) — match by designation only.
-      const dbMatch = findDbMotor(ref.designation, ref.diameter > 0 ? ref.diameter * 1000 : undefined);
-      if (!dbMatch) {
-        notes.push(`Motor “${ref.designation}” isn't in the motor database — pick one via Browse motor database.`);
-        continue;
-      }
-      try {
-        const spec = await fetchMotorSpec(dbMatch, ref.delay);
-        // Plugged motors (Infinity delay) display the standard "-P" suffix.
-        const delayTag = Number.isFinite(ref.delay) ? String(ref.delay) : 'P';
-        const label = `${dbMatch.commonName}-${delayTag}`;
-        nextMotors[nodeId] = {
+        },
+        note: `Motor: ${label} (matched built-in).`,
+      };
+    }
+    // RockSim refs carry no motor diameter (0) — match by designation only.
+    const dbMatch = findDbMotor(ref.designation, ref.diameter > 0 ? ref.diameter * 1000 : undefined);
+    if (!dbMatch) {
+      return { note: `Motor “${ref.designation}” isn't in the motor database — pick one via Browse motor database.` };
+    }
+    try {
+      const spec = await fetchMotorSpec(dbMatch, ref.delay);
+      // Plugged motors (Infinity delay) display the standard "-P" suffix.
+      const delayTag = Number.isFinite(ref.delay) ? String(ref.delay) : 'P';
+      const label = `${dbMatch.commonName}-${delayTag}`;
+      return {
+        motor: {
           label,
           spec,
           meta: {
@@ -784,15 +830,70 @@ export function App() {
             highPower: isHighPower(dbMatch),
           },
           ignition,
-        };
-        notes.push(`Motor: ${dbMatch.manufacturerAbbrev} ${displayDesignation(dbMatch.designation, dbMatch.manufacturerAbbrev)}-${delayTag} (loaded from the motor database).`);
-      } catch {
-        notes.push(`Motor “${ref.designation}” is in the motor database but its thrust curve couldn't be downloaded — pick it via Browse motor database.`);
+        },
+        note: `Motor: ${dbMatch.manufacturerAbbrev} ${displayDesignation(dbMatch.designation, dbMatch.manufacturerAbbrev)}-${delayTag} (loaded from the motor database).`,
+      };
+    } catch {
+      return { note: `Motor “${ref.designation}” is in the motor database but its thrust curve couldn't be downloaded — pick it via Browse motor database.` };
+    }
+  };
+
+  /**
+   * Applies an imported design to the app — the ONE apply path, shared by
+   * Open… and the share-link loader so a linked rocket behaves exactly like
+   * an opened file: per-mount motor matching (built-ins first, then the
+   * motor database), launch conditions, notes, the camera-shroud offer.
+   * `withoutMotors` (the config picker's "Open with no motors loaded")
+   * applies the same parse with an empty working set — the file's
+   * configurations still become presets, ready on Motors & Launch.
+   */
+  const applyImported = async (imported: ImportedDesign, opts?: { withoutMotors?: boolean }) => {
+    const withoutMotors = opts?.withoutMotors === true;
+    const notes: string[] = [`Loaded “${imported.name}”.`];
+    if (withoutMotors) {
+      // The importer's "Opened flight configuration …" line would claim
+      // motors were loaded — replace it with the truth.
+      notes.push(...imported.notes.filter((n) => !n.startsWith('Opened flight configuration')));
+      notes.push('Opened with no motors loaded — apply any flight configuration from Motors & Launch.');
+    } else {
+      notes.push(...imported.notes);
+    }
+    // Load EVERY mount's motor (staged/multi-mount files included).
+    const nextMotors: Record<string, MountMotor> = {};
+    if (!withoutMotors) {
+      for (const [nodeId, ref] of Object.entries(imported.motors)) {
+        const { motor: mm, note } = await matchImportedMotor(ref);
+        if (mm) nextMotors[nodeId] = mm;
+        notes.push(note);
       }
+    }
+    // Stage B: every configuration in the file becomes a ready-to-apply
+    // preset, matched in the same pass. Only the APPLIED config's notes
+    // surface — a preset's failures are reported if/when it is applied.
+    const chosenId = withoutMotors ? null : (imported.chosenConfigId ?? null);
+    const nextConfigs: SavedConfig[] = [];
+    for (const cfg of imported.configs ?? []) {
+      const cfgMotors: Record<string, MountMotor> = {};
+      const unmatched: string[] = [];
+      for (const [nodeId, ref] of Object.entries(cfg.motors)) {
+        // The applied config's motors were matched (and reported) above —
+        // reuse them rather than re-fetching the same thrust curves.
+        const mm = cfg.id === chosenId
+          ? nextMotors[nodeId]
+          : (await matchImportedMotor(ref)).motor;
+        if (mm) cfgMotors[nodeId] = mm;
+        else unmatched.push(ref.designation);
+      }
+      nextConfigs.push({
+        id: cfg.id, name: cfg.name, isDefault: cfg.isDefault, motors: cfgMotors,
+        ...(unmatched.length > 0 ? { unmatched } : {}),
+      });
     }
     const importedTree = normalizeTree(imported.tree);
     setTree(importedTree);
     setMountMotors(nextMotors);
+    setSavedConfigs(nextConfigs);
+    setActiveConfigId(chosenId);
     setMaxMotorLen({}); // imported stages have fresh ids — old limits don't apply
     setSelectedId(null);
     // Launch conditions from the file (.ork's first <simulation>): apply
@@ -806,6 +907,24 @@ export function App() {
     // get an offer to become the native fairing component (2026-08-05e).
     const shrouds = findShroudCandidates(importedTree);
     setShroudPrompt(shrouds.length ? shrouds : null);
+  };
+
+  /** Loads a flight-configuration preset into the working set (Stage B). */
+  const applyConfig = (cfg: SavedConfig) => {
+    setMountMotors(cfg.motors);
+    setActiveConfigId(cfg.id);
+    if (cfg.unmatched?.length) {
+      // Quiet at import time (only the applied config reports) — the debt
+      // comes due when the user actually loads this preset.
+      setFileNote(cfg.unmatched.map((d) =>
+        `Motor “${d}” couldn't be matched when the file was opened — pick one via Browse motor database.`).join('\n'));
+    }
+  };
+
+  /** The "None" row / full unload: no motors, no active configuration. */
+  const clearConfig = () => {
+    setMountMotors({});
+    setActiveConfigId(null);
   };
 
   // Desktop OpenRocket's default rocket name is literally "Rocket" (users
@@ -887,7 +1006,10 @@ export function App() {
    */
   const onCopyShareLink = async () => {
     try {
-      const xml = exportOrk({ name: tree.name ?? 'My Rocket', tree, motors: exportMotorsMap(), launch });
+      const xml = exportOrk({
+        name: tree.name ?? 'My Rocket', tree, motors: exportMotorsMap(), launch,
+        configs: exportConfigs(), activeConfigId,
+      });
       const frag = await encodeShareFragment(xml);
       const url = `${window.location.origin}${window.location.pathname}${window.location.search}${frag}`;
       // Chat apps truncate very long messages, and a truncated link decodes
@@ -1210,6 +1332,8 @@ export function App() {
                 onClick={() => {
                   setTree(emptyTree());
                   setMountMotors({});
+                  setSavedConfigs([]);
+                  setActiveConfigId(null);
                   setMaxMotorLen({});
                   setSelectedId(null);
                   setResult(null);
@@ -1255,6 +1379,17 @@ export function App() {
                   {c.name ?? c.id}{c.isDefault ? ' — the file’s default' : ''}
                 </button>
               ))}
+              <button className="file-btn"
+                onClick={() => {
+                  const offer = configOffer;
+                  setConfigOffer(null);
+                  // the owner's "why do we start with a motor loaded?" escape:
+                  // nothing on the pad, every configuration still a preset
+                  // on Motors & Launch.
+                  void applyImported(offer.imported, { withoutMotors: true });
+                }}>
+                Open with no motors loaded
+              </button>
               <button className="file-btn" onClick={() => setConfigOffer(null)}>
                 Cancel — open nothing
               </button>
@@ -1374,7 +1509,7 @@ export function App() {
                 // (batch 08-21c).
                 <button className="file-btn vitals-unload"
                   title="Unload all motors — view and weigh the rocket clean (empty mass, no motor silhouettes). Reload any time from Motors & Launch."
-                  onClick={() => setMountMotors({})}>⏏ Unload</button>
+                  onClick={clearConfig}>⏏ Unload</button>
               )}
             </span>
           </span>
@@ -1696,6 +1831,19 @@ export function App() {
               ) : null;
             })()}
           </div>
+
+          {/* Only when there's a genuine choice: a single-config file's one
+              row would be noise on every ordinary design (our own exports
+              included), and ⏏ Unload already covers its "None". */}
+          {savedConfigs.length > 1 && (
+            <ConfigPanel
+              configs={savedConfigs}
+              activeConfigId={activeConfigId}
+              hasMotors={Object.keys(mountMotors).length > 0}
+              onApply={applyConfig}
+              onClear={clearConfig}
+            />
+          )}
 
           <div className="panel">
             <h2>Motors</h2>

@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
-import { exportOrk, importOrk } from './orkFile.js';
+import { exportOrk, importOrk, type OrkExportConfig, type OrkMotorRef } from './orkFile.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -653,16 +653,15 @@ describe('.ork launch conditions (simulations block)', () => {
   });
 });
 
-describe('.ork multi-configuration import (Stage A)', () => {
-  // Desktop file shape (24.12 savers): rocket-level declarations with
-  // optional <name>/default="true" and <stage number active> children;
-  // per mount, bare ignition defaults + one <motor configid> per non-empty
-  // config + <ignitionconfiguration> only for overriding configs; recovery
-  // devices bare deploy tags + <deploymentconfiguration> overrides; stages
-  // bare separation tags + a <separationconfiguration> for EVERY config.
-  // cfg-b is a "sustainer only" flight: booster stage inactive, no booster
-  // motor.
-  const MULTI = `<openrocket version="1.10" creator="OpenRocket 24.12"><rocket>
+// Desktop file shape (24.12 savers): rocket-level declarations with
+// optional <name>/default="true" and <stage number active> children;
+// per mount, bare ignition defaults + one <motor configid> per non-empty
+// config + <ignitionconfiguration> only for overriding configs; recovery
+// devices bare deploy tags + <deploymentconfiguration> overrides; stages
+// bare separation tags + a <separationconfiguration> for EVERY config.
+// cfg-b is a "sustainer only" flight: booster stage inactive, no booster
+// motor. Shared by the Stage A import and Stage B export describes.
+const MULTI = `<openrocket version="1.10" creator="OpenRocket 24.12"><rocket>
     <name>MultiCfg</name>
     <motorconfiguration configid="cfg-a" default="true">
       <name>Club field C6</name>
@@ -724,9 +723,10 @@ describe('.ork multi-configuration import (Stage A)', () => {
       </stage>
     </subcomponents></rocket></openrocket>`;
 
+describe('.ork multi-configuration import (Stage A)', () => {
   it('applies the default configuration when no pick is given', () => {
     const result = importOrk(MULTI);
-    expect(result.configs).toEqual([
+    expect(result.configs.map(({ motors: _m, ...rest }) => rest)).toEqual([
       { id: 'cfg-a', name: 'Club field C6', isDefault: true },
       { id: 'cfg-b', name: 'Demo day D12', isDefault: false },
     ]);
@@ -749,7 +749,7 @@ describe('.ork multi-configuration import (Stage A)', () => {
     expect(booster['separationDelay']).toBeUndefined();
     const notes = result.notes.filter((n) => n.includes('flight configuration'));
     expect(notes).toHaveLength(1);
-    expect(notes[0]).toBe('Opened flight configuration “Club field C6” (2 in the file — reopen the file to pick another).');
+    expect(notes[0]).toBe('Opened flight configuration “Club field C6” (2 in the file — switch motors any time under Motors & Launch; reopen the file to switch deployment/separation overrides too).');
     // cfg-a flies every stage — no activeness caveat.
     expect(result.notes.some((n) => n.includes('deactivates'))).toBe(false);
   });
@@ -777,6 +777,34 @@ describe('.ork multi-configuration import (Stage A)', () => {
     // cfg-b grounds the booster stage — activeness isn't applied yet, say so.
     expect(result.notes.filter((n) => n.includes('deactivates'))).toHaveLength(1);
     expect(result.notes.find((n) => n.includes('deactivates'))).toContain('all stages fly');
+  });
+
+  it('every config rides along with its own resolved motors (Stage B presets)', () => {
+    const result = importOrk(MULTI);
+    const [cfgA, cfgB] = result.configs;
+    // cfg-a (the chosen default): its preset IS the applied motor set.
+    expect(cfgA!.motors).toEqual(result.motors);
+    expect(Object.values(cfgA!.motors).map((m) => m.designation).sort()).toEqual(['C6', 'D12']);
+    // Bare ignition defaults for cfg-a — cfg-b's override block stays out.
+    expect(Object.values(cfgA!.motors).every(
+      (m) => m.ignitionEvent === 'automatic' && m.ignitionDelay === 0)).toBe(true);
+    // cfg-b: sustainer only, with ITS ignition override applied.
+    const bRefs = Object.values(cfgB!.motors);
+    expect(bRefs).toHaveLength(1);
+    expect(bRefs[0]!.designation).toBe('D12');
+    expect(bRefs[0]!.delay).toBe(7);
+    expect(bRefs[0]!.ignitionEvent).toBe('launch');
+    expect(bRefs[0]!.ignitionDelay).toBeCloseTo(1.5, 12);
+    // Keyed by THIS parse's node ids: cfg-b's one mount is the same
+    // sustainer mount the chosen config's C6 sits on.
+    expect(cfgB!.motors[result.motor!.mountId!]).toBeDefined();
+  });
+
+  it('presets are pick-independent: choosing cfg-b leaves cfg-a complete', () => {
+    const result = importOrk(MULTI, { configId: 'cfg-b' });
+    expect(result.configs[1]!.motors).toEqual(result.motors);
+    expect(Object.values(result.configs[0]!.motors).map((m) => m.designation).sort())
+      .toEqual(['C6', 'D12']);
   });
 
   it('falls back to the default when opts.configId names no declared config', () => {
@@ -826,6 +854,138 @@ describe('.ork multi-configuration import (Stage A)', () => {
     const note = result.notes.find((n) => n.includes('flight configurations'))!;
     expect(note).toContain('kept “cfg-a”');
     expect(note).toContain('1 was not imported');
+  });
+});
+
+describe('.ork multi-configuration export (Stage B)', () => {
+  const TREE = {
+    name: 'MC',
+    components: [{
+      type: 'stage' as const, id: 's', name: 'Sustainer',
+      children: [{
+        type: 'bodytube' as const, id: 'b', length: 0.3, outerRadius: 0.012,
+        thickness: 0.0005, motorMount: true,
+      }],
+    }],
+  };
+  const C6 = {
+    designation: 'C6', manufacturer: 'Estes', diameter: 0.018, length: 0.07,
+    delay: 5, ignitionEvent: 'automatic', ignitionDelay: 0,
+  };
+  const D12 = {
+    designation: 'D12', manufacturer: 'Estes', diameter: 0.024, length: 0.07,
+    delay: 7, ignitionEvent: 'launch', ignitionDelay: 1.5,
+  };
+  const CONFIGS: OrkExportConfig[] = [
+    { id: 'cfg-a', name: 'Club field C6', isDefault: true, motors: { b: C6 } },
+    { id: 'cfg-b', name: null, isDefault: false, motors: { b: D12 } },
+  ];
+  const LAUNCH = {
+    launchRodLengthM: 1, launchRodAngleDeg: 0, windAverage: 2, windStdDev: 0.2,
+    launchAltitudeM: 0, temperatureC: null, pressureHPa: null, latitudeDeg: 28.61,
+  };
+
+  it('writes every config with stable ids/names, default and LIVE motors on the active one', () => {
+    const xml = exportOrk({
+      name: 'MC', tree: TREE,
+      motors: { b: { ...D12, delay: 9 } }, // live working set: edited delay
+      configs: CONFIGS, activeConfigId: 'cfg-b', launch: LAUNCH,
+    });
+    // Stable ids; default="true" rides the ACTIVE config, not the file default.
+    expect(xml).toContain('<motorconfiguration configid="cfg-a">');
+    expect(xml).toContain('<motorconfiguration configid="cfg-b" default="true">');
+    expect(xml).toContain('<name>Club field C6</name>');
+    // cfg-b is unnamed — no invented <name> in its block (desktop renders
+    // an unnamed config as its motor list).
+    const cfgBBlock = xml.match(
+      /<motorconfiguration configid="cfg-b"[^>]*>([\s\S]*?)<\/motorconfiguration>/)![1]!;
+    expect(cfgBBlock).not.toContain('<name>');
+    // The simulation references the default-marked config.
+    expect(xml).toContain('<configid>cfg-b</configid>');
+    const back = importOrk(xml);
+    expect(back.configs.map((c) => ({ id: c.id, name: c.name, isDefault: c.isDefault }))).toEqual([
+      { id: 'cfg-a', name: 'Club field C6', isDefault: false },
+      { id: 'cfg-b', name: null, isDefault: true },
+    ]);
+    // Active config carries the LIVE set (delay 9, edits persisted); the
+    // inactive preset keeps its own stored motor.
+    expect(back.chosenConfigId).toBe('cfg-b');
+    expect(back.motor).toMatchObject({ designation: 'D12', delay: 9, ignitionEvent: 'launch' });
+    expect(Object.values(back.configs[0]!.motors)[0]).toMatchObject({ designation: 'C6', delay: 5 });
+  });
+
+  it('active none with no live motors: the original default keeps default="true", nothing minted', () => {
+    const xml = exportOrk({ name: 'MC', tree: TREE, motors: {}, configs: CONFIGS, activeConfigId: null });
+    expect((xml.match(/<motorconfiguration /g) ?? []).length).toBe(2);
+    expect(xml).toContain('<motorconfiguration configid="cfg-a" default="true">');
+    const back = importOrk(xml);
+    expect(back.chosenConfigId).toBe('cfg-a');
+    expect(back.motor).toMatchObject({ designation: 'C6', delay: 5 }); // the preset survived
+  });
+
+  it('active none WITH live motors mints an unnamed default config carrying them', () => {
+    const xml = exportOrk({
+      name: 'MC', tree: TREE, motors: { b: { ...C6, delay: 3 } },
+      configs: CONFIGS, activeConfigId: null,
+    });
+    const decls = [...xml.matchAll(/<motorconfiguration configid="([^"]+)"( default="true")?>/g)];
+    expect(decls).toHaveLength(3);
+    // The minted one comes last, freshly-idd, and takes default="true".
+    expect(['cfg-a', 'cfg-b']).not.toContain(decls[2]![1]);
+    expect(decls[2]![2]).toBe(' default="true"');
+    expect(decls[0]![2]).toBeUndefined();
+    const back = importOrk(xml);
+    expect(back.configs).toHaveLength(3);
+    expect(back.chosenConfigId).toBe(decls[2]![1]);
+    expect(back.motor).toMatchObject({ designation: 'C6', delay: 3 });
+    // The named presets are intact alongside the minted custom set.
+    expect(Object.values(back.configs[0]!.motors)[0]!.delay).toBe(5);
+    expect(Object.values(back.configs[1]!.motors)[0]!.delay).toBe(7);
+  });
+
+  it('no configs supplied still emits exactly one minted configuration (legacy shape)', () => {
+    for (const extra of [{}, { configs: [] as OrkExportConfig[], activeConfigId: null }]) {
+      const xml = exportOrk({ name: 'MC', tree: TREE, motors: { b: C6 }, ...extra });
+      expect((xml.match(/<motorconfiguration /g) ?? []).length).toBe(1);
+      expect(xml).toMatch(/<motorconfiguration configid="[0-9a-f-]+" default="true">/);
+      expect((xml.match(/<motor configid=/g) ?? []).length).toBe(1);
+    }
+  });
+
+  it('full round trip: Stage A import → Stage B state → export → re-import (the share-link contract)', () => {
+    const orig = importOrk(MULTI);
+    const toExport = (m: OrkMotorRef) => ({
+      designation: m.designation, manufacturer: m.manufacturer,
+      diameter: m.diameter, length: m.length, delay: m.delay,
+      ignitionEvent: m.ignitionEvent, ignitionDelay: m.ignitionDelay,
+    });
+    const mapMotors = (motors: Record<string, OrkMotorRef>) =>
+      Object.fromEntries(Object.entries(motors).map(([id, m]) => [id, toExport(m)]));
+    const xml = exportOrk({
+      name: orig.name, tree: orig.tree,
+      motors: mapMotors(orig.motors), // the live working set = the applied config
+      configs: orig.configs.map((c) => ({
+        id: c.id, name: c.name, isDefault: c.isDefault, motors: mapMotors(c.motors),
+      })),
+      activeConfigId: orig.chosenConfigId,
+    });
+    const back = importOrk(xml);
+    expect(back.configs.map((c) => ({ id: c.id, name: c.name, isDefault: c.isDefault }))).toEqual([
+      { id: 'cfg-a', name: 'Club field C6', isDefault: true },
+      { id: 'cfg-b', name: 'Demo day D12', isDefault: false },
+    ]);
+    // cfg-a (default/active): both mounts, same designations and delays.
+    expect(back.chosenConfigId).toBe('cfg-a');
+    expect(Object.values(back.motors).map((m) => `${m.designation}-${m.delay}`).sort())
+      .toEqual(['C6-5', 'D12-0']);
+    // cfg-b preset: the sustainer's D12 with its ignition override intact.
+    const b = Object.values(back.configs[1]!.motors);
+    expect(b).toHaveLength(1);
+    expect(b[0]).toMatchObject({ designation: 'D12', delay: 7, ignitionEvent: 'launch' });
+    expect(b[0]!.ignitionDelay).toBeCloseTo(1.5, 12);
+    // Mount keys are the NEW parse's node ids — cfg-b's motor sits on the
+    // same mount the applied C6 does.
+    expect(back.configs[1]!.motors[back.motor!.mountId!]).toBeDefined();
   });
 });
 

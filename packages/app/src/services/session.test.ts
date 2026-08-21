@@ -8,6 +8,7 @@ import {
 } from './session.js';
 import type { RocketTree } from '@online-openrocket/engine';
 import type { LaunchConditions } from '../components/LaunchPanel.js';
+import type { MountMotor } from '../App.js';
 
 /** Minimal but loadSession-valid state — the save path never inspects more. */
 const state = () => ({
@@ -103,5 +104,50 @@ describe('session autosave under quota', () => {
     saveNow();
     expect(seen).toEqual([]);
     expect(sessionSaveFailing()).toBe(true); // getter still tells the truth
+  });
+});
+
+describe('session flight-config presets (Stage B)', () => {
+  /** The store never inspects motor internals — a cast partial is enough. */
+  const mm = (delay: number) => ({
+    label: 'C6-5',
+    spec: { designation: 'C6', ejectionDelay: delay },
+    meta: { label: 'C6-5' },
+    ignition: { event: 'automatic', delay: 0 },
+  }) as unknown as MountMotor;
+
+  it('round-trips savedConfigs and activeConfigId', () => {
+    saveSessionDebounced({
+      ...state(),
+      savedConfigs: [{ id: 'cfg-a', name: 'Club field C6', isDefault: true, motors: { m1: mm(5) } }],
+      activeConfigId: 'cfg-a',
+    });
+    vi.runAllTimers();
+    const s = loadSession()!;
+    expect(s.activeConfigId).toBe('cfg-a');
+    expect(s.savedConfigs).toHaveLength(1);
+    expect(s.savedConfigs![0]!.name).toBe('Club field C6');
+    expect(s.savedConfigs![0]!.isDefault).toBe(true);
+    expect(s.savedConfigs![0]!.motors['m1']!.spec.ejectionDelay).toBe(5);
+  });
+
+  it('revives plugged (Infinity) delays inside config presets, and null active', () => {
+    saveSessionDebounced({
+      ...state(),
+      savedConfigs: [{ id: 'cfg-a', name: null, isDefault: false, motors: { m1: mm(Infinity) } }],
+      activeConfigId: null,
+    });
+    vi.runAllTimers();
+    const s = loadSession()!;
+    expect(s.activeConfigId).toBeNull();
+    expect(s.savedConfigs![0]!.motors['m1']!.spec.ejectionDelay).toBe(Infinity);
+  });
+
+  it('sessions saved before Stage B load clean — the fields simply absent', () => {
+    saveNow(); // state() carries neither field
+    const s = loadSession()!;
+    expect(s.tree.name).toBe('Test');
+    expect(s.savedConfigs).toBeUndefined();
+    expect(s.activeConfigId).toBeUndefined();
   });
 });

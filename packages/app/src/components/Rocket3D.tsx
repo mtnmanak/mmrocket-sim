@@ -66,7 +66,7 @@ const MAT = {
   transition: '#c9c2b5',
   fin: '#a98f6f',
   lug: '#9a978f',
-  inner: '#8d8a82',
+  inner: '#6b6862',
   motor: '#c65420',
 };
 
@@ -76,9 +76,12 @@ export interface Piece {
   color: string;
   position?: [number, number, number];
   rotation?: [number, number, number];
-  /** External shell (nose/tube/transition) — drawn slightly see-through so
-   *  mounts and motors read inside (S5, 2026-08-21c). */
+  /** External shell (nose/tube/transition) — drawn see-through so mounts and
+   *  motors read inside (S5, 2026-08-21c). */
   translucent?: boolean;
+  /** Inner tubes — glassier still, so the loaded motor INSIDE them shows
+   *  (batch 08-21d: an opaque mount hid the motor entirely). */
+  innerGlass?: boolean;
 }
 
 /** Loaded motor case dimensions (m) keyed by mount node id — the same shape
@@ -97,15 +100,19 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims): { pieces: Pie
   const place = (
     key: string, geometry: THREE.BufferGeometry, color: string,
     position?: [number, number, number], rotation?: [number, number, number],
-    xform?: THREE.Matrix4, translucent?: boolean,
+    xform?: THREE.Matrix4, translucent?: boolean | 'glass',
   ) => {
-    if (!xform) { pieces.push({ key, geometry, color, position, rotation, translucent }); return; }
+    const flags = {
+      translucent: translucent === true || undefined,
+      innerGlass: translucent === 'glass' || undefined,
+    };
+    if (!xform) { pieces.push({ key, geometry, color, position, rotation, ...flags }); return; }
     const g = geometry.clone();
     const m = new THREE.Matrix4().copy(xform);
     if (position) m.multiply(new THREE.Matrix4().makeTranslation(position[0], position[1], position[2]));
     if (rotation) m.multiply(new THREE.Matrix4().makeRotationFromEuler(new THREE.Euler(rotation[0], rotation[1], rotation[2])));
     g.applyMatrix4(m);
-    pieces.push({ key, geometry: g, color, translucent });
+    pieces.push({ key, geometry: g, color, ...flags });
   };
 
   const addFins = (child: ComponentNode, pStart: number, pLen: number, pRadius: number, xform?: THREE.Matrix4) => {
@@ -223,7 +230,7 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims): { pieces: Pie
           num(child, 'clusterScale', 1), num(child, 'clusterRotation', 0),
         )) {
           place(`inner${k++}`, new THREE.CylinderGeometry(r, r, len, 32), nodeColor(child, MAT.inner),
-            [start + len / 2, off.y, off.z], [0, 0, -Math.PI / 2], xform);
+            [start + len / 2, off.y, off.z], [0, 0, -Math.PI / 2], xform, 'glass');
           if (motor) {
             const mR = motor.diameter / 2;
             const mStart = start + len - motor.length + num(child, 'motorOverhang', 0);
@@ -709,16 +716,17 @@ export function Rocket3D({ tree, info, motors, exportData }: {
             <mesh key={p.key} geometry={p.geometry}
               position={p.position ?? [0, 0, 0]}
               rotation={p.rotation ?? [0, 0, 0]}
-              renderOrder={p.translucent ? 2 : 0}>
-              {/* Shell pieces are genuinely see-through so mounts and motors
-                  read inside (batch 08-21d — 0.88 with depth writes on looked
-                  opaque in practice). depthWrite off + explicit renderOrder
-                  guarantees the internals paint first and always show through;
-                  DoubleSide draws the tube's far wall for the depth cue. */}
+              renderOrder={p.translucent ? 2 : p.innerGlass ? 1 : 0}>
+              {/* See-through layering (batch 08-21d — 0.88 with depth writes
+                  on looked opaque in practice): opaque pieces (motor, fins)
+                  first, then glassy inner tubes, then the shell — depth writes
+                  off for both see-through tiers so each layer shows through
+                  the ones over it; DoubleSide draws far walls for depth. */}
               <meshStandardMaterial color={p.color} roughness={0.6} metalness={0.05}
-                transparent={!!p.translucent} opacity={p.translucent ? 0.62 : 1}
-                depthWrite={!p.translucent}
-                side={p.translucent ? THREE.DoubleSide : THREE.FrontSide} />
+                transparent={!!p.translucent || !!p.innerGlass}
+                opacity={p.translucent ? 0.55 : p.innerGlass ? 0.5 : 1}
+                depthWrite={!p.translucent && !p.innerGlass}
+                side={p.translucent || p.innerGlass ? THREE.DoubleSide : THREE.FrontSide} />
             </mesh>
           ))}
           {/* CG/CP sit on the rocket axis — inside the shell — so they must
@@ -726,17 +734,17 @@ export function Rocket3D({ tree, info, motors, exportData }: {
               exactly like the 2D markers. `transparent` puts them in the
               transparent queue AFTER the see-through shell, or the shell
               would wash over them. */}
-          {/* 0.6× the shared size rule (batch 08-21d): full-size axis balls
+          {/* 0.45× the shared size rule (batch 08-21d): full-size axis balls
               overwhelmed small rockets; the gadget keeps the size rule. */}
           {info && Number.isFinite(info.cg) && (
             <mesh position={[info.cg, 0, 0]} renderOrder={10}>
-              <sphereGeometry args={[markerR * 0.6, 24, 24]} />
+              <sphereGeometry args={[markerR * 0.45, 24, 24]} />
               <meshStandardMaterial color="#e9edf1" emissive="#8891a0" depthTest={false} transparent />
             </mesh>
           )}
           {info && Number.isFinite(info.cp) && (
             <mesh position={[info.cp, 0, 0]} renderOrder={11}>
-              <sphereGeometry args={[markerR * 0.6, 24, 24]} />
+              <sphereGeometry args={[markerR * 0.45, 24, 24]} />
               <meshStandardMaterial color="#e34948" emissive="#5a1010" depthTest={false} transparent />
             </mesh>
           )}

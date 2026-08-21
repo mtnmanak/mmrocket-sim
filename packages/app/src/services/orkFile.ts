@@ -54,6 +54,13 @@ export interface OrkFlightConfig {
   /** Desktop writes <name> only when the user renamed the configuration. */
   name: string | null;
   isDefault: boolean;
+  /**
+   * THIS configuration's per-mount motors (Stage B presets), keyed by the
+   * mount's editor node id from the same parse, resolved with the same
+   * default/override semantics as the chosen config. A mount with no motor
+   * for this configuration simply has no entry.
+   */
+  motors: Record<string, OrkMotorRef>;
 }
 
 /**
@@ -119,6 +126,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       id: c.getAttribute('configid') ?? '',
       name: text(c, ':scope > name'),
       isDefault: c.getAttribute('default') === 'true',
+      motors: {},
     }))
     .filter((c) => c.id !== '');
   const requested = opts?.configId;
@@ -148,28 +156,42 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
     // Motor overhang (m): aft protrusion past the mount — min-diameter practice.
     const overhang = num(mountEl, 'overhang', 0);
     if (overhang !== 0) node['motorOverhang'] = overhang;
+    // ONE configuration's motor+ignition off this mount. Plugged motors (no
+    // ejection charge): the desktop writes the literal string "none"
+    // (Motor.PLUGGED_DELAY). Represent as Infinity — the kernel treats a
+    // +Inf ejection delay as "never fires", matching the desktop.
+    const resolveRef = (motorEl: Element, igEl: Element): OrkMotorRef => {
+      const delayText = text(motorEl, ':scope > delay');
+      return {
+        designation: text(motorEl, ':scope > designation') ?? 'unknown',
+        manufacturer: text(motorEl, ':scope > manufacturer') ?? 'unknown',
+        diameter: num(motorEl, 'diameter', 0.018),
+        length: num(motorEl, 'length', 0.07),
+        delay: delayText === 'none' ? Infinity : num(motorEl, 'delay', 0),
+        mountId: node.id,
+        ignitionEvent: text(igEl, ':scope > ignitionevent') ?? undefined,
+        ignitionDelay: num(igEl, 'ignitiondelay', 0),
+      };
+    };
+    // Stage B: EVERY declared configuration's motor rides along as a preset
+    // (its own ignition override winning over the bare defaults, same as the
+    // chosen read below). Quiet — only the chosen config's notes surface.
+    if (node.id) {
+      for (const cfg of configs) {
+        const byId = (tag: string) => Array.from(mountEl.children).find(
+          (c) => c.tagName === tag && c.getAttribute('configid') === cfg.id);
+        const cfgMotorEl = byId('motor');
+        if (!cfgMotorEl) continue; // no motor for this config here — empty
+        cfg.motors[node.id] = resolveRef(cfgMotorEl, byId('ignitionconfiguration') ?? mountEl);
+      }
+    }
     // A mount with no motor for the chosen configuration imports empty.
     const motorEl = configScoped(mountEl, 'motor');
     if (!motorEl) return;
     // Ignition: the chosen config's block wins over the bare default
     // (desktop writes defaults bare, overrides in <ignitionconfiguration>).
-    const igEl = configScoped(mountEl, 'ignitionconfiguration') ?? mountEl;
-    // Plugged motors (no ejection charge): the desktop writes the literal
-    // string "none" (Motor.PLUGGED_DELAY). Represent as Infinity — the kernel
-    // treats a +Inf ejection delay as "never fires", matching the desktop.
-    const delayText = text(motorEl, ':scope > delay');
-    const delay = delayText === 'none' ? Infinity : num(motorEl, 'delay', 0);
-    const ref: OrkMotorRef = {
-      designation: text(motorEl, ':scope > designation') ?? 'unknown',
-      manufacturer: text(motorEl, ':scope > manufacturer') ?? 'unknown',
-      diameter: num(motorEl, 'diameter', 0.018),
-      length: num(motorEl, 'length', 0.07),
-      delay,
-      mountId: node.id,
-      ignitionEvent: text(igEl, ':scope > ignitionevent') ?? undefined,
-      ignitionDelay: num(igEl, 'ignitiondelay', 0),
-    };
-    if (delayText === 'none') {
+    const ref = resolveRef(motorEl, configScoped(mountEl, 'ignitionconfiguration') ?? mountEl);
+    if (!Number.isFinite(ref.delay)) {
       notes.push(
         `Motor ${ref.designation}: plugged (no ejection charge) — make sure recovery deploys on apogee/altitude, not the ejection charge.`);
     }
@@ -555,7 +577,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
     } else {
       const chosen = configs.find((c) => c.id === chosenConfigId)!;
       notes.push(
-        `Opened flight configuration “${chosen.name ?? chosen.id}” (${configs.length} in the file — reopen the file to pick another).`);
+        `Opened flight configuration “${chosen.name ?? chosen.id}” (${configs.length} in the file — switch motors any time under Motors & Launch; reopen the file to switch deployment/separation overrides too).`);
     }
     // Stage activeness (<stage active="false">) is not applied (Stage C) —
     // warn when the chosen configuration would actually ground a stage.
@@ -673,6 +695,16 @@ export interface OrkExportMotor {
   ignitionDelay?: number;
 }
 
+/** One flight configuration to write (Stage B) — the stable id from import. */
+export interface OrkExportConfig {
+  id: string;
+  /** Written as <name> only when non-null (desktop writes renamed configs only). */
+  name: string | null;
+  isDefault: boolean;
+  /** This configuration's motors keyed by mount node id. */
+  motors: Record<string, OrkExportMotor>;
+}
+
 export interface OrkTreeExportInput {
   name: string;
   tree: RocketTree;
@@ -683,12 +715,39 @@ export interface OrkTreeExportInput {
   mountId?: string | null;
   /** Launch-site conditions — written as one <simulation> when present. */
   launch?: LaunchConditions;
+  /**
+   * Stage B multi-config save. Absent/empty keeps the classic single
+   * minted-config output. When supplied, every configuration is written with
+   * its stable id; the ACTIVE one's motors come from `motors` (the live
+   * working set — in-app edits persist into it), the rest from their own map.
+   */
+  configs?: OrkExportConfig[];
+  /** Which config the working set (`motors`) came from; null = none/custom. */
+  activeConfigId?: string | null;
 }
 
-export function exportOrk({ name, tree, motors, motor, mountId, launch }: OrkTreeExportInput): string {
+export function exportOrk({ name, tree, motors, motor, mountId, launch, configs, activeConfigId }: OrkTreeExportInput): string {
   const motorMap: Record<string, OrkExportMotor> = { ...(motors ?? {}) };
   if (motor && mountId && !motorMap[mountId]) motorMap[mountId] = motor;
-  const configId = uuid();
+  // The configurations to write. Classic path (no configs): ONE minted
+  // config carrying the working set — exactly the pre-Stage-B output.
+  const active = configs?.find((c) => c.id === activeConfigId) ?? null;
+  const writeConfigs: Array<{ id: string; name: string | null; motors: Record<string, OrkExportMotor> }> =
+    configs && configs.length > 0
+      ? configs.map((c) => ({ id: c.id, name: c.name, motors: c === active ? motorMap : c.motors }))
+      : [{ id: uuid(), name: null, motors: motorMap }];
+  // Active = none but motors loaded: mint an extra config carrying the live
+  // set, unnamed (the desktop renders unnamed configs as their motor list).
+  const minted = configs && configs.length > 0 && !active && Object.keys(motorMap).length > 0
+    ? { id: uuid(), name: null, motors: motorMap }
+    : null;
+  if (minted) writeConfigs.push(minted);
+  // default="true" (also what <simulation> references): the active config,
+  // else the minted custom one, else the original default.
+  const defaultId = active?.id ?? minted?.id
+    ?? (configs && configs.length > 0
+      ? (configs.find((c) => c.isDefault)?.id ?? configs[0]!.id)
+      : writeConfigs[0]!.id);
   const lines: string[] = [];
   const emit = (depth: number, s: string) => lines.push('  '.repeat(depth) + s);
 
@@ -796,17 +855,26 @@ export function exportOrk({ name, tree, motors, motor, mountId, launch }: OrkTre
       : `<thickness>${typeof node['thickness'] === 'number' ? node['thickness'] : fb}</thickness>`);
   };
 
-  // m may be absent: a mount with no motor loaded still writes <motormount>
-  // so the mount flag survives the round trip (desktop does the same).
-  const motorMountXml = (depth: number, m?: OrkExportMotor, overhangM = 0) => {
-    const ev = m?.ignitionEvent ?? 'automatic';
-    const evDelay = m?.ignitionDelay ?? 0;
+  /** The write-configs that hold a motor for this mount, in write order. */
+  const mountConfigs = (nodeId: string | undefined) =>
+    nodeId ? writeConfigs.filter((c) => c.motors[nodeId]) : [];
+
+  // Configs may all be empty here: a mount with no motor loaded still writes
+  // <motormount> so the mount flag survives the round trip (desktop same).
+  const motorMountXml = (depth: number, nodeId: string | undefined, overhangM = 0) => {
+    const withMotor = mountConfigs(nodeId);
+    // Bare ignition defaults: the default-marked config's motor when it has
+    // one here (the desktop writes its default config bare), else the first.
+    const bare = (withMotor.find((c) => c.id === defaultId) ?? withMotor[0])?.motors[nodeId!];
+    const ev = bare?.ignitionEvent ?? 'automatic';
+    const evDelay = bare?.ignitionDelay ?? 0;
     emit(depth, '<motormount>');
     emit(depth + 1, `<ignitionevent>${escapeXml(ev)}</ignitionevent>`);
     emit(depth + 1, `<ignitiondelay>${evDelay}</ignitiondelay>`);
     emit(depth + 1, `<overhang>${overhangM}</overhang>`);
-    if (m) {
-      emit(depth + 1, `<motor configid="${configId}">`);
+    for (const c of withMotor) {
+      const m = c.motors[nodeId!]!;
+      emit(depth + 1, `<motor configid="${c.id}">`);
       emit(depth + 2, '<type>single</type>');
       emit(depth + 2, `<manufacturer>${escapeXml(m.manufacturer ?? 'custom')}</manufacturer>`);
       emit(depth + 2, `<designation>${escapeXml(m.designation)}</designation>`);
@@ -815,9 +883,12 @@ export function exportOrk({ name, tree, motors, motor, mountId, launch }: OrkTre
       // Plugged (no ejection charge) → the desktop's literal "none".
       emit(depth + 2, `<delay>${Number.isFinite(m.delay) ? m.delay : 'none'}</delay>`);
       emit(depth + 1, '</motor>');
-      emit(depth + 1, `<ignitionconfiguration configid="${configId}">`);
-      emit(depth + 2, `<ignitionevent>${escapeXml(ev)}</ignitionevent>`);
-      emit(depth + 2, `<ignitiondelay>${evDelay}</ignitiondelay>`);
+    }
+    for (const c of withMotor) {
+      const m = c.motors[nodeId!]!;
+      emit(depth + 1, `<ignitionconfiguration configid="${c.id}">`);
+      emit(depth + 2, `<ignitionevent>${escapeXml(m.ignitionEvent ?? 'automatic')}</ignitionevent>`);
+      emit(depth + 2, `<ignitiondelay>${m.ignitionDelay ?? 0}</ignitiondelay>`);
       emit(depth + 1, '</ignitionconfiguration>');
     }
     emit(depth, '</motormount>');
@@ -918,8 +989,8 @@ export function exportOrk({ name, tree, motors, motor, mountId, launch }: OrkTre
           emit(depth + 1, '<caseairframe>true</caseairframe>');
         }
         // Min-diameter: the body tube itself is the motor mount.
-        if (node['motorMount'] === true || (node.id && motorMap[node.id])) {
-          motorMountXml(depth + 1, node.id ? motorMap[node.id] : undefined, n(node, 'motorOverhang', 0));
+        if (node['motorMount'] === true || mountConfigs(node.id).length > 0) {
+          motorMountXml(depth + 1, node.id, n(node, 'motorOverhang', 0));
         }
         close('bodytube');
         break;
@@ -1035,8 +1106,8 @@ export function exportOrk({ name, tree, motors, motor, mountId, launch }: OrkTre
           // motor-length limit travels with the design.
           emit(depth + 1, `<maxmotorlength>${node['maxMotorLength']}</maxmotorlength>`);
         }
-        if (node['motorMount'] === true || (node.id && motorMap[node.id])) {
-          motorMountXml(depth + 1, node.id ? motorMap[node.id] : undefined, n(node, 'motorOverhang', 0));
+        if (node['motorMount'] === true || mountConfigs(node.id).length > 0) {
+          motorMountXml(depth + 1, node.id, n(node, 'motorOverhang', 0));
         }
         close('innertube');
         break;
@@ -1232,9 +1303,11 @@ export function exportOrk({ name, tree, motors, motor, mountId, launch }: OrkTre
             emit(d, `<separationdelay>${delay}</separationdelay>`);
           };
           sep(depth + 1);
-          emit(depth + 1, `<separationconfiguration configid="${configId}">`);
-          sep(depth + 2);
-          emit(depth + 1, '</separationconfiguration>');
+          for (const c of writeConfigs) {
+            emit(depth + 1, `<separationconfiguration configid="${c.id}">`);
+            sep(depth + 2);
+            emit(depth + 1, '</separationconfiguration>');
+          }
         }
         close(t);
         break;
@@ -1253,11 +1326,14 @@ export function exportOrk({ name, tree, motors, motor, mountId, launch }: OrkTre
   // Stage nodes at the top level export as sibling <stage> blocks (the
   // desktop model); legacy flat trees wrap into one implicit stage.
   const stageNodes = asStageNodes(tree);
-  emit(2, `<motorconfiguration configid="${configId}" default="true">`);
-  for (let i = 0; i < stageNodes.length; i++) {
-    emit(3, `<stage number="${i}" active="true"/>`);
+  for (const c of writeConfigs) {
+    emit(2, `<motorconfiguration configid="${c.id}"${c.id === defaultId ? ' default="true"' : ''}>`);
+    if (c.name !== null) emit(3, `<name>${escapeXml(c.name)}</name>`);
+    for (let i = 0; i < stageNodes.length; i++) {
+      emit(3, `<stage number="${i}" active="true"/>`);
+    }
+    emit(2, '</motorconfiguration>');
   }
-  emit(2, '</motorconfiguration>');
   emit(2, '<referencetype>maximum</referencetype>');
   emit(2, '<subcomponents>');
   for (let i = 0; i < stageNodes.length; i++) {
@@ -1283,9 +1359,11 @@ export function exportOrk({ name, tree, motors, motor, mountId, launch }: OrkTre
         emit(d, `<separationdelay>${delay}</separationdelay>`);
       };
       sep(4);
-      emit(4, `<separationconfiguration configid="${configId}">`);
-      sep(5);
-      emit(4, '</separationconfiguration>');
+      for (const c of writeConfigs) {
+        emit(4, `<separationconfiguration configid="${c.id}">`);
+        sep(5);
+        emit(4, '</separationconfiguration>');
+      }
     }
     emit(4, '<subcomponents>');
     for (const node of st.children ?? []) {
@@ -1303,13 +1381,13 @@ export function exportOrk({ name, tree, motors, motor, mountId, launch }: OrkTre
     // tolerates missing elements but WARNS on any simulator/calculator other
     // than RK4Simulator/BarrowmanCalculator and on unknown status values —
     // write the only ones it accepts. <configid> ties the simulation to the
-    // motorconfiguration emitted above.
+    // default-marked motorconfiguration emitted above.
     emit(2, '<simulation status="notsimulated">');
     emit(3, '<name>Simulation 1</name>');
     emit(3, '<simulator>RK4Simulator</simulator>');
     emit(3, '<calculator>BarrowmanCalculator</calculator>');
     emit(3, '<conditions>');
-    emit(4, `<configid>${configId}</configid>`);
+    emit(4, `<configid>${defaultId}</configid>`);
     emit(4, `<launchrodlength>${launch.launchRodLengthM}</launchrodlength>`);
     // Desktop defaults for options we don't model: launch into wind, and
     // rod/wind direction (rod direction is DEGREES on disk, 90 = π/2 rad).

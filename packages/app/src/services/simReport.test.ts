@@ -404,4 +404,26 @@ describe('runsToCsv', () => {
     expect(cells(r2!).length).toBe(cells(h2!).length);
     expect(cells(r2!)[cells(h2!).indexOf('Sim warnings')]).toBe('');
   });
+
+  it('ends with the "Flight config" column (Stage B) — blank on runs without one', () => {
+    const cells = (s: string) => s.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/);
+    const run = buildSimRun({
+      result: fakeResult(), info, motor, meta: { label: 'C6-5' },
+      launch: DEFAULT_CONDITIONS, rocketName: 'x', execMs: 1,
+      flightConfig: 'Club field C6',
+    });
+    const [header, row] = runsToCsv([run]).split('\n');
+    const hc = cells(header!);
+    // Trailing on purpose: existing spreadsheet imports keep their columns.
+    expect(hc[hc.length - 1]).toBe('Flight config');
+    expect(cells(row!)[hc.indexOf('Flight config')]).toBe('Club field C6');
+    // A run stored before the field existed exports an empty trailing cell.
+    const old = buildSimRun({
+      result: fakeResult(), info, motor, meta: { label: 'C6-5' },
+      launch: DEFAULT_CONDITIONS, rocketName: 'x', execMs: 1,
+    });
+    expect('flightConfig' in old).toBe(false);
+    const [h2, r2] = runsToCsv([old]).split('\n');
+    expect(cells(r2!)[cells(h2!).indexOf('Flight config')]).toBe('');
+  });
 });

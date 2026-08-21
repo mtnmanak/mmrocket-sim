@@ -182,6 +182,9 @@ function buildColumns(u?: UnitSelection): [string, (r: SimRun) => string | numbe
   // report renders the plain-language version (simWarnings.ts).
   ['Sim warnings', (r) => warningKeysCell(r.simWarnings)],
   ['Comments', (r) => r.comments],
+  // Trailing on purpose (Stage B): existing spreadsheet imports keep their
+  // column positions; runs stored before the field export an empty cell.
+  ['Flight config', (r) => r.flightConfig ?? ''],
   ];
 }
 

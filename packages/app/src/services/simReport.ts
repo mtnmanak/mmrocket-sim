@@ -210,6 +210,13 @@ export interface SimRun {
    * 'mixed 2+2' / 'mixed 3+3'. Absent outside combination batches.
    */
   motorConfig?: string;
+  /**
+   * Display name of the flight configuration the working motor set came from
+   * at launch (Stage B, v0.050+). Absent when none was active — a custom
+   * motor set, or a design without configurations. NOT motorConfig, which
+   * means cluster combination.
+   */
+  flightConfig?: string;
   comments: string;
 }
 
@@ -368,8 +375,9 @@ export function buildSimRun(input: {
   aeroModel?: 'classic' | 'supersonic' | 'auto-supersonic';
   rogersKbf?: boolean;
   motorConfig?: string;
+  flightConfig?: string;
 }): SimRun {
-  const { result, info, motor, meta, launch, rocketName, execMs, stageMotorInfo, boosterMotors, aeroModel, rogersKbf, motorConfig } = input;
+  const { result, info, motor, meta, launch, rocketName, execMs, stageMotorInfo, boosterMotors, aeroModel, rogersKbf, motorConfig, flightConfig } = input;
   const { summary, series } = result;
 
   const tRod = eventTime(result, 'LAUNCHROD');
@@ -581,6 +589,7 @@ export function buildSimRun(input: {
     aeroModel,
     ...(rogersKbf !== undefined ? { rogersKbf } : {}),
     ...(motorConfig !== undefined ? { motorConfig } : {}),
+    ...(flightConfig !== undefined ? { flightConfig } : {}),
     comments: comments.join(' | '),
   };
 }

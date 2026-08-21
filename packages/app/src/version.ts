@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.049';
+export const APP_VERSION = '0.050';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,19 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.050',
+    date: '2026-08-21',
+    title: 'Flight configurations become real, and the 3D view stops losing your rocket',
+    items: [
+      'NEW: multi-configuration .ork files now carry ALL their flight configurations into the app (Stage B). A "Flight configurations" panel on Motors & Launch lists every configuration in the file — apply any one with a click, switch between them, or pick "None — no motors loaded"; whatever you load stays loaded until you change or unload it. Your motor edits belong to the configuration you\'re flying, and saving the design writes every configuration back to the .ork — open it in desktop OpenRocket and they\'re all there, same names, same default. Share links carry them too.',
+      'NEW: when a multi-configuration file asks which configuration to open, "Open with no motors loaded" is now one of the answers — the design comes in clean and every configuration waits on the Motors & Launch tab.',
+      'NEW: the 3D view has Reset / Side / Aft buttons — one click brings the rocket back from any lost zoom or pan (and zoom is now distance-limited, so the camera can\'t fly inside the hull or off to infinity).',
+      'IMPROVED: the 3D shell is genuinely see-through now — mounts, inner tubes and the loaded motor actually read through the wall (the previous pass looked opaque in practice), and the CG/CP balls on the axis are smaller so they stop overwhelming small rockets.',
+      'FIXED: with the drawing rotated vertical and the "All stats" drawer open, the drawer covered the lower rocket with no way to escape — the drawing now shrinks to the sky above the open drawer, in both orientations.',
+      'Saved-flight CSV exports gain a trailing "Flight config" column recording which configuration flew each run.',
+    ],
+  },
   {
     version: '0.049',
     date: '2026-08-21',
