@@ -34,7 +34,7 @@ export const CHANGELOG: ChangelogEntry[] = [
       'FIXED: the header no longer forces the page to scroll sideways on phones — at a 375 px viewport the page was 946 px wide, with the Guide and 🐞 Feedback buttons off-screen. Buttons now wrap below 980 px, both dropdown menus stay fully on-screen down to 320 px, and nothing changes on desktop.',
       'FIXED: a transition’s shape parameter and clipping flag now reach both the physics and the drawing — a secant-ogive reducer simulates the shape it draws, and an imported unclipped transition renders the way it flies.',
       'FIXED: when browser storage fills up, saved runs and autosave now TELL you instead of silently losing work — the runs table shows what is actually stored, and a banner clears itself when saving recovers.',
-      'The source repository is now public on GitHub under the GPL (LICENSE included), so the header’s "source (GPL)" link works for everyone — and the old preview address now forwards to openrocket.mountainmanrockets.com.',
+      'The source repository opens to the public with this release (GPL-3.0-or-later, LICENSE included) — the header’s "source (GPL)" link is the corresponding-source offer — and the old preview address now forwards to openrocket.mountainmanrockets.com.',
     ],
   },
   {
