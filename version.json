@@ -1,5 +1,5 @@
 {
-  "version": "0.046",
-  "released": "2026-08-20",
-  "note": "Share a design as a link — \"Copy share link\" packs the whole rocket, motors and launch conditions into the URL itself; no account, no upload, the link is the file. Launch conditions now travel inside .ork files both ways. The simulator's own warnings (no recovery device, high-speed deployment, and more) now show in the flight report, which also gains landing distance and bearing, peak roll rate, and a full per-timestep flight-data CSV. And the header finally fits a phone — no more sideways scrolling to find the Feedback button."
+  "version": "0.047",
+  "released": "2026-08-21",
+  "note": "Online OpenRocket is now MMRocket Sim, at a new address: mmrsim.mountainmanrockets.com. Same app, same physics, same GPL source — the new name makes clear this is an independent derivative of OpenRocket, and drops the \"Online\" that undersold an offline-capable app. The old address shows a moved notice; export autosaved designs there and reopen them at the new one."
 }

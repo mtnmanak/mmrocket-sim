@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.046';
+export const APP_VERSION = '0.047';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.047',
+    date: '2026-08-21',
+    title: 'A new name: MMRocket Sim',
+    items: [
+      'RENAMED: Online OpenRocket is now MMRocket Sim, at a new address — https://mmrsim.mountainmanrockets.com. Two honest reasons: "Online" undersold an app that works fully offline once loaded, and "OpenRocket" is the upstream project\'s name — this tool is proudly derived from OpenRocket 24.12 (and still says so, right under the logo), but it is not published by the OpenRocket project. Same app, same physics, same GPL source.',
+      'The old address keeps working for now but shows a moved notice and no longer installs or updates as an app. Designs autosaved in your browser belong to the old address: export your design there (Save / Export → .ork) and open it at the new one. Home-screen installs should be reinstalled from the new address.',
+      'Everything stamped with the old name now says MMRocket Sim: .ork files, STL/OBJ exports, fin templates, print packs, schematics, and the feedback tracker (reports now file under "MMRocket Sim").',
+    ],
+  },
   {
     version: '0.046',
     date: '2026-08-20',
