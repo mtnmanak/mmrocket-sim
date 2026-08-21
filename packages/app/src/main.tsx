@@ -8,10 +8,15 @@ import '@fontsource/rajdhani/latin-600.css';
 import '@fontsource/rajdhani/latin-700.css';
 import { App } from './App.js';
 import { PrefsProvider } from './prefs/PrefsContext.js';
+import { dismantlePwa, isRetiredHost } from './services/hostMigration.js';
 
-// Offline-first: precache the app shell (engine included) so the sim works
-// at launch sites with no internet. Updates apply on the next visit.
-registerSW({ immediate: true });
+// Offline-first on the canonical host. On the RETIRED pre-rename host the
+// PWA dismantles itself instead: no SW, caches dropped, banner in App.
+if (isRetiredHost(location.hostname)) {
+  void dismantlePwa();
+} else {
+  registerSW({ immediate: true });
+}
 
 // Never a silently-blank page: uncaught errors paint into the root.
 function showFatal(message: string) {

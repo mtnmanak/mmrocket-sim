@@ -18,6 +18,7 @@ import { ComponentTree } from './components/ComponentTree.js';
 import { FlightCharts } from './components/FlightCharts.js';
 import { DragPanel } from './components/DragPanel.js';
 import { DEFAULT_CONDITIONS, LaunchPanel, type LaunchConditions } from './components/LaunchPanel.js';
+import { MovedNotice } from './components/MovedNotice.js';
 import { builtInMeta, MotorPicker } from './components/MotorPicker.js';
 import { NumField } from './components/NumField.js';
 import { PropertyPanel } from './components/PropertyPanel.js';
@@ -1077,6 +1078,7 @@ export function App() {
             source&nbsp;(GPL)
           </a>
         </p>
+        <MovedNotice hostname={window.location.hostname} />
         {autosaveFailing && (
           // Persistent (not dismissible) on purpose: while this shows, edits
           // do NOT survive a reload. It clears itself on the recovery edge.
