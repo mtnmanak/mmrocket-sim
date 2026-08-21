@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.050';
+export const APP_VERSION = '0.051';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.051',
+    date: '2026-08-21',
+    title: 'The stats readout gets out of the way',
+    items: [
+      'IMPROVED: the floating stats readout on the design canvas is now genuinely floating — drag it anywhere, fold it to a one-line stability pill with the ▾ button (click the pill to unfold), and it remembers where you put it. It\'s also a touch more transparent. Zoomed in on a detail, it no longer sits as a fixed panel over your rocket.',
+    ],
+  },
   {
     version: '0.050',
     date: '2026-08-21',

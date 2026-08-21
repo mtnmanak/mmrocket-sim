@@ -982,19 +982,45 @@
   }
 }
 
+/* Truly floating (batch 08-21e): draggable anywhere on the canvas, foldable
+   to a one-line stability pill, position remembered — at a deep zoom the old
+   fixed card was "a giant black panel" over the drawing (the owner). Slightly
+   more transparent for the same reason. */
 .stats-chip {
   position: absolute;
-  top: 12px;
-  left: 12px;
   display: flex;
   flex-direction: column;
   gap: 3px;
   min-width: 170px;
-  padding: 9px 12px;
-  background: rgba(13, 14, 18, 0.85);
+  padding: 9px 26px 9px 12px;
+  background: rgba(13, 14, 18, 0.78);
   border: 1px solid var(--border);
   border-radius: 8px;
   z-index: 2;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+.stats-chip:active {
+  cursor: grabbing;
+}
+
+.stats-chip-folded {
+  min-width: 0;
+  padding: 4px 24px 4px 10px;
+}
+
+.stats-chip-fold {
+  position: absolute;
+  top: 3px;
+  right: 4px;
+  border: none;
+  background: none;
+  color: #8d8b82;
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 4px;
 }
 
 .stats-chip-row {

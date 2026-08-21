@@ -1,5 +1,5 @@
 {
-  "version": "0.050",
+  "version": "0.051",
   "released": "2026-08-21",
-  "note": "Flight configurations become real: multi-configuration .ork files carry every configuration into a new panel on Motors & Launch — apply, switch, or open with no motors loaded — and saving writes them all back for desktop OpenRocket. The 3D view gains Reset/Side/Aft buttons and a genuinely see-through shell, the axis CG/CP balls slim down, and the vertical drawing no longer hides under the open stats drawer."
+  "note": "The floating stats readout on the design canvas is now genuinely floating: drag it anywhere, fold it to a one-line stability pill, and it remembers where you put it — no more fixed panel over a zoomed-in rocket."
 }

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { StaticInfo } from '@online-openrocket/engine';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { fmtSi, type Quantity } from '../prefs/units.js';
@@ -78,23 +78,115 @@ export function DesignStats({ info, motorLabel }: { info: StaticInfo; motorLabel
  * can live in a drawer. Read-only by design — units follow preferences but
  * the chip offers no unit chips (that's the drawer's job).
  */
+/** Where the chip sits and whether it's folded to the one-line pill —
+ *  remembered so it stays where the user put it (batch 08-21e). */
+const CHIP_KEY = 'online-openrocket.chip.v1';
+
+function loadChipState(): { x: number; y: number; folded: boolean } {
+  try {
+    const raw = localStorage.getItem(CHIP_KEY);
+    if (raw) {
+      const p = JSON.parse(raw) as Partial<{ x: number; y: number; folded: boolean }>;
+      if (typeof p.x === 'number' && typeof p.y === 'number') {
+        return { x: p.x, y: p.y, folded: p.folded === true };
+      }
+    }
+  } catch { /* fall through */ }
+  return { x: 12, y: 12, folded: false };
+}
+
 export function StatsChip({ info }: { info: StaticInfo }) {
   const { prefs } = usePrefs();
   const len = prefs.units.length;
   const { glyph, cls } = stabilityGlyphClass(info.stabilityCalibers);
+  const [chip, setChip] = useState(loadChipState);
+  const ref = useRef<HTMLDivElement | null>(null);
+  // Drag bookkeeping: pointer-to-chip offset at grab, and whether the pointer
+  // actually traveled (a still click on the pill toggles the fold instead).
+  const dragFrom = useRef<{ dx: number; dy: number; moved: boolean } | null>(null);
+
+  const persist = (next: { x: number; y: number; folded: boolean }) => {
+    setChip(next);
+    try { localStorage.setItem(CHIP_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+  };
+
+  /** Keep the chip inside its canvas (the position: relative rocket stage). */
+  const clamp = (x: number, y: number) => {
+    const el = ref.current;
+    const host = el?.offsetParent as HTMLElement | null;
+    if (!el || !host) return { x, y };
+    return {
+      x: Math.min(Math.max(0, x), Math.max(0, host.clientWidth - el.offsetWidth)),
+      y: Math.min(Math.max(0, y), Math.max(0, host.clientHeight - el.offsetHeight)),
+    };
+  };
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    if ((e.target as HTMLElement).closest('button')) return;
+    const el = ref.current;
+    if (!el) return;
+    e.preventDefault();
+    const start = { dx: e.clientX - chip.x, dy: e.clientY - chip.y, moved: false };
+    dragFrom.current = start;
+    const onMove = (ev: PointerEvent) => {
+      if (!dragFrom.current) return;
+      const { x, y } = clamp(ev.clientX - start.dx, ev.clientY - start.dy);
+      if (Math.abs(x - chip.x) + Math.abs(y - chip.y) > 3) dragFrom.current.moved = true;
+      setChip((c) => ({ ...c, x, y }));
+    };
+    const onUp = (ev: PointerEvent) => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      const from = dragFrom.current;
+      dragFrom.current = null;
+      const { x, y } = clamp(ev.clientX - start.dx, ev.clientY - start.dy);
+      // A still click on the folded pill unfolds it — cheaper than aiming at
+      // the tiny fold button on a phone.
+      if (from && !from.moved && chip.folded) persist({ x, y, folded: false });
+      else persist({ ...chip, x, y });
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  };
+
   const row = (label: string, value: string, cls2?: string) => (
     <div className="stats-chip-row">
       <span className="stats-chip-label">{label}</span>
       <span className={`stats-chip-value ${cls2 ?? ''}`}>{value}</span>
     </div>
   );
+
   return (
-    <div className="stats-chip">
-      {row('Length', `${fmtSi('length', len, info.length, 3)} ${len}`)}
-      {row('Mass loaded', `${fmtSi('mass', prefs.units.mass, info.mass)} ${prefs.units.mass}`)}
-      {row('CG', `${fmtSi('length', len, info.cg, 3)} ${len}`)}
-      {row('CP', `${fmtSi('length', len, info.cp, 3)} ${len}`)}
-      {row('Stability', `${glyph} ${info.stabilityCalibers.toFixed(2)} cal`, cls)}
+    <div
+      ref={ref}
+      className={`stats-chip${chip.folded ? ' stats-chip-folded' : ''}`}
+      style={{ left: chip.x, top: chip.y }}
+      onPointerDown={onPointerDown}
+      title="Drag to move this readout anywhere on the canvas"
+    >
+      <button
+        className="stats-chip-fold"
+        aria-label={chip.folded ? 'Expand the stats readout' : 'Collapse the stats readout to one line'}
+        title={chip.folded ? 'Expand' : 'Collapse to one line'}
+        onClick={() => persist({ ...chip, folded: !chip.folded })}
+      >
+        {chip.folded ? '▸' : '▾'}
+      </button>
+      {chip.folded
+        ? (
+          <div className="stats-chip-row">
+            <span className={`stats-chip-value ${cls}`}>{glyph} {info.stabilityCalibers.toFixed(2)} cal</span>
+          </div>
+        )
+        : (
+          <>
+            {row('Length', `${fmtSi('length', len, info.length, 3)} ${len}`)}
+            {row('Mass loaded', `${fmtSi('mass', prefs.units.mass, info.mass)} ${prefs.units.mass}`)}
+            {row('CG', `${fmtSi('length', len, info.cg, 3)} ${len}`)}
+            {row('CP', `${fmtSi('length', len, info.cp, 3)} ${len}`)}
+            {row('Stability', `${glyph} ${info.stabilityCalibers.toFixed(2)} cal`, cls)}
+          </>
+        )}
     </div>
   );
 }
