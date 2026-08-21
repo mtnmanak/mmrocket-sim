@@ -94,6 +94,10 @@ describe('.ork tree round trip', () => {
       motor: original.motor,
       mountId: original.motor?.mountId,
     });
+    // The exported root element must stamp OUR product name as creator, not
+    // OpenRocket's own or a stale/renamed product — this is the one line a
+    // future rename could silently drop.
+    expect(xml).toContain('<openrocket version="1.10" creator="MMRocket Sim">');
     const roundTripped = importOrk(xml);
 
     const stripIds = (nodes: ComponentNode[]): unknown[] =>

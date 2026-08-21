@@ -92,6 +92,12 @@ describe('solidToStl', () => {
     expect(header).toContain('mm');
   });
 
+  it('header starts with the product stamp "MMRocket Sim" (a rename must not silently drop it)', () => {
+    const bytes = solidToStl(cube, 'cube');
+    const first12 = String.fromCharCode(...bytes.subarray(0, 12));
+    expect(first12).toBe('MMRocket Sim');
+  });
+
   it('truncates a long name to the 80-byte header without corrupting the body', () => {
     const bytes = solidToStl(cube, 'x'.repeat(200));
     const { header, count } = parseStl(bytes);
