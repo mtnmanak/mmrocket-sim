@@ -61,6 +61,21 @@ export interface OrkFlightConfig {
    * for this configuration simply has no entry.
    */
   motors: Record<string, OrkMotorRef>;
+  /**
+   * THIS configuration's <deploymentconfiguration> overrides, keyed by the
+   * recovery device's editor node id. Carried so a save can write every
+   * configuration's recovery settings back — without it, the configuration the
+   * user opened became the file's new default for ALL of them, which could
+   * leave another configuration's chute set to deploy at the wrong time.
+   */
+  deployments: Record<string, OrkDeployOverride>;
+}
+
+/** One <deploymentconfiguration> block's fields (all optional, as in the file). */
+export interface OrkDeployOverride {
+  deployEvent?: string;
+  deployAltitude?: number;
+  deployDelay?: number;
 }
 
 /**
@@ -127,6 +142,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       name: text(c, ':scope > name'),
       isDefault: c.getAttribute('default') === 'true',
       motors: {},
+      deployments: {},
     }))
     .filter((c) => c.id !== '');
   const requested = opts?.configId;
@@ -145,6 +161,31 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       ? el.querySelector(`:scope > ${tag}`)
       : Array.from(el.children).find(
           (c) => c.tagName === tag && c.getAttribute('configid') === chosenConfigId) ?? null;
+
+  /**
+   * Record EVERY configuration's <deploymentconfiguration> for this recovery
+   * device, not just the chosen one. Export replays them so opening config A
+   * and saving cannot rewrite config B's recovery settings (see
+   * OrkFlightConfig.deployments).
+   */
+  const captureDeployments = (el: Element, node: ComponentNode): void => {
+    for (const c of configs) {
+      const block = Array.from(el.children).find(
+        (x) => x.tagName === 'deploymentconfiguration' && x.getAttribute('configid') === c.id);
+      // Fall back to the BARE tags for a configuration that declares no block
+      // of its own. Recording the resolved value (not "nothing") is what makes
+      // the round-trip safe: on save the bare defaults are rewritten from the
+      // configuration the user opened, so a config that silently inherited the
+      // old defaults would otherwise inherit the NEW ones instead.
+      const src = block ?? el;
+      const o: OrkDeployOverride = {};
+      const event = text(src, ':scope > deployevent');
+      if (event) o.deployEvent = event;
+      if (text(src, ':scope > deployaltitude') !== null) o.deployAltitude = num(src, 'deployaltitude', 200);
+      if (text(src, ':scope > deploydelay') !== null) o.deployDelay = num(src, 'deploydelay', 0);
+      if (Object.keys(o).length > 0 && node.id) c.deployments[node.id] = o;
+    }
+  };
 
   const readMotor = (el: Element, node: ComponentNode) => {
     const mountEl = el.querySelector(':scope > motormount');
@@ -440,6 +481,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
         // with no declarations the bare tags stay the whole story (a stray
         // block in an undeclared file was never read, keep it that way).
         readDeployment(el, n, chosenConfigId === null ? null : configScoped(el, 'deploymentconfiguration'));
+        captureDeployments(el, n);
         // Our extension tag (desktop warns-and-ignores) — spill hole diameter.
         const spill = num(el, 'spillholediameter', 0);
         if (spill > 0) n['spillHoleDiameter'] = spill;
@@ -453,6 +495,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
         if (cdText && cdText !== 'auto') n['cd'] = Number(cdText);
         readSoftMaterial(el, n, 'surface', 'surfaceDensity', 'surfaceMaterialName');
         readDeployment(el, n, chosenConfigId === null ? null : configScoped(el, 'deploymentconfiguration'));
+        captureDeployments(el, n);
         return n;
       }
       case 'shockcord': {
@@ -703,6 +746,12 @@ export interface OrkExportConfig {
   isDefault: boolean;
   /** This configuration's motors keyed by mount node id. */
   motors: Record<string, OrkExportMotor>;
+  /**
+   * This configuration's recovery-deployment overrides keyed by recovery-device
+   * node id, as captured at import. The ACTIVE configuration's values come from
+   * the live tree instead; these keep every OTHER configuration intact.
+   */
+  deployments?: Record<string, OrkDeployOverride>;
 }
 
 export interface OrkTreeExportInput {
@@ -732,14 +781,25 @@ export function exportOrk({ name, tree, motors, motor, mountId, launch, configs,
   // The configurations to write. Classic path (no configs): ONE minted
   // config carrying the working set — exactly the pre-Stage-B output.
   const active = configs?.find((c) => c.id === activeConfigId) ?? null;
-  const writeConfigs: Array<{ id: string; name: string | null; motors: Record<string, OrkExportMotor> }> =
+  const writeConfigs: Array<{
+    id: string;
+    name: string | null;
+    motors: Record<string, OrkExportMotor>;
+    /** null for the ACTIVE config: its deployment comes from the live tree. */
+    deployments: Record<string, OrkDeployOverride> | null;
+  }> =
     configs && configs.length > 0
-      ? configs.map((c) => ({ id: c.id, name: c.name, motors: c === active ? motorMap : c.motors }))
-      : [{ id: uuid(), name: null, motors: motorMap }];
+      ? configs.map((c) => ({
+        id: c.id,
+        name: c.name,
+        motors: c === active ? motorMap : c.motors,
+        deployments: c === active ? null : (c.deployments ?? {}),
+      }))
+      : [{ id: uuid(), name: null, motors: motorMap, deployments: null }];
   // Active = none but motors loaded: mint an extra config carrying the live
   // set, unnamed (the desktop renders unnamed configs as their motor list).
   const minted = configs && configs.length > 0 && !active && Object.keys(motorMap).length > 0
-    ? { id: uuid(), name: null, motors: motorMap }
+    ? { id: uuid(), name: null, motors: motorMap, deployments: null }
     : null;
   if (minted) writeConfigs.push(minted);
   // default="true" (also what <simulation> references): the active config,
@@ -821,6 +881,34 @@ export function exportOrk({ name, tree, motors, motor, mountId, launch, configs,
     ] as const) {
       const v = node[key];
       if (typeof v === 'number' && v > 0) emit(depth, `<${tag}>${v}</${tag}>`);
+    }
+  };
+
+  /**
+   * Per-configuration recovery deployment. The ACTIVE configuration (and the
+   * classic single-config path) takes its values from the live tree — those are
+   * already written as the bare defaults just above, so its block simply
+   * repeats them. Every OTHER configuration replays what it carried in from
+   * import. Without this, saving after opening one configuration rewrote every
+   * configuration's recovery settings to the opened one's — a chute set to pop
+   * at apogee in config A could come back deploying at 300 m.
+   */
+  const deploymentConfigs = (depth: number, node: ComponentNode) => {
+    if (writeConfigs.length < 2) return;
+    for (const c of writeConfigs) {
+      const o: OrkDeployOverride = c.deployments === null
+        ? {
+          deployEvent: String(node['deployEvent'] ?? 'ejection'),
+          deployAltitude: typeof node['deployAltitude'] === 'number' ? node['deployAltitude'] as number : 200,
+          deployDelay: typeof node['deployDelay'] === 'number' ? node['deployDelay'] as number : 0,
+        }
+        : (node.id ? c.deployments[node.id] ?? {} : {});
+      if (Object.keys(o).length === 0) continue;
+      emit(depth, `<deploymentconfiguration configid="${c.id}">`);
+      if (o.deployEvent !== undefined) emit(depth + 1, `<deployevent>${escapeXml(o.deployEvent)}</deployevent>`);
+      if (o.deployAltitude !== undefined) emit(depth + 1, `<deployaltitude>${o.deployAltitude}</deployaltitude>`);
+      if (o.deployDelay !== undefined) emit(depth + 1, `<deploydelay>${o.deployDelay}</deploydelay>`);
+      emit(depth, '</deploymentconfiguration>');
     }
   };
 
@@ -1216,6 +1304,7 @@ export function exportOrk({ name, tree, motors, motor, mountId, launch, configs,
         emit(depth + 1, `<deployevent>${escapeXml(String(node['deployEvent'] ?? 'ejection'))}</deployevent>`);
         emit(depth + 1, `<deployaltitude>${n(node, 'deployAltitude', 200)}</deployaltitude>`);
         emit(depth + 1, `<deploydelay>${n(node, 'deployDelay', 0)}</deploydelay>`);
+        deploymentConfigs(depth + 1, node);
         emit(depth + 1, `<diameter>${n(node, 'diameter', 0.3)}</diameter>`);
         if (typeof node['spillHoleDiameter'] === 'number' && (node['spillHoleDiameter'] as number) > 0) {
           // Extension tag (desktop warns-and-ignores, same as airfoilsection).
@@ -1245,6 +1334,7 @@ export function exportOrk({ name, tree, motors, motor, mountId, launch, configs,
         emit(depth + 1, `<deployevent>${escapeXml(String(node['deployEvent'] ?? 'ejection'))}</deployevent>`);
         emit(depth + 1, `<deployaltitude>${n(node, 'deployAltitude', 200)}</deployaltitude>`);
         emit(depth + 1, `<deploydelay>${n(node, 'deployDelay', 0)}</deploydelay>`);
+        deploymentConfigs(depth + 1, node);
         emit(depth + 1, `<striplength>${n(node, 'stripLength', 0.5)}</striplength>`);
         emit(depth + 1, `<stripwidth>${n(node, 'stripWidth', 0.05)}</stripwidth>`);
         close('streamer');

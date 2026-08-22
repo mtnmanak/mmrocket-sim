@@ -726,10 +726,15 @@ const MULTI = `<openrocket version="1.10" creator="OpenRocket 24.12"><rocket>
 describe('.ork multi-configuration import (Stage A)', () => {
   it('applies the default configuration when no pick is given', () => {
     const result = importOrk(MULTI);
-    expect(result.configs.map(({ motors: _m, ...rest }) => rest)).toEqual([
+    expect(result.configs.map(({ motors: _m, deployments: _d, ...rest }) => rest)).toEqual([
       { id: 'cfg-a', name: 'Club field C6', isDefault: true },
       { id: 'cfg-b', name: 'Demo day D12', isDefault: false },
     ]);
+    // Each config carries its own resolved chute deployment, so a save made
+    // under one cannot rewrite the other's (see the Stage B export describe).
+    const [cfgA, cfgB] = result.configs;
+    expect(Object.values(cfgA!.deployments)[0]).toMatchObject({ deployEvent: 'ejection', deployAltitude: 200 });
+    expect(Object.values(cfgB!.deployments)[0]).toMatchObject({ deployEvent: 'altitude', deployAltitude: 150 });
     expect(result.chosenConfigId).toBe('cfg-a');
     // Both mounts carry a cfg-a motor.
     expect(result.motor?.designation).toBe('C6');
@@ -884,6 +889,39 @@ describe('.ork multi-configuration export (Stage B)', () => {
     launchRodLengthM: 1, launchRodAngleDeg: 0, windAverage: 2, windStdDev: 0.2,
     launchAltitudeM: 0, temperatureC: null, pressureHPa: null, latitudeDeg: 28.61,
   };
+
+  it("saving under one config does not rewrite another config's recovery deployment", () => {
+    // The bug this pins was a real recovery hazard: <deploymentconfiguration>
+    // was READ (folded onto the node) but never WRITTEN, so opening cfg-b —
+    // whose chute deploys at 150 m — and saving made altitude/150 the file's
+    // bare default. cfg-a, which deploys at ejection, silently inherited it.
+    const openedB = importOrk(MULTI, { configId: 'cfg-b' });
+    const chuteB = flatten(openedB.tree.components).find((c) => c.type === 'parachute')!;
+    expect(chuteB['deployEvent']).toBe('altitude');
+    expect(chuteB['deployAltitude']).toBeCloseTo(150, 9);
+
+    const xml = exportOrk({
+      name: 'MC',
+      tree: openedB.tree,
+      motors: {},
+      configs: openedB.configs.map((c) => ({
+        id: c.id, name: c.name, isDefault: c.isDefault, motors: {}, deployments: c.deployments,
+      })),
+      activeConfigId: 'cfg-b',
+    });
+
+    // Reopening cfg-a must still give the ejection-at-apogee chute.
+    const backA = importOrk(xml, { configId: 'cfg-a' });
+    const chuteA = flatten(backA.tree.components).find((c) => c.type === 'parachute')!;
+    expect(chuteA['deployEvent']).toBe('ejection');
+    expect(chuteA['deployAltitude']).toBeCloseTo(200, 9);
+
+    // ...and cfg-b still deploys at 150 m.
+    const backB = importOrk(xml, { configId: 'cfg-b' });
+    const chuteB2 = flatten(backB.tree.components).find((c) => c.type === 'parachute')!;
+    expect(chuteB2['deployEvent']).toBe('altitude');
+    expect(chuteB2['deployAltitude']).toBeCloseTo(150, 9);
+  });
 
   it('writes every config with stable ids/names, default and LIVE motors on the active one', () => {
     const xml = exportOrk({
