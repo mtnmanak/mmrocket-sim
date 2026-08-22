@@ -727,7 +727,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
       <rect key={key++} x={ctx.x0 + startX * scale} y={baseY - rSi * scale}
         width={Math.max(1.5, lenSi * scale)} height={2 * rSi * scale}
         fill="rgba(127,127,127,0.001)" stroke={color} strokeWidth="1"
-        strokeDasharray="3 2" />,
+        strokeDasharray="3 2" style={{ pointerEvents: 'none' }} />,
     );
   };
 
@@ -842,15 +842,20 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
           : `translate(${zoom.x} ${zoom.y}) scale(${zoom.k})`}>
           {shapes}
           {overlay}
+          {/* pointerEvents none on BOTH marker groups: they are decoration
+              drawn on the centreline — precisely where you click to select a
+              nose cone or body tube — and an 18px opaque disc with no handler
+              of its own silently ate the click. Same rule the callout group
+              below already follows. */}
           {cgX !== null && (
-            <g>
+            <g pointerEvents="none">
               <circle cx={cgX} cy={ctx.cy} r={MARKER_R} fill="var(--surface-1)" stroke="var(--text-primary)" strokeWidth="1.5" />
               <path d={`M ${cgX} ${ctx.cy} L ${cgX + MARKER_R} ${ctx.cy} A ${MARKER_R} ${MARKER_R} 0 0 1 ${cgX} ${ctx.cy + MARKER_R} Z`} fill="var(--text-primary)" />
               <path d={`M ${cgX} ${ctx.cy} L ${cgX - MARKER_R} ${ctx.cy} A ${MARKER_R} ${MARKER_R} 0 0 1 ${cgX} ${ctx.cy - MARKER_R} Z`} fill="var(--text-primary)" />
             </g>
           )}
           {cpX !== null && (
-            <g>
+            <g pointerEvents="none">
               <circle cx={cpX} cy={ctx.cy} r={MARKER_R} fill="none" stroke="var(--status-serious)" strokeWidth="2" />
               <circle cx={cpX} cy={ctx.cy} r={3.5} fill="var(--status-serious)" />
             </g>

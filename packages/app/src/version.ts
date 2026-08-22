@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.055';
+export const APP_VERSION = '0.056';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.056',
+    date: '2026-08-21',
+    title: 'The CG and CP markers no longer swallow clicks on the rocket',
+    items: [
+      'FIXED: clicking a nose cone or body tube in the 2D view did nothing where a CG or CP marker sat on top of it. The markers are drawn on the centreline — exactly where you click to pick one of those parts — and although they are only decoration, they were catching the click and dropping it. The dashed shoulder outlines did the same over the tube a shoulder slides into. Both are click-through now: measuring the drawing afterwards, there is no longer a single dead spot anywhere on the airframe.',
+    ],
+  },
   {
     version: '0.055',
     date: '2026-08-21',

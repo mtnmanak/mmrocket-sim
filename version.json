@@ -1,5 +1,5 @@
 {
-  "version": "0.055",
+  "version": "0.056",
   "released": "2026-08-21",
-  "note": "Fixes click-to-select in the 2D view: after dragging any component, the nose cone, body tube and transitions could no longer be selected by clicking them."
+  "note": "The CG/CP markers and shoulder outlines are click-through, so clicking a nose cone or body tube under them selects the part instead of doing nothing."
 }

@@ -44,8 +44,15 @@ const mount = (info: StaticInfo | null, extra: Partial<Props> = {}) => act(() =>
   <TreeSchematic tree={tree} info={info} {...extra} />,
 ));
 
-/** The pointer-transparent callout group (markers keep their own <g>s). */
-const calloutGroup = (): SVGGElement | null => host.querySelector('g[pointer-events="none"]');
+/**
+ * The leader-line callout group. Selected by CONTENT, not just by
+ * pointer-events: the CG/CP marker groups are pointer-transparent too now
+ * (decoration on the centreline must not swallow a click), so the old
+ * `g[pointer-events="none"]` selector matched a marker group first.
+ */
+const calloutGroup = (): SVGGElement | null =>
+  [...host.querySelectorAll<SVGGElement>('g[pointer-events="none"]')]
+    .find((g) => [...g.querySelectorAll('line')].length > 0) ?? null;
 const texts = (): SVGTextElement[] => [...host.querySelectorAll('text')];
 
 beforeEach(() => {
@@ -347,5 +354,53 @@ describe('click-to-select after a drag (the dragMoved latch)', () => {
     pointer(svgEl(), 'pointermove', 40);
     act(() => { fin.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
     expect(onSelect).not.toHaveBeenCalled();
+  });
+});
+
+describe('decoration must never absorb a click', () => {
+  /**
+   * The CG/CP markers sit ON the centreline — exactly where you click a nose
+   * cone or body tube — and the shoulder outlines are painted in the overlay
+   * pass, on top of the tube they slide into. All are pure decoration with no
+   * handler of their own, so any that is hit-testable silently eats the click
+   * and the component underneath never gets selected. The leader-line callout
+   * group already sets pointerEvents="none"; these did not.
+   */
+  const markerGroups = () => {
+    const svg = host.querySelector('svg')!;
+    // The marker <g>s are the ones holding a circle of radius MARKER_R (9).
+    return [...svg.querySelectorAll('g')].filter((g) =>
+      [...g.children].some((c) => c.tagName === 'circle' && c.getAttribute('r') === '9'));
+  };
+
+  it('the CG and CP markers are pointer-transparent', () => {
+    mount(infoOf(1.5), { onSelect: vi.fn() });
+    const groups = markerGroups();
+    expect(groups.length).toBe(2); // CG and CP
+    for (const g of groups) {
+      expect(g.getAttribute('pointer-events')).toBe('none');
+    }
+  });
+
+  it('shoulder outlines are pointer-transparent', () => {
+    const withShoulder = {
+      name: 'Rocket',
+      components: [{
+        id: 's1', type: 'stage',
+        children: [
+          {
+            id: 'n1', type: 'nosecone', shape: 'ogive', length: 0.1, aftRadius: 0.012,
+            shoulderLength: 0.03, shoulderRadius: 0.011,
+          },
+          { id: 'b1', type: 'bodytube', length: 0.3, outerRadius: 0.012 },
+        ],
+      }],
+    } as unknown as RocketTree;
+    act(() => root.render(<TreeSchematic tree={withShoulder} info={infoOf(1.5)} onSelect={vi.fn()} />));
+    const dashed = [...host.querySelectorAll('rect')].filter((r) => r.getAttribute('stroke-dasharray') === '3 2');
+    expect(dashed.length).toBeGreaterThan(0);
+    for (const r of dashed) {
+      expect(getComputedStyle(r).pointerEvents).toBe('none');
+    }
   });
 });
