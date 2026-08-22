@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.052';
+export const APP_VERSION = '0.053';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,23 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.053',
+    date: '2026-08-21',
+    title: 'Pre-beta audit: crash fixes, a recovery-settings fix, and keyboard access',
+    items: [
+      'FIXED: picking certain motors blanked the whole design. 146 of the 1129 bundled motors publish no loaded weight (Estes 1/2A6 and Klima B2 among the ones visible by default) and one lists more propellant than loaded mass — those produced impossible motor masses that came back from the engine as a raw internal error. Such motors are now listed but greyed out and unpickable, and anything malformed is refused with a message naming the motor.',
+      'FIXED: a RockSim file with fins on a transition, or a RASAero file with a triangular (zero tip chord) fin on a boat tail, imported without complaint and then failed to build — no mass, CG, CP or Simulate at all. Both now import and fly; fins on a transition are converted to a freeform outline of the identical planform, exactly as the desktop does.',
+      'FIXED: RASAero transitions imported as cylinders. The fore diameter is implicit in a .CDX1 file, and the stored value duplicates the REAR diameter — so every mid-body transition lost its taper and put a false step in the airframe, feeding wrong CP and drag. The fore diameter now comes from the part in front, as it should.',
+      'FIXED: saving a multi-configuration .ork while one configuration was open overwrote every OTHER configuration’s recovery settings with the open one’s. A configuration set to deploy at apogee could come back deploying at altitude — a real recovery hazard. Every configuration’s deployment now survives a save.',
+      'FIXED: on a phone, the bottom tab bar permanently covered the site footer at the end of the page, including the "Bugs & requests" link. Between about 700 and 980 px wide (an iPad in portrait, a narrowed desktop window) the floating stats readout and the All-stats drawer escaped the canvas entirely and landed on the page header.',
+      'FIXED: the floating stats readout remembered a position from a larger window and restored it off-canvas, where it was invisible with no way to get it back. It now stays inside the canvas at any size.',
+      'FIXED: the first-run tour’s card could hang past the right edge of the window and clip its own Next button.',
+      'IMPROVED: every dialog now closes with Escape, moves keyboard focus into itself when it opens, keeps Tab inside while it is open, and returns focus to whatever opened it. Picking a motor, applying a component preset and selecting a component in the tree are all reachable from the keyboard now.',
+      'IMPROVED: simulation warnings read as plain English instead of internal tokens like "[Warning.DISCONTINUITY]" — in the design panel, the launch report, and the exported CSV.',
+      'FIXED: the simulation engine wrote several lines to the browser console as errors on every single flight. Its output is captured now, so a genuine error stands out.',
+    ],
+  },
   {
     version: '0.052',
     date: '2026-08-21',

@@ -1,5 +1,5 @@
 {
-  "version": "0.052",
+  "version": "0.053",
   "released": "2026-08-21",
-  "note": "The Design canvas's drawing surface now spans the full canvas — a zoomed-in rocket no longer clips at an invisible edge partway down the view."
+  "note": "Pre-beta audit pass: fixes motors that blanked the design, RockSim/RASAero imports that would not build, RASAero transitions imported as cylinders, and a multi-configuration save that overwrote other configurations’ recovery settings. Escape closes dialogs and the app is keyboard-navigable."
 }
