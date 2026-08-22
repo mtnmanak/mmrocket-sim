@@ -1,5 +1,5 @@
 {
-  "version": "0.053",
+  "version": "0.054",
   "released": "2026-08-21",
-  "note": "Pre-beta audit pass: fixes motors that blanked the design, RockSim/RASAero imports that would not build, RASAero transitions imported as cylinders, and a multi-configuration save that overwrote other configurations’ recovery settings. Escape closes dialogs and the app is keyboard-navigable."
+  "note": "First load is ~31% smaller (the 3D library now loads on demand). Fixes imported RockSim chute mass, recovery devices exporting weightless, .ork saves that deleted fin fillets and instanced parts, and unreadable contrast in the light/Daylight themes."
 }

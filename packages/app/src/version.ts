@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.053';
+export const APP_VERSION = '0.054';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,22 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.054',
+    date: '2026-08-21',
+    title: 'Faster first load, readable in every theme, and files that keep what you put in them',
+    items: [
+      'IMPROVED: the app now downloads about a third less to start. The 3D library loaded on every visit even though the Design tab is 2D — it waits until you open the 3D view or export a 3D file. First load drops from 835 kB to 578 kB compressed, which is the difference you feel on a phone at the launch site.',
+      'FIXED: imported RockSim parachutes weighed almost three times too much. RockSim describes a canopy by its fabric density and thickness, and that was not being converted — so every imported chute fell back to the built-in default. A 24-inch chute the file itself put at 6.9 g was being counted as 19.6 g, pulling CG forward and overstating stability.',
+      'FIXED: parachutes, streamers and shock cords exported to RockSim weighed NOTHING, so a design opened there was light by the whole recovery system.',
+      'FIXED: saving an .ork was deleting things it could not yet model. Fin fillets were written back as zero — an epoxy fillet on a high-power fin can is tens of grams — and a centering ring or rail button set up as several instances came back as one. Both survive a save now, and the import note tells you they are kept in the file but not yet counted in mass.',
+      'FIXED: an .rse motor file whose data points carry no mass imported as a motor that weighed nothing and flew silently, making every altitude optimistic. Such files are refused with a message naming the motor.',
+      'FIXED: the "Motor mount:" label was unreadable in the light theme and worst of all in Daylight mode — the mode meant for direct sun. The tour and Guide buttons had the same problem in the default dark theme.',
+      'IMPROVED: every input and dropdown now announces what it is to a screen reader. The eight launch-condition fields read as anonymous edit boxes before, so there was no way to tell rod length from wind gusts.',
+      'FIXED: opening the All-stats drawer, switching tabs and coming back left the drawer sitting on top of the rocket drawing.',
+      'FIXED: switching between the two classic aerodynamics models updated stability but left the previous flight on the Results tab, so the two numbers on screen came from two different models.',
+    ],
+  },
   {
     version: '0.053',
     date: '2026-08-21',
