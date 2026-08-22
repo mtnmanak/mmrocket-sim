@@ -63,6 +63,12 @@ jobs:
 
       - run: npm ci
 
+      # A push IS a release here, so the suite that guards the physics and the
+      # file formats runs BEFORE anything reaches the live beta. `npm test`
+      # builds the engine package first (its dist is a build output, not
+      # committed), which also makes this the fresh-clone smoke test.
+      - run: npm test
+
       - run: npm run build
 
       - run: cp version.json packages/app/dist/

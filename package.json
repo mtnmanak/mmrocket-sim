@@ -10,7 +10,7 @@
   "scripts": {
     "dev": "npm run dev -w @online-openrocket/app",
     "build": "npm run build -w @online-openrocket/engine && npm run build -w @online-openrocket/app",
-    "test": "npm run test -w @online-openrocket/engine && npm run test -w @online-openrocket/app",
+    "test": "npm run build -w @online-openrocket/engine && npm run test -w @online-openrocket/engine && npm run test -w @online-openrocket/app",
     "engine:carve": "node engine-java/scripts/carve.mjs",
     "engine:difftest": "node engine-java/scripts/difftest.mjs",
     "engine:js": "node engine-java/scripts/build-engine.mjs",

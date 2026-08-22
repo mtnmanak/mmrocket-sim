@@ -16,6 +16,10 @@ npm-debug.log*
 .env.*
 !.env.example
 
+# Claude Code local overrides: machine-specific, and this repo is PUBLIC.
+# Do not rely on a personal global gitignore for this — only one machine has it.
+.claude/settings.local.json
+
 # Editor/OS noise
 .DS_Store
 Thumbs.db

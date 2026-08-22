@@ -40,7 +40,12 @@ export function loadSession(): SessionState | null {
     const raw = localStorage.getItem(KEY);
     if (!raw) return null;
     const s = JSON.parse(raw) as SessionState;
-    if (!s || typeof s !== 'object' || !s.tree || !Array.isArray(s.tree.components)) return null;
+    if (!s || typeof s !== 'object' || !s.tree || !Array.isArray(s.tree.components)) {
+      // Unusable payload: drop it rather than re-parsing the same wreck on
+      // every load, and so a corrupted autosave cannot follow the user around.
+      clearSession();
+      return null;
+    }
     // Revive plugged ejection delays (persisted as "Infinity" — JSON has no
     // Infinity literal; a plain stringify would have stored null). The
     // Stage B config presets carry the same MountMotor shape.
