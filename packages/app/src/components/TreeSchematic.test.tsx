@@ -404,3 +404,57 @@ describe('decoration must never absorb a click', () => {
     }
   });
 });
+
+describe('a click is not a pan (the missing movement threshold)', () => {
+  /**
+   * beginPan set pan.current on ANY pointerdown reaching the svg — which is
+   * every press on the axial chain (nose cone, body tube, transition), since
+   * only draggable CHILDREN stopPropagation. onMove then panned on the FIRST
+   * pointermove with no threshold at all, so the 1-3 px of jitter in a real
+   * physical click slid the whole drawing out from under the pointer between
+   * press and release. The click then retargeted to the <svg> and selecting
+   * those parts silently did nothing. Synthesized clicks never showed it
+   * because they press and release at exactly the same coordinate.
+   *
+   * The vertical view was unaffected — it attaches neither handler — which is
+   * exactly what the bug reporter observed.
+   */
+  let rectSpy: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    rectSpy = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({
+      x: 0, y: 0, left: 0, top: 0, right: 640, bottom: 240, width: 640, height: 240,
+      toJSON: () => ({}),
+    } as DOMRect);
+  });
+  afterEach(() => rectSpy.mockRestore());
+
+  const svgEl = () => host.querySelector('svg')!;
+  const panTransform = () => [...svgEl().querySelectorAll('g')]
+    .map((g) => g.getAttribute('transform') ?? '')
+    .find((t) => t.includes('translate')) ?? '';
+  const pointer = (el: Element, type: string, x: number, y: number) => act(() => {
+    el.dispatchEvent(new PointerEvent(type, {
+      bubbles: true, cancelable: true, pointerId: 1, isPrimary: true,
+      clientX: x, clientY: y, button: 0, buttons: type === 'pointerup' ? 0 : 1,
+    }));
+  });
+
+  it('a few pixels of wobble during a click does not move the drawing', () => {
+    mount(infoOf(1.5), { onSelect: vi.fn(), onPatchNode: vi.fn() });
+    const before = panTransform();
+    const nose = [...host.querySelectorAll('path')].find((el) => el.getAttribute('fill') === '#d5d2cb')!;
+    pointer(nose, 'pointerdown', 100, 100);
+    pointer(svgEl(), 'pointermove', 102, 101); // the jitter of a real click
+    pointer(svgEl(), 'pointerup', 102, 101);
+    expect(panTransform()).toBe(before);
+  });
+
+  it('a deliberate drag past the threshold still pans', () => {
+    mount(infoOf(1.5), { onSelect: vi.fn(), onPatchNode: vi.fn() });
+    const before = panTransform();
+    pointer(svgEl(), 'pointerdown', 100, 100);
+    pointer(svgEl(), 'pointermove', 160, 140);
+    expect(panTransform()).not.toBe(before);
+    pointer(svgEl(), 'pointerup', 160, 140);
+  });
+});

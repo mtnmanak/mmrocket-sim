@@ -36,6 +36,10 @@ const num = (n: ComponentNode, key: string, fb: number): number =>
 const fillOf = (n: ComponentNode, dflt: string): string =>
   typeof n['color'] === 'string' ? (n['color'] as string) : dflt;
 
+/** Client px a press may wander before it counts as a pan rather than a click.
+ *  Matches the drag threshold in onMove — a physical click jitters 1-3 px. */
+const PAN_SLOP = 4;
+
 const MARKER_R = 9;
 /** Total viewBox px of height reserved for the two callout lanes (S2). */
 export const CALLOUT_LANES = 34;
@@ -166,7 +170,11 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   const [hoverId, setHoverId] = useState<string | null>(null);
   // View transform (zoom & pan) in viewBox px; identity = whole rocket fits.
   const [zoom, setZoom] = useState({ k: 1, x: 0, y: 0 });
-  const pan = useRef<{ pointerX: number; pointerY: number; x0: number; y0: number } | null>(null);
+  // `active` only becomes true once the pointer has travelled past PAN_SLOP —
+  // see beginPan for why a press must not pan until then.
+  const pan = useRef<
+    { pointerX: number; pointerY: number; x0: number; y0: number; active: boolean } | null
+  >(null);
 
   // --- measure the axial chain ---
   // Stages flatten into one nose-to-tail chain (sustainer first, boosters
@@ -271,11 +279,27 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
    */
   const resetDragLatch = () => { dragMoved.current = false; };
 
+  /**
+   * Arms a background pan — but does NOT start one, and deliberately does not
+   * capture the pointer yet.
+   *
+   * This handler runs for every press that reaches the svg, which is every
+   * press on the axial chain (nose cone, body tube, transition): only
+   * draggable CHILDREN stopPropagation in beginDrag. It used to pan on the
+   * very first pointermove and capture the pointer immediately, so the 1-3 px
+   * of jitter in an ordinary physical click dragged the whole drawing out from
+   * under the pointer between press and release. The click then landed on the
+   * <svg> instead of the shape and selecting those parts did nothing at all —
+   * while children stayed fine, and the vertical view (which attaches neither
+   * handler) worked perfectly. Capturing on press made it worse by retargeting
+   * the release as well.
+   *
+   * Both now wait for real movement, so a click stays a click.
+   */
   const beginPan = (e: React.PointerEvent) => {
     const rect = svgRef.current?.getBoundingClientRect();
     if (!rect || rect.width === 0) return;
-    pan.current = { pointerX: e.clientX, pointerY: e.clientY, x0: zoom.x, y0: zoom.y };
-    (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+    pan.current = { pointerX: e.clientX, pointerY: e.clientY, x0: zoom.x, y0: zoom.y, active: false };
   };
 
   const onMove = (e: React.PointerEvent) => {
@@ -297,14 +321,19 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
     }
     const p = pan.current;
     if (p) {
+      const dx = e.clientX - p.pointerX;
+      const dy = e.clientY - p.pointerY;
+      // Below the slop this press is still a click, not a pan. Once it IS a
+      // pan, take the pointer so the gesture survives leaving the svg.
+      if (!p.active) {
+        if (Math.abs(dx) < PAN_SLOP && Math.abs(dy) < PAN_SLOP) return;
+        p.active = true;
+        (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+      }
       const rect = svgRef.current?.getBoundingClientRect();
       if (!rect || rect.width === 0) return;
       const clientScale = w / rect.width;
-      setZoom((z) => ({
-        ...z,
-        x: p.x0 + (e.clientX - p.pointerX) * clientScale,
-        y: p.y0 + (e.clientY - p.pointerY) * clientScale,
-      }));
+      setZoom((z) => ({ ...z, x: p.x0 + dx * clientScale, y: p.y0 + dy * clientScale }));
     }
   };
 

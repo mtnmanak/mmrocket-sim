@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.056';
+export const APP_VERSION = '0.057';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.057',
+    date: '2026-08-22',
+    title: 'Clicking a nose cone or body tube selects it — the real fix',
+    items: [
+      'FIXED: clicking a nose cone, body tube or transition in the horizontal 2D view did not select it in the component tree. The canvas started panning on the very first pixel of pointer movement, with no threshold — so the small wobble every real mouse click has was enough to slide the drawing out from under the pointer between press and release, and the click landed on empty canvas instead of the part. Fins, inner tubes and the like were never affected because they handle their own press, and the rotated 90° view was fine because it does not pan at all — which is what pinned the cause down. A press now has to travel a few pixels before it counts as a pan, so a click stays a click.',
+    ],
+  },
   {
     version: '0.056',
     date: '2026-08-21',

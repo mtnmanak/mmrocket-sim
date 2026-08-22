@@ -1,5 +1,5 @@
 {
-  "version": "0.056",
-  "released": "2026-08-21",
-  "note": "The CG/CP markers and shoulder outlines are click-through, so clicking a nose cone or body tube under them selects the part instead of doing nothing."
+  "version": "0.057",
+  "released": "2026-08-22",
+  "note": "Fixes click-to-select on nose cones, body tubes and transitions in the horizontal 2D view: the canvas panned on the first pixel of movement, so an ordinary click dragged the drawing out from under the pointer."
 }
