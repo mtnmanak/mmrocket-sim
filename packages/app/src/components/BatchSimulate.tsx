@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useDialog } from './useDialog.js';
 import { OrkRocket, type MotorSpec, type RocketTree, type SimulationOptions, type StaticInfo } from '@online-openrocket/engine';
 import { engineTree, splitClusterPairsTree, splitClusterTree, type ClusterSplit } from '../tree/treeModel.js';
 import { sheetsToXlsx, type Sheet } from '../services/xlsx.js';
@@ -455,9 +456,12 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
   const velUi = (si: number | null) => (si === null ? undefined : siToUi('velocity', vel, si));
   const distUi = (si: number | null) => (si === null ? undefined : siToUi('distance', dist, si));
 
+  const dialogRef = useDialog(onClose);
+
   return (
     <div className="prefs-overlay" role="presentation" onClick={running ? undefined : onClose}>
-      <div className="prefs-dialog panel motor-browser" role="dialog" aria-label="Batch simulate motors"
+      <div className="prefs-dialog panel motor-browser" role="dialog" aria-modal="true" aria-label="Batch simulate motors"
+        ref={dialogRef} tabIndex={-1}
         onClick={(e) => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
           <h2 style={{ flex: 1 }}>

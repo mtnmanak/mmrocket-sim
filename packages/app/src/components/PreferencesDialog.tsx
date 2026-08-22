@@ -1,4 +1,5 @@
 import { NumField } from './NumField.js';
+import { useDialog } from './useDialog.js';
 import { UnitChip } from './UnitChip.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import {
@@ -48,12 +49,17 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
     </div>
   );
 
+  const dialogRef = useDialog(onClose);
+
   return (
     <div className="prefs-overlay" role="presentation" onClick={onClose}>
       <div
         className="prefs-dialog panel"
         role="dialog"
+        aria-modal="true"
         aria-label="Preferences"
+        ref={dialogRef}
+        tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
       >
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>

@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
+import { clickable } from './clickable.js';
+import { useDialog } from './useDialog.js';
 import type { ComponentNode, ComponentType } from '@online-openrocket/engine';
 import {
   KIND_FOR_TYPE, csvToPresets, loadCustomPresets, loadPresets, presetPatch,
@@ -84,9 +86,12 @@ export function PresetPicker({ type, onApply, onClose }: {
     }
   };
 
+  const dialogRef = useDialog(onClose);
+
   return (
     <div className="prefs-overlay" role="presentation" onClick={onClose}>
-      <div className="prefs-dialog panel motor-browser" role="dialog" aria-label="Component presets"
+      <div className="prefs-dialog panel motor-browser" role="dialog" aria-modal="true" aria-label="Component presets"
+        ref={dialogRef} tabIndex={-1}
         onClick={(e) => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
           <h2 style={{ flex: 1 }}>
@@ -121,7 +126,7 @@ export function PresetPicker({ type, onApply, onClose }: {
             <tbody>
               {rows.slice(0, ROW_CAP).map((p, i) => (
                 <tr key={`${p.manufacturer}|${p.partNo}|${i}`} className="motor-row"
-                  onClick={() => { onApply(presetPatch(type, p)); onClose(); }}>
+                  {...clickable(() => { onApply(presetPatch(type, p)); onClose(); })}>
                   <td>{p.manufacturer}</td>
                   <td><strong>{p.partNo}</strong></td>
                   <td>{p.description}</td>

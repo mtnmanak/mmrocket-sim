@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { clickable } from './clickable.js';
 import type { ComponentNode, ComponentType, RocketTree } from '@online-openrocket/engine';
 import { allowedChildren, DISPLAY_NAME } from '../tree/schema.js';
 import { Icon } from './Icon.js';
@@ -33,7 +34,8 @@ function NodeRow({ node, depth, selectedId, soleStageId, onSelect, onMove, onDel
       <div
         className={`tree-row ${selected ? 'tree-row-selected' : ''}`}
         style={{ paddingLeft: 8 + depth * 14 }}
-        onClick={() => onSelect(node.id!)}
+        aria-selected={selected}
+        {...clickable(() => onSelect(node.id!))}
       >
         <span className="tree-icon">{TYPE_ICON[node.type] ?? '·'}</span>
         <span className="tree-label">{node.name ?? DISPLAY_NAME[node.type]}</span>
