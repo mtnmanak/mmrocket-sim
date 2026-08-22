@@ -232,4 +232,36 @@ describe('RASAero export', () => {
     expect(fins.position?.method).toBe('bottom');
     expect(fins.position?.offset).toBeCloseTo(-0.85, 6);
   });
+
+  it('every bundled .CDX1 fixture builds in the kernel', async () => {
+    // The regression this pins: a fin with TipChord 0 on a boat tail produced a
+    // repeated tip point, which the kernel reads as a self-intersection and
+    // reports via a Java %g format TeaVM does not implement — buildTree died
+    // with "Unknown format conversion: g" and the design had no CG/CP/Simulate.
+    // Import-only assertions were green throughout, so the build is the test.
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    const { engineTree } = await import('../tree/treeModel.js');
+    for (const name of ['Complex.Two-Stage.CDX1', 'Show-off.CDX1', 'Three-stage rocket.CDX1']) {
+      resetEngine();
+      const r = importCdx1(fixture(name));
+      const info = OrkRocket.buildTree(engineTree(r.tree)).staticInfo();
+      expect(Number.isFinite(info.mass), `${name}: mass`).toBe(true);
+      expect(info.mass, `${name}: mass > 0`).toBeGreaterThan(0);
+      expect(Number.isFinite(info.cp), `${name}: cp`).toBe(true);
+    }
+  }, 120000);
+
+  it('resolves a transition fore radius from the part in front, not its own <Diameter>', () => {
+    // .CDX1 stores <Diameter> as a duplicate of <RearDiameter> on a transition;
+    // the real front diameter is implicit. Taking it literally made every
+    // mid-body transition a cylinder and stepped the airframe.
+    const r = importCdx1(fixture('Complex.Two-Stage.CDX1'));
+    const parts = flatten(r.tree.components);
+    const transitions = parts.filter((c) => c.type === 'transition' && c.name === 'Transition');
+    expect(transitions.length).toBeGreaterThanOrEqual(2);
+    // 3" tube -> 2.5" tube, then 2.5" -> 3": both are real tapers, not cylinders.
+    for (const t of transitions) {
+      expect(t['foreRadius']).not.toBeCloseTo(t['aftRadius'] as number, 9);
+    }
+  });
 });

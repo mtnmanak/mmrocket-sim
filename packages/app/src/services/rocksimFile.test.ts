@@ -76,13 +76,40 @@ describe('RockSim import — desktop fixture files', () => {
 
   it('parses freeform PointList in mm with RockSim point order', () => {
     const r = importRkt(fixture('FinsOnTransitions.rkt'));
-    const ff = flatten(r.tree.components).find((c) => c.type === 'freeformfinset')!;
+    // Selected by name, not by type: BOTH of this fixture's fin sets sit on
+    // transitions, and the importer now converts the trapezoid one ("Fin set 1")
+    // to a freeform outline too, so a plain find(type === 'freeformfinset')
+    // picks that synthesized set instead. "Fin set 2" is the one that carries
+    // the real <PointList>, which is what this test is about.
+    const ff = flatten(r.tree.components).find(
+      (c) => c.type === 'freeformfinset' && c.name === 'Fin set 2',
+    )!;
     const pts = ff['points'] as [number, number][];
     // File: 60,0|50,30|25,35|0,0| → reversed (last point is 0,0) and ÷1000.
     expect(pts[0]).toEqual([0, 0]);
     expect(pts[pts.length - 1]![0]).toBeCloseTo(0.06, 9);
     expect(pts.some(([, y]) => Math.abs(y - 0.035) < 1e-9)).toBe(true);
   });
+
+  it('fins on a transition build in the kernel (converted to freeform)', async () => {
+    // The regression this pins: RockSim puts a trapezoid FinSet inside a
+    // Transition's AttachedParts, and the kernel refuses any non-freeform fin
+    // set there — buildTree threw "TrapezoidFinSet not currently compatible
+    // with Transition" and the imported design lost mass, CG, CP and Simulate.
+    // Parsing alone was green, which is why it shipped: this asserts the BUILD.
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    const { engineTree } = await import('../tree/treeModel.js');
+    resetEngine();
+    const r = importRkt(fixture('FinsOnTransitions.rkt'));
+    const finsOnTransition = flatten(r.tree.components).filter((c) => c.type === 'freeformfinset');
+    expect(finsOnTransition.length).toBeGreaterThan(0);
+
+    const built = OrkRocket.buildTree(engineTree(r.tree));
+    const info = built.staticInfo();
+    expect(Number.isFinite(info.mass)).toBe(true);
+    expect(info.mass).toBeGreaterThan(0);
+    expect(Number.isFinite(info.cp)).toBe(true);
+  }, 60000);
 
   it('imports tube fins and the C6 motor of TubeFins2', () => {
     const r = importRkt(fixture('TubeFins2.rkt'));

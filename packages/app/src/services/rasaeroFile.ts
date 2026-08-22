@@ -95,7 +95,15 @@ export function importCdx1(data: ArrayBuffer | string): OrkTreeImportResult {
       position: { method: 'bottom', offset: rootChord - locIn / IN },
     };
     if (onTransition) {
-      fin['points'] = [[0, 0], [sweep, height], [sweep + tipChord, height], [rootChord, 0]];
+      // A zero tip chord (an ordinary triangular/delta fin, and RASAero's
+      // default) would repeat the tip point. The kernel reads that zero-length
+      // edge as a self-intersection and reports it through a Java %g format
+      // that TeaVM does not implement, so the build died with "Unknown format
+      // conversion: g" and the design lost CG, CP, stability and Simulate.
+      // Collapse the tip to a single point instead.
+      fin['points'] = tipChord > 1e-9
+        ? [[0, 0], [sweep, height], [sweep + tipChord, height], [rootChord, 0]]
+        : [[0, 0], [sweep, height], [rootChord, 0]];
     } else {
       fin['rootChord'] = rootChord;
       fin['tipChord'] = tipChord;
@@ -159,11 +167,26 @@ export function importCdx1(data: ArrayBuffer | string): OrkTreeImportResult {
         break;
       case 'Transition':
       case 'BoatTail': {
+        // A .CDX1 transition takes its FRONT diameter implicitly from the part
+        // in front of it; the stored <Diameter> just duplicates <RearDiameter>
+        // (verified across the fixtures: Diameter 2.5 / RearDiameter 2.5 sitting
+        // between a 3" and a 2.5" tube). Taking it literally turned every
+        // mid-body transition into a cylinder and put a false step in the
+        // airframe — wrong geometry feeding Barrowman CP and body drag, plus
+        // spurious DISCONTINUITY warnings. Desktop OpenRocket resolves this with
+        // setForeRadiusAutomatic(true); resolving from the preceding sibling is
+        // the same thing, with <Diameter> kept only for a leading transition.
+        const prev = sustainer.children![sustainer.children!.length - 1];
+        const prevAft = prev
+          ? typeof prev['aftRadius'] === 'number' ? prev['aftRadius'] as number
+            : typeof prev['outerRadius'] === 'number' ? prev['outerRadius'] as number
+              : undefined
+          : undefined;
         const trans: ComponentNode = {
           type: 'transition', id: freshId(),
           name: el.tagName === 'BoatTail' ? 'Boat tail' : 'Transition',
           length: num(el, 'Length', 2) / IN,
-          foreRadius: num(el, 'Diameter', 4) / IN / 2,
+          foreRadius: prevAft ?? num(el, 'Diameter', 4) / IN / 2,
           aftRadius: num(el, 'RearDiameter', 3) / IN / 2,
           thickness: 0.002,
           shape: 'conical', // RASAero transitions are always conical

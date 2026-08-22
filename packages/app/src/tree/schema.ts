@@ -50,7 +50,11 @@ export const CONTAINMENT: Partial<Record<ComponentType | 'stage', ComponentType[
   stage: STAGE_CHILDREN,
   bodytube: [...BODY_CHILDREN, ...ASSEMBLIES],
   nosecone: [...INTERNAL, ...ASSEMBLIES],
-  transition: [...INTERNAL, ...ASSEMBLIES],
+  // Freeform is the ONE fin type the kernel (and desktop OpenRocket) accepts on
+  // a transition — trapezoid/elliptical sets are refused there. Both importers
+  // convert to freeform for exactly that reason, so the editor has to allow it
+  // or an imported design's fins cannot be edited after arrival.
+  transition: [...INTERNAL, ...ASSEMBLIES, 'freeformfinset'],
   innertube: ['engineblock', 'masscomponent'],
   tubecoupler: ['bulkhead', 'centeringring', ...INTERNAL],
   podset: STAGE_CHILDREN,

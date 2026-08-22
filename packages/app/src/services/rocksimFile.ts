@@ -257,7 +257,14 @@ export function importRkt(data: ArrayBuffer | string): OrkTreeImportResult {
       case 'FinSet':
       case 'CustomFinSet': {
         const shapeCode = tag === 'CustomFinSet' ? 2 : Math.round(num(el, 'ShapeCode', 0));
-        const type = shapeCode === 2 ? 'freeformfinset'
+        // RockSim allows a FinSet inside a Transition's AttachedParts, but the
+        // kernel (like desktop OpenRocket) accepts ONLY freeform fins there —
+        // a trapezoid/elliptical set makes buildTree throw and the whole
+        // imported design loses its mass, CG, CP and Simulate. The desktop
+        // converts the planform instead (FreeformFinSet.convertFinSet); so do
+        // we, exactly as the RASAero importer already does (rasaeroFile.ts:87).
+        const onTransition = parent?.type === 'transition';
+        const type = onTransition || shapeCode === 2 ? 'freeformfinset'
           : shapeCode === 1 ? 'ellipticalfinset' : 'trapezoidfinset';
         const n = mk(type);
         n['finCount'] = Math.round(num(el, 'FinCount', 3));
@@ -272,6 +279,40 @@ export function importRkt(data: ArrayBuffer | string): OrkTreeImportResult {
         } else if (type === 'ellipticalfinset') {
           n['rootChord'] = num(el, 'RootChord', 50) / LEN;
           n['height'] = num(el, 'SemiSpan', 30) / LEN;
+        } else if (onTransition && shapeCode !== 2) {
+          // Converted from a trapezoid/elliptical set: synthesize the same
+          // planform as an explicit outline so nothing about the shape changes.
+          const rootChord = num(el, 'RootChord', 50) / LEN;
+          const height = num(el, 'SemiSpan', 30) / LEN;
+          if (shapeCode === 1) {
+            // Quarter-ellipse sampled as a polyline, matching the desktop's
+            // conversion of an elliptical set.
+            const STEPS = 16;
+            const pts: [number, number][] = [[0, 0]];
+            for (let i = 1; i <= STEPS; i++) {
+              const t = (i / STEPS) * (Math.PI / 2);
+              pts.push([rootChord / 2 - (rootChord / 2) * Math.cos(t), height * Math.sin(t)]);
+            }
+            for (let i = STEPS - 1; i >= 1; i--) {
+              const t = (i / STEPS) * (Math.PI / 2);
+              pts.push([rootChord / 2 + (rootChord / 2) * Math.cos(t), height * Math.sin(t)]);
+            }
+            pts.push([rootChord, 0]);
+            n['points'] = pts;
+          } else {
+            const tipChord = num(el, 'TipChord', 30) / LEN;
+            const sweep = num(el, 'SweepDistance', 0) / LEN;
+            // A zero tip chord (a triangular fin) must collapse to ONE tip
+            // point: repeating it makes a zero-length edge that the kernel
+            // reports as a self-intersection through a %g format TeaVM lacks,
+            // which aborts the whole build. Same guard as rasaeroFile.ts.
+            n['points'] = tipChord > 1e-9
+              ? [[0, 0], [sweep, height], [sweep + tipChord, height], [rootChord, 0]]
+              : [[0, 0], [sweep, height], [rootChord, 0]];
+          }
+          const note = 'Fins on a transition were converted to a freeform outline (same '
+            + 'planform) — OpenRocket only allows freeform fins on a transition.';
+          if (!notes.includes(note)) notes.push(note);
         } else {
           n['points'] = parsePointList(text(el, ':scope > PointList') ?? '');
         }
