@@ -682,6 +682,13 @@
   .mmr-band-footer {
     gap: 4px 14px;
     font-size: 11px;
+    /* The footer band is the LAST element on the page and is a SIBLING of
+       .workspace, so .workspace's padding-bottom does not protect it: at full
+       scroll the fixed .workspace-tabs bar sat squarely on top of these links
+       and "Bugs & requests" — the beta feedback path — was unclickable on a
+       phone. Reserve the bar's height here, plus the home-indicator inset the
+       bar itself pads for. */
+    padding-bottom: calc(76px + env(safe-area-inset-bottom));
   }
 }
 
@@ -944,6 +951,18 @@
   padding: 4px;
 }
 
+/* The hero stage is the containing block for the canvas overlays (stats chip,
+   the All-stats drawer and its button, the mount pill) at EVERY width. This
+   used to live only inside @media (min-width: 981px) alongside the stage's
+   desktop height, so between 701px and 980px — iPad portrait, a narrowed
+   desktop window — those absolutely-positioned overlays fell back to the
+   initial containing block and landed on the site band at the top of the
+   document instead of on the drawing. The fixed height stays desktop-only;
+   being a containing block is not a desktop concern. */
+.hero-stage {
+  position: relative;
+}
+
 /* --- S1: rocket as the hero of the Design tab (batch 08-21c) ---
    The canvas fills the center column's height; the drawing centers in the
    extra sky; the stat grid lives in the drawer overlay below. Desktop only —
@@ -955,7 +974,6 @@
   }
 
   .design-layout main .hero-stage {
-    position: relative;
     /* A FIXED height, not min-height, and the view wrap absolutely
        positioned below: the drawing must never size its own container, or
        vertical mode's measure→draw→grow loop runs away (it reached 2900px
@@ -1850,6 +1868,11 @@
 .tour-card {
   position: fixed;
   width: 300px;
+  /* border-box so the rendered width really is CARD_W (300) — with the
+     default content-box the 14px padding + 1.5px borders made it 331px wide
+     while FirstRunTour clamped against 300, so a right-anchored step ("Fly
+     it") hung off the viewport and clipped its own Next button. */
+  box-sizing: border-box;
   background: var(--note-bg);
   border: 1.5px solid var(--accent);
   border-radius: 8px;
@@ -2327,6 +2350,18 @@ select.unit-chip:hover {
 
 .motor-row-long td {
   color: var(--text-muted);
+}
+
+/* Catalogued but un-flyable: thrustcurve.org publishes no usable weight, so
+   the row stays visible (it is a real motor) but cannot be picked. */
+.motor-row-nomass td {
+  color: var(--text-muted);
+  opacity: 0.55;
+  font-style: italic;
+}
+
+.motor-row-nomass {
+  cursor: not-allowed;
 }
 
 .motor-oop {

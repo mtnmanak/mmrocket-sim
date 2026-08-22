@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import type { StaticInfo } from '@online-openrocket/engine';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { fmtSi, type Quantity } from '../prefs/units.js';
@@ -120,6 +120,30 @@ export function StatsChip({ info }: { info: StaticInfo }) {
       y: Math.min(Math.max(0, y), Math.max(0, host.clientHeight - el.offsetHeight)),
     };
   };
+
+  // Re-clamp on mount and whenever the canvas resizes. clamp() only ever ran
+  // DURING a drag, so a position saved on a wide window restored unchanged on a
+  // narrow one — outside the overflow:hidden stage, invisible, with no reset
+  // control to get it back. Clamping the rendered position without rewriting
+  // storage means the chip reappears here now and still returns to where the
+  // user put it once the window is wide again.
+  useLayoutEffect(() => {
+    const host = ref.current?.offsetParent as HTMLElement | null;
+    if (!host) return;
+    const reclamp = () => setChip((c) => {
+      const { x, y } = clamp(c.x, c.y);
+      return x === c.x && y === c.y ? c : { ...c, x, y };
+    });
+    reclamp();
+    const ro = new ResizeObserver(reclamp);
+    ro.observe(host);
+    window.addEventListener('resize', reclamp);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', reclamp);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- clamp reads refs
+  }, []);
 
   const onPointerDown = (e: React.PointerEvent) => {
     if ((e.target as HTMLElement).closest('button')) return;

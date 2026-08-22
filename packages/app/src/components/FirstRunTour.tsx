@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useDialog } from './useDialog.js';
 
 /**
  * First-run tour (batch 2026-08-21b, proposal S3): six anchored tooltips that
@@ -44,7 +45,7 @@ const STEPS: TourStep[] = [
   },
   {
     target: 'guide', tab: 'design', title: 'When you need more',
-    body: 'The Guide has a quick start and the physics behind the sim — and the 🐞 button beside it files bugs or ideas, no account needed. The ⟲ Tour button next door replays this tour any time.',
+    body: 'The Guide has a quick start and the physics behind the sim — and the Feedback button beside it files bugs or ideas, no account needed. The ⟲ Tour button next door replays this tour any time.',
   },
 ];
 
@@ -92,6 +93,10 @@ export function FirstRunTour({ onSetTab, onClose }: {
     onClose();
   }, [onClose]);
 
+  // Escape dismisses the tour (and keyboard focus starts in the card, so Next
+  // is reachable without a mouse). Same contract as every other dialog here.
+  const dialogRef = useDialog<HTMLDivElement>(close);
+
   // Keep the target's tab active. Runs before measuring (same commit), so the
   // measurement effect below sees the right DOM one frame later.
   useEffect(() => {
@@ -118,8 +123,11 @@ export function FirstRunTour({ onSetTab, onClose }: {
 
   // Card below the anchor when there's room, above otherwise, clamped to the
   // viewport; no anchor → centered (a missing target must never lose the tour).
-  const vw = window.innerWidth;
-  const vh = window.innerHeight;
+  // clientWidth, not innerWidth: innerWidth counts the scrollbar gutter, and
+  // clamping a fixed card against it pushed the card (and its Next button)
+  // under/past the scrollbar on the right-anchored steps.
+  const vw = document.documentElement.clientWidth;
+  const vh = document.documentElement.clientHeight;
   let cardStyle: React.CSSProperties;
   if (anchor.rect) {
     const r = anchor.rect;
@@ -150,7 +158,8 @@ export function FirstRunTour({ onSetTab, onClose }: {
       ) : (
         <div className="tour-scrim" />
       )}
-      <div className="tour-card" role="dialog" aria-label={`Tour step ${idx + 1} of ${STEPS.length}: ${step.title}`} style={cardStyle}>
+      <div className="tour-card" role="dialog" aria-modal="true" ref={dialogRef} tabIndex={-1}
+        aria-label={`Tour step ${idx + 1} of ${STEPS.length}: ${step.title}`} style={cardStyle}>
         <button className="tour-close" onClick={close} aria-label="Close tour">×</button>
         <h3 className="tour-title">{step.title}</h3>
         <p className="tour-body">{step.body}</p>
