@@ -127,7 +127,7 @@ interface DragState {
   clientScale: number;
 }
 
-export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480, selectedId, onSelect, exportData, vertical, fillHeight }: {
+export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480, selectedId, onSelect, exportData, onError, vertical, fillHeight }: {
   tree: RocketTree;
   info: StaticInfo | null;
   /** Loaded motor case dimensions (m) keyed by mount node id — drawn to
@@ -141,6 +141,14 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   onSelect?: (id: string) => void;
   /** When set, ⬇ SVG / ⬇ PNG export buttons appear (issue 2026-08-11a). */
   exportData?: Omit<ExportData, 'spanM'>;
+  /**
+   * Reports an export failure to the caller's note channel. Rasterising really
+   * can fail — svgToImage rejects from img.onerror, and a big rocket at 7680px
+   * can exhaust the canvas — and the awaited rejection used to go nowhere: the
+   * button just did nothing, which reads as "the export is broken" with
+   * nothing to report.
+   */
+  onError?: (message: string) => void;
   /** Nose-up view (S1 rotate / S4 phone): the horizontal layout rotates as
    *  one group to fit the container's HEIGHT. Read-mostly — drag, pan, zoom
    *  and the export/zoom controls are off; hover and click-select stay. */
@@ -945,9 +953,13 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
               title="True-scale 2D drawing (SVG) with design data — physical mm size, prints at 100% scale"
               onClick={() => {
                 if (!svgRef.current) return;
-                const data = { ...exportData, spanM: 2 * vHalf };
-                downloadBlob(schematicSvg(svgRef.current, scale, w, h, data),
-                  `${data.name.replace(/[^\w-]+/g, '_')}-2d.svg`);
+                try {
+                  const data = { ...exportData, spanM: 2 * vHalf };
+                  downloadBlob(schematicSvg(svgRef.current, scale, w, h, data),
+                    `${data.name.replace(/[^\w-]+/g, '_')}-2d.svg`);
+                } catch (e) {
+                  onError?.(`SVG export failed: ${e instanceof Error ? e.message : String(e)}`);
+                }
               }}>
               ⬇ SVG
             </button>
@@ -955,10 +967,15 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
               title="High-resolution 2D image with design data — pick PNG or JPG and a width"
               onPick={async (format, widthPx) => {
                 if (!svgRef.current) return;
-                const data = { ...exportData, spanM: 2 * vHalf };
-                const svg = schematicSvg(svgRef.current, scale, w, h, data);
-                downloadBlob(await svgToImage(svg, widthPx, format),
-                  `${data.name.replace(/[^\w-]+/g, '_')}-2d.${IMAGE_FORMAT_EXT[format]}`);
+                try {
+                  const data = { ...exportData, spanM: 2 * vHalf };
+                  const svg = schematicSvg(svgRef.current, scale, w, h, data);
+                  downloadBlob(await svgToImage(svg, widthPx, format),
+                    `${data.name.replace(/[^\w-]+/g, '_')}-2d.${IMAGE_FORMAT_EXT[format]}`);
+                } catch (e) {
+                  onError?.(`Image export failed: ${e instanceof Error ? e.message : String(e)}`
+                    + ' — try a smaller width, or use ⬇ SVG.');
+                }
               }} />
           </>
         )}

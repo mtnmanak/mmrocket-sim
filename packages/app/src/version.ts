@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.057';
+export const APP_VERSION = '0.058';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.058',
+    date: '2026-08-22',
+    title: 'A failed image export says so instead of doing nothing',
+    items: [
+      'FIXED: if rasterising the 2D drawing to PNG/JPG failed — which a very large rocket at 7680 px genuinely can — the ⬇ Image button simply did nothing at all, with no message anywhere. It now reports the failure and suggests a smaller width or the SVG export. The SVG export reports failures the same way.',
+    ],
+  },
   {
     version: '0.057',
     date: '2026-08-22',

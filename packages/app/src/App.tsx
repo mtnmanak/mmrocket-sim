@@ -1758,6 +1758,7 @@ export function App() {
                       selectedId={selectedId}
                       onSelect={(id) => setSelectedId(id)}
                       exportData={viewExportData}
+                      onError={setFileNote}
                       vertical={vert2d}
                       fillHeight
                     />

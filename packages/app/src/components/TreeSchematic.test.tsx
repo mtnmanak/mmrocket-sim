@@ -458,3 +458,49 @@ describe('a click is not a pan (the missing movement threshold)', () => {
     pointer(svgEl(), 'pointerup', 160, 140);
   });
 });
+
+describe('export failures are reported, not swallowed', () => {
+  /**
+   * svgToImage rejects on a rasterise error, and a large rocket at 3840px can
+   * exhaust the canvas. The awaited rejection had nowhere to go, so the button
+   * simply did nothing — which a beta tester reads as "the export is broken"
+   * with nothing to report.
+   */
+  it('surfaces an image-export failure through onError', async () => {
+    const onError = vi.fn();
+    mount(infoOf(1.5), {
+      onSelect: vi.fn(),
+      onError,
+      exportData: { name: 'Rocket', stability: null, motor: null } as never,
+    });
+
+    // Make the rasteriser fail the way a real encode error does: svgToImage
+    // rejects from img.onerror.
+    const RealImage = globalThis.Image;
+    (globalThis as { Image: unknown }).Image = function FakeImage(this: Record<string, unknown>) {
+      Object.defineProperty(this, 'src', {
+        set: () => { setTimeout(() => (this['onerror'] as (() => void) | undefined)?.(), 0); },
+      });
+    } as unknown as typeof Image;
+
+    try {
+      const trigger = [...host.querySelectorAll('button')]
+        .find((b) => (b.textContent ?? '').includes('Image'));
+      expect(trigger, 'the ⬇ Image trigger should render when exportData is set').toBeTruthy();
+      await act(async () => { trigger!.click(); });
+
+      // The picker's buttons are width presets (1920/3840/7680) under a
+      // PNG row and a JPG row — pick the first one.
+      const width = [...host.querySelectorAll('button')]
+        .find((b) => /px wide$/.test(b.getAttribute('title') ?? ''));
+      expect(width, 'the picker should offer width presets').toBeTruthy();
+      await act(async () => { width!.click(); });
+      await act(async () => { await new Promise((r) => setTimeout(r, 30)); });
+
+      expect(onError).toHaveBeenCalledTimes(1);
+      expect(onError.mock.calls[0]![0]).toMatch(/Image export failed/);
+    } finally {
+      (globalThis as { Image: unknown }).Image = RealImage;
+    }
+  });
+});

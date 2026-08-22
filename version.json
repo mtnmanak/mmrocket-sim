@@ -1,5 +1,5 @@
 {
-  "version": "0.057",
+  "version": "0.058",
   "released": "2026-08-22",
-  "note": "Fixes click-to-select on nose cones, body tubes and transitions in the horizontal 2D view: the canvas panned on the first pixel of movement, so an ordinary click dragged the drawing out from under the pointer."
+  "note": "A failed 2D image export now reports the error instead of silently doing nothing."
 }
