@@ -80,7 +80,11 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
           {QUANTITIES.map((q) => (
             <div className="field" key={q}>
               <label>{QUANTITY_LABEL[q]}</label>
+              {/* Named explicitly: the sibling <label> is not associated with
+                  the control, so these ten read as combo boxes announcing only
+                  "m" / "kg" / "m/s" with no clue which quantity they set. */}
               <select
+                aria-label={QUANTITY_LABEL[q]}
                 value={prefs.units[q]}
                 onChange={(e) => setPrefs({ ...prefs, units: { ...prefs.units, [q]: e.target.value } })}
               >
@@ -97,6 +101,7 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
           <div className="field">
             <label>Round components entered as</label>
             <select
+              aria-label="Round components entered as"
               value={prefs.radiusMode}
               onChange={(e) => setPrefs({ ...prefs, radiusMode: e.target.value as 'radius' | 'diameter' })}
             >
@@ -107,6 +112,7 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
           <div className="field">
             <label>Theme</label>
             <select
+              aria-label="Theme"
               value={prefs.theme}
               onChange={(e) => setPrefs({
                 ...prefs,
@@ -122,6 +128,7 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
           <div className="field">
             <label>Daylight mode</label>
             <select
+              aria-label="Daylight mode"
               value={prefs.daylight ? 'on' : 'off'}
               onChange={(e) => setPrefs({ ...prefs, daylight: e.target.value === 'on' })}
             >
@@ -132,6 +139,7 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
           <div className="field">
             <label>First-run tour</label>
             <select
+              aria-label="First-run tour"
               value={prefs.tourOff ? 'off' : 'on'}
               onChange={(e) => setPrefs({ ...prefs, tourOff: e.target.value === 'off' })}
             >
@@ -157,6 +165,7 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
         <div className="field">
           <label>Aerodynamics model</label>
           <select
+            aria-label="Aerodynamics model"
             value={(prefs.aeroModel ?? 'classic') === 'classic'
               ? ((prefs.rogersKbf ?? true) ? 'kbf' : 'eb')
               : (prefs.aeroModel ?? 'classic')}
@@ -203,6 +212,7 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
           <div className="field">
             <label>Printer</label>
             <select
+              aria-label="Printer"
               value={printer
                 ? (PRINTER_PRESETS.some((p) => p.id === printer.preset) ? printer.preset : CUSTOM_PRESET)
                 : ''}

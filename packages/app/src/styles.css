@@ -1137,6 +1137,15 @@
   z-index: 2;
 }
 
+/* The mount pill is a fixed DARK card in every theme (like .stats-chip), so its
+   label has to take the card's own color. .mount-sizes-label sets
+   var(--text-secondary), which follows the theme — in the light theme that put
+   #52514e on a near-black pill (1.66:1) and in Daylight #141414 (1.41:1), so the
+   words "Motor mount:" were unreadable in exactly the mode built for sunlight. */
+.hero-mounts .mount-sizes-label {
+  color: inherit;
+}
+
 /* Phones: the small canvas can't spare the sky — the chip and mount pill
    would sit on the rocket itself. The drawer still works. */
 @media (max-width: 700px) {
@@ -1926,7 +1935,11 @@
   font: inherit;
   font-size: 12.5px;
   font-weight: 600;
-  color: #fff;
+  /* NOT #fff: --accent is a dark burnt orange on the light palette but a
+     bright one on dark, where white lands at 2.49:1 — and dark is the default
+     theme, so this was the first control a new tester ever saw. Inverting to
+     the surface color passes in both, same reasoning as .hc-toggle.hc-on. */
+  color: var(--surface-1);
   background: var(--accent);
   border: none;
   border-radius: 5px;
@@ -2012,7 +2025,8 @@
 
 .guide-toc-item.active {
   background: var(--accent);
-  color: #fff;
+  /* Same accent/white contrast trap as .tour-next above. */
+  color: var(--surface-1);
   font-weight: 600;
 }
 

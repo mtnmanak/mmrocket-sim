@@ -311,17 +311,25 @@ export function App() {
   // Measured drawer height + gap: the hero view's bottom edge lifts above the
   // open drawer so the drawing shrinks to the visible sky instead of being
   // covered (batch 08-21d — vertical mode has no zoom/pan to escape with).
-  const drawerRef = useRef<HTMLDivElement | null>(null);
+  // A CALLBACK ref, not a plain one, and the effect keys on the NODE: the
+  // drawer lives inside the design tab's subtree (and behind `built &&`), so
+  // switching tabs unmounts it while statsDrawer stays true. Keyed on
+  // statsDrawer alone the effect never re-ran, the ResizeObserver kept
+  // watching the detached node — Chrome reports it as a 0x0 box, so the
+  // clearance collapsed to 20px — and the fresh drawer that mounted on the way
+  // back was never measured at all. The drawing then ran under the drawer
+  // again, which is the exact failure this measurement exists to prevent
+  // (batch 08-21d: vertical mode has no zoom/pan to escape with).
+  const [drawerEl, setDrawerEl] = useState<HTMLDivElement | null>(null);
   const [drawerClearance, setDrawerClearance] = useState(0);
   useEffect(() => {
-    if (!statsDrawer || !drawerRef.current) { setDrawerClearance(0); return; }
-    const el = drawerRef.current;
-    const measure = () => setDrawerClearance(el.offsetHeight + 20);
+    if (!statsDrawer || !drawerEl) { setDrawerClearance(0); return; }
+    const measure = () => setDrawerClearance(drawerEl.offsetHeight + 20);
     measure();
     const ro = new ResizeObserver(measure);
-    ro.observe(el);
+    ro.observe(drawerEl);
     return () => ro.disconnect();
-  }, [statsDrawer]);
+  }, [statsDrawer, drawerEl]);
   /** S1's 90° toggle: draw the 2D view nose-up (viewing mode — drag/zoom off). */
   const [vert2d, setVert2d] = useState(false);
   const [confirmNew, setConfirmNew] = useState(false);
@@ -465,6 +473,13 @@ export function App() {
   const aeroMode: 'classic' | 'supersonic' | 'auto' =
     prefs.aeroModel ?? (prefs.supersonicAero ? 'supersonic' : 'classic');
   const effectiveSupersonic = aeroMode === 'supersonic' || (aeroMode === 'auto' && autoSupersonic);
+  // Normalized ONCE so the build memo and the flight-reset effect below agree.
+  // The Preferences pulldown maps BOTH classic options to aeroModel: 'classic'
+  // and tells them apart purely by this flag, so aeroMode alone cannot see a
+  // switch between Extended Barrowman and Rogers Kbf. Normalizing rather than
+  // depending on prefs.rogersKbf raw (boolean | undefined) also avoids a
+  // spurious reset when it settles from undefined to true.
+  const effectiveKbf = prefs.rogersKbf ?? true;
 
   // No setState in here — the error is part of the memo's value (setState
   // during render breaks under StrictMode's double-invoke).
@@ -475,7 +490,7 @@ export function App() {
       // Opt-in Rogers Modified Barrowman (Kbf) — set before staticInfo() so the
       // reported CP/stability reflects it, and it persists onto this build's
       // handle for later simulate() calls.
-      rocket.setRogersModifiedBarrowman(prefs.rogersKbf ?? true);
+      rocket.setRogersModifiedBarrowman(effectiveKbf);
       // Opt-in RASAero-class supersonic aerodynamics (feature #1) — CP/drag
       // move with Mach; affects staticInfo, dragSweep and simulate alike.
       rocket.setSupersonicAero(effectiveSupersonic);
@@ -504,7 +519,7 @@ export function App() {
     } catch (e) {
       return { error: e instanceof Error ? e.message : String(e) };
     }
-  }, [tree, assigned, prefs.rogersKbf, effectiveSupersonic]);
+  }, [tree, assigned, effectiveKbf, effectiveSupersonic]);
   const built = 'error' in buildResult ? null : buildResult;
   const buildError = 'error' in buildResult ? buildResult.error : simError;
 
@@ -524,7 +539,13 @@ export function App() {
     setLastRun(null);
     setAutoSupersonic(false); // re-evaluate the auto threshold on the next flight
     // eslint-disable-next-line react-hooks/exhaustive-deps -- physicsKey stands in for tree
-  }, [physicsKey, mountMotors, launch, aeroMode]);
+    // effectiveKbf is in here because switching between the two CLASSIC models
+    // changes CP, stability and drag immediately (the build memo applies it),
+    // but used to leave the old flight's apogee and the whole Results tab in
+    // place — the vitals strip then showed a stability and an apogee computed
+    // under two different aerodynamic models, which is exactly the comparison
+    // this preference exists to support.
+  }, [physicsKey, mountMotors, launch, aeroMode, effectiveKbf]);
 
   /** Assigns a motor to a mount, with the G80 power-class ignition default. */
   const assignMotor = (targetMountId: string, label: string, spec: MotorSpec, meta: MotorMeta) => {
@@ -1740,7 +1761,7 @@ export function App() {
               {built && <StatsChip info={built.info} />}
               {built && (statsDrawer
                 ? (
-                  <div className="stats-drawer" ref={drawerRef}>
+                  <div className="stats-drawer" ref={setDrawerEl}>
                     <div className="stats-drawer-head">
                       <span>All stats</span>
                       <button className="file-btn" onClick={() => setStatsDrawer(false)}>▾ Collapse</button>
@@ -2018,6 +2039,7 @@ export function App() {
                       <label>Ignition</label>
                       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                         <select
+                          aria-label="Ignition event"
                           style={{ flex: 1 }}
                           value={mm.ignition.event}
                           onChange={(e) => setMountMotors((prev) => ({

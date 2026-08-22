@@ -36,6 +36,7 @@ export function MotorPicker({ mountDiameterMm, maxMotorLengthM, selectedLabel, o
       <div className="field">
         <label>Quick picks (built-in, offline)</label>
         <select
+          aria-label="Quick picks (built-in, offline)"
           value={BUILT_IN_MOTORS[selectedLabel] ? selectedLabel : ''}
           onChange={(e) => {
             const m = BUILT_IN_MOTORS[e.target.value];

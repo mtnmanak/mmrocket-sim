@@ -72,7 +72,12 @@ export function LaunchField({ label, field, value, onChange, stepStored, min, ma
   return (
     <div className="field">
       <label>{label}{spec ? <> <UnitChip quantity={spec.quantity} /></> : ''}</label>
+      {/* The .field idiom puts the <label> beside the control, not around it, so
+          nothing associates them — a screen reader read these eight launch
+          inputs as anonymous "edit" boxes. ariaLabel here names every
+          LaunchField call site at once, the Fly screen's included. */}
       <NumField
+        ariaLabel={symbol ? `${label} (${symbol})` : label}
         value={value[field] === null ? undefined : toUi(value[field] as number)}
         step={step}
         min={uiMin}

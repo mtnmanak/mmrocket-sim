@@ -91,6 +91,7 @@ function MaterialSelect({ label, list, nameKey, densityKey, densityUnit, node, o
     <div className="field">
       <label>{label}</label>
       <select
+        aria-label={label}
         value={value}
         onChange={(e) => {
           const mat = list.find((m) => m.name === e.target.value);
@@ -288,6 +289,7 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll, onAutoAli
           {quantity ? <> <UnitChip quantity={quantity} /></> : plainSuffix && ` (${plainSuffix})`}
         </label>
         <NumField
+          ariaLabel={quantity ? `${label} (${symbol ?? ''})`.trim() : label}
           value={typeof value === 'number' ? value : undefined}
           step={step}
           allowNegative={allowNegative}
@@ -483,6 +485,7 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll, onAutoAli
                   )}
                 </label>
                 <select
+                  aria-label={f.label}
                   // Unset finish means the engine's 'normal' (regular paint) —
                   // showing the first option ("Rough") would misreport it.
                   value={String(node[f.key] ?? (f.key === 'finish' ? 'normal' : f.options[0]![0]))}
@@ -527,6 +530,7 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll, onAutoAli
                     {' '}<UnitChip quantity="length" />
                   </label>
                   <NumField
+                    ariaLabel={node.type === 'nosecone' ? 'Base inner diameter' : 'Inner diameter'}
                     value={siToUi(idQuantity, idSym, innerSi)}
                     step={niceStep(siToUi(idQuantity, idSym, 0.001))}
                     max={siToUi(idQuantity, idSym, outerR * 2)}
@@ -653,6 +657,7 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll, onAutoAli
           <div className="field">
             <label>Mass{node.type.endsWith('finset') ? ' (all fins combined)' : ''} <UnitChip quantity="mass" /></label>
             <NumField
+              ariaLabel="Mass override"
               value={typeof node['overrideMass'] === 'number'
                 ? siToUi('mass', massSym, node['overrideMass'] as number) : undefined}
               step={niceStep(siToUi('mass', massSym, 0.0001))}
@@ -666,6 +671,7 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll, onAutoAli
           <div className="field">
             <label>CG from component top <UnitChip quantity="length" /></label>
             <NumField
+              ariaLabel="CG override, from component top"
               value={typeof node['overrideCGX'] === 'number'
                 ? lenToUi(node['overrideCGX'] as number) : undefined}
               step={niceStep(siToUi('length', lengthSym, 0.001))}
@@ -680,6 +686,7 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll, onAutoAli
           <div className="field">
             <label>Drag coefficient (Cd)</label>
             <NumField
+              ariaLabel="Drag coefficient (Cd) override"
               value={typeof node['overrideCD'] === 'number' ? (node['overrideCD'] as number) : undefined}
               step={0.05}
               nullable
@@ -697,6 +704,7 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll, onAutoAli
             <div className="field">
               <label>Relative to</label>
               <select
+                aria-label="Position relative to"
                 value={pos.method}
                 onChange={(e) =>
                   onPatch({ position: { ...pos, method: e.target.value as ComponentPosition['method'] } })}
@@ -709,6 +717,7 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll, onAutoAli
             <div className="field">
               <label>Offset <UnitChip quantity="length" /></label>
               <NumField
+                ariaLabel="Position offset"
                 value={lenToUi(pos.offset)}
                 step={niceStep(siToUi('length', lengthSym, 0.001))}
                 allowNegative

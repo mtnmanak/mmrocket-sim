@@ -1,10 +1,14 @@
 import { usePrefs } from '../prefs/PrefsContext.js';
-import { UNITS, type Quantity } from '../prefs/units.js';
+import { QUANTITY_LABEL, UNITS, type Quantity } from '../prefs/units.js';
 
 /**
  * The unit displayed next to a value, clickable in place (desktop OpenRocket
  * behavior): picking a unit switches that quantity group everywhere and
  * persists via preferences. Rendered as a borderless select styled as text.
+ *
+ * The accessible name carries the QUANTITY, not just "Unit": a panel shows
+ * several of these at once, and a bare "Unit" made every one of them read
+ * identically to a screen reader.
  */
 export function UnitChip({ quantity }: { quantity: Quantity }) {
   const { prefs, setPrefs } = usePrefs();
@@ -12,7 +16,7 @@ export function UnitChip({ quantity }: { quantity: Quantity }) {
     <select
       className="unit-chip"
       title="Change this unit (applies everywhere)"
-      aria-label="Unit"
+      aria-label={`${QUANTITY_LABEL[quantity]} unit`}
       value={prefs.units[quantity]}
       onClick={(e) => e.stopPropagation()}
       onChange={(e) =>

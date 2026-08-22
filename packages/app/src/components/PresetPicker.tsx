@@ -114,7 +114,8 @@ export function PresetPicker({ type, onApply, onClose }: {
         <div className="motor-filter-row" style={{ marginBottom: 8 }}>
           <input type="search" placeholder="Search part number / description…" style={{ flex: 1 }}
             value={text} onChange={(e) => setText(e.target.value)} />
-          <select value={mfr} onChange={(e) => setMfr(e.target.value)} style={{ maxWidth: 220 }}>
+          <select aria-label="Filter by manufacturer" value={mfr}
+            onChange={(e) => setMfr(e.target.value)} style={{ maxWidth: 220 }}>
             <option value="">All manufacturers</option>
             {manufacturers.map((m) => <option key={m} value={m}>{m}</option>)}
           </select>
