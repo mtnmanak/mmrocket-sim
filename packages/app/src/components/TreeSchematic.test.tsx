@@ -269,3 +269,83 @@ describe('TreeSchematic — hover highlight + name tag (S5)', () => {
     expect(nose.getAttribute('stroke-width')).toBe('2');
   });
 });
+
+describe('click-to-select after a drag (the dragMoved latch)', () => {
+  /**
+   * dragMoved exists so that releasing a DRAG does not also count as a click.
+   * It was cleared only in beginDrag, which is attached solely to draggable
+   * CHILD components — so once any drag moved past the 4 px threshold the flag
+   * stayed set, and the axial chain (nose cone, body tube, transition) has no
+   * pointerdown handler of its own to clear it. Clicking those became a no-op
+   * for the rest of the session, while children kept working because their own
+   * beginDrag reset the flag on every press.
+   */
+  // happy-dom reports every rect as 0x0, and beginDrag bails on a zero-width
+  // svg — without this stub no drag ever starts and the latch is never set,
+  // which would make these tests pass for the wrong reason.
+  let rectSpy: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    rectSpy = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({
+      x: 0, y: 0, left: 0, top: 0, right: 640, bottom: 240, width: 640, height: 240,
+      toJSON: () => ({}),
+    } as DOMRect);
+  });
+  afterEach(() => rectSpy.mockRestore());
+
+  const svgEl = () => host.querySelector('svg')!;
+  const shapeFilled = (fill: string) =>
+    [...host.querySelectorAll('path,rect,polygon')].find((el) => el.getAttribute('fill') === fill)!;
+
+  const pointer = (el: Element, type: string, clientX: number) => act(() => {
+    el.dispatchEvent(new PointerEvent(type, {
+      bubbles: true, cancelable: true, pointerId: 1, isPrimary: true,
+      clientX, clientY: 0, button: 0, buttons: type === 'pointerup' ? 0 : 1,
+    }));
+  });
+
+  /** A real click: the browser always sends pointerdown/up before it. */
+  const clickShape = (el: Element) => {
+    pointer(el, 'pointerdown', 0);
+    pointer(el, 'pointerup', 0);
+    act(() => { el.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+  };
+
+  const dragAFin = () => {
+    const fin = host.querySelector('polygon')!;
+    pointer(fin, 'pointerdown', 0);
+    pointer(svgEl(), 'pointermove', 40); // well past the 4 px threshold
+    pointer(svgEl(), 'pointerup', 40);
+  };
+
+  it('selects the nose cone after a fin has been dragged', () => {
+    const onSelect = vi.fn();
+    mount(infoOf(1.5), { onSelect, onPatchNode: vi.fn() });
+    dragAFin();
+    onSelect.mockClear();
+
+    clickShape(shapeFilled('#d5d2cb'));
+    expect(onSelect).toHaveBeenCalledWith('n1');
+  });
+
+  it('selects the body tube after a fin has been dragged', () => {
+    const onSelect = vi.fn();
+    mount(infoOf(1.5), { onSelect, onPatchNode: vi.fn() });
+    dragAFin();
+    onSelect.mockClear();
+
+    clickShape(shapeFilled('#e7e5e0'));
+    expect(onSelect).toHaveBeenCalledWith('b1');
+  });
+
+  it('still does NOT select when the press itself was the drag', () => {
+    // The latch must keep doing its real job: dragging a fin and releasing
+    // over it is a move, not a selection.
+    const onSelect = vi.fn();
+    mount(infoOf(1.5), { onSelect, onPatchNode: vi.fn() });
+    const fin = host.querySelector('polygon')!;
+    pointer(fin, 'pointerdown', 0);
+    pointer(svgEl(), 'pointermove', 40);
+    act(() => { fin.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+});

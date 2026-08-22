@@ -1,5 +1,5 @@
 {
-  "version": "0.054",
+  "version": "0.055",
   "released": "2026-08-21",
-  "note": "First load is ~31% smaller (the 3D library now loads on demand). Fixes imported RockSim chute mass, recovery devices exporting weightless, .ork saves that deleted fin fillets and instanced parts, and unreadable contrast in the light/Daylight themes."
+  "note": "Fixes click-to-select in the 2D view: after dragging any component, the nose cone, body tube and transitions could no longer be selected by clicking them."
 }

@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.054';
+export const APP_VERSION = '0.055';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.055',
+    date: '2026-08-21',
+    title: 'Clicking the nose cone or body tube selects it again',
+    items: [
+      'FIXED: after you dragged any component in the 2D view, clicking the nose cone, body tube or a transition stopped selecting it in the component tree — for the rest of the session. Fins, inner tubes, lugs and the like kept working, which is what made it look like only those parts were broken. The view suppresses a click that was really the end of a drag; that suppression was being switched on by a drag and never switched back off for the parts you cannot drag. It now clears at the start of every press.',
+    ],
+  },
   {
     version: '0.054',
     date: '2026-08-21',

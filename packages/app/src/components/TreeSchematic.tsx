@@ -260,6 +260,17 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
       (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
     };
 
+  /**
+   * Clears the "this press became a drag" latch at the START of every press.
+   * Attached in the CAPTURE phase on the svg so it runs whatever was pressed,
+   * and in vertical mode too. It used to be cleared only inside beginDrag,
+   * which is attached to draggable CHILDREN alone — so once any drag passed
+   * the 4 px threshold the flag stayed set, and the axial chain (nose cone,
+   * body tube, transition) has no pointerdown handler of its own to clear it.
+   * Clicking those became a permanent no-op while children kept working.
+   */
+  const resetDragLatch = () => { dragMoved.current = false; };
+
   const beginPan = (e: React.PointerEvent) => {
     const rect = svgRef.current?.getBoundingClientRect();
     if (!rect || rect.width === 0) return;
@@ -812,6 +823,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
           aria-label={vertical
             ? 'Rocket side view, nose up, with CG and CP markers'
             : 'Rocket side view with CG and CP markers — drag components, wheel to zoom, drag background to pan'}
+          onPointerDownCapture={resetDragLatch}
           onPointerDown={vertical ? undefined : beginPan}
           onPointerMove={vertical ? undefined : onMove}
           onPointerUp={vertical ? undefined : endDrag}
