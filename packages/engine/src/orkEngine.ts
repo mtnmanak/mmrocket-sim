@@ -6,6 +6,10 @@
  * Documented exceptions: launchLatitude/launchLongitude are DEGREES.
  * See engine-java/ for the kernel, shims, patches and differential tests.
  */
+// MUST stay above the vendor import: it installs the TeaVM stdout/stderr sinks
+// that the kernel module reads once, as it evaluates. ES modules evaluate in
+// import order, so this line ordering is load-bearing — see kernelLogSink.ts.
+import './kernelLogSink.js';
 import * as ork from '../vendor/orkengine.mjs';
 
 export type NoseShape = 'ogive' | 'conical' | 'ellipsoid' | 'power' | 'parabolic' | 'haack';
@@ -353,6 +357,28 @@ export interface DragSweep {
   components: { name: string; cd: number[] }[];
 }
 
+/**
+ * Guards the motor curve before it crosses into the kernel. TeaVM reports a
+ * non-finite number as an opaque BigInt conversion RangeError from deep inside
+ * the compiled Java, so catching it here is the difference between a message
+ * naming the motor and a design that silently blanks.
+ */
+function assertFiniteCurve(motor: MotorSpec): void {
+  const bad = (xs: readonly number[]) => !xs.every((n) => Number.isFinite(n));
+  if (bad(motor.times) || bad(motor.thrusts) || bad(motor.masses)) {
+    throw new Error(
+      `Motor ${motor.designation}: thrust curve contains non-finite values ` +
+        '(a missing published weight or a malformed .rse/.eng file).',
+    );
+  }
+  if (motor.masses.some((m) => m < 0)) {
+    throw new Error(
+      `Motor ${motor.designation}: thrust curve ends at a negative mass ` +
+        '(propellant mass exceeds loaded mass).',
+    );
+  }
+}
+
 /** A rocket design held inside the engine, addressed by handle. */
 export class OrkRocket {
   private readonly handle: number;
@@ -374,6 +400,11 @@ export class OrkRocket {
 
   /** Attaches a motor to the mount with the given node id (buildTree rockets). */
   setMotorById(componentId: string, motor: MotorSpec): void {
+    // Reject a malformed curve at the package boundary. A NaN in `masses` used
+    // to surface as TeaVM's internal "The number NaN cannot be converted to a
+    // BigInt", which told the user nothing and blanked their design; catalog
+    // data with missing weights is the real-world source (see thrustcurve.ts).
+    assertFiniteCurve(motor);
     ork.setMotorById(
       this.handle, componentId, motor.designation, motor.diameter, motor.length,
       motor.times, motor.thrusts, motor.masses, motor.cgX, motor.ejectionDelay);
@@ -412,6 +443,7 @@ export class OrkRocket {
 
   /** @deprecated Pairs with build(); the app assigns motors via setMotorById(). */
   setMotor(motor: MotorSpec): void {
+    assertFiniteCurve(motor);
     ork.setMotor(
       this.handle, this.mountHandle, motor.designation, motor.diameter, motor.length,
       motor.times, motor.thrusts, motor.masses, motor.cgX, motor.ejectionDelay);

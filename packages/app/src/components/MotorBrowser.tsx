@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
+import { clickable } from './clickable.js';
+import { useDialog } from './useDialog.js';
 import type { MotorSpec } from '@online-openrocket/engine';
 import {
   MOTOR_DB, MOTOR_DB_DATE, classLabel, classesFittingMount, diameterClass,
-  displayDesignation, filterMotors, isHighPower, manufacturersForMount,
+  displayDesignation, filterMotors, hasMassData, isHighPower, manufacturersForMount,
   sortMotors, type MotorDbEntry, type MotorSortKey,
 } from '../services/motorDb.js';
 import {
@@ -212,12 +214,17 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
 
   const dimUi = (mm: number) => siToUi('motorDimensions', motorSym, mm / 1000);
 
+  const dialogRef = useDialog(onClose);
+
   return (
     <div className="prefs-overlay" role="presentation" onClick={onClose}>
       <div
         className="prefs-dialog panel motor-browser"
         role="dialog"
+        aria-modal="true"
         aria-label="Motor database"
+        ref={dialogRef}
+        tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
       >
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
@@ -323,14 +330,21 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
             <tbody>
               {rows.slice(0, ROW_CAP).map((m) => {
                 const flagged = tooLong(m);
+                // thrustcurve.org has no usable weights for ~13% of the catalog;
+                // those cannot be simulated at all, so they stay listed (they are
+                // real motors) but are not pickable. See motorDb.hasMassData.
+                const noMass = !hasMassData(m);
                 return (
                   <tr
                     key={m.motorId}
-                    className={`motor-row ${picked?.motorId === m.motorId ? 'motor-row-picked' : ''} ${flagged ? 'motor-row-long' : ''}`}
-                    onClick={() => setPicked(m)}
-                    title={flagged
-                      ? `Longer than your max motor length — may hit internal components. Still selectable.`
-                      : undefined}
+                    className={`motor-row ${picked?.motorId === m.motorId ? 'motor-row-picked' : ''} ${flagged ? 'motor-row-long' : ''} ${noMass ? 'motor-row-nomass' : ''}`}
+                    aria-disabled={noMass || undefined}
+                    {...clickable(() => { if (!noMass) setPicked(m); })}
+                    title={noMass
+                      ? 'thrustcurve.org publishes no usable weight for this motor, so it cannot be simulated. Import its .rse/.eng file to fly it.'
+                      : flagged
+                        ? `Longer than your max motor length — may hit internal components. Still selectable.`
+                        : undefined}
                   >
                     <td>{flagged && '⚠ '}{displayDesignation(m.designation, m.manufacturerAbbrev)}{m.availability !== 'regular' && <span className="motor-oop">OOP</span>}</td>
                     <td>{m.manufacturerAbbrev}</td>

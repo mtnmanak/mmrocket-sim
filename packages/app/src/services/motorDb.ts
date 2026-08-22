@@ -187,3 +187,22 @@ export function manufacturersForMount(
     .map(([abbrev, count]) => ({ abbrev, count }))
     .sort((a, b) => b.count - a.count || a.abbrev.localeCompare(b.abbrev));
 }
+
+/**
+ * Can this catalog entry actually be simulated?
+ *
+ * thrustcurve.org's catalog is not uniformly populated. As of the bundled
+ * snapshot, 146 of 1129 entries publish no loaded weight, 14 no propellant
+ * weight, and Cesaroni 25E75-17A lists more propellant (104 g) than loaded
+ * mass (52 g). Those produce NaN or negative motor masses, which used to reach
+ * the kernel and blank the user's design with a raw BigInt error. The UI uses
+ * this to disable such rows rather than hide them — they are legitimate catalog
+ * entries, and hiding them would make the database look wrong.
+ */
+export function hasMassData(m: Pick<TcMotor, 'totalWeightG' | 'propWeightG'>): boolean {
+  return (
+    Number.isFinite(m.totalWeightG) &&
+    Number.isFinite(m.propWeightG) &&
+    m.propWeightG <= m.totalWeightG
+  );
+}

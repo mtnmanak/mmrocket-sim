@@ -32,33 +32,9 @@ export interface TcMotor {
   caseInfo?: string;
 }
 
-export interface MotorSearchQuery {
-  commonName?: string;
-  impulseClass?: string;
-  /** mm — filter to what fits the mount. */
-  diameter?: number;
-  maxResults?: number;
-}
-
 interface TcSample {
   time: number;
   thrust: number;
-}
-
-export async function searchMotors(query: MotorSearchQuery): Promise<TcMotor[]> {
-  const params = new URLSearchParams();
-  if (query.commonName) params.set('commonName', query.commonName);
-  if (query.impulseClass) params.set('impulseClass', query.impulseClass);
-  if (query.diameter) params.set('diameter', String(query.diameter));
-  params.set('availability', 'available');
-  params.set('maxResults', String(query.maxResults ?? 25));
-
-  const res = await fetch(`${API}/search.json?${params}`);
-  if (!res.ok) {
-    throw new Error(`thrustcurve.org search failed: HTTP ${res.status}`);
-  }
-  const body = (await res.json()) as { results?: TcMotor[] };
-  return body.results ?? [];
 }
 
 /**
@@ -105,6 +81,28 @@ export function samplesToMotorSpec(
   }
   if (pts[0]!.time > 0) {
     pts.unshift({ time: 0, thrust: 0 });
+  }
+
+  // thrustcurve.org's catalog is not uniformly populated: 146 of the 1129
+  // bundled entries publish no loaded weight and 14 no propellant weight, and
+  // one (Cesaroni 25E75-17A) lists more propellant than loaded mass. Without
+  // this guard those became NaN / negative masses that went straight into the
+  // kernel, where TeaVM threw a raw "cannot be converted to a BigInt" and the
+  // whole design blanked. Refuse with something a rocketeer can act on — never
+  // substitute a made-up mass, which would trade a visible error for silently
+  // wrong altitudes.
+  if (!Number.isFinite(motor.totalWeightG) || !Number.isFinite(motor.propWeightG)) {
+    throw new Error(
+      `thrustcurve.org publishes no loaded/propellant weight for ${motor.designation}, ` +
+        'so it cannot be simulated. Pick another motor, or import its .rse/.eng file.',
+    );
+  }
+  if (motor.propWeightG > motor.totalWeightG) {
+    throw new Error(
+      `${motor.designation} is catalogued with more propellant (${motor.propWeightG} g) than ` +
+        `loaded mass (${motor.totalWeightG} g), so its burn would end at a negative mass. ` +
+        'Pick another motor, or import a corrected .rse/.eng file.',
+    );
   }
 
   const totalMass = motor.totalWeightG / 1000;
