@@ -105,3 +105,39 @@ describe('impulseClassOf', () => {
     expect(impulseClassOf(641)).toBe('J');
   });
 });
+
+describe('.rse files with missing mass data', () => {
+  const rse = (engAttrs: string, dataPoints: string) =>
+    `<engine-database><engine-list><engine ${engAttrs}><data>${dataPoints}</data></engine></engine-list></engine-database>`;
+
+  it('does not treat an absent m attribute as a zero mass', () => {
+    // Number(null) === 0 and 0 is finite, so this used to yield an all-zero
+    // mass curve that was PREFERRED over the impulse-proportional fallback —
+    // the motor then flew weighing nothing, silently, and the flight came out
+    // optimistic with no warning anywhere.
+    const xml = rse(
+      'code="EX-NOMASS" mfg="Home" dia="29" len="120" initWt="100" propWt="50" delays="5"',
+      '<eng-data t="0" f="0"/><eng-data t="0.5" f="60"/><eng-data t="1" f="0"/>',
+    );
+    const [m] = parseRse(xml);
+    expect(m).toBeDefined();
+    expect(m!.sampleMassesKg).toBeUndefined(); // falls back to impulse-proportional
+  });
+
+  it('keeps per-sample masses when they are all really there', () => {
+    const xml = rse(
+      'code="EX-MASS" mfg="Home" dia="29" len="120" initWt="100" propWt="50" delays="5"',
+      '<eng-data t="0" f="0" m="100"/><eng-data t="0.5" f="60" m="75"/><eng-data t="1" f="0" m="50"/>',
+    );
+    const [m] = parseRse(xml);
+    expect(m!.sampleMassesKg).toEqual([0.1, 0.075, 0.05]);
+  });
+
+  it('refuses a file with no initial mass instead of importing a 0 g motor', () => {
+    const xml = rse(
+      'code="EX-NOINIT" mfg="Home" dia="29" len="120" propWt="50" delays="5"',
+      '<eng-data t="0" f="0"/><eng-data t="1" f="0"/>',
+    );
+    expect(() => parseRse(xml)).toThrow(/initial mass/i);
+  });
+});

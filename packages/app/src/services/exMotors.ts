@@ -175,6 +175,11 @@ export function parseRse(text: string): ExMotor[] {
       return Number.isFinite(v) ? v : fb;
     };
     const name = attr('code') || 'EX motor';
+    // OpenRocket throws "Initial mass missing" on this; a file without it would
+    // otherwise import as a 0 g motor and fly.
+    if (!(numAttr('initWt') > 0)) {
+      throw new Error(`Motor ${attr('code') || 'EX motor'}: initial mass (initWt) missing or zero`);
+    }
     const mfr = attr('mfg') || 'EX';
     const data = Array.from(el.querySelectorAll('data > eng-data'));
     const samples = data.map((d) => ({
@@ -182,8 +187,20 @@ export function parseRse(text: string): ExMotor[] {
       thrust: Number(d.getAttribute('f')),
     })).filter((s) => Number.isFinite(s.time) && Number.isFinite(s.thrust));
     if (samples.length < 2) throw new Error(`Motor ${name}: no thrust data`);
-    const masses = data.map((d) => Number(d.getAttribute('m')));
-    const haveMasses = masses.every((m) => Number.isFinite(m));
+    // getAttribute returns null for an ABSENT attribute, and Number(null) is 0
+    // — which is finite, so an .rse whose <eng-data> points carry no m at all
+    // used to produce an all-zero mass array that was then preferred over the
+    // impulse-proportional fallback. The kernel accepts a zero-mass motor
+    // without complaint, so the flight simply came out optimistic with nothing
+    // said. Treat absent/blank as NaN and require a positive mass throughout,
+    // the way OpenRocket's own RockSimMotorLoader does (it sets
+    // calculateMass=true and rebuilds the curve from initWt/propWt).
+    const masses = data.map((d) => {
+      const raw = d.getAttribute('m');
+      return raw === null || raw.trim() === '' ? NaN : Number(raw);
+    });
+    const haveMasses = masses.length === samples.length
+      && masses.every((m) => Number.isFinite(m) && m > 0);
     return {
       motorId: `ex:${slug(`${mfr}-${name}`)}`,
       designation: name,

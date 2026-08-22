@@ -723,6 +723,73 @@ const MULTI = `<openrocket version="1.10" creator="OpenRocket 24.12"><rocket>
       </stage>
     </subcomponents></rocket></openrocket>`;
 
+describe('.ork round-trip preservation of data the app does not model yet', () => {
+  const withExtras = `<openrocket version="1.10" creator="OpenRocket 24.12"><rocket>
+    <name>Extras</name>
+    <subcomponents><stage><name>Sustainer</name><subcomponents>
+      <nosecone><name>N</name><length>0.1</length><thickness>0.002</thickness>
+        <shape>ogive</shape><aftradius>0.05</aftradius></nosecone>
+      <bodytube><name>B</name><length>0.5</length><thickness>0.001</thickness><radius>0.05</radius>
+        <subcomponents>
+          <trapezoidfinset><name>Fins</name><fincount>4</fincount><thickness>0.004</thickness>
+            <rootchord>0.2</rootchord><tipchord>0.1</tipchord><sweeplength>0.05</sweeplength>
+            <height>0.1</height>
+            <filletradius>0.006</filletradius>
+            <filletmaterial type="bulk" density="1250.0" group="Plastics">Epoxy</filletmaterial>
+          </trapezoidfinset>
+          <centeringring><name>CRs</name><length>0.003</length>
+            <instancecount>3</instancecount><instanceseparation>0.05</instanceseparation>
+          </centeringring>
+          <railbutton><name>Buttons</name><outerdiameter>0.0097</outerdiameter>
+            <instancecount>2</instancecount><instanceseparation>0.4</instanceseparation>
+          </railbutton>
+        </subcomponents>
+      </bodytube>
+    </subcomponents></stage></subcomponents>
+  </rocket></openrocket>`;
+
+  it('keeps fin fillets instead of zeroing them on save', () => {
+    // The exporter used to hard-write <filletradius>0.0</filletradius> and a
+    // Cardboard material, so opening a desktop design with epoxy fillets and
+    // saving DELETED them from the user's own file — tens of grams on an HPR
+    // fin can, with the stability margin moving to match.
+    const r = importOrk(withExtras);
+    const fins = flatten(r.tree.components).find((c) => c.type === 'trapezoidfinset')!;
+    expect(fins['filletRadius']).toBeCloseTo(0.006, 9);
+    expect(fins['filletMaterialName']).toBe('Epoxy');
+
+    const xml = exportOrk({ name: 'Extras', tree: r.tree });
+    expect(xml).toContain('<filletradius>0.006</filletradius>');
+    expect(xml).toContain('Epoxy</filletmaterial>');
+    expect(xml).not.toContain('<filletradius>0.0</filletradius>');
+
+    const back = importOrk(xml);
+    expect(flatten(back.tree.components).find((c) => c.type === 'trapezoidfinset')!['filletRadius'])
+      .toBeCloseTo(0.006, 9);
+  });
+
+  it('keeps instanced rings and rail buttons instead of collapsing them to one', () => {
+    const r = importOrk(withExtras);
+    const ring = flatten(r.tree.components).find((c) => c.type === 'centeringring')!;
+    expect(ring['instanceCount']).toBe(3);
+    expect(ring['instanceSeparation']).toBeCloseTo(0.05, 9);
+
+    const xml = exportOrk({ name: 'Extras', tree: r.tree });
+    const back = importOrk(xml);
+    const ringBack = flatten(back.tree.components).find((c) => c.type === 'centeringring')!;
+    expect(ringBack['instanceCount']).toBe(3);
+    expect(ringBack['instanceSeparation']).toBeCloseTo(0.05, 9);
+    const buttons = flatten(back.tree.components).find((c) => c.type === 'railbutton')!;
+    expect(buttons['instanceCount']).toBe(2);
+  });
+
+  it('tells the user what is preserved-but-not-simulated rather than staying silent', () => {
+    const r = importOrk(withExtras);
+    expect(r.notes.join(' ')).toMatch(/fillets/i);
+    expect(r.notes.join(' ')).toMatch(/multiple instances/i);
+  });
+});
+
 describe('.ork multi-configuration import (Stage A)', () => {
   it('applies the default configuration when no pick is given', () => {
     const result = importOrk(MULTI);

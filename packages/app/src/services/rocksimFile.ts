@@ -114,6 +114,45 @@ export function importRkt(data: ArrayBuffer | string): OrkTreeImportResult {
     }
   };
 
+  /**
+   * Recovery-device material, converted the way the desktop's
+   * RecoveryDeviceHandler.computeDensity does. RockSim stores a chute as a BULK
+   * density plus a <Thickness>; this app (and the kernel) want a SURFACE
+   * density in kg/m². Without the conversion every imported chute silently fell
+   * back to the built-in ripstop-nylon default: TubeFins2.rkt's 6.87 g chute
+   * was billed at 19.6 g, and the error scales with canopy area.
+   *
+   * DensityType (RockSimCommonConstants): 0 = bulk (kg/m³, × thickness),
+   * 1 = surface (kg/m², ÷ 0.1), 2 = line (kg/m, ÷ 0.1 like surface).
+   */
+  const readRecoveryMaterial = (el: Element, node: ComponentNode, kind: 'surface' | 'line') => {
+    const densityType = Math.round(num(el, 'DensityType', 0));
+    const density = num(el, 'Density', 0);
+    if (!(density > 0)) return;
+    let si: number;
+    if (densityType === 0) {
+      // Bulk kg/m³ × thickness (mm → m) = kg/m².
+      const thickness = num(el, 'Thickness', 0) / LEN;
+      if (!(thickness > 0)) return;
+      si = density * thickness;
+    } else {
+      si = density / 0.1;
+    }
+    if (!(si > 0)) return;
+    const mat = text(el, ':scope > Material');
+    if (kind === 'line') {
+      node['lineDensity'] = si;
+      if (mat) node['lineMaterialName'] = mat;
+    } else {
+      node['surfaceDensity'] = si;
+      if (mat) node['surfaceMaterialName'] = mat;
+    }
+    // A bulk density stamped by readCommon is dead weight on these components —
+    // nothing reads node.density for a recovery device, and leaving it invites
+    // the next reader to think it means something.
+    delete node['density'];
+  };
+
   const readPosition = (el: Element, node: ComponentNode) => {
     const mode = Math.round(num(el, 'LocationMode', 0));
     const xb = num(el, 'Xb', 0) / LEN;
@@ -362,6 +401,7 @@ export function importRkt(data: ArrayBuffer | string): OrkTreeImportResult {
         }
         const spill = num(el, 'SpillHoleDia', 0);
         if (spill > 0) n['spillHoleDiameter'] = spill / LEN;
+        readRecoveryMaterial(el, n, 'surface');
         return n;
       }
       case 'Streamer': {
@@ -371,6 +411,7 @@ export function importRkt(data: ArrayBuffer | string): OrkTreeImportResult {
         // 0.75 is RockSim's "auto" default — keep our auto instead of pinning it.
         const cd = num(el, 'DragCoefficient', 0);
         if (cd > 0 && cd !== 0.75) n['cd'] = cd;
+        readRecoveryMaterial(el, n, 'surface');
         return n;
       }
       case 'MassObject': {
@@ -378,6 +419,7 @@ export function importRkt(data: ArrayBuffer | string): OrkTreeImportResult {
         const n = mk(isCord ? 'shockcord' : 'masscomponent');
         if (isCord) {
           n['cordLength'] = num(el, 'Len', 300) / LEN;
+          readRecoveryMaterial(el, n, 'line');
         } else {
           n['mass'] = num(el, 'KnownMass', 0) / MASS;
           n['length'] = num(el, 'Len', 20) / LEN;
@@ -712,9 +754,25 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
       ?? ((hasMassOv ? (node['overrideMass'] as number)
         : override ? info?.mass ?? 0 : 0) * MASS);
     emit(`<KnownMass>${knownMass}</KnownMass>`);
-    emit(`<Density>${nnum(node, 'density', 0)}</Density>`);
-    emit('<DensityType>0</DensityType>');
-    emit(`<Material>${esc(typeof node['materialName'] === 'string' ? (node['materialName'] as string) : 'custom')}</Material>`);
+    // Density is KIND-specific, mirroring the desktop's BasePartDTO. Soft goods
+    // never carry node.density — orkFile stores them as surfaceDensity (chute /
+    // streamer) or lineDensity (shock cord) — so emitting the bulk key made
+    // every recovery device export at Density 0, i.e. weightless in RockSim.
+    // DensityType: 0 bulk, 1 surface, 2 line (RockSimCommonConstants), and the
+    // surface/line factor is the same 0.1 the importer divides by.
+    if (node.type === 'parachute' || node.type === 'streamer') {
+      emit(`<Density>${nnum(node, 'surfaceDensity', 0.067) * 0.1}</Density>`);
+      emit('<DensityType>1</DensityType>');
+      emit(`<Material>${esc(typeof node['surfaceMaterialName'] === 'string' ? (node['surfaceMaterialName'] as string) : 'Ripstop nylon')}</Material>`);
+    } else if (node.type === 'shockcord') {
+      emit(`<Density>${nnum(node, 'lineDensity', 0.0018) * 0.1}</Density>`);
+      emit('<DensityType>2</DensityType>');
+      emit(`<Material>${esc(typeof node['lineMaterialName'] === 'string' ? (node['lineMaterialName'] as string) : 'Elastic cord')}</Material>`);
+    } else {
+      emit(`<Density>${nnum(node, 'density', 0)}</Density>`);
+      emit('<DensityType>0</DensityType>');
+      emit(`<Material>${esc(typeof node['materialName'] === 'string' ? (node['materialName'] as string) : 'custom')}</Material>`);
+    }
     emit(`<Name>${esc(node.name ?? dfltName)}</Name>`);
     const useKnown = opts?.useKnownCG ?? override;
     const knownCG = hasCgOv ? (node['overrideCGX'] as number) * LEN

@@ -377,6 +377,15 @@ function assertFiniteCurve(motor: MotorSpec): void {
         '(propellant mass exceeds loaded mass).',
     );
   }
+  // A motor that weighs nothing for the whole burn is not a motor. The kernel
+  // simulates it happily and returns an optimistic flight, so catch it here:
+  // the real-world source is an .rse whose samples carry no mass attribute.
+  if (motor.masses.length > 0 && motor.masses.every((m) => m === 0)) {
+    throw new Error(
+      `Motor ${motor.designation}: thrust curve carries no mass at any point ` +
+        '(the motor file is missing its per-sample masses).',
+    );
+  }
 }
 
 /** A rocket design held inside the engine, addressed by handle. */

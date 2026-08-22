@@ -431,11 +431,13 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       case 'centeringring': {
         const n = base('centeringring', true);
         n['length'] = num(el, 'length', 0.002);
+        readInstances(el, n);
         return n;
       }
       case 'bulkhead': {
         const n = base('bulkhead', true);
         n['length'] = num(el, 'length', 0.003);
+        readInstances(el, n);
         return n;
       }
       case 'engineblock': {
@@ -449,11 +451,13 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
         n['length'] = num(el, 'length', 0.05);
         n['outerRadius'] = num(el, 'radius', 0.0022);
         n['thickness'] = num(el, 'thickness', 0.0003);
+        readInstances(el, n);
         return n;
       }
       case 'railbutton': {
         const n = base('railbutton', true);
         n['outerDiameter'] = num(el, 'outerdiameter', 0.0097);
+        readInstances(el, n);
         return n;
       }
       // Our extension component (2026-08-05b #18) — the desktop warns about
@@ -605,6 +609,32 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   }
   if (ignored.size) {
     notes.push(`Ignored unsupported components: ${[...ignored].join(', ')}.`);
+  }
+
+  // Honesty notes for the two things this reader now PRESERVES but the
+  // simulation does not yet act on. Saying so beats a silent discrepancy —
+  // both change mass, and mass changes the stability the user is designing to.
+  const allNodes: ComponentNode[] = [];
+  const collect = (ns: ComponentNode[]) => {
+    for (const nd of ns) { allNodes.push(nd); collect(nd.children ?? []); }
+  };
+  collect(components);
+  if (allNodes.some((nd) => typeof nd['filletRadius'] === 'number' && (nd['filletRadius'] as number) > 0)) {
+    notes.push(
+      'Fin fillets are kept in the file but are not yet counted in mass or CG, '
+        + 'so masses read slightly light against desktop OpenRocket.',
+    );
+  }
+  const instanced = allNodes.filter(
+    (nd) => typeof nd['instanceCount'] === 'number' && (nd['instanceCount'] as number) > 1
+      && nd.type !== 'parallelstage' && nd.type !== 'podset');
+  if (instanced.length > 0) {
+    notes.push(
+      `${instanced.length} component${instanced.length === 1 ? '' : 's'} in this design `
+        + `(${[...new Set(instanced.map((nd) => nd.name ?? nd.type))].join(', ')}) `
+        + 'repeat as multiple instances. The file keeps every instance, but the '
+        + 'drawing and the simulation currently show one.',
+    );
   }
 
   // Multi-config notes: the chosen configuration's values were applied by
@@ -912,6 +942,23 @@ export function exportOrk({ name, tree, motors, motor, mountId, launch, configs,
     }
   };
 
+  /**
+   * Writes back whatever fillet the file came in with (see readFillet). The old
+   * hard-coded 0.0 + Cardboard silently deleted a designer's epoxy fillets from
+   * their own .ork on every save; these defaults are the same literals, used
+   * only when the design genuinely has no fillet.
+   */
+  const filletXml = (depth: number, node: ComponentNode) => {
+    emit(depth, `<filletradius>${n(node, 'filletRadius', 0)}</filletradius>`);
+    const density = typeof node['filletDensity'] === 'number' ? node['filletDensity'] as number : 680;
+    const group = typeof node['filletMaterialGroup'] === 'string'
+      ? node['filletMaterialGroup'] as string : 'PaperProducts';
+    const matName = typeof node['filletMaterialName'] === 'string'
+      ? node['filletMaterialName'] as string : 'Cardboard';
+    emit(depth, `<filletmaterial type="bulk" density="${density}" group="${escapeXml(group)}">`
+      + `${escapeXml(matName)}</filletmaterial>`);
+  };
+
   const finishXml = (depth: number, node: ComponentNode) => {
     // finish (like shape/crosssection/cluster below) is file-sourced free
     // text on import — escape it or a crafted file breaks the re-export.
@@ -1099,8 +1146,7 @@ export function exportOrk({ name, tree, motors, motor, mountId, launch, configs,
         airfoilXml(depth + 1, node);
         emit(depth + 1, `<cant>${(n(node, 'cant', 0) * 180) / Math.PI}</cant>`);
         finTabsXml(depth + 1, node);
-        emit(depth + 1, '<filletradius>0.0</filletradius>');
-        emit(depth + 1, '<filletmaterial type="bulk" density="680.0" group="PaperProducts">Cardboard</filletmaterial>');
+        filletXml(depth + 1, node);
         emit(depth + 1, `<rootchord>${n(node, 'rootChord', 0.05)}</rootchord>`);
         emit(depth + 1, `<tipchord>${n(node, 'tipChord', 0.03)}</tipchord>`);
         emit(depth + 1, `<sweeplength>${n(node, 'sweep', 0.02)}</sweeplength>`);
@@ -1124,8 +1170,7 @@ export function exportOrk({ name, tree, motors, motor, mountId, launch, configs,
         airfoilXml(depth + 1, node);
         emit(depth + 1, `<cant>${(n(node, 'cant', 0) * 180) / Math.PI}</cant>`);
         finTabsXml(depth + 1, node);
-        emit(depth + 1, '<filletradius>0.0</filletradius>');
-        emit(depth + 1, '<filletmaterial type="bulk" density="680.0" group="PaperProducts">Cardboard</filletmaterial>');
+        filletXml(depth + 1, node);
         emit(depth + 1, '<finpoints>');
         const ffPts = (node['points'] as [number, number][] | undefined) ?? [];
         for (const [px, py] of ffPts) {
@@ -1151,8 +1196,7 @@ export function exportOrk({ name, tree, motors, motor, mountId, launch, configs,
         airfoilXml(depth + 1, node);
         emit(depth + 1, `<cant>${(n(node, 'cant', 0) * 180) / Math.PI}</cant>`);
         finTabsXml(depth + 1, node);
-        emit(depth + 1, '<filletradius>0.0</filletradius>');
-        emit(depth + 1, '<filletmaterial type="bulk" density="680.0" group="PaperProducts">Cardboard</filletmaterial>');
+        filletXml(depth + 1, node);
         emit(depth + 1, `<rootchord>${n(node, 'rootChord', 0.05)}</rootchord>`);
         emit(depth + 1, `<height>${n(node, 'height', 0.03)}</height>`);
         close('ellipticalfinset');
@@ -1217,8 +1261,8 @@ export function exportOrk({ name, tree, motors, motor, mountId, launch, configs,
       case 'bulkhead': {
         open(t);
         header(depth + 1, node, t === 'bulkhead' ? 'Bulkhead' : 'Centering Ring');
-        emit(depth + 1, '<instancecount>1</instancecount>');
-        emit(depth + 1, '<instanceseparation>0.0</instanceseparation>');
+        emit(depth + 1, `<instancecount>${n(node, 'instanceCount', 1)}</instancecount>`);
+        emit(depth + 1, `<instanceseparation>${n(node, 'instanceSeparation', 0)}</instanceseparation>`);
         position(depth + 1, node, 'bottom');
         material(depth + 1, node);
         emit(depth + 1, `<length>${n(node, 'length', 0.002)}</length>`);
@@ -1260,8 +1304,8 @@ export function exportOrk({ name, tree, motors, motor, mountId, launch, configs,
       case 'launchlug': {
         open('launchlug');
         header(depth + 1, node, 'Launch Lug');
-        emit(depth + 1, '<instancecount>1</instancecount>');
-        emit(depth + 1, '<instanceseparation>0.0</instanceseparation>');
+        emit(depth + 1, `<instancecount>${n(node, 'instanceCount', 1)}</instancecount>`);
+        emit(depth + 1, `<instanceseparation>${n(node, 'instanceSeparation', 0)}</instanceseparation>`);
         emit(depth + 1, '<angleoffset method="relative">180.0</angleoffset>');
         emit(depth + 1, '<radialdirection>180.0</radialdirection>');
         position(depth + 1, node, 'middle');
@@ -1276,8 +1320,8 @@ export function exportOrk({ name, tree, motors, motor, mountId, launch, configs,
       case 'railbutton': {
         open('railbutton');
         header(depth + 1, node, 'Rail Button');
-        emit(depth + 1, '<instancecount>1</instancecount>');
-        emit(depth + 1, '<instanceseparation>0.0</instanceseparation>');
+        emit(depth + 1, `<instancecount>${n(node, 'instanceCount', 1)}</instancecount>`);
+        emit(depth + 1, `<instanceseparation>${n(node, 'instanceSeparation', 0)}</instanceseparation>`);
         emit(depth + 1, '<angleoffset method="relative">180.0</angleoffset>');
         position(depth + 1, node, 'middle');
         finishXml(depth + 1, node);
@@ -1572,6 +1616,24 @@ function readSoftMaterial(el: Element, node: ComponentNode, kind: 'surface' | 'l
  * desktop loader warns on unknown elements and continues, so files stay
  * openable there). Absent tags leave the classic cross-section behavior.
  */
+/**
+ * <instancecount>/<instanceseparation>, PASS-THROUGH only.
+ *
+ * CenteringRing and Bulkhead are LineInstanceable and LaunchLug/RailButton are
+ * Instanceable, so OpenRocket writes these for all four. Neither was read, and
+ * export hard-wrote 1 / 0.0 — so a motor mount declared as one CenteringRing
+ * with instancecount 3 came back from a save as a single ring, permanently
+ * losing two-thirds of that structural mass from the user's own file. The app
+ * still simulates and draws ONE; the file keeps all N, and the import note
+ * says so rather than letting the difference stay silent.
+ */
+function readInstances(el: Element, node: ComponentNode): void {
+  const count = Math.round(num(el, 'instancecount', 1));
+  if (count > 1) node['instanceCount'] = count;
+  const sep = num(el, 'instanceseparation', 0);
+  if (sep !== 0) node['instanceSeparation'] = sep;
+}
+
 function readAirfoil(el: Element, node: ComponentNode): void {
   const section = text(el, ':scope > airfoilsection');
   if (section) node['airfoilSection'] = section;
@@ -1581,6 +1643,32 @@ function readAirfoil(el: Element, node: ComponentNode): void {
   if (ted > 0) node['airfoilTeDiamond'] = ted;
   const ler = num(el, 'finleradius', 0);
   if (ler > 0) node['finLeRadius'] = ler;
+  readFillet(el, node);
+}
+
+/**
+ * Fin fillets, PASS-THROUGH only.
+ *
+ * OpenRocket's FinSetSaver writes <filletradius>/<filletmaterial> for every fin
+ * set and counts the fillet volume toward fin mass. This app's kernel bridge
+ * does not model fillets yet — but the exporter used to hard-write
+ * `<filletradius>0.0</filletradius>` and a Cardboard material, so opening a
+ * desktop design with 6 mm epoxy fillets and saving it DELETED them from the
+ * user's own file. Preserving the values costs nothing and stops the
+ * destruction; the mass still is not counted, which the import note says.
+ */
+function readFillet(el: Element, node: ComponentNode): void {
+  const r = num(el, 'filletradius', 0);
+  if (!(r > 0)) return;
+  node['filletRadius'] = r;
+  const m = el.querySelector(':scope > filletmaterial');
+  if (!m) return;
+  const d = Number(m.getAttribute('density'));
+  if (Number.isFinite(d) && d > 0) node['filletDensity'] = d;
+  const group = m.getAttribute('group');
+  if (group) node['filletMaterialGroup'] = group;
+  const name = (m.textContent ?? '').trim();
+  if (name) node['filletMaterialName'] = name;
 }
 
 /** Fin-set rotation about the body axis (.ork stores DEGREES; we keep rad). */

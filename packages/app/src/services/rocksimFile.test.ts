@@ -111,6 +111,43 @@ describe('RockSim import — desktop fixture files', () => {
     expect(Number.isFinite(info.cp)).toBe(true);
   }, 60000);
 
+  it("converts a chute's RockSim bulk density to a surface density that matches its CalcMass", () => {
+    // RockSim stores a canopy as BULK density + Thickness; this app and the
+    // kernel want kg/m². Without the conversion (the desktop does it in
+    // RecoveryDeviceHandler.computeDensity) the chute silently fell back to the
+    // built-in ripstop default and was billed at 19.55 g — 2.9x the truth, and
+    // the error grows with canopy area.
+    const r = importRkt(fixture('TubeFins2.rkt'));
+    const chute = flatten(r.tree.components).find((c) => c.type === 'parachute')!;
+    expect(chute['surfaceDensity']).toBeDefined();
+    expect(chute['surfaceMaterialName']).toBe('Polyethylene LDPE');
+    // The file's own <CalcMass> is 6.87 g.
+    const area = Math.PI * ((chute['diameter'] as number) / 2) ** 2;
+    const massG = (chute['surfaceDensity'] as number) * area * 1000;
+    expect(massG).toBeGreaterThan(6.5);
+    expect(massG).toBeLessThan(7.2);
+    // The dead bulk density must not linger on a recovery device.
+    expect(chute['density']).toBeUndefined();
+  });
+
+  it('round-trips a chute and shock cord with their real mass, not Density 0', () => {
+    // common() emitted one bulk <Density> for everything, but soft goods carry
+    // surfaceDensity / lineDensity — so every exported chute, streamer and
+    // shock cord landed in RockSim weighing nothing.
+    const r = importRkt(fixture('TubeFins2.rkt'));
+    const xml = exportRkt({ name: 'RT', tree: r.tree });
+    const chuteBlock = xml.split('<Parachute>')[1]!.split('</Parachute>')[0]!;
+    expect(chuteBlock).toContain('<DensityType>1</DensityType>');
+    const density = Number(/<Density>([^<]*)<\/Density>/.exec(chuteBlock)![1]);
+    expect(density).toBeGreaterThan(0);
+
+    // ...and it survives a full round trip back into the app.
+    const back = importRkt(xml);
+    const chute = flatten(back.tree.components).find((c) => c.type === 'parachute')!;
+    const orig = flatten(r.tree.components).find((c) => c.type === 'parachute')!;
+    expect(chute['surfaceDensity']).toBeCloseTo(orig['surfaceDensity'] as number, 9);
+  });
+
   it('imports tube fins and the C6 motor of TubeFins2', () => {
     const r = importRkt(fixture('TubeFins2.rkt'));
     const all = flatten(r.tree.components);
