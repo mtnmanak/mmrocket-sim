@@ -9,7 +9,6 @@
  * (revolveProfile / extrudePolygon) that guarantee it by construction, and
  * isWatertight()/solidVolume() exist so tests can prove it.
  */
-import { ShapeUtils, Vector2 } from 'three';
 import type { ComponentNode } from '@online-openrocket/engine';
 import { outerProfile } from './shapeProfile.js';
 import { tubeFinRadius } from './tubefins.js';
@@ -161,7 +160,9 @@ export function revolveProfile(profile: Array<[number, number]>, segments = 96):
  * orientation-checked individually so the triangulator's output order
  * cannot flip a normal.
  */
-export function extrudePolygon(points: Array<[number, number]>, thickness: number): SolidMesh {
+export async function extrudePolygon(
+  points: Array<[number, number]>, thickness: number,
+): Promise<SolidMesh> {
   const outline = collapseLoop(points.map(([x, y]) => [x, y] as [number, number]));
   if (outline.length < 3 || !(thickness > 0)) return emptyMesh();
   if (signedArea(outline) < 0) outline.reverse();
@@ -179,7 +180,8 @@ export function extrudePolygon(points: Array<[number, number]>, thickness: numbe
     pos[k + 1] = y;
     pos[k + 2] = -h;
   }
-  const faces = ShapeUtils.triangulateShape(outline.map(([x, y]) => new Vector2(x, y)), []);
+  const { triangulateOutline } = await import('./triangulate.js');
+  const faces = triangulateOutline(outline);
   const tris: number[] = [];
   for (const f of faces) {
     let a = f[0]!;
@@ -515,7 +517,9 @@ export function componentLoop(
 }
 
 /** Printable solid for one component (one fin / one tube fin per set), or null if unsupported. */
-export function componentSolid(node: ComponentNode, ctx: SolidContext): { mesh: SolidMesh; label: string } | null {
+export async function componentSolid(
+  node: ComponentNode, ctx: SolidContext,
+): Promise<{ mesh: SolidMesh; label: string } | null> {
   const revolved = componentLoop(node, ctx);
   if (revolved) return { mesh: revolveProfile(revolved.loop), label: revolved.label };
   switch (node.type) {
@@ -524,7 +528,7 @@ export function componentSolid(node: ComponentNode, ctx: SolidContext): { mesh: 
     case 'freeformfinset': {
       const outline = finCutOutline(node);
       if (!outline) return null;
-      const mesh = extrudePolygon(outline, num(node, 'thickness', 0.003));
+      const mesh = await extrudePolygon(outline, num(node, 'thickness', 0.003));
       const label = node.type === 'trapezoidfinset' ? 'Trapezoidal fin'
         : node.type === 'ellipticalfinset' ? 'Elliptical fin' : 'Freeform fin';
       return { mesh, label };

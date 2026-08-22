@@ -10,7 +10,7 @@
  * 381 mm printed.
  */
 import { strFromU8, unzipSync } from 'fflate';
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
 import { printerFromPreset, toPrinterVolume } from '../prefs/printers.js';
 import { splitComponent, usableBox, type PrinterVolume } from '../tree/splitSolid.js';
@@ -186,8 +186,14 @@ describe('printOffer — refuse rather than mislead', () => {
 
 describe('the zip', () => {
   const split = splitComponent(nose3in(), {}, H2D)!;
-  const pack = buildPrintPack(split, 'Nose Cone', H2D, 'Bambu H2D');
-  const entries = unzipSync(pack.bytes);
+  // buildPrintPack is async: it pulls stlExport (and with it three.js) on
+  // demand so the design screen does not carry the 3D library.
+  let pack: Awaited<ReturnType<typeof buildPrintPack>>;
+  let entries: Record<string, Uint8Array>;
+  beforeAll(async () => {
+    pack = await buildPrintPack(split, 'Nose Cone', H2D, 'Bambu H2D');
+    entries = unzipSync(pack.bytes);
+  });
 
   it('is named for the split and holds one STL per segment plus the README', () => {
     expect(pack.filename).toBe('Nose_Cone-print-2-pieces.zip');

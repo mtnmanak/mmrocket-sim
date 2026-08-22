@@ -5,7 +5,6 @@ import {
   DEFAULT_CLEARANCE, DEFAULT_MARGIN, revolvedVolume, splitComponent,
   type ComponentSplit, type PrinterVolume,
 } from '../tree/splitSolid.js';
-import { solidToStl } from './stlExport.js';
 
 /**
  * The 3D-print export offer: what the 🖨 button says, what it hands you, and
@@ -370,9 +369,17 @@ export interface PrintPack {
  * One zip: N segment STLs plus the README. Never called for a part that fits —
  * a one-entry zip would be a worse version of the file the user asked for.
  */
-export function buildPrintPack(
+/**
+ * ASYNC, and stlExport is imported here rather than at module scope, because
+ * stlExport pulls the whole three.js namespace. printOffer() — which this file
+ * also exports and PropertyPanel calls on every render — must stay reachable
+ * without dragging 205 KB of 3D library into the initial bundle. Only the
+ * actual click on "STL for printing" pays for it.
+ */
+export async function buildPrintPack(
   split: ComponentSplit, partName: string, printer: PrinterVolume, printerLabel = 'printer',
-): PrintPack {
+): Promise<PrintPack> {
+  const { solidToStl } = await import('./stlExport.js');
   const n = split.plan.segments;
   const base = safeName(partName);
   const files: Record<string, Uint8Array> = {};

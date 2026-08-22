@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   OrkRocket,
   resetEngine,
@@ -27,7 +27,13 @@ import { NumField } from './components/NumField.js';
 import { PropertyPanel } from './components/PropertyPanel.js';
 import { SimHistory, SimRunDetails } from './components/SimResults.js';
 import { DesignStats, FlightStats, StatsChip, stabilityGlyphClass } from './components/StatTiles.js';
-import { Rocket3D } from './components/Rocket3D.js';
+/**
+ * three.js + @react-three is 205 KB gzipped — about a quarter of the initial
+ * bundle — for a view that is NOT the default tab and exports nobody runs on
+ * first load. Lazy here, and dynamic import() in the export handlers below, so
+ * the design screen (and the launch field's cell signal) does not pay for it.
+ */
+const Rocket3D = lazy(() => import('./components/Rocket3D.js').then((m) => ({ default: m.Rocket3D })));
 import { TreeSchematic } from './components/TreeSchematic.js';
 import { AftView } from './components/AftView.js';
 import { BUILT_IN_MOTORS } from './motors.js';
@@ -42,10 +48,6 @@ import { delayOptions, fetchMotorSpec } from './services/thrustcurve.js';
 import { exportOrk, importOrk, type OrkDeployOverride, type OrkExportConfig, type OrkExportMotor, type OrkImportResult, type OrkMotorRef, type OrkTreeImportResult } from './services/orkFile.js';
 import { decodeShareFragment, encodeShareFragment, hasSharePayload, MAX_FRAGMENT_CHARS } from './services/shareLink.js';
 import { exportRkt, importRkt } from './services/rocksimFile.js';
-import { rocketToObj } from './services/objExport.js';
-import { rocketToGlb } from './services/gltfExport.js';
-import { piecesToStl } from './services/stlExport.js';
-import { buildPieces } from './components/Rocket3D.js';
 import { componentCsv, componentTable } from './services/componentTable.js';
 import { tableToXlsx } from './services/xlsx.js';
 import { exportCdx1, importCdx1 } from './services/rasaeroFile.js';
@@ -777,8 +779,9 @@ export function App() {
     }
   };
 
-  const onSaveObj = () => {
+  const onSaveObj = async () => {
     try {
+      const { rocketToObj } = await import('./services/objExport.js');
       download(rocketToObj(tree, tree.name ?? 'Rocket'), 'obj');
     } catch (e) {
       setFileNote(`OBJ export failed: ${e instanceof Error ? e.message : String(e)}`);
@@ -787,14 +790,19 @@ export function App() {
 
   const onSaveGlb = async () => {
     try {
+      const { rocketToGlb } = await import('./services/gltfExport.js');
       download(new Uint8Array(await rocketToGlb(tree, tree.name ?? 'Rocket')), 'glb');
     } catch (e) {
       setFileNote(`glTF export failed: ${e instanceof Error ? e.message : String(e)}`);
     }
   };
 
-  const onSaveStl = () => {
+  const onSaveStl = async () => {
     try {
+      const [{ buildPieces }, { piecesToStl }] = await Promise.all([
+        import('./components/Rocket3D.js'),
+        import('./services/stlExport.js'),
+      ]);
       const { pieces } = buildPieces(tree);
       download(piecesToStl(pieces, tree.name ?? 'Rocket'), 'stl');
     } catch (e) {
@@ -1755,7 +1763,11 @@ export function App() {
                     />
                   )
                   : view === '3d'
-                  ? <Rocket3D tree={tree} info={built?.info ?? null} motors={motorDims} exportData={viewExportData} />
+                  ? (
+                    <Suspense fallback={<div className="hero-loading">Loading 3D view…</div>}>
+                      <Rocket3D tree={tree} info={built?.info ?? null} motors={motorDims} exportData={viewExportData} />
+                    </Suspense>
+                  )
                   : <AftView tree={tree} motors={motorDims} />}
               </div>
               {built && <StatsChip info={built.info} />}

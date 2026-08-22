@@ -9,7 +9,6 @@ import { anchorStarts, axialLength, offsetForStart, snapStart, startFromPosition
 import { tubeFinMaxCount, tubeFinMaxRadius, tubeFinRadius } from '../tree/tubefins.js';
 import { shapeParamDefault, shapeParamMax, shapeUsesParameter } from '../tree/shapeProfile.js';
 import { componentSolid, type SolidContext } from '../tree/solidMesh.js';
-import { solidToStl, STL_MIME } from '../services/stlExport.js';
 import { componentDxf, DXF_CUTTABLE, DXF_MIME } from '../services/dxfExport.js';
 import { buildPrintPack, printOffer, SINGLE_BUTTON, ZIP_MIME } from '../services/printPack.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
@@ -383,7 +382,7 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll, onAutoAli
             title={offer?.kind === 'split'
               ? 'This part is taller than your printer, so it exports as a ZIP: one STL per segment plus a README with the print orientation, the glue, and the shrinkage rule that decides whether the halves fit each other. Each cut adds a tapered spigot and a flat land — the land sets the assembled length, so nothing is lost at the joint.'
               : 'Watertight solid STL in millimetres, ready to slice. Hollow noses/transitions include shoulders and end caps at your wall thickness; fin sets export ONE fin as a flat prism with its tab (airfoil/cross-section shaping is left to sanding, cant not baked); rings, bulkheads and couplers take their diameters from the parent tube. Verify fit before a long print.'}
-            onClick={() => {
+            onClick={async () => {
               const a = document.createElement('a');
               // Split path: a zip of segments. Everything else — no printer, a
               // part that fits, a part that cannot be split — takes the single
@@ -393,12 +392,15 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll, onAutoAli
                 const vol = toPrinterVolume(printer);
                 if (!vol) return;
                 const name = node.name ?? offer.split.label;
-                const pack = buildPrintPack(offer.split, name, vol, printerName(printer));
+                const pack = await buildPrintPack(offer.split, name, vol, printerName(printer));
                 a.href = URL.createObjectURL(new Blob([pack.bytes as BlobPart], { type: ZIP_MIME }));
                 a.download = pack.filename;
               } else {
-                const solid = componentSolid(node, solidContextFor(parent));
+                const solid = await componentSolid(node, solidContextFor(parent));
                 if (!solid) return;
+                // Loaded on click: stlExport imports the whole three.js
+                // namespace, and this panel renders on the design screen.
+                const { solidToStl, STL_MIME } = await import('../services/stlExport.js');
                 const stl = solidToStl(solid.mesh, node.name ?? solid.label);
                 a.href = URL.createObjectURL(new Blob([stl as BlobPart], { type: STL_MIME }));
                 a.download = `${(node.name ?? solid.label).replace(/[^\w-]+/g, '_')}-print.stl`;
