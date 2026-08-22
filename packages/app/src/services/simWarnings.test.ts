@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatWarning, warningKeysCell, WARNING_LABEL } from './simWarnings.js';
+import { formatWarning, formatWarningText, warningKeysCell, WARNING_LABEL } from './simWarnings.js';
 
 describe('formatWarning', () => {
   it('maps a known key to its plain-language label (no detail when the message is bare)', () => {
@@ -81,5 +81,25 @@ describe('warningKeysCell', () => {
     ])).toBe('NO_RECOVERY_DEVICE; LargeAOA');
     expect(warningKeysCell(undefined)).toBe('');
     expect(warningKeysCell([])).toBe('');
+  });
+});
+
+describe('formatWarningText (static warnings from staticInfo)', () => {
+  it('turns the DebugTranslator token into the app\'s own label', () => {
+    expect(formatWarningText('[Warning.DISCONTINUITY]:  "Nose cone", "Body tube"'))
+      .toBe(`${WARNING_LABEL['DISCONTINUITY']} — : "Nose cone", "Body tube"`);
+  });
+
+  it('uses the label alone when the message carries nothing else', () => {
+    expect(formatWarningText('[Warning.DISCONTINUITY]')).toBe(WARNING_LABEL['DISCONTINUITY']!);
+  });
+
+  it('falls back to the stripped text for a key it does not know', () => {
+    expect(formatWarningText('[Warning.SOMETHING_NEW] the kernel said this'))
+      .toBe('the kernel said this');
+  });
+
+  it('leaves an already-plain string alone', () => {
+    expect(formatWarningText('Just a sentence.')).toBe('Just a sentence.');
   });
 });

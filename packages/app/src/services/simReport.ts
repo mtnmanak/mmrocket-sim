@@ -2,6 +2,7 @@ import type { EngineWarning, FlightEvent, FlightResult, FlightSeries, MotorSpec,
 import { G0 } from '@online-openrocket/engine';
 import type { LaunchConditions } from '../components/LaunchPanel.js';
 import { displayDesignation } from './motorDb.js';
+import { formatWarningText } from './simWarnings.js';
 
 /**
  * Post-simulation report: every attribute the owner's flight-day workflow needs,
@@ -470,7 +471,10 @@ export function buildSimRun(input: {
     : launch.windAverage / rodExitVelocity < 0.25 ? 'moderate'
     : 'high';
 
-  const comments: string[] = [...info.warningTexts];
+  // Format the kernel's static warnings into the app's voice here too: this
+  // blob becomes the launch report AND the Comments column of the saved-runs
+  // CSV/XLSX, where a raw "[Warning.DISCONTINUITY]" token is just noise.
+  const comments: string[] = info.warningTexts.map(formatWarningText);
   // Supersonic flight on the classic model: the flyer should know a validated
   // model exists — and that switching changes the model for the WHOLE flight.
   if ((aeroModel ?? 'classic') === 'classic' && summary.maxMachNumber > 0.9) {

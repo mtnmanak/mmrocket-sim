@@ -45,6 +45,14 @@ export {
   type StaticInfo,
 } from './orkEngine.js';
 
+/**
+ * Kernel console output. OpenRocket's core logs at INFO throughout a flight and
+ * TeaVM wires that to console.error, so it is captured into a ring buffer
+ * instead of the console — read it with kernelLog(), or setKernelLogEcho(true)
+ * to watch it live while debugging.
+ */
+export { clearKernelLog, kernelLog, setKernelLogEcho } from './kernelLogSink.js';
+
 export const ENGINE_VERSION = '0.0.1';
 
 /** Standard gravitational acceleration (m/s^2). */

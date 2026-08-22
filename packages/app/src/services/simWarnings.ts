@@ -95,6 +95,23 @@ export function formatWarning(w: EngineWarning): FormattedWarning {
   return { label, detail: detail || null, high: isHighPriority(w) };
 }
 
+/**
+ * Same treatment as formatWarning, for the STATIC warnings that arrive as bare
+ * strings (staticInfo().warningTexts) rather than EngineWarning objects. The
+ * kernel's l10n shim is a DebugTranslator, so those read
+ * `[Warning.DISCONTINUITY]:  "Nose cone", "Body tube"` — a debug token where a
+ * prepared sentence already existed in WARNING_LABEL. Format at the DISPLAY
+ * points only: App.tsx's build memo filters on the raw text, so mapping
+ * upstream would break the camera-shroud suppression.
+ */
+export function formatWarningText(text: string): string {
+  const m = /^\[Warning\.([^\]]+)\]/.exec(text);
+  const label = m?.[1] !== undefined ? WARNING_LABEL[m[1]] : undefined;
+  const rest = stripBrackets(text);
+  if (label === undefined) return rest || text;
+  return rest ? `${label} — ${rest}` : label;
+}
+
 /** Compact machine-readable cell for the run-history CSV/XLSX ("key; key"). */
 export function warningKeysCell(warnings: EngineWarning[] | undefined): string {
   return (warnings ?? []).map((w) => w.key).join('; ');

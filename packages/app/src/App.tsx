@@ -39,7 +39,7 @@ import { UnitChip } from './components/UnitChip.js';
 import { fmtSi, niceStep, siToUi, uiToSi } from './prefs/units.js';
 import { classLabel, diameterClass, displayDesignation, findDbMotor, isHighPower } from './services/motorDb.js';
 import { delayOptions, fetchMotorSpec } from './services/thrustcurve.js';
-import { exportOrk, importOrk, type OrkExportConfig, type OrkExportMotor, type OrkImportResult, type OrkMotorRef, type OrkTreeImportResult } from './services/orkFile.js';
+import { exportOrk, importOrk, type OrkDeployOverride, type OrkExportConfig, type OrkExportMotor, type OrkImportResult, type OrkMotorRef, type OrkTreeImportResult } from './services/orkFile.js';
 import { decodeShareFragment, encodeShareFragment, hasSharePayload, MAX_FRAGMENT_CHARS } from './services/shareLink.js';
 import { exportRkt, importRkt } from './services/rocksimFile.js';
 import { rocketToObj } from './services/objExport.js';
@@ -51,7 +51,7 @@ import { tableToXlsx } from './services/xlsx.js';
 import { exportCdx1, importCdx1 } from './services/rasaeroFile.js';
 import { loadSession, onSessionSaveStateChange, saveSessionDebounced, sessionSaveFailing } from './services/session.js';
 import { buildSimRun, recommendDelay, type MotorMeta, type SimRun } from './services/simReport.js';
-import { formatWarning } from './services/simWarnings.js';
+import { formatWarning, formatWarningText } from './services/simWarnings.js';
 import { addRun, loadRuns, persistFailed } from './services/simStore.js';
 import { APP_VERSION } from './version.js';
 import {
@@ -91,6 +91,12 @@ export interface SavedConfig {
   motors: Record<string, MountMotor>;
   /** Designations that couldn't be matched at import — reported when applied. */
   unmatched?: string[];
+  /**
+   * This configuration's recovery-deployment settings as they were in the file,
+   * keyed by recovery-device node id. Carried untouched so saving while another
+   * configuration is open cannot rewrite this one's chute deployment.
+   */
+  deployments?: Record<string, OrkDeployOverride>;
 }
 import './styles.css';
 
@@ -676,6 +682,7 @@ export function App() {
     id: c.id, name: c.name, isDefault: c.isDefault,
     motors: Object.fromEntries(
       Object.entries(c.motors).map(([id, mm]) => [id, toExportMotor(mm)])),
+    ...(c.deployments ? { deployments: c.deployments } : {}),
   }));
 
   const download = (content: string | Uint8Array, ext: string, suffix = '') => {
@@ -887,6 +894,8 @@ export function App() {
       nextConfigs.push({
         id: cfg.id, name: cfg.name, isDefault: cfg.isDefault, motors: cfgMotors,
         ...(unmatched.length > 0 ? { unmatched } : {}),
+        ...(cfg.deployments && Object.keys(cfg.deployments).length > 0
+          ? { deployments: cfg.deployments } : {}),
       });
     }
     const importedTree = normalizeTree(imported.tree);
@@ -1763,7 +1772,7 @@ export function App() {
             </div>
             {built && built.info.warningTexts.length > 0 && (
               <div className="file-note" role="alert">
-                {built.info.warningTexts.join('\n')}
+                {built.info.warningTexts.map(formatWarningText).join('\n')}
               </div>
             )}
           </div>
