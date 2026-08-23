@@ -16,9 +16,14 @@ npm-debug.log*
 .env.*
 !.env.example
 
-# Claude Code local overrides: machine-specific, and this repo is PUBLIC.
-# Do not rely on a personal global gitignore for this — only one machine has it.
-.claude/settings.local.json
+# Claude Code configuration and project instructions. PURGED from git history on
+# 2026-08-23: machine paths, usernames and working preferences, none of which is
+# GPL corresponding source and none of which the public needs. Build
+# instructions and the engine invariants live in README.md instead.
+# NOTE: ignored files do NOT sync between the desktop and the laptop — the
+# canonical copies are in Dropbox (online_open_rocket_reference/).
+.claude/
+CLAUDE.md
 
 # Editor/OS noise
 .DS_Store
