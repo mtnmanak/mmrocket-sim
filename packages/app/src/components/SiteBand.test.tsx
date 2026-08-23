@@ -112,7 +112,7 @@ describe('SiteBand — the rendered band', () => {
   });
 
   it('sends footer GitHub links to a new tab and site links to _top', () => {
-    // chrome-spec MUST 6 says `_top`; docs/feedback-tracker.md records the owner's
+    // chrome-spec MUST 6 says `_top`; a standing project ruling records the
     // standing ruling that GitHub links open in a new tab, "so the user is not
     // completely taken away from the site". The live contract's footer really
     // does carry the tracker's /issues link, so a `_top` there would navigate

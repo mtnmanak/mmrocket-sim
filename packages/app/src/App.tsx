@@ -137,7 +137,7 @@ const GENERIC_ROCKET_NAMES = new Set([
 ]);
 
 // Public feedback tracker — ONE tracker for the site and all tools
-// (adjudicated 2026-08-11; docs/feedback-tracker.md in this repo is the record).
+// (adjudicated 2026-08-11).
 // Standing rulings: GitHub links open a NEW TAB; mailto does not; plain
 // browse links go to /issues, /new only where the user already has a
 // concrete bug (these buttons are exactly that context).
@@ -152,7 +152,7 @@ const FEEDBACK_EMAIL = 'admin@mountainmanrockets.com';
 // parameters ONLY for `input` and `textarea` types, and `tool` is a required
 // DROPDOWN — passing it does nothing at all, silently. `version` is a plain
 // input, so that one really does arrive filled in. See the prefill table in
-// docs/feedback-tracker.md before adding anything here.
+// the feedback-tracker ruling before adding anything here.
 const feedbackIssueUrl = (template: string) =>
   `${FEEDBACK_REPO}/issues/new?template=${template}`;
 

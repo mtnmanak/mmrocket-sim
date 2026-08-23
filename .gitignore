@@ -16,6 +16,10 @@ npm-debug.log*
 .env.*
 !.env.example
 
+# Per-machine path to the OpenRocket reference checkout (personal; the
+# committed .example shows the format).
+.openrocket-src
+
 # Claude Code configuration and project instructions. PURGED from git history on
 # 2026-08-23: machine paths, usernames and working preferences, none of which is
 # GPL corresponding source and none of which the public needs. Build

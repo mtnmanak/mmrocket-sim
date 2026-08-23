@@ -72,7 +72,7 @@ teavm.js {
     optimization = org.teavm.gradle.api.OptimizationLevel.NONE
     // Class-hierarchy-based analysis: TeaVM's precise flow analysis under-links
     // virtual-method impls in this codebase (methods reached via map-key or
-    // recursive-walk dispatch got pruned; see docs/phase0-findings.md P1.2 notes).
+    // recursive-walk dispatch got pruned).
     fastGlobalAnalysis = true
     // NOTE: strict = true is NOT usable — it breaks util.ArrayList.clone with
     // ClassCastException. JS Math transcendentals (pow/log) differ from Java's

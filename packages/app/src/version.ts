@@ -640,7 +640,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     title: 'Phase 3 begins: deployable, installable, offline-capable',
     items: [
       'The app is now a PWA: the whole app shell — physics engine, motor database, presets — precaches in the browser, so once visited it works fully offline (remote launch sites have no internet). Previously-loaded thrust curves already persisted offline; now the app itself does too. Installable from the browser menu, with a proper app icon.',
-      'Ready-to-upload deployment package: `npm run package` builds and zips the site for manual upload to any web host (docs/deployment.md has the walkthrough, cache-header tips, and a paste-in WordPress iframe embed snippet).',
+      'Ready-to-upload deployment package: `npm run package` builds and zips the site for manual upload to any web host (with cache-header tips and a paste-in iframe embed snippet).',
       'A dormant GitHub Pages deploy workflow is included for one-click hosting when the repository goes public.',
       'The header now links to the source code (GPL v3+ obligation for distributed builds).',
     ],

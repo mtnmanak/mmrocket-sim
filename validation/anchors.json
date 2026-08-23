@@ -1,6 +1,6 @@
 {
   "_readme": [
-    "Machine-readable validation anchors, derived from docs/research/validation-anchors-2026-08-03.md (see it for provenance, tolerances, and caveats).",
+    "Machine-readable validation anchors. Provenance, tolerances and caveats for each dataset are recorded in the project's research notes; every anchor cites its source report below.",
     "Scored by validation/score.mjs. Each series: quantity is one of cd | cpPctL | cpOverL | cnaPerRad | cnaPerDeg.",
     "cd series carry base: 'included' (compare kernel total CD) or 'excluded' (compare kernel total minus base CD) to match each dataset's accounting.",
     "tol is absolute in the anchor's unit; relTol is relative (fraction of the anchor value); gate=false series are informational (reported, never counted).",

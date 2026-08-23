@@ -17,23 +17,20 @@ import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { requireOpenrocketSrc } from '../../scripts/openrocket-src.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const engineRoot = resolve(here, '..');
 
-// The reference source lives in Dropbox at a different path on each machine
-// (see CLAUDE.md "Two machines"). Priority: --source > OPENROCKET_SRC (the
-// openrocket-release-24.12 root) > first known per-machine path that exists.
-const KNOWN_SOURCES = [
-  '<local path>/Open_Rocket_Source_Code/openrocket-release-24.12/core/src/main/java', // desktop
-  '<local path>/Dropbox/Open_Rocket_Source_Code/openrocket-release-24.12/core/src/main/java', // laptop
-];
-const DEFAULT_SOURCE = process.env.OPENROCKET_SRC
-  ? join(process.env.OPENROCKET_SRC, 'core', 'src', 'main', 'java')
-  : (KNOWN_SOURCES.find((p) => existsSync(p)) ?? KNOWN_SOURCES[0]);
-
+// The reference checkout lives outside this repo and sits somewhere different
+// on every machine, so its location is configured rather than hard-coded —
+// --source, OPENROCKET_SRC, or a gitignored .openrocket-src at the repo root.
 const argIdx = process.argv.indexOf('--source');
-const sourceRoot = argIdx >= 0 ? process.argv[argIdx + 1] : DEFAULT_SOURCE;
+const explicit = argIdx >= 0 ? process.argv[argIdx + 1] : undefined;
+// --source names the java root directly; the configured root names the
+// openrocket-release-24.12 root, so it needs the core/... suffix.
+const sourceRoot = explicit
+  ?? join(requireOpenrocketSrc(undefined, 'carve.mjs'), 'core', 'src', 'main', 'java');
 const targetRoot = join(engineRoot, 'src', 'carved', 'java');
 
 if (!existsSync(sourceRoot)) {

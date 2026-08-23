@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Merge RockSim component-library CSVs (docs/materials/*.CSV) into the bundled
+ * Merge RockSim component-library CSVs into the bundled
  * component-preset database (src/data/presets.json).
  *
  * Policy (project owner, 2026-07-03): OpenRocket data wins. RockSim rows that
@@ -30,7 +30,7 @@
  *    6=HAACK; blank=CONICAL. Thickness 0/blank means a solid (filled) part.
  *
  * Usage: node packages/app/scripts/merge-rocksim-parts.mjs [--dry-run]
- * Also writes docs/testing/rocksim-merge-report-2026-07-03.md.
+ * Also writes a merge report beside the input CSVs.
  */
 
 import fs from 'node:fs';

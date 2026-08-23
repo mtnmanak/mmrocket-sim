@@ -2,8 +2,8 @@
 
 Scores the JS engine against **measured** wind-tunnel and free-flight anchor
 datasets. Provenance, tolerances, and every caveat live in
-`docs/research/validation-anchors-2026-08-03.md`; the target physics lives in
-`docs/research/rasaero-supersonic-spec-2026-08-03.md`.
+the project's research notes, which record each dataset, its stated accuracy
+and every caveat behind the tolerances used here.
 
 ## Run it
 

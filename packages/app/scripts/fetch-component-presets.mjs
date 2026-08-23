@@ -17,6 +17,7 @@
 
 import { writeFileSync, mkdirSync, readdirSync, readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { openrocketSrcRoot } from '../../../scripts/openrocket-src.mjs';
 import { dirname, join } from 'node:path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -31,17 +32,17 @@ const API_URL = 'https://api.github.com/repos/openrocket/openrocket-database/con
  * FlisKits, rail buttons...). We merge those in, deduped against the github
  * files (github wins on conflicts — it is the maintained source).
  */
-/** The reference source lives in Dropbox at a different path on each machine
- *  (see CLAUDE.md "Two machines"). OPENROCKET_SRC overrides; otherwise the
- *  first known per-machine root that exists wins. */
-const KNOWN_SRC_ROOTS = [
-  '<local path>/Open_Rocket_Source_Code/openrocket-release-24.12', // desktop
-  '<local path>/Dropbox/Open_Rocket_Source_Code/openrocket-release-24.12', // laptop
-];
-const SRC_ROOT =
-  process.env.OPENROCKET_SRC ?? KNOWN_SRC_ROOTS.find((p) => existsSync(p)) ?? KNOWN_SRC_ROOTS[0];
-const DESKTOP_COMPONENTS_DIR =
-  join(SRC_ROOT, 'core', 'src', 'main', 'resources', 'datafiles', 'components', 'internal');
+/** The reference checkout lives outside this repo and sits somewhere different
+ *  on every machine, so its location is configured rather than hard-coded:
+ *  OPENROCKET_SRC, or a gitignored .openrocket-src at the repo root. Null when
+ *  none is set — the github orc/ set alone still produces a usable bundle, so
+ *  this script degrades rather than failing. */
+const SRC_ROOT = openrocketSrcRoot();
+// '' when no reference checkout is configured — existsSync('') is false, so the
+// desktop-internal merge below simply skips and the github orc/ set stands alone.
+const DESKTOP_COMPONENTS_DIR = SRC_ROOT
+  ? join(SRC_ROOT, 'core', 'src', 'main', 'resources', 'datafiles', 'components', 'internal')
+  : '';
 
 /** Manufacturer aliases (lowercased alphanumerics) so the same maker dedupes
  *  across sources: desktop-internal files spell names differently. */

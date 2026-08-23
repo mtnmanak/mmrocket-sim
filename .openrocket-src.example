@@ -1,0 +1,11 @@
+# Copy to `.openrocket-src` (gitignored) and put the path to your local
+# OpenRocket 24.12 checkout on one line — the directory that contains core/.
+#
+# Only the maintenance scripts need this:
+#   node engine-java/scripts/carve.mjs
+#   node packages/app/scripts/fetch-component-presets.mjs
+# A normal `npm run build` does not: the compiled kernel is committed at
+# packages/engine/vendor/orkengine.mjs.
+#
+# You can use the OPENROCKET_SRC environment variable instead.
+/path/to/openrocket-release-24.12

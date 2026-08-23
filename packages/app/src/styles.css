@@ -455,7 +455,7 @@
    The `.viz-root` prefix on the color rules is NOT redundant: `.viz-root a`
    above ties them on specificity, so without it the whole band would go
    accent-orange. (That exact regression cost a session on 2026-08-04, back
-   when this was `.site-nav` — see docs/working-notes.md.)
+   when this was `.site-nav`.)
 
    Colors come only from the existing theme tokens, so the band follows dark
    mode and Daylight mode for free — `[data-contrast='high']` already repaints

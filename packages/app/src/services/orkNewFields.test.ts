@@ -8,7 +8,7 @@ import type { RocketTree } from '@online-openrocket/engine';
  * solid (filled), surface finish, mass/CG/Cd overrides, and recovery-device
  * deployment configuration. The exported XML for this same tree is validated
  * against the real OpenRocket 24.12 loader with bit-exact mass AND CG parity
- * (see docs/testing/ notes); these assertions guard the mapping.
+ * (from user testing); these assertions guard the mapping.
  */
 describe('.ork round-trip of fairing (camera shroud) and spill hole extensions', () => {
   const tree: RocketTree = {

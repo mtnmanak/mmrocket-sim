@@ -208,7 +208,7 @@ describe('the baked fallback', () => {
     expect(MMR_NAV_FALLBACK.menuVersion).toBe('480f0531d406');
     expect(MMR_NAV_FALLBACK.nav.map((n) => n.label)).toContain('Rocketry U');
     expect(MMR_NAV_FALLBACK.feedback!.bug).toContain('?template=bug-report.yml');
-    // The tool dropdown cannot be prefilled — see docs/feedback-tracker.md.
+    // The tool dropdown cannot be prefilled.
     expect(MMR_NAV_FALLBACK.feedback!.bug).not.toContain('tool=');
   });
 });

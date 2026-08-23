@@ -131,7 +131,7 @@ function BandBody({ nav, source }: { nav: MmrNav; source: MmrNavSource }) {
  * Two rulings collide on the footer strip, and this is the adjudication.
  *
  * chrome-spec MUST 6 says band links navigate `target="_top"`. This repo's
- * `docs/feedback-tracker.md` carries the owner's standing ruling that GitHub links
+ * A standing project ruling says GitHub links
  * open in a new tab — his words, "so the user is not completely taken away
  * from the site" — and every other GitHub affordance in this app honours it
  * (`App.tsx` uses `window.open(url, '_blank', 'noopener')`). The live

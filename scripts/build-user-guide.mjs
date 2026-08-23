@@ -28,7 +28,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-// Lives beside the app that consumes it, not under docs/ — the guide is a
+// Lives beside the app that consumes it — the guide is a
 // BUILD INPUT (CI runs this script on every deploy), so it must not sit in a
 // directory the project may prune.
 const SRC = join(root, 'packages', 'app', 'user-guide.md');
