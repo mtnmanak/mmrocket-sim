@@ -40,6 +40,9 @@ Thumbs.db
 spikes/**/*.jar
 !spikes/**/gradle-wrapper.jar
 
+# Compiled Java left beside its source by an ad-hoc javac run
+*.class
+
 # Gradle
 .gradle/
 spikes/**/build/
