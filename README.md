@@ -49,4 +49,36 @@ full GPLv3 text is in this repository's [`LICENSE`](LICENSE) file.
 - `packages/app/user-guide.md` — the in-app user guide's source (built into the app)
 - `validation/` — supersonic-aero validation harness and anchors
 
-See `CLAUDE.md` for build commands and engine invariants.
+## Building
+
+Requires Node 20+. The physics kernel ships as a committed build artifact
+(`packages/engine/vendor/orkengine.mjs`), so a normal build needs **no JDK**.
+
+```bash
+npm ci
+npm run build     # engine, then the app -> packages/app/dist
+npm test          # engine + app test suites
+npm run dev       # Vite dev server
+```
+
+Rebuilding the kernel from the carved Java sources (only needed when changing
+`engine-java/`) additionally requires a JDK 17:
+
+```bash
+node engine-java/scripts/carve.mjs                  # copy manifest-listed sources in
+cd engine-java && ./gradlew generateJavaScript      # TeaVM Java -> JS
+cd .. && node engine-java/scripts/build-engine.mjs  # -> packages/engine/vendor/
+node engine-java/scripts/difftest.mjs               # JVM vs TeaVM differential test
+```
+
+Carved sources under `engine-java/src/carved/` are never edited directly —
+changes live in `engine-java/patches/` and are documented in
+[`engine-java/patches/LEDGER.md`](engine-java/patches/LEDGER.md).
+
+### Engine invariants
+
+Inherited from OpenRocket's core and not to be violated: internal units are pure
+SI (m, kg, s, N) with angles in radians — degrees exist only at the `.ork` file
+and UI boundaries; orientation is a quaternion, never Euler angles; integration
+is RK4 with an adaptive time step; aerodynamics are Extended Barrowman; the
+atmosphere is ISA.
