@@ -205,22 +205,22 @@ Any component can override its computed **mass**, **axial CG position**, or **dr
 
 This is the first thing to be clear about. Setting an override does **not** erase the component's own numbers. Its length, radius, material and everything else stay exactly where you put them, in the design and in the saved `.ork` file. The override simply stands in front of the computed result — clear it and the original value is back, unchanged. The same is true of a component that is being covered by an override higher up: its own figures are still there, just not contributing at the moment.
 
-### What "…and everything inside" does
+### What "Use instead of everything inside" does
 
-Once an override has a value, a **…and everything inside** checkbox appears under it. It decides how far the override reaches:
+Once an override has a value, a **Use instead of everything inside** checkbox appears under it. It decides how far the override reaches:
 
-- **Unticked** — the override stands in for **this component alone**. Its own computed mass, CG or drag steps aside; everything *inside* it still counts on its own, and so do its neighbours.
-- **Ticked** — the override stands in for **this component and everything inside it**. Nothing below it contributes any more: not the parts' geometry, and not their own overrides.
+- **Ticked** — your figure is used instead of **this component and everything in it**. Nothing below it contributes any more: not the parts' geometry, and not their own overrides.
+- **Unticked** — the override stands in for **this component's own figure only**. Its own computed mass, CG or drag steps aside; everything *inside* it still counts on its own, and so do its neighbours.
 
 So on any part with geometry of its own, the two settings are not "add" versus "replace" — an override always replaces something, and the only question is **how much**: just this part, or this part and its whole contents.
 
-**Containers are the exception, and it matters.** A **stage**, a **pod set** and a **booster** hold other parts but have no mass, CG or drag of their own — so an unticked override on one has nothing to replace. A mass simply *adds* to whatever the contents weigh (type 1.2 kg unticked and the rocket gets 1.2 kg **heavier**; tick the box and it weighs exactly 1.2 kg), and an unticked **CG** override does nothing at all. **On a stage, a pod set or a booster, tick the box.** The panel says so too.
+**Containers are the exception, and it matters.** A **stage**, a **pod set** and a **booster** hold other parts but have no mass, CG or drag of their own — so an unticked override on one has nothing to stand in for, and *adds* instead. An unticked **mass** adds to whatever the contents weigh (type 1.2 kg unticked and the rocket gets 1.2 kg **heavier**; tick the box and it weighs exactly 1.2 kg). An unticked **Cd** adds in exactly the same way: a stage Cd of 1.0 left unticked adds 1.0 on top of the drag the parts already compute, so a rocket that computed 0.60 comes out at 1.60. An unticked **CG** override does nothing at all. **On a stage, a pod set or a booster, tick the box.** The panel says so too.
 
 ### When overrides are stacked
 
 Because any component can carry one, you can end up with overrides at several levels at once. The rule is simple:
 
-**The nearest ticked ancestor wins.** Once a component is covered by an ancestor's "…and everything inside", nothing below that ancestor matters — including other overrides.
+**The nearest ticked ancestor wins.** Once a component is covered by an ancestor's "Use instead of everything inside", nothing below that ancestor matters — including other overrides.
 
 If you set a mass on a body tube and the number never changes, that is almost always why: a stage above it is standing in for the lot. The panel tells you so directly — the override field shows a note naming the component that is covering it, so you never have to guess.
 
@@ -228,7 +228,7 @@ Working from the outside in, then, a whole-stage override is the biggest hammer 
 
 ### One figure for the whole rocket
 
-Because a **stage** is a component like any other, selecting the stage in the tree, entering a **Cd**, and ticking **…and everything inside** sets **one drag coefficient for the entire rocket** — the standard way to trim a simulation until its apogee matches what your altimeter actually recorded. The same move on **mass** pins a whole stage to its as-weighed number, and on **CG** to its as-balanced point.
+Because a **stage** is a component like any other, selecting the stage in the tree, entering a **Cd**, and ticking **Use instead of everything inside** sets **one drag coefficient for the entire rocket** — the standard way to trim a simulation until its apogee matches what your altimeter actually recorded. The same move on **mass** pins a whole stage to its as-weighed number, and on **CG** to its as-balanced point.
 
 Two things worth knowing before you rely on it. First, a whole-rocket Cd is a *calibration to one flight*, not a prediction — it will not follow you to a different motor or a different day the way real geometry does, so prefer modelling the actual shape where you can. Second, replacing a stage's mass means the individual parts stop contributing mass, so the per-component breakdown below it stops being meaningful even though the total is exactly right.
 
@@ -242,6 +242,78 @@ A fin set is a single component that stands for several fins, and OpenRocket tre
 This matches desktop OpenRocket exactly. It surprises people, which is why both fields say which they are.
 
 All of this round-trips through `.ork` in both directions, so a design you override here opens the same way in desktop OpenRocket, and vice versa.
+
+## Measured mass & CG (matching the rocket you actually built)
+
+Under the component tree on the Design workspace there is a **Measured mass & CG** box. Weigh
+your finished airframe **with the motor out**, balance it on a ruler edge, and type the two
+numbers. The box shows how far the model is from the real thing, and offers one button.
+
+Press it and MMRocket Sim inserts a mass component called **Build allowance**, of exactly the
+mass you are missing, at exactly the station that also puts the balance point where you measured
+it. The arithmetic is:
+
+```
+ballast mass     Δm  = measured mass − computed mass
+ballast station  x_b = (measured mass · measured CG − computed mass · computed CG) / Δm
+```
+
+Change a camera, a battery or an altimeter later, re-weigh, and press the button again — it
+**updates the same component** rather than adding a second one. The gap it reports is always
+measured against your rocket *without* the allowance, so pressing it twice never stacks.
+
+### Why this and not a stage override
+
+You can pin a whole rocket to its weighed mass and balance point with a stage-level mass and CG
+override and **Use instead of everything inside** ticked. That is exact, and it is the standard
+desktop-OpenRocket move. It costs two things:
+
+- **The per-component breakdown stops meaning anything.** Once the stage stands in for the whole
+  subtree, the individual part masses contribute nothing — the total is right and every line
+  under it is decoration.
+- **You lose the diagnostic.** A single pinned number tells you the answer but not the
+  discrepancy; you never learn that your build came out 60 g heavy.
+
+Ballast keeps both, because it adds real mass at a real station instead of replacing the tree.
+It also sidesteps a wrinkle in the inherited kernel: when a mass override covers a subtree, the
+children's mass is zeroed but their **moments of inertia are still summed in**, so a pinned
+rocket carries the rotational inertia of the parts underneath rather than of the mass you
+pinned. That is worth about 0.14% on apogee — nothing — but inertia is what drives
+weathercocking, pitch oscillation and how the rocket behaves leaving the rod. Added mass is an
+ordinary component, so its inertia is computed the ordinary way.
+
+### When there is no answer — which is the useful part
+
+Sometimes no ballast anywhere on the rocket can reconcile your two numbers, and the box says so
+rather than swallowing it:
+
+- **The station lands ahead of the nose tip, or behind the tail.** Your measured mass and balance
+  point cannot both be explained by adding mass, so your part masses are wrong in their
+  *distribution*, not just their total.
+- **The rocket came out lighter than the model.** There is no negative ballast — something in the
+  design is modelled heavier than you built it.
+- **Right mass, wrong balance.** Adding mass cannot move the CG without also changing the total,
+  so again the distribution is off.
+
+### RockSim files often already know
+
+A RockSim `.rkt` design can carry a **measured weight and balance point for the whole rocket**,
+recorded on the design rather than on any one part — most vendor kit files do. Opening one fills
+this box in for you, and the note says so. Nothing is applied to the simulation until you press
+the button, so you can see first that (for example) the kit states 292 g where your parts compute
+195 g, and decide whether you believe it.
+
+Two things we do differently from desktop OpenRocket here, both deliberate. We honour the file's
+own "known mass" flag — the desktop reader ignores it, and a number of real kit files carry a
+stale leftover value that it will happily apply. And we don't pin the whole stage to the stated
+number the way the desktop does, because that stops every individual part mass counting and leaves
+the rocket carrying the wrong rotational inertia. Ballast at a real station does neither.
+
+The "Build allowance" component is an ordinary mass component: it saves into `.ork` like any
+other, and desktop OpenRocket sees the same rocket. **The two numbers you weighed are saved with
+it**, so re-opening the file brings the box back with your measurements still in it — and a share
+link carries them too. Desktop OpenRocket skips those two extra tags with a warning, the same way
+it treats camera shrouds.
 
 ## Materials, finishes, and color
 

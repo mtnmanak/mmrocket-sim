@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.060';
+export const APP_VERSION = '0.061';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,22 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.061',
+    date: '2026-08-23',
+    title: 'Broken motor files stop breaking your design',
+    items: [
+      'FIXED: a motor whose published thrust curve is malformed no longer takes the whole design down with it. Loading Cesaroni L1115-P showed “Two thrust values for single time point” across the top of the app, blanked every stat — stability, mass, CP and CG — and disabled Launch, for a fault in a file nobody here wrote. Three things changed. thrustcurve.org often publishes SEVERAL data files for one motor, and we used to take the RASP one whatever state it was in; for L1115-P that meant choosing a damaged manufacturer file over the clean 26-point file sitting beside it in the same response — and the damaged one was not merely unusable, its whole early time base was wrong (peak thrust at 0.08 s where the good file says 0.18 s). We now prefer a file whose readings are sound, then the more detailed one. If the only file available IS damaged, its coincident readings are separated by a microsecond instead of being thrown away, so the motor keeps its shape and its impulse — and the app tells you it repaired the file, because a silent fix to your motor data is not something you should have to discover. And if a curve is beyond repair, only the motor is lost now: the rocket still builds, every stat still reads, and the message says which motor and why. In a 200-motor sample of the database, about 1 in 90 carried a curve that would have failed outright.',
+      'NEW: “Measured mass & CG” on the Design workspace. Weigh and balance the airframe with the motor out, type the two numbers, and it tells you the gap and offers one button to insert a mass component called “Build allowance” at the station that closes it. Change a camera or a battery, re-weigh, and press it again — it UPDATES the same component rather than adding a second one. Unlike pinning a stage’s mass with an override, your part masses stay honest underneath: you keep the per-component breakdown, and you learn that the build came out 60 g heavy instead of only that the total is now right. When no ballast can reconcile your two numbers — a station ahead of the nose tip, or a rocket lighter than the model — it says which of those you are in, because that is a real finding about the design and not an error to swallow.',
+      'NEW: the rocket’s drag coefficient is now one of the Design stats (Cd at Mach 0.3, power-off). Setting a Cd override — the headline of v0.060 — used to change nothing you could see anywhere on the Design workspace, which made the whole feature hard to trust.',
+      'CHANGED: notices moved out of the middle of the workspace. They were a full-width block between the tabs and your drawing, one line per honesty note and one per motor mount, with no size limit — a staged multi-configuration file could push the rocket below the fold. They are now a single line at the bottom of the window that you click to open, and they finally carry a severity, so “Share link copied” no longer looks exactly like “Could not open that .ork file”.',
+      'FIXED: the notice no longer goes stale. It used to list the motor matched at file-open and then never change, so after you loaded a different motor it still named the old one (thanks Big Dog). It no longer restates the loaded motor at all — the vitals strip and the Motors workspace both show that live — and applying a flight configuration now always says which one is active, instead of only speaking up when something failed to match.',
+      'CHANGED: the override checkbox is now “Use instead of everything inside”. “…and everything inside” read as though the parts inside were being ADDED IN, when ticking it means the opposite: their own figures stop counting entirely. The panel’s explanation was rewritten to match, and now states the container case in full — on a stage, pod set or booster an UNTICKED override is ADDED to what the contents compute, and that is true of Cd as well as mass, which the old copy never said. An unticked CG on one still does nothing at all.',
+      'FIXED: importing a RockSim file now reads a part’s “known mass” and “known CG” flags independently where the file states them separately, instead of discarding a measured weight because no balance point was recorded beside it.',
+      'NEW: opening a RockSim file that states a weighed mass now brings it in. RockSim records a whole-rocket measured weight and balance point on the design itself, and we used to drop it — 67 of one tester’s 841 readable kit files carry one, typed by hand (57 of them an exact whole gram or tenth-ounce). It lands in the Measured mass & CG box rather than being applied silently, so you see that (say) the kit states 292 g where your parts compute 195 g, and you decide whether to add the difference as ballast. Two deliberate differences from desktop OpenRocket: we honour the file’s "known mass" flag, which the desktop reader ignores — 19 of those files carry a stale leftover value that desktop would apply, one of them importing a 678 g rocket as 28 g — and we do not pin the whole stage to the number, which would stop every individual part mass counting and leave the rocket with the wrong rotational inertia.',
+      'NEW: the mass and balance point you weighed are saved into the .ork and carried by a share link. The “Build allowance” ballast was always an ordinary component and always saved; the two numbers behind it were not, so re-opening a file left the box blank and the discrepancy it reports — the diagnostic half of the feature — was gone. Desktop OpenRocket skips the two extra tags with a warning, exactly as it does for camera shrouds and nozzle exit diameter, and a design that never used the box saves byte-identically to before.',
+    ],
+  },
   {
     version: '0.060',
     date: '2026-08-23',

@@ -22,11 +22,19 @@ import { FlightCharts } from './components/FlightCharts.js';
 import { DragPanel } from './components/DragPanel.js';
 import { DEFAULT_CONDITIONS, LaunchPanel, type LaunchConditions } from './components/LaunchPanel.js';
 import { MovedNotice } from './components/MovedNotice.js';
+import { NoticeBar, type Notice, type NoticeSeverity } from './components/NoticeBar.js';
+import { MeasuredMassBox } from './components/MeasuredMassBox.js';
+import {
+  BUILD_ALLOWANCE_NAME, findAllowance, placeAtStation, withoutAllowance,
+  type BallastSolution,
+} from './services/buildAllowance.js';
 import { builtInMeta, MotorPicker } from './components/MotorPicker.js';
 import { NumField } from './components/NumField.js';
 import { PropertyPanel } from './components/PropertyPanel.js';
 import { SimHistory, SimRunDetails } from './components/SimResults.js';
-import { DesignStats, FlightStats, StatsChip, stabilityGlyphClass } from './components/StatTiles.js';
+import {
+  CD_REFERENCE_MACH, DesignStats, FlightStats, StatsChip, stabilityGlyphClass,
+} from './components/StatTiles.js';
 /**
  * three.js + @react-three is 205 KB gzipped — about a quarter of the initial
  * bundle — for a view that is NOT the default tab and exports nobody runs on
@@ -126,7 +134,7 @@ import './styles.css';
  * results — same shape minus `launch` — fit too; only .ork parses carry the
  * flight-configuration fields.
  */
-type ImportedDesign = Pick<OrkTreeImportResult, 'name' | 'tree' | 'motors' | 'notes' | 'launch'>
+type ImportedDesign = Pick<OrkTreeImportResult, 'name' | 'tree' | 'motors' | 'notes' | 'launch' | 'measured'>
   & Partial<Pick<OrkImportResult, 'configs' | 'chosenConfigId'>>;
 
 /** Rocket names that mean "the user never named it" (desktop default is "Rocket"). */
@@ -310,7 +318,18 @@ export function App() {
   useEffect(() => onSessionSaveStateChange(setAutosaveFailing), []);
   const [simulating, setSimulating] = useState(false);
   const [simError, setSimError] = useState<string | null>(null);
-  const [fileNote, setFileNote] = useState<string | null>(null);
+  /**
+   * The file/transient note. Severity was added in 2026-08-23: the same widget
+   * carried "share link copied" and "could not open that .ork file", so the
+   * strip could not be made quieter for routine information without quietening
+   * genuine errors too. setFileNote keeps its old string signature (info by
+   * default) so every existing call site is unchanged.
+   */
+  const [fileNoteState, setFileNoteState] =
+    useState<{ text: string; severity: NoticeSeverity } | null>(null);
+  const setFileNote = useCallback((text: string | null, severity: NoticeSeverity = 'info') => {
+    setFileNoteState(text === null ? null : { text, severity });
+  }, []);
   /** Imported hand-rolled camera shrouds awaiting the convert-to-native offer. */
   const [shroudPrompt, setShroudPrompt] = useState<ShroudCandidate[] | null>(null);
   // Session restore is routine good news — one quiet line that fades out,
@@ -419,14 +438,24 @@ export function App() {
   // soon as the engine rebuild with the new model lands.
   const [pendingRelaunch, setPendingRelaunch] = useState(false);
 
+  /**
+   * What the user weighed, in SI, airframe only (motor out). Persisted with
+   * the session so reopening the tab does not lose it; the ballast it produced
+   * lives in the design itself as an ordinary mass component.
+   */
+  const [measured, setMeasured] = useState<{ massKg: number | null; cgM: number | null }>(
+    () => session?.measured ?? { massKg: null, cgM: null });
+
   // Autosave the working state so a closed tab or crash never loses work.
   useEffect(() => {
     // Prune limits for stages that no longer exist before persisting.
     const stageIds = new Set(stages(tree).map((s) => s.id));
     const maxMotorLengthByStage = Object.fromEntries(
       Object.entries(maxMotorLen).filter(([id]) => stageIds.has(id)));
-    saveSessionDebounced({ tree, mountMotors, launch, maxMotorLengthByStage, savedConfigs, activeConfigId });
-  }, [tree, mountMotors, launch, maxMotorLen, savedConfigs, activeConfigId]);
+    saveSessionDebounced({
+      tree, mountMotors, launch, maxMotorLengthByStage, savedConfigs, activeConfigId, measured,
+    });
+  }, [tree, mountMotors, launch, maxMotorLen, savedConfigs, activeConfigId, measured]);
 
   // ---- undo (Ctrl+Z / button) ----
   const history = useRef<RocketTree[]>([]);
@@ -508,7 +537,9 @@ export function App() {
 
   // No setState in here — the error is part of the memo's value (setState
   // during render breaks under StrictMode's double-invoke).
-  const buildResult = useMemo((): { rocket: OrkRocket; info: StaticInfo } | { error: string } => {
+  const buildResult = useMemo((): {
+    rocket: OrkRocket; info: StaticInfo; motorFailures: { mountId: string; text: string }[];
+  } | { error: string } => {
     try {
       resetEngine();
       const rocket = OrkRocket.buildTree(engineTree(tree));
@@ -519,10 +550,24 @@ export function App() {
       // Opt-in RASAero-class supersonic aerodynamics (feature #1) — CP/drag
       // move with Mach; affects staticInfo, dragSweep and simulate alike.
       rocket.setSupersonicAero(effectiveSupersonic);
+      // A motor the kernel refuses must NOT blank the whole design. Before
+      // this, one malformed published thrust curve (issues-2026-08-23a.md) took
+      // out stability, mass, CP/CG, the stats drawer, the drag panel, every
+      // export and both Launch buttons — for a fault in a file the user did not
+      // write. Now the rocket still builds; only the motor is missing, and the
+      // notice says which and why.
+      const motorFailures: { mountId: string; text: string }[] = [];
       for (const [id, mm] of assigned) {
-        rocket.setMotorById(id, mm.spec);
-        if (mm.ignition.event !== 'automatic' || mm.ignition.delay !== 0) {
-          rocket.setMotorIgnitionById(id, mm.ignition.event, mm.ignition.delay);
+        try {
+          rocket.setMotorById(id, mm.spec);
+          if (mm.ignition.event !== 'automatic' || mm.ignition.delay !== 0) {
+            rocket.setMotorIgnitionById(id, mm.ignition.event, mm.ignition.delay);
+          }
+        } catch (e) {
+          motorFailures.push({
+            mountId: id,
+            text: e instanceof Error ? e.message : String(e),
+          });
         }
       }
       const info = rocket.staticInfo();
@@ -540,13 +585,33 @@ export function App() {
         info.warningTexts = info.warningTexts.filter((wtext) =>
           !(wtext.includes('THICK_FIN') && [...fairingNames].some((fn) => wtext.includes(fn))));
       }
-      return { rocket, info };
+      return { rocket, info, motorFailures };
     } catch (e) {
       return { error: e instanceof Error ? e.message : String(e) };
     }
   }, [tree, assigned, effectiveKbf, effectiveSupersonic]);
   const built = 'error' in buildResult ? null : buildResult;
   const buildError = 'error' in buildResult ? buildResult.error : simError;
+  const motorFailures = built?.motorFailures ?? [];
+
+  /**
+   * Repairs applied to published thrust curves for the motors currently
+   * loaded. thrustcurve.org carries manufacturer files with coincident time
+   * points; we mend them rather than refuse the motor, and say so here so a
+   * silent fix never changes someone's numbers without telling them.
+   */
+  const curveRepairs = useMemo(() => {
+    const out: string[] = [];
+    for (const [, mm] of assigned) {
+      const repairs = (mm.spec as { curveRepairs?: string[] }).curveRepairs;
+      if (repairs?.length) {
+        out.push(`${mm.spec.designation}: its published thrust curve needed repair `
+          + `before it could be flown (${repairs.join('; ')}). This is a fault in the `
+          + 'motor file, not in your design.');
+      }
+    }
+    return out;
+  }, [assigned]);
 
   // Cosmetic edits (rocket/component names, display colors) must NOT wipe the
   // current flight result — reset on a physics-relevant projection of the
@@ -571,6 +636,124 @@ export function App() {
     // under two different aerodynamic models, which is exactly the comparison
     // this preference exists to support.
   }, [physicsKey, mountMotors, launch, aeroMode, effectiveKbf]);
+
+  /**
+   * Power-off total Cd at a fixed subsonic Mach, for the Design tab's stats.
+   *
+   * There was no drag coefficient anywhere on the Design tab, so a user could
+   * set a Cd override — the headline feature of v0.060 — and watch nothing at
+   * all change on screen (the owner, 2026-08-23). This is the number that
+   * responds to it. It is a one-point dragSweep, memoised on the build, so it
+   * costs one kernel call per design change rather than one per render.
+   */
+  const designCd = useMemo(() => {
+    if (!built) return null;
+    try {
+      return built.rocket.dragSweep({
+        machMin: CD_REFERENCE_MACH, machMax: CD_REFERENCE_MACH, machStep: 1,
+      }).powerOff.total[0] ?? null;
+    } catch {
+      // Drag is a nicety; never let it take the stats panel down with it.
+      return null;
+    }
+  }, [built]);
+
+  // ---- Measured mass & CG -> "Build allowance" ballast (v0.061) ----
+
+  /** The existing allowance, if this design already carries one. */
+  const allowanceNode = useMemo(() => findAllowance(tree), [tree]);
+
+  /**
+   * Computed dry mass and CG with any existing allowance BACKED OUT, so a
+   * re-edit solves against the bare airframe. Without this, typing the same
+   * measured numbers a second time would stack a second correction onto the
+   * first.
+   */
+  const bare = useMemo(() => {
+    if (!built) return null;
+    const massKg = built.info.massEmpty;
+    const cgM = built.info.cgEmpty;
+    if (!allowanceNode?.id) return { massKg, cgM };
+    try {
+      const ci = built.rocket.componentInfo(allowanceNode.id);
+      return withoutAllowance(massKg, cgM, ci.mass, ci.positionX + ci.cgX);
+    } catch {
+      return { massKg, cgM };
+    }
+  }, [built, allowanceNode]);
+
+  /**
+   * Inserts or moves the ballast. Re-editing UPDATES the existing component
+   * rather than adding a second one (the owner asked for exactly this: swap a
+   * camera or a battery, re-weigh, and correct the same part). Routed through
+   * setTree, so it is a single undoable edit like any other.
+   */
+  const applyAllowance = (sol: Extract<BallastSolution, { kind: 'ok' }>) => {
+    const lengthM = typeof allowanceNode?.['length'] === 'number'
+      ? allowanceNode['length'] as number : 0.02;
+    const place = placeAtStation(tree, sol.stationM, lengthM);
+    if (!place) return;
+
+    if (allowanceNode?.id) {
+      const parent = findParent(tree, allowanceNode.id);
+      const parentId = parent && parent !== 'stage' ? parent.id : null;
+      if (parentId === place.parentId) {
+        setTree(updateNode(tree, allowanceNode.id, {
+          mass: sol.massKg,
+          position: { method: 'top', offset: place.offset },
+        }));
+      } else {
+        // The new station is in a different body section: there is no
+        // move-between-parents helper, so re-home it in one edit.
+        const moved = {
+          ...allowanceNode,
+          mass: sol.massKg,
+          position: { method: 'top', offset: place.offset },
+        } as ComponentNode;
+        setTree(addChild(removeNode(tree, allowanceNode.id), place.parentId, moved));
+      }
+      setSelectedId(allowanceNode.id);
+      return;
+    }
+
+    const node = {
+      ...makeNode('masscomponent'),
+      name: BUILD_ALLOWANCE_NAME,
+      mass: sol.massKg,
+      length: lengthM,
+      position: { method: 'top', offset: place.offset },
+    } as ComponentNode;
+    setTree(addChild(tree, place.parentId, node));
+    if (node.id) setSelectedId(node.id);
+  };
+
+  /**
+   * Everything transient the user should see, in one channel with a severity.
+   * Motor trouble is a WARNING, never a build error: a malformed published
+   * thrust curve is a fault in someone else's file and must not take the
+   * design down with it (issues-2026-08-23a.md).
+   */
+  const notices = useMemo((): Notice[] => {
+    const out: Notice[] = [];
+    if (buildError) {
+      out.push({ id: 'build-error', severity: 'error', text: buildError });
+    }
+    for (const f of motorFailures) {
+      out.push({ id: `motor-failed:${f.mountId}`, severity: 'warn', text: f.text });
+    }
+    for (const [i, text] of curveRepairs.entries()) {
+      out.push({ id: `curve-repair:${i}`, severity: 'warn', text });
+    }
+    if (fileNoteState) {
+      out.push({
+        id: 'file-note',
+        severity: fileNoteState.severity,
+        text: fileNoteState.text,
+        onDismiss: () => setFileNote(null),
+      });
+    }
+    return out;
+  }, [buildError, motorFailures, curveRepairs, fileNoteState, setFileNote]);
 
   /** Assigns a motor to a mount, with the G80 power-class ignition default. */
   const assignMotor = (targetMountId: string, label: string, spec: MotorSpec, meta: MotorMeta) => {
@@ -759,7 +942,7 @@ export function App() {
     // so the file (and the desktop app) round-trips the whole flight setup.
     download(exportOrk({
       name: tree.name ?? 'My Rocket', tree, motors: exportMotorsMap(), launch,
-      configs: exportConfigs(), activeConfigId,
+      configs: exportConfigs(), activeConfigId, measured,
     }), 'ork');
   };
 
@@ -785,7 +968,7 @@ export function App() {
       }
       download(exportRkt({ name: tree.name ?? 'My Rocket', tree, motors: exportMotorsMap(), compInfo }), 'rkt');
     } catch (e) {
-      setFileNote(`RockSim export failed: ${e instanceof Error ? e.message : String(e)}`);
+      setFileNote(`RockSim export failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
     }
   };
 
@@ -798,7 +981,7 @@ export function App() {
         launchCgM: built?.info.cg,
       }), 'CDX1');
     } catch (e) {
-      setFileNote(`RASAero export failed: ${e instanceof Error ? e.message : String(e)}`);
+      setFileNote(`RASAero export failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
     }
   };
 
@@ -807,7 +990,7 @@ export function App() {
       const { rocketToObj } = await import('./services/objExport.js');
       download(rocketToObj(tree, tree.name ?? 'Rocket'), 'obj');
     } catch (e) {
-      setFileNote(`OBJ export failed: ${e instanceof Error ? e.message : String(e)}`);
+      setFileNote(`OBJ export failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
     }
   };
 
@@ -816,7 +999,7 @@ export function App() {
       const { rocketToGlb } = await import('./services/gltfExport.js');
       download(new Uint8Array(await rocketToGlb(tree, tree.name ?? 'Rocket')), 'glb');
     } catch (e) {
-      setFileNote(`glTF export failed: ${e instanceof Error ? e.message : String(e)}`);
+      setFileNote(`glTF export failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
     }
   };
 
@@ -829,7 +1012,7 @@ export function App() {
       const { pieces } = buildPieces(tree);
       download(piecesToStl(pieces, tree.name ?? 'Rocket'), 'stl');
     } catch (e) {
-      setFileNote(`STL export failed: ${e instanceof Error ? e.message : String(e)}`);
+      setFileNote(`STL export failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
     }
   };
 
@@ -912,11 +1095,20 @@ export function App() {
   const applyImported = async (imported: ImportedDesign) => {
     const notes: string[] = [`Loaded “${imported.name}”.`, ...imported.notes];
     // Load EVERY mount's motor (staged/multi-mount files included).
+    //
+    // Only motor PROBLEMS go in the note. The successful "Motor: C6-5 (matched
+    // built-in)." sentences used to go here too, and they were the note's worst
+    // habit: nothing in the motor path rewrites this note, so after the user
+    // loaded a different motor the box still named the old one — reported from
+    // the beta by Big Dog, and true of every motor change, not just his. The
+    // vitals strip and the Motors tab both show the loaded motor live, so the
+    // note has no business restating it. What it IS still the only source of is
+    // a motor that could not be matched or downloaded.
     const nextMotors: Record<string, MountMotor> = {};
     for (const [nodeId, ref] of Object.entries(imported.motors)) {
       const { motor: mm, note } = await matchImportedMotor(ref);
       if (mm) nextMotors[nodeId] = mm;
-      notes.push(note);
+      else notes.push(note);
     }
     // Stage B: every configuration in the file becomes a ready-to-apply
     // preset, matched in the same pass. Only the APPLIED config's notes
@@ -955,7 +1147,13 @@ export function App() {
     // panel's fields the file didn't mention. The importer already pushed
     // a user-visible note about what it found.
     if (imported.launch) setLaunch((prev) => ({ ...prev, ...imported.launch }));
-    setFileNote(notes.join('\n'));
+    // What the builder weighed, if the file carried it. Always assigned — a
+    // file WITHOUT the numbers must clear the previous rocket's, or the box
+    // would report the new design's gap against someone else's scale.
+    setMeasured(imported.measured ?? { massKg: null, cgM: null });
+    // A file whose motors all matched is routine information; one that lost a
+    // motor is a warning the user has to act on.
+    setFileNote(notes.join('\n'), notes.length > 1 + imported.notes.length ? 'warn' : 'info');
     // Hand-rolled shrouds (1-fin freeform sets named like "Camera Shroud")
     // get an offer to become the native fairing component (2026-08-05e).
     const shrouds = findShroudCandidates(importedTree);
@@ -986,11 +1184,17 @@ export function App() {
       }
       if (next !== tree) setTree(next);
     }
+    // Always rewrite the note, never only on failure. Writing it solely when
+    // `unmatched` was non-empty meant a clean switch left the PREVIOUS file's
+    // note standing — the staleness Big Dog reported reads as arbitrary
+    // precisely because some actions refresh the box and others don't.
     if (cfg.unmatched?.length) {
       // Quiet at import time (only the applied config reports) — the debt
       // comes due when the user actually loads this preset.
       setFileNote(cfg.unmatched.map((d) =>
-        `Motor “${d}” couldn't be matched when the file was opened — pick one via Browse motor database.`).join('\n'));
+        `Motor “${d}” couldn't be matched when the file was opened — pick one via Browse motor database.`).join('\n'), 'warn');
+    } else {
+      setFileNote(`Flight configuration “${cfg.name || cfg.id}” applied — its motors and recovery settings are now live.`);
     }
   };
 
@@ -1090,7 +1294,10 @@ export function App() {
     try {
       const xml = exportOrk({
         name: tree.name ?? 'My Rocket', tree, motors: exportMotorsMap(), launch,
-        configs: exportConfigs(), activeConfigId,
+        // Included so a share link reproduces exactly what saving the file
+        // reproduces — the recipient sees the sender's weighed build, which is
+        // the rocket the "Build allowance" in the tree belongs to.
+        configs: exportConfigs(), activeConfigId, measured,
       });
       const frag = await encodeShareFragment(xml);
       const url = `${window.location.origin}${window.location.pathname}${window.location.search}${frag}`;
@@ -1602,15 +1809,6 @@ export function App() {
         {sessionNote && (
           <p className={`session-note${sessionNoteFading ? ' fading' : ''}`}>{sessionNote}</p>
         )}
-        {fileNote && (
-          <div className="file-note" role="alert" style={{ margin: '0 0 12px' }}>
-            {fileNote}
-            <button className="file-note-dismiss" onClick={() => setFileNote(null)} aria-label="Dismiss">×</button>
-          </div>
-        )}
-        {buildError && (
-          <p className="stability-bad" style={{ margin: '0 0 12px', fontSize: 13 }}>{buildError}</p>
-        )}
 
         {tab === 'fly' && (
           <FlyScreen
@@ -1718,6 +1916,19 @@ export function App() {
               }}
             />
           </div>
+          {/* Under the tree, because it is a build-time task rather than a
+              design-time one: you come back to it with a scale in your hand. */}
+          {built && bare && (
+            <MeasuredMassBox
+              bareMassKg={bare.massKg}
+              bareCgM={bare.cgM}
+              rocketLengthM={built.info.length}
+              hasAllowance={!!allowanceNode}
+              measured={measured}
+              onChange={setMeasured}
+              onApply={applyAllowance}
+            />
+          )}
         </aside>
 
         <main>
@@ -1781,6 +1992,7 @@ export function App() {
                     </div>
                     <DesignStats
                       info={built.info}
+                      cd={designCd}
                       motorLabel={assigned.length > 1
                         ? assigned.map(([, mm]) => mm.label).join(' + ')
                         : primaryLabel}
@@ -2198,6 +2410,7 @@ export function App() {
         )}
       </div>
       <SiteBandFooter nav={mmrNav} />
+      <NoticeBar notices={notices} />
     </div>
   );
 }

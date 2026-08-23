@@ -37,7 +37,25 @@ function Tile({ label, value, unit, quantity, className }: {
   );
 }
 
-export function DesignStats({ info, motorLabel }: { info: StaticInfo; motorLabel?: string }) {
+/**
+ * Reference Mach for the design-tab drag coefficient. Subsonic and well clear
+ * of the transonic rise, so the number is stable while you edit — it is a
+ * shape figure to compare designs and to watch while trimming a Cd override,
+ * not a prediction for a particular flight.
+ */
+export const CD_REFERENCE_MACH = 0.3;
+
+export function DesignStats({ info, motorLabel, cd }: {
+  info: StaticInfo;
+  motorLabel?: string;
+  /**
+   * Power-off total Cd at CD_REFERENCE_MACH, or null while it is unavailable.
+   * Added 2026-08-23: the owner pointed out that with no Cd anywhere on the
+   * Design tab, setting a Cd override changed nothing the user could see —
+   * the whole override feature had no feedback loop.
+   */
+  cd?: number | null;
+}) {
   const { prefs } = usePrefs();
   const len = prefs.units.length;
   const mass = prefs.units.mass;
@@ -70,6 +88,10 @@ export function DesignStats({ info, motorLabel }: { info: StaticInfo; motorLabel
           value={pct === null ? '—' : pct.toFixed(1)}
           unit="%"
           className={cls}
+        />
+        <Tile
+          label={`Cd (M${CD_REFERENCE_MACH})`}
+          value={cd === null || cd === undefined ? '—' : cd.toFixed(3)}
         />
       </div>
     </>

@@ -770,6 +770,18 @@ describe('override semantics through the component hierarchy', () => {
     expect(onTube.cg).not.toBeCloseTo(base.cg, 6);
   });
 
+  it('a CONTAINER’s unticked Cd override ADDS exactly, like its mass', () => {
+    // The third row of the container truth table, measured 2026-08-23 — the one
+    // the panel copy used to leave out. A stage is not aerodynamic, so there is
+    // no drag of its own to step aside, and unticked it does not suppress its
+    // contents either: the figure lands on top of the whole rocket's computed
+    // drag, exactly, however big it is.
+    const base = cd(nested({}, {}));
+
+    expect(cd(nested({ overrideCD: 1.0 }, {}))).toBeCloseTo(base + 1.0, 9);
+    expect(cd(nested({ overrideCD: 2.5 }, {}))).toBeCloseTo(base + 2.5, 9);
+  });
+
   it('a fin set’s Cd override is PER FIN, while its mass override is the whole set', () => {
     const finned = (n: number, extra: Record<string, unknown>): RocketTree => ({
       components: [{

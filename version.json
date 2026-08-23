@@ -1,5 +1,5 @@
 {
-  "version": "0.060",
+  "version": "0.061",
   "released": "2026-08-23",
-  "note": "Opening a multi-configuration .ork no longer asks which one — it opens the file's default, like the desktop does. The override panel now explains what \"and everything inside\" does, and says when an override is being covered by one above it."
+  "note": "A motor with a malformed published thrust curve no longer blanks the design or blocks Launch — the app picks a sound data file when one exists, repairs the curve when none does, and says so. New: a \"Measured mass & CG\" box that turns your scale and balance point into a real ballast component (and remembers both numbers in the file), and the rocket's Cd is now a Design stat."
 }

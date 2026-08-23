@@ -306,3 +306,73 @@ describe('.ork round-trip of fin tabs', () => {
     expect(exportOrk({ name: 'x', tree: noTab })).not.toContain('tabheight');
   });
 });
+
+/**
+ * Measured mass & CG (issues-2026-08-23b #3). The "Build allowance" ballast
+ * the box inserts is an ordinary mass component and has always saved; the two
+ * numbers the user WEIGHED did not, so re-opening a file left the box blank
+ * and the gap it reports unrecoverable.
+ *
+ * They go in as a rocket-level extension pair, SI like everything else in the
+ * format, emitted only when set — the `<nozzleexitdiameter>` precedent, so a
+ * design that never used the feature round-trips byte-identically and desktop
+ * OpenRocket warns-and-skips exactly as it does for our other extensions.
+ */
+describe('.ork round-trip of measured mass & CG', () => {
+  const tree: RocketTree = {
+    name: 'Weighed',
+    components: [{
+      type: 'stage', id: 's1', name: 'Sustainer',
+      children: [
+        { type: 'nosecone', id: 'n1', length: 0.15, aftRadius: 0.025, thickness: 0.002 },
+        { type: 'bodytube', id: 'b1', length: 0.4, outerRadius: 0.025, thickness: 0.001 },
+      ],
+    }],
+  } as unknown as RocketTree;
+
+  it('carries both numbers across a save and re-open', () => {
+    const xml = exportOrk({ name: 'Weighed', tree, measured: { massKg: 0.56, cgM: 0.415 } });
+    expect(xml).toMatch(/<measuredmass>0\.56<\/measuredmass>/);
+    expect(xml).toMatch(/<measuredcg>0\.415<\/measuredcg>/);
+
+    const back = importOrk(xml);
+    expect(back.measured?.massKg).toBeCloseTo(0.56, 12);
+    expect(back.measured?.cgM).toBeCloseTo(0.415, 12);
+  });
+
+  it('carries one number when only one was typed', () => {
+    const xml = exportOrk({ name: 'Weighed', tree, measured: { massKg: 0.56, cgM: null } });
+    expect(xml).toMatch(/<measuredmass>/);
+    expect(xml).not.toMatch(/<measuredcg>/);
+
+    const back = importOrk(xml);
+    expect(back.measured?.massKg).toBeCloseTo(0.56, 12);
+    expect(back.measured?.cgM).toBeNull();
+  });
+
+  it('writes nothing at all when the feature was never used', () => {
+    // A design that never touched the box must produce the same file as before
+    // the feature existed — the rule every extension element here follows.
+    const plain = exportOrk({ name: 'Weighed', tree });
+    expect(plain).not.toMatch(/<measured/);
+    // Identical but for the freshly-minted ids (component ids and the minted
+    // flight-configuration id), which every export re-mints.
+    const stripIds = (x: string) =>
+      x.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, 'UUID');
+    expect(stripIds(exportOrk({ name: 'Weighed', tree, measured: { massKg: null, cgM: null } })))
+      .toBe(stripIds(plain));
+  });
+
+  it('reports nothing for a file that carries no measurements', () => {
+    expect(importOrk(exportOrk({ name: 'Weighed', tree })).measured).toBeUndefined();
+  });
+
+  it('ignores nonsense rather than importing a negative or unparseable mass', () => {
+    const xml = exportOrk({ name: 'Weighed', tree, measured: { massKg: 0.56, cgM: 0.415 } })
+      .replace('<measuredmass>0.56</measuredmass>', '<measuredmass>-3</measuredmass>')
+      .replace('<measuredcg>0.415</measuredcg>', '<measuredcg>nope</measuredcg>');
+    const back = importOrk(xml);
+    expect(back.measured?.massKg ?? null).toBeNull();
+    expect(back.measured?.cgM ?? null).toBeNull();
+  });
+});

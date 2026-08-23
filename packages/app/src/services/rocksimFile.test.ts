@@ -373,7 +373,7 @@ describe('RockSim export → import round trip', () => {
     expect(xml).not.toMatch(/<KnownMass>10<\/KnownMass>/);
   });
 
-  it('partial overrides export the computed other value (mass↔CG coupling)', () => {
+  it('partial overrides export the computed other value', () => {
     const design = {
       name: 'PO',
       tree: {
@@ -391,7 +391,14 @@ describe('RockSim export → import round trip', () => {
     const xml = exportRkt(design);
     expect(xml).toMatch(/<KnownMass>123<\/KnownMass>/);
     expect(xml).toMatch(/<KnownCG>150<\/KnownCG>/);
+    // <KnownCG> still has to be a real number — a 0 there pins the CG to the
+    // component's front in any reader that couples the flags. The flag stays
+    // 1 (issue 2026-08-23a): splitting it would state our intent more exactly
+    // but makes RockSim and desktop OpenRocket discard the measured mass, and
+    // a 1 costs nothing — the CG they then apply is the one they would have
+    // computed anyway.
     expect(xml).toMatch(/<UseKnownCG>1<\/UseKnownCG>/);
+    expect(xml).not.toMatch(/<UseKnownMass>/);
   });
 
   it('round-trips pods as ExternalPods (split instances, radians, FREE radius)', () => {
@@ -572,6 +579,171 @@ describe('RockSim export → import round trip', () => {
 });
 
 /**
+ * UseKnownMass and UseKnownCG are read INDEPENDENTLY (issue 2026-08-23a): a
+ * weighed part keeps its weight even if its balance point was never measured,
+ * and vice versa. Desktop OpenRocket couples them and throws both away unless
+ * UseKnownCG is 1 — these tests pin the divergence, including the roll-up note
+ * that tells the user about it.
+ */
+describe('RockSim measured mass and CG are independent', () => {
+  /** A one-tube design whose BodyTube carries the given override fields. */
+  const design = (fields: string) => `<RockSimDocument><DesignInformation><RocketDesign>
+      <Name>KM</Name><StageCount>1</StageCount>
+      <Stage3Parts>
+        <BodyTube><Name>Tube</Name><Len>300</Len><OD>24</OD><ID>22</ID>
+          ${fields}
+        </BodyTube>
+      </Stage3Parts><Stage2Parts/><Stage1Parts/>
+    </RocketDesign></DesignInformation></RockSimDocument>`;
+  const read = (fields: string) => {
+    const r = importRkt(design(fields));
+    return {
+      tube: flatten(r.tree.components).find((c) => c.type === 'bodytube')!,
+      notes: r.notes.join(' '),
+    };
+  };
+  const VALUES = '<KnownMass>120</KnownMass><KnownCG>150</KnownCG>';
+
+  it('applies a measured mass with no measured CG', () => {
+    const { tube } = read(`${VALUES}<UseKnownMass>1</UseKnownMass><UseKnownCG>0</UseKnownCG>`);
+    expect(tube['overrideMass']).toBeCloseTo(0.12, 9);
+    expect(tube['overrideCGX']).toBeUndefined();
+  });
+
+  it('applies a measured CG with no measured mass', () => {
+    const { tube } = read(`${VALUES}<UseKnownMass>0</UseKnownMass><UseKnownCG>1</UseKnownCG>`);
+    expect(tube['overrideCGX']).toBeCloseTo(0.15, 9);
+    expect(tube['overrideMass']).toBeUndefined();
+  });
+
+  it('applies both when both flags are set', () => {
+    const { tube } = read(`${VALUES}<UseKnownMass>1</UseKnownMass><UseKnownCG>1</UseKnownCG>`);
+    expect(tube['overrideMass']).toBeCloseTo(0.12, 9);
+    expect(tube['overrideCGX']).toBeCloseTo(0.15, 9);
+  });
+
+  it('applies neither when neither flag is set', () => {
+    const { tube } = read(`${VALUES}<UseKnownMass>0</UseKnownMass><UseKnownCG>0</UseKnownCG>`);
+    expect(tube['overrideMass']).toBeUndefined();
+    expect(tube['overrideCGX']).toBeUndefined();
+  });
+
+  it('still reads RockSim’s own dialect, where UseKnownCG=1 means both', () => {
+    // <UseKnownMass> is a DESIGN-level element in real RockSim files (939-file
+    // survey, 2026-08-23: at most one per file, never inside a part). With no
+    // part-level flag to read, UseKnownCG=1 has to keep meaning both — reading
+    // it as CG-only would discard 5,626 measured masses in that survey.
+    const { tube } = read(`${VALUES}<UseKnownCG>1</UseKnownCG>`);
+    expect(tube['overrideMass']).toBeCloseTo(0.12, 9);
+    expect(tube['overrideCGX']).toBeCloseTo(0.15, 9);
+  });
+
+  it('does NOT believe a value whose flag is off, however tempting', () => {
+    // 201 parts in the survey state a mass their own <CalcMass> contradicts
+    // and look genuinely weighed; 303 hold a stale copy of the computed number
+    // that must not become an override, and nothing in the file separates the
+    // two with certainty. Pinning a mass nobody measured moves apogee with
+    // nothing on screen to explain it, so we leave these alone until the owner
+    // rules on it. This test exists to make that a DECISION, not an accident.
+    const weighed = read('<KnownMass>120</KnownMass><CalcMass>95</CalcMass><UseKnownCG>0</UseKnownCG>');
+    expect(weighed.tube['overrideMass']).toBeUndefined();
+    const copied = read('<KnownMass>120</KnownMass><CalcMass>120</CalcMass><UseKnownCG>0</UseKnownCG>');
+    expect(copied.tube['overrideMass']).toBeUndefined();
+  });
+
+  it('says so once when it keeps a value desktop OpenRocket would discard', () => {
+    const massOnly = read(`${VALUES}<UseKnownMass>1</UseKnownMass><UseKnownCG>0</UseKnownCG>`);
+    expect(massOnly.notes).toMatch(/desktop OpenRocket/i);
+    expect(massOnly.notes).toMatch(/\b1 part\b/);
+    expect(read(`${VALUES}<UseKnownMass>1</UseKnownMass><UseKnownCG>1</UseKnownCG>`).notes)
+      .not.toMatch(/desktop OpenRocket/i);
+    expect(read(`${VALUES}<UseKnownMass>0</UseKnownMass><UseKnownCG>0</UseKnownCG>`).notes)
+      .not.toMatch(/desktop OpenRocket/i);
+  });
+
+  it('counts the affected parts once for the whole file, not once each', () => {
+    const two = `<RockSimDocument><DesignInformation><RocketDesign>
+      <Name>KM2</Name><StageCount>1</StageCount>
+      <Stage3Parts>
+        <BodyTube><Name>A</Name><Len>300</Len><OD>24</OD><ID>22</ID>
+          <KnownMass>120</KnownMass><UseKnownMass>1</UseKnownMass><UseKnownCG>0</UseKnownCG>
+        </BodyTube>
+        <BodyTube><Name>B</Name><Len>300</Len><OD>24</OD><ID>22</ID>
+          <KnownMass>90</KnownMass><UseKnownMass>1</UseKnownMass><UseKnownCG>0</UseKnownCG>
+        </BodyTube>
+      </Stage3Parts><Stage2Parts/><Stage1Parts/>
+    </RocketDesign></DesignInformation></RockSimDocument>`;
+    const notes = importRkt(two).notes.filter((n) => /desktop OpenRocket/i.test(n));
+    expect(notes.length).toBe(1);
+    expect(notes[0]).toMatch(/\b2 parts\b/);
+  });
+});
+
+describe('RockSim export → import round trip of the two override flags', () => {
+  const rt = (over: Record<string, number>) => {
+    const d = {
+      name: 'RT',
+      tree: {
+        components: [{
+          type: 'stage' as const, id: 's', name: 'Sustainer',
+          children: [{
+            type: 'bodytube' as const, id: 'b', length: 0.3, outerRadius: 0.012, thickness: 0.0005,
+            ...over,
+          }],
+        }],
+      },
+      // What App.tsx supplies for a partial override: the computed other half.
+      compInfo: { b: { mass: 0.05, cgX: 0.15 } },
+    };
+    const xml = exportRkt(d);
+    const back = importRkt(xml);
+    return { xml, tube: flatten(back.tree.components).find((c) => c.type === 'bodytube')! };
+  };
+
+  it('carries a mass override across, with a CG equal to the computed one', () => {
+    // Export deliberately keeps RockSim's coupled flag, so the measured mass
+    // survives in RockSim and desktop OpenRocket. The price is that the
+    // computed CG comes back as an explicit override — numerically the value
+    // the geometry produces anyway, so nothing about the rocket changes.
+    const { xml, tube } = rt({ overrideMass: 0.123 });
+    expect(xml).toMatch(/<UseKnownCG>1<\/UseKnownCG>/);
+    expect(xml).not.toMatch(/<UseKnownMass>/);
+    expect(tube['overrideMass']).toBeCloseTo(0.123, 9);
+    expect(tube['overrideCGX']).toBeCloseTo(0.15, 9);
+  });
+
+  it('carries a CG override across, with the computed mass alongside', () => {
+    const { xml, tube } = rt({ overrideCGX: 0.2 });
+    expect(xml).toMatch(/<UseKnownCG>1<\/UseKnownCG>/);
+    expect(tube['overrideCGX']).toBeCloseTo(0.2, 9);
+    expect(tube['overrideMass']).toBeCloseTo(0.05, 9);
+  });
+
+  it('round-trips both overrides together', () => {
+    const { tube } = rt({ overrideMass: 0.123, overrideCGX: 0.2 });
+    expect(tube['overrideMass']).toBeCloseTo(0.123, 9);
+    expect(tube['overrideCGX']).toBeCloseTo(0.2, 9);
+  });
+
+  it('round-trips no override at all', () => {
+    const { tube } = rt({});
+    expect(tube['overrideMass']).toBeUndefined();
+    expect(tube['overrideCGX']).toBeUndefined();
+  });
+
+  it('never warns about its own files — nothing we write loses data elsewhere', () => {
+    // The divergence note is for files OTHER writers produce (a part-level
+    // UseKnownMass=1 beside UseKnownCG=0). Because our export keeps the
+    // coupled flag, none of our own files can be in that state.
+    const cases: Record<string, number>[] = [{ overrideMass: 0.123 }, { overrideCGX: 0.2 },
+      { overrideMass: 0.123, overrideCGX: 0.2 }, {}];
+    for (const over of cases) {
+      expect(importRkt(rt(over).xml).notes.join(' ')).not.toMatch(/desktop OpenRocket/i);
+    }
+  });
+});
+
+/**
  * Old RockSim (pre-9) wrote a BINARY design file that still carries a .rkt/.RKT
  * name. A 939-file survey of real vendor designs (2026-08-22) found 96 of them —
  * every Public Missiles kit in the set. They used to fail with "XML parse
@@ -598,5 +770,98 @@ describe('binary (pre-9) RockSim files', () => {
     expect(() => importRkt('<RockSimDocument><DesignInformation><RocketDesign>'
       + '<Name>x</Name><Stage1Parts></Stage1Parts></RocketDesign></DesignInformation>'
       + '</RockSimDocument>')).not.toThrow(/older BINARY/);
+  });
+});
+
+/**
+ * The design-level stage mass/CG override (issues-2026-08-23b #1).
+ *
+ * RockSim states a whole-rocket weighed mass and balance point on
+ * <RocketDesign>, NOT on a part — 67 files of the owner's 841-file readable
+ * corpus carry one, and we used to drop every one of them. 57 of the 67 are an
+ * exact whole gram or tenth-ounce and 52 of 63 CGs an exact tenth-inch, so they
+ * are typed by a person; the stated mass runs a median 1.03x the summed part
+ * masses, which is what glue, paint and hardware weigh.
+ *
+ * Two deliberate divergences from desktop OpenRocket, both ruled on by the
+ * owner:
+ *
+ *  1. WE GATE ON <UseKnownMass>. Desktop reads only `stage3Mass > 0`
+ *     (RockSimHandler.java:221) and never consults the flag — which its own
+ *     exporter sets correctly (StageDTO.java:46-49), so its reader and writer
+ *     disagree. 19 corpus files carry a stale non-zero mass with the flag off,
+ *     and they are template leftovers: mcr_hawk_mim23a.rkt states 28.3495 g
+ *     (exactly 1 oz) for a rocket whose own parts sum to ~678 g.
+ *
+ *  2. WE DO NOT PIN THE STAGE. Desktop applies it as a stage override with
+ *     subcomponents ON, which makes every per-part mass stop contributing and
+ *     leaves the rocket carrying the wrong rotational inertia. We hand the pair
+ *     to the "Measured mass & CG" box instead, so the user sees the
+ *     discrepancy and chooses.
+ */
+describe('RockSim design-level stage mass & CG', () => {
+  const design = (fields: string, stageCount = 1) => `<RockSimDocument><DesignInformation><RocketDesign>
+      <Name>SM</Name><StageCount>${stageCount}</StageCount>
+      ${fields}
+      <Stage3Parts>
+        <BodyTube><Name>Tube</Name><Len>300</Len><OD>24</OD><ID>22</ID></BodyTube>
+      </Stage3Parts><Stage2Parts/><Stage1Parts/>
+    </RocketDesign></DesignInformation></RockSimDocument>`;
+
+  const read = (fields: string, stageCount = 1) => {
+    const r = importRkt(design(fields, stageCount));
+    return { measured: r.measured, notes: r.notes.join(' ') };
+  };
+
+  const FLAGGED = '<UseKnownMass>1</UseKnownMass><Stage3Mass>292</Stage3Mass><Stage3CG>527.05</Stage3CG>';
+
+  it('reads the stated mass and balance point into the measured pair, in SI', () => {
+    const { measured } = read(FLAGGED);
+    expect(measured?.massKg).toBeCloseTo(0.292, 12); // g -> kg
+    expect(measured?.cgM).toBeCloseTo(0.52705, 12); // mm -> m
+  });
+
+  it('says what it found, and that nothing was applied yet', () => {
+    const { notes } = read(FLAGGED);
+    expect(notes).toMatch(/292/);
+    expect(notes).toMatch(/Measured mass/i);
+  });
+
+  it('IGNORES a stated mass whose UseKnownMass flag is off', () => {
+    // The 19-file failure mode. mcr_hawk_mim23a.rkt's real values.
+    const { measured, notes } = read(
+      '<UseKnownMass>0</UseKnownMass><Stage3Mass>28.3495</Stage3Mass><Stage3CG>500</Stage3CG>');
+    expect(measured).toBeUndefined();
+    expect(notes).not.toMatch(/Measured mass/i);
+  });
+
+  it('ignores it when the flag is absent entirely', () => {
+    expect(read('<Stage3Mass>292</Stage3Mass><Stage3CG>527.05</Stage3CG>').measured).toBeUndefined();
+  });
+
+  it('takes a mass with no balance point — 4 corpus files are like that', () => {
+    const { measured } = read('<UseKnownMass>1</UseKnownMass><Stage3Mass>283.495</Stage3Mass><Stage3CG>0</Stage3CG>');
+    expect(measured?.massKg).toBeCloseTo(0.283495, 12);
+    expect(measured?.cgM).toBeNull();
+  });
+
+  it('reports nothing when the flag is on but no value was stated', () => {
+    expect(read('<UseKnownMass>1</UseKnownMass><Stage3Mass>0</Stage3Mass><Stage3CG>0</Stage3CG>')
+      .measured).toBeUndefined();
+  });
+
+  it('does not fill the box for a multi-stage rocket, but does say so', () => {
+    // A per-stage weight has no single meaning in a whole-rocket box, and only
+    // one corpus file is multi-stage. Report rather than guess.
+    const { measured, notes } = read(
+      `${FLAGGED}<Stage2Mass>102.909</Stage2Mass>`, 2);
+    expect(measured).toBeUndefined();
+    expect(notes).toMatch(/multi-stage|two-stage|per stage/i);
+    expect(notes).toMatch(/292/);
+  });
+
+  it('leaves a file with no design-level override completely alone', () => {
+    expect(read('').measured).toBeUndefined();
+    expect(read('').notes).not.toMatch(/Measured mass/i);
   });
 });

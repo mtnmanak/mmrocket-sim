@@ -46,6 +46,12 @@ export interface OrkTreeImportResult {
    * to null when the file declares the ISA standard atmosphere).
    */
   launch?: Partial<LaunchConditions>;
+  /**
+   * What the builder weighed and balanced (SI; airframe only, motor out), for
+   * the Design tab's "Measured mass & CG" box. Absent when the file carries
+   * neither number. See the export side for why this lives in the file.
+   */
+  measured?: { massKg: number | null; cgM: number | null };
 }
 
 /** One rocket-level <motorconfiguration> declaration. */
@@ -143,6 +149,23 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   const motors: Record<string, OrkMotorRef> = {};
 
   const name = text(rocketEl, ':scope > name') ?? 'Imported rocket';
+
+  // The builder's weighed mass and balance point (our extension; see export).
+  // A nonsense value is dropped rather than imported: this drives a "your
+  // build is 60 g heavy" readout, and a negative or unparseable number would
+  // make that readout lie.
+  const measuredNum = (tag: string): number | null => {
+    const raw = text(rocketEl, `:scope > ${tag}`);
+    if (raw === null) return null;
+    const v = Number(raw);
+    return Number.isFinite(v) && v > 0 ? v : null;
+  };
+  const measuredMassKg = measuredNum('measuredmass');
+  const measuredCgM = measuredNum('measuredcg');
+  const measured = measuredMassKg !== null || measuredCgM !== null
+    ? { massKg: measuredMassKg, cgM: measuredCgM }
+    : undefined;
+
   const stages = Array.from(rocketEl.querySelectorAll(':scope > subcomponents > stage'));
   if (stages.length === 0) throw new Error('No stage found');
 
@@ -697,6 +720,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   return {
     name, tree: { name, components }, motor, motors, configs, chosenConfigId,
     ignored: [...ignored], notes, ...(launch ? { launch } : {}),
+    ...(measured ? { measured } : {}),
   };
 }
 
@@ -825,9 +849,17 @@ export interface OrkTreeExportInput {
   configs?: OrkExportConfig[];
   /** Which config the working set (`motors`) came from; null = none/custom. */
   activeConfigId?: string | null;
+  /**
+   * The user's weighed mass and balance point (SI, airframe only). Written
+   * only when at least one is set, so a design that never used the feature
+   * produces exactly the file it did before.
+   */
+  measured?: { massKg: number | null; cgM: number | null };
 }
 
-export function exportOrk({ name, tree, motors, motor, mountId, launch, configs, activeConfigId }: OrkTreeExportInput): string {
+export function exportOrk({
+  name, tree, motors, motor, mountId, launch, configs, activeConfigId, measured,
+}: OrkTreeExportInput): string {
   const motorMap: Record<string, OrkExportMotor> = { ...(motors ?? {}) };
   if (motor && mountId && !motorMap[mountId]) motorMap[mountId] = motor;
   // The configurations to write. Classic path (no configs): ONE minted
@@ -1489,6 +1521,22 @@ export function exportOrk({ name, tree, motors, motor, mountId, launch, configs,
   emit(2, '<axialoffset method="absolute">0.0</axialoffset>');
   emit(2, '<position type="absolute">0.0</position>');
   emit(2, '<designtype>original</designtype>');
+  // The mass and balance point the builder actually MEASURED. The ballast this
+  // produces ("Build allowance") is an ordinary mass component and always
+  // saved; these two numbers did not, so re-opening a file left the box blank
+  // and the discrepancy it reports — the diagnostic half of the feature —
+  // unrecoverable (issues-2026-08-23b #3).
+  //
+  // Extension elements: our own reader round-trips them, the desktop
+  // warns-and-skips, exactly like <fairing> and <nozzleexitdiameter>. Emitted
+  // only when set, so a design that never used the box is byte-identical to
+  // what this wrote before the feature existed.
+  if (typeof measured?.massKg === 'number' && Number.isFinite(measured.massKg)) {
+    emit(2, `<measuredmass>${measured.massKg}</measuredmass>`);
+  }
+  if (typeof measured?.cgM === 'number' && Number.isFinite(measured.cgM)) {
+    emit(2, `<measuredcg>${measured.cgM}</measuredcg>`);
+  }
   // Stage nodes at the top level export as sibling <stage> blocks (the
   // desktop model); legacy flat trees wrap into one implicit stage.
   const stageNodes = asStageNodes(tree);

@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { delayOptions, samplesToMotorSpec, type TcMotor } from './thrustcurve.js';
+import {
+  delayOptions, samplesToMotorSpec, repairSamples, pickSampleFile,
+  type TcMotor, type TcSample,
+} from './thrustcurve.js';
 
 /** Real thrustcurve.org catalog entry (Quest C6, probed 2026-07-02). */
 const QUEST_C6: TcMotor = {
@@ -76,5 +79,203 @@ describe('thrustcurve transforms', () => {
     expect(result.summary.maxAltitude).toBeGreaterThan(50);
     expect(result.events.map((e) => e.type)).toContain('APOGEE');
     expect(result.events.map((e) => e.type)).toContain('GROUND_HIT');
+  });
+});
+
+/**
+ * Damaged thrust curves (issues-2026-08-23a.md, "New issues" #1).
+ *
+ * A tester loading Cesaroni L1115-P got a hard error that blanked the design
+ * and disabled Launch:
+ *
+ *   Two thrust values for single time point, time[1]=0.01, thrust=45.46;
+ *   time[2]=0.01, thrust=522.52
+ *
+ * thrown by the carved kernel's ThrustCurveMotor.Builder.build(), which
+ * requires strictly increasing time points.
+ *
+ * All sample data below is VERBATIM from thrustcurve.org's download.json for
+ * motorId 5f4294d2000231000000018d (probed 2026-08-23). The API returns THREE
+ * files for this motor: a clean 26-point RockSim file and two manufacturer
+ * RASP files, one of which has three samples stamped 0.01 s. The app preferred
+ * RASP unconditionally, so it picked the damaged file over the good one
+ * sitting beside it in the same response.
+ */
+const L1115_RASP_BROKEN: TcSample[] = [
+  { time: 0.01, thrust: 45.46 },
+  { time: 0.01, thrust: 522.52 },
+  { time: 0.01, thrust: 984.04 },
+  { time: 0.04, thrust: 1256.1 },
+  { time: 0.05, thrust: 1389.85 },
+  { time: 0.08, thrust: 1713.25 },
+  { time: 0.24, thrust: 1515.65 },
+  { time: 0.3, thrust: 1474.74 },
+];
+
+const L1115_ROCKSIM_CLEAN: TcSample[] = [
+  { time: 0, thrust: 0 },
+  { time: 0.01, thrust: 45.46 },
+  { time: 0.05, thrust: 522.52 },
+  { time: 0.08, thrust: 984.04 },
+  { time: 0.1, thrust: 1256.1 },
+  { time: 0.15, thrust: 1389.85 },
+  { time: 0.18, thrust: 1713.25 },
+  { time: 0.24, thrust: 1515.65 },
+];
+
+const strictlyIncreasing = (t: readonly number[]): boolean =>
+  t.every((v, i) => i === 0 || v > t[i - 1]!);
+
+const impulse = (s: readonly TcSample[]): number => {
+  let total = 0;
+  for (let i = 1; i < s.length; i++) {
+    total += (s[i]!.time - s[i - 1]!.time) * (s[i]!.thrust + s[i - 1]!.thrust) / 2;
+  }
+  return total;
+};
+
+describe('repairSamples — damaged thrust curves', () => {
+  it('leaves a sound curve completely alone', () => {
+    const { samples, repairs } = repairSamples(L1115_ROCKSIM_CLEAN);
+    expect(repairs).toEqual([]);
+    expect(samples).toEqual(L1115_ROCKSIM_CLEAN);
+  });
+
+  it('makes the real L1115-P RASP curve strictly increasing without losing a point', () => {
+    const { samples, repairs } = repairSamples(L1115_RASP_BROKEN);
+
+    expect(strictlyIncreasing(samples.map((s) => s.time))).toBe(true);
+    // Every thrust reading survives — nothing is thrown away.
+    expect(samples.map((s) => s.thrust)).toEqual(L1115_RASP_BROKEN.map((s) => s.thrust));
+    expect(repairs.length).toBeGreaterThan(0);
+    expect(repairs.join(' ')).toMatch(/0\.01/);
+  });
+
+  it('preserves total impulse when it separates coincident points', () => {
+    // Separating coincident samples by a microsecond shifts the integral by at
+    // most nudge x (sum of the thrust steps it spans) — here about 1.2 mNs.
+    // L1115-P is a 5015 Ns motor, so that is 2 parts in 10 million.
+    const before = impulse(L1115_RASP_BROKEN);
+    const after = impulse(repairSamples(L1115_RASP_BROKEN).samples);
+    expect(Math.abs(after - before)).toBeLessThan(0.01);
+    expect(Math.abs(after - before) / 5015).toBeLessThan(1e-5);
+  });
+
+  it('collapses a genuine duplicate point (same time AND thrust)', () => {
+    // Desktop OpenRocket's AbstractMotorLoader.finalizeThrustCurve rule, for
+    // files like the KBA K1750 its comment names.
+    const { samples, repairs } = repairSamples([
+      { time: 0, thrust: 0 },
+      { time: 0.5, thrust: 100 },
+      { time: 0.5, thrust: 100 },
+      { time: 1.0, thrust: 0 },
+    ]);
+    expect(samples).toHaveLength(3);
+    expect(repairs.join(' ')).toMatch(/duplicate/i);
+  });
+
+  it('drops the zero of two final points at the same time', () => {
+    const { samples } = repairSamples([
+      { time: 0, thrust: 0 },
+      { time: 1, thrust: 100 },
+      { time: 2, thrust: 0 },
+      { time: 2, thrust: 80 },
+    ]);
+    expect(strictlyIncreasing(samples.map((s) => s.time))).toBe(true);
+    expect(samples[samples.length - 1]).toEqual({ time: 2, thrust: 80 });
+  });
+
+  it('sorts an out-of-order curve', () => {
+    const { samples } = repairSamples([
+      { time: 0, thrust: 0 },
+      { time: 0.5, thrust: 50 },
+      { time: 0.2, thrust: 30 },
+    ]);
+    expect(samples.map((s) => s.time)).toEqual([0, 0.2, 0.5]);
+  });
+});
+
+describe('pickSampleFile — choosing among thrustcurve.org sim files', () => {
+  /** The real three-file response for L1115-P (probed 2026-08-23). */
+  const L1115_FILES = [
+    { format: 'RockSim', source: 'user', samples: L1115_ROCKSIM_CLEAN },
+    { format: 'RASP', source: 'mfr', samples: L1115_RASP_BROKEN },
+    { format: 'RASP', source: 'mfr', samples: [{ time: 0.1, thrust: 1468.85 }] },
+  ];
+
+  it('takes the sound RockSim file over the damaged RASP one', () => {
+    const picked = pickSampleFile(L1115_FILES);
+    expect(picked?.samples).toEqual(L1115_ROCKSIM_CLEAN);
+  });
+
+  it('still prefers RASP when both formats are sound', () => {
+    const rasp = [{ time: 0, thrust: 0 }, { time: 1, thrust: 10 }, { time: 2, thrust: 0 }];
+    const rocksim = [{ time: 0, thrust: 0 }, { time: 1, thrust: 20 }, { time: 2, thrust: 0 }];
+    const picked = pickSampleFile([
+      { format: 'RockSim', samples: rocksim },
+      { format: 'RASP', samples: rasp },
+    ]);
+    expect(picked?.samples).toEqual(rasp);
+  });
+
+  it('falls back to a repairable file when every candidate is damaged', () => {
+    const picked = pickSampleFile([{ format: 'RASP', samples: L1115_RASP_BROKEN }]);
+    expect(picked?.samples).toEqual(L1115_RASP_BROKEN);
+  });
+
+  it('returns null when nothing carries samples', () => {
+    expect(pickSampleFile([{ format: 'RASP' }, { format: 'RockSim', samples: [] }])).toBeNull();
+  });
+});
+
+describe('samplesToMotorSpec — end to end on the damaged curve', () => {
+  const L1115: TcMotor = {
+    ...QUEST_C6,
+    motorId: '5f4294d2000231000000018d',
+    designation: '5015L1115-P',
+    commonName: 'L1115',
+    impulseClass: 'L',
+    diameter: 75,
+    length: 621,
+    totalWeightG: 4404,
+    propWeightG: 2394,
+  };
+
+  it('produces a curve the kernel will accept', () => {
+    const spec = samplesToMotorSpec(L1115, L1115_RASP_BROKEN, Infinity);
+    expect(strictlyIncreasing(spec.times)).toBe(true);
+    expect(spec.times[0]).toBe(0);
+    // Masses stay monotonically non-increasing through the repaired curve.
+    expect(spec.masses.every((m, i) => i === 0 || m <= spec.masses[i - 1]! + 1e-12)).toBe(true);
+  });
+
+  it('says out loud that it repaired the file', () => {
+    const spec = samplesToMotorSpec(L1115, L1115_RASP_BROKEN, Infinity);
+    expect(spec.curveRepairs?.length).toBeGreaterThan(0);
+    // A sound curve reports nothing, so the UI stays silent for normal motors.
+    expect(samplesToMotorSpec(L1115, L1115_ROCKSIM_CLEAN, Infinity).curveRepairs)
+      .toBeUndefined();
+  });
+
+  it('actually loads into the kernel — the exact case that blanked the design', async () => {
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    resetEngine();
+    const rocket = OrkRocket.build({
+      noseCone: { length: 0.3, aftRadius: 0.0375, thickness: 0.002 },
+      bodyTube: { length: 1.8, outerRadius: 0.0375, thickness: 0.0015, materialDensity: 950 },
+      fins: { count: 3, rootChord: 0.3, tipChord: 0.15, sweep: 0.12, height: 0.12, thickness: 0.005 },
+      motorMount: { length: 0.621, outerRadius: 0.0375, thickness: 0.0005 },
+      parachute: { diameter: 2.0 },
+    });
+    // Before the repair this threw:
+    //   "Two thrust values for single time point, time[1]=0.01, thrust=45.46;
+    //    time[2]=0.01, thrust=522.52"
+    // and every stat, both Launch buttons and all the exports went with it.
+    expect(() => rocket.setMotor(samplesToMotorSpec(L1115, L1115_RASP_BROKEN, Infinity)))
+      .not.toThrow();
+
+    const result = rocket.simulate({});
+    expect(result.summary.maxAltitude).toBeGreaterThan(100);
+    expect(result.events.map((e) => e.type)).toContain('APOGEE');
   });
 });

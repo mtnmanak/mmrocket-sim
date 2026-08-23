@@ -123,8 +123,12 @@ const PRINTABLE = new Set([
  * part would come out different sizes.
  */
 /**
- * "…and everything inside" for one override, plus the notice that says when an
- * ANCESTOR'S flag is suppressing this one.
+ * "Use instead of everything inside" for one override, plus the notice that
+ * says when an ANCESTOR'S flag is suppressing this one.
+ *
+ * Relabelled 2026-08-23 (owner ruling): the old "…and everything inside" read
+ * as though the contents were being added in, when ticking is precisely what
+ * makes them stop counting.
  *
  * The semantics, measured against the kernel rather than assumed (2026-08-23):
  * an override always stands in for the component's OWN computed value — it does
@@ -144,8 +148,12 @@ const PRINTABLE = new Set([
  * has nothing of its own to replace, so it behaves differently from every
  * other component — measured 2026-08-23 and pinned in orkEngine.test.ts:
  *   stage mass 1 kg unticked  -> base + 1 kg   (adds, does not set)
+ *   stage Cd 1.0 unticked     -> base + 1.0    (adds, measured 0.60236 -> 1.60236)
  *   stage CG 0.1 m unticked   -> NO CHANGE AT ALL
- * Which is why the panel tells you to tick the box on one of these.
+ * Which is why the panel tells you to tick the box on one of these. The Cd row
+ * was missing from this copy until 2026-08-23 and is the gap the owner kept
+ * asking about — a stage is not aerodynamic, so unticked there is nothing of
+ * its own to displace and its figure lands on top of the rocket's total.
  */
 const CONTAINER_TYPES = new Set(['stage', 'podset', 'parallelstage']);
 
@@ -167,8 +175,8 @@ function SubcomponentsToggle({ tree, node, quantity, valueKey, flagKey, onPatch 
     return (
       <p className="override-suppressed" role="note">
         Not in use — <strong>{blocker.name || DISPLAY_NAME[blocker.type] || 'a part above'}</strong>
-        {' '}stands in for the {quantity} of everything inside it. Clear its
-        “…and everything inside” to use this.
+        {' '}stands in for the {quantity} of everything inside it. Untick its
+        “Use instead of everything inside” to use this.
       </p>
     );
   }
@@ -179,9 +187,9 @@ function SubcomponentsToggle({ tree, node, quantity, valueKey, flagKey, onPatch 
         type="checkbox"
         checked={node[flagKey] === true}
         onChange={(e) => onPatch({ [flagKey]: e.target.checked || undefined })}
-        aria-label={`Use this ${quantity} override for everything inside this component too`}
+        aria-label={`Use this ${quantity} override instead of everything inside this component`}
       />
-      …and everything inside
+      Use instead of everything inside
     </label>
   );
 }
@@ -799,21 +807,23 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll, onAutoAli
         </div>
         <p className="hint">
           An override never deletes anything — this component keeps its own
-          numbers, and they come straight back when you clear the box.
-          {' '}<strong>Unticked</strong>, an override stands in for
-          <em> this component alone</em>; everything inside it still counts on
-          its own. <strong>Ticked</strong>, it stands in for this component
-          <em> and everything inside it</em> — nothing below contributes any
-          more, including its own overrides.
+          numbers, and they come straight back when you clear the field.
+          {' '}<strong>Ticked</strong>, your figure is used instead of this
+          component <em>and everything in it</em>; nothing below contributes any
+          more, including its own overrides. <strong>Unticked</strong>, it
+          stands in for <em>this component&rsquo;s own figure only</em>, and
+          everything inside it still counts on its own.
         </p>
         {CONTAINER_TYPES.has(node.type) && (
           <p className="hint">
             <strong>On a stage, pod set or booster, tick the box.</strong> These
             are containers with no mass, CG or drag of their own, so an unticked
-            override here has nothing to replace: a mass simply <em>adds</em> to
-            whatever the contents weigh, and an unticked CG does nothing at all.
-            Ticked, it sets the figure for the whole assembly — which is how you
-            set one Cd, or one weighed mass, for the entire rocket.
+            override here has nothing to stand in for: an unticked mass or Cd is
+            {' '}<em>added</em> to what the contents compute (1 kg unticked makes
+            the rocket 1 kg heavier; a Cd of 1.0 adds 1.0 to its drag), and an
+            unticked CG does nothing at all. Ticked, it sets the figure for the
+            whole assembly — which is how you set one Cd, or one weighed mass,
+            for the entire rocket.
           </p>
         )}
       </div>

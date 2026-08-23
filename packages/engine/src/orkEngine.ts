@@ -394,6 +394,19 @@ function assertFiniteCurve(motor: MotorSpec): void {
         '(the motor file is missing its per-sample masses).',
     );
   }
+  // ThrustCurveMotor.Builder requires strictly increasing time points and
+  // throws a raw Java message naming array indices, which reached a beta
+  // tester verbatim. Callers are expected to repair curves first (the app's
+  // repairSamples does); this says so in words a rocketeer can act on.
+  const at = motor.times.findIndex((t, i) => i > 0 && t <= motor.times[i - 1]!);
+  if (at > 0) {
+    throw new Error(
+      `Motor ${motor.designation}: its thrust curve has two readings at ` +
+        `t=${motor.times[at]} s, which cannot be simulated. The published ` +
+        'motor file is malformed — try another data file for this motor, or ' +
+        'import a corrected .rse/.eng.',
+    );
+  }
 }
 
 /** A rocket design held inside the engine, addressed by handle. */

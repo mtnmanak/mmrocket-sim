@@ -31,6 +31,13 @@ export interface SessionState {
   /** Legacy universal max motor length (pre-v0.015) — migrated onto every stage on load. */
   maxMotorLengthM?: number | null;
   launch: LaunchConditions;
+  /**
+   * What the user weighed and balanced (SI, airframe only — motor out), for
+   * the Design tab's "Measured mass & CG" box (v0.061). Kept here rather than
+   * in the .ork so the file format is untouched; the ballast it produces IS in
+   * the file, as an ordinary mass component.
+   */
+  measured?: { massKg: number | null; cgM: number | null };
   /** Last-save timestamp (ms epoch) — shown on restore. */
   savedAt: number;
 }

@@ -171,7 +171,7 @@ export function ancestorsOf(tree: RocketTree, id: string): ComponentNode[] {
 }
 
 /**
- * The nearest ancestor whose "…and everything inside" actually suppresses this
+ * The nearest ancestor whose "Use instead of everything inside" actually suppresses this
  * node's own value for the given quantity, or null when nothing does.
  *
  * BOTH conditions are required, exactly as the kernel requires them —

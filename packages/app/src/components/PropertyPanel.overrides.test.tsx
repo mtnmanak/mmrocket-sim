@@ -7,7 +7,9 @@ import { PropertyPanel } from './PropertyPanel.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 
 /**
- * The "…and everything inside" override flags (issue 2026-08-22a). The .ork
+ * The "Use instead of everything inside" override flags (issue 2026-08-22a,
+ * relabelled 2026-08-23 — the old "…and everything inside" read as though the
+ * contents were being added in, when ticking makes them stop counting). The .ork
  * reader and writer always carried <overridesubcomponents*>, but nothing in
  * the UI could set it — so the thing users actually ask for, one Cd standing
  * for the whole rocket, was unreachable. It hangs off a STAGE most of the
@@ -67,7 +69,7 @@ afterEach(() => {
   localStorage.clear();
 });
 
-describe('PropertyPanel — override "…and everything inside" flags', () => {
+describe('PropertyPanel — override "Use instead of everything inside" flags', () => {
   it('a stage gets the full override block', () => {
     mount(stage());
     expect([...host.querySelectorAll('input')].map((i) => i.getAttribute('aria-label')))
@@ -85,6 +87,10 @@ describe('PropertyPanel — override "…and everything inside" flags', () => {
     mount(stage({ overrideCD: 0.45 }));
     expect(subsBoxes()).toHaveLength(1);
     expect(boxFor('Cd')).toBeTruthy();
+    // The visible wording is the ruling, not a detail: "…and everything inside"
+    // read as though the contents were being added in (owner, 2026-08-23).
+    expect(boxFor('Cd').closest('label')!.textContent)
+      .toContain('Use instead of everything inside');
 
     patches = [];
     mount(stage({ overrideCD: 0.45, overrideMass: 2, overrideCGX: 0.5 }));
@@ -117,6 +123,8 @@ describe('PropertyPanel — override "…and everything inside" flags', () => {
     expect(note).toBeTruthy();
     expect(note!.textContent).toContain('Sustainer');
     expect(note!.textContent).toContain('mass');
+    // It has to name the control the user must untick, by its shipped label.
+    expect(note!.textContent).toContain('Use instead of everything inside');
     // Only the suppressed quantity says so — CG and Cd are unaffected.
     expect(host.querySelectorAll('.override-suppressed')).toHaveLength(1);
   });
@@ -152,5 +160,24 @@ describe('PropertyPanel — override "…and everything inside" flags', () => {
   it('hides the flag on a component with nothing inside it', () => {
     mount(leaf);
     expect(subsBoxes()).toHaveLength(0);
+  });
+
+  it('the container hint names Cd, not just mass, as the thing that ADDS', () => {
+    // Measured 2026-08-23: on a stage / pod set / booster an unticked mass AND
+    // an unticked Cd both add to what the contents compute (base 0.60236 + a
+    // 1.0 Cd override = 1.60236), while an unticked CG is a silent no-op. The
+    // copy used to name only mass, which is the gap the owner kept hitting.
+    mount(stage({ overrideCD: 0.45 }));
+    const hint = [...host.querySelectorAll('p.hint')]
+      .map((p) => p.textContent ?? '')
+      .find((t) => t.includes('stage, pod set or booster'));
+    expect(hint).toBeTruthy();
+    expect(hint).toMatch(/mass or\s*Cd\b/);
+    expect(hint).toMatch(/\badded\b/);
+
+    // And it stays container-only — a nose cone has geometry to replace.
+    mount(leaf);
+    expect([...host.querySelectorAll('p.hint')]
+      .some((p) => (p.textContent ?? '').includes('stage, pod set or booster'))).toBe(false);
   });
 });

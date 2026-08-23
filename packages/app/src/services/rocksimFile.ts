@@ -96,6 +96,8 @@ export function importRkt(data: ArrayBuffer | string): OrkTreeImportResult {
 
   const notes: string[] = [];
   const ignored = new Set<string>();
+  /** Nodes that kept a measured mass or CG desktop OpenRocket would discard. */
+  const keptWithoutCGFlag = new Set<ComponentNode>();
   /** RockSim SerialNo → our node id (links EngineSets to mounts). */
   const serialToNode = new Map<string, ComponentNode>();
   /** Off-axis inner tubes: node → cross-section offset (m), for cluster
@@ -105,6 +107,62 @@ export function importRkt(data: ArrayBuffer | string): OrkTreeImportResult {
 
   const name = text(design, ':scope > Name') ?? 'Imported RockSim rocket';
   const stageCount = Math.max(1, Math.min(3, num(design, 'StageCount', 1)));
+
+  /**
+   * The design-level weighed mass and balance point (issues-2026-08-23b #1).
+   *
+   * RockSim states these on <RocketDesign>, never on a part — it is the whole
+   * rocket's measured weight, and 67 files of the owner's readable corpus carry
+   * one. We used to drop every one. Note the inconsistent element names: the
+   * sustainer's CG is <Stage3CG> but the lower stages' are <StageNCGAlone>.
+   *
+   * TWO DELIBERATE DIVERGENCES FROM DESKTOP, both the owner's ruling:
+   *
+   * 1. We gate on <UseKnownMass>. Desktop's reader tests only `stage3Mass > 0`
+   *    (RockSimHandler.java:221) and never looks at the flag, while desktop's
+   *    own WRITER sets it correctly (StageDTO.java:46-49) — reader and writer
+   *    disagree, so this is a bug, not a convention. 19 corpus files carry a
+   *    stale non-zero mass with the flag off, and they are template leftovers
+   *    repeated verbatim across unrelated designs (28.3495 g = exactly 1 oz;
+   *    1814.37 g = 4 lb; 73.7088 g appears in three different rockets).
+   *    Applying mcr_hawk_mim23a.rkt's would import a ~678 g rocket as 28 g.
+   *
+   * 2. We do not pin the stage. Desktop applies it as a stage override with
+   *    SUBCOMPONENTS ON, which stops every per-part mass contributing (the
+   *    breakdown becomes decoration) and leaves the kernel summing the
+   *    children's moments of inertia for a mass that is no longer theirs. The
+   *    pair goes to the Design tab's "Measured mass & CG" box instead: the user
+   *    sees the discrepancy and adds it as real ballast in one click, or
+   *    doesn't. RockSim's stage mass excludes the motor, which is exactly what
+   *    that box wants.
+   */
+  const stageMassFlag = num(design, 'UseKnownMass', 0) === 1;
+  const statedMassG = num(design, 'Stage3Mass', 0);
+  const statedCgMm = num(design, 'Stage3CG', 0);
+  let measured: { massKg: number | null; cgM: number | null } | undefined;
+  if (stageMassFlag && statedMassG > 0) {
+    const massKg = statedMassG / MASS;
+    const cgM = statedCgMm > 0 ? statedCgMm / LEN : null;
+    if (stageCount > 1) {
+      // A per-stage weight has no single meaning in a whole-rocket box, and
+      // exactly one corpus file is multi-stage. Report it rather than guess.
+      notes.push(
+        `This ${stageCount}-stage file states a measured mass per stage `
+        + `(sustainer ${statedMassG} g). Measured mass & CG on the Design tab `
+        + 'covers the whole rocket, so nothing was filled in — enter what you '
+        + 'weighed there if you want it applied.');
+    } else {
+      measured = { massKg, cgM };
+      notes.push(
+        `This file states a measured mass of ${statedMassG} g`
+        + (cgM !== null ? ` balancing ${statedCgMm} mm from the nose tip` : '')
+        + '. It is filled into Measured mass & CG on the Design tab, which '
+        + 'reports the gap against your parts and can add it as ballast — '
+        + 'nothing has been applied to the simulation yet. (Desktop OpenRocket '
+        + 'pins the whole stage to it instead, which stops the individual part '
+        + 'masses counting.)');
+    }
+  }
 
   const readCommon = (el: Element, node: ComponentNode) => {
     const nm = text(el, ':scope > Name');
@@ -118,13 +176,47 @@ export function importRkt(data: ArrayBuffer | string): OrkTreeImportResult {
     if (mat) node['materialName'] = mat;
     const finish = FINISH_FROM_CODE[String(Math.round(num(el, 'FinishCode', NaN)))];
     if (finish && finish !== 'normal') node['finish'] = finish;
-    // UseKnownCG=1 overrides BOTH mass and CG (RockSim couples them).
-    if (num(el, 'UseKnownCG', 0) === 1) {
-      const km = num(el, 'KnownMass', 0);
-      if (km > 0) node['overrideMass'] = km / MASS;
-      const kcg = num(el, 'KnownCG', 0);
-      if (kcg > 0) node['overrideCGX'] = kcg / LEN;
-    }
+    // Measured mass and measured CG are read INDEPENDENTLY (issue 2026-08-23a):
+    // "I think the correct behavior is that UseKnownMass and UseKnownCG are
+    //  treated independently. If either has a value entered, we use the entered
+    //  value, if there is no value, we use the computed value. I am not sure
+    //  why we would throw out a value just because the other one is set or not
+    //  set."
+    // Desktop couples them (BaseHandler.java:94-98 → setOverride: UseKnownCG=1
+    // sets BOTH overrides, 0 discards both), which loses the weight of a part
+    // the builder weighed but never balanced. Nothing here touches the physics
+    // — only which numbers the file is believed to be stating.
+    //
+    // The catch is that RockSim's format is lopsided. <UseKnownMass> is a
+    // DESIGN-level element: in a 939-file survey of real designs (2026-08-23)
+    // it appears at most ONCE per file, inside <RocketDesign> beside
+    // <Stage3Mass>, never inside a part. So a part states a known mass in one
+    // of two dialects:
+    //   1. a part-level <UseKnownMass> — what WE write on export, and what any
+    //      writer that distinguishes the two would write. Read strictly.
+    //   2. no such element — RockSim's own dialect, where UseKnownCG=1 has to
+    //      keep meaning "both are known": reading it as CG-only would discard
+    //      5,626 weighed masses in that same survey.
+    // Dialect 2 is left EXACTLY as it was. It is tempting to also believe a
+    // value whose flag is off when RockSim's own <CalcMass> sits beside it and
+    // disagrees, but that is a heuristic: in the same survey 201 parts look
+    // genuinely weighed that way while 303 hold a stale copy of the computed
+    // number that must NOT become an override, and no rule in the file
+    // separates them with certainty. Silently pinning a mass nobody measured
+    // changes simulated apogee with nothing on screen, so that call is the
+    // owner's to make, not ours.
+    const flagCG = num(el, 'UseKnownCG', 0) === 1;
+    const massFlag = num(el, 'UseKnownMass', NaN);
+    const flagMass = Number.isFinite(massFlag) ? massFlag === 1 : flagCG;
+    const km = num(el, 'KnownMass', 0);
+    const kcg = num(el, 'KnownCG', 0);
+    const useMass = km > 0 && flagMass;
+    const useCG = kcg > 0 && flagCG;
+    if (useMass) node['overrideMass'] = km / MASS;
+    if (useCG) node['overrideCGX'] = kcg / LEN;
+    // Desktop applies neither unless UseKnownCG is 1, so anything kept with
+    // that flag off is a value it would have silently discarded. Say so.
+    if (!flagCG && (useMass || useCG)) keptWithoutCGFlag.add(node);
   };
 
   /**
@@ -439,6 +531,9 @@ export function importRkt(data: ArrayBuffer | string): OrkTreeImportResult {
         }
         delete n['overrideMass'];
         delete n['overrideCGX'];
+        // Its KnownMass became the component's real mass either way, so no
+        // override survived here and nothing diverged from desktop.
+        keptWithoutCGFlag.delete(n);
         return n;
       }
       case 'ExternalPod': {
@@ -651,6 +746,12 @@ export function importRkt(data: ArrayBuffer | string): OrkTreeImportResult {
   if (ignored.size) {
     notes.push(`Ignored unsupported RockSim components: ${[...ignored].join(', ')}.`);
   }
+  if (keptWithoutCGFlag.size) {
+    const n = keptWithoutCGFlag.size;
+    notes.push(`${n} part${n === 1 ? ' states' : 's state'} a measured mass or balance point that the `
+      + `file's “known CG” flag says to ignore — applied ${n === 1 ? 'it' : 'them'}. Desktop `
+      + 'OpenRocket discards a measured mass unless the CG is measured too.');
+  }
 
   // Motors: the desktop DROPS these; we read EngineCode + MountSerialNo so
   // the app can auto-load them from the bundled motor database. Real RockSim
@@ -697,6 +798,7 @@ export function importRkt(data: ArrayBuffer | string): OrkTreeImportResult {
     motors,
     ignored: [...ignored],
     notes,
+    ...(measured ? { measured } : {}),
   };
 }
 
@@ -726,10 +828,12 @@ export interface RktExportInput {
   motors?: Record<string, OrkExportMotor>;
   /**
    * Per-component computed mass (kg, override-aware) and CG-from-front (m),
-   * keyed by node id — from the engine's componentInfo. RockSim couples mass
-   * and CG under ONE UseKnownCG flag, so a partial override (mass without CG,
-   * or CG without mass) must export the CALCULATED other value; without this
-   * map the un-overridden half exports as 0 (a real data error in RockSim).
+   * keyed by node id — from the engine's componentInfo. RockSim keeps both
+   * numbers in one part whatever the flags say, so a partial override (mass
+   * without CG, or CG without mass) must export the CALCULATED other value;
+   * without this map the un-overridden half exports as 0, which any reader
+   * that couples the flags takes as "CG at the component's front" — a real
+   * data error in RockSim.
    */
   compInfo?: Record<string, { mass: number; cgX: number }>;
 }
@@ -761,8 +865,11 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
     const hasCgOv = typeof node['overrideCGX'] === 'number';
     const override = hasMassOv || hasCgOv;
     const info = node.id ? compInfo?.[node.id] : undefined;
-    // Whenever UseKnownCG will be 1, BOTH values must be real: the overridden
-    // one verbatim, the other from the computed component info.
+    // BOTH values are always real whenever either override exists: the
+    // overridden one verbatim, the other from the computed component info. A 0
+    // in the un-overridden field is the data error the compInfo map exists to
+    // prevent, and it stays wrong even with the flag off — a reader is entitled
+    // to look at the number regardless.
     const knownMass = opts?.knownMass
       ?? ((hasMassOv ? (node['overrideMass'] as number)
         : override ? info?.mass ?? 0 : 0) * MASS);
@@ -787,6 +894,15 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
       emit(`<Material>${esc(typeof node['materialName'] === 'string' ? (node['materialName'] as string) : 'custom')}</Material>`);
     }
     emit(`<Name>${esc(node.name ?? dfltName)}</Name>`);
+    // EXPORT IS DELIBERATELY UNCHANGED (issue 2026-08-23a). Splitting the flags
+    // here — UseKnownCG=0 on a mass-only override, with the measured mass in
+    // <KnownMass> — states the truth more precisely, and it is what our own
+    // importer would prefer. It also loses data: RockSim and desktop
+    // OpenRocket both couple the flags, so a 0 there makes them discard the
+    // measured mass entirely. Today's UseKnownCG=1 gives desktop the right
+    // mass AND a CG equal to the one it would have computed itself, so nothing
+    // is wrong over there. Precision in our dialect is not worth a real user
+    // losing a weight when they open the file somewhere else.
     const useKnown = opts?.useKnownCG ?? override;
     const knownCG = hasCgOv ? (node['overrideCGX'] as number) * LEN
       : useKnown ? (info?.cgX ?? 0) * LEN : 0;
