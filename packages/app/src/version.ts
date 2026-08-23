@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.061';
+export const APP_VERSION = '0.062';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.062',
+    date: '2026-08-23',
+    title: 'The stage CG override tells you when it is doing nothing',
+    items: [
+      'FIXED: setting a CG override on a stage, pod set or booster and leaving the box unticked does nothing to the rocket — and now the panel says so, on the field, the moment you do it, with a button that ticks the box for you. It was reported twice, which is twice more than a number you type and watch do nothing should take.',
+      'CLEARER: and the reason it does nothing turns out to be worth knowing, because it explains all three overrides at once instead of three unrelated rules. Unticked, your figure on a container describes a POINT MASS the container adds: a mass gives that point its weight, a Cd adds drag, and a CG says WHERE the added mass sits. A CG on its own is positioning zero kilograms, so nothing moves — but set a mass override beside it and the same CG bites immediately, placing exactly that mass at exactly that station. The panel and the guide used to say an unticked CG "does nothing at all", which is what it looks like and not what is happening.',
+    ],
+  },
   {
     version: '0.061',
     date: '2026-08-23',

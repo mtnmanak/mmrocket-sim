@@ -144,16 +144,23 @@ const PRINTABLE = new Set([
  */
 /**
  * Containers with no mass, CG or drag of their own (ComponentAssembly:
- * getComponentMass() = 0, isMassive() = false). On these an UNTICKED override
- * has nothing of its own to replace, so it behaves differently from every
- * other component — measured 2026-08-23 and pinned in orkEngine.test.ts:
- *   stage mass 1 kg unticked  -> base + 1 kg   (adds, does not set)
- *   stage Cd 1.0 unticked     -> base + 1.0    (adds, measured 0.60236 -> 1.60236)
- *   stage CG 0.1 m unticked   -> NO CHANGE AT ALL
- * Which is why the panel tells you to tick the box on one of these. The Cd row
- * was missing from this copy until 2026-08-23 and is the gap the owner kept
- * asking about — a stage is not aerodynamic, so unticked there is nothing of
- * its own to displace and its figure lands on top of the rocket's total.
+ * getComponentMass() = 0, isMassive() = false).
+ *
+ * An UNTICKED override on one of these describes a PHANTOM POINT MASS the
+ * container contributes: the mass override gives that point its weight, the CG
+ * override gives it its station, and Cd simply sums because drag is not
+ * mass-weighted. Measured 2026-08-23 and pinned in orkEngine.test.ts:
+ *   stage mass 1 kg unticked          -> base + 1 kg   (adds, does not set)
+ *   stage Cd 1.0 unticked             -> base + 1.0    (0.60236 -> 1.60236)
+ *   stage CG 0.1 m unticked, no mass  -> NO CHANGE — it is positioning 0 kg
+ *   stage CG 0.1 m + mass 1 kg        -> exactly the point-mass average,
+ *                                        (m0*cg0 + 1*0.1) / (m0 + 1)
+ *
+ * That last pair is the correction. This copy used to say an unticked CG "does
+ * nothing at all", which is what it looks like on its own and is why the owner
+ * reported it twice — but it is a no-op only while there is no mass to
+ * position. One rule explains all three quantities instead of three unrelated
+ * behaviours.
  */
 const CONTAINER_TYPES = new Set(['stage', 'podset', 'parallelstage']);
 
@@ -775,6 +782,27 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll, onAutoAli
               flagKey="overrideSubcomponentsCG"
               onPatch={onPatch}
             />
+            {/* The one case where a typed number provably changes nothing and
+                the panel would otherwise stay silent: a CG on a container, with
+                no mass override to position and the flag off. Reported twice by
+                the owner, which is once more than it should have taken. */}
+            {CONTAINER_TYPES.has(node.type)
+              && typeof node['overrideCGX'] === 'number'
+              && node['overrideSubcomponentsCG'] !== true
+              && typeof node['overrideMass'] !== 'number' && (
+              <p className="override-inert" role="note">
+                <strong>This is not doing anything yet.</strong> A
+                {' '}{DISPLAY_NAME[node.type]?.toLowerCase() ?? 'container'} has
+                no mass of its own, so unticked this CG is positioning nothing.
+                Tick the box to set the balance point of the whole assembly, or
+                add a mass override for it to place.
+                <button
+                  type="button"
+                  className="override-inert-fix"
+                  onClick={() => onPatch({ overrideSubcomponentsCG: true })}
+                >Use instead of everything inside</button>
+              </p>
+            )}
           </div>
           <div className="field">
             {/* A fin set's Cd override is multiplied by the fin COUNT (the
@@ -817,13 +845,14 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll, onAutoAli
         {CONTAINER_TYPES.has(node.type) && (
           <p className="hint">
             <strong>On a stage, pod set or booster, tick the box.</strong> These
-            are containers with no mass, CG or drag of their own, so an unticked
-            override here has nothing to stand in for: an unticked mass or Cd is
-            {' '}<em>added</em> to what the contents compute (1 kg unticked makes
-            the rocket 1 kg heavier; a Cd of 1.0 adds 1.0 to its drag), and an
-            unticked CG does nothing at all. Ticked, it sets the figure for the
-            whole assembly — which is how you set one Cd, or one weighed mass,
-            for the entire rocket.
+            are containers with no mass, CG or drag of their own. Unticked, your
+            figure describes a <em>point mass the container adds</em> rather than
+            replacing anything: a mass of 1 kg makes the rocket 1 kg heavier, a
+            Cd of 1.0 adds 1.0 to its drag, and a CG says <em>where</em> that
+            added mass sits — so a CG on its own moves nothing, because it is
+            positioning zero kilograms. Ticked, your figure sets that quantity
+            for the whole assembly, which is how you set one Cd, or one weighed
+            mass, for the entire rocket.
           </p>
         )}
       </div>

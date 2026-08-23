@@ -165,19 +165,85 @@ describe('PropertyPanel — override "Use instead of everything inside" flags', 
   it('the container hint names Cd, not just mass, as the thing that ADDS', () => {
     // Measured 2026-08-23: on a stage / pod set / booster an unticked mass AND
     // an unticked Cd both add to what the contents compute (base 0.60236 + a
-    // 1.0 Cd override = 1.60236), while an unticked CG is a silent no-op. The
-    // copy used to name only mass, which is the gap the owner kept hitting.
+    // 1.0 Cd override = 1.60236), while an unticked CG moves nothing until a
+    // mass override gives it something to position. The copy used to name only
+    // mass, which is the gap the owner kept hitting.
     mount(stage({ overrideCD: 0.45 }));
     const hint = [...host.querySelectorAll('p.hint')]
       .map((p) => p.textContent ?? '')
       .find((t) => t.includes('stage, pod set or booster'));
     expect(hint).toBeTruthy();
-    expect(hint).toMatch(/mass or\s*Cd\b/);
-    expect(hint).toMatch(/\badded\b/);
+    // Assert the three quantities are each accounted for, not one phrasing of
+    // it — the wording was rewritten once already when "does nothing at all"
+    // turned out to be wrong.
+    expect(hint).toMatch(/\bCd\b/);
+    expect(hint).toMatch(/\bmass\b/);
+    expect(hint).toMatch(/\bCG\b/);
+    expect(hint).toMatch(/\badds\b|\badded\b/);
 
     // And it stays container-only — a nose cone has geometry to replace.
     mount(leaf);
     expect([...host.querySelectorAll('p.hint')]
       .some((p) => (p.textContent ?? '').includes('stage, pod set or booster'))).toBe(false);
+  });
+});
+
+/**
+ * The stage CG override that "still doesn't do anything" (issues-2026-08-23b,
+ * from the owner while checking the release blurb).
+ *
+ * It is not a blanket no-op. An unticked override on a container describes a
+ * PHANTOM POINT MASS the container contributes: the mass override gives that
+ * point its weight, the CG override its station. A CG with no mass beside it is
+ * positioning zero kilograms, so nothing moves — measured and pinned in
+ * orkEngine.test.ts. That is the one case where the user types a number, sees
+ * nothing happen, and has nothing on screen to explain it.
+ */
+describe('PropertyPanel — a container CG override with nothing to position', () => {
+  const warning = () => host.querySelector('.override-inert');
+
+  it('warns when a stage CG is set unticked with no mass override', () => {
+    mount(stage({ overrideCGX: 0.2 }));
+    expect(warning()).not.toBeNull();
+    expect(warning()!.textContent).toMatch(/no mass of its own/i);
+  });
+
+  it('stops warning once a mass override gives it something to position', () => {
+    mount(stage({ overrideCGX: 0.2, overrideMass: 1 }));
+    expect(warning()).toBeNull();
+  });
+
+  it('stops warning once the box is ticked', () => {
+    mount(stage({ overrideCGX: 0.2, overrideSubcomponentsCG: true }));
+    expect(warning()).toBeNull();
+  });
+
+  it('offers a one-click fix that ticks the box', () => {
+    mount(stage({ overrideCGX: 0.2 }));
+    const fix = [...host.querySelectorAll('button')]
+      .find((b) => /use instead of everything inside/i.test(b.textContent ?? ''))!;
+    expect(fix).toBeTruthy();
+    act(() => { fix.click(); });
+    expect(patches).toContainEqual({ overrideSubcomponentsCG: true });
+  });
+
+  it('never warns on a component that has geometry of its own', () => {
+    mount({
+      id: 'b1', type: 'bodytube', length: 0.3, outerRadius: 0.012, thickness: 0.0005,
+      overrideCGX: 0.2,
+    } as unknown as ComponentNode);
+    expect(warning()).toBeNull();
+  });
+
+  it('says nothing when no CG override is set at all', () => {
+    mount(stage());
+    expect(warning()).toBeNull();
+  });
+
+  it('describes the container rule as a point mass, and no longer as "does nothing at all"', () => {
+    mount(stage({ overrideCGX: 0.2 }));
+    const text = host.textContent ?? '';
+    expect(text).toMatch(/point mass/i);
+    expect(text).not.toMatch(/does nothing at all/i);
   });
 });

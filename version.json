@@ -1,5 +1,5 @@
 {
-  "version": "0.061",
+  "version": "0.062",
   "released": "2026-08-23",
-  "note": "A motor with a malformed published thrust curve no longer blanks the design or blocks Launch — the app picks a sound data file when one exists, repairs the curve when none does, and says so. New: a \"Measured mass & CG\" box that turns your scale and balance point into a real ballast component (and remembers both numbers in the file), and the rocket's Cd is now a Design stat."
+  "note": "Setting a CG override on a stage and leaving the \"Use instead of everything inside\" box unticked does nothing to the rocket — the panel now says so on the field, with a button that ticks the box for you. Unticked on a container, your figure describes a point mass the container adds: a CG with no mass beside it is positioning nothing."
 }

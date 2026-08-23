@@ -782,6 +782,39 @@ describe('override semantics through the component hierarchy', () => {
     expect(cd(nested({ overrideCD: 2.5 }, {}))).toBeCloseTo(base + 2.5, 9);
   });
 
+  it('an unticked override on a CONTAINER is a phantom POINT MASS, which is why CG alone does nothing', () => {
+    // The owner reported the stage CG override "still not doing anything"
+    // unticked (2026-08-23b). It is not a blanket no-op — it is a no-op only
+    // while the container has no mass of its own to position.
+    //
+    // An unticked override on a stage/pod/booster describes a point mass the
+    // container contributes: the MASS override gives that point its weight and
+    // the CG override gives it its station. Position nothing and nothing moves;
+    // give it a mass and the CG bites immediately. That single rule explains
+    // all three quantities and replaces the arbitrary-sounding "mass adds, Cd
+    // adds, CG does nothing".
+    const base = OrkRocket.buildTree(nested({}, {})).staticInfo();
+
+    // CG alone, any value: nothing, because it is positioning zero kilograms.
+    for (const cg of [0.1, 0.6]) {
+      expect(OrkRocket.buildTree(nested({ overrideCGX: cg }, {})).staticInfo().cg)
+        .toBeCloseTo(base.cg, 12);
+    }
+
+    // Add an unticked mass and the SAME CG override takes effect exactly as a
+    // point mass of that mass at that station.
+    const both = OrkRocket.buildTree(
+      nested({ overrideMass: 1, overrideCGX: 0.1 }, {})).staticInfo();
+    const asPointMass = (base.mass * base.cg + 1 * 0.1) / (base.mass + 1);
+    expect(both.mass).toBeCloseTo(base.mass + 1, 9);
+    expect(both.cg).toBeCloseTo(asPointMass, 12);
+
+    // Without the CG override that added kilogram lands somewhere else, so the
+    // CG override is demonstrably doing the positioning.
+    const massOnly = OrkRocket.buildTree(nested({ overrideMass: 1 }, {})).staticInfo();
+    expect(massOnly.cg).not.toBeCloseTo(both.cg, 6);
+  });
+
   it('a fin set’s Cd override is PER FIN, while its mass override is the whole set', () => {
     const finned = (n: number, extra: Record<string, unknown>): RocketTree => ({
       components: [{
