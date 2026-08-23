@@ -688,33 +688,14 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   // simulation does not yet act on. Saying so beats a silent discrepancy —
   // both change mass, and mass changes the stability the user is designing to.
   const allNodes: ComponentNode[] = [];
-  // Fillet epoxy is preserved but not bridged to the kernel, so it really is
-  // missing from the mass — UNLESS something replaces the fin set's mass
-  // anyway. An ancestor override with "use instead of everything inside", or
-  // the fin set's own mass override, makes the fillet moot: the total is then
-  // bit-identical to desktop's. Firing regardless told a tester his masses read
-  // light against desktop on a design whose stage states its weighed mass,
-  // where the two agree exactly. A false alarm about mass costs more trust
-  // than silence.
-  let filletMassIsMissing = false;
-  const collect = (ns: ComponentNode[], massCovered: boolean) => {
-    for (const nd of ns) {
-      allNodes.push(nd);
-      const ownMassPinned = typeof nd['overrideMass'] === 'number';
-      if (!massCovered && !ownMassPinned
-          && typeof nd['filletRadius'] === 'number' && (nd['filletRadius'] as number) > 0) {
-        filletMassIsMissing = true;
-      }
-      collect(nd.children ?? [], massCovered || (ownMassPinned && nd['overrideSubcomponentsMass'] === true));
-    }
+  // Fin fillets used to be preserved but not bridged to the kernel, and this
+  // reader said so in a note. As of the fillet bridge the epoxy is counted in
+  // mass and CG like desktop's, so the note is gone rather than reworded — it
+  // would now be false, and a false claim about mass costs more than silence.
+  const collect = (ns: ComponentNode[]) => {
+    for (const nd of ns) { allNodes.push(nd); collect(nd.children ?? []); }
   };
-  collect(components, false);
-  if (filletMassIsMissing) {
-    notes.push(
-      'Fin fillets are kept in the file but are not yet counted in mass or CG, '
-        + 'so masses read slightly light against desktop OpenRocket.',
-    );
-  }
+  collect(components);
   const instanced = allNodes.filter(
     (nd) => typeof nd['instanceCount'] === 'number' && (nd['instanceCount'] as number) > 1
       && nd.type !== 'parallelstage' && nd.type !== 'podset');

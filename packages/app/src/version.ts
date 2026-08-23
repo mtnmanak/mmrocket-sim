@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.063';
+export const APP_VERSION = '0.064';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.064',
+    date: '2026-08-23',
+    title: 'Two levels of surface finish, and fillet epoxy that finally weighs something',
+    items: [
+      'FIXED: "Optimum paint" and "Mirror" were being read as "Regular paint". OpenRocket defines nine surface finishes; this app’s physics kernel had cases for seven, and the two smoothest fell through to the 60-micron default. That is a twelve-fold roughness error, silently, on any file that used them — and it made the ladder run backwards, because "Optimum paint" came out ROUGHER than "Smooth paint". Measured before the fix: optimum produced byte-identical drag and apogee to regular paint. All nine levels are now mapped, and the finish picker offers all nine instead of six, so "Rough unfinished", "Optimum paint" and "Mirror" can be chosen here as well as read from a file.',
+      'FIXED: fin fillets now count toward mass and CG. The file reader has always kept the fillet radius and its material, and desktop OpenRocket counts the fillet volume as part of the fin mass, but nothing carried it into the physics kernel here — so every filleted design flew light, and the app admitted as much in a note on import instead of fixing it. A 9.5 mm epoxy fillet on three fins against a 40 mm body tube is 24.9 g sitting right at the tail, which moves the balance point as well as the mass. The note is gone because it would now be false.',
+      'Both of those live in the simulation kernel rather than the app, so this release rebuilds it. The kernel is OpenRocket’s own physics compiled to run in the browser, and every build is checked line by line against the same code running on a desktop Java virtual machine before it ships — 271 comparison points this time, up from 258, with the new ones covering exactly these two changes.',
+    ],
+  },
   {
     version: '0.063',
     date: '2026-08-23',

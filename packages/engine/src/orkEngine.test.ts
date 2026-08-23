@@ -847,3 +847,80 @@ describe('override semantics through the component hierarchy', () => {
     }
   });
 });
+
+describe('surface finish maps every level OpenRocket defines', () => {
+  /**
+   * ExternalComponent.Finish has NINE constants. The bridge had cases for seven;
+   * "optimum" (5 um) and "mirror" (0 um) fell through to the NORMAL default
+   * (60 um), a 12x roughness error that also made the ladder non-monotonic —
+   * "Optimum paint" came out rougher than "Smooth paint".
+   */
+  const finished = (finish: string): RocketTree => ({
+    name: 'F',
+    components: [{
+      type: 'stage', name: 'S', children: [
+        { type: 'nosecone', length: 0.07, aftRadius: 0.012, thickness: 0.002, shape: 'ogive', finish },
+        { type: 'bodytube', length: 0.3, outerRadius: 0.012, thickness: 0.0003, density: 950, finish },
+      ],
+    }],
+  } as unknown as RocketTree);
+  const frictionAt = (finish: string): number => {
+    const sweep = OrkRocket.buildTree(finished(finish)).dragSweep({ machMin: 0.3, machMax: 0.3, machStep: 0.1 });
+    const c = (sweep as unknown as { powerOff?: { friction: number[] }; friction?: number[] });
+    return (c.powerOff?.friction ?? c.friction!)[0]!;
+  };
+
+  it('is monotonic: rougher finishes never produce less skin friction', () => {
+    const ladder = ['mirror', 'finishpolished', 'polished', 'optimum', 'smooth', 'normal',
+      'unfinished', 'roughunfinished', 'rough'];
+    const cf = ladder.map(frictionAt);
+    for (let i = 1; i < cf.length; i++) {
+      expect(cf[i]!, `${ladder[i]} must not be smoother than ${ladder[i - 1]}`)
+        .toBeGreaterThanOrEqual(cf[i - 1]! - 1e-12);
+    }
+  });
+
+  it('optimum is NOT regular paint — the bug this pins', () => {
+    expect(frictionAt('optimum')).toBeLessThan(frictionAt('smooth'));
+    expect(frictionAt('optimum')).toBeLessThan(frictionAt('normal'));
+    expect(frictionAt('mirror')).toBeLessThan(frictionAt('normal'));
+  });
+});
+
+describe('fin fillet epoxy counts toward mass and CG', () => {
+  /**
+   * The .ork reader always kept <filletradius>/<filletmaterial>; nothing bridged
+   * them to the kernel, so filleted designs flew light against desktop, which
+   * counts the fillet volume (FinSet.calculateFilletVolume). 9.525 mm of epoxy
+   * on three fins against a 40.64 mm body is 24.923 g sitting at the tail.
+   */
+  const withFillet = (filletRadius: number): RocketTree => ({
+    name: 'Fillet',
+    components: [{
+      type: 'stage', name: 'S', children: [
+        { type: 'nosecone', length: 0.217424, aftRadius: 0.02032, thickness: 0.001524, shape: 'ogive', density: 1850 },
+        {
+          type: 'bodytube', length: 0.7366, outerRadius: 0.02032, thickness: 0.001016, density: 1954.89,
+          children: [{
+            type: 'freeformfinset', finCount: 3, thickness: 0.00254, crossSection: 'rounded', density: 1556.99,
+            points: [[0, 0], [0.1397, 0.0508], [0.1905, 0.0508], [0.2159, 0]],
+            ...(filletRadius > 0 ? { filletRadius, filletDensity: 1729.99404, filletMaterialName: 'Epoxy' } : {}),
+          }],
+        },
+      ],
+    }],
+  } as unknown as RocketTree);
+
+  it('adds the fillet volume as mass, at the fin root', () => {
+    const bare = OrkRocket.buildTree(withFillet(0)).staticInfo();
+    const filleted = OrkRocket.buildTree(withFillet(0.009525)).staticInfo();
+    expect((filleted.massEmpty - bare.massEmpty) * 1000).toBeCloseTo(24.923, 2);
+    // Epoxy at the tail moves the empty CG aft, it does not just add a number.
+    expect(filleted.cgEmpty).toBeGreaterThan(bare.cgEmpty);
+  });
+
+  it('a zero fillet radius adds nothing', () => {
+    expect(OrkRocket.buildTree(withFillet(0)).staticInfo().massEmpty)
+      .toBeCloseTo(OrkRocket.buildTree(withFillet(0)).staticInfo().massEmpty, 12);
+  });
+});

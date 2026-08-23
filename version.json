@@ -1,5 +1,5 @@
 {
-  "version": "0.063",
+  "version": "0.064",
   "released": "2026-08-23",
-  "note": "Switching flight configurations now carries the stage separation across, not just the motors — a design that says \"never separate\" on the configuration you switch to was still flying the separation of the one you opened with, which cost one posted file two thirds of its altitude. Saving no longer overwrites the other configurations' separation either. The launch report's CG, CP and static margin now come from one instant and are named for it, with the angle of attack that explains them beside them. And a design restored from autosave says so when an earlier build read it in — re-open the file to pick up file-reading fixes."
+  "note": "Two surface finishes were being read wrong: \"Optimum paint\" and \"Mirror\" both came through as \"Regular paint\", a twelve-fold roughness error that also made the finish ladder run backwards. All nine of OpenRocket's finish levels are now mapped, and the picker offers all nine. Fin fillets also count toward mass and CG now — a 9.5 mm epoxy fillet on three fins is about 25 g sitting at the tail, and the app used to leave it out and tell you so. Both fixes are in the physics kernel, so it has been rebuilt and re-verified against desktop Java line by line."
 }

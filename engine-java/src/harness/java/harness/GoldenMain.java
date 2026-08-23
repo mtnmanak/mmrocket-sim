@@ -593,6 +593,49 @@ public final class GoldenMain {
             line("fins.crosssection." + cs, f.getCD(), f.getFrictionCD(), f.getPressureCD());
         }
 
+        // --- Surface finish: every one of ExternalComponent.Finish's nine levels.
+        // OPTIMUM and MIRROR had no case in ComponentFactory.finishOf and fell
+        // through to NORMAL, so the ladder was non-monotonic and two levels were
+        // silently a 12x roughness error. Sweeping all nine pins the mapping.
+        for (String fin : new String[] { "rough", "roughunfinished", "unfinished", "normal",
+                "smooth", "optimum", "polished", "finishpolished", "mirror" }) {
+            String json = "{\"components\":["
+                    + "{\"type\":\"nosecone\",\"length\":0.07,\"aftRadius\":0.012,\"thickness\":0.002,\"finish\":\"" + fin + "\"},"
+                    + "{\"type\":\"bodytube\",\"length\":0.30,\"outerRadius\":0.012,\"thickness\":0.0003,\"density\":950,\"finish\":\"" + fin + "\",\"children\":["
+                    + "  {\"type\":\"trapezoidfinset\",\"finCount\":3,\"rootChord\":0.05,\"tipChord\":0.03,\"sweep\":0.02,\"height\":0.03,\"thickness\":0.003,\"finish\":\"" + fin + "\"}"
+                    + "]}]}";
+            int r = api.OrkEngine.buildRocket(json);
+            info.openrocket.core.rocketcomponent.FlightConfiguration config =
+                    ((info.openrocket.core.rocketcomponent.Rocket)
+                            getRocketFromInfo(r)).getSelectedConfiguration();
+            info.openrocket.core.aerodynamics.BarrowmanCalculator calc =
+                    new info.openrocket.core.aerodynamics.BarrowmanCalculator();
+            info.openrocket.core.aerodynamics.FlightConditions cond =
+                    new info.openrocket.core.aerodynamics.FlightConditions(config);
+            cond.setMach(0.3);
+            cond.setAOA(0);
+            info.openrocket.core.logging.WarningSet w = new info.openrocket.core.logging.WarningSet();
+            info.openrocket.core.aerodynamics.AerodynamicForces f =
+                    calc.getAerodynamicForces(config, cond, w);
+            line("finish." + fin, f.getCD(), f.getFrictionCD());
+        }
+
+        // --- Fin fillet epoxy: mass, CG and inertia of the fillet volume.
+        // The .ork reader always kept <filletradius>/<filletmaterial>; nothing
+        // bridged them, so filleted designs flew light against desktop.
+        for (double fr : new double[] { 0.0, 0.009525 }) {
+            String json = "{\"components\":["
+                    + "{\"type\":\"nosecone\",\"length\":0.217424,\"aftRadius\":0.02032,\"thickness\":0.001524,\"density\":1850},"
+                    + "{\"type\":\"bodytube\",\"length\":0.7366,\"outerRadius\":0.02032,\"thickness\":0.001016,\"density\":1954.89,\"children\":["
+                    + "  {\"type\":\"freeformfinset\",\"id\":\"ff\",\"finCount\":3,\"thickness\":0.00254,\"crossSection\":\"rounded\",\"density\":1556.99,"
+                    + "   \"filletRadius\":" + fr + ",\"filletDensity\":1729.99404,"
+                    + "   \"points\":[[0,0],[0.1397,0.0508],[0.1905,0.0508],[0.2159,0]]}"
+                    + "]}]}";
+            int r = api.OrkEngine.buildRocket(json);
+            lineStaticInfo("fins.fillet." + fr + ".info", api.OrkEngine.getStaticInfo(r));
+            lineComponentInfo("fins.fillet." + fr + ".comp", api.OrkEngine.getComponentInfo(r, "ff"));
+        }
+
         // Freeform fin set: swept clipped-delta planform.
         String freeform = "{\"components\":["
                 + "{\"type\":\"nosecone\",\"length\":0.07,\"aftRadius\":0.012,\"thickness\":0.002},"

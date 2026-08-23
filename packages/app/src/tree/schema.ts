@@ -121,11 +121,14 @@ const AIRFOIL_SECTIONS: [string, string][] = [
 /** Desktop's surface-finish presets (surface roughness drives skin-friction drag). */
 const FINISHES: [string, string][] = [
   ['rough', 'Rough (500 µm)'],
+  ['roughunfinished', 'Rough unfinished (250 µm)'],
   ['unfinished', 'Unfinished (150 µm)'],
   ['normal', 'Regular paint (60 µm)'],
   ['smooth', 'Smooth paint (20 µm)'],
+  ['optimum', 'Optimum paint (5 µm)'],
   ['polished', 'Aircraft sheet-metal (2 µm)'],
   ['finishpolished', 'Polished (0.5 µm)'],
+  ['mirror', 'Mirror surface (0 µm)'],
 ];
 
 const FINISH: FieldDef = { key: 'finish', label: 'Surface finish', unit: 'none', options: FINISHES };

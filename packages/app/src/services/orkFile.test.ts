@@ -842,8 +842,10 @@ describe('.ork round-trip preservation of data the app does not model yet', () =
 
   it('tells the user what is preserved-but-not-simulated rather than staying silent', () => {
     const r = importOrk(withExtras);
-    expect(r.notes.join(' ')).toMatch(/fillets/i);
     expect(r.notes.join(' ')).toMatch(/multiple instances/i);
+    // Fillets USED to be on this list. The kernel counts fillet epoxy in mass
+    // and CG now, so claiming otherwise would be the error.
+    expect(r.notes.join(' ')).not.toMatch(/fillet/i);
   });
 });
 
@@ -1418,17 +1420,15 @@ describe('.ork ring and coupler radii', () => {
   });
 });
 
-describe('the fin-fillet honesty note stays quiet when it cannot be true', () => {
-  // The note says masses "read slightly light against desktop OpenRocket"
-  // because fillet epoxy is not bridged to the kernel. When an ancestor pins
-  // the mass with "use instead of everything inside", the fin set contributes
-  // nothing either way and the masses are bit-identical — the note then tells
-  // the user their numbers are wrong when they are exactly right. A tester was
-  // told precisely that about a design whose stage states its weighed mass.
-  const filleted = (stageOverride: string) => `<openrocket version="1.10" creator="OpenRocket 24.12"><rocket>
+describe('fin fillet epoxy counts toward mass, so the old honesty note is gone', () => {
+  // Before the fillet bridge this reader pushed a note saying masses read light
+  // against desktop OpenRocket. The kernel now counts fillet volume the way
+  // desktop does (measured: 24.923 g on a 9.525 mm fillet, 3 fins, 40.6 mm body),
+  // so the note would be a false alarm.
+  const FILLETED = `<openrocket version="1.10" creator="OpenRocket 24.12"><rocket>
     <name>Filleted</name>
     <motorconfiguration configid="a1" default="true"><stage number="0" active="true"/></motorconfiguration>
-    <subcomponents><stage><name>S</name>${stageOverride}<subcomponents>
+    <subcomponents><stage><name>S</name><subcomponents>
       <nosecone><name>N</name><length>0.07</length><thickness>0.002</thickness>
         <shape>ogive</shape><aftradius>0.012</aftradius></nosecone>
       <bodytube><name>B</name><length>0.3</length><thickness>0.0005</thickness><radius>0.012</radius>
@@ -1443,23 +1443,15 @@ describe('the fin-fillet honesty note stays quiet when it cannot be true', () =>
       </bodytube>
     </subcomponents></stage></subcomponents>
   </rocket></openrocket>`;
-  const saysFillets = (xml: string) =>
-    importOrk(xml).notes.some((n) => n.includes('Fin fillets'));
 
-  it('still warns when the fillet mass really is missing', () => {
-    expect(saysFillets(filleted(''))).toBe(true);
+  it('says nothing about fillets on import', () => {
+    expect(importOrk(FILLETED).notes.some((n) => n.includes('fillet'))).toBe(false);
   });
 
-  it('says nothing when an ancestor mass override covers the fin set', () => {
-    expect(saysFillets(filleted(
-      '<overridemass>0.25</overridemass><overridesubcomponentsmass>true</overridesubcomponentsmass>',
-    ))).toBe(false);
-  });
-
-  it('still warns when the override does NOT cover subcomponents', () => {
-    expect(saysFillets(filleted(
-      '<overridemass>0.25</overridemass><overridesubcomponentsmass>false</overridesubcomponentsmass>',
-    ))).toBe(true);
+  it('still carries the fillet through to the tree for the kernel to use', () => {
+    const fins = flatten(importOrk(FILLETED).tree.components).find((c) => c.type === 'trapezoidfinset')!;
+    expect(fins['filletRadius']).toBeCloseTo(0.005, 12);
+    expect(fins['filletDensity']).toBeCloseTo(1730, 9);
   });
 });
 

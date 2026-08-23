@@ -448,6 +448,23 @@ final class ComponentFactory {
             fs.setAirfoilLeDiamond(dbl(node, "airfoilLeDiamond", 0));
             fs.setAirfoilTeDiamond(dbl(node, "airfoilTeDiamond", 0));
             fs.setFinLeRadius(dbl(node, "finLeRadius", 0));
+            // Fillet epoxy. The .ork reader has always KEPT <filletradius> and
+            // <filletmaterial>, and desktop counts the fillet volume toward fin
+            // mass (FinSet.calculateFilletVolume), but nothing bridged it here —
+            // so every filleted design flew light, and the app said so in an
+            // import note rather than fixing it. Three fins with a 9.5 mm radius
+            // on a 40 mm body is ~25 g of epoxy sitting at the tail, which moves
+            // the CG as well as the mass. The volume calculation guards on a null
+            // parent, so setting it before the component is attached is safe.
+            double filletRadius = dbl(node, "filletRadius", 0);
+            if (filletRadius > 0) {
+                fs.setFilletRadius(filletRadius);
+                double filletDensity = dbl(node, "filletDensity", Double.NaN);
+                if (!Double.isNaN(filletDensity) && filletDensity > 0) {
+                    fs.setFilletMaterial(Material.newMaterial(Material.Type.BULK,
+                            str(node, "filletMaterialName", "custom"), filletDensity, true));
+                }
+            }
         }
         applyOverrides(c, node);
         Map<String, Object> position = obj(node, "position");
@@ -544,6 +561,14 @@ final class ComponentFactory {
             case "roughunfinished": return ExternalComponent.Finish.ROUGHUNFINISHED;
             case "unfinished": return ExternalComponent.Finish.UNFINISHED;
             case "smooth": return ExternalComponent.Finish.SMOOTH;
+            // OPTIMUM (5 um) and MIRROR (0 um) had no case and fell through to
+            // the NORMAL default (60 um) — a 12x roughness error, silent, on any
+            // desktop-saved file using them. It also made the ladder
+            // non-monotonic: "Optimum paint" came out ROUGHER than "Smooth
+            // paint". Measured before the fix: optimum gave byte-identical drag
+            // and apogee to normal.
+            case "optimum": return ExternalComponent.Finish.OPTIMUM;
+            case "mirror": return ExternalComponent.Finish.MIRROR;
             case "polished": return ExternalComponent.Finish.POLISHED;
             case "finishpolished": return ExternalComponent.Finish.FINISHPOLISHED;
             case "normal":
