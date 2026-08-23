@@ -145,6 +145,54 @@ export function findParent(tree: RocketTree, id: string): ComponentNode | 'stage
   return walk(tree.components);
 }
 
+/**
+ * The chain from a node's parent up to the stage it lives in, nearest first.
+ *
+ * Used to tell a user their override is being SUPPRESSED: OpenRocket's
+ * "override for all subcomponents" flag makes an ancestor's figure stand for
+ * its whole subtree, so anything set below it — geometry AND its own overrides
+ * — stops contributing. Without a notice that is invisible: you type a mass,
+ * nothing changes, and there is nothing on screen to say why.
+ */
+export function ancestorsOf(tree: RocketTree, id: string): ComponentNode[] {
+  const chain: ComponentNode[] = [];
+  const walk = (nodes: ComponentNode[], path: ComponentNode[]): boolean => {
+    for (const n of nodes) {
+      if (n.id === id) {
+        chain.push(...[...path].reverse());
+        return true;
+      }
+      if (walk(n.children ?? [], [...path, n])) return true;
+    }
+    return false;
+  };
+  walk(tree.components, []);
+  return chain;
+}
+
+/**
+ * The nearest ancestor whose "…and everything inside" actually suppresses this
+ * node's own value for the given quantity, or null when nothing does.
+ *
+ * BOTH conditions are required, exactly as the kernel requires them —
+ * RocketComponent.isCDOverriddenByAncestor is
+ * `parent.isCDOverridden() && parent.isSubcomponentsOverriddenCD()`. The flag
+ * alone suppresses nothing, and it CAN stand alone: a .ork may carry
+ * `<overridesubcomponentsmass>true</overridesubcomponentsmass>` with no
+ * `<overridemass>`, and readOverrides preserves the flag either way. Testing
+ * the flag on its own would tell a user their value is being covered when it
+ * is doing exactly what they typed.
+ */
+export function suppressingAncestor(
+  tree: RocketTree,
+  id: string,
+  flagKey: string,
+  valueKey: string,
+): ComponentNode | null {
+  return ancestorsOf(tree, id)
+    .find((a) => a[flagKey] === true && typeof a[valueKey] === 'number') ?? null;
+}
+
 export function updateNode(
   tree: RocketTree,
   id: string,

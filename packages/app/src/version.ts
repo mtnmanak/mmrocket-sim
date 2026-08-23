@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.058';
+export const APP_VERSION = '0.060';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,37 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.060',
+    date: '2026-08-23',
+    title: 'Overrides explained, and the flight-configuration modal is gone',
+    items: [
+      'CHANGED: opening an .ork with several flight configurations no longer stops to ask which one. It opens the file’s own default, exactly as desktop OpenRocket does, and the import note says which one loaded and where to change it. Two testers found that modal the worst moment in the app — it was the first thing a new user saw, and most files give their configurations no name, so it listed them by OpenRocket ID.',
+      'NEW: switching flight configurations under Motors & Launch now switches that configuration’s recovery deployment too, not just its motors. Previously a configuration’s deployment settings only applied at file-open, which is what the modal was quietly buying — the panel does the whole job now.',
+      'CLEARER: the override panel now explains itself. An override never deletes anything — the component keeps its own numbers and gets them straight back when you clear the box. Unticked, an override stands in for THAT COMPONENT ALONE and everything inside it still counts; ticked, it stands in for the component AND everything inside it. Containers are the exception worth knowing — a stage, pod set or booster has nothing of its own, so an UNticked mass override there adds to its contents instead of setting them, and an unticked CG override does nothing at all. Tick the box on those; the panel says so.',
+      'NEW: if an override is doing nothing because a part above it covers the whole assembly, the panel now says so by name — "Not in use — Sustainer stands in for the mass of everything inside it." Setting a value and watching nothing change, with no explanation, was the obvious trap once overrides could be stacked.',
+      'NEW: a fin set’s Cd override is labelled "per fin", because it is — 0.5 on a three-fin set contributes 1.5. Its mass override covers all the fins together. That asymmetry is desktop OpenRocket’s, and it now says so on the field instead of surprising you.',
+      'CHANGED: "All stats" opens by default on a desktop (it stays closed on phones and narrow windows, where it would cover the drawing).',
+      'CHANGED: the Results tab’s metric picker now reads "⚙ Choose metrics" instead of a bare gear glyph that was easy to miss entirely at the end of a row of tiles.',
+    ],
+  },
+  {
+    version: '0.059',
+    date: '2026-08-22',
+    title: 'Stage overrides actually work — and stability can read in %',
+    items: [
+      'FIXED: a mass, CG or Cd override set on a STAGE did nothing at all. The value was accepted, drawn in the panel, and saved into the .ork correctly — but it was dropped on the way into the physics kernel, so the simulation never saw it. Every other component honoured its overrides; the stage was the one that did not, because a stage is built by a different code path that never applied them. This is what made "override the Cd for the whole rocket" look broken.',
+      'NEW: every override now has an "…and everything inside" checkbox. Unticked, your figure stands in for THAT ONE COMPONENT’s own computed value — everything inside it still counts on its own, alongside your figure. Ticked, it stands in for the component AND everything below it: nothing inside contributes any more, including overrides set further down. Nothing is ever deleted — clear the box and every original number is back, and they were in the saved .ork the whole time. Tick it on a stage’s Cd and you have set ONE drag coefficient for the entire rocket, the standard way to trim a sim until its apogee matches your altimeter. Containers are the case worth knowing: a stage, pod set or booster has no mass or drag of its own, so with the box UNticked its figure adds to what its contents compute rather than replacing anything — and an unticked CG on one does nothing at all. Tick the box on those. Both behaviours match desktop OpenRocket, and the flag has always round-tripped through .ork — there was simply no way to set it before.',
+      'NEW: stability can read in calibers, as a percentage of length, or both, everywhere in the app — the vitals strip, the floating chip, the 2D and 3D callouts, the Fly screen and the Results tab. Preferences → Display → "Stability shown as". Requested on the beta thread; calibers stays the default, so nothing changes until you choose.',
+      'FIXED: the percentage in the All-stats drawer divided by the rocket’s total length; desktop OpenRocket divides by its AERODYNAMIC length. The two differ whenever a mass or internal part sits past the airframe, and ours now matches the desktop exactly.',
+      'FIXED: a stage-level override in a .ork file was never READ or WRITTEN either — so a design that states its weighed mass on the stage (which is how desktop OpenRocket records “I put the whole rocket on a scale”) came in with a computed mass instead. A tester’s posted design imported 8.9 % heavy with its CG 31 mm too far aft, for a reason nothing on screen could explain. Both directions now round-trip.',
+      'FIXED: centering rings, bulkheads, couplers and engine blocks ignored the radius stated in the .ork and were re-sized automatically — then SAVING wrote “auto” back over the author’s dimensions in their own file. On one tester’s design that was 77 g of dry mass and 8 mm of CG. Explicit radii are now read, used and written back; parts that really are automatic still are.',
+      'FIXED: a file whose simulation used ordinary average wind still warned that “a multilevel wind profile… was imported instead”. OpenRocket writes a multilevel block into every file whether it uses one or not, and we were reading the block instead of the setting. Both designs posted to the beta thread tripped it — telling a first-time user his simulation inputs had silently changed when nothing had.',
+      'BETTER: flight configurations now read as their motors instead of raw GUIDs. A configuration with no name of its own — which is most of them, since the desktop only writes a name when you rename one — now shows its motor set the way the desktop does, in the Flight configurations panel, in the import note, and in the flight record saved with each run.',
+      'FIXED: the Add-component menu offered “Pod set” and “Booster” on a nose cone and on a transition, which the physics kernel refuses. Two clicks, no import needed, and mass, CG, CP, drag and Simulate all went dead at once until you found and deleted the part.',
+      'FIXED: opening an older BINARY RockSim file (pre-RockSim 9 — a tenth of the vendor .rkt files still in circulation, including every Public Missiles kit) reported “Not a valid RockSim file (XML parse error)”, which reads as “your file is corrupt”. It now names the format and tells you what to do: re-save it from RockSim 9, or export it as .ork.',
+    ],
+  },
   {
     version: '0.058',
     date: '2026-08-22',
@@ -502,7 +533,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     items: [
       'New "❓ Guide" button in the header opens a full user guide without leaving the app: a one-minute Quick Start, an in-depth reference to every feature (designing, motors, launch conditions, simulating, staging/clusters, files, units), and a "How It Works" section documenting the physics and math with proper citations.',
       'The physics documentation explains the models the sim actually runs — Extended Barrowman aerodynamics, 6-DOF RK4 integration, the ISA atmosphere, WGS84 gravity, the thrust-curve model, and why our results are deterministic — with honest assumptions/limitations and a references list (Barrowman, Niskanen\'s OpenRocket technical documentation, NASA drag data, ISA, WGS84, and the OpenRocket project).',
-      'The same guide is included in the repository as docs/user-guide.md.',
+      'The same guide is included in the repository as packages/app/user-guide.md.',
     ],
   },
   {

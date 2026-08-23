@@ -68,6 +68,19 @@ export function importRkt(data: ArrayBuffer | string): OrkTreeImportResult {
       ? strFromU8(Object.values(unzipSync(bytes))[0]!)
       : strFromU8(bytes);
   }
+  // Old RockSim (pre-9) wrote a BINARY design format, signature "[[RS001024RS]]"
+  // in the first bytes. Neither we nor desktop OpenRocket can read it, but it IS
+  // a real RockSim file — a tenth of the vendor .rkt files in circulation are
+  // still this dialect (every Public Missiles kit in a 939-file survey,
+  // 2026-08-22). Saying "XML parse error" there reads as "your file is corrupt"
+  // and leaves the user nowhere, so name it and say what to do instead.
+  if (xml.startsWith('[[RS') || xml.slice(0, 64).includes('[[RS001024RS]]')) {
+    throw new Error(
+      'This is an older BINARY RockSim file, not the XML .rkt this app reads. '
+      + 'Open it in RockSim and re-save (RockSim 9 writes XML), or export it as '
+      + '.ork — either opens here.',
+    );
+  }
   // RockSim files may lack an XML declaration and can carry stray BOMs.
   xml = xml.replace(/^﻿?/, '');
   // Some DOM parsers (notably the test environment's) reject CDATA sections;

@@ -1,4 +1,4 @@
-import type { SavedConfig } from '../App.js';
+import { savedConfigLabel, type SavedConfig } from '../App.js';
 
 /**
  * Flight-configuration presets (Stage B): the imported file's configurations
@@ -31,7 +31,7 @@ export function ConfigPanel({ configs, activeConfigId, hasMotors, onApply, onCle
         return (
           <div key={c.id} className="config-row" style={rowStyle}>
             <span style={{ flex: 1, minWidth: 0 }}>
-              <span className="config-name" style={{ fontWeight: 600 }}>{c.name ?? c.id}</span>
+              <span className="config-name" style={{ fontWeight: 600 }}>{savedConfigLabel(c)}</span>
               {c.isDefault && (
                 <span className="config-default motor-db-meta" style={{ marginLeft: 6 }}>
                   file default

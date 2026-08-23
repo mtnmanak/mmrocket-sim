@@ -175,6 +175,11 @@ public final class OrkEngine {
                     ids.put(stageId, stage);
                 }
                 applySeparationConfig(stage, stageNode);
+                // A stage carries mass/CG/Cd overrides like any other
+                // component — desktop OpenRocket's "override for the whole
+                // stage". The factory applies these for components it
+                // builds; the stage is built here, so it needs the call too.
+                ComponentFactory.applyOverrides(stage, stageNode);
                 ComponentFactory.attachChildren(stage, stageNode, ids);
             }
             if (firstStage == null) {
@@ -462,6 +467,14 @@ public final class OrkEngine {
 
         StringBuilder sb = new StringBuilder("{");
         num(sb, "length", ctx.rocket.getLength()).append(',');
+        // Denominator for stability expressed as a PERCENTAGE. Desktop
+        // OpenRocket's PercentageOfLengthUnit divides by
+        // FlightConfiguration.getLengthAerodynamic() — the bounding span of the
+        // AERODYNAMIC components only — not the all-components length above.
+        // The two differ whenever an internal or mass component pokes past the
+        // airframe, so publishing both is what keeps our % equal to desktop's.
+        num(sb, "lengthAerodynamic",
+                ctx.rocket.getSelectedConfiguration().getLengthAerodynamic()).append(',');
         num(sb, "mass", structure.getMass()).append(',');
         num(sb, "massEmpty", empty.getMass()).append(',');
         num(sb, "cgEmpty", empty.getCM().x).append(',');

@@ -4,7 +4,7 @@ import { FinPointsEditor, type FinPoint } from './FinPointsEditor.js';
 import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
 import { DISPLAY_NAME, FIELDS, POSITIONABLE, type FieldDef } from '../tree/schema.js';
-import { findParent } from '../tree/treeModel.js';
+import { findParent, suppressingAncestor } from '../tree/treeModel.js';
 import { anchorStarts, axialLength, offsetForStart, snapStart, startFromPosition } from '../tree/position.js';
 import { tubeFinMaxCount, tubeFinMaxRadius, tubeFinRadius } from '../tree/tubefins.js';
 import { shapeParamDefault, shapeParamMax, shapeUsesParameter } from '../tree/shapeProfile.js';
@@ -122,6 +122,70 @@ const PRINTABLE = new Set([
  * must read the SAME context or the printed and the machined version of one
  * part would come out different sizes.
  */
+/**
+ * "…and everything inside" for one override, plus the notice that says when an
+ * ANCESTOR'S flag is suppressing this one.
+ *
+ * The semantics, measured against the kernel rather than assumed (2026-08-23):
+ * an override always stands in for the component's OWN computed value — it does
+ * not add to it. The flag widens that to the whole subtree, and everything
+ * below then stops contributing, INCLUDING its own overrides. An earlier
+ * description of the unticked case as "adds" was wrong for anything with
+ * geometry: it is only true of a stage, which has no drag or mass of its own.
+ *
+ * The suppression notice matters more than it looks. Without it a user sets a
+ * mass on a body tube, watches nothing change, and has nothing on screen
+ * telling them a stage above is standing in for the lot — exactly the
+ * "confusion up and down the hierarchical stack" the owner flagged.
+ */
+/**
+ * Containers with no mass, CG or drag of their own (ComponentAssembly:
+ * getComponentMass() = 0, isMassive() = false). On these an UNTICKED override
+ * has nothing of its own to replace, so it behaves differently from every
+ * other component — measured 2026-08-23 and pinned in orkEngine.test.ts:
+ *   stage mass 1 kg unticked  -> base + 1 kg   (adds, does not set)
+ *   stage CG 0.1 m unticked   -> NO CHANGE AT ALL
+ * Which is why the panel tells you to tick the box on one of these.
+ */
+const CONTAINER_TYPES = new Set(['stage', 'podset', 'parallelstage']);
+
+function SubcomponentsToggle({ tree, node, quantity, valueKey, flagKey, onPatch }: {
+  tree: RocketTree;
+  node: ComponentNode;
+  quantity: string;
+  valueKey: string;
+  flagKey: string;
+  onPatch: (patch: Partial<ComponentNode>) => void;
+}) {
+  const active = typeof node[valueKey] === 'number';
+  const hasChildren = (node.children?.length ?? 0) > 0;
+  const blocker = node.id ? suppressingAncestor(tree, node.id, flagKey, valueKey) : null;
+
+  if (blocker) {
+    // Shown whether or not THIS component has a value of its own: its geometry
+    // is being stood in for either way, so the explanation is owed regardless.
+    return (
+      <p className="override-suppressed" role="note">
+        Not in use — <strong>{blocker.name || DISPLAY_NAME[blocker.type] || 'a part above'}</strong>
+        {' '}stands in for the {quantity} of everything inside it. Clear its
+        “…and everything inside” to use this.
+      </p>
+    );
+  }
+  if (!active || !hasChildren) return null;
+  return (
+    <label className="override-subs">
+      <input
+        type="checkbox"
+        checked={node[flagKey] === true}
+        onChange={(e) => onPatch({ [flagKey]: e.target.checked || undefined })}
+        aria-label={`Use this ${quantity} override for everything inside this component too`}
+      />
+      …and everything inside
+    </label>
+  );
+}
+
 function solidContextFor(parent: ComponentNode | 'stage' | null): SolidContext {
   const ctx: SolidContext = {};
   if (parent && parent !== 'stage') {
@@ -654,7 +718,10 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll, onAutoAli
       )}
 
       <div style={{ marginTop: 10 }}>
-        <h2>Overrides (blank = calculated)</h2>
+        <h2>
+          Overrides (blank = calculated)
+          {node.type === 'stage' ? ' — whole stage' : ''}
+        </h2>
         <div className="field-grid">
           <div className="field">
             <label>Mass{node.type.endsWith('finset') ? ' (all fins combined)' : ''} <UnitChip quantity="mass" /></label>
@@ -665,9 +732,17 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll, onAutoAli
               step={niceStep(siToUi('mass', massSym, 0.0001))}
               nullable
               placeholder={info ? fmtSi('mass', massSym, info.mass) : undefined}
-              onCommit={(v) => onPatch({
-                overrideMass: v === null ? undefined : uiToSi('mass', massSym, v),
-              })}
+              onCommit={(v) => onPatch(v === null
+                ? { overrideMass: undefined, overrideSubcomponentsMass: undefined }
+                : { overrideMass: uiToSi('mass', massSym, v) })}
+            />
+            <SubcomponentsToggle
+              tree={tree}
+              node={node}
+              quantity="mass"
+              valueKey="overrideMass"
+              flagKey="overrideSubcomponentsMass"
+              onPatch={onPatch}
             />
           </div>
           <div className="field">
@@ -680,23 +755,67 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll, onAutoAli
               allowNegative
               nullable
               placeholder={info ? fmtSi('length', lengthSym, info.cgX, 3) : undefined}
-              onCommit={(v) => onPatch({
-                overrideCGX: v === null ? undefined : lenFromUi(v),
-              })}
+              onCommit={(v) => onPatch(v === null
+                ? { overrideCGX: undefined, overrideSubcomponentsCG: undefined }
+                : { overrideCGX: lenFromUi(v) })}
+            />
+            <SubcomponentsToggle
+              tree={tree}
+              node={node}
+              quantity="CG"
+              valueKey="overrideCGX"
+              flagKey="overrideSubcomponentsCG"
+              onPatch={onPatch}
             />
           </div>
           <div className="field">
-            <label>Drag coefficient (Cd)</label>
+            {/* A fin set's Cd override is multiplied by the fin COUNT (the
+                kernel's instanceCount), while its MASS override covers the
+                whole set — measured, not assumed: Cd 0.5 contributes 1.5 / 2.0
+                / 3.0 on 3 / 4 / 6 fins. That asymmetry has to be on the label
+                or it silently triples someone's drag. */}
+            <label>
+              Drag coefficient (Cd){node.type.endsWith('finset') ? ' — per fin' : ''}
+            </label>
             <NumField
               ariaLabel="Drag coefficient (Cd) override"
               value={typeof node['overrideCD'] === 'number' ? (node['overrideCD'] as number) : undefined}
               step={0.05}
               nullable
               placeholder="auto"
-              onCommit={(v) => onPatch({ overrideCD: v === null ? undefined : v })}
+              onCommit={(v) => onPatch(v === null
+                ? { overrideCD: undefined, overrideSubcomponentsCD: undefined }
+                : { overrideCD: v })}
+            />
+            <SubcomponentsToggle
+              tree={tree}
+              node={node}
+              quantity="Cd"
+              valueKey="overrideCD"
+              flagKey="overrideSubcomponentsCD"
+              onPatch={onPatch}
             />
           </div>
         </div>
+        <p className="hint">
+          An override never deletes anything — this component keeps its own
+          numbers, and they come straight back when you clear the box.
+          {' '}<strong>Unticked</strong>, an override stands in for
+          <em> this component alone</em>; everything inside it still counts on
+          its own. <strong>Ticked</strong>, it stands in for this component
+          <em> and everything inside it</em> — nothing below contributes any
+          more, including its own overrides.
+        </p>
+        {CONTAINER_TYPES.has(node.type) && (
+          <p className="hint">
+            <strong>On a stage, pod set or booster, tick the box.</strong> These
+            are containers with no mass, CG or drag of their own, so an unticked
+            override here has nothing to replace: a mass simply <em>adds</em> to
+            whatever the contents weigh, and an unticked CG does nothing at all.
+            Ticked, it sets the figure for the whole assembly — which is how you
+            set one Cd, or one weighed mass, for the entire rocket.
+          </p>
+        )}
       </div>
 
       {positionable && (

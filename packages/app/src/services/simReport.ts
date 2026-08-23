@@ -75,6 +75,62 @@ export function stabilityState(cal: number | null | undefined): StabilityState |
   return 'ok';
 }
 
+/**
+ * Static margin as a PERCENTAGE, desktop OpenRocket's PercentageOfLengthUnit:
+ * (CP − CG) divided by the AERODYNAMIC length — the bounding span of the
+ * aerodynamic components — not the all-components length. Older StaticInfo
+ * payloads (a session autosaved before the field existed) fall back to
+ * `length`, which is what the All-stats tile always used.
+ */
+export function stabilityPercent(info: Pick<StaticInfo, 'cp' | 'cg' | 'length'>
+  & { lengthAerodynamic?: number }): number | null {
+  const ref = info.lengthAerodynamic && info.lengthAerodynamic > 0
+    ? info.lengthAerodynamic
+    : info.length;
+  if (!ref || !Number.isFinite(ref) || ref <= 0) return null;
+  return ((info.cp - info.cg) / ref) * 100;
+}
+
+/** How the margin reads app-wide (Preferences → Display). */
+export type StabilityUnit = 'cal' | 'pct' | 'both';
+
+/**
+ * The one stability string, so the vitals strip, the floating chip, the 2D and
+ * 3D callouts, the Fly screen and the schematic export can never disagree
+ * again. Percent was requested on the beta thread — on a very long or very
+ * short airframe "two calibers" means quite different things, and the
+ * percentage is the figure that stays comparable.
+ */
+export function formatStability(
+  info: Pick<StaticInfo, 'cp' | 'cg' | 'length' | 'stabilityCalibers'> & { lengthAerodynamic?: number },
+  unit: StabilityUnit = 'cal',
+): string {
+  const cal = `${info.stabilityCalibers.toFixed(2)} cal`;
+  if (unit === 'cal') return cal;
+  const pct = stabilityPercent(info);
+  if (pct === null) return cal;
+  const pctText = `${pct.toFixed(1)}%`;
+  return unit === 'pct' ? pctText : `${cal} · ${pctText}`;
+}
+
+/**
+ * The stability string for a STORED run. Falls back to calibers when the run
+ * predates `launchStaticMarginPct` — a saved flight cannot be re-measured.
+ */
+export function formatRunStability(
+  cal: number | null,
+  pct: number | null | undefined,
+  unit: StabilityUnit = 'cal',
+): { value: string; unit: string } {
+  if (cal === null || !Number.isFinite(cal)) return { value: '—', unit: 'cal' };
+  const calText = cal.toFixed(2);
+  if (unit === 'cal' || pct == null || !Number.isFinite(pct)) {
+    return { value: calText, unit: 'cal' };
+  }
+  if (unit === 'pct') return { value: pct.toFixed(1), unit: '%' };
+  return { value: `${calText} cal · ${pct.toFixed(1)}`, unit: '%' };
+}
+
 const FPS = 3.28084;
 const fps = (v: number) => `${(v * FPS).toFixed(0)} ft/s`;
 
@@ -148,6 +204,13 @@ export interface SimRun {
   launchCG: number | null;
   launchCP: number | null;
   launchStaticMarginCal: number | null;
+  /**
+   * The same margin as a percentage of aerodynamic length. Recorded at build
+   * time because a stored run has no rocket to re-measure. Absent on runs
+   * saved before the stability-unit preference existed — those display in
+   * calibers whatever the preference says, which is the honest fallback.
+   */
+  launchStaticMarginPct?: number | null;
   /** First deployment (kept for CSV/back-compat; see `deployments`). */
   altitudeAtDeployment: number | null;
   velocityAtDeployment: number | null;
@@ -405,6 +468,15 @@ export function buildSimRun(input: {
   const launchCG = firstFinite(series.cgLocation) ?? info.cg ?? null;
   const launchCP = firstFinite(series.cpLocation) ?? info.cp ?? null;
   const launchStaticMarginCal = firstFinite(series.stability) ?? info.stabilityCalibers ?? null;
+  // The flight-series margin (calibers, at launch) rescaled onto the same
+  // denominator the design views use, so the Results tab can honour the
+  // stability-unit preference without re-deriving anything.
+  const launchStaticMarginPct = launchStaticMarginCal === null
+    ? null
+    : (launchStaticMarginCal * info.refDiameter)
+        / ((info.lengthAerodynamic && info.lengthAerodynamic > 0)
+          ? info.lengthAerodynamic
+          : info.length) * 100;
 
   const altitudeAtDeployment = tDeploy !== null ? at(series.time, series.altitude, tDeploy) : null;
   const velocityAtDeployment = summary.deploymentVelocity
@@ -566,6 +638,7 @@ export function buildSimRun(input: {
     launchCG,
     launchCP,
     launchStaticMarginCal,
+    launchStaticMarginPct,
     altitudeAtDeployment,
     velocityAtDeployment,
     deployments,

@@ -1,6 +1,7 @@
 import type { StaticInfo } from '@online-openrocket/engine';
 import { fmtSi, type UnitSelection } from '../prefs/units.js';
 import { escapeXml } from './xmlUtil.js';
+import { formatStability } from './simReport.js';
 
 /**
  * 2D/3D image + model export with a data header (issue 2026-08-11a).
@@ -39,7 +40,9 @@ export function dataHeaderLines(d: ExportData): string[] {
     lines.push(
       `CG ${fmtSi('length', u.length, i.cg, 3)} ${u.length}, `
       + `CP ${fmtSi('length', u.length, i.cp, 3)} ${u.length} from nose tip, `
-      + `margin ${i.stabilityCalibers.toFixed(2)} cal`,
+      // A printed template is read away from the app, so it carries BOTH
+      // forms rather than following the on-screen preference.
+      + `margin ${formatStability(i, 'both')}`,
     );
   }
   lines.push(`MMRocket Sim v${d.appVersion} — ${new Date().toISOString().slice(0, 10)}`);

@@ -35,7 +35,7 @@ const tree = {
 } as unknown as RocketTree;
 
 const infoOf = (cal: number): StaticInfo => ({
-  length: 0.4, mass: 0.1, massEmpty: 0.08, cgEmpty: 0.2, cg: 0.2, cp: 0.28,
+  length: 0.4, lengthAerodynamic: 0.4, mass: 0.1, massEmpty: 0.08, cgEmpty: 0.2, cg: 0.2, cp: 0.28,
   cna: 10, stabilityCalibers: cal, refDiameter: 0.024, warnings: 0, warningTexts: [],
 });
 

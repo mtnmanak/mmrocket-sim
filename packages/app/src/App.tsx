@@ -52,7 +52,7 @@ import { componentCsv, componentTable } from './services/componentTable.js';
 import { tableToXlsx } from './services/xlsx.js';
 import { exportCdx1, importCdx1 } from './services/rasaeroFile.js';
 import { loadSession, onSessionSaveStateChange, saveSessionDebounced, sessionSaveFailing } from './services/session.js';
-import { buildSimRun, recommendDelay, type MotorMeta, type SimRun } from './services/simReport.js';
+import { buildSimRun, formatStability, recommendDelay, type MotorMeta, type SimRun } from './services/simReport.js';
 import { formatWarning, formatWarningText } from './services/simWarnings.js';
 import { addRun, loadRuns, persistFailed } from './services/simStore.js';
 import { APP_VERSION } from './version.js';
@@ -100,6 +100,24 @@ export interface SavedConfig {
    */
   deployments?: Record<string, OrkDeployOverride>;
 }
+
+/**
+ * Display name for a working-set configuration. Same rule as the .ork picker's
+ * {@link configLabel} — a nameless configuration reads as its motor set, never
+ * as a GUID — but SavedConfig's motors are already MATCHED (`label`), with the
+ * ones we could not match moved aside into `unmatched`. Both belong in the
+ * label, or a configuration whose only motor is unmatched would read as
+ * "No motors".
+ */
+export function savedConfigLabel(c: SavedConfig): string {
+  if (c.name) return c.name;
+  const labels = [
+    ...Object.values(c.motors).map((m) => m.label),
+    ...(c.unmatched ?? []),
+  ].filter(Boolean);
+  return labels.length ? `[${labels.join(', ')}]` : 'No motors';
+}
+
 import './styles.css';
 
 /**
@@ -308,8 +326,19 @@ export function App() {
     return () => { clearTimeout(fade); clearTimeout(clear); };
   }, [sessionNote]);
   const [view, setView] = useState<'2d' | '3d' | 'aft'>('2d');
-  /** S1 stats drawer over the hero canvas — the owner's call: default closed. */
-  const [statsDrawer, setStatsDrawer] = useState(false);
+  /**
+   * S1 stats drawer over the hero canvas.
+   * "All stats" starts OPEN on a desktop and closed on anything narrower
+   * (the owner, 2026-08-23: "there is enough screen real estate"). 981px is the
+   * breakpoint where the hero-canvas layout kicks in — below it the drawer
+   * overlays most of the drawing, which is why it defaulted closed for
+   * everyone. Session state, not a stored preference: collapsing it still
+   * sticks for as long as you are working, and nobody's saved choice is
+   * stomped because there was never one to stomp.
+   */
+  const [statsDrawer, setStatsDrawer] = useState(
+    () => typeof matchMedia !== 'undefined' && matchMedia('(min-width: 981px)').matches,
+  );
   // Measured drawer height + gap: the hero view's bottom edge lifts above the
   // open drawer so the drawing shrinks to the visible sky instead of being
   // covered (batch 08-21d — vertical mode has no zoom/pan to escape with).
@@ -337,12 +366,6 @@ export function App() {
   const [confirmNew, setConfirmNew] = useState(false);
   /** A decoded share-link design waiting for the user's OK to replace theirs. */
   const [shareOffer, setShareOffer] = useState<ImportedDesign | null>(null);
-  /** A multi-config .ork waiting for the user to pick which configuration. */
-  const [configOffer, setConfigOffer] = useState<{
-    buffer: ArrayBuffer;
-    imported: OrkImportResult;
-    fileName: string;
-  } | null>(null);
   const [showBatch, setShowBatch] = useState(false);
   const [showChangelog, setShowChangelog] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
@@ -641,7 +664,7 @@ export function App() {
             : usedSupersonic ? 'supersonic' : 'classic',
           // Kbf only matters on the classic model (supersonic supersedes it).
           rogersKbf: (prefs.rogersKbf ?? true) && !usedSupersonic,
-          ...(activeConfig ? { flightConfig: activeConfig.name ?? activeConfig.id } : {}),
+          ...(activeConfig ? { flightConfig: savedConfigLabel(activeConfig) } : {}),
         });
         setLastRun(run);
         recordRuns(addRun(run));
@@ -879,34 +902,26 @@ export function App() {
    * Open… and the share-link loader so a linked rocket behaves exactly like
    * an opened file: per-mount motor matching (built-ins first, then the
    * motor database), launch conditions, notes, the camera-shroud offer.
-   * `withoutMotors` (the config picker's "Open with no motors loaded")
-   * applies the same parse with an empty working set — the file's
-   * configurations still become presets, ready on Motors & Launch.
+   *
+   * There used to be an `withoutMotors` option here, driven by the config
+   * picker's "Open with no motors loaded" button. The picker is gone
+   * (2026-08-22b) and nothing else ever passed it, so the option went with it.
+   * The capability did NOT: ⏏ Unload in the vitals strip and the "None" row in
+   * the Flight configurations panel both empty the working set in one click.
    */
-  const applyImported = async (imported: ImportedDesign, opts?: { withoutMotors?: boolean }) => {
-    const withoutMotors = opts?.withoutMotors === true;
-    const notes: string[] = [`Loaded “${imported.name}”.`];
-    if (withoutMotors) {
-      // The importer's "Opened flight configuration …" line would claim
-      // motors were loaded — replace it with the truth.
-      notes.push(...imported.notes.filter((n) => !n.startsWith('Opened flight configuration')));
-      notes.push('Opened with no motors loaded — apply any flight configuration from Motors & Launch.');
-    } else {
-      notes.push(...imported.notes);
-    }
+  const applyImported = async (imported: ImportedDesign) => {
+    const notes: string[] = [`Loaded “${imported.name}”.`, ...imported.notes];
     // Load EVERY mount's motor (staged/multi-mount files included).
     const nextMotors: Record<string, MountMotor> = {};
-    if (!withoutMotors) {
-      for (const [nodeId, ref] of Object.entries(imported.motors)) {
-        const { motor: mm, note } = await matchImportedMotor(ref);
-        if (mm) nextMotors[nodeId] = mm;
-        notes.push(note);
-      }
+    for (const [nodeId, ref] of Object.entries(imported.motors)) {
+      const { motor: mm, note } = await matchImportedMotor(ref);
+      if (mm) nextMotors[nodeId] = mm;
+      notes.push(note);
     }
     // Stage B: every configuration in the file becomes a ready-to-apply
     // preset, matched in the same pass. Only the APPLIED config's notes
     // surface — a preset's failures are reported if/when it is applied.
-    const chosenId = withoutMotors ? null : (imported.chosenConfigId ?? null);
+    const chosenId = imported.chosenConfigId ?? null;
     const nextConfigs: SavedConfig[] = [];
     for (const cfg of imported.configs ?? []) {
       const cfgMotors: Record<string, MountMotor> = {};
@@ -951,6 +966,26 @@ export function App() {
   const applyConfig = (cfg: SavedConfig) => {
     setMountMotors(cfg.motors);
     setActiveConfigId(cfg.id);
+    // A configuration is its motors AND its recovery deployment. These were
+    // carried for export only, so applying one here switched the motors and
+    // left the chute set the way the previously-opened configuration wanted
+    // it — the one thing picking a configuration at file-open used to do that
+    // this panel could not. Applying them makes the panel a complete switch,
+    // which is what lets the open-time picker go away.
+    // setTree takes a value, not an updater (it also runs the autosave and
+    // normalisation), so fold the patches first and set once.
+    if (cfg.deployments && Object.keys(cfg.deployments).length > 0) {
+      let next = tree;
+      for (const [nodeId, d] of Object.entries(cfg.deployments)) {
+        if (!findNode(next, nodeId)) continue;
+        next = updateNode(next, nodeId, {
+          ...(d.deployEvent !== undefined ? { deployEvent: d.deployEvent } : {}),
+          ...(d.deployAltitude !== undefined ? { deployAltitude: d.deployAltitude } : {}),
+          ...(d.deployDelay !== undefined ? { deployDelay: d.deployDelay } : {}),
+        });
+      }
+      if (next !== tree) setTree(next);
+    }
     if (cfg.unmatched?.length) {
       // Quiet at import time (only the applied config reports) — the debt
       // comes due when the user actually loads this preset.
@@ -991,15 +1026,24 @@ export function App() {
       }
       const imported = importOrk(buffer);
       applyNameFallback(imported, file.name);
-      // Multi-config .ork (Stage A, batch 08-21c): ask which configuration
-      // before applying anything. Only the .ork format carries configs.
-      if (imported.configs.length > 1) {
-        setConfigOffer({ buffer, imported, fileName: file.name });
-        return;
-      }
+      // A multi-configuration .ork used to stop here and ask which one to
+      // open. Two testers found that modal the worst moment in the app — it
+      // was the FIRST thing a new user saw, and it listed configurations by
+      // the only thing most files give them, an OpenRocket GUID. We now open
+      // the file's own default configuration, exactly as desktop OpenRocket
+      // does, and say which one in the import note; the Flight configurations
+      // panel on Motors & Launch switches between them (motors AND recovery
+      // deployment, since applyConfig applies both now).
       await applyImported(imported);
     } catch (e) {
-      setFileNote(`Could not open that .ork file: ${e instanceof Error ? e.message : String(e)}`);
+      // Name the format the user actually picked. This handler takes .ork, .rkt
+      // and .CDX1, and hard-coding ".ork" made a precise importer message read
+      // as nonsense — "Could not open that .ork file: This is an older BINARY
+      // RockSim file…".
+      const ext = /\.(rkt|cdx1|ork)$/i.exec(file.name);
+      const kind = ext ? `.${ext[1]!.toLowerCase().replace('cdx1', 'CDX1')}` : '';
+      setFileNote(`Could not open that${kind ? ` ${kind}` : ''} file: `
+        + `${e instanceof Error ? e.message : String(e)}`);
     }
   };
 
@@ -1391,50 +1435,6 @@ export function App() {
           </div>
         </div>
       )}
-      {configOffer && (
-        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Choose a flight configuration">
-          <div className="modal-card">
-            <h2>Which flight configuration?</h2>
-            <p>
-              “{configOffer.imported.name}” carries {configOffer.imported.configs.length} flight
-              configurations. Pick the one to open — motors, ignition, deployment and
-              separation settings follow it. (Reopen the file any time to pick another.)
-            </p>
-            <div className="modal-actions" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
-              {configOffer.imported.configs.map((c) => (
-                <button key={c.id} className="file-btn"
-                  onClick={() => {
-                    const offer = configOffer;
-                    setConfigOffer(null);
-                    // Re-parse for a non-default pick: node ids are minted per
-                    // parse, so a result is always applied whole, never mixed.
-                    const chosen = c.id === offer.imported.chosenConfigId
-                      ? offer.imported
-                      : importOrk(offer.buffer, { configId: c.id });
-                    applyNameFallback(chosen, offer.fileName);
-                    void applyImported(chosen);
-                  }}>
-                  {c.name ?? c.id}{c.isDefault ? ' — the file’s default' : ''}
-                </button>
-              ))}
-              <button className="file-btn"
-                onClick={() => {
-                  const offer = configOffer;
-                  setConfigOffer(null);
-                  // the owner's "why do we start with a motor loaded?" escape:
-                  // nothing on the pad, every configuration still a preset
-                  // on Motors & Launch.
-                  void applyImported(offer.imported, { withoutMotors: true });
-                }}>
-                Open with no motors loaded
-              </button>
-              <button className="file-btn" onClick={() => setConfigOffer(null)}>
-                Cancel — open nothing
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
       {shareOffer && (
         <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Open design from link">
           <div className="modal-card">
@@ -1511,13 +1511,13 @@ export function App() {
           {built ? (
             <>
               <span className="vitals-item"
-                title="Static stability margin (calibers). ✓ = 1–3 cal, △ = over-stable (weathercocks in wind), ⚠ = under-stable">
+                title="Static stability margin. ✓ = 1–3 cal, △ = over-stable (weathercocks in wind), ⚠ = under-stable. Calibers or % of length: Preferences → Display.">
                 <span className="vitals-label">Stability</span>
                 {(() => {
                   const { glyph, cls } = stabilityGlyphClass(built.info.stabilityCalibers);
                   return (
                     <span className={`vitals-value ${cls}`}>
-                      {glyph} {built.info.stabilityCalibers.toFixed(2)} cal
+                      {glyph} {formatStability(built.info, prefs.stabilityUnit)}
                     </span>
                   );
                 })()}

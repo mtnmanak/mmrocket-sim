@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { FlightResult, FlightSeries, StaticInfo } from '@online-openrocket/engine';
 import {
-  buildSimRun, extractLandingDrift, extractMaxRollRate, recommendDelay,
-  ROLL_RATE_MEANINGFUL_RAD_S, SAFETY,
+  buildSimRun, extractLandingDrift, extractMaxRollRate, formatStability, recommendDelay,
+  ROLL_RATE_MEANINGFUL_RAD_S, SAFETY, stabilityPercent,
 } from './simReport.js';
 import { runsToCsv } from './simStore.js';
 import { DEFAULT_CONDITIONS } from '../components/LaunchPanel.js';
 
 const info: StaticInfo = {
-  length: 0.37, mass: 0.051, massEmpty: 0.027, cgEmpty: 0.19, cg: 0.26,
+  length: 0.37, lengthAerodynamic: 0.37, mass: 0.051, massEmpty: 0.027, cgEmpty: 0.19, cg: 0.26,
   cp: 0.29, cna: 8, stabilityCalibers: 1.3, refDiameter: 0.024,
   warnings: 0, warningTexts: [],
 };
@@ -425,5 +425,39 @@ describe('runsToCsv', () => {
     expect('flightConfig' in old).toBe(false);
     const [h2, r2] = runsToCsv([old]).split('\n');
     expect(cells(r2!)[cells(h2!).indexOf('Flight config')]).toBe('');
+  });
+});
+
+/**
+ * Stability as a percentage (beta thread, KillerCheerio: "a way to view
+ * %stability would be nice, it's better than calibers in my opinion").
+ */
+describe('stability margin display', () => {
+  const at = (over: Partial<StaticInfo>): StaticInfo => ({ ...info, ...over });
+
+  it('divides by the AERODYNAMIC length, like desktop OpenRocket', () => {
+    // margin 0.10 m over a 1.00 m aerodynamic span = 10 %, even though the
+    // all-components length is 1.25 m (a mass sled hanging past the airframe).
+    const i = at({ cg: 0.5, cp: 0.6, length: 1.25, lengthAerodynamic: 1.0 });
+    expect(stabilityPercent(i)).toBeCloseTo(10, 9);
+  });
+
+  it('falls back to total length when the aerodynamic span is missing', () => {
+    const i = at({ cg: 0.5, cp: 0.6, length: 1.0, lengthAerodynamic: 0 });
+    expect(stabilityPercent(i)).toBeCloseTo(10, 9);
+  });
+
+  it('formats each unit choice, and defaults to calibers', () => {
+    const i = at({ cg: 0.5, cp: 0.6, length: 1.0, lengthAerodynamic: 1.0, stabilityCalibers: 1.85 });
+    expect(formatStability(i)).toBe('1.85 cal');
+    expect(formatStability(i, 'cal')).toBe('1.85 cal');
+    expect(formatStability(i, 'pct')).toBe('10.0%');
+    expect(formatStability(i, 'both')).toBe('1.85 cal · 10.0%');
+  });
+
+  it('reports a negative margin rather than hiding it', () => {
+    const i = at({ cg: 0.7, cp: 0.6, length: 1.0, lengthAerodynamic: 1.0, stabilityCalibers: -1.2 });
+    expect(stabilityPercent(i)).toBeCloseTo(-10, 9);
+    expect(formatStability(i, 'pct')).toBe('-10.0%');
   });
 });

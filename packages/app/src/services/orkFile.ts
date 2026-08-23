@@ -71,6 +71,20 @@ export interface OrkFlightConfig {
   deployments: Record<string, OrkDeployOverride>;
 }
 
+/**
+ * A human label for a flight configuration. Desktop writes `<name>` only when
+ * the user renamed one, so most configurations have none — and the picker was
+ * rendering the raw GUID, which is what a first-time user saw as their very
+ * first screen after choosing a file. (CT-Concep98-External-Fincan.ork, posted
+ * to the beta thread, carries TEN.) Desktop substitutes the motor set for a
+ * nameless configuration; so do we.
+ */
+export function configLabel(c: { name: string | null; motors: Record<string, { designation: string }> }): string {
+  if (c.name) return c.name;
+  const designations = Object.values(c.motors).map((m) => m.designation).filter(Boolean);
+  return designations.length ? `[${designations.join(', ')}]` : 'No motors';
+}
+
 /** One <deploymentconfiguration> block's fields (all optional, as in the file). */
 export interface OrkDeployOverride {
   deployEvent?: string;
@@ -254,24 +268,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       if (matName) node['materialName'] = matName;
       const fin = text(el, ':scope > finish');
       if (fin && fin !== 'normal') node['finish'] = fin;
-      const om = num(el, 'overridemass', NaN);
-      if (!Number.isNaN(om)) node['overrideMass'] = om;
-      const ocg = num(el, 'overridecg', NaN);
-      if (!Number.isNaN(ocg)) node['overrideCGX'] = ocg;
-      const ocd = num(el, 'overridecd', NaN);
-      if (!Number.isNaN(ocd)) node['overrideCD'] = ocd;
-      // "Override for all subcomponents": per-quantity flags (24.x format);
-      // legacy files carry a single <overridesubcomponents> covering all.
-      const legacyAll = text(el, ':scope > overridesubcomponents') === 'true';
-      if (legacyAll || text(el, ':scope > overridesubcomponentsmass') === 'true') {
-        node['overrideSubcomponentsMass'] = true;
-      }
-      if (legacyAll || text(el, ':scope > overridesubcomponentscg') === 'true') {
-        node['overrideSubcomponentsCG'] = true;
-      }
-      if (legacyAll || text(el, ':scope > overridesubcomponentscd') === 'true') {
-        node['overrideSubcomponentsCD'] = true;
-      }
+      readOverrides(el, node);
       if (withPosition) {
         const pos = readPosition(el);
         if (pos) node.position = pos;
@@ -426,17 +423,20 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
         const n = base('tubecoupler', true);
         n['length'] = num(el, 'length', 0.05);
         n['thickness'] = num(el, 'thickness', 0.0005);
+        readRingRadii(el, n);
         return n;
       }
       case 'centeringring': {
         const n = base('centeringring', true);
         n['length'] = num(el, 'length', 0.002);
+        readRingRadii(el, n);
         readInstances(el, n);
         return n;
       }
       case 'bulkhead': {
         const n = base('bulkhead', true);
         n['length'] = num(el, 'length', 0.003);
+        readRingRadii(el, n);
         readInstances(el, n);
         return n;
       }
@@ -444,6 +444,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
         const n = base('engineblock', true);
         n['length'] = num(el, 'length', 0.005);
         n['thickness'] = num(el, 'thickness', 0.001);
+        readRingRadii(el, n);
         return n;
       }
       case 'launchlug': {
@@ -586,6 +587,10 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       id: freshId(),
       name: text(stageEl, ':scope > name') ?? (i === 0 ? 'Sustainer' : `Booster ${i}`),
     };
+    // A stage carries mass/CG/Cd overrides like any other component. NOT via
+    // base(), which would clobber the Sustainer/Booster name fallback above and
+    // pull <material>/<finish> onto a stage that has neither.
+    readOverrides(stageEl, stage);
     // RASAero power-on base-drag input (metres) — every stage, incl. sustainer.
     const nozzle = num(stageEl, 'nozzleexitdiameter', NaN);
     if (!Number.isNaN(nozzle) && nozzle > 0) stage['nozzleExitDiameter'] = nozzle;
@@ -649,8 +654,17 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
         `File declares ${configs.length} flight configurations but carried no motors to import.`);
     } else {
       const chosen = configs.find((c) => c.id === chosenConfigId)!;
+      // Names the configuration that actually loaded and where to change it.
+      // This replaced a modal that asked the user to choose before showing
+      // them anything — see App.tsx onOpenOrk. Says "the file's default"
+      // explicitly, because that is the fact a desktop OpenRocket user is
+      // checking for.
+      // (This whole block is already inside `configs.length > 1`, so there is
+      // no single-configuration case to branch on here.)
       notes.push(
-        `Opened flight configuration “${chosen.name ?? chosen.id}” (${configs.length} in the file — switch motors any time under Motors & Launch; reopen the file to switch deployment/separation overrides too).`);
+        `Opened “${configLabel(chosen)}”${chosen.isDefault ? ', the file’s default' : ''} `
+        + `flight configuration (${configs.length} in the file). Switch between them `
+        + `under Motors & Launch → Flight configurations.`);
     }
     // Stage activeness (<stage active="false">) is not applied (Stage C) —
     // warn when the chosen configuration would actually ground a stage.
@@ -711,8 +725,16 @@ function readLaunchConditions(doc: Document, notes: string[]): Partial<LaunchCon
   // modeled here — the average-wind settings below are what actually gets
   // imported, and the flyer must hear that their simulated winds changed.
   const windModelType = text(condEl, ':scope > windmodeltype');
-  if (windModelType?.toLowerCase() === 'multilevel'
-      || windEls.some((w) => (w.getAttribute('model') ?? '').toLowerCase() === 'multilevel')) {
+  // <windmodeltype> names the model the simulation ACTUALLY used. OpenRocket
+  // 24.12 writes a <wind model="multilevel"> block whenever any level exists,
+  // active or not, so scanning the blocks cried wolf on ordinary files: both
+  // designs posted to the beta thread declare "Average" and still tripped it,
+  // telling a first-time user his simulation inputs had silently changed when
+  // nothing had. Only fall back to scanning when the file states no type.
+  const multilevel = windModelType
+    ? windModelType.toLowerCase() === 'multilevel'
+    : windEls.some((w) => (w.getAttribute('model') ?? '').toLowerCase() === 'multilevel');
+  if (multilevel) {
     notes.push(
       'The file’s simulation used a multilevel wind profile (winds varying with altitude), which this app doesn’t model — its average-wind settings were imported instead.');
   }
@@ -878,6 +900,17 @@ export function exportOrk({ name, tree, motors, motor, mountId, launch, configs,
     emit(depth, `<name>${escapeXml(node.name ?? fallback)}</name>`);
     emit(depth, `<id>${uuid()}</id>`);
     overrides(depth, node);
+  };
+
+  // A ring/coupler radius: the author's number when they set one, `auto`
+  // otherwise — writing `auto` unconditionally overwrote their dimensions in
+  // their own file the first time they hit Save.
+  const ringRadii = (depth: number, node: ComponentNode, withInner: boolean) => {
+    const or = node['outerRadius'];
+    emit(depth, `<outerradius>${typeof or === 'number' && or > 0 ? or : 'auto'}</outerradius>`);
+    if (!withInner) return;
+    const ir = node['innerRadius'];
+    emit(depth, `<innerradius>${typeof ir === 'number' && ir >= 0 ? ir : 'auto'}</innerradius>`);
   };
 
   // Mass/CG/Cd overrides, exactly as the desktop RocketComponentSaver writes them.
@@ -1252,7 +1285,7 @@ export function exportOrk({ name, tree, motors, motor, mountId, launch, configs,
         emit(depth + 1, `<length>${n(node, 'length', 0.05)}</length>`);
         emit(depth + 1, '<radialposition>0.0</radialposition>');
         emit(depth + 1, '<radialdirection>0.0</radialdirection>');
-        emit(depth + 1, '<outerradius>auto</outerradius>');
+        ringRadii(depth + 1, node, false);
         emit(depth + 1, `<thickness>${n(node, 'thickness', 0.0005)}</thickness>`);
         close('tubecoupler');
         break;
@@ -1268,8 +1301,7 @@ export function exportOrk({ name, tree, motors, motor, mountId, launch, configs,
         emit(depth + 1, `<length>${n(node, 'length', 0.002)}</length>`);
         emit(depth + 1, '<radialposition>0.0</radialposition>');
         emit(depth + 1, '<radialdirection>0.0</radialdirection>');
-        emit(depth + 1, '<outerradius>auto</outerradius>');
-        if (t === 'centeringring') emit(depth + 1, '<innerradius>auto</innerradius>');
+        ringRadii(depth + 1, node, t === 'centeringring');
         close(t);
         break;
       }
@@ -1281,7 +1313,7 @@ export function exportOrk({ name, tree, motors, motor, mountId, launch, configs,
         emit(depth + 1, `<length>${n(node, 'length', 0.005)}</length>`);
         emit(depth + 1, '<radialposition>0.0</radialposition>');
         emit(depth + 1, '<radialdirection>0.0</radialdirection>');
-        emit(depth + 1, '<outerradius>auto</outerradius>');
+        ringRadii(depth + 1, node, false);
         emit(depth + 1, `<thickness>${n(node, 'thickness', 0.001)}</thickness>`);
         close('engineblock');
         break;
@@ -1475,6 +1507,11 @@ export function exportOrk({ name, tree, motors, motor, mountId, launch, configs,
     emit(3, '<stage>');
     emit(4, `<name>${escapeXml(st.name ?? (i === 0 ? 'Sustainer' : `Booster ${i}`))}</name>`);
     emit(4, `<id>${uuid()}</id>`);
+    // The stage's own overrides, in the desktop's element order. Emits nothing
+    // when none are set, so a plain design round-trips byte-identically — but
+    // without this a whole-stage Cd or weighed mass typed in the app was
+    // applied to the simulation and then thrown away on Save.
+    overrides(4, st);
     // RASAero power-on base-drag input (metres, no conversion). Non-standard
     // element (OpenRocket desktop ignores it); only emitted when set > 0 so a
     // plain design round-trips exactly. Applies to every stage incl. sustainer.
@@ -1573,6 +1610,56 @@ export function exportOrk({ name, tree, motors, motor, mountId, launch, configs,
 
 // ============================ helpers ============================
 
+/**
+ * Mass / CG / Cd overrides and their "applies to all subcomponents" flags.
+ *
+ * Module-level rather than inline in `base()` because a **stage** carries these
+ * too and is built by its own code path — desktop OpenRocket writes
+ * {@code <overridemass>} straight under {@code <stage>} for the very common
+ * "I weighed the whole rocket" case. Reading them only in `base()` meant a
+ * stage-level override was dropped at import: LEM-M2B.ork (beta thread,
+ * 2026-08-22) states a weighed 0.6747 kg with subcomponents-override on, and we
+ * imported 0.7346 kg — 8.9 % heavy, CG 31 mm aft, for a reason nothing on
+ * screen could explain.
+ */
+function readOverrides(el: Element, node: ComponentNode): void {
+  const om = num(el, 'overridemass', NaN);
+  if (!Number.isNaN(om)) node['overrideMass'] = om;
+  const ocg = num(el, 'overridecg', NaN);
+  if (!Number.isNaN(ocg)) node['overrideCGX'] = ocg;
+  const ocd = num(el, 'overridecd', NaN);
+  if (!Number.isNaN(ocd)) node['overrideCD'] = ocd;
+  // "Override for all subcomponents": per-quantity flags (24.x format);
+  // legacy files carry a single <overridesubcomponents> covering all.
+  const legacyAll = text(el, ':scope > overridesubcomponents') === 'true';
+  if (legacyAll || text(el, ':scope > overridesubcomponentsmass') === 'true') {
+    node['overrideSubcomponentsMass'] = true;
+  }
+  if (legacyAll || text(el, ':scope > overridesubcomponentscg') === 'true') {
+    node['overrideSubcomponentsCG'] = true;
+  }
+  if (legacyAll || text(el, ':scope > overridesubcomponentscd') === 'true') {
+    node['overrideSubcomponentsCD'] = true;
+  }
+}
+
+/**
+ * A radius that OpenRocket may write as a number OR as the literal `auto`
+ * (rings, couplers, bulkheads and engine blocks size themselves off the parent
+ * or a sibling mount when automatic). `undefined` means "leave it automatic";
+ * a number is the author's explicit dimension.
+ *
+ * `num()` cannot express this — a bare `auto` parses to NaN and silently
+ * becomes the fallback, which is how every explicit ring radius in a .ork was
+ * being thrown away on import.
+ */
+function autoNum(el: Element, tag: string): number | undefined {
+  const t = text(el, `:scope > ${tag}`);
+  if (!t || t.trim().toLowerCase() === 'auto') return undefined;
+  const v = Number(t.split(/\s+/).pop());
+  return Number.isFinite(v) ? v : undefined;
+}
+
 function num(el: Element, tag: string, fallback: number): number {
   const t = text(el, `:scope > ${tag}`);
   // Values like "auto 0.012" carry an automatic flag + last value.
@@ -1627,6 +1714,22 @@ function readSoftMaterial(el: Element, node: ComponentNode, kind: 'surface' | 'l
  * still simulates and draws ONE; the file keeps all N, and the import note
  * says so rather than letting the difference stay silent.
  */
+/**
+ * Explicit ring/coupler/bulkhead/engine-block radii. OpenRocket writes these
+ * as numbers whenever the author sized the part by hand and `auto` otherwise;
+ * we read neither, so every hand-set dimension was replaced by our automatic
+ * value. On CT-Concep98-External-Fincan.ork (beta thread) that changed the dry
+ * mass and moved the CG, and one centering ring whose file says
+ * `<innerradius>auto</innerradius>` next to an explicit outer radius became a
+ * solid disk. Saving then wrote `auto` back over the author's numbers.
+ */
+function readRingRadii(el: Element, node: ComponentNode): void {
+  const or = autoNum(el, 'outerradius');
+  if (or !== undefined && or > 0) node['outerRadius'] = or;
+  const ir = autoNum(el, 'innerradius');
+  if (ir !== undefined && ir >= 0) node['innerRadius'] = ir;
+}
+
 function readInstances(el: Element, node: ComponentNode): void {
   const count = Math.round(num(el, 'instancecount', 1));
   if (count > 1) node['instanceCount'] = count;

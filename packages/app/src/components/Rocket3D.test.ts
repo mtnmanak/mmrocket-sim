@@ -493,7 +493,7 @@ describe('calloutGadget — the offset CG/CP gadget', () => {
   // markerR = max(0.37·0.015, 0.024·0.35) = 0.0084 — the marker-sphere rule.
   const MARKER_R = 0.0084;
   const infoOf = (over: Partial<StaticInfo> = {}): StaticInfo => ({
-    length: LEN, mass: 0.12, massEmpty: 0.1, cgEmpty: 0.21, cg: 0.2, cp: 0.28,
+    length: LEN, lengthAerodynamic: LEN, mass: 0.12, massEmpty: 0.1, cgEmpty: 0.21, cg: 0.2, cp: 0.28,
     cna: 10, stabilityCalibers: 1.67, refDiameter: 0.048, warnings: 0, warningTexts: [],
     ...over,
   });

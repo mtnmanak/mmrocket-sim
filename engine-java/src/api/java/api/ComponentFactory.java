@@ -449,7 +449,34 @@ final class ComponentFactory {
             fs.setAirfoilTeDiamond(dbl(node, "airfoilTeDiamond", 0));
             fs.setFinLeRadius(dbl(node, "finLeRadius", 0));
         }
-        // Mass / CG / CD overrides — absent key means "not overridden".
+        applyOverrides(c, node);
+        Map<String, Object> position = obj(node, "position");
+        // Off-axis assemblies (PodSet/ParallelStage) have no parent here yet, and
+        // their setAxialMethod NPEs without one — their position is applied
+        // post-attach in applyAssembly. Every other component positions here.
+        if (position != null && !(c instanceof ComponentAssembly)) {
+            c.setAxialMethod(axialMethodOf(str(position, "method", "top")));
+            c.setAxialOffset(dbl(position, "offset", 0));
+        }
+        return c;
+    }
+
+    /**
+     * Mass / CG / CD overrides, plus the "applies to all subcomponents" flags
+     * (desktop .ork {@code <overridemass>} / {@code <overridesubcomponents*>}).
+     * An absent key means "not overridden".
+     *
+     * <p>Package-private and separate from {@link #create} because a STAGE is
+     * built directly by {@code OrkEngine.buildTree} rather than through the
+     * factory switch, and that path never applied overrides — so a whole-stage
+     * Cd or mass override typed in the app did nothing at all. (The app's .ork
+     * layer had the same blind spot on both sides, fixed separately; see
+     * orkFile.ts readOverrides.) The kernel itself always handled them:
+     * MassCalculation honours {@code isMassOverridden} for a non-massive
+     * assembly, and BarrowmanCalculator.calculateOverrideCD explicitly includes
+     * {@code ComponentAssembly}.
+     */
+    static void applyOverrides(RocketComponent c, Map<String, Object> node) {
         double overrideMass = dbl(node, "overrideMass", Double.NaN);
         if (!Double.isNaN(overrideMass)) {
             c.setOverrideMass(overrideMass);
@@ -465,9 +492,8 @@ final class ComponentFactory {
             c.setOverrideCD(overrideCD);
             c.setCDOverridden(true);
         }
-        // "Override for all subcomponents" flags (desktop .ork
-        // <overridesubcomponents*> — the override replaces the whole subtree's
-        // computed value, not just this component's).
+        // The override REPLACES the whole subtree's computed value rather than
+        // adding to this component's own.
         if (bool(node, "overrideSubcomponentsMass", false)) {
             c.setSubcomponentsOverriddenMass(true);
         }
@@ -477,15 +503,6 @@ final class ComponentFactory {
         if (bool(node, "overrideSubcomponentsCD", false)) {
             c.setSubcomponentsOverriddenCD(true);
         }
-        Map<String, Object> position = obj(node, "position");
-        // Off-axis assemblies (PodSet/ParallelStage) have no parent here yet, and
-        // their setAxialMethod NPEs without one — their position is applied
-        // post-attach in applyAssembly. Every other component positions here.
-        if (position != null && !(c instanceof ComponentAssembly)) {
-            c.setAxialMethod(axialMethodOf(str(position, "method", "top")));
-            c.setAxialOffset(dbl(position, "offset", 0));
-        }
-        return c;
     }
 
     /**

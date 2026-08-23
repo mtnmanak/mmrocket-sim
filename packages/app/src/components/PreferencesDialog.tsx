@@ -110,6 +110,21 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
             </select>
           </div>
           <div className="field">
+            <label>Stability shown as</label>
+            <select
+              aria-label="Stability shown as"
+              value={prefs.stabilityUnit ?? 'cal'}
+              onChange={(e) => setPrefs({
+                ...prefs,
+                stabilityUnit: e.target.value as 'cal' | 'pct' | 'both',
+              })}
+            >
+              <option value="cal">Calibers</option>
+              <option value="pct">% of length</option>
+              <option value="both">Both</option>
+            </select>
+          </div>
+          <div className="field">
             <label>Theme</label>
             <select
               aria-label="Theme"

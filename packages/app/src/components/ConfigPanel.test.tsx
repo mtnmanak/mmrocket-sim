@@ -15,6 +15,11 @@ const mm = (label: string) =>
 const CONFIGS: SavedConfig[] = [
   { id: 'cfg-a', name: 'Club field C6', isDefault: true, motors: { m1: mm('C6-5'), m2: mm('D12-0') } },
   { id: 'cfg-b', name: null, isDefault: false, motors: {} },
+  // Nameless but carrying motors — the common case in a real .ork, where
+  // desktop only writes <name> when the user renamed the configuration.
+  { id: 'cfg-c', name: null, isDefault: false, motors: { m1: mm('J1026-CT') } },
+  // Nameless, and its only motor could not be matched to our database.
+  { id: 'cfg-d', name: null, isDefault: false, motors: {}, unmatched: ['K550W'] },
 ];
 
 describe('ConfigPanel', () => {
@@ -48,15 +53,18 @@ describe('ConfigPanel', () => {
     return { applied, cleared };
   }
 
-  it('lists every config plus the None row: names (id fallback), summaries, default marker, active state', () => {
+  it('lists every config plus the None row: names, summaries, default marker, active state', () => {
     mount();
     const names = Array.from(host.querySelectorAll('.config-name')).map((el) => el.textContent);
-    expect(names).toEqual(['Club field C6', 'cfg-b', 'None']);
+    // A nameless configuration reads as its MOTOR SET, never as a raw GUID —
+    // the picker used to show `33a7c4f9-1acd-…` as a user's first screen after
+    // opening a file (one beta-thread design carries ten of them).
+    expect(names).toEqual(['Club field C6', 'No motors', '[J1026-CT]', '[K550W]', 'None']);
     const summaries = Array.from(host.querySelectorAll('.config-motors')).map((el) => el.textContent);
-    expect(summaries).toEqual(['C6-5, D12-0', 'no motors', 'no motors loaded']);
+    expect(summaries).toEqual(['C6-5, D12-0', 'no motors', 'J1026-CT', 'no motors', 'no motors loaded']);
     // The file's default is marked once, on cfg-a's row.
     const rows = Array.from(host.querySelectorAll('.config-row'));
-    expect(rows).toHaveLength(3);
+    expect(rows).toHaveLength(5);
     expect(rows[0]!.querySelector('.config-default')).toBeTruthy();
     expect(rows[1]!.querySelector('.config-default')).toBeFalsy();
     // Active state rides the activeConfigId row only.
@@ -70,14 +78,15 @@ describe('ConfigPanel', () => {
     const rows = Array.from(host.querySelectorAll('.config-row'));
     act(() => { (rows[1]!.querySelector('button') as HTMLButtonElement).click(); });
     expect(applied).toEqual(['cfg-b']);
-    act(() => { (rows[2]!.querySelector('button') as HTMLButtonElement).click(); });
+    // The None row is always LAST, after every configuration.
+    act(() => { (rows.at(-1)!.querySelector('button') as HTMLButtonElement).click(); });
     expect(cleared).toHaveLength(1);
   });
 
   it('the None row shows active only when nothing is loaded AND no config is active', () => {
     mount({ activeConfigId: null, hasMotors: false });
     const rows = Array.from(host.querySelectorAll('.config-row'));
-    expect(rows[2]!.querySelector('.config-active-tag')).toBeTruthy();
+    expect(rows.at(-1)!.querySelector('.config-active-tag')).toBeTruthy();
     // Custom set (active null but motors loaded): nothing claims active.
     mount({ activeConfigId: null, hasMotors: true });
     expect(host.querySelector('.config-active-tag')).toBeFalsy();

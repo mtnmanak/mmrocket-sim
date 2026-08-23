@@ -570,3 +570,33 @@ describe('RockSim export → import round trip', () => {
     expect(lug.position?.offset).toBeCloseTo(0.175, 9);
   });
 });
+
+/**
+ * Old RockSim (pre-9) wrote a BINARY design file that still carries a .rkt/.RKT
+ * name. A 939-file survey of real vendor designs (2026-08-22) found 96 of them —
+ * every Public Missiles kit in the set. They used to fail with "XML parse
+ * error", which reads as "your file is corrupt" and leaves the user nowhere.
+ */
+describe('binary (pre-9) RockSim files', () => {
+  const binary = () => {
+    const head = '[[RS001024RS]]';
+    const bytes = new Uint8Array(256);
+    for (let i = 0; i < head.length; i += 1) bytes[i] = head.charCodeAt(i);
+    for (let i = head.length; i < bytes.length; i += 1) bytes[i] = (i * 37) % 256;
+    return bytes.buffer;
+  };
+
+  it('names the format and says what to do instead', () => {
+    expect(() => importRkt(binary())).toThrow(/older BINARY RockSim file/);
+    expect(() => importRkt(binary())).toThrow(/re-save|\.ork/);
+  });
+
+  it('does not mistake a real XML .rkt for one', () => {
+    expect(() => importRkt(binary())).toThrow();
+    // The fixtures elsewhere in this file import cleanly; the guard only fires
+    // on the binary signature, never on well-formed XML.
+    expect(() => importRkt('<RockSimDocument><DesignInformation><RocketDesign>'
+      + '<Name>x</Name><Stage1Parts></Stage1Parts></RocketDesign></DesignInformation>'
+      + '</RockSimDocument>')).not.toThrow(/older BINARY/);
+  });
+});

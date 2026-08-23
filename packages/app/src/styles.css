@@ -2756,3 +2756,59 @@ select.unit-chip:hover {
   border-color: var(--accent);
   font-weight: 700;
 }
+
+/* Override panel: the "…and everything inside" flag, and the stage hint. */
+.override-subs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.override-subs input {
+  width: auto;
+  margin: 0;
+  flex: none;
+}
+
+.hint {
+  margin: 8px 0 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+/* An override standing idle because an ancestor's "…and everything inside"
+   covers it. A note, not an error — nothing is broken and nothing was lost. */
+.override-suppressed {
+  margin: 4px 0 0;
+  padding: 4px 6px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-muted);
+  background: var(--note-bg);
+  border-left: 2px solid var(--text-muted);
+  border-radius: 3px;
+}
+
+/* "Choose metrics" on the Results tab. It sits at the end of a row of tall
+   stat tiles, where a bare glyph disappeared; centred on their axis with its
+   own label it reads as a control without competing with the numbers. */
+.stat-pick-btn {
+  align-self: center;
+  white-space: nowrap;
+  font-size: 12.5px;
+  padding: 6px 12px;
+}
+
+@media (max-width: 767px) {
+  /* Full width under the tiles rather than a stray chip beside them. */
+  .stat-pick-btn {
+    align-self: stretch;
+    justify-content: center;
+  }
+}

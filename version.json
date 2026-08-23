@@ -1,5 +1,5 @@
 {
-  "version": "0.058",
-  "released": "2026-08-22",
-  "note": "A failed 2D image export now reports the error instead of silently doing nothing."
+  "version": "0.060",
+  "released": "2026-08-23",
+  "note": "Opening a multi-configuration .ork no longer asks which one — it opens the file's default, like the desktop does. The override panel now explains what \"and everything inside\" does, and says when an override is being covered by one above it."
 }

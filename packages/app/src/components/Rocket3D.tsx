@@ -14,7 +14,8 @@ import {
   downloadBlob, IMAGE_FORMAT_EXT, snapshotWithHeader,
   type ExportData, type ImageFormat,
 } from '../services/schematicExport.js';
-import { stabilityState, type StabilityState } from '../services/simReport.js';
+import { usePrefs } from '../prefs/PrefsContext.js';
+import { formatStability, stabilityState, type StabilityState, type StabilityUnit } from '../services/simReport.js';
 import { ImageExportMenu, type ImageExportOptions } from './ImageExportMenu.js';
 
 /**
@@ -345,7 +346,12 @@ export interface CalloutGadget {
  * margin between them. Pure so the numbers are provable — the R3F canvas
  * cannot mount in tests.
  */
-export function calloutGadget(info: StaticInfo | null, maxR: number, totalLen: number): CalloutGadget | null {
+export function calloutGadget(
+  info: StaticInfo | null,
+  maxR: number,
+  totalLen: number,
+  stabilityUnit: StabilityUnit = 'cal',
+): CalloutGadget | null {
   if (!info || !Number.isFinite(info.cg) || !Number.isFinite(info.cp)) return null;
   const markerR = markerRadius(totalLen, maxR);
   const off = maxR + markerR * 2.2;
@@ -357,7 +363,7 @@ export function calloutGadget(info: StaticInfo | null, maxR: number, totalLen: n
     cp: { pos: [info.cp, 0, off], text: 'CP', color: '#e34948' },
     margin: state === null ? null : {
       pos: [(info.cg + info.cp) / 2, 0, off],
-      text: `${info.stabilityCalibers.toFixed(2)} cal`,
+      text: formatStability(info, stabilityUnit),
       color: MARGIN_COLOR[state],
     },
   };
@@ -608,6 +614,7 @@ export function Rocket3D({ tree, info, motors, exportData }: {
   /** When set, a 📷 PNG snapshot button appears (issue 2026-08-11a). */
   exportData?: Omit<ExportData, 'spanM'>;
 }) {
+  const { prefs } = usePrefs();
   const { pieces, totalLen, maxR } = useMemo(() => buildPieces(tree, motors), [tree, motors]);
   const r3f = useRef<{ gl: THREE.WebGLRenderer; scene: THREE.Scene; camera: THREE.Camera } | null>(null);
 
@@ -667,7 +674,7 @@ export function Rocket3D({ tree, info, motors, exportData }: {
   const center = totalLen / 2;
   const camDist = Math.max(totalLen * 1.1, maxR * 6, 0.25);
   const markerR = markerRadius(totalLen, maxR);
-  const gadget = calloutGadget(info, maxR, totalLen);
+  const gadget = calloutGadget(info, maxR, totalLen, prefs.stabilityUnit);
 
   // View presets + recovery (batch 08-21d): a pan or deep zoom could lose the
   // rocket with no way back — these jump the camera to known-good stations.

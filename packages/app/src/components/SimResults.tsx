@@ -4,7 +4,8 @@ import { usePrefs } from '../prefs/PrefsContext.js';
 import { fmtSi } from '../prefs/units.js';
 import { UnitChip } from './UnitChip.js';
 import {
-  ROLL_RATE_MEANINGFUL_RAD_S, stabilityState, WIND_BLOWS_TOWARD_DEG, type SimRun,
+  formatRunStability, ROLL_RATE_MEANINGFUL_RAD_S, stabilityState, WIND_BLOWS_TOWARD_DEG,
+  type SimRun,
 } from '../services/simReport.js';
 import { clearRuns, deleteRun, runsToCsv, runsToTable } from '../services/simStore.js';
 import { formatWarning } from '../services/simWarnings.js';
@@ -289,9 +290,15 @@ export function SimRunDetails({ run, result, onFullSeries }: {
                 value={run.launchCG === null ? '—' : fmtSi('length', len, run.launchCG, 3)} quantity="length" />
               <Row label="Launch CP"
                 value={run.launchCP === null ? '—' : fmtSi('length', len, run.launchCP, 3)} quantity="length" />
-              <Row label="Launch static margin" value={s(run.launchStaticMarginCal)} unit="cal"
-                bad={stabilityState(run.launchStaticMarginCal) === 'under'}
-                warn={stabilityState(run.launchStaticMarginCal) === 'over'} />
+              {(() => {
+                const m = formatRunStability(
+                  run.launchStaticMarginCal, run.launchStaticMarginPct, prefs.stabilityUnit);
+                return (
+                  <Row label="Launch static margin" value={m.value} unit={m.unit}
+                    bad={stabilityState(run.launchStaticMarginCal) === 'under'}
+                    warn={stabilityState(run.launchStaticMarginCal) === 'over'} />
+                );
+              })()}
               {(run.deployments ?? []).length === 0 && (
                 <>
                   <Row label="Altitude at deployment"

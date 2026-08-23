@@ -94,6 +94,14 @@ export interface SimulationOptions {
 
 export interface StaticInfo {
   length: number;
+  /**
+   * Span of the AERODYNAMIC components only (m) — desktop OpenRocket's
+   * FlightConfiguration.getLengthAerodynamic(). This, not `length`, is the
+   * denominator OpenRocket uses when stability is shown as a percentage
+   * (PercentageOfLengthUnit); the two differ when a mass or internal component
+   * pokes past the airframe.
+   */
+  lengthAerodynamic: number;
   /** Launch mass (kg) — includes the motor when one is set. */
   mass: number;
   /** Dry structure mass (kg) — no motor. */

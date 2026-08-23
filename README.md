@@ -46,7 +46,7 @@ full GPLv3 text is in this repository's [`LICENSE`](LICENSE) file.
 - `packages/engine` — the UI-free simulation engine (`@online-openrocket/engine`)
 - `packages/app` — Vite + React front-end
 - `engine-java/` — the TeaVM Java→JS kernel build (carve + patches + differential tests)
-- `docs/` — plan, findings, user guide, session notes
+- `packages/app/user-guide.md` — the in-app user guide's source (built into the app)
 - `validation/` — supersonic-aero validation harness and anchors
 
 See `CLAUDE.md` for build commands and engine invariants.

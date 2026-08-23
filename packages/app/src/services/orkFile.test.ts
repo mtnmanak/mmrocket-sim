@@ -821,7 +821,12 @@ describe('.ork multi-configuration import (Stage A)', () => {
     expect(booster['separationDelay']).toBeUndefined();
     const notes = result.notes.filter((n) => n.includes('flight configuration'));
     expect(notes).toHaveLength(1);
-    expect(notes[0]).toBe('Opened flight configuration “Club field C6” (2 in the file — switch motors any time under Motors & Launch; reopen the file to switch deployment/separation overrides too).');
+    // The note replaced the open-time picker modal (2026-08-22b): it must name
+    // the configuration that loaded, say it is the file's default, and point at
+    // where to change it.
+    expect(notes[0]).toBe(
+      'Opened “Club field C6”, the file’s default flight configuration (2 in the file). '
+      + 'Switch between them under Motors & Launch → Flight configurations.');
     // cfg-a flies every stage — no activeness caveat.
     expect(result.notes.some((n) => n.includes('deactivates'))).toBe(false);
   });
@@ -845,7 +850,9 @@ describe('.ork multi-configuration import (Stage A)', () => {
     expect(booster['separationDelay']).toBeCloseTo(2, 12);
     const notes = result.notes.filter((n) => n.includes('flight configuration'));
     expect(notes).toHaveLength(1);
-    expect(notes[0]).toContain('Opened flight configuration “Demo day D12”');
+    expect(notes[0]).toContain('Opened “Demo day D12”');
+    // Picking a NON-default configuration must not claim it is the default.
+    expect(notes[0]).not.toContain('the file’s default');
     // cfg-b grounds the booster stage — activeness isn't applied yet, say so.
     expect(result.notes.filter((n) => n.includes('deactivates'))).toHaveLength(1);
     expect(result.notes.find((n) => n.includes('deactivates'))).toContain('all stages fly');
@@ -1188,5 +1195,168 @@ describe('.ork transition shapeclipped preserve-through', () => {
     const xml = exportOrk({ name: 'CD', tree });
     const trXml = xml.match(/<transition>[\s\S]*?<\/transition>/)![0];
     expect(trXml).toContain('<shapeclipped>true</shapeclipped>');
+  });
+});
+
+/**
+ * Stage-level overrides (beta thread, 2026-08-22). Desktop OpenRocket writes
+ * <overridemass> straight under <stage> for the very common "I weighed the
+ * whole rocket" case — atestani's posted LEM-M2B.ork does exactly that, and we
+ * imported 8.9 % heavy with the CG 31 mm aft because the stage builder never
+ * read them. The export side never wrote them either, so once the kernel
+ * honoured stage overrides, one typed in the app was applied to the simulation
+ * and then thrown away on Save.
+ */
+describe('.ork stage-level overrides', () => {
+  const staged = (inner: string) => `<openrocket version="1.10" creator="OpenRocket 24.12"><rocket>
+    <name>S</name><subcomponents><stage><name>Stage</name>
+      ${inner}
+      <subcomponents>
+        <bodytube><name>B</name><length>0.3</length><thickness>0.0005</thickness><radius>0.012</radius></bodytube>
+      </subcomponents></stage></subcomponents></rocket></openrocket>`;
+
+  it('reads mass, CG and Cd overrides and their subcomponent flags off <stage>', () => {
+    const st = importOrk(staged(`
+      <overridemass>0.67471864978</overridemass>
+      <overridesubcomponentsmass>true</overridesubcomponentsmass>
+      <overridecg>0.5588</overridecg>
+      <overridesubcomponentscg>true</overridesubcomponentscg>
+      <overridecd>0.45</overridecd>
+      <overridesubcomponentscd>false</overridesubcomponentscd>`)).tree.components[0]!;
+
+    expect(st.type).toBe('stage');
+    expect(st['overrideMass']).toBeCloseTo(0.67471864978, 12);
+    expect(st['overrideSubcomponentsMass']).toBe(true);
+    expect(st['overrideCGX']).toBeCloseTo(0.5588, 12);
+    expect(st['overrideSubcomponentsCG']).toBe(true);
+    expect(st['overrideCD']).toBeCloseTo(0.45, 12);
+    expect(st['overrideSubcomponentsCD']).toBeUndefined();
+    // The stage keeps its own name — reading overrides must not run base().
+    expect(st.name).toBe('Stage');
+  });
+
+  it('honours the legacy single <overridesubcomponents> flag on a stage', () => {
+    const st = importOrk(staged(`
+      <overridemass>1.5</overridemass>
+      <overridesubcomponents>true</overridesubcomponents>`)).tree.components[0]!;
+    expect(st['overrideSubcomponentsMass']).toBe(true);
+    expect(st['overrideSubcomponentsCG']).toBe(true);
+    expect(st['overrideSubcomponentsCD']).toBe(true);
+  });
+
+  it('writes them back, so a whole-rocket Cd survives Save and reopen', () => {
+    const tree = {
+      name: 'S',
+      components: [{
+        type: 'stage' as const,
+        name: 'Sustainer',
+        overrideCD: 0.45,
+        overrideSubcomponentsCD: true,
+        overrideMass: 2.5,
+        overrideSubcomponentsMass: true,
+        children: [{ type: 'bodytube' as const, length: 0.3, outerRadius: 0.012, thickness: 0.0005 }],
+      }],
+    };
+    const xml = exportOrk({ name: 'S', tree });
+    expect(xml).toContain('<overridecd>0.45</overridecd>');
+    expect(xml).toContain('<overridesubcomponentscd>true</overridesubcomponentscd>');
+
+    const back = importOrk(xml).tree.components[0]!;
+    expect(back['overrideCD']).toBeCloseTo(0.45, 12);
+    expect(back['overrideSubcomponentsCD']).toBe(true);
+    expect(back['overrideMass']).toBeCloseTo(2.5, 12);
+    expect(back['overrideSubcomponentsMass']).toBe(true);
+  });
+
+  it('emits nothing for a stage with no overrides (plain designs round-trip unchanged)', () => {
+    const xml = exportOrk({
+      name: 'P',
+      tree: {
+        name: 'P',
+        components: [{
+          type: 'stage' as const, name: 'Sustainer',
+          children: [{ type: 'bodytube' as const, length: 0.3, outerRadius: 0.012, thickness: 0.0005 }],
+        }],
+      },
+    });
+    const stageBlock = /<stage>[\s\S]*?<subcomponents>/.exec(xml)![0];
+    expect(stageBlock).not.toContain('<overridemass>');
+    expect(stageBlock).not.toContain('<overridecg>');
+    expect(stageBlock).not.toContain('<overridecd>');
+  });
+});
+
+/**
+ * Explicit ring / coupler / bulkhead / engine-block radii (beta thread,
+ * 2026-08-22). We read neither `<outerradius>` nor `<innerradius>` on these and
+ * wrote `auto` back unconditionally, so the author's hand-set dimensions were
+ * replaced by our automatic ones at import and destroyed in their own file at
+ * Save. On CT-Concep98-External-Fincan.ork that was 77 g of dry mass and 8 mm
+ * of CG.
+ */
+describe('.ork ring and coupler radii', () => {
+  const withRings = (rings: string) => `<openrocket version="1.10" creator="OpenRocket 24.12"><rocket>
+    <name>R</name><subcomponents><stage><name>S</name><subcomponents>
+      <bodytube><name>B</name><length>0.3</length><thickness>0.00127</thickness><radius>0.0508</radius>
+        <subcomponents>${rings}</subcomponents>
+      </bodytube></subcomponents></stage></subcomponents></rocket></openrocket>`;
+
+  const find = (xml: string, type: string) =>
+    flatten(importOrk(xml).tree.components).find((c) => c.type === type)!;
+
+  it('reads an explicit outer radius on all four types', () => {
+    const xml = withRings(`
+      <tubecoupler><name>TC</name><length>0.2</length><thickness>0.00089</thickness>
+        <outerradius>0.04953</outerradius></tubecoupler>
+      <bulkhead><name>BH</name><length>0.004775</length>
+        <outerradius>0.048641</outerradius></bulkhead>
+      <engineblock><name>EB</name><length>0.005</length><thickness>0.001</thickness>
+        <outerradius>0.0185</outerradius></engineblock>
+      <centeringring><name>CR</name><length>0.0127</length>
+        <outerradius>0.050927</outerradius><innerradius>0.0397</innerradius></centeringring>`);
+    expect(find(xml, 'tubecoupler')['outerRadius']).toBeCloseTo(0.04953, 9);
+    expect(find(xml, 'bulkhead')['outerRadius']).toBeCloseTo(0.048641, 9);
+    expect(find(xml, 'engineblock')['outerRadius']).toBeCloseTo(0.0185, 9);
+    expect(find(xml, 'centeringring')['outerRadius']).toBeCloseTo(0.050927, 9);
+    expect(find(xml, 'centeringring')['innerRadius']).toBeCloseTo(0.0397, 9);
+  });
+
+  it('leaves a bare `auto` automatic instead of turning it into a number', () => {
+    const xml = withRings(`
+      <centeringring><name>CR</name><length>0.0127</length>
+        <outerradius>0.050927</outerradius><innerradius>auto</innerradius></centeringring>`);
+    const cr = find(xml, 'centeringring');
+    expect(cr['outerRadius']).toBeCloseTo(0.050927, 9);
+    expect(cr['innerRadius']).toBeUndefined();
+  });
+
+  it('writes the numbers back rather than overwriting them with `auto`', () => {
+    const xml = withRings(`
+      <centeringring><name>CR</name><length>0.0127</length>
+        <outerradius>0.050927</outerradius><innerradius>0.0397</innerradius></centeringring>`);
+    const out = exportOrk({ name: 'R', tree: importOrk(xml).tree });
+    expect(out).toContain('<outerradius>0.050927</outerradius>');
+    expect(out).toContain('<innerradius>0.0397</innerradius>');
+    const cr = find(out, 'centeringring');
+    expect(cr['outerRadius']).toBeCloseTo(0.050927, 9);
+    expect(cr['innerRadius']).toBeCloseTo(0.0397, 9);
+  });
+
+  it('still writes `auto` when the design has no explicit radius', () => {
+    const out = exportOrk({
+      name: 'R',
+      tree: {
+        name: 'R',
+        components: [{
+          type: 'stage' as const, name: 'S',
+          children: [{
+            type: 'bodytube' as const, length: 0.3, outerRadius: 0.0508, thickness: 0.00127,
+            children: [{ type: 'centeringring' as const, length: 0.0127 }],
+          }],
+        }],
+      },
+    });
+    expect(out).toContain('<outerradius>auto</outerradius>');
+    expect(out).toContain('<innerradius>auto</innerradius>');
   });
 });

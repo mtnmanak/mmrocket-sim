@@ -280,3 +280,30 @@ describe('normalizeTree absolute positions', () => {
     expect(lug.position?.offset).toBeCloseTo(0.05, 12);
   });
 });
+
+/**
+ * The Add menu must never offer a child the kernel refuses — doing so builds a
+ * design that throws on build, which kills mass, CG, CP, drag, the 3D stats and
+ * Simulate at once and autosaves the broken tree. Transition.isCompatible
+ * (24.12) accepts InternalComponent or FreeformFinSet only, and NoseCone
+ * inherits it, so neither takes a pod set or a booster.
+ */
+describe('containment matches the kernel', () => {
+  it('offers no off-axis assembly on a nose cone or transition', () => {
+    for (const parent of ['nosecone', 'transition'] as const) {
+      const allowed = allowedChildren(parent);
+      expect(allowed).not.toContain('podset');
+      expect(allowed).not.toContain('parallelstage');
+    }
+  });
+
+  it('still offers them on a body tube, which the kernel does accept', () => {
+    expect(allowedChildren('bodytube')).toContain('podset');
+    expect(allowedChildren('bodytube')).toContain('parallelstage');
+  });
+
+  it('keeps freeform fins on a transition (the one fin type it takes)', () => {
+    expect(allowedChildren('transition')).toContain('freeformfinset');
+    expect(allowedChildren('transition')).not.toContain('trapezoidfinset');
+  });
+});

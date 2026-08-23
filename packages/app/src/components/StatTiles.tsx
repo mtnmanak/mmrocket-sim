@@ -2,7 +2,10 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import type { StaticInfo } from '@online-openrocket/engine';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { fmtSi, type Quantity } from '../prefs/units.js';
-import { stabilityState, type SimRun } from '../services/simReport.js';
+import {
+  formatRunStability, formatStability, stabilityPercent, stabilityState,
+  type SimRun, type StabilityUnit,
+} from '../services/simReport.js';
 import { UnitChip } from './UnitChip.js';
 
 /** Shared tiered styling: under-stable = red, over-stable = yellow caution. */
@@ -39,9 +42,7 @@ export function DesignStats({ info, motorLabel }: { info: StaticInfo; motorLabel
   const len = prefs.units.length;
   const mass = prefs.units.mass;
   const { glyph, cls } = stabilityGlyphClass(info.stabilityCalibers);
-  const stabilityPct = info.length > 0
-    ? ((info.cp - info.cg) / info.length) * 100
-    : 0;
+  const pct = stabilityPercent(info);
   return (
     <>
       <div className="stat-row">
@@ -61,9 +62,12 @@ export function DesignStats({ info, motorLabel }: { info: StaticInfo; motorLabel
           unit="cal"
           className={cls}
         />
+        {/* The All-stats drawer is the "everything" view, so it shows BOTH
+            forms regardless of the stability-unit preference — but the two
+            tiles must not both read "Stability". */}
         <Tile
-          label="Stability"
-          value={stabilityPct.toFixed(1)}
+          label="Stability (of length)"
+          value={pct === null ? '—' : pct.toFixed(1)}
           unit="%"
           className={cls}
         />
@@ -199,7 +203,9 @@ export function StatsChip({ info }: { info: StaticInfo }) {
       {chip.folded
         ? (
           <div className="stats-chip-row">
-            <span className={`stats-chip-value ${cls}`}>{glyph} {info.stabilityCalibers.toFixed(2)} cal</span>
+            <span className={`stats-chip-value ${cls}`}>
+              {glyph} {formatStability(info, prefs.stabilityUnit)}
+            </span>
           </div>
         )
         : (
@@ -208,7 +214,7 @@ export function StatsChip({ info }: { info: StaticInfo }) {
             {row('Mass loaded', `${fmtSi('mass', prefs.units.mass, info.mass)} ${prefs.units.mass}`)}
             {row('CG', `${fmtSi('length', len, info.cg, 3)} ${len}`)}
             {row('CP', `${fmtSi('length', len, info.cp, 3)} ${len}`)}
-            {row('Stability', `${glyph} ${info.stabilityCalibers.toFixed(2)} cal`, cls)}
+            {row('Stability', `${glyph} ${formatStability(info, prefs.stabilityUnit)}`, cls)}
           </>
         )}
     </div>
@@ -221,8 +227,10 @@ interface TileSpec {
   id: string;
   label: string;
   /** null value → tile renders an em-dash. */
-  render: (run: SimRun, u: { dist: string; vel: string; acc: string; mass: string }) =>
-    { value: string; quantity?: Quantity; unit?: string };
+  render: (
+    run: SimRun,
+    u: { dist: string; vel: string; acc: string; mass: string; stability?: StabilityUnit },
+  ) => { value: string; quantity?: Quantity; unit?: string };
 }
 
 /** Every metric the highlighted tiles can show, in display order. */
@@ -265,7 +273,8 @@ export const RESULT_TILE_METRICS: TileSpec[] = [
   },
   {
     id: 'staticMargin', label: 'Static margin',
-    render: (r) => ({ value: r.launchStaticMarginCal === null ? '—' : r.launchStaticMarginCal.toFixed(2), unit: 'cal' }),
+    render: (r, u) =>
+      formatRunStability(r.launchStaticMarginCal, r.launchStaticMarginPct, u.stability),
   },
   {
     id: 'optimalDelay', label: 'Optimal delay',
@@ -282,6 +291,7 @@ export function FlightStats({ run }: { run: SimRun }) {
   const u = {
     dist: prefs.units.distance, vel: prefs.units.velocity,
     acc: prefs.units.acceleration, mass: prefs.units.mass,
+    stability: prefs.stabilityUnit,
   };
   const chosen = prefs.resultTiles ?? DEFAULT_TILES;
   const shown = RESULT_TILE_METRICS.filter((m) => chosen.includes(m.id));
@@ -298,12 +308,24 @@ export function FlightStats({ run }: { run: SimRun }) {
           const v = m.render(run, u);
           return <Tile key={m.id} label={m.label} value={v.value} quantity={v.quantity} unit={v.unit} />;
         })}
-        <button className="file-btn" style={{ alignSelf: 'flex-start' }}
+        {/* A bare ⚙ at 12 px, top-aligned against a row of tall stat tiles, was
+            "almost unnoticeable" (the owner, 2026-08-23). It carries its name now,
+            sits on the tiles' centre line, and announces its state. The
+            aria-label CONTAINS the visible words (WCAG 2.5.3, label in name),
+            so "click choose metrics" reaches it by voice. */}
+        <button
+          className="file-btn stat-pick-btn"
+          aria-label="Choose metrics shown here"
+          aria-expanded={picking}
+          aria-controls="stat-pick-panel"
           title="Choose which metrics show here"
-          onClick={() => setPicking(!picking)}>⚙</button>
+          onClick={() => setPicking(!picking)}
+        >
+          ⚙ Choose metrics
+        </button>
       </div>
       {picking && (
-        <div className="panel" style={{ marginTop: 6, padding: '8px 12px' }}>
+        <div id="stat-pick-panel" className="panel" style={{ marginTop: 6, padding: '8px 12px' }}>
           <p className="comp-stats" style={{ margin: '0 0 6px' }}>
             Highlighted metrics — your picks are remembered. Everything is
             always available under “Show all details”.

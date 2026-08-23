@@ -59,6 +59,20 @@ export interface Preferences {
    */
   tourOff?: boolean;
   /**
+   * How the static stability margin reads throughout the app — the vitals
+   * strip, the floating chip, the 2D and 3D callouts, the Fly screen and the
+   * schematic export.
+   * - 'cal' (default): calibers, the traditional body-diameter margin.
+   * - 'pct': percent of aerodynamic length, desktop OpenRocket's
+   *   PercentageOfLengthUnit. Requested on the beta thread — it is the figure
+   *   that stays meaningful on a very long or very short airframe, where
+   *   "two calibers" means quite different things.
+   * - 'both': calibers with the percentage after it. Widest; fine on a
+   *   desktop, tight in the phone chip.
+   * Absent = 'cal', so nobody's display changes until they choose.
+   */
+  stabilityUnit?: 'cal' | 'pct' | 'both';
+  /**
    * The user's 3D printer, in METRES (see prefs/printers.ts for why metres and
    * not the millimetres a slicer quotes). Absent = no printer configured, and
    * that is a load-bearing default: the 🖨 STL export then behaves exactly as

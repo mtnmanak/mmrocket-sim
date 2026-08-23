@@ -1,5 +1,5 @@
 /**
- * Generates packages/app/src/data/userGuide.ts from docs/user-guide.md, so the
+ * Generates packages/app/src/data/userGuide.ts from packages/app/user-guide.md, so the
  * markdown is the single source of truth for the guide. The old userGuide.ts
  * was a hand-maintained transcription that silently drifted from the markdown
  * every release (each mirror ended up with sentences the other lacked); this
@@ -28,11 +28,14 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const SRC = join(root, 'docs', 'user-guide.md');
+// Lives beside the app that consumes it, not under docs/ — the guide is a
+// BUILD INPUT (CI runs this script on every deploy), so it must not sit in a
+// directory the project may prune.
+const SRC = join(root, 'packages', 'app', 'user-guide.md');
 const OUT = join(root, 'packages', 'app', 'src', 'data', 'userGuide.ts');
 
 function fail(msg, line) {
-  console.error(`build-user-guide: ${msg}${line !== undefined ? `\n  at docs/user-guide.md:${line + 1}` : ''}`);
+  console.error(`build-user-guide: ${msg}${line !== undefined ? `\n  at packages/app/user-guide.md:${line + 1}` : ''}`);
   process.exit(1);
 }
 
@@ -223,9 +226,9 @@ const field = (k, v) => `    ${JSON.stringify(k)}: ${ascii(JSON.stringify(v))}`;
 
 const ts = `/**
  * MMRocket Sim user guide content — the in-app rendered version of
- * docs/user-guide.md.
+ * packages/app/user-guide.md.
  *
- * GENERATED from docs/user-guide.md by scripts/build-user-guide.mjs — do NOT
+ * GENERATED from packages/app/user-guide.md by scripts/build-user-guide.mjs — do NOT
  * edit this file by hand; edit the markdown and re-run
  * \`node scripts/build-user-guide.mjs\` (the app's build script runs it
  * automatically). Each section's \`html\` is our own trusted, static markup

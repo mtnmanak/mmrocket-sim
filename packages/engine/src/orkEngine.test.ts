@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { OrkRocket, type MotorSpec, type RocketSpec } from './orkEngine.js';
+import { OrkRocket, type MotorSpec, type RocketSpec, type RocketTree } from './orkEngine.js';
 
 /**
  * Reference rocket + C6-class motor — the same design as engine-java's
@@ -599,5 +599,206 @@ describe('OrkRocket (real OpenRocket kernel via TeaVM)', () => {
         ],
       }),
     ).toThrow(/Unknown cluster configuration/);
+  });
+});
+
+/**
+ * Stage-level overrides (issue 2026-08-22a). A stage is built directly by
+ * OrkEngine.buildTree rather than through the ComponentFactory switch, and for
+ * a long time that path never applied the override block: a whole-stage Cd,
+ * mass or CG override entered in the UI round-tripped to the .ork and then
+ * vanished on the way into the kernel. The forum ask it blocks is "override
+ * the Cd for the whole rocket" — that is a stage Cd override with the
+ * subcomponents flag set.
+ */
+describe('stage-level overrides reach the kernel', () => {
+  const stageTree = (stage: Record<string, unknown>): RocketTree => ({
+    components: [{
+      type: 'stage',
+      name: 'Sustainer',
+      ...stage,
+      children: [
+        { type: 'nosecone', length: 0.15, aftRadius: 0.025, thickness: 0.002, shape: 'ogive' },
+        {
+          type: 'bodytube',
+          length: 0.5,
+          outerRadius: 0.025,
+          thickness: 0.001,
+          children: [{
+            type: 'trapezoidfinset',
+            finCount: 3,
+            rootChord: 0.08,
+            tipChord: 0.04,
+            sweep: 0.03,
+            height: 0.05,
+            thickness: 0.003,
+            position: { method: 'bottom', offset: 0 },
+          }],
+        },
+      ],
+    }],
+  });
+
+  const totalCd = (tree: RocketTree): number =>
+    OrkRocket.buildTree(tree).dragSweep({ machMin: 0.3, machMax: 0.3, machStep: 1 })
+      .powerOff.total[0]!;
+
+  it('a stage Cd override with the subcomponents flag REPLACES the whole rocket Cd', () => {
+    const base = totalCd(stageTree({}));
+    expect(base).toBeGreaterThan(0.1);
+    expect(base).not.toBeCloseTo(0.45, 6);
+
+    // What a user means by "override the Cd for the whole rocket".
+    expect(totalCd(stageTree({ overrideCD: 0.45, overrideSubcomponentsCD: true })))
+      .toBeCloseTo(0.45, 9);
+  });
+
+  it('without the subcomponents flag a stage Cd override ADDS, per OpenRocket', () => {
+    const base = totalCd(stageTree({}));
+    expect(totalCd(stageTree({ overrideCD: 2.5 }))).toBeCloseTo(base + 2.5, 9);
+  });
+
+  it('applies stage mass and CG overrides', () => {
+    const base = OrkRocket.buildTree(stageTree({})).staticInfo();
+    expect(base.mass).toBeLessThan(1);
+
+    const added = OrkRocket.buildTree(stageTree({ overrideMass: 5 })).staticInfo();
+    expect(added.mass).toBeCloseTo(base.mass + 5, 9);
+
+    const replaced = OrkRocket.buildTree(
+      stageTree({ overrideMass: 5, overrideSubcomponentsMass: true }),
+    ).staticInfo();
+    expect(replaced.mass).toBeCloseTo(5, 9);
+
+    const cg = OrkRocket.buildTree(
+      stageTree({ overrideCGX: 0.2, overrideSubcomponentsCG: true }),
+    ).staticInfo();
+    expect(cg.cg).toBeCloseTo(0.2, 9);
+  });
+});
+
+/**
+ * Override semantics up and down the stack (issue 2026-08-22b). The project
+ * owner asked for these to be pinned and documented, because "it could cause
+ * confusion quickly with multiple overrides occurring up and down the
+ * hierarchical stack". Everything asserted here was MEASURED against the
+ * kernel, and the app's user-facing copy is written from it — an earlier
+ * description of an unticked override as "adds to what the component computes"
+ * was wrong for anything with geometry of its own.
+ */
+describe('override semantics through the component hierarchy', () => {
+  const nested = (
+    stage: Record<string, unknown>,
+    tube: Record<string, unknown>,
+    fins: Record<string, unknown> = {},
+  ): RocketTree => ({
+    components: [{
+      type: 'stage', name: 'S', ...stage,
+      children: [
+        { type: 'nosecone', length: 0.15, aftRadius: 0.025, thickness: 0.002, shape: 'ogive' },
+        {
+          type: 'bodytube', length: 0.5, outerRadius: 0.025, thickness: 0.001, ...tube,
+          children: [{
+            type: 'trapezoidfinset', finCount: 3, rootChord: 0.08, tipChord: 0.04,
+            sweep: 0.03, height: 0.05, thickness: 0.003,
+            position: { method: 'bottom', offset: 0 }, ...fins,
+          }],
+        },
+      ],
+    }],
+  });
+
+  const cd = (t: RocketTree): number =>
+    OrkRocket.buildTree(t).dragSweep({ machMin: 0.3, machMax: 0.3, machStep: 1 })
+      .powerOff.total[0]!;
+  const mass = (t: RocketTree): number => OrkRocket.buildTree(t).staticInfo().mass;
+
+  it('an override REPLACES the component’s own value, it does not add to it', () => {
+    const base = cd(nested({}, {}));
+    // If it added, this would be base + 1.0. It is less, because the tube's own
+    // computed drag steps aside for the override.
+    const withTube = cd(nested({}, { overrideCD: 1.0 }));
+    expect(withTube).toBeLessThan(base + 1.0);
+    expect(withTube).toBeGreaterThan(1.0);
+  });
+
+  it('unticked, everything inside still counts on its own', () => {
+    const tubeOnly = cd(nested({}, { overrideCD: 1.0 }));
+    const tubeAndFins = cd(nested({}, { overrideCD: 1.0 }, { overrideCD: 0.5 }));
+    expect(tubeAndFins).toBeGreaterThan(tubeOnly);
+  });
+
+  it('ticked, nothing below contributes — including its own override', () => {
+    const replaced = cd(nested({}, { overrideCD: 1.0, overrideSubcomponentsCD: true }));
+    const alsoFins = cd(nested({},
+      { overrideCD: 1.0, overrideSubcomponentsCD: true }, { overrideCD: 0.5 }));
+    expect(alsoFins).toBeCloseTo(replaced, 12);
+  });
+
+  it('the NEAREST ticked ancestor wins, whatever is set below it', () => {
+    const a = cd(nested({ overrideCD: 2.0, overrideSubcomponentsCD: true },
+      { overrideCD: 1.0 }, { overrideCD: 0.5 }));
+    const b = cd(nested({ overrideCD: 2.0, overrideSubcomponentsCD: true },
+      { overrideCD: 1.0, overrideSubcomponentsCD: true }, { overrideCD: 0.5 }));
+    expect(a).toBeCloseTo(2.0, 9);
+    expect(b).toBeCloseTo(2.0, 9);
+
+    const m = mass(nested({ overrideMass: 3, overrideSubcomponentsMass: true },
+      { overrideMass: 1, overrideSubcomponentsMass: true }, { overrideMass: 0.4 }));
+    expect(m).toBeCloseTo(3, 9);
+  });
+
+  it('a CONTAINER has nothing of its own to replace, so unticked behaves differently', () => {
+    // A stage / pod set / booster is a ComponentAssembly: no mass, no CG, no
+    // drag of its own. Unticked, a mass override therefore ADDS instead of
+    // setting, and a CG override does nothing whatsoever — which is why the
+    // panel and the guide tell you to tick the box on these.
+    const base = OrkRocket.buildTree(nested({}, {})).staticInfo();
+
+    const cgUnticked = OrkRocket.buildTree(nested({ overrideCGX: 0.1 }, {})).staticInfo();
+    expect(cgUnticked.cg).toBeCloseTo(base.cg, 12);          // no-op
+
+    const cgTicked = OrkRocket.buildTree(
+      nested({ overrideCGX: 0.1, overrideSubcomponentsCG: true }, {})).staticInfo();
+    expect(cgTicked.cg).toBeCloseTo(0.1, 9);                 // sets it
+
+    const massUnticked = OrkRocket.buildTree(nested({ overrideMass: 1 }, {})).staticInfo();
+    expect(massUnticked.mass).toBeCloseTo(base.mass + 1, 9); // adds
+
+    // On a part that HAS geometry, the same unticked CG override does work.
+    const onTube = OrkRocket.buildTree(nested({}, { overrideCGX: 0.1 })).staticInfo();
+    expect(onTube.cg).not.toBeCloseTo(base.cg, 6);
+  });
+
+  it('a fin set’s Cd override is PER FIN, while its mass override is the whole set', () => {
+    const finned = (n: number, extra: Record<string, unknown>): RocketTree => ({
+      components: [{
+        type: 'stage',
+        children: [
+          { type: 'nosecone', length: 0.15, aftRadius: 0.025, thickness: 0.002, shape: 'ogive' },
+          {
+            type: 'bodytube', length: 0.5, outerRadius: 0.025, thickness: 0.001,
+            children: [{
+              type: 'trapezoidfinset', finCount: n, rootChord: 0.08, tipChord: 0.04,
+              sweep: 0.03, height: 0.05, thickness: 0.003,
+              position: { method: 'bottom', offset: 0 }, ...extra,
+            }],
+          },
+        ],
+      }],
+    });
+
+    // Cd scales with the fin count: each extra fin adds another 0.5.
+    const three = cd(finned(3, { overrideCD: 0.5 }));
+    const four = cd(finned(4, { overrideCD: 0.5 }));
+    const six = cd(finned(6, { overrideCD: 0.5 }));
+    expect(four - three).toBeCloseTo(0.5, 9);
+    expect(six - four).toBeCloseTo(1.0, 9);
+
+    // Mass does not: 0.4 kg is 0.4 kg however many fins there are.
+    for (const n of [3, 4, 6]) {
+      expect(mass(finned(n, { overrideMass: 0.4 }))).toBeCloseTo(
+        mass(finned(3, { overrideMass: 0.4 })), 12);
+    }
   });
 });
