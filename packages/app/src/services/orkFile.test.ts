@@ -653,6 +653,63 @@ describe('.ork launch conditions (simulations block)', () => {
   });
 });
 
+describe('.ork launch conditions come from the CHOSEN configuration', () => {
+  // Two flight configurations, two simulations, deliberately out of order: the
+  // FIRST <simulation> belongs to cfg-b, the second to the default cfg-a. A file
+  // whose configurations fly different sites (a summer launch and a winter one)
+  // must not have the wrong site's air applied to it.
+  const TWO_SIMS = `<openrocket version="1.10" creator="OpenRocket 24.12"><rocket>
+    <name>TwoSims</name>
+    <motorconfiguration configid="cfg-a" default="true"><stage number="0" active="true"/></motorconfiguration>
+    <motorconfiguration configid="cfg-b"><stage number="0" active="true"/></motorconfiguration>
+    <subcomponents><stage><name>S</name><subcomponents>
+      <nosecone><name>N</name><length>0.07</length><thickness>0.002</thickness>
+        <shape>ogive</shape><aftradius>0.012</aftradius></nosecone>
+      <bodytube><name>B</name><length>0.3</length><thickness>0.0005</thickness><radius>0.012</radius></bodytube>
+    </subcomponents></stage></subcomponents>
+  </rocket>
+  <simulations>
+    <simulation status="uptodate"><name>The other one</name>
+      <conditions>
+        <configid>cfg-b</configid>
+        <launchrodlength>3.0</launchrodlength>
+        <launchaltitude>2000.0</launchaltitude>
+        <atmosphere model="extendedisa"><basetemperature>310.15</basetemperature><basepressure>90000.0</basepressure></atmosphere>
+      </conditions>
+    </simulation>
+    <simulation status="uptodate"><name>The default one</name>
+      <conditions>
+        <configid>cfg-a</configid>
+        <launchrodlength>1.0</launchrodlength>
+        <launchaltitude>100.0</launchaltitude>
+        <atmosphere model="isa"/>
+      </conditions>
+    </simulation>
+  </simulations></openrocket>`;
+
+  it('takes the simulation matching the default configuration, not the first one', () => {
+    const launch = importOrk(TWO_SIMS).launch!;
+    expect(launch.launchRodLengthM).toBeCloseTo(1.0, 12);
+    expect(launch.launchAltitudeM).toBeCloseTo(100, 12);
+    // <atmosphere model="isa"> means "blank = standard", not cfg-b's 37 C day.
+    expect(launch.temperatureC).toBeNull();
+  });
+
+  it('follows an explicitly chosen configuration', () => {
+    const launch = importOrk(TWO_SIMS, { configId: 'cfg-b' }).launch!;
+    expect(launch.launchRodLengthM).toBeCloseTo(3.0, 12);
+    expect(launch.launchAltitudeM).toBeCloseTo(2000, 12);
+    expect(launch.temperatureC).toBeCloseTo(310.15 - 273.15, 9);
+  });
+
+  it('falls back to the first simulation when none names the chosen config', () => {
+    const orphaned = TWO_SIMS.replace('<configid>cfg-a</configid>', '<configid>cfg-zz</configid>')
+      .replace('<configid>cfg-b</configid>', '<configid>cfg-yy</configid>');
+    expect(importOrk(orphaned).launch!.launchRodLengthM).toBeCloseTo(3.0, 12);
+  });
+});
+
+
 // Desktop file shape (24.12 savers): rocket-level declarations with
 // optional <name>/default="true" and <stage number active> children;
 // per mount, bare ignition defaults + one <motor configid> per non-empty
@@ -793,7 +850,7 @@ describe('.ork round-trip preservation of data the app does not model yet', () =
 describe('.ork multi-configuration import (Stage A)', () => {
   it('applies the default configuration when no pick is given', () => {
     const result = importOrk(MULTI);
-    expect(result.configs.map(({ motors: _m, deployments: _d, ...rest }) => rest)).toEqual([
+    expect(result.configs.map(({ motors: _m, deployments: _d, separations: _s, ...rest }) => rest)).toEqual([
       { id: 'cfg-a', name: 'Club field C6', isDefault: true },
       { id: 'cfg-b', name: 'Demo day D12', isDefault: false },
     ]);
@@ -1358,5 +1415,128 @@ describe('.ork ring and coupler radii', () => {
     });
     expect(out).toContain('<outerradius>auto</outerradius>');
     expect(out).toContain('<innerradius>auto</innerradius>');
+  });
+});
+
+describe('the fin-fillet honesty note stays quiet when it cannot be true', () => {
+  // The note says masses "read slightly light against desktop OpenRocket"
+  // because fillet epoxy is not bridged to the kernel. When an ancestor pins
+  // the mass with "use instead of everything inside", the fin set contributes
+  // nothing either way and the masses are bit-identical — the note then tells
+  // the user their numbers are wrong when they are exactly right. A tester was
+  // told precisely that about a design whose stage states its weighed mass.
+  const filleted = (stageOverride: string) => `<openrocket version="1.10" creator="OpenRocket 24.12"><rocket>
+    <name>Filleted</name>
+    <motorconfiguration configid="a1" default="true"><stage number="0" active="true"/></motorconfiguration>
+    <subcomponents><stage><name>S</name>${stageOverride}<subcomponents>
+      <nosecone><name>N</name><length>0.07</length><thickness>0.002</thickness>
+        <shape>ogive</shape><aftradius>0.012</aftradius></nosecone>
+      <bodytube><name>B</name><length>0.3</length><thickness>0.0005</thickness><radius>0.012</radius>
+        <subcomponents>
+          <trapezoidfinset><name>Fins</name><fincount>3</fincount>
+            <rootchord>0.05</rootchord><tipchord>0.03</tipchord><sweeplength>0.02</sweeplength>
+            <height>0.03</height><thickness>0.003</thickness>
+            <filletradius>0.005</filletradius>
+            <filletmaterial type="bulk" density="1730.0" group="Custom">Epoxy</filletmaterial>
+          </trapezoidfinset>
+        </subcomponents>
+      </bodytube>
+    </subcomponents></stage></subcomponents>
+  </rocket></openrocket>`;
+  const saysFillets = (xml: string) =>
+    importOrk(xml).notes.some((n) => n.includes('Fin fillets'));
+
+  it('still warns when the fillet mass really is missing', () => {
+    expect(saysFillets(filleted(''))).toBe(true);
+  });
+
+  it('says nothing when an ancestor mass override covers the fin set', () => {
+    expect(saysFillets(filleted(
+      '<overridemass>0.25</overridemass><overridesubcomponentsmass>true</overridesubcomponentsmass>',
+    ))).toBe(false);
+  });
+
+  it('still warns when the override does NOT cover subcomponents', () => {
+    expect(saysFillets(filleted(
+      '<overridemass>0.25</overridemass><overridesubcomponentsmass>false</overridesubcomponentsmass>',
+    ))).toBe(true);
+  });
+});
+
+describe('per-configuration stage separation', () => {
+  /**
+   * Separation is a per-flight-configuration setting, exactly like motors and
+   * recovery deployment. A real posted design (LEM-IV) sets "never" on all
+   * seven of its named configurations while the BARE tags under <stage> still
+   * say desktop's default "ejection" — and the default configuration declares
+   * no block of its own, so it inherits "ejection". Import baked the opened
+   * configuration's value into the tree and switching configurations carried
+   * motors and chutes but not separation, so every M motor with a 0 s delay
+   * blew the stages apart at burnout and lost two thirds of the altitude.
+   */
+  const TWO_STAGE = `<openrocket version="1.10" creator="OpenRocket 24.12"><rocket>
+    <name>SepCfg</name>
+    <motorconfiguration configid="cfg-a" default="true"><stage number="0" active="true"/><stage number="1" active="true"/></motorconfiguration>
+    <motorconfiguration configid="cfg-b"><stage number="0" active="true"/><stage number="1" active="true"/></motorconfiguration>
+    <subcomponents>
+      <stage><name>Sustainer</name><subcomponents>
+        <nosecone><name>N</name><length>0.07</length><thickness>0.002</thickness>
+          <shape>ogive</shape><aftradius>0.012</aftradius></nosecone>
+      </subcomponents></stage>
+      <stage><name>Booster</name>
+        <separationevent>ejection</separationevent>
+        <separationaltitude>200.0</separationaltitude>
+        <separationdelay>0.0</separationdelay>
+        <separationconfiguration configid="cfg-b">
+          <separationevent>never</separationevent>
+          <separationaltitude>200.0</separationaltitude>
+          <separationdelay>0.0</separationdelay>
+        </separationconfiguration>
+        <subcomponents>
+          <bodytube><name>B</name><length>0.3</length><thickness>0.0005</thickness><radius>0.012</radius></bodytube>
+        </subcomponents>
+      </stage>
+    </subcomponents>
+  </rocket></openrocket>`;
+
+  it('records every configuration’s separation, not just the opened one', () => {
+    const r = importOrk(TWO_STAGE);
+    const boosterId = r.tree.components[1]!.id!;
+    const a = r.configs.find((c) => c.id === 'cfg-a')!;
+    const b = r.configs.find((c) => c.id === 'cfg-b')!;
+    // cfg-a declares no block: it inherits the bare desktop default.
+    expect(a.separations[boosterId]?.separationEvent).toBe('ejection');
+    // cfg-b says never, and that must survive being opened on cfg-a.
+    expect(b.separations[boosterId]?.separationEvent).toBe('never');
+  });
+
+  it('a save under one configuration keeps the OTHERS’ separation', () => {
+    // The mirror of the recovery-deployment guarantee. The writer used to emit
+    // the LIVE tree's separation into every <separationconfiguration>, so
+    // saving while cfg-a was open rewrote cfg-b from "never" to "ejection" —
+    // and a design whose whole point is that it does not come apart came back
+    // separating at its motor's ejection charge.
+    const openedA = importOrk(TWO_STAGE, { configId: 'cfg-a' });
+    const xml = exportOrk({
+      name: 'SepCfg', tree: openedA.tree, motors: {},
+      configs: openedA.configs.map((c) => ({
+        id: c.id, name: c.name, isDefault: c.isDefault, motors: {},
+        deployments: c.deployments, separations: c.separations,
+      })),
+      activeConfigId: 'cfg-a',
+    });
+    expect(importOrk(xml, { configId: 'cfg-b' }).tree.components[1]!['separationEvent'])
+      .toBe('never');
+    // ...and cfg-a still flies the way it did.
+    expect(importOrk(xml, { configId: 'cfg-a' }).tree.components[1]!['separationEvent'])
+      .toBeUndefined();
+  });
+
+  it('still bakes the OPENED configuration’s separation into the tree', () => {
+    expect(importOrk(TWO_STAGE, { configId: 'cfg-b' }).tree.components[1]!['separationEvent'])
+      .toBe('never');
+    // "ejection" is the kernel default, so cfg-a leaves the field unset.
+    expect(importOrk(TWO_STAGE, { configId: 'cfg-a' }).tree.components[1]!['separationEvent'])
+      .toBeUndefined();
   });
 });

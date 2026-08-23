@@ -75,6 +75,24 @@ export interface OrkFlightConfig {
    * leave another configuration's chute set to deploy at the wrong time.
    */
   deployments: Record<string, OrkDeployOverride>;
+  /**
+   * THIS configuration's <separationconfiguration> per booster stage / pod set,
+   * keyed by the stage's editor node id. Separation is per-configuration just
+   * like motors and deployment: a real posted design sets "never" on all seven
+   * of its named configurations while the bare tags under <stage> still carry
+   * desktop's default "ejection", and its DEFAULT configuration declares no
+   * block at all. Capturing only the opened configuration meant switching to
+   * another one kept the old separation, so an M motor with a 0 s delay tore
+   * the stages apart at burnout and lost two thirds of the altitude.
+   */
+  separations: Record<string, OrkSeparationOverride>;
+}
+
+/** One configuration's separation settings for one stage. */
+export interface OrkSeparationOverride {
+  separationEvent?: string;
+  separationDelay?: number;
+  separationAltitude?: number;
 }
 
 /**
@@ -180,6 +198,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       isDefault: c.getAttribute('default') === 'true',
       motors: {},
       deployments: {},
+      separations: {},
     }))
     .filter((c) => c.id !== '');
   const requested = opts?.configId;
@@ -221,6 +240,30 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       if (text(src, ':scope > deployaltitude') !== null) o.deployAltitude = num(src, 'deployaltitude', 200);
       if (text(src, ':scope > deploydelay') !== null) o.deployDelay = num(src, 'deploydelay', 0);
       if (Object.keys(o).length > 0 && node.id) c.deployments[node.id] = o;
+    }
+  };
+
+  /**
+   * Record EVERY configuration's <separationconfiguration> for this stage, the
+   * way captureDeployments does for recovery devices — resolved against the
+   * bare tags, so a configuration that declares no block of its own carries the
+   * value it actually flies with rather than "nothing".
+   */
+  const captureSeparations = (el: Element, node: ComponentNode): void => {
+    for (const c of configs) {
+      const block = Array.from(el.children).find(
+        (x) => x.tagName === 'separationconfiguration' && x.getAttribute('configid') === c.id);
+      const src = block ?? el;
+      const o: OrkSeparationOverride = {};
+      const event = text(src, ':scope > separationevent');
+      if (event) o.separationEvent = event;
+      if (text(src, ':scope > separationdelay') !== null) {
+        o.separationDelay = num(src, 'separationdelay', 0);
+      }
+      if (text(src, ':scope > separationaltitude') !== null) {
+        o.separationAltitude = num(src, 'separationaltitude', 200);
+      }
+      if (Object.keys(o).length > 0 && node.id) c.separations[node.id] = o;
     }
   };
 
@@ -577,6 +620,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
           if (delay !== 0) n['separationDelay'] = delay;
           const alt = num(sepEl, 'separationaltitude', NaN);
           if (!Number.isNaN(alt) && alt !== 200) n['separationAltitude'] = alt;
+          captureSeparations(el, n);
         }
         return n;
       }
@@ -627,6 +671,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       if (delay !== 0) stage['separationDelay'] = delay;
       const alt = num(sepEl, 'separationaltitude', NaN);
       if (!Number.isNaN(alt) && alt !== 200) stage['separationAltitude'] = alt;
+      captureSeparations(stageEl, stage);
     }
     const kids = convertChildren(stageEl);
     if (kids.length > 0) stage.children = kids;
@@ -643,11 +688,28 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   // simulation does not yet act on. Saying so beats a silent discrepancy —
   // both change mass, and mass changes the stability the user is designing to.
   const allNodes: ComponentNode[] = [];
-  const collect = (ns: ComponentNode[]) => {
-    for (const nd of ns) { allNodes.push(nd); collect(nd.children ?? []); }
+  // Fillet epoxy is preserved but not bridged to the kernel, so it really is
+  // missing from the mass — UNLESS something replaces the fin set's mass
+  // anyway. An ancestor override with "use instead of everything inside", or
+  // the fin set's own mass override, makes the fillet moot: the total is then
+  // bit-identical to desktop's. Firing regardless told a tester his masses read
+  // light against desktop on a design whose stage states its weighed mass,
+  // where the two agree exactly. A false alarm about mass costs more trust
+  // than silence.
+  let filletMassIsMissing = false;
+  const collect = (ns: ComponentNode[], massCovered: boolean) => {
+    for (const nd of ns) {
+      allNodes.push(nd);
+      const ownMassPinned = typeof nd['overrideMass'] === 'number';
+      if (!massCovered && !ownMassPinned
+          && typeof nd['filletRadius'] === 'number' && (nd['filletRadius'] as number) > 0) {
+        filletMassIsMissing = true;
+      }
+      collect(nd.children ?? [], massCovered || (ownMassPinned && nd['overrideSubcomponentsMass'] === true));
+    }
   };
-  collect(components);
-  if (allNodes.some((nd) => typeof nd['filletRadius'] === 'number' && (nd['filletRadius'] as number) > 0)) {
+  collect(components, false);
+  if (filletMassIsMissing) {
     notes.push(
       'Fin fillets are kept in the file but are not yet counted in mass or CG, '
         + 'so masses read slightly light against desktop OpenRocket.',
@@ -715,7 +777,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
     }
   }
 
-  const launch = readLaunchConditions(doc, notes);
+  const launch = readLaunchConditions(doc, notes, chosenConfigId);
 
   return {
     name, tree: { name, components }, motor, motors, configs, chosenConfigId,
@@ -733,8 +795,20 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
  * stored as the INTENSITY ratio stddev/average — is the ≤23.09 legacy form
  * the desktop still writes alongside it.
  */
-function readLaunchConditions(doc: Document, notes: string[]): Partial<LaunchConditions> | undefined {
-  const simEl = doc.querySelector('openrocket > simulations > simulation');
+function readLaunchConditions(
+  doc: Document, notes: string[], chosenConfigId?: string | null,
+): Partial<LaunchConditions> | undefined {
+  // A .ork carries one <simulation> per flight configuration, and they are NOT
+  // in configuration order. Taking the first one applied whichever site that
+  // simulation was set up for — one real file's other five simulations declare
+  // standard ISA at 3 m while its default declares a 24 °C Florida afternoon,
+  // worth 1.15 % of apogee. Match the configuration actually being opened, and
+  // keep the first as the fallback for files that name no configid.
+  const simEls = Array.from(doc.querySelectorAll('openrocket > simulations > simulation'));
+  const forChosen = chosenConfigId
+    ? simEls.find((s) => text(s, ':scope > conditions > configid') === chosenConfigId)
+    : undefined;
+  const simEl = forChosen ?? simEls[0];
   const condEl = simEl?.querySelector(':scope > conditions');
   if (!condEl) return undefined;
   const launch: Partial<LaunchConditions> = {};
@@ -828,6 +902,12 @@ export interface OrkExportConfig {
    * the live tree instead; these keep every OTHER configuration intact.
    */
   deployments?: Record<string, OrkDeployOverride>;
+  /**
+   * This configuration's stage separation, keyed by stage node id, as captured
+   * at import. The ACTIVE configuration's values come from the live tree; these
+   * keep every OTHER configuration intact, exactly as `deployments` does.
+   */
+  separations?: Record<string, OrkSeparationOverride>;
 }
 
 export interface OrkTreeExportInput {
@@ -871,6 +951,8 @@ export function exportOrk({
     motors: Record<string, OrkExportMotor>;
     /** null for the ACTIVE config: its deployment comes from the live tree. */
     deployments: Record<string, OrkDeployOverride> | null;
+    /** null for the ACTIVE config: its separation comes from the live tree. */
+    separations: Record<string, OrkSeparationOverride> | null;
   }> =
     configs && configs.length > 0
       ? configs.map((c) => ({
@@ -878,12 +960,13 @@ export function exportOrk({
         name: c.name,
         motors: c === active ? motorMap : c.motors,
         deployments: c === active ? null : (c.deployments ?? {}),
+        separations: c === active ? null : (c.separations ?? {}),
       }))
-      : [{ id: uuid(), name: null, motors: motorMap, deployments: null }];
+      : [{ id: uuid(), name: null, motors: motorMap, deployments: null, separations: null }];
   // Active = none but motors loaded: mint an extra config carrying the live
   // set, unnamed (the desktop renders unnamed configs as their motor list).
   const minted = configs && configs.length > 0 && !active && Object.keys(motorMap).length > 0
-    ? { id: uuid(), name: null, motors: motorMap, deployments: null }
+    ? { id: uuid(), name: null, motors: motorMap, deployments: null, separations: null }
     : null;
   if (minted) writeConfigs.push(minted);
   // default="true" (also what <simulation> references): the active config,
@@ -1004,6 +1087,33 @@ export function exportOrk({
       if (o.deployAltitude !== undefined) emit(depth + 1, `<deployaltitude>${o.deployAltitude}</deployaltitude>`);
       if (o.deployDelay !== undefined) emit(depth + 1, `<deploydelay>${o.deployDelay}</deploydelay>`);
       emit(depth, '</deploymentconfiguration>');
+    }
+  };
+
+  /**
+   * Separation for a booster stage / parallel stage: desktop's bare defaults
+   * followed by one block per configuration. Each configuration writes ITS OWN
+   * value — the writer used to repeat the live tree's into every block, so
+   * saving while one configuration was open rewrote all the others. A design
+   * that says "never separate" on six of its seven configurations came back
+   * separating at the motor's ejection charge on all of them.
+   */
+  const separationBlocks = (depth: number, node: ComponentNode) => {
+    const liveEv = typeof node['separationEvent'] === 'string' ? (node['separationEvent'] as string) : 'ejection';
+    const liveDelay = typeof node['separationDelay'] === 'number' ? (node['separationDelay'] as number) : 0;
+    const liveAlt = typeof node['separationAltitude'] === 'number' ? (node['separationAltitude'] as number) : 200;
+    const sep = (d: number, ev: string, delay: number, alt: number) => {
+      emit(d, `<separationevent>${escapeXml(ev)}</separationevent>`);
+      emit(d, `<separationaltitude>${alt}</separationaltitude>`);
+      emit(d, `<separationdelay>${delay}</separationdelay>`);
+    };
+    sep(depth, liveEv, liveDelay, liveAlt);
+    for (const c of writeConfigs) {
+      const o = c.separations === null || !node.id ? undefined : c.separations[node.id];
+      emit(depth, `<separationconfiguration configid="${c.id}">`);
+      sep(depth + 1, o?.separationEvent ?? liveEv, o?.separationDelay ?? liveDelay,
+        o?.separationAltitude ?? liveAlt);
+      emit(depth, '</separationconfiguration>');
     }
   };
 
@@ -1492,20 +1602,7 @@ export function exportOrk({
         position(depth + 1, node, 'bottom');
         if (t === 'parallelstage') {
           // Same separation block a booster <stage> writes (bare default + config).
-          const ev = typeof node['separationEvent'] === 'string' ? (node['separationEvent'] as string) : 'ejection';
-          const delay = typeof node['separationDelay'] === 'number' ? (node['separationDelay'] as number) : 0;
-          const alt = typeof node['separationAltitude'] === 'number' ? (node['separationAltitude'] as number) : 200;
-          const sep = (d: number) => {
-            emit(d, `<separationevent>${escapeXml(ev)}</separationevent>`);
-            emit(d, `<separationaltitude>${alt}</separationaltitude>`);
-            emit(d, `<separationdelay>${delay}</separationdelay>`);
-          };
-          sep(depth + 1);
-          for (const c of writeConfigs) {
-            emit(depth + 1, `<separationconfiguration configid="${c.id}">`);
-            sep(depth + 2);
-            emit(depth + 1, '</separationconfiguration>');
-          }
+          separationBlocks(depth + 1, node);
         }
         close(t);
         break;
@@ -1569,20 +1666,7 @@ export function exportOrk({
     if (i > 0) {
       // Separation (lower stages only) — desktop writes the DEFAULT params
       // bare, then a per-config block (AxialStageSaver).
-      const ev = typeof st['separationEvent'] === 'string' ? (st['separationEvent'] as string) : 'ejection';
-      const delay = typeof st['separationDelay'] === 'number' ? (st['separationDelay'] as number) : 0;
-      const alt = typeof st['separationAltitude'] === 'number' ? (st['separationAltitude'] as number) : 200;
-      const sep = (d: number) => {
-        emit(d, `<separationevent>${escapeXml(ev)}</separationevent>`);
-        emit(d, `<separationaltitude>${alt}</separationaltitude>`);
-        emit(d, `<separationdelay>${delay}</separationdelay>`);
-      };
-      sep(4);
-      for (const c of writeConfigs) {
-        emit(4, `<separationconfiguration configid="${c.id}">`);
-        sep(5);
-        emit(4, '</separationconfiguration>');
-      }
+      separationBlocks(4, st);
     }
     emit(4, '<subcomponents>');
     for (const node of st.children ?? []) {

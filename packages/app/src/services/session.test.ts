@@ -4,8 +4,10 @@ import {
   loadSession,
   onSessionSaveStateChange,
   saveSessionDebounced,
+  sessionPredatesThisBuild,
   sessionSaveFailing,
 } from './session.js';
+import { APP_VERSION } from '../version.js';
 import type { RocketTree } from '@online-openrocket/engine';
 import type { LaunchConditions } from '../components/LaunchPanel.js';
 import type { MountMotor } from '../App.js';
@@ -149,5 +151,40 @@ describe('session flight-config presets (Stage B)', () => {
     expect(s.tree.name).toBe('Test');
     expect(s.savedConfigs).toBeUndefined();
     expect(s.activeConfigId).toBeUndefined();
+  });
+});
+
+describe('a design restored from autosave remembers which build imported it', () => {
+  const KEY = 'online-openrocket.session.v1';
+  const rewrite = (patch: (raw: Record<string, unknown>) => void) => {
+    const raw = JSON.parse(localStorage.getItem(KEY)!) as Record<string, unknown>;
+    patch(raw);
+    localStorage.setItem(KEY, JSON.stringify(raw));
+  };
+
+  it('stamps the version that saved it', () => {
+    saveNow();
+    expect(loadSession()!.appVersion).toBe(APP_VERSION);
+  });
+
+  it('a session saved by an earlier build is flagged', () => {
+    // The tree in localStorage is the PARSED design, not the .ork bytes. An
+    // importer fix therefore never reaches a design already open — a tester
+    // ran a build that read his stage override correctly and still saw the
+    // pre-fix numbers, 8.9 % heavy, because his autosave predated the fix.
+    saveNow();
+    rewrite((raw) => { raw['appVersion'] = '0.058'; });
+    expect(sessionPredatesThisBuild(loadSession()!)).toBe(true);
+  });
+
+  it('a session saved before stamping existed is flagged', () => {
+    saveNow();
+    rewrite((raw) => { delete raw['appVersion']; });
+    expect(sessionPredatesThisBuild(loadSession()!)).toBe(true);
+  });
+
+  it('a session this build wrote is not flagged', () => {
+    saveNow();
+    expect(sessionPredatesThisBuild(loadSession()!)).toBe(false);
   });
 });

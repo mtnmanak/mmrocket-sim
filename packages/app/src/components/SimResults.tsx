@@ -261,7 +261,7 @@ export function SimRunDetails({ run, result, onFullSeries }: {
                 <Row label="Max roll rate"
                   value={`${(run.maxRollRateRadS / (2 * Math.PI)).toFixed(2)} r/s (${Math.round((run.maxRollRateRadS * 180) / Math.PI)}°/s)`} />
               )}
-              <Row label="Time to launch guide departure" value={s(run.timeToRodDeparture, 3)} unit="s" />
+              <Row label="Time to launch guide exit" value={s(run.timeToRodDeparture, 3)} unit="s" />
               <Row label="Time to burnout" value={s(run.timeToBurnout)} unit="s" />
               <Row label="Time to apogee" value={s(run.timeToApogee)} unit="s" />
               <Row label="Total flight time" value={s(run.totalFlightTime, 1)} unit="s" />
@@ -277,7 +277,7 @@ export function SimRunDetails({ run, result, onFullSeries }: {
           </table>
           <table className="fin-table">
             <tbody>
-              <Row label="Velocity at guide departure"
+              <Row label="Velocity at launch guide exit"
                 value={run.rodExitVelocity === null ? '—' : fmtSi('velocity', vel, run.rodExitVelocity)}
                 quantity="velocity" bad={run.safeLiftoffSpeed === false} />
               <Row label="Thrust : weight at departure" value={run.thrustToWeightAtRod === null ? '—' : `${s(run.thrustToWeightAtRod, 1)} : 1`}
@@ -286,15 +286,19 @@ export function SimRunDetails({ run, result, onFullSeries }: {
                 value={run.launchMass === null ? '—' : fmtSi('mass', mass, run.launchMass)} quantity="mass" />
               <Row label="Recovery weight (at burnout)"
                 value={run.burnoutMass == null ? '—' : fmtSi('mass', mass, run.burnoutMass)} quantity="mass" />
-              <Row label="Launch CG"
+              {/* The cause, printed beside the effect: this is why the CP below
+                  sits forward of the Design tab's. At zero wind they agree. */}
+              <Row label="Angle of attack at launch guide exit"
+                value={run.rodExitAoa == null ? '—' : s((run.rodExitAoa * 180) / Math.PI, 1)} unit="°" />
+              <Row label="CG at launch guide exit"
                 value={run.launchCG === null ? '—' : fmtSi('length', len, run.launchCG, 3)} quantity="length" />
-              <Row label="Launch CP"
+              <Row label="CP at launch guide exit"
                 value={run.launchCP === null ? '—' : fmtSi('length', len, run.launchCP, 3)} quantity="length" />
               {(() => {
                 const m = formatRunStability(
                   run.launchStaticMarginCal, run.launchStaticMarginPct, prefs.stabilityUnit);
                 return (
-                  <Row label="Launch static margin" value={m.value} unit={m.unit}
+                  <Row label="Static margin at launch guide exit" value={m.value} unit={m.unit}
                     bad={stabilityState(run.launchStaticMarginCal) === 'under'}
                     warn={stabilityState(run.launchStaticMarginCal) === 'over'} />
                 );

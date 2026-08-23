@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.062';
+export const APP_VERSION = '0.063';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,20 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.063',
+    date: '2026-08-23',
+    title: 'Flight configurations carry their separation, and the launch report stops arguing with itself',
+    items: [
+      'FIXED: switching flight configurations now carries the stage separation across, not just the motors and the recovery settings. Separation is a per-configuration setting in the .ork exactly as those are, and it was being read only from the configuration you opened with — so a design that says "never separate" on the configuration you switched TO was still flying the one you opened. On a posted file that meant every M motor with a 0-second ejection delay blew the airframe apart at burnout: 12,618 ft came out as 4,317 ft. The design opened on a configuration whose delay is long enough that the separation lands near apogee and looks harmless, which is why it survived this long. Loading the same motor by hand worked, because the catalogue lists it plugged and a plugged motor has no ejection charge to separate on. Thanks to @atestani for the file and the report.',
+      'FIXED: saving no longer rewrites every other configuration’s separation to the open one’s. The writer repeated the live design’s value into every configuration block, so one save could turn six "never separate" settings into "separate at ejection". Recovery deployment already had that guarantee; separation now has it too.',
+      'FIXED: the launch report’s CG, CP and static margin now come from the same instant. They were pairing a lift-off CG with a guide-exit CP, so subtracting the two numbers on the panel gave a different margin from the one printed beside them — caught by @atestani, whose spreadsheet said 1.78 cal where the panel said 1.83. The difference was one guide-clearance of propellant.',
+      'CLEARER: those rows are now named "at launch guide exit", and a new "Angle of attack at launch guide exit" row sits above them. That CP is not the Design tab’s CP and never was: leaving the guide in a 5 mph crosswind puts the rocket at about 3 degrees of angle of attack, and the body lift that generates pulls the CP forward — 1.4 in on one design. Desktop OpenRocket computes exactly the same thing, 35.04 in against its own design-panel 36.47 on the same file; it just never shows the two side by side. Set the wind to zero and they agree to 0.03 in.',
+      'FIXED: a design restored from autosave now tells you when it was read in by an earlier build. The autosave holds the PARSED design, not the file it came from, so a file-reading fix never reaches a rocket you already have open. A tester was still seeing pre-fix numbers — 8.9 % heavy with the CG 31 mm aft — on a build that contained the fix, because his design had been imported before it. Re-open the original file to pick those fixes up; refreshing is not enough.',
+      'FIXED: launch conditions now come from the simulation belonging to the configuration you open, rather than whichever simulation happened to be first in the file. One posted design flies its default from a 24 °C Florida afternoon and its other five from standard sea-level air — worth 1.2 % of apogee applied to the wrong flight.',
+      'FIXED: the fin-fillet note no longer fires when a mass override already covers the fin set. It was telling one builder his masses read light against desktop OpenRocket on a design where the two are identical to the gram, which is a worse error than saying nothing.',
+    ],
+  },
   {
     version: '0.062',
     date: '2026-08-23',

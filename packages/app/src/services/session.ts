@@ -2,6 +2,7 @@ import type { MotorSpec, RocketTree } from '@online-openrocket/engine';
 import type { LaunchConditions } from '../components/LaunchPanel.js';
 import type { MountMotor, SavedConfig } from '../App.js';
 import type { MotorMeta } from './simReport.js';
+import { APP_VERSION } from '../version.js';
 
 /**
  * Session autosave: the whole working state (design tree, selected motor,
@@ -38,8 +39,29 @@ export interface SessionState {
    * the file, as an ordinary mass component.
    */
   measured?: { massKg: number | null; cgM: number | null };
+  /**
+   * APP_VERSION of the build that wrote this session (v0.063+). What is stored
+   * here is the PARSED design, not the .ork bytes, so a fix to the importer
+   * never reaches a design that is already open: it is re-read from
+   * localStorage, not re-imported. A tester hit exactly that — his build read
+   * the stage override his file states, and he still saw the pre-fix numbers,
+   * 8.9 % heavy with the CG 31 mm aft, because his autosave predated the fix.
+   * Absent on sessions written before stamping existed, which is itself the
+   * signal that they are old.
+   */
+  appVersion?: string;
   /** Last-save timestamp (ms epoch) — shown on restore. */
   savedAt: number;
+}
+
+/**
+ * Was this session written by some build other than the running one? If so the
+ * design in it was parsed by a different importer, and any import fix since
+ * then has not been applied to it. The cure is to re-open the original file;
+ * the caller says so rather than silently trusting the stored tree.
+ */
+export function sessionPredatesThisBuild(s: SessionState): boolean {
+  return s.appVersion !== APP_VERSION;
 }
 
 export function loadSession(): SessionState | null {
@@ -104,7 +126,8 @@ export function saveSessionDebounced(state: Omit<SessionState, 'savedAt'>): void
     try {
       // Plugged motors carry ejectionDelay = Infinity; JSON.stringify would
       // silently turn that into null, so round-trip it as a string.
-      localStorage.setItem(KEY, JSON.stringify({ ...state, savedAt: Date.now() }, (_k, v) =>
+      localStorage.setItem(KEY, JSON.stringify(
+        { ...state, appVersion: APP_VERSION, savedAt: Date.now() }, (_k, v) =>
         typeof v === 'number' && v === Infinity ? 'Infinity' : v));
       setSaveFailing(false);
     } catch {

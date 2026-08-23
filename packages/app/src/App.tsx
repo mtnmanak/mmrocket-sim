@@ -53,13 +53,16 @@ import { UnitChip } from './components/UnitChip.js';
 import { fmtSi, niceStep, siToUi, uiToSi } from './prefs/units.js';
 import { classLabel, diameterClass, displayDesignation, findDbMotor, isHighPower } from './services/motorDb.js';
 import { delayOptions, fetchMotorSpec } from './services/thrustcurve.js';
-import { exportOrk, importOrk, type OrkDeployOverride, type OrkExportConfig, type OrkExportMotor, type OrkImportResult, type OrkMotorRef, type OrkTreeImportResult } from './services/orkFile.js';
+import { exportOrk, importOrk, type OrkDeployOverride, type OrkSeparationOverride, type OrkExportConfig, type OrkExportMotor, type OrkImportResult, type OrkMotorRef, type OrkTreeImportResult } from './services/orkFile.js';
 import { decodeShareFragment, encodeShareFragment, hasSharePayload, MAX_FRAGMENT_CHARS } from './services/shareLink.js';
 import { exportRkt, importRkt } from './services/rocksimFile.js';
 import { componentCsv, componentTable } from './services/componentTable.js';
 import { tableToXlsx } from './services/xlsx.js';
 import { exportCdx1, importCdx1 } from './services/rasaeroFile.js';
-import { loadSession, onSessionSaveStateChange, saveSessionDebounced, sessionSaveFailing } from './services/session.js';
+import {
+  loadSession, onSessionSaveStateChange, saveSessionDebounced, sessionPredatesThisBuild,
+  sessionSaveFailing,
+} from './services/session.js';
 import { buildSimRun, formatStability, recommendDelay, type MotorMeta, type SimRun } from './services/simReport.js';
 import { formatWarning, formatWarningText } from './services/simWarnings.js';
 import { addRun, loadRuns, persistFailed } from './services/simStore.js';
@@ -101,6 +104,15 @@ export interface SavedConfig {
   motors: Record<string, MountMotor>;
   /** Designations that couldn't be matched at import — reported when applied. */
   unmatched?: string[];
+  /**
+   * This configuration's stage-separation settings, keyed by stage node id.
+   * Separation is per-configuration in the .ork exactly as motors and recovery
+   * are, so switching configurations has to carry it: without this, a design
+   * that says "never separate" on the configuration you switch TO still flew
+   * the configuration you OPENED with, and a 0 s motor delay tore the stages
+   * apart at burnout.
+   */
+  separations?: Record<string, OrkSeparationOverride>;
   /**
    * This configuration's recovery-deployment settings as they were in the file,
    * keyed by recovery-device node id. Carried untouched so saving while another
@@ -252,6 +264,11 @@ export function App() {
   // normalizeTree wraps pre-v0.009 flat trees in one stage. Lazy useState:
   // loadSession parses the whole tree — never re-run it on re-renders.
   const [session] = useState(loadSession);
+  // The autosave holds the PARSED design, not the file it came from, so a
+  // design restored from a session another build wrote has never been through
+  // this build's importer. Every file-reading fix we ship misses it silently.
+  const [restoredByOlderBuild, setRestoredByOlderBuild] = useState(
+    () => session !== null && sessionPredatesThisBuild(session));
   // Normalize ONCE and derive every dependent initializer from the SAME tree:
   // each normalizeTree/defaultTree call mints fresh ids for nodes it creates,
   // so a second call yields ids that don't exist in the tree state — the
@@ -744,6 +761,16 @@ export function App() {
     for (const [i, text] of curveRepairs.entries()) {
       out.push({ id: `curve-repair:${i}`, severity: 'warn', text });
     }
+    if (restoredByOlderBuild) {
+      out.push({
+        id: 'stale-session',
+        severity: 'warn',
+        text: 'This design was restored from autosave and was read in by an earlier build of'
+          + ' the app, so file-reading fixes made since then have not been applied to it.'
+          + ' Re-open the original file to pick them up.',
+        onDismiss: () => setRestoredByOlderBuild(false),
+      });
+    }
     if (fileNoteState) {
       out.push({
         id: 'file-note',
@@ -753,7 +780,7 @@ export function App() {
       });
     }
     return out;
-  }, [buildError, motorFailures, curveRepairs, fileNoteState, setFileNote]);
+  }, [buildError, motorFailures, curveRepairs, fileNoteState, setFileNote, restoredByOlderBuild]);
 
   /** Assigns a motor to a mount, with the G80 power-class ignition default. */
   const assignMotor = (targetMountId: string, label: string, spec: MotorSpec, meta: MotorMeta) => {
@@ -912,6 +939,7 @@ export function App() {
     motors: Object.fromEntries(
       Object.entries(c.motors).map(([id, mm]) => [id, toExportMotor(mm)])),
     ...(c.deployments ? { deployments: c.deployments } : {}),
+    ...(c.separations ? { separations: c.separations } : {}),
   }));
 
   const download = (content: string | Uint8Array, ext: string, suffix = '') => {
@@ -1093,6 +1121,9 @@ export function App() {
    * the Flight configurations panel both empty the working set in one click.
    */
   const applyImported = async (imported: ImportedDesign) => {
+    // Freshly parsed by THIS build's importer, so the autosave-is-stale warning
+    // no longer applies to what is on screen.
+    setRestoredByOlderBuild(false);
     const notes: string[] = [`Loaded “${imported.name}”.`, ...imported.notes];
     // Load EVERY mount's motor (staged/multi-mount files included).
     //
@@ -1132,6 +1163,8 @@ export function App() {
         ...(unmatched.length > 0 ? { unmatched } : {}),
         ...(cfg.deployments && Object.keys(cfg.deployments).length > 0
           ? { deployments: cfg.deployments } : {}),
+        ...(cfg.separations && Object.keys(cfg.separations).length > 0
+          ? { separations: cfg.separations } : {}),
       });
     }
     const importedTree = normalizeTree(imported.tree);
@@ -1172,14 +1205,28 @@ export function App() {
     // which is what lets the open-time picker go away.
     // setTree takes a value, not an updater (it also runs the autosave and
     // normalisation), so fold the patches first and set once.
-    if (cfg.deployments && Object.keys(cfg.deployments).length > 0) {
+    const hasDeploy = cfg.deployments && Object.keys(cfg.deployments).length > 0;
+    const hasSep = cfg.separations && Object.keys(cfg.separations).length > 0;
+    if (hasDeploy || hasSep) {
       let next = tree;
-      for (const [nodeId, d] of Object.entries(cfg.deployments)) {
+      for (const [nodeId, d] of Object.entries(cfg.deployments ?? {})) {
         if (!findNode(next, nodeId)) continue;
         next = updateNode(next, nodeId, {
           ...(d.deployEvent !== undefined ? { deployEvent: d.deployEvent } : {}),
           ...(d.deployAltitude !== undefined ? { deployAltitude: d.deployAltitude } : {}),
           ...(d.deployDelay !== undefined ? { deployDelay: d.deployDelay } : {}),
+        });
+      }
+      // Separation must be written even when it is the kernel default
+      // ("ejection"): the point is to REPLACE whatever the previously applied
+      // configuration left behind, so skipping the default would strand a
+      // "never" from the last one.
+      for (const [nodeId, sep] of Object.entries(cfg.separations ?? {})) {
+        if (!findNode(next, nodeId)) continue;
+        next = updateNode(next, nodeId, {
+          ...(sep.separationEvent !== undefined ? { separationEvent: sep.separationEvent } : {}),
+          ...(sep.separationDelay !== undefined ? { separationDelay: sep.separationDelay } : {}),
+          ...(sep.separationAltitude !== undefined ? { separationAltitude: sep.separationAltitude } : {}),
         });
       }
       if (next !== tree) setTree(next);

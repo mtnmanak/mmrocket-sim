@@ -138,13 +138,20 @@ function buildColumns(u?: UnitSelection): [string, (r: SimRun) => string | numbe
   ['Max roll rate (r/s)', (r) => round(r.maxRollRateRadS == null ? null : r.maxRollRateRadS / (2 * Math.PI), 3)],
   ['Time to apogee (s)', (r) => round(r.timeToApogee)],
   ['Time to burnout (s)', (r) => round(r.timeToBurnout)],
-  ['Time to launch guide departure (s)', (r) => round(r.timeToRodDeparture, 3)],
-  [`Velocity at launch guide departure (${sym('velocity', 'm/s')})`, (r) => cv('velocity', r.rodExitVelocity)],
+  ['Time to launch guide exit (s)', (r) => round(r.timeToRodDeparture, 3)],
+  [`Velocity at launch guide exit (${sym('velocity', 'm/s')})`, (r) => cv('velocity', r.rodExitVelocity)],
   [`Launch mass (${sym('mass', 'kg')})`, (r) => cv('mass', r.launchMass, 4)],
   [`Burnout mass (${sym('mass', 'kg')})`, (r) => cv('mass', r.burnoutMass ?? null, 4)],
-  [`Launch CG (${sym('length', 'm')})`, (r) => cv('length', r.launchCG, 4)],
-  [`Launch CP (${sym('length', 'm')})`, (r) => cv('length', r.launchCP, 4)],
-  ['Launch static margin (cal)', (r) => round(r.launchStaticMarginCal)],
+  // Named for the instant they belong to: the kernel records no CP until the
+  // guide is cleared, so these are exit values, not t=0 values. "Launch CG/CP"
+  // invited a like-for-like comparison against the Design tab's static CP,
+  // which is a different quantity (zero angle of attack, no crosswind) — the
+  // angle of attack below is printed beside them as the reason they differ.
+  ['Angle of attack at launch guide exit (deg)',
+    (r) => round(r.rodExitAoa == null ? null : (r.rodExitAoa * 180) / Math.PI, 2)],
+  [`CG at launch guide exit (${sym('length', 'm')})`, (r) => cv('length', r.launchCG, 4)],
+  [`CP at launch guide exit (${sym('length', 'm')})`, (r) => cv('length', r.launchCP, 4)],
+  ['Static margin at launch guide exit (cal)', (r) => round(r.launchStaticMarginCal)],
   [`Altitude at deployment (${sym('distance', 'm')})`, (r) => cv('distance', r.altitudeAtDeployment)],
   [`Velocity at deployment (${sym('velocity', 'm/s')})`, (r) => cv('velocity', r.velocityAtDeployment)],
   ['Deployments', (r) => (r.deployments ?? [])

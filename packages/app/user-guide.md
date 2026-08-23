@@ -422,7 +422,7 @@ Up to **eleven synchronized single-series panels**: Altitude, Velocity, Accelera
 
 ## The launch report and safety checks
 
-The report header shows the **optimal / recommended(available) / flown** delay, then a per-device **recovery table** (drogue and main each get a row: deploy time, altitude, opening velocity, settled descent rate, and a verdict). "Show all details" expands roughly thirty attributes: max altitude/velocity/Mach/acceleration, times to guide departure / burnout / apogee / landing, velocity and thrust:weight at guide departure, launch mass/CG/CP/static margin, landing descent rate, plus the motor's diameter, manufacturer, type, propellant, and case.
+The report header shows the **optimal / recommended(available) / flown** delay, then a per-device **recovery table** (drogue and main each get a row: deploy time, altitude, opening velocity, settled descent rate, and a verdict). "Show all details" expands roughly thirty attributes: max altitude/velocity/Mach/acceleration, times to launch guide exit / burnout / apogee / landing, velocity and thrust:weight at launch guide exit, launch mass, and the angle of attack, CG, CP and static margin at launch guide exit — flight values at the moment the rocket leaves the guide, which is why the CP there sits forward of the Design tab's still-air CP whenever there is a crosswind — landing descent rate, plus the motor's diameter, manufacturer, type, propellant, and case.
 
 Every flight is graded against these thresholds:
 

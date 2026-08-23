@@ -428,6 +428,80 @@ describe('runsToCsv', () => {
   });
 });
 
+describe('the launch stability rows are labelled with the instant they belong to', () => {
+  it('names the launch guide exit, not "launch", in the CSV header', () => {
+    const run = buildSimRun({
+      result: fakeResult(), info, motor, meta: { label: 'C6-5' },
+      launch: DEFAULT_CONDITIONS, rocketName: 'Fixture', execMs: 1,
+    });
+    const header = runsToCsv([run]);
+    expect(header).toContain('CG at launch guide exit');
+    expect(header).toContain('CP at launch guide exit');
+    expect(header).toContain('Static margin at launch guide exit');
+    expect(header).toContain('Angle of attack at launch guide exit');
+    // The whole group speaks with one voice — these two predate the rename.
+    expect(header).toContain('Time to launch guide exit');
+    expect(header).toContain('Velocity at launch guide exit');
+    // "Launch mass" IS a t=0 quantity and keeps its name.
+    expect(header).toContain('Launch mass');
+  });
+});
+
+describe('the launch stability rows all come from one instant', () => {
+  /**
+   * The kernel refuses to record CP or stability until the rod is cleared
+   * (AbstractSimulationStepper: `if (status.isLaunchRodCleared() && null != forces)`),
+   * so cpLocation/stability carry a null prefix that cgLocation does not. Reading
+   * each with its own "first finite" scan pairs sample 0's CG with sample 1's CP,
+   * and the panel then contradicts its own arithmetic.
+   */
+  function rodClearedAtSampleOne(): FlightResult {
+    const r = fakeResult();
+    r.series.cgLocation = [0.26, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25];
+    r.series.cpLocation = [null as unknown as number, 0.29, 0.29, 0.29, 0.29, 0.29, 0.29];
+    // The margin AT the rod-clear sample, exactly as the kernel would record it.
+    const cal = (0.29 - 0.25) / info.refDiameter;
+    r.series.stability = [null as unknown as number, cal, cal, cal, cal, cal, cal];
+    return r;
+  }
+
+  const build = (result: FlightResult) => buildSimRun({
+    result, info, motor, meta: { label: 'C6-5' },
+    launch: DEFAULT_CONDITIONS, rocketName: 'Fixture', execMs: 1,
+  });
+
+  it('the two rows shown reproduce the margin row', () => {
+    const run = build(rodClearedAtSampleOne());
+    const fromTheRowsOnScreen = (run.launchCP! - run.launchCG!) / info.refDiameter;
+    expect(fromTheRowsOnScreen).toBeCloseTo(run.launchStaticMarginCal!, 6);
+  });
+
+  it('takes the CG from the sample the CP came from, not from t=0', () => {
+    const run = build(rodClearedAtSampleOne());
+    expect(run.launchCG).toBeCloseTo(0.25, 12);
+  });
+
+  it('reports the angle of attack at that same instant, which is why CP moved', () => {
+    const r = rodClearedAtSampleOne();
+    // 2.858 deg of crosswind AoA is what puts the flight CP forward of the
+    // Design tab's zero-wind CP. Without the number on the panel the two
+    // readings look like a contradiction — a tester reported exactly that.
+    const aoa = (2.858 * Math.PI) / 180;
+    r.series.aoa = [0, aoa, aoa, 0, 0, 0, 0];
+    expect(build(r).rodExitAoa).toBeCloseTo(aoa, 12);
+  });
+
+  it('still falls back to the static analysis when the whole series is null', () => {
+    const r = fakeResult();
+    const nulls = r.series.time.map(() => null as unknown as number);
+    r.series.cgLocation = nulls; r.series.cpLocation = nulls; r.series.stability = nulls;
+    const run = build(r);
+    expect(run.launchCG).toBe(info.cg);
+    expect(run.launchCP).toBe(info.cp);
+    expect(run.launchStaticMarginCal).toBe(info.stabilityCalibers);
+  });
+});
+
 /**
  * Stability as a percentage (beta thread, KillerCheerio: "a way to view
  * %stability would be nice, it's better than calibers in my opinion").

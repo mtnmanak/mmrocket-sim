@@ -201,6 +201,14 @@ export interface SimRun {
   launchMass: number | null;
   /** Rocket mass after motor burnout (kg) — the owner's "recovery weight". */
   burnoutMass?: number | null;
+  /**
+   * Angle of attack (RADIANS) at launch guide exit. The crosswind, not the
+   * design, is what separates the CP below from the Design tab's: at zero wind
+   * the two agree to 0.03 in on a real file, and the gap grows monotonically
+   * with AoA. Showing the cause beside the effect is what stops the two panels
+   * reading as a contradiction.
+   */
+  rodExitAoa: number | null;
   launchCG: number | null;
   launchCP: number | null;
   launchStaticMarginCal: number | null;
@@ -457,17 +465,25 @@ export function buildSimRun(input: {
     ? thrustAtRod / (massAtRod * G0)
     : null;
 
-  // CP (and stability) can be null for the first samples (undefined at zero
-  // airspeed) — take the first finite sample, else the static-analysis value.
-  const firstFinite = (arr: number[]): number | null => {
-    for (const v of arr) if (v !== null && Number.isFinite(v)) return v;
-    return null;
-  };
+  // CP and stability do not exist until the rod is cleared: the kernel records
+  // neither at zero airspeed (AbstractSimulationStepper — `if
+  // (status.isLaunchRodCleared() && null != forces)`, which is upstream
+  // OpenRocket verbatim). cgLocation has no such gap, so scanning each series
+  // for its own first finite sample paired sample 0's CG with the rod-clear
+  // sample's CP — and the panel then failed its own arithmetic, because
+  // (CP - CG) / caliber did not equal the margin printed beside it. A tester
+  // hand-checked exactly that and reported the contradiction. One instant for
+  // all three rows: the sample the CP first exists at.
+  const sampleAt = (arr: number[], i: number): number | null =>
+    i >= 0 && arr[i] !== null && Number.isFinite(arr[i]!) ? arr[i]! : null;
+  const iRodClear = series.cpLocation.findIndex((v) => v !== null && Number.isFinite(v));
   const launchMass = series.mass[0] ?? null;
   const burnoutMass = tBurnout !== null ? at(series.time, series.mass, tBurnout) : null;
-  const launchCG = firstFinite(series.cgLocation) ?? info.cg ?? null;
-  const launchCP = firstFinite(series.cpLocation) ?? info.cp ?? null;
-  const launchStaticMarginCal = firstFinite(series.stability) ?? info.stabilityCalibers ?? null;
+  const rodExitAoa = sampleAt(series.aoa, iRodClear);
+  const launchCG = sampleAt(series.cgLocation, iRodClear) ?? info.cg ?? null;
+  const launchCP = sampleAt(series.cpLocation, iRodClear) ?? info.cp ?? null;
+  const launchStaticMarginCal = sampleAt(series.stability, iRodClear)
+    ?? info.stabilityCalibers ?? null;
   // The flight-series margin (calibers, at launch) rescaled onto the same
   // denominator the design views use, so the Results tab can honour the
   // stability-unit preference without re-deriving anything.
@@ -635,6 +651,7 @@ export function buildSimRun(input: {
     thrustToWeightAtRod,
     launchMass,
     burnoutMass,
+    rodExitAoa,
     launchCG,
     launchCP,
     launchStaticMarginCal,
