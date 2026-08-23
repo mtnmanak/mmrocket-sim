@@ -36,3 +36,13 @@ spikes/**/*.jar
 spikes/**/build/
 engine-java/build/
 .playwright-mcp/
+
+# Project notes, session records, testing batches and tester-supplied designs.
+# PURGED from git history on 2026-08-23 and deliberately kept out of the repo:
+# this repo is PUBLIC (the GPL corresponding-source offer points at it), and
+# none of this is corresponding source — it is working material.
+# The user guide is NOT here: it is a build input and lives at
+# packages/app/user-guide.md.
+# NOTE: ignored files do NOT sync between the desktop and the laptop. Keep the
+# canonical copy in Dropbox (online_open_rocket_reference/).
+docs/
