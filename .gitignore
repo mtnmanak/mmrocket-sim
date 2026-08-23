@@ -24,8 +24,8 @@ npm-debug.log*
 # 2026-08-23: machine paths, usernames and working preferences, none of which is
 # GPL corresponding source and none of which the public needs. Build
 # instructions and the engine invariants live in README.md instead.
-# NOTE: ignored files do NOT sync between the desktop and the laptop — the
-# canonical copies are in Dropbox (online_open_rocket_reference/).
+# NOTE: ignored files do not sync between machines via git — the canonical
+# copies are kept outside the repository.
 .claude/
 CLAUDE.md
 
@@ -52,6 +52,6 @@ engine-java/build/
 # none of this is corresponding source — it is working material.
 # The user guide is NOT here: it is a build input and lives at
 # packages/app/user-guide.md.
-# NOTE: ignored files do NOT sync between the desktop and the laptop. Keep the
-# canonical copy in Dropbox (online_open_rocket_reference/).
+# NOTE: ignored files do not sync between machines via git — the canonical
+# copy is kept outside the repository.
 docs/
