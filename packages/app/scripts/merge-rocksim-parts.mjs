@@ -29,8 +29,13 @@
  *    2=ELLIPSOID (RockSim "parabolic"), 3=ELLIPSOID, 4=POWER, 5=PARABOLIC,
  *    6=HAACK; blank=CONICAL. Thickness 0/blank means a solid (filled) part.
  *
- * Usage: node packages/app/scripts/merge-rocksim-parts.mjs [--dry-run]
+ * Usage: node packages/app/scripts/merge-rocksim-parts.mjs [--dry-run] [--csv-dir <path>]
  * Also writes a merge report beside the input CSVs.
+ *
+ * The CSVs are third-party RockSim component libraries and are NOT kept in this
+ * repository. Point the script at your own copy with --csv-dir, or set
+ * ROCKSIM_PARTS_DIR. Its output — src/data/presets.json — is committed, so this
+ * is a maintenance tool: nothing in the build or the tests needs it to run.
  */
 
 import fs from 'node:fs';
@@ -39,7 +44,10 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(__dirname, '..', '..', '..');
-const CSV_DIR = path.join(REPO, 'docs', 'materials');
+const csvArgIdx = process.argv.indexOf('--csv-dir');
+const CSV_DIR = csvArgIdx >= 0
+  ? process.argv[csvArgIdx + 1]
+  : (process.env.ROCKSIM_PARTS_DIR ?? '');
 const PRESETS_PATH = path.join(REPO, 'packages', 'app', 'src', 'data', 'presets.json');
 const DRY_RUN = process.argv.includes('--dry-run');
 
@@ -387,6 +395,23 @@ const report = {
 
 const newPresets = [];
 const addedIndex = new Map(); // intra-run dedup: kind|mfgKey|normPart|dims
+
+if (!CSV_DIR || !fs.existsSync(CSV_DIR)) {
+  const where = CSV_DIR
+    ? `  Configured directory does not exist: ${CSV_DIR}`
+    : '  No directory is configured.';
+  console.error(`RockSim component-library CSVs not found.
+${where}
+
+These are third-party libraries and are not kept in this repository.
+Point the script at your own copy:
+  --csv-dir <path>            (this run only)
+  ROCKSIM_PARTS_DIR=<path>    (environment)
+
+The merged result (src/data/presets.json) is already committed — you only
+need this to regenerate it.`);
+  process.exit(1);
+}
 
 for (const spec of FILES) {
   const rows = parseCsv(path.join(CSV_DIR, spec.file));

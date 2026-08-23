@@ -36,16 +36,12 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 
-# Spike artifacts (large JARs are fetched, not committed)
-spikes/**/*.jar
-!spikes/**/gradle-wrapper.jar
 
 # Compiled Java left beside its source by an ad-hoc javac run
 *.class
 
 # Gradle
 .gradle/
-spikes/**/build/
 engine-java/build/
 .playwright-mcp/
 
