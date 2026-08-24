@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.064';
+export const APP_VERSION = '0.065';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.065',
+    date: '2026-08-24',
+    title: 'Motor weights now come from the same document as the thrust curve',
+    items: [
+      'FIXED: a motor’s loaded and propellant weights are now read from its own data file, not from the catalogue entry beside it. thrustcurve.org publishes two different claims about the same motor — the catalogue metadata, and the header of the .eng/.rse file the thrust curve itself comes from — and this app was taking the curve from one and the weights from the other. On the AeroTech K480W that is 2078 g / 1292 g against the file’s 2059 g / 1232 g. Desktop OpenRocket reads the file, and so does this now.',
+      'FIXED: the time step a file’s simulation was run at is honoured instead of ignored. Small on apogee, but it is a quarter of a metre per second on the reported speed leaving the launch guide.',
+      'Together those two are the difference between close and identical. On a tester’s own design and motor, this app now reproduces the numbers his desktop OpenRocket saved into the file to every digit the file stores: apogee 6552.5984 m against 6552.598, max velocity 658.8677 against 658.868, guide-exit speed 33.4352 against 33.435. Before, it was 0.84 % under. If you have been comparing this app against desktop and finding a small unexplained offset, that was it. Thanks to Buckeye for posting the file and the flight data that exposed it.',
+      'Be aware this shifts motor weights slightly for every motor, so altitudes move a little against earlier runs. The direction is toward desktop, not away from it.',
+    ],
+  },
   {
     version: '0.064',
     date: '2026-08-23',

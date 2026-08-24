@@ -16,6 +16,13 @@ export interface LaunchConditions {
   /** hPa at the launch site; blank/NaN = ISA standard. */
   pressureHPa: number | null;
   latitudeDeg: number;
+  /**
+   * Integration time step (s) as the .ork's own <simulation> states it. Absent
+   * = the engine's default. Not exposed in this panel: it is a fidelity
+   * setting the file carries, not a field anyone sets at the field, but
+   * honouring it is what lets a design reproduce its desktop numbers exactly.
+   */
+  timeStepS?: number;
 }
 
 export const DEFAULT_CONDITIONS: LaunchConditions = {

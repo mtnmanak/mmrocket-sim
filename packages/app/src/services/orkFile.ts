@@ -847,6 +847,9 @@ function readLaunchConditions(
     }
   }
 
+  const step = num(condEl, 'timestep', NaN);
+  if (Number.isFinite(step) && step > 0) launch.timeStepS = step;
+
   const gm = text(condEl, ':scope > geodeticmethod');
   if (gm && gm !== 'spherical') {
     notes.push(

@@ -1532,3 +1532,37 @@ describe('per-configuration stage separation', () => {
       .toBeUndefined();
   });
 });
+
+describe('the file’s simulation time step', () => {
+  // Desktop writes <timestep> per simulation and flies it. We dropped it and
+  // used the engine's own default, which is 0.06 m of apogee but 0.24 m/s of
+  // the reported rod-exit velocity on a real design — enough to stop a tester
+  // reproducing his own desktop numbers digit for digit.
+  const withStep = (step: string) => `<openrocket version="1.10" creator="OpenRocket 24.12"><rocket>
+    <name>Step</name>
+    <motorconfiguration configid="a1" default="true"><stage number="0" active="true"/></motorconfiguration>
+    <subcomponents><stage><name>S</name><subcomponents>
+      <nosecone><name>N</name><length>0.07</length><thickness>0.002</thickness>
+        <shape>ogive</shape><aftradius>0.012</aftradius></nosecone>
+      <bodytube><name>B</name><length>0.3</length><thickness>0.0005</thickness><radius>0.012</radius></bodytube>
+    </subcomponents></stage></subcomponents>
+  </rocket>
+  <simulations><simulation><conditions>
+    <configid>a1</configid>
+    <launchrodlength>2.1336</launchrodlength>
+    ${step}
+  </conditions></simulation></simulations></openrocket>`;
+
+  it('is imported when the file states one', () => {
+    expect(importOrk(withStep('<timestep>0.01</timestep>')).launch!.timeStepS).toBeCloseTo(0.01, 12);
+  });
+
+  it('is absent when the file states none, so the engine default applies', () => {
+    expect(importOrk(withStep('')).launch!.timeStepS).toBeUndefined();
+  });
+
+  it('ignores a nonsensical value rather than flying it', () => {
+    expect(importOrk(withStep('<timestep>0</timestep>')).launch!.timeStepS).toBeUndefined();
+    expect(importOrk(withStep('<timestep>-1</timestep>')).launch!.timeStepS).toBeUndefined();
+  });
+});

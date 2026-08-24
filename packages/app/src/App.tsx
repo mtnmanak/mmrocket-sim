@@ -233,6 +233,7 @@ function kernelSimOptions(l: LaunchConditions) {
     temperature: l.temperatureC === null ? undefined : l.temperatureC + 273.15,
     pressure: l.pressureHPa === null ? undefined : l.pressureHPa * 100,
     launchLatitude: l.latitudeDeg,
+    ...(l.timeStepS !== undefined ? { timeStep: l.timeStepS } : {}),
   };
 }
 

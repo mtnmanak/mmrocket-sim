@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  delayOptions, samplesToMotorSpec, repairSamples, pickSampleFile,
+  delayOptions, headerMasses, samplesToMotorSpec, repairSamples, pickSampleFile,
   type TcMotor, type TcSample,
 } from './thrustcurve.js';
 
@@ -277,5 +277,54 @@ describe('samplesToMotorSpec — end to end on the damaged curve', () => {
     const result = rocket.simulate({});
     expect(result.summary.maxAltitude).toBeGreaterThan(100);
     expect(result.events.map((e) => e.type)).toContain('APOGEE');
+  });
+});
+
+describe('motor masses come from the data file, the way desktop reads them', () => {
+  /**
+   * thrustcurve.org publishes two different claims about the same motor: the
+   * CATALOG metadata, and the header of the data file the curve itself came
+   * from. Desktop OpenRocket reads the file. We read the catalog, which mixed a
+   * curve from one document with masses from another — on the AeroTech K480W
+   * that is 2078/1292 g against the file's 2059/1232 g, and it put us 0.84 %
+   * under desktop's apogee on a tester's own design. Verified same physical
+   * file: OpenRocket's MotorDigest over it is 29901e68bb1b086809b21978a1776a3b,
+   * byte-identical to the digest that tester's .ork stores.
+   */
+  const RSE = `<engine-database><engine-list>
+    <engine mfg="AeroTech" code="K480W" Type="reloadable" dia="54." len="568."
+      initWt="2059." propWt="1232." delays="0" auto-calc-mass="1" auto-calc-cg="1">
+      <data><eng-data t="0." f="0." m="1232." cg="284."/></data>
+    </engine></engine-list></engine-database>`;
+  const ENG = `; a comment line
+J1026 38 625.5 P 0.616 1.172 Loki
+   0.019 62.798
+   1.297 0.0`;
+
+  it('reads initWt/propWt out of a RockSim .rse header', () => {
+    expect(headerMasses({ format: 'RockSim', data: btoa(RSE) }))
+      .toEqual({ totalWeightG: 2059, propWeightG: 1232 });
+  });
+
+  it('reads the kilogram pair out of a RASP .eng header, skipping comments', () => {
+    expect(headerMasses({ format: 'RASP', data: btoa(ENG) }))
+      .toEqual({ totalWeightG: 1172, propWeightG: 616 });
+  });
+
+  it('returns null when there is no file to read', () => {
+    expect(headerMasses({ format: 'RASP' })).toBeNull();
+    expect(headerMasses({ format: 'RASP', data: btoa('nonsense') })).toBeNull();
+  });
+
+  it('the file header wins over the catalog when both are available', () => {
+    const catalog: TcMotor = { ...QUEST_C6, totalWeightG: 2078, propWeightG: 1292 };
+    const spec = samplesToMotorSpec(catalog, SAMPLES, 5, { totalWeightG: 2059, propWeightG: 1232 });
+    expect(spec.masses[0]).toBeCloseTo(2.059, 12);
+    expect(spec.masses[spec.masses.length - 1]).toBeCloseTo(2.059 - 1.232, 12);
+  });
+
+  it('falls back to the catalog when the file carries no masses', () => {
+    const catalog: TcMotor = { ...QUEST_C6, totalWeightG: 2078, propWeightG: 1292 };
+    expect(samplesToMotorSpec(catalog, SAMPLES, 5).masses[0]).toBeCloseTo(2.078, 12);
   });
 });

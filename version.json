@@ -1,5 +1,5 @@
 {
-  "version": "0.064",
-  "released": "2026-08-23",
-  "note": "Two surface finishes were being read wrong: \"Optimum paint\" and \"Mirror\" both came through as \"Regular paint\", a twelve-fold roughness error that also made the finish ladder run backwards. All nine of OpenRocket's finish levels are now mapped, and the picker offers all nine. Fin fillets also count toward mass and CG now — a 9.5 mm epoxy fillet on three fins is about 25 g sitting at the tail, and the app used to leave it out and tell you so. Both fixes are in the physics kernel, so it has been rebuilt and re-verified against desktop Java line by line."
+  "version": "0.065",
+  "released": "2026-08-24",
+  "note": "Motor weights now come from the motor's own data file rather than the catalogue entry beside it — thrustcurve.org publishes both, they disagree, and taking the thrust curve from one document while taking the weights from the other was never defensible. Desktop OpenRocket reads the file, and so does this now. With that and the file's own simulation time step honoured, this app reproduces a desktop-saved simulation to every digit the file stores, where before it ran 0.84% under."
 }

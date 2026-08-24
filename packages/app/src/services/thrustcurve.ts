@@ -42,6 +42,57 @@ export interface TcSimFile {
   format?: string;
   source?: string;
   samples?: TcSample[];
+  /** The raw .eng/.rse, base64, as download.json returns it for data:"both". */
+  data?: string;
+}
+
+/** Loaded and propellant mass as a motor's own data file states them. */
+export interface TcHeaderMasses {
+  totalWeightG: number;
+  propWeightG: number;
+}
+
+/**
+ * The masses out of the DATA FILE's own header, which is what desktop
+ * OpenRocket reads. thrustcurve.org publishes two different claims about the
+ * same motor — the catalog metadata and the file the curve came from — and
+ * taking the curve from one document while taking the masses from the other is
+ * not defensible: on the AeroTech K480W it is 2078/1292 g against the file's
+ * 2059/1232 g, and it put a tester's apogee 0.84 % under desktop's on his own
+ * design. Returns null when the file is absent or unparseable, and the caller
+ * falls back to the catalog rather than refusing the motor.
+ */
+export function headerMasses(file: TcSimFile): TcHeaderMasses | null {
+  if (!file.data) return null;
+  let text: string;
+  try {
+    text = atob(file.data);
+  } catch {
+    return null;
+  }
+  // RockSim .rse: grams, as attributes on <engine>.
+  const init = /initWt\s*=\s*"([\d.eE+-]+)"/.exec(text);
+  const prop = /propWt\s*=\s*"([\d.eE+-]+)"/.exec(text);
+  if (init && prop) {
+    const t = Number(init[1]);
+    const p = Number(prop[1]);
+    if (Number.isFinite(t) && Number.isFinite(p) && t > 0 && p > 0 && p <= t) {
+      return { totalWeightG: t, propWeightG: p };
+    }
+  }
+  // RASP .eng: the first non-comment, non-blank line is
+  //   designation diameter(mm) length(mm) delays propWeight(kg) totalWeight(kg) mfr
+  for (const raw of text.split('\n')) {
+    const line = raw.trim();
+    if (!line || line.startsWith(';')) continue;
+    const f = line.split(/\s+/);
+    if (f.length < 7) return null;
+    const p = Number(f[4]);
+    const t = Number(f[5]);
+    if (!Number.isFinite(p) || !Number.isFinite(t) || t <= 0 || p <= 0 || p > t) return null;
+    return { totalWeightG: t * 1000, propWeightG: p * 1000 };
+  }
+  return null;
 }
 
 /** The kernel's MathUtil.EPSILON — what counts as "the same instant". */
@@ -243,6 +294,8 @@ export function samplesToMotorSpec(
   motor: TcMotor,
   samples: TcSample[],
   ejectionDelay: number,
+  /** The data file's own masses; they win over the catalog (see headerMasses). */
+  fromFile?: TcHeaderMasses | null,
 ): RepairedMotorSpec {
   // Normalize: repaired (strictly increasing times), starting at t=0.
   if (samples.length === 0) {
@@ -276,8 +329,8 @@ export function samplesToMotorSpec(
     );
   }
 
-  const totalMass = motor.totalWeightG / 1000;
-  const propMass = motor.propWeightG / 1000;
+  const totalMass = (fromFile?.totalWeightG ?? motor.totalWeightG) / 1000;
+  const propMass = (fromFile?.propWeightG ?? motor.propWeightG) / 1000;
 
   // Cumulative impulse via trapezoid rule.
   const cumImpulse: number[] = [0];
@@ -312,7 +365,7 @@ export function samplesToMotorSpec(
  * used to crash the build. Bumping the prefix retires those entries rather
  * than leaving a poisoned cache no code path ever invalidates.
  */
-const CACHE_PREFIX = 'tc:samples:v2:';
+const CACHE_PREFIX = 'tc:samples:v3:';
 
 /**
  * Fetches thrust samples (localStorage-cached) and builds the MotorSpec.
@@ -356,6 +409,7 @@ export async function fetchMotorSpec(
 
   const cacheKey = CACHE_PREFIX + motor.motorId;
   let samples: TcSample[] | null = null;
+  let fromFile: TcHeaderMasses | null = null;
 
   try {
     const cached = localStorage.getItem(cacheKey);
@@ -363,10 +417,13 @@ export async function fetchMotorSpec(
       const parsed = JSON.parse(cached) as unknown;
       // Validate the shape — a corrupt entry parses fine but would break
       // samplesToMotorSpec forever (the cache is never invalidated otherwise).
-      if (Array.isArray(parsed) && parsed.length > 0
-          && parsed.every((s) => typeof (s as TcSample)?.time === 'number'
+      const entry = parsed as { samples?: unknown; masses?: TcHeaderMasses | null };
+      const arr = entry?.samples;
+      if (Array.isArray(arr) && arr.length > 0
+          && arr.every((s) => typeof (s as TcSample)?.time === 'number'
             && typeof (s as TcSample)?.thrust === 'number')) {
-        samples = parsed as TcSample[];
+        samples = arr as TcSample[];
+        fromFile = entry.masses ?? null;
       } else {
         localStorage.removeItem(cacheKey);
       }
@@ -379,7 +436,9 @@ export async function fetchMotorSpec(
     const res = await fetch(`${API}/download.json`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ motorIds: [motor.motorId], data: 'samples' }),
+      // "both" carries the raw .eng/.rse alongside the samples, so the masses
+      // can come from the same document as the curve (see headerMasses).
+      body: JSON.stringify({ motorIds: [motor.motorId], data: 'both' }),
     });
     if (!res.ok) {
       throw new Error(`thrustcurve.org download failed: HTTP ${res.status}`);
@@ -390,12 +449,13 @@ export async function fetchMotorSpec(
       throw new Error(`No sample data available for ${motor.designation}`);
     }
     samples = file.samples;
+    fromFile = headerMasses(file);
     try {
-      localStorage.setItem(cacheKey, JSON.stringify(samples));
+      localStorage.setItem(cacheKey, JSON.stringify({ samples, masses: fromFile }));
     } catch {
       // cache is best-effort
     }
   }
 
-  return samplesToMotorSpec(motor, samples, ejectionDelay);
+  return samplesToMotorSpec(motor, samples, ejectionDelay, fromFile);
 }
