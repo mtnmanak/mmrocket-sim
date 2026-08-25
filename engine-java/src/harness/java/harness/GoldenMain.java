@@ -106,12 +106,18 @@ public final class GoldenMain {
      * {@code BarrowmanCalculator.partialLaminar}. Nothing pinned it before,
      * because nothing could reach it.
      * <p>
-     * Three things get locked, at four Mach numbers spanning both of the
-     * branch's regimes:
+     * Three things are RECORDED, at four Mach numbers spanning both of the
+     * branch's regimes. Recorded, not locked: difftest.mjs compares a JVM run
+     * against a TeaVM run of this same harness with no stored baseline, so a
+     * change that moved both runs together — a leak into the parity model, say
+     * — would leave every line below bit-identical and the differential green.
+     * These lines guard the COMPILER, not the physics. The behavioural guard is
+     * "perfectFinish (partial-laminar friction) is engine-API only, and inert
+     * in the parity model" in packages/engine/src/orkEngine.test.ts, which runs
+     * under npm test and needs no Java.
      * <ol>
-     * <li><b>The gate.</b> With both model flags off the setting must be inert —
-     *     the classic pair of columns must be equal at every Mach, which is
-     *     the parity commitment expressed as a differential line.</li>
+     * <li><b>The gate.</b> With both model flags off the setting is inert —
+     *     the classic pair of columns is equal at every Mach.</li>
      * <li><b>The laminar-run credit</b>, subsonic, where the branch REMOVES
      *     friction (the 1700/Re term).</li>
      * <li><b>The compressibility swap</b>, supersonic, where it ADDS a great
@@ -177,9 +183,7 @@ public final class GoldenMain {
      * INPUT-gated — present in every model, including
      * "OpenRocket — Extended Barrowman", which promises desktop's exact
      * physics — and the owner's standing ruling made moving them out of the
-     * parity model a bug fix. These lines pin both sides of each boundary so a
-     * future edit that leaks one back into classic shows up as a differential
-     * line rather than only in a scorecard:
+     * parity model a bug fix. Each boundary is sampled in all THREE models:
      * <ul>
      * <li><b>fin airfoilSection</b> (feature #4). Classic must now answer from
      *     the three-valued {@code CrossSection} alone, so the SQUARE column must
@@ -190,14 +194,35 @@ public final class GoldenMain {
      *     base CD must now equal its power-OFF value (desktop has no nozzle-exit
      *     aerodynamics at all); Kbf must still get the reduction.</li>
      * </ul>
+     * Both gates are DISJUNCTIONS — {@code airfoilSection != null &&
+     * (rogersKbf || supersonicAero)} in FinSetCalc.calculatePressureCD, and
+     * {@code (rogersKbf || supersonicAero) && stage != null} in
+     * BarrowmanCalculator.calculateBaseCD — so a classic/Kbf pair of columns
+     * would leave the supersonicAero disjunct unexecuted under both backends.
+     * Hence the third column, which sets supersonicAero ALONE: a column with
+     * Kbf also on would not move if supersonicAero were dropped from the gate.
+     * <p>
+     * <b>What these lines can and cannot catch.</b> There is no stored golden
+     * file. scripts/difftest.mjs runs this harness on the JVM and under TeaVM
+     * and compares the two RUNS against each other, so what is pinned here is
+     * JVM↔TeaVM fidelity of these code paths — nothing more. An edit that let
+     * one of these extensions back into the parity model would move both runs
+     * identically and the differential would still pass. The behavioural guard
+     * lives in packages/engine's vitest suite (no Java needed, runs in
+     * {@code npm test}): see "fin airfoil sections ..." and "nozzle-exit
+     * power-on base drag is gated to the non-parity models" in
+     * packages/engine/src/orkEngine.test.ts, which assert the gates themselves.
      */
     private static void modelBoundaryScenarios() {
         info.openrocket.core.logging.WarningSet w =
                 new info.openrocket.core.logging.WarningSet();
         double mach = 1.80;
-        double[] v = new double[4];
+        double[] v = new double[6];
         int k = 0;
-        for (int model = 0; model < 2; model++) {          // classic, then Kbf
+        // classic, then Kbf, then Supersonic (supersonicAero alone — see the
+        // javadoc: with Kbf also on the column would survive the disjunct
+        // being deleted, which is the edit these columns exist to expose).
+        for (int model = 0; model < 3; model++) {
             for (int section = 0; section < 2; section++) { // plain SQUARE, then + doublewedge
                 Rocket rocket = buildReferenceRocket();
                 BodyTube body = (BodyTube) rocket.getChild(0).getChild(1);
@@ -211,6 +236,7 @@ public final class GoldenMain {
                 info.openrocket.core.aerodynamics.BarrowmanCalculator calc =
                         new info.openrocket.core.aerodynamics.BarrowmanCalculator();
                 calc.setRogersKbf(model == 1);
+                calc.setSupersonicAero(model == 2);
                 info.openrocket.core.aerodynamics.FlightConditions c =
                         new info.openrocket.core.aerodynamics.FlightConditions(config);
                 c.setMach(mach);
@@ -218,11 +244,11 @@ public final class GoldenMain {
                 v[k++] = calc.getAerodynamicForces(config, c, w).getPressureCD();
             }
         }
-        line("parity.airfoilsection", v[0], v[1], v[2], v[3]);
+        line("parity.airfoilsection", v[0], v[1], v[2], v[3], v[4], v[5]);
 
-        double[] b = new double[4];
+        double[] b = new double[6];
         k = 0;
-        for (int model = 0; model < 2; model++) {
+        for (int model = 0; model < 3; model++) {   // classic, Kbf, Supersonic
             Rocket rocket = buildReferenceRocket();
             AxialStage stage = (AxialStage) rocket.getChild(0);
             stage.setNozzleExitDiameter(0.016);
@@ -231,6 +257,7 @@ public final class GoldenMain {
             info.openrocket.core.aerodynamics.BarrowmanCalculator calc =
                     new info.openrocket.core.aerodynamics.BarrowmanCalculator();
             calc.setRogersKbf(model == 1);
+            calc.setSupersonicAero(model == 2);
             info.openrocket.core.aerodynamics.FlightConditions off =
                     new info.openrocket.core.aerodynamics.FlightConditions(config);
             off.setMach(0.90);
@@ -245,7 +272,7 @@ public final class GoldenMain {
             on.setThrustingStages(thrusting);
             b[k++] = calc.getAerodynamicForces(config, on, w).getBaseCD();
         }
-        line("parity.nozzlebase", b[0], b[1], b[2], b[3]);
+        line("parity.nozzlebase", b[0], b[1], b[2], b[3], b[4], b[5]);
     }
 
     /**

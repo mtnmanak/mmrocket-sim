@@ -297,6 +297,30 @@ describe('OrkRocket (real OpenRocket kernel via TeaVM)', () => {
     expect(mkRaw({ airfoilSection: 'hexbluntbase' }).dragSweep(opts).powerOff.pressure)
       .toEqual(mkRaw({}).dragSweep(opts).powerOff.pressure);
 
+    // ...and the OTHER half of the gate. FinSetCalc.calculatePressureCD reads
+    // `airfoilSection != null && (rogersKbf || supersonicAero)`, so every
+    // assertion below — all of them Kbf — leaves the supersonicAero disjunct
+    // unexecuted: deleting it would move every Supersonic-model user's fin
+    // pressure drag and still pass this file. (The golden harness cannot cover
+    // that either: engine-java/scripts/difftest.mjs has no stored baseline, it
+    // compares a JVM run against a TeaVM run, and both move together.)
+    // Supersonic is asserted on its own, NOT against the Kbf numbers: the two
+    // legitimately differ, because sectionPressureCD itself branches on the
+    // flag (thicknessWave + sweepWaveFactor vs the frozen M0.9-1.2 ramp and
+    // cos^2). Measured 2026-08-25 on this fixture at M2.0, Supersonic model:
+    // 0.18886509530366818 with a doublewedge section, 0.7397322892928156
+    // without one.
+    const mkSs = (finExtra: Record<string, unknown>) => {
+      const r = mkRaw(finExtra);
+      r.setSupersonicAero(true);
+      return r;
+    };
+    const ssPlain = mkSs({}).dragSweep(opts);
+    const ssWedge = mkSs({ airfoilSection: 'doublewedge' }).dragSweep(opts);
+    expect(ssWedge.powerOff.pressure).not.toEqual(ssPlain.powerOff.pressure);
+    expect(ssWedge.powerOff.pressure[at(ssWedge, 2.0)]!)
+      .toBeLessThan(0.5 * ssPlain.powerOff.pressure[at(ssPlain, 2.0)]!);
+
     const classic = mk({}).dragSweep(opts);
     const wedge = mk({ airfoilSection: 'singlewedge' }).dragSweep(opts);
     const biconvex = mk({ airfoilSection: 'biconvex' }).dragSweep(opts);
@@ -322,6 +346,118 @@ describe('OrkRocket (real OpenRocket kernel via TeaVM)', () => {
     const hexBlunt = mk({ airfoilSection: 'hexagonal', finLeRadius: 0.0005 }).dragSweep(opts);
     expect(hexBlunt.powerOff.pressure[at(hexBlunt, 2.0)]!)
       .toBeGreaterThan(hex.powerOff.pressure[at(hex, 2.0)]!);
+  });
+
+  it('nozzle-exit power-on base drag is gated to the non-parity models', () => {
+    // BarrowmanCalculator.calculateBaseCD reads
+    // `(rogersKbf || supersonicAero) && stage != null` before subtracting the
+    // nozzle-exit footprint from the drag-producing base area. Nothing in this
+    // package asserted that gate, and engine-java's goldens cannot: difftest
+    // compares a JVM run against a TeaVM run with no stored baseline, so an
+    // edit that let this extension back into the parity model (or dropped
+    // either disjunct) moves both runs the same way and still passes.
+    const nozzleTree = (): RocketTree => ({
+      name: 'Nozzle',
+      components: [{
+        type: 'stage', name: 'S', nozzleExitDiameter: 0.016,
+        children: [
+          { type: 'nosecone', length: 0.07, aftRadius: 0.012, thickness: 0.002 },
+          {
+            type: 'bodytube', length: 0.30, outerRadius: 0.012, thickness: 0.0005, density: 950,
+            children: [
+              { type: 'trapezoidfinset', finCount: 3, rootChord: 0.05, tipChord: 0.03, sweep: 0.02, height: 0.03, thickness: 0.003 },
+            ],
+          },
+        ],
+      }],
+    });
+    const baseCd = (model: 'classic' | 'kbf' | 'supersonic') => {
+      const r = OrkRocket.buildTree(nozzleTree());
+      if (model === 'kbf') r.setRogersModifiedBarrowman(true);
+      if (model === 'supersonic') r.setSupersonicAero(true);
+      const s = r.dragSweep({ machMin: 0.9, machMax: 0.9, machStep: 1 });
+      return { off: s.powerOff.base[0]!, on: s.powerOn.base[0]! };
+    };
+
+    // Parity: desktop OpenRocket 24.12 has no nozzle-exit aerodynamics at all,
+    // so power-ON must cost exactly what power-OFF costs. Measured 2026-08-25
+    // at M0.90: 0.2253 both ways — the kernel's subsonic base law
+    // (0.12 + 0.13*M^2) over the whole 24 mm base.
+    const classic = baseCd('classic');
+    expect(classic.on).toBe(classic.off);
+    expect(classic.off).toBeCloseTo(0.2253, 12);
+
+    // Both non-parity models must get the reduction, asserted SEPARATELY
+    // because the gate is a disjunction and a Kbf-only check leaves
+    // supersonicAero unexecuted. Equality between the two is well-founded
+    // here, not incidental: at M0.90 effectiveBaseCD is model-independent (the
+    // supersonic vacuum-limit cap only applies above M1) and the only
+    // flag-dependent step is the area subtraction, which is pure geometry.
+    // Measured 2026-08-25: 0.12516666666666665 in each — the base law scaled
+    // by (12^2 - 8^2)/12^2, the annulus the 16 mm nozzle leaves of the base.
+    for (const model of ['kbf', 'supersonic'] as const) {
+      const m = baseCd(model);
+      expect(m.off).toBeCloseTo(classic.off, 12);
+      expect(m.on).toBeLessThan(m.off);
+      expect(m.on).toBeCloseTo(0.12516666666666665, 12);
+    }
+  });
+
+  it('perfectFinish (partial-laminar friction) is engine-API only, and inert in the parity model', () => {
+    // The only executor of OrkRocket.setPerfectFinish in the repo. It is wired
+    // kernel -> bridge -> wrapper but has no UI control, no preference and no
+    // .ork field (desktop OpenRocket 24.12 never writes the property), so the
+    // changelog's claim is "reachable through the engine" and this is what
+    // makes that true rather than asserted. The gate is
+    // BarrowmanCalculator.partialLaminar: `(rogersKbf || supersonicAero) &&
+    // rocket.isPerfectFinish()`.
+    const tree = (finish?: string): RocketTree => ({
+      name: 'Finish',
+      components: [{
+        type: 'stage', name: 'S',
+        children: [
+          { type: 'nosecone', shape: 'ogive', length: 0.07, aftRadius: 0.012, thickness: 0.002, finish },
+          {
+            type: 'bodytube', length: 0.30, outerRadius: 0.012, thickness: 0.0003, density: 950, finish,
+            children: [
+              { type: 'trapezoidfinset', finCount: 3, rootChord: 0.05, tipChord: 0.03, sweep: 0.02, height: 0.03, thickness: 0.003, finish },
+            ],
+          },
+        ],
+      }],
+    });
+    const friction = (
+      finish: string | undefined,
+      model: 'classic' | 'kbf' | 'supersonic',
+      perfect: boolean,
+    ) => {
+      const r = OrkRocket.buildTree(tree(finish));
+      if (model === 'kbf') r.setRogersModifiedBarrowman(true);
+      if (model === 'supersonic') r.setSupersonicAero(true);
+      r.setPerfectFinish(perfect);
+      return r.dragSweep({ machMin: 0.3, machMax: 0.3, machStep: 1 }).powerOff.friction[0]!;
+    };
+
+    // Parity model: inert, which is the entire point of the gate. Measured
+    // 2026-08-25 at M0.30 on a polished airframe: 0.2807709520250913 with the
+    // setting off and with it on.
+    expect(friction('polished', 'classic', true))
+      .toBe(friction('polished', 'classic', false));
+
+    // Kbf and Supersonic honour it — separately, because that gate is a
+    // disjunction too. Measured 2026-08-25, polished, M0.30, in both models:
+    // 0.3339417009806639 off -> 0.2727276664333965 on, a 18.3 % credit.
+    for (const model of ['kbf', 'supersonic'] as const) {
+      expect(friction('polished', model, true))
+        .toBeLessThan(0.95 * friction('polished', model, false));
+    }
+
+    // On the default (regular paint) finish the roughness-limited Cf wins in
+    // BOTH branches once Re > 1e6, so the setting is a subsonic no-op — the
+    // same behaviour engine-java's transition goldens pin. Measured
+    // 2026-08-25 at M0.30, Kbf: 0.5077073958105641 either way.
+    expect(friction(undefined, 'kbf', true))
+      .toBe(friction(undefined, 'kbf', false));
   });
 
   it('applies fin tabs: mass increases and componentInfo reports it', () => {

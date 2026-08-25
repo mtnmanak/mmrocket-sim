@@ -2280,6 +2280,56 @@
   opacity: 0.8;
 }
 
+/* Point readout popup (chartTooltip.ts). Lives inside uPlot's `over`, which
+   is the element panZoomPlugin binds wheel and pointer gestures to — hence
+   pointer-events: none, so the box can never swallow a pan or a zoom. The
+   muted .u-legend above stays: it is the always-visible readout, this is the
+   "what exactly is THAT point?" one. */
+.chart-tooltip {
+  position: absolute;
+  z-index: 5;
+  pointer-events: none;
+  max-width: 100%;
+  padding: 5px 7px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface-1);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 18%);
+  color: var(--text-primary);
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: nowrap;
+}
+
+.chart-tooltip-x {
+  margin-bottom: 2px;
+  color: var(--text-secondary);
+}
+
+.chart-tooltip-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.chart-tooltip-swatch {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.chart-tooltip-label {
+  color: var(--text-secondary);
+}
+
+/* Tabular figures: the value column must not jitter as the cursor moves. */
+.chart-tooltip-value {
+  margin-left: auto;
+  padding-left: 8px;
+  font-variant-numeric: tabular-nums;
+}
+
 /* Single-series charts (the CP-vs-Mach chart) neutralize the legend's
    click-to-hide toggle in JS — one click there blanked the chart's only
    line. This just stops the label advertising itself as a button; uPlot's
@@ -2786,6 +2836,18 @@ select.unit-chip:hover {
 .viz-root[data-contrast='high'] .launch-btn:disabled,
 .viz-root[data-contrast='high'] .chart-panel .u-legend {
   opacity: 1;
+}
+
+/* High contrast: the readout is a floating panel over the plot, so it needs a
+   harder edge than the 1px hairline the normal themes use. */
+.viz-root[data-contrast='high'] .chart-tooltip {
+  border-width: 2px;
+  box-shadow: none;
+}
+
+.viz-root[data-contrast='high'] .chart-tooltip-x,
+.viz-root[data-contrast='high'] .chart-tooltip-label {
+  color: var(--text-primary);
 }
 
 .viz-root[data-contrast='high'] .series-chip:not(.series-chip-on) .series-dot {

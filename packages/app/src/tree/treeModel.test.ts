@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
-import { bodyDragReference, engineTree, findNode, hasParallelStage, makeNode, motorMounts, normalizeTree, protuberanceCd, PROTUBERANCE_REF_MACH, splitClusterPairsTree, splitClusterTree } from './treeModel.js';
+import { bodyDragReference, engineTree, findNode, hasParallelStage, makeNode, motorMounts, normalizeTree, protuberanceCd, protuberanceDeliveredCd, PROTUBERANCE_REF_MACH, referenceArea, resetBodyDragCache, splitClusterPairsTree, splitClusterTree } from './treeModel.js';
 import { clusterOffsets } from './cluster.js';
 import { allowedChildren, defaultParams, DISPLAY_NAME, FIELDS } from './schema.js';
 
@@ -314,6 +314,13 @@ describe('containment matches the kernel', () => {
  * kernel has no such component, so it is lowered here onto a RailButton
  * carrying a CD override, which BarrowmanCalculator adds to total CD after
  * skipping the carrier's own friction, pressure and base drag.
+ *
+ * The 60 s timeouts below are on exactly the tests that build a rocket and take
+ * a drag sweep through bodyDragReference; the pure ones beside them run under
+ * vitest's 5 s default. They are headroom for the first kernel call in a cold
+ * CI worker (deploy.yml runs `npm test` on every push), NOT a measurement of
+ * these tests: this file's 40 tests take 445 ms (measured 2026-08-25b in the full
+ * app suite).
  */
 describe('engineTree — protuberance lowering', () => {
   const protTree = (params: Record<string, unknown>): RocketTree => ({
@@ -360,10 +367,11 @@ describe('engineTree — protuberance lowering', () => {
     expect(body.mach).toBe(PROTUBERANCE_REF_MACH);
     expect(body.noBase).toBeCloseTo(0.0783270, 6);
     expect(body.withBase).toBeCloseTo(0.2100270, 6);
-    // The difference IS the kernel's own body base-drag law, 0.12 + 0.13·M²,
-    // and this airframe's base area equals its reference area (no boat tail),
-    // so it lands on the law exactly — a check that the two halves of the pair
-    // really are "without base" and "with base".
+    // The difference IS the kernel's own base CD — `noBase` is `total − base`,
+    // so that much holds by construction — and this airframe's base area
+    // equals its reference area (no boat tail), so it must land on the
+    // kernel's base-drag law 0.12 + 0.13·M² exactly. What this pins is the law
+    // itself, and that the pair is wired to the right two kernel numbers.
     expect(body.withBase - body.noBase).toBeCloseTo(0.12 + 0.13 * PROTUBERANCE_REF_MACH ** 2, 9);
     // The fins are NOT in it: the same tree with fins deleted measures the same.
     const finless: RocketTree = {
@@ -379,6 +387,75 @@ describe('engineTree — protuberance lowering', () => {
     const bare = bodyDragReference(finless);
     expect(bare.noBase).toBeCloseTo(body.noBase, 12);
     expect(bare.withBase).toBeCloseTo(body.withBase, 12);
+  }, 60000);
+
+  /**
+   * REGRESSION (2026-08-25): a BODY component carrying a CD override has to
+   * land in BOTH halves of the pair. BarrowmanCalculator skips an overridden
+   * component in the friction, pressure and base loops (carved
+   * BarrowmanCalculator.java ll. 623, 871, 950) while the kernel's `total`
+   * still carries its overrideCD (ibid. :348), so the old
+   * `noBase = friction + pressure` put the override in `withBase` only and
+   * `withBase − noBase` stopped being the base-drag law. `<overridecd>` is
+   * imported onto any component by orkFile.ts and survives the appendage
+   * strip, so this is reachable from a plain .ork.
+   *
+   * The boat tail is load-bearing: with the tube as the aft-most symmetric
+   * component, an override on it zeroes the whole base term and the bug hides.
+   *
+   * MEASURED 2026-08-25, M0.3, sea level, classic aero: without the override
+   * 0.1583143 / 0.2057263; with a 0.05 override on the tube 0.1606667 /
+   * 0.2080787. The old form gave noBase 0.1106667 there — a "base drag" of
+   * 0.0974120 against the kernel's own 0.0474120.
+   */
+  it('keeps a component CD override in BOTH halves of the body-CD pair', () => {
+    const boatTail = (over: boolean): RocketTree => ({
+      name: 'ov',
+      components: [{
+        type: 'stage', id: 's1',
+        children: [
+          { type: 'nosecone', id: 'n1', length: 0.4, aftRadius: 0.1, thickness: 0.002, shape: 'ogive' },
+          {
+            type: 'bodytube', id: 'b1', length: 0.5, outerRadius: 0.1,
+            ...(over ? { overrideCD: 0.05 } : {}),
+            children: [
+              {
+                type: 'trapezoidfinset', id: 'f1', finCount: 3, rootChord: 0.15, tipChord: 0.08,
+                sweep: 0.06, height: 0.09, thickness: 0.004,
+                position: { method: 'bottom', offset: 0 },
+              } as ComponentNode,
+            ],
+          } as ComponentNode,
+          {
+            type: 'transition', id: 't1', shape: 'conical', length: 0.1,
+            foreRadius: 0.1, aftRadius: 0.06, thickness: 0.002,
+          } as ComponentNode,
+        ],
+      } as ComponentNode],
+    });
+
+    // The kernel's base CD for this boat tail: 0.12 + 0.13·M² over the base
+    // area (120 mm), referenced to the airframe's frontal area (200 mm).
+    const baseCd = (0.12 + 0.13 * PROTUBERANCE_REF_MACH ** 2) * (0.06 / 0.1) ** 2;
+
+    const plain = bodyDragReference(boatTail(false));
+    expect(plain.measured).toBe(true);
+    expect(plain.noBase).toBeCloseTo(0.1583143, 6);
+    expect(plain.withBase).toBeCloseTo(0.2057263, 6);
+    expect(plain.withBase - plain.noBase).toBeCloseTo(baseCd, 9);
+
+    const over = bodyDragReference(boatTail(true));
+    expect(over.measured).toBe(true);
+    expect(over.noBase).toBeCloseTo(0.1606667, 6);
+    expect(over.withBase).toBeCloseTo(0.2080787, 6);
+    // withBase − noBase IS the base-drag law, override or no override.
+    expect(over.withBase - over.noBase).toBeCloseTo(baseCd, 9);
+    // …and the override moved BOTH halves by the same amount (it replaces the
+    // tube's own friction, so the net move is small — but equal on both).
+    expect(over.withBase - plain.withBase).toBeCloseTo(over.noBase - plain.noBase, 12);
+    // The retired `friction + pressure` reading, pinned as the thing that must
+    // never come back: it put the whole 0.05 override into the difference.
+    expect(over.withBase - over.noBase).not.toBeCloseTo(baseCd + 0.05, 3);
   }, 60000);
 
   it('becomes a rail button whose CD override IS frontal area × Cd ÷ reference area', () => {
@@ -527,5 +604,254 @@ describe('engineTree — a protuberance mass is billed exactly, at its own stati
     // A zero mass bills nothing at all — the default, and what an imported
     // RASAero protuberance always has (the file carries no mass data).
     expect(info(0).mass).toBe(a.mass);
+  }, 60000);
+});
+
+/**
+ * THE REFERENCE AREA IS THE KERNEL'S, NOT THE TREE'S FATTEST RADIUS.
+ *
+ * A CD override arrives at the kernel ALREADY referenced to the kernel's own
+ * reference area and is summed into total CD untouched
+ * (BarrowmanCalculator.calculateOverrideCD l. 1141, added at l. 348), so
+ * treeModel.referenceArea has to be the area the kernel picked, exactly.
+ *
+ * The kernel's is ReferenceType.MAXIMUM (Rocket.java l. 64): the greatest
+ * SymmetricComponent diameter and nothing else (ReferenceType.java ll. 24–40).
+ * A TubeFinSet is not a SymmetricComponent — it extends Tube extends
+ * ExternalComponent (TubeFinSet.java l. 20) — so tube fins fatter than the
+ * airframe do not widen it, and neither do launch lugs, inner tubes, couplers,
+ * centering rings, bulkheads or engine blocks, every one of which nevertheless
+ * carries an `outerRadius` in this app's tree.
+ *
+ * This design is that trap: a 24 mm airframe wearing 40 mm tube fins. MEASURED
+ * 2026-08-25 — the kernel reports refDiameter 0.024 m with the tube fins in
+ * place, so the reference area is π·0.012² = 0.000452389 m² and this 200 mm²
+ * bump's own method calls for +0.2030053 CD (body CD 0.459187 with base drag at
+ * Mach 0.3). Taking the tube fin's 20 mm instead — what a scan of every node's
+ * `outerRadius` does — is 2.7778× the area and delivers +0.0730819: a third of
+ * the drag, with the property panel printing the third as fact.
+ */
+describe('engineTree — the protuberance reference area is the kernel\'s own', () => {
+  // 3 tubes of 40 mm cannot touch each other on a 24 mm body, so the kernel
+  // raises TUBE_SEPARATION here. That is honest and beside the point: the
+  // subject is which components feed the reference area.
+  const tubeFinTree = (): RocketTree => ({
+    name: 'tf',
+    components: [{
+      type: 'stage', id: 's1',
+      children: [
+        {
+          type: 'nosecone', id: 'n1', length: 0.07, aftRadius: 0.012,
+          thickness: 0.002, shape: 'ogive', density: 680,
+        },
+        {
+          type: 'bodytube', id: 'b1', length: 0.3, outerRadius: 0.012,
+          thickness: 0.0005, density: 680,
+          children: [
+            {
+              type: 'tubefinset', id: 'tf1', finCount: 3, length: 0.08, outerRadius: 0.02,
+              thickness: 0.0005, density: 680, position: { method: 'bottom', offset: 0 },
+            } as ComponentNode,
+            {
+              type: 'protuberance', id: 'x1', name: 'Bump', dragClass: 'streamlinedbase',
+              width: 0.02, height: 0.01, length: 0.06, count: 1, mass: 0,
+              position: { method: 'middle', offset: 0 },
+            } as unknown as ComponentNode,
+          ],
+        } as ComponentNode,
+      ],
+    } as ComponentNode],
+  });
+
+  it('takes the body diameter, not the tube fins — and delivers what it asks', async () => {
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    const tree = tubeFinTree();
+
+    // The area itself: the body's, not the 40 mm tube fins'.
+    expect(referenceArea(tree)).toBeCloseTo(Math.PI * 0.012 ** 2, 12);
+
+    const body = bodyDragReference(tree);
+    expect(body.measured).toBe(true);
+    expect(body.withBase).toBeCloseTo(0.459187, 6);
+    const asked = protuberanceDeliveredCd(tree, findNode(tree, 'x1')!);
+    expect(asked).toBeCloseTo(0.2030053, 7);
+    // The bug this pins: referencing to the tube fin instead of the body was
+    // (12/20)² of the CD — 0.0730819, which is what used to be delivered.
+    expect(asked * (0.012 ** 2 / 0.02 ** 2)).toBeCloseTo(0.0730819, 7);
+
+    const strip = (ns: ComponentNode[]): ComponentNode[] => ns
+      .filter((n) => n.id !== 'x1')
+      .map((n) => (n.children ? { ...n, children: strip(n.children) } : n));
+    const without: RocketTree = { ...tree, components: strip(tree.components) };
+
+    const opts = { machMin: 0.05, machMax: 3, machStep: 0.05, aoaDeg: 0 };
+    const run = (t: RocketTree) => {
+      resetEngine();
+      const rocket = OrkRocket.buildTree(engineTree(t));
+      return { info: rocket.staticInfo(), sweep: rocket.dragSweep(opts) };
+    };
+    const a = run(tree);
+    const b = run(without);
+
+    // The kernel agrees on the area everything is referenced to…
+    expect(a.info.refDiameter).toBeCloseTo(0.024, 12);
+    expect(referenceArea(tree)).toBeCloseTo(Math.PI * (a.info.refDiameter / 2) ** 2, 12);
+    expect(b.info.refDiameter).toBe(a.info.refDiameter);
+    // …so asked X, delivered X, at every Mach, in the override bucket alone.
+    for (let i = 0; i < a.sweep.machs.length; i++) {
+      expect(a.sweep.powerOff.total[i]! - b.sweep.powerOff.total[i]!).toBeCloseTo(asked, 9);
+      expect(a.sweep.powerOff.friction[i]!).toBeCloseTo(b.sweep.powerOff.friction[i]!, 12);
+      expect(a.sweep.powerOff.pressure[i]!).toBeCloseTo(b.sweep.powerOff.pressure[i]!, 12);
+      expect(a.sweep.powerOff.base[i]!).toBeCloseTo(b.sweep.powerOff.base[i]!, 12);
+    }
+  }, 60000);
+
+  it('ignores every other outerRadius in the tree — lug, mount, coupler', () => {
+    // LaunchLug and TubeFinSet extend Tube; InnerTube and TubeCoupler are
+    // RingComponents. None is a SymmetricComponent, and the kernel reports
+    // refDiameter 0.024 for this airframe with each of them added (measured
+    // 2026-08-25) — so none may move this number either.
+    const base = tubeFinTree();
+    const stage = base.components[0]!;
+    const body = stage.children![1]!;
+    const fat: RocketTree = {
+      ...base,
+      components: [{
+        ...stage,
+        children: [stage.children![0]!, {
+          ...body,
+          children: [
+            ...body.children!,
+            {
+              type: 'launchlug', id: 'lg', length: 0.05, outerRadius: 0.01,
+              thickness: 0.0003, position: { method: 'middle', offset: 0 },
+            } as ComponentNode,
+            {
+              type: 'innertube', id: 'it', length: 0.07, outerRadius: 0.03,
+              thickness: 0.0005, position: { method: 'bottom', offset: 0 },
+            } as ComponentNode,
+            { type: 'tubecoupler', id: 'tc', length: 0.05, outerRadius: 0.03, thickness: 0.0005 } as ComponentNode,
+          ],
+        } as ComponentNode],
+      } as ComponentNode],
+    };
+    expect(referenceArea(fat)).toBe(referenceArea(base));
+    expect(referenceArea(fat)).toBeCloseTo(Math.PI * 0.012 ** 2, 12);
+  });
+});
+
+describe('referenceArea — an automatic transition radius with no neighbour', () => {
+  /**
+   * An absent transition radius means AUTOMATIC. With a symmetric neighbour on
+   * that side the kernel copies ITS radius, which the scan has already counted,
+   * so contributing 0 is right. With NO neighbour the kernel substitutes
+   * SymmetricComponent.DEFAULT_RADIUS = 0.025 m instead — a radius nothing else
+   * in the tree carries — and scanning the stated radii alone silently misses
+   * it. Found by verification 2026-08-25b: on this 38 mm airframe the kernel
+   * flies a 19 → 25 mm flare and reports refDiameter 0.050 m, where the scan
+   * returned 0.038 m — 0.578x of the area, so a protuberance there under-asked
+   * by 1.73x while the docblock promised "EXACTLY the kernel's own".
+   */
+  const airframe = (aft?: number): RocketTree => ({
+    name: 'r',
+    components: [{
+      type: 'stage', id: 's1',
+      children: [
+        { type: 'nosecone', id: 'n1', length: 0.2, aftRadius: 0.019, thickness: 0.002, shape: 'ogive' },
+        { type: 'bodytube', id: 'b1', length: 0.5, outerRadius: 0.019, thickness: 0.001 },
+        {
+          type: 'transition', id: 't1', length: 0.05, foreRadius: 0.019, thickness: 0.001,
+          shape: 'conical', ...(aft === undefined ? {} : { aftRadius: aft }),
+        } as unknown as ComponentNode,
+      ],
+    } as ComponentNode],
+  });
+
+  it('takes the kernel\'s DEFAULT_RADIUS when the automatic side has nothing to copy', () => {
+    // Last component, aft side automatic ⇒ 0.025 m, which beats the 0.019 body.
+    expect(referenceArea(airframe())).toBeCloseTo(Math.PI * 0.025 ** 2, 12);
+  });
+
+  it('still contributes nothing when the automatic side HAS a neighbour', () => {
+    // Stated aft radius: the transition can only lower the max, never raise it.
+    expect(referenceArea(airframe(0.01))).toBeCloseTo(Math.PI * 0.019 ** 2, 12);
+  });
+
+  it('matches what the kernel actually builds', async () => {
+    const { OrkRocket } = await import('@online-openrocket/engine');
+    for (const aft of [undefined, 0.01]) {
+      const tree = airframe(aft);
+      const info = OrkRocket.buildTree(engineTree(tree)).staticInfo();
+      expect(referenceArea(tree)).toBeCloseTo(Math.PI * (info.refDiameter / 2) ** 2, 12);
+    }
+  }, 60000);
+});
+
+describe('bodyDragReference caches', () => {
+  const body = (radius: number): RocketTree => ({
+    name: 'r',
+    components: [{
+      type: 'stage', id: 's1',
+      children: [
+        { type: 'nosecone', id: 'n1', length: 0.3, aftRadius: radius, thickness: 0.002, shape: 'ogive' },
+        { type: 'bodytube', id: 'b1', length: 0.5, outerRadius: radius, thickness: 0.001 },
+      ],
+    } as unknown as ComponentNode],
+  });
+
+  it('is keyed on SHAPE, so a rename is free and a resize is not', () => {
+    resetBodyDragCache();
+    const first = bodyDragReference(body(0.05));
+    expect(first.measured).toBe(true);
+    // A different tree OBJECT with the same stripped shape: the WeakMap misses
+    // and the shape key hits, so the answer is the identical object.
+    const renamed = body(0.05);
+    (renamed.components[0] as ComponentNode).name = 'Renamed stage';
+    expect(bodyDragReference(renamed)).toBe(first);
+    // A real geometry change must NOT hit.
+    expect(bodyDragReference(body(0.06))).not.toBe(first);
+  }, 60000);
+
+  it('promotes on a hit, so the airframe in use is not the one evicted', () => {
+    resetBodyDragCache();
+    const hot = bodyDragReference(body(0.05));
+    // Fill past the 8-entry cap, touching `hot` between each insert. Under the
+    // old insert-ordered eviction the entry being asked for repeatedly was the
+    // first one out; with promotion it is the last.
+    for (let i = 0; i < 12; i++) {
+      bodyDragReference(body(0.06 + i * 0.001));
+      expect(bodyDragReference(body(0.05))).toBe(hot);
+    }
+  }, 60000);
+
+  it('never caches an unmeasured probe, so one kernel failure is not permanent', () => {
+    resetBodyDragCache();
+    // A stage that strips to nothing: no symmetric component survives, the
+    // sweep has no drag, and the fallback pair stands in.
+    const empty: RocketTree = {
+      name: 'r',
+      components: [{
+        type: 'stage', id: 's1',
+        children: [{ type: 'trapezoidfinset', id: 'f1', finCount: 3, rootChord: 0.1, tipChord: 0.05, sweep: 0.03, height: 0.05, thickness: 0.003 }],
+      } as unknown as ComponentNode],
+    };
+    // Fill the 8-slot shape cache with real airframes first, so that a cached
+    // failure would have to EVICT one of them — which is how "was it cached?"
+    // becomes observable at all (the fallback is a shared constant, so its
+    // identity says nothing).
+    const shapes = Array.from({ length: 8 }, (_, i) => 0.05 + i * 0.001);
+    const before = shapes.map((r) => bodyDragReference(body(r)));
+    expect(before.every((b) => b.measured)).toBe(true);
+
+    const miss = bodyDragReference(empty);
+    expect(miss.measured).toBe(false);
+
+    // Fresh tree objects, so the WeakMap cannot answer and the SHAPE cache has
+    // to. All eight must still be there: under the old code the failure was
+    // written into the cache and pushed the oldest airframe out.
+    shapes.forEach((r, i) => {
+      expect(bodyDragReference(body(r)), `airframe ${r} was evicted by a failed probe`)
+        .toBe(before[i]);
+    });
   }, 60000);
 });

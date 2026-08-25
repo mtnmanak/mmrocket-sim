@@ -3,6 +3,23 @@
 // this design's own body CD is (see bodyDragReference). This module is already
 // the engine boundary — engineTree is the app→kernel lowering — so the
 // dependency lives where the lowering does.
+//
+// What that costs, MEASURED 2026-08-25 rather than assumed. To the shipped
+// bundle: NOTHING. App.tsx already value-imports OrkRocket/resetEngine (so do
+// BatchSimulate for OrkRocket and simReport for G0), and no code path in the
+// app dynamic-imports the engine — so vendor/orkengine.mjs (2,705,823 bytes;
+// 41 ms of top-level eval, since orkEngine.ts imports it statically and TeaVM
+// has no lazy init) is in the eager entry chunk either way. The build emits one
+// 2.17 MB entry chunk that holds the kernel, loaded by a plain module script in
+// index.html; there is no separate engine chunk to defer.
+//
+// What it DOES change is downstream module graphs: orkFile, rasaeroFile,
+// rocksimFile, componentTable and finAlign now evaluate the kernel in their
+// vitest worker. Cost: three such test files together 779 ms against 285 ms for
+// three comparable kernel-free ones — about +165 ms each — while the whole
+// 60-file, 941-test app suite still runs in 4.8 s. Not worth splitting
+// engineTree back out for, and it would not be a cheap split anyway:
+// bodyDragReference and engineTree call each other.
 import { OrkRocket } from '@online-openrocket/engine';
 import type { ComponentNode, ComponentType, RocketTree } from '@online-openrocket/engine';
 import { resolveAbsolutePositions } from './position.js';
@@ -323,7 +340,7 @@ export const PROTUBERANCE_REF_MACH = 0.3;
 
 /** The rocket body's own drag coefficients, as the streamlined classes use them. */
 export interface BodyDragReference {
-  /** Body CD EXCLUDING base drag (friction + pressure), rocket reference area. */
+  /** Body CD EXCLUDING base drag (kernel total − kernel base), rocket reference area. */
   noBase: number;
   /** Body CD INCLUDING base drag (the body-only total). */
   withBase: number;
@@ -353,14 +370,42 @@ function bodyOnlyComponents(nodes: ComponentNode[]): ComponentNode[] {
 }
 
 /**
+ * The cache key for a stripped tree: its PHYSICS only. Names and colors are
+ * dropped — neither reaches a drag coefficient, and with them in the key every
+ * keystroke of a body-tube rename minted a fresh key and spent a fresh kernel
+ * probe on it. This is the same projection App.tsx's `physicsKey` takes, for
+ * the same reason. Ids stay in: dropping them would merge trees the rest of
+ * the app treats as distinct, and eight slots do not need the extra hits.
+ */
+function bodyShapeKey(nodes: ComponentNode[]): unknown[] {
+  return nodes.map((n) => {
+    const { name: _name, color: _color, children, ...rest } = n as ComponentNode & { color?: string };
+    return { ...rest, children: bodyShapeKey(children ?? []) };
+  });
+}
+
+/**
  * Two caches, because the property panel asks for this on every render.
  * `byTree` is keyed on the tree OBJECT — trees are immutable and replaced
- * wholesale on every edit, so identity is an exact and free hit. `byShape` is
- * the fallback, keyed on the stripped tree's JSON, which also catches the case
- * that matters in batch simulation: 40 motor combinations are 40 different
- * trees with one identical airframe.
+ * wholesale on every edit, so identity is an exact and free hit, and a
+ * re-render that changed nothing (StrictMode's second pass, a units toggle, a
+ * keystroke in another panel) costs one WeakMap lookup and no kernel work.
+ * `byShape` is the fallback, reached only when the WeakMap misses — once per
+ * EDIT — and keyed on bodyShapeKey of the stripped tree, so the many edits that
+ * do not touch the airframe still hit: every appendage is filtered out of the
+ * key by bodyOnlyComponents, and names and colors by bodyShapeKey.
+ *
+ * `byShape` is LRU — bodyDragReference re-inserts on a hit — because one-shot
+ * keys really do arrive between two lookups. splitClusterTree /
+ * splitClusterPairsTree mint fresh mount ids every time the batch dialog
+ * mounts, so each combination batch run on a design carrying a streamlined
+ * protuberance leaves one or two keys behind that can never be hit again; a
+ * handful of runs fills all eight slots, and under insertion-order eviction the
+ * design's own entry — the oldest — was the first to go. Eight is still the
+ * depth: one design, its ≤3 cluster-split variants and a few edit-transient
+ * airframes, and every key is a whole stripped tree as JSON.
  */
-const bodyCdByTree = new WeakMap<RocketTree, BodyDragReference>();
+let bodyCdByTree = new WeakMap<RocketTree, BodyDragReference>();
 const bodyCdByShape = new Map<string, BodyDragReference>();
 const BODY_CD_CACHE_MAX = 8;
 /** Re-entrancy guard: the probe builds a rocket, which must never probe again. */
@@ -371,12 +416,34 @@ let probing = false;
  * streamlined protuberance classes are proportional to.
  *
  * HOW: strip every external appendage (BODY_CD_APPENDAGES), build THAT rocket
- * and take a one-point drag sweep. `friction + pressure` is the body CD
- * excluding base drag, `total` is the body CD including it — which is exactly
- * the decomposition Rogers asks OpenRocket users to do by hand ("Component
+ * and take a one-point drag sweep. `total` is the body CD including base drag
+ * and `total − base` is the body CD excluding it — which is exactly the
+ * decomposition Rogers asks OpenRocket users to do by hand ("Component
  * Analysis -> Drag Characteristics. You can add up the Cds of the body
  * components and subtract the base drag of the aft body", neil_w 197641 #2,
- * answered "That's it. Thanks!" by Rogers in #4).
+ * answered "That's it. Thanks!" by Rogers in #4). It is also the reading
+ * validation/score.mjs already uses for every base-EXCLUDED anchor row
+ * (`cd -= interp(sweep.machs, sweep.powerOff.base, mach)`, score.mjs:90).
+ *
+ * NOT `friction + pressure`, which is what this took until 2026-08-25. The
+ * kernel's `total` is AerodynamicForces.getCD() = friction + pressure + base +
+ * overrideCD (carved BarrowmanCalculator.java:348, the only assignment to it),
+ * and a component carrying a CD override contributes ZERO to friction,
+ * pressure AND base — all three loops `continue` on `isCDOverridden() ||
+ * isCDOverriddenByAncestor()` (ibid. ll. 623, 871, 950). `<overridecd>` is
+ * imported onto ANY component (orkFile.ts readOverrides, called from the
+ * generic component builder) and it survives the appendage strip, so a nose
+ * cone, tube, transition or boat tail carrying one landed in `withBase` and
+ * not in `noBase`, and the pair's difference stopped being the base-drag law.
+ * MEASURED 2026-08-25 on the ARCAS-Long CDX1 body (docs/User files), M0.3, sea
+ * level, appendages stripped: with no override the two forms are bit-identical
+ * (noBase 0.3114011115956588 either way). Put a 0.05 CD override on the body
+ * tube and the old form read noBase 0.0964606 against withBase 0.1890832 — a
+ * difference of 0.0926227 where the kernel's own base CD is 0.0426227, 2.17×
+ * too much. `total − base` reads 0.1464606, and the difference is exactly
+ * 0.0426227. With no override anywhere the two forms agree to at most 2 ulp
+ * (max 5.6e-17 absolute, 2.6e-16 relative, measured over M0.05–3.0 on all five
+ * validation/fixtures bodies), so no measured number in this file moved.
  *
  * Cost, measured 2026-08-25: build + one-point sweep ≈ 1–3 ms, cached on the
  * stripped tree, and only ever run for a design that HAS a streamlined
@@ -394,28 +461,37 @@ export function bodyDragReference(tree: RocketTree): BodyDragReference {
   if (probing) return PROTUBERANCE_FALLBACK_BODY_CD;
 
   const stripped: RocketTree = { ...tree, components: bodyOnlyComponents(tree.components) };
-  const key = JSON.stringify(stripped.components);
+  const key = JSON.stringify(bodyShapeKey(stripped.components));
   const hit = bodyCdByShape.get(key);
   if (hit) {
+    // Promote to most-recently-used. A Map iterates in insertion order and
+    // `set` on a key it already holds does NOT move it, so this delete is what
+    // makes the eviction below LRU instead of first-in-first-out.
+    bodyCdByShape.delete(key);
+    bodyCdByShape.set(key, hit);
     bodyCdByTree.set(tree, hit);
     return hit;
   }
 
-  let out = PROTUBERANCE_FALLBACK_BODY_CD;
+  let probed: BodyDragReference | null = null;
   probing = true;
   try {
     const sweep = OrkRocket.buildTree(engineTree(stripped)).dragSweep({
       machMin: PROTUBERANCE_REF_MACH, machMax: PROTUBERANCE_REF_MACH, machStep: 1, aoaDeg: 0,
     });
-    const friction = sweep.powerOff.friction[0];
-    const pressure = sweep.powerOff.pressure[0];
     const total = sweep.powerOff.total[0];
+    const base = sweep.powerOff.base[0];
     // A body with no drag at all is not a body — an airframe that stripped
     // down to nothing, or a kernel that returned an empty sweep. Take the
     // fallback rather than quietly zeroing the protuberance's contribution.
-    if (Number.isFinite(friction) && Number.isFinite(pressure) && (total as number) > 0) {
-      out = {
-        noBase: Math.max(0, friction! + pressure!),
+    // A non-finite kernel value arrives as JSON `null` (OrkEngine.nums() writes
+    // that for NaN and Infinity), which Number.isFinite rejects.
+    if (Number.isFinite(base) && (total as number) > 0) {
+      probed = {
+        // The clamp is belt-and-braces: `base` is one of the four addends of
+        // `total` (friction + pressure + base + overrideCD), so this goes
+        // negative only for a sweep no real body can produce.
+        noBase: Math.max(0, total! - base!),
         withBase: total!,
         mach: PROTUBERANCE_REF_MACH,
         measured: true,
@@ -424,21 +500,94 @@ export function bodyDragReference(tree: RocketTree): BodyDragReference {
   } catch {
     // A design the kernel refuses has no drag curve, CG or CP either — the
     // fallback keeps the panel readable instead of throwing out of a render.
-    out = PROTUBERANCE_FALLBACK_BODY_CD;
+    probed = null;
   } finally {
     probing = false;
   }
 
+  // NOTHING UNMEASURED IS EVER CACHED — the same rule as the `probing` bail
+  // above, for the same reason: the fallback pair is a placeholder, not this
+  // design's answer. Caching it pinned 0.311/0.354, and the panel's "the kernel
+  // could not evaluate this design" sentence, on this airframe for the rest of
+  // the page's life — nothing invalidates these maps, and resetEngine() cannot:
+  // it frees kernel handles, and these are plain numbers it never sees.
+  // Re-probing costs less than a measured probe does. MEASURED 2026-08-25
+  // (node, packages/engine/dist, 50 warm iterations, the 0.4 m ogive + 0.5 m
+  // 200 mm tube of treeModel.test.ts): 1.342 ms for a probe that measures
+  // against 0.484 ms for an airframe that strips to nothing and 0.888 ms for a
+  // nose cone alone.
+  if (!probed) return PROTUBERANCE_FALLBACK_BODY_CD;
+
   if (bodyCdByShape.size >= BODY_CD_CACHE_MAX) {
+    // The first key is the least recently USED, because every hit above
+    // re-inserts.
     bodyCdByShape.delete(bodyCdByShape.keys().next().value as string);
   }
-  bodyCdByShape.set(key, out);
-  bodyCdByTree.set(tree, out);
-  return out;
+  bodyCdByShape.set(key, probed);
+  bodyCdByTree.set(tree, probed);
+  return probed;
 }
 
 /**
- * Frontal-area Cd for a protuberance node (explicit `cdFrontal` always wins).
+ * Drops both body-CD caches. Deliberately NOT wired to resetEngine(): a cached
+ * pair is four plain numbers, not a kernel handle, so freeing the engine cannot
+ * make one wrong — and App.tsx calls resetEngine() inside its build memo on
+ * every tree edit, so clearing there would re-probe the kernel on every edit
+ * and delete the caches' whole reason for existing. Toggling an aero
+ * preference cannot stale a cached pair either: the probe always runs
+ * flags-off, and at PROTUBERANCE_REF_MACH the flags-on/flags-off spread is
+ * -0.34 % (measured, see that constant's note). This exists so a test can start
+ * from an empty cache.
+ */
+export function resetBodyDragCache(): void {
+  bodyCdByTree = new WeakMap<RocketTree, BodyDragReference>();
+  bodyCdByShape.clear();
+}
+
+/** The three drag classes the protuberance schema offers (PROTUBERANCE_CLASSES). */
+export type ProtuberanceClass = 'streamlined' | 'streamlinedbase' | 'plate';
+
+/**
+ * The drag class a protuberance node resolves to — the ONE copy of that rule.
+ * Anything that is not one of the three strings the schema offers (absent, or
+ * junk out of a hand-edited file or a stale autosave) becomes the schema's own
+ * default, `streamlinedbase`.
+ *
+ * The property panel MUST call this instead of resolving the class itself. It
+ * used to do `String(node['dragClass'] ?? 'streamlinedbase')`, which for a
+ * dragClass that is present but NOT a string yields a class this function
+ * never returns — so the panel decided the bump was not streamlined and
+ * printed a bare Cd with no sentence saying where it came from, while
+ * protuberanceCd was quietly using the body CD including base drag.
+ */
+export function protuberanceClass(node: ComponentNode): ProtuberanceClass {
+  const cls = node['dragClass'];
+  if (cls === 'streamlined') return 'streamlined';
+  if (cls === 'plate') return 'plate';
+  return 'streamlinedbase';
+}
+
+/**
+ * The frontal-area Cd the user typed, or null when there is none — again ONE
+ * copy, shared by protuberanceCd and the panel sentence that explains it.
+ *
+ * ZERO IS NOT AN OVERRIDE. The field is labelled "blank or 0 = from class" and
+ * the schema gives its slider smin 0, so the left stop is one drag away;
+ * honouring a 0 there hands the kernel a bump that makes NO drag at all, with
+ * the panel confirming "The Cd is the one you typed." A zero-Cd protuberance
+ * is not something anyone models — it is a component you delete — so 0 falls
+ * through to the class exactly like blank. Negative, NaN and non-numeric
+ * values fall through the same way (the .ork reader already refuses a negative
+ * <cdfrontal> at the file boundary, orkFile.ts).
+ */
+export function protuberanceExplicitCd(node: ComponentNode): number | null {
+  const cd = node['cdFrontal'];
+  return typeof cd === 'number' && Number.isFinite(cd) && cd > 0 ? cd : null;
+}
+
+/**
+ * Frontal-area Cd for a protuberance node (a positive explicit `cdFrontal`
+ * always wins — see protuberanceExplicitCd).
  *
  * THE STREAMLINED CLASSES ARE NOT CONSTANTS. RASAero's "Streamlined
  * Protuberance" method — whose class names these are — is stated by its
@@ -491,9 +640,9 @@ export function bodyDragReference(tree: RocketTree): BodyDragReference {
  * boundary-layer-dependent treatment.
  */
 export function protuberanceCd(tree: RocketTree, node: ComponentNode): number {
-  const explicit = node['cdFrontal'];
-  if (typeof explicit === 'number' && Number.isFinite(explicit) && explicit >= 0) return explicit;
-  const cls = typeof node['dragClass'] === 'string' ? (node['dragClass'] as string) : 'streamlinedbase';
+  const explicit = protuberanceExplicitCd(node);
+  if (explicit !== null) return explicit;
+  const cls = protuberanceClass(node);
   if (cls === 'plate') {
     const raw = typeof node['plateAngle'] === 'number' ? (node['plateAngle'] as number) : Math.PI / 4;
     const theta = Math.min(Math.PI / 2, Math.max(0, raw)); // radians, 0..90 deg
@@ -512,30 +661,98 @@ export function protuberanceFrontalArea(node: ComponentNode): number {
 }
 
 /**
- * The rocket's aerodynamic reference area (m²) — π·R² of the airframe's
- * greatest radius, which is the kernel's own reference (`referencetype
- * maximum`). Shared by engineTree and the property panel so the CD a user
- * reads is the CD that reaches the kernel.
+ * What the kernel puts in an AUTOMATIC transition radius that has no symmetric
+ * component to copy from: SymmetricComponent.DEFAULT_RADIUS (SymmetricComponent
+ * .java:23), reached through Transition.getAutoForeRadius / getAutoAftRadius
+ * (ll. 90, 185) when getPrevious/NextSymmetricComponent() is null.
+ */
+const AUTO_NO_NEIGHBOUR_RADIUS = 0.025;
+
+/**
+ * The rocket's aerodynamic reference area (m²) — EXACTLY the kernel's own:
+ * π·(D/2)² of the greatest SYMMETRIC-COMPONENT diameter in the design.
+ * `Rocket` is built with `ReferenceType.MAXIMUM` (Rocket.java l. 64) and
+ * MAXIMUM.getReferenceLength (ReferenceType.java ll. 24–40) walks
+ * `config.getActiveComponents()`, takes the largest fore/aft radius of every
+ * `SymmetricComponent`, doubles it, and falls back to
+ * `Rocket.DEFAULT_REFERENCE_LENGTH` = 0.01 m (Rocket.java l. 41) when that
+ * diameter is under 1 mm. FlightConfiguration ll. 542–543 squares it.
+ *
+ * ONLY nose cones, transitions and body tubes are SymmetricComponents
+ * (BodyTube.java l. 23, Transition.java l. 16, NoseCone.java l. 19). TubeFinSet
+ * and LaunchLug extend `Tube extends ExternalComponent` (TubeFinSet.java l. 20,
+ * LaunchLug.java l. 17); inner tubes, couplers, centering rings, bulkheads and
+ * engine blocks are RingComponents (InnerTube.java l. 29). None of them widens
+ * the reference area, however fat — yet ALL of them carry an `outerRadius` in
+ * this app's tree (schema.ts, and the .ork/RockSim readers write it too), so
+ * taking the max of that key over every node — which is what this used to do —
+ * silently used a different area from the kernel's.
+ *
+ * That mattered because a CD override reaches the kernel ALREADY referenced to
+ * the kernel's area and is summed into total CD untouched
+ * (BarrowmanCalculator.calculateOverrideCD l. 1141, added at l. 348): there is
+ * no re-normalisation to absorb a mismatch. MEASURED 2026-08-25 on a 24 mm
+ * airframe wearing 40 mm tube fins — the kernel reports refDiameter 0.024 m,
+ * i.e. 0.000452389 m², where the old scan returned π·0.020² = 0.001256637 m²,
+ * 2.7778× too big. Its 200 mm² protuberance therefore asked for AND delivered
+ * +0.0730819 CD where its own method calls for +0.2030053, and the property
+ * panel printed the third-of-the-drag figure as fact. Camera shrouds went the
+ * same way — engineTree references their override to this same area.
+ *
+ * Shared by engineTree and the property panel so the CD a user reads is the CD
+ * that reaches the kernel.
  */
 export function referenceArea(tree: RocketTree): number {
-  let maxR = 0.001;
-  const nnum = (n: ComponentNode, key: string): number =>
-    typeof n[key] === 'number' ? (n[key] as number) : 0;
-  const scan = (nodes: ComponentNode[]) => {
+  let maxR = 0;
+  const nnum = (n: ComponentNode, key: string, fb: number): number =>
+    typeof n[key] === 'number' ? (n[key] as number) : fb;
+  // The symmetric components in stack order, because a transition's absent
+  // radius is AUTOMATIC and what the kernel substitutes depends on whether it
+  // HAS a neighbour on that side.
+  const sym: ComponentNode[] = [];
+  const collect = (nodes: ComponentNode[]) => {
     for (const n of nodes) {
-      maxR = Math.max(maxR, nnum(n, 'aftRadius'), nnum(n, 'outerRadius'), nnum(n, 'foreRadius'));
-      scan(n.children ?? []);
+      const t = n.type as string;
+      if (t === 'bodytube' || t === 'nosecone' || t === 'transition') sym.push(n);
+      collect(n.children ?? []);
     }
   };
-  scan(tree.components);
-  return Math.PI * maxR * maxR;
+  collect(tree.components);
+  sym.forEach((n, i) => {
+    // The nose/tube fallbacks are ComponentFactory's own (ll. 66, 146), so a
+    // node with no radius is measured at the radius the kernel will really
+    // build it with. An absent TRANSITION radius means AUTOMATIC (ll. 110–119):
+    // with a symmetric neighbour on that side the kernel copies ITS radius,
+    // which this same scan has already counted, so 0 is right — but with NO
+    // neighbour it takes SymmetricComponent.DEFAULT_RADIUS instead
+    // (Transition.java ll. 90, 185; SymmetricComponent.java:23), which is a
+    // radius nothing else in the tree contributes. MEASURED 2026-08-25 on a
+    // 38 mm airframe whose boat tail has a blank aft radius: the kernel flies
+    // a 19 → 25 mm flare and reports refDiameter 0.050 m, where scanning the
+    // stated radii alone returns 0.038 m — 0.578× its area, so a protuberance
+    // there under-asked by 1.73×.
+    const t = n.type as string;
+    if (t === 'bodytube') {
+      maxR = Math.max(maxR, nnum(n, 'outerRadius', 0.012));
+    } else if (t === 'nosecone') {
+      maxR = Math.max(maxR, nnum(n, 'aftRadius', 0.012));
+    } else {
+      maxR = Math.max(maxR,
+        nnum(n, 'foreRadius', i === 0 ? AUTO_NO_NEIGHBOUR_RADIUS : 0),
+        nnum(n, 'aftRadius', i === sym.length - 1 ? AUTO_NO_NEIGHBOUR_RADIUS : 0));
+    }
+  });
+  // ReferenceType works in DIAMETER, and shoulder radii are not part of it.
+  const refLength = maxR * 2;
+  return Math.PI * ((refLength < 0.001 ? 0.01 : refLength) / 2) ** 2;
 }
 
 /**
  * What a protuberance actually adds to the rocket's CD: frontal area × Cd,
  * referenced to the rocket's own reference area — exactly the number handed to
  * the kernel as an override, and exactly what the kernel adds to total CD
- * (measured: asked 0.0134303, delivered 0.0134303 at every Mach).
+ * (measured on the ARCAS Long fixture, 2026-08-25: asked +0.0158488, delivered
+ * +0.0158488 at every Mach from 0.05 to 5).
  */
 export function protuberanceDeliveredCd(tree: RocketTree, node: ComponentNode): number {
   return (protuberanceCd(tree, node) * protuberanceFrontalArea(node))
@@ -563,8 +780,8 @@ export function protuberanceDeliveredCd(tree: RocketTree, node: ComponentNode): 
  *    streamlined protuberance is actually present. It is the CHEAPEST CORRECT
  *    carrier —
  *    MEASURED on the ARCAS Long fixture (2026-08-25):
- *      • the delivered CD is EXACTLY the override (0.0134303 asked, 0.0134303
- *        delivered at every Mach from 0.3 to 4.65),
+ *      • the delivered CD is EXACTLY the override (0.0158488 asked, 0.0158488
+ *        delivered at every Mach from 0.05 to 5),
  *      • friction, pressure and base CD all move by 0.0000000 — BarrowmanCalculator
  *        skips a CD-overridden component in all three loops,
  *      • mass, CG, CP and the warning set all move by exactly 0,

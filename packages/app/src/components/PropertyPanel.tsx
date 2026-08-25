@@ -5,8 +5,8 @@ import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
 import { DISPLAY_NAME, FIELDS, POSITIONABLE, type FieldDef } from '../tree/schema.js';
 import {
-  bodyDragReference, findParent, protuberanceCd, protuberanceDeliveredCd, protuberanceFrontalArea,
-  suppressingAncestor,
+  bodyDragReference, findParent, protuberanceCd, protuberanceClass, protuberanceDeliveredCd,
+  protuberanceExplicitCd, protuberanceFrontalArea, suppressingAncestor,
 } from '../tree/treeModel.js';
 import { anchorStarts, axialLength, offsetForStart, snapStart, startFromPosition } from '../tree/position.js';
 import { tubeFinMaxCount, tubeFinMaxRadius, tubeFinRadius } from '../tree/tubefins.js';
@@ -534,7 +534,7 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll, onAutoAli
             return null;
           }
           // A plate angle only means anything for the inclined-flat-plate class.
-          if (f.key === 'plateAngle' && String(node['dragClass'] ?? 'streamlinedbase') !== 'plate') {
+          if (f.key === 'plateAngle' && protuberanceClass(node) !== 'plate') {
             return null;
           }
           if (f.bool) {
@@ -654,9 +654,15 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll, onAutoAli
           cannot check us, so the sentence names the method, prints BOTH body
           CDs it measured, and says which Mach they were taken at. */}
       {(node.type as string) === 'protuberance' && (() => {
-        const cls = String(node['dragClass'] ?? 'streamlinedbase');
-        const explicit = typeof node['cdFrontal'] === 'number'
-          && Number.isFinite(node['cdFrontal']) && (node['cdFrontal'] as number) >= 0;
+        // Both rules come from treeModel, so the panel cannot explain a Cd the
+        // engine did not use: resolving the class here with String(...) gave a
+        // class protuberanceClass never returns whenever dragClass was present
+        // but not a string, and the explanation below was then skipped.
+        const cls = protuberanceClass(node);
+        const explicit = protuberanceExplicitCd(node) !== null;
+        // A typed 0 is not an override (protuberanceExplicitCd) — but the field
+        // still shows the 0, so the sentence has to account for it.
+        const zeroed = !explicit && node['cdFrontal'] === 0;
         const streamlined = !explicit && (cls === 'streamlined' || cls === 'streamlinedbase');
         const body = streamlined ? bodyDragReference(tree) : null;
         return (
@@ -666,6 +672,7 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll, onAutoAli
             {' = '}<strong>+{protuberanceDeliveredCd(tree, node).toFixed(5)}</strong> on the
             rocket&rsquo;s CD, at every Mach.
             {explicit && ' The Cd is the one you typed.'}
+            {zeroed && ' A typed 0 is not an override — blank and 0 both mean “from the class”.'}
             {body && (
               <>
                 {' '}The Cd is not a table value: RASAero&rsquo;s Streamlined

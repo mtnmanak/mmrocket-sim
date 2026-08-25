@@ -6,6 +6,7 @@ import { usePrefs, type Preferences } from '../prefs/PrefsContext.js';
 import { siToUi, type Quantity } from '../prefs/units.js';
 import { chartInk, seriesPalette } from '../chartTheme.js';
 import { panelHeight, panZoomPlugin, plotIsZoomed, resetPlots } from '../chartPanZoom.js';
+import { formatReadout, tooltipPlugin } from '../chartTooltip.js';
 import { UnitChip } from './UnitChip.js';
 
 /**
@@ -115,19 +116,19 @@ function Panel({ result, def, plots, expanded, onToggleExpand, onZoomChange }: {
       scales: { x: { time: false } },
       legend: { live: true },
       series: [
-        { label: 't (s)', value: (_u, v) => (v == null ? '–' : v.toFixed(2)) },
+        { label: 't (s)', value: (_u, v) => formatReadout(v) },
         {
           label: `${def.title}${def.unit ? ` (${def.unit})` : ''}`,
           stroke: def.color,
           width: ink.strokeWidth,
-          value: (_u, v) => (v == null ? '–' : v.toFixed(2)),
+          value: (_u, v) => formatReadout(v),
         },
       ],
       axes: [
         { stroke: ink.axis, grid: { stroke: ink.grid, width: 1 }, ticks: { stroke: ink.tick, width: 1 }, font: ink.font },
         { stroke: ink.axis, grid: { stroke: ink.grid, width: 1 }, ticks: { stroke: ink.tick, width: 1 }, font: ink.font, size: 56 },
       ],
-      plugins: [panZoomPlugin(() => plots, (u) => onZoomChangeRef.current(plotIsZoomed(u)))],
+      plugins: [panZoomPlugin(() => plots, (u) => onZoomChangeRef.current(plotIsZoomed(u))), tooltipPlugin()],
     };
     const plot = new uPlot(opts, data, el);
     const t = result.series.time;

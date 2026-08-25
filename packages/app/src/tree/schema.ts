@@ -482,7 +482,11 @@ export const FIELDS: Record<EditorComponentType, FieldDef[]> = {
     // The escape hatch from the Mach-flat scalar: a streamlined class is the
     // body CD at Mach 0.3, so a high-Mach design that wants the body CD at its
     // own max Q types it here. smax 2 covers every body CD the kernel produces.
-    { key: 'cdFrontal', label: 'Cd on frontal area (blank = from class)', unit: 'none', step: 0.05, smin: 0, smax: 2 },
+    // smin 0 is the slider's "release the override" stop, NOT zero drag: 0 and
+    // blank both fall through to the class (treeModel.protuberanceExplicitCd),
+    // which is why the label names both. A slider has no blank position, so
+    // without that the left stop would silently zero the component's physics.
+    { key: 'cdFrontal', label: 'Cd on frontal area (blank or 0 = from class)', unit: 'none', step: 0.05, smin: 0, smax: 2 },
     { key: 'mass', label: 'Mass, all of them (0 = not counted)', unit: 'g', step: 1, smin: 0, smax: 2000 },
     lenMM('length', 'Length along body (shape only, no drag)', 1, 1000),
   ],

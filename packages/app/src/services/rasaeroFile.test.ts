@@ -836,4 +836,86 @@ describe('RASAero engine export (gated — see CDX1_ENGINE_EXPORT)', () => {
     const designations = Object.values(back.configs[0]!.motors).map((m) => m.designation).sort();
     expect(designations).toEqual(['J350W', 'K550W']);
   });
+
+  it('puts the loaded mass/CG in the LAST stage cell, not the sustainer (cells are cumulative)', () => {
+    // RASAero's per-stage cells are the vehicle from the nose down to that
+    // stage: a RASAero-written two-stage file carries sustainer 4.06 lb / CG
+    // 35.96 in against booster1 5.64 lb / CG 43.06 in
+    // (__fixtures__/Complex.Two-Stage.CDX1). `design` supplies only the WHOLE
+    // rocket's 2.72 kg / 0.762 m, which is Booster1's cell here and not the
+    // sustainer's — the sustainer's own weight is unknown, and 0 is RASAero's
+    // "not entered".
+    const booster = {
+      type: 'stage' as const, id: 's1', name: 'Booster',
+      children: [
+        {
+          type: 'bodytube' as const, id: 'b1', length: 0.5, outerRadius: 0.0381, thickness: 0.001,
+          children: [
+            { type: 'trapezoidfinset' as const, id: 'f1', finCount: 3, rootChord: 0.12, tipChord: 0.05, sweep: 0.05, height: 0.07, thickness: 0.003, position: { method: 'bottom' as const, offset: 0 } },
+          ],
+        },
+      ],
+    };
+    const xml = exportCdx1({
+      ...design,
+      tree: { ...design.tree, components: [...design.tree.components, booster] },
+      motors: { ...design.motors, b1: { designation: 'K550W', manufacturer: 'AeroTech' } },
+      engineExport: true,
+    });
+    expect(xml).toContain('<SustainerLaunchWt>0</SustainerLaunchWt>');
+    expect(xml).toContain('<SustainerCG>0</SustainerCG>');
+    expect(xml).not.toContain('<SustainerLaunchWt>5.9966</SustainerLaunchWt>');
+    expect(xml).toContain('<Booster1LaunchWt>5.9966</Booster1LaunchWt>'); // 2.72 kg → lb
+    expect(xml).toContain('<Booster1CG>29.9999</Booster1CG>'); // 0.762 m → in
+    expect(xml).toContain('<Booster2LaunchWt>0</Booster2LaunchWt>'); // no third stage
+    // The booster is still claimed, with its engine — unchanged behaviour.
+    expect(xml).toContain('<Booster1Engine>K550W  (AT)</Booster1Engine>');
+    expect(xml).toContain('<IncludeBooster1>True</IncludeBooster1>');
+  });
+
+  it('a three-stage design fills BOOSTER 2, the only cell that means the whole stack', () => {
+    // The stack size where the old and the new cell choice differ most, and
+    // the one no test observed: the two-stage case asserts Booster2 is 0,
+    // which a resolver capped at Booster1 would also produce. Mutating
+    // `lastStage` to Math.min(stagesIn.length - 1, 1) passes the whole file
+    // without this.
+    const mkStage = (id: string, name: string) => ({
+      type: 'stage' as const, id: `s_${id}`, name,
+      children: [
+        {
+          type: 'bodytube' as const, id, length: 0.5, outerRadius: 0.0381, thickness: 0.001,
+          children: [
+            { type: 'trapezoidfinset' as const, id: `f_${id}`, finCount: 3, rootChord: 0.12, tipChord: 0.05, sweep: 0.05, height: 0.07, thickness: 0.003, position: { method: 'bottom' as const, offset: 0 } },
+          ],
+        },
+      ],
+    });
+    const xml = exportCdx1({
+      ...design,
+      tree: {
+        ...design.tree,
+        components: [...design.tree.components, mkStage('b1', 'Booster'), mkStage('b2', 'Booster 2')],
+      },
+      motors: {
+        ...design.motors,
+        b1: { designation: 'K550W', manufacturer: 'AeroTech' },
+        b2: { designation: 'L850W', manufacturer: 'AeroTech' },
+      },
+      engineExport: true,
+    });
+    expect(xml).toContain('<SustainerLaunchWt>0</SustainerLaunchWt>');
+    expect(xml).toContain('<Booster1LaunchWt>0</Booster1LaunchWt>');
+    expect(xml).toContain('<Booster1CG>0</Booster1CG>');
+    expect(xml).toContain('<Booster2LaunchWt>5.9966</Booster2LaunchWt>');
+    expect(xml).toContain('<Booster2CG>29.9999</Booster2CG>');
+    expect(xml).toContain('<IncludeBooster2>True</IncludeBooster2>');
+  });
+
+  it('keeps the single-stage sustainer cells (the RASAero-proven combination)', () => {
+    const xml = exportCdx1({ ...design, engineExport: true });
+    expect(xml).toContain('<SustainerLaunchWt>5.9966</SustainerLaunchWt>');
+    expect(xml).toContain('<SustainerCG>29.9999</SustainerCG>');
+    expect(xml).toContain('<Booster1LaunchWt>0</Booster1LaunchWt>');
+    expect(xml).toContain('<Booster1CG>0</Booster1CG>');
+  });
 });

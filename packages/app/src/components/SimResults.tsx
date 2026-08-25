@@ -118,7 +118,7 @@ export function SimRunDetails({ run, result, onFullSeries }: {
               {exportBusy === 'csv' ? '⏳ Re-flying…' : '⬇ Flight data .csv'}
             </button>
             <button className="file-btn" disabled={exportBusy !== null}
-              title={'Excel workbook of the same flight data: typed numeric cells under unit-labelled headers, plus live charts (altitude, velocity, acceleration vs time) on their own tabs, referencing the data sheet. Booster stages get their own data sheets and chart series.'}
+              title={'Excel workbook of the same flight data: typed numeric cells under unit-labelled headers, plus a live Excel chart tab for every exported column — the headline quantities one per tab, the coefficient and rate families grouped — referencing the data sheet. Booster stages get their own data sheets and their own chart tabs.'}
               onClick={() => exportFlightData('xlsx')}>
               {exportBusy === 'xlsx' ? '⏳ Re-flying…' : '⬇ .xlsx + charts'}
             </button>

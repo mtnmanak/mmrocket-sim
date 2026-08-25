@@ -1051,10 +1051,11 @@ export function App() {
         launchMassKg: built?.info.mass,
         launchCgM: built?.info.cg,
         launch,
-        // Engine strings ride only when rasaeroFile's CDX1_ENGINE_EXPORT gate
-        // is on (default OFF — RASAero NREs on motor names its database
-        // lacks); passing the map here means flipping that gate is the whole
-        // change.
+        // Engine strings ride when rasaeroFile's CDX1_ENGINE_EXPORT gate is on
+        // — it has been since 2026-08-25, proven against real RASAero II with a
+        // single-stage file. The gate stays because RASAero throws an NRE on
+        // motor names its own database lacks; flipping it back is one line
+        // there.
         motors: exportMotorsMap(),
       }), 'CDX1');
     } catch (e) {

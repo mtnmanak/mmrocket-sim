@@ -601,12 +601,21 @@ numbers away from desktop must move OUT of classic"*. Full measurement:
   `flies a minimum-diameter rocket` moves 333.4645 → **329.6097 m** and the golden
   `flight.mindia` with it, which is the fix doing exactly what it says.
 - **Goldens:** `transition.paint.*` / `transition.polished.*` (4 Mach × 2 surfaces × 3
-  models × 2 settings — they pin the gate itself as an equality, the laminar-run credit,
+  models × 2 settings — they RECORD the gate as an equality, the laminar-run credit,
   and the supersonic compressibility swap; the *paint* rows also record that the setting
   is a **no-op subsonically for a normally-finished rocket**, because the roughness limit
   binds in both branches, which is why the LEM-IV flight moves by 0.002 m),
   `parity.airfoilsection` and `parity.nozzlebase` (both sides of both boundaries).
   Differential **299 → 309 lines**, all 10 new lines JVM↔TeaVM clean.
+  Corrected 2026-08-25b: "record", not "pin". difftest compares a JVM run to a
+  TeaVM run with **no stored baseline**, so a golden line cannot catch a change
+  that moves both runtimes together — it catches a MISCOMPILE. The behavioural
+  guards for these three gates are in `packages/engine/src/orkEngine.test.ts`
+  ("fin airfoil sections", "nozzle-exit power-on base drag is gated to the
+  non-parity models", "perfectFinish … inert in the parity model"), which run
+  under `npm test`. `parity.airfoilsection` / `parity.nozzlebase` also gained a
+  supersonicAero-only column that same day, because both gates are
+  `(rogersKbf || supersonicAero)` and only the first disjunct was exercised.
 
 ## Rules
 

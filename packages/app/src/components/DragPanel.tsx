@@ -7,6 +7,7 @@ import { fmtSi, siToUi, uiToSi } from '../prefs/units.js';
 import { UnitChip } from './UnitChip.js';
 import { chartInk, seriesPalette } from '../chartTheme.js';
 import { panelHeight, panZoomPlugin, plotIsZoomed, resetPlots } from '../chartPanZoom.js';
+import { formatReadout, tooltipPlugin } from '../chartTooltip.js';
 import { GestureHints } from './FlightCharts.js';
 import { APP_VERSION } from '../version.js';
 
@@ -77,15 +78,15 @@ function LineChart({ x, lines, xLabel, yLabel, height = 190, lockLegend = false,
       cursor: { points: { size: 6 }, ...(lockLegend ? { bind: { click: () => null } } : {}) },
       scales: { x: { time: false } },
       legend: { live: true },
-      plugins: [panZoomPlugin(undefined, (u) => onZoomChangeRef.current?.(plotIsZoomed(u)))],
+      plugins: [panZoomPlugin(undefined, (u) => onZoomChangeRef.current?.(plotIsZoomed(u))), tooltipPlugin()],
       series: [
-        { label: xLabel, value: (_u, v) => (v == null ? '–' : v.toFixed(2)) },
+        { label: xLabel, value: (_u, v) => formatReadout(v) },
         ...lines.map((l): uPlot.Series => ({
           label: l.label,
           stroke: l.color,
           width: ink.strokeWidth,
           ...(l.dash ? { dash: [6, 4] } : {}),
-          value: (_u, v) => (v == null ? '–' : v.toFixed(3)),
+          value: (_u, v) => formatReadout(v),
         })),
       ],
       axes: [

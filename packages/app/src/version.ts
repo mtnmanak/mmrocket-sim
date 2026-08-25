@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.069';
+export const APP_VERSION = '0.070';
 
 export interface ChangelogEntry {
   version: string;
@@ -23,6 +23,23 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.070',
+    date: '2026-08-25',
+    title: 'Three ways a bump’s drag could be wrong, and charts you can actually read a number off',
+    items: [
+      'NUMBERS MOVE, BUT ONLY ON SPECIFIC DESIGNS — not across the board like 0.069. Three separate bugs in how a protuberance or camera shroud is priced, each of which needs a particular shape of design to bite. If your rocket has no protuberance, no camera shroud and no component Cd override, nothing here changes your altitude.',
+      'FIXED: a protuberance on a rocket whose widest part is not the airframe was referenced to the wrong area. We measured the fattest radius anywhere in the design; the engine measures only the widest nose cone, transition or body tube — tube fins, launch lugs, inner tubes and couplers are not part of a rocket’s reference diameter. On a 24 mm minimum-diameter bird wearing 40 mm tube fins that was 2.78× too much area, so the bump delivered +0.0731 Cd where its own method calls for +0.2030, and the property panel printed that third-of-the-drag figure as fact. Tube-fin designs with a rail button or a cable tunnel will now show MORE drag, and less altitude.',
+      'FIXED: a protuberance whose Cd field sat at 0 — the slider’s left stop, one drag away — flew as a bump that makes no drag at all, while the panel confirmed it with "The Cd is the one you typed." Blank and 0 now both mean "take the Cd from the drag class", which is what that field’s label always implied. If you ever dragged that slider to the stop, that component starts contributing drag again.',
+      'FIXED: a Cd override on a nose cone, body tube, transition or boat tail distorted the body drag that a streamlined protuberance is measured against. The engine folds an override into its drag total but not into the friction and pressure terms, so the override landed in the "with base drag" half of the reference pair and not in the "without" half — on an ARCAS-Long body carrying a 0.05 override the two halves differed by 0.0926 where that rocket’s own base drag is 0.0426, and both numbers were printed as fact. The pair is now taken as total and total-minus-base, so their difference is the base-drag law again.',
+      'RASAero .CDX1 export now carries your motors (new in 0.069, and it should have been called out there). A multi-stage export also puts the loaded weight and CG in the cell RASAero actually reads: its per-stage Launch Wt./CG cells are CUMULATIVE — Booster 1’s cell means the whole stack at liftoff, not the booster alone — so a two-stage design’s weight belongs there and not on the Sustainer tab, where it used to go. Single-stage files are byte-for-byte unchanged, which is the combination proven in real RASAero II.',
+      'Hovering any results chart now pops an exact readout at the point you are pointing at, and every value on screen went from 2 decimal places to 6 significant digits. A Mach that used to read "0.03" reads 0.0312457. Reported by a tester: "it is very difficult to know the exact data for a point on the chart just by looking at it."',
+      'The ⬇ .xlsx + charts export went from 3 chart tabs to about 31 — a live Excel chart for EVERY column it exports, not just altitude, velocity and acceleration. Mass, thrust, drag force, Mach, stability margin, CP, CG and angle of attack get a tab each; the drag-coefficient, damping, rate, orientation and position families share themed tabs; anything left over gets its own. It is a rule rather than a list, so no exported column can go un-charted again.',
+      'Importer honesty: the "automatic diameter, no neighbour to take one from" note used to tell you every listed component fell back to 50 mm, when a mass object inside an unresolved tube actually falls back to 10 mm — and it counted by NAME, so three tubes all called "Body tube" (OpenRocket’s default name) were reported as one. Both fixed; the note now names the real fallback and the real count.',
+      'Correction to the 0.069 note above: it said the dormant partial-laminar friction branch was "now reachable for anyone who wants it". It is reachable through the simulation engine’s API, but there is no setting for it in the app, so that sentence has been corrected rather than left to mislead.',
+      'Under the hood: the two aero-model boundary checks in the Java differential harness only ever exercised the Rogers-Kbf half of the gate they guard, so a change that silently altered every Supersonic-model user’s fin and base drag would have passed. They now carry a Supersonic column too, and — because the differential compares our Java against our JavaScript and so cannot catch a change that moves both — the real guards for those gates are now behavioural tests that run on every push. Differential still clean at 309 comparison points.',
+    ],
+  },
+  {
     version: '0.069',
     date: '2026-08-25',
     title: 'The default model got more accurate, and the OpenRocket model got more faithful',
@@ -33,7 +50,7 @@ export const CHANGELOG: ChangelogEntry[] = [
       'FIXED: OpenRocket 15.03-era files opened with 3–4× too much drag. Those files write a bare "auto" diameter with no value, and we fell back to 12 mm — so a 4-inch airframe imported as a 12 mm tube. On one posted design that was 5,939 ft predicted where desktop OpenRocket had stored 15,927 ft in that same file. Automatic diameters are now resolved from the neighbouring component the way desktop does it, with a note telling you what was inferred. Newer files were never affected: 26 of the 32 real designs tested import byte-identically, and the 6 that changed are all 15.03-era.',
       'BETTER: protuberance drag now follows RASAero’s actual method rather than a fixed coefficient. Its co-author states the model as "drag per unit frontal area equal to that of the rocket body", so the two streamlined classes are now referenced to your own design’s body drag instead of the flat 0.10/0.22 they shipped with yesterday. Documented limitation, unchanged: the value is frozen at one Mach.',
       'The validation harness gained 11 more measured gates and the score went DOWN again — for the third time in two days, and for the same good reason. The NASA report behind our wind-tunnel anchors (TN D-4013) was retrieved and its figures digitized directly, so the body-only drag curve is now gated at every Mach the report actually tested, at a TIGHTER tolerance derived from the report’s own stated accuracy. 10 of the 11 new gates fail. What they show: our body drag runs 10–19 % high subsonically, and drag divergence starts 0.10–0.14 Mach too late. That is a real defect, it is now visible, and it is next.',
-      'Also measured and NOT shipped, because it would have been fitting to the anchors rather than fixing physics: switching on OpenRocket’s dormant partial-laminar friction branch wins 10 validation gates — every one of them above Mach 3, and only because it substitutes a laminar compressibility law where a turbulent one belongs. The wind-tunnel models it was supposed to explain were boundary-layer tripped, so fully turbulent is the correct treatment for them. The branch is now reachable for anyone who wants it, off by default in every model.',
+      'Also measured and NOT shipped, because it would have been fitting to the anchors rather than fixing physics: switching on OpenRocket’s dormant partial-laminar friction branch wins 10 validation gates — every one of them above Mach 3, and only because it substitutes a laminar compressibility law where a turbulent one belongs. The wind-tunnel models it was supposed to explain were boundary-layer tripped, so fully turbulent is the correct treatment for them. The branch is now wired through the simulation engine and confined to the two non-parity models, so it can be measured — but there is deliberately no setting for it in the app, and it is off for every flight, in every model.',
       'Kernel rebuilt; differential against desktop Java is clean at 309 comparison points, up from 296.',
     ],
   },

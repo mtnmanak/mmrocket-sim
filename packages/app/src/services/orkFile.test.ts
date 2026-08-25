@@ -1865,6 +1865,13 @@ describe('.ork automatic radii (bare `auto`, OpenRocket 15.03)', () => {
   it('resolves a body tube forwards, to the nose cone it sits behind', () => {
     // Comp_Rocket_V4's shape: three chained automatic tubes behind an explicit
     // 0.078359 m nose base. Read as 12 mm they carried 2.9x the drag.
+    //
+    // The WHOLE chain takes the nose radius, tubes 2 and 3 included — that is
+    // 24.12, not a liberty taken here. `38mm Min.ork` in the same corpus was
+    // written by OpenRocket 23.09 from exactly this shape (nose aftradius
+    // 0.02032, then three chained automatic tubes) and 23.09 saved
+    // `auto 0.02032` on all three, not `auto 0.025` on the last two.
+    // makeAutoRadii's docblock has the mechanism.
     const { parts } = parse('auto-radius-15.03.ork');
     for (const nm of ['Payload Tube', 'SwitchBand / Ebay Assembly', 'Recovery Tube']) {
       expect(by(parts, nm)['outerRadius'], nm).toBeCloseTo(0.078359, 12);
@@ -1964,6 +1971,34 @@ describe('.ork automatic radii (bare `auto`, OpenRocket 15.03)', () => {
     expect(note).toContain('50 mm');
   });
 
+  it('names the diameter each unresolved component actually got', () => {
+    // TWO fallbacks in one file. The centreline takes the desktop's 25 mm
+    // SymmetricComponent.DEFAULT_RADIUS; the mass object inside that same
+    // unresolved tube takes this reader's 5 mm (autoDim's autoFallback), so
+    // MassObject.getMaxParentRadius has nothing to give it either. The note
+    // used to print 50 mm for every name on the list, including the mass the
+    // importer had built at 10 mm.
+    const xml = `<openrocket version="1.4" creator="OpenRocket 15.03"><rocket>
+      <name>Nothing</name><subcomponents><stage><name>S</name><subcomponents>
+        <nosecone><name>N</name><length>0.3</length><thickness>0.001</thickness>
+          <shape>ogive</shape><aftradius>auto</aftradius></nosecone>
+        <bodytube><name>B</name><length>0.9</length><thickness>0.00127</thickness>
+          <radius>auto</radius><subcomponents>
+            <masscomponent><name>W</name><mass>0.05</mass><packedlength>0.02</packedlength>
+              <packedradius>auto</packedradius></masscomponent>
+          </subcomponents></bodytube>
+      </subcomponents></stage></subcomponents></rocket></openrocket>`;
+    const r = importOrk(xml);
+    const parts = flatten(r.tree.components);
+    expect(by(parts, 'B')['outerRadius']).toBeCloseTo(0.025, 12);
+    expect(by(parts, 'W')['radius']).toBeCloseTo(0.005, 12);
+    const note = r.notes.find((n) => n.includes('no neighbour'))!;
+    expect(note).toContain('3 components');
+    expect(note).toContain('N, B use');
+    expect(note).toContain('50 mm default');
+    expect(note).toContain('W uses a 10 mm default'); // and NOT 50 mm
+  });
+
   it('does not hang on an automatic chain that points at itself', () => {
     // Two automatic tubes and nothing else: desktop's refComp guard stops the
     // walk; ours is a visited set. Without it this recurses forever.
@@ -1977,6 +2012,25 @@ describe('.ork automatic radii (bare `auto`, OpenRocket 15.03)', () => {
     const parts = flatten(importOrk(xml).tree.components);
     expect(by(parts, 'A')['outerRadius']).toBeCloseTo(0.025, 12);
     expect(by(parts, 'B')['outerRadius']).toBeCloseTo(0.025, 12);
+  });
+
+  it('warns instead of copying the desktop 0 for a tube ahead of a nose cone', () => {
+    // The deliberate deviation from 24.12 (see the comment on `rear` in
+    // makeAutoRadii). An un-flipped nose cone's fore radius is 0 and not
+    // automatic, so Transition.getRearAutoRadius returns 0, and 0 is not < 0 —
+    // the desktop gives this tube a ZERO radius. 25 mm and a note is the honest
+    // answer for a design this degenerate; pin it so nobody "restores parity".
+    const xml = `<openrocket version="1.4" creator="OpenRocket 15.03"><rocket>
+      <name>Backwards</name><subcomponents><stage><name>S</name><subcomponents>
+        <bodytube><name>B</name><length>0.5</length><thickness>0.001</thickness>
+          <radius>auto</radius></bodytube>
+        <nosecone><name>N</name><length>0.3</length><thickness>0.001</thickness>
+          <shape>ogive</shape><aftradius>0.05</aftradius></nosecone>
+      </subcomponents></stage></subcomponents></rocket></openrocket>`;
+    const r = importOrk(xml);
+    const parts = flatten(r.tree.components);
+    expect(by(parts, 'B')['outerRadius']).toBeCloseTo(0.025, 12);
+    expect(r.notes.some((n) => n.includes('no neighbour'))).toBe(true);
   });
 
   it('drops an unparseable <cd> instead of storing NaN', () => {

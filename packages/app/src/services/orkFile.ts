@@ -211,7 +211,10 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   // ---- automatic dimensions (see makeAutoRadii) -------------------------
   const autoRadii = makeAutoRadii(rocketEl);
   const autoInferred: { name: string; radius: number }[] = [];
-  const autoUnresolved: string[] = [];
+  // Carries the radius each name ACTUALLY got, not just the name: the fallback
+  // is 25 mm for a centreline component and 5 mm for a mass object (see
+  // autoDim below), and the note has to state the number this reader used.
+  const autoUnresolved: { el: Element; name: string; radius: number }[] = [];
   /**
    * A dimension the desktop may write as a number, as `auto <lastvalue>`, or
    * as a BARE `auto`. The first two parse to the number the desktop itself had
@@ -241,7 +244,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       autoInferred.push({ name: label, radius: r });
       return r;
     }
-    autoUnresolved.push(label);
+    autoUnresolved.push({ el, name: label, radius: autoFallback });
     return autoFallback;
   };
 
@@ -818,10 +821,35 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       + 'Worth a check against your build.');
   }
   if (autoUnresolved.length > 0) {
+    // Group by the fallback each name ACTUALLY got. A centreline component
+    // takes the desktop's own 25 mm SymmetricComponent.DEFAULT_RADIUS; a mass
+    // object takes this reader's 5 mm (autoDim's autoFallback). Printing one
+    // diameter for the whole list named a number the mass never got.
+    const byFallback = new Map<number, string[]>();
+    for (const a of autoUnresolved) {
+      const names = byFallback.get(a.radius);
+      if (names) names.push(a.name);
+      else byFallback.set(a.radius, [a.name]);
+    }
+    // Only 25 mm is OpenRocket's own number. Crediting the 5 mm one to the
+    // desktop too would just move the false claim to the other clause.
+    const clauses = [...byFallback].map(([radius, names]) => {
+      const mm = `${(radius * 2000).toFixed(0)} mm`;
+      const verb = new Set(names).size === 1 ? 'uses' : 'use';
+      return radius === DEFAULT_AUTO_RADIUS
+        ? `${nameList(names)} ${verb} OpenRocket’s own ${mm} default`
+        : `${nameList(names)} ${verb} a ${mm} default`;
+    });
+    // Count COMPONENTS, not entries: a transition with both radii automatic
+    // and unresolvable pushes twice for the one component — while two tubes
+    // that share OpenRocket's default "Body tube" name are still two, which
+    // keying on the NAME collapsed into one (the common case: the desktop
+    // default-names every tube "Body tube").
+    const k = new Set(autoUnresolved.map((a) => a.el)).size;
     notes.push(
-      `${nameList(autoUnresolved)} had an automatic diameter and no neighbour to take one `
-      + `from, so ${autoUnresolved.length === 1 ? 'it uses' : 'they use'} OpenRocket’s own `
-      + `${(DEFAULT_AUTO_RADIUS * 2000).toFixed(0)} mm default. Set the diameter before simulating.`);
+      `${k} component${k === 1 ? '' : 's'} had an automatic diameter and no neighbour to `
+      + `take one from, so ${clauses.join('; ')}. `
+      + `Set the diameter${k === 1 ? '' : 's'} before simulating.`);
   }
 
   // Honesty notes for the two things this reader now PRESERVES but the
@@ -2021,6 +2049,42 @@ interface AutoRadii {
  * and the `getFront|RearAutoRadius` pair they call: a component asked for the
  * face it presents to its neighbour answers with a stated number, or chains on
  * to ITS neighbour when it is automatic too, or gives up (`UNRESOLVED`).
+ *
+ * A CHAIN of automatic tubes therefore chains all the way to its anchor —
+ * 24.12 does NOT stop at the first automatic neighbour and fall through to
+ * DEFAULT_RADIUS. Worth spelling out, because `BodyTube.java:95` reads as
+ * though it should: `if (c != null && !c.usesNextCompAutomatic())`. That is a
+ * circularity guard, not a "skip automatic neighbours" guard —
+ * for a BODY TUBE neighbour, `usesNextCompAutomatic()` is
+ * `isOuterRadiusAutomatic() && refComp == getNextSymmetricComponent()`
+ * (`BodyTube.java:172-174`), so it fires only when that neighbour already
+ * took ITS radius from us. (A transition or nose cone neighbour overrides it
+ * as a plain `isAftRadiusAutomatic()` — `Transition.java:281-284` — so there
+ * the guard IS a skip; it just changes nothing, because
+ * `Transition.getFrontAutoRadius` returns -1 in exactly that case,
+ * `Transition.java:263-267`.) The neighbour can only
+ * have done that at `BodyTube.java:99-104`, reached only after its own forward
+ * walk came back < 0 — so `front()` below returns `UNRESOLVED` for it anyway,
+ * and the visited set lands on the same answer without a `refComp` field of
+ * our own. The walk that actually chains is `BodyTube.getFrontAutoRadius`
+ * (`BodyTube.java:216-227`), which recurses through automatic neighbours with
+ * no guard at all until it reaches a stated radius.
+ *
+ * The desktop's own output settles it. `docs/User files/TRF RASAero Files/
+ * 38mm Min.ork`, creator "OpenRocket 23.09", is a nose cone of aftradius
+ * 0.02032 followed by THREE chained automatic tubes, and 23.09 saved
+ * `<radius>auto 0.02032</radius>` on all three — not `auto 0.025` on the last
+ * two. Replaying 24.12's algorithm, refComp field and all, across every .ork
+ * in this repo (50 automatic dimensions) agrees with this resolver on all 50
+ * and reproduces every value the desktop had stored.
+ *
+ * Two KINDS of desktop degeneracy are NOT reproduced:
+ * `Transition.getRearAutoRadius` on an un-flipped nose cone hands back 0
+ * instead of -1 (see `rear` below), and both `Transition.getForeRadius`
+ * (`Transition.java:73-92`) and `getAftRadius` (`Transition.java:167-187`)
+ * pass a -1 out of their auto-getter through unclamped. Either would put a zero or negative radius on a
+ * component. This reader answers `UNRESOLVED` for both, which becomes
+ * DEFAULT_AUTO_RADIUS and the "no neighbour" note instead.
  */
 function makeAutoRadii(rocketEl: Element): AutoRadii {
   // Centreline chains. The rocket's axial stages share ONE chain — desktop's
@@ -2093,8 +2157,17 @@ function makeAutoRadii(rocketEl: Element): AutoRadii {
       const n = nextOf(el);
       return n ? rear(n, seen) : UNRESOLVED;
     }
-    // A nose cone has no fore face to offer (the desktop disables
-    // NoseCone:foreradius outright), and nothing is ever ahead of one anyway.
+    // A DELIBERATE DEVIATION from 24.12, not a mirror of it. An un-flipped
+    // nose cone's fore radius is 0 and NOT automatic (`NoseCone
+    // .resetForeRadius`, NoseCone.java:276-278), so `Transition
+    // .getRearAutoRadius` (Transition.java:270-274) hands back that 0 rather
+    // than -1 — and 0 is not < 0, so on the desktop a tube placed AHEAD of a
+    // nose cone silently ends up with a ZERO radius. We answer UNRESOLVED,
+    // which becomes the 25 mm DEFAULT_AUTO_RADIUS plus the "no neighbour"
+    // note: a degenerate design the user is told about beats one they are not.
+    // (`<isflipped>` is ignored on read and hard-coded `false` on save, so a
+    // flipped cone's genuine fore face is a separate gap, not one this walk
+    // attempts to close.)
     if (el.tagName === 'nosecone') return UNRESOLVED;
     return stated(el, 'foreradius') ?? UNRESOLVED;
   };

@@ -105,11 +105,16 @@ const FINISH_TO_SURFACE: Record<string, string> = {
  * OPENROCKET_TO_RASAERO_MANUFACTURER — and we only write manufacturers RASAero
  * documents (unmapped ones are omitted entirely, never guessed), but the
  * desktop also verifies each motor against RASAero's own engine list, which we
- * do not ship. One real-RASAero open test decides this.
+ * do not ship. One real-RASAero open test settled it.
  *
- * Test plan: rasaeroFile.test.ts "engine export (gated)" +
- * "docs/User files/rasaero-engine-export-test.CDX1" (AeroTech J350W).
- * When that file opens cleanly in RASAero II, flip this to true — one line.
+ * What that test did NOT cover is the booster path: the proven file is
+ * single-stage — "docs/User files/rasaero-engine-export-test.CDX1" carries
+ * <UseBooster1>False</UseBooster1> and no <Booster> part, so opening it said
+ * nothing about a simulation that claims a booster. What a multi-stage export
+ * writes into the per-stage weight/CG cells, and why, is documented at the
+ * SimulationList writer below.
+ *
+ * Tests: rasaeroFile.test.ts, "RASAero engine export".
  */
 export const CDX1_ENGINE_EXPORT = true;
 
@@ -693,7 +698,8 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
   // Per-stage engine strings, desktop format 'DESIGNATION  (ABBREV)' — two
   // spaces, the exact shape our own importer's parseEngine reads back. null =
   // no motor on the stage, or a manufacturer RASAero doesn't document (the
-  // NRE risk: see CDX1_ENGINE_EXPORT). Gated OFF by default.
+  // NRE risk: see CDX1_ENGINE_EXPORT). ON by default since 2026-08-25;
+  // `engineExport: false` is the per-call opt-out (tests, file generation).
   const engineOn = engineExport ?? CDX1_ENGINE_EXPORT;
   const stageEngines: (string | null)[] = stagesIn.map((st) => {
     if (!engineOn || !motors) return null;
@@ -1087,23 +1093,50 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
   // lookup instead. With CDX1_ENGINE_EXPORT on, each stage's engine string is
   // written immediately before its LaunchWt, the desktop SimulationDTO field
   // order and the position RASAero's own files use.
+  // The per-stage weight/CG cells are CUMULATIVE: each is the vehicle from the
+  // nose down to and including that stage, at that stage's ignition — not the
+  // stage on its own. Desktop parity (24.12 SimulationDTO, constructor cases
+  // 0/1/2): SustainerLaunchWt = structure(stage 0) + the sustainer motor;
+  // Booster1LaunchWt = structure(stages 0-1) + BOTH motors; Booster2LaunchWt =
+  // the whole stack + all three. Its importer inverts exactly that
+  // (SimulationHandler.applyBooster1MassOverride subtracts the booster motor
+  // AND SustainerLaunchWt). A RASAero-written two-stage file agrees:
+  // __fixtures__/Complex.Two-Stage.CDX1 carries sustainer 4.06 lb / CG
+  // 35.96 in against booster1 5.64 lb / CG 43.06 in — heavier and further aft.
+  //
+  // We are handed ONE pair, the whole rocket's loaded mass and CG, so exactly
+  // one stage's cells can be filled: the LAST stage's, the only one whose
+  // cumulative vehicle IS the whole rocket. Single-stage output is therefore
+  // unchanged (that stage is the sustainer — the 5.9966 lb file proven in
+  // RASAero II); a two-stage design fills Booster1's cells and leaves the
+  // sustainer's at 0. Writing the stack mass into SustainerLaunchWt instead
+  // claimed the sustainer alone weighs the whole rocket, which the desktop
+  // reads straight back as a sustainer heavier than the vehicle.
+  //
+  // 0 is RASAero's own "not entered", not an invention: its files use it for
+  // unused cells (__fixtures__/ARCAS-Long - 2.CDX1 has SustainerLaunchWt 0;
+  // Show-off.CDX1 keeps IncludeBooster1 True over a 0 Booster1LaunchWt, with
+  // RASAero's own computed results beside it), and the desktop importer skips
+  // the mass override when it reads 0. Filling every cell needs per-stage
+  // masses, which nothing here has: componentInfo() reports a stage's
+  // sectionMass but only a component's OWN CG (an AxialStage has no mass of
+  // its own, so its CG says nothing), and Cdx1ExportEngine carries no motor
+  // mass at all. That is a work item, not a one-line flip.
+  const lastStage = stagesIn.length - 1;
+  const stackWt = (i: number): string => fmt((i === lastStage ? (launchMassKg ?? 0) : 0) * LB);
+  const stackCg = (i: number): string => fmt((i === lastStage ? (launchCgM ?? 0) : 0) * IN);
   emit('<SimulationList>');
   emit('<Simulation>');
   if (stageEngines[0]) emit(`<SustainerEngine>${esc(stageEngines[0])}</SustainerEngine>`);
-  emit(`<SustainerLaunchWt>${fmt((launchMassKg ?? 0) * LB)}</SustainerLaunchWt>`);
+  emit(`<SustainerLaunchWt>${stackWt(0)}</SustainerLaunchWt>`);
   emit('<SustainerNozzleDiameter>0</SustainerNozzleDiameter>');
-  emit(`<SustainerCG>${fmt((launchCgM ?? 0) * IN)}</SustainerCG>`);
+  emit(`<SustainerCG>${stackCg(0)}</SustainerCG>`);
   emit('<SustainerIgnitionDelay>0</SustainerIgnitionDelay>');
   if (stageEngines[1]) emit(`<Booster1Engine>${esc(stageEngines[1])}</Booster1Engine>`);
-  // Booster LaunchWt/CG stay 0: they are per-stack masses (desktop's
-  // SimulationDTO computes stage-cumulative structure + motor masses) and the
-  // export input carries only the whole-rocket launch mass. RASAero treats
-  // them as editable sim inputs, so 0 loads fine; wire real per-stage masses
-  // before flipping the gate on for MULTI-stage designs.
-  emit('<Booster1LaunchWt>0</Booster1LaunchWt>');
+  emit(`<Booster1LaunchWt>${stackWt(1)}</Booster1LaunchWt>`);
   emit('<Booster1SeparationDelay>0</Booster1SeparationDelay>');
   emit('<Booster1IgnitionDelay>0</Booster1IgnitionDelay>');
-  emit('<Booster1CG>0</Booster1CG>');
+  emit(`<Booster1CG>${stackCg(1)}</Booster1CG>`);
   emit('<Booster1NozzleDiameter>0</Booster1NozzleDiameter>');
   // IncludeBooster mirrors the desktop (mount present && is a motor mount):
   // True only when that stage got an engine string. A sim that claims a
@@ -1111,9 +1144,9 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
   // design-level UseBooster flags still carry the staged geometry.
   emit(`<IncludeBooster1>${stageEngines[1] ? 'True' : 'False'}</IncludeBooster1>`);
   if (stageEngines[2]) emit(`<Booster2Engine>${esc(stageEngines[2])}</Booster2Engine>`);
-  emit('<Booster2LaunchWt>0</Booster2LaunchWt>');
+  emit(`<Booster2LaunchWt>${stackWt(2)}</Booster2LaunchWt>`);
   emit('<Booster2Delay>0</Booster2Delay>');
-  emit('<Booster2CG>0</Booster2CG>');
+  emit(`<Booster2CG>${stackCg(2)}</Booster2CG>`);
   emit('<Booster2NozzleDiameter>0</Booster2NozzleDiameter>');
   emit(`<IncludeBooster2>${stageEngines[2] ? 'True' : 'False'}</IncludeBooster2>`);
   emit('<FlightTime>0</FlightTime>');
