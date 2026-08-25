@@ -50019,7 +50019,7 @@ a_OrkEngine_getComponentInfo = ($rocketHandle, $componentId) => {
     return ($sb.$append0(125)).$toString();
 },
 a_OrkEngine_getDragSweep = ($rocketHandle, $optionsJson) => {
-    let $ctx, $config, $o, $m, $machMax, $machStep, $aoa, $machList, $n, $maMach, $maAlt, $maRaw, var$15, var$16, var$17, $i, var$19, var$20, $row, $isa, $allStages, $hasNozzle, var$25, $c, $calc, $warnings, $offTotal, $offFric, $offPress, $offBase, $onTotal, $onFric, $onPress, $onBase, $cp, $cna, $byComp, $mach, $atm, $alt, $j, var$44, $t, $off, var$47, var$48, var$49, var$50, $fOff, $cpc, $on, $fOn, $offMap, $e, $cd, $row_0, $machArr, $sb, $first;
+    let $ctx, $config, $o, $m, $machMax, $machStep, $aoa, $machList, $n, $maMach, $maAlt, $maRaw, var$15, var$16, var$17, $i, var$19, var$20, $row, $isa, $allStages, $hasNozzle, var$25, $c, $calc, $warnings, $offTotal, $offFric, $offPress, $offBase, $onTotal, $onFric, $onPress, $onBase, $cp, $cna, $byComp, $instMap, $mach, $atm, $alt, $j, var$45, $t, $off, var$48, var$49, var$50, var$51, $fOff, $cpc, $on, $fOn, $offMap, var$57, $e, $f, $cd, $count, var$62, $row_0, $machArr, $sb, $first, $usedNames, $base, $k;
     a_OrkEngine_$callClinit();
     $ctx = a_OrkEngine_get($rocketHandle);
     $config = $ctx.$rocket0.$getSelectedConfiguration();
@@ -50089,6 +50089,7 @@ a_OrkEngine_getDragSweep = ($rocketHandle, $optionsJson) => {
     $cp = $rt_createDoubleArray($n);
     $cna = $rt_createDoubleArray($n);
     $byComp = ju_LinkedHashMap__init_();
+    $instMap = $config.$getActiveInstances();
     $i = 0;
     while ($i < $n) {
         $mach = ($machList.$get0($i)).$doubleValue();
@@ -50106,9 +50107,9 @@ a_OrkEngine_getDragSweep = ($rocketHandle, $optionsJson) => {
                     $j = $j + 1 | 0;
                 }
                 var$19 = var$16.data;
-                var$44 = $j - 1 | 0;
-                $t = ($mach - var$20[var$44]) / (var$20[$j] - var$20[var$44]);
-                $alt = var$19[var$44] + $t * (var$19[$j] - var$19[var$44]);
+                var$45 = $j - 1 | 0;
+                $t = ($mach - var$20[var$45]) / (var$20[$j] - var$20[var$45]);
+                $alt = var$19[var$45] + $t * (var$19[$j] - var$19[var$45]);
             }
             $atm = $isa.$getConditions($alt);
         }
@@ -50117,54 +50118,66 @@ a_OrkEngine_getDragSweep = ($rocketHandle, $optionsJson) => {
             $off.$setAtmosphericConditions($atm);
         var$19 = $offTotal.data;
         var$20 = $offFric.data;
-        var$47 = $offPress.data;
-        var$48 = $offBase.data;
-        var$49 = $cp.data;
-        var$50 = $cna.data;
+        var$48 = $offPress.data;
+        var$49 = $offBase.data;
+        var$50 = $cp.data;
+        var$51 = $cna.data;
         $off.$setMach($mach);
         $off.$setAOA($aoa);
         $fOff = $calc.$getAerodynamicForces($config, $off, $warnings);
         var$19[$i] = $fOff.$getCD();
         var$20[$i] = $fOff.$getFrictionCD();
-        var$47[$i] = $fOff.$getPressureCD();
-        var$48[$i] = $fOff.$getBaseCD();
+        var$48[$i] = $fOff.$getPressureCD();
+        var$49[$i] = $fOff.$getBaseCD();
         $cpc = $fOff.$getCP();
-        var$49[$i] = $cpc.$x;
-        var$50[$i] = $cpc.$weight;
+        var$50[$i] = $cpc.$x;
+        var$51[$i] = $cpc.$weight;
         $on = ioca_FlightConditions__init_($config);
         if ($atm !== null)
             $on.$setAtmosphericConditions($atm);
         var$19 = $onTotal.data;
         var$20 = $onFric.data;
-        var$47 = $onPress.data;
-        var$48 = $onBase.data;
+        var$48 = $onPress.data;
+        var$49 = $onBase.data;
         $on.$setMach($mach);
         $on.$setAOA($aoa);
         $on.$setThrustingStages(ju_HashSet__init_3($allStages));
         $fOn = $calc.$getAerodynamicForces($config, $on, $warnings);
         var$19[$i] = $fOn.$getCD();
         var$20[$i] = $fOn.$getFrictionCD();
-        var$47[$i] = $fOn.$getPressureCD();
-        var$48[$i] = $fOn.$getBaseCD();
+        var$48[$i] = $fOn.$getPressureCD();
+        var$49[$i] = $fOn.$getBaseCD();
         $offMap = $calc.$getForceAnalysis($config, $off, $warnings);
-        var$17 = ($offMap.$entrySet()).$iterator();
-        while (var$17.$hasNext()) {
-            $e = var$17.$next();
+        var$57 = ($offMap.$entrySet()).$iterator();
+        while (var$57.$hasNext()) {
+            $e = var$57.$next();
             $c = $e.$getKey();
-            if (!$c.$isAerodynamic())
-                continue;
-            if ($c instanceof iocr_ComponentAssembly)
-                continue;
-            $cd = ($e.$getValue()).$getCD();
+            $f = $e.$getValue();
+            if ($c instanceof iocr_ComponentAssembly) {
+                if ($c instanceof iocr_Rocket)
+                    continue;
+                $cd = $f.$getOverrideCD();
+                if (isNaN($cd) ? 1 : 0)
+                    continue;
+                if ($cd === 0.0)
+                    continue;
+            } else {
+                if (!$c.$isAerodynamic())
+                    continue;
+                $count = $instMap.$count($c);
+                if ($count < 1)
+                    $count = 1;
+                var$62 = ($f.$getFrictionCD() + $f.$getPressureCD() + $f.$getBaseCD()) * $count;
+                $cd = var$62 + $f.$getOverrideCD();
+            }
             if (isNaN($cd) ? 1 : 0)
                 $cd = 0.0;
-            $row_0 = $byComp.$get(iocr_RocketComponent_getName($c));
+            $row_0 = $byComp.$get($c);
             if ($row_0 === null) {
                 $row_0 = $rt_createDoubleArray($n);
-                $byComp.$put(iocr_RocketComponent_getName($c), $row_0);
+                $byComp.$put($c, $row_0);
             }
-            var$19 = $row_0.data;
-            var$19[$i] = var$19[$i] + $cd;
+            $row_0.data[$i] = $cd;
         }
         $i = $i + 1 | 0;
     }
@@ -50187,13 +50200,23 @@ a_OrkEngine_getDragSweep = ($rocketHandle, $optionsJson) => {
     a_OrkEngine_dragBlock($sb, $onTotal, $onFric, $onPress, $onBase);
     $sb.$append1($rt_s(1672));
     $first = 1;
-    var$25 = ($byComp.$entrySet()).$iterator();
-    while (var$25.$hasNext()) {
-        $e = var$25.$next();
+    $usedNames = ju_HashSet__init_();
+    var$17 = ($byComp.$entrySet()).$iterator();
+    while (var$17.$hasNext()) {
+        $e = var$17.$next();
         if (!$first)
             $sb.$append0(44);
         $first = 0;
-        (($sb.$append1($rt_s(1673))).$append1(a_OrkEngine_escape($e.$getKey()))).$append1($rt_s(1674));
+        $base = iocr_RocketComponent_getName($e.$getKey());
+        $k = 2;
+        var$57 = $base;
+        while (!$usedNames.$add(var$57)) {
+            var$57 = jl_StringBuilder__init_();
+            jl_StringBuilder_append0(jl_StringBuilder_append2(jl_StringBuilder_append(jl_StringBuilder_append(var$57, $base), $rt_s(444)), $k), 41);
+            var$57 = jl_StringBuilder_toString(var$57);
+            $k = $k + 1 | 0;
+        }
+        (($sb.$append1($rt_s(1673))).$append1(a_OrkEngine_escape(var$57))).$append1($rt_s(1674));
         a_OrkEngine_nums($sb, $e.$getValue());
         $sb.$append0(125);
     }

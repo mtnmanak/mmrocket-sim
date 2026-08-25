@@ -27,6 +27,7 @@ import info.openrocket.core.rocketcomponent.ComponentAssembly;
 import info.openrocket.core.rocketcomponent.FlightConfiguration;
 import info.openrocket.core.rocketcomponent.FlightConfigurationId;
 import info.openrocket.core.rocketcomponent.InnerTube;
+import info.openrocket.core.rocketcomponent.InstanceMap;
 import info.openrocket.core.rocketcomponent.MotorMount;
 import info.openrocket.core.rocketcomponent.NoseCone;
 import info.openrocket.core.rocketcomponent.Parachute;
@@ -531,6 +532,12 @@ public final class OrkEngine {
      * Returns: { machs:[], hasNozzle:bool,
      *            powerOff:{total[],friction[],pressure[],base[]},
      *            powerOn:{...}, components:[{name,cd[]}...] }.
+     * Component rows include every active instance (a 4-fin set books 4x its
+     * per-fin CD) so they sum to powerOff.total; a stage/booster/pod-set
+     * carrying its own CD override books that override as its own row (its
+     * parts' rows go to zero when the override covers subcomponents).
+     * Duplicate display names come out disambiguated ("Body tube",
+     * "Body tube (2)"), skipping any suffix a user already authored.
      * NOTE: the underlying method is Extended Barrowman — accurate subsonic/
      * transonic, degrading above ~Mach 1.5-2 (full supersonic fidelity is
      * feature #1). The UI labels the supersonic region accordingly.
@@ -597,7 +604,12 @@ public final class OrkEngine {
         // Feeds the validation harness (ARCAS/HB-2/Finner anchors) and a future
         // CP-vs-Mach panel.
         double[] cp = new double[n], cna = new double[n];
-        java.util.LinkedHashMap<String, double[]> byComp = new java.util.LinkedHashMap<>();
+        // Keyed by component (identity), not name — same-name parts must stay
+        // separate rows; display names are disambiguated at JSON-emit time.
+        java.util.LinkedHashMap<RocketComponent, double[]> byComp = new java.util.LinkedHashMap<>();
+        // Same instance source the rocket-total loops use (carved
+        // BarrowmanCalculator sums instanceCount * per-instance CD).
+        InstanceMap instMap = config.getActiveInstances();
 
         for (int i = 0; i < n; i++) {
             double mach = machList.get(i);
@@ -648,23 +660,49 @@ public final class OrkEngine {
             onPress[i] = fOn.getPressureCD();
             onBase[i] = fOn.getBaseCD();
 
-            // Per-component power-off breakdown (skip the aggregate assembly nodes).
+            // Per-component power-off breakdown.
+            // getForceAnalysis reports SINGLE-INSTANCE friction/pressure/base
+            // (the totals multiply by active instance count — fins, pods),
+            // except overrideCD, which calculateOverrideCD stores already
+            // multiplied. Mirror the totals so the rows sum to powerOff.total.
+            // A ComponentAssembly (stage/booster/pod set) contributes a row
+            // ONLY for a CD override carried by the assembly itself — its
+            // friction/pressure/base are never added (on the Rocket root they
+            // hold the whole-rocket totals, and the subtree parts already have
+            // their own rows). The Rocket root is skipped outright because
+            // getForceAnalysis books the SUM of every override into it.
             Map<RocketComponent, AerodynamicForces> offMap = calc.getForceAnalysis(config, off, warnings);
             for (Map.Entry<RocketComponent, AerodynamicForces> e : offMap.entrySet()) {
                 RocketComponent c = e.getKey();
-                if (!c.isAerodynamic() || c instanceof ComponentAssembly) {
+                AerodynamicForces f = e.getValue();
+                double cd;
+                if (c instanceof ComponentAssembly) {
+                    if (c instanceof Rocket) {
+                        continue;
+                    }
+                    cd = f.getOverrideCD(); // already instance-multiplied
+                    if (Double.isNaN(cd) || cd == 0) {
+                        continue;
+                    }
+                } else if (!c.isAerodynamic()) {
                     continue;
+                } else {
+                    int count = instMap.count(c);
+                    if (count < 1) {
+                        count = 1;
+                    }
+                    cd = (f.getFrictionCD() + f.getPressureCD() + f.getBaseCD()) * count
+                            + f.getOverrideCD();
                 }
-                double cd = e.getValue().getCD();
                 if (Double.isNaN(cd)) {
                     cd = 0;
                 }
-                double[] row = byComp.get(c.getName());
+                double[] row = byComp.get(c);
                 if (row == null) {
                     row = new double[n];
-                    byComp.put(c.getName(), row);
+                    byComp.put(c, row);
                 }
-                row[i] += cd;
+                row[i] = cd;
             }
         }
 
@@ -686,10 +724,19 @@ public final class OrkEngine {
         dragBlock(sb, onTotal, onFric, onPress, onBase);
         sb.append(",\"components\":[");
         boolean first = true;
-        for (Map.Entry<String, double[]> e : byComp.entrySet()) {
+        // Collision-aware uniquing: a user can AUTHOR a name like
+        // "Body tube (2)", so a plain occurrence counter would collide with
+        // it. Try the base name, then " (2)", " (3)"... until unused.
+        java.util.HashSet<String> usedNames = new java.util.HashSet<>();
+        for (Map.Entry<RocketComponent, double[]> e : byComp.entrySet()) {
             if (!first) sb.append(',');
             first = false;
-            sb.append("{\"name\":\"").append(escape(e.getKey())).append("\",\"cd\":");
+            String base = e.getKey().getName();
+            String name = base;
+            for (int k = 2; !usedNames.add(name); k++) {
+                name = base + " (" + k + ")";
+            }
+            sb.append("{\"name\":\"").append(escape(name)).append("\",\"cd\":");
             nums(sb, e.getValue());
             sb.append('}');
         }

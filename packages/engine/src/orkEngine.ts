@@ -361,7 +361,16 @@ export interface DragSweep {
   powerOff: DragCurve;
   /** Boost (all stages thrusting) drag — differs from powerOff only when hasNozzle. */
   powerOn: DragCurve;
-  /** Per-component power-off total CD (index-aligned to `machs`). */
+  /**
+   * Per-component power-off total CD (index-aligned to `machs`). Each row
+   * covers every active instance of the component (a 4-fin set's row is 4x
+   * the per-fin CD), so the rows sum to `powerOff.total` — including a row
+   * for a stage/booster/pod set that carries its own CD override (named
+   * after the assembly; its parts' rows drop to zero when the override
+   * covers subcomponents). Components sharing a display name stay separate
+   * rows, disambiguated as "Body tube", "Body tube (2)", ... — skipping any
+   * suffix a user already authored.
+   */
   components: { name: string; cd: number[] }[];
 }
 

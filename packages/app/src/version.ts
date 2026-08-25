@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.066';
+export const APP_VERSION = '0.067';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.067',
+    date: '2026-08-25',
+    title: 'The drag breakdown adds up',
+    items: [
+      'FIXED: the per-component drag rows now sum to the total at every Mach. They were per-INSTANCE values — a four-fin set showed one fin’s drag while the total counted four, so the rows under-summed the total by exactly three fins’ worth, and "Fin Drag is near zero" read as a physics problem when three quarters of it was arithmetic. Caught independently by Chuck Rogers ("fin drag is near zero") and Buckeye ("the components don’t add up"). The rows now carry the same instance counts the total uses, and an engine test pins sum == total so it cannot drift again. Fin rows on multi-fin designs read ~N× higher than before; the total never changed.',
+      'FIXED: two components with the same name no longer merge into one breakdown row — rows are keyed by the component, and a duplicate display name gets a " (2)" suffix (collision-safe against names you authored yourself).',
+      'FIXED: a CD override on a stage, pod set or booster now appears as its own breakdown row. It was counted in the total but missing from the rows.',
+      'This lives in the simulation kernel’s bridge, so this release rebuilds the kernel. As always the build is checked line by line against the same code running on desktop Java before it ships — 271 comparison points, differential clean.',
+    ],
+  },
   {
     version: '0.066',
     date: '2026-08-25',

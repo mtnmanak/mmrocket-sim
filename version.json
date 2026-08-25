@@ -1,5 +1,5 @@
 {
-  "version": "0.066",
+  "version": "0.067",
   "released": "2026-08-25",
-  "note": "Files survive the trip now: a .ork saved here opens in desktop OpenRocket with its motors and simulation list intact (they were coming back as 'manufacturer custom not found' with no sims), RASAero .CDX1 files import their simulations, launch site and supersonic airfoil sections instead of dropping them, the graphs pan and wheel-zoom, and the flight-data CSV follows your unit preferences."
+  "note": "The drag breakdown adds up now: per-component rows carry the same instance counts the total uses (a four-fin set showed one fin's drag), same-named parts no longer merge into one row, and stage/pod CD overrides get their own row. Kernel rebuild, differential clean at 271 comparison points."
 }
