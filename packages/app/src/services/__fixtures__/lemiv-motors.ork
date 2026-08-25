@@ -1,0 +1,80 @@
+<?xml version='1.0' encoding='utf-8'?>
+<openrocket version="1.10" creator="OpenRocket 24.12">
+  <rocket>
+    <name>LEM-IV motor fixture</name>
+    <motorconfiguration configid="91154772-767b-49ec-aefd-9bc1607a57f3">
+      <stage number="0" active="true"/>
+    </motorconfiguration>
+    <motorconfiguration configid="18540642-ab60-447f-b1e0-a3fd99db9e29" default="true">
+      <stage number="0" active="true"/>
+    </motorconfiguration>
+    <subcomponents>
+      <stage>
+        <name>Sustainer</name>
+        <subcomponents>
+          <nosecone>
+            <name>Nose cone</name>
+            <length>0.4</length>
+            <thickness>0.003</thickness>
+            <shape>ogive</shape>
+            <aftradius>0.0508</aftradius>
+          </nosecone>
+          <bodytube>
+            <name>Body tube</name>
+            <length>1.2</length>
+            <thickness>0.0016</thickness>
+            <radius>0.0508</radius>
+            <subcomponents>
+              <innertube>
+                <name>Motor tube</name>
+                <axialoffset method="bottom">0.0</axialoffset>
+                <position type="bottom">0.0</position>
+                <length>0.7</length>
+                <radialposition>0.0</radialposition>
+                <radialdirection>0.0</radialdirection>
+                <outerradius>0.0392</outerradius>
+                <thickness>0.001</thickness>
+                <clusterconfiguration>single</clusterconfiguration>
+                <clusterscale>1.0</clusterscale>
+                <clusterrotation>0.0</clusterrotation>
+                <motormount>
+                  <ignitionevent>automatic</ignitionevent>
+                  <ignitiondelay>0.0</ignitiondelay>
+                  <overhang>0.028575</overhang>
+                  <motor configid="91154772-767b-49ec-aefd-9bc1607a57f3">
+                    <type>reload</type>
+                    <manufacturer>AeroTech</manufacturer>
+                    <digest>233f8744136b12e764b86fe4430e11e7</digest>
+                    <designation>M1500G</designation>
+                    <diameter>0.075</diameter>
+                    <length>0.681</length>
+                    <delay>0.0</delay>
+                  </motor>
+                  <ignitionconfiguration configid="91154772-767b-49ec-aefd-9bc1607a57f3">
+                    <ignitionevent>automatic</ignitionevent>
+                    <ignitiondelay>0.0</ignitiondelay>
+                  </ignitionconfiguration>
+                  <motor configid="18540642-ab60-447f-b1e0-a3fd99db9e29">
+                    <type>single</type>
+                    <manufacturer>AeroTech</manufacturer>
+                    <digest>74451a159ce1001a76d319ed0d9a6f9a</digest>
+                    <designation>HP-K535W</designation>
+                    <diameter>0.054</diameter>
+                    <length>0.358</length>
+                    <delay>14.0</delay>
+                  </motor>
+                  <ignitionconfiguration configid="18540642-ab60-447f-b1e0-a3fd99db9e29">
+                    <ignitionevent>launch</ignitionevent>
+                    <ignitiondelay>0.0</ignitiondelay>
+                  </ignitionconfiguration>
+                </motormount>
+              </innertube>
+            </subcomponents>
+          </bodytube>
+        </subcomponents>
+      </stage>
+    </subcomponents>
+  </rocket>
+  <simulations>
+  </simulations>
+</openrocket>

@@ -2188,6 +2188,14 @@
   opacity: 0.8;
 }
 
+/* Single-series charts (the CP-vs-Mach chart) neutralize the legend's
+   click-to-hide toggle in JS — one click there blanked the chart's only
+   line. This just stops the label advertising itself as a button; uPlot's
+   stock sheet sets cursor: pointer on it. The live readout is untouched. */
+.chart-legend-locked .u-series th {
+  cursor: default;
+}
+
 /* Dark-mode gaps: components that inherit browser default text colors */
 .add-menu-item {
   color: var(--text-primary);

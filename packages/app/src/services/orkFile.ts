@@ -24,6 +24,14 @@ export interface OrkMotorRef {
   diameter: number;
   length: number;
   delay: number;
+  /**
+   * Desktop motor identity, carried verbatim for write-back: a matching
+   * <digest> is the desktop matcher's silent-success tier, rescuing even a
+   * wrong manufacturer/type (ThrustCurveMotorSetDatabase.findMotors).
+   */
+  digest?: string;
+  /** Desktop <type> (single|reload|hybrid), verbatim from the file. */
+  motorType?: string;
   /** Editor node id of the mount it was attached to. */
   mountId?: string;
   /** Kernel ignition-event name (automatic|launch|ejectioncharge|burnout|never). */
@@ -161,6 +169,19 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   const rocketEl = doc.querySelector('openrocket > rocket');
   if (!rocketEl) throw new Error('Not a .ork file (missing <rocket>)');
 
+  // File-format version as major*100+minor (NEVER Number("1.10") — that is
+  // 1.1, which would order 1.10 BELOW 1.4). The desktop only honours motor
+  // <digest>s from format 1.4 on: the digest algorithm changed at 1.4, so a
+  // 1.2/1.3 file carries old-algorithm digests the desktop itself ignores.
+  // Re-emitting one inside our version="1.10" wrapper would make the desktop
+  // trust it and raise a spurious "differing thrust curve" warning.
+  const versionMatch = /^(\d+)\.(\d+)/.exec(
+    doc.documentElement.getAttribute('version') ?? '');
+  const fileVersion = versionMatch
+    ? Number(versionMatch[1]) * 100 + Number(versionMatch[2])
+    : 0;
+  const digestsTrusted = fileVersion >= 104;
+
   const ignored = new Set<string>();
   const notes: string[] = [];
   let motor: OrkMotorRef | undefined;
@@ -283,12 +304,18 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
     // +Inf ejection delay as "never fires", matching the desktop.
     const resolveRef = (motorEl: Element, igEl: Element): OrkMotorRef => {
       const delayText = text(motorEl, ':scope > delay');
+      // Pre-1.4 digests use the old algorithm — never carry them (see
+      // digestsTrusted above). <type>/<manufacturer> are version-independent.
+      const digest = digestsTrusted ? text(motorEl, ':scope > digest') : null;
+      const motorType = text(motorEl, ':scope > type');
       return {
         designation: text(motorEl, ':scope > designation') ?? 'unknown',
         manufacturer: text(motorEl, ':scope > manufacturer') ?? 'unknown',
         diameter: num(motorEl, 'diameter', 0.018),
         length: num(motorEl, 'length', 0.07),
         delay: delayText === 'none' ? Infinity : num(motorEl, 'delay', 0),
+        ...(digest ? { digest } : {}),
+        ...(motorType ? { motorType } : {}),
         mountId: node.id,
         ignitionEvent: text(igEl, ':scope > ignitionevent') ?? undefined,
         ignitionDelay: num(igEl, 'ignitiondelay', 0),
@@ -864,6 +891,10 @@ function readLaunchConditions(
 export interface OrkExportMotor {
   designation: string;
   manufacturer?: string;
+  /** Desktop <type> (single|reload|hybrid); omitted from the file when unknown. */
+  type?: string;
+  /** Desktop motor digest, carried from import — its silent-match tier. */
+  digest?: string;
   diameter: number;
   length: number;
   delay: number;
@@ -1169,8 +1200,17 @@ export function exportOrk({
     for (const c of withMotor) {
       const m = c.motors[nodeId!]!;
       emit(depth + 1, `<motor configid="${c.id}">`);
-      emit(depth + 2, '<type>single</type>');
-      emit(depth + 2, `<manufacturer>${escapeXml(m.manufacturer ?? 'custom')}</manufacturer>`);
+      // Desktop element order (RocketComponentSaver): type, manufacturer,
+      // digest, designation, diameter, length, delay. Unknown identity is
+      // OMITTED, never guessed: the desktop matcher treats a missing field
+      // as "match anything", while a wrong <type> or an unregistered
+      // manufacturer (the old 'custom' fallback, and our own 'unknown'
+      // sentinel) fails every description-tier match and loses the motor.
+      if (m.type) emit(depth + 2, `<type>${escapeXml(m.type)}</type>`);
+      if (m.manufacturer && m.manufacturer !== 'unknown' && m.manufacturer !== 'custom') {
+        emit(depth + 2, `<manufacturer>${escapeXml(m.manufacturer)}</manufacturer>`);
+      }
+      if (m.digest) emit(depth + 2, `<digest>${escapeXml(m.digest)}</digest>`);
       emit(depth + 2, `<designation>${escapeXml(m.designation)}</designation>`);
       emit(depth + 2, `<diameter>${m.diameter}</diameter>`);
       emit(depth + 2, `<length>${m.length}</length>`);
@@ -1663,61 +1703,71 @@ export function exportOrk({
   emit(1, '</rocket>');
   emit(1, '<simulations>');
   if (launch) {
-    // One <simulation> in the exact shape of the desktop's
-    // OpenRocketSaver.saveSimulation() so 24.12 opens it cleanly. Its loader
+    // One <simulation> PER configuration, each in the exact shape of the
+    // desktop's OpenRocketSaver.saveSimulation() so 24.12 opens it cleanly.
+    // The desktop restores EVERY <simulation> unconditionally
+    // (SingleSimulationHandler), and writes one per configuration itself —
+    // the old single minted block meant a file saved here with seven
+    // configurations came back to the desktop with six sims gone. Its loader
     // tolerates missing elements but WARNS on any simulator/calculator other
     // than RK4Simulator/BarrowmanCalculator and on unknown status values —
-    // write the only ones it accepts. <configid> ties the simulation to the
-    // default-marked motorconfiguration emitted above.
-    emit(2, '<simulation status="notsimulated">');
-    emit(3, '<name>Simulation 1</name>');
-    emit(3, '<simulator>RK4Simulator</simulator>');
-    emit(3, '<calculator>BarrowmanCalculator</calculator>');
-    emit(3, '<conditions>');
-    emit(4, `<configid>${defaultId}</configid>`);
-    emit(4, `<launchrodlength>${launch.launchRodLengthM}</launchrodlength>`);
-    // Desktop defaults for options we don't model: launch into wind, and
-    // rod/wind direction (rod direction is DEGREES on disk, 90 = π/2 rad).
-    emit(4, '<launchintowind>true</launchintowind>');
-    // Rod angle is DEGREES on disk (the saver multiplies by 180/π).
-    emit(4, `<launchrodangle>${launch.launchRodAngleDeg}</launchrodangle>`);
-    emit(4, '<launchroddirection>90.0</launchroddirection>');
+    // write the only ones it accepts. We store no per-configuration launch
+    // site, so every simulation carries the app's current conditions; with
+    // no configs supplied this is the classic single-simulation output.
+    //
     // ≤23.09 legacy trio the desktop still writes: turbulence here is the
     // INTENSITY ratio stddev/average (PinkNoiseWindModel maps zero wind to
     // 0 or 1 — mirror it so old desktops recover the same stddev).
     const turb = launch.windAverage !== 0 ? launch.windStdDev / launch.windAverage
       : launch.windStdDev !== 0 ? 1 : 0;
-    emit(4, `<windaverage>${launch.windAverage}</windaverage>`);
-    emit(4, `<windturbulence>${turb}</windturbulence>`);
-    // Wind direction is RADIANS on disk (unlike the rod elements — the
-    // saver writes getDirection() raw); π/2 is the desktop default.
-    emit(4, `<winddirection>${Math.PI / 2}</winddirection>`);
-    emit(4, '<wind model="average">');
-    emit(5, `<speed>${launch.windAverage}</speed>`);
-    emit(5, `<direction>${Math.PI / 2}</direction>`);
-    emit(5, `<standarddeviation>${launch.windStdDev}</standarddeviation>`);
-    emit(4, '</wind>');
-    emit(4, '<windmodeltype>Average</windmodeltype>');
-    emit(4, `<launchaltitude>${launch.launchAltitudeM}</launchaltitude>`);
-    emit(4, `<launchlatitude>${launch.latitudeDeg}</launchlatitude>`);
-    // We don't model longitude — the desktop's preference default.
-    emit(4, '<launchlongitude>-80.6</launchlongitude>');
-    emit(4, '<geodeticmethod>spherical</geodeticmethod>');
-    if (launch.temperatureC === null && launch.pressureHPa === null) {
-      emit(4, '<atmosphere model="isa"/>');
-    } else {
-      // KELVIN / PASCAL on disk. The desktop stores both-or-ISA, so a
-      // single custom value fills the other with the ISA sea-level standard.
-      emit(4, '<atmosphere model="extendedisa">');
-      emit(5, `<basetemperature>${(launch.temperatureC ?? 15) + 273.15}</basetemperature>`);
-      emit(5, `<basepressure>${(launch.pressureHPa ?? 1013.25) * 100}</basepressure>`);
-      emit(4, '</atmosphere>');
-    }
-    // RK4SimulationStepper recommended defaults (the desktop's own values).
-    emit(4, '<timestep>0.05</timestep>');
-    emit(4, '<maxtime>1200.0</maxtime>');
-    emit(3, '</conditions>');
-    emit(2, '</simulation>');
+    writeConfigs.forEach((c, i) => {
+      emit(2, '<simulation status="notsimulated">');
+      // The desktop's sim table shows this name — a renamed configuration
+      // reads as itself; unnamed ones get the desktop's own "Simulation N".
+      emit(3, `<name>${escapeXml(c.name ?? `Simulation ${i + 1}`)}</name>`);
+      emit(3, '<simulator>RK4Simulator</simulator>');
+      emit(3, '<calculator>BarrowmanCalculator</calculator>');
+      emit(3, '<conditions>');
+      emit(4, `<configid>${c.id}</configid>`);
+      emit(4, `<launchrodlength>${launch.launchRodLengthM}</launchrodlength>`);
+      // Desktop defaults for options we don't model: launch into wind, and
+      // rod/wind direction (rod direction is DEGREES on disk, 90 = π/2 rad).
+      emit(4, '<launchintowind>true</launchintowind>');
+      // Rod angle is DEGREES on disk (the saver multiplies by 180/π).
+      emit(4, `<launchrodangle>${launch.launchRodAngleDeg}</launchrodangle>`);
+      emit(4, '<launchroddirection>90.0</launchroddirection>');
+      emit(4, `<windaverage>${launch.windAverage}</windaverage>`);
+      emit(4, `<windturbulence>${turb}</windturbulence>`);
+      // Wind direction is RADIANS on disk (unlike the rod elements — the
+      // saver writes getDirection() raw); π/2 is the desktop default.
+      emit(4, `<winddirection>${Math.PI / 2}</winddirection>`);
+      emit(4, '<wind model="average">');
+      emit(5, `<speed>${launch.windAverage}</speed>`);
+      emit(5, `<direction>${Math.PI / 2}</direction>`);
+      emit(5, `<standarddeviation>${launch.windStdDev}</standarddeviation>`);
+      emit(4, '</wind>');
+      emit(4, '<windmodeltype>Average</windmodeltype>');
+      emit(4, `<launchaltitude>${launch.launchAltitudeM}</launchaltitude>`);
+      emit(4, `<launchlatitude>${launch.latitudeDeg}</launchlatitude>`);
+      // We don't model longitude — the desktop's preference default.
+      emit(4, '<launchlongitude>-80.6</launchlongitude>');
+      emit(4, '<geodeticmethod>spherical</geodeticmethod>');
+      if (launch.temperatureC === null && launch.pressureHPa === null) {
+        emit(4, '<atmosphere model="isa"/>');
+      } else {
+        // KELVIN / PASCAL on disk. The desktop stores both-or-ISA, so a
+        // single custom value fills the other with the ISA sea-level standard.
+        emit(4, '<atmosphere model="extendedisa">');
+        emit(5, `<basetemperature>${(launch.temperatureC ?? 15) + 273.15}</basetemperature>`);
+        emit(5, `<basepressure>${(launch.pressureHPa ?? 1013.25) * 100}</basepressure>`);
+        emit(4, '</atmosphere>');
+      }
+      // RK4SimulationStepper recommended defaults (the desktop's own values).
+      emit(4, '<timestep>0.05</timestep>');
+      emit(4, '<maxtime>1200.0</maxtime>');
+      emit(3, '</conditions>');
+      emit(2, '</simulation>');
+    });
   }
   emit(1, '</simulations>');
   emit(0, '</openrocket>');

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { FlightResult, FlightSeries, FlightSummary } from '@online-openrocket/engine';
+import { IMPERIAL_UNITS } from '../prefs/units.js';
 import { flightDataCsv, seriesColumns } from './flightDataCsv.js';
 
 const summary: FlightSummary = {
@@ -101,5 +102,65 @@ describe('flightDataCsv', () => {
     const last = lines[4]!.split(',');
     expect(last[0]).toBe(''); // sustainer has no 4th sample
     expect(last[headers.indexOf('Booster — Time (s)')]).toBe('0.15');
+  });
+});
+
+describe('unit-preference export', () => {
+  it('converts headers and values to the selection; force and roll rate stay SI', () => {
+    const s = fakeSeries();
+    s['T'] = [288.15, 287, 286];
+    const cols = seriesColumns(s, '', IMPERIAL_UNITS);
+    const byHeader = new Map(cols.map((c) => [c.header, c]));
+    const alt = byHeader.get('Altitude (ft)');
+    expect(alt).toBeDefined();
+    expect(alt!.values[1]).toBeCloseTo(1 / 0.3048, 10); // 1 m
+    expect(alt!.values[2]).toBeCloseTo(3 / 0.3048, 10); // 3 m
+    // K → °F goes through the offset, not a bare scale: 288.15 K = 59 °F.
+    expect(byHeader.get('T — Air temperature (°F)')!.values[0]).toBeCloseTo(59, 6);
+    // No FORCE preference group — desktop's imperial force default is N.
+    expect(byHeader.get('Thrust (N)')!.values).toEqual(s.thrust);
+    // Roll rate has no preference group either: stays rad/s, null passes through.
+    expect(byHeader.get('dΦ — Roll rate (rad/s)')!.values).toEqual(s['dΦ']);
+    // Angles convert rad → °.
+    expect(byHeader.get('Angle of attack (°)')).toBeDefined();
+  });
+
+  it('keeps column order identical with and without a selection', () => {
+    const strip = (h: string) => h.replace(/ \([^)]*\)$/, '');
+    const si = seriesColumns(fakeSeries()).map((c) => strip(c.header));
+    const imp = seriesColumns(fakeSeries(), '', IMPERIAL_UNITS).map((c) => strip(c.header));
+    expect(imp).toEqual(si);
+  });
+
+  it('booster-prefixed headers carry the selected unit symbols', () => {
+    const result: FlightResult = {
+      summary,
+      events: [],
+      series: fakeSeries(),
+      branches: [
+        { name: 'Sustainer', events: [], series: fakeSeries() },
+        { name: 'Booster', events: [], series: fakeSeries() },
+      ],
+    };
+    const headers = flightDataCsv(result, IMPERIAL_UNITS).split('\n')[0]!.split(',');
+    expect(headers).toContain('Booster — Altitude (ft)');
+    expect(headers).toContain('Booster — Vz — Vertical velocity (ft/s)');
+  });
+
+  it('without a selection the output is the SI export, byte for byte', () => {
+    const s: FlightSeries = {
+      time: [0, 0.05], altitude: [0, 1], velocity: [0, 10], acceleration: [0, 100],
+      mass: [0.05, 0.049], thrust: [0, 10], drag: [0, 0.1], mach: [0, 0.03],
+      stability: [1.3, 1.3], cpLocation: [0.29, 0.29], cgLocation: [0.26, 0.26], aoa: [0, 0],
+    };
+    s['T'] = [288.15, 287.5];
+    const csv = flightDataCsv({ summary, events: [], series: s });
+    expect(csv).toBe(
+      'Time (s),Altitude (m),Velocity (m/s),Acceleration (m/s²),Mass (kg),Thrust (N),'
+      + 'Drag force (N),Mach number,Stability margin (cal),CP location (m),CG location (m),'
+      + 'Angle of attack (rad),T — Air temperature (K)\n'
+      + '0,0,0,0,0.05,0,0,0,1.3,0.29,0.26,0,288.15\n'
+      + '0.05,1,10,100,0.049,10,0.1,0.03,1.3,0.29,0.26,0,287.5',
+    );
   });
 });

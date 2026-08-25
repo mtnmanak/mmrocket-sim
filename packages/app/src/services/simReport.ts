@@ -28,6 +28,24 @@ export interface MotorMeta {
   motorCount?: number;
   /** High-power per the owner's G80 rule (>80 N avg or >160 Ns) — drives staging defaults/warnings. */
   highPower?: boolean;
+  /**
+   * EX-library motorId ("ex:" + slug), recorded when an EX motor is picked so
+   * export resolves the EXACT imported entry. Two vendors' same-designation
+   * curves coexist in the library, and a designation-only lookup wrote
+   * whichever vendor happened to import first into the saved file.
+   */
+  exMotorId?: string;
+  /**
+   * Desktop-.ork motor identity, captured at import and written back verbatim
+   * on export so the desktop's matcher (digest tier first) resolves the motor
+   * silently. Never displayed — `manufacturer` above stays the thrustcurve
+   * abbreviation the UI shows.
+   */
+  orkManufacturer?: string;
+  /** Desktop <type> (single|reload|hybrid), verbatim from the file. */
+  orkType?: string;
+  /** Desktop motor <digest>, verbatim from the file. */
+  orkDigest?: string;
 }
 
 /** Human label for the catalog motor type. */

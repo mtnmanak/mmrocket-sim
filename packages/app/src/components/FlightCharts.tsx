@@ -5,6 +5,7 @@ import type { FlightResult, FlightSeries } from '@online-openrocket/engine';
 import { usePrefs, type Preferences } from '../prefs/PrefsContext.js';
 import { siToUi, type Quantity } from '../prefs/units.js';
 import { chartInk, seriesPalette } from '../chartTheme.js';
+import { panZoomPlugin } from '../chartPanZoom.js';
 import { UnitChip } from './UnitChip.js';
 
 /**
@@ -52,9 +53,18 @@ function seriesCatalog(prefs: Preferences, C: string[]): SeriesDef[] {
 
 const DEFAULT_SELECTED: (keyof FlightSeries)[] = ['altitude', 'velocity', 'acceleration'];
 
-function Panel({ result, def }: { result: FlightResult; def: SeriesDef }) {
+function Panel({ result, def, plots }: {
+  result: FlightResult;
+  def: SeriesDef;
+  /** Live registry of every mounted panel's uPlot — pan/zoom peers. */
+  plots: Set<uPlot>;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   const { resolvedTheme, daylight } = usePrefs();
+  // The x-window survives this panel's recreate (deliberate: a theme or
+  // unit-chip change no longer resets a zoom) — restored only while the data
+  // x-extent is unchanged, so a NEW flight always opens at full width.
+  const savedWin = useRef<{ min: number; max: number; x0: number; x1: number } | null>(null);
 
   useEffect(() => {
     const el = ref.current;
@@ -85,15 +95,37 @@ function Panel({ result, def }: { result: FlightResult; def: SeriesDef }) {
         { stroke: ink.axis, grid: { stroke: ink.grid, width: 1 }, ticks: { stroke: ink.tick, width: 1 }, font: ink.font },
         { stroke: ink.axis, grid: { stroke: ink.grid, width: 1 }, ticks: { stroke: ink.tick, width: 1 }, font: ink.font, size: 56 },
       ],
+      plugins: [panZoomPlugin(() => plots)],
     };
     const plot = new uPlot(opts, data, el);
+    const t = result.series.time;
+    const x0 = t[0];
+    const x1 = t[t.length - 1];
+    // A panel joining a live group takes the group's window (all panels share
+    // the same time base) — the peers, not this panel's own snapshot, know
+    // whether the group zoomed or reset while it was toggled off. On a full
+    // recreate (theme/unit change) React runs every cleanup before any setup,
+    // so the registry is empty and each panel restores its own snapshot.
+    const peer: uPlot | undefined = plots.values().next().value;
+    const saved = savedWin.current;
+    if (peer && peer.scales['x']!.min != null && peer.scales['x']!.max != null) {
+      plot.setScale('x', { min: peer.scales['x']!.min, max: peer.scales['x']!.max });
+    } else if (saved && saved.x0 === x0 && saved.x1 === x1) {
+      plot.setScale('x', { min: saved.min, max: saved.max });
+    }
+    plots.add(plot);
     const obs = new ResizeObserver(() => plot.setSize({ width: el.clientWidth, height: chartH() }));
     obs.observe(el);
     return () => {
       obs.disconnect();
+      plots.delete(plot);
+      const sc = plot.scales['x']!;
+      savedWin.current = x0 != null && x1 != null && sc.min != null && sc.max != null
+        ? { min: sc.min, max: sc.max, x0, x1 }
+        : null;
       plot.destroy();
     };
-  }, [result, def, resolvedTheme, daylight]);
+  }, [result, def, resolvedTheme, daylight, plots]);
 
   return (
     <div className="chart-panel">
@@ -135,6 +167,10 @@ export function FlightCharts({ result }: { result: FlightResult }) {
     [prefs, daylight],
   );
   const [selected, setSelected] = useState<Set<keyof FlightSeries>>(new Set(DEFAULT_SELECTED));
+  // One Set instance for the component's whole life: Panels register their
+  // uPlot in it and the pan/zoom plugin broadcasts window changes to every
+  // member (programmatic setScale does not ride uPlot's cursor-sync bus).
+  const plotsRef = useRef<Set<uPlot>>(new Set());
 
   const toggle = (key: keyof FlightSeries) => {
     setSelected((prev) => {
@@ -168,7 +204,7 @@ export function FlightCharts({ result }: { result: FlightResult }) {
       </div>
       <div className="charts-grid">
         {catalog.filter((d) => selected.has(d.key) && (result.series[d.key] ?? []).length > 0)
-          .map((d) => <Panel key={String(d.key)} result={result} def={d} />)}
+          .map((d) => <Panel key={String(d.key)} result={result} def={d} plots={plotsRef.current} />)}
       </div>
       {selected.size === 0 && (
         <div className="panel placeholder">Select at least one series to plot.</div>

@@ -53,6 +53,7 @@ import { UnitChip } from './components/UnitChip.js';
 import { fmtSi, niceStep, siToUi, uiToSi } from './prefs/units.js';
 import { classLabel, diameterClass, displayDesignation, findDbMotor, isHighPower } from './services/motorDb.js';
 import { delayOptions, fetchMotorSpec } from './services/thrustcurve.js';
+import { loadExMotors } from './services/exMotors.js';
 import { exportOrk, importOrk, type OrkDeployOverride, type OrkSeparationOverride, type OrkExportConfig, type OrkExportMotor, type OrkImportResult, type OrkMotorRef, type OrkTreeImportResult } from './services/orkFile.js';
 import { decodeShareFragment, encodeShareFragment, hasSharePayload, MAX_FRAGMENT_CHARS } from './services/shareLink.js';
 import { exportRkt, importRkt } from './services/rocksimFile.js';
@@ -913,14 +914,49 @@ export function App() {
   }, [built, primaryMountId, lastRun, mountMotors, launch]);
 
   // ---- design file I/O (.ork native, .rkt RockSim) ----
-  const toExportMotor = (mm: MountMotor): OrkExportMotor => ({
-    designation: mm.spec.designation,
-    diameter: mm.spec.diameter,
-    length: mm.spec.length,
-    delay: mm.spec.ejectionDelay,
-    ignitionEvent: mm.ignition.event,
-    ignitionDelay: mm.ignition.delay,
-  });
+  const toExportMotor = (mm: MountMotor): OrkExportMotor => {
+    // EX motors: the file gets the REAL manufacturer from the imported
+    // .eng/.rse, never the "EX" browser badge (the desktop would hunt for a
+    // manufacturer literally named EX and lose the motor), and never a
+    // digest — the desktop's digest is over ITS data file, which we lack.
+    const ex = mm.meta.manufacturer === 'EX';
+    // The exact library entry (meta.exMotorId, pinned at pick time) wins over
+    // the designation-only find: two vendors' same-designation curves coexist
+    // (motorId = slug(manufacturer+designation)), and the designation find
+    // wrote whichever vendor imported first into the file.
+    const exLib = ex ? loadExMotors() : [];
+    const exRealRaw = (
+      (mm.meta.exMotorId ? exLib.find((m) => m.motorId === mm.meta.exMotorId) : undefined)
+      ?? exLib.find((m) => m.designation === mm.spec.designation)
+    )?.realManufacturer;
+    // An .rse with no mfg attribute carries the 'EX' sentinel — a display
+    // badge, not a manufacturer. Omit it from the file: no desktop motor is
+    // literally named EX (the match would always fail), while omission lets
+    // the designation-only description tier still find the motor.
+    const exReal = exRealRaw && exRealRaw !== 'EX' ? exRealRaw : undefined;
+    // <type> per the desktop Motor.Type names: the file's own value verbatim
+    // when the motor came from a .ork, else mapped from the thrustcurve
+    // catalog type; omitted (never guessed) when neither is known.
+    const type = mm.meta.orkType
+      ?? (mm.meta.type === 'SU' ? 'single'
+        : mm.meta.type === 'reload' ? 'reload'
+        : mm.meta.type === 'hybrid' ? 'hybrid'
+        : undefined);
+    return {
+      designation: mm.spec.designation,
+      // The file identity wins over the display abbreviation — but the
+      // thrustcurve abbrevs (AeroTech/Cesaroni/Estes…) are registered desktop
+      // alternate names, so a database-picked motor still matches.
+      manufacturer: ex ? exReal : mm.meta.orkManufacturer ?? mm.meta.manufacturer,
+      ...(type ? { type } : {}),
+      ...(!ex && mm.meta.orkDigest ? { digest: mm.meta.orkDigest } : {}),
+      diameter: mm.spec.diameter,
+      length: mm.spec.length,
+      delay: mm.spec.ejectionDelay,
+      ignitionEvent: mm.ignition.event,
+      ignitionDelay: mm.ignition.delay,
+    };
+  };
 
   const exportMotorsMap = (): Record<string, OrkExportMotor> => {
     const motors: Record<string, OrkExportMotor> = {};
@@ -1008,6 +1044,7 @@ export function App() {
         tree,
         launchMassKg: built?.info.mass,
         launchCgM: built?.info.cg,
+        launch,
       }), 'CDX1');
     } catch (e) {
       setFileNote(`RASAero export failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
@@ -1059,6 +1096,16 @@ export function App() {
       event: (ref.ignitionEvent as IgnitionEvent | undefined) ?? 'automatic',
       delay: ref.ignitionDelay ?? 0,
     };
+    // The FILE's motor identity rides the meta so Save writes it back
+    // verbatim and the desktop's matcher resolves silently (digest tier).
+    // 'unknown' is our reader's fallback and 'custom' our old writer's — both
+    // are sentinels, not manufacturers, and must not be re-exported.
+    const fileIdentity: Partial<MotorMeta> = {
+      ...(ref.manufacturer && ref.manufacturer !== 'unknown' && ref.manufacturer !== 'custom'
+        ? { orkManufacturer: ref.manufacturer } : {}),
+      ...(ref.motorType ? { orkType: ref.motorType } : {}),
+      ...(ref.digest ? { orkDigest: ref.digest } : {}),
+    };
     if (builtIn) {
       // Keep the FILE's ejection delay — the built-in key's own delay
       // (e.g. C6-5 matching a saved C6-7) would silently change the flight.
@@ -1071,7 +1118,7 @@ export function App() {
         motor: {
           label,
           spec: { ...builtIn[1], ejectionDelay: fileDelay },
-          meta: builtInMeta(builtIn[0]),
+          meta: { ...builtInMeta(builtIn[0]), ...fileIdentity },
           ignition,
         },
         note: `Motor: ${label} (matched built-in).`,
@@ -1099,6 +1146,7 @@ export function App() {
             propellant: dbMatch.propInfo,
             motorCase: dbMatch.caseInfo,
             highPower: isHighPower(dbMatch),
+            ...fileIdentity,
           },
           ignition,
         },
@@ -2432,7 +2480,7 @@ export function App() {
               </p>
             </div>
           )}
-          {built && <DragPanel rocket={built.rocket} supersonicModel={effectiveSupersonic} />}
+          {built && <DragPanel rocket={built.rocket} supersonicModel={effectiveSupersonic} designName={tree.name} />}
           {runsQuotaWarn && (
             <div className="file-note" role="alert">
               {runs.length === 0

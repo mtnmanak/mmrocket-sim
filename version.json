@@ -1,5 +1,5 @@
 {
-  "version": "0.065",
-  "released": "2026-08-24",
-  "note": "Motor weights now come from the motor's own data file rather than the catalogue entry beside it — thrustcurve.org publishes both, they disagree, and taking the thrust curve from one document while taking the weights from the other was never defensible. Desktop OpenRocket reads the file, and so does this now. With that and the file's own simulation time step honoured, this app reproduces a desktop-saved simulation to every digit the file stores, where before it ran 0.84% under."
+  "version": "0.066",
+  "released": "2026-08-25",
+  "note": "Files survive the trip now: a .ork saved here opens in desktop OpenRocket with its motors and simulation list intact (they were coming back as 'manufacturer custom not found' with no sims), RASAero .CDX1 files import their simulations, launch site and supersonic airfoil sections instead of dropping them, the graphs pan and wheel-zoom, and the flight-data CSV follows your unit preferences."
 }

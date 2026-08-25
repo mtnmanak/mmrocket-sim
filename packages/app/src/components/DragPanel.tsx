@@ -3,7 +3,10 @@ import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import type { DragSweep, OrkRocket } from '@online-openrocket/engine';
 import { usePrefs } from '../prefs/PrefsContext.js';
+import { siToUi } from '../prefs/units.js';
 import { chartInk, seriesPalette } from '../chartTheme.js';
+import { panZoomPlugin } from '../chartPanZoom.js';
+import { APP_VERSION } from '../version.js';
 
 /**
  * Drag analysis (RASAero-style Aero Plots): CD vs Mach with power-off/power-on
@@ -29,11 +32,19 @@ interface Line {
 }
 
 /** A single multi-series uPlot line chart (all series share the CD y-scale). */
-function LineChart({ x, lines, xLabel, height = 190 }: {
+function LineChart({ x, lines, xLabel, yLabel, height = 190, lockLegend = false }: {
   x: number[];
   lines: Line[];
   xLabel: string;
+  /** y-axis label (uPlot renders it in the axis gutter). */
+  yLabel?: string;
   height?: number;
+  /**
+   * Disables the legend's click-to-hide series toggle (the live value readout
+   * stays). On a single-series chart that toggle is a trap — one click blanks
+   * the chart's only line (a tester's "broken percent of body length button").
+   */
+  lockLegend?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const { resolvedTheme, daylight } = usePrefs();
@@ -47,9 +58,13 @@ function LineChart({ x, lines, xLabel, height = 190 }: {
     const opts: uPlot.Options = {
       width: el.clientWidth || 640,
       height,
-      cursor: { points: { size: 6 } },
+      // Legend labels bind their toggle through cursor.bind.click (the only
+      // "click" uPlot binds) — returning null unbinds it without touching
+      // the legend's live readout, which rides mousemove.
+      cursor: { points: { size: 6 }, ...(lockLegend ? { bind: { click: () => null } } : {}) },
       scales: { x: { time: false } },
       legend: { live: true },
+      plugins: [panZoomPlugin()],
       series: [
         { label: xLabel, value: (_u, v) => (v == null ? '–' : v.toFixed(2)) },
         ...lines.map((l): uPlot.Series => ({
@@ -62,7 +77,7 @@ function LineChart({ x, lines, xLabel, height = 190 }: {
       ],
       axes: [
         { stroke: ink.axis, grid: { stroke: ink.grid, width: 1 }, ticks: { stroke: ink.tick, width: 1 }, font: ink.font },
-        { stroke: ink.axis, grid: { stroke: ink.grid, width: 1 }, ticks: { stroke: ink.tick, width: 1 }, font: ink.font, size: 48 },
+        { stroke: ink.axis, grid: { stroke: ink.grid, width: 1 }, ticks: { stroke: ink.tick, width: 1 }, font: ink.font, size: 48, ...(yLabel ? { label: yLabel } : {}) },
       ],
     };
     const plot = new uPlot(opts, data, el);
@@ -72,19 +87,23 @@ function LineChart({ x, lines, xLabel, height = 190 }: {
       obs.disconnect();
       plot.destroy();
     };
-  }, [x, lines, xLabel, height, resolvedTheme, daylight]);
+  }, [x, lines, xLabel, yLabel, height, lockLegend, resolvedTheme, daylight]);
 
-  return <div ref={ref} />;
+  return <div ref={ref} className={lockLegend ? 'chart-legend-locked' : undefined} />;
 }
 
-function exportCsv(sweep: DragSweep) {
+function exportCsv(sweep: DragSweep, meta: { design: string; aeroModel: string; lengthUnit: string }) {
   // RASAero feature #6: the full aerodynamic-coefficient table (CD both power
   // states + CP + CNa vs Mach) — usable as input to external trajectory codes.
+  // The leading #-comment lines say which app, design and aero model produced
+  // the table: a bare drag-analysis.csv travels (one was posted to a forum as
+  // the Supersonic model's curve when it was the classic model's).
   const cols: [string, number[]][] = [
     ['mach', sweep.machs],
     ['cd_power_off', sweep.powerOff.total],
     ['cd_power_on', sweep.powerOn.total],
-    ['cp_m_from_nose', sweep.cp],
+    [`cp_${meta.lengthUnit}_from_nose`,
+      sweep.cp.map((v) => (v == null ? v : siToUi('length', meta.lengthUnit, v)))],
     ['cna_per_rad', sweep.cna],
     ['friction', sweep.powerOff.friction],
     ['pressure', sweep.powerOff.pressure],
@@ -92,7 +111,17 @@ function exportCsv(sweep: DragSweep) {
     ['base_power_on', sweep.powerOn.base],
     ...sweep.components.map((c): [string, number[]] => [`cd_${c.name.replace(/[,\s]+/g, '_')}`, c.cd]),
   ];
-  const rows = [cols.map(([h]) => h).join(',')];
+  // The design name is user text: a newline would break the four-line comment
+  // block and a comma would read as extra CSV cells in naive parsers — flatten
+  // both (same reason the conditions line avoids its own comma).
+  const design = meta.design.replace(/[\r\n]+/g, ' ').replace(/,/g, ';');
+  const rows = [
+    `# MMRocket Sim ${APP_VERSION}`,
+    `# design: ${design}`,
+    `# aero model: ${meta.aeroModel}`,
+    '# conditions: sea level ISA',
+    cols.map(([h]) => h).join(','),
+  ];
   for (let i = 0; i < sweep.machs.length; i++) {
     rows.push(cols.map(([, v]) => (v[i] == null ? '' : v[i])).join(','));
   }
@@ -105,17 +134,22 @@ function exportCsv(sweep: DragSweep) {
 }
 
 type BreakdownMode = 'component' | 'type';
+type CpView = 'pct' | 'unit';
 
-export function DragPanel({ rocket, supersonicModel }: {
+export function DragPanel({ rocket, supersonicModel, designName }: {
   rocket: OrkRocket;
   /** Whether the opt-in supersonic aero model is active (Preferences → Aerodynamics). */
   supersonicModel?: boolean;
+  /** Design name for the CSV metadata header (tree.name at the call site). */
+  designName?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [machMax, setMachMax] = useState(3);
   const [mode, setMode] = useState<BreakdownMode>('component');
-  const { daylight } = usePrefs();
+  const [cpView, setCpView] = useState<CpView>('pct');
+  const { prefs, daylight } = usePrefs();
   const C = seriesPalette(daylight);
+  const lenUnit = prefs.units.length;
 
   // High-Mach ranges only make sense with the supersonic model on.
   useEffect(() => {
@@ -133,7 +167,9 @@ export function DragPanel({ rocket, supersonicModel }: {
     }
   }, [open, rocket, machMax]);
 
-  // CP as % of body length (the wind-tunnel convention for CP-vs-Mach plots).
+  // CP as % of body length (the wind-tunnel convention for CP-vs-Mach plots,
+  // so it's the default) or in the user's length unit from the nose — the
+  // view toggle beside the chart heading switches.
   const cpLines = useMemo<Line[]>(() => {
     if (!sweep || 'error' in sweep) return [];
     let length = 0;
@@ -144,11 +180,13 @@ export function DragPanel({ rocket, supersonicModel }: {
     }
     if (length <= 0) return [];
     return [{
-      label: 'CP (% of length from nose)',
+      label: 'CP',
       color: C[3]!,
-      values: sweep.cp.map((v) => (v / length) * 100),
+      values: cpView === 'pct'
+        ? sweep.cp.map((v) => (v / length) * 100)
+        : sweep.cp.map((v) => siToUi('length', lenUnit, v)),
     }];
-  }, [sweep, rocket, C]);
+  }, [sweep, rocket, C, cpView, lenUnit]);
 
   const totalLines = useMemo<Line[]>(() => {
     if (!sweep || 'error' in sweep) return [];
@@ -197,12 +235,20 @@ export function DragPanel({ rocket, supersonicModel }: {
               </select>
             </label>
             <span style={{ flex: 1 }} />
-            <button className="file-btn" onClick={() => exportCsv(sweep)}>⬇ CSV</button>
+            <button className="file-btn" onClick={() => exportCsv(sweep, {
+              design: designName || 'Rocket',
+              // Same wording as the launch report's "Aero model" row — the
+              // model the sweep actually ran on, not a fixed string.
+              aeroModel: supersonicModel
+                ? 'Supersonic (our extended model)'
+                : `Classic (Extended Barrowman${(prefs.rogersKbf ?? true) ? ' + Rogers Kbf' : ''})`,
+              lengthUnit: lenUnit,
+            })}>⬇ CSV</button>
           </div>
 
           <div className="chart-panel">
             <h3>Drag coefficient vs Mach</h3>
-            <LineChart x={sweep.machs} lines={totalLines} xLabel="Mach" />
+            <LineChart x={sweep.machs} lines={totalLines} xLabel="Mach" yLabel="CD" />
             {!sweep.hasNozzle && (
               <p className="motor-db-meta" style={{ marginTop: 4 }}>
                 Set a stage <strong>nozzle exit diameter</strong> to see a distinct power-on curve
@@ -213,8 +259,19 @@ export function DragPanel({ rocket, supersonicModel }: {
 
           {cpLines.length > 0 && (
             <div className="chart-panel">
-              <h3>Center of pressure vs Mach</h3>
-              <LineChart x={sweep.machs} lines={cpLines} xLabel="Mach" height={160} />
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                <h3 style={{ flex: 1 }}>
+                  Center of pressure vs Mach ({cpView === 'pct' ? '% of length' : `${lenUnit} from nose`})
+                </h3>
+                <div className="view-toggle" role="tablist">
+                  <button className={cpView === 'pct' ? 'active' : ''} role="tab"
+                    aria-selected={cpView === 'pct'} onClick={() => setCpView('pct')}>% of length</button>
+                  <button className={cpView === 'unit' ? 'active' : ''} role="tab"
+                    aria-selected={cpView === 'unit'} onClick={() => setCpView('unit')}>{lenUnit} from nose</button>
+                </div>
+              </div>
+              <LineChart x={sweep.machs} lines={cpLines} xLabel="Mach" height={160}
+                yLabel={cpView === 'pct' ? '% of length' : `${lenUnit} from nose`} lockLegend />
               {supersonicModel ? (
                 <p className="motor-db-meta" style={{ marginTop: 4 }}>
                   Supersonic CP travel is the stability hazard on fast flights — check your
@@ -241,7 +298,7 @@ export function DragPanel({ rocket, supersonicModel }: {
                   aria-selected={mode === 'type'} onClick={() => setMode('type')}>By type</button>
               </div>
             </div>
-            <LineChart x={sweep.machs} lines={breakdownLines} xLabel="Mach" />
+            <LineChart x={sweep.machs} lines={breakdownLines} xLabel="Mach" yLabel="CD" />
           </div>
 
           {machMax > 1.5 && (supersonicModel ? (

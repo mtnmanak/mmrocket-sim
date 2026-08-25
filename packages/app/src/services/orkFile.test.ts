@@ -1114,6 +1114,38 @@ describe('.ork multi-configuration export (Stage B)', () => {
     expect(Object.values(back.configs[1]!.motors)[0]!.delay).toBe(7);
   });
 
+  it('writes one notsimulated <simulation> per configuration, tied by configid', () => {
+    // The desktop restores EVERY <simulation> (SingleSimulationHandler) and
+    // writes one per configuration itself — the old single minted sim meant
+    // a seven-config file came back to the desktop with six sims gone.
+    const xml = exportOrk({
+      name: 'MC', tree: TREE, motors: { b: C6 },
+      configs: CONFIGS, activeConfigId: 'cfg-a', launch: LAUNCH,
+    });
+    const sims = xml.split('<simulation ').slice(1);
+    expect(sims).toHaveLength(2);
+    expect(sims.map((s) => s.match(/<configid>([^<]+)<\/configid>/)![1]))
+      .toEqual(['cfg-a', 'cfg-b']);
+    // A renamed configuration's sim reads as itself in the desktop's table;
+    // unnamed ones fall back to the desktop's own "Simulation N".
+    expect(sims[0]).toContain('<name>Club field C6</name>');
+    expect(sims[1]).toContain('<name>Simulation 2</name>');
+    for (const s of sims) {
+      // The only status/simulator/calculator the desktop loads without warning.
+      expect(s.startsWith('status="notsimulated">')).toBe(true);
+      expect(s).toContain('<simulator>RK4Simulator</simulator>');
+      expect(s).toContain('<calculator>BarrowmanCalculator</calculator>');
+    }
+    // Our own re-import still recovers the launch conditions.
+    expect(importOrk(xml).launch?.windAverage).toBeCloseTo(2, 12);
+  });
+
+  it('no configs still writes exactly one simulation (legacy single-sim shape)', () => {
+    const xml = exportOrk({ name: 'MC', tree: TREE, motors: { b: C6 }, launch: LAUNCH });
+    expect((xml.match(/<simulation /g) ?? []).length).toBe(1);
+    expect(xml).toContain('<name>Simulation 1</name>');
+  });
+
   it('no configs supplied still emits exactly one minted configuration (legacy shape)', () => {
     for (const extra of [{}, { configs: [] as OrkExportConfig[], activeConfigId: null }]) {
       const xml = exportOrk({ name: 'MC', tree: TREE, motors: { b: C6 }, ...extra });
@@ -1157,6 +1189,156 @@ describe('.ork multi-configuration export (Stage B)', () => {
     // Mount keys are the NEW parse's node ids — cfg-b's motor sits on the
     // same mount the applied C6 does.
     expect(back.configs[1]!.motors[back.motor!.mountId!]).toBeDefined();
+  });
+});
+
+describe('.ork motor identity (desktop three-tier matcher fidelity)', () => {
+  // Fixture modeled on the LEM-IV beta file's motor blocks (real AeroTech
+  // manufacturer + digest strings, one reload + one single-use): the desktop
+  // resolves motors full match > digest-only > description
+  // (ThrustCurveMotorSetDatabase.findMotors), and a matching <digest> is the
+  // silent-success tier — dropping it (or writing manufacturer 'custom' /
+  // a hardcoded <type>single</type>) is what raised "No motor with
+  // designation … for manufacturer 'custom' found." on every re-opened save.
+  const toExport = (m: OrkMotorRef) => ({
+    designation: m.designation, manufacturer: m.manufacturer,
+    type: m.motorType, digest: m.digest,
+    diameter: m.diameter, length: m.length, delay: m.delay,
+    ignitionEvent: m.ignitionEvent, ignitionDelay: m.ignitionDelay,
+  });
+  const mapMotors = (motors: Record<string, OrkMotorRef>) =>
+    Object.fromEntries(Object.entries(motors).map(([id, m]) => [id, toExport(m)]));
+
+  it('reader captures digest, type and manufacturer from a desktop motor block', () => {
+    const result = importOrk(golden('lemiv-motors.ork'));
+    // Chosen config = file default (the single-use K535).
+    expect(result.motor).toMatchObject({
+      designation: 'HP-K535W', manufacturer: 'AeroTech',
+      motorType: 'single', digest: '74451a159ce1001a76d319ed0d9a6f9a',
+      delay: 14,
+    });
+    const reload = Object.values(result.configs[0]!.motors)[0]!;
+    expect(reload).toMatchObject({
+      designation: 'M1500G', manufacturer: 'AeroTech',
+      motorType: 'reload', digest: '233f8744136b12e764b86fe4430e11e7',
+    });
+  });
+
+  it('round-trips designation+manufacturer+type+digest in the desktop element order', () => {
+    const orig = importOrk(golden('lemiv-motors.ork'));
+    const xml = exportOrk({
+      name: orig.name, tree: orig.tree, motors: mapMotors(orig.motors),
+      configs: orig.configs.map((c) => ({
+        id: c.id, name: c.name, isDefault: c.isDefault, motors: mapMotors(c.motors),
+      })),
+      activeConfigId: orig.chosenConfigId,
+    });
+    // Desktop element order (RocketComponentSaver): type, manufacturer,
+    // digest, designation, diameter, length, delay.
+    const blocks = [...xml.matchAll(/<motor configid="[^"]+">[\s\S]*?<\/motor>/g)].map((m) => m[0]);
+    expect(blocks).toHaveLength(2);
+    for (const b of blocks) {
+      const order = [...b.matchAll(/<(type|manufacturer|digest|designation|diameter|length|delay)>/g)]
+        .map((m) => m[1]);
+      expect(order).toEqual(['type', 'manufacturer', 'digest', 'designation', 'diameter', 'length', 'delay']);
+    }
+    const back = importOrk(xml);
+    expect(back.motor).toMatchObject({
+      designation: 'HP-K535W', manufacturer: 'AeroTech',
+      motorType: 'single', digest: '74451a159ce1001a76d319ed0d9a6f9a', delay: 14,
+    });
+    const reload = Object.values(back.configs.find((c) => !c.isDefault)!.motors)[0]!;
+    expect(reload).toMatchObject({
+      designation: 'M1500G', manufacturer: 'AeroTech',
+      motorType: 'reload', digest: '233f8744136b12e764b86fe4430e11e7',
+    });
+  });
+
+  it('omits type/manufacturer/digest when unknown — never "custom", never a minted "single"', () => {
+    // A mfr-less file reads back manufacturer 'unknown' (our reader's
+    // sentinel) — the writer must OMIT it: null skips the desktop's
+    // description filter, while 'custom'/'unknown' fails every match.
+    const BARE = `<openrocket version="1.10" creator="OpenRocket 24.12"><rocket>
+      <name>Bare</name><subcomponents><stage><name>S</name><subcomponents>
+      <bodytube><name>B</name><length>0.3</length><thickness>0.0005</thickness><radius>0.012</radius>
+        <motormount><ignitionevent>automatic</ignitionevent>
+          <motor configid="x"><designation>X100</designation>
+            <diameter>0.024</diameter><length>0.07</length><delay>5.0</delay></motor>
+        </motormount>
+      </bodytube></subcomponents></stage></subcomponents></rocket></openrocket>`;
+    const orig = importOrk(BARE);
+    expect(orig.motor?.digest).toBeUndefined();
+    expect(orig.motor?.motorType).toBeUndefined();
+    const xml = exportOrk({
+      name: orig.name, tree: orig.tree, motor: toExport(orig.motor!),
+      mountId: orig.motor?.mountId,
+    });
+    const mount = xml.match(/<motormount>[\s\S]*?<\/motormount>/)![0];
+    expect(mount).not.toContain('<type>');
+    expect(mount).not.toContain('<manufacturer>');
+    expect(mount).not.toContain('<digest>');
+    expect(mount).not.toContain('custom');
+    expect(mount).toContain('<designation>X100</designation>');
+  });
+
+  it('plugged (Infinity) still writes <delay>none</delay> alongside the identity fields', () => {
+    const orig = importOrk(golden('lemiv-motors.ork'));
+    const ref = orig.motor!;
+    const xml = exportOrk({
+      name: 'P', tree: orig.tree,
+      motors: { [ref.mountId!]: { ...toExport(ref), delay: Infinity } },
+    });
+    expect(xml).toContain('<delay>none</delay>');
+    const back = importOrk(xml);
+    expect(back.motor?.delay).toBe(Infinity);
+    expect(back.motor?.digest).toBe('74451a159ce1001a76d319ed0d9a6f9a');
+  });
+
+  it('captures <digest> only from format 1.4+ files — a 1.3 digest is the old algorithm', () => {
+    // The desktop only honours digests from files saved at format 1.4 on
+    // (the algorithm changed there). Carrying a 1.2/1.3 digest into our
+    // version="1.10" wrapper would make the desktop trust a digest it would
+    // itself have ignored → spurious "differing thrust curve" warnings.
+    // NOTE the trap the parse must dodge: Number("1.10") is 1.1 < 1.4.
+    const withVersion = (v: string) => `<openrocket version="${v}" creator="OpenRocket"><rocket>
+      <name>V</name><subcomponents><stage><name>S</name><subcomponents>
+      <bodytube><name>B</name><length>0.3</length><thickness>0.0005</thickness><radius>0.012</radius>
+        <motormount><ignitionevent>automatic</ignitionevent>
+          <motor configid="x"><type>single</type><manufacturer>AeroTech</manufacturer>
+            <digest>74451a159ce1001a76d319ed0d9a6f9a</digest>
+            <designation>HP-K535W</designation>
+            <diameter>0.054</diameter><length>0.404</length><delay>14.0</delay></motor>
+        </motormount>
+      </bodytube></subcomponents></stage></subcomponents></rocket></openrocket>`;
+    const old = importOrk(withVersion('1.3')).motor!;
+    expect(old.digest).toBeUndefined();
+    // <type>/<manufacturer> are version-independent — still captured.
+    expect(old.motorType).toBe('single');
+    expect(old.manufacturer).toBe('AeroTech');
+    const modern = importOrk(withVersion('1.10')).motor!;
+    expect(modern.digest).toBe('74451a159ce1001a76d319ed0d9a6f9a');
+  });
+
+  it('EX motor with the "EX" sentinel manufacturer exports with <manufacturer> omitted', () => {
+    // toExportMotor resolves an EX motor's real manufacturer from the local
+    // library; an .rse with no mfg attribute stores the 'EX' display badge,
+    // which toExportMotor maps to undefined at the export boundary — the
+    // desktop has no manufacturer literally named EX, and omission lets its
+    // designation-only description match still find the motor.
+    const orig = importOrk(golden('lemiv-motors.ork'));
+    const ref = orig.motor!;
+    const xml = exportOrk({
+      name: 'EX', tree: orig.tree,
+      motors: {
+        [ref.mountId!]: {
+          designation: 'K550-EX', manufacturer: undefined,
+          diameter: 0.054, length: 0.404, delay: 10,
+        },
+      },
+    });
+    const mount = xml.match(/<motormount>[\s\S]*?<\/motormount>/)![0];
+    expect(mount).not.toContain('<manufacturer>');
+    expect(mount).toContain('<designation>K550-EX</designation>');
   });
 });
 

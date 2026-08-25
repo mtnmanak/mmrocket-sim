@@ -1,8 +1,9 @@
 import { strFromU8 } from 'fflate';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
+import type { LaunchConditions } from '../components/LaunchPanel.js';
 import { asStageNodes, freshId } from '../tree/treeModel.js';
 import { escapeXml as esc, xmlNum as num, xmlText as text } from './xmlUtil.js';
-import type { OrkMotorRef, OrkTreeImportResult } from './orkFile.js';
+import type { OrkFlightConfig, OrkImportResult, OrkMotorRef, OrkSeparationOverride } from './orkFile.js';
 
 /**
  * RASAero II (.CDX1) design import/export — Phase 3 "file imports and
@@ -15,7 +16,9 @@ import type { OrkMotorRef, OrkTreeImportResult } from './orkFile.js';
  * - RASAero is aerodynamics-only: parts carry no material/mass data (the
  *   desktop fakes 2 mm walls; so do we) — masses/CG live in <Simulation>
  *   blocks as launch weights, which we surface as notes rather than as
- *   fake component data.
+ *   fake component data. Each engine-carrying <Simulation> becomes a
+ *   flight configuration (motors on each stage's aft-most tube, desktop
+ *   SimulationHandler parity).
  * - Nose shapes are strings ("Tangent Ogive", "Von Karman Ogive"…), mapped
  *   with the desktop's shape parameters.
  */
@@ -23,6 +26,8 @@ import type { OrkMotorRef, OrkTreeImportResult } from './orkFile.js';
 const IN = 39.37; // inches per meter (the desktop's OPENROCKET_TO_RASAERO_LENGTH)
 const FT = 3.28084;
 const LB = 2.20462262;
+const MPH = 2.23694; // mph per m/s (the desktop's OPENROCKET_TO_RASAERO_SPEED)
+const INHG = 33.8639; // hPa per in-Hg (RASAero's launch-site pressure unit)
 
 const NOSE_SHAPES: Record<string, { shape: string; param?: number }> = {
   'Conical': { shape: 'conical' },
@@ -36,6 +41,29 @@ const NOSE_SHAPES: Record<string, { shape: string; param?: number }> = {
 
 const CROSS_SECTIONS: Record<string, string> = {
   'Square': 'square', 'Rounded': 'rounded', 'Subsonic NACA': 'airfoil',
+};
+
+/**
+ * RASAero's SUPERSONIC airfoil strings ↔ our airfoilSection ids (feature #4),
+ * keyed lowercase. A matched section also sets crossSection 'airfoil' — the
+ * desktop maps every non-Square/Rounded/NACA section to AIRFOIL, so that is
+ * desktop parity with the section geometry kept on top.
+ */
+const AIRFOIL_SECTIONS: Record<string, string> = {
+  'double wedge': 'doublewedge',
+  'hexagonal blunt base': 'hexbluntbase',
+  'hexagonal': 'hexagonal',
+  'naca': 'naca',
+  'biconvex': 'biconvex',
+  'single wedge': 'singlewedge',
+};
+const SECTION_TO_AIRFOIL: Record<string, string> = {
+  doublewedge: 'Double Wedge',
+  hexbluntbase: 'Hexagonal Blunt Base',
+  hexagonal: 'Hexagonal',
+  naca: 'NACA',
+  biconvex: 'Biconvex',
+  singlewedge: 'Single Wedge',
 };
 
 /** RASAero's global surface strings ↔ our finish ids (desktop mapping, approx). */
@@ -60,7 +88,7 @@ const FINISH_TO_SURFACE: Record<string, string> = {
 
 // ============================ IMPORT ============================
 
-export function importCdx1(data: ArrayBuffer | string): OrkTreeImportResult {
+export function importCdx1(data: ArrayBuffer | string): OrkImportResult {
   const xml = (typeof data === 'string' ? data : strFromU8(new Uint8Array(data))).replace(/^﻿?/, '');
   const doc = new DOMParser().parseFromString(xml, 'text/xml');
   if (doc.querySelector('parsererror')) {
@@ -110,8 +138,30 @@ export function importCdx1(data: ArrayBuffer | string): OrkTreeImportResult {
       fin['sweep'] = sweep;
       fin['height'] = height;
     }
-    const cs = CROSS_SECTIONS[text(finEl, ':scope > AirfoilSection') ?? ''];
-    if (cs && cs !== 'square') fin['crossSection'] = cs;
+    const sectionName = text(finEl, ':scope > AirfoilSection') ?? '';
+    const airfoil = AIRFOIL_SECTIONS[sectionName.toLowerCase()];
+    if (airfoil) {
+      fin['airfoilSection'] = airfoil;
+      fin['crossSection'] = 'airfoil';
+      const ler = num(finEl, 'LERadius', 0);
+      if (ler > 0) fin['finLeRadius'] = ler / IN;
+      const fx1 = num(finEl, 'FX1', 0);
+      if (fx1 > 0) fin['airfoilLeDiamond'] = fx1 / IN;
+      if (airfoil === 'hexagonal') {
+        const fx3 = num(finEl, 'FX3', 0);
+        if (fx3 > 0) fin['airfoilTeDiamond'] = fx3 / IN;
+      } else if (airfoil === 'doublewedge') {
+        // A double wedge's TE chamfer is DERIVED: mean chord − FX1. The file's
+        // <FX3> is a stale UI leftover — measured on a tester file, the true TE
+        // (32.669 mm) equals (Chord+TipChord)/2 − FX1 exactly while its FX3
+        // (0.465 in) matches nothing.
+        const te = (rootChord + tipChord) / 2 - fx1 / IN;
+        if (te > 0) fin['airfoilTeDiamond'] = te;
+      }
+    } else {
+      const cs = CROSS_SECTIONS[sectionName];
+      if (cs && cs !== 'square') fin['crossSection'] = cs;
+    }
     if (finish && finish !== 'normal') fin['finish'] = finish;
     parentNode.children = [...(parentNode.children ?? []), fin];
   };
@@ -136,6 +186,13 @@ export function importCdx1(data: ArrayBuffer | string): OrkTreeImportResult {
         position: { method: 'middle', offset: 0 },
       } as ComponentNode];
     }
+    for (const prot of Array.from(el.querySelectorAll(':scope > Protuberance'))) {
+      const vals = Array.from(prot.children)
+        .filter((c) => Number(c.textContent) !== 0)
+        .map((c) => `${c.tagName} ${c.textContent?.trim()}`);
+      notes.push(`Ignored RASAero <Protuberance> on ${name} — protuberance drag is not modeled`
+        + (vals.length ? ` (${vals.join(', ')}; angles °, frontal areas in²).` : '.'));
+    }
     return tube;
   };
 
@@ -159,6 +216,10 @@ export function importCdx1(data: ArrayBuffer | string): OrkTreeImportResult {
         const param = mapped.shape === 'power' && !Number.isNaN(power) ? power : mapped.param;
         if (param !== undefined) nose['shapeParameter'] = param;
         if (finish && finish !== 'normal') nose['finish'] = finish;
+        const blunt = num(el, 'BluntRadius', 0);
+        if (blunt > 0) {
+          notes.push(`Ignored RASAero nose <BluntRadius> ${blunt} in — tip blunting is not modeled.`);
+        }
         sustainer.children!.push(nose);
         break;
       }
@@ -274,18 +335,130 @@ export function importCdx1(data: ArrayBuffer | string): OrkTreeImportResult {
     }
   }
 
+  // ---- launch site: feet / °F / in-Hg / mph → SI (desktop LaunchSiteHandler) ----
+  let launch: Partial<LaunchConditions> | undefined;
+  const site = doc.querySelector('RASAeroDocument > LaunchSite');
+  if (site) {
+    launch = {};
+    const alt = num(site, 'Altitude', NaN);
+    if (!Number.isNaN(alt)) launch.launchAltitudeM = alt / FT;
+    const temp = num(site, 'Temperature', NaN);
+    if (!Number.isNaN(temp)) launch.temperatureC = (temp - 32) * 5 / 9;
+    // RASAero writes <Pressure>0</Pressure> for "unset" — only >0 is a
+    // reading. Unset means explicit ISA (null), never an ABSENT field: App
+    // merges launch over the previous design's conditions, and an absent
+    // pressure would let a stale barometric reading survive into this import.
+    const press = num(site, 'Pressure', 0);
+    launch.pressureHPa = press > 0 ? press * INHG : null;
+    const rodAngle = num(site, 'RodAngle', NaN);
+    if (!Number.isNaN(rodAngle)) launch.launchRodAngleDeg = rodAngle;
+    const rodLen = num(site, 'RodLength', NaN); // FEET, unlike the part geometry
+    if (!Number.isNaN(rodLen)) launch.launchRodLengthM = rodLen / FT;
+    const wind = num(site, 'WindSpeed', NaN);
+    if (!Number.isNaN(wind)) launch.windAverage = wind / MPH;
+  }
+
+  // ---- simulations → motors + flight configurations (desktop SimulationHandler) ----
+  // Engine strings are 'DESIG  (MFG)'; a trailing -<digits|P> token on the
+  // designation is a delay (AbstractMotorLoader.removeDelay strips it too).
+  // 'NoThrust' is RASAero's placeholder for a stage flying without a motor.
+  const parseEngine = (s: string): { designation: string; manufacturer: string; delay?: number } | null => {
+    const parts = s.trim().split(/\s{2,}/);
+    if (parts.length !== 2) return null;
+    let designation = parts[0]!;
+    let delay: number | undefined;
+    const dm = designation.match(/-([0-9]+|[pP])$/);
+    if (dm) {
+      designation = designation.slice(0, designation.lastIndexOf('-'));
+      delay = /^[0-9]+$/.test(dm[1]!) ? Number(dm[1]) : Infinity;
+    }
+    return { designation, manufacturer: parts[1]!.replace(/^\(|\)$/g, ''), delay };
+  };
+  /** RASAero's mount for a stage: its aft-most body tube (desktop getMotorMountForStage). */
+  const aftTube = (stage: ComponentNode | undefined): ComponentNode | undefined => {
+    const tubes = (stage?.children ?? []).filter((c) => c.type === 'bodytube');
+    return tubes[tubes.length - 1];
+  };
+
+  const configs: OrkFlightConfig[] = [];
+  const unattached = new Set<string>();
+  const sims = Array.from(doc.querySelectorAll('SimulationList > Simulation'));
+  for (const [simIdx, sim] of sims.entries()) {
+    const cfgMotors: Record<string, OrkMotorRef> = {};
+    const separations: Record<string, OrkSeparationOverride> = {};
+    const slots = [
+      { engine: 'SustainerEngine', ignitionDelay: 'SustainerIgnitionDelay' },
+      { engine: 'Booster1Engine', ignitionDelay: 'Booster1IgnitionDelay', separationDelay: 'Booster1SeparationDelay', include: 'IncludeBooster1' },
+      { engine: 'Booster2Engine', separationDelay: 'Booster2Delay', include: 'IncludeBooster2' },
+    ] as const;
+    for (const [stageIdx, slot] of slots.entries()) {
+      // The desktop passes IncludeBooster1/2 as enableMotorMount — a False
+      // booster flies sustainer-only, its engine string notwithstanding.
+      if ('include' in slot
+          && (text(sim, `:scope > ${slot.include}`) ?? 'false').toLowerCase() !== 'true') {
+        continue;
+      }
+      const engineStr = text(sim, `:scope > ${slot.engine}`);
+      if (!engineStr || engineStr.includes('NoThrust')) continue;
+      const eng = parseEngine(engineStr);
+      const stage = stages[stageIdx];
+      const mount = aftTube(stage);
+      if (!eng || !stage?.id || !mount?.id) {
+        unattached.add(engineStr);
+        continue;
+      }
+      mount['motorMount'] = true;
+      cfgMotors[mount.id] = {
+        designation: eng.designation,
+        manufacturer: eng.manufacturer, // RASAero abbreviation (AT/CTI/…) — informational
+        diameter: 0, // unknown in the file — match by designation alone
+        length: 0,
+        // RASAero requires apogee deployment, so the sustainer motor is
+        // PLUGGED (the desktop sets Motor.PLUGGED_DELAY = +Inf).
+        delay: stageIdx === 0 ? Infinity : eng.delay ?? 0,
+        mountId: mount.id,
+        ignitionEvent: stageIdx === stages.length - 1 ? 'automatic' : 'burnout',
+        ignitionDelay: 'ignitionDelay' in slot ? num(sim, slot.ignitionDelay, 0) : 0,
+      };
+      if (stageIdx > 0 && 'include' in slot) { // include gate passed above
+        separations[stage.id] = {
+          separationEvent: 'burnout',
+          separationDelay: num(sim, slot.separationDelay, 0),
+        };
+      }
+    }
+    if (Object.keys(cfgMotors).length === 0) continue; // engine-less sim: no configuration
+    configs.push({
+      id: `rasaero-sim-${simIdx + 1}`, name: null, isDefault: configs.length === 0,
+      motors: cfgMotors, deployments: {}, separations,
+    });
+  }
+  // The first engine-carrying simulation is the applied configuration.
+  const motors: Record<string, OrkMotorRef> = { ...(configs[0]?.motors ?? {}) };
+  const chosenConfigId = configs[0]?.id ?? null;
+  const firstMotor = Object.values(motors)[0];
+  // Bake the chosen configuration's separation onto its stage nodes, the way
+  // importOrk does — App.applyImported applies configs, not stage settings, so
+  // without this a fresh multi-stage import separates on the kernel default
+  // (ejection charge, 0 s) instead of burnout + Booster1SeparationDelay.
+  for (const [stageId, sep] of Object.entries(configs[0]?.separations ?? {})) {
+    const stage = stages.find((s) => s.id === stageId);
+    if (!stage) continue;
+    if (sep.separationEvent && sep.separationEvent !== 'ejection') {
+      stage['separationEvent'] = sep.separationEvent;
+    }
+    if (sep.separationDelay) stage['separationDelay'] = sep.separationDelay;
+  }
+
   // ---- what RASAero can't tell us (be honest, don't invent) ----
   notes.push('RASAero designs carry no material or wall data — walls default to 2 mm; review masses before trusting the numbers.');
-  const engines: string[] = [];
-  for (const sim of Array.from(doc.querySelectorAll('SimulationList > Simulation'))) {
-    for (const tag of ['SustainerEngine', 'Booster1Engine', 'Booster2Engine']) {
-      const e = text(sim, `:scope > ${tag}`);
-      if (e && !engines.includes(e)) engines.push(e);
-    }
-    break; // first simulation is enough for the hint
+  if (unattached.size) {
+    notes.push(`Motors in the RASAero file with no stage tube to mount them on: ${[...unattached].join(', ')} — add a body tube and pick them from the database.`);
   }
-  if (engines.length > 0) {
-    notes.push(`Motors in the RASAero file: ${engines.join(', ')} — RASAero designs have no motor mounts; add an inner tube (motor mount) and pick them from the database.`);
+  const firstSim = sims[0];
+  if (firstSim && ['SustainerLaunchWt', 'SustainerCG', 'Booster1LaunchWt', 'Booster1CG', 'Booster2LaunchWt', 'Booster2CG']
+    .some((tag) => num(firstSim, tag, 0) !== 0)) {
+    notes.push('The RASAero simulation carries measured launch weights/CG — not applied to the stages; the 2 mm-wall masses above are what simulates.');
   }
   if (ignored.size) {
     notes.push(`Ignored RASAero elements: ${[...ignored].join(', ')}.`);
@@ -293,8 +466,13 @@ export function importCdx1(data: ArrayBuffer | string): OrkTreeImportResult {
 
   const name = (text(design, ':scope > Comments') ?? '').split('\n')[0]?.trim()
     || 'Imported RASAero rocket';
-  const motors: Record<string, OrkMotorRef> = {}; // no mounts in RASAero files
-  return { name, tree: { name, components: stages }, motors, ignored: [...ignored], notes };
+  return {
+    name, tree: { name, components: stages },
+    ...(firstMotor ? { motor: firstMotor } : {}), motors,
+    ignored: [...ignored], notes,
+    ...(launch ? { launch } : {}),
+    configs, chosenConfigId,
+  };
 }
 
 // ============================ EXPORT ============================
@@ -305,12 +483,14 @@ export interface Cdx1ExportInput {
   /** Loaded launch mass (kg) and CG (m), for the mandatory simulation block. */
   launchMassKg?: number;
   launchCgM?: number;
+  /** Launch panel conditions (SI) for <LaunchSite>; RASAero defaults when absent. */
+  launch?: Partial<LaunchConditions>;
 }
 
 const FIN_MIN = 3;
 const FIN_MAX = 8;
 
-export function exportCdx1({ name, tree, launchMassKg, launchCgM }: Cdx1ExportInput): string {
+export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch }: Cdx1ExportInput): string {
   const stagesIn = asStageNodes(tree);
   if (stagesIn.length > 3) throw new Error('RASAero supports at most 3 stages.');
 
@@ -394,6 +574,10 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM }: Cdx1ExportIn
     // Fin Location = front edge from the tube bottom (inches).
     const locIn = (plan.root - bottomOffset) * IN;
     const cs = String(fin['crossSection'] ?? 'square');
+    // A supersonic airfoil section (feature #4) beats the plain cross section.
+    // FX3 is only real for Hexagonal — RASAero derives the other TEs itself
+    // (a double wedge's TE is mean chord − FX1, see the importer).
+    const section = SECTION_TO_AIRFOIL[String(fin['airfoilSection'] ?? '')];
     // No <PartType> inside <Fin> — neither RASAero's own files nor the
     // desktop exporter write one, and RASAero's parser is rigid.
     emit('<Fin>');
@@ -403,11 +587,11 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM }: Cdx1ExportIn
     emit(`<SweepDistance>${fmt(plan.sweep * IN)}</SweepDistance>`);
     emit(`<TipChord>${fmt(plan.tip * IN)}</TipChord>`);
     emit(`<Thickness>${fmt(nnum(fin, 'thickness', 0.003) * IN)}</Thickness>`);
-    emit('<LERadius>0</LERadius>');
+    emit(`<LERadius>${section ? fmt(nnum(fin, 'finLeRadius', 0) * IN) : '0'}</LERadius>`);
     emit(`<Location>${fmt(locIn)}</Location>`);
-    emit(`<AirfoilSection>${cs === 'airfoil' ? 'Subsonic NACA' : cs === 'rounded' ? 'Rounded' : 'Square'}</AirfoilSection>`);
-    emit('<FX1>0</FX1>');
-    emit('<FX3>0</FX3>');
+    emit(`<AirfoilSection>${section ?? (cs === 'airfoil' ? 'Subsonic NACA' : cs === 'rounded' ? 'Rounded' : 'Square')}</AirfoilSection>`);
+    emit(`<FX1>${section ? fmt(nnum(fin, 'airfoilLeDiamond', 0) * IN) : '0'}</FX1>`);
+    emit(`<FX3>${fin['airfoilSection'] === 'hexagonal' ? fmt(nnum(fin, 'airfoilTeDiamond', 0) * IN) : '0'}</FX3>`);
     emit('</Fin>');
   };
 
@@ -565,13 +749,15 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM }: Cdx1ExportIn
   emit(`<Comments>${esc(name)}</Comments>`);
   emit('</RocketDesign>');
 
+  // Launch site back to RASAero units (feet / °F / in-Hg / mph). Pressure 0 is
+  // RASAero's own "unset"; Temperature has no unset, so ISA null becomes 59 °F.
   emit('<LaunchSite>');
-  emit('<Altitude>0</Altitude>');
-  emit('<Pressure>29.92</Pressure>');
-  emit('<RodAngle>0</RodAngle>');
-  emit('<RodLength>10</RodLength>');
-  emit('<Temperature>59</Temperature>');
-  emit('<WindSpeed>0</WindSpeed>');
+  emit(`<Altitude>${fmt((launch?.launchAltitudeM ?? 0) * FT)}</Altitude>`);
+  emit(`<Pressure>${launch ? (launch.pressureHPa != null ? fmt(launch.pressureHPa / INHG) : '0') : '29.92'}</Pressure>`);
+  emit(`<RodAngle>${fmt(launch?.launchRodAngleDeg ?? 0)}</RodAngle>`);
+  emit(`<RodLength>${launch?.launchRodLengthM != null ? fmt(launch.launchRodLengthM * FT) : '10'}</RodLength>`);
+  emit(`<Temperature>${launch?.temperatureC != null ? fmt(launch.temperatureC * 9 / 5 + 32) : '59'}</Temperature>`);
+  emit(`<WindSpeed>${fmt((launch?.windAverage ?? 0) * MPH)}</WindSpeed>`);
   emit('</LaunchSite>');
 
   // Recovery: first two parachutes anywhere in the design.

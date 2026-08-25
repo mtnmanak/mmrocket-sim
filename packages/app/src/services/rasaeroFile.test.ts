@@ -62,15 +62,128 @@ describe('RASAero import — desktop fixture files', () => {
     expect(chutes.some((c) => c['deployEvent'] === 'apogee')).toBe(true);
     expect(chutes.some((c) => c['deployEvent'] === 'altitude')).toBe(true);
 
-    // Honest notes: mass caveat + the motors RASAero listed.
+    // Honest notes: mass caveat. Motors now import as flight configurations
+    // (see the simulations tests), so the old "add a mount" hint is gone.
     expect(r.notes.join(' ')).toMatch(/no material or wall data/);
-    expect(r.notes.join(' ')).toMatch(/Motors in the RASAero file/);
+    expect(r.notes.join(' ')).not.toMatch(/Motors in the RASAero file/);
   });
 
   it('imports the show-off design with its launch lug', () => {
     const r = importCdx1(fixture('Show-off.CDX1'));
     const all = flatten(r.tree.components);
     expect(all.some((c) => c.type === 'launchlug')).toBe(true);
+  });
+});
+
+describe('RASAero import — supersonic airfoils, launch site, simulations', () => {
+  it('imports the ARCAS double-wedge airfoil, deriving the TE chamfer', () => {
+    const r = importCdx1(fixture('ARCAS-Long - 2.CDX1'));
+    const fins = flatten(r.tree.components).find((c) => c.type === 'trapezoidfinset')!;
+    expect(fins['crossSection']).toBe('airfoil'); // desktop parity for supersonic sections
+    expect(fins['airfoilSection']).toBe('doublewedge');
+    expect(fins['airfoilLeDiamond']).toBeCloseTo(1.4863 / 39.37, 6); // FX1
+    // TE = (Chord + TipChord)/2 − FX1; the file's stale <FX3> 0.465 matches nothing.
+    expect(fins['airfoilTeDiamond']).toBeCloseTo(0.0326695, 6);
+    expect(fins['finLeRadius']).toBeUndefined(); // LERadius 0
+  });
+
+  it('imports the ARCAS launch site in SI (pressure 0 = unset)', () => {
+    const r = importCdx1(fixture('ARCAS-Long - 2.CDX1'));
+    expect(r.launch!.launchAltitudeM).toBeCloseTo(3933 / 3.28084, 3); // FEET
+    expect(r.launch!.temperatureC).toBeCloseTo((80 - 32) * 5 / 9, 6); // °F
+    expect(r.launch!.launchRodLengthM).toBeCloseTo(12 / 3.28084, 4); // FEET, not inches
+    expect(r.launch!.launchRodAngleDeg).toBe(0);
+    expect(r.launch!.windAverage).toBe(0);
+    expect(r.launch!.pressureHPa).toBeNull(); // unset → explicit ISA, never absent
+  });
+
+  it('reports what the ARCAS import dropped, and invents no motors', () => {
+    const r = importCdx1(fixture('ARCAS-Long - 2.CDX1'));
+    // Its only <Simulation> carries no engines: no mounts, no configurations.
+    expect(r.motors).toEqual({});
+    expect(r.configs).toEqual([]);
+    expect(r.chosenConfigId).toBeNull();
+    const joined = r.notes.join(' ');
+    expect(joined).toMatch(/Protuberance/);
+    expect(joined).toMatch(/BluntRadius/);
+  });
+
+  it('imports the RMA hexagonal-blunt-base airfoil (no TE chamfer)', () => {
+    const r = importCdx1(fixture('RMA53D02 - 2.CDX1'));
+    const fins = flatten(r.tree.components).find((c) => c.type === 'trapezoidfinset')!;
+    expect(fins['airfoilSection']).toBe('hexbluntbase');
+    expect(fins['crossSection']).toBe('airfoil');
+    expect(fins['airfoilLeDiamond']).toBeCloseTo(0.189 / 39.37, 7);
+    expect(fins['airfoilTeDiamond']).toBeUndefined();
+  });
+
+  it('turns each engine-carrying simulation into a flight configuration', () => {
+    const r = importCdx1(fixture('Complex.Two-Stage.CDX1'));
+    expect(r.configs.length).toBe(2);
+    expect(r.chosenConfigId).toBe(r.configs[0]!.id);
+    expect(r.configs[0]!.isDefault).toBe(true);
+    expect(r.configs[1]!.isDefault).toBe(false);
+
+    // RASAero's mount for a stage is its aft-most body tube.
+    const lastTube = (stage: ComponentNode): ComponentNode => {
+      const tubes = (stage.children ?? []).filter((c) => c.type === 'bodytube');
+      return tubes[tubes.length - 1]!;
+    };
+    const sustainerMount = lastTube(r.tree.components[0]!);
+    const boosterMount = lastTube(r.tree.components[1]!);
+    expect(sustainerMount['motorMount']).toBe(true);
+    expect(boosterMount['motorMount']).toBe(true);
+
+    const cfg1 = r.configs[0]!;
+    const sus = cfg1.motors[sustainerMount.id!]!;
+    expect(sus.designation).toBe('J90W');
+    expect(sus.manufacturer).toBe('AT');
+    expect(sus.delay).toBe(Infinity); // RASAero is apogee-deploy: plugged
+    expect(sus.ignitionEvent).toBe('burnout'); // upper stage lights at booster burnout
+    const boo = cfg1.motors[boosterMount.id!]!;
+    expect(boo.designation).toBe('I170G');
+    expect(boo.ignitionEvent).toBe('automatic'); // bottom stage
+    expect(boo.delay).toBe(0);
+    // IncludeBooster1 True: separation 2 s after burnout, keyed by the stage.
+    expect(cfg1.separations[r.tree.components[1]!.id!])
+      .toEqual({ separationEvent: 'burnout', separationDelay: 2 });
+
+    const cfg2 = r.configs[1]!;
+    expect(cfg2.motors[sustainerMount.id!]!.designation).toBe('J180T');
+    expect(cfg2.motors[boosterMount.id!]!.designation).toBe('I215R');
+
+    // The first engine-carrying simulation is the applied configuration.
+    expect(r.motors).toEqual(cfg1.motors);
+  });
+
+  it('bakes the chosen configuration separation onto the booster stage node', () => {
+    // App.applyImported applies configs, not stage settings — a fresh import
+    // must carry burnout + delay on the node itself, or the kernel separates
+    // on its default (ejection charge, 0 s).
+    const r = importCdx1(fixture('Complex.Two-Stage.CDX1'));
+    const booster = r.tree.components[1]!;
+    expect(booster['separationEvent']).toBe('burnout');
+    expect(booster['separationDelay']).toBe(2); // Booster1SeparationDelay
+  });
+
+  it('flies sustainer-only when IncludeBooster1 is False (desktop enableMotorMount parity)', () => {
+    const xml = fixture('Complex.Two-Stage.CDX1')
+      .replace(/<IncludeBooster1>True<\/IncludeBooster1>/g, '<IncludeBooster1>False</IncludeBooster1>');
+    const r = importCdx1(xml);
+    expect(r.configs.length).toBe(2);
+    const lastTube = (stage: ComponentNode): ComponentNode => {
+      const tubes = (stage.children ?? []).filter((c) => c.type === 'bodytube');
+      return tubes[tubes.length - 1]!;
+    };
+    const sustainerMount = lastTube(r.tree.components[0]!);
+    for (const cfg of r.configs) {
+      expect(Object.keys(cfg.motors)).toEqual([sustainerMount.id]);
+      expect(cfg.separations).toEqual({});
+    }
+    // The excluded booster's tube gets no mount flag and its stage no separation.
+    expect(lastTube(r.tree.components[1]!)['motorMount']).toBeUndefined();
+    expect(r.tree.components[1]!['separationEvent']).toBeUndefined();
+    expect(r.tree.components[1]!['separationDelay']).toBeUndefined();
   });
 });
 
@@ -221,6 +334,84 @@ describe('RASAero export', () => {
     expect(() => exportCdx1(bad)).toThrow(/conical/);
   });
 
+  it('round-trips a double-wedge supersonic airfoil (AirfoilSection/LERadius/FX1)', () => {
+    const d = structuredClone(design);
+    const fin = d.tree.components[0]!.children![1]!.children![0] as ComponentNode;
+    fin['airfoilSection'] = 'doublewedge';
+    fin['finLeRadius'] = 0.002;
+    fin['airfoilLeDiamond'] = 0.03;
+    fin['airfoilTeDiamond'] = 0.08; // = (0.15 + 0.07)/2 − 0.03, RASAero-consistent
+    const xml = exportCdx1(d);
+    expect(xml).toContain('<AirfoilSection>Double Wedge</AirfoilSection>');
+    expect(xml).toContain('<LERadius>0.0787</LERadius>'); // 0.002 m in inches
+    expect(xml).toContain('<FX1>1.1811</FX1>'); // 0.03 m in inches
+    expect(xml).toContain('<FX3>0</FX3>'); // derived for a double wedge, never written
+    const back = importCdx1(xml);
+    const fins = flatten(back.tree.components).find((c) => c.type === 'trapezoidfinset')!;
+    expect(fins['airfoilSection']).toBe('doublewedge');
+    expect(fins['finLeRadius']).toBeCloseTo(0.002, 5);
+    expect(fins['airfoilLeDiamond']).toBeCloseTo(0.03, 5);
+    expect(fins['airfoilTeDiamond']).toBeCloseTo(0.08, 5);
+  });
+
+  it('writes FX3 for a hexagonal airfoil and reads it back', () => {
+    const d = structuredClone(design);
+    const fin = d.tree.components[0]!.children![1]!.children![0] as ComponentNode;
+    fin['airfoilSection'] = 'hexagonal';
+    fin['airfoilLeDiamond'] = 0.03;
+    fin['airfoilTeDiamond'] = 0.04;
+    const xml = exportCdx1(d);
+    expect(xml).toContain('<AirfoilSection>Hexagonal</AirfoilSection>');
+    expect(xml).toContain('<FX3>1.5748</FX3>'); // 0.04 m in inches
+    const back = importCdx1(xml);
+    const fins = flatten(back.tree.components).find((c) => c.type === 'trapezoidfinset')!;
+    expect(fins['airfoilSection']).toBe('hexagonal');
+    expect(fins['airfoilTeDiamond']).toBeCloseTo(0.04, 5);
+  });
+
+  it('writes the launch panel into <LaunchSite> and round-trips it', () => {
+    const launch = {
+      launchAltitudeM: 3933 / 3.28084, temperatureC: 26.6667, pressureHPa: 850,
+      launchRodAngleDeg: 5, launchRodLengthM: 3.6576, windAverage: 4.4704,
+    };
+    const xml = exportCdx1({ ...design, launch });
+    expect(xml).toMatch(/<Altitude>3933(\.\d+)?<\/Altitude>/); // FEET
+    expect(xml).toMatch(/<RodLength>12(\.\d+)?<\/RodLength>/); // FEET
+    expect(xml).toMatch(/<Temperature>80(\.\d+)?<\/Temperature>/); // °F
+    expect(xml).toMatch(/<WindSpeed>10(\.\d+)?<\/WindSpeed>/); // mph
+    const back = importCdx1(xml);
+    expect(back.launch!.launchAltitudeM).toBeCloseTo(3933 / 3.28084, 2);
+    expect(back.launch!.pressureHPa).toBeCloseTo(850, 1);
+    expect(back.launch!.launchRodAngleDeg).toBeCloseTo(5, 6);
+    expect(back.launch!.launchRodLengthM).toBeCloseTo(3.6576, 4);
+    expect(back.launch!.windAverage).toBeCloseTo(4.4704, 4);
+  });
+
+  it('defaults <LaunchSite> fields: null pressure→0, null temperature→59', () => {
+    const xml = exportCdx1({ ...design, launch: { temperatureC: null, pressureHPa: null } });
+    expect(xml).toContain('<Pressure>0</Pressure>'); // RASAero's own "unset"
+    expect(xml).toContain('<Temperature>59</Temperature>'); // no unset in the format
+    // No launch at all keeps the historical constants.
+    const bare = exportCdx1(design);
+    expect(bare).toContain('<Pressure>29.92</Pressure>');
+    expect(bare).toContain('<Temperature>59</Temperature>');
+    expect(bare).toContain('<RodLength>10</RodLength>');
+  });
+
+  it('preserves airfoil and launch site through ARCAS import→export→import', () => {
+    const first = importCdx1(fixture('ARCAS-Long - 2.CDX1'));
+    const xml = exportCdx1({ name: first.name, tree: first.tree, launch: first.launch });
+    const back = importCdx1(xml);
+    const fins = flatten(back.tree.components).find((c) => c.type === 'trapezoidfinset')!;
+    expect(fins['airfoilSection']).toBe('doublewedge');
+    expect(fins['airfoilLeDiamond']).toBeCloseTo(1.4863 / 39.37, 6);
+    expect(fins['airfoilTeDiamond']).toBeCloseTo(0.0326695, 6);
+    expect(back.launch!.launchAltitudeM).toBeCloseTo(first.launch!.launchAltitudeM!, 2);
+    expect(back.launch!.temperatureC).toBeCloseTo(first.launch!.temperatureC!, 3);
+    expect(back.launch!.launchRodLengthM).toBeCloseTo(first.launch!.launchRodLengthM!, 3);
+    expect(back.launch!.pressureHPa).toBeNull(); // unset → explicit ISA, never absent
+  });
+
   it('keeps top/middle-positioned fins in place instead of snapping them to the tube bottom', () => {
     const d = structuredClone(design);
     const fin = d.tree.components[0]!.children![1]!.children![0] as ComponentNode;
@@ -241,7 +432,8 @@ describe('RASAero export', () => {
     // Import-only assertions were green throughout, so the build is the test.
     const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
     const { engineTree } = await import('../tree/treeModel.js');
-    for (const name of ['Complex.Two-Stage.CDX1', 'Show-off.CDX1', 'Three-stage rocket.CDX1']) {
+    for (const name of ['Complex.Two-Stage.CDX1', 'Show-off.CDX1', 'Three-stage rocket.CDX1',
+      'ARCAS-Long - 2.CDX1', 'RMA53D02 - 2.CDX1']) {
       resetEngine();
       const r = importCdx1(fixture(name));
       const info = OrkRocket.buildTree(engineTree(r.tree)).staticInfo();

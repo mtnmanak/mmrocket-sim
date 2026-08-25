@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.065';
+export const APP_VERSION = '0.066';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,23 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.066',
+    date: '2026-08-25',
+    title: 'Files that survive the trip: motors back to desktop, RASAero in properly, and graphs that pan',
+    items: [
+      'FIXED: a .ork saved here opens in desktop OpenRocket with its motors intact. Desktop was rejecting every motor with "No motor with designation … for manufacturer ‘custom’ found" — because this app knew the real manufacturer and threw it away on save, wrote every motor as single-use when most were reloads, and discarded the motor digest, the one field that lets desktop resolve a motor silently. All three fixed; verified by replaying desktop’s own three-tier matching logic against the new files — every motor resolves with no warning, and the old format reproduces the error verbatim. Thanks to @atestani for the report and the file.',
+      'FIXED: saving a .ork no longer throws away the simulations. The writer emitted a single minted simulation regardless of how many flight configurations the design carries, which is why desktop restored none of them. It now writes one simulation per flight configuration, each tied to its configuration id — desktop lists them all as not-yet-run; Run All brings everything back.',
+      'FIXED: RASAero .CDX1 simulations now import as flight configurations — motors matched from the database and mounted the way desktop’s own RASAero importer does (sustainer plugged, boosters on burnout ignition, separation delays carried onto the stages, boosters excluded when the file says IncludeBooster=False). They used to arrive as a text note.',
+      'FIXED: the .CDX1 launch site imports — site altitude, temperature, pressure (0 = unset, and unset no longer inherits the previous design’s pressure), rod length and wind, all with the right unit conversions. Export writes your launch conditions back instead of hardcoded constants. Temp and pressure "not coming through" was @atestani’s report, and he was right.',
+      'FIXED: RASAero supersonic airfoil sections import and re-export. Double Wedge, Hexagonal Blunt Base and friends — with their chamfer lengths and LE radius — were silently dropped both ways, so imported fins fell back to a square section: up to 1.7× the fin drag at Mach 1.8. One subtlety proven from the files themselves: for a double wedge, the TE chamfer is derived (mean chord − FX1), not the file’s FX3 field. Thanks to Chuck Rogers for the files that pinned this down.',
+      'NEW: the flight and drag graphs pan and wheel-zoom. Scroll wheel zooms about the cursor, shift-drag (or middle-drag, or one finger on touch) pans, plain drag still box-zooms, double-click still resets — and all panels move together. Zoom also survives switching units or themes now.',
+      'FIXED: the flight-data CSV follows your unit preferences, desktop-style, with every column header naming its unit. It was pure SI regardless of settings. (Thrust and drag stay in Newtons — desktop’s own imperial default.)',
+      'CLEARER: the CP-vs-Mach chart says its units. It always plotted CP as percent of body length with an unlabeled axis, and the only text saying so was a chart legend that looked like a button — clicking it just blanked the plot. The chart now labels its axis, carries the unit in its heading, and has a real "% of length" ↔ "mm/in from nose" toggle. Chuck’s "I really can’t tell what the units are" was entirely fair.',
+      'CLEARER: the drag-analysis CSV opens with header lines naming the aero model, conditions, design and app version. A comparison in the beta thread went sideways because the export didn’t say which model produced it — that can’t happen silently again.',
+      'CLEARER: RASAero protuberance entries and nose bluntness radius are surfaced in the import notes instead of vanishing without a trace. Representing protuberance drag is on the list.',
+    ],
+  },
   {
     version: '0.065',
     date: '2026-08-24',

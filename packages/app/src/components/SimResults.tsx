@@ -91,13 +91,13 @@ export function SimRunDetails({ run, result, onFullSeries }: {
         </h2>
         {result && onFullSeries && (
           <button className="file-btn" disabled={csvBusy}
-            title={'Re-flies the shown flight to capture every series the physics kernel records (deterministic — the same flight, more columns), one row per timestep, SI units. Booster stages append as name-prefixed column groups. Not stored with run history.'}
+            title={'Re-flies the shown flight to capture every series the physics kernel records (deterministic — the same flight, more columns), one row per timestep, in your preferred units (each header names its unit; thrust and drag stay in newtons). Booster stages append as name-prefixed column groups. Not stored with run history.'}
             onClick={() => {
               setCsvBusy(true);
               setCsvError(null);
               onFullSeries()
                 .then((full) => {
-                  const blob = new Blob([CSV_BOM, flightDataCsv(full)], { type: 'text/csv;charset=utf-8' });
+                  const blob = new Blob([CSV_BOM, flightDataCsv(full, prefs.units)], { type: 'text/csv;charset=utf-8' });
                   const a = document.createElement('a');
                   a.href = URL.createObjectURL(blob);
                   a.download = 'flight-data-full.csv';
