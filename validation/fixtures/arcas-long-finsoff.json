@@ -1,0 +1,39 @@
+{
+  "name": "ARCAS Long, FINS OFF (NASA TN D-4013 half-scale tunnel model, body only)",
+  "_notes": [
+    "FINS-OFF VARIANT of arcas-long.json, added 2026-08-25. Byte-identical to that fixture with the trapezoidfinset child DELETED and nothing else changed. Identical to arcas-short-finsoff.json except the body tube (1.043686 m vs 0.724916 m), exactly as the finned pair differ.",
+    "See arcas-short-finsoff.json's _notes for why this pair exists, the boat-tail caveat, the fin-root-anchor caveat, and the fins-on-minus-fins-off consistency requirement. All apply here unchanged.",
+    "This pair is also the only place the harness can see our friction model's LENGTH scaling against measured data: the two bodies differ only by 12.55 in of cylinder, so the tunnel's 0.250 - 0.225 = 0.025 fins-off difference is a measured skin-friction increment for that added length.",
+    "FIN-ROOT ANCHORS - THIS CONFIGURATION IS THE CLEAN ONE. NASA TN D-4013 p.3: on the LONG model the fin slots were 'plugged with balsa and faired flush with the model skin' for the fins-off runs, where on the short model the un-faired fin anchors were left in as the plugs. So the long fins-off tunnel number carries NO protuberance this fixture fails to model, and it is the better-posed of the two body-drag comparisons. The report attributes the short model's C_A,corr rising above this one's at M0.975-1.20 to exactly that difference (p.6).",
+    "BOUNDARY LAYER: TRIPPED, settled 2026-08-25 from the report (p.4) - 'a 0.25-cm-wide (0.10-in.) strip of No. 120 carborundum grains was affixed around the model 3.17 cm (1.25 in.) aft of the nose and 1.27 cm (0.5 in.) aft of the leading edge of each fin'. The fixture's finishpolished surface and the kernel's fully-turbulent friction are therefore the right modelling choice for this cell, and the fully-turbulent-only defect (docs/research/trf-aero-research-2026-08-25.md section 6) CANNOT be invoked to explain this cell's excess. Test conditions: Re 9.8e6 per metre (3.0e6 per foot) held constant across the Mach range, stagnation temperature 322 K, 1/2-scale model, 1-in sting.",
+    "GEOMETRY CONFLICT WORTH A LOOK, NOT ACTED ON HERE: TN D-4013 figure 1(b) dimensions the tail cone in body diameters and gives its base as 0.65 d, i.e. 1.463 in at the full-scale 2.250-in body, where this fixture uses 1.308 in (derived last session from Detail A's dimensioned cone-base radius 0.654). If 0.65 d is the right base, our base AREA is 0.80x the tunnel's and our base CD is low by the same factor. Changing it would move every ARCAS row, so it is recorded and left alone; it does not touch this cell's gates, which are base-EXCLUDED.",
+    "ANCHOR SOURCE UPGRADED 2026-08-25: the gated series for this fixture is no longer a quoted single-point figure read but the whole measured curve, digitized from NASA TN D-4013's own NTRS page scan at native resolution and gated only at the Mach numbers the report actually tested. See anchors.json _provenance and scorecard-finsoff-figs-2026-08-25.md."
+  ],
+  "components": [
+    {
+      "type": "nosecone",
+      "finish": "finishpolished",
+      "shape": "ogive",
+      "shapeParameter": 1.0,
+      "length": 0.26924,
+      "aftRadius": 0.028575,
+      "thickness": 0.0015
+    },
+    {
+      "type": "bodytube",
+      "finish": "finishpolished",
+      "length": 1.043686,
+      "outerRadius": 0.028575,
+      "thickness": 0.0015
+    },
+    {
+      "type": "transition",
+      "finish": "finishpolished",
+      "shape": "conical",
+      "length": 0.045974,
+      "foreRadius": 0.028575,
+      "aftRadius": 0.0166116,
+      "thickness": 0.0015
+    }
+  ]
+}

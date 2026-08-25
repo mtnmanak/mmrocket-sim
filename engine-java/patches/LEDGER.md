@@ -447,6 +447,167 @@ accounting, the printed curves, and the two measured-and-rejected variants:
   tail toward the base, Eggers-class second-order shock expansion), and it is
   the next item.
 
+### The ×1.8 fin interference factor — measured, provenance corrected, NUMBER UNCHANGED
+
+Handoff §6a **step 2**. The owner's instruction was "remove the ×1.8 junction factor and
+see what happens". It was removed, built, and scored — **and the measurement says do not
+remove it.** No physics changed in this pass; both scorecards are byte-identical to the
+pass before it (all 328 rows across the two models). Full accounting:
+`validation/scorecard-junction-2026-08-25.md`.
+
+- **What actually changed in the tree:** the comment above the factor in
+  `FinSetCalc.calculateFrictionCD` (its stated provenance was wrong and had been
+  mis-read three times), this entry, and three new golden lines. Artifact md5
+  `8456e660a9284f3fcfe2f93131f77188` → `bc0c742d0343d36a83e0a213f3159da7`; the md5
+  moved because the harness grew, not because a number did.
+- **Provenance, corrected.** The factor is a port of **RASAero II's own "Fin
+  Interference" drag component**, not an ARCAS calibration. RASAero's Run Test output
+  prints it at **0.84 × the fin friction term at both ends of its Mach range** — *RASAero
+  II Users Manual* p.90 (M0.50: Fin Frict&Press 0.050, Fin Interference 0.042; the eight
+  printed components sum to the printed CD 0.481 exactly) and p.92 (M2.00: Fin Frict
+  0.037, Fin Wave 0.067, Fin Interference 0.031). Our 0.8 reproduces that to 5 %.
+  The old comment's anchor — the ARCAS fins-on/fins-off increment — is **not** a valid
+  calibration target: it also contains the tunnel model's fin-anchor brackets, which
+  RASAero books in a **separate Protuberance column** (manual p.92 note; its ARCAS deck
+  slide 2 says the anchors were entered as a rail guide), and fin LE bluntness this
+  kernel charges only when `finLeRadius` is given. Read literally it asks for
+  **2.08–2.28×**, not 1.8×.
+- **It is not junction interference in the Hoerner sense.** A junction is a corner effect
+  whose drag area scales with t²; this scales with fin wetted area × Cf. Implied
+  per-junction coefficient across the three finned cells: **0.92** (ARCAS, t/c 0.044),
+  **0.47** (Basic Finner, t/c 0.080), **0.52** (RM A53D02, t/c 0.039) — a factor of two
+  apart and not tracking thickness. A correctly-scaled junction term would be ≈0 for the
+  2–5 % sections rockets use, i.e. indistinguishable from deleting it.
+- **Removal measured (flag-on, factor 1.0):** gate score 70/164 → **71/164**, but that
+  +1 is tolerance-edge luck. Row-level, **65 of the 83 gated CD rows move AWAY** from the
+  data and 18 move closer, and the scale-free aggregate (RMS of |delta|/tol over all 164
+  gated rows) goes **2.455 → 2.595**. Both tester flights over-predict further:
+  Buckeye's Mach 2 Buster 19,623 → 20,905 ft against 18,006 ft GPS, LEM-IV 12,155 →
+  12,765 ft against a three-altimeter 11,755 ft.
+- **Intermediates measured too:** 1.2 → 73/164 (RMS 2.548), 1.4 → **76/164** (RMS 2.509).
+  1.4 wins the gate count and loses the accuracy aggregate and both flights; it has no
+  source, and picking it would be fitting to the anchors. Shipped value stays 1.8.
+- **The six ARCAS supersonic gates removal would flip cannot be attributed to this term**:
+  TN D-4013's fins-off data stops at M1.2. Below M1.2, where the data exists, 1.8×
+  leaves our fin increment **14–39 % short** of the measured one and our *body*
+  **+10…+19 % over** — the term is under-charging fins, not over-charging them.
+- **Measured for the owner, deliberately NOT enabled:** applying the term in BOTH models
+  (§6a step 2's "baseline for everyone at all speeds"). Classic 10/164 → **12/164**, RMS
+  5.279 → **4.970**, **80 of 83 gated CD rows closer** and 3 worse; LEM-IV +7.3 % →
+  **+2.2 %**, Buckeye +19.4 % → **+11.9 %**. It is the option the data supports and it
+  **breaks desktop-OpenRocket parity**, so it is the owner's call, not this pass's.
+- **Goldens:** new `ssjunction.0.3 / 0.6 / 0.85` lines pin flag-off AND flag-on total CD
+  and friction CD on the reference rocket at three subsonic Mach numbers — the regime the
+  factor actually changes for most users and the one nothing pinned (every `ssaerocd`
+  sample sits at M1.2 or above). Square-section fins, so the Phase-2 AIRFOIL pressure
+  change cannot contaminate the off→on ratio. Differential **296 → 299 lines, all 3 new
+  lines bit-identical JVM ↔ TeaVM**. They also print the user-visible size of the term:
+  at M0.30 the reference rocket's CD goes 0.998023 → 1.077198 (**+7.9 %**) on the flag
+  alone, friction 0.426869 → 0.507707 (+18.9 %).
+
+#### Follow-on the same day: Mach-dependence tested and REFUTED; still ×1.8, still flat
+
+The recommended follow-on to the entry above was to make the factor Mach-dependent —
+full strength subsonically, fading to ~1.0 by M1.5–2
+(`docs/research/trf-aero-research-2026-08-25.md` §1.3). **It was tested against the only
+Mach-resolved data that exists for the quantity and it does not survive.** No kernel
+change; the comment in `FinSetCalc.calculateFrictionCD` is the only edit, and the
+artifact rebuilt **byte-identical** (`bc0c742d0343d36a83e0a213f3159da7`, confirmed
+through a forced full TeaVM regeneration). Full accounting:
+`validation/scorecard-finsoff-2026-08-25.md`.
+
+- **The data says flat, to 0.26 %.** RASAero's printed Fin Interference component is
+  **0.042 / 0.050 = 0.840** at M0.50 (Users Manual p.90) and **0.031 / 0.037 = 0.838** at
+  M2.00 (p.92). Both rows were re-extracted from the PDF and their columns verified by
+  sum against the printed CD (0.481 exactly; 0.630 vs 0.631). From 3-decimal rounding
+  alone the ratios span [0.822, 0.859] and [0.813, 0.863] — **overlapping over 100 % of
+  the subsonic band**, so a constant ratio fits both rows. A fade to ×1.0 needs Fin
+  Interference ≈ 0 at M2.00; the manual prints 0.031 there, **4.9 % of that run's total
+  CD**. There is no third point: the transonic regime prints no component breakdown at
+  all, in either manual.
+- **The physical premise was already void.** The fade's argument is that junction /
+  horseshoe-vortex interference is a subsonic boundary-layer effect — but the entry above
+  established this is **not** a junction term. The reasoning does not attach to it.
+- **The supersonic "we run long" half is now attributed to the BODY.** New fins-off gates
+  (below) measure our body at **+8.3 % / +17.9 %** at M0.60; carried forward at that rate
+  it accounts for **53–139 %** of the ARCAS-Short supersonic overshoot and **194 %+** of
+  ARCAS-Long's — all of it, before the fins are touched. Fading the factor would take
+  drag off a fin set that is already **10–38 % short** where it can be measured, to pay
+  for a body error. That is a compensating-error trade, not a fix.
+- **New gates that make this checkable instead of arguable** (`validation/`, not a kernel
+  change): `arcas-short-finsoff` / `arcas-long-finsoff` gate TN D-4013's fins-off (body
+  only) CD at M0.60, 164 → **166 gates**. Both **FAIL HIGH in both models**; classic
+  10/164 → 10/166, supersonic 70/164 → 70/166, with every pre-existing row byte-identical.
+  The pair also measures, for the first time, that our skin friction on 12.55 in of added
+  body length is **2.05× the tunnel's** and 100 % friction — a direct reading on the
+  fully-turbulent-only defect, and the reason the body error grows with length.
+
+### Boundary-layer transition exposed, and the PARITY BOUNDARY enforced (2026-08-25)
+
+Three edits, one ruling. Eric's standing ruling of 2026-08-25 (`docs/working-notes.md`)
+says only **"OpenRocket — Extended Barrowman"** is a parity commitment; Rogers Kbf and
+Supersonic are decided on accuracy alone, and *"anything that currently moves CLASSIC
+numbers away from desktop must move OUT of classic"*. Full measurement:
+`validation/scorecard-transition-2026-08-25.md`.
+
+- **aerodynamics/BarrowmanCalculator.java — `partialLaminar()` (NEW).** OpenRocket carries
+  a partial-laminar friction branch gated on `Rocket.isPerfectFinish()`: fully laminar
+  (Blasius) below Re 5.39e5, turbulent minus a `1700/Re` laminar-run credit above, a
+  weaker compressibility correction, and roughness limiting only above Re 1e6. **In
+  OpenRocket 24.12 it is dead code** — `perfectFinish` defaults false (Rocket.java:83),
+  the .ork format does not store it, no UI writes it, and the only call anywhere in the
+  release passes `false` (TestRockets.java:768, :962). So the long-standing claim that
+  "desktop users can set it and ours cannot" was wrong: *nobody* could set it. It is now
+  reachable (`OrkEngine.setPerfectFinish`) and gated to the non-parity models, so no
+  bridge call can move a classic number. **Default OFF in every model, including Kbf** —
+  the evidence for that is in the scorecard, and it is the honest answer, not a
+  cautious one:
+  - The one cell that could arbitrate it, ARCAS fins-off, was **boundary-layer tripped**
+    (TN D-4013 p.4). Fully turbulent is the correct model there.
+  - The `1700/Re` credit is analytically independent of body length
+    (`ΔCD = 1700·ν·π·d /(V·S_ref)` for a cylinder) and measures as such: it moves the
+    Short→Long friction increment by 2.1e-4 and the over-scaling ratio from **1.85× to
+    1.84×**. It cannot be the cause of the friction-vs-length defect it was suspected of.
+  - Above M1.1 the branch ADDS friction (+19 % at M2, +43 % at M3, +67…+73 % at M4) —
+    a laminar compressibility law (1+0.045M²)^-0.25 in place of the turbulent
+    (1+0.15M²)^-0.58, at Re 1e7 where the layer is turbulent (Van Driest II wants ≈0.46
+    at M4, this gives 0.87). Forcing it on wins Kbf **+10 gates** — and every one of them
+    comes from that error, while the fins-off cell it was meant to fix goes **1/11 → 0/11**
+    and the ARCAS transonic cells lose two. It also bypasses the Phase-4 VD-II fit.
+- **barrowman/FinSetCalc.java — the ×1.8 fin interference factor now runs in Kbf**
+  (`rogersKbf || supersonicAero`). `scorecard-junction-2026-08-25.md` had measured this
+  as "the option the data supports … not a change to make without Eric"; Eric ruled.
+  Re-measured on the 175-gate anchors: Kbf **15 → 17 gates**, aggregate RMS |Δ|/tol
+  **4.928 → 4.617**, **80 of 102 gated CD rows closer / 3 worse / 19 unchanged**, and on
+  the tester flights LEM-IV **+7.3 % → +2.2 %** and Buckeye **+19.4 % → +11.9 %**.
+  Classic and Supersonic byte-identical. **The DEFAULT model's numbers moved** — say so
+  in the changelog.
+- **barrowman/FinSetCalc.java — `airfoilSection` is no longer honoured in classic**
+  (feature #4 was input-gated, so naming a section replaced desktop's pressure-drag model
+  in the parity model too; desktop's FinSet knows only the three-valued CrossSection).
+  Proven: with the gate in place, the classic sweep for all four finned fixtures is
+  **bit-identical (worst |Δ| = 0 over 199/419 Machs, every drag component and CP)** to the
+  same fixture with the section inputs deleted. Cost, stated plainly: classic
+  **11 → 10 gates**, RMS **5.634 → 6.075**, 122 classic rows moved — because classic now
+  charges the carved rounded-LE plateau on `crossSection: airfoil` fins, which is
+  desktop's own known weakness and the reason feature #1 Phase 2 exists. Kbf and
+  Supersonic byte-identical.
+- **aerodynamics/BarrowmanCalculator.java — nozzle-exit power-on base drag (feature #2)
+  gated the same way.** Same species, found while doing the above: the identifier
+  `NozzleExitDiameter` appears in exactly two files in the 24.12 release, both under
+  `file/rasaero`, and nothing in `core/aerodynamics` reads it — so our power-on base
+  recovery was ours alone and was applying in the parity model. No validation row moves
+  (all 175 gates are power-off, no fixture sets a nozzle); the engine test
+  `flies a minimum-diameter rocket` moves 333.4645 → **329.6097 m** and the golden
+  `flight.mindia` with it, which is the fix doing exactly what it says.
+- **Goldens:** `transition.paint.*` / `transition.polished.*` (4 Mach × 2 surfaces × 3
+  models × 2 settings — they pin the gate itself as an equality, the laminar-run credit,
+  and the supersonic compressibility swap; the *paint* rows also record that the setting
+  is a **no-op subsonically for a normally-finished rocket**, because the roughness limit
+  binds in both branches, which is why the LEM-IV flight moves by 0.002 m),
+  `parity.airfoilsection` and `parity.nozzlebase` (both sides of both boundaries).
+  Differential **299 → 309 lines**, all 10 new lines JVM↔TeaVM clean.
+
 ## Rules
 
 1. A patch NEVER changes physics or observable behavior (except documented quirks-ledger

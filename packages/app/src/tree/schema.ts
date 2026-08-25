@@ -256,11 +256,16 @@ const ASSEMBLY_FIELDS: FieldDef[] = [
  * a total frontal area per class per body tube and prints their drag in one
  * "Protuberance" column — with no normal force and no CP contribution at all
  * (Manual Fig. 108, subsonic/transonic/supersonic output blocks).
+ *
+ * The two streamlined classes are NOT constant coefficients: RASAero's method
+ * makes a streamlined bump's drag per unit frontal area equal to the rocket
+ * body's own (Chuck Rogers, TRF 197641 #1). The option labels say which body CD
+ * each one uses, because that is the whole model — see treeModel.protuberanceCd.
  */
 const PROTUBERANCE_CLASSES: [string, string][] = [
-  ['streamlined', 'Streamlined — no base drag (raceway, cable tunnel)'],
-  ['streamlinedbase', 'Streamlined — with base drag (camera housing, shoe)'],
-  ['plate', 'Inclined flat plate (fin bracket, anchor)'],
+  ['streamlined', 'Streamlined, no base (raceway, cable tunnel) — Cd = body CD without base drag'],
+  ['streamlinedbase', 'Streamlined, blunt back (camera housing, shoe) — Cd = body CD with base drag'],
+  ['plate', 'Inclined flat plate (fin bracket, anchor) — Cd = 1.17·sin²θ'],
 ];
 
 export const FIELDS: Record<EditorComponentType, FieldDef[]> = {
@@ -474,6 +479,9 @@ export const FIELDS: Record<EditorComponentType, FieldDef[]> = {
     lenMM('height', 'Height (off the surface)', 1, 300),
     { key: 'count', label: 'How many (identical)', unit: 'count', smin: 1, smax: 24 },
     { key: 'plateAngle', label: 'Plate angle from the body', unit: 'deg', step: 5, smin: 0, smax: 90 },
+    // The escape hatch from the Mach-flat scalar: a streamlined class is the
+    // body CD at Mach 0.3, so a high-Mach design that wants the body CD at its
+    // own max Q types it here. smax 2 covers every body CD the kernel produces.
     { key: 'cdFrontal', label: 'Cd on frontal area (blank = from class)', unit: 'none', step: 0.05, smin: 0, smax: 2 },
     { key: 'mass', label: 'Mass, all of them (0 = not counted)', unit: 'g', step: 1, smin: 0, smax: 2000 },
     lenMM('length', 'Length along body (shape only, no drag)', 1, 1000),

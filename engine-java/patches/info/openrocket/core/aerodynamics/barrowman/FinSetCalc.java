@@ -903,13 +903,97 @@ public class FinSetCalc extends RocketComponentCalc {
 		}
 
 		double cd = componentCf * (1 + 2 * thickness / macLength) * 2 * finArea / conditions.getRefArea();
-		// PATCH (feature #1 Phase 2): fin-body junction interference drag.
-		// The ARCAS fins-on/fins-off tunnel increment (NASA TN D-4013: the fin
-		// set adds ~0.073-0.08 CD where bare fin friction accounts for ~0.036)
-		// shows the interference is comparable to the fin friction itself, and
-		// RASAero prints a "Fin Interference" drag component of that same
-		// relative size. Flag on: +80% of the fin friction drag.
-		if (supersonicAero) {
+		// PATCH (feature #1 Phase 2): fin-in-presence-of-body interference drag,
+		// ported from RASAero II's "Fin Interference" drag component. RASAero's
+		// own Run Test output prints that component at ~0.84x the fin friction
+		// term at BOTH ends of its Mach range - RASAero II Users Manual p.90
+		// (M0.50: Fin Frict&Press 0.050, Fin Interference 0.042) and p.92
+		// (M2.00: Fin Frict 0.037, Fin Wave 0.067, Fin Interference 0.031).
+		// Flag on: +80% of the fin friction drag. Mach-flat, as RASAero's is.
+		//
+		// PROVENANCE CORRECTED 2026-08-25, and the number RE-MEASURED rather
+		// than re-asserted - full accounting in
+		// validation/scorecard-junction-2026-08-25.md:
+		//  - It is NOT anchored to the ARCAS fins-on/fins-off increment, as an
+		//    earlier version of this comment claimed. That increment (TN D-4013
+		//    CA,corr, Short: 0.073 / 0.078 / 0.080 at M0.60 / 0.70 / 0.80) also
+		//    contains the tunnel model's fin-anchor brackets, which RASAero
+		//    books in a SEPARATE Protuberance column (manual p.92 note; its
+		//    ARCAS deck slide 2 enters those anchors as a rail guide), plus fin
+		//    LE bluntness this kernel charges only when finLeRadius is given.
+		//    It is an UPPER BOUND on fin+interference drag, not a calibration
+		//    target - and taken literally it asks for 2.08x / 2.25x / 2.34x at
+		//    M0.60 / 0.70 / 0.80, not 1.8x.
+		//  - It is NOT junction interference in the Hoerner sense: a junction is
+		//    a corner effect whose drag area scales with t^2, while this scales
+		//    with fin wetted area x Cf. Implied per-junction coefficient across
+		//    the three finned validation cells: 0.92 (ARCAS), 0.47 (Basic
+		//    Finner), 0.52 (RM A53D02) - a factor of two apart, and not tracking
+		//    fin thickness. Do not describe it as a junction term.
+		//  - Removing it entirely was BUILT and SCORED: 65 of 83 gated CD rows
+		//    move away from the data (18 move closer), the aggregate accuracy
+		//    RMS of |delta|/tol goes 2.455 -> 2.595, and both tester flights
+		//    over-predict further. Gate count alone reads +1 because the six
+		//    ARCAS supersonic gates it flips sit on their tolerance edges.
+		//  - Those six gates cannot be attributed to this term either way:
+		//    there is no fins-off tunnel data above M1.2 anywhere in the anchor
+		//    set. Below M1.2, where there IS such data, 1.8x still leaves our
+		//    fin increment 14-39% SHORT of the measured one (0.0631 vs 0.073
+		//    and 0.0616 vs 0.080 on ARCAS Short at M0.60/M0.80; 0.0605 vs 0.100
+		//    on ARCAS Long at M0.60). At 1.0x it is 52-66% short.
+		// Whether it should apply in BOTH models rather than only flag-on is
+		// measured in the same scorecard and is the owner's call (it moves
+		// desktop-OpenRocket parity, so it is not made here).
+		//
+		// MACH-FLAT IS THE MEASURED ANSWER, NOT A SIMPLIFICATION - checked
+		// 2026-08-25, do not re-litigate without new data. It was proposed
+		// (docs/research/trf-aero-research-2026-08-25.md 1.3) that this factor
+		// should fade toward 1.0 by M1.5-2, on the reasoning that junction /
+		// horseshoe-vortex interference is a subsonic boundary-layer effect.
+		// Both halves of that were tested and both fail:
+		//  - The premise is void. This is not a junction term (see above), so
+		//    the physical argument for a fade does not attach to it.
+		//  - The data says flat. The only Mach-resolved measurement of the
+		//    quantity is RASAero's own printed Fin Interference component, and
+		//    it barely moves across its whole printed range: 0.042/0.050 =
+		//    0.840 at M0.50 (p.90) and 0.031/0.037 = 0.838 at M2.00 (p.92) -
+		//    a 0.26% change. Both rows' components were re-verified to sum to
+		//    the printed CD (0.481 exactly; 0.630 vs 0.631 printed), so the
+		//    columns are read right. From 3-decimal rounding alone each ratio
+		//    carries a band - [0.822, 0.859] and [0.813, 0.863] - and they
+		//    overlap over 100% of the subsonic one, so a CONSTANT ratio fits
+		//    both rows. A fade to 1.0x by M1.5-2 needs Fin Interference ~ 0 at
+		//    M2.00; RASAero prints 0.031 there, 4.9% of that run's total CD.
+		//    (The subsonic column is "Fin Frict&Press" vs the supersonic "Fin
+		//    Frict" alone; if RASAero's subsonic fin pressure were non-zero the
+		//    subsonic ratio would be HIGHER than 0.840, which argues for a
+		//    subsonic rise, never a fade.)
+		//  - The supersonic "we run long" evidence the fade was meant to fix is
+		//    now attributed elsewhere. The 2026-08-25 fins-off gates measure
+		//    our BODY at +8.3% (Short) and +17.9% (Long) at M0.60, and that
+		//    body bias, carried forward at its measured rate, accounts for
+		//    53-139% of the ARCAS-Short supersonic overshoot and 194%+ of
+		//    ARCAS-Long's - i.e. all of it, before the fins are touched.
+		//    Fading this term would take drag off the fin set (already 14-39%
+		//    SHORT where it can be measured) to pay for a body error, which is
+		//    the same compensating-error trade the fins-off gates were added to
+		//    stop. Full accounting: validation/scorecard-finsoff-2026-08-25.md.
+		//
+		// 2026-08-25, OWNER'S RULING APPLIED — the term now runs in ROGERS KBF
+		// as well as in Supersonic, and is still absent from the parity model.
+		// scorecard-junction-2026-08-25.md left exactly this as "the option the
+		// data supports ... not a change to make without Eric", because it moves
+		// desktop-OpenRocket parity. Eric ruled (docs/working-notes.md, standing
+		// ruling 2026-08-25) that only "OpenRocket - Extended Barrowman" is a
+		// parity commitment and that Kbf/Supersonic are to be decided on
+		// accuracy alone. The measurement, on the unchanged anchors:
+		// 80 of the 83 gated CD rows move CLOSER to the data (3 move away, all
+		// rma53d02 subsonic rows where we already read high), the aggregate
+		// RMS of |delta|/tol over all gated rows falls 5.279 -> 4.970, and on
+		// the two tester flights LEM-IV's over-prediction goes +7.3% -> +2.2%
+		// and Buckeye's +19.4% -> +11.9%. Re-measured on the 175-gate anchors
+		// in validation/scorecard-transition-2026-08-25.md.
+		if (rogersKbf || supersonicAero) {
 			cd *= 1.8;
 		}
 		return cd;
@@ -929,7 +1013,25 @@ public class FinSetCalc extends RocketComponentCalc {
 
 		// PATCH (feature #4): RASAero-class airfoil sections — per-shape
 		// linearized/Busemann thickness wave drag + blunt-base + LE bluntness.
-		if (airfoilSection != null) {
+		//
+		// PARITY FIX 2026-08-25 — this used to be INPUT-gated only, i.e. naming
+		// an airfoil section replaced desktop OpenRocket's pressure-drag model
+		// in EVERY aero model, including "OpenRocket - Extended Barrowman",
+		// whose entire claim is bit-identical desktop physics. Desktop has no
+		// airfoilSection concept at all (its FinSet knows only the three-valued
+		// CrossSection), so for a classic run the honest answer is the one
+		// desktop would give from the same design: the crossSection branch
+		// below. Measured size of the violation on a square-vs-doublewedge fin
+		// at M1.8: CD 0.585 vs 0.303 - a factor of ~1.9 on total CD, in the
+		// model that promises no difference at all. Named as a BUG in the
+		// owner's standing ruling (docs/working-notes.md, 2026-08-25: "anything
+		// that currently moves CLASSIC numbers away from desktop must move OUT
+		// of classic"). Effect on the harness, both directions reported, in
+		// validation/scorecard-transition-2026-08-25.md.
+		//
+		// Kbf and Supersonic keep the section model unchanged - this gate is
+		// true for both - so no non-parity user's numbers move by this edit.
+		if (airfoilSection != null && (rogersKbf || supersonicAero)) {
 			return sectionPressureCD(conditions, baseCD);
 		}
 

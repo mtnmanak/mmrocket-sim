@@ -447,6 +447,37 @@ public final class OrkEngine {
         ((RocketCtx) get(rocketHandle)).supersonicAero = enabled;
     }
 
+    /**
+     * Boundary-layer transition: allow a LAMINAR RUN over the forward part of
+     * the airframe instead of charging every rocket as fully turbulent from the
+     * nose tip.
+     *
+     * <p>This is OpenRocket's own {@code Rocket.perfectFinish} property, and
+     * until now it was unreachable through this bridge — every rocket the app
+     * has ever flown was scored fully turbulent. Turning it on selects the
+     * kernel's partial-laminar branch: fully laminar (Blasius) below
+     * Re 5.39e5, turbulent-minus-a-laminar-run-credit (−1700/Re) above it, a
+     * weaker compressibility correction, and roughness limiting only above
+     * Re 1e6. The Reynolds number is built from the whole airframe's
+     * aerodynamic length, so this is a whole-rocket setting, not per-component.
+     *
+     * <p><b>Ignored in the parity model.</b> It takes effect only when Rogers
+     * Kbf or the supersonic model is on. Desktop OpenRocket 24.12 never sets
+     * this property (it defaults false, no UI writes it, and .ork does not
+     * store it), so honouring it with both flags off would break the one thing
+     * the classic model promises. The gate lives in the kernel
+     * (BarrowmanCalculator.partialLaminar), not here.
+     *
+     * <p><b>Off by default, in every model.</b> The one measured cell that
+     * could arbitrate it (ARCAS fins-off, NASA TN D-4013) had its boundary
+     * layer deliberately tripped, so it cannot; see
+     * validation/scorecard-transition-2026-08-25.md.
+     */
+    @JSExport
+    public static void setPerfectFinish(int rocketHandle, boolean enabled) {
+        ((RocketCtx) get(rocketHandle)).rocket.setPerfectFinish(enabled);
+    }
+
     @JSExport
     public static String getStaticInfo(int rocketHandle) {
         RocketCtx ctx = (RocketCtx) get(rocketHandle);

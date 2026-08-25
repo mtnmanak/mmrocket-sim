@@ -510,6 +510,43 @@ export class OrkRocket {
     ork.setSupersonicAero(this.handle, enabled);
   }
 
+  /**
+   * Boundary-layer transition — allow a **laminar run** over the forward part
+   * of the airframe instead of charging the whole rocket as fully turbulent
+   * from the nose tip.
+   *
+   * This is OpenRocket's own `Rocket.perfectFinish` property, exposed here for
+   * the first time: until 2026-08-25 it was unreachable through this bridge, so
+   * every rocket the app has ever flown was scored fully turbulent. On, the
+   * kernel takes its partial-laminar branch — fully laminar (Blasius
+   * `1.328/√Re`) below Re 5.39e5, turbulent minus a `1700/Re` laminar-run
+   * credit above it, a weaker compressibility correction, and roughness
+   * limiting only above Re 1e6. Reynolds number is built from the whole
+   * airframe's aerodynamic length, so this is one whole-rocket switch, not a
+   * per-component property (the per-component `finish` still drives the
+   * roughness limit).
+   *
+   * Size of the effect, measured on a 1.04 m body: Cf falls ~5 % at Re 1e7,
+   * ~39 % at Re 1e6, and the branch is fully laminar below Re 5.4e5 — i.e. it
+   * matters for small/slow models and hardly at all for HPR.
+   *
+   * **Two things it deliberately does not do.**
+   * 1. It is **ignored in the parity model**, taking effect only with
+   *    {@link setRogersModifiedBarrowman} or {@link setSupersonicAero} on.
+   *    Desktop OpenRocket 24.12 never sets this property — it defaults false,
+   *    no UI writes it, `.ork` does not store it, and the only call in the
+   *    release passes `false` — so honouring it with both flags off would break
+   *    the classic model's bit-identical-to-desktop promise. The gate is in the
+   *    kernel (`BarrowmanCalculator.partialLaminar`), not in this wrapper.
+   * 2. It is **off by default in every model**, including Rogers Kbf. The only
+   *    measured cell that could arbitrate the default (ARCAS fins-off, NASA
+   *    TN D-4013) had its boundary layer deliberately tripped, so it cannot —
+   *    see `validation/scorecard-transition-2026-08-25.md`.
+   */
+  setPerfectFinish(enabled: boolean): void {
+    ork.setPerfectFinish(this.handle, enabled);
+  }
+
   /** Length, mass, CG/CP, stability margin — computed at Mach 0.3, AoA 0. */
   staticInfo(): StaticInfo {
     const parsed = JSON.parse(ork.getStaticInfo(this.handle)) as StaticInfo & { error?: string };

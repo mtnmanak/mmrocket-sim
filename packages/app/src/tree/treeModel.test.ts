@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
-import { engineTree, findNode, hasParallelStage, makeNode, motorMounts, normalizeTree, splitClusterPairsTree, splitClusterTree } from './treeModel.js';
+import { bodyDragReference, engineTree, findNode, hasParallelStage, makeNode, motorMounts, normalizeTree, protuberanceCd, PROTUBERANCE_REF_MACH, splitClusterPairsTree, splitClusterTree } from './treeModel.js';
 import { clusterOffsets } from './cluster.js';
 import { allowedChildren, defaultParams, DISPLAY_NAME, FIELDS } from './schema.js';
 
@@ -320,41 +320,127 @@ describe('engineTree — protuberance lowering', () => {
     name: 'p',
     components: [{
       type: 'stage', id: 's1',
-      children: [{
-        // 100 mm radius body ⇒ reference area π·0.1² = 0.0314159 m².
-        type: 'bodytube', id: 'b1', length: 0.5, outerRadius: 0.1,
-        children: [{
-          type: 'protuberance', id: 'x1', name: 'Bump',
-          width: 0.05, height: 0.02, length: 0.1, count: 1, mass: 0,
-          position: { method: 'middle', offset: 0.02 },
-          ...params,
-        } as unknown as ComponentNode],
-      } as ComponentNode],
+      children: [
+        { type: 'nosecone', id: 'n1', length: 0.4, aftRadius: 0.1, thickness: 0.002, shape: 'ogive' },
+        {
+          // 100 mm radius body ⇒ reference area π·0.1² = 0.0314159 m².
+          type: 'bodytube', id: 'b1', length: 0.5, outerRadius: 0.1,
+          children: [
+            {
+              type: 'protuberance', id: 'x1', name: 'Bump',
+              width: 0.05, height: 0.02, length: 0.1, count: 1, mass: 0,
+              position: { method: 'middle', offset: 0.02 },
+              ...params,
+            } as unknown as ComponentNode,
+            {
+              type: 'trapezoidfinset', id: 'f1', finCount: 3, rootChord: 0.15, tipChord: 0.08,
+              sweep: 0.06, height: 0.09, thickness: 0.004,
+              position: { method: 'bottom', offset: 0 },
+            } as ComponentNode,
+          ],
+        } as ComponentNode,
+      ],
     } as ComponentNode],
   });
   const aRef = Math.PI * 0.1 * 0.1;
+
+  /**
+   * The body-CD reference this design measures — the WHOLE model for the two
+   * streamlined classes (RASAero's Streamlined Protuberance Method, TRF 197641
+   * #1). Pinned so a silent change in the kernel's body drag, or in what
+   * "the body" means here, shows up as a failing number rather than as a
+   * quietly different protuberance drag.
+   *
+   * MEASURED 2026-08-25, sea level, Mach 0.3, classic aero: this 0.4 m ogive +
+   * 0.5 m tube of 200 mm diameter with its 3 fins stripped.
+   */
+  it('measures the design\'s own body CD, fins and appendages stripped', () => {
+    const body = bodyDragReference(protTree({}));
+    expect(body.measured).toBe(true);
+    expect(body.mach).toBe(PROTUBERANCE_REF_MACH);
+    expect(body.noBase).toBeCloseTo(0.0783270, 6);
+    expect(body.withBase).toBeCloseTo(0.2100270, 6);
+    // The difference IS the kernel's own body base-drag law, 0.12 + 0.13·M²,
+    // and this airframe's base area equals its reference area (no boat tail),
+    // so it lands on the law exactly — a check that the two halves of the pair
+    // really are "without base" and "with base".
+    expect(body.withBase - body.noBase).toBeCloseTo(0.12 + 0.13 * PROTUBERANCE_REF_MACH ** 2, 9);
+    // The fins are NOT in it: the same tree with fins deleted measures the same.
+    const finless: RocketTree = {
+      ...protTree({}),
+      components: [{
+        ...protTree({}).components[0]!,
+        children: [
+          protTree({}).components[0]!.children![0]!,
+          { ...protTree({}).components[0]!.children![1]!, children: [] } as ComponentNode,
+        ],
+      } as ComponentNode],
+    };
+    const bare = bodyDragReference(finless);
+    expect(bare.noBase).toBeCloseTo(body.noBase, 12);
+    expect(bare.withBase).toBeCloseTo(body.withBase, 12);
+  }, 60000);
 
   it('becomes a rail button whose CD override IS frontal area × Cd ÷ reference area', () => {
     const out = engineTree(protTree({ dragClass: 'streamlinedbase' }));
     const carrier = findNode(out, 'x1')!;
     expect(carrier.type).toBe('railbutton');
     expect(carrier.name).toBe('Bump');
-    // 0.10 (faired fore body) + 0.12 (blunt base) = 0.22 on 0.05 × 0.02 m².
-    expect(carrier['overrideCD']).toBeCloseTo((0.22 * 0.001) / aRef, 12);
+    // Cd = the body CD INCLUDING base drag, on 0.05 × 0.02 m² of frontal area.
+    const body = bodyDragReference(protTree({}));
+    expect(carrier['overrideCD']).toBeCloseTo((body.withBase * 0.001) / aRef, 12);
     expect(carrier['overrideMass']).toBe(0);
     expect(carrier.position).toEqual({ method: 'middle', offset: 0.02 });
-  });
+  }, 60000);
 
   it('scales linearly with count — n identical bumps are n times the area', () => {
     const one = findNode(engineTree(protTree({})), 'x1')!['overrideCD'] as number;
     const four = findNode(engineTree(protTree({ count: 4 })), 'x1')!['overrideCD'] as number;
     expect(four).toBeCloseTo(4 * one, 12);
-  });
+  }, 60000);
 
   it('drops the base-drag term for the streamlined class', () => {
+    const body = bodyDragReference(protTree({}));
     const cd = findNode(engineTree(protTree({ dragClass: 'streamlined' })), 'x1')!['overrideCD'] as number;
-    expect(cd).toBeCloseTo((0.10 * 0.001) / aRef, 12);
-  });
+    expect(cd).toBeCloseTo((body.noBase * 0.001) / aRef, 12);
+    // …which is strictly LESS than the with-base class, by the base drag.
+    const withBase = findNode(engineTree(protTree({ dragClass: 'streamlinedbase' })), 'x1')!['overrideCD'] as number;
+    expect(cd).toBeLessThan(withBase);
+    expect(withBase - cd).toBeCloseTo(((body.withBase - body.noBase) * 0.001) / aRef, 12);
+  }, 60000);
+
+  /**
+   * The change that motivated v0.069: the streamlined classes used to be the
+   * flat constants 0.10 and 0.22 regardless of the rocket. They are now the
+   * design's own body CD, so the SAME bump on a different airframe gets a
+   * different Cd — which is the entire content of RASAero's method and the
+   * thing a constant cannot express.
+   */
+  it('the streamlined Cd is the design\'s body CD, so it moves with the airframe', () => {
+    const fat = protTree({});
+    const body = bodyDragReference(fat);
+    expect(protuberanceCd(fat, findNode(fat, 'x1')!)).toBeCloseTo(body.withBase, 12);
+
+    // A slender 60 mm sport airframe: more wetted area per unit reference
+    // area, so a markedly higher body CD than the 200 mm tub above.
+    const slim: RocketTree = {
+      name: 'slim',
+      components: [{
+        type: 'stage', id: 's1',
+        children: [
+          { type: 'nosecone', id: 'n1', length: 0.25, aftRadius: 0.03, thickness: 0.002, shape: 'ogive' },
+          { type: 'bodytube', id: 'b1', length: 1.35, outerRadius: 0.03, thickness: 0.001 } as ComponentNode,
+        ],
+      } as ComponentNode],
+    };
+    const slimBody = bodyDragReference(slim);
+    expect(slimBody.measured).toBe(true);
+    expect(slimBody.noBase).toBeGreaterThan(body.noBase * 1.5);
+    // …and on that airframe the method lands WELL above the retired 0.10/0.22
+    // constants, which is the 2–3× shortfall the TRF 197641 #1 method exposed.
+    expect(slimBody.noBase).toBeGreaterThan(0.10);
+    expect(slimBody.withBase).toBeGreaterThan(0.22);
+  }, 60000);
 
   it('follows 1.17·sin²θ for an inclined flat plate, θ in RADIANS', () => {
     const at = (deg: number) => findNode(

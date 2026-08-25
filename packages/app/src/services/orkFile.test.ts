@@ -1836,3 +1836,181 @@ describe('.ork round-trip of the protuberance extension element', () => {
     expect(exportOrk({ name: 'Prot', tree })).not.toContain('protuberance');
   });
 });
+
+/**
+ * The automatic-radius importer bug, found 2026-08-25 while running the TRF
+ * corpus through the engine (`docs/research/trf-sim-disagreements-2026-08-25.md`
+ * §6).
+ *
+ * OpenRocket 15.03 writes an automatic dimension as a BARE `auto`; 23.09 and
+ * later append the value it had just resolved. `num()`'s trailing-token parse
+ * survives the second shape and silently takes the 12 mm fallback on the first,
+ * so a 6.17-inch airframe imported as three pencil-thin tubes:
+ *
+ *   Comp_Rocket_V4.ork          CD @ M0.3  1.3550 -> 0.4674, apogee 6,699 -> 10,292 ft
+ *                               (desktop OpenRocket stored 10,576 ft in that same file)
+ *   Wildman Mach 2 this one.ork CD @ M0.3  1.7929 -> 0.4803, CP 42.16 -> 37.05 in
+ *
+ * Both are 15.03-era files, which is exactly what a long-standing builder has in
+ * their archive. Measured against kernel artifact orkengine.mjs md5
+ * bc0c742d0343d36a83e0a213f3159da7.
+ */
+describe('.ork automatic radii (bare `auto`, OpenRocket 15.03)', () => {
+  const parse = (name: string) => {
+    const r = importOrk(golden(name));
+    return { r, parts: flatten(r.tree.components) };
+  };
+  const by = (parts: ComponentNode[], nm: string) => parts.find((c) => c.name === nm)!;
+
+  it('resolves a body tube forwards, to the nose cone it sits behind', () => {
+    // Comp_Rocket_V4's shape: three chained automatic tubes behind an explicit
+    // 0.078359 m nose base. Read as 12 mm they carried 2.9x the drag.
+    const { parts } = parse('auto-radius-15.03.ork');
+    for (const nm of ['Payload Tube', 'SwitchBand / Ebay Assembly', 'Recovery Tube']) {
+      expect(by(parts, nm)['outerRadius'], nm).toBeCloseTo(0.078359, 12);
+    }
+    // ...and the tube that stated its own radius is untouched.
+    expect(by(parts, 'Lower Body Tube')['outerRadius']).toBeCloseTo(0.078359, 12);
+  });
+
+  it('resolves a nose cone base radius backwards, past an automatic tube', () => {
+    // "Wildman Mach 2 this one.ork": <aftradius>auto</aftradius> on the nose,
+    // then an automatic tube, then the Switch Band's stated 0.0282448 m. The
+    // nose has to chain THROUGH the automatic tube to reach it — the same walk
+    // BodyTube.getRearAutoRadius does.
+    const { parts } = parse('auto-radius-nose-15.03.ork');
+    expect(by(parts, 'Nose cone')['aftRadius']).toBeCloseTo(0.0282448, 12);
+    expect(by(parts, 'NC Straight Wall (integral)')['outerRadius']).toBeCloseTo(0.0282448, 12);
+    expect(by(parts, 'Switch Band')['outerRadius']).toBeCloseTo(0.0282448, 12);
+    expect(by(parts, 'Airframe')['outerRadius']).toBeCloseTo(0.0282448, 12);
+  });
+
+  it('resolves a transition fore radius across the stage boundary', () => {
+    // The kernel already got this one right (an absent foreRadius becomes
+    // setForeRadiusAutomatic(true)), so the value must not MOVE — but it has to
+    // exist, because the schematic, the 3D mesh and the property panel all fall
+    // back to a hard 12 mm for a missing radius, and a 2.2-inch transition
+    // would draw as a stub (findings-2026-08-22-import-fidelity.md item 6).
+    const { parts } = parse('auto-radius-nose-15.03.ork');
+    const t = by(parts, 'Transition');
+    expect(t['foreRadius']).toBeCloseTo(0.0282448, 12); // last tube of stage 1
+    expect(t['aftRadius']).toBeCloseTo(0.039878, 12); // stated, untouched
+  });
+
+  it('resolves a mass object packed radius to the cavity it sits in', () => {
+    // MassObject.getMaxParentRadius(): a body-tube parent gives its INNER
+    // radius. 0.078359 outer - 0.002159 wall.
+    const { parts } = parse('auto-radius-15.03.ork');
+    expect(by(parts, 'Recovery Hardware')['radius']).toBeCloseTo(0.0762, 12);
+  });
+
+  it('leaves the automatic shapes the kernel already handles alone', () => {
+    // Rings, tube couplers, bulkheads, engine blocks, tube fins and a recovery
+    // device's Cd all have a set...Automatic path in ComponentFactory. Turning
+    // those into numbers here would FREEZE a dimension the desktop keeps live.
+    const { parts } = parse('auto-radius-15.03.ork');
+    const ring = by(parts, 'Motor Ring');
+    expect(ring['outerRadius']).toBeUndefined();
+    expect(ring['innerRadius']).toBeUndefined();
+    expect(by(parts, 'Airframe Main')['cd']).toBeUndefined();
+  });
+
+  it('says so in a note, naming the components and the diameter it inferred', () => {
+    const { r } = parse('auto-radius-15.03.ork');
+    const note = r.notes.find((n) => n.includes('automatic diameter'));
+    expect(note).toBeDefined();
+    expect(note).toContain('Payload Tube');
+    expect(note).toContain('Recovery Hardware');
+    expect(note).toContain('156.7 mm'); // 2 x 0.078359 m
+    expect(note).toContain('OpenRocket 15.03');
+  });
+
+  it('keeps `auto <lastvalue>` on the value the desktop resolved', () => {
+    // 23.09+ shape. The trailing token IS the number desktop had just computed,
+    // so trusting it reproduces the desktop exactly — and keeps every modern
+    // file importing bit-identically to before any of this existed.
+    const xml = `<openrocket version="1.10" creator="OpenRocket 24.12"><rocket>
+      <name>Modern</name><subcomponents><stage><name>S</name><subcomponents>
+        <nosecone><name>N</name><length>0.3</length><thickness>0.001</thickness>
+          <shape>ogive</shape><aftradius>auto 0.0508</aftradius></nosecone>
+        <bodytube><name>B</name><length>0.9</length><thickness>0.00127</thickness>
+          <radius>auto 0.0508</radius></bodytube>
+      </subcomponents></stage></subcomponents></rocket></openrocket>`;
+    const r = importOrk(xml);
+    const parts = flatten(r.tree.components);
+    expect(by(parts, 'N')['aftRadius']).toBeCloseTo(0.0508, 12);
+    expect(by(parts, 'B')['outerRadius']).toBeCloseTo(0.0508, 12);
+    // Nothing was inferred, so nothing is claimed.
+    expect(r.notes.some((n) => n.includes('automatic diameter'))).toBe(false);
+  });
+
+  it('falls back to OpenRocket own 25 mm when there is nothing to infer from', () => {
+    // Every centreline component automatic and no stated radius anywhere:
+    // SymmetricComponent.DEFAULT_RADIUS is what the desktop shows. Say so
+    // rather than inventing a 12 mm tube and staying quiet about it.
+    const xml = `<openrocket version="1.4" creator="OpenRocket 15.03"><rocket>
+      <name>Nothing</name><subcomponents><stage><name>S</name><subcomponents>
+        <nosecone><name>N</name><length>0.3</length><thickness>0.001</thickness>
+          <shape>ogive</shape><aftradius>auto</aftradius></nosecone>
+        <bodytube><name>B</name><length>0.9</length><thickness>0.00127</thickness>
+          <radius>auto</radius></bodytube>
+      </subcomponents></stage></subcomponents></rocket></openrocket>`;
+    const r = importOrk(xml);
+    const parts = flatten(r.tree.components);
+    expect(by(parts, 'N')['aftRadius']).toBeCloseTo(0.025, 12);
+    expect(by(parts, 'B')['outerRadius']).toBeCloseTo(0.025, 12);
+    const note = r.notes.find((n) => n.includes('no neighbour'));
+    expect(note).toBeDefined();
+    expect(note).toContain('50 mm');
+  });
+
+  it('does not hang on an automatic chain that points at itself', () => {
+    // Two automatic tubes and nothing else: desktop's refComp guard stops the
+    // walk; ours is a visited set. Without it this recurses forever.
+    const xml = `<openrocket version="1.4" creator="OpenRocket 15.03"><rocket>
+      <name>Cycle</name><subcomponents><stage><name>S</name><subcomponents>
+        <bodytube><name>A</name><length>0.5</length><thickness>0.001</thickness>
+          <radius>auto</radius></bodytube>
+        <bodytube><name>B</name><length>0.5</length><thickness>0.001</thickness>
+          <radius>auto</radius></bodytube>
+      </subcomponents></stage></subcomponents></rocket></openrocket>`;
+    const parts = flatten(importOrk(xml).tree.components);
+    expect(by(parts, 'A')['outerRadius']).toBeCloseTo(0.025, 12);
+    expect(by(parts, 'B')['outerRadius']).toBeCloseTo(0.025, 12);
+  });
+
+  it('drops an unparseable <cd> instead of storing NaN', () => {
+    // Same family: `Number("auto 0.8")` is NaN, and a NaN drag coefficient
+    // reaches the descent solver.
+    const xml = `<openrocket version="1.10" creator="OpenRocket 24.12"><rocket>
+      <name>Cd</name><subcomponents><stage><name>S</name><subcomponents>
+        <bodytube><name>B</name><length>0.5</length><thickness>0.001</thickness><radius>0.03</radius>
+          <subcomponents>
+            <parachute><name>Auto</name><diameter>0.6</diameter><cd>auto</cd></parachute>
+            <parachute><name>Junk</name><diameter>0.6</diameter><cd>auto 0.8</cd></parachute>
+            <parachute><name>Real</name><diameter>0.6</diameter><cd>0.97</cd></parachute>
+            <streamer><name>Strip</name><striplength>0.5</striplength><stripwidth>0.05</stripwidth>
+              <cd>auto</cd></streamer>
+          </subcomponents>
+        </bodytube></subcomponents></stage></subcomponents></rocket></openrocket>`;
+    const parts = flatten(importOrk(xml).tree.components);
+    expect(by(parts, 'Auto')['cd']).toBeUndefined();
+    expect(by(parts, 'Junk')['cd']).toBeUndefined();
+    expect(by(parts, 'Real')['cd']).toBeCloseTo(0.97, 12);
+    expect(by(parts, 'Strip')['cd']).toBeUndefined();
+  });
+
+  it('flies the resolved design instead of a 12 mm pencil', async () => {
+    // End to end through the kernel on the fixture's own geometry: the
+    // reference diameter, and the drag it implies, are what moved.
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    const { engineTree } = await import('../tree/treeModel.js');
+    resetEngine();
+    const r = OrkRocket.buildTree(engineTree(importOrk(golden('auto-radius-15.03.ork')).tree));
+    const info = r.staticInfo();
+    // 2 x 0.078359 m = 6.17 in, the airframe the author drew — not 24 mm.
+    expect(info.refDiameter).toBeCloseTo(0.156718, 6);
+    const sweep = r.dragSweep({ machMin: 0.3, machMax: 0.3, machStep: 0.1, aoaDeg: 0 });
+    expect(sweep.powerOff.total[0]!).toBeLessThan(0.6); // 1.3550 before the fix
+  });
+});

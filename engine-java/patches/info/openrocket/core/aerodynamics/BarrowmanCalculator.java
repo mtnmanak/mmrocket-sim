@@ -125,6 +125,65 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 	}
 
 	/**
+	 * PATCH (boundary-layer transition, 2026-08-25 — see
+	 * engine-java/patches/LEDGER.md and
+	 * validation/scorecard-transition-2026-08-25.md).
+	 * <p>
+	 * OpenRocket carries a partial-laminar skin-friction branch gated on
+	 * {@code Rocket.isPerfectFinish()}: below Re 5.39e5 fully laminar
+	 * (Blasius 1.328/sqrt(Re)), above it the turbulent flat-plate value minus
+	 * a 1700/Re laminar-run credit, plus a much weaker compressibility
+	 * correction, plus roughness limiting only above Re 1e6. It is a
+	 * WHOLE-ROCKET model: one Reynolds number built from
+	 * {@code FlightConfiguration.getLengthAerodynamic()} feeds one Cf that
+	 * every component — body tubes and fins alike — is charged with.
+	 * <p>
+	 * <b>In OpenRocket 24.12 that branch is dead code.</b> {@code perfectFinish}
+	 * defaults false (Rocket.java:83), is never written by the Swing UI, the
+	 * .ork loader/saver, the RockSim loader or preferences, and the only call to
+	 * {@code setPerfectFinish} anywhere in the release sets it to {@code false}
+	 * (TestRockets.java:768, :962). Desktop OpenRocket is therefore
+	 * unconditionally fully turbulent, and the property is not stored in .ork
+	 * files. So "desktop users can set this and ours cannot" was never true:
+	 * nobody could set it.
+	 * <p>
+	 * We expose it (OrkEngine.setPerfectFinish), because for a genuinely smooth
+	 * article at low Reynolds number a laminar run is real physics, and because
+	 * an unreachable knob cannot be evaluated. But honouring it in the
+	 * <b>parity</b> model would break the one commitment this project makes:
+	 * with rogersKbf and supersonicAero both off the kernel must be
+	 * bit-identical to desktop, and desktop is always turbulent. Hence the
+	 * gate below — the setting is honoured in Rogers Kbf and Supersonic and
+	 * IGNORED in "OpenRocket — Extended Barrowman". Structural, not a
+	 * convention: no bridge call and no .ork import can move a classic number
+	 * with it.
+	 * <p>
+	 * Default remains OFF in every model. It is NOT turned on for Kbf, and the
+	 * measurement is why: the only cell in the anchor set that could arbitrate
+	 * it (ARCAS fins-off, NASA TN D-4013) was boundary-layer TRIPPED — report
+	 * p.4, a 0.10-in strip of No. 120 carborundum 1.25 in aft of the nose — so
+	 * fully turbulent is the correct modelling choice there, and the branch
+	 * cannot be validated against it. See the scorecard for the numbers,
+	 * including the proof that the 1700/Re credit is analytically INDEPENDENT
+	 * of body length and therefore cannot be the cause of our friction
+	 * over-scaling on added length.
+	 * <p>
+	 * <b>Two gotchas to know before turning it on.</b> (1) The branch is not
+	 * only a laminar run: its compressibility correction is
+	 * (1+0.045 M²)^-0.25 where the turbulent branch uses (1+0.15 M²)^-0.58, so
+	 * above M1.1 it ADDS friction — measured +19 % at M2, +43 % at M3, +67…+73 %
+	 * at M4 on three validation fixtures. That is a laminar law applied at
+	 * Reynolds numbers where the layer is turbulent (Van Driest II wants ≈0.46
+	 * at M4; this branch gives 0.87), and it is where most of the gates it
+	 * "wins" come from. (2) Because it is a separate branch, it bypasses the
+	 * Phase-4 Van Driest II high-Mach fit below entirely — turning it on in the
+	 * Supersonic model silently discards that correction.
+	 */
+	private boolean partialLaminar(FlightConfiguration configuration) {
+		return (rogersKbf || supersonicAero) && configuration.getRocket().isPerfectFinish();
+	}
+
+	/**
 	 * Determine whether calculations are suspect because we are stalling
 	 *
 	 * @return               whether we are stalling, and the margin
@@ -579,8 +638,10 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 			 * For perfect finish require additionally that Re > 1e6
 			 */
 			double componentCf;
-			if (configuration.getRocket().isPerfectFinish()) {
-				
+			// PATCH (boundary-layer transition): partialLaminar() is
+			// isPerfectFinish() gated to the non-parity models — see its javadoc.
+			if (partialLaminar(configuration)) {
+
 				// For perfect finish require Re > 1e6
 				if ((Re > 1.0e6) && (roughnessLimited[finish.ordinal()] > Cf)) {
 					componentCf = roughnessLimited[finish.ordinal()];
@@ -664,7 +725,9 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 		double c1 = 1.0, c2 = 1.0;
 		
 		// Calculate the skin friction coefficient (assume non-roughness limited)
-		if (configuration.getRocket().isPerfectFinish()) {
+		// PATCH (boundary-layer transition): partialLaminar() is
+		// isPerfectFinish() gated to the non-parity models — see its javadoc.
+		if (partialLaminar(configuration)) {
 
 			// Assume partial laminar layer. Roughness-limitation is checked later.
 			if (Re < 1.0e4) {
@@ -922,8 +985,23 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 				// defaults to 0 (no effect), so power-off flight and every existing
 				// golden stay bit-identical. The supersonic large-nozzle extension
 				// (thrust augmentation beyond the base area) is deferred to feature #1.
+				//
+				// PARITY FIX 2026-08-25, same species as the airfoilSection one in
+				// FinSetCalc.calculatePressureCD and the same ruling
+				// (docs/working-notes.md, 2026-08-25). This was INPUT-gated only,
+				// so a design carrying a nozzle exit diameter — every RASAero
+				// import that names one — got non-desktop power-ON base drag in
+				// "OpenRocket — Extended Barrowman" too. Desktop OpenRocket 24.12
+				// has no aerodynamic model for a nozzle exit at all: the identifier
+				// appears in exactly two files in the release, both under
+				// file/rasaero (the export DTO and its constants table), and
+				// nothing in core/aerodynamics reads it. Now gated to the
+				// non-parity models like every other extension. No validation row
+				// moves (all 175 gates are power-OFF and no fixture sets a nozzle),
+				// and no Kbf/Supersonic user's numbers move either.
 				AxialStage stage = s.getStage();
-				double nozzleDia = (stage != null) ? stage.getNozzleExitDiameter() : 0.0;
+				double nozzleDia = (rogersKbf || supersonicAero) && stage != null
+						? stage.getNozzleExitDiameter() : 0.0;
 				if (nozzleDia > 0.0 && stage != null && conditions.isStageThrusting(stage.getStageNumber())) {
 					double nozzleArea = Math.PI * pow2(nozzleDia / 2.0);
 					area = Math.max(0.0, area - nozzleArea);

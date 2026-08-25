@@ -609,13 +609,25 @@ describe('RASAero export', () => {
    * kernel's total CD actually does — against the same design with the
    * protuberance removed.
    *
-   * MEASURED 2026-08-25 (Re-matched to the file's own Mach-Alt table):
-   *   ΔCD = +0.0098489 at every Mach from 0.05 to 5, exactly the override.
-   * For scale, the arcas-short fixture note bounds the omission at
-   * +0.002…0.005 CD from a 2-rail-button proxy; two DEFAULT kernel rail
-   * buttons (9.7 mm, 0.251 in² total against this protuberance's 0.178 in²)
-   * measure +0.008980 at M0.3 rising to +0.022406 at M1.8 on this same
-   * fixture, so this lands between the note and the kernel's own model.
+   * RE-MEASURED 2026-08-25 after the streamlined classes became
+   * body-CD-referenced (RASAero's Streamlined Protuberance Method, TRF 197641
+   * #1 — see treeModel.protuberanceCd):
+   *
+   *   frontal area 0.178 in² of a 2.25 in body (3.976 in² reference)
+   *     ⇒ area ratio 0.044768
+   *   body CD at Mach 0.3, fins stripped: 0.311401 without base drag,
+   *     0.354024 with it
+   *   ⇒ ΔCD = 0.354024 × 0.044768 = +0.0158488, at every Mach, exactly the
+   *     override.  (It was +0.0098489 under the retired flat Cd 0.22.)
+   *
+   * Against RASAero's OWN per-Mach version of the same method on this design —
+   * area ratio × the body CD at each Mach, Re-matched to the file's Mach–Alt
+   * table — the true curve runs +0.0092973 (M3.0) to +0.0206119 (M0.05), and
+   * is +0.015808 at M0.3, +0.015857 at M0.6, +0.018063 at M1.0, +0.013111 at
+   * M1.8. Our Mach-flat scalar sits INSIDE that band everywhere and is exact
+   * at M0.3–0.6; the retired 0.0098489 sat below the entire band except above
+   * M2.9. That is the whole gain, and the remaining error is the Mach-flatness
+   * the scalar `overrideCD` hook forces.
    *
    * And the things that must NOT move: friction, pressure and base CD, mass,
    * CG, CP, the reference diameter and the aerodynamic length — a protuberance
@@ -623,13 +635,22 @@ describe('RASAero export', () => {
    */
   it('ARCAS: the imported protuberance delivers its frontal-area drag and nothing else', async () => {
     const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
-    const { engineTree, protuberanceDeliveredCd } = await import('../tree/treeModel.js');
+    const { bodyDragReference, engineTree, protuberanceDeliveredCd, protuberanceFrontalArea, referenceArea } =
+      await import('../tree/treeModel.js');
     const r = importCdx1(fixture('ARCAS-Long - 2.CDX1'));
     const prot = flatten(r.tree.components).find((c) => (c.type as string) === 'protuberance')!;
     const expected = protuberanceDeliveredCd(r.tree, prot);
-    // Frontal area 0.178 in² of a 2.25 in body (3.976 in² reference) at the
-    // streamlined-with-base-drag class Cd 0.22.
-    expect(expected).toBeCloseTo(0.00985, 5);
+    expect(expected).toBeCloseTo(0.0158488, 7);
+    // …and it IS the method, not a number: area ratio × this body's own CD.
+    const body = bodyDragReference(r.tree);
+    expect(body.measured).toBe(true);
+    expect(body.noBase).toBeCloseTo(0.311401, 6);
+    expect(body.withBase).toBeCloseTo(0.354024, 6);
+    const ratio = protuberanceFrontalArea(prot) / referenceArea(r.tree);
+    expect(ratio).toBeCloseTo(0.044768, 6);
+    expect(expected).toBeCloseTo(ratio * body.withBase, 12);
+    // The retired constant was 1.61× low on this design.
+    expect(expected / (0.22 * ratio)).toBeCloseTo(1.6095, 3);
 
     const without = {
       ...r.tree,
@@ -715,14 +736,20 @@ describe('RASAero engine export (gated — see CDX1_ENGINE_EXPORT)', () => {
     motors: { b: { designation: 'J350W', manufacturer: 'AeroTech' } },
   };
 
-  it('is gated OFF by default — motors alone write no engine strings', () => {
-    // Flipping CDX1_ENGINE_EXPORT to true is the sanctioned enable path, but
-    // only AFTER the docs/User files/rasaero-engine-export-test.CDX1 file has
-    // been proven against real RASAero II (the NullReferenceException risk).
-    expect(CDX1_ENGINE_EXPORT).toBe(false);
+  it('is ON by default — proven against real RASAero II 2026-08-25', () => {
+    // docs/User files/rasaero-engine-export-test.CDX1 opened cleanly in
+    // RASAero II ("Motor: J350W  (AT)", Loaded Wt. 5.9966 lb) — screenshot
+    // alongside it. The constant stays the one-line revert if a tester ever
+    // hits the NullReferenceException on a motor RASAero's database lacks.
+    expect(CDX1_ENGINE_EXPORT).toBe(true);
     const xml = exportCdx1(design);
-    expect(xml).not.toContain('Engine>');
+    expect(xml).toContain('<SustainerEngine>J350W  (AT)</SustainerEngine>');
     expect(xml).toContain('<IncludeBooster1>False</IncludeBooster1>');
+  });
+
+  it('still writes no engine string when the caller opts out', () => {
+    const xml = exportCdx1({ ...design, engineExport: false });
+    expect(xml).not.toContain('Engine>');
   });
 
   it('writes the desktop engine string (two spaces) directly before SustainerLaunchWt', () => {

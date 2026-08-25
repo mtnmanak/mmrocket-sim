@@ -121,8 +121,15 @@ describe('OrkRocket (real OpenRocket kernel via TeaVM)', () => {
     expect(info.stabilityCalibers).toBeGreaterThan(1);
 
     // Matches the JVM golden flight.mindia line (incl. the 6 mm overhang).
+    // 2026-08-25: 333.4644714919658 -> 329.6097045289919. This design carries a
+    // nozzleExitDiameter, and the power-on base-drag reduction it drives is one
+    // of ours — desktop OpenRocket 24.12 has no nozzle-exit aerodynamics at all.
+    // It used to apply in every model including the desktop-parity one; it is
+    // now gated to Rogers Kbf / Supersonic like every other extension, so this
+    // flag-free flight keeps its full base drag through boost and lands 3.85 m
+    // lower. See validation/scorecard-transition-2026-08-25.md.
     const result = rocket.simulate({});
-    expect(result.summary.maxAltitude).toBeCloseTo(333.4644714919658, 4);
+    expect(result.summary.maxAltitude).toBeCloseTo(329.6097045289919, 4);
   });
 
   it('rejects a motor on a component that is not a mount', () => {
@@ -255,7 +262,13 @@ describe('OrkRocket (real OpenRocket kernel via TeaVM)', () => {
   });
 
   it('fin airfoil sections: blunt-base wedge adds fin base drag, sharp sections do not', () => {
-    const mk = (finExtra: Record<string, unknown>) => OrkRocket.buildTree({
+    // 2026-08-25: the section model is no longer INPUT-gated. Naming an airfoil
+    // section used to replace desktop's pressure-drag model in EVERY aero model
+    // including "OpenRocket - Extended Barrowman", whose whole claim is
+    // bit-identical desktop physics (desktop's FinSet knows only the three-valued
+    // CrossSection). It now needs Rogers Kbf or the supersonic model, so this
+    // test asks for Kbf — and asserts the parity model ignores it, below.
+    const mkRaw = (finExtra: Record<string, unknown>) => OrkRocket.buildTree({
       components: [
         { type: 'nosecone', shape: 'conical', length: 0.085, aftRadius: 0.015, thickness: 0.0015 },
         {
@@ -270,9 +283,19 @@ describe('OrkRocket (real OpenRocket kernel via TeaVM)', () => {
         },
       ],
     });
+    const mk = (finExtra: Record<string, unknown>) => {
+      const r = mkRaw(finExtra);
+      r.setRogersModifiedBarrowman(true);
+      return r;
+    };
     const at = (s: { machs: number[] }, m: number) =>
       s.machs.findIndex((x) => Math.abs(x - m) < 1e-9);
     const opts = { machMin: 0.5, machMax: 2.5, machStep: 0.5 };
+
+    // The parity model must be blind to the section: same answer with and
+    // without one named, because that is what desktop OpenRocket would say.
+    expect(mkRaw({ airfoilSection: 'hexbluntbase' }).dragSweep(opts).powerOff.pressure)
+      .toEqual(mkRaw({}).dragSweep(opts).powerOff.pressure);
 
     const classic = mk({}).dragSweep(opts);
     const wedge = mk({ airfoilSection: 'singlewedge' }).dragSweep(opts);

@@ -1,3 +1,9 @@
+// The engine is imported as a VALUE here, not only as types: the two
+// body-CD-referenced protuberance classes need the kernel to tell them what
+// this design's own body CD is (see bodyDragReference). This module is already
+// the engine boundary — engineTree is the app→kernel lowering — so the
+// dependency lives where the lowering does.
+import { OrkRocket } from '@online-openrocket/engine';
 import type { ComponentNode, ComponentType, RocketTree } from '@online-openrocket/engine';
 import { resolveAbsolutePositions } from './position.js';
 import { defaultParams, DISPLAY_NAME, FIELDS, type EditorComponentType } from './schema.js';
@@ -264,57 +270,237 @@ const FAIRING_CD_FRONTAL: Record<string, number> = {
 };
 
 /**
- * Protuberance drag coefficients, referenced to the bump's FRONTAL area, built
- * from the two terms RASAero's own class names name (Users Manual pp. 24–29:
- * "streamlined front end and a streamlined or boattailed aft end" vs
- * "streamlined front end, but a blunt (flat) back end which has base drag").
+ * The inclined-flat-plate protuberance class, referenced to the plate's
+ * PROJECTED (frontal) area — the area RASAero asks for.
  *
- * - fore 0.10 — Hoerner, *Fluid-Dynamic Drag*: a faired half-body sitting on a
- *   surface, frontal-area referenced, boundary-layer interference included
- *   (a free-stream streamline body of revolution is ~0.05; mounting roughly
- *   doubles it). Same family as FAIRING_CD_FRONTAL above.
- * - base 0.12 — a blunt aft face with attached approach flow. Deliberately the
- *   value OpenRocket's own body base-drag law (0.12 + 0.13·M²) takes at M = 0,
- *   so the app is not inventing a second base-drag constant.
- * - plate 1.17·sin²θ — modified-Newtonian ramp pressure (Cp = 2 sin²θ) scaled
- *   to the measured 3-D flat-plate normal value 1.17 at θ = 90°, referenced to
- *   the plate's PROJECTED (frontal) area, which is the area RASAero asks for.
+ * 1.17·sin²θ — modified-Newtonian ramp pressure (Cp = 2 sin²θ) scaled to the
+ * measured 3-D flat-plate normal value 1.17 at θ = 90°.
  *
- * CROSS-CHECKS (measured 2026-08-25, ARCAS Long fixture, Re-matched machAlt):
- * 1. OpenRocket's own RailButtonCalc — NACA TN 2960 cylinder drag with a
- *    boundary-layer velocity average, the only protuberance model in the carved
- *    kernel — delivers an effective frontal-area Cd of 0.142 (M0.3) rising to
- *    0.465 (M2.95) for a default 9.7 mm button on this rocket. 0.22 sits inside
- *    that band.
- * 2. Chuck Rogers' own ARCAS write-up ("RASAero II Comparisons with ARCAS CP
- *    and CD Data", slide 2) enters the four fin-root anchors by dividing their
- *    frontal area by five because "typically a rail guide will have 5 times the
- *    drag of a typical rocket body" — i.e. Cd(anchor) = Cd(rail guide)/5. With
- *    a rail guide as a near-normal blunt bracket (1.17 here), that is 0.234,
- *    against the 0.22 this table gives them.
+ * CHECKED against an independent hand calculation: Buckeye's 54 mm article
+ * model (TRF 192010 #17, #20) — two appendages of 61 mm² each against a
+ * 2552 mm² rocket area. His own no-interference hand calc gives ΔCD 0.058;
+ * this class gives 1.17 × 2 × 61/2552 = 0.0559, 4 % below it. (RASAero's own
+ * flat-plate column multiplies Hoerner by a hard-wired 1.5 interference
+ * factor and lands at 0.144–0.216; Buckeye's CFD of the same model gives
+ * 0.01–0.02. We deliberately sit at the un-multiplied Hoerner value, which is
+ * the case Rogers himself endorses for a protuberance wrapped symmetrically
+ * around the body: "It's hard to see an Interference Drag Factor of 1.5, just
+ * using 1.0 seems more appropriate", 192010 #8.)
  *
- * KNOWN LIMITATION: these are Mach-FLAT. The kernel hook is a scalar
- * `overrideCD`, so the lowered contribution cannot vary with Mach the way
- * RASAero's protuberance column or the kernel's own rail-button model does.
- * For actual rail buttons prefer the `railbutton` component, which gets
- * OpenRocket's Mach- and boundary-layer-dependent treatment.
+ * KNOWN LIMITATION (measured, both camps agree): the full projected area
+ * over-predicts for a step shorter than the local boundary-layer displacement
+ * thickness. Buckeye's CFD of a 2 mm Slimline retainer step (192010 #29)
+ * measures a peak face Cp of ~0.4, not the 1.17 area-average this class
+ * asserts; Rogers names the same physics as a deliberate RASAero conservatism
+ * (192010 #8). Not modeled — use the Cd field to reduce it by hand.
  */
-const PROTUBERANCE_FORE_CD = 0.10;
-const PROTUBERANCE_BASE_CD = 0.12;
 const PROTUBERANCE_PLATE_CD = 1.17;
 
-/** Frontal-area Cd for a protuberance node (explicit `cdFrontal` wins). */
-export function protuberanceCd(node: ComponentNode): number {
+/**
+ * Fallback body CD pair, used ONLY when the kernel cannot evaluate the design
+ * at all (see bodyDragReference). These are the ARCAS-Long fixture's own
+ * measured body values at PROTUBERANCE_REF_MACH, so the number on screen is at
+ * least a real rocket's; when this pair is in use `measured` is false and the
+ * property panel says so. If the kernel is failing, the design has no CG, CP
+ * or drag curve either.
+ */
+const PROTUBERANCE_FALLBACK_BODY_CD: BodyDragReference = {
+  noBase: 0.311, withBase: 0.354, mach: 0.3, measured: false,
+};
+
+/**
+ * The Mach at which the body-CD-referenced streamlined classes are evaluated.
+ *
+ * RASAero's method is per-Mach (see protuberanceCd); our kernel hook is a
+ * single scalar `overrideCD`, so one Mach has to be picked. 0.3 is the same
+ * Mach the Design tab's "Cd (M0.3)" tile reports, so the body CD quoted in the
+ * protuberance panel is checkable against a number already on screen, and it
+ * is far enough below M1 that the opt-in supersonic-aero and Rogers-Kbf flags
+ * do not move it (measured on ARCAS-Long: body CD 0.311401112 flags-off vs
+ * 0.310352493 flags-on, −0.34 %).
+ */
+export const PROTUBERANCE_REF_MACH = 0.3;
+
+/** The rocket body's own drag coefficients, as the streamlined classes use them. */
+export interface BodyDragReference {
+  /** Body CD EXCLUDING base drag (friction + pressure), rocket reference area. */
+  noBase: number;
+  /** Body CD INCLUDING base drag (the body-only total). */
+  withBase: number;
+  /** The Mach it was evaluated at. */
+  mach: number;
+  /** False ⇒ the kernel could not evaluate this design and the fallback pair is in use. */
+  measured: boolean;
+}
+
+/**
+ * External appendages that are NOT part of "the Rocket Body" for the
+ * body-CD reference: everything that sticks out of the airframe and adds its
+ * own drag. Rogers' instruction to OpenRocket users is literally to delete
+ * them — "use the simple expedient of removing the Fins from the rocket and
+ * running the rocket with No Fins (Rocket Body Only)" (197641 #1).
+ */
+const BODY_CD_APPENDAGES = new Set<string>([
+  'trapezoidfinset', 'ellipticalfinset', 'freeformfinset', 'tubefinset',
+  'launchlug', 'railbutton', 'protuberance', 'fairing',
+]);
+
+/** Strips the appendages, leaving nose + tubes + transitions + boat tail. */
+function bodyOnlyComponents(nodes: ComponentNode[]): ComponentNode[] {
+  return nodes
+    .filter((n) => !BODY_CD_APPENDAGES.has(n.type as string))
+    .map((n) => (n.children ? ({ ...n, children: bodyOnlyComponents(n.children) } as ComponentNode) : n));
+}
+
+/**
+ * Two caches, because the property panel asks for this on every render.
+ * `byTree` is keyed on the tree OBJECT — trees are immutable and replaced
+ * wholesale on every edit, so identity is an exact and free hit. `byShape` is
+ * the fallback, keyed on the stripped tree's JSON, which also catches the case
+ * that matters in batch simulation: 40 motor combinations are 40 different
+ * trees with one identical airframe.
+ */
+const bodyCdByTree = new WeakMap<RocketTree, BodyDragReference>();
+const bodyCdByShape = new Map<string, BodyDragReference>();
+const BODY_CD_CACHE_MAX = 8;
+/** Re-entrancy guard: the probe builds a rocket, which must never probe again. */
+let probing = false;
+
+/**
+ * The rocket body's own CD, measured by the kernel — the reference the two
+ * streamlined protuberance classes are proportional to.
+ *
+ * HOW: strip every external appendage (BODY_CD_APPENDAGES), build THAT rocket
+ * and take a one-point drag sweep. `friction + pressure` is the body CD
+ * excluding base drag, `total` is the body CD including it — which is exactly
+ * the decomposition Rogers asks OpenRocket users to do by hand ("Component
+ * Analysis -> Drag Characteristics. You can add up the Cds of the body
+ * components and subtract the base drag of the aft body", neil_w 197641 #2,
+ * answered "That's it. Thanks!" by Rogers in #4).
+ *
+ * Cost, measured 2026-08-25: build + one-point sweep ≈ 1–3 ms, cached on the
+ * stripped tree, and only ever run for a design that HAS a streamlined
+ * protuberance. Sea-level atmosphere (the tree carries no Mach–altitude
+ * table); on the ARCAS-Long fixture that is 0.311401 against 0.310470
+ * Re-matched to the file's own table, −0.3 %.
+ */
+export function bodyDragReference(tree: RocketTree): BodyDragReference {
+  const known = bodyCdByTree.get(tree);
+  if (known) return known;
+  // The guard can only trip if a stripped tree still held a streamlined
+  // protuberance, which bodyOnlyComponents makes impossible. Belt and braces:
+  // bail WITHOUT caching, so a phantom fallback never becomes this design's
+  // permanent answer.
+  if (probing) return PROTUBERANCE_FALLBACK_BODY_CD;
+
+  const stripped: RocketTree = { ...tree, components: bodyOnlyComponents(tree.components) };
+  const key = JSON.stringify(stripped.components);
+  const hit = bodyCdByShape.get(key);
+  if (hit) {
+    bodyCdByTree.set(tree, hit);
+    return hit;
+  }
+
+  let out = PROTUBERANCE_FALLBACK_BODY_CD;
+  probing = true;
+  try {
+    const sweep = OrkRocket.buildTree(engineTree(stripped)).dragSweep({
+      machMin: PROTUBERANCE_REF_MACH, machMax: PROTUBERANCE_REF_MACH, machStep: 1, aoaDeg: 0,
+    });
+    const friction = sweep.powerOff.friction[0];
+    const pressure = sweep.powerOff.pressure[0];
+    const total = sweep.powerOff.total[0];
+    // A body with no drag at all is not a body — an airframe that stripped
+    // down to nothing, or a kernel that returned an empty sweep. Take the
+    // fallback rather than quietly zeroing the protuberance's contribution.
+    if (Number.isFinite(friction) && Number.isFinite(pressure) && (total as number) > 0) {
+      out = {
+        noBase: Math.max(0, friction! + pressure!),
+        withBase: total!,
+        mach: PROTUBERANCE_REF_MACH,
+        measured: true,
+      };
+    }
+  } catch {
+    // A design the kernel refuses has no drag curve, CG or CP either — the
+    // fallback keeps the panel readable instead of throwing out of a render.
+    out = PROTUBERANCE_FALLBACK_BODY_CD;
+  } finally {
+    probing = false;
+  }
+
+  if (bodyCdByShape.size >= BODY_CD_CACHE_MAX) {
+    bodyCdByShape.delete(bodyCdByShape.keys().next().value as string);
+  }
+  bodyCdByShape.set(key, out);
+  bodyCdByTree.set(tree, out);
+  return out;
+}
+
+/**
+ * Frontal-area Cd for a protuberance node (explicit `cdFrontal` always wins).
+ *
+ * THE STREAMLINED CLASSES ARE NOT CONSTANTS. RASAero's "Streamlined
+ * Protuberance" method — whose class names these are — is stated by its
+ * co-author (Chuck Rogers, TRF 197641 #1, 8 Jun 2026):
+ *
+ *   "The Method is based on the assumption that the Drag Per Unit Frontal Area
+ *   of the Streamlined Protuberance is the same as the Drag Per Unit Frontal
+ *   Area of the Rocket Body. … if the Streamlined Protuberance Frontal Area is
+ *   10% of the Rocket Body Frontal Area, then the Drag Coefficient (CD) of the
+ *   Rocket Body will go up by 10%."
+ *
+ *   "1) … Streamlined with No Base Drag … the increase in the Rocket CD for all
+ *   Mach Numbers will be 10% of the Rocket Body CD Not Including Body Base
+ *   Drag.  2) … Streamlined with Base Drag … 10% of the Rocket Body CD
+ *   Including Body Base Drag."
+ *
+ * So: Cd(streamlined)     = body CD excluding base drag
+ *     Cd(streamlinedbase) = body CD including base drag
+ * — measured from THIS design by bodyDragReference, not from a table.
+ *
+ * WHAT THIS REPLACED, and why (v0.069). Until 2026-08-25 these two classes
+ * were the constants 0.10 and 0.22, assembled from Hoerner surface-protuberance
+ * values. They were LOW against the method the class names are borrowed from —
+ * measured on the ARCAS-Long fixture, whose body CD is 0.311 / 0.354 at M0.3
+ * and 0.322 / 0.403 at M1.0: the no-base class was 3.1× low at M0.3 and the
+ * with-base class 1.6×, rising to 3.2× / 1.8× at M1.0. They were also the wrong
+ * SHAPE — a constant cannot express "a fraction of the body's CD", so the same
+ * bump got the same Cd on a slender minimum-diameter bird and a short fat one.
+ * The old cross-checks that seemed to support 0.22 — the kernel's own
+ * RailButtonCalc (0.142 at M0.3) and Rogers' ÷5 rail-guide convention — are
+ * both statements about BLUFF guides, not about streamlined bumps, and neither
+ * is this method.
+ *
+ * KNOWN LIMITATION: still Mach-FLAT. The kernel hook is a scalar `overrideCD`,
+ * so the delivered contribution is the body-CD-proportional value frozen at
+ * PROTUBERANCE_REF_MACH; RASAero re-evaluates it at every Mach and therefore
+ * tracks the body's transonic spike. On ARCAS-Long, MEASURED 2026-08-25, the
+ * true RASAero curve for the imported protuberance spans +0.0092973 (M3.0) to
+ * +0.0206119 (M0.05) CD — +0.015808 at M0.3, +0.015857 at M0.6, +0.018063 at
+ * M1.0, +0.013111 at M1.8. Our frozen scalar is +0.0158488: inside that band
+ * everywhere, exact at M0.3–0.6, and low at the transonic peak (−12 % at M1.0).
+ * The retired 0.22 constant gave +0.0098489, BELOW the whole band except above
+ * M2.9. Two further honest
+ * limits: measured data (Moore, *Approximate Methods for Weapon
+ * Aerodynamics* Fig. 4.20, from NWL TR-2337, via 192010 #30) shows a
+ * ring/band on a cylinder adding NO CD at all below M0.70, which no Mach-flat
+ * model can reproduce; and a protuberance carries no normal force and no CP
+ * shift here, the same as RASAero. For actual rail buttons prefer the
+ * `railbutton` component, which gets OpenRocket's own Mach- and
+ * boundary-layer-dependent treatment.
+ */
+export function protuberanceCd(tree: RocketTree, node: ComponentNode): number {
   const explicit = node['cdFrontal'];
   if (typeof explicit === 'number' && Number.isFinite(explicit) && explicit >= 0) return explicit;
   const cls = typeof node['dragClass'] === 'string' ? (node['dragClass'] as string) : 'streamlinedbase';
-  if (cls === 'streamlined') return PROTUBERANCE_FORE_CD;
   if (cls === 'plate') {
     const raw = typeof node['plateAngle'] === 'number' ? (node['plateAngle'] as number) : Math.PI / 4;
     const theta = Math.min(Math.PI / 2, Math.max(0, raw)); // radians, 0..90 deg
     return PROTUBERANCE_PLATE_CD * Math.sin(theta) ** 2;
   }
-  return PROTUBERANCE_FORE_CD + PROTUBERANCE_BASE_CD;
+  const body = bodyDragReference(tree);
+  return cls === 'streamlined' ? body.noBase : body.withBase;
 }
 
 /** Total frontal area (m²) a protuberance node presents: width × height × count. */
@@ -352,7 +538,7 @@ export function referenceArea(tree: RocketTree): number {
  * (measured: asked 0.0134303, delivered 0.0134303 at every Mach).
  */
 export function protuberanceDeliveredCd(tree: RocketTree, node: ComponentNode): number {
-  return (protuberanceCd(node) * protuberanceFrontalArea(node))
+  return (protuberanceCd(tree, node) * protuberanceFrontalArea(node))
     / Math.max(referenceArea(tree), 1e-9);
 }
 
@@ -371,7 +557,11 @@ export function protuberanceDeliveredCd(tree: RocketTree, node: ComponentNode): 
  *    (frontal-area Hoerner value scaled to the rocket reference area) and the
  *    as-built mass as a mass override. Radial mounting angle not modeled.
  * 3. Protuberances ('protuberance'): lowered to a kernel RailButton carrying a
- *    CD override and a mass override, which is the CHEAPEST CORRECT carrier —
+ *    CD override and a mass override. For the two streamlined classes that
+ *    override is body-CD-referenced (protuberanceCd), so this function probes
+ *    the kernel for the design's own body CD first — cached, and only when a
+ *    streamlined protuberance is actually present. It is the CHEAPEST CORRECT
+ *    carrier —
  *    MEASURED on the ARCAS Long fixture (2026-08-25):
  *      • the delivered CD is EXACTLY the override (0.0134303 asked, 0.0134303
  *        delivered at every Mach from 0.3 to 4.65),
@@ -396,7 +586,7 @@ export function engineTree(tree: RocketTree): RocketTree {
   const walk = (nodes: ComponentNode[]): ComponentNode[] => nodes.map((n) => {
     if ((n.type as string) === 'protuberance') {
       const area = protuberanceFrontalArea(n);
-      const cd = protuberanceCd(n);
+      const cd = protuberanceCd(tree, n);
       // The carrier's own geometry is inert (its friction/pressure/base are all
       // skipped under the override) — kept in a sane range purely so nothing
       // downstream sees a degenerate component.

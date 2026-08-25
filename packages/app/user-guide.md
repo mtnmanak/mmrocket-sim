@@ -148,22 +148,59 @@ or as width × height — and pick a drag class:
 
 | Class | Cd on frontal area | Use for |
 |---|---|---|
-| Streamlined — no base drag | 0.10 | a faired bump whose wake closes, or one whose base is captured by something behind it |
-| Streamlined — with base drag | 0.22 | the usual case: a faired bump with an open aft face |
+| Streamlined — no base drag | **your rocket's body CD, base drag excluded** | a faired bump whose wake closes, or one whose base is captured by something behind it |
+| Streamlined — with base drag | **your rocket's body CD, base drag included** | the usual case: a faired bump with an open aft face |
 | Inclined flat plate | 1.17·sin²θ | a slab meeting the flow at an angle θ from the body |
 
-Those coefficients are Hoerner's, and the base term (0.12) is OpenRocket's own
-body base law at M = 0, so the app isn't inventing a second constant. The classes
-and the whole approach mirror **RASAero II's** protuberance model, and RASAero
-`.CDX1` protuberance entries import onto this component and export back out.
+**The two streamlined classes are not table values.** They are RASAero II's
+*Streamlined Protuberance Method*, which its co-author Chuck Rogers states as:
+the drag per unit frontal area of a streamlined bump is *the same as the rocket
+body's own*. So a bump with 10 % of the body's frontal area raises the rocket's
+CD by 10 % of the **body** CD — without base drag for the no-base class, with it
+for the with-base class. We compute that body CD by doing exactly what Rogers
+tells OpenRocket users to do by hand: strip the fins and every other appendage,
+run the bare airframe, and read off its drag with and without the base term. The
+property panel prints the two numbers it found for your design, so you can check
+them. They are quoted at Mach 0.3 — the same Mach as the Design tab's
+**Cd (M0.3)** tile, which shows the *whole* rocket including fins, so expect the
+body figures to be the smaller pair.
 
-Two honest limits. The drag is **Mach-flat** — a real protuberance's Cd rises
-through the transonic band, and this one does not, so it under-reads where a
-supersonic flight spends its drag. And it contributes **no mass and no CP shift**
-by design; weigh the part into a mass component if it matters. As a scale check,
-the four fin-root anchors on the NASA ARCAS (0.178 in² total) come out at
-**+0.0098 CD** on a 2.25-inch airframe — small, but the same size as the
-difference between a good sim and a disappointing flight.
+That means the same cable tunnel gets a different Cd on a different rocket, which
+is the whole point: a long slender minimum-diameter bird has a much higher body
+CD than a short fat one, and a bump on it costs proportionally more.
+
+The flat-plate class is Hoerner's measured normal-plate value with **no**
+interference multiplier — deliberately the "wrapped symmetrically around the
+body" case. RASAero multiplies a side-mounted plate by 1.5 (and a rail guide or
+launch shoe by 2.25); if your bracket is a genuinely asymmetric lump on one side,
+type a Cd of about 1.75 in the Cd field. Going the other way, a step *shorter
+than the boundary layer* — a 2 mm motor-retainer ring at the aft end, say —
+measures far less than 1.17 in CFD, so this class over-reads there.
+
+RASAero `.CDX1` protuberance entries import onto this component and export back
+out, class and area intact.
+
+Three honest limits.
+
+1. The drag is **Mach-flat**. RASAero re-evaluates the body CD at every Mach, so
+   its protuberance drag tracks the body's transonic drag rise; ours is frozen at
+   **Mach 0.3**. On the NASA ARCAS the true curve runs +0.0093 to +0.0206 CD and
+   ours sits at +0.0158 — inside the band everywhere, exact around M0.3–0.6, low
+   at the transonic peak. If your flight lives up there, read your body CD off
+   the **Drag** tab at your own max-Q Mach and type it into the Cd field.
+   Measured data is harsher still for a *ring* right around the body: a band on a
+   cylinder adds **no** drag at all below about Mach 0.70, which no Mach-flat
+   model can reproduce.
+2. It contributes **no CP shift and no normal force**, the same as RASAero. An
+   asymmetric guide really does trim the rocket to a small angle of attack; that
+   is not modeled anywhere in the hobby tools.
+3. Mass is whatever you type — 0 by default. Weigh the part in if it matters.
+
+As a scale check, the four fin-root anchors on the NASA ARCAS (0.178 in² total,
+4.5 % of a 2.25-inch airframe's area) come out at **+0.0158 CD** — small, but the
+same size as the difference between a good sim and a disappointing flight. Before
+v0.069 these classes were flat constants (0.10 and 0.22) and gave +0.0098 for the
+same anchors, about 1.6× low against the method whose names they borrowed.
 
 ### Parachute spill holes
 

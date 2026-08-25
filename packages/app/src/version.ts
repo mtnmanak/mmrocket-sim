@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.068';
+export const APP_VERSION = '0.069';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,21 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.069',
+    date: '2026-08-25',
+    title: 'The default model got more accurate, and the OpenRocket model got more faithful',
+    items: [
+      '⚠️ READ THIS ONE: THE DEFAULT MODEL’S NUMBERS HAVE MOVED. If you fly on the default (Rogers Modified Barrowman), your predicted altitudes are now LOWER — measured on two testers’ own designs, 6.3 % and 4.8 % lower, in both cases moving toward what the rocket actually did (one went from over-predicting by 7.3 % to over-predicting by 2.2 %). Runs you saved before this release are not comparable with runs after it. Nothing changed for the "OpenRocket — Extended Barrowman" model except to make it MORE faithful to desktop, so that is where to go for a number you can hand to a desktop user.',
+      'WHY: until now, every accuracy improvement had to be weighed against staying byte-identical to desktop OpenRocket. The four models make that a false choice — only "OpenRocket — Extended Barrowman" is a parity promise. Rogers Kbf and Supersonic are ours, and their job is to be right. So the fin-body interference term that was previously available only in the Supersonic model now also applies to the default: 80 of the 102 gated drag points in the validation harness move closer to measured data, 3 move away.',
+      'FIXED (parity, the mirror image of the above): TWO of our own extensions were firing inside the "OpenRocket — Extended Barrowman" model, which is the one place they must not. Setting a fin airfoil section changed classic drag — by up to 8× on the fin pressure term, 54–62 % of total drag on a supersonic test case — and RASAero-style nozzle-exit base drag did the same on power-on drag. Neither exists in desktop OpenRocket. Both are now confined to Kbf and Supersonic, verified by proving classic now computes exactly what it computes with those inputs deleted. If you have been using the classic model as a desktop cross-check, it is honest now in a way it was not before.',
+      'FIXED: OpenRocket 15.03-era files opened with 3–4× too much drag. Those files write a bare "auto" diameter with no value, and we fell back to 12 mm — so a 4-inch airframe imported as a 12 mm tube. On one posted design that was 5,939 ft predicted where desktop OpenRocket had stored 15,927 ft in that same file. Automatic diameters are now resolved from the neighbouring component the way desktop does it, with a note telling you what was inferred. Newer files were never affected: 26 of the 32 real designs tested import byte-identically, and the 6 that changed are all 15.03-era.',
+      'BETTER: protuberance drag now follows RASAero’s actual method rather than a fixed coefficient. Its co-author states the model as "drag per unit frontal area equal to that of the rocket body", so the two streamlined classes are now referenced to your own design’s body drag instead of the flat 0.10/0.22 they shipped with yesterday. Documented limitation, unchanged: the value is frozen at one Mach.',
+      'The validation harness gained 11 more measured gates and the score went DOWN again — for the third time in two days, and for the same good reason. The NASA report behind our wind-tunnel anchors (TN D-4013) was retrieved and its figures digitized directly, so the body-only drag curve is now gated at every Mach the report actually tested, at a TIGHTER tolerance derived from the report’s own stated accuracy. 10 of the 11 new gates fail. What they show: our body drag runs 10–19 % high subsonically, and drag divergence starts 0.10–0.14 Mach too late. That is a real defect, it is now visible, and it is next.',
+      'Also measured and NOT shipped, because it would have been fitting to the anchors rather than fixing physics: switching on OpenRocket’s dormant partial-laminar friction branch wins 10 validation gates — every one of them above Mach 3, and only because it substitutes a laminar compressibility law where a turbulent one belongs. The wind-tunnel models it was supposed to explain were boundary-layer tripped, so fully turbulent is the correct treatment for them. The branch is now reachable for anyone who wants it, off by default in every model.',
+      'Kernel rebuilt; differential against desktop Java is clean at 309 comparison points, up from 296.',
+    ],
+  },
   {
     version: '0.068',
     date: '2026-08-25',

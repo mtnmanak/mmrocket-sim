@@ -87,7 +87,14 @@ const FINISH_TO_SURFACE: Record<string, string> = {
 };
 
 /**
- * Engine-string export gate — DEFAULT OFF until proven against real RASAero II.
+ * Engine-string export gate — PROVEN against real RASAero II 2026-08-25.
+ *
+ * The test file below opened cleanly: no dialog, "Motor: J350W  (AT)",
+ * Loaded Wt. (lb) 5.9966, CP 35.97 in (screenshot:
+ * docs/User files/rasaero-engine-export-test.png). Kept as a named constant
+ * rather than inlined, because the NRE risk below is real for any motor
+ * RASAero's own database lacks — if a tester ever reports a crash on open,
+ * this is the one line to flip back.
  *
  * RASAero II looks every exported engine name up in its own motor database and
  * throws a NullReferenceException when the name is missing (the same NRE family
@@ -104,7 +111,7 @@ const FINISH_TO_SURFACE: Record<string, string> = {
  * "docs/User files/rasaero-engine-export-test.CDX1" (AeroTech J350W).
  * When that file opens cleanly in RASAero II, flip this to true — one line.
  */
-export const CDX1_ENGINE_EXPORT = false;
+export const CDX1_ENGINE_EXPORT = true;
 
 /**
  * Our manufacturer names → RASAero's engine-file abbreviations, transcribed

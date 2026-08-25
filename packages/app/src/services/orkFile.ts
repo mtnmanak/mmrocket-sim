@@ -208,6 +208,43 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   const stages = Array.from(rocketEl.querySelectorAll(':scope > subcomponents > stage'));
   if (stages.length === 0) throw new Error('No stage found');
 
+  // ---- automatic dimensions (see makeAutoRadii) -------------------------
+  const autoRadii = makeAutoRadii(rocketEl);
+  const autoInferred: { name: string; radius: number }[] = [];
+  const autoUnresolved: string[] = [];
+  /**
+   * A dimension the desktop may write as a number, as `auto <lastvalue>`, or
+   * as a BARE `auto`. The first two parse to the number the desktop itself had
+   * resolved; the third has to be resolved here, from the neighbouring
+   * component, because `ComponentFactory` has no automatic path for it.
+   *
+   * A resolved value is always a NUMBER on the node, never an omission: the 2D
+   * schematic, the 3D mesh and the aft view all fall back to hard 12 mm/9 mm
+   * defaults for a missing radius, so a 4-inch airframe would draw as a stub
+   * (docs/testing/findings-2026-08-22-import-fidelity.md item 6).
+   */
+  const autoDim = (el: Element, tag: string, fallback: number,
+      resolve: (el: Element) => number,
+      // What an UNRESOLVABLE automatic radius becomes. Centreline components
+      // take the desktop's own 25 mm SymmetricComponent.DEFAULT_RADIUS; a mass
+      // object keeps this reader's existing fallback, so nothing moves for a
+      // file we cannot do better on.
+      autoFallback = DEFAULT_AUTO_RADIUS): number => {
+    const raw = text(el, `:scope > ${tag}`);
+    if (raw === null) return fallback;
+    const last = Number(raw.trim().split(/\s+/).pop());
+    if (Number.isFinite(last)) return last; // plain number, or `auto <lastvalue>`
+    if (!/^auto\b/i.test(raw.trim())) return fallback; // unparseable — unchanged
+    const label = text(el, ':scope > name') ?? el.tagName;
+    const r = resolve(el);
+    if (r > 0) {
+      autoInferred.push({ name: label, radius: r });
+      return r;
+    }
+    autoUnresolved.push(label);
+    return autoFallback;
+  };
+
   // Flight-configuration table: rocket-level <motorconfiguration> blocks
   // (optional <name>, optional default="true" — desktop 24.12
   // MotorConfigurationHandler).
@@ -373,7 +410,9 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       case 'nosecone': {
         const n = base('nosecone', false);
         n['length'] = num(el, 'length', 0.07);
-        n['aftRadius'] = num(el, 'aftradius', 0.012);
+        // A nose cone's <aftradius> is its BASE radius, and OpenRocket 15.03
+        // could write it as a bare `auto` (Wildman Mach 2 this one.ork).
+        n['aftRadius'] = autoDim(el, 'aftradius', 0.012, autoRadii.aft);
         // Desktop writes <thickness>filled</thickness> for solid components.
         if (text(el, ':scope > thickness') === 'filled') {
           n['filled'] = true;
@@ -394,10 +433,17 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       case 'transition': {
         const n = base('transition', false);
         n['length'] = num(el, 'length', 0.04);
-        const fore = num(el, 'foreradius', NaN);
-        const aft = num(el, 'aftradius', NaN);
-        if (!Number.isNaN(fore)) n['foreRadius'] = fore;
-        if (!Number.isNaN(aft)) n['aftRadius'] = aft;
+        // An ABSENT radius stays absent: ComponentFactory turns that into
+        // setFore/AftRadiusAutomatic(true) and the kernel resolves it against
+        // the built tree, which is right. A PRESENT bare `auto` is resolved
+        // here instead — the kernel would agree, but the schematic, the 3D
+        // mesh and the property panel all need a number to show.
+        if (text(el, ':scope > foreradius') !== null) {
+          n['foreRadius'] = autoDim(el, 'foreradius', 0.012, autoRadii.fore);
+        }
+        if (text(el, ':scope > aftradius') !== null) {
+          n['aftRadius'] = autoDim(el, 'aftradius', 0.009, autoRadii.aft);
+        }
         if (text(el, ':scope > thickness') === 'filled') {
           n['filled'] = true;
         } else {
@@ -423,7 +469,10 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       case 'bodytube': {
         const n = base('bodytube', false);
         n['length'] = num(el, 'length', 0.3);
-        n['outerRadius'] = num(el, 'radius', 0.012);
+        // THE auto-radius bug: OpenRocket 15.03 writes a bare `auto` here and
+        // num()'s trailing-token parse made that the 12 mm fallback, so a
+        // 6-inch airframe imported as a pencil and carried ~3x the drag.
+        n['outerRadius'] = autoDim(el, 'radius', 0.012, autoRadii.bodyTube);
         n['thickness'] = num(el, 'thickness', 0.0005);
         readMotor(el, n);
         // Extension tag: sub-minimum flag (motor case is the airframe).
@@ -602,8 +651,10 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       case 'parachute': {
         const n = base('parachute', true);
         n['diameter'] = num(el, 'diameter', 0.3);
-        const cdText = text(el, ':scope > cd');
-        if (cdText && cdText !== 'auto') n['cd'] = Number(cdText);
+        // <cd>auto</cd> stays automatic (the kernel's own CD_AUTOMATIC path).
+        // Anything unparseable is dropped rather than stored as NaN — a NaN Cd
+        // reaches the descent solver and poisons the whole trajectory.
+        readAutoCd(el, n);
         n['lineCount'] = Math.round(num(el, 'linecount', 6));
         n['lineLength'] = num(el, 'linelength', 0.3);
         readSoftMaterial(el, n, 'surface', 'surfaceDensity', 'surfaceMaterialName');
@@ -622,8 +673,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
         const n = base('streamer', true);
         n['stripLength'] = num(el, 'striplength', 0.5);
         n['stripWidth'] = num(el, 'stripwidth', 0.05);
-        const cdText = text(el, ':scope > cd');
-        if (cdText && cdText !== 'auto') n['cd'] = Number(cdText);
+        readAutoCd(el, n);
         readSoftMaterial(el, n, 'surface', 'surfaceDensity', 'surfaceMaterialName');
         readDeployment(el, n, chosenConfigId === null ? null : configScoped(el, 'deploymentconfiguration'));
         captureDeployments(el, n);
@@ -639,7 +689,10 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
         const n = base('masscomponent', true);
         n['mass'] = num(el, 'mass', 0.01);
         n['length'] = num(el, 'packedlength', 0.02);
-        n['radius'] = num(el, 'packedradius', 0.005);
+        // MassObject:packedradius is automatic-capable too (the cavity it sits
+        // in — MassObject.getMaxParentRadius). No aero effect, but it sets the
+        // packed cylinder's rotational inertia and how the mass draws.
+        n['radius'] = autoDim(el, 'packedradius', 0.005, autoRadii.packed, 0.005);
         // Preserve-through: what KIND of mass this is (altimeter, payload…).
         // No mass/CG effect, but the desktop shows it and users set it there.
         const mct = text(el, ':scope > masscomponenttype');
@@ -742,6 +795,33 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   }
   if (ignored.size) {
     notes.push(`Ignored unsupported components: ${[...ignored].join(', ')}.`);
+  }
+
+  // Say when a dimension was INFERRED. The user opened an archived file and got
+  // a number nobody typed; without this note the only clue that anything was
+  // reconstructed is that the rocket happens to look right.
+  const nameList = (names: string[]): string => {
+    const uniq = [...new Set(names)];
+    return uniq.length > 4
+      ? `${uniq.slice(0, 4).join(', ')} and ${uniq.length - 4} more`
+      : uniq.join(', ');
+  };
+  if (autoInferred.length > 0) {
+    const k = autoInferred.length;
+    const dias = [...new Set(autoInferred.map((a) => (a.radius * 2000).toFixed(1)))]
+      .map((mm) => `${mm} mm`).join(' / ');
+    notes.push(
+      `${k} component${k === 1 ? '' : 's'} (${nameList(autoInferred.map((a) => a.name))}) `
+      + 'had an automatic diameter with no value stored — how OpenRocket 15.03 and earlier '
+      + `wrote one. ${k === 1 ? 'It was' : 'They were'} sized from the neighbouring component `
+      + `the way OpenRocket does (${dias}); saving writes that number rather than “auto”. `
+      + 'Worth a check against your build.');
+  }
+  if (autoUnresolved.length > 0) {
+    notes.push(
+      `${nameList(autoUnresolved)} had an automatic diameter and no neighbour to take one `
+      + `from, so ${autoUnresolved.length === 1 ? 'it uses' : 'they use'} OpenRocket’s own `
+      + `${(DEFAULT_AUTO_RADIUS * 2000).toFixed(0)} mm default. Set the diameter before simulating.`);
   }
 
   // Honesty notes for the two things this reader now PRESERVES but the
@@ -1879,6 +1959,206 @@ function autoNum(el: Element, tag: string): number | undefined {
   if (!t || t.trim().toLowerCase() === 'auto') return undefined;
   const v = Number(t.split(/\s+/).pop());
   return Number.isFinite(v) ? v : undefined;
+}
+
+/**
+ * Every element OpenRocket 24.12 can write as an automatic dimension, from
+ * `core/.../importt/DocumentConfig.java` (the `"auto"` DoubleSetters) and the
+ * matching savers. Two shapes exist, and the difference is the whole bug:
+ *
+ * | element                                    | saver writes    | this reader |
+ * |--------------------------------------------|-----------------|-------------|
+ * | `BodyTube:radius`                          | `auto <value>`  | resolved    |
+ * | `NoseCone:aftradius` (its BASE radius)     | `auto <value>`  | resolved    |
+ * | `Transition:foreradius` / `aftradius`      | `auto <value>`  | resolved    |
+ * | `MassObject:packedradius`                  | `auto <value>`  | resolved    |
+ * | `TubeFinSet:radius`                        | bare `auto`     | kernel      |
+ * | `CenteringRing:inner/outerradius`          | bare `auto`     | kernel      |
+ * | `Bulkhead` / `TubeCoupler` / `EngineBlock` `:outerradius` | bare `auto` | kernel |
+ * | `RecoveryDevice:cd`                        | bare `auto`     | kernel      |
+ *
+ * "kernel" means the value is left off the node and `ComponentFactory` turns
+ * that into `set…Automatic(true)`, which is correct and stays that way.
+ * "resolved" means the factory has no automatic path for it, so a bare `auto`
+ * has to be turned into a number HERE or the component silently takes a hard
+ * fallback — 12 mm for a body tube, which is the defect this exists to fix.
+ *
+ * **OpenRocket 15.03 wrote all eight as a BARE `auto`**; 23.09+ append the last
+ * resolved value, which the trailing-token parse in `num()` happens to survive.
+ * That is why only 15.03-era files were affected, and they are exactly the files
+ * a long-standing builder has in their archive.
+ */
+/** Component tags that sit on the centreline (kernel `SymmetricComponent`). */
+const SYMMETRIC_TAGS = new Set(['nosecone', 'bodytube', 'transition']);
+
+/**
+ * `SymmetricComponent.DEFAULT_RADIUS` — what the desktop shows for an automatic
+ * radius with no neighbour to take one from. NOT the 12 mm this reader falls
+ * back to for a missing tag; that fallback is ours and stays where it is.
+ */
+const DEFAULT_AUTO_RADIUS = 0.025;
+
+/** An automatic radius that could not be resolved from any neighbour. */
+const UNRESOLVED = -1;
+
+interface AutoRadii {
+  /** `BodyTube.getAutoOuterRadius()`. */
+  bodyTube(el: Element): number;
+  /** `Transition.getAutoAftRadius()` — and a nose cone's automatic BASE radius. */
+  aft(el: Element): number;
+  /** `Transition.getAutoForeRadius()`. */
+  fore(el: Element): number;
+  /** `MassObject.getMaxParentRadius()` — the cavity the mass sits in. */
+  packed(el: Element): number;
+}
+
+/**
+ * Resolves an automatic radius from the neighbouring component the way the
+ * desktop does, working on the XML directly (the DOM already has every
+ * neighbour; the editor tree does not exist yet at read time).
+ *
+ * Mirrors `BodyTube.getAutoOuterRadius` / `Transition.getAutoFore|AftRadius`
+ * and the `getFront|RearAutoRadius` pair they call: a component asked for the
+ * face it presents to its neighbour answers with a stated number, or chains on
+ * to ITS neighbour when it is automatic too, or gives up (`UNRESOLVED`).
+ */
+function makeAutoRadii(rocketEl: Element): AutoRadii {
+  // Centreline chains. The rocket's axial stages share ONE chain — desktop's
+  // getPreviousSymmetricComponent walks across stage boundaries — while a
+  // parallel stage or pod set gets its own, with the body tube it hangs off
+  // standing in for the component ahead of its first child.
+  const pos = new Map<Element, { chain: Element[]; i: number; owner: Element | null }>();
+  const symChildren = (asm: Element): Element[] => {
+    const wrap = asm.querySelector(':scope > subcomponents');
+    return wrap ? Array.from(wrap.children).filter((c) => SYMMETRIC_TAGS.has(c.tagName)) : [];
+  };
+  const register = (chain: Element[], owner: Element | null): void => {
+    chain.forEach((el, i) => pos.set(el, { chain, i, owner }));
+  };
+  register(
+    Array.from(rocketEl.querySelectorAll(':scope > subcomponents > stage'))
+      .flatMap((s) => symChildren(s)),
+    null);
+  for (const asm of Array.from(rocketEl.querySelectorAll('parallelstage, podset, boosterset'))) {
+    const grandparent = asm.parentElement?.parentElement ?? null;
+    register(
+      symChildren(asm),
+      grandparent && SYMMETRIC_TAGS.has(grandparent.tagName) ? grandparent : null);
+  }
+
+  const prevOf = (el: Element): Element | null => {
+    const p = pos.get(el);
+    if (!p) return null;
+    return p.i > 0 ? p.chain[p.i - 1]! : p.owner;
+  };
+  const nextOf = (el: Element): Element | null => {
+    const p = pos.get(el);
+    if (!p) return null;
+    return p.i + 1 < p.chain.length ? p.chain[p.i + 1]! : null;
+  };
+
+  /**
+   * The number the AUTHOR stated for a dimension, or null when they left it
+   * automatic. `auto 0.0508` counts as stated: the desktop writes the value it
+   * had just resolved, so trusting it reproduces the desktop exactly and keeps
+   * every 23.09+ file importing bit-identically to before this existed.
+   */
+  const stated = (el: Element, tag: string): number | null => {
+    const t = text(el, `:scope > ${tag}`);
+    if (t === null) return null;
+    const v = Number(t.trim().split(/\s+/).pop());
+    return Number.isFinite(v) ? v : null;
+  };
+
+  /** `getFrontAutoRadius()` — the face this component shows to the one BEHIND it. */
+  const front = (el: Element, seen: Set<Element>): number => {
+    if (seen.has(el)) return UNRESOLVED; // cyclic auto chain — desktop's refComp guard
+    seen.add(el);
+    if (el.tagName === 'bodytube') {
+      const r = stated(el, 'radius');
+      if (r !== null) return r;
+      const p = prevOf(el);
+      return p ? front(p, seen) : UNRESOLVED;
+    }
+    return stated(el, 'aftradius') ?? UNRESOLVED;
+  };
+
+  /** `getRearAutoRadius()` — the face this component shows to the one AHEAD of it. */
+  const rear = (el: Element, seen: Set<Element>): number => {
+    if (seen.has(el)) return UNRESOLVED;
+    seen.add(el);
+    if (el.tagName === 'bodytube') {
+      const r = stated(el, 'radius');
+      if (r !== null) return r;
+      const n = nextOf(el);
+      return n ? rear(n, seen) : UNRESOLVED;
+    }
+    // A nose cone has no fore face to offer (the desktop disables
+    // NoseCone:foreradius outright), and nothing is ever ahead of one anyway.
+    if (el.tagName === 'nosecone') return UNRESOLVED;
+    return stated(el, 'foreradius') ?? UNRESOLVED;
+  };
+
+  const bodyTube = (el: Element): number => {
+    const p = prevOf(el);
+    const ahead = p ? front(p, new Set([el])) : UNRESOLVED;
+    if (ahead > 0) return ahead;
+    const n = nextOf(el);
+    const behind = n ? rear(n, new Set([el])) : UNRESOLVED;
+    return behind > 0 ? behind : UNRESOLVED;
+  };
+  const aft = (el: Element): number => {
+    const n = nextOf(el);
+    const r = n ? rear(n, new Set([el])) : UNRESOLVED;
+    return r > 0 ? r : UNRESOLVED;
+  };
+  const fore = (el: Element): number => {
+    const p = prevOf(el);
+    const r = p ? front(p, new Set([el])) : UNRESOLVED;
+    return r > 0 ? r : UNRESOLVED;
+  };
+  const resolved = (v: number | null, fb: () => number): number =>
+    v !== null ? v : fb();
+  const packed = (el: Element): number => {
+    const owner = el.parentElement?.parentElement ?? null;
+    if (!owner) return UNRESOLVED;
+    const inner = (r: number): number =>
+      r > 0 ? Math.max(r - (stated(owner, 'thickness') ?? 0), 0) : UNRESOLVED;
+    switch (owner.tagName) {
+      case 'nosecone':
+        return resolved(stated(owner, 'aftradius'), () => aft(owner));
+      case 'transition': {
+        const f = resolved(stated(owner, 'foreradius'), () => fore(owner));
+        const a = resolved(stated(owner, 'aftradius'), () => aft(owner));
+        return Math.max(f, a) > 0 ? Math.max(f, a) : UNRESOLVED;
+      }
+      case 'bodytube':
+        return inner(resolved(stated(owner, 'radius'), () => bodyTube(owner)));
+      case 'innertube':
+      case 'tubecoupler':
+      case 'engineblock':
+        return inner(stated(owner, 'outerradius') ?? UNRESOLVED);
+      case 'centeringring':
+      case 'bulkhead':
+        return stated(owner, 'innerradius') ?? UNRESOLVED;
+      default:
+        return UNRESOLVED;
+    }
+  };
+  return { bodyTube, aft, fore, packed };
+}
+
+/**
+ * A recovery device's `<cd>`: a number, or the literal `auto` (desktop's
+ * `RecoveryDevice.setCDAutomatic`, which the kernel factory honours by leaving
+ * the field off). Anything else is dropped — `Number("auto 0.8")` is NaN, and a
+ * NaN drag coefficient reaches the descent solver.
+ */
+function readAutoCd(el: Element, node: ComponentNode): void {
+  const t = text(el, ':scope > cd');
+  if (t === null || /^auto\b/i.test(t)) return;
+  const v = Number(t);
+  if (Number.isFinite(v) && v >= 0) node['cd'] = v;
 }
 
 function num(el: Element, tag: string, fallback: number): number {

@@ -90,9 +90,208 @@ public final class GoldenMain {
                     fOn.getPressureCD(), fOn.getBaseCD());
         }
 
+        junctionSubsonicScenarios();
         airfoilSectionScenarios();
         phase5AeroScenarios();
         phase6AeroScenarios();
+        transitionScenarios();
+        modelBoundaryScenarios();
+    }
+
+    /**
+     * Boundary-layer transition (2026-08-25). OpenRocket's partial-laminar
+     * friction branch — {@code Rocket.perfectFinish}, dead code in the desktop
+     * release — is now reachable through the bridge
+     * ({@code OrkEngine.setPerfectFinish}) and gated to the non-parity models by
+     * {@code BarrowmanCalculator.partialLaminar}. Nothing pinned it before,
+     * because nothing could reach it.
+     * <p>
+     * Three things get locked, at four Mach numbers spanning both of the
+     * branch's regimes:
+     * <ol>
+     * <li><b>The gate.</b> With both model flags off the setting must be inert —
+     *     the classic pair of columns must be equal at every Mach, which is
+     *     the parity commitment expressed as a differential line.</li>
+     * <li><b>The laminar-run credit</b>, subsonic, where the branch REMOVES
+     *     friction (the 1700/Re term).</li>
+     * <li><b>The compressibility swap</b>, supersonic, where it ADDS a great
+     *     deal — the branch carries a laminar-like correction
+     *     (1+0.045 M²)^-0.25 in place of the turbulent (1+0.15 M²)^-0.58, worth
+     *     ~1.7x on Cf by M4. That is the reason the setting is NOT on by
+     *     default in any model; see
+     *     validation/scorecard-transition-2026-08-25.md.</li>
+     * </ol>
+     * The reference rocket is only 0.37 m long, so at M0.30 it sits at
+     * Re ≈ 2.5e6 — inside the band where the credit is largest relative to Cf,
+     * which is what makes it a useful canary.
+     */
+    private static void transitionScenarios() {
+        info.openrocket.core.logging.WarningSet w =
+                new info.openrocket.core.logging.WarningSet();
+        // Two surfaces, because they exercise DIFFERENT code. On the default
+        // regular-paint finish the roughness-limited Cf wins in BOTH branches
+        // once Re > 1e6, so the setting is a no-op subsonically — that is why
+        // the LEM-IV tester flight moves by 0.002 m with it on, and it needs
+        // pinning as much as the branch itself. Only a POLISHED surface lets
+        // the laminar-run arithmetic (Blasius / the -1700/Re credit) actually
+        // reach the answer.
+        for (int polished = 0; polished < 2; polished++) {
+            for (double mach : new double[] { 0.30, 0.85, 1.50, 4.00 }) {
+                double[] v = new double[6];
+                int k = 0;
+                // classic / Kbf / Supersonic, each with the setting off then on.
+                for (int model = 0; model < 3; model++) {
+                    for (int finish = 0; finish < 2; finish++) {
+                        Rocket rocket = buildReferenceRocket();
+                        rocket.setPerfectFinish(finish == 1);
+                        if (polished == 1) {
+                            for (info.openrocket.core.rocketcomponent.RocketComponent c
+                                    : rocket.getSelectedConfiguration().getAllComponents()) {
+                                if (c instanceof info.openrocket.core.rocketcomponent.ExternalComponent) {
+                                    ((info.openrocket.core.rocketcomponent.ExternalComponent) c).setFinish(
+                                            info.openrocket.core.rocketcomponent.ExternalComponent.Finish.POLISHED);
+                                }
+                            }
+                        }
+                        info.openrocket.core.rocketcomponent.FlightConfiguration config =
+                                rocket.getSelectedConfiguration();
+                        info.openrocket.core.aerodynamics.BarrowmanCalculator calc =
+                                new info.openrocket.core.aerodynamics.BarrowmanCalculator();
+                        calc.setRogersKbf(model >= 1);
+                        calc.setSupersonicAero(model == 2);
+                        info.openrocket.core.aerodynamics.FlightConditions c =
+                                new info.openrocket.core.aerodynamics.FlightConditions(config);
+                        c.setMach(mach);
+                        c.setAOA(0);
+                        v[k++] = calc.getAerodynamicForces(config, c, w).getFrictionCD();
+                    }
+                }
+                line("transition." + (polished == 1 ? "polished." : "paint.") + mach,
+                        v[0], v[1], v[2], v[3], v[4], v[5]);
+            }
+        }
+    }
+
+    /**
+     * The parity boundary itself, 2026-08-25. Two extensions used to be
+     * INPUT-gated — present in every model, including
+     * "OpenRocket — Extended Barrowman", which promises desktop's exact
+     * physics — and the owner's standing ruling made moving them out of the
+     * parity model a bug fix. These lines pin both sides of each boundary so a
+     * future edit that leaks one back into classic shows up as a differential
+     * line rather than only in a scorecard:
+     * <ul>
+     * <li><b>fin airfoilSection</b> (feature #4). Classic must now answer from
+     *     the three-valued {@code CrossSection} alone, so the SQUARE column must
+     *     be identical with and without a doublewedge section named; Kbf must
+     *     still take the section model. Sampled at M1.80, where the difference
+     *     was measured at ~1.5x on total CD.</li>
+     * <li><b>nozzle-exit power-on base drag</b> (feature #2). Classic power-ON
+     *     base CD must now equal its power-OFF value (desktop has no nozzle-exit
+     *     aerodynamics at all); Kbf must still get the reduction.</li>
+     * </ul>
+     */
+    private static void modelBoundaryScenarios() {
+        info.openrocket.core.logging.WarningSet w =
+                new info.openrocket.core.logging.WarningSet();
+        double mach = 1.80;
+        double[] v = new double[4];
+        int k = 0;
+        for (int model = 0; model < 2; model++) {          // classic, then Kbf
+            for (int section = 0; section < 2; section++) { // plain SQUARE, then + doublewedge
+                Rocket rocket = buildReferenceRocket();
+                BodyTube body = (BodyTube) rocket.getChild(0).getChild(1);
+                TrapezoidFinSet fins = (TrapezoidFinSet) body.getChild(0);
+                fins.setCrossSection(info.openrocket.core.rocketcomponent.FinSet.CrossSection.SQUARE);
+                if (section == 1) {
+                    fins.setAirfoilSection("doublewedge");
+                }
+                info.openrocket.core.rocketcomponent.FlightConfiguration config =
+                        rocket.getSelectedConfiguration();
+                info.openrocket.core.aerodynamics.BarrowmanCalculator calc =
+                        new info.openrocket.core.aerodynamics.BarrowmanCalculator();
+                calc.setRogersKbf(model == 1);
+                info.openrocket.core.aerodynamics.FlightConditions c =
+                        new info.openrocket.core.aerodynamics.FlightConditions(config);
+                c.setMach(mach);
+                c.setAOA(0);
+                v[k++] = calc.getAerodynamicForces(config, c, w).getPressureCD();
+            }
+        }
+        line("parity.airfoilsection", v[0], v[1], v[2], v[3]);
+
+        double[] b = new double[4];
+        k = 0;
+        for (int model = 0; model < 2; model++) {
+            Rocket rocket = buildReferenceRocket();
+            AxialStage stage = (AxialStage) rocket.getChild(0);
+            stage.setNozzleExitDiameter(0.016);
+            info.openrocket.core.rocketcomponent.FlightConfiguration config =
+                    rocket.getSelectedConfiguration();
+            info.openrocket.core.aerodynamics.BarrowmanCalculator calc =
+                    new info.openrocket.core.aerodynamics.BarrowmanCalculator();
+            calc.setRogersKbf(model == 1);
+            info.openrocket.core.aerodynamics.FlightConditions off =
+                    new info.openrocket.core.aerodynamics.FlightConditions(config);
+            off.setMach(0.90);
+            off.setAOA(0);
+            b[k++] = calc.getAerodynamicForces(config, off, w).getBaseCD();
+            info.openrocket.core.aerodynamics.FlightConditions on =
+                    new info.openrocket.core.aerodynamics.FlightConditions(config);
+            on.setMach(0.90);
+            on.setAOA(0);
+            java.util.Set<Integer> thrusting = new java.util.HashSet<>();
+            thrusting.add(stage.getStageNumber());
+            on.setThrustingStages(thrusting);
+            b[k++] = calc.getAerodynamicForces(config, on, w).getBaseCD();
+        }
+        line("parity.nozzlebase", b[0], b[1], b[2], b[3]);
+    }
+
+    /**
+     * The fin-in-presence-of-body interference factor
+     * (FinSetCalc.calculateFrictionCD, x1.8 flag-on) is Mach-FLAT, so the
+     * regime it actually changes for most users is subsonic - and every
+     * ssaerocd sample above sits at M1.2 or higher, so nothing in the
+     * differential pinned it there. These lines do, in both flag states, at
+     * three subsonic Mach numbers, for the reference rocket (three SQUARE
+     * cross-section fins, so the Phase-2 AIRFOIL pressure change cannot
+     * contaminate the comparison and the off->on friction ratio is this term
+     * alone). Written 2026-08-25 with
+     * validation/scorecard-junction-2026-08-25.md, which measures what
+     * removing or rescaling the factor would cost; the point of the goldens is
+     * that any future change to it shows up as a differential line, JVM and
+     * TeaVM alike, instead of only in a scorecard.
+     */
+    private static void junctionSubsonicScenarios() {
+        Rocket rocket = buildReferenceRocket();
+        info.openrocket.core.rocketcomponent.FlightConfiguration config =
+                rocket.getSelectedConfiguration();
+        info.openrocket.core.logging.WarningSet w =
+                new info.openrocket.core.logging.WarningSet();
+        for (double mach : new double[] { 0.30, 0.60, 0.85 }) {
+            info.openrocket.core.aerodynamics.BarrowmanCalculator off =
+                    new info.openrocket.core.aerodynamics.BarrowmanCalculator();
+            info.openrocket.core.aerodynamics.FlightConditions cOff =
+                    new info.openrocket.core.aerodynamics.FlightConditions(config);
+            cOff.setMach(mach);
+            cOff.setAOA(0);
+            info.openrocket.core.aerodynamics.AerodynamicForces fOff =
+                    off.getAerodynamicForces(config, cOff, w);
+
+            info.openrocket.core.aerodynamics.BarrowmanCalculator on =
+                    new info.openrocket.core.aerodynamics.BarrowmanCalculator();
+            on.setSupersonicAero(true);
+            info.openrocket.core.aerodynamics.FlightConditions cOn =
+                    new info.openrocket.core.aerodynamics.FlightConditions(config);
+            cOn.setMach(mach);
+            cOn.setAOA(0);
+            info.openrocket.core.aerodynamics.AerodynamicForces fOn =
+                    on.getAerodynamicForces(config, cOn, w);
+
+            line("ssjunction." + mach, fOff.getCD(), fOff.getFrictionCD(),
+                    fOn.getCD(), fOn.getFrictionCD());
+        }
     }
 
     /**

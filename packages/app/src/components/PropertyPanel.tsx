@@ -5,7 +5,8 @@ import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
 import { DISPLAY_NAME, FIELDS, POSITIONABLE, type FieldDef } from '../tree/schema.js';
 import {
-  findParent, protuberanceCd, protuberanceDeliveredCd, protuberanceFrontalArea, suppressingAncestor,
+  bodyDragReference, findParent, protuberanceCd, protuberanceDeliveredCd, protuberanceFrontalArea,
+  suppressingAncestor,
 } from '../tree/treeModel.js';
 import { anchorStarts, axialLength, offsetForStart, snapStart, startFromPosition } from '../tree/position.js';
 import { tubeFinMaxCount, tubeFinMaxRadius, tubeFinRadius } from '../tree/tubefins.js';
@@ -645,17 +646,52 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll, onAutoAli
             node={node} onPatch={onPatch} />
         )}
       </div>
-      {(node.type as string) === 'protuberance' && (
-        <p className="comp-stats" style={{ marginTop: 6 }}>
-          {(protuberanceFrontalArea(node) * 1e6).toFixed(0)} mm² frontal
-          {' × '}Cd {protuberanceCd(node).toFixed(3)}
-          {' = '}<strong>+{protuberanceDeliveredCd(tree, node).toFixed(5)}</strong> on the
-          rocket&rsquo;s CD, at every Mach. Drag only — a protuberance adds no
-          normal force and does not move the CP, the same as RASAero.
-          {' '}For real rail buttons prefer the <em>Rail button</em> component:
-          it gets OpenRocket&rsquo;s own Mach- and boundary-layer-dependent model.
-        </p>
-      )}
+      {/* Say what the coefficient IS. The two streamlined classes are not
+          constants any more — RASAero's Streamlined Protuberance method makes
+          the drag per unit frontal area equal to the rocket BODY's own, so the
+          Cd shown is this design's measured body CD (see treeModel
+          .bodyDragReference). A user who cannot see where 0.354 came from
+          cannot check us, so the sentence names the method, prints BOTH body
+          CDs it measured, and says which Mach they were taken at. */}
+      {(node.type as string) === 'protuberance' && (() => {
+        const cls = String(node['dragClass'] ?? 'streamlinedbase');
+        const explicit = typeof node['cdFrontal'] === 'number'
+          && Number.isFinite(node['cdFrontal']) && (node['cdFrontal'] as number) >= 0;
+        const streamlined = !explicit && (cls === 'streamlined' || cls === 'streamlinedbase');
+        const body = streamlined ? bodyDragReference(tree) : null;
+        return (
+          <p className="comp-stats" style={{ marginTop: 6 }}>
+            {(protuberanceFrontalArea(node) * 1e6).toFixed(0)} mm² frontal
+            {' × '}Cd {protuberanceCd(tree, node).toFixed(3)}
+            {' = '}<strong>+{protuberanceDeliveredCd(tree, node).toFixed(5)}</strong> on the
+            rocket&rsquo;s CD, at every Mach.
+            {explicit && ' The Cd is the one you typed.'}
+            {body && (
+              <>
+                {' '}The Cd is not a table value: RASAero&rsquo;s Streamlined
+                Protuberance method sets a streamlined bump&rsquo;s drag per unit
+                frontal area equal to the rocket <em>body</em>&rsquo;s, so this is
+                your own body&rsquo;s CD{' '}
+                {cls === 'streamlined' ? 'excluding' : 'including'} base drag
+                {body.measured
+                  ? <> at Mach {body.mach} (body CD {body.noBase.toFixed(3)} without
+                      base drag, {body.withBase.toFixed(3)} with).</>
+                  : <> — but the kernel could not evaluate this design, so a
+                      placeholder body CD ({body.noBase.toFixed(3)} /{' '}
+                      {body.withBase.toFixed(3)}) is standing in.</>}
+                {' '}RASAero re-evaluates it at every Mach and so tracks the
+                body&rsquo;s transonic drag rise; we freeze it at Mach {body.mach}.
+                Type a Cd above to pin it yourself — e.g. your body CD at max Q,
+                off the Drag tab.
+              </>
+            )}
+            {' '}Drag only — a protuberance adds no normal force and does not
+            move the CP, the same as RASAero.
+            {' '}For real rail buttons prefer the <em>Rail button</em> component:
+            it gets OpenRocket&rsquo;s own Mach- and boundary-layer-dependent model.
+          </p>
+        );
+      })()}
 
       {(node.type === 'trapezoidfinset' || node.type === 'freeformfinset'
         || node.type === 'ellipticalfinset') && (() => {

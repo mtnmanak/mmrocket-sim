@@ -1,5 +1,5 @@
 {
-  "version": "0.068",
+  "version": "0.069",
   "released": "2026-08-25",
-  "note": "The transonic drag curve now peaks where the wind tunnel says it does. Three drag terms were each ramping up to a maximum at the top of their transonic bridge rather than near Mach 1.05 — on the NASA ARCAS that put a false peak at exactly Mach 1.500 and gave the drag curve two humps. Supersonic drag on finned bodies also decayed far too fast above Mach 2 (the band Western-US fliers actually use). Also new: a protuberance component, drag sweeps at altitude or on a file's Mach-Alt table, .xlsx export with live Excel charts, and charts that expand, reset and say how to pan them."
+  "note": "⚠️ The DEFAULT model's numbers have moved: predicted altitudes on Rogers Modified Barrowman are now lower, and on two testers' own rockets they moved toward what the rocket actually did (one went from +7.3% over to +2.2% over). Saved runs from before this release are not comparable with runs after it. The reason: only the 'OpenRocket — Extended Barrowman' option is a desktop-parity promise, so accuracy work now goes into the other models — and in the same pass, two of our own extensions that had been leaking INTO the parity model were removed from it. Also: OpenRocket 15.03-era files no longer import with 3-4x too much drag."
 }

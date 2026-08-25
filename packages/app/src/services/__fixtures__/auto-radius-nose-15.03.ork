@@ -1,0 +1,128 @@
+<?xml version='1.0' encoding='utf-8'?>
+<!--
+  The two automatic shapes that the forward-chaining fixture cannot reach, both
+  taken from real OpenRocket 15.03 files in docs/User files/TRF RASAero Files/:
+
+  * Stage 1 is "Wildman Mach 2 this one.ork" (4.2 MB, so reduced here at its own
+    dimensions): the NOSE CONE's base radius is a bare <aftradius>auto</aftradius>
+    and the tube behind it is automatic too, so resolving the nose has to chain
+    BACKWARDS past one automatic component to reach the Switch Band's stated
+    0.0282448 m. Read as 12 mm it gave CD @ M0.3 1.793 against 0.480, and moved
+    CP 5.1 in.
+  * Stage 2 is "two stage L2.ork": a transition whose <foreradius>auto</foreradius>
+    has to resolve ACROSS the stage boundary to the last tube of stage 1.
+    ComponentFactory already handles that one (an absent foreRadius becomes
+    setForeRadiusAutomatic(true)), so the simulation was right — but the value
+    reached neither the schematic, the 3D mesh nor the property panel, which all
+    fall back to a hard 12 mm.
+-->
+<openrocket version="1.4" creator="OpenRocket 15.03">
+  <rocket>
+    <name>Auto nose (reduced)</name>
+    <motorconfiguration configid="6e2b0d2a-7b3a-4b3a-9a1d-0f0a2c3d4e5f" default="true"/>
+    <referencetype>maximum</referencetype>
+
+    <subcomponents>
+      <stage>
+        <name>Sustainer</name>
+
+        <subcomponents>
+          <nosecone>
+            <name>Nose cone</name>
+            <finish>polished</finish>
+            <material type="bulk" density="1850.0">Fiberglass</material>
+            <length>0.28575</length>
+            <thickness>0.00127</thickness>
+            <shape>haack</shape>
+            <shapeclipped>false</shapeclipped>
+            <shapeparameter>0.0</shapeparameter>
+            <aftradius>auto</aftradius>
+            <aftshoulderradius>0.0</aftshoulderradius>
+            <aftshoulderlength>0.0</aftshoulderlength>
+            <aftshoulderthickness>0.0</aftshoulderthickness>
+            <aftshouldercapped>false</aftshouldercapped>
+          </nosecone>
+
+          <bodytube>
+            <name>NC Straight Wall (integral)</name>
+            <finish>normal</finish>
+            <material type="bulk" density="680.0">Cardboard</material>
+            <length>0.0508</length>
+            <thickness>0.0012448000000000008</thickness>
+            <radius>auto</radius>
+          </bodytube>
+
+          <bodytube>
+            <name>Switch Band</name>
+            <finish>polished</finish>
+            <material type="bulk" density="1850.0">Fiberglass</material>
+            <length>0.0254</length>
+            <thickness>0.001</thickness>
+            <radius>0.0282448</radius>
+          </bodytube>
+
+          <bodytube>
+            <name>Airframe</name>
+            <finish>polished</finish>
+            <material type="bulk" density="1850.0">Fiberglass</material>
+            <length>0.8382</length>
+            <thickness>0.0012448000000000008</thickness>
+            <radius>auto</radius>
+
+            <subcomponents>
+              <trapezoidfinset>
+                <name>Fins</name>
+                <position type="bottom">0.0</position>
+                <material type="bulk" density="1850.0">Fiberglass</material>
+                <fincount>3</fincount>
+                <rotation>0.0</rotation>
+                <thickness>0.003175</thickness>
+                <crosssection>airfoil</crosssection>
+                <cant>0.0</cant>
+                <rootchord>0.2032</rootchord>
+                <tipchord>0.0762</tipchord>
+                <sweeplength>0.1016</sweeplength>
+                <height>0.0889</height>
+              </trapezoidfinset>
+            </subcomponents>
+          </bodytube>
+        </subcomponents>
+      </stage>
+
+      <stage>
+        <name>Booster</name>
+
+        <subcomponents>
+          <transition>
+            <name>Transition</name>
+            <finish>normal</finish>
+            <material type="bulk" density="680.0">Cardboard</material>
+            <length>0.0508</length>
+            <thickness>0.001</thickness>
+            <shape>conical</shape>
+            <shapeclipped>false</shapeclipped>
+            <foreradius>auto</foreradius>
+            <aftradius>0.039878</aftradius>
+            <foreshoulderradius>0.0</foreshoulderradius>
+            <foreshoulderlength>0.0</foreshoulderlength>
+            <foreshoulderthickness>0.0</foreshoulderthickness>
+            <foreshouldercapped>false</foreshouldercapped>
+            <aftshoulderradius>0.0</aftshoulderradius>
+            <aftshoulderlength>0.0</aftshoulderlength>
+            <aftshoulderthickness>0.0</aftshoulderthickness>
+            <aftshouldercapped>false</aftshouldercapped>
+          </transition>
+
+          <bodytube>
+            <name>Booster Body Tube</name>
+            <finish>normal</finish>
+            <material type="bulk" density="680.0">Cardboard</material>
+            <length>0.6096</length>
+            <thickness>0.001</thickness>
+            <radius>0.039878</radius>
+          </bodytube>
+        </subcomponents>
+      </stage>
+    </subcomponents>
+  </rocket>
+</openrocket>
