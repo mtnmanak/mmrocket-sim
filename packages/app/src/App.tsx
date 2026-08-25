@@ -148,7 +148,10 @@ import './styles.css';
  * flight-configuration fields.
  */
 type ImportedDesign = Pick<OrkTreeImportResult, 'name' | 'tree' | 'motors' | 'notes' | 'launch' | 'measured'>
-  & Partial<Pick<OrkImportResult, 'configs' | 'chosenConfigId'>>;
+  & Partial<Pick<OrkImportResult, 'configs' | 'chosenConfigId'>>
+  // RASAero files carry a Mach-Alt table; the drag panel offers it as a
+  // sweep condition so a user can reproduce tunnel-matched Reynolds.
+  & { machAlt?: [number, number][] };
 
 /** Rocket names that mean "the user never named it" (desktop default is "Rocket"). */
 const GENERIC_ROCKET_NAMES = new Set([
@@ -300,6 +303,9 @@ export function App() {
   // everything or applying "None" clears it.
   const [savedConfigs, setSavedConfigs] = useState<SavedConfig[]>(session?.savedConfigs ?? []);
   const [activeConfigId, setActiveConfigId] = useState<string | null>(session?.activeConfigId ?? null);
+  // A RASAero import's Mach-Alt table, offered to the drag panel as a sweep
+  // condition. Session-only: it belongs to the imported file, not the design.
+  const [fileMachAlt, setFileMachAlt] = useState<[number, number][] | undefined>();
   // Max motor length is a physical property of each STAGE's airframe (a
   // staged rocket's booster and sustainer have different room), keyed by
   // stage node id. Legacy sessions carried ONE universal value — seed every
@@ -1045,6 +1051,11 @@ export function App() {
         launchMassKg: built?.info.mass,
         launchCgM: built?.info.cg,
         launch,
+        // Engine strings ride only when rasaeroFile's CDX1_ENGINE_EXPORT gate
+        // is on (default OFF — RASAero NREs on motor names its database
+        // lacks); passing the map here means flipping that gate is the whole
+        // change.
+        motors: exportMotorsMap(),
       }), 'CDX1');
     } catch (e) {
       setFileNote(`RASAero export failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
@@ -1221,6 +1232,7 @@ export function App() {
     setMountMotors(nextMotors);
     setSavedConfigs(nextConfigs);
     setActiveConfigId(chosenId);
+    setFileMachAlt(imported.machAlt);
     setMaxMotorLen({}); // imported stages have fresh ids — old limits don't apply
     setSelectedId(null);
     // Launch conditions from the file (.ork's first <simulation>): apply
@@ -1520,7 +1532,10 @@ export function App() {
           <div className="file-menu-wrap">
             <button className="file-btn" onClick={() => setShowFileMenu((v) => !v)}
               aria-haspopup="menu" aria-expanded={showFileMenu}>
-              <Icon name="save" /> Save / Export ▾
+              {/* "Save As": every entry writes a NEW file/download — nothing
+                  saves back in place, so the label says what the button does
+                  (Eric's ruling, 2026-08-25). */}
+              <Icon name="save" /> Save As / Export ▾
             </button>
             {showFileMenu && (
               <>
@@ -1664,7 +1679,7 @@ export function App() {
           // do NOT survive a reload. It clears itself on the recovery edge.
           <div className="file-note autosave-warn" role="alert">
             ⚠ Autosave can&apos;t write (storage full or blocked) — save your
-            design to a file (Save / Export → .ork) to keep it safe.
+            design to a file (Save As / Export → .ork) to keep it safe.
           </div>
         )}
       </header>
@@ -2480,7 +2495,7 @@ export function App() {
               </p>
             </div>
           )}
-          {built && <DragPanel rocket={built.rocket} supersonicModel={effectiveSupersonic} designName={tree.name} />}
+          {built && <DragPanel rocket={built.rocket} supersonicModel={effectiveSupersonic} designName={tree.name} fileMachAlt={fileMachAlt} />}
           {runsQuotaWarn && (
             <div className="file-note" role="alert">
               {runs.length === 0

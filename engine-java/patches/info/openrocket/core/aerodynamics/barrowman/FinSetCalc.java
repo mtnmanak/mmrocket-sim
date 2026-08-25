@@ -598,6 +598,114 @@ public class FinSetCalc extends RocketComponentCalc {
 		return 2 * corr;
 	}
 
+	/**
+	 * PATCH (feature #1 Phase 5): sweep relief on fin THICKNESS wave drag.
+	 * <p>
+	 * Phase 2/3 apply the simple-sweep cos^2(Gamma_LE) relief at every Mach.
+	 * That is only valid while the leading edge is subsonic-normal
+	 * (Mn = M*cos Gamma &lt; 1); once the LE goes sonic the independence
+	 * principle fails and the section behaves 2D at the streamwise Mach
+	 * (Puckett-Stewart supersonic-LE wings approach the unswept 4 tau^2/beta
+	 * level; DATCOM 4.1.5.1's sweep charts show the same collapse). Measured
+	 * consequence on NACA RM A53D02, whose fins have tan Gamma_LE = 3 exactly
+	 * (cos^2 = 0.100): fin wave drag 0.00053 at M5 where ~0.005 is right.
+	 * <p>
+	 * beta*cos Gamma / beta_n is the sheared-wing strip result
+	 * K (tau/cos Gamma)^2/beta_n * cos^3 Gamma rewritten as a factor on the
+	 * code's unswept K tau^2/beta; it tends to 1 as M grows and is capped at 1
+	 * so sweep never INCREASES thickness drag in this model.
+	 * Unswept fins (cos Gamma = 1) return 1 at every Mach, exactly as
+	 * pow2(cosGammaLead) did.
+	 */
+	private double sweepWaveFactor(double mach) {
+		double c2 = pow2(cosGammaLead);
+		double mn = mach * cosGammaLead;
+		if (mn <= 0.9) {
+			return c2;
+		}
+		if (mn < 1.05) {
+			double t = (mn - 0.9) / 0.15;
+			double s = t * t * (3 - 2 * t);
+			return c2 + (1 - c2) * s;
+		}
+		double beta = MathUtil.safeSqrt(mach * mach - 1);
+		double betaN = MathUtil.safeSqrt(mn * mn - 1);
+		return Math.min(1.0, Math.max(c2, beta * cosGammaLead / betaN));
+	}
+
+	/** PATCH (feature #1 Phase 6): thickness-wave transonic band edges. */
+	private static final double WAVE_ONSET_MACH = 0.90;
+	private static final double WAVE_PEAK_MACH = 1.05;
+	/**
+	 * PATCH (feature #1 Phase 6): the transonic similarity parameter
+	 * K = (M^2-1)/[(gamma+1) M^2 tau]^(2/3) at which the LINEARIZED thickness
+	 * wave drag is taken to be trustworthy. K &gt;~ 1 is the textbook validity
+	 * criterion for linearized (Ackeret) supersonic thin-section theory
+	 * (transonic small-disturbance similarity: Liepmann &amp; Roshko
+	 * "Elements of Gasdynamics" ch. 12; Ashley &amp; Landahl "Aerodynamics of
+	 * Wings and Bodies" ch. 12). 1.0 is the criterion itself, not a fit — see
+	 * the sensitivity sweep in validation/scorecard-phase6-2026-08-25.md.
+	 */
+	private static final double SS_TRANSONIC_K = 1.0;
+
+	/**
+	 * PATCH (feature #1 Phase 6): effective beta for linearized thickness wave
+	 * drag, floored at the transonic-similarity limit.
+	 * <p>
+	 * beta_T = sqrt(K) * [(gamma+1) M^2 tau]^(1/3) is the free-stream beta at
+	 * which the similarity parameter equals K, so flooring beta there freezes
+	 * the branch at its last trustworthy value instead of letting the 1/beta
+	 * singularity run away as M -&gt; 1+. The frozen value is
+	 * factor*tau^2/[(gamma+1)tau]^(1/3) ~ tau^(5/3), which is the classic
+	 * transonic-similarity scaling of the peak section wave drag — the law
+	 * comes out of the floor rather than being asserted.
+	 */
+	private static double betaEffThickness(double mach, double tau) {
+		double beta = MathUtil.safeSqrt(mach * mach - 1);
+		double betaT = Math.sqrt(SS_TRANSONIC_K)
+				* pow((GAMMA + 1) * mach * mach * tau, 1.0 / 3.0);
+		return Math.max(beta, betaT);
+	}
+
+	/**
+	 * PATCH (feature #1 Phase 6): transonic SHAPE of the linearized thickness
+	 * wave drag — the same defect, and the same treatment, as the Phase-5
+	 * boat tail.
+	 * <p>
+	 * Phases 2/3 blended LINEARLY from zero at M0.9 up to the branch value at
+	 * M1.2 and only then followed factor*tau^2/beta. But that branch DECREASES
+	 * with Mach (it is 2.07x larger at M1.05 than at M1.20 for this fin), so
+	 * the ramp put the term's maximum at exactly M1.200 — the top of its own
+	 * bridge — while the physics it bridges onto was already falling. Measured
+	 * on the re-fixtured ARCAS Long (flag on, Re-matched): the fin-set wave row
+	 * climbed 0.0254 (M1.05) -&gt; 0.0673 (M1.20) where the tunnel total FALLS
+	 * 0.085 over the same interval.
+	 * <p>
+	 * Phase 6 replaces it with the boat tail's construction:
+	 * <pre>
+	 *   M &lt;= 0.90        zero (profile drag lives in the friction form factor)
+	 *   0.90 -&gt; 1.05     smoothstep rise to the transonic peak
+	 *   M &gt;= 1.05        factor*tau^2/beta_eff, monotone decreasing in M
+	 * </pre>
+	 * M0.90/M1.05 are RASAero's own regime boundaries (RASAero II Users Manual
+	 * p.90: Subsonic M0.01-0.90, Transonic M0.91-1.04, Supersonic-Hypersonic
+	 * from M1.05), and the peak height is set by the similarity floor in
+	 * {@link #betaEffThickness} rather than by the band edge. Above the Mach
+	 * where beta exceeds the floor (M ~ 1.13 for a 4.4 % section) the result is
+	 * bit-identical to the old branch, so nothing supersonic moves.
+	 */
+	private double thicknessWave(double mach, double factor, double tau) {
+		if (mach <= WAVE_ONSET_MACH || tau <= 0) {
+			return 0;
+		}
+		double peak = factor * tau * tau / betaEffThickness(WAVE_PEAK_MACH, tau);
+		if (mach >= WAVE_PEAK_MACH) {
+			return factor * tau * tau / betaEffThickness(mach, tau);
+		}
+		double t = (mach - WAVE_ONSET_MACH) / (WAVE_PEAK_MACH - WAVE_ONSET_MACH);
+		return peak * t * t * (3 - 2 * t);
+	}
+
 	private static double k1Analytic(double M) {
 		return 2.0 / MathUtil.safeSqrt(M * M - 1);
 	}
@@ -833,22 +941,19 @@ public class FinSetCalc extends RocketComponentCalc {
 		// rise). Flag on: subsonic thickness/profile drag stays in the friction
 		// form factor (1 + 2t/c); supersonic wave drag is thin-airfoil
 		// K*4*(t/c)^2/beta (K = 4/3, biconvex), swept by cos^2(GammaLead),
-		// blended in over M0.9-1.2, referenced to fin planform area. Sharp TE ⇒
-		// no base term. Scored against the ARCAS/Finner CD anchors.
+		// referenced to fin planform area. Sharp TE ⇒ no base term. Scored
+		// against the ARCAS/Finner CD anchors.
+		//
+		// PATCH (feature #1 Phase 6): the M0.9->1.2 LINEAR blend this used to
+		// carry peaked at the top of its own ramp while the branch it bridged
+		// onto was already falling; thicknessWave() replaces it with
+		// rise -> peak at M1.05 -> decay along the branch.
 		if (supersonicAero && crossSection == FinSet.CrossSection.AIRFOIL) {
 			double tc = (macLength > MathUtil.EPSILON) ? thickness / macLength : 0;
-			double wave = 0;
-			if (mach > 0.9) {
-				double beta12 = MathUtil.safeSqrt(1.2 * 1.2 - 1);
-				double wave12 = (4.0 / 3.0) * 4 * pow2(tc) / beta12;
-				if (mach >= 1.2) {
-					double beta = MathUtil.safeSqrt(mach * mach - 1);
-					wave = (4.0 / 3.0) * 4 * pow2(tc) / beta;
-				} else {
-					wave = wave12 * (mach - 0.9) / 0.3;
-				}
-			}
-			return wave * pow2(cosGammaLead) * finArea / conditions.getRefArea();
+			double wave = thicknessWave(mach, 16.0 / 3.0, tc);
+			// PATCH (feature #1 Phase 5): sweep relief fades out once the LE is
+			// supersonic-normal (see sweepWaveFactor). Flag-on path already.
+			return wave * sweepWaveFactor(mach) * finArea / conditions.getRefArea();
 		}
 
 		// Pressure fore-drag
@@ -954,9 +1059,19 @@ public class FinSetCalc extends RocketComponentCalc {
 						"Unknown fin airfoil section: " + airfoilSection);
 		}
 
-		// Supersonic thickness wave drag, blended in over M0.9-1.2.
+		// Supersonic thickness wave drag.
+		// PATCH (feature #1 Phase 6): flag on, the M0.9->1.2 linear blend is
+		// replaced by the physically-shaped rise/peak/decay of thicknessWave()
+		// (see its javadoc for the defect and the measurement). Flag OFF keeps
+		// the old ramp verbatim: the section model is INPUT-gated rather than
+		// flag-gated, so an ungated change here would move CLASSIC numbers for
+		// every design that names an airfoil section, and classic is
+		// desktop-OpenRocket parity. Same boundary, and the same open Eric
+		// decision, as the Phase-5 sweep fade below.
 		double wave = 0;
-		if (mach > 0.9 && tau > 0) {
+		if (supersonicAero) {
+			wave = thicknessWave(mach, thicknessFactor, tau);
+		} else if (mach > 0.9 && tau > 0) {
 			double beta12 = MathUtil.safeSqrt(1.2 * 1.2 - 1);
 			double wave12 = thicknessFactor * tau * tau / beta12;
 			if (mach >= 1.2) {
@@ -966,7 +1081,13 @@ public class FinSetCalc extends RocketComponentCalc {
 				wave = wave12 * (mach - 0.9) / 0.3;
 			}
 		}
-		wave *= pow2(cosGammaLead);
+		// PATCH (feature #1 Phase 5): LE-sonic fade of the sweep relief. The
+		// section model itself is INPUT-gated, not flag-gated, so this one is
+		// wrapped in supersonicAero deliberately: classic mode is desktop-
+		// OpenRocket parity and this session is not the place to move it. If the
+		// flag boundary is ever ruled the other way (docs handoff 6a step 2),
+		// deleting the ternary is the whole change.
+		wave *= supersonicAero ? sweepWaveFactor(mach) : pow2(cosGammaLead);
 
 		// Blunt trailing edge: fin base drag on the base frontal height.
 		double base = baseFrac * baseCD * tau;

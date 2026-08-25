@@ -276,6 +276,177 @@ feature #2 (no flag): absent inputs ⇒ bit-identical classic behavior. Files:
   Mach-flat — flare-specific physics with no hobby-rocket relevance and only one
   dataset to calibrate on). Both parked as the "blunt/flare body" refinement item.
 
+### RASAero feature #1 Phase 5 — boat-tail transonic shape + ogive nose wave drag + LE-sonic fin sweep (same `supersonicAero` flag)
+
+Three shape-selective corrections, each aimed at a defect that the 2026-08-25 anchor
+revision made harness-visible. Full before/after accounting:
+`validation/scorecard-phase5-2026-08-25.md`.
+
+- **SymmetricComponentCalc — boat-tail wave drag rebuilt (the "M1.5 kink").**
+  Phase 2 blended LINEARLY from the subsonic base-scaled estimate at M0.8 to the
+  linearized strip value `2θ/β` at M1.5, which put the boat-tail's MAXIMUM at
+  exactly M1.500. Measured on the re-fixtured ARCAS Long (flag on, Re-matched):
+  the Transition row climbed to 0.3768 at M1.500 and the total-CD curve carried
+  **two** transonic peaks — M1.150 (0.6552) and M1.500 (0.6601) — with the false
+  one as the global maximum. Two testers saw it. Phase 5 replaces the branch with
+  `M ≤ 0.90` classic estimate → smoothstep to M1.05 → plateau M1.05–1.20 → **exact
+  Prandtl–Meyer** expansion Cp above M1.20 (new `prandtlMeyerNu` / `pmExpansionCp`;
+  θ clamped at 20° where a boat tail separates and goes base-like, Hoerner FDD).
+  The linearized `2θ/β` also ran OVER exact PM by a Mach-dependent factor —
+  measured for the ARCAS 15° turn: exact/linear 0.66 (M1.2), 0.73 (M1.8), 0.50
+  (M4.65) — so the level moved too, not only the shape. **Measured result:** the
+  boat-tail row now has a single maximum at **M1.050 = 0.4376** and decays
+  monotonically to M10 (0.29390 at M1.500, where the false peak used to be).
+  `pmExpansionCp` inverts ν(M₂)=ν₂ by a **fixed-count bisection** (exactly 48
+  halvings of [M, 60], no epsilon test) so the JVM and TeaVM run an identical
+  operation sequence — the kWB1307/stagnationCpMax determinism discipline; the new
+  `ssphase5.boattail` goldens are bit-identical across both backends.
+- **SymmetricComponentCalc — Fleeman ogive NOSE wave drag.** The classic OGIVE
+  branch derives its whole supersonic curve from `sinphi`, the surface slope over
+  the aft 1 % of the shape — which for a *tangent* ogive is zero by construction.
+  Measured: sinphi 0.00105 (ARCAS nose) / 0.00123 (RM A53D02 nose), nose pressure
+  CD **0.00031 at M2** on a nose-plus-tube isolation run. The only supersonic nose
+  pressure left was a **spurious transonic bump** (0.058/0.075 at M1.05/1.10
+  collapsing to 0.0006 at M1.3) that the fixed sonic slope `4/(γ+1)` drives through
+  the M1–1.3 cubic between two near-zero endpoints. Flag on, and only for NOSE
+  ogives with shape parameter ≥ 0.35 (cone-like secants and every CONICAL nose keep
+  the classic branch, so Basic Finner and HB-2 are untouched — verified byte-equal):
+  rebuild the same M1–1.3 bridge around `CD = (1.59 + 1.83/M²)·(atan(0.5/(l_N/d)))^1.69`
+  (Fleeman, *Tactical Missile Design*, base-area referenced — the Fleeman/Bonney
+  lineage Phase 2 already uses for table-end decay) and continue on it above M1.3.
+  The 1.59 floor IS the hypersonic asymptote, so no Phase-4 style fade is needed.
+  New `CAL_BRIDGE_SLOPE_CAP` (2.0) bounds the sonic drag-rise slope; **measured**
+  over its declared range [1.5, 3.0] the largest gate-row movement is 0.0093 CD
+  (ARCAS-long M1.1) and **no gate flips**, so it is a weak knob and 2.0 is simply
+  the middle. Measured nose CD on the ARCAS nose: 0.0180 (M1.0), 0.0570 (M1.2),
+  0.0600 (M1.3), 0.0459 (M2), 0.0361 (M10).
+- **FinSetCalc — `sweepWaveFactor`, LE-sonic fade of the cos²Γ sweep relief.**
+  Phases 2/3 apply simple-sweep cos²Γ relief on fin thickness wave drag at every
+  Mach. That is valid only while the LE is subsonic-normal (Mn = M·cosΓ < 1); once
+  the LE goes sonic the independence principle fails and the section behaves 2D at
+  the streamwise Mach (Puckett–Stewart; DATCOM 4.1.5.1 sweep charts). Measured on
+  RM A53D02 (tanΓ_LE = 3 exactly ⇒ cos²Γ = 0.100): fin wave drag 0.00053 at M5
+  where ≈0.005 is right. The factor now fades cos²Γ → 1 over Mn 0.90–1.05 and then
+  follows the sheared-wing form `β·cosΓ/βn`, capped at 1 (sweep never *increases*
+  thickness drag here). **Unswept fins return exactly 1 at every Mach**, so Basic
+  Finner is bit-identical — verified, all 69 of its gate rows byte-equal.
+  Applied at the flag-on AIRFOIL path and, **wrapped in `supersonicAero`**, at the
+  feature-#4 `sectionPressureCD` path. That second gate is deliberate and is the
+  one place this patch departs from its spec: feature #4 is input-gated rather than
+  flag-gated, so the un-gated version would have moved CLASSIC numbers for any
+  design with a section AND swept fins. Classic is desktop parity and is not this
+  session's to move. **Open for Eric** (docs handoff §6a step 2): if sections are
+  ruled a flag-free physics extension, deleting the ternary is the whole change.
+- **Goldens:** `ssphase5.boattail.*` (five samples across all four bands of the new
+  boat-tail curve — the bisection's fidelity canary), `ssphase5.finsweep.*` and
+  `ssphase5.finstraight.*` (a 60°-swept and an unswept hexagonal-blunt-base fin
+  either side of the LE-sonic band). Differential 271 → **286 lines**, all 15 new
+  lines bit-identical JVM↔TeaVM.
+- **Scored:** supersonic **52/164 → 69/164**; classic **10/164, every one of the
+  164 rows byte-identical** (flag-off untouched, as required). Movement is confined
+  to the two cells that carry the defects: rma53d02 `cd0-freeflight` **1/29 → 12/29**
+  (M2–5, Eric's primary band, from −25…−33 % to −18.6…+1.1 % against the measured
+  free-flight anchors; M10 from −62 % to −16 %), arcas-long `cd-transonic` **4/10 → 8/10**, arcas-long `cd-supersonic`
+  **2/5 → 3/5**, arcas-short `cd-transonic` **4/10 → 5/10**. HB-2 (all three series)
+  and Basic Finner (all three series) moved **zero rows, byte-identical** — the
+  shape-selectivity claim is verified, not asserted.
+- **Known-still-wrong, measured (do not oversell this):** (a) the ARCAS *total*
+  curve now has a single transonic peak but it sits at **M1.200**, not M1.05–1.10 —
+  the fin-wave bridge (linear M0.9→1.2) and the nose bridge (M1.0→1.3) still top
+  out at their band ends, so M1.15/M1.2 overshoot the tunnel by +0.071/+0.120.
+  That is the §6a **step 3** transonic-rise item, deliberately not attempted here.
+  (b) ARCAS supersonic still reads high (+0.017…+0.033 at M1.8–2.95, +0.070 at
+  M1.49); the Mach-flat ×1.8 fin-junction factor is worth **+0.0222 (M1.8),
+  +0.0172 (M2.95), +0.0112 (M4.65)** and removing it alone would flip six of those
+  gates — but it would push rma53d02 and Basic Finner further LOW, so it stays
+  bundled and stays Eric's §6a step-2 decision. (c) rma53d02 subsonic still reads
+  +26 %/+38 % HIGH at M0.60/M0.91; measured attribution in the scorecard (fully-
+  turbulent friction and the `0.12+0.13M²` base law, both carved classic physics).
+
+### RASAero feature #1 Phase 6 — fin thickness-wave transonic shape (same `supersonicAero` flag)
+
+One change, finishing the transonic defect class Phase 5 opened. Full before/after
+accounting, the printed curves, and the two measured-and-rejected variants:
+`validation/scorecard-phase6-2026-08-25.md`.
+
+- **FinSetCalc — `thicknessWave` / `betaEffThickness`.** Phases 2/3 blended the
+  linearized thickness wave drag LINEARLY from zero at M0.9 up to the branch
+  value at M1.2 and only then followed `factor·τ²/β`. That branch *decreases*
+  with Mach (2.07× larger at M1.05 than at M1.20 for the ARCAS fin), so the
+  ramp put the term's maximum at exactly **M1.200 — the top of its own bridge**
+  — while the physics it bridged onto was already falling. Measured on the
+  re-fixtured ARCAS Long (flag on, Re-matched, fin-only isolation): fin-set
+  pressure CD climbed 0.0254 (M1.05) → 0.0673 (M1.20) where the tunnel total
+  FALLS 0.085 across the same interval, and the total-CD curve peaked at
+  M1.200 instead of the physical M1.05–1.10.
+  Phase 6 gives it the Phase-5 boat tail's construction:
+  `M ≤ 0.90` zero → smoothstep to M1.05 → `factor·τ²/β_eff` above, with
+  `β_eff = max(√(M²−1), √K·[(γ+1)M²τ]^(1/3))`, K = 1.
+  The band edges are **RASAero's own regime boundaries** (RASAero II Users
+  Manual p.90: Subsonic M0.01–0.90, Transonic M0.91–1.04, Supersonic-Hypersonic
+  M1.05–25) — the same pair Phase 5 chose for the boat tail. The peak HEIGHT is
+  set by the **transonic-similarity floor**, not by the band edge:
+  K = (M²−1)/[(γ+1)M²τ]^(2/3) is the similarity parameter and linearized
+  (Ackeret) thin-section theory is valid for K ≳ 1 (Liepmann & Roshko,
+  *Elements of Gasdynamics* ch. 12; Ashley & Landahl, *Aerodynamics of Wings
+  and Bodies* ch. 12). Freezing β at the K = 1 crossover freezes the branch at
+  its last trustworthy value instead of chasing the 1/β singularity to M1; the
+  frozen value is `factor·τ²/[(γ+1)τ]^(1/3) ∝ τ^(5/3)`, so the classic
+  transonic-similarity scaling of peak section wave drag falls out of the floor
+  rather than being asserted. **Measured result:** the fin term now peaks at
+  M1.05 and decays; every value at and above M1.20 is bit-identical to Phase 5
+  (the floor stops binding at M ≈ 1.13 for a 4.4 % section), so no supersonic
+  gate moves. Applied at BOTH flag-on call sites — the `AIRFOIL` cross-section
+  path and the feature-#4 `sectionPressureCD` path. The second is
+  **flag-gated deliberately**, exactly like the Phase-5 sweep fade: feature #4
+  is input-gated, so an ungated change would move CLASSIC numbers for any
+  design naming an airfoil section, and classic is desktop parity. Same open
+  Eric decision (docs handoff §6a step 2).
+- **Deliberately NOT changed: the nose wave bridge.** The task for this pass
+  called for the same treatment there. Measuring first killed the premise: put
+  through the kernel's own fineness extrapolation at the ARCAS nose's fineness
+  4.711, the kernel's own measured TR R-100 streamlined-nose tables ALSO rise
+  through M1.05→1.20 (von Kármán +0.0146 CD; the Phase-5 bridge +0.0260 CD), so
+  the nose is not a term whose maximum belongs at M1.05. The bridge's literal
+  "maximum at the top of its ramp" is worth **0.0001 CD** (0.0601 at M1.275 vs
+  0.0600 at M1.3). The literal fix was built and scored anyway — Fleeman
+  trusted from M1.05 — and measured **70/164 → 64/164**, making the two rows the
+  acceptance test wanted reduced *worse* (Fleeman over-predicts near M1: 0.155
+  at M1.05 against the measured von Kármán f=3 table's 0.055). Not shipped;
+  nose rows are byte-identical.
+- **Also measured and rejected:** dropping the Phase-5 boat-tail plateau and
+  trusting exact Prandtl–Meyer from M1.05 — **70/164 → 67/164**, exact PM over-
+  predicts the boat tail by **+0.12 CD at M1.05**. The plateau is a working
+  transonic limiter, not an artifact.
+- **Goldens:** `ssphase6.finwave.*` and `ssphase6.airfoilwave.*` — five samples
+  each at M0.85/0.95/1.05/1.10/1.30 (below onset, mid-smoothstep, the peak,
+  inside the floored band, plain 1/β branch), unswept so `sweepWaveFactor ≡ 1`
+  and the samples isolate the thickness term. They exist because the similarity
+  floor introduces the kernel's only cube root and nothing else exercises it —
+  every Phase-5 fin golden samples M ≥ 1.5, where the floor never binds.
+  Differential 286 → **296 lines, all 10 new lines bit-identical JVM ↔ TeaVM**.
+- **Scored:** supersonic **66/164 → 70/164** (the 66 baseline is against the
+  ARCAS fixtures as revised at 11:15 on 2026-08-25, after the Phase-5 scorecard
+  was written against the earlier boat-tail rear diameter); classic **10/164,
+  all 164 rows byte-identical**. Movement is confined to arcas-long
+  `cd-transonic` 5/10 → **8/10** and arcas-short `cd-transonic` 5/10 → **6/10**;
+  HB-2 moved zero rows, Basic Finner and rma53d02 moved four transonic rows
+  between them and no gates, and every CP/CNα row and every gated row above
+  M1.20 is byte-identical.
+- **Known-still-wrong, measured (do not oversell this):** the acceptance test's
+  other half is NOT met. M1.15 got **worse** (+0.0571 → +0.0780 Long,
+  +0.0412 → +0.0621 Short) and M1.20 is byte-identical (+0.1055 / +0.0991).
+  That is not a shape error and cannot be reached from these bridges: at M1.20
+  all three wave terms already sit ON their monotone-decreasing supersonic
+  branches. The measured M1.20 budget on ARCAS Long is friction 0.2766
+  (including +0.0252 of Mach-flat ×1.8 fin junction) + boat tail 0.3396 + nose
+  0.0570 + fin 0.0673 = 0.7405 against a tunnel 0.635 — i.e. the residual is a
+  **level** error dominated by the exact-PM boat-tail term in the low supersonic
+  band (~40 % over at M1.20, ~17 % at M1.49, right to a few percent at M1.8+).
+  Fixing that means real afterbody physics (pressure recovery along the boat
+  tail toward the base, Eggers-class second-order shock expansion), and it is
+  the next item.
+
 ## Rules
 
 1. A patch NEVER changes physics or observable behavior (except documented quirks-ledger

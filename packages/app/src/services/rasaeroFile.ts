@@ -86,9 +86,128 @@ const FINISH_TO_SURFACE: Record<string, string> = {
   rough: 'Cast Iron (Very Rough)',
 };
 
+/**
+ * Engine-string export gate — DEFAULT OFF until proven against real RASAero II.
+ *
+ * RASAero II looks every exported engine name up in its own motor database and
+ * throws a NullReferenceException when the name is missing (the same NRE family
+ * as the sim-block crash documented at the SimulationList writer below). The
+ * strings we write mirror the desktop exporter exactly —
+ * RASAeroCommonConstants.OPENROCKET_TO_RASAERO_MOTOR emits
+ * 'DESIGNATION  (ABBREV)' with TWO spaces, abbreviations per
+ * OPENROCKET_TO_RASAERO_MANUFACTURER — and we only write manufacturers RASAero
+ * documents (unmapped ones are omitted entirely, never guessed), but the
+ * desktop also verifies each motor against RASAero's own engine list, which we
+ * do not ship. One real-RASAero open test decides this.
+ *
+ * Test plan: rasaeroFile.test.ts "engine export (gated)" +
+ * "docs/User files/rasaero-engine-export-test.CDX1" (AeroTech J350W).
+ * When that file opens cleanly in RASAero II, flip this to true — one line.
+ */
+export const CDX1_ENGINE_EXPORT = false;
+
+/**
+ * Our manufacturer names → RASAero's engine-file abbreviations, transcribed
+ * from the desktop's RASAeroCommonConstants.OPENROCKET_TO_RASAERO_MANUFACTURER
+ * (24.12, lines 419-468). Keys are matched against the desktop Manufacturer
+ * registry's alternate names AND the thrustcurve.org abbrevs our motor
+ * database uses (measured from the live metadata endpoint), normalized:
+ * uppercase, periods/commas stripped, whitespace collapsed.
+ */
+const RASAERO_MFG: Array<[abbrev: string, names: string[]]> = [
+  ['AT', ['AEROTECH', 'AT', 'ISP']],
+  ['ES', ['ESTES', 'ESTES INDUSTRIES', 'ES', 'E']],
+  ['AP', ['APOGEE', 'APOGEE COMPONENTS', 'AP']],
+  ['QU', ['QUEST', 'QUEST AEROSPACE', 'QU', 'Q']],
+  ['CTI', ['CESARONI', 'CESARONI TECHNOLOGY', 'CESARONI TECHNOLOGY INC',
+    'CESARONI TECHNOLOGY INCORPORATED', 'CTI', 'CES', 'PRO38']],
+  ['EM', ['ELLIS', 'ELLIS MOUNTAIN', 'EM']],
+  ['Contrail', ['CONTRAIL', 'CONTRAIL ROCKETS', 'CONTRAIL ROCKET', 'CR']],
+  ['RV', ['ROCKETVISION', 'ROCKETVISION FLIGHT-STAR', 'ROCKET VISION', 'RV']],
+  ['RR', ['ROADRUNNER', 'ROADRUNNER ROCKETRY', 'RR']],
+  ['SRS', ['SKYR', 'SKY RIPPER', 'SKYRIPPER', 'SKY RIPPER SYSTEMS', 'SRS']],
+  ['LR', ['LOKI', 'LOKI RESEARCH', 'LR']],
+  ['PML', ['PML', 'PUBLIC MISSILES', 'PUBLIC MISSILES LTD', 'PUBLIC MISSILES LIMITED']],
+  ['KBA', ['KBA', 'KOSDON BY AEROTECH', 'KOSDON/AT', 'KOSDON/AEROTECH', 'K-AT']],
+  ['GM', ['GORILLA', 'GORILLA ROCKET MOTORS', 'GORILLA MOTORS', 'GM']],
+  ['RTW', ['RATT', 'RATT WORKS', 'RTW', 'RT']],
+  ['HT', ['HYPERTEK', 'HT']],
+  ['AMW', ['AMW', 'ANIMAL MOTOR WORKS', 'ANIMAL', 'AMW PROX', 'AMW/PROX']],
+];
+const RASAERO_MFG_LOOKUP: Record<string, string> = Object.fromEntries(
+  RASAERO_MFG.flatMap(([abbrev, names]) => names.map((n) => [n, abbrev])));
+
+/**
+ * The RASAero abbreviation for one of our manufacturer strings (thrustcurve
+ * abbrev, .ork/.eng full name, or an already-RASAero abbreviation), or null
+ * when RASAero doesn't document the maker — writing a name RASAero's database
+ * lacks is the NRE, so unknown means OMIT, never guess.
+ */
+export function rasaeroManufacturerAbbrev(mfg: string | undefined): string | null {
+  if (!mfg) return null;
+  const n = mfg.trim().toUpperCase().replace(/[.,]/g, '').replace(/\s+/g, ' ');
+  // The desktop registers AeroTech under A/AT/AERO/AEROTECH × -RMS/-RCS/RCS-/
+  // -APOGEE combinations; a prefix test covers them without enumerating.
+  if (n.startsWith('AEROTECH') || n.startsWith('AT-') || n.startsWith('RCS-')) return 'AT';
+  return RASAERO_MFG_LOOKUP[n] ?? null;
+}
+
+/**
+ * A design-level **conditions table**: `[mach, altitude m]` pairs, ascending in
+ * Mach. RASAero calls it the Mach-Alt table and uses it to evaluate each Mach
+ * point of an aero run at a chosen altitude — which is how a published
+ * wind-tunnel comparison is made at the tunnel's Reynolds number instead of at
+ * sea level. It feeds `DragSweepOptions.machAlt` verbatim (the engine
+ * interpolates linearly between rows and clamps outside them), and the
+ * validation fixtures already carry the same tables by hand.
+ *
+ * A design property, not a component property: it describes the *air*, not the
+ * rocket.
+ */
+export type MachAltTable = [number, number][];
+
+/**
+ * The file's `<MachAlt>` table in SI, Mach-ascending and deduplicated, or
+ * undefined when the file carries none (three of the five bundled fixtures) or
+ * an empty element (what our own exporter writes when it has no table).
+ *
+ * RASAero stores one `<Item>mach, altitude_ft</Item>` per row and **repeats the
+ * whole table once per grid page**: ARCAS-Long carries 60 items that are ten
+ * distinct pairs written six times over. Deduplication is therefore mandatory,
+ * not tidiness — the engine's interpolator walks the rows assuming each Mach
+ * appears once and ascending. First row wins for a repeated Mach.
+ */
+export function readMachAltTable(doc: Document): MachAltTable | undefined {
+  const el = doc.querySelector('RASAeroDocument > MachAlt');
+  if (!el) return undefined;
+  const byMach = new Map<number, number>();
+  for (const item of Array.from(el.querySelectorAll(':scope > Item'))) {
+    const [machStr, altStr] = (item.textContent ?? '').split(',');
+    if (altStr === undefined) continue;
+    const mach = Number(machStr);
+    const altFt = Number(altStr);
+    // A negative Mach or a sub-sea-level altitude is not a row RASAero can
+    // mean; dropping it beats handing the ISA model an altitude it clamps.
+    if (!Number.isFinite(mach) || !Number.isFinite(altFt) || mach < 0 || altFt < 0) continue;
+    if (!byMach.has(mach)) byMach.set(mach, altFt / FT);
+  }
+  if (byMach.size === 0) return undefined;
+  return [...byMach.entries()].sort((a, b) => a[0] - b[0]).map(([m, alt]) => [m, alt]);
+}
+
+/**
+ * What `importCdx1` returns: an `.ork` import result plus the RASAero-only
+ * design-level conditions table. Nothing downstream is required to read it —
+ * `machAlt` is optional, and the drag panel's default is still sea level.
+ */
+export interface Cdx1ImportResult extends OrkImportResult {
+  /** The file's `<MachAlt>` conditions table (see {@link MachAltTable}). */
+  machAlt?: MachAltTable;
+}
+
 // ============================ IMPORT ============================
 
-export function importCdx1(data: ArrayBuffer | string): OrkImportResult {
+export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
   const xml = (typeof data === 'string' ? data : strFromU8(new Uint8Array(data))).replace(/^﻿?/, '');
   const doc = new DOMParser().parseFromString(xml, 'text/xml');
   if (doc.querySelector('parsererror')) {
@@ -166,6 +285,50 @@ export function importCdx1(data: ArrayBuffer | string): OrkImportResult {
     parentNode.children = [...(parentNode.children ?? []), fin];
   };
 
+  /**
+   * `<Protuberance>` → our `protuberance` components (§7.5e). RASAero stores a
+   * TOTAL frontal area in square inches per class per tube ("the frontal areas
+   * of all the … Protuberances are added up", Users Manual p. 25), plus up to
+   * two inclined-flat-plate entries each with its own plate angle in degrees
+   * measured from the body tube.
+   *
+   * A total area carries no shape, so each entry becomes ONE component whose
+   * width and height are the side of the equal-area SQUARE — which is Rogers'
+   * own convention for entering these ("the resulting final frontal area was
+   * turned into a square (same diameter and height) rail guide", RASAero II
+   * Comparisons with ARCAS CP and CD Data, slide 2). Length is cosmetic, so it
+   * gets the same side: a cube-ish bump that draws sensibly and round-trips the
+   * area exactly.
+   */
+  const readProtuberances = (el: Element, tube: ComponentNode, name: string): void => {
+    const IN2 = IN * IN; // in² per m²
+    const add = (areaIn2: number, dragClass: string, angleDeg: number, label: string) => {
+      if (!(areaIn2 > 0)) return;
+      const side = Math.sqrt(areaIn2 / IN2);
+      const node: ComponentNode = {
+        type: 'protuberance', id: freshId(), name: label,
+        dragClass, width: side, height: side, length: side, count: 1, mass: 0,
+        position: { method: 'middle', offset: 0 },
+      } as unknown as ComponentNode;
+      if (dragClass === 'plate') node['plateAngle'] = (angleDeg * Math.PI) / 180;
+      tube.children = [...(tube.children ?? []), node];
+    };
+    for (const prot of Array.from(el.querySelectorAll(':scope > Protuberance'))) {
+      add(num(prot, 'StreamlinedNoBaseDrag', 0), 'streamlined', 0, 'Protuberance (streamlined)');
+      add(num(prot, 'StreamlinedWithBaseDrag', 0), 'streamlinedbase', 0, 'Protuberance (with base drag)');
+      for (const i of [1, 2] as const) {
+        add(num(prot, `InclinedPlate${i}FrontalArea`, 0), 'plate',
+          num(prot, `InclinedPlate${i}Angle`, 0), `Protuberance (flat plate ${i})`);
+      }
+    }
+    const made = (tube.children ?? []).filter((c) => (c.type as string) === 'protuberance');
+    if (made.length > 0) {
+      notes.push(`Imported ${made.length} RASAero protuberance${made.length === 1 ? '' : 's'} on ${name} `
+        + `(${made.map((c) => `${((c['width'] as number) * (c['height'] as number) * IN2).toFixed(4)} in²`).join(', ')}) `
+        + '— drag only, entered as equal-area squares; edit the shape in its properties.');
+    }
+  };
+
   const mkTube = (el: Element, name: string): ComponentNode => {
     const tube: ComponentNode = {
       type: 'bodytube',
@@ -186,13 +349,7 @@ export function importCdx1(data: ArrayBuffer | string): OrkImportResult {
         position: { method: 'middle', offset: 0 },
       } as ComponentNode];
     }
-    for (const prot of Array.from(el.querySelectorAll(':scope > Protuberance'))) {
-      const vals = Array.from(prot.children)
-        .filter((c) => Number(c.textContent) !== 0)
-        .map((c) => `${c.tagName} ${c.textContent?.trim()}`);
-      notes.push(`Ignored RASAero <Protuberance> on ${name} — protuberance drag is not modeled`
-        + (vals.length ? ` (${vals.join(', ')}; angles °, frontal areas in²).` : '.'));
-    }
+    readProtuberances(el, tube, name);
     return tube;
   };
 
@@ -450,8 +607,17 @@ export function importCdx1(data: ArrayBuffer | string): OrkImportResult {
     if (sep.separationDelay) stage['separationDelay'] = sep.separationDelay;
   }
 
+  // ---- design-level conditions table (Mach -> altitude) ----
+  const machAlt = readMachAltTable(doc);
+
   // ---- what RASAero can't tell us (be honest, don't invent) ----
   notes.push('RASAero designs carry no material or wall data — walls default to 2 mm; review masses before trusting the numbers.');
+  if (machAlt) {
+    const topFt = Math.round(Math.max(...machAlt.map(([, a]) => a)) * FT);
+    notes.push(`This file carries a Mach-Alt conditions table (${machAlt.length} point${machAlt.length === 1 ? '' : 's'}, `
+      + `to ${topFt} ft) — pick it under Drag analysis → Conditions to sweep at the `
+      + 'file’s altitudes instead of sea level.');
+  }
   if (unattached.size) {
     notes.push(`Motors in the RASAero file with no stage tube to mount them on: ${[...unattached].join(', ')} — add a body tube and pick them from the database.`);
   }
@@ -471,11 +637,19 @@ export function importCdx1(data: ArrayBuffer | string): OrkImportResult {
     ...(firstMotor ? { motor: firstMotor } : {}), motors,
     ignored: [...ignored], notes,
     ...(launch ? { launch } : {}),
+    ...(machAlt ? { machAlt } : {}),
     configs, chosenConfigId,
   };
 }
 
 // ============================ EXPORT ============================
+
+/** The slice of a motor assignment the engine-string writer reads — the .ork
+    export map (OrkExportMotor) satisfies it verbatim, extra fields ignored. */
+export interface Cdx1ExportEngine {
+  designation: string;
+  manufacturer?: string;
+}
 
 export interface Cdx1ExportInput {
   name: string;
@@ -485,14 +659,50 @@ export interface Cdx1ExportInput {
   launchCgM?: number;
   /** Launch panel conditions (SI) for <LaunchSite>; RASAero defaults when absent. */
   launch?: Partial<LaunchConditions>;
+  /**
+   * The design's Mach-Alt conditions table (SI), written back as `<MachAlt>`
+   * rows in feet. Absent ⇒ the empty `<MachAlt></MachAlt>` element we have
+   * always written, which is RASAero's "no table set".
+   */
+  machAlt?: MachAltTable;
+  /**
+   * Assigned motors keyed by mount node id — App's exportMotorsMap() works
+   * verbatim. Only read when engine export is enabled (CDX1_ENGINE_EXPORT):
+   * each stage's first mounted motor becomes its Engine string.
+   */
+  motors?: Record<string, Cdx1ExportEngine>;
+  /** Engine-string override for tests and file generation; defaults to the
+      CDX1_ENGINE_EXPORT gate. */
+  engineExport?: boolean;
 }
 
 const FIN_MIN = 3;
 const FIN_MAX = 8;
 
-export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch }: Cdx1ExportInput): string {
+export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors, engineExport, machAlt }: Cdx1ExportInput): string {
   const stagesIn = asStageNodes(tree);
   if (stagesIn.length > 3) throw new Error('RASAero supports at most 3 stages.');
+
+  // Per-stage engine strings, desktop format 'DESIGNATION  (ABBREV)' — two
+  // spaces, the exact shape our own importer's parseEngine reads back. null =
+  // no motor on the stage, or a manufacturer RASAero doesn't document (the
+  // NRE risk: see CDX1_ENGINE_EXPORT). Gated OFF by default.
+  const engineOn = engineExport ?? CDX1_ENGINE_EXPORT;
+  const stageEngines: (string | null)[] = stagesIn.map((st) => {
+    if (!engineOn || !motors) return null;
+    let found: Cdx1ExportEngine | undefined;
+    const seek = (nodes: ComponentNode[]) => {
+      for (const n of nodes) {
+        if (found) return;
+        if (n.id && motors[n.id]) { found = motors[n.id]; return; }
+        seek(n.children ?? []);
+      }
+    };
+    seek(st.children ?? []); // one engine per stage in RASAero — first mount wins
+    if (!found) return null;
+    const abbrev = rasaeroManufacturerAbbrev(found.manufacturer);
+    return abbrev ? `${found.designation}  (${abbrev})` : null;
+  });
 
   const nnum = (node: ComponentNode, key: string, fb: number): number =>
     typeof node[key] === 'number' ? (node[key] as number) : fb;
@@ -595,6 +805,61 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch }: Cdx1
     emit('</Fin>');
   };
 
+  /**
+   * `<Protuberance>` block for a body tube, the mirror of readProtuberances:
+   * frontal areas summed per class into square inches, inclined flat plates
+   * grouped by their plate angle into RASAero's two slots (largest area first).
+   *
+   * Emitted ONLY inside `<BodyTube>` — the one place a RASAero-written file is
+   * known to carry it. `<Booster>` exposes the same protuberance-family fields
+   * (LaunchLug/RailGuide/LaunchShoe) but no sample writes a `<Protuberance>`
+   * there, and this parser is rigid (see the no-`<PartType>`-inside-`<Fin>`
+   * note above), so a booster's protuberances drop — the same way the booster
+   * block already drops launch lugs.
+   */
+  const protuberanceXml = (node: ComponentNode): void => {
+    const IN2 = IN * IN; // in² per m²
+    const prots = (node.children ?? []).filter((c) => (c.type as string) === 'protuberance');
+    if (prots.length === 0) return;
+    const areaOf = (p: ComponentNode) =>
+      nnum(p, 'width', 0) * nnum(p, 'height', 0)
+      * Math.max(1, Math.round(nnum(p, 'count', 1))) * IN2;
+    let noBase = 0;
+    let withBase = 0;
+    const plates = new Map<number, number>(); // plate angle (deg, rounded) -> in²
+    for (const p of prots) {
+      const cls = String(p['dragClass'] ?? 'streamlinedbase');
+      const a = areaOf(p);
+      if (!(a > 0)) continue;
+      if (cls === 'streamlined') noBase += a;
+      else if (cls === 'plate') {
+        const deg = Math.round((nnum(p, 'plateAngle', Math.PI / 4) * 180) / Math.PI * 100) / 100;
+        plates.set(deg, (plates.get(deg) ?? 0) + a);
+      } else withBase += a;
+    }
+    // RASAero has exactly two inclined-plate slots. With more distinct angles,
+    // fold the smaller remainder into the nearest kept angle rather than drop
+    // it — losing frontal area is losing drag, which is the defect this fixes.
+    const sorted = [...plates.entries()].sort((a, b) => b[1] - a[1]);
+    const kept = sorted.slice(0, 2);
+    for (const [deg, a] of sorted.slice(2)) {
+      let best = 0;
+      for (let i = 1; i < kept.length; i++) {
+        if (Math.abs(kept[i]![0] - deg) < Math.abs(kept[best]![0] - deg)) best = i;
+      }
+      kept[best]![1] += a;
+    }
+    emit('<Protuberance>');
+    emit(`<StreamlinedNoBaseDrag>${fmt(noBase)}</StreamlinedNoBaseDrag>`);
+    emit(`<StreamlinedWithBaseDrag>${fmt(withBase)}</StreamlinedWithBaseDrag>`);
+    for (const i of [0, 1] as const) {
+      const slot = kept[i];
+      emit(`<InclinedPlate${i + 1}Angle>${slot ? fmt(slot[0]) : '0'}</InclinedPlate${i + 1}Angle>`);
+      emit(`<InclinedPlate${i + 1}FrontalArea>${slot ? fmt(slot[1]) : '0'}</InclinedPlate${i + 1}FrontalArea>`);
+    }
+    emit('</Protuberance>');
+  };
+
   const noseXml = (node: ComponentNode) => {
     const shape = String(node['shape'] ?? 'ogive');
     const param = nnum(node, 'shapeParameter', NaN);
@@ -639,6 +904,7 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch }: Cdx1
     emit('<BoattailOffset>0</BoattailOffset>');
     emit('<Overhang>0</Overhang>');
     finXml(node);
+    protuberanceXml(node);
     emit('</BodyTube>');
     locM += len;
   };
@@ -793,7 +1059,17 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch }: Cdx1
   for (const slot of [1, 2] as const) emit(`<EventType${slot}>${slotVals[slot - 1]!.eventType}</EventType${slot}>`);
   for (const slot of [1, 2] as const) emit(`<CD${slot}>${slotVals[slot - 1]!.cd}</CD${slot}>`);
   emit('</Recovery>');
-  emit('<MachAlt></MachAlt>');
+  // Mach-Alt conditions table. RASAero's own row text is 'mach, altitude_ft'
+  // (one <Item> each, its editor repeating the block per grid page — we write
+  // each row once, which our importer reads back identically). No table ⇒ the
+  // empty element, which is what RASAero writes for "unset".
+  if (machAlt && machAlt.length > 0) {
+    emit('<MachAlt>');
+    for (const [mach, altM] of machAlt) emit(`<Item>${fmt(mach)}, ${fmt(altM * FT)}</Item>`);
+    emit('</MachAlt>');
+  } else {
+    emit('<MachAlt></MachAlt>');
+  }
 
   // Simulation block: RASAero's loader (GetSimulations) dereferences EVERY
   // one of these nodes without null checks — its own files always carry all
@@ -801,27 +1077,38 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch }: Cdx1
   // Our old 5-element "minimal" block crashed it with a NullReferenceException.
   // The *Engine elements are the only optional ones and must be OMITTED (not
   // written empty) when there is no motor — an empty name NREs the motor-list
-  // lookup instead.
+  // lookup instead. With CDX1_ENGINE_EXPORT on, each stage's engine string is
+  // written immediately before its LaunchWt, the desktop SimulationDTO field
+  // order and the position RASAero's own files use.
   emit('<SimulationList>');
   emit('<Simulation>');
+  if (stageEngines[0]) emit(`<SustainerEngine>${esc(stageEngines[0])}</SustainerEngine>`);
   emit(`<SustainerLaunchWt>${fmt((launchMassKg ?? 0) * LB)}</SustainerLaunchWt>`);
   emit('<SustainerNozzleDiameter>0</SustainerNozzleDiameter>');
   emit(`<SustainerCG>${fmt((launchCgM ?? 0) * IN)}</SustainerCG>`);
   emit('<SustainerIgnitionDelay>0</SustainerIgnitionDelay>');
+  if (stageEngines[1]) emit(`<Booster1Engine>${esc(stageEngines[1])}</Booster1Engine>`);
+  // Booster LaunchWt/CG stay 0: they are per-stack masses (desktop's
+  // SimulationDTO computes stage-cumulative structure + motor masses) and the
+  // export input carries only the whole-rocket launch mass. RASAero treats
+  // them as editable sim inputs, so 0 loads fine; wire real per-stage masses
+  // before flipping the gate on for MULTI-stage designs.
   emit('<Booster1LaunchWt>0</Booster1LaunchWt>');
   emit('<Booster1SeparationDelay>0</Booster1SeparationDelay>');
   emit('<Booster1IgnitionDelay>0</Booster1IgnitionDelay>');
   emit('<Booster1CG>0</Booster1CG>');
   emit('<Booster1NozzleDiameter>0</Booster1NozzleDiameter>');
-  // IncludeBooster stays False: we export no engines, and a sim that claims a
+  // IncludeBooster mirrors the desktop (mount present && is a motor mount):
+  // True only when that stage got an engine string. A sim that claims a
   // booster without an engine is another null lookup waiting to happen. The
   // design-level UseBooster flags still carry the staged geometry.
-  emit('<IncludeBooster1>False</IncludeBooster1>');
+  emit(`<IncludeBooster1>${stageEngines[1] ? 'True' : 'False'}</IncludeBooster1>`);
+  if (stageEngines[2]) emit(`<Booster2Engine>${esc(stageEngines[2])}</Booster2Engine>`);
   emit('<Booster2LaunchWt>0</Booster2LaunchWt>');
   emit('<Booster2Delay>0</Booster2Delay>');
   emit('<Booster2CG>0</Booster2CG>');
   emit('<Booster2NozzleDiameter>0</Booster2NozzleDiameter>');
-  emit('<IncludeBooster2>False</IncludeBooster2>');
+  emit(`<IncludeBooster2>${stageEngines[2] ? 'True' : 'False'}</IncludeBooster2>`);
   emit('<FlightTime>0</FlightTime>');
   emit('<TimetoApogee>0</TimetoApogee>');
   emit('<MaxAltitude>0</MaxAltitude>');

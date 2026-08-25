@@ -7,7 +7,28 @@ import { CLUSTER_OPTIONS } from './cluster.js';
  * mm/degrees/grams; conversion to engine SI happens in the property panel.
  */
 
-export const DISPLAY_NAME: Record<ComponentType, string> = {
+/**
+ * The editor's component types: the engine's `ComponentType` plus the app-level
+ * parts the KERNEL never sees, which `treeModel.engineTree` lowers onto kernel
+ * constructs before `buildTree`.
+ *
+ * `fairing` predates this alias and still sits in the engine package's union
+ * (with a comment there saying the kernel never sees it); `protuberance` is
+ * declared here instead, which is where an editor-only type belongs — the
+ * engine package stays a description of what the kernel actually builds.
+ *
+ * Consumers index these tables with a plain `ComponentType` and keep working:
+ * `ComponentType` is a subtype of `EditorComponentType`, so `FIELDS[node.type]`,
+ * `POSITIONABLE.has(node.type)` and `DISPLAY_NAME[node.type]` all still
+ * typecheck unchanged. `allowedChildren` deliberately keeps returning
+ * `ComponentType[]` so the Add menu's callback signature is untouched.
+ */
+export type EditorComponentType = ComponentType | 'protuberance';
+
+/** The app-level types, cast for the tables typed in engine terms. */
+const APP_ONLY = (t: EditorComponentType): ComponentType => t as ComponentType;
+
+export const DISPLAY_NAME: Record<EditorComponentType, string> = {
   // Engine-supported since Release B; editor UI arrives with Release C.
   stage: 'Stage',
   nosecone: 'Nose cone',
@@ -29,6 +50,7 @@ export const DISPLAY_NAME: Record<ComponentType, string> = {
   shockcord: 'Shock cord',
   masscomponent: 'Mass component',
   fairing: 'Camera shroud / fairing',
+  protuberance: 'Protuberance (drag bump)',
   podset: 'Pod set',
   parallelstage: 'Booster (parallel stage)',
 };
@@ -38,7 +60,7 @@ const STAGE_CHILDREN: ComponentType[] = ['nosecone', 'bodytube', 'transition'];
 const INTERNAL: ComponentType[] = ['parachute', 'streamer', 'shockcord', 'masscomponent'];
 const BODY_CHILDREN: ComponentType[] = [
   'trapezoidfinset', 'ellipticalfinset', 'freeformfinset', 'tubefinset', 'launchlug', 'railbutton',
-  'fairing',
+  'fairing', APP_ONLY('protuberance'),
   'innertube', 'tubecoupler', 'centeringring', 'bulkhead', 'engineblock', ...INTERNAL,
 ];
 
@@ -46,7 +68,7 @@ const BODY_CHILDREN: ComponentType[] = [
 // axial chain (nose/body/transition), exactly like a mini-rocket.
 const ASSEMBLIES: ComponentType[] = ['podset', 'parallelstage'];
 
-export const CONTAINMENT: Partial<Record<ComponentType | 'stage', ComponentType[]>> = {
+export const CONTAINMENT: Partial<Record<EditorComponentType | 'stage', ComponentType[]>> = {
   stage: STAGE_CHILDREN,
   bodytube: [...BODY_CHILDREN, ...ASSEMBLIES],
   // NO assemblies on a nose cone or a transition: Transition.isCompatible
@@ -67,7 +89,7 @@ export const CONTAINMENT: Partial<Record<ComponentType | 'stage', ComponentType[
   parallelstage: STAGE_CHILDREN,
 };
 
-export function allowedChildren(parentType: ComponentType | 'stage'): ComponentType[] {
+export function allowedChildren(parentType: EditorComponentType | 'stage'): ComponentType[] {
   return CONTAINMENT[parentType] ?? [];
 }
 
@@ -229,7 +251,19 @@ const ASSEMBLY_FIELDS: FieldDef[] = [
   { key: 'angleOffset', label: 'Angle around body', unit: 'deg', step: 5, smin: -180, smax: 180 },
 ];
 
-export const FIELDS: Record<ComponentType, FieldDef[]> = {
+/**
+ * RASAero's own protuberance classes (Users Manual pp. 24–29). RASAero asks for
+ * a total frontal area per class per body tube and prints their drag in one
+ * "Protuberance" column — with no normal force and no CP contribution at all
+ * (Manual Fig. 108, subsonic/transonic/supersonic output blocks).
+ */
+const PROTUBERANCE_CLASSES: [string, string][] = [
+  ['streamlined', 'Streamlined — no base drag (raceway, cable tunnel)'],
+  ['streamlinedbase', 'Streamlined — with base drag (camera housing, shoe)'],
+  ['plate', 'Inclined flat plate (fin bracket, anchor)'],
+];
+
+export const FIELDS: Record<EditorComponentType, FieldDef[]> = {
   // Separation applies to lower stages (the booster separates FROM the stack
   // above); the top stage ignores it — same as the desktop.
   stage: [
@@ -428,6 +462,22 @@ export const FIELDS: Record<ComponentType, FieldDef[]> = {
     { key: 'mass', label: 'Mass (as built)', unit: 'g', step: 1, smin: 0, smax: 500 },
     FINISH,
   ],
+  // RASAero's PROTUBERANCE: a discrete drag-producing bump — rail guide, launch
+  // shoe, cable tunnel, camera housing, fin-root anchor. Frontal area x a drag
+  // class, drag only: no lift, no CP shift (see PROTUBERANCE_CLASSES). Lowered
+  // at the engine boundary onto a kernel RailButton carrying a CD override —
+  // RailButtonCalc contributes no normal force and no friction, so the override
+  // IS the whole contribution. Length is drawing/placement only.
+  protuberance: [
+    { key: 'dragClass', label: 'Drag class', unit: 'none', options: PROTUBERANCE_CLASSES },
+    lenMM('width', 'Width (across body)', 1, 300),
+    lenMM('height', 'Height (off the surface)', 1, 300),
+    { key: 'count', label: 'How many (identical)', unit: 'count', smin: 1, smax: 24 },
+    { key: 'plateAngle', label: 'Plate angle from the body', unit: 'deg', step: 5, smin: 0, smax: 90 },
+    { key: 'cdFrontal', label: 'Cd on frontal area (blank = from class)', unit: 'none', step: 0.05, smin: 0, smax: 2 },
+    { key: 'mass', label: 'Mass, all of them (0 = not counted)', unit: 'g', step: 1, smin: 0, smax: 2000 },
+    lenMM('length', 'Length along body (shape only, no drag)', 1, 1000),
+  ],
   // A pod never separates (angle method is fixed to relative in the kernel).
   podset: ASSEMBLY_FIELDS,
   // A parallel booster separates and flies its own branch — add the angle
@@ -441,16 +491,16 @@ export const FIELDS: Record<ComponentType, FieldDef[]> = {
 };
 
 /** Types that sit INSIDE their parent and use axial positioning. */
-export const POSITIONABLE: Set<ComponentType> = new Set([
+export const POSITIONABLE: Set<EditorComponentType> = new Set([
   'trapezoidfinset', 'ellipticalfinset', 'freeformfinset', 'tubefinset', 'launchlug', 'railbutton',
-  'fairing',
+  'fairing', 'protuberance',
   'innertube', 'tubecoupler', 'centeringring', 'bulkhead', 'engineblock',
   'parachute', 'streamer', 'shockcord', 'masscomponent',
   'podset', 'parallelstage',
 ]);
 
 /** Sensible starting parameters for a freshly added component (SI). */
-export function defaultParams(type: ComponentType): Partial<ComponentNode> {
+export function defaultParams(type: EditorComponentType): Partial<ComponentNode> {
   switch (type) {
     case 'stage': return {};
     case 'nosecone': return { length: 0.07, aftRadius: 0.012, thickness: 0.002, shape: 'ogive' };
@@ -479,6 +529,14 @@ export function defaultParams(type: ComponentType): Partial<ComponentNode> {
     case 'fairing': return {
       length: 0.08, width: 0.025, height: 0.02, fairingShape: 'halfround',
       mass: 0.03, position: { method: 'middle', offset: 0 },
+    };
+    // A typical cable tunnel / camera housing: 20 x 10 mm frontal, 60 mm long,
+    // faired at the front with a blunt back end. Mass 0 — a protuberance is
+    // aerodynamic bookkeeping first, and a mass typed here is billed in full.
+    case 'protuberance': return {
+      dragClass: 'streamlinedbase', width: 0.02, height: 0.01, length: 0.06,
+      count: 1, plateAngle: Math.PI / 4, mass: 0,
+      position: { method: 'middle', offset: 0 },
     };
     // Assemblies default to 2 instances, tangent to the parent (radiusOffset 0
     // under RELATIVE = surfaces touching), aft-aligned — the desktop default.

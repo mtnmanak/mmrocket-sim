@@ -898,6 +898,98 @@
   color: var(--text-secondary);
 }
 
+/* Chart heading row: title + (optional) toggles + the ↺/⤢ buttons. Riding
+   the heading that already exists means the controls cost zero vertical
+   space — the "charts are too small" complaint and the discoverability
+   complaint must not be traded against each other. */
+.chart-panel-head {
+  display: flex;
+  flex-wrap: wrap; /* phone: toggles + buttons drop under a long title */
+  align-items: baseline;
+  gap: 4px 8px;
+}
+
+.chart-panel-head h3 {
+  flex: 1;
+  min-width: 0;
+}
+
+.chart-head-btns {
+  display: inline-flex;
+  gap: 4px;
+}
+
+/* Small chart control button (↺ Reset view, ⤢ Expand). */
+.chart-btn {
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.2;
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface-1);
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.chart-btn:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: var(--text-secondary);
+}
+
+/* Disabled (view already full) rather than hidden: a control users can see
+   exists is a control they'll know to reach for once they've zoomed. */
+.chart-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* A ⤢-expanded panel spans the whole charts grid. The grid only exists on
+   wide screens; in the stacked phone layout panels are already full-width,
+   so there the class only buys the taller canvas from panelHeight(). */
+.chart-panel-expanded {
+  grid-column: 1 / -1;
+}
+
+/* One compact gesture-hints + reset line serving the whole chart group —
+   never a per-panel banner. */
+.chart-toolbar {
+  display: flex;
+  flex-wrap: wrap; /* narrow window + mouse: button drops below the hints */
+  align-items: center;
+  gap: 6px 10px;
+  margin-top: 8px;
+  min-height: 22px;
+}
+
+.chart-toolbar .chart-btn {
+  margin-left: auto;
+}
+
+.chart-hints {
+  font-size: 11px;
+  color: var(--text-muted);
+  min-width: 0;
+}
+
+/* Pointer-aware hints: wheel/shift-drag wording is noise on a phone, and
+   touch wording is noise under a mouse. Coarse-pointer devices get the
+   touch line; everything else the mouse line. */
+.chart-hints-touch {
+  display: none;
+}
+
+@media (pointer: coarse) {
+  .chart-hints-mouse {
+    display: none;
+  }
+
+  .chart-hints-touch {
+    display: inline;
+  }
+}
+
 .results-column {
   display: flex;
   flex-direction: column;
@@ -2631,6 +2723,7 @@ select.unit-chip:hover {
 .viz-root[data-contrast='high'] .series-chip,
 .viz-root[data-contrast='high'] .view-toggle,
 .viz-root[data-contrast='high'] .file-btn,
+.viz-root[data-contrast='high'] .chart-btn,
 .viz-root[data-contrast='high'] .version-badge,
 .viz-root[data-contrast='high'] .rocket-stage,
 .viz-root[data-contrast='high'] .field input,
@@ -2675,6 +2768,7 @@ select.unit-chip:hover {
 .viz-root[data-contrast='high'] .comp-stats,
 .viz-root[data-contrast='high'] .prefs-hint,
 .viz-root[data-contrast='high'] .session-note,
+.viz-root[data-contrast='high'] .chart-hints,
 .viz-root[data-contrast='high'] .stat-label,
 .viz-root[data-contrast='high'] .series-chip,
 .viz-root[data-contrast='high'] .fin-table th,
@@ -2688,6 +2782,7 @@ select.unit-chip:hover {
 .viz-root[data-contrast='high'] .series-dot,
 .viz-root[data-contrast='high'] .fin-row-del:disabled,
 .viz-root[data-contrast='high'] .schematic-controls .file-btn:disabled,
+.viz-root[data-contrast='high'] .chart-btn:disabled,
 .viz-root[data-contrast='high'] .launch-btn:disabled,
 .viz-root[data-contrast='high'] .chart-panel .u-legend {
   opacity: 1;
@@ -2695,6 +2790,14 @@ select.unit-chip:hover {
 
 .viz-root[data-contrast='high'] .series-chip:not(.series-chip-on) .series-dot {
   opacity: 0.55;
+}
+
+/* Disabled chart buttons keep full opacity in sun (rule above); the state
+   reads through ink instead — muted text on a gray border vs. black-on-black
+   for a live button. */
+.viz-root[data-contrast='high'] .chart-btn:disabled {
+  color: var(--text-muted);
+  border-color: var(--chart-grid);
 }
 
 /* Selection must read without relying on a tint alone. */

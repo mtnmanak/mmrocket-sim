@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.067';
+export const APP_VERSION = '0.068';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,22 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.068',
+    date: '2026-08-25',
+    title: 'The transonic drag curve finally peaks where the wind tunnel says it does',
+    items: [
+      'FIXED (kernel): drag no longer peaks at the wrong Mach. Three separate terms — boat tail, fin thickness wave, nose wave — were each bridged across the transonic band by ramping straight up to whatever value their supersonic formula gave at the TOP of the ramp. But those formulas decrease with Mach, so each term’s maximum landed at the end of its bridge instead of where the physics puts it. On the NASA ARCAS the boat tail peaked at exactly Mach 1.500 and the whole rocket’s drag curve had TWO humps, the false one taller — which is precisely the "something is happening at M1.5" a tester spotted in his own plot of our output. The boat tail now uses an exact Prandtl–Meyer expansion with a transonic plateau, and the fin thickness term a transonic-similarity floor; both rise to a single peak near Mach 1.05–1.1 and decay monotonically after, and the total curve now peaks at M1.125 instead of M1.200. Measured on the ARCAS: the four gates at M0.95–1.10 went from 3–18 % LOW to within 0.3 %.',
+      'FIXED (kernel): supersonic drag on finned bodies was decaying far too fast. Tangent-ogive nose wave drag was effectively ZERO (the kernel’s table extrapolation gave sin φ = 0.001 at the ARCAS nose), and the fin wave term was being crushed tenfold by a sweep factor once the leading edge went supersonic-normal. Against NASA free-flight ballistic data for a finned body, the Mach 2–5 band went from 25–33 % low to within 19 % and mostly inside the data’s own scatter. This is the band Western-US fliers actually use — that reframing is why it was worth doing now rather than "eventually".',
+      'The validation harness got harder on purpose, and the score went DOWN as a result. The ARCAS fixtures were rebuilt from the RASAero co-author’s own file and checked against the original NASA drawings: the boat-tail base diameter, the fin thickness and — the big one — a fin station that had been modeled 1.54 in forward of the drawing were all corrected, and 29 new free-flight gates were added at Mach 0.6–10. Several gates that used to pass were passing on compensating errors. Against these harder anchors the model work moved 52 → 70 of 164. The headline percentage fell (47 % → 43 %) while the model got better; that is what an honest anchor revision looks like, and the scorecards show every gate that moved in both directions.',
+      'NEW: a Protuberance component — a cable tunnel, camera housing, launch shoe or fin-root anchor. Frontal area times a drag class (streamlined with or without base drag, or an inclined flat plate), mirroring RASAero II’s own model, and RASAero .CDX1 protuberance entries now import onto it and export back. Honest limits, both stated in the Guide: the drag is Mach-flat, and it contributes no mass and no CP shift.',
+      'NEW: the drag analysis can sweep at altitude. A Conditions selector offers sea level (unchanged default), a fixed altitude, or — when you opened a RASAero file that carries one — the file’s own Mach-Alt table. This matters for anyone comparing our curve against published data: wind-tunnel numbers are quoted at the tunnel’s Reynolds number, and comparing them against a sea-level sweep invents a disagreement that isn’t there. On the ARCAS that artifact is worth 18 % of CD at Mach 4.65. The conditions are printed under the chart and stamped into the CSV.',
+      'NEW: flight data exports to .xlsx with live Excel charts. Numbers are real numbers, headers name their units, and altitude, velocity and acceleration each get their own chart tab built on the sheet’s own cells — edit the data and the graph follows. Staged flights get a sheet and a charted series per stage.',
+      'BETTER: the plots got usable. Every chart has a ⤢ expand button (small charts were the top complaint), a ↺ reset that lights up once you have zoomed, and an always-visible line naming the gestures — wheel to zoom, shift-drag or middle-drag to pan, drag a box, double-click to reset. Nobody was going to guess shift-drag.',
+      'CHANGED: the header button is now "Save As / Export", which is what it has always actually done — it asks where to put the file every time.',
+      'The kernel rebuild is checked line by line against the same code on desktop Java before shipping: 296 comparison points, up from 271, all clean. The classic OpenRocket model is byte-identical on all 164 validation rows — none of this moves the numbers you get with the desktop-parity model selected.',
+    ],
+  },
   {
     version: '0.067',
     date: '2026-08-25',

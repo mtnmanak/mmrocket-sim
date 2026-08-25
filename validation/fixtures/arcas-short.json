@@ -1,26 +1,30 @@
 {
   "name": "ARCAS Short (NASA TN D-4013/D-4014 half-scale tunnel model, Config 1)",
   "_notes": [
-    "Geometry from NASA TN D-4013/D-4014 (half-scale tunnel model). d = 2.250 in = 0.05715 m.",
-    "Fins physically sit over the boattail station; modeled flush with the body tube aft end (the RASAero equal-volume convention region). Kernel cannot place fins on a transition.",
-    "Tip chord: the research doc gives two values (1.568 in 'tip-region chord' vs 2.09 in per the D-4013 figure); this fixture uses 2.09 in = 0.93 d, matching the drawn planform.",
-    "Boattail modeled from its dimensioned values (length 1.81 in, base dia 1.470 in); the nominal '15 deg half-angle' label is inconsistent with those (reflexed base lip ignored, as RASAero did).",
-    "Fin section is a double wedge (1.47 deg half-angle, LE radius 0.030 in); closest kernel cross-section is 'airfoil' - a known fidelity gap until feature #4 (8 airfoils).",
-    "Finish: polished (machined tunnel model, boundary-layer trips = fully turbulent, not roughness-limited).",
+    "Geometry from NASA TN D-4013/D-4014 (half-scale tunnel model). d = 2.250 in = 0.05715 m. Total 18.20 d = 40.95 in (nose 10.6 + body 28.54 + boattail 1.81).",
+    "RE-FIXTURED 2026-08-25 from Chuck Rogers' own ARCAS-Long CDX1 (run through the app's real importCdx1) reconciled against the TN D-4013/D-4014 drawings reproduced in 'RASAero II Comparisons with ARCAS CP and CD Data' (slides 3-5). He is the RASAero co-author and this is the configuration he compared against the tunnel; the anchor dots were read through that comparison. Three conflicts resolved against the reports:",
+    "1. BOATTAIL REAR DIA 1.308 in (was 1.47): D-4014 Detail A dimensions the cone base R 0.654 (dia 1.308) with a 0.053-in reflexed lip flaring to 1.470 D. 1.470 is NOT a misreading — it is the drawings' own dimensioned base diameter (D-4013 Fig 1(b) '.65d' = 1.4625; Detail A '1.470 D'), and the old fixture used it deliberately. The defect was using it as the transition AFT RADIUS, which forces a 12.3 deg cone (atan(0.39/1.81)) against the drawn 15 deg. The cone base follows from the drawing: 2.250 - 2*(1.810-0.053)*tan(15 deg) = 1.30843 = 2 x 0.65421, matching Detail A's R to three decimals. Length stays 1.810 in so the overall station math (53.500 / 40.950) is exact; the implied 14.58 deg local slope is endpoint-exact and second-order. RASAero excluded the lip as buried in the boattail boundary layer (comparison doc slide 2); this fixture follows.",
+    "2. FIN THICKNESS 0.123 in (was 0.150): D-4014 Fig 1(b) fin section tapers SPANWISE 0.150 (root) -> 0.096 (tip), total taper angle 1.47 deg ( = 2*atan(0.027/2.103) ). 0.123 is the exact mean - the same single-thickness convention Rogers used in the CDX1. 0.150 was the root (max) value and overstated the t^2 wave term by ~49%.",
+    "3. TIP CHORD 2.165 in (was 2.09): D-4014 Fig 1(b) dimensions the tip chord 2.165 (5.499 cm) directly; the old 2.09 was D-4013 Fig 1(b)'s rounded '.93d' read. Sweep 1.215 in = 2.103 * tan(30 deg LE sweep).",
+    "FIN SECTION: double wedge, LE chamfer FX1 = 1.4863 in = 0.0377521 m, TE chamfer DERIVED = mean chord - FX1 = 1.2862 in = 0.0326695 m (the file's FX3 is a stale UI field - see importCdx1). LE wedge 2.72 deg (typ) normal to the 15-deg line, sharp LE (LERadius 0). Replaces the 'airfoil' placeholder, which produced no section-specific wave or base terms and (flag on) cancelled the removed blunt-LE plateau against the +80% junction term.",
+    "FIN STATION: root LE 1.84 in ahead of the boattail start (D-4014 stations 37.30/49.85), root TE overhanging the boattail by 1.54 in -> position bottom +0.0391161 m, exactly what importCdx1 produces. The kernel keeps the full tube radius under the overhang; RASAero projects onto an equal-volume cylinder (comparison doc slide 10). MEASURED 2026-08-25: the old flush placement sat the fins 1.54 in forward of truth and moved model CP ~2.7 %L forward - a compensating error that had been holding the supersonic CP gates green.",
+    "NOT MODELED, measured/bounded: the 4 fin-root anchors (protuberance, 0.178 in^2 total frontal; RASAero entered them as an equivalent rail guide). A protuberance component now EXISTS in the app (2026-08-25) and on this geometry contributes +0.0098489 CD, Mach-flat (frontal 1.148389e-4 m^2 / aRef 2.5652169e-3 m^2 x Cd 0.22 'streamlined with base drag'); Rogers' own div-5 rail-guide equivalence implies Cd 0.234 against our 0.22. It is deliberately NOT in this fixture, which stays a clean-airframe cell matching what the tunnel model measured minus the anchors, so kernel CD reads LOW by that much. (An earlier note here claimed a '2-railbutton proxy measured +0.002-0.005 CD'; that does not reproduce - two DEFAULT 9.7 mm kernel rail buttons on this geometry measure +0.008980 at M0.3 rising to +0.022406 at M1.8.); the nose tip blunt radius 0.062 in; the base lip 1.308 -> 1.470 D over 0.053 in (excluded per RASAero, but the physical model's aft-facing area IS the 1.470 D disc, so kernel base CD reads LOW by ~0.012 at M1.8 decaying to ~0.005 at M4.65 - measured base component 0.0469 at 1.308 D vs 0.0593 at 1.470 D). All three omissions run the same way (kernel LOW), opposite the model's transonic overshoot, so none of them rescues a red gate - they make the model error slightly larger, not smaller.",
+    "Finish: finishpolished (0.5 um) = importCdx1's mapping of RASAero 'Smooth (Zero Roughness)'. Measured vs the old 'polished' (2 um): CD delta 0.0000 at every gate Mach under machAlt Re-matching (not roughness-limited).",
     "Thicknesses are nominal: mass does not affect CP/CD scoring."
   ],
   "components": [
-    { "type": "nosecone", "finish": "polished", "shape": "ogive", "shapeParameter": 1.0, "length": 0.269240, "aftRadius": 0.0285750, "thickness": 0.0015 },
+    { "type": "nosecone", "finish": "finishpolished", "shape": "ogive", "shapeParameter": 1.0, "length": 0.269240, "aftRadius": 0.0285750, "thickness": 0.0015 },
     {
-      "type": "bodytube", "finish": "polished", "length": 0.724916, "outerRadius": 0.0285750, "thickness": 0.0015,
+      "type": "bodytube", "finish": "finishpolished", "length": 0.724916, "outerRadius": 0.0285750, "thickness": 0.0015,
       "children": [
         {
-          "type": "trapezoidfinset", "finish": "polished", "finCount": 4, "rootChord": 0.0858520, "tipChord": 0.0530860,
-          "sweep": 0.0308400, "height": 0.0534162, "thickness": 0.0038100, "crossSection": "airfoil",
-          "position": { "method": "bottom", "offset": 0 }
+          "type": "trapezoidfinset", "finish": "finishpolished", "finCount": 4, "rootChord": 0.0858520, "tipChord": 0.0549910,
+          "sweep": 0.0308610, "height": 0.0534162, "thickness": 0.0031242, "crossSection": "airfoil",
+          "airfoilSection": "doublewedge", "airfoilLeDiamond": 0.0377521, "airfoilTeDiamond": 0.0326695,
+          "position": { "method": "bottom", "offset": 0.0391161 }
         }
       ]
     },
-    { "type": "transition", "finish": "polished", "shape": "conical", "length": 0.045974, "foreRadius": 0.0285750, "aftRadius": 0.0186690, "thickness": 0.0015 }
+    { "type": "transition", "finish": "finishpolished", "shape": "conical", "length": 0.045974, "foreRadius": 0.0285750, "aftRadius": 0.0166116, "thickness": 0.0015 }
   ]
 }

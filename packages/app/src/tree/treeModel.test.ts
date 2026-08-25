@@ -307,3 +307,139 @@ describe('containment matches the kernel', () => {
     expect(allowedChildren('transition')).not.toContain('trapezoidfinset');
   });
 });
+
+/**
+ * The protuberance component (§7.5e): RASAero's discrete drag bump — rail
+ * guide, launch shoe, cable tunnel, camera housing, fin-root anchor. The
+ * kernel has no such component, so it is lowered here onto a RailButton
+ * carrying a CD override, which BarrowmanCalculator adds to total CD after
+ * skipping the carrier's own friction, pressure and base drag.
+ */
+describe('engineTree — protuberance lowering', () => {
+  const protTree = (params: Record<string, unknown>): RocketTree => ({
+    name: 'p',
+    components: [{
+      type: 'stage', id: 's1',
+      children: [{
+        // 100 mm radius body ⇒ reference area π·0.1² = 0.0314159 m².
+        type: 'bodytube', id: 'b1', length: 0.5, outerRadius: 0.1,
+        children: [{
+          type: 'protuberance', id: 'x1', name: 'Bump',
+          width: 0.05, height: 0.02, length: 0.1, count: 1, mass: 0,
+          position: { method: 'middle', offset: 0.02 },
+          ...params,
+        } as unknown as ComponentNode],
+      } as ComponentNode],
+    } as ComponentNode],
+  });
+  const aRef = Math.PI * 0.1 * 0.1;
+
+  it('becomes a rail button whose CD override IS frontal area × Cd ÷ reference area', () => {
+    const out = engineTree(protTree({ dragClass: 'streamlinedbase' }));
+    const carrier = findNode(out, 'x1')!;
+    expect(carrier.type).toBe('railbutton');
+    expect(carrier.name).toBe('Bump');
+    // 0.10 (faired fore body) + 0.12 (blunt base) = 0.22 on 0.05 × 0.02 m².
+    expect(carrier['overrideCD']).toBeCloseTo((0.22 * 0.001) / aRef, 12);
+    expect(carrier['overrideMass']).toBe(0);
+    expect(carrier.position).toEqual({ method: 'middle', offset: 0.02 });
+  });
+
+  it('scales linearly with count — n identical bumps are n times the area', () => {
+    const one = findNode(engineTree(protTree({})), 'x1')!['overrideCD'] as number;
+    const four = findNode(engineTree(protTree({ count: 4 })), 'x1')!['overrideCD'] as number;
+    expect(four).toBeCloseTo(4 * one, 12);
+  });
+
+  it('drops the base-drag term for the streamlined class', () => {
+    const cd = findNode(engineTree(protTree({ dragClass: 'streamlined' })), 'x1')!['overrideCD'] as number;
+    expect(cd).toBeCloseTo((0.10 * 0.001) / aRef, 12);
+  });
+
+  it('follows 1.17·sin²θ for an inclined flat plate, θ in RADIANS', () => {
+    const at = (deg: number) => findNode(
+      engineTree(protTree({ dragClass: 'plate', plateAngle: (deg * Math.PI) / 180 })), 'x1',
+    )!['overrideCD'] as number;
+    expect(at(90)).toBeCloseTo((1.17 * 0.001) / aRef, 12);
+    expect(at(45)).toBeCloseTo((1.17 * 0.5 * 0.001) / aRef, 12);
+    expect(at(30)).toBeCloseTo((1.17 * 0.25 * 0.001) / aRef, 12);
+    expect(at(0)).toBe(0);
+    // Out-of-range angles clamp instead of producing nonsense.
+    expect(at(200)).toBeCloseTo(at(90), 12);
+    expect(at(-30)).toBe(0);
+  });
+
+  it('lets an explicit frontal Cd beat the class', () => {
+    const cd = findNode(engineTree(protTree({ dragClass: 'plate', cdFrontal: 0.5 })), 'x1')!['overrideCD'] as number;
+    expect(cd).toBeCloseTo((0.5 * 0.001) / aRef, 12);
+  });
+
+  it('bills a typed mass and nothing when it is left at zero', () => {
+    expect(findNode(engineTree(protTree({ mass: 0.12 })), 'x1')!['overrideMass']).toBeCloseTo(0.12, 12);
+    expect(findNode(engineTree(protTree({})), 'x1')!['overrideMass']).toBe(0);
+  });
+
+  it('leaves the editing tree untouched', () => {
+    const src = protTree({});
+    engineTree(src);
+    expect(findNode(src, 'x1')!.type as string).toBe('protuberance');
+  });
+
+  it('is offered on a body tube and carries a full schema entry', () => {
+    expect(allowedChildren('bodytube')).toContain('protuberance');
+    expect(DISPLAY_NAME.protuberance).toBeTruthy();
+    expect(FIELDS.protuberance.length).toBeGreaterThan(0);
+    // A fresh one is a sane cable tunnel, not a zero-area no-op.
+    const fresh = makeNode('protuberance');
+    expect(fresh['dragClass']).toBe('streamlinedbase');
+    expect(fresh['width'] as number).toBeGreaterThan(0);
+    expect(fresh['height'] as number).toBeGreaterThan(0);
+    expect(fresh['mass']).toBe(0);
+  });
+});
+
+/**
+ * The mass field is in the mass/CG path — deliberately, because it is trivially
+ * right: the lowering sets it as an ordinary mass override on the carrier, so
+ * the kernel bills it in full at the component's own station. MEASURED on the
+ * ARCAS Long fixture (2026-08-25): 45 g typed → rocket mass 0.251720724 kg
+ * becomes 0.296720724 (exactly +0.045), CG 0.7835511475 → 0.7846934114, which
+ * is the closed-form weighted average to the last bit.
+ */
+describe('engineTree — a protuberance mass is billed exactly, at its own station', () => {
+  it('adds the typed mass and moves CG by the weighted average', async () => {
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    const design = (mass: number): RocketTree => ({
+      name: 'M',
+      components: [{
+        type: 'stage', id: 's1',
+        children: [
+          { type: 'nosecone', id: 'n1', length: 0.15, aftRadius: 0.026, thickness: 0.002, shape: 'ogive', density: 680 },
+          {
+            type: 'bodytube', id: 'b1', length: 0.6, outerRadius: 0.026, thickness: 0.001, density: 680,
+            children: [{
+              type: 'protuberance', id: 'x1', dragClass: 'streamlinedbase',
+              width: 0.02, height: 0.01, length: 0.06, count: 1, mass,
+              position: { method: 'middle', offset: 0 },
+            } as unknown as ComponentNode],
+          } as ComponentNode,
+        ],
+      } as ComponentNode],
+    });
+    const info = (mass: number) => {
+      resetEngine();
+      return OrkRocket.buildTree(engineTree(design(mass))).staticInfo();
+    };
+    const a = info(0);
+    const b = info(0.045);
+    expect(b.mass - a.mass).toBeCloseTo(0.045, 12);
+    // Its station: the same one the kernel reports for the carrier component.
+    resetEngine();
+    const rocket = OrkRocket.buildTree(engineTree(design(0.045)));
+    const x = rocket.componentInfo('x1').positionX;
+    expect((a.mass * a.cg + 0.045 * x) / (a.mass + 0.045)).toBeCloseTo(b.cg, 12);
+    // A zero mass bills nothing at all — the default, and what an imported
+    // RASAero protuberance always has (the file carries no mass data).
+    expect(info(0).mass).toBe(a.mass);
+  }, 60000);
+});

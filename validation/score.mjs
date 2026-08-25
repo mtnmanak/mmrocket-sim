@@ -58,8 +58,9 @@ out.push('> drag spike (M 0.95–1.2), where most failures cluster. These are NO
 out.push('> comparisons against desktop OpenRocket: with the classic model this');
 out.push('> engine is bit-identical to the desktop (see engine-java difftest).');
 out.push("> For scale, that classic model — desktop OpenRocket's exact physics —");
-out.push('> scores **7/135** on these same anchors; the supersonic model scores');
-out.push('> **64/135**. Improving that number is the point of the harness.');
+out.push('> scores **10/164** on these same anchors (2026-08-25 revision); the');
+out.push('> supersonic model scores **52/164**. Improving that number is the point');
+out.push('> of the harness.');
 out.push('> Tolerances come from the datasets and are NEVER widened to make a');
 out.push('> phase pass (see README).');
 out.push('');

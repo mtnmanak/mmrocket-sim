@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  clampWindow, panWindow, WHEEL_ZOOM_IN, WHEEL_ZOOM_OUT, zoomWindow,
+  clampWindow, isFullExtent, panelHeight, panWindow, plotIsZoomed, resetPlots,
+  WHEEL_ZOOM_IN, WHEEL_ZOOM_OUT, xDataExtent, zoomWindow, type XPlot, type XWindow,
 } from './chartPanZoom.js';
 
 // Data extent used throughout: a 0–20 s flight.
@@ -92,6 +93,94 @@ describe('zoomWindow', () => {
       w = zoomWindow(w.min, w.max, 10, WHEEL_ZOOM_IN, D0, D1);
     }
     expect(w.max - w.min).toBeGreaterThan(0);
+  });
+});
+
+describe('isFullExtent', () => {
+  it('is exact equality, both ends', () => {
+    expect(isFullExtent(D0, D1, D0, D1)).toBe(true);
+    expect(isFullExtent(D0 + 1e-9, D1, D0, D1)).toBe(false);
+    expect(isFullExtent(D0, D1 - 1e-9, D0, D1)).toBe(false);
+  });
+
+  it('agrees with clampWindow after a zoom-out at full extent (the no-op contract)', () => {
+    const w = zoomWindow(D0, D1, 7, WHEEL_ZOOM_OUT, D0, D1);
+    expect(isFullExtent(w.min, w.max, D0, D1)).toBe(true);
+  });
+});
+
+/** Stub uPlot for the structural helpers (real uPlot needs a DOM layout pass). */
+function stubPlot(xs: number[], win?: XWindow) {
+  const calls: { key: string; win: XWindow }[] = [];
+  const p: XPlot = {
+    data: [xs],
+    scales: { x: win ? { ...win } : {} },
+    setScale: (key, w) => calls.push({ key, win: w }),
+  };
+  return { p, calls };
+}
+
+describe('xDataExtent', () => {
+  it('reads first/last x value', () => {
+    expect(xDataExtent(stubPlot([0, 5, 12, 20]).p)).toEqual([0, 20]);
+  });
+
+  it('is [0, 0] for empty or missing data', () => {
+    expect(xDataExtent(stubPlot([]).p)).toEqual([0, 0]);
+    expect(xDataExtent({ data: [], scales: {}, setScale: () => {} })).toEqual([0, 0]);
+  });
+});
+
+describe('plotIsZoomed', () => {
+  it('is false at the exact full extent and true inside it', () => {
+    expect(plotIsZoomed(stubPlot([0, 10, 20], { min: 0, max: 20 }).p)).toBe(false);
+    expect(plotIsZoomed(stubPlot([0, 10, 20], { min: 2, max: 18 }).p)).toBe(true);
+    expect(plotIsZoomed(stubPlot([0, 10, 20], { min: 0, max: 18 }).p)).toBe(true);
+  });
+
+  it('is false when the scale is unset or the data is degenerate', () => {
+    expect(plotIsZoomed(stubPlot([0, 10, 20]).p)).toBe(false); // no min/max yet
+    expect(plotIsZoomed(stubPlot([], { min: 0, max: 1 }).p)).toBe(false);
+    expect(plotIsZoomed(stubPlot([5], { min: 0, max: 1 }).p)).toBe(false); // single point
+  });
+});
+
+describe('resetPlots', () => {
+  it('sets each plot to its OWN full x extent', () => {
+    const a = stubPlot([0, 20], { min: 3, max: 9 });
+    const b = stubPlot([2, 50], { min: 10, max: 12 });
+    resetPlots([a.p, b.p]);
+    expect(a.calls).toEqual([{ key: 'x', win: { min: 0, max: 20 } }]);
+    expect(b.calls).toEqual([{ key: 'x', win: { min: 2, max: 50 } }]);
+  });
+
+  it('leaves plots with no usable extent alone', () => {
+    const empty = stubPlot([]);
+    const point = stubPlot([5], { min: 0, max: 1 });
+    resetPlots([empty.p, point.p]);
+    expect(empty.calls).toEqual([]);
+    expect(point.calls).toEqual([]);
+  });
+});
+
+describe('panelHeight', () => {
+  it('normal mode keeps the shipped policy: 0.22 x width, clamped 160-240', () => {
+    expect(panelHeight(320, false)).toBe(160); // floor
+    expect(panelHeight(640, false)).toBe(160); // 140.8 -> floor
+    expect(panelHeight(1000, false)).toBe(220); // in-band
+    expect(panelHeight(1500, false)).toBe(240); // cap
+  });
+
+  it('expanded mode is 0.42 x width, clamped 300-560', () => {
+    expect(panelHeight(320, true)).toBe(300); // floor (phone: still ~2x taller)
+    expect(panelHeight(1000, true)).toBe(420); // in-band
+    expect(panelHeight(1500, true)).toBe(560); // cap
+  });
+
+  it('expanded is strictly taller than normal at every width', () => {
+    for (const w of [0, 200, 320, 640, 900, 1200, 1500, 2200, 4000]) {
+      expect(panelHeight(w, true)).toBeGreaterThan(panelHeight(w, false));
+    }
   });
 });
 

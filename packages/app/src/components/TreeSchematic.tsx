@@ -214,7 +214,9 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
     return num(n, 'height', 0.03);
   };
   const protuberanceSpan = (n: ComponentNode): number =>
-    (n.type === 'fairing' ? num(n, 'height', 0.02) : 0);
+    (n.type === 'fairing' ? num(n, 'height', 0.02)
+      : (n.type as string) === 'protuberance' ? num(n, 'height', 0.01)
+        : 0);
   const finH = Math.max(
     0,
     ...collect(tree.components, finSpan),
@@ -619,6 +621,31 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
               fill={fillOf(child, '#c8c5be')} stroke={selStroke(child, '#7a786f')}
               strokeWidth={selWidth(child)} {...grab} />
           ),
+        );
+      } else if ((t as string) === 'protuberance') {
+        // A drag bump on the outside: solid outline on the top surface, shaped
+        // by its RASAero class — a ramp for an inclined flat plate, a faired
+        // nose with a blunt back for "with base drag", faired both ends for
+        // "no base drag". Radial angle isn't modeled (same as a launch lug).
+        const len = num(child, 'length', 0.06);
+        const hgt = num(child, 'height', 0.01);
+        const cls = String(child['dragClass'] ?? 'streamlinedbase');
+        const start = axialStart(child, len, pStart, pLen);
+        const X = ctx.x0 + start * ctx.scale;
+        const y0 = baseY - pRadius * ctx.scale;
+        const yh = y0 - hgt * ctx.scale;
+        const Xe = X + len * ctx.scale;
+        noteHover(child, X, yh, Xe, y0);
+        const nose = Math.min(0.35 * (Xe - X), Math.max(2, hgt * ctx.scale));
+        shapes.push(
+          <polygon key={key++}
+            points={cls === 'plate'
+              ? `${X},${y0} ${Xe},${yh} ${Xe},${y0}`
+              : cls === 'streamlined'
+                ? `${X},${y0} ${X + nose},${yh} ${Xe - nose},${yh} ${Xe},${y0}`
+                : `${X},${y0} ${X + nose},${yh} ${Xe},${yh} ${Xe},${y0}`}
+            fill={fillOf(child, '#c8c5be')} stroke={selStroke(child, '#7a786f')}
+            strokeWidth={selWidth(child)} {...grab} />,
         );
       } else if (t === 'launchlug' || t === 'railbutton') {
         // Rail buttons are edited via 'outerDiameter' (their only size field)

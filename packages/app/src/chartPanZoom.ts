@@ -59,20 +59,92 @@ export function panWindow(
   return clampWindow(min + dx, max + dx, dataMin, dataMax);
 }
 
-export function panZoomPlugin(getPeers?: () => Iterable<uPlot>): uPlot.Plugin {
+/**
+ * True when the x-scale shows the whole data extent. Exact equality is the
+ * contract, same as the wheel handler's no-op detection: clampWindow returns
+ * the extent verbatim, uPlot's autoscale and double-click reset set exactly
+ * the data min/max, and the pan/zoom paths all round-trip through
+ * clampWindow — so a Reset-view button can be disabled on `===` without an
+ * epsilon.
+ */
+export function isFullExtent(min: number, max: number, dataMin: number, dataMax: number): boolean {
+  return min === dataMin && max === dataMax;
+}
+
+/**
+ * The structural slice of a uPlot instance the zoom-state / reset helpers
+ * read, so the helpers stay unit-testable with plain objects (uPlot itself
+ * needs a real layout pass to construct).
+ */
+export interface XPlot {
+  data: ArrayLike<ArrayLike<number | null | undefined>>;
+  scales: { [key: string]: { min?: number | null; max?: number | null } };
+  setScale(key: string, win: XWindow): void;
+}
+
+/** The plot's own x data extent, [0, 0] when it has no points. */
+export function xDataExtent(p: XPlot): [number, number] {
+  const xs = p.data[0];
+  if (!xs || xs.length === 0) return [0, 0];
+  return [xs[0] as number, xs[xs.length - 1] as number];
+}
+
+/** Whether the plot currently shows less than its full x extent. */
+export function plotIsZoomed(p: XPlot): boolean {
+  const sc = p.scales['x'];
+  if (!sc || sc.min == null || sc.max == null) return false;
+  const [d0, d1] = xDataExtent(p);
+  if (!(d1 > d0)) return false;
+  return !isFullExtent(sc.min, sc.max, d0, d1);
+}
+
+/**
+ * Resets every plot to its own full x extent — the Reset-view button's
+ * action, equivalent to the (undiscoverable) double-click gesture. Plots
+ * with no data are left alone.
+ */
+export function resetPlots(plots: Iterable<XPlot>): void {
+  for (const p of plots) {
+    const [d0, d1] = xDataExtent(p);
+    if (d1 > d0) p.setScale('x', { min: d0, max: d1 });
+  }
+}
+
+/**
+ * Chart-panel canvas height. Widths drive heights (capped) so a wide chart
+ * doesn't flatten into a ribbon; `expanded` is the per-panel ⤢ button —
+ * a much taller canvas for reading fine structure. Pure so the sizing
+ * policy is unit-testable.
+ */
+export function panelHeight(width: number, expanded: boolean): number {
+  return expanded
+    ? Math.max(300, Math.min(560, Math.round(width * 0.42)))
+    : Math.max(160, Math.min(240, Math.round(width * 0.22)));
+}
+
+export function panZoomPlugin(
+  getPeers?: () => Iterable<uPlot>,
+  /**
+   * Called after any x-scale change on THIS plot (own gesture, peer
+   * broadcast, uPlot's double-click reset, initial autoscale) — the hook a
+   * Reset-view button uses to track whether the view is zoomed.
+   */
+  onXScale?: (u: uPlot) => void,
+): uPlot.Plugin {
   return {
     hooks: {
+      ...(onXScale ? {
+        setScale: (u: uPlot, key: string) => {
+          if (key === 'x') onXScale(u);
+        },
+      } : {}),
       init: (u: uPlot) => {
         const over = u.over;
         // Horizontal touch-drag pans the chart; vertical stays the page
         // scroll (a chart that swallows vertical swipes traps the page).
         over.style.touchAction = 'pan-y';
 
-        const extent = (): [number, number] => {
-          const xs = u.data[0];
-          const n = xs ? xs.length : 0;
-          return n > 0 ? [xs[0]!, xs[n - 1]!] : [0, 0];
-        };
+        const extent = (): [number, number] => xDataExtent(u);
 
         const setWindow = (win: XWindow) => {
           u.setScale('x', win);

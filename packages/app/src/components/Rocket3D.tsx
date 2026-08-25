@@ -211,6 +211,18 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims): { pieces: Pie
         const geo = new THREE.BoxGeometry(len, hgt, wid);
         place(`fairing${k++}`, geo, nodeColor(child, MAT.lug),
           [start + len / 2, pRadius + hgt / 2, 0], [0, 0, 0], xform);
+      } else if ((child.type as string) === 'protuberance') {
+        // Drag bump on the +Y surface (radial angle not modeled). Drawn as the
+        // frontal box it IS aerodynamically — width x height — so what the eye
+        // reads is the area feeding the drag.
+        const len = num(child, 'length', 0.06);
+        const wid = num(child, 'width', 0.02);
+        const hgt = num(child, 'height', 0.01);
+        const start = axialStart(child, len, pStart, pLen);
+        maxR = Math.max(maxR, pRadius + hgt);
+        const geo = new THREE.BoxGeometry(len, hgt, wid);
+        place(`prot${k++}`, geo, nodeColor(child, MAT.lug),
+          [start + len / 2, pRadius + hgt / 2, 0], [0, 0, 0], xform);
       } else if (child.type === 'launchlug') {
         const len = num(child, 'length', 0.05);
         const r = num(child, 'outerRadius', 0.0022);

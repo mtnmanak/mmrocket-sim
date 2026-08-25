@@ -6,7 +6,8 @@
     "tol is absolute in the anchor's unit; relTol is relative (fraction of the anchor value); gate=false series are informational (reported, never counted).",
     "gateMinMach/gateMaxMach restrict which points count toward the gate; outside points report as info.",
     "refAreaScale converts kernel-referenced coefficients (max body diameter area) to the dataset's reference area (kernel value x scale).",
-    "Re matching: fixtures MAY carry a machAlt table (Mach -> altitude m) which the sweep uses to evaluate each point at tunnel-matched Reynolds number (ARCAS carries RASAero's own Mach-Alt table). Fixtures WITHOUT machAlt (basic-finner, hb2) still sweep at ISA sea level - expect a friction-CD bias there, worst subsonic."
+    "Re matching: fixtures MAY carry a machAlt table (Mach -> altitude m) which the sweep uses to evaluate each point at tunnel-matched Reynolds number (ARCAS and rma53d02 carry the Mach-Alt tables from Rogers' own CDX1 files). Fixtures WITHOUT machAlt (basic-finner, hb2) still sweep at ISA sea level - expect a friction-CD bias there, worst subsonic.",
+    "ANCHOR REVISION 2026-08-25: the two ARCAS fixtures were re-derived from Chuck Rogers' own ARCAS-Long CDX1 reconciled against the TN D-4013/D-4014 drawings (boattail rear dia 1.47 -> 1.28 in, fin thickness 0.150 -> 0.123 in, tip chord 2.09 -> 2.165 in, true double-wedge section replacing the 'airfoil' placeholder, fins at their true station instead of flush) - see the fixture _notes for the per-conflict rulings. Anchor VALUES are unchanged; the fixture geometry now matches what the app's importCdx1 produces on his file. The rma53d02 cell was added the same day: its cd0-freeflight series is MEASURED free-flight data (gated); its cd-rasaero-reference series is ANOTHER CODE'S PREDICTION and must never gate."
   ],
   "arcas-short": {
     "fixture": "arcas-short.json",
@@ -62,6 +63,26 @@
         "id": "cd-rasaero-parity", "quantity": "cd", "base": "included", "gate": false, "tol": 0.02,
         "source": "RASAero II curve reads p19 - parity tracking only",
         "points": [[0.3, 0.342], [0.5, 0.349], [0.8, 0.363], [0.9, 0.380], [1.15, 0.628], [1.5, 0.514], [2.0, 0.41], [2.5, 0.365], [3.0, 0.325], [3.5, 0.291], [4.0, 0.263], [4.63, 0.229], [5.0, 0.22]]
+      }
+    ]
+  },
+  "rma53d02": {
+    "fixture": "rma53d02.json",
+    "refAreaScale": 1.0,
+    "maxMach": 10.5,
+    "machAlt": [[0.0, 0], [2.5, 0], [5.0, 1447.8], [10.0, 0]],
+    "_machAltNote": "Rogers' Mach-Alt table from his RMA53D02 CDX1 (ft converted to m; near sea level throughout - the Ames ballistic range ran at ambient). The file's trailing [25, 0] row is beyond the sweep.",
+    "_provenance": "The finned M3-10 cell AND the only non-airfoil (blunt-base) fin-section cell. Measured points digitized 2026-08-25 from Rogers & Cooper 2011 Fig 2 (the NACA RM A53D02 free-flight circles, NOT the RASAero dashed curve): page rendered at 600 dpi, axes calibrated on the printed grid (x: 309.5 px/Mach, y: 312.7 px/0.1 CD), markers located by Hough circle detection and verified against an overlay by eye. Report number pending from Rogers - when the report's tabulated values arrive, replace these figure reads and re-derive the tolerance from its stated accuracy.",
+    "series": [
+      {
+        "id": "cd0-freeflight", "quantity": "cd", "base": "included", "gate": true, "relTol": 0.08,
+        "source": "NACA RM A53D02 free-flight ballistic drag data (zero lift), read from Rogers & Cooper 2011 Fig 2 data circles. relTol 0.08 = the dataset's own visible shot-to-shot spread (max +/-7.6% within the M7.2 cluster: 0.139-0.162; M4.0 pair spread 0.024) plus ~0.005 digitization; NOT to be widened.",
+        "points": [[0.60, 0.360], [0.91, 0.364], [1.06, 0.538], [1.32, 0.514], [1.44, 0.459], [1.46, 0.476], [1.53, 0.494], [1.57, 0.448], [1.95, 0.447], [2.10, 0.425], [2.31, 0.389], [2.55, 0.380], [2.91, 0.324], [3.30, 0.299], [4.00, 0.243], [4.04, 0.219], [4.56, 0.206], [4.57, 0.194], [4.64, 0.192], [4.73, 0.193], [5.32, 0.153], [5.45, 0.155], [5.49, 0.169], [7.17, 0.139], [7.19, 0.162], [7.20, 0.155], [7.29, 0.151], [10.00, 0.109], [10.01, 0.100]]
+      },
+      {
+        "id": "cd-rasaero-reference", "quantity": "cd", "base": "included", "gate": false, "tol": 0.02,
+        "source": "RASAero II's own published prediction for this model (curve Rogers posted on TRF 2026-08; matches the Fig 2 dashed line). CROSS-CODE COMPARISON ONLY - another code's prediction, not measured data; never counted in the gate score.",
+        "points": [[1.0, 0.482], [2.0, 0.391], [3.0, 0.303], [4.0, 0.244], [5.0, 0.198], [6.0, 0.162], [7.0, 0.136], [8.0, 0.120], [9.0, 0.108], [10.0, 0.099]]
       }
     ]
   },

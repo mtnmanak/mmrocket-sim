@@ -4,7 +4,9 @@ import { FinPointsEditor, type FinPoint } from './FinPointsEditor.js';
 import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
 import { DISPLAY_NAME, FIELDS, POSITIONABLE, type FieldDef } from '../tree/schema.js';
-import { findParent, suppressingAncestor } from '../tree/treeModel.js';
+import {
+  findParent, protuberanceCd, protuberanceDeliveredCd, protuberanceFrontalArea, suppressingAncestor,
+} from '../tree/treeModel.js';
 import { anchorStarts, axialLength, offsetForStart, snapStart, startFromPosition } from '../tree/position.js';
 import { tubeFinMaxCount, tubeFinMaxRadius, tubeFinRadius } from '../tree/tubefins.js';
 import { shapeParamDefault, shapeParamMax, shapeUsesParameter } from '../tree/shapeProfile.js';
@@ -530,6 +532,10 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll, onAutoAli
               && !shapeUsesParameter(String(node['shape'] ?? (node.type === 'transition' ? 'conical' : 'ogive')))) {
             return null;
           }
+          // A plate angle only means anything for the inclined-flat-plate class.
+          if (f.key === 'plateAngle' && String(node['dragClass'] ?? 'streamlinedbase') !== 'plate') {
+            return null;
+          }
           if (f.bool) {
             // Sub-minimum only makes sense on a tube that already IS a mount.
             if (f.key === 'caseAirframe' && node['motorMount'] !== true) return null;
@@ -639,6 +645,17 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll, onAutoAli
             node={node} onPatch={onPatch} />
         )}
       </div>
+      {(node.type as string) === 'protuberance' && (
+        <p className="comp-stats" style={{ marginTop: 6 }}>
+          {(protuberanceFrontalArea(node) * 1e6).toFixed(0)} mm² frontal
+          {' × '}Cd {protuberanceCd(node).toFixed(3)}
+          {' = '}<strong>+{protuberanceDeliveredCd(tree, node).toFixed(5)}</strong> on the
+          rocket&rsquo;s CD, at every Mach. Drag only — a protuberance adds no
+          normal force and does not move the CP, the same as RASAero.
+          {' '}For real rail buttons prefer the <em>Rail button</em> component:
+          it gets OpenRocket&rsquo;s own Mach- and boundary-layer-dependent model.
+        </p>
+      )}
 
       {(node.type === 'trapezoidfinset' || node.type === 'freeformfinset'
         || node.type === 'ellipticalfinset') && (() => {
@@ -732,6 +749,15 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll, onAutoAli
         </div>
       )}
 
+      {/* No Overrides block for a protuberance. Its whole physics IS a CD
+          override synthesized at the engine boundary (treeModel.engineTree),
+          and its mass is a mass override — so a figure typed here would be
+          overwritten on the way to the kernel while looking live and surviving
+          a .ork round-trip. That is exactly the trap the fairing component
+          still carries (findings-2026-08-22-import-fidelity.md item 8); the
+          Cd escape hatch that item asks for is the "Cd on frontal area" field
+          above. */}
+      {(node.type as string) !== 'protuberance' && (
       <div style={{ marginTop: 10 }}>
         <h2>
           Overrides (blank = calculated)
@@ -856,6 +882,7 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll, onAutoAli
           </p>
         )}
       </div>
+      )}
 
       {positionable && (
         <div style={{ marginTop: 10 }}>

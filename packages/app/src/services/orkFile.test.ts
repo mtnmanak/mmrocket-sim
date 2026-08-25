@@ -1748,3 +1748,91 @@ describe('the file’s simulation time step', () => {
     expect(importOrk(withStep('<timestep>-1</timestep>')).launch!.timeStepS).toBeUndefined();
   });
 });
+
+/**
+ * The protuberance component (§7.5e) rides the .ork as an extension element,
+ * the same contract `<fairing>` has had since v0.034: our reader round-trips
+ * it, desktop OpenRocket warns about the unknown element and skips it.
+ */
+describe('.ork round-trip of the protuberance extension element', () => {
+  const design = (kids: ComponentNode[]) => ({
+    name: 'Prot',
+    components: [{
+      type: 'bodytube', id: 'b1', length: 0.4, outerRadius: 0.02, thickness: 0.001,
+      children: kids,
+    } as ComponentNode],
+  });
+
+  it('round-trips every field, angles in radians', () => {
+    const tree = design([{
+      type: 'protuberance', id: 'p1', name: 'Cable tunnel',
+      dragClass: 'plate', width: 0.03, height: 0.012, length: 0.25,
+      count: 3, plateAngle: Math.PI / 6, mass: 0.045,
+      position: { method: 'top', offset: 0.05 },
+    } as unknown as ComponentNode]);
+    const xml = exportOrk({ name: 'Prot', tree });
+    const back = importOrk(xml);
+    const p = flatten(back.tree.components).find((c) => (c.type as string) === 'protuberance')!;
+    expect(p.name).toBe('Cable tunnel');
+    expect(p['dragClass']).toBe('plate');
+    expect(p['width']).toBeCloseTo(0.03, 12);
+    expect(p['height']).toBeCloseTo(0.012, 12);
+    expect(p['length']).toBeCloseTo(0.25, 12);
+    expect(p['count']).toBe(3);
+    expect(p['plateAngle']).toBeCloseTo(Math.PI / 6, 12); // RADIANS, not degrees
+    expect(p['mass']).toBeCloseTo(0.045, 12);
+    expect(p.position?.method).toBe('top');
+    expect(p.position?.offset).toBeCloseTo(0.05, 12);
+    // Only when set: an unused Cd escape hatch writes no element at all.
+    expect(p['cdFrontal']).toBeUndefined();
+  });
+
+  it('carries an explicit frontal Cd only when one was typed', () => {
+    const tree = design([{
+      type: 'protuberance', id: 'p1', dragClass: 'streamlined',
+      width: 0.02, height: 0.01, length: 0.06, count: 1, mass: 0, cdFrontal: 0.37,
+    } as unknown as ComponentNode]);
+    const xml = exportOrk({ name: 'Prot', tree });
+    expect(xml).toContain('<cdfrontal>0.37</cdfrontal>');
+    const p = flatten(importOrk(xml).tree.components)
+      .find((c) => (c.type as string) === 'protuberance')!;
+    expect(p['cdFrontal']).toBeCloseTo(0.37, 12);
+  });
+
+  it('reads a hand-mangled element defensively instead of poisoning the design CD', () => {
+    // Everything here is junk a hand-edited (or truncated) file could carry.
+    // A NaN width or a negative count would reach the drag model as a NaN CD
+    // and take the WHOLE rocket's drag with it, not just this component's.
+    const xml = `<openrocket version="1.10" creator="x"><rocket><name>P</name>
+      <subcomponents><stage><name>S</name><subcomponents>
+        <bodytube><name>B</name><length>0.3</length><thickness>0.001</thickness><radius>0.02</radius>
+          <subcomponents>
+            <protuberance><name>Bad</name>
+              <dragclass>wharrgarbl</dragclass>
+              <width>not-a-number</width>
+              <height>-0.5</height>
+              <count>-4</count>
+              <plateangle>99</plateangle>
+              <cdfrontal>-2</cdfrontal>
+            </protuberance>
+          </subcomponents>
+        </bodytube>
+      </subcomponents></stage></subcomponents></rocket></openrocket>`;
+    const p = flatten(importOrk(xml).tree.components)
+      .find((c) => (c.type as string) === 'protuberance')!;
+    expect(p['dragClass']).toBe('streamlinedbase'); // unknown class → the default
+    expect(p['width']).toBeCloseTo(0.02, 12); // NaN → default
+    expect(p['height']).toBeCloseTo(0.01, 12); // negative → default
+    expect(p['count']).toBe(1); // negative → 1
+    expect(p['plateAngle']).toBeCloseTo(Math.PI / 2, 12); // clamped to 90°
+    expect(p['cdFrontal']).toBeUndefined(); // negative → not an override at all
+  });
+
+  it('leaves designs without one byte-identical to before the feature', () => {
+    const tree = design([{
+      type: 'trapezoidfinset', id: 'f1', finCount: 3, rootChord: 0.05,
+      tipChord: 0.03, sweep: 0.02, height: 0.03, thickness: 0.003,
+    } as ComponentNode]);
+    expect(exportOrk({ name: 'Prot', tree })).not.toContain('protuberance');
+  });
+});

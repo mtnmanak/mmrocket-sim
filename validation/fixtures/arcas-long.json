@@ -1,20 +1,22 @@
 {
   "name": "ARCAS Long (NASA TN D-4013/D-4014 half-scale tunnel model, Config 2)",
   "_notes": [
-    "Identical to arcas-short.json except the body tube (41.09 in vs 28.54 in). See that fixture's notes."
+    "Identical to arcas-short.json except the body tube (41.09 in vs 28.54 in; total 23.77 d = 53.48 in). See that fixture's notes for the 2026-08-25 re-fixture: boattail rear dia 1.308, fin thickness 0.123 / tip 2.165 / sweep 1.215, double-wedge section (LE 0.0377521 m / TE 0.0326695 m), fins at their true station (bottom +1.54 in), finish finishpolished.",
+    "This is the exact configuration in Chuck Rogers' 'ARCAS-Long - 2.CDX1' (docs/User files); the component values below match the app's importCdx1 output on that file to float rounding."
   ],
   "components": [
-    { "type": "nosecone", "finish": "polished", "shape": "ogive", "shapeParameter": 1.0, "length": 0.269240, "aftRadius": 0.0285750, "thickness": 0.0015 },
+    { "type": "nosecone", "finish": "finishpolished", "shape": "ogive", "shapeParameter": 1.0, "length": 0.269240, "aftRadius": 0.0285750, "thickness": 0.0015 },
     {
-      "type": "bodytube", "finish": "polished", "length": 1.043686, "outerRadius": 0.0285750, "thickness": 0.0015,
+      "type": "bodytube", "finish": "finishpolished", "length": 1.043686, "outerRadius": 0.0285750, "thickness": 0.0015,
       "children": [
         {
-          "type": "trapezoidfinset", "finish": "polished", "finCount": 4, "rootChord": 0.0858520, "tipChord": 0.0530860,
-          "sweep": 0.0308400, "height": 0.0534162, "thickness": 0.0038100, "crossSection": "airfoil",
-          "position": { "method": "bottom", "offset": 0 }
+          "type": "trapezoidfinset", "finish": "finishpolished", "finCount": 4, "rootChord": 0.0858520, "tipChord": 0.0549910,
+          "sweep": 0.0308610, "height": 0.0534162, "thickness": 0.0031242, "crossSection": "airfoil",
+          "airfoilSection": "doublewedge", "airfoilLeDiamond": 0.0377521, "airfoilTeDiamond": 0.0326695,
+          "position": { "method": "bottom", "offset": 0.0391161 }
         }
       ]
     },
-    { "type": "transition", "finish": "polished", "shape": "conical", "length": 0.045974, "foreRadius": 0.0285750, "aftRadius": 0.0186690, "thickness": 0.0015 }
+    { "type": "transition", "finish": "finishpolished", "shape": "conical", "length": 0.045974, "foreRadius": 0.0285750, "aftRadius": 0.0166116, "thickness": 0.0015 }
   ]
 }

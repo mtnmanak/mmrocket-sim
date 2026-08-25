@@ -10,6 +10,7 @@ import {
 import { clearRuns, deleteRun, runsToCsv, runsToTable } from '../services/simStore.js';
 import { formatWarning } from '../services/simWarnings.js';
 import { flightDataCsv } from '../services/flightDataCsv.js';
+import { flightXlsx } from '../services/flightXlsx.js';
 import { tableToXlsx, XLSX_MIME } from '../services/xlsx.js';
 
 /**
@@ -74,8 +75,28 @@ export function SimRunDetails({ run, result, onFullSeries }: {
 }) {
   const { prefs } = usePrefs();
   const [open, setOpen] = useState(false);
-  const [csvBusy, setCsvBusy] = useState(false);
-  const [csvError, setCsvError] = useState<string | null>(null);
+  const [exportBusy, setExportBusy] = useState<null | 'csv' | 'xlsx'>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
+
+  /** Re-fly for the full series, then hand the bytes off as a download. */
+  const exportFlightData = (kind: 'csv' | 'xlsx') => {
+    if (!onFullSeries) return;
+    setExportBusy(kind);
+    setExportError(null);
+    onFullSeries()
+      .then((full) => {
+        const blob = kind === 'csv'
+          ? new Blob([CSV_BOM, flightDataCsv(full, prefs.units)], { type: 'text/csv;charset=utf-8' })
+          : new Blob([flightXlsx(full, prefs.units) as BlobPart], { type: XLSX_MIME });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = kind === 'csv' ? 'flight-data-full.csv' : 'flight-data.xlsx';
+        a.click();
+        URL.revokeObjectURL(a.href);
+      })
+      .catch((e: unknown) => setExportError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setExportBusy(null));
+  };
   const dist = prefs.units.distance;
   const vel = prefs.units.velocity;
   const len = prefs.units.length;
@@ -90,31 +111,26 @@ export function SimRunDetails({ run, result, onFullSeries }: {
           {run.manufacturer ? ` (${run.manufacturer})` : ''}
         </h2>
         {result && onFullSeries && (
-          <button className="file-btn" disabled={csvBusy}
-            title={'Re-flies the shown flight to capture every series the physics kernel records (deterministic — the same flight, more columns), one row per timestep, in your preferred units (each header names its unit; thrust and drag stay in newtons). Booster stages append as name-prefixed column groups. Not stored with run history.'}
-            onClick={() => {
-              setCsvBusy(true);
-              setCsvError(null);
-              onFullSeries()
-                .then((full) => {
-                  const blob = new Blob([CSV_BOM, flightDataCsv(full, prefs.units)], { type: 'text/csv;charset=utf-8' });
-                  const a = document.createElement('a');
-                  a.href = URL.createObjectURL(blob);
-                  a.download = 'flight-data-full.csv';
-                  a.click();
-                  URL.revokeObjectURL(a.href);
-                })
-                .catch((e: unknown) => setCsvError(e instanceof Error ? e.message : String(e)))
-                .finally(() => setCsvBusy(false));
-            }}>{csvBusy ? '⏳ Re-flying…' : '⬇ Flight data .csv'}</button>
+          <>
+            <button className="file-btn" disabled={exportBusy !== null}
+              title={'Re-flies the shown flight to capture every series the physics kernel records (deterministic — the same flight, more columns), one row per timestep, in your preferred units (each header names its unit; thrust and drag stay in newtons). Booster stages append as name-prefixed column groups. Not stored with run history.'}
+              onClick={() => exportFlightData('csv')}>
+              {exportBusy === 'csv' ? '⏳ Re-flying…' : '⬇ Flight data .csv'}
+            </button>
+            <button className="file-btn" disabled={exportBusy !== null}
+              title={'Excel workbook of the same flight data: typed numeric cells under unit-labelled headers, plus live charts (altitude, velocity, acceleration vs time) on their own tabs, referencing the data sheet. Booster stages get their own data sheets and chart series.'}
+              onClick={() => exportFlightData('xlsx')}>
+              {exportBusy === 'xlsx' ? '⏳ Re-flying…' : '⬇ .xlsx + charts'}
+            </button>
+          </>
         )}
         <button className="file-btn" onClick={() => setOpen(!open)}>
           {open ? 'Hide details' : 'Show all details'}
         </button>
       </div>
-      {csvError && (
+      {exportError && (
         <p className="simdet-comments stability-bad" style={{ margin: '4px 0 0' }}>
-          Flight-data export failed: {csvError}
+          Flight-data export failed: {exportError}
         </p>
       )}
       {(run.optimumDelayS !== null || run.recommendedDelayS !== null) && (

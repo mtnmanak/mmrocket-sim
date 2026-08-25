@@ -566,6 +566,39 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
         n['mass'] = num(el, 'mass', 0.03);
         return n;
       }
+      /**
+       * Our extension component (RASAero protuberance, §7.5e) — same contract
+       * as <fairing> above: our reader round-trips it, desktop OpenRocket
+       * warns about the unknown element and skips it.
+       *
+       * Read DEFENSIVELY. Everything is optional and every number is checked
+       * finite and in range before it lands, because these values feed a drag
+       * coefficient: a NaN width or a negative count would poison the whole
+       * design's CD, not just this component's.
+       */
+      case 'protuberance': {
+        const n = base('protuberance' as ComponentType, true);
+        const pos = (key: string, fb: number): number => {
+          const v = num(el, key, fb);
+          return Number.isFinite(v) && v >= 0 ? v : fb;
+        };
+        n['width'] = pos('width', 0.02);
+        n['height'] = pos('height', 0.01);
+        n['length'] = pos('length', 0.06);
+        n['mass'] = pos('mass', 0);
+        const count = Math.round(pos('count', 1));
+        n['count'] = count >= 1 && count <= 1000 ? count : 1;
+        const cls = text(el, ':scope > dragclass');
+        n['dragClass'] = cls === 'streamlined' || cls === 'plate' ? cls : 'streamlinedbase';
+        // Radians on this side of the file boundary; clamped to 0..90°.
+        const ang = num(el, 'plateangle', NaN);
+        n['plateAngle'] = Number.isFinite(ang)
+          ? Math.min(Math.PI / 2, Math.max(0, ang))
+          : Math.PI / 4;
+        const cd = num(el, 'cdfrontal', NaN);
+        if (Number.isFinite(cd) && cd >= 0) n['cdFrontal'] = cd;
+        return n;
+      }
       case 'parachute': {
         const n = base('parachute', true);
         n['diameter'] = num(el, 'diameter', 0.3);
@@ -1249,7 +1282,9 @@ export function exportOrk({
   };
 
   const emitNode = (node: ComponentNode, depth: number) => {
-    const t = node.type;
+    // Widened: the editor carries app-level types the engine union does not
+    // (see tree/schema.ts EditorComponentType) and they still have to be saved.
+    const t = node.type as ComponentType | 'protuberance';
     const open = (tag: string) => emit(depth, `<${tag}>`);
     const close = (tag: string) => {
       emitChildren(node, depth + 1);
@@ -1497,6 +1532,26 @@ export function exportOrk({
         emit(depth + 1, `<fairingshape>${escapeXml(String(node['fairingShape'] ?? 'halfround'))}</fairingshape>`);
         emit(depth + 1, `<mass>${n(node, 'mass', 0.03)}</mass>`);
         close('fairing');
+        break;
+      }
+      case 'protuberance': {
+        // Extension element, same contract as <fairing>: our reader
+        // round-trips it, the desktop warns-and-skips. Angles are RADIANS here
+        // (SI internally) — degrees exist only at the RASAero boundary.
+        open('protuberance');
+        header(depth + 1, node, 'Protuberance');
+        position(depth + 1, node, 'middle');
+        emit(depth + 1, `<dragclass>${escapeXml(String(node['dragClass'] ?? 'streamlinedbase'))}</dragclass>`);
+        emit(depth + 1, `<width>${n(node, 'width', 0.02)}</width>`);
+        emit(depth + 1, `<height>${n(node, 'height', 0.01)}</height>`);
+        emit(depth + 1, `<length>${n(node, 'length', 0.06)}</length>`);
+        emit(depth + 1, `<count>${Math.max(1, Math.round(n(node, 'count', 1)))}</count>`);
+        emit(depth + 1, `<plateangle>${n(node, 'plateAngle', Math.PI / 4)}</plateangle>`);
+        if (typeof node['cdFrontal'] === 'number' && Number.isFinite(node['cdFrontal'])) {
+          emit(depth + 1, `<cdfrontal>${node['cdFrontal'] as number}</cdfrontal>`);
+        }
+        emit(depth + 1, `<mass>${n(node, 'mass', 0)}</mass>`);
+        close('protuberance');
         break;
       }
       case 'launchlug': {

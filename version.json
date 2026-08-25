@@ -1,5 +1,5 @@
 {
-  "version": "0.067",
+  "version": "0.068",
   "released": "2026-08-25",
-  "note": "The drag breakdown adds up now: per-component rows carry the same instance counts the total uses (a four-fin set showed one fin's drag), same-named parts no longer merge into one row, and stage/pod CD overrides get their own row. Kernel rebuild, differential clean at 271 comparison points."
+  "note": "The transonic drag curve now peaks where the wind tunnel says it does. Three drag terms were each ramping up to a maximum at the top of their transonic bridge rather than near Mach 1.05 — on the NASA ARCAS that put a false peak at exactly Mach 1.500 and gave the drag curve two humps. Supersonic drag on finned bodies also decayed far too fast above Mach 2 (the band Western-US fliers actually use). Also new: a protuberance component, drag sweeps at altitude or on a file's Mach-Alt table, .xlsx export with live Excel charts, and charts that expand, reset and say how to pan them."
 }

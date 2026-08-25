@@ -1,6 +1,6 @@
 import type { ComponentNode, ComponentType, RocketTree } from '@online-openrocket/engine';
 import { resolveAbsolutePositions } from './position.js';
-import { defaultParams, DISPLAY_NAME, FIELDS } from './schema.js';
+import { defaultParams, DISPLAY_NAME, FIELDS, type EditorComponentType } from './schema.js';
 
 /**
  * Immutable tree-editing helpers. Every node carries a unique editor id
@@ -30,7 +30,7 @@ function reseedIds(tree: RocketTree): void {
   walk(tree.components);
 }
 
-export function makeNode(type: ComponentType): ComponentNode {
+export function makeNode(type: EditorComponentType): ComponentNode {
   return {
     type,
     id: freshId(),
@@ -264,6 +264,99 @@ const FAIRING_CD_FRONTAL: Record<string, number> = {
 };
 
 /**
+ * Protuberance drag coefficients, referenced to the bump's FRONTAL area, built
+ * from the two terms RASAero's own class names name (Users Manual pp. 24–29:
+ * "streamlined front end and a streamlined or boattailed aft end" vs
+ * "streamlined front end, but a blunt (flat) back end which has base drag").
+ *
+ * - fore 0.10 — Hoerner, *Fluid-Dynamic Drag*: a faired half-body sitting on a
+ *   surface, frontal-area referenced, boundary-layer interference included
+ *   (a free-stream streamline body of revolution is ~0.05; mounting roughly
+ *   doubles it). Same family as FAIRING_CD_FRONTAL above.
+ * - base 0.12 — a blunt aft face with attached approach flow. Deliberately the
+ *   value OpenRocket's own body base-drag law (0.12 + 0.13·M²) takes at M = 0,
+ *   so the app is not inventing a second base-drag constant.
+ * - plate 1.17·sin²θ — modified-Newtonian ramp pressure (Cp = 2 sin²θ) scaled
+ *   to the measured 3-D flat-plate normal value 1.17 at θ = 90°, referenced to
+ *   the plate's PROJECTED (frontal) area, which is the area RASAero asks for.
+ *
+ * CROSS-CHECKS (measured 2026-08-25, ARCAS Long fixture, Re-matched machAlt):
+ * 1. OpenRocket's own RailButtonCalc — NACA TN 2960 cylinder drag with a
+ *    boundary-layer velocity average, the only protuberance model in the carved
+ *    kernel — delivers an effective frontal-area Cd of 0.142 (M0.3) rising to
+ *    0.465 (M2.95) for a default 9.7 mm button on this rocket. 0.22 sits inside
+ *    that band.
+ * 2. Chuck Rogers' own ARCAS write-up ("RASAero II Comparisons with ARCAS CP
+ *    and CD Data", slide 2) enters the four fin-root anchors by dividing their
+ *    frontal area by five because "typically a rail guide will have 5 times the
+ *    drag of a typical rocket body" — i.e. Cd(anchor) = Cd(rail guide)/5. With
+ *    a rail guide as a near-normal blunt bracket (1.17 here), that is 0.234,
+ *    against the 0.22 this table gives them.
+ *
+ * KNOWN LIMITATION: these are Mach-FLAT. The kernel hook is a scalar
+ * `overrideCD`, so the lowered contribution cannot vary with Mach the way
+ * RASAero's protuberance column or the kernel's own rail-button model does.
+ * For actual rail buttons prefer the `railbutton` component, which gets
+ * OpenRocket's Mach- and boundary-layer-dependent treatment.
+ */
+const PROTUBERANCE_FORE_CD = 0.10;
+const PROTUBERANCE_BASE_CD = 0.12;
+const PROTUBERANCE_PLATE_CD = 1.17;
+
+/** Frontal-area Cd for a protuberance node (explicit `cdFrontal` wins). */
+export function protuberanceCd(node: ComponentNode): number {
+  const explicit = node['cdFrontal'];
+  if (typeof explicit === 'number' && Number.isFinite(explicit) && explicit >= 0) return explicit;
+  const cls = typeof node['dragClass'] === 'string' ? (node['dragClass'] as string) : 'streamlinedbase';
+  if (cls === 'streamlined') return PROTUBERANCE_FORE_CD;
+  if (cls === 'plate') {
+    const raw = typeof node['plateAngle'] === 'number' ? (node['plateAngle'] as number) : Math.PI / 4;
+    const theta = Math.min(Math.PI / 2, Math.max(0, raw)); // radians, 0..90 deg
+    return PROTUBERANCE_PLATE_CD * Math.sin(theta) ** 2;
+  }
+  return PROTUBERANCE_FORE_CD + PROTUBERANCE_BASE_CD;
+}
+
+/** Total frontal area (m²) a protuberance node presents: width × height × count. */
+export function protuberanceFrontalArea(node: ComponentNode): number {
+  const w = typeof node['width'] === 'number' ? (node['width'] as number) : 0.02;
+  const h = typeof node['height'] === 'number' ? (node['height'] as number) : 0.01;
+  const c = typeof node['count'] === 'number' ? Math.max(1, Math.round(node['count'] as number)) : 1;
+  return Math.max(0, w) * Math.max(0, h) * c;
+}
+
+/**
+ * The rocket's aerodynamic reference area (m²) — π·R² of the airframe's
+ * greatest radius, which is the kernel's own reference (`referencetype
+ * maximum`). Shared by engineTree and the property panel so the CD a user
+ * reads is the CD that reaches the kernel.
+ */
+export function referenceArea(tree: RocketTree): number {
+  let maxR = 0.001;
+  const nnum = (n: ComponentNode, key: string): number =>
+    typeof n[key] === 'number' ? (n[key] as number) : 0;
+  const scan = (nodes: ComponentNode[]) => {
+    for (const n of nodes) {
+      maxR = Math.max(maxR, nnum(n, 'aftRadius'), nnum(n, 'outerRadius'), nnum(n, 'foreRadius'));
+      scan(n.children ?? []);
+    }
+  };
+  scan(tree.components);
+  return Math.PI * maxR * maxR;
+}
+
+/**
+ * What a protuberance actually adds to the rocket's CD: frontal area × Cd,
+ * referenced to the rocket's own reference area — exactly the number handed to
+ * the kernel as an override, and exactly what the kernel adds to total CD
+ * (measured: asked 0.0134303, delivered 0.0134303 at every Mach).
+ */
+export function protuberanceDeliveredCd(tree: RocketTree, node: ComponentNode): number {
+  return (protuberanceCd(node) * protuberanceFrontalArea(node))
+    / Math.max(referenceArea(tree), 1e-9);
+}
+
+/**
  * Engine-boundary transform: app-level modeling the kernel doesn't carry.
  * Pure — the editing tree is untouched; node ids are preserved (setMotorById,
  * componentInfo and selection all keep working).
@@ -277,6 +370,20 @@ const FAIRING_CD_FRONTAL: Record<string, number> = {
  *    kernel — plus a component-CD override for the protuberance drag
  *    (frontal-area Hoerner value scaled to the rocket reference area) and the
  *    as-built mass as a mass override. Radial mounting angle not modeled.
+ * 3. Protuberances ('protuberance'): lowered to a kernel RailButton carrying a
+ *    CD override and a mass override, which is the CHEAPEST CORRECT carrier —
+ *    MEASURED on the ARCAS Long fixture (2026-08-25):
+ *      • the delivered CD is EXACTLY the override (0.0134303 asked, 0.0134303
+ *        delivered at every Mach from 0.3 to 4.65),
+ *      • friction, pressure and base CD all move by 0.0000000 — BarrowmanCalculator
+ *        skips a CD-overridden component in all three loops,
+ *      • mass, CG, CP and the warning set all move by exactly 0,
+ *    and RailButtonCalc.calculateNonaxialForces is empty, so a protuberance
+ *    contributes no normal force — which is what RASAero does too.
+ *    A LAUNCH LUG was rejected as the carrier despite measuring identically:
+ *    SimulationStatus (24.12, ll. 138–162) shortens the effective launch rod
+ *    length to the aft-most LaunchLug, so a synthetic lug would quietly change
+ *    guide-exit velocity. Nothing in the kernel's simulation reads RailButton.
  */
 export function engineTree(tree: RocketTree): RocketTree {
   const KERNEL_DEFAULT_CD = 0.8;
@@ -284,17 +391,26 @@ export function engineTree(tree: RocketTree): RocketTree {
     typeof n[key] === 'number' ? (n[key] as number) : fb;
 
   // Rocket reference diameter = the airframe's max diameter (kernel rule).
-  let maxR = 0.001;
-  const scanR = (nodes: ComponentNode[]) => {
-    for (const n of nodes) {
-      maxR = Math.max(maxR, nnum(n, 'aftRadius', 0), nnum(n, 'outerRadius', 0), nnum(n, 'foreRadius', 0));
-      scanR(n.children ?? []);
-    }
-  };
-  scanR(tree.components);
-  const aRef = Math.PI * maxR * maxR;
+  const aRef = referenceArea(tree);
 
   const walk = (nodes: ComponentNode[]): ComponentNode[] => nodes.map((n) => {
+    if ((n.type as string) === 'protuberance') {
+      const area = protuberanceFrontalArea(n);
+      const cd = protuberanceCd(n);
+      // The carrier's own geometry is inert (its friction/pressure/base are all
+      // skipped under the override) — kept in a sane range purely so nothing
+      // downstream sees a degenerate component.
+      const od = Math.min(0.05, Math.max(0.001, Math.sqrt(Math.max(area, 1e-8))));
+      return {
+        type: 'railbutton',
+        id: n.id,
+        name: n.name ?? 'Protuberance',
+        outerDiameter: od,
+        position: n.position,
+        overrideCD: (cd * area) / Math.max(aRef, 1e-9),
+        overrideMass: Math.max(0, nnum(n, 'mass', 0)),
+      } as ComponentNode;
+    }
     if (n.type === 'fairing') {
       const L = nnum(n, 'length', 0.08);
       const W = nnum(n, 'width', 0.025);

@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
-import { exportCdx1, importCdx1 } from './rasaeroFile.js';
+import { CDX1_ENGINE_EXPORT, exportCdx1, importCdx1, rasaeroManufacturerAbbrev } from './rasaeroFile.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixture = (name: string) => readFileSync(join(here, '__fixtures__', name), 'utf8');
@@ -104,8 +104,153 @@ describe('RASAero import — supersonic airfoils, launch site, simulations', () 
     expect(r.configs).toEqual([]);
     expect(r.chosenConfigId).toBeNull();
     const joined = r.notes.join(' ');
-    expect(joined).toMatch(/Protuberance/);
+    expect(joined).toMatch(/protuberance/i);
     expect(joined).toMatch(/BluntRadius/);
+  });
+
+  /**
+   * §7.5e. Chuck Rogers' ARCAS carries `<StreamlinedWithBaseDrag>0.178</…>` —
+   * the four fin-root anchors, entered as one total frontal area in square
+   * inches. It used to reach us as a note and nothing else, and the validation
+   * fixture records the omission as "kernel CD reads LOW".
+   */
+  it('imports the ARCAS <Protuberance> as a real component, area exact', () => {
+    const r = importCdx1(fixture('ARCAS-Long - 2.CDX1'));
+    const prots = flatten(r.tree.components).filter((c) => (c.type as string) === 'protuberance');
+    expect(prots).toHaveLength(1);
+    const p = prots[0]!;
+    expect(p['dragClass']).toBe('streamlinedbase');
+    expect(p['count']).toBe(1);
+    // Equal-area square (Rogers' own convention), so the area survives exactly.
+    const IN2 = 39.37 * 39.37;
+    expect((p['width'] as number) * (p['height'] as number) * IN2).toBeCloseTo(0.178, 9);
+    expect(p['width']).toBe(p['height']);
+    // It hangs off the body tube that declared it, not the stage.
+    const tube = flatten(r.tree.components).find((c) => c.type === 'bodytube')!;
+    expect((tube.children ?? []).some((c) => c.id === p.id)).toBe(true);
+    // …and the note SAYS it imported, with the area, instead of the old
+    // "protuberance drag is not modeled".
+    expect(r.notes.join(' ')).toContain('Imported 1 RASAero protuberance on Body tube (0.1780 in²)');
+    expect(r.notes.join(' ')).not.toMatch(/protuberance drag is not modeled/);
+  });
+
+  it('leaves a design with no <Protuberance> block untouched', () => {
+    for (const f of ['RMA53D02 - 2.CDX1', 'Show-off.CDX1', 'Three-stage rocket.CDX1']) {
+      const r = importCdx1(fixture(f));
+      expect(flatten(r.tree.components).filter((c) => (c.type as string) === 'protuberance'))
+        .toHaveLength(0);
+    }
+  });
+
+  /**
+   * The desktop's own two-stage sample carries BOTH kinds on one tube:
+   * 0.25 in² with base drag and 0.25 in² of inclined flat plate at 30°.
+   * Two entries, two components, and the plate angle arrives in RADIANS.
+   */
+  it('imports both protuberance kinds from one <Protuberance> block', () => {
+    const r = importCdx1(fixture('Complex.Two-Stage.CDX1'));
+    const prots = flatten(r.tree.components).filter((c) => (c.type as string) === 'protuberance');
+    expect(prots).toHaveLength(2);
+    const IN2 = 39.37 * 39.37;
+    const base = prots.find((p) => p['dragClass'] === 'streamlinedbase')!;
+    const plate = prots.find((p) => p['dragClass'] === 'plate')!;
+    expect((base['width'] as number) * (base['height'] as number) * IN2).toBeCloseTo(0.25, 9);
+    expect((plate['width'] as number) * (plate['height'] as number) * IN2).toBeCloseTo(0.25, 9);
+    expect(plate['plateAngle']).toBeCloseTo(Math.PI / 6, 12); // 30° as radians
+    expect(base['plateAngle']).toBeUndefined();
+    // Straight back out, both slots, degrees at the file boundary again. Only
+    // the stage that owns them — this two-stage sample's BOOSTER has extra
+    // transitions the exporter refuses for unrelated reasons.
+    const owner = r.tree.components.find(
+      (s) => flatten([s]).some((c) => c.id === base.id))!;
+    const out = exportCdx1({ name: 'Complex', tree: { name: 'Complex', components: [owner] } });
+    expect(out).toMatch(/<StreamlinedWithBaseDrag>0\.25<\/StreamlinedWithBaseDrag>/);
+    expect(out).toMatch(/<InclinedPlate1Angle>30<\/InclinedPlate1Angle>/);
+    expect(out).toMatch(/<InclinedPlate1FrontalArea>0\.25<\/InclinedPlate1FrontalArea>/);
+  });
+
+  it('round-trips protuberances back out to <Protuberance>, summed per class', () => {
+    const r = importCdx1(fixture('ARCAS-Long - 2.CDX1'));
+    const out = exportCdx1({ name: 'ARCAS', tree: r.tree });
+    expect(out).toMatch(/<Protuberance>/);
+    expect(out).toMatch(/<StreamlinedWithBaseDrag>0\.178<\/StreamlinedWithBaseDrag>/);
+    expect(out).toMatch(/<StreamlinedNoBaseDrag>0<\/StreamlinedNoBaseDrag>/);
+    expect(out).toMatch(/<InclinedPlate1Angle>0<\/InclinedPlate1Angle>/);
+    // …and re-importing our own output gives the same area back.
+    const back = importCdx1(out);
+    const p = flatten(back.tree.components).find((c) => (c.type as string) === 'protuberance')!;
+    const IN2 = 39.37 * 39.37;
+    expect((p['width'] as number) * (p['height'] as number) * IN2).toBeCloseTo(0.178, 9);
+  });
+
+  it('exports inclined plates grouped by angle into RASAero\'s two slots', () => {
+    const r = importCdx1(fixture('ARCAS-Long - 2.CDX1'));
+    const tube = flatten(r.tree.components).find((c) => c.type === 'bodytube')!;
+    const plate = (deg: number, side: number, count: number): ComponentNode => ({
+      type: 'protuberance', dragClass: 'plate', plateAngle: (deg * Math.PI) / 180,
+      width: side, height: side, length: side, count, mass: 0,
+      position: { method: 'middle', offset: 0 },
+    } as unknown as ComponentNode);
+    // 30° twice (must SUM), 60° once, 20° once — three distinct angles into two
+    // slots, so the smallest total folds into its nearest kept angle.
+    const s = 0.01;
+    tube.children = [...(tube.children ?? []),
+      plate(30, s, 2), plate(30, s, 1), plate(60, s, 4), plate(20, s, 1)];
+    const out = exportCdx1({ name: 'ARCAS', tree: r.tree });
+    const IN2 = 39.37 * 39.37;
+    const a = (n: number) => n * s * s * IN2;
+    const angle1 = /<InclinedPlate1Angle>([\d.]+)<\/InclinedPlate1Angle>/.exec(out)![1]!;
+    const area1 = /<InclinedPlate1FrontalArea>([\d.]+)<\/InclinedPlate1FrontalArea>/.exec(out)![1]!;
+    const angle2 = /<InclinedPlate2Angle>([\d.]+)<\/InclinedPlate2Angle>/.exec(out)![1]!;
+    const area2 = /<InclinedPlate2FrontalArea>([\d.]+)<\/InclinedPlate2FrontalArea>/.exec(out)![1]!;
+    expect(Number(angle1)).toBeCloseTo(60, 1); // 4 units — the largest
+    expect(Number(area1)).toBeCloseTo(a(4), 3);
+    expect(Number(angle2)).toBeCloseTo(30, 1); // 2 + 1 summed
+    // The lone 20° (1 unit) folds into 30°, the nearest kept angle: 3 + 1 = 4.
+    expect(Number(area2)).toBeCloseTo(a(4), 3);
+    // Nothing lost: the two slots carry every square inch that went in.
+    expect(Number(area1) + Number(area2)).toBeCloseTo(a(8), 3);
+  });
+
+  it('imports the ARCAS Mach-Alt conditions table, deduplicated and SI', () => {
+    const r = importCdx1(fixture('ARCAS-Long - 2.CDX1'));
+    // The file writes its ten rows SIX times over (60 <Item>s) — RASAero's
+    // editor repeats the block per grid page. Undeduplicated, the repeats make
+    // the engine's Mach interpolator walk a non-monotone ladder.
+    expect(r.machAlt).toHaveLength(10);
+    expect(r.machAlt!.map(([m]) => m)).toEqual([0, 0.42, 0.9, 1.05, 1.2, 1.5, 2, 4, 5, 25]);
+    // Feet → metres, and Mach-ascending (the engine interpolates assuming it).
+    expect(r.machAlt![2]![1]).toBeCloseTo(25000 / 3.28084, 3); // 25 kft at M0.9
+    expect(r.machAlt![9]![1]).toBeCloseTo(122500 / 3.28084, 3);
+    for (let i = 1; i < r.machAlt!.length; i++) {
+      expect(r.machAlt![i]![0]).toBeGreaterThan(r.machAlt![i - 1]![0]);
+    }
+    // Same table the validation harness carries by hand for the two ARCAS
+    // cells (validation/anchors.json `machAlt`, ft already converted) — so the
+    // in-app comparison now runs at the harness's own tunnel-Re conditions
+    // without anyone retyping them. Agreement to 1 cm.
+    const harness: [number, number][] = [[0, 0], [0.42, 0.3], [0.9, 7620], [1.05, 9296.4],
+      [1.2, 10058.4], [1.5, 11277.6], [2, 13411.2], [4, 17983.2], [5, 19202.4]];
+    for (const [i, [mach, altM]] of harness.entries()) {
+      expect(r.machAlt![i]![0]).toBe(mach);
+      expect(Math.abs(r.machAlt![i]![1] - altM)).toBeLessThan(0.01);
+    }
+    // And it's advertised, or nobody would know to switch conditions.
+    expect(r.notes.join(' ')).toMatch(/Mach-Alt conditions table \(10 points/);
+  });
+
+  it('imports the RMA Mach-Alt table (already unique) and leaves table-less files alone', () => {
+    const rma = importCdx1(fixture('RMA53D02 - 2.CDX1'));
+    expect(rma.machAlt).toHaveLength(5);
+    expect(rma.machAlt!.map(([m]) => m)).toEqual([0, 2.5, 5, 10, 25]);
+    expect(rma.machAlt![2]![1]).toBeCloseTo(4750 / 3.28084, 3); // the one non-zero row
+    // The note quotes the table's HIGHEST altitude, not its last row (which is
+    // back at sea level here).
+    expect(rma.notes.join(' ')).toMatch(/5 points, to 4750 ft/);
+    // Files with no <MachAlt> element carry no table and gain no note.
+    const plain = importCdx1(fixture('Complex.Two-Stage.CDX1'));
+    expect(plain.machAlt).toBeUndefined();
+    expect(plain.notes.join(' ')).not.toMatch(/Mach-Alt/);
   });
 
   it('imports the RMA hexagonal-blunt-base airfoil (no TE chamfer)', () => {
@@ -412,6 +557,21 @@ describe('RASAero export', () => {
     expect(back.launch!.pressureHPa).toBeNull(); // unset → explicit ISA, never absent
   });
 
+  it('writes the Mach-Alt table back in feet — once each, not RASAero’s repeats', () => {
+    const first = importCdx1(fixture('ARCAS-Long - 2.CDX1'));
+    const xml = exportCdx1({ name: first.name, tree: first.tree, machAlt: first.machAlt });
+    expect(xml).toContain('<Item>0.9, 25000</Item>');
+    expect(xml).toContain('<Item>25, 122500</Item>');
+    expect(xml.match(/<Item>/g)).toHaveLength(10); // the file had 60
+    const back = importCdx1(xml);
+    expect(back.machAlt).toEqual(first.machAlt);
+  });
+
+  it('writes the empty <MachAlt> element when the design has no table', () => {
+    // RASAero's own "unset", and what every export did before the table existed.
+    expect(exportCdx1(design)).toContain('<MachAlt></MachAlt>');
+  });
+
   it('keeps top/middle-positioned fins in place instead of snapping them to the tube bottom', () => {
     const d = structuredClone(design);
     const fin = d.tree.components[0]!.children![1]!.children![0] as ComponentNode;
@@ -443,6 +603,74 @@ describe('RASAero export', () => {
     }
   }, 120000);
 
+  /**
+   * ACCEPTANCE for the protuberance component (§7.5e), measured end to end:
+   * open Chuck Rogers' own "ARCAS-Long - 2.CDX1", lower it, and see what the
+   * kernel's total CD actually does — against the same design with the
+   * protuberance removed.
+   *
+   * MEASURED 2026-08-25 (Re-matched to the file's own Mach-Alt table):
+   *   ΔCD = +0.0098489 at every Mach from 0.05 to 5, exactly the override.
+   * For scale, the arcas-short fixture note bounds the omission at
+   * +0.002…0.005 CD from a 2-rail-button proxy; two DEFAULT kernel rail
+   * buttons (9.7 mm, 0.251 in² total against this protuberance's 0.178 in²)
+   * measure +0.008980 at M0.3 rising to +0.022406 at M1.8 on this same
+   * fixture, so this lands between the note and the kernel's own model.
+   *
+   * And the things that must NOT move: friction, pressure and base CD, mass,
+   * CG, CP, the reference diameter and the aerodynamic length — a protuberance
+   * is drag and nothing else, exactly as RASAero prints it.
+   */
+  it('ARCAS: the imported protuberance delivers its frontal-area drag and nothing else', async () => {
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    const { engineTree, protuberanceDeliveredCd } = await import('../tree/treeModel.js');
+    const r = importCdx1(fixture('ARCAS-Long - 2.CDX1'));
+    const prot = flatten(r.tree.components).find((c) => (c.type as string) === 'protuberance')!;
+    const expected = protuberanceDeliveredCd(r.tree, prot);
+    // Frontal area 0.178 in² of a 2.25 in body (3.976 in² reference) at the
+    // streamlined-with-base-drag class Cd 0.22.
+    expect(expected).toBeCloseTo(0.00985, 5);
+
+    const without = {
+      ...r.tree,
+      components: JSON.parse(JSON.stringify(r.tree.components)) as ComponentNode[],
+    };
+    const strip = (ns: ComponentNode[]): ComponentNode[] => ns
+      .filter((n) => (n.type as string) !== 'protuberance')
+      .map((n) => (n.children ? { ...n, children: strip(n.children) } : n));
+    without.components = strip(without.components);
+
+    // The file's own Mach-Alt table (its rows are the harness's arcas machAlt).
+    const opts = {
+      machMin: 0.05, machMax: 5, machStep: 0.025, aoaDeg: 0,
+      machAlt: r.machAlt ?? undefined,
+    };
+    const run = (t: typeof r.tree) => {
+      resetEngine();
+      const rocket = OrkRocket.buildTree(engineTree(t));
+      return { info: rocket.staticInfo(), sweep: rocket.dragSweep(opts) };
+    };
+    const a = run(r.tree);
+    const b = run(without);
+
+    // Drag: exactly the override, at every Mach on the grid.
+    for (let i = 0; i < a.sweep.machs.length; i++) {
+      expect(a.sweep.powerOff.total[i]! - b.sweep.powerOff.total[i]!).toBeCloseTo(expected, 9);
+      // …and it is ALL override: the three computed buckets do not move.
+      expect(a.sweep.powerOff.friction[i]!).toBeCloseTo(b.sweep.powerOff.friction[i]!, 12);
+      expect(a.sweep.powerOff.pressure[i]!).toBeCloseTo(b.sweep.powerOff.pressure[i]!, 12);
+      expect(a.sweep.powerOff.base[i]!).toBeCloseTo(b.sweep.powerOff.base[i]!, 12);
+    }
+    // Statics: untouched, to the last bit.
+    expect(a.info.mass).toBe(b.info.mass);
+    expect(a.info.cg).toBe(b.info.cg);
+    expect(a.info.cp).toBe(b.info.cp);
+    expect(a.info.cna).toBe(b.info.cna);
+    expect(a.info.refDiameter).toBe(b.info.refDiameter);
+    expect(a.info.lengthAerodynamic).toBe(b.info.lengthAerodynamic);
+    expect(a.info.warningTexts).toEqual(b.info.warningTexts);
+  }, 120000);
+
   it('resolves a transition fore radius from the part in front, not its own <Diameter>', () => {
     // .CDX1 stores <Diameter> as a duplicate of <RearDiameter> on a transition;
     // the real front diameter is implicit. Taking it literally made every
@@ -455,5 +683,130 @@ describe('RASAero export', () => {
     for (const t of transitions) {
       expect(t['foreRadius']).not.toBeCloseTo(t['aftRadius'] as number, 9);
     }
+  });
+});
+
+describe('RASAero engine export (gated — see CDX1_ENGINE_EXPORT)', () => {
+  // Single-stage with the mount tube id 'b'; the AeroTech J350W is a motor
+  // RASAero II's own database definitely ships (the hand-off test file in
+  // docs/User files/ uses the same one).
+  const design = {
+    name: 'EngineOut',
+    tree: {
+      name: 'EngineOut',
+      components: [
+        {
+          type: 'stage' as const, id: 's0', name: 'Sustainer',
+          children: [
+            { type: 'nosecone' as const, id: 'n', length: 0.3048, aftRadius: 0.0381, thickness: 0.002, shape: 'ogive' },
+            {
+              type: 'bodytube' as const, id: 'b', length: 0.9144, outerRadius: 0.0381, thickness: 0.001,
+              children: [
+                { type: 'trapezoidfinset' as const, id: 'f', finCount: 3, rootChord: 0.1524, tipChord: 0.0762, sweep: 0.0762, height: 0.0762, thickness: 0.0032, position: { method: 'bottom' as const, offset: 0 } },
+                { type: 'parachute' as const, id: 'p', diameter: 0.9144, deployEvent: 'apogee' },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+    launchMassKg: 2.72,
+    launchCgM: 0.762,
+    motors: { b: { designation: 'J350W', manufacturer: 'AeroTech' } },
+  };
+
+  it('is gated OFF by default — motors alone write no engine strings', () => {
+    // Flipping CDX1_ENGINE_EXPORT to true is the sanctioned enable path, but
+    // only AFTER the docs/User files/rasaero-engine-export-test.CDX1 file has
+    // been proven against real RASAero II (the NullReferenceException risk).
+    expect(CDX1_ENGINE_EXPORT).toBe(false);
+    const xml = exportCdx1(design);
+    expect(xml).not.toContain('Engine>');
+    expect(xml).toContain('<IncludeBooster1>False</IncludeBooster1>');
+  });
+
+  it('writes the desktop engine string (two spaces) directly before SustainerLaunchWt', () => {
+    const xml = exportCdx1({ ...design, engineExport: true });
+    // RASAeroCommonConstants.OPENROCKET_TO_RASAERO_MOTOR parity:
+    // 'DESIGNATION  (ABBREV)', exactly two spaces.
+    expect(xml).toContain('<SustainerEngine>J350W  (AT)</SustainerEngine>\n<SustainerLaunchWt>');
+    // A motorless single-stage sim still claims no boosters.
+    expect(xml).toContain('<IncludeBooster1>False</IncludeBooster1>');
+    expect(xml).toContain('<IncludeBooster2>False</IncludeBooster2>');
+  });
+
+  it('round-trips the engine through our own importer as a flight configuration', () => {
+    const back = importCdx1(exportCdx1({ ...design, engineExport: true }));
+    expect(back.configs.length).toBe(1);
+    const motors = Object.values(back.configs[0]!.motors);
+    expect(motors.length).toBe(1);
+    expect(motors[0]!.designation).toBe('J350W');
+    expect(motors[0]!.manufacturer).toBe('AT');
+    expect(motors[0]!.delay).toBe(Infinity); // RASAero is apogee-deploy: plugged
+  });
+
+  it('omits (never guesses) engines whose manufacturer RASAero does not document', () => {
+    const xml = exportCdx1({
+      ...design,
+      motors: { b: { designation: 'D9', manufacturer: 'Klima' } },
+      engineExport: true,
+    });
+    // A name RASAero's database lacks is the NRE — the whole reason for the gate.
+    expect(xml).not.toContain('Engine>');
+    expect(xml).toContain('<SustainerLaunchWt>'); // block still complete
+  });
+
+  it('maps manufacturers to RASAero abbreviations (desktop RASAeroCommonConstants parity)', () => {
+    expect(rasaeroManufacturerAbbrev('AeroTech')).toBe('AT'); // thrustcurve abbrev
+    expect(rasaeroManufacturerAbbrev('AeroTech-RMS')).toBe('AT'); // .eng variant
+    expect(rasaeroManufacturerAbbrev('Cesaroni')).toBe('CTI');
+    expect(rasaeroManufacturerAbbrev('Cesaroni Technology Inc.')).toBe('CTI'); // .ork full name
+    expect(rasaeroManufacturerAbbrev('Estes')).toBe('ES');
+    expect(rasaeroManufacturerAbbrev('Loki')).toBe('LR');
+    expect(rasaeroManufacturerAbbrev('R.A.T.T. Works')).toBe('RTW'); // punctuation-normalized
+    expect(rasaeroManufacturerAbbrev('Klima')).toBeNull(); // not in RASAero's set
+    expect(rasaeroManufacturerAbbrev('EX')).toBeNull();
+    expect(rasaeroManufacturerAbbrev(undefined)).toBeNull();
+  });
+
+  it('writes a booster engine with IncludeBooster1 True and round-trips both motors', () => {
+    const twoStage = {
+      name: 'TwoUp',
+      tree: {
+        components: [
+          {
+            type: 'stage' as const, id: 's0', name: 'Sustainer',
+            children: [
+              { type: 'nosecone' as const, id: 'n', length: 0.25, aftRadius: 0.0381, thickness: 0.002, shape: 'ogive' },
+              { type: 'bodytube' as const, id: 'b0', length: 0.7, outerRadius: 0.0381, thickness: 0.001 },
+            ],
+          },
+          {
+            type: 'stage' as const, id: 's1', name: 'Booster',
+            children: [
+              {
+                type: 'bodytube' as const, id: 'b1', length: 0.5, outerRadius: 0.0381, thickness: 0.001,
+                children: [
+                  { type: 'trapezoidfinset' as const, id: 'f1', finCount: 3, rootChord: 0.12, tipChord: 0.05, sweep: 0.05, height: 0.07, thickness: 0.003, position: { method: 'bottom' as const, offset: 0 } },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+      motors: {
+        b0: { designation: 'J350W', manufacturer: 'AeroTech' },
+        b1: { designation: 'K550W', manufacturer: 'AeroTech' },
+      },
+      engineExport: true,
+    };
+    const xml = exportCdx1(twoStage);
+    expect(xml).toContain('<Booster1Engine>K550W  (AT)</Booster1Engine>\n<Booster1LaunchWt>');
+    expect(xml).toContain('<IncludeBooster1>True</IncludeBooster1>');
+    expect(xml).toContain('<IncludeBooster2>False</IncludeBooster2>');
+    const back = importCdx1(xml);
+    expect(back.configs.length).toBe(1);
+    const designations = Object.values(back.configs[0]!.motors).map((m) => m.designation).sort();
+    expect(designations).toEqual(['J350W', 'K550W']);
   });
 });

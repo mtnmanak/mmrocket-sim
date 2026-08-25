@@ -114,6 +114,7 @@ The **Design** workspace's left column is a **stage-rooted tree** of components.
 | Launch lug | Guide | length, outer radius, thickness |
 | Rail button | Guide | outer diameter |
 | Camera shroud / fairing | External | length, width, height, shape, as-built mass, finish |
+| Protuberance (drag bump) | External | frontal area (or width × height), drag class, count |
 | Parachute | Recovery | canopy diameter, Cd, spill hole ⌀, lines, deploy event |
 | Streamer | Recovery | strip length/width, Cd, deploy event |
 | Shock cord | Recovery | cord length |
@@ -135,6 +136,34 @@ weigh what they weigh. The radial mounting angle is not modeled (same as launch
 lugs), and there is no wind-tunnel anchor for this model yet — treat the numbers
 as good engineering estimates, and add margin on small-diameter rockets where a
 shroud matters most.
+
+### Protuberances — the bumps that only make drag
+
+A **protuberance** is anything sticking out of the airframe that costs you drag
+without acting as a lifting surface: a cable tunnel, a camera housing, a launch
+shoe, an anchor at a fin root, a conduit. (If the thing is big enough to shift
+CP, model it as a camera shroud instead — that component flies its side profile
+as a lifting strake.) Add one to a body tube, give it a frontal area — directly,
+or as width × height — and pick a drag class:
+
+| Class | Cd on frontal area | Use for |
+|---|---|---|
+| Streamlined — no base drag | 0.10 | a faired bump whose wake closes, or one whose base is captured by something behind it |
+| Streamlined — with base drag | 0.22 | the usual case: a faired bump with an open aft face |
+| Inclined flat plate | 1.17·sin²θ | a slab meeting the flow at an angle θ from the body |
+
+Those coefficients are Hoerner's, and the base term (0.12) is OpenRocket's own
+body base law at M = 0, so the app isn't inventing a second constant. The classes
+and the whole approach mirror **RASAero II's** protuberance model, and RASAero
+`.CDX1` protuberance entries import onto this component and export back out.
+
+Two honest limits. The drag is **Mach-flat** — a real protuberance's Cd rises
+through the transonic band, and this one does not, so it under-reads where a
+supersonic flight spends its drag. And it contributes **no mass and no CP shift**
+by design; weigh the part into a mass component if it matters. As a scale check,
+the four fin-root anchors on the NASA ARCAS (0.178 in² total) come out at
+**+0.0098 CD** on a 2.25-inch airframe — small, but the same size as the
+difference between a good sim and a disappointing flight.
 
 ### Parachute spill holes
 
@@ -345,12 +374,13 @@ From any fin set you can export a **true-scale printable cutting template**. It 
 
 ## Drag analysis (CD vs Mach)
 
-On the **Results** workspace, the **Drag analysis** panel plots your design's drag coefficient against Mach number — a static property of the geometry, no flight needed, recomputed live as you edit. Click **Show CD vs Mach** to open it. The charts pan and zoom like the flight plots: **drag a box** to zoom into it, **scroll the mouse wheel** to zoom about the cursor, **shift-drag** (or middle-button drag, or a one-finger horizontal drag on a touch screen) to pan, and **double-click** to reset.
+On the **Results** workspace, the **Drag analysis** panel plots your design's drag coefficient against Mach number — a static property of the geometry, no flight needed, recomputed live as you edit. Click **Show CD vs Mach** to open it. The charts pan and zoom like the flight plots: **drag a box** to zoom into it, **scroll the mouse wheel** to zoom about the cursor, **shift-drag** (or middle-button drag, or a one-finger horizontal drag on a touch screen) to pan, and **double-click** to reset — a hints line above the charts keeps those gestures on screen. Each chart's heading also carries two buttons: **↺** resets that chart to the full Mach range (it lights up once you've zoomed), and **⤢** expands the chart to a much taller canvas for reading fine structure — the transonic peak, the M1 CP shift — with **⤡** putting it back. Unlike the flight plots, the three drag charts zoom independently, so each heading resets and expands its own chart only.
 
 - The main chart shows the **power-off** (coasting) drag curve. Give a stage a **nozzle exit diameter** (in the Stage property panel) and a dashed **power-on** curve appears: during the burn, the motor's exhaust plume pressurizes the base area, so boost drag is genuinely lower than coast drag. The bigger the nozzle exit relative to the base, the bigger the reduction — a minimum-diameter rocket sees a large difference, a small motor in a fat airframe almost none. For a clustered mount, enter one equivalent nozzle whose exit *area* is the sum of the individual exit areas. Zero (the default) means the two curves are identical.
 - The **breakdown chart** splits the drag **by component** (nose, body, fins…) or **by type** (friction / pressure / base), so you can see *why* the rocket is draggy and where cleanup pays — the transonic drag rise starting near Mach 0.9 is plainly visible.
 - A **CP-vs-Mach chart** shows the center of pressure across the whole Mach range — as **% of body length** (the wind-tunnel convention, the default) or, with the toggle beside the heading, in **your length unit from the nose**. With the supersonic model on, this is the chart to check before a fast flight: supersonic CP moves forward, and the accepted practice (RASAero's recommendation) is to keep **≥ 2 calibers** of margin through the transonic and supersonic regime.
-- A Max-Mach selector (1–5 classic; up to **25** with the supersonic model) and a **CSV export** round it out. The CSV is a full **aerodynamic-coefficient table** (CD power-off/on, CP, CNα vs Mach) usable as input to external trajectory programs. It opens with `#`-comment lines naming the app version, the design, and the **aero model that produced the table** — so a curve shared onward can't be mistaken for the other model's — and its CP column follows your length unit. With the classic model, values above roughly Mach 1.5 are Extended-Barrowman estimates and labeled approximate; with the **supersonic model** (Preferences → Aerodynamics) they are validated against NASA wind-tunnel data to ~Mach 4.6 and physically extrapolated to Mach 25.
+- A **Conditions** selector says which air the sweep runs in. The default, **Sea level**, is what every drag curve here has always used and is almost always what you want. Pick **At altitude…** and type an altitude to run the whole sweep in the standard atmosphere at that height — thinner air means a lower Reynolds number and a slightly different skin-friction drag. This matters when you compare against someone else's published curve: wind-tunnel data is quoted at the tunnel's Reynolds number, and RASAero matches it with a **Mach-Alt table** (an altitude per Mach — for the NASA ARCAS tunnel runs, 25,000 ft at Mach 0.9 climbing to 122,500 ft at Mach 25). Comparing a sea-level curve against Re-matched tunnel data invents a disagreement that isn't there. If you opened a **RASAero .CDX1 that carries its own Mach-Alt table**, a third choice appears and sweeps at exactly the file's altitudes, so the two curves are finally answering the same question. The conditions in force are printed under the drag chart and stamped into the CSV.
+- A Max-Mach selector (1–5 classic; up to **25** with the supersonic model) and a **CSV export** round it out. The CSV is a full **aerodynamic-coefficient table** (CD power-off/on, CP, CNα vs Mach) usable as input to external trajectory programs. It opens with `#`-comment lines naming the app version, the design, the **aero model that produced the table** and the **conditions it ran in** — so a curve shared onward can't be mistaken for the other model's, or for one computed in different air — and its CP column follows your length unit. With the classic model, values above roughly Mach 1.5 are Extended-Barrowman estimates and labeled approximate; with the **supersonic model** (Preferences → Aerodynamics) they are validated against NASA wind-tunnel data to ~Mach 4.6 and physically extrapolated to Mach 25.
 
 ---
 
@@ -418,7 +448,11 @@ On a phone the app opens on **Fly** — a launch-centered home screen built for 
 
 ## Flight plots
 
-Up to **eleven synchronized single-series panels**: Altitude, Velocity, Acceleration, Mass, Thrust, Drag force, Mach number, Stability margin (cal), CP location, CG location, and Angle of attack. A chip bar toggles panels (default: altitude/velocity/acceleration), and a series only appears if the kernel actually produced it. Following dataviz discipline, **different-scale measures are never dual-axed** — each gets its own panel and y-scale, with a fixed per-series color and theme-aware axes. Hover for synchronized crosshair readouts; the **CSV** button exports every populated series, time-aligned. The plots pan and zoom, and every gesture acts on **all panels together**: **drag a box** to zoom into it, **scroll the mouse wheel** to zoom about the cursor, **shift-drag** (or middle-button drag, or a one-finger horizontal drag on a touch screen) to pan, and **double-click** to reset to the full flight. A zoom survives theme and unit changes; a new flight always opens at full width.
+Up to **eleven synchronized single-series panels**: Altitude, Velocity, Acceleration, Mass, Thrust, Drag force, Mach number, Stability margin (cal), CP location, CG location, and Angle of attack. A chip bar toggles panels (default: altitude/velocity/acceleration), and a series only appears if the kernel actually produced it. Following dataviz discipline, **different-scale measures are never dual-axed** — each gets its own panel and y-scale, with a fixed per-series color and theme-aware axes. Hover for synchronized crosshair readouts; the **CSV** button exports every populated series, time-aligned.
+
+The plots pan and zoom, and every gesture acts on **all panels together**: **drag a box** to zoom into it, **scroll the mouse wheel** to zoom about the cursor, **shift-drag** (or middle-button drag, or a one-finger horizontal drag on a touch screen) to pan, and **double-click** to reset to the full flight. You don't have to memorize any of that — a one-line **gesture hint** sits above the charts (it shows the touch gestures instead when you're on a touch screen), and next to it a **↺ Reset view** button brings every panel back to the full flight; it's grayed out until you've actually zoomed or panned, so it doubles as a "you are zoomed in" indicator. A zoom survives theme and unit changes; a new flight always opens at full width.
+
+Too small to read? Every panel's heading has an **⤢ expand** button: the panel grows to the **full width of the charts area and a much taller canvas** (on wide screens the other panels reflow around it, so an expanded Altitude chart can sit above the ordinary-size rest). The expanded panel stays in the synced group — crosshairs, zooms and pans still track across all panels. Click **⤡** to restore it, and expand as many panels as you like.
 
 ## The launch report and safety checks
 
@@ -446,6 +480,8 @@ The physics kernel raises its own **simulation warnings**, and they appear as a 
 Every flight is stored to a **run history** (up to 500 runs, surviving reloads). A typical flight-day flow is to fly many motors, compare the table, and download it as **CSV**. Note that reopening an old saved run shows its report but not its charts — charts need a fresh simulation's raw series.
 
 For the raw numbers behind one flight, the launch report offers **⬇ Flight data .csv**: the full per-timestep recording of the most recent flight — every series the kernel produced (time first, then the familiar dozen, then the symbol-keyed extras with self-describing headers like "Vz — Vertical velocity (m/s)"), in your preference units (each column header names its unit). Staged flights land in one file, each booster's columns prefixed with its stage name and carrying their own time column. Time-series aren't stored with run history, so this button exports only the flight just flown.
+
+Beside it, **⬇ .xlsx + charts** exports the same data as a real spreadsheet: numbers as numbers (no more text-that-looks-like-a-number), a frozen filtered header row, and — on their own tabs — live Excel charts of altitude, velocity and acceleration built on the sheet's own cells, so editing the data updates the graph. Staged flights get one sheet and one charted series per stage.
 
 ## Batch simulate
 
@@ -502,13 +538,13 @@ The app reads and writes several formats. What survives a round-trip depends on 
 | **.csv / .xlsx** (component data) | — | Yes | Every component as one row — dimensions, material, shape, and the engine's computed mass/CG/position — in your preferred units. For sharing measurement data with people who don't run a simulator. |
 | **.svg / .png / .jpg** (2D drawing & 3D snapshot) | — | Yes | The 2D side view with a data header (dimensions, mass, CG/CP, stability margin) via **⬇ SVG** (physical-mm size — prints at true 100 % scale) and **⬇ Image** (PNG or JPG at HD / 4K / 8K width). The 3D view's **📷 Image** button re-renders the scene at the chosen resolution — an 8K snapshot is genuinely 8K — with the same data header. Its **Fit rocket to frame** checkbox (ticked by default) moves the snapshot camera in so the rocket fills the exported frame at your current viewing angle; untick it to export the view exactly as framed on screen. These are the drawings L3 and Tripoli Class 3 documentation packets ask for. |
 | **.glb** (glTF binary) | — | Yes | Modern 3D model *with your component colors as real materials* — opens directly in Windows 3D Viewer, PowerPoint, Blender, Fusion 360, and web viewers. Meters; nose at the origin, rocket along +X. |
-| **.stl** (whole rocket / per component) | — | Yes | Two very different exports, both in **millimetres**. Save/Export → whole-rocket *display shell* (reference only — not watertight). The real one: select a component and press **🖨 STL for printing** in its property panel — a *guaranteed-watertight solid* built for slicers: hollow nose cones and transitions with their shoulders and caps, single fins with the through-the-wall tab merged in, true-bore centering rings, bulkheads, and tubes. Fins print as flat prisms (airfoil shaping is left to sanding); verify fit before a long print. With a printer set in **Preferences → 3D printing**, the same button also measures the part against your build volume and splits it when it is too tall — see *Printing oversized parts on a 3D printer* below. |
+| **.stl** (whole rocket / per component) | — | Yes | Two very different exports, both in **millimetres**. Save As / Export → whole-rocket *display shell* (reference only — not watertight). The real one: select a component and press **🖨 STL for printing** in its property panel — a *guaranteed-watertight solid* built for slicers: hollow nose cones and transitions with their shoulders and caps, single fins with the through-the-wall tab merged in, true-bore centering rings, bulkheads, and tubes. Fins print as flat prisms (airfoil shaping is left to sanding); verify fit before a long print. With a printer set in **Preferences → 3D printing**, the same button also measures the part against your build volume and splits it when it is too tall — see *Printing oversized parts on a 3D printer* below. |
 
 The most important domain caveat is **RASAero has no mass data** — a `.CDX1` import gives you accurate geometry but placeholder masses, so treat its predicted altitudes as provisional until you add real materials and overrides. `.ork` is the only lossless format; use it as your working save.
 
 ## Sharing a design by link
 
-**Save / Export → 🔗 Copy share link** packs the whole design — components, materials, overrides, assigned motors, and the launch conditions — into the link itself, compressed into the part after the `#`. Paste it in a chat or an email; opening it loads the rocket straight into the recipient's browser, no account and no upload involved — the design never touches a server, because browsers don't send the `#` fragment anywhere. If the recipient already has a design open, the app asks before replacing it. Two caveats: motors named in the link load from the motor database on arrival, so an unusual motor may need re-picking when opened offline; and a very complex design makes a very long link, which some chat apps truncate — if a pasted link refuses to open, send the `.ork` file instead.
+**Save As / Export → 🔗 Copy share link** packs the whole design — components, materials, overrides, assigned motors, and the launch conditions — into the link itself, compressed into the part after the `#`. Paste it in a chat or an email; opening it loads the rocket straight into the recipient's browser, no account and no upload involved — the design never touches a server, because browsers don't send the `#` fragment anywhere. If the recipient already has a design open, the app asks before replacing it. Two caveats: motors named in the link load from the motor database on arrival, so an unusual motor may need re-picking when opened offline; and a very complex design makes a very long link, which some chat apps truncate — if a pasted link refuses to open, send the `.ork` file instead.
 
 ## Printing oversized parts on a 3D printer
 
@@ -524,7 +560,7 @@ Open **Preferences** to switch between one-click **Metric** and **Imperial** pre
 
 ## Installing, offline, and saving your work
 
-MMRocket Sim is a **PWA** — install it from the browser and it runs offline, since the physics kernel, the motor database metadata, and the preset catalog are all bundled locally. Only motor thrust curves fetch on demand, and once fetched they cache in your browser. Your work — the design tree, assigned motors, launch conditions, per-stage motor-length limits, run history, and motor filters — persists to local storage and survives reloads. If browser storage ever fills up, the app says so instead of losing work quietly: the saved-runs table shows what is actually stored, and a warning banner stays up while autosave cannot write, clearing itself once saving recovers. Autosaves also belong to the web address you saved them at — the same design opened at a different address, or inside a page embedding the app, starts fresh — so use Save / Export → .ork to carry work between addresses. The app **header** carries **Open…**, **Undo**, and the **Save / Export** menu (.ork, share link, and every format in the table above), alongside the **Guide**, **Feedback**, **Changelog** (the version badge), and **Preferences**; **New** sits atop the component tree in the Design workspace. For a durable archive or to move a design to another machine or to the OpenRocket desktop, **Save as .ork** — it's the format that keeps everything.
+MMRocket Sim is a **PWA** — install it from the browser and it runs offline, since the physics kernel, the motor database metadata, and the preset catalog are all bundled locally. Only motor thrust curves fetch on demand, and once fetched they cache in your browser. Your work — the design tree, assigned motors, launch conditions, per-stage motor-length limits, run history, and motor filters — persists to local storage and survives reloads. If browser storage ever fills up, the app says so instead of losing work quietly: the saved-runs table shows what is actually stored, and a warning banner stays up while autosave cannot write, clearing itself once saving recovers. Autosaves also belong to the web address you saved them at — the same design opened at a different address, or inside a page embedding the app, starts fresh — so use Save As / Export → .ork to carry work between addresses. The app **header** carries **Open…**, **Undo**, and the **Save As / Export** menu (.ork, share link, and every format in the table above), alongside the **Guide**, **Feedback**, **Changelog** (the version badge), and **Preferences**; **New** sits atop the component tree in the Design workspace. For a durable archive or to move a design to another machine or to the OpenRocket desktop, **Save as .ork** — it's the format that keeps everything.
 
 Because the whole app is a self-contained static build, the same files can also be **embedded inside another web page** — for example a WordPress post — through an `<iframe>`. If you meet MMRocket Sim living inside someone else's site rather than at its own address, it is the identical app running the identical kernel, with the same design, motor, and simulation tools described in this guide.
 

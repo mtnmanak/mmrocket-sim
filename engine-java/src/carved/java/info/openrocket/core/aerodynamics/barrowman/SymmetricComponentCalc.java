@@ -229,6 +229,10 @@ public class SymmetricComponentCalc extends RocketComponentCalc {
 	 * that can be evaluated beyond the interpolator's sampled range. */
 	private boolean analyticNose = false;
 	private double analyticMul = 1.0;
+	/** PATCH (feature #1 Phase 5): tangent/secant-ogive NOSE wave drag from the
+	 * Fleeman correlation instead of the collapsed sinphi-driven branch. */
+	private boolean fleemanNose = false;
+	private double fleemanN = 0;
 
 	@Override
 	public double calculatePressureCD(FlightConditions conditions,
@@ -259,28 +263,43 @@ public class SymmetricComponentCalc extends RocketComponentCalc {
 			}
 			// PATCH (feature #1 Phase 2): the classic model has NO Mach dependence
 			// for boattails/reducers — the base-scaled subsonic estimate is used at
-			// every speed. Flag on: supersonic wave drag from the linearized strip
-			// estimate Cp = -2*theta/beta on the expansion surface (RASAero's
-			// "Other Body Wave Drag" bucket), blended in over M0.8-1.2. Scored
-			// against the ARCAS supersonic CD anchors (its 12deg boattail).
+			// every speed. Flag on: supersonic wave drag on the expansion surface
+			// (RASAero's "Other Body Wave Drag" bucket).
+			//
+			// PATCH (feature #1 Phase 5): SHAPE + LEVEL fix. Phase 2 blended
+			// LINEARLY from the subsonic estimate at M0.8 up to the linearized
+			// 2*theta/beta value at M1.5, which put a FALSE PEAK at exactly
+			// M1.500 — measured on the ARCAS Long fixture, the boat-tail row
+			// climbed to its maximum there (0.3768) and made the total-CD curve
+			// double-peaked with the false peak as the global maximum. Real
+			// boat-tail drag peaks just above M1 and decays. Phase 5:
+			//   M <= 0.90        classic base-scaled estimate (drag divergence M_D)
+			//   0.90 -> 1.05     smoothstep rise to the peak
+			//   1.05 -> 1.20     plateau at the peak (tunnel band is near-flat)
+			//   M >= 1.20        EXACT Prandtl-Meyer expansion Cp, monotone
+			//                    decreasing in M, vacuum-limited hypersonically
+			// The linearized 2*theta/beta strip value also ran OVER the exact
+			// Prandtl-Meyer result by a Mach-dependent factor (measured for the
+			// ARCAS 15 deg turn: exact/linear 0.66 at M1.2, 0.73 at M1.8, 0.50
+			// at M4.65), so Phase 5 evaluates the expansion exactly instead.
 			double machB = conditions.getMach();
-			if (!supersonicAero || machB <= 0.8) {
+			if (!supersonicAero || machB <= BT_ONSET_MACH) {
 				return cdSub;
 			}
-			double theta = Math.atan2(foreRadius - aftRadius, length);
+			// Steeper than ~20 deg the boat tail separates and behaves base-like
+			// (Hoerner FDD Ch VI/XVI) — clamp rather than extrapolate PM theory.
+			double theta = Math.min(Math.atan2(foreRadius - aftRadius, length), 0.349);
 			double frontalRatio = frontalArea / conditions.getRefArea();
-			// The linearized 1/beta form diverges approaching M1 — bridge the
-			// transonic band by blending from the subsonic estimate at M0.8 to
-			// the wave value at M1.5 (first Mach where linearized theory is
-			// trustworthy), matching the ARCAS body-alone transonic data trend.
-			double beta15 = MathUtil.safeSqrt(1.5 * 1.5 - 1);
-			double wave15 = (2 * theta / beta15) * frontalRatio;
-			if (machB >= 1.5) {
-				double beta = MathUtil.safeSqrt(machB * machB - 1);
-				return (2 * theta / beta) * frontalRatio;
+			double cdPeak = pmExpansionCp(BT_TRUST_MACH, theta) * frontalRatio;
+			if (machB >= BT_TRUST_MACH) {
+				return pmExpansionCp(machB, theta) * frontalRatio;
 			}
-			double t = (machB - 0.8) / 0.7;
-			return cdSub * (1 - t) + wave15 * t;
+			if (machB >= BT_PLATEAU_MACH) {
+				return cdPeak;
+			}
+			double t = (machB - BT_ONSET_MACH) / (BT_PLATEAU_MACH - BT_ONSET_MACH);
+			double s = t * t * (3 - 2 * t);
+			return cdSub * (1 - s) + cdPeak * s;
 		}
 
 		// All nose cones and shoulders from pre-calculated and interpolating
@@ -298,7 +317,13 @@ public class SymmetricComponentCalc extends RocketComponentCalc {
 		double cd;
 		if (supersonicAero && mach > interpolatorMaxMach()) {
 			double mEnd = interpolatorMaxMach();
-			if (analyticNose) {
+			if (fleemanNose) {
+				// PATCH (feature #1 Phase 5): Fleeman ogive nose wave drag,
+				// CD_wave = (1.59 + 1.83/M^2)*(atan(0.5/(l_N/d)))^1.69 referenced
+				// to base area. The 1.59 floor IS the hypersonic asymptote, so
+				// this needs no Phase-4 style fade.
+				cd = (1.59 + 1.83 / (mach * mach)) * fleemanN;
+			} else if (analyticNose) {
 				// PATCH (feature #1 Phase 4): the 2.1*sinphi^2 asymptote is a
 				// transonic-range calibration; exact cone solutions and modified
 				// Newtonian theory (Cp_max*sin^2) sit lower at hypersonic Mach.
@@ -331,6 +356,62 @@ public class SymmetricComponentCalc extends RocketComponentCalc {
 				/ (4 * GAMMA * m2 - 2 * (GAMMA - 1)), GAMMA / (GAMMA - 1));
 		double b = (1 - GAMMA + 2 * GAMMA * m2) / (GAMMA + 1);
 		return (2 / (GAMMA * m2)) * (a * b - 1);
+	}
+
+	/** PATCH (feature #1 Phase 5): boat-tail wave-drag band edges. */
+	private static final double BT_ONSET_MACH = 0.90;
+	private static final double BT_PLATEAU_MACH = 1.05;
+	private static final double BT_TRUST_MACH = 1.20;
+	/** Prandtl-Meyer maximum turn angle for gamma = 1.4 (rad). */
+	private static final double NU_MAX = (Math.sqrt(6) - 1) * Math.PI / 2;
+
+	/**
+	 * PATCH (feature #1 Phase 5): Prandtl-Meyer function nu(M) in radians
+	 * (Anderson, Modern Compressible Flow Eq. 4.44), gamma = 1.4 via the
+	 * (gamma+1)/(gamma-1) = 6 form.
+	 */
+	private static double prandtlMeyerNu(double m) {
+		double b2 = m * m - 1;
+		if (b2 <= 0) {
+			return 0;
+		}
+		return Math.sqrt(6) * Math.atan(Math.sqrt(b2 / 6)) - Math.atan(Math.sqrt(b2));
+	}
+
+	/**
+	 * PATCH (feature #1 Phase 5): magnitude of the pressure coefficient behind a
+	 * Prandtl-Meyer expansion of angle theta from free-stream Mach m. Replaces
+	 * the linearized strip value 2*theta/beta, which overstates the expansion by
+	 * a Mach-dependent factor (25-50 % at M1.8-4.65 for a 15 deg turn).
+	 * <p>
+	 * The inverse nu(M2) = nu2 is solved by a FIXED-COUNT bisection (48 halvings
+	 * of [m, 60], no epsilon test) so the JVM and TeaVM-JS execute exactly the
+	 * same operation sequence — the same determinism discipline as kWB1307 and
+	 * stagnationCpMax. Uses only Math.sqrt/atan/pow.
+	 */
+	private static double pmExpansionCp(double m, double theta) {
+		if (m <= 1 || theta <= 0) {
+			return 0;
+		}
+		double nu2 = prandtlMeyerNu(m) + theta;
+		if (nu2 >= NU_MAX - 1e-6) {
+			return 2 / (GAMMA * m * m); // vacuum limit: p2 -> 0
+		}
+		double lo = m;
+		double hi = 60;
+		for (int i = 0; i < 48; i++) {
+			double mid = 0.5 * (lo + hi);
+			if (prandtlMeyerNu(mid) < nu2) {
+				lo = mid;
+			} else {
+				hi = mid;
+			}
+		}
+		double m2 = 0.5 * (lo + hi);
+		double c = (GAMMA - 1) / 2;
+		double pressureRatio = Math.pow((1 + c * m * m) / (1 + c * m2 * m2),
+				GAMMA / (GAMMA - 1));
+		return (2 / (GAMMA * m * m)) * (1 - pressureRatio);
 	}
 
 	/** PATCH (feature #1 Phase 2): last Mach with real data in the interpolator. */
@@ -426,6 +507,26 @@ public class SymmetricComponentCalc extends RocketComponentCalc {
 				break;
 
 			case OGIVE:
+				// PATCH (feature #1 Phase 5): the classic ogive branch builds its
+				// whole supersonic curve from `sinphi`, the surface slope over the
+				// AFT 1 % of the shape (line ~116). For a TANGENT ogive that slope
+				// is zero by definition, so the measured value is ~0.001 (0.00105
+				// ARCAS, 0.00123 RM A53D02) and the nose wave drag collapses:
+				// measured nose pressure CD 0.00031 at M2 on the ARCAS nose, and
+				// the only supersonic nose pressure left is a SPURIOUS transonic
+				// bump (0.058/0.075 at M1.05/1.10 falling to 0.0006 at M1.3) that
+				// the fixed sonic slope 4/(GAMMA+1) drives through the M1-1.3
+				// cubic between two near-zero endpoints. Flag on, for NOSE ogives
+				// that are not cone-like: rebuild the same M1-1.3 bridge around
+				// the Fleeman ogive wave-drag correlation instead, and continue on
+				// it above M1.3 (calculatePressureCD). Conical noses, cone-like
+				// secant ogives (param < 0.35, which route through the same
+				// interpolator with a true cone slope) and every non-nose
+				// transition keep the classic branch.
+				if (supersonicAero && isNoseShape && param >= 0.35) {
+					interpolator = calculateFleemanNoseInterpolator();
+					break;
+				}
 				interpolator = calculateOgiveNoseInterpolator(param, sinphi);
 				analyticNose = true; // PATCH (feature #1 Phase 2)
 				analyticMul = 0.72 * pow2(param - 0.5) + 0.82;
@@ -563,6 +664,53 @@ public class SymmetricComponentCalc extends RocketComponentCalc {
 		}
 
 		return interpolator;
+	}
+
+	/**
+	 * PATCH (feature #1 Phase 5): sonic-to-M1.3 bridge slope cap. The classic
+	 * bridge pins the M1 derivative at the transonic-similarity value
+	 * 4/(GAMMA+1)*(1 - cd1/2) ~ 1.65, which for a streamlined nose (cd1 tiny)
+	 * drives the cubic far above both endpoints. Cap it at a multiple of the
+	 * mean M1->M1.3 slope so the transonic overshoot stays inside the TR R-100
+	 * streamlined-nose family ratio (peak ~1.1-1.3x the M1.3 value).
+	 */
+	private static final double CAL_BRIDGE_SLOPE_CAP = 2.0;
+
+	/**
+	 * PATCH (feature #1 Phase 5): M1 - M1.3 bridge built around the Fleeman
+	 * ogive wave-drag correlation, replacing the sinphi-driven ogive bridge for
+	 * tangent/near-tangent nose ogives (see the OGIVE case). Sets
+	 * fleemanNose/fleemanN for the above-table branch.
+	 * <p>
+	 * Source: Fleeman, <i>Tactical Missile Design</i> (AIAA Education Series) —
+	 * CD_wave = (1.59 + 1.83/M^2)*(atan(0.5/(l_N/d)))^1.69, base-area
+	 * referenced, ogive family, M >~ 1.2. Same Fleeman/Bonney lineage the
+	 * Phase-2 table-end decay already uses.
+	 */
+	private LinearInterpolator calculateFleemanNoseInterpolator() {
+		double fn = length / (2 * aftRadius);
+		double mul = 0.72 * pow2(param - 0.5) + 0.82;
+		fleemanNose = true;
+		fleemanN = Math.pow(Math.atan(0.5 / fn), 1.69) * mul;
+
+		double cdMach1_3 = (1.59 + 1.83 / (1.3 * 1.3)) * fleemanN;
+		// Sonic/M1.3 ratio 0.30, the mean of this file's own TR R-100 tables for
+		// the fully STREAMLINED nose family, read at M1.0 vs M1.3: von Karman
+		// 0.027/0.088 = 0.31, LV-Haack 0.024/0.107 = 0.22, parabolic
+		// 0.041/0.116 = 0.35. (The blunter parabolic-1/2 and -3/4 tables sit far
+		// higher, 0.75-1.0, and are not this family.)
+		double cdMach1 = 0.30 * cdMach1_3;
+
+		double d1 = Math.min(4 / (GAMMA + 1) * (1 - 0.5 * cdMach1),
+				CAL_BRIDGE_SLOPE_CAP * (cdMach1_3 - cdMach1) / 0.3);
+		double d2 = -2 * 1.83 / (1.3 * 1.3 * 1.3) * fleemanN;
+
+		double[] poly = conicalPolyInterpolator.interpolator(cdMach1, cdMach1_3, d1, d2);
+		LinearInterpolator interp = new LinearInterpolator();
+		for (double m = 1; m < 1.3001; m += 0.02) {
+			interp.addPoint(m, PolyInterpolator.eval(m, poly));
+		}
+		return interp;
 	}
 
 }

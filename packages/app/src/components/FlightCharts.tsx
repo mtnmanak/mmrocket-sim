@@ -5,7 +5,7 @@ import type { FlightResult, FlightSeries } from '@online-openrocket/engine';
 import { usePrefs, type Preferences } from '../prefs/PrefsContext.js';
 import { siToUi, type Quantity } from '../prefs/units.js';
 import { chartInk, seriesPalette } from '../chartTheme.js';
-import { panZoomPlugin } from '../chartPanZoom.js';
+import { panelHeight, panZoomPlugin, plotIsZoomed, resetPlots } from '../chartPanZoom.js';
 import { UnitChip } from './UnitChip.js';
 
 /**
@@ -53,14 +53,45 @@ function seriesCatalog(prefs: Preferences, C: string[]): SeriesDef[] {
 
 const DEFAULT_SELECTED: (keyof FlightSeries)[] = ['altitude', 'velocity', 'acceleration'];
 
-function Panel({ result, def, plots }: {
+/**
+ * The one compact line naming the pan/zoom gestures — testers could not
+ * guess shift-drag/middle-drag (Eric's point 3), so the hints are always on
+ * screen, but only ONE line for the whole chart group so discoverability
+ * doesn't tax the vertical space the too-small charts need. Pointer-aware:
+ * CSS shows the mouse wording on fine pointers, the touch wording on coarse
+ * ones. Shared with the Drag-analysis charts (imported by DragPanel).
+ */
+export function GestureHints() {
+  return (
+    <>
+      <span className="chart-hints chart-hints-mouse">
+        Zoom: scroll wheel or drag a box &middot; Pan: Shift-drag or middle-button drag
+        &middot; Reset: double-click or ↺
+      </span>
+      <span className="chart-hints chart-hints-touch">
+        Drag sideways to pan &middot; ↺ resets the view
+      </span>
+    </>
+  );
+}
+
+function Panel({ result, def, plots, expanded, onToggleExpand, onZoomChange }: {
   result: FlightResult;
   def: SeriesDef;
   /** Live registry of every mounted panel's uPlot — pan/zoom peers. */
   plots: Set<uPlot>;
+  /** ⤢ state: full grid width + a much taller canvas. */
+  expanded: boolean;
+  onToggleExpand: () => void;
+  /** Reports whether this panel (== the synced group) is zoomed in. */
+  onZoomChange: (zoomed: boolean) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const { resolvedTheme, daylight } = usePrefs();
+  // Read through a ref inside the plugin closure so a parent re-render can't
+  // force a plot recreate (the effect below deliberately omits it from deps).
+  const onZoomChangeRef = useRef(onZoomChange);
+  onZoomChangeRef.current = onZoomChange;
   // The x-window survives this panel's recreate (deliberate: a theme or
   // unit-chip change no longer resets a zoom) — restored only while the data
   // x-extent is unchanged, so a NEW flight always opens at full width.
@@ -74,8 +105,9 @@ function Panel({ result, def, plots }: {
     const values = def.f ? raw.map((v) => (v == null ? v : def.f!(v))) : raw;
     const data: uPlot.AlignedData = [result.series.time, values];
     // Panels widen a lot on big screens — let height follow (capped) so a
-    // 1500px-wide chart doesn't flatten into a ribbon.
-    const chartH = () => Math.max(160, Math.min(240, Math.round((el.clientWidth || 640) * 0.22)));
+    // 1500px-wide chart doesn't flatten into a ribbon. The ⤢ expanded state
+    // switches to the much-taller policy (see panelHeight).
+    const chartH = () => panelHeight(el.clientWidth || 640, expanded);
     const opts: uPlot.Options = {
       width: el.clientWidth || 640,
       height: chartH(),
@@ -95,7 +127,7 @@ function Panel({ result, def, plots }: {
         { stroke: ink.axis, grid: { stroke: ink.grid, width: 1 }, ticks: { stroke: ink.tick, width: 1 }, font: ink.font },
         { stroke: ink.axis, grid: { stroke: ink.grid, width: 1 }, ticks: { stroke: ink.tick, width: 1 }, font: ink.font, size: 56 },
       ],
-      plugins: [panZoomPlugin(() => plots)],
+      plugins: [panZoomPlugin(() => plots, (u) => onZoomChangeRef.current(plotIsZoomed(u)))],
     };
     const plot = new uPlot(opts, data, el);
     const t = result.series.time;
@@ -125,16 +157,25 @@ function Panel({ result, def, plots }: {
         : null;
       plot.destroy();
     };
-  }, [result, def, resolvedTheme, daylight, plots]);
+    // `expanded` recreates the plot the same way a theme change does — the
+    // group window survives via the peer registry / savedWin restore above.
+  }, [result, def, resolvedTheme, daylight, plots, expanded]);
 
   return (
-    <div className="chart-panel">
-      <h3>
-        {def.title}
-        {def.quantity
-          ? <> <UnitChip quantity={def.quantity} /></>
-          : def.unit ? ` (${def.unit})` : ''}
-      </h3>
+    <div className={expanded ? 'chart-panel chart-panel-expanded' : 'chart-panel'}>
+      <div className="chart-panel-head">
+        <h3>
+          {def.title}
+          {def.quantity
+            ? <> <UnitChip quantity={def.quantity} /></>
+            : def.unit ? ` (${def.unit})` : ''}
+        </h3>
+        <button className="chart-btn" onClick={onToggleExpand} aria-pressed={expanded}
+          title={expanded ? 'Restore chart size' : 'Expand chart (full width, taller)'}
+          aria-label={expanded ? `Restore ${def.title} chart size` : `Expand ${def.title} chart`}>
+          {expanded ? '⤡' : '⤢'}
+        </button>
+      </div>
       <div ref={ref} />
     </div>
   );
@@ -167,6 +208,14 @@ export function FlightCharts({ result }: { result: FlightResult }) {
     [prefs, daylight],
   );
   const [selected, setSelected] = useState<Set<keyof FlightSeries>>(new Set(DEFAULT_SELECTED));
+  // Which panels are ⤢-expanded. Lives here (not in Panel) so toggling a
+  // series chip off and on doesn't forget the choice. Deliberately NOT
+  // persisted — per-session UI state only.
+  const [expandedKeys, setExpandedKeys] = useState<Set<keyof FlightSeries>>(new Set());
+  // Whether the synced group is zoomed in (drives the Reset-view button).
+  // Any panel's report speaks for the group — every gesture is broadcast to
+  // all peers, so their windows agree.
+  const [zoomed, setZoomed] = useState(false);
   // One Set instance for the component's whole life: Panels register their
   // uPlot in it and the pan/zoom plugin broadcasts window changes to every
   // member (programmatic setScale does not ride uPlot's cursor-sync bus).
@@ -180,6 +229,17 @@ export function FlightCharts({ result }: { result: FlightResult }) {
       return next;
     });
   };
+
+  const toggleExpand = (key: keyof FlightSeries) => {
+    setExpandedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const visible = catalog.filter((d) => selected.has(d.key) && (result.series[d.key] ?? []).length > 0);
 
   return (
     <div>
@@ -202,9 +262,22 @@ export function FlightCharts({ result }: { result: FlightResult }) {
           ⬇ CSV
         </button>
       </div>
+      {visible.length > 0 && (
+        <div className="chart-toolbar">
+          <GestureHints />
+          <button className="chart-btn" disabled={!zoomed}
+            onClick={() => { resetPlots(plotsRef.current); setZoomed(false); }}
+            title="Show the whole flight again (same as double-clicking a chart)">
+            ↺ Reset view
+          </button>
+        </div>
+      )}
       <div className="charts-grid">
-        {catalog.filter((d) => selected.has(d.key) && (result.series[d.key] ?? []).length > 0)
-          .map((d) => <Panel key={String(d.key)} result={result} def={d} plots={plotsRef.current} />)}
+        {visible.map((d) => (
+          <Panel key={String(d.key)} result={result} def={d} plots={plotsRef.current}
+            expanded={expandedKeys.has(d.key)} onToggleExpand={() => toggleExpand(d.key)}
+            onZoomChange={setZoomed} />
+        ))}
       </div>
       {selected.size === 0 && (
         <div className="panel placeholder">Select at least one series to plot.</div>

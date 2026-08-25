@@ -91,6 +91,116 @@ public final class GoldenMain {
         }
 
         airfoilSectionScenarios();
+        phase5AeroScenarios();
+        phase6AeroScenarios();
+    }
+
+    /**
+     * RASAero feature #1 Phase 6. The fin thickness-wave transonic shape
+     * (FinSetCalc.thicknessWave / betaEffThickness) replaces a linear M0.9-1.2
+     * ramp with rise -&gt; peak at M1.05 -&gt; decay on the branch, and introduces
+     * one new numeric operation in the kernel: the cube root
+     * pow((gamma+1) M^2 tau, 1/3) of the transonic-similarity floor. Nothing
+     * else exercises it — the Phase-5 fin goldens all sample M &gt;= 1.5, where
+     * the floor never binds — so it gets its own canary, sampled at
+     * M0.85 (below onset, must be 0), M0.95 (mid-smoothstep), M1.05 (the peak),
+     * M1.10 (inside the floored band) and M1.30 (plain 1/beta branch, which
+     * must be bit-identical to Phase 5).
+     * <p>
+     * Both flag-on call sites are covered: the feature-#4 section path
+     * (hexbluntbase) and the plain AIRFOIL cross-section path. Fins are
+     * UNSWEPT in both so sweepWaveFactor is identically 1 and the samples
+     * isolate the thickness term.
+     */
+    private static void phase6AeroScenarios() {
+        String tmpl = "{\"components\":[{\"type\":\"stage\",\"name\":\"S\",\"children\":["
+                + "{\"type\":\"nosecone\",\"shape\":\"conical\",\"length\":0.09,\"aftRadius\":0.015,\"thickness\":0.0015},"
+                + "{\"type\":\"bodytube\",\"length\":0.25,\"outerRadius\":0.015,\"thickness\":0.0015,\"children\":["
+                + "  {\"type\":\"trapezoidfinset\",\"finCount\":4,\"rootChord\":0.06,\"tipChord\":0.03,\"sweep\":0,"
+                + "\"height\":0.04,\"thickness\":0.0024,%FIN%"
+                + "\"position\":{\"method\":\"bottom\",\"offset\":0}}"
+                + "]}]}]}";
+        // machMin 0.85 step 0.05 -> indices 0=0.85, 2=0.95, 4=1.05, 5=1.10, 9=1.30
+        int[] idx = { 0, 2, 4, 5, 9 };
+        String opts = "{\"machMin\":0.85,\"machMax\":1.30,\"machStep\":0.05}";
+
+        int section = api.OrkEngine.buildRocket(tmpl.replace("%FIN%",
+                "\"airfoilSection\":\"hexbluntbase\",\"airfoilLeDiamond\":0.015,"));
+        api.OrkEngine.setSupersonicAero(section, true);
+        emitSweep("ssphase6.finwave", section, opts, idx);
+
+        int airfoil = api.OrkEngine.buildRocket(tmpl.replace("%FIN%",
+                "\"crossSection\":\"airfoil\","));
+        api.OrkEngine.setSupersonicAero(airfoil, true);
+        emitSweep("ssphase6.airfoilwave", airfoil, opts, idx);
+    }
+
+    /**
+     * RASAero feature #1 Phase 5. Two new flag-on code paths whose arithmetic is
+     * NOT exercised anywhere else, so they get their own goldens:
+     * <p>
+     * (a) <b>boattail</b> — the Prandtl-Meyer boat-tail wave drag, sampled
+     * across all four bands of the replacement curve (classic below M0.90, the
+     * smoothstep rise, the M1.05-1.20 plateau, exact PM above). This is the one
+     * that matters most for JVM/TeaVM fidelity: pmExpansionCp inverts nu(M) by a
+     * FIXED-COUNT bisection, so any divergence in Math.sqrt/atan between the two
+     * backends shows up here as a diverging bisection path, not as ULP noise.
+     * <p>
+     * (b) <b>finsweep</b> — a 60-degree-swept fin with a hexagonal blunt-base
+     * section, sampled below, inside and above the LE-sonic band (Mn = M cos
+     * Gamma crosses 0.9 at M1.8 and 1.05 at M2.1), locking sweepWaveFactor's
+     * three branches. Its unswept twin locks the invariance claim: sweep 0 must
+     * reproduce the pre-Phase-5 cos^2 = 1 numbers exactly.
+     */
+    private static void phase5AeroScenarios() {
+        String boattail = "{\"components\":[{\"type\":\"stage\",\"name\":\"S\",\"children\":["
+                + "{\"type\":\"nosecone\",\"shape\":\"conical\",\"length\":0.12,\"aftRadius\":0.03,\"thickness\":0.002},"
+                + "{\"type\":\"bodytube\",\"length\":0.40,\"outerRadius\":0.03,\"thickness\":0.001},"
+                + "{\"type\":\"transition\",\"shape\":\"conical\",\"length\":0.05,\"foreRadius\":0.03,\"aftRadius\":0.017,\"thickness\":0.001}"
+                + "]}]}";
+        int bt = api.OrkEngine.buildRocket(boattail);
+        api.OrkEngine.setSupersonicAero(bt, true);
+        // 0.95 / 1.05 / 1.15 / 1.5 / 2.0 — one sample per band edge.
+        emitSweep("ssphase5.boattail", bt,
+                "{\"machMin\":0.95,\"machMax\":2.0,\"machStep\":0.05}",
+                new int[] { 0, 2, 4, 11, 21 });
+
+        String finTmpl = "{\"components\":[{\"type\":\"stage\",\"name\":\"S\",\"children\":["
+                + "{\"type\":\"nosecone\",\"shape\":\"conical\",\"length\":0.09,\"aftRadius\":0.015,\"thickness\":0.0015},"
+                + "{\"type\":\"bodytube\",\"length\":0.25,\"outerRadius\":0.015,\"thickness\":0.0015,\"children\":["
+                + "  {\"type\":\"trapezoidfinset\",\"finCount\":4,\"rootChord\":0.06,\"tipChord\":0.03,\"sweep\":%SWEEP%,"
+                + "\"height\":0.04,\"thickness\":0.0024,\"airfoilSection\":\"hexbluntbase\",\"airfoilLeDiamond\":0.015,"
+                + "\"position\":{\"method\":\"bottom\",\"offset\":0}}"
+                + "]}]}]}";
+        // tan(Gamma_LE) = sweep/height = 0.06928/0.04 = sqrt(3) -> Gamma = 60 deg.
+        int swept = api.OrkEngine.buildRocket(finTmpl.replace("%SWEEP%", "0.06928203230275509"));
+        api.OrkEngine.setSupersonicAero(swept, true);
+        emitSweep("ssphase5.finsweep", swept,
+                "{\"machMin\":1.5,\"machMax\":5.0,\"machStep\":0.5}",
+                new int[] { 0, 1, 2, 4, 7 });
+        int unswept = api.OrkEngine.buildRocket(finTmpl.replace("%SWEEP%", "0"));
+        api.OrkEngine.setSupersonicAero(unswept, true);
+        emitSweep("ssphase5.finstraight", unswept,
+                "{\"machMin\":1.5,\"machMax\":5.0,\"machStep\":0.5}",
+                new int[] { 0, 1, 2, 4, 7 });
+    }
+
+    /** Emits total/pressure/base CD at the requested sweep indices. */
+    private static void emitSweep(String tag, int rocket, String opts, int[] indices) {
+        java.util.Map<String, Object> parsed =
+                api.JsonLite.parseObject(api.OrkEngine.getDragSweep(rocket, opts));
+        java.util.List<?> machs = (java.util.List<?>) parsed.get("machs");
+        java.util.Map<String, Object> off = asMap(parsed.get("powerOff"));
+        java.util.List<?> total = (java.util.List<?>) off.get("total");
+        java.util.List<?> press = (java.util.List<?>) off.get("pressure");
+        java.util.List<?> base = (java.util.List<?>) off.get("base");
+        for (int i : indices) {
+            line(tag + "." + i,
+                    ((Number) machs.get(i)).doubleValue(),
+                    ((Number) total.get(i)).doubleValue(),
+                    ((Number) press.get(i)).doubleValue(),
+                    ((Number) base.get(i)).doubleValue());
+        }
     }
 
     /**

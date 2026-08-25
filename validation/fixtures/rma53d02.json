@@ -1,0 +1,25 @@
+{
+  "name": "NACA RM A53D02 fin-stabilized free-flight model (Ames ballistic range, M0.6-10)",
+  "_notes": [
+    "Gun-launched free-flight ballistic wind-tunnel model, drag data to Mach 10. Geometry transcribed from Chuck Rogers' own RASAero fixture (RMA53D02 - 2.CDX1, posted publicly on TRF 2026-08) and cross-checked against the model drawing reproduced in Rogers & Cooper 2011 Fig 2 inset ('Dimensions are in inches'): nose 1.00 in tangent ogive (4-1/16 in ogive radius = exact tangent ogive for d/2 = 0.125 in), body 0.250 in dia x 2.50 in overall, 4 fins root 0.75 / tip 0.375 / sweep 0.375 / exposed semispan 0.125 in, tip-to-tip 0.500 in.",
+    "Fin section: HEXAGONAL BLUNT BASE (the harness's only non-airfoil/blunt-TE fin cell) with 3/16 in LE chamfer (file FX1 0.189 in -> airfoilLeDiamond; the kernel's hexbluntbase uses the LE chamfer + full-height base term, TE chamfer not applicable). Fin thickness tapers spanwise 0.030 in (root) -> 0.015 in (tip) per the Fig 2 inset; 0.0225 in here is the mean - the same single-thickness convention Rogers used in the CDX1.",
+    "The inset also shows a 0.016 in blunt LE edge; the CDX1 carries LERadius 0 and so does this fixture (a known small fidelity gap).",
+    "All values produced by the app's real importCdx1 pipeline (services/rasaeroFile.ts) on the CDX1, rounded to exact inch->SI conversions; walls are nominal (mass does not affect CD scoring).",
+    "Finish: finishpolished (0.5 um) = the importer's mapping of RASAero 'Smooth (Zero Roughness)'. Measured on the ARCAS cell: finishpolished vs polished changes tunnel-Re CD by 0.0000 at every gate Mach (not roughness-limited).",
+    "Anchor CD includes base drag at flight Re (free-flight data, model flies with a blunt base)."
+  ],
+  "components": [
+    { "type": "nosecone", "finish": "finishpolished", "shape": "ogive", "shapeParameter": 1.0, "length": 0.025400, "aftRadius": 0.0031750, "thickness": 0.0005 },
+    {
+      "type": "bodytube", "finish": "finishpolished", "length": 0.038100, "outerRadius": 0.0031750, "thickness": 0.0005,
+      "children": [
+        {
+          "type": "trapezoidfinset", "finish": "finishpolished", "finCount": 4, "rootChord": 0.0190500, "tipChord": 0.0095250,
+          "sweep": 0.0095250, "height": 0.0031750, "thickness": 0.0005715, "crossSection": "airfoil",
+          "airfoilSection": "hexbluntbase", "airfoilLeDiamond": 0.0048006,
+          "position": { "method": "bottom", "offset": 0 }
+        }
+      ]
+    }
+  ]
+}
