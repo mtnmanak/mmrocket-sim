@@ -4,7 +4,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
-import { exportOrk, importOrk, type OrkExportConfig, type OrkMotorRef } from './orkFile.js';
+import { DEFAULT_CONDITIONS } from '../components/LaunchPanel.js';
+import { exportOrk, importOrk, MIN_IMPORTED_TIME_STEP_S, ORK_CREATOR, type OrkExportConfig, type OrkMotorRef } from './orkFile.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -1736,7 +1737,56 @@ describe('the file’s simulation time step', () => {
   </conditions></simulation></simulations></openrocket>`;
 
   it('is imported when the file states one', () => {
-    expect(importOrk(withStep('<timestep>0.01</timestep>')).launch!.timeStepS).toBeCloseTo(0.01, 12);
+    expect(importOrk(withStep('<timestep>0.08</timestep>')).launch!.timeStepS).toBeCloseTo(0.08, 12);
+  });
+
+  // A step FINER than OpenRocket's own 0.05 default costs multiples of the run
+  // time for a difference nobody can read: on the file this came from, 0.01 vs
+  // 0.05 moves apogee by 0.020 % and maxMach by 0.015 %. The file's step is a
+  // ceiling on an adaptive step, not the step itself. Clamp it, and say so —
+  // silently flying 0.01 is what made one beta tester's flights take 40 s.
+  it('is clamped up to the engine default when the file asks for something finer', () => {
+    const res = importOrk(withStep('<timestep>0.01</timestep>'));
+    expect(res.launch!.timeStepS).toBeCloseTo(MIN_IMPORTED_TIME_STEP_S, 12);
+    expect(res.notes.join(' ')).toMatch(/0\.01 s time step/);
+    expect(res.notes.join(' ')).toMatch(/Launch panel/);
+  });
+
+  it('says nothing when the file’s step needs no clamping', () => {
+    expect(importOrk(withStep('<timestep>0.05</timestep>')).notes.join(' ')).not.toMatch(/time step/);
+  });
+
+  // A design saved from here must reproduce the numbers this app showed —
+  // including when it is opened in desktop OpenRocket. Before, the export
+  // hard-coded 0.05 regardless of what was flown.
+  // A step the user chose HERE must survive save-and-reopen. Clamping our own
+  // file's value back up would silently undo their deliberate setting — the
+  // whole point of exposing the field is that it is theirs to set.
+  it('does NOT clamp a sub-default step in a file this app wrote', () => {
+    const tree = { name: 'T', components: [{ type: 'bodytube', length: 0.3, outerRadius: 0.012,
+      thickness: 0.001 } as ComponentNode] };
+    const xml = exportOrk({ name: 'T', tree, launch: { ...DEFAULT_CONDITIONS, timeStepS: 0.02 } });
+    expect(xml).toContain(`creator="${ORK_CREATOR}"`);
+    const back = importOrk(xml);
+    expect(back.launch!.timeStepS).toBeCloseTo(0.02, 12);
+    expect(back.notes.join(' ')).not.toMatch(/time step/);
+  });
+
+  it('still clamps the same value in a file OpenRocket wrote', () => {
+    const foreign = withStep('<timestep>0.02</timestep>');
+    expect(foreign).toMatch(/creator="OpenRocket/);
+    const r = importOrk(foreign);
+    expect(r.launch!.timeStepS).toBeCloseTo(MIN_IMPORTED_TIME_STEP_S, 12);
+    expect(r.notes.join(' ')).toMatch(/0\.02 s time step/);
+  });
+
+  it('exports the step that was actually flown, not a hard-coded default', () => {
+    const tree = { name: 'T', components: [{ type: 'bodytube', length: 0.3, outerRadius: 0.012,
+      thickness: 0.001 } as ComponentNode] };
+    const fine = exportOrk({ name: 'T', tree, launch: { ...DEFAULT_CONDITIONS, timeStepS: 0.02 } });
+    expect(fine).toContain('<timestep>0.02</timestep>');
+    const blank = exportOrk({ name: 'T', tree, launch: DEFAULT_CONDITIONS });
+    expect(blank).toContain(`<timestep>${MIN_IMPORTED_TIME_STEP_S}</timestep>`);
   });
 
   it('is absent when the file states none, so the engine default applies', () => {

@@ -20,7 +20,8 @@ import { FlyScreen } from './components/FlyScreen.js';
 import { ComponentTree } from './components/ComponentTree.js';
 import { FlightCharts } from './components/FlightCharts.js';
 import { DragPanel } from './components/DragPanel.js';
-import { DEFAULT_CONDITIONS, LaunchPanel, type LaunchConditions } from './components/LaunchPanel.js';
+import { DEFAULT_CONDITIONS, kernelSimOptions, LaunchPanel, type LaunchConditions } from './components/LaunchPanel.js';
+import { machProbeSeconds } from './services/machProbe.js';
 import { MovedNotice } from './components/MovedNotice.js';
 import { NoticeBar, type Notice, type NoticeSeverity } from './components/NoticeBar.js';
 import { MeasuredMassBox } from './components/MeasuredMassBox.js';
@@ -223,25 +224,6 @@ function labelWithDelay(label: string, delay: number | 'auto'): string {
 }
 
 /**
- * Kernel SimulationOptions from the launch panel — the ONE construction,
- * shared by Launch and the full-series CSV re-run so both fly identical
- * conditions (the physics is deterministic: same options, same flight).
- */
-function kernelSimOptions(l: LaunchConditions) {
-  return {
-    launchRodLength: l.launchRodLengthM,
-    launchRodAngle: (l.launchRodAngleDeg * Math.PI) / 180,
-    windAverage: l.windAverage,
-    windStdDeviation: l.windStdDev,
-    launchAltitude: l.launchAltitudeM,
-    temperature: l.temperatureC === null ? undefined : l.temperatureC + 273.15,
-    pressure: l.pressureHPa === null ? undefined : l.pressureHPa * 100,
-    launchLatitude: l.latitudeDeg,
-    ...(l.timeStepS !== undefined ? { timeStep: l.timeStepS } : {}),
-  };
-}
-
-/**
  * Is this tree still the untouched starter rocket? Compares against a fresh
  * defaultTree() with ids stripped — every normalizeTree/defaultTree call
  * mints new ids, so ids never match and everything else must. Used by the
@@ -274,6 +256,8 @@ export function App() {
   // this build's importer. Every file-reading fix we ship misses it silently.
   const [restoredByOlderBuild, setRestoredByOlderBuild] = useState(
     () => session !== null && sessionPredatesThisBuild(session));
+  const [timeStepMigrated, setTimeStepMigrated] = useState(
+    () => session?.timeStepWasClamped === true);
   // Normalize ONCE and derive every dependent initializer from the SAME tree:
   // each normalizeTree/defaultTree call mints fresh ids for nodes it creates,
   // so a second call yields ids that don't exist in the tree state — the
@@ -324,6 +308,17 @@ export function App() {
   const [launch, setLaunch] = useState<LaunchConditions>(session?.launch ?? DEFAULT_CONDITIONS);
   const [result, setResult] = useState<FlightResult | null>(null);
   const [lastRun, setLastRun] = useState<SimRun | null>(null);
+  /**
+   * How long the last simulation took, and the step it used — kept SEPARATELY
+   * from `lastRun` because it is a performance measurement, not a flight
+   * result. `lastRun` is cleared whenever the design or the launch conditions
+   * change (a displayed apogee must never outlive the conditions that produced
+   * it), but the cost of a step is still the cost of a step. Without this split
+   * the time-step caution could never show a seconds estimate: editing the
+   * time-step field is itself a launch-conditions change, so it wiped the
+   * number it was about to quote.
+   */
+  const [lastSimCost, setLastSimCost] = useState<{ ms: number; timeStepS?: number } | null>(null);
   const [runs, setRuns] = useState<SimRun[]>(() => loadRuns());
   // Storage-full surfacing. simStore mutations are synchronous, so checking
   // persistFailed() right after each one is enough — recordRuns is that one
@@ -779,6 +774,21 @@ export function App() {
         onDismiss: () => setRestoredByOlderBuild(false),
       });
     }
+    // One-time, on the first load after upgrading: the restored session carried
+    // a time step finer than the default, inherited from some file opened long
+    // ago and invisible until this build. Say so rather than letting the number
+    // in the new field differ from what the user was silently flying.
+    if (timeStepMigrated) {
+      out.push({
+        id: 'timestep-migrated',
+        severity: 'info',
+        text: 'Your saved session was flying a finer simulation time step than the default,'
+          + ' inherited from a design file — it is now set to 0.05 s, which is several times'
+          + ' faster and, in our testing, no less accurate. It is the Time step field in the'
+          + ' Launch panel if you want it back.',
+        onDismiss: () => setTimeStepMigrated(false),
+      });
+    }
     if (fileNoteState) {
       out.push({
         id: 'file-note',
@@ -788,7 +798,8 @@ export function App() {
       });
     }
     return out;
-  }, [buildError, motorFailures, curveRepairs, fileNoteState, setFileNote, restoredByOlderBuild]);
+  }, [buildError, motorFailures, curveRepairs, fileNoteState, setFileNote, restoredByOlderBuild,
+    timeStepMigrated]);
 
   /** Assigns a motor to a mount, with the G80 power-class ignition default. */
   const assignMotor = (targetMountId: string, label: string, spec: MotorSpec, meta: MotorMeta) => {
@@ -808,23 +819,50 @@ export function App() {
     setSimulating(true);
     // Flying hands off to the Results workspace — land the user there.
     setTab('results');
-    requestAnimationFrame(() => {
+    // rAF alone does NOT let the busy state paint: rAF callbacks run at the
+    // START of a frame, before style/layout/paint, so the "Simulating…" label
+    // React just committed was still unpainted when the synchronous flight
+    // began — the button appeared frozen mid-click. rAF-then-task waits for the
+    // frame to paint and resumes in the next task. (BatchSimulate always got
+    // this right, with a bare setTimeout — which is why its progress bar moves.)
+    requestAnimationFrame(() => setTimeout(() => {
       try {
         const simOpts = kernelSimOptions(launch);
         const t0 = performance.now();
-        let res = built.rocket.simulate(simOpts);
-        // Auto aero mode: the classic first pass projects the flight's Mach.
-        // Past 0.9 (transonic onset, where classic aero starts degrading) the
-        // WHOLE flight re-flies on the supersonic model, and the design's
-        // displayed statics follow (setAutoSupersonic rebuilds the engine
-        // handle with the flag on after this callback finishes).
+        // Auto aero mode: decide which model to fly BEFORE flying. Past Mach 0.9
+        // (transonic onset, where classic aero starts degrading) the whole
+        // flight uses the supersonic model, and the design's displayed statics
+        // follow (setAutoSupersonic rebuilds the engine handle with the flag on
+        // after this callback finishes).
+        //
+        // This used to fly the entire classic flight and then, on a supersonic
+        // design, throw all of it away and fly the entire thing again — paying
+        // for two flights to read one number. A run truncated just past burnout
+        // reaches the same >0.9 verdict: peak Mach happens at or just after
+        // burnout, never during the coast. Measured on the whole test corpus,
+        // the truncated probe returns the EXACT maxMach on 6 of 7 designs and
+        // lands the same side of 0.9 on all 7, at a fraction of the cost.
         let usedSupersonic = effectiveSupersonic;
-        if (aeroMode === 'auto' && !usedSupersonic && res.summary.maxMachNumber > 0.9) {
-          built.rocket.setSupersonicAero(true);
-          res = built.rocket.simulate(simOpts);
-          usedSupersonic = true;
-          setAutoSupersonic(true);
+        if (aeroMode === 'auto' && !usedSupersonic) {
+          const probe = built.rocket.simulate({
+            ...simOpts,
+            // The LAUNCH stage is the LAST one — stage 0 is the sustainer. Only its
+            // motors fire off the clock; an 'automatic' mount anywhere above waits
+            // for the stage below's ejection charge.
+            maxTime: machProbeSeconds(assigned.map(([id, mm]) => ({
+              ...mm, onLaunchStage: stageIndexOf(tree, id) === stageList.length - 1,
+            }))),
+          });
+          if (probe.summary.maxMachNumber > 0.9) {
+            built.rocket.setSupersonicAero(true);
+            usedSupersonic = true;
+            setAutoSupersonic(true);
+          }
         }
+        // The ONE real flight. The probe's result is never used for anything
+        // else: a truncated run has no apogee, so its optimumDelay is absent and
+        // its warning set is incomplete.
+        let res = built.rocket.simulate(simOpts);
         let flownDelay = primary.spec.ejectionDelay;
         // Auto delay (sustainer/primary mount): the first run yields the
         // kernel's optimum (ballistic probe) — round to the nearest whole
@@ -885,6 +923,7 @@ export function App() {
           ...(activeConfig ? { flightConfig: savedConfigLabel(activeConfig) } : {}),
         });
         setLastRun(run);
+        setLastSimCost({ ms: execMs, ...(launch.timeStepS != null ? { timeStepS: launch.timeStepS } : {}) });
         recordRuns(addRun(run));
         setSimError(null);
       } catch (e) {
@@ -892,7 +931,7 @@ export function App() {
       } finally {
         setSimulating(false);
       }
-    });
+    }));
   };
 
   /**
@@ -908,7 +947,10 @@ export function App() {
       throw new Error('no flight in memory — press Launch first');
     }
     // Let the caller's busy state paint before the synchronous re-simulation.
-    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    // rAF-then-task: rAF alone resumes BEFORE the frame paints, so the caller's
+    // busy state would still be invisible when the synchronous re-simulation
+    // starts. Same fix as onLaunch above.
+    await new Promise<void>((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
     const primary = mountMotors[primaryMountId]!;
     if (lastRun.delayS !== primary.spec.ejectionDelay) {
       // Auto delay flew the rounded optimum (recorded on the run); a handle
@@ -1241,7 +1283,17 @@ export function App() {
     // sets temperature/pressure to null deliberately) — and keep the
     // panel's fields the file didn't mention. The importer already pushed
     // a user-visible note about what it found.
-    if (imported.launch) setLaunch((prev) => ({ ...prev, ...imported.launch }));
+    // timeStepS is the exception to "keep what the file didn't mention": it is
+    // a FIDELITY setting belonging to the file, not a site condition the user
+    // set. Merging it made it sticky — open a .ork carrying 0.01 and every
+    // later design, including .rkt and .CDX1 imports that carry no step at all,
+    // silently inherited it and ran several times slower forever. Always
+    // assign, so a file without one goes back to the engine default.
+    if (imported.launch) {
+      setLaunch((prev) => ({ ...prev, ...imported.launch, timeStepS: imported.launch!.timeStepS }));
+    } else {
+      setLaunch((prev) => ({ ...prev, timeStepS: undefined }));
+    }
     // What the builder weighed, if the file carried it. Always assigned — a
     // file WITHOUT the numbers must clear the previous rocket's, or the box
     // would report the new design's gap against someone else's scale.
@@ -2428,7 +2480,8 @@ export function App() {
             </button>
           </div>
 
-          <LaunchPanel value={launch} onChange={setLaunch} onLaunch={onLaunch} simulating={simulating} />
+          <LaunchPanel value={launch} onChange={setLaunch} onLaunch={onLaunch} simulating={simulating}
+            lastRun={lastSimCost} />
         </div>
         )}
 

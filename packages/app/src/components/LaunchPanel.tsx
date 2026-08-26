@@ -1,3 +1,4 @@
+import type { SimulationOptions } from '@online-openrocket/engine';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { niceStep, siToUi, uiToSi, type Quantity } from '../prefs/units.js';
 import { Icon } from './Icon.js';
@@ -17,12 +18,68 @@ export interface LaunchConditions {
   pressureHPa: number | null;
   latitudeDeg: number;
   /**
-   * Integration time step (s) as the .ork's own <simulation> states it. Absent
-   * = the engine's default. Not exposed in this panel: it is a fidelity
-   * setting the file carries, not a field anyone sets at the field, but
-   * honouring it is what lets a design reproduce its desktop numbers exactly.
+   * Integration time step (s), seeded from the .ork's own `<simulation>` and
+   * clamped there to MIN_IMPORTED_TIME_STEP_S. Absent = the engine's default
+   * (0.05 s, the same as desktop OpenRocket).
+   *
+   * This IS exposed in the panel now. It used to be deliberately hidden as "a
+   * fidelity setting the file carries, not a field anyone sets at the field" —
+   * but a beta tester spent 40 seconds per flight on a file carrying 0.01 with
+   * no way to see it, change it, or know it was there. A setting that costs
+   * several times the run time cannot be invisible.
    */
-  timeStepS?: number;
+  timeStepS?: number | null;
+}
+
+/**
+ * Kernel SimulationOptions from the launch conditions — the ONE construction,
+ * shared by Launch, the full-series CSV re-run and the batch runner so all three
+ * fly identical conditions (the physics is deterministic: same options, same
+ * flight). It lives beside LaunchConditions because that is what it converts.
+ *
+ * There used to be a second copy in BatchSimulate that silently omitted
+ * `timeStep`, so a design carrying its own step from its .ork gave different
+ * numbers in the batch table than the same design gave on the Launch button.
+ */
+export function kernelSimOptions(l: LaunchConditions): SimulationOptions {
+  return {
+    launchRodLength: l.launchRodLengthM,
+    launchRodAngle: (l.launchRodAngleDeg * Math.PI) / 180,
+    windAverage: l.windAverage,
+    windStdDeviation: l.windStdDev,
+    launchAltitude: l.launchAltitudeM,
+    temperature: l.temperatureC === null ? undefined : l.temperatureC + 273.15,
+    pressure: l.pressureHPa === null ? undefined : l.pressureHPa * 100,
+    launchLatitude: l.latitudeDeg,
+    // `!= null` covers BOTH absent and cleared: the panel's nullable fields
+    // commit null when emptied, and null means the same thing absent does —
+    // fly the engine's default.
+    ...(l.timeStepS != null ? { timeStep: l.timeStepS } : {}),
+  };
+}
+
+/**
+ * The engine's — and desktop OpenRocket's — default integration time step, and
+ * the floor an imported design file is clamped to. Finer is slower and NOT more
+ * accurate; see `timeStepCostFactor` for the measurement.
+ */
+export const DEFAULT_TIME_STEP_S = 0.05;
+
+/**
+ * Roughly how much longer a flight takes at `dt` than at the 0.05 s default.
+ *
+ * Fitted to measured whole-flight timings on four designs with real published
+ * thrust curves (Mach2.trf.ork, test01.ork, 38-54 2-stage.ork, LEM-IV.ork):
+ *
+ *   dt 0.01 -> 3.7-6.0x    dt 0.02 -> 2.0-2.8x
+ *   dt 0.03 -> 1.5-1.7x    dt 0.04 -> 1.1-1.3x
+ *
+ * (0.05/dt)^0.9 reproduces the midpoints to within a few percent. It is an
+ * estimate, and the UI says so — the true factor depends on how often the
+ * adaptive limiters bind, which is design-specific.
+ */
+export function timeStepCostFactor(dt: number): number {
+  return Math.pow(DEFAULT_TIME_STEP_S / dt, 0.9);
 }
 
 export const DEFAULT_CONDITIONS: LaunchConditions = {
@@ -104,11 +161,56 @@ export function LaunchField({ label, field, value, onChange, stepStored, min, ma
   );
 }
 
-export function LaunchPanel({ value, onChange, onLaunch, simulating }: {
+/**
+ * Live caution when the time step is finer than the default.
+ *
+ * The user is allowed to go below 0.05 — a rocketeer reproducing an exact
+ * desktop number has a real reason to — but not silently. A beta tester lost
+ * forty seconds a flight to a 0.01 s step he could not see, so the cost is
+ * stated in seconds wherever we know the last flight's actual duration, and as
+ * a multiplier when we do not.
+ */
+function TimeStepCaution({ dt, lastRun }: {
+  dt?: number | null;
+  lastRun?: { ms: number; timeStepS?: number } | null;
+}) {
+  if (dt == null || dt >= DEFAULT_TIME_STEP_S) return null;
+  const factor = timeStepCostFactor(dt);
+  // The last flight was measured at ITS OWN step, which is usually not the one
+  // being typed now — scale between the two rather than assuming the default.
+  const ref = lastRun && lastRun.ms > 0
+    ? { s: lastRun.ms / 1000, f: timeStepCostFactor(lastRun.timeStepS ?? DEFAULT_TIME_STEP_S) }
+    : null;
+  const perFlight = ref ? ref.s * (factor / ref.f) : null;
+  const atDefault = ref ? ref.s / ref.f : null;
+  return (
+    <p className="field-caution" role="status">
+      <Icon name="zap" size={13} />{' '}
+      <strong>{dt} s is finer than the {DEFAULT_TIME_STEP_S} s default.</strong>{' '}
+      Flights take about <strong>{factor.toFixed(1)}×</strong> longer
+      {perFlight !== null && atDefault !== null
+        ? <> — roughly <strong>{perFlight < 10 ? perFlight.toFixed(1) : perFlight.toFixed(0)} s</strong>{' '}
+            per flight instead of {atDefault < 10 ? atDefault.toFixed(1) : atDefault.toFixed(0)} s</>
+        : null}
+      , and the page cannot respond while one runs. In our testing it buys no
+      accuracy you can read: against a converged reference, {DEFAULT_TIME_STEP_S} s
+      lands apogee within 0.06 m on a 6.4 km flight and raises exactly the same
+      warnings. See <em>Launch Conditions → Time step</em> in the Guide.
+    </p>
+  );
+}
+
+export function LaunchPanel({ value, onChange, onLaunch, simulating, lastRun }: {
   value: LaunchConditions;
   onChange: (v: LaunchConditions) => void;
   onLaunch: () => void;
   simulating: boolean;
+  /**
+   * The last flight's measured duration and the step it flew at, when there has
+   * been one. Turns the time-step caution from an abstract multiplier into the
+   * number the user cares about: how many seconds they are about to wait.
+   */
+  lastRun?: { ms: number; timeStepS?: number } | null;
 }) {
   const numField = (label: string, key: keyof LaunchConditions, stepStored: number,
       min?: number, max?: number, nullable = false) => (
@@ -128,7 +230,19 @@ export function LaunchPanel({ value, onChange, onLaunch, simulating }: {
         {numField('Latitude (°)', 'latitudeDeg', 1, -90, 90)}
         {numField('Temperature', 'temperatureC', 1, -60, 60, true)}
         {numField('Pressure', 'pressureHPa', 5, 300, 1100, true)}
+        {/* Blank = 0.05 s, the engine's and desktop OpenRocket's default. Smaller
+            is slower and NOT more accurate: measured against a converged dt
+            0.002 reference on four designs with real thrust curves, 0.05 lands
+            apogee within 0.06 m on a 6.4 km flight and produces an identical
+            warning set. The simulator already shortens the step by itself where
+            the flight is changing fast, and lands exactly on each event — this
+            is a ceiling, not the step.
+            Floor 0.01, matching desktop OpenRocket's own spinner minimum: below
+            that the cost runs away (0.001 is ~2 minutes of frozen tab on a file
+            this release exists to make fast) for no measurable accuracy. */}
+        {numField('Time step (s)', 'timeStepS', 0.01, 0.01, 1, true)}
       </div>
+      <TimeStepCaution dt={value.timeStepS} lastRun={lastRun} />
       <button className="launch-btn" onClick={onLaunch} disabled={simulating}>
         {simulating ? 'Simulating…' : <><Icon name="rocket" size={15} /> Launch</>}
       </button>

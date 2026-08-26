@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useDialog } from './useDialog.js';
 import { OrkRocket, type MotorSpec, type RocketTree, type SimulationOptions, type StaticInfo } from '@online-openrocket/engine';
-import { engineTree, splitClusterPairsTree, splitClusterTree, type ClusterSplit } from '../tree/treeModel.js';
+import { engineTree, splitClusterPairsTree, splitClusterTree, stageIndexOf, stages, type ClusterSplit } from '../tree/treeModel.js';
 import { sheetsToXlsx, type Sheet } from '../services/xlsx.js';
 import {
   MOTOR_DB, classLabel, classesFittingMount, displayDesignation, filterMotors,
@@ -12,7 +12,8 @@ import { fetchMotorSpec, delayOptions } from '../services/thrustcurve.js';
 import { buildSimRun, recommendDelay, type SimRun } from '../services/simReport.js';
 import { addRuns, runsToCsv, runsToTable } from '../services/simStore.js';
 import { XLSX_MIME } from '../services/xlsx.js';
-import type { LaunchConditions } from './LaunchPanel.js';
+import { kernelSimOptions, type LaunchConditions } from './LaunchPanel.js';
+import { machProbeSeconds } from '../services/machProbe.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { Icon } from './Icon.js';
 import { fmtSi, siToUi, uiToSi } from '../prefs/units.js';
@@ -166,6 +167,13 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
 
   const gradeRun = (run: SimRun): string[] => {
     const failed: string[] = [];
+    // An aborted flight can never be "accepted": the kernel stopped it early,
+    // so its apogee is whatever height the rocket had reached when it gave up.
+    // Before this, a tumbling design's 140 m truncated flight could sail past
+    // an apogee criterion and be graded ✓ in green.
+    if (run.simWarnings?.some((w) => w.key === 'SIM_ABORT')) {
+      failed.push('flight stopped early');
+    }
     if (criteria.minRodExit !== null
         && (run.rodExitVelocity === null || run.rodExitVelocity < criteria.minRodExit)) {
       failed.push('rod-exit velocity');
@@ -201,16 +209,20 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
     batchRocket.setSupersonicAero(batchModel === 'supersonic');
     applyOthers(batchRocket, [sel.id]);
     const rocket = batchRocket;
-    const simOpts: SimulationOptions = {
-      launchRodLength: launch.launchRodLengthM,
-      launchRodAngle: (launch.launchRodAngleDeg * Math.PI) / 180,
-      windAverage: launch.windAverage,
-      windStdDeviation: launch.windStdDev,
-      launchAltitude: launch.launchAltitudeM,
-      temperature: launch.temperatureC === null ? undefined : launch.temperatureC + 273.15,
-      pressure: launch.pressureHPa === null ? undefined : launch.pressureHPa * 100,
-      launchLatitude: launch.latitudeDeg,
-    };
+    // The probe cutoff has to see the WHOLE stack, not just the motor under
+    // test: a candidate in the sustainer waits on the booster below it, and a
+    // cutoff computed from the candidate alone ends before it ever lights.
+    // The launch stage is the LAST one — stage 0 is the sustainer.
+    const bottomStageIdx = stages(tree).length - 1;
+    const probeCutoff = (targets: Record<string, MotorSpec>) => machProbeSeconds(
+      Object.entries({ ...assignedMotors, ...targets }).map(([id, spec]) => ({
+        spec,
+        onLaunchStage: stageIndexOf(tree, id) === bottomStageIdx,
+      })));
+    // The shared construction — this used to be a private copy that omitted
+    // `timeStep`, so a design carrying its own step from its .ork gave one set
+    // of numbers here and a different set on the Launch button.
+    const simOpts: SimulationOptions = kernelSimOptions(launch);
 
     const activeSplits: ClusterSplit[] = [
       ...(comboMode && clusterSplit ? [clusterSplit] : []),
@@ -258,18 +270,21 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
         const spec = await fetchMotorSpec(entry, provisional);
         specCache.set(entry.motorId, spec);
         const t0 = performance.now();
-        // Auto: each candidate flies the Kbf model first and re-flies wholly
-        // supersonic when projected past Mach 0.9 — per MOTOR, exactly like
-        // the single-flight Auto loop.
+        // Auto: each candidate picks its model from a SHORT probe run and then
+        // flies once — per MOTOR, exactly like the single-flight Auto loop.
+        // This used to fly the whole classic flight and, on a supersonic
+        // candidate, throw it away and fly the whole thing again, per candidate.
         if (batchModel === 'auto') rocket.setSupersonicAero(false);
         rocket.setMotorById(mountId, spec);
-        let res = rocket.simulate(simOpts);
         let usedSupersonic = batchModel === 'supersonic';
-        if (batchModel === 'auto' && res.summary.maxMachNumber > 0.9) {
-          rocket.setSupersonicAero(true);
-          res = rocket.simulate(simOpts);
-          usedSupersonic = true;
+        if (batchModel === 'auto') {
+          const probe = rocket.simulate({ ...simOpts, maxTime: probeCutoff({ [mountId]: spec }) });
+          if (probe.summary.maxMachNumber > 0.9) {
+            rocket.setSupersonicAero(true);
+            usedSupersonic = true;
+          }
         }
+        let res = rocket.simulate(simOpts);
         let flownDelay = provisional;
         if (criteria.autoDelay) {
           const rec = recommendDelay(res.summary.optimumDelay);
@@ -351,13 +366,19 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
           const t0 = performance.now();
           if (batchModel === 'auto') comboRocket.setSupersonicAero(false);
           split.mountIds.forEach((id, k) => comboRocket.setMotorById(id, specs[k]!));
-          let res = comboRocket.simulate(simOpts);
           let usedSupersonic = batchModel === 'supersonic';
-          if (batchModel === 'auto' && res.summary.maxMachNumber > 0.9) {
-            comboRocket.setSupersonicAero(true);
-            res = comboRocket.simulate(simOpts);
-            usedSupersonic = true;
+          if (batchModel === 'auto') {
+            const probe = comboRocket.simulate({
+              ...simOpts,
+              maxTime: probeCutoff(Object.fromEntries(
+                split.mountIds.map((id, k) => [id, specs[k]!]))),
+            });
+            if (probe.summary.maxMachNumber > 0.9) {
+              comboRocket.setSupersonicAero(true);
+              usedSupersonic = true;
+            }
           }
+          let res = comboRocket.simulate(simOpts);
           let flownDelay = specs[0]!.ejectionDelay;
           if (criteria.autoDelay) {
             const rec = recommendDelay(res.summary.optimumDelay);

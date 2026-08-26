@@ -3,6 +3,7 @@ import type { LaunchConditions } from '../components/LaunchPanel.js';
 import type { MountMotor, SavedConfig } from '../App.js';
 import type { MotorMeta } from './simReport.js';
 import { APP_VERSION } from '../version.js';
+import { MIN_IMPORTED_TIME_STEP_S } from './orkFile.js';
 
 /**
  * Session autosave: the whole working state (design tree, selected motor,
@@ -32,6 +33,12 @@ export interface SessionState {
   /** Legacy universal max motor length (pre-v0.015) — migrated onto every stage on load. */
   maxMotorLengthM?: number | null;
   launch: LaunchConditions;
+  /**
+   * Set by loadSession when it raised a pre-v0.071 session's inherited time
+   * step to the default. Transient — never written back — so the app can say
+   * once why the number changed.
+   */
+  timeStepWasClamped?: boolean;
   /**
    * What the user weighed and balanced (SI, airframe only — motor out), for
    * the Design tab's "Measured mass & CG" box (v0.061). Kept here rather than
@@ -87,6 +94,20 @@ export function loadSession(): SessionState | null {
         const d = mm?.spec?.ejectionDelay as unknown;
         if (d === 'Infinity' || d === null) mm.spec.ejectionDelay = Infinity;
       }
+    }
+    // Time-step migration (v0.071). Before this release the app took a design
+    // file's own integration time step and MERGED it into the launch conditions
+    // — so it stuck, was invisible, and rode along in the autosave. Without this
+    // the tester who reported 40-second flights is STILL flying 0.01 s after
+    // upgrading: several times slower for no accuracy he can read, with nothing
+    // on screen to explain it, because his session predates the field that
+    // would have shown it. Sessions written by THIS build are left alone — a
+    // sub-default step there is a choice the user made in the panel after being
+    // told what it costs.
+    if (sessionPredatesThisBuild(s) && s.launch
+        && s.launch.timeStepS != null && s.launch.timeStepS < MIN_IMPORTED_TIME_STEP_S) {
+      s.launch = { ...s.launch, timeStepS: MIN_IMPORTED_TIME_STEP_S };
+      s.timeStepWasClamped = true;
     }
     return s;
   } catch {

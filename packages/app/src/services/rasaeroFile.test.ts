@@ -919,3 +919,46 @@ describe('RASAero engine export (gated — see CDX1_ENGINE_EXPORT)', () => {
     expect(xml).toContain('<Booster1CG>0</Booster1CG>');
   });
 });
+
+/**
+ * A RASAero file's first <Simulation> is often a sustainer-only study, with
+ * <IncludeBooster1>False</IncludeBooster1> or an engine string we cannot parse.
+ * Opening it left the launch stage motorless: the rocket sat on the pad and the
+ * kernel aborted with "no motors ignited", while a later simulation in the very
+ * same file flew.
+ */
+describe('RASAero — which simulation gets opened', () => {
+  /**
+   * A real two-stage file from the beta corpus. Its FIRST <Simulation> carries
+   * <IncludeBooster1>False</IncludeBooster1>, so the launch stage gets no motor
+   * and the rocket cannot leave the pad — the kernel aborts with "no motors
+   * ignited" and the user sees a two-point flight to 0 m. Later simulations in
+   * the same file fly.
+   */
+  it('skips a first simulation that leaves the launch stage without a motor', () => {
+    const r = importCdx1(fixture('launch-stage-motorless.CDX1'));
+    // More than one configuration is declared, and the applied one is NOT the first.
+    expect(r.configs.length).toBeGreaterThan(1);
+    expect(r.chosenConfigId).not.toBe(r.configs[0]!.id);
+    // A motor is on a mount inside the LAST stage — the one that has to light first.
+    const stages = r.tree.components.filter((c) => c.type === 'stage');
+    const bottomMounts = new Set<string>();
+    const walk = (nodes: ComponentNode[]) => {
+      for (const n of nodes) {
+        if (n['motorMount'] === true && n.id) bottomMounts.add(n.id);
+        walk(n.children ?? []);
+      }
+    };
+    walk(stages[stages.length - 1]?.children ?? []);
+    expect(Object.keys(r.motors).some((id) => bottomMounts.has(id))).toBe(true);
+    // …and the note names both simulations by their number IN THE FILE.
+    expect(r.notes.join(' ')).toMatch(/Simulation 1 in this file puts no motor on the launch stage/);
+    expect(r.notes.join(' ')).toMatch(/Simulation \d+ was opened instead/);
+  });
+
+  it('leaves a file whose first simulation is flyable alone', () => {
+    const r = importCdx1(fixture('Complex.Two-Stage.CDX1'));
+    expect(r.chosenConfigId).toBe(r.configs[0]?.id ?? null);
+    expect(r.notes.join(' ')).not.toMatch(/opened instead/);
+  });
+});

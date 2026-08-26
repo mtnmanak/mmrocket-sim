@@ -36,6 +36,9 @@ export const WARNING_LABEL: Record<string, string> = {
   TUMBLE_UNDER_THRUST: 'The rocket tumbled while the motor was still burning',
   MissingMotor: 'A motor mount has no motor loaded',
   EMPTY_BRANCH: 'A stage produced no flight data — check its separation and ignition settings',
+  // Synthesised by simReport from a SIM_ABORT event — the kernel raises no
+  // warning of its own when it stops a flight early.
+  SIM_ABORT: 'The flight stopped early — the results are incomplete',
   // Aerodynamic-model warnings (Barrowman calculators, raised in flight)
   SUPERSONIC: 'Flight is supersonic — aerodynamic predictions are approximate',
   DISCONTINUITY: 'Airframe diameter steps abruptly — drag predictions suffer',

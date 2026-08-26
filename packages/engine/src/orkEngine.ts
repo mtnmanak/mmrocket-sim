@@ -213,6 +213,16 @@ export interface FlightEvent {
    * how dual-deployment drogue and main are told apart).
    */
   source?: string;
+  /**
+   * SIM_ABORT only: the kernel's machine-readable reason the flight stopped
+   * early — NO_MOTORS_FIRED, TUMBLE_UNDER_THRUST, DEPLOY_UNDER_THRUST,
+   * NO_LIFTOFF, NO_CP, ACTIVE_MASS_ZERO… (SimulationAbort.Cause).
+   *
+   * The NAME only, never the kernel's own translated sentence: this build ships
+   * no resource bundle, so that comes back as a bracketed l10n key. The app
+   * words them (simReport.ts ABORT_CAUSES).
+   */
+  cause?: string;
 }
 
 export interface FlightSeries {

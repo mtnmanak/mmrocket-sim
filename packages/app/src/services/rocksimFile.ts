@@ -779,6 +779,35 @@ export function importRkt(data: ArrayBuffer | string): OrkTreeImportResult {
       mount = mountsIn(components[stageIdx]?.children ?? [])[0];
     }
     if (!mount?.id) continue;
+    // RockSim's <IgnitionDelay> is an offset from the STAGE BELOW'S BURNOUT, not
+    // from liftoff. Dropping it entirely (what we did before) made every .rkt
+    // motor {automatic, 0}, which on an upper stage means the stage below's
+    // EJECTION CHARGE — so a staged design lit its sustainer off the wrong event
+    // and ignored the file's timer.
+    //
+    // Three independent confirmations, because getting this backwards moves a
+    // sustainer by tens of seconds:
+    //  1. `2,4-D.rkt` stores three RockSim result sets for the same design. Two
+    //     differ ONLY in the sustainer's IgnitionDelay (0 vs 10 s) and their
+    //     stored <TimeToBurnout> differs by exactly 10.0000 s. Liftoff-relative
+    //     cannot produce that — a sustainer lit at t=10 would still be burning
+    //     inside the booster's burn, and the later burnout would be the
+    //     booster's, identical in both.
+    //  2. `SS Wild Bash 20260623v0.ork`, the same design saved by the same
+    //     author, declares <ignitionevent>burnout</ignitionevent> on BOTH upper
+    //     mounts and `launch` only on the bottom one.
+    //  3. Desktop OpenRocket maps the identical concept the same way in its
+    //     RASAero importer (SimulationHandler: stages below the top get
+    //     IgnitionEvent.BURNOUT), and rasaeroFile.ts already follows it.
+    //
+    // Keyed on STAGE POSITION, not on the delay being non-zero: an upper stage
+    // with an explicit 0 still means "at the stage below's burnout", which is a
+    // different event from 'automatic'. The bottom stage is left 'automatic' —
+    // the kernel resolves that to launch there — so single-stage .rkt files are
+    // untouched.
+    const ignitionDelay = num(engineSet, 'IgnitionDelay', 0);
+    const isBottomStage = components.length <= 1
+      || mountsIn(components[components.length - 1]?.children ?? []).some((m) => m.id === mount!.id);
     const ref: OrkMotorRef = {
       designation: code,
       manufacturer: text(engineSet, ':scope > EngineMfg') ?? 'unknown',
@@ -786,6 +815,7 @@ export function importRkt(data: ArrayBuffer | string): OrkTreeImportResult {
       length: 0,
       delay: num(engineSet, 'EjectionDelay', 0),
       mountId: mount.id,
+      ...(isBottomStage ? {} : { ignitionEvent: 'burnout' as const, ignitionDelay }),
     };
     motors[mount.id] = ref;
     firstMotor = firstMotor ?? ref;
@@ -1218,6 +1248,15 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
       emit(`<EngineCode>${esc(m.designation)}</EngineCode>`);
       emit(`<EngineMfg>${esc(m.manufacturer ?? 'unknown')}</EngineMfg>`);
       emit(`<EjectionDelay>${m.delay}</EjectionDelay>`);
+      // Staging timer, so a .rkt written here round-trips through our own
+      // importer (and through RockSim) with its staging intact. RockSim
+      // measures IgnitionDelay from the stage below's BURNOUT, which is exactly
+      // what the importer maps to `ignitionEvent: 'burnout'` — so only a
+      // burnout-triggered motor has a delay to write. A launch-stage motor, or
+      // one on a different ignition event we cannot express in this format,
+      // writes 0 (RockSim's own default).
+      const rktIgnitionDelay = m.ignitionEvent === 'burnout' ? (m.ignitionDelay ?? 0) : 0;
+      emit(`<IgnitionDelay>${rktIgnitionDelay}</IgnitionDelay>`);
       emit(`<MountSerialNo>${nodeSerial.get(id) ?? -1}</MountSerialNo>`);
       emit('</EngineSet>');
     }

@@ -944,6 +944,20 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
  * stored as the INTENSITY ratio stddev/average — is the ≤23.09 legacy form
  * the desktop still writes alongside it.
  */
+/**
+ * Floor for a `<timestep>` read out of a design file — OpenRocket's own default,
+ * and the value 24.12's tooltip calls "quite accurate" for its 4th-order method.
+ * See the clamp below for the measurement that justifies it.
+ */
+export const MIN_IMPORTED_TIME_STEP_S = 0.05;
+
+/**
+ * The `creator` attribute this app stamps on every .ork it writes. Read back on
+ * import to tell OUR file (whose settings the user chose here, and was warned
+ * about) from a foreign one (whose settings they have never seen).
+ */
+export const ORK_CREATOR = 'MMRocket Sim';
+
 function readLaunchConditions(
   doc: Document, notes: string[], chosenConfigId?: string | null,
 ): Partial<LaunchConditions> | undefined {
@@ -1016,7 +1030,37 @@ function readLaunchConditions(
   }
 
   const step = num(condEl, 'timestep', NaN);
-  if (Number.isFinite(step) && step > 0) launch.timeStepS = step;
+  if (Number.isFinite(step) && step > 0) {
+    // The file's step is a CEILING on an adaptive step, not the step itself —
+    // the RK4 stepper already shortens it wherever the flight is changing fast,
+    // and already lands exactly on the next queued event. Below OpenRocket's own
+    // 0.05 s default it therefore buys almost nothing and costs a great deal.
+    // Measured against a CONVERGED dt 0.002 reference on four designs with real
+    // published thrust curves, 0.05 moves apogee by at most 0.004 % (0.06 m on a
+    // 6.4 km flight), maxMach by 0.025 %, the optimum delay by 36 ms, and leaves
+    // the warning set byte-identical — while 0.01 costs 3.7-6.0x the run time.
+    // That file is one a beta tester reported as a 40-second flight, and the
+    // 0.01 was never visible to him. Clamp, say so, and leave the launch panel's
+    // Time step field to put it back for anyone who wants the file's exact
+    // desktop numbers.
+    //
+    // EXCEPT in a file this app wrote. There the step is not something inherited
+    // from a stranger's desktop preferences — it is a choice the user made in
+    // the Time step field, after the panel told them what it costs. Clamping it
+    // back on reopen would silently undo their own deliberate setting, and no
+    // amount of notice text makes that acceptable: their design would not
+    // survive a save-and-reopen, or a share link.
+    const ourOwnFile = doc.documentElement?.getAttribute('creator') === ORK_CREATOR;
+    launch.timeStepS = ourOwnFile ? step : Math.max(step, MIN_IMPORTED_TIME_STEP_S);
+    if (step < MIN_IMPORTED_TIME_STEP_S && !ourOwnFile) {
+      notes.push(
+        `This design's simulation asks for a ${step} s time step. It is being flown at `
+        + `${MIN_IMPORTED_TIME_STEP_S} s instead, which is several times faster and — measured `
+        + 'against a converged reference on four designs — lands apogee within 0.06 m on a 6.4 km '
+        + `flight and raises exactly the same warnings. You can set it back to ${step} s under `
+        + 'Time step in the Launch panel; it will tell you what that costs.');
+    }
+  }
 
   const gm = text(condEl, ':scope > geodeticmethod');
   if (gm && gm !== 'spherical') {
@@ -1798,7 +1842,7 @@ export function exportOrk({
   };
 
   emit(0, "<?xml version='1.0' encoding='utf-8'?>");
-  emit(0, '<openrocket version="1.10" creator="MMRocket Sim">');
+  emit(0, `<openrocket version="1.10" creator="${ORK_CREATOR}">`);
   emit(1, '<rocket>');
   emit(2, `<name>${escapeXml(name)}</name>`);
   emit(2, `<id>${uuid()}</id>`);
@@ -1925,8 +1969,14 @@ export function exportOrk({
         emit(5, `<basepressure>${(launch.pressureHPa ?? 1013.25) * 100}</basepressure>`);
         emit(4, '</atmosphere>');
       }
-      // RK4SimulationStepper recommended defaults (the desktop's own values).
-      emit(4, '<timestep>0.05</timestep>');
+      // The step we ACTUALLY FLEW, so a file exported from here reproduces the
+      // numbers this app showed — including in desktop OpenRocket. Blank in the
+      // panel means the engine default, which is also the desktop's own
+      // RK4SimulationStepper recommendation. (A file imported carrying a finer
+      // step was clamped on the way in and its panel field says so, so this
+      // writes the clamped value, not the original — which is the honest thing
+      // to write, because the clamped value is what produced the results.)
+      emit(4, `<timestep>${launch.timeStepS ?? MIN_IMPORTED_TIME_STEP_S}</timestep>`);
       emit(4, '<maxtime>1200.0</maxtime>');
       emit(3, '</conditions>');
       emit(2, '</simulation>');

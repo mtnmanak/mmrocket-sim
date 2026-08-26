@@ -403,8 +403,34 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 		if (calcMap == null)
 			buildCalcMap(configuration);
 
-		checkGeometry(configuration, configuration.getRocket(), warnings);
-		
+		// PERF PATCH — skip the geometry check when its findings are thrown away.
+		//
+		// `ignoreWarningSet` is the sink this method substitutes above for a null
+		// WarningSet. In the whole of OpenRocket 24.12 — core and swing — that
+		// field is only ever assigned INTO a local `warnings` variable and never
+		// read back (AbstractAerodynamicCalculator:29, and the two substitutions
+		// here). Warnings written to it are therefore discarded by construction,
+		// so producing them is pure waste.
+		//
+		// It is a lot of waste. checkGeometry runs on every aerodynamic
+		// evaluation, i.e. four times per RK4 step, and it decides whether two
+		// radii are "discontinuous" by FORMATTING both as display strings and
+		// comparing the text (see the comment on checkGeometry itself — that is
+		// deliberate, it is the user-visible definition). On Mach2.trf.ork that
+		// is over a million number-to-string conversions per flight producing
+		// five distinct answers, plus four toAbsolute() tree walks per symmetric
+		// pair. RK4SimulationStepper passes null whenever
+		// SimulationStatus.recordWarnings() is false — before launch-rod
+		// clearance, for 0.25 s after, and for the whole low-speed descent,
+		// which on a design with no recovery device is most of the flight.
+		//
+		// Identity compare, not `warnings != null`: getAerodynamicForces has
+		// already substituted the sentinel by the time it calls this method, so
+		// a null test here never fires.
+		if (warnings != ignoreWarningSet) {
+			checkGeometry(configuration, configuration.getRocket(), warnings);
+		}
+
 		final InstanceMap imap = configuration.getActiveInstances();
 
 		// across the _entire_ assembly -- like a rocket, or a stage

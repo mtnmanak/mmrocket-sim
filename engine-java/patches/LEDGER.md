@@ -617,10 +617,147 @@ numbers away from desktop must move OUT of classic"*. Full measurement:
   supersonicAero-only column that same day, because both gates are
   `(rogersKbf || supersonicAero)` and only the first disjunct was exercised.
 
+## Performance patches (behaviour-preserving — bit-identical goldens REQUIRED)
+
+Added 2026-08-26 after a beta tester reported 40-second flights and repeated
+"page not responding" dialogs (`docs/testing/issues-2026-08-26a.md`). None of
+these changes physics: each was landed only after `gradlew goldenJvm` produced a
+**zero-line diff against the pre-patch kernel across all 309 golden lines**, and
+the JVM↔TeaVM differential stayed clean. That two-oracle rule is not optional
+here — the differential alone CANNOT catch a change that moves both runtimes
+together (see the harness note above), and every patch in this section is
+exactly the kind of change that would move both.
+
+**Why these are ours to make and not TeaVM's.** `fastGlobalAnalysis = true` in
+`build.gradle` is required — dropping it still prunes reachable virtual methods
+on TeaVM 0.15, verified 2026-08-26 (`$c.$getFinCount is not a function` at
+AGGRESSIVE, `$component.$getRotationalUnitInertia is not a function` at NONE, so
+it is the dependency ANALYZER, not the optimizer). And `TeaVMTool` forces
+`optimizationLevel = SIMPLE` whenever fast analysis is on:
+
+    vm.setOptimizationLevel((fastDependencyAnalysis || incremental)
+        ? TeaVMOptimizationLevel.SIMPLE : optimizationLevel);
+
+So the `optimization = NONE` line beside it has never had any effect — builds at
+NONE, BALANCED and AGGRESSIVE are byte-identical, verified — and TeaVM performs
+**no** inlining, scalar replacement or loop-invariant motion for us at all.
+Measured JVM:TeaVM ratio on the same kernel and designs: **11–16×**. The
+optimizations the compiler cannot do, we do by hand, in the places a CPU profile
+points at.
+
+### rocketcomponent/RocketComponent.java — memoize getComponentLocations()
+
+- **Why:** the single hottest method in a flight (~45 % inclusive, recursion-safe
+  measure, on a LEM-IV run of 2,336 RK4 steps / 634 stored samples; 2.38 M
+  calls). It recurses to the rocket root allocating a
+  `Coordinate[]` and a `Transformation` (`double[3][3]`) at every level, and
+  recurses AGAIN into `getComponentAngles()`, so one call at depth d costs
+  O(d²) allocations. The automatic ring-radius accessors reach it through
+  `toRelative` twice per accessor, per ring, per RK4 sub-step, all flight — on
+  geometry that cannot change while a simulation runs.
+- **Change:** a `private Coordinate[] locationsCache` field, returned when set;
+  cleared in `componentChanged(ComponentChangeEvent)` — the hook upstream's own
+  javadoc nominates ("subclasses may override this method to e.g. invalidate
+  cached data"), which every component receives on every event — and cleared in
+  `clone()`, because `super.clone()` is a shallow field copy and
+  `copyWithOriginalID` detaches the clone from the parent chain the memo was
+  computed against.
+- **Safety:** the array is never mutated by a caller (`toAbsolute`/`toRelative`
+  both allocate their own results; `ParallelStage.getComponentBounds` only
+  reads). No subclass overrides `getComponentLocations`. FIVE subclasses override
+  `componentChanged` — FinSet, LaunchLug, RailButton, SymmetricComponent,
+  Transition — and all five call `super` unconditionally (FinSet's call sits
+  outside its `if`, so it fires for every event type). Nothing in `simulation/`
+  fires a ComponentChangeEvent, so a flight never invalidates it and an editor
+  edit always does.
+- **Also:** `toRelative` had `this.getComponentLocations()[0].add(c)` INSIDE its
+  loop though it is loop-invariant; hoisted. `destLocs.length` is 1 on every
+  single-instance design, where the hoist saves nothing — but where `dest` is a
+  clustered or multi-instance component it removes a full recursive walk per
+  extra instance. Free, correct, and an upstreamable bug report.
+- **Upstreamable:** yes, both halves.
+
+### masscalc/MassCalculator.java + rocketcomponent/FlightConfiguration.java — memoize structure mass
+
+- **Why:** `AbstractSimulationStepper.calculateStructureMass` runs four times per
+  accepted RK4 step, and upstream recomputes the whole rocket's structure mass
+  from scratch every time — `MassCalculator`'s own cache fields have been
+  commented out since at least 24.12 and its `modID` is dead. Measured: 9,726
+  full tree walks on a LEM-IV flight (2,336 RK4 steps x 4 derivative evaluations,
+  plus the descent stepper's own calls), collapsing to 3 — one per distinct
+  (configuration, mass-state) pair reached during the run.
+  Structure mass excludes motors and propellant, so nothing about it can move
+  during a flight.
+- **Change:** `calculateStructure(config)` consults and populates a memo held on
+  the FlightConfiguration, keyed on that configuration's modID AND the rocket's
+  `massModID` — the same idiom upstream already uses for `cachedBounds`
+  (`boundsModID`) and `cachedRefLength` (`refLengthModID`), invalidated in the
+  same `fireChangeEvent()` and reset in the same `clone()`/`copy()`.
+- **Why on FlightConfiguration and NOT on a component:** `clone()`/`copy()` there
+  build a fresh object, so a stale memo cannot ride into a copy. A component-level
+  radius memo was tried and measurably moved apogee, because `Object.clone()`
+  (and TeaVM's `Platform.clone`) copy the field wholesale.
+- **Deliberately BELOW the listener hooks:** `AbstractSimulationStepper` fires
+  `firePreMassCalculation`/`firePostMassCalculation` around its call, so a
+  simulation listener still sees every step.
+- **`RigidBody` is immutable** (all fields final; `add`/`rebase` return new
+  instances), so sharing the cached instance is safe.
+- **NOT done, deliberately:** memoizing `CenteringRing.getInnerRadius` /
+  `RadiusRingComponent.getOuterRadius`. Those accessors are ~100 % downstream of
+  this cache — it removes essentially all of their calls — and a component-level
+  memo there is the unsafe one described above. Do not re-file it.
+
+### aerodynamics/BarrowmanCalculator.java — skip checkGeometry when its output is discarded
+
+- **Why:** `calculateNonAxialForces` calls `checkGeometry` on every aerodynamic
+  evaluation, i.e. four times per RK4 step. `checkGeometry` decides whether two
+  radii are "discontinuous" by FORMATTING both as display strings and comparing
+  the text — deliberate (that is the user-visible definition of a step in the
+  airframe) but expensive: over a million number-to-string conversions per flight
+  on one corpus file, producing five distinct answers, plus four `toAbsolute()`
+  tree walks per symmetric pair.
+- **Change:** one guard — `if (warnings != ignoreWarningSet) checkGeometry(...)`.
+  `ignoreWarningSet` is the sentinel this method substitutes for a null
+  WarningSet, and across the whole of OpenRocket 24.12 (core AND swing) that
+  field is only ever assigned into a local and **never read back**. Work whose
+  only sink is that set is discarded by construction.
+  `RK4SimulationStepper` passes null whenever `SimulationStatus.recordWarnings()`
+  is false — before launch-rod clearance, for 0.25 s after, and through the whole
+  low-speed descent, which on a design with no recovery device is most of the
+  flight.
+- **Identity compare, NOT `warnings != null`:** `getAerodynamicForces` substitutes
+  the sentinel at its own call site BEFORE invoking this method, so by the time
+  the guard runs `warnings` is never null and a null test would skip nothing.
+- **Divergence from upstream:** yes — 24.12 calls `checkGeometry` unconditionally.
+  Every geometry warning the app consumes (`simWarnings.ts`: DISCONTINUITY,
+  OPEN_AIRFRAME_FORWARD, AIRFRAME_GAP, AIRFRAME_OVERLAP, PODSET_FORWARD,
+  PODSET_OVERLAP, ZERO_VOLUME_BODY) is still produced, because those runs pass a
+  real WarningSet. Upstreamable.
+
+### Measured effect of the three together
+
+Same machine, same designs, cold node process per point, classic model, each
+design's own time step. Physics bit-identical throughout (309/309 golden lines).
+
+| design | v0.070 | patched | |
+|---|---|---|---|
+| LEM-IV (2).ork | 6921 ms | 1899 ms | 3.6× |
+| Mach2.trf.ork (dt 0.01) | 36434 ms | 12161 ms | 3.0× |
+| 38-54 2-stage.ork | 17120 ms | 4740 ms | 3.6× |
+| SS Wild Bash v0.rkt | 16017 ms | 6312 ms | 2.5× |
+| test01.ork (dt 0.01) | 3094 ms | 1728 ms | 1.8× |
+| complexj.ork | 3408 ms | 2080 ms | 1.6× |
+
+The designs that gain most are the ones with the most automatic-radius ring
+components (centering rings, bulkheads, tube couplers) — which is exactly the
+"some files were fine and some were super slow" pattern from the report.
+
 ## Rules
 
 1. A patch NEVER changes physics or observable behavior (except documented quirks-ledger
-   bug fixes and the documented FEATURE patches above, which get their own section here).
+   bug fixes, the documented FEATURE patches above, and the PERFORMANCE patches above —
+   which change nothing observable BY CONSTRUCTION and must prove it with a zero-line
+   `goldenJvm` diff against the pre-patch kernel, not just a clean differential).
 2. Prefer shims over patches; patch only when the carved file itself must change.
 3. On upstream upgrade: re-diff every patched file against its new upstream version and
    re-apply the minimal change.

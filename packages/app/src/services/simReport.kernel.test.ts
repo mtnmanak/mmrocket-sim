@@ -89,4 +89,40 @@ describe('kernel warnings + drift, end-to-end', () => {
     expect(windy.landingBearingDeg!).toBeGreaterThan(210);
     expect(windy.landingBearingDeg!).toBeLessThan(330);
   }, 30000);
+
+  /**
+   * A rocket the kernel refuses to fly comes back as a NORMAL result — no
+   * exception, no engine warning — just a truncated series and a SIM_ABORT
+   * event. Before this the app showed the resulting apogee-0 "flight" with
+   * nothing at all to say why. On the beta test corpus 21 of 72 flyable
+   * imports end this way, so the silent version was not a corner case.
+   */
+  it('a rocket that cannot fly surfaces SIM_ABORT — with the reason the kernel gave', async () => {
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    resetEngine();
+    // A mount with no motor: the kernel aborts with NO_MOTORS_DEFINED rather
+    // than throwing, which is exactly the shape that used to vanish.
+    const rocket = OrkRocket.buildTree(tree(true));
+    const result = rocket.simulate({ launchRodLength: 1.0, timeStep: 0.05 });
+
+    const abort = result.events.find((e) => e.type === 'SIM_ABORT');
+    expect(abort, 'kernel must emit a SIM_ABORT event for an unflyable rocket').toBeTruthy();
+    expect(abort!.cause, 'and the bridge must carry its machine-readable cause').toBeTruthy();
+    // The NAME, not the kernel's translated sentence — this build has no
+    // resource bundle, so that would be a bracketed l10n key.
+    expect(abort!.cause).toMatch(/^[A-Z_]+$/);
+
+    const run = buildSimRun({
+      result, info: rocket.staticInfo(), motor: C6, meta: { label: 'none' },
+      launch: DEFAULT_CONDITIONS, rocketName: 'Unflyable', execMs: 1,
+    });
+    const w = run.simWarnings?.find((x) => x.key === 'SIM_ABORT');
+    expect(w, 'and it must reach the report as a warning').toBeTruthy();
+    expect(w!.priority).toBe('HIGH');
+    // …worded by the app, not echoed from the kernel.
+    expect(w!.message).toMatch(/stopped at T\+/);
+    expect(w!.message.length).toBeGreaterThan(60);
+    // …and out to the run-table CSV, like every other simulation warning.
+    expect(runsToCsv([run])).toContain('SIM_ABORT');
+  }, 30000);
 });

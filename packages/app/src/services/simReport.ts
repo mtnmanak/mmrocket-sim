@@ -281,6 +281,14 @@ export interface SimRun {
   maxRollRateRadS?: number | null;
 
   windAvg: number;
+  /**
+   * Integration time step this flight actually used (s); absent = the engine
+   * default. Recorded because it is the one launch setting that changes how
+   * LONG a flight takes rather than how it flies, so the launch panel needs to
+   * know what a stored `execMs` was measured at before it can estimate the cost
+   * of a different one.
+   */
+  timeStepS?: number;
   execMs: number;
   /**
    * Which aerodynamics model produced this run: 'classic' Extended Barrowman
@@ -381,6 +389,73 @@ function extractDeployments(
 }
 
 /** Last finite sample of a symbol-keyed series (wire NaN arrives as null). */
+/**
+ * A SIM_ABORT event rendered as an engine warning, so an aborted flight travels
+ * through the one channel the report, the notices and the CSV already read.
+ *
+ * The kernel stops the flight and returns a normal (but truncated) result — no
+ * exception, no warning of its own — so without this the user sees a chart that
+ * simply ends, or a rocket that "flew" to 0 m, with nothing saying why. Desktop
+ * OpenRocket prints the same cause sentence on its plot.
+ *
+ * The `cause` field arrives only from engines built after it was exported; an
+ * older artifact falls back to the generic sentence with no reason attached.
+ */
+function abortWarnings(result: FlightResult): EngineWarning[] {
+  // EVERY branch, not just branch 0. A staged rocket's booster flies its own
+  // branch, and the kernel can abort that one alone — leaving the sustainer's
+  // numbers perfectly good while the booster's truncated apogee is rendered
+  // beside them as if it were a real flight. `result.events` is branch 0 only;
+  // `result.branches[0]` IS branch 0, so the rest start at index 1.
+  const branches: { name?: string; events: FlightEvent[] }[] = [
+    { events: result.events ?? [] },
+    ...(result.branches ?? []).slice(1).map((b) => ({ name: b.name, events: b.events ?? [] })),
+  ];
+  const out: EngineWarning[] = [];
+  for (const b of branches) {
+    const abort = b.events.find((e) => e.type === 'SIM_ABORT');
+    if (!abort) continue;
+    const when = Number.isFinite(abort.time) ? ` at T+${abort.time.toFixed(2)} s` : '';
+    const why = ABORT_CAUSES[abort.cause ?? ''] ?? null;
+    const whose = b.name ? `The ${b.name} stage's flight` : 'The flight';
+    out.push({
+      key: 'SIM_ABORT',
+      priority: 'HIGH',
+      message: `${whose} stopped${when} before it finished, so`
+        + `${b.name ? ' that branch’s' : ' the'} numbers below are incomplete.${why ? ` ${why}` : ''}`,
+    });
+  }
+  return out;
+}
+
+/**
+ * The kernel's ten abort causes, in this app's voice.
+ *
+ * Worded HERE, not echoed from the kernel: the kernel's own Cause.toString()
+ * goes through its Translator, and this build ships no resource bundle, so it
+ * returns the bracketed l10n KEY — "[SimulationAbort.tumbleUnderThrust]". That
+ * is why the bridge exports the enum NAME only. The wording below follows
+ * desktop OpenRocket's messages.properties (837-846) so a user who has seen the
+ * desktop recognises it, with the cause followed by what to do about it where
+ * there is an obvious answer.
+ */
+const ABORT_CAUSES: Record<string, string> = {
+  NO_ACTIVE_STAGES: 'No stage was active.',
+  NO_MOTORS_DEFINED: 'No motors were defined in this flight configuration.',
+  NO_CONFIGURED_IGNITION: 'No motor was set to ignite at liftoff — check the ignition settings on'
+    + ' each stage.',
+  NO_MOTORS_FIRED: 'No motor ignited.',
+  NO_LIFTOFF: 'The motor burned out without lifting the rocket — it needs more thrust, or the'
+    + ' design needs to be lighter.',
+  ACTIVE_LENGTH_ZERO: 'The active airframe has zero length.',
+  NO_CP: 'The centre of pressure could not be calculated for this airframe.',
+  ACTIVE_MASS_ZERO: 'The active stages weigh nothing.',
+  TUMBLE_UNDER_THRUST: 'The rocket began to tumble while the motor was still burning — it is'
+    + ' unstable as modelled. Check the stability margin, and the mass and CG, before trusting'
+    + ' any of these numbers.',
+  DEPLOY_UNDER_THRUST: 'The recovery system deployed while the motor was still burning.',
+};
+
 function lastFinite(arr: (number | null)[] | undefined): number | null {
   if (!arr) return null;
   for (let i = arr.length - 1; i >= 0; i--) {
@@ -692,11 +767,20 @@ export function buildSimRun(input: {
     weathercockRisk,
     // Only stored when the engine emitted the field at all — an old artifact
     // must leave simWarnings ABSENT (unknown), not [] (flew clean).
-    ...(result.warnings !== undefined ? { simWarnings: result.warnings } : {}),
+    //
+    // A SIM_ABORT is folded in as a HIGH warning. The kernel does NOT raise one
+    // of its own for an abort — it stops the flight and returns normally — so
+    // before this a design that never left the pad came back with apogee 0, an
+    // empty warning list and nothing anywhere saying why. On the beta test
+    // corpus 17 of the 72 flyable designs end this way, almost all .CDX1.
+    ...(result.warnings !== undefined
+      ? { simWarnings: [...abortWarnings(result), ...result.warnings] }
+      : {}),
     landingDistanceM: drift.distanceM,
     landingBearingDeg: drift.bearingDeg,
     maxRollRateRadS,
     windAvg: launch.windAverage,
+    ...(launch.timeStepS != null ? { timeStepS: launch.timeStepS } : {}),
     execMs,
     aeroModel,
     ...(rogersKbf !== undefined ? { rogersKbf } : {}),

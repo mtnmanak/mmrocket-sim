@@ -865,3 +865,102 @@ describe('RockSim design-level stage mass & CG', () => {
     expect(read('').notes).not.toMatch(/Measured mass/i);
   });
 });
+
+/**
+ * RockSim's <IgnitionDelay> is an offset from the STAGE BELOW'S BURNOUT, not
+ * from liftoff. Getting this backwards lights a sustainer tens of seconds
+ * early. It shipped once as 'launch' and was caught in review; these pin it.
+ */
+describe('.rkt staging timers', () => {
+  const staged = (d: [string, string, string]) => `<RockSimDocument><DesignInformation><RocketDesign>
+    <Name>Staged</Name><StageCount>3</StageCount>
+    <!-- RockSim numbers its stage blocks from the TOP: Stage3Parts is the
+         sustainer and Stage1Parts is the one that leaves the pad. Verified
+         against SS Wild Bash 20260623v0.rkt, whose tree comes out
+         [Sustainer, Booster, Booster 2]. -->
+    <Stage3Parts><BodyTube><Name>Upper</Name><OD>54</OD><ID>52</ID><Len>200</Len>
+      <IsMotorMount>1</IsMotorMount><SerialNo>3</SerialNo></BodyTube></Stage3Parts>
+    <Stage2Parts><BodyTube><Name>Mid</Name><OD>54</OD><ID>52</ID><Len>250</Len>
+      <IsMotorMount>1</IsMotorMount><SerialNo>2</SerialNo></BodyTube></Stage2Parts>
+    <Stage1Parts><BodyTube><Name>Lower</Name><OD>54</OD><ID>52</ID><Len>300</Len>
+      <IsMotorMount>1</IsMotorMount><SerialNo>1</SerialNo></BodyTube></Stage1Parts>
+    <SimulationResultsList><SimulationResults>
+      <Stage1Engines><EngineSet><EngineCode>L2200G</EngineCode>
+        <IgnitionDelay>${d[0]}</IgnitionDelay><MountSerialNo>1</MountSerialNo>
+        <EjectionDelay>0.</EjectionDelay></EngineSet></Stage1Engines>
+      <Stage2Engines><EngineSet><EngineCode>K250W</EngineCode>
+        <IgnitionDelay>${d[1]}</IgnitionDelay><MountSerialNo>2</MountSerialNo>
+        <EjectionDelay>0.</EjectionDelay></EngineSet></Stage2Engines>
+      <Stage3Engines><EngineSet><EngineCode>L265MY</EngineCode>
+        <IgnitionDelay>${d[2]}</IgnitionDelay><MountSerialNo>3</MountSerialNo>
+        <EjectionDelay>0.</EjectionDelay></EngineSet></Stage3Engines>
+    </SimulationResults></SimulationResultsList>
+  </RocketDesign></DesignInformation></RockSimDocument>`;
+
+  const byDesignation = (xml: string) => Object.fromEntries(
+    Object.values(importRkt(xml).motors).map((m) => [m.designation, m]));
+
+  it('reads the delay as a BURNOUT offset on every stage above the launch stage', () => {
+    const m = byDesignation(staged(['0.', '5.', '15.']));
+    expect(m['K250W']!.ignitionEvent).toBe('burnout');
+    expect(m['K250W']!.ignitionDelay).toBe(5);
+    expect(m['L265MY']!.ignitionEvent).toBe('burnout');
+    expect(m['L265MY']!.ignitionDelay).toBe(15);
+  });
+
+  // 'automatic' on an upper stage is the stage-below's EJECTION CHARGE, a
+  // different event from its burnout — so an explicit 0 still has to say
+  // burnout. The first version of this guard keyed on `delay > 0` and missed it.
+  it('still says burnout for an upper stage whose delay is exactly 0', () => {
+    const m = byDesignation(staged(['0.', '0.', '0.']));
+    expect(m['K250W']!.ignitionEvent).toBe('burnout');
+    expect(m['K250W']!.ignitionDelay).toBe(0);
+  });
+
+  it('leaves the LAUNCH stage alone, so single-stage files are untouched', () => {
+    const m = byDesignation(staged(['0.', '5.', '15.']));
+    expect(m['L2200G']!.ignitionEvent).toBeUndefined();
+    expect(m['L2200G']!.ignitionDelay).toBeUndefined();
+  });
+});
+
+/**
+ * A design saved from here must come back the same way — including through
+ * RockSim itself. The importer reads <IgnitionDelay>; the exporter has to write
+ * it, or a staged design loses its staging every time it is saved.
+ */
+describe('.rkt staging timers round-trip', () => {
+  it('writes the burnout delay back, and re-reads it unchanged', () => {
+    const tree = {
+      name: 'RT',
+      components: [
+        { type: 'stage', name: 'Sustainer', id: 's0', children: [
+          { type: 'bodytube', id: 'm0', length: 0.2, outerRadius: 0.027, thickness: 0.001,
+            motorMount: true },
+        ] },
+        { type: 'stage', name: 'Booster', id: 's1', children: [
+          { type: 'bodytube', id: 'm1', length: 0.3, outerRadius: 0.027, thickness: 0.001,
+            motorMount: true },
+        ] },
+      ] as ComponentNode[],
+    };
+    const xml = exportRkt({
+      name: 'RT',
+      tree,
+      motors: {
+        m0: { designation: 'K250W', diameter: 0.054, length: 0.3, delay: 4,
+          ignitionEvent: 'burnout', ignitionDelay: 12 },
+        m1: { designation: 'L2200G', diameter: 0.075, length: 0.5, delay: 0 },
+      },
+    });
+    expect(xml).toContain('<IgnitionDelay>12</IgnitionDelay>');
+
+    const back = importRkt(xml);
+    const byDes = Object.fromEntries(
+      Object.values(back.motors).map((m) => [m.designation, m]));
+    expect(byDes['K250W']!.ignitionEvent).toBe('burnout');
+    expect(byDes['K250W']!.ignitionDelay).toBe(12);
+    // The launch stage stays on the kernel's own default.
+    expect(byDes['L2200G']!.ignitionEvent).toBeUndefined();
+  });
+});

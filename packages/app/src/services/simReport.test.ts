@@ -535,3 +535,78 @@ describe('stability margin display', () => {
     expect(formatStability(i, 'pct')).toBe('-10.0%');
   });
 });
+
+/**
+ * The kernel does not raise a warning when it gives up on a flight — it stops,
+ * and returns a normal-looking (but truncated) result. simReport turns that
+ * into the HIGH warning the report, the notices and the CSV all read.
+ */
+describe('SIM_ABORT surfacing', () => {
+  const abortedAt = (time: number, cause: string, events = fakeResult().events) =>
+    [...events, { type: 'SIM_ABORT', time, cause }];
+
+  it('is silent on a flight that finished', () => {
+    const run = buildSimRun({
+      result: { ...fakeResult(), warnings: [] }, info, motor, meta: { label: 'C6-5' },
+      launch: DEFAULT_CONDITIONS, rocketName: 'R', execMs: 1,
+    });
+    expect(run.simWarnings?.some((w) => w.key === 'SIM_ABORT')).toBe(false);
+  });
+
+  it('raises a HIGH warning naming the reason, in the app’s own words', () => {
+    const result = { ...fakeResult(), warnings: [], events: abortedAt(1.14, 'TUMBLE_UNDER_THRUST') };
+    const run = buildSimRun({
+      result, info, motor, meta: { label: 'C6-5' },
+      launch: DEFAULT_CONDITIONS, rocketName: 'R', execMs: 1,
+    });
+    const w = run.simWarnings!.find((x) => x.key === 'SIM_ABORT')!;
+    expect(w.priority).toBe('HIGH');
+    expect(w.message).toMatch(/stopped at T\+1\.14 s/);
+    expect(w.message).toMatch(/tumble while the motor was still burning/);
+    // NOT the kernel's own string: this build ships no resource bundle, so
+    // Cause.toString() there is a bracketed l10n key.
+    expect(w.message).not.toMatch(/\[SimulationAbort/);
+    expect(runsToCsv([run])).toContain('SIM_ABORT');
+  });
+
+  // A separated booster flies its own branch and can be aborted alone, leaving
+  // the sustainer's numbers good and the booster's truncated apogee rendered
+  // beside them as if it were a real flight.
+  it('catches an abort on a BOOSTER branch, and says which stage', () => {
+    const base = fakeResult();
+    const result: FlightResult = {
+      ...base,
+      warnings: [],
+      branches: [
+        { name: 'Sustainer', events: base.events, series: base.series },
+        { name: 'Booster', events: abortedAt(0.6, 'ACTIVE_MASS_ZERO', []), series: base.series },
+      ],
+    };
+    const run = buildSimRun({
+      result, info, motor, meta: { label: 'C6-5' },
+      launch: DEFAULT_CONDITIONS, rocketName: 'R', execMs: 1,
+    });
+    const w = run.simWarnings!.find((x) => x.key === 'SIM_ABORT')!;
+    expect(w, 'a booster-only abort must still surface').toBeTruthy();
+    expect(w.message).toMatch(/Booster stage/);
+    expect(w.message).toMatch(/T\+0\.60 s/);
+  });
+
+  it('reports both branches when the whole flight and a booster each abort', () => {
+    const base = fakeResult();
+    const result: FlightResult = {
+      ...base,
+      warnings: [],
+      events: abortedAt(2.0, 'NO_LIFTOFF'),
+      branches: [
+        { name: 'Sustainer', events: base.events, series: base.series },
+        { name: 'Booster', events: abortedAt(0.6, 'ACTIVE_MASS_ZERO', []), series: base.series },
+      ],
+    };
+    const run = buildSimRun({
+      result, info, motor, meta: { label: 'C6-5' },
+      launch: DEFAULT_CONDITIONS, rocketName: 'R', execMs: 1,
+    });
+    expect(run.simWarnings!.filter((x) => x.key === 'SIM_ABORT')).toHaveLength(2);
+  });
+});

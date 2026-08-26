@@ -602,15 +602,43 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
       motors: cfgMotors, deployments: {}, separations,
     });
   }
-  // The first engine-carrying simulation is the applied configuration.
-  const motors: Record<string, OrkMotorRef> = { ...(configs[0]?.motors ?? {}) };
-  const chosenConfigId = configs[0]?.id ?? null;
+  // Which configuration to open. The first engine-carrying simulation is the
+  // natural choice, but a RASAero file's first <Simulation> is often a
+  // sustainer-only study — `<IncludeBooster1>False</IncludeBooster1>`, or a
+  // booster engine string our parser cannot read — and the launch stage then has
+  // no motor at all. The rocket sits on the pad: the kernel aborts with "no
+  // motors ignited" and the user gets a chart of nothing, while a later
+  // simulation in the same file flies. Prefer the first configuration that puts
+  // a motor on the BOTTOM stage, which is the one that has to light first.
+  const bottomStage = stages[stages.length - 1];
+  const bottomMountIds = new Set<string>();
+  const collectMounts = (nodes: ComponentNode[]) => {
+    for (const n of nodes) {
+      if (n['motorMount'] === true && n.id) bottomMountIds.add(n.id);
+      collectMounts(n.children ?? []);
+    }
+  };
+  collectMounts(bottomStage?.children ?? []);
+  const flyable = configs.find((c) => Object.keys(c.motors).some((id) => bottomMountIds.has(id)));
+  const chosen = flyable ?? configs[0];
+  if (flyable && configs[0] && flyable !== configs[0]) {
+    // The number the USER sees in the file, not the position in `configs` —
+    // engine-less simulations are skipped above, so those two diverge as soon
+    // as a file carries one. The id already encodes the file index.
+    const n = flyable.id.replace('rasaero-sim-', '');
+    const firstN = configs[0].id.replace('rasaero-sim-', '');
+    notes.push(
+      `Simulation ${firstN} in this file puts no motor on the launch stage, so it would not `
+      + `leave the pad. Simulation ${n} was opened instead — switch under Flight configurations.`);
+  }
+  const motors: Record<string, OrkMotorRef> = { ...(chosen?.motors ?? {}) };
+  const chosenConfigId = chosen?.id ?? null;
   const firstMotor = Object.values(motors)[0];
   // Bake the chosen configuration's separation onto its stage nodes, the way
   // importOrk does — App.applyImported applies configs, not stage settings, so
   // without this a fresh multi-stage import separates on the kernel default
   // (ejection charge, 0 s) instead of burnout + Booster1SeparationDelay.
-  for (const [stageId, sep] of Object.entries(configs[0]?.separations ?? {})) {
+  for (const [stageId, sep] of Object.entries(chosen?.separations ?? {})) {
     const stage = stages.find((s) => s.id === stageId);
     if (!stage) continue;
     if (sep.separationEvent && sep.separationEvent !== 'ejection') {
@@ -661,6 +689,10 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
 export interface Cdx1ExportEngine {
   designation: string;
   manufacturer?: string;
+  /** Kernel ignition-event name; only 'burnout' has a delay RASAero can hold. */
+  ignitionEvent?: string;
+  /** Seconds after the stage below's burnout (RASAero's own semantics). */
+  ignitionDelay?: number;
 }
 
 export interface Cdx1ExportInput {
@@ -701,8 +733,14 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
   // NRE risk: see CDX1_ENGINE_EXPORT). ON by default since 2026-08-25;
   // `engineExport: false` is the per-call opt-out (tests, file generation).
   const engineOn = engineExport ?? CDX1_ENGINE_EXPORT;
+  // Per-stage ignition delay, index-aligned with stageEngines. RASAero holds one
+  // number per stage and measures it from the stage below's burnout, which is
+  // exactly what importCdx1 reads back as `ignitionEvent: 'burnout'`. Writing a
+  // hard 0 here (what we used to do) silently dropped a staged design's timers
+  // on every .CDX1 export.
+  const stageIgnitionDelays: number[] = [];
   const stageEngines: (string | null)[] = stagesIn.map((st) => {
-    if (!engineOn || !motors) return null;
+    if (!engineOn || !motors) { stageIgnitionDelays.push(0); return null; }
     let found: Cdx1ExportEngine | undefined;
     const seek = (nodes: ComponentNode[]) => {
       for (const n of nodes) {
@@ -712,6 +750,10 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
       }
     };
     seek(st.children ?? []); // one engine per stage in RASAero — first mount wins
+    // Only a burnout-triggered motor has a delay this format can express; a
+    // launch-stage motor, or any other ignition event, writes RASAero's own 0.
+    stageIgnitionDelays.push(
+      found?.ignitionEvent === 'burnout' ? (found.ignitionDelay ?? 0) : 0);
     if (!found) return null;
     const abbrev = rasaeroManufacturerAbbrev(found.manufacturer);
     return abbrev ? `${found.designation}  (${abbrev})` : null;
@@ -1131,11 +1173,11 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
   emit(`<SustainerLaunchWt>${stackWt(0)}</SustainerLaunchWt>`);
   emit('<SustainerNozzleDiameter>0</SustainerNozzleDiameter>');
   emit(`<SustainerCG>${stackCg(0)}</SustainerCG>`);
-  emit('<SustainerIgnitionDelay>0</SustainerIgnitionDelay>');
+  emit(`<SustainerIgnitionDelay>${stageIgnitionDelays[0] ?? 0}</SustainerIgnitionDelay>`);
   if (stageEngines[1]) emit(`<Booster1Engine>${esc(stageEngines[1])}</Booster1Engine>`);
   emit(`<Booster1LaunchWt>${stackWt(1)}</Booster1LaunchWt>`);
   emit('<Booster1SeparationDelay>0</Booster1SeparationDelay>');
-  emit('<Booster1IgnitionDelay>0</Booster1IgnitionDelay>');
+  emit(`<Booster1IgnitionDelay>${stageIgnitionDelays[1] ?? 0}</Booster1IgnitionDelay>`);
   emit(`<Booster1CG>${stackCg(1)}</Booster1CG>`);
   emit('<Booster1NozzleDiameter>0</Booster1NozzleDiameter>');
   // IncludeBooster mirrors the desktop (mount present && is a motor mount):

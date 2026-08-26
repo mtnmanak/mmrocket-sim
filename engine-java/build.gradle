@@ -69,10 +69,30 @@ teavm.js {
     // tree walk it inlined RocketComponent.getInstanceCount()'s `return 1`,
     // ignoring FinSet's override (fin contexts collapsed 3→1, masses zeroed),
     // and pruned virtual methods reached only via map-key dispatch.
+    //
+    // NOTE (measured 2026-08-26): this line is REDUNDANT — see fastGlobalAnalysis
+    // below, which forces SIMPLE regardless. Builds at NONE, BALANCED and
+    // AGGRESSIVE are byte-identical. Kept because it states the intent, but do
+    // not expect changing it to do anything.
     optimization = org.teavm.gradle.api.OptimizationLevel.NONE
     // Class-hierarchy-based analysis: TeaVM's precise flow analysis under-links
     // virtual-method impls in this codebase (methods reached via map-key or
     // recursive-walk dispatch got pruned).
+    //
+    // STILL REQUIRED on TeaVM 0.15 — re-tested 2026-08-26, both ways: with this
+    // off the build fails at runtime with `$c.$getFinCount is not a function`
+    // (AGGRESSIVE) and `$component.$getRotationalUnitInertia is not a function`
+    // (NONE). Failing at BOTH optimization levels is what proves it is the
+    // dependency ANALYZER under-linking, not the optimizer devirtualizing.
+    //
+    // THE PRICE, so nobody re-litigates it blind: TeaVMTool does
+    //   vm.setOptimizationLevel((fastDependencyAnalysis || incremental)
+    //       ? TeaVMOptimizationLevel.SIMPLE : optimizationLevel);
+    // so this flag also switches off ALL of TeaVM's optimization — no inlining,
+    // no scalar replacement, no loop-invariant motion. Measured cost against the
+    // same kernel on the JVM: 11–16× slower. That is why the kernel carries
+    // hand-written memoization patches (LEDGER "Performance patches"); they do
+    // by hand what this flag forbids the compiler from doing.
     fastGlobalAnalysis = true
     // NOTE: strict = true is NOT usable — it breaks util.ArrayList.clone with
     // ClassCastException. JS Math transcendentals (pow/log) differ from Java's

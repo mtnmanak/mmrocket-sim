@@ -10,6 +10,7 @@ import info.openrocket.core.aerodynamics.AerodynamicForces;
 import info.openrocket.core.aerodynamics.BarrowmanCalculator;
 import info.openrocket.core.aerodynamics.FlightConditions;
 import info.openrocket.core.document.Simulation;
+import info.openrocket.core.logging.SimulationAbort;
 import info.openrocket.core.logging.WarningSet;
 import info.openrocket.core.masscalc.MassCalculator;
 import info.openrocket.core.masscalc.RigidBody;
@@ -1050,6 +1051,19 @@ public final class OrkEngine {
             RocketComponent src = ev.getSource();
             if (src != null && src.getName() != null) {
                 sb.append(",\"source\":\"").append(escape(src.getName())).append('"');
+            }
+            // WHY a SIM_ABORT happened. The kernel hangs a SimulationAbort off
+            // the event carrying one of ten causes; dropping it left the app
+            // with a flight that simply stopped and nothing to say about it.
+            //
+            // The enum NAME only, never Cause.toString(): that goes through the
+            // kernel's Translator, and this build ships no resource bundle, so
+            // it returns the bracketed l10n key ("[SimulationAbort.tumble-
+            // UnderThrust]"). The app words these itself — simReport.ts
+            // ABORT_CAUSES, following desktop's messages.properties.
+            if (ev.getData() instanceof SimulationAbort) {
+                SimulationAbort abort = (SimulationAbort) ev.getData();
+                sb.append(",\"cause\":\"").append(abort.getCause().name()).append('"');
             }
             sb.append('}');
         }

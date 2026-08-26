@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.070';
+export const APP_VERSION = '0.071';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,28 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.071',
+    date: '2026-08-26',
+    title: 'Flights got about ten times faster, and the tab stopped freezing',
+    items: [
+      'THE ENGINE ITSELF PRODUCES IDENTICAL NUMBERS — its 309 golden reference lines are bit-for-bit what 0.070 produced, checked line by line against the previous build. But three things in this release DO change results on particular files, and each is called out below: the time-step clamp, which RASAero .CDX1 configuration is opened, and RockSim staging timers. If you have saved results from one of those files, re-run them.',
+      'A beta tester reported flights taking about 40 seconds, with “page not responding” popups. On his file, a real Chrome on a fast desktop took 46 seconds and the tab was genuinely frozen throughout. The same flight now takes 4.7 seconds and lands within a metre of the same apogee.',
+      'THE TIME STEP IS NOW A FIELD YOU CAN SEE — CHANGES NUMBERS on files that carry a fine one. Some design files carry their own integration time step, and a few carry 0.01 s — five times finer than OpenRocket’s own default. We were obeying that silently, at several times the cost, with nowhere in the app showing it. An imported step finer than 0.05 s is now raised to 0.05 with a note saying so, and Launch conditions has a Time step field.',
+      'You can still set it finer, and the panel tells you what that costs — the multiplier, and once you have flown once, the seconds per flight. There is a new Guide section (Launch Conditions → Time step) with the measurements: against a converged reference on four designs with real thrust curves, 0.05 s lands apogee within 0.06 m on a 6.4 km flight, moves maximum Mach by under 0.03 %, and raises an identical set of warnings. Finer buys none of that back; 0.01 s costs 3.7–6x the wait. The one figure that does move is launch-rod exit velocity, up to about 1 m/s high — the Guide says so.',
+      'A design file’s time step no longer sticks to the next design you open. Before, opening one file that carried 0.01 s made every later design — including RockSim and RASAero imports, which carry no step at all — run five times slower forever.',
+      'AUTO AERO NO LONGER FLIES EVERYTHING TWICE. Auto mode used to fly the whole flight on the classic model, and then, if the flight went supersonic, throw all of it away and fly the whole thing again. It now decides from a short probe run that stops just after burnout — which is where peak Mach happens — and then flies once. Same decision on every design tested. Batch simulate got the same fix, where it was paying for the discarded flight once per motor.',
+      'THE ENGINE ITSELF GOT 1.6–3.6x FASTER on the same flights. Three places where the simulator recalculated things thousands of times over during a flight, for geometry that cannot change while the rocket is in the air: where every component sits, the airframe’s structural mass, and an airframe-geometry check that formats numbers into text a million times per flight. Designs with lots of centering rings, bulkheads or couplers gain most — which is why some files were fine and some were terrible.',
+      'A FLIGHT THAT STOPS EARLY NOW SAYS SO. If the simulator gives up mid-flight — an unstable rocket tumbling under thrust, no motor igniting, a recovery system deploying under power — it used to return a short, silent, wrong-looking flight with no explanation. It now raises a serious warning naming the reason, in the report, the notices and the CSV, and it does so for a separated booster’s own flight as well as the main one. This affects a lot of RASAero .CDX1 imports.',
+      'RASAero .CDX1: a file whose first simulation puts no motor on the launch stage no longer opens a rocket that cannot leave the pad — CHANGES NUMBERS on those files, because previously they produced a two-point flight that never left the ground. The first configuration that can actually fly is opened instead, and the note says which.',
+      'RockSim .rkt: staging timers (“Ignition delay”) are imported — CHANGES NUMBERS on staged RockSim designs. Before, they were dropped entirely, so an upper stage lit on whatever the kernel defaulted to instead of the delay the file asks for. RockSim measures that delay from the stage below’s BURNOUT, which is confirmed three ways: by a corpus file whose own stored results move by exactly the delay, by the same design saved as an .ork declaring burnout ignition on both upper mounts, and by desktop OpenRocket mapping the identical field the same way.',
+      'Batch simulate and the Launch button now build their simulation settings from the same code, so the same design can no longer give two different answers in the two panels.',
+      'Saving a design now writes the time step it was actually flown with, instead of always writing 0.05 — so a file exported from here reproduces the numbers you saw, in desktop OpenRocket too. A step you chose yourself also survives save-and-reopen: it is only raised to 0.05 when it came from someone else’s file.',
+      'If your saved session was already flying a fine time step inherited from a file you opened before this release, it is raised to 0.05 once, with a note saying so. Nobody gets left on the slow setting by upgrading.',
+      'Staging timers now survive a round trip. Saving as RockSim .rkt writes <IgnitionDelay>, and saving as RASAero .CDX1 writes the per-stage ignition delay instead of a hard-coded 0 — before, a staged design lost its timers every time you exported it.',
+      'The “Simulating…” label now actually appears before the flight starts. It was being drawn one instant too early to be painted, so the button looked stuck instead of busy.',
+    ],
+  },
   {
     version: '0.070',
     date: '2026-08-25',

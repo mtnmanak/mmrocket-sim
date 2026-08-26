@@ -83,6 +83,31 @@ public class FlightConfiguration implements FlightConfigurableParameter<FlightCo
 	private ModID refLengthModID = ModID.INVALID;
 	private double cachedRefLength = -1;
 
+	/**
+	 * PERF PATCH — structure-mass memo, in upstream's own boundsModID idiom.
+	 *
+	 * The RK4 stepper asks for the whole rocket's STRUCTURE mass four times per
+	 * accepted step (once per derivative evaluation), and upstream recomputes it
+	 * from scratch every time: MassCalculator's own cache fields have been
+	 * commented out since at least 24.12, so `calculateStructure` walks the
+	 * entire component tree on every call. Structure mass cannot change during a
+	 * flight — only motor mass does, and that is calculated separately — so on a
+	 * LEM-IV flight (2,336 RK4 steps, four derivative evaluations each, plus the
+	 * descent stepper's own calls) 9,726 identical tree walks collapse to 3: one
+	 * per distinct (configuration, mass-state) pair reached during the run.
+	 *
+	 * Keyed on this configuration's modID AND the rocket's massModID, so a
+	 * geometry or material edit in the editor invalidates it exactly the way
+	 * cachedBounds/cachedRefLength are invalidated. Held HERE and not on a
+	 * RocketComponent deliberately: clone()/copy() below build a fresh object
+	 * and reset the memo, whereas a component-level field is copied wholesale by
+	 * Object.clone() (and by TeaVM's Platform.clone, which copies every own
+	 * property) and would leak a stale value into a clone.
+	 */
+	private ModID structureMassConfigModID = ModID.INVALID;
+	private ModID structureMassRocketModID = ModID.INVALID;
+	private info.openrocket.core.masscalc.RigidBody cachedStructureMass = null;
+
 	private ModID modID = ModID.ZERO;
 
 	/**
@@ -558,6 +583,10 @@ public class FlightConfiguration implements FlightConfigurableParameter<FlightCo
 		this.modID = new ModID();
 		boundsModID = ModID.INVALID;
 		refLengthModID = ModID.INVALID;
+		// PERF PATCH: same invalidation point as the two above.
+		structureMassConfigModID = ModID.INVALID;
+		structureMassRocketModID = ModID.INVALID;
+		cachedStructureMass = null;
 
 		updateStages();
 		updateMotors();
@@ -903,6 +932,10 @@ public class FlightConfiguration implements FlightConfigurableParameter<FlightCo
 		clone.modID = this.modID;
 		clone.boundsModID = ModID.INVALID;
 		clone.refLengthModID = ModID.INVALID;
+		// PERF PATCH: never carry the structure-mass memo into a clone.
+		clone.structureMassConfigModID = ModID.INVALID;
+		clone.structureMassRocketModID = ModID.INVALID;
+		clone.cachedStructureMass = null;
 		return clone;
 	}
 
@@ -939,8 +972,33 @@ public class FlightConfiguration implements FlightConfigurableParameter<FlightCo
 		copy.modID = this.modID;
 		copy.boundsModID = ModID.INVALID;
 		copy.refLengthModID = ModID.INVALID;
+		// PERF PATCH: never carry the structure-mass memo into a copy.
+		copy.structureMassConfigModID = ModID.INVALID;
+		copy.structureMassRocketModID = ModID.INVALID;
+		copy.cachedStructureMass = null;
 		copy.configurationName = configurationName;
 		return copy;
+	}
+
+	/**
+	 * PERF PATCH: the memoized STRUCTURE mass for this configuration, or null
+	 * when nothing is cached or the rocket's mass state has moved on since.
+	 * See {@link #cachedStructureMass} for why the memo lives here.
+	 */
+	public info.openrocket.core.masscalc.RigidBody getCachedStructureMass() {
+		if (cachedStructureMass == null
+				|| structureMassConfigModID != this.modID
+				|| structureMassRocketModID != rocket.getMassModID()) {
+			return null;
+		}
+		return cachedStructureMass;
+	}
+
+	/** PERF PATCH: stamp the structure-mass memo with the state it was computed at. */
+	public void setCachedStructureMass(info.openrocket.core.masscalc.RigidBody body) {
+		cachedStructureMass = body;
+		structureMassConfigModID = this.modID;
+		structureMassRocketModID = rocket.getMassModID();
 	}
 
 	@Override

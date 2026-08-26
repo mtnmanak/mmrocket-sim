@@ -461,7 +461,43 @@ You can **import experimental motors** from RASP `.eng` or RockSim `.rse` files 
 
 ## Launch Conditions
 
-Before you fly, the Launch Conditions panel (in the **Motors & Launch** workspace) sets the pad and the weather. It collects eight fields: **launch rod/rail length** (default 1 m), **rod angle** (0°, range −30…30°), **average wind**, **wind gust sigma** (standard deviation of gusts about the average), **site altitude** (0–10,000 m), **latitude** (default 28.61°, roughly Florida), **temperature** (blank = ISA standard), and **pressure** (blank = ISA standard). Values display in your preferred units and convert to SI on Launch. When temperature and pressure are blank the sim uses the ISA atmosphere (288.15 K, 101325 Pa, −6.5 K/km lapse).
+Before you fly, the Launch Conditions panel (in the **Motors & Launch** workspace) sets the pad and the weather. It collects nine fields: **launch rod/rail length** (default 1 m), **rod angle** (0°, range −30…30°), **average wind**, **wind gust sigma** (standard deviation of gusts about the average), **site altitude** (0–10,000 m), **latitude** (default 28.61°, roughly Florida), **temperature** (blank = ISA standard), **pressure** (blank = ISA standard), and **time step** (blank = 0.05 s; see below). Values display in your preferred units and convert to SI on Launch. When temperature and pressure are blank the sim uses the ISA atmosphere (288.15 K, 101325 Pa, −6.5 K/km lapse).
+
+### Time step — and why 0.05 s is the right answer
+
+The **time step** is the largest stride the integrator may take between recalculating the flight. It is the one launch setting that changes how *long* a simulation takes rather than how the rocket flies, so it is worth understanding before you touch it.
+
+**Leave it blank and you get 0.05 s** — the engine's default, and desktop OpenRocket's own recommended value. Almost every design file already asks for exactly that.
+
+**It is a ceiling, not the step.** The simulator picks each step as the smallest of eight limits (see *How It Works → How a flight is simulated*): your setting is only one of them, and the others — maximum pitch-angle change, roll-rate change, launch-rod length — bind tighter wherever the flight is actually delicate. The simulator also shortens a step so it lands exactly on the next scheduled event, so staging, burnout and ejection are never straddled. That is why asking for a finer step buys much less than it seems.
+
+**How much less: measured.** Four designs — including a Mach 2 minimum-diameter bird, a two-stage 38/54 mm, and a subsonic sport model — were each flown against a converged reference step of 0.002 s, using real published thrust curves. At 0.05 s:
+
+| what you read | how far it moves at 0.05 s |
+|---|---|
+| Apogee | within **0.06 m on a 6.4 km flight** (exact to the centimetre on the 10.4 km two-stage) |
+| Maximum velocity | ≤ 0.018 % |
+| Maximum Mach | ≤ 0.025 % |
+| Optimum ejection delay | ≤ 36 ms — never enough to change the recommended whole second |
+| Ground-hit velocity | ≤ 0.004 % |
+| **Simulation warnings** | **identical — not one appears or disappears** |
+
+Going finer than 0.05 s does not improve any of those. The answer has already converged.
+
+**What it costs.** Roughly, relative to 0.05 s:
+
+| time step | flight takes |
+|---|---|
+| 0.04 s | 1.1–1.3× longer |
+| 0.03 s | 1.5–1.7× longer |
+| 0.02 s | 2.0–2.8× longer |
+| 0.01 s | **3.7–6.0× longer** |
+
+The simulation runs inside the browser tab, so while it runs the page cannot respond. On a large design a 0.01 s step is the difference between a wait and the browser offering to kill the page.
+
+**If a file asks for something finer**, we fly it at 0.05 s and say so in the file-opened note. Nothing is hidden: the Time step field shows what we are actually using, and you can type the file's original value back in if you want to reproduce a desktop number exactly. Below 0.05 s the panel shows what it will cost — as a multiplier, and in seconds per flight once you have flown once.
+
+**The one number that does move.** Launch-rod exit velocity reads up to about 1 m/s (≈3 %) *higher* at 0.05 s than at a converged step, because the rod phase lasts a fraction of a second. If you are checking a marginal rod-exit speed against the 15 m/s guidance, that is the one case where a finer step is worth the wait.
 
 **Deterministic by design**: wind turbulence is seeded (default seed 42), so identical inputs always produce an identical flight. This is intentional and differs from the desktop's time-seeded randomness — re-running won't vary the result, and that is not a bug. (The physics behind the wind model and this determinism choice is covered in *How It Works*.)
 

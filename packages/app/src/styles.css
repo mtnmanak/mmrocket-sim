@@ -710,6 +710,21 @@
   margin: 0 0 10px;
 }
 
+/* Inline caution under a field — a setting the user is allowed to choose but
+   should be told the cost of (the sub-default time step). Reads as advice, not
+   as an error: it never blocks Launch. */
+.field-caution {
+  margin: 0.6rem 0 0;
+  padding: 0.5rem 0.65rem;
+  border-left: 3px solid var(--status-warn);
+  background: color-mix(in srgb, var(--status-warn) 10%, transparent);
+  border-radius: 3px;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+.field-caution strong { color: var(--text-primary); }
+
 .field-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
