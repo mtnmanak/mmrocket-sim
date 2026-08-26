@@ -1,7 +1,7 @@
 import { strFromU8 } from 'fflate';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import type { LaunchConditions } from '../components/LaunchPanel.js';
-import { asStageNodes, freshId } from '../tree/treeModel.js';
+import { asStageNodes, freshId, mountsIn } from '../tree/treeModel.js';
 import { escapeXml as esc, xmlNum as num, xmlText as text } from './xmlUtil.js';
 import type { OrkFlightConfig, OrkImportResult, OrkMotorRef, OrkSeparationOverride } from './orkFile.js';
 
@@ -550,11 +550,19 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
   };
 
   const configs: OrkFlightConfig[] = [];
+  // The file-order simulation number the USER sees in RASAero, keyed by config
+  // id. Engine-less sims produce no configuration, so a config's position in
+  // `configs` diverges from its number as soon as a file carries one — and the
+  // notes below quote the number. Kept as data instead of being surgically
+  // recovered from the id string, whose 'rasaero-sim-N' format is otherwise a
+  // private naming choice.
+  const simNumbers = new Map<string, number>();
   const unattached = new Set<string>();
   const sims = Array.from(doc.querySelectorAll('SimulationList > Simulation'));
   for (const [simIdx, sim] of sims.entries()) {
     const cfgMotors: Record<string, OrkMotorRef> = {};
     const separations: Record<string, OrkSeparationOverride> = {};
+    const placed: { stageIdx: number; ref: OrkMotorRef }[] = [];
     const slots = [
       { engine: 'SustainerEngine', ignitionDelay: 'SustainerIgnitionDelay' },
       { engine: 'Booster1Engine', ignitionDelay: 'Booster1IgnitionDelay', separationDelay: 'Booster1SeparationDelay', include: 'IncludeBooster1' },
@@ -577,7 +585,7 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
         continue;
       }
       mount['motorMount'] = true;
-      cfgMotors[mount.id] = {
+      const ref: OrkMotorRef = {
         designation: eng.designation,
         manufacturer: eng.manufacturer, // RASAero abbreviation (AT/CTI/…) — informational
         diameter: 0, // unknown in the file — match by designation alone
@@ -586,9 +594,13 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
         // PLUGGED (the desktop sets Motor.PLUGGED_DELAY = +Inf).
         delay: stageIdx === 0 ? Infinity : eng.delay ?? 0,
         mountId: mount.id,
-        ignitionEvent: stageIdx === stages.length - 1 ? 'automatic' : 'burnout',
+        // Placeholder — which stage lights first is a property of the whole
+        // simulation, not the slot; assigned after the slot loop below.
+        ignitionEvent: 'burnout',
         ignitionDelay: 'ignitionDelay' in slot ? num(sim, slot.ignitionDelay, 0) : 0,
       };
+      cfgMotors[mount.id] = ref;
+      placed.push({ stageIdx, ref });
       if (stageIdx > 0 && 'include' in slot) { // include gate passed above
         separations[stage.id] = {
           separationEvent: 'burnout',
@@ -596,9 +608,38 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
         };
       }
     }
-    if (Object.keys(cfgMotors).length === 0) continue; // engine-less sim: no configuration
+    if (placed.length === 0) continue; // engine-less sim: no configuration
+    // Which motor lights at launch. Keying 'automatic' on the TREE's bottom
+    // stage deadlocked any simulation that excludes it: stages come from PART
+    // presence (a stage per <Booster>, the Use flags above only gate motors),
+    // and the kernel resolves 'automatic' above the bottom stage as "previous
+    // stage's ejection charge" — so a file whose every sim excludes the last
+    // booster left even the sustainer waiting on a burnout that never comes,
+    // and the kernel aborted "no motors ignited" with a chart of nothing.
+    // Light the sim's own LOWEST motorized stage instead: 'automatic' when
+    // that is the tree's bottom stage (desktop parity, unchanged), an explicit
+    // 'launch' when an unpowered booster sits below it.
+    const launchIdx = Math.max(...placed.map((p) => p.stageIdx));
+    for (const p of placed) {
+      if (p.stageIdx === launchIdx) {
+        if (launchIdx === stages.length - 1) {
+          p.ref.ignitionEvent = 'automatic';
+        } else {
+          // The slot-read delay dies with the rekeying: RASAero measures it
+          // from the EXCLUDED stage below's burnout and ignores it when that
+          // stage never flies — keeping it launch-relative would hold e.g. a
+          // SustainerIgnitionDelay=8 rocket on the pad for 8 s of a flight
+          // RASAero never produces. Same burnout-only guard the export side
+          // applies to these fields.
+          p.ref.ignitionEvent = 'launch';
+          p.ref.ignitionDelay = 0;
+        }
+      }
+    }
+    const cfgId = `rasaero-sim-${simIdx + 1}`;
+    simNumbers.set(cfgId, simIdx + 1);
     configs.push({
-      id: `rasaero-sim-${simIdx + 1}`, name: null, isDefault: configs.length === 0,
+      id: cfgId, name: null, isDefault: configs.length === 0,
       motors: cfgMotors, deployments: {}, separations,
     });
   }
@@ -611,25 +652,33 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
   // simulation in the same file flies. Prefer the first configuration that puts
   // a motor on the BOTTOM stage, which is the one that has to light first.
   const bottomStage = stages[stages.length - 1];
-  const bottomMountIds = new Set<string>();
-  const collectMounts = (nodes: ComponentNode[]) => {
-    for (const n of nodes) {
-      if (n['motorMount'] === true && n.id) bottomMountIds.add(n.id);
-      collectMounts(n.children ?? []);
-    }
-  };
-  collectMounts(bottomStage?.children ?? []);
+  // mountsIn's innertube/bodytube filter is vacuous on a tree this importer
+  // built — the slot loop above sets `motorMount` on nothing but aftTube()'s
+  // body tube — but keeping the shared walk means a future component type
+  // gaining the flag behaves the same here as everywhere else.
+  const bottomMountIds = new Set(
+    mountsIn(bottomStage?.children ?? []).flatMap((m) => (m.id ? [m.id] : [])));
   const flyable = configs.find((c) => Object.keys(c.motors).some((id) => bottomMountIds.has(id)));
   const chosen = flyable ?? configs[0];
   if (flyable && configs[0] && flyable !== configs[0]) {
-    // The number the USER sees in the file, not the position in `configs` —
-    // engine-less simulations are skipped above, so those two diverge as soon
-    // as a file carries one. The id already encodes the file index.
-    const n = flyable.id.replace('rasaero-sim-', '');
-    const firstN = configs[0].id.replace('rasaero-sim-', '');
+    const n = simNumbers.get(flyable.id)!;
+    const firstN = simNumbers.get(configs[0].id)!;
     notes.push(
       `Simulation ${firstN} in this file puts no motor on the launch stage, so it would not `
       + `leave the pad. Simulation ${n} was opened instead — switch under Flight configurations.`);
+  } else if (!flyable && chosen) {
+    // NO simulation motors the bottom <Booster> at all — every Use flag is
+    // False. RASAero flies those sims WITHOUT the booster; our tree keeps
+    // every <Booster> part, so the launch keying above lights the lowest
+    // motorized stage and the unpowered booster rides along. Say so, or the
+    // extra stage reads as a bug when the numbers disagree with RASAero's.
+    const n = simNumbers.get(chosen.id)!;
+    const bottomName = bottomStage?.name ?? 'the bottom stage';
+    notes.push(
+      `No simulation in this file puts a motor on ${bottomName} — RASAero flies them without `
+      + `it. Simulation ${n} was opened with its lowest motor igniting at launch, so ${bottomName} `
+      + 'flies along unpowered. To match RASAero, delete that stage in the Design tab; to fly it '
+      + 'powered, select its mount there and pick a motor.');
   }
   const motors: Record<string, OrkMotorRef> = { ...(chosen?.motors ?? {}) };
   const chosenConfigId = chosen?.id ?? null;
@@ -733,14 +782,16 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
   // NRE risk: see CDX1_ENGINE_EXPORT). ON by default since 2026-08-25;
   // `engineExport: false` is the per-call opt-out (tests, file generation).
   const engineOn = engineExport ?? CDX1_ENGINE_EXPORT;
-  // Per-stage ignition delay, index-aligned with stageEngines. RASAero holds one
-  // number per stage and measures it from the stage below's burnout, which is
-  // exactly what importCdx1 reads back as `ignitionEvent: 'burnout'`. Writing a
-  // hard 0 here (what we used to do) silently dropped a staged design's timers
-  // on every .CDX1 export.
-  const stageIgnitionDelays: number[] = [];
-  const stageEngines: (string | null)[] = stagesIn.map((st) => {
-    if (!engineOn || !motors) { stageIgnitionDelays.push(0); return null; }
+  // One record per stage: engine string plus its ignition delay, computed
+  // TOGETHER so the two can never desync. RASAero holds one delay per stage
+  // and measures it from the stage below's burnout, which is exactly what
+  // importCdx1 reads back as `ignitionEvent: 'burnout'`. Writing a hard 0
+  // (what we used to do) silently dropped a staged design's timers on every
+  // .CDX1 export — and the first fix filled a parallel delays array by
+  // side-effect pushes on each of the map's exit paths, one future
+  // early-return away from writing Booster1's delay into the Sustainer cell.
+  const stageSlots = stagesIn.map((st): { engine: string | null; ignitionDelay: number } => {
+    if (!engineOn || !motors) return { engine: null, ignitionDelay: 0 };
     let found: Cdx1ExportEngine | undefined;
     const seek = (nodes: ComponentNode[]) => {
       for (const n of nodes) {
@@ -752,12 +803,15 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
     seek(st.children ?? []); // one engine per stage in RASAero — first mount wins
     // Only a burnout-triggered motor has a delay this format can express; a
     // launch-stage motor, or any other ignition event, writes RASAero's own 0.
-    stageIgnitionDelays.push(
-      found?.ignitionEvent === 'burnout' ? (found.ignitionDelay ?? 0) : 0);
-    if (!found) return null;
-    const abbrev = rasaeroManufacturerAbbrev(found.manufacturer);
-    return abbrev ? `${found.designation}  (${abbrev})` : null;
+    const ignitionDelay = found?.ignitionEvent === 'burnout' ? (found.ignitionDelay ?? 0) : 0;
+    const abbrev = found ? rasaeroManufacturerAbbrev(found.manufacturer) : null;
+    return {
+      engine: found && abbrev ? `${found.designation}  (${abbrev})` : null,
+      ignitionDelay,
+    };
   });
+  const stageEngines = stageSlots.map((s) => s.engine);
+  const stageIgnitionDelays = stageSlots.map((s) => s.ignitionDelay);
 
   const nnum = (node: ComponentNode, key: string, fb: number): number =>
     typeof node[key] === 'number' ? (node[key] as number) : fb;
@@ -1167,6 +1221,18 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
   const lastStage = stagesIn.length - 1;
   const stackWt = (i: number): string => fmt((i === lastStage ? (launchMassKg ?? 0) : 0) * LB);
   const stackCg = (i: number): string => fmt((i === lastStage ? (launchCgM ?? 0) : 0) * IN);
+  // Per-stage separation timer, read back off the stage node where importCdx1
+  // bakes it (separationEvent 'burnout' + the file's Booster1SeparationDelay /
+  // Booster2Delay). RASAero counts the delay from the booster's own burnout,
+  // so only a burnout separation is what these fields mean — any other event
+  // writes RASAero's own 0, the same guard the ignition delays above apply.
+  // A hard-coded 0 here (what we used to write) silently dropped a staged
+  // design's separation timers on every .CDX1 export.
+  const stageSeparationDelay = (i: number): string => {
+    const st = stagesIn[i];
+    return fmt(st && String(st['separationEvent'] ?? 'ejection') === 'burnout'
+      ? nnum(st, 'separationDelay', 0) : 0);
+  };
   emit('<SimulationList>');
   emit('<Simulation>');
   if (stageEngines[0]) emit(`<SustainerEngine>${esc(stageEngines[0])}</SustainerEngine>`);
@@ -1176,7 +1242,7 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
   emit(`<SustainerIgnitionDelay>${stageIgnitionDelays[0] ?? 0}</SustainerIgnitionDelay>`);
   if (stageEngines[1]) emit(`<Booster1Engine>${esc(stageEngines[1])}</Booster1Engine>`);
   emit(`<Booster1LaunchWt>${stackWt(1)}</Booster1LaunchWt>`);
-  emit('<Booster1SeparationDelay>0</Booster1SeparationDelay>');
+  emit(`<Booster1SeparationDelay>${stageSeparationDelay(1)}</Booster1SeparationDelay>`);
   emit(`<Booster1IgnitionDelay>${stageIgnitionDelays[1] ?? 0}</Booster1IgnitionDelay>`);
   emit(`<Booster1CG>${stackCg(1)}</Booster1CG>`);
   emit('<Booster1NozzleDiameter>0</Booster1NozzleDiameter>');
@@ -1187,7 +1253,7 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
   emit(`<IncludeBooster1>${stageEngines[1] ? 'True' : 'False'}</IncludeBooster1>`);
   if (stageEngines[2]) emit(`<Booster2Engine>${esc(stageEngines[2])}</Booster2Engine>`);
   emit(`<Booster2LaunchWt>${stackWt(2)}</Booster2LaunchWt>`);
-  emit('<Booster2Delay>0</Booster2Delay>');
+  emit(`<Booster2Delay>${stageSeparationDelay(2)}</Booster2Delay>`);
   emit(`<Booster2CG>${stackCg(2)}</Booster2CG>`);
   emit('<Booster2NozzleDiameter>0</Booster2NozzleDiameter>');
   emit(`<IncludeBooster2>${stageEngines[2] ? 'True' : 'False'}</IncludeBooster2>`);

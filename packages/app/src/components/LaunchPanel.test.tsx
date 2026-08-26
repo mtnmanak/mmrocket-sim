@@ -63,7 +63,9 @@ describe('the time-step field', () => {
     expect(el).not.toBeNull();
     const text = el!.textContent ?? '';
     expect(text).toMatch(/0\.01 s is finer than the 0\.05 s default/);
-    expect(text).toMatch(new RegExp(`${timeStepCostFactor(0.01).toFixed(1)}×`));
+    // toContain, not a built RegExp: the factor renders as e.g. "4.3×", and
+    // an unescaped "." in a RegExp would match "4x3×" too.
+    expect(text).toContain(`${timeStepCostFactor(0.01).toFixed(1)}×`);
     expect(text).toMatch(/Guide/);
   });
 

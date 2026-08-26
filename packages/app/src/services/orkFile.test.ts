@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
-import { DEFAULT_CONDITIONS } from '../components/LaunchPanel.js';
+import { DEFAULT_CONDITIONS, PANEL_TIME_STEP_FLOOR_S } from '../components/LaunchPanel.js';
 import { exportOrk, importOrk, MIN_IMPORTED_TIME_STEP_S, ORK_CREATOR, type OrkExportConfig, type OrkMotorRef } from './orkFile.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -1770,6 +1770,44 @@ describe('the file’s simulation time step', () => {
     const back = importOrk(xml);
     expect(back.launch!.timeStepS).toBeCloseTo(0.02, 12);
     expect(back.notes.join(' ')).not.toMatch(/time step/);
+  });
+
+  // Our creator stamp vouches for the setting's provenance, not the number
+  // next to it: a shared file hand-edited to 0.0001 is ~270x the cost of the
+  // default — the frozen-tab failure v0.071 shipped to fix — and the panel
+  // field can neither display it (it rounds to "0") nor take it back. The
+  // panel's own floor holds even for files we wrote.
+  it('floors a below-panel-floor step even in a file stamped with our creator', () => {
+    const ours = withStep('<timestep>0.0001</timestep>')
+      .replace('creator="OpenRocket 24.12"', `creator="${ORK_CREATOR}"`);
+    const r = importOrk(ours);
+    expect(r.launch!.timeStepS).toBeCloseTo(PANEL_TIME_STEP_FLOOR_S, 12);
+    expect(r.notes.join(' ')).toMatch(/0\.0001 s time step/);
+  });
+
+  // The clamp note used to say "You can set it back to 0.005 s" — but the
+  // panel field rejects anything under its 0.01 floor, so the note promised
+  // an action the app refuses. Below the floor, tell the truth instead.
+  it('does not promise a foreign sub-floor step back — the panel cannot take it', () => {
+    const r = importOrk(withStep('<timestep>0.005</timestep>'));
+    expect(r.launch!.timeStepS).toBeCloseTo(MIN_IMPORTED_TIME_STEP_S, 12);
+    const joined = r.notes.join(' ');
+    expect(joined).toMatch(/0\.005 s time step/);
+    expect(joined).not.toMatch(/set it back/);
+    // Two limits apply to a foreign sub-floor file — the panel's 0.01 minimum
+    // and the 0.05 an import starts at — and naming only the first left the
+    // flown 0.05 in the same sentence with nothing to explain it.
+    expect(joined).toMatch(/minimum of the Time step field/);
+    expect(joined).toMatch(/flown at 0\.05 s instead, the step an imported design starts at/);
+  });
+
+  // <timestep> is a raw double: 0.037000000000000005 is a representable value
+  // one ULP off 0.037, and interpolating it verbatim printed the bits at the
+  // user. The note quotes the number the author meant.
+  it('quotes the step as a human number, not the raw double', () => {
+    const joined = importOrk(withStep('<timestep>0.037000000000000005</timestep>')).notes.join(' ');
+    expect(joined).toContain('0.037 s');
+    expect(joined).not.toContain('0.037000000000000005');
   });
 
   it('still clamps the same value in a file OpenRocket wrote', () => {

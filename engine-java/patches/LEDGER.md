@@ -677,6 +677,40 @@ points at.
   extra instance. Free, correct, and an upstreamable bug report.
 - **Upstreamable:** yes, both halves.
 
+**Hardening addendum (2026-08-26)** — invalidation-correctness only, for the memo
+this repo added above; not an upstream behavior change.
+
+- **Why:** the componentChanged() sweep was this memo's ONLY invalidation, and
+  Rocket withholds that sweep in four windows: while frozen (freeze() queues
+  events until thaw), while events are disabled (the .ork build window, healed
+  only by enableEvents()'s single AEROMASS sweep — in pre-order by luck), for a
+  subtree removeChild has detached (the fire goes to the remaining tree), and
+  past a mid-sweep throw (later components never swept). Verified: no
+  reachable-now caller reads a stale value through any of them — but the
+  invariant held by accident, and the golden harness builds rockets the same way
+  the app does, so it could not catch a regression here.
+- **Change:** the memo is STAMPED with the root it was computed under plus that
+  Rocket's modID, served only while both still match, and never populated under
+  a non-Rocket root — a read under one instead CLEARS the stamp, so a detached
+  subtree stops pinning the rocket it used to hang from; clone() resets the
+  stamp with the memo. Rocket bumps modID
+  BEFORE its freeze check, so a frozen-window mutation kills the stamp even
+  though the sweep never ran (that bump is skipped only for undo/redo events,
+  whose sole producer here is Rocket.loadFrom — which adopts the source modID
+  and swaps in freshly-cloned, memo-empty components before firing); the same bump (made before the sweep starts)
+  covers a mid-sweep throw, and enableEvents()'s AEROMASS bump kills every
+  build-window memo whether or not its healing sweep completes or in what
+  order. Serving policy only got STRICTER — a refused memo is recomputed from
+  the live tree — so no currently-reachable value can change.
+- **Note:** one residual, documented at the guard: mutate-then-read strictly
+  inside the events-disabled build window moves no modID and stays invisible
+  until enableEvents(). Closing it needs Rocket's private eventsEnabled/frozen
+  state, and Rocket.java is carved, not patched; verified unreachable today
+  (ComponentFactory's in-window 'absolute' reads do not interleave with
+  geometry mutation on the same components). Cost on a memo hit is a
+  parent-chain walk plus two reference compares — nothing in simulation/ fires
+  events, so a flight still populates once and hits for the whole run.
+
 ### masscalc/MassCalculator.java + rocketcomponent/FlightConfiguration.java — memoize structure mass
 
 - **Why:** `AbstractSimulationStepper.calculateStructureMass` runs four times per
@@ -706,6 +740,32 @@ points at.
   `RadiusRingComponent.getOuterRadius`. Those accessors are ~100 % downstream of
   this cache — it removes essentially all of their calls — and a component-level
   memo there is the unsafe one described above. Do not re-file it.
+
+**Hardening addendum (2026-08-26)** — invalidation-correctness only, for the memo
+this repo added above; not an upstream behavior change.
+
+- **Why:** the memo is invalidated only by fireChangeEvent(), but three
+  stage-flag mutators bypass that by upstream design — `_setAllStages`,
+  `copyStages` and `copyStageActiveness` flip stage-active flags (an input to
+  structure mass, which sums active stages only) and run their own
+  updateMotors/updateActiveInstances refresh without firing. Every reachable-now
+  caller hands them a freshly-built, memo-empty configuration
+  (BasicEventSimulationEngine:71, SimulationStatus:208, Rocket:497/552,
+  FlightConfiguration.clone()/copy()), so there is no live bug — but any future
+  stage-toggle API on the selected configuration, or ported upstream
+  loader/swing code (which calls setAllStages() freely), would silently serve
+  the previous stage set's structure mass to the RK4 stepper 4× per step.
+- **Change:** the three mutators now clear the memo directly via a new
+  `invalidateStructureMassMemo()` helper (fireChangeEvent() delegates to the
+  same helper, so there is one definition of the clear). A direct clear and NOT
+  fireChangeEvent(): that method has side effects beyond invalidation — it
+  bumps the Monitorable modID and re-runs updateStages() — which the current
+  callers do not expect from these mutators (clone()/copy() overwrite modID
+  right after their copyStage* call). Clearing an already-empty memo is
+  provably a no-op; firing an event is not.
+- **Note:** no reachable behavior changes — every current caller operates on a
+  memo-empty config, where the clear writes INVALID over INVALID and null over
+  null. All 309 golden lines must stay bit-identical.
 
 ### aerodynamics/BarrowmanCalculator.java — skip checkGeometry when its output is discarded
 

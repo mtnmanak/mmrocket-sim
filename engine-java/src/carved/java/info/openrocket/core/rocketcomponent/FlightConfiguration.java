@@ -156,6 +156,12 @@ public class FlightConfiguration implements FlightConfigurableParameter<FlightCo
 		for (StageFlags cur : stages.values()) {
 			cur.active = _active;
 		}
+		// PERF PATCH: this mutator (and copyStages / copyStageActiveness below)
+		// flips stage-active flags without going through fireChangeEvent() —
+		// upstream batches its own updateMotors/updateActiveInstances refresh
+		// instead — so it must drop the structure-mass memo itself. See
+		// invalidateStructureMassMemo() for why a direct clear and not a fire.
+		invalidateStructureMassMemo();
 		updateMotors();
 		updateActiveInstances();
 	}
@@ -163,6 +169,8 @@ public class FlightConfiguration implements FlightConfigurableParameter<FlightCo
 	public void copyStages(FlightConfiguration other) {
 		for (StageFlags cur : other.stages.values())
 			stages.put(cur.stageNumber, new StageFlags(cur.stageNumber, cur.stageId, cur.active));
+		// PERF PATCH: stage-active flags moved without fireChangeEvent() — see _setAllStages.
+		invalidateStructureMassMemo();
 		updateMotors();
 		updateActiveInstances();
 	}
@@ -179,6 +187,8 @@ public class FlightConfiguration implements FlightConfigurableParameter<FlightCo
 				flags.active = otherFlags.active;
 			}
 		}
+		// PERF PATCH: stage-active flags moved without fireChangeEvent() — see _setAllStages.
+		invalidateStructureMassMemo();
 		updateMotors();
 		updateActiveInstances();
 	}
@@ -584,9 +594,7 @@ public class FlightConfiguration implements FlightConfigurableParameter<FlightCo
 		boundsModID = ModID.INVALID;
 		refLengthModID = ModID.INVALID;
 		// PERF PATCH: same invalidation point as the two above.
-		structureMassConfigModID = ModID.INVALID;
-		structureMassRocketModID = ModID.INVALID;
-		cachedStructureMass = null;
+		invalidateStructureMassMemo();
 
 		updateStages();
 		updateMotors();
@@ -999,6 +1007,33 @@ public class FlightConfiguration implements FlightConfigurableParameter<FlightCo
 		cachedStructureMass = body;
 		structureMassConfigModID = this.modID;
 		structureMassRocketModID = rocket.getMassModID();
+	}
+
+	/**
+	 * PERF PATCH: drop the structure-mass memo. fireChangeEvent() is the memo's
+	 * main invalidation point, but _setAllStages / copyStages /
+	 * copyStageActiveness flip stage-active flags — an input to structure mass,
+	 * which sums active stages only — WITHOUT firing it: upstream has those
+	 * three run their own updateMotors/updateActiveInstances refresh instead.
+	 * Every caller of the three reachable today hands them a freshly-built,
+	 * memo-empty configuration (BasicEventSimulationEngine:71,
+	 * SimulationStatus:208, Rocket:497/552, and clone()/copy() below), so this
+	 * clear is a no-op today; it exists so a future stage-toggle API on a live
+	 * configuration — or ported upstream loader/swing code, which calls
+	 * setAllStages() freely — cannot serve the previous stage set's mass to the
+	 * RK4 stepper four times per step. A direct clear and NOT fireChangeEvent(),
+	 * deliberately: fireChangeEvent() has side effects beyond invalidation — it
+	 * bumps the Monitorable modID (observable to anyone polling getModID()) and
+	 * re-runs updateStages(), neither of which the current callers expect from
+	 * these mutators (clone()/copy() overwrite modID right after their
+	 * copyStage* call, so a bump there would be silently masked today and a
+	 * behavior change for any future caller). Clearing an already-empty memo is
+	 * provably a no-op; firing an event is not.
+	 */
+	private void invalidateStructureMassMemo() {
+		structureMassConfigModID = ModID.INVALID;
+		structureMassRocketModID = ModID.INVALID;
+		cachedStructureMass = null;
 	}
 
 	@Override

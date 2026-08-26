@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useDialog } from './useDialog.js';
-import { OrkRocket, type MotorSpec, type RocketTree, type SimulationOptions, type StaticInfo } from '@online-openrocket/engine';
-import { engineTree, splitClusterPairsTree, splitClusterTree, stageIndexOf, stages, type ClusterSplit } from '../tree/treeModel.js';
+import { OrkRocket, type FlightResult, type MotorSpec, type RocketTree, type SimulationOptions, type StaticInfo } from '@online-openrocket/engine';
+import { engineTree, isOnLaunchStage, splitClusterPairsTree, splitClusterTree, type ClusterSplit } from '../tree/treeModel.js';
 import { sheetsToXlsx, type Sheet } from '../services/xlsx.js';
 import {
   MOTOR_DB, classLabel, classesFittingMount, displayDesignation, filterMotors,
@@ -12,8 +12,8 @@ import { fetchMotorSpec, delayOptions } from '../services/thrustcurve.js';
 import { buildSimRun, recommendDelay, type SimRun } from '../services/simReport.js';
 import { addRuns, runsToCsv, runsToTable } from '../services/simStore.js';
 import { XLSX_MIME } from '../services/xlsx.js';
-import { kernelSimOptions, type LaunchConditions } from './LaunchPanel.js';
-import { machProbeSeconds } from '../services/machProbe.js';
+import { kernelSimOptions, TimeStepCaution, type LaunchConditions } from './LaunchPanel.js';
+import { MACH_AUTO_THRESHOLD, machProbeSeconds } from '../services/machProbe.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { Icon } from './Icon.js';
 import { fmtSi, siToUi, uiToSi } from '../prefs/units.js';
@@ -55,6 +55,50 @@ function loadCriteria(): Criteria {
   } catch {
     return DEFAULT_CRITERIA;
   }
+}
+
+/**
+ * Probe cutoff for one candidate's auto-aero Mach probe. The cutoff has to
+ * see the WHOLE stack, not just the motor under test: a candidate in the
+ * sustainer waits on the booster below it, and a cutoff computed from the
+ * candidate alone ends before it ever lights.
+ *
+ * `probeTree` is the tree the candidate actually FLIES. The combination
+ * passes fly a SPLIT tree whose group mounts carry freshly minted ids, and
+ * resolving those ids against the original tree put every combo candidate
+ * "off the launch stage" — so the short probe silently became the full chain
+ * bound (every burn plus every ejection delay, 20-40 s on a real cluster),
+ * a near-full extra flight per combination. `replacedMountId` is the cluster
+ * mount the split removed: its assigned motor is not aboard the split tree,
+ * and leaving it in the set double-counted its burn in that same bound.
+ */
+export function batchProbeCutoff(
+  probeTree: RocketTree,
+  assigned: Record<string, MotorSpec>,
+  targets: Record<string, MotorSpec>,
+  replacedMountId?: string,
+): number {
+  const aboard: Record<string, MotorSpec> = { ...assigned, ...targets };
+  if (replacedMountId !== undefined && !(replacedMountId in targets)) delete aboard[replacedMountId];
+  return machProbeSeconds(Object.entries(aboard).map(([id, spec]) => ({
+    spec,
+    onLaunchStage: isOnLaunchStage(probeTree, id),
+  })));
+}
+
+/**
+ * How many mixed combinations a split into `groups` mounts adds for `n`
+ * candidates — exactly what the comboAssignments() generator in start()
+ * yields: multisets of group assignments minus the all-same ones, which are
+ * the single-motor rows already flown. Two groups: C(n,2). Three groups
+ * (the 4+2 / 2+2+2 pair split): C(n+2,3) − n. ONE definition, keyed on the
+ * split's own mountIds.length, because the count used to be spelled out in
+ * three places — start()'s progress total, the meta line, and the time-step
+ * caution's flight count — and a new split shape would have had to be taught
+ * to each of them separately.
+ */
+export function mixedComboCount(n: number, groups: number): number {
+  return groups === 2 ? (n * (n - 1)) / 2 : (n * (n + 1) * (n + 2)) / 6 - n;
 }
 
 interface BatchRow {
@@ -209,16 +253,6 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
     batchRocket.setSupersonicAero(batchModel === 'supersonic');
     applyOthers(batchRocket, [sel.id]);
     const rocket = batchRocket;
-    // The probe cutoff has to see the WHOLE stack, not just the motor under
-    // test: a candidate in the sustainer waits on the booster below it, and a
-    // cutoff computed from the candidate alone ends before it ever lights.
-    // The launch stage is the LAST one — stage 0 is the sustainer.
-    const bottomStageIdx = stages(tree).length - 1;
-    const probeCutoff = (targets: Record<string, MotorSpec>) => machProbeSeconds(
-      Object.entries({ ...assignedMotors, ...targets }).map(([id, spec]) => ({
-        spec,
-        onLaunchStage: stageIndexOf(tree, id) === bottomStageIdx,
-      })));
     // The shared construction — this used to be a private copy that omitted
     // `timeStep`, so a design carrying its own step from its .ork gave one set
     // of numbers here and a different set on the Launch button.
@@ -230,8 +264,7 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
     ];
     const comboActive = activeSplits.length > 0;
     const n = candidates.length;
-    const comboCount = activeSplits.reduce((sum, s) => sum
-      + (s.mountIds.length === 2 ? (n * (n - 1)) / 2 : (n * (n + 1) * (n + 2)) / 6 - n), 0);
+    const comboCount = activeSplits.reduce((sum, s) => sum + mixedComboCount(n, s.mountIds.length), 0);
     const totalSims = n + comboCount;
     // Multisets of `size` candidate indices (non-decreasing), excluding
     // all-same (those are the single-motor rows already flown).
@@ -269,7 +302,18 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
         const provisional = opts[opts.length - 1] ?? 0;
         const spec = await fetchMotorSpec(entry, provisional);
         specCache.set(entry.motorId, spec);
-        const t0 = performance.now();
+        // execMs must mean ONE flight at this step: the launch panel's
+        // time-step caution prices a reload from the newest stored run
+        // (storedSimCost), and a span covering the probe plus a re-fly
+        // quoted 2-3x the real wait — the same over-billing the single-flight
+        // path fixed by timing each full flight alone.
+        let execMs = 0;
+        const flyTimed = (): FlightResult => {
+          const t0 = performance.now();
+          const r = rocket.simulate(simOpts);
+          execMs = performance.now() - t0;
+          return r;
+        };
         // Auto: each candidate picks its model from a SHORT probe run and then
         // flies once — per MOTOR, exactly like the single-flight Auto loop.
         // This used to fly the whole classic flight and, on a supersonic
@@ -278,20 +322,33 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
         rocket.setMotorById(mountId, spec);
         let usedSupersonic = batchModel === 'supersonic';
         if (batchModel === 'auto') {
-          const probe = rocket.simulate({ ...simOpts, maxTime: probeCutoff({ [mountId]: spec }) });
-          if (probe.summary.maxMachNumber > 0.9) {
+          const probe = rocket.simulate({
+            ...simOpts,
+            maxTime: batchProbeCutoff(tree, assignedMotors, { [mountId]: spec }),
+          });
+          if (probe.summary.maxMachNumber > MACH_AUTO_THRESHOLD) {
             rocket.setSupersonicAero(true);
             usedSupersonic = true;
           }
         }
-        let res = rocket.simulate(simOpts);
+        let res = flyTimed();
+        // Backstop on the probe's verdict: the cutoff over-estimates on
+        // purpose, but the full flight now holds the real peak Mach — if Auto
+        // flew classic and the flight still crossed the threshold, re-fly
+        // supersonic. Near-free on average: it only triggers where the probe
+        // under-read.
+        if (batchModel === 'auto' && !usedSupersonic && res.summary.maxMachNumber > MACH_AUTO_THRESHOLD) {
+          rocket.setSupersonicAero(true);
+          usedSupersonic = true;
+          res = flyTimed();
+        }
         let flownDelay = provisional;
         if (criteria.autoDelay) {
           const rec = recommendDelay(res.summary.optimumDelay);
           if (rec !== null && rec !== provisional) {
             flownDelay = rec;
             rocket.setMotorById(mountId, { ...spec, ejectionDelay: rec });
-            res = rocket.simulate(simOpts);
+            res = flyTimed();
           } else if (rec !== null) {
             flownDelay = rec;
           }
@@ -313,7 +370,7 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
           },
           launch,
           rocketName,
-          execMs: performance.now() - t0,
+          execMs,
           aeroModel: batchModel === 'auto' && usedSupersonic ? 'auto-supersonic'
             : usedSupersonic ? 'supersonic' : 'classic',
           rogersKbf: kbf && !usedSupersonic,
@@ -363,22 +420,41 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
         try {
           const specs = await Promise.all(entries.map(async (e) =>
             specCache.get(e.motorId) ?? await fetchMotorSpec(e, 0)));
-          const t0 = performance.now();
+          // One flight at this step — see the single-motor loop's flyTimed.
+          let execMs = 0;
+          const flyTimed = (): FlightResult => {
+            const t0 = performance.now();
+            const r = comboRocket.simulate(simOpts);
+            execMs = performance.now() - t0;
+            return r;
+          };
           if (batchModel === 'auto') comboRocket.setSupersonicAero(false);
           split.mountIds.forEach((id, k) => comboRocket.setMotorById(id, specs[k]!));
           let usedSupersonic = batchModel === 'supersonic';
           if (batchModel === 'auto') {
+            // The split tree is what this candidate flies — its group mounts
+            // do not exist in `tree`, and the replaced cluster mount's motor
+            // is not aboard (see batchProbeCutoff).
             const probe = comboRocket.simulate({
               ...simOpts,
-              maxTime: probeCutoff(Object.fromEntries(
-                split.mountIds.map((id, k) => [id, specs[k]!]))),
+              maxTime: batchProbeCutoff(split.tree, assignedMotors, Object.fromEntries(
+                split.mountIds.map((id, k) => [id, specs[k]!])), sel.id),
             });
-            if (probe.summary.maxMachNumber > 0.9) {
+            if (probe.summary.maxMachNumber > MACH_AUTO_THRESHOLD) {
               comboRocket.setSupersonicAero(true);
               usedSupersonic = true;
             }
           }
-          let res = comboRocket.simulate(simOpts);
+          let res = flyTimed();
+          // Same probe backstop as the single-motor loop: the full flight has
+          // the real peak Mach, so a classic flight that crossed the threshold
+          // re-flies on the supersonic model rather than standing on an
+          // under-read.
+          if (batchModel === 'auto' && !usedSupersonic && res.summary.maxMachNumber > MACH_AUTO_THRESHOLD) {
+            comboRocket.setSupersonicAero(true);
+            usedSupersonic = true;
+            res = flyTimed();
+          }
           let flownDelay = specs[0]!.ejectionDelay;
           if (criteria.autoDelay) {
             const rec = recommendDelay(res.summary.optimumDelay);
@@ -386,7 +462,7 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
               flownDelay = rec;
               split.mountIds.forEach((id, k) =>
                 comboRocket.setMotorById(id, { ...specs[k]!, ejectionDelay: rec }));
-              res = comboRocket.simulate(simOpts);
+              res = flyTimed();
             }
           }
           const manuf = [...new Set(entries.map((e) => e.manufacturerAbbrev))].join('+');
@@ -403,7 +479,7 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
             },
             launch,
             rocketName,
-            execMs: performance.now() - t0,
+            execMs,
             aeroModel: batchModel === 'auto' && usedSupersonic ? 'auto-supersonic'
               : usedSupersonic ? 'supersonic' : 'classic',
             rogersKbf: kbf && !usedSupersonic,
@@ -478,6 +554,14 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
   const distUi = (si: number | null) => (si === null ? undefined : siToUi('distance', dist, si));
 
   const dialogRef = useDialog(onClose);
+
+  // What the batch will actually fly — the same counts the meta line quotes.
+  // The time-step caution multiplies by this: a fine step's cost is per
+  // flight, and the launch panel's per-flight caution says nothing about a
+  // candidate list turning 15 s of freeze into 20 minutes of it.
+  const totalFlights = candidates.length
+    + (comboMode && clusterSplit ? mixedComboCount(candidates.length, clusterSplit.mountIds.length) : 0)
+    + (pairMode && pairSplit ? mixedComboCount(candidates.length, pairSplit.mountIds.length) : 0);
 
   return (
     <div className="prefs-overlay" role="presentation" onClick={running ? undefined : onClose}>
@@ -586,13 +670,17 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
           </div>
         </div>
 
+        {candidates.length > 0 && (
+          <TimeStepCaution dt={launch.timeStepS} flights={totalFlights} />
+        )}
+
         <div className="motor-load-row">
           <span style={{ flex: 1 }} className="motor-db-meta">
             {candidates.length} candidate motors
             {comboMode && clusterSplit
-              && ` · +${(candidates.length * (candidates.length - 1)) / 2} mixed ${clusterSplit.groupSize}+${clusterSplit.groupSize} combinations`}
+              && ` · +${mixedComboCount(candidates.length, clusterSplit.mountIds.length)} mixed ${clusterSplit.groupSize}+${clusterSplit.groupSize} combinations`}
             {pairMode && pairSplit
-              && ` · +${(candidates.length * (candidates.length + 1) * (candidates.length + 2)) / 6 - candidates.length} mixed 4+2 / 2+2+2 combinations`}
+              && ` · +${mixedComboCount(candidates.length, pairSplit.mountIds.length)} mixed 4+2 / 2+2+2 combinations`}
             {tooLongCount > 0 && ` · ${tooLongCount} excluded (over max motor length)`}
             {criteria.autoDelay ? ' · 2 sims each (delay probe + final)' : ''}
             {progress && ` — simulating ${progress.done + 1}/${progress.total}: ${progress.current}`}

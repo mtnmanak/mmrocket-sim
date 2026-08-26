@@ -109,8 +109,16 @@ public abstract class RocketComponent implements ChangeSource, Cloneable, Iterab
 	 * every ComponentChangeEvent in {@link #componentChanged}. Never handed out
 	 * to a caller that mutates it — every consumer reads the array and builds
 	 * its own result (toAbsolute/toRelative both allocate their own arrays).
+	 * The root/modID pair below stamps the tree state the memo was computed
+	 * against, and {@link #getComponentLocations()} serves the memo only while
+	 * both still match — the componentChanged() sweep alone cannot be the sole
+	 * guard, because Rocket skips the sweep while frozen (events queue until
+	 * thaw) or while events are disabled (the .ork build window), and it never
+	 * reaches a subtree removeChild has already detached.
 	 */
 	private Coordinate[] locationsCache = null;
+	private Rocket locationsCacheRoot = null;
+	private ModID locationsCacheModID = ModID.INVALID;
 
 	// ORColor of the component, null means to use the default color
 	private ORColor color = null;
@@ -346,6 +354,9 @@ public abstract class RocketComponent implements ChangeSource, Cloneable, Iterab
 		// PERF PATCH: drop the getComponentLocations() memo. Every component in
 		// the tree receives this on every ComponentChangeEvent, which is the
 		// invalidation point upstream's own javadoc nominates for cached data.
+		// The memo's root/modID stamp (see getComponentLocations) backstops the
+		// windows this sweep cannot reach: a frozen Rocket, disabled events,
+		// detached subtrees, and a mid-sweep throw stranding later components.
 		locationsCache = null;
 		update();
 	}
@@ -476,8 +487,11 @@ public abstract class RocketComponent implements ChangeSource, Cloneable, Iterab
 		// inherit this component's memoized locations — computed against a parent
 		// chain the clone is about to be detached from (copyWithOriginalID nulls
 		// `parent` and rebuilds `children` immediately below). TeaVM's
-		// Platform.clone copies every own property the same way. Drop it.
+		// Platform.clone copies every own property the same way. Drop it, stamp
+		// included, so the clone's first read computes against its own new tree.
 		clone.locationsCache = null;
+		clone.locationsCacheRoot = null;
+		clone.locationsCacheModID = ModID.INVALID;
 		// Make sure the InsideColorComponentHandler is cloned
 		if (clone instanceof InsideColorComponent && this instanceof InsideColorComponent) {
 			InsideColorComponentHandler icch = new InsideColorComponentHandler(clone);
@@ -1627,39 +1641,83 @@ public abstract class RocketComponent implements ChangeSource, Cloneable, Iterab
 		// ComponentChangeEvent. FIVE subclasses override that hook — FinSet,
 		// LaunchLug, RailButton, SymmetricComponent, Transition — and all five
 		// call super unconditionally, so none of them can strand a stale memo.
-		if (locationsCache != null) {
+		//
+		// The sweep is necessary but NOT sufficient, so the memo is also
+		// STAMPED with the root it was computed under plus that Rocket's modID,
+		// and served only while both still match. The sweep never runs while
+		// the Rocket is frozen (Rocket.fireComponentChangeEvent queues the
+		// event — but bumps modID FIRST, before its freeze check, so the stamp
+		// dies anyway; that bump is skipped for undo/redo events, whose only
+		// producer here is Rocket.loadFrom, which adopts the source's modID and
+		// swaps in freshly-cloned, memo-empty components before it fires) or
+		// while events are disabled (the .ork build window —
+		// mutations there move no modID either, but every memo populated in
+		// that window dies at enableEvents()'s AEROMASS bump whether or not
+		// its healing sweep completes), and it never reaches a subtree that
+		// removeChild has already detached (the detached root is no longer the
+		// stamped Rocket, and nothing under a non-Rocket root is memoized at
+		// all). A mid-sweep throw stranding un-swept components is covered the
+		// same way: the event bumped modID before the sweep began. Cost on a
+		// hit: a parent-chain walk plus two reference compares — noise next to
+		// the O(depth²) allocations a miss costs — and nothing in simulation/
+		// fires events, so a flight populates once and hits for the whole run.
+		RocketComponent root = this;
+		while (root.parent != null) {
+			root = root.parent;
+		}
+		if (locationsCache != null && root == locationsCacheRoot
+				&& locationsCacheModID == locationsCacheRoot.getModID()) {
 			return locationsCache;
 		}
+
+		final Coordinate[] result;
 		if (this.parent == null) {
 			// == improperly initialized components OR the root Rocket instance
-			return locationsCache = getInstanceOffsets();
+			result = getInstanceOffsets();
 		} else {
 			Coordinate[] parentPositions = this.parent.getComponentLocations();
 			int parentCount = parentPositions.length;
-			
+
 			// override <instance>.getInstanceLocations() in each subclass
 			Coordinate[] instanceLocations = this.getInstanceLocations();
 			int instanceCount = instanceLocations.length;
 
 			// We also need to include the parent rotations
 			Coordinate[] parentRotations = this.parent.getComponentAngles();
-			
+
 			// usual case optimization
 			if ((parentCount == 1) && (instanceCount == 1)) {
 				Transformation rotation = Transformation.getRotationTransform(parentRotations[0], this.position);
-				return locationsCache = new Coordinate[]{parentPositions[0].add(rotation.transform(instanceLocations[0]))};
-			}
-
-			int thisCount = instanceCount * parentCount;
-			Coordinate[] thesePositions = new Coordinate[thisCount];
-			for (int pi = 0; pi < parentCount; pi++) {
-				Transformation rotation = Transformation.getRotationTransform(parentRotations[pi], this.position);
-				for (int ii = 0; ii < instanceCount; ii++) {
-					thesePositions[pi + parentCount*ii] = parentPositions[pi].add(rotation.transform(instanceLocations[ii]));
+				result = new Coordinate[]{parentPositions[0].add(rotation.transform(instanceLocations[0]))};
+			} else {
+				int thisCount = instanceCount * parentCount;
+				Coordinate[] thesePositions = new Coordinate[thisCount];
+				for (int pi = 0; pi < parentCount; pi++) {
+					Transformation rotation = Transformation.getRotationTransform(parentRotations[pi], this.position);
+					for (int ii = 0; ii < instanceCount; ii++) {
+						thesePositions[pi + parentCount*ii] = parentPositions[pi].add(rotation.transform(instanceLocations[ii]));
+					}
 				}
+				result = thesePositions;
 			}
-			return locationsCache = thesePositions;
 		}
+
+		if (root instanceof Rocket) {
+			locationsCacheRoot = (Rocket) root;
+			locationsCacheModID = locationsCacheRoot.getModID();
+			locationsCache = result;
+		} else {
+			// Under a non-Rocket root — a subtree removeChild has detached, which
+			// the sweep never reaches because removeChild fires on the tree that
+			// REMAINS. Serving is already impossible here (root can never equal
+			// the stamped Rocket again), so this is purely about not leaving a
+			// strong reference to the whole rocket this component used to hang
+			// from: drop the stamp on the first read after the detach.
+			locationsCacheRoot = null;
+			locationsCacheModID = ModID.INVALID;
+			locationsCache = null;
+		}
+		return result;
 	}
 
 	public double[] getInstanceAngles() {

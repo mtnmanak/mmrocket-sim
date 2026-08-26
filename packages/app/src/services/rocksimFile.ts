@@ -1,6 +1,6 @@
 import { strFromU8, unzipSync } from 'fflate';
 import type { ComponentNode, ComponentPosition, RocketTree } from '@online-openrocket/engine';
-import { asStageNodes, freshId } from '../tree/treeModel.js';
+import { asStageNodes, freshId, mountsIn } from '../tree/treeModel.js';
 import { CLUSTER_POINTS, clusterOffsets } from '../tree/cluster.js';
 import { resolveAssemblyRadius } from '../tree/assembly.js';
 import { axialLength, startFromPosition } from '../tree/position.js';
@@ -759,14 +759,6 @@ export function importRkt(data: ArrayBuffer | string): OrkTreeImportResult {
   // back to the first motor mount of the EngineSet's stage.
   const motors: Record<string, OrkMotorRef> = {};
   let firstMotor: OrkMotorRef | undefined;
-  const mountsIn = (nodes: ComponentNode[]): ComponentNode[] => {
-    const out: ComponentNode[] = [];
-    for (const n of nodes) {
-      if ((n.type === 'innertube' || n.type === 'bodytube') && n['motorMount'] === true) out.push(n);
-      out.push(...mountsIn(n.children ?? []));
-    }
-    return out;
-  };
   for (const engineSet of Array.from(doc.querySelectorAll('EngineSet'))) {
     const code = text(engineSet, ':scope > EngineCode');
     if (!code) continue;

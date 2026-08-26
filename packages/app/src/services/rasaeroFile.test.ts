@@ -837,6 +837,70 @@ describe('RASAero engine export (gated — see CDX1_ENGINE_EXPORT)', () => {
     expect(designations).toEqual(['J350W', 'K550W']);
   });
 
+  it('round-trips staged separation timers (Booster1SeparationDelay / Booster2Delay)', () => {
+    // v0.071 made the ignition delays survive a .CDX1 round trip; the
+    // separation timers were still hard-coded 0 on export, so a staged design
+    // silently lost part of its staging every time it was written out.
+    const mkStage = (id: string, name: string, delay: number) => ({
+      type: 'stage' as const, id: `s_${id}`, name,
+      separationEvent: 'burnout', separationDelay: delay,
+      children: [
+        {
+          type: 'bodytube' as const, id, length: 0.5, outerRadius: 0.0381, thickness: 0.001,
+          children: [
+            { type: 'trapezoidfinset' as const, id: `f_${id}`, finCount: 3, rootChord: 0.12, tipChord: 0.05, sweep: 0.05, height: 0.07, thickness: 0.003, position: { method: 'bottom' as const, offset: 0 } },
+          ],
+        },
+      ],
+    });
+    const xml = exportCdx1({
+      ...design,
+      tree: {
+        ...design.tree,
+        components: [...design.tree.components, mkStage('b1', 'Booster', 3), mkStage('b2', 'Booster 2', 1.5)],
+      },
+      motors: {
+        ...design.motors,
+        b1: { designation: 'K550W', manufacturer: 'AeroTech' },
+        b2: { designation: 'L850W', manufacturer: 'AeroTech' },
+      },
+      engineExport: true,
+    });
+    expect(xml).toContain('<Booster1SeparationDelay>3</Booster1SeparationDelay>');
+    expect(xml).toContain('<Booster2Delay>1.5</Booster2Delay>');
+    // …and our own importer bakes them straight back onto the stage nodes.
+    const back = importCdx1(xml);
+    expect(back.tree.components[1]!['separationEvent']).toBe('burnout');
+    expect(back.tree.components[1]!['separationDelay']).toBe(3);
+    expect(back.tree.components[2]!['separationEvent']).toBe('burnout');
+    expect(back.tree.components[2]!['separationDelay']).toBe(1.5);
+  });
+
+  it('writes 0 for a separation delay RASAero cannot express (non-burnout event)', () => {
+    // The field means "seconds after this booster's burnout"; an
+    // ejection-charge separation's delay counts from a different event, so it
+    // stays at RASAero's own 0 — the same guard the ignition delays apply.
+    const booster = {
+      type: 'stage' as const, id: 's1', name: 'Booster',
+      separationDelay: 3, // kernel-default ejection event, no separationEvent set
+      children: [
+        {
+          type: 'bodytube' as const, id: 'b1', length: 0.5, outerRadius: 0.0381, thickness: 0.001,
+          children: [
+            { type: 'trapezoidfinset' as const, id: 'f1', finCount: 3, rootChord: 0.12, tipChord: 0.05, sweep: 0.05, height: 0.07, thickness: 0.003, position: { method: 'bottom' as const, offset: 0 } },
+          ],
+        },
+      ],
+    };
+    const xml = exportCdx1({
+      ...design,
+      tree: { ...design.tree, components: [...design.tree.components, booster] },
+      motors: { ...design.motors, b1: { designation: 'K550W', manufacturer: 'AeroTech' } },
+      engineExport: true,
+    });
+    expect(xml).toContain('<Booster1SeparationDelay>0</Booster1SeparationDelay>');
+  });
+
   it('puts the loaded mass/CG in the LAST stage cell, not the sustainer (cells are cumulative)', () => {
     // RASAero's per-stage cells are the vehicle from the nose down to that
     // stage: a RASAero-written two-stage file carries sustainer 4.06 lb / CG
@@ -954,6 +1018,45 @@ describe('RASAero — which simulation gets opened', () => {
     // …and the note names both simulations by their number IN THE FILE.
     expect(r.notes.join(' ')).toMatch(/Simulation 1 in this file puts no motor on the launch stage/);
     expect(r.notes.join(' ')).toMatch(/Simulation \d+ was opened instead/);
+  });
+
+  it('never opens a silently unflyable configuration when every simulation excludes the booster', () => {
+    // The silent variant of the case above: EVERY simulation carries
+    // <IncludeBooster1>False</IncludeBooster1>, so no configuration motors the
+    // tree's bottom stage at all. The sustainer used to be keyed 'burnout' —
+    // waiting on a booster that never lights — so the kernel aborted "no
+    // motors ignited" with no explanatory note anywhere.
+    const xml = fixture('Complex.Two-Stage.CDX1')
+      .replace(/<IncludeBooster1>True<\/IncludeBooster1>/g, '<IncludeBooster1>False</IncludeBooster1>');
+    const r = importCdx1(xml);
+    expect(r.configs.length).toBe(2);
+    // Each configuration's lone motor (the sustainer's) ignites at LAUNCH.
+    for (const cfg of r.configs) {
+      const motors = Object.values(cfg.motors);
+      expect(motors).toHaveLength(1);
+      expect(motors[0]!.ignitionEvent).toBe('launch');
+    }
+    // …and the import says what happened and what to do about it.
+    expect(r.notes.join(' ')).toMatch(/No simulation in this file puts a motor on Booster/);
+    expect(r.notes.join(' ')).toMatch(/flies along unpowered/);
+  });
+
+  it('drops the slot ignition delay when a motor is rekeyed to launch', () => {
+    // SustainerIgnitionDelay counts from the stage BELOW's burnout, and RASAero
+    // ignores it in a sim that excludes that stage. Keeping it on the rekeyed
+    // 'launch' motor made the delay launch-clock-relative instead: a
+    // SustainerIgnitionDelay=8 file whose sims all set IncludeBooster1=False
+    // imported as a rocket sitting on the pad for 8 s — a flight RASAero never
+    // produces.
+    const xml = fixture('Complex.Two-Stage.CDX1')
+      .replace(/<IncludeBooster1>True<\/IncludeBooster1>/g, '<IncludeBooster1>False</IncludeBooster1>')
+      .replace(/<SustainerIgnitionDelay>0<\/SustainerIgnitionDelay>/g, '<SustainerIgnitionDelay>8</SustainerIgnitionDelay>');
+    const r = importCdx1(xml);
+    for (const cfg of r.configs) {
+      const m = Object.values(cfg.motors)[0]!;
+      expect(m.ignitionEvent).toBe('launch');
+      expect(m.ignitionDelay).toBe(0);
+    }
   });
 
   it('leaves a file whose first simulation is flyable alone', () => {

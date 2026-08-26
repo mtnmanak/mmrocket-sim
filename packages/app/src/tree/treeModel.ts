@@ -1038,20 +1038,44 @@ export function hasParallelStage(tree: RocketTree): boolean {
 }
 
 /**
- * All tubes flagged as motor mounts (for the motor panel): inner tubes, plus
- * body tubes for minimum-diameter rockets where the motor loads directly in
- * the airframe (kernel BodyTube implements MotorMount, same as the desktop).
+ * All tubes flagged as motor mounts under `nodes`, document order: inner
+ * tubes, plus body tubes for minimum-diameter rockets where the motor loads
+ * directly in the airframe (kernel BodyTube implements MotorMount, same as
+ * the desktop). The subtree form exists for the file importers, which resolve
+ * a file's per-stage engine slots against ONE stage's children — the .rkt
+ * stale-serial fallback and the .CDX1 launch-stage check both grew private
+ * copies of this walk, and the .CDX1 one had silently dropped the type
+ * filter (harmless there only because its importer sets `motorMount` on
+ * nothing but the stage's aft body tube).
  */
-export function motorMounts(tree: RocketTree): ComponentNode[] {
+export function mountsIn(nodes: ComponentNode[]): ComponentNode[] {
   const out: ComponentNode[] = [];
-  const walk = (nodes: ComponentNode[]) => {
-    for (const n of nodes) {
+  const walk = (list: ComponentNode[]) => {
+    for (const n of list) {
       if ((n.type === 'innertube' || n.type === 'bodytube') && n['motorMount'] === true) out.push(n);
       walk(n.children ?? []);
     }
   };
-  walk(tree.components);
+  walk(nodes);
   return out;
+}
+
+/** All motor mounts in the design (for the motor panel) — {@link mountsIn} over the whole tree. */
+export function motorMounts(tree: RocketTree): ComponentNode[] {
+  return mountsIn(tree.components);
+}
+
+/**
+ * True when the node sits on the LAUNCH stage — the LAST one; stage 0 is the
+ * sustainer. Only launch-stage motors fire off the launch clock: the kernel
+ * resolves an 'automatic' mount anywhere above as "previous stage's ejection
+ * charge". The auto-aero Mach probe's cutoff hangs on this distinction, and
+ * both of its call sites (Launch and the batch runner) used to hand-roll the
+ * same index compare against the same invariant — that top-level components
+ * are all stages, which normalizeTree guarantees.
+ */
+export function isOnLaunchStage(tree: RocketTree, id: string): boolean {
+  return stageIndexOf(tree, id) === stages(tree).length - 1;
 }
 
 /** A blank design — one empty stage — for starting from scratch. */

@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.071';
+export const APP_VERSION = '0.072';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,29 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.072',
+    date: '2026-08-26',
+    title: 'Auto aero stops missing supersonic flights, and every notice keeps its promise',
+    items: [
+      'THE ENGINE ITSELF PRODUCES IDENTICAL NUMBERS AGAIN — its 309 golden reference lines are bit-for-bit what 0.071 produced. This release is a review pass over 0.071: fifteen defects found by reading the code that shipped it, four of which change results on particular files. Each of those is marked below.',
+      'AUTO AERO COULD MISS A SUPERSONIC STAGED FLIGHT — CHANGES NUMBERS on staged designs whose booster waits on a pad timer. 0.071’s short probe run worked out how long to fly by adding up burn times and ejection delays, but never counted the ignition delays themselves. A design holding its booster on a 12-second timer, with the sustainer lighting 22 seconds after burnout, was probed for 34 seconds when the sustainer did not light until 38 — so the probe saw only the booster, called the flight subsonic, and flew a Mach 4 flight on the classic model without saying a word. The probe now counts every timer in the chain.',
+      'A SECOND CHECK AFTER THE FLIGHT — CHANGES NUMBERS on designs that sit right at the threshold. The probe stops shortly after burnout, so it can read a peak Mach slightly under the real one, and it never sees the descent at all. Auto mode now re-checks the finished flight and re-flies on the supersonic model if the real peak crossed Mach 0.9. 0.070 caught these by brute force, flying everything twice; this gets the same answer and only pays for it on the designs that need it. Batch simulate does the same.',
+      'RASAero .CDX1: a file whose every simulation leaves the last booster out no longer opens a rocket that cannot ignite — CHANGES NUMBERS on those files, which previously stopped with “no motors ignited” and no explanation. Ignition is now keyed to the lowest stage that actually carries a motor, and a note says the unpowered booster is riding along and what to do about it.',
+      'RASAero .CDX1: when a motor is re-keyed to light at launch that way, its stage-relative ignition delay is dropped — CHANGES NUMBERS on such files. RASAero measures that delay from the excluded stage’s burnout and ignores it in those simulations; keeping it would have parked the rocket on the pad for several seconds RASAero never simulates.',
+      'Saving as RASAero .CDX1 now writes the stage separation delays instead of a hard-coded 0. 0.071 fixed this for ignition timers and left separation timers behind, so a staged design still lost part of its staging on every export.',
+      'A time step you chose yourself now survives an upgrade. 0.071 raised a fine step inherited from an old session to 0.05 once — but the check was “was this session written by a different build?”, which is true after every single release, so it would have quietly reset a step you had deliberately typed, every time you updated, and told you it came from a design file. It now only ever applies to sessions written before 0.071.',
+      'That one-time notice can now name the step it replaced, instead of offering “it” back with the number gone from every field, panel and save.',
+      'A design file stamped as ours is still held to the Time step field’s own 0.01 floor. Trusting our own files was meant to protect a setting you chose — but a shared file is one hand-edit away from 0.0001, which is roughly 270 times the cost, behind a field that displays it as “0” and refuses to take it back.',
+      'Opening a design that changes the time step now says so. The old notice only spoke up when a file carried a fine step, so a step you had typed could be replaced by a file that carries none with nothing on screen to explain why your numbers moved.',
+      'Batch simulate warns about a fine time step before it starts. It honours the setting — 0.071 made sure of that — but 50 motors at 0.01 s is twelve to twenty-five minutes, and the dialog said nothing. It now quotes the cost for the whole batch.',
+      'The “seconds per flight” figure in the Time step caution is the cost of one flight again. It was being measured across the Mach probe and any re-flights too, so it read two to three times high; it also outlived the design it measured, quoting a large rocket’s twelve seconds for a small one, and was lost entirely on reload even though saved flights carry the numbers to rebuild it.',
+      'Combination batches got their probe back. The short probe added for clusters in 0.071 never took effect in combination mode, because it was looking up mounts that only exist on the split-up copy of the rocket — so every combination paid for a near-full extra flight, on exactly the cluster designs the mode exists for.',
+      'Notices stop promising things the app cannot do. A file asking for a step below 0.01 was offered it back by a field that refuses it; a note pointed at the Flight configurations panel to delete a stage, which it cannot do; the batch caution said the page would not respond until the whole batch finished, when Stop works between flights; and a file carrying 0.037000000000000005 printed exactly that into the note. Numbers in notices are now written the way a person would write them.',
+      'The results banner says what the flight did rather than what was predicted — on the new post-flight check the prediction was the opposite, so “projected past Mach 0.9” was backwards.',
+      'Inside the engine, the two speed-ups added in 0.071 got their invalidation tightened: the cached geometry now carries a stamp of the rocket and revision it was computed for, closing four windows where a stale value could have been served, and the cached structural mass is dropped by the three stage-toggle paths that bypass the usual notification. Nothing reachable today could hit either one — the golden lines are unchanged, and a flight measures the same to the millisecond — but they were being held true by luck rather than by construction.',
+    ],
+  },
   {
     version: '0.071',
     date: '2026-08-26',

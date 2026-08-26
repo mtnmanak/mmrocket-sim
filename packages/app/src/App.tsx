@@ -20,8 +20,8 @@ import { FlyScreen } from './components/FlyScreen.js';
 import { ComponentTree } from './components/ComponentTree.js';
 import { FlightCharts } from './components/FlightCharts.js';
 import { DragPanel } from './components/DragPanel.js';
-import { DEFAULT_CONDITIONS, kernelSimOptions, LaunchPanel, type LaunchConditions } from './components/LaunchPanel.js';
-import { machProbeSeconds } from './services/machProbe.js';
+import { DEFAULT_CONDITIONS, DEFAULT_TIME_STEP_S, kernelSimOptions, LaunchPanel, PANEL_TIME_STEP_FLOOR_S, type LaunchConditions } from './components/LaunchPanel.js';
+import { MACH_AUTO_THRESHOLD, machProbeSeconds } from './services/machProbe.js';
 import { MovedNotice } from './components/MovedNotice.js';
 import { NoticeBar, type Notice, type NoticeSeverity } from './components/NoticeBar.js';
 import { MeasuredMassBox } from './components/MeasuredMassBox.js';
@@ -55,7 +55,7 @@ import { fmtSi, niceStep, siToUi, uiToSi } from './prefs/units.js';
 import { classLabel, diameterClass, displayDesignation, findDbMotor, isHighPower } from './services/motorDb.js';
 import { delayOptions, fetchMotorSpec } from './services/thrustcurve.js';
 import { loadExMotors } from './services/exMotors.js';
-import { exportOrk, importOrk, type OrkDeployOverride, type OrkSeparationOverride, type OrkExportConfig, type OrkExportMotor, type OrkImportResult, type OrkMotorRef, type OrkTreeImportResult } from './services/orkFile.js';
+import { exportOrk, fmtStepS, importOrk, type OrkDeployOverride, type OrkSeparationOverride, type OrkExportConfig, type OrkExportMotor, type OrkImportResult, type OrkMotorRef, type OrkTreeImportResult } from './services/orkFile.js';
 import { decodeShareFragment, encodeShareFragment, hasSharePayload, MAX_FRAGMENT_CHARS } from './services/shareLink.js';
 import { exportRkt, importRkt } from './services/rocksimFile.js';
 import { componentCsv, componentTable } from './services/componentTable.js';
@@ -65,13 +65,13 @@ import {
   loadSession, onSessionSaveStateChange, saveSessionDebounced, sessionPredatesThisBuild,
   sessionSaveFailing,
 } from './services/session.js';
-import { buildSimRun, formatStability, recommendDelay, type MotorMeta, type SimRun } from './services/simReport.js';
+import { buildSimRun, formatStability, recommendDelay, storedSimCost, type MotorMeta, type SimRun } from './services/simReport.js';
 import { formatWarning, formatWarningText } from './services/simWarnings.js';
 import { addRun, loadRuns, persistFailed } from './services/simStore.js';
 import { APP_VERSION } from './version.js';
 import {
   addChild, addStage, cloneSubtree, defaultTree, duplicateNode, emptyTree, engineTree, findNode,
-  findParent, hasParallelStage, inheritDefaults, makeNode, motorMounts, moveNode,
+  findParent, hasParallelStage, inheritDefaults, isOnLaunchStage, makeNode, motorMounts, moveNode,
   normalizeTree, removeNode, stageIndexOf, stages, updateAllNodes, updateNode,
 } from './tree/treeModel.js';
 import { clusterCount } from './tree/cluster.js';
@@ -216,6 +216,19 @@ function legacyMaxMotorLength(): number | null {
   }
 }
 
+/**
+ * Resolves in the task after the frame React just committed has PAINTED —
+ * run a synchronous simulation only after awaiting this, or the busy state
+ * never shows. rAF alone does NOT do it: rAF callbacks run at the START of a
+ * frame, before style/layout/paint, so the "Simulating…" label React just
+ * committed was still unpainted when the synchronous flight began — the
+ * button appeared frozen mid-click. rAF-then-task waits for the frame to
+ * paint and resumes in the next task. (BatchSimulate always got this right,
+ * with a bare setTimeout — which is why its progress bar moves.)
+ */
+const afterPaint = (): Promise<void> =>
+  new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
+
 /** Rewrites a motor label's delay suffix ("H220-14" / "H220-P" / "H220 (auto delay)"). */
 function labelWithDelay(label: string, delay: number | 'auto'): string {
   const base = label.replace(/ \(auto delay\)$/, '').replace(/-(\d+(\.\d+)?|P)$/, '');
@@ -258,6 +271,18 @@ export function App() {
     () => session !== null && sessionPredatesThisBuild(session));
   const [timeStepMigrated, setTimeStepMigrated] = useState(
     () => session?.timeStepWasClamped === true);
+  // The step the migration replaced, so its notice can NAME the number — by
+  // the time the notice renders, panel, session and autosave (~400 ms) all
+  // hold 0.05 and the original survives nowhere else, so "if you want it
+  // back" was a promise about a value the user could no longer find.
+  // loadSession records it beside the flag. A value under the panel's floor
+  // stays unnamed: the Time step field refuses it, and the notice must not
+  // point at a field that cannot take what it names (same rule as the
+  // importer's below-floor note in orkFile.ts).
+  const timeStepMigratedFrom = (() => {
+    const v = session?.timeStepClampedFromS;
+    return v != null && Number.isFinite(v) && v >= PANEL_TIME_STEP_FLOOR_S ? v : null;
+  })();
   // Normalize ONCE and derive every dependent initializer from the SAME tree:
   // each normalizeTree/defaultTree call mints fresh ids for nodes it creates,
   // so a second call yields ids that don't exist in the tree state — the
@@ -657,6 +682,28 @@ export function App() {
     // this preference exists to support.
   }, [physicsKey, mountMotors, launch, aeroMode, effectiveKbf]);
 
+  // The measured cost survives LAUNCH edits by design (see lastSimCost above)
+  // but must die with the rocket it timed: flying Mach2.trf.ork (~12 s) and
+  // then opening a small sport model quoted "roughly 64 s per flight" for a
+  // two-second flight. Motors are part of the identity — the thing being
+  // costed is this design under this motor's burn. NOT folded into the reset
+  // effect above: that one keys on `launch` too, and a launch-condition dep
+  // here would wipe the number the moment the time-step field is edited —
+  // the exact self-defeat the lastSimCost split exists to prevent.
+  useEffect(() => {
+    setLastSimCost(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- physicsKey stands in for tree
+  }, [physicsKey, mountMotors]);
+
+  // What the time-step caution scales from: this session's own measurement
+  // when there has been a flight, else the newest STORED run of this same
+  // design — stored runs carry execMs and the step it was measured at
+  // (SimRun.timeStepS) precisely so the seconds estimate survives a reload
+  // instead of degrading to the bare multiplier.
+  const simCostRef = useMemo(
+    () => lastSimCost ?? storedSimCost(runs, tree.name ?? 'Rocket'),
+    [lastSimCost, runs, tree.name]);
+
   /**
    * Power-off total Cd at a fixed subsonic Mach, for the Design tab's stats.
    *
@@ -782,10 +829,19 @@ export function App() {
       out.push({
         id: 'timestep-migrated',
         severity: 'info',
+        // The closing sentence names the replaced value when the session
+        // carried it — the migration overwrites it in place, so this notice is
+        // the last thing that can — and promises nothing when it did not:
+        // "if you want it back" with no number and 0.05 in every field was a
+        // promise the migrated tester could not act on.
         text: 'Your saved session was flying a finer simulation time step than the default,'
           + ' inherited from a design file — it is now set to 0.05 s, which is several times'
-          + ' faster and, in our testing, no less accurate. It is the Time step field in the'
-          + ' Launch panel if you want it back.',
+          + ' faster and, in our testing, no less accurate.'
+          + (timeStepMigratedFrom !== null
+            ? ` To get the old step back, type ${fmtStepS(timeStepMigratedFrom)} into the`
+              + ' Time step field in the Launch panel.'
+            : ' The Time step field in the Launch panel takes a finer step, if you have a'
+              + ' reason to pay for one.'),
         onDismiss: () => setTimeStepMigrated(false),
       });
     }
@@ -799,7 +855,7 @@ export function App() {
     }
     return out;
   }, [buildError, motorFailures, curveRepairs, fileNoteState, setFileNote, restoredByOlderBuild,
-    timeStepMigrated]);
+    timeStepMigrated, timeStepMigratedFrom]);
 
   /** Assigns a motor to a mount, with the G80 power-class ignition default. */
   const assignMotor = (targetMountId: string, label: string, spec: MotorSpec, meta: MotorMeta) => {
@@ -819,16 +875,22 @@ export function App() {
     setSimulating(true);
     // Flying hands off to the Results workspace — land the user there.
     setTab('results');
-    // rAF alone does NOT let the busy state paint: rAF callbacks run at the
-    // START of a frame, before style/layout/paint, so the "Simulating…" label
-    // React just committed was still unpainted when the synchronous flight
-    // began — the button appeared frozen mid-click. rAF-then-task waits for the
-    // frame to paint and resumes in the next task. (BatchSimulate always got
-    // this right, with a bare setTimeout — which is why its progress bar moves.)
-    requestAnimationFrame(() => setTimeout(() => {
+    void afterPaint().then(() => {
       try {
         const simOpts = kernelSimOptions(launch);
-        const t0 = performance.now();
+        // The cost the time-step caution quotes is ONE flight at the current
+        // step, so each full flight is timed alone and the LAST measurement
+        // wins — that is the flight whose result is shown. t0 used to sit
+        // before the Mach probe, so auto aero plus auto delay billed a probe
+        // and up to two extra flights as "per flight" and the caution quoted
+        // 2-3x the real wait.
+        let execMs = 0;
+        const flyTimed = (): FlightResult => {
+          const t0 = performance.now();
+          const r = built.rocket.simulate(simOpts);
+          execMs = performance.now() - t0;
+          return r;
+        };
         // Auto aero mode: decide which model to fly BEFORE flying. Past Mach 0.9
         // (transonic onset, where classic aero starts degrading) the whole
         // flight uses the supersonic model, and the design's displayed statics
@@ -846,14 +908,11 @@ export function App() {
         if (aeroMode === 'auto' && !usedSupersonic) {
           const probe = built.rocket.simulate({
             ...simOpts,
-            // The LAUNCH stage is the LAST one — stage 0 is the sustainer. Only its
-            // motors fire off the clock; an 'automatic' mount anywhere above waits
-            // for the stage below's ejection charge.
             maxTime: machProbeSeconds(assigned.map(([id, mm]) => ({
-              ...mm, onLaunchStage: stageIndexOf(tree, id) === stageList.length - 1,
+              ...mm, onLaunchStage: isOnLaunchStage(tree, id),
             }))),
           });
-          if (probe.summary.maxMachNumber > 0.9) {
+          if (probe.summary.maxMachNumber > MACH_AUTO_THRESHOLD) {
             built.rocket.setSupersonicAero(true);
             usedSupersonic = true;
             setAutoSupersonic(true);
@@ -862,7 +921,22 @@ export function App() {
         // The ONE real flight. The probe's result is never used for anything
         // else: a truncated run has no apogee, so its optimumDelay is absent and
         // its warning set is incomplete.
-        let res = built.rocket.simulate(simOpts);
+        let res = flyTimed();
+        // The probe under-reads by construction — it stops ~3 s after burnout,
+        // and its exact-maxMach score on the corpus was 6 of 7 — so its verdict
+        // is re-checked against the flight it green-lit. Without this, a
+        // borderline design (probe 0.897, flight 0.904), or one whose
+        // BALLISTIC DESCENT alone goes supersonic (the probe never sees the
+        // descent; v0.070's full-flight decision did), stays on classic aero
+        // with nothing to say so. Costs nothing except on the designs the
+        // probe misread, and cannot loop: usedSupersonic is true after one
+        // upgrade, so the recheck fires at most once.
+        if (aeroMode === 'auto' && !usedSupersonic && res.summary.maxMachNumber > MACH_AUTO_THRESHOLD) {
+          built.rocket.setSupersonicAero(true);
+          usedSupersonic = true;
+          setAutoSupersonic(true);
+          res = flyTimed();
+        }
         let flownDelay = primary.spec.ejectionDelay;
         // Auto delay (sustainer/primary mount): the first run yields the
         // kernel's optimum (ballistic probe) — round to the nearest whole
@@ -872,10 +946,9 @@ export function App() {
           if (rec !== null) {
             flownDelay = rec;
             built.rocket.setMotorById(primaryMountId, { ...primary.spec, ejectionDelay: rec });
-            res = built.rocket.simulate(simOpts);
+            res = flyTimed();
           }
         }
-        const execMs = performance.now() - t0;
         setResult(res);
         // Per-stage motor info so booster branches can be safety-checked
         // (chuteless HIGH-POWER boosters must warn — the G80 rule). Branches
@@ -931,7 +1004,7 @@ export function App() {
       } finally {
         setSimulating(false);
       }
-    }));
+    });
   };
 
   /**
@@ -947,10 +1020,7 @@ export function App() {
       throw new Error('no flight in memory — press Launch first');
     }
     // Let the caller's busy state paint before the synchronous re-simulation.
-    // rAF-then-task: rAF alone resumes BEFORE the frame paints, so the caller's
-    // busy state would still be invisible when the synchronous re-simulation
-    // starts. Same fix as onLaunch above.
-    await new Promise<void>((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
+    await afterPaint();
     const primary = mountMotors[primaryMountId]!;
     if (lastRun.delayS !== primary.spec.ejectionDelay) {
       // Auto delay flew the rounded optimum (recorded on the run); a handle
@@ -1289,6 +1359,30 @@ export function App() {
     // later design, including .rkt and .CDX1 imports that carry no step at all,
     // silently inherited it and ran several times slower forever. Always
     // assign, so a file without one goes back to the engine default.
+    //
+    // Deliberate, but not silent: the importer's notes only speak up when a
+    // FILE carries a sub-default step, so a step typed into the panel was
+    // being replaced with nothing on screen to say so. Compared as effective
+    // values — blank and 0.05 both fly the default, and that non-change is
+    // not worth a sentence. Counted AFTER motorTrouble below, which must keep
+    // meaning "a motor needs the user's attention", not this.
+    //
+    // Says what will be FLOWN, never "the file sets" — imported.launch.timeStepS
+    // is already past the importer's clamp, so a file asking for 0.005 arrives
+    // here as 0.05 and attributing that to the file contradicted the importer's
+    // own note directly above it in the same box. What the file asked for, and
+    // why it was refused, is that note's job.
+    const motorTrouble = notes.length > 1 + imported.notes.length;
+    const prevStepS = launch.timeStepS ?? DEFAULT_TIME_STEP_S;
+    const nextStepS = imported.launch?.timeStepS ?? DEFAULT_TIME_STEP_S;
+    if (prevStepS !== nextStepS) {
+      notes.push(imported.launch?.timeStepS != null
+        ? `Flights here now use a ${fmtStepS(nextStepS)} s simulation time step, replacing `
+          + `the ${fmtStepS(prevStepS)} s they were using.`
+        : `The simulation time step is back to the ${fmtStepS(DEFAULT_TIME_STEP_S)} s default `
+          + `— this file carries none, and the ${fmtStepS(prevStepS)} s in the Launch panel `
+          + 'belonged to the design it was set for.');
+    }
     if (imported.launch) {
       setLaunch((prev) => ({ ...prev, ...imported.launch, timeStepS: imported.launch!.timeStepS }));
     } else {
@@ -1299,8 +1393,9 @@ export function App() {
     // would report the new design's gap against someone else's scale.
     setMeasured(imported.measured ?? { massKg: null, cgM: null });
     // A file whose motors all matched is routine information; one that lost a
-    // motor is a warning the user has to act on.
-    setFileNote(notes.join('\n'), notes.length > 1 + imported.notes.length ? 'warn' : 'info');
+    // motor is a warning the user has to act on (motorTrouble was counted
+    // before the time-step note, which is information either way).
+    setFileNote(notes.join('\n'), motorTrouble ? 'warn' : 'info');
     // Hand-rolled shrouds (1-fin freeform sets named like "Camera Shroud")
     // get an offer to become the native fairing component (2026-08-05e).
     const shrouds = findShroudCandidates(importedTree);
@@ -2481,16 +2576,16 @@ export function App() {
           </div>
 
           <LaunchPanel value={launch} onChange={setLaunch} onLaunch={onLaunch} simulating={simulating}
-            lastRun={lastSimCost} />
+            lastRun={simCostRef} />
         </div>
         )}
 
         {tab === 'results' && (
         <main className="results-column" data-tour="results-panel">
-          {result && aeroMode === 'classic' && result.summary.maxMachNumber > 0.9 && (
+          {result && aeroMode === 'classic' && result.summary.maxMachNumber > MACH_AUTO_THRESHOLD && (
             <div className="file-note" role="alert">
               ⚠ This flight reaches <strong>Mach {result.summary.maxMachNumber.toFixed(2)}</strong> on
-              the classic aero model, which is approximate past ~Mach 0.9 — supersonic CP travel
+              the classic aero model, which is approximate past ~Mach {MACH_AUTO_THRESHOLD} — supersonic CP travel
               (the stability hazard on fast flights) is not modeled. A wind-tunnel-validated
               supersonic model is available. Note: a model applies to the <strong>entire
               flight</strong>, subsonic portions included, so stability and apogee will shift when
@@ -2521,7 +2616,12 @@ export function App() {
           )}
           {result && lastRun?.aeroModel === 'auto-supersonic' && (
             <div className="file-note">
-              Auto aero: this flight was projected past Mach 0.9, so the whole flight was flown
+              {/* States what the flight DID, not what was predicted: the model can also be
+                  chosen by the post-flight backstop, where the short probe projected
+                  subsonic and the full flight overruled it — "was projected past" is
+                  the opposite of what happened on that path. */}
+              Auto aero: this flight reaches <strong>Mach {result.summary.maxMachNumber.toFixed(2)}</strong>,
+              past the Mach {MACH_AUTO_THRESHOLD} threshold, so the whole flight was flown
               on the <strong>supersonic model</strong> (the displayed stability follows it too —
               subsonic flights of this design would fly classic).
             </div>

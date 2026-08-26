@@ -1,5 +1,16 @@
 import type { IgnitionEvent, MotorSpec } from '@online-openrocket/engine';
 
+/**
+ * Where Auto aero switches models: a flight (or probe) whose peak Mach
+ * exceeds this flies ENTIRELY on the supersonic model — transonic onset,
+ * where classic Barrowman aerodynamics starts degrading. Every Auto decision
+ * (the Launch probe and its full-flight backstop, both batch loops, the
+ * classic-model results alert) compares against this ONE number; the moment
+ * two of them disagreed, a flight could pass the probe and fail its own
+ * backstop forever, re-flying every launch.
+ */
+export const MACH_AUTO_THRESHOLD = 0.9;
+
 /** One mount's motor as the probe needs to see it. */
 export interface ProbeMotor {
   spec: MotorSpec;
@@ -35,11 +46,18 @@ export interface ProbeMotor {
  */
 export function machProbeSeconds(motors: readonly ProbeMotor[]): number {
   // Upper bound on how far a chain of stage-triggered ignitions can push the
-  // last motor's light-up: every motor's burn, plus every finite ejection
-  // delay, because an 'ejectioncharge' ignition waits for the charge and the
-  // charge waits out the delay after burnout. A plugged motor (delay Infinity)
-  // contributes nothing — it never fires a charge, so nothing can chain off it.
-  const chainBound = motors.reduce((sum, m) => sum + burnSeconds(m.spec)
+  // last motor's light-up. Each link can consume its own ignition delay, its
+  // burn, and its finite ejection delay — an 'ejectioncharge' ignition waits
+  // for the charge and the charge waits out the delay after burnout. The
+  // ignition delay is chain time even on a link that fires off the launch
+  // clock: a staged .CDX1 held its booster on a 12 s pad timer, so the
+  // sustainer (burnout + 22 s) lit at ~38 s while a burns-plus-ejections
+  // bound ended the probe at ~34 s — Auto read only the booster's Mach and
+  // flew a Mach ~4 flight on classic aero. A plugged motor (ejection delay
+  // Infinity) never fires a charge, so its ejection term is dropped; its own
+  // timer and burn still consume chain time and stay counted.
+  const chainBound = motors.reduce((sum, m) => sum + (m.ignition?.delay ?? 0)
+    + burnSeconds(m.spec)
     + (Number.isFinite(m.spec.ejectionDelay) ? m.spec.ejectionDelay : 0), 0);
   const single = motors.length === 1;
 
@@ -55,7 +73,10 @@ export function machProbeSeconds(motors: readonly ProbeMotor[]): number {
     // default — so the probe ended before the sustainer ever lit.
     const firesOffClock = event === 'launch'
       || (event === 'automatic' && (single || m.onLaunchStage === true));
-    const ignitesAt = firesOffClock ? delay : delay + chainBound;
+    // chainBound already carries this motor's own ignition delay, so the
+    // chained branch does not add `delay` again — the double count would be
+    // harmless (still an over-estimate) but would pad every staged probe.
+    const ignitesAt = firesOffClock ? delay : chainBound;
     latest = Math.max(latest, ignitesAt + burnSeconds(m.spec));
   }
   // +3 s covers the moment of continued acceleration after thrust tails off.

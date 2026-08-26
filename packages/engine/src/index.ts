@@ -20,6 +20,8 @@
  */
 
 export {
+  boosterBranches,
+  DEFAULT_TIME_STEP_S,
   OrkRocket,
   resetEngine,
   type ComponentInfo,

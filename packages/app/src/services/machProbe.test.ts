@@ -39,8 +39,9 @@ describe('machProbeSeconds', () => {
       spec: motor(6), onLaunchStage: true, ignition: { event: 'automatic' as const, delay: 0 },
     };
     const sustainer = { spec: motor(8), ignition: { event: 'burnout' as const, delay: 2 } };
-    // chain bound = (6 burn + 5 ejection) + (8 + 5) = 24; sustainer lights by
-    // 2 + 24 = 26 and finishes by 34; +3 s of post-burn acceleration.
+    // chain bound = (0 delay + 6 burn + 5 ejection) + (2 + 8 + 5) = 26; the
+    // sustainer lights by 26 and finishes by 34; +3 s of post-burn
+    // acceleration.
     expect(machProbeSeconds([booster, sustainer])).toBe(37);
   });
 
@@ -64,6 +65,27 @@ describe('machProbeSeconds', () => {
     // No onLaunchStage flags: assume the worst (chained), because reading a
     // chained sustainer as clock-relative is the silent-wrong-answer direction.
     expect(machProbeSeconds([{ spec: motor(2) }, { spec: motor(30) }])).toBeGreaterThan(33);
+  });
+
+  // A staged .CDX1 whose booster sat on a 12 s pad timer: the sustainer
+  // (burnout + 22 s) lit at ~38 s, but a bound summing only burns and
+  // ejection delays ended the probe first, so Auto read only the booster's
+  // Mach and flew a Mach ~4 flight on classic aero.
+  it("counts each motor's own ignition delay in the chain bound", () => {
+    const booster = {
+      spec: { ...motor(4), ejectionDelay: Infinity }, onLaunchStage: true,
+      ignition: { event: 'launch' as const, delay: 12 },
+    };
+    const sustainer = {
+      spec: { ...motor(2), ejectionDelay: Infinity },
+      ignition: { event: 'burnout' as const, delay: 22 },
+    };
+    // Both plugged, so no ejection terms: chain bound = (12 delay + 4 burn)
+    // + (22 + 2) = 40; the sustainer finishes by 42; +3 s of post-burn
+    // acceleration. The sustainer truly burns out at 12 + 4 + 22 + 2 = 40, so
+    // any cutoff under 40 ends the probe before peak Mach.
+    expect(machProbeSeconds([booster, sustainer])).toBe(45);
+    expect(machProbeSeconds([booster, sustainer])).toBeGreaterThanOrEqual(40);
   });
 
   it('does not chain off a plugged motor — it fires no ejection charge', () => {

@@ -62,6 +62,15 @@ export interface MotorSpec {
   ejectionDelay: number;
 }
 
+/**
+ * The integration time step (s) a simulation flies when none is given — the
+ * same 0.05 s desktop OpenRocket defaults to. This is THE definition: the
+ * launch panel's field copy, the .ork import floor and the session migration
+ * all derive from this constant, so retuning it retunes them together instead
+ * of leaving a clamp, a caution and a notice each quoting a different number.
+ */
+export const DEFAULT_TIME_STEP_S = 0.05;
+
 export interface SimulationOptions {
   launchRodLength?: number;
   /** Radians from vertical. */
@@ -77,6 +86,7 @@ export interface SimulationOptions {
   launchLatitude?: number;
   /** DEGREES (exception to the radians rule). */
   launchLongitude?: number;
+  /** Integration ceiling (s); default {@link DEFAULT_TIME_STEP_S}. */
   timeStep?: number;
   maxTime?: number;
   randomSeed?: number;
@@ -264,6 +274,17 @@ export interface FlightBranch {
   name: string;
   events: FlightEvent[];
   series: FlightSeries;
+}
+
+/**
+ * The separated-booster branches of a flight: everything but branch 0, which
+ * duplicates the top-level events/series (see {@link FlightBranch}). Consumers
+ * of `result.branches` want either the whole flight — the top-level fields —
+ * or the boosters; this is the ONE place the "boosters start at index 1"
+ * knowledge lives, so no call site has to re-derive which half branch 0 is.
+ */
+export function boosterBranches(result: FlightResult): FlightBranch[] {
+  return (result.branches ?? []).slice(1);
 }
 
 /**
@@ -599,7 +620,7 @@ export class OrkRocket {
       pressure: options.pressure,
       launchLatitude: options.launchLatitude,
       launchLongitude: options.launchLongitude,
-      timeStep: options.timeStep ?? 0.05,
+      timeStep: options.timeStep ?? DEFAULT_TIME_STEP_S,
       maxTime: options.maxTime,
       randomSeed: options.randomSeed,
       series: options.series,

@@ -1,4 +1,4 @@
-import type { FlightResult, FlightSeries } from '@online-openrocket/engine';
+import { boosterBranches, type FlightResult, type FlightSeries } from '@online-openrocket/engine';
 import { siToUi, type Quantity, type UnitSelection } from '../prefs/units.js';
 import { csvCell } from './csvUtil.js';
 
@@ -172,7 +172,7 @@ export function seriesColumns(series: FlightSeries, prefix = '', units?: UnitSel
  */
 export function flightDataCsv(result: FlightResult, units?: UnitSelection): string {
   const cols = seriesColumns(result.series, '', units);
-  for (const b of result.branches?.slice(1) ?? []) {
+  for (const b of boosterBranches(result)) {
     cols.push(...seriesColumns(b.series, `${b.name} — `, units));
   }
   const rowCount = Math.max(0, ...cols.map((c) => c.values.length));

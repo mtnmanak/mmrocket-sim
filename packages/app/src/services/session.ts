@@ -40,6 +40,14 @@ export interface SessionState {
    */
   timeStepWasClamped?: boolean;
   /**
+   * The step the clamp above replaced. Transient like the flag, and for the
+   * same reason: the clamp overwrites `launch.timeStepS` in place, so by the
+   * time the notice renders this is the only copy of the number left anywhere
+   * — panel, session and autosave all hold the default within ~400 ms. A
+   * notice that offers the old step back has to be able to name it.
+   */
+  timeStepClampedFromS?: number;
+  /**
    * What the user weighed and balanced (SI, airframe only — motor out), for
    * the Design tab's "Measured mass & CG" box (v0.061). Kept here rather than
    * in the .ork so the file format is untouched; the ballast it produces IS in
@@ -69,6 +77,45 @@ export interface SessionState {
  */
 export function sessionPredatesThisBuild(s: SessionState): boolean {
   return s.appVersion !== APP_VERSION;
+}
+
+/** The release that made the time step a visible Launch-panel field. */
+const TIME_STEP_FIELD_VERSION = '0.071';
+
+/**
+ * Is version `a` strictly earlier than `b`? Versions here follow the beta
+ * scheme in version.ts — '0.NNN', until a production '1.0.0' resets it — so
+ * compare numeric dot-segments, not strings: '0.100' vs '0.071' happens to
+ * sort right lexically only because NNN is zero-padded today — an unpadded
+ * '0.71' vs '0.100' would sort backwards, as would '9.0' vs a future
+ * '10.0'. Absent or unparsable counts as earlier than everything: a
+ * session that cannot say which build wrote it predates whatever field is
+ * being asked about, and migrating is the safe direction for one that old.
+ */
+function versionEarlierThan(a: string | undefined, b: string): boolean {
+  if (typeof a !== 'string' || a === '') return true;
+  const as = a.split('.').map(Number);
+  if (as.some((n) => !Number.isFinite(n))) return true;
+  const bs = b.split('.').map(Number);
+  for (let i = 0; i < Math.max(as.length, bs.length); i++) {
+    const av = as[i] ?? 0;
+    const bv = bs[i] ?? 0;
+    if (av !== bv) return av < bv;
+  }
+  return false;
+}
+
+/**
+ * Was this session written before the Time step field existed (v0.071)? Only
+ * such a session can be carrying a fine step it inherited invisibly from a
+ * design file; from v0.071 on the step is on screen and any sub-default value
+ * is the user's own entry. Deliberately NOT sessionPredatesThisBuild(): that
+ * is true after EVERY release, and this app releases near daily — gating the
+ * clamp on it would re-clamp a deliberately chosen step on each upgrade,
+ * forever, with a notice blaming a design file that had nothing to do with it.
+ */
+function sessionPredatesTimeStepField(s: SessionState): boolean {
+  return versionEarlierThan(s.appVersion, TIME_STEP_FIELD_VERSION);
 }
 
 export function loadSession(): SessionState | null {
@@ -101,11 +148,12 @@ export function loadSession(): SessionState | null {
     // the tester who reported 40-second flights is STILL flying 0.01 s after
     // upgrading: several times slower for no accuracy he can read, with nothing
     // on screen to explain it, because his session predates the field that
-    // would have shown it. Sessions written by THIS build are left alone — a
-    // sub-default step there is a choice the user made in the panel after being
-    // told what it costs.
-    if (sessionPredatesThisBuild(s) && s.launch
+    // would have shown it. Sessions written by v0.071 or later are left alone —
+    // a sub-default step there is a choice the user made in the panel after
+    // being told what it costs, and it must survive every upgrade after that.
+    if (sessionPredatesTimeStepField(s) && s.launch
         && s.launch.timeStepS != null && s.launch.timeStepS < MIN_IMPORTED_TIME_STEP_S) {
+      s.timeStepClampedFromS = s.launch.timeStepS;
       s.launch = { ...s.launch, timeStepS: MIN_IMPORTED_TIME_STEP_S };
       s.timeStepWasClamped = true;
     }

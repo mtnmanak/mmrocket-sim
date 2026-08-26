@@ -94,7 +94,7 @@ describe('kernel warnings + drift, end-to-end', () => {
    * A rocket the kernel refuses to fly comes back as a NORMAL result — no
    * exception, no engine warning — just a truncated series and a SIM_ABORT
    * event. Before this the app showed the resulting apogee-0 "flight" with
-   * nothing at all to say why. On the beta test corpus 21 of 72 flyable
+   * nothing at all to say why. On the beta test corpus 17 of the 72 flyable
    * imports end this way, so the silent version was not a corner case.
    */
   it('a rocket that cannot fly surfaces SIM_ABORT — with the reason the kernel gave', async () => {

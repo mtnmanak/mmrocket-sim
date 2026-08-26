@@ -1658,6 +1658,8 @@ function iocr_RocketComponent() {
     a.$axialOffset = 0.0;
     a.$position = null;
     a.$locationsCache = null;
+    a.$locationsCacheRoot = null;
+    a.$locationsCacheModID = null;
     a.$color = null;
     a.$lineStyle = null;
     a.$overrideMass = 0.0;
@@ -1703,6 +1705,9 @@ iocr_RocketComponent__init_ = ($this, $newAxialMethod) => {
     $this.$axialOffset = 0.0;
     $this.$position = iocu_Coordinate__init_8();
     $this.$locationsCache = null;
+    $this.$locationsCacheRoot = null;
+    iocu_ModID_$callClinit();
+    $this.$locationsCacheModID = iocu_ModID_INVALID;
     $this.$color = null;
     $this.$lineStyle = null;
     $this.$overrideMass = 0.0;
@@ -1833,6 +1838,9 @@ iocr_RocketComponent_clone = $this => {
     let $clone, $icch;
     $clone = jl_Object_clone($this);
     $clone.$locationsCache = null;
+    $clone.$locationsCacheRoot = null;
+    iocu_ModID_$callClinit();
+    $clone.$locationsCacheModID = iocu_ModID_INVALID;
     if ($rt_isInstance($clone, iocr_InsideColorComponent) && $rt_isInstance($this, iocr_InsideColorComponent)) {
         $icch = iocr_InsideColorComponentHandler__init_($clone);
         $icch.$copyFrom($this.$getInsideColorComponentHandler());
@@ -2371,42 +2379,57 @@ iocr_RocketComponent_getInstanceOffsets = $this => {
     return var$1;
 },
 iocr_RocketComponent_getComponentLocations = $this => {
-    let var$1, $parentPositions, $parentCount, $instanceLocations, var$5, $instanceCount, $parentRotations, $rotation, var$9, $thisCount, $thesePositions, $pi, $ii;
-    if ($this.$locationsCache !== null)
-        return $this.$locationsCache;
-    if ($this.$parent === null) {
-        var$1 = $this.$getInstanceOffsets();
-        $this.$locationsCache = var$1;
-        return var$1;
+    let $root, var$2, var$3, $result, $parentPositions, var$6, $parentCount, $instanceLocations, var$9, $instanceCount, $parentRotations, $rotation, $thisCount, $pi, $ii;
+    $root = $this;
+    while ($root.$parent !== null) {
+        $root = $root.$parent;
     }
-    $parentPositions = $this.$parent.$getComponentLocations();
-    var$1 = $parentPositions.data;
-    $parentCount = var$1.length;
-    $instanceLocations = $this.$getInstanceLocations();
-    var$5 = $instanceLocations.data;
-    $instanceCount = var$5.length;
-    $parentRotations = $this.$parent.$getComponentAngles();
-    if ($parentCount == 1 && $instanceCount == 1) {
-        $rotation = iocu_Transformation_getRotationTransform($parentRotations.data[0], $this.$position);
-        var$9 = $rt_createArray(iocu_Coordinate, 1);
-        var$9.data[0] = iocu_Coordinate_add(var$1[0], $rotation.$transform(var$5[0]));
-        $this.$locationsCache = var$9;
-        return var$9;
+    if ($this.$locationsCache !== null && $root === $this.$locationsCacheRoot) {
+        var$2 = $this.$locationsCacheModID;
+        var$3 = $this.$locationsCacheRoot;
+        if (var$2 === var$3.$getModID())
+            return $this.$locationsCache;
     }
-    $thisCount = $rt_imul($instanceCount, $parentCount);
-    $thesePositions = $rt_createArray(iocu_Coordinate, $thisCount);
-    $pi = 0;
-    while ($pi < $parentCount) {
-        $rotation = iocu_Transformation_getRotationTransform($parentRotations.data[$pi], $this.$position);
-        $ii = 0;
-        while ($ii < $instanceCount) {
-            $thesePositions.data[$pi + $rt_imul($parentCount, $ii) | 0] = iocu_Coordinate_add(var$1[$pi], $rotation.$transform(var$5[$ii]));
-            $ii = $ii + 1 | 0;
+    if ($this.$parent === null)
+        $result = $this.$getInstanceOffsets();
+    else {
+        $parentPositions = $this.$parent.$getComponentLocations();
+        var$6 = $parentPositions.data;
+        $parentCount = var$6.length;
+        $instanceLocations = $this.$getInstanceLocations();
+        var$9 = $instanceLocations.data;
+        $instanceCount = var$9.length;
+        $parentRotations = $this.$parent.$getComponentAngles();
+        if ($parentCount == 1 && $instanceCount == 1) {
+            $rotation = iocu_Transformation_getRotationTransform($parentRotations.data[0], $this.$position);
+            $result = $rt_createArray(iocu_Coordinate, 1);
+            $result.data[0] = iocu_Coordinate_add(var$6[0], $rotation.$transform(var$9[0]));
+        } else {
+            $thisCount = $rt_imul($instanceCount, $parentCount);
+            $result = $rt_createArray(iocu_Coordinate, $thisCount);
+            $pi = 0;
+            while ($pi < $parentCount) {
+                $rotation = iocu_Transformation_getRotationTransform($parentRotations.data[$pi], $this.$position);
+                $ii = 0;
+                while ($ii < $instanceCount) {
+                    $result.data[$pi + $rt_imul($parentCount, $ii) | 0] = iocu_Coordinate_add(var$6[$pi], $rotation.$transform(var$9[$ii]));
+                    $ii = $ii + 1 | 0;
+                }
+                $pi = $pi + 1 | 0;
+            }
         }
-        $pi = $pi + 1 | 0;
     }
-    $this.$locationsCache = $thesePositions;
-    return $thesePositions;
+    if ($root instanceof iocr_Rocket) {
+        $this.$locationsCacheRoot = $root;
+        $this.$locationsCacheModID = $this.$locationsCacheRoot.$getModID();
+        $this.$locationsCache = $result;
+    } else {
+        $this.$locationsCacheRoot = null;
+        iocu_ModID_$callClinit();
+        $this.$locationsCacheModID = iocu_ModID_INVALID;
+        $this.$locationsCache = null;
+    }
+    return $result;
 },
 iocr_RocketComponent_getInstanceAngles = $this => {
     return $rt_createDoubleArray($this.$getInstanceCount());
@@ -44518,6 +44541,7 @@ iocr_FlightConfiguration_copyStages = ($this, $other) => {
         $cur = var$2.$next();
         $this.$stages.$put(jl_Integer_valueOf($cur.$stageNumber), iocr_FlightConfiguration$StageFlags__init_($this, $cur.$stageNumber, $cur.$stageId, $cur.$active));
     }
+    iocr_FlightConfiguration_invalidateStructureMassMemo($this);
     iocr_FlightConfiguration_updateMotors($this);
     iocr_FlightConfiguration_updateActiveInstances($this);
 },
@@ -44530,6 +44554,7 @@ iocr_FlightConfiguration_copyStageActiveness = ($this, $other) => {
         if ($otherFlags !== null)
             $flags.$active = $otherFlags.$active;
     }
+    iocr_FlightConfiguration_invalidateStructureMassMemo($this);
     iocr_FlightConfiguration_updateMotors($this);
     iocr_FlightConfiguration_updateActiveInstances($this);
 },
@@ -44701,9 +44726,7 @@ iocr_FlightConfiguration_fireChangeEvent = $this => {
     $this.$modID3 = iocu_ModID__init_();
     $this.$boundsModID = iocu_ModID_INVALID;
     $this.$refLengthModID = iocu_ModID_INVALID;
-    $this.$structureMassConfigModID = iocu_ModID_INVALID;
-    $this.$structureMassRocketModID = iocu_ModID_INVALID;
-    $this.$cachedStructureMass = null;
+    iocr_FlightConfiguration_invalidateStructureMassMemo($this);
     iocr_FlightConfiguration_updateStages($this);
     iocr_FlightConfiguration_updateMotors($this);
     iocr_FlightConfiguration_updateActiveInstances($this);
@@ -44920,6 +44943,12 @@ let iocr_FlightConfiguration_setCachedStructureMass = ($this, $body) => {
     $this.$cachedStructureMass = $body;
     $this.$structureMassConfigModID = $this.$modID3;
     $this.$structureMassRocketModID = $this.$rocket.$getMassModID();
+},
+iocr_FlightConfiguration_invalidateStructureMassMemo = $this => {
+    iocu_ModID_$callClinit();
+    $this.$structureMassConfigModID = iocu_ModID_INVALID;
+    $this.$structureMassRocketModID = iocu_ModID_INVALID;
+    $this.$cachedStructureMass = null;
 },
 iocr_FlightConfiguration_getModID = $this => {
     return $this.$modID3;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
-import { bodyDragReference, engineTree, findNode, hasParallelStage, makeNode, motorMounts, normalizeTree, protuberanceCd, protuberanceDeliveredCd, PROTUBERANCE_REF_MACH, referenceArea, resetBodyDragCache, splitClusterPairsTree, splitClusterTree } from './treeModel.js';
+import { bodyDragReference, engineTree, findNode, hasParallelStage, isOnLaunchStage, makeNode, motorMounts, mountsIn, normalizeTree, protuberanceCd, protuberanceDeliveredCd, PROTUBERANCE_REF_MACH, referenceArea, resetBodyDragCache, splitClusterPairsTree, splitClusterTree } from './treeModel.js';
 import { clusterOffsets } from './cluster.js';
 import { allowedChildren, defaultParams, DISPLAY_NAME, FIELDS } from './schema.js';
 
@@ -200,6 +200,23 @@ describe('off-axis assemblies (pods / parallel stages) — Phase 1 foundation', 
     expect(motorMounts(full).map((m) => m.id).sort()).toEqual(['c4', 'c7']);
   });
 
+  it('mountsIn scopes to a subtree and keeps the tube-type filter', () => {
+    // The subtree form is what the file importers use to resolve one stage's
+    // engine slot; it must honour the same filter motorMounts always had —
+    // the .CDX1 importer's private copy had dropped the type check, so a
+    // motorMount flag landing on any other component type would have made
+    // that importer disagree with the motor panel about what a mount is.
+    const full = withPod();
+    const stage = full.components[0]!;
+    const flaggedChute = {
+      type: 'parachute', id: 'c8', motorMount: true,
+    } as ComponentNode;
+    stage.children!.push(flaggedChute);
+    expect(mountsIn(stage.children ?? []).map((m) => m.id).sort()).toEqual(['c4', 'c7']);
+    // Scoped: the pod's own subtree sees only its internal mount.
+    expect(mountsIn(findNode(full, 'c5')!.children ?? []).map((m) => m.id)).toEqual(['c7']);
+  });
+
   it('hasParallelStage detects a nested booster (drives the batch-sim gate)', () => {
     expect(hasParallelStage(withPod())).toBe(true);
     const podOnly: RocketTree = {
@@ -220,6 +237,35 @@ describe('off-axis assemblies (pods / parallel stages) — Phase 1 foundation', 
     const booster = findNode(out, 'c5');
     expect(booster?.type).toBe('parallelstage');
     expect(out.components.some((n) => n.type === 'parallelstage')).toBe(false);
+  });
+});
+
+describe('isOnLaunchStage — the launch stage is the LAST one', () => {
+  // The auto-aero Mach probe's cutoff turns entirely on this flag: only
+  // launch-stage motors fire off the clock. Launch and the batch runner each
+  // used to hand-roll the index compare; this is the one definition now.
+  const staged: RocketTree = {
+    name: 'two-stage',
+    components: [
+      {
+        type: 'stage', id: 's0', name: 'Sustainer',
+        children: [{ type: 'bodytube', id: 'b0', length: 0.3, children: [{ type: 'innertube', id: 'm0', motorMount: true } as ComponentNode] } as ComponentNode],
+      } as ComponentNode,
+      {
+        type: 'stage', id: 's1', name: 'Booster',
+        children: [{ type: 'bodytube', id: 'b1', length: 0.2, motorMount: true } as ComponentNode],
+      } as ComponentNode,
+    ],
+  };
+
+  it('is true only for the bottom stage — stage 0 is the sustainer', () => {
+    expect(isOnLaunchStage(staged, 'm0')).toBe(false);
+    expect(isOnLaunchStage(staged, 'b1')).toBe(true);
+  });
+
+  it('a single-stage design launches its own (only) stage', () => {
+    const single: RocketTree = { name: 's', components: [staged.components[0]!] };
+    expect(isOnLaunchStage(single, 'm0')).toBe(true);
   });
 });
 

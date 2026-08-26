@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { FlightResult, FlightSeries, StaticInfo } from '@online-openrocket/engine';
 import {
   buildSimRun, extractLandingDrift, extractMaxRollRate, formatStability, recommendDelay,
-  ROLL_RATE_MEANINGFUL_RAD_S, SAFETY, stabilityPercent,
+  ROLL_RATE_MEANINGFUL_RAD_S, SAFETY, stabilityPercent, storedSimCost,
 } from './simReport.js';
 import { runsToCsv } from './simStore.js';
 import { DEFAULT_CONDITIONS } from '../components/LaunchPanel.js';
@@ -608,5 +608,46 @@ describe('SIM_ABORT surfacing', () => {
       launch: DEFAULT_CONDITIONS, rocketName: 'R', execMs: 1,
     });
     expect(run.simWarnings!.filter((x) => x.key === 'SIM_ABORT')).toHaveLength(2);
+  });
+});
+
+/**
+ * The time-step caution's cost reference from STORED runs — what keeps the
+ * seconds estimate alive across a reload, and what stops one rocket's
+ * measured flight time from pricing another's.
+ */
+describe('storedSimCost', () => {
+  const stored = (rocket: string, execMs: number, timeStepS?: number) => buildSimRun({
+    result: fakeResult(), info, motor, meta: { label: 'C6-5' },
+    launch: { ...DEFAULT_CONDITIONS, ...(timeStepS !== undefined ? { timeStepS } : {}) },
+    rocketName: rocket, execMs,
+  });
+
+  it('reads the newest run of THIS design, with the step it was measured at', () => {
+    // Newest first, the order simStore keeps. timeStepS must ride along:
+    // without it the caution scales a 0.01 s measurement as if it were made
+    // at the default and quotes ~4-5x the real cost.
+    const runs = [stored('Alpha', 2100, 0.01), stored('Alpha', 8000, 0.01)];
+    expect(storedSimCost(runs, 'Alpha')).toEqual({ ms: 2100, timeStepS: 0.01 });
+  });
+
+  it("never prices one rocket's flight with another's", () => {
+    // The reported shape: fly Mach2.trf.ork (~12 s), open a small sport
+    // model, and the caution quoted "roughly 64 s per flight" for a rocket
+    // that flies in two.
+    expect(storedSimCost([stored('Mach2', 12000, 0.01)], 'Sport Model')).toBeNull();
+    expect(storedSimCost([], 'Sport Model')).toBeNull();
+  });
+
+  it('leaves timeStepS absent for a run flown at the engine default', () => {
+    const cost = storedSimCost([stored('Alpha', 900)], 'Alpha')!;
+    expect(cost.ms).toBe(900);
+    expect('timeStepS' in cost).toBe(false);
+  });
+
+  it('skips an unusable measurement and keeps looking', () => {
+    const zero = stored('Alpha', 0);
+    expect(storedSimCost([zero], 'Alpha')).toBeNull();
+    expect(storedSimCost([zero, stored('Alpha', 1500)], 'Alpha')).toEqual({ ms: 1500 });
   });
 });

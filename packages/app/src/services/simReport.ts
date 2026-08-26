@@ -1,5 +1,5 @@
 import type { EngineWarning, FlightEvent, FlightResult, FlightSeries, MotorSpec, StaticInfo } from '@online-openrocket/engine';
-import { G0 } from '@online-openrocket/engine';
+import { boosterBranches, G0 } from '@online-openrocket/engine';
 import type { LaunchConditions } from '../components/LaunchPanel.js';
 import { displayDesignation } from './motorDb.js';
 import { formatWarningText } from './simWarnings.js';
@@ -286,7 +286,7 @@ export interface SimRun {
    * default. Recorded because it is the one launch setting that changes how
    * LONG a flight takes rather than how it flies, so the launch panel needs to
    * know what a stored `execMs` was measured at before it can estimate the cost
-   * of a different one.
+   * of a different one. {@link storedSimCost} is that reader.
    */
   timeStepS?: number;
   execMs: number;
@@ -316,6 +316,26 @@ export interface SimRun {
    */
   flightConfig?: string;
   comments: string;
+}
+
+/**
+ * The launch panel's time-step-caution cost reference when this session has
+ * not flown yet: the newest stored run of THIS design. Stored runs carry
+ * `execMs` and the step it was measured at (`timeStepS` above) precisely so
+ * the seconds estimate survives a reload — without a reader the caution
+ * degraded to the bare multiplier the moment the tab closed. Matched by
+ * rocket name (a stored run has no design identity beyond it), and ONLY that
+ * name: another rocket's twelve-second flight must never price this one's.
+ * An absent timeStepS stays absent — it means the run flew the engine
+ * default, and the caution scales from that.
+ */
+export function storedSimCost(
+  runs: readonly SimRun[], rocketName: string,
+): { ms: number; timeStepS?: number } | null {
+  const r = runs.find((run) => run.rocket === rocketName
+    && Number.isFinite(run.execMs) && run.execMs > 0);
+  if (!r) return null;
+  return { ms: r.execMs, ...(r.timeStepS != null ? { timeStepS: r.timeStepS } : {}) };
 }
 
 /** Linear interpolation of a series value at time t. */
@@ -405,11 +425,10 @@ function abortWarnings(result: FlightResult): EngineWarning[] {
   // EVERY branch, not just branch 0. A staged rocket's booster flies its own
   // branch, and the kernel can abort that one alone — leaving the sustainer's
   // numbers perfectly good while the booster's truncated apogee is rendered
-  // beside them as if it were a real flight. `result.events` is branch 0 only;
-  // `result.branches[0]` IS branch 0, so the rest start at index 1.
+  // beside them as if it were a real flight. `result.events` is branch 0.
   const branches: { name?: string; events: FlightEvent[] }[] = [
     { events: result.events ?? [] },
-    ...(result.branches ?? []).slice(1).map((b) => ({ name: b.name, events: b.events ?? [] })),
+    ...boosterBranches(result).map((b) => ({ name: b.name, events: b.events ?? [] })),
   ];
   const out: EngineWarning[] = [];
   for (const b of branches) {
@@ -600,7 +619,7 @@ export function buildSimRun(input: {
   // Booster branches (staged flights): each separated stage flies its OWN
   // descent — apogee, recovery (or tumble), and landing verdict per stage.
   const branches: BranchReport[] = [];
-  for (const b of result.branches?.slice(1) ?? []) {
+  for (const b of boosterBranches(result)) {
     const alt = b.series.altitude.filter((v): v is number => v !== null && Number.isFinite(v));
     const groundEv = b.events.find((e) => e.type === 'GROUND_HIT');
     const vHit = groundEv ? at(b.series.time, b.series.velocity, groundEv.time) : null;

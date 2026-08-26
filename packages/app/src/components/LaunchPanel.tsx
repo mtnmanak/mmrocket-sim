@@ -1,4 +1,4 @@
-import type { SimulationOptions } from '@online-openrocket/engine';
+import { DEFAULT_TIME_STEP_S, type SimulationOptions } from '@online-openrocket/engine';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { niceStep, siToUi, uiToSi, type Quantity } from '../prefs/units.js';
 import { Icon } from './Icon.js';
@@ -61,9 +61,21 @@ export function kernelSimOptions(l: LaunchConditions): SimulationOptions {
 /**
  * The engine's — and desktop OpenRocket's — default integration time step, and
  * the floor an imported design file is clamped to. Finer is slower and NOT more
- * accurate; see `timeStepCostFactor` for the measurement.
+ * accurate; see `timeStepCostFactor` for the measurement. Re-exported from the
+ * engine package, which owns the actual `?? DEFAULT_TIME_STEP_S` fallback a
+ * simulation flies — the panel copy quoting one number while the engine flew
+ * another is exactly the drift a single definition rules out.
  */
-export const DEFAULT_TIME_STEP_S = 0.05;
+export { DEFAULT_TIME_STEP_S };
+
+/**
+ * Where the Time step field bottoms out — its NumField `min` below, matching
+ * desktop OpenRocket's own spinner minimum. This is the app's HARD floor, on
+ * every path: the field refuses a smaller value and displays it as "0", so
+ * .ork import (even of our own files — see importOrk's clamp) never lets one
+ * through to the engine either.
+ */
+export const PANEL_TIME_STEP_FLOOR_S = 0.01;
 
 /**
  * Roughly how much longer a flight takes at `dt` than at the 0.05 s default.
@@ -169,10 +181,20 @@ export function LaunchField({ label, field, value, onChange, stepStored, min, ma
  * forty seconds a flight to a 0.01 s step he could not see, so the cost is
  * stated in seconds wherever we know the last flight's actual duration, and as
  * a multiplier when we do not.
+ *
+ * Exported for the batch dialog, which honours the same step and pays the same
+ * cost per flight — times its whole candidate list.
  */
-function TimeStepCaution({ dt, lastRun }: {
+export function TimeStepCaution({ dt, lastRun, flights = 1 }: {
   dt?: number | null;
   lastRun?: { ms: number; timeStepS?: number } | null;
+  /**
+   * How many flights the run this caution guards will fly: 1 (the default)
+   * for the Launch button, the candidate count for the batch dialog. The
+   * batch multiplies the cost by this, and a per-flight figure there would
+   * hide a minutes-long freeze behind a seconds-long one.
+   */
+  flights?: number;
 }) {
   if (dt == null || dt >= DEFAULT_TIME_STEP_S) return null;
   const factor = timeStepCostFactor(dt);
@@ -187,12 +209,17 @@ function TimeStepCaution({ dt, lastRun }: {
     <p className="field-caution" role="status">
       <Icon name="zap" size={13} />{' '}
       <strong>{dt} s is finer than the {DEFAULT_TIME_STEP_S} s default.</strong>{' '}
-      Flights take about <strong>{factor.toFixed(1)}×</strong> longer
-      {perFlight !== null && atDefault !== null
-        ? <> — roughly <strong>{perFlight < 10 ? perFlight.toFixed(1) : perFlight.toFixed(0)} s</strong>{' '}
-            per flight instead of {atDefault < 10 ? atDefault.toFixed(1) : atDefault.toFixed(0)} s</>
-        : null}
-      , and the page cannot respond while one runs. In our testing it buys no
+      {flights > 1
+        ? <>The whole batch — <strong>{flights}</strong> flights — takes
+            about <strong>{factor.toFixed(1)}×</strong> longer, and each flight locks
+            the page while it runs; Stop takes effect between them.</>
+        : <>Flights take about <strong>{factor.toFixed(1)}×</strong> longer
+            {perFlight !== null && atDefault !== null
+              ? <> — roughly <strong>{perFlight < 10 ? perFlight.toFixed(1) : perFlight.toFixed(0)} s</strong>{' '}
+                  per flight instead of {atDefault < 10 ? atDefault.toFixed(1) : atDefault.toFixed(0)} s</>
+              : null}
+            , and the page cannot respond while one runs.</>}
+      {' '}In our testing it buys no
       accuracy you can read: against a converged reference, {DEFAULT_TIME_STEP_S} s
       lands apogee within 0.06 m on a 6.4 km flight and raises exactly the same
       warnings. See <em>Launch Conditions → Time step</em> in the Guide.
@@ -237,10 +264,11 @@ export function LaunchPanel({ value, onChange, onLaunch, simulating, lastRun }: 
             warning set. The simulator already shortens the step by itself where
             the flight is changing fast, and lands exactly on each event — this
             is a ceiling, not the step.
-            Floor 0.01, matching desktop OpenRocket's own spinner minimum: below
-            that the cost runs away (0.001 is ~2 minutes of frozen tab on a file
-            this release exists to make fast) for no measurable accuracy. */}
-        {numField('Time step (s)', 'timeStepS', 0.01, 0.01, 1, true)}
+            Floor 0.01 (PANEL_TIME_STEP_FLOOR_S), matching desktop OpenRocket's
+            own spinner minimum: below that the cost runs away (0.001 is ~2 minutes
+            of frozen tab on a file this release exists to make fast) for no
+            measurable accuracy. */}
+        {numField('Time step (s)', 'timeStepS', 0.01, PANEL_TIME_STEP_FLOOR_S, 1, true)}
       </div>
       <TimeStepCaution dt={value.timeStepS} lastRun={lastRun} />
       <button className="launch-btn" onClick={onLaunch} disabled={simulating}>

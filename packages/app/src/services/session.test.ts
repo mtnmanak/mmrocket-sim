@@ -188,3 +188,71 @@ describe('a design restored from autosave remembers which build imported it', ()
     expect(sessionPredatesThisBuild(loadSession()!)).toBe(false);
   });
 });
+
+describe('the one-time v0.071 time-step migration fires exactly once', () => {
+  const KEY = 'online-openrocket.session.v1';
+  /** A session carrying a 0.01 s step, stamped as if written by `version`. */
+  const stampFineStep = (version: string | undefined) => {
+    saveSessionDebounced({ ...state(), launch: { ...state().launch, timeStepS: 0.01 } });
+    vi.runAllTimers();
+    const raw = JSON.parse(localStorage.getItem(KEY)!) as Record<string, unknown>;
+    if (version === undefined) delete raw['appVersion'];
+    else raw['appVersion'] = version;
+    localStorage.setItem(KEY, JSON.stringify(raw));
+  };
+
+  it('a pre-0.071 session is raised to the default, once, with the notice flag', () => {
+    stampFineStep('0.070');
+    const s = loadSession()!;
+    expect(s.launch.timeStepS).toBe(0.05);
+    expect(s.timeStepWasClamped).toBe(true);
+  });
+
+  it('records the step it replaced — the notice has to be able to name it', () => {
+    // The clamp overwrites launch.timeStepS in place, so without this the old
+    // value survives nowhere and the notice can only offer "it" back.
+    stampFineStep('0.070');
+    const s = loadSession()!;
+    expect(s.timeStepClampedFromS).toBe(0.01);
+  });
+
+  it('leaves no replaced-step value on a session it did not clamp', () => {
+    stampFineStep('0.071');
+    const s = loadSession()!;
+    expect(s.timeStepWasClamped).toBeUndefined();
+    expect(s.timeStepClampedFromS).toBeUndefined();
+  });
+
+  it('a session with no appVersion at all predates the field — raised', () => {
+    stampFineStep(undefined);
+    const s = loadSession()!;
+    expect(s.launch.timeStepS).toBe(0.05);
+    expect(s.timeStepWasClamped).toBe(true);
+  });
+
+  it('a 0.071 session keeps a fine step — it was typed into the panel', () => {
+    stampFineStep('0.071');
+    const s = loadSession()!;
+    expect(s.launch.timeStepS).toBe(0.01);
+    expect(s.timeStepWasClamped).toBeUndefined();
+  });
+
+  it('a session from a LATER build is never re-clamped by an upgrade', () => {
+    // The original gate was "appVersion !== the running build", which is true
+    // after EVERY release — so a step the user chose in v0.071's panel was
+    // clamped back on the v0.072 upgrade, with a notice blaming a design file.
+    // '0.100' also guards the compare itself: it must sort after '0.071'
+    // numerically, not by string luck.
+    for (const v of ['0.072', '0.100']) {
+      stampFineStep(v);
+      const s = loadSession()!;
+      expect(s.launch.timeStepS).toBe(0.01);
+      expect(s.timeStepWasClamped).toBeUndefined();
+    }
+  });
+
+  it('a malformed appVersion is treated as old — migrating is the safe side', () => {
+    stampFineStep('not-a-version');
+    expect(loadSession()!.launch.timeStepS).toBe(0.05);
+  });
+});

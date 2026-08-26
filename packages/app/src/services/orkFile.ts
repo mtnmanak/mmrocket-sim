@@ -1,6 +1,6 @@
 import { unzipSync, strFromU8 } from 'fflate';
 import type { ComponentNode, ComponentPosition, ComponentType, RocketTree } from '@online-openrocket/engine';
-import type { LaunchConditions } from '../components/LaunchPanel.js';
+import { DEFAULT_TIME_STEP_S, PANEL_TIME_STEP_FLOOR_S, type LaunchConditions } from '../components/LaunchPanel.js';
 import { asStageNodes, freshId } from '../tree/treeModel.js';
 import { shapeIsClippable, shapeParamDefault } from '../tree/shapeProfile.js';
 import { escapeXml, xmlText as text } from './xmlUtil.js';
@@ -945,11 +945,16 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
  * the desktop still writes alongside it.
  */
 /**
- * Floor for a `<timestep>` read out of a design file — OpenRocket's own default,
- * and the value 24.12's tooltip calls "quite accurate" for its 4th-order method.
- * See the clamp below for the measurement that justifies it.
+ * Floor for a `<timestep>` read out of a foreign design file. A distinct NAME
+ * from the engine default on purpose — "what a simulation flies when nothing
+ * is set" and "how low import lets a foreign file drag the step" are two
+ * decisions — but the same VALUE by definition: the clamp's whole meaning is
+ * "raise the file's step to the default", the value 24.12's tooltip calls
+ * "quite accurate" for its 4th-order method. If the two ever need to diverge,
+ * break this alias deliberately, then re-read the clamp note below — it
+ * quotes both.
  */
-export const MIN_IMPORTED_TIME_STEP_S = 0.05;
+export const MIN_IMPORTED_TIME_STEP_S: number = DEFAULT_TIME_STEP_S;
 
 /**
  * The `creator` attribute this app stamps on every .ork it writes. Read back on
@@ -957,6 +962,15 @@ export const MIN_IMPORTED_TIME_STEP_S = 0.05;
  * about) from a foreign one (whose settings they have never seen).
  */
 export const ORK_CREATOR = 'MMRocket Sim';
+
+/**
+ * A `<timestep>` arrives as a raw double parsed from XML, and a tool-written
+ * or hand-edited file can carry float noise no one typed (0.037000000000000005
+ * is one representable double below 0.05). Six significant digits round-trip
+ * anything the desktop's spinner can produce and shed the noise, so a note
+ * quotes the number the file's author meant, not the bits.
+ */
+export const fmtStepS = (s: number): string => String(Number(s.toPrecision(6)));
 
 function readLaunchConditions(
   doc: Document, notes: string[], chosenConfigId?: string | null,
@@ -1050,15 +1064,38 @@ function readLaunchConditions(
     // back on reopen would silently undo their own deliberate setting, and no
     // amount of notice text makes that acceptable: their design would not
     // survive a save-and-reopen, or a share link.
+    //
+    // Trusting our creator stamp is trusting the SETTING's provenance, not the
+    // number next to it: a shared .ork is one hand-edit away from
+    // <timestep>0.0001</timestep>, roughly 270x the cost of the default — the
+    // frozen-tab failure v0.071 shipped to fix — behind a panel field that
+    // displays it as "0" and refuses to take it back. So even our own files
+    // keep the panel's hard floor: a step the field cannot show or re-enter
+    // never reaches the engine.
     const ourOwnFile = doc.documentElement?.getAttribute('creator') === ORK_CREATOR;
-    launch.timeStepS = ourOwnFile ? step : Math.max(step, MIN_IMPORTED_TIME_STEP_S);
-    if (step < MIN_IMPORTED_TIME_STEP_S && !ourOwnFile) {
+    const floorS = ourOwnFile ? PANEL_TIME_STEP_FLOOR_S : MIN_IMPORTED_TIME_STEP_S;
+    launch.timeStepS = Math.max(step, floorS);
+    if (step < PANEL_TIME_STEP_FLOOR_S) {
+      // Below the panel's floor there is no "set it back" — NumField refuses
+      // anything under 0.01 — so a note promising restoration would promise
+      // the impossible. Say what the file asked for and why it stops here.
+      // Two floors can apply at once, and naming only one left the sentence
+      // with an unexplained second number: a foreign file asking 0.005 is
+      // below the panel's 0.01 AND lands on the 0.05 an imported design
+      // starts at. Say which number came from where.
       notes.push(
-        `This design's simulation asks for a ${step} s time step. It is being flown at `
+        `This design's simulation asks for a ${fmtStepS(step)} s time step — below the `
+        + `${fmtStepS(PANEL_TIME_STEP_FLOOR_S)} s minimum of the Time step field, which matches `
+        + `desktop OpenRocket's own. It is being flown at ${fmtStepS(floorS)} s instead`
+        + (floorS === PANEL_TIME_STEP_FLOOR_S ? '' : ', the step an imported design starts at')
+        + ': a finer step costs multiples of the run time and buys no accuracy you can read.');
+    } else if (step < MIN_IMPORTED_TIME_STEP_S && !ourOwnFile) {
+      notes.push(
+        `This design's simulation asks for a ${fmtStepS(step)} s time step. It is being flown at `
         + `${MIN_IMPORTED_TIME_STEP_S} s instead, which is several times faster and — measured `
         + 'against a converged reference on four designs — lands apogee within 0.06 m on a 6.4 km '
-        + `flight and raises exactly the same warnings. You can set it back to ${step} s under `
-        + 'Time step in the Launch panel; it will tell you what that costs.');
+        + `flight and raises exactly the same warnings. You can set it back to ${fmtStepS(step)} s `
+        + 'under Time step in the Launch panel; it will tell you what that costs.');
     }
   }
 
@@ -1976,7 +2013,7 @@ export function exportOrk({
       // step was clamped on the way in and its panel field says so, so this
       // writes the clamped value, not the original — which is the honest thing
       // to write, because the clamped value is what produced the results.)
-      emit(4, `<timestep>${launch.timeStepS ?? MIN_IMPORTED_TIME_STEP_S}</timestep>`);
+      emit(4, `<timestep>${launch.timeStepS ?? DEFAULT_TIME_STEP_S}</timestep>`);
       emit(4, '<maxtime>1200.0</maxtime>');
       emit(3, '</conditions>');
       emit(2, '</simulation>');
