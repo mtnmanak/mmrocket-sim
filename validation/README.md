@@ -10,6 +10,7 @@ and every caveat behind the tolerances used here.
 ```
 npm run build -w @online-openrocket/engine   # harness imports packages/engine/dist
 node validation/score.mjs                    # classic Extended Barrowman (flag off)
+node validation/score.mjs --kbf              # Rogers Kbf — THE MODEL THE APP LAUNCHES WITH
 node validation/score.mjs --supersonic       # the opt-in supersonic aero model
 node validation/score.mjs --strict           # exit 1 unless every gate point passes
 ```
@@ -28,7 +29,7 @@ read of a different image by the same code (rms 0.0010), the four-way spread at 
 (0.0036), an earlier independent read of the same figure's x_cp panel (~1 %L), and the
 report's own prose about where its two fins-off curves cross (M0.975 — reproduced exactly).
 **10 of the 11 gates fail in both models**, and they fail in *opposite* directions at
-opposite ends of the Mach range: classic 11/175 (6.3 %), supersonic 71/175 (40.6 %), with
+opposite ends of the Mach range: classic 10/175 (5.7 %), supersonic 71/175 (40.6 %), with
 all five other cells byte-identical. The base-drag panel (C_A,b) was digitized too, its sign
 convention established from the report and demonstrated against the report's own C_p,b
 figures — and then deliberately **not** gated, because the tunnel base is sting-dominated
@@ -104,7 +105,8 @@ revised anchors is `scorecard-audit-2026-08-04.md`.
 | Supersonic, Phase 5 + Phase 6 (164 gates) | 70/164 (42.7%) | `scorecard-phase6-2026-08-25.md` |
 | Classic, + fins-off gates (166) | 10/166 (6.0%) | `scorecard-finsoff-2026-08-25.md` |
 | Supersonic, + fins-off gates (166) | 70/166 (42.2%) | `scorecard-finsoff-2026-08-25.md` |
-| **Current: classic, fins-off curve gated from TN D-4013** | **11/175 (6.3%)** | `scorecard-finsoff-figs-2026-08-25.md` |
+| **Current: classic, fins-off curve gated from TN D-4013** | **10/175 (5.7%)** | `scorecard-finsoff-figs-2026-08-25.md` |
+| **Current: Rogers Kbf — THE SHIPPED DEFAULT** | **17/175 (9.7%)** | `scorecard-junction-2026-08-25.md`, `scorecard-airfoil-le-2026-08-27.md` |
 | **Current: supersonic, fins-off curve gated from TN D-4013** | **71/175 (40.6%)** | `scorecard-finsoff-figs-2026-08-25.md` |
 
 **Read the two 2026-08-25 numbers together or not at all.** The supersonic percentage
@@ -203,6 +205,15 @@ node validation/score.mjs > validation/scorecard.md
 - `scorecard-audit-2026-08-04.md` — the supersonic-model scorecard under the
   historical 135-gate anchors (64/135)
 - `scorecard-phase1-2026-08-04.md` — the Phase-1 supersonic-model scorecard
+- `scorecard-phase5-2026-08-25.md`, `scorecard-phase6-2026-08-25.md` — the Phase-5/6 passes
+- `scorecard-finsoff-2026-08-25.md`, `scorecard-finsoff-figs-2026-08-25.md` — the TN D-4013
+  fins-off gates, digitized off the report's own page scans
+- `scorecard-junction-2026-08-25.md` — the ×1.8 fin-junction term moving into Kbf
+- `scorecard-transition-2026-08-25.md` — boundary-layer transition refuted three ways, and
+  the parity boundary enforced (this is where classic went 11 → 10/175)
+- `scorecard-airfoil-le-2026-08-27.md` — the sharp-AIRFOIL leading-edge term moving into Kbf
+  (v0.075): why not subsonic-only (a +1.21 CD step at M0.90), the 4×3 containment matrix, and
+  the finding that **the harness is blind to the change**
 
 ## Baseline reading (why almost everything fails, and why that's fine)
 
@@ -233,6 +244,16 @@ Keep gates honest: never widen a tolerance to make a phase pass — the
 tolerances come from the datasets' own stated accuracies.
 
 ## Not yet in the harness
+
+- **A finned fixture with an AIRFOIL cross-section and NO named `airfoilSection`.** All four
+  current finned fixtures name one, so they short-circuit above the branch v0.075 changed —
+  the harness scored classic/Kbf/supersonic at 10/17/71 identically before and after a change
+  that moved the default model's supersonic CD by 9–16 % and a Mach 1.9 probe's apogee by
+  +21 %. That is the fin cross-section most desktop-authored `.ork` files use, so it is the
+  most-flown path with no anchor on it. Cheap: clone an existing fixture and delete the
+  section field. See `scorecard-airfoil-le-2026-08-27.md`. (A behavioural guard now exists in
+  `packages/engine/src/orkEngine.test.ts` — "a sharp AIRFOIL fin with no named section" — but
+  that pins containment and continuity, not accuracy against measured data.)
 
 - MESOS / Aftershock II / GoFast end-to-end flight fixtures (need thrust-curve
   reconstruction + manual forum retrievals — see anchors doc §2/§6)

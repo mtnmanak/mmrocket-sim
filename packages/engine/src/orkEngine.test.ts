@@ -261,6 +261,85 @@ describe('OrkRocket (real OpenRocket kernel via TeaVM)', () => {
     expect(offAgain.cna).toEqual(off.cna);
   });
 
+  it('a sharp AIRFOIL fin with no named section: Kbf drops the blunt LE term, parity keeps it', () => {
+    // v0.075, the owner's 2026-08-27 ruling. FinSetCalc's sharp-airfoil pressure
+    // branch is gated on (supersonicAero || rogersKbf), so an AIRFOIL fin that
+    // names NO airfoilSection — which is what every desktop-authored .ork looks
+    // like, since <airfoilsection> is our own extension tag — stops being charged
+    // classic Barrowman's swept-cylinder leading-edge plateau.
+    //
+    // THIS TEST IS THE ONLY AUTOMATED GUARD ON THAT GATE, and it is here because
+    // nothing else can see it: every finned validation fixture names a section and
+    // short-circuits above the branch (classic/Kbf/supersonic scored 10/17/71 both
+    // before and after), and difftest has no stored baseline, so it cannot catch a
+    // change that moves the JVM and TeaVM together. Without this, the default
+    // model's apogee could move 21 % on a Mach 1.9 design with everything green.
+    const mk = (cross: string, kbf: boolean, supersonic = false) => {
+      const r = OrkRocket.buildTree({
+        components: [
+          { type: 'nosecone', shape: 'conical', length: 0.085, aftRadius: 0.015, thickness: 0.0015 },
+          {
+            type: 'bodytube', length: 0.215, outerRadius: 0.015, thickness: 0.0015,
+            children: [{
+              type: 'trapezoidfinset', finCount: 4, rootChord: 0.03, tipChord: 0.03,
+              sweep: 0, height: 0.03, thickness: 0.0024, crossSection: cross,
+              position: { method: 'bottom' as const, offset: 0 },
+            }],
+          },
+        ],
+      });
+      r.setRogersModifiedBarrowman(kbf);
+      r.setSupersonicAero(supersonic);
+      return r.dragSweep({ machMin: 0.3, machMax: 2.0, machStep: 0.1 });
+    };
+    const at = (s: { machs: number[] }, m: number) =>
+      s.machs.findIndex((x) => Math.abs(x - m) < 1e-9);
+
+    const airfoilKbf = mk('airfoil', true);
+    const airfoilClassic = mk('airfoil', false);
+
+    // The gate fires: Kbf is materially LOWER than parity on the same geometry.
+    expect(airfoilKbf.powerOff.pressure[at(airfoilKbf, 2.0)]!)
+      .toBeLessThan(0.5 * airfoilClassic.powerOff.pressure[at(airfoilClassic, 2.0)]!);
+    expect(airfoilKbf.powerOff.total[at(airfoilKbf, 0.9)]!)
+      .toBeLessThan(airfoilClassic.powerOff.total[at(airfoilClassic, 0.9)]!);
+
+    // CONTAINMENT — the half that matters most. SQUARE (the FinSet default) and
+    // ROUNDED must be bit-identical across the models: the gate is AIRFOIL-only,
+    // and rounded is what the classic LE term actually models.
+    for (const cross of ['square', 'rounded']) {
+      expect(mk(cross, true).powerOff.pressure).toEqual(mk(cross, false).powerOff.pressure);
+    }
+
+    // Subsonic the sharp treatment is exactly zero fore-drag (thicknessWave is 0
+    // at/below Mach 0.90), and it must stay CONTINUOUS through the transonic
+    // onset. A subsonic-only gate was measured at a +1.21 CD step between M0.90
+    // and M0.91 and rejected for that reason; this pins the coherent form.
+    const fine = (() => {
+      const r = OrkRocket.buildTree({
+        components: [
+          { type: 'nosecone', shape: 'conical', length: 0.085, aftRadius: 0.015, thickness: 0.0015 },
+          {
+            type: 'bodytube', length: 0.215, outerRadius: 0.015, thickness: 0.0015,
+            children: [{
+              type: 'trapezoidfinset', finCount: 4, rootChord: 0.03, tipChord: 0.03,
+              sweep: 0, height: 0.03, thickness: 0.0024, crossSection: 'airfoil',
+              position: { method: 'bottom' as const, offset: 0 },
+            }],
+          },
+        ],
+      });
+      r.setRogersModifiedBarrowman(true);
+      return r.dragSweep({ machMin: 0.85, machMax: 0.95, machStep: 0.01 });
+    })();
+    let biggestStep = 0;
+    for (let i = 1; i < fine.machs.length; i++) {
+      biggestStep = Math.max(biggestStep,
+        Math.abs(fine.powerOff.total[i]! - fine.powerOff.total[i - 1]!));
+    }
+    expect(biggestStep).toBeLessThan(0.2);
+  });
+
   it('fin airfoil sections: blunt-base wedge adds fin base drag, sharp sections do not', () => {
     // 2026-08-25: the section model is no longer INPUT-gated. Naming an airfoil
     // section used to replace desktop's pressure-drag model in EVERY aero model

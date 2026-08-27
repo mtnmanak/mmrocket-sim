@@ -86,6 +86,9 @@ export function checkTags(bb) {
   return problems;
 }
 
+/** XenForo's hard cap, counted in CHARACTERS of the BBCode. */
+export const TRF_POST_LIMIT = 10000;
+
 const src = process.argv[2];
 if (!src) {
   console.error('usage: node scripts/bbcode-from-blurb.mjs "<path to the edited .txt>"');
@@ -93,25 +96,23 @@ if (!src) {
 }
 const dst = src.replace(/\.txt$/i, '') + ' BBCODE.txt';
 const bb = toBBCode(readFileSync(src, 'utf8'));
-writeFileSync(dst, bb, 'utf8');
-
-/** XenForo's hard cap, counted in CHARACTERS of the BBCode. */
-export const TRF_POST_LIMIT = 10000;
-
-const problems = checkTags(bb);
-console.log(`wrote ${dst} (${bb.length} chars, ${Buffer.byteLength(bb)} bytes)`);
-if (problems.length) {
-  console.error('TAG PROBLEMS:\n  ' + problems.join('\n  '));
-  process.exit(1);
-}
-console.log('tags balanced.');
-
+// Checked BEFORE writing, deliberately: an over-limit BBCode file left on disk looks
+// exactly like a postable one, and sooner or later somebody pastes it.
 if (bb.length > TRF_POST_LIMIT) {
   console.error(
-    `\nTOO LONG FOR TRF: ${bb.length} chars against a ${TRF_POST_LIMIT} limit `
-    + `(over by ${bb.length - TRF_POST_LIMIT}). TRF will refuse this post.\n`
+    `TOO LONG FOR TRF: ${bb.length} chars against a ${TRF_POST_LIMIT} limit `
+    + `(over by ${bb.length - TRF_POST_LIMIT}). Nothing was written.\n`
     + 'Split it — see SPLITTING in this file\'s header: break on content, not release number,\n'
     + 'and put what the reader must not miss in the short first post.');
   process.exit(1);
 }
-console.log(`fits TRF's ${TRF_POST_LIMIT}-char limit — ${TRF_POST_LIMIT - bb.length} to spare.`);
+
+const problems = checkTags(bb);
+if (problems.length) {
+  console.error('TAG PROBLEMS (nothing written):\n  ' + problems.join('\n  '));
+  process.exit(1);
+}
+
+writeFileSync(dst, bb, 'utf8');
+console.log(`wrote ${dst} (${bb.length} chars, ${Buffer.byteLength(bb)} bytes)`);
+console.log(`tags balanced; fits TRF's ${TRF_POST_LIMIT}-char limit — ${TRF_POST_LIMIT - bb.length} to spare.`);
