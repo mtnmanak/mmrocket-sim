@@ -16,10 +16,22 @@
  * Eric's edited text is the posted text. (When he explicitly asks for a typo fix, fix
  * it in the .txt and re-run, so both files carry it.)
  *
+ * TRF (XenForo) REFUSES A POST OVER 10,000 CHARACTERS. The count that matters is the BBCode,
+ * which runs ~1.2 % longer than the plain text, so the practical ceiling on a draft is about
+ * 9,800 plain characters. This script fails rather than writing something unpostable.
+ *
+ * SPLITTING, when a post does not fit: break on CONTENT, not on release number. Releases do
+ * not group meaningfully — v0.073 and v0.075 both moved users' numbers, v0.072 and v0.074 were
+ * both fixes — so a release split scatters the urgent warnings across two posts. Put whatever
+ * the reader must not miss in the SHORT first post: a 3.5k post is read to the end, a 7.8k one
+ * is skimmed. Name the parts "<stem> (1 of 2).txt" and "(2 of 2).txt", add a one-line pointer
+ * at the foot of the first and a one-line "Continued from the post above" at the head of the
+ * second, and change NOTHING else — the parts must rejoin to Eric's edited text word for word.
+ *
  * Usage:
  *   node scripts/bbcode-from-blurb.mjs "docs/TRF Blurbs/TRF Blurb - 2026-08-27 v0.072-v0.075.txt"
  *
- * Writes "<same name> BBCODE.txt" beside the input and prints a tag-balance check.
+ * Writes "<same name> BBCODE.txt" beside the input, checks tag balance, and checks the length.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 
@@ -83,10 +95,23 @@ const dst = src.replace(/\.txt$/i, '') + ' BBCODE.txt';
 const bb = toBBCode(readFileSync(src, 'utf8'));
 writeFileSync(dst, bb, 'utf8');
 
+/** XenForo's hard cap, counted in CHARACTERS of the BBCode. */
+export const TRF_POST_LIMIT = 10000;
+
 const problems = checkTags(bb);
-console.log(`wrote ${dst} (${Buffer.byteLength(bb)} bytes)`);
+console.log(`wrote ${dst} (${bb.length} chars, ${Buffer.byteLength(bb)} bytes)`);
 if (problems.length) {
   console.error('TAG PROBLEMS:\n  ' + problems.join('\n  '));
   process.exit(1);
 }
 console.log('tags balanced.');
+
+if (bb.length > TRF_POST_LIMIT) {
+  console.error(
+    `\nTOO LONG FOR TRF: ${bb.length} chars against a ${TRF_POST_LIMIT} limit `
+    + `(over by ${bb.length - TRF_POST_LIMIT}). TRF will refuse this post.\n`
+    + 'Split it — see SPLITTING in this file\'s header: break on content, not release number,\n'
+    + 'and put what the reader must not miss in the short first post.');
+  process.exit(1);
+}
+console.log(`fits TRF's ${TRF_POST_LIMIT}-char limit — ${TRF_POST_LIMIT - bb.length} to spare.`);
