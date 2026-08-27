@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.072';
+export const APP_VERSION = '0.073';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,20 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.073',
+    date: '2026-08-26',
+    title: 'RASAero files fly at the weight their author measured',
+    items: [
+      'CHANGES NUMBERS ON NEARLY EVERY RASAero .CDX1 FILE — and this is the big one. A .CDX1 carries the launch weight and CG its author actually measured. We read those two numbers only to print a note saying we were ignoring them, and flew a fabricated 2 mm-wall mass instead. It was not close: across a 48-file corpus the median design imported at 18 % of its own stated loaded weight, and the worst at 5 %. Designs that were nose-heavy in real life came out statically unstable here, which is the actual reason a large share of RASAero imports aborted mid-flight rather than flying.',
+      'The stated weight and CG are now applied as stage overrides with the motor backed out, exactly as desktop OpenRocket does — and the arithmetic is shown to you, per stage, in the file’s own pounds and inches. RASAero’s per-stage cells are CUMULATIVE (a booster’s figure is the whole stack from the nose down, plus both motors), so a two-stage file needs the stage above subtracted as well as its own motor; that inversion is desktop’s and it is what the corpus confirms. On the one design that exists as both .CDX1 and RockSim, our result lands within 0.1 % of what the RockSim twin states independently.',
+      '43 of the 48 corpus files now fly at their author’s stated weight. The five that do not state no weight at all, so there is nothing to apply.',
+      'Where the file names a motor that isn’t in our database, the weight is still applied — nothing is loaded on that stage, so the stated figure is right for what actually flies — and a note says the motor’s weight is still inside it. A motor we CAN find but whose loaded weight isn’t published is different and is left alone, because that motor may still load with a real mass from its own data file; folding an unknown mass into the airframe would be an authoritative-looking wrong number.',
+      'Saving a staged design as .CDX1 and opening it again no longer inflates its mass. Our exporter can fill only the bottom stage’s cumulative cells and writes RASAero’s "not entered" 0 above it; reading that 0 back as a real weight dropped the whole stack’s mass onto the booster alone, on top of the sustainer’s own — heavier and less stable on every round trip, compounding. Desktop has the same gap; we cannot, because we are the tool writing the 0.',
+      'KNOWN LIMITS, said plainly rather than discovered later: the override replaces the mass and CG of a whole stage, so mass you ADD to an overridden stage — including the Build-allowance ballast and the Design tab’s "Measured mass & CG" box — will not move that stage’s total until you clear the override. And only mass and CG are overridden, not rotational inertia, which is still computed from the geometry.',
+      'Internal, but it is why the above could be checked at all: the validation harness can finally score the aero model the app actually launches with (Rogers Kbf). It had no flag for it, so that score was being copied forward by hand from session to session — the one model most people fly was the one model no change could be measured against. It scores 17 of 175 anchor points, against 10 for desktop-parity classic and 71 for the supersonic model.',
+    ],
+  },
   {
     version: '0.072',
     date: '2026-08-26',

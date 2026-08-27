@@ -1065,3 +1065,234 @@ describe('RASAero — which simulation gets opened', () => {
     expect(r.notes.join(' ')).not.toMatch(/opened instead/);
   });
 });
+
+/**
+ * The measured launch weight and CG (`<SustainerLaunchWt>` / `<SustainerCG>`
+ * and the Booster1/Booster2 twins). These used to be read only to print a note
+ * saying they were NOT applied, and the fabricated 2 mm-wall mass distribution
+ * flew instead — 36 of the 39 corpus files carrying one imported at under HALF
+ * their own stated loaded weight, which made them statically unstable
+ * (docs/research/trf-file-corpus-2026-08-25.md §1). Every assertion below is on
+ * a field that did not exist on these nodes before that fix.
+ */
+describe('RASAero import — measured launch weight and CG', () => {
+  const LB = 2.20462262;
+  const IN = 39.37;
+  const lbToKg = (lb: number) => lb / LB;
+  /** The catalog mass the app will actually load for a designation, in kg —
+      sourced from the same `findDbMotor` the importer and App both call, so a
+      motor-database refresh moves the expectation with the code. */
+  const motorKg = async (designation: string): Promise<number> => {
+    const { findDbMotor } = await import('./motorDb.js');
+    return findDbMotor(designation)!.totalWeightG / 1000;
+  };
+
+  it('inverts RASAero’s CUMULATIVE stack weights on a RASAero-written two-stage file', async () => {
+    // Complex.Two-Stage.CDX1, simulation 1: sustainer 4.06 lb / J90W,
+    // booster1 5.64 lb / I170G. Booster1LaunchWt is the WHOLE STACK plus both
+    // motors, so the booster's own mass needs the sustainer's 4.06 lb taken
+    // out as well as its own motor — the inversion desktop's
+    // applyBooster1MassOverride does and our exporter's comment describes.
+    const r = importCdx1(fixture('Complex.Two-Stage.CDX1'));
+    const [sustainer, booster] = r.tree.components as [ComponentNode, ComponentNode];
+    const j90w = await motorKg('J90W');
+    const i170g = await motorKg('I170G');
+
+    expect(sustainer['overrideMass']).toBeCloseTo(lbToKg(4.06) - j90w, 9);
+    expect(sustainer['overrideSubcomponentsMass']).toBe(true);
+    expect(booster['overrideMass']).toBeCloseTo(lbToKg(5.64) - i170g - lbToKg(4.06), 9);
+    expect(booster['overrideSubcomponentsMass']).toBe(true);
+    // Reading the cell as the booster's OWN loaded weight would give this,
+    // 5.6x too heavy — the failure the cumulative inversion exists to prevent.
+    expect(booster['overrideMass']).not.toBeCloseTo(lbToKg(5.64) - i170g, 3);
+    // The note carries the arithmetic in the file's own units.
+    expect(r.notes.join(' ')).toMatch(/Applied from simulation 1.*4\.060 lb − J90W.*= 2\.180 lb/);
+    expect(r.notes.join(' ')).toMatch(/5\.640 lb − I170G 1\.164 lb − 4\.060 lb above = 0\.416 lb/);
+    // …and the note that used to say the opposite is gone.
+    expect(r.notes.join(' ')).not.toMatch(/not applied to the stages/);
+  });
+
+  it('survives a round trip through our OWN exporter, which writes 0 above the last stage', async () => {
+    // exportCdx1 can fill only the bottom stage's cumulative cells — it is
+    // handed one loaded mass for the whole rocket — so it writes 0 into every
+    // stage above, RASAero's own "not entered". Reading that 0 back as a real
+    // stated weight subtracts nothing from the booster's cumulative cell and
+    // drops the WHOLE stack's mass onto the booster alone, on top of the
+    // sustainer's un-overridden fabricated mass: heavier every pass, CG wrong,
+    // and a stable design flipped unstable. Desktop has the same hole; we
+    // cannot, because we are the tool writing the 0.
+    // Exactly the shape exportCdx1 emits for a two-stage design: the bottom
+    // stage's cumulative cells filled, the sustainer's zeroed. Built by
+    // zeroing one cell of a real RASAero file so nothing else varies.
+    const ours = fixture('Complex.Two-Stage.CDX1')
+      .replace(/<SustainerLaunchWt>[^<]*</, '<SustainerLaunchWt>0<');
+    const stages = importCdx1(ours).tree.components as ComponentNode[];
+
+    // Nothing above the bottom stage stated a weight, so nothing above it is
+    // overridden — the honest outcome, not an invented one.
+    expect(stages[0]?.['overrideMass']).toBeUndefined();
+    // And the booster must NOT quietly absorb the whole stack. Before the
+    // guard it took 5.64 lb − its own motor − 0, i.e. the sustainer's mass too.
+    const i170g = await motorKg('I170G');
+    expect(stages[1]?.['overrideMass'] ?? 0).not.toBeCloseTo(lbToKg(5.64) - i170g, 6);
+    expect(stages[1]?.['overrideMass']).toBeUndefined();
+  });
+
+  it('takes the weights from the CHOSEN simulation, not the first one', () => {
+    // launch-stage-motorless.CDX1's simulation 1 leaves the launch stage
+    // unpowered, so the importer opens simulation 2 — and 2 states 3.5 lb
+    // where 1 states 3. Desktop applies the FIRST simulation's numbers; we
+    // deliberately differ, because the motor backed out of the weight has to
+    // be the motor actually loaded, and that is the chosen configuration's.
+    const r = importCdx1(fixture('launch-stage-motorless.CDX1'));
+    expect(r.notes.join(' ')).toMatch(/Simulation 2 was opened instead/);
+    const sustainer = r.tree.components[0]!;
+    expect((sustainer['overrideMass'] as number) * LB).toBeCloseTo(3.5 - 2.725, 3);
+    expect((sustainer['overrideMass'] as number) * LB).not.toBeCloseTo(3 - 2.725, 3);
+    expect(r.notes.join(' ')).toMatch(/Applied from simulation 2/);
+  });
+
+  it('treats a LaunchWt of 0 as RASAero’s "not entered", and still uses the CG', () => {
+    // ARCAS-Long - 2.CDX1: SustainerLaunchWt 0 with SustainerCG 37.42 and no
+    // engine. Desktop skips the mass override on 0 and applies the CG
+    // unchanged (no motor to back out) — so do we.
+    const r = importCdx1(fixture('ARCAS-Long - 2.CDX1'));
+    const sustainer = r.tree.components[0]!;
+    expect(sustainer['overrideMass']).toBeUndefined();
+    expect(sustainer['overrideSubcomponentsMass']).toBeUndefined();
+    expect(sustainer['overrideCGX']).toBeCloseTo(37.42 / IN, 9);
+    expect(sustainer['overrideSubcomponentsCG']).toBe(true);
+    // With a stage still on its computed mass, the 2 mm-wall caveat stands.
+    expect(r.notes.join(' ')).toMatch(/walls default to 2 mm; review masses/);
+  });
+
+  it('skips a booster whose LaunchWt is 0 even with IncludeBooster1 True', () => {
+    // Show-off.CDX1 keeps IncludeBooster1 True over a 0 Booster1LaunchWt —
+    // RASAero's own "not entered", not a real zero.
+    const r = importCdx1(fixture('Show-off.CDX1'));
+    for (const st of r.tree.components) {
+      expect(st['overrideMass']).toBeUndefined();
+      expect(st['overrideCGX']).toBeUndefined();
+    }
+    // And the sustainer's 1 lb is skipped for a different reason worth saying
+    // out loud: Apogee's 1/4A2 is catalogued with no loaded weight, so it
+    // cannot be backed out — and App cannot load it either.
+    expect(r.notes.join(' ')).toMatch(/1\/4A2/);
+    expect(r.notes.join(' ')).toMatch(/isn’t in the motor database with a loaded weight/);
+  });
+
+  it('never overrides with a mass the subtraction cannot produce', () => {
+    // launch-stage-motorless.CDX1 simulation 2: Booster1LaunchWt 14 lb with an
+    // M1350W (10.6 lb) on it and 3.5 lb of sustainer above — 14 − 10.6 − 3.5 =
+    // −0.1 lb. Desktop would write a mass here; a negative one is exactly the
+    // authoritative-looking wrong number the guards exist for.
+    const r = importCdx1(fixture('launch-stage-motorless.CDX1'));
+    const booster = r.tree.components[1]!;
+    expect(booster['overrideMass']).toBeUndefined();
+    expect(booster['overrideCGX']).toBeUndefined();
+    expect(r.notes.join(' ')).toMatch(/NOT applied from the RASAero simulation/);
+    expect(r.notes.join(' ')).toMatch(/leaves -0\.100 lb, which is not a mass/);
+  });
+
+  it('refuses a back-transformed CG that lands outside the stage', () => {
+    // Complex.Two-Stage's booster CG works out ahead of the booster's own
+    // front in OUR airframe, because we stack the fin can after its tube
+    // instead of sliding it over (the fin-can note). A stage's mass is inside
+    // the stage, so this one is left on the computed CG — with the mass
+    // override, which is frame-independent, still applied.
+    const r = importCdx1(fixture('Complex.Two-Stage.CDX1'));
+    const booster = r.tree.components[1]!;
+    expect(booster['overrideCGX']).toBeUndefined();
+    expect(booster['overrideSubcomponentsCG']).toBeUndefined();
+    expect(booster['overrideMass']).toBeDefined();
+    expect(r.notes.join(' ')).toMatch(/stated CG 43\.06 in works out to .*which is outside the stage/);
+  });
+
+  it('applies nothing at all to a file with no <Simulation> block', () => {
+    for (const name of ['Three-stage rocket.CDX1', 'RMA53D02 - 2.CDX1']) {
+      const r = importCdx1(fixture(name));
+      for (const st of r.tree.components) {
+        expect(st['overrideMass'], name).toBeUndefined();
+        expect(st['overrideCGX'], name).toBeUndefined();
+      }
+      expect(r.notes.join(' '), name).not.toMatch(/Applied from/);
+    }
+  });
+
+  it('ACCEPTANCE: the kernel flies the file’s own loaded mass and CG', async () => {
+    // End to end, in the real kernel: write a .CDX1 whose simulation states a
+    // 4.5 kg rocket balancing at 0.85 m with a J90W in it, read it back, load
+    // that motor — and the rocket the kernel builds must weigh and balance
+    // exactly what the file said. That is the whole point of backing the motor
+    // out of the cell: put it back and you get the author's numbers.
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    const { engineTree } = await import('../tree/treeModel.js');
+    const { findDbMotor } = await import('./motorDb.js');
+
+    const single = {
+      name: 'Weighed',
+      tree: {
+        name: 'Weighed',
+        components: [{
+          type: 'stage' as const, id: 's0', name: 'Sustainer',
+          children: [
+            { type: 'nosecone' as const, id: 'n', length: 0.3, aftRadius: 0.0508, thickness: 0.002, shape: 'ogive', shapeParameter: 1 },
+            {
+              type: 'bodytube' as const, id: 'b', length: 1.0, outerRadius: 0.0508, thickness: 0.001,
+              children: [{
+                type: 'trapezoidfinset' as const, id: 'f', finCount: 4, rootChord: 0.15, tipChord: 0.07,
+                sweep: 0.05, height: 0.11, thickness: 0.004, position: { method: 'bottom' as const, offset: 0 },
+              }],
+            },
+          ],
+        }],
+      },
+      launchMassKg: 4.5,
+      launchCgM: 0.85,
+      motors: { b: { designation: 'J90W', manufacturer: 'AeroTech' } },
+      engineExport: true,
+    };
+    const back = importCdx1(exportCdx1(single));
+    const stage = back.tree.components[0]!;
+    expect(stage['overrideMass']).toBeDefined();
+    expect(stage['overrideCGX']).toBeDefined();
+
+    const db = findDbMotor('J90W')!;
+    // The MotorSpec fetchMotorSpec would build for this catalog entry: the
+    // loaded mass is totalWeightG and the CG is the geometric middle.
+    const spec = {
+      designation: db.designation,
+      diameter: db.diameter / 1000,
+      length: db.length / 1000,
+      times: [0, 1],
+      thrusts: [90, 0],
+      masses: [db.totalWeightG / 1000, (db.totalWeightG - db.propWeightG) / 1000],
+      cgX: db.length / 2000,
+      ejectionDelay: 0,
+    };
+    const mountId = Object.keys(back.motors)[0]!;
+    resetEngine();
+    const rocket = OrkRocket.buildTree(engineTree(back.tree));
+    rocket.setMotorById(mountId, spec);
+    const info = rocket.staticInfo();
+    // 4 decimals is the .CDX1 cell's own precision (pounds and inches, fmt()).
+    expect(info.mass).toBeCloseTo(4.5, 4);
+    expect(info.cg).toBeCloseTo(0.85, 4);
+    // …and the dry structure is the loaded rocket minus exactly that motor.
+    expect(info.massEmpty).toBeCloseTo(4.5 - db.totalWeightG / 1000, 4);
+  }, 120000);
+
+  it('ACCEPTANCE: the kernel honours the stage overrides on a two-stage file', async () => {
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    const { engineTree } = await import('../tree/treeModel.js');
+    const r = importCdx1(fixture('Complex.Two-Stage.CDX1'));
+    const sum = r.tree.components.reduce((a, st) => a + (st['overrideMass'] as number), 0);
+    resetEngine();
+    const info = OrkRocket.buildTree(engineTree(r.tree)).staticInfo();
+    // Subcomponents-overriding stage masses: the whole airframe IS the sum,
+    // with none of the 2 mm-wall mass surviving underneath.
+    expect(info.massEmpty).toBeCloseTo(sum, 9);
+    // For scale: 2.60 lb of airframe where the 2 mm walls made 1.12 lb.
+    expect(info.massEmpty * LB).toBeCloseTo(2.5965, 3);
+  }, 120000);
+});

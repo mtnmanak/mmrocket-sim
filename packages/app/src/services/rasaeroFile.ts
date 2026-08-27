@@ -2,6 +2,7 @@ import { strFromU8 } from 'fflate';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import type { LaunchConditions } from '../components/LaunchPanel.js';
 import { asStageNodes, freshId, mountsIn } from '../tree/treeModel.js';
+import { findDbMotor, hasMassData } from './motorDb.js';
 import { escapeXml as esc, xmlNum as num, xmlText as text } from './xmlUtil.js';
 import type { OrkFlightConfig, OrkImportResult, OrkMotorRef, OrkSeparationOverride } from './orkFile.js';
 
@@ -15,10 +16,11 @@ import type { OrkFlightConfig, OrkImportResult, OrkMotorRef, OrkSeparationOverri
  *   their parent tube. A <Booster> element IS a lower stage.
  * - RASAero is aerodynamics-only: parts carry no material/mass data (the
  *   desktop fakes 2 mm walls; so do we) — masses/CG live in <Simulation>
- *   blocks as launch weights, which we surface as notes rather than as
- *   fake component data. Each engine-carrying <Simulation> becomes a
- *   flight configuration (motors on each stage's aft-most tube, desktop
- *   SimulationHandler parity).
+ *   blocks as CUMULATIVE per-stage launch weights, applied as stage
+ *   mass/CG overrides with the motor backed out (see the override block in
+ *   importCdx1, desktop SimulationHandler parity). Each engine-carrying
+ *   <Simulation> becomes a flight configuration (motors on each stage's
+ *   aft-most tube, same parity).
  * - Nose shapes are strings ("Tangent Ogive", "Von Karman Ogive"…), mapped
  *   with the desktop's shape parameters.
  */
@@ -696,11 +698,317 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
     if (sep.separationDelay) stage['separationDelay'] = sep.separationDelay;
   }
 
+  // ---- measured launch weight + CG -> stage mass/CG overrides ----
+  /*
+   * `<SustainerLaunchWt>` / `<SustainerCG>` and their Booster1/Booster2 twins
+   * are the author's OWN as-flown numbers. We used to read them only to print
+   * a note saying they were NOT applied, and fly the fabricated 2 mm-wall mass
+   * distribution instead: over the 42-file TRF corpus that put 36 of the 39
+   * files carrying a weight at under HALF their own stated loaded weight
+   * (`OR vs RAS Test 1.CDX1` imported 2.020 lb against a stated 37.80 lb;
+   * median 1.903 lb against 10.49 lb), which made the designs statically
+   * UNSTABLE and is the cause behind 17 of the 72 flyable corpus designs
+   * aborting — docs/research/trf-file-corpus-2026-08-25.md §1.
+   *
+   * Desktop OpenRocket 24.12 applies both, as a stage override covering the
+   * subcomponents, with the motor backed out:
+   * core/…/file/rasaero/importt/SimulationHandler.java:230-342 (mass) and
+   * :344-524 (CG). This mirrors it. Two facts do all the work:
+   *
+   *  - The weights are CUMULATIVE STACK weights. SustainerLaunchWt is stage 0
+   *    plus its motor; Booster1LaunchWt is stages 0-1 plus BOTH motors;
+   *    Booster2LaunchWt is the whole stack plus all three. (Our own exporter
+   *    documents the same convention at the SimulationList writer below, and
+   *    RASAero's own two-stage file agrees: __fixtures__/Complex.Two-Stage.CDX1
+   *    carries sustainer 4.06 lb against booster1 5.64 lb.) So a stage's own
+   *    mass is its cumulative weight minus its motor minus the stack above it.
+   *  - The CGs are cumulative AND motor-inclusive, so each is back-transformed
+   *    twice: once against the stack above it, once against its own motor.
+   *
+   * The corpus proves the semantics to 0.1 %: `2,4-D.CDX1`'s sustainer
+   * 13.3 lb − M1378LR 9.548 lb = 3.752 lb against the `.rkt` twin's own
+   * `<Stage3Mass>` = 3.748 lb, and its booster 53.2 − N1000W 28.155 − 13.3 =
+   * 11.745 lb against 11.700 lb.
+   *
+   * A WRONG override is worse than none — it looks authoritative and nothing
+   * on screen can contradict it — so every branch below that cannot compute a
+   * number it believes skips that stage, leaves today's behaviour in place,
+   * and says so in the note.
+   */
+
+  /** Absolute x (m from the nose tip) of each stage's front — desktop's
+   *  `stage.getPosition().x`. Stages stack AFTER one another (the kernel's
+   *  default for an AxialStage, and this importer sets no stage position) and
+   *  every stage child it builds is a length-carrying body component, so the
+   *  running sum IS the stage front. */
+  const nodeLength = (n: ComponentNode): number =>
+    typeof n['length'] === 'number' ? (n['length'] as number) : 0;
+  const stageLength = (st: ComponentNode | undefined): number =>
+    (st?.children ?? []).reduce((sum, c) => sum + nodeLength(c), 0);
+  const stageFrontX: number[] = [];
+  for (let x = 0, i = 0; i < stages.length; i++) {
+    stageFrontX.push(x);
+    x += stageLength(stages[i]);
+  }
+
+  /**
+   * The loaded mass and length of the motor the CHOSEN configuration puts on a
+   * stage — our `getLaunchMass()`. `null` is desktop's `motor == null` (no
+   * motor on that stage, so no motor term at all); `'unknown'` is a motor we
+   * cannot weigh, which is NOT the same thing and must never be read as zero —
+   * subtracting nothing would leave an unknown motor's mass inside the stage
+   * override.
+   *
+   * The mass is the bundled catalog's `totalWeightG`, which is exactly what
+   * the loaded motor will weigh in flight (`thrustcurve.ts` builds
+   * `masses[0]` from it), so the override and the motor can never disagree.
+   * 146 of the 1129 catalog entries publish no loaded weight — `hasMassData`
+   * is the same guard the motor picker uses to disable those rows.
+   */
+  type StageMotor = { massKg: number; lengthM: number; label: string };
+  const stageMotorOf = (stageIdx: number): StageMotor | null | 'absent' | 'unknown' => {
+    const mount = aftTube(stages[stageIdx]);
+    const ref = mount?.id ? chosen?.motors[mount.id] : undefined;
+    if (!ref) return null;
+    // RockSim/RASAero refs carry no motor diameter — match by designation
+    // alone, the same call App.matchImportedMotor makes to load it.
+    const db = findDbMotor(ref.designation);
+    // NO catalog entry at all is not the same as an entry we cannot trust, and
+    // the two must not skip together. With no entry App.matchImportedMotor
+    // mounts NOTHING and says so, so the rocket really does fly with no motor
+    // — which makes desktop's own `sustainerEngine == null` path (motor
+    // weight 0, stated weight applied whole) exactly right, and is far closer
+    // than the 2 mm-wall fabrication it replaces. Ten corpus designations land
+    // here (J150-MY, M787, O4374, N5800-CS, ARA1200by9, ARA1100by8, L265-MY,
+    // J326-LR, K1127LB, N2501-WH).
+    if (!db) return 'absent';
+    // An entry that exists but publishes no loaded weight (146 of 1129) is the
+    // dangerous one and still skips: thrustcurve.ts takes `masses[0]` from the
+    // DOWNLOADED file's header when it carries one, so this motor may well be
+    // mounted WITH a real mass — and folding that unknown mass into the
+    // airframe would be an authoritative-looking wrong number.
+    if (!hasMassData(db) || !(db.length > 0)) return 'unknown';
+    return { massKg: db.totalWeightG / 1000, lengthM: db.length / 1000, label: ref.designation };
+  };
+
+  /** Desktop `getCGFromCombinedCG` (SimulationHandler.java:487-492): the CG of
+   *  B, given A's CG, the combined CG of A+B, and both masses. Callers must
+   *  have checked `bMass > 0` — desktop does not, and divides by a stage mass
+   *  of zero whenever the override above was skipped. */
+  const cgFromCombined = (aMass: number, bMass: number, aCg: number, combinedCg: number): number =>
+    combinedCg * (1 + aMass / bMass) - aCg * (aMass / bMass);
+
+  /**
+   * Desktop `getStageCGWithoutMotorCG` (:504-524). `combinedCg` is the CG of a
+   * stage AND its motor measured from the nose tip; back the motor out to
+   * leave the stage's own. Returns NaN when it cannot be done, never a guess.
+   *
+   * The motor's front sits at `mount front + mount length − motor length`
+   * (BodyTube.getMotorPosition = `length − motorLength + overhang`, and this
+   * importer sets no overhang), and its CG is half its length back — which is
+   * literally the `cgX` our engine will use, `motor.length / 2000` in
+   * thrustcurve.ts, i.e. desktop's `CGPoints[0].x`. Desktop's other branch
+   * (`CGPoints` null or a single point) returns `combinedCg` unchanged and is
+   * unreachable for a real thrust curve — every MotorSpec we build carries one
+   * CG point per thrust sample — so only the branch below is mirrored.
+   *
+   * `stageMassKg` must be the OVERRIDDEN stage mass — desktop's comment at
+   * :510 says the same thing about `stage.getMass()` — which is why each
+   * stage's mass override is applied before its CG override below.
+   */
+  const cgWithoutMotor = (
+    stageIdx: number, stageMassKg: number, motor: StageMotor | null, combinedCg: number,
+  ): number => {
+    if (!motor) return combinedCg;
+    if (!(stageMassKg > 0)) return NaN; // no overridden mass to divide by
+    const mount = aftTube(stages[stageIdx]);
+    if (!mount) return combinedCg;
+    let mountFrontX = stageFrontX[stageIdx] ?? 0;
+    for (const c of stages[stageIdx]?.children ?? []) {
+      if (c === mount) break;
+      mountFrontX += nodeLength(c);
+    }
+    const motorFrontX = mountFrontX + nodeLength(mount) - motor.lengthM;
+    return cgFromCombined(motor.massKg, stageMassKg, motorFrontX + motor.lengthM / 2, combinedCg);
+  };
+
+  const lbTxt = (kg: number): string => `${(kg * LB).toFixed(3)} lb`;
+  const inTxt = (m: number): string => `${(m * IN).toFixed(2)} in`;
+
+  // WHICH SIMULATION'S NUMBERS. Desktop applies the FIRST simulation that
+  // carries them and ignores the rest. We deliberately differ: we apply the
+  // CHOSEN configuration's, because the motor is backed out of these weights
+  // and it has to be the motor we actually load — and `chosen` is often not
+  // the first simulation (see the flyable-configuration pick above). Only
+  // when NO simulation carries motors at all does the first simulation with
+  // numbers win, and there is nothing to back out then.
+  const carriesWeights = (sim: Element): boolean =>
+    ['SustainerLaunchWt', 'SustainerCG', 'Booster1LaunchWt', 'Booster1CG',
+      'Booster2LaunchWt', 'Booster2CG'].some((tag) => num(sim, tag, 0) !== 0);
+  const chosenSimNr = chosen ? simNumbers.get(chosen.id) : undefined;
+  const overrideSim = chosenSimNr !== undefined ? sims[chosenSimNr - 1] : sims.find(carriesWeights);
+  /** Per-stage note fragments for what actually landed, and why anything didn't. */
+  const massDetail: (string | undefined)[] = [];
+  const cgDetail: (string | undefined)[] = [];
+  const skipped: string[] = [];
+  /** Stages whose stated weight was applied WITH an unidentified motor still in
+   *  it — nothing is mounted there, so the figure is right for what flies, but
+   *  the user has to know it is not a dry airframe mass. */
+  const motorless: string[] = [];
+  /** The overridden stage mass the CG pass divides by; undefined = not overridden. */
+  const overrideMassKg: (number | undefined)[] = [];
+
+  if (overrideSim) {
+    // NaN stands in for desktop's `null` (element absent). 0 is RASAero's own
+    // "not entered" and desktop skips it too — __fixtures__/ARCAS-Long - 2.CDX1
+    // has SustainerLaunchWt 0, and Show-off.CDX1 keeps IncludeBooster1 True
+    // over a 0 Booster1LaunchWt.
+    const wt: [number, number, number] = [
+      num(overrideSim, 'SustainerLaunchWt', NaN) / LB,
+      num(overrideSim, 'Booster1LaunchWt', NaN) / LB,
+      num(overrideSim, 'Booster2LaunchWt', NaN) / LB,
+    ];
+    const cg: [number, number, number] = [
+      num(overrideSim, 'SustainerCG', NaN) / IN,
+      num(overrideSim, 'Booster1CG', NaN) / IN,
+      num(overrideSim, 'Booster2CG', NaN) / IN,
+    ];
+    const include: [boolean, boolean, boolean] = [true,
+      (text(overrideSim, ':scope > IncludeBooster1') ?? 'false').toLowerCase() === 'true',
+      (text(overrideSim, ':scope > IncludeBooster2') ?? 'false').toLowerCase() === 'true'];
+    type SlotMotor = StageMotor | null | 'absent' | 'unknown';
+    const motor: [SlotMotor, SlotMotor, SlotMotor] =
+      [stageMotorOf(0), stageMotorOf(1), stageMotorOf(2)];
+    const stageName = (i: number): string => stages[i]?.name ?? `Stage ${i}`;
+
+    // Desktop runs every mass override and THEN every CG override. One pass
+    // per stage is the same computation — a stage's CG needs only its OWN
+    // overridden mass, plus the file's (not the override's) numbers for the
+    // stack above — and it keeps each stage's two decisions and its one skip
+    // message together. The mass still lands before the CG inside the
+    // iteration, which is the ordering that actually matters.
+    for (const i of [0, 1, 2] as const) {
+      const st = stages[i];
+      // Desktop gates both booster overrides on IncludeBooster1/2 — an
+      // excluded booster's cells describe a stack it is not part of.
+      if (!st || !include[i]) continue;
+      // Cumulative weight/CG of everything above this stage. Stage 0 has
+      // nothing above it; a booster needs the stage above to have stated a
+      // weight at all (desktop's `sustainerLaunchWt == null` guard).
+      const above = i === 0 ? 0 : wt[i - 1]!;
+      const cgAbove = i === 0 ? 0 : cg[i - 1]!;
+      // A 0 above is "not entered" too, and must disqualify the subtraction the
+      // same way a 0 here does — this is a DELIBERATE divergence from desktop,
+      // which guards booster1 on `sustainerLaunchWt == null` but not on
+      // `== 0`. We have to be stricter because OUR OWN exporter writes 0 into
+      // every stage above the last (see exportCdx1's stackWt: only the bottom
+      // stage's cumulative vehicle is the whole rocket, so only its cells can
+      // be filled). Reading that 0 back as a real weight subtracts nothing and
+      // lands the ENTIRE stack mass on the booster alone, on top of the
+      // sustainer's own fabricated mass — mass inflated, CG wrong, a stable
+      // design flipped unstable, compounding on every import→export→import.
+      const hasWt = Number.isFinite(wt[i]) && wt[i] !== 0
+        && (i === 0 || (Number.isFinite(above) && above !== 0));
+      const hasCg = cg[i] > 0 && (i === 0 || cgAbove > 0);
+      if (!hasWt && !hasCg) continue;
+
+      const slot = motor[i];
+      if (slot === 'unknown') {
+        // The entry exists but publishes no loaded weight, and the download may
+        // still supply one — so this motor could be mounted with a real mass we
+        // did not subtract. Applying the weight anyway would fold that mass
+        // into the airframe.
+        const ref = chosen?.motors[aftTube(st)?.id ?? ''];
+        const stated = [hasWt ? lbTxt(wt[i]) : null, hasCg ? `CG ${inTxt(cg[i])}` : null]
+          .filter((s): s is string => s !== null).join(' / ');
+        skipped.push(`${stageName(i)}: “${ref?.designation ?? '?'}” isn’t in the motor database with a `
+          + `loaded weight, so it can’t be taken back out of the stated ${stated}.`);
+        continue;
+      }
+      // 'absent' takes desktop's engine-less path: nothing is mounted for this
+      // stage, so there is no motor mass to subtract and the stated figures
+      // describe the airframe as it will fly here.
+      const m = slot === 'absent' ? null : slot;
+      if (slot === 'absent' && hasWt) {
+        const ref = chosen?.motors[aftTube(st)?.id ?? ''];
+        motorless.push(`${stageName(i)}: “${ref?.designation ?? '?'}” isn’t in the motor database, so `
+          + `no motor is loaded on it and the stated ${lbTxt(wt[i])} is used as it stands — `
+          + 'it still includes that motor’s weight.');
+      }
+
+      // ---- mass (desktop applySustainer/Booster1/Booster2MassOverride) ----
+      if (hasWt) {
+        if (i > 0 && above > wt[i]) {
+          // Desktop warns here and overrides with a mass of 0 (:286-288). A
+          // zero-mass stage is exactly the authoritative-looking wrong number
+          // this whole block exists to avoid, so we skip instead and say why.
+          skipped.push(`${stageName(i)}: its ${lbTxt(wt[i])} is LESS than the ${lbTxt(above)} stated for `
+            + 'the stack above it, which cannot be — the file’s weights disagree with themselves.');
+        } else {
+          const dry = wt[i] - (m?.massKg ?? 0) - above;
+          if (dry > 0) {
+            st['overrideMass'] = dry;
+            st['overrideSubcomponentsMass'] = true;
+            overrideMassKg[i] = dry;
+            massDetail[i] = `${lbTxt(wt[i])}${m ? ` − ${m.label} ${lbTxt(m.massKg)}` : ''}`
+              + `${above > 0 ? ` − ${lbTxt(above)} above` : ''} = ${lbTxt(dry)}`;
+          } else {
+            skipped.push(`${stageName(i)}: backing ${m ? `${m.label} (${lbTxt(m.massKg)}) ` : ''}`
+              + `out of its ${lbTxt(wt[i])} leaves ${lbTxt(dry)}, which is not a mass.`);
+          }
+        }
+      }
+
+      // ---- CG (desktop applyCGOverrides, :353-475) ----
+      if (!hasCg) continue;
+      // The file's CG is of the whole stack down to here, so back-transform
+      // against the stack above (desktop applyBooster1/2CGOverride) before
+      // removing this stage's own motor. Stage 0 has no stack above it.
+      let combined = cg[i];
+      if (i > 0) {
+        const ownStackMass = wt[i] - above;
+        if (!(ownStackMass > 0)) continue; // guarded: desktop divides by this
+        combined = cgFromCombined(above, ownStackMass, cgAbove, cg[i]);
+      }
+      const noseCg = cgWithoutMotor(i, overrideMassKg[i] ?? 0, m, combined);
+      // Desktop references a booster's override to the front of the BOOSTER,
+      // not to the nose (:427) — an override CG is always component-relative.
+      const stageCg = noseCg - (stageFrontX[i] ?? 0);
+      const len = stageLength(st);
+      if (!(stageCg >= 0) || stageCg > len) {
+        // Outside the stage's own extent is not a CG the file can mean — a
+        // stage's mass is inside the stage. Either the file's numbers
+        // disagree with each other or our airframe does not match the one
+        // RASAero laid out (we stack a fin can after its tube instead of
+        // sliding it over — see the fin-can note above), and in both cases
+        // the honest move is to leave the computed CG alone.
+        skipped.push(`${stageName(i)}: its stated CG ${inTxt(cg[i])} works out to `
+          + `${Number.isFinite(stageCg) ? inTxt(stageCg) : 'no computable place'} into a ${inTxt(len)} `
+          + 'stage once the motor and the stack above are backed out, which is outside the stage.');
+        continue;
+      }
+      st['overrideCGX'] = stageCg;
+      st['overrideSubcomponentsCG'] = true;
+      cgDetail[i] = `CG ${inTxt(stageCg)}${i > 0 ? ' from its own front' : ''}`;
+    }
+  }
+
+  // Only when EVERY stage got both overrides is the 2 mm wall out of the
+  // picture: one stage left on the computed mass or CG and the caveat still
+  // applies to it. (RASAero holds at most three stages, so a longer tree could
+  // only come from a file this importer misread — treat it as not covered.)
+  const overrodeEveryStage = stages.length <= 3
+    && stages.every((_, i) => overrideMassKg[i] !== undefined && cgDetail[i] !== undefined);
+
   // ---- design-level conditions table (Mach -> altitude) ----
   const machAlt = readMachAltTable(doc);
 
   // ---- what RASAero can't tell us (be honest, don't invent) ----
-  notes.push('RASAero designs carry no material or wall data — walls default to 2 mm; review masses before trusting the numbers.');
+  notes.push(overrodeEveryStage
+    ? 'RASAero designs carry no material or wall data — walls default to 2 mm, but every stage’s '
+      + 'mass and CG come from the simulation’s measured launch weight below, so the wall default '
+      + 'does not drive the numbers.'
+    : 'RASAero designs carry no material or wall data — walls default to 2 mm; review masses before trusting the numbers.');
   if (machAlt) {
     const topFt = Math.round(Math.max(...machAlt.map(([, a]) => a)) * FT);
     notes.push(`This file carries a Mach-Alt conditions table (${machAlt.length} point${machAlt.length === 1 ? '' : 's'}, `
@@ -710,10 +1018,27 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
   if (unattached.size) {
     notes.push(`Motors in the RASAero file with no stage tube to mount them on: ${[...unattached].join(', ')} — add a body tube and pick them from the database.`);
   }
-  const firstSim = sims[0];
-  if (firstSim && ['SustainerLaunchWt', 'SustainerCG', 'Booster1LaunchWt', 'Booster1CG', 'Booster2LaunchWt', 'Booster2CG']
-    .some((tag) => num(firstSim, tag, 0) !== 0)) {
-    notes.push('The RASAero simulation carries measured launch weights/CG — not applied to the stages; the 2 mm-wall masses above are what simulates.');
+  // What the measured weight/CG actually did, per stage, in the file's own
+  // units — and separately what it could not do. A number that changes has to
+  // say so, and an override the user cannot see is exactly the failure this
+  // block replaces.
+  const appliedParts = stages.flatMap((st, i) => {
+    const bits = [massDetail[i], cgDetail[i]].filter((s): s is string => s !== undefined);
+    return bits.length > 0 ? [`${st.name ?? `Stage ${i}`} ${bits.join(', ')}`] : [];
+  });
+  if (appliedParts.length > 0) {
+    const simTxt = chosenSimNr !== undefined ? `simulation ${chosenSimNr}` : 'the RASAero simulation';
+    notes.push(`Applied from ${simTxt}, as stage overrides with the motor backed out (desktop OpenRocket `
+      + `does the same): ${appliedParts.join('; ')}. Each replaces the computed mass or CG for that whole `
+      + 'stage — clear it under Overrides to go back to the 2 mm-wall geometry.');
+  }
+  if (skipped.length > 0) {
+    notes.push('NOT applied from the RASAero simulation, because the numbers don’t support an override '
+      + `— these stages keep the computed 2 mm-wall mass and CG: ${skipped.join(' ')}`);
+  }
+  if (motorless.length > 0) {
+    notes.push('Applied WITH the motor still included, because the file names a motor that isn’t in '
+      + `the database — nothing is loaded on those stages: ${motorless.join(' ')}`);
   }
   if (ignored.size) {
     notes.push(`Ignored RASAero elements: ${[...ignored].join(', ')}.`);
