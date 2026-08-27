@@ -95,6 +95,40 @@ describe('ConfigPanel', () => {
   it('renders nothing at all when the design carries no configurations', () => {
     mount({ configs: [] });
     expect(host.querySelector('.config-panel')).toBeFalsy();
+    expect(host.querySelector('.config-list')).toBeFalsy();
     expect(host.textContent).toBe('');
+  });
+
+  it('Apply leads every row, so the buttons line up where the eye lands first', () => {
+    // The owner's call, 2026-08-26. Reordered in the DOM, not with CSS
+    // `order` — assert the DOM, because that is what the tab order follows.
+    mount();
+    for (const row of host.querySelectorAll('.config-row')) {
+      expect(row.firstElementChild!.tagName).toBe('BUTTON');
+      expect(row.firstElementChild!.textContent).toBe('Apply');
+    }
+  });
+
+  it('every Apply button says what it applies, not just "Apply"', () => {
+    // Leading the row costs the screen-reader cue that came from reading the
+    // configuration's name immediately before its button. Five buttons all
+    // named "Apply" is what that would leave behind.
+    mount();
+    const labels = Array.from(host.querySelectorAll('.config-row button'))
+      .map((b) => b.getAttribute('aria-label'));
+    expect(labels.every((l) => l && l !== 'Apply')).toBe(true);
+    expect(new Set(labels).size).toBe(labels.length);
+    expect(labels.at(-1)).toBe('Apply None — unload every motor');
+  });
+
+  it('the rows scroll inside the panel, below a heading that stays put', () => {
+    mount();
+    const list = host.querySelector('.config-list');
+    expect(list).toBeTruthy();
+    // The heading must be a SIBLING of the scroller, not inside it.
+    expect(list!.querySelector('h2')).toBeFalsy();
+    expect(host.querySelector('.config-panel > h2')?.textContent).toBe('Flight configurations');
+    expect(list!.querySelectorAll('.config-row').length)
+      .toBe(host.querySelectorAll('.config-row').length);
   });
 });

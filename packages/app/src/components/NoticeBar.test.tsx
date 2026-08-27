@@ -56,6 +56,7 @@ afterEach(() => {
   act(() => { root.unmount(); });
   host.remove();
   document.body.classList.remove('has-notice');
+  document.documentElement.style.removeProperty('--notice-h');
 });
 
 describe('NoticeBar', () => {
@@ -122,6 +123,24 @@ describe('NoticeBar', () => {
     expect(document.body.classList.contains('has-notice')).toBe(true);
     draw([]);
     expect(document.body.classList.contains('has-notice')).toBe(false);
+  });
+
+  it('publishes its measured height, and takes the reserve back when it goes', () => {
+    // happy-dom reports offsetHeight 0, so the component deliberately leaves
+    // --notice-h unset rather than writing a "0px" that looks measured. Stub
+    // a real height to exercise the publishing path.
+    const proto = Object.getPrototypeOf(host) as HTMLElement;
+    const orig = Object.getOwnPropertyDescriptor(proto, 'offsetHeight');
+    Object.defineProperty(proto, 'offsetHeight', { configurable: true, get: () => 34 });
+    try {
+      draw([info]);
+      expect(document.documentElement.style.getPropertyValue('--notice-h')).toBe('34px');
+      draw([]);
+      expect(document.documentElement.style.getPropertyValue('--notice-h')).toBe('');
+    } finally {
+      if (orig) Object.defineProperty(proto, 'offsetHeight', orig);
+      else delete (proto as unknown as Record<string, unknown>)['offsetHeight'];
+    }
   });
 
   it('names the severity for a screen reader, not just by colour', () => {

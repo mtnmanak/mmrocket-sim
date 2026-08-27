@@ -26,8 +26,8 @@ import { MovedNotice } from './components/MovedNotice.js';
 import { NoticeBar, type Notice, type NoticeSeverity } from './components/NoticeBar.js';
 import { MeasuredMassBox } from './components/MeasuredMassBox.js';
 import {
-  BUILD_ALLOWANCE_NAME, findAllowance, placeAtStation, withoutAllowance,
-  type BallastSolution,
+  BUILD_ALLOWANCE_NAME, coveringMassOverride, findAllowance, placeAtStation, solveBallast,
+  withoutAllowance, type BallastSolution,
 } from './services/buildAllowance.js';
 import { builtInMeta, MotorPicker } from './components/MotorPicker.js';
 import { NumField } from './components/NumField.js';
@@ -49,30 +49,38 @@ import { BUILT_IN_MOTORS } from './motors.js';
 import { PreferencesDialog } from './components/PreferencesDialog.js';
 import { SiteBand, SiteBandFooter } from './components/SiteBand.js';
 import { MMR_NAV_FALLBACK, useMmrNav } from './services/useMmrNav.js';
-import { usePrefs } from './prefs/PrefsContext.js';
+import { AERO_SHORT, aeroChoiceOf, effectiveAero, usePrefs, type AeroChoice } from './prefs/PrefsContext.js';
 import { UnitChip } from './components/UnitChip.js';
 import { fmtSi, niceStep, siToUi, uiToSi } from './prefs/units.js';
 import { classLabel, diameterClass, displayDesignation, findDbMotor, isHighPower } from './services/motorDb.js';
 import { delayOptions, fetchMotorSpec } from './services/thrustcurve.js';
 import { loadExMotors } from './services/exMotors.js';
-import { exportOrk, fmtStepS, importOrk, type OrkDeployOverride, type OrkSeparationOverride, type OrkExportConfig, type OrkExportMotor, type OrkImportResult, type OrkMotorRef, type OrkTreeImportResult } from './services/orkFile.js';
+import { exportOrk, fmtStepS, importOrk, type OrkDeployOverride, type OrkSeparationOverride, type OrkExportConfig, type OrkExportFlightData, type OrkExportMotor, type OrkImportResult, type OrkMotorRef, type OrkTreeImportResult } from './services/orkFile.js';
 import { decodeShareFragment, encodeShareFragment, hasSharePayload, MAX_FRAGMENT_CHARS } from './services/shareLink.js';
 import { exportRkt, importRkt } from './services/rocksimFile.js';
 import { componentCsv, componentTable } from './services/componentTable.js';
-import { tableToXlsx } from './services/xlsx.js';
+import { CSV_BOM, safeName } from './services/fileName.js';
+import { saveFile } from './services/saveFile.js';
+import { tableToXlsx, XLSX_MIME } from './services/xlsx.js';
 import { exportCdx1, importCdx1 } from './services/rasaeroFile.js';
 import {
   loadSession, onSessionSaveStateChange, saveSessionDebounced, sessionPredatesThisBuild,
   sessionSaveFailing,
 } from './services/session.js';
-import { buildSimRun, formatStability, recommendDelay, storedSimCost, type MotorMeta, type SimRun } from './services/simReport.js';
+import {
+  aeroModelLabel, buildSimRun, conditionsKeyOf, currentModelLabel, formatStability,
+  recommendDelay, runMatchesDesign, runMatchesModel, shortHash, storedSimCost,
+  type DesignMatchKey, type MotorMeta, type SimRun,
+} from './services/simReport.js';
 import { formatWarning, formatWarningText } from './services/simWarnings.js';
 import { addRun, loadRuns, persistFailed } from './services/simStore.js';
 import { APP_VERSION } from './version.js';
+import { pokeServiceWorker, useVersionCheck } from './services/versionCheck.js';
 import {
   addChild, addStage, cloneSubtree, defaultTree, duplicateNode, emptyTree, engineTree, findNode,
   findParent, hasParallelStage, inheritDefaults, isOnLaunchStage, makeNode, motorMounts, moveNode,
-  normalizeTree, removeNode, stageIndexOf, stages, updateAllNodes, updateNode,
+  normalizeTree, removeNode, stageIndexOf, stages, suppressingAncestor, updateAllNodes,
+  updateNode,
 } from './tree/treeModel.js';
 import { clusterCount } from './tree/cluster.js';
 import { autoAlignFinSets } from './tree/finAlign.js';
@@ -121,6 +129,22 @@ export interface SavedConfig {
    * configuration is open cannot rewrite this one's chute deployment.
    */
   deployments?: Record<string, OrkDeployOverride>;
+}
+
+/** SimRun -> the ten summary values desktop OpenRocket stores in <flightdata>. */
+function summaryOf(r: SimRun): OrkExportFlightData {
+  return {
+    maxAltitude: r.maxAltitude,
+    maxVelocity: r.maxVelocity,
+    maxAcceleration: r.maxAcceleration,
+    maxMach: r.maxMach,
+    timeToApogee: r.timeToApogee,
+    flightTime: r.totalFlightTime,
+    groundHitVelocity: r.groundHitVelocity,
+    launchRodVelocity: r.rodExitVelocity,
+    deploymentVelocity: r.velocityAtDeployment,
+    optimumDelay: r.optimumDelayS,
+  };
 }
 
 /**
@@ -254,7 +278,13 @@ function isPristineDefault(t: RocketTree): boolean {
 }
 
 export function App() {
-  const { prefs, setPrefs, resolvedTheme, daylight } = usePrefs();
+  const {
+    prefs, setPrefs, resolvedTheme, daylight,
+    saveFailing: prefsSaveFailing, aeroOverride, setAeroOverride,
+  } = usePrefs();
+  // "Am I on the current version?" — one cache-busted read of the deployed
+  // version.json, plus an on-demand recheck. Never polls.
+  const { state: updateState, recheck: recheckVersion } = useVersionCheck();
   // Mountain Man Rockets site band + footer strip, and the feedback routes
   // below. ONE call for all three: the hook fetches once per mount, so the
   // contract is shared state, not three copies of the same request.
@@ -331,8 +361,36 @@ export function App() {
         .map((st) => [st.id!, legacy]));
   });
   const [launch, setLaunch] = useState<LaunchConditions>(session?.launch ?? DEFAULT_CONDITIONS);
-  const [result, setResult] = useState<FlightResult | null>(null);
+  /**
+   * The in-memory flight, BOUND TO THE RUN IT BELONGS TO. It used to be a
+   * bare FlightResult with no link to `lastRun`, so selecting a row in the
+   * saved-run table had to null it defensively — which destroyed the charts
+   * for the flight you had just flown, with no way back short of pressing
+   * Launch again (and Launch always saves another row: that is where the
+   * duplicate history rows came from). With the id attached, the charts can
+   * simply ask "is this result the one this run is showing?".
+   */
+  const [result, setResult] = useState<{ runId: string; value: FlightResult } | null>(null);
   const [lastRun, setLastRun] = useState<SimRun | null>(null);
+  /**
+   * Re-flights of stored runs, keyed by run id. Small and insertion-ordered
+   * (Map) so eviction is the oldest key; cleared by the physics-change reset
+   * effect, which already owns the rule that no flight outlives the design it
+   * was computed for. Series are NOT persisted — this only spares the user a
+   * second re-fly when they click back and forth through history.
+   */
+  const reflightCache = useRef(new Map<string, FlightResult>()).current;
+  const cacheFlight = useCallback((id: string, res: FlightResult) => {
+    reflightCache.delete(id);
+    reflightCache.set(id, res);
+    while (reflightCache.size > 5) {
+      const oldest = reflightCache.keys().next().value;
+      if (oldest === undefined) break;
+      reflightCache.delete(oldest);
+    }
+  }, [reflightCache]);
+  /** Run id currently being re-flown by a "Show charts" press, if any. */
+  const [reflying, setReflying] = useState<string | null>(null);
   /**
    * How long the last simulation took, and the step it used — kept SEPARATELY
    * from `lastRun` because it is a performance measurement, not a flight
@@ -448,6 +506,21 @@ export function App() {
     })) setTourOpen(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot startup decision
   }, []);
+  // Turning the tour off WHILE IT IS ON SCREEN must dismiss it. The tour's
+  // spotlight and scrim are both pointer-events:none, so the app stays fully
+  // usable behind the card and opening Preferences mid-tour is the natural
+  // thing to do — and until now the card just sat there, which is the literal
+  // reading of "setting Tour Off doesn't work".
+  //
+  // Guarded on the false→true TRANSITION, not on the current value: a plain
+  // `if (off) setTourOpen(false)` would make the header's ⟲ Tour replay
+  // button dead for exactly the people who turned the auto-tour off.
+  const prevTourOff = useRef(prefs.tourOff ?? false);
+  useEffect(() => {
+    const off = prefs.tourOff ?? false;
+    if (off && !prevTourOff.current) setTourOpen(false);
+    prevTourOff.current = off;
+  }, [prefs.tourOff]);
   const closeTour = useCallback(() => {
     setTourOpen(false);
     // The tour walks through tabs — land back on the device's home screen
@@ -475,9 +548,10 @@ export function App() {
   const [showFileMenu, setShowFileMenu] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
   // Auto aero mode: did the last flight of THIS design cross the Mach-0.9
-  // threshold and upgrade to the supersonic model? Sticky until the design/
-  // motors/launch (or the mode itself) changes, so the displayed statics
-  // match the model the flight actually used.
+  // threshold and upgrade to the supersonic model? Sticky until the design,
+  // motors or launch conditions change, so the displayed statics match the
+  // model the flight actually used. NOT reset by a model change any more —
+  // switching models keeps the flight and marks it (see the reset effect).
   const [autoSupersonic, setAutoSupersonic] = useState(false);
   // "Switch to Auto & re-fly" from the supersonic-flight alert: re-launch as
   // soon as the engine rebuild with the new model lands.
@@ -569,16 +643,20 @@ export function App() {
   // Three-way aero model (feature #1): classic / supersonic / auto. Auto uses
   // classic until a flight crosses Mach 0.9, then the whole design (display,
   // drag panel, subsequent flights) runs on the supersonic model.
-  const aeroMode: 'classic' | 'supersonic' | 'auto' =
-    prefs.aeroModel ?? (prefs.supersonicAero ? 'supersonic' : 'classic');
+  //
+  // Normalized ONCE, in PrefsContext, so the build memo, the flight-reset
+  // effect, the run label and both model controls all agree. The Preferences
+  // pulldown maps BOTH classic options to aeroModel: 'classic' and tells them
+  // apart purely by rogersKbf, so aeroMode alone cannot see a switch between
+  // Extended Barrowman and Rogers Kbf. Normalizing rather than depending on
+  // prefs.rogersKbf raw (boolean | undefined) also avoids a spurious reset
+  // when it settles from undefined to true.
+  //
+  // `aeroOverride` is the vitals strip's session-only switch — null when the
+  // stored preference is in force, which is the case that must stay
+  // byte-for-byte what it always was.
+  const { aeroMode, effectiveKbf } = effectiveAero(prefs, aeroOverride);
   const effectiveSupersonic = aeroMode === 'supersonic' || (aeroMode === 'auto' && autoSupersonic);
-  // Normalized ONCE so the build memo and the flight-reset effect below agree.
-  // The Preferences pulldown maps BOTH classic options to aeroModel: 'classic'
-  // and tells them apart purely by this flag, so aeroMode alone cannot see a
-  // switch between Extended Barrowman and Rogers Kbf. Normalizing rather than
-  // depending on prefs.rogersKbf raw (boolean | undefined) also avoids a
-  // spurious reset when it settles from undefined to true.
-  const effectiveKbf = prefs.rogersKbf ?? true;
 
   // No setState in here — the error is part of the memo's value (setState
   // during render breaks under StrictMode's double-invoke).
@@ -672,15 +750,22 @@ export function App() {
   useEffect(() => {
     setResult(null);
     setLastRun(null);
+    // Cached re-flights die with the design they were computed for — this
+    // effect is the one place that owns that invariant, so a stale flight can
+    // never outlive its geometry.
+    reflightCache.clear();
     setAutoSupersonic(false); // re-evaluate the auto threshold on the next flight
     // eslint-disable-next-line react-hooks/exhaustive-deps -- physicsKey stands in for tree
-    // effectiveKbf is in here because switching between the two CLASSIC models
-    // changes CP, stability and drag immediately (the build memo applies it),
-    // but used to leave the old flight's apogee and the whole Results tab in
-    // place — the vitals strip then showed a stability and an apogee computed
-    // under two different aerodynamic models, which is exactly the comparison
-    // this preference exists to support.
-  }, [physicsKey, mountMotors, launch, aeroMode, effectiveKbf]);
+    //
+    // aeroMode/effectiveKbf are DELIBERATELY NOT deps. They used to be, so
+    // that a model switch could not leave the strip showing a stability and an
+    // apogee computed under two different models — but throwing the flight
+    // away made comparing the two models impossible, which is the whole point
+    // of being able to switch them. The flight is now KEPT and MARKED: the
+    // Results tab says which model it was flown on when that is no longer the
+    // current one, and the strip's Apogee cell carries the same mark. Silent
+    // re-labelling is the thing to avoid, not the stale number itself.
+  }, [physicsKey, mountMotors, launch]);
 
   // The measured cost survives LAUNCH edits by design (see lastSimCost above)
   // but must die with the rocket it timed: flying Mach2.trf.ork (~12 s) and
@@ -741,13 +826,21 @@ export function App() {
     const massKg = built.info.massEmpty;
     const cgM = built.info.cgEmpty;
     if (!allowanceNode?.id) return { massKg, cgM };
+    // An allowance sitting under a mass-overridden stage contributes NOTHING
+    // to massEmpty — the kernel zeroes the covered children's weight — so
+    // backing it out again would report a "Computed mass" light by exactly the
+    // allowance. componentInfo returns the component's own getMass(), which
+    // knows nothing about its ancestors' overrides.
+    if (suppressingAncestor(tree, allowanceNode.id, 'overrideSubcomponentsMass', 'overrideMass')) {
+      return { massKg, cgM };
+    }
     try {
       const ci = built.rocket.componentInfo(allowanceNode.id);
       return withoutAllowance(massKg, cgM, ci.mass, ci.positionX + ci.cgX);
     } catch {
       return { massKg, cgM };
     }
-  }, [built, allowanceNode]);
+  }, [built, allowanceNode, tree]);
 
   /**
    * Inserts or moves the ballast. Re-editing UPDATES the existing component
@@ -793,6 +886,66 @@ export function App() {
     setTree(addChild(tree, place.parentId, node));
     if (node.id) setSelectedId(node.id);
   };
+
+  /**
+   * The component whose mass override would swallow a Build allowance solved
+   * from the measured numbers. v0.073 shipped this as a SILENT no-op: type
+   * your scale reading, press Apply, a component appears in the tree, and no
+   * number moves. RASAero .CDX1 imports pin every stage this way, so it is
+   * reachable by anyone who imports one and then weighs the build.
+   */
+  const allowanceBlocker = useMemo(() => {
+    if (!built || !bare) return null;
+    const sol = measured.massKg !== null && measured.cgM !== null
+      ? solveBallast({
+        computedMassKg: bare.massKg, computedCgM: bare.cgM,
+        measuredMassKg: measured.massKg, measuredCgM: measured.cgM,
+        rocketLengthM: built.info.length,
+      })
+      : null;
+    if (sol?.kind !== 'ok') return null;
+    // Same default length applyAllowance uses for a not-yet-created allowance.
+    const lengthM = typeof allowanceNode?.['length'] === 'number'
+      ? allowanceNode['length'] as number : 0.02;
+    return coveringMassOverride(tree, sol.stationM, lengthM);
+  }, [built, bare, measured, tree, allowanceNode]);
+
+  /**
+   * Pinning is only unambiguous when ONE component's override covers the whole
+   * rocket — the measured figures are whole-airframe, the overrides are
+   * per-stage, and there is no rule for which stage absorbs the difference.
+   * With more than one pinned stage the box states the problem and stops,
+   * which is the same refusal the RASAero importer itself makes rather than
+   * guessing.
+   */
+  const canPinBlocker = useMemo(() => {
+    if (!allowanceBlocker) return false;
+    const pinned = tree.components.filter((n) =>
+      n['overrideSubcomponentsMass'] === true && typeof n['overrideMass'] === 'number');
+    return pinned.length === 1 && pinned[0] === allowanceBlocker;
+  }, [allowanceBlocker, tree]);
+
+  /**
+   * Replace the covering override with what the user actually weighed —
+   * desktop OpenRocket's own move, and exact when the covered component is the
+   * whole rocket. The CG is expressed from that component's own front, which
+   * for a single covering stage is the nose tip.
+   */
+  const pinBlockerToMeasured = useCallback(() => {
+    const blocker = allowanceBlocker;
+    if (!blocker?.id || measured.massKg === null || measured.cgM === null) return;
+    setTree(updateNode(tree, blocker.id, {
+      overrideMass: measured.massKg,
+      overrideSubcomponentsMass: true,
+      overrideCGX: measured.cgM,
+      overrideSubcomponentsCG: true,
+    } as Partial<ComponentNode>));
+    setFileNote(`“${blocker.name ?? 'Stage'}” is now pinned to your measured `
+      + `${fmtSi('mass', prefs.units.mass, measured.massKg)} ${prefs.units.mass}`
+      + ` and CG ${fmtSi('length', prefs.units.length, measured.cgM, 3)} ${prefs.units.length}. `
+      + 'Clear it under Overrides to go back to the computed geometry.');
+    setSelectedId(blocker.id);
+  }, [allowanceBlocker, measured, tree, prefs.units, setFileNote]);
 
   /**
    * Everything transient the user should see, in one channel with a severity.
@@ -949,7 +1102,6 @@ export function App() {
             res = flyTimed();
           }
         }
-        setResult(res);
         // Per-stage motor info so booster branches can be safety-checked
         // (chuteless HIGH-POWER boosters must warn — the G80 rule). Branches
         // are named after the SERIAL stage — except mounts inside a parallel
@@ -992,9 +1144,23 @@ export function App() {
           aeroModel: aeroMode === 'auto' && usedSupersonic ? 'auto-supersonic'
             : usedSupersonic ? 'supersonic' : 'classic',
           // Kbf only matters on the classic model (supersonic supersedes it).
-          rogersKbf: (prefs.rogersKbf ?? true) && !usedSupersonic,
+          // effectiveKbf, NOT the raw preference: with a strip override active
+          // the two differ, and stamping the preference onto a run flown the
+          // other way would put a permanent lie in the run history — and make
+          // the "flown on <model>" comparison below compare against it.
+          rogersKbf: effectiveKbf && !usedSupersonic,
           ...(activeConfig ? { flightConfig: savedConfigLabel(activeConfig) } : {}),
+          // Provenance for the .ork <flightdata> guard: what this flight was
+          // computed FROM, so a later export can prove the design, motors and
+          // conditions have not moved since — and refuse to write the numbers
+          // when they have.
+          ...(activeConfigId !== null ? { flightConfigId: activeConfigId } : {}),
+          designKey: shortHash(physicsKey),
+          motorSetKey: motorSetKeyOf(assigned),
         });
+        // Bound to the run it produced — the id is what lets a click through
+        // the history table come back to these charts.
+        setResult({ runId: run.id, value: res });
         setLastRun(run);
         setLastSimCost({ ms: execMs, ...(launch.timeStepS != null ? { timeStepS: launch.timeStepS } : {}) });
         recordRuns(addRun(run));
@@ -1006,6 +1172,119 @@ export function App() {
       }
     });
   };
+
+  /**
+   * The flown motor set as one comparable string: every mount that carried a
+   * motor, WHICH motor, the delay it flew and its ignition setting.
+   *
+   * The stored run's `motor`/`delayS` describe only the PRIMARY mount and
+   * `boosterMotors` is labels-only, so neither can tell a two-stage design
+   * re-motored on the booster from the same design untouched.
+   *
+   * The manufacturer is part of the identity, not decoration: designations
+   * are not unique across vendors (an AeroTech J350 and a Cesaroni J350 are
+   * different motors with different curves), and the EX library keys on the
+   * exact imported entry because two vendors' same-designation curves coexist
+   * there. Without them, swapping vendors would leave the old flight's
+   * numbers looking current.
+   */
+  const motorSetKeyOf = useCallback((set: [string, MountMotor][]): string =>
+    [...set]
+      .map(([id, mm]) => [
+        id,
+        mm.meta.exMotorId ?? `${mm.meta.manufacturer ?? ''}/${mm.spec.designation}`,
+        mm.spec.ejectionDelay,
+        mm.ignition.event,
+        mm.ignition.delay,
+      ].join(':'))
+      .sort()
+      .join('|'), []);
+
+  /**
+   * The provenance of the design as it stands RIGHT NOW, for comparison
+   * against what a stored run recorded at launch. Every term is stamped onto
+   * every run by onLaunch, so the comparison is like-for-like.
+   *
+   * effectiveKbf, not the stored preference: with the vitals strip's session
+   * override active the two differ, and the run this is compared against was
+   * stamped with the effective value.
+   */
+  const currentMatchKey = useMemo<DesignMatchKey | null>(() => {
+    if (!built || !primaryMountId) return null;
+    return {
+      designKey: shortHash(physicsKey),
+      motorSetKey: motorSetKeyOf(assigned),
+      conditionsKey: conditionsKeyOf(launch),
+      aeroMode,
+      effectiveKbf,
+      autoSupersonic,
+    };
+  }, [built, primaryMountId, physicsKey, assigned, launch, aeroMode, effectiveKbf,
+    autoSupersonic, motorSetKeyOf]);
+
+  /**
+   * Whether a stored run's charts can be recovered by re-flying it here.
+   *
+   * Deliberately NOT gated on a re-fly being in progress: every button that
+   * would show its own ⏳ busy label is rendered behind this predicate, so
+   * folding "busy" in here would unmount the button the instant it was
+   * pressed — and flip the surrounding prose to "this run can no longer be
+   * reproduced" for the whole length of the flight reproducing it. The
+   * buttons carry `disabled` for that instead.
+   */
+  const canShowCharts = useCallback((run: SimRun): boolean => {
+    if (!currentMatchKey || !built || !primaryMountId) return false;
+    if (reflightCache.has(run.id)) return false;
+    return runMatchesDesign(run, currentMatchKey);
+  }, [currentMatchKey, built, primaryMountId, reflightCache]);
+
+  /**
+   * The newest stored run this design could still reproduce — what the
+   * "nothing to show yet" state offers. A page reload always lands there, and
+   * it used to say "this design hasn't flown yet" directly above a table of
+   * that same design's flights.
+   */
+  const chartableRun = useMemo(
+    () => runs.find((r) => canShowCharts(r)) ?? null,
+    [runs, canShowCharts],
+  );
+
+  /**
+   * "Show charts" on a stored run: re-fly the design at that run's conditions
+   * and cache the series under its id. It deliberately does NOT save a run —
+   * six clicks through history must not cost six history rows (nor, thanks to
+   * the cache, six flights).
+   *
+   * The physics is deterministic (fixed seed), so this reproduces the stored
+   * flight exactly rather than approximating it.
+   */
+  const showChartsFor = useCallback(async (run: SimRun): Promise<void> => {
+    if (!built || !primaryMountId) return;
+    setReflying(run.id);
+    setLastRun(run);
+    // Let the busy state paint before the synchronous simulation blocks.
+    await afterPaint();
+    try {
+      const primary = mountMotors[primaryMountId]!;
+      if (run.delayS !== primary.spec.ejectionDelay) {
+        built.rocket.setMotorById(primaryMountId, { ...primary.spec, ejectionDelay: run.delayS });
+      }
+      // canShowCharts already required the run's model to equal the current
+      // one, so the handle is right as it stands. It is set explicitly anyway
+      // — in Auto the same effective model can be reached with the session's
+      // upgrade flag either way, and a handle rebuilt since the flag flipped
+      // would otherwise be silently one model behind.
+      built.rocket.setSupersonicAero(effectiveSupersonic);
+      built.rocket.setRogersModifiedBarrowman(effectiveKbf);
+      const res = built.rocket.simulate(kernelSimOptions(launch));
+      cacheFlight(run.id, res);
+      setSimError(null);
+    } catch (e) {
+      setSimError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setReflying(null);
+    }
+  }, [built, primaryMountId, mountMotors, launch, effectiveSupersonic, effectiveKbf, cacheFlight]);
 
   /**
    * Re-flies the LAST launch with `series: 'full'` for the flight-data CSV.
@@ -1028,8 +1307,24 @@ export function App() {
       // holds the pre-probe spec — restore the flown delay before re-flying.
       built.rocket.setMotorById(primaryMountId, { ...primary.spec, ejectionDelay: lastRun.delayS });
     }
-    return built.rocket.simulate({ ...kernelSimOptions(launch), series: 'full' });
-  }, [built, primaryMountId, lastRun, mountMotors, launch]);
+    // Restore the model the SHOWN flight was flown on, not whatever is
+    // selected now. Since a model switch no longer discards the flight, the
+    // two can differ — and a CSV that re-flew on today's model would be a
+    // different flight from the plots it sits under, under the same name.
+    const wasSupersonic = lastRun.aeroModel === 'supersonic'
+      || lastRun.aeroModel === 'auto-supersonic';
+    const wasKbf = lastRun.rogersKbf ?? effectiveKbf;
+    built.rocket.setSupersonicAero(wasSupersonic);
+    built.rocket.setRogersModifiedBarrowman(wasKbf);
+    try {
+      return built.rocket.simulate({ ...kernelSimOptions(launch), series: 'full' });
+    } finally {
+      // Hand the shared handle back exactly as it was: the drag panel and the
+      // component table read it too, and they follow the CURRENT model.
+      built.rocket.setSupersonicAero(effectiveSupersonic);
+      built.rocket.setRogersModifiedBarrowman(effectiveKbf);
+    }
+  }, [built, primaryMountId, lastRun, mountMotors, launch, effectiveSupersonic, effectiveKbf]);
 
   // ---- design file I/O (.ork native, .rkt RockSim) ----
   const toExportMotor = (mm: MountMotor): OrkExportMotor => {
@@ -1085,6 +1380,62 @@ export function App() {
   };
 
   /**
+   * Which configurations may carry computed results into an exported `.ork`,
+   * and what those results are — option (c) from the 2026-08-26 batch: write
+   * the flight WE computed, guarded, rather than copying the original file's
+   * blocks (which would show desktop a stale result computed from a design
+   * that no longer exists, with nothing on screen saying so) or writing
+   * nothing at all.
+   *
+   * A configuration qualifies only when the newest stored run that names it
+   * proves it was flown from THIS design, THIS motor set and THESE conditions.
+   * Anything else — a changed fin, a different delay, a run stored before the
+   * provenance keys existed — yields no entry, and that configuration stays
+   * `notsimulated`, which is exactly what desktop shows for a simulation it
+   * has not run.
+   */
+  const flightDataForExport = useCallback((): Record<string, OrkExportFlightData> => {
+    const out: Record<string, OrkExportFlightData> = {};
+    const designNow = shortHash(physicsKey);
+    const conditionsNow = conditionsKeyOf(launch);
+    for (const r of runs) {
+      // Newest-first, so the first qualifying run per config wins.
+      if (!r.flightConfigId || out[r.flightConfigId]) continue;
+      if (!savedConfigs.some((c) => c.id === r.flightConfigId)) continue;
+      if (r.designKey !== designNow) continue;
+      if (r.conditionsKey !== conditionsNow) continue;
+      // The model too. Without this a run the app itself marks "flown on a
+      // different model" would be written into the file as that
+      // configuration's up-to-date result — the exact authoritative-looking
+      // wrong number this guard exists to prevent. UNKNOWN (a run predating
+      // the field) is a refusal here, as everywhere the numbers travel.
+      if (runMatchesModel(r, { aeroMode, effectiveKbf, autoSupersonic }) !== true) continue;
+      // The motor set is compared against the CONFIGURATION's own motors, not
+      // the live working set: a user who has since switched configurations
+      // must still be able to export the results of the others.
+      const cfg = savedConfigs.find((c) => c.id === r.flightConfigId)!;
+      const cfgMotors: [string, MountMotor][] = cfg.id === activeConfigId
+        ? assigned
+        : Object.entries(cfg.motors);
+      if (r.motorSetKey !== motorSetKeyOf(cfgMotors)) continue;
+      out[r.flightConfigId] = {
+        maxAltitude: r.maxAltitude,
+        maxVelocity: r.maxVelocity,
+        maxAcceleration: r.maxAcceleration,
+        maxMach: r.maxMach,
+        timeToApogee: r.timeToApogee,
+        flightTime: r.totalFlightTime,
+        groundHitVelocity: r.groundHitVelocity,
+        launchRodVelocity: r.rodExitVelocity,
+        deploymentVelocity: r.velocityAtDeployment,
+        optimumDelay: r.optimumDelayS,
+      };
+    }
+    return out;
+  }, [runs, savedConfigs, activeConfigId, assigned, physicsKey, launch, motorSetKeyOf,
+    aeroMode, effectiveKbf, autoSupersonic]);
+
+  /**
    * Stage B: the stored presets in exportOrk's shape. Stable ids ride
    * through; the writer swaps the ACTIVE config's motors for the live
    * working set, so in-app edits persist into the saved file.
@@ -1097,17 +1448,57 @@ export function App() {
     ...(c.separations ? { separations: c.separations } : {}),
   }));
 
-  const download = (content: string | Uint8Array, ext: string, suffix = '') => {
+  /**
+   * What the picker's file-type dropdown says, and the MIME each format is
+   * offered under. A blanket application/octet-stream made every save look
+   * like the same anonymous binary in the dialog.
+   */
+  const FORMAT_INFO: Record<string, { mime: string; description: string }> = {
+    ork: { mime: 'application/octet-stream', description: 'OpenRocket design' },
+    rkt: { mime: 'application/octet-stream', description: 'RockSim design' },
+    CDX1: { mime: 'application/xml', description: 'RASAero II design' },
+    obj: { mime: 'text/plain', description: 'Wavefront OBJ geometry' },
+    glb: { mime: 'model/gltf-binary', description: 'glTF binary 3D model' },
+    stl: { mime: 'application/octet-stream', description: 'STL 3D shell' },
+    csv: { mime: 'text/csv', description: 'Comma-separated values' },
+    xlsx: { mime: XLSX_MIME, description: 'Excel workbook' },
+  };
+
+  /**
+   * Save a design/export file. On Chrome and Edge this opens a REAL Save-As
+   * dialog with the name prefilled and editable and the folder the user's
+   * choice; everywhere else it downloads, and says which file it wrote and
+   * where — "I did a save as a CDX1 and I don't know where it went" is a
+   * tester's own sentence, and silence is what made it possible.
+   */
+  const download = async (content: string | Uint8Array, ext: string, suffix = '') => {
     // CSV gets a UTF-8 BOM: headers can carry non-ASCII (units, symbols), and
     // Excel's double-click open decodes BOM-less CSV as the ANSI codepage.
     // Same convention as the flight-data and run-history CSVs (SimResults).
-    const parts: BlobPart[] = ext === 'csv' ? ['﻿', content as BlobPart] : [content as BlobPart];
-    const blob = new Blob(parts, { type: 'application/octet-stream' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `${(tree.name ?? 'rocket').replace(/[^\w-]+/g, '_')}${suffix}.${ext}`;
-    a.click();
-    URL.revokeObjectURL(a.href);
+    const info = FORMAT_INFO[ext] ?? { mime: 'application/octet-stream', description: 'File' };
+    const parts: BlobPart[] = ext === 'csv' ? [CSV_BOM, content as BlobPart] : [content as BlobPart];
+    const name = `${safeName(tree.name ?? 'rocket')}${suffix}.${ext}`;
+    const out = await saveFile(new Blob(parts, { type: info.mime }), {
+      suggestedName: name,
+      mime: info.mime,
+      extensions: [`.${ext}`],
+      description: info.description,
+    });
+    if (out.kind === 'downloaded') {
+      setFileNote(out.fellBack
+        // The dialog opened and then the write failed — a full disk, a locked
+        // file, a revoked permission. Reporting a plain success there would
+        // send the user looking in the folder they picked.
+        ? `Couldn't write to the folder you chose (${out.fellBack}) — `
+          + `“${out.name}” went to your browser's download folder instead.`
+        : `Saved “${out.name}” to your browser's download folder.`,
+      out.fellBack ? 'warn' : 'info');
+    } else if (out.kind === 'saved') {
+      setFileNote(`Saved “${out.name}”.`);
+    }
+    // 'cancelled' says nothing — the user pressed Cancel, and an app that
+    // reports on that is an app that nags.
+    return out;
   };
 
   // Component data table (issue 2026-08-11a): all components + attributes in
@@ -1120,16 +1511,17 @@ export function App() {
     } : undefined,
   );
 
-  const onSaveOrk = () => {
+  const onSaveOrk = async () => {
     // WITH launch: the .ork's first <simulation> carries the pad and weather,
     // so the file (and the desktop app) round-trips the whole flight setup.
-    download(exportOrk({
+    await download(exportOrk({
       name: tree.name ?? 'My Rocket', tree, motors: exportMotorsMap(), launch,
       configs: exportConfigs(), activeConfigId, measured,
+      flightData: flightDataForExport(),
     }), 'ork');
   };
 
-  const onSaveRkt = () => {
+  const onSaveRkt = async () => {
     try {
       // Computed mass/CG per partially-overridden component: RockSim couples
       // both under one flag, so the un-overridden half must export its
@@ -1149,15 +1541,20 @@ export function App() {
         };
         collect(tree.components);
       }
-      download(exportRkt({ name: tree.name ?? 'My Rocket', tree, motors: exportMotorsMap(), compInfo }), 'rkt');
+      await download(exportRkt({ name: tree.name ?? 'My Rocket', tree, motors: exportMotorsMap(), compInfo }), 'rkt');
     } catch (e) {
       setFileNote(`RockSim export failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
     }
   };
 
-  const onSaveCdx1 = () => {
+  const onSaveCdx1 = async () => {
     try {
-      download(exportCdx1({
+      // The RASAero writer THROWS on ordinary designs it cannot represent
+      // (>3 stages, two fin sets on a tube, freeform/elliptical fins,
+      // non-conical transitions, unsupported nose shapes). The catch below is
+      // the only thing between that and a silent no-file — which is a second,
+      // entirely separate explanation for "I don't know where it went".
+      await download(exportCdx1({
         name: tree.name ?? 'My Rocket',
         tree,
         launchMassKg: built?.info.mass,
@@ -1175,10 +1572,16 @@ export function App() {
     }
   };
 
+  // NOTE for the three handlers below: they `await import(...)` before saving,
+  // which spends the click's transient user activation — so on Chrome the
+  // Save-As picker raises NotAllowedError and saveFile falls back to a plain
+  // download. That degradation is deliberate and safe (the user still gets the
+  // file, and is told where it went); the alternative is preloading three lazy
+  // chunks on every page load to keep a dialog for three rarely-used exports.
   const onSaveObj = async () => {
     try {
       const { rocketToObj } = await import('./services/objExport.js');
-      download(rocketToObj(tree, tree.name ?? 'Rocket'), 'obj');
+      await download(rocketToObj(tree, tree.name ?? 'Rocket'), 'obj');
     } catch (e) {
       setFileNote(`OBJ export failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
     }
@@ -1187,7 +1590,7 @@ export function App() {
   const onSaveGlb = async () => {
     try {
       const { rocketToGlb } = await import('./services/gltfExport.js');
-      download(new Uint8Array(await rocketToGlb(tree, tree.name ?? 'Rocket')), 'glb');
+      await download(new Uint8Array(await rocketToGlb(tree, tree.name ?? 'Rocket')), 'glb');
     } catch (e) {
       setFileNote(`glTF export failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
     }
@@ -1200,7 +1603,7 @@ export function App() {
         import('./services/stlExport.js'),
       ]);
       const { pieces } = buildPieces(tree);
-      download(piecesToStl(pieces, tree.name ?? 'Rocket'), 'stl');
+      await download(piecesToStl(pieces, tree.name ?? 'Rocket'), 'stl');
     } catch (e) {
       setFileNote(`STL export failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
     }
@@ -1456,8 +1859,14 @@ export function App() {
 
   /** The "None" row / full unload: no motors, no active configuration. */
   const clearConfig = () => {
+    const had = Object.keys(mountMotors).length > 0;
     setMountMotors({});
     setActiveConfigId(null);
+    // Every other action in the Flight configurations panel confirms through
+    // the notice bar; this one said nothing, and it is now the last control on
+    // the tab. The copy has to read correctly from the vitals strip's
+    // ⏏ Unload button too, which is the same function.
+    if (had) setFileNote('Every motor unloaded — the rocket is shown and weighed clean.');
   };
 
   // Desktop OpenRocket's default rocket name is literally "Rocket" (users
@@ -1554,6 +1963,8 @@ export function App() {
         // reproduces — the recipient sees the sender's weighed build, which is
         // the rocket the "Build allowance" in the tree belongs to.
         configs: exportConfigs(), activeConfigId, measured,
+        // Same rule: a link must open to the same file a save would write.
+        flightData: flightDataForExport(),
       });
       const frag = await encodeShareFragment(xml);
       const url = `${window.location.origin}${window.location.pathname}${window.location.search}${frag}`;
@@ -1584,6 +1995,17 @@ export function App() {
     ])),
     [assigned],
   );
+
+  /**
+   * Reload onto the new build. Poking the service worker first matters: under
+   * `registerType: 'autoUpdate'` the new worker takes over and reloads by
+   * itself once it installs, so a plain reload could otherwise land back on
+   * the cached build and look like the button did nothing.
+   */
+  const reloadForUpdate = useCallback(async () => {
+    await pokeServiceWorker();
+    window.location.reload();
+  }, []);
 
   // Data header for the 2D/3D image exports (issue 2026-08-11a) — name,
   // dimensions, mass, CG/CP/margin in the user's units.
@@ -1633,11 +2055,38 @@ export function App() {
     };
   }), [mounts, tree, stageList]);
 
-  // Vitals strip: apogee of the most recent flight (fresh sim or reopened run).
-  const lastApogee = result?.summary.maxAltitude ?? lastRun?.maxAltitude ?? null;
+  /**
+   * The series to draw for whatever run the Results tab is showing — the one
+   * value every chart/alert gate reads. Either the in-memory flight, when it
+   * belongs to this run, or a cached re-flight of it. Null means "this run's
+   * report is stored, but nobody has computed its series in this session",
+   * which is what the Show-charts button is for.
+   */
+  const shownResult: FlightResult | null = !lastRun ? null
+    : result?.runId === lastRun.id ? result.value
+    : reflightCache.get(lastRun.id) ?? null;
 
-  // "Use Auto & re-fly" from the supersonic-flight alert: once the pref
-  // change has propagated (aeroMode now 'auto'), fire a fresh launch.
+  // Vitals strip: apogee of the most recent flight (fresh sim or reopened run).
+  const lastApogee = shownResult?.summary.maxAltitude ?? lastRun?.maxAltitude ?? null;
+  /**
+   * Whether the shown flight was flown on a DIFFERENT aerodynamics model than
+   * the one now selected. Switching models used to throw the flight away, so
+   * this could not arise — but that made comparing the two models impossible,
+   * which is what being able to switch them is for. Keeping the flight is only
+   * honest if the app says which model produced it.
+   *
+   * `null` from runMatchesModel means "the run predates the field that would
+   * answer this" — unknown is not a mismatch, and old runs must not be accused
+   * of a difference we cannot see.
+   */
+  const modelMatch = lastRun
+    ? runMatchesModel(lastRun, { aeroMode, effectiveKbf, autoSupersonic })
+    : null;
+  const apogeeStale = modelMatch === false;
+
+  // "Try Auto & re-fly" from the supersonic-flight alert: once the session
+  // override has propagated (aeroMode now 'auto') and the engine handle has
+  // been rebuilt with it, fire a fresh launch.
   useEffect(() => {
     if (!pendingRelaunch || !built || !primaryMountId) return;
     setPendingRelaunch(false);
@@ -1663,6 +2112,42 @@ export function App() {
             >
               v{APP_VERSION} beta
             </button>
+            {/* "Am I on the current version?" — the recurring support
+                conversation, answered. version.json is deliberately not
+                precached, so this always reports what is actually deployed,
+                even in a tab running an old cached build. */}
+            {/* aria-live on the WRAPPER, which is always present — a live
+                region that is itself swapped out announces nothing. And every
+                non-stale state renders the SAME button element, so clicking
+                "check again" does not destroy the node the user is standing
+                on and throw focus back to the document. */}
+            <span className="version-check" aria-live="polite">
+              {updateState.kind === 'stale' ? (
+                <button className="version-update"
+                  title={`v${updateState.latest.version}${updateState.latest.released ? ` (released ${updateState.latest.released})` : ''} is deployed. Reload to get it.`}
+                  onClick={() => { void reloadForUpdate(); }}>
+                  ↻ v{updateState.latest.version} available — Reload
+                </button>
+              ) : (
+                <button className="version-ok"
+                  disabled={updateState.kind === 'checking'}
+                  title={updateState.kind === 'current'
+                    ? 'Checked against what is actually deployed. Click to check again.'
+                    : updateState.kind === 'checking'
+                    ? 'Checking what is deployed…'
+                    // Never a warning, and never a claim that the user is out
+                    // of date: an unreachable version.json means offline, a
+                    // blocked request, or a dev server — the app's standing
+                    // posture for a failed background fetch is to degrade
+                    // quietly.
+                    : 'Could not reach the server to check — you may be offline. Click to try again.'}
+                  onClick={recheckVersion}>
+                  {updateState.kind === 'current' ? '✓ Up to date'
+                    : updateState.kind === 'checking' ? 'Checking…'
+                    : 'Version unknown'}
+                </button>
+              )}
+            </span>
           </div>
           <label className="file-btn" title="Open an OpenRocket (.ork), RockSim (.rkt), or RASAero II (.CDX1) design">
             <Icon name="folder" /> Open…
@@ -1689,38 +2174,38 @@ export function App() {
               <>
                 <div className="file-menu-backdrop" onClick={() => setShowFileMenu(false)} />
                 <div className="file-menu" role="menu" onClick={() => setShowFileMenu(false)}>
-                  <button onClick={onSaveOrk}>Save .ork — OpenRocket design</button>
+                  <button onClick={() => { void onSaveOrk(); }}>Save .ork — OpenRocket design</button>
                   <button onClick={() => { void onCopyShareLink(); }}
                     title="The whole design — components, motors, launch conditions — packed into a link you can paste in chat or email. It opens right in the browser; the design travels in the link itself and never touches a server.">
                     🔗 Copy share link
                   </button>
-                  <button onClick={onSaveRkt}
+                  <button onClick={() => { void onSaveRkt(); }}
                     title="RockSim design (max 3 stages; clusters split into individual tubes)">
                     Save .rkt — RockSim
                   </button>
-                  <button onClick={onSaveCdx1}
+                  <button onClick={() => { void onSaveCdx1(); }}
                     title="RASAero II design (aero geometry + recovery + launch weight; RASAero needs conical transitions and 3–8 trapezoid fins)">
                     Save .CDX1 — RASAero II
                   </button>
-                  <button onClick={onSaveObj}
+                  <button onClick={() => { void onSaveObj(); }}
                     title="External 3D geometry as a Wavefront OBJ (meters) — print preview / CAD reference">
                     Export .obj — 3D geometry
                   </button>
-                  <button onClick={onSaveGlb}
+                  <button onClick={() => { void onSaveGlb(); }}
                     title="Modern 3D model with your component colors (glTF binary, meters) — drops straight into Windows 3D Viewer, PowerPoint, Blender, and web viewers">
                     Export .glb — 3D model with colors
                   </button>
-                  <button onClick={onSaveStl}
+                  <button onClick={() => { void onSaveStl(); }}
                     title="Whole-rocket display shell as binary STL (mm). Reference/display model — NOT watertight; for printable parts use the 🖨 button on a selected component">
                     Export .stl — 3D shell (reference)
                   </button>
-                  <button onClick={() => download(componentCsv(buildComponentTable()), 'csv', '-components')}
+                  <button onClick={() => { void download(componentCsv(buildComponentTable()), 'csv', '-components'); }}
                     title="Every component and its attributes as one row per component, in your preferred units — dimensions, materials, and the computed mass/CG/position. For sharing measurement data.">
                     Export .csv — component data
                   </button>
                   <button onClick={() => {
                     const t = buildComponentTable();
-                    download(tableToXlsx(t.headers, t.rows, 'Components'), 'xlsx', '-components');
+                    void download(tableToXlsx(t.headers, t.rows, 'Components'), 'xlsx', '-components');
                   }}
                     title="The same component table as a spreadsheet — typed cells, frozen header, autofilter.">
                     Export .xlsx — component data
@@ -1828,6 +2313,16 @@ export function App() {
           <div className="file-note autosave-warn" role="alert">
             ⚠ Autosave can&apos;t write (storage full or blocked) — save your
             design to a file (Save As / Export → .ork) to keep it safe.
+          </div>
+        )}
+        {prefsSaveFailing && !autosaveFailing && (
+          // Same shape, different store. Shown only when autosave is NOT
+          // already shouting — one banner is a diagnosis, two are noise, and
+          // the autosave one is the more urgent of the pair.
+          <div className="file-note autosave-warn" role="alert">
+            ⚠ This browser isn&apos;t keeping your preferences (private window,
+            or site data blocked) — units, theme and the tour setting will go
+            back to their defaults when you reload.
           </div>
         )}
       </header>
@@ -2017,20 +2512,55 @@ export function App() {
               )}
             </span>
           </span>
-          {effectiveSupersonic && (
-            <span className="vitals-item"
-              title={aeroMode === 'auto'
-                ? 'Auto aero: this design flew past Mach 0.9, so stability, drag analysis and flights use the supersonic model'
-                : 'Supersonic aerodynamics model active (Preferences → Aerodynamics)'}>
-              <span className="vitals-label">Aero</span>
-              <span className="vitals-value vitals-aero">M+ supersonic</span>
+          {/* The model, switchable from every workspace that shows the strip.
+              It used to be a read-only chip that appeared ONLY when supersonic
+              was active, so the model most people fly was never named — and
+              changing it meant a trip into Preferences.
+
+              This switch is SESSION-SCOPED and does not write the preference
+              (the owner, 2026-08-26): an experiment must not quietly become
+              next session's default. Preferences remains the durable setting,
+              and choosing there clears this override. */}
+          <span className="vitals-item vitals-item-aero"
+            title="Which aerodynamics model computes stability, drag and flights. Changing it here applies for this session only — Preferences → Aerodynamics is the setting that persists.">
+            <span className="vitals-label">Aero</span>
+            <span className="vitals-value">
+              <select className="vitals-aero-select"
+                aria-label="Aerodynamics model (this session)"
+                value={aeroOverride ?? aeroChoiceOf(prefs)}
+                disabled={simulating}
+                onChange={(e) => setAeroOverride(e.target.value as AeroChoice)}>
+                <option value="kbf">Rogers Kbf</option>
+                <option value="eb">Classic EB</option>
+                <option value="auto">Auto</option>
+                <option value="supersonic">Supersonic</option>
+              </select>
+              {effectiveSupersonic && aeroMode === 'auto' && (
+                // Auto has upgraded itself on this design — worth saying,
+                // because the select still reads "Auto".
+                <span className="vitals-aero" title="Auto aero: this design flew past Mach 0.9, so stability, drag analysis and flights use the supersonic model">
+                  {' '}M+
+                </span>
+              )}
+              {aeroOverride && aeroOverride !== aeroChoiceOf(prefs) && (
+                <button className="vitals-aero-revert" title={`Session override — Preferences is set to ${AERO_SHORT[aeroChoiceOf(prefs)]}. Click to go back to it.`}
+                  aria-label={`Clear the session aero override and use ${AERO_SHORT[aeroChoiceOf(prefs)]}`}
+                  onClick={() => setAeroOverride(null)}>↺</button>
+              )}
             </span>
-          )}
+          </span>
           {lastApogee !== null && (
-            <span className="vitals-item" title="Apogee of the most recent flight">
+            <span className="vitals-item"
+              title={apogeeStale
+                ? `Apogee of the most recent flight, which was flown on ${aeroModelLabel(lastRun?.aeroModel, lastRun?.rogersKbf)} — not the model now selected. Press Launch to re-fly it.`
+                : 'Apogee of the most recent flight'}>
               <span className="vitals-label">Apogee</span>
               <span className="vitals-value">
                 {fmtSi('distance', prefs.units.distance, lastApogee)}&nbsp;<UnitChip quantity="distance" />
+                {/* A model switch no longer throws the flight away — so the
+                    number has to say when it belongs to a different model,
+                    rather than being silently re-labelled under the new one. */}
+                {apogeeStale && <span className="vitals-stale" aria-hidden="true"> ⚠</span>}
               </span>
             </span>
           )}
@@ -2085,6 +2615,8 @@ export function App() {
             onChangeMotor={() => setTab('motors')}
             onCompare={() => setShowBatch(true)}
             canCompare={!!built && !!primaryMountId && !isStaged}
+            staleModel={modelMatch === false && lastRun
+              ? aeroModelLabel(lastRun.aeroModel, lastRun.rogersKbf) : null}
           />
         )}
 
@@ -2186,6 +2718,8 @@ export function App() {
               measured={measured}
               onChange={setMeasured}
               onApply={applyAllowance}
+              blockedBy={allowanceBlocker}
+              onPinStage={allowanceBlocker && canPinBlocker ? pinBlockerToMeasured : undefined}
             />
           )}
         </aside>
@@ -2212,7 +2746,14 @@ export function App() {
                   aria-selected={view === 'aft'} onClick={() => setView('aft')}>Aft</button>
               </div>
             </div>
-            <div className="rocket-stage hero-stage" data-tour="canvas">
+            {/* data-vert raises the stage's height cap in ⟳90° mode ONLY:
+                there the container's height is the rocket's length axis, so
+                height buys drawing rather than empty sky (styles.css). It is
+                gated on view === '2d' as well, because vert2d persists while
+                the user is on 3D/Aft — where the taller cap would just be
+                letterbox. */}
+            <div className="rocket-stage hero-stage" data-tour="canvas"
+              data-vert={view === '2d' && vert2d ? 'on' : undefined}>
               {/* .hero-view owns fill-and-center: the drawing must never size
                   its own container (see the styles.css note on the feedback
                   loop), and the schematic wrap carries inline positioning of
@@ -2346,19 +2887,6 @@ export function App() {
               ) : null;
             })()}
           </div>
-
-          {/* Only when there's a genuine choice: a single-config file's one
-              row would be noise on every ordinary design (our own exports
-              included), and ⏏ Unload already covers its "None". */}
-          {savedConfigs.length > 1 && (
-            <ConfigPanel
-              configs={savedConfigs}
-              activeConfigId={activeConfigId}
-              hasMotors={Object.keys(mountMotors).length > 0}
-              onApply={applyConfig}
-              onClear={clearConfig}
-            />
-          )}
 
           <div className="panel">
             <h2>Motors</h2>
@@ -2577,14 +3105,32 @@ export function App() {
 
           <LaunchPanel value={launch} onChange={setLaunch} onLaunch={onLaunch} simulating={simulating}
             lastRun={simCostRef} />
+
+          {/* Last row of the grid, full width (`.config-panel` spans
+              `1 / -1` wherever auto-placement drops it). It sat second, above
+              Motors, and pushed the two panels a tester actually works in
+              below the fold on a file with several configurations.
+
+              Only when there's a genuine choice: a single-config file's one
+              row would be noise on every ordinary design (our own exports
+              included), and ⏏ Unload already covers its "None". */}
+          {savedConfigs.length > 1 && (
+            <ConfigPanel
+              configs={savedConfigs}
+              activeConfigId={activeConfigId}
+              hasMotors={Object.keys(mountMotors).length > 0}
+              onApply={applyConfig}
+              onClear={clearConfig}
+            />
+          )}
         </div>
         )}
 
         {tab === 'results' && (
         <main className="results-column" data-tour="results-panel">
-          {result && aeroMode === 'classic' && result.summary.maxMachNumber > MACH_AUTO_THRESHOLD && (
+          {shownResult && aeroMode === 'classic' && shownResult.summary.maxMachNumber > MACH_AUTO_THRESHOLD && (
             <div className="file-note" role="alert">
-              ⚠ This flight reaches <strong>Mach {result.summary.maxMachNumber.toFixed(2)}</strong> on
+              ⚠ This flight reaches <strong>Mach {shownResult.summary.maxMachNumber.toFixed(2)}</strong> on
               the classic aero model, which is approximate past ~Mach {MACH_AUTO_THRESHOLD} — supersonic CP travel
               (the stability hazard on fast flights) is not modeled. A wind-tunnel-validated
               supersonic model is available. Note: a model applies to the <strong>entire
@@ -2592,10 +3138,16 @@ export function App() {
               it changes.{' '}
               <button className="file-btn" style={{ marginLeft: 6 }}
                 onClick={() => {
-                  setPrefs({ ...prefs, aeroModel: 'auto' });
+                  // Sets the SESSION switch, not the stored preference. It
+                  // used to write the preference, which under an active strip
+                  // override would have been outranked — leaving a button that
+                  // visibly did nothing, twice. Session-scoped also matches
+                  // what the button is for: trying the other model on this
+                  // flight, not changing what every future session flies.
+                  setAeroOverride('auto');
                   setPendingRelaunch(true);
                 }}>
-                Switch to Auto &amp; re-fly
+                Try Auto &amp; re-fly (this session)
               </button>
             </div>
           )}
@@ -2614,42 +3166,85 @@ export function App() {
                 .map((w) => formatWarning(w).label).join(' · ')}
             </div>
           )}
-          {result && lastRun?.aeroModel === 'auto-supersonic' && (
+          {shownResult && lastRun?.aeroModel === 'auto-supersonic' && (
             <div className="file-note">
               {/* States what the flight DID, not what was predicted: the model can also be
                   chosen by the post-flight backstop, where the short probe projected
                   subsonic and the full flight overruled it — "was projected past" is
                   the opposite of what happened on that path. */}
-              Auto aero: this flight reaches <strong>Mach {result.summary.maxMachNumber.toFixed(2)}</strong>,
+              Auto aero: this flight reaches <strong>Mach {shownResult.summary.maxMachNumber.toFixed(2)}</strong>,
               past the Mach {MACH_AUTO_THRESHOLD} threshold, so the whole flight was flown
               on the <strong>supersonic model</strong> (the displayed stability follows it too —
               subsonic flights of this design would fly classic).
             </div>
           )}
-          {result && lastRun ? (
+          {modelMatch === false && lastRun && (
+            // States what the flight DID first, matching the auto-supersonic
+            // note's precedent. This exists because a model switch no longer
+            // destroys the flight: keeping it is only honest if the report
+            // says which model produced these numbers, rather than letting
+            // them be silently re-read under the new one.
+            <div className="file-note" role="status">
+              These numbers were <strong>flown on {aeroModelLabel(lastRun.aeroModel, lastRun.rogersKbf)}</strong>.
+              The model now selected is <strong>{currentModelLabel({ aeroMode, effectiveKbf, autoSupersonic })}</strong>,
+              so they are not comparable with a fresh flight — press <strong>Launch</strong> to
+              re-fly this design on the current model.
+            </div>
+          )}
+          {shownResult && lastRun ? (
             <>
               <FlightStats run={lastRun} />
-              <SimRunDetails run={lastRun} result={result} onFullSeries={fetchFullSeriesResult} />
-              <FlightCharts result={result} />
+              <SimRunDetails run={lastRun} hasSeries />
+              <FlightCharts result={shownResult} onFullSeries={fetchFullSeriesResult}
+                designName={tree.name} />
             </>
           ) : lastRun ? (
-            // A saved run re-opened from the history: tiles + the stored
-            // report render in full; charts need a fresh simulation's series.
+            // A stored run whose series nobody has computed in this session —
+            // after a reload, or a run flown before the design was edited.
+            // The tiles and the report come from the stored scalars; the plots
+            // need series, which run history does not carry.
             <>
               <FlightStats run={lastRun} />
               <SimRunDetails run={lastRun} />
+              <div className="panel placeholder empty-state">
+                <p><strong>Flight plots aren&apos;t saved with a run</strong></p>
+                <p>
+                  The report above is stored in full, but the plots are drawn from the
+                  simulation&apos;s raw time series, which run history doesn&apos;t keep.
+                  {canShowCharts(lastRun)
+                    ? ' This design still matches the run, so it can be flown again to redraw them — the physics is deterministic, so it reproduces this exact flight.'
+                    : ' The design, motor or conditions have changed since this run, so it can no longer be reproduced here. Press Launch to fly the design as it stands now.'}
+                </p>
+                {canShowCharts(lastRun) && (
+                  <button className="file-btn" disabled={reflying !== null}
+                    title="Re-fly this design at this run's conditions to redraw its plots. Does not add a row to the run history."
+                    onClick={() => { void showChartsFor(lastRun); }}>
+                    {reflying === lastRun.id ? '⏳ Re-flying…' : '📈 Show charts'}
+                  </button>
+                )}
+              </div>
             </>
           ) : (
             <div className="panel placeholder empty-state">
               <Icon name="rocket" size={30} />
-              <p><strong>This design hasn't flown yet</strong></p>
+              <p><strong>Nothing to show yet</strong></p>
               <p>
-                Press <strong>Launch</strong> (above) to fly it and see altitude,
+                Press <strong>Launch</strong> (above) to fly this design and see altitude,
                 velocity and acceleration plots.
+                {chartableRun && ' Its previous flights are saved below — the report and the plots for any of them can be brought back without flying a new one.'}
               </p>
+              {chartableRun && (
+                <button className="file-btn" disabled={reflying !== null}
+                  title="Re-fly this design at that run's conditions to redraw its report and plots. Does not add a row to the run history."
+                  onClick={() => { void showChartsFor(chartableRun); }}>
+                  {reflying === chartableRun.id ? '⏳ Re-flying…' : '📈 Show the last saved flight'}
+                </button>
+              )}
             </div>
           )}
-          {built && <DragPanel rocket={built.rocket} supersonicModel={effectiveSupersonic} designName={tree.name} fileMachAlt={fileMachAlt} />}
+          {built && <DragPanel rocket={built.rocket} supersonicModel={effectiveSupersonic}
+            aeroLabel={currentModelLabel({ aeroMode, effectiveKbf, autoSupersonic })}
+            designName={tree.name} fileMachAlt={fileMachAlt} />}
           {runsQuotaWarn && (
             <div className="file-note" role="alert">
               {runs.length === 0
@@ -2669,7 +3264,16 @@ export function App() {
             runs={runs}
             onRunsChange={recordRuns}
             selectedId={lastRun?.id ?? null}
-            onSelect={(r) => { setResult(null); setLastRun(r); }}
+            // Selecting a row no longer destroys the in-memory flight: the
+            // result carries the id of the run it belongs to, so the charts
+            // decide for themselves whether they are showing this run. Coming
+            // back to the run you just flew restores its charts for free.
+            onSelect={(r) => { if (r.id !== lastRun?.id) setLastRun(r); }}
+            canShowCharts={canShowCharts}
+            onShowCharts={(r) => { void showChartsFor(r); }}
+            reflyingId={reflying}
+            hasChartsFor={(r) => (result?.runId === r.id) || reflightCache.has(r.id)}
+            designName={tree.name}
           />
         </main>
         )}

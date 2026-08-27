@@ -28,6 +28,40 @@ describe('stats-drawer default and the desktop breakpoint', () => {
     expect(read('../styles.css')).toContain('@media (min-width: 981px)');
   });
 
+  it('the hero canvas is clamped, so the page cannot outgrow the viewport', () => {
+    // The old rule was `max(420px, calc(100vh - 335px))` — a linear function
+    // of viewport height with a floor and NO ceiling, whose 335px budget
+    // counted only the chrome ABOVE the stage. The footer band below it is
+    // worth ~85px, so the document came out at 100vh + ~85px at every window
+    // height and the footer sat permanently below the fold. A silent revert
+    // to max() would restore that with nothing else failing, so pin it here.
+    const css = read('../styles.css');
+    expect(css).toContain('height: clamp(420px, calc(100vh - 420px');
+    // Match the DECLARATION, not the string — the rule's comment quotes the
+    // old value on purpose, to record what was wrong with it.
+    expect(css).not.toContain('height: max(420px');
+  });
+
+  it('the fixed notice bar reserves its own space instead of covering the footer', () => {
+    // NoticeBar publishes its measured height; the footer band and the hero
+    // canvas both budget for it. The token needs a 0px default, or every
+    // calc() using it collapses to "invalid at computed-value time" when no
+    // notice is showing.
+    const css = read('../styles.css');
+    // Comments stripped: the rule below deliberately QUOTES the wrong form in
+    // its own explanation, and a naive match would find that instead.
+    const rules = css.replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(css).toContain('calc(10px + var(--notice-h, 0px))');
+    expect(read('../components/NoticeBar.tsx')).toContain("setProperty('--notice-h'");
+    // The default MUST live on :root, not on .viz-root. NoticeBar publishes
+    // the measured height as an inline style on <html>; a declaration on
+    // .viz-root would beat that inherited value for the whole app subtree and
+    // the reserve would silently always be zero. This assertion is the only
+    // thing standing between that mistake and a re-introduction.
+    expect(/:root\s*\{[^}]*--notice-h:\s*0px;/.test(rules)).toBe(true);
+    expect(/\.viz-root\s*\{[^}]*--notice-h:/.test(rules)).toBe(false);
+  });
+
   it('the phone home screen keeps its own, narrower breakpoint', () => {
     // 767px is the phone rule (tab default, drawer chrome). The two must stay
     // distinct: a phone must not inherit the desktop drawer.

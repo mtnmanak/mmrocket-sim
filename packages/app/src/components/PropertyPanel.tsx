@@ -21,6 +21,8 @@ import { BULK_MATERIALS, LINE_MATERIALS, SURFACE_MATERIALS, type MaterialDef } f
 import { PresetPicker } from './PresetPicker.js';
 import { KIND_FOR_TYPE } from '../services/presets.js';
 import { finTemplateSvg } from '../services/finTemplate.js';
+import { safeName } from '../services/fileName.js';
+import { downloadBlob } from '../services/saveFile.js';
 
 /**
  * Schema fields are authored in "legacy" units (mm/deg/g/m/s/kg·m⁻³ — what the
@@ -431,11 +433,8 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll, onAutoAli
           title="True-scale SVG cut template — print at 100% or send to a laser cutter; includes the through-the-wall tab and a 50 mm calibration ruler"
           onClick={() => {
             const svg = finTemplateSvg(node, tree.name ?? 'Rocket');
-            const a = document.createElement('a');
-            a.href = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
-            a.download = `${(node.name ?? 'fin').replace(/[^\w-]+/g, '_')}-template.svg`;
-            a.click();
-            URL.revokeObjectURL(a.href);
+            downloadBlob(new Blob([svg], { type: 'image/svg+xml' }),
+              `${safeName(node.name ?? 'fin')}-template.svg`, 'SVG cut template');
           }}>
           📐 Fin template (SVG, 1:1)
         </button>
@@ -449,11 +448,8 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll, onAutoAli
           onClick={() => {
             const dxf = componentDxf(node, solidContextFor(parent), tree.name ?? 'Rocket');
             if (!dxf) return;
-            const a = document.createElement('a');
-            a.href = URL.createObjectURL(new Blob([dxf.text], { type: DXF_MIME }));
-            a.download = `${(node.name ?? dxf.label).replace(/[^\w-]+/g, '_')}-cut.dxf`;
-            a.click();
-            URL.revokeObjectURL(a.href);
+            downloadBlob(new Blob([dxf.text], { type: DXF_MIME }),
+              `${safeName(node.name ?? dxf.label)}-cut.dxf`, 'DXF cut profile');
           }}>
           ✂ DXF (CNC/laser, 1:1)
         </button>
@@ -465,7 +461,6 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll, onAutoAli
               ? 'This part is taller than your printer, so it exports as a ZIP: one STL per segment plus a README with the print orientation, the glue, and the shrinkage rule that decides whether the halves fit each other. Each cut adds a tapered spigot and a flat land — the land sets the assembled length, so nothing is lost at the joint.'
               : 'Watertight solid STL in millimetres, ready to slice. Hollow noses/transitions include shoulders and end caps at your wall thickness; fin sets export ONE fin as a flat prism with its tab (airfoil/cross-section shaping is left to sanding, cant not baked); rings, bulkheads and couplers take their diameters from the parent tube. Verify fit before a long print.'}
             onClick={async () => {
-              const a = document.createElement('a');
               // Split path: a zip of segments. Everything else — no printer, a
               // part that fits, a part that cannot be split — takes the single
               // STL path below, byte-for-byte and filename-for-filename what
@@ -475,8 +470,8 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll, onAutoAli
                 if (!vol) return;
                 const name = node.name ?? offer.split.label;
                 const pack = await buildPrintPack(offer.split, name, vol, printerName(printer));
-                a.href = URL.createObjectURL(new Blob([pack.bytes as BlobPart], { type: ZIP_MIME }));
-                a.download = pack.filename;
+                downloadBlob(new Blob([pack.bytes as BlobPart], { type: ZIP_MIME }),
+                  pack.filename, 'ZIP of printable segments');
               } else {
                 const solid = await componentSolid(node, solidContextFor(parent));
                 if (!solid) return;
@@ -484,11 +479,9 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll, onAutoAli
                 // namespace, and this panel renders on the design screen.
                 const { solidToStl, STL_MIME } = await import('../services/stlExport.js');
                 const stl = solidToStl(solid.mesh, node.name ?? solid.label);
-                a.href = URL.createObjectURL(new Blob([stl as BlobPart], { type: STL_MIME }));
-                a.download = `${(node.name ?? solid.label).replace(/[^\w-]+/g, '_')}-print.stl`;
+                downloadBlob(new Blob([stl as BlobPart], { type: STL_MIME }),
+                  `${safeName(node.name ?? solid.label)}-print.stl`, 'STL 3D print');
               }
-              a.click();
-              URL.revokeObjectURL(a.href);
             }}>
             {offer?.button ?? SINGLE_BUTTON}
           </button>

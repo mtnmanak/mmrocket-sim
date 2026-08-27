@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
 import { DEFAULT_CONDITIONS, PANEL_TIME_STEP_FLOOR_S } from '../components/LaunchPanel.js';
-import { exportOrk, importOrk, MIN_IMPORTED_TIME_STEP_S, ORK_CREATOR, type OrkExportConfig, type OrkMotorRef } from './orkFile.js';
+import { exportOrk, flightDataAttrs, importOrk, MIN_IMPORTED_TIME_STEP_S, ORK_CREATOR, type OrkExportConfig, type OrkMotorRef } from './orkFile.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -2154,5 +2154,189 @@ describe('.ork automatic radii (bare `auto`, OpenRocket 15.03)', () => {
     expect(info.refDiameter).toBeCloseTo(0.156718, 6);
     const sweep = r.dragSweep({ machMin: 0.3, machMax: 0.3, machStep: 0.1, aoaDeg: 0 });
     expect(sweep.powerOff.total[0]!).toBeLessThan(0.6); // 1.3550 before the fix
+  });
+});
+
+/**
+ * `<flightdata>` — option (c) from the 2026-08-26 batch: write the flight WE
+ * computed into the saved `.ork`, guarded.
+ *
+ * The two rejected alternatives are worth remembering, because they are what
+ * every assertion here is defending against. Copying the ORIGINAL file's
+ * blocks looks seamless and lies the moment anything changes — desktop would
+ * show a result computed from a design that no longer exists with nothing on
+ * screen saying so. Writing nothing leaves a user who saves here and opens in
+ * desktop looking at their configurations with every result blank.
+ *
+ * The exporter therefore writes results only where the CALLER vouches for
+ * them, and writes `notsimulated` everywhere else.
+ */
+describe('exportOrk — <flightdata>', () => {
+  const TREE = {
+    name: 'MC',
+    components: [{
+      type: 'stage' as const, id: 's', name: 'Sustainer',
+      children: [{
+        type: 'bodytube' as const, id: 'b', length: 0.3, outerRadius: 0.012,
+        thickness: 0.0005, motorMount: true,
+      }],
+    }],
+  };
+  const LAUNCH = {
+    launchRodLengthM: 1, launchRodAngleDeg: 0, windAverage: 2, windStdDev: 0.2,
+    launchAltitudeM: 0, temperatureC: null, pressureHPa: null, latitudeDeg: 28.61,
+  };
+  const cfg = (id: string, name: string): OrkExportConfig =>
+    ({ id, name, isDefault: id === 'cfgA', motors: {} });
+  const base = () => ({
+    name: 'R', tree: TREE, launch: LAUNCH,
+    configs: [cfg('cfgA', 'Club field'), cfg('cfgB', 'Demo day')],
+    activeConfigId: 'cfgA',
+  });
+  const sims = (xml: string) => xml.split('<simulation ').slice(1);
+
+  it('with no flightData the file is exactly what it always was', () => {
+    const xml = exportOrk(base());
+    expect(xml).not.toContain('<flightdata');
+    for (const s of sims(xml)) expect(s.startsWith('status="notsimulated">')).toBe(true);
+  });
+
+  it('writes results for the vouched-for configuration and nothing for the other', () => {
+    const xml = exportOrk({
+      ...base(),
+      flightData: { cfgA: { maxAltitude: 331.7, maxVelocity: 116.2 } },
+    });
+    const [a, b] = sims(xml);
+    expect(a!.startsWith('status="uptodate">')).toBe(true);
+    expect(a).toContain('<flightdata maxaltitude="331.7" maxvelocity="116.2"/>');
+    // The unvouched one says the true thing: we have not run it.
+    expect(b!.startsWith('status="notsimulated">')).toBe(true);
+    expect(b).not.toContain('<flightdata');
+  });
+
+  it('uses the desktop’s own attribute spellings, in its own order', () => {
+    // maxmach (not maxmachnumber), optimumdelay, all lowercase, no separators
+    // — DocumentConfig's attribute lookup is exact.
+    const xml = exportOrk({
+      ...base(),
+      flightData: {
+        cfgA: {
+          maxAltitude: 1, maxVelocity: 2, maxAcceleration: 3, maxMach: 4,
+          timeToApogee: 5, flightTime: 6, groundHitVelocity: 7,
+          launchRodVelocity: 8, deploymentVelocity: 9, optimumDelay: 10,
+        },
+      },
+    });
+    expect(xml).toContain('<flightdata maxaltitude="1" maxvelocity="2" maxacceleration="3"'
+      + ' maxmach="4" timetoapogee="5" flighttime="6" groundhitvelocity="7"'
+      + ' launchrodvelocity="8" deploymentvelocity="9" optimumdelay="10"/>');
+  });
+
+  it('skips a non-finite value rather than serializing it', () => {
+    // The desktop's saver appends each attribute only when it is not NaN, and
+    // our own emit interpolates raw — "NaN" or "null" in the file would be a
+    // number desktop's reader silently turns into NaN anyway.
+    const xml = exportOrk({
+      ...base(),
+      flightData: { cfgA: { maxAltitude: 100, maxVelocity: NaN, maxMach: Infinity, timeToApogee: null } },
+    });
+    expect(xml).toContain('<flightdata maxaltitude="100"/>');
+    expect(xml).not.toMatch(/NaN|Infinity|null/);
+  });
+
+  it('an entry with nothing finite in it writes NO element and stays notsimulated', () => {
+    // A zero-attribute <flightdata> would still build an all-NaN FlightData in
+    // desktop and mark the simulation "loaded" — nine blank columns claiming
+    // to be a result.
+    const xml = exportOrk({ ...base(), flightData: { cfgA: { maxAltitude: NaN } } });
+    expect(xml).not.toContain('<flightdata');
+    expect(sims(xml)[0]!.startsWith('status="notsimulated">')).toBe(true);
+  });
+
+  it('sits after </conditions> and inside </simulation>, where desktop puts it', () => {
+    const xml = exportOrk({ ...base(), flightData: { cfgA: { maxAltitude: 1 } } });
+    const s = sims(xml)[0]!;
+    const cond = s.indexOf('</conditions>');
+    const fd = s.indexOf('<flightdata');
+    const end = s.indexOf('</simulation>');
+    expect(cond).toBeGreaterThan(-1);
+    expect(fd).toBeGreaterThan(cond);
+    expect(end).toBeGreaterThan(fd);
+  });
+
+  it('does not disturb the round trip — our own reader ignores it', () => {
+    const xml = exportOrk({
+      ...base(),
+      launch: { ...LAUNCH, windAverage: 4.5, launchRodAngleDeg: 7 },
+      flightData: { cfgA: { maxAltitude: 331.7 } },
+    });
+    const back = importOrk(xml);
+    expect(back.launch?.windAverage).toBeCloseTo(4.5, 6);
+    expect(back.launch?.launchRodAngleDeg).toBeCloseTo(7, 6);
+    expect(back.configs?.map((c) => c.id)).toEqual(['cfgA', 'cfgB']);
+  });
+});
+
+describe('exportOrk — results for a design with no flight configurations', () => {
+  // A design built in the app carries none, so the writer mints one with a
+  // fresh id on every export and the caller has no stable key to use. Without
+  // the default channel the whole feature would only ever work for designs
+  // opened from a file that already had configurations — which is not what the
+  // guide says and not what most people have.
+  const TREE = {
+    name: 'MC',
+    components: [{
+      type: 'stage' as const, id: 's', name: 'Sustainer',
+      children: [{
+        type: 'bodytube' as const, id: 'b', length: 0.3, outerRadius: 0.012,
+        thickness: 0.0005, motorMount: true,
+      }],
+    }],
+  };
+  const LAUNCH = {
+    launchRodLengthM: 1, launchRodAngleDeg: 0, windAverage: 2, windStdDev: 0.2,
+    launchAltitudeM: 0, temperatureC: null, pressureHPa: null, latitudeDeg: 28.61,
+  };
+
+  it('writes them onto the single minted simulation', () => {
+    const xml = exportOrk({
+      name: 'R', tree: TREE, launch: LAUNCH,
+      flightDataDefault: { maxAltitude: 331.7 },
+    });
+    expect(xml).toContain('<simulation status="uptodate">');
+    expect(xml).toContain('<flightdata maxaltitude="331.7"/>');
+  });
+
+  it('still writes nothing when there is nothing to write', () => {
+    const xml = exportOrk({ name: 'R', tree: TREE, launch: LAUNCH });
+    expect(xml).toContain('<simulation status="notsimulated">');
+    expect(xml).not.toContain('<flightdata');
+  });
+
+  it('the keyed map wins over the default for a config that has its own', () => {
+    const cfgs: OrkExportConfig[] = [
+      { id: 'cfgA', name: 'A', isDefault: true, motors: {} },
+      { id: 'cfgB', name: 'B', isDefault: false, motors: {} },
+    ];
+    const xml = exportOrk({
+      name: 'R', tree: TREE, launch: LAUNCH, configs: cfgs, activeConfigId: 'cfgA',
+      flightData: { cfgA: { maxAltitude: 1 } },
+      flightDataDefault: { maxAltitude: 999 },
+    });
+    expect(xml).toContain('<flightdata maxaltitude="1"/>');
+    expect(xml).not.toContain('999');
+  });
+});
+
+describe('flightDataAttrs — the guard against an empty block', () => {
+  it('is null for absent input and for an all-non-finite one', () => {
+    expect(flightDataAttrs(undefined)).toBeNull();
+    expect(flightDataAttrs({})).toBeNull();
+    expect(flightDataAttrs({ maxAltitude: NaN, maxVelocity: null })).toBeNull();
+  });
+
+  it('emits only the finite values', () => {
+    expect(flightDataAttrs({ maxAltitude: 0, maxVelocity: NaN }))
+      .toBe('maxaltitude="0"');
   });
 });

@@ -2,7 +2,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { FirstRunTour, shouldAutoStartTour } from './FirstRunTour.js';
+import { clearTourDone, FirstRunTour, shouldAutoStartTour } from './FirstRunTour.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -29,6 +29,24 @@ describe('shouldAutoStartTour', () => {
 
   it('is suppressed by an incoming share link', () => {
     expect(shouldAutoStartTour({ ...base, hasShare: true })).toBe(false);
+  });
+
+  it('clearTourDone re-arms it — what Preferences → On now does', () => {
+    localStorage.setItem(TOUR_KEY, 'done');
+    expect(shouldAutoStartTour(base)).toBe(false);
+    clearTourDone();
+    expect(shouldAutoStartTour(base)).toBe(true);
+  });
+
+  it('a re-arm outranks the restored-session check, or "On" is a dead option', () => {
+    // By the time anyone can reach Preferences, a session exists — the
+    // autosave writes one ~400 ms into the first visit. If hasSession still
+    // won, asking for the tour back could never produce it.
+    clearTourDone();
+    expect(shouldAutoStartTour({ ...base, hasSession: true })).toBe(true);
+    // But it does NOT outrank the two explicit refusals.
+    expect(shouldAutoStartTour({ ...base, hasSession: true, tourOff: true })).toBe(false);
+    expect(shouldAutoStartTour({ ...base, hasSession: true, hasShare: true })).toBe(false);
   });
 
   it('is suppressed by a restored session (not a new visitor)', () => {
@@ -101,6 +119,16 @@ describe('FirstRunTour', () => {
     expect(tabs).toContain('results');
     next(); // → 6: guide
     expect(host.querySelector('.tour-next')?.textContent).toBe('Done');
+  });
+
+  it('SHOWING it is what marks it seen — an ignored tour still counts', async () => {
+    // The spotlight and scrim are pointer-events:none, so the app stays fully
+    // usable behind the card: a visitor can ignore it and close the tab. When
+    // the flag was written only by ×/Skip/Done/Escape, that visitor got the
+    // tour again on every single visit.
+    mount(() => {}, () => {});
+    await settle();
+    expect(localStorage.getItem(TOUR_KEY)).toBe('done');
   });
 
   it('Skip closes and sets the seen flag so it never auto-shows again', async () => {

@@ -358,6 +358,23 @@ export interface CalloutGadget {
  * margin between them. Pure so the numbers are provable — the R3F canvas
  * cannot mount in tests.
  */
+/**
+ * Which of the 3D view's two marker systems to draw. Pure and exported
+ * because the R3F canvas cannot be mounted in this test environment (see the
+ * note at the top of this file) — the decision is testable, the scene is not.
+ *
+ * Absent means BOTH: a stored preferences blob written before this existed
+ * must keep the view it has always had.
+ */
+export function markerVisibility(pref: string | undefined): { axis: boolean; callout: boolean } {
+  switch (pref) {
+    case 'off': return { axis: false, callout: false };
+    case 'axis': return { axis: true, callout: false };
+    case 'callout': return { axis: false, callout: true };
+    default: return { axis: true, callout: true };
+  }
+}
+
 export function calloutGadget(
   info: StaticInfo | null,
   maxR: number,
@@ -626,7 +643,8 @@ export function Rocket3D({ tree, info, motors, exportData }: {
   /** When set, a 📷 PNG snapshot button appears (issue 2026-08-11a). */
   exportData?: Omit<ExportData, 'spanM'>;
 }) {
-  const { prefs } = usePrefs();
+  const { prefs, setPrefs } = usePrefs();
+  const markers = markerVisibility(prefs.markers3d);
   const { pieces, totalLen, maxR } = useMemo(() => buildPieces(tree, motors), [tree, motors]);
   const r3f = useRef<{ gl: THREE.WebGLRenderer; scene: THREE.Scene; camera: THREE.Camera } | null>(null);
 
@@ -686,7 +704,7 @@ export function Rocket3D({ tree, info, motors, exportData }: {
   const center = totalLen / 2;
   const camDist = Math.max(totalLen * 1.1, maxR * 6, 0.25);
   const markerR = markerRadius(totalLen, maxR);
-  const gadget = calloutGadget(info, maxR, totalLen, prefs.stabilityUnit);
+  const gadget = markers.callout ? calloutGadget(info, maxR, totalLen, prefs.stabilityUnit) : null;
 
   // View presets + recovery (batch 08-21d): a pan or deep zoom could lose the
   // rocket with no way back — these jump the camera to known-good stations.
@@ -718,6 +736,17 @@ export function Rocket3D({ tree, info, motors, exportData }: {
           onClick={() => jumpTo([center, 0, camDist * 1.05])}>Side</button>
         <button className="file-btn" title="From behind — clusters and fin count as they really sit"
           onClick={() => jumpTo([totalLen + camDist * 0.9, 0, 0])}>Aft</button>
+        {/* A tester asked for the CG/CP markers to be optional — the shell is
+            what he wanted to look at. This is a plain on/off; Preferences has
+            the four-way (spheres and callout are independent). */}
+        <button className="file-btn" aria-pressed={markers.axis || markers.callout}
+          title="Show or hide the CG / CP markers and the floating callout. Preferences → Display can keep one and drop the other."
+          onClick={() => setPrefs({
+            ...prefs,
+            markers3d: (markers.axis || markers.callout) ? 'off' : 'both',
+          })}>
+          {(markers.axis || markers.callout) ? '◉ CG/CP' : '○ CG/CP'}
+        </button>
       </div>
       <Canvas camera={{ position: [center + camDist * 0.5, camDist * 0.45, camDist * 0.8], fov: 40 }}
         // Snapshot export reads the drawing buffer after the frame — without
@@ -755,13 +784,13 @@ export function Rocket3D({ tree, info, motors, exportData }: {
               would wash over them. */}
           {/* 0.45× the shared size rule (batch 08-21d): full-size axis balls
               overwhelmed small rockets; the gadget keeps the size rule. */}
-          {info && Number.isFinite(info.cg) && (
+          {markers.axis && info && Number.isFinite(info.cg) && (
             <mesh position={[info.cg, 0, 0]} renderOrder={10}>
               <sphereGeometry args={[markerR * 0.45, 24, 24]} />
               <meshStandardMaterial color="#e9edf1" emissive="#8891a0" depthTest={false} transparent />
             </mesh>
           )}
-          {info && Number.isFinite(info.cp) && (
+          {markers.axis && info && Number.isFinite(info.cp) && (
             <mesh position={[info.cp, 0, 0]} renderOrder={11}>
               <sphereGeometry args={[markerR * 0.45, 24, 24]} />
               <meshStandardMaterial color="#e34948" emissive="#5a1010" depthTest={false} transparent />
@@ -806,8 +835,13 @@ export function Rocket3D({ tree, info, motors, exportData }: {
           minDistance={camDist * 0.12} maxDistance={camDist * 5} />
       </Canvas>
       <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '4px 0 0', textAlign: 'center' }}>
-        drag to rotate · scroll to zoom · <span style={{ color: '#aab2bd' }}>●</span> CG ·{' '}
-        <span style={{ color: '#e34948' }}>●</span> CP
+        drag to rotate · scroll to zoom
+        {/* The legend goes with the markers — a key for dots nobody is drawing
+            is worse than no key. */}
+        {markers.axis && (
+          <> · <span style={{ color: '#aab2bd' }}>●</span> CG ·{' '}
+            <span style={{ color: '#e34948' }}>●</span> CP</>
+        )}
       </p>
     </div>
   );

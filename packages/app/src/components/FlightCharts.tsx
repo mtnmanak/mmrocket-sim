@@ -8,6 +8,10 @@ import { chartInk, seriesPalette } from '../chartTheme.js';
 import { panelHeight, panZoomPlugin, plotIsZoomed, resetPlots } from '../chartPanZoom.js';
 import { formatReadout, tooltipPlugin } from '../chartTooltip.js';
 import { UnitChip } from './UnitChip.js';
+import { flightDataCsv } from '../services/flightDataCsv.js';
+import { flightXlsx } from '../services/flightXlsx.js';
+import { CSV_BOM, downloadBlob, stampedName } from '../services/fileName.js';
+import { XLSX_MIME } from '../services/xlsx.js';
 
 /**
  * Stacked single-series panels with synchronized crosshairs. Different-scale
@@ -182,27 +186,15 @@ function Panel({ result, def, plots, expanded, onToggleExpand, onZoomChange }: {
   );
 }
 
-function exportCsv(result: FlightResult, catalog: SeriesDef[]) {
-  const cols = catalog.filter((d) => (result.series[d.key] ?? []).length > 0);
-  const header = ['time_s', ...cols.map((d) => `${String(d.key)}${d.unit ? `_${d.unit.replace('²', '2').replace('°', 'deg')}` : ''}`)];
-  const rows = [header.join(',')];
-  const t = result.series.time;
-  for (let i = 0; i < t.length; i++) {
-    const row = [t[i], ...cols.map((d) => {
-      const v = result.series[d.key]?.[i];
-      return v == null ? '' : (d.f ? d.f(v) : v);
-    })];
-    rows.push(row.join(','));
-  }
-  const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'flight-data.csv';
-  a.click();
-  URL.revokeObjectURL(a.href);
-}
-
-export function FlightCharts({ result }: { result: FlightResult }) {
+export function FlightCharts({ result, onFullSeries, designName }: {
+  result: FlightResult;
+  /**
+   * Re-flies the shown flight with the full series payload. Absent = the
+   * download pair is not offered (nothing here can produce it).
+   */
+  onFullSeries?: () => Promise<FlightResult>;
+  designName?: string;
+}) {
   const { prefs, daylight } = usePrefs();
   const catalog = useMemo(
     () => seriesCatalog(prefs, seriesPalette(daylight)),
@@ -242,8 +234,59 @@ export function FlightCharts({ result }: { result: FlightResult }) {
 
   const visible = catalog.filter((d) => selected.has(d.key) && (result.series[d.key] ?? []).length > 0);
 
+  // The raw flight-data downloads live HERE, beside the plots they belong to.
+  // They used to sit in the launch report's header, where the pair read as
+  // report exports; a third button up here wrote a 12-column subset under the
+  // name `flight-data.csv`, so the file that SOUNDED canonical was the poorest
+  // export on the page. That one is gone: it was a lossless subset of this
+  // CSV, through the same unit conversion, minus the BOM and minus every
+  // booster branch.
+  const [exportBusy, setExportBusy] = useState<null | 'csv' | 'xlsx'>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
+
+  /** Re-fly for the full series, then hand the bytes off as a download. */
+  const exportFlightData = (kind: 'csv' | 'xlsx') => {
+    if (!onFullSeries) return;
+    setExportBusy(kind);
+    setExportError(null);
+    onFullSeries()
+      .then((full) => {
+        const blob = kind === 'csv'
+          ? new Blob([CSV_BOM, flightDataCsv(full, prefs.units)], { type: 'text/csv;charset=utf-8' })
+          : new Blob([flightXlsx(full, prefs.units) as BlobPart], { type: XLSX_MIME });
+        downloadBlob(blob, stampedName(designName, 'flight-data', kind === 'csv' ? 'csv' : 'xlsx'));
+      })
+      .catch((e: unknown) => setExportError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setExportBusy(null));
+  };
+
   return (
-    <div>
+    <div className="panel" style={{ marginTop: 10 }}>
+      {/* The plots block had no heading at all, which is part of why a
+          download button floating above it read as ambiguous. */}
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+        <h2 style={{ flex: 1 }}>Flight plots</h2>
+        {onFullSeries && (
+          <>
+            <span className="download-caption">Download this flight, every timestep:</span>
+            <button className="file-btn" disabled={exportBusy !== null}
+              title={'Re-flies the shown flight to capture every series the physics kernel records (deterministic — the same flight, more columns), one row per timestep, in your preferred units (each header names its unit; thrust and drag stay in newtons). Booster stages append as name-prefixed column groups. Not stored with run history.'}
+              onClick={() => exportFlightData('csv')}>
+              {exportBusy === 'csv' ? '⏳ Re-flying…' : '⬇ Flight data (.csv)'}
+            </button>
+            <button className="file-btn" disabled={exportBusy !== null}
+              title={'Excel workbook of the same flight data: typed numeric cells under unit-labelled headers, plus a live Excel chart tab for every exported column — the headline quantities one per tab, the coefficient and rate families grouped — referencing the data sheet. Booster stages get their own data sheets and their own chart tabs.'}
+              onClick={() => exportFlightData('xlsx')}>
+              {exportBusy === 'xlsx' ? '⏳ Re-flying…' : '⬇ Flight data + charts (.xlsx)'}
+            </button>
+          </>
+        )}
+      </div>
+      {exportError && (
+        <p className="simdet-comments stability-bad" style={{ margin: '4px 0 0' }}>
+          Flight-data export failed: {exportError}
+        </p>
+      )}
       <div className="series-picker" role="group" aria-label="Plot series">
         {catalog.map((d) => {
           const available = (result.series[d.key] ?? []).length > 0;
@@ -259,9 +302,6 @@ export function FlightCharts({ result }: { result: FlightResult }) {
             </button>
           );
         })}
-        <button className="file-btn" style={{ marginLeft: 'auto' }} onClick={() => exportCsv(result, catalog)}>
-          ⬇ CSV
-        </button>
       </div>
       {visible.length > 0 && (
         <div className="chart-toolbar">

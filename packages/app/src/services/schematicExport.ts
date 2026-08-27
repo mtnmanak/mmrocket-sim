@@ -2,6 +2,7 @@ import type { StaticInfo } from '@online-openrocket/engine';
 import { fmtSi, type UnitSelection } from '../prefs/units.js';
 import { escapeXml } from './xmlUtil.js';
 import { formatStability } from './simReport.js';
+import { downloadBlob as saveBlob } from './saveFile.js';
 
 /**
  * 2D/3D image + model export with a data header (issue 2026-08-11a).
@@ -177,12 +178,12 @@ export function snapshotWithHeader(glCanvas: HTMLCanvasElement, d: ExportData, f
   return encodeCanvas(canvas, format);
 }
 
-/** Shared download-anchor dance for the export buttons. */
+/**
+ * Shared save for the export buttons. Routes through services/saveFile so
+ * these get the same Save-As dialog every other export does on Chrome/Edge,
+ * and the same deferred object-URL revoke everywhere else.
+ */
 export function downloadBlob(blob: Blob | string, filename: string): void {
   const b = typeof blob === 'string' ? new Blob([blob], { type: 'image/svg+xml' }) : blob;
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(b);
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(a.href);
+  saveBlob(b, filename, 'Image');
 }

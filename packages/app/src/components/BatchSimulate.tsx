@@ -19,6 +19,8 @@ import { Icon } from './Icon.js';
 import { fmtSi, siToUi, uiToSi } from '../prefs/units.js';
 import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
+import { safeName } from '../services/fileName.js';
+import { downloadBlob } from '../services/saveFile.js';
 
 /**
  * Batch simulation: fly EVERY motor that fits the mount (after filters)
@@ -148,6 +150,11 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
   // Batch-local aero model. Auto is the sensible default: a candidate list
   // routinely spans subsonic to supersonic flights, and one fixed model
   // would be wrong at one end or the other.
+  //
+  // DELIBERATELY independent of both the stored preference and the vitals
+  // strip's session override — the batch builds and flies its own engine
+  // handle, and a fixed model chosen for one design is the wrong default for
+  // a catalog sweep. Do not "fix" this by seeding it from either of them.
   const [batchModel, setBatchModel] = useState<'eb' | 'kbf' | 'auto' | 'supersonic'>('auto');
   // Which mount the batch targets (candidates, cluster count, max length and
   // the combination split all follow it).
@@ -510,11 +517,8 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
   }), [rows]);
 
   const downloadAs = (blob: Blob, ext: string) => {
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `batch-${rocketName.replace(/[^\w-]+/g, '_')}.${ext}`;
-    a.click();
-    URL.revokeObjectURL(a.href);
+    downloadBlob(blob, `batch-${safeName(rocketName)}.${ext}`,
+      ext === 'csv' ? 'Comma-separated values' : 'Excel workbook');
   };
   // Export ordering (the owner's spec): group by motor config — single-motor rows
   // first, then each mixed config — every group keeping the

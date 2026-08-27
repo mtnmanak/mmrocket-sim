@@ -8,6 +8,7 @@ import {
 } from '../services/presets.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { siToUi } from '../prefs/units.js';
+import { downloadBlob } from '../services/saveFile.js';
 
 const ROW_CAP = 300;
 
@@ -59,12 +60,8 @@ export function PresetPicker({ type, onApply, onClose }: {
   };
 
   const exportCsv = () => {
-    const blob = new Blob([presetsToCsv(rows)], { type: 'text/csv' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `presets-${kind}.csv`;
-    a.click();
-    URL.revokeObjectURL(a.href);
+    downloadBlob(new Blob([presetsToCsv(rows)], { type: 'text/csv' }),
+      `presets-${kind}.csv`, 'Comma-separated values');
   };
 
   const importCsv = async (file: File) => {

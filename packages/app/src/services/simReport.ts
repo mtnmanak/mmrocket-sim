@@ -1,5 +1,5 @@
 import type { EngineWarning, FlightEvent, FlightResult, FlightSeries, MotorSpec, StaticInfo } from '@online-openrocket/engine';
-import { boosterBranches, G0 } from '@online-openrocket/engine';
+import { boosterBranches, DEFAULT_TIME_STEP_S, G0 } from '@online-openrocket/engine';
 import type { LaunchConditions } from '../components/LaunchPanel.js';
 import { displayDesignation } from './motorDb.js';
 import { formatWarningText } from './simWarnings.js';
@@ -315,6 +315,28 @@ export interface SimRun {
    * means cluster combination.
    */
   flightConfig?: string;
+  /**
+   * PROVENANCE KEYS — what a stored run has to prove before its numbers may
+   * be written into an exported `.ork` as that configuration's simulation
+   * results (option (c): write our own computed results, guarded).
+   *
+   * Desktop OpenRocket shows a saved `<flightdata>` block in its simulation
+   * table with nothing on screen saying how old it is, so a stale result is
+   * indistinguishable from a fresh one. The standing verdict on writing
+   * results we cannot vouch for is "the worst outcome: wrong numbers that
+   * look authoritative" — these three keys are what let the exporter refuse.
+   *
+   * All optional: every run stored before v0.074 carries none of them, and a
+   * run that cannot prove itself is simply not written.
+   */
+  /** The `.ork` `<configid>` of the flight configuration that flew. */
+  flightConfigId?: string;
+  /** Hash of the physics-relevant design tree at launch (names/colours stripped). */
+  designKey?: string;
+  /** The flown motor set: every mount, designation, delay and ignition setting. */
+  motorSetKey?: string;
+  /** The launch conditions in force, serialized. */
+  conditionsKey?: string;
   comments: string;
 }
 
@@ -336,6 +358,131 @@ export function storedSimCost(
     && Number.isFinite(run.execMs) && run.execMs > 0);
   if (!r) return null;
   return { ms: r.execMs, ...(r.timeStepS != null ? { timeStepS: r.timeStepS } : {}) };
+}
+
+/**
+ * What a stored run has to prove before we will offer to re-fly it for its
+ * charts — and before its numbers may be written into an exported `.ork`.
+ *
+ * A SimRun stores ~50 scalars and a rocket NAME, so identity cannot come from
+ * the run itself. It comes from three provenance keys stamped at launch:
+ * `designKey` (the physics-relevant tree, names and colours stripped),
+ * `motorSetKey` (every mount's motor, delay and ignition setting) and
+ * `conditionsKey` (every launch condition). All three must be present AND
+ * equal: a run stored before those keys existed cannot be verified, and an
+ * unverifiable match is not a match.
+ *
+ * This replaced a looser check on launch mass and wind alone, which passed on
+ * runs flown at a different rod angle, rod length, altitude, temperature,
+ * pressure or latitude — so "Show charts" would re-fly at TODAY's conditions
+ * and draw a genuinely different flight under the stored run's numbers.
+ *
+ * The aerodynamics model is checked separately by `runMatchesModel`, because
+ * `null` there means "this run predates the field" and must not be read as a
+ * mismatch.
+ */
+export interface DesignMatchKey {
+  designKey: string;
+  motorSetKey: string;
+  conditionsKey: string;
+  aeroMode: 'classic' | 'supersonic' | 'auto';
+  effectiveKbf: boolean;
+  autoSupersonic: boolean;
+}
+
+export function runMatchesDesign(run: SimRun, cur: DesignMatchKey): boolean {
+  if (!run.designKey || run.designKey !== cur.designKey) return false;
+  if (!run.motorSetKey || run.motorSetKey !== cur.motorSetKey) return false;
+  if (!run.conditionsKey || run.conditionsKey !== cur.conditionsKey) return false;
+  // Unlike the UI's "flown on a different model" mark, an UNKNOWN model is a
+  // refusal here: re-flying reproduces a flight, and reproducing one whose
+  // model we cannot name is exactly the authoritative-looking wrong number
+  // this guard exists to prevent.
+  return runMatchesModel(run, cur) === true;
+}
+
+/**
+ * One spelling of "which aerodynamics model produced this", used by the launch
+ * report's detail row and by the stale-run banner, so the two cannot drift.
+ */
+export function aeroModelLabel(
+  aeroModel: SimRun['aeroModel'], rogersKbf?: boolean,
+): string {
+  switch (aeroModel) {
+    case 'supersonic': return 'Supersonic (our extended model)';
+    case 'auto-supersonic': return 'Supersonic (auto — flight exceeded Mach 0.9)';
+    case 'classic': return `Classic (Extended Barrowman${rogersKbf ? ' + Rogers Kbf' : ''})`;
+    default: return '—';
+  }
+}
+
+/** The same label for the model the app is set to fly RIGHT NOW. */
+export function currentModelLabel(cur: {
+  aeroMode: 'classic' | 'supersonic' | 'auto';
+  effectiveKbf: boolean;
+  autoSupersonic: boolean;
+}): string {
+  if (cur.aeroMode === 'supersonic') return aeroModelLabel('supersonic');
+  if (cur.aeroMode === 'auto') {
+    return cur.autoSupersonic
+      ? aeroModelLabel('auto-supersonic')
+      : `Auto (classic${cur.effectiveKbf ? ' + Rogers Kbf' : ''} until Mach 0.9)`;
+  }
+  return aeroModelLabel('classic', cur.effectiveKbf);
+}
+
+/**
+ * Whether a stored run was flown on the model the app is set to now.
+ *
+ * Returns `null` — unknown, do NOT flag — when the run predates the field that
+ * would answer it: `aeroModel` is absent before v0.025, and `rogersKbf` before
+ * v0.033. An absent field must never render as a mismatch; the app would be
+ * accusing old runs of a difference it cannot see.
+ */
+export function runMatchesModel(
+  run: Pick<SimRun, 'aeroModel' | 'rogersKbf'>,
+  cur: { aeroMode: 'classic' | 'supersonic' | 'auto'; effectiveKbf: boolean; autoSupersonic: boolean },
+): boolean | null {
+  if (!run.aeroModel) return null;
+  // 'supersonic' and 'auto-supersonic' are the SAME physics — the second only
+  // records that Auto chose it rather than the user. Treating them as
+  // different would put a "flown on a different model" banner on a flight
+  // whose numbers are identical.
+  const runSupersonic = run.aeroModel === 'supersonic' || run.aeroModel === 'auto-supersonic';
+  const nowSupersonic = cur.aeroMode === 'supersonic'
+    || (cur.aeroMode === 'auto' && cur.autoSupersonic);
+  if (nowSupersonic || runSupersonic) return runSupersonic === nowSupersonic;
+  // Both classic. Kbf is the only remaining difference, and it is real — it
+  // moves CP, stability and drag.
+  if (run.rogersKbf === undefined) return null;
+  return run.rogersKbf === cur.effectiveKbf;
+}
+
+/**
+ * A short, stable hash. FNV-1a, base-36 — enough to tell "this is the same
+ * design/motor set" from "this is a different one" in a stored run, and short
+ * enough that 500 of them do not bloat localStorage the way the raw JSON
+ * projection would.
+ */
+export function shortHash(s: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(36);
+}
+
+/**
+ * Every launch condition that changes a flight, in one comparable string.
+ * `windAvg` and `timeStepS` were already recorded individually; rod length,
+ * rod angle, altitude, temperature, pressure and latitude were not, and all of
+ * them move the numbers.
+ */
+export function conditionsKeyOf(launch: LaunchConditions): string {
+  const l = launch as unknown as Record<string, unknown>;
+  const keys = Object.keys(l).sort();
+  return keys.map((k) => `${k}=${String(l[k] ?? '')}`).join('|');
 }
 
 /** Linear interpolation of a series value at time t. */
@@ -560,8 +707,11 @@ export function buildSimRun(input: {
   rogersKbf?: boolean;
   motorConfig?: string;
   flightConfig?: string;
+  flightConfigId?: string;
+  designKey?: string;
+  motorSetKey?: string;
 }): SimRun {
-  const { result, info, motor, meta, launch, rocketName, execMs, stageMotorInfo, boosterMotors, aeroModel, rogersKbf, motorConfig, flightConfig } = input;
+  const { result, info, motor, meta, launch, rocketName, execMs, stageMotorInfo, boosterMotors, aeroModel, rogersKbf, motorConfig, flightConfig, flightConfigId, designKey, motorSetKey } = input;
   const { summary, series } = result;
 
   const tRod = eventTime(result, 'LAUNCHROD');
@@ -805,6 +955,13 @@ export function buildSimRun(input: {
     ...(rogersKbf !== undefined ? { rogersKbf } : {}),
     ...(motorConfig !== undefined ? { motorConfig } : {}),
     ...(flightConfig !== undefined ? { flightConfig } : {}),
+    // Provenance for the .ork <flightdata> guard. Absent inputs stay absent
+    // rather than storing empty strings — "unknown" and "known to be empty"
+    // must not read the same on the way back out.
+    ...(flightConfigId !== undefined ? { flightConfigId } : {}),
+    ...(designKey !== undefined ? { designKey } : {}),
+    ...(motorSetKey !== undefined ? { motorSetKey } : {}),
+    conditionsKey: conditionsKeyOf(launch),
     comments: comments.join(' | '),
   };
 }

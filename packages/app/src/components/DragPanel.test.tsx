@@ -154,9 +154,26 @@ describe('DragPanel — sweep conditions', () => {
       return 'blob:conditions-test';
     });
     vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    // Match the label exactly — it also pins it. Every download button on the
+    // Results tab now names its DATA, with the format as the parenthetical;
+    // three different datasets used to be labelled "⬇ CSV".
     const csvBtn = Array.from(host.querySelectorAll('button'))
-      .find((b) => (b.textContent ?? '').includes('CSV')) as HTMLButtonElement;
-    act(() => { csvBtn.click(); });
+      .find((b) => (b.textContent ?? '').includes('Drag table (.csv)')) as HTMLButtonElement;
+    expect(csvBtn).toBeTruthy();
+    let saved = '';
+    const origClick = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function click(this: HTMLAnchorElement) {
+      saved = this.download;
+    };
+    try {
+      act(() => { csvBtn.click(); });
+    } finally {
+      HTMLAnchorElement.prototype.click = origClick;
+    }
+    // The design name is stamped into the filename: the code comment above
+    // exportCsv records a bare drag-analysis.csv being posted to a forum under
+    // the wrong model's name.
+    expect(saved).toBe('Test_rocket-drag-table.csv');
     csv = await blobs[0]!.text();
     const line = csv.split('\n').find((l) => l.startsWith('# conditions:'))!;
     expect(line).toBe(`# conditions: ${caption().replace(/^Conditions: /, '').replace(/ — Reynolds.*$/, '')}`);

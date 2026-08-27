@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import type { ComponentNode, RocketTree, StaticInfo } from '@online-openrocket/engine';
 import {
   buildPieces, calloutGadget, exportCamera, fitCameraToBox, FIT_MARGIN, isFittableBox,
-  piecesBounds,
+  markerVisibility, piecesBounds,
 } from './Rocket3D.js';
 
 const centerY = (geo: THREE.BufferGeometry): number => {
@@ -605,5 +605,34 @@ describe('buildPieces — inner tubes and loaded motors (S5)', () => {
     expect(byPrefix('inner').every((p) => !p.translucent)).toBe(true);
     expect(byPrefix('motor').every((p) => !p.translucent)).toBe(true);
     expect(byPrefix('fin').every((p) => !p.translucent)).toBe(true);
+  });
+});
+
+/**
+ * A tester asked for the CG/CP markers to be optional on the 3D view — the
+ * shell is what he wanted to look at. The canvas cannot be mounted here (see
+ * the note at the top of this file), so what is testable is the decision.
+ */
+describe('markerVisibility — what the 3D view draws on top of the rocket', () => {
+  it('an unset preference draws BOTH, exactly as the view always has', () => {
+    // Load-bearing: every stored preferences blob written before this existed
+    // has no such field, and none of them may change what they show.
+    expect(markerVisibility(undefined)).toEqual({ axis: true, callout: true });
+    expect(markerVisibility('both')).toEqual({ axis: true, callout: true });
+  });
+
+  it('off clears the shell completely', () => {
+    expect(markerVisibility('off')).toEqual({ axis: false, callout: false });
+  });
+
+  it('the two marker systems are independent', () => {
+    // The spheres on the axis and the floating callout beside the hull are
+    // separate drawings, and wanting one without the other is a real request.
+    expect(markerVisibility('axis')).toEqual({ axis: true, callout: false });
+    expect(markerVisibility('callout')).toEqual({ axis: false, callout: true });
+  });
+
+  it('an unrecognised stored value falls back to showing everything', () => {
+    expect(markerVisibility('nonsense')).toEqual({ axis: true, callout: true });
   });
 });

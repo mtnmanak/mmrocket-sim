@@ -20,6 +20,7 @@ import { solveBallast, type BallastSolution } from '../services/buildAllowance.j
  */
 export function MeasuredMassBox({
   bareMassKg, bareCgM, rocketLengthM, hasAllowance, measured, onChange, onApply,
+  blockedBy, onPinStage,
 }: {
   /** Computed dry mass with any existing allowance backed out (kg). */
   bareMassKg: number;
@@ -30,6 +31,20 @@ export function MeasuredMassBox({
   measured: { massKg: number | null; cgM: number | null };
   onChange: (next: { massKg: number | null; cgM: number | null }) => void;
   onApply: (solution: Extract<BallastSolution, { kind: 'ok' }>) => void;
+  /**
+   * The component whose mass override would swallow the ballast, when one
+   * would. A stage with the subcomponents flag replaces the mass of everything
+   * inside it, so a Build allowance placed there weighs nothing — and until
+   * v0.074 pressing Apply did exactly that, silently. RASAero .CDX1 imports
+   * pin every stage this way.
+   */
+  blockedBy?: { name?: string } | null;
+  /**
+   * Resolve the block by pinning the covering component to the measured
+   * numbers instead — desktop OpenRocket's own move. Absent when the app
+   * cannot do it unambiguously (more than one stage covered).
+   */
+  onPinStage?: () => void;
 }) {
   const { prefs } = usePrefs();
   const massSym = prefs.units.mass;
@@ -120,17 +135,21 @@ export function MeasuredMassBox({
         onApply={onApply}
         mass={mass}
         len={len}
+        blockedBy={blockedBy ?? null}
+        onPinStage={onPinStage}
       />}
     </div>
   );
 }
 
-function Verdict({ solution, hasAllowance, onApply, mass, len }: {
+function Verdict({ solution, hasAllowance, onApply, mass, len, blockedBy, onPinStage }: {
   solution: BallastSolution;
   hasAllowance: boolean;
   onApply: (s: Extract<BallastSolution, { kind: 'ok' }>) => void;
   mass: (kg: number) => string;
   len: (m: number) => string;
+  blockedBy: { name?: string } | null;
+  onPinStage?: () => void;
 }) {
   switch (solution.kind) {
     case 'matches':
@@ -140,7 +159,36 @@ function Verdict({ solution, hasAllowance, onApply, mass, len }: {
         </p>
       );
 
-    case 'ok':
+    case 'ok': {
+      // Ballast under a mass-overridden stage weighs nothing — say so instead
+      // of offering a button that would do nothing. Same wording as the
+      // Overrides rows in the property panel, so the two read as one rule.
+      if (blockedBy) {
+        const who = blockedBy.name || 'A stage above it';
+        return (
+          <>
+            <p className="measured-verdict measured-bad">
+              <strong>{who}</strong> stands in for the mass of everything inside it, so a
+              Build allowance added here would weigh nothing.{' '}
+              {onPinStage
+                ? <>Either clear that mass override under <strong>Overrides</strong>, or pin
+                  it to what you measured.</>
+                // No pin offered: more than one stage is pinned, and what you
+                // weighed is the whole airframe. There is no rule for which of
+                // them should absorb the difference, and a wrong override is
+                // worse than none.
+                : <>You weighed the whole airframe and more than one stage is pinned, so there
+                  is no telling which should carry the difference — clear the mass overrides
+                  under <strong>Overrides</strong> and weigh again.</>}
+            </p>
+            {onPinStage && (
+              <button className="file-btn measured-apply" onClick={onPinStage}>
+                Pin “{who}” to my measured mass &amp; CG
+              </button>
+            )}
+          </>
+        );
+      }
       return (
         <>
           <p className="measured-verdict measured-ok">
@@ -151,6 +199,7 @@ function Verdict({ solution, hasAllowance, onApply, mass, len }: {
           </button>
         </>
       );
+    }
 
     // The three cases below are the useful half of the feature: no ballast
     // anywhere on the rocket can reconcile these two numbers, which is a real

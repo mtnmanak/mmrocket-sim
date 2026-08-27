@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { RocketTree } from '@online-openrocket/engine';
 import {
   BUILD_ALLOWANCE_NAME,
+  coveringMassOverride,
   findAllowance,
   placeAtStation,
   solveBallast,
@@ -178,5 +179,59 @@ describe('findAllowance', () => {
 
   it('returns null when the design carries none', () => {
     expect(findAllowance(TREE)).toBeNull();
+  });
+});
+
+/**
+ * A mass override with the subcomponents flag replaces the mass of everything
+ * inside it — so ballast added under it weighs exactly nothing. v0.073 shipped
+ * that as a SILENT no-op: type your scale reading, press Apply, a component
+ * appears in the tree, and no number moves. RASAero .CDX1 imports pin every
+ * stage this way, so it is reachable by anyone importing one and then weighing
+ * their build.
+ */
+describe('coveringMassOverride — what would swallow a Build allowance', () => {
+  const rocket = (stagePatch: Record<string, unknown> = {}): RocketTree => ({
+    name: 'R',
+    components: [{
+      id: 'stage1', type: 'stage', name: 'Sustainer', ...stagePatch,
+      children: [
+        { id: 'nose', type: 'nosecone', name: 'Nose', length: 0.1, children: [] },
+        { id: 'tube', type: 'bodytube', name: 'Body', length: 0.3, children: [] },
+      ],
+    }] as unknown as RocketTree['components'],
+  });
+
+  it('an ordinary design has nothing in the way', () => {
+    expect(coveringMassOverride(rocket(), 0.2, 0.02)).toBeNull();
+  });
+
+  it('finds the stage that stands in for its children', () => {
+    const found = coveringMassOverride(
+      rocket({ overrideMass: 2, overrideSubcomponentsMass: true }), 0.2, 0.02);
+    expect(found?.id).toBe('stage1');
+  });
+
+  it('needs BOTH the flag and a value — the kernel’s own rule', () => {
+    // The flag rides along in .ork files whether or not a value is set;
+    // testing it alone would tell a user their number is being covered when
+    // it is doing exactly what they typed.
+    expect(coveringMassOverride(
+      rocket({ overrideSubcomponentsMass: true }), 0.2, 0.02)).toBeNull();
+    expect(coveringMassOverride(
+      rocket({ overrideMass: 2 }), 0.2, 0.02)).toBeNull();
+  });
+
+  it('catches an override on the HOST body component, not just an ancestor', () => {
+    // ancestorsOf() starts at the parent, so the component the ballast is
+    // placed inside has to be tested separately.
+    const t = rocket();
+    const tube = (t.components[0] as unknown as { children: Record<string, unknown>[] }).children[1]!;
+    tube['overrideMass'] = 0.4;
+    tube['overrideSubcomponentsMass'] = true;
+    // Station 0.2 m lands in the body tube (nose is 0-0.1, tube 0.1-0.4).
+    expect(coveringMassOverride(t, 0.2, 0.02)?.id).toBe('tube');
+    // ...and a station in the nose is unaffected by the tube's override.
+    expect(coveringMassOverride(t, 0.05, 0.02)).toBeNull();
   });
 });

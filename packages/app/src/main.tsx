@@ -9,13 +9,19 @@ import '@fontsource/rajdhani/latin-700.css';
 import { App } from './App.js';
 import { PrefsProvider } from './prefs/PrefsContext.js';
 import { dismantlePwa, isRetiredHost } from './services/hostMigration.js';
+import { setSwRegistration } from './services/versionCheck.js';
 
 // Offline-first on the canonical host. On the RETIRED pre-rename host the
 // PWA dismantles itself instead: no SW, caches dropped, banner in App.
 if (isRetiredHost(location.hostname)) {
   void dismantlePwa();
 } else {
-  registerSW({ immediate: true });
+  // autoUpdate: a new build takes over and reloads the page by itself. What it
+  // does NOT do is go looking — the browser checks for a new worker when this
+  // registration runs, i.e. on a page load. Publishing the registration lets
+  // the header's version check ask for that on demand, which is the whole of
+  // the "am I on the current version?" support conversation.
+  registerSW({ immediate: true, onRegisteredSW: (_url, reg) => setSwRegistration(reg) });
 }
 
 // Never a silently-blank page: uncaught errors paint into the root.

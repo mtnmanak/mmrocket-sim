@@ -1,7 +1,8 @@
+import { clearTourDone, markTourDone } from './FirstRunTour.js';
 import { NumField } from './NumField.js';
 import { useDialog } from './useDialog.js';
 import { UnitChip } from './UnitChip.js';
-import { usePrefs } from '../prefs/PrefsContext.js';
+import { AERO_SHORT, aeroChoiceOf, usePrefs } from '../prefs/PrefsContext.js';
 import {
   CUSTOM_PRESET, DEFAULT_PRINT_CLEARANCE, DEFAULT_PRINT_MARGIN, PRINTER_PRESETS,
   presetMatching, printerFromPreset, type PrinterPrefs,
@@ -22,7 +23,7 @@ const CUSTOM_SEED: PrinterPrefs = {
 };
 
 export function PreferencesDialog({ onClose }: { onClose: () => void }) {
-  const { prefs, setPrefs } = usePrefs();
+  const { prefs, setPrefs, aeroOverride, setAeroOverride } = usePrefs();
 
   // Build volumes are stored in metres and edited through the same
   // siToUi/uiToSi plumbing as every other length (prefs/printers.ts explains
@@ -125,6 +126,22 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
             </select>
           </div>
           <div className="field">
+            <label>CG / CP markers in 3D</label>
+            <select
+              aria-label="CG / CP markers in 3D"
+              value={prefs.markers3d ?? 'both'}
+              onChange={(e) => setPrefs({
+                ...prefs,
+                markers3d: e.target.value as 'both' | 'callout' | 'axis' | 'off',
+              })}
+            >
+              <option value="both">Markers and callout</option>
+              <option value="axis">Markers only</option>
+              <option value="callout">Callout only</option>
+              <option value="off">Off — clean shell</option>
+            </select>
+          </div>
+          <div className="field">
             <label>Theme</label>
             <select
               aria-label="Theme"
@@ -156,7 +173,17 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
             <select
               aria-label="First-run tour"
               value={prefs.tourOff ? 'off' : 'on'}
-              onChange={(e) => setPrefs({ ...prefs, tourOff: e.target.value === 'off' })}
+              onChange={(e) => {
+                // The preference and the tour's "seen" flag were two separate
+                // localStorage keys, and this select only ever wrote one of
+                // them. So Off looked like it did nothing (the seen flag was
+                // already suppressing the tour anyway) and On could never
+                // re-show it. The preference now owns both.
+                const off = e.target.value === 'off';
+                setPrefs({ ...prefs, tourOff: off });
+                if (off) markTourDone();
+                else clearTourDone();
+              }}
             >
               <option value="on">On — show once to new visitors</option>
               <option value="off">Off</option>
@@ -171,6 +198,13 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
           right answer indoors and the wrong one on the field. Turning it off puts your theme
           back. The <strong>Daylight</strong> button in the header is the same switch.
         </p>
+        <p className="prefs-hint">
+          <strong>CG / CP markers in 3D</strong> controls the two things the 3D view draws on
+          top of the rocket: the spheres on the axis, and the floating callout beside the hull
+          that repeats them with the stability margin. They are separable because a clean shell
+          for a photo and a shell with the numbers are different requests. The
+          <strong> ◉ CG/CP</strong> button on the 3D view itself is the same switch, on and off.
+        </p>
 
         <h3 className="prefs-section">Aerodynamics</h3>
         {/* ONE pulldown, four explicit choices (2026-08-05c #9 — the separate
@@ -181,9 +215,7 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
           <label>Aerodynamics model</label>
           <select
             aria-label="Aerodynamics model"
-            value={(prefs.aeroModel ?? 'classic') === 'classic'
-              ? ((prefs.rogersKbf ?? true) ? 'kbf' : 'eb')
-              : (prefs.aeroModel ?? 'classic')}
+            value={aeroChoiceOf(prefs)}
             onChange={(e) => {
               const v = e.target.value;
               setPrefs({
@@ -200,6 +232,22 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
             <option value="supersonic">Supersonic — our extended model at all speeds (validated to Mach 4.6)</option>
           </select>
         </div>
+        {aeroOverride && aeroOverride !== aeroChoiceOf(prefs) && (
+          // Two selects on screen showing different models, with nothing
+          // saying why, is the collision the strip switch could most easily
+          // have introduced. The strip is session-scoped; this is the durable
+          // setting; say so, and offer the one action that resolves it.
+          // (Choosing anything above ALSO clears the override — the newer,
+          // more deliberate act wins. See PrefsContext.setPrefs.)
+          <p className="prefs-hint">
+            The vitals strip is flying <strong>{AERO_SHORT[aeroOverride]}</strong> for this
+            session only, so it is overriding the setting above. The setting above is the
+            durable one and comes back on your next visit.{' '}
+            <button className="file-btn" onClick={() => setAeroOverride(null)}>
+              Go back to {AERO_SHORT[aeroChoiceOf(prefs)]}
+            </button>
+          </p>
+        )}
         <p className="prefs-hint">
           <strong>OpenRocket — Extended Barrowman</strong> is the desktop program's exact
           physics, bit-for-bit. <strong>Rogers Modified Barrowman</strong> adds the

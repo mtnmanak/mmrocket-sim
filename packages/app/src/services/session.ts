@@ -92,7 +92,7 @@ const TIME_STEP_FIELD_VERSION = '0.071';
  * session that cannot say which build wrote it predates whatever field is
  * being asked about, and migrating is the safe direction for one that old.
  */
-function versionEarlierThan(a: string | undefined, b: string): boolean {
+export function versionEarlierThan(a: string | undefined, b: string): boolean {
   if (typeof a !== 'string' || a === '') return true;
   const as = a.split('.').map(Number);
   if (as.some((n) => !Number.isFinite(n))) return true;

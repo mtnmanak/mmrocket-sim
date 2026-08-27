@@ -1,5 +1,6 @@
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { axialLength, offsetForStart } from '../tree/position.js';
+import { findNode, suppressingAncestor } from '../tree/treeModel.js';
 
 /**
  * "Measured mass & CG" — turning what your scale and balance point say into a
@@ -144,6 +145,35 @@ export interface AllowancePlacement {
  * Positions are always emitted parent-relative 'top' — never 'absolute', which
  * the editor deliberately rewrites away (tree/position.ts).
  */
+/**
+ * The component whose mass override would SWALLOW a Build allowance placed at
+ * `stationM` — or null when nothing does.
+ *
+ * A stage with `overrideSubcomponentsMass` replaces the mass of everything
+ * inside it, so ballast added under that stage weighs exactly nothing. Until
+ * v0.074 that was a SILENT no-op: you typed your scale reading, pressed
+ * Apply, a component appeared in the tree, and no number moved. RASAero
+ * `.CDX1` imports pin every stage this way, so it was reachable by anyone
+ * importing one and then weighing their build.
+ *
+ * The rule is the kernel's own: BOTH the flag and a numeric value are needed
+ * (RocketComponent.updateChildrenMassOverriddenBy), which is what
+ * `suppressingAncestor` already encodes. The host body component is tested as
+ * well as its ancestors, because a body tube can carry the override itself.
+ */
+export function coveringMassOverride(
+  tree: RocketTree,
+  stationM: number,
+  lengthM: number,
+): ComponentNode | null {
+  const place = placeAtStation(tree, stationM, lengthM);
+  if (!place) return null;
+  const host = findNode(tree, place.parentId);
+  if (host && host['overrideSubcomponentsMass'] === true
+    && typeof host['overrideMass'] === 'number') return host;
+  return suppressingAncestor(tree, place.parentId, 'overrideSubcomponentsMass', 'overrideMass');
+}
+
 export function placeAtStation(
   tree: RocketTree,
   stationM: number,

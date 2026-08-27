@@ -1,16 +1,14 @@
 import { useState } from 'react';
-import type { FlightResult } from '@online-openrocket/engine';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { fmtSi } from '../prefs/units.js';
 import { UnitChip } from './UnitChip.js';
 import {
-  formatRunStability, ROLL_RATE_MEANINGFUL_RAD_S, stabilityState, WIND_BLOWS_TOWARD_DEG,
-  type SimRun,
+  aeroModelLabel, formatRunStability, ROLL_RATE_MEANINGFUL_RAD_S, stabilityState,
+  WIND_BLOWS_TOWARD_DEG, type SimRun,
 } from '../services/simReport.js';
 import { clearRuns, deleteRun, runsToCsv, runsToTable } from '../services/simStore.js';
 import { formatWarning } from '../services/simWarnings.js';
-import { flightDataCsv } from '../services/flightDataCsv.js';
-import { flightXlsx } from '../services/flightXlsx.js';
+import { CSV_BOM, downloadBlob, stampedName } from '../services/fileName.js';
 import { tableToXlsx, XLSX_MIME } from '../services/xlsx.js';
 
 /**
@@ -54,49 +52,18 @@ function compassPoint(deg: number): string {
 }
 
 /**
- * UTF-8 BOM, prepended to every CSV blob here: without it Excel's
- * double-click import assumes the ANSI codepage and garbles the Greek and
- * typographic characters in the headers (θl, dΦ, ρ, —). Every other reader
- * ignores it.
+ * The stored launch report. Every number here comes from the SimRun, which is
+ * what run history persists; `hasSeries` says whether this flight's raw time
+ * series also exist in memory, and only changes where the report POINTS for
+ * the per-timestep download — the buttons themselves live beside the plots
+ * they produce (see FlightCharts).
  */
-const CSV_BOM = '\uFEFF';
-
-/**
- * `result` is the in-memory flight the report was just built from — series
- * are not persisted, so it exists only for the most recent launch (a run
- * reopened from history renders without it). `onFullSeries` re-flies that
- * same flight with the full series payload (deterministic physics: identical
- * flight, more columns) and powers the per-timestep flight-data CSV export.
- */
-export function SimRunDetails({ run, result, onFullSeries }: {
+export function SimRunDetails({ run, hasSeries }: {
   run: SimRun;
-  result?: FlightResult | null;
-  onFullSeries?: () => Promise<FlightResult>;
+  hasSeries?: boolean;
 }) {
   const { prefs } = usePrefs();
   const [open, setOpen] = useState(false);
-  const [exportBusy, setExportBusy] = useState<null | 'csv' | 'xlsx'>(null);
-  const [exportError, setExportError] = useState<string | null>(null);
-
-  /** Re-fly for the full series, then hand the bytes off as a download. */
-  const exportFlightData = (kind: 'csv' | 'xlsx') => {
-    if (!onFullSeries) return;
-    setExportBusy(kind);
-    setExportError(null);
-    onFullSeries()
-      .then((full) => {
-        const blob = kind === 'csv'
-          ? new Blob([CSV_BOM, flightDataCsv(full, prefs.units)], { type: 'text/csv;charset=utf-8' })
-          : new Blob([flightXlsx(full, prefs.units) as BlobPart], { type: XLSX_MIME });
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = kind === 'csv' ? 'flight-data-full.csv' : 'flight-data.xlsx';
-        a.click();
-        URL.revokeObjectURL(a.href);
-      })
-      .catch((e: unknown) => setExportError(e instanceof Error ? e.message : String(e)))
-      .finally(() => setExportBusy(null));
-  };
   const dist = prefs.units.distance;
   const vel = prefs.units.velocity;
   const len = prefs.units.length;
@@ -110,29 +77,20 @@ export function SimRunDetails({ run, result, onFullSeries }: {
           Launch report — {run.rocket ? `${run.rocket} · ` : ''}{run.motor}
           {run.manufacturer ? ` (${run.manufacturer})` : ''}
         </h2>
-        {result && onFullSeries && (
-          <>
-            <button className="file-btn" disabled={exportBusy !== null}
-              title={'Re-flies the shown flight to capture every series the physics kernel records (deterministic — the same flight, more columns), one row per timestep, in your preferred units (each header names its unit; thrust and drag stay in newtons). Booster stages append as name-prefixed column groups. Not stored with run history.'}
-              onClick={() => exportFlightData('csv')}>
-              {exportBusy === 'csv' ? '⏳ Re-flying…' : '⬇ Flight data .csv'}
-            </button>
-            <button className="file-btn" disabled={exportBusy !== null}
-              title={'Excel workbook of the same flight data: typed numeric cells under unit-labelled headers, plus a live Excel chart tab for every exported column — the headline quantities one per tab, the coefficient and rate families grouped — referencing the data sheet. Booster stages get their own data sheets and their own chart tabs.'}
-              onClick={() => exportFlightData('xlsx')}>
-              {exportBusy === 'xlsx' ? '⏳ Re-flying…' : '⬇ .xlsx + charts'}
-            </button>
-          </>
-        )}
         <button className="file-btn" onClick={() => setOpen(!open)}>
           {open ? 'Hide details' : 'Show all details'}
         </button>
       </div>
-      {exportError && (
-        <p className="simdet-comments stability-bad" style={{ margin: '4px 0 0' }}>
-          Flight-data export failed: {exportError}
-        </p>
-      )}
+      {/* The pair of raw flight-data buttons used to sit in this header. They
+          vanished exactly when a user went hunting for them — selecting a
+          saved run nulled the result they were gated on — leaving only the
+          Saved-simulations XLSX, which produces the run table, not flight
+          data. A pointer stays behind, and says the true thing in each case. */}
+      <p className="download-caption">
+        {hasSeries
+          ? 'Raw per-timestep flight data downloads under Flight plots, below.'
+          : 'Re-fly this design to download its raw flight data — time series aren’t saved with run history.'}
+      </p>
       {(run.optimumDelayS !== null || run.recommendedDelayS !== null) && (
         <p className="simdet-delay">
           Optimal delay <strong>{s(run.optimumDelayS, 1)} s</strong>
@@ -281,13 +239,7 @@ export function SimRunDetails({ run, result, onFullSeries }: {
               <Row label="Time to burnout" value={s(run.timeToBurnout)} unit="s" />
               <Row label="Time to apogee" value={s(run.timeToApogee)} unit="s" />
               <Row label="Total flight time" value={s(run.totalFlightTime, 1)} unit="s" />
-              <Row label="Aero model" value={run.aeroModel === 'supersonic'
-                ? 'Supersonic (our extended model)'
-                : run.aeroModel === 'auto-supersonic'
-                ? `Supersonic (auto — flight exceeded Mach 0.9)`
-                : run.aeroModel === 'classic'
-                ? `Classic (Extended Barrowman${run.rogersKbf ? ' + Rogers Kbf' : ''})`
-                : '—'} />
+              <Row label="Aero model" value={aeroModelLabel(run.aeroModel, run.rogersKbf)} />
               <Row label="Execution time" value={`${Math.round(run.execMs)} ms`} />
             </tbody>
           </table>
@@ -385,12 +337,29 @@ export function SimRunDetails({ run, result, onFullSeries }: {
   );
 }
 
-export function SimHistory({ runs, onRunsChange, onSelect, selectedId }: {
+export function SimHistory({
+  runs, onRunsChange, onSelect, selectedId,
+  canShowCharts, onShowCharts, reflyingId, hasChartsFor, designName,
+}: {
   runs: SimRun[];
   onRunsChange: (runs: SimRun[]) => void;
   /** Click a row to load that run into the launch report. */
   onSelect?: (run: SimRun) => void;
   selectedId?: string | null;
+  /**
+   * Whether this run's plots can be recovered by re-flying the current
+   * design. False when the design, motor or conditions have moved on — a run
+   * whose numbers we could no longer reproduce must not offer to try.
+   */
+  canShowCharts?: (run: SimRun) => boolean;
+  /** Re-fly this run for its series. Must not add a row to the history. */
+  onShowCharts?: (run: SimRun) => void;
+  /** Run currently being re-flown, if any. */
+  reflyingId?: string | null;
+  /** Whether this run's series are already in memory (so no button is needed). */
+  hasChartsFor?: (run: SimRun) => boolean;
+  /** Stamped into the export filenames, as every other export here does. */
+  designName?: string;
 }) {
   const { prefs } = usePrefs();
   const [open, setOpen] = useState(false);
@@ -398,27 +367,31 @@ export function SimHistory({ runs, onRunsChange, onSelect, selectedId }: {
   const vel = prefs.units.velocity;
   if (runs.length === 0) return null;
 
-  const download = (blob: Blob, filename: string) => {
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(a.href);
-  };
-  const downloadCsv = () =>
-    download(new Blob([CSV_BOM, runsToCsv(runs, prefs.units)], { type: 'text/csv;charset=utf-8' }), 'simulations.csv');
+  const downloadCsv = () => downloadBlob(
+    new Blob([CSV_BOM, runsToCsv(runs, prefs.units)], { type: 'text/csv;charset=utf-8' }),
+    stampedName(designName, 'run-table', 'csv'));
   const downloadXlsx = () => {
     const { headers, rows } = runsToTable(runs, prefs.units);
-    download(new Blob([tableToXlsx(headers, rows, 'Simulations') as BlobPart], { type: XLSX_MIME }), 'simulations.xlsx');
+    downloadBlob(
+      new Blob([tableToXlsx(headers, rows, 'Simulations') as BlobPart], { type: XLSX_MIME }),
+      stampedName(designName, 'run-table', 'xlsx'));
   };
 
   return (
     <div className={open ? 'panel' : 'panel panel-dormant'} style={{ marginTop: 10 }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
         <h2 style={{ flex: 1 }}>Saved simulations ({runs.length})</h2>
-        <button className="file-btn" onClick={downloadCsv}>⬇ CSV</button>
+        {/* Every button names its DATA; the format is the parenthetical. Three
+            different datasets on this tab used to be labelled "⬇ CSV". */}
+        <span className="download-caption">All saved runs — one row each, summary numbers only:</span>
+        <button className="file-btn" onClick={downloadCsv}
+          title="One row per saved run with its summary numbers — the motor-comparison table, not flight data.">
+          ⬇ Run table (.csv)
+        </button>
         <button className="file-btn" onClick={downloadXlsx}
-          title="Excel workbook: typed cells (no date mangling), bold frozen header, filter">⬇ XLSX</button>
+          title="The same run table as an Excel workbook: typed cells (no date mangling), bold frozen header, filter.">
+          ⬇ Run table (.xlsx)
+        </button>
         <button className="file-btn" onClick={() => onRunsChange(clearRuns())}>Clear all</button>
         <button className="file-btn" onClick={() => setOpen(!open)}>{open ? 'Hide' : 'Show'}</button>
       </div>
@@ -467,7 +440,21 @@ export function SimHistory({ runs, onRunsChange, onSelect, selectedId }: {
                       {unsafe ? '⚠' : caution ? '△' : '✓'}
                     </td>
                     <td>{new Date(r.when).toLocaleTimeString()}</td>
-                    <td>
+                    <td style={{ whiteSpace: 'nowrap' }}>
+                      {/* Re-flying is a BUTTON, never automatic: six clicks
+                          through history must not cost six flights. It is
+                          offered only when the current design could still
+                          reproduce this run, and disappears once its series
+                          are in memory. stopPropagation so it does not also
+                          fire the row's own select. */}
+                      {onShowCharts && !hasChartsFor?.(r) && canShowCharts?.(r) && (
+                        <button className="file-btn" style={{ marginRight: 6, fontSize: 11, padding: '2px 6px' }}
+                          disabled={reflyingId != null}
+                          title="Re-fly the design at this run's conditions to draw its plots. Deterministic — the same flight, not a new one — and it does not add a row here."
+                          onClick={(e) => { e.stopPropagation(); onShowCharts(r); }}>
+                          {reflyingId === r.id ? '⏳' : '📈 Charts'}
+                        </button>
+                      )}
                       <button className="fin-row-del" title="Delete run"
                         onClick={(e) => { e.stopPropagation(); onRunsChange(deleteRun(r.id)); }}>✕</button>
                     </td>

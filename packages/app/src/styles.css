@@ -1,3 +1,18 @@
+/* Live height of the fixed notice bar, published by NoticeBar's ResizeObserver
+   as an inline style on this same element (inline wins over this rule, and
+   removing it restores the 0px). Everything that must not end up UNDER the bar
+   — the footer band, the Design tab's hero canvas — budgets for it through
+   this token; a static reserve cannot, because an expanded bar is allowed to
+   grow to 40vh.
+
+   It MUST be declared here on :root and not on .viz-root. A declaration on an
+   element beats a value inherited into it, so `.viz-root { --notice-h: 0px }`
+   would shadow the published height for the entire app subtree and the reserve
+   would silently always be zero. */
+:root {
+  --notice-h: 0px;
+}
+
 /* Palette roles from the validated reference palette (dataviz skill). */
 .viz-root {
   --surface-1: #fcfcfb;
@@ -137,6 +152,52 @@
   letter-spacing: 0.04em;
 }
 
+/* The aero-model switch. It reads as an instrument value that happens to be
+   changeable, not as a form control dropped into the readout: display face,
+   the strip's own colours, chrome only on hover/focus. */
+.vitals-aero-select {
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.15;
+  color: var(--text-primary);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  padding: 0 2px;
+  margin: -1px 0;
+  max-width: 148px;
+  cursor: pointer;
+}
+
+.vitals-aero-select:hover:not(:disabled) {
+  border-color: var(--border);
+  background: var(--hover);
+}
+
+.vitals-aero-select:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+/* Back to the stored preference — only rendered while an override is live. */
+.vitals-aero-revert {
+  margin-left: 4px;
+  padding: 0 5px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--accent);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.vitals-aero-revert:hover { background: var(--hover); }
+
+/* A flight kept across a model switch is marked, never silently re-labelled. */
+.vitals-stale { color: var(--status-warn); }
+
 /* Must out-specify .launch-btn (defined later with width:100%/margin-top). */
 .vitals-strip .vitals-launch {
   width: auto;
@@ -216,9 +277,30 @@
   grid-column: 1 / -1;
 }
 
-/* Flight-configuration presets (Stage B): full row above the Motors panel. */
+/* Flight-configuration presets (Stage B): full-width row at the FOOT of the
+   Motors & Launch grid. `grid-column: 1 / -1` is what makes the placement
+   free — it spans wherever auto-placement drops the panel, at two columns, at
+   the ≥1600px capped-and-centred columns, and at the ≤900px single column —
+   so the 2026-08-26 move from second-child to last-child needed no CSS. */
 .config-panel {
   grid-column: 1 / -1;
+}
+
+/* The list scrolls inside itself so a 10-configuration file cannot turn the
+   last row of the tab into a wall; the panel's <h2> stays above it. Sized
+   like the notice bar's expanded cap — a viewport fraction, not a row count,
+   with a pixel ceiling so it stays a list and not a second page. */
+.config-list {
+  max-height: min(340px, 40vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* Dividers BETWEEN rows only — no rule under the heading. Written here rather
+   than as an inline style on the row, because an inline border outranks every
+   author rule and no `:first-child` suppression could beat it. */
+.config-list > .config-row + .config-row {
+  border-top: 1px solid var(--border);
 }
 
 .config-active-tag {
@@ -258,7 +340,8 @@
   position: absolute;
   right: 0;
   top: calc(100% + 4px);
-  z-index: 60;
+  /* Above its own backdrop (61), which is above the notice bar (60). */
+  z-index: 62;
   display: flex;
   flex-direction: column;
   min-width: 240px;
@@ -285,10 +368,12 @@
   background: var(--hover);
 }
 
+/* Above the notice bar (60): as a full-viewport click-outside target it has to
+   receive the click everywhere, including over the bar. */
 .file-menu-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 55;
+  z-index: 61;
 }
 
 /* Below 980px the header row wraps (.app-header-row), and a menu
@@ -618,7 +703,12 @@
   align-items: center;
   gap: 4px 18px;
   margin-top: 20px;
-  padding: 10px clamp(16px, 2vw, 40px);
+  /* The bottom padding budgets for the FIXED notice bar, which is not in
+     flow and would otherwise sit on top of the footer's links (the
+     "Bugs & requests" beta feedback path among them). --notice-h is the
+     bar's measured height, 0px when nothing is showing, so this tracks an
+     expanded multi-notice bar too — the old static 40px reserve did not. */
+  padding: 10px clamp(16px, 2vw, 40px) calc(10px + var(--notice-h, 0px));
   background: var(--surface-2);
   border-top: 1px solid var(--border);
   color: var(--text-secondary);
@@ -688,7 +778,7 @@
        and "Bugs & requests" — the beta feedback path — was unclickable on a
        phone. Reserve the bar's height here, plus the home-indicator inset the
        bar itself pads for. */
-    padding-bottom: calc(76px + env(safe-area-inset-bottom));
+    padding-bottom: calc(76px + env(safe-area-inset-bottom) + var(--notice-h, 0px));
   }
 }
 
@@ -1084,10 +1174,37 @@
     /* A FIXED height, not min-height, and the view wrap absolutely
        positioned below: the drawing must never size its own container, or
        vertical mode's measure→draw→grow loop runs away (it reached 2900px
-       in testing). 100vh minus band+header+vitals+tabs+panel chrome at
-       default zoom; the 420px floor keeps short windows usable. */
-    height: max(420px, calc(100vh - 335px));
+       in testing).
+
+       The budget is 420px, not 335px, and it now has a CEILING. The old
+       `max(420px, calc(100vh - 335px))` was a pure linear function of
+       viewport height with a floor and no cap, and its 335px counted only
+       the chrome ABOVE the stage — the footer band sits below in normal
+       flow and is worth ~85px. Document height therefore came out at
+       100vh + ~85px at EVERY window height: each extra viewport pixel went
+       straight to the stage, so the footer stayed exactly the same distance
+       below the fold forever. 420 = the old 335 + that measured 85.
+
+       The 620px cap exists because the drawing is width-fitted (the
+       ResizeObserver fits the drawing to the container's WIDTH and takes
+       height from the container) — past ~620px the surplus was empty sky
+       with nothing but the floating stats chip in it.
+
+       --notice-h keeps the fixed notice bar off the canvas as well as off
+       the footer; it is 0px whenever no notice is showing. */
+    height: clamp(420px, calc(100vh - 420px - var(--notice-h, 0px)), 620px);
     overflow: hidden;
+  }
+
+  /* ⟳90° vertical mode is the one case where container height buys DRAWING
+     rather than sky: TreeSchematic maps the rocket's length axis to the
+     container height there (`vertical ? chPx : cw`), so a taller stage shows
+     a longer rocket at a bigger scale. The cap is raised accordingly. It
+     cannot re-introduce the overflow this rule fixes — the clamp's middle
+     term still pins the document to 100vh; the cap only decides when to
+     stop growing. */
+  .design-layout main .hero-stage[data-vert='on'] {
+    height: clamp(420px, calc(100vh - 420px - var(--notice-h, 0px)), 900px);
   }
 
   /* The view box (schematic / 3D / aft) fills the stage without feeding
@@ -1411,6 +1528,12 @@
     padding-bottom: 76px;
   }
 
+  /* Sit ABOVE the fixed tab bar rather than under it — same 76px constant
+     the workspace reserves. */
+  .notice-bar {
+    bottom: 76px;
+  }
+
   .workspace-tabs {
     position: fixed;
     left: 0;
@@ -1475,6 +1598,15 @@
 
 .file-btn:hover {
   background: var(--hover);
+}
+
+/* Every download button names its DATA and puts the format in parentheses;
+   this caption is what tells you which dataset the group beside it is. Three
+   different files on the Results tab used to be labelled "⬇ CSV". */
+.download-caption {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin: 0;
 }
 
 /* File input inside a label.file-btn (the header's Open…): visually hidden
@@ -1767,6 +1899,56 @@
   background: var(--surface-1);
   color: var(--text-secondary);
   cursor: pointer;
+}
+
+/* "Am I on the current version?" — sits beside the badge, inside the brand
+   cluster. The cluster is pinned `flex: 0 0 auto` in the header row and the
+   badge is pinned inside it, so at ≥980px the squeeze still comes out of the
+   header BUTTONS, exactly as before; `min-width: 0` here plus the chip's own
+   ellipsis is what keeps this element from being the thing that forces a wrap
+   once the cluster itself wraps below 980px. It stays on phones: the header
+   row wraps there, and an 11px chip that answers "am I on the current
+   version?" is worth its line — that question is a support conversation. */
+.version-check {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.version-ok,
+.version-update {
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: none;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.version-ok {
+  color: var(--text-muted);
+}
+
+.version-ok:hover {
+  border-color: var(--border);
+  background: var(--hover);
+}
+
+/* An update IS worth the accent — it is the one state that asks for an action. */
+.version-update {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.version-update:hover {
+  filter: brightness(1.08);
 }
 
 .version-badge:hover {
@@ -2830,6 +3012,7 @@ select.unit-chip:hover {
 }
 
 .viz-root[data-contrast='high'] .vitals-label,
+.viz-root[data-contrast='high'] .download-caption,
 .viz-root[data-contrast='high'] .comp-stats,
 .viz-root[data-contrast='high'] .prefs-hint,
 .viz-root[data-contrast='high'] .session-note,
@@ -3039,7 +3222,13 @@ select.unit-chip:hover {
   left: 0;
   right: 0;
   bottom: 0;
-  z-index: 40;
+  /* Above the phone tab bar's 50 — at 40 the tab bar painted over the
+     notice, which is the one message the user most needs to read. The
+     ≤767px block also lifts the bar clear of the tab bar entirely.
+     The file menu and its click-outside backdrop are lifted above THIS
+     (61/62), so raising the bar cannot leave a dead strip where a click
+     fails to close the menu. */
+  z-index: 60;
   display: flex;
   align-items: flex-start;
   gap: 8px;
@@ -3109,9 +3298,13 @@ select.unit-chip:hover {
 .notice-dismiss:hover,
 .notice-toggle:hover { color: var(--text-primary); }
 
-/* Reserve the collapsed bar's height so it never covers the last row of the
-   workspace (the footer sits above it in normal flow). */
-body.has-notice .mmr-band-footer { padding-bottom: 40px; }
+/* The reserve used to live here as `body.has-notice .mmr-band-footer
+   { padding-bottom: 40px }`. Two problems: 40px is only ever right for a
+   one-line collapsed bar (.notice-bar.expanded is allowed 40vh), and the
+   higher-specificity body-class selector OUTRANKED the phone rule that
+   reserves room for the fixed tab bar, so on a phone with a notice showing
+   the footer lost its 76px reserve. Both are now handled by --notice-h in
+   the base .mmr-band-footer rule and its ≤767px override. */
 
 /* Visually hidden, still announced — the severity word for screen readers. */
 .sr-only {
@@ -3159,3 +3352,13 @@ body.has-notice .mmr-band-footer { padding-bottom: 40px; }
   color: var(--text-primary);
 }
 .measured-apply { width: 100%; margin-top: 8px; }
+
+/* A flight kept across an aero-model switch is marked on the Fly screen too —
+   the strip that carries the mark everywhere else is deliberately absent
+   there, and these four numbers are the whole screen. */
+.fly-stale {
+  margin: 0 0 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--status-warn);
+}

@@ -15,7 +15,7 @@ import { TreeSchematic } from './TreeSchematic.js';
  * a view over App's existing state — no state of its own.
  */
 export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
-  onLaunch, simulating, canLaunch, onChangeMotor, onCompare, canCompare }: {
+  onLaunch, simulating, canLaunch, onChangeMotor, onCompare, canCompare, staleModel }: {
   tree: RocketTree;
   info: StaticInfo | null;
   /** The newest flight (current result's summary, else the last stored run). */
@@ -31,6 +31,14 @@ export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
   /** Opens batch simulate ("the range box question"). */
   onCompare: () => void;
   canCompare: boolean;
+  /**
+   * The model the shown run was flown on, when that is no longer the model
+   * selected. The Fly screen deliberately does not render the vitals strip —
+   * it IS those numbers, phone-sized — so the strip's own stale mark never
+   * reaches here, and these four figures would silently read as belonging to
+   * the current model.
+   */
+  staleModel?: string | null;
 }) {
   const { prefs } = usePrefs();
   const stab = info ? stabilityGlyphClass(info.stabilityCalibers) : null;
@@ -74,6 +82,14 @@ export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
         </div>
 
         <div className="fly-col">
+          {staleModel && (
+            // Same rule as the Results tab: a flight kept across a model
+            // switch is MARKED, never silently re-read under the new model.
+            <p className="fly-stale" role="status">
+              ⚠ Flown on <strong>{staleModel}</strong>, not the model now
+              selected — press Launch to re-fly.
+            </p>
+          )}
           <div className="fly-stats">
             {stat('Apogee', run ? fmtSi('distance', prefs.units.distance, run.maxAltitude) : '—',
               run ? prefs.units.distance : undefined)}

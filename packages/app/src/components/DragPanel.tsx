@@ -8,6 +8,7 @@ import { UnitChip } from './UnitChip.js';
 import { chartInk, seriesPalette } from '../chartTheme.js';
 import { panelHeight, panZoomPlugin, plotIsZoomed, resetPlots } from '../chartPanZoom.js';
 import { formatReadout, tooltipPlugin } from '../chartTooltip.js';
+import { downloadBlob, stampedName } from '../services/fileName.js';
 import { GestureHints } from './FlightCharts.js';
 import { APP_VERSION } from '../version.js';
 
@@ -214,22 +215,26 @@ function exportCsv(sweep: DragSweep, meta: { design: string; aeroModel: string; 
   for (let i = 0; i < sweep.machs.length; i++) {
     rows.push(cols.map(([, v]) => (v[i] == null ? '' : v[i])).join(','));
   }
-  const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'drag-analysis.csv';
-  a.click();
-  URL.revokeObjectURL(a.href);
+  downloadBlob(new Blob([rows.join('\n')], { type: 'text/csv' }),
+    stampedName(meta.design, 'drag-table', 'csv'));
 }
 
 type BreakdownMode = 'component' | 'type';
 type CpView = 'pct' | 'unit';
 type DragChartId = 'cd' | 'cp' | 'breakdown';
 
-export function DragPanel({ rocket, supersonicModel, designName, fileMachAlt }: {
+export function DragPanel({ rocket, supersonicModel, aeroLabel, designName, fileMachAlt }: {
   rocket: OrkRocket;
-  /** Whether the opt-in supersonic aero model is active (Preferences → Aerodynamics). */
+  /** Whether the opt-in supersonic aero model is active. */
   supersonicModel?: boolean;
+  /**
+   * The FULL model label for the CSV metadata header. Passed in rather than
+   * reassembled here: the panel is handed only the supersonic half, and read
+   * the Kbf half straight from prefs — which stopped being the same thing once
+   * the vitals strip could override the model for a session, so an 'eb' sweep
+   * would have exported a header claiming "+ Rogers Kbf".
+   */
+  aeroLabel?: string;
   /** Design name for the CSV metadata header (tree.name at the call site). */
   designName?: string;
   /**
@@ -432,18 +437,19 @@ export function DragPanel({ rocket, supersonicModel, designName, fileMachAlt }: 
               </span>
             )}
             <span style={{ flex: 1 }} />
-            <button className="file-btn" onClick={() => exportCsv(sweep, {
+            <span className="download-caption">Drag vs Mach for this design:</span>
+            <button className="file-btn" title="The full aerodynamic-coefficient table (CD power-off/on, CP, CNα) against Mach number — a static property of the geometry, NOT a time series. Opens with comment lines naming the design, the aero model and the conditions it ran in." onClick={() => exportCsv(sweep, {
               design: designName || 'Rocket',
               // Same wording as the launch report's "Aero model" row — the
               // model the sweep actually ran on, not a fixed string.
-              aeroModel: supersonicModel
+              aeroModel: aeroLabel ?? (supersonicModel
                 ? 'Supersonic (our extended model)'
-                : `Classic (Extended Barrowman${(prefs.rogersKbf ?? true) ? ' + Rogers Kbf' : ''})`,
+                : `Classic (Extended Barrowman${(prefs.rogersKbf ?? true) ? ' + Rogers Kbf' : ''})`),
               lengthUnit: lenUnit,
               // The SAME string the chart caption prints, so an exported table
               // and a screenshot of the chart can't claim different air.
               conditions: condText,
-            })}>⬇ CSV</button>
+            })}>⬇ Drag table (.csv)</button>
           </div>
 
           <div className="chart-toolbar">
@@ -506,8 +512,9 @@ export function DragPanel({ rocket, supersonicModel, designName, fileMachAlt }: 
               ) : (
                 <p className="motor-db-meta" style={{ marginTop: 4 }}>
                   The Barrowman models freeze body CP above Mach 1 — pick
-                  <strong> Auto</strong> or <strong>Supersonic</strong> in Preferences →
-                  Aerodynamics for wind-tunnel-validated CP travel.
+                  <strong> Auto</strong> or <strong>Supersonic</strong> in the
+                  <strong> Aero</strong> selector (vitals strip, or Preferences →
+                  Aerodynamics) for wind-tunnel-validated CP travel.
                 </p>
               )}
             </div>
@@ -539,8 +546,9 @@ export function DragPanel({ rocket, supersonicModel, designName, fileMachAlt }: 
           ) : (
             <p className="motor-db-meta" style={{ marginTop: 2 }}>
               Above ~Mach&nbsp;1.5 these are classic Extended-Barrowman estimates
-              (approximate). Enable <strong>Supersonic aerodynamics</strong> in
-              Preferences&nbsp;→&nbsp;Aerodynamics for the validated supersonic model.
+              (approximate). Pick <strong>Supersonic</strong> in the <strong>Aero</strong>
+              selector (vitals strip, or Preferences&nbsp;→&nbsp;Aerodynamics) for the
+              validated supersonic model.
             </p>
           ))}
         </>

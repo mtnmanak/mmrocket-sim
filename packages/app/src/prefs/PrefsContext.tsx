@@ -59,6 +59,18 @@ export interface Preferences {
    */
   tourOff?: boolean;
   /**
+   * What the 3D view marks on the rocket. Four-way rather than a boolean
+   * because the 3D draws TWO independent marker systems and a tester asked
+   * for the option to lose them: the on-axis CG/CP spheres, and the floating
+   * callout beside the hull that repeats them with the stability margin. Some
+   * people want the clean shell for a photo; some want the numbers but not
+   * the balls on the airframe.
+   *
+   * Absent = 'both' = the view exactly as it has always been, so no stored
+   * preferences blob changes meaning.
+   */
+  markers3d?: 'both' | 'callout' | 'axis' | 'off';
+  /**
    * How the static stability margin reads throughout the app — the vitals
    * strip, the floating chip, the 2D and 3D callouts, the Fly screen and the
    * schematic export.
@@ -87,6 +99,61 @@ export const DEFAULT_PREFS: Preferences = {
   theme: 'dark',
   rogersKbf: true,
 };
+
+/**
+ * The aero model as ONE four-way choice, which is how the UI has always shown
+ * it: the two classic variants live in `aeroModel: 'classic'` and are told
+ * apart only by `rogersKbf`, so `aeroMode` alone cannot see a switch between
+ * Extended Barrowman and Rogers Kbf. Both the Preferences pulldown and the
+ * vitals-strip switch speak this vocabulary, so they cannot drift.
+ */
+export type AeroChoice = 'eb' | 'kbf' | 'auto' | 'supersonic';
+
+/**
+ * Short labels for the vitals strip, where the cell has to stay narrow. The
+ * Preferences pulldown keeps its own long-form wording — it has the room, and
+ * it is where someone goes to LEARN the difference rather than to flip it.
+ */
+export const AERO_SHORT: Record<AeroChoice, string> = {
+  kbf: 'Rogers Kbf',
+  eb: 'Classic EB',
+  auto: 'Auto',
+  supersonic: 'Supersonic',
+};
+
+/** The stored preference as one choice. Folds in the pre-v0.026 boolean. */
+export function aeroChoiceOf(prefs: Preferences): AeroChoice {
+  const mode = prefs.aeroModel ?? (prefs.supersonicAero ? 'supersonic' : 'classic');
+  if (mode !== 'classic') return mode;
+  return (prefs.rogersKbf ?? true) ? 'kbf' : 'eb';
+}
+
+/**
+ * What the app should actually fly with, given the stored preference and any
+ * session override.
+ *
+ * With NO override this must reproduce the raw preference expressions exactly,
+ * including the awkward combination the v0.025 migration can leave behind
+ * (`aeroModel: 'supersonic'` with `rogersKbf: false`) — deriving both halves
+ * from a single collapsed choice would silently flip such a store.
+ */
+export function effectiveAero(prefs: Preferences, override: AeroChoice | null): {
+  aeroMode: 'classic' | 'supersonic' | 'auto';
+  effectiveKbf: boolean;
+} {
+  if (override) {
+    return {
+      aeroMode: override === 'eb' || override === 'kbf' ? 'classic' : override,
+      // Kbf rides along under Auto and Supersonic too, exactly as the
+      // Preferences writer does — only 'eb' turns it off.
+      effectiveKbf: override !== 'eb',
+    };
+  }
+  return {
+    aeroMode: prefs.aeroModel ?? (prefs.supersonicAero ? 'supersonic' : 'classic'),
+    effectiveKbf: prefs.rogersKbf ?? true,
+  };
+}
 
 const STORAGE_KEY = 'online-openrocket.prefs.v1';
 
@@ -121,6 +188,25 @@ interface PrefsContextValue {
   resolvedTheme: 'light' | 'dark';
   /** Whether daylight mode is on (it outranks resolvedTheme when it is). */
   daylight: boolean;
+  /**
+   * True once a preference write has been refused (private mode, blocked site
+   * data, quota). Every setting still works for this session and then silently
+   * reverts on reload — which is indistinguishable from a broken setting, and
+   * is one of the two live explanations for the "Tour Off doesn't work"
+   * report. The session autosave already surfaces its equivalent.
+   */
+  saveFailing: boolean;
+  /**
+   * A SESSION-ONLY aero-model choice made from the vitals strip. Null means
+   * "follow the stored preference". Deliberately not persisted and not part of
+   * SessionState: an experiment must not quietly become next session's
+   * default, which is the owner's ruling (2026-08-26). Lives here rather than
+   * in App so the Preferences dialog can see it — two selects on screen
+   * showing different models with no explanation is the collision this
+   * placement exists to prevent.
+   */
+  aeroOverride: AeroChoice | null;
+  setAeroOverride: (v: AeroChoice | null) => void;
 }
 
 const PrefsContext = createContext<PrefsContextValue>({
@@ -128,10 +214,15 @@ const PrefsContext = createContext<PrefsContextValue>({
   setPrefs: () => {},
   resolvedTheme: 'light',
   daylight: false,
+  saveFailing: false,
+  aeroOverride: null,
+  setAeroOverride: () => {},
 });
 
 export function PrefsProvider({ children }: { children: ReactNode }) {
   const [prefs, setPrefsRaw] = useState<Preferences>(load);
+  const [saveFailing, setSaveFailing] = useState(false);
+  const [aeroOverride, setAeroOverride] = useState<AeroChoice | null>(null);
   const [systemDark, setSystemDark] = useState<boolean>(
     () => typeof matchMedia !== 'undefined' && matchMedia('(prefers-color-scheme: dark)').matches,
   );
@@ -148,15 +239,36 @@ export function PrefsProvider({ children }: { children: ReactNode }) {
     prefs,
     setPrefs: (next: Preferences) => {
       setPrefsRaw(next);
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-      } catch {
-        // Private mode / quota — preferences just won't persist.
+      // Verify by reading back, not just by "setItem didn't throw": Safari's
+      // private mode has historically accepted the call and stored nothing,
+      // and a partitioned/ephemeral store can do the same. The failure edge is
+      // what the UI needs — the setting works for this session and vanishes on
+      // reload, which reads to the user as the setting being broken.
+      // Choosing a model in Preferences OUTRANKS a session override: it is
+      // the newer, more deliberate act, and leaving both alive would leave the
+      // dialog's own select showing something the app is not flying. Keyed on
+      // the two aero fields only — setPrefs is called with a spread for
+      // unrelated settings (Daylight, the results tiles), and clearing on
+      // every write would make the strip switch undoable by a theme toggle.
+      if (next.aeroModel !== prefs.aeroModel || next.rogersKbf !== prefs.rogersKbf) {
+        setAeroOverride(null);
       }
+      const json = JSON.stringify(next);
+      let ok = false;
+      try {
+        localStorage.setItem(STORAGE_KEY, json);
+        ok = localStorage.getItem(STORAGE_KEY) === json;
+      } catch {
+        ok = false; // private mode / quota
+      }
+      setSaveFailing(!ok);
     },
     resolvedTheme: prefs.theme === 'system' ? (systemDark ? 'dark' : 'light') : prefs.theme,
     daylight: prefs.daylight ?? false,
-  }), [prefs, systemDark]);
+    saveFailing,
+    aeroOverride,
+    setAeroOverride,
+  }), [prefs, systemDark, saveFailing, aeroOverride]);
 
   return <PrefsContext.Provider value={value}>{children}</PrefsContext.Provider>;
 }

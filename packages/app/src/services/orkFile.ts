@@ -1172,10 +1172,88 @@ export interface OrkTreeExportInput {
    * produces exactly the file it did before.
    */
   measured?: { massKg: number | null; cgM: number | null };
+  /**
+   * Computed flight results to write into each configuration's
+   * `<simulation>`, keyed by configid. Absent or empty produces exactly the
+   * file this exporter produced before — every simulation `notsimulated`.
+   *
+   * The CALLER owns the guard. Only supply an entry for a configuration whose
+   * design, motors and conditions are unchanged since the run that produced
+   * it; a stale entry here becomes a stale number in the desktop's simulation
+   * table with nothing on screen saying so, which is the failure mode this
+   * whole feature was nearly not built to avoid.
+   */
+  flightData?: Record<string, OrkExportFlightData>;
+  /**
+   * Results for the DEFAULT simulation, used when the keyed map has nothing
+   * for it. A design built in the app carries no flight configurations, so the
+   * writer mints one with a fresh id on every export — there is no stable key
+   * for the caller to use, and without this the results could only ever travel
+   * for designs opened from a file that already had configurations.
+   */
+  flightDataDefault?: OrkExportFlightData;
+}
+
+/**
+ * The ten summary values desktop OpenRocket stores in `<flightdata>`, in pure
+ * SI, matching `FlightData`'s summary constructor. Every one is optional
+ * exactly as it is in the desktop's own writer, which appends each attribute
+ * only when it is not NaN — and the desktop's reader defaults each to NaN and
+ * swallows a bad parse, so a partial block is a first-class shape rather than
+ * a damaged one.
+ *
+ * No `<databranch>`: run history stores summaries, not series, so there are no
+ * per-timestep points to write. Desktop handles that case explicitly — a
+ * branch-less `<flightdata>` builds a summary-only `FlightData`, fills every
+ * column of the simulation table, and correctly refuses to plot.
+ */
+export interface OrkExportFlightData {
+  maxAltitude?: number | null;
+  maxVelocity?: number | null;
+  maxAcceleration?: number | null;
+  maxMach?: number | null;
+  timeToApogee?: number | null;
+  flightTime?: number | null;
+  groundHitVelocity?: number | null;
+  launchRodVelocity?: number | null;
+  deploymentVelocity?: number | null;
+  optimumDelay?: number | null;
+}
+
+/** Attribute name on disk → field, in the desktop writer's own order. */
+const FLIGHTDATA_ATTRS: [string, keyof OrkExportFlightData][] = [
+  ['maxaltitude', 'maxAltitude'],
+  ['maxvelocity', 'maxVelocity'],
+  ['maxacceleration', 'maxAcceleration'],
+  ['maxmach', 'maxMach'],
+  ['timetoapogee', 'timeToApogee'],
+  ['flighttime', 'flightTime'],
+  ['groundhitvelocity', 'groundHitVelocity'],
+  ['launchrodvelocity', 'launchRodVelocity'],
+  ['deploymentvelocity', 'deploymentVelocity'],
+  ['optimumdelay', 'optimumDelay'],
+];
+
+/**
+ * The `<flightdata .../>` attribute string, or null when there is nothing
+ * worth writing. Non-finite values are skipped individually, exactly as the
+ * desktop's saver skips NaN — and a block with NO attributes is never
+ * emitted, because the desktop would still build an all-NaN FlightData from
+ * it and mark the simulation "loaded" with nine blank columns.
+ */
+export function flightDataAttrs(fd: OrkExportFlightData | undefined): string | null {
+  if (!fd) return null;
+  const parts: string[] = [];
+  for (const [attr, key] of FLIGHTDATA_ATTRS) {
+    const v = fd[key];
+    if (typeof v === 'number' && Number.isFinite(v)) parts.push(`${attr}="${v}"`);
+  }
+  return parts.length > 0 ? parts.join(' ') : null;
 }
 
 export function exportOrk({
-  name, tree, motors, motor, mountId, launch, configs, activeConfigId, measured,
+  name, tree, motors, motor, mountId, launch, configs, activeConfigId, measured, flightData,
+  flightDataDefault,
 }: OrkTreeExportInput): string {
   const motorMap: Record<string, OrkExportMotor> = { ...(motors ?? {}) };
   if (motor && mountId && !motorMap[mountId]) motorMap[mountId] = motor;
@@ -1965,7 +2043,14 @@ export function exportOrk({
     const turb = launch.windAverage !== 0 ? launch.windStdDev / launch.windAverage
       : launch.windStdDev !== 0 ? 1 : 0;
     writeConfigs.forEach((c, i) => {
-      emit(2, '<simulation status="notsimulated">');
+      // "uptodate" only when we are actually writing results — and the caller
+      // has already vouched that the design, motors and conditions have not
+      // moved since the run. Desktop normalizes it to LOADED on read either
+      // way; what matters is that a configuration with nothing to say still
+      // says notsimulated rather than claiming a result it does not have.
+      const fdAttrs = flightDataAttrs(
+        flightData?.[c.id] ?? (c.id === defaultId ? flightDataDefault : undefined));
+      emit(2, `<simulation status="${fdAttrs ? 'uptodate' : 'notsimulated'}">`);
       // The desktop's sim table shows this name — a renamed configuration
       // reads as itself; unnamed ones get the desktop's own "Simulation N".
       emit(3, `<name>${escapeXml(c.name ?? `Simulation ${i + 1}`)}</name>`);
@@ -2016,6 +2101,14 @@ export function exportOrk({
       emit(4, `<timestep>${launch.timeStepS ?? DEFAULT_TIME_STEP_S}</timestep>`);
       emit(4, '<maxtime>1200.0</maxtime>');
       emit(3, '</conditions>');
+      // Sibling of <conditions>, inside <simulation> — the desktop's own
+      // placement. Self-closing: run history stores summaries, not series, so
+      // there are no <databranch> points to write. Desktop handles that shape
+      // explicitly (a branch-less block builds a summary-only FlightData that
+      // fills every column of its simulation table and correctly refuses to
+      // plot), which is exactly the honest result: it shows the flight WE
+      // computed, and it does not pretend to hold a trace it never had.
+      if (fdAttrs) emit(3, `<flightdata ${fdAttrs}/>`);
       emit(2, '</simulation>');
     });
   }

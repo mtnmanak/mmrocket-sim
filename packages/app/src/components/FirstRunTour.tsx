@@ -10,6 +10,8 @@ import { useDialog } from './useDialog.js';
  */
 
 const STORAGE_KEY = 'online-openrocket.tour.v1';
+/** Written by Preferences → On: show the tour once more, session or not. */
+const REARM = 'rearm';
 
 type WorkspaceTab = 'design' | 'motors' | 'results';
 
@@ -55,6 +57,20 @@ export function markTourDone(): void {
 }
 
 /**
+ * Re-arm the tour, so Preferences → First-run tour = "On" actually does
+ * something.
+ *
+ * It writes a marker rather than clearing the flag, because clearing is not
+ * enough: `shouldAutoStartTour` also refuses once a session exists, and by the
+ * time anyone opens Preferences one always does. An explicit "show it again"
+ * has to outrank that — it is a deliberate request, not the heuristic the
+ * session check stands in for.
+ */
+export function clearTourDone(): void {
+  try { localStorage.setItem(STORAGE_KEY, REARM); } catch { /* ignore */ }
+}
+
+/**
  * Whether to auto-start the tour on this load. Pure so it's testable: the
  * tour is for genuinely new visitors, so a restored session (they've used the
  * tool before) or an incoming share link (they came for a design, don't stand
@@ -65,12 +81,21 @@ export function shouldAutoStartTour(opts: {
   hasShare: boolean;
   hasSession: boolean;
 }): boolean {
-  if (opts.tourOff || opts.hasShare || opts.hasSession) return false;
+  // The opt-out and an incoming share link win over everything: one is an
+  // explicit "no", the other is a visitor who came for a design.
+  if (opts.tourOff || opts.hasShare) return false;
+  let flag: string | null;
   try {
-    return localStorage.getItem(STORAGE_KEY) !== 'done';
+    flag = localStorage.getItem(STORAGE_KEY);
   } catch {
     return false; // storage broken → never nag on every load
   }
+  // An explicit re-arm from Preferences outranks the restored-session check.
+  // Without this, "On" was a dead option: a session always exists by the time
+  // anyone opens Preferences, so the tour could never be shown again.
+  if (flag === REARM) return true;
+  if (flag === 'done') return false;
+  return !opts.hasSession;
 }
 
 const CARD_W = 300;
@@ -92,6 +117,13 @@ export function FirstRunTour({ onSetTab, onClose }: {
     markTourDone();
     onClose();
   }, [onClose]);
+
+  // Seen means SHOWN, not dismissed. The spotlight and scrim are both
+  // pointer-events:none, so the whole app stays usable behind the card — a
+  // visitor can simply ignore it and close the tab, and the flag was only ever
+  // written by an explicit ×/Skip/Done/Escape. That made "it only ever shows
+  // once" false for exactly the people most likely to complain about it.
+  useEffect(() => { markTourDone(); }, []);
 
   // Escape dismisses the tour (and keyboard focus starts in the card, so Next
   // is reachable without a mouse). Same contract as every other dialog here.

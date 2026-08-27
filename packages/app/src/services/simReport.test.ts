@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { FlightResult, FlightSeries, StaticInfo } from '@online-openrocket/engine';
 import {
   buildSimRun, extractLandingDrift, extractMaxRollRate, formatStability, recommendDelay,
-  ROLL_RATE_MEANINGFUL_RAD_S, SAFETY, stabilityPercent, storedSimCost,
+  ROLL_RATE_MEANINGFUL_RAD_S, runMatchesDesign, SAFETY, stabilityPercent, storedSimCost,
+  type SimRun,
 } from './simReport.js';
 import { runsToCsv } from './simStore.js';
 import { DEFAULT_CONDITIONS } from '../components/LaunchPanel.js';
@@ -651,3 +652,88 @@ describe('storedSimCost', () => {
     expect(storedSimCost([zero, stored('Alpha', 1500)], 'Alpha')).toEqual({ ms: 1500 });
   });
 });
+
+/**
+ * The pre-screen behind the "Show charts" button. A stored run carries ~50
+ * scalars and a rocket NAME — no design tree — so this can never prove that
+ * the design on screen is the one that flew. What it must do is refuse
+ * confidently: drawing a re-flight of a DIFFERENT design under a stored run's
+ * numbers would be an authoritative-looking wrong answer, which is exactly
+ * the failure the app's own standing rules exist to avoid.
+ */
+describe('runMatchesDesign — what may be re-flown for its charts', () => {
+  /**
+   * A stored run carries ~50 scalars and a rocket NAME, so identity has to
+   * come from the provenance keys stamped at launch. What this guard must do
+   * is refuse confidently: re-flying draws a flight under a stored run's
+   * numbers, and drawing a DIFFERENT flight there would be exactly the
+   * authoritative-looking wrong answer the app's standing rules exist to
+   * avoid.
+   */
+  const KEY = {
+    designKey: 'd1',
+    motorSetKey: 'm1',
+    conditionsKey: 'c1',
+    aeroMode: 'classic' as const,
+    effectiveKbf: true,
+    autoSupersonic: false,
+  };
+  const run = (over: Record<string, unknown> = {}): SimRun => ({
+    ...buildSimRun({
+      result: fakeResult(), info, motor, meta: { label: 'C6-5' },
+      launch: DEFAULT_CONDITIONS, rocketName: 'Alpha', execMs: 100,
+      aeroModel: 'classic', rogersKbf: true,
+      designKey: 'd1', motorSetKey: 'm1',
+    }),
+    conditionsKey: 'c1',
+    ...over,
+  } as SimRun);
+
+  it('matches the design, motors and conditions that produced it', () => {
+    expect(runMatchesDesign(run(), KEY)).toBe(true);
+  });
+
+  it('refuses a changed design, a changed motor set, or changed conditions', () => {
+    expect(runMatchesDesign(run({ designKey: 'd2' }), KEY)).toBe(false);
+    expect(runMatchesDesign(run({ motorSetKey: 'm2' }), KEY)).toBe(false);
+    expect(runMatchesDesign(run({ conditionsKey: 'c2' }), KEY)).toBe(false);
+  });
+
+  it('CONDITIONS are in the guard — this is what the old launch-mass check missed', () => {
+    // The previous version compared wind average and time step only, so a run
+    // flown at a different rod angle, rod length, altitude, temperature,
+    // pressure or latitude passed — and "Show charts" re-flew at TODAY's
+    // conditions and drew a genuinely different flight under its numbers.
+    expect(runMatchesDesign(run(), { ...KEY, conditionsKey: 'launchRodAngleDeg=7' })).toBe(false);
+  });
+
+  it('refuses a run stored before the keys existed — unverifiable is not matched', () => {
+    expect(runMatchesDesign(run({ designKey: undefined }), KEY)).toBe(false);
+    expect(runMatchesDesign(run({ motorSetKey: undefined }), KEY)).toBe(false);
+    expect(runMatchesDesign(run({ conditionsKey: undefined }), KEY)).toBe(false);
+  });
+
+  it('refuses a run flown on a different aero model, in both directions', () => {
+    expect(runMatchesDesign(run({ aeroModel: 'supersonic', rogersKbf: false }), KEY)).toBe(false);
+    expect(runMatchesDesign(run(), { ...KEY, aeroMode: 'supersonic' })).toBe(false);
+    // Kbf is a real difference on the classic model — it moves CP.
+    expect(runMatchesDesign(run({ rogersKbf: false }), KEY)).toBe(false);
+  });
+
+  it('refuses an UNKNOWN model, unlike the on-screen mark', () => {
+    // runMatchesModel returns null for a run predating the field. The banner
+    // treats that as "do not accuse"; re-flying treats it as "do not claim".
+    expect(runMatchesDesign(run({ aeroModel: undefined }), KEY)).toBe(false);
+    expect(runMatchesDesign(run({ rogersKbf: undefined }), KEY)).toBe(false);
+  });
+
+  it('an Auto session that has upgraded itself no longer matches a classic run', () => {
+    const auto = { ...KEY, aeroMode: 'auto' as const };
+    expect(runMatchesDesign(run({ aeroModel: 'classic', rogersKbf: true }), auto)).toBe(true);
+    expect(runMatchesDesign(run({ aeroModel: 'classic', rogersKbf: true }),
+      { ...auto, autoSupersonic: true })).toBe(false);
+    expect(runMatchesDesign(run({ aeroModel: 'auto-supersonic', rogersKbf: false }),
+      { ...auto, autoSupersonic: true })).toBe(true);
+  });
+});
+

@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { PreferencesDialog } from './PreferencesDialog.js';
-import { PrefsProvider, type Preferences } from '../prefs/PrefsContext.js';
+import { aeroChoiceOf, PrefsProvider, usePrefs, type AeroChoice, type Preferences } from '../prefs/PrefsContext.js';
 
 /**
  * The 3D-printing section: picking a machine fills the build volume, typing
@@ -129,5 +129,152 @@ describe('Preferences → 3D printing', () => {
     pick(printerSelect(), '');
     expect(axis('Bed X')).toBeNull();
     expect(stored().printer).toBeUndefined();
+  });
+});
+
+/**
+ * The First-run tour setting. Two localStorage keys were involved and this
+ * select only ever wrote one of them: the preference blob, while the tour's
+ * own "seen" flag lives under its own key and was written solely by
+ * dismissing the tour. That made Off look inert (the seen flag was already
+ * suppressing the tour) and made On a dead option — nothing cleared the flag,
+ * so "show once to new visitors" could never show it to anyone again.
+ */
+describe('Preferences → First-run tour', () => {
+  const TOUR_KEY = 'online-openrocket.tour.v1';
+  const tourSelect = (): HTMLSelectElement =>
+    host.querySelector('select[aria-label="First-run tour"]')!;
+
+  it('Off is durable — it stores the preference AND the tour’s own seen flag', () => {
+    mount();
+    pick(tourSelect(), 'off');
+    expect(stored().tourOff).toBe(true);
+    expect(localStorage.getItem(TOUR_KEY)).toBe('done');
+  });
+
+  it('the select stays on Off afterwards (the "it reverted" symptom)', () => {
+    mount();
+    pick(tourSelect(), 'off');
+    expect(tourSelect().value).toBe('off');
+  });
+
+  it('On genuinely re-arms the tour — it clears the seen flag', () => {
+    localStorage.setItem(TOUR_KEY, 'done');
+    mount();
+    pick(tourSelect(), 'off');
+    pick(tourSelect(), 'on');
+    expect(stored().tourOff).toBe(false);
+    // A marker, not a removal: shouldAutoStartTour also refuses once a session
+    // exists, and by the time anyone opens Preferences one always does — so
+    // clearing the flag alone would leave "On" a dead option.
+    expect(localStorage.getItem(TOUR_KEY)).toBe('rearm');
+  });
+});
+
+/**
+ * The two-controls collision the owner asked to have exercised: the vitals
+ * strip's session switch and this dialog's durable setting can disagree, and
+ * the app must never leave the user looking at two selects showing different
+ * models with nothing saying why.
+ */
+describe('Preferences → Aerodynamics vs the strip override', () => {
+  const aeroSelect = (): HTMLSelectElement =>
+    host.querySelector('select[aria-label="Aerodynamics model"]')!;
+
+  /** Renders the dialog plus a stand-in for the strip switch, one provider. */
+  const mountBoth = () => act(() => root.render(
+    <PrefsProvider>
+      <StripStub />
+      <PreferencesDialog onClose={() => {}} />
+    </PrefsProvider>,
+  ));
+
+  function StripStub() {
+    const { prefs, aeroOverride, setAeroOverride } = usePrefs();
+    return (
+      <select aria-label="strip" value={aeroOverride ?? aeroChoiceOf(prefs)}
+        onChange={(e) => setAeroOverride(e.target.value as AeroChoice)}>
+        <option value="kbf">kbf</option>
+        <option value="eb">eb</option>
+        <option value="auto">auto</option>
+        <option value="supersonic">supersonic</option>
+      </select>
+    );
+  }
+  const strip = (): HTMLSelectElement => host.querySelector('select[aria-label="strip"]')!;
+
+  it('the strip switch does NOT write the preference', () => {
+    mountBoth();
+    pick(strip(), 'supersonic');
+    // The stored blob is either untouched or carries no aero fields at all.
+    const raw = localStorage.getItem(STORAGE_KEY);
+    expect(raw === null || JSON.parse(raw).aeroModel === undefined).toBe(true);
+    // ...and the durable select still shows the durable value.
+    expect(aeroSelect().value).toBe('kbf');
+  });
+
+  it('says so, rather than leaving two selects silently disagreeing', () => {
+    mountBoth();
+    pick(strip(), 'supersonic');
+    expect(host.textContent).toContain('overriding the setting above');
+    expect(host.textContent).toContain('Supersonic');
+  });
+
+  it('one click goes back to the stored preference', () => {
+    mountBoth();
+    pick(strip(), 'supersonic');
+    const revert = Array.from(host.querySelectorAll('button'))
+      .find((b) => (b.textContent ?? '').startsWith('Go back to')) as HTMLButtonElement;
+    expect(revert.textContent).toBe('Go back to Rogers Kbf');
+    act(() => { revert.click(); });
+    expect(strip().value).toBe('kbf');
+    expect(host.textContent).not.toContain('overriding the setting above');
+  });
+
+  it('CHOOSING here outranks the strip — the newer, more deliberate act wins', () => {
+    mountBoth();
+    pick(strip(), 'supersonic');
+    pick(aeroSelect(), 'eb');
+    expect(stored().aeroModel).toBe('classic');
+    expect(stored().rogersKbf).toBe(false);
+    // The override is gone, so both controls agree again.
+    expect(strip().value).toBe('eb');
+    expect(host.textContent).not.toContain('overriding the setting above');
+  });
+
+  it('an UNRELATED preference write must not clear the override', () => {
+    // setPrefs is called with a spread for Daylight, the results tiles and
+    // more; clearing on every write would make the strip switch undoable by
+    // a theme toggle.
+    mountBoth();
+    pick(strip(), 'supersonic');
+    pick(host.querySelector('select[aria-label="Daylight mode"]') as HTMLSelectElement, 'on');
+    expect(strip().value).toBe('supersonic');
+    expect(host.textContent).toContain('overriding the setting above');
+  });
+
+  it('no hint at all when the strip agrees with the preference', () => {
+    mountBoth();
+    pick(strip(), 'kbf'); // the stored default
+    expect(host.textContent).not.toContain('overriding the setting above');
+  });
+});
+
+describe('Preferences → CG / CP markers in 3D', () => {
+  const markerSelect = (): HTMLSelectElement =>
+    host.querySelector('select[aria-label="CG / CP markers in 3D"]')!;
+
+  it('defaults to showing everything, and stores nothing until asked', () => {
+    mount();
+    expect(markerSelect().value).toBe('both');
+    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+  });
+
+  it('persists the choice', () => {
+    mount();
+    pick(markerSelect(), 'off');
+    expect(stored().markers3d).toBe('off');
+    pick(markerSelect(), 'callout');
+    expect(stored().markers3d).toBe('callout');
   });
 });

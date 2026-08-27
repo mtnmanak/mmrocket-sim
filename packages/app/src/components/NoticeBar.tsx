@@ -10,8 +10,10 @@ import { useEffect, useRef, useState } from 'react';
  *    per honesty item plus one per motor mount, joined with newlines into a
  *    `white-space: pre-line` box with no max height, so a staged multi-config
  *    file produced a ten-line slab across the top of the workspace. On desktop
- *    the Design tab's hero canvas has a fixed height that does not budget for
+ *    the Design tab's hero canvas has a fixed height that did not budget for
  *    it, so the note did not shrink the drawing — it shoved it below the fold.
+ *    (Since v0.074 the bar publishes its measured height as `--notice-h`, and
+ *    the canvas and the footer band both budget for it — see the effect below.)
  *
  *  - Everything used the same tan box: import trivia, "share link copied",
  *    export failures, and HIGH-priority flight-safety warnings alike. There was
@@ -71,6 +73,32 @@ export function NoticeBar({ notices }: { notices: Notice[] }) {
     return () => document.body.classList.remove('has-notice');
   }, [notices.length]);
 
+  // Publish the bar's LIVE height as --notice-h so everything that would
+  // otherwise end up underneath it (the footer band, the Design tab's hero
+  // canvas) can budget for it. A static reserve cannot do this job: the bar
+  // is `position: fixed`, and expanded it may grow to 40vh. Measured rather
+  // than assumed, and re-measured on every resize — a long notice reflows to
+  // two lines when the window narrows.
+  const barRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = barRef.current;
+    const clear = () => document.documentElement.style.removeProperty('--notice-h');
+    if (!el) { clear(); return; }
+    const publish = () => {
+      const h = el.offsetHeight;
+      // happy-dom (and any pre-layout frame) reports 0 — leave the property
+      // unset there so the stylesheet's own 0px default governs, rather than
+      // writing a "0px" that looks measured.
+      if (h > 0) document.documentElement.style.setProperty('--notice-h', `${h}px`);
+      else clear();
+    };
+    publish();
+    if (typeof ResizeObserver === 'undefined') return clear;
+    const ro = new ResizeObserver(publish);
+    ro.observe(el);
+    return () => { ro.disconnect(); clear(); };
+  }, [key, expanded, notices.length]);
+
   if (notices.length === 0) return null;
 
   // Show the most serious one when collapsed — an error must never hide behind
@@ -80,6 +108,7 @@ export function NoticeBar({ notices }: { notices: Notice[] }) {
 
   return (
     <div
+      ref={barRef}
       className={`notice-bar notice-${worst}${expanded ? ' expanded' : ''}`}
       role={worst === 'info' ? 'status' : 'alert'}
       aria-live={worst === 'info' ? 'polite' : 'assertive'}
