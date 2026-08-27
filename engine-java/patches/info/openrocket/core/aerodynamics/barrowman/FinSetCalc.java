@@ -1050,7 +1050,28 @@ public class FinSetCalc extends RocketComponentCalc {
 		// carry peaked at the top of its own ramp while the branch it bridged
 		// onto was already falling; thicknessWave() replaces it with
 		// rise -> peak at M1.05 -> decay along the branch.
-		if (supersonicAero && crossSection == FinSet.CrossSection.AIRFOIL) {
+		//
+		// PATCH (2026-08-27, the owner's ruling): rogersKbf takes this branch
+		// too. It is a DELIBERATE, MEASURED move of the DEFAULT model's
+		// numbers on airfoil-cross-section fins that name no airfoilSection —
+		// which is essentially every imported airfoil design, since
+		// <airfoilsection> is our own extension tag and no desktop-authored
+		// .ork carries one.
+		//
+		// Why all-Mach and not "subsonic only", which is what was first
+		// proposed: the classic transonic branch below starts at cd = 1.0 and
+		// only makes sense as the continuation of the subsonic rise it follows.
+		// Gating this branch at M0.90 leaves that top floating, and measured on
+		// a 4-fin sport geometry it puts a STEP of +1.21 in fin pressure CD
+		// between M0.90 (0.0006) and M0.91 (1.2082) — a discontinuity in CD at
+		// the transonic onset, which is worse for an adaptive-step RK4 than the
+		// error it removes. The two halves are not separable, so this is the
+		// coherent form of the change.
+		//
+		// PARITY IS UNAFFECTED: classic-without-Kbf still takes the block
+		// below, bit-for-bit. So does every SQUARE and ROUNDED fin in every
+		// model — the gate is AIRFOIL-only, and FinSet defaults to SQUARE.
+		if ((supersonicAero || rogersKbf) && crossSection == FinSet.CrossSection.AIRFOIL) {
 			double tc = (macLength > MathUtil.EPSILON) ? thickness / macLength : 0;
 			double wave = thicknessWave(mach, 16.0 / 3.0, tc);
 			// PATCH (feature #1 Phase 5): sweep relief fades out once the LE is

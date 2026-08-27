@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.074';
+export const APP_VERSION = '0.075';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,19 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.075',
+    date: '2026-08-27',
+    title: 'A sharp airfoil fin stops being charged blunt-edge drag',
+    items: [
+      'CHANGES NUMBERS, A LOT, ON FAST DESIGNS WITH AIRFOIL FINS — read this one before you compare against an earlier flight. On the default model (Rogers Kbf), a fin whose cross-section is AIRFOIL is no longer charged the leading-edge pressure drag that classic Barrowman applies to every non-square section. Total drag falls by under 1 % below Mach 0.5, about 4–12 % at Mach 0.9 and 9–16 % at Mach 2 on the reference designs — and because drag compounds over a coast, apogee moves further than that: a Mach 1.9 test design went from 2,227 m to 2,702 m, up 21 %.',
+      'WHY: classic Barrowman treats an airfoil fin’s leading edge as a swept cylinder — a pressure-drag plateau of about 1.2 on the leading-edge frontal area, which neither decays with Mach nor belongs on a sharp section, and whose subsonic form climbs steeply approaching Mach 0.9. On a genuinely streamlined section the subsonic profile drag belongs in the skin-friction form factor, which already carries it, and the only pressure term is supersonic wave drag. That is what the model now computes — the same treatment the Supersonic model has used since v0.045, and the reason it is the model that scores 71 of 175 anchor points against 17.',
+      'WHAT IS UNCHANGED, checked artifact against artifact across Mach 0.1–3.0: the Classic Extended Barrowman model (desktop parity) is bit-for-bit identical, the Supersonic model is bit-for-bit identical, and SQUARE fins — which is what a fin is unless you change it — and ROUNDED fins are identical in every model. So is any fin that names a specific Supersonic airfoil section. The only case that moves is Rogers Kbf with an Airfoil cross-section and no named section, which is what a design imported from desktop OpenRocket looks like.',
+      'IF YOU WANT THE OLD NUMBERS on a particular design, set its fins’ cross-section to ROUNDED — that is what the classic leading-edge term actually models, and it is a rounded leading edge that earns that drag.',
+      'SAID PLAINLY, because it is the honest state of the evidence: this moves the model AWAY from one anchor and TOWARD another. The Buckeye flight’s measured apogee was already over-predicted by about 12 %, and less drag makes that worse. The same flight’s GPS-derived drag trace says the model reads drag 22–42 % high through the supersonic range, and this moves squarely toward it. Those two anchors have disagreed since the model was built and they still do. The validation harness cannot arbitrate it — every finned fixture in it names an airfoil section and so takes the other path entirely, which is why all three model scores are unchanged at 10, 17 and 71 of 175.',
+      'The engine’s 309 golden reference lines are bit-for-bit identical between the JVM and the browser build, as always.',
+    ],
+  },
   {
     version: '0.074',
     date: '2026-08-27',

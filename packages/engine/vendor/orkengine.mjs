@@ -10322,7 +10322,7 @@ function iocab_FinSetCalc() {
     a.$airfoilLeDiamond0 = 0.0;
     a.$airfoilTeDiamond0 = 0.0;
     a.$finLeRadius0 = 0.0;
-    a.$rogersKbf0 = 0;
+    a.$rogersKbf = 0;
     a.$supersonicAero = 0;
     a.$afterbodyFactor = 0.0;
 }
@@ -10336,7 +10336,7 @@ iocab_FinSetCalc_$callClinit = () => {
     iocab_FinSetCalc__clinit_();
 },
 iocab_FinSetCalc_setRogersKbf = ($this, $enabled) => {
-    $this.$rogersKbf0 = $enabled;
+    $this.$rogersKbf = $enabled;
 },
 iocab_FinSetCalc_setSupersonicAero = ($this, $enabled) => {
     $this.$supersonicAero = $enabled;
@@ -10359,7 +10359,7 @@ iocab_FinSetCalc__init_ = ($this, $component) => {
     $this.$chordLength = $rt_createDoubleArray(48);
     $this.$geometryWarnings = iocl_WarningSet__init_();
     $this.$poly = $rt_createDoubleArray(6);
-    $this.$rogersKbf0 = 0;
+    $this.$rogersKbf = 0;
     $this.$supersonicAero = 0;
     $this.$afterbodyFactor = 1.0;
     $this.$thickness3 = $component.$getThickness();
@@ -10463,7 +10463,7 @@ iocab_FinSetCalc_calculateNonaxialForces = ($this, $conditions, $transform, $for
         $forces.$setCrollDamp(iocab_FinSetCalc_calculateDampingMoment($this, $conditions));
         $forces.$setCroll($forces.$getCrollForce() - $forces.$getCrollDamp());
         $cp = iocu_Coordinate__init_0($x, 0.0, 0.0, var$11);
-        if ($this.$rogersKbf0 && !$this.$supersonicAero && $tau > 0.0) {
+        if ($this.$rogersKbf && !$this.$supersonicAero && $tau > 0.0) {
             $rootLead = $this.$chordLead.data[0];
             $rootTrail = $this.$chordTrail.data[0];
             if (!(isNaN($rootLead) ? 1 : 0) && !jl_Double_isInfinite($rootLead) && !(isNaN($rootTrail) ? 1 : 0) && !jl_Double_isInfinite($rootTrail))
@@ -10863,7 +10863,7 @@ iocab_FinSetCalc_calculateFrictionCD = ($this, $conditions, $componentCf, $warni
     let $cd;
     if (!($this.$finArea < 1.0E-8) && !($this.$macLength < 1.0E-8)) {
         $cd = $componentCf * (1.0 + 2.0 * $this.$thickness3 / $this.$macLength) * 2.0 * $this.$finArea / $conditions.$getRefArea();
-        if (!(!$this.$rogersKbf0 && !$this.$supersonicAero))
+        if (!(!$this.$rogersKbf && !$this.$supersonicAero))
             $cd = $cd * 1.8;
         return $cd;
     }
@@ -10874,9 +10874,9 @@ iocab_FinSetCalc_calculatePressureCD = ($this, $conditions, $stagnationCD, $base
     if ($this.$finArea < 1.0E-8)
         return 0.0;
     $mach = $conditions.$getMach();
-    if ($this.$airfoilSection0 !== null && !(!$this.$rogersKbf0 && !$this.$supersonicAero))
+    if ($this.$airfoilSection0 !== null && !(!$this.$rogersKbf && !$this.$supersonicAero))
         return iocab_FinSetCalc_sectionPressureCD($this, $conditions, $baseCD);
-    if ($this.$supersonicAero) {
+    if (!(!$this.$supersonicAero && !$this.$rogersKbf)) {
         var$6 = $this.$crossSection;
         iocr_FinSet$CrossSection_$callClinit();
         if (var$6 === iocr_FinSet$CrossSection_AIRFOIL) {
@@ -10889,12 +10889,12 @@ iocab_FinSetCalc_calculatePressureCD = ($this, $conditions, $stagnationCD, $base
     iocr_FinSet$CrossSection_$callClinit();
     if (var$9 !== iocr_FinSet$CrossSection_AIRFOIL && $this.$crossSection !== iocr_FinSet$CrossSection_ROUNDED) {
         if ($this.$crossSection !== iocr_FinSet$CrossSection_SQUARE) {
-            var$6 = new jl_UnsupportedOperationException;
-            var$9 = jl_String_valueOf($this.$crossSection);
+            var$9 = new jl_UnsupportedOperationException;
+            var$6 = jl_String_valueOf($this.$crossSection);
             var$10 = jl_StringBuilder__init_();
-            jl_StringBuilder_append(jl_StringBuilder_append(var$10, $rt_s(401)), var$9);
-            jl_UnsupportedOperationException__init_0(var$6, jl_StringBuilder_toString(var$10));
-            $rt_throw(var$6);
+            jl_StringBuilder_append(jl_StringBuilder_append(var$10, $rt_s(401)), var$6);
+            jl_UnsupportedOperationException__init_0(var$9, jl_StringBuilder_toString(var$10));
+            $rt_throw(var$9);
         }
     } else
         $stagnationCD = $mach < 0.9 ? jl_Math_pow(1.0 - iocu_MathUtil_pow2($mach), (-0.417)) - 1.0 : $mach < 1.0 ? 1.0 - 1.785 * ($mach - 0.9) : 1.214 - 0.502 / iocu_MathUtil_pow2($mach) + 0.1095 / iocu_MathUtil_pow2(iocu_MathUtil_pow2($mach));
@@ -32443,13 +32443,13 @@ function a_OrkEngine$RocketCtx() {
     a.$stage = null;
     a.$fcid1 = null;
     a.$ids = null;
-    a.$rogersKbf = 0;
+    a.$rogersKbf0 = 0;
     a.$supersonicAero2 = 0;
 }
 let a_OrkEngine$RocketCtx__init_0 = ($this, $rocket, $stage, $fcid) => {
     jl_Object__init_($this);
     $this.$ids = ju_HashMap__init_();
-    $this.$rogersKbf = 0;
+    $this.$rogersKbf0 = 0;
     $this.$supersonicAero2 = 0;
     $this.$rocket0 = $rocket;
     $this.$stage = $stage;
@@ -50377,7 +50377,7 @@ a_OrkEngine_ignitionEventOf = $name => {
 },
 a_OrkEngine_setRogersModifiedBarrowman = ($rocketHandle, $enabled) => {
     a_OrkEngine_$callClinit();
-    (a_OrkEngine_get($rocketHandle)).$rogersKbf = $enabled;
+    (a_OrkEngine_get($rocketHandle)).$rogersKbf0 = $enabled;
 },
 a_OrkEngine_setSupersonicAero = ($rocketHandle, $enabled) => {
     a_OrkEngine_$callClinit();
@@ -50394,7 +50394,7 @@ a_OrkEngine_getStaticInfo = $rocketHandle => {
     $structure = iocm_MassCalculator_calculateLaunch($ctx.$rocket0.$getSelectedConfiguration());
     $empty = iocm_MassCalculator_calculateStructure($ctx.$rocket0.$getSelectedConfiguration());
     $calc = ioca_BarrowmanCalculator__init_();
-    $calc.$setRogersKbf($ctx.$rogersKbf);
+    $calc.$setRogersKbf($ctx.$rogersKbf0);
     $calc.$setSupersonicAero($ctx.$supersonicAero2);
     $conditions = ioca_FlightConditions__init_($ctx.$rocket0.$getSelectedConfiguration());
     $conditions.$setMach(0.3);
@@ -50512,7 +50512,7 @@ a_OrkEngine_getDragSweep = ($rocketHandle, $optionsJson) => {
         }
     }
     $calc = ioca_BarrowmanCalculator__init_();
-    $calc.$setRogersKbf($ctx.$rogersKbf);
+    $calc.$setRogersKbf($ctx.$rogersKbf0);
     $calc.$setSupersonicAero($ctx.$supersonicAero2);
     $warnings = iocl_WarningSet__init_();
     $offTotal = $rt_createDoubleArray($n);
@@ -50739,7 +50739,7 @@ a_OrkEngine_simulateJson = ($rocketHandle, $optionsJson) => {
     }
     $conditions.$setGravityModel(iocmg_WGSGravityModel__init_0());
     $aeroCalc = ioca_BarrowmanCalculator__init_();
-    $aeroCalc.$setRogersKbf($ctx.$rogersKbf);
+    $aeroCalc.$setRogersKbf($ctx.$rogersKbf0);
     $aeroCalc.$setSupersonicAero($ctx.$supersonicAero2);
     $randomSeed = a_JsonLite_dbl($o, $rt_s(1716), 42.0) | 0;
     $wind = iocmw_PinkNoiseWindModel__init_2($randomSeed);

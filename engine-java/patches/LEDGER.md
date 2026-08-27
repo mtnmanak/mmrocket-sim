@@ -574,6 +574,32 @@ numbers away from desktop must move OUT of classic"*. Full measurement:
     at M4, this gives 0.87). Forcing it on wins Kbf **+10 gates** — and every one of them
     comes from that error, while the fins-off cell it was meant to fix goes **1/11 → 0/11**
     and the ARCAS transonic cells lose two. It also bypasses the Phase-4 VD-II fit.
+- **barrowman/FinSetCalc.java — the sharp-AIRFOIL pressure model now runs in Kbf**
+  (`(supersonicAero || rogersKbf) && crossSection == AIRFOIL`), 2026-08-27, v0.075.
+  The owner's ruling, after the "subsonic only" middle path was measured and rejected:
+  the classic transonic branch starts at `cd = 1.0` and is only meaningful as the
+  continuation of the subsonic `(1−M²)^−0.417` rise it follows, so gating this branch at
+  M0.90 leaves the top floating and puts a **step of +1.21 in fin pressure CD between
+  M0.90 and M0.91** — a discontinuity in CD at the transonic onset, worse for an adaptive
+  RK4 than the error it removes. All-Mach is the coherent form.
+  **CONTAINMENT, measured artifact-vs-artifact over M0.1–3.0 on four cross-sections ×
+  three models:** the ONLY case that moved is Kbf + AIRFOIL + no named `airfoilSection`.
+  Classic (parity) bit-identical, Supersonic bit-identical, SQUARE (the FinSet default)
+  and ROUNDED bit-identical in all three models, and a fin naming an `airfoilSection`
+  bit-identical (it short-circuits above). Differential **309 lines** clean.
+  **THE HARNESS CANNOT SEE THIS CHANGE** — all four finned validation fixtures name an
+  `airfoilSection`, so they short-circuit before the branch; classic 10/175, Kbf 17/175,
+  supersonic 71/175 are unchanged. That is a fact to record, not a pass to claim.
+  **Magnitude on real files** (total CD, Kbf): `Mach2.trf.ork` −0.4 % at M0.3 → −8.2 % at
+  M0.9 → −12.0 % at M2; `LEM-IV.ork` −0.6 / −11.5 / −15.7 %; `CT-Concep98` −0.3 / −6.2 /
+  −9.1 %; `LEM-M2B.ork` unchanged (no airfoil fins). At flight level, a Mach 1.9 airfoil
+  probe went **apogee 2226.6 → 2701.5 m (+21.3 %)**, maxV +13.4 %, maxMach +13.5 %; the
+  same probe with SQUARE fins is bit-identical. **The DEFAULT model's numbers moved, a
+  lot** — say so in the changelog.
+  **UNRESOLVED, and worth keeping in view:** this moves Kbf AWAY from Buckeye's measured
+  apogee (already +11.9 % over GPS; less drag makes that worse) and TOWARD the same
+  flight's GPS-derived Cd trace (which said Kbf reads Cd high, +22/+28/+42 % supersonic).
+  The two anchors have pointed opposite ways since Phase 2 and still do.
 - **barrowman/FinSetCalc.java — the ×1.8 fin interference factor now runs in Kbf**
   (`rogersKbf || supersonicAero`). `scorecard-junction-2026-08-25.md` had measured this
   as "the option the data supports … not a change to make without Eric"; Eric ruled.
