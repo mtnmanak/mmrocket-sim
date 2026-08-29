@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { OrkRocket, type MotorSpec, type RocketSpec, type RocketTree } from './orkEngine.js';
 
+/** Index of a Mach in a drag sweep's grid. Float-exact: the grid is generated, not measured. */
+const at = (s: { machs: number[] }, m: number) =>
+  s.machs.findIndex((x) => Math.abs(x - m) < 1e-9);
+
 /**
  * Reference rocket + C6-class motor — the same design as engine-java's
  * golden harness. Expected values are the JVM golden outputs
@@ -240,8 +244,6 @@ describe('OrkRocket (real OpenRocket kernel via TeaVM)', () => {
     ss.setSupersonicAero(true);
     const on = ss.dragSweep({ machMin: 0.5, machMax: 4.0, machStep: 0.5 });
 
-    const at = (sweep: typeof off, m: number) =>
-      sweep.machs.findIndex((x) => Math.abs(x - m) < 1e-9);
     // Supersonic: corrected fin CNa (~2x) keeps the CP from racing forward —
     // flag-on CP must sit AFT of the classic collapse, increasingly with Mach.
     for (const m of [2.0, 3.0, 4.0]) {
@@ -274,7 +276,8 @@ describe('OrkRocket (real OpenRocket kernel via TeaVM)', () => {
     // before and after), and difftest has no stored baseline, so it cannot catch a
     // change that moves the JVM and TeaVM together. Without this, the default
     // model's apogee could move 21 % on a Mach 1.9 design with everything green.
-    const mk = (cross: string, kbf: boolean, supersonic = false) => {
+    const COARSE = { machMin: 0.3, machMax: 2.0, machStep: 0.1 };
+    const mk = (cross: string, kbf: boolean, supersonic = false, opts = COARSE) => {
       const r = OrkRocket.buildTree({
         components: [
           { type: 'nosecone', shape: 'conical', length: 0.085, aftRadius: 0.015, thickness: 0.0015 },
@@ -290,10 +293,8 @@ describe('OrkRocket (real OpenRocket kernel via TeaVM)', () => {
       });
       r.setRogersModifiedBarrowman(kbf);
       r.setSupersonicAero(supersonic);
-      return r.dragSweep({ machMin: 0.3, machMax: 2.0, machStep: 0.1 });
+      return r.dragSweep(opts);
     };
-    const at = (s: { machs: number[] }, m: number) =>
-      s.machs.findIndex((x) => Math.abs(x - m) < 1e-9);
 
     const airfoilKbf = mk('airfoil', true);
     const airfoilClassic = mk('airfoil', false);
@@ -304,9 +305,31 @@ describe('OrkRocket (real OpenRocket kernel via TeaVM)', () => {
     expect(airfoilKbf.powerOff.total[at(airfoilKbf, 0.9)]!)
       .toBeLessThan(airfoilClassic.powerOff.total[at(airfoilClassic, 0.9)]!);
 
+    // ...and the OTHER half of the gate. The branch is
+    // `(supersonicAero || rogersKbf) && crossSection == AIRFOIL`, so every
+    // assertion above — all of them Kbf — leaves the supersonicAero disjunct
+    // unexecuted: deleting `supersonicAero ||` would put the swept-cylinder
+    // plateau back on every Supersonic-model user with a sharp airfoil fin
+    // (measured on this fixture at M2.0: pressure CD 0.214 -> 0.560) and still
+    // pass this file. difftest cannot cover it either — it compares a JVM run
+    // against a TeaVM run, and both move together.
+    const airfoilSs = mk('airfoil', false, true);
+    expect(airfoilSs.powerOff.pressure[at(airfoilSs, 2.0)]!)
+      .toBeLessThan(0.5 * airfoilClassic.powerOff.pressure[at(airfoilClassic, 2.0)]!);
+
     // CONTAINMENT — the half that matters most. SQUARE (the FinSet default) and
     // ROUNDED must be bit-identical across the models: the gate is AIRFOIL-only,
     // and rounded is what the classic LE term actually models.
+    //
+    // Guarded against going vacuous: `crossSection` is a free string and
+    // ComponentFactory.crossSectionOf maps anything unrecognised to SQUARE
+    // (`case "square": default:`), so a typo in either name would make both
+    // sides of the toEqual the same SQUARE rocket and the assertion would pass
+    // while ROUNDED went completely unchecked. Pinning rounded != square first
+    // means the loop can only pass by actually building the two cross-sections.
+    const roundedKbf = mk('rounded', true);
+    const squareKbf = mk('square', true);
+    expect(roundedKbf.powerOff.pressure).not.toEqual(squareKbf.powerOff.pressure);
     for (const cross of ['square', 'rounded']) {
       expect(mk(cross, true).powerOff.pressure).toEqual(mk(cross, false).powerOff.pressure);
     }
@@ -315,23 +338,9 @@ describe('OrkRocket (real OpenRocket kernel via TeaVM)', () => {
     // at/below Mach 0.90), and it must stay CONTINUOUS through the transonic
     // onset. A subsonic-only gate was measured at a +1.21 CD step between M0.90
     // and M0.91 and rejected for that reason; this pins the coherent form.
-    const fine = (() => {
-      const r = OrkRocket.buildTree({
-        components: [
-          { type: 'nosecone', shape: 'conical', length: 0.085, aftRadius: 0.015, thickness: 0.0015 },
-          {
-            type: 'bodytube', length: 0.215, outerRadius: 0.015, thickness: 0.0015,
-            children: [{
-              type: 'trapezoidfinset', finCount: 4, rootChord: 0.03, tipChord: 0.03,
-              sweep: 0, height: 0.03, thickness: 0.0024, crossSection: 'airfoil',
-              position: { method: 'bottom' as const, offset: 0 },
-            }],
-          },
-        ],
-      });
-      r.setRogersModifiedBarrowman(true);
-      return r.dragSweep({ machMin: 0.85, machMax: 0.95, machStep: 0.01 });
-    })();
+    // Same fixture as above, swept finely across the onset — mk() takes the sweep
+    // options so the two halves of this test cannot drift apart on geometry.
+    const fine = mk('airfoil', true, false, { machMin: 0.85, machMax: 0.95, machStep: 0.01 });
     let biggestStep = 0;
     for (let i = 1; i < fine.machs.length; i++) {
       biggestStep = Math.max(biggestStep,
@@ -367,8 +376,6 @@ describe('OrkRocket (real OpenRocket kernel via TeaVM)', () => {
       r.setRogersModifiedBarrowman(true);
       return r;
     };
-    const at = (s: { machs: number[] }, m: number) =>
-      s.machs.findIndex((x) => Math.abs(x - m) < 1e-9);
     const opts = { machMin: 0.5, machMax: 2.5, machStep: 0.5 };
 
     // The parity model must be blind to the section: same answer with and

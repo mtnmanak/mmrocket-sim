@@ -29,7 +29,9 @@ read of a different image by the same code (rms 0.0010), the four-way spread at 
 (0.0036), an earlier independent read of the same figure's x_cp panel (~1 %L), and the
 report's own prose about where its two fins-off curves cross (M0.975 — reproduced exactly).
 **10 of the 11 gates fail in both models**, and they fail in *opposite* directions at
-opposite ends of the Mach range: classic 10/175 (5.7 %), supersonic 71/175 (40.6 %), with
+opposite ends of the Mach range: classic 11/175 (6.3 %) *at this revision* — a later pass
+took it to the 10/175 in the scoreboard, see `scorecard-transition-2026-08-25.md` —
+supersonic 71/175 (40.6 %), with
 all five other cells byte-identical. The base-drag panel (C_A,b) was digitized too, its sign
 convention established from the report and demonstrated against the report's own C_p,b
 figures — and then deliberately **not** gated, because the tunnel base is sting-dominated
@@ -105,8 +107,8 @@ revised anchors is `scorecard-audit-2026-08-04.md`.
 | Supersonic, Phase 5 + Phase 6 (164 gates) | 70/164 (42.7%) | `scorecard-phase6-2026-08-25.md` |
 | Classic, + fins-off gates (166) | 10/166 (6.0%) | `scorecard-finsoff-2026-08-25.md` |
 | Supersonic, + fins-off gates (166) | 70/166 (42.2%) | `scorecard-finsoff-2026-08-25.md` |
-| **Current: classic, fins-off curve gated from TN D-4013** | **10/175 (5.7%)** | `scorecard-finsoff-figs-2026-08-25.md` |
-| **Current: Rogers Kbf — THE SHIPPED DEFAULT** | **17/175 (9.7%)** | `scorecard-junction-2026-08-25.md`, `scorecard-airfoil-le-2026-08-27.md` |
+| **Current: classic, fins-off curve gated from TN D-4013** | **10/175 (5.7%)** | `scorecard-transition-2026-08-25.md` (11 → 10), gates from `scorecard-finsoff-figs-2026-08-25.md` |
+| **Current: Rogers Kbf — THE SHIPPED DEFAULT** | **17/175 (9.7%)** | `scorecard-transition-2026-08-25.md` (15 → 17), unchanged by `scorecard-airfoil-le-2026-08-27.md` |
 | **Current: supersonic, fins-off curve gated from TN D-4013** | **71/175 (40.6%)** | `scorecard-finsoff-figs-2026-08-25.md` |
 
 **Read the two 2026-08-25 numbers together or not at all.** The supersonic percentage
@@ -192,11 +194,14 @@ node validation/score.mjs > validation/scorecard.md
   `_readme`; `gate: false` series are informational)
 - `score.mjs` — builds each fixture, runs `dragSweep` (which emits CD
   power-off/on + CP + CNα per Mach), interpolates at anchor Machs, grades
-- `scorecard-finsoff-figs-2026-08-25.md` — the CURRENT scorecard: TN D-4013
+- `scorecard-airfoil-le-2026-08-27.md` — **the NEWEST scorecard**; read it first. Start
+  from it and walk back through the two below for how the current 10/17/71 was reached.
+- `scorecard-finsoff-figs-2026-08-25.md` — where the gate count reached 175: TN D-4013
   retrieved from NTRS, Figures 11/12 digitized off the report's own page scans,
   the fins-off gates expanded 2 → 11 at a tolerance derived from the report's
   accuracy table, the base panel's convention established and then ruled
-  un-gateable, and the measured shape of the body-only error vs Mach
+  un-gateable, and the measured shape of the body-only error vs Mach.
+  **It records classic at 11/175** — the 10/175 in the scoreboard came later.
 - `scorecard-anchors-2026-08-25.md` — the 2026-08-25 anchor revision,
   before/after accounting, the measured compensating-error decompositions, and
   the falsifiable gate list the model fixes must move
@@ -206,9 +211,11 @@ node validation/score.mjs > validation/scorecard.md
   historical 135-gate anchors (64/135)
 - `scorecard-phase1-2026-08-04.md` — the Phase-1 supersonic-model scorecard
 - `scorecard-phase5-2026-08-25.md`, `scorecard-phase6-2026-08-25.md` — the Phase-5/6 passes
-- `scorecard-finsoff-2026-08-25.md`, `scorecard-finsoff-figs-2026-08-25.md` — the TN D-4013
-  fins-off gates, digitized off the report's own page scans
-- `scorecard-junction-2026-08-25.md` — the ×1.8 fin-junction term moving into Kbf
+- `scorecard-finsoff-2026-08-25.md` — the first two TN D-4013 fins-off gates
+  (`scorecard-finsoff-figs-2026-08-25.md`, which expanded them to 11, is listed above)
+- `scorecard-junction-2026-08-25.md` — the ×1.8 fin-junction term moving into Kbf.
+  **Scored on the older 164-gate anchors** — it carries no /175 figure, so it cannot be
+  cited for any number in the scoreboard above
 - `scorecard-transition-2026-08-25.md` — boundary-layer transition refuted three ways, and
   the parity boundary enforced (this is where classic went 11 → 10/175)
 - `scorecard-airfoil-le-2026-08-27.md` — the sharp-AIRFOIL leading-edge term moving into Kbf
