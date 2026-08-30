@@ -77,7 +77,7 @@ export function SimRunDetails({ run, hasSeries }: {
           Launch report — {run.rocket ? `${run.rocket} · ` : ''}{run.motor}
           {run.manufacturer ? ` (${run.manufacturer})` : ''}
         </h2>
-        <button className="file-btn" onClick={() => setOpen(!open)}>
+        <button className="file-btn file-btn-ghost" onClick={() => setOpen(!open)}>
           {open ? 'Hide details' : 'Show all details'}
         </button>
       </div>
@@ -120,7 +120,11 @@ export function SimRunDetails({ run, hasSeries }: {
           })}
         </div>
       )}
-      {run.comments && <p className="simdet-comments">{run.comments}</p>}
+      {/* simReport joins its advisory sentences with ' | ' — one line each
+          reads as ranked flags instead of run-on prose (v0.076). */}
+      {run.comments && run.comments.split(' | ').map((c, i) => (
+        <p key={i} className="simdet-comments" style={{ margin: '2px 0 0' }}>{c}</p>
+      ))}
       {(run.deployments ?? []).length > 0 && (
         <div className="motor-table-wrap" style={{ marginTop: 8 }}>
           <table className="motor-table">
@@ -221,6 +225,8 @@ export function SimRunDetails({ run, hasSeries }: {
       })}
       {open && (
         <div className="simdet-grid">
+          <div>
+          <h3>Flight</h3>
           <table className="fin-table">
             <tbody>
               <Row label="Max altitude" value={fmtSi('distance', dist, run.maxAltitude)} quantity="distance" />
@@ -243,6 +249,9 @@ export function SimRunDetails({ run, hasSeries }: {
               <Row label="Execution time" value={`${Math.round(run.execMs)} ms`} />
             </tbody>
           </table>
+          </div>
+          <div>
+          <h3>Launch &amp; recovery</h3>
           <table className="fin-table">
             <tbody>
               <Row label="Velocity at launch guide exit"
@@ -304,6 +313,9 @@ export function SimRunDetails({ run, hasSeries }: {
               )}
             </tbody>
           </table>
+          </div>
+          <div>
+          <h3>Checks &amp; motor</h3>
           <table className="fin-table">
             <tbody>
               <Row label="Lift-off speed OK" {...(() => { const v = verdict(run.safeLiftoffSpeed); return { value: v.text, bad: v.bad }; })()} />
@@ -331,6 +343,7 @@ export function SimRunDetails({ run, hasSeries }: {
               <Row label="Motors" value={(run.motorCount ?? 1) > 1 ? `${run.motorCount} (cluster)` : '1'} />
             </tbody>
           </table>
+          </div>
         </div>
       )}
     </div>
@@ -392,8 +405,8 @@ export function SimHistory({
           title="The same run table as an Excel workbook: typed cells (no date mangling), bold frozen header, filter.">
           ⬇ Run table (.xlsx)
         </button>
-        <button className="file-btn" onClick={() => onRunsChange(clearRuns())}>Clear all</button>
-        <button className="file-btn" onClick={() => setOpen(!open)}>{open ? 'Hide' : 'Show'}</button>
+        <button className="file-btn file-btn-danger" onClick={() => onRunsChange(clearRuns())}>Clear all</button>
+        <button className="file-btn file-btn-ghost" onClick={() => setOpen(!open)}>{open ? 'Hide' : 'Show'}</button>
       </div>
       {open && (
         <div className="motor-table-wrap" style={{ maxHeight: 300 }}>

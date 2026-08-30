@@ -38,7 +38,9 @@ export interface Notice {
 
 const RANK: Record<NoticeSeverity, number> = { info: 0, warn: 1, error: 2 };
 
-const GLYPH: Record<NoticeSeverity, string> = { info: 'i', warn: '⚠', error: '⚠' };
+// Warn and error carried the same glyph until v0.076 — severity then hung on
+// a 1–2px border color alone.
+const GLYPH: Record<NoticeSeverity, string> = { info: 'i', warn: '⚠', error: '⛔' };
 
 const LABEL: Record<NoticeSeverity, string> = {
   info: 'Notice', warn: 'Warning', error: 'Error',

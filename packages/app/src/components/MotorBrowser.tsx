@@ -321,7 +321,12 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
             <thead>
               <tr>
                 {SORTABLE.map(({ key, label }) => (
-                  <th key={key} onClick={() => onHeader(key)} role="button"
+                  <th key={key} onClick={() => onHeader(key)} role="button" tabIndex={0}
+                    onKeyDown={(e) => {
+                      // role="button" promises keyboard activation; without this
+                      // sorting was mouse-only (the last named a11y defect).
+                      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onHeader(key); }
+                    }}
                     aria-sort={filters.sortKey === key ? (filters.sortDir === 1 ? 'ascending' : 'descending') : undefined}>
                     {key === 'diameter' || key === 'length'
                       ? <>{label} (<UnitChip quantity="motorDimensions" />)</>
@@ -434,7 +439,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
           )}
         </div>
         {notice && <p className="motor-db-meta" style={{ marginBottom: 0 }}>{notice}</p>}
-        {error && <p className="stability-bad" style={{ marginBottom: 0 }}>{error}</p>}
+        {error && <p className="file-note file-note-error" style={{ marginBottom: 0 }}>{error}</p>}
       </div>
     </div>
   );

@@ -2310,7 +2310,7 @@ export function App() {
         {autosaveFailing && (
           // Persistent (not dismissible) on purpose: while this shows, edits
           // do NOT survive a reload. It clears itself on the recovery edge.
-          <div className="file-note autosave-warn" role="alert">
+          <div className="file-note file-note-error autosave-warn" role="alert">
             ⚠ Autosave can&apos;t write (storage full or blocked) — save your
             design to a file (Save As / Export → .ork) to keep it safe.
           </div>
@@ -2319,7 +2319,7 @@ export function App() {
           // Same shape, different store. Shown only when autosave is NOT
           // already shouting — one banner is a diagnosis, two are noise, and
           // the autosave one is the more urgent of the pair.
-          <div className="file-note autosave-warn" role="alert">
+          <div className="file-note file-note-warn autosave-warn" role="alert">
             ⚠ This browser isn&apos;t keeping your preferences (private window,
             or site data blocked) — units, theme and the tour setting will go
             back to their defaults when you reload.
@@ -2817,7 +2817,7 @@ export function App() {
               )}
             </div>
             {built && built.info.warningTexts.length > 0 && (
-              <div className="file-note" role="alert">
+              <div className="file-note file-note-warn" role="alert">
                 {built.info.warningTexts.map(formatWarningText).join('\n')}
               </div>
             )}
@@ -3129,7 +3129,7 @@ export function App() {
         {tab === 'results' && (
         <main className="results-column" data-tour="results-panel">
           {shownResult && aeroMode === 'classic' && shownResult.summary.maxMachNumber > MACH_AUTO_THRESHOLD && (
-            <div className="file-note" role="alert">
+            <div className="file-note file-note-warn" role="alert">
               ⚠ This flight reaches <strong>Mach {shownResult.summary.maxMachNumber.toFixed(2)}</strong> on
               the classic aero model, which is approximate past ~Mach {MACH_AUTO_THRESHOLD} — supersonic CP travel
               (the stability hazard on fast flights) is not modeled. A wind-tunnel-validated
@@ -3156,7 +3156,7 @@ export function App() {
             // (no recovery device, deployment on the guide, …) must not be
             // scrollable-past. Full list, cautions included, sits in the
             // launch report below.
-            <div className="file-note" role="alert">
+            <div className="file-note file-note-error" role="alert">
               ⚠ <strong>This flight raised {
                 lastRun!.simWarnings!.filter((w) => w.priority === 'HIGH').length === 1
                   ? 'a serious simulation warning'
@@ -3184,7 +3184,7 @@ export function App() {
             // destroys the flight: keeping it is only honest if the report
             // says which model produced these numbers, rather than letting
             // them be silently re-read under the new one.
-            <div className="file-note" role="status">
+            <div className="file-note file-note-warn" role="status">
               These numbers were <strong>flown on {aeroModelLabel(lastRun.aeroModel, lastRun.rogersKbf)}</strong>.
               The model now selected is <strong>{currentModelLabel({ aeroMode, effectiveKbf, autoSupersonic })}</strong>,
               so they are not comparable with a fresh flight — press <strong>Launch</strong> to
@@ -3216,7 +3216,7 @@ export function App() {
                     : ' The design, motor or conditions have changed since this run, so it can no longer be reproduced here. Press Launch to fly the design as it stands now.'}
                 </p>
                 {canShowCharts(lastRun) && (
-                  <button className="file-btn" disabled={reflying !== null}
+                  <button className="file-btn file-btn-primary" disabled={reflying !== null}
                     title="Re-fly this design at this run's conditions to redraw its plots. Does not add a row to the run history."
                     onClick={() => { void showChartsFor(lastRun); }}>
                     {reflying === lastRun.id ? '⏳ Re-flying…' : '📈 Show charts'}
@@ -3234,7 +3234,7 @@ export function App() {
                 {chartableRun && ' Its previous flights are saved below — the report and the plots for any of them can be brought back without flying a new one.'}
               </p>
               {chartableRun && (
-                <button className="file-btn" disabled={reflying !== null}
+                <button className="file-btn file-btn-primary" disabled={reflying !== null}
                   title="Re-fly this design at that run's conditions to redraw its report and plots. Does not add a row to the run history."
                   onClick={() => { void showChartsFor(chartableRun); }}>
                   {reflying === chartableRun.id ? '⏳ Re-flying…' : '📈 Show the last saved flight'}
@@ -3246,7 +3246,7 @@ export function App() {
             aeroLabel={currentModelLabel({ aeroMode, effectiveKbf, autoSupersonic })}
             designName={tree.name} fileMachAlt={fileMachAlt} />}
           {runsQuotaWarn && (
-            <div className="file-note" role="alert">
+            <div className="file-note file-note-warn" role="alert">
               {runs.length === 0
                 // Nothing stored at all (private mode / storage blocked): the
                 // "table below / export the CSV" advice is unfollowable —

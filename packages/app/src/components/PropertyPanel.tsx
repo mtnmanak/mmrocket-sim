@@ -795,10 +795,10 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll, onAutoAli
           above. */}
       {(node.type as string) !== 'protuberance' && (
       <div style={{ marginTop: 10 }}>
-        <h2>
+        <h3 style={{ marginTop: 0 }}>
           Overrides (blank = calculated)
           {node.type === 'stage' ? ' — whole stage' : ''}
-        </h2>
+        </h3>
         <div className="field-grid">
           <div className="field">
             <label>Mass{node.type.endsWith('finset') ? ' (all fins combined)' : ''} <UnitChip quantity="mass" /></label>
@@ -922,7 +922,7 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll, onAutoAli
 
       {positionable && (
         <div style={{ marginTop: 10 }}>
-          <h2>Position (in parent)</h2>
+          <h3 style={{ marginTop: 0 }}>Position (in parent)</h3>
           <div className="field-grid">
             <div className="field">
               <label>Relative to</label>
