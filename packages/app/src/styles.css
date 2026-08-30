@@ -13,21 +13,35 @@
   --notice-h: 0px;
 }
 
-/* Palette roles from the validated reference palette (dataviz skill). */
+/* Palette roles from the validated reference palette (dataviz skill).
+   v0.076 surface ramp: FOUR levels instead of two, so elevation exists —
+     --surface-0  the page (the ground everything sits on)
+     --surface-1  recessed wells cut INTO a panel: inputs, tables, tree box
+     --surface-2  panels, tiles, chart cards — lifted above the page
+     --surface-3  raised controls ON a panel: buttons, chips, menus, tooltips
+   --border is the everyday hairline; --border-strong outlines whole panels.
+   Light runs page < panel (gray ground, near-white panels); dark runs the
+   same direction from black. Daylight overrides ALL of these later — any
+   token added here must also be set in the [data-contrast='high'] block or
+   daylight inherits a dark value under a white page. */
 .viz-root {
-  --surface-1: #fcfcfb;
-  --surface-2: #f2f1ef;
+  --surface-0: #f4f2ee;
+  --surface-1: #f1efea;
+  --surface-2: #fcfcfb;
+  --surface-3: #ffffff;
   --text-primary: #0b0b0b;
   --text-secondary: #52514e;
-  --text-muted: #7a786f;
+  --text-muted: #6d6b63;
   --series-1: #2a78d6; /* altitude */
   --series-2: #1baf7a; /* velocity */
   --series-3: #eda100; /* acceleration */
   --status-good: #008300;
   --status-warn: #a06b00;
   --status-serious: #e34948;
-  --border: #dedcd7;
-  --hover: #eceae6;
+  --border: #d9d6cf;
+  --border-strong: #c6c2b8;
+  --shadow-1: 0 1px 2px rgba(35, 30, 20, 0.05), 0 3px 12px rgba(35, 30, 20, 0.06);
+  --hover: #eae7e0;
   --selected: #dceafc;
   --note-bg: #fdf6e3;
   --note-border: #e6d9a8;
@@ -36,11 +50,12 @@
      colors are data-only (charts, schematic marks). */
   --accent: #b8511d;
   --launch: #c65420;
-  --chart-axis: #7a786f;
-  --chart-grid: #e8e6e1;
-  --chart-tick: #dedcd7;
+  --chart-axis: #6d6b63;
+  --chart-grid: #e3e1da;
+  --chart-tick: #d9d6cf;
+  color-scheme: light;
 
-  background: var(--surface-1);
+  background: var(--surface-0);
   color: var(--text-primary);
   font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
   /* Display face (identity pass 3): the wordmark, headings, tab labels and
@@ -52,27 +67,32 @@
 }
 
 .viz-root[data-theme='dark'] {
-  --surface-1: #161614;
-  --surface-2: #201f1d;
+  --surface-0: #111110;
+  --surface-1: #1a1917;
+  --surface-2: #232120;
+  --surface-3: #2d2b28;
   --text-primary: #f0efec;
-  --text-secondary: #b8b6ae;
-  --text-muted: #8d8b82;
+  --text-secondary: #c0beb5;
+  --text-muted: #94918a;
   --series-1: #5a9be0; /* keep series hues, lifted for dark surfaces */
   --series-2: #3cc492;
   --series-3: #f0b23c;
   --status-good: #4dbd4d;
   --status-warn: #e0a53d;
   --status-serious: #f0716f;
-  --border: #3b3934;
-  --hover: #2b2a27;
-  --selected: #24446b;
+  --border: #403c35;
+  --border-strong: #57524a;
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.35), 0 4px 16px rgba(0, 0, 0, 0.22);
+  --hover: #383530;
+  --selected: #2a4a72;
   --note-bg: #2e2a1c;
   --note-border: #57503a;
   --accent: #ef8a52;
   --launch: #c65420;
-  --chart-axis: #8d8b82;
-  --chart-grid: #2b2a27;
-  --chart-tick: #3b3934;
+  --chart-axis: #94918a;
+  --chart-grid: #353330;
+  --chart-tick: #45423b;
+  color-scheme: dark;
 }
 
 /* --- Workspace: vitals strip + tabs + one layout per task ---
@@ -346,7 +366,7 @@
   flex-direction: column;
   min-width: 240px;
   padding: 4px;
-  background: var(--surface-1);
+  background: var(--surface-3);
   border: 1px solid var(--border);
   border-radius: 6px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
@@ -466,7 +486,7 @@
 }
 
 .mount-size-chip {
-  background: var(--surface-1);
+  background: var(--surface-3);
   border: 1px solid var(--border);
   border-radius: 999px;
   padding: 2px 9px;
@@ -790,6 +810,18 @@
   padding: 14px;
 }
 
+/* Elevation (v0.076): whole panels separate from the page with the structural
+   border and a soft shadow; .file-note and .panel-dormant stay flat on purpose. */
+.panel,
+.vitals-strip,
+.stat-tile,
+.chart-panel,
+.stats-drawer,
+.modal-card {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-1);
+}
+
 .panel h2 {
   font-family: var(--font-display);
   font-size: 14.5px;
@@ -851,7 +883,7 @@
   background: transparent;
   height: 16px;
   cursor: pointer;
-  accent-color: var(--accent, #4a7dbd);
+  accent-color: var(--accent);
 }
 
 /* Numeric field: text input + custom spinner (see NumField.tsx). */
@@ -865,9 +897,9 @@
 }
 
 .numfield input.num-invalid {
-  border-color: #e34948;
+  border-color: var(--status-serious);
   outline: none;
-  box-shadow: 0 0 0 1px #e3494866;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--status-serious) 40%, transparent);
 }
 
 .numfield-spin {
@@ -892,7 +924,7 @@
 }
 
 .numfield-spin button:hover {
-  background: var(--surface-2, rgba(128, 128, 128, 0.2));
+  background: var(--hover);
   color: var(--text-primary);
 }
 
@@ -1032,7 +1064,7 @@
   padding: 2px 7px;
   border: 1px solid var(--border);
   border-radius: 5px;
-  background: var(--surface-1);
+  background: var(--surface-3);
   color: var(--text-secondary);
   cursor: pointer;
   white-space: nowrap;
@@ -1259,7 +1291,7 @@
   right: 4px;
   border: none;
   background: none;
-  color: #8d8b82;
+  color: #a6a49b;
   font-size: 11px;
   cursor: pointer;
   padding: 2px 4px;
@@ -1278,7 +1310,7 @@
   font-weight: 600;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: #8d8b82;
+  color: #a6a49b;
 }
 
 .stats-chip-value {
@@ -1309,7 +1341,7 @@
   right: 12px;
   bottom: 12px;
   padding: 10px 12px;
-  background: var(--surface-1);
+  background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: 8px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
@@ -1587,7 +1619,7 @@
   padding: 4px 10px;
   border: 1px solid var(--border);
   border-radius: 5px;
-  background: var(--surface-1);
+  background: var(--surface-3);
   color: var(--text-primary);
   cursor: pointer;
   font-family: inherit;
@@ -1759,7 +1791,7 @@
   padding: 5px 8px;
   border: 1px solid var(--border);
   border-radius: 5px;
-  background: var(--surface-1);
+  background: var(--surface-3);
   cursor: pointer;
   font-family: inherit;
 }
@@ -1780,7 +1812,7 @@
   font-size: 12px;
   padding: 4px 10px;
   border: none;
-  background: var(--surface-1);
+  background: var(--surface-3);
   cursor: pointer;
   font-family: inherit;
   color: var(--text-secondary);
@@ -1812,7 +1844,7 @@
   padding: 3px 9px;
   border: 1px solid var(--border);
   border-radius: 12px;
-  background: var(--surface-1);
+  background: var(--surface-3);
   color: var(--text-secondary);
   cursor: pointer;
 }
@@ -1820,7 +1852,7 @@
 .series-chip-on {
   border-color: var(--text-secondary);
   color: var(--text-primary);
-  background: var(--surface-1);
+  background: var(--surface-3);
 }
 
 .series-dot {
@@ -1896,7 +1928,7 @@
   padding: 2px 8px;
   border: 1px solid var(--border);
   border-radius: 999px;
-  background: var(--surface-1);
+  background: var(--surface-3);
   color: var(--text-secondary);
   cursor: pointer;
 }
@@ -1940,9 +1972,10 @@
   background: var(--hover);
 }
 
-/* An update IS worth the accent — it is the one state that asks for an action. */
+/* An update IS worth the accent — it is the one state that asks for an action.
+   Surface-colored text, NOT #fff — same 2.49:1 trap .tour-next documents. */
 .version-update {
-  color: #fff;
+  color: var(--surface-1);
   background: var(--accent);
   border-color: var(--accent);
 }
@@ -2046,7 +2079,7 @@
   padding: 1px 6px;
   border: 1px solid var(--border);
   border-radius: 4px;
-  background: var(--surface-1);
+  background: var(--surface-3);
   color: var(--text-secondary);
   cursor: pointer;
 }
@@ -2113,7 +2146,7 @@
 }
 
 .modal-card {
-  background: var(--surface-0, var(--surface-1));
+  background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: 8px;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
@@ -2135,8 +2168,8 @@
 }
 
 .modal-danger {
-  border-color: #e34948;
-  color: #e34948;
+  border-color: var(--status-serious);
+  color: var(--status-serious);
 }
 
 /* --- First-run tour (S3) --- */
@@ -2490,7 +2523,7 @@
   padding: 5px 7px;
   border: 1px solid var(--border);
   border-radius: 4px;
-  background: var(--surface-1);
+  background: var(--surface-3);
   box-shadow: 0 2px 8px rgb(0 0 0 / 18%);
   color: var(--text-primary);
   font-size: 11px;
@@ -2936,8 +2969,12 @@ select.unit-chip:hover {
    =================================================================== */
 
 .viz-root[data-contrast='high'] {
+  --surface-0: #ffffff;
   --surface-1: #ffffff;
   --surface-2: #ffffff;
+  --surface-3: #ffffff;
+  --border-strong: #000000;
+  --shadow-1: none;
   --text-primary: #000000;
   --text-secondary: #141414;
   --text-muted: #2e2e2e;

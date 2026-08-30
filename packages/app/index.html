@@ -17,7 +17,29 @@
     </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="Design, simulate, fly — OpenRocket-derived physics, validated to Mach 4.6 against NASA wind-tunnel data. In your browser, offline-capable." />
-    <meta name="theme-color" content="#101623" />
+    <meta name="theme-color" content="#111110" />
+    <script>
+      // Paint the page ground BEFORE React mounts. The theme lives in
+      // .viz-root tokens, which don't exist until the app renders — without
+      // this, every load of the (default-dark) app opens on browser-white
+      // and flips dark a beat later. Reads the same pref blob PrefsContext
+      // owns; any failure falls through to dark, the app default. Values
+      // MUST match --surface-0 in styles.css (light #f4f2ee / dark #111110).
+      (function () {
+        var theme = 'dark';
+        try {
+          var p = JSON.parse(localStorage.getItem('online-openrocket.prefs.v1') || '{}');
+          var t = p.themeExplicit ? p.theme : 'dark';
+          theme = t === 'system'
+            ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+            : (t === 'light' ? 'light' : 'dark');
+        } catch (e) { /* default dark */ }
+        var bg = theme === 'light' ? '#f4f2ee' : '#111110';
+        document.documentElement.style.background = bg;
+        var m = document.querySelector('meta[name="theme-color"]');
+        if (m) m.setAttribute('content', bg);
+      })();
+    </script>
     <link rel="icon" type="image/png" href="./favicon.png" />
     <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
     <title>MMRocket Sim — Rocket Design & Flight Simulator</title>
