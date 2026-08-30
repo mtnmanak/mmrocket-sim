@@ -13,7 +13,10 @@ import {
   downloadBlob, IMAGE_FORMAT_EXT, schematicSvg, svgToImage, type ExportData,
 } from '../services/schematicExport.js';
 import { ImageExportMenu } from './ImageExportMenu.js';
+import { ROLL_COL, RollControl } from './RollControl.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
+import { uiToSi } from '../prefs/units.js';
+import { rulerLayout } from '../services/rulerTicks.js';
 import { formatStability, stabilityState, type StabilityState } from '../services/simReport.js';
 
 /**
@@ -42,6 +45,17 @@ const fillOf = (n: ComponentNode, dflt: string): string =>
 const PAN_SLOP = 4;
 
 const MARKER_R = 9;
+
+/**
+ * Ruler gutter thickness (viewBox px). The desktop uses one 20 px band for
+ * both (ScaleScrollPane.RULER_SIZE); the left band is wider here because its
+ * labels are drawn INSIDE it horizontally — the same thing the desktop does,
+ * but its numbers are radii (small, few digits) and ours may be a diameter in
+ * millimetres.
+ */
+export const RULER_TOP = 18;
+export const RULER_LEFT = 30;
+
 /** Total viewBox px of height reserved for the two callout lanes (S2). */
 export const CALLOUT_LANES = 34;
 /** Lane-center distance from the airframe edge (or marker edge, if wider). */
@@ -76,20 +90,22 @@ export interface CalloutLayout {
  * (leftward as the fallback when the right side has no room).
  *
  * @param halfPx drawn vertical half-extent (viewBox px) = vHalf * scale
+ * @param top    first usable y — the horizontal ruler's gutter, 0 without one
+ * @param left   first usable x — the vertical ruler's gutter, 0 without one
  */
 export function calloutLayout(
   cgX: number | null, cpX: number | null,
   cy: number, halfPx: number, w: number, h: number,
-  marginText: string | null,
+  marginText: string | null, top = 0, left = 0,
 ): CalloutLayout {
-  const laneTop = Math.max(10, cy - Math.max(halfPx, MARKER_R) - LANE_GAP);
+  const laneTop = Math.max(top + 10, cy - Math.max(halfPx, MARKER_R) - LANE_GAP);
   const laneBottom = Math.min(h - 10, cy + Math.max(halfPx, MARKER_R) + LANE_GAP);
   const cg = cgX === null ? null : { x: cgX, leaderY1: cy - MARKER_R, leaderY2: laneTop };
   const cp = cpX === null ? null : { x: cpX, leaderY1: cy + MARKER_R, leaderY2: laneBottom };
   let margin: { x: number; y: number } | null = null;
   if (marginText !== null && cgX !== null && cpX !== null) {
     const halfW = marginHalfW(marginText);
-    const clamp = (x: number) => Math.min(w - halfW - 2, Math.max(halfW + 2, x));
+    const clamp = (x: number) => Math.min(w - halfW - 2, Math.max(left + halfW + 2, x));
     const collides = (x: number) => x + halfW > cpX - CP_LABEL_L && x - halfW < cpX + CP_LABEL_R;
     let x = clamp((cgX + cpX) / 2);
     if (collides(x)) {
@@ -128,7 +144,7 @@ interface DragState {
   clientScale: number;
 }
 
-export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480, selectedId, onSelect, exportData, onError, vertical, fillHeight, onNaturalHeight }: {
+export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480, selectedId, onSelect, exportData, onError, vertical, fillHeight, onNaturalHeight, roll: rollProp, onRoll }: {
   tree: RocketTree;
   info: StaticInfo | null;
   /** Loaded motor case dimensions (m) keyed by mount node id — drawn to
@@ -169,8 +185,17 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
    * feed the measure→draw→grow loop the styles.css note warns about.
    */
   onNaturalHeight?: (px: number) => void;
+  /**
+   * Roll about the rocket's long axis (rad), the desktop's rotation slider.
+   * Optional and CONTROLLED-OR-NOT: pass both to share one angle with the Aft
+   * view (App does), pass neither and the view keeps its own. Zero = the
+   * design's own clock angles, so an uncontrolled instance draws exactly what
+   * it drew before the slider existed.
+   */
+  roll?: number;
+  onRoll?: (rad: number) => void;
 }) {
-  const { prefs } = usePrefs();
+  const { prefs, setPrefs } = usePrefs();
   const svgRef = useRef<SVGSVGElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const drag = useRef<DragState | null>(null);
@@ -189,6 +214,10 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   const [hoverId, setHoverId] = useState<string | null>(null);
   // View transform (zoom & pan) in viewBox px; identity = whole rocket fits.
   const [zoom, setZoom] = useState({ k: 1, x: 0, y: 0 });
+  // Roll, when the caller doesn't own it. See the `roll` prop.
+  const [rollLocal, setRollLocal] = useState(0);
+  const roll = rollProp ?? rollLocal;
+  const setRoll = onRoll ?? setRollLocal;
   // `active` only becomes true once the pointer has travelled past PAN_SLOP —
   // see beginPan for why a press must not pan until then.
   const pan = useRef<
@@ -256,6 +285,22 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   // the cross extent its width.
   const w = Math.max(320, vertical ? chPx : cw);
   const pad = 26;
+  /**
+   * Dimensional rulers (@atestani, 26 Aug: "Scales as in OpenRocket like the
+   * top and left side"). Off in ⟳90° mode: that drawing is one rigid rotation
+   * of this layout, so a ruler would come out running down the right-hand
+   * side with sideways numbers. Absent preference = ON, like the desktop,
+   * where the rulers are not optional at all.
+   */
+  const rulersPref = prefs.rulers2d ?? true;
+  const rulers = !vertical && rulersPref;
+  // The roll slider's column, and the ruler gutters. All three are surrendered
+  // by the DRAWING, so every fit below works from the inset box — and every
+  // pointer↔model conversion is unaffected, because they move the origin
+  // without touching `scale`.
+  const rollW = vertical ? 0 : ROLL_COL;
+  const gutX = rollW + (rulers ? RULER_LEFT : 0);
+  const gutY = rulers ? RULER_TOP : 0;
   // Height follows the rocket's own proportions (clamped): a long thin
   // rocket gets a wide low band, not a fixed frame of empty sky. When info
   // is present the CG/CP callout lanes need sky of their own, so their
@@ -266,7 +311,9 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   // The adaptive content height, uncapped — what the drawing would take if
   // nothing constrained it. The fillHeight branch still fills its container;
   // this is what the container itself sizes FROM (via onNaturalHeight).
-  const naturalRaw = Math.round(Math.max(200, 2 * vHalf * ((w - 2 * pad) / totalLen) + 2 * pad + lanes));
+  const naturalRaw = Math.round(Math.max(
+    200, 2 * vHalf * ((w - 2 * pad - gutX) / totalLen) + 2 * pad + lanes + gutY,
+  ));
   // Reported quantized to 8px: naturalRaw moves with every 1px of container
   // width, and each NEW reported value re-renders the whole App — a window
   // drag-resize would cascade an app-wide render per tick (review finding,
@@ -275,8 +322,11 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   const h = vertical || !fillHeight
     ? Math.round(Math.min(crossCap, Math.max(200, naturalRaw)))
     : Math.max(200, chPx);
-  const scale = Math.min((w - 2 * pad) / totalLen, (h - 2 * pad - lanes) / (2 * vHalf));
-  const ctx: Ctx = { scale, cy: h / 2, x0: pad };
+  const scale = Math.max(1e-6, Math.min(
+    (w - 2 * pad - gutX) / totalLen,
+    (h - 2 * pad - lanes - gutY) / (2 * vHalf),
+  ));
+  const ctx: Ctx = { scale, cy: gutY + (h - gutY) / 2, x0: pad + gutX };
 
   // Report the natural height to the hero stage (fit-to-content, v0.076).
   // Callback identity rides a ref so a new inline closure per parent render
@@ -504,6 +554,35 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
     return out;
   };
 
+  /**
+   * Where each fin of a set lands in the side view, as a signed foreshortening
+   * factor on its radial coordinates: +1 straight up, 0 edge on, −1 straight
+   * down. This is exactly what the desktop draws — `FinSetShapes.getShapesSide`
+   * transforms the fin's own points by `rotate_x(clock angle)` and plots
+   * (x, y), so a point at radius r lands at `r·cos θ`
+   * (FinSetShapes.java:41-60 + RocketFigure.axialRotation, 24.12).
+   *
+   * Instances whose whole silhouette falls inside the body outline are
+   * dropped. The desktop draws them anyway — outlines only, so its worst case
+   * is a faint line — but our fins are filled, and an edge-on one collapses to
+   * a bar lying along the centreline of the airframe.
+   *
+   * @param reach the fin's outer radius (body radius + span)
+   */
+  const finFactors = (n: ComponentNode, pRadius: number, reach: number, dfltCount = 3): number[] => {
+    const count = Math.max(1, Math.round(num(n, 'finCount', dfltCount)));
+    const base = num(n, 'rotation', 0) + roll;
+    const out: number[] = [];
+    for (let i = 0; i < count; i++) {
+      const p = Math.cos(base + (2 * Math.PI * i) / count);
+      if (reach * Math.abs(p) > pRadius) out.push(p);
+    }
+    // Furthest-out last. Same-colored fins overlap once a set is rolled off
+    // its symmetry, and the one that reaches past the others reads best on
+    // top. (The desktop needs no such rule — it draws outlines, not fills.)
+    return out.sort((a, b) => Math.abs(a) - Math.abs(b));
+  };
+
   const renderChildren = (parent: ComponentNode, pStart: number, pLen: number, pRadius: number, baseY: number) => {
     for (const child of parent.children ?? []) {
       const t = child.type;
@@ -515,8 +594,9 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
         const podRadius = resolveAssemblyRadius(child, pRadius);
         const podStart = axialStart(child, podLen, pStart, pLen);
         const count = Math.max(1, Math.round(num(child, 'instanceCount', 2)));
-        for (const off of ringInstanceOffsets(count, podRadius, num(child, 'angleOffset', 0))) {
-          renderChain(podChain, podStart, baseY + off.y * ctx.scale);
+        for (const off of ringInstanceOffsets(count, podRadius, num(child, 'angleOffset', 0) + roll)) {
+          // −y: the cross-section frame's +y is UP, and SVG y grows down.
+          renderChain(podChain, podStart, baseY - off.y * ctx.scale);
         }
         continue;
       }
@@ -529,24 +609,22 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
           }
           : {}),
       };
-      // Through-the-wall fin tab: dashed rect from the body surface inward.
-      const renderTab = (finStart: number, finLen: number) => {
+      // Through-the-wall fin tab: dashed rect from the body surface inward,
+      // foreshortened with the fin instance it belongs to.
+      const renderTab = (finStart: number, finLen: number, p: number) => {
         const tabH = Math.min(num(child, 'tabHeight', 0), pRadius);
         const tabLen = num(child, 'tabLength', 0);
         if (tabH <= 0 || tabLen <= 0) return;
         const front = finStart + finTabFront(child, finLen);
-        for (const dir of [1, -1] as const) {
-          const yTop = dir === 1
-            ? baseY + (pRadius - tabH) * ctx.scale
-            : baseY - pRadius * ctx.scale;
-          shapes.push(
-            <rect key={key++} x={ctx.x0 + front * ctx.scale} y={yTop}
-              width={Math.max(2, tabLen * ctx.scale)} height={Math.max(1.5, tabH * ctx.scale)}
-              fill={fillOf(child, '#b9b7b0')} fillOpacity="0.35"
-              stroke="#7a786f" strokeWidth="1" strokeDasharray="3 2"
-              style={{ pointerEvents: 'none' }} />,
-          );
-        }
+        const yInner = baseY - (pRadius - tabH) * p * ctx.scale;
+        const ySurface = baseY - pRadius * p * ctx.scale;
+        shapes.push(
+          <rect key={key++} x={ctx.x0 + front * ctx.scale} y={Math.min(yInner, ySurface)}
+            width={Math.max(2, tabLen * ctx.scale)} height={Math.max(1.5, Math.abs(yInner - ySurface))}
+            fill={fillOf(child, '#b9b7b0')} fillOpacity="0.35"
+            stroke="#7a786f" strokeWidth="1" strokeDasharray="3 2"
+            style={{ pointerEvents: 'none' }} />,
+        );
       };
       if (t === 'freeformfinset') {
         const raw = (child['points'] as [number, number][] | undefined) ?? [];
@@ -556,17 +634,17 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
           const ymax = Math.max(0, ...raw.map((p) => p[1]));
           noteHover(child, ctx.x0 + start * ctx.scale, baseY - (pRadius + ymax) * ctx.scale,
             ctx.x0 + (start + chord) * ctx.scale, baseY + (pRadius + ymax) * ctx.scale);
-          for (const dir of [1, -1] as const) {
+          for (const p of finFactors(child, pRadius, pRadius + ymax)) {
             const ptsStr = raw
-              .map(([px, py]) => `${ctx.x0 + (start + px) * ctx.scale},${baseY + dir * (pRadius + py) * ctx.scale}`)
+              .map(([px, py]) => `${ctx.x0 + (start + px) * ctx.scale},${baseY - (pRadius + py) * p * ctx.scale}`)
               .join(' ');
             shapes.push(
               <polygon key={key++} points={ptsStr}
                 fill={fillOf(child, '#b9b7b0')} stroke={selStroke(child, '#7a786f')}
                 strokeWidth={selWidth(child)} {...grab} />,
             );
+            renderTab(start, chord, p);
           }
-          renderTab(start, chord);
         }
       } else if (t === 'trapezoidfinset' || t === 'ellipticalfinset') {
         const root = num(child, 'rootChord', 0.05);
@@ -577,9 +655,9 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
         noteHover(child, ctx.x0 + start * ctx.scale, baseY - (pRadius + height) * ctx.scale,
           ctx.x0 + (start + Math.max(root, sweep + tip)) * ctx.scale,
           baseY + (pRadius + height) * ctx.scale);
-        for (const dir of [1, -1] as const) {
-          const y0 = baseY + dir * pRadius * ctx.scale;
-          const yh = baseY + dir * (pRadius + height) * ctx.scale;
+        for (const p of finFactors(child, pRadius, pRadius + height)) {
+          const y0 = baseY - pRadius * p * ctx.scale;
+          const yh = baseY - (pRadius + height) * p * ctx.scale;
           const X = ctx.x0 + start * ctx.scale;
           shapes.push(
             t === 'trapezoidfinset' ? (
@@ -589,33 +667,44 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
                 strokeWidth={selWidth(child)} {...grab} />
             ) : (
               <path key={key++}
-                d={`M ${X} ${y0} Q ${X + (root / 2) * ctx.scale} ${yh + dir * 4} ${X + root * ctx.scale} ${y0} Z`}
+                d={`M ${X} ${y0} Q ${X + (root / 2) * ctx.scale} ${yh - p * 4} ${X + root * ctx.scale} ${y0} Z`}
                 fill={fillOf(child, '#b9b7b0')} stroke={selStroke(child, '#7a786f')}
                 strokeWidth={selWidth(child)} {...grab} />
             ),
           );
+          renderTab(start, root, p);
         }
-        renderTab(start, root);
       } else if (t === 'tubefinset') {
-        // Side view: the top and bottom tubes of the ring, sitting on the
-        // body surface (side tubes project onto the body — omitted). Each
-        // is drawn as its silhouette rectangle with a center line hinting
-        // at the tube bore.
+        // Side view: every tube of the ring, at its projected height. A tube
+        // runs PARALLEL to the body axis, so unlike a fin it is not squashed
+        // by roll — its silhouette stays 2·rt tall and only its centre moves,
+        // to (pRadius + rt)·cos θ. Tubes whose silhouette falls entirely
+        // inside the airframe are hidden behind it and dropped; that is the
+        // honest form of the old "side tubes project onto the body — omitted"
+        // shortcut, which drew exactly two tubes whatever the count.
         const len = num(child, 'length', 0.1);
         const rt = tubeFinRadius(child, pRadius);
         const start = axialStart(child, len, pStart, pLen);
         const X = ctx.x0 + start * ctx.scale;
         noteHover(child, X, baseY - (pRadius + 2 * rt) * ctx.scale,
           X + len * ctx.scale, baseY + (pRadius + 2 * rt) * ctx.scale);
-        for (const dir of [1, -1] as const) {
-          const yNear = baseY + dir * pRadius * ctx.scale;
-          const yFar = baseY + dir * (pRadius + 2 * rt) * ctx.scale;
+        const tubeCount = Math.max(1, Math.round(num(child, 'finCount', 6)));
+        const tubeBase = num(child, 'rotation', 0) + roll;
+        const tubes: number[] = [];
+        for (let i = 0; i < tubeCount; i++) {
+          const p = Math.cos(tubeBase + (2 * Math.PI * i) / tubeCount);
+          if ((pRadius + rt) * Math.abs(p) + rt > pRadius) tubes.push(p);
+        }
+        tubes.sort((a, b) => Math.abs(a) - Math.abs(b));
+        for (const p of tubes) {
+          const yc = baseY - (pRadius + rt) * p * ctx.scale;
+          const half = rt * ctx.scale;
           shapes.push(
-            <rect key={key++} x={X} y={Math.min(yNear, yFar)}
-              width={Math.max(2, len * ctx.scale)} height={Math.abs(yFar - yNear)}
+            <rect key={key++} x={X} y={yc - half}
+              width={Math.max(2, len * ctx.scale)} height={2 * half}
               rx="2" fill={fillOf(child, '#c8c5be')} fillOpacity="0.6"
               stroke={selStroke(child, '#7a786f')} strokeWidth={selWidth(child)} {...grab} />,
-            <line key={key++} x1={X} y1={(yNear + yFar) / 2} x2={X + len * ctx.scale} y2={(yNear + yFar) / 2}
+            <line key={key++} x1={X} y1={yc} x2={X + len * ctx.scale} y2={yc}
               stroke="#7a786f" strokeWidth="0.8" strokeDasharray="4 3"
               style={{ pointerEvents: 'none' }} />,
           );
@@ -719,19 +808,21 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
             child['cluster'] as string | undefined,
             num(child, 'outerRadius', 0.0095),
             num(child, 'clusterScale', 1),
-            num(child, 'clusterRotation', 0),
+            num(child, 'clusterRotation', 0) + roll,
           )
           : [{ y: 0, z: 0 }];
         // Loaded motor: a brownish silhouette at the REAL case size, seated
         // flush against the mount's aft end (how motors actually load).
         const motor = child.type === 'innertube' && child.id ? motors?.[child.id] : undefined;
         for (const off of offsets) {
+          // −y: the cross-section frame's +y is UP, and SVG y grows down.
+          const oy = baseY - off.y * ctx.scale;
           const inkColor = isSel(child) ? 'var(--accent)' : fillOf(child, style?.stroke ?? '#9a978f');
-          noteHover(child, ctx.x0 + start * ctx.scale, baseY + (off.y - r) * ctx.scale,
-            ctx.x0 + (start + len) * ctx.scale, baseY + (off.y + r) * ctx.scale);
+          noteHover(child, ctx.x0 + start * ctx.scale, oy - r * ctx.scale,
+            ctx.x0 + (start + len) * ctx.scale, oy + r * ctx.scale);
           overlay.push(
             <rect key={key++} x={ctx.x0 + start * ctx.scale}
-              y={baseY + (off.y - r) * ctx.scale}
+              y={oy - r * ctx.scale}
               width={Math.max(2, len * ctx.scale)} height={2 * r * ctx.scale}
               fill={child.type === 'bulkhead' ? 'url(#bulkhead-hatch)' : 'rgba(127,127,127,0.001)'}
               stroke={inkColor} strokeWidth={selWidth(child)}
@@ -745,7 +836,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
           const bw = len * ctx.scale;
           const bh = 2 * r * ctx.scale;
           const gcx = ctx.x0 + (start + len / 2) * ctx.scale;
-          const gcy = baseY + off.y * ctx.scale;
+          const gcy = oy;
           const gs = Math.min(bw * 0.8, bh * 0.7); // glyph box size
           if (gs >= 8) {
             const g = gs / 2;
@@ -791,7 +882,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
             : len * ctx.scale > 26 && 2 * r * ctx.scale > 11;
           if (style && !hasGlyph && tagRoom) {
             const tx = ctx.x0 + (start + len / 2) * ctx.scale;
-            const ty = baseY + off.y * ctx.scale;
+            const ty = oy;
             overlay.push(
               <text key={key++} x={tx} y={ty}
                 textAnchor="middle" dominantBaseline="central"
@@ -804,7 +895,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
           if (motor) {
             overlay.push(...motorShapes(
               motor, start + len - motor.length + num(child, 'motorOverhang', 0),
-              baseY + off.y * ctx.scale));
+              oy));
           }
         }
         renderChildren(child, start, len, r, baseY);
@@ -884,7 +975,60 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   const marginText = info && stab
     ? `${STABILITY_GLYPH[stab]} ${formatStability(info, prefs.stabilityUnit)} — ${STABILITY_WORD[stab]}`
     : null;
-  const callouts = calloutLayout(cgX, cpX, ctx.cy, vHalf * scale, w, h, marginText);
+  const callouts = calloutLayout(cgX, cpX, ctx.cy, vHalf * scale, w, h, marginText, gutY, gutX);
+
+  /**
+   * The ruler gutters: a horizontal scale along the top reading axial
+   * distance from the nose tip, and a vertical one down the left reading
+   * distance from the centreline, both in the Preferences length unit. The
+   * tick ladder is the desktop's own (services/rulerTicks).
+   *
+   * `view` is a zoom/pan state, not necessarily the live one — the export
+   * needs the same rulers drawn for the identity view, since it always shows
+   * the whole rocket whatever the screen is zoomed to.
+   */
+  const lenUnit = prefs.units.length;
+  const pxPerUnit = scale * uiToSi('length', lenUnit, 1);
+  const rulerGutters = (view: { k: number; x: number; y: number }, forExport: boolean) => {
+    const across = rulerLayout(view.x + view.k * ctx.x0, view.k * pxPerUnit, gutX, w, RULER_TOP);
+    const down = rulerLayout(view.y + view.k * ctx.cy, -view.k * pxPerUnit, gutY, h, RULER_LEFT);
+    const band = 'var(--surface-2)';
+    const edge = 'var(--border)';
+    const ink = 'var(--text-secondary)';
+    return (
+      <g key={forExport ? 'ruler-fit' : 'ruler-view'}
+        data-ruler={forExport ? 'fit' : 'view'} display={forExport ? 'none' : undefined}
+        pointerEvents="none" fontSize="9" fill={ink}>
+        <rect x={rollW} y={0} width={w - rollW} height={RULER_TOP} fill={band} />
+        <rect x={rollW} y={0} width={RULER_LEFT} height={h} fill={band} />
+        <path d={`M ${rollW} ${RULER_TOP} H ${w} M ${gutX} 0 V ${h}`} stroke={edge} strokeWidth="1" fill="none" />
+        {across.map((t, i) => (
+          <g key={`h${i}`}>
+            <line x1={t.px} y1={RULER_TOP - t.len} x2={t.px} y2={RULER_TOP} stroke={ink} strokeWidth="1" />
+            {t.label !== null && (
+              <text x={t.px + 1.5} y={RULER_TOP - t.len - 2} fontWeight={t.bold ? 700 : 400}>{t.label}</text>
+            )}
+          </g>
+        ))}
+        {down.map((t, i) => (
+          <g key={`v${i}`}>
+            <line x1={gutX - t.len} y1={t.px} x2={gutX} y2={t.px} stroke={ink} strokeWidth="1" />
+            {t.label !== null && (
+              <text x={rollW + 1.5} y={t.px - 2} fontWeight={t.bold ? 700 : 400}>{t.label}</text>
+            )}
+          </g>
+        ))}
+        {/* The desktop parks a unit selector in this corner; ours only reports
+            the unit, because it is the Preferences length unit and changing it
+            here would silently change it everywhere else. */}
+        <rect x={rollW} y={0} width={RULER_LEFT} height={RULER_TOP} fill={band} />
+        <path d={`M ${gutX} 0 V ${RULER_TOP} H ${rollW}`} stroke={edge} strokeWidth="1" fill="none" />
+        <text x={rollW + RULER_LEFT / 2} y={RULER_TOP / 2} textAnchor="middle" dominantBaseline="central"
+          fontWeight={600}>{lenUnit}</text>
+      </g>
+    );
+  };
+  const viewIsFit = zoom.k === 1 && zoom.x === 0 && zoom.y === 0;
 
   // Hover overlay (S5): a light accent wash over the hovered component's
   // extent plus a name tag — deliberately fainter than the solid width-2
@@ -899,9 +1043,10 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   if (hoverBox) {
     const tw = hoverName.length * 6.2 + 14;
     hoverTag = {
-      x: Math.min(w - tw / 2 - 2, Math.max(tw / 2 + 2, (hoverBox.x0 + hoverBox.x1) / 2)),
-      // Above the component unless that leaves the viewBox; then below.
-      y: hoverBox.y0 - 22 >= 2 ? hoverBox.y0 - 13 : Math.min(h - 11, hoverBox.y1 + 13),
+      x: Math.min(w - tw / 2 - 2, Math.max(gutX + tw / 2 + 2, (hoverBox.x0 + hoverBox.x1) / 2)),
+      // Above the component unless that leaves the drawing area (the ruler
+      // gutter is not drawing area); then below.
+      y: hoverBox.y0 - 22 >= gutY + 2 ? hoverBox.y0 - 13 : Math.min(h - 11, hoverBox.y1 + 13),
       tw,
     };
   }
@@ -999,11 +1144,20 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
             </g>
           )}
         </g>
+        {/* Rulers ride OUTSIDE the zoom group — the gutters stay pinned to the
+            canvas edge while the ticks track pan and zoom. That is also why
+            the export needs a second copy: schematicSvg resets the view group
+            to identity, which it cannot do to tick positions already baked in
+            px, so a fit-view copy travels along hidden and is swapped in. */}
+        {rulers && rulerGutters(zoom, false)}
+        {rulers && !viewIsFit && rulerGutters({ k: 1, x: 0, y: 0 }, true)}
       </svg>
+      {/* Read-mostly ⟳90° mode has no controls at all. */}
+      {!vertical && <RollControl roll={roll} onRoll={setRoll} top={gutY} />}
       {/* Vertical is read-mostly: no zoom to fit-reset, and the SVG/image
           exports assume the horizontal drawing (identity view transform), so
           the whole strip hides rather than export a sideways page. */}
-      {!vertical && <div className="schematic-controls">
+      {!vertical && <div className="schematic-controls" style={gutY ? { top: gutY + 6 } : undefined}>
         {exportData && (
           <>
             <button className="file-btn"
@@ -1036,6 +1190,10 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
               }} />
           </>
         )}
+        <button className="file-btn"
+          title={rulers ? 'Hide the dimensional rulers' : 'Show dimensional rulers along the top and left'}
+          aria-label={rulers ? 'Hide rulers' : 'Show rulers'} aria-pressed={rulers}
+          onClick={() => setPrefs({ ...prefs, rulers2d: !rulersPref })}>📏</button>
         {(zoom.k > 1 || zoom.x !== 0 || zoom.y !== 0) && (
           <button className="file-btn"
             title="Fit the whole rocket in view"

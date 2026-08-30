@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.077';
+export const APP_VERSION = '0.078';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,19 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.078',
+    date: '2026-08-29',
+    title: 'Rulers on the design view, and a slider that rolls the rocket',
+    items: [
+      'NO NUMBERS CHANGE IN THIS RELEASE. Nothing in the physics, the models, the importers or the exports moved — every simulation gives v0.077’s numbers exactly. What changed is what the two 2D views DRAW.',
+      'DIMENSIONAL RULERS ON THE DESIGN VIEW, asked for by @atestani: a scale along the top reading axial station from the nose tip, one down the left reading distance from the centerline, both in your Preferences length unit, with the unit named in the corner. They follow the zoom and the pan — zoom in and the divisions get finer instead of just further apart — and the tick ladder is desktop OpenRocket’s own, so a tick lands where the desktop lands it. The ⬇ SVG and ⬇ Image exports carry a ruler drawn for the whole rocket however the screen happens to be zoomed. The 📏 button on the canvas turns them off and the setting is remembered; they are on to start with, as they are on the desktop.',
+      'A ROLL SLIDER DOWN THE FAR LEFT — OpenRocket’s rotation slider, in OpenRocket’s place — also @atestani’s request ("a way to roll the model in 2D views"). It turns the rocket about its long axis: fins sweep through the view, pods and parallel boosters orbit, motor clusters turn with them. It is a VIEW control like zoom — it changes nothing in the design and nothing is saved — and it is shared with the Aft view, so you can roll the side view and switch to Aft to see the same attitude from behind. Click the angle readout under the slider (or double-click the slider) to return to zero.',
+      'THE SIDE VIEW NOW FORESHORTENS EACH FIN INSTEAD OF DRAWING A MIRRORED PAIR, which changes the picture for odd fin counts even at zero roll. A fin at a clock angle shows at cos(angle) of its span — the calculation the desktop does — so a THREE-fin set is one fin at full span up and two at half span down, rather than the two full-span fins it used to draw. Four-fin and two-fin sets are unchanged, and so is every dimension, mass and drag figure: this is the drawing catching up with the geometry the simulation always used. Tube fins get the same treatment and all of them now draw, not just two.',
+      'THE AFT VIEW PUT PODS AND CLUSTERS NINETY DEGREES AWAY FROM THE FINS — fixed. Angle zero points straight up in that view now for everything that has a clock angle, matching the kernel, the 3D view and the desktop. Fin sets are unchanged; a design with a pod ring or a non-single motor cluster will look rotated a quarter turn from before, and the new picture is the right one.',
+      'The floating stats chip starts clear of the new rulers rather than on top of them; a chip you have already dragged somewhere stays where you put it.',
+    ],
+  },
   {
     version: '0.077',
     date: '2026-08-29',

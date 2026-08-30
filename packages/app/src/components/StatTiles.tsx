@@ -1,6 +1,8 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import type { StaticInfo } from '@online-openrocket/engine';
 import { usePrefs } from '../prefs/PrefsContext.js';
+import { RULER_LEFT, RULER_TOP } from './TreeSchematic.js';
+import { ROLL_COL } from './RollControl.js';
 import { fmtSi, type Quantity } from '../prefs/units.js';
 import {
   formatRunStability, formatStability, stabilityPercent, stabilityState,
@@ -118,7 +120,12 @@ function loadChipState(): { x: number; y: number; folded: boolean } {
       }
     }
   } catch { /* fall through */ }
-  return { x: 12, y: 12, folded: false };
+  // Clear of the 2D view's ruler gutters and roll column — the chip is the
+  // one thing on the canvas that starts in the top-left corner, which is
+  // exactly where the rulers now meet. (v0.076 moved the 3D view's buttons
+  // out from under this chip for the same reason.) A position the user has
+  // dragged to is stored and wins; this is only where it starts.
+  return { x: ROLL_COL + RULER_LEFT + 8, y: RULER_TOP + 8, folded: false };
 }
 
 export function StatsChip({ info }: { info: StaticInfo }) {

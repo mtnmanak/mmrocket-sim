@@ -1,5 +1,5 @@
 {
-  "version": "0.077",
+  "version": "0.078",
   "released": "2026-08-29",
-  "note": "Four centering-ring presets (BalsaMachining and Rocketarium CR5060-W / CR5080-W) shipped with wrong diameters — a T50-to-T60 ring that could not reach a BT-60 wall. Fixed to the values three independent references agree on; the errors are live in the upstream community database, so a new corrections step in the preset pipeline keeps them fixed across refreshes. Matters since v0.042: ring preset diameters feed the printable STL and 1:1 DXF — re-export if you cut one of these four. Also: the validation harness gained the sharp-airfoil cell (175 -> 191 gates, first accuracy measurement of the fin path desktop imports use) and the ARCAS fins-off anchor was confirmed by an independent third read. No physics changed — every simulation gives v0.076's numbers exactly."
+  "note": "The 2D design view gains dimensional rulers along the top and left (in your length unit, tracking zoom and pan, carried into the SVG/PNG exports) and a roll slider on the far left that turns the rocket about its long axis, shared with the Aft view - both asked for on the beta thread. The side view now foreshortens each fin by its clock angle the way desktop OpenRocket does, so a three-fin set draws one full-span fin up and two half-span down instead of a mirrored pair; four-fin sets are unchanged. The Aft view's pods and clusters, which sat 90 degrees away from the fins, now share the fins' zero angle. No physics changed - every simulation gives v0.077's numbers exactly."
 }

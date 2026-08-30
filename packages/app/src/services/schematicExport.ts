@@ -53,10 +53,16 @@ export function dataHeaderLines(d: ExportData): string[] {
 /** Light-theme values for the CSS variables the schematic markup uses
  *  (--accent = the selection outline when a component is selected;
  *  --status-* = the CP/stability-margin callout inks, S2;
- *  --launch = the loaded-motor case tint, S5). */
+ *  --launch = the loaded-motor case tint, S5;
+ *  --surface-2 / --border / --text-secondary = the ruler gutters).
+ *  A var left out of this list resolves to nothing in a standalone SVG, which
+ *  for `stroke` and `fill` means the initial value — invisible, silently. */
 export const EXPORT_VARS: [string, string][] = [
   ['var(--surface-1)', '#ffffff'],
+  ['var(--surface-2)', '#f2f0eb'],
   ['var(--text-primary)', '#20242c'],
+  ['var(--text-secondary)', '#52514e'],
+  ['var(--border)', '#c6c2b8'],
   ['var(--accent)', '#b8511d'],
   ['var(--launch)', '#c65420'],
   ['var(--status-good)', '#008300'],
@@ -81,6 +87,15 @@ export function schematicSvg(
   // on-screen zoom/pan state.
   const zoomG = clone.querySelector(':scope > g');
   zoomG?.setAttribute('transform', 'translate(0 0) scale(1)');
+  // The rulers cannot be reset that way — their tick POSITIONS are already
+  // resolved to px for the on-screen view, and the tick SPACING is chosen for
+  // that zoom. When the view is not the fit view the schematic renders a
+  // second, hidden set drawn for identity; swap it in here.
+  const fitRuler = clone.querySelector('[data-ruler="fit"]');
+  if (fitRuler) {
+    clone.querySelector('[data-ruler="view"]')?.remove();
+    fitRuler.removeAttribute('display');
+  }
 
   let inner = new XMLSerializer().serializeToString(clone);
   // The wrapper svg re-declares size/viewBox; keep only the content.

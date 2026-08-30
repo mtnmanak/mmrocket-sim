@@ -2177,6 +2177,55 @@ html {
   cursor: default;
 }
 
+/* --- 2D roll (the desktop's rotation slider), far left of the drawing --- */
+.roll-control {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 0 2px;
+  pointer-events: none; /* the empty column stays a pan target */
+}
+
+.roll-control > * {
+  pointer-events: auto;
+}
+
+.roll-slider {
+  flex: 1;
+  min-height: 60px;
+  width: 14px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: ns-resize;
+  /* The standard vertical range; -webkit-slider-vertical is the pre-Chrome-121
+     spelling and is ignored where writing-mode works. */
+  writing-mode: vertical-lr;
+  direction: rtl;
+  -webkit-appearance: slider-vertical;
+}
+
+.roll-reset {
+  font: 600 9px/1 system-ui, sans-serif;
+  color: var(--text-secondary);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 2px 1px;
+  width: 24px;
+  text-align: center;
+  cursor: pointer;
+}
+
+.roll-reset:hover {
+  background: var(--hover);
+  color: var(--text-primary);
+}
+
 /* --- Property panel extras --- */
 .comp-stats {
   font-size: 11px;

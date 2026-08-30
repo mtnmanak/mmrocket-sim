@@ -3,16 +3,26 @@ import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { clusterOffsets } from '../tree/cluster.js';
 import { tubeFinRadius } from '../tree/tubefins.js';
 import { isAssembly, resolveAssemblyRadius, ringInstanceOffsets } from '../tree/assembly.js';
+import { RollControl } from './RollControl.js';
 
 /**
  * Aft end view — the rocket seen from behind (down the +X axis). This is the
  * only place cluster layouts, pod rings and fin counts are visible as they
- * really are: the side views project everything onto one plane. Pure display,
- * no interaction (edit cluster layout/rotation/spacing in the motor dialog and
- * watch this update).
+ * really are: the side views project everything onto one plane. Edit cluster
+ * layout/rotation/spacing in the motor dialog and watch this update; the roll
+ * slider spins the whole cross-section.
  *
- * Convention: +y right, +z up — matching the kernel's cross-section frame
- * (cluster offsets and pod ring offsets are already {y,z} in that frame).
+ * Convention: **+y UP, +z right** — the desktop's back view
+ * (`FinSetShapes.makePolygonBack` plots `(a.z, a.y)`, and the figure mirrors
+ * y upwards; 24.12). Angle 0 is +y for EVERYTHING, exactly as the kernel
+ * places it: `FinSet.getInstanceOffsets` starts a fin at `Coordinate(0,
+ * bodyRadius, 0)` and `RingInstanceable` starts a pod at `(r·cosθ, r·sinθ)`.
+ *
+ * Until v0.078 this frame was transposed (+y right, +z up) with a
+ * compensating +π/2 on fin sets only, so fins came out straight up — correct
+ * — while pods, clusters and the 3D view's fins disagreed with them by 90°.
+ * A roll slider makes that disagreement visible on the first drag, so the
+ * frame moved to the kernel's rather than the fins' fudge moving to the pods.
  */
 
 interface MotorDims { length: number; diameter: number }
@@ -27,11 +37,20 @@ type Shape =
   | { kind: 'circle'; y: number; z: number; r: number; fill: string; stroke: string; dash?: string; width?: number; title?: string }
   | { kind: 'fin'; y: number; z: number; angle: number; from: number; to: number; thick: number; fill: string; stroke: string; title?: string };
 
-export function AftView({ tree, motors }: {
+export function AftView({ tree, motors, roll: rollProp, onRoll }: {
   tree: RocketTree;
   /** Loaded motor dimensions per mount node id (real case sizes). */
   motors?: Record<string, MotorDims>;
+  /**
+   * Roll about the long axis (rad). Controlled-or-not, the same way
+   * TreeSchematic takes it, so App can share ONE angle between the two views.
+   */
+  roll?: number;
+  onRoll?: (rad: number) => void;
 }) {
+  const [rollLocal, setRollLocal] = useState(0);
+  const roll = rollProp ?? rollLocal;
+  const setRoll = onRoll ?? setRollLocal;
   // Zoom/pan in viewBox (meter) coordinates — same pattern as TreeSchematic
   // (issue 2026-08-05b #13: "the user needs to be able to zoom the aft view").
   const [zoom, setZoom] = useState({ k: 1, x: 0, y: 0 });
@@ -89,7 +108,7 @@ export function AftView({ tree, motors }: {
       if (isAssembly(t)) {
         const podRadius = resolveAssemblyRadius(child, pRadius);
         const count = Math.max(1, Math.round(num(child, 'instanceCount', 2)));
-        for (const off of ringInstanceOffsets(count, podRadius, num(child, 'angleOffset', 0))) {
+        for (const off of ringInstanceOffsets(count, podRadius, num(child, 'angleOffset', 0) + roll)) {
           walkChain(child.children ?? [], cy + off.y, cz + off.z);
         }
       } else if (t === 'trapezoidfinset' || t === 'ellipticalfinset' || t === 'freeformfinset') {
@@ -97,9 +116,9 @@ export function AftView({ tree, motors }: {
         const span = finSpan(child);
         const thick = num(child, 'thickness', 0.003);
         for (let i = 0; i < count; i++) {
-          // First fin straight up (desktop rear-view convention) plus the
-          // set's own rotation about the body axis.
-          const angle = Math.PI / 2 + num(child, 'rotation', 0) + (2 * Math.PI * i) / count;
+          // Angle 0 is +y — the kernel's own placement — and +y draws UP, so
+          // an unrotated first fin still points straight up.
+          const angle = num(child, 'rotation', 0) + roll + (2 * Math.PI * i) / count;
           outer.push({
             kind: 'fin', y: cy, z: cz, angle, from: pRadius, to: pRadius + span,
             thick, fill: colorOf(child, '#b9b7b0'), stroke: '#7a786f',
@@ -111,7 +130,7 @@ export function AftView({ tree, motors }: {
         const count = Math.max(1, Math.round(num(child, 'finCount', 6)));
         const rt = tubeFinRadius(child, pRadius);
         for (let i = 0; i < count; i++) {
-          const angle = Math.PI / 2 + num(child, 'rotation', 0) + (2 * Math.PI * i) / count;
+          const angle = num(child, 'rotation', 0) + roll + (2 * Math.PI * i) / count;
           const d = pRadius + rt;
           outer.push({
             kind: 'circle', y: cy + d * Math.cos(angle), z: cz + d * Math.sin(angle), r: rt,
@@ -124,16 +143,17 @@ export function AftView({ tree, motors }: {
         const wid = num(child, 'width', 0.025);
         const hgt = num(child, 'height', 0.02);
         outer.push({
-          kind: 'fin', y: cy, z: cz, angle: Math.PI / 2, from: pRadius, to: pRadius + hgt,
+          kind: 'fin', y: cy, z: cz, angle: 0, from: pRadius, to: pRadius + hgt,
           thick: wid, fill: colorOf(child, '#c8c5be'), stroke: '#7a786f',
           title: child.name ?? 'Camera shroud',
         });
         reach(cy, cz, pRadius + hgt);
       } else if (t === 'launchlug' || t === 'railbutton') {
         const r = t === 'railbutton' ? num(child, 'outerDiameter', 0.004) / 2 : num(child, 'outerRadius', 0.002);
-        // Radial direction isn't modeled — shown at the right side.
+        // Radial direction isn't modeled — shown at the right side, which is
+        // +z in this frame. It does not roll, because there is no angle to roll.
         outer.push({
-          kind: 'circle', y: cy + pRadius + r, z: cz, r,
+          kind: 'circle', y: cy, z: cz + pRadius + r, r,
           fill: colorOf(child, '#c8c5be'), stroke: '#7a786f', title: child.name ?? t,
         });
         reach(cy, cz, pRadius + 2 * r);
@@ -141,7 +161,7 @@ export function AftView({ tree, motors }: {
         const r = num(child, 'outerRadius', 0.0095);
         const offs = clusterOffsets(
           child['cluster'] as string | undefined, r,
-          num(child, 'clusterScale', 1), num(child, 'clusterRotation', 0),
+          num(child, 'clusterScale', 1), num(child, 'clusterRotation', 0) + roll,
         );
         const motor = child.id ? motors?.[child.id] : undefined;
         for (const off of offs) {
@@ -212,7 +232,7 @@ export function AftView({ tree, motors }: {
   const drawShape = (s: Shape, i: number) => {
     if (s.kind === 'circle') {
       return (
-        <circle key={i} cx={toSvg(s.y)} cy={-toSvg(s.z)} r={toSvg(s.r)}
+        <circle key={i} cx={toSvg(s.z)} cy={-toSvg(s.y)} r={toSvg(s.r)}
           fill={s.fill} fillOpacity={s.fill === '#8b5a2b' ? 0.45 : undefined}
           stroke={s.stroke} strokeWidth={E / 220} strokeDasharray={s.dash
             ? s.dash.split(' ').map((d) => (Number(d) * E) / 110).join(' ')
@@ -235,7 +255,7 @@ export function AftView({ tree, motors }: {
     ];
     return (
       <polygon key={i}
-        points={pts.map(([y, z]) => `${toSvg(y!)},${-toSvg(z!)}`).join(' ')}
+        points={pts.map(([y, z]) => `${toSvg(z!)},${-toSvg(y!)}`).join(' ')}
         fill={s.fill} stroke={s.stroke} strokeWidth={E / 220}>
         {s.title ? <title>{s.title}</title> : null}
       </polygon>
@@ -259,7 +279,7 @@ export function AftView({ tree, motors }: {
       <svg ref={svgRef} className="aft-svg" viewBox={`${-E} ${-E} ${2 * E} ${2 * E}`}
         style={{ width: '100%', height: 'auto', maxHeight: 360, display: 'block',
           touchAction: 'none', cursor: zoom.k > 1 ? 'grab' : undefined }}
-        role="img" aria-label="Aft end view — looking at the rocket from behind; wheel to zoom, drag to pan"
+        role="img" aria-label="Aft end view — looking at the rocket from behind; wheel to zoom, drag to pan, roll with the slider"
         onPointerDown={(e) => {
           if (zoom.k === 1) return;
           const { vx, vy } = toView(e.clientX, e.clientY);
@@ -287,6 +307,7 @@ export function AftView({ tree, motors }: {
           <line x1={0} y1={-E * 0.05} x2={0} y2={E * 0.05} stroke="#9a978f" strokeWidth={E / 300} />
         </g>
       </svg>
+      <RollControl roll={roll} onRoll={setRoll} />
       <div className="schematic-controls">
         <button title="Zoom in" onClick={() => zoomBy(1.5)}>+</button>
         <button title="Zoom out" onClick={() => zoomBy(1 / 1.5)}>−</button>

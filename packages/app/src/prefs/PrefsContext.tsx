@@ -85,6 +85,14 @@ export interface Preferences {
    */
   stabilityUnit?: 'cal' | 'pct' | 'both';
   /**
+   * Dimensional rulers around the 2D design view — a scale along the top
+   * reading from the nose tip and one down the left reading from the
+   * centreline, in the `units.length` unit. Absent = ON, which is what the
+   * desktop does (its rulers are not optional). Off gives the drawing the
+   * gutters back.
+   */
+  rulers2d?: boolean;
+  /**
    * The user's 3D printer, in METRES (see prefs/printers.ts for why metres and
    * not the millimetres a slicer quotes). Absent = no printer configured, and
    * that is a load-bearing default: the 🖨 STL export then behaves exactly as

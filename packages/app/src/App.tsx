@@ -510,6 +510,13 @@ export function App() {
   }, [statsDrawer, drawerEl]);
   /** S1's 90° toggle: draw the 2D view nose-up (viewing mode — drag/zoom off). */
   const [vert2d, setVert2d] = useState(false);
+  /**
+   * Roll about the rocket's long axis, shared by the 2D side view and the Aft
+   * view (the desktop's rotation slider drives whichever figure is showing).
+   * A VIEW state, like zoom: it is not saved with the design and not a
+   * preference — reload and the rocket is back at its own clock angles.
+   */
+  const [viewRoll, setViewRoll] = useState(0);
   const [confirmNew, setConfirmNew] = useState(false);
   /** A decoded share-link design waiting for the user's OK to replace theirs. */
   const [shareOffer, setShareOffer] = useState<ImportedDesign | null>(null);
@@ -2801,6 +2808,8 @@ export function App() {
                       vertical={vert2d}
                       fillHeight
                       onNaturalHeight={setHeroNatural}
+                      roll={viewRoll}
+                      onRoll={setViewRoll}
                     />
                   )
                   : view === '3d'
@@ -2809,7 +2818,7 @@ export function App() {
                       <Rocket3D tree={tree} info={built?.info ?? null} motors={motorDims} exportData={viewExportData} />
                     </Suspense>
                   )
-                  : <AftView tree={tree} motors={motorDims} />}
+                  : <AftView tree={tree} motors={motorDims} roll={viewRoll} onRoll={setViewRoll} />}
               </div>
               {built && <StatsChip info={built.info} />}
               {built && (statsDrawer
@@ -2894,6 +2903,8 @@ export function App() {
                 maxHeight={300}
                 selectedId={selectedId}
                 onSelect={(id) => setSelectedId(id)}
+                roll={viewRoll}
+                onRoll={setViewRoll}
               />
             </div>
             {/* Cluster/pod layouts only make sense from behind — live inset
@@ -2906,7 +2917,7 @@ export function App() {
               return hasRadial(tree.components) ? (
                 <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', marginTop: 8 }}>
                   <div className="rocket-stage" style={{ flex: '0 1 300px' }}>
-                    <AftView tree={tree} motors={motorDims} />
+                    <AftView tree={tree} motors={motorDims} roll={viewRoll} onRoll={setViewRoll} />
                   </div>
                   <p className="comp-stats" style={{ margin: '4px 0', maxWidth: 260 }}>
                     Aft view — the cluster / pod layout seen from behind, at the

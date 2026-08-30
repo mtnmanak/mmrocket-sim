@@ -51,9 +51,11 @@ const mount = (info: StaticInfo | null, extra: Partial<Props> = {}) => act(() =>
  * `g[pointer-events="none"]` selector matched a marker group first.
  */
 const calloutGroup = (): SVGGElement | null =>
-  [...host.querySelectorAll<SVGGElement>('g[pointer-events="none"]')]
+  [...host.querySelectorAll<SVGGElement>('g[pointer-events="none"]:not([data-ruler])')]
     .find((g) => [...g.querySelectorAll('line')].length > 0) ?? null;
-const texts = (): SVGTextElement[] => [...host.querySelectorAll('text')];
+/** Drawing text only — the ruler gutters carry their own tick labels. */
+const texts = (): SVGTextElement[] =>
+  [...host.querySelectorAll<SVGTextElement>('text')].filter((t) => !t.closest('[data-ruler]'));
 
 beforeEach(() => {
   host = document.createElement('div');

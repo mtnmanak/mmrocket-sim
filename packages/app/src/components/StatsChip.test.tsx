@@ -4,6 +4,8 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import { StatsChip } from './StatTiles.js';
+import { RULER_LEFT, RULER_TOP } from './TreeSchematic.js';
+import { ROLL_COL } from './RollControl.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -37,12 +39,14 @@ describe('StatsChip — the floating readout', () => {
   ));
   const chip = () => host.querySelector('.stats-chip') as HTMLDivElement;
 
-  it('shows the five readings, at the default corner', () => {
+  it('shows the five readings, starting clear of the ruler gutters', () => {
     mount();
     const labels = Array.from(host.querySelectorAll('.stats-chip-label')).map((el) => el.textContent);
     expect(labels).toEqual(['Length', 'Mass loaded', 'CG', 'CP', 'Stability']);
-    expect(chip().style.left).toBe('12px');
-    expect(chip().style.top).toBe('12px');
+    // v0.078: the 2D view's rulers and roll column own the top-left corner
+    // the chip used to start in.
+    expect(chip().style.left).toBe(`${ROLL_COL + RULER_LEFT + 8}px`);
+    expect(chip().style.top).toBe(`${RULER_TOP + 8}px`);
   });
 
   it('restores a remembered position and fold', () => {
