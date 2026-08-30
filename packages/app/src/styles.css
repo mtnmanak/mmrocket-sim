@@ -53,6 +53,7 @@
   --chart-axis: #6d6b63;
   --chart-grid: #e3e1da;
   --chart-tick: #d9d6cf;
+  --chart-series-width: 2.5;
   color-scheme: light;
 
   background: var(--surface-0);
@@ -92,6 +93,7 @@
   --chart-axis: #94918a;
   --chart-grid: #353330;
   --chart-tick: #45423b;
+  --chart-series-width: 2.5;
   color-scheme: dark;
 }
 
@@ -1048,6 +1050,13 @@
 .chart-panel .u-legend {
   font-size: 11px;
   color: var(--text-secondary);
+}
+
+/* The plot area itself sits one level INTO the panel — charts read as
+   instruments set into the card, and this is the surface the series palettes
+   were contrast-validated against. */
+.chart-panel .uplot .u-under {
+  background: var(--surface-1);
 }
 
 /* Chart heading row: title + (optional) toggles + the ↺/⤢ buttons. Riding
@@ -2575,10 +2584,11 @@
   color: var(--status-warn);
 }
 
-/* Chart hover legends: mute the uPlot defaults so they read as readouts. */
+/* Chart legends read as instrument readouts — full strength since v0.076
+   (10.5px at 0.8 opacity was part of the lines-hard-to-see report). */
 .chart-panel .u-legend {
-  font-size: 10.5px;
-  opacity: 0.8;
+  font-size: 11px;
+  opacity: 1;
 }
 
 /* Point readout popup (chartTooltip.ts). Lives inside uPlot's `over`, which

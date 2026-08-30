@@ -5,7 +5,7 @@ import type { DragSweep, OrkRocket } from '@online-openrocket/engine';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { fmtSi, siToUi, uiToSi } from '../prefs/units.js';
 import { UnitChip } from './UnitChip.js';
-import { chartInk, seriesPalette } from '../chartTheme.js';
+import { chartInk, seriesPalette, seriesStyle } from '../chartTheme.js';
 import { panelHeight, panZoomPlugin, plotIsZoomed, resetPlots } from '../chartPanZoom.js';
 import { formatReadout, tooltipPlugin } from '../chartTooltip.js';
 import { downloadBlob, stampedName } from '../services/fileName.js';
@@ -31,8 +31,12 @@ interface Line {
   label: string;
   color: string;
   values: number[];
-  /** dashed stroke (for the power-on overlay) */
-  dash?: boolean;
+  /**
+   * Dashed stroke — `true` for the power-on overlay's classic [6,4]; a
+   * pattern array for the 9th+ breakdown component, whose reused hue carries
+   * the dash as its secondary encoding (see chartTheme.seriesStyle).
+   */
+  dash?: boolean | number[];
 }
 
 /** A single multi-series uPlot line chart (all series share the CD y-scale). */
@@ -86,7 +90,7 @@ function LineChart({ x, lines, xLabel, yLabel, height = 190, lockLegend = false,
           label: l.label,
           stroke: l.color,
           width: ink.strokeWidth,
-          ...(l.dash ? { dash: [6, 4] } : {}),
+          ...(l.dash ? { dash: Array.isArray(l.dash) ? l.dash : [6, 4] } : {}),
           value: (_u, v) => formatReadout(v),
         })),
       ],
@@ -278,8 +282,8 @@ export function DragPanel({ rocket, supersonicModel, aeroLabel, designName, file
       return next;
     });
   };
-  const { prefs, daylight } = usePrefs();
-  const C = seriesPalette(daylight);
+  const { prefs, daylight, resolvedTheme } = usePrefs();
+  const C = seriesPalette(daylight, resolvedTheme);
   const lenUnit = prefs.units.length;
   const distUnit = prefs.units.distance;
 
@@ -383,7 +387,12 @@ export function DragPanel({ rocket, supersonicModel, aeroLabel, designName, file
         { label: 'Base', color: C[4]!, values: sweep.powerOff.base },
       ];
     }
-    return sweep.components.map((c, i) => ({ label: c.name, color: C[i % C.length]!, values: c.cd }));
+    // Never a silent color cycle: past the palette a component's reused hue
+    // carries a dash pattern (the two-Rail-Buttons-as-twins fix).
+    return sweep.components.map((c, i) => {
+      const s = seriesStyle(i, C);
+      return { label: c.name, color: s.stroke, values: c.cd, ...(s.dash ? { dash: s.dash } : {}) };
+    });
   }, [sweep, mode, C]);
 
   return (

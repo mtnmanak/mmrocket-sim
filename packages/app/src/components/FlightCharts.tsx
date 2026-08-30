@@ -195,10 +195,10 @@ export function FlightCharts({ result, onFullSeries, designName }: {
   onFullSeries?: () => Promise<FlightResult>;
   designName?: string;
 }) {
-  const { prefs, daylight } = usePrefs();
+  const { prefs, daylight, resolvedTheme } = usePrefs();
   const catalog = useMemo(
-    () => seriesCatalog(prefs, seriesPalette(daylight)),
-    [prefs, daylight],
+    () => seriesCatalog(prefs, seriesPalette(daylight, resolvedTheme)),
+    [prefs, daylight, resolvedTheme],
   );
   const [selected, setSelected] = useState<Set<keyof FlightSeries>>(new Set(DEFAULT_SELECTED));
   // Which panels are ⤢-expanded. Lives here (not in Panel) so toggling a
