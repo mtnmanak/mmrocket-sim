@@ -22,7 +22,7 @@ import { INITIAL_UNITS } from '../prefs/units.js';
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 /** A drawn fin, not the dashed hidden line the roll adds behind the airframe. */
-const FILLED_FIN = 'polygon:not([data-fin="hidden"])';
+const FILLED_FIN = 'polygon:not([data-fin="wire"])';
 const FILLED_ARC = 'path:not([data-fin="hidden"])';
 
 let host: HTMLDivElement;
@@ -171,19 +171,51 @@ describe('fin projection and roll', () => {
     expect(d[2]).toBeCloseTo(-2 * d[0]!, 6);
   });
 
-  it('rolling 90° takes the upright fin edge-on and drops it', () => {
+  it('rolling 90° takes the upright fin edge-on and KEEPS it, as a line', () => {
     show(<TreeSchematic tree={finTree(3)} info={null} roll={Math.PI / 2} />);
-    // cos(90°) = 0 for the first fin — its whole silhouette falls inside the
-    // airframe, so it is hidden rather than collapsed onto the centreline.
-    expect(host.querySelectorAll(FILLED_FIN)).toHaveLength(2);
+    // Rolled, so wireframe (v0.084): all three are on screen and nothing is
+    // filled. cos(90°) = 0 for the first fin, which is what edge-on means —
+    // desktop draws it as a line through the body, and so do we. Dropping it,
+    // as every version up to v0.083 did, is precisely what made a fin
+    // impossible to follow through the edge-on angle.
+    expect(host.querySelectorAll(FILLED_FIN)).toHaveLength(0);
+    const wires = [...host.querySelectorAll('polygon[data-fin="wire"]')];
+    expect(wires).toHaveLength(3);
+    const cy = centreY();
+    const spans = wires.map((p) => {
+      const ys = p.getAttribute('points')!.split(' ').map((q) => Number(q.split(',')[1]));
+      return Math.max(...ys) - Math.min(...ys);
+    }).sort((a, b) => a - b);
+    // One collapsed onto the centreline, two reaching cos(±30°) either way.
+    expect(spans[0]).toBeCloseTo(0, 6);
+    expect(spans[1]).toBeCloseTo(spans[2]!, 6);
+    expect(spans[1]).toBeGreaterThan(0);
+    for (const p of wires) {
+      const ys = p.getAttribute('points')!.split(' ').map((q) => Number(q.split(',')[1]));
+      if (Math.max(...ys) - Math.min(...ys) < 1e-6) expect(ys[0]).toBeCloseTo(cy, 6);
+    }
   });
 
   it('a fin set’s own rotation moves it before any roll does', () => {
     show(<TreeSchematic tree={finTree(3, { rotation: Math.PI / 2 })} info={null} />);
     expect(host.querySelectorAll(FILLED_FIN)).toHaveLength(2);
-    // …and the matching roll puts it back upright.
+    // …and the matching roll cancels it. The view is rolled, so the drawing is
+    // a wireframe — but the PROJECTION must be the at-rest one exactly: one
+    // fin at full span up, two at half span down.
+    const upright = finReaches().sort((a, b) => a - b);
+    show(<TreeSchematic tree={finTree(3)} info={null} />);
+    const rest = finReaches().sort((a, b) => a - b);
     show(<TreeSchematic tree={finTree(3, { rotation: Math.PI / 2 })} info={null} roll={-Math.PI / 2} />);
-    expect(host.querySelectorAll(FILLED_FIN)).toHaveLength(3);
+    const cy = centreY();
+    const rolled = [...host.querySelectorAll('polygon[data-fin="wire"]')].map((p) => {
+      const ys = p.getAttribute('points')!.split(' ').map((q) => Number(q.split(',')[1]));
+      const far = ys.reduce((a, b) => (Math.abs(b - cy) > Math.abs(a - cy) ? b : a), cy);
+      return cy - far;
+    }).sort((a, b) => a - b);
+    expect(rolled).toHaveLength(3);
+    for (let i = 0; i < 3; i++) expect(rolled[i]).toBeCloseTo(rest[i]!, 6);
+    // The un-cancelled rotation is a different picture — or the test proves nothing.
+    expect(upright).not.toHaveLength(3);
   });
 
   it('the roll slider reports the angle and resets it', () => {

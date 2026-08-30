@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.083';
+export const APP_VERSION = '0.084';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.084',
+    date: '2026-08-30',
+    title: 'Rolling the 2D view draws the rocket the way desktop draws it',
+    items: [
+      'NO NUMBERS CHANGE.',
+      'THE ROLL SLIDER NOW GIVES YOU A WIREFRAME. While the view is rolled, every fin is drawn as a plain outline over the body — nothing hidden, nothing occluded, all of them on screen at every angle. That is exactly what desktop OpenRocket draws, and it is the thing that lets you follow ONE fin all the way round, including through the angle where it turns edge-on and becomes a line across the tube. Five previous attempts kept the fills and tried to represent the covered part some other way; every one of them was geometrically continuous and not one of them was followable.',
+      'AT REST NOTHING CHANGES. An unrolled drawing is the filled one you know, with a fin in front of the airframe drawn whole and one behind it cut off at the wall. Move the slider and you get the wireframe; return it to zero — or click the angle readout — and you get the filled drawing back.',
+      'STILL NOT A DEFECT, and now visible rather than hidden: a set of N identical fins repeats every 360/N degrees of roll. A three-fin rocket at 120 degrees IS the same rocket. Desktop OpenRocket repeats identically. The Aft view is where an individual fin can be told apart at every angle.',
+    ],
+  },
   {
     version: '0.083',
     date: '2026-08-30',
