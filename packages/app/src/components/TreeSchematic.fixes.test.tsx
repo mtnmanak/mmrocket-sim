@@ -398,3 +398,66 @@ describe('the rolled view is a wireframe: every fin, every angle', () => {
     expect(host.querySelectorAll(FILLED_FIN)).toHaveLength(2);
   });
 });
+
+/**
+ * v0.086 — the owner rolled a design carrying a camera shroud and the shroud
+ * stayed at 12 o'clock while the fins turned past it. His follow-up question
+ * was the right one: "is this just camera shrouds, or do you need to test all
+ * parts?" It was not just shrouds — every part that sits ON the airframe
+ * surface was drawn at a hardcoded top position: shroud (fairing),
+ * protuberance, launch lug and rail button.
+ *
+ * None of them stores its own clock angle yet (a separate, larger gap — the
+ * .ork round-trip drops it). But the VIEW roll must still carry them round,
+ * or the cross-section is not rigid: rolling has to turn the whole rocket,
+ * not a subset of it.
+ */
+describe('every surface-mounted part turns with the view', () => {
+  const withPart = (part: Record<string, unknown>) => ({
+    name: 'Rocket',
+    components: [{
+      id: 's1', type: 'stage',
+      children: [
+        { id: 'n1', type: 'nosecone', shape: 'ogive', length: 0.1, aftRadius: BODY_R },
+        {
+          id: 'b1', type: 'bodytube', length: 0.3, outerRadius: BODY_R,
+          children: [{ id: 'p1', ...part }],
+        },
+      ],
+    }],
+  } as unknown as RocketTree);
+
+  /** The part's furthest reach from the centreline (+ above, - below). */
+  const reach = (sel: string): number => {
+    const el = host.querySelector(sel)!;
+    const cy = centreY();
+    const ys = el.tagName === 'rect'
+      ? [Number(el.getAttribute('y')), Number(el.getAttribute('y')) + Number(el.getAttribute('height'))]
+      : (el.getAttribute('points') ?? el.getAttribute('d')!)
+        .match(/[-\d.]+,[-\d.]+/g)!.map((q) => Number(q.split(',')[1]));
+    return cy - ys.reduce((a, b) => (Math.abs(b - cy) > Math.abs(a - cy) ? b : a), cy);
+  };
+
+  const CASES: Array<[string, Record<string, unknown>, string]> = [
+    ['camera shroud', { type: 'fairing', length: 0.05, height: 0.02, width: 0.02, fairingShape: 'square' }, 'rect:not([fill="#e7e5e0"])'],
+    ['protuberance', { type: 'protuberance', length: 0.05, height: 0.01, dragClass: 'plate' }, 'polygon'],
+    ['launch lug', { type: 'launchlug', length: 0.03, outerRadius: 0.002 }, 'rect:not([fill="#e7e5e0"])'],
+    ['rail button', { type: 'railbutton', outerDiameter: 0.004 }, 'rect:not([fill="#e7e5e0"])'],
+  ];
+
+  for (const [label, part, sel] of CASES) {
+    it(`${label}: on top at rest, below the axis at 180 deg, edge-on between`, () => {
+      show(<TreeSchematic tree={withPart(part)} info={null} />);
+      const up = reach(sel);
+      expect(up, `${label} should start above the centreline`).toBeGreaterThan(0);
+
+      // Half a turn puts it on the far side, the same distance down.
+      show(<TreeSchematic tree={withPart(part)} info={null} roll={Math.PI} />);
+      expect(reach(sel), `${label} did not roll to the far side`).toBeCloseTo(-up, 4);
+
+      // A quarter turn is edge-on: it collapses onto the airframe wall.
+      show(<TreeSchematic tree={withPart(part)} info={null} roll={Math.PI / 2} />);
+      expect(Math.abs(reach(sel)), `${label} did not foreshorten`).toBeLessThan(Math.abs(up) * 0.2);
+    });
+  }
+});

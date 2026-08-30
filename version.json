@@ -1,5 +1,5 @@
 {
-  "version": "0.085",
+  "version": "0.086",
   "released": "2026-08-30",
-  "note": "Three fixes to v0.084's rolled-view wireframe, found by a same-day code review. Clicking bare body tube no longer selects (or drags) an invisible fin - a rolled fin takes clicks on its outline anywhere and on its interior only outside the body. A rolled fin keeps its display color instead of going grey. And fin outlines draw on top of a loaded motor case rather than under it, so the in-body run of a fin stays visible. No numbers change."
+  "note": "Rolling the 2D view now turns the whole rocket. Camera shrouds, protuberances, launch lugs and rail buttons were all drawn pinned to the top of the airframe, so rolling turned the fins and left them behind; they now foreshorten exactly as a fin does. The 90-degree nose-up view keeps the roll slider too, laid out along the bottom. Known and not fixed: none of those four parts can store its own mounting angle yet, and a lug or rail button loaded from a desktop file has its angle rewritten to 180 degrees on save. No numbers change."
 }

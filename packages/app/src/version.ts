@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.085';
+export const APP_VERSION = '0.086';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.086',
+    date: '2026-08-30',
+    title: 'Rolling the view turns the WHOLE rocket',
+    items: [
+      'NO NUMBERS CHANGE.',
+      'CAMERA SHROUDS, PROTUBERANCES, LAUNCH LUGS AND RAIL BUTTONS NOW TURN WITH THE ROLL SLIDER. Every one of them was drawn pinned to the top of the airframe, so rolling the view turned the fins and left them behind - the cross-section was not rigid. They now foreshorten by the cosine of their angle exactly as a fin does, pass behind the body at the back half of the turn, and go edge-on at a quarter turn. Reported by the owner against a camera shroud; it was never only shrouds.',
+      'THE 90-DEGREE (NOSE-UP) VIEW KEEPS THE ROLL SLIDER, laid out horizontally along the bottom of the canvas, where it tracks the axis the rocket is not drawn along. It used to be hidden there, which since v0.084 meant a rolled nose-up view was a wireframe with no visible control explaining it or offering the way back.',
+      'KNOWN AND NOT FIXED HERE: none of those four parts can yet STORE its own mounting angle - they all start at the top (lugs and buttons at the right, in the end-on view) and roll from there. Worse, and separately: a launch lug or rail button loaded from a desktop OpenRocket file has its angle discarded on load and rewritten to 180 degrees on save, and the radial position of an off-axis inner tube is rewritten to zero. If you round-trip a design through this app, check those before cutting parts. Being fixed next.',
+    ],
+  },
   {
     version: '0.085',
     date: '2026-08-30',

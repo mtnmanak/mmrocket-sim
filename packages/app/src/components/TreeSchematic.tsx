@@ -13,7 +13,7 @@ import {
   downloadBlob, IMAGE_FORMAT_EXT, schematicSvg, svgToImage, type ExportData,
 } from '../services/schematicExport.js';
 import { ImageExportMenu } from './ImageExportMenu.js';
-import { ROLL_COL, RollControl } from './RollControl.js';
+import { ROLL_BAR, ROLL_COL, RollControl } from './RollControl.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { uiToSi } from '../prefs/units.js';
 import { rulerLayout } from '../services/rulerTicks.js';
@@ -325,6 +325,11 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   const rollW = vertical ? 0 : ROLL_COL;
   const gutX = rollW + (rulers ? RULER_LEFT : 0);
   const gutY = rulers ? RULER_TOP : 0;
+  // ⟳90° puts the roll control across the BOTTOM instead of the side, so the
+  // strip comes off the far end of the length axis. Layout stays horizontal
+  // and rotates as one group, and rotate(90) maps large layout x to screen
+  // bottom — so shortening the length reserves exactly the bottom band.
+  const rollBar = vertical ? ROLL_BAR : 0;
   // Height follows the rocket's own proportions (clamped): a long thin
   // rocket gets a wide low band, not a fixed frame of empty sky. When info
   // is present the CG/CP callout lanes need sky of their own, so their
@@ -336,7 +341,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   // nothing constrained it. The fillHeight branch still fills its container;
   // this is what the container itself sizes FROM (via onNaturalHeight).
   const naturalRaw = Math.round(Math.max(
-    200, 2 * vHalf * ((w - 2 * pad - gutX) / totalLen) + 2 * pad + lanes + gutY,
+    200, 2 * vHalf * ((w - 2 * pad - gutX - rollBar) / totalLen) + 2 * pad + lanes + gutY,
   ));
   // Reported quantized to 8px: naturalRaw moves with every 1px of container
   // width, and each NEW reported value re-renders the whole App — a window
@@ -347,7 +352,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
     ? Math.round(Math.min(crossCap, Math.max(200, naturalRaw)))
     : Math.max(200, chPx);
   const scale = Math.max(1e-6, Math.min(
-    (w - 2 * pad - gutX) / totalLen,
+    (w - 2 * pad - gutX - rollBar) / totalLen,
     (h - 2 * pad - lanes - gutY) / (2 * vHalf),
   ));
   const ctx: Ctx = { scale, cy: gutY + (h - gutY) / 2, x0: pad + gutX };
@@ -683,6 +688,22 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   };
 
   /**
+   * A part that sits ON the airframe surface at one clock angle: shrouds,
+   * protuberances, launch lugs, rail buttons. The MODEL stores no angle for
+   * any of them yet, so their own angle is 0 — but the VIEW roll must still
+   * turn them, or the cross-section stops being rigid. The owner rolled a
+   * design on 2026-08-30 and watched the camera shroud stay at 12 o'clock
+   * while the fins turned past it; that is this.
+   *
+   * Same projection as a fin: a surface point at radius r lands at r·cos θ,
+   * and sin θ ≥ 0 puts it in FRONT of the airframe.
+   */
+  const surfaceAt = (own = 0): FinInstance => {
+    const a = own + roll;
+    return { p: Math.cos(a), near: Math.sin(a) >= 0 };
+  };
+
+  /**
    * Where each fin of a set lands in the side view: a signed foreshortening
    * factor on its radial coordinates, +1 straight up, 0 edge on, −1 straight
    * down. Exactly what the desktop computes — `FinSetShapes.getShapesSide`
@@ -922,59 +943,75 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
           }
         }
       } else if (t === 'fairing') {
-        // External shroud: SOLID outline (it's on the outside — the owner's spec),
-        // drawn on the top surface; radial angle isn't modeled.
+        // External shroud: SOLID outline (it's on the outside — the owner's
+        // spec). Its own clock angle is not modelled, but it TURNS WITH THE
+        // VIEW: at roll 0 it sits on top, and the slider carries it round the
+        // body like everything else.
         const len = num(child, 'length', 0.08);
         const hgt = num(child, 'height', 0.02);
         const fshape = String(child['fairingShape'] ?? 'halfround');
         const start = axialStart(child, len, pStart, pLen);
+        const { p: sp, near: snear } = surfaceAt();
         const X = ctx.x0 + start * ctx.scale;
-        const y0 = baseY - pRadius * ctx.scale;
-        const yh = y0 - hgt * ctx.scale;
+        const y0 = baseY - pRadius * sp * ctx.scale;
+        const yh = baseY - (pRadius + hgt) * sp * ctx.scale;
         const Xe = X + len * ctx.scale;
-        noteHover(child, X, yh, Xe, y0);
-        shapes.push(
+        noteHover(child, X, Math.min(y0, yh), Xe, Math.max(y0, yh));
+        // Behind the airframe: cut at the wall at rest, an outline while the
+        // view is a wireframe — the same rules the fins follow.
+        const surfInk = wire
+          ? wireInk(child, grab)
+          : {
+            fill: fillOf(child, '#c8c5be'), stroke: selStroke(child, '#7a786f'),
+            strokeWidth: selWidth(child),
+            ...(snear ? {} : { clipPath: `url(#${airframeClip(baseY, pRadius)})` }),
+            ...grab,
+          };
+        (wire ? wires : shapes).push(
           fshape === 'streamlined' ? (
             <polygon key={key++}
               points={`${X},${y0} ${X + 0.3 * len * ctx.scale},${yh} ${X + 0.7 * len * ctx.scale},${yh} ${Xe},${y0}`}
-              fill={fillOf(child, '#c8c5be')} stroke={selStroke(child, '#7a786f')}
-              strokeWidth={selWidth(child)} {...grab} />
+              {...surfInk} />
           ) : fshape === 'halfround' ? (
             <path key={key++}
               d={`M ${X} ${y0} L ${X} ${yh + 0.35 * (y0 - yh)} Q ${X} ${yh} ${X + Math.min(8, len * ctx.scale * 0.25)} ${yh} L ${Xe - Math.min(8, len * ctx.scale * 0.25)} ${yh} Q ${Xe} ${yh} ${Xe} ${yh + 0.35 * (y0 - yh)} L ${Xe} ${y0} Z`}
-              fill={fillOf(child, '#c8c5be')} stroke={selStroke(child, '#7a786f')}
-              strokeWidth={selWidth(child)} {...grab} />
+              {...surfInk} />
           ) : (
-            <rect key={key++} x={X} y={yh}
-              width={Math.max(2, len * ctx.scale)} height={Math.max(2, hgt * ctx.scale)}
-              fill={fillOf(child, '#c8c5be')} stroke={selStroke(child, '#7a786f')}
-              strokeWidth={selWidth(child)} {...grab} />
+            <rect key={key++} x={X} y={Math.min(y0, yh)}
+              width={Math.max(2, len * ctx.scale)} height={Math.max(2, Math.abs(y0 - yh))}
+              {...surfInk} />
           ),
         );
       } else if ((t as string) === 'protuberance') {
         // A drag bump on the outside: solid outline on the top surface, shaped
         // by its RASAero class — a ramp for an inclined flat plate, a faired
         // nose with a blunt back for "with base drag", faired both ends for
-        // "no base drag". Radial angle isn't modeled (same as a launch lug).
+        // "no base drag". Own clock angle isn't modelled (same as a launch
+        // lug), but it turns with the view like every other surface part.
         const len = num(child, 'length', 0.06);
         const hgt = num(child, 'height', 0.01);
         const cls = String(child['dragClass'] ?? 'streamlinedbase');
         const start = axialStart(child, len, pStart, pLen);
+        const { p: pp, near: pnear } = surfaceAt();
         const X = ctx.x0 + start * ctx.scale;
-        const y0 = baseY - pRadius * ctx.scale;
-        const yh = y0 - hgt * ctx.scale;
+        const y0 = baseY - pRadius * pp * ctx.scale;
+        const yh = baseY - (pRadius + hgt) * pp * ctx.scale;
         const Xe = X + len * ctx.scale;
-        noteHover(child, X, yh, Xe, y0);
-        const nose = Math.min(0.35 * (Xe - X), Math.max(2, hgt * ctx.scale));
-        shapes.push(
+        noteHover(child, X, Math.min(y0, yh), Xe, Math.max(y0, yh));
+        const nose = Math.min(0.35 * (Xe - X), Math.max(2, Math.abs(y0 - yh)));
+        (wire ? wires : shapes).push(
           <polygon key={key++}
             points={cls === 'plate'
               ? `${X},${y0} ${Xe},${yh} ${Xe},${y0}`
               : cls === 'streamlined'
                 ? `${X},${y0} ${X + nose},${yh} ${Xe - nose},${yh} ${Xe},${y0}`
                 : `${X},${y0} ${X + nose},${yh} ${Xe},${yh} ${Xe},${y0}`}
-            fill={fillOf(child, '#c8c5be')} stroke={selStroke(child, '#7a786f')}
-            strokeWidth={selWidth(child)} {...grab} />,
+            {...(wire ? wireInk(child, grab) : {
+              fill: fillOf(child, '#c8c5be'), stroke: selStroke(child, '#7a786f'),
+              strokeWidth: selWidth(child),
+              ...(pnear ? {} : { clipPath: `url(#${airframeClip(baseY, pRadius)})` }),
+              ...grab,
+            })} />,
         );
       } else if (t === 'launchlug' || t === 'railbutton') {
         // Rail buttons are edited via 'outerDiameter' (their only size field)
@@ -983,14 +1020,23 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
         const len = t === 'railbutton' ? btnDia : num(child, 'length', 0.01);
         const r = t === 'railbutton' ? btnDia / 2 : num(child, 'outerRadius', 0.002);
         const start = axialStart(child, len, pStart, pLen);
-        noteHover(child, ctx.x0 + start * ctx.scale, baseY - (pRadius + 2 * r) * ctx.scale,
-          ctx.x0 + (start + len) * ctx.scale, baseY - pRadius * ctx.scale);
-        shapes.push(
+        // Own clock angle is not modelled (the .ork round-trip drops it), but
+        // the view roll still carries it round the body.
+        const { p: lp, near: lnear } = surfaceAt();
+        const ySurf = baseY - pRadius * lp * ctx.scale;
+        const yOut = baseY - (pRadius + 2 * r) * lp * ctx.scale;
+        noteHover(child, ctx.x0 + start * ctx.scale, Math.min(ySurf, yOut),
+          ctx.x0 + (start + len) * ctx.scale, Math.max(ySurf, yOut));
+        (wire ? wires : shapes).push(
           <rect key={key++} x={ctx.x0 + start * ctx.scale}
-            y={baseY - (pRadius + 2 * r) * ctx.scale}
-            width={Math.max(2, len * ctx.scale)} height={Math.max(2, 2 * r * ctx.scale)}
-            fill={fillOf(child, '#c8c5be')} stroke={selStroke(child, '#7a786f')}
-            strokeWidth={selWidth(child)} {...grab} />,
+            y={Math.min(ySurf, yOut)}
+            width={Math.max(2, len * ctx.scale)} height={Math.max(2, Math.abs(ySurf - yOut))}
+            {...(wire ? wireInk(child, grab) : {
+              fill: fillOf(child, '#c8c5be'), stroke: selStroke(child, '#7a786f'),
+              strokeWidth: selWidth(child),
+              ...(lnear ? {} : { clipPath: `url(#${airframeClip(baseY, pRadius)})` }),
+              ...grab,
+            })} />,
         );
       } else {
         // Internal component: dashed outline inside the parent. A clustered
@@ -1366,8 +1412,10 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
         {rulers && rulerGutters(zoom, false)}
         {rulers && !viewIsFit && rulerGutters({ k: 1, x: 0, y: 0 }, true)}
       </svg>
-      {/* Read-mostly ⟳90° mode has no controls at all. */}
-      {!vertical && <RollControl roll={roll} onRoll={setRoll} top={gutY} />}
+      {/* ⟳90° keeps the roll control — laid out along the bottom, tracking
+          the axis the rocket is not drawn along — but no other controls. */}
+      <RollControl roll={roll} onRoll={setRoll} top={gutY}
+        orientation={vertical ? 'horizontal' : 'vertical'} />
       {/* Vertical is read-mostly: no zoom to fit-reset, and the SVG/image
           exports assume the horizontal drawing (identity view transform), so
           the whole strip hides rather than export a sideways page. */}

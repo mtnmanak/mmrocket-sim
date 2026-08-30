@@ -2198,6 +2198,28 @@ html {
   pointer-events: auto;
 }
 
+/* ⟳90° (nose-up): the same control across the bottom. The rocket runs down
+   the canvas there, so a slider beside it would track the wrong axis. */
+.roll-control.roll-horizontal {
+  top: auto;
+  right: 0;
+  width: auto;
+  flex-direction: row;
+  gap: 6px;
+  padding: 2px 8px 4px;
+}
+
+.roll-control.roll-horizontal .roll-slider {
+  writing-mode: horizontal-tb;
+  direction: ltr;
+  -webkit-appearance: auto;
+  appearance: auto;
+  width: auto;
+  height: 14px;
+  min-height: 0;
+  cursor: ew-resize;
+}
+
 .roll-slider {
   flex: 1;
   min-height: 60px;

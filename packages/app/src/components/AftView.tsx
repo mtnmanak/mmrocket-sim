@@ -139,21 +139,25 @@ export function AftView({ tree, motors, roll: rollProp, onRoll }: {
         }
         reach(cy, cz, pRadius + 2 * rt);
       } else if (t === 'fairing') {
-        // Shroud cross-section at the top (radial angle not modeled).
+        // Shroud cross-section. Its OWN radial angle is not modelled, so it
+        // starts at the top — but it turns with the roll like everything
+        // else, or the cross-section is not rigid (owner report, 2026-08-30).
         const wid = num(child, 'width', 0.025);
         const hgt = num(child, 'height', 0.02);
         outer.push({
-          kind: 'fin', y: cy, z: cz, angle: 0, from: pRadius, to: pRadius + hgt,
+          kind: 'fin', y: cy, z: cz, angle: roll, from: pRadius, to: pRadius + hgt,
           thick: wid, fill: colorOf(child, '#c8c5be'), stroke: '#7a786f',
           title: child.name ?? 'Camera shroud',
         });
         reach(cy, cz, pRadius + hgt);
       } else if (t === 'launchlug' || t === 'railbutton') {
         const r = t === 'railbutton' ? num(child, 'outerDiameter', 0.004) / 2 : num(child, 'outerRadius', 0.002);
-        // Radial direction isn't modeled — shown at the right side, which is
-        // +z in this frame. It does not roll, because there is no angle to roll.
+        // Own radial direction isn't modelled, so it starts at the right side
+        // (+z here) — but it rolls with the view, same as the shroud.
+        const a = roll;
         outer.push({
-          kind: 'circle', y: cy, z: cz + pRadius + r, r,
+          kind: 'circle',
+          y: cy - (pRadius + r) * Math.sin(a), z: cz + (pRadius + r) * Math.cos(a), r,
           fill: colorOf(child, '#c8c5be'), stroke: '#7a786f', title: child.name ?? t,
         });
         reach(cy, cz, pRadius + 2 * r);
