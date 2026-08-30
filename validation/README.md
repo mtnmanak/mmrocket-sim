@@ -107,9 +107,12 @@ revised anchors is `scorecard-audit-2026-08-04.md`.
 | Supersonic, Phase 5 + Phase 6 (164 gates) | 70/164 (42.7%) | `scorecard-phase6-2026-08-25.md` |
 | Classic, + fins-off gates (166) | 10/166 (6.0%) | `scorecard-finsoff-2026-08-25.md` |
 | Supersonic, + fins-off gates (166) | 70/166 (42.2%) | `scorecard-finsoff-2026-08-25.md` |
-| **Current: classic, fins-off curve gated from TN D-4013** | **10/175 (5.7%)** | `scorecard-transition-2026-08-25.md` (11 → 10), gates from `scorecard-finsoff-figs-2026-08-25.md` |
-| **Current: Rogers Kbf — THE SHIPPED DEFAULT** | **17/175 (9.7%)** | `scorecard-transition-2026-08-25.md` (15 → 17), unchanged by `scorecard-airfoil-le-2026-08-27.md` |
-| **Current: supersonic, fins-off curve gated from TN D-4013** | **71/175 (40.6%)** | `scorecard-finsoff-figs-2026-08-25.md` |
+| Classic, fins-off curve gated from TN D-4013 (175) | 10/175 (5.7%) | `scorecard-transition-2026-08-25.md` (11 → 10), gates from `scorecard-finsoff-figs-2026-08-25.md` |
+| Rogers Kbf, same revision (175) | 17/175 (9.7%) | `scorecard-transition-2026-08-25.md` (15 → 17), unchanged by `scorecard-airfoil-le-2026-08-27.md` |
+| Supersonic, same revision (175) | 71/175 (40.6%) | `scorecard-finsoff-figs-2026-08-25.md` |
+| **Current: classic, + the sharp-airfoil cell** | **13/191 (6.8%)** | `scorecard-nosection-2026-08-29.md` — the 3 gains are the parent cell's own passes double-counted (classic parity, by construction) |
+| **Current: Rogers Kbf — THE SHIPPED DEFAULT** | **21/191 (11.0%)** | `scorecard-nosection-2026-08-29.md` — subsonic tight, M0.95+ runs 16–27% LOW on the desktop-import fin path |
+| **Current: supersonic, + the sharp-airfoil cell** | **77/191 (40.3%)** | `scorecard-nosection-2026-08-29.md` |
 
 **Read the two 2026-08-25 numbers together or not at all.** The supersonic percentage
 *fell* from the 2026-08-04 line (47.4% → 42.7%) while the model got materially better,
@@ -221,6 +224,9 @@ node validation/score.mjs > validation/scorecard.md
 - `scorecard-airfoil-le-2026-08-27.md` — the sharp-AIRFOIL leading-edge term moving into Kbf
   (v0.075): why not subsonic-only (a +1.21 CD step at M0.90), the 4×3 containment matrix, and
   the finding that **the harness is blind to the change**
+- `scorecard-nosection-2026-08-29.md` — the cell that ended that blindness: arcas-short with
+  the section tags deleted (the desktop-import path), 175 → 191 gates, and the first
+  measurement of the v0.075 branch against the tunnel (Kbf 16–27% low above M0.95)
 
 ## Baseline reading (why almost everything fails, and why that's fine)
 
@@ -252,15 +258,11 @@ tolerances come from the datasets' own stated accuracies.
 
 ## Not yet in the harness
 
-- **A finned fixture with an AIRFOIL cross-section and NO named `airfoilSection`.** All four
-  current finned fixtures name one, so they short-circuit above the branch v0.075 changed —
-  the harness scored classic/Kbf/supersonic at 10/17/71 identically before and after a change
-  that moved the default model's supersonic CD by 9–16 % and a Mach 1.9 probe's apogee by
-  +21 %. That is the fin cross-section most desktop-authored `.ork` files use, so it is the
-  most-flown path with no anchor on it. Cheap: clone an existing fixture and delete the
-  section field. See `scorecard-airfoil-le-2026-08-27.md`. (A behavioural guard now exists in
-  `packages/engine/src/orkEngine.test.ts` — "a sharp AIRFOIL fin with no named section" — but
-  that pins containment and continuity, not accuracy against measured data.)
+- ~~A finned fixture with an AIRFOIL cross-section and NO named `airfoilSection`.~~ —
+  **CLOSED 2026-08-29**: `arcas-short-nosection` gates the desktop-import fin path against the
+  same tunnel measurement as its parent (175 → 191 gates). See
+  `scorecard-nosection-2026-08-29.md` for the first accuracy measurement of the v0.075 branch
+  (the behavioural guard in `orkEngine.test.ts` still pins containment and continuity).
 
 - MESOS / Aftershock II / GoFast end-to-end flight fixtures (need thrust-curve
   reconstruction + manual forum retrievals — see anchors doc §2/§6)

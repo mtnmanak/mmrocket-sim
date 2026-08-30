@@ -9,7 +9,8 @@
     "Re matching: fixtures MAY carry a machAlt table (Mach -> altitude m) which the sweep uses to evaluate each point at tunnel-matched Reynolds number (ARCAS and rma53d02 carry the Mach-Alt tables from Rogers' own CDX1 files). Fixtures WITHOUT machAlt (basic-finner, hb2) still sweep at ISA sea level - expect a friction-CD bias there, worst subsonic.",
     "ANCHOR REVISION 2026-08-25: the two ARCAS fixtures were re-derived from Chuck Rogers' own ARCAS-Long CDX1 reconciled against the TN D-4013/D-4014 drawings (boattail rear dia 1.47 -> 1.28 in, fin thickness 0.150 -> 0.123 in, tip chord 2.09 -> 2.165 in, true double-wedge section replacing the 'airfoil' placeholder, fins at their true station instead of flush) - see the fixture _notes for the per-conflict rulings. Anchor VALUES are unchanged; the fixture geometry now matches what the app's importCdx1 produces on his file. The rma53d02 cell was added the same day: its cd0-freeflight series is MEASURED free-flight data (gated); its cd-rasaero-reference series is ANOTHER CODE'S PREDICTION and must never gate.",
     "FINS-OFF CELLS ADDED 2026-08-25 (164 -> 166 gates): arcas-short-finsoff / arcas-long-finsoff gate the TN D-4013 FINS-OFF (body only) tunnel CD at M0.60, one point each. They exist because until now only the fins-on TOTAL was gated, so a body error and a fin error of opposite sign could cancel inside a passing row - and on this cell they were doing exactly that. The pair is a measurement of OUR BODY DRAG ALONE, and (by difference against the fins-on cell) of our FIN DRAG ALONE. Scorecard: scorecard-finsoff-2026-08-25.md.",
-    "FINS-OFF CELLS EXPANDED THE SAME DAY (166 -> 175 gates): NASA TN D-4013 itself was retrieved from NTRS and its Figures 11 and 12 digitized off the report's own page scans, replacing the two quoted single-point figure reads with the whole measured curve at every Mach the report actually tested - 6 gated points on the short model, 5 on the long, at a tolerance (+/-0.008) now derived from the report's OWN stated accuracies instead of a curve-read band, plus gate:false fairing and prior-reader series. The old M0.60 gates are superseded, not kept: same Mach, better-sourced value, tighter tolerance, and in both cells the new value is the less flattering one. The base-drag panel (C_A,b) was digitized too, its sign convention established from the report and demonstrated against the report's own C_p,b figures, and then deliberately NOT gated because the measured base is sting-dominated (it reads as base THRUST subsonically). Full accounting: scorecard-finsoff-figs-2026-08-25.md."
+    "FINS-OFF CELLS EXPANDED THE SAME DAY (166 -> 175 gates): NASA TN D-4013 itself was retrieved from NTRS and its Figures 11 and 12 digitized off the report's own page scans, replacing the two quoted single-point figure reads with the whole measured curve at every Mach the report actually tested - 6 gated points on the short model, 5 on the long, at a tolerance (+/-0.008) now derived from the report's OWN stated accuracies instead of a curve-read band, plus gate:false fairing and prior-reader series. The old M0.60 gates are superseded, not kept: same Mach, better-sourced value, tighter tolerance, and in both cells the new value is the less flattering one. The base-drag panel (C_A,b) was digitized too, its sign convention established from the report and demonstrated against the report's own C_p,b figures, and then deliberately NOT gated because the measured base is sting-dominated (it reads as base THRUST subsonically). Full accounting: scorecard-finsoff-figs-2026-08-25.md.",
+    "ANCHOR REVISION 2026-08-29 (175 -> 191 gates): arcas-short-nosection added - the sharp-airfoil leading-edge cell the 2026-08-27 scorecard recorded as owed. Identical geometry to arcas-short with the three airfoil-section extension tags deleted, i.e. the desktop-import path, which takes the v0.075 sharp-airfoil branch every other finned fixture short-circuits past (classic never reaches it, so classic rows duplicate the parent bit-for-bit). Anchor values and tolerances copied VERBATIM from arcas-short - same measurement, same stated accuracy, so the never-widen rule is satisfied by construction. Only the two CD series ride along: the section fields feed pressure CD only, so the CP series would gate identical numbers twice, and cd-rasaero-parity is omitted because RASAero predicted the true-section article. Scorecard: scorecard-nosection-2026-08-29.md."
   ],
   "arcas-short": {
     "fixture": "arcas-short.json",
@@ -74,6 +75,26 @@
         "id": "cd0-finsoff-priorreads", "quantity": "cd", "base": "excluded", "gate": false, "tol": 0.008,
         "source": "THE SAME MEASUREMENT, OTHER READERS - info only, never gated (gating it would count one tunnel run twice). Rows in order: M0.60 0.225 is C. E. Rogers' read (TRF 197207 #9), the value this cell gated until 2026-08-25; then M0.60 0.222, M0.70 0.222, M0.80 0.229 are this project's 2026-08-03 read of the same curve as reproduced in Rogers' comparison deck. Against the report-scan read now gated (0.2214 / 0.2231 / 0.2309) the four-way spread at M0.60 is 0.0036, which is where the digitization term of the gated tolerance comes from. Note the superseding value is the LESS flattering one at both Machs.",
         "points": [[0.6, 0.225], [0.6, 0.222], [0.7, 0.222], [0.8, 0.229]]
+      }
+    ]
+  },
+  "arcas-short-nosection": {
+    "fixture": "arcas-short-nosection.json",
+    "refAreaScale": 1.0,
+    "maxMach": 5.0,
+    "machAlt": [[0.0, 0], [0.42, 0.3], [0.9, 7620], [1.05, 9296.4], [1.2, 10058.4], [1.5, 11277.6], [2.0, 13411.2], [4.0, 17983.2], [5.0, 19202.4]],
+    "_machAltNote": "RASAero's own tunnel-Re-matching Mach-Alt table for the ARCAS comparison (comparison doc p.9, ft converted to m) - pins sweep Re to the Langley tunnels' 3.0e6/ft. Copied verbatim from arcas-short.",
+    "_provenance": "Sharp-airfoil (no named section) cell, 2026-08-29: same article, same tunnel measurement, same tolerances as arcas-short - both CD series copied VERBATIM from that cell. Honest tension, recorded: this gates the same tunnel run a second time (175 -> 191), mitigated by the two cells exercising DIFFERENT kernel code paths (FinSetCalc named-section branch vs the v0.075 sharp-airfoil branch) and by the standing rule that gate flips within a revision, never percentages across revisions, are the comparable quantity.",
+    "series": [
+      {
+        "id": "cd-supersonic-tunnel", "quantity": "cd", "base": "included", "gate": true, "tol": 0.02,
+        "source": "TN D-4014 Fig 5(b) CA a=0 via RASAero comparison dots (read +/-0.005; CA not base-corrected). Copied verbatim from arcas-short - see that cell for the M1.19 removal rationale.",
+        "points": [[1.49, 0.532], [1.8, 0.470], [2.29, 0.376], [2.95, 0.300], [3.95, 0.223], [4.65, 0.198]]
+      },
+      {
+        "id": "cd-transonic-tunnel", "quantity": "cd", "base": "excluded", "gate": true, "tol": 0.03,
+        "source": "TN D-4013 CA,corr fins-on dF=0 (corrected to free-stream base pressure => base excluded). Copied verbatim from arcas-short.",
+        "points": [[0.6, 0.295], [0.7, 0.300], [0.8, 0.309], [0.9, 0.350], [0.95, 0.46], [1.0, 0.683], [1.05, 0.685], [1.1, 0.666], [1.15, 0.635], [1.2, 0.596]]
       }
     ]
   },

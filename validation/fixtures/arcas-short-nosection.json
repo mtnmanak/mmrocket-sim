@@ -1,0 +1,53 @@
+{
+  "name": "ARCAS Short, airfoil cross-section with NO named section (desktop-import path)",
+  "_notes": [
+    "PURPOSE (2026-08-29): the sharp-airfoil leading-edge cell. Byte-identical geometry to arcas-short.json except the fin set drops airfoilSection/airfoilLeDiamond/airfoilTeDiamond (all three are this project's extension tags, absent from every desktop-authored .ork), keeping crossSection: airfoil. That is exactly what a design imported from desktop OpenRocket looks like, and it takes the v0.075 sharp-airfoil branch (FinSetCalc.java:1074) that every other finned fixture short-circuits past via its named section (FinSetCalc.java:1034). Until this cell existed, the most-flown fin path had no anchor on it: v0.075 moved airfoil-fin CD 9-16% at Mach 2 and the harness scored 10/17/71 both before and after.",
+    "KEEP IN LOCKSTEP: any geometry change to arcas-short.json must be mirrored here (the finsoff siblings set the precedent). The two fixtures must differ ONLY by the three deleted keys, the name, and these notes.",
+    "WHAT THIS CELL MEASURES: the sharp-airfoil branch's accuracy against the same tunnel measurement the parent gates. Classic never reaches the flag-gated section code, so classic rows here duplicate the parent bit-for-bit (asserted in the 2026-08-29 scorecard); only Rogers Kbf and Supersonic can differ. The section fields feed pressure CD only - CP/CNa never read them - so the parent's CP series is deliberately NOT duplicated here (it would gate the identical numbers twice).",
+    "INHERITED CAVEAT: the fins-on M0.80-0.95 transonic anchors are under an open re-read suspicion of up to +0.11 (validation/README.md) - same posture as the parent cell."
+  ],
+  "components": [
+    {
+      "type": "nosecone",
+      "finish": "finishpolished",
+      "shape": "ogive",
+      "shapeParameter": 1,
+      "length": 0.26924,
+      "aftRadius": 0.028575,
+      "thickness": 0.0015
+    },
+    {
+      "type": "bodytube",
+      "finish": "finishpolished",
+      "length": 0.724916,
+      "outerRadius": 0.028575,
+      "thickness": 0.0015,
+      "children": [
+        {
+          "type": "trapezoidfinset",
+          "finish": "finishpolished",
+          "finCount": 4,
+          "rootChord": 0.085852,
+          "tipChord": 0.054991,
+          "sweep": 0.030861,
+          "height": 0.0534162,
+          "thickness": 0.0031242,
+          "crossSection": "airfoil",
+          "position": {
+            "method": "bottom",
+            "offset": 0.0391161
+          }
+        }
+      ]
+    },
+    {
+      "type": "transition",
+      "finish": "finishpolished",
+      "shape": "conical",
+      "length": 0.045974,
+      "foreRadius": 0.028575,
+      "aftRadius": 0.0166116,
+      "thickness": 0.0015
+    }
+  ]
+}
