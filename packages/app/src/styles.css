@@ -859,6 +859,15 @@ html {
   margin: 16px 0 6px;
 }
 
+/* Chart titles are h3s that sit INSIDE a .panel (DragPanel's cards), so the
+   sub-head rule above reaches them — but they are card titles, not section
+   dividers; strip the divider chrome back off (review finding, v0.076). */
+.panel .chart-panel h3 {
+  border-top: none;
+  padding-top: 0;
+  margin: 0 0 4px;
+}
+
 .field-caution {
   margin: 0.6rem 0 0;
   padding: 0.5rem 0.65rem;

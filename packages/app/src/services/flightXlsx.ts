@@ -1,4 +1,5 @@
 import type { FlightResult } from '@online-openrocket/engine';
+import { SERIES } from '../chartTheme.js';
 import type { UnitSelection } from '../prefs/units.js';
 import { seriesColumns } from './flightDataCsv.js';
 import { sheetsToXlsx, type Cell, type ChartSeriesSpec, type ChartSpec, type Sheet } from './xlsx.js';
@@ -100,9 +101,11 @@ const GROUPED_CHARTS: { tab: string; axis: string; members: string[] }[] = [
  * chart order; staged flights color by STAGE instead (see module doc), and a
  * grouped tab colors by member. All three cycle the app's validated
  * categorical palette (chartTheme SERIES) so a workbook chart and the panel
- * the user just looked at use the same ink.
+ * the user just looked at use the same ink — DERIVED from it since v0.076: a
+ * hand copy here silently kept the pre-reorder slot order (caught in review).
+ * The LIGHT palette on purpose: a spreadsheet is white paper.
  */
-const PALETTE = ['2A78D6', '1BAF7A', 'EDA100', '008300', '4A3AA7', 'E34948', 'E87BA4', 'EB6834'];
+const PALETTE = SERIES.map((c) => c.slice(1).toUpperCase());
 
 /**
  * Find a column by key. Headers are `${name} (${unit})` for the friendly

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { SERIES } from '../chartTheme.js';
 import { strFromU8, unzipSync } from 'fflate';
 import type { FlightResult, FlightSeries, FlightSummary } from '@online-openrocket/engine';
 import { IMPERIAL_UNITS } from '../prefs/units.js';
@@ -228,10 +229,12 @@ describe('flightXlsx', () => {
     expect(alt).toContain("<c:f>'Booster'!$B$2:$B$5</c:f>");
     expect(alt).toContain('<c:v>Sustainer</c:v>');
     expect(alt).toContain('<c:v>Booster</c:v>');
-    // ≥2 series → legend present, stage colors follow the palette order.
+    // ≥2 series → legend present, stage colors follow the palette order —
+    // DERIVED from chartTheme.SERIES (v0.076): a literal here re-pins the
+    // hand-copied palette drift the review caught.
     expect(alt).toContain('<c:legend>');
-    expect(alt).toContain('<a:srgbClr val="2A78D6"/>');
-    expect(alt).toContain('<a:srgbClr val="1BAF7A"/>');
+    expect(alt).toContain(`<a:srgbClr val="${SERIES[0]!.slice(1).toUpperCase()}"/>`);
+    expect(alt).toContain(`<a:srgbClr val="${SERIES[1]!.slice(1).toUpperCase()}"/>`);
   });
 
   it('staged flights: grouped tabs split per branch, not members × stages', () => {
