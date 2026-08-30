@@ -83,6 +83,7 @@ import {
   updateNode,
 } from './tree/treeModel.js';
 import { clusterCount } from './tree/cluster.js';
+import { estimateMotorRoomForMounts } from './tree/motorRoom.js';
 import { autoAlignFinSets } from './tree/finAlign.js';
 import { convertShrouds, findShroudCandidates, type ShroudCandidate } from './tree/shroudConvert.js';
 
@@ -2907,24 +2908,31 @@ export function App() {
                 onRoll={setViewRoll}
               />
             </div>
-            {/* Cluster/pod layouts only make sense from behind — live inset
-                while playing with layout, rotation and spacing (issue #13). */}
+            {/* The end-on view, always. It went in as a cluster/pod inset
+                (issue #13) and was gated on the design having one — but fin
+                count, fin clocking and motor fit read from behind on any
+                rocket, and the roll slider it shares with the side view gives
+                it a job on a plain 3FNC too (owner, 2026-08-30). */}
             {(() => {
               const hasRadial = (nodes: ComponentNode[]): boolean => nodes.some((n) =>
                 (n.type === 'innertube' && typeof n['cluster'] === 'string' && n['cluster'] !== 'single')
                 || n.type === 'podset' || n.type === 'parallelstage'
                 || hasRadial(n.children ?? []));
-              return hasRadial(tree.components) ? (
+              return (
                 <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', marginTop: 8 }}>
                   <div className="rocket-stage" style={{ flex: '0 1 300px' }}>
                     <AftView tree={tree} motors={motorDims} roll={viewRoll} onRoll={setViewRoll} />
                   </div>
                   <p className="comp-stats" style={{ margin: '4px 0', maxWidth: 260 }}>
-                    Aft view — the cluster / pod layout seen from behind, at the
-                    current layout, rotation and spacing settings.
+                    {hasRadial(tree.components)
+                      ? `Aft view — the cluster / pod layout seen from behind, at the
+                         current layout, rotation and spacing settings.`
+                      : `Aft view — the rocket from behind: fin count and clocking as they
+                         really sit, and the motor in its mount. The roll slider turns it
+                         with the side view above.`}
                   </p>
                 </div>
-              ) : null;
+              );
             })()}
           </div>
 
@@ -2955,23 +2963,45 @@ export function App() {
                   <div className="field" style={{ marginBottom: 8 }}
                     title={`Longest motor ${isStaged ? `the ${stName} stage's` : 'the'} airframe has room for. The design value is set on the motor mount tube itself (Design tab) and travels with the rocket; typing here overrides it for this stage. Longer motors are flagged in the browser and excluded from batch simulation.`}>
                     <label>Max motor length {stMax !== null && st.id && maxMotorLen[st.id] == null ? '(from design)' : '(override)'} <UnitChip quantity="motorDimensions" /></label>
-                    <NumField
-                      value={st.id && maxMotorLen[st.id] != null
-                        ? siToUi('motorDimensions', prefs.units.motorDimensions, maxMotorLen[st.id]!)
-                        : undefined}
-                      step={niceStep(siToUi('motorDimensions', prefs.units.motorDimensions, 0.005))}
-                      nullable
-                      placeholder={stMax !== null
-                        ? `design: ${fmtSi('motorDimensions', prefs.units.motorDimensions, stMax)}`
-                        : 'no limit'}
-                      ariaLabel={`Maximum motor length override for ${stName}`}
-                      onCommit={(v) => setMaxMotorLen((prev) => {
-                        const next = { ...prev };
-                        if (v === null) delete next[st.id!]; // back to the design value
-                        else next[st.id!] = uiToSi('motorDimensions', prefs.units.motorDimensions, v);
-                        return next;
-                      })}
-                    />
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      <NumField
+                        value={st.id && maxMotorLen[st.id] != null
+                          ? siToUi('motorDimensions', prefs.units.motorDimensions, maxMotorLen[st.id]!)
+                          : undefined}
+                        step={niceStep(siToUi('motorDimensions', prefs.units.motorDimensions, 0.005))}
+                        nullable
+                        placeholder={stMax !== null
+                          ? `design: ${fmtSi('motorDimensions', prefs.units.motorDimensions, stMax)}`
+                          : 'no limit'}
+                        ariaLabel={`Maximum motor length override for ${stName}`}
+                        onCommit={(v) => setMaxMotorLen((prev) => {
+                          const next = { ...prev };
+                          if (v === null) delete next[st.id!]; // back to the design value
+                          else next[st.id!] = uiToSi('motorDimensions', prefs.units.motorDimensions, v);
+                          return next;
+                        })}
+                      />
+                      {(() => {
+                        const room = estimateMotorRoomForMounts(tree, stMounts.map((m) => m.id!));
+                        if (!room || !st.id) return null;
+                        return (
+                          <button className="file-btn" style={{ whiteSpace: 'nowrap' }}
+                            title={`Measure it: ${fmtSi('motorDimensions', prefs.units.motorDimensions, room.lengthM)} ${prefs.units.motorDimensions} from the aft of the mount to ${room.limitedBy}. An estimate — it cannot see wadding, a baffle modelled as something else, or a chute packed against the block.`}
+                            onClick={() => setMaxMotorLen((prev) => ({ ...prev, [st.id!]: room.lengthM }))}>
+                            ⌾ Estimate
+                          </button>
+                        );
+                      })()}
+                    </div>
+                    {(() => {
+                      const room = estimateMotorRoomForMounts(tree, stMounts.map((m) => m.id!));
+                      return room ? (
+                        <p className="comp-stats" style={{ margin: '3px 0 0' }}>
+                          Room for {fmtSi('motorDimensions', prefs.units.motorDimensions, room.lengthM)}
+                          {' '}{prefs.units.motorDimensions} to {room.limitedBy}.
+                        </p>
+                      ) : null;
+                    })()}
                   </div>
                   {stMounts.map((m) => {
               const mm = mountMotors[m.id!];

@@ -12,10 +12,14 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
+  CONTINUED,
+  CONTINUES,
   TRF_POST_LIMIT,
+  bbcodePartPathFor,
   bbcodePathFor,
   checkTags,
   looksAlreadyConverted,
+  splitBBCode,
   toBBCode,
 } from '../../../scripts/bbcode-from-blurb.mjs';
 
@@ -138,5 +142,72 @@ describe('importing this module', () => {
   it('does not run the CLI', () => {
     expect(typeof toBBCode).toBe('function');
     expect(typeof checkTags).toBe('function');
+  });
+});
+
+/**
+ * Splitting moved here from the drafting stage on 2026-08-30 (Eric): he edits ONE
+ * consolidated .txt however long it runs, and the cut happens during conversion, from his
+ * edited text. So the script stopped refusing an over-length draft and started cutting it,
+ * and these are the properties that make a cut safe to paste.
+ */
+describe('splitBBCode', () => {
+  const para = (n, ch = 'x') => ch.repeat(n);
+
+  it('leaves a post that fits as a single part, untouched', () => {
+    const bb = 'short enough';
+    expect(splitBBCode(bb)).toEqual([bb]);
+  });
+
+  it('cuts at a blank line and joins the parts with the continuation lines', () => {
+    const bb = [para(60), '', para(60), '', para(60)].join('\n');
+    const parts = splitBBCode(bb, 100);
+    expect(parts.length).toBeGreaterThan(1);
+    expect(parts[0].endsWith(CONTINUES)).toBe(true);
+    expect(parts[parts.length - 1].startsWith(CONTINUED)).toBe(true);
+    expect(parts[parts.length - 1].endsWith(CONTINUES)).toBe(false);
+  });
+
+  it('every part fits the limit, joining lines included', () => {
+    const bb = Array.from({ length: 40 }, (_, i) => para(300, String.fromCharCode(97 + (i % 26)))).join('\n\n');
+    for (const part of splitBBCode(bb)) {
+      expect(part.length).toBeLessThanOrEqual(TRF_POST_LIMIT);
+    }
+  });
+
+  it('rejoins to the original text word for word', () => {
+    const bb = Array.from({ length: 12 }, (_, i) => `paragraph ${i} ${para(200)}`).join('\n\n');
+    const parts = splitBBCode(bb, 700);
+    const rejoined = parts
+      .map((p) => p.replace(CONTINUED + '\n\n', '').replace('\n\n' + CONTINUES, ''))
+      .join('\n\n');
+    expect(rejoined.replace(/\s+/g, ' ').trim()).toBe(bb.replace(/\s+/g, ' ').trim());
+  });
+
+  it('never cuts inside a [LIST] — a part that opens one must close it', () => {
+    const bb = [
+      para(400),
+      '',
+      '[LIST]',
+      ...Array.from({ length: 12 }, (_, i) => `[*]item ${i} ${para(120)}`),
+      '[/LIST]',
+      '',
+      para(400),
+    ].join('\n');
+    for (const part of splitBBCode(bb, 2600)) {
+      const opens = (part.match(/\[LIST\]/g) ?? []).length;
+      const closes = (part.match(/\[\/LIST\]/g) ?? []).length;
+      expect(opens, part.slice(0, 60)).toBe(closes);
+      expect(checkTags(part)).toEqual([]);
+    }
+  });
+
+  it('refuses rather than cutting badly when one run is longer than a post', () => {
+    expect(() => splitBBCode(para(300), 100)).toThrow(/unbreakable run/);
+  });
+
+  it('names the parts so they paste in order', () => {
+    expect(bbcodePartPathFor('a/b - Blurb.txt', 2, 3)).toBe('a/b - Blurb BBCODE (2 of 3).txt');
+    expect(bbcodePathFor('a/b - Blurb.txt')).toBe('a/b - Blurb BBCODE.txt');
   });
 });

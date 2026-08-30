@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   MOTOR_DB, allClasses, classLabel, classesFittingMount, diameterClass,
-  displayDesignation, filterMotors, findDbMotor, manufacturersForMount, sortMotors,
+  displayDesignation, filterMotors, findDbMotor, impulseClassesForMount, impulseLetter,
+  manufacturersForMount, propellantsForMount, sortMotors,
 } from './motorDb.js';
 
 describe('bundled motor database', () => {
@@ -146,5 +147,85 @@ describe('findDbMotor (.ork motor matching)', () => {
   it('returns null for fantasy motors', () => {
     expect(findDbMotor('Z9999-XX')).toBeNull();
     expect(findDbMotor('')).toBeNull();
+  });
+});
+
+/**
+ * v0.081 filters (owner, 2026-08-30): impulse class first — "often users want
+ * to just be able to see H motors" — plus a fits-my-rocket length cut and
+ * propellant, the last folded behind "All filters".
+ */
+describe('impulse-class filtering', () => {
+  const base = { manufacturers: new Set<string>(), classes: new Set<number>(), text: '' };
+
+  it('reads the letter off the catalog class, ignoring case and padding', () => {
+    expect(impulseLetter({ impulseClass: 'H' } as never)).toBe('H');
+    expect(impulseLetter({ impulseClass: ' i ' } as never)).toBe('I');
+    expect(impulseLetter({ impulseClass: '' } as never)).toBe('');
+    expect(impulseLetter({} as never)).toBe('');
+  });
+
+  it('offers the classes that actually fit a 29 mm mount, with counts', () => {
+    const cs = impulseClassesForMount(29, false);
+    expect(cs.length).toBeGreaterThan(2);
+    expect(cs.map((c) => c.letter)).toEqual([...cs.map((c) => c.letter)].sort());
+    expect(cs.every((c) => c.count > 0)).toBe(true);
+    // A 29 mm mount is squarely H/I territory.
+    expect(cs.some((c) => c.letter === 'H' || c.letter === 'I')).toBe(true);
+  });
+
+  it('returns only the chosen class', () => {
+    const got = filterMotors({ ...base, impulse: new Set(['H']), boreMm: 29, includeOOP: false });
+    expect(got.length).toBeGreaterThan(0);
+    expect(got.every((m) => impulseLetter(m) === 'H')).toBe(true);
+  });
+
+  it('an empty class set means all of them', () => {
+    const all = filterMotors({ ...base, boreMm: 29, includeOOP: false });
+    const empty = filterMotors({ ...base, impulse: new Set(), boreMm: 29, includeOOP: false });
+    expect(empty.length).toBe(all.length);
+  });
+});
+
+describe('the "only motors that fit" length cut', () => {
+  const base = { manufacturers: new Set<string>(), classes: new Set<number>(), text: '' };
+
+  it('drops motors longer than the stated room, keeping the rest', () => {
+    const all = filterMotors({ ...base, boreMm: 29, includeOOP: false });
+    const fits = filterMotors({ ...base, boreMm: 29, includeOOP: false, maxLengthM: 0.15 });
+    expect(fits.length).toBeGreaterThan(0);
+    expect(fits.length).toBeLessThan(all.length);
+    // Catalog lengths are millimetres.
+    expect(fits.every((m) => m.length <= 150 + 1e-6)).toBe(true);
+  });
+
+  it('null means no length filtering at all — the browser flags instead', () => {
+    const all = filterMotors({ ...base, boreMm: 29, includeOOP: false });
+    const nulled = filterMotors({ ...base, boreMm: 29, includeOOP: false, maxLengthM: null });
+    expect(nulled.length).toBe(all.length);
+  });
+
+  it('keeps a motor exactly at the limit', () => {
+    const one = filterMotors({ ...base, boreMm: 29, includeOOP: false })
+      .reduce((a, b) => (a.length > b.length ? a : b));
+    const got = filterMotors({ ...base, boreMm: 29, includeOOP: false, maxLengthM: one.length / 1000 });
+    expect(got.some((m) => m.designation === one.designation)).toBe(true);
+  });
+});
+
+describe('propellant filtering', () => {
+  const base = { manufacturers: new Set<string>(), classes: new Set<number>(), text: '' };
+
+  it('offers propellants commonest first', () => {
+    const ps = propellantsForMount(29, false);
+    expect(ps.length).toBeGreaterThan(1);
+    for (let i = 1; i < ps.length; i++) expect(ps[i - 1]!.count).toBeGreaterThanOrEqual(ps[i]!.count);
+  });
+
+  it('returns only the chosen propellant', () => {
+    const top = propellantsForMount(29, false)[0]!;
+    const got = filterMotors({ ...base, propellants: new Set([top.name]), boreMm: 29, includeOOP: false });
+    expect(got.length).toBe(top.count);
+    expect(got.every((m) => (m.propInfo ?? '').trim() === top.name)).toBe(true);
   });
 });

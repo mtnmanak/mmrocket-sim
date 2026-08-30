@@ -21,6 +21,10 @@ import { INITIAL_UNITS } from '../prefs/units.js';
  */
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
+/** A drawn fin, not the dashed hidden line the roll adds behind the airframe. */
+const FILLED_FIN = 'polygon:not([data-fin="hidden"])';
+const FILLED_ARC = 'path:not([data-fin="hidden"])';
+
 let host: HTMLDivElement;
 let root: Root;
 
@@ -141,7 +145,7 @@ describe('fin projection and roll', () => {
   /** Each fin polygon's furthest reach from the centreline (+ = above). */
   const finReaches = (): number[] => {
     const cy = centreY();
-    return [...host.querySelectorAll('polygon')].map((p) => {
+    return [...host.querySelectorAll(FILLED_FIN)].map((p) => {
       const ys = p.getAttribute('points')!.split(' ').map((pt) => Number(pt.split(',')[1]));
       const far = ys.reduce((a, b) => (Math.abs(b - cy) > Math.abs(a - cy) ? b : a), cy);
       return cy - far;
@@ -171,15 +175,15 @@ describe('fin projection and roll', () => {
     show(<TreeSchematic tree={finTree(3)} info={null} roll={Math.PI / 2} />);
     // cos(90°) = 0 for the first fin — its whole silhouette falls inside the
     // airframe, so it is hidden rather than collapsed onto the centreline.
-    expect(host.querySelectorAll('polygon')).toHaveLength(2);
+    expect(host.querySelectorAll(FILLED_FIN)).toHaveLength(2);
   });
 
   it('a fin set’s own rotation moves it before any roll does', () => {
     show(<TreeSchematic tree={finTree(3, { rotation: Math.PI / 2 })} info={null} />);
-    expect(host.querySelectorAll('polygon')).toHaveLength(2);
+    expect(host.querySelectorAll(FILLED_FIN)).toHaveLength(2);
     // …and the matching roll puts it back upright.
     show(<TreeSchematic tree={finTree(3, { rotation: Math.PI / 2 })} info={null} roll={-Math.PI / 2} />);
-    expect(host.querySelectorAll('polygon')).toHaveLength(3);
+    expect(host.querySelectorAll(FILLED_FIN)).toHaveLength(3);
   });
 
   it('the roll slider reports the angle and resets it', () => {

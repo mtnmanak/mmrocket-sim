@@ -89,11 +89,63 @@ export interface MotorFilter {
   manufacturers: Set<string>;
   /** Selected diameter classes; empty set = all fitting classes. */
   classes: Set<number>;
+  /** Selected impulse classes ("A".."O"), uppercase; empty set = all. */
+  impulse?: Set<string>;
+  /** Selected propellant names; empty/absent = all. */
+  propellants?: Set<string>;
   /** Mount bore (mm) — motors above this never show. */
   boreMm: number;
   includeOOP: boolean;
+  /**
+   * Longest motor the airframe has room for (m), when the filter is asked to
+   * enforce it. Null/absent = no length filtering; over-length motors are
+   * flagged in the table either way.
+   */
+  maxLengthM?: number | null;
   /** Free-text match against designation / common name. */
   text: string;
+}
+
+/** A motor's impulse letter, from the catalog's own class field. */
+export function impulseLetter(m: MotorDbEntry): string {
+  const c = (m.impulseClass ?? '').trim().toUpperCase();
+  return c ? c[0]! : '';
+}
+
+/** The impulse letters present among motors that fit this mount, in order. */
+export function impulseClassesForMount(
+  boreMm: number, includeOOP: boolean, motors: MotorDbEntry[] = MOTOR_DB,
+): { letter: string; count: number }[] {
+  const fitting = new Set(classesFittingMount(boreMm, motors));
+  const counts = new Map<string, number>();
+  for (const m of motors) {
+    if (!fitting.has(diameterClass(m.diameter))) continue;
+    if (!includeOOP && m.availability !== 'regular') continue;
+    const l = impulseLetter(m);
+    if (!l) continue;
+    counts.set(l, (counts.get(l) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([letter, count]) => ({ letter, count }))
+    .sort((a, b) => a.letter.localeCompare(b.letter));
+}
+
+/** The propellant names present among motors that fit this mount. */
+export function propellantsForMount(
+  boreMm: number, includeOOP: boolean, motors: MotorDbEntry[] = MOTOR_DB,
+): { name: string; count: number }[] {
+  const fitting = new Set(classesFittingMount(boreMm, motors));
+  const counts = new Map<string, number>();
+  for (const m of motors) {
+    if (!fitting.has(diameterClass(m.diameter))) continue;
+    if (!includeOOP && m.availability !== 'regular') continue;
+    const p = (m.propInfo ?? '').trim();
+    if (!p) continue;
+    counts.set(p, (counts.get(p) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
 }
 
 export function filterMotors(filter: MotorFilter, motors: MotorDbEntry[] = MOTOR_DB): MotorDbEntry[] {
@@ -105,6 +157,11 @@ export function filterMotors(filter: MotorFilter, motors: MotorDbEntry[] = MOTOR
     if (filter.classes.size > 0 && !filter.classes.has(cls)) return false;
     if (filter.manufacturers.size > 0 && !filter.manufacturers.has(m.manufacturerAbbrev)) return false;
     if (!filter.includeOOP && m.availability !== 'regular') return false;
+    if (filter.impulse && filter.impulse.size > 0 && !filter.impulse.has(impulseLetter(m))) return false;
+    if (filter.propellants && filter.propellants.size > 0
+      && !filter.propellants.has((m.propInfo ?? '').trim())) return false;
+    // Lengths are millimetres in the catalog, metres in the app.
+    if (filter.maxLengthM != null && m.length / 1000 > filter.maxLengthM + 1e-9) return false;
     if (text
       && !m.designation.toLowerCase().includes(text)
       && !displayDesignation(m.designation, m.manufacturerAbbrev).toLowerCase().includes(text)

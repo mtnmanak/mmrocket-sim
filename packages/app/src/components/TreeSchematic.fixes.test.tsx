@@ -14,6 +14,10 @@ import { RULER_LEFT, RULER_TOP, TreeSchematic } from './TreeSchematic.js';
  */
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
+/** A drawn fin, not the dashed hidden line the roll adds behind the airframe. */
+const FILLED_FIN = 'polygon:not([data-fin="hidden"])';
+const FILLED_ARC = 'path:not([data-fin="hidden"])';
+
 let host: HTMLDivElement;
 let root: Root;
 
@@ -56,7 +60,7 @@ afterEach(() => {
 describe('elliptical fins reach their full span', () => {
   it('draws a true half-ellipse, not a quadratic that stops halfway to its tip', () => {
     show(<TreeSchematic tree={treeWith({ type: 'ellipticalfinset', finCount: 2 })} info={null} />);
-    const d = [...host.querySelectorAll('path')]
+    const d = [...host.querySelectorAll(FILLED_ARC)]
       .map((p) => p.getAttribute('d') ?? '')
       .find((s) => s.includes('A '))!;
     expect(d, 'the elliptical fin should be an arc').toBeTruthy();
@@ -68,7 +72,7 @@ describe('elliptical fins reach their full span', () => {
 
   it('keeps the arc on the correct side of the airframe for each instance', () => {
     show(<TreeSchematic tree={treeWith({ type: 'ellipticalfinset', finCount: 2 })} info={null} />);
-    const arcs = [...host.querySelectorAll('path')]
+    const arcs = [...host.querySelectorAll(FILLED_ARC)]
       .map((p) => p.getAttribute('d') ?? '').filter((s) => s.includes('A '));
     expect(arcs).toHaveLength(2);
     const sweeps = arcs.map((d) => /A\s+[\d.]+\s+[\d.]+\s+0\s+0\s+(\d)/.exec(d)![1]);
@@ -84,7 +88,7 @@ describe('the hover box follows the drawn fins', () => {
 
   it('a 3-fin set highlights one full span up and half a span down, not the full box', () => {
     show(<TreeSchematic tree={treeWith({ type: 'trapezoidfinset', finCount: 3, tipChord: 0.03, sweep: 0.02 })} info={null} />);
-    over(host.querySelector('polygon')!);
+    over(host.querySelector(FILLED_FIN)!);
     const wash = host.querySelector<SVGRectElement>('rect[fill="var(--accent)"]')!;
     expect(wash).not.toBeNull();
     const y = Number(wash.getAttribute('y'));
@@ -101,7 +105,7 @@ describe('the hover box follows the drawn fins', () => {
 
   it('a single fin still gets a box with height', () => {
     show(<TreeSchematic tree={treeWith({ type: 'trapezoidfinset', finCount: 1, tipChord: 0.03, sweep: 0.02 })} info={null} />);
-    over(host.querySelector('polygon')!);
+    over(host.querySelector(FILLED_FIN)!);
     const wash = host.querySelector<SVGRectElement>('rect[fill="var(--accent)"]')!;
     expect(Number(wash.getAttribute('height'))).toBeGreaterThan(HEIGHT * scale() * 0.9);
   });
@@ -144,10 +148,10 @@ describe('fins retreat into the airframe instead of blinking out', () => {
       info={null} roll={(deg * Math.PI) / 180} />,
   ));
 
-  /** The clip band's inner edges, in viewBox px. */
+  /** The airframe band's edges, read off the OUTSIDE clip (two rects). */
   const band = () => {
-    const rects = [...host.querySelectorAll('clipPath rect')];
-    expect(rects.length, 'the airframe clip should be two rects').toBe(2);
+    const rects = [...host.querySelectorAll('clipPath[id$="-outside-0"] rect')];
+    expect(rects.length, 'the outside clip should be two rects').toBe(2);
     const a = rects[0]!;
     const b = rects[1]!;
     return {
@@ -158,9 +162,9 @@ describe('fins retreat into the airframe instead of blinking out', () => {
 
   /** Total fin area OUTSIDE the airframe — what the viewer can actually see. */
   const visible = () => {
-    if (!host.querySelector('polygon')) return 0;
+    if (!host.querySelector(FILLED_FIN)) return 0;
     const { top, bottom } = band();
-    return [...host.querySelectorAll('polygon')].reduce((sum, p) => {
+    return [...host.querySelectorAll(FILLED_FIN)].reduce((sum, p) => {
       const ys = p.getAttribute('points')!.split(' ').map((q) => Number(q.split(',')[1]));
       return sum + Math.max(0, top - Math.min(...ys)) + Math.max(0, Math.max(...ys) - bottom);
     }, 0);
@@ -168,7 +172,7 @@ describe('fins retreat into the airframe instead of blinking out', () => {
 
   it('clips every fin to the airframe, with a resolvable reference', () => {
     roll(10, 3);
-    const polys = [...host.querySelectorAll('polygon')];
+    const polys = [...host.querySelectorAll(FILLED_FIN)];
     expect(polys.length).toBeGreaterThan(0);
     for (const p of polys) {
       const ref = /url\(#(.+)\)/.exec(p.getAttribute('clip-path') ?? '');
@@ -178,6 +182,11 @@ describe('fins retreat into the airframe instead of blinking out', () => {
     // The band is the airframe, not something else.
     const { top, bottom } = band();
     expect(bottom - top).toBeCloseTo(2 * BODY_R * scale(), 4);
+    // …and the INSIDE clip is its complement, one rect over the same band.
+    const inner = [...host.querySelectorAll('clipPath[id$="-inside-0"] rect')];
+    expect(inner).toHaveLength(1);
+    expect(Number(inner[0]!.getAttribute('y'))).toBeCloseTo(top, 6);
+    expect(Number(inner[0]!.getAttribute('height'))).toBeCloseTo(bottom - top, 6);
   });
 
   it('namespaces the clip id, so two schematics in one document cannot cross-clip', () => {
@@ -200,9 +209,9 @@ describe('fins retreat into the airframe instead of blinking out', () => {
     for (const finCount of [3, 4]) {
       for (let deg = 0; deg <= 180; deg += 3) {
         roll(deg, finCount);
-        if (!host.querySelector('polygon')) continue;
+        if (!host.querySelector(FILLED_FIN)) continue;
         const { top, bottom } = band();
-        for (const p of host.querySelectorAll('polygon')) {
+        for (const p of host.querySelectorAll(FILLED_FIN)) {
           const ys = p.getAttribute('points')!.split(' ').map((q) => Number(q.split(',')[1]));
           const insideBand = ys.some((y) => y > top + 0.01 && y < bottom - 0.01);
           if (!insideBand) continue;
@@ -236,4 +245,62 @@ describe('fins retreat into the airframe instead of blinking out', () => {
         .toBeLessThan(4);
     }
   }, 60_000);
+});
+
+/**
+ * v0.081 — the owner, on v0.080: "the fins do not depict correctly while
+ * rotating … it is not fixed."
+ *
+ * He was comparing against desktop OR, and the difference is that desktop's
+ * figure is a WIREFRAME: `RocketFigure.paintComponent` is `g2.draw(shape)`
+ * and the only `g2.fill` is the motor (RocketFigure.java:314, :384). So every
+ * fin is on screen at all times and you watch them sweep THROUGH the body.
+ * Ours filled them, so whatever the airframe covered had to go somewhere, and
+ * a fin appeared at the wall out of nowhere. Now the covered part is a hidden
+ * line while the view is rolled, so the count on screen never changes.
+ */
+describe('every fin stays on screen while the view is rolled', () => {
+  const roll = (deg: number, finCount: number) => act(() => root.render(
+    <TreeSchematic
+      tree={treeWith({ type: 'trapezoidfinset', finCount, tipChord: 0.03, sweep: 0.02 })}
+      info={null} roll={(deg * Math.PI) / 180} />,
+  ));
+  const hiddenCount = () => host.querySelectorAll('[data-fin="hidden"]').length;
+
+  it('every instance is on screen at every angle — nothing ever vanishes', () => {
+    for (const finCount of [3, 4, 6]) {
+      for (let deg = 1; deg <= 180; deg += 1) {
+        roll(deg, finCount);
+        // One hidden line per instance, always. The filled half comes and
+        // goes as a fin passes behind the airframe; the hidden half does not,
+        // which is what makes a fin followable all the way round.
+        expect(hiddenCount(), `${finCount}-fin set at ${deg}deg`).toBe(finCount);
+        expect(host.querySelectorAll(FILLED_FIN).length).toBeLessThanOrEqual(finCount);
+      }
+    }
+  }, 120_000);
+
+  it('splits a fin between a filled part outside and a hidden line inside', () => {
+    roll(30, 3);
+    const filled = host.querySelectorAll(FILLED_FIN).length;
+    const hidden = hiddenCount();
+    expect(hidden).toBe(3);
+    // At 30° one of the three is behind the airframe: two filled, three hidden.
+    expect(filled).toBe(2);
+    for (const h of host.querySelectorAll('[data-fin="hidden"]')) {
+      expect(h.getAttribute('fill')).toBe('none');
+      expect(h.getAttribute('stroke-dasharray')).toBeTruthy();
+      expect(h.getAttribute('clip-path')).toContain('-inside-');
+    }
+  });
+
+  it('adds nothing at rest — an unrolled drawing is what it always was', () => {
+    act(() => root.render(
+      <TreeSchematic tree={treeWith({ type: 'trapezoidfinset', finCount: 4, tipChord: 0.03, sweep: 0.02 })}
+        info={null} />,
+    ));
+    expect(host.querySelectorAll('[data-fin="hidden"]')).toHaveLength(0);
+    // A 4-fin set at rest is the mirrored pair it has always been.
+    expect(host.querySelectorAll(FILLED_FIN)).toHaveLength(2);
+  });
 });

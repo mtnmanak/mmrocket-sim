@@ -121,6 +121,68 @@ export const TRF_POST_LIMIT = 10000;
 /** The generated file's path for a given source .txt. */
 export const bbcodePathFor = (src) => src.replace(/\.txt$/i, '') + ' BBCODE.txt';
 
+/** Part n of N, when one post will not hold it. */
+export const bbcodePartPathFor = (src, n, total) =>
+  src.replace(/\.txt$/i, '') + ` BBCODE (${n} of ${total}).txt`;
+
+/** Added at the foot of every part but the last, and the head of every part but the first. */
+export const CONTINUES = 'Continued in the post below.';
+export const CONTINUED = 'Continued from the post above.';
+
+/**
+ * Split finished BBCode into postable parts.
+ *
+ * The convention changed on 2026-08-30 (Eric): he wants ONE consolidated .txt to edit,
+ * however long it runs, and the split done HERE, from his edited text. So this no longer
+ * refuses an over-length draft - it cuts it.
+ *
+ * Where it cuts: only at a BLANK LINE that is not inside a [LIST]. That keeps every list,
+ * and therefore every tag pair, whole inside one part - the alternative is a part that opens
+ * a [LIST] it never closes, which pastes as visible junk. If a single unsplittable run is
+ * itself over the limit the caller is told rather than handed a bad cut.
+ *
+ * The joining lines are added AFTER measuring, so a part cannot come back over the limit
+ * because of them.
+ */
+export function splitBBCode(bb, limit = TRF_POST_LIMIT) {
+  const joinCost = Math.max(CONTINUES.length, CONTINUED.length) + 2;
+  const budget = limit - joinCost;
+  const lines = bb.split('\n');
+  const cuts = [];
+  let depth = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i];
+    if (l.includes('[LIST]')) depth++;
+    if (l.includes('[/LIST]')) depth--;
+    if (l.trim() === '' && depth === 0) cuts.push(i);
+  }
+  const parts = [];
+  let start = 0;
+  for (;;) {
+    const rest = lines.slice(start).join('\n');
+    if (rest.length <= budget) { parts.push(rest); break; }
+    let best = -1;
+    for (const c of cuts) {
+      if (c <= start) continue;
+      if (lines.slice(start, c).join('\n').length > budget) break;
+      best = c;
+    }
+    if (best < 0) {
+      throw new Error(
+        'the next unbreakable run is longer than a post. Add a blank line between '
+        + 'paragraphs, or shorten the longest list.');
+    }
+    parts.push(lines.slice(start, best).join('\n'));
+    start = best + 1;
+  }
+  if (parts.length === 1) return parts;
+  return parts.map((part, i) => {
+    const head = i === 0 ? '' : CONTINUED + '\n\n';
+    const foot = i === parts.length - 1 ? '' : '\n\n' + CONTINUES;
+    return head + part.trimEnd() + foot;
+  });
+}
+
 /**
  * Refuse to convert an already-converted file. Tab-completion on a blurb stem offers both
  * the .txt and its " BBCODE.txt", and re-converting the latter succeeds silently: no `**`
@@ -178,24 +240,39 @@ function main(argv) {
   const dst = bbcodePathFor(src);
   const bb = toBBCode(readFileSync(src, 'utf8'));
 
-  // Checked BEFORE writing, deliberately: an over-limit BBCode file left on disk looks
-  // exactly like a postable one, and sooner or later somebody pastes it.
-  if (bb.length > TRF_POST_LIMIT) {
-    fail(
-      `TOO LONG FOR TRF: ${bb.length} chars against a ${TRF_POST_LIMIT} limit `
-      + `(over by ${bb.length - TRF_POST_LIMIT}). Nothing was written.\n`
-      + 'Split it — see SPLITTING in this file\'s header: break on content, not release number,\n'
-      + 'and put what the reader must not miss in the short first post.', dst);
-  }
-
+  // Tags first: a split of malformed BBCode is malformed twice over.
   const problems = checkTags(bb);
   if (problems.length) {
     fail('TAG PROBLEMS (nothing written):\n  ' + problems.join('\n  '), dst);
   }
 
-  writeFileSync(dst, bb, 'utf8');
-  console.log(`wrote ${dst} (${bb.length} chars, ${Buffer.byteLength(bb)} bytes)`);
-  console.log(`tags balanced; fits TRF's ${TRF_POST_LIMIT}-char limit — ${TRF_POST_LIMIT - bb.length} to spare.`);
+  let parts;
+  try {
+    parts = splitBBCode(bb);
+  } catch (e) {
+    fail(`TOO LONG AND CANNOT BE SPLIT: ${e.message}\nNothing was written.`, dst);
+    return;
+  }
+
+  if (parts.length === 1) {
+    // A multi-part set from an earlier, longer draft must not survive beside it.
+    for (let n = 1; n <= 9; n++) quarantineStale(bbcodePartPathFor(src, n, 9));
+    writeFileSync(dst, bb, 'utf8');
+    console.log(`wrote ${dst} (${bb.length} chars, ${Buffer.byteLength(bb)} bytes)`);
+    console.log(`tags balanced; fits TRF's ${TRF_POST_LIMIT}-char limit - ${TRF_POST_LIMIT - bb.length} to spare.`);
+    return;
+  }
+
+  // Likewise a single-file BBCode from an earlier, shorter draft.
+  quarantineStale(dst);
+  parts.forEach((part, i) => {
+    const path = bbcodePartPathFor(src, i + 1, parts.length);
+    writeFileSync(path, part, 'utf8');
+    console.log(`wrote ${path} (${part.length} chars, ${Buffer.byteLength(part)} bytes)`);
+  });
+  console.log(
+    `tags balanced; ${bb.length} chars split into ${parts.length} posts, each inside TRF's `
+    + `${TRF_POST_LIMIT}-char limit. Post them in order - the joining lines are already in.`);
 }
 
 // Run the CLI only when invoked directly. Importing this module for its helpers must not

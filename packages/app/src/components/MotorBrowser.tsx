@@ -4,7 +4,8 @@ import { useDialog } from './useDialog.js';
 import type { MotorSpec } from '@online-openrocket/engine';
 import {
   MOTOR_DB, MOTOR_DB_DATE, classLabel, classesFittingMount, diameterClass,
-  displayDesignation, filterMotors, hasMassData, isHighPower, manufacturersForMount,
+  displayDesignation, filterMotors, hasMassData, impulseClassesForMount, isHighPower,
+  manufacturersForMount, propellantsForMount,
   sortMotors, type MotorDbEntry, type MotorSortKey,
 } from '../services/motorDb.js';
 import {
@@ -32,7 +33,15 @@ const ROW_CAP = 400;
 interface StoredFilters {
   manufacturers: string[];
   classes: number[];
+  /** Impulse letters, e.g. ["H","I"]; empty = all. */
+  impulse: string[];
+  /** Propellant names; empty = all. Behind "more filters". */
+  propellants: string[];
   includeOOP: boolean;
+  /** Hide motors longer than the mount's stated room. */
+  fitsOnly: boolean;
+  /** Whether the second filter row is open. */
+  showAll: boolean;
   sortKey: MotorSortKey;
   sortDir: 1 | -1;
 }
@@ -40,7 +49,11 @@ interface StoredFilters {
 const DEFAULT_FILTERS: StoredFilters = {
   manufacturers: [],
   classes: [],
+  impulse: [],
+  propellants: [],
   includeOOP: false,
+  fitsOnly: false,
+  showAll: false,
   sortKey: 'totImpulseNs',
   sortDir: -1,
 };
@@ -99,6 +112,14 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
   const fittingClasses = useMemo(
     () => classesFittingMount(mountDiameterMm, allMotors),
     [mountDiameterMm, allMotors]);
+  const impulseClasses = useMemo(
+    () => impulseClassesForMount(mountDiameterMm, filters.includeOOP, allMotors),
+    [mountDiameterMm, filters.includeOOP, allMotors],
+  );
+  const propellants = useMemo(
+    () => propellantsForMount(mountDiameterMm, filters.includeOOP, allMotors),
+    [mountDiameterMm, filters.includeOOP, allMotors],
+  );
   const manufacturers = useMemo(
     () => manufacturersForMount(mountDiameterMm, filters.includeOOP, allMotors),
     [mountDiameterMm, filters.includeOOP, allMotors],
@@ -108,12 +129,17 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
     const filtered = filterMotors({
       manufacturers: new Set(filters.manufacturers),
       classes: new Set(filters.classes.filter((c) => fittingClasses.includes(c))),
+      impulse: new Set(filters.impulse),
+      propellants: new Set(filters.propellants),
+      // Only enforceable when the rocket actually states its room; the
+      // checkbox is disabled and explained when it does not.
+      maxLengthM: filters.fitsOnly ? maxMotorLengthM : null,
       boreMm: mountDiameterMm,
       includeOOP: filters.includeOOP,
       text,
     }, allMotors);
     return sortMotors(filtered, filters.sortKey, filters.sortDir);
-  }, [filters, text, mountDiameterMm, fittingClasses, allMotors]);
+  }, [filters, text, mountDiameterMm, fittingClasses, allMotors, maxMotorLengthM]);
 
   // Single files or a whole EX-motor folder (2026-08-05e): every .eng/.rse
   // found is parsed and added to the persistent library; unreadable files are
@@ -272,6 +298,23 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
             )}
           </div>
 
+          {/* Impulse class — "just show me the H motors" (owner, 2026-08-30). */}
+          <div className="motor-chip-row" role="group" aria-label="Impulse classes">
+            <span className="motor-chip-caption">Class</span>
+            {impulseClasses.map(({ letter, count }) => (
+              <button
+                key={letter}
+                className={`series-chip ${filters.impulse.includes(letter) ? 'series-chip-on' : ''}`}
+                onClick={() => setFilters({ ...filters, impulse: toggle(filters.impulse, letter) })}
+              >
+                {letter} <span className="motor-chip-count">{count}</span>
+              </button>
+            ))}
+            {filters.impulse.length > 0 && (
+              <button className="file-btn" onClick={() => setFilters({ ...filters, impulse: [] })}>all</button>
+            )}
+          </div>
+
           <div className="motor-filter-row">
             <input
               type="search"
@@ -280,20 +323,27 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
               onChange={(e) => setText(e.target.value)}
               style={{ flex: 1 }}
             />
-            {maxMotorLengthM !== null && (
-              <span className="motor-db-meta" title="Set in the Motor panel — a property of the rocket. Longer motors are flagged ⚠ but stay selectable.">
-                max motor length {siToUi('motorDimensions', motorSym, maxMotorLengthM).toFixed(motorSym === 'mm' ? 0 : 2)} {motorSym}
-              </span>
-            )}
-            <label className="motor-inline-label">
+            <label className="motor-inline-label"
+              title={maxMotorLengthM !== null
+                ? `Hide motors longer than ${siToUi('motorDimensions', motorSym, maxMotorLengthM).toFixed(motorSym === 'mm' ? 0 : 2)} ${motorSym} — the room this stage states it has. Over-length motors stay flagged ⚠ when this is off.`
+                : 'This rocket states no maximum motor length, so there is nothing to filter against. Set one on the Motors & Launch tab — the ⌾ Estimate button there measures it from the mount.'}>
               <input
                 type="checkbox"
-                checked={filters.includeOOP}
-                onChange={(e) => setFilters({ ...filters, includeOOP: e.target.checked })}
+                checked={filters.fitsOnly && maxMotorLengthM !== null}
+                disabled={maxMotorLengthM === null}
+                onChange={(e) => setFilters({ ...filters, fitsOnly: e.target.checked })}
                 style={{ width: 'auto' }}
               />
-              include out-of-production
+              only motors that fit
+              {maxMotorLengthM !== null
+                ? <span className="motor-db-meta"> ≤ {siToUi('motorDimensions', motorSym, maxMotorLengthM).toFixed(motorSym === 'mm' ? 0 : 2)} {motorSym}</span>
+                : <span className="motor-db-meta"> — no max length set</span>}
             </label>
+            <button className="file-btn" aria-expanded={filters.showAll}
+              title={filters.showAll ? 'Hide the extra filters' : 'Propellant, out-of-production'}
+              onClick={() => setFilters({ ...filters, showAll: !filters.showAll })}>
+              {filters.showAll ? '▾' : '▸'} All filters
+            </button>
             <label className="file-btn" title="Import experimental/EX motors from RASP (.eng) or RockSim (.rse) files — they appear under manufacturer EX and persist across sessions">
               ⬆ Import .eng/.rse
               <input type="file" accept=".eng,.rse,.txt" multiple style={{ display: 'none' }}
@@ -314,6 +364,41 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
                 }} />
             </label>
           </div>
+
+          {/* Everything else, folded away by default: three chip rows and a
+              search line is already the most a dialog should ask for at a
+              glance (owner, 2026-08-30: "the dialogue box would get
+              cluttered"). */}
+          {filters.showAll && (
+            <>
+              <div className="motor-chip-row" role="group" aria-label="Propellants">
+                <span className="motor-chip-caption">Propellant</span>
+                {propellants.slice(0, 14).map(({ name, count }) => (
+                  <button
+                    key={name}
+                    className={`series-chip ${filters.propellants.includes(name) ? 'series-chip-on' : ''}`}
+                    onClick={() => setFilters({ ...filters, propellants: toggle(filters.propellants, name) })}
+                  >
+                    {name} <span className="motor-chip-count">{count}</span>
+                  </button>
+                ))}
+                {filters.propellants.length > 0 && (
+                  <button className="file-btn" onClick={() => setFilters({ ...filters, propellants: [] })}>all</button>
+                )}
+              </div>
+              <div className="motor-filter-row">
+                <label className="motor-inline-label">
+                  <input
+                    type="checkbox"
+                    checked={filters.includeOOP}
+                    onChange={(e) => setFilters({ ...filters, includeOOP: e.target.checked })}
+                    style={{ width: 'auto' }}
+                  />
+                  include out-of-production
+                </label>
+              </div>
+            </>
+          )}
         </div>
 
         <div className="motor-table-wrap">

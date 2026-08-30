@@ -1,5 +1,5 @@
 {
-  "version": "0.080",
+  "version": "0.081",
   "released": "2026-08-30",
-  "note": "Rolling the 2D side view, a fin turning edge-on was drawn at its full outline - most of it lying across the airframe - right up to the moment its tip crossed the body wall, and then dropped in one step. On a four-fin set that is two fin-shaped patches blinking out together, which reads as the drawing snapping rather than turning. Fins are clipped to the outside of the airframe now, so a fin slides into the tube wall and leaves with nothing to see. Note that a set of N identical fins genuinely repeats every 360/N degrees of roll - desktop OpenRocket does the same - so the repeat itself is geometry, not a defect. No numbers change."
+  "note": "A fin being rolled in the 2D side view now stays on screen the whole way round: the part the airframe covers is drawn as a hidden line while the view is rolled, the way desktop OpenRocket's wireframe figure shows every fin at all times. Two earlier attempts hid it instead, which is why a fin appeared to blink rather than travel. The motor browser gains an impulse-class filter and an only-motors-that-fit checkbox, with propellant and out-of-production behind an All filters toggle; the Max motor length field gains an Estimate button that measures the room from the aft of the mount to the first obstruction; and the Aft view now shows for every rocket rather than only for pods and clusters. No numbers change."
 }

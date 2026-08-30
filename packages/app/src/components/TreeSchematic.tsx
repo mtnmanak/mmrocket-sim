@@ -566,69 +566,86 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   };
 
   /**
-   * Where each fin of a set lands in the side view, as a signed foreshortening
-   * factor on its radial coordinates: +1 straight up, 0 edge on, −1 straight
-   * down. This is exactly what the desktop draws — `FinSetShapes.getShapesSide`
-   * transforms the fin's own points by `rotate_x(clock angle)` and plots
-   * (x, y), so a point at radius r lands at `r·cos θ`
-   * (FinSetShapes.java:41-60 + RocketFigure.axialRotation, 24.12).
+   * Fins are split at the airframe wall: the part outside it is the filled fin
+   * you have always seen, the part inside is drawn — while the view is rolled
+   * — as a hidden line, the same dashed outline every other internal component
+   * uses here.
    *
-   * Instances whose whole silhouette falls inside the body outline are
-   * dropped. The desktop draws them anyway — outlines only, so its worst case
-   * is a faint line — but our fins are filled, and an edge-on one collapses to
-   * a bar lying along the centreline of the airframe.
+   * This is how the desktop reads as a rotation and ours did not. Its figure
+   * is a WIREFRAME — `RocketFigure.paintComponent` is `g2.draw(rcs.shape)` and
+   * the only `g2.fill` in the whole method is the motor rectangle
+   * (RocketFigure.java:314, :384, 24.12) — so all N fins are on screen at all
+   * times and you watch them sweep through the body. Ours filled them, so
+   * anything the airframe covered had to go somewhere: v0.078 drew it flat
+   * across the tube and then dropped it (a fin-shaped patch blinking out),
+   * v0.080 clipped it away (a fin appearing from nowhere at the wall). Neither
+   * lets you follow a fin round, which is the whole point of the slider.
    *
-   * @param reach the fin's outer radius (body radius + span)
-   */
-  /**
-   * Fins are clipped to the airframe's OUTSIDE, so a fin rolling edge-on
-   * retreats into the tube wall instead of being drawn flat across it and
-   * then vanishing.
-   *
-   * Without this, a fin whose projected tip had shrunk to just past the body
-   * radius was still drawn in full — most of it lying over the airframe fill
-   * — and then dropped the moment the tip crossed the radius. On a four-fin
-   * set that is TWO fin-shaped patches blinking out at once, twice per
-   * quarter turn, which is what the roll slider looked like it was doing
-   * wrong (owner report, 2026-08-30).
-   *
-   * One clip per (centreline, body radius) pair, two rects: everything above
-   * the airframe band and everything below it. Sign-free, so it serves flat
-   * fins and tube fins alike, including a tube sitting across the axis.
+   * Two clips per (centreline, body radius) pair, memoised: OUTSIDE the
+   * airframe band (two rects) and INSIDE it (one). Sign-free, so they serve
+   * flat fins and tube fins alike, including a tube lying across the axis.
    */
   const clipDefs: React.ReactNode[] = [];
-  const outsideAirframe = new Map<string, string>();
-  const airframeClip = (baseY: number, pRadius: number): string => {
+  const airframeClips = new Map<string, { outside: string; inside: string }>();
+  const airframeClip = (baseY: number, pRadius: number): { outside: string; inside: string } => {
     const top = baseY - pRadius * ctx.scale;
     const bottom = baseY + pRadius * ctx.scale;
     const memo = `${top.toFixed(3)}:${bottom.toFixed(3)}`;
-    const seen = outsideAirframe.get(memo);
+    const seen = airframeClips.get(memo);
     if (seen) return seen;
-    const id = `${uid}-outside-${outsideAirframe.size}`;
-    outsideAirframe.set(memo, id);
+    const n = airframeClips.size;
+    const ids = { outside: `${uid}-outside-${n}`, inside: `${uid}-inside-${n}` };
+    airframeClips.set(memo, ids);
     // FAR is any distance that certainly covers the drawing in local user
     // space; the clip lives inside the view transform, so it scales with it.
     const FAR = 1e4;
     clipDefs.push(
-      <clipPath key={id} id={id}>
+      <clipPath key={ids.outside} id={ids.outside}>
         <rect x={-FAR} y={-FAR} width={2 * FAR} height={FAR + top} />
         <rect x={-FAR} y={bottom} width={2 * FAR} height={FAR} />
       </clipPath>,
+      <clipPath key={ids.inside} id={ids.inside}>
+        <rect x={-FAR} y={top} width={2 * FAR} height={Math.max(0, bottom - top)} />
+      </clipPath>,
     );
-    return id;
+    return ids;
   };
 
-  const finFactors = (n: ComponentNode, pRadius: number, reach: number, dfltCount = 3): number[] => {
+  /**
+   * Hidden lines are drawn only while the view is ROLLED. At rest the drawing
+   * stays exactly what it was: a four-fin set has two fins edge-on, and an
+   * edge-on fin's hidden line is a dash straight down the middle of the fin
+   * can — noise on a view nobody is rotating. The moment the slider moves it
+   * earns its place, because it is the thing that lets you watch a fin pass
+   * through the body instead of appear at the wall.
+   */
+  const showHidden = roll !== 0;
+  /** Ink for a hidden line: the fin's own stroke, quietened. */
+  const HIDDEN = {
+    'data-fin': 'hidden',
+    fill: 'none', stroke: '#7a786f', strokeWidth: 1, strokeOpacity: 0.7,
+    strokeDasharray: '3 2', style: { pointerEvents: 'none' as const },
+  };
+
+  /**
+   * Where each fin of a set lands in the side view: a signed foreshortening
+   * factor on its radial coordinates, +1 straight up, 0 edge on, −1 straight
+   * down. Exactly what the desktop computes — `FinSetShapes.getShapesSide`
+   * transforms the fin's own points by `rotate_x(clock angle)` and plots
+   * (x, y), so a point at radius r lands at `r·cos θ`
+   * (FinSetShapes.java:41-60 + RocketFigure.axialRotation, 24.12).
+   *
+   * EVERY instance comes back, including the ones the airframe hides. The
+   * clips decide what is filled and what is a hidden line; nothing is dropped,
+   * so nothing can pop.
+   */
+  const finFactors = (n: ComponentNode, dfltCount = 3): number[] => {
     const count = Math.max(1, Math.round(num(n, 'finCount', dfltCount)));
     const base = num(n, 'rotation', 0) + roll;
     const out: number[] = [];
-    for (let i = 0; i < count; i++) {
-      const p = Math.cos(base + (2 * Math.PI * i) / count);
-      if (reach * Math.abs(p) > pRadius) out.push(p);
-    }
+    for (let i = 0; i < count; i++) out.push(Math.cos(base + (2 * Math.PI * i) / count));
     // Furthest-out last. Same-colored fins overlap once a set is rolled off
-    // its symmetry, and the one that reaches past the others reads best on
-    // top. (The desktop needs no such rule — it draws outlines, not fills.)
+    // its symmetry, and the one that reaches past the others reads best on top.
     return out.sort((a, b) => Math.abs(a) - Math.abs(b));
   };
 
@@ -701,20 +718,28 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
           const chord = Math.max(...raw.map((p) => p[0]));
           const start = axialStart(child, chord, pStart, pLen);
           const ymax = Math.max(0, ...raw.map((p) => p[1]));
-          const projections = finFactors(child, pRadius, pRadius + ymax);
+          const reach = pRadius + ymax;
+          const projections = finFactors(child);
           noteHoverFins(child, ctx.x0 + start * ctx.scale, ctx.x0 + (start + chord) * ctx.scale,
-            baseY, pRadius + ymax, pRadius, projections);
-          const clip = projections.length ? `url(#${airframeClip(baseY, pRadius)})` : undefined;
+            baseY, reach, pRadius, projections);
+          const clip = airframeClip(baseY, pRadius);
           for (const p of projections) {
             const ptsStr = raw
               .map(([px, py]) => `${ctx.x0 + (start + px) * ctx.scale},${baseY - (pRadius + py) * p * ctx.scale}`)
               .join(' ');
-            shapes.push(
-              <polygon key={key++} points={ptsStr} clipPath={clip}
-                fill={fillOf(child, '#b9b7b0')} stroke={selStroke(child, '#7a786f')}
-                strokeWidth={selWidth(child)} {...grab} />,
-            );
-            renderTab(start, chord, p);
+            if (reach * Math.abs(p) > pRadius) {
+              shapes.push(
+                <polygon key={key++} points={ptsStr} clipPath={`url(#${clip.outside})`}
+                  fill={fillOf(child, '#b9b7b0')} stroke={selStroke(child, '#7a786f')}
+                  strokeWidth={selWidth(child)} {...grab} />,
+              );
+              renderTab(start, chord, p);
+            }
+            if (showHidden) {
+              overlay.push(
+                <polygon key={key++} points={ptsStr} clipPath={`url(#${clip.inside})`} {...HIDDEN} />,
+              );
+            }
           }
         }
       } else if (t === 'trapezoidfinset' || t === 'ellipticalfinset') {
@@ -723,35 +748,44 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
         const sweep = t === 'trapezoidfinset' ? num(child, 'sweep', 0.02) : root / 2;
         const height = num(child, 'height', 0.03);
         const start = axialStart(child, root, pStart, pLen);
-        const projections = finFactors(child, pRadius, pRadius + height);
+        const reach = pRadius + height;
+        const projections = finFactors(child);
         noteHoverFins(child, ctx.x0 + start * ctx.scale,
           ctx.x0 + (start + Math.max(root, sweep + tip)) * ctx.scale,
-          baseY, pRadius + height, pRadius, projections);
-        const finClip = projections.length ? `url(#${airframeClip(baseY, pRadius)})` : undefined;
+          baseY, reach, pRadius, projections);
+        const finClip = airframeClip(baseY, pRadius);
         for (const p of projections) {
           const y0 = baseY - pRadius * p * ctx.scale;
-          const yh = baseY - (pRadius + height) * p * ctx.scale;
+          const yh = baseY - reach * p * ctx.scale;
           const X = ctx.x0 + start * ctx.scale;
-          shapes.push(
-            t === 'trapezoidfinset' ? (
-              <polygon key={key++} clipPath={finClip}
-                points={`${X},${y0} ${X + sweep * ctx.scale},${yh} ${X + (sweep + tip) * ctx.scale},${yh} ${X + root * ctx.scale},${y0}`}
-                fill={fillOf(child, '#b9b7b0')} stroke={selStroke(child, '#7a786f')}
-                strokeWidth={selWidth(child)} {...grab} />
-            ) : (
-              // A TRUE half-ellipse, by arc. It used to be a quadratic with
-              // the tip as the CONTROL point — and a quadratic passes through
-              // (P0 + 2C + P2)/4, i.e. exactly halfway to its control, so an
-              // elliptical fin drew at 57 % of the height its own property
-              // panel, its 1:1 cut template, the Aft view and the 3D mesh all
-              // give it. Predates the roll work; the rulers made it readable.
-              <path key={key++} clipPath={finClip}
-                d={`M ${X} ${y0} A ${(root / 2) * ctx.scale} ${Math.max(2, Math.abs(y0 - yh))} 0 0 ${p > 0 ? 1 : 0} ${X + root * ctx.scale} ${y0} Z`}
-                fill={fillOf(child, '#b9b7b0')} stroke={selStroke(child, '#7a786f')}
-                strokeWidth={selWidth(child)} {...grab} />
-            ),
-          );
-          renderTab(start, root, p);
+          // A TRUE half-ellipse, by arc. It used to be a quadratic with the
+          // tip as the CONTROL point — and a quadratic passes through
+          // (P0 + 2C + P2)/4, i.e. exactly halfway to its control, so an
+          // elliptical fin drew at 57 % of the height its own property panel,
+          // its 1:1 cut template, the Aft view and the 3D mesh all give it.
+          const ellipse = `M ${X} ${y0} A ${(root / 2) * ctx.scale} ${Math.max(2, Math.abs(y0 - yh))} 0 0 ${p > 0 ? 1 : 0} ${X + root * ctx.scale} ${y0} Z`;
+          const trap = `${X},${y0} ${X + sweep * ctx.scale},${yh} ${X + (sweep + tip) * ctx.scale},${yh} ${X + root * ctx.scale},${y0}`;
+          if (reach * Math.abs(p) > pRadius) {
+            shapes.push(
+              t === 'trapezoidfinset' ? (
+                <polygon key={key++} clipPath={`url(#${finClip.outside})`} points={trap}
+                  fill={fillOf(child, '#b9b7b0')} stroke={selStroke(child, '#7a786f')}
+                  strokeWidth={selWidth(child)} {...grab} />
+              ) : (
+                <path key={key++} clipPath={`url(#${finClip.outside})`} d={ellipse}
+                  fill={fillOf(child, '#b9b7b0')} stroke={selStroke(child, '#7a786f')}
+                  strokeWidth={selWidth(child)} {...grab} />
+              ),
+            );
+            renderTab(start, root, p);
+          }
+          if (showHidden) {
+            overlay.push(
+              t === 'trapezoidfinset'
+                ? <polygon key={key++} clipPath={`url(#${finClip.inside})`} points={trap} {...HIDDEN} />
+                : <path key={key++} clipPath={`url(#${finClip.inside})`} d={ellipse} {...HIDDEN} />,
+            );
+          }
         }
       } else if (t === 'tubefinset') {
         // Side view: every tube of the ring, at its projected height. A tube
@@ -767,27 +801,30 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
         const X = ctx.x0 + start * ctx.scale;
         noteHover(child, X, baseY - (pRadius + 2 * rt) * ctx.scale,
           X + len * ctx.scale, baseY + (pRadius + 2 * rt) * ctx.scale);
-        const tubeCount = Math.max(1, Math.round(num(child, 'finCount', 6)));
-        const tubeBase = num(child, 'rotation', 0) + roll;
-        const tubes: number[] = [];
-        for (let i = 0; i < tubeCount; i++) {
-          const p = Math.cos(tubeBase + (2 * Math.PI * i) / tubeCount);
-          if ((pRadius + rt) * Math.abs(p) + rt > pRadius) tubes.push(p);
-        }
-        tubes.sort((a, b) => Math.abs(a) - Math.abs(b));
-        const tubeClip = tubes.length ? `url(#${airframeClip(baseY, pRadius)})` : undefined;
+        const tubes = finFactors(child, 6);
+        const tubeClip = airframeClip(baseY, pRadius);
         for (const p of tubes) {
           const yc = baseY - (pRadius + rt) * p * ctx.scale;
           const half = rt * ctx.scale;
-          shapes.push(
-            <rect key={key++} x={X} y={yc - half} clipPath={tubeClip}
-              width={Math.max(2, len * ctx.scale)} height={2 * half}
-              rx="2" fill={fillOf(child, '#c8c5be')} fillOpacity="0.6"
-              stroke={selStroke(child, '#7a786f')} strokeWidth={selWidth(child)} {...grab} />,
-            <line key={key++} x1={X} y1={yc} x2={X + len * ctx.scale} y2={yc} clipPath={tubeClip}
-              stroke="#7a786f" strokeWidth="0.8" strokeDasharray="4 3"
-              style={{ pointerEvents: 'none' }} />,
-          );
+          const w2 = Math.max(2, len * ctx.scale);
+          if ((pRadius + rt) * Math.abs(p) + rt > pRadius) {
+            shapes.push(
+              <rect key={key++} x={X} y={yc - half} clipPath={`url(#${tubeClip.outside})`}
+                width={w2} height={2 * half}
+                rx="2" fill={fillOf(child, '#c8c5be')} fillOpacity="0.6"
+                stroke={selStroke(child, '#7a786f')} strokeWidth={selWidth(child)} {...grab} />,
+              <line key={key++} x1={X} y1={yc} x2={X + len * ctx.scale} y2={yc}
+                clipPath={`url(#${tubeClip.outside})`}
+                stroke="#7a786f" strokeWidth="0.8" strokeDasharray="4 3"
+                style={{ pointerEvents: 'none' }} />,
+            );
+          }
+          if (showHidden) {
+            overlay.push(
+              <rect key={key++} x={X} y={yc - half} clipPath={`url(#${tubeClip.inside})`}
+                width={w2} height={2 * half} rx="2" {...HIDDEN} />,
+            );
+          }
         }
       } else if (t === 'fairing') {
         // External shroud: SOLID outline (it's on the outside — the owner's spec),

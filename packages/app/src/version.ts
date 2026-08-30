@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.080';
+export const APP_VERSION = '0.081';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,20 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.081',
+    date: '2026-08-30',
+    title: 'Fins you can follow round, and a motor browser that filters by class',
+    items: [
+      'NO NUMBERS CHANGE. Nothing in the physics, the models, the importers or the exports.',
+      'A ROLLING FIN NOW STAYS ON SCREEN THE WHOLE WAY ROUND. Two releases went at this from the wrong end. Desktop OpenRocket’s design figure is a WIREFRAME — it draws outlines and fills nothing — so every fin is visible at all times and you watch them sweep through the body. This app fills its fins, so whatever the airframe covered had to go somewhere: v0.078 drew it flat across the tube and then dropped it, v0.080 clipped it away so a fin appeared at the wall out of nowhere. Neither lets you follow a fin. The covered part of a fin is now drawn as a hidden line — the same dashed outline this app already uses for anything inside a tube — and only while the view is rolled, so a rocket at rest looks exactly as it did.',
+      'STILL NOT A DEFECT, and worth repeating because it looks like one: a set of N identical fins repeats every 360/N degrees of roll. A three-fin rocket at 120 degrees IS the same rocket, and the side view cannot tell you which fin is which. Desktop OpenRocket repeats identically. The hidden lines are what let you watch a fin travel there instead of blink.',
+      'THE MOTOR BROWSER FILTERS BY IMPULSE CLASS. It had Makers and Diameter; Class now sits alongside them with counts, so "show me the H motors" is one click. Propellant and include-out-of-production moved behind an All filters toggle, keeping the default view to three chip rows and a search box.',
+      'ONLY MOTORS THAT FIT. A checkbox beside the search hides anything longer than the room the rocket states it has. When it states none the checkbox is disabled and says so, rather than silently doing nothing.',
+      '⌾ ESTIMATE, ON THE MAX MOTOR LENGTH FIELD. It measures from the aft of the mount forward to the first thing a motor case cannot pass — an engine block, a bulkhead, a mass component standing in for a sled — or to the front of the mount tube when nothing is in the way, and names whichever it found. An estimate, and the app says so: it cannot see wadding, a baffle modelled as something else, or a chute packed against the block.',
+      'THE AFT VIEW SHOWS FOR EVERY ROCKET on Motors & Launch, not only for designs with a pod or a cluster. Fin count and clocking read from behind on any rocket, the motor shows in its mount, and it shares the roll slider with the side view.',
+    ],
+  },
   {
     version: '0.080',
     date: '2026-08-30',
