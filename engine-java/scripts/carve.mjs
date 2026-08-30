@@ -34,9 +34,11 @@ const sourceRoot = explicit
 const targetRoot = join(engineRoot, 'src', 'carved', 'java');
 
 if (!existsSync(sourceRoot)) {
+  // Nothing probes per-machine paths anymore — resolution is --source /
+  // OPENROCKET_SRC / .openrocket-src via scripts/openrocket-src.mjs. The old
+  // probe-list printout survived the scrub as an undefined-variable crash
+  // that hid this message exactly when it was needed (2026-08-29 audit).
   console.error(`OpenRocket source not found at: ${sourceRoot}`);
-  console.error('Probed per-machine paths:');
-  for (const p of KNOWN_SOURCES) console.error('  ' + p);
   console.error('Download openrocket release-24.12 source, then set OPENROCKET_SRC to its root or pass --source <core/src/main/java>.');
   process.exit(1);
 }

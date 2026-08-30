@@ -474,7 +474,11 @@ async function main() {
     }
     console.log(`Found ${localFiles.length} desktop-internal .orc files in ${DESKTOP_COMPONENTS_DIR}`);
   } else {
-    console.warn(`WARNING: desktop components dir not found (${DESKTOP_COMPONENTS_DIR}) — desktop-only presets (Fruity Chutes etc.) will be missing. Set OPENROCKET_SRC (probed: ${KNOWN_SRC_ROOTS.join(' , ')}).`);
+    // No dead KNOWN_SRC_ROOTS reference here: the per-machine probe list was
+    // scrubbed when path resolution moved to scripts/openrocket-src.mjs, and
+    // the leftover identifier turned this documented degrade path into a
+    // ReferenceError crash (2026-08-29 audit).
+    console.warn(`WARNING: desktop components dir not found (${DESKTOP_COMPONENTS_DIR || '<no reference source configured>'}) — desktop-only presets (Fruity Chutes etc.) will be missing. Set OPENROCKET_SRC or a .openrocket-src file at the repo root (see .openrocket-src.example).`);
   }
 
   // Pass 2: parse components. Github first (canonical), then desktop-internal
