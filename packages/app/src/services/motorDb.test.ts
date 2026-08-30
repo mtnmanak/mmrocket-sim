@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   MOTOR_DB, allClasses, classLabel, classesFittingMount, diameterClass,
   displayDesignation, filterMotors, findDbMotor, impulseClassesForMount, impulseLetter,
-  manufacturersForMount, propellantsForMount, sortMotors,
+  manufacturersForMount, propellantsForMount, rangesForMount, sortMotors,
 } from './motorDb.js';
 
 describe('bundled motor database', () => {
@@ -227,5 +227,55 @@ describe('propellant filtering', () => {
     const got = filterMotors({ ...base, propellants: new Set([top.name]), boreMm: 29, includeOOP: false });
     expect(got.length).toBe(top.count);
     expect(got.every((m) => (m.propInfo ?? '').trim() === top.name)).toBe(true);
+  });
+});
+
+/**
+ * Burn-time and impulse windows (owner, 2026-08-30b): "show me motors that
+ * have a burn time from 0.0sec - 2.4sec". Typed bounds rather than sliders —
+ * the impulse span for one mount runs three orders of magnitude, which no
+ * two-ended slider handles usefully.
+ */
+describe('burn-time and impulse windows', () => {
+  const base = { manufacturers: new Set<string>(), classes: new Set<number>(), text: '' };
+  const all = () => filterMotors({ ...base, boreMm: 29, includeOOP: false });
+
+  it("reports the span the mount's motors actually cover", () => {
+    const r = rangesForMount(29, false)!;
+    expect(r).not.toBeNull();
+    expect(r.burnS[0]).toBeGreaterThan(0);
+    expect(r.burnS[1]).toBeGreaterThan(r.burnS[0]);
+    expect(r.impulseNs[1]).toBeGreaterThan(r.impulseNs[0]);
+  });
+
+  it('keeps only motors inside a burn-time window, inclusive', () => {
+    const got = filterMotors({ ...base, boreMm: 29, includeOOP: false, burnS: { min: 0, max: 2.4 } });
+    expect(got.length).toBeGreaterThan(0);
+    expect(got.length).toBeLessThan(all().length);
+    expect(got.every((m) => m.burnTimeS <= 2.4 + 1e-9)).toBe(true);
+  });
+
+  it('takes one bound on its own', () => {
+    const lo = filterMotors({ ...base, boreMm: 29, includeOOP: false, burnS: { min: 3, max: null } });
+    expect(lo.every((m) => m.burnTimeS >= 3 - 1e-9)).toBe(true);
+    expect(lo.length).toBeGreaterThan(0);
+    const hi = filterMotors({ ...base, boreMm: 29, includeOOP: false, impulseNs: { min: null, max: 200 } });
+    expect(hi.every((m) => m.totImpulseNs <= 200 + 1e-9)).toBe(true);
+  });
+
+  it('two null bounds filter nothing', () => {
+    const got = filterMotors({
+      ...base, boreMm: 29, includeOOP: false,
+      burnS: { min: null, max: null }, impulseNs: { min: null, max: null },
+    });
+    expect(got.length).toBe(all().length);
+  });
+
+  it('combines with the class filter rather than replacing it', () => {
+    const got = filterMotors({
+      ...base, boreMm: 29, includeOOP: false,
+      impulse: new Set(['H']), burnS: { min: 0, max: 1.5 },
+    });
+    expect(got.every((m) => impulseLetter(m) === 'H' && m.burnTimeS <= 1.5 + 1e-9)).toBe(true);
   });
 });

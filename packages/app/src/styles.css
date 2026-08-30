@@ -2822,6 +2822,13 @@ select.unit-chip:hover {
   align-items: center;
 }
 
+/* Range bounds in the motor browser's All-filters row. Narrow on purpose —
+   four of them share a line with two captions. */
+.motor-range-input {
+  width: 74px;
+  padding: 2px 6px;
+}
+
 .motor-chip-caption {
   font-size: 11px;
   color: var(--text-secondary);

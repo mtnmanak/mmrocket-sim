@@ -102,8 +102,40 @@ export interface MotorFilter {
    * flagged in the table either way.
    */
   maxLengthM?: number | null;
+  /**
+   * Inclusive windows on the catalog's own numbers; either end may be null for
+   * "no bound". Burn time is seconds, impulse newton-seconds — the units the
+   * table already shows, so a typed number means what it looks like.
+   */
+  burnS?: { min: number | null; max: number | null };
+  impulseNs?: { min: number | null; max: number | null };
   /** Free-text match against designation / common name. */
   text: string;
+}
+
+/** Inclusive, and tolerant of a null bound. NaN in the data never passes. */
+const inWindow = (v: number, w?: { min: number | null; max: number | null }): boolean => {
+  if (!w || (w.min == null && w.max == null)) return true;
+  if (!Number.isFinite(v)) return false;
+  if (w.min != null && v < w.min - 1e-9) return false;
+  if (w.max != null && v > w.max + 1e-9) return false;
+  return true;
+};
+
+/** The burn-time and total-impulse span of the motors that fit this mount. */
+export function rangesForMount(
+  boreMm: number, includeOOP: boolean, motors: MotorDbEntry[] = MOTOR_DB,
+): { burnS: [number, number]; impulseNs: [number, number] } | null {
+  const fitting = new Set(classesFittingMount(boreMm, motors));
+  let b0 = Infinity; let b1 = -Infinity; let i0 = Infinity; let i1 = -Infinity;
+  for (const m of motors) {
+    if (!fitting.has(diameterClass(m.diameter))) continue;
+    if (!includeOOP && m.availability !== 'regular') continue;
+    if (Number.isFinite(m.burnTimeS)) { b0 = Math.min(b0, m.burnTimeS); b1 = Math.max(b1, m.burnTimeS); }
+    if (Number.isFinite(m.totImpulseNs)) { i0 = Math.min(i0, m.totImpulseNs); i1 = Math.max(i1, m.totImpulseNs); }
+  }
+  if (!Number.isFinite(b0) || !Number.isFinite(i0)) return null;
+  return { burnS: [b0, b1], impulseNs: [i0, i1] };
 }
 
 /** A motor's impulse letter, from the catalog's own class field. */
@@ -162,6 +194,8 @@ export function filterMotors(filter: MotorFilter, motors: MotorDbEntry[] = MOTOR
       && !filter.propellants.has((m.propInfo ?? '').trim())) return false;
     // Lengths are millimetres in the catalog, metres in the app.
     if (filter.maxLengthM != null && m.length / 1000 > filter.maxLengthM + 1e-9) return false;
+    if (!inWindow(m.burnTimeS, filter.burnS)) return false;
+    if (!inWindow(m.totImpulseNs, filter.impulseNs)) return false;
     if (text
       && !m.designation.toLowerCase().includes(text)
       && !displayDesignation(m.designation, m.manufacturerAbbrev).toLowerCase().includes(text)

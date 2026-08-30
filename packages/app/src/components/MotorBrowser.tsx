@@ -5,7 +5,7 @@ import type { MotorSpec } from '@online-openrocket/engine';
 import {
   MOTOR_DB, MOTOR_DB_DATE, classLabel, classesFittingMount, diameterClass,
   displayDesignation, filterMotors, hasMassData, impulseClassesForMount, isHighPower,
-  manufacturersForMount, propellantsForMount,
+  manufacturersForMount, propellantsForMount, rangesForMount,
   sortMotors, type MotorDbEntry, type MotorSortKey,
 } from '../services/motorDb.js';
 import {
@@ -40,6 +40,11 @@ interface StoredFilters {
   includeOOP: boolean;
   /** Hide motors longer than the mount's stated room. */
   fitsOnly: boolean;
+  /** Inclusive windows; null = unbounded that end. Behind "All filters". */
+  burnMin: number | null;
+  burnMax: number | null;
+  impulseMin: number | null;
+  impulseMax: number | null;
   /** Whether the second filter row is open. */
   showAll: boolean;
   sortKey: MotorSortKey;
@@ -53,6 +58,10 @@ const DEFAULT_FILTERS: StoredFilters = {
   propellants: [],
   includeOOP: false,
   fitsOnly: false,
+  burnMin: null,
+  burnMax: null,
+  impulseMin: null,
+  impulseMax: null,
   showAll: false,
   sortKey: 'totImpulseNs',
   sortDir: -1,
@@ -120,6 +129,11 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
     () => propellantsForMount(mountDiameterMm, filters.includeOOP, allMotors),
     [mountDiameterMm, filters.includeOOP, allMotors],
   );
+  /** What this mount's motors actually span — the placeholders say so. */
+  const ranges = useMemo(
+    () => rangesForMount(mountDiameterMm, filters.includeOOP, allMotors),
+    [mountDiameterMm, filters.includeOOP, allMotors],
+  );
   const manufacturers = useMemo(
     () => manufacturersForMount(mountDiameterMm, filters.includeOOP, allMotors),
     [mountDiameterMm, filters.includeOOP, allMotors],
@@ -134,6 +148,8 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
       // Only enforceable when the rocket actually states its room; the
       // checkbox is disabled and explained when it does not.
       maxLengthM: filters.fitsOnly ? maxMotorLengthM : null,
+      burnS: { min: filters.burnMin, max: filters.burnMax },
+      impulseNs: { min: filters.impulseMin, max: filters.impulseMax },
       boreMm: mountDiameterMm,
       includeOOP: filters.includeOOP,
       text,
@@ -384,6 +400,44 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
                 ))}
                 {filters.propellants.length > 0 && (
                   <button className="file-btn" onClick={() => setFilters({ ...filters, propellants: [] })}>all</button>
+                )}
+              </div>
+              {/* Windows, not sliders: a two-ended slider on a range this
+                  skewed (a few Ns to tens of thousands) is unusable, and a
+                  typed bound is what "0.0 to 2.4 seconds" actually means. */}
+              <div className="motor-filter-row">
+                <span className="motor-chip-caption">Burn (s)</span>
+                <input type="number" className="motor-range-input" min={0} step={0.1}
+                  aria-label="Shortest burn time, seconds"
+                  placeholder={ranges ? ranges.burnS[0].toFixed(2) : 'min'}
+                  value={filters.burnMin ?? ''}
+                  onChange={(e) => setFilters({ ...filters, burnMin: e.target.value === '' ? null : Number(e.target.value) })} />
+                <span className="motor-db-meta">to</span>
+                <input type="number" className="motor-range-input" min={0} step={0.1}
+                  aria-label="Longest burn time, seconds"
+                  placeholder={ranges ? ranges.burnS[1].toFixed(2) : 'max'}
+                  value={filters.burnMax ?? ''}
+                  onChange={(e) => setFilters({ ...filters, burnMax: e.target.value === '' ? null : Number(e.target.value) })} />
+
+                <span className="motor-chip-caption" style={{ marginLeft: 10 }}>Impulse (Ns)</span>
+                <input type="number" className="motor-range-input" min={0} step={10}
+                  aria-label="Smallest total impulse, newton-seconds"
+                  placeholder={ranges ? String(Math.round(ranges.impulseNs[0])) : 'min'}
+                  value={filters.impulseMin ?? ''}
+                  onChange={(e) => setFilters({ ...filters, impulseMin: e.target.value === '' ? null : Number(e.target.value) })} />
+                <span className="motor-db-meta">to</span>
+                <input type="number" className="motor-range-input" min={0} step={10}
+                  aria-label="Largest total impulse, newton-seconds"
+                  placeholder={ranges ? String(Math.round(ranges.impulseNs[1])) : 'max'}
+                  value={filters.impulseMax ?? ''}
+                  onChange={(e) => setFilters({ ...filters, impulseMax: e.target.value === '' ? null : Number(e.target.value) })} />
+
+                {(filters.burnMin !== null || filters.burnMax !== null
+                  || filters.impulseMin !== null || filters.impulseMax !== null) && (
+                  <button className="file-btn"
+                    onClick={() => setFilters({ ...filters, burnMin: null, burnMax: null, impulseMin: null, impulseMax: null })}>
+                    clear
+                  </button>
                 )}
               </div>
               <div className="motor-filter-row">

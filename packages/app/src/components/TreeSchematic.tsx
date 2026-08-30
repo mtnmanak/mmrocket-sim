@@ -34,6 +34,25 @@ interface Ctx {
   x0: number;
 }
 
+/**
+ * One drawn instance of a fin set in the side view.
+ *
+ * `p` is the foreshortening on its radial coordinates: cos(clock angle), so
+ * +1 is straight up, 0 edge on, −1 straight down. That much the desktop also
+ * computes (FinSetShapes.getShapesSide plots (x, y) after rotate_x, 24.12).
+ *
+ * `near` is the half a silhouette cannot express and the reason the roll
+ * slider read as a see-saw for three releases: a fin at +z is in FRONT of the
+ * airframe and you see all of it, one at −z is behind and the tube covers its
+ * root. Draw both the same way — as v0.078 did in front and v0.080/81 did
+ * behind — and the two lower fins of a three-fin set become identical shapes,
+ * so all that is left to watch is their heights swapping.
+ */
+interface FinInstance {
+  p: number;
+  near: boolean;
+}
+
 const num = (n: ComponentNode, key: string, fb: number): number =>
   typeof n[key] === 'number' ? (n[key] as number) : fb;
 
@@ -639,14 +658,17 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
    * clips decide what is filled and what is a hidden line; nothing is dropped,
    * so nothing can pop.
    */
-  const finFactors = (n: ComponentNode, dfltCount = 3): number[] => {
+  const finFactors = (n: ComponentNode, dfltCount = 3): FinInstance[] => {
     const count = Math.max(1, Math.round(num(n, 'finCount', dfltCount)));
     const base = num(n, 'rotation', 0) + roll;
-    const out: number[] = [];
-    for (let i = 0; i < count; i++) out.push(Math.cos(base + (2 * Math.PI * i) / count));
+    const out: FinInstance[] = [];
+    for (let i = 0; i < count; i++) {
+      const a = base + (2 * Math.PI * i) / count;
+      out.push({ p: Math.cos(a), near: Math.sin(a) >= 0 });
+    }
     // Furthest-out last. Same-colored fins overlap once a set is rolled off
     // its symmetry, and the one that reaches past the others reads best on top.
-    return out.sort((a, b) => Math.abs(a) - Math.abs(b));
+    return out.sort((x, y) => Math.abs(x.p) - Math.abs(y.p));
   };
 
   /**
@@ -657,15 +679,18 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
    */
   const noteHoverFins = (
     n: ComponentNode, x0: number, x1: number, baseY: number, reach: number,
-    pRadius: number, projections: number[],
+    pRadius: number, projections: FinInstance[],
   ) => {
     if (!projections.length) return;
-    // Tip AND the airframe edge the fin emerges from — not the projected root,
-    // which sits inside the tube and is clipped away. Two reasons: the wash
-    // then covers exactly the visible fin, and a ONE-fin set gets a box with
-    // height (tip-to-tip alone would be a zero-height rect).
-    const ys = projections.flatMap((p) =>
-      [baseY - reach * p * ctx.scale, baseY - pRadius * Math.sign(p) * ctx.scale]);
+    // Tip AND the airframe edge the fin emerges from. A far fin's projected
+    // root is clipped away, so the wash would over-reach into the tube; a near
+    // fin is drawn whole, so its own root is the honest edge. Taking both
+    // keeps the box on the drawing, and gives a ONE-fin set a box with height
+    // (tip-to-tip alone would be a zero-height rect).
+    const ys = projections.flatMap(({ p, near }) => [
+      baseY - reach * p * ctx.scale,
+      baseY - pRadius * (near ? p : Math.sign(p)) * ctx.scale,
+    ]);
     noteHover(n, x0, Math.min(...ys), x1, Math.max(...ys));
   };
 
@@ -723,19 +748,24 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
           noteHoverFins(child, ctx.x0 + start * ctx.scale, ctx.x0 + (start + chord) * ctx.scale,
             baseY, reach, pRadius, projections);
           const clip = airframeClip(baseY, pRadius);
-          for (const p of projections) {
+          for (const { p, near } of projections) {
             const ptsStr = raw
               .map(([px, py]) => `${ctx.x0 + (start + px) * ctx.scale},${baseY - (pRadius + py) * p * ctx.scale}`)
               .join(' ');
+            const body = (
+              <polygon key={key++} points={ptsStr} clipPath={near ? undefined : `url(#${clip.outside})`}
+                fill={fillOf(child, '#b9b7b0')} stroke={selStroke(child, '#7a786f')}
+                strokeWidth={selWidth(child)} {...grab} />
+            );
+            // The same extent rule for both sides: a fin whose whole
+            // silhouette is inside the airframe outline has nothing to draw,
+            // and a NEAR one at that angle is edge-on — drawing it unclipped
+            // would put a bar down the centreline of the fin can.
             if (reach * Math.abs(p) > pRadius) {
-              shapes.push(
-                <polygon key={key++} points={ptsStr} clipPath={`url(#${clip.outside})`}
-                  fill={fillOf(child, '#b9b7b0')} stroke={selStroke(child, '#7a786f')}
-                  strokeWidth={selWidth(child)} {...grab} />,
-              );
+              (near ? overlay : shapes).push(body);
               renderTab(start, chord, p);
             }
-            if (showHidden) {
+            if (!near && showHidden) {
               overlay.push(
                 <polygon key={key++} points={ptsStr} clipPath={`url(#${clip.inside})`} {...HIDDEN} />,
               );
@@ -754,7 +784,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
           ctx.x0 + (start + Math.max(root, sweep + tip)) * ctx.scale,
           baseY, reach, pRadius, projections);
         const finClip = airframeClip(baseY, pRadius);
-        for (const p of projections) {
+        for (const { p, near } of projections) {
           const y0 = baseY - pRadius * p * ctx.scale;
           const yh = baseY - reach * p * ctx.scale;
           const X = ctx.x0 + start * ctx.scale;
@@ -765,21 +795,21 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
           // its 1:1 cut template, the Aft view and the 3D mesh all give it.
           const ellipse = `M ${X} ${y0} A ${(root / 2) * ctx.scale} ${Math.max(2, Math.abs(y0 - yh))} 0 0 ${p > 0 ? 1 : 0} ${X + root * ctx.scale} ${y0} Z`;
           const trap = `${X},${y0} ${X + sweep * ctx.scale},${yh} ${X + (sweep + tip) * ctx.scale},${yh} ${X + root * ctx.scale},${y0}`;
+          const outsideClip = near ? undefined : `url(#${finClip.outside})`;
+          const body = t === 'trapezoidfinset' ? (
+            <polygon key={key++} clipPath={outsideClip} points={trap}
+              fill={fillOf(child, '#b9b7b0')} stroke={selStroke(child, '#7a786f')}
+              strokeWidth={selWidth(child)} {...grab} />
+          ) : (
+            <path key={key++} clipPath={outsideClip} d={ellipse}
+              fill={fillOf(child, '#b9b7b0')} stroke={selStroke(child, '#7a786f')}
+              strokeWidth={selWidth(child)} {...grab} />
+          );
           if (reach * Math.abs(p) > pRadius) {
-            shapes.push(
-              t === 'trapezoidfinset' ? (
-                <polygon key={key++} clipPath={`url(#${finClip.outside})`} points={trap}
-                  fill={fillOf(child, '#b9b7b0')} stroke={selStroke(child, '#7a786f')}
-                  strokeWidth={selWidth(child)} {...grab} />
-              ) : (
-                <path key={key++} clipPath={`url(#${finClip.outside})`} d={ellipse}
-                  fill={fillOf(child, '#b9b7b0')} stroke={selStroke(child, '#7a786f')}
-                  strokeWidth={selWidth(child)} {...grab} />
-              ),
-            );
+            (near ? overlay : shapes).push(body);
             renderTab(start, root, p);
           }
-          if (showHidden) {
+          if (!near && showHidden) {
             overlay.push(
               t === 'trapezoidfinset'
                 ? <polygon key={key++} clipPath={`url(#${finClip.inside})`} points={trap} {...HIDDEN} />
@@ -803,23 +833,25 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
           X + len * ctx.scale, baseY + (pRadius + 2 * rt) * ctx.scale);
         const tubes = finFactors(child, 6);
         const tubeClip = airframeClip(baseY, pRadius);
-        for (const p of tubes) {
+        for (const { p, near } of tubes) {
           const yc = baseY - (pRadius + rt) * p * ctx.scale;
           const half = rt * ctx.scale;
           const w2 = Math.max(2, len * ctx.scale);
-          if ((pRadius + rt) * Math.abs(p) + rt > pRadius) {
-            shapes.push(
-              <rect key={key++} x={X} y={yc - half} clipPath={`url(#${tubeClip.outside})`}
+          const cut = near ? undefined : `url(#${tubeClip.outside})`;
+          const shown = (pRadius + rt) * Math.abs(p) + rt > pRadius;
+          if (shown) {
+            const into = near ? overlay : shapes;
+            into.push(
+              <rect key={key++} x={X} y={yc - half} clipPath={cut}
                 width={w2} height={2 * half}
                 rx="2" fill={fillOf(child, '#c8c5be')} fillOpacity="0.6"
                 stroke={selStroke(child, '#7a786f')} strokeWidth={selWidth(child)} {...grab} />,
-              <line key={key++} x1={X} y1={yc} x2={X + len * ctx.scale} y2={yc}
-                clipPath={`url(#${tubeClip.outside})`}
+              <line key={key++} x1={X} y1={yc} x2={X + len * ctx.scale} y2={yc} clipPath={cut}
                 stroke="#7a786f" strokeWidth="0.8" strokeDasharray="4 3"
                 style={{ pointerEvents: 'none' }} />,
             );
           }
-          if (showHidden) {
+          if (!near && showHidden) {
             overlay.push(
               <rect key={key++} x={X} y={yc - half} clipPath={`url(#${tubeClip.inside})`}
                 width={w2} height={2 * half} rx="2" {...HIDDEN} />,

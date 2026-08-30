@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.081';
+export const APP_VERSION = '0.082';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.082',
+    date: '2026-08-30',
+    title: 'A fin in front of the tube is drawn in front of it',
+    items: [
+      'NO NUMBERS CHANGE.',
+      'THE 2D SIDE VIEW NOW KNOWS WHICH SIDE A FIN IS ON. A fin pointing toward you is in FRONT of the airframe and you see the whole of it, including the part that crosses the tube; one pointing away is behind, and the tube covers its root. Every release so far drew both the same way — v0.078 put them all in front, v0.080 and v0.081 put them all behind — and that is why rolling looked like the fins were toggling rather than turning: on a three-fin set the two lower fins became identical shapes, so the only thing left to watch was their heights swapping. They are now telling apart, and a fin crossing from the far side to the near side is something you can follow.',
+      'WHAT THIS CHANGES AT REST: on a three-fin (or five-fin) rocket, one of the lower fins is now drawn across the tube rather than cut off at its wall — which is what a photograph of that rocket from the side shows. Four-fin and two-fin sets are unchanged, at rest and rolled.',
+      'STILL NOT A DEFECT: a set of N identical fins repeats every 360/N degrees of roll. A three-fin rocket at 120 degrees IS the same rocket. Desktop OpenRocket repeats identically.',
+      'THE MOTOR BROWSER TAKES A BURN-TIME AND AN IMPULSE WINDOW, under All filters: type a low bound, a high bound or both. The placeholders show what this mount’s motors actually span, so "burn time 0 to 2.4 seconds" is a sentence you can write straight into the boxes. Typed bounds rather than sliders on purpose — the impulse range for one mount covers three orders of magnitude, which no two-ended slider handles usefully.',
+    ],
+  },
   {
     version: '0.081',
     date: '2026-08-30',

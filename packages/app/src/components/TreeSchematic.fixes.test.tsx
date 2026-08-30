@@ -170,13 +170,16 @@ describe('fins retreat into the airframe instead of blinking out', () => {
     }, 0);
   };
 
-  it('clips every fin to the airframe, with a resolvable reference', () => {
+  it('clips the FAR fins to the airframe, with a resolvable reference', () => {
     roll(10, 3);
     const polys = [...host.querySelectorAll(FILLED_FIN)];
     expect(polys.length).toBeGreaterThan(0);
-    for (const p of polys) {
-      const ref = /url\(#(.+)\)/.exec(p.getAttribute('clip-path') ?? '');
-      expect(ref, 'every fin carries a clip').not.toBeNull();
+    const clipped = polys.filter((p) => p.getAttribute('clip-path'));
+    // Near fins are drawn whole — they are in FRONT of the tube — so only the
+    // far ones carry a clip, and at least one always does at a rolled angle.
+    expect(clipped.length).toBeGreaterThan(0);
+    for (const p of clipped) {
+      const ref = /url\(#(.+)\)/.exec(p.getAttribute('clip-path')!);
       expect(host.querySelector(`clipPath[id="${ref![1]}"]`), 'the clip must exist').not.toBeNull();
     }
     // The band is the airframe, not something else.
@@ -204,8 +207,9 @@ describe('fins retreat into the airframe instead of blinking out', () => {
    * the airframe is CLIPPED, so this asserts exactly that — and asserts the
    * case is reached, or it would pass on a rocket with no such fin.
    */
-  it('never paints fin material across the airframe', () => {
-    let overlapping = 0;
+  it('never paints a FAR fin across the airframe, and always paints a near one', () => {
+    let far = 0;
+    let near = 0;
     for (const finCount of [3, 4]) {
       for (let deg = 0; deg <= 180; deg += 3) {
         roll(deg, finCount);
@@ -213,18 +217,18 @@ describe('fins retreat into the airframe instead of blinking out', () => {
         const { top, bottom } = band();
         for (const p of host.querySelectorAll(FILLED_FIN)) {
           const ys = p.getAttribute('points')!.split(' ').map((q) => Number(q.split(',')[1]));
-          const insideBand = ys.some((y) => y > top + 0.01 && y < bottom - 0.01);
-          if (!insideBand) continue;
-          overlapping++;
-          expect(p.getAttribute('clip-path'),
-            `${finCount}-fin set at ${deg}deg draws a fin into the airframe unclipped`).toBeTruthy();
+          if (!ys.some((y) => y > top + 0.01 && y < bottom - 0.01)) continue; // no overlap
+          if (p.getAttribute('clip-path')) {
+            far++; // behind the tube: the overlap must be clipped away
+          } else {
+            near++; // in front of it: drawn whole, and that is the depth cue
+          }
         }
       }
     }
-    // A 3- and a 4-fin set sweep through plenty of these; if this ever hits
-    // zero the assertion above stopped meaning anything.
-    expect(overlapping, 'no overlapping fin was produced — the guard is vacuous')
-      .toBeGreaterThan(20);
+    // Both cases must actually occur, or neither half of the claim is tested.
+    expect(far, 'no clipped overlap was produced — the far-side guard is vacuous').toBeGreaterThan(10);
+    expect(near, 'no unclipped overlap was produced — the near-side cue is missing').toBeGreaterThan(10);
   }, 60_000);
 
   it('loses no fin abruptly: the visible span moves smoothly across a turn', () => {
@@ -267,25 +271,28 @@ describe('every fin stays on screen while the view is rolled', () => {
   ));
   const hiddenCount = () => host.querySelectorAll('[data-fin="hidden"]').length;
 
-  it('every instance is on screen at every angle — nothing ever vanishes', () => {
+  it('accounts for every instance at every angle — nothing silently vanishes', () => {
     for (const finCount of [3, 4, 6]) {
       for (let deg = 1; deg <= 180; deg += 1) {
         roll(deg, finCount);
-        // One hidden line per instance, always. The filled half comes and
-        // goes as a fin passes behind the airframe; the hidden half does not,
-        // which is what makes a fin followable all the way round.
-        expect(hiddenCount(), `${finCount}-fin set at ${deg}deg`).toBe(finCount);
+        // A FAR instance always has a hidden line, whether or not any of it
+        // clears the tube; a NEAR one is drawn whole or not at all (edge-on).
+        // So hidden lines count the far half exactly.
+        const hidden = hiddenCount();
+        expect(hidden, `${finCount}-fin set at ${deg}deg`).toBeGreaterThan(0);
+        expect(hidden).toBeLessThanOrEqual(finCount);
         expect(host.querySelectorAll(FILLED_FIN).length).toBeLessThanOrEqual(finCount);
       }
     }
   }, 120_000);
 
-  it('splits a fin between a filled part outside and a hidden line inside', () => {
+  it('gives a far fin a hidden line and a near fin none — it has nothing hidden', () => {
     roll(30, 3);
-    const filled = host.querySelectorAll(FILLED_FIN).length;
     const hidden = hiddenCount();
-    expect(hidden).toBe(3);
-    // At 30° one of the three is behind the airframe: two filled, three hidden.
+    // 30°: fins at 30/150/270. sin30 and sin150 are positive (near), sin270
+    // negative (far) — so exactly one hidden line.
+    expect(hidden).toBe(1);
+    const filled = host.querySelectorAll(FILLED_FIN).length;
     expect(filled).toBe(2);
     for (const h of host.querySelectorAll('[data-fin="hidden"]')) {
       expect(h.getAttribute('fill')).toBe('none');
