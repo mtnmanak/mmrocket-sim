@@ -227,6 +227,9 @@ node validation/score.mjs > validation/scorecard.md
 - `scorecard-nosection-2026-08-29.md` — the cell that ended that blindness: arcas-short with
   the section tags deleted (the desktop-import path), 175 → 191 gates, and the first
   measurement of the v0.075 branch against the tunnel (Kbf 16–27% low above M0.95)
+- `scorecard-finsoff-reread-2026-08-29.md` — the ARCAS-Long fins-off anchor confirmed by an
+  independent third read (+0.0001/+0.0027 vs the gated values); the +0.020 re-read hypothesis
+  refuted, so the Long/Short body-drag split stands as real physics, not a data error
 
 ## Baseline reading (why almost everything fails, and why that's fine)
 
