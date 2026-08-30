@@ -13,6 +13,13 @@
   --notice-h: 0px;
 }
 
+/* A stable scrollbar gutter: the hero canvas now sizes from its container
+   WIDTH (fit-to-content), so a scrollbar that appears and disappears with
+   page height would wobble the width it measures. */
+html {
+  scrollbar-gutter: stable;
+}
+
 /* Palette roles from the validated reference palette (dataviz skill).
    v0.076 surface ramp: FOUR levels instead of two, so elevation exists —
      --surface-0  the page (the ground everything sits on)
@@ -1198,7 +1205,15 @@
 /* The rocket viewport gets a stage: a whisper of dusk launch sky, so the
    vehicle reads as the lit subject rather than floating on panel gray. */
 .rocket-stage {
-  background: linear-gradient(180deg, #f2f4f8 0%, #e9edf4 60%, #e4e7ee 100%);
+  /* Drafting-table grid (v0.076, owner-approved): the sky reads as a drawing
+     surface instead of a void. Cosmetic only — no snapping, no measuring;
+     real rulers stay a backlog item. Daylight's own .rocket-stage rule uses
+     the background SHORTHAND, which clears these layers — intended. */
+  background-image:
+    linear-gradient(rgba(82, 81, 78, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(82, 81, 78, 0.06) 1px, transparent 1px),
+    linear-gradient(180deg, #f2f4f8 0%, #e9edf4 60%, #e4e7ee 100%);
+  background-size: 22px 22px, 22px 22px, 100% 100%;
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 4px;
@@ -1248,7 +1263,20 @@
 
        --notice-h keeps the fixed notice bar off the canvas as well as off
        the footer; it is 0px whenever no notice is showing. */
-    height: clamp(420px, calc(100vh - 420px - var(--notice-h, 0px)), 620px);
+    /* v0.076 (owner report 2026-08-29): the clamp above was a pure function
+       of WINDOW height — it never looked at the rocket, so a long thin
+       design flew in a window-tall band of empty sky and the footer lost at
+       every size. --hero-natural is the drawing's content height (reported
+       by TreeSchematic from geometry + width, never from this container's
+       height — no feedback loop) plus chip headroom and drawer clearance,
+       set inline by App only in horizontal 2D view. The clamp stays as the
+       AVAILABILITY cap; min() takes whichever is smaller. Floor drops to
+       320px — a short natural height is the point. 3D/Aft leave the
+       variable unset and get the old behavior via the 9999px fallback. */
+    height: min(
+      var(--hero-natural, 9999px),
+      clamp(320px, calc(100vh - 420px - var(--notice-h, 0px)), 620px)
+    );
     overflow: hidden;
   }
 
@@ -1629,7 +1657,11 @@
 }
 
 .viz-root[data-theme='dark'] .rocket-stage {
-  background: linear-gradient(180deg, #14161d 0%, #191c25 55%, #20222b 100%);
+  background-image:
+    linear-gradient(rgba(148, 145, 138, 0.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 145, 138, 0.055) 1px, transparent 1px),
+    linear-gradient(180deg, #14161d 0%, #191c25 55%, #20222b 100%);
+  background-size: 22px 22px, 22px 22px, 100% 100%;
 }
 
 /* 3D viewport: grows with the monitor instead of a fixed 300px letterbox. */
@@ -3209,9 +3241,17 @@ select.unit-chip:hover {
 /* The 2D schematic draws its outlines as SVG presentation attributes; the
    attribute-value selector reaches exactly the default component stroke and
    leaves the CG/CP markers and user colors alone. */
+/* Ink retarget applies to every schematic; the WIDTH bump must not reach the
+   aft view — its viewBox is in METERS (~0.4 units across), so "1.6" there is
+   a 1.6 m stroke that floods the whole drawing black (the Daylight aft-view
+   black-box defect, owner report 2026-08-29). */
 .viz-root[data-contrast='high'] .rocket-stage svg [stroke='#7a786f'],
 .viz-root[data-contrast='high'] .rocket-stage svg [stroke='#9a978f'] {
   stroke: var(--text-primary);
+}
+
+.viz-root[data-contrast='high'] .rocket-stage svg:not(.aft-svg) [stroke='#7a786f'],
+.viz-root[data-contrast='high'] .rocket-stage svg:not(.aft-svg) [stroke='#9a978f'] {
   stroke-width: 1.6;
 }
 

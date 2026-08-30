@@ -475,6 +475,20 @@ export function App() {
   // (batch 08-21d: vertical mode has no zoom/pan to escape with).
   const [drawerEl, setDrawerEl] = useState<HTMLDivElement | null>(null);
   const [drawerClearance, setDrawerClearance] = useState(0);
+  /**
+   * Fit-to-content hero canvas (v0.076, owner report 2026-08-29): the 2D
+   * schematic reports its natural drawn height and the stage sizes to
+   * rocket + chip headroom + drawer clearance, capped by the old
+   * viewport-availability clamp (see styles.css) — so a long thin rocket
+   * stops paying for a window-tall band of empty sky, and the footer gets
+   * its screen back. 3D and Aft keep the pure CSS clamp: a 3D scene has no
+   * "natural" height.
+   */
+  const [heroNatural, setHeroNatural] = useState<number | null>(null);
+  /** Headroom over the drawn rocket for the floating stats chip's default
+   *  spot (~110px unfolded + margin), so fit-to-content never lands the chip
+   *  on the airframe. */
+  const HERO_CHIP_RESERVE = 140;
   useEffect(() => {
     if (!statsDrawer || !drawerEl) { setDrawerClearance(0); return; }
     const measure = () => setDrawerClearance(drawerEl.offsetHeight + 20);
@@ -2753,7 +2767,10 @@ export function App() {
                 the user is on 3D/Aft — where the taller cap would just be
                 letterbox. */}
             <div className="rocket-stage hero-stage" data-tour="canvas"
-              data-vert={view === '2d' && vert2d ? 'on' : undefined}>
+              data-vert={view === '2d' && vert2d ? 'on' : undefined}
+              style={view === '2d' && !vert2d && heroNatural
+                ? ({ '--hero-natural': `${heroNatural + HERO_CHIP_RESERVE + drawerClearance}px` } as React.CSSProperties)
+                : undefined}>
               {/* .hero-view owns fill-and-center: the drawing must never size
                   its own container (see the styles.css note on the feedback
                   loop), and the schematic wrap carries inline positioning of
@@ -2772,6 +2789,7 @@ export function App() {
                       onError={setFileNote}
                       vertical={vert2d}
                       fillHeight
+                      onNaturalHeight={setHeroNatural}
                     />
                   )
                   : view === '3d'

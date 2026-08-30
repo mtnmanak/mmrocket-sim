@@ -28,18 +28,31 @@ describe('stats-drawer default and the desktop breakpoint', () => {
     expect(read('../styles.css')).toContain('@media (min-width: 981px)');
   });
 
-  it('the hero canvas is clamped, so the page cannot outgrow the viewport', () => {
-    // The old rule was `max(420px, calc(100vh - 335px))` — a linear function
-    // of viewport height with a floor and NO ceiling, whose 335px budget
-    // counted only the chrome ABOVE the stage. The footer band below it is
-    // worth ~85px, so the document came out at 100vh + ~85px at every window
-    // height and the footer sat permanently below the fold. A silent revert
-    // to max() would restore that with nothing else failing, so pin it here.
+  it('the hero canvas fits the rocket, capped by what the viewport affords', () => {
+    // Three generations of this rule, each pinned against silent reverts:
+    //  1. `max(420px, calc(100vh - 335px))` — floor, NO ceiling: the document
+    //     came out at 100vh + ~85px at every window height, footer always
+    //     below the fold.
+    //  2. `clamp(420px, calc(100vh - 420px - --notice-h), 620px)` — capped,
+    //     but a pure function of WINDOW height: a long thin rocket flew in a
+    //     window-tall band of empty sky (owner report 2026-08-29).
+    //  3. v0.076: min(--hero-natural, that clamp) — the canvas sizes to the
+    //     DRAWING (TreeSchematic reports its natural height from geometry +
+    //     width, so no measure→draw→grow loop), and the clamp survives as
+    //     the availability cap. The 9999px fallback keeps 3D/Aft, which set
+    //     no natural height, on the pure clamp.
     const css = read('../styles.css');
-    expect(css).toContain('height: clamp(420px, calc(100vh - 420px');
+    expect(css).toContain('var(--hero-natural, 9999px)');
+    expect(css).toContain('clamp(320px, calc(100vh - 420px');
+    // Vertical (⟳90°) mode keeps its own taller pure clamp — height there
+    // buys drawing, not sky.
+    expect(css).toContain('height: clamp(420px, calc(100vh - 420px - var(--notice-h, 0px)), 900px)');
     // Match the DECLARATION, not the string — the rule's comment quotes the
     // old value on purpose, to record what was wrong with it.
     expect(css).not.toContain('height: max(420px');
+    // And the reporter that feeds the variable must stay wired.
+    expect(read('../App.tsx')).toContain('onNaturalHeight={setHeroNatural}');
+    expect(read('./TreeSchematic.tsx')).toContain('onNaturalHeightRef.current?.(naturalH)');
   });
 
   it('the fixed notice bar reserves its own space instead of covering the footer', () => {

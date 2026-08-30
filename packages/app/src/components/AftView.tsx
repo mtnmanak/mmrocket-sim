@@ -252,7 +252,11 @@ export function AftView({ tree, motors }: {
   };
   return (
     <div style={{ position: 'relative' }}>
-      <svg ref={svgRef} viewBox={`${-E} ${-E} ${2 * E} ${2 * E}`}
+      {/* className marks this svg as METER-scaled: its viewBox spans ~0.4
+          units, so any CSS stroke-width in "px" is really meters and floods
+          the drawing — the Daylight black-box bug (owner report 2026-08-29).
+          styles.css scopes its stroke-width bump to :not(.aft-svg). */}
+      <svg ref={svgRef} className="aft-svg" viewBox={`${-E} ${-E} ${2 * E} ${2 * E}`}
         style={{ width: '100%', height: 'auto', maxHeight: 360, display: 'block',
           touchAction: 'none', cursor: zoom.k > 1 ? 'grab' : undefined }}
         role="img" aria-label="Aft end view — looking at the rocket from behind; wheel to zoom, drag to pan"

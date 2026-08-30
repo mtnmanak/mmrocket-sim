@@ -128,7 +128,7 @@ interface DragState {
   clientScale: number;
 }
 
-export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480, selectedId, onSelect, exportData, onError, vertical, fillHeight }: {
+export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480, selectedId, onSelect, exportData, onError, vertical, fillHeight, onNaturalHeight }: {
   tree: RocketTree;
   info: StaticInfo | null;
   /** Loaded motor case dimensions (m) keyed by mount node id — drawn to
@@ -160,6 +160,15 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
    *  what reads as a black box. Ignored in vertical mode (which fills by its
    *  own rule); overrides maxHeight. */
   fillHeight?: boolean;
+  /**
+   * v0.076 fit-to-content: reports the drawing's NATURAL height (px) — the
+   * rocket's cross extent at width-fit scale plus padding and callout lanes,
+   * uncapped — so the hero stage can size to the rocket instead of the
+   * window. Only fires in fillHeight horizontal mode. Depends on container
+   * WIDTH and geometry, never on container height or zoom, so it cannot
+   * feed the measure→draw→grow loop the styles.css note warns about.
+   */
+  onNaturalHeight?: (px: number) => void;
 }) {
   const { prefs } = usePrefs();
   const svgRef = useRef<SVGSVGElement>(null);
@@ -254,11 +263,25 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   // otherwise a height-limited short/fat rocket would fill it and clip them.
   const lanes = info ? CALLOUT_LANES : 0;
   const crossCap = vertical ? Math.max(160, cw) : maxHeight;
+  // The adaptive content height, uncapped — what the drawing would take if
+  // nothing constrained it. The fillHeight branch still fills its container;
+  // this is what the container itself sizes FROM (via onNaturalHeight).
+  const naturalH = Math.round(Math.max(200, 2 * vHalf * ((w - 2 * pad) / totalLen) + 2 * pad + lanes));
   const h = vertical || !fillHeight
-    ? Math.round(Math.min(crossCap, Math.max(200, 2 * vHalf * ((w - 2 * pad) / totalLen) + 2 * pad + lanes)))
+    ? Math.round(Math.min(crossCap, Math.max(200, naturalH)))
     : Math.max(200, chPx);
   const scale = Math.min((w - 2 * pad) / totalLen, (h - 2 * pad - lanes) / (2 * vHalf));
   const ctx: Ctx = { scale, cy: h / 2, x0: pad };
+
+  // Report the natural height to the hero stage (fit-to-content, v0.076).
+  // Callback identity rides a ref so a new inline closure per parent render
+  // doesn't re-fire the effect; the effect keys on the VALUE.
+  const onNaturalHeightRef = useRef(onNaturalHeight);
+  onNaturalHeightRef.current = onNaturalHeight;
+  useEffect(() => {
+    if (vertical || !fillHeight) return;
+    onNaturalHeightRef.current?.(naturalH);
+  }, [naturalH, vertical, fillHeight]);
 
   const beginDrag = (child: ComponentNode, parent: ComponentNode, pLen: number) =>
     (e: React.PointerEvent) => {

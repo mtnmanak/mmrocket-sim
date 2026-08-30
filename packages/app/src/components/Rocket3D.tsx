@@ -722,14 +722,11 @@ export function Rocket3D({ tree, info, motors, exportData }: {
 
   return (
     <div className="rocket3d-wrap" style={{ position: 'relative' }}>
-      {exportData && (
-        <div style={{ position: 'absolute', top: 6, right: 6, zIndex: 2 }}>
-          <ImageExportMenu label="📷 Image" fitOption
-            title="Snapshot the current 3D view with design data — rotate to the angle you want, then pick PNG or JPG and a width (re-rendered at that resolution)"
-            onPick={snapshot} />
-        </div>
-      )}
-      <div style={{ position: 'absolute', top: 6, left: 6, zIndex: 2, display: 'flex', gap: 6 }}>
+      {/* One control row, top-RIGHT (v0.076): at top-left the floating stats
+          chip's default position buried Reset/Side/Aft/◉ — most users never
+          learned they existed (owner report, issues-2026-08-26d). Top-right
+          held only the Image menu, which now closes the row. */}
+      <div style={{ position: 'absolute', top: 6, right: 6, zIndex: 2, display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
         <button className="file-btn" title="Reset the camera to the standard three-quarter view"
           onClick={() => jumpTo([center + camDist * 0.5, camDist * 0.45, camDist * 0.8])}>⟲ Reset</button>
         <button className="file-btn" title="Straight-on side profile"
@@ -747,6 +744,11 @@ export function Rocket3D({ tree, info, motors, exportData }: {
           })}>
           {(markers.axis || markers.callout) ? '◉ CG/CP' : '○ CG/CP'}
         </button>
+        {exportData && (
+          <ImageExportMenu label="📷 Image" fitOption
+            title="Snapshot the current 3D view with design data — rotate to the angle you want, then pick PNG or JPG and a width (re-rendered at that resolution)"
+            onPick={snapshot} />
+        )}
       </div>
       <Canvas camera={{ position: [center + camDist * 0.5, camDist * 0.45, camDist * 0.8], fov: 40 }}
         // Snapshot export reads the drawing buffer after the frame — without
