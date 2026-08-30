@@ -20194,7 +20194,7 @@
     "density": 352.4
    },
    "insideDiameter": 0.0248412,
-   "outsideDiameter": 0.0325882,
+   "outsideDiameter": 0.0404622,
    "length": 0.003175
   },
   {
@@ -20249,8 +20249,8 @@
     "type": "BULK",
     "density": 352.4
    },
-   "insideDiameter": 0.0254,
-   "outsideDiameter": 0.0553212,
+   "insideDiameter": 0.0248412,
+   "outsideDiameter": 0.0649224,
    "length": 0.003175
   },
   {
@@ -24561,7 +24561,7 @@
     "density": 352.4
    },
    "insideDiameter": 0.0248412,
-   "outsideDiameter": 0.0314452,
+   "outsideDiameter": 0.0404622,
    "length": 0.003175
   },
   {
@@ -24616,9 +24616,9 @@
     "type": "BULK",
     "density": 352.4
    },
-   "insideDiameter": 0.0254,
-   "outsideDiameter": 0.0553212,
-   "length": 0.00127
+   "insideDiameter": 0.0248412,
+   "outsideDiameter": 0.0649224,
+   "length": 0.003175
   },
   {
    "kind": "CenteringRing",

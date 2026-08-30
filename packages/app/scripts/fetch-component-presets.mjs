@@ -13,6 +13,13 @@
  * Plain Node ESM, no dependencies (uses global fetch, Node >= 18).
  *
  * Usage: node packages/app/scripts/fetch-component-presets.mjs
+ *
+ * ⚠ THIS SCRIPT OVERWRITES presets.json WHOLESALE. Regeneration is a
+ * three-step pipeline, in order, or data is lost:
+ *   1. this script (overwrites) → 2. merge-rocksim-parts.mjs (appends the
+ *   RockSim-only rows) → 3. apply-preset-corrections.mjs (re-patches rows
+ *   whose upstream .orc data is known-wrong — the corrections table cites
+ *   its references and fails loudly if a regen invalidates a key).
  */
 
 import { writeFileSync, mkdirSync, readdirSync, readFileSync, existsSync } from 'node:fs';

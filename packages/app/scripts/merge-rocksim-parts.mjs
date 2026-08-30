@@ -10,6 +10,10 @@
  * OpenRocket version is kept and the conflict is logged. Everything else is
  * appended with `"source": "rocksim"`.
  *
+ * Pipeline order: fetch-component-presets.mjs (overwrites) → THIS script
+ * (appends) → apply-preset-corrections.mjs (re-patches known-wrong upstream
+ * rows — run it last or a regen silently reverts the corrections).
+ *
  * CSV format notes (verified against OpenRocket 24.12
  * info.openrocket.core.preset.loader.* and empirically against known parts):
  *  - Fields never contain commas; naive comma splitting is correct. Double
