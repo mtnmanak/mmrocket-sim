@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.078';
+export const APP_VERSION = '0.079';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.079',
+    date: '2026-08-30',
+    title: 'Three things the review found in yesterday’s drawing work',
+    items: [
+      'NO NUMBERS CHANGE. Same as v0.078: nothing in the physics, the models, the importers or the exports. Three drawing and control fixes, two of them mine from v0.078 and one much older.',
+      'AN ELLIPTICAL FIN WAS DRAWN AT 57 % OF ITS SPAN in the 2D side view — and had been for a long time, quietly. The outline was a quadratic curve given the fin’s tip as its control point, and a quadratic never reaches its control point; it turns at exactly half the distance. So a 30 mm elliptical fin drew about 17 mm tall, while the property panel, the 1:1 printable cutting template, the Aft view and the 3D shell all used the full 30 mm. It is a true half-ellipse now. Only the picture was ever wrong: no mass, area, drag or template dimension came from that curve. Adding rulers to the view is what made it readable.',
+      'THE ZOOM BUTTONS PULLED THE ROCKET DOWN AND RIGHT. The + and − buttons hold the middle of the canvas still while they scale, and v0.078 gave part of that canvas to the rulers and the roll slider — so the middle of the canvas stopped being the middle of the drawing, and every zoom step slid the rocket off centre, about 100 px low by the time you hit maximum zoom. They now hold the middle of the drawing. Scroll-wheel zoom was never affected: it holds the point under your cursor.',
+      'THE ROLL READOUT AND THE ▤ ALL STATS BUTTON WERE ON TOP OF EACH OTHER in the bottom-left corner, and the All stats button was winning — so clicking the "0°" readout to straighten the rocket opened the stats drawer instead. All stats moved right, clear of the roll column.',
+      'Smaller: hovering a fin set now highlights the fins as they are drawn rather than the full un-foreshortened box, so a three-fin set no longer washes a third of its highlight over empty sky.',
+    ],
+  },
   {
     version: '0.078',
     date: '2026-08-29',

@@ -467,14 +467,20 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
     return () => svg.removeEventListener('wheel', onWheel);
   }, [w, h, vertical]);
 
-  // Button zoom steps around the view center (the wheel handles precise
-  // pointer-anchored zoom; these make the capability visible).
+  // Button zoom steps around the DRAWING's center (the wheel handles precise
+  // pointer-anchored zoom; these make the capability visible). Not the
+  // canvas's center: once the rulers and the roll column take their gutters
+  // the two are 28 px and 9 px apart, and anchoring on the canvas slid the
+  // rocket down and right by that much on every step — 99 px low by the k=12
+  // cap.
   const zoomBy = (f: number) => setZoom((z) => {
     const k = Math.min(12, Math.max(1, z.k * f));
     if (k === z.k) return z;
-    const mx = (w / 2 - z.x) / z.k;
-    const my = (h / 2 - z.y) / z.k;
-    return k === 1 ? { k: 1, x: 0, y: 0 } : { k, x: w / 2 - mx * k, y: h / 2 - my * k };
+    const ax = (gutX + w) / 2;
+    const ay = (gutY + h) / 2;
+    const mx = (ax - z.x) / z.k;
+    const my = (ay - z.y) / z.k;
+    return k === 1 ? { k: 1, x: 0, y: 0 } : { k, x: ax - mx * k, y: ay - my * k };
   });
 
   // Selection sync: click any drawn component to select it in the tree; the
@@ -583,6 +589,24 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
     return out.sort((a, b) => Math.abs(a) - Math.abs(b));
   };
 
+  /**
+   * Hover extent for a fin set: the union of what is actually DRAWN. Before
+   * the projection landed both fins reached full span, so the un-foreshortened
+   * ±reach box matched the drawing exactly; with a 3-fin set at rest it would
+   * now paint a third of its height over empty sky below the lower pair.
+   */
+  const noteHoverFins = (
+    n: ComponentNode, x0: number, x1: number, baseY: number, reach: number,
+    pRadius: number, projections: number[],
+  ) => {
+    if (!projections.length) return;
+    // Roots as well as tips: a ONE-fin set has a single projection, and a box
+    // drawn from its tip to its tip has no height at all.
+    const ys = projections.flatMap((p) =>
+      [baseY - reach * p * ctx.scale, baseY - pRadius * p * ctx.scale]);
+    noteHover(n, x0, Math.min(...ys), x1, Math.max(...ys));
+  };
+
   const renderChildren = (parent: ComponentNode, pStart: number, pLen: number, pRadius: number, baseY: number) => {
     for (const child of parent.children ?? []) {
       const t = child.type;
@@ -632,9 +656,10 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
           const chord = Math.max(...raw.map((p) => p[0]));
           const start = axialStart(child, chord, pStart, pLen);
           const ymax = Math.max(0, ...raw.map((p) => p[1]));
-          noteHover(child, ctx.x0 + start * ctx.scale, baseY - (pRadius + ymax) * ctx.scale,
-            ctx.x0 + (start + chord) * ctx.scale, baseY + (pRadius + ymax) * ctx.scale);
-          for (const p of finFactors(child, pRadius, pRadius + ymax)) {
+          const projections = finFactors(child, pRadius, pRadius + ymax);
+          noteHoverFins(child, ctx.x0 + start * ctx.scale, ctx.x0 + (start + chord) * ctx.scale,
+            baseY, pRadius + ymax, pRadius, projections);
+          for (const p of projections) {
             const ptsStr = raw
               .map(([px, py]) => `${ctx.x0 + (start + px) * ctx.scale},${baseY - (pRadius + py) * p * ctx.scale}`)
               .join(' ');
@@ -652,10 +677,11 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
         const sweep = t === 'trapezoidfinset' ? num(child, 'sweep', 0.02) : root / 2;
         const height = num(child, 'height', 0.03);
         const start = axialStart(child, root, pStart, pLen);
-        noteHover(child, ctx.x0 + start * ctx.scale, baseY - (pRadius + height) * ctx.scale,
+        const projections = finFactors(child, pRadius, pRadius + height);
+        noteHoverFins(child, ctx.x0 + start * ctx.scale,
           ctx.x0 + (start + Math.max(root, sweep + tip)) * ctx.scale,
-          baseY + (pRadius + height) * ctx.scale);
-        for (const p of finFactors(child, pRadius, pRadius + height)) {
+          baseY, pRadius + height, pRadius, projections);
+        for (const p of projections) {
           const y0 = baseY - pRadius * p * ctx.scale;
           const yh = baseY - (pRadius + height) * p * ctx.scale;
           const X = ctx.x0 + start * ctx.scale;
@@ -666,8 +692,14 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
                 fill={fillOf(child, '#b9b7b0')} stroke={selStroke(child, '#7a786f')}
                 strokeWidth={selWidth(child)} {...grab} />
             ) : (
+              // A TRUE half-ellipse, by arc. It used to be a quadratic with
+              // the tip as the CONTROL point — and a quadratic passes through
+              // (P0 + 2C + P2)/4, i.e. exactly halfway to its control, so an
+              // elliptical fin drew at 57 % of the height its own property
+              // panel, its 1:1 cut template, the Aft view and the 3D mesh all
+              // give it. Predates the roll work; the rulers made it readable.
               <path key={key++}
-                d={`M ${X} ${y0} Q ${X + (root / 2) * ctx.scale} ${yh - p * 4} ${X + root * ctx.scale} ${y0} Z`}
+                d={`M ${X} ${y0} A ${(root / 2) * ctx.scale} ${Math.max(2, Math.abs(y0 - yh))} 0 0 ${p > 0 ? 1 : 0} ${X + root * ctx.scale} ${y0} Z`}
                 fill={fillOf(child, '#b9b7b0')} stroke={selStroke(child, '#7a786f')}
                 strokeWidth={selWidth(child)} {...grab} />
             ),
