@@ -1,5 +1,5 @@
 {
-  "version": "0.079",
+  "version": "0.080",
   "released": "2026-08-30",
-  "note": "Three fixes to the 2D drawing work, found by a review pass over v0.078. An elliptical fin was being drawn at 57% of its span in the side view - a long-standing error the new rulers made readable; only the picture was wrong, never a dimension, mass or template. The + / - zoom buttons held the middle of the canvas rather than the middle of the drawing, so after v0.078's gutters every zoom step slid the rocket off centre. And the roll readout sat under the All stats button, so clicking it opened the drawer instead of straightening the rocket. No numbers change - every simulation gives v0.078's values exactly."
+  "note": "Rolling the 2D side view, a fin turning edge-on was drawn at its full outline - most of it lying across the airframe - right up to the moment its tip crossed the body wall, and then dropped in one step. On a four-fin set that is two fin-shaped patches blinking out together, which reads as the drawing snapping rather than turning. Fins are clipped to the outside of the airframe now, so a fin slides into the tube wall and leaves with nothing to see. Note that a set of N identical fins genuinely repeats every 360/N degrees of roll - desktop OpenRocket does the same - so the repeat itself is geometry, not a defect. No numbers change."
 }

@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.079';
+export const APP_VERSION = '0.080';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.080',
+    date: '2026-08-30',
+    title: 'Rolling fins slide into the airframe instead of blinking out',
+    items: [
+      'NO NUMBERS CHANGE. As with the two releases before it: nothing in the physics, the models, the importers or the exports.',
+      'A FIN TURNING EDGE-ON USED TO VANISH IN ONE STEP. Rolling the 2D side view, a fin was drawn at its full projected outline right up to the moment its tip crossed the body wall, and then dropped — so most of that outline was lying across the airframe, and it disappeared all at once. On a four-fin set that is two fin-shaped patches blinking out together, twice per quarter turn, which reads as the drawing snapping rather than turning. Fins are now clipped to the outside of the airframe, so a fin slides into the tube wall and leaves with nothing to see. Same treatment for tube fins.',
+      'WHAT THIS IS NOT: a fin set with N identical fins genuinely repeats every 360/N degrees of roll — a three-fin rocket at 120 degrees IS the same rocket, and desktop OpenRocket shows the same repeat. The side view has no way to tell you which fin is which, so what looks like the roll "resetting" a third of the way round is the geometry, not the drawing. The Aft view is where an individual fin can be followed all the way round.',
+      'Hovering a fin set highlights the fins from the airframe wall outwards, matching what is drawn.',
+    ],
+  },
   {
     version: '0.079',
     date: '2026-08-30',

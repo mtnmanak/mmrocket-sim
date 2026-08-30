@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { ComponentNode, ComponentPosition, RocketTree, StaticInfo } from '@online-openrocket/engine';
 import { anchorStarts, axialLength, offsetForStart, snapStart, startFromPosition } from '../tree/position.js';
 import { clusterOffsets } from '../tree/cluster.js';
@@ -196,6 +196,11 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   onRoll?: (rad: number) => void;
 }) {
   const { prefs, setPrefs } = usePrefs();
+  // Namespaces this instance's clipPath ids. Two schematics share a document
+  // on the Motors tab (this one and the Aft view), and `url(#id)` resolves to
+  // the FIRST match in the document — an unqualified id would have one view
+  // clipping its fins to the other's airframe.
+  const uid = useId().replace(/:/g, '');
   const svgRef = useRef<SVGSVGElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const drag = useRef<DragState | null>(null);
@@ -575,6 +580,44 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
    *
    * @param reach the fin's outer radius (body radius + span)
    */
+  /**
+   * Fins are clipped to the airframe's OUTSIDE, so a fin rolling edge-on
+   * retreats into the tube wall instead of being drawn flat across it and
+   * then vanishing.
+   *
+   * Without this, a fin whose projected tip had shrunk to just past the body
+   * radius was still drawn in full — most of it lying over the airframe fill
+   * — and then dropped the moment the tip crossed the radius. On a four-fin
+   * set that is TWO fin-shaped patches blinking out at once, twice per
+   * quarter turn, which is what the roll slider looked like it was doing
+   * wrong (owner report, 2026-08-30).
+   *
+   * One clip per (centreline, body radius) pair, two rects: everything above
+   * the airframe band and everything below it. Sign-free, so it serves flat
+   * fins and tube fins alike, including a tube sitting across the axis.
+   */
+  const clipDefs: React.ReactNode[] = [];
+  const outsideAirframe = new Map<string, string>();
+  const airframeClip = (baseY: number, pRadius: number): string => {
+    const top = baseY - pRadius * ctx.scale;
+    const bottom = baseY + pRadius * ctx.scale;
+    const memo = `${top.toFixed(3)}:${bottom.toFixed(3)}`;
+    const seen = outsideAirframe.get(memo);
+    if (seen) return seen;
+    const id = `${uid}-outside-${outsideAirframe.size}`;
+    outsideAirframe.set(memo, id);
+    // FAR is any distance that certainly covers the drawing in local user
+    // space; the clip lives inside the view transform, so it scales with it.
+    const FAR = 1e4;
+    clipDefs.push(
+      <clipPath key={id} id={id}>
+        <rect x={-FAR} y={-FAR} width={2 * FAR} height={FAR + top} />
+        <rect x={-FAR} y={bottom} width={2 * FAR} height={FAR} />
+      </clipPath>,
+    );
+    return id;
+  };
+
   const finFactors = (n: ComponentNode, pRadius: number, reach: number, dfltCount = 3): number[] => {
     const count = Math.max(1, Math.round(num(n, 'finCount', dfltCount)));
     const base = num(n, 'rotation', 0) + roll;
@@ -600,10 +643,12 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
     pRadius: number, projections: number[],
   ) => {
     if (!projections.length) return;
-    // Roots as well as tips: a ONE-fin set has a single projection, and a box
-    // drawn from its tip to its tip has no height at all.
+    // Tip AND the airframe edge the fin emerges from — not the projected root,
+    // which sits inside the tube and is clipped away. Two reasons: the wash
+    // then covers exactly the visible fin, and a ONE-fin set gets a box with
+    // height (tip-to-tip alone would be a zero-height rect).
     const ys = projections.flatMap((p) =>
-      [baseY - reach * p * ctx.scale, baseY - pRadius * p * ctx.scale]);
+      [baseY - reach * p * ctx.scale, baseY - pRadius * Math.sign(p) * ctx.scale]);
     noteHover(n, x0, Math.min(...ys), x1, Math.max(...ys));
   };
 
@@ -659,12 +704,13 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
           const projections = finFactors(child, pRadius, pRadius + ymax);
           noteHoverFins(child, ctx.x0 + start * ctx.scale, ctx.x0 + (start + chord) * ctx.scale,
             baseY, pRadius + ymax, pRadius, projections);
+          const clip = projections.length ? `url(#${airframeClip(baseY, pRadius)})` : undefined;
           for (const p of projections) {
             const ptsStr = raw
               .map(([px, py]) => `${ctx.x0 + (start + px) * ctx.scale},${baseY - (pRadius + py) * p * ctx.scale}`)
               .join(' ');
             shapes.push(
-              <polygon key={key++} points={ptsStr}
+              <polygon key={key++} points={ptsStr} clipPath={clip}
                 fill={fillOf(child, '#b9b7b0')} stroke={selStroke(child, '#7a786f')}
                 strokeWidth={selWidth(child)} {...grab} />,
             );
@@ -681,13 +727,14 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
         noteHoverFins(child, ctx.x0 + start * ctx.scale,
           ctx.x0 + (start + Math.max(root, sweep + tip)) * ctx.scale,
           baseY, pRadius + height, pRadius, projections);
+        const finClip = projections.length ? `url(#${airframeClip(baseY, pRadius)})` : undefined;
         for (const p of projections) {
           const y0 = baseY - pRadius * p * ctx.scale;
           const yh = baseY - (pRadius + height) * p * ctx.scale;
           const X = ctx.x0 + start * ctx.scale;
           shapes.push(
             t === 'trapezoidfinset' ? (
-              <polygon key={key++}
+              <polygon key={key++} clipPath={finClip}
                 points={`${X},${y0} ${X + sweep * ctx.scale},${yh} ${X + (sweep + tip) * ctx.scale},${yh} ${X + root * ctx.scale},${y0}`}
                 fill={fillOf(child, '#b9b7b0')} stroke={selStroke(child, '#7a786f')}
                 strokeWidth={selWidth(child)} {...grab} />
@@ -698,7 +745,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
               // elliptical fin drew at 57 % of the height its own property
               // panel, its 1:1 cut template, the Aft view and the 3D mesh all
               // give it. Predates the roll work; the rulers made it readable.
-              <path key={key++}
+              <path key={key++} clipPath={finClip}
                 d={`M ${X} ${y0} A ${(root / 2) * ctx.scale} ${Math.max(2, Math.abs(y0 - yh))} 0 0 ${p > 0 ? 1 : 0} ${X + root * ctx.scale} ${y0} Z`}
                 fill={fillOf(child, '#b9b7b0')} stroke={selStroke(child, '#7a786f')}
                 strokeWidth={selWidth(child)} {...grab} />
@@ -728,15 +775,16 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
           if ((pRadius + rt) * Math.abs(p) + rt > pRadius) tubes.push(p);
         }
         tubes.sort((a, b) => Math.abs(a) - Math.abs(b));
+        const tubeClip = tubes.length ? `url(#${airframeClip(baseY, pRadius)})` : undefined;
         for (const p of tubes) {
           const yc = baseY - (pRadius + rt) * p * ctx.scale;
           const half = rt * ctx.scale;
           shapes.push(
-            <rect key={key++} x={X} y={yc - half}
+            <rect key={key++} x={X} y={yc - half} clipPath={tubeClip}
               width={Math.max(2, len * ctx.scale)} height={2 * half}
               rx="2" fill={fillOf(child, '#c8c5be')} fillOpacity="0.6"
               stroke={selStroke(child, '#7a786f')} strokeWidth={selWidth(child)} {...grab} />,
-            <line key={key++} x1={X} y1={yc} x2={X + len * ctx.scale} y2={yc}
+            <line key={key++} x1={X} y1={yc} x2={X + len * ctx.scale} y2={yc} clipPath={tubeClip}
               stroke="#7a786f" strokeWidth="0.8" strokeDasharray="4 3"
               style={{ pointerEvents: 'none' }} />,
           );
@@ -1104,6 +1152,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
           <pattern id="bulkhead-hatch" patternUnits="userSpaceOnUse" width="5" height="5">
             <path d="M0 5 L5 0" stroke="#66748c" strokeWidth="0.9" />
           </pattern>
+          {clipDefs}
         </defs>
         {/* Vertical: one rigid rotation of the horizontal layout — the w×h
             layout rect maps exactly onto the transposed h×w viewBox with the
