@@ -282,6 +282,17 @@ export function App() {
     prefs, setPrefs, resolvedTheme, daylight,
     saveFailing: prefsSaveFailing, aeroOverride, setAeroOverride,
   } = usePrefs();
+  // Keep the document-level ground and the browser-chrome tint in step with
+  // the LIVE theme. index.html paints both before React mounts (no white
+  // flash), but that inline write is once-per-load: without this, switching
+  // theme or Daylight in-app left the stale color behind overscroll and in
+  // the scrollbar-gutter strip until a full reload (review finding, v0.076).
+  // Values MUST match --surface-0 in styles.css and the index.html script.
+  useEffect(() => {
+    const bg = daylight ? '#ffffff' : resolvedTheme === 'light' ? '#f4f2ee' : '#111110';
+    document.documentElement.style.background = bg;
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', bg);
+  }, [resolvedTheme, daylight]);
   // "Am I on the current version?" — one cache-busted read of the deployed
   // version.json, plus an on-demand recheck. Never polls.
   const { state: updateState, recheck: recheckVersion } = useVersionCheck();

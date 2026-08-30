@@ -25,16 +25,23 @@
       // and flips dark a beat later. Reads the same pref blob PrefsContext
       // owns; any failure falls through to dark, the app default. Values
       // MUST match --surface-0 in styles.css (light #f4f2ee / dark #111110).
+      // Daylight forces a WHITE page whatever the theme (the data-contrast
+      // block in styles.css) — it must be read too, or the phone-in-sunlight
+      // users the mode serves get the flash inverted (dark pre-paint, then
+      // white on mount). App.tsx re-writes both the ground and the meta on
+      // every live theme/daylight change; this script only covers the load.
       (function () {
         var theme = 'dark';
+        var daylight = false;
         try {
           var p = JSON.parse(localStorage.getItem('online-openrocket.prefs.v1') || '{}');
+          daylight = !!p.daylight;
           var t = p.themeExplicit ? p.theme : 'dark';
           theme = t === 'system'
             ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
             : (t === 'light' ? 'light' : 'dark');
-        } catch (e) { /* default dark */ }
-        var bg = theme === 'light' ? '#f4f2ee' : '#111110';
+        } catch (e) { /* default dark, daylight off */ }
+        var bg = daylight ? '#ffffff' : theme === 'light' ? '#f4f2ee' : '#111110';
         document.documentElement.style.background = bg;
         var m = document.querySelector('meta[name="theme-color"]');
         if (m) m.setAttribute('content', bg);

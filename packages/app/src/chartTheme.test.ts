@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { SERIES, SERIES_DARK, SERIES_DAYLIGHT, seriesPalette, seriesStyle } from './chartTheme.js';
 
@@ -16,14 +19,22 @@ function contrast(a: string, b: string): number {
 }
 
 // The recessed plot-area surface each theme's lines actually draw on
-// (--surface-1 in styles.css). Values asserted here so a token change that
-// invalidates the palette validation fails loudly instead of silently.
+// (--surface-1 in styles.css). Pinned against the stylesheet below so a
+// dark-theme retune that moves the surface fails HERE instead of silently
+// invalidating every contrast assertion — the v0.075 defect was precisely a
+// palette validated against a surface the charts didn't draw on.
 const DARK_PLOT = '#1a1917';
 
 describe('chart palettes', () => {
   it('keeps the slot count aligned across palettes', () => {
     expect(SERIES_DAYLIGHT).toHaveLength(SERIES.length);
     expect(SERIES_DARK).toHaveLength(SERIES.length);
+  });
+
+  it('DARK_PLOT is the stylesheet’s dark --surface-1, not a stale copy', () => {
+    const css = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'styles.css'), 'utf8');
+    const darkBlock = css.slice(css.indexOf(".viz-root[data-theme='dark']"));
+    expect(darkBlock.slice(0, darkBlock.indexOf('}'))).toContain(`--surface-1: ${DARK_PLOT};`);
   });
 
   // The v0.075 defect this guards against: the dark theme drew the palette

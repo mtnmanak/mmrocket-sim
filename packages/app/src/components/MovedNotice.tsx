@@ -6,7 +6,7 @@ import { CANONICAL_HOST, isRetiredHost } from '../services/hostMigration.js';
 export function MovedNotice({ hostname }: { hostname: string }) {
   if (!isRetiredHost(hostname)) return null;
   return (
-    <div className="file-note autosave-warn" role="alert">
+    <div className="file-note file-note-warn autosave-warn" role="alert">
       📦 This app has moved to{' '}
       <a href={`https://${CANONICAL_HOST}/`}>{CANONICAL_HOST}</a> — update your
       bookmark, and reinstall the home-screen app from the new address.

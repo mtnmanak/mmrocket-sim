@@ -39,9 +39,13 @@ html {
   --text-primary: #0b0b0b;
   --text-secondary: #52514e;
   --text-muted: #6d6b63;
-  --series-1: #2a78d6; /* altitude */
-  --series-2: #1baf7a; /* velocity */
-  --series-3: #eda100; /* acceleration */
+  /* Non-chart data ink (schematic marks, tiles). NOT slot-synced to the
+     chart palette since the v0.076 CVD re-order — the chart palette lives in
+     chartTheme.ts (SERIES/SERIES_DARK); do not wire "the velocity color"
+     from here. */
+  --series-1: #2a78d6;
+  --series-2: #1baf7a;
+  --series-3: #eda100;
   --status-good: #008300;
   --status-warn: #a06b00;
   --status-serious: #e34948;
@@ -82,7 +86,7 @@ html {
   --text-primary: #f0efec;
   --text-secondary: #c0beb5;
   --text-muted: #94918a;
-  --series-1: #5a9be0; /* keep series hues, lifted for dark surfaces */
+  --series-1: #5a9be0; /* lifted for dark; see the light block's note — not chart-slot-synced */
   --series-2: #3cc492;
   --series-3: #f0b23c;
   --status-good: #4dbd4d;

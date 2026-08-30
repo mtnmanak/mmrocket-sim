@@ -266,9 +266,14 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   // The adaptive content height, uncapped — what the drawing would take if
   // nothing constrained it. The fillHeight branch still fills its container;
   // this is what the container itself sizes FROM (via onNaturalHeight).
-  const naturalH = Math.round(Math.max(200, 2 * vHalf * ((w - 2 * pad) / totalLen) + 2 * pad + lanes));
+  const naturalRaw = Math.round(Math.max(200, 2 * vHalf * ((w - 2 * pad) / totalLen) + 2 * pad + lanes));
+  // Reported quantized to 8px: naturalRaw moves with every 1px of container
+  // width, and each NEW reported value re-renders the whole App — a window
+  // drag-resize would cascade an app-wide render per tick (review finding,
+  // v0.076). Quantized, most ticks report the same value and React bails.
+  const naturalH = Math.round(naturalRaw / 8) * 8;
   const h = vertical || !fillHeight
-    ? Math.round(Math.min(crossCap, Math.max(200, naturalH)))
+    ? Math.round(Math.min(crossCap, Math.max(200, naturalRaw)))
     : Math.max(200, chPx);
   const scale = Math.min((w - 2 * pad) / totalLen, (h - 2 * pad - lanes) / (2 * vHalf));
   const ctx: Ctx = { scale, cy: h / 2, x0: pad };
