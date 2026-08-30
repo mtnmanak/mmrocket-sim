@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.076';
+export const APP_VERSION = '0.077';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.077',
+    date: '2026-08-29',
+    title: 'Four centering rings get the diameter their part number names',
+    items: [
+      'FOUR CENTERING-RING PRESETS SHIPPED WITH THE WRONG OUTER DIAMETER — a T50-to-T60 ring that could not reach a BT-60 wall, and a T50-to-T80 ring 10 mm shy of a BT-80. Fixed: BalsaMachining and Rocketarium CR5060-W now ship 40.46 mm (1.593 in) and both CR5080-W rings 64.92 mm (2.556 in), with two inner diameters and one thickness corrected on the same evidence. This matters more than a database nit since v0.042: a ring preset’s diameters feed the printable STL and the 1:1 DXF of a real part. If you cut one of these four from the app’s template, re-export it.',
+      'The errors are upstream — the OpenRocket community parts database still carries them today, and this app’s import policy (community data wins) had been discarding the correct figures it saw in two other sources. A corrections step now sits at the end of the database pipeline: keyed to the exact part, citing its references, and loud on failure, so a future database refresh cannot silently bring the bad rows back.',
+      'Also in this build, invisible in the app but on the record: the validation harness gained the sharp-airfoil cell it had been missing (the fin path every desktop-imported design uses — 175 → 191 anchor gates, first accuracy measurement of the v0.075 change), the ARCAS fins-off wind-tunnel anchor was confirmed by an independent third read, and two maintenance-script crash paths were repaired. No physics changed; every simulation gives v0.076’s numbers exactly.',
+    ],
+  },
   {
     version: '0.076',
     date: '2026-08-29',
