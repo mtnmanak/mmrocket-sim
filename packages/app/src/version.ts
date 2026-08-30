@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.084';
+export const APP_VERSION = '0.085';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.085',
+    date: '2026-08-30',
+    title: 'The wireframe, reviewed the same day: three fixes',
+    items: [
+      'NO NUMBERS CHANGE. A code review of v0.084, run hours after it shipped, found three defects in the new wireframe; all three are fixed.',
+      'CLICKING BARE BODY TUBE NO LONGER GRABS AN INVISIBLE FIN. In v0.084 the whole interior of a rolled fin — including the part lying unseen over the tube — was the topmost click target, so a click on what looked like plain tube could select a fin, and a drag there could MOVE it. A rolled fin now takes clicks on its drawn outline anywhere, and on its interior only outside the body; over the tube, the tube gets its own clicks back.',
+      'A ROLLED FIN KEEPS ITS DISPLAY COLOR. v0.084 drew every wire outline in the same grey, discarding any color set in the component’s appearance — in the one view whose purpose is telling fins apart. The outline is now the fin’s own color, as desktop draws it.',
+      'ROLLED FIN OUTLINES DRAW ON TOP OF THE MOTOR. A loaded motor case could paint over exactly the in-body run of a fin — the segment the wireframe exists to show. Fin outlines now paint last. Two smaller ones with the same shape: an edge-on elliptical fin now collapses to a clean line instead of a 2-pixel lens, and an edge-on fin’s through-the-wall tab vanishes with it instead of leaving a dashed band on the centerline.',
+    ],
+  },
   {
     version: '0.084',
     date: '2026-08-30',

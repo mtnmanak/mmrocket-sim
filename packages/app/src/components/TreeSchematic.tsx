@@ -542,6 +542,11 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   // tube used to vanish under that tube's opaque fill (while the overhang into
   // the PREVIOUS tube, already painted, stayed visible — the owner's ebay report).
   const overlay: React.ReactNode[] = [];
+  // Wireframe fin outlines and their hit surfaces, painted after overlay:
+  // a loaded motor case is an overlay rect at 0.85 opacity, and whenever the
+  // mount follows the fin set in child order it landed exactly on the in-body
+  // run of each rolled fin — the segment the wireframe exists to keep visible.
+  const wires: React.ReactNode[] = [];
   let key = 0;
 
   // Hovered component's drawn extent (layout px), unioned across instances
@@ -616,8 +621,9 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   /**
    * One clip per (centreline, body radius) pair, memoised: everything OUTSIDE
    * the airframe band, as two rects. Sign-free, so it serves flat fins and
-   * tube fins alike, including a tube lying across the axis. At-rest only — a
-   * wireframe clips nothing, so none of these get built while rolled.
+   * tube fins alike, including a tube lying across the axis. At rest it cuts
+   * a far fin's fill at the wall; while rolled the DRAWING clips nothing, but
+   * the same clip bounds each wire fin's invisible hit surface (see wireInk).
    */
   const clipDefs: React.ReactNode[] = [];
   const airframeClips = new Map<string, string>();
@@ -642,22 +648,39 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   };
 
   /**
-   * Ink for a fin drawn as wireframe. A hollow shape takes pointer events only
-   * on its stroke, so the silhouette is given `pointerEvents: all`: a rolled
-   * fin stays exactly as selectable and as draggable as a filled one, which a
-   * bare `fill: none` would quietly have taken away.
+   * Ink for a fin drawn as wireframe: the component's own display colour on
+   * the outline — desktop strokes each component in its colour
+   * (RocketFigure.java:287-292), and it is the one view whose purpose is
+   * telling fins apart — with selection carried by the same helpers as the
+   * filled drawing.
    */
   const wireInk = (n: ComponentNode, grab: Record<string, unknown>) => ({
     ...grab,
     'data-fin': 'wire',
     fill: 'none',
-    stroke: selStroke(n, '#7a786f'),
-    strokeWidth: isSel(n) ? 2 : 1.4,
-    style: {
-      ...((grab.style as React.CSSProperties | undefined) ?? {}),
-      pointerEvents: 'all' as const,
-    },
+    stroke: selStroke(n, fillOf(n, '#7a786f')),
+    strokeWidth: selWidth(n, 1.4),
   });
+
+  /**
+   * One wire fin = the visible outline plus an invisible hit surface CLIPPED
+   * TO OUTSIDE the airframe band. A hollow shape takes pointer events only on
+   * its stroke; blanket `pointerEvents: all` (the first cut of v0.084) fixed
+   * that by making the whole invisible interior the topmost target — so a
+   * click or drag aimed at bare body tube landed on a fin nobody could see,
+   * and the drag MOVED it. Outside the band the space belongs to the fin;
+   * inside it, only the drawn line does.
+   */
+  const pushWire = (
+    n: ComponentNode, grab: Record<string, unknown>, clip: string,
+    shape: (extra: Record<string, unknown>) => React.ReactNode,
+  ) => {
+    wires.push(shape(wireInk(n, grab)));
+    wires.push(shape({
+      ...grab, 'data-fin-hit': '', fill: 'transparent', stroke: 'none',
+      clipPath: `url(#${clip})`,
+    }));
+  };
 
   /**
    * Where each fin of a set lands in the side view: a signed foreshortening
@@ -667,9 +690,10 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
    * (x, y), so a point at radius r lands at `r·cos θ`
    * (FinSetShapes.java:41-60 + RocketFigure.axialRotation, 24.12).
    *
-   * EVERY instance comes back, including the ones the airframe hides. The
-   * clips decide what is filled and what is a hidden line; nothing is dropped,
-   * so nothing can pop.
+   * EVERY instance comes back, including the ones the airframe hides. What
+   * happens to a hidden one is the renderer's business — at rest the clip cuts
+   * its fill at the wall, rolled it is a wire outline — but nothing is dropped
+   * here, so nothing can pop.
    */
   const finFactors = (n: ComponentNode, dfltCount = 3): FinInstance[] => {
     const count = Math.max(1, Math.round(num(n, 'finCount', dfltCount)));
@@ -744,10 +768,14 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
         const ySurface = baseY - pRadius * p * ctx.scale;
         // A tab lies inside the airframe by definition, so while the figure is
         // a wireframe it loses its wash and becomes an outline like everything
-        // else — and goes over the body rather than under it.
-        (wire ? overlay : shapes).push(
+        // else — and goes over the body rather than under it. No size floors
+        // there either: an edge-on instance's tab projects to nothing, and a
+        // floored 1.5 px band riding the centreline is not nothing.
+        const hPx = Math.abs(yInner - ySurface);
+        if (wire && hPx < 0.5) return;
+        (wire ? wires : shapes).push(
           <rect key={key++} x={ctx.x0 + front * ctx.scale} y={Math.min(yInner, ySurface)}
-            width={Math.max(2, tabLen * ctx.scale)} height={Math.max(1.5, Math.abs(yInner - ySurface))}
+            width={Math.max(2, tabLen * ctx.scale)} height={wire ? hPx : Math.max(1.5, hPx)}
             fill={wire ? 'none' : fillOf(child, '#b9b7b0')} fillOpacity={wire ? undefined : '0.35'}
             stroke="#7a786f" strokeWidth="1" strokeDasharray="3 2"
             style={{ pointerEvents: 'none' }} />,
@@ -763,7 +791,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
           const projections = finFactors(child);
           noteHoverFins(child, ctx.x0 + start * ctx.scale, ctx.x0 + (start + chord) * ctx.scale,
             baseY, reach, pRadius, projections);
-          const clip = wire ? '' : airframeClip(baseY, pRadius);
+          const clip = airframeClip(baseY, pRadius);
           for (const { p, near } of projections) {
             const ptsStr = raw
               .map(([px, py]) => `${ctx.x0 + (start + px) * ctx.scale},${baseY - (pRadius + py) * p * ctx.scale}`)
@@ -772,7 +800,8 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
             // drawn — including one lying flat inside the airframe, which is
             // exactly the one you need on screen to follow a fin round.
             if (wire) {
-              overlay.push(<polygon key={key++} points={ptsStr} {...wireInk(child, grab)} />);
+              pushWire(child, grab, clip,
+                (extra) => <polygon key={key++} points={ptsStr} {...extra} />);
               renderTab(start, chord, p);
               continue;
             }
@@ -802,7 +831,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
         noteHoverFins(child, ctx.x0 + start * ctx.scale,
           ctx.x0 + (start + Math.max(root, sweep + tip)) * ctx.scale,
           baseY, reach, pRadius, projections);
-        const finClip = wire ? '' : airframeClip(baseY, pRadius);
+        const finClip = airframeClip(baseY, pRadius);
         for (const { p, near } of projections) {
           const y0 = baseY - pRadius * p * ctx.scale;
           const yh = baseY - reach * p * ctx.scale;
@@ -812,14 +841,21 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
           // (P0 + 2C + P2)/4, i.e. exactly halfway to its control, so an
           // elliptical fin drew at 57 % of the height its own property panel,
           // its 1:1 cut template, the Aft view and the 3D mesh all give it.
-          const ellipse = `M ${X} ${y0} A ${(root / 2) * ctx.scale} ${Math.max(2, Math.abs(y0 - yh))} 0 0 ${p > 0 ? 1 : 0} ${X + root * ctx.scale} ${y0} Z`;
+          //
+          // The 2 px ry floor is for the AT-REST drawing only (a sliver of a
+          // fin still reads as one). Wired, the floor kept an edge-on ellipse
+          // as a 2 px lens whose bulge side flips with the sign of p — the
+          // raw value lets it degenerate to the line the other shapes draw
+          // (an arc with ry 0 renders as a straight segment, per SVG).
+          const ry = Math.abs(y0 - yh);
+          const ellipse = `M ${X} ${y0} A ${(root / 2) * ctx.scale} ${wire ? ry : Math.max(2, ry)} 0 0 ${p > 0 ? 1 : 0} ${X + root * ctx.scale} ${y0} Z`;
           const trap = `${X},${y0} ${X + sweep * ctx.scale},${yh} ${X + (sweep + tip) * ctx.scale},${yh} ${X + root * ctx.scale},${y0}`;
           if (wire) {
-            overlay.push(
+            pushWire(child, grab, finClip, (extra) => (
               t === 'trapezoidfinset'
-                ? <polygon key={key++} points={trap} {...wireInk(child, grab)} />
-                : <path key={key++} d={ellipse} {...wireInk(child, grab)} />,
-            );
+                ? <polygon key={key++} points={trap} {...extra} />
+                : <path key={key++} d={ellipse} {...extra} />
+            ));
             renderTab(start, root, p);
             continue;
           }
@@ -853,15 +889,17 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
         noteHover(child, X, baseY - (pRadius + 2 * rt) * ctx.scale,
           X + len * ctx.scale, baseY + (pRadius + 2 * rt) * ctx.scale);
         const tubes = finFactors(child, 6);
-        const tubeClip = wire ? '' : airframeClip(baseY, pRadius);
+        const tubeClip = airframeClip(baseY, pRadius);
         for (const { p, near } of tubes) {
           const yc = baseY - (pRadius + rt) * p * ctx.scale;
           const half = rt * ctx.scale;
           const w2 = Math.max(2, len * ctx.scale);
           if (wire) {
-            overlay.push(
+            pushWire(child, grab, tubeClip, (extra) => (
               <rect key={key++} x={X} y={yc - half} width={w2} height={2 * half}
-                rx="2" {...wireInk(child, grab)} />,
+                rx="2" {...extra} />
+            ));
+            wires.push(
               <line key={key++} x1={X} y1={yc} x2={X + len * ctx.scale} y2={yc}
                 stroke="#7a786f" strokeWidth="0.8" strokeDasharray="4 3"
                 style={{ pointerEvents: 'none' }} />,
@@ -1256,6 +1294,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
           : `translate(${zoom.x} ${zoom.y}) scale(${zoom.k})`}>
           {shapes}
           {overlay}
+          {wires}
           {/* pointerEvents none on BOTH marker groups: they are decoration
               drawn on the centreline — precisely where you click to select a
               nose cone or body tube — and an 18px opaque disc with no handler

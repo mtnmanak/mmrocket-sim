@@ -1,5 +1,5 @@
 {
-  "version": "0.084",
+  "version": "0.085",
   "released": "2026-08-30",
-  "note": "The roll slider in the 2D view now draws a wireframe, the way desktop OpenRocket does: while the view is rolled every fin is a plain outline over the body, nothing hidden and nothing occluded, so all of them are on screen at every angle and one fin can be followed the whole way round - including through the angle where it turns edge-on. At rest the drawing is unchanged: the filled one, with a fin in front of the airframe drawn whole and one behind it cut at the wall. No numbers change."
+  "note": "Three fixes to v0.084's rolled-view wireframe, found by a same-day code review. Clicking bare body tube no longer selects (or drags) an invisible fin - a rolled fin takes clicks on its outline anywhere and on its interior only outside the body. A rolled fin keeps its display color instead of going grey. And fin outlines draw on top of a loaded motor case rather than under it, so the in-body run of a fin stays visible. No numbers change."
 }

@@ -21,9 +21,8 @@ import { INITIAL_UNITS } from '../prefs/units.js';
  */
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-/** A drawn fin, not the dashed hidden line the roll adds behind the airframe. */
-const FILLED_FIN = 'polygon:not([data-fin="wire"])';
-const FILLED_ARC = 'path:not([data-fin="hidden"])';
+/** A FILLED fin, not the wire outline a rolled view draws instead (v0.084). */
+const FILLED_FIN = 'polygon:not([data-fin="wire"]):not([data-fin-hit])';
 
 let host: HTMLDivElement;
 let root: Root;

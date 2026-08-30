@@ -14,9 +14,9 @@ import { RULER_LEFT, RULER_TOP, TreeSchematic } from './TreeSchematic.js';
  */
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-/** A drawn fin, not the dashed hidden line the roll adds behind the airframe. */
-const FILLED_FIN = 'polygon:not([data-fin="wire"])';
-const FILLED_ARC = 'path:not([data-fin="hidden"])';
+/** A FILLED fin, not the wire outline a rolled view draws instead (v0.084). */
+const FILLED_FIN = 'polygon:not([data-fin="wire"]):not([data-fin-hit])';
+const FILLED_ARC = 'path:not([data-fin="wire"]):not([data-fin-hit])';
 
 let host: HTMLDivElement;
 let root: Root;
@@ -303,7 +303,15 @@ describe('the rolled view is a wireframe: every fin, every angle', () => {
     expect(host.querySelectorAll('polygon[data-fin="wire"]')).toHaveLength(3);
   });
 
-  it('keeps a hollow fin clickable — fill:none would take the interior away', () => {
+  /**
+   * The hit model, and why it is TWO elements. A hollow shape takes pointer
+   * events only on its stroke; blanket pointerEvents:all (the first cut of
+   * v0.084) made the whole invisible interior the topmost target, so a click
+   * or drag aimed at bare body tube landed on a fin nobody could see — and
+   * the drag MOVED it. So: the outline hits on its stroke anywhere, and an
+   * invisible hit surface covers the interior only OUTSIDE the airframe band.
+   */
+  it('keeps a hollow fin clickable, without an invisible interior over the tube', () => {
     const picked: string[] = [];
     act(() => root.render(
       <TreeSchematic tree={treeWith({ type: 'trapezoidfinset', finCount: 3, tipChord: 0.03, sweep: 0.02 })}
@@ -313,21 +321,71 @@ describe('the rolled view is a wireframe: every fin, every angle', () => {
     expect(w).toHaveLength(3);
     for (const p of w) {
       expect(p.getAttribute('fill')).toBe('none');
-      expect((p as SVGElement).style.pointerEvents).toBe('all');
+      // No blanket hit override on the outline: its stroke is the target.
+      expect((p as SVGElement).style.pointerEvents).not.toBe('all');
       expect((p as SVGElement).style.cursor).toBeTruthy();
     }
-    act(() => { (w[0] as SVGElement).dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    const hits = [...host.querySelectorAll('[data-fin-hit]')];
+    expect(hits).toHaveLength(3);
+    for (const hit of hits) {
+      expect(hit.getAttribute('fill')).toBe('transparent');
+      expect(hit.getAttribute('stroke')).toBe('none');
+      // Clipped to OUTSIDE the airframe band, so the tube keeps its own clicks.
+      const ref = /url\(#(.+)\)/.exec(hit.getAttribute('clip-path')!)!;
+      expect(ref[1]).toContain('-outside-');
+      expect(host.querySelector(`clipPath[id="${ref[1]}"]`), 'the clip must exist').not.toBeNull();
+    }
+    act(() => { (hits[0] as SVGElement).dispatchEvent(new MouseEvent('click', { bubbles: true })); });
     expect(picked).toEqual(['f1']);
   });
 
-  it('is the fin colour, not a hint — and takes the accent when selected', () => {
+  it('is the fin colour, not a hint — display colour, then the accent when selected', () => {
     roll(30, 3);
     expect(wires()[0]!.getAttribute('stroke')).toBe('#7a786f');
+    // A custom display colour survives the roll (v0.084 first cut greyed it).
+    roll(30, 3, { color: '#c0392b' });
+    for (const w of wires()) expect(w.getAttribute('stroke')).toBe('#c0392b');
     act(() => root.render(
       <TreeSchematic tree={treeWith({ type: 'trapezoidfinset', finCount: 3, tipChord: 0.03, sweep: 0.02 })}
         info={null} roll={Math.PI / 6} selectedId="f1" />,
     ));
     for (const w of wires()) expect(w.getAttribute('stroke')).toBe('var(--accent)');
+  });
+
+  it('covers tube fins: one wire ring per tube, and the outlines paint LAST', () => {
+    roll(30, 6, { type: 'tubefinset', length: 0.04 });
+    const rects = [...host.querySelectorAll('rect[data-fin="wire"]')];
+    expect(rects).toHaveLength(6);
+    // Above everything the body paints — a loaded motor case lands in the
+    // overlay, exactly on the in-body run the wireframe exists to show.
+    const svg = host.querySelector('svg')!;
+    const all = [...svg.querySelectorAll('*')];
+    const lastBody = Math.max(...[...svg.querySelectorAll('rect[fill="#e7e5e0"]')].map((el) => all.indexOf(el)));
+    for (const r of rects) expect(all.indexOf(r)).toBeGreaterThan(lastBody);
+  });
+
+  it('lets an edge-on tab vanish with its fin instead of flooring to a band', () => {
+    // 4 fins at 90°: two instances edge-on. Their fins collapse to lines; the
+    // 1.5 px height floor used to leave their tabs as a dashed band riding the
+    // centreline that never foreshortened.
+    roll(90, 4, { tabHeight: 0.005, tabLength: 0.03 });
+    const tabs = [...host.querySelectorAll('rect[stroke-dasharray="3 2"]')];
+    expect(tabs).toHaveLength(2); // the visible pair only — edge-on pair gone
+    for (const tb of tabs) expect(Number(tb.getAttribute('height'))).toBeGreaterThan(1.5);
+  });
+
+  it('collapses an edge-on elliptical fin to a line, not a 2px lens', () => {
+    roll(90, 4, { type: 'ellipticalfinset' });
+    // 4 fins at 90° roll: instances at 90/180/270/360 → two edge-on (p≈0).
+    const ds = [...host.querySelectorAll('path[data-fin="wire"]')].map((p) => p.getAttribute('d')!);
+    expect(ds).toHaveLength(4);
+    const ry = (d: string) => Number(/A [\d.e-]+ ([\d.e-]+)/.exec(d)![1]);
+    const rys = ds.map(ry).sort((a, b) => a - b);
+    // The at-rest drawing floors ry at 2 so slivers stay visible; wired, the
+    // floor kept an edge-on ellipse as a lens whose bulge flips with sign(p).
+    expect(rys[0]).toBeLessThan(1e-9);
+    expect(rys[1]).toBeLessThan(1e-9);
+    expect(rys[3]).toBeGreaterThan(2);
   });
 
   it('changes nothing at rest — an unrolled drawing is still filled', () => {
