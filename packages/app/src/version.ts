@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.075';
+export const APP_VERSION = '0.076';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,22 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.076',
+    date: '2026-08-29',
+    title: 'The app stops being a sea of text on an ocean of black',
+    items: [
+      'NO NUMBERS CHANGE IN THIS RELEASE. Nothing in the physics, the models, the importers or the exports was touched — this is the visual batch, top to bottom. Every measured value, every simulation, every file round-trips exactly as it did in v0.075.',
+      'EVERYTHING GETS ELEVATION. The dark theme separated a panel from the page by a 10 % step and painted every button, input and menu the page color itself, with borders too faint to register — which is why the whole app read as one field of dark text. There are four surface levels now: the page sits back, panels lift off it with real outlines and a soft shadow, buttons and menus stand raised on the panels, and inputs and tables recess into them. The light theme had the same flatness and got the same rebuild. Daylight mode is untouched — it already solved this problem its own way, for sunlight.',
+      'CHART LINES YOU CAN SEE. The plot colors were chosen against white paper, and the dark theme drew those same colors on near-black — the thrust line sat below 2:1 contrast, effectively invisible. The dark theme now has its own steps of the same eight hues, every one checked against the actual panel color; strokes are slightly heavier, the grid is visible again, the legend is full-strength, and the plot area sits recessed into its card like an instrument. SOME LINE COLORS CHANGED in both themes: the slot order was re-validated for color-blind readers (the old order put two near-identical pairs side by side for everyone), so for example the velocity plot is now orange rather than teal. Each panel is titled, so no reading changes — only the ink.',
+      'THE TWO RAIL BUTTONS STOP BEING TWINS. A drag breakdown with more than eight components used to reuse the eight colors in a cycle, so component nine was an exact copy of component one. Reused colors now carry a dash pattern, so every component in the breakdown is distinguishable — hue first, dash second.',
+      'THE DESIGN CANVAS SIZES TO YOUR ROCKET, NOT YOUR WINDOW. Its height was a pure function of window height: it never looked at the rocket, so a long thin design flew in a window-tall band of empty sky and the footer stayed below the fold at every window size. The canvas now takes the height the drawing actually needs — rocket, CG/CP callout lanes, and headroom for the floating chip — and stops there; on a short window it yields first so the footer and any notices stay on screen, and stretching the window scales the rocket up only to its natural proportions. The 3D and Aft views keep their fixed comfortable heights, and ⟳90° mode keeps its taller budget. The sky itself picked up a faint drafting-table grid — cosmetic only, no snapping.',
+      'WARNINGS SPEAK WITH ONE VOICE, RANKED. Six different warning styles existed, and a collapsed error was a tan strip distinguished from routine information by a 2-pixel line. Severity is now carried the same way everywhere — a colored left bar, a tinted background, and its own glyph (i / ⚠ / ⛔; warning and error used to share ⚠) — in the bottom notice bar, in every note on the Results tab, and in the launch report, whose advisory sentences now read one flag per line instead of run-on prose. Destructive buttons stopped dressing like downloads: Clear all and Stop are outlined red, and the one next-step action on an empty panel is filled orange.',
+      'THE AFT VIEW IN DAYLIGHT MODE WAS A BLACK BOX — fixed. Daylight thickens the schematic linework for sunlight, but the aft view’s drawing is scaled in meters, so the thickened strokes were meters wide and flooded the whole box black. The linework rule now knows the difference; the aft view keeps Daylight’s black ink at its own line weights.',
+      'THE 3D VIEW’S BUTTONS COME OUT FROM UNDER THE CHIP. Reset / Side / Aft / ◉ CG-CP sat in the top-left corner, exactly under the floating stats chip’s default position, so most people never learned they existed. They moved to the top-right, joining the 📷 Image button that was already there.',
+      'SMALLER, IN THE SAME SPIRIT: the app no longer flashes white before the dark theme loads; native dropdowns and scrollbars stop rendering light chrome inside the dark app; the browser-tab color matches the app instead of a blue-black that matched nothing; the motor table’s sortable column headers work from the keyboard; and the launch report’s full details are grouped under Flight / Launch & recovery / Checks & motor headings instead of thirty identical rows.',
+    ],
+  },
   {
     version: '0.075',
     date: '2026-08-27',
