@@ -79,7 +79,7 @@ const CORRECTIONS = [
   },
   {
     key: 'CenteringRing|rocketarium|cr5080w',
-    why: 'upstream ROCKETARIUM.ORC pasted CR5070-size dims (2.178x1.00x.05) under the CR5080-W part number; corrected to the CR5080 geometry every reference agrees on',
+    why: 'upstream ROCKETARIUM.ORC duplicated the CR50MF70-W row above it (2.178x1.00x.05, description string included) under the CR5080-W part number; corrected to the CR5080 geometry every reference agrees on',
     fields: {
       outsideDiameter: { bad: 0.0553212, good: 0.0649224 },
       insideDiameter: { bad: 0.0254, good: 0.0248412 },
