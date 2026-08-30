@@ -1,5 +1,5 @@
 {
-  "version": "0.082",
+  "version": "0.083",
   "released": "2026-08-30",
-  "note": "The 2D side view now knows which side of the airframe each fin is on: a fin pointing toward you is drawn in front of the tube, one pointing away is cut off at its wall. Every earlier release drew both the same way, which is why rolling looked like the fins were toggling rather than turning - on a three-fin set the two lower fins were identical shapes. At rest this changes three- and five-fin rockets only: one lower fin is now drawn across the tube, which is what a photograph shows. The motor browser also gains burn-time and total-impulse windows under All filters. No numbers change."
+  "note": "Measured from two screen recordings of the same rocket: the fins' up/down extent ratio sweeps 0.50-2.01 in this app and 0.51-2.00 in desktop OpenRocket, against 0.50-2.00 predicted for a three-fin set - the two draw the same projection, and a three-fin rocket's side view genuinely does rock as it rolls. What differs is that the desktop figure is a wireframe with no occlusion, so every fin outline is on screen at all times. The covered part of a fin here was a 70%-opacity hairline that read as a smudge; it is now a full-strength dashed outline, so a fin passing behind the airframe stays followable. No numbers change."
 }

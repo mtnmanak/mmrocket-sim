@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.082';
+export const APP_VERSION = '0.083';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.083',
+    date: '2026-08-30',
+    title: 'The fin behind the airframe is drawn like a fin',
+    items: [
+      'NO NUMBERS CHANGE.',
+      'MEASURED, FROM TWO SCREEN RECORDINGS OF THE SAME ROCKET: the ratio between how far the fins reach above and below the centreline sweeps 0.50 to 2.01 in this app and 0.51 to 2.00 in desktop OpenRocket, against 0.50 to 2.00 predicted for a three-fin set. The two draw the same projection. A three-fin rocket’s side view genuinely does rock between one full fin up with two half fins down and the mirror of that — in both programs — because that is what the rocket looks like from the side.',
+      'WHAT ACTUALLY DIFFERS is that the desktop figure is a wireframe with no occlusion: all three fin outlines are on screen at every angle, so each one can be followed round even while it passes behind the body. Here the covered part of a fin was drawn at 70 % opacity on a hairline, and read as a smudge rather than as a fin. It is now a full-strength dashed outline — hidden-line convention, the same as every other internal part — so a fin passing behind the airframe stays something you can watch, while a fin in FRONT of the airframe keeps the solid fill that says so.',
+    ],
+  },
   {
     version: '0.082',
     date: '2026-08-30',

@@ -639,11 +639,22 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
    * through the body instead of appear at the wall.
    */
   const showHidden = roll !== 0;
-  /** Ink for a hidden line: the fin's own stroke, quietened. */
+  /**
+   * Ink for a hidden line. Full strength, not a hint.
+   *
+   * Measured off the owner's own two screen recordings of the same rocket
+   * (2026-08-30): the up/down extent ratio sweeps 0.50–2.01 here and
+   * 0.51–2.00 in desktop OpenRocket, against 0.50–2.00 predicted for a
+   * three-fin set. The projection is not what differs. What differs is that
+   * the desktop figure is a wireframe with NO occlusion, so all three fin
+   * outlines are on screen at every angle and each one can be followed; ours
+   * drew the covered part at 70 % opacity on a hairline, where it read as a
+   * smudge rather than as a fin.
+   */
   const HIDDEN = {
     'data-fin': 'hidden',
-    fill: 'none', stroke: '#7a786f', strokeWidth: 1, strokeOpacity: 0.7,
-    strokeDasharray: '3 2', style: { pointerEvents: 'none' as const },
+    fill: 'none', stroke: '#8d8a80', strokeWidth: 1.4, strokeOpacity: 1,
+    strokeDasharray: '5 3', style: { pointerEvents: 'none' as const },
   };
 
   /**
