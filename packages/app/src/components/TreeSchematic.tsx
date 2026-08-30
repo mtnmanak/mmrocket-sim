@@ -689,17 +689,22 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
 
   /**
    * A part that sits ON the airframe surface at one clock angle: shrouds,
-   * protuberances, launch lugs, rail buttons. The MODEL stores no angle for
-   * any of them yet, so their own angle is 0 — but the VIEW roll must still
-   * turn them, or the cross-section stops being rigid. The owner rolled a
-   * design on 2026-08-30 and watched the camera shroud stay at 12 o'clock
-   * while the fins turned past it; that is this.
+   * protuberances, launch lugs, rail buttons. Its own `angleOffset` places it
+   * around the body (0 = the top of this drawing, which is also where an
+   * un-rotated fin set puts its first fin), and the view roll turns it from
+   * there.
+   *
+   * Both halves were missing before v0.086/v0.087: the parts were pinned to
+   * the top of the airframe, so rolling turned the fins and left them behind,
+   * and there was no angle to place them at in the first place. A camera
+   * shroud in line with a fin has the fin in shot, which is exactly the thing
+   * an owner steers away from (Eric, 2026-08-30).
    *
    * Same projection as a fin: a surface point at radius r lands at r·cos θ,
    * and sin θ ≥ 0 puts it in FRONT of the airframe.
    */
-  const surfaceAt = (own = 0): FinInstance => {
-    const a = own + roll;
+  const surfaceAt = (n: ComponentNode): FinInstance => {
+    const a = num(n, 'angleOffset', 0) + roll;
     return { p: Math.cos(a), near: Math.sin(a) >= 0 };
   };
 
@@ -951,7 +956,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
         const hgt = num(child, 'height', 0.02);
         const fshape = String(child['fairingShape'] ?? 'halfround');
         const start = axialStart(child, len, pStart, pLen);
-        const { p: sp, near: snear } = surfaceAt();
+        const { p: sp, near: snear } = surfaceAt(child);
         const X = ctx.x0 + start * ctx.scale;
         const y0 = baseY - pRadius * sp * ctx.scale;
         const yh = baseY - (pRadius + hgt) * sp * ctx.scale;
@@ -992,7 +997,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
         const hgt = num(child, 'height', 0.01);
         const cls = String(child['dragClass'] ?? 'streamlinedbase');
         const start = axialStart(child, len, pStart, pLen);
-        const { p: pp, near: pnear } = surfaceAt();
+        const { p: pp, near: pnear } = surfaceAt(child);
         const X = ctx.x0 + start * ctx.scale;
         const y0 = baseY - pRadius * pp * ctx.scale;
         const yh = baseY - (pRadius + hgt) * pp * ctx.scale;
@@ -1022,7 +1027,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
         const start = axialStart(child, len, pStart, pLen);
         // Own clock angle is not modelled (the .ork round-trip drops it), but
         // the view roll still carries it round the body.
-        const { p: lp, near: lnear } = surfaceAt();
+        const { p: lp, near: lnear } = surfaceAt(child);
         const ySurf = baseY - pRadius * lp * ctx.scale;
         const yOut = baseY - (pRadius + 2 * r) * lp * ctx.scale;
         noteHover(child, ctx.x0 + start * ctx.scale, Math.min(ySurf, yOut),

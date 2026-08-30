@@ -139,25 +139,26 @@ export function AftView({ tree, motors, roll: rollProp, onRoll }: {
         }
         reach(cy, cz, pRadius + 2 * rt);
       } else if (t === 'fairing') {
-        // Shroud cross-section. Its OWN radial angle is not modelled, so it
-        // starts at the top — but it turns with the roll like everything
-        // else, or the cross-section is not rigid (owner report, 2026-08-30).
+        // Shroud cross-section, at the angle it is actually mounted. This is
+        // the view that answers "will a fin be in shot?", so it is the one
+        // that has to place the shroud honestly.
         const wid = num(child, 'width', 0.025);
         const hgt = num(child, 'height', 0.02);
         outer.push({
-          kind: 'fin', y: cy, z: cz, angle: roll, from: pRadius, to: pRadius + hgt,
+          kind: 'fin', y: cy, z: cz, angle: num(child, 'angleOffset', 0) + roll,
+          from: pRadius, to: pRadius + hgt,
           thick: wid, fill: colorOf(child, '#c8c5be'), stroke: '#7a786f',
           title: child.name ?? 'Camera shroud',
         });
         reach(cy, cz, pRadius + hgt);
       } else if (t === 'launchlug' || t === 'railbutton') {
         const r = t === 'railbutton' ? num(child, 'outerDiameter', 0.004) / 2 : num(child, 'outerRadius', 0.002);
-        // Own radial direction isn't modelled, so it starts at the right side
-        // (+z here) — but it rolls with the view, same as the shroud.
-        const a = roll;
+        // Angle 0 is the top of the side view, and the aft frame's +y is up,
+        // so a lug at 0 draws at 12 o'clock here too — the two views agree.
+        const a = num(child, 'angleOffset', 0) + roll;
         outer.push({
           kind: 'circle',
-          y: cy - (pRadius + r) * Math.sin(a), z: cz + (pRadius + r) * Math.cos(a), r,
+          y: cy + (pRadius + r) * Math.cos(a), z: cz + (pRadius + r) * Math.sin(a), r,
           fill: colorOf(child, '#c8c5be'), stroke: '#7a786f', title: child.name ?? t,
         });
         reach(cy, cz, pRadius + 2 * r);
@@ -167,22 +168,30 @@ export function AftView({ tree, motors, roll: rollProp, onRoll }: {
           child['cluster'] as string | undefined, r,
           num(child, 'clusterScale', 1), num(child, 'clusterRotation', 0) + roll,
         );
+        // A tube can also sit OFF the centreline on its own (OpenRocket's
+        // radial position/direction). Desktop's "split cluster" makes each
+        // motor tube exactly that, so without this a split cluster draws as
+        // one stack of tubes on the axis. Angle 0 is +y, like everything else.
+        const rp = num(child, 'radialPosition', 0);
+        const rd = num(child, 'radialDirection', 0) + roll;
+        const oy = rp * Math.cos(rd);
+        const oz = rp * Math.sin(rd);
         const motor = child.id ? motors?.[child.id] : undefined;
         for (const off of offs) {
           inner.push({
-            kind: 'circle', y: cy + off.y, z: cz + off.z, r,
+            kind: 'circle', y: cy + oy + off.y, z: cz + oz + off.z, r,
             fill: 'none', stroke: colorOf(child, '#9a978f'), dash: '3 2',
             title: child.name ?? 'Inner tube',
           });
           if (motor) {
             inner.push({
-              kind: 'circle', y: cy + off.y, z: cz + off.z, r: motor.diameter / 2,
+              kind: 'circle', y: cy + oy + off.y, z: cz + oz + off.z, r: motor.diameter / 2,
               fill: '#8b5a2b', stroke: '#6b4520', title: 'Motor',
             });
           }
-          reach(cy + off.y, cz + off.z, r);
+          reach(cy + oy + off.y, cz + oz + off.z, r);
         }
-        walkChildren(child, r, cy, cz);
+        walkChildren(child, r, cy + oy, cz + oz);
       } else if (t === 'tubecoupler' || t === 'centeringring' || t === 'engineblock' || t === 'bulkhead') {
         const r = Math.min(pRadius * 0.98, num(child, 'outerRadius', pRadius * 0.95));
         inner.push({

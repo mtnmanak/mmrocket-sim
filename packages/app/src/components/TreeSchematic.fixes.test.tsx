@@ -460,4 +460,27 @@ describe('every surface-mounted part turns with the view', () => {
       expect(Math.abs(reach(sel)), `${label} did not foreshorten`).toBeLessThan(Math.abs(up) * 0.2);
     });
   }
+
+  it('places each part at its OWN mounting angle, not just the view roll', () => {
+    // v0.087: the shroud can be clocked away from the fins so a fin is not in
+    // shot — the owner's reason for the field. cos is the whole contract.
+    const at = (deg: number) => {
+      show(<TreeSchematic tree={withPart({
+        type: 'fairing', length: 0.05, height: 0.02, width: 0.02,
+        fairingShape: 'square', angleOffset: (deg * Math.PI) / 180,
+      })} info={null} />);
+      return reach('rect:not([fill="#e7e5e0"])');
+    };
+    const base = at(0);
+    expect(at(60) / base).toBeCloseTo(0.5, 3);
+    // Edge-on collapses to the 2 px minimum-size floor the at-rest drawing
+    // keeps so a sliver of a part still reads as one — hence px, not a ratio.
+    expect(Math.abs(at(90))).toBeLessThan(2.5);
+    // Its own angle and the view roll ADD: 30 of each is the same as 60.
+    show(<TreeSchematic tree={withPart({
+      type: 'fairing', length: 0.05, height: 0.02, width: 0.02,
+      fairingShape: 'square', angleOffset: Math.PI / 6,
+    })} info={null} roll={Math.PI / 6} />);
+    expect(reach('rect:not([fill="#e7e5e0"])') / base).toBeCloseTo(0.5, 3);
+  });
 });

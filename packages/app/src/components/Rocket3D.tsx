@@ -209,27 +209,35 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims): { pieces: Pie
         const start = axialStart(child, len, pStart, pLen);
         maxR = Math.max(maxR, pRadius + hgt);
         const geo = new THREE.BoxGeometry(len, hgt, wid);
+        const fa = num(child, 'angleOffset', 0);
+        const fd = pRadius + hgt / 2;
         place(`fairing${k++}`, geo, nodeColor(child, MAT.lug),
-          [start + len / 2, pRadius + hgt / 2, 0], [0, 0, 0], xform);
+          [start + len / 2, fd * Math.cos(fa), fd * Math.sin(fa)], [fa, 0, 0], xform);
       } else if ((child.type as string) === 'protuberance') {
-        // Drag bump on the +Y surface (radial angle not modeled). Drawn as the
-        // frontal box it IS aerodynamically — width x height — so what the eye
-        // reads is the area feeding the drag.
+        // Drag bump, drawn as the frontal box it IS aerodynamically — width x
+        // height — so what the eye reads is the area feeding the drag. It sits
+        // at its own mounting angle, same as every other surface part.
         const len = num(child, 'length', 0.06);
         const wid = num(child, 'width', 0.02);
         const hgt = num(child, 'height', 0.01);
         const start = axialStart(child, len, pStart, pLen);
         maxR = Math.max(maxR, pRadius + hgt);
         const geo = new THREE.BoxGeometry(len, hgt, wid);
+        const pa = num(child, 'angleOffset', 0);
+        const pd = pRadius + hgt / 2;
         place(`prot${k++}`, geo, nodeColor(child, MAT.lug),
-          [start + len / 2, pRadius + hgt / 2, 0], [0, 0, 0], xform);
+          [start + len / 2, pd * Math.cos(pa), pd * Math.sin(pa)], [pa, 0, 0], xform);
       } else if (child.type === 'launchlug') {
         const len = num(child, 'length', 0.05);
         const r = num(child, 'outerRadius', 0.0022);
         const start = axialStart(child, len, pStart, pLen);
         const geo = new THREE.CylinderGeometry(r, r, len, 16);
+        // Euler order XYZ gives Rx*Ry*Rz, so the -pi/2 about Z still lays the
+        // cylinder along the body and the X term then swings it round.
+        const la = num(child, 'angleOffset', 0);
+        const ld = pRadius + r;
         place(`lug${k++}`, geo, nodeColor(child, MAT.lug),
-          [start + len / 2, pRadius + r, 0], [0, 0, -Math.PI / 2], xform);
+          [start + len / 2, ld * Math.cos(la), ld * Math.sin(la)], [la, 0, -Math.PI / 2], xform);
       } else if (child.type === 'innertube') {
         // Motor mount / inner tube, one per cluster position — visible through
         // the translucent shell. A loaded motor seats flush against the

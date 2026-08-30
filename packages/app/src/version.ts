@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.086';
+export const APP_VERSION = '0.087';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.087',
+    date: '2026-08-30',
+    title: 'Your file keeps its angles — and the camera shroud gets one',
+    items: [
+      'NO FLIGHT NUMBERS CHANGE. This release is about your FILES, and it fixes data loss. If you have round-tripped a design through this app, re-open it and check the parts below before you cut anything.',
+      'A LAUNCH LUG OR RAIL BUTTON NO LONGER MOVES WHEN YOU SAVE. Their mounting angle was never read from the file, and every save wrote 180 degrees over whatever you had. A lug you placed at 45 degrees came back at 180 - on a four-fin rocket that is exactly on a fin root line. The angle is now read, written, drawn, and editable.',
+      'AN OFF-AXIS INNER TUBE STAYS OFF AXIS. Radial position and direction were written to every file and read from none, so a design with tubes off the centreline - including any desktop OpenRocket "split cluster", the normal way to give each motor tube its own motor - collapsed onto the centreline on open, and saving made that permanent. Both values now survive, for inner tubes and mass components alike, and the end-on view draws them where they really are.',
+      'THE CAMERA SHROUD HAS AN ANGLE AROUND THE BODY, and so do protuberances, lugs and rail buttons. Point a camera between the fins instead of straight down one of them - or deliberately along one, if that is the shot you want. Zero is the top of the side view, which is also where an unrotated fin set puts its first fin, so "0" means "in line with fin 1". All three views agree: side, end-on, and 3D.',
+      'ELLIPTICAL FIN SETS SHOW THEIR CANT ANGLE. The simulation was already flying an imported cant, so a rocket could roll in flight with no field on screen explaining why. It is now in the panel with the other fin fields.',
+    ],
+  },
   {
     version: '0.086',
     date: '2026-08-30',

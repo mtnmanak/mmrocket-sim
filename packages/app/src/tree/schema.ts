@@ -242,6 +242,30 @@ const RADIUS_METHODS: [string, string][] = [
   ['free', 'From parent centerline'],
 ];
 const ANGLE_METHODS: [string, string][] = [['relative', 'Relative'], ['fixed', 'Fixed']];
+
+/**
+ * Where a surface-mounted part sits around the body: launch lugs, rail
+ * buttons, camera shrouds, protuberances. Zero is the top of the airframe as
+ * the 2D side view draws it, which is also where a fin set with no rotation
+ * puts its first fin — so "0" means "in line with fin 1", and that is exactly
+ * the thing an owner needs to steer away from: a camera shroud in line with a
+ * fin has the fin in shot (Eric, 2026-08-30). Degrees at the UI and .ork
+ * boundaries, radians in the model, like every other angle here.
+ */
+const MOUNT_ANGLE: FieldDef = {
+  key: 'angleOffset', label: 'Angle around body', unit: 'deg', step: 5, smin: -180, smax: 180,
+};
+
+/**
+ * Off-axis placement for a component that rides INSIDE the airframe rather
+ * than on its surface (OpenRocket's RadiusPositionable): how far off the
+ * centreline, and in which direction. A split cluster's motor tubes are the
+ * common case — each tube is a single tube at its own radius and angle.
+ */
+const RADIAL_PLACEMENT: FieldDef[] = [
+  lenMM('radialPosition', 'Distance off centerline', 1, 300),
+  { key: 'radialDirection', label: 'Direction around body', unit: 'deg', step: 5, smin: -180, smax: 180 },
+];
 const ASSEMBLY_FIELDS: FieldDef[] = [
   { key: 'instanceCount', label: 'Instances (around body)', unit: 'count', smin: 1, smax: 8 },
   // radiusOffset matches the kernel field + .ork <radiusoffset> (gap semantics
@@ -356,6 +380,7 @@ export const FIELDS: Record<EditorComponentType, FieldDef[]> = {
   ],
   ellipticalfinset: [
     FIN_COUNT,
+    CANT,
     lenMM('rootChord', 'Root chord', 1, 200),
     lenMM('height', 'Height', 1, 150),
     lenMM('thickness', 'Thickness', 0.5, 10),
@@ -390,6 +415,7 @@ export const FIELDS: Record<EditorComponentType, FieldDef[]> = {
     // has), so it lives ON the mount and persists through sessions and .ork
     // files. The Motors & Launch tab offers a per-stage override on top.
     { key: 'maxMotorLength', label: 'Max motor length (blank = no limit)', unit: 'mm', step: 5 },
+    ...RADIAL_PLACEMENT,
     DENSITY,
   ],
   tubecoupler: [
@@ -414,9 +440,11 @@ export const FIELDS: Record<EditorComponentType, FieldDef[]> = {
     lenMM('length', 'Length', 1, 100),
     radMM('outerRadius', 'Outer radius', 0.2, 10),
     lenMM('thickness', 'Wall thickness', 0.1, 2),
+    MOUNT_ANGLE,
   ],
   railbutton: [
     lenMM('outerDiameter', 'Outer diameter', 0.5, 20),
+    MOUNT_ANGLE,
   ],
   parachute: [
     lenMM('diameter', 'Canopy diameter', 10, 1500),
@@ -451,7 +479,7 @@ export const FIELDS: Record<EditorComponentType, FieldDef[]> = {
   // External protuberance (camera shroud, avionics fairing). The physics is
   // synthesized at the engine boundary (treeModel.engineTree): slender-strake
   // lift via a 1-fin Barrowman surface + Hoerner protuberance drag as a CD
-  // override. Radial mounting angle is not modeled (like launch lugs).
+  // override.
   fairing: [
     lenMM('length', 'Length (along body)', 5, 500),
     lenMM('width', 'Width (across body)', 2, 200),
@@ -465,6 +493,7 @@ export const FIELDS: Record<EditorComponentType, FieldDef[]> = {
       ],
     },
     { key: 'mass', label: 'Mass (as built)', unit: 'g', step: 1, smin: 0, smax: 500 },
+    MOUNT_ANGLE,
     FINISH,
   ],
   // RASAero's PROTUBERANCE: a discrete drag-producing bump — rail guide, launch
@@ -489,6 +518,7 @@ export const FIELDS: Record<EditorComponentType, FieldDef[]> = {
     { key: 'cdFrontal', label: 'Cd on frontal area (blank or 0 = from class)', unit: 'none', step: 0.05, smin: 0, smax: 2 },
     { key: 'mass', label: 'Mass, all of them (0 = not counted)', unit: 'g', step: 1, smin: 0, smax: 2000 },
     lenMM('length', 'Length along body (shape only, no drag)', 1, 1000),
+    MOUNT_ANGLE,
   ],
   // A pod never separates (angle method is fixed to relative in the kernel).
   podset: ASSEMBLY_FIELDS,

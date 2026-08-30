@@ -561,6 +561,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
         // Our extension tag: the mount's physical motor-length limit.
         const mml = num(el, 'maxmotorlength', 0);
         if (mml > 0) n['maxMotorLength'] = mml;
+        readRadialPlacement(el, n);
         readMotor(el, n);
         return n;
       }
@@ -597,12 +598,14 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
         n['length'] = num(el, 'length', 0.05);
         n['outerRadius'] = num(el, 'radius', 0.0022);
         n['thickness'] = num(el, 'thickness', 0.0003);
+        readMountAngle(el, n);
         readInstances(el, n);
         return n;
       }
       case 'railbutton': {
         const n = base('railbutton', true);
         n['outerDiameter'] = num(el, 'outerdiameter', 0.0097);
+        readMountAngle(el, n);
         readInstances(el, n);
         return n;
       }
@@ -616,6 +619,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
         const fs = text(el, ':scope > fairingshape');
         if (fs) n['fairingShape'] = fs;
         n['mass'] = num(el, 'mass', 0.03);
+        readMountAngle(el, n);
         return n;
       }
       /**
@@ -643,6 +647,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
         const cls = text(el, ':scope > dragclass');
         n['dragClass'] = cls === 'streamlined' || cls === 'plate' ? cls : 'streamlinedbase';
         // Radians on this side of the file boundary; clamped to 0..90°.
+        readMountAngle(el, n);
         const ang = num(el, 'plateangle', NaN);
         n['plateAngle'] = Number.isFinite(ang)
           ? Math.min(Math.PI / 2, Math.max(0, ang))
@@ -700,6 +705,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
         // No mass/CG effect, but the desktop shows it and users set it there.
         const mct = text(el, ':scope > masscomponenttype');
         if (mct && mct !== 'masscomponent') n['massComponentType'] = mct;
+        readRadialPlacement(el, n);
         return n;
       }
       case 'podset':
@@ -1528,6 +1534,9 @@ export function exportOrk({
     emit(depth, '</motormount>');
   };
 
+  /** Mounting angle out, rad -> DEGREES. Was hard-coded 180.0 until v0.087. */
+  const deg = (node: ComponentNode, key: string, fb = 0): string =>
+    (((typeof node[key] === 'number' ? (node[key] as number) : fb) * 180) / Math.PI).toFixed(4);
   const n = (node: ComponentNode, key: string, fb: number): number =>
     typeof node[key] === 'number' ? (node[key] as number) : fb;
 
@@ -1726,8 +1735,8 @@ export function exportOrk({
         position(depth + 1, node, 'bottom');
         material(depth + 1, node);
         emit(depth + 1, `<length>${n(node, 'length', 0.07)}</length>`);
-        emit(depth + 1, '<radialposition>0.0</radialposition>');
-        emit(depth + 1, '<radialdirection>0.0</radialdirection>');
+        emit(depth + 1, `<radialposition>${n(node, 'radialPosition', 0)}</radialposition>`);
+        emit(depth + 1, `<radialdirection>${deg(node, 'radialDirection')}</radialdirection>`);
         emit(depth + 1, `<outerradius>${n(node, 'outerRadius', 0.0095)}</outerradius>`);
         emit(depth + 1, `<thickness>${n(node, 'thickness', 0.0005)}</thickness>`);
         // Desktop stores cluster rotation in DEGREES; we keep radians inside.
@@ -1751,8 +1760,8 @@ export function exportOrk({
         position(depth + 1, node, 'bottom');
         material(depth + 1, node);
         emit(depth + 1, `<length>${n(node, 'length', 0.05)}</length>`);
-        emit(depth + 1, '<radialposition>0.0</radialposition>');
-        emit(depth + 1, '<radialdirection>0.0</radialdirection>');
+        emit(depth + 1, `<radialposition>${n(node, 'radialPosition', 0)}</radialposition>`);
+        emit(depth + 1, `<radialdirection>${deg(node, 'radialDirection')}</radialdirection>`);
         ringRadii(depth + 1, node, false);
         emit(depth + 1, `<thickness>${n(node, 'thickness', 0.0005)}</thickness>`);
         close('tubecoupler');
@@ -1767,8 +1776,8 @@ export function exportOrk({
         position(depth + 1, node, 'bottom');
         material(depth + 1, node);
         emit(depth + 1, `<length>${n(node, 'length', 0.002)}</length>`);
-        emit(depth + 1, '<radialposition>0.0</radialposition>');
-        emit(depth + 1, '<radialdirection>0.0</radialdirection>');
+        emit(depth + 1, `<radialposition>${n(node, 'radialPosition', 0)}</radialposition>`);
+        emit(depth + 1, `<radialdirection>${deg(node, 'radialDirection')}</radialdirection>`);
         ringRadii(depth + 1, node, t === 'centeringring');
         close(t);
         break;
@@ -1779,8 +1788,8 @@ export function exportOrk({
         position(depth + 1, node, 'bottom');
         material(depth + 1, node);
         emit(depth + 1, `<length>${n(node, 'length', 0.005)}</length>`);
-        emit(depth + 1, '<radialposition>0.0</radialposition>');
-        emit(depth + 1, '<radialdirection>0.0</radialdirection>');
+        emit(depth + 1, `<radialposition>${n(node, 'radialPosition', 0)}</radialposition>`);
+        emit(depth + 1, `<radialdirection>${deg(node, 'radialDirection')}</radialdirection>`);
         ringRadii(depth + 1, node, false);
         emit(depth + 1, `<thickness>${n(node, 'thickness', 0.001)}</thickness>`);
         close('engineblock');
@@ -1798,6 +1807,7 @@ export function exportOrk({
         emit(depth + 1, `<height>${n(node, 'height', 0.02)}</height>`);
         emit(depth + 1, `<fairingshape>${escapeXml(String(node['fairingShape'] ?? 'halfround'))}</fairingshape>`);
         emit(depth + 1, `<mass>${n(node, 'mass', 0.03)}</mass>`);
+        emit(depth + 1, `<angleoffset method="relative">${deg(node, 'angleOffset')}</angleoffset>`);
         close('fairing');
         break;
       }
@@ -1814,6 +1824,7 @@ export function exportOrk({
         emit(depth + 1, `<length>${n(node, 'length', 0.06)}</length>`);
         emit(depth + 1, `<count>${Math.max(1, Math.round(n(node, 'count', 1)))}</count>`);
         emit(depth + 1, `<plateangle>${n(node, 'plateAngle', Math.PI / 4)}</plateangle>`);
+        emit(depth + 1, `<angleoffset method="relative">${deg(node, 'angleOffset')}</angleoffset>`);
         if (typeof node['cdFrontal'] === 'number' && Number.isFinite(node['cdFrontal'])) {
           emit(depth + 1, `<cdfrontal>${node['cdFrontal'] as number}</cdfrontal>`);
         }
@@ -1826,8 +1837,8 @@ export function exportOrk({
         header(depth + 1, node, 'Launch Lug');
         emit(depth + 1, `<instancecount>${n(node, 'instanceCount', 1)}</instancecount>`);
         emit(depth + 1, `<instanceseparation>${n(node, 'instanceSeparation', 0)}</instanceseparation>`);
-        emit(depth + 1, '<angleoffset method="relative">180.0</angleoffset>');
-        emit(depth + 1, '<radialdirection>180.0</radialdirection>');
+        emit(depth + 1, `<angleoffset method="relative">${deg(node, 'angleOffset')}</angleoffset>`);
+        emit(depth + 1, `<radialdirection>${deg(node, 'angleOffset')}</radialdirection>`);
         position(depth + 1, node, 'middle');
         finishXml(depth + 1, node);
         material(depth + 1, node);
@@ -1842,7 +1853,7 @@ export function exportOrk({
         header(depth + 1, node, 'Rail Button');
         emit(depth + 1, `<instancecount>${n(node, 'instanceCount', 1)}</instancecount>`);
         emit(depth + 1, `<instanceseparation>${n(node, 'instanceSeparation', 0)}</instanceseparation>`);
-        emit(depth + 1, '<angleoffset method="relative">180.0</angleoffset>');
+        emit(depth + 1, `<angleoffset method="relative">${deg(node, 'angleOffset')}</angleoffset>`);
         position(depth + 1, node, 'middle');
         finishXml(depth + 1, node);
         emit(depth + 1, '<material type="bulk" density="1420.0" group="Plastics">Delrin</material>');
@@ -1861,8 +1872,8 @@ export function exportOrk({
         position(depth + 1, node, 'top');
         emit(depth + 1, '<packedlength>0.025</packedlength>');
         emit(depth + 1, '<packedradius>0.0125</packedradius>');
-        emit(depth + 1, '<radialposition>0.0</radialposition>');
-        emit(depth + 1, '<radialdirection>0.0</radialdirection>');
+        emit(depth + 1, `<radialposition>${n(node, 'radialPosition', 0)}</radialposition>`);
+        emit(depth + 1, `<radialdirection>${deg(node, 'radialDirection')}</radialdirection>`);
         emit(depth + 1, `<cd>${typeof node['cd'] === 'number' ? node['cd'] : 'auto'}</cd>`);
         material(depth + 1, node, 'surface');
         emit(depth + 1, `<deployevent>${escapeXml(String(node['deployEvent'] ?? 'ejection'))}</deployevent>`);
@@ -1891,8 +1902,8 @@ export function exportOrk({
         position(depth + 1, node, 'top');
         emit(depth + 1, '<packedlength>0.025</packedlength>');
         emit(depth + 1, '<packedradius>0.0125</packedradius>');
-        emit(depth + 1, '<radialposition>0.0</radialposition>');
-        emit(depth + 1, '<radialdirection>0.0</radialdirection>');
+        emit(depth + 1, `<radialposition>${n(node, 'radialPosition', 0)}</radialposition>`);
+        emit(depth + 1, `<radialdirection>${deg(node, 'radialDirection')}</radialdirection>`);
         emit(depth + 1, `<cd>${typeof node['cd'] === 'number' ? node['cd'] : 'auto'}</cd>`);
         material(depth + 1, node, 'surface');
         emit(depth + 1, `<deployevent>${escapeXml(String(node['deployEvent'] ?? 'ejection'))}</deployevent>`);
@@ -1910,8 +1921,8 @@ export function exportOrk({
         position(depth + 1, node, 'top');
         emit(depth + 1, '<packedlength>0.025</packedlength>');
         emit(depth + 1, '<packedradius>0.0125</packedradius>');
-        emit(depth + 1, '<radialposition>0.0</radialposition>');
-        emit(depth + 1, '<radialdirection>0.0</radialdirection>');
+        emit(depth + 1, `<radialposition>${n(node, 'radialPosition', 0)}</radialposition>`);
+        emit(depth + 1, `<radialdirection>${deg(node, 'radialDirection')}</radialdirection>`);
         emit(depth + 1, `<cordlength>${n(node, 'cordLength', 0.3)}</cordlength>`);
         material(depth + 1, node, 'line');
         close('shockcord');
@@ -1923,8 +1934,8 @@ export function exportOrk({
         position(depth + 1, node, 'top');
         emit(depth + 1, `<packedlength>${n(node, 'length', 0.02)}</packedlength>`);
         emit(depth + 1, `<packedradius>${n(node, 'radius', 0.005)}</packedradius>`);
-        emit(depth + 1, '<radialposition>0.0</radialposition>');
-        emit(depth + 1, '<radialdirection>0.0</radialdirection>');
+        emit(depth + 1, `<radialposition>${n(node, 'radialPosition', 0)}</radialposition>`);
+        emit(depth + 1, `<radialdirection>${deg(node, 'radialDirection')}</radialdirection>`);
         emit(depth + 1, `<mass>${n(node, 'mass', 0.01)}</mass>`);
         // Legal values = MassComponent.MassComponentType lowercased:
         // masscomponent, altimeter, flightcomputer, deploymentcharge,
@@ -2526,6 +2537,35 @@ function readFillet(el: Element, node: ComponentNode): void {
   if (group) node['filletMaterialGroup'] = group;
   const name = (m.textContent ?? '').trim();
   if (name) node['filletMaterialName'] = name;
+}
+
+/**
+ * Where a surface part sits around the body (.ork DEGREES -> rad). Desktop
+ * writes <angleoffset method="..."> for AnglePositionable components (launch
+ * lugs, rail buttons); we use the same tag on our own <fairing>/<protuberance>
+ * extension elements.
+ *
+ * Until v0.087 this was never READ and was hard-written as 180.0, so a lug a
+ * user had placed at any other angle came back at 180 — on a four-fin rocket,
+ * exactly on a fin root line.
+ */
+function readMountAngle(el: Element, node: ComponentNode): void {
+  const deg = num(el, 'angleoffset', NaN);
+  if (Number.isFinite(deg) && deg !== 0) node['angleOffset'] = (deg * Math.PI) / 180;
+}
+
+/**
+ * Off-axis placement of a component INSIDE the airframe (OpenRocket's
+ * RadiusPositionable): <radialposition> in metres, <radialdirection> in
+ * degrees. A desktop "split cluster" makes each motor tube a single tube at
+ * its own radius and angle, so dropping these collapsed the whole cluster
+ * onto the centreline — and re-writing them as 0.0 destroyed the user's file.
+ */
+function readRadialPlacement(el: Element, node: ComponentNode): void {
+  const pos = num(el, 'radialposition', 0);
+  const dir = num(el, 'radialdirection', 0);
+  if (pos !== 0) node['radialPosition'] = pos;
+  if (dir !== 0) node['radialDirection'] = (dir * Math.PI) / 180;
 }
 
 /** Fin-set rotation about the body axis (.ork stores DEGREES; we keep rad). */
