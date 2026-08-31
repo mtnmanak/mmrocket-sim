@@ -3,7 +3,7 @@ import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { clusterOffsets } from '../tree/cluster.js';
 import { tubeFinRadius } from '../tree/tubefins.js';
 import { isAssembly, resolveAssemblyRadius, ringInstanceOffsets } from '../tree/assembly.js';
-import { isConformal, shroudHalfAngle } from '../tree/shroud.js';
+import { isConformal } from '../tree/shroud.js';
 import { RollControl } from './RollControl.js';
 
 /**
@@ -172,7 +172,10 @@ export function AftView({ tree, motors, roll: rollProp, onRoll }: {
         outer.push({
           kind: 'circle',
           y: cy + (pRadius + r) * Math.cos(a), z: cz + (pRadius + r) * Math.sin(a), r,
-          fill: colorOf(child, '#c8c5be'), stroke: '#7a786f', title: child.name ?? t,
+          fill: colorOf(child, '#c8c5be'), stroke: '#7a786f',
+          // Line instances stack in this end-on projection — one circle, so
+          // the title carries the count instead.
+          title: `${child.name ?? t}${num(child, 'instanceCount', 1) > 1 ? ` ×${Math.round(num(child, 'instanceCount', 1))}` : ''}`,
         });
         reach(cy, cz, pRadius + 2 * r);
       } else if (t === 'innertube') {
@@ -272,44 +275,38 @@ export function AftView({ tree, motors, roll: rollProp, onRoll }: {
       // that arc is θ = asin(halfWidth / R), clamped — the app's own defaults
       // put halfWidth/R above 1, where an unclamped asin is NaN and the whole
       // element silently disappears (shroud.shroudHalfAngle).
-      const th = shroudHalfAngle(s.baseR, s.width);
-      const at = (r: number, a: number): [number, number] =>
-        [s.y + r * Math.cos(a), s.z + r * Math.sin(a)];
-      const a0 = s.angle - th;
-      const a1 = s.angle + th;
       const outR = s.baseR + s.height;
       const P = (y: number, z: number) => `${toSvg(z)},${-toSvg(y)}`;
-      // The same two shapes tree/shroudMesh.ts builds in 3D, and for the same
-      // reasons — conformal is a SHELL between two arcs; flat is a BOX resting
-      // on the TANGENT PLANE, which touches the tube only along the centreline.
-      // The crescent left under a flat one is the gap Eric described, and this
-      // is the only view in the app that can show it.
+      const ca = Math.cos(s.angle);
+      const sa = Math.sin(s.angle);
+      // radial unit (ca, sa); tangential unit (−sa, ca).
+      const pt = (r: number, off: number): [number, number] =>
+        [s.y + r * ca - off * sa, s.z + r * sa + off * ca];
+      // The same two shapes tree/shroudMesh.ts builds in 3D: STRAIGHT PARALLEL
+      // SIDES and a flat top for both — that is what a real shroud is (the
+      // owner photographed and measured his Inverted Pursuits housing after
+      // the first cut of this drew splayed radial sides that read as a
+      // trapezoid; docs/Camera Shrouds/) — differing only in the FLOOR:
+      // conformal follows the tube's arc, flat rests on the tangent plane with
+      // the crescent gap open at its corners. This is the only view that can
+      // show any of that.
       let d: string;
       if (s.conformal) {
-        const [oy0, oz0] = at(outR, a0);
-        const [oy1, oz1] = at(outR, a1);
-        const [by0, bz0] = at(s.baseR, a0);
-        const [by1, bz1] = at(s.baseR, a1);
-        // SWEEP FLAGS, and they are worth spelling out because the first cut
-        // had BOTH of them backwards and drew the shroud as a concave lens
-        // sunk into the tube — a bug a screenshot did not give away.
-        //
-        // `P()` negates y, so screen-clockwise is the direction of INCREASING
-        // model angle. The outer face runs a0 -> a1 (increasing) = clockwise =
-        // sweep 1. The underside runs back a1 -> a0 (decreasing) = sweep 0.
-        // Checked numerically against the SVG endpoint-to-centre
-        // parameterisation, not by eye: with these flags the arc midpoints land
-        // on (R+h) and R exactly; inverted they land at 0.0363 and 0.0209.
-        d = `M ${P(oy0, oz0)} A ${toSvg(outR)} ${toSvg(outR)} 0 0 1 ${P(oy1, oz1)} `
-          + `L ${P(by1, bz1)} `
-          + `A ${toSvg(s.baseR)} ${toSvg(s.baseR)} 0 0 0 ${P(by0, bz0)} Z`;
+        // Side walls stand at lateral ±hw (clamped inside the tube — beyond
+        // ±R there is nothing to conform to); the floor is the tube's own arc
+        // between the wall feet, which sit at angle ±asin(hw/R) from the mount
+        // line. Sweep flag: P() negates y, so screen-clockwise is INCREASING
+        // model angle; the floor runs from the +hw foot back to the −hw foot
+        // (decreasing angle) = sweep 0. Same derivation as v0.088's arcs,
+        // checked numerically then, reused now.
+        const hw = Math.min(s.width / 2, s.baseR * 0.98);
+        const footY = Math.sqrt(Math.max(0, s.baseR * s.baseR - hw * hw));
+        const corners = [pt(outR, -hw), pt(outR, hw), pt(footY, hw)];
+        const [fy0, fz0] = pt(footY, -hw);
+        d = 'M ' + corners.map(([y, z]) => P(y, z)).join(' L ')
+          + ` A ${toSvg(s.baseR)} ${toSvg(s.baseR)} 0 0 0 ${P(fy0, fz0)} Z`;
       } else {
-        const ca = Math.cos(s.angle);
-        const sa = Math.sin(s.angle);
         const hw = Math.min(s.width / 2, s.baseR * 2);
-        // radial unit (ca, sa); tangential unit (−sa, ca).
-        const pt = (r: number, off: number): [number, number] =>
-          [s.y + r * ca - off * sa, s.z + r * sa + off * ca];
         const corners = [pt(s.baseR, -hw), pt(outR, -hw), pt(outR, hw), pt(s.baseR, hw)];
         d = 'M ' + corners.map(([y, z]) => P(y, z)).join(' L ') + ' Z';
       }

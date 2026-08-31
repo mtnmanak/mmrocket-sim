@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { csvToPresets, presetPatch, presetsToCsv, type Preset } from './presets.js';
+import { csvToPresets, KIND_FOR_TYPE, presetPatch, presetsToCsv, type Preset } from './presets.js';
 import presetsJson from '../data/presets.json';
 
 const db = (presetsJson as { presets: Preset[] }).presets;
@@ -91,5 +91,56 @@ describe('CSV round-trip', () => {
     expect(back[0]!.lineMaterial?.name).toBe('Braided Kevlar');
     expect(back[0]!.lineMaterial?.density).toBeCloseTo(0.0018, 9);
     expect(back[0]!.lineMaterial?.type).toBe('LINE');
+  });
+});
+
+/**
+ * v0.089 — the Composite Warehouse G12 tubes (owner request, 2026-08-31b) and
+ * the inner-tube preset gate they exposed.
+ */
+describe('Composite Warehouse tubes', () => {
+  const cw = db.filter((p) => p.manufacturer === 'Composite Warehouse');
+
+  it('all 26 tubes are present, as BodyTube rows', () => {
+    expect(cw).toHaveLength(26);
+    expect(cw.every((p) => p.kind === 'BodyTube')).toBe(true);
+  });
+
+  it('a claimed-weight tube reproduces the manufacturer figure from its density', () => {
+    // 4.5": 13.80 oz/ft claimed. mass = density × wall volume × 1 ft.
+    const t = cw.find((p) => p.partNo === '4.5 Inch Airframe')!;
+    const ri = (t['insideDiameter'] as number) / 2;
+    const ro = (t['outsideDiameter'] as number) / 2;
+    const massPerFt = t.material!.density * Math.PI * (ro * ro - ri * ri) * 0.3048;
+    expect(massPerFt / 0.0283495).toBeCloseTo(13.80, 1);
+  });
+
+  it('carries neither length nor mass — the user keeps their cut', () => {
+    // No length: CW cuts to order. No mass: a row mass would become an
+    // overrideMass freezing one arbitrary length's weight onto the node.
+    expect(cw.every((p) => p['length'] === undefined && p.mass === undefined)).toBe(true);
+    const patch = presetPatch('bodytube', cw[0]!);
+    expect(patch['length']).toBeUndefined();
+    expect(patch['overrideMass']).toBeUndefined();
+    expect(patch['density']).toBeGreaterThan(900);
+  });
+
+  it('an inner tube gets the BodyTube catalogue — desktop\'s own rule', () => {
+    expect(KIND_FOR_TYPE['innertube']).toBe('BodyTube');
+    // …and a 54 mm motor-mount tube patchs onto an innertube node cleanly.
+    const t = cw.find((p) => p.partNo === '54mm Airframe')!;
+    const patch = presetPatch('innertube', t);
+    expect(patch['outerRadius']).toBeCloseTo((t['outsideDiameter'] as number) / 2, 12);
+    expect(patch['thickness']).toBeCloseTo(
+      ((t['outsideDiameter'] as number) - (t['insideDiameter'] as number)) / 2, 12);
+  });
+
+  it('the eleven motor-mount tubes say so in their descriptions', () => {
+    const mmt = cw.filter((p) => p.description.includes('motor-mount tube'));
+    expect(mmt).toHaveLength(11);
+    // Spot the ones that matter to standard cases.
+    for (const name of ['24mm Airframe', '29mm Airframe', '38mm Airframe', '54mm Airframe', '6 Inch MotorMount']) {
+      expect(mmt.some((p) => p.partNo === name), name).toBe(true);
+    }
   });
 });

@@ -498,6 +498,14 @@ export const FIELDS: Record<EditorComponentType, FieldDef[]> = {
   ],
   railbutton: [
     lenMM('outerDiameter', 'Outer diameter', 0.5, 20),
+    // Rail buttons come in PAIRS (or more): the kernel's RailButton is
+    // LineInstanceable — one node draws, weighs and drags as N collinear
+    // copies marching AFT from the node's own position at this spacing. That
+    // is exactly what a desktop .ork stores, so both fields round-trip 1:1.
+    // Eric, 2026-08-31b: "Rail buttons are almost always implemented in pairs
+    // or more than 2."
+    { key: 'instanceCount', label: 'Number of rail buttons', unit: 'count', smin: 1, smax: 4 },
+    lenMM('instanceSeparation', 'Distance between buttons', 10, 2000),
     MOUNT_ANGLE,
   ],
   parachute: [

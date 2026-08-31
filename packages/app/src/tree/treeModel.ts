@@ -798,10 +798,24 @@ export function protuberanceDeliveredCd(tree: RocketTree, node: ComponentNode): 
  *    cd_eff = cd · (1 − (d_hole/D)²) (RockSim's treatment).
  * 2. Camera shrouds ('fairing'): lowered to a kernel 1-fin freeform strake of
  *    the shroud's side profile — Barrowman's low-aspect-ratio fin lift IS the
- *    slender-strake (Jones) model, so the CP shift comes out of the real
- *    kernel — plus a component-CD override for the protuberance drag
- *    (frontal-area Hoerner value scaled to the rocket reference area) and the
- *    as-built mass as a mass override. Radial mounting angle not modeled.
+ *    slender-strake (Jones) model — plus a component-CD override for the
+ *    protuberance drag (frontal-area Hoerner value scaled to the rocket
+ *    reference area) and the as-built mass as a mass override.
+ *
+ *    THE MOUNTING ANGLE STEERS THE LIFT (v0.089, Eric: "let's do this for
+ *    now"): the strake carries the shroud's own `angleOffset` as its
+ *    `rotation`, so the kernel applies its per-instance factor
+ *    cna·sin²(theta − angle) (FinSetCalc, same physics as desktop's one-fin
+ *    set). Consequences, measured against the committed kernel before
+ *    shipping: a shroud at 0°/180° contributes NOTHING to the design tab's
+ *    CP/CNa (staticInfo evaluates at theta = 0, where sin² = 0) and a shroud
+ *    at ±90° contributes its full strake CNa — the probe fixture swung
+ *    stability 7.64 → 6.25 cal across that quarter turn. Drag is unchanged at
+ *    every angle (the CD override is angle-independent); windy 6DOF flights
+ *    move for ANY nonzero angle, 180° included, because the strake's lateral
+ *    CG sits on the shroud's real side. This is the yaw-vs-pitch behaviour
+ *    Chuck Rogers' shroud method describes: the shroud lifts in the plane it
+ *    sits in, and the design tab measures one plane.
  * 3. Protuberances ('protuberance'): lowered to a kernel RailButton carrying a
  *    CD override and a mass override. For the two streamlined classes that
  *    override is body-CD-referenced (protuberanceCd), so this function probes
@@ -869,6 +883,12 @@ export function engineTree(tree: RocketTree): RocketTree {
         thickness: W,
         crossSection: 'rounded',
         points: pts,
+        // The shroud's clock angle, in the kernel's own key for a fin set's
+        // clocking. Angle 0 = +y in both frames (assembly.ts and
+        // FinSet.getInstanceOffsets agree), so no sign flip. Emitted
+        // unconditionally: rotation 0 is measured bit-identical to the key
+        // being absent, and an unconditional emit is testable.
+        rotation: nnum(n, 'angleOffset', 0),
         position: n.position,
         overrideMass: nnum(n, 'mass', 0.03),
         overrideCD: (cdFrontal * W * H) / Math.max(aRef, 1e-9),

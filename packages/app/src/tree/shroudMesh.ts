@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { type EndShape, shroudHalfAngle } from './shroud.js';
+import { type EndShape } from './shroud.js';
 
 /**
  * The camera shroud's 3D shell (v0.088), replacing the `BoxGeometry` that had
@@ -84,48 +84,50 @@ export function shroudGeometry(
   spec: ShroudMeshSpec, axialSteps = 24, arcSteps = 12,
 ): THREE.BufferGeometry {
   const { length, width, height, bodyRadius, conformal, fore, aft } = spec;
-  const th = shroudHalfAngle(bodyRadius, width);
   const NA = Math.max(2, Math.round(axialSteps));
   const NC = Math.max(2, Math.round(arcSteps));
 
-  // TWO shapes, because a conformal shroud and a flat-bottomed one are not the
-  // same part with a different floor:
+  // TWO shapes, and neither is an annular sector any more:
   //
-  //   conformal — a SHELL: the underside is the tube's own arc and the outer
-  //               face is an arc at the local height above it. It is what
-  //               comes off a printer bed cut to the tube.
-  //   flat      — a BOX sitting on the TANGENT PLANE, which is what Eric was
-  //               describing: *"the bottom is just a square shape tangentially
-  //               to the body tube"*. The tangent plane touches the tube only
-  //               along the centreline, so the part stands clear at its
-  //               corners — 5.3 mm each side for a 25 mm shroud on a BT-50.
+  //   conformal — STRAIGHT PARALLEL SIDES, a flat top, and an underside cut to
+  //               the tube's arc. This is what a real printed shroud IS —
+  //               Eric's own Inverted Pursuits RunCam housing, photographed
+  //               and measured 2026-08-31 (docs/Camera Shrouds/): vertical
+  //               side walls 41.4 mm apart, flat top, scalloped base. The
+  //               first conformal shape here was a shell between two
+  //               concentric arcs, whose splayed radial sides read as a
+  //               TRAPEZOID from the aft view — his exact complaint.
+  //   flat      — a BOX sitting on the TANGENT PLANE: *"the bottom is just a
+  //               square shape tangentially to the body tube"*. It touches the
+  //               tube only along the centreline and stands clear at its
+  //               corners.
   //
-  // The tangent plane is ABOVE the arc everywhere except that one line, so the
-  // conformal part encloses MORE material: it fills the crescent the flat one
-  // leaves as dead air. (Seating the flat bottom on the arc's CHORD instead
-  // would bury it inside the tube — that was the first cut of this function,
-  // and shroudMesh.test.ts caught it.)
+  // Same lateral parameterisation for both (z from −halfW to +halfW); only the
+  // FLOOR differs — the tube's arc y = √(R²−z²), or the tangent plane y = R.
+  // The arc floor is lower everywhere but the centreline, so the conformal
+  // part still encloses MORE material: the crescent wings hugging the tube's
+  // shoulders. (Seating the flat bottom on the arc's CHORD instead would bury
+  // it inside the tube — the first cut of this function did, and the volume
+  // test caught it.)
   //
-  // The box also keeps the mesh out of a degeneracy: with an arc top over a
-  // tangent bottom, a shroud wide enough to wrap the tube has its "top" pass
-  // BELOW its own floor at the edges. A box cannot invert.
-  const halfW = Math.min(width / 2, bodyRadius * 2);
+  // halfW is clamped INSIDE the tube's own width for the conformal floor: at
+  // |z| ≥ R there is no tube below to conform to, and √(R²−z²) goes imaginary.
+  // A shroud wider than its tube is a real part (the app's own defaults are
+  // one); it gets side walls at the clamp and a floor that wraps to there.
+  const halfW = conformal
+    ? Math.min(width / 2, bodyRadius * 0.98)
+    : Math.min(width / 2, bodyRadius * 2);
   const under = (j: number): [number, number] => {
     const f = j / (NC - 1);
+    const z = -halfW + 2 * halfW * f;
     if (conformal) {
-      const a = -th + 2 * th * f;
-      return [bodyRadius * Math.cos(a), bodyRadius * Math.sin(a)];
+      return [Math.sqrt(Math.max(0, bodyRadius * bodyRadius - z * z)), z];
     }
-    return [bodyRadius, -halfW + 2 * halfW * f];
+    return [bodyRadius, z];
   };
   const over = (i: number, j: number): [number, number] => {
     const h = heightProfile(i / (NA - 1), height, fore, aft);
     const f = j / (NC - 1);
-    if (conformal) {
-      const a = -th + 2 * th * f;
-      const r = bodyRadius + h;
-      return [r * Math.cos(a), r * Math.sin(a)];
-    }
     return [bodyRadius + h, -halfW + 2 * halfW * f];
   };
 
@@ -161,19 +163,22 @@ export function shroudGeometry(
     if (nx * out[0] + ny * out[1] + nz * out[2] >= 0) idx.push(a, b, c, a, c, d);
     else idx.push(a, d, c, a, c, b);
   };
-  /** Unit radial direction at arc fraction f (the outward normal of the shell). */
-  const radialAt = (f: number): [number, number, number] => {
-    if (!conformal) return [0, 1, 0];
-    const ang = -th + 2 * th * f;
-    return [0, Math.cos(ang), Math.sin(ang)];
+  /**
+   * Outward normal of the FLOOR at lateral fraction f: for the conformal cut
+   * it is the tube's own inward radial at that z (the floor faces the tube);
+   * for the flat base it is straight down. quad() flips windings to match, so
+   * these direction fields ARE the orientation authority — see its comment.
+   */
+  const floorOut = (f: number): [number, number, number] => {
+    const z = -halfW + 2 * halfW * f;
+    if (conformal) {
+      const y = Math.sqrt(Math.max(1e-12, bodyRadius * bodyRadius - z * z));
+      const m = Math.hypot(y, z);
+      return [0, -y / m, -z / m];
+    }
+    return [0, -1, 0];
   };
-  const neg = (v: [number, number, number]): [number, number, number] => [-v[0], -v[1], -v[2]];
-  /** Unit tangential direction at arc fraction f, pointing towards +theta. */
-  const tangentAt = (f: number): [number, number, number] => {
-    if (!conformal) return [0, 0, 1];
-    const ang = -th + 2 * th * f;
-    return [0, -Math.sin(ang), Math.cos(ang)];
-  };
+  const TOP_OUT: [number, number, number] = [0, 1, 0];
 
   // Two NA x NC grids of DISTINCT vertices. Shared vertices would fuse the
   // outer and inner sheets and make the normals meaningless at the seams; the
@@ -197,9 +202,9 @@ export function shroudGeometry(
   const mid = (j: number) => (j + 0.5) / (NC - 1);
   for (let i = 0; i < NA - 1; i++) {
     for (let j = 0; j < NC - 1; j++) {
-      // The outer shell faces away from the axis; the underside faces into it.
-      quad(O[i]![j]!, O[i]![j + 1]!, O[i + 1]![j + 1]!, O[i + 1]![j]!, radialAt(mid(j)));
-      quad(U[i]![j]!, U[i + 1]![j]!, U[i + 1]![j + 1]!, U[i]![j + 1]!, neg(radialAt(mid(j))));
+      // The flat top faces away from the tube; the floor faces into it.
+      quad(O[i]![j]!, O[i]![j + 1]!, O[i + 1]![j + 1]!, O[i + 1]![j]!, TOP_OUT);
+      quad(U[i]![j]!, U[i + 1]![j]!, U[i + 1]![j + 1]!, U[i]![j + 1]!, floorOut(mid(j)));
     }
   }
   for (let j = 0; j < NC - 1; j++) {
@@ -207,8 +212,8 @@ export function shroudGeometry(
     quad(O[NA - 1]![j + 1]!, O[NA - 1]![j]!, U[NA - 1]![j]!, U[NA - 1]![j + 1]!, [1, 0, 0]);       // aft cap
   }
   for (let i = 0; i < NA - 1; i++) {
-    quad(O[i]![0]!, U[i]![0]!, U[i + 1]![0]!, O[i + 1]![0]!, neg(tangentAt(0)));                   // side -theta
-    quad(O[i + 1]![NC - 1]!, U[i + 1]![NC - 1]!, U[i]![NC - 1]!, O[i]![NC - 1]!, tangentAt(1));    // side +theta
+    quad(O[i]![0]!, U[i]![0]!, U[i + 1]![0]!, O[i + 1]![0]!, [0, 0, -1]);                          // side -z
+    quad(O[i + 1]![NC - 1]!, U[i + 1]![NC - 1]!, U[i]![NC - 1]!, O[i]![NC - 1]!, [0, 0, 1]);       // side +z
   }
 
   const geo = new THREE.BufferGeometry();

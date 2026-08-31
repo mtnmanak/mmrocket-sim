@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import {
-  angleGap, betweenFinAnglesOn, finAnglesOn, IN_LINE_TOLERANCE, nearestAngle,
-  railInterferenceWarnings, reducePi,
+  angleGap, betweenFinAnglesAmong, betweenFinAnglesOn, finAnglesAmong, finAnglesOn,
+  frameContaining, IN_LINE_TOLERANCE, nearestAngle, railInterferenceWarnings, reducePi,
 } from './mountAngle.js';
 import { defaultParams } from './schema.js';
 
@@ -207,5 +207,70 @@ describe('review fixes (v0.088)', () => {
     const cleared = JSON.parse(JSON.stringify(twoTubes)) as RocketTree;
     (cleared.components[0]!.children![0]!.children![0]! as Record<string, unknown>)['angleOffset'] = D(60);
     expect(railInterferenceWarnings(cleared)).toHaveLength(0);
+  });
+});
+
+/**
+ * 2026-08-31b — the snap buttons and the warnings must agree on what a FRAME
+ * is: the whole inline stack. The owner's report: a pre-existing rail button on
+ * the tube ABOVE the fin can got no snap buttons, while a freshly added one
+ * (born a sibling of the fins) did.
+ */
+describe('the angular frame spans the whole inline stack', () => {
+  const twoTubeStage = {
+    name: 'T', components: [{ type: 'stage', id: 's1', children: [
+      { type: 'bodytube', id: 'upper', length: 0.5, outerRadius: 0.027,
+        children: [{ type: 'railbutton', id: 'rb', angleOffset: 0 }] },
+      { type: 'bodytube', id: 'fincan', length: 0.3, outerRadius: 0.027,
+        children: [FINS3] },
+    ] }],
+  } as unknown as RocketTree;
+
+  it('finds the fin can\'s fins for a part on the tube above', () => {
+    const members = frameContaining(twoTubeStage, 'rb')!;
+    expect(members).not.toBeNull();
+    expect(finAnglesAmong(members)).toHaveLength(3);
+    expect(betweenFinAnglesAmong(members)).toHaveLength(3);
+  });
+
+  it('crosses STAGE boundaries — the stack shares one zero on the pad', () => {
+    const twoStage = {
+      name: 'T', components: [
+        { type: 'stage', id: 'sust', children: [
+          { type: 'bodytube', id: 'payload', length: 0.5, outerRadius: 0.027,
+            children: [{ type: 'fairing', id: 'cam', angleOffset: 0, length: 0.08, width: 0.03, height: 0.02 }] },
+        ] },
+        { type: 'stage', id: 'boost', children: [
+          { type: 'bodytube', id: 'bfincan', length: 0.3, outerRadius: 0.027, children: [FINS3] },
+        ] },
+      ],
+    } as unknown as RocketTree;
+    const members = frameContaining(twoStage, 'cam')!;
+    expect(finAnglesAmong(members)).toHaveLength(3);
+    // …and the rail check sees across stages too: a booster fin on the rail
+    // line of a sustainer's button is flagged, because the rail is engaged
+    // with the whole stack assembled.
+    const withButton = JSON.parse(JSON.stringify(twoStage)) as RocketTree;
+    (withButton.components[0]!.children![0]!.children as unknown as Record<string, unknown>[])
+      .push({ type: 'railbutton', id: 'rb2', angleOffset: 0 });
+    expect(railInterferenceWarnings(withButton).some((w) => w.includes('in line with a fin'))).toBe(true);
+  });
+
+  it('still cuts at an assembly: a pod part sees the POD frame, not the core', () => {
+    const podded = {
+      name: 'T', components: [{ type: 'stage', id: 's1', children: [{
+        type: 'bodytube', id: 'b1', length: 0.4, outerRadius: 0.027,
+        children: [
+          FINS3,
+          { type: 'podset', id: 'p1', instanceCount: 2, angleOffset: D(90),
+            children: [{ type: 'bodytube', id: 'pb', length: 0.1, outerRadius: 0.01,
+              children: [{ type: 'railbutton', id: 'podrb', angleOffset: 0 }] }] },
+        ],
+      }] }],
+    } as unknown as RocketTree;
+    const members = frameContaining(podded, 'podrb')!;
+    // The pod's own chain carries no fins, so the snap question has no answer
+    // there — and crucially the CORE's fins are not offered.
+    expect(finAnglesAmong(members)).toHaveLength(0);
   });
 });

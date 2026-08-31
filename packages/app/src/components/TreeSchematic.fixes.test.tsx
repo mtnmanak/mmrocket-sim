@@ -506,3 +506,35 @@ describe('every surface-mounted part turns with the view', () => {
     expect(reach('path[data-part="shroud"]') / base).toBeCloseTo(0.5, 3);
   });
 });
+
+/**
+ * v0.089 — a rail button with line instances draws every instance, marching
+ * AFT from the node's own position at the stored separation (the kernel's
+ * RailButton.getInstanceOffsets convention, which the sim now flies).
+ */
+describe('rail button line instances draw as N buttons', () => {
+  it('two instances, two rects, separated by instanceSeparation', () => {
+    const two = {
+      name: 'Rocket',
+      components: [{
+        id: 's1', type: 'stage',
+        children: [
+          { id: 'n1', type: 'nosecone', shape: 'ogive', length: 0.1, aftRadius: BODY_R },
+          {
+            id: 'b1', type: 'bodytube', length: 0.3, outerRadius: BODY_R,
+            children: [{ id: 'rb', type: 'railbutton', outerDiameter: 0.008,
+              instanceCount: 2, instanceSeparation: 0.1,
+              position: { method: 'top', offset: 0.02 } }],
+          },
+        ],
+      }],
+    } as unknown as RocketTree;
+    show(<TreeSchematic tree={two} info={null} />);
+    const rects = [...host.querySelectorAll('rect')]
+      .filter((r) => r.getAttribute('fill') === '#c8c5be');
+    expect(rects).toHaveLength(2);
+    const xs = rects.map((r) => Number(r.getAttribute('x'))).sort((a, b) => a - b);
+    // The gap between the two buttons is the separation, at the drawing scale.
+    expect(xs[1]! - xs[0]!).toBeCloseTo(0.1 * scale(), 4);
+  });
+});

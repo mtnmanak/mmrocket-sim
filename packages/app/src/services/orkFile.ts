@@ -884,9 +884,14 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
     for (const nd of ns) { allNodes.push(nd); collect(nd.children ?? []); }
   };
   collect(components);
+  // Rail buttons and launch lugs stopped belonging in this note in v0.089:
+  // their line instances are drawn, weighed and flown now. Anything else
+  // instanced is still pass-through-only, and saying so is the difference
+  // between a note and a lie.
   const instanced = allNodes.filter(
     (nd) => typeof nd['instanceCount'] === 'number' && (nd['instanceCount'] as number) > 1
-      && nd.type !== 'parallelstage' && nd.type !== 'podset');
+      && nd.type !== 'parallelstage' && nd.type !== 'podset'
+      && nd.type !== 'railbutton' && nd.type !== 'launchlug');
   if (instanced.length > 0) {
     notes.push(
       `${instanced.length} component${instanced.length === 1 ? '' : 's'} in this design `

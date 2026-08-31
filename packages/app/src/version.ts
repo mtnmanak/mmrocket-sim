@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.088';
+export const APP_VERSION = '0.089';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,21 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.089',
+    date: '2026-08-31',
+    title: 'Shrouds shaped like the real thing, rail buttons in pairs, and Redo',
+    items: [
+      'NUMBERS MOVE FOR TWO KINDS OF DESIGN, both stated here. (1) A camera shroud with a NON-ZERO mounting angle now steers its lift by that angle - see below. (2) A design imported with a multi-instance rail button or launch lug (any desktop file with a pair) now FLIES all of them - it used to fly exactly one, and the import note admitted it. Everything else is bit-identical.',
+      'THE CAMERA SHROUD LOOKS LIKE A CAMERA SHROUD FROM BEHIND. The end-on cross-section was drawn as a slice of pie - splayed sides widening outward - where a real shroud has straight parallel walls, a flat top, and a base cut to the tube. Drawn from the owner’s own measured photos of an Inverted Pursuits housing, in the end-on view and the 3D shell alike (so the STL export carries the real part). The side view is unchanged.',
+      'A SHROUD’S MOUNTING ANGLE NOW REACHES THE PHYSICS. The shroud has always flown as a thin lifting strake, but the strake sat at the top of the body no matter where you mounted the shroud. It now sits at the shroud’s real angle, so the lift acts in the plane the shroud actually occupies - a side-mounted shroud pulls the CP figure forward on the design tab, a top- or bottom-mounted one leaves it alone (the design tab measures one plane; that is the same behaviour desktop shows for a one-fin set). Drag does not change at any angle. Set the angle back to 0 and every number is exactly what it was.',
+      'RAIL BUTTONS COME IN PAIRS NOW. One rail-button component takes a count and a spacing - the exact fields a desktop .ork already stores - and every button is drawn (2D and, for the first time, 3D), weighed, and flown. AUTO-PLACE puts the forward button at the CG and the aft one an inch from the tail, as a one-shot button you can press again after the CG moves. Imported designs with pairs gain the second button’s mass and drag - that is the fix, not a regression.',
+      'THE SNAP-TO-FIN BUTTONS WORK ON EVERY TUBE. They only appeared when the part sat on the same tube as the fins - so a camera on the payload bay, the normal place for one, got nothing (reported by the owner within hours of the feature shipping). Snapping and the rail-line warning now measure against every fin on the airframe stack, and the rail warning checks the whole stacked rocket, since the rail is engaged on the pad with all stages assembled.',
+      'REDO. Ctrl+Shift+Z or Ctrl+Y, with a button beside Undo. Undo itself has been here since v0.013 - 50 steps, every design edit - despite the app never saying so this clearly. Both buttons now grey out when their stack is empty, and Ctrl+Shift+Z no longer performs an accidental UNDO, which it quietly did before.',
+      'COMPOSITE WAREHOUSE G12 TUBES ARE IN THE CATALOG - all 26, from 24 mm to 11.67 inch, the eleven motor-mount-capable sizes labelled. And INNER TUBES FINALLY GET THE PRESET PICKER at all (desktop’s own rule: a motor mount picks from the body-tube catalog). Weights: the manufacturer states weight-per-foot for four tubes only, and the four imply four different densities; the app reproduces the four stated weights exactly and interpolates for the rest, saying so per row.',
+      'KNOWN AND UNCHANGED, deliberately: shroud DRAG still ignores the mounting angle and the body-curvature area correction (measured this release at +0.6 to +3.1 % CD, -0.15 to -1.1 % apogee on typical designs) - shroud drag physics is queued as its own piece of work with the wake question.',
+    ],
+  },
   {
     version: '0.088',
     date: '2026-08-31',

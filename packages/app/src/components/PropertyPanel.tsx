@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useRef, useState } from 'react';
-import type { ComponentInfo, ComponentNode, ComponentPosition, RocketTree } from '@online-openrocket/engine';
+import type { ComponentInfo, ComponentNode, ComponentPosition, RocketTree, StaticInfo } from '@online-openrocket/engine';
 import { FinPointsEditor, type FinPoint } from './FinPointsEditor.js';
 import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
@@ -10,7 +10,7 @@ import {
 } from '../tree/treeModel.js';
 import { anchorStarts, axialLength, offsetForStart, snapStart, startFromPosition } from '../tree/position.js';
 import { tubeFinMaxCount, tubeFinMaxRadius, tubeFinRadius } from '../tree/tubefins.js';
-import { betweenFinAnglesOn, finAnglesOn, nearestAngle } from '../tree/mountAngle.js';
+import { betweenFinAnglesAmong, finAnglesAmong, frameContaining, nearestAngle } from '../tree/mountAngle.js';
 import { shroudEnds } from '../tree/shroud.js';
 
 /**
@@ -242,11 +242,18 @@ const COLOR_PRESETS = [
   '#3fa34d', '#2a78d6', '#8e5bd1', '#9a978f', '#7a4a2b',
 ];
 
-export function PropertyPanel({ tree, node, info, onPatch, onPatchAll, onAutoAlignFins }: {
+export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAll, onAutoAlignFins }: {
   tree: RocketTree;
   node: ComponentNode;
   /** Engine-computed stats for THIS component (null while a build is broken). */
   info?: ComponentInfo | null;
+  /**
+   * Whole-rocket StaticInfo (null while a build is broken). Carried for the
+   * controls that place a part against ROCKET quantities — the rail-button
+   * auto-place needs the CG and the overall length, neither of which any
+   * per-component figure can supply.
+   */
+  rocketInfo?: StaticInfo | null;
   onPatch: (patch: Partial<ComponentNode>) => void;
   /** Applies a patch to every component carrying those fields (bulk finish). */
   onPatchAll?: (patch: Partial<ComponentNode>) => void;
@@ -308,15 +315,23 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll, onAutoAli
    * editable, and matches what the panel already does elsewhere ("→ all" on
    * finish, "Fit tab to motor tube", "🧭 Auto-align fin sets").
    *
-   * Angles are compared only among SIBLINGS: a pod set rotates its whole
-   * sub-chain, so a fin inside a pod is not measured from the same zero as a
-   * shroud on the core airframe.
+   * Candidates come from the node's whole ANGULAR FRAME (frameContaining) —
+   * every fin on the inline stack, however many tubes or stages away — cut
+   * only at pod sets and parallel stages, whose sub-chains rotate as a unit.
    */
   const snapTargets = (() => {
-    if (typeof parent === 'string' || !parent) return null;
+    if (typeof parent === 'string' || !parent || !node.id) return null;
+    // The node's whole ANGULAR FRAME, not just its siblings. The owner's report
+    // (2026-08-31b): a pre-existing rail button on the tube above the fin can
+    // got no snap buttons, while a freshly added one did — because Add attaches
+    // under the selected tube, so new parts were born siblings of the fins and
+    // old parts were not. The fin's plane runs the length of the stack; which
+    // tube carries the part is irrelevant. frameContaining cuts only at pod
+    // sets and parallel stages, whose sub-chains rotate as a unit.
+    const members = frameContaining(tree, node.id) ?? (parent.children ?? []);
     const cur = typeof node['angleOffset'] === 'number' ? node['angleOffset'] as number : 0;
-    const onFin = nearestAngle(finAnglesOn(parent), cur);
-    const between = nearestAngle(betweenFinAnglesOn(parent), cur);
+    const onFin = nearestAngle(finAnglesAmong(members), cur);
+    const between = nearestAngle(betweenFinAnglesAmong(members), cur);
     if (onFin === null || between === null) return null;
     const show = (rad: number) => {
       const sym = prefs.units.angle;
@@ -562,6 +577,44 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll, onAutoAli
           🧭 Auto-align fin sets
         </button>
       )}
+      {node.type === 'railbutton' && (() => {
+        /**
+         * One-shot AUTO-PLACE (Eric, 2026-08-31b): two buttons, the aft one
+         * about an inch from the rocket's aft end, the forward one at the CG.
+         * A button, not a mode — he can press it again after the CG moves, and
+         * typed values always win afterwards. Kernel semantics: instance 0 is
+         * the FORWARD button and instanceSeparation marches AFT, so the node
+         * itself is placed at the CG and the separation reaches back.
+         */
+        if (!rocketInfo || !info || !parent || parent === 'stage') return null;
+        const AFT_GAP = 0.0254; // "about an inch"
+        const aftX = rocketInfo.length - AFT_GAP;
+        const fwdX = rocketInfo.cg;
+        const feasible = aftX - fwdX > 0.02; // buttons must not collide
+        const childLen = axialLength(node);
+        const parentAbsStart = (info.positionX ?? 0)
+          - startFromPosition(pos, childLen, parentLenSi ?? 0);
+        const place = () => {
+          onPatch({
+            instanceCount: 2,
+            instanceSeparation: aftX - fwdX,
+            position: {
+              method: pos.method,
+              offset: offsetForStart(pos.method, fwdX - parentAbsStart, childLen, parentLenSi ?? 0),
+            },
+          } as Partial<ComponentNode>);
+        };
+        return (
+          <button className="file-btn" style={{ marginTop: 6, width: '100%' }}
+            disabled={!feasible}
+            title={feasible
+              ? `Places two buttons: forward one at the CG (${(fwdX * 1000).toFixed(0)} mm — the loaded CG when a motor is loaded), aft one ${(AFT_GAP * 1000).toFixed(0)} mm from the aft end. Press again after the CG moves; typed values always win afterwards.`
+              : 'The CG sits within an inch of the aft end — two buttons cannot straddle it. Place them by hand.'}
+            onClick={place}>
+            📍 Auto-place rail buttons
+          </button>
+        );
+      })()}
       {showPresets && (
         <PresetPicker type={node.type} onApply={onPatch} onClose={() => setShowPresets(false)} />
       )}

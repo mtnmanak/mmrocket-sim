@@ -45,6 +45,44 @@ public final class GoldenMain {
         minDiameterScenarios();
         supersonicAeroScenarios();
         massOverrideScenarios();
+        lineInstanceScenarios();
+    }
+
+    /**
+     * Rail-button / launch-lug LINE INSTANCES (v0.089) — the bridge now reads
+     * instanceCount/instanceSeparation, so a desktop design's pair of buttons
+     * stops flying as one. Appended at the END of the roster (difftest compares
+     * by line index; see massOverrideScenarios).
+     *
+     * What each line pins: mass must scale exactly with the count (the kernel
+     * multiplies the component volume), and the drag-bearing figures come from
+     * the same staticInfo the app shows. A missing-keys case guards the
+     * bridge's key-presence gate: a node that says nothing about instances must
+     * be bit-identical to the pre-v0.089 kernel.
+     */
+    private static void lineInstanceScenarios() {
+        lineInstanceCase("none", "");
+        lineInstanceCase("rb2", ",\"instanceCount\":2,\"instanceSeparation\":0.3");
+        lineInstanceCase("rb3", ",\"instanceCount\":3,\"instanceSeparation\":0.15");
+        // Clamp guard: 0 must behave as 1, not poison the kernel.
+        lineInstanceCase("rb0", ",\"instanceCount\":0");
+    }
+
+    private static void lineInstanceCase(String name, String extra) {
+        int r = api.OrkEngine.buildRocket(
+                "{\"name\":\"Line\",\"components\":[{\"type\":\"stage\",\"children\":["
+                + "{\"type\":\"nosecone\",\"length\":0.1,\"aftRadius\":0.025,\"thickness\":0.002},"
+                + "{\"type\":\"bodytube\",\"length\":0.6,\"outerRadius\":0.025,\"thickness\":0.001,\"density\":950,\"children\":["
+                + "  {\"type\":\"trapezoidfinset\",\"finCount\":3,\"rootChord\":0.08,\"tipChord\":0.04,\"sweep\":0.03,\"height\":0.05,\"thickness\":0.003},"
+                + "  {\"type\":\"railbutton\",\"outerDiameter\":0.0097" + extra + ","
+                + "   \"position\":{\"method\":\"middle\",\"offset\":0}}"
+                + "]}]}]}");
+        java.util.Map<String, Object> info = api.JsonLite.parseObject(api.OrkEngine.getStaticInfo(r));
+        line("line.instances." + name,
+                api.JsonLite.dbl(info, "massEmpty", Double.NaN),
+                api.JsonLite.dbl(info, "cgEmpty", Double.NaN),
+                api.JsonLite.dbl(info, "cp", Double.NaN),
+                api.JsonLite.dbl(info, "longitudinalInertiaEmpty", Double.NaN));
     }
 
     /**

@@ -1219,3 +1219,62 @@ describe('fin fillet epoxy counts toward mass and CG', () => {
       .toBeCloseTo(OrkRocket.buildTree(withFillet(0)).staticInfo().massEmpty, 12);
   });
 });
+
+/**
+ * v0.089 — rail-button / launch-lug LINE INSTANCES reach the kernel.
+ *
+ * The kernel's RailButton has always been LineInstanceable, and desktop .ork
+ * files carry <instancecount>/<instanceseparation> — but the bridge never read
+ * them, so an imported pair of buttons flew as ONE button's mass and drag (the
+ * import note even said so). These pin the bridge: mass scales exactly with
+ * the count, and the un-instanced case is untouched.
+ */
+describe('rail button line instances', () => {
+  const withButton = (extra: Record<string, unknown>): RocketTree => ({
+    components: [{
+      type: 'stage',
+      children: [
+        { type: 'nosecone', length: 0.1, aftRadius: 0.025, thickness: 0.002, shape: 'ogive' },
+        {
+          type: 'bodytube', length: 0.6, outerRadius: 0.025, thickness: 0.001,
+          children: [
+            { type: 'trapezoidfinset', finCount: 3, rootChord: 0.08, tipChord: 0.04,
+              sweep: 0.03, height: 0.05, thickness: 0.003, position: { method: 'bottom', offset: 0 } },
+            { type: 'railbutton', outerDiameter: 0.0097, ...extra,
+              position: { method: 'middle', offset: 0 } },
+          ],
+        },
+      ],
+    }],
+  } as unknown as RocketTree);
+
+  it('N buttons weigh N times one button, exactly', () => {
+    const m1 = OrkRocket.buildTree(withButton({})).staticInfo().massEmpty;
+    const m2 = OrkRocket.buildTree(withButton({ instanceCount: 2, instanceSeparation: 0.3 }))
+      .staticInfo().massEmpty;
+    const m3 = OrkRocket.buildTree(withButton({ instanceCount: 3, instanceSeparation: 0.15 }))
+      .staticInfo().massEmpty;
+    const perButton = m2 - m1;
+    expect(perButton).toBeGreaterThan(1e-5);
+    expect(m3 - m2).toBeCloseTo(perButton, 12);
+  });
+
+  it('more buttons, more drag — and the un-instanced node is bit-identical to before', () => {
+    const cd = (extra: Record<string, unknown>) =>
+      OrkRocket.buildTree(withButton(extra)).dragSweep({ machMin: 0.3, machMax: 0.3, machStep: 1 })
+        .powerOff.total[0]!;
+    const one = cd({});
+    expect(cd({ instanceCount: 2, instanceSeparation: 0.3 })).toBeGreaterThan(one);
+    // Key-absence gate: no instance keys -> the kernel's own defaults, which
+    // is the pre-v0.089 behaviour. instanceCount 0 clamps to 1 rather than
+    // poisoning the kernel (setInstanceCount silently ignores <= 0).
+    expect(cd({ instanceCount: 0 })).toBe(one);
+  });
+
+  it('the CG moves aft as instances march aft', () => {
+    const cg1 = OrkRocket.buildTree(withButton({})).staticInfo().cgEmpty;
+    const cg2 = OrkRocket.buildTree(withButton({ instanceCount: 2, instanceSeparation: 0.3 }))
+      .staticInfo().cgEmpty;
+    expect(cg2).toBeGreaterThan(cg1);
+  });
+});

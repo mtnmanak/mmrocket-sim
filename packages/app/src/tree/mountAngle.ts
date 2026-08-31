@@ -33,21 +33,79 @@ export function angleGap(a: number, b: number): number {
 }
 
 /**
- * Every fin's clock angle on this parent, in the parent's own frame.
+ * ONE ANGULAR FRAME: the set of components that share a clock-angle zero.
+ *
+ * That is the WHOLE INLINE STACK — every stage's subtree, however many tubes
+ * and stages deep — because stages are stacked, not rotated, and the physical
+ * lines this file reasons about (a fin's plane, the launch rail) run the full
+ * length of the assembled rocket standing on the pad. What breaks the frame is
+ * an ASSEMBLY: a pod set or a parallel stage rotates its whole sub-chain, so
+ * its contents form their own frame and are never compared with the core's.
+ *
+ * This walker is shared by the snap buttons and the rail-interference check —
+ * ON PURPOSE. v0.088 shipped them computing "in line with a fin" over two
+ * different frames (buttons: siblings only; warnings: the stage chain), and the
+ * owner promptly found the seam: a pre-existing rail button on the tube above
+ * the fin can got no snap buttons at all, while a freshly added one — born a
+ * sibling of the fins, because Add attaches under the selected tube — did.
+ * One definition, or the two drift apart again.
+ */
+export interface AngularFrame {
+  members: ComponentNode[];
+  /** Root children of each assembly found in this frame — each its own frame. */
+  assemblies: ComponentNode[][];
+}
+
+export function collectFrame(nodes: ComponentNode[]): AngularFrame {
+  const members: ComponentNode[] = [];
+  const assemblies: ComponentNode[][] = [];
+  const walk = (ns: ComponentNode[]) => {
+    for (const n of ns) {
+      if (n.type === 'podset' || n.type === 'parallelstage') {
+        assemblies.push(n.children ?? []);
+        continue;
+      }
+      members.push(n);
+      walk(n.children ?? []);
+    }
+  };
+  walk(nodes);
+  return { members, assemblies };
+}
+
+/** The frame CONTAINING the given node: the inline stack, or its assembly. */
+export function frameContaining(tree: RocketTree, id: string): ComponentNode[] | null {
+  const frames: ComponentNode[][] = [tree.components];
+  while (frames.length) {
+    const roots = frames.pop()!;
+    const { members, assemblies } = collectFrame(roots);
+    if (members.some((m) => m.id === id)) return members;
+    frames.push(...assemblies);
+  }
+  return null;
+}
+
+/**
+ * Every fin's clock angle among the given frame members.
  *
  * `rotation` is the fin set's clocking (the kernel's `baseRotation`) and the
  * instances are evenly spaced: `rotation + 2πi/N`, exactly what
  * `FinSet.getInstanceAngles` computes and what all three views already mirror.
  */
-export function finAnglesOn(parent: ComponentNode): number[] {
+export function finAnglesAmong(members: ComponentNode[]): number[] {
   const out: number[] = [];
-  for (const k of parent.children ?? []) {
+  for (const k of members) {
     if (!isFinSet(k)) continue;
     const n = Math.max(1, Math.round(num(k, 'finCount', k.type === 'tubefinset' ? 6 : 3)));
     const rot = num(k, 'rotation', 0);
     for (let i = 0; i < n; i++) out.push(reducePi(rot + (2 * Math.PI * i) / n));
   }
   return out;
+}
+
+/** Back-compat wrapper: the fins among a single parent's children. */
+export function finAnglesOn(parent: ComponentNode): number[] {
+  return finAnglesAmong(parent.children ?? []);
 }
 
 /**
@@ -62,9 +120,9 @@ export function finAnglesOn(parent: ComponentNode): number[] {
  * back rather than nothing — a button that does something imperfect beats a
  * button that does nothing.
  */
-export function betweenFinAnglesOn(parent: ComponentNode): number[] {
+export function betweenFinAnglesAmong(members: ComponentNode[]): number[] {
   const out: number[] = [];
-  for (const k of parent.children ?? []) {
+  for (const k of members) {
     if (!isFinSet(k)) continue;
     const n = Math.max(1, Math.round(num(k, 'finCount', k.type === 'tubefinset' ? 6 : 3)));
     const rot = num(k, 'rotation', 0);
@@ -72,9 +130,14 @@ export function betweenFinAnglesOn(parent: ComponentNode): number[] {
     // thing, and that is what (2i+1)π/N gives for N = 1.
     for (let i = 0; i < n; i++) out.push(reducePi(rot + ((2 * i + 1) * Math.PI) / n));
   }
-  const fins = finAnglesOn(parent);
+  const fins = finAnglesAmong(members);
   const clear = out.filter((m) => fins.every((f) => angleGap(m, f) > IN_LINE_TOLERANCE));
   return clear.length ? clear : out;
+}
+
+/** Back-compat wrapper: the midpoints among a single parent's children. */
+export function betweenFinAnglesOn(parent: ComponentNode): number[] {
+  return betweenFinAnglesAmong(parent.children ?? []);
 }
 
 /** The candidate nearest `from`, or null when there are no candidates. */
@@ -128,32 +191,17 @@ export function railInterferenceWarnings(tree: RocketTree): string[] {
   const out: string[] = [];
   const SURFACE = new Set(['launchlug', 'fairing', 'protuberance']);
 
-  /**
-   * One angular FRAME: an axial chain of body tubes that share a zero.
-   *
-   * The rail is a straight line down the WHOLE rocket, so a fin on the fin can
-   * and a rail button on the tube above it are on the same line even though
-   * they are not siblings — the ordinary high-power layout, and a per-parent
-   * check would miss it entirely. What breaks the frame is an ASSEMBLY: a pod
-   * set or a parallel stage rotates its own sub-chain, so its contents are
-   * collected separately and never compared with the core's.
-   */
-  const collect = (nodes: ComponentNode[], frame: {
-    buttons: { angle: number; name: string; owner: string }[];
-    fins: { angle: number; owner: string }[];
-    others: { angle: number; name: string }[];
-  }, assemblies: ComponentNode[][]) => {
-    for (const n of nodes) {
-      if (n.type === 'podset' || n.type === 'parallelstage') {
-        assemblies.push(n.children ?? []);
-        continue;
-      }
+  const checkFrame = (roots: ComponentNode[]) => {
+    // The SAME frame walker the snap buttons use — see collectFrame.
+    const { members, assemblies } = collectFrame(roots);
+    const frame = {
+      buttons: [] as { angle: number; name: string }[],
+      fins: [] as { angle: number; owner: string }[],
+      others: [] as { angle: number; name: string }[],
+    };
+    for (const n of members) {
       if (n.type === 'railbutton') {
-        frame.buttons.push({
-          angle: reducePi(num(n, 'angleOffset', 0)),
-          name: nameOf(n, 'Rail button'),
-          owner: 'this airframe',
-        });
+        frame.buttons.push({ angle: reducePi(num(n, 'angleOffset', 0)), name: nameOf(n, 'Rail button') });
       } else if (isFinSet(n)) {
         const c = Math.max(1, Math.round(num(n, 'finCount', n.type === 'tubefinset' ? 6 : 3)));
         const rot = num(n, 'rotation', 0);
@@ -163,16 +211,7 @@ export function railInterferenceWarnings(tree: RocketTree): string[] {
       } else if (SURFACE.has(n.type as string)) {
         frame.others.push({ angle: reducePi(num(n, 'angleOffset', 0)), name: nameOf(n, n.type) });
       }
-      collect(n.children ?? [], frame, assemblies);
     }
-  };
-
-  const checkFrame = (nodes: ComponentNode[]) => {
-    const frame = { buttons: [] as { angle: number; name: string; owner: string }[],
-      fins: [] as { angle: number; owner: string }[],
-      others: [] as { angle: number; name: string }[] };
-    const assemblies: ComponentNode[][] = [];
-    collect(nodes, frame, assemblies);
 
     for (const b of frame.buttons) {
       for (const f of frame.fins) {
@@ -198,10 +237,12 @@ export function railInterferenceWarnings(tree: RocketTree): string[] {
     for (const a of assemblies) checkFrame(a);
   };
 
-  // Each STAGE is its own chain; stages are stacked, not rotated, so they share
-  // a zero — but treating them separately keeps a booster's own buttons from
-  // being compared with a sustainer's fins after separation.
-  for (const stage of tree.components) checkFrame([stage]);
+  // ONE frame for the whole inline stack, all stages together. The rail is
+  // engaged on the PAD, with every stage assembled — a booster's buttons and a
+  // sustainer's fins really do share the rail's line at the only moment the
+  // rail matters. (v0.088 cut per stage; that was over-cautious and also made
+  // this check disagree with the snap buttons about what a frame is.)
+  checkFrame(tree.components);
 
   // Two buttons at the same angle raise the same sentence twice; say it once.
   return [...new Set(out)];

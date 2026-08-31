@@ -1,5 +1,5 @@
 {
-  "version": "0.088",
+  "version": "0.089",
   "released": "2026-08-31",
-  "note": "Fixes an inherited kernel fault: a stage pinned to a measured mass flew with the inertia of the parts underneath rather than of the mass you pinned - roll low by exactly the pin factor, pitch able to go the other way. Only designs carrying a covering mass override move (every RASAero import does); everything else is bit-identical. Drift is where it shows: +0.2% at a 1.35x pin, +5.2% at 5x. Roll and pitch inertia are now on screen. Camera shrouds gain separate fore and aft end shapes and a conformal underside cut to the body tube, snap-to-fin buttons, and a warning when anything shares a rail button's line."
+  "note": "Camera shrouds now draw with the straight sides and conformal base real housings have (from the owner's measured photos), and their mounting angle reaches the physics - a side-mounted shroud moves the CP figure, a top-mounted one does not, and angle 0 is bit-identical to before. Rail buttons gain pair support (count + spacing, drawn, weighed and flown, with one-click auto-placement at CG and aft end) - imported desktop pairs stop flying as a single button. Snap-to-fin buttons now work across the whole airframe stack. Redo arrives (Ctrl+Shift+Z). Composite Warehouse G12 tubes join the catalog and inner tubes get the preset picker."
 }

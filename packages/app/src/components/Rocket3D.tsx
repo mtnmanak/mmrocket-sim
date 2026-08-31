@@ -244,8 +244,37 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims): { pieces: Pie
         // cylinder along the body and the X term then swings it round.
         const la = num(child, 'angleOffset', 0);
         const ld = pRadius + r;
-        place(`lug${k++}`, geo, nodeColor(child, MAT.lug),
-          [start + len / 2, ld * Math.cos(la), ld * Math.sin(la)], [la, 0, -Math.PI / 2], xform);
+        // Line instances (v0.089): copies march aft from the node's position.
+        const lugN = Math.max(1, Math.round(num(child, 'instanceCount', 1)));
+        const lugSep = num(child, 'instanceSeparation', 0);
+        for (let li = 0; li < lugN; li++) {
+          place(`lug${k++}`, geo.clone(), nodeColor(child, MAT.lug),
+            [start + li * lugSep + len / 2, ld * Math.cos(la), ld * Math.sin(la)], [la, 0, -Math.PI / 2], xform);
+        }
+        geo.dispose();
+      } else if (child.type === 'railbutton') {
+        // Rail buttons had NO 3D drawing at all until v0.089 — a part the app
+        // simulated and warned about was simply absent from the one view
+        // people rotate to inspect the build. A button is a squat cylinder
+        // standing off the surface, its axis radial: height from the kernel's
+        // default total height (9.7 mm), one per line instance marching aft.
+        const bd = num(child, 'outerDiameter', 0.0097);
+        const bh = 0.0097;
+        const start = axialStart(child, bd, pStart, pLen);
+        const bGeo = new THREE.CylinderGeometry(bd / 2, bd / 2, bh, 16);
+        const ba = num(child, 'angleOffset', 0);
+        const bdst = pRadius + bh / 2;
+        const bN = Math.max(1, Math.round(num(child, 'instanceCount', 1)));
+        const bSep = num(child, 'instanceSeparation', 0);
+        for (let li = 0; li < bN; li++) {
+          // CylinderGeometry's axis is +y; rotating about X by the mount angle
+          // swings that radial axis around the body — no -pi/2 here, unlike
+          // the lug, whose axis must lie ALONG the body.
+          place(`rbtn${k++}`, bGeo.clone(), nodeColor(child, MAT.lug),
+            [start + li * bSep + bd / 2, bdst * Math.cos(ba), bdst * Math.sin(ba)], [ba, 0, 0], xform);
+        }
+        bGeo.dispose();
+        maxR = Math.max(maxR, pRadius + bh);
       } else if (child.type === 'innertube') {
         // Motor mount / inner tube, one per cluster position — visible through
         // the translucent shell. A loaded motor seats flush against the

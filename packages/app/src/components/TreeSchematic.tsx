@@ -1063,19 +1063,28 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
         const { p: lp, near: lnear } = surfaceAt(child);
         const ySurf = baseY - pRadius * lp * ctx.scale;
         const yOut = baseY - (pRadius + 2 * r) * lp * ctx.scale;
+        // LINE INSTANCES (v0.089): one node is N collinear copies at the same
+        // clock angle, instance 0 forward and the rest marching AFT at
+        // `instanceSeparation` spacing — the kernel's own convention
+        // (RailButton.getInstanceOffsets), which the sim now flies too.
+        const liCount = Math.max(1, Math.round(num(child, 'instanceCount', 1)));
+        const liSep = num(child, 'instanceSeparation', 0);
         noteHover(child, ctx.x0 + start * ctx.scale, Math.min(ySurf, yOut),
-          ctx.x0 + (start + len) * ctx.scale, Math.max(ySurf, yOut));
-        shapes.push(
-          <rect key={key++} x={ctx.x0 + start * ctx.scale}
-            y={Math.min(ySurf, yOut)}
-            width={Math.max(2, len * ctx.scale)} height={Math.max(2, Math.abs(ySurf - yOut))}
-            {...{
-              fill: fillOf(child, '#c8c5be'), stroke: selStroke(child, '#7a786f'),
-              strokeWidth: selWidth(child),
-              ...(lnear ? {} : { clipPath: `url(#${airframeClip(baseY, pRadius)})` }),
-              ...grab,
-            }} />,
-        );
+          ctx.x0 + (start + len + (liCount - 1) * liSep) * ctx.scale, Math.max(ySurf, yOut));
+        for (let li = 0; li < liCount; li++) {
+          const x0 = start + li * liSep;
+          shapes.push(
+            <rect key={key++} x={ctx.x0 + x0 * ctx.scale}
+              y={Math.min(ySurf, yOut)}
+              width={Math.max(2, len * ctx.scale)} height={Math.max(2, Math.abs(ySurf - yOut))}
+              {...{
+                fill: fillOf(child, '#c8c5be'), stroke: selStroke(child, '#7a786f'),
+                strokeWidth: selWidth(child),
+                ...(lnear ? {} : { clipPath: `url(#${airframeClip(baseY, pRadius)})` }),
+                ...grab,
+              }} />,
+          );
+        }
       } else {
         // Internal component: dashed outline inside the parent. A clustered
         // inner tube draws once per cluster position (side-view projection).

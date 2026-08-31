@@ -167,28 +167,35 @@ describe('the camera shroud sits ON the tube, not in it', () => {
     return p!;
   };
 
-  it('bulges its outer face AWAY from the axis and its base ALONG the tube', () => {
+  it('stands on straight parallel sides with its floor ON the tube', () => {
+    // The cross-section his photos show (docs/Camera Shrouds/): vertical side
+    // walls, flat top, and the floor scalloped to the tube. NOT the annular
+    // sector of the first cut, whose splayed sides read as a trapezoid — the
+    // owner's 2026-08-31b report.
     show(<AftView tree={shroudRocket(true)} />);
     const d = shroudPath();
-    // "M x,y A r r 0 laf sf x,y L x,y A r r 0 laf sf x,y Z"
-    const nums = d.match(/-?[\d.]+(?:e-?\d+)?/g)!.map(Number);
     const arcs = [...d.matchAll(/A\s+([\d.e-]+)\s+([\d.e-]+)\s+0\s+(\d)\s+(\d)\s+(-?[\d.e-]+),(-?[\d.e-]+)/g)];
-    expect(arcs).toHaveLength(2);
-    const start = d.match(/M\s+(-?[\d.e-]+),(-?[\d.e-]+)/)!;
-    expect(nums.length).toBeGreaterThan(0);
+    // ONE arc — the floor. The top is a straight line now.
+    expect(arcs).toHaveLength(1);
 
-    // Arc 1: the OUTER face, from the M point.
-    const [, r1s, , , sf1, x1e, y1e] = arcs[0]!;
-    const o = arcMid(Number(start[1]), Number(start[2]), Number(r1s), 0, Number(sf1),
-      Number(x1e), Number(y1e));
-    // Screen y is negated model y, so distance from the axis is the hypot.
-    expect(Math.hypot(o.mx, o.my)).toBeCloseTo(BODY_R + 0.02, 6);
+    const pts = (d.match(/-?[\d.e-]+,-?[\d.e-]+/g) ?? [])
+      .map((q) => q.split(',').map(Number) as [number, number]);
+    // Path: M topLeft L topRight L footRight A ... footLeft Z
+    const [topL, topR, footR] = pts;
+    // Flat top at exactly R + height above the axis (mount angle 0 => screen
+    // y = -(R+h)), spanning the full width with PARALLEL sides.
+    expect(-topL![1]).toBeCloseTo(BODY_R + 0.02, 6);
+    expect(-topR![1]).toBeCloseTo(BODY_R + 0.02, 6);
+    expect(Math.abs(topR![0] - topL![0])).toBeCloseTo(0.025, 6);
+    // The wall foot stands ON the tube: its radius from the axis is R.
+    expect(Math.hypot(footR![0], footR![1])).toBeCloseTo(BODY_R, 6);
+    // …and the same lateral offset as the top corner above it: vertical wall.
+    expect(footR![0]).toBeCloseTo(topR![0], 6);
 
-    // Arc 2: the UNDERSIDE, which must lie exactly on the tube.
-    const lineEnd = d.match(/L\s+(-?[\d.e-]+),(-?[\d.e-]+)/)!;
-    const [, r2s, , , sf2, x2e, y2e] = arcs[1]!;
-    const u = arcMid(Number(lineEnd[1]), Number(lineEnd[2]), Number(r2s), 0, Number(sf2),
-      Number(x2e), Number(y2e));
+    // The floor arc's midpoint lies on the tube (the v0.088 sweep-flag lesson:
+    // measure the arc, never eyeball it).
+    const [, rs, , , sf, xe, ye] = arcs[0]!;
+    const u = arcMid(footR![0], footR![1], Number(rs), 0, Number(sf), Number(xe), Number(ye));
     expect(Math.hypot(u.mx, u.my)).toBeCloseTo(BODY_R, 6);
   });
 

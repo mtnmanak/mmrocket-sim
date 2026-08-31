@@ -4,6 +4,7 @@
  * PIPELINE ORDER (all three steps, in this order, or data is lost):
  *   1. fetch-component-presets.mjs  — OVERWRITES presets.json wholesale
  *   2. merge-rocksim-parts.mjs      — APPENDS the RockSim-only rows
+ *   2b. merge-cw-tubes.mjs          — APPENDS the Composite Warehouse tubes
  *   3. apply-preset-corrections.mjs — PATCHES rows this table names
  *
  * Why this exists (2026-08-29, owner ruling "fix it"): four centering-ring

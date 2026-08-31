@@ -22,6 +22,13 @@ export interface Preset {
 /** .orc kind → editor component type. */
 export const KIND_FOR_TYPE: Partial<Record<ComponentType, string>> = {
   bodytube: 'BodyTube',
+  // Inner tubes consume the BODY TUBE catalogue — desktop's own rule
+  // (InnerTube.getPresetType() returns Type.BODY_TUBE; there is no InnerTube
+  // preset kind in the .orc format at all). Until v0.089 this entry was
+  // missing, so a motor-mount tube offered no preset picker whatsoever — and
+  // the Composite Warehouse motor-mount tubes are exactly the rows a mount
+  // wants.
+  innertube: 'BodyTube',
   nosecone: 'NoseCone',
   transition: 'Transition',
   centeringring: 'CenteringRing',

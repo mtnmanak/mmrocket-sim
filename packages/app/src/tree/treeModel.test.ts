@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
+import { OrkRocket } from '@online-openrocket/engine';
 import { bodyDragReference, engineTree, findNode, hasParallelStage, isOnLaunchStage, makeNode, motorMounts, mountsIn, normalizeTree, protuberanceCd, protuberanceDeliveredCd, PROTUBERANCE_REF_MACH, referenceArea, resetBodyDragCache, splitClusterPairsTree, splitClusterTree } from './treeModel.js';
 import { clusterOffsets } from './cluster.js';
 import { allowedChildren, defaultParams, DISPLAY_NAME, FIELDS } from './schema.js';
@@ -900,4 +901,71 @@ describe('bodyDragReference caches', () => {
         .toBe(before[i]);
     });
   }, 60000);
+});
+
+/**
+ * v0.089 — the shroud's mounting angle steers its strake's lift.
+ *
+ * The lowering passes `angleOffset` through as the kernel fin-set `rotation`
+ * (FinSet.setBaseRotation). The physics consequence is pinned END TO END below
+ * against the real kernel: at the design tab's theta = 0 a side-mounted shroud
+ * (±90°) contributes its full strake CNa and a top/bottom one contributes
+ * none — cna·sin²(theta − angle), the kernel's own one-fin arithmetic.
+ */
+describe('camera shroud mounting angle reaches the kernel', () => {
+  const withShroud = (angle?: number): RocketTree => ({
+    name: 'R',
+    components: [{
+      type: 'stage', id: 's1', children: [
+        { id: 'n1', type: 'nosecone', shape: 'ogive', length: 0.1, aftRadius: 0.025, thickness: 0.002 },
+        {
+          id: 'b1', type: 'bodytube', length: 0.5, outerRadius: 0.025, thickness: 0.001,
+          children: [
+            { id: 'f1', type: 'trapezoidfinset', finCount: 3, rootChord: 0.08, tipChord: 0.04,
+              sweep: 0.03, height: 0.05, thickness: 0.003, position: { method: 'bottom', offset: 0 } },
+            { id: 'sh', type: 'fairing', length: 0.08, width: 0.025, height: 0.02, mass: 0.03,
+              ...(angle === undefined ? {} : { angleOffset: angle }),
+              position: { method: 'middle', offset: 0 } },
+          ],
+        },
+      ],
+    }],
+  } as unknown as RocketTree);
+
+  const strakeOf = (t: RocketTree) => {
+    const lowered = engineTree(t);
+    const body = lowered.components[0]!.children!.find((c) => c.type === 'bodytube')!;
+    return body.children!.find((c) => c.type === 'freeformfinset' && c.id === 'sh')!;
+  };
+
+  it('passes angleOffset through as the kernel rotation, radians, no sign flip', () => {
+    expect(strakeOf(withShroud())['rotation']).toBe(0);
+    expect(strakeOf(withShroud(Math.PI / 2))['rotation']).toBeCloseTo(Math.PI / 2, 12);
+  });
+
+  it('a side-mounted shroud moves CP/CNa; a top-mounted one does not (theta = 0)', () => {
+    const at = (angle: number) => OrkRocket.buildTree(engineTree(withShroud(angle))).staticInfo();
+    const top = at(0);
+    const side = at(Math.PI / 2);
+    const opposite = at(Math.PI);
+
+    // Top and bottom mounts are bit-identical in the static figures: the
+    // strake's sin² factor is zero in the measured plane for both.
+    expect(opposite.cna).toBe(top.cna);
+    expect(opposite.cp).toBe(top.cp);
+
+    // A side mount adds the strake's own CNa and pulls CP forward — the
+    // full-strength case, and the one the owner cares about (a camera pointed
+    // between the fins is a side mount).
+    expect(side.cna).toBeGreaterThan(top.cna + 0.1);
+    expect(side.cp).toBeLessThan(top.cp - 1e-4);
+
+    // Drag does not care about the angle: the CD override is frontal-area
+    // based. (Compare at fixed Mach through the sweep.)
+    const sweepTop = OrkRocket.buildTree(engineTree(withShroud(0)))
+      .dragSweep({ machMin: 0.3, machMax: 0.3, machStep: 1 }).powerOff.total[0]!;
+    const sweepSide = OrkRocket.buildTree(engineTree(withShroud(Math.PI / 2)))
+      .dragSweep({ machMin: 0.3, machMax: 0.3, machStep: 1 }).powerOff.total[0]!;
+    expect(sweepSide).toBe(sweepTop);
+  });
 });

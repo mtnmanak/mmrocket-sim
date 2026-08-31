@@ -309,6 +309,7 @@ final class ComponentFactory {
                 lug.setLength(dbl(node, "length", 0.05));
                 lug.setOuterRadius(dbl(node, "outerRadius", 0.0022));
                 lug.setThickness(dbl(node, "thickness", 0.0003));
+                applyLineInstances(lug, node);
                 c = lug;
                 break;
             }
@@ -318,6 +319,7 @@ final class ComponentFactory {
                 if (!Double.isNaN(od)) {
                     rb.setOuterDiameter(od);
                 }
+                applyLineInstances(rb, node);
                 c = rb;
                 break;
             }
@@ -630,6 +632,34 @@ final class ComponentFactory {
      * RELATIVE), so angleMethod is applied for parallelstage only. AFTER axial
      * method is downgraded by the kernel — the app never offers it.
      */
+    /**
+     * Rail buttons and launch lugs are LineInstanceable in the kernel: one
+     * component draws, weighs and drags as N collinear copies marching AFT
+     * from the node's own position at `instanceSeparation` spacing (RailButton
+     * and LaunchLug both; RailButtonCalc returns the MEAN per-instance CD and
+     * BarrowmanCalculator multiplies by the instance-context count, so the
+     * whole pipeline is instance-correct once these two setters are called).
+     *
+     * Until v0.089 the bridge never read these keys, so an imported desktop
+     * design carrying <instancecount>2</instancecount> flew ONE button's mass
+     * and drag — the app even confessed it in an import note. Guarded on key
+     * presence so the kernel's own default separation (outerDiameter*6, set in
+     * RailButton's constructor) is not clobbered with zero, and clamped
+     * because setInstanceCount silently ignores values <= 0 — a JSON 0 would
+     * otherwise leave the kernel at 1 while the UI showed 0.
+     */
+    private static void applyLineInstances(info.openrocket.core.rocketcomponent.LineInstanceable li,
+            Map<String, Object> node) {
+        double count = dbl(node, "instanceCount", Double.NaN);
+        if (!Double.isNaN(count)) {
+            li.setInstanceCount(Math.max(1, (int) Math.round(count)));
+        }
+        double sep = dbl(node, "instanceSeparation", Double.NaN);
+        if (!Double.isNaN(sep)) {
+            li.setInstanceSeparation(sep);
+        }
+    }
+
     private static void applyAssembly(RocketComponent child, Map<String, Object> node) {
         RingInstanceable ring = (RingInstanceable) child;
         ring.setInstanceCount((int) dbl(node, "instanceCount", 2));
