@@ -290,11 +290,19 @@ export function AftView({ tree, motors, roll: rollProp, onRoll }: {
         const [oy1, oz1] = at(outR, a1);
         const [by0, bz0] = at(s.baseR, a0);
         const [by1, bz1] = at(s.baseR, a1);
-        // sweep-flag: SVG y is negated by P(), so a mathematically CCW arc
-        // draws clockwise on screen.
-        d = `M ${P(oy0, oz0)} A ${toSvg(outR)} ${toSvg(outR)} 0 0 0 ${P(oy1, oz1)} `
+        // SWEEP FLAGS, and they are worth spelling out because the first cut
+        // had BOTH of them backwards and drew the shroud as a concave lens
+        // sunk into the tube — a bug a screenshot did not give away.
+        //
+        // `P()` negates y, so screen-clockwise is the direction of INCREASING
+        // model angle. The outer face runs a0 -> a1 (increasing) = clockwise =
+        // sweep 1. The underside runs back a1 -> a0 (decreasing) = sweep 0.
+        // Checked numerically against the SVG endpoint-to-centre
+        // parameterisation, not by eye: with these flags the arc midpoints land
+        // on (R+h) and R exactly; inverted they land at 0.0363 and 0.0209.
+        d = `M ${P(oy0, oz0)} A ${toSvg(outR)} ${toSvg(outR)} 0 0 1 ${P(oy1, oz1)} `
           + `L ${P(by1, bz1)} `
-          + `A ${toSvg(s.baseR)} ${toSvg(s.baseR)} 0 0 1 ${P(by0, bz0)} Z`;
+          + `A ${toSvg(s.baseR)} ${toSvg(s.baseR)} 0 0 0 ${P(by0, bz0)} Z`;
       } else {
         const ca = Math.cos(s.angle);
         const sa = Math.sin(s.angle);

@@ -11,6 +11,18 @@ import {
 import { anchorStarts, axialLength, offsetForStart, snapStart, startFromPosition } from '../tree/position.js';
 import { tubeFinMaxCount, tubeFinMaxRadius, tubeFinRadius } from '../tree/tubefins.js';
 import { betweenFinAnglesOn, finAnglesOn, nearestAngle } from '../tree/mountAngle.js';
+import { shroudEnds } from '../tree/shroud.js';
+
+/**
+ * Selects whose displayed value is not simply "the stored key or a default",
+ * because an older file stores it somewhere else. Keyed by field, resolved with
+ * the SAME function every other consumer uses — see the comment at the call
+ * site.
+ */
+const RESOLVE_SELECT: Record<string, (n: ComponentNode) => string | undefined> = {
+  fairingForeShape: (n) => shroudEnds(n).fore,
+  fairingAftShape: (n) => shroudEnds(n).aft,
+};
 import { shapeParamDefault, shapeParamMax, shapeUsesParameter } from '../tree/shapeProfile.js';
 import { componentSolid, type SolidContext } from '../tree/solidMesh.js';
 import { componentDxf, DXF_CUTTABLE, DXF_MIME } from '../services/dxfExport.js';
@@ -621,13 +633,21 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll, onAutoAli
                 </label>
                 <select
                   aria-label={f.label}
-                  // An unset select shows what the READERS fall back to, which
-                  // is `f.dflt` — not options[0]. Those two disagreed until
-                  // v0.088: unset finish means the engine's 'normal' (regular
-                  // paint) but showed "Rough", and an unset camera-shroud shape
-                  // showed "Streamlined" while every drawing and the physics
-                  // used half-round. Declare the default once, in the schema.
-                  value={String(node[f.key] ?? f.dflt ?? f.options[0]![0])}
+                  // An unset select shows what the READERS fall back to, never
+                  // options[0]. Those two disagreed until v0.088: unset finish
+                  // means the engine's 'normal' (regular paint) but showed
+                  // "Rough", and an unset camera-shroud shape showed
+                  // "Streamlined" while every drawing and the physics used
+                  // half-round.
+                  //
+                  // `f.dflt` covers the plain case. RESOLVE_SELECT covers the
+                  // case where the value is not a plain default but a
+                  // MIGRATION: a pre-v0.088 shroud carries one `fairingShape`
+                  // and no per-end key, and the answer for the dropdown is
+                  // whatever `shroudEnds` migrates it to — which is the same
+                  // function the drawing, the physics and the writer use. The
+                  // resolver exists so there is still exactly one declaration.
+                  value={String(RESOLVE_SELECT[f.key]?.(node) ?? node[f.key] ?? f.dflt ?? f.options[0]![0])}
                   onChange={(e) => onPatch({ [f.key]: e.target.value })}
                 >
                   {f.options.map(([v, l]) => (

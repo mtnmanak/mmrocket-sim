@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import {
-  angleGap, betweenFinAnglesOn, finAnglesOn, nearestAngle,
+  angleGap, betweenFinAnglesOn, finAnglesOn, IN_LINE_TOLERANCE, nearestAngle,
   railInterferenceWarnings, reducePi,
 } from './mountAngle.js';
 import { defaultParams } from './schema.js';
@@ -145,5 +145,67 @@ describe('a freshly added rail button is not on a fin line', () => {
     // And the check agrees: adding one to a 3-fin airframe raises nothing.
     const t = tree([FINS3, { type: 'railbutton', id: 'r1', ...defaultParams('railbutton') }]);
     expect(railInterferenceWarnings(t)).toHaveLength(0);
+  });
+});
+
+/**
+ * Two things the v0.088 review found, pinned so they cannot come back.
+ */
+describe('review fixes (v0.088)', () => {
+  it('never offers a "between fins" position that sits on ANOTHER set\'s fin', () => {
+    // A 3-fin main set at 0/120/-120 and a 4-fin canard set at 0/90/180/-90.
+    // The 3-set's midpoint at 180 lands exactly on a canard fin, so a naive
+    // per-set calculation would offer to put the camera straight behind it.
+    const twoSets = body([
+      { type: 'trapezoidfinset', id: 'main', finCount: 3, rootChord: 0.05, height: 0.04 },
+      { type: 'trapezoidfinset', id: 'canard', finCount: 4, rootChord: 0.04, height: 0.03 },
+    ]);
+    // Non-vacuous: the un-filtered list DOES contain a clashing midpoint.
+    expect(finAnglesOn(twoSets).some((f) => angleGap(f, Math.PI) <= IN_LINE_TOLERANCE)).toBe(true);
+    const fins = finAnglesOn(twoSets);
+    for (const m of betweenFinAnglesOn(twoSets)) {
+      for (const f of fins) {
+        expect(angleGap(m, f), `midpoint ${asDeg(m)} sits on a fin at ${asDeg(f)}`)
+          .toBeGreaterThan(IN_LINE_TOLERANCE);
+      }
+    }
+  });
+
+  it('falls back rather than returning nothing when every midpoint is taken', () => {
+    // Two 3-fin sets 60 degrees apart: each set's midpoints are exactly the
+    // other set's fins, so there IS no clear position anywhere. A button that
+    // does something imperfect beats one that silently does nothing.
+    const packed = body([
+      { type: 'trapezoidfinset', id: 'a', finCount: 3, rootChord: 0.04, height: 0.03 },
+      { type: 'trapezoidfinset', id: 'b', finCount: 3, rootChord: 0.04, height: 0.03,
+        rotation: D(60) },
+    ]);
+    const fins = finAnglesOn(packed);
+    const mids = betweenFinAnglesOn(packed);
+    expect(mids.length).toBeGreaterThan(0);
+    // Every one of them clashes — that is what makes this the fallback case.
+    expect(mids.every((m) => fins.some((f) => angleGap(m, f) <= IN_LINE_TOLERANCE))).toBe(true);
+  });
+
+  it('checks the rail line down the WHOLE airframe, not just one body tube', () => {
+    // The ordinary high-power layout: fins on the fin can, rail button on the
+    // tube above it. They are not siblings, but the rail is one straight line
+    // down the rocket, so they are absolutely on it together.
+    const twoTubes = {
+      name: 'T', components: [{ type: 'stage', id: 's1', children: [
+        { type: 'bodytube', id: 'upper', length: 0.5, outerRadius: 0.027,
+          children: [{ type: 'railbutton', id: 'rb', angleOffset: 0 }] },
+        { type: 'bodytube', id: 'fincan', length: 0.3, outerRadius: 0.027,
+          children: [FINS3] },
+      ] }],
+    } as unknown as RocketTree;
+    const w = railInterferenceWarnings(twoTubes);
+    expect(w).toHaveLength(1);
+    expect(w[0]).toContain('in line with a fin');
+
+    // …and moving the button off the fin line clears it.
+    const cleared = JSON.parse(JSON.stringify(twoTubes)) as RocketTree;
+    (cleared.components[0]!.children![0]!.children![0]! as Record<string, unknown>)['angleOffset'] = D(60);
+    expect(railInterferenceWarnings(cleared)).toHaveLength(0);
   });
 });

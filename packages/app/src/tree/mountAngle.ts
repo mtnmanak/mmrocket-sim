@@ -50,7 +50,18 @@ export function finAnglesOn(parent: ComponentNode): number[] {
   return out;
 }
 
-/** Midway between each adjacent pair of fins, for every fin set on the parent. */
+/**
+ * Midway between each adjacent pair of fins, for every fin set on the parent —
+ * **minus any midpoint that lands on a DIFFERENT set's fin.**
+ *
+ * That subtraction is the whole point on a rocket with two fin sets on one
+ * tube, which is a real build (a canard set ahead of the main set). Midpoints
+ * computed per set in isolation are midway between *that* set's fins and can be
+ * exactly on another set's, so "between fins" would put the camera straight
+ * behind a canard. If every midpoint is spoken for, the un-filtered list comes
+ * back rather than nothing — a button that does something imperfect beats a
+ * button that does nothing.
+ */
 export function betweenFinAnglesOn(parent: ComponentNode): number[] {
   const out: number[] = [];
   for (const k of parent.children ?? []) {
@@ -61,7 +72,9 @@ export function betweenFinAnglesOn(parent: ComponentNode): number[] {
     // thing, and that is what (2i+1)π/N gives for N = 1.
     for (let i = 0; i < n; i++) out.push(reducePi(rot + ((2 * i + 1) * Math.PI) / n));
   }
-  return out;
+  const fins = finAnglesOn(parent);
+  const clear = out.filter((m) => fins.every((f) => angleGap(m, f) > IN_LINE_TOLERANCE));
+  return clear.length ? clear : out;
 }
 
 /** The candidate nearest `from`, or null when there are no candidates. */
@@ -113,60 +126,83 @@ const nameOf = (n: ComponentNode, fallback: string): string =>
  */
 export function railInterferenceWarnings(tree: RocketTree): string[] {
   const out: string[] = [];
+  const SURFACE = new Set(['launchlug', 'fairing', 'protuberance']);
 
-  const walk = (nodes: ComponentNode[]) => {
-    for (const parent of nodes) {
-      const kids = parent.children ?? [];
-      const buttons = kids.filter((k) => k.type === 'railbutton');
-
-      if (buttons.length) {
-        const finAngles: { angle: number; owner: string }[] = [];
-        for (const k of kids) {
-          if (!isFinSet(k)) continue;
-          const n = Math.max(1, Math.round(num(k, 'finCount', k.type === 'tubefinset' ? 6 : 3)));
-          const rot = num(k, 'rotation', 0);
-          for (let i = 0; i < n; i++) {
-            finAngles.push({ angle: reducePi(rot + (2 * Math.PI * i) / n), owner: nameOf(k, 'Fins') });
-          }
-        }
-        const others = kids.filter((k) =>
-          k !== undefined
-          && k.type !== 'railbutton'
-          && (k.type === 'launchlug' || k.type === 'fairing' || (k.type as string) === 'protuberance'));
-
-        for (const b of buttons) {
-          const ba = reducePi(num(b, 'angleOffset', 0));
-          const bn = nameOf(b, 'Rail button');
-          for (const f of finAngles) {
-            const g = angleGap(ba, f.angle);
-            if (g <= IN_LINE_TOLERANCE) {
-              out.push(`${bn} at ${deg(ba)} is in line with a fin of "${f.owner}" (${deg(g)} apart) — the rail runs down that line, so the fin fouls it. Move one of them.`);
-            }
-          }
-          for (const o of others) {
-            const oa = reducePi(num(o, 'angleOffset', 0));
-            const g = angleGap(ba, oa);
-            if (g <= IN_LINE_TOLERANCE) {
-              out.push(`${bn} at ${deg(ba)} is in line with "${nameOf(o, o.type)}" (${deg(g)} apart) — both sit on the rail's line.`);
-            }
-          }
-        }
-
-        // Buttons that disagree with each other.
-        const first = reducePi(num(buttons[0]!, 'angleOffset', 0));
-        for (let i = 1; i < buttons.length; i++) {
-          const a = reducePi(num(buttons[i]!, 'angleOffset', 0));
-          if (angleGap(a, first) > 1e-6) {
-            out.push(`Rail buttons on "${nameOf(parent, parent.type)}" are at different angles (${deg(first)} and ${deg(a)}) — one rail is a straight line, so they cannot both engage it.`);
-            break;
-          }
-        }
+  /**
+   * One angular FRAME: an axial chain of body tubes that share a zero.
+   *
+   * The rail is a straight line down the WHOLE rocket, so a fin on the fin can
+   * and a rail button on the tube above it are on the same line even though
+   * they are not siblings — the ordinary high-power layout, and a per-parent
+   * check would miss it entirely. What breaks the frame is an ASSEMBLY: a pod
+   * set or a parallel stage rotates its own sub-chain, so its contents are
+   * collected separately and never compared with the core's.
+   */
+  const collect = (nodes: ComponentNode[], frame: {
+    buttons: { angle: number; name: string; owner: string }[];
+    fins: { angle: number; owner: string }[];
+    others: { angle: number; name: string }[];
+  }, assemblies: ComponentNode[][]) => {
+    for (const n of nodes) {
+      if (n.type === 'podset' || n.type === 'parallelstage') {
+        assemblies.push(n.children ?? []);
+        continue;
       }
-      walk(kids);
+      if (n.type === 'railbutton') {
+        frame.buttons.push({
+          angle: reducePi(num(n, 'angleOffset', 0)),
+          name: nameOf(n, 'Rail button'),
+          owner: 'this airframe',
+        });
+      } else if (isFinSet(n)) {
+        const c = Math.max(1, Math.round(num(n, 'finCount', n.type === 'tubefinset' ? 6 : 3)));
+        const rot = num(n, 'rotation', 0);
+        for (let i = 0; i < c; i++) {
+          frame.fins.push({ angle: reducePi(rot + (2 * Math.PI * i) / c), owner: nameOf(n, 'Fins') });
+        }
+      } else if (SURFACE.has(n.type as string)) {
+        frame.others.push({ angle: reducePi(num(n, 'angleOffset', 0)), name: nameOf(n, n.type) });
+      }
+      collect(n.children ?? [], frame, assemblies);
     }
   };
-  walk(tree.components);
-  // The same fin set can raise the identical sentence twice through two
-  // buttons at the same angle; the strip should say it once.
+
+  const checkFrame = (nodes: ComponentNode[]) => {
+    const frame = { buttons: [] as { angle: number; name: string; owner: string }[],
+      fins: [] as { angle: number; owner: string }[],
+      others: [] as { angle: number; name: string }[] };
+    const assemblies: ComponentNode[][] = [];
+    collect(nodes, frame, assemblies);
+
+    for (const b of frame.buttons) {
+      for (const f of frame.fins) {
+        const g = angleGap(b.angle, f.angle);
+        if (g <= IN_LINE_TOLERANCE) {
+          out.push(`${b.name} at ${deg(b.angle)} is in line with a fin of "${f.owner}" (${deg(g)} apart) — the rail runs down that line, so the fin fouls it. Move one of them.`);
+        }
+      }
+      for (const o of frame.others) {
+        const g = angleGap(b.angle, o.angle);
+        if (g <= IN_LINE_TOLERANCE) {
+          out.push(`${b.name} at ${deg(b.angle)} is in line with "${o.name}" (${deg(g)} apart) — both sit on the rail's line.`);
+        }
+      }
+    }
+    if (frame.buttons.length > 1) {
+      const first = frame.buttons[0]!.angle;
+      const odd = frame.buttons.find((b) => angleGap(b.angle, first) > 1e-6);
+      if (odd) {
+        out.push(`Rail buttons on this airframe are at different angles (${deg(first)} and ${deg(odd.angle)}) — one rail is a straight line, so they cannot both engage it.`);
+      }
+    }
+    for (const a of assemblies) checkFrame(a);
+  };
+
+  // Each STAGE is its own chain; stages are stacked, not rotated, so they share
+  // a zero — but treating them separately keeps a booster's own buttons from
+  // being compared with a sustainer's fins after separation.
+  for (const stage of tree.components) checkFrame([stage]);
+
+  // Two buttons at the same angle raise the same sentence twice; say it once.
   return [...new Set(out)];
 }

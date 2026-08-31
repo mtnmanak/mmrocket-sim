@@ -5,9 +5,11 @@ import type { ComponentNode } from '@online-openrocket/engine';
 
 /**
  * The shroud shell (v0.088). These are not cosmetic checks: `Rocket3D.buildPieces`
- * IS the OBJ and glTF export, so a non-manifold or inside-out mesh here ships a
- * file that renders fine on screen and fails in a slicer, with nothing else in
- * the suite covering it.
+ * IS the STL export (App.tsx -> piecesToStl, which takes facet normals from the
+ * winding), so a non-manifold or inside-out mesh here ships a file that renders
+ * fine on screen and fails in a slicer, with nothing else in the suite covering
+ * it. An inside-out face is also invisible on screen: opaque pieces render with
+ * THREE.FrontSide.
  */
 
 const SPEC = (over: Partial<ShroudMeshSpec> = {}): ShroudMeshSpec => ({
@@ -15,19 +17,28 @@ const SPEC = (over: Partial<ShroudMeshSpec> = {}): ShroudMeshSpec => ({
   conformal: true, fore: 'streamlined', aft: 'halfround', ...over,
 });
 
-/** Every triangle edge, keyed undirected. A closed surface uses each twice. */
-function edgeUse(geo: ReturnType<typeof shroudGeometry>): Map<string, number> {
+/**
+ * Every triangle edge, keyed by DIRECTION. A closed, consistently-oriented
+ * surface uses each edge exactly once each way.
+ *
+ * This was an UNDIRECTED check when it was first written, and that is why it
+ * passed over a mesh whose two end caps and two side walls were wound
+ * inside-out: an inverted patch still touches every edge twice. Caught in
+ * review of v0.088. Directed is the check that means something.
+ */
+function badEdges(geo: ReturnType<typeof shroudGeometry>): number {
   const idx = geo.getIndex()!;
-  const uses = new Map<string, number>();
+  const dir = new Map<string, number>();
   for (let t = 0; t < idx.count; t += 3) {
     const v = [idx.getX(t), idx.getX(t + 1), idx.getX(t + 2)];
-    for (let e = 0; e < 3; e++) {
-      const a = v[e]!, b = v[(e + 1) % 3]!;
-      const k = a < b ? `${a}_${b}` : `${b}_${a}`;
-      uses.set(k, (uses.get(k) ?? 0) + 1);
-    }
+    for (let e = 0; e < 3; e++) dir.set(`${v[e]}>${v[(e + 1) % 3]}`, (dir.get(`${v[e]}>${v[(e + 1) % 3]}`) ?? 0) + 1);
   }
-  return uses;
+  let bad = 0;
+  for (const [k, n] of dir) {
+    const [a, b] = k.split('>');
+    if (n !== 1 || (dir.get(`${b}>${a}`) ?? 0) !== 1) bad++;
+  }
+  return bad;
 }
 
 /** Signed volume via the divergence theorem — positive when wound outward. */
@@ -50,6 +61,11 @@ describe('the camera-shroud shell is a solid, not a picture of one', () => {
     ['conformal, streamlined + domed (the default)', {}],
     ['flat-bottomed', { conformal: false }],
     ['both ends flat', { fore: 'box', aft: 'box' }],
+    // Flat-bottomed AND flat-ended together. Absent from the first version of
+    // this matrix, which tested conformal:false only with the default ends and
+    // box/box only conformal — and it is the combination whose signed volume
+    // came out NEGATIVE, i.e. the one case the old assertion would have caught.
+    ['flat-bottomed with flat ends', { conformal: false, fore: 'box', aft: 'box' }],
     ['both ends domed', { fore: 'halfround', aft: 'halfround' }],
     ['both ends streamlined', { fore: 'streamlined', aft: 'streamlined' }],
     ['wider than the tube — the NaN case', { width: 0.09, bodyRadius: 0.012 }],
@@ -64,9 +80,9 @@ describe('the camera-shroud shell is a solid, not a picture of one', () => {
         expect(Number.isFinite(p.getX(i)) && Number.isFinite(p.getY(i)) && Number.isFinite(p.getZ(i)))
           .toBe(true);
       }
-      // Closed: no edge used once (a hole) or three+ times (a fold).
-      const bad = [...edgeUse(geo).values()].filter((n) => n !== 2);
-      expect(bad, `${bad.length} non-manifold edges`).toHaveLength(0);
+      // Closed AND consistently oriented: every edge used once each way.
+      expect(badEdges(geo), 'inconsistently wound or non-manifold edges').toBe(0);
+      // ...and oriented OUTWARD, not merely consistently.
       expect(signedVolume(geo)).toBeGreaterThan(0);
     });
   }
@@ -77,6 +93,23 @@ describe('the camera-shroud shell is a solid, not a picture of one', () => {
     const conf = signedVolume(shroudGeometry(SPEC({ conformal: true })));
     const flat = signedVolume(shroudGeometry(SPEC({ conformal: false })));
     expect(conf).toBeGreaterThan(flat);
+  });
+
+  it('keeps a finite wall at a tapered end — a knife edge is not a solid', () => {
+    // A profile running to exactly zero collapses the end cap: zero-area
+    // triangles, no normal, and a surface that is no longer closed. That is
+    // what produced 52 inconsistently-wound edges before END_WALL existed.
+    const geo = shroudGeometry(SPEC({ fore: 'streamlined', aft: 'halfround' }));
+    const p = geo.getAttribute('position');
+    let foreMin = Infinity, foreMax = 0;
+    for (let i = 0; i < p.count; i++) {
+      if (p.getX(i) > 1e-9) continue;
+      const r = Math.hypot(p.getY(i), p.getZ(i));
+      foreMin = Math.min(foreMin, r);
+      foreMax = Math.max(foreMax, r);
+    }
+    // The fore face has real height: its outer edge stands clear of its base.
+    expect(foreMax - foreMin).toBeGreaterThan(0);
   });
 
   it('a flat end is taller at the tip than a streamlined one', () => {
@@ -109,12 +142,16 @@ describe('shroud geometry helpers', () => {
     // An explicit new field wins over the legacy one.
     const mixed = { type: 'fairing', fairingShape: 'box', fairingAftShape: 'halfround' } as unknown as ComponentNode;
     expect(shroudEnds(mixed)).toEqual({ fore: 'box', aft: 'halfround' });
-    // No shape at all: the new default pair, NOT options[0] twice.
+    // NO shape key at all falls back to HALF-ROUND on both ends — what every
+    // reader independently used before v0.088. Falling back to the new default
+    // pair instead would change such a shroud's Cd from 0.55 to 0.40 and
+    // reshape its strake: a numbers move on a design nobody touched. The new
+    // pair belongs to shrouds someone CREATES (defaultParams sets it there).
     expect(shroudEnds({ type: 'fairing' } as unknown as ComponentNode))
-      .toEqual({ fore: 'streamlined', aft: 'halfround' });
+      .toEqual({ fore: 'halfround', aft: 'halfround' });
     // Junk falls back rather than reaching a renderer.
     expect(shroudEnds({ type: 'fairing', fairingForeShape: 'banana' } as unknown as ComponentNode).fore)
-      .toBe('streamlined');
+      .toBe('halfround');
   });
 
   it('reads an ABSENT conformal flag as true, so old files are conformal too', () => {

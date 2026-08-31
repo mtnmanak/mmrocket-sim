@@ -23,9 +23,17 @@ const asEnd = (v: unknown, fallback: EndShape): EndShape =>
  * A file written before v0.088 carries a single `fairingShape` for the whole
  * part. It applies to BOTH ends, so an existing shroud is drawn and flown
  * exactly as it was — the split adds an option, it does not restyle anyone's
- * design. Only a shroud that has never had a shape at all gets the new default
- * pair (streamlined fore, domed aft: a rear-facing camera, which is both the
- * common case and the one that puts the tapered end into the wind).
+ * design.
+ *
+ * A shroud carrying NO shape key at all falls back to **half-round on both
+ * ends**, which is what every reader independently fell back to before v0.088
+ * (TreeSchematic, treeModel and the .ork writer each hard-coded it). That is
+ * reachable: the `.ork` reader only sets the key when the tag is present, so an
+ * old file missing `<fairingshape>` produces exactly this node. Falling back to
+ * the NEW default pair instead would silently change such a shroud's drag
+ * coefficient from 0.55 to 0.40 and reshape its strake — a numbers move on a
+ * design nobody touched. The new pair belongs to shrouds someone CREATES, and
+ * `defaultParams('fairing')` sets it explicitly for those.
  *
  * Do NOT drop the `fairingShape` read. That is the exact shape of the v0.087
  * data loss: a value written by an older version, ignored on import, and
@@ -34,10 +42,10 @@ const asEnd = (v: unknown, fallback: EndShape): EndShape =>
 export function shroudEnds(n: ComponentNode): { fore: EndShape; aft: EndShape } {
   const legacy = typeof n['fairingShape'] === 'string'
     ? asEnd(n['fairingShape'], 'halfround')
-    : undefined;
+    : 'halfround';
   return {
-    fore: asEnd(n['fairingForeShape'], legacy ?? 'streamlined'),
-    aft: asEnd(n['fairingAftShape'], legacy ?? 'halfround'),
+    fore: asEnd(n['fairingForeShape'], legacy),
+    aft: asEnd(n['fairingAftShape'], legacy),
   };
 }
 

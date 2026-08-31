@@ -67,8 +67,10 @@ public final class GoldenMain {
      * The cases are chosen for what each one can catch:
      *   k1/k2/k5  — three DIFFERENT override factors on the booster stage. The
      *               booster subtree's geometric mass is 0.012498 kg (recover it
-     *               from these very lines: massEmpty(unflagged) − massEmpty(k2)
-     *               − 0.0454), so the three overrides are k = 1.816 / 3.633 /
+     *               from these very lines: massEmpty(unflagged) − massEmpty(k2).
+     *               The override cancels — unflagged is sustainer + booster +
+     *               0.0454 and k2 is sustainer + 0.0454), so the three
+     *               overrides are k = 1.816 / 3.633 /
      *               9.082. Three points, not one, because the defect made roll
      *               inertia CONSTANT in k — a fix that merely moved the number
      *               would pass a single-point test. With three, the invariant
