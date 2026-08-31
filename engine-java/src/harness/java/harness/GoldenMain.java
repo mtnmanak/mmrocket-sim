@@ -44,6 +44,92 @@ public final class GoldenMain {
         rogersKbfScenarios();
         minDiameterScenarios();
         supersonicAeroScenarios();
+        massOverrideScenarios();
+    }
+
+    /**
+     * Mass overrides on an assembly — the FIRST golden to exercise one, added
+     * 2026-08-31 expressly so the v0.088 inertia fix had an oracle to move
+     * against. Before it, `grep -rn setOverride engine-java/src/harness` found
+     * nothing: two years of goldens and not one covered the case where a user
+     * says "this stage weighs 900 g, I put it on a scale".
+     *
+     * APPENDED AT THE END OF THE ROSTER ON PURPOSE. difftest.mjs compares the
+     * two runtimes' output BY LINE INDEX, so a scenario inserted mid-roster
+     * shifts every later line and reports hundreds of false differences. New
+     * scenarios go last, always.
+     *
+     * It goes through `buildRocket` + `getStaticInfo` rather than assembling
+     * kernel objects directly, because that is the route a real `.ork` takes:
+     * the override keys are read in ComponentFactory.applyOverrides, and the
+     * inertia is read back through the same bridge fields the app now shows.
+     *
+     * The cases are chosen for what each one can catch:
+     *   k1/k2/k5  — three DIFFERENT override factors on the booster stage. The
+     *               booster subtree's geometric mass is 0.012498 kg (recover it
+     *               from these very lines: massEmpty(unflagged) − massEmpty(k2)
+     *               − 0.0454), so the three overrides are k = 1.816 / 3.633 /
+     *               9.082. Three points, not one, because the defect made roll
+     *               inertia CONSTANT in k — a fix that merely moved the number
+     *               would pass a single-point test. With three, the invariant
+     *               is checkable by hand: on the centreline roll has no
+     *               transport term, so Ixx must be exactly A + k·B. Solving A
+     *               and B from k1/k2 predicts k5 to 1.8e-16, and A + B
+     *               reproduces the pre-fix value 1.2522450621924655E-5 to
+     *               4.1e-16 — i.e. the change is exactly "scale by k" and the
+     *               k = 1 case is untouched.
+     *   unflagged — `overrideMass` with NO subcomponents flag. This is a
+     *               DIFFERENT, self-consistent behaviour that upstream and two
+     *               shipped JS tests depend on. It must not move. It is the
+     *               scope-leak detector, and it did not move when this landed.
+     *   offaxis   — the same override on a POD SET. On the centreline the
+     *               spurious transport term lands only on pitch; off the axis
+     *               it corrupts ROLL too, and a centreline-only golden would
+     *               never see it.
+     */
+    private static void massOverrideScenarios() {
+        // Absolute override masses, not computed factors: a golden records an
+        // input that must not drift when a density is tweaked elsewhere.
+        massOverrideCase("k1", 0.0227, true, false);
+        massOverrideCase("k2", 0.0454, true, false);
+        massOverrideCase("k5", 0.1135, true, false);
+        massOverrideCase("unflagged", 0.0454, false, false);
+        massOverrideCase("offaxis", 0.0454, true, true);
+    }
+
+    private static void massOverrideCase(String name, double overrideMass,
+            boolean subcomponents, boolean offAxis) {
+        String over = ",\"overrideMass\":" + overrideMass
+                + (subcomponents ? ",\"overrideSubcomponentsMass\":true" : "");
+        String finned = "{\"type\":\"bodytube\",\"length\":0.12,\"outerRadius\":0.012,\"thickness\":0.0003,\"density\":950,\"children\":["
+                + "  {\"type\":\"trapezoidfinset\",\"finCount\":3,\"rootChord\":0.05,\"tipChord\":0.03,\"sweep\":0.025,\"height\":0.035,\"thickness\":0.003},"
+                + "  {\"type\":\"innertube\",\"id\":\"bmount\",\"length\":0.07,\"outerRadius\":0.0095,\"thickness\":0.0005,\"motorMount\":true,"
+                + "   \"position\":{\"method\":\"bottom\",\"offset\":0}}"
+                + "]}";
+        // The overridden assembly is either the booster STAGE (on the
+        // centreline) or a POD SET hung off the side of it.
+        String lower = offAxis
+                ? "{\"type\":\"stage\",\"name\":\"Booster\",\"children\":["
+                    + "{\"type\":\"bodytube\",\"length\":0.12,\"outerRadius\":0.012,\"thickness\":0.0003,\"density\":950,\"children\":["
+                    + "  {\"type\":\"podset\",\"name\":\"Pod\",\"instanceCount\":2,\"radiusOffset\":0.01,"
+                    + "   \"radiusMethod\":\"relative\",\"angleOffset\":0" + over + ",\"children\":["
+                    + "     {\"type\":\"bodytube\",\"length\":0.08,\"outerRadius\":0.006,\"thickness\":0.0003,\"density\":950}"
+                    + "  ]}"
+                    + "]}]}"
+                : "{\"type\":\"stage\",\"name\":\"Booster\"" + over + ",\"children\":[" + finned + "]}";
+        String sustainer = "{\"type\":\"stage\",\"name\":\"Sustainer\",\"children\":["
+                + "{\"type\":\"nosecone\",\"length\":0.07,\"aftRadius\":0.012,\"thickness\":0.002},"
+                + "{\"type\":\"bodytube\",\"length\":0.30,\"outerRadius\":0.012,\"thickness\":0.0003,\"density\":950,\"children\":["
+                + "  {\"type\":\"trapezoidfinset\",\"finCount\":3,\"rootChord\":0.05,\"tipChord\":0.03,\"sweep\":0.02,\"height\":0.025,\"thickness\":0.003}"
+                + "]}]}";
+        int r = api.OrkEngine.buildRocket(
+                "{\"name\":\"OverrideProbe\",\"components\":[" + sustainer + "," + lower + "]}");
+        java.util.Map<String, Object> info = api.JsonLite.parseObject(api.OrkEngine.getStaticInfo(r));
+        line("mass.override." + name,
+                api.JsonLite.dbl(info, "massEmpty", Double.NaN),
+                api.JsonLite.dbl(info, "cgEmpty", Double.NaN),
+                api.JsonLite.dbl(info, "rotationalInertiaEmpty", Double.NaN),
+                api.JsonLite.dbl(info, "longitudinalInertiaEmpty", Double.NaN));
     }
 
     /**

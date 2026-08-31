@@ -494,6 +494,8 @@ describe('calloutGadget — the offset CG/CP gadget', () => {
   const MARKER_R = 0.0084;
   const infoOf = (over: Partial<StaticInfo> = {}): StaticInfo => ({
     length: LEN, lengthAerodynamic: LEN, mass: 0.12, massEmpty: 0.1, cgEmpty: 0.21, cg: 0.2, cp: 0.28,
+    rotationalInertia: 1.2e-4, longitudinalInertia: 3.4e-3,
+    rotationalInertiaEmpty: 1.0e-4, longitudinalInertiaEmpty: 3.0e-3,
     cna: 10, stabilityCalibers: 1.67, refDiameter: 0.048, warnings: 0, warningTexts: [],
     ...over,
   });

@@ -595,11 +595,22 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   };
 
   /**
-   * ROLLED = WIREFRAME. The moment the roll slider leaves zero, every fin is
-   * drawn as a plain outline, over the body, nothing hidden and nothing
-   * occluded — desktop OpenRocket's convention exactly. The owner chose it on
-   * 2026-08-30, from a side-by-side mockup, after four releases of trying to
-   * keep a filled drawing followable.
+   * ROLLED = WIREFRAME, **FOR FINS ONLY**. The moment the roll slider leaves
+   * zero, every fin is drawn as a plain outline, over the body, nothing hidden
+   * and nothing occluded — desktop OpenRocket's convention exactly. The owner
+   * chose it on 2026-08-30, from a side-by-side mockup, after four releases of
+   * trying to keep a filled drawing followable.
+   *
+   * **`solidWhileRolled`** — camera shrouds, protuberances, launch lugs and
+   * rail buttons do NOT take this path, and must not be "unified" into it. The
+   * outline works for a fin because a fin IS a thin plate seen edge-on: the
+   * outline is the honest picture of it. A 20 mm-tall camera shroud drawn as an
+   * outline reads as a thin line and lies about the part (owner report,
+   * 2026-08-31: *"That makes them look like thin lines even though they are
+   * thick. Using the outlines for the fins works because they are inherently
+   * thin — it doesn't look weird for them."*). Those four stay filled at every
+   * roll angle, cut at the airframe wall when they pass behind it, which is
+   * byte-identical to what they already did at rest.
    *
    * Its figure is a WIREFRAME: `RocketFigure.paintComponent` is
    * `g2.draw(rcs.shape)`, and the only `g2.fill` in the whole method is the
@@ -948,10 +959,9 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
           }
         }
       } else if (t === 'fairing') {
-        // External shroud: SOLID outline (it's on the outside — the owner's
-        // spec). Its own clock angle is not modelled, but it TURNS WITH THE
-        // VIEW: at roll 0 it sits on top, and the slider carries it round the
-        // body like everything else.
+        // External shroud: SOLID, at its own mounting angle (v0.087), turned
+        // from there by the view roll. It stays solid EVEN WHILE ROLLED — see
+        // `solidWhileRolled`.
         const len = num(child, 'length', 0.08);
         const hgt = num(child, 'height', 0.02);
         const fshape = String(child['fairingShape'] ?? 'halfround');
@@ -962,17 +972,15 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
         const yh = baseY - (pRadius + hgt) * sp * ctx.scale;
         const Xe = X + len * ctx.scale;
         noteHover(child, X, Math.min(y0, yh), Xe, Math.max(y0, yh));
-        // Behind the airframe: cut at the wall at rest, an outline while the
-        // view is a wireframe — the same rules the fins follow.
-        const surfInk = wire
-          ? wireInk(child, grab)
-          : {
-            fill: fillOf(child, '#c8c5be'), stroke: selStroke(child, '#7a786f'),
-            strokeWidth: selWidth(child),
-            ...(snear ? {} : { clipPath: `url(#${airframeClip(baseY, pRadius)})` }),
-            ...grab,
-          };
-        (wire ? wires : shapes).push(
+        // Behind the airframe: cut at the wall, rolled or not. A shroud is an
+        // opaque solid and the tube really does hide it.
+        const surfInk = {
+          fill: fillOf(child, '#c8c5be'), stroke: selStroke(child, '#7a786f'),
+          strokeWidth: selWidth(child),
+          ...(snear ? {} : { clipPath: `url(#${airframeClip(baseY, pRadius)})` }),
+          ...grab,
+        };
+        shapes.push(
           fshape === 'streamlined' ? (
             <polygon key={key++}
               points={`${X},${y0} ${X + 0.3 * len * ctx.scale},${yh} ${X + 0.7 * len * ctx.scale},${yh} ${Xe},${y0}`}
@@ -988,11 +996,10 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
           ),
         );
       } else if ((t as string) === 'protuberance') {
-        // A drag bump on the outside: solid outline on the top surface, shaped
-        // by its RASAero class — a ramp for an inclined flat plate, a faired
-        // nose with a blunt back for "with base drag", faired both ends for
-        // "no base drag". Own clock angle isn't modelled (same as a launch
-        // lug), but it turns with the view like every other surface part.
+        // A drag bump on the outside: solid, shaped by its RASAero class — a
+        // ramp for an inclined flat plate, a faired nose with a blunt back for
+        // "with base drag", faired both ends for "no base drag". Sits at its
+        // own mounting angle (v0.087) and stays solid while rolled.
         const len = num(child, 'length', 0.06);
         const hgt = num(child, 'height', 0.01);
         const cls = String(child['dragClass'] ?? 'streamlinedbase');
@@ -1004,19 +1011,19 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
         const Xe = X + len * ctx.scale;
         noteHover(child, X, Math.min(y0, yh), Xe, Math.max(y0, yh));
         const nose = Math.min(0.35 * (Xe - X), Math.max(2, Math.abs(y0 - yh)));
-        (wire ? wires : shapes).push(
+        shapes.push(
           <polygon key={key++}
             points={cls === 'plate'
               ? `${X},${y0} ${Xe},${yh} ${Xe},${y0}`
               : cls === 'streamlined'
                 ? `${X},${y0} ${X + nose},${yh} ${Xe - nose},${yh} ${Xe},${y0}`
                 : `${X},${y0} ${X + nose},${yh} ${Xe},${yh} ${Xe},${y0}`}
-            {...(wire ? wireInk(child, grab) : {
+            {...{
               fill: fillOf(child, '#c8c5be'), stroke: selStroke(child, '#7a786f'),
               strokeWidth: selWidth(child),
               ...(pnear ? {} : { clipPath: `url(#${airframeClip(baseY, pRadius)})` }),
               ...grab,
-            })} />,
+            }} />,
         );
       } else if (t === 'launchlug' || t === 'railbutton') {
         // Rail buttons are edited via 'outerDiameter' (their only size field)
@@ -1025,23 +1032,23 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
         const len = t === 'railbutton' ? btnDia : num(child, 'length', 0.01);
         const r = t === 'railbutton' ? btnDia / 2 : num(child, 'outerRadius', 0.002);
         const start = axialStart(child, len, pStart, pLen);
-        // Own clock angle is not modelled (the .ork round-trip drops it), but
-        // the view roll still carries it round the body.
+        // Its own mounting angle places it (v0.087); the view roll turns it
+        // from there. Solid at every roll — a button is a lump, not a line.
         const { p: lp, near: lnear } = surfaceAt(child);
         const ySurf = baseY - pRadius * lp * ctx.scale;
         const yOut = baseY - (pRadius + 2 * r) * lp * ctx.scale;
         noteHover(child, ctx.x0 + start * ctx.scale, Math.min(ySurf, yOut),
           ctx.x0 + (start + len) * ctx.scale, Math.max(ySurf, yOut));
-        (wire ? wires : shapes).push(
+        shapes.push(
           <rect key={key++} x={ctx.x0 + start * ctx.scale}
             y={Math.min(ySurf, yOut)}
             width={Math.max(2, len * ctx.scale)} height={Math.max(2, Math.abs(ySurf - yOut))}
-            {...(wire ? wireInk(child, grab) : {
+            {...{
               fill: fillOf(child, '#c8c5be'), stroke: selStroke(child, '#7a786f'),
               strokeWidth: selWidth(child),
               ...(lnear ? {} : { clipPath: `url(#${airframeClip(baseY, pRadius)})` }),
               ...grab,
-            })} />,
+            }} />,
         );
       } else {
         // Internal component: dashed outline inside the parent. A clustered

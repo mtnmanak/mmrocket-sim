@@ -838,12 +838,87 @@ The designs that gain most are the ones with the most automatic-radius ring
 components (centering rings, bulkheads, tube couplers) — which is exactly the
 "some files were fine and some were super slow" pattern from the report.
 
+## Correctness fixes (documented physics change — a kernel defect, fixed deliberately)
+
+This section exists because Rule 1 below did not have a home for it. A performance
+patch must prove a zero-line `goldenJvm` diff; a feature patch adds an opt-in model.
+This is neither: it is a bug in upstream's own arithmetic that made the kernel
+compute a body whose mass, centre of gravity and inertia tensor described three
+different objects. Fixing it MOVES USERS' FLIGHT NUMBERS, on purpose, in every
+aerodynamic model.
+
+### masscalc/MassCalculation.java — a subtree mass override must scale the subtree's INERTIA too
+
+- **Why:** when a component carries a mass override that covers its subcomponents
+  (`<overridemass>` + `<overridesubcomponentsmass>` — what the UI calls a measured
+  mass on a stage, and what every RASAero `.CDX1` import writes), upstream zeroes
+  the children's centre-of-mass WEIGHT at `MassCalculation.calculateStructure()`
+  and stops. `children.setCM(getCM().setWeight(0))` writes the `centerOfMass` field
+  only; it does not touch `children.bodies`, so at `this.merge(children)` every
+  descendant's `RigidBody` crosses over still carrying its GEOMETRIC mass. The mass
+  is the user's, the CG is the user's, and the inertia is the un-overridden
+  rocket's.
+- **The measured symptom, from the golden this patch added:** with the booster
+  stage pinned at 1.816x, 3.633x and 9.082x its geometric mass, the roll inertia
+  came out `1.2522450621924655E-5` in all three cases and in the un-overridden case
+  — BIT-IDENTICAL, i.e. low by exactly the override factor k. Pitch did move, but
+  only through a transport term charged at the override mass ON TOP of the
+  children's own rebases, which already carry that distance to the rocket CG
+  (`RigidBody.rebase`, the `cm.weight * (x2 + z2)` term) — so the pitch error could
+  go the other way. The sign of the error varied by design, which is why no single
+  sentence could describe the old behaviour.
+- **Change:** inside the `isMassOverridden() && isSubcomponentsOverriddenMass()`
+  branch only — take the subtree's own tensor about its own CM
+  (`children.calculateMomentOfInertia()`), fold in the parent's geometric body when
+  the parent is itself massive (a no-op on a `ComponentAssembly`, whose unit
+  inertias are zero), scale the whole tensor by `k = overrideMass / geometricMass`,
+  clear `children.bodies`, and attach the one scaled body at `compCM` in place of
+  the usual per-component term. `rebase()` then transports it exactly once.
+- **The modelling ruling, stated because it is a ruling and not a derivation:**
+  k is applied UNIFORMLY to Ixx, Iyy and Izz. The user has said the SHAPE is right
+  and the MASS was wrong — "I put the stage on a scale" — so the geometry is kept
+  and the tensor scaled with the mass it belongs to. Modelling the delta mass some
+  other way (a uniform shell, a point mass at the CG) gives different pitch numbers
+  and would need a reason this does not.
+- **Attachment point:** `compCM`, which is the geometric subtree CM under an
+  assembly override and the user's value under an active CG override. That reads as
+  "keep the shape, put it where the user says the CG is", and keeps the body
+  carrying the mass and the body carrying the inertia in the same place.
+- **Safety:** `k` is guarded by the existing `MIN_MASS` sentinel. Unguarded, a
+  subtree whose children are all massless gives Infinity or NaN, and NaN passes
+  `RigidBody`'s negative-value check straight into the RK4 angular-acceleration
+  divisor (`RK4SimulationStepper`).
+- **Scope, and how it is proven:** `overrideMass` WITHOUT the subcomponents flag is
+  a different, self-consistent behaviour (a coherent point mass at the subtree CG)
+  that upstream and two shipped JS tests depend on. Golden
+  `mass.override.unflagged` is the leak detector, and it did not move.
+- **Divergence from upstream:** YES, deliberate, and in ALL THREE aerodynamic
+  models. There is no flag and no carrier: `masscalc` contains no reference to
+  `rogersKbf` or `supersonicAero` (they live on the JS bridge's per-handle context),
+  so an ungated fix reaches every model by construction. Gating it on the aero
+  pulldown was considered and rejected — see `docs/testing/response-2026-08-29b.md`
+  §1 for the measurements behind that.
+- **Oracle:** the before/after `goldenJvm` diff, NOT `difftest`. The differential
+  compares JVM against TeaVM with no stored baseline, so a wrong formula moves both
+  runtimes together and still reports "differential ok". Result: 310 of 314 lines
+  bit-identical, movement confined to `mass.override.k1/k2/k5/offaxis`. The fix was
+  then checked as arithmetic rather than as "the number changed": on the centreline
+  roll carries no transport term, so `Ixx` must be exactly `A + k*B`; solving A and
+  B from k1/k2 predicts k5 to 1.8e-16, and `A + B` reproduces the pre-fix constant
+  to 4.1e-16.
+- **Upstreamable:** yes. This is an upstream bug, not a MMRocket-specific model
+  choice, and the patch is confined to one branch of one method.
+
 ## Rules
 
 1. A patch NEVER changes physics or observable behavior (except documented quirks-ledger
-   bug fixes, the documented FEATURE patches above, and the PERFORMANCE patches above —
+   bug fixes, the documented FEATURE patches above, the PERFORMANCE patches above —
    which change nothing observable BY CONSTRUCTION and must prove it with a zero-line
-   `goldenJvm` diff against the pre-patch kernel, not just a clean differential).
+   `goldenJvm` diff against the pre-patch kernel, not just a clean differential — and
+   the CORRECTNESS FIXES above, which change observable numbers ON PURPOSE and must
+   prove the change is confined to the intended case with a before/after `goldenJvm`
+   diff, plus an arithmetic check that the new values are RIGHT and not merely
+   different).
 2. Prefer shims over patches; patch only when the carved file itself must change.
 3. On upstream upgrade: re-diff every patched file against its new upstream version and
    re-apply the minimal change.

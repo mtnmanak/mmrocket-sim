@@ -96,8 +96,44 @@ export function DesignStats({ info, motorLabel, cd }: {
           value={cd === null || cd === undefined ? '—' : cd.toFixed(3)}
         />
       </div>
+      {/*
+        Moments of inertia (v0.088). Loaded, about the CG, in kg·m² — rendered
+        raw rather than through a UnitChip, because there is no `inertia`
+        quantity group and adding one would put a persisted unit preference on
+        the screen for a quantity almost nobody switches.
+
+        These are here because they were the quantity NOTHING displayed. A
+        covering mass override scaled the mass and left the inertia summing the
+        children's geometric masses, and the defect survived two years precisely
+        because no screen, no export except the flight-data XLSX, and not even
+        desktop OpenRocket's design tab shows the number. Publishing it is what
+        makes the fix checkable by the person whose rocket it is.
+
+        Roll is the axis a canted fin set spins the rocket about; pitch is the
+        one that governs weathercocking, which is why a wrong value shows up as
+        downwind drift long before it shows up in apogee.
+      */}
+      <div className="stat-row">
+        <Tile label="Roll inertia (loaded)"
+          value={fmtInertia(info.rotationalInertia)} unit="kg·m²" />
+        <Tile label="Pitch inertia (loaded)"
+          value={fmtInertia(info.longitudinalInertia)} unit="kg·m²" />
+      </div>
     </>
   );
+}
+
+/**
+ * Inertia spans orders of magnitude across the designs this app sees — a BT-5
+ * micro is ~1e-7 kg·m² on roll while a 6-inch two-stage is ~1e-1 on pitch — so
+ * a fixed number of decimal places prints either "0.000" or a wall of digits.
+ * Four significant figures, and exponent notation once a fixed-point rendering
+ * would round to nothing.
+ */
+function fmtInertia(v: number): string {
+  if (!Number.isFinite(v)) return '—';
+  if (v === 0) return '0';
+  return Math.abs(v) < 1e-4 ? v.toExponential(3) : v.toPrecision(4);
 }
 
 /**

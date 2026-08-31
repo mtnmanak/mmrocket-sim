@@ -120,6 +120,21 @@ export interface StaticInfo {
   cgEmpty: number;
   /** Launch CG (m from nose tip) — includes the motor when one is set. */
   cg: number;
+  /**
+   * Roll moment of inertia about the CG (kg·m²), loaded — the kernel's Ixx.
+   * This is the axis a canted fin set spins the rocket about.
+   */
+  rotationalInertia: number;
+  /**
+   * Pitch/yaw moment of inertia about the CG (kg·m²), loaded — the kernel's
+   * Iyy. This is the one that governs how hard the rocket weathercocks, so it
+   * is the one a wrong value shows up in as downwind drift rather than apogee.
+   */
+  longitudinalInertia: number;
+  /** Roll moment of inertia (kg·m²), dry — no motor. */
+  rotationalInertiaEmpty: number;
+  /** Pitch/yaw moment of inertia (kg·m²), dry — no motor. */
+  longitudinalInertiaEmpty: number;
   cp: number;
   cna: number;
   stabilityCalibers: number;

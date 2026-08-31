@@ -46,6 +46,8 @@ const finTree = (finCount: number, extra: Record<string, unknown> = {}) => ({
 
 const info: StaticInfo = {
   length: 0.4, lengthAerodynamic: 0.4, mass: 0.1, massEmpty: 0.08, cgEmpty: 0.2, cg: 0.2, cp: 0.28,
+  rotationalInertia: 1.2e-4, longitudinalInertia: 3.4e-3,
+  rotationalInertiaEmpty: 1.0e-4, longitudinalInertiaEmpty: 3.0e-3,
   cna: 10, stabilityCalibers: 1.52, refDiameter: 0.024, warnings: 0, warningTexts: [],
 };
 

@@ -23,6 +23,8 @@ import type { FlightResult, StaticInfo } from '@online-openrocket/engine';
 
 const info: StaticInfo = {
   length: 0.37, lengthAerodynamic: 0.37, mass: 0.051, massEmpty: 0.027, cgEmpty: 0.19, cg: 0.26,
+  rotationalInertia: 1.2e-4, longitudinalInertia: 3.4e-3,
+  rotationalInertiaEmpty: 1.0e-4, longitudinalInertiaEmpty: 3.0e-3,
   cp: 0.29, cna: 8, stabilityCalibers: 1.3, refDiameter: 0.024,
   warnings: 0, warningTexts: [],
 };

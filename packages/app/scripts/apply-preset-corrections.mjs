@@ -24,7 +24,7 @@
  */
 
 import { readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -57,12 +57,24 @@ const presetKey = (p) => {
  * siblings already shipped correct. 1.593 in = 0.0404622 m (centres BT-60),
  * 2.556 in = 0.0649224 m (centres BT-80), 0.978 in = 0.0248412 m (rides a
  * BT-50 motor tube), 0.125 in = 0.003175 m lite-ply thickness.
+ *
+ * EXPORTED, and each entry carries an `upstream` descriptor naming the file,
+ * the part number and the raw inch strings the upstream .orc is expected to
+ * hold. `scripts/check-upstream.mjs` reads exactly this table over the network,
+ * so the corrections and the vigilance check cannot drift apart — there is one
+ * list, not two. Eric, 2026-08-31: *"i have no way of knowing whether they will
+ * fix the issue on their end, so maintain vigilance on anything we rely on from
+ * third party sources."*
  */
-const CORRECTIONS = [
+export const CORRECTIONS = [
   {
     key: 'CenteringRing|balsamachining|cr5060w',
     why: 'upstream BMS.ORC ships OD 1.283 in on a T50-to-T60 ring; 1.593 in per bms-legacy.orc + CRDATA.CSV:147 + the CR5060-F sibling',
     fields: { outsideDiameter: { bad: 0.0325882, good: 0.0404622 } },
+    upstream: {
+      file: 'BMS.ORC', element: 'CenteringRing', partNo: 'CR5060-W',
+      fields: { OutsideDiameter: { bad: '1.283', good: '1.593' } },
+    },
   },
   {
     key: 'CenteringRing|balsamachining|cr5080w',
@@ -71,11 +83,22 @@ const CORRECTIONS = [
       outsideDiameter: { bad: 0.0553212, good: 0.0649224 },
       insideDiameter: { bad: 0.0254, good: 0.0248412 },
     },
+    upstream: {
+      file: 'BMS.ORC', element: 'CenteringRing', partNo: 'CR5080-W',
+      fields: {
+        OutsideDiameter: { bad: '2.178', good: '2.556' },
+        InsideDiameter: { bad: '1.000', good: '0.978' },
+      },
+    },
   },
   {
     key: 'CenteringRing|rocketarium|cr5060w',
     why: 'upstream ROCKETARIUM.ORC ships OD 1.238 in against its own description "1.593x.978x.125thk"',
     fields: { outsideDiameter: { bad: 0.0314452, good: 0.0404622 } },
+    upstream: {
+      file: 'ROCKETARIUM.ORC', element: 'CenteringRing', partNo: 'CR5060-W',
+      fields: { OutsideDiameter: { bad: '1.238', good: '1.593' } },
+    },
   },
   {
     key: 'CenteringRing|rocketarium|cr5080w',
@@ -85,6 +108,31 @@ const CORRECTIONS = [
       insideDiameter: { bad: 0.0254, good: 0.0248412 },
       length: { bad: 0.00127, good: 0.003175 },
     },
+    upstream: {
+      file: 'ROCKETARIUM.ORC', element: 'CenteringRing', partNo: 'CR5080-W',
+      fields: {
+        OutsideDiameter: { bad: '2.178', good: '2.556' },
+        InsideDiameter: { bad: '1.000', good: '0.978' },
+        Length: { bad: '0.05', good: '0.125' },
+      },
+    },
+  },
+];
+
+/**
+ * Issue #5 in the upstream tracker is fixed for the BMS BT-55 rings and NOT for
+ * the Rocketarium ones: four rows still ship OD 1.238 in under a description
+ * that says 1.283. We do NOT correct these — they are not rows this app has
+ * been shown to get wrong for a user, and the fix belongs upstream — but the
+ * checker watches them, because the day they move is the day to re-read the
+ * BMS rows above (the same commit swept CR5060-W into that fix).
+ */
+export const UPSTREAM_WATCH = [
+  {
+    file: 'ROCKETARIUM.ORC', element: 'CenteringRing',
+    partNos: ['CR5055-P', 'CR5055-F', 'CR5055-W', 'CR50H55-W'],
+    field: 'OutsideDiameter', expect: '1.238',
+    why: 'upstream issue #5 is unfixed for Rocketarium BT-55 rings — each row ships OD 1.238 in under a Description that says 1.283 (verified live 2026-08-31)',
   },
 ];
 
@@ -139,4 +187,7 @@ function main() {
   console.log(`corrections: ${applied} field(s) applied, ${already} already in place — database ${applied > 0 ? 'updated' : 'unchanged'}.`);
 }
 
-main();
+// Run only when invoked directly. check-upstream.mjs imports CORRECTIONS from
+// here, and an unguarded main() would rewrite presets.json as a side effect of
+// a read-only network check.
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();

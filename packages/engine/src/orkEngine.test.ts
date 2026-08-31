@@ -920,6 +920,56 @@ describe('stage-level overrides reach the kernel', () => {
     ).staticInfo();
     expect(cg.cg).toBeCloseTo(0.2, 9);
   });
+
+  /**
+   * v0.088 — the inertia must follow the mass it belongs to.
+   *
+   * Before this, a covering mass override scaled the MASS and left the moments
+   * of inertia summing the children's geometric masses: the kernel returned a
+   * body whose mass, CG and inertia tensor described three different objects.
+   * The roll figure was low by exactly the override factor, and nothing on
+   * screen disagreed because inertia was not published anywhere.
+   *
+   * The invariant asserted here is the one that makes the fix checkable rather
+   * than merely different: with the shape held fixed and the mass multiplied by
+   * k, EVERY inertia scales by exactly k.
+   */
+  it('scales the inertia tensor with a covering mass override', () => {
+    const base = OrkRocket.buildTree(stageTree({})).staticInfo();
+    expect(base.rotationalInertiaEmpty).toBeGreaterThan(0);
+    expect(base.longitudinalInertiaEmpty).toBeGreaterThan(0);
+
+    for (const k of [2, 5, 0.5]) {
+      const pinned = OrkRocket.buildTree(stageTree({
+        overrideMass: base.massEmpty * k,
+        overrideSubcomponentsMass: true,
+      })).staticInfo();
+
+      expect(pinned.massEmpty).toBeCloseTo(base.massEmpty * k, 9);
+      // Relative, not absolute: these are ~1e-3 kg·m², where toBeCloseTo's
+      // absolute default would pass on any value at all.
+      expect(pinned.rotationalInertiaEmpty / base.rotationalInertiaEmpty)
+        .toBeCloseTo(k, 9);
+      expect(pinned.longitudinalInertiaEmpty / base.longitudinalInertiaEmpty)
+        .toBeCloseTo(k, 9);
+    }
+  });
+
+  /**
+   * The scope guard. `overrideMass` WITHOUT the subcomponents flag is a
+   * different, self-consistent behaviour — a coherent point mass added at the
+   * subtree CG, which upstream computes correctly — and the v0.088 fix must not
+   * touch it. A point mass has no inertia of its own, so the ROLL figure is
+   * unchanged while the mass goes up; that is correct, and it is exactly the
+   * signature the covering-override case wrongly had before the fix.
+   */
+  it('leaves a NON-covering mass override alone', () => {
+    const base = OrkRocket.buildTree(stageTree({})).staticInfo();
+    const added = OrkRocket.buildTree(stageTree({ overrideMass: 5 })).staticInfo();
+
+    expect(added.massEmpty).toBeCloseTo(base.massEmpty + 5, 9);
+    expect(added.rotationalInertiaEmpty).toBeCloseTo(base.rotationalInertiaEmpty, 12);
+  });
 });
 
 /**

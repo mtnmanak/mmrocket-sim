@@ -461,6 +461,28 @@ describe('every surface-mounted part turns with the view', () => {
     });
   }
 
+  /**
+   * v0.088 — the four surface-mounted types stay FILLED while the view is
+   * rolled. The wireframe convention (v0.084) is for FINS, which are thin
+   * plates whose outline is the honest picture of them; a 20 mm camera shroud
+   * drawn as an outline reads as a thin line and lies about the part (owner
+   * report, 2026-08-31). If a future sitting "unifies" the rolled drawing,
+   * these fail.
+   */
+  for (const [label, part, sel] of CASES) {
+    it(`${label}: stays FILLED while rolled — the wireframe is for fins only`, () => {
+      for (const deg of [0, 30, 60, 120, 200, 330]) {
+        show(<TreeSchematic tree={withPart(part)} info={null} roll={(deg * Math.PI) / 180} />);
+        const el = host.querySelector(sel)!;
+        expect(el, `${label} vanished at ${deg}deg`).toBeTruthy();
+        expect(el.getAttribute('fill'), `${label} lost its fill at ${deg}deg`).not.toBe('none');
+        expect(el.getAttribute('data-fin'), `${label} took the wire path at ${deg}deg`).toBeNull();
+      }
+      // ...and it never joins the wire layer, which paints after the overlay.
+      expect(host.querySelectorAll(`${sel}[data-fin="wire"]`)).toHaveLength(0);
+    });
+  }
+
   it('places each part at its OWN mounting angle, not just the view roll', () => {
     // v0.087: the shroud can be clocked away from the fins so a fin is not in
     // shot — the owner's reason for the field. cos is the whole contract.

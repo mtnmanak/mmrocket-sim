@@ -511,6 +511,22 @@ public final class OrkEngine {
         num(sb, "mass", structure.getMass()).append(',');
         num(sb, "massEmpty", empty.getMass()).append(',');
         num(sb, "cgEmpty", empty.getCM().x).append(',');
+        // Moments of inertia, kg*m^2, about the CG. `rotational` is Ixx (roll),
+        // `longitudinal` is Iyy (pitch/yaw) — RigidBody's own naming.
+        //
+        // These were computed on every call and thrown away: until v0.088 the
+        // ONLY place inertia reached a user was the flight-data Il/Ir series in
+        // the XLSX export. That is why a mass override could leave the inertia
+        // describing a different object from the mass and the CG for two years
+        // with nothing on screen disagreeing. Publishing them is step one of
+        // the fix, deliberately landed BEFORE the physics changed.
+        //
+        // Naming trap above: `structure` is calculateLaunch (LOADED) and
+        // `empty` is calculateStructure (DRY) — matching "mass"/"massEmpty".
+        num(sb, "rotationalInertia", structure.getRotationalInertia()).append(',');
+        num(sb, "longitudinalInertia", structure.getLongitudinalInertia()).append(',');
+        num(sb, "rotationalInertiaEmpty", empty.getRotationalInertia()).append(',');
+        num(sb, "longitudinalInertiaEmpty", empty.getLongitudinalInertia()).append(',');
         num(sb, "cg", cg).append(',');
         num(sb, "cp", cp.x).append(',');
         num(sb, "cna", cp.weight).append(',');
