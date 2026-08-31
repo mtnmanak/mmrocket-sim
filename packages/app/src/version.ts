@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.087';
+export const APP_VERSION = '0.088';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,23 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.088',
+    date: '2026-08-31',
+    title: 'Pinned masses fly right, and the camera shroud is a real part',
+    items: [
+      'NUMBERS MOVE, BUT ONLY FOR ONE KIND OF DESIGN: one that pins a stage to a measured mass with "Use instead of everything inside" ticked - which is every RASAero .CDX1 import, and the standard desktop way to enter a weighed airframe. If your design has no covering mass override, every number is bit-identical to v0.087. Checked, on two airframes, against the old engine.',
+      'A PINNED STAGE NOW FLIES WITH THE INERTIA OF THE MASS YOU PINNED. Inherited from OpenRocket: when a mass override covered the parts inside it, their mass was zeroed but their moments of inertia were still added up, so the simulated rocket had your mass, your balance point, and somebody else’s inertia - three different objects. The roll figure came out low by exactly the factor you pinned by, and the pitch figure could come out HIGH, so there was no single sentence describing what it did. Measured on a 54 mm airframe in a 5 m/s wind: apogee moves +0.01 % and downwind drift +0.2 % at a 1.35x pin, +0.04 % / +0.8 % at 2x, +0.25 % / +5.2 % at 5x. Drift is where it lives - inertia is what drives weathercocking. There is no switch back: the old behaviour was a defect. If you want your old numbers, remove the covering override.',
+      'ROLL AND PITCH INERTIA ARE NOW ON SCREEN, in the All-stats drawer. They were the one quantity the app computed on every keystroke and showed nowhere - not even desktop OpenRocket puts them on its design tab - which is exactly why the fault above survived unnoticed. The fix was deliberately built in that order: publish the number first, pin it with a new engine test, then change it.',
+      'THE CAMERA SHROUD HAS TWO ENDS. Real shrouds are domed where the lens looks out, to give it a clear aperture, and tapered at the other end. Fore and aft are now set separately (default: streamlined front, domed back - swap them for a forward-facing camera). An existing shroud keeps the shape it had, on both ends, and its drag is unchanged to the last digit.',
+      'THE SHROUD SITS ON THE TUBE, NOT ABOVE IT. Its underside is cut to the curve of the body - which is what a 3D-printed shroud is - instead of a flat base laid across the tangent, which on a BT-50 left each bottom corner standing 5.3 mm off the surface. On by default, including for shrouds in files saved before this release; the "Conformal to body tube?" tick turns it off. The end-on view is where you can see it, and the 3D view now builds the real shell rather than a box, so OBJ and glTF exports carry the actual part.',
+      'SNAP A PART ONTO A FIN, OR BETWEEN TWO. Two buttons beside "Angle around body" - a singular shroud, lug or button is nearly always at one or the other, and typing 51.43 degrees for a seven-fin rocket is nobody’s idea of a good time.',
+      'THE APP WARNS WHEN SOMETHING IS ON THE RAIL’S LINE. A fin, lug or shroud sharing a rail button’s clock angle means the rocket will not slide onto the rail; so does a pair of rail buttons at different angles, since one rail is a straight line. Both are named on the Design tab with the actual separation.',
+      'AND A NEW RAIL BUTTON NO LONGER LANDS ON A FIN. Ours defaulted to zero degrees, which is the top of the side view - exactly where an unrotated fin set puts its first fin. It now defaults to the bottom, which is what OpenRocket has always done. Existing designs are untouched.',
+      'CAMERA SHROUDS, PROTUBERANCES, LUGS AND RAIL BUTTONS STAY SOLID WHILE YOU ROLL THE VIEW. Since v0.084 the whole drawing went to wireframe the moment the roll slider moved, which is right for fins - a fin is a thin plate, and an outline is an honest picture of one - and wrong for a 20 mm camera shroud, which came out looking like a thin line. Reported by the owner. Fins are unchanged.',
+      'A DROPDOWN NO LONGER SHOWS THE WRONG DEFAULT. Any unset dropdown displayed its first option rather than the value the app actually uses: a camera shroud with no shape saved read "Streamlined" while being drawn and flown as half-round, and an unset surface finish read "Rough" while being flown as regular paint. Display and behaviour now come from one declaration.',
+    ],
+  },
   {
     version: '0.087',
     date: '2026-08-30',

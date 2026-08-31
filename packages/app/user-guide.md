@@ -113,7 +113,7 @@ The **Design** workspace's left column is a **stage-rooted tree** of components.
 | Engine block | Structure | length, thickness |
 | Launch lug | Guide | length, outer radius, thickness |
 | Rail button | Guide | outer diameter |
-| Camera shroud / fairing | External | length, width, height, shape, as-built mass, finish |
+| Camera shroud / fairing | External | length, width, height, fore/aft end shape, conformal, angle around body, as-built mass, finish |
 | Protuberance (drag bump) | External | frontal area (or width × height), drag class, count |
 | Parachute | Recovery | canopy diameter, Cd, spill hole ⌀, lines, deploy event |
 | Streamer | Recovery | strip length/width, Cd, deploy event |
@@ -132,10 +132,33 @@ the right physics for a strake), so the CP shift falls out of the same Barrowman
 machinery as everything else. Drag uses **Hoerner protuberance coefficients**
 referenced to the shroud's frontal area (streamlined ≈ 0.25, half-round ≈ 0.55,
 box ≈ 1.05, body interference included). Enter the as-built mass — printed parts
-weigh what they weigh. The radial mounting angle is not modeled (same as launch
-lugs), and there is no wind-tunnel anchor for this model yet — treat the numbers
-as good engineering estimates, and add margin on small-diameter rockets where a
-shroud matters most.
+weigh what they weigh.
+
+**The two ends are shaped separately.** Real shrouds are domed on the end the
+camera looks out of, to give the lens a clear aperture, and tapered at the other
+end. Set **Fore end** and **Aft end** independently; a forward-facing camera
+just swaps them. The default is streamlined at the front, domed at the back. A
+shroud with matching ends is charged exactly the coefficient above; give it two
+different ends and it is charged the mean of the two, which is an interpolation
+rather than a measurement — say so if you quote it.
+
+**Conformal to body tube** is on by default, and describes what nearly every
+3D-printed shroud is: the underside cut to the curve of the tube so it sits
+flush. Turn it off for a part with a flat base sitting on the tangent — you will
+see the gap open up at the corners in the end-on view. This changes the drawing
+and the printed shape, not the numbers.
+
+**Angle around body** places the shroud where it really sits. Two buttons beside
+the field put it exactly on a fin or exactly between two fins, which is where
+singular parts nearly always go. A shroud in line with a fin has the fin in
+shot.
+
+Known limits, stated: the mounting angle changes no flight number (a shroud's
+drag is computed the same wherever it sits, as in desktop OpenRocket), the
+frontal area is charged as width × height, which ignores the small extra
+blockage the body's curvature adds, and there is **no wind-tunnel anchor for
+this model** — treat the numbers as good engineering estimates, and add margin
+on small-diameter rockets where a shroud matters most.
 
 ### Protuberances — the bumps that only make drag
 
@@ -353,12 +376,17 @@ whole-airframe and the overrides are per-stage, and there is no rule for which o
 should absorb the difference, so it declines to guess.
 
 Ballast keeps both, because it adds real mass at a real station instead of replacing the tree.
-It also sidesteps a wrinkle in the inherited kernel: when a mass override covers a subtree, the
-children's mass is zeroed but their **moments of inertia are still summed in**, so a pinned
-rocket carries the rotational inertia of the parts underneath rather than of the mass you
-pinned. That is worth about 0.14% on apogee — nothing — but inertia is what drives
-weathercocking, pitch oscillation and how the rocket behaves leaving the rod. Added mass is an
-ordinary component, so its inertia is computed the ordinary way.
+
+**A wrinkle in the inherited kernel used to make this worse, and it is fixed as of v0.088.** When
+a mass override covered a subtree, the children's mass was zeroed but their **moments of inertia
+were still summed in**, so a pinned rocket flew with the rotational inertia of the parts
+underneath rather than of the mass you pinned — the mass, the balance point and the inertia
+described three different objects. The inertia now scales with the mass you gave it. Apogee
+barely notices, but inertia is what drives weathercocking, pitch oscillation and how the rocket
+behaves leaving the rod, so a pinned design's **downwind drift** moves: measured, about +0.2 % at
+a 1.35x pin and +0.8 % at 2x on a 54 mm airframe in a 5 m/s wind. A design with no covering mass
+override is completely unaffected. Roll and pitch inertia are now printed in the All-stats
+drawer, so you can see the figure rather than take it on trust.
 
 ### When there is no answer — which is the useful part
 
@@ -415,7 +443,9 @@ A true-scale side view drawn from the tree. On a desktop the canvas is the hero 
 
 **Dimensional rulers** run along the top and down the left, in your Preferences length unit, the way desktop OpenRocket draws them: the top scale reads axial station from the nose tip, the left scale reads distance from the centerline (positive up, negative down), and the corner names the unit. They follow the zoom and the pan, so a zoomed-in view reads finer divisions rather than the same coarse ones spread apart, and the ⬇ SVG and ⬇ Image exports carry a ruler drawn for the whole rocket whatever the screen is zoomed to. The **📏** button on the canvas turns them off if you want the drawing to have the space back; the setting is remembered.
 
-The **roll slider** down the far left turns the rocket about its long axis — desktop OpenRocket's rotation slider, in the same place. Drag it, and every part that has a clock angle sweeps through the view: each fin is foreshortened by the cosine of its angle, so a three-fin set reads as one fin at full span and two at half. **The moment you move the slider the drawing becomes a wireframe** — every fin is an outline, drawn over the body, with nothing hidden and nothing occluded. That is desktop OpenRocket's convention exactly: its figure draws every component as an outline and fills nothing, which is why a fin there can be followed all the way round. All of them stay on screen at every angle, including the one lying flat inside the body, which turns edge-on into a line across the tube rather than vanishing at the wall. **At rest the drawing is the filled one you know**: a fin pointing **toward** you is in front of the airframe and is drawn whole, crossing the tube; one pointing **away** is behind it and the tube covers its root. That is what tells the two lower fins of a three-fin set apart in a still picture. One thing to expect rather than puzzle over: **a set of N identical fins repeats every 360/N degrees** — a three-fin rocket rolled 120° is the same rocket, and the side view has no way to tell you which fin is which, so the wireframe at 130° matches the one at 10° exactly. (Zero itself is the exception, because zero is where the drawing switches back to the filled one.) Desktop OpenRocket repeats the same way. The Aft view is where you can follow one fin the whole way round. Pods, parallel boosters and motor clusters swing with it. The readout under the slider shows the angle and clicking it returns to zero (so does double-clicking the slider). It is a **view** control, like zoom: it changes nothing in the design, nothing in the numbers, and nothing is saved — but it is shared with the Aft view, so you can roll the side view and switch to Aft to see the same attitude from behind. Launch lugs, rail buttons, camera shrouds and protuberances roll with everything else, each from its own **Angle around body** — zero is the top of this drawing, which is also where an unrotated fin set puts its first fin, so `0` means "in line with fin 1". That is the setting to move if you want a camera pointing between the fins rather than down one of them; the Aft view is where to check it.
+The **roll slider** down the far left turns the rocket about its long axis — desktop OpenRocket's rotation slider, in the same place. Drag it, and every part that has a clock angle sweeps through the view: each fin is foreshortened by the cosine of its angle, so a three-fin set reads as one fin at full span and two at half. **The moment you move the slider the drawing becomes a wireframe** — every fin is an outline, drawn over the body, with nothing hidden and nothing occluded. That is desktop OpenRocket's convention exactly: its figure draws every component as an outline and fills nothing, which is why a fin there can be followed all the way round. All of them stay on screen at every angle, including the one lying flat inside the body, which turns edge-on into a line across the tube rather than vanishing at the wall. **At rest the drawing is the filled one you know**: a fin pointing **toward** you is in front of the airframe and is drawn whole, crossing the tube; one pointing **away** is behind it and the tube covers its root. That is what tells the two lower fins of a three-fin set apart in a still picture. One thing to expect rather than puzzle over: **a set of N identical fins repeats every 360/N degrees** — a three-fin rocket rolled 120° is the same rocket, and the side view has no way to tell you which fin is which, so the wireframe at 130° matches the one at 10° exactly. (Zero itself is the exception, because zero is where the drawing switches back to the filled one.) Desktop OpenRocket repeats the same way. The Aft view is where you can follow one fin the whole way round. Pods, parallel boosters and motor clusters swing with it. The readout under the slider shows the angle and clicking it returns to zero (so does double-clicking the slider). It is a **view** control, like zoom: it changes nothing in the design, nothing in the numbers, and nothing is saved — but it is shared with the Aft view, so you can roll the side view and switch to Aft to see the same attitude from behind. Launch lugs, rail buttons, camera shrouds and protuberances roll with everything else, each from its own **Angle around body** — zero is the top of this drawing, which is also where an unrotated fin set puts its first fin, so `0` means "in line with fin 1". That is the setting to move if you want a camera pointing between the fins rather than down one of them; the Aft view is where to check it. Two buttons beside that field do it for you: **▲ on a fin** and **⟂ between fins** put the part exactly where singular parts nearly always go. Those four parts stay **filled** while the view is rolled, unlike the fins — a fin is a thin plate and an outline is an honest picture of one, but a 20 mm camera shroud drawn as an outline would read as a thin line and lie about the part. They pass behind the airframe and are hidden by it, exactly as they are at rest.
+
+**A rail button with something else on its line gets flagged.** The rail runs down that line for the whole length of the rocket, so a fin, a lug or a shroud sharing it means the rocket will not slide onto the rail — the warning strip on the Design tab names both parts and how far apart they are. Two rail buttons at *different* angles get flagged for the same reason: one rail is a straight line, so they cannot both engage it. (Two buttons at the same angle is the normal build and says nothing.)
 
 ## The 3D view
 

@@ -43,7 +43,12 @@ describe('shroud → fairing conversion', () => {
     expect(f['height']).toBeCloseTo(0.02, 9);
     expect(f['width']).toBeCloseTo(0.025, 9);
     expect(f['mass']).toBeCloseTo(0.05, 9);
-    expect(f['fairingShape']).toBe('halfround');
+    // v0.088: two ends, and a converted shroud gets the default pair. A
+    // RockSim 1-fin "shroud" carries no end-shape information at all, so this
+    // is a default, not a conversion.
+    expect(f['fairingForeShape']).toBe('streamlined');
+    expect(f['fairingAftShape']).toBe('halfround');
+    expect(f['conformal']).toBe(true);
     expect(f.position).toEqual({ method: 'middle', offset: 0 });
   });
 

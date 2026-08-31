@@ -24,6 +24,7 @@ import { OrkRocket } from '@online-openrocket/engine';
 import type { ComponentNode, ComponentType, RocketTree } from '@online-openrocket/engine';
 import { resolveAbsolutePositions } from './position.js';
 import { defaultParams, DISPLAY_NAME, FIELDS, type EditorComponentType } from './schema.js';
+import { shroudEnds } from './shroud.js';
 
 /**
  * Immutable tree-editing helpers. Every node carries a unique editor id
@@ -279,12 +280,40 @@ export function moveNode(tree: RocketTree, id: string, dir: -1 | 1): RocketTree 
  * Hoerner protuberance drag coefficients referenced to FRONTAL area (W·H),
  * interference with the body boundary layer included (Fluid-Dynamic Drag,
  * ch. 5 & 8 — canonical surface-protuberance values, calibratable).
+ *
+ * These are WHOLE-BUMP values: each describes a bump with both ends alike.
+ * From v0.088 a shroud can have two different ends, so `fairingCdFrontal`
+ * below interpolates.
  */
 const FAIRING_CD_FRONTAL: Record<string, number> = {
   streamlined: 0.25,
   halfround: 0.55,
   box: 1.05,
 };
+
+/**
+ * The frontal-area Cd for a shroud whose two ends may differ: the MEAN of the
+ * two ends' whole-bump values.
+ *
+ * Chosen for one property above all — a shroud with matching ends comes out
+ * BIT-IDENTICAL to the old single-shape lookup. Every file written before
+ * v0.088 migrates to matching ends (shroud.shroudEnds), so splitting the field
+ * moves nobody's numbers. Only a shroud someone deliberately gives two
+ * different ends lands between the table's rows.
+ *
+ * The 50/50 weighting is an INTERPOLATION, not a measurement, and it is stated
+ * as one in the user guide beside the three endpoints — which have no wind
+ * tunnel anchor either (docs/open-items.md carries the standing item that
+ * shroud drag has no calibration of any kind). A physically weighted split
+ * would charge the aft end more, because a blunt back is base drag and base
+ * drag dominates; the app already models exactly that distinction for
+ * PROTUBERANCE classes, where Rogers' method separates "no base" from "blunt
+ * back". Doing the same here needs the anchor, not a guess.
+ */
+function fairingCdFrontal(fore: string, aft: string): number {
+  const at = (s: string) => FAIRING_CD_FRONTAL[s] ?? FAIRING_CD_FRONTAL['halfround']!;
+  return (at(fore) + at(aft)) / 2;
+}
 
 /**
  * The inclined-flat-plate protuberance class, referenced to the plate's
@@ -822,11 +851,16 @@ export function engineTree(tree: RocketTree): RocketTree {
       const L = nnum(n, 'length', 0.08);
       const W = nnum(n, 'width', 0.025);
       const H = nnum(n, 'height', 0.02);
-      const shape = typeof n['fairingShape'] === 'string' ? (n['fairingShape'] as string) : 'halfround';
-      const cdFrontal = FAIRING_CD_FRONTAL[shape] ?? FAIRING_CD_FRONTAL['halfround']!;
-      const pts: [number, number][] = shape === 'streamlined'
-        ? [[0, 0], [0.3 * L, H], [0.7 * L, H], [L, 0]]
-        : [[0, 0], [0, H], [L, H], [L, 0]];
+      const { fore, aft } = shroudEnds(n);
+      const cdFrontal = fairingCdFrontal(fore, aft);
+      // The lifting-surface outline follows the two ends independently, the
+      // same way the side view draws them: a streamlined end ramps over 30 % of
+      // the length, anything else stands up at the wall. (A dome is a ramp as
+      // far as a slender-strake lift model can tell — the Barrowman surface
+      // sees the planform, not the fillet radius.)
+      const rf = fore === 'streamlined' ? 0.3 * L : 0;
+      const ra = aft === 'streamlined' ? 0.3 * L : 0;
+      const pts: [number, number][] = [[0, 0], [rf, H], [L - ra, H], [L, 0]];
       return {
         type: 'freeformfinset',
         id: n.id,

@@ -108,6 +108,21 @@ export interface FieldDef {
   /** renders a checkbox (true/false) instead of a number */
   bool?: boolean;
   /**
+   * The value an ABSENT key means — for a select or a checkbox.
+   *
+   * Without this the panel showed `options[0]` for any unset select, which was
+   * a live defect: a camera shroud with no `fairingShape` DISPLAYED
+   * "Streamlined" (the first option) while every drawing and the physics fell
+   * back to half-round. The panel's fallback and the readers' fallback have to
+   * be the same value, and the only way to guarantee that is to declare it
+   * once, here, where both can see it.
+   *
+   * It is also what lets a checkbox default to ON: `conformal` is true for a
+   * shroud that has never been told otherwise, including every shroud in every
+   * file saved before the field existed.
+   */
+  dflt?: string | boolean;
+  /**
    * SI value is a radius; when the user prefers diameter input the panel
    * shows/accepts the doubled value and swaps "radius" → "diameter" in the label.
    */
@@ -153,7 +168,7 @@ const FINISHES: [string, string][] = [
   ['mirror', 'Mirror surface (0 µm)'],
 ];
 
-const FINISH: FieldDef = { key: 'finish', label: 'Surface finish', unit: 'none', options: FINISHES };
+const FINISH: FieldDef = { key: 'finish', label: 'Surface finish', unit: 'none', options: FINISHES, dflt: 'normal' };
 
 const DEPLOY_EVENTS: [string, string][] = [
   ['ejection', 'Motor ejection charge'],
@@ -286,6 +301,45 @@ const ASSEMBLY_FIELDS: FieldDef[] = [
  * body's own (Chuck Rogers, TRF 197641 #1). The option labels say which body CD
  * each one uses, because that is the whole model — see treeModel.protuberanceCd.
  */
+/**
+ * The two ends of a camera shroud, shaped independently (v0.088).
+ *
+ * Eric, 2026-08-31: *"a lot of real world shrouds have a half-round shape on
+ * the end the camera is pointing (to give the camera lens a proper aperture to
+ * shoot video through) and then the other end is usually streamlined."*
+ *
+ * So it was never one shape. The DEFAULTS are streamlined fore / domed aft,
+ * which is the rear-facing camera — the common case, and the one that also puts
+ * the streamlined end into the wind. A forward-facing camera swaps the two;
+ * that is why they are separate fields and not a single "which way does the
+ * camera point" switch.
+ *
+ * A file written before v0.088 carries one `fairingShape` for the whole part;
+ * it migrates to BOTH ends on read, so an existing shroud is drawn exactly as
+ * it was.
+ */
+const END_SHAPES: [string, string][] = [
+  ['streamlined', 'Streamlined (tapered)'],
+  ['halfround', 'Domed / half-round'],
+  ['box', 'Flat / blunt'],
+];
+
+/**
+ * Whether the shroud's underside is cut to the curve of the body tube.
+ *
+ * Eric, 2026-08-31: *"right now, the bottom is just a square shape tangentially
+ * to the body tube… Most camera shrouds are 3D printed in the modern world and
+ * are conformal to the body tube. This should be the default."*
+ *
+ * DEFAULT TRUE, and an absent key reads as true — so every shroud in every file
+ * saved before this existed becomes conformal too. That is deliberate: the flat
+ * underside was never a description of anyone's part, it was the absence of one.
+ * It changes the drawing only; see the note on drag in treeModel.FAIRING_CD_FRONTAL.
+ */
+const CONFORMAL: FieldDef = {
+  key: 'conformal', label: 'Conformal to body tube?', unit: 'none', bool: true, dflt: true,
+};
+
 const PROTUBERANCE_CLASSES: [string, string][] = [
   ['streamlined', 'Streamlined, no base (raceway, cable tunnel) — Cd = body CD without base drag'],
   ['streamlinedbase', 'Streamlined, blunt back (camera housing, shoe) — Cd = body CD with base drag'],
@@ -484,14 +538,11 @@ export const FIELDS: Record<EditorComponentType, FieldDef[]> = {
     lenMM('length', 'Length (along body)', 5, 500),
     lenMM('width', 'Width (across body)', 2, 200),
     lenMM('height', 'Height (off the surface)', 2, 200),
-    {
-      key: 'fairingShape', label: 'Shape', unit: 'none',
-      options: [
-        ['streamlined', 'Streamlined (ramped ends)'],
-        ['halfround', 'Half-round'],
-        ['box', 'Box / squared'],
-      ],
-    },
+    { key: 'fairingForeShape', label: 'Fore end (toward the nose)', unit: 'none',
+      options: END_SHAPES, dflt: 'streamlined' },
+    { key: 'fairingAftShape', label: 'Aft end (toward the tail)', unit: 'none',
+      options: END_SHAPES, dflt: 'halfround' },
+    CONFORMAL,
     { key: 'mass', label: 'Mass (as built)', unit: 'g', step: 1, smin: 0, smax: 500 },
     MOUNT_ANGLE,
     FINISH,
@@ -561,15 +612,24 @@ export function defaultParams(type: EditorComponentType): Partial<ComponentNode>
     case 'centeringring': return { length: 0.002, position: { method: 'bottom', offset: -0.01 } };
     case 'bulkhead': return { length: 0.003 };
     case 'engineblock': return { length: 0.005, thickness: 0.001, position: { method: 'top', offset: 0 } };
-    case 'launchlug': return { length: 0.05, outerRadius: 0.0022, thickness: 0.0003, position: { method: 'middle', offset: 0 } };
-    case 'railbutton': return { position: { method: 'middle', offset: 0 } };
+    // angleOffset PI = the bottom of the side view, which is the kernel's own
+    // default (LaunchLug.java and RailButton.java both initialise
+    // angleOffsetRad to Math.PI) and desktop OpenRocket's. Ours was 0 until
+    // v0.088 -- and 0 is the top, which is exactly where an unrotated fin set
+    // puts fin 1. So every rail button this app added landed on a fin root
+    // line, on the one line the launch rail needs clear. Nobody reported it
+    // because the angle was not read from the file, drawn, or editable until
+    // v0.087; it became visible the moment it became real.
+    case 'launchlug': return { length: 0.05, outerRadius: 0.0022, thickness: 0.0003, angleOffset: Math.PI, position: { method: 'middle', offset: 0 } };
+    case 'railbutton': return { angleOffset: Math.PI, position: { method: 'middle', offset: 0 } };
     case 'parachute': return { diameter: 0.3, position: { method: 'top', offset: 0.02 } };
     case 'streamer': return { stripLength: 0.5, stripWidth: 0.05, position: { method: 'top', offset: 0.02 } };
     case 'shockcord': return { cordLength: 0.3, position: { method: 'top', offset: 0.01 } };
     case 'masscomponent': return { mass: 0.01, length: 0.02, radius: 0.005, position: { method: 'top', offset: 0.02 } };
     // A typical 3D-printed keychain-camera shroud on a mid/high-power bird.
     case 'fairing': return {
-      length: 0.08, width: 0.025, height: 0.02, fairingShape: 'halfround',
+      length: 0.08, width: 0.025, height: 0.02,
+      fairingForeShape: 'streamlined', fairingAftShape: 'halfround', conformal: true,
       mass: 0.03, position: { method: 'middle', offset: 0 },
     };
     // A typical cable tunnel / camera housing: 20 x 10 mm frontal, 60 mm long,

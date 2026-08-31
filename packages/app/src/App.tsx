@@ -85,6 +85,7 @@ import {
 import { clusterCount } from './tree/cluster.js';
 import { estimateMotorRoomForMounts } from './tree/motorRoom.js';
 import { autoAlignFinSets } from './tree/finAlign.js';
+import { railInterferenceWarnings } from './tree/mountAngle.js';
 import { convertShrouds, findShroudCandidates, type ShroudCandidate } from './tree/shroudConvert.js';
 
 /** One mount's assigned motor (Release C: every mount can hold its own). */
@@ -741,6 +742,13 @@ export function App() {
         info.warningTexts = info.warningTexts.filter((wtext) =>
           !(wtext.includes('THICK_FIN') && [...fairingNames].some((fn) => wtext.includes(fn))));
       }
+      // Interference around the rail (v0.088). The kernel has no opinion about
+      // clock angles — a mounting angle changes no flight number — so this is
+      // an APP-side check, appended to the same strip. It is a build problem,
+      // not a physics one: a fin on the rail's line means the rocket does not
+      // go on the pad. Eric asked for it on 2026-08-31.
+      const railWarnings = railInterferenceWarnings(tree);
+      if (railWarnings.length) info.warningTexts = [...info.warningTexts, ...railWarnings];
       return { rocket, info, motorFailures };
     } catch (e) {
       return { error: e instanceof Error ? e.message : String(e) };

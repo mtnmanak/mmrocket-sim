@@ -68,7 +68,9 @@ export function shroudToFairing(n: ComponentNode): ComponentNode {
     length,
     width,
     height,
-    fairingShape: 'halfround',
+    fairingForeShape: 'streamlined',
+    fairingAftShape: 'halfround',
+    conformal: true,
     mass,
     position: n.position ?? { method: 'middle', offset: 0 },
   } as ComponentNode;

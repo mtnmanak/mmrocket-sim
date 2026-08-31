@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import { exportOrk, importOrk } from './orkFile.js';
 import type { RocketTree } from '@online-openrocket/engine';
+import { shroudEnds } from '../tree/shroud.js';
 
 /**
  * Round-trip of the fields added for the 2026-07-03 issue list: nose shoulder,
@@ -374,5 +375,65 @@ describe('.ork round-trip of measured mass & CG', () => {
     const back = importOrk(xml);
     expect(back.measured?.massKg ?? null).toBeNull();
     expect(back.measured?.cgM ?? null).toBeNull();
+  });
+});
+
+/**
+ * v0.088 — the camera shroud's two end shapes and its conformal flag.
+ *
+ * These are the same class of field as the v0.087 data loss: values this app
+ * writes into its own `<fairing>` extension element, which are silently reset
+ * to a default if the reader ever stops reading them. The v0.087 lesson was
+ * that a write-only field destroys a design on the next save, so every one of
+ * them is pinned here.
+ */
+describe('.ork round-trip of the v0.088 shroud fields', () => {
+  const shroud = (over: Record<string, unknown>): RocketTree => ({
+    name: 'Shroud',
+    components: [{
+      type: 'bodytube', id: 'b1', length: 0.4, outerRadius: 0.027, thickness: 0.001,
+      children: [{
+        type: 'fairing', id: 'f1', length: 0.09, width: 0.03, height: 0.022,
+        mass: 0.052, position: { method: 'middle', offset: 0 }, ...over,
+      }],
+    }],
+  } as unknown as RocketTree);
+
+  const back = (tree: RocketTree) => {
+    const t = importOrk(exportOrk({ name: 'Shroud', tree })).tree;
+    return t.components[0]!.children![0]!.children!.find((c) => c.type === 'fairing')!;
+  };
+
+  it('keeps two DIFFERENT end shapes', () => {
+    const f = back(shroud({ fairingForeShape: 'streamlined', fairingAftShape: 'halfround' }));
+    expect(f['fairingForeShape']).toBe('streamlined');
+    expect(f['fairingAftShape']).toBe('halfround');
+    // A two-ended shroud must NOT write the legacy whole-part tag: an older
+    // build of this app reads it and would take half the shroud for the whole.
+    const xml = exportOrk({
+      name: 'Shroud',
+      tree: shroud({ fairingForeShape: 'streamlined', fairingAftShape: 'halfround' }),
+    });
+    expect(xml.includes('fairingshape')).toBe(false);
+  });
+
+  it('keeps the conformal flag in BOTH states, and absent means conformal', () => {
+    expect(back(shroud({ conformal: false }))['conformal']).toBe(false);
+    expect(back(shroud({ conformal: true }))['conformal']).toBe(true);
+    // Never set at all: it must come back as conformal, not as undefined-then-
+    // rendered-unchecked. This is the default-ON contract.
+    expect(back(shroud({}))['conformal']).toBe(true);
+  });
+
+  it('migrates a pre-v0.088 single shape onto both ends and does not lose it', () => {
+    // Written the way v0.087 wrote it. `shroudEnds` migrates on read; the next
+    // save must round-trip the migrated pair, still agreeing with itself.
+    const f = back(shroud({ fairingShape: 'box' }));
+    const ends = shroudEnds(f);
+    expect(ends).toEqual({ fore: 'box', aft: 'box' });
+    // And a second trip is stable — the fixed point matters, because that is
+    // where a lossy migration shows up.
+    const twice = back(shroud(f as unknown as Record<string, unknown>));
+    expect(shroudEnds(twice)).toEqual({ fore: 'box', aft: 'box' });
   });
 });

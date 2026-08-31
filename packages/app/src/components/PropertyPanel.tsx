@@ -10,6 +10,7 @@ import {
 } from '../tree/treeModel.js';
 import { anchorStarts, axialLength, offsetForStart, snapStart, startFromPosition } from '../tree/position.js';
 import { tubeFinMaxCount, tubeFinMaxRadius, tubeFinRadius } from '../tree/tubefins.js';
+import { betweenFinAnglesOn, finAnglesOn, nearestAngle } from '../tree/mountAngle.js';
 import { shapeParamDefault, shapeParamMax, shapeUsesParameter } from '../tree/shapeProfile.js';
 import { componentSolid, type SolidContext } from '../tree/solidMesh.js';
 import { componentDxf, DXF_CUTTABLE, DXF_MIME } from '../services/dxfExport.js';
@@ -282,6 +283,41 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll, onAutoAli
     ? (parent['outerRadius'] as number)
     : null;
 
+  /**
+   * Where "in line with a fin" and "between two fins" actually are, for THIS
+   * part on THIS parent — or null when the parent carries no fin set and the
+   * question has no answer.
+   *
+   * Buttons, not a persistent snap MODE. Eric asked for "toggles", and a
+   * sticky snap is the obvious reading, but it fights the field it sits on: the
+   * angle is also a typed number and a slider, and a mode that quietly rewrites
+   * what you type is the kind of control people turn off and never turn on
+   * again. A one-shot button says exactly what it did, leaves the value
+   * editable, and matches what the panel already does elsewhere ("→ all" on
+   * finish, "Fit tab to motor tube", "🧭 Auto-align fin sets").
+   *
+   * Angles are compared only among SIBLINGS: a pod set rotates its whole
+   * sub-chain, so a fin inside a pod is not measured from the same zero as a
+   * shroud on the core airframe.
+   */
+  const snapTargets = (() => {
+    if (typeof parent === 'string' || !parent) return null;
+    const cur = typeof node['angleOffset'] === 'number' ? node['angleOffset'] as number : 0;
+    const onFin = nearestAngle(finAnglesOn(parent), cur);
+    const between = nearestAngle(betweenFinAnglesOn(parent), cur);
+    if (onFin === null || between === null) return null;
+    const show = (rad: number) => {
+      const sym = prefs.units.angle;
+      return `${Number(siToUi('angle', sym, rad).toFixed(2))} ${sym}`;
+    };
+    return {
+      inline: onFin,
+      between,
+      inlineTitle: `Put this in line with the nearest fin (${show(onFin)}). A camera shroud here has the fin in shot; a rail button here fouls the rail.`,
+      betweenTitle: `Put this midway between two fins (${show(between)}) — clear of both.`,
+    };
+  })();
+
   const renderNumeric = (f: FieldDef) => {
     const legacy = LEGACY[f.unit];
     const quantity = legacy.quantity;
@@ -370,6 +406,20 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll, onAutoAli
         <label>
           {label}
           {quantity ? <> <UnitChip quantity={quantity} /></> : plainSuffix && ` (${plainSuffix})`}
+          {f.key === 'angleOffset' && snapTargets && (
+            <>
+              {' '}
+              <button className="finish-all-btn" title={snapTargets.inlineTitle}
+                onClick={() => onPatch({ angleOffset: snapTargets.inline })}>
+                ▲ on a fin
+              </button>
+              {' '}
+              <button className="finish-all-btn" title={snapTargets.betweenTitle}
+                onClick={() => onPatch({ angleOffset: snapTargets.between })}>
+                ⟂ between fins
+              </button>
+            </>
+          )}
         </label>
         <NumField
           ariaLabel={quantity ? `${label} (${symbol ?? ''})`.trim() : label}
@@ -540,7 +590,11 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll, onAutoAli
                   : undefined}>
                   <input
                     type="checkbox"
-                    checked={node[f.key] === true}
+                    // `f.dflt` is what an ABSENT key means. Without it a
+                    // default-ON flag reads as OFF for every file saved before
+                    // the field existed — the box says one thing and the
+                    // drawing does another. See schema.FieldDef.dflt.
+                    checked={node[f.key] === undefined ? f.dflt === true : node[f.key] === true}
                     onChange={(e) => onPatch({ [f.key]: e.target.checked })}
                     style={{ width: 'auto', marginRight: 6 }}
                   />
@@ -567,9 +621,13 @@ export function PropertyPanel({ tree, node, info, onPatch, onPatchAll, onAutoAli
                 </label>
                 <select
                   aria-label={f.label}
-                  // Unset finish means the engine's 'normal' (regular paint) —
-                  // showing the first option ("Rough") would misreport it.
-                  value={String(node[f.key] ?? (f.key === 'finish' ? 'normal' : f.options[0]![0]))}
+                  // An unset select shows what the READERS fall back to, which
+                  // is `f.dflt` — not options[0]. Those two disagreed until
+                  // v0.088: unset finish means the engine's 'normal' (regular
+                  // paint) but showed "Rough", and an unset camera-shroud shape
+                  // showed "Streamlined" while every drawing and the physics
+                  // used half-round. Declare the default once, in the schema.
+                  value={String(node[f.key] ?? f.dflt ?? f.options[0]![0])}
                   onChange={(e) => onPatch({ [f.key]: e.target.value })}
                 >
                   {f.options.map(([v, l]) => (

@@ -3,6 +3,7 @@ import type { ComponentNode, ComponentPosition, ComponentType, RocketTree } from
 import { DEFAULT_TIME_STEP_S, PANEL_TIME_STEP_FLOOR_S, type LaunchConditions } from '../components/LaunchPanel.js';
 import { asStageNodes, freshId } from '../tree/treeModel.js';
 import { shapeIsClippable, shapeParamDefault } from '../tree/shapeProfile.js';
+import { isConformal, shroudEnds } from '../tree/shroud.js';
 import { escapeXml, xmlText as text } from './xmlUtil.js';
 
 // Re-export: rocksimFile.ts (and historical callers) import it from here.
@@ -616,8 +617,21 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
         n['length'] = num(el, 'length', 0.08);
         n['width'] = num(el, 'width', 0.025);
         n['height'] = num(el, 'height', 0.02);
+        // `<fairingshape>` is the pre-v0.088 single shape. It is still READ,
+        // and `shroud.shroudEnds` migrates it onto both ends — dropping the
+        // read is precisely the v0.087 data-loss shape (a value written by an
+        // older build, ignored on import, overwritten on the next save).
         const fs = text(el, ':scope > fairingshape');
         if (fs) n['fairingShape'] = fs;
+        const fore = text(el, ':scope > fairingforeshape');
+        if (fore) n['fairingForeShape'] = fore;
+        const aft = text(el, ':scope > fairingaftshape');
+        if (aft) n['fairingAftShape'] = aft;
+        // Absent means CONFORMAL (schema.CONFORMAL) — so only an explicit
+        // "false" turns it off, and files that predate the tag get the
+        // seating a real shroud has.
+        const conf = text(el, ':scope > conformal');
+        if (conf) n['conformal'] = conf.trim().toLowerCase() === 'true';
         n['mass'] = num(el, 'mass', 0.03);
         readMountAngle(el, n);
         return n;
@@ -1805,7 +1819,18 @@ export function exportOrk({
         emit(depth + 1, `<length>${n(node, 'length', 0.08)}</length>`);
         emit(depth + 1, `<width>${n(node, 'width', 0.025)}</width>`);
         emit(depth + 1, `<height>${n(node, 'height', 0.02)}</height>`);
-        emit(depth + 1, `<fairingshape>${escapeXml(String(node['fairingShape'] ?? 'halfround'))}</fairingshape>`);
+        // Both ends, resolved through the same helper every renderer uses, so
+        // a file saved here says exactly what the screen showed. The legacy
+        // `<fairingshape>` is written too, and ONLY when both ends agree: an
+        // older build of this app reads that tag and would otherwise silently
+        // pick up half of a two-ended shroud as the whole part.
+        const fEnds = shroudEnds(node);
+        emit(depth + 1, `<fairingforeshape>${escapeXml(fEnds.fore)}</fairingforeshape>`);
+        emit(depth + 1, `<fairingaftshape>${escapeXml(fEnds.aft)}</fairingaftshape>`);
+        if (fEnds.fore === fEnds.aft) {
+          emit(depth + 1, `<fairingshape>${escapeXml(fEnds.fore)}</fairingshape>`);
+        }
+        emit(depth + 1, `<conformal>${isConformal(node) ? 'true' : 'false'}</conformal>`);
         emit(depth + 1, `<mass>${n(node, 'mass', 0.03)}</mass>`);
         emit(depth + 1, `<angleoffset method="relative">${deg(node, 'angleOffset')}</angleoffset>`);
         close('fairing');

@@ -10,6 +10,8 @@ import {
 import { clusterOffsets } from '../tree/cluster.js';
 import { tubeFinRadius } from '../tree/tubefins.js';
 import { outerProfile } from '../tree/shapeProfile.js';
+import { isConformal, shroudEnds } from '../tree/shroud.js';
+import { shroudGeometry } from '../tree/shroudMesh.js';
 import {
   downloadBlob, IMAGE_FORMAT_EXT, snapshotWithHeader,
   type ExportData, type ImageFormat,
@@ -202,17 +204,23 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims): { pieces: Pie
           pieces.push({ key: `tubefin${k++}`, geometry: geo, color: nodeColor(child, MAT.fin) });
         }
       } else if (child.type === 'fairing') {
-        // External shroud on the +Y surface (radial angle not modeled).
+        // External shroud — a real shell now (v0.088), not a box: its two ends
+        // are shaped independently and its underside is cut to the tube unless
+        // the owner says otherwise. `shroudGeometry` builds it already sitting
+        // on the +y surface at the right radius, so unlike the box it needs no
+        // radial offset — only the rotation to its mounting angle.
         const len = num(child, 'length', 0.08);
         const wid = num(child, 'width', 0.025);
         const hgt = num(child, 'height', 0.02);
         const start = axialStart(child, len, pStart, pLen);
         maxR = Math.max(maxR, pRadius + hgt);
-        const geo = new THREE.BoxGeometry(len, hgt, wid);
-        const fa = num(child, 'angleOffset', 0);
-        const fd = pRadius + hgt / 2;
+        const ends = shroudEnds(child);
+        const geo = shroudGeometry({
+          length: len, width: wid, height: hgt, bodyRadius: pRadius,
+          conformal: isConformal(child), fore: ends.fore, aft: ends.aft,
+        });
         place(`fairing${k++}`, geo, nodeColor(child, MAT.lug),
-          [start + len / 2, fd * Math.cos(fa), fd * Math.sin(fa)], [fa, 0, 0], xform);
+          [start, 0, 0], [num(child, 'angleOffset', 0), 0, 0], xform);
       } else if ((child.type as string) === 'protuberance') {
         // Drag bump, drawn as the frontal box it IS aerodynamically — width x
         // height — so what the eye reads is the area feeding the drag. It sits

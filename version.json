@@ -1,5 +1,5 @@
 {
-  "version": "0.087",
-  "released": "2026-08-30",
-  "note": "Fixes data loss in saved files. A launch lug's or rail button's mounting angle was never read and every save overwrote it with 180 degrees; an off-axis inner tube's radial position was written but never read, so a desktop split cluster collapsed onto the centreline and saving made it permanent. Both now survive a round trip. Camera shrouds, protuberances, lugs and rail buttons also gain an editable angle around the body - so a camera can point between the fins rather than down one - honoured in all three views. Elliptical fin sets show their cant angle. No flight numbers change."
+  "version": "0.088",
+  "released": "2026-08-31",
+  "note": "Fixes an inherited kernel fault: a stage pinned to a measured mass flew with the inertia of the parts underneath rather than of the mass you pinned - roll low by exactly the pin factor, pitch able to go the other way. Only designs carrying a covering mass override move (every RASAero import does); everything else is bit-identical. Drift is where it shows: +0.2% at a 1.35x pin, +5.2% at 5x. Roll and pitch inertia are now on screen. Camera shrouds gain separate fore and aft end shapes and a conformal underside cut to the body tube, snap-to-fin buttons, and a warning when anything shares a rail button's line."
 }

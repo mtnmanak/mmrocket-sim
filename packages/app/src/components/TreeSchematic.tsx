@@ -9,6 +9,7 @@ import {
   resolveAssemblyRadius, ringInstanceOffsets,
 } from '../tree/assembly.js';
 import { outerProfile } from '../tree/shapeProfile.js';
+import { shroudEnds } from '../tree/shroud.js';
 import {
   downloadBlob, IMAGE_FORMAT_EXT, schematicSvg, svgToImage, type ExportData,
 } from '../services/schematicExport.js';
@@ -964,7 +965,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
         // `solidWhileRolled`.
         const len = num(child, 'length', 0.08);
         const hgt = num(child, 'height', 0.02);
-        const fshape = String(child['fairingShape'] ?? 'halfround');
+        const ends = shroudEnds(child);
         const start = axialStart(child, len, pStart, pLen);
         const { p: sp, near: snear } = surfaceAt(child);
         const X = ctx.x0 + start * ctx.scale;
@@ -980,20 +981,45 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
           ...(snear ? {} : { clipPath: `url(#${airframeClip(baseY, pRadius)})` }),
           ...grab,
         };
+        // ONE path, two independently-shaped ends (v0.088). The three
+        // treatments are exactly the ones the old whole-part switch drew — a
+        // 30 % ramp, a quadratic dome, a square edge — but each end now picks
+        // its own, because a real camera shroud is domed where the lens looks
+        // out and tapered at the other end (Eric, 2026-08-31).
+        //
+        // The runs are clamped in PIXELS, not as a fraction of length: on a
+        // short shroud two 30 % ramps meeting in the middle is fine, but two
+        // 8 px dome insets are not, and an unclamped inset makes the path
+        // self-intersect. `runFor` never lets the two ends claim more than half
+        // the drawn length each.
+        const px = Math.max(2, len * ctx.scale);
+        const runFor = (s: string): number =>
+          s === 'box' ? 0
+            : Math.min(px / 2, s === 'streamlined' ? 0.3 * px : Math.min(8, 0.25 * px));
+        const foreRun = runFor(ends.fore);
+        const aftRun = runFor(ends.aft);
+        // A dome's shoulder starts 35 % of the way up the face, as it always
+        // has; a ramp and a square edge start at the surface.
+        const shoulder = (s: string): number => (s === 'halfround' ? yh + 0.35 * (y0 - yh) : y0);
+        // Coordinates are written `x,y` rather than `x y` — both are legal SVG,
+        // and the comma form is what the extent helpers in the view tests parse
+        // out of a `points` list, so one selector serves polygons and paths.
+        const endIn = (s: string, xa: number, xb: number): string =>
+          s === 'halfround'
+            ? `L ${xa},${shoulder(s)} Q ${xa},${yh} ${xb},${yh}`
+            : `L ${xb},${yh}`;
+        const endOut = (s: string, xa: number, xb: number): string =>
+          s === 'halfround'
+            ? `L ${xa},${yh} Q ${xb},${yh} ${xb},${shoulder(s)} L ${xb},${y0}`
+            : `L ${xb},${y0}`;
         shapes.push(
-          fshape === 'streamlined' ? (
-            <polygon key={key++}
-              points={`${X},${y0} ${X + 0.3 * len * ctx.scale},${yh} ${X + 0.7 * len * ctx.scale},${yh} ${Xe},${y0}`}
-              {...surfInk} />
-          ) : fshape === 'halfround' ? (
-            <path key={key++}
-              d={`M ${X} ${y0} L ${X} ${yh + 0.35 * (y0 - yh)} Q ${X} ${yh} ${X + Math.min(8, len * ctx.scale * 0.25)} ${yh} L ${Xe - Math.min(8, len * ctx.scale * 0.25)} ${yh} Q ${Xe} ${yh} ${Xe} ${yh + 0.35 * (y0 - yh)} L ${Xe} ${y0} Z`}
-              {...surfInk} />
-          ) : (
-            <rect key={key++} x={X} y={Math.min(y0, yh)}
-              width={Math.max(2, len * ctx.scale)} height={Math.max(2, Math.abs(y0 - yh))}
-              {...surfInk} />
-          ),
+          <path key={key++} data-part="shroud"
+            d={`M ${X},${y0} `
+              + endIn(ends.fore, X, X + foreRun)
+              + ` L ${Xe - aftRun},${yh} `
+              + endOut(ends.aft, Xe - aftRun, Xe)
+              + ' Z'}
+            {...surfInk} />,
         );
       } else if ((t as string) === 'protuberance') {
         // A drag bump on the outside: solid, shaped by its RASAero class — a

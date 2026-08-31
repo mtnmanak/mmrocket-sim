@@ -3,6 +3,7 @@ import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { clusterOffsets } from '../tree/cluster.js';
 import { tubeFinRadius } from '../tree/tubefins.js';
 import { isAssembly, resolveAssemblyRadius, ringInstanceOffsets } from '../tree/assembly.js';
+import { isConformal, shroudHalfAngle } from '../tree/shroud.js';
 import { RollControl } from './RollControl.js';
 
 /**
@@ -35,7 +36,19 @@ const colorOf = (n: ComponentNode, dflt: string): string =>
 
 type Shape =
   | { kind: 'circle'; y: number; z: number; r: number; fill: string; stroke: string; dash?: string; width?: number; title?: string }
-  | { kind: 'fin'; y: number; z: number; angle: number; from: number; to: number; thick: number; fill: string; stroke: string; title?: string };
+  | { kind: 'fin'; y: number; z: number; angle: number; from: number; to: number; thick: number; fill: string; stroke: string; title?: string }
+  /**
+   * A camera shroud's cross-section (v0.088). Its own kind because a shroud is
+   * the one surface part whose SEATING matters: `conformal` decides whether the
+   * underside follows the tube's arc or lies flat on the tangent chord.
+   *
+   * This is the view where that shows. A flat-bottomed 25 mm shroud on a 24 mm
+   * body tube stands 5.3 mm clear of the surface at each bottom corner — the
+   * gap Eric described on 2026-08-31 — and the side view can never show it,
+   * because a cylinder's generatrix is straight.
+   */
+  | { kind: 'shroud'; y: number; z: number; angle: number; baseR: number; height: number;
+      width: number; conformal: boolean; fill: string; stroke: string; title?: string };
 
 export function AftView({ tree, motors, roll: rollProp, onRoll }: {
   tree: RocketTree;
@@ -145,9 +158,9 @@ export function AftView({ tree, motors, roll: rollProp, onRoll }: {
         const wid = num(child, 'width', 0.025);
         const hgt = num(child, 'height', 0.02);
         outer.push({
-          kind: 'fin', y: cy, z: cz, angle: num(child, 'angleOffset', 0) + roll,
-          from: pRadius, to: pRadius + hgt,
-          thick: wid, fill: colorOf(child, '#c8c5be'), stroke: '#7a786f',
+          kind: 'shroud', y: cy, z: cz, angle: num(child, 'angleOffset', 0) + roll,
+          baseR: pRadius, height: hgt, width: wid, conformal: isConformal(child),
+          fill: colorOf(child, '#c8c5be'), stroke: '#7a786f',
           title: child.name ?? 'Camera shroud',
         });
         reach(cy, cz, pRadius + hgt);
@@ -252,6 +265,50 @@ export function AftView({ tree, motors, roll: rollProp, onRoll }: {
             : undefined}>
           {s.title ? <title>{s.title}</title> : null}
         </circle>
+      );
+    }
+    if (s.kind === 'shroud') {
+      // A shroud spans a real ARC of the airframe, not a point on it. Half of
+      // that arc is θ = asin(halfWidth / R), clamped — the app's own defaults
+      // put halfWidth/R above 1, where an unclamped asin is NaN and the whole
+      // element silently disappears (shroud.shroudHalfAngle).
+      const th = shroudHalfAngle(s.baseR, s.width);
+      const at = (r: number, a: number): [number, number] =>
+        [s.y + r * Math.cos(a), s.z + r * Math.sin(a)];
+      const a0 = s.angle - th;
+      const a1 = s.angle + th;
+      const outR = s.baseR + s.height;
+      const P = (y: number, z: number) => `${toSvg(z)},${-toSvg(y)}`;
+      // The same two shapes tree/shroudMesh.ts builds in 3D, and for the same
+      // reasons — conformal is a SHELL between two arcs; flat is a BOX resting
+      // on the TANGENT PLANE, which touches the tube only along the centreline.
+      // The crescent left under a flat one is the gap Eric described, and this
+      // is the only view in the app that can show it.
+      let d: string;
+      if (s.conformal) {
+        const [oy0, oz0] = at(outR, a0);
+        const [oy1, oz1] = at(outR, a1);
+        const [by0, bz0] = at(s.baseR, a0);
+        const [by1, bz1] = at(s.baseR, a1);
+        // sweep-flag: SVG y is negated by P(), so a mathematically CCW arc
+        // draws clockwise on screen.
+        d = `M ${P(oy0, oz0)} A ${toSvg(outR)} ${toSvg(outR)} 0 0 0 ${P(oy1, oz1)} `
+          + `L ${P(by1, bz1)} `
+          + `A ${toSvg(s.baseR)} ${toSvg(s.baseR)} 0 0 1 ${P(by0, bz0)} Z`;
+      } else {
+        const ca = Math.cos(s.angle);
+        const sa = Math.sin(s.angle);
+        const hw = Math.min(s.width / 2, s.baseR * 2);
+        // radial unit (ca, sa); tangential unit (−sa, ca).
+        const pt = (r: number, off: number): [number, number] =>
+          [s.y + r * ca - off * sa, s.z + r * sa + off * ca];
+        const corners = [pt(s.baseR, -hw), pt(outR, -hw), pt(outR, hw), pt(s.baseR, hw)];
+        d = 'M ' + corners.map(([y, z]) => P(y, z)).join(' L ') + ' Z';
+      }
+      return (
+        <path key={i} d={d} fill={s.fill} stroke={s.stroke} strokeWidth={E / 220}>
+          {s.title ? <title>{s.title}</title> : null}
+        </path>
       );
     }
     // Fin: a radial rectangle from `from` to `to` at `angle`, `thick` wide.
