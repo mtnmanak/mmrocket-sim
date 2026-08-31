@@ -64,8 +64,14 @@ public final class GoldenMain {
         lineInstanceCase("none", "");
         lineInstanceCase("rb2", ",\"instanceCount\":2,\"instanceSeparation\":0.3");
         lineInstanceCase("rb3", ",\"instanceCount\":3,\"instanceSeparation\":0.15");
-        // Clamp guard: 0 must behave as 1, not poison the kernel.
+        // Clamp guards: 0 must behave as 1, and an absurd count must clamp
+        // rather than allocate a Coordinate array per instance in the browser.
         lineInstanceCase("rb0", ",\"instanceCount\":0");
+        lineInstanceCase("rbhuge", ",\"instanceCount\":100000000,\"instanceSeparation\":0.001");
+        // Count WITHOUT separation: must fly at 0 spacing, matching what every
+        // drawing and the .ork writer show — not the kernel constructor's own
+        // outerDiameter*6 default.
+        lineInstanceCase("rb2nosep", ",\"instanceCount\":2");
     }
 
     private static void lineInstanceCase(String name, String extra) {

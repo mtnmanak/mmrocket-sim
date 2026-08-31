@@ -62,6 +62,11 @@ export function collectFrame(nodes: ComponentNode[]): AngularFrame {
   const walk = (ns: ComponentNode[]) => {
     for (const n of ns) {
       if (n.type === 'podset' || n.type === 'parallelstage') {
+        // The assembly NODE belongs to this frame — its own angleOffset is a
+        // clock angle in the PARENT's frame, so it can snap to the parent's
+        // fins like any other surface part. Its CHILDREN do not: they live in
+        // the rotated sub-chain, which is its own frame.
+        members.push(n);
         assemblies.push(n.children ?? []);
         continue;
       }

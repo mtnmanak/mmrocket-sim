@@ -95,6 +95,72 @@ describe('the camera-shroud shell is a solid, not a picture of one', () => {
     expect(conf).toBeGreaterThan(flat);
   });
 
+  it('has STRAIGHT PARALLEL SIDES and a flat top — not an annular sector', () => {
+    // The shape itself, pinned. Reverting to the v0.088 shell-between-two-arcs
+    // (the owner's "trapezoidal" report) passes watertightness, winding and
+    // volume unchanged — those check that the mesh is a solid, not WHICH
+    // solid. This is the only test that would catch it.
+    const geo = shroudGeometry(SPEC());
+    const p = geo.getAttribute('position');
+    const zs: number[] = [];
+    let topY = -Infinity;
+    for (let i = 0; i < p.count; i++) zs.push(p.getZ(i));
+    const zMax = Math.max(...zs);
+    const zMin = Math.min(...zs);
+
+    expect(zMax).toBeCloseTo(-zMin, 7);
+
+    // THE DISCRIMINATOR: the top spans exactly the same z as the floor.
+    // In an annular sector the outer arc is at a larger radius, so it fans
+    // WIDER than the floor — the splay that reads as a trapezoid. Straight
+    // parallel walls mean one width at every height.
+    //
+    // (The floor equation below does NOT distinguish the two shapes: an arc
+    // parameterisation satisfies y = sqrt(R^2 - z^2) as well. Verified by
+    // mutation — reverting the floor alone kept this file green until this
+    // assertion existed.)
+    let topZ = -Infinity;
+    let floorZ = -Infinity;
+    let maxY = -Infinity;
+    for (let i = 0; i < p.count; i++) maxY = Math.max(maxY, p.getY(i));
+    for (let i = 0; i < p.count; i++) {
+      if (Math.abs(p.getY(i) - maxY) < 1e-6) topZ = Math.max(topZ, Math.abs(p.getZ(i)));
+      if (p.getY(i) <= 0.027 + 1e-9) floorZ = Math.max(floorZ, Math.abs(p.getZ(i)));
+    }
+    expect(topZ, 'the top must not fan wider than the floor').toBeCloseTo(floorZ, 7);
+
+    // The TOP is flat: at the tallest station every outer vertex shares one y.
+    for (let i = 0; i < p.count; i++) topY = Math.max(topY, p.getY(i));
+    const topRow = [];
+    for (let i = 0; i < p.count; i++) {
+      if (Math.abs(p.getY(i) - topY) < 1e-9) topRow.push(p.getZ(i));
+    }
+    expect(topRow.length, 'a flat top spans the width at one height')
+      .toBeGreaterThan(2);
+
+    // The FLOOR follows the tube's own arc, exactly: every floor vertex
+    // satisfies y = sqrt(R^2 - z^2). That single equation IS "conformal", and
+    // an annular sector's floor (which fans in z as well) cannot satisfy it.
+    const R = 0.027;
+    let floorCount = 0;
+    let floorMin = Infinity;
+    let floorMax = -Infinity;
+    for (let i = 0; i < p.count; i++) {
+      const y = p.getY(i);
+      const z = p.getZ(i);
+      if (y > R + 1e-9) continue;                     // the outer sheet sits above R
+      floorCount++;
+      floorMin = Math.min(floorMin, y);
+      floorMax = Math.max(floorMax, y);
+      // 7 places: positions are stored as Float32 in the buffer attribute.
+      expect(y).toBeCloseTo(Math.sqrt(R * R - z * z), 7);
+    }
+    expect(floorCount).toBeGreaterThan(10);
+    // …and it genuinely WRAPS: the edges sit lower than the middle.
+    expect(floorMax).toBeGreaterThan(floorMin);
+    expect(floorMax).toBeLessThanOrEqual(R + 1e-9);
+  });
+
   it('keeps a finite wall at a tapered end — a knife edge is not a solid', () => {
     // A profile running to exactly zero collapses the end cap: zero-area
     // triangles, no normal, and a surface that is no longer closed. That is

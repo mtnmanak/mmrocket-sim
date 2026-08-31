@@ -625,51 +625,60 @@ export function App() {
   const future = useRef<RocketTree[]>([]);
   const lastEditAt = useRef(0);
   const [, bumpHist] = useReducer((x: number) => x + 1, 0);
+  /**
+   * The live tree, mirrored into a ref so the stack operations can read it
+   * WITHOUT running inside a state updater.
+   *
+   * This matters more than it looks: main.tsx wraps the app in `<StrictMode>`,
+   * and React deliberately double-invokes updater functions in development to
+   * surface impurity. Mutating `history`/`future` inside one therefore pops
+   * twice per Ctrl+Z under `npm run dev` — every other undo state skipped, and
+   * duplicate redo entries. Production is unaffected, which is exactly what
+   * makes it dangerous: the next tester bug reproduced locally would look like
+   * a shipped defect. Refs are mutated out here; the updaters take plain
+   * values and stay pure.
+   */
+  const treeRef = useRef(tree);
+  treeRef.current = tree;
   const setTree = useCallback((next: RocketTree) => {
-    setTreeRaw((prev) => {
-      // Coalesce rapid-fire edits (schematic drags, slider moves, keystrokes)
-      // into ONE undo step — otherwise a 2 s drag floods the 50-entry buffer
-      // and Ctrl+Z steps back a pixel at a time.
-      const now = Date.now();
-      if (now - lastEditAt.current > 800) {
-        history.current.push(prev);
-        if (history.current.length > 50) history.current.shift();
-      }
-      lastEditAt.current = now;
-      // EVERY user edit forks the timeline, coalesced or not. Clearing the
-      // redo stack only inside the push branch would leave a stale future
-      // that a later Ctrl+Shift+Z teleports the design into.
-      future.current = [];
-      bumpHist();
-      return next;
-    });
+    // Coalesce rapid-fire edits (schematic drags, slider moves, keystrokes)
+    // into ONE undo step — otherwise a 2 s drag floods the 50-entry buffer
+    // and Ctrl+Z steps back a pixel at a time.
+    const now = Date.now();
+    if (now - lastEditAt.current > 800) {
+      history.current.push(treeRef.current);
+      if (history.current.length > 50) history.current.shift();
+    }
+    lastEditAt.current = now;
+    // EVERY user edit forks the timeline, coalesced or not. Clearing the redo
+    // stack only inside the push branch would leave a stale future that a
+    // later Ctrl+Shift+Z teleports the design into.
+    future.current = [];
+    bumpHist();
+    setTreeRaw(next);
   }, []);
   const undo = useCallback(() => {
-    setTreeRaw((cur) => {
-      const prev = history.current.pop();
-      if (!prev) return cur;
-      future.current.push(cur);
-      // Never coalesce ACROSS an undo: without this, an edit within 800 ms
-      // of the last pre-undo edit skips the history push and the state the
-      // user just restored becomes unrecoverable.
-      lastEditAt.current = 0;
-      bumpHist();
-      return prev;
-    });
+    const prev = history.current.pop();
+    if (!prev) return;
+    future.current.push(treeRef.current);
+    // Never coalesce ACROSS an undo: without this, an edit within 800 ms of
+    // the last pre-undo edit skips the history push and the state the user
+    // just restored becomes unrecoverable.
+    lastEditAt.current = 0;
+    bumpHist();
+    setTreeRaw(prev);
   }, []);
   const redo = useCallback(() => {
-    setTreeRaw((cur) => {
-      const next = future.current.pop();
-      if (!next) return cur;
-      // Push UNCONDITIONALLY — bypassing the 800 ms coalesce test — and reset
-      // the clock so the next real edit cannot merge into the redone state.
-      // The same bug class the v0.031 no-coalesce-across-undo fix closed.
-      history.current.push(cur);
-      if (history.current.length > 50) history.current.shift();
-      lastEditAt.current = 0;
-      bumpHist();
-      return next;
-    });
+    const next = future.current.pop();
+    if (!next) return;
+    // Push UNCONDITIONALLY — bypassing the 800 ms coalesce test — and reset
+    // the clock so the next real edit cannot merge into the redone state.
+    // The same bug class the v0.031 no-coalesce-across-undo fix closed.
+    history.current.push(treeRef.current);
+    if (history.current.length > 50) history.current.shift();
+    lastEditAt.current = 0;
+    bumpHist();
+    setTreeRaw(next);
   }, []);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

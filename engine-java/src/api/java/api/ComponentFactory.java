@@ -651,13 +651,25 @@ final class ComponentFactory {
     private static void applyLineInstances(info.openrocket.core.rocketcomponent.LineInstanceable li,
             Map<String, Object> node) {
         double count = dbl(node, "instanceCount", Double.NaN);
-        if (!Double.isNaN(count)) {
-            li.setInstanceCount(Math.max(1, (int) Math.round(count)));
+        if (Double.isNaN(count)) {
+            return; // no instance keys at all: the kernel's own defaults, as before v0.089
         }
-        double sep = dbl(node, "instanceSeparation", Double.NaN);
-        if (!Double.isNaN(sep)) {
-            li.setInstanceSeparation(sep);
-        }
+        // Clamped BOTH ways. Low: setInstanceCount silently ignores <= 0, so a
+        // JSON 0 would leave the kernel at 1 while the UI showed 0. High:
+        // getInstanceOffsets allocates one Coordinate per instance on every
+        // mass and aero pass, so a corrupt or hostile .ork saying 100000000
+        // would wedge the browser tab — and this bridge is the first thing to
+        // route a FILE's raw count into that allocation for lugs and buttons.
+        // 64 is far above any real rail (a 3 m airframe at 100 mm spacing is
+        // 30) and far below anything that hurts.
+        li.setInstanceCount(Math.min(64, Math.max(1, (int) Math.round(count))));
+        // Separation is applied WHENEVER a count was given, defaulting to 0 —
+        // the same value every app renderer and the .ork writer assume for a
+        // missing key. Leaving it unset instead would fly the buttons at the
+        // kernel constructor's own default (outerDiameter*6, frozen at the
+        // DEFAULT diameter) while the drawing and the saved file showed them
+        // coincident: three descriptions of one rocket.
+        li.setInstanceSeparation(dbl(node, "instanceSeparation", 0));
     }
 
     private static void applyAssembly(RocketComponent child, Map<String, Object> node) {

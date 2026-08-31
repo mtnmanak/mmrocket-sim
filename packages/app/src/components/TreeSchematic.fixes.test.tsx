@@ -536,5 +536,20 @@ describe('rail button line instances draw as N buttons', () => {
     const xs = rects.map((r) => Number(r.getAttribute('x'))).sort((a, b) => a - b);
     // The gap between the two buttons is the separation, at the drawing scale.
     expect(xs[1]! - xs[0]!).toBeCloseTo(0.1 * scale(), 4);
+    // …and they march AFT from the node's own position, which is the kernel's
+    // convention (RailButton.getInstanceOffsets: instance 0 is forward) and
+    // what the golden's cgEmpty pins. Drawing them forward would satisfy the
+    // spacing check above while disagreeing with the simulation.
+    const single = { ...two } as unknown as RocketTree;
+    (single.components[0]!.children![1]!.children![0]! as unknown as Record<string, unknown>)
+      .instanceCount = 1;
+    show(<TreeSchematic tree={single} info={null} />);
+    const lone = [...host.querySelectorAll('rect')]
+      .filter((r) => r.getAttribute('fill') === '#c8c5be');
+    expect(lone).toHaveLength(1);
+    const anchor = Number(lone[0]!.getAttribute('x'));
+    // Instance 0 sits exactly where the single button sat; the second is AFT.
+    expect(xs[0]!).toBeCloseTo(anchor, 6);
+    expect(xs[1]!).toBeGreaterThan(anchor);
   });
 });

@@ -590,10 +590,17 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
         const AFT_GAP = 0.0254; // "about an inch"
         const aftX = rocketInfo.length - AFT_GAP;
         const fwdX = rocketInfo.cg;
-        const feasible = aftX - fwdX > 0.02; // buttons must not collide
         const childLen = axialLength(node);
         const parentAbsStart = (info.positionX ?? 0)
           - startFromPosition(pos, childLen, parentLenSi ?? 0);
+        // Both buttons must land ON this tube. The CG and the aft end are
+        // WHOLE-ROCKET stations, so on a multi-tube airframe the pair can
+        // easily want to sit outside the tube the component belongs to — the
+        // forward button at a CG two tubes up, say. Rather than emit a
+        // position the tube cannot hold, the button says so and stays off.
+        const parentEnd = parentAbsStart + (parentLenSi ?? 0);
+        const fits = fwdX >= parentAbsStart - 1e-9 && aftX <= parentEnd + 1e-9;
+        const feasible = aftX - fwdX > 0.02 && fits; // buttons must not collide
         const place = () => {
           onPatch({
             instanceCount: 2,
@@ -609,7 +616,9 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
             disabled={!feasible}
             title={feasible
               ? `Places two buttons: forward one at the CG (${(fwdX * 1000).toFixed(0)} mm — the loaded CG when a motor is loaded), aft one ${(AFT_GAP * 1000).toFixed(0)} mm from the aft end. Press again after the CG moves; typed values always win afterwards.`
-              : 'The CG sits within an inch of the aft end — two buttons cannot straddle it. Place them by hand.'}
+              : !fits
+                ? `Both buttons would have to sit outside this tube (they want ${(fwdX * 1000).toFixed(0)}–${(aftX * 1000).toFixed(0)} mm from the nose; this tube spans ${(parentAbsStart * 1000).toFixed(0)}–${(parentEnd * 1000).toFixed(0)} mm). Move the rail button to the tube that spans the CG and the aft end, or place them by hand.`
+                : 'The CG sits within an inch of the aft end — two buttons cannot straddle it. Place them by hand.'}
             onClick={place}>
             📍 Auto-place rail buttons
           </button>
