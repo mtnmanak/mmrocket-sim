@@ -144,3 +144,43 @@ describe('the part-number key', () => {
     expect(artefacts, artefacts.join('; ')).toEqual([]);
   });
 });
+
+describe('the curations ruled on 2026-09-01', () => {
+  it('are all still applied to the shipped data', async () => {
+    // curate-presets.mjs holds the drops and part-number fixes the owner ruled
+    // from the decision sheet. They live in a script because the generator
+    // rewrites presets.json wholesale, so the real risk is a regeneration
+    // silently reverting them — this is what notices.
+    const { planCurations } = await import('./curate-presets.mjs');
+    const plan = planCurations(db.presets);
+    const errors = plan.filter((x) => x.status === 'error');
+    expect(errors.map((e) => `${e.c.key}: ${e.detail}`)).toEqual([]);
+    const outstanding = plan.filter((x) => x.status === 'todo')
+      .map((t) => `${t.c.action} ${t.c.key}${t.c.to ? ' -> ' + t.c.to : ''}`);
+    expect(outstanding, 'run: node packages/app/scripts/curate-presets.mjs --write')
+      .toEqual([]);
+  });
+
+  it('left no row whose part number is just the manufacturer name', () => {
+    // The class behind the "AeroTech Aerotech" couplers: presetPatch builds a
+    // component's name as manufacturer + partNo, so these applied as a stutter.
+    const stutter = db.presets
+      .filter((p) => partKey(p.partNo) === partKey(p.manufacturer))
+      .map((p) => `${p.kind} ${p.manufacturer} ${p.partNo}`);
+    expect(stutter).toEqual([]);
+  });
+
+  it('kept the survivor that carries the better data', () => {
+    // Spot-checks with a consequence, not a row count: the SEMROC thrust blocks
+    // keep Fiber (656.76) rather than RockSim's generic "Paper (office)" (820),
+    // a 25 % density difference; and PN-24 keeps the 24 in shroud lines.
+    const tb5 = db.presets.filter((p) => p.kind === 'EngineBlock'
+      && p.manufacturer === 'SEMROC' && p.partNo === 'TB-5');
+    expect(tb5).toHaveLength(1);
+    expect(tb5[0].material.name).toBe('Fiber');
+    const pn24 = db.presets.filter((p) => p.kind === 'Parachute'
+      && p.manufacturer === 'SEMROC' && p.partNo === 'PN-24');
+    expect(pn24).toHaveLength(1);
+    expect(pn24[0].lineLength).toBeCloseTo(0.6096, 6);
+  });
+});

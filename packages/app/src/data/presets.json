@@ -1,7 +1,7 @@
 {
  "generated": "2026-07-03",
  "source": "github.com/openrocket/openrocket-database + OpenRocket 24.12 datafiles/components/internal",
- "count": 4723,
+ "count": 4714,
  "presets": [
   {
    "kind": "BodyTube",
@@ -1194,20 +1194,6 @@
   {
    "kind": "BodyTube",
    "manufacturer": "BalsaMachining",
-   "partNo": "T5Plus-34",
-   "description": "Body tube, T5Plus, 34 in., PN T5Plus-34",
-   "material": {
-    "name": "Paper, spiral kraft glassine, BMS avg, bulk",
-    "type": "BULK",
-    "density": 894.4
-   },
-   "insideDiameter": 0.0131572,
-   "outsideDiameter": 0.0138176,
-   "length": 0.8636
-  },
-  {
-   "kind": "BodyTube",
-   "manufacturer": "BalsaMachining",
    "partNo": "T60-34",
    "description": "Body tube, T60, 34 in., PN T60-34",
    "material": {
@@ -2380,6 +2366,21 @@
    "insideDiameter": 0.018034,
    "outsideDiameter": 0.0186944,
    "length": 0.2032
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "Estes",
+   "partNo": "BT-3",
+   "description": "BT-3",
+   "material": {
+    "name": "Paper (office)",
+    "type": "BULK",
+    "density": 820
+   },
+   "insideDiameter": 0.00889,
+   "outsideDiameter": 0.009652,
+   "length": 0.4572,
+   "source": "rocksim"
   },
   {
    "kind": "BodyTube",
@@ -5239,21 +5240,6 @@
    "outsideDiameter": 0.06604,
    "length": 0.36195,
    "source": "desktop-24.12"
-  },
-  {
-   "kind": "BodyTube",
-   "manufacturer": "Estes",
-   "partNo": "Estes",
-   "description": "BT-3",
-   "material": {
-    "name": "Paper (office)",
-    "type": "BULK",
-    "density": 820
-   },
-   "insideDiameter": 0.00889,
-   "outsideDiameter": 0.009652,
-   "length": 0.4572,
-   "source": "rocksim"
   },
   {
    "kind": "BodyTube",
@@ -10139,6 +10125,20 @@
   {
    "kind": "BodyTube",
    "manufacturer": "Quest",
+   "partNo": "Q11421",
+   "description": "Body tube, paper, 30mm, white, 5\", PN Q11421",
+   "material": {
+    "name": "Paper, spiral kraft glassine, Estes avg, bulk",
+    "type": "BULK",
+    "density": 894.4
+   },
+   "insideDiameter": 0.029,
+   "outsideDiameter": 0.03,
+   "length": 0.127
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "Quest",
    "partNo": "Q11503",
    "description": "Body tube, paper, 35mm, white, 18\", PN Q11503",
    "material": {
@@ -10323,20 +10323,6 @@
    "insideDiameter": 0.029,
    "outsideDiameter": 0.03,
    "length": 0.762
-  },
-  {
-   "kind": "BodyTube",
-   "manufacturer": "Quest",
-   "partNo": "T303000, Q9523",
-   "description": "Body tube, paper, 30mm, white, 5\", PN Q11421",
-   "material": {
-    "name": "Paper, spiral kraft glassine, Estes avg, bulk",
-    "type": "BULK",
-    "density": 894.4
-   },
-   "insideDiameter": 0.029,
-   "outsideDiameter": 0.03,
-   "length": 0.127
   },
   {
    "kind": "BodyTube",
@@ -16593,6 +16579,20 @@
   {
    "kind": "BodyTube",
    "manufacturer": "SEMROC",
+   "partNo": "ST-20-34",
+   "description": "Body tube, ST-20, 34.0\"",
+   "material": {
+    "name": "Paper, spiral kraft glassine, Estes avg, bulk",
+    "type": "BULK",
+    "density": 894.4
+   },
+   "insideDiameter": 0.0508,
+   "outsideDiameter": 0.051816,
+   "length": 0.8636
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "SEMROC",
    "partNo": "ST-20100",
    "description": "Body tube, ST-20, 10.0\"",
    "material": {
@@ -18426,20 +18426,6 @@
    },
    "insideDiameter": 0.018034,
    "outsideDiameter": 0.0186944,
-   "length": 0.8636
-  },
-  {
-   "kind": "BodyTube",
-   "manufacturer": "SEMROC",
-   "partNo": "T-20-34",
-   "description": "Body tube, ST-20, 34.0\"",
-   "material": {
-    "name": "Paper, spiral kraft glassine, Estes avg, bulk",
-    "type": "BULK",
-    "density": 894.4
-   },
-   "insideDiameter": 0.0508,
-   "outsideDiameter": 0.051816,
    "length": 0.8636
   },
   {
@@ -20959,20 +20945,6 @@
    "filled": true,
    "outsideDiameter": 0.0290576,
    "length": 0.003175
-  },
-  {
-   "kind": "BulkHead",
-   "manufacturer": "Rocketarium",
-   "partNo": "1.6\" (38mm) bulkplate",
-   "description": "1.6\" (38mm) bulkplate (fits inside Rocketarium 1.6\" (38mm))",
-   "material": {
-    "name": "Plywood, aircraft, 1/4 in. bulk",
-    "type": "BULK",
-    "density": 344.3
-   },
-   "filled": true,
-   "outsideDiameter": 0.0290576,
-   "length": 0.00635
   },
   {
    "kind": "BulkHead",
@@ -30570,7 +30542,7 @@
   {
    "kind": "CenteringRing",
    "manufacturer": "SEMROC",
-   "partNo": "CR-7-18",
+   "partNo": "CR-7-18EH",
    "description": "Centering ring, fiber, #7 to #18, .05\", engine hook slot",
    "material": {
     "name": "Fiber, bulk",
@@ -30893,8 +30865,8 @@
   {
    "kind": "CenteringRing",
    "manufacturer": "SEMROC",
-   "partNo": "CR-9-175P",
-   "description": "Centering ring, plywood, #9 to #175, .125\"",
+   "partNo": "CR-9-175-4F",
+   "description": "Centering ring, plywood, #9 to #175, .125\", 4 fin locks",
    "material": {
     "name": "Plywood, light, bulk",
     "type": "BULK",
@@ -30908,7 +30880,7 @@
    "kind": "CenteringRing",
    "manufacturer": "SEMROC",
    "partNo": "CR-9-175P",
-   "description": "Centering ring, plywood, #9 to #175, .125\", 4 fin locks",
+   "description": "Centering ring, plywood, #9 to #175, .125\"",
    "material": {
     "name": "Plywood, light, bulk",
     "type": "BULK",
@@ -32937,21 +32909,6 @@
   {
    "kind": "EngineBlock",
    "manufacturer": "SEMROC",
-   "partNo": "TB-5",
-   "description": "Thrust Block",
-   "material": {
-    "name": "Paper (office)",
-    "type": "BULK",
-    "density": 820
-   },
-   "insideDiameter": 0.0104902,
-   "outsideDiameter": 0.0130302,
-   "length": 0.0047752,
-   "source": "rocksim"
-  },
-  {
-   "kind": "EngineBlock",
-   "manufacturer": "SEMROC",
    "partNo": "TB-7",
    "description": "Thrust Block #7",
    "material": {
@@ -32963,21 +32920,6 @@
    "outsideDiameter": 0.0181102,
    "length": 0.0047752,
    "source": "desktop-24.12"
-  },
-  {
-   "kind": "EngineBlock",
-   "manufacturer": "SEMROC",
-   "partNo": "TB-7",
-   "description": "Thrust Block",
-   "material": {
-    "name": "Paper (office)",
-    "type": "BULK",
-    "density": 820
-   },
-   "insideDiameter": 0.014605,
-   "outsideDiameter": 0.0181102,
-   "length": 0.0047752,
-   "source": "rocksim"
   },
   {
    "kind": "EngineBlock",
@@ -33039,21 +32981,6 @@
   {
    "kind": "EngineBlock",
    "manufacturer": "SEMROC",
-   "partNo": "TR-7",
-   "description": "Thrust Ring",
-   "material": {
-    "name": "Paper (office)",
-    "type": "BULK",
-    "density": 820
-   },
-   "insideDiameter": 0.014605,
-   "outsideDiameter": 0.0181102,
-   "length": 0.009525,
-   "source": "rocksim"
-  },
-  {
-   "kind": "EngineBlock",
-   "manufacturer": "SEMROC",
    "partNo": "TR-9",
    "description": "Thrust ring, fiber, #9, 0.25\" len",
    "material": {
@@ -33079,16 +33006,6 @@
    "outsideDiameter": 0.0240792,
    "length": 0.0254,
    "source": "desktop-24.12"
-  },
-  {
-   "kind": "EngineBlock",
-   "manufacturer": "SEMROC",
-   "partNo": "TS-9",
-   "description": "Thrust Spacer",
-   "insideDiameter": 0.021971,
-   "outsideDiameter": 0.0240792,
-   "length": 0.0254,
-   "source": "rocksim"
   },
   {
    "kind": "LaunchLug",
@@ -40532,7 +40449,7 @@
   {
    "kind": "NoseCone",
    "manufacturer": "Madcow",
-   "partNo": "FWNC60M-C",
+   "partNo": "FWNC60M-VK",
    "description": "Nose cone, fiberglass, heavy wall, 5.5:1 von Karman, metal tip",
    "material": {
     "name": "Fiberglass, G10, bulk",
@@ -41752,6 +41669,25 @@
   {
    "kind": "NoseCone",
    "manufacturer": "Quest",
+   "partNo": "PNC35N",
+   "description": "PNC35N",
+   "material": {
+    "name": "Polystyrene",
+    "type": "BULK",
+    "density": 1050
+   },
+   "mass": 0.0133243,
+   "length": 0.211074,
+   "outsideDiameter": 0.035052,
+   "shoulderLength": 0.01905,
+   "shoulderDiameter": 0.03175,
+   "shape": "CONICAL",
+   "thickness": 0.003175,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Quest",
    "partNo": "PNC35Nike, Q20201",
    "description": "Nose cone, plastic, 35mm, white, Nike Smoke, 8.0\", PN PNC35Nike/Q20201",
    "material": {
@@ -41840,25 +41776,6 @@
    "shoulderLength": 0.0635,
    "length": 0.1524,
    "thickness": 0.0013
-  },
-  {
-   "kind": "NoseCone",
-   "manufacturer": "Quest",
-   "partNo": "Quest",
-   "description": "PNC35N",
-   "material": {
-    "name": "Polystyrene",
-    "type": "BULK",
-    "density": 1050
-   },
-   "mass": 0.0133243,
-   "length": 0.211074,
-   "outsideDiameter": 0.035052,
-   "shoulderLength": 0.01905,
-   "shoulderDiameter": 0.03175,
-   "shape": "CONICAL",
-   "thickness": 0.003175,
-   "source": "rocksim"
   },
   {
    "kind": "NoseCone",
@@ -47282,23 +47199,6 @@
   {
    "kind": "NoseCone",
    "manufacturer": "SEMROC",
-   "partNo": "BC-926",
-   "description": "Nose cone, balsa, ST-9, 2.8\", ogive, Estes BNC-50K shape, PN BC-926",
-   "material": {
-    "name": "Balsa, bulk, 7lb/ft3",
-    "type": "BULK",
-    "density": 112
-   },
-   "filled": true,
-   "shape": "OGIVE",
-   "outsideDiameter": 0.0253492,
-   "shoulderDiameter": 0.0240792,
-   "shoulderLength": 0.017272,
-   "length": 0.07112
-  },
-  {
-   "kind": "NoseCone",
-   "manufacturer": "SEMROC",
    "partNo": "BC-926BC",
    "description": "Nose cone, balsa, ST-9, 2.6\", nacelle, Estes BNC-50BC shape, PN BC-926BC",
    "material": {
@@ -47331,6 +47231,23 @@
    "shoulderLength": 0.01524,
    "length": 0.06858,
    "source": "desktop-24.12"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "SEMROC",
+   "partNo": "BC-928",
+   "description": "Nose cone, balsa, ST-9, 2.8\", ogive, Estes BNC-50K shape, PN BC-926",
+   "material": {
+    "name": "Balsa, bulk, 7lb/ft3",
+    "type": "BULK",
+    "density": 112
+   },
+   "filled": true,
+   "shape": "OGIVE",
+   "outsideDiameter": 0.0253492,
+   "shoulderDiameter": 0.0240792,
+   "shoulderLength": 0.017272,
+   "length": 0.07112
   },
   {
    "kind": "NoseCone",
@@ -49001,7 +48918,7 @@
   {
    "kind": "NoseCone",
    "manufacturer": "SEMROC",
-   "partNo": "BNC-50SF1",
+   "partNo": "BNC-50SF2",
    "description": "Nose cone, balsa, BNC-50SF1, 3.0\", cylinder-conical combo",
    "material": {
     "name": "Balsa, bulk, 7lb/ft3",
@@ -49696,7 +49613,7 @@
   {
    "kind": "NoseCone",
    "manufacturer": "SEMROC",
-   "partNo": "BNC-55X",
+   "partNo": "BNC-55Y",
    "description": "Nose cone, balsa, BNC-55Y, 5.9\", ogive, BNC-50Y upscale",
    "material": {
     "name": "Balsa, bulk, 7lb/ft3",
@@ -49902,7 +49819,7 @@
   {
    "kind": "NoseCone",
    "manufacturer": "SEMROC",
-   "partNo": "BNC-58G4",
+   "partNo": "BNC-58G5",
    "description": "Nose cone, balsa, BT-58, 8.4\", ogive, PN BNC-58G5, 5:1 ogive",
    "material": {
     "name": "Balsa, bulk, 7lb/ft3",
@@ -51539,23 +51456,6 @@
    "manufacturer": "SEMROC",
    "partNo": "BNC-80HACS",
    "description": "Nose cone, balsa, BTH-80, 10.6\" secant ogive, PN BNC-80HACS, upscale of Estes BNC-55AC",
-   "material": {
-    "name": "Balsa, bulk, 7lb/ft3",
-    "type": "BULK",
-    "density": 112
-   },
-   "filled": true,
-   "shape": "OGIVE",
-   "outsideDiameter": 0.067056,
-   "shoulderDiameter": 0.064897,
-   "shoulderLength": 0.0254,
-   "length": 0.26924
-  },
-  {
-   "kind": "NoseCone",
-   "manufacturer": "SEMROC",
-   "partNo": "BNC-80HACS",
-   "description": "Nose cone, balsa, BNC-80HACS, 10.6\", secant ogive, upscale of Estes BNC-55AC",
    "material": {
     "name": "Balsa, bulk, 7lb/ft3",
     "type": "BULK",
@@ -60640,27 +60540,6 @@
   {
    "kind": "Parachute",
    "manufacturer": "SEMROC",
-   "partNo": "PN-18",
-   "description": "18 In. Nylon Chute",
-   "material": {
-    "name": "Ripstop nylon",
-    "type": "SURFACE",
-    "density": 0.067
-   },
-   "lineMaterial": {
-    "name": "Braided nylon (2 mm, 1/16 in)",
-    "type": "LINE",
-    "density": 0.001
-   },
-   "sides": 8,
-   "diameter": 0.4572,
-   "lineCount": 8,
-   "lineLength": 0.508,
-   "source": "rocksim"
-  },
-  {
-   "kind": "Parachute",
-   "manufacturer": "SEMROC",
    "partNo": "PN-24",
    "description": "24 In. Nylon Chute",
    "material": {
@@ -60677,26 +60556,6 @@
     "density": 0.00102
    },
    "source": "desktop-24.12"
-  },
-  {
-   "kind": "Parachute",
-   "manufacturer": "SEMROC",
-   "partNo": "PN-24",
-   "description": "24 In. Nylon Chute",
-   "material": {
-    "name": "Ripstop nylon",
-    "type": "SURFACE",
-    "density": 0.067
-   },
-   "lineMaterial": {
-    "name": "Braided nylon (2 mm, 1/16 in)",
-    "type": "LINE",
-    "density": 0.001
-   },
-   "diameter": 0.6096,
-   "lineCount": 10,
-   "lineLength": 0.6604,
-   "source": "rocksim"
   },
   {
    "kind": "Parachute",
@@ -69838,26 +69697,6 @@
   {
    "kind": "Transition",
    "manufacturer": "SEMROC",
-   "partNo": "BR-5-T20 [R]",
-   "description": "Transition, balsa, metric T20 to #5, reducing, 1.0 in len",
-   "material": {
-    "name": "Balsa, bulk, 7lb/ft3",
-    "type": "BULK",
-    "density": 112
-   },
-   "shape": "CONICAL",
-   "filled": true,
-   "foreOutsideDiameter": 0.02,
-   "foreShoulderDiameter": 0.019,
-   "foreShoulderLength": 0.0127,
-   "aftOutsideDiameter": 0.0137922,
-   "aftShoulderDiameter": 0.013081,
-   "aftShoulderLength": 0.0127,
-   "length": 0.0254
-  },
-  {
-   "kind": "Transition",
-   "manufacturer": "SEMROC",
    "partNo": "BR-5-T20A",
    "description": "Transition, balsa, #5 to metric T20, increasing, 1.0 in len",
    "material": {
@@ -69872,6 +69711,26 @@
    "foreShoulderLength": 0.0127,
    "aftOutsideDiameter": 0.02,
    "aftShoulderDiameter": 0.019,
+   "aftShoulderLength": 0.0127,
+   "length": 0.0254
+  },
+  {
+   "kind": "Transition",
+   "manufacturer": "SEMROC",
+   "partNo": "BR-5-T20A [R]",
+   "description": "Transition, balsa, metric T20 to #5, reducing, 1.0 in len",
+   "material": {
+    "name": "Balsa, bulk, 7lb/ft3",
+    "type": "BULK",
+    "density": 112
+   },
+   "shape": "CONICAL",
+   "filled": true,
+   "foreOutsideDiameter": 0.02,
+   "foreShoulderDiameter": 0.019,
+   "foreShoulderLength": 0.0127,
+   "aftOutsideDiameter": 0.0137922,
+   "aftShoulderDiameter": 0.013081,
    "aftShoulderLength": 0.0127,
    "length": 0.0254
   },
@@ -73013,7 +72872,7 @@
   {
    "kind": "TubeCoupler",
    "manufacturer": "AeroTech",
-   "partNo": "Aerotech",
+   "partNo": "CP-1.9",
    "description": "CP-1.9",
    "material": {
     "name": "Paper (office)",
@@ -73028,7 +72887,7 @@
   {
    "kind": "TubeCoupler",
    "manufacturer": "AeroTech",
-   "partNo": "Aerotech",
+   "partNo": "CP-2.6",
    "description": "CP-2.6",
    "material": {
     "name": "Paper (office)",
