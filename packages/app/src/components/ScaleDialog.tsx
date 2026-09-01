@@ -57,6 +57,17 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
   const [tubeOd, setTubeOd] = useState('');
   const [busy, setBusy] = useState(false);
 
+  /**
+   * Set the factor from anywhere that is NOT the catalogue, clearing the
+   * catalogue selection with it — otherwise the select goes on naming a tube
+   * whose OD contradicts the factor now in the box.
+   *
+   * One function because the pair was copied into two handlers and the third
+   * entry point (the 0.5× / 2× buttons) was written without it, which is the
+   * bug this replaces. A fourth entry point gets it for free.
+   */
+  const setFactorOffCatalogue = (f: number) => { setFactor(f); setTubeOd(''); };
+
   useEffect(() => {
     loadPresets()
       .then((all) => setTubes(all.filter((p) => p.kind === 'BodyTube'
@@ -134,17 +145,26 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
                   on the real <input>. Before, it pointed at nothing (the wrapper
                   div is not labelable) so clicking this label did nothing, while
                   the <select>'s label below worked — and simply deleting the
-                  dangling attribute would have left that behaviour unchanged. */}
+                  dangling attribute would have left that behaviour unchanged.
+
+                  NO ariaLabel on these two fields, deliberately. An aria-label
+                  BEATS an associated <label> in the accessible-name
+                  computation, so "Scale factor" would replace the visible
+                  "Scale by" — WCAG 2.5.3 label-in-name, and a voice-control
+                  user saying "click Scale by" matches nothing. Elsewhere in
+                  the app (LaunchPanel, PropertyPanel) ariaLabel is right,
+                  because those labels are NOT associated and the aria-label is
+                  the only name there is; the rule is that once a label is
+                  wired, it is the name. */}
               <label htmlFor="scale-factor">Scale by</label>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <NumField
                   id="scale-factor"
                   value={factor}
-                  onCommit={(v) => { if (v !== null && v > 0) { setFactor(v); setTubeOd(''); } }}
+                  onCommit={(v) => { if (v !== null && v > 0) setFactorOffCatalogue(v); }}
                   min={0.01}
                   max={100}
                   step={0.05}
-                  ariaLabel="Scale factor"
                 />
                 <span className="comp-stats" style={{ whiteSpace: 'nowrap' }}>
                   × &nbsp;({(factor * 100).toFixed(1)} %)
@@ -154,7 +174,7 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
                     key={f}
                     type="button"
                     className="file-btn"
-                    onClick={() => { setFactor(f); setTubeOd(''); }}
+                    onClick={() => setFactorOffCatalogue(f)}
                   >
                     {f}×
                   </button>
@@ -170,11 +190,10 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
                 onCommit={(v) => {
                   if (v === null || !(v > 0)) return;
                   const si = uiToSi('length', lenSym, v);
-                  if (si > 0 && baseD > 0) { setFactor(si / baseD); setTubeOd(''); }
+                  if (si > 0 && baseD > 0) setFactorOffCatalogue(si / baseD);
                 }}
                 min={0.0001}
                 step={1}
-                ariaLabel="Target body diameter"
               />
               <span className="comp-stats">
                 The widest body diameter is {fmt(baseD)} {lenSym} today. Type what you are
@@ -226,12 +245,18 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
                     <li key={m.id}>
                       {m.name}: {m.boreMm.toFixed(1)} →{' '}
                       <strong>{m.finalBoreMm.toFixed(1)} mm</strong>
-                      {m.onStandardClass
+                      {/* One discriminant, computed in previewMounts — see
+                          MountPreview.verdict. Re-deriving it here from
+                          onStandardClass/snappable/isAirframe is what let this
+                          list and the post-apply note disagree about an
+                          off-class airframe mount with the snap unticked. */}
+                      {m.verdict === 'on-class'
                         ? <> — a standard {classLabel(m.nearestMm)} mm.</>
-                        : snapMounts && m.snappable
-                          ? <> — snapped up from {m.scaledBoreMm.toFixed(1)} mm to the
+                        : m.verdict === 'snapped'
+                          ? <> — snapped {m.nearestMm > m.scaledBoreMm ? 'up' : 'down'} from{' '}
+                            {m.scaledBoreMm.toFixed(1)} mm to the
                             standard {classLabel(m.nearestMm)} mm.</>
-                          : m.isAirframe
+                          : m.verdict === 'airframe-left'
                             ? <> — not a motor size you can buy (nearest is{' '}
                               {classLabel(m.nearestMm)} mm), and this mount <em>is</em> the
                               airframe, so it is left for you to resize.</>
@@ -239,7 +264,11 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
                               {classLabel(m.nearestMm)} mm.</>}
                       {!m.motorStillFits && m.motorMm !== null && (
                         <> <strong>The {m.motorMm.toFixed(0)} mm motor loaded in it will no longer
-                          fit.</strong></>
+                          fit.</strong>
+                          {m.verdict === 'snapped' && m.motorFitsUnsnapped && (
+                            <> Snapping is what loses it — the scaled{' '}
+                              {m.scaledBoreMm.toFixed(1)} mm bore still takes it.</>
+                          )}</>
                       )}
                     </li>
                   ))}

@@ -1,6 +1,7 @@
 import { strFromU8, unzipSync } from 'fflate';
 import type { ComponentNode, ComponentPosition, RocketTree } from '@online-openrocket/engine';
 import { asStageNodes, freshId, mountsIn } from '../tree/treeModel.js';
+import { mountBore } from '../tree/scaleRocket.js';
 import { CLUSTER_POINTS, clusterOffsets } from '../tree/cluster.js';
 import { resolveAssemblyRadius } from '../tree/assembly.js';
 import { axialLength, startFromPosition } from '../tree/position.js';
@@ -33,6 +34,23 @@ import type { OrkExportMotor, OrkMotorRef, OrkTreeImportResult } from './orkFile
 // RockSim → SI conversion divisors (desktop RockSimCommonConstants).
 const LEN = 1000; // mm → m
 const RAD = 2000; // mm diameter → m radius
+
+/**
+ * RockSim's `<MotorDia>` (file units) for a mount node — through `mountBore`,
+ * which is the one definition of what a mount's bore IS.
+ *
+ * These were the last two sites still hand-rolling `or − (thickness ?? 0.0005)`
+ * after that arithmetic was centralized. It matters for a sub-minimum
+ * `caseAirframe` design, where the motor case IS the airframe and the fit
+ * reference is the tube's OUTER diameter: the hand-rolled form exported a
+ * 29 mm mount as ~28 mm, understating the very motor the rocket is built
+ * around in any tool that reads the file. Each call site keeps its own default
+ * radius, which is all the two ever really differed by.
+ */
+const motorDia = (n: ComponentNode, defaultOuterRadius: number): number => {
+  const or = typeof n['outerRadius'] === 'number' ? n['outerRadius'] as number : defaultOuterRadius;
+  return mountBore({ ...n, outerRadius: or }) / 2 * RAD;
+};
 const MASS = 1000; // g → kg
 
 const NOSE_SHAPES: Record<string, string> = {
@@ -958,7 +976,7 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
     emit(`<ID>${(nnum(node, 'outerRadius', 0.0095) - nnum(node, 'thickness', 0.0005)) * RAD}</ID>`);
     emit(`<Len>${nnum(node, 'length', 0.07) * LEN}</Len>`);
     emit(`<IsMotorMount>${node['motorMount'] === true ? 1 : 0}</IsMotorMount>`);
-    emit(`<MotorDia>${(nnum(node, 'outerRadius', 0.0095) - nnum(node, 'thickness', 0.0005)) * RAD}</MotorDia>`);
+    emit(`<MotorDia>${motorDia(node, 0.0095)}</MotorDia>`);
     emit(`<EngineOverhang>${nnum(node, 'motorOverhang', 0) * LEN}</EngineOverhang>`);
     emit('<IsInsideTube>1</IsInsideTube>');
     emit(`<RadialLoc>${radialLocM * LEN}</RadialLoc>`);
@@ -1018,7 +1036,7 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
         // Min-diameter: RockSim's BodyTube carries the same mount flag.
         emit(`<IsMotorMount>${node['motorMount'] === true ? 1 : 0}</IsMotorMount>`);
         if (node['motorMount'] === true) {
-          emit(`<MotorDia>${(nnum(node, 'outerRadius', 0.012) - nnum(node, 'thickness', 0.0005)) * RAD}</MotorDia>`);
+          emit(`<MotorDia>${motorDia(node, 0.012)}</MotorDia>`);
           emit(`<EngineOverhang>${nnum(node, 'motorOverhang', 0) * LEN}</EngineOverhang>`);
         }
         emit('<IsInsideTube>0</IsInsideTube>');

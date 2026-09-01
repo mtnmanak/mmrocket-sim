@@ -373,6 +373,32 @@ describe('RockSim export → import round trip', () => {
     expect(xml).not.toMatch(/<KnownMass>10<\/KnownMass>/);
   });
 
+  it('MotorDia for a sub-minimum mount is the OUTER diameter, not the bore', () => {
+    // A caseAirframe body tube is the minimum-diameter case: the motor case IS
+    // the airframe, so the fit reference is the tube's OD. The exporter used to
+    // hand-roll `or − thickness` here — the one site still doing its own
+    // version of the arithmetic `mountBore` owns — and shipped a 29 mm mount as
+    // 28 mm, understating the very motor the rocket is built around.
+    const design = (caseAirframe: boolean) => ({
+      name: 'MD',
+      tree: {
+        components: [{
+          type: 'stage' as const, id: 's', name: 'Sustainer',
+          children: [{
+            type: 'bodytube' as const, id: 'b', length: 0.3,
+            outerRadius: 0.0145, thickness: 0.0005,
+            motorMount: true, caseAirframe,
+          }],
+        }],
+      },
+    });
+    // 14.5 mm radius -> 29 mm OD. RockSim stores diameters in mm.
+    expect(exportRkt(design(true))).toMatch(/<MotorDia>29<\/MotorDia>/);
+    // Without the flag it is a normal mount and the bore is the reference:
+    // (14.5 − 0.5) x 2 = 28 mm.
+    expect(exportRkt(design(false))).toMatch(/<MotorDia>28<\/MotorDia>/);
+  });
+
   it('partial overrides export the computed other value', () => {
     const design = {
       name: 'PO',

@@ -653,12 +653,175 @@ describe('scaleRocket — motor mounts', () => {
     expect(findNode(scaleRocket(t, 2).tree, 'pr')!['mass']).toBeCloseTo(0.32, 12);
   });
 
+  it('a protuberance at its DEFAULT mass of 0 is not a pinned mass', () => {
+    // The sibling of the test above, and the case it created: a protuberance is
+    // born with `mass: 0` (schema.ts), the .ork reader always writes the key,
+    // and the field's own label reads "0 = not counted". Counting `!== null`
+    // made every design holding a stock protuberance tell the user to go and
+    // re-weigh a part that weighs nothing.
+    const bump = (mass: number): RocketTree => ({
+      name: 'bump', components: [{
+        type: 'stage', id: 's', children: [{
+          type: 'bodytube', id: 'b', length: 0.5, outerRadius: 0.03, children: [{
+            type: 'protuberance', id: 'pr', width: 0.02, height: 0.01, mass,
+            position: { method: 'top', offset: 0.1 },
+          } as unknown as ComponentNode],
+        } as ComponentNode],
+      } as ComponentNode],
+    });
+    expect(scaleRocket(bump(0), 2).notes.join(' ')).not.toContain('pinned mass');
+    // Not a blanket "protuberances never count" — a typed weight still does.
+    expect(scaleRocket(bump(0.04), 2).notes.join(' ')).toContain('1 pinned mass');
+    // Same for a deliberate overrideMass of 0: 0 · k³ is 0, so there is
+    // nothing for the reader to go and check.
+    const zeroOverride: RocketTree = {
+      name: 'z', components: [{
+        type: 'stage', id: 's', children: [{
+          type: 'bodytube', id: 'b', length: 0.5, outerRadius: 0.03, overrideMass: 0,
+        } as ComponentNode],
+      } as ComponentNode],
+    };
+    expect(scaleRocket(zeroOverride, 2).notes.join(' ')).not.toContain('pinned mass');
+  });
+
   it('flags an assigned motor that no longer fits', () => {
     const t = withMount(0.038);
     const shrunk = previewMounts(t, 0.5, { mt: 0.038 });
     expect(shrunk[0]!.motorStillFits).toBe(false);
     const grown = previewMounts(t, 2, { mt: 0.038 });
     expect(grown[0]!.motorStillFits).toBe(true);
+  });
+
+  it('the SNAP can lose a motor the scaled bore kept, and says so', () => {
+    // The branch that was left out on the reasoning that snapping goes to the
+    // NEAREST class, so anything the scaled bore accepted the snapped bore
+    // accepts too. False: `nearestCommonClass` only ever answers with a COMMON
+    // class, and the motor database really holds 10.5, 20, 32, 64, 81 and
+    // 161 mm ones. The earlier attempt to build this case used a 45 mm motor,
+    // which is not a class the database has — which is why it looked unreachable.
+    //
+    // 31.75 mm bore x2 = 63.5 mm, which takes a 64 mm motor (bores run 1 mm
+    // oversize). Nearest COMMON class to 63.5 is 54, and 64 does not go in 54.
+    const t = withMount(0.03175);
+    const unsnapped = previewMounts(t, 2, { mt: 0.064 }, false)[0]!;
+    expect(unsnapped.scaledBoreMm).toBeCloseTo(63.5, 9);
+    expect(unsnapped.nearestMm).toBe(54);
+    expect(unsnapped.motorStillFits).toBe(true);
+
+    const snapped = previewMounts(t, 2, { mt: 0.064 }, true)[0]!;
+    expect(snapped.motorStillFits).toBe(false);
+    // The discriminant that separates "the scale lost it" from "the snap lost
+    // it" — the second is undone by clearing a checkbox.
+    expect(snapped.motorFitsUnsnapped).toBe(true);
+
+    const notes = scaleRocket(t, 2, { snapMounts: true, assignedMotorDiameters: { mt: 0.064 } })
+      .notes.join(' ');
+    expect(notes).toContain('Snapping to the standard size is what lost it');
+    expect(notes).toContain('63.5 mm bore still takes it');
+  });
+
+  it('does NOT blame the snap when the scale is what lost the motor', () => {
+    // The other half: shrinking loses the motor whatever the checkbox says, and
+    // telling the user to untick a box that will not help is worse than silence.
+    const t = withMount(0.038);
+    const p = previewMounts(t, 0.5, { mt: 0.038 }, true)[0]!;
+    expect(p.motorStillFits).toBe(false);
+    expect(p.motorFitsUnsnapped).toBe(false);
+    const notes = scaleRocket(t, 0.5, { snapMounts: true, assignedMotorDiameters: { mt: 0.038 } })
+      .notes.join(' ');
+    expect(notes).toContain('no longer fits');
+    expect(notes).not.toContain('what lost it');
+  });
+
+  it('one verdict drives the list, the notes and the notice', () => {
+    // These three used to be re-derived independently and two had already
+    // drifted: an off-class AIRFRAME mount with the snap OFF was told by the
+    // dialog it was "left for you to resize" — an explanation of a snap that
+    // was never going to happen — and by the notes that it simply was not a
+    // standard size.
+    // NOT factor 1 — scaleRocket short-circuits k === 1 to no notes at all, so
+    // a fixture built on it cannot reach the branches this pins.
+    // 20 mm bore x2 = 40 mm, nearest class 38: off-class after scaling.
+    const airframe: RocketTree = {
+      name: 'min', components: [{
+        type: 'stage', id: 's', children: [{
+          type: 'bodytube', id: 'b', length: 0.5, outerRadius: 0.0105, thickness: 0.0005,
+          motorMount: true,
+        } as ComponentNode],
+      } as ComponentNode],
+    };
+    expect(previewMounts(airframe, 2, {}, false)[0]!.scaledBoreMm).toBeCloseTo(40, 9);
+    expect(previewMounts(airframe, 2, {}, false)[0]!.verdict).toBe('off-class');
+    expect(previewMounts(airframe, 2, {}, true)[0]!.verdict).toBe('airframe-left');
+    // Only the snap-on case may talk about being left for the user to resize.
+    expect(scaleRocket(airframe, 2, { snapMounts: false }).notes.join(' '))
+      .not.toContain('NOT snapped');
+    expect(scaleRocket(airframe, 2, { snapMounts: true }).notes.join(' '))
+      .toContain('NOT snapped');
+    // needsAttention is the third consumer and must agree with both.
+    expect(scaleRocket(airframe, 2, { snapMounts: false }).needsAttention).toBe(true);
+    expect(scaleRocket(airframe, 2, { snapMounts: true }).needsAttention).toBe(true);
+    // …and a mount that lands ON a class needs no attention under either
+    // setting. 27 mm bore x2 = 54 mm exactly.
+    const onClass = withMount(0.027);
+    expect(previewMounts(onClass, 2, {}, false)[0]!.verdict).toBe('on-class');
+    expect(scaleRocket(onClass, 2, { snapMounts: false }).needsAttention).toBe(false);
+    expect(scaleRocket(onClass, 2, { snapMounts: true }).needsAttention).toBe(false);
+  });
+
+  it('says UP when the snap goes up, DOWN when it goes down', () => {
+    // Both directions, because a hard-coded word and an INVERTED comparison
+    // fail differently and only one fixture sees each. The app's own default
+    // design is the up case (18 mm bore x2 = 36, snapped up to 38) and every
+    // fixture the suite had before was a down case, which is how "snapped up
+    // from" survived on a mount that shrank.
+    const up = scaleRocket(withMount(0.018), 2, { snapMounts: true }).notes.join(' ');
+    expect(up).toContain('snapped up to the standard 38 mm');
+
+    // 27.4 x2 = 54.8, snapped down to 54.
+    const down = scaleRocket(withMount(0.0274), 2, { snapMounts: true }).notes.join(' ');
+    expect(down).toContain('snapped down to the standard 54 mm');
+  });
+
+  it('the notes name a class the way the dialog does — 75/76, not 75', () => {
+    // classLabel exists because the 75 class covers both 75 and 76 mm casings.
+    // The dialog used it and the notes interpolated the raw number, so the same
+    // mount in the same sitting was "75/76 mm" in one place and "75 mm" in the
+    // other — which reads to a 76 mm casing owner as though their size was not
+    // the one being targeted.
+    const t = withMount(0.038); // 38 mm bore x2 = 76 mm -> class 75
+    const p = previewMounts(t, 2, {}, true)[0]!;
+    expect(p.nearestMm).toBe(75);
+    expect(scaleRocket(t, 2, { snapMounts: true }).notes.join(' ')).toContain('75/76 mm');
+  });
+
+  it('snapping a case-airframe mount writes the bore mountBore will read back', () => {
+    // `outerRadiusForBore` is the inverse of `mountBore`, caseAirframe branch
+    // included. Nothing in the UI makes a caseAirframe INNER tube today — which
+    // is exactly why the writer's hard-coded `bore/2 + wall` looked safe — so
+    // this builds one directly: a split held shut by call-site geometry is one
+    // wrong assumption away from opening.
+    const t: RocketTree = {
+      name: 'case', components: [{
+        type: 'stage', id: 's', children: [{
+          type: 'bodytube', id: 'b', length: 0.5, outerRadius: 0.04, children: [{
+            type: 'innertube', id: 'mt', length: 0.2, outerRadius: 0.0175,
+            thickness: 0.0008, motorMount: true, caseAirframe: true,
+            position: { method: 'bottom', offset: 0 },
+          } as unknown as ComponentNode],
+        } as ComponentNode],
+      } as ComponentNode],
+    };
+    // caseAirframe: the bore IS the outer diameter. 17.5 mm radius -> 35 mm,
+    // x2 = 70 mm, nearest common class 75.
+    const p = previewMounts(t, 2, {}, true)[0]!;
+    expect(p.scaledBoreMm).toBeCloseTo(70, 9);
+    expect(p.nearestMm).toBe(75);
+    expect(p.finalBoreMm).toBeCloseTo(75, 9);
+    const applied = scaleRocket(t, 2, { snapMounts: true }).tree;
+    // The promise the preview made, read back through the reader. With the old
+    // writer this came out at 75 + 2x1.6 = 78.2 mm.
+    expect(mountBore(findNode(applied, 'mt')!) * 1000).toBeCloseTo(75, 9);
   });
 });
 

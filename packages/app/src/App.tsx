@@ -2150,10 +2150,20 @@ export function App() {
   const mountDiaMm = (m: ReturnType<typeof findNode>) =>
     (m ? Math.round(mountBore(m) * 1000) : 18);
   /**
-   * Motor diameter (m) per mount id, memoized. Built inline it was a new object
-   * on every render, which defeated the Scale dialog's own `previewMounts` memo
-   * — so typing one character in the factor box re-walked the component tree
-   * and re-scanned MOTOR_DB once per mount.
+   * Motor diameter (m) per mount id, memoized.
+   *
+   * NOT because typing in the Scale dialog rebuilds it — the factor is the
+   * dialog's own state, so a keystroke re-renders the dialog alone, this
+   * object keeps its identity across those renders, and `previewMounts`
+   * recomputes anyway because the factor is one of its deps. (An earlier
+   * comment here claimed the keystroke path; measurement says otherwise, and a
+   * comment that contradicts the measurement sends the next reader past the
+   * real cost, which is `allClasses` rescanning the motor DB — cached at
+   * source in `motorDb.ts`.)
+   *
+   * What it does buy: App re-renders for its OWN reasons while the dialog is
+   * open — sim progress ticks, notices, autosave — and each of those would
+   * otherwise hand the dialog a fresh object and re-walk the tree.
    */
   const assignedMotorDiameters = useMemo(
     () => Object.fromEntries(assigned.map(([id, mm]) => [id, mm.spec.diameter])),

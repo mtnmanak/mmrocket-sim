@@ -100,8 +100,27 @@ export function classLabel(cls: number): string {
   return cls === 75 ? '75/76' : String(cls);
 }
 
+/**
+ * The default argument's answer, derived once.
+ *
+ * `MOTOR_DB` is a static import of 1,129 rows and the classes in it never
+ * change, but `allClasses()` was rebuilding a map, a Set and a sort on every
+ * call — and `classesFittingMount` calls it, which `previewMounts` calls once
+ * per motored mount on every keystroke in the Scale dialog, on top of five
+ * callers in the motor browser. Small (~0.04 ms a call) and pure waste.
+ */
+let defaultClasses: number[] | null = null;
+
 /** All diameter classes present in the database, ascending. */
 export function allClasses(motors: MotorDbEntry[] = MOTOR_DB): number[] {
+  if (motors === MOTOR_DB) {
+    defaultClasses ??= [...new Set(motors.map((m) => diameterClass(m.diameter)))]
+      .sort((a, b) => a - b);
+    // A copy, so a caller that sorts or splices the result in place cannot
+    // corrupt the cache for everyone else. Seventeen numbers; the scan of
+    // 1,129 rows is the part worth not repeating.
+    return defaultClasses.slice();
+  }
   return [...new Set(motors.map((m) => diameterClass(m.diameter)))].sort((a, b) => a - b);
 }
 

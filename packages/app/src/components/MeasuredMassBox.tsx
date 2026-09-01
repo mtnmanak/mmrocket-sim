@@ -78,7 +78,16 @@ export function MeasuredMassBox({
           <label htmlFor="measured-mass">
             Measured mass <UnitChip quantity="mass" />
           </label>
+          {/* These two ids are what the labels above have always pointed at.
+              Until NumField took an `id` they reached nothing — the wrapper
+              div is not a labelable element — so clicking either label did
+              nothing at all. An app-wide sweep for htmlFor with no matching id
+              finds exactly these two; every other NumField in the app carries
+              a label that was never wired in the first place and is named by
+              `ariaLabel` instead. The ariaLabel stays here: it opens with the
+              visible text, so it extends the name rather than replacing it. */}
           <NumField
+            id="measured-mass"
             value={massKg === null ? undefined : siToUi('mass', massSym, massKg)}
             onCommit={(v) => onChange({
               ...measured,
@@ -95,6 +104,7 @@ export function MeasuredMassBox({
             Measured CG from nose tip <UnitChip quantity="length" />
           </label>
           <NumField
+            id="measured-cg"
             value={cgM === null ? undefined : siToUi('length', lenSym, cgM)}
             onCommit={(v) => onChange({
               ...measured,

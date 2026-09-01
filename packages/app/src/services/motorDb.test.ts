@@ -130,6 +130,22 @@ describe('filtering and sorting', () => {
   it('every DB class is reachable through some mount size', () => {
     expect(classesFittingMount(200).length).toBe(allClasses().length);
   });
+
+  it('the cached default answer cannot be corrupted by a caller', () => {
+    // allClasses() is derived once for the default argument and handed back as
+    // a COPY. Returning the cache itself would work perfectly until the day
+    // some caller sorted or spliced the result in place, at which point every
+    // later caller — the motor browser's filters, the Scale dialog's fit
+    // check — would silently see the mangled list. Nothing mutates it today,
+    // which is exactly why the contract needs a test rather than a habit.
+    const first = allClasses();
+    const expected = [...first];
+    first.length = 0;
+    first.push(-1);
+    expect(allClasses()).toEqual(expected);
+    // …and the cache is still the same answer as a fresh uncached derivation.
+    expect(allClasses()).toEqual(allClasses(MOTOR_DB.slice()));
+  });
 });
 
 describe('display designations (the owner\'s cleanup rules)', () => {

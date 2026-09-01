@@ -1,5 +1,7 @@
 import type { ComponentNode, ComponentPosition, RocketTree } from '@online-openrocket/engine';
-import { classesFittingMount, diameterClass, nearestCommonClass } from '../services/motorDb.js';
+import {
+  classLabel, classesFittingMount, diameterClass, nearestCommonClass,
+} from '../services/motorDb.js';
 import { motorMounts } from './treeModel.js';
 
 /**
@@ -231,26 +233,29 @@ export function mountBore(n: ComponentNode): number {
 }
 
 /**
+ * The outer radius a mount needs in order to HAVE a given bore — the exact
+ * inverse of `mountBore`, `caseAirframe` branch included.
+ *
+ * The snap writer used to hard-code `bore/2 + wall`, which is only the
+ * non-case branch. Nothing reached the other one today (a `caseAirframe` flag
+ * is written on body tubes, and a body tube is never snapped), so it was a
+ * split held shut by call-site geometry rather than by the code — the same
+ * shape of latent bug that put a snapped tube 1 mm off the class it reported.
+ * Writing the inverse next to the reader means the next thing that makes a
+ * case-airframe mount snappable cannot re-open it.
+ */
+function outerRadiusForBore(n: ComponentNode, boreM: number): number {
+  if (n['caseAirframe'] === true) return boreM / 2;
+  return boreM / 2 + mountWall(n);
+}
+
+/**
  * How close a scaled bore has to be to a standard casing size to count as
  * being ON it. One constant: the same test was written out four times across
  * two files, so changing it meant four coordinated edits and one miss made the
  * dialog's list disagree with its own checkbox.
  */
 export const CLASS_TOLERANCE_MM = 0.05;
-
-/**
- * A mount node as `scaleNode` will leave it — outer radius and any PRESENT
- * wall multiplied, an absent wall left absent. Only the two keys `mountBore`
- * reads; this exists so the preview and the applied tree cannot disagree.
- */
-function scaledMountShape(n: ComponentNode, k: number): ComponentNode {
-  const out: ComponentNode = { ...n };
-  const or = num(n, 'outerRadius');
-  if (or !== null) out['outerRadius'] = or * k;
-  const th = num(n, 'thickness');
-  if (th !== null) out['thickness'] = th * k;
-  return out;
-}
 
 export interface MountPreview {
   id: string;
@@ -266,6 +271,19 @@ export interface MountPreview {
   onStandardClass: boolean;
   /** Can snapping do anything here — an inner tube that is not already on a class? */
   snappable: boolean;
+  /**
+   * What is going to happen to this mount, decided ONCE.
+   *
+   * The dialog's list, the post-apply notes and the notice severity each used
+   * to re-derive this from `onStandardClass` / `snappable` / `isAirframe` in
+   * their own words, and two of the three had already drifted apart: an
+   * off-class airframe mount with the snap OFF was told by the dialog that it
+   * was "left for you to resize" (true only when you asked for a snap) and by
+   * the notes that it simply was not a standard size. One discriminant, three
+   * consumers, so the next change to what counts as snapped cannot make the
+   * dialog promise one outcome and the note report another.
+   */
+  verdict: 'on-class' | 'snapped' | 'airframe-left' | 'off-class';
   /** The assigned motor's class (mm), when one is loaded. */
   motorMm: number | null;
   /** True when the mount IS the airframe (a body tube with motorMount) — never snapped. */
@@ -277,6 +295,21 @@ export interface MountPreview {
    * ignore the warning.
    */
   motorStillFits: boolean;
+  /**
+   * Would the motor still fit if the snap were OFF — i.e. against the plain
+   * scaled bore?
+   *
+   * This is what separates "the scale lost your motor" from "the SNAP lost
+   * your motor", and the second one is fixable by clearing a checkbox. A
+   * comment here used to assert the second case could not happen, on the
+   * reasoning that snapping goes to the NEAREST class so anything the scaled
+   * bore took the snapped bore takes too. That is false: `nearestCommonClass`
+   * only ever answers with a COMMON class, while the motor database really
+   * contains 10.5, 20, 32, 64, 81 and 161 mm classes. A 64 mm motor in a bore
+   * scaled to 63.5 mm fits, and snapping that bore to the nearest common class
+   * — 54 — loses it.
+   */
+  motorFitsUnsnapped: boolean;
 }
 
 /**
@@ -298,7 +331,14 @@ export function previewMounts(
     // thickness the preview and the applied tree disagreed by 2·0.0005·(k−1):
     // "28.0 → 56.0 mm" against a real 57.0 mm at k = 2. This is the same
     // reader/writer split `mountWall` closed on the snap path, still open here.
-    const scaledBoreMm = mountBore(scaledMountShape(m, factor)) * 1000;
+    //
+    // It runs the REAL `scaleNode`, not a hand-kept twin of it. The twin had
+    // to track LENGTH_KEYS by hand and omitted `scaleNode`'s round(), so the
+    // preview and the applied tree already differed in the 1e-9 mm — a
+    // docstring promising they "cannot disagree" resting on two functions
+    // somebody remembers to keep in step. `scaleNode` scales keys `mountBore`
+    // never reads, which costs nothing and cannot drift.
+    const scaledBoreMm = mountBore(scaleNode(m, factor)) * 1000;
     const nearestMm = nearestCommonClass(scaledBoreMm);
     const motorM = m.id ? assigned[m.id] : undefined;
     const motorMm = typeof motorM === 'number' ? motorM * 1000 : null;
@@ -310,6 +350,16 @@ export function previewMounts(
     // already on a class.
     const snappable = !isAirframe && !onStandardClass;
     const finalBoreMm = snapMounts && snappable ? nearestMm : scaledBoreMm;
+    // `airframe-left` means "you asked for a snap and this one could not take
+    // it", so it is gated on snapMounts: with the box unticked nothing was
+    // going to be snapped, and blaming the mount's airframe-ness for that is
+    // an explanation of something that did not happen.
+    const verdict: MountPreview['verdict'] = onStandardClass ? 'on-class'
+      : snapMounts && snappable ? 'snapped'
+        : snapMounts && isAirframe ? 'airframe-left'
+          : 'off-class';
+    const fits = (boreMm2: number) => motorMm === null
+      || classesFittingMount(boreMm2).includes(diameterClass(motorMm));
     return {
       id: m.id ?? '',
       name: m.name ?? 'Motor mount',
@@ -319,10 +369,11 @@ export function previewMounts(
       finalBoreMm,
       onStandardClass,
       snappable,
+      verdict,
       motorMm,
       isAirframe,
-      motorStillFits: motorMm === null
-        || classesFittingMount(finalBoreMm).includes(diameterClass(motorMm)),
+      motorStillFits: fits(finalBoreMm),
+      motorFitsUnsnapped: fits(scaledBoreMm),
     };
   });
 }
@@ -415,7 +466,15 @@ export function scaleRocket(
     // protuberance both carry one, and both are scaled by scaleNode — so
     // naming only `masscomponent` here left a protuberance's weight cubed
     // silently. Drive it off the same list scaleNode uses, not off a type.
-    if (!FIXED_SIZE.has(type) && MASS_KEYS.some((key) => num(n, key) !== null)) massPinned++;
+    //
+    // ZERO IS NOT A PINNED WEIGHT. A protuberance is created with `mass: 0`
+    // (schema.ts), the `.ork` reader always writes the key, and the field's
+    // own label reads "0 = not counted" — so testing `!== null` made every
+    // design containing a stock protuberance report a pinned mass it does not
+    // have and tell the user to re-weigh a part weighing nothing. It is also
+    // the right test for a deliberate `overrideMass: 0`: 0 · k³ is 0, so there
+    // is nothing for the reader to go and check either way.
+    if (!FIXED_SIZE.has(type) && MASS_KEYS.some((key) => (num(n, key) ?? 0) !== 0)) massPinned++;
     const scaled = scaleNode(n, k);
     return n.children ? { ...scaled, children: walk(n.children) } as ComponentNode : scaled;
   });
@@ -438,42 +497,57 @@ export function scaleRocket(
       // discontinuous with the nose cone above it. Those mounts are reported
       // in the summary and left for the user to resize deliberately.
       if (target !== undefined) {
-        // The wall here is the SCALED wall (this runs on the scaled tree), so
-        // the snapped tube keeps the proportions the scale gave it and only
-        // its bore lands on the standard size.
-        out = { ...n, outerRadius: round(target / 2 + mountWall(n)) } as ComponentNode;
+        // Through `outerRadiusForBore`, the inverse of `mountBore`, so the
+        // bore this writes back is the bore the preview promised whatever the
+        // mount type. The wall it uses is the SCALED wall (this runs on the
+        // scaled tree), so the snapped tube keeps the proportions the scale
+        // gave it and only its bore lands on the standard size.
+        out = { ...n, outerRadius: round(outerRadiusForBore(n, target)) } as ComponentNode;
       }
       return out.children ? { ...out, children: snap(out.children) } as ComponentNode : out;
     });
     next = { ...next, components: snap(next.components) };
   }
   for (const m of mounts) {
-    const landed = m.onStandardClass;
+    // The class is named through `classLabel` here exactly as the dialog names
+    // it, so the 75 class does not read "75/76 mm" in the dialog and "75 mm"
+    // in the note about the same mount in the same sitting — which reads to a
+    // 76 mm casing owner as though their size was not the one targeted.
+    const cls = `${classLabel(m.nearestMm)} mm`;
     const head = `${m.name}: ${m.boreMm.toFixed(1)} mm bore becomes ${m.scaledBoreMm.toFixed(1)} mm`;
-    if (opts.snapMounts && !landed && m.isAirframe) {
-      mountNotes.push(`${head}, which is not a standard motor size (nearest is ${m.nearestMm} mm)`
+    // Switched on the SAME discriminant the dialog renders from — see
+    // `MountPreview.verdict`.
+    if (m.verdict === 'airframe-left') {
+      mountNotes.push(`${head}, which is not a standard motor size (nearest is ${cls})`
         + ' — and it was NOT snapped, because this mount IS the airframe (a minimum-diameter'
         + ' design). Resize it yourself so the tube above it still matches.');
-    } else if (opts.snapMounts && !landed) {
-      mountNotes.push(`${head} — snapped to the standard ${m.nearestMm} mm.`);
-    } else if (landed) {
-      mountNotes.push(`${head}, which is the standard ${m.nearestMm} mm.`);
+    } else if (m.verdict === 'snapped') {
+      mountNotes.push(`${head} — snapped ${m.nearestMm > m.scaledBoreMm ? 'up' : 'down'}`
+        + ` to the standard ${cls}.`);
+    } else if (m.verdict === 'on-class') {
+      mountNotes.push(`${head}, which is the standard ${cls}.`);
     } else {
       mountNotes.push(`${head}, which is not a standard motor size `
-        + `(nearest is ${m.nearestMm} mm) — pick the mount you can actually build.`);
+        + `(nearest is ${cls}) — pick the mount you can actually build.`);
     }
     if (m.motorMm !== null && !m.motorStillFits) {
       // Name the bore that actually rejected it — the FINAL one, which is the
       // snapped bore when snapping applied. Naming the scaled bore there sent
       // the user to look at a number that was not the problem.
       //
-      // There is deliberately no "the snap is what lost it" branch: snapping
-      // goes to the NEAREST class, so a motor the scaled bore accepted is
-      // accepted by the snapped bore too for every real casing size. Writing
-      // that branch anyway produced code no test could reach.
+      // And say so when the SNAP is what lost it, because that one is undone
+      // by clearing a checkbox rather than by choosing a different motor. This
+      // branch was left out once on the reasoning that snapping goes to the
+      // nearest class so it can never lose a motor the scaled bore kept — see
+      // `motorFitsUnsnapped` for why that is false and how to reach it.
+      const snapLostIt = m.verdict === 'snapped' && m.motorFitsUnsnapped;
       mountNotes.push(`${m.name}: the ${m.motorMm.toFixed(0)} mm motor loaded in it no longer `
-        + `fits the ${m.finalBoreMm.toFixed(1)} mm bore. Choose another motor on `
-        + 'Motors & Launch.');
+        + `fits the ${m.finalBoreMm.toFixed(1)} mm bore.`
+        + (snapLostIt
+          ? ' Snapping to the standard size is what lost it — untick “Snap to standard motor'
+            + ` sizes” and the scaled ${m.scaledBoreMm.toFixed(1)} mm bore still takes it.`
+          : '')
+        + ' Choose another motor on Motors & Launch.');
     }
   }
 
@@ -542,7 +616,10 @@ export function scaleRocket(
     notes.push('This design has no fin set, so nothing here checks its stability.');
   }
 
+  // Third consumer of the one discriminant. Equivalent to the condition it
+  // replaces (`!onStandardClass && !(snapMounts && snappable)`), stated in the
+  // same vocabulary as the list and the notes.
   const needsAttention = mounts.some((m) => !m.motorStillFits
-    || (!m.onStandardClass && !(opts.snapMounts && m.snappable)));
+    || m.verdict === 'airframe-left' || m.verdict === 'off-class');
   return { tree: next, notes, needsAttention };
 }

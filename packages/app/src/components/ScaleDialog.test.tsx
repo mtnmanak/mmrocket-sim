@@ -184,6 +184,44 @@ describe('ScaleDialog', () => {
     expect(sel.value).toBe('0.102');
   });
 
+  it('setting the factor any other way clears the catalogue choice', async () => {
+    // The catalogue select names a tube; the factor box names a number. Once
+    // the factor is changed from anywhere else, the select is naming a tube
+    // whose OD contradicts the factor on screen. This was pasted into two
+    // handlers and MISSED on the 0.5x / 2x buttons, which is the bug — so all
+    // three entry points are exercised here, not just the one that had it.
+    const pick = (sel: HTMLSelectElement) => act(() => {
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLSelectElement.prototype, 'value')!.set!;
+      setter.call(sel, '0.102');
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+
+    // 1. the quick buttons — the entry point that lacked the clear
+    await render();
+    let sel = host.querySelector('select') as HTMLSelectElement;
+    pick(sel);
+    expect(sel.value).toBe('0.102');
+    const quick = [...host.querySelectorAll('button')].find((b) => b.textContent === '2×')!;
+    act(() => { quick.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    expect(sel.value, 'the 2× button must clear the catalogue choice').toBe('');
+    expect(text()).toContain('200.0 %');
+
+    // 2. typing a factor
+    await render();
+    sel = host.querySelector('select') as HTMLSelectElement;
+    pick(sel);
+    type(numberInputs()[0]!, '3');
+    expect(sel.value, 'typing a factor must clear the catalogue choice').toBe('');
+
+    // 3. typing a target diameter
+    await render();
+    sel = host.querySelector('select') as HTMLSelectElement;
+    pick(sel);
+    type(numberInputs()[1]!, '78');
+    expect(sel.value, 'typing a diameter must clear the catalogue choice').toBe('');
+  });
+
   it('the snap checkbox reaches the transform and changes the result', async () => {
     await render();
     const box = host.querySelector('input[type=checkbox]') as HTMLInputElement;
@@ -199,12 +237,20 @@ describe('ScaleDialog', () => {
     // The LIST must show the bore the user gets, or it contradicts the fit
     // verdict on the same line: 54.0, not the 54.8 it passed through.
     expect(text()).toContain('54.0 mm');
-    expect(text()).toContain('snapped up from 54.8 mm');
+    // DOWN, and the word is not decorative. 54.8 snaps to 54: both the bore and
+    // the outer radius get SMALLER, and the copy said "snapped up" in every
+    // case because the direction was hard-coded. This fixture is one of the two
+    // the suite already had, and both of them snap downward — so the assertion
+    // that pinned "up" was pinning the bug.
+    expect(text()).toContain('snapped down from 54.8 mm');
+    expect(text()).not.toContain('snapped up');
     // 27.4 mm bore x2 = 54.8, snapped to the standard 54: outer radius is
     // 54/2 + the scaled 0.8 mm wall = 28.6 mm.
     const mount = applied!.tree.components[0]!.children![1]!.children![0]!;
     expect(mount['outerRadius']).toBeCloseTo(0.054 / 2 + 0.0008 * 2, 12);
-    expect(applied!.notes.join(' ')).toContain('snapped to the standard 54 mm');
+    // The note carries the direction too, and says the same thing the list
+    // says — they are rendered from one `verdict`, not from two re-derivations.
+    expect(applied!.notes.join(' ')).toContain('snapped down to the standard 54 mm');
   });
 
   it('the preview follows the snap setting, so a fixed warning disappears', async () => {

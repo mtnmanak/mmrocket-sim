@@ -58,6 +58,34 @@ const LEGACY: Record<FieldDef['unit'], { quantity: Quantity | null; toSI: number
 const PLAIN_SUFFIX: Partial<Record<FieldDef['unit'], string>> = { s: 's' };
 
 /**
+ * What to call the component that is overriding this one. Three copies of this
+ * fallback chain existed, and they did not agree on the last resort ("a part
+ * above this one" / "a part above").
+ */
+const blockerName = (n: ComponentNode): string =>
+  n.name || DISPLAY_NAME[n.type] || 'a part above this one';
+
+/**
+ * "Your drag number is not reaching the flight" — shared by the protuberance
+ * and camera-shroud figures.
+ *
+ * It was copy-pasted between the two panels, differing in one phrase, and this
+ * commit exists partly because a fix to one of that pair was not applied to
+ * the other. `replaces` is the only thing that ever legitimately differed.
+ */
+function CdBlockedNotice({ blocker, replaces }: { blocker: ComponentNode; replaces: string }) {
+  return (
+    <>
+      {' '}<strong>None of it is reaching the flight right now:</strong>{' '}
+      “{blockerName(blocker)}”
+      {' '}has a drag-coefficient override with <em>Use instead of everything
+      inside</em> ticked, so its figure replaces {replaces}. Clear that override to
+      fly the number above.
+    </>
+  );
+}
+
+/**
  * Slider synced with a numeric value (display units). The range grows to
  * include an out-of-range typed value, and is frozen for the duration of a
  * drag so the handle doesn't chase its own updates.
@@ -200,7 +228,7 @@ function SubcomponentsToggle({ tree, node, quantity, valueKey, flagKey, onPatch 
     // is being stood in for either way, so the explanation is owed regardless.
     return (
       <p className="override-suppressed" role="note">
-        Not in use — <strong>{blocker.name || DISPLAY_NAME[blocker.type] || 'a part above'}</strong>
+        Not in use — <strong>{blockerName(blocker)}</strong>
         {' '}stands in for the {quantity} of everything inside it. Untick its
         “Use instead of everything inside” to use this.
       </p>
@@ -835,15 +863,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
                 off the Drag tab.
               </>
             )}
-            {cdBlocker && (
-              <>
-                {' '}<strong>None of it is reaching the flight right now:</strong>{' '}
-                “{cdBlocker.name || DISPLAY_NAME[cdBlocker.type] || 'a part above this one'}”
-                {' '}has a drag-coefficient override with <em>Use instead of everything
-                inside</em> ticked, so its figure replaces this one. Clear that override to
-                fly the number above.
-              </>
-            )}
+            {cdBlocker && <CdBlockedNotice blocker={cdBlocker} replaces="this one" />}
             {' '}Drag only — a protuberance adds no normal force and does not
             move the CP, the same as RASAero.
             {' '}For real rail buttons prefer the <em>Rail button</em> component:
@@ -902,15 +922,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
             {' '}The coefficient is a Hoerner surface-protuberance value for the two end
             shapes, and it has no wind-tunnel anchor of its own — treat the shroud&rsquo;s
             drag as an estimate with a stated method, not a measurement.
-            {cdBlocker && (
-              <>
-                {' '}<strong>None of it is reaching the flight right now:</strong>{' '}
-                “{cdBlocker.name || DISPLAY_NAME[cdBlocker.type] || 'a part above this one'}”
-                {' '}has a drag-coefficient override with <em>Use instead of everything
-                inside</em> ticked, so its figure replaces this shroud&rsquo;s. Clear that
-                override to fly the number above.
-              </>
-            )}
+            {cdBlocker && <CdBlockedNotice blocker={cdBlocker} replaces="this shroud’s" />}
           </p>
         );
       })()}
