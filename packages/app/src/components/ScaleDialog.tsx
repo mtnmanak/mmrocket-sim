@@ -87,7 +87,7 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
     () => previewMounts(tree, factor, assignedMotorDiameters, snapMounts),
     [tree, factor, assignedMotorDiameters, snapMounts],
   );
-  const offClass = mounts.filter((m) => Math.abs(m.scaledBoreMm - m.nearestMm) >= 0.05);
+  const snappable = mounts.filter((m) => m.snappable);
   const lostMotors = mounts.filter((m) => !m.motorStillFits);
 
   const fmt = (si: number, places = 1) => siToUi('length', lenSym, si).toFixed(places);
@@ -130,12 +130,15 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
             </p>
 
             <div className="field">
-              {/* No htmlFor: NumField owns its input and takes no id, so a
-                  htmlFor here pointed at nothing and clicking the label did
-                  nothing. The field carries an ariaLabel instead. */}
-              <label>Scale by</label>
+              {/* The htmlFor is live again: NumField now takes an `id` and puts it
+                  on the real <input>. Before, it pointed at nothing (the wrapper
+                  div is not labelable) so clicking this label did nothing, while
+                  the <select>'s label below worked — and simply deleting the
+                  dangling attribute would have left that behaviour unchanged. */}
+              <label htmlFor="scale-factor">Scale by</label>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <NumField
+                  id="scale-factor"
                   value={factor}
                   onCommit={(v) => { if (v !== null && v > 0) { setFactor(v); setTubeOd(''); } }}
                   min={0.01}
@@ -151,7 +154,7 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
                     key={f}
                     type="button"
                     className="file-btn"
-                    onClick={() => setFactor(f)}
+                    onClick={() => { setFactor(f); setTubeOd(''); }}
                   >
                     {f}×
                   </button>
@@ -160,8 +163,9 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
             </div>
 
             <div className="field">
-              <label>New body diameter ({lenSym})</label>
+              <label htmlFor="scale-target">New body diameter ({lenSym})</label>
               <NumField
+                id="scale-target"
                 value={Number(siToUi('length', lenSym, targetD).toFixed(4))}
                 onCommit={(v) => {
                   if (v === null || !(v > 0)) return;
@@ -220,10 +224,19 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
                 <ul className="comp-stats" style={{ margin: 0, paddingLeft: 18 }}>
                   {mounts.map((m) => (
                     <li key={m.id}>
-                      {m.name}: {m.boreMm.toFixed(1)} → <strong>{m.scaledBoreMm.toFixed(1)} mm</strong>
-                      {Math.abs(m.scaledBoreMm - m.nearestMm) < 0.05
+                      {m.name}: {m.boreMm.toFixed(1)} →{' '}
+                      <strong>{m.finalBoreMm.toFixed(1)} mm</strong>
+                      {m.onStandardClass
                         ? <> — a standard {classLabel(m.nearestMm)} mm.</>
-                        : <> — not a motor size you can buy; nearest is {classLabel(m.nearestMm)} mm.</>}
+                        : snapMounts && m.snappable
+                          ? <> — snapped up from {m.scaledBoreMm.toFixed(1)} mm to the
+                            standard {classLabel(m.nearestMm)} mm.</>
+                          : m.isAirframe
+                            ? <> — not a motor size you can buy (nearest is{' '}
+                              {classLabel(m.nearestMm)} mm), and this mount <em>is</em> the
+                              airframe, so it is left for you to resize.</>
+                            : <> — not a motor size you can buy; nearest is{' '}
+                              {classLabel(m.nearestMm)} mm.</>}
                       {!m.motorStillFits && m.motorMm !== null && (
                         <> <strong>The {m.motorMm.toFixed(0)} mm motor loaded in it will no longer
                           fit.</strong></>
@@ -231,7 +244,7 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
                     </li>
                   ))}
                 </ul>
-                {offClass.length > 0 && (
+                {snappable.length > 0 && (
                   <label style={{ display: 'flex', gap: 6, alignItems: 'flex-start', marginTop: 6 }}>
                     <input
                       type="checkbox"

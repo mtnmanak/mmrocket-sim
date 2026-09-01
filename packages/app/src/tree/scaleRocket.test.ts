@@ -567,6 +567,92 @@ describe('scaleRocket — motor mounts', () => {
       .notes.join(' ')).toContain('no longer fits');
   });
 
+  it('previews the bore the SCALED TREE really has, blank wall included', () => {
+    // scaleNode multiplies a thickness only when it is PRESENT, so an absent
+    // wall stays absent and the kernel keeps applying its own 0.5 mm default
+    // to the bigger tube. Multiplying the whole bore by k assumed the default
+    // scaled too, and the preview then disagreed with the applied tree by
+    // 2 x 0.0005 x (k-1) - the same reader/writer split the snap path closed.
+    const blank: RocketTree = {
+      name: 'blank', components: [{
+        type: 'stage', id: 's', children: [{
+          type: 'bodytube', id: 'b', length: 0.5, outerRadius: 0.03, children: [{
+            type: 'innertube', id: 'mt', length: 0.2, outerRadius: 0.0145,
+            motorMount: true, position: { method: 'bottom', offset: 0 },
+          } as ComponentNode],
+        } as ComponentNode],
+      } as ComponentNode],
+    };
+    const preview = previewMounts(blank, 2)[0]!;
+    const applied = findNode(scaleRocket(blank, 2).tree, 'mt')!;
+    expect(applied['thickness']).toBeUndefined();       // still automatic
+    expect(preview.scaledBoreMm).toBeCloseTo(mountBore(applied) * 1000, 9);
+    // 0.029 outer, kernel's 0.5 mm wall -> 57.0 mm, NOT 28.0 x 2 = 56.0.
+    expect(preview.scaledBoreMm).toBeCloseTo(57, 9);
+  });
+
+  it('a min-diameter mount is never counted as snappable, motor and all', () => {
+    // The !isAirframe term in finalBoreMm had no test: the min-diameter case
+    // passed no motor, so motorStillFits was unconditionally true and the
+    // guard never ran. With a motor loaded the mutation is visible - snapping
+    // would report a fit for a bore the transform then refuses to change.
+    const md: RocketTree = {
+      name: 'md', components: [{
+        type: 'stage', id: 's', children: [{
+          type: 'bodytube', id: 'b', length: 0.5, outerRadius: 0.0145, thickness: 0.0008,
+          motorMount: true,
+        } as ComponentNode],
+      } as ComponentNode],
+    };
+    // Bore 27.4 x 1.9 = 52.1 mm; a 54 will not enter it, and snapping is
+    // refused because this tube IS the airframe.
+    const p = previewMounts(md, 1.9, { b: 0.054 }, true)[0]!;
+    expect(p.isAirframe).toBe(true);
+    expect(p.snappable).toBe(false);
+    expect(p.finalBoreMm).toBeCloseTo(p.scaledBoreMm, 9);
+    expect(p.motorStillFits).toBe(false);
+  });
+
+  it('names the FINAL bore when a motor stops fitting, not the pre-snap one', () => {
+    // 27.4 mm bore at 1.9x is 52.1 mm and a 54 will not enter it; snapped, the
+    // bore is exactly 54 and it does. Whichever way the user leaves the tick
+    // box, the note has to name the bore they are getting.
+    const t = withMount(0.0274);
+    const unsnapped = scaleRocket(t, 1.9, { assignedMotorDiameters: { mt: 0.054 } });
+    expect(unsnapped.notes.join(' ')).toContain('no longer fits the 52.1 mm bore');
+    const snapped = scaleRocket(t, 1.9, {
+      snapMounts: true, assignedMotorDiameters: { mt: 0.054 },
+    });
+    expect(snapped.notes.join(' ')).not.toContain('no longer fits');
+
+    // And the case where the two bores DIFFER and the motor fits neither:
+    // 27.4 mm halved is 13.7 mm, snapped to the standard 13. The note must
+    // name 13.0 — the bore the user gets — not the 13.7 it passed through.
+    const shrunk = scaleRocket(t, 0.5, {
+      snapMounts: true, assignedMotorDiameters: { mt: 0.029 },
+    }).notes.join(' ');
+    expect(shrunk).toContain('no longer fits the 13.0 mm bore');
+    expect(shrunk).not.toContain('13.7 mm bore');
+  });
+
+  it('counts a protuberance’s typed weight in the re-weigh note too', () => {
+    // Same gap as the mass component one, one type over: scaleNode cubes a
+    // protuberance's `mass` exactly the same way, so naming only
+    // 'masscomponent' in the count left it silent.
+    const t: RocketTree = {
+      name: 'bump', components: [{
+        type: 'stage', id: 's', children: [{
+          type: 'bodytube', id: 'b', length: 0.5, outerRadius: 0.03, children: [{
+            type: 'protuberance', id: 'pr', width: 0.02, height: 0.01, mass: 0.04,
+            position: { method: 'top', offset: 0.1 },
+          } as unknown as ComponentNode],
+        } as ComponentNode],
+      } as ComponentNode],
+    };
+    expect(scaleRocket(t, 2).notes.join(' ')).toContain('1 pinned mass');
+    expect(findNode(scaleRocket(t, 2).tree, 'pr')!['mass']).toBeCloseTo(0.32, 12);
+  });
+
   it('flags an assigned motor that no longer fits', () => {
     const t = withMount(0.038);
     const shrunk = previewMounts(t, 0.5, { mt: 0.038 });

@@ -196,6 +196,10 @@ describe('ScaleDialog', () => {
     const btn = [...host.querySelectorAll('button')]
       .find((b) => b.textContent?.includes('Scale to'))!;
     act(() => { btn.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    // The LIST must show the bore the user gets, or it contradicts the fit
+    // verdict on the same line: 54.0, not the 54.8 it passed through.
+    expect(text()).toContain('54.0 mm');
+    expect(text()).toContain('snapped up from 54.8 mm');
     // 27.4 mm bore x2 = 54.8, snapped to the standard 54: outer radius is
     // 54/2 + the scaled 0.8 mm wall = 28.6 mm.
     const mount = applied!.tree.components[0]!.children![1]!.children![0]!;

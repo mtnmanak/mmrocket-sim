@@ -787,6 +787,12 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
           .bodyDragReference). A user who cannot see where 0.354 came from
           cannot check us, so the sentence names the method, prints BOTH body
           CDs it measured, and says which Mach they were taken at. */}
+      {/* Shared by the protuberance and shroud blocks below. Both synthesize
+          their whole physics as an `overrideCD` at the engine boundary, and the
+          kernel DISCARDS a component's CD when an ancestor overrides Cd with
+          "Use instead of everything inside" ticked — so both must say when the
+          figure they print is not reaching the flight. Fixing only one of them
+          is how the same defect survives in the other. */}
       {(node.type as string) === 'protuberance' && (() => {
         // Both rules come from treeModel, so the panel cannot explain a Cd the
         // engine did not use: resolving the class here with String(...) gave a
@@ -799,6 +805,9 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
         const zeroed = !explicit && node['cdFrontal'] === 0;
         const streamlined = !explicit && (cls === 'streamlined' || cls === 'streamlinedbase');
         const body = streamlined ? bodyDragReference(tree) : null;
+        const cdBlocker = node.id
+          ? suppressingAncestor(tree, node.id, 'overrideSubcomponentsCD', 'overrideCD')
+          : null;
         return (
           <p className="comp-stats" style={{ marginTop: 6 }}>
             {(protuberanceFrontalArea(node) * 1e6).toFixed(0)} mm² frontal
@@ -824,6 +833,15 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
                 body&rsquo;s transonic drag rise; we freeze it at Mach {body.mach}.
                 Type a Cd above to pin it yourself — e.g. your body CD at max Q,
                 off the Drag tab.
+              </>
+            )}
+            {cdBlocker && (
+              <>
+                {' '}<strong>None of it is reaching the flight right now:</strong>{' '}
+                “{cdBlocker.name || DISPLAY_NAME[cdBlocker.type] || 'a part above this one'}”
+                {' '}has a drag-coefficient override with <em>Use instead of everything
+                inside</em> ticked, so its figure replaces this one. Clear that override to
+                fly the number above.
               </>
             )}
             {' '}Drag only — a protuberance adds no normal force and does not
@@ -887,9 +905,10 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
             {cdBlocker && (
               <>
                 {' '}<strong>None of it is reaching the flight right now:</strong>{' '}
-                “{cdBlocker.name ?? 'A component above this one'}” has a drag-coefficient
-                override with <em>Use instead of everything inside</em> ticked, so its figure
-                replaces this shroud&rsquo;s. Clear that override to fly the number above.
+                “{cdBlocker.name || DISPLAY_NAME[cdBlocker.type] || 'a part above this one'}”
+                {' '}has a drag-coefficient override with <em>Use instead of everything
+                inside</em> ticked, so its figure replaces this shroud&rsquo;s. Clear that
+                override to fly the number above.
               </>
             )}
           </p>

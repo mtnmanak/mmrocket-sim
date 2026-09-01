@@ -20,7 +20,7 @@ import { useState } from 'react';
  */
 export function NumField({
   value, onCommit, nullable = false, min, max, allowNegative = false,
-  integer = false, step = 1, placeholder, ariaLabel,
+  integer = false, step = 1, placeholder, ariaLabel, id,
 }: {
   value: number | undefined;
   /** Called with each valid typed value; null only when nullable and cleared. */
@@ -33,6 +33,14 @@ export function NumField({
   step?: number;
   placeholder?: string;
   ariaLabel?: string;
+  /**
+   * Put on the real <input>, so a sibling `<label htmlFor>` can focus it.
+   * Without this a label pointing at the field reached nothing — the wrapper
+   * div is not a labelable element — and clicking the label did nothing while
+   * a neighbouring <select>'s label worked, which is the inconsistency a user
+   * notices.
+   */
+  id?: string;
 }) {
   const [draft, setDraft] = useState<string | null>(null);
 
@@ -87,6 +95,7 @@ export function NumField({
   return (
     <div className="numfield">
       <input
+        id={id}
         type="text"
         inputMode="decimal"
         className={invalid ? 'num-invalid' : undefined}

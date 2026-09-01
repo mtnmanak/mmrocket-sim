@@ -87,6 +87,7 @@ import { estimateMotorRoomForMounts } from './tree/motorRoom.js';
 import { autoAlignFinSets } from './tree/finAlign.js';
 import { railInterferenceWarnings } from './tree/mountAngle.js';
 import { convertShrouds, findShroudCandidates, type ShroudCandidate } from './tree/shroudConvert.js';
+import { mountBore } from './tree/scaleRocket.js';
 import { ScaleDialog } from './components/ScaleDialog.js';
 
 /** One mount's assigned motor (Release C: every mount can hold its own). */
@@ -2141,11 +2142,23 @@ export function App() {
   // Sub-minimum mounts (caseAirframe): the motor case IS the airframe, so the
   // fit reference is the tube's OUTER diameter — bore would hide the very
   // motor the rocket is built around.
-  const mountDiaMm = (m: ReturnType<typeof findNode>) => m
-    ? Math.round((m['caseAirframe'] === true
-      ? (m['outerRadius'] as number ?? 0.0095)
-      : (m['outerRadius'] as number ?? 0.0095) - (m['thickness'] as number ?? 0.0005)) * 2000)
-    : 18;
+  // Through `mountBore`, not a fourth hand-rolled copy of the same arithmetic:
+  // the bore reader and the snap writer disagreeing about what an absent wall
+  // means already put a snapped tube 1 mm off the class it reported, and the
+  // next change to the kernel's default wall or the caseAirframe rule would
+  // have re-opened that split here, in the motor browser and the batch runner.
+  const mountDiaMm = (m: ReturnType<typeof findNode>) =>
+    (m ? Math.round(mountBore(m) * 1000) : 18);
+  /**
+   * Motor diameter (m) per mount id, memoized. Built inline it was a new object
+   * on every render, which defeated the Scale dialog's own `previewMounts` memo
+   * — so typing one character in the factor box re-walked the component tree
+   * and re-scanned MOTOR_DB once per mount.
+   */
+  const assignedMotorDiameters = useMemo(
+    () => Object.fromEntries(assigned.map(([id, mm]) => [id, mm.spec.diameter])),
+    [assigned],
+  );
   // Batch simulate targets the PRIMARY (sustainer) mount; per the owner's rule
   // batch never runs across staged rockets (combinatorics).
   const primaryMountNode = primaryMountId ? findNode(tree, primaryMountId) : null;
@@ -2449,8 +2462,7 @@ export function App() {
       {showScale && (
         <ScaleDialog
           tree={tree}
-          assignedMotorDiameters={Object.fromEntries(
-            assigned.map(([id, mm]) => [id, mm.spec.diameter]))}
+          assignedMotorDiameters={assignedMotorDiameters}
           onApply={(res) => {
             commitTreeStep(res.tree);
             // A measured mass describes the rocket that was weighed. After a
