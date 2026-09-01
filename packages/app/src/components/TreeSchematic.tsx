@@ -19,7 +19,8 @@ import { usePrefs } from '../prefs/PrefsContext.js';
 import { uiToSi } from '../prefs/units.js';
 import { rulerLayout } from '../services/rulerTicks.js';
 import {
-  formatStability, hasAerodynamicForce, stabilityState, type StabilityState,
+  formatStability, hasAerodynamicForce, shownCp, shownStability, stabilityState,
+  type StabilityState,
 } from '../services/simReport.js';
 
 /**
@@ -1277,9 +1278,9 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   renderChain(chain, 0, ctx.cy);
 
   const cgX = info ? ctx.x0 + info.cg * scale : null;
-  const cpX = info ? ctx.x0 + info.cp * scale : null;
+  const cpX = info ? ctx.x0 + shownCp(info) * scale : null;
   const stab = info && hasAerodynamicForce(info)
-    ? stabilityState(info.stabilityCalibers) : null;
+    ? stabilityState(shownStability(info)) : null;
   const marginText = info && stab
     ? `${STABILITY_GLYPH[stab]} ${formatStability(info, prefs.stabilityUnit)} — ${STABILITY_WORD[stab]}`
     : null;

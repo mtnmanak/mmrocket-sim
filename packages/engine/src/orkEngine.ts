@@ -135,9 +135,43 @@ export interface StaticInfo {
   rotationalInertiaEmpty: number;
   /** Pitch/yaw moment of inertia (kg·m²), dry — no motor. */
   longitudinalInertiaEmpty: number;
+  /**
+   * CP in ONE plane, at roll angle theta = 0 (m from the nose tip).
+   *
+   * For three or more fins this is the whole story. For fewer, or for a single
+   * asymmetric appendage like a camera shroud, it depends on how that part is
+   * CLOCKED — measured on this kernel, a one-finned rocket reads -5.346 cal
+   * with the fin at 0 degrees and +1.696 cal at 90, same rocket. Kept because
+   * it still says what the CURRENT clocking does, which is real information
+   * for a shroud even though it is noise for a fin set; `cpWorst` is what the
+   * app puts on screen.
+   */
   cp: number;
   cna: number;
   stabilityCalibers: number;
+  /**
+   * The FORWARD CP: the most-forward centre of pressure over a full 360-step
+   * sweep of roll angles (m from the nose tip), and the number the app shows.
+   *
+   * This is desktop OpenRocket's own default and Chuck Rogers' rule — a rocket
+   * with an asymmetric appendage has more than one CP and the forward one is
+   * the one to watch. Being a sweep, it does not depend on clocking.
+   *
+   * OPTIONAL in the type, not because it is ever missing from a real payload —
+   * the kernel always emits it — but because several test files build complete
+   * StaticInfo literals by hand, and `shownCp` falls back to `cp` for them.
+   * StaticInfo is never persisted, so there is no stored-data case to carry.
+   *
+   * Zero, with `cnaWorst` zero, when NO roll angle produces normal force at
+   * all: the kernel's sweep skips angles below its epsilon, so a design with
+   * nothing to measure reports the same shape `cp` does rather than the
+   * Double.MAX_VALUE sentinel.
+   */
+  cpWorst?: number;
+  /** CNalpha at the worst-CP angle. Zero when no angle produces force. */
+  cnaWorst?: number;
+  /** Static margin from `cpWorst`, in calibers. */
+  stabilityCalibersWorst?: number;
   refDiameter: number;
   warnings: number;
   /** Engine warning messages (geometry problems etc.). */

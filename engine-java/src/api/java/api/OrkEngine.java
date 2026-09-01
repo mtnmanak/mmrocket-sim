@@ -498,6 +498,40 @@ public final class OrkEngine {
         double cg = structure.getCM().x;
         double stabilityCal = (cp.x - cg) / conditions.getRefLength();
 
+        // The FORWARD CP: the most-forward centre of pressure over a full sweep
+        // of roll angles, which is the number desktop OpenRocket shows and the
+        // one Chuck Rogers argues for ("a rocket with a shroud has two CPs; the
+        // forward one is the one to watch", TRF June 2026).
+        //
+        // Why it matters: `cp` above is ONE plane, at theta = 0. For anything
+        // with fewer than three fins, or a single asymmetric appendage, the
+        // reported margin then depends on how the part happens to be CLOCKED —
+        // measured on this kernel, a one-finned rocket reads -5.346 cal with
+        // the fin at 0 degrees and +1.696 cal at 90, same rocket either way.
+        // Three or more fins are immune, which is why it went unnoticed.
+        //
+        // A SEPARATE FlightConditions, deliberately: getWorstCP writes the
+        // winning theta back into the object it is handed
+        // (AbstractAerodynamicCalculator:82), and `conditions` is still read
+        // below for the reference length. A throwaway WarningSet too — the
+        // sweep would otherwise pour 360 rounds of duplicates into the set the
+        // caller sees.
+        FlightConditions worstCond = new FlightConditions(ctx.rocket.getSelectedConfiguration());
+        worstCond.setMach(0.3);
+        worstCond.setAOA(0);
+        Coordinate cpWorst = calc.getWorstCP(ctx.rocket.getSelectedConfiguration(), worstCond,
+                new WarningSet());
+        // No angle produced any normal force at all: getWorstCP never replaced
+        // its sentinel, so cpWorst.x is Double.MAX_VALUE. Emit the same shape
+        // getCP emits for a design with nothing to measure — zeros — rather
+        // than a 1.8e308 that would sail through every downstream check.
+        boolean anyForce = cpWorst.weight > 1e-8 && cpWorst.x < Double.MAX_VALUE / 2;
+        double cpWorstX = anyForce ? cpWorst.x : 0;
+        double cnaWorst = anyForce ? cpWorst.weight : 0;
+        double stabilityCalWorst = anyForce
+                ? (cpWorstX - cg) / conditions.getRefLength()
+                : stabilityCal;
+
         StringBuilder sb = new StringBuilder("{");
         num(sb, "length", ctx.rocket.getLength()).append(',');
         // Denominator for stability expressed as a PERCENTAGE. Desktop
@@ -531,6 +565,19 @@ public final class OrkEngine {
         num(sb, "cp", cp.x).append(',');
         num(sb, "cna", cp.weight).append(',');
         num(sb, "stabilityCalibers", stabilityCal).append(',');
+        // The swept trio, beside the single-plane one rather than replacing it:
+        // the plane figures still say what THIS clocking does, which is real
+        // information for a camera shroud even though it is noise for a fin
+        // set. Which pair the app puts on screen is an app-side policy.
+        //
+        // NOT emitted, deliberately: the winning theta. For three or more fins
+        // the 360 candidates agree only to ~6e-16 relative, so the argmin is
+        // floating-point noise — measured at 239 degrees for a 3-fin rocket and
+        // 114 for a 4-fin — and feeding that to a differential test comparing
+        // JVM against TeaVM at 1e-13 would fail intermittently and mean nothing.
+        num(sb, "cpWorst", cpWorstX).append(',');
+        num(sb, "cnaWorst", cnaWorst).append(',');
+        num(sb, "stabilityCalibersWorst", stabilityCalWorst).append(',');
         num(sb, "refDiameter", refDiameter).append(',');
         num(sb, "warnings", warnings.size()).append(',');
         sb.append("\"warningTexts\":[");

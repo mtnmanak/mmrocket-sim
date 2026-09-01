@@ -18,7 +18,7 @@ import {
 } from '../services/schematicExport.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import {
-  formatStability, hasAerodynamicForce, stabilityState,
+  formatStability, hasAerodynamicForce, shownCp, shownStability, stabilityState,
   type StabilityState, type StabilityUnit,
 } from '../services/simReport.js';
 import { ImageExportMenu, type ImageExportOptions } from './ImageExportMenu.js';
@@ -435,14 +435,14 @@ export function calloutGadget(
   // No aerodynamic normal force -> no meaningful CP to mark. See
   // hasAerodynamicForce; the kernel reports cp 0 there, which would draw the
   // marker on the nose tip as though that were a measurement.
-  const state = hasAerodynamicForce(info) ? stabilityState(info.stabilityCalibers) : null;
+  const state = hasAerodynamicForce(info) ? stabilityState(shownStability(info)) : null;
   return {
     off,
     r: markerR * 0.55,
     cg: { pos: [info.cg, 0, off], text: 'CG', color: '#e9edf1' },
-    cp: { pos: [info.cp, 0, off], text: 'CP', color: '#e34948' },
+    cp: { pos: [shownCp(info), 0, off], text: 'CP', color: '#e34948' },
     margin: state === null ? null : {
-      pos: [(info.cg + info.cp) / 2, 0, off],
+      pos: [(info.cg + shownCp(info)) / 2, 0, off],
       text: formatStability(info, stabilityUnit),
       color: MARGIN_COLOR[state],
     },
@@ -844,7 +844,7 @@ export function Rocket3D({ tree, info, motors, exportData }: {
             </mesh>
           )}
           {markers.axis && info && Number.isFinite(info.cp) && (
-            <mesh position={[info.cp, 0, 0]} renderOrder={11}>
+            <mesh position={[shownCp(info), 0, 0]} renderOrder={11}>
               <sphereGeometry args={[markerR * 0.45, 24, 24]} />
               <meshStandardMaterial color="#e34948" emissive="#5a1010" depthTest={false} transparent />
             </mesh>

@@ -1,5 +1,5 @@
 {
-  "version": "0.090",
-  "released": "2026-08-31",
-  "note": "A whole rocket can be scaled by one factor now - type a factor, type the body diameter you are building it in, or pick a tube from the preset catalogue - and it lands as a single undo step, with the dialog saying what it will not scale and what it is about to do to your motor mount. Two things move numbers: a camera shroud's drag is now charged against the area it blocks measured from the tube surface rather than from its own flat base (+0.6 to +3.2 % CD, -0.3 to -1.8 % apogee), and every Composite Warehouse tube preset now uses handbook G12 density, since all four of the manufacturer's published weights imply densities no fiberglass laminate can have. A shroud's drag figure is on screen for the first time, and the undo dialogs stop claiming Ctrl+Z restores motors."
+  "version": "0.091",
+  "released": "2026-09-01",
+  "note": "The stability margin no longer depends on how a part is clocked. The app measured the centre of pressure in one plane, at roll angle zero, so a rocket with fewer than three fins - or a single camera shroud - reported a margin that changed when you rotated that part: a one-finned test rocket read -5.346 cal with the fin at 0 degrees and +1.696 cal at 90. It now reports the most-forward CP over a full roll sweep, which is what desktop OpenRocket shows. Three or more fins are unaffected, measured identical to 15 significant figures. A camera shroud mounted straight up or down now moves the CP instead of reporting a 0.00 cal shift, and the single-plane figure is still there as \"CP in this plane\" in All stats."
 }

@@ -5,7 +5,8 @@ import { RULER_LEFT, RULER_TOP } from './TreeSchematic.js';
 import { ROLL_COL } from './RollControl.js';
 import { fmtSi, type Quantity } from '../prefs/units.js';
 import {
-  formatRunStability, formatStability, hasAerodynamicForce, stabilityPercent, stabilityState,
+  formatRunStability, formatStability, hasAerodynamicForce, shownCp, shownStability,
+  stabilityPercent, stabilityState,
   type SimRun, type StabilityUnit,
 } from '../services/simReport.js';
 import { UnitChip } from './UnitChip.js';
@@ -69,8 +70,12 @@ export function DesignStats({ info, motorLabel, cd }: {
   // answers (see hasAerodynamicForce). Report them as unavailable rather than
   // printing a number the design does not support.
   const aero = hasAerodynamicForce(info);
-  const { glyph, cls } = stabilityGlyphClass(aero ? info.stabilityCalibers : null);
+  const { glyph, cls } = stabilityGlyphClass(aero ? shownStability(info) : null);
   const pct = aero ? stabilityPercent(info) : null;
+  // Only worth showing when the clocking actually changes the answer: three or
+  // more fins measure identically swept or not.
+  const planeDiffers = info.cpWorst !== undefined
+    && Math.abs(info.cpWorst - info.cp) > 1e-9;
   return (
     <>
       <div className="stat-row">
@@ -85,12 +90,12 @@ export function DesignStats({ info, motorLabel, cd }: {
         <Tile label="CG (loaded)" value={fmtSi('length', len, info.cg, 3)} quantity="length" />
         <Tile
           label="CP"
-          value={aero ? fmtSi('length', len, info.cp, 3) : '—'}
+          value={aero ? fmtSi('length', len, shownCp(info), 3) : '—'}
           quantity={aero ? 'length' : undefined}
         />
         <Tile
           label="Stability"
-          value={aero ? `${glyph} ${info.stabilityCalibers.toFixed(2)}` : '— no lift yet'}
+          value={aero ? `${glyph} ${shownStability(info).toFixed(2)}` : '— no lift yet'}
           unit={aero ? 'cal' : undefined}
           className={cls}
         />
@@ -103,6 +108,22 @@ export function DesignStats({ info, motorLabel, cd }: {
           unit="%"
           className={cls}
         />
+        {/* The single-plane figure, kept because the swept one deliberately
+            cannot see it. CP and Stability above are the most-forward CP over
+            a full roll sweep, which is clocking-independent — right for a
+            safety readout, and exactly why rotating a camera shroud no longer
+            moves them. This tile is where that still shows: mount a shroud on
+            the side and THIS number moves while the headline holds at the
+            worst case. Hidden when the two agree, which is every symmetric
+            design, so it does not add a tile to rockets it tells nothing
+            about. */}
+        {aero && planeDiffers && (
+          <Tile
+            label="CP in this plane"
+            value={fmtSi('length', len, info.cp, 3)}
+            quantity="length"
+          />
+        )}
         <Tile
           label={`Cd (M${CD_REFERENCE_MACH})`}
           value={cd === null || cd === undefined ? '—' : cd.toFixed(3)}
@@ -180,7 +201,7 @@ export function StatsChip({ info }: { info: StaticInfo }) {
   const { prefs } = usePrefs();
   const len = prefs.units.length;
   const aero = hasAerodynamicForce(info);
-  const { glyph, cls } = stabilityGlyphClass(aero ? info.stabilityCalibers : null);
+  const { glyph, cls } = stabilityGlyphClass(aero ? shownStability(info) : null);
   const [chip, setChip] = useState(loadChipState);
   const ref = useRef<HTMLDivElement | null>(null);
   // Drag bookkeeping: pointer-to-chip offset at grab, and whether the pointer
@@ -291,7 +312,7 @@ export function StatsChip({ info }: { info: StaticInfo }) {
             {row('Length', `${fmtSi('length', len, info.length, 3)} ${len}`)}
             {row('Mass loaded', `${fmtSi('mass', prefs.units.mass, info.mass)} ${prefs.units.mass}`)}
             {row('CG', `${fmtSi('length', len, info.cg, 3)} ${len}`)}
-            {row('CP', `${fmtSi('length', len, info.cp, 3)} ${len}`)}
+            {row('CP', `${fmtSi('length', len, shownCp(info), 3)} ${len}`)}
             {row('Stability', `${glyph} ${aero ? formatStability(info, prefs.stabilityUnit) : 'no lift yet'}`, cls)}
           </>
         )}

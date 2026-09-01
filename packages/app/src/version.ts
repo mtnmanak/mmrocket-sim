@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.090';
+export const APP_VERSION = '0.091';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,19 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.091',
+    date: '2026-09-01',
+    title: 'The stability margin stops depending on how a part is clocked',
+    items: [
+      'NUMBERS MOVE, and exactly one kind of design is affected: anything with FEWER THAN THREE FINS, or a single asymmetric appendage like a camera shroud. The app used to measure the centre of pressure in ONE plane, at roll angle zero, so the margin it reported depended on how that part happened to be rotated - measured on the kernel, a one-finned rocket read -5.346 cal with the fin at 0 degrees and +1.696 cal at 90 degrees. Same rocket. It now reports the most-forward CP over a full sweep of roll angles, which does not depend on the clocking: that one-finned rocket reads -5.346 either way. THREE OR MORE FINS ARE COMPLETELY UNAFFECTED - measured identical to 15 significant figures - so if your rocket has 3, 4 or 6 fins and no shroud, nothing on your screen changes.',
+      'This is what desktop OpenRocket has always shown, so it closes a parity gap rather than inventing a result. It is also the bookkeeping @Chuck Rogers argued for on The Rocketry Forum in June: a rocket with an asymmetric appendage has more than one centre of pressure, and the forward one is the one to watch.',
+      'A CAMERA SHROUD NOW MOVES THE CP FROM ANY MOUNTING ANGLE. Before this, a shroud mounted straight up or straight down reported a 0.00 cal shift - not because it made no lift, but because the single plane being measured was the one plane its lift did not appear in. That was the defect; it is gone.',
+      'The single-plane figure is still available, as "CP in this plane" in All stats, and it appears only when it differs from the headline. That is where a shroud’s mounting angle still visibly moves a number, which is worth keeping - for a fin set the clocking is arbitrary, but for a camera it is a real design decision.',
+      'A design that generates no aerodynamic normal force AT ANY roll angle - a bare tube with no fins - reports no CP and no margin rather than a number, and says "no lift yet". Previously it reported a large negative margin computed from a CP of zero, which reads as a violently unstable rocket when the truth is that there was nothing to measure.',
+      'Under the hood: the kernel gained getWorstCP, a 360-step roll sweep that OpenRocket has always carried and this app had never reached. Verified bit-for-bit against a JVM run of the same kernel (320 series lines, 199 bit-identical, the rest inside floating-point tolerance).',
+    ],
+  },
   {
     version: '0.090',
     date: '2026-08-31',

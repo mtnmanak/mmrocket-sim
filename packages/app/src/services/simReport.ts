@@ -106,9 +106,33 @@ export type StabilityState = 'ok' | 'under' | 'over';
  * dangerous kind of wrong; printing a huge negative one is merely the confusing
  * kind.
  */
-export function hasAerodynamicForce(info: Pick<StaticInfo, 'cna'>): boolean {
-  return Number.isFinite(info.cna) && Math.abs(info.cna) > 1e-8;
+export function hasAerodynamicForce(info: Pick<StaticInfo, 'cna' | 'cnaWorst'>): boolean {
+  const cna = shownCna(info);
+  return Number.isFinite(cna) && Math.abs(cna) > 1e-8;
 }
+
+/**
+ * WHICH CP THE APP SHOWS — the forward one, swept over all roll angles.
+ *
+ * `cp` / `cna` / `stabilityCalibers` are ONE plane, at theta = 0, and for
+ * fewer than three fins or a single asymmetric appendage the answer depends on
+ * how that part is CLOCKED: measured on this kernel, a one-finned rocket reads
+ * -5.346 cal with the fin at 0 degrees and +1.696 cal at 90. Same rocket. The
+ * swept figure is clocking-independent, is what desktop OpenRocket shows, and
+ * is the one Chuck Rogers argues for — the forward CP is the one to watch.
+ * Symmetric designs are unaffected: three and four fins measure identically
+ * either way.
+ *
+ * The `??` is for StaticInfo objects built by hand in tests and for any payload
+ * predating the field, NOT for persisted data — StaticInfo is never stored.
+ */
+export const shownCp = (info: Pick<StaticInfo, 'cp' | 'cpWorst'>): number =>
+  info.cpWorst ?? info.cp;
+export const shownCna = (info: Pick<StaticInfo, 'cna' | 'cnaWorst'>): number =>
+  info.cnaWorst ?? info.cna;
+export const shownStability = (
+  info: Pick<StaticInfo, 'stabilityCalibers' | 'stabilityCalibersWorst'>,
+): number => info.stabilityCalibersWorst ?? info.stabilityCalibers;
 
 export function stabilityState(cal: number | null | undefined): StabilityState | null {
   if (cal == null || !Number.isFinite(cal)) return null;
@@ -125,12 +149,12 @@ export function stabilityState(cal: number | null | undefined): StabilityState |
  * `length`, which is what the All-stats tile always used.
  */
 export function stabilityPercent(info: Pick<StaticInfo, 'cp' | 'cg' | 'length'>
-  & { lengthAerodynamic?: number }): number | null {
+  & { lengthAerodynamic?: number; cpWorst?: number }): number | null {
   const ref = info.lengthAerodynamic && info.lengthAerodynamic > 0
     ? info.lengthAerodynamic
     : info.length;
   if (!ref || !Number.isFinite(ref) || ref <= 0) return null;
-  return ((info.cp - info.cg) / ref) * 100;
+  return ((shownCp(info) - info.cg) / ref) * 100;
 }
 
 /** How the margin reads app-wide (Preferences → Display). */
@@ -144,10 +168,11 @@ export type StabilityUnit = 'cal' | 'pct' | 'both';
  * percentage is the figure that stays comparable.
  */
 export function formatStability(
-  info: Pick<StaticInfo, 'cp' | 'cg' | 'length' | 'stabilityCalibers'> & { lengthAerodynamic?: number },
+  info: Pick<StaticInfo, 'cp' | 'cg' | 'length' | 'stabilityCalibers'>
+    & { lengthAerodynamic?: number; cpWorst?: number; stabilityCalibersWorst?: number },
   unit: StabilityUnit = 'cal',
 ): string {
-  const cal = `${info.stabilityCalibers.toFixed(2)} cal`;
+  const cal = `${shownStability(info).toFixed(2)} cal`;
   if (unit === 'cal') return cal;
   const pct = stabilityPercent(info);
   if (pct === null) return cal;

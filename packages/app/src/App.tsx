@@ -69,7 +69,7 @@ import {
 } from './services/session.js';
 import {
   aeroModelLabel, buildSimRun, conditionsKeyOf, currentModelLabel, formatStability,
-  hasAerodynamicForce, recommendDelay, runMatchesDesign, runMatchesModel, shortHash, storedSimCost,
+  hasAerodynamicForce, recommendDelay, shownStability, runMatchesDesign, runMatchesModel, shortHash, storedSimCost,
   type DesignMatchKey, type MotorMeta, type SimRun,
 } from './services/simReport.js';
 import { formatWarning, formatWarningText } from './services/simWarnings.js';
@@ -2829,7 +2829,7 @@ export function App() {
                   // neutral glyph rather than a green tick.
                   const hasAero = hasAerodynamicForce(built.info);
                   const { glyph, cls } = stabilityGlyphClass(
-                    hasAero ? built.info.stabilityCalibers : null);
+                    hasAero ? shownStability(built.info) : null);
                   return (
                     <span className={`vitals-value ${cls}`}>
                       {glyph} {hasAero
