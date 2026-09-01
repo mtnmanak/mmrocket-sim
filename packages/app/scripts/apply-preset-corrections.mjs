@@ -27,29 +27,18 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { presetKey } from './manufacturers.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const DB_PATH = join(here, '..', 'src', 'data', 'presets.json');
 
 // Keep in lockstep with fetch-component-presets.mjs presetKey()/normMfr() —
 // duplicated here because importing that module runs its network main.
-const MFR_ALIASES = {
-  semrocastronautics: 'semroc',
-  loc: 'locprecision',
-  questaerospace: 'quest',
-  balsamachiningcom: 'balsamachining',
-  publicmissilesltd: 'publicmissiles',
-  pml: 'publicmissiles',
-  estesindustries: 'estes',
-};
-const normMfr = (mfr) => {
-  const k = String(mfr ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '');
-  return MFR_ALIASES[k] ?? k;
-};
-const presetKey = (p) => {
-  const pn = String(p.partNo ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '');
-  return `${p.kind}|${normMfr(p.manufacturer)}|${pn}`;
-};
+// One shared table (scripts/manufacturers.mjs). This file used to carry its own
+// copy under a comment reading "keep in lockstep with fetch-component-presets";
+// they did stay in lockstep, and the THIRD copy in merge-rocksim-parts.mjs did
+// not, which is the whole defect.
+
 
 /**
  * Reference values agreed by three independent sources: desktop 24.12

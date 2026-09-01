@@ -47,7 +47,14 @@ export function PresetPicker({ type, onApply, onClose }: {
     const q = text.trim().toLowerCase();
     return ofKind.filter((p) =>
       (!mfr || p.manufacturer === mfr)
-      && (!q || p.partNo.toLowerCase().includes(q) || p.description.toLowerCase().includes(q)));
+      && (!q || p.partNo.toLowerCase().includes(q)
+        || p.description.toLowerCase().includes(q)
+        // Manufacturer too. Without it, typing the most obvious thing — the
+        // company's name — matched nothing at all, while the dropdown beside
+        // the box filtered on exactly that field. Added alongside the
+        // 2026-09-01a manufacturer consolidation, because one canonical
+        // spelling is only useful if you can search for it.
+        || p.manufacturer.toLowerCase().includes(q)));
   }, [ofKind, mfr, text]);
 
   const dim = (p: Preset): string => {

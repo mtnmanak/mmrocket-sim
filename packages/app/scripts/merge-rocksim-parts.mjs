@@ -45,6 +45,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { mfrDisplay, mfrKey, normRaw } from './manufacturers.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(__dirname, '..', '..', '..');
@@ -177,34 +178,13 @@ function mapMaterial(name, table, type) {
 
 // ---------------------------------------------------------------- manufacturers
 
-const normMfg = (s) => (s ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
-
-// Aliases observed across the two datasets (normalized form -> canonical key).
-const MFG_ALIASES = {
-  loc: 'locprecision',
-  locprecision: 'locprecision',
-  bms: 'balsamachining',
-  balsamachining: 'balsamachining',
-  balsamachiningcom: 'balsamachining',
-  madcow: 'madcow',
-  madcowrocketry: 'madcow',
-  quest: 'quest',
-  questaerospace: 'quest',
-  publicmissiles: 'publicmissiles',
-  publicmissilesltd: 'publicmissiles',
-  pml: 'publicmissiles',
-  estes: 'estes',
-  estesindustries: 'estes',
-  giantleap: 'giantleap',
-  giantleaprocketry: 'giantleap',
-  sunward: 'sunward',
-  sunwardgroupltd: 'sunward',
-};
-
-const mfgKey = (s) => {
-  const n = normMfg(s);
-  return MFG_ALIASES[n] ?? n;
-};
+// ONE shared table (scripts/manufacturers.mjs). This file used to carry its own
+// 18-entry map, which was MISSING `semrocastronautics` — so SEMROC and "SEMROC
+// Astronautics" fell into two buckets, the rocksim rows never met their
+// desktop-24.12 twins, and six duplicate parts were appended rather than
+// deduped. That is the mechanism behind the owner's "double counted" report.
+const normMfg = normRaw;
+const mfgKey = mfrKey;
 
 const normPart = (s) => (s ?? '').toLowerCase().replace(/[\s-]/g, '');
 
@@ -506,7 +486,9 @@ for (const spec of FILES) {
     // Build the preset (existing display name wins so UI grouping stays clean).
     const preset = {
       kind: spec.kind,
-      manufacturer: displayName.get(mfgKey(manufacturer)) ?? manufacturer,
+      // The shared table wins over displayName, which is merely the first
+      // spelling this run happened to meet.
+      manufacturer: mfrDisplay(manufacturer) || displayName.get(mfgKey(manufacturer)) || manufacturer,
       partNo,
       description: (r[2] ?? '').trim() || partNo,
     };

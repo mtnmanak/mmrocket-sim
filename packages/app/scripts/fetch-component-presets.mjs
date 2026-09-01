@@ -26,6 +26,7 @@ import { writeFileSync, mkdirSync, readdirSync, readFileSync, existsSync } from 
 import { fileURLToPath } from 'node:url';
 import { openrocketSrcRoot } from '../../../scripts/openrocket-src.mjs';
 import { dirname, join } from 'node:path';
+import { mfrDisplay, mfrKey, spellingConflicts } from './manufacturers.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const OUT_PATH = join(__dirname, '..', 'src', 'data', 'presets.json');
@@ -53,20 +54,11 @@ const DESKTOP_COMPONENTS_DIR = SRC_ROOT
 
 /** Manufacturer aliases (lowercased alphanumerics) so the same maker dedupes
  *  across sources: desktop-internal files spell names differently. */
-const MFR_ALIASES = {
-  semrocastronautics: 'semroc',
-  loc: 'locprecision',
-  questaerospace: 'quest',
-  balsamachiningcom: 'balsamachining',
-  publicmissilesltd: 'publicmissiles',
-  pml: 'publicmissiles',
-  estesindustries: 'estes',
-};
-
-function normMfr(mfr) {
-  const k = String(mfr ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '');
-  return MFR_ALIASES[k] ?? k;
-}
+// The alias table lives in ./manufacturers.mjs — ONE copy, imported by this
+// script, apply-preset-corrections.mjs and merge-rocksim-parts.mjs. There used
+// to be three, and merge-rocksim's was missing `semrocastronautics`, which is
+// how 88 "SEMROC Astronautics" rows shipped alongside 1,693 "SEMROC".
+const normMfr = mfrKey;
 
 /** Identity for dedupe across sources. */
 function presetKey(p) {
@@ -517,12 +509,30 @@ async function main() {
     console.log(`  ${name}: ${presets.length - dupes} presets added (${dupes} duplicates of github${sk ? `, ${sk} skipped` : ''})`);
   }
 
+  // Canonicalise the DISPLAY name BEFORE the sort, so rows land in the order
+  // the file will actually be read in. Doing it after would sort "SEMROC
+  // Astronautics" into the S-A slot and then relabel it "SEMROC", leaving the
+  // file's own ordering contradicting its contents.
+  for (const p of allPresets) p.manufacturer = mfrDisplay(p.manufacturer);
+
   allPresets.sort(
     (a, b) =>
       a.kind.localeCompare(b.kind) ||
       a.manufacturer.localeCompare(b.manufacturer) ||
       a.partNo.localeCompare(b.partNo),
   );
+
+  // Fail loudly rather than shipping two spellings of one company again. This
+  // is the guard for the defect the owner reported on 2026-09-01a; without it
+  // the next upstream refresh silently re-introduces it.
+  const conflicts = spellingConflicts(allPresets);
+  if (conflicts.length) {
+    for (const c of conflicts) {
+      console.error(`MANUFACTURER SPELLING CONFLICT "${c.key}": ${c.spellings.join(' / ')}`);
+    }
+    console.error('Add the spelling to ALIASES/DISPLAY in scripts/manufacturers.mjs.');
+    process.exit(1);
+  }
 
   const out = {
     generated: new Date().toISOString().slice(0, 10),
