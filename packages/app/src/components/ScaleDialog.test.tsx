@@ -168,20 +168,71 @@ describe('ScaleDialog', () => {
   it('picking a catalogue tube sets the factor from ITS diameter, not the reciprocal', async () => {
     await render();
     const sel = host.querySelector('select') as HTMLSelectElement;
-    // 246 raw ODs collapse to distinct 0.1 mm buckets: 0.102 and 0.10201 are
-    // the same nominal 4 inch tube and must appear once.
-    expect(sel.options.length).toBe(1 + 2); // placeholder + 33.4 mm + 102 mm
+    // EVERY tube is now an option; the 0.1 mm buckets became the <optgroup>s.
+    // 0.102 and 0.10201 are the same nominal 4 inch size so they share a group,
+    // and BOTH are selectable, which is the point of the change.
+    expect(sel.options.length).toBe(1 + 3); // placeholder + all three body tubes
+    expect(host.querySelectorAll('optgroup').length).toBe(2); // 33.4 mm and 102 mm
+    const loc = [...sel.options].find((o) => o.textContent?.includes('LOC 4.0in'))!;
     act(() => {
       const setter = Object.getOwnPropertyDescriptor(
         HTMLSelectElement.prototype, 'value')!.set!;
-      setter.call(sel, '0.102');
+      setter.call(sel, loc.value);
       sel.dispatchEvent(new Event('change', { bubbles: true }));
     });
     // 102 / 52 = 1.9615… — a reversed division gives 51.0 % and SHRINKS it.
     expect(text()).toContain('196.2 %');
     // …and the widget keeps the choice rather than snapping back, which is what
     // made it unusable from the keyboard.
-    expect(sel.value).toBe('0.102');
+    expect(sel.value).toBe(loc.value);
+    expect(sel.value).not.toBe('');
+  });
+
+  it('a tube hidden behind the old "(+N more)" is selectable, and applies ITS OWN diameter', async () => {
+    // The reported bug (2026-09-01a). The list showed ONE row per 0.1 mm bucket,
+    // so 'Other dup' - the same nominal 4 inch size as 'LOC 4.0in' - had no
+    // option of its own and could not be chosen at all. On the shipped data that
+    // hid 1,094 of 1,309 body tubes; the owner's own Composite Warehouse
+    // "4 Inch Airframe" sat 13th of 13 in its bucket, behind a label naming a
+    // different manufacturer entirely.
+    await render();
+    const sel = host.querySelector('select') as HTMLSelectElement;
+    const dup = [...sel.options].find((o) => o.textContent?.includes('Other dup'));
+    expect(dup, 'the second tube in the 102 mm bucket needs its own option').toBeTruthy();
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLSelectElement.prototype, 'value')!.set!;
+      setter.call(sel, dup!.value);
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    // The distinguishing assertion: 0.10201 is applied, NOT the bucket's first
+    // row (0.102). Both round to "196.2 %" on screen, so the percentage cannot
+    // tell them apart - the applied geometry can.
+    const applyBtn = [...host.querySelectorAll('button')]
+      .find((b) => b.textContent?.includes('Scale to'))!;
+    act(() => { applyBtn.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    const bt = applied!.tree.components[0]!.children![1]!;
+    expect((bt['outerRadius'] as number) * 2).toBeCloseTo(0.10201, 9);
+  });
+
+  it('in inches, two group labels do not collapse onto the same number', async () => {
+    // fmt(od, 2) in inches is 0.254 mm of resolution, so distinct sizes print
+    // the same label - on the shipped catalogue 84 of 215 sizes shared a number
+    // with another. The group heading is the ONLY thing telling one 4-inch
+    // bucket from another, so it gets three decimals in inches.
+    // 0.102 m = 4.016 in and 0.10201 m = 4.017 in: the same label at two
+    // decimals (4.02 / 4.02), distinct at three. The mock has them in separate
+    // 0.1 mm buckets only if they differ by >= 0.1 mm - they do not, so this
+    // uses the 33.4 mm tube against a 4-inch one instead.
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({
+      units: { length: 'in' },
+    }));
+    await render();
+    const labels = [...host.querySelectorAll('optgroup')].map((g) => g.label);
+    expect(labels.length).toBe(2);
+    for (const l of labels) expect(l).toMatch(/in$/);
+    // Three decimals, not two: "4.016 in", never "4.02 in".
+    expect(labels.some((l) => /\d\.\d{3} in/.test(l)), `got ${labels.join(' / ')}`).toBe(true);
   });
 
   it('setting the factor any other way clears the catalogue choice', async () => {
@@ -193,7 +244,8 @@ describe('ScaleDialog', () => {
     const pick = (sel: HTMLSelectElement) => act(() => {
       const setter = Object.getOwnPropertyDescriptor(
         HTMLSelectElement.prototype, 'value')!.set!;
-      setter.call(sel, '0.102');
+      // The first real tube, whatever index it has.
+      setter.call(sel, sel.options[1]!.value);
       sel.dispatchEvent(new Event('change', { bubbles: true }));
     });
 
@@ -201,7 +253,7 @@ describe('ScaleDialog', () => {
     await render();
     let sel = host.querySelector('select') as HTMLSelectElement;
     pick(sel);
-    expect(sel.value).toBe('0.102');
+    expect(sel.value).not.toBe('');
     const quick = [...host.querySelectorAll('button')].find((b) => b.textContent === '2×')!;
     act(() => { quick.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
     expect(sel.value, 'the 2× button must clear the catalogue choice').toBe('');

@@ -48,13 +48,17 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
   const [snapMounts, setSnapMounts] = useState(false);
   const [tubes, setTubes] = useState<Preset[] | null>(null);
   /**
-   * The chosen catalogue OD, held so the <select> is genuinely controlled.
-   * Pinning it to value="" instead reset the widget to the placeholder after
-   * every change, which a mouse user never notices and a keyboard user cannot
-   * get past: ArrowDown moves from the placeholder to the first option, the
-   * value resets, and the next ArrowDown does the same thing again.
+   * The chosen catalogue ROW, as an index into `tubeRows`, held so the <select>
+   * is genuinely controlled. Pinning it to value="" instead reset the widget to
+   * the placeholder after every change, which a mouse user never notices and a
+   * keyboard user cannot get past: ArrowDown moves from the placeholder to the
+   * first option, the value resets, and the next ArrowDown does the same again.
+   *
+   * A ROW, not a diameter, since v0.091: the list used to collapse every tube
+   * within 0.1 mm to one entry, so picking a size applied the FIRST row's
+   * diameter rather than the one you chose.
    */
-  const [tubeOd, setTubeOd] = useState('');
+  const [tubeRow, setTubeRow] = useState('');
   const [busy, setBusy] = useState(false);
 
   /**
@@ -66,7 +70,7 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
    * entry point (the 0.5× / 2× buttons) was written without it, which is the
    * bug this replaces. A fourth entry point gets it for free.
    */
-  const setFactorOffCatalogue = (f: number) => { setFactor(f); setTubeOd(''); };
+  const setFactorOffCatalogue = (f: number) => { setFactor(f); setTubeRow(''); };
 
   useEffect(() => {
     loadPresets()
@@ -76,22 +80,42 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
   }, []);
 
   /**
-   * Catalogue tubes, one row per distinct outside diameter. Bucketed at 0.1 mm
-   * because the raw set holds 246 values for 215 real sizes — the duplicates
-   * are imperial conversions of the same nominal tube, and a list that shows
-   * 53.98 above 54.00 is a list nobody can use.
+   * Every catalogue tube, grouped by outside diameter — one <optgroup> per
+   * 0.1 mm bucket, one <option> per real part inside it.
+   *
+   * It used to show ONE row per bucket with "(+N more)" after it, and the
+   * owner reported the consequence: a specific tube could be unreachable. That
+   * was not a corner case. Measured on the shipped data: 1,309 body tubes fall
+   * into 215 buckets, so 1,094 rows were unselectable, one bucket holds 87 of
+   * them, and his own example — Composite Warehouse "4 Inch Airframe" — sat
+   * 13th of 13 behind a label reading "Always Ready Rocketry BT_3.90_48".
+   * (The old comment here said the raw set held "246 values for 215 real
+   * sizes", which is off by a factor of five and is what made the collapse
+   * look harmless.)
+   *
+   * The bucketing itself is KEPT, as the grouping: it is what stops 53.98 mm
+   * and 54.00 mm reading as two unrelated sizes, and it preserves the ordered
+   * ladder of buyable diameters that made the list usable in the first place.
+   * What changes is that the group is now openable instead of being a count.
    */
-  const tubeOptions = useMemo(() => {
-    const byBucket = new Map<number, { od: number; label: string; n: number }>();
-    for (const p of tubes ?? []) {
+  const tubeRows = useMemo(
+    () => [...(tubes ?? [])].sort((a, b) => (a['outsideDiameter'] as number) - (b['outsideDiameter'] as number)
+      || String(a.manufacturer).localeCompare(String(b.manufacturer))
+      || String(a.partNo).localeCompare(String(b.partNo))),
+    [tubes],
+  );
+
+  const tubeGroups = useMemo(() => {
+    const out: Array<{ key: number; od: number; rows: Array<{ i: number; p: Preset }> }> = [];
+    tubeRows.forEach((p, i) => {
       const od = p['outsideDiameter'] as number;
       const key = Math.round(od * 10000);
-      const seen = byBucket.get(key);
-      if (seen) seen.n++;
-      else byBucket.set(key, { od, label: `${p.manufacturer} ${p.partNo}`, n: 1 });
-    }
-    return [...byBucket.values()].sort((a, b) => a.od - b.od);
-  }, [tubes]);
+      const last = out[out.length - 1];
+      if (last && last.key === key) last.rows.push({ i, p });
+      else out.push({ key, od, rows: [{ i, p }] });
+    });
+    return out;
+  }, [tubeRows]);
 
   const targetD = baseD * factor;
   const mounts = useMemo(
@@ -206,21 +230,33 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
               <label htmlFor="scale-tube">…or pick a tube from the catalogue</label>
               <select
                 id="scale-tube"
-                value={tubeOd}
+                value={tubeRow}
                 disabled={!tubes}
                 onChange={(e) => {
-                  setTubeOd(e.target.value);
-                  const od = Number(e.target.value);
+                  setTubeRow(e.target.value);
+                  const row = tubeRows[Number(e.target.value)];
+                  // The chosen row's OWN diameter, not its group's. Applying
+                  // the group's first row moved the factor by up to 0.3 %
+                  // against the part actually named on screen.
+                  const od = row ? (row['outsideDiameter'] as number) : 0;
                   if (od > 0 && baseD > 0) setFactor(od / baseD);
                 }}
               >
                 <option value="">
-                  {tubes === null ? 'Loading the catalogue…' : `${tubeOptions.length} sizes — choose one`}
+                  {tubes === null
+                    ? 'Loading the catalogue…'
+                    : `${tubeRows.length} tubes in ${tubeGroups.length} sizes — choose one`}
                 </option>
-                {tubeOptions.map((t) => (
-                  <option key={t.od} value={t.od}>
-                    {fmt(t.od, 2)} {lenSym} — {t.label}{t.n > 1 ? ` (+${t.n - 1} more)` : ''}
-                  </option>
+                {tubeGroups.map((g) => (
+                  // Three decimals in inches: at two, 0.254 mm of resolution
+                  // makes distinct sizes print the same number.
+                  <optgroup key={g.key} label={`${fmt(g.od, lenSym === 'in' ? 3 : 2)} ${lenSym}`}>
+                    {g.rows.map(({ i, p }) => (
+                      <option key={i} value={i}>
+                        {p.manufacturer} {p.partNo}
+                      </option>
+                    ))}
+                  </optgroup>
                 ))}
               </select>
             </div>
