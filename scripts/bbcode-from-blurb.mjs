@@ -118,6 +118,21 @@ export function checkTags(bb) {
 /** XenForo's hard cap, counted in CHARACTERS of the BBCode. */
 export const TRF_POST_LIMIT = 10000;
 
+/**
+ * The length TRF will actually count — NOT `String.length`.
+ *
+ * A browser normalises a `<textarea>` to CRLF when the form is submitted (the
+ * element's API value uses LF; the SUBMITTED value uses CRLF), so every newline
+ * costs TWO characters at the far end. Measuring an LF-joined string measures
+ * the wrong string.
+ *
+ * This is not theoretical. The v0.088–v0.091 blurb first split into a post of
+ * 9,998 LF characters — two under the limit, and the script said it fit — which
+ * TRF would have counted as 10,104 and REFUSED, because that post has 106
+ * lines. Count the way the receiver counts.
+ */
+export const postLength = (s) => s.length + (s.match(/\n/g) || []).length;
+
 /** The generated file's path for a given source .txt. */
 export const bbcodePathFor = (src) => src.replace(/\.txt$/i, '') + ' BBCODE.txt';
 
@@ -145,7 +160,9 @@ export const CONTINUED = 'Continued from the post above.';
  * because of them.
  */
 export function splitBBCode(bb, limit = TRF_POST_LIMIT) {
-  const joinCost = Math.max(CONTINUES.length, CONTINUED.length) + 2;
+  // Measured the way the parts are, newlines included: the joining lines bring
+  // their own blank line, and that blank line costs two characters at TRF.
+  const joinCost = Math.max(postLength(CONTINUES), postLength(CONTINUED)) + 4;
   const budget = limit - joinCost;
   const lines = bb.split('\n');
   const cuts = [];
@@ -160,11 +177,11 @@ export function splitBBCode(bb, limit = TRF_POST_LIMIT) {
   let start = 0;
   for (;;) {
     const rest = lines.slice(start).join('\n');
-    if (rest.length <= budget) { parts.push(rest); break; }
+    if (postLength(rest) <= budget) { parts.push(rest); break; }
     let best = -1;
     for (const c of cuts) {
       if (c <= start) continue;
-      if (lines.slice(start, c).join('\n').length > budget) break;
+      if (postLength(lines.slice(start, c).join('\n')) > budget) break;
       best = c;
     }
     if (best < 0) {
@@ -258,8 +275,8 @@ function main(argv) {
     // A multi-part set from an earlier, longer draft must not survive beside it.
     for (let n = 1; n <= 9; n++) quarantineStale(bbcodePartPathFor(src, n, 9));
     writeFileSync(dst, bb, 'utf8');
-    console.log(`wrote ${dst} (${bb.length} chars, ${Buffer.byteLength(bb)} bytes)`);
-    console.log(`tags balanced; fits TRF's ${TRF_POST_LIMIT}-char limit - ${TRF_POST_LIMIT - bb.length} to spare.`);
+    console.log(`wrote ${dst} (${postLength(bb)} chars as TRF counts them, ${Buffer.byteLength(bb)} bytes)`);
+    console.log(`tags balanced; fits TRF's ${TRF_POST_LIMIT}-char limit - ${TRF_POST_LIMIT - postLength(bb)} to spare.`);
     return;
   }
 
@@ -268,7 +285,8 @@ function main(argv) {
   parts.forEach((part, i) => {
     const path = bbcodePartPathFor(src, i + 1, parts.length);
     writeFileSync(path, part, 'utf8');
-    console.log(`wrote ${path} (${part.length} chars, ${Buffer.byteLength(part)} bytes)`);
+    console.log(`wrote ${path} (${postLength(part)} chars as TRF counts them, `
+      + `${Buffer.byteLength(part)} bytes)`);
   });
   console.log(
     `tags balanced; ${bb.length} chars split into ${parts.length} posts, each inside TRF's `

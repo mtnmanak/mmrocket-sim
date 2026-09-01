@@ -19,6 +19,7 @@ import {
   bbcodePathFor,
   checkTags,
   looksAlreadyConverted,
+  postLength,
   splitBBCode,
   toBBCode,
 } from '../../../scripts/bbcode-from-blurb.mjs';
@@ -209,5 +210,54 @@ describe('splitBBCode', () => {
   it('names the parts so they paste in order', () => {
     expect(bbcodePartPathFor('a/b - Blurb.txt', 2, 3)).toBe('a/b - Blurb BBCODE (2 of 3).txt');
     expect(bbcodePathFor('a/b - Blurb.txt')).toBe('a/b - Blurb BBCODE.txt');
+  });
+});
+
+describe('a post is measured the way TRF counts it, not the way JS does', () => {
+  /**
+   * A browser normalises a <textarea> to CRLF on submit, so every newline costs
+   * TWO characters at the far end. `String.length` on LF-joined text is the
+   * wrong measurement, and it is wrong in the dangerous direction — it reports
+   * a post as fitting when TRF will refuse it.
+   *
+   * Measured on the real v0.088–v0.091 blurb: the first part came out at 9,998
+   * LF characters, two under the limit, and the script said it fit. TRF would
+   * have counted 10,104 across its 106 lines and rejected the post.
+   */
+  it('counts each newline as the two characters it becomes', () => {
+    expect(postLength('a\nb')).toBe(4);      // "a\r\nb"
+    expect(postLength('no newlines')).toBe(11);
+    expect(postLength('a\nb\nc')).toBe(7);
+  });
+
+  it('splits so every part fits AS SUBMITTED, not merely as measured in JS', () => {
+    // Sized deliberately into the gap that hid the bug: many short lines, so
+    // the LF length sits UNDER the limit (the old measurement said "fits, no
+    // split needed") while the CRLF length is over it.
+    const line = 'x'.repeat(40);
+    const body = Array.from({ length: 232 }, () => line).join('\n\n');
+    // The premise, asserted rather than assumed — without this the test could
+    // pass for the wrong reason on a body that was simply too long either way.
+    expect(body.length).toBeLessThan(TRF_POST_LIMIT);
+    expect(postLength(body)).toBeGreaterThan(TRF_POST_LIMIT);
+
+    const parts = splitBBCode(body);
+    expect(parts.length, 'measured in LF this looked like one post; it is not')
+      .toBeGreaterThan(1);
+    for (const p of parts) {
+      expect(postLength(p), 'a part is over the limit as TRF would count it')
+        .toBeLessThanOrEqual(TRF_POST_LIMIT);
+    }
+  });
+
+  it('the joining lines cannot push a part back over', () => {
+    const line = 'y'.repeat(60);
+    const body = Array.from({ length: 200 }, () => line).join('\n\n');
+    const parts = splitBBCode(body);
+    expect(parts.length).toBeGreaterThan(1);
+    // The first part carries CONTINUES, the last carries CONTINUED.
+    expect(parts[0]).toContain(CONTINUES);
+    expect(parts[parts.length - 1]).toContain(CONTINUED);
+    for (const p of parts) expect(postLength(p)).toBeLessThanOrEqual(TRF_POST_LIMIT);
   });
 });
