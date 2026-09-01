@@ -5,7 +5,9 @@
  *   1. fetch-component-presets.mjs  — OVERWRITES presets.json wholesale
  *   2. merge-rocksim-parts.mjs      — APPENDS the RockSim-only rows
  *   2b. merge-cw-tubes.mjs          — APPENDS these rows  ← THIS SCRIPT
- *   3. apply-preset-corrections.mjs — PATCHES rows by key, runs LAST
+ *   3. apply-preset-corrections.mjs — PATCHES rows by key
+ *   4. curate-presets.mjs --write — the ruled DROPS and part-number fixes, and THIS
+ *      is what runs last (added 2026-09-01). CLAUDE.md § Architecture is authoritative.
  *
  * SOURCE OF TRUTH: the table below, committed in this script the way the
  * corrections table is — because the spreadsheet it was transcribed from

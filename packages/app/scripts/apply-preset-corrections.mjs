@@ -1,11 +1,14 @@
 /**
  * Post-merge corrections to the bundled component-preset database.
  *
- * PIPELINE ORDER (all three steps, in this order, or data is lost):
+ * PIPELINE ORDER (every step, in this order, or data is lost):
  *   1. fetch-component-presets.mjs  — OVERWRITES presets.json wholesale
  *   2. merge-rocksim-parts.mjs      — APPENDS the RockSim-only rows
  *   2b. merge-cw-tubes.mjs          — APPENDS the Composite Warehouse tubes
  *   3. apply-preset-corrections.mjs — PATCHES rows this table names
+ *   4. curate-presets.mjs --write — the ruled per-row DROPS and part-number fixes
+ *      (added 2026-09-01; this file no longer runs last). CLAUDE.md § Architecture
+ *      holds the authoritative order.
  *
  * Why this exists (2026-08-29, owner ruling "fix it"): four centering-ring
  * rows ship an outer diameter that cannot centre the tube their own part
