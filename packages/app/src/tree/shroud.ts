@@ -102,8 +102,11 @@ export function shroudHalfAngle(bodyRadius: number, width: number): number {
  * override against this area, using the radius of the body the shroud is
  * MOUNTED ON. Eric, 2026-08-31c: *"is this fixed or waiting on my call? If it
  * is waiting on my call, fix it."* Every design carrying a shroud gained drag
- * on that release; measured in flight beforehand, that is +0.57 % to +3.1 % on
- * total CD and −0.15 % to −1.1 % on apogee, subsonic.
+ * on that release. Re-measured on the shipped code (not the pre-ship estimate):
+ * +0.60 % / +3.23 % / +1.86 % on total CD and −0.33 % / −1.75 % / −0.92 % on
+ * apogee, for a 54 mm HPR with the default 25×20 shroud, the same airframe with
+ * a GoPro-class 45×30, and a BT-55 with a 22×15. These are the figures in the
+ * v0.090 CHANGELOG; do not quote the older, lower estimate.
  *
  * What it does and does not claim: it makes the AREA right for a coefficient
  * Hoerner measured on a flat wall. It does not improve the COEFFICIENT, which
@@ -115,7 +118,11 @@ export function surfaceBumpFrontalArea(
   bodyRadius: number, width: number, height: number,
 ): number {
   const flat = Math.max(0, width) * Math.max(0, height);
-  if (!(bodyRadius > 0) || !(width > 0)) return flat;
+  // HEIGHT is guarded as well as width: with no height there is no bump, so
+  // there is no crescent under it either. Guarding only width let a shroud
+  // whose height was typed to 0 vanish from all three views and still charge
+  // the whole gap term as drag.
+  if (!(bodyRadius > 0) || !(width > 0) || !(height > 0)) return flat;
   const a = Math.min(width / 2, bodyRadius);
   const gap = 2 * a * bodyRadius
     - bodyRadius * bodyRadius * Math.asin(a / bodyRadius)

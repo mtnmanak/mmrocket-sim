@@ -123,10 +123,16 @@ describe('Composite Warehouse tubes', () => {
     expect(cw.map((p) => p.material!.density)).toEqual(Array(26).fill(1900));
   });
 
-  it('mass per foot rises monotonically with tube size', () => {
-    // The property the four claimed weights broke. Wall thickness varies, so
-    // this is not trivially true from OD alone — it holds because one density
-    // now spans the line.
+  it('the four cliffs the published weights created are gone', () => {
+    // NOT "monotonic in size" — that would be false and the earlier name for
+    // this test said it anyway. Seven of the 25 adjacent pairs still step
+    // down, every one where a thinner-walled larger tube follows a thicker
+    // smaller one (29 mm -> 38 mm Thin, 4" Thick -> 4.5", 8.25" -> 9"). That
+    // is real: a thinner tube weighs less.
+    //
+    // What the anchor DID fix is the four cliffs at the four published sizes,
+    // and that is what this pins — the 8" no longer coming out lighter than
+    // the smaller 7.5" on an identical 0.095" wall.
     const perFoot = (p: (typeof cw)[number]) => {
       const ri = (p['insideDiameter'] as number) / 2;
       const ro = (p['outsideDiameter'] as number) / 2;
@@ -134,8 +140,6 @@ describe('Composite Warehouse tubes', () => {
     };
     const bySize = [...cw].sort(
       (a, b) => (a['outsideDiameter'] as number) - (b['outsideDiameter'] as number));
-    // Wall steps down at 4.15"->4.125" and 8.25"->9.005", so compare only the
-    // 7.5/8/8.25/9/11.67 run the old policy inverted, plus the whole line's ends.
     const at = (n: string) => perFoot(cw.find((p) => p.partNo === n)!);
     expect(at('8 Inch Airframe')).toBeGreaterThan(at('7.5 Inch Airframe'));
     expect(at('9 Inch Airframe')).toBeGreaterThan(at('8 Inch Airframe'));
@@ -144,7 +148,7 @@ describe('Composite Warehouse tubes', () => {
   });
 
   it('the four published weights are reported, not used as mass', () => {
-    const claimed = cw.filter((p) => /the manufacturer states/.test(p.description));
+    const claimed = cw.filter((p) => /Composite Warehouse states/.test(p.description));
     expect(claimed.map((p) => p.partNo).sort()).toEqual(
       ['11.67 Inch Airframe', '4.5 Inch Airframe', '8 Inch Airframe', '9 Inch Airframe']);
     // Each says the figure AND the impossible density it implies, so a reader

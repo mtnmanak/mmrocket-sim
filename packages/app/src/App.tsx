@@ -2457,7 +2457,11 @@ export function App() {
             // scale it describes one that no longer exists, and the box would
             // report the new design's gap against someone else's scale.
             setMeasured({ massKg: null, cgM: null });
-            setFileNote(res.notes.join('\n'));
+            // 'warn' when something needs attention afterwards, so the bar
+            // auto-expands. As plain 'info' it stays collapsed showing only the
+            // headline - and "the motor no longer fits", which the dialog warned
+            // about BEFORE the click, was hidden after it.
+            setFileNote(res.notes.join('\n'), res.needsAttention ? 'warn' : 'info');
           }}
           onSaveBackup={() => { void onSaveOrk(); }}
           onClose={() => setShowScale(false)}

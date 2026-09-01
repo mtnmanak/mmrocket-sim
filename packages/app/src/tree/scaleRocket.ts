@@ -125,13 +125,41 @@ const LENGTH_KEYS: Record<string, readonly string[]> = {
 /** Types whose own geometry is fixed hardware — they move, they do not grow. */
 const FIXED_SIZE = new Set(['fairing', 'railbutton']);
 
-/** Mass keys, scaled as k³ — but only on parts whose geometry actually scaled. */
+/** Mass keys — scaled only on parts whose geometry actually scaled. */
 const MASS_KEYS = ['mass', 'overrideMass'] as const;
+
+/**
+ * The exponent a PINNED mass scales by, per type.
+ *
+ * It has to match how the same part's COMPUTED mass scales, or a design where
+ * the user pinned a weight behaves differently from one where they did not —
+ * and a preset pins one automatically (`presets.presetPatch` writes
+ * `overrideMass` for any catalogue row carrying a mass, which most parachutes
+ * do). Densities are untouched by the scale, so:
+ *   - a solid part is a volume: k³
+ *   - a canopy or a streamer is a SURFACE density on an area: k²
+ *   - a shock cord is a LINE density on a length: k
+ * Getting this wrong is not subtle — a catalogued 85 g chute came out at 680 g
+ * instead of 340 g, while the summary printed beside it said recovery gear does
+ * not go as the cube.
+ */
+const MASS_EXPONENT: Record<string, number> = {
+  parachute: 2,
+  streamer: 2,
+  shockcord: 1,
+};
 
 export interface ScaleResult {
   tree: RocketTree;
   /** Notice lines, headline first (NoticeBar shows only line 1 collapsed). */
   notes: string[];
+  /**
+   * Something in `notes` needs the user to act — a loaded motor that no longer
+   * fits the scaled bore, or a mount left off-class. The caller raises the
+   * notice severity on this, so the bar opens itself instead of hiding the
+   * warning behind a collapsed headline.
+   */
+  needsAttention: boolean;
 }
 
 export interface ScaleOptions {
@@ -163,13 +191,23 @@ export function maxBodyDiameter(tree: RocketTree): number {
   return r * 2;
 }
 
-/** Total nose-to-tail length (m) of the axial chain, stages summed. */
+/**
+ * Total nose-to-tail length (m) of the CORE axial chain, stages summed.
+ *
+ * Does not descend into a pod set or a parallel booster: those hang off the
+ * side and their own nose cones and tubes are not part of the rocket's length.
+ * Adding them made the dialog's headline read a strap-on design as core plus
+ * every booster laid end to end.
+ */
 export function rocketLength(tree: RocketTree): number {
   const CHAIN = new Set(['nosecone', 'bodytube', 'transition']);
+  const OFF_AXIS = new Set(['podset', 'parallelstage']);
   let total = 0;
   const walk = (nodes: ComponentNode[]) => {
     for (const n of nodes) {
-      if (CHAIN.has(n.type as string)) total += num(n, 'length') ?? 0;
+      const t = n.type as string;
+      if (OFF_AXIS.has(t)) continue;
+      if (CHAIN.has(t)) total += num(n, 'length') ?? 0;
       walk(n.children ?? []);
     }
   };
@@ -196,6 +234,8 @@ export interface MountPreview {
   snappedBoreMm: number;
   /** The assigned motor's class (mm), when one is loaded. */
   motorMm: number | null;
+  /** True when the mount IS the airframe (a body tube with motorMount) — never snapped. */
+  isAirframe: boolean;
   /** Does the assigned motor still fit the SCALED bore, unsnapped? */
   motorStillFits: boolean;
 }
@@ -223,6 +263,7 @@ export function previewMounts(
       nearestMm,
       snappedBoreMm: nearestMm,
       motorMm,
+      isAirframe: m.type !== 'innertube',
       motorStillFits: motorMm === null
         || classesFittingMount(scaledBoreMm).includes(diameterClass(motorMm)),
     };
@@ -262,16 +303,18 @@ function scaleNode(n: ComponentNode, k: number): ComponentNode {
   // its own; these two keys are the ones a user pinned by hand or a preset
   // pinned from a catalogue.)
   if (!fixed) {
+    const exp = MASS_EXPONENT[type] ?? 3;
     for (const key of MASS_KEYS) {
       const v = num(n, key);
-      if (v !== null) out[key] = round(v * k * k * k, 15);
+      if (v !== null) out[key] = round(v * k ** exp, 15);
     }
+    // An override CG is a station measured from the component's own front — a
+    // length, whatever the mass above it does. It belongs INSIDE the
+    // !fixed guard: a rail button that kept its 9.7 mm size must keep the CG
+    // station measured within it, or the override points outside the part.
+    const cg = num(n, 'overrideCGX');
+    if (cg !== null) out['overrideCGX'] = round(cg * k);
   }
-
-  // An override CG is a station measured from the component's own front — a
-  // length, whatever the mass above it does.
-  const cg = num(n, 'overrideCGX');
-  if (cg !== null) out['overrideCGX'] = round(cg * k);
 
   // Axial placement. startFromPosition is homogeneous of degree 1 in
   // (parentLength, childLength, offset) for all four methods, so scaling the
@@ -295,7 +338,7 @@ export function scaleRocket(
 ): ScaleResult {
   const k = factor;
   if (!(k > 0) || !Number.isFinite(k) || k === 1) {
-    return { tree, notes: [] };
+    return { tree, notes: [], needsAttention: false };
   }
 
   const fixedSeen = new Set<string>();
@@ -327,11 +370,17 @@ export function scaleRocket(
     const snap = (nodes: ComponentNode[]): ComponentNode[] => nodes.map((n) => {
       const target = n.id ? wanted.get(n.id) : undefined;
       let out = n;
-      if (target !== undefined && (n.type === 'innertube' || n.type === 'bodytube')) {
+      // ONLY an inner tube. A body tube carrying `motorMount` is the
+      // minimum-diameter case, where the mount IS the airframe — snapping its
+      // outer radius would silently resize the rocket's skin and leave it
+      // discontinuous with the nose cone above it. Those mounts are reported
+      // in the summary and left for the user to resize deliberately.
+      if (target !== undefined && n.type === 'innertube') {
+        // The wall here is the SCALED wall (this runs on the scaled tree), so
+        // the snapped tube keeps the proportions the scale gave it and only
+        // its bore lands on the standard size.
         const wall = num(n, 'thickness') ?? 0;
-        out = n['caseAirframe'] === true
-          ? { ...n, outerRadius: round(target / 2) } as ComponentNode
-          : { ...n, outerRadius: round(target / 2 + wall) } as ComponentNode;
+        out = { ...n, outerRadius: round(target / 2 + wall) } as ComponentNode;
       }
       return out.children ? { ...out, children: snap(out.children) } as ComponentNode : out;
     });
@@ -340,7 +389,11 @@ export function scaleRocket(
   for (const m of mounts) {
     const landed = Math.abs(m.scaledBoreMm - m.nearestMm) < 0.05;
     const head = `${m.name}: ${m.boreMm.toFixed(1)} mm bore becomes ${m.scaledBoreMm.toFixed(1)} mm`;
-    if (opts.snapMounts && !landed) {
+    if (opts.snapMounts && !landed && m.isAirframe) {
+      mountNotes.push(`${head}, which is not a standard motor size (nearest is ${m.nearestMm} mm)`
+        + ' — and it was NOT snapped, because this mount IS the airframe (a minimum-diameter'
+        + ' design). Resize it yourself so the tube above it still matches.');
+    } else if (opts.snapMounts && !landed) {
       mountNotes.push(`${head} — snapped to the standard ${m.nearestMm} mm.`);
     } else if (landed) {
       mountNotes.push(`${head}, which is the standard ${m.nearestMm} mm.`);
@@ -415,5 +468,7 @@ export function scaleRocket(
     notes.push('This design has no fin set, so nothing here checks its stability.');
   }
 
-  return { tree: next, notes };
+  const needsAttention = mounts.some((m) => !m.motorStillFits
+    || (Math.abs(m.scaledBoreMm - m.nearestMm) >= 0.05 && (!opts.snapMounts || m.isAirframe)));
+  return { tree: next, notes, needsAttention };
 }

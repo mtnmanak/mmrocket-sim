@@ -132,6 +132,17 @@ const kitchenSink = (): RocketTree => ({
               { type: 'bodytube', id: 'pdt', length: 0.2, outerRadius: 0.02, thickness: 0.001 } as ComponentNode,
             ],
           } as ComponentNode,
+          {
+            // A parallel booster as well as a pod. The schema-coverage check
+            // matches a key on ANY type, so without a real parallelstage node
+            // here a scaler that forgot it would still pass that guard.
+            type: 'parallelstage', id: 'ps', instanceCount: 2, radiusOffset: 0.03,
+            angleOffset: 0.5, separationAltitude: 250,
+            position: { method: 'top', offset: 0.65 },
+            children: [
+              { type: 'bodytube', id: 'pst', length: 0.25, outerRadius: 0.022, thickness: 0.001 } as ComponentNode,
+            ],
+          } as ComponentNode,
         ],
       } as ComponentNode,
     ],
@@ -213,6 +224,8 @@ describe('scaleRocket — the completeness guard', () => {
     'pr.width', 'pr.height', 'pr.length', 'pr.position.offset',
     'pd.radiusOffset', 'pd.position.offset',
     'pdt.length', 'pdt.outerRadius', 'pdt.thickness',
+    'ps.radiusOffset', 'ps.position.offset',
+    'pst.length', 'pst.outerRadius', 'pst.thickness',
   ]);
   /** Masses go as the CUBE — they are lengths cubed, not lengths. */
   const CUBED = new Set(['nc.overrideMass', 'mc.mass', 'pr.mass']);
@@ -243,6 +256,7 @@ describe('scaleRocket — the completeness guard', () => {
       'fa.length', 'fa.width', 'fa.height', 'fa.mass', 'fa.angleOffset',
       'pr.count', 'pr.cdFrontal', 'pr.angleOffset', 'mc.radialDirection',
       'pd.instanceCount', 'pd.angleOffset', 'ef.cant', 'ff.finCount',
+      'ps.instanceCount', 'ps.angleOffset', 'ps.separationAltitude',
     ]) {
       expect(unchanged, key).toContain(key);
     }
@@ -510,6 +524,31 @@ describe('scaleRocket — motor mounts', () => {
     expect(mountBore(findNode(out, 'mt')!) * 1000).toBeCloseTo(40.86, 6);
   });
 
+  it('never snaps a MIN-DIAMETER mount, because that mount IS the airframe', () => {
+    // A body tube with motorMount is the case-is-the-airframe build. Snapping
+    // its outer radius resizes the rocket's skin and leaves it discontinuous
+    // with the nose cone above it, which the kernel then warns about.
+    const t: RocketTree = {
+      name: 'md', components: [{
+        type: 'stage', id: 's', children: [
+          { type: 'nosecone', id: 'n', length: 0.2, aftRadius: 0.0145 } as ComponentNode,
+          {
+            type: 'bodytube', id: 'b', length: 0.5, outerRadius: 0.0145, thickness: 0.0008,
+            motorMount: true,
+          } as ComponentNode,
+        ],
+      } as ComponentNode],
+    };
+    const res = scaleRocket(t, 1.5, { snapMounts: true });
+    const tube = findNode(res.tree, 'b')!;
+    const nose = findNode(res.tree, 'n')!;
+    // Scaled, not snapped - and still continuous with the nose cone.
+    expect(tube['outerRadius']).toBeCloseTo(0.0145 * 1.5, 12);
+    expect(tube['outerRadius']).toBeCloseTo(nose['aftRadius'] as number, 12);
+    expect(res.notes.join(' ')).toContain('it was NOT snapped');
+    expect(res.needsAttention).toBe(true);
+  });
+
   it('flags an assigned motor that no longer fits', () => {
     const t = withMount(0.038);
     const shrunk = previewMounts(t, 0.5, { mt: 0.038 });
@@ -520,6 +559,60 @@ describe('scaleRocket — motor mounts', () => {
 });
 
 describe('scaleRocket — guardrails and reporting', () => {
+  it('a pinned mass scales the way the SAME part’s computed mass does', () => {
+    // Densities are untouched, so a COMPUTED canopy goes as k^2 and a computed
+    // cord as k. A PINNED one has to match, or a design where the user typed a
+    // weight behaves differently from one where they did not - and a preset
+    // pins one automatically, since most catalogue chutes carry a mass that
+    // presetPatch writes as overrideMass. Under a flat cube a catalogued 85 g
+    // chute came out at 680 g, while the summary printed beside it said
+    // recovery gear does not go as the cube.
+    const t: RocketTree = {
+      name: 'pinned', components: [{
+        type: 'stage', id: 's', children: [{
+          type: 'bodytube', id: 'b', length: 0.5, outerRadius: 0.03, children: [
+            { type: 'parachute', id: 'pc', diameter: 0.6, overrideMass: 0.08505,
+              position: { method: 'top', offset: 0.1 } } as ComponentNode,
+            { type: 'streamer', id: 'sm', stripLength: 0.8, stripWidth: 0.08, overrideMass: 0.01,
+              position: { method: 'top', offset: 0.2 } } as ComponentNode,
+            { type: 'shockcord', id: 'sc', cordLength: 2, overrideMass: 0.02,
+              position: { method: 'top', offset: 0.3 } } as ComponentNode,
+            { type: 'masscomponent', id: 'mc', mass: 0.025, length: 0.05, radius: 0.02,
+              position: { method: 'top', offset: 0.4 } } as ComponentNode,
+          ],
+        } as ComponentNode],
+      } as ComponentNode],
+    };
+    const out = scaleRocket(t, 2).tree;
+    expect(findNode(out, 'pc')!['overrideMass']).toBeCloseTo(0.08505 * 4, 12);  // area
+    expect(findNode(out, 'sm')!['overrideMass']).toBeCloseTo(0.01 * 4, 12);     // area
+    expect(findNode(out, 'sc')!['overrideMass']).toBeCloseTo(0.02 * 2, 12);     // length
+    expect(findNode(out, 'mc')!['mass']).toBeCloseTo(0.025 * 8, 12);            // volume
+  });
+
+  it('a fixed-size part keeps its CG override too, not just its dimensions', () => {
+    // A rail button that is still 9.7 mm across must keep a CG station measured
+    // within it. Scaling the override alone points it outside the part.
+    const t: RocketTree = {
+      name: 'cg', components: [{
+        type: 'stage', id: 's', children: [{
+          type: 'bodytube', id: 'b', length: 0.5, outerRadius: 0.03, children: [
+            { type: 'railbutton', id: 'rb', outerDiameter: 0.0102, overrideCGX: 0.004,
+              position: { method: 'top', offset: 0.2 } } as ComponentNode,
+            { type: 'fairing', id: 'fa', length: 0.1, width: 0.04, height: 0.03,
+              overrideCGX: 0.05, position: { method: 'top', offset: 0.3 } } as ComponentNode,
+            { type: 'masscomponent', id: 'mc', mass: 0.02, length: 0.05, overrideCGX: 0.02,
+              position: { method: 'top', offset: 0.4 } } as ComponentNode,
+          ],
+        } as ComponentNode],
+      } as ComponentNode],
+    };
+    const out = scaleRocket(t, 3).tree;
+    expect(findNode(out, 'rb')!['overrideCGX']).toBe(0.004);            // unscaled part
+    expect(findNode(out, 'fa')!['overrideCGX']).toBe(0.05);             // unscaled part
+    expect(findNode(out, 'mc')!['overrideCGX']).toBeCloseTo(0.06, 12);  // scaled part
+  });
+
   it('a factor of 1, 0 or NaN is a no-op that returns the same tree', () => {
     const t = kitchenSink();
     for (const f of [1, 0, -2, NaN, Infinity]) {
@@ -539,7 +632,9 @@ describe('scaleRocket — guardrails and reporting', () => {
   it('measures the rocket for the headline', () => {
     const t = kitchenSink();
     expect(maxBodyDiameter(t)).toBeCloseTo(0.1, 12);
-    expect(rocketLength(t)).toBeCloseTo(0.3 + 0.1 + 0.9 + 0.2, 12);
+    // The CORE chain only: nose + transition + body tube. The pod's 0.2 m tube
+    // and the booster's 0.25 m tube hang off the side and are not length.
+    expect(rocketLength(t)).toBeCloseTo(0.3 + 0.1 + 0.9, 12);
     const notes = scaleRocket(t, 2).notes;
     expect(notes[0]).toContain('200.0 %');
     expect(notes.join(' ')).toContain('camera shrouds and rail buttons');

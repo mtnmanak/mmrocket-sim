@@ -33,8 +33,17 @@
  * now" — and, shown the four-cliff catalogue that anchoring only the 22
  * unclaimed rows produces (the 8" tube coming out LIGHTER per foot than the
  * smaller 7.5" on an identical wall), he ruled the anchor applies to ALL 26.
- * So every row now carries G12_HANDBOOK, mass follows geometry × the user's
- * cut length, and the catalogue is monotonic in size.
+ * So every row now carries G12_HANDBOOK and mass follows geometry × the user's
+ * cut length.
+ *
+ * BE PRECISE ABOUT WHAT THAT FIXED. It removes the four cliffs the claimed
+ * weights created — the 8" no longer comes out lighter than the 7.5" on the
+ * same wall. It does NOT make the catalogue monotonic in outside diameter, and
+ * saying so would be wrong: 7 of the 25 adjacent pairs still step down, every
+ * one of them where a "Thin" or thinner-walled larger tube follows a thicker
+ * smaller one (29 mm → 38 mm Thin, 4" Thick → 4.5", 8.25" → 9"). That is real
+ * — a thinner tube weighs less — and it is what one density per row is
+ * supposed to produce.
  *
  * The four claims are NOT discarded — each claimed row's description still
  * states the manufacturer's oz/ft figure and the density it implies, so a
@@ -140,10 +149,13 @@ function buildRows() {
     // weights each imply an impossible laminate density, so none of them is
     // used as mass; the claim is reported in the description instead.
     const rho = G12_HANDBOOK;
+    // Both strings finish the sentence "G12 fiberglass, A" ID x B" OD (...)",
+    // so neither repeats "G12" and neither restates the material.
     const claimed = ozPerFt !== null
-      ? `density is handbook G12, 1900 kg/m3; the manufacturer states ${ozPerFt} oz/ft for this size, `
-        + `which would imply ${impliedDensity(idIn, odIn, ozPerFt).toFixed(0)} kg/m3 - outside the range a G12 laminate can be`
-      : 'no published weight; density is handbook G12, 1900 kg/m3';
+      ? `density 1900 kg/m3, the handbook figure. Composite Warehouse states ${ozPerFt} oz/ft `
+        + `for this size, which would need ${impliedDensity(idIn, odIn, ozPerFt).toFixed(0)} kg/m3 `
+        + `- outside the range a fiberglass laminate can be, so it is not used here`
+      : 'density 1900 kg/m3, the handbook figure; no published weight for this size';
     return {
       kind: 'BodyTube',
       manufacturer: 'Composite Warehouse',

@@ -77196,7 +77196,7 @@
    "kind": "BodyTube",
    "manufacturer": "Composite Warehouse",
    "partNo": "24mm Airframe",
-   "description": "G12 fiberglass, 0.945\" ID x 1.045\" OD, usable as a motor-mount tube for standard motor cases (no published weight; density is handbook G12, 1900 kg/m3)",
+   "description": "G12 fiberglass, 0.945\" ID x 1.045\" OD, usable as a motor-mount tube for standard motor cases (density 1900 kg/m3, the handbook figure; no published weight for this size)",
    "material": {
     "name": "Fiberglass, G12 (Composite Warehouse)",
     "type": "BULK",
@@ -77210,7 +77210,7 @@
    "kind": "BodyTube",
    "manufacturer": "Composite Warehouse",
    "partNo": "29mm Airframe",
-   "description": "G12 fiberglass, 1.145\" ID x 1.255\" OD, usable as a motor-mount tube for standard motor cases (no published weight; density is handbook G12, 1900 kg/m3)",
+   "description": "G12 fiberglass, 1.145\" ID x 1.255\" OD, usable as a motor-mount tube for standard motor cases (density 1900 kg/m3, the handbook figure; no published weight for this size)",
    "material": {
     "name": "Fiberglass, G12 (Composite Warehouse)",
     "type": "BULK",
@@ -77224,7 +77224,7 @@
    "kind": "BodyTube",
    "manufacturer": "Composite Warehouse",
    "partNo": "38mm Airframe Thin",
-   "description": "G12 fiberglass, 1.52\" ID x 1.6\" OD, usable as a motor-mount tube for standard motor cases (no published weight; density is handbook G12, 1900 kg/m3)",
+   "description": "G12 fiberglass, 1.52\" ID x 1.6\" OD, usable as a motor-mount tube for standard motor cases (density 1900 kg/m3, the handbook figure; no published weight for this size)",
    "material": {
     "name": "Fiberglass, G12 (Composite Warehouse)",
     "type": "BULK",
@@ -77238,7 +77238,7 @@
    "kind": "BodyTube",
    "manufacturer": "Composite Warehouse",
    "partNo": "38mm Airframe",
-   "description": "G12 fiberglass, 1.52\" ID x 1.645\" OD, usable as a motor-mount tube for standard motor cases (no published weight; density is handbook G12, 1900 kg/m3)",
+   "description": "G12 fiberglass, 1.52\" ID x 1.645\" OD, usable as a motor-mount tube for standard motor cases (density 1900 kg/m3, the handbook figure; no published weight for this size)",
    "material": {
     "name": "Fiberglass, G12 (Composite Warehouse)",
     "type": "BULK",
@@ -77252,7 +77252,7 @@
    "kind": "BodyTube",
    "manufacturer": "Composite Warehouse",
    "partNo": "54mm Airframe Thin",
-   "description": "G12 fiberglass, 2.152\" ID x 2.232\" OD, usable as a motor-mount tube for standard motor cases (no published weight; density is handbook G12, 1900 kg/m3)",
+   "description": "G12 fiberglass, 2.152\" ID x 2.232\" OD, usable as a motor-mount tube for standard motor cases (density 1900 kg/m3, the handbook figure; no published weight for this size)",
    "material": {
     "name": "Fiberglass, G12 (Composite Warehouse)",
     "type": "BULK",
@@ -77266,7 +77266,7 @@
    "kind": "BodyTube",
    "manufacturer": "Composite Warehouse",
    "partNo": "54mm Airframe",
-   "description": "G12 fiberglass, 2.152\" ID x 2.277\" OD, usable as a motor-mount tube for standard motor cases (no published weight; density is handbook G12, 1900 kg/m3)",
+   "description": "G12 fiberglass, 2.152\" ID x 2.277\" OD, usable as a motor-mount tube for standard motor cases (density 1900 kg/m3, the handbook figure; no published weight for this size)",
    "material": {
     "name": "Fiberglass, G12 (Composite Warehouse)",
     "type": "BULK",
@@ -77280,7 +77280,7 @@
    "kind": "BodyTube",
    "manufacturer": "Composite Warehouse",
    "partNo": "2.5 Inch Airframe Thin",
-   "description": "G12 fiberglass, 2.56\" ID x 2.64\" OD (no published weight; density is handbook G12, 1900 kg/m3)",
+   "description": "G12 fiberglass, 2.56\" ID x 2.64\" OD (density 1900 kg/m3, the handbook figure; no published weight for this size)",
    "material": {
     "name": "Fiberglass, G12 (Composite Warehouse)",
     "type": "BULK",
@@ -77294,7 +77294,7 @@
    "kind": "BodyTube",
    "manufacturer": "Composite Warehouse",
    "partNo": "2.5 Inch Airframe",
-   "description": "G12 fiberglass, 2.56\" ID x 2.685\" OD (no published weight; density is handbook G12, 1900 kg/m3)",
+   "description": "G12 fiberglass, 2.56\" ID x 2.685\" OD (density 1900 kg/m3, the handbook figure; no published weight for this size)",
    "material": {
     "name": "Fiberglass, G12 (Composite Warehouse)",
     "type": "BULK",
@@ -77308,7 +77308,7 @@
    "kind": "BodyTube",
    "manufacturer": "Composite Warehouse",
    "partNo": "3 Inch Airframe Thin",
-   "description": "G12 fiberglass, 3\" ID x 3.08\" OD, usable as a motor-mount tube for standard motor cases (no published weight; density is handbook G12, 1900 kg/m3)",
+   "description": "G12 fiberglass, 3\" ID x 3.08\" OD, usable as a motor-mount tube for standard motor cases (density 1900 kg/m3, the handbook figure; no published weight for this size)",
    "material": {
     "name": "Fiberglass, G12 (Composite Warehouse)",
     "type": "BULK",
@@ -77322,7 +77322,7 @@
    "kind": "BodyTube",
    "manufacturer": "Composite Warehouse",
    "partNo": "3 Inch Airframe",
-   "description": "G12 fiberglass, 3\" ID x 3.125\" OD, usable as a motor-mount tube for standard motor cases (no published weight; density is handbook G12, 1900 kg/m3)",
+   "description": "G12 fiberglass, 3\" ID x 3.125\" OD, usable as a motor-mount tube for standard motor cases (density 1900 kg/m3, the handbook figure; no published weight for this size)",
    "material": {
     "name": "Fiberglass, G12 (Composite Warehouse)",
     "type": "BULK",
@@ -77336,7 +77336,7 @@
    "kind": "BodyTube",
    "manufacturer": "Composite Warehouse",
    "partNo": "3.5 Inch Airframe",
-   "description": "G12 fiberglass, 3.4\" ID x 3.525\" OD (no published weight; density is handbook G12, 1900 kg/m3)",
+   "description": "G12 fiberglass, 3.4\" ID x 3.525\" OD (density 1900 kg/m3, the handbook figure; no published weight for this size)",
    "material": {
     "name": "Fiberglass, G12 (Composite Warehouse)",
     "type": "BULK",
@@ -77350,7 +77350,7 @@
    "kind": "BodyTube",
    "manufacturer": "Composite Warehouse",
    "partNo": "4 Inch Airframe Thin",
-   "description": "G12 fiberglass, 3.9\" ID x 3.98\" OD, usable as a motor-mount tube for standard motor cases (no published weight; density is handbook G12, 1900 kg/m3)",
+   "description": "G12 fiberglass, 3.9\" ID x 3.98\" OD, usable as a motor-mount tube for standard motor cases (density 1900 kg/m3, the handbook figure; no published weight for this size)",
    "material": {
     "name": "Fiberglass, G12 (Composite Warehouse)",
     "type": "BULK",
@@ -77364,7 +77364,7 @@
    "kind": "BodyTube",
    "manufacturer": "Composite Warehouse",
    "partNo": "4 Inch Airframe",
-   "description": "G12 fiberglass, 3.9\" ID x 4.025\" OD, usable as a motor-mount tube for standard motor cases (no published weight; density is handbook G12, 1900 kg/m3)",
+   "description": "G12 fiberglass, 3.9\" ID x 4.025\" OD, usable as a motor-mount tube for standard motor cases (density 1900 kg/m3, the handbook figure; no published weight for this size)",
    "material": {
     "name": "Fiberglass, G12 (Composite Warehouse)",
     "type": "BULK",
@@ -77378,7 +77378,7 @@
    "kind": "BodyTube",
    "manufacturer": "Composite Warehouse",
    "partNo": "4 Inch Airframe Thick",
-   "description": "G12 fiberglass, 3.9\" ID x 4.15\" OD (no published weight; density is handbook G12, 1900 kg/m3)",
+   "description": "G12 fiberglass, 3.9\" ID x 4.15\" OD (density 1900 kg/m3, the handbook figure; no published weight for this size)",
    "material": {
     "name": "Fiberglass, G12 (Composite Warehouse)",
     "type": "BULK",
@@ -77392,7 +77392,7 @@
    "kind": "BodyTube",
    "manufacturer": "Composite Warehouse",
    "partNo": "4.1 Inch Airframe",
-   "description": "G12 fiberglass, 4\" ID x 4.125\" OD (no published weight; density is handbook G12, 1900 kg/m3)",
+   "description": "G12 fiberglass, 4\" ID x 4.125\" OD (density 1900 kg/m3, the handbook figure; no published weight for this size)",
    "material": {
     "name": "Fiberglass, G12 (Composite Warehouse)",
     "type": "BULK",
@@ -77406,7 +77406,7 @@
    "kind": "BodyTube",
    "manufacturer": "Composite Warehouse",
    "partNo": "4.5 Inch Airframe",
-   "description": "G12 fiberglass, 4.375\" ID x 4.5\" OD (density is handbook G12, 1900 kg/m3; the manufacturer states 13.8 oz/ft for this size, which would imply 2283 kg/m3 - outside the range a G12 laminate can be)",
+   "description": "G12 fiberglass, 4.375\" ID x 4.5\" OD (density 1900 kg/m3, the handbook figure. Composite Warehouse states 13.8 oz/ft for this size, which would need 2283 kg/m3 - outside the range a fiberglass laminate can be, so it is not used here)",
    "material": {
     "name": "Fiberglass, G12 (Composite Warehouse)",
     "type": "BULK",
@@ -77420,7 +77420,7 @@
    "kind": "BodyTube",
    "manufacturer": "Composite Warehouse",
    "partNo": "5 Inch Airframe",
-   "description": "G12 fiberglass, 5\" ID x 5.15\" OD (no published weight; density is handbook G12, 1900 kg/m3)",
+   "description": "G12 fiberglass, 5\" ID x 5.15\" OD (density 1900 kg/m3, the handbook figure; no published weight for this size)",
    "material": {
     "name": "Fiberglass, G12 (Composite Warehouse)",
     "type": "BULK",
@@ -77434,7 +77434,7 @@
    "kind": "BodyTube",
    "manufacturer": "Composite Warehouse",
    "partNo": "5.5 Inch Airframe",
-   "description": "G12 fiberglass, 5.375\" ID x 5.525\" OD (no published weight; density is handbook G12, 1900 kg/m3)",
+   "description": "G12 fiberglass, 5.375\" ID x 5.525\" OD (density 1900 kg/m3, the handbook figure; no published weight for this size)",
    "material": {
     "name": "Fiberglass, G12 (Composite Warehouse)",
     "type": "BULK",
@@ -77448,7 +77448,7 @@
    "kind": "BodyTube",
    "manufacturer": "Composite Warehouse",
    "partNo": "6 Inch Airframe",
-   "description": "G12 fiberglass, 6\" ID x 6.17\" OD (no published weight; density is handbook G12, 1900 kg/m3)",
+   "description": "G12 fiberglass, 6\" ID x 6.17\" OD (density 1900 kg/m3, the handbook figure; no published weight for this size)",
    "material": {
     "name": "Fiberglass, G12 (Composite Warehouse)",
     "type": "BULK",
@@ -77462,7 +77462,7 @@
    "kind": "BodyTube",
    "manufacturer": "Composite Warehouse",
    "partNo": "6 Inch MotorMount",
-   "description": "G12 fiberglass, 6.04\" ID x 6.21\" OD, usable as a motor-mount tube for standard motor cases (no published weight; density is handbook G12, 1900 kg/m3)",
+   "description": "G12 fiberglass, 6.04\" ID x 6.21\" OD, usable as a motor-mount tube for standard motor cases (density 1900 kg/m3, the handbook figure; no published weight for this size)",
    "material": {
     "name": "Fiberglass, G12 (Composite Warehouse)",
     "type": "BULK",
@@ -77476,7 +77476,7 @@
    "kind": "BodyTube",
    "manufacturer": "Composite Warehouse",
    "partNo": "7 Inch Airframe",
-   "description": "G12 fiberglass, 6.81\" ID x 7\" OD (no published weight; density is handbook G12, 1900 kg/m3)",
+   "description": "G12 fiberglass, 6.81\" ID x 7\" OD (density 1900 kg/m3, the handbook figure; no published weight for this size)",
    "material": {
     "name": "Fiberglass, G12 (Composite Warehouse)",
     "type": "BULK",
@@ -77490,7 +77490,7 @@
    "kind": "BodyTube",
    "manufacturer": "Composite Warehouse",
    "partNo": "7.5 Inch Airframe",
-   "description": "G12 fiberglass, 7.518\" ID x 7.708\" OD (no published weight; density is handbook G12, 1900 kg/m3)",
+   "description": "G12 fiberglass, 7.518\" ID x 7.708\" OD (density 1900 kg/m3, the handbook figure; no published weight for this size)",
    "material": {
     "name": "Fiberglass, G12 (Composite Warehouse)",
     "type": "BULK",
@@ -77504,7 +77504,7 @@
    "kind": "BodyTube",
    "manufacturer": "Composite Warehouse",
    "partNo": "8 Inch Airframe",
-   "description": "G12 fiberglass, 7.815\" ID x 8.005\" OD (density is handbook G12, 1900 kg/m3; the manufacturer states 19.8 oz/ft for this size, which would imply 1209 kg/m3 - outside the range a G12 laminate can be)",
+   "description": "G12 fiberglass, 7.815\" ID x 8.005\" OD (density 1900 kg/m3, the handbook figure. Composite Warehouse states 19.8 oz/ft for this size, which would need 1209 kg/m3 - outside the range a fiberglass laminate can be, so it is not used here)",
    "material": {
     "name": "Fiberglass, G12 (Composite Warehouse)",
     "type": "BULK",
@@ -77518,7 +77518,7 @@
    "kind": "BodyTube",
    "manufacturer": "Composite Warehouse",
    "partNo": "8.25 Inch Airframe",
-   "description": "G12 fiberglass, 8\" ID x 8.25\" OD (no published weight; density is handbook G12, 1900 kg/m3)",
+   "description": "G12 fiberglass, 8\" ID x 8.25\" OD (density 1900 kg/m3, the handbook figure; no published weight for this size)",
    "material": {
     "name": "Fiberglass, G12 (Composite Warehouse)",
     "type": "BULK",
@@ -77532,7 +77532,7 @@
    "kind": "BodyTube",
    "manufacturer": "Composite Warehouse",
    "partNo": "9 Inch Airframe",
-   "description": "G12 fiberglass, 8.78\" ID x 9.005\" OD (density is handbook G12, 1900 kg/m3; the manufacturer states 23.8 oz/ft for this size, which would imply 1092 kg/m3 - outside the range a G12 laminate can be)",
+   "description": "G12 fiberglass, 8.78\" ID x 9.005\" OD (density 1900 kg/m3, the handbook figure. Composite Warehouse states 23.8 oz/ft for this size, which would need 1092 kg/m3 - outside the range a fiberglass laminate can be, so it is not used here)",
    "material": {
     "name": "Fiberglass, G12 (Composite Warehouse)",
     "type": "BULK",
@@ -77546,7 +77546,7 @@
    "kind": "BodyTube",
    "manufacturer": "Composite Warehouse",
    "partNo": "11.67 Inch Airframe",
-   "description": "G12 fiberglass, 11.41\" ID x 11.67\" OD (density is handbook G12, 1900 kg/m3; the manufacturer states 31.56 oz/ft for this size, which would imply 965 kg/m3 - outside the range a G12 laminate can be)",
+   "description": "G12 fiberglass, 11.41\" ID x 11.67\" OD (density 1900 kg/m3, the handbook figure. Composite Warehouse states 31.56 oz/ft for this size, which would need 965 kg/m3 - outside the range a fiberglass laminate can be, so it is not used here)",
    "material": {
     "name": "Fiberglass, G12 (Composite Warehouse)",
     "type": "BULK",

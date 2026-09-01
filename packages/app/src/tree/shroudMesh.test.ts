@@ -228,9 +228,13 @@ describe('shroud geometry helpers', () => {
 
   it('charges a curved-body bump more frontal area than width x height', () => {
     // The exact tangent-gap area, checked against its own closed form at the
-    // limit where the bump is as wide as the tube: R^2 (2 - pi/2).
-    const R = 1, W = 2, H = 0;
-    expect(surfaceBumpFrontalArea(R, W, H)).toBeCloseTo(2 - Math.PI / 2, 12);
+    // limit where the bump is as wide as the tube: R^2 (2 - pi/2). Isolated by
+    // SUBTRACTING the flat term rather than by setting the height to zero -
+    // a zero-height bump is not a bump, and since v0.090 it charges nothing
+    // (see the zero-height case below), so H = 0 can no longer be used to
+    // expose the crescent.
+    const R = 1, W = 2, H = 0.25;
+    expect(surfaceBumpFrontalArea(R, W, H) - W * H).toBeCloseTo(2 - Math.PI / 2, 12);
 
     // The app's default shroud: 25 x 20 mm on a 54 mm body, ~5 % more than W*H.
     const wh = 0.025 * 0.02;
@@ -241,5 +245,14 @@ describe('shroud geometry helpers', () => {
     // A narrow bump on a big tube is essentially flat-wall — the correction
     // must vanish, or it would be charging curvature that is not there.
     expect(surfaceBumpFrontalArea(1.0, 0.002, 0.01) / (0.002 * 0.01)).toBeCloseTo(1, 4);
+
+    // NO HEIGHT MEANS NO BUMP, so no crescent under it either. Guarding only
+    // the width let a shroud whose height was typed to 0 disappear from all
+    // three views and still charge the whole gap term as drag - +0.055 on the
+    // rocket's CD from a part that is not there. Both zero cases return 0.
+    expect(surfaceBumpFrontalArea(0.0121, 0.024, 0)).toBe(0);
+    expect(surfaceBumpFrontalArea(0.0121, 0, 0.008)).toBe(0);
+    // …and a hair of height still charges only a hair more than the crescent.
+    expect(surfaceBumpFrontalArea(0.0121, 0.024, 1e-9)).toBeGreaterThan(6e-5);
   });
 });
