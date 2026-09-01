@@ -1,0 +1,279 @@
+import { useEffect, useMemo, useState } from 'react';
+import type { RocketTree } from '@online-openrocket/engine';
+import { NumField } from './NumField.js';
+import { useDialog } from './useDialog.js';
+import { usePrefs } from '../prefs/PrefsContext.js';
+import { siToUi, uiToSi } from '../prefs/units.js';
+import { loadPresets, type Preset } from '../services/presets.js';
+import { classLabel } from '../services/motorDb.js';
+import {
+  maxBodyDiameter, previewMounts, rocketLength, scaleRocket, type ScaleResult,
+} from '../tree/scaleRocket.js';
+
+/**
+ * Scale the whole rocket — the upscale/downscale workflow Eric queued in
+ * issues-2026-08-31a and released in c ("I read the research doc - overall, I
+ * say 'go' - build it").
+ *
+ * Two ways in, because those are the two ways builders actually think about it
+ * (his ruling, and the Apogee article's own workflow):
+ *
+ *  - a FACTOR, for "make it half size";
+ *  - a TARGET BODY DIAMETER, for the real workflow — "I have 4 inch tube, what
+ *    does this 2.6 inch plan become?" The catalogue dropdown fills that in
+ *    from a tube you can actually buy, which is where a scale project starts:
+ *    "find the nose cone first… factor = new tube OD ÷ original tube OD".
+ *
+ * The two fields are linked, exactly like desktop OpenRocket's "Scale from X
+ * to Y" pair. Desktop then applies the change silently; this dialog says what
+ * it is about to do to the motor mounts first, because a scaled mount usually
+ * is not a motor you can buy.
+ */
+export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBackup, onClose }: {
+  tree: RocketTree;
+  /** Motor diameter (m) per mount id, for the "does it still fit" check. */
+  assignedMotorDiameters: Record<string, number>;
+  onApply: (result: ScaleResult) => void;
+  onSaveBackup: () => void;
+  onClose: () => void;
+}) {
+  const dialogRef = useDialog(onClose);
+  const { prefs } = usePrefs();
+  const lenSym = prefs.units.length;
+
+  const baseD = maxBodyDiameter(tree);
+  const baseL = rocketLength(tree);
+
+  const [factor, setFactor] = useState(2);
+  const [snapMounts, setSnapMounts] = useState(false);
+  const [tubes, setTubes] = useState<Preset[] | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    loadPresets()
+      .then((all) => setTubes(all.filter((p) => p.kind === 'BodyTube'
+        && typeof p['outsideDiameter'] === 'number')))
+      .catch(() => setTubes([]));
+  }, []);
+
+  /**
+   * Catalogue tubes, one row per distinct outside diameter. Bucketed at 0.1 mm
+   * because the raw set holds 246 values for 215 real sizes — the duplicates
+   * are imperial conversions of the same nominal tube, and a list that shows
+   * 53.98 above 54.00 is a list nobody can use.
+   */
+  const tubeOptions = useMemo(() => {
+    const byBucket = new Map<number, { od: number; label: string; n: number }>();
+    for (const p of tubes ?? []) {
+      const od = p['outsideDiameter'] as number;
+      const key = Math.round(od * 10000);
+      const seen = byBucket.get(key);
+      if (seen) seen.n++;
+      else byBucket.set(key, { od, label: `${p.manufacturer} ${p.partNo}`, n: 1 });
+    }
+    return [...byBucket.values()].sort((a, b) => a.od - b.od);
+  }, [tubes]);
+
+  const targetD = baseD * factor;
+  const mounts = useMemo(
+    () => previewMounts(tree, factor, assignedMotorDiameters),
+    [tree, factor, assignedMotorDiameters],
+  );
+  const offClass = mounts.filter((m) => Math.abs(m.scaledBoreMm - m.nearestMm) >= 0.05);
+  const lostMotors = mounts.filter((m) => !m.motorStillFits);
+
+  const fmt = (si: number, places = 1) => siToUi('length', lenSym, si).toFixed(places);
+
+  const apply = () => {
+    if (busy) return;
+    setBusy(true);
+    onApply(scaleRocket(tree, factor, { snapMounts, assignedMotorDiameters }));
+    onClose();
+  };
+
+  const usable = Number.isFinite(factor) && factor > 0 && factor !== 1 && baseD > 0;
+
+  return (
+    <div className="prefs-overlay" role="presentation" onClick={onClose}>
+      <div
+        className="prefs-dialog panel"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Scale rocket"
+        ref={dialogRef}
+        tabIndex={-1}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+          <h2 style={{ flex: 1 }}>Scale rocket</h2>
+          <button className="file-btn" onClick={onClose} aria-label="Close scale dialog">✕ Close</button>
+        </div>
+
+        {baseD <= 0 ? (
+          <p className="comp-stats">
+            This design has no body tube, nose cone or transition to measure, so there is
+            nothing to scale from. Add an airframe first.
+          </p>
+        ) : (
+          <>
+            <p className="comp-stats" style={{ marginTop: 0 }}>
+              Every length, diameter, wall, fin and position is multiplied by one factor.
+              It lands as a single step, so Ctrl+Z puts the design back.
+            </p>
+
+            <div className="field">
+              <label htmlFor="scale-factor">Scale by</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <NumField
+                  value={factor}
+                  onCommit={(v) => { if (v !== null && v > 0) setFactor(v); }}
+                  min={0.01}
+                  max={100}
+                  step={0.05}
+                  ariaLabel="Scale factor"
+                />
+                <span className="comp-stats" style={{ whiteSpace: 'nowrap' }}>
+                  × &nbsp;({(factor * 100).toFixed(1)} %)
+                </span>
+                {[0.5, 2].map((f) => (
+                  <button
+                    key={f}
+                    type="button"
+                    className="file-btn"
+                    onClick={() => setFactor(f)}
+                  >
+                    {f}×
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="field">
+              <label htmlFor="scale-target">New body diameter ({lenSym})</label>
+              <NumField
+                value={Number(siToUi('length', lenSym, targetD).toFixed(4))}
+                onCommit={(v) => {
+                  if (v === null || !(v > 0)) return;
+                  const si = uiToSi('length', lenSym, v);
+                  if (si > 0 && baseD > 0) setFactor(si / baseD);
+                }}
+                min={0.0001}
+                step={1}
+                ariaLabel="Target body diameter"
+              />
+              <span className="comp-stats">
+                The widest body diameter is {fmt(baseD)} {lenSym} today. Type what you are
+                building it in and the factor follows — that is how a scale project actually
+                starts: find the tube, then let everything else follow it.
+              </span>
+            </div>
+
+            <div className="field">
+              <label htmlFor="scale-tube">…or pick a tube from the catalogue</label>
+              <select
+                id="scale-tube"
+                value=""
+                disabled={!tubes}
+                onChange={(e) => {
+                  const od = Number(e.target.value);
+                  if (od > 0 && baseD > 0) setFactor(od / baseD);
+                }}
+              >
+                <option value="">
+                  {tubes === null ? 'Loading the catalogue…' : `${tubeOptions.length} sizes — choose one`}
+                </option>
+                {tubeOptions.map((t) => (
+                  <option key={t.od} value={t.od}>
+                    {fmt(t.od, 2)} {lenSym} — {t.label}{t.n > 1 ? ` (+${t.n - 1} more)` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <p className="comp-stats">
+              <strong>{fmt(baseL, 0)} × {fmt(baseD)} {lenSym}</strong>
+              {' becomes '}
+              <strong>{fmt(baseL * factor, 0)} × {fmt(targetD)} {lenSym}</strong>
+              {'. Solid parts keep their material, so their mass goes as the cube — about '}
+              {(factor ** 3).toFixed(2)}×. A parachute does not: its canopy is fabric of a fixed
+              thickness, so it scales with its area, which is right for a real build and means
+              the design is no longer exactly similar. Descent rate goes as roughly the square
+              root of the factor — about {Math.sqrt(factor).toFixed(2)}× — so size the canopy for
+              the new mass rather than trusting the scaled one.
+            </p>
+
+            {mounts.length > 0 && (
+              <div className="field">
+                <label>Motor mounts</label>
+                <ul className="comp-stats" style={{ margin: 0, paddingLeft: 18 }}>
+                  {mounts.map((m) => (
+                    <li key={m.id}>
+                      {m.name}: {m.boreMm.toFixed(1)} → <strong>{m.scaledBoreMm.toFixed(1)} mm</strong>
+                      {Math.abs(m.scaledBoreMm - m.nearestMm) < 0.05
+                        ? <> — a standard {classLabel(m.nearestMm)} mm.</>
+                        : <> — not a motor size you can buy; nearest is {classLabel(m.nearestMm)} mm.</>}
+                      {!m.motorStillFits && m.motorMm !== null && (
+                        <> <strong>The {m.motorMm.toFixed(0)} mm motor loaded in it will no longer
+                          fit.</strong></>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+                {offClass.length > 0 && (
+                  <label style={{ display: 'flex', gap: 6, alignItems: 'flex-start', marginTop: 6 }}>
+                    <input
+                      type="checkbox"
+                      checked={snapMounts}
+                      onChange={(e) => setSnapMounts(e.target.checked)}
+                    />
+                    <span className="comp-stats">
+                      Snap each mount to the nearest standard motor size, keeping its wall
+                      thickness. Leave this off to get the true geometric scale and choose the
+                      mount yourself — the nearest size is not always the right one.
+                    </span>
+                  </label>
+                )}
+              </div>
+            )}
+
+            <p className="comp-stats">
+              <strong>Kept at their own size:</strong> camera shrouds (the camera does not scale)
+              and rail buttons (they come in fixed sizes — micro, mini, 1010, 1515, unistrut), and
+              a launch lug&rsquo;s bore, which is the launch rod&rsquo;s. They move to their new
+              stations. <strong>Never scaled:</strong> angles, fin and instance counts, densities,
+              drag coefficients, finish, motor choice, deployment settings, launch conditions.
+            </p>
+
+            <p className="comp-stats">
+              What no simulator can scale: Reynolds number, the ratio of inertia to aerodynamic
+              moment, and surface finish. The flight is recomputed for the new size rather than
+              assumed — which is the point of doing it here rather than on a photocopier — but a
+              big downscale can fly worse than the arithmetic suggests.
+            </p>
+
+            {lostMotors.length > 0 && (
+              <p className="file-note file-note-warn">
+                A loaded motor will not fit the scaled mount. The design still scales; pick a new
+                motor on Motors &amp; Launch afterwards.
+              </p>
+            )}
+
+            <div className="modal-actions">
+              <button className="file-btn" onClick={onSaveBackup}>
+                Save a .ork backup first
+              </button>
+              <button
+                className="file-btn file-btn-primary"
+                onClick={apply}
+                disabled={!usable}
+              >
+                Scale to {(factor * 100).toFixed(1)} %
+              </button>
+              <button className="file-btn" onClick={onClose}>Cancel</button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}

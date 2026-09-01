@@ -69,6 +69,32 @@ export function diameterClass(diameterMm: number): number {
   return bestDist <= SNAP_TOLERANCE_MM ? best : diameterMm;
 }
 
+/**
+ * The nearest standard casing size to an arbitrary diameter (mm), with no
+ * tolerance gate — unlike `diameterClass`, which answers "which class is this
+ * CATALOGED motor in" and deliberately returns odd diameters unchanged so a
+ * 10.5 mm or 161 mm motor keeps its own class.
+ *
+ * The Scale tool needs the other question: an 18 mm mount scaled by 2.27 has a
+ * 40.9 mm bore, which is not a motor anybody sells, and the user has to be
+ * offered the real size next to it (Apogee's own worked example — and their
+ * answer there was 24 mm rather than the nearest 38, "quite a few engineering
+ * decisions"). Ties round DOWN to the smaller class, since a mount that is
+ * slightly too small can be opened out and one that is too big cannot.
+ */
+export function nearestCommonClass(diameterMm: number): number {
+  let best = COMMON_CLASSES[0]!;
+  let bestDist = Infinity;
+  for (const c of COMMON_CLASSES) {
+    const d = Math.abs(diameterMm - c);
+    if (d < bestDist - 1e-9) {
+      best = c;
+      bestDist = d;
+    }
+  }
+  return best;
+}
+
 /** Display label for a class — the 75 class covers both 75 and 76 mm casings. */
 export function classLabel(cls: number): string {
   return cls === 75 ? '75/76' : String(cls);

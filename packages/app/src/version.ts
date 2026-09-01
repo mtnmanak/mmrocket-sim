@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.089';
+export const APP_VERSION = '0.090';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,21 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.090',
+    date: '2026-08-31',
+    title: 'Scale a whole rocket, and the camera shroud’s drag is measured from the tube',
+    items: [
+      'NUMBERS MOVE FOR TWO KINDS OF DESIGN, both stated here. (1) EVERY DESIGN WITH A CAMERA SHROUD gains a little drag - its frontal area is now measured from the tube surface instead of from the shroud’s own flat base, which is +5 % of the shroud’s area on the default 25x20 mm shroud on a 54 mm body, +11.9 % for a GoPro-class 45x30, and +31.6 % for a low wide 24x8 shroud on a BT-50. On the whole rocket, measured in flight: CD +0.6 % to +3.2 %, apogee -0.3 % to -1.8 %. (2) ANY DESIGN USING A COMPOSITE WAREHOUSE TUBE PRESET changes weight - see below. Everything else is bit-identical.',
+      'SCALE A WHOLE ROCKET. A new ⤢ Scale button above the component tree multiplies the entire design by one factor - every length, diameter, wall, fin planform (freeform points included), shoulder, tab, fillet, canopy, cord and position - in ONE undo step. Set it as a factor, or type the body diameter you are building it in, or pick a tube from the preset catalogue and let the factor follow: that is how a scale project really starts. It offers to save a .ork backup first.',
+      'THE SCALE TOOL SAYS WHAT IT IS ABOUT TO DO, which desktop OR does not. It names what stays put (angles, counts, densities, drag coefficients, finish, motor choice, deployment settings), what keeps its own size because the world outside the rocket sets it (a camera shroud - the camera does not scale; a rail button - they come in fixed sizes; a launch lug’s bore - that is the rod), and what it is about to do to your motor mount. An 18 mm mount scaled 2.27x has a 40.9 mm bore, and there is no such motor; the dialog says so and offers to snap it to the standard 38.',
+      'AND IT IS HONEST ABOUT WHAT SCALING CANNOT DO. Reynolds number does not scale, so a downscale flies in proportionally lazier air; the ratio of inertia to aerodynamic moment does not, so it damps differently; surface finish does not, since microns stay microns. Recovery gear is the one part deliberately not scaled as the cube - a canopy is fabric of a fixed thickness, so it goes as its area, which means descent rate goes as roughly the square root of the factor. A 2x upscale lands about 1.4x faster. Size the chute for the new mass.',
+      'A CAMERA SHROUD’S DRAG FIGURE IS ON SCREEN, in its property panel: the frontal area, the coefficient, and what it adds to the rocket’s CD. That number was computed on every keystroke and displayed nowhere, which is the same gap that let a two-year-old inertia fault survive until v0.088. It also shows the split - so much shroud, so much of the gap its flat underside leaves over the tube - because that is the part you cannot work out from the fields above it.',
+      'COMPOSITE WAREHOUSE TUBES ALL SIT AT HANDBOOK G12 NOW, 1900 kg/m³. The manufacturer publishes a weight for four of the 26, and every one of those four implies a density outside the range a G12 laminate can physically be - 2283, 1209, 1092 and 965 kg/m³ against a handbook 1850-1940, the last lighter than water. Reproducing them made the catalogue read backwards: the 8 inch tube came out lighter per foot than the smaller 7.5 inch on an identical wall. Weights move from -17 % to +97 % depending on size; the four published figures are still printed in those rows’ descriptions, with the density each would imply, so you can see both numbers.',
+      'THE UNDO DIALOGS STOP PROMISING SOMETHING UNDO DOES NOT DO. “Ctrl+Z can still undo afterwards” appeared on New and on the share-link prompt; undo covers the design tree only, so it brings your components back and leaves the motors, flight configurations and the flight behind. After opening a share link it is worse than useless - it restores your components and leaves the link’s motors on them. Both now say what really happens. Undo scope itself is unchanged, at the owner’s direction.',
+      'KNOWN AND UNCHANGED, deliberately: shroud drag still ignores the mounting angle, the wake a shroud sheds onto the fins downstream is not modelled by us or by anything else in hobby software, and the Hoerner coefficients still have no wind-tunnel anchor taken on a camera shroud - what this release fixed is the AREA those coefficients are charged against, not the coefficients.',
+    ],
+  },
   {
     version: '0.089',
     date: '2026-08-31',

@@ -541,7 +541,8 @@ export const FIELDS: Record<EditorComponentType, FieldDef[]> = {
   // External protuberance (camera shroud, avionics fairing). The physics is
   // synthesized at the engine boundary (treeModel.engineTree): slender-strake
   // lift via a 1-fin Barrowman surface + Hoerner protuberance drag as a CD
-  // override.
+  // override, charged against the area the shroud blocks measured FROM THE
+  // TUBE SURFACE (width x height plus the tangent-to-arc crescent, v0.090).
   fairing: [
     lenMM('length', 'Length (along body)', 5, 500),
     lenMM('width', 'Width (across body)', 2, 200),

@@ -24,7 +24,7 @@ import { OrkRocket } from '@online-openrocket/engine';
 import type { ComponentNode, ComponentType, RocketTree } from '@online-openrocket/engine';
 import { resolveAbsolutePositions } from './position.js';
 import { defaultParams, DISPLAY_NAME, FIELDS, type EditorComponentType } from './schema.js';
-import { shroudEnds } from './shroud.js';
+import { shroudEnds, surfaceBumpFrontalArea } from './shroud.js';
 
 /**
  * Immutable tree-editing helpers. Every node carries a unique editor id
@@ -277,9 +277,16 @@ export function moveNode(tree: RocketTree, id: string, dir: -1 | 1): RocketTree 
 }
 
 /**
- * Hoerner protuberance drag coefficients referenced to FRONTAL area (W·H),
- * interference with the body boundary layer included (Fluid-Dynamic Drag,
- * ch. 5 & 8 — canonical surface-protuberance values, calibratable).
+ * Hoerner protuberance drag coefficients referenced to the bump's FRONTAL
+ * AREA — the area it presents to the flow, measured from the wall it sits on
+ * — with interference against the body boundary layer included (Fluid-Dynamic
+ * Drag, ch. 5 & 8: canonical surface-protuberance values, calibratable).
+ *
+ * Hoerner's data is a FLAT-wall measurement. A rocket's wall is not flat, so
+ * for a shroud the area these multiply is `surfaceBumpFrontalArea` (W·H plus
+ * the tangent-to-arc crescent), not W·H — see the 'fairing' branch of
+ * `engineTree`. Applying a flat-wall coefficient to the curved-wall area is
+ * what makes it the area the coefficient was defined on.
  *
  * These are WHOLE-BUMP values: each describes a bump with both ends alike.
  * From v0.088 a shroud can have two different ends, so `fairingCdFrontal`
@@ -777,6 +784,69 @@ export function referenceArea(tree: RocketTree): number {
 }
 
 /**
+ * The radius of the airframe surface a part is MOUNTED ON (m) — not the
+ * rocket's reference radius, which is the widest tube anywhere in the design.
+ *
+ * The two coincide on a single-tube rocket and diverge the moment a shroud
+ * sits on a payload bay narrower than the fin can; using the reference radius
+ * there would charge the curvature of a tube the shroud is not touching.
+ *
+ * The per-type expressions are exactly the ones all three views already use
+ * (Rocket3D.tsx:336/346/365, TreeSchematic.tsx:1236/1254/1269,
+ * AftView.tsx:228-232), and the fallbacks are ComponentFactory's own
+ * (ll. 66, 146) so the radius measured here is the radius the kernel builds
+ * the parent with.
+ *
+ * A nose cone contributes its BASE radius: engineTree computes no axial
+ * stations, so the local radius at the shroud's own station is not available
+ * — and the error is conservative, since the crescent GROWS as the true local
+ * radius shrinks. An absent transition radius means AUTOMATIC in the kernel,
+ * which lands on 0 here and degrades to the uncorrected flat area.
+ */
+export function mountRadiusOf(parent: ComponentNode | null | undefined): number {
+  if (!parent) return 0;
+  const nn = (key: string, fb: number): number =>
+    typeof parent[key] === 'number' ? (parent[key] as number) : fb;
+  const t = parent.type as string;
+  if (t === 'bodytube') return nn('outerRadius', 0.012);
+  if (t === 'nosecone') return nn('aftRadius', 0.012);
+  if (t === 'transition') return Math.max(nn('foreRadius', 0), nn('aftRadius', 0));
+  return 0;
+}
+
+/**
+ * The frontal area (m²) a camera shroud blocks, measured from the surface of
+ * the body it is mounted on — the number `engineTree` charges its Cd against.
+ *
+ * Exported so the property panel prints the SAME area the kernel is handed.
+ * The two reach the parent differently — engineTree threads it down its walk,
+ * the panel looks it up with `findParent` — so `treeModel.test.ts` pins that
+ * they agree on a tree where a wrong radius would show. That is the defect
+ * `referenceArea`'s note records happening once already: "the property panel
+ * printed the third-of-the-drag figure as fact".
+ */
+export function fairingFrontalArea(tree: RocketTree, node: ComponentNode): number {
+  const nn = (key: string, fb: number): number =>
+    typeof node[key] === 'number' ? (node[key] as number) : fb;
+  const parent = node.id ? findParent(tree, node.id) : null;
+  return surfaceBumpFrontalArea(
+    mountRadiusOf(parent === 'stage' ? null : parent),
+    nn('width', 0.025), nn('height', 0.02));
+}
+
+/** A camera shroud's Hoerner coefficient, from its two end shapes. */
+export function fairingCd(node: ComponentNode): number {
+  const { fore, aft } = shroudEnds(node);
+  return fairingCdFrontal(fore, aft);
+}
+
+/** What a camera shroud adds to the rocket's CD — the override engineTree writes. */
+export function fairingDeliveredCd(tree: RocketTree, node: ComponentNode): number {
+  return (fairingCd(node) * fairingFrontalArea(tree, node))
+    / Math.max(referenceArea(tree), 1e-9);
+}
+
+/**
  * What a protuberance actually adds to the rocket's CD: frontal area × Cd,
  * referenced to the rocket's own reference area — exactly the number handed to
  * the kernel as an override, and exactly what the kernel adds to total CD
@@ -799,8 +869,19 @@ export function protuberanceDeliveredCd(tree: RocketTree, node: ComponentNode): 
  * 2. Camera shrouds ('fairing'): lowered to a kernel 1-fin freeform strake of
  *    the shroud's side profile — Barrowman's low-aspect-ratio fin lift IS the
  *    slender-strake (Jones) model — plus a component-CD override for the
- *    protuberance drag (frontal-area Hoerner value scaled to the rocket
- *    reference area) and the as-built mass as a mass override.
+ *    protuberance drag (a Hoerner coefficient on the shroud's frontal area,
+ *    scaled to the rocket reference area) and the as-built mass as a mass
+ *    override.
+ *
+ *    THE FRONTAL AREA IS MEASURED FROM THE TUBE SURFACE (v0.090): W·H plus
+ *    the crescent between the shroud's tangent underside and the arc of the
+ *    body it is mounted on — `surfaceBumpFrontalArea`, against the MOUNTING
+ *    PARENT's radius (not the rocket's reference radius, which is the widest
+ *    tube anywhere). +2.6 % CD on the shroud for the test fixture, +5.0 % on
+ *    the app's default shroud on a 54 mm body, +24.5 % on a low wide shroud
+ *    on a BT-50. It is a geometry fix, not a coefficient one: it makes the
+ *    area right for a coefficient Hoerner measured on a flat wall, and shroud
+ *    Cd itself still has no wind-tunnel anchor of its own.
  *
  *    THE MOUNTING ANGLE STEERS THE LIFT (v0.089, Eric: "let's do this for
  *    now"): the strake carries the shroud's own `angleOffset` as its
@@ -843,7 +924,7 @@ export function engineTree(tree: RocketTree): RocketTree {
   // Rocket reference diameter = the airframe's max diameter (kernel rule).
   const aRef = referenceArea(tree);
 
-  const walk = (nodes: ComponentNode[]): ComponentNode[] => nodes.map((n) => {
+  const walk = (nodes: ComponentNode[], parent?: ComponentNode): ComponentNode[] => nodes.map((n) => {
     if ((n.type as string) === 'protuberance') {
       const area = protuberanceFrontalArea(n);
       const cd = protuberanceCd(tree, n);
@@ -891,11 +972,29 @@ export function engineTree(tree: RocketTree): RocketTree {
         rotation: nnum(n, 'angleOffset', 0),
         position: n.position,
         overrideMass: nnum(n, 'mass', 0.03),
-        overrideCD: (cdFrontal * W * H) / Math.max(aRef, 1e-9),
+        // THE AREA IS MEASURED FROM THE TUBE SURFACE, not from the shroud's
+        // own flat underside (v0.090, Eric: "if it is waiting on my call, fix
+        // it"). W*H is the frontal area of a bump on a FLAT wall, which is
+        // where the Hoerner coefficient above comes from; the obstruction a
+        // real shroud presents runs from the curved surface it is bolted to,
+        // so it is W*H PLUS the crescent between the tangent chord and the
+        // arc. Under-charge measured before the fix: 5.0 % on the app's
+        // default 25x20 shroud on a 54 mm body, 11.9 % for a GoPro-class
+        // 45x30 on the same body, 24.5 % for a low wide shroud on a BT-50 —
+        // worst on small rockets, which is where a shroud matters most.
+        //
+        // NOT gated on `conformal`: a conformal shroud fills the crescent
+        // with material and a flat-bottomed one leaves it as dead air, and
+        // the flow is blocked either way. This is body curvature, not
+        // conformal-vs-flat, and the guide's promise that the conformal tick
+        // "changes the drawing and the printed shape, not the numbers" stays
+        // true only because of that.
+        overrideCD: (cdFrontal * surfaceBumpFrontalArea(mountRadiusOf(parent), W, H))
+          / Math.max(aRef, 1e-9),
         ...(typeof n['finish'] === 'string' ? { finish: n['finish'] } : {}),
       } as ComponentNode;
     }
-    let next: ComponentNode = n.children ? ({ ...n, children: walk(n.children) } as ComponentNode) : n;
+    let next: ComponentNode = n.children ? ({ ...n, children: walk(n.children, n) } as ComponentNode) : n;
     const dh = typeof n['spillHoleDiameter'] === 'number' ? (n['spillHoleDiameter'] as number) : 0;
     if (n.type === 'parachute' && dh > 0) {
       const D = typeof n['diameter'] === 'number' ? (n['diameter'] as number) : 0.3;

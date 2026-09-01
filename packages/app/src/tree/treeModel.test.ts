@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { OrkRocket } from '@online-openrocket/engine';
-import { bodyDragReference, engineTree, findNode, hasParallelStage, isOnLaunchStage, makeNode, motorMounts, mountsIn, normalizeTree, protuberanceCd, protuberanceDeliveredCd, PROTUBERANCE_REF_MACH, referenceArea, resetBodyDragCache, splitClusterPairsTree, splitClusterTree } from './treeModel.js';
+import { bodyDragReference, engineTree, fairingDeliveredCd, fairingFrontalArea, findNode, findParent, mountRadiusOf, hasParallelStage, isOnLaunchStage, makeNode, motorMounts, mountsIn, normalizeTree, protuberanceCd, protuberanceDeliveredCd, PROTUBERANCE_REF_MACH, referenceArea, resetBodyDragCache, splitClusterPairsTree, splitClusterTree } from './treeModel.js';
 import { clusterOffsets } from './cluster.js';
 import { allowedChildren, defaultParams, DISPLAY_NAME, FIELDS } from './schema.js';
 
@@ -142,8 +142,16 @@ describe('engineTree — camera shroud (fairing) lowering', () => {
     expect(strake['finCount']).toBe(1);
     expect(strake['thickness']).toBeCloseTo(0.025, 9);
     expect(strake['overrideMass']).toBeCloseTo(0.045, 9);
-    // Hoerner half-round 0.55 · frontal (0.025·0.02) / (π·0.05²)
-    expect(strake['overrideCD']).toBeCloseTo((0.55 * 0.025 * 0.02) / (Math.PI * 0.05 * 0.05), 9);
+    // Hoerner half-round 0.55 on the area the shroud really blocks, over the
+    // rocket reference area π·0.05². The area is W·H PLUS the crescent between
+    // the shroud's tangent underside and the R = 0.05 arc it sits on:
+    //   a = W/2 = 0.0125
+    //   gap = 2aR − R²·asin(a/R) − a·√(R²−a²) = 1.314571429989e-5
+    //   area = 5.0e-4 + 1.314571429989e-5 = 5.131457142999e-4 m²
+    // The literal is written out rather than calling surfaceBumpFrontalArea:
+    // using the helper as its own oracle would make this assertion pass
+    // against a sign error inside it.
+    expect(strake['overrideCD']).toBeCloseTo(0.035934657861190, 12);
     const pts = strake['points'] as [number, number][];
     expect(pts[2]).toEqual([0.08, 0.02]);
   });
@@ -153,7 +161,134 @@ describe('engineTree — camera shroud (fairing) lowering', () => {
     const strake = findNode(out, 'f1')!;
     const pts = strake['points'] as [number, number][];
     expect(pts[1]![0]).toBeCloseTo(0.024, 9); // 0.3·L ramp
-    expect(strake['overrideCD']).toBeCloseTo((0.25 * 0.025 * 0.02) / (Math.PI * 0.05 * 0.05), 9);
+    expect(strake['overrideCD']).toBeCloseTo(0.016333935391450, 12); // cd 0.25, same area
+  });
+
+  /**
+   * v0.090 — the body-curvature frontal-area correction (Eric, 2026-08-31c:
+   * "if it is waiting on my call, fix it").
+   *
+   * These are written to fail on THREE separate mutations, because the first
+   * two are the implementations somebody reaches for first:
+   *   (M1) drop the correction entirely — `cdFrontal * W * H`;
+   *   (M2) keep it but feed it the REFERENCE radius √(aRef/π), which is
+   *        already in scope two lines above, instead of the mounting parent's;
+   *   (M3) gate it on `conformal`, which reads plausible and is wrong.
+   */
+  describe('the frontal area is measured from the tube surface', () => {
+    it('charges the crescent as well as width × height', () => {
+      const out = engineTree(fairingTree({ fairingShape: 'halfround' }));
+      const strake = findNode(out, 'f1')!;
+      // The RATIO is the assertion that names mutation M1: reverting to W·H
+      // makes this exactly 1.
+      const flat = (0.55 * 0.025 * 0.02) / (Math.PI * 0.05 * 0.05);
+      expect((strake['overrideCD'] as number) / flat).toBeCloseTo(1.0262914286, 9);
+    });
+
+    it('uses the MOUNTING tube radius, not the rocket reference radius', () => {
+      // aRef is set by the fat tube; the shroud sits on the thin one. Both
+      // radii are therefore in scope, and only the parent's is correct.
+      //   parent R = 0.025 → 0.036913099383697   (correct)
+      //   ref    R = 0.050 → 0.035934657861190   (mutation M2)
+      //   flat W·H        → 0.035014087480217   (mutation M1)
+      const out = engineTree({
+        name: 'two', components: [{
+          type: 'stage', id: 's1', children: [
+            { type: 'bodytube', id: 'fat', length: 0.3, outerRadius: 0.05 } as ComponentNode,
+            {
+              type: 'bodytube', id: 'thin', length: 0.3, outerRadius: 0.025,
+              children: [{
+                type: 'fairing', id: 'f1', length: 0.08, width: 0.025, height: 0.02,
+                mass: 0.045, fairingShape: 'halfround',
+                position: { method: 'middle', offset: 0 },
+              } as ComponentNode],
+            } as ComponentNode,
+          ],
+        } as ComponentNode],
+      });
+      expect(findNode(out, 'f1')!['overrideCD']).toBeCloseTo(0.036913099383697, 12);
+    });
+
+    it('is not gated on the conformal tick — dead air blocks as well as material', () => {
+      // The guide promises the conformal tick "changes the drawing and the
+      // printed shape, not the numbers". Strict equality, because a gate on
+      // isConformal() makes exactly one of these three differ.
+      const cd = (params: Record<string, unknown>) =>
+        findNode(engineTree(fairingTree({ fairingShape: 'halfround', ...params })), 'f1')!['overrideCD'];
+      expect(cd({ conformal: false })).toBe(cd({ conformal: true }));
+      expect(cd({})).toBe(cd({ conformal: true }));
+    });
+
+    it('falls back to width × height when there is no tube to be curved', () => {
+      // A shroud whose parent is the stage: no mounting surface, so no
+      // crescent — and, importantly, no NaN.
+      const out = engineTree({
+        name: 'bare', components: [{
+          type: 'stage', id: 's1', children: [{
+            type: 'fairing', id: 'f1', length: 0.08, width: 0.025, height: 0.02,
+            mass: 0.045, fairingShape: 'halfround',
+            position: { method: 'middle', offset: 0 },
+          } as ComponentNode],
+        } as ComponentNode],
+      });
+      // aRef falls back to the kernel's 0.01 m reference length here, so pin
+      // the AREA rather than the ratio: cd·W·H / aRef with no crescent term.
+      const cdOut = findNode(out, 'f1')!['overrideCD'] as number;
+      expect(Number.isFinite(cdOut)).toBe(true);
+      expect(cdOut).toBeCloseTo((0.55 * 0.025 * 0.02) / (Math.PI * 0.005 * 0.005), 9);
+    });
+
+    it('the panel helper and the engine lowering read the SAME area', () => {
+      // engineTree threads the parent down its walk; fairingFrontalArea looks
+      // it up with findParent. Two routes to one number is exactly how the
+      // panel once printed a third of the real drag as fact, so pin that they
+      // agree — on a tree where a wrong radius WOULD show, i.e. one whose
+      // reference tube is not the tube the shroud is mounted on.
+      const t: RocketTree = {
+        name: 'two', components: [{
+          type: 'stage', id: 's1', children: [
+            { type: 'bodytube', id: 'fat', length: 0.3, outerRadius: 0.05 } as ComponentNode,
+            {
+              type: 'bodytube', id: 'thin', length: 0.3, outerRadius: 0.025,
+              children: [{
+                type: 'fairing', id: 'f1', length: 0.08, width: 0.025, height: 0.02,
+                mass: 0.045, fairingShape: 'halfround',
+                position: { method: 'middle', offset: 0 },
+              } as ComponentNode],
+            } as ComponentNode,
+          ],
+        } as ComponentNode],
+      };
+      const shroud = findNode(t, 'f1')!;
+      expect(fairingDeliveredCd(t, shroud))
+        .toBeCloseTo(findNode(engineTree(t), 'f1')!['overrideCD'] as number, 15);
+      // …and it is the thin tube's number, not the fat one's.
+      expect(fairingFrontalArea(t, shroud)).toBeCloseTo(5.271178265684e-4, 15);
+      expect(mountRadiusOf(findParent(t, 'f1') as ComponentNode)).toBe(0.025);
+    });
+
+    it('saturates rather than going NaN when the shroud is wider than the tube', () => {
+      // a = min(W/2, R) clamps at the tube radius; without the clamp this is
+      // asin(1.25) = NaN and the design loses its whole drag curve.
+      //   gap = R²(2 − π/2) = 0.012²·0.4292036732 = 6.180532894153e-5
+      //   area = 6.0e-4 + 6.180532894153e-5 = 6.61805328942e-4
+      //   aRef = π·0.012² = 4.523893421169e-4
+      const out = engineTree({
+        name: 'wide', components: [{
+          type: 'stage', id: 's1', children: [{
+            type: 'bodytube', id: 'b1', length: 0.3, outerRadius: 0.012,
+            children: [{
+              type: 'fairing', id: 'f1', length: 0.08, width: 0.03, height: 0.02,
+              mass: 0.045, fairingShape: 'halfround',
+              position: { method: 'middle', offset: 0 },
+            } as ComponentNode],
+          } as ComponentNode],
+        } as ComponentNode],
+      });
+      const cdOut = findNode(out, 'f1')!['overrideCD'] as number;
+      expect(Number.isNaN(cdOut)).toBe(false);
+      expect(cdOut).toBeCloseTo((0.55 * 6.61805328942e-4) / (Math.PI * 0.012 * 0.012), 9);
+    });
   });
 });
 

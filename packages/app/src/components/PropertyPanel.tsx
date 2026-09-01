@@ -5,7 +5,8 @@ import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
 import { DISPLAY_NAME, FIELDS, POSITIONABLE, type FieldDef } from '../tree/schema.js';
 import {
-  bodyDragReference, findParent, protuberanceCd, protuberanceClass, protuberanceDeliveredCd,
+  bodyDragReference, fairingCd, fairingDeliveredCd, fairingFrontalArea, findParent,
+  mountRadiusOf, protuberanceCd, protuberanceClass, protuberanceDeliveredCd,
   protuberanceExplicitCd, protuberanceFrontalArea, suppressingAncestor,
 } from '../tree/treeModel.js';
 import { anchorStarts, axialLength, offsetForStart, snapStart, startFromPosition } from '../tree/position.js';
@@ -829,6 +830,50 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
             move the CP, the same as RASAero.
             {' '}For real rail buttons prefer the <em>Rail button</em> component:
             it gets OpenRocket&rsquo;s own Mach- and boundary-layer-dependent model.
+          </p>
+        );
+      })()}
+
+      {/* A shroud's drag was computed on every keystroke and shown nowhere —
+          the same shape of gap that let the rotational-inertia fault survive
+          two years (v0.088). v0.090 both CHANGED this number and put it on
+          screen, in that order where it could not be: the sentence names the
+          area, the coefficient and the delivered CD, and says the area is
+          measured from the tube rather than from the shroud's own flat base,
+          because that is the part a reader cannot derive from the fields
+          above. Every figure comes from treeModel, so the panel cannot print
+          an area the kernel did not use. */}
+      {node.type === 'fairing' && (() => {
+        const W = typeof node['width'] === 'number' ? (node['width'] as number) : 0.025;
+        const H = typeof node['height'] === 'number' ? (node['height'] as number) : 0.02;
+        const area = fairingFrontalArea(tree, node);
+        const flat = Math.max(0, W) * Math.max(0, H);
+        const bodyR = mountRadiusOf(parent === 'stage' ? null : (parent as ComponentNode | null));
+        const crescent = area - flat;
+        return (
+          <p className="comp-stats" style={{ marginTop: 6 }}>
+            {(area * 1e6).toFixed(0)} mm² frontal
+            {' × '}Cd {fairingCd(node).toFixed(3)}
+            {' = '}<strong>+{fairingDeliveredCd(tree, node).toFixed(5)}</strong> on the
+            rocket&rsquo;s CD, at every Mach.
+            {crescent > 1e-12 && bodyR > 0 ? (
+              <>
+                {' '}The area is measured from the <em>tube surface</em>, not from the
+                shroud&rsquo;s own base: {(flat * 1e6).toFixed(0)} mm² of shroud plus{' '}
+                {(crescent * 1e6).toFixed(0)} mm² of the gap its flat underside leaves
+                over a {(bodyR * 2000).toFixed(0)} mm tube, which the flow is blocked by
+                either way. Conformal or not makes no difference to this — a conformal
+                shroud fills that gap with material instead of dead air.
+              </>
+            ) : (
+              <>
+                {' '}The area is measured from the tube surface; with no body radius to
+                read here it falls back to width × height.
+              </>
+            )}
+            {' '}The coefficient is a Hoerner surface-protuberance value for the two end
+            shapes, and it has no wind-tunnel anchor of its own — treat the shroud&rsquo;s
+            drag as an estimate with a stated method, not a measurement.
           </p>
         );
       })()}

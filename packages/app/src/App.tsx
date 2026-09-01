@@ -87,6 +87,7 @@ import { estimateMotorRoomForMounts } from './tree/motorRoom.js';
 import { autoAlignFinSets } from './tree/finAlign.js';
 import { railInterferenceWarnings } from './tree/mountAngle.js';
 import { convertShrouds, findShroudCandidates, type ShroudCandidate } from './tree/shroudConvert.js';
+import { ScaleDialog } from './components/ScaleDialog.js';
 
 /** One mount's assigned motor (Release C: every mount can hold its own). */
 export interface MountMotor {
@@ -523,6 +524,7 @@ export function App() {
   /** A decoded share-link design waiting for the user's OK to replace theirs. */
   const [shareOffer, setShareOffer] = useState<ImportedDesign | null>(null);
   const [showBatch, setShowBatch] = useState(false);
+  const [showScale, setShowScale] = useState(false);
   const [showChangelog, setShowChangelog] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
   const [tourOpen, setTourOpen] = useState(false);
@@ -676,6 +678,25 @@ export function App() {
     // The same bug class the v0.031 no-coalesce-across-undo fix closed.
     history.current.push(treeRef.current);
     if (history.current.length > 50) history.current.shift();
+    lastEditAt.current = 0;
+    bumpHist();
+    setTreeRaw(next);
+  }, []);
+  /**
+   * A ONE-SHOT whole-tree transform (Scale) must be exactly one undo step and
+   * must not merge with its neighbours. `setTree`'s 800 ms coalescing window is
+   * right for a drag and wrong here: press Scale within 800 ms of typing in a
+   * field and the transform would silently join that keystroke's step, so
+   * Ctrl+Z would take back both — or neither, depending on the timing.
+   *
+   * Pushes unconditionally and resets the clock afterwards, the same shape as
+   * `redo` above and for the same reason. Refs are mutated out here, never
+   * inside a `setTreeRaw` updater — see the StrictMode note on `treeRef`.
+   */
+  const commitTreeStep = useCallback((next: RocketTree) => {
+    history.current.push(treeRef.current);
+    if (history.current.length > 50) history.current.shift();
+    future.current = [];
     lastEditAt.current = 0;
     bumpHist();
     setTreeRaw(next);
@@ -2308,11 +2329,11 @@ export function App() {
               Ctrl+Z has worked globally since v0.013, but nothing advertised
               it outside the Design tab (issue 2026-08-05a #20). */}
           <button className="file-btn" onClick={undo} disabled={history.current.length === 0}
-            title="Undo the last design change (Ctrl+Z) — 50 steps">
+            title="Undo the last change to the design tree (Ctrl+Z) — 50 steps. Motors and launch conditions are not part of undo.">
             ↩ Undo
           </button>
           <button className="file-btn" onClick={redo} disabled={future.current.length === 0}
-            title="Redo the change you just undid (Ctrl+Shift+Z or Ctrl+Y)">
+            title="Redo the change you just undid (Ctrl+Shift+Z or Ctrl+Y) — a new edit clears what is left to redo">
             ↪ Redo
           </button>
           <button className="file-btn" data-tour="guide" onClick={() => setShowGuide(true)} title="User guide — quick start, features, and the physics behind the sim">
@@ -2425,6 +2446,23 @@ export function App() {
       {showGuide && <GuideDialog onClose={() => setShowGuide(false)} />}
       {tourOpen && <FirstRunTour onSetTab={setTab} onClose={closeTour} />}
       {showChangelog && <ChangelogDialog onClose={() => setShowChangelog(false)} />}
+      {showScale && (
+        <ScaleDialog
+          tree={tree}
+          assignedMotorDiameters={Object.fromEntries(
+            assigned.map(([id, mm]) => [id, mm.spec.diameter]))}
+          onApply={(res) => {
+            commitTreeStep(res.tree);
+            // A measured mass describes the rocket that was weighed. After a
+            // scale it describes one that no longer exists, and the box would
+            // report the new design's gap against someone else's scale.
+            setMeasured({ massKg: null, cgM: null });
+            setFileNote(res.notes.join('\n'));
+          }}
+          onSaveBackup={() => { void onSaveOrk(); }}
+          onClose={() => setShowScale(false)}
+        />
+      )}
       {showBatch && built && primaryMountId && !isStaged && (
         <BatchSimulate
           info={built.info}
@@ -2459,7 +2497,8 @@ export function App() {
             <p>
               This clears “{tree.name ?? 'the current rocket'}” — all components,
               overrides and the current simulation. Make sure it's saved as an
-              .ork file first. (Ctrl+Z can still undo afterwards.)
+              .ork file first: Ctrl+Z brings the components back, but not the
+              motors, the flight configurations or the flight.
             </p>
             <div className="modal-actions">
               <button className="file-btn" onClick={() => { onSaveOrk(); }}>
@@ -2499,7 +2538,8 @@ export function App() {
               This link opens “{shareOffer.name}”. Your current design
               “{tree.name ?? 'Rocket'}” will be replaced. If you want to keep
               it, save it as an .ork file first — declining simply drops the
-              link. (Ctrl+Z can still undo afterwards.)
+              link. Ctrl+Z will not put it back: it restores your components and
+              leaves the link's motors and launch conditions on them.
             </p>
             <div className="modal-actions">
               <button className="file-btn" onClick={() => { onSaveOrk(); }}>
@@ -2728,10 +2768,17 @@ export function App() {
               >
                 ✕ New
               </button>
+              <button
+                className="file-btn"
+                title="Scale the whole design by one factor - every length, diameter and position (Ctrl+Z undoes it in one step)"
+                onClick={() => setShowScale(true)}
+              >
+                ⤢ Scale…
+              </button>
               <button className="file-btn" onClick={undo} disabled={history.current.length === 0}
-                title="Undo (Ctrl+Z)">↩ Undo</button>
+                title="Undo the last design-tree change (Ctrl+Z)">↩ Undo</button>
               <button className="file-btn" onClick={redo} disabled={future.current.length === 0}
-                title="Redo (Ctrl+Shift+Z)">↪ Redo</button>
+                title="Redo (Ctrl+Shift+Z or Ctrl+Y)">↪ Redo</button>
             </div>
             <div className="field" style={{ marginBottom: 8 }}>
               <label>Rocket name</label>

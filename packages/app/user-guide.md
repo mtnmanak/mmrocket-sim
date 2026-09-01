@@ -130,9 +130,12 @@ side profile is flown as a **slender strake** through the kernel's own
 low-aspect-ratio fin lift (which reduces to the classic Jones slender-body model —
 the right physics for a strake), so the CP shift falls out of the same Barrowman
 machinery as everything else. Drag uses **Hoerner protuberance coefficients**
-referenced to the shroud's frontal area (streamlined ≈ 0.25, half-round ≈ 0.55,
-box ≈ 1.05, body interference included). Enter the as-built mass — printed parts
-weigh what they weigh.
+(streamlined ≈ 0.25, half-round ≈ 0.55, box ≈ 1.05, body interference included)
+charged against the shroud's frontal area — **the area measured from the tube
+surface**, which is the shroud's own width × height plus the gap its flat
+underside leaves over the curve of the body. Both parts block the flow, so both
+are charged; the property panel prints the two numbers separately. Enter the
+as-built mass — printed parts weigh what they weigh.
 
 **The two ends are shaped separately.** Real shrouds are domed on the end the
 camera looks out of, to give the lens a clear aperture, and tapered at the other
@@ -153,12 +156,16 @@ the field put it exactly on a fin or exactly between two fins, which is where
 singular parts nearly always go. A shroud in line with a fin has the fin in
 shot.
 
-Known limits, stated: the mounting angle changes no flight number (a shroud's
-drag is computed the same wherever it sits, as in desktop OpenRocket), the
-frontal area is charged as width × height, which ignores the small extra
-blockage the body's curvature adds, and there is **no wind-tunnel anchor for
-this model** — treat the numbers as good engineering estimates, and add margin
-on small-diameter rockets where a shroud matters most.
+Known limits, stated. The mounting angle steers the shroud's **lift** but not
+its **drag**: a shroud is charged the same drag wherever it sits, which is what
+desktop OpenRocket does too, and the wake it sheds onto the fins downstream is
+not modelled by us or by anything else in hobby software. And the coefficients
+themselves have no wind-tunnel anchor taken on a camera shroud — the nearest
+independent checks are Saturn I SA-2/SA-4 flight data and a CFD run on a
+keychain-camera shroud, both of which validate the *area-ratio* family this
+model belongs to rather than these particular numbers. Treat the shroud's drag
+as a good engineering estimate with a stated method, and add margin on
+small-diameter rockets, where a shroud matters most.
 
 ### Protuberances — the bumps that only make drag
 
@@ -421,6 +428,64 @@ it**, so re-opening the file brings the box back with your measurements still in
 link carries them too. Desktop OpenRocket skips those two extra tags with a warning, the same way
 it treats camera shrouds.
 
+## Scaling a whole design
+
+**⤢ Scale…** sits above the component tree and multiplies the entire rocket by one factor: every
+length, diameter, wall thickness, fin planform (freeform points included), shoulder, tab, fillet,
+canopy, cord and axial position. It lands as a **single undo step**, so Ctrl+Z puts the design back
+exactly as it was, and the dialog offers to save a `.ork` backup first.
+
+There are two ways to set the factor, and they are linked — change either and the other follows:
+
+- a **factor** ("make it half size"), or
+- a **new body diameter**, which is how a scale project really starts. The practitioner's workflow
+  is *find the tube first*: the factor is the new tube's outside diameter divided by the old one. A
+  dropdown of every body-tube outside diameter in the preset catalogue fills that field from a part
+  you can actually buy.
+
+**What is scaled, and what is not.** Angles, fin and instance counts, material densities, drag
+coefficients, surface finish, cluster spacing (already a ratio of tube diameters), motor selection,
+deployment and separation settings, and the launch conditions are all left alone. Masses you pinned
+by hand — mass overrides and mass components — go as the **cube** of the factor, and a pinned CG
+station goes as the factor, because that is what holds the balance point at the same percentage of
+the length. If a pinned mass was a part you actually weighed, it is a guess afterwards: re-weigh it.
+The **Measured mass & CG** box is cleared, because it described a rocket that no longer exists.
+
+**Three things keep their own size** and only move to their new stations: a **camera shroud** (the
+camera inside it is the same camera), a **rail button** (they come in fixed sizes — micro, mini,
+1010, 1515, unistrut), and a **launch lug's bore** (that is the launch rod's diameter). The spacing
+between a pair of rail buttons does scale, and a lug's length does.
+
+**The motor mount is the interesting one.** It scales geometrically, like desktop OpenRocket — and
+the dialog then tells you what that means, which desktop does not. An 18 mm mount scaled by 2.27
+has a 40.9 mm bore, and there is no such motor; the nearest standard size is 38 mm. A tick box will
+snap each mount to the nearest standard size, keeping its wall thickness, but leave it off if you
+want the true geometric answer and will choose the mount yourself — the nearest size is not always
+the right one. Apogee's own worked example rejected the nearest 38 mm for a 24 mm, for structural
+reasons. If a motor is loaded and no longer fits the scaled bore, the dialog says so before you
+commit.
+
+**Recovery gear is the one thing that deliberately does not go as the cube.** Densities are left
+alone, so every solid part's mass follows its volume: on the app's default rocket a 2× scale takes
+the nose, tube, fins and mount to exactly 8× their mass. A parachute does not — its canopy is
+fabric of a fixed thickness and its shroud lines are line, so the canopy goes as its *area*. That
+is what you would really build (nobody buys thicker ripstop for a bigger rocket), but it has two
+consequences worth knowing. The scaled design is no longer *exactly* similar, so its stability
+margin shifts slightly. And **descent rate goes as roughly the square root of the factor** — a 2×
+upscale lands about 1.4× faster — so size the canopy for the new mass rather than trusting the
+scaled one.
+
+**What scaling cannot do**, here or anywhere. A scale model is defined as photographically scaled
+*with CG and CP at the same percentage of body length*. For the structure that is preserved
+exactly, and you can check it on the Design tab: on a design with no recovery gear the stability in
+calibers does not move at all. What does not carry over
+is **Reynolds number** (a downscale flies in proportionally lazier air, and its fins are less
+effective than the arithmetic suggests), the ratio of **inertia to aerodynamic moment** (so it
+damps and oscillates differently), and **surface finish** (microns stay microns, so a downscale is
+proportionally rougher). The simulator recomputes all of that for the new size rather than assuming
+it — which is the whole reason to scale here instead of on a photocopier — but treat a large
+downscale with suspicion, and expect to re-choose recovery gear and motor by hand.
+
 ## Materials, finishes, and color
 
 Solid and structural parts pick a **bulk material** from the desktop material database (writing its density); parachutes and streamers pick a **surface material**, and shock cords/lines pick a **line material**. Typing a custom density detaches the part from the named material. Each body part also has a **surface finish** — Rough, Unfinished, Regular paint, Smooth paint, Aircraft sheet-metal, or Polished — and surface roughness feeds the skin-friction drag model, so a polished airframe genuinely simulates lower drag. Finally, each component has a **display color** (a full picker plus one-click presets) used only in the 2D/3D views.
@@ -432,11 +497,14 @@ The bundled catalog holds roughly **4,700 real-world parts** (tubes, nose cones,
 **Inner tubes get the body-tube catalogue** — desktop OpenRocket's own rule, since a motor mount
 IS a tube — so a mount can be set to a real part in one click. The catalogue includes the
 **Composite Warehouse G12 fiberglass line** (26 tubes, 24 mm to 11.67 in, the motor-mount-capable
-ones saying so in their descriptions). A note on their weights: the manufacturer states
-weight-per-foot for only four of the 26, and the four figures imply four different densities, so
-the app reproduces the four stated weights exactly and interpolates density by size for the rest —
-each row's description says which kind of number you are getting. No preset length is set for
-these: Composite Warehouse cuts to order, so applying the preset keeps the length you typed.
+ones saying so in their descriptions). A note on their weights: the manufacturer publishes
+weight-per-foot for only four of the 26, and each of those four figures implies a density outside
+the range a G12 laminate can physically be (2283, 1209, 1092 and 965 kg/m³, against a handbook
+1850–1940 — the last is lighter than water). So **every row uses handbook G12, 1900 kg/m³**, and
+mass follows your own cut length. The four published figures are not thrown away: each of those
+rows states the manufacturer's number and the density it would imply, so you can see both and
+judge. No preset length is set for these — Composite Warehouse cuts to order, so applying the
+preset keeps the length you typed.
 
 ---
 
@@ -722,7 +790,7 @@ Open **Preferences** to switch between one-click **Metric** and **Imperial** pre
 
 ## Installing, offline, and saving your work
 
-MMRocket Sim is a **PWA** — install it from the browser and it runs offline, since the physics kernel, the motor database metadata, and the preset catalog are all bundled locally. Only motor thrust curves fetch on demand, and once fetched they cache in your browser. Your work — the design tree, assigned motors, launch conditions, per-stage motor-length limits, run history, and motor filters — persists to local storage and survives reloads. If browser storage ever fills up, the app says so instead of losing work quietly: the saved-runs table shows what is actually stored, and a warning banner stays up while autosave cannot write, clearing itself once saving recovers. Autosaves also belong to the web address you saved them at — the same design opened at a different address, or inside a page embedding the app, starts fresh — so use Save As / Export → .ork to carry work between addresses. The app **header** carries **Open…**, **Undo/Redo** (Ctrl+Z / Ctrl+Shift+Z, 50 steps each way), and the **Save As / Export** menu (.ork, share link, and every format in the table above), alongside the **Guide**, **Feedback**, **Changelog** (the version badge), and **Preferences**; **New** sits atop the component tree in the Design workspace.
+MMRocket Sim is a **PWA** — install it from the browser and it runs offline, since the physics kernel, the motor database metadata, and the preset catalog are all bundled locally. Only motor thrust curves fetch on demand, and once fetched they cache in your browser. Your work — the design tree, assigned motors, launch conditions, per-stage motor-length limits, run history, and motor filters — persists to local storage and survives reloads. If browser storage ever fills up, the app says so instead of losing work quietly: the saved-runs table shows what is actually stored, and a warning banner stays up while autosave cannot write, clearing itself once saving recovers. Autosaves also belong to the web address you saved them at — the same design opened at a different address, or inside a page embedding the app, starts fresh — so use Save As / Export → .ork to carry work between addresses. The app **header** carries **Open…**, **Undo/Redo** (Ctrl+Z / Ctrl+Shift+Z, 50 steps each way — they cover the **design tree** only: assigned motors, flight configurations and launch conditions are not undone, and re-applying a flight configuration is what puts a motor set back), and the **Save As / Export** menu (.ork, share link, and every format in the table above), alongside the **Guide**, **Feedback**, **Changelog** (the version badge), and **Preferences**; **New** sits atop the component tree in the Design workspace.
 
 Beside the version badge sits the answer to *"am I on the current version?"* — **✓ Up to date** when the running build matches what is deployed, or **↻ v0.0NN available — Reload** when it does not, which reloads onto the new build. It checks once when the app loads and again whenever you click it, and it reads the deployed version directly rather than anything cached, so it is never fooled by the offline cache the app runs from. Offline it reads **Version unknown** and says so rather than guessing — it will never tell you that you are out of date when it simply could not ask. For a durable archive or to move a design to another machine or to the OpenRocket desktop, **Save as .ork** — it's the format that keeps everything.
 

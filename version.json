@@ -1,5 +1,5 @@
 {
-  "version": "0.089",
+  "version": "0.090",
   "released": "2026-08-31",
-  "note": "Camera shrouds now draw with the straight sides and conformal base real housings have (from the owner's measured photos), and their mounting angle reaches the physics - a side-mounted shroud moves the CP figure, a top-mounted one does not, and angle 0 is bit-identical to before. Rail buttons gain pair support (count + spacing, drawn, weighed and flown, with one-click auto-placement at CG and aft end) - imported desktop pairs stop flying as a single button. Snap-to-fin buttons now work across the whole airframe stack. Redo arrives (Ctrl+Shift+Z). Composite Warehouse G12 tubes join the catalog and inner tubes get the preset picker."
+  "note": "A whole rocket can be scaled by one factor now - type a factor, type the body diameter you are building it in, or pick a tube from the preset catalogue - and it lands as a single undo step, with the dialog saying what it will not scale and what it is about to do to your motor mount. Two things move numbers: a camera shroud's drag is now charged against the area it blocks measured from the tube surface rather than from its own flat base (+0.6 to +3.2 % CD, -0.3 to -1.8 % apogee), and every Composite Warehouse tube preset now uses handbook G12 density, since all four of the manufacturer's published weights imply densities no fiberglass laminate can have. A shroud's drag figure is on screen for the first time, and the undo dialogs stop claiming Ctrl+Z restores motors."
 }

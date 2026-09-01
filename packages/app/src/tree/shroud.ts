@@ -98,11 +98,18 @@ export function shroudHalfAngle(bodyRadius: number, width: number): number {
  * same body, 24.5 % for a low wide shroud on a BT-50. It grows as the shroud
  * gets wider relative to the tube and as it gets lower.
  *
- * NOT YET WIRED INTO THE DRAG MODEL — it would move the numbers of every design
- * carrying a shroud, and shroud drag is a queued question of its own (Eric,
- * 2026-08-31: *"at some point, we need to answer the physics questions for
- * these objects"*). It lives here, tested, so the decision is a one-line change
- * rather than a re-derivation.
+ * LIVE SINCE v0.090 — `engineTree`'s 'fairing' branch charges the shroud's CD
+ * override against this area, using the radius of the body the shroud is
+ * MOUNTED ON. Eric, 2026-08-31c: *"is this fixed or waiting on my call? If it
+ * is waiting on my call, fix it."* Every design carrying a shroud gained drag
+ * on that release; measured in flight beforehand, that is +0.57 % to +3.1 % on
+ * total CD and −0.15 % to −1.1 % on apogee, subsonic.
+ *
+ * What it does and does not claim: it makes the AREA right for a coefficient
+ * Hoerner measured on a flat wall. It does not improve the COEFFICIENT, which
+ * still has no wind-tunnel anchor of its own (the nearest anchors are the
+ * Saturn I SA-2/SA-4 flight comparison and Buckeye's shroud CFD, both on the
+ * area-ratio method rather than on this Cd table).
  */
 export function surfaceBumpFrontalArea(
   bodyRadius: number, width: number, height: number,

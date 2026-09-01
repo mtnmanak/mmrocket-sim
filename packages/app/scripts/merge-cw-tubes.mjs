@@ -18,19 +18,30 @@
  * The sheet carries manufacturer-claimed weight-per-foot for FOUR tubes only
  * (4.5", 8", 9", 11.67"). Eric asked to "interpolate what the other tubes
  * would weigh if they had the same density." They do not have the same
- * density. The four claims imply four DIFFERENT densities:
+ * density. The four claims imply four DIFFERENT densities, and NOT ONE OF
+ * THEM IS A POSSIBLE G12 LAMINATE:
  *
  *     4.5"  → 2283 kg/m³        9"     → 1092 kg/m³
  *     8"    → 1209 kg/m³        11.67" →  965 kg/m³
  *
- * Handbook G12 is ~1850–1940 kg/m³; the 11.67" claim is lighter than water,
- * which no solid fiberglass is. The claims are what the manufacturer states,
- * so this script (a) reproduces each CLAIMED weight exactly by deriving that
- * row's density from it, and (b) for the unclaimed rows interpolates the
- * implied density PIECEWISE-LINEARLY IN OD between the claimed points,
- * clamped flat at both ends — following the manufacturer's own trend rather
- * than inventing a fifth number. Every derived density is written into the
- * row's material so mass follows geometry × the user's cut length.
+ * Handbook G12 is ~1850–1940 kg/m³ (E-glass ~2540, epoxy ~1200, so a real
+ * laminate cannot leave that band by much). 2283 is above the all-glass
+ * limit; 965 is lighter than water. Whatever those four figures measure, it
+ * is not (density × wall volume per foot).
+ *
+ * ERIC'S RULING, 2026-08-31c: "anchor them at handbook G12 (~1900 kg/m³), for
+ * now" — and, shown the four-cliff catalogue that anchoring only the 22
+ * unclaimed rows produces (the 8" tube coming out LIGHTER per foot than the
+ * smaller 7.5" on an identical wall), he ruled the anchor applies to ALL 26.
+ * So every row now carries G12_HANDBOOK, mass follows geometry × the user's
+ * cut length, and the catalogue is monotonic in size.
+ *
+ * The four claims are NOT discarded — each claimed row's description still
+ * states the manufacturer's oz/ft figure and the density it implies, so a
+ * reader can see both numbers and judge. `impliedDensity` stays for exactly
+ * that. Eric owns at least one of every tube in this line and intends to
+ * weigh them to the nearest gram; when he does, real densities replace this
+ * anchor row by row, which is what "for now" means here.
  *
  * Deliberately NOT set on any row:
  *   - `length`: CW cuts to order and the sheet lists no lengths; presetPatch
@@ -46,9 +57,12 @@
  * (KIND_FOR_TYPE innertube → BodyTube). One row per tube, the star recorded in
  * the description.
  *
- * CONTRACT: idempotent and loud. Re-running skips rows whose key already
- * exists with matching dims; a key that exists with DIFFERENT dims aborts
- * non-zero (someone changed the table or upstream grew a conflicting row).
+ * CONTRACT: idempotent and loud. Re-running APPENDS missing rows, REFRESHES
+ * the density and description of rows already present (so a density-policy
+ * change lands on re-run instead of being silently skipped — it was skipped,
+ * before 2026-08-31c), and aborts non-zero on a key whose DIMENSIONS differ
+ * (someone changed the table, or upstream grew a conflicting row). Running it
+ * twice in a row is a no-op the second time.
  */
 
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -61,6 +75,12 @@ const DB_PATH = join(here, '..', 'src', 'data', 'presets.json');
 const IN = 0.0254;
 const FT = 0.3048;
 const OZ = 0.0283495;
+
+/**
+ * Handbook G12 laminate, kg/m³ — the anchor EVERY row uses until Eric weighs
+ * his own tubes. Mid-band of the 1850–1940 handbook range.
+ */
+const G12_HANDBOOK = 1900;
 
 /**
  * The sheet, verbatim: [name, ID inches, OD inches, motorMount, ozPerFt|null].
@@ -104,18 +124,6 @@ function impliedDensity(idIn, odIn, ozPerFt) {
   return (ozPerFt * OZ) / volPerFt;
 }
 
-/** Piecewise-linear in OD between the claimed points, clamped at the ends. */
-function densityFor(odIn, anchors) {
-  if (odIn <= anchors[0][0]) return anchors[0][1];
-  const last = anchors[anchors.length - 1];
-  if (odIn >= last[0]) return last[1];
-  for (let i = 1; i < anchors.length; i++) {
-    const [x0, y0] = anchors[i - 1];
-    const [x1, y1] = anchors[i];
-    if (odIn <= x1) return y0 + ((odIn - x0) / (x1 - x0)) * (y1 - y0);
-  }
-  return last[1];
-}
 
 // Same normalization pair as fetch-component-presets/apply-preset-corrections
 // (duplicated for the same reason the corrections script documents: importing
@@ -127,16 +135,15 @@ const presetKey = (p) => {
 };
 
 function buildRows() {
-  const anchors = TUBES.filter((t) => t[4] !== null)
-    .map((t) => [t[2], impliedDensity(t[1], t[2], t[4])])
-    .sort((a, b) => a[0] - b[0]);
   return TUBES.map(([name, idIn, odIn, mmt, ozPerFt]) => {
-    const rho = ozPerFt !== null
-      ? impliedDensity(idIn, odIn, ozPerFt)
-      : densityFor(odIn, anchors);
+    // Every row: the handbook anchor. See the header block — the four claimed
+    // weights each imply an impossible laminate density, so none of them is
+    // used as mass; the claim is reported in the description instead.
+    const rho = G12_HANDBOOK;
     const claimed = ozPerFt !== null
-      ? `${ozPerFt} oz/ft per the manufacturer`
-      : 'density interpolated from the four manufacturer-claimed weights';
+      ? `density is handbook G12, 1900 kg/m3; the manufacturer states ${ozPerFt} oz/ft for this size, `
+        + `which would imply ${impliedDensity(idIn, odIn, ozPerFt).toFixed(0)} kg/m3 - outside the range a G12 laminate can be`
+      : 'no published weight; density is handbook G12, 1900 kg/m3';
     return {
       kind: 'BodyTube',
       manufacturer: 'Composite Warehouse',
@@ -168,25 +175,42 @@ function main() {
   const rows = buildRows();
   let added = 0;
   let already = 0;
+  let refreshed = 0;
   for (const row of rows) {
     const key = presetKey(row);
     const existing = byKey.get(key);
     if (existing) {
       const same = Math.abs((existing.insideDiameter ?? 0) - row.insideDiameter) < 1e-9
         && Math.abs((existing.outsideDiameter ?? 0) - row.outsideDiameter) < 1e-9;
-      if (same) { already++; continue; }
-      console.error(`CONFLICT at "${key}": existing dims differ from the table. Resolve by hand.`);
-      process.exit(1);
+      if (!same) {
+        console.error(`CONFLICT at "${key}": existing dims differ from the table. Resolve by hand.`);
+        process.exit(1);
+      }
+      // Dimensions match, so this IS our row — but the DENSITY POLICY can
+      // change without any dimension moving (it did on 2026-08-31c), and a
+      // dims-only idempotence test would then leave the shipped catalogue on
+      // the superseded policy while this script reported success. Refresh the
+      // two fields the script owns, in place, and count it.
+      if (existing.material?.density !== row.material.density
+        || existing.description !== row.description) {
+        existing.material = row.material;
+        existing.description = row.description;
+        refreshed++;
+      } else {
+        already++;
+      }
+      continue;
     }
     db.presets.push(row);
     byKey.set(key, row);
     added++;
   }
-  if (added > 0) {
+  if (added > 0 || refreshed > 0) {
     db.count = db.presets.length;
     writeFileSync(DB_PATH, JSON.stringify(db, null, 1) + '\n');
   }
-  console.log(`cw-tubes: ${added} row(s) appended, ${already} already present — database ${added > 0 ? 'updated' : 'unchanged'}.`);
+  console.log(`cw-tubes: ${added} appended, ${refreshed} refreshed, ${already} already current`
+    + ` — database ${added > 0 || refreshed > 0 ? 'updated' : 'unchanged'}.`);
   const anchors = TUBES.filter((t) => t[4] !== null);
   for (const t of anchors) {
     console.log(`  claimed: ${t[0]} → ${impliedDensity(t[1], t[2], t[4]).toFixed(1)} kg/m³`);

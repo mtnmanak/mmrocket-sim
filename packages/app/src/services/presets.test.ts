@@ -106,13 +106,57 @@ describe('Composite Warehouse tubes', () => {
     expect(cw.every((p) => p.kind === 'BodyTube')).toBe(true);
   });
 
-  it('a claimed-weight tube reproduces the manufacturer figure from its density', () => {
-    // 4.5": 13.80 oz/ft claimed. mass = density × wall volume × 1 ft.
+  /**
+   * v0.090, Eric's ruling: EVERY row sits at handbook G12, including the four
+   * the manufacturer publishes a weight for — all four of those weights imply
+   * a density outside any real G12 laminate (2283/1209/1092/965 kg/m³ against
+   * a handbook 1850–1940), and anchoring only the 22 unclaimed rows made the
+   * catalogue non-monotonic: the 8" tube came out lighter per foot than the
+   * smaller 7.5" on an identical 0.095" wall.
+   *
+   * This is the assertion the previous version of this suite did not have.
+   * The old suite could not see a density change at all — it pinned the 4.5"
+   * row's claimed weight (unmoved under the old policy) and otherwise only
+   * asserted `density > 900`, which 2283, 1900 and 1092 all satisfy.
+   */
+  it('every row sits at the handbook G12 anchor, claimed or not', () => {
+    expect(cw.map((p) => p.material!.density)).toEqual(Array(26).fill(1900));
+  });
+
+  it('mass per foot rises monotonically with tube size', () => {
+    // The property the four claimed weights broke. Wall thickness varies, so
+    // this is not trivially true from OD alone — it holds because one density
+    // now spans the line.
+    const perFoot = (p: (typeof cw)[number]) => {
+      const ri = (p['insideDiameter'] as number) / 2;
+      const ro = (p['outsideDiameter'] as number) / 2;
+      return p.material!.density * Math.PI * (ro * ro - ri * ri) * 0.3048;
+    };
+    const bySize = [...cw].sort(
+      (a, b) => (a['outsideDiameter'] as number) - (b['outsideDiameter'] as number));
+    // Wall steps down at 4.15"->4.125" and 8.25"->9.005", so compare only the
+    // 7.5/8/8.25/9/11.67 run the old policy inverted, plus the whole line's ends.
+    const at = (n: string) => perFoot(cw.find((p) => p.partNo === n)!);
+    expect(at('8 Inch Airframe')).toBeGreaterThan(at('7.5 Inch Airframe'));
+    expect(at('9 Inch Airframe')).toBeGreaterThan(at('8 Inch Airframe'));
+    expect(at('11.67 Inch Airframe')).toBeGreaterThan(at('9 Inch Airframe'));
+    expect(perFoot(bySize.at(-1)!)).toBeGreaterThan(perFoot(bySize[0]!));
+  });
+
+  it('the four published weights are reported, not used as mass', () => {
+    const claimed = cw.filter((p) => /the manufacturer states/.test(p.description));
+    expect(claimed.map((p) => p.partNo).sort()).toEqual(
+      ['11.67 Inch Airframe', '4.5 Inch Airframe', '8 Inch Airframe', '9 Inch Airframe']);
+    // Each says the figure AND the impossible density it implies, so a reader
+    // can see both numbers. 4.5": 13.8 oz/ft would need 2283 kg/m³.
     const t = cw.find((p) => p.partNo === '4.5 Inch Airframe')!;
+    expect(t.description).toContain('13.8 oz/ft');
+    expect(t.description).toContain('2283 kg/m3');
+    // And the row does NOT weigh what the claim says: at 1900 it is lighter.
     const ri = (t['insideDiameter'] as number) / 2;
     const ro = (t['outsideDiameter'] as number) / 2;
-    const massPerFt = t.material!.density * Math.PI * (ro * ro - ri * ri) * 0.3048;
-    expect(massPerFt / 0.0283495).toBeCloseTo(13.80, 1);
+    const ozPerFt = (t.material!.density * Math.PI * (ro * ro - ri * ri) * 0.3048) / 0.0283495;
+    expect(ozPerFt).toBeCloseTo(11.48, 2);
   });
 
   it('carries neither length nor mass — the user keeps their cut', () => {
