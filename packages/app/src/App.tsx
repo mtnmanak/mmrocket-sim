@@ -2785,7 +2785,7 @@ export function App() {
         <div className="design-layout">
         <aside>
           <div className="panel" data-tour="tree">
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+            <div className="panel-head">
               <h2 style={{ flex: 1 }}>Components</h2>
               <button
                 className="file-btn"
@@ -2900,7 +2900,7 @@ export function App() {
               flexes to the viewport, the stat grid lives in a drawer overlay,
               and the five constants float in a chip on the canvas sky. */}
           <div className="panel hero-panel">
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+            <div className="panel-head">
               <h2 style={{ flex: 1 }}>Rocket</h2>
               {view === '2d' && (
                 <button className={`file-btn${vert2d ? ' hc-on' : ''}`} aria-pressed={vert2d}

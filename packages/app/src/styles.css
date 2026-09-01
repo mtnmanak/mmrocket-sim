@@ -1083,6 +1083,26 @@ html {
    the heading that already exists means the controls cost zero vertical
    space — the "charts are too small" complaint and the discoverability
    complaint must not be traded against each other. */
+/* A panel's header row: the title, then whatever buttons that panel owns.
+   WRAPS, and that is the whole point of the class. Each of these rows was an
+   inline `display:flex` with no wrap, so a button added to one of them pushed
+   the last button out of the panel and under the next one — which is exactly
+   what the v0.090 Scale button did to Redo in the Components panel. A row that
+   cannot wrap has a hard limit on how many controls a panel may ever own, and
+   nothing tells you when you have crossed it.
+   Mirrors .chart-panel-head below, which learned this first; the 4px row gap
+   plus the h2 margin reset keep a wrapped row from gaining a full text line. */
+.panel-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+}
+
+.panel-head > h2 {
+  margin-bottom: 0;
+}
+
 .chart-panel-head {
   display: flex;
   flex-wrap: wrap; /* phone: toggles + buttons drop under a long title */

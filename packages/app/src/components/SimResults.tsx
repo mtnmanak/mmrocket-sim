@@ -72,7 +72,7 @@ export function SimRunDetails({ run, hasSeries }: {
 
   return (
     <div className="panel" style={{ marginTop: 10 }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+      <div className="panel-head">
         <h2 style={{ flex: 1 }}>
           Launch report — {run.rocket ? `${run.rocket} · ` : ''}{run.motor}
           {run.manufacturer ? ` (${run.manufacturer})` : ''}

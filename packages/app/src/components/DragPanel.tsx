@@ -397,7 +397,7 @@ export function DragPanel({ rocket, supersonicModel, aeroLabel, designName, file
 
   return (
     <div className={open ? 'panel' : 'panel panel-dormant'}>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+      <div className="panel-head">
         <h2 style={{ flex: 1 }}>Drag analysis</h2>
         <button className="file-btn" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
           {open ? 'Hide' : 'Show CD vs Mach'}
