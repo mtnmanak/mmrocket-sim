@@ -206,22 +206,56 @@ function setSaveFailing(failing: boolean): void {
   for (const fn of saveListeners) fn(failing);
 }
 
+/**
+ * The state the pending debounced write will persist.
+ *
+ * Held at module level, NOT captured in the timer's closure, so `flushSession`
+ * has something to write. With the state visible only inside the closure, a
+ * flush could cancel the timer but had nothing left to save — which is worse
+ * than not flushing at all, because it silently drops the write it was added
+ * to guarantee.
+ */
+let pending: Omit<SessionState, 'savedAt'> | null = null;
+
+function writeNow(): void {
+  if (pending === null) return;
+  try {
+    // Plugged motors carry ejectionDelay = Infinity; JSON.stringify would
+    // silently turn that into null, so round-trip it as a string.
+    localStorage.setItem(KEY, JSON.stringify(
+      { ...pending, appVersion: APP_VERSION, savedAt: Date.now() }, (_k, v) =>
+      typeof v === 'number' && v === Infinity ? 'Infinity' : v));
+    setSaveFailing(false);
+  } catch {
+    // Quota/serialization failures must never break editing — but "your
+    // work saves itself" failing silently forever was the defect: flag it.
+    setSaveFailing(true);
+  }
+  pending = null;
+}
+
 export function saveSessionDebounced(state: Omit<SessionState, 'savedAt'>): void {
+  pending = state;
   if (timer) clearTimeout(timer);
-  timer = setTimeout(() => {
-    try {
-      // Plugged motors carry ejectionDelay = Infinity; JSON.stringify would
-      // silently turn that into null, so round-trip it as a string.
-      localStorage.setItem(KEY, JSON.stringify(
-        { ...state, appVersion: APP_VERSION, savedAt: Date.now() }, (_k, v) =>
-        typeof v === 'number' && v === Infinity ? 'Infinity' : v));
-      setSaveFailing(false);
-    } catch {
-      // Quota/serialization failures must never break editing — but "your
-      // work saves itself" failing silently forever was the defect: flag it.
-      setSaveFailing(true);
-    }
-  }, DEBOUNCE_MS);
+  timer = setTimeout(() => { timer = null; writeNow(); }, DEBOUNCE_MS);
+}
+
+/**
+ * Write any pending autosave immediately.
+ *
+ * The debounce is 400 ms, so closing the tab inside that window lost the last
+ * edit — a small hole, but the same class as the Open defect this shipped with
+ * (2026-09-01a): work the user made and the app did not keep. Called from
+ * `pagehide`, which fires on close, reload and navigation away, and unlike
+ * `beforeunload` also fires when a mobile browser discards the page.
+ *
+ * Deliberately NOT a beforeunload confirmation dialog: the autosave really
+ * does restore the design, so interrupting every tab close to say so would be
+ * a nag rather than a guard.
+ */
+export function flushSession(): void {
+  if (timer) { clearTimeout(timer); timer = null; }
+  writeNow();
 }
 
 export function clearSession(): void {

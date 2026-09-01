@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  flushSession,
   loadSession,
   onSessionSaveStateChange,
   saveSessionDebounced,
@@ -254,5 +255,46 @@ describe('the one-time v0.071 time-step migration fires exactly once', () => {
   it('a malformed appVersion is treated as old — migrating is the safe side', () => {
     stampFineStep('not-a-version');
     expect(loadSession()!.launch.timeStepS).toBe(0.05);
+  });
+});
+
+describe('flushSession closes the debounce window on the way out', () => {
+  it('writes a pending save immediately, without running the timer', () => {
+    localStorage.clear();
+    saveSessionDebounced({ ...state(), tree: { name: 'Unflushed', components: [] } });
+    // The debounce has NOT fired: this is the ~400 ms hole a tab close fell into.
+    expect(localStorage.getItem('online-openrocket.session.v1')).toBeNull();
+    flushSession();
+    expect(loadSession()?.tree.name).toBe('Unflushed');
+  });
+
+  it('writes the LATEST pending state, not a stale one', () => {
+    // The state must live at module level, not in the timer's closure. Cancel
+    // the timer without a module-level copy and the flush has nothing to write
+    // — worse than no flush at all, because it drops the write silently.
+    localStorage.clear();
+    saveSessionDebounced({ ...state(), tree: { name: 'First', components: [] } });
+    saveSessionDebounced({ ...state(), tree: { name: 'Second', components: [] } });
+    flushSession();
+    expect(loadSession()?.tree.name).toBe('Second');
+  });
+
+  it('does not re-write on a second flush with nothing pending', () => {
+    localStorage.clear();
+    saveSessionDebounced({ ...state(), tree: { name: 'Once', components: [] } });
+    flushSession();
+    const first = localStorage.getItem('online-openrocket.session.v1');
+    localStorage.removeItem('online-openrocket.session.v1');
+    flushSession(); // nothing pending
+    expect(localStorage.getItem('online-openrocket.session.v1')).toBeNull();
+    expect(first).not.toBeNull();
+  });
+
+  it('a flushed save still lands after the timer would have fired', () => {
+    localStorage.clear();
+    saveSessionDebounced({ ...state(), tree: { name: 'Flushed', components: [] } });
+    flushSession();
+    vi.runAllTimers(); // the cancelled timer must not resurrect anything
+    expect(loadSession()?.tree.name).toBe('Flushed');
   });
 });

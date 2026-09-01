@@ -64,8 +64,8 @@ import { saveFile } from './services/saveFile.js';
 import { tableToXlsx, XLSX_MIME } from './services/xlsx.js';
 import { exportCdx1, importCdx1 } from './services/rasaeroFile.js';
 import {
-  loadSession, onSessionSaveStateChange, saveSessionDebounced, sessionPredatesThisBuild,
-  sessionSaveFailing,
+  flushSession, loadSession, onSessionSaveStateChange, saveSessionDebounced,
+  sessionPredatesThisBuild, sessionSaveFailing,
 } from './services/session.js';
 import {
   aeroModelLabel, buildSimRun, conditionsKeyOf, currentModelLabel, formatStability,
@@ -630,6 +630,17 @@ export function App() {
     });
   }, [tree, mountMotors, launch, maxMotorLen, savedConfigs, activeConfigId, measured, dirtyTick]);
 
+  // Close the 400 ms debounce window on the way out. `pagehide` fires on
+  // close, reload and navigation away - and on a mobile browser discarding the
+  // page, which `beforeunload` does not. No confirmation dialog: the autosave
+  // genuinely restores the design, so stopping every tab close to say so would
+  // be a nag rather than a guard.
+  useEffect(() => {
+    const onHide = () => { flushSession(); };
+    window.addEventListener('pagehide', onHide);
+    return () => { window.removeEventListener('pagehide', onHide); };
+  }, []);
+
   // A first visit starts on the starter rocket, which is not work anybody
   // would mind losing — seed the mark so a share link or an Open does not ask
   // permission to replace a design the visitor has never touched. Runs once;
@@ -664,6 +675,43 @@ export function App() {
     measured,
   });
   const dirty = isDirty(designFingerprint(snapshotNow()), savedMark.current, flownSinceSave.current);
+  /**
+   * Clear the design and start over. ONE definition, because the New button
+   * now reaches it directly when there is nothing to lose and through the
+   * confirmation when there is - and two copies of a twelve-setter reset is
+   * exactly the shape of thing that gets fixed in one place only.
+   */
+  const startNewDesign = () => {
+    setTree(emptyTree());
+    setMountMotors({});
+    setSavedConfigs([]);
+    setActiveConfigId(null);
+    setMaxMotorLen({});
+    setSelectedId(null);
+    setResult(null);
+    setLastRun(null);
+    setConfirmNew(false);
+    // A stale "Loaded <old rocket>…" banner over a fresh design
+    // reads like the import happened again - clear both notes.
+    setFileNote(null);
+    setSimError(null);
+    setShroudPrompt(null);
+    // An empty design is not work anybody would mind losing, so the NEXT Open
+    // must not ask about it. Same reasoning as seeding a first visit clean.
+    // Built from the values just set, not from state, which has not
+    // re-rendered - launch and measured are deliberately not reset here, so
+    // they carry their current values.
+    markSaved(designFingerprint({
+      tree: emptyTree(),
+      mountMotors: {},
+      launch,
+      maxMotorLengthByStage: {},
+      savedConfigs: [],
+      activeConfigId: null,
+      measured,
+    }));
+  };
+
   /** Records that what is in the app right now is also what is on disk. */
   const markSaved = (mark: string) => {
     savedMark.current = mark;
@@ -1707,6 +1755,14 @@ export function App() {
     return out;
   };
 
+  // DELIBERATELY does not clear the unsaved-changes mark, and neither does
+  // onSaveCdx1 below. Both formats are LOSSY relative to the design in the app:
+  // the RockSim export carries name, tree, motors and per-component mass/CG but
+  // no launch conditions, no flight configurations and no measured mass/CG; the
+  // RASAero export keeps launch but drops configurations, measured and flight
+  // data. Treating either as "saved" would let the next Open discard the parts
+  // the file does not hold - which is the defect this guard exists for. Only
+  // the .ork round-trips everything, so only .ork marks.
   const onSaveRkt = async () => {
     try {
       // Computed mass/CG per partially-overridden component: RockSim couples
@@ -2171,6 +2227,12 @@ export function App() {
       });
       const frag = await encodeShareFragment(xml);
       const url = `${window.location.origin}${window.location.pathname}${window.location.search}${frag}`;
+      // DELIBERATELY does not clear the unsaved-changes mark. The payload is
+      // byte-identical to what a .ork save writes, so it is not a fidelity
+      // problem - it is that nothing lands on disk, and on the clipboard
+      // fallback path below the URL goes into a window.prompt() where we
+      // cannot tell whether the user ever copied it. Marking work as saved
+      // because a link MIGHT have been copied is how it gets lost.
       // Chat apps truncate very long messages, and a truncated link decodes
       // to nothing — warn at the copy, not after a confused report.
       const sizeNote = url.length > 64 * 1024
@@ -2628,22 +2690,7 @@ export function App() {
               </button>
               <button
                 className="file-btn modal-danger"
-                onClick={() => {
-                  setTree(emptyTree());
-                  setMountMotors({});
-                  setSavedConfigs([]);
-                  setActiveConfigId(null);
-                  setMaxMotorLen({});
-                  setSelectedId(null);
-                  setResult(null);
-                  setLastRun(null);
-                  setConfirmNew(false);
-                  // A stale "Loaded <old rocket>…" banner over a fresh design
-                  // reads like the import happened again — clear both notes.
-                  setFileNote(null);
-                  setSimError(null);
-                  setShroudPrompt(null);
-                }}
+                onClick={startNewDesign}
               >
                 Discard &amp; start new
               </button>
@@ -2931,7 +2978,15 @@ export function App() {
               <button
                 className="file-btn"
                 title="Clear all components and start from scratch"
-                onClick={() => setConfirmNew(true)}
+                onClick={() => {
+                  // Same test as Open: a design that is already on disk (or a
+                  // starter rocket nobody has touched) has nothing to lose, and
+                  // a confirmation that always fires is one people learn to
+                  // click through - which is how the one that MATTERS gets
+                  // dismissed.
+                  if (dirty) setConfirmNew(true);
+                  else startNewDesign();
+                }}
               >
                 ✕ New
               </button>
