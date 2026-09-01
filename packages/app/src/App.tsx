@@ -69,7 +69,7 @@ import {
 } from './services/session.js';
 import {
   aeroModelLabel, buildSimRun, conditionsKeyOf, currentModelLabel, formatStability,
-  recommendDelay, runMatchesDesign, runMatchesModel, shortHash, storedSimCost,
+  hasAerodynamicForce, recommendDelay, runMatchesDesign, runMatchesModel, shortHash, storedSimCost,
   type DesignMatchKey, type MotorMeta, type SimRun,
 } from './services/simReport.js';
 import { formatWarning, formatWarningText } from './services/simWarnings.js';
@@ -2824,10 +2824,17 @@ export function App() {
                 title="Static stability margin. ✓ = 1–3 cal, △ = over-stable (weathercocks in wind), ⚠ = under-stable. Calibers or % of length: Preferences → Display.">
                 <span className="vitals-label">Stability</span>
                 {(() => {
-                  const { glyph, cls } = stabilityGlyphClass(built.info.stabilityCalibers);
+                  // A design with no aerodynamic normal force has no margin to
+                  // show — see hasAerodynamicForce. Passing null gives the
+                  // neutral glyph rather than a green tick.
+                  const hasAero = hasAerodynamicForce(built.info);
+                  const { glyph, cls } = stabilityGlyphClass(
+                    hasAero ? built.info.stabilityCalibers : null);
                   return (
                     <span className={`vitals-value ${cls}`}>
-                      {glyph} {formatStability(built.info, prefs.stabilityUnit)}
+                      {glyph} {hasAero
+                        ? formatStability(built.info, prefs.stabilityUnit)
+                        : 'no lift yet'}
                     </span>
                   );
                 })()}

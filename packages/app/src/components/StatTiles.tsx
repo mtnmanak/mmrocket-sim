@@ -5,7 +5,7 @@ import { RULER_LEFT, RULER_TOP } from './TreeSchematic.js';
 import { ROLL_COL } from './RollControl.js';
 import { fmtSi, type Quantity } from '../prefs/units.js';
 import {
-  formatRunStability, formatStability, stabilityPercent, stabilityState,
+  formatRunStability, formatStability, hasAerodynamicForce, stabilityPercent, stabilityState,
   type SimRun, type StabilityUnit,
 } from '../services/simReport.js';
 import { UnitChip } from './UnitChip.js';
@@ -13,7 +13,11 @@ import { UnitChip } from './UnitChip.js';
 /** Shared tiered styling: under-stable = red, over-stable = yellow caution. */
 export function stabilityGlyphClass(cal: number | null | undefined): { glyph: string; cls: string } {
   const st = stabilityState(cal);
-  return st === 'under' ? { glyph: '⚠', cls: 'stability-bad' }
+  // `null` means "not known", and it used to fall through to the ✓ — so an
+  // absent or non-finite margin painted the same green tick as a good one.
+  // Unknown gets its own neutral glyph.
+  return st === null ? { glyph: '–', cls: 'stability-unknown' }
+    : st === 'under' ? { glyph: '⚠', cls: 'stability-bad' }
     : st === 'over' ? { glyph: '△', cls: 'stability-warn' }
     : { glyph: '✓', cls: 'stability-good' };
 }
@@ -61,8 +65,12 @@ export function DesignStats({ info, motorLabel, cd }: {
   const { prefs } = usePrefs();
   const len = prefs.units.length;
   const mass = prefs.units.mass;
-  const { glyph, cls } = stabilityGlyphClass(info.stabilityCalibers);
-  const pct = stabilityPercent(info);
+  // No aerodynamic normal force -> the CP and the margin are artefacts, not
+  // answers (see hasAerodynamicForce). Report them as unavailable rather than
+  // printing a number the design does not support.
+  const aero = hasAerodynamicForce(info);
+  const { glyph, cls } = stabilityGlyphClass(aero ? info.stabilityCalibers : null);
+  const pct = aero ? stabilityPercent(info) : null;
   return (
     <>
       <div className="stat-row">
@@ -75,11 +83,15 @@ export function DesignStats({ info, motorLabel, cd }: {
       <div className="stat-row">
         <Tile label="CG (empty)" value={fmtSi('length', len, info.cgEmpty, 3)} quantity="length" />
         <Tile label="CG (loaded)" value={fmtSi('length', len, info.cg, 3)} quantity="length" />
-        <Tile label="CP" value={fmtSi('length', len, info.cp, 3)} quantity="length" />
+        <Tile
+          label="CP"
+          value={aero ? fmtSi('length', len, info.cp, 3) : '—'}
+          quantity={aero ? 'length' : undefined}
+        />
         <Tile
           label="Stability"
-          value={`${glyph} ${info.stabilityCalibers.toFixed(2)}`}
-          unit="cal"
+          value={aero ? `${glyph} ${info.stabilityCalibers.toFixed(2)}` : '— no lift yet'}
+          unit={aero ? 'cal' : undefined}
           className={cls}
         />
         {/* The All-stats drawer is the "everything" view, so it shows BOTH
@@ -167,7 +179,8 @@ function loadChipState(): { x: number; y: number; folded: boolean } {
 export function StatsChip({ info }: { info: StaticInfo }) {
   const { prefs } = usePrefs();
   const len = prefs.units.length;
-  const { glyph, cls } = stabilityGlyphClass(info.stabilityCalibers);
+  const aero = hasAerodynamicForce(info);
+  const { glyph, cls } = stabilityGlyphClass(aero ? info.stabilityCalibers : null);
   const [chip, setChip] = useState(loadChipState);
   const ref = useRef<HTMLDivElement | null>(null);
   // Drag bookkeeping: pointer-to-chip offset at grab, and whether the pointer
@@ -269,7 +282,7 @@ export function StatsChip({ info }: { info: StaticInfo }) {
         ? (
           <div className="stats-chip-row">
             <span className={`stats-chip-value ${cls}`}>
-              {glyph} {formatStability(info, prefs.stabilityUnit)}
+              {glyph} {aero ? formatStability(info, prefs.stabilityUnit) : 'no lift'}
             </span>
           </div>
         )
@@ -279,7 +292,7 @@ export function StatsChip({ info }: { info: StaticInfo }) {
             {row('Mass loaded', `${fmtSi('mass', prefs.units.mass, info.mass)} ${prefs.units.mass}`)}
             {row('CG', `${fmtSi('length', len, info.cg, 3)} ${len}`)}
             {row('CP', `${fmtSi('length', len, info.cp, 3)} ${len}`)}
-            {row('Stability', `${glyph} ${formatStability(info, prefs.stabilityUnit)}`, cls)}
+            {row('Stability', `${glyph} ${aero ? formatStability(info, prefs.stabilityUnit) : 'no lift yet'}`, cls)}
           </>
         )}
     </div>

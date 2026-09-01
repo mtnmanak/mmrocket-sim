@@ -14,6 +14,10 @@ const TREE = { name: 'Field Bird', components: [] };
 const INFO = {
   length: 0.37, refDiameter: 0.024, mass: 0.0513, massEmpty: 0.0273,
   cg: 0.262, cgEmpty: 0.198, cp: 0.299, stabilityCalibers: 1.52,
+  // A rocket that is stable at 1.52 cal necessarily generates normal force,
+  // and the readout now checks that rather than trusting the margin alone:
+  // cna = 0 means the CP and the margin are artefacts, not answers.
+  cna: 8.995,
   warningTexts: [],
 } as never;
 

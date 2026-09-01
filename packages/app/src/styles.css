@@ -1048,6 +1048,14 @@ html {
   color: var(--status-warn);
 }
 
+/* NOT KNOWN — a design with no aerodynamic normal force yet (fewer than three
+   fins and no nose cone). Deliberately the muted body colour rather than any of
+   the three status colours: this is the absence of a reading, and painting it
+   green was the bug. */
+.stability-unknown {
+  color: var(--text-secondary);
+}
+
 /* --- Charts --- */
 .chart-panel {
   background: var(--surface-2);
@@ -1412,6 +1420,7 @@ html {
 .stats-chip-value.stability-good { color: #4dbd4d; }
 .stats-chip-value.stability-warn { color: #e0a53d; }
 .stats-chip-value.stability-bad { color: #f0716f; }
+.stats-chip-value.stability-unknown { color: #9aa0a6; }
 
 /* Clear of the roll column (ROLL_COL = 26): the column runs the full height of
    the drawing and the readout sits at its foot, so a 12px inset put the chip

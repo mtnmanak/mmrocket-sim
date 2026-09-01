@@ -17,7 +17,10 @@ import {
   type ExportData, type ImageFormat,
 } from '../services/schematicExport.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
-import { formatStability, stabilityState, type StabilityState, type StabilityUnit } from '../services/simReport.js';
+import {
+  formatStability, hasAerodynamicForce, stabilityState,
+  type StabilityState, type StabilityUnit,
+} from '../services/simReport.js';
 import { ImageExportMenu, type ImageExportOptions } from './ImageExportMenu.js';
 
 /**
@@ -429,7 +432,10 @@ export function calloutGadget(
   if (!info || !Number.isFinite(info.cg) || !Number.isFinite(info.cp)) return null;
   const markerR = markerRadius(totalLen, maxR);
   const off = maxR + markerR * 2.2;
-  const state = stabilityState(info.stabilityCalibers);
+  // No aerodynamic normal force -> no meaningful CP to mark. See
+  // hasAerodynamicForce; the kernel reports cp 0 there, which would draw the
+  // marker on the nose tip as though that were a measurement.
+  const state = hasAerodynamicForce(info) ? stabilityState(info.stabilityCalibers) : null;
   return {
     off,
     r: markerR * 0.55,

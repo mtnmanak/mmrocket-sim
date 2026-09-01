@@ -1,7 +1,7 @@
 import type { RocketTree, StaticInfo } from '@online-openrocket/engine';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { fmtSi } from '../prefs/units.js';
-import { formatStability, type SimRun } from '../services/simReport.js';
+import { formatStability, hasAerodynamicForce, type SimRun } from '../services/simReport.js';
 import { Icon } from './Icon.js';
 import { LaunchField, type LaunchConditions } from './LaunchPanel.js';
 import { stabilityGlyphClass } from './StatTiles.js';
@@ -41,7 +41,8 @@ export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
   staleModel?: string | null;
 }) {
   const { prefs } = usePrefs();
-  const stab = info ? stabilityGlyphClass(info.stabilityCalibers) : null;
+  const stab = info && hasAerodynamicForce(info)
+    ? stabilityGlyphClass(info.stabilityCalibers) : null;
   const descent = run ? (run.landingRate ?? run.groundHitVelocity) : null;
 
   const stat = (label: string, value: string, unit?: string) => (

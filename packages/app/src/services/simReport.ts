@@ -86,6 +86,30 @@ export const SAFETY = {
  * provisional pending the owner's call (response-2026-08-05a.md #4).
  */
 export type StabilityState = 'ok' | 'under' | 'over';
+/**
+ * Does this design generate any aerodynamic normal force at all?
+ *
+ * When it does not, the CP and the stability margin are ARTEFACTS rather than
+ * answers. The kernel reports cp = 0 (the nose tip) and cna = 0, and the margin
+ * is then (0 - cg)/d — a large negative number that looks like a violently
+ * unstable rocket and is really "there was nothing to measure".
+ *
+ * Measured against the real kernel: a body tube with ONE fin and no nose cone
+ * reports cp 0, cna 0, -5.449 cal; with two fins, -5.813. Add a third fin, or a
+ * nose cone, and the numbers become real. It is not "no nose cone" as such —
+ * fewer than three fins cancel in the measured plane, and a constant-diameter
+ * tube contributes no normal force of its own — so the condition to test is the
+ * force itself, not the shape of the parts list.
+ *
+ * This is a state a user passes THROUGH: a tube and a fin set exist before the
+ * nose cone does. Printing a green ✓ and a plausible margin there would be the
+ * dangerous kind of wrong; printing a huge negative one is merely the confusing
+ * kind.
+ */
+export function hasAerodynamicForce(info: Pick<StaticInfo, 'cna'>): boolean {
+  return Number.isFinite(info.cna) && Math.abs(info.cna) > 1e-8;
+}
+
 export function stabilityState(cal: number | null | undefined): StabilityState | null {
   if (cal == null || !Number.isFinite(cal)) return null;
   if (cal < SAFETY.minStaticMargin) return 'under';
