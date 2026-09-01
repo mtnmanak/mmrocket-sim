@@ -121,6 +121,21 @@ function ValueSlider({ value, min, max, step, onChange }: {
  * Named-material dropdown (desktop material database). Picking one writes the
  * name + density into the node; "Custom" clears the name and keeps whatever
  * density is set. Densities: bulk kg/m³, surface kg/m², line kg/m.
+ *
+ * A material the node NAMES but this list does not hold still shows its own
+ * name, as an extra option at the top. Reported 2026-09-01a: "anytime you pull
+ * in a part from the database, it marks the material as Custom, even if the
+ * database clearly shows the material."
+ *
+ * That was exactly right, and it was a display bug rather than a data one —
+ * `presetPatch` writes both `materialName` and `density`, so the flight physics
+ * was always correct. The dropdown simply had no option matching the name and
+ * fell back to the empty value, which renders as "Custom". Measured on the
+ * shipped catalogue: 4,697 of 4,723 rows carry a material, they use 145
+ * distinct names, and only 18 of those are in this list — so 3,977 rows, 84 %
+ * of the database, read "Custom" after being applied.
+ *
+ * "Custom" now means what it says: no name at all.
  */
 function MaterialSelect({ label, list, nameKey, densityKey, densityUnit, node, onPatch }: {
   label: string;
@@ -132,21 +147,36 @@ function MaterialSelect({ label, list, nameKey, densityKey, densityUnit, node, o
   onPatch: (patch: Partial<ComponentNode>) => void;
 }) {
   const current = node[nameKey];
-  const value = typeof current === 'string' && list.some((m) => m.name === current) ? current : '';
+  const named = typeof current === 'string' && current !== '' ? current : null;
+  const known = named !== null && list.some((m) => m.name === named);
+  // The node names a material this list has never heard of — a catalogue part's
+  // own material, almost always. Offer it, selected, with the density the node
+  // is actually flying, rather than silently calling it Custom.
+  const foreign = named !== null && !known ? named : null;
+  const foreignDensity = typeof node[densityKey] === 'number'
+    ? (node[densityKey] as number) : undefined;
   return (
     <div className="field">
       <label>{label}</label>
       <select
         aria-label={label}
-        value={value}
+        value={named ?? ''}
         onChange={(e) => {
           const mat = list.find((m) => m.name === e.target.value);
-          onPatch(mat
-            ? { [nameKey]: mat.name, [densityKey]: mat.density }
-            : { [nameKey]: undefined });
+          if (mat) onPatch({ [nameKey]: mat.name, [densityKey]: mat.density });
+          // Re-picking the part's own material is a no-op, not a reason to
+          // rewrite the density it came with.
+          else if (e.target.value === foreign) { /* already applied */ }
+          else onPatch({ [nameKey]: undefined });
         }}
       >
         <option value="">Custom</option>
+        {foreign !== null && (
+          <option value={foreign}>
+            {foreign}{foreignDensity !== undefined ? ` (${foreignDensity} ${densityUnit})` : ''}
+            {' — from the parts database'}
+          </option>
+        )}
         {list.map((m) => (
           <option key={m.name} value={m.name}>{m.name} ({m.density} {densityUnit})</option>
         ))}
