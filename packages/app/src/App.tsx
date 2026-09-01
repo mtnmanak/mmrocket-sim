@@ -88,6 +88,7 @@ import { autoAlignFinSets } from './tree/finAlign.js';
 import { railInterferenceWarnings } from './tree/mountAngle.js';
 import { convertShrouds, findShroudCandidates, type ShroudCandidate } from './tree/shroudConvert.js';
 import { mountBore } from './tree/scaleRocket.js';
+import { designFingerprint, isDirty, type DesignSnapshot } from './services/dirtyState.js';
 import { ScaleDialog } from './components/ScaleDialog.js';
 
 /** One mount's assigned motor (Release C: every mount can hold its own). */
@@ -602,6 +603,21 @@ export function App() {
   const [measured, setMeasured] = useState<{ massKg: number | null; cgM: number | null }>(
     () => session?.measured ?? { massKg: null, cgM: null });
 
+  /**
+   * The design fingerprint as of the last save or import — what is on disk.
+   *
+   * SEEDING RULE, and it is load-bearing. A FIRST visit (session === null,
+   * tree = the starter rocket) is seeded CLEAN below, so a brand-new visitor
+   * is never asked to save a rocket they have not touched. A RESTORED session
+   * takes the mark it stored, and a session written before this field existed
+   * has none — which counts as dirty, because it cannot prove it was saved.
+   */
+  const savedMark = useRef<string | null>(session ? (session.savedMark ?? null) : null);
+  const flownSinceSave = useRef<boolean>(session?.flownSinceSave ?? false);
+  const [dirtyTick, bumpDirty] = useReducer((x: number) => x + 1, 0);
+  /** The file the user picked while there was unsaved work — held for the prompt. */
+  const [pendingOpen, setPendingOpen] = useState<File | null>(null);
+
   // Autosave the working state so a closed tab or crash never loses work.
   useEffect(() => {
     // Prune limits for stages that no longer exist before persisting.
@@ -610,8 +626,50 @@ export function App() {
       Object.entries(maxMotorLen).filter(([id]) => stageIds.has(id)));
     saveSessionDebounced({
       tree, mountMotors, launch, maxMotorLengthByStage, savedConfigs, activeConfigId, measured,
+      savedMark: savedMark.current ?? undefined, flownSinceSave: flownSinceSave.current,
     });
-  }, [tree, mountMotors, launch, maxMotorLen, savedConfigs, activeConfigId, measured]);
+  }, [tree, mountMotors, launch, maxMotorLen, savedConfigs, activeConfigId, measured, dirtyTick]);
+
+  // A first visit starts on the starter rocket, which is not work anybody
+  // would mind losing — seed the mark so a share link or an Open does not ask
+  // permission to replace a design the visitor has never touched. Runs once;
+  // a restored session already carries its own mark (or deliberately lacks one).
+  useEffect(() => {
+    if (session === null && savedMark.current === null) {
+      savedMark.current = designFingerprint(snapshotNow());
+      bumpDirty();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /**
+   * "Is there work a file on disk does not have?" — the guard behind the Open
+   * prompt (2026-09-01a). The autosave is ONE localStorage slot, so opening a
+   * design really does discard whatever was in it; desktop OR and RockSim both
+   * ask first.
+   *
+   * A ref, not state: marking a save must not re-render the app, and the two
+   * places that read it (the Open handler and the prompt's own gating) either
+   * run in an event or re-render for their own reasons. `bumpDirty` exists so
+   * the autosave effect re-runs when only the mark moved.
+   */
+  const snapshotNow = (): DesignSnapshot => ({
+    tree,
+    mountMotors,
+    launch,
+    maxMotorLengthByStage: Object.fromEntries(
+      Object.entries(maxMotorLen).filter(([id]) => new Set(stages(tree).map((x) => x.id)).has(id))),
+    savedConfigs,
+    activeConfigId,
+    measured,
+  });
+  const dirty = isDirty(designFingerprint(snapshotNow()), savedMark.current, flownSinceSave.current);
+  /** Records that what is in the app right now is also what is on disk. */
+  const markSaved = (mark: string) => {
+    savedMark.current = mark;
+    flownSinceSave.current = false;
+    bumpDirty();
+  };
 
   // ---- undo / redo (Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y / buttons) ----
   //
@@ -1276,6 +1334,13 @@ export function App() {
         setLastRun(run);
         setLastSimCost({ ms: execMs, ...(launch.timeStepS != null ? { timeStepS: launch.timeStepS } : {}) });
         recordRuns(addRun(run));
+        // A flight is work even though it does not touch the design, and the
+        // owner asked for it to count. Hooked HERE, at the one place a run is
+        // recorded - NOT inside recordRuns, which is also SimResults' delete-one
+        // and clear-all callback, where it would mark a design dirty for
+        // REMOVING a flight.
+        flownSinceSave.current = true;
+        bumpDirty();
         setSimError(null);
       } catch (e) {
         setSimError(e instanceof Error ? e.message : String(e));
@@ -1624,13 +1689,22 @@ export function App() {
   );
 
   const onSaveOrk = async () => {
+    // The mark is taken SYNCHRONOUSLY, before the await. `download` opens a
+    // Save-As picker that can sit open indefinitely, and the user can keep
+    // editing behind it — marking from post-await state would bless those
+    // edits as saved when the file on disk does not have them.
+    const mark = designFingerprint(snapshotNow());
     // WITH launch: the .ork's first <simulation> carries the pad and weather,
     // so the file (and the desktop app) round-trips the whole flight setup.
-    await download(exportOrk({
+    const out = await download(exportOrk({
       name: tree.name ?? 'My Rocket', tree, motors: exportMotorsMap(), launch,
       configs: exportConfigs(), activeConfigId, measured,
       flightData: flightDataForExport(),
     }), 'ork');
+    // Only a real write counts. 'cancelled' means the user backed out of the
+    // picker, and treating that as saved is how work gets discarded silently.
+    if (out.kind !== 'cancelled') markSaved(mark);
+    return out;
   };
 
   const onSaveRkt = async () => {
@@ -1915,6 +1989,23 @@ export function App() {
     // get an offer to become the native fairing component (2026-08-05e).
     const shrouds = findShroudCandidates(importedTree);
     setShroudPrompt(shrouds.length ? shrouds : null);
+    // The design now IS the file on disk, so the baseline moves with it. Built
+    // from the values this function just computed, NOT from React state, which
+    // has not re-rendered yet - reading state here would mark the PREVIOUS
+    // design as saved and leave the imported one looking dirty forever.
+    markSaved(designFingerprint({
+      tree: importedTree,
+      mountMotors: nextMotors,
+      // The same merge the two setLaunch calls above perform. `launch` still
+      // holds the pre-import value here, which is exactly the `prev` they see.
+      launch: imported.launch
+        ? { ...launch, ...imported.launch, timeStepS: imported.launch.timeStepS }
+        : { ...launch, timeStepS: undefined },
+      maxMotorLengthByStage: {}, // setMaxMotorLen({}) above - imported stages have fresh ids
+      savedConfigs: nextConfigs,
+      activeConfigId: chosenId,
+      measured: imported.measured ?? { massKg: null, cgM: null },
+    }));
   };
 
   /** Loads a flight-configuration preset into the working set (Stage B). */
@@ -2292,7 +2383,12 @@ export function App() {
               aria-label="Open a design file"
               onChange={(e) => {
                 const f = e.target.files?.[0];
-                if (f) onOpenOrk(f);
+                // Ask before discarding unsaved work (2026-09-01a). The File
+                // object stays readable after the input is cleared - the
+                // handler below already relied on that, calling the async
+                // onOpenOrk and then clearing synchronously - so holding it
+                // for the prompt is safe.
+                if (f) { if (dirty) setPendingOpen(f); else void onOpenOrk(f); }
                 e.target.value = '';
               }} />
           </label>
@@ -2552,6 +2648,51 @@ export function App() {
                 Discard &amp; start new
               </button>
               <button className="file-btn" onClick={() => setConfirmNew(false)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {pendingOpen && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true"
+          aria-label="Unsaved changes">
+          <div className="modal-card">
+            <h2>Save “{tree.name ?? 'the current rocket'}” first?</h2>
+            <p>
+              Opening “{pendingOpen.name}” replaces what is on screen, and
+              “{tree.name ?? 'the current rocket'}” has changes that are not in any
+              file you have saved. There is one autosave slot and the new design
+              takes it, so those changes would be gone — Ctrl+Z does not reach
+              across a file open.
+            </p>
+            <div className="modal-actions">
+              <button
+                className="file-btn"
+                onClick={() => {
+                  const f = pendingOpen;
+                  void (async () => {
+                    const out = await onSaveOrk();
+                    // Backing out of the Save-As picker must NOT then open the
+                    // file — that would discard the work the user just tried
+                    // to protect. Leave the prompt up and let them decide.
+                    if (out.kind === 'cancelled') return;
+                    setPendingOpen(null);
+                    void onOpenOrk(f);
+                  })();
+                }}
+              >
+                <Icon name="save" /> Save .ork, then open
+              </button>
+              <button
+                className="file-btn modal-danger"
+                onClick={() => {
+                  const f = pendingOpen;
+                  setPendingOpen(null);
+                  void onOpenOrk(f);
+                }}
+              >
+                Open without saving
+              </button>
+              <button className="file-btn" onClick={() => setPendingOpen(null)}>Cancel</button>
             </div>
           </div>
         </div>

@@ -55,6 +55,23 @@ export interface SessionState {
    */
   measured?: { massKg: number | null; cgM: number | null };
   /**
+   * The design fingerprint as of the last save or import (v0.091+) — what is
+   * on disk. Compared against the live design to decide whether opening
+   * another file would discard work. See services/dirtyState.ts.
+   *
+   * ABSENT MEANS DIRTY, deliberately: a session written by an older build
+   * cannot prove it was ever saved, and the safe reading of "I do not know" is
+   * to ask rather than to discard. Same convention as the absent `appVersion`
+   * above.
+   */
+  savedMark?: string;
+  /**
+   * Has a flight been run since that mark? Flying does not change the design,
+   * so no fingerprint can see it — but the owner asked for it to count, and
+   * both desktop OR and RockSim treat a flown sim as work worth keeping.
+   */
+  flownSinceSave?: boolean;
+  /**
    * APP_VERSION of the build that wrote this session (v0.063+). What is stored
    * here is the PARSED design, not the .ork bytes, so a fix to the importer
    * never reaches a design that is already open: it is re-read from
