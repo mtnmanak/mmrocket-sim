@@ -5,9 +5,10 @@ import { useDialog } from './useDialog.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { siToUi, uiToSi } from '../prefs/units.js';
 import { loadPresets, type Preset } from '../services/presets.js';
-import { classLabel } from '../services/motorDb.js';
+import { COMMON_CLASSES, classLabel } from '../services/motorDb.js';
 import {
-  maxBodyDiameter, previewMounts, rocketLength, scaleRocket, type ScaleResult,
+  maxBodyDiameter, previewMounts, rocketLength, scaleRocket,
+  type MountChoice, type MountPreview, type ScaleResult,
 } from '../tree/scaleRocket.js';
 
 /**
@@ -117,10 +118,54 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
     return out;
   }, [tubeRows]);
 
+  /**
+   * Per-mount size decisions. Empty = every mount follows the global tick box,
+   * which is the shape the owner asked for: "keep the snap to nearest motor
+   * size toggle for people who do not know what they want."
+   */
+  const [choices, setChoices] = useState<Record<string, MountChoice>>({});
+  /** The typed Custom bore per mount (mm), while its Custom… row is showing. */
+  const [custom, setCustom] = useState<Record<string, string>>({});
+
+  /** Which option the pulldown is sitting on for this mount. */
+  const choiceValue = (m: MountPreview): string => {
+    if (custom[m.id] !== undefined) return 'custom';
+    const c = choices[m.id];
+    if (c === undefined) return snapMounts && m.snappable ? 'nearest' : 'scaled';
+    if (c === 'scaled' || c === 'nearest') return c;
+    return COMMON_CLASSES.includes(c.boreMm) ? `c${c.boreMm}` : 'custom';
+  };
+
+  const onChooseMount = (m: MountPreview, value: string) => {
+    setCustom((prev) => {
+      const next = { ...prev };
+      if (value === 'custom') next[m.id] = String(Math.round(m.finalBoreMm));
+      else delete next[m.id];
+      return next;
+    });
+    setChoices((prev) => {
+      const next = { ...prev };
+      if (value === 'custom') next[m.id] = { boreMm: Math.round(m.finalBoreMm) };
+      else if (value.startsWith('c')) next[m.id] = { boreMm: Number(value.slice(1)) };
+      else next[m.id] = value as MountChoice;
+      return next;
+    });
+  };
+
+  const onCustomBore = (m: MountPreview, raw: string) => {
+    setCustom((prev) => ({ ...prev, [m.id]: raw }));
+    const mm = Number(raw);
+    // An empty or nonsense box must not resize anything; hold the last good
+    // value rather than snapping the preview back to the scaled size mid-type.
+    if (Number.isFinite(mm) && mm > 0) {
+      setChoices((prev) => ({ ...prev, [m.id]: { boreMm: mm } }));
+    }
+  };
+
   const targetD = baseD * factor;
   const mounts = useMemo(
-    () => previewMounts(tree, factor, assignedMotorDiameters, snapMounts),
-    [tree, factor, assignedMotorDiameters, snapMounts],
+    () => previewMounts(tree, factor, { assignedMotorDiameters, snapMounts, mountChoices: choices }),
+    [tree, factor, assignedMotorDiameters, snapMounts, choices],
   );
   const snappable = mounts.filter((m) => m.snappable);
   const lostMotors = mounts.filter((m) => !m.motorStillFits);
@@ -130,7 +175,7 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
   const apply = () => {
     if (busy) return;
     setBusy(true);
-    onApply(scaleRocket(tree, factor, { snapMounts, assignedMotorDiameters }));
+    onApply(scaleRocket(tree, factor, { snapMounts, assignedMotorDiameters, mountChoices: choices }));
     onClose();
   };
 
@@ -286,7 +331,9 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
                           onStandardClass/snappable/isAirframe is what let this
                           list and the post-apply note disagree about an
                           off-class airframe mount with the snap unticked. */}
-                      {m.verdict === 'on-class'
+                      {m.verdict === 'resized'
+                        ? <> — the {m.targetBoreMm!.toFixed(1)} mm mount you chose.</>
+                        : m.verdict === 'on-class'
                         ? <> — a standard {classLabel(m.nearestMm)} mm.</>
                         : m.verdict === 'snapped'
                           ? <> — snapped {m.nearestMm > m.scaledBoreMm ? 'up' : 'down'} from{' '}
@@ -305,6 +352,49 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
                             <> Snapping is what loses it — the scaled{' '}
                               {m.scaledBoreMm.toFixed(1)} mm bore still takes it.</>
                           )}</>
+                      )}
+                      {m.choosable && (
+                        <div style={{ marginTop: 4 }}>
+                          <label
+                            htmlFor={`mount-size-${m.id}`}
+                            style={{ marginRight: 6 }}
+                          >
+                            Mount size
+                          </label>
+                          <select
+                            id={`mount-size-${m.id}`}
+                            value={choiceValue(m)}
+                            onChange={(e) => onChooseMount(m, e.target.value)}
+                          >
+                            <option value="scaled">
+                              Scaled size ({m.scaledBoreMm.toFixed(1)} mm)
+                            </option>
+                            <option value="nearest">
+                              Nearest standard ({classLabel(m.nearestMm)} mm)
+                            </option>
+                            <optgroup label="Standard sizes">
+                              {COMMON_CLASSES.map((c) => (
+                                <option key={c} value={`c${c}`}>{classLabel(c)} mm</option>
+                              ))}
+                            </optgroup>
+                            <option value="custom">Custom…</option>
+                          </select>
+                          {custom[m.id] !== undefined && (
+                            <>
+                              {' '}
+                              <input
+                                type="number"
+                                min={1}
+                                step={1}
+                                aria-label={`Custom mount bore for ${m.name}, mm`}
+                                value={custom[m.id] ?? ''}
+                                style={{ width: 90 }}
+                                onChange={(e) => onCustomBore(m, e.target.value)}
+                              />
+                              {' mm'}
+                            </>
+                          )}
+                        </div>
                       )}
                     </li>
                   ))}

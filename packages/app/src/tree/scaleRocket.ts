@@ -164,13 +164,38 @@ export interface ScaleResult {
   needsAttention: boolean;
 }
 
+/**
+ * What to do with ONE motor mount.
+ *
+ * `'scaled'`  leave the geometric result alone (the default).
+ * `'nearest'` put it on the nearest standard casing size.
+ * `{ boreMm }` put it on a size the user picked, standard or not.
+ *
+ * Stored as a discriminated choice rather than a bare number so that
+ * `'nearest'` keeps TRACKING the factor as the user retypes it. A number
+ * captured at the moment of choosing would silently stop being the nearest
+ * size the next time the factor moved.
+ */
+export type MountChoice = 'scaled' | 'nearest' | { boreMm: number };
+
 export interface ScaleOptions {
   /**
    * After scaling, snap every motor mount's bore to the nearest standard motor
    * size. Off by default: the scaled tube is the honest geometric answer, and
    * the summary says which class it landed near either way.
+   *
+   * This is the MASTER default (the owner's word: "keep the snap to nearest
+   * motor size toggle for people who do not know what they want"). A per-mount
+   * entry in `mountChoices` overrides it for that mount.
    */
   snapMounts?: boolean;
+  /**
+   * Per-mount size decisions, by mount id — the owner's 2026-09-01a request.
+   * His case: a 4 in LOC IV upscaled to a 7.51 in tube wants a 75 mm mount by
+   * arithmetic, and most people would build 98 mm in a rocket that size. The
+   * nearest size is a recommendation, not an answer.
+   */
+  mountChoices?: Record<string, MountChoice>;
   /** Motor diameters currently assigned, by mount id (m), for the fit report. */
   assignedMotorDiameters?: Record<string, number>;
 }
@@ -272,6 +297,21 @@ export interface MountPreview {
   /** Can snapping do anything here — an inner tube that is not already on a class? */
   snappable: boolean;
   /**
+   * Can the user pick a size for this mount at all? Every mount that is not
+   * the airframe, INCLUDING one already sitting on a standard class — an
+   * on-class mount is `snappable: false` because the toggle has nothing to do
+   * there, but "my 75 mm scaled mount should be a 98" is exactly the case the
+   * owner reported, so the pulldown must still be offered.
+   */
+  choosable: boolean;
+  /**
+   * The bore this mount is being RESIZED to (mm), or null to leave the scaled
+   * tube alone. One decision, resolved here from the per-mount choice and the
+   * global toggle, and consumed by both the writer and the summary — the
+   * previous shape re-derived "should this be snapped" in the writer as well.
+   */
+  targetBoreMm: number | null;
+  /**
    * What is going to happen to this mount, decided ONCE.
    *
    * The dialog's list, the post-apply notes and the notice severity each used
@@ -283,7 +323,7 @@ export interface MountPreview {
    * consumers, so the next change to what counts as snapped cannot make the
    * dialog promise one outcome and the note report another.
    */
-  verdict: 'on-class' | 'snapped' | 'airframe-left' | 'off-class';
+  verdict: 'on-class' | 'snapped' | 'airframe-left' | 'off-class' | 'resized';
   /** The assigned motor's class (mm), when one is loaded. */
   motorMm: number | null;
   /** True when the mount IS the airframe (a body tube with motorMount) — never snapped. */
@@ -319,9 +359,11 @@ export interface MountPreview {
  * not a motor you can buy (Apogee's own worked example).
  */
 export function previewMounts(
-  tree: RocketTree, factor: number, assigned: Record<string, number> = {},
-  snapMounts = false,
+  tree: RocketTree, factor: number, opts: ScaleOptions = {},
 ): MountPreview[] {
+  const assigned = opts.assignedMotorDiameters ?? {};
+  const snapMounts = opts.snapMounts ?? false;
+  const choices = opts.mountChoices ?? {};
   return motorMounts(tree).map((m) => {
     const boreMm = mountBore(m) * 1000;
     // NOT boreMm * factor. `scaleNode` multiplies a thickness key only when it
@@ -349,15 +391,38 @@ export function previewMounts(
     // Snapping is only OFFERED, and only DONE, for an inner tube that is not
     // already on a class.
     const snappable = !isAirframe && !onStandardClass;
-    const finalBoreMm = snapMounts && snappable ? nearestMm : scaledBoreMm;
+    // Offered wherever the mount is not the airframe, on-class or not.
+    const choosable = !isAirframe;
+    const choice = m.id ? choices[m.id] : undefined;
+    // ONE resolution of "what bore does this mount end up with", read by the
+    // writer, the summary and the notice alike. A mount that IS the airframe is
+    // never resized whatever is asked: resizing it would silently change the
+    // rocket's skin and leave it discontinuous with the tube above.
+    const targetBoreMm: number | null = isAirframe ? null
+      : choice === 'scaled' ? null
+        : choice === 'nearest' ? nearestMm
+          : typeof choice === 'object' ? choice.boreMm
+            : snapMounts && snappable ? nearestMm
+              : null;
+    const finalBoreMm = targetBoreMm ?? scaledBoreMm;
     // `airframe-left` means "you asked for a snap and this one could not take
     // it", so it is gated on snapMounts: with the box unticked nothing was
     // going to be snapped, and blaming the mount's airframe-ness for that is
     // an explanation of something that did not happen.
-    const verdict: MountPreview['verdict'] = onStandardClass ? 'on-class'
-      : snapMounts && snappable ? 'snapped'
-        : snapMounts && isAirframe ? 'airframe-left'
-          : 'off-class';
+    // An explicitly CHOSEN size is 'resized' — the user asked for it, so the
+    // copy must not call it a snap or complain that it is not standard. A
+    // choice of 'nearest', or the global toggle, is still 'snapped'.
+    // Gated on targetBoreMm, not on the choice alone: a mount that IS the
+    // airframe refuses every choice, so asking for 98 mm there must NOT report
+    // 'resized' - it has not been resized, and the note branch would then read
+    // a null target. Found by the test, not by inspection.
+    const chosenExplicitly = targetBoreMm !== null
+      && choice !== undefined && choice !== 'scaled' && choice !== 'nearest';
+    const verdict: MountPreview['verdict'] = chosenExplicitly ? 'resized'
+      : onStandardClass && targetBoreMm === null ? 'on-class'
+        : targetBoreMm !== null ? 'snapped'
+          : snapMounts && isAirframe ? 'airframe-left'
+            : 'off-class';
     const fits = (boreMm2: number) => motorMm === null
       || classesFittingMount(boreMm2).includes(diameterClass(motorMm));
     return {
@@ -369,6 +434,8 @@ export function previewMounts(
       finalBoreMm,
       onStandardClass,
       snappable,
+      choosable,
+      targetBoreMm,
       verdict,
       motorMm,
       isAirframe,
@@ -485,9 +552,13 @@ export function scaleRocket(
   // a real motor size. Snapping preserves the WALL and moves the outer radius,
   // so the bore is exactly the standard class and the tube stays buildable.
   const mountNotes: string[] = [];
-  const mounts = previewMounts(tree, k, opts.assignedMotorDiameters ?? {}, opts.snapMounts);
-  if (opts.snapMounts && mounts.length) {
-    const wanted = new Map(mounts.filter((m) => m.snappable).map((m) => [m.id, m.nearestMm / 1000]));
+  const mounts = previewMounts(tree, k, opts);
+  if (mounts.some((m) => m.targetBoreMm !== null)) {
+    // Driven by the preview's own decision, so the tree cannot be resized to a
+    // bore the dialog did not promise. The writer used to re-derive "snappable
+    // and the toggle is on", which is a second copy of the same rule.
+    const wanted = new Map(mounts.filter((m) => m.targetBoreMm !== null)
+      .map((m) => [m.id, m.targetBoreMm! / 1000]));
     const snap = (nodes: ComponentNode[]): ComponentNode[] => nodes.map((n) => {
       const target = n.id ? wanted.get(n.id) : undefined;
       let out = n;
@@ -517,7 +588,13 @@ export function scaleRocket(
     const head = `${m.name}: ${m.boreMm.toFixed(1)} mm bore becomes ${m.scaledBoreMm.toFixed(1)} mm`;
     // Switched on the SAME discriminant the dialog renders from — see
     // `MountPreview.verdict`.
-    if (m.verdict === 'airframe-left') {
+    if (m.verdict === 'resized') {
+      const target = m.targetBoreMm!;
+      const standard = Math.abs(target - nearestCommonClass(target)) < CLASS_TOLERANCE_MM;
+      mountNotes.push(`${head} — resized to the ${standard
+        ? `standard ${classLabel(nearestCommonClass(target))} mm`
+        : `${target.toFixed(1)} mm`} mount you chose.`);
+    } else if (m.verdict === 'airframe-left') {
       mountNotes.push(`${head}, which is not a standard motor size (nearest is ${cls})`
         + ' — and it was NOT snapped, because this mount IS the airframe (a minimum-diameter'
         + ' design). Resize it yourself so the tube above it still matches.');
@@ -540,6 +617,8 @@ export function scaleRocket(
       // branch was left out once on the reasoning that snapping goes to the
       // nearest class so it can never lose a motor the scaled bore kept — see
       // `motorFitsUnsnapped` for why that is false and how to reach it.
+      // Only a SNAP is undone by clearing the checkbox. A size the user chose
+      // is undone by choosing another, so do not send them to the tick box.
       const snapLostIt = m.verdict === 'snapped' && m.motorFitsUnsnapped;
       mountNotes.push(`${m.name}: the ${m.motorMm.toFixed(0)} mm motor loaded in it no longer `
         + `fits the ${m.finalBoreMm.toFixed(1)} mm bore.`
@@ -619,6 +698,7 @@ export function scaleRocket(
   // Third consumer of the one discriminant. Equivalent to the condition it
   // replaces (`!onStandardClass && !(snapMounts && snappable)`), stated in the
   // same vocabulary as the list and the notes.
+  // A 'resized' mount is what the user asked for, so it is not a complaint.
   const needsAttention = mounts.some((m) => !m.motorStillFits
     || m.verdict === 'airframe-left' || m.verdict === 'off-class');
   return { tree: next, notes, needsAttention };

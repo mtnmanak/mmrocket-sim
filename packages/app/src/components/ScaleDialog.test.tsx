@@ -172,7 +172,9 @@ describe('ScaleDialog', () => {
     // 0.102 and 0.10201 are the same nominal 4 inch size so they share a group,
     // and BOTH are selectable, which is the point of the change.
     expect(sel.options.length).toBe(1 + 3); // placeholder + all three body tubes
-    expect(host.querySelectorAll('optgroup').length).toBe(2); // 33.4 mm and 102 mm
+    // Scoped to the TUBE select: each motor mount now has its own size
+    // pulldown, which carries a 'Standard sizes' optgroup of its own.
+    expect(sel.querySelectorAll('optgroup').length).toBe(2); // 33.4 mm and 102 mm
     const loc = [...sel.options].find((o) => o.textContent?.includes('LOC 4.0in'))!;
     act(() => {
       const setter = Object.getOwnPropertyDescriptor(
@@ -228,7 +230,8 @@ describe('ScaleDialog', () => {
       units: { length: 'in' },
     }));
     await render();
-    const labels = [...host.querySelectorAll('optgroup')].map((g) => g.label);
+    const tubeSel = host.querySelector('#scale-tube') as HTMLSelectElement;
+    const labels = [...tubeSel.querySelectorAll('optgroup')].map((g) => g.label);
     expect(labels.length).toBe(2);
     for (const l of labels) expect(l).toMatch(/in$/);
     // Three decimals, not two: "4.016 in", never "4.02 in".

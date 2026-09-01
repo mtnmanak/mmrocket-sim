@@ -47,7 +47,16 @@ export function isHighPower(m: { avgThrustN: number; totImpulseNs: number }): bo
 }
 
 /** Common casing sizes (mm). 76 intentionally absent — it snaps to 75. */
-const COMMON_CLASSES = [6, 13, 18, 24, 29, 38, 54, 75, 98, 132, 152];
+/**
+ * The casing sizes people actually build around. Exported since v0.091: the
+ * Scale dialog offers them as the motor-mount choices, because the nearest
+ * size to a scaled bore is a recommendation rather than an answer (the owner's
+ * case: a 4 in LOC IV upscaled to 7.51 in wants 75 mm by arithmetic and most
+ * people would build 98). The database also holds 10.5, 20, 32, 64, 81 and
+ * 161 mm classes; those are deliberately NOT offered - his ruling was "just
+ * use common classes and custom, people can use custom for that".
+ */
+export const COMMON_CLASSES = [6, 13, 18, 24, 29, 38, 54, 75, 98, 132, 152];
 
 /** How far a cataloged diameter may sit from a common size and still be that class. */
 const SNAP_TOLERANCE_MM = 1.5;

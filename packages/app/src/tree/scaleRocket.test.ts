@@ -555,8 +555,8 @@ describe('scaleRocket — motor mounts', () => {
     // it becomes exactly 54 and the motor fits again. Warning anyway is how a
     // warning gets trained out of people.
     const t = withMount(0.0274);
-    const unsnapped = previewMounts(t, 1.9, { mt: 0.054 }, false);
-    const snapped = previewMounts(t, 1.9, { mt: 0.054 }, true);
+    const unsnapped = previewMounts(t, 1.9, { assignedMotorDiameters: { mt: 0.054 }, snapMounts: false });
+    const snapped = previewMounts(t, 1.9, { assignedMotorDiameters: { mt: 0.054 }, snapMounts: true });
     expect(unsnapped[0]!.motorStillFits).toBe(false);
     expect(snapped[0]!.motorStillFits).toBe(true);
     expect(snapped[0]!.finalBoreMm).toBeCloseTo(54, 9);
@@ -606,7 +606,7 @@ describe('scaleRocket — motor mounts', () => {
     };
     // Bore 27.4 x 1.9 = 52.1 mm; a 54 will not enter it, and snapping is
     // refused because this tube IS the airframe.
-    const p = previewMounts(md, 1.9, { b: 0.054 }, true)[0]!;
+    const p = previewMounts(md, 1.9, { assignedMotorDiameters: { b: 0.054 }, snapMounts: true })[0]!;
     expect(p.isAirframe).toBe(true);
     expect(p.snappable).toBe(false);
     expect(p.finalBoreMm).toBeCloseTo(p.scaledBoreMm, 9);
@@ -686,9 +686,9 @@ describe('scaleRocket — motor mounts', () => {
 
   it('flags an assigned motor that no longer fits', () => {
     const t = withMount(0.038);
-    const shrunk = previewMounts(t, 0.5, { mt: 0.038 });
+    const shrunk = previewMounts(t, 0.5, { assignedMotorDiameters: { mt: 0.038 } });
     expect(shrunk[0]!.motorStillFits).toBe(false);
-    const grown = previewMounts(t, 2, { mt: 0.038 });
+    const grown = previewMounts(t, 2, { assignedMotorDiameters: { mt: 0.038 } });
     expect(grown[0]!.motorStillFits).toBe(true);
   });
 
@@ -703,12 +703,12 @@ describe('scaleRocket — motor mounts', () => {
     // 31.75 mm bore x2 = 63.5 mm, which takes a 64 mm motor (bores run 1 mm
     // oversize). Nearest COMMON class to 63.5 is 54, and 64 does not go in 54.
     const t = withMount(0.03175);
-    const unsnapped = previewMounts(t, 2, { mt: 0.064 }, false)[0]!;
+    const unsnapped = previewMounts(t, 2, { assignedMotorDiameters: { mt: 0.064 }, snapMounts: false })[0]!;
     expect(unsnapped.scaledBoreMm).toBeCloseTo(63.5, 9);
     expect(unsnapped.nearestMm).toBe(54);
     expect(unsnapped.motorStillFits).toBe(true);
 
-    const snapped = previewMounts(t, 2, { mt: 0.064 }, true)[0]!;
+    const snapped = previewMounts(t, 2, { assignedMotorDiameters: { mt: 0.064 }, snapMounts: true })[0]!;
     expect(snapped.motorStillFits).toBe(false);
     // The discriminant that separates "the scale lost it" from "the snap lost
     // it" — the second is undone by clearing a checkbox.
@@ -724,7 +724,7 @@ describe('scaleRocket — motor mounts', () => {
     // The other half: shrinking loses the motor whatever the checkbox says, and
     // telling the user to untick a box that will not help is worse than silence.
     const t = withMount(0.038);
-    const p = previewMounts(t, 0.5, { mt: 0.038 }, true)[0]!;
+    const p = previewMounts(t, 0.5, { assignedMotorDiameters: { mt: 0.038 }, snapMounts: true })[0]!;
     expect(p.motorStillFits).toBe(false);
     expect(p.motorFitsUnsnapped).toBe(false);
     const notes = scaleRocket(t, 0.5, { snapMounts: true, assignedMotorDiameters: { mt: 0.038 } })
@@ -750,9 +750,9 @@ describe('scaleRocket — motor mounts', () => {
         } as ComponentNode],
       } as ComponentNode],
     };
-    expect(previewMounts(airframe, 2, {}, false)[0]!.scaledBoreMm).toBeCloseTo(40, 9);
-    expect(previewMounts(airframe, 2, {}, false)[0]!.verdict).toBe('off-class');
-    expect(previewMounts(airframe, 2, {}, true)[0]!.verdict).toBe('airframe-left');
+    expect(previewMounts(airframe, 2, { assignedMotorDiameters: {}, snapMounts: false })[0]!.scaledBoreMm).toBeCloseTo(40, 9);
+    expect(previewMounts(airframe, 2, { assignedMotorDiameters: {}, snapMounts: false })[0]!.verdict).toBe('off-class');
+    expect(previewMounts(airframe, 2, { assignedMotorDiameters: {}, snapMounts: true })[0]!.verdict).toBe('airframe-left');
     // Only the snap-on case may talk about being left for the user to resize.
     expect(scaleRocket(airframe, 2, { snapMounts: false }).notes.join(' '))
       .not.toContain('NOT snapped');
@@ -764,7 +764,7 @@ describe('scaleRocket — motor mounts', () => {
     // …and a mount that lands ON a class needs no attention under either
     // setting. 27 mm bore x2 = 54 mm exactly.
     const onClass = withMount(0.027);
-    expect(previewMounts(onClass, 2, {}, false)[0]!.verdict).toBe('on-class');
+    expect(previewMounts(onClass, 2, { assignedMotorDiameters: {}, snapMounts: false })[0]!.verdict).toBe('on-class');
     expect(scaleRocket(onClass, 2, { snapMounts: false }).needsAttention).toBe(false);
     expect(scaleRocket(onClass, 2, { snapMounts: true }).needsAttention).toBe(false);
   });
@@ -783,6 +783,86 @@ describe('scaleRocket — motor mounts', () => {
     expect(down).toContain('snapped down to the standard 54 mm');
   });
 
+  it('the owner’s LOC IV case: 75 is the arithmetic, 98 is what you build', () => {
+    // His 2026-09-01a report, measured rather than taken on trust. A LOC IV is
+    // a 4 in (101.6 mm) airframe on a 38 mm mount; LOC's BT 7.51 is 190.75 mm,
+    // so the factor is 1.8775 and the mount scales to 71.34 mm, whose nearest
+    // common class is 75. "which is the proper scale, but most people would
+    // choose a 98mm motor mount in a rocket that large."
+    const t = withMount(0.038);
+    const k = (7.51 * 25.4) / (4.0 * 25.4);
+    const arithmetic = previewMounts(t, k)[0]!;
+    expect(arithmetic.scaledBoreMm).toBeCloseTo(71.345, 2);
+    expect(arithmetic.nearestMm).toBe(75);
+
+    // Choosing 98 overrides both the scaled size and the nearest.
+    const chosen = previewMounts(t, k, { mountChoices: { mt: { boreMm: 98 } } })[0]!;
+    expect(chosen.targetBoreMm).toBe(98);
+    expect(chosen.finalBoreMm).toBe(98);
+    expect(chosen.verdict).toBe('resized');
+
+    const out = scaleRocket(t, k, { mountChoices: { mt: { boreMm: 98 } } });
+    // The applied tube really has a 98 mm bore, wall preserved.
+    expect(mountBore(findNode(out.tree, 'mt')!) * 1000).toBeCloseTo(98, 9);
+    expect(out.notes.join(' ')).toContain('resized to the standard 98 mm mount you chose');
+    // A size he asked for is not a complaint.
+    expect(out.needsAttention).toBe(false);
+  });
+
+  it('a per-mount choice overrides the global snap toggle, both ways', () => {
+    const t = withMount(0.0274); // 54.8 mm at 2x -> snaps down to 54
+    // Toggle on, no choice: snapped.
+    expect(previewMounts(t, 2, { snapMounts: true })[0]!.verdict).toBe('snapped');
+    // Toggle on, but this mount asked to be left alone.
+    const left = previewMounts(t, 2, { snapMounts: true, mountChoices: { mt: 'scaled' } })[0]!;
+    expect(left.targetBoreMm).toBeNull();
+    expect(left.finalBoreMm).toBeCloseTo(54.8, 9);
+    // Toggle OFF, but this mount asked for the nearest.
+    const snapped = previewMounts(t, 2, { snapMounts: false, mountChoices: { mt: 'nearest' } })[0]!;
+    expect(snapped.targetBoreMm).toBe(54);
+    expect(snapped.verdict).toBe('snapped');
+  });
+
+  it('a custom bore that is not a standard size is applied and named as itself', () => {
+    // For the EX builders: "allow those users that fabricate their own EX motor
+    // sizes to input a number."
+    const t = withMount(0.038);
+    const p = previewMounts(t, 2, { mountChoices: { mt: { boreMm: 64 } } })[0]!;
+    expect(p.finalBoreMm).toBe(64);
+    expect(p.verdict).toBe('resized');
+    const out = scaleRocket(t, 2, { mountChoices: { mt: { boreMm: 64 } } });
+    expect(mountBore(findNode(out.tree, 'mt')!) * 1000).toBeCloseTo(64, 9);
+    // Named as a plain number, NOT dressed up as a standard class.
+    expect(out.notes.join(' ')).toContain('resized to the 64.0 mm mount you chose');
+    expect(out.notes.join(' ')).not.toContain('standard 64');
+  });
+
+  it('an on-class mount is still choosable, and a body-tube mount is not', () => {
+    // The measured hole in gating on `snappable`: a mount already sitting on a
+    // class has nothing for the TOGGLE to do, but "my scaled 75 should be a 98"
+    // is exactly the owner's case, so the pulldown must still be offered.
+    const onClass = previewMounts(withMount(0.027), 2)[0]!; // 27 -> 54 exactly
+    expect(onClass.verdict).toBe('on-class');
+    expect(onClass.snappable).toBe(false);
+    expect(onClass.choosable).toBe(true);
+
+    // A mount that IS the airframe is never resized, whatever is asked.
+    const airframe: RocketTree = {
+      name: 'min', components: [{
+        type: 'stage', id: 's', children: [{
+          type: 'bodytube', id: 'b', length: 0.5, outerRadius: 0.0105, thickness: 0.0005,
+          motorMount: true,
+        } as ComponentNode],
+      } as ComponentNode],
+    };
+    const af = previewMounts(airframe, 2, { mountChoices: { b: { boreMm: 98 } } })[0]!;
+    expect(af.choosable).toBe(false);
+    expect(af.targetBoreMm).toBeNull();
+    expect(mountBore(findNode(
+      scaleRocket(airframe, 2, { mountChoices: { b: { boreMm: 98 } } }).tree, 'b')!) * 1000)
+      .toBeCloseTo(40, 9); // the scaled bore, untouched
+  });
+
   it('the notes name a class the way the dialog does — 75/76, not 75', () => {
     // classLabel exists because the 75 class covers both 75 and 76 mm casings.
     // The dialog used it and the notes interpolated the raw number, so the same
@@ -790,7 +870,7 @@ describe('scaleRocket — motor mounts', () => {
     // other — which reads to a 76 mm casing owner as though their size was not
     // the one being targeted.
     const t = withMount(0.038); // 38 mm bore x2 = 76 mm -> class 75
-    const p = previewMounts(t, 2, {}, true)[0]!;
+    const p = previewMounts(t, 2, { assignedMotorDiameters: {}, snapMounts: true })[0]!;
     expect(p.nearestMm).toBe(75);
     expect(scaleRocket(t, 2, { snapMounts: true }).notes.join(' ')).toContain('75/76 mm');
   });
@@ -814,7 +894,7 @@ describe('scaleRocket — motor mounts', () => {
     };
     // caseAirframe: the bore IS the outer diameter. 17.5 mm radius -> 35 mm,
     // x2 = 70 mm, nearest common class 75.
-    const p = previewMounts(t, 2, {}, true)[0]!;
+    const p = previewMounts(t, 2, { assignedMotorDiameters: {}, snapMounts: true })[0]!;
     expect(p.scaledBoreMm).toBeCloseTo(70, 9);
     expect(p.nearestMm).toBe(75);
     expect(p.finalBoreMm).toBeCloseTo(75, 9);
