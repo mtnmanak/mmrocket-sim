@@ -26,7 +26,7 @@ import { writeFileSync, mkdirSync, readdirSync, readFileSync, existsSync } from 
 import { fileURLToPath } from 'node:url';
 import { openrocketSrcRoot } from '../../../scripts/openrocket-src.mjs';
 import { dirname, join } from 'node:path';
-import { mfrDisplay, mfrKey, spellingConflicts } from './manufacturers.mjs';
+import { mfrDisplay, mfrKey, presetKey, spellingConflicts } from './manufacturers.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const OUT_PATH = join(__dirname, '..', 'src', 'data', 'presets.json');
@@ -60,11 +60,7 @@ const DESKTOP_COMPONENTS_DIR = SRC_ROOT
 // how 88 "SEMROC Astronautics" rows shipped alongside 1,693 "SEMROC".
 const normMfr = mfrKey;
 
-/** Identity for dedupe across sources. */
-function presetKey(p) {
-  const pn = String(p.partNo ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '');
-  return `${p.kind}|${normMfr(p.manufacturer)}|${pn}`;
-}
+/** Identity for dedupe across sources — shared, see ./manufacturers.mjs. */
 
 // ---------------------------------------------------------------------------
 // Unit conversion tables (everything -> SI)

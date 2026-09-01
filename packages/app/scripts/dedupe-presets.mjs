@@ -26,13 +26,14 @@
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
+import { partKey } from './manufacturers.mjs';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const DB_PATH = join(here, '../src/data/presets.json');
 
-const groupKey = (p) => `${p.kind}|${p.manufacturer}|`
-  + String(p.partNo ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+// The shared part-number rule, `+` and all — see manufacturers.mjs partKey.
+const groupKey = (p) => `${p.kind}|${p.manufacturer}|${partKey(p.partNo)}`;
 
 /** Provenance, not data — a row is not "different" for coming from elsewhere. */
 const IGNORE = new Set(['source']);

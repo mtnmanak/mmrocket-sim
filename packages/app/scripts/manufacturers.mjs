@@ -83,11 +83,26 @@ export const mfrKey = (s) => {
 /** The canonical display spelling, or the original when nothing is known. */
 export const mfrDisplay = (s) => DISPLAY[mfrKey(s)] ?? String(s ?? '');
 
+/**
+ * A part number reduced to a comparison token.
+ *
+ * `+` SURVIVES, and that is the whole point. It used to be stripped with the
+ * rest of the punctuation, which silently fused part numbers that a
+ * manufacturer deliberately distinguishes with it: SEMROC's BT-2+ is a sleeve
+ * that slips OVER a BT-2 (its bore clears the smaller tube's outside diameter
+ * by 11 thou, measured), and BalsaMachining's CR2+3-F is a different ring from
+ * CR23-F. Twenty rows in the catalogue carry one.
+ *
+ * The consequence was not only cosmetic. This is the INGEST dedupe key as well
+ * as the report key, so at regeneration time a real part could be discarded as
+ * a duplicate of a different real part. It also made 10 of 36 "duplicate"
+ * groups pure artefacts of the key rather than anything wrong with the data.
+ */
+export const partKey = (partNo) =>
+  String(partNo ?? '').toLowerCase().replace(/[^a-z0-9+]+/g, '');
+
 /** Identity for dedupe across sources: kind + manufacturer + part number. */
-export const presetKey = (p) => {
-  const pn = String(p.partNo ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '');
-  return `${p.kind}|${mfrKey(p.manufacturer)}|${pn}`;
-};
+export const presetKey = (p) => `${p.kind}|${mfrKey(p.manufacturer)}|${partKey(p.partNo)}`;
 
 /**
  * Every normalised spelling that maps to more than one DISPLAY string in a set

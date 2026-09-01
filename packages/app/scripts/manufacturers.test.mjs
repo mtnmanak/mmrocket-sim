@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ALIASES, DISPLAY, mfrDisplay, mfrKey, spellingConflicts } from './manufacturers.mjs';
+import { ALIASES, DISPLAY, mfrDisplay, mfrKey, partKey, spellingConflicts } from './manufacturers.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const db = JSON.parse(readFileSync(join(here, '../src/data/presets.json'), 'utf8'));
@@ -113,5 +113,34 @@ describe('the duplicate-row cleanup', () => {
       expect(bodies.size, `${k}: ${v.length} rows that are byte-identical apart from source`)
         .toBeGreaterThan(1);
     }
+  });
+});
+
+describe('the part-number key', () => {
+  it('keeps the "+" that a manufacturer uses to mean a different part', () => {
+    // SEMROC's BT-2+ is a sleeve that slips OVER a BT-2; BalsaMachining's
+    // CR2+3-F is a different ring from CR23-F. Stripping the + fused them.
+    expect(partKey('T-2+-34')).not.toBe(partKey('T2-34'));
+    expect(partKey('CR2+3-F')).not.toBe(partKey('CR23-F'));
+    expect(partKey('T-4+-34')).not.toBe(partKey('T-4-34'));
+    // Everything else still normalises: case, spaces, dashes, dots.
+    expect(partKey('BT-55')).toBe(partKey('bt 55'));
+    expect(partKey('CR50-60.W')).toBe(partKey('cr5060w'));
+  });
+
+  it('no duplicate group is a mere artefact of the key any more', () => {
+    // 10 of 36 "duplicates" were rows whose LITERAL part numbers differ and
+    // which the key fused. A group may still legitimately hold two rows — but
+    // only when the part numbers really are the same string.
+    const groups = new Map();
+    for (const p of db.presets) {
+      const k = `${p.kind}|${p.manufacturer}|${partKey(p.partNo)}`;
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k).push(p);
+    }
+    const artefacts = [...groups.entries()]
+      .filter(([, v]) => v.length > 1 && new Set(v.map((p) => String(p.partNo))).size > 1)
+      .map(([k, v]) => `${k}: ${[...new Set(v.map((p) => p.partNo))].join(' vs ')}`);
+    expect(artefacts, artefacts.join('; ')).toEqual([]);
   });
 });
