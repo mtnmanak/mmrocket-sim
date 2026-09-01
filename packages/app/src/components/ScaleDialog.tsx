@@ -47,6 +47,14 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
   const [factor, setFactor] = useState(2);
   const [snapMounts, setSnapMounts] = useState(false);
   const [tubes, setTubes] = useState<Preset[] | null>(null);
+  /**
+   * The chosen catalogue OD, held so the <select> is genuinely controlled.
+   * Pinning it to value="" instead reset the widget to the placeholder after
+   * every change, which a mouse user never notices and a keyboard user cannot
+   * get past: ArrowDown moves from the placeholder to the first option, the
+   * value resets, and the next ArrowDown does the same thing again.
+   */
+  const [tubeOd, setTubeOd] = useState('');
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -76,8 +84,8 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
 
   const targetD = baseD * factor;
   const mounts = useMemo(
-    () => previewMounts(tree, factor, assignedMotorDiameters),
-    [tree, factor, assignedMotorDiameters],
+    () => previewMounts(tree, factor, assignedMotorDiameters, snapMounts),
+    [tree, factor, assignedMotorDiameters, snapMounts],
   );
   const offClass = mounts.filter((m) => Math.abs(m.scaledBoreMm - m.nearestMm) >= 0.05);
   const lostMotors = mounts.filter((m) => !m.motorStillFits);
@@ -122,11 +130,14 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
             </p>
 
             <div className="field">
-              <label htmlFor="scale-factor">Scale by</label>
+              {/* No htmlFor: NumField owns its input and takes no id, so a
+                  htmlFor here pointed at nothing and clicking the label did
+                  nothing. The field carries an ariaLabel instead. */}
+              <label>Scale by</label>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <NumField
                   value={factor}
-                  onCommit={(v) => { if (v !== null && v > 0) setFactor(v); }}
+                  onCommit={(v) => { if (v !== null && v > 0) { setFactor(v); setTubeOd(''); } }}
                   min={0.01}
                   max={100}
                   step={0.05}
@@ -149,13 +160,13 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
             </div>
 
             <div className="field">
-              <label htmlFor="scale-target">New body diameter ({lenSym})</label>
+              <label>New body diameter ({lenSym})</label>
               <NumField
                 value={Number(siToUi('length', lenSym, targetD).toFixed(4))}
                 onCommit={(v) => {
                   if (v === null || !(v > 0)) return;
                   const si = uiToSi('length', lenSym, v);
-                  if (si > 0 && baseD > 0) setFactor(si / baseD);
+                  if (si > 0 && baseD > 0) { setFactor(si / baseD); setTubeOd(''); }
                 }}
                 min={0.0001}
                 step={1}
@@ -172,9 +183,10 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
               <label htmlFor="scale-tube">…or pick a tube from the catalogue</label>
               <select
                 id="scale-tube"
-                value=""
+                value={tubeOd}
                 disabled={!tubes}
                 onChange={(e) => {
+                  setTubeOd(e.target.value);
                   const od = Number(e.target.value);
                   if (od > 0 && baseD > 0) setFactor(od / baseD);
                 }}
@@ -235,6 +247,13 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
                 )}
               </div>
             )}
+
+            <p className="comp-stats">
+              The <strong>Measured mass &amp; CG</strong> box is cleared, because it describes a
+              rocket that will no longer exist. That is the one thing Ctrl+Z cannot put back —
+              undo covers the design tree — so write those two numbers down first if you want
+              them.
+            </p>
 
             <p className="comp-stats">
               <strong>Kept at their own size:</strong> camera shrouds (the camera does not scale)

@@ -850,6 +850,16 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
         const flat = Math.max(0, W) * Math.max(0, H);
         const bodyR = mountRadiusOf(parent === 'stage' ? null : (parent as ComponentNode | null));
         const crescent = area - flat;
+        // An ancestor with "Use instead of everything inside" ticked on its Cd
+        // replaces this component's contribution wholesale — the kernel skips a
+        // covered component in the friction, pressure and base loops alike. So
+        // the figure below is what the shroud WOULD add, not what the rocket is
+        // flying, and saying "+0.03593 on the rocket's CD, at every Mach" with
+        // no qualifier is exactly the kind of number-stated-as-fact this panel
+        // has printed wrongly before.
+        const cdBlocker = node.id
+          ? suppressingAncestor(tree, node.id, 'overrideSubcomponentsCD', 'overrideCD')
+          : null;
         return (
           <p className="comp-stats" style={{ marginTop: 6 }}>
             {(area * 1e6).toFixed(0)} mm² frontal
@@ -874,6 +884,14 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
             {' '}The coefficient is a Hoerner surface-protuberance value for the two end
             shapes, and it has no wind-tunnel anchor of its own — treat the shroud&rsquo;s
             drag as an estimate with a stated method, not a measurement.
+            {cdBlocker && (
+              <>
+                {' '}<strong>None of it is reaching the flight right now:</strong>{' '}
+                “{cdBlocker.name ?? 'A component above this one'}” has a drag-coefficient
+                override with <em>Use instead of everything inside</em> ticked, so its figure
+                replaces this shroud&rsquo;s. Clear that override to fly the number above.
+              </>
+            )}
           </p>
         );
       })()}

@@ -215,11 +215,19 @@ export function rocketLength(tree: RocketTree): number {
   return total;
 }
 
+/**
+ * A motor mount's wall (m). ONE definition, because the bore reader and the
+ * snap writer disagreeing about what an absent thickness means put the snapped
+ * tube 1 mm off the class it reported: the reader assumed the kernel's 0.5 mm
+ * default and the writer assumed none.
+ */
+const mountWall = (n: ComponentNode): number => num(n, 'thickness') ?? 0.0005;
+
 /** A motor mount's bore (m): outer radius less wall, or the outer radius for a case airframe. */
 export function mountBore(n: ComponentNode): number {
   const or = num(n, 'outerRadius') ?? 0.0095;
   if (n['caseAirframe'] === true) return or * 2;
-  return (or - (num(n, 'thickness') ?? 0.0005)) * 2;
+  return (or - mountWall(n)) * 2;
 }
 
 export interface MountPreview {
@@ -232,11 +240,18 @@ export interface MountPreview {
   nearestMm: number;
   /** Bore in mm if snapped to `nearestMm` (the tube grows/shrinks around it). */
   snappedBoreMm: number;
+  /** The bore the user will really get, given the snap setting and mount type. */
+  finalBoreMm: number;
   /** The assigned motor's class (mm), when one is loaded. */
   motorMm: number | null;
   /** True when the mount IS the airframe (a body tube with motorMount) — never snapped. */
   isAirframe: boolean;
-  /** Does the assigned motor still fit the SCALED bore, unsnapped? */
+  /**
+   * Does the assigned motor still fit the bore the user will actually get?
+   * Snapping changes the answer: a mount scaled to just under a class and then
+   * snapped UP to it fits again, and warning about it anyway trains people to
+   * ignore the warning.
+   */
   motorStillFits: boolean;
 }
 
@@ -248,6 +263,7 @@ export interface MountPreview {
  */
 export function previewMounts(
   tree: RocketTree, factor: number, assigned: Record<string, number> = {},
+  snapMounts = false,
 ): MountPreview[] {
   return motorMounts(tree).map((m) => {
     const boreMm = mountBore(m) * 1000;
@@ -255,6 +271,10 @@ export function previewMounts(
     const nearestMm = nearestCommonClass(scaledBoreMm);
     const motorM = m.id ? assigned[m.id] : undefined;
     const motorMm = typeof motorM === 'number' ? motorM * 1000 : null;
+    // A min-diameter mount IS the airframe and is never snapped, so its bore
+    // stays the scaled one whatever the checkbox says.
+    const isAirframe = m.type !== 'innertube';
+    const finalBoreMm = snapMounts && !isAirframe ? nearestMm : scaledBoreMm;
     return {
       id: m.id ?? '',
       name: m.name ?? 'Motor mount',
@@ -262,10 +282,11 @@ export function previewMounts(
       scaledBoreMm,
       nearestMm,
       snappedBoreMm: nearestMm,
+      finalBoreMm,
       motorMm,
-      isAirframe: m.type !== 'innertube',
+      isAirframe,
       motorStillFits: motorMm === null
-        || classesFittingMount(scaledBoreMm).includes(diameterClass(motorMm)),
+        || classesFittingMount(finalBoreMm).includes(diameterClass(motorMm)),
     };
   });
 }
@@ -353,7 +374,13 @@ export function scaleRocket(
     if (type === 'launchlug') lugSeen.add(type);
     if (type.endsWith('finset')) finSets++;
     if (type === 'parachute' || type === 'streamer' || type === 'shockcord') recovery = true;
-    if (num(n, 'overrideMass') !== null && !FIXED_SIZE.has(type)) massPinned++;
+    // `mass` counts too: on a mass component that IS the pinned weight (there
+    // is no geometry to compute one from), and it is cubed like any other.
+    // Counting only overrideMass meant a design whose ballast is all mass
+    // components got no "re-weigh it" note at all.
+    if (!FIXED_SIZE.has(type)
+      && (num(n, 'overrideMass') !== null
+        || (type === 'masscomponent' && num(n, 'mass') !== null))) massPinned++;
     const scaled = scaleNode(n, k);
     return n.children ? { ...scaled, children: walk(n.children) } as ComponentNode : scaled;
   });
@@ -364,7 +391,7 @@ export function scaleRocket(
   // a real motor size. Snapping preserves the WALL and moves the outer radius,
   // so the bore is exactly the standard class and the tube stays buildable.
   const mountNotes: string[] = [];
-  const mounts = previewMounts(tree, k, opts.assignedMotorDiameters ?? {});
+  const mounts = previewMounts(tree, k, opts.assignedMotorDiameters ?? {}, opts.snapMounts);
   if (opts.snapMounts && mounts.length) {
     const wanted = new Map(mounts.map((m) => [m.id, m.nearestMm / 1000]));
     const snap = (nodes: ComponentNode[]): ComponentNode[] => nodes.map((n) => {
@@ -379,8 +406,7 @@ export function scaleRocket(
         // The wall here is the SCALED wall (this runs on the scaled tree), so
         // the snapped tube keeps the proportions the scale gave it and only
         // its bore lands on the standard size.
-        const wall = num(n, 'thickness') ?? 0;
-        out = { ...n, outerRadius: round(target / 2 + wall) } as ComponentNode;
+        out = { ...n, outerRadius: round(target / 2 + mountWall(n)) } as ComponentNode;
       }
       return out.children ? { ...out, children: snap(out.children) } as ComponentNode : out;
     });
@@ -418,6 +444,9 @@ export function scaleRocket(
     'Not scaled, on purpose: angles, fin and instance counts, material densities, drag'
     + ' coefficients, surface finish, motor choice, deployment and separation settings, and'
     + ' the launch conditions.',
+    'Check the per-stage Max motor length on Motors & Launch if you have set one: it lives'
+    + ' outside the design tree, so this did not touch it, and it is still filtering motors'
+    + ' against the rocket you had before.',
   ];
   if (fixedSeen.size) {
     // Sorted so the sentence reads the same whatever order the tree holds
@@ -434,10 +463,11 @@ export function scaleRocket(
       + ' in fixed sizes. Its length scaled.');
   }
   if (massPinned) {
-    notes.push(`${massPinned} pinned mass${massPinned === 1 ? '' : 'es'} scaled by the cube of the`
-      + ' factor, and any pinned CG station by the factor — that is what keeps the balance point'
-      + ' at the same percentage of the length. If a pinned mass was a real part you weighed,'
-      + ' it is now a guess: re-weigh it.');
+    notes.push(`${massPinned} pinned mass${massPinned === 1 ? '' : 'es'} scaled the same way that`
+      + ' part’s own material would — the cube of the factor for a solid part, the square for a'
+      + ' canopy, the factor for a cord — and any pinned CG station by the factor, which is what'
+      + ' keeps the balance point at the same percentage of the length. If a pinned mass was a'
+      + ' real part you weighed, it is now a guess: re-weigh it.');
   }
   notes.push(...mountNotes);
   // MEASURED, not assumed: on the app's own default rocket a 2x scale takes the

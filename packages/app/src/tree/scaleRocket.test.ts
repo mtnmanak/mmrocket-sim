@@ -549,6 +549,24 @@ describe('scaleRocket — motor mounts', () => {
     expect(res.needsAttention).toBe(true);
   });
 
+  it('does NOT cry "no longer fits" when snapping is what restores the fit', () => {
+    // The check has to describe the bore the user will really get. A 27.4 mm
+    // mount at 1.9x lands on 52.1 mm, which a 54 will not enter - but snapped
+    // it becomes exactly 54 and the motor fits again. Warning anyway is how a
+    // warning gets trained out of people.
+    const t = withMount(0.0274);
+    const unsnapped = previewMounts(t, 1.9, { mt: 0.054 }, false);
+    const snapped = previewMounts(t, 1.9, { mt: 0.054 }, true);
+    expect(unsnapped[0]!.motorStillFits).toBe(false);
+    expect(snapped[0]!.motorStillFits).toBe(true);
+    expect(snapped[0]!.finalBoreMm).toBeCloseTo(54, 9);
+    // …and the note follows the same setting.
+    expect(scaleRocket(t, 1.9, { snapMounts: true, assignedMotorDiameters: { mt: 0.054 } })
+      .notes.join(' ')).not.toContain('no longer fits');
+    expect(scaleRocket(t, 1.9, { assignedMotorDiameters: { mt: 0.054 } })
+      .notes.join(' ')).toContain('no longer fits');
+  });
+
   it('flags an assigned motor that no longer fits', () => {
     const t = withMount(0.038);
     const shrunk = previewMounts(t, 0.5, { mt: 0.038 });
@@ -627,6 +645,26 @@ describe('scaleRocket — guardrails and reporting', () => {
     const snapshot = JSON.stringify(t);
     scaleRocket(t, K);
     expect(JSON.stringify(t)).toBe(snapshot);
+  });
+
+  it('counts a mass component in the re-weigh note, not just an overrideMass', () => {
+    // A mass component's `mass` IS its pinned weight - there is no geometry to
+    // compute one from - so a design whose ballast is all mass components used
+    // to get no "re-weigh it" note at all.
+    const t: RocketTree = {
+      name: 'ballast', components: [{
+        type: 'stage', id: 's', children: [{
+          type: 'bodytube', id: 'b', length: 0.5, outerRadius: 0.03, children: [
+            { type: 'masscomponent', id: 'mc', mass: 0.025, length: 0.05, radius: 0.02,
+              position: { method: 'top', offset: 0.1 } } as ComponentNode,
+          ],
+        } as ComponentNode],
+      } as ComponentNode],
+    };
+    const notes = scaleRocket(t, 2).notes.join(' ');
+    expect(notes).toContain('1 pinned mass');
+    expect(notes).toContain('re-weigh it');
+    expect(findNode(scaleRocket(t, 2).tree, 'mc')!['mass']).toBeCloseTo(0.2, 12);
   });
 
   it('measures the rocket for the headline', () => {

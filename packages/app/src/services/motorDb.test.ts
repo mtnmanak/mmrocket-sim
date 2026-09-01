@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   MOTOR_DB, allClasses, classLabel, classesFittingMount, diameterClass,
   displayDesignation, filterMotors, findDbMotor, impulseClassesForMount, impulseLetter,
-  manufacturersForMount, propellantsForMount, rangesForMount, sortMotors,
+  manufacturersForMount, nearestCommonClass, propellantsForMount, rangesForMount, sortMotors,
 } from './motorDb.js';
 
 describe('bundled motor database', () => {
@@ -13,6 +13,36 @@ describe('bundled motor database', () => {
   it('has both regular and OOP motors', () => {
     expect(MOTOR_DB.some((m) => m.availability === 'regular')).toBe(true);
     expect(MOTOR_DB.some((m) => m.availability === 'OOP')).toBe(true);
+  });
+});
+
+describe('nearestCommonClass (the Scale tool\u2019s question)', () => {
+  it('answers "what should I scale to", which diameterClass deliberately does not', () => {
+    // diameterClass leaves an odd diameter alone on purpose (it classifies a
+    // CATALOGUED motor); nearestCommonClass always names a real casing size.
+    expect(diameterClass(45)).toBe(45);
+    expect(nearestCommonClass(45)).toBe(38);
+    // The Apogee worked example: 18 mm scaled 2.27x.
+    expect(nearestCommonClass(40.86)).toBe(38);
+  });
+
+  it('rounds a TIE DOWN to the smaller class \u2014 the safe direction', () => {
+    // 26.5 is exactly between 24 and 29. A mount slightly too small can be
+    // opened out; one too big cannot be made smaller. This is the documented
+    // rule and it had no test.
+    expect(nearestCommonClass(26.5)).toBe(24);  // exact tie 24/29 -> down
+    expect(nearestCommonClass(46)).toBe(38);    // exact tie 38/54 -> down
+    expect(nearestCommonClass(46.5)).toBe(54);  // NOT a tie: 7.5 vs 8.5, so up
+  });
+
+  it('clamps to the ends rather than inventing a class', () => {
+    expect(nearestCommonClass(1)).toBe(6);
+    expect(nearestCommonClass(400)).toBe(152);
+  });
+
+  it('never returns a size the 75/76 rule would confuse', () => {
+    expect(nearestCommonClass(76)).toBe(75);
+    expect(classLabel(nearestCommonClass(76))).toBe('75/76');
   });
 });
 

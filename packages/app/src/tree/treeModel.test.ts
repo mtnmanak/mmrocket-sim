@@ -267,6 +267,45 @@ describe('engineTree — camera shroud (fairing) lowering', () => {
       expect(mountRadiusOf(findParent(t, 'f1') as ComponentNode)).toBe(0.025);
     });
 
+    it('reads a NOSE CONE and a TRANSITION parent, not just a body tube', () => {
+      // Neither is offered in the Add menu, but both are reachable: the shroud
+      // CONVERTER replaces a 1-fin freeform set in place at any depth, and the
+      // .ork reader accepts <fairing> wherever it appears. Before this, the
+      // whole non-bodytube half of mountRadiusOf was unguarded.
+      expect(mountRadiusOf({ type: 'nosecone', aftRadius: 0.03 } as ComponentNode)).toBe(0.03);
+      // A nose cone contributes its BASE radius - engineTree computes no axial
+      // stations, and erring to the larger radius UNDER-charges the crescent,
+      // which is the conservative direction.
+      expect(mountRadiusOf({ type: 'nosecone' } as ComponentNode)).toBe(0.012);
+      // A transition takes the wider end.
+      expect(mountRadiusOf(
+        { type: 'transition', foreRadius: 0.05, aftRadius: 0.02 } as ComponentNode)).toBe(0.05);
+      expect(mountRadiusOf(
+        { type: 'transition', foreRadius: 0.02, aftRadius: 0.05 } as ComponentNode)).toBe(0.05);
+      // An ABSENT transition radius means AUTOMATIC in the kernel; 0 here
+      // degrades to the uncorrected flat area rather than inventing a radius.
+      expect(mountRadiusOf({ type: 'transition' } as ComponentNode)).toBe(0);
+      // Anything else carries no mounting surface.
+      expect(mountRadiusOf({ type: 'innertube', outerRadius: 0.02 } as ComponentNode)).toBe(0);
+      expect(mountRadiusOf(null)).toBe(0);
+
+      // …and end to end: a shroud on a nose cone is charged that radius.
+      const out = engineTree({
+        name: 'onnose', components: [{
+          type: 'stage', id: 's1', children: [{
+            type: 'nosecone', id: 'nc', length: 0.3, aftRadius: 0.05,
+            children: [{
+              type: 'fairing', id: 'f1', length: 0.08, width: 0.025, height: 0.02,
+              mass: 0.045, fairingShape: 'halfround',
+              position: { method: 'middle', offset: 0 },
+            } as ComponentNode],
+          } as ComponentNode],
+        } as ComponentNode],
+      });
+      // Same R = 0.05 and same aRef as the base fixture, so the same number.
+      expect(findNode(out, 'f1')!['overrideCD']).toBeCloseTo(0.035934657861190, 12);
+    });
+
     it('saturates rather than going NaN when the shroud is wider than the tube', () => {
       // a = min(W/2, R) clamps at the tube radius; without the clamp this is
       // asin(1.25) = NaN and the design loses its whole drag curve.
