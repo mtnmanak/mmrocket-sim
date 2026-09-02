@@ -16,17 +16,17 @@
  * Eric's edited text is the posted text. (When he explicitly asks for a typo fix, fix
  * it in the .txt and re-run, so both files carry it.)
  *
- * TRF (XenForo) REFUSES A POST OVER 10,000 CHARACTERS. The count that matters is the BBCode,
- * which runs ~1.2 % longer than the plain text, so the practical ceiling on a draft is about
- * 9,800 plain characters. This script fails rather than writing something unpostable.
+ * TRF (XenForo) REFUSES A POST OVER 10,000 CHARACTERS, counted on the BBCode. Since Eric's
+ * 2026-08-30 ruling the draft is ONE .txt of any length and this script SPLITS it rather than
+ * refusing it, writing "<stem> BBCODE (n of N).txt" and adding the joining lines itself.
+ * See postLength() for what TRF really counts — it is not String.length — and splitBBCode()
+ * for where the cuts may fall.
  *
- * SPLITTING, when a post does not fit: break on CONTENT, not on release number. Releases do
- * not group meaningfully — v0.073 and v0.075 both moved users' numbers, v0.072 and v0.074 were
- * both fixes — so a release split scatters the urgent warnings across two posts. Put whatever
- * the reader must not miss in the SHORT first post: a 3.5k post is read to the end, a 7.8k one
- * is skimmed. Name the parts "<stem> (1 of 2).txt" and "(2 of 2).txt", add a one-line pointer
- * at the foot of the first and a one-line "Continued from the post above" at the head of the
- * second, and change NOTHING else — the parts must rejoin to Eric's edited text word for word.
+ * The draft still governs the reading ORDER. The splitter cuts where it must; only the .txt
+ * decides what a reader meets first. Releases do not group meaningfully — v0.073 and v0.075
+ * both moved users' numbers, v0.072 and v0.074 were both fixes — so never organise a draft by
+ * release number, and put whatever the reader must not miss near the top. The parts must
+ * rejoin to Eric's edited text word for word; nothing here changes his wording.
  *
  * Usage:
  *   node scripts/bbcode-from-blurb.mjs "docs/TRF Blurbs/TRF Blurb - 2026-08-27 v0.072-v0.075.txt"
@@ -39,7 +39,8 @@
  * The CLI lives in main() behind an entry-point guard so the helpers above can be imported
  * and unit-tested; importing this module must never run the CLI or call process.exit.
  */
-import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 /**
@@ -62,7 +63,9 @@ const ITEM = /^(\s*)- (.*)$/;
 const bold = (s) => s.replace(/\*\*(.+?)\*\*/g, '[B]$1[/B]');
 
 export function toBBCode(text) {
-  const lines = text.replace(/\r\n/g, '\n').split('\n');
+  // `\r\n?` and not `\r\n`: a LONE carriage return survives the narrower form, and then no
+  // split('\n') ever breaks on it — the paragraphs collapse into one unbreakable "line".
+  const lines = text.replace(/\r\n?/g, '\n').split('\n');
   const out = [];
   /** Indent widths of the currently open [LIST]s, outermost first. */
   const open = [];
@@ -119,19 +122,56 @@ export function checkTags(bb) {
 export const TRF_POST_LIMIT = 10000;
 
 /**
- * The length TRF will actually count — NOT `String.length`.
+ * The length TRF will actually count — NOT `String.length`, and NOT the CRLF count that
+ * used to stand here.
  *
- * A browser normalises a `<textarea>` to CRLF when the form is submitted (the
- * element's API value uses LF; the SUBMITTED value uses CRLF), so every newline
- * costs TWO characters at the far end. Measuring an LF-joined string measures
- * the wrong string.
+ * Three things in XenForo's own source decide it. Read from 2.1.4 and 2.3.4:
  *
- * This is not theoretical. The v0.088–v0.091 blurb first split into a post of
- * 9,998 LF characters — two under the limit, and the script said it fit — which
- * TRF would have counted as 10,104 and REFUSED, because that post has 106
- * lines. Count the way the receiver counts.
+ *  1. **Line endings never arrive as CRLF.** `XF\InputFilterer::cleanInternal()`'s `str`
+ *     case runs `str_replace("\r\n", "\n", strval($value))`, and `cleanString()` then
+ *     strips `"\x0D"` outright — its own comment says *"carriage returns, because jQuery
+ *     does so in .val()"*. The receiver counts LF. The note that used to sit here claimed
+ *     a 9,998-character post "would have counted 10,104 and been REFUSED"; it would have
+ *     been accepted, and that whole mechanism was wrong.
+ *  2. **The count is in CODE POINTS**, not UTF-16 units: `utf8_strlen($message)` (2.3:
+ *     `Str::strlen`). An astral character — an emoji — is ONE there and two to JS `.length`.
+ *  3. **The message is REWRITTEN before it is measured.**
+ *     `XF\Service\Message\Preparer::prepare()` calls `processMessage()` first and hands the
+ *     rewritten string to `checkValidity()`. So growth nobody typed is counted:
+ *       - every resolvable `@handle` becomes `[USER=<id>]@Name[/USER]`
+ *         (`MentionFormatter`: `'[USER=' . $user['user_id'] . ']' . $prefix . $user['username'] . '[/USER]'`)
+ *         — 14 characters plus the id's digits;
+ *       - a bare URL still sitting in prose is autolinked to `[URL]…[/URL]` — 11 characters.
+ *
+ * Points 2 and 3 both grow the count in the DANGEROUS direction, so they are counted rather
+ * than hoped over. Over-counting only splits a post earlier than it strictly had to; the
+ * blurbs credit reporters inline by handle, so a long one carries a dozen mentions.
+ *
+ * ASSUMES the BBCode is pasted with the editor's BB-code toggle ON. Pasted into the rich
+ * editor instead, XenForo receives `message_html` and measures its own HTML→BBCode
+ * conversion of it, which can differ. Unverified — worth checking the first time a post
+ * lands within a hundred characters of the limit.
  */
-export const postLength = (s) => s.length + (s.match(/\n/g) || []).length;
+
+/** `[USER=<id>]` + `[/USER]` wrapped around the `@Name` already in the text. */
+export const MENTION_GROWTH = 14 + 6; // TRF's user ids run to six digits; budget the longest.
+
+/** `[URL]` + `[/URL]` wrapped around a bare link XenForo autolinks for you. */
+export const AUTOLINK_GROWTH = 11;
+
+/**
+ * Mentions, counted generously: `@` followed by anything that is not a space. A handle that
+ * does not resolve to a real member is NOT expanded by XenForo, and a stray `@` in an email
+ * address is not either, so this over-counts — which is the safe direction.
+ */
+export const countMentions = (s) => (s.match(/@[^\s@]/g) || []).length;
+
+/** Links XenForo will autolink: the ones NOT already inside an [URL] tag this script wrote. */
+export const countBareUrls = (s) =>
+  (s.replace(/\[URL\][\s\S]*?\[\/URL\]/gi, '').match(/\bhttps?:\/\//gi) || []).length;
+
+export const postLength = (s) =>
+  [...s].length + countMentions(s) * MENTION_GROWTH + countBareUrls(s) * AUTOLINK_GROWTH;
 
 /** The generated file's path for a given source .txt. */
 export const bbcodePathFor = (src) => src.replace(/\.txt$/i, '') + ' BBCODE.txt';
@@ -145,6 +185,25 @@ export const CONTINUES = 'Continued in the post below.';
 export const CONTINUED = 'Continued from the post above.';
 
 /**
+ * A line that reads as a HEADING, so the splitter can refuse to cut just after one.
+ *
+ * The blurbs write headings two ways: a bold-only line (`[B]…[/B]`, from a `**…**` line or
+ * a `- Title (v0.0NN)` release header), and a bare ALL-CAPS line, which is what Eric's own
+ * section headings are — "PARTS DATABASE", "NOT FIXED YET".
+ *
+ * The `^\[` bail-out is load-bearing: `[/LIST]` and `[*]ITEM` are uppercase and full of
+ * letters, and without it every list would look like a heading.
+ */
+export const isHeadingLine = (l) => {
+  const t = l.trim();
+  if (!t) return false;
+  if (/^\[B\].+\[\/B\]$/.test(t)) return true;
+  if (t.startsWith('[')) return false;
+  const letters = t.replace(/[^A-Za-z]/g, '');
+  return letters.length >= 3 && letters === letters.toUpperCase();
+};
+
+/**
  * Split finished BBCode into postable parts.
  *
  * The convention changed on 2026-08-30 (Eric): he wants ONE consolidated .txt to edit,
@@ -156,49 +215,97 @@ export const CONTINUED = 'Continued from the post above.';
  * a [LIST] it never closes, which pastes as visible junk. If a single unsplittable run is
  * itself over the limit the caller is told rather than handed a bad cut.
  *
- * The joining lines are added AFTER measuring, so a part cannot come back over the limit
- * because of them.
+ * And it will not cut immediately after a HEADING, which strands the heading at the foot of
+ * one post with its body at the head of the next. That is not hypothetical: it is what
+ * happened to the real v0.088-v0.091 blurb, whose part 1 ended on the bare line "OPENING A
+ * DESIGN FILE NOW ASKS BEFORE THROWING YOUR WORK AWAY" - and the generated file was then
+ * repaired BY HAND, which is exactly the drift the .txt-is-the-source-of-truth rule exists
+ * to prevent.
+ *
+ * The joining lines are budgeted PER POSITION. A middle part of a three-or-more-part split
+ * carries BOTH of them, and reserving room for only one is how a middle part came out at
+ * 10,032 characters while the docstring here claimed it could not happen.
  */
 export function splitBBCode(bb, limit = TRF_POST_LIMIT) {
-  // Measured the way the parts are, newlines included: the joining lines bring
-  // their own blank line, and that blank line costs two characters at TRF.
-  const joinCost = Math.max(postLength(CONTINUES), postLength(CONTINUED)) + 4;
-  const budget = limit - joinCost;
+  const HEAD = CONTINUED + '\n\n';
+  const FOOT = '\n\n' + CONTINUES;
+  const headCost = postLength(HEAD);
+  const footCost = postLength(FOOT);
+
+  // A document that fits in ONE post carries no joining lines at all, so it must be measured
+  // against the WHOLE limit - reserving the join is what split a 9,980-character blurb in two
+  // for no reason, and refused one outright when it had no blank line to cut at. That check
+  // is the loop's own first iteration, where parts.length is 0 and so `head` is 0; an explicit
+  // early return here as well was unreachable, and a guard no mutation can break is a guard
+  // that is not guarding anything.
   const lines = bb.split('\n');
   const cuts = [];
   let depth = 0;
+  let lastSolid = -1;
   for (let i = 0; i < lines.length; i++) {
     const l = lines[i];
     if (l.includes('[LIST]')) depth++;
     if (l.includes('[/LIST]')) depth--;
-    if (l.trim() === '' && depth === 0) cuts.push(i);
+    if (l.trim() === '') {
+      if (depth === 0) {
+        cuts.push({ at: i, orphansHeading: lastSolid >= 0 && isHeadingLine(lines[lastSolid]) });
+      }
+    } else {
+      lastSolid = i;
+    }
   }
+
   const parts = [];
   let start = 0;
   for (;;) {
-    const rest = lines.slice(start).join('\n');
-    if (postLength(rest) <= budget) { parts.push(rest); break; }
-    let best = -1;
+    // Step over blank lines rather than measuring them: a trailing newline (every editor
+    // saves one) used to register as a cut and produce a final "post" that was nothing but
+    // the "Continued from the post above." line.
+    while (start < lines.length && lines[start].trim() === '') start++;
+    if (start >= lines.length) break;
+
+    const head = parts.length === 0 ? 0 : headCost;
+    const rest = lines.slice(start).join('\n').trimEnd();
+    if (head + postLength(rest) <= limit) { parts.push(rest); break; }
+
+    const allowance = limit - head - footCost;
+    let best = -1;      // the last cut that fits AND does not strand a heading
+    let bestAny = -1;   // the last cut that fits, heading or not
     for (const c of cuts) {
-      if (c <= start) continue;
-      if (postLength(lines.slice(start, c).join('\n')) > budget) break;
-      best = c;
+      if (c.at <= start) continue;
+      const candidate = lines.slice(start, c.at).join('\n').trimEnd();
+      if (!candidate) continue;
+      if (postLength(candidate) > allowance) break;
+      bestAny = c.at;
+      if (!c.orphansHeading) best = c.at;
     }
-    if (best < 0) {
+    // Falling back to bestAny matters: a stranded heading is ugly, an unpostable file is
+    // useless, and refusing a blurb that CAN be cut would send Eric back to hand-splitting.
+    const at = best >= 0 ? best : bestAny;
+    if (at < 0) {
       throw new Error(
         'the next unbreakable run is longer than a post. Add a blank line between '
         + 'paragraphs, or shorten the longest list.');
     }
-    parts.push(lines.slice(start, best).join('\n'));
-    start = best + 1;
+    parts.push(lines.slice(start, at).join('\n').trimEnd());
+    start = at + 1;
   }
+
   if (parts.length === 1) return parts;
   return parts.map((part, i) => {
-    const head = i === 0 ? '' : CONTINUED + '\n\n';
-    const foot = i === parts.length - 1 ? '' : '\n\n' + CONTINUES;
-    return head + part.trimEnd() + foot;
+    const head = i === 0 ? '' : HEAD;
+    const foot = i === parts.length - 1 ? '' : FOOT;
+    return head + part + foot;
   });
 }
+
+/**
+ * The parts of a split that TRF would refuse. An empty array is the only acceptable answer,
+ * and until this existed nothing checked: main() printed "each inside TRF's 10000-char
+ * limit" as a fixed string whatever splitBBCode had returned.
+ */
+export const partsOverLimit = (parts, limit = TRF_POST_LIMIT) =>
+  parts.map((part, i) => ({ n: i + 1, len: postLength(part) })).filter((p) => p.len > limit);
 
 /**
  * Refuse to convert an already-converted file. Tab-completion on a blurb stem offers both
@@ -206,7 +313,8 @@ export function splitBBCode(bb, limit = TRF_POST_LIMIT) {
  * and no column-0 `- ` survive a first pass, so tag counts stay balanced and every check
  * reports success while writing a double-converted "<stem> BBCODE BBCODE.txt".
  */
-export const looksAlreadyConverted = (src) => / BBCODE(\.OUTDATED)?\.txt$/i.test(src);
+export const looksAlreadyConverted = (src) =>
+  / BBCODE( \(\d+ of \d+\))?(\.OUTDATED)?\.txt$/i.test(src);
 
 /**
  * Move a stale generated file aside when this run refuses to write a new one.
@@ -217,6 +325,25 @@ export const looksAlreadyConverted = (src) => / BBCODE(\.OUTDATED)?\.txt$/i.test
  * pastes cleanly — so the post that goes up is the previous draft. The .txt is the source of
  * truth, and a generated file that no longer matches it must not look postable.
  */
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * Every "<stem> BBCODE (n of N).txt" that is REALLY on disk beside the source.
+ *
+ * The sweep used to guess instead, asking for "(1 of 9)" … "(9 of 9)" — names no run has
+ * ever written — so a genuine "(1 of 4)" set survived every later run untouched, sitting
+ * beside the new output looking perfectly postable. Any change to how a blurb splits is
+ * exactly when that happens, and this commit changes how every blurb splits.
+ */
+export function existingPartPaths(src) {
+  const stem = basename(src).replace(/\.txt$/i, '');
+  const dir = dirname(src) || '.';
+  const re = new RegExp('^' + escapeRe(stem) + ' BBCODE \\(\\d+ of \\d+\\)\\.txt$', 'i');
+  let names;
+  try { names = readdirSync(dir); } catch { return []; }
+  return names.filter((f) => re.test(f)).map((f) => join(dir, f));
+}
+
 function quarantineStale(dst) {
   if (!existsSync(dst)) return null;
   const stale = dst.replace(/\.txt$/i, '') + '.OUTDATED.txt';
@@ -271,26 +398,50 @@ function main(argv) {
     return;
   }
 
+  // The one job this script has is never to write a file TRF will refuse, and until now
+  // nothing checked: the summary printed "each inside TRF's 10000-char limit" as a constant
+  // string, so a splitter bug shipped with exit code 0 and a reassuring message.
+  const over = partsOverLimit(parts);
+  if (over.length) {
+    fail(
+      'SPLIT PRODUCED AN UNPOSTABLE PART (nothing written):\n  '
+      + over.map((p) => `part ${p.n} of ${parts.length}: ${p.len} characters, `
+        + `${p.len - TRF_POST_LIMIT} over the limit`).join('\n  ')
+      + '\nThat is a bug in splitBBCode, not in the draft — the draft did not do anything '
+      + 'wrong.', dst);
+    return;
+  }
+
   if (parts.length === 1) {
     // A multi-part set from an earlier, longer draft must not survive beside it.
-    for (let n = 1; n <= 9; n++) quarantineStale(bbcodePartPathFor(src, n, 9));
+    for (const stale of existingPartPaths(src)) quarantineStale(stale);
     writeFileSync(dst, bb, 'utf8');
     console.log(`wrote ${dst} (${postLength(bb)} chars as TRF counts them, ${Buffer.byteLength(bb)} bytes)`);
     console.log(`tags balanced; fits TRF's ${TRF_POST_LIMIT}-char limit - ${TRF_POST_LIMIT - postLength(bb)} to spare.`);
     return;
   }
 
-  // Likewise a single-file BBCode from an earlier, shorter draft.
+  // Likewise a single-file BBCode from an earlier, shorter draft, and any part file from an
+  // earlier split that this one will NOT overwrite (a 4-part set becoming a 2-part set).
   quarantineStale(dst);
+  const willWrite = new Set(
+    parts.map((_, i) => basename(bbcodePartPathFor(src, i + 1, parts.length))));
+  for (const stale of existingPartPaths(src)) {
+    if (!willWrite.has(basename(stale))) quarantineStale(stale);
+  }
   parts.forEach((part, i) => {
     const path = bbcodePartPathFor(src, i + 1, parts.length);
     writeFileSync(path, part, 'utf8');
     console.log(`wrote ${path} (${postLength(part)} chars as TRF counts them, `
       + `${Buffer.byteLength(part)} bytes)`);
   });
+  // One measure for every number printed in a run. This total used to be `bb.length`, so it
+  // was smaller than the sum of the parts printed two lines above it.
+  const total = parts.reduce((n, part) => n + postLength(part), 0);
   console.log(
-    `tags balanced; ${bb.length} chars split into ${parts.length} posts, each inside TRF's `
-    + `${TRF_POST_LIMIT}-char limit. Post them in order - the joining lines are already in.`);
+    `tags balanced; ${total} chars as TRF counts them, split into ${parts.length} posts, `
+    + `each verified inside TRF's ${TRF_POST_LIMIT}-char limit. Post them in order - the `
+    + 'joining lines are already in.');
 }
 
 // Run the CLI only when invoked directly. Importing this module for its helpers must not
