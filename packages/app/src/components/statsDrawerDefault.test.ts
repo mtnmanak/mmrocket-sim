@@ -82,6 +82,22 @@ describe('stats-drawer default and the desktop breakpoint', () => {
     expect(app).toContain('topReserve={vert2d ? 0 : HERO_CHIP_RESERVE}');
   });
 
+  /**
+   * Owner report, 2026-09-01b: *"'batch simulate motors' appears to be broken,
+   * when I click the button, nothing happens."* It was disabled, not broken —
+   * his design is staged. A disabled button gives no click feedback, so the
+   * reason has to be ON SCREEN, not in a `title` nobody hovers.
+   */
+  it('the batch-simulate button says WHY it is unavailable, visibly', () => {
+    const app = read('../App.tsx');
+    // One expression decides both the disabled state and the explanation, so
+    // the button cannot gain a disabled case with no reason attached.
+    expect(app).toContain('const blocked = batchUnavailableReason({');
+    expect(app).toContain('disabled={!!blocked}');
+    // And the reason is rendered, not merely put in a tooltip.
+    expect(app).toContain('Batch simulation is not available here — {blocked}.');
+  });
+
   it('the fixed notice bar reserves its own space instead of covering the footer', () => {
     // NoticeBar publishes its measured height; the footer band and the hero
     // canvas both budget for it. The token needs a 0px default, or every

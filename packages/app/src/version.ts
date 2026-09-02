@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.093';
+export const APP_VERSION = '0.094';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.094',
+    date: '2026-09-01',
+    title: 'The batch simulate button now says why it is unavailable',
+    items: [
+      'IF "BATCH SIMULATE MOTORS" DID NOTHING WHEN YOU CLICKED IT, IT WAS DISABLED, NOT BROKEN - and the app never told you. There are three states that switch it off and the tooltip described only one of them, so in the other two the button showed its normal description and then did nothing at all. The reason is now printed under the button where you can see it, and the tooltip matches.',
+      'The three reasons: the rocket is staged, where batch is deliberately not offered because the motor combinations explode across stages; the rocket has no motor mount; or the design cannot be built. Batch simulation across a CLUSTER is unaffected and still works - that is one mount, not several stages.',
+    ],
+  },
   {
     version: '0.093',
     date: '2026-09-01',

@@ -6,7 +6,7 @@ import type { MotorSpec, RocketTree } from '@online-openrocket/engine';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import { splitClusterTree } from '../tree/treeModel.js';
 import { DEFAULT_CONDITIONS, type LaunchConditions } from './LaunchPanel.js';
-import { BatchSimulate, batchProbeCutoff, mixedComboCount, type BatchMountOption } from './BatchSimulate.js';
+import { BatchSimulate, batchProbeCutoff, batchUnavailableReason, mixedComboCount, type BatchMountOption } from './BatchSimulate.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -144,5 +144,56 @@ describe('the batch dialog', () => {
     // Batch wording, not the launch panel's per-flight wording.
     expect(text).toMatch(/whole batch — \d+ flights/);
     expect(text).not.toMatch(/per flight/);
+  });
+});
+
+/**
+ * Owner report, 2026-09-01b: *"'batch simulate motors' appears to be broken,
+ * when I click the button, nothing happens."*
+ *
+ * It was not broken. The button was DISABLED — his design is staged, and batch
+ * across stages is his own 2026-07-03 ruling because the combinations explode.
+ * A disabled button gives no feedback when clicked, and the tooltip named only
+ * ONE of the three reasons the button can be off, so the other two showed the
+ * button's ENABLED description and then did nothing.
+ */
+describe('batchUnavailableReason', () => {
+  const ok = { built: true, hasMount: true, isStaged: false };
+
+  it('is null when batch simulation is available', () => {
+    expect(batchUnavailableReason(ok)).toBeNull();
+  });
+
+  it('explains a staged rocket', () => {
+    expect(batchUnavailableReason({ ...ok, isStaged: true }))
+      .toBe('the motor combinations explode on a staged rocket');
+  });
+
+  it('explains a rocket with no motor mount', () => {
+    // This case used to show the ENABLED tooltip and then do nothing at all.
+    expect(batchUnavailableReason({ ...ok, hasMount: false }))
+      .toBe('this rocket has no motor mount');
+  });
+
+  it('explains a design that will not build', () => {
+    expect(batchUnavailableReason({ ...ok, built: false }))
+      .toBe('the design cannot be built, so there is nothing to fly');
+  });
+
+  it('gives a reason for EVERY state that disables the button', () => {
+    // The property that matters: the button's disabled condition and the
+    // explanation are the same expression, so one cannot gain a case the other
+    // does not cover. Enumerate all eight combinations.
+    for (const built of [true, false]) {
+      for (const hasMount of [true, false]) {
+        for (const isStaged of [true, false]) {
+          const reason = batchUnavailableReason({ built, hasMount, isStaged });
+          const shouldBeBlocked = !built || !hasMount || isStaged;
+          expect(reason === null, `built=${built} hasMount=${hasMount} isStaged=${isStaged}`)
+            .toBe(!shouldBeBlocked);
+          if (reason !== null) expect(reason.length).toBeGreaterThan(10);
+        }
+      }
+    }
   });
 });

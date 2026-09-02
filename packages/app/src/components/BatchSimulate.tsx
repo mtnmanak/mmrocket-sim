@@ -113,6 +113,30 @@ interface BatchRow {
   failed: string[];
 }
 
+/**
+ * Why batch simulation is unavailable, in words, or null when it is available.
+ *
+ * Reported 2026-09-01b: *"'batch simulate motors' appears to be broken, when I
+ * click the button, nothing happens."* It was not broken — the button was
+ * DISABLED, and a disabled button gives no feedback when you click it. There
+ * are three separate reasons it can be off and the tooltip named only one, so
+ * the other two showed the button's ENABLED description and then did nothing
+ * at all.
+ *
+ * Returning the reason as text means the caller can put it ON SCREEN rather
+ * than hiding it in a `title` nobody hovers.
+ */
+export function batchUnavailableReason(
+  { built, hasMount, isStaged }: { built: boolean; hasMount: boolean; isStaged: boolean },
+): string | null {
+  if (!built) return 'the design cannot be built, so there is nothing to fly';
+  if (!hasMount) return 'this rocket has no motor mount';
+  // The owner's own ruling (2026-07-03): no batch across staged rockets,
+  // because the combinations explode. Batch on a CLUSTER is wanted and works.
+  if (isStaged) return 'the motor combinations explode on a staged rocket';
+  return null;
+}
+
 export interface BatchMountOption {
   id: string;
   label: string;

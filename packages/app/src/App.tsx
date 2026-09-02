@@ -10,7 +10,7 @@ import {
   type RocketTree,
   type StaticInfo,
 } from '@online-openrocket/engine';
-import { BatchSimulate } from './components/BatchSimulate.js';
+import { BatchSimulate, batchUnavailableReason } from './components/BatchSimulate.js';
 import { ConfigPanel } from './components/ConfigPanel.js';
 import { Icon } from './components/Icon.js';
 import { ChangelogDialog } from './components/ChangelogDialog.js';
@@ -3514,17 +3514,36 @@ export function App() {
                 </div>
               );
             })}
-            <button
-              className="file-btn"
-              style={{ marginTop: 8, width: '100%' }}
-              disabled={!built || !primaryMountId || isStaged}
-              title={isStaged
-                ? 'Batch simulation is not available on staged rockets — the motor combinations explode.'
-                : 'Simulate every motor that fits this rocket, with filters and acceptance criteria'}
-              onClick={() => setShowBatch(true)}
-            >
-              <Icon name="zap" /> Batch simulate motors…
-            </button>
+            {/* A disabled button that does not say why reads as a broken button —
+                reported 2026-09-01b as "when I click the button, nothing happens".
+                There are THREE reasons this can be off and the tooltip named only
+                one of them, so the other two showed the ENABLED text and then did
+                nothing. The reason is now on screen, not just in a title. */}
+            {(() => {
+              const blocked = batchUnavailableReason({
+                built: !!built, hasMount: !!primaryMountId, isStaged,
+              });
+              return (
+                <>
+                  <button
+                    className="file-btn"
+                    style={{ marginTop: 8, width: '100%' }}
+                    disabled={!!blocked}
+                    title={blocked
+                      ? `Batch simulation is not available here: ${blocked}.`
+                      : 'Simulate every motor that fits this rocket, with filters and acceptance criteria'}
+                    onClick={() => setShowBatch(true)}
+                  >
+                    <Icon name="zap" /> Batch simulate motors…
+                  </button>
+                  {blocked && (
+                    <p className="comp-stats" style={{ margin: '4px 0 0' }}>
+                      Batch simulation is not available here — {blocked}.
+                    </p>
+                  )}
+                </>
+              );
+            })()}
           </div>
 
           <LaunchPanel value={launch} onChange={setLaunch} onLaunch={onLaunch} simulating={simulating}
