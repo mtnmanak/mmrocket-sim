@@ -1314,9 +1314,21 @@ html {
        AVAILABILITY cap; min() takes whichever is smaller. Floor drops to
        320px — a short natural height is the point. 3D/Aft leave the
        variable unset and get the old behavior via the 9999px fallback. */
+    /* v0.092 (owner report 2026-09-01): the ceiling is raised by the All Stats
+       drawer's height, because the ceiling is a statement about how much
+       DRAWING is worth having and the drawer is not drawing. --hero-natural
+       has included the drawer's clearance since v0.076, but this min() threw
+       it away for any rocket with a natural height over ~230px — measured on a
+       1920x1080 window the request was 749px against a 620px ceiling, so the
+       drawer took 125px of 460 (27 %) off the drawing and nothing gave it
+       back. The middle term is UNCHANGED and still binds: `100vh - 420px` is
+       the footer's budget, and the owner's own 2026-08-26 report set the
+       constraint that the canvas must not "get so big it scrolls the footer
+       and notifications off the screen". So the drawer can buy back only what
+       the viewport actually affords. */
     height: min(
       var(--hero-natural, 9999px),
-      clamp(320px, calc(100vh - 420px - var(--notice-h, 0px)), 620px)
+      clamp(320px, calc(100vh - 420px - var(--notice-h, 0px)), calc(620px + var(--drawer-clearance, 0px)))
     );
     overflow: hidden;
   }

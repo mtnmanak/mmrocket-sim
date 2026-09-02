@@ -43,7 +43,25 @@ describe('stats-drawer default and the desktop breakpoint', () => {
     //     no natural height, on the pure clamp.
     const css = read('../styles.css');
     expect(css).toContain('var(--hero-natural, 9999px)');
-    expect(css).toContain('clamp(320px, calc(100vh - 420px');
+    //  4. v0.092: the ceiling is raised by the All Stats drawer's height,
+    //     because a ceiling on how much DRAWING is worth having should not be
+    //     spent on a drawer. --hero-natural had included the drawer's
+    //     clearance since v0.076 and this min() discarded it for any rocket
+    //     over ~230px natural — measured at 1920x1080 the request was 749px
+    //     against a 620px ceiling, so the drawer took 125px of 460 off the
+    //     drawing (27 %) and nothing gave it back.
+    //
+    // Pinned IN FULL, the way the ⟳90° cap below already was. The old
+    // assertion stopped one character before the ceiling — `clamp(320px,
+    // calc(100vh - 420px` — so the number this whole rule turns on could be
+    // changed, or silently broken, without a test noticing.
+    expect(css).toContain(
+      'clamp(320px, calc(100vh - 420px - var(--notice-h, 0px)), calc(620px + var(--drawer-clearance, 0px)))');
+    // The middle term is the FOOTER's budget and is deliberately untouched:
+    // the owner's 2026-08-26 report set the constraint that the canvas must
+    // not "get so big it scrolls the footer and notifications off the screen",
+    // so the drawer buys back only what the viewport actually affords.
+    expect(css).toContain('calc(100vh - 420px - var(--notice-h, 0px))');
     // Vertical (⟳90°) mode keeps its own taller pure clamp — height there
     // buys drawing, not sky.
     expect(css).toContain('height: clamp(420px, calc(100vh - 420px - var(--notice-h, 0px)), 900px)');
@@ -51,8 +69,17 @@ describe('stats-drawer default and the desktop breakpoint', () => {
     // old value on purpose, to record what was wrong with it.
     expect(css).not.toContain('height: max(420px');
     // And the reporter that feeds the variable must stay wired.
-    expect(read('../App.tsx')).toContain('onNaturalHeight={setHeroNatural}');
+    const app = read('../App.tsx');
+    expect(app).toContain('onNaturalHeight={setHeroNatural}');
     expect(read('./TreeSchematic.tsx')).toContain('onNaturalHeightRef.current?.(naturalH)');
+    // The ceiling can only grow if something publishes the clearance. Without
+    // this line the CSS above silently falls back to a bare 620px, which is
+    // precisely the state this fixed — and every other test would still pass.
+    expect(app).toContain("'--drawer-clearance': `${drawerClearance}px`");
+    // The chip's headroom has to reach the DRAWING, not just the container:
+    // the stage grew by HERO_CHIP_RESERVE from v0.076, but centring split it
+    // in half, so the chip sat on the rocket regardless.
+    expect(app).toContain('topReserve={vert2d ? 0 : HERO_CHIP_RESERVE}');
   });
 
   it('the fixed notice bar reserves its own space instead of covering the footer', () => {

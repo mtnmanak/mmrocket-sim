@@ -15,14 +15,32 @@ import { findNode } from './treeModel.js';
  *
  * - the mount tube's own forward end;
  * - an **engine block** or **bulkhead** inside the mount — the two components
- *   that exist to stop a motor going further;
- * - a **mass component** inside the mount, which is how people model an
- *   altimeter sled or a nose weight sitting in the tube.
+ *   that exist to stop a motor going further.
  *
- * Deliberately NOT an obstruction: a **centering ring** or **tube coupler**
- * around or inside the mount. A ring's bore is the motor tube's outside — the
- * motor passes through it — and treating it as a stop would return a few
- * millimetres on almost every high-power rocket.
+ * Deliberately NOT an obstruction:
+ *
+ * - a **centering ring** or **tube coupler** around or inside the mount. A
+ *   ring's bore is the motor tube's outside — the motor passes through it —
+ *   and treating it as a stop would return a few millimetres on almost every
+ *   high-power rocket.
+ * - a **mass component** (owner ruling, 2026-09-01). This used to block, on
+ *   the reasoning that a mass component is how an altimeter sled gets
+ *   modelled. That was wrong, and his own 4" Wildman Extreme is the
+ *   counter-example: he models the **motor retainer** as a mass component near
+ *   the aft end to get the CG right, and *"a motor retainer is designed to
+ *   keep a motor in place, not block it from being installed"*. Blocking on it
+ *   measured the room from the retainer forward and reported a few centimetres
+ *   on a rocket that takes a 74mm case.
+ *
+ *   The general point, and it is why this is the right rule rather than a
+ *   special case: a mass component is a **mass abstraction with no bore and no
+ *   radius**, so nothing about it says whether a motor can pass. Guessing that
+ *   it cannot is the guess that breaks a real design. Anything genuinely in
+ *   the way has a component type that says so — an engine block or a bulkhead.
+ *
+ * - a **parachute**, **streamer** or **shock cord** in the mount, which have
+ *   never blocked and must not start: they move out of the way when a motor is
+ *   loaded (owner, same ruling).
  *
  * It is an ESTIMATE and the UI says so. It cannot know about a baffle modelled
  * as something else, wadding, or a chute packed hard against the block.
@@ -37,13 +55,17 @@ export interface MotorRoom {
 const num = (n: ComponentNode, key: string, fb: number): number =>
   typeof n[key] === 'number' ? (n[key] as number) : fb;
 
-/** Components a motor case cannot pass through. */
-const BLOCKING = new Set(['engineblock', 'bulkhead', 'masscomponent']);
+/**
+ * Components a motor case cannot pass through.
+ *
+ * Keep this list to things whose PURPOSE is to stop a motor. See the note
+ * above on why a mass component is not one of them.
+ */
+const BLOCKING = new Set(['engineblock', 'bulkhead']);
 
 const DISPLAY: Record<string, string> = {
   engineblock: 'engine block',
   bulkhead: 'bulkhead',
-  masscomponent: 'mass component',
 };
 
 export function estimateMotorRoom(tree: RocketTree, mountId: string): MotorRoom | null {

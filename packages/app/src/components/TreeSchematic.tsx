@@ -167,7 +167,37 @@ interface DragState {
   clientScale: number;
 }
 
-export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480, selectedId, onSelect, exportData, onError, vertical, fillHeight, onNaturalHeight, roll: rollProp, onRoll }: {
+/**
+ * Where the drawing's centreline sits in a box of height `h`.
+ *
+ * Centring is the default and is exactly what happens when nothing asks for
+ * headroom (`topReserve` 0 — every caller but the hero canvas).
+ *
+ * When the host DOES ask, the reserve is spent ABOVE the rocket instead of
+ * being split in half by centring. That split is why the hero canvas's 140px
+ * chip reserve never worked: it was added to the container, then divided
+ * evenly, so 70px of it landed below the rocket where nothing needed it while
+ * the stats chip — 124px tall — sat on the nose cone.
+ *
+ * Two clamps keep it honest, and both matter:
+ *  - it only ever spends SLACK (`skyBelow - keepBelow`), so a height-fitted
+ *    drawing, which has none, is untouched;
+ *  - `keepBelow` preserves the bottom padding and the bottom callout lane,
+ *    exactly what a symmetric layout gives them, so the rocket can never be
+ *    pushed down onto its own CP callout.
+ */
+export function centrelineY({ h, gutY, pad, lanes, halfDrawn, topReserve }: {
+  h: number; gutY: number; pad: number; lanes: number; halfDrawn: number; topReserve: number;
+}): number {
+  const centred = gutY + (h - gutY) / 2;
+  const keepBelow = pad + lanes / 2;
+  const skyAbove = centred - halfDrawn - gutY;
+  const skyBelow = h - (centred + halfDrawn);
+  const bias = Math.max(0, Math.min(topReserve - skyAbove, skyBelow - keepBelow));
+  return centred + bias;
+}
+
+export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480, selectedId, onSelect, exportData, onError, vertical, fillHeight, onNaturalHeight, topReserve = 0, roll: rollProp, onRoll }: {
   tree: RocketTree;
   info: StaticInfo | null;
   /** Loaded motor case dimensions (m) keyed by mount node id — drawn to
@@ -208,6 +238,20 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
    * feed the measure→draw→grow loop the styles.css note warns about.
    */
   onNaturalHeight?: (px: number) => void;
+  /**
+   * Sky to keep ABOVE the drawing, in px, for whatever the host floats there —
+   * for the hero canvas, the stats chip.
+   *
+   * The host already asks for this space by adding it to the container height
+   * (App's HERO_CHIP_RESERVE), but the drawing is vertically CENTRED, so half
+   * of every reserve landed below the rocket where nothing needed it. This
+   * spends it where it was meant to go, and only out of slack that exists: the
+   * rocket is never pushed down into its own bottom callout lane, so a
+   * height-fitted drawing is untouched.
+   *
+   * Defaults to 0 — every caller but the hero canvas draws exactly as before.
+   */
+  topReserve?: number;
   /**
    * Roll about the rocket's long axis (rad), the desktop's rotation slider.
    * Optional and CONTROLLED-OR-NOT: pass both to share one angle with the Aft
@@ -359,7 +403,11 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
     (w - 2 * pad - gutX - rollBar) / totalLen,
     (h - 2 * pad - lanes - gutY) / (2 * vHalf),
   ));
-  const ctx: Ctx = { scale, cy: gutY + (h - gutY) / 2, x0: pad + gutX };
+  const ctx: Ctx = {
+    scale,
+    cy: centrelineY({ h, gutY, pad, lanes, halfDrawn: vHalf * scale, topReserve }),
+    x0: pad + gutX,
+  };
 
   // Report the natural height to the hero stage (fit-to-content, v0.076).
   // Callback identity rides a ref so a new inline closure per parent render

@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.091';
+export const APP_VERSION = '0.092';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,19 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.092',
+    date: '2026-09-01',
+    title: 'The design canvas gets its room back, and a retainer stops blocking your motor',
+    items: [
+      'A MOTOR RETAINER MODELLED AS A MASS COMPONENT NO LONGER BLOCKS THE MOTOR. The "Max motor length" estimate treated a mass component inside the motor mount as something a motor case cannot pass. Plenty of people model a retainer that way to get the CG right, and a retainer is designed to hold a motor in, not keep it out. Measured on a real 4 inch Wildman Extreme, whose 380 mm mount carries a zero-length "Retainer" 15 mm up from the aft end: the app reported room for a 15.5 mm motor. It now reports 380.5 mm. If you have ever pressed the estimate button and got an implausibly short number, this was why.',
+      'Centering rings and tube couplers already did not block, and neither do parachutes, streamers or shock cords, which move aside when you load a motor. What still blocks is an engine block or a bulkhead - the two components whose purpose is to stop a motor. A mass component has no bore and no diameter, so nothing about it says whether a motor can pass, and guessing that it cannot is the guess that breaks a real design.',
+      'THE 2D DESIGN CANVAS NO LONGER SHRINKS BY THE FULL HEIGHT OF THE ALL STATS DRAWER. The canvas has sized itself to the rocket since v0.076 and asked for the drawer\'s height on top of that, but a ceiling on the request threw the drawer\'s share away, so opening All stats took the space straight out of the drawing. Measured on a 1920x1080 window: the drawing area went from 460 px to 335 px, a 27 % loss. The ceiling now grows by the drawer\'s height. The footer budget is untouched, so the canvas still cannot push the footer and notifications off the screen.',
+      'THE FLOATING STATS GADGET STOPS SITTING ON THE ROCKET. The canvas has reserved 140 px of headroom for it since v0.076, but the drawing is centred, so half the reserve landed below the rocket where nothing needed it and the gadget overlapped the nose cone by about 75 px. The reserve is now spent above the rocket, out of space that is genuinely spare - a drawing that already fills its box is left exactly where it was, so no fin is pushed off the bottom of the canvas and no CG or CP callout is squeezed.',
+      'THE GADGET FOLDS TO ITS ONE-LINE PILL WHILE ALL STATS IS OPEN, and returns to the size you had when you close the drawer. Nothing is hidden by this: the drawer already shows all five of its numbers - length, loaded mass, CG, CP and stability - so an open drawer made the full gadget a duplicate readout sitting on your rocket. Folding it by hand still works and is not overridden.',
+      'And the gadget can no longer be dragged underneath the drawer, where the drawer painted over it and it appeared to vanish with no way to get it back.',
+    ],
+  },
   {
     version: '0.091',
     date: '2026-09-01',

@@ -3129,7 +3129,14 @@ export function App() {
             <div className="rocket-stage hero-stage" data-tour="canvas"
               data-vert={view === '2d' && vert2d ? 'on' : undefined}
               style={view === '2d' && !vert2d && heroNatural
-                ? ({ '--hero-natural': `${heroNatural + HERO_CHIP_RESERVE + drawerClearance}px` } as React.CSSProperties)
+                ? ({
+                  '--hero-natural': `${heroNatural + HERO_CHIP_RESERVE + drawerClearance}px`,
+                  // The drawer's own height, published so the stage's CEILING can
+                  // grow by it. Without this the line above was discarded by the
+                  // min() in styles.css for every rocket of any size, and the
+                  // drawer came straight out of the drawing.
+                  '--drawer-clearance': `${drawerClearance}px`,
+                } as React.CSSProperties)
                 : undefined}>
               {/* .hero-view owns fill-and-center: the drawing must never size
                   its own container (see the styles.css note on the feedback
@@ -3150,6 +3157,11 @@ export function App() {
                       vertical={vert2d}
                       fillHeight
                       onNaturalHeight={setHeroNatural}
+                      // Spend the chip's headroom above the rocket instead of
+                      // letting centring split it in half. Only in horizontal
+                      // 2D: ⟳90° draws the rocket along the height axis, where
+                      // there is no "above" to reserve.
+                      topReserve={vert2d ? 0 : HERO_CHIP_RESERVE}
                       roll={viewRoll}
                       onRoll={setViewRoll}
                     />
@@ -3162,7 +3174,7 @@ export function App() {
                   )
                   : <AftView tree={tree} motors={motorDims} roll={viewRoll} onRoll={setViewRoll} />}
               </div>
-              {built && <StatsChip info={built.info} />}
+              {built && <StatsChip info={built.info} drawerOpen={statsDrawer} />}
               {built && (statsDrawer
                 ? (
                   <div className="stats-drawer" ref={setDrawerEl}>

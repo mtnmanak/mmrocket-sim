@@ -1,9 +1,10 @@
 // @vitest-environment happy-dom
+import { readFileSync } from 'node:fs';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
-import { StatsChip } from './StatTiles.js';
+import { StatsChip, clampToVisible } from './StatTiles.js';
 import { RULER_LEFT, RULER_TOP } from './TreeSchematic.js';
 import { ROLL_COL } from './RollControl.js';
 
@@ -38,8 +39,8 @@ describe('StatsChip — the floating readout', () => {
     localStorage.clear();
   });
 
-  const mount = () => act(() => root.render(
-    <PrefsProvider><StatsChip info={INFO} /></PrefsProvider>,
+  const mount = (drawerOpen = false) => act(() => root.render(
+    <PrefsProvider><StatsChip info={INFO} drawerOpen={drawerOpen} /></PrefsProvider>,
   ));
   const chip = () => host.querySelector('.stats-chip') as HTMLDivElement;
 
@@ -89,5 +90,85 @@ describe('StatsChip — the floating readout', () => {
     // here is that a drag WRITES a position (the numbers are layout-driven).
     expect(typeof stored.x).toBe('number');
     expect(typeof stored.y).toBe('number');
+  });
+
+  /**
+   * v0.092 — owner report 2026-09-01: "The gadget square has no room anymore,
+   * there is almost no way to fit it in the canvas window without covering
+   * part of the rocket when the 'All Stats' drawer is open."
+   *
+   * The drawer shows a strict SUPERSET of the chip's five numbers — length,
+   * loaded mass, CG, CP and stability are all tiles in it — so an unfolded
+   * chip over an open drawer is duplicate information sitting on the rocket.
+   * Measured in the built app at 1920x1080: the chip is 124px tall and the sky
+   * above the rocket is ~15px with the drawer open, so no amount of canvas
+   * growth would fit it there.
+   */
+  describe('while the All Stats drawer is open', () => {
+    it('folds to the one-line pill', () => {
+      mount(true);
+      expect(chip().className).toContain('stats-chip-folded');
+    });
+
+    it('does NOT overwrite the folded preference the user chose', () => {
+      // The automatic fold is a display decision, not the user's. Persisting it
+      // would silently rewrite their setting the first time they opened the
+      // drawer, and the chip would come back folded forever after.
+      mount(true);
+      expect(localStorage.getItem(CHIP_KEY)).toBeNull();
+    });
+
+    it('unfolds again when the drawer closes', () => {
+      mount(true);
+      expect(chip().className).toContain('stats-chip-folded');
+      mount(false);
+      expect(chip().className).not.toContain('stats-chip-folded');
+    });
+
+    it('leaves a chip the user folded themselves folded afterwards', () => {
+      localStorage.setItem(CHIP_KEY, JSON.stringify({ x: 64, y: 26, folded: true }));
+      mount(true);
+      mount(false);
+      expect(chip().className, 'their own fold was undone by the drawer closing')
+        .toContain('stats-chip-folded');
+    });
+
+  });
+});
+
+/**
+ * The clamp arithmetic, tested apart from the DOM.
+ *
+ * It has to be: happy-dom reports a zero-size layout, which is why the drag
+ * test above degrades to "a number was written". The real numbers below are
+ * the hero canvas measured in the built app at 1920x1080 — a 1041x670 stage
+ * with a 269px drawer and a 210x124 chip.
+ */
+describe('clampToVisible', () => {
+  const STAGE = { hostW: 1041, hostH: 670, elW: 210, elH: 124 };
+
+  it('keeps the chip inside the stage when no drawer is showing', () => {
+    expect(clampToVisible({ ...STAGE, covered: 0, x: 64, y: 26 })).toEqual({ x: 64, y: 26 });
+    expect(clampToVisible({ ...STAGE, covered: 0, x: 5000, y: 5000 }))
+      .toEqual({ x: 1041 - 210, y: 670 - 124 });
+    expect(clampToVisible({ ...STAGE, covered: 0, x: -80, y: -80 })).toEqual({ x: 0, y: 0 });
+  });
+
+  it('will not leave the chip under the drawer, where it is painted over', () => {
+    // 670 - 269 - 124 = 277 is the lowest the chip can sit and still be seen.
+    const under = clampToVisible({ ...STAGE, covered: 269, x: 64, y: 500 });
+    expect(under.y).toBe(277);
+    expect(under.y + STAGE.elH, 'the chip overlaps the drawer')
+      .toBeLessThanOrEqual(STAGE.hostH - 269);
+  });
+
+  it('does not move a chip that is already clear of the drawer', () => {
+    expect(clampToVisible({ ...STAGE, covered: 269, x: 64, y: 26 })).toEqual({ x: 64, y: 26 });
+  });
+
+  it('falls back to the origin rather than a negative position', () => {
+    // A drawer taller than the stage leaves no legal band at all. Pinning the
+    // chip to 0 keeps it visible above the drawer instead of off-canvas.
+    expect(clampToVisible({ ...STAGE, covered: 900, x: 64, y: 200 }).y).toBe(0);
   });
 });

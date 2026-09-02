@@ -62,12 +62,66 @@ describe('estimateMotorRoom', () => {
     expect(r.lengthM).toBeCloseTo(0.30, 9);
   });
 
-  it('counts a mass component, which is how a sled in the tube gets modelled', () => {
+  /**
+   * Owner ruling, 2026-09-01, reversing this: *"For motor length estimation,
+   * mass components are probably not an obstruction … I modeled the motor
+   * retainer near the aft end of the rocket as a mass component in order to
+   * ensure my CG was accurate. A motor retainer is designed to keep a motor in
+   * place, not block it from being installed."*
+   *
+   * This test used to assert the opposite, on the reasoning that a mass
+   * component is how an altimeter sled gets modelled. A mass component has no
+   * bore and no radius, so nothing about it says a motor cannot pass — and
+   * guessing that it cannot is what broke a real design.
+   */
+  it('does NOT count a mass component — a retainer is not an obstruction', () => {
     const r = estimateMotorRoom(treeWith([
-      { id: 'ms', type: 'masscomponent', name: 'Sled', length: 0.04, position: { method: 'top', offset: 0 } },
+      { id: 'ms', type: 'masscomponent', name: 'Retainer', length: 0.04, position: { method: 'bottom', offset: 0 } },
     ]), 'mt')!;
-    expect(r.lengthM).toBeCloseTo(0.26, 9);
-    expect(r.limitedBy).toBe('Sled');
+    expect(r.lengthM).toBeCloseTo(0.30, 9);
+    expect(r.limitedBy).toBe('the front of the mount tube');
+  });
+
+  it('reproduces the 4in Wildman Extreme, the design that exposed this', () => {
+    // His own geometry, read out of `4in WM Extreme.rkt`: a 380mm motor mount
+    // with a ZERO-LENGTH "Retainer" mass object 15mm up from the aft end. That
+    // file is not in the repo (docs/ is gitignored), so the numbers live here.
+    //
+    // Measured against the old rule: 15.5mm, "limited by Retainer". The app was
+    // telling him a 380mm mount had room for a 15mm motor — on a rocket that
+    // flies 75mm hardware. Now 380.5mm, the mount's own length plus overhang.
+    const mount = {
+      id: 'mmt', type: 'bodytube', name: 'MMT', length: 0.380, motorMount: true,
+      motorOverhang: 0.0005,
+      children: [{
+        id: 'ret', type: 'masscomponent', name: 'Retainer', length: 0,
+        position: { method: 'bottom', offset: -0.015 },
+      }],
+    };
+    const tree = { name: 'WM', components: [{ id: 's1', type: 'stage', children: [mount] }] };
+    const r = estimateMotorRoom(tree as never, 'mmt')!;
+    expect(r.lengthM * 1000).toBeCloseTo(380.5, 6);
+    expect(r.limitedBy).toBe('the front of MMT');
+  });
+
+  it('does not count recovery gear, which moves aside when a motor is loaded', () => {
+    // Owner, same ruling: "things like parachutes and shock cords are not
+    // obstructions because they move out of the way when you load a motor."
+    // They have never blocked; this is here so they cannot quietly start.
+    for (const type of ['parachute', 'streamer', 'shockcord']) {
+      const r = estimateMotorRoom(treeWith([
+        { id: 'r1', type, name: 'Chute', length: 0.05, position: { method: 'top', offset: 0 } },
+      ]), 'mt')!;
+      expect(r.lengthM, `${type} blocked the motor`).toBeCloseTo(0.30, 9);
+    }
+  });
+
+  it('still stops at an engine block or a bulkhead, which exist to stop a motor', () => {
+    const block = estimateMotorRoom(treeWith([
+      { id: 'eb', type: 'engineblock', name: 'Thrust ring', length: 0.01, position: { method: 'top', offset: 0 } },
+    ]), 'mt')!;
+    expect(block.lengthM).toBeCloseTo(0.29, 9);
+    expect(block.limitedBy).toBe('Thrust ring');
   });
 
   it('returns null for an unknown mount, and for one with no room left', () => {

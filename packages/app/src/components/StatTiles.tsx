@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { StaticInfo } from '@online-openrocket/engine';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { RULER_LEFT, RULER_TOP } from './TreeSchematic.js';
@@ -197,7 +197,27 @@ function loadChipState(): { x: number; y: number; folded: boolean } {
   return { x: ROLL_COL + RULER_LEFT + 8, y: RULER_TOP + 8, folded: false };
 }
 
-export function StatsChip({ info }: { info: StaticInfo }) {
+/**
+ * Keep the chip inside the VISIBLE canvas: the stage, less whatever the All
+ * Stats drawer is covering at the bottom.
+ *
+ * `covered` is the point of this. The drawer paints over the chip (z-index 3
+ * against the chip's 2), so a chip clamped to the whole stage can be dragged —
+ * or restored from storage — into the drawer's footprint and simply disappear,
+ * with no reset control to get it back. That is half of the owner's
+ * 2026-09-01 "there is almost no way to fit it in the canvas window".
+ */
+export function clampToVisible(
+  { x, y, hostW, hostH, elW, elH, covered }:
+  { x: number; y: number; hostW: number; hostH: number; elW: number; elH: number; covered: number },
+): { x: number; y: number } {
+  return {
+    x: Math.min(Math.max(0, x), Math.max(0, hostW - elW)),
+    y: Math.min(Math.max(0, y), Math.max(0, hostH - covered - elH)),
+  };
+}
+
+export function StatsChip({ info, drawerOpen = false }: { info: StaticInfo; drawerOpen?: boolean }) {
   const { prefs } = usePrefs();
   const len = prefs.units.length;
   const aero = hasAerodynamicForce(info);
@@ -213,15 +233,29 @@ export function StatsChip({ info }: { info: StaticInfo }) {
     try { localStorage.setItem(CHIP_KEY, JSON.stringify(next)); } catch { /* ignore */ }
   };
 
-  /** Keep the chip inside its canvas (the position: relative rocket stage). */
+  /**
+   * Keep the chip inside the VISIBLE canvas (the position: relative rocket
+   * stage, less whatever the All Stats drawer is covering).
+   *
+   * The drawer paints over the chip (z-index 3 against the chip's 2), so a
+   * chip clamped to the whole stage could be dragged — or restored from
+   * storage — into the drawer's footprint and simply disappear, with no reset
+   * control to get it back. That is half of "there is nowhere to put it".
+   */
   const clamp = (x: number, y: number) => {
     const el = ref.current;
     const host = el?.offsetParent as HTMLElement | null;
     if (!el || !host) return { x, y };
-    return {
-      x: Math.min(Math.max(0, x), Math.max(0, host.clientWidth - el.offsetWidth)),
-      y: Math.min(Math.max(0, y), Math.max(0, host.clientHeight - el.offsetHeight)),
-    };
+    const drawer = host.querySelector('.stats-drawer') as HTMLElement | null;
+    return clampToVisible({
+      x,
+      y,
+      hostW: host.clientWidth,
+      hostH: host.clientHeight,
+      elW: el.offsetWidth,
+      elH: el.offsetHeight,
+      covered: drawer ? drawer.offsetHeight : 0,
+    });
   };
 
   // Re-clamp on mount and whenever the canvas resizes. clamp() only ever ran
@@ -245,8 +279,39 @@ export function StatsChip({ info }: { info: StaticInfo }) {
       ro.disconnect();
       window.removeEventListener('resize', reclamp);
     };
+    // Re-runs when the drawer opens or closes: that changes how much of the
+    // stage is covered, and a chip sitting where the drawer is about to appear
+    // has to come back up before it is painted over.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- clamp reads refs
-  }, []);
+  }, [drawerOpen]);
+
+  /**
+   * Fold to the one-line pill while the All Stats drawer is open.
+   *
+   * Not a space-saving trick: the drawer shows a strict SUPERSET of the chip's
+   * five numbers (length, loaded mass, CG, CP, stability are all tiles in it),
+   * so an unfolded chip over an open drawer is duplicate information sitting on
+   * the rocket. Measured on a 1920x1080 window the chip is 124px tall and the
+   * sky above the rocket is ~15px with the drawer open, so no amount of canvas
+   * growth fits it there.
+   *
+   * setChip, NOT persist: the user's own folded preference is never overwritten,
+   * so the chip returns to whatever they chose when the drawer closes. Unfolding
+   * by hand while the drawer is open still works and is not fought.
+   */
+  const autoFolded = useRef(false);
+  useEffect(() => {
+    if (drawerOpen) {
+      setChip((c) => {
+        if (c.folded) return c;
+        autoFolded.current = true;
+        return { ...c, folded: true };
+      });
+    } else if (autoFolded.current) {
+      autoFolded.current = false;
+      setChip((c) => (c.folded ? { ...c, folded: false } : c));
+    }
+  }, [drawerOpen]);
 
   const onPointerDown = (e: React.PointerEvent) => {
     if ((e.target as HTMLElement).closest('button')) return;
