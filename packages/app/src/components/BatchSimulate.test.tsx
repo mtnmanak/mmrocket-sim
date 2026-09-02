@@ -1,4 +1,7 @@
 // @vitest-environment happy-dom
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -6,7 +9,7 @@ import type { MotorSpec, RocketTree } from '@online-openrocket/engine';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import { splitClusterTree } from '../tree/treeModel.js';
 import { DEFAULT_CONDITIONS, type LaunchConditions } from './LaunchPanel.js';
-import { BatchSimulate, batchProbeCutoff, batchUnavailableReason, mixedComboCount, type BatchMountOption } from './BatchSimulate.js';
+import { BatchSimulate, batchProbeCutoff, batchSummary, batchUnavailableReason, mixedComboCount, type BatchMountOption } from './BatchSimulate.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -195,5 +198,77 @@ describe('batchUnavailableReason', () => {
         }
       }
     }
+  });
+});
+
+
+/**
+ * Owner report, 2026-09-01b, after a 226-motor run: *"how does the user know
+ * the batch is complete? Once the sims are done, there is no indication to the
+ * user that all the simulations have been completed and they can now download
+ * the file."*
+ *
+ * He was right. On completion the progress bar and its "simulating 173/226"
+ * line were simply removed and the Stop button turned back into Simulate.
+ * A disappearing progress bar is not an announcement.
+ */
+describe('batchSummary', () => {
+  const base = { total: 226, stopped: false, accepted: 41, errors: 0, downloadable: true };
+
+  it('says the run finished, how many flew, and how many passed', () => {
+    expect(batchSummary(base)).toBe(
+      'Finished — simulated 226 motors; 41 met your criteria. '
+      + 'Download the results as CSV or XLSX above.');
+  });
+
+  it('distinguishes a run the user stopped from one that ran out', () => {
+    expect(batchSummary({ ...base, stopped: true })).toMatch(/^Stopped early —/);
+    expect(batchSummary(base)).toMatch(/^Finished —/);
+  });
+
+  it('counts motors the kernel refused, and stays silent when there are none', () => {
+    expect(batchSummary({ ...base, errors: 3 })).toContain('3 could not be flown');
+    expect(batchSummary(base)).not.toContain('could not be flown');
+  });
+
+  it('only points at the download buttons when there is something to download', () => {
+    expect(batchSummary({ ...base, downloadable: false })).not.toContain('CSV');
+    expect(batchSummary({ ...base, downloadable: false })).toMatch(/criteria\.$/);
+  });
+
+  it('says "motor", singular, for one', () => {
+    expect(batchSummary({ ...base, total: 1, accepted: 1 })).toContain('simulated 1 motor;');
+  });
+
+  it('is honest when nothing met the criteria', () => {
+    // The case where a user most needs to be told the run is OVER: an empty
+    // result table looks exactly like a run that has not started.
+    const s = batchSummary({ ...base, accepted: 0 });
+    expect(s).toContain('0 met your criteria');
+    expect(s).toMatch(/^Finished/);
+  });
+});
+
+describe('the completion signal is actually wired up', () => {
+  // batchSummary is a pure function and easy to test; the thing that broke was
+  // that NOTHING told the user the run had ended. Pinning the wording without
+  // pinning the wiring would leave that exact hole open, and a mutation that
+  // deleted the setFinished call survived the wording tests untouched.
+  const src = readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), './BatchSimulate.tsx'), 'utf8');
+
+  it('raises the signal when the run ends', () => {
+    expect(src).toContain('setFinished({ total: out.length, stopped: cancelled.current });');
+  });
+
+  it('clears it when the next run starts, so it cannot go stale', () => {
+    expect(src).toContain('setFinished(null);');
+  });
+
+  it('renders it once the run is over, through batchSummary', () => {
+    expect(src).toContain('{finished && !running && (');
+    expect(src).toContain('batchSummary({');
+    // Announced to assistive tech too, not just painted on screen.
+    expect(src).toContain('role="status"');
   });
 });

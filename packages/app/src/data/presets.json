@@ -53920,7 +53920,8 @@
    "diameter": 0.6096,
    "lineCount": 16,
    "lineLength": 0.7112,
-   "source": "rocksim"
+   "source": "rocksim",
+   "dragCoefficient": 1.55
   },
   {
    "kind": "Parachute",
@@ -53941,7 +53942,8 @@
    "diameter": 0.9144,
    "lineCount": 18,
    "lineLength": 1.0414,
-   "source": "rocksim"
+   "source": "rocksim",
+   "dragCoefficient": 1.55
   },
   {
    "kind": "Parachute",
@@ -53962,7 +53964,8 @@
    "diameter": 1.2192,
    "lineCount": 18,
    "lineLength": 1.397,
-   "source": "rocksim"
+   "source": "rocksim",
+   "dragCoefficient": 1.55
   },
   {
    "kind": "Parachute",
@@ -53983,7 +53986,8 @@
    "diameter": 1.2192,
    "lineCount": 18,
    "lineLength": 1.397,
-   "source": "rocksim"
+   "source": "rocksim",
+   "dragCoefficient": 2.2
   },
   {
    "kind": "Parachute",
@@ -54004,7 +54008,8 @@
    "diameter": 1.524,
    "lineCount": 18,
    "lineLength": 1.7526,
-   "source": "rocksim"
+   "source": "rocksim",
+   "dragCoefficient": 2.2
   },
   {
    "kind": "Parachute",
@@ -54025,7 +54030,8 @@
    "diameter": 1.8288,
    "lineCount": 18,
    "lineLength": 2.1082,
-   "source": "rocksim"
+   "source": "rocksim",
+   "dragCoefficient": 2.2
   },
   {
    "kind": "Parachute",
@@ -54046,7 +54052,8 @@
    "diameter": 2.1336,
    "lineCount": 18,
    "lineLength": 2.4638,
-   "source": "rocksim"
+   "source": "rocksim",
+   "dragCoefficient": 2.2
   },
   {
    "kind": "Parachute",
@@ -54067,7 +54074,8 @@
    "diameter": 2.4384,
    "lineCount": 18,
    "lineLength": 2.794,
-   "source": "rocksim"
+   "source": "rocksim",
+   "dragCoefficient": 2.2
   },
   {
    "kind": "Parachute",

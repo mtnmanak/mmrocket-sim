@@ -182,6 +182,40 @@ export const CURATIONS = [
     to: 'BT-3',
     why: 'Same class as the AeroTech couplers, found by sweeping for partNo === manufacturer.',
   },
+  // --- Fruity Chutes: the drag coefficient the app already applies, on the ten
+  // rows that arrived without one (owner report, 2026-09-01b).
+  //
+  // He asked exactly the right question: "does our parts database properly show
+  // that the Fruity Chutes IFC-084-S has a Cd of 2.2? - if so, why isn't that
+  // updated when I choose that part?" It does, and it IS — `presetPatch` has
+  // applied `dragCoefficient` since v0.033, and picking IFC-084-S really does
+  // set 2.2. But Fruity Chutes appears TWICE in this catalogue: 42 rows from the
+  // OpenRocket database (`desktop-24.12`) that carry a Cd, and 10 from the
+  // RockSim source that do not. Pick one of those ten — and they have the
+  // friendlier names, "84\" Nylon Toroidal" — and the chute silently falls back
+  // to the kernel default of 0.8.
+  //
+  // Every value below is taken from THIS database's own desktop rows for the
+  // same physical product, not from anywhere else: all Iris Ultra (toroidal)
+  // rows read 2.2 and all Classic Elliptical rows read 1.55, at every diameter
+  // and in every variant, so the mapping is unambiguous.
+  //
+  // NOT done here: 29161 and 29162, the 15 and 18 inch "Drogue Chute" rows.
+  // There is no desktop row of that name to take a number from, and a drogue's
+  // Cd is not something to invent. They are [ERIC] in open-items.
+  ...[['29181', '48'], ['29182', '60'], ['29183', '72'], ['29184', '84'], ['29185', '96']]
+    .map(([pn, inches]) => ({
+      action: 'set', key: `Parachute|fruitychutes|${pn}`, field: 'dragCoefficient', value: 2.2,
+      why: `The ${inches}" Nylon Toroidal is the Iris Ultra, which every IFC-* row in this same `
+        + 'database rates at Cd 2.2. Without it the row applies the kernel default 0.8 and the '
+        + 'descent rate comes out 1.66x too fast: measured, 22.72 ft/s against 13.70 on an 84 '
+        + "inch canopy at 8.57 kg, which is Fruity Chutes' own published figure.",
+    })),
+  ...[['29163', '24'], ['29165', '36'], ['29167', '48']].map(([pn, inches]) => ({
+    action: 'set', key: `Parachute|fruitychutes|${pn}`, field: 'dragCoefficient', value: 1.55,
+    why: `The ${inches}" Nylon Elliptical is the Classic Elliptical, which every CFC-* row in `
+      + 'this same database rates at Cd 1.55.',
+  })),
   {
     action: 'rename', key: 'NoseCone|quest|quest', descIncludes: 'PNC35N',
     to: 'PNC35N',
@@ -204,6 +238,20 @@ export function planCurations(rows) {
       .map((p, i) => ({ i, p }))
       .filter(({ p }) => presetKey(p) === c.key);
     const hits = group.filter(({ p }) => matches(p, c));
+
+    if (c.action === 'set') {
+      // Already applied when every matching row already carries the value, which
+      // is what makes a second run a no-op. A row that still needs it is
+      // "pending"; exactly one of those is required, same as everywhere else.
+      const pending = hits.filter(({ p }) => JSON.stringify(p[c.field]) !== JSON.stringify(c.value));
+      if (hits.length > 0 && pending.length === 0) { plan.push({ c, status: 'already' }); continue; }
+      if (pending.length !== 1) {
+        plan.push({ c, status: 'error', detail: `${pending.length} rows pending (expected 1)` });
+        continue;
+      }
+      plan.push({ c, status: 'todo', index: pending[0].i });
+      continue;
+    }
 
     if (c.action === 'rename') {
       // Already applied? The target name is present and the source group no
@@ -246,20 +294,24 @@ function main() {
 
   const todo = plan.filter((x) => x.status === 'todo');
   for (const t of todo) {
-    console.log(t.c.action === 'drop'
-      ? `  drop    ${t.c.key}`
-      : `  rename  ${t.c.key} -> ${t.c.to}`);
+    if (t.c.action === 'drop') console.log(`  drop    ${t.c.key}`);
+    else if (t.c.action === 'rename') console.log(`  rename  ${t.c.key} -> ${t.c.to}`);
+    else console.log(`  set     ${t.c.key}  ${t.c.field} = ${t.c.value}`);
   }
   console.log(`\n${todo.filter((t) => t.c.action === 'drop').length} drop(s), `
-    + `${todo.filter((t) => t.c.action === 'rename').length} rename(s); `
+    + `${todo.filter((t) => t.c.action === 'rename').length} rename(s), `
+    + `${todo.filter((t) => t.c.action === 'set').length} set(s); `
     + `${plan.length - todo.length} already in place.`);
 
   if (!process.argv.includes('--write')) { console.log('\n(report only — pass --write to apply)'); return; }
   if (!todo.length) { console.log('\ndatabase unchanged.'); return; }
 
-  // Renames first, then drops by descending index, so no index shifts under us.
+  // In-place edits first, then drops, so no index shifts under us.
   for (const t of todo.filter((x) => x.c.action === 'rename')) {
     db.presets[t.index].partNo = t.c.to;
+  }
+  for (const t of todo.filter((x) => x.c.action === 'set')) {
+    db.presets[t.index][t.c.field] = t.c.value;
   }
   const doomed = new Set(todo.filter((x) => x.c.action === 'drop').map((x) => x.index));
   db.presets = db.presets.filter((_, i) => !doomed.has(i));

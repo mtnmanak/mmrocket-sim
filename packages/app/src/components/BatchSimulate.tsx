@@ -137,6 +137,27 @@ export function batchUnavailableReason(
   return null;
 }
 
+/**
+ * What to say when a batch run ends.
+ *
+ * Reported 2026-09-01b, after a 226-motor run: *"how does the user know the
+ * batch is complete? Once the sims are done, there is no indication to the user
+ * that all the simulations have been completed and they can now download the
+ * file."* He was right — the progress bar and its "simulating 173/226" line
+ * simply vanished and the Stop button turned back into Simulate. A disappearing
+ * progress bar is not an announcement.
+ */
+export function batchSummary(
+  { total, stopped, accepted, errors, downloadable }:
+  { total: number; stopped: boolean; accepted: number; errors: number; downloadable: boolean },
+): string {
+  const head = stopped ? 'Stopped early' : 'Finished';
+  const motors = `${total} ${total === 1 ? 'motor' : 'motors'}`;
+  const errs = errors > 0 ? `, ${errors} could not be flown` : '';
+  const tail = downloadable ? '. Download the results as CSV or XLSX above.' : '.';
+  return `${head} — simulated ${motors}; ${accepted} met your criteria${errs}${tail}`;
+}
+
 export interface BatchMountOption {
   id: string;
   label: string;
@@ -199,6 +220,8 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
   const [rows, setRows] = useState<BatchRow[]>([]);
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number; current: string } | null>(null);
+  /** Set when a run ends, cleared when the next one starts — the "it's done" signal. */
+  const [finished, setFinished] = useState<{ total: number; stopped: boolean } | null>(null);
   const cancelled = useRef(false);
 
   const setCriteria = (next: Criteria) => {
@@ -264,6 +287,7 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
 
   const start = async () => {
     setRunning(true);
+    setFinished(null);
     cancelled.current = false;
     setRows([]);
     const out: BatchRow[] = [];
@@ -530,6 +554,12 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
 
     setProgress(null);
     setRunning(false);
+    // The run ENDING used to be invisible: the progress bar and its
+    // "simulating 173/226" line simply disappeared, the Stop button turned back
+    // into Simulate, and nothing ever said the batch was done. On a 226-motor
+    // run that is minutes of watching followed by no announcement at all
+    // (owner report, 2026-09-01b). This line stays until the next run starts.
+    setFinished({ total: out.length, stopped: cancelled.current });
     if (accepted.length > 0) onRunsChange(addRuns(accepted));
   };
 
@@ -735,6 +765,21 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
           <div className="batch-progress">
             <div className="batch-progress-fill" style={{ width: `${(progress.done / Math.max(1, progress.total)) * 100}%` }} />
           </div>
+        )}
+
+        {/* The run is over and the results are ready to download. Says it in
+            words, with the counts, because the progress bar vanishing is not an
+            announcement. `role="status"` so a screen reader hears it too. */}
+        {finished && !running && (
+          <p className="comp-stats batch-finished" role="status" style={{ margin: '6px 0 0' }}>
+            {batchSummary({
+              total: finished.total,
+              stopped: finished.stopped,
+              accepted: sorted.filter((r) => r.run && r.failed.length === 0).length,
+              errors: sorted.filter((r) => r.error).length,
+              downloadable: sorted.some((r) => r.run),
+            })}
+          </p>
         )}
 
         {sorted.length > 0 && (

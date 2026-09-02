@@ -1,5 +1,5 @@
 {
-  "version": "0.095",
+  "version": "0.096",
   "released": "2026-09-01",
-  "note": "Batch simulate no longer needs a motor before it will find you one. It was gated on the topmost mount that already had a motor assigned rather than on the rocket having a motor mount, so a design you had just opened with nothing loaded was told it had no motor mount and the feature was switched off - backwards, since batch simulation exists to find you a motor. It now opens on any rocket with a mount. This was what lay behind \"batch simulate appears to be broken\": two single-stage .ork files saved out of MMRSim carry no motor assignment, so on both of them the button was dead."
+  "note": "A Fruity Chutes canopy picked from the catalogue now carries its published drag coefficient. Fruity Chutes appears twice in the parts database - 42 rows from the OpenRocket database that carry a Cd, and 10 from the RockSim source that did not - and the RockSim ten have the friendlier names, so those are the ones you pick. Without a Cd they fell back to the app default of 0.8, while a toroidal Iris Ultra is rated 2.2: a descent rate 1.66 times too fast. The five Nylon Toroidal rows now read 2.2 and the three Nylon Elliptical rows 1.55, both taken from this database's own rows for the same product. If a design used one of those rows, re-pick the preset or type the Cd in. Imported files are unaffected. A batch simulation also now says when it has finished, how many motors met your criteria, and that the results are ready to download."
 }
