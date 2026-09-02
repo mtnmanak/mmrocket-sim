@@ -1,5 +1,5 @@
 {
-  "version": "0.094",
+  "version": "0.095",
   "released": "2026-09-01",
-  "note": "If \"Batch simulate motors\" did nothing when you clicked it, it was disabled rather than broken, and the app never said so. Three states switch it off - the rocket is staged (batch is deliberately not offered across stages, because the motor combinations explode), the rocket has no motor mount, or the design cannot be built - and the tooltip described only the first, so in the other two the button showed its normal description and then did nothing. The reason is now printed under the button where you can see it. Batch simulation across a cluster is unaffected and still works."
+  "note": "Batch simulate no longer needs a motor before it will find you one. It was gated on the topmost mount that already had a motor assigned rather than on the rocket having a motor mount, so a design you had just opened with nothing loaded was told it had no motor mount and the feature was switched off - backwards, since batch simulation exists to find you a motor. It now opens on any rocket with a mount. This was what lay behind \"batch simulate appears to be broken\": two single-stage .ork files saved out of MMRSim carry no motor assignment, so on both of them the button was dead."
 }

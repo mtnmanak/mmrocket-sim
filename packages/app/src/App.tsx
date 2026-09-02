@@ -2647,7 +2647,11 @@ export function App() {
           onClose={() => setShowScale(false)}
         />
       )}
-      {showBatch && built && primaryMountId && !isStaged && (
+      {/* Gated on having a motor MOUNT, not an assigned MOTOR. Batch simulation
+          exists to FIND a motor, so requiring one already loaded was backwards —
+          it made the feature unavailable on exactly the designs it is for.
+          Reported 2026-09-01b on two single-stage .ork files that carry no motor. */}
+      {showBatch && built && mounts.length > 0 && !isStaged && (
         <BatchSimulate
           info={built.info}
           tree={tree}
@@ -2665,7 +2669,9 @@ export function App() {
                 ?? (typeof mNode?.['maxMotorLength'] === 'number' ? (mNode['maxMotorLength'] as number) : null),
             };
           })}
-          initialMountId={primaryMountId}
+          // The mount with a motor when there is one; otherwise the first mount,
+          // because a design with nothing loaded is the normal starting point.
+          initialMountId={primaryMountId ?? mounts[0]!.id!}
           assignedMotors={Object.fromEntries(
             Object.entries(mountMotors).map(([id, mm]) => [id, mm.spec]))}
           launch={launch}
@@ -3521,7 +3527,7 @@ export function App() {
                 nothing. The reason is now on screen, not just in a title. */}
             {(() => {
               const blocked = batchUnavailableReason({
-                built: !!built, hasMount: !!primaryMountId, isStaged,
+                built: !!built, hasMount: mounts.length > 0, isStaged,
               });
               return (
                 <>

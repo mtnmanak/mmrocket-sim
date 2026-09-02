@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.094';
+export const APP_VERSION = '0.095';
 
 export interface ChangelogEntry {
   version: string;

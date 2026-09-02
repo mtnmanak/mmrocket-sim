@@ -98,6 +98,30 @@ describe('stats-drawer default and the desktop breakpoint', () => {
     expect(app).toContain('Batch simulation is not available here — {blocked}.');
   });
 
+  /**
+   * Owner report, 2026-09-01b, after v0.094 put the reason on screen: *"there is
+   * a note … that says 'Batch simulation is not available here — this rocket has
+   * no motor mount', but the rocket clearly has a 75mm motor mount."*
+   *
+   * He was right, and the visible reason is what exposed it. The gate was wired
+   * to `primaryMountId`, which is the topmost mount **with a motor assigned** —
+   * so a design with a mount and nothing loaded reported "no motor mount" and
+   * the whole feature was unavailable. Batch simulation exists to FIND a motor,
+   * so requiring one already chosen was backwards, and it made the feature
+   * unavailable on exactly the designs it is for: two of his own single-stage
+   * `.ork` files import with `motors: []`.
+   */
+  it('the batch gate asks for a motor MOUNT, not an assigned motor', () => {
+    const app = read('../App.tsx');
+    expect(app).toContain('hasMount: mounts.length > 0');
+    // The panel itself must open on the same condition, or the button enables
+    // and then renders nothing — which is the original "nothing happens".
+    expect(app).toContain('showBatch && built && mounts.length > 0 && !isStaged');
+    // And it must not have drifted back to the assigned-motor list.
+    expect(app).not.toContain('hasMount: !!primaryMountId');
+    expect(app).not.toContain('showBatch && built && primaryMountId');
+  });
+
   it('the fixed notice bar reserves its own space instead of covering the footer', () => {
     // NoticeBar publishes its measured height; the footer band and the hero
     // canvas both budget for it. The token needs a 0px default, or every
