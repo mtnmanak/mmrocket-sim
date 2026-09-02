@@ -3340,7 +3340,7 @@ export function App() {
                         if (!room || !st.id) return null;
                         return (
                           <button className="file-btn" style={{ whiteSpace: 'nowrap' }}
-                            title={`Measure it: ${fmtSi('motorDimensions', prefs.units.motorDimensions, room.lengthM)} ${prefs.units.motorDimensions} from the aft of the mount to ${room.limitedBy}. An estimate — it cannot see wadding, a baffle modelled as something else, or a chute packed against the block.`}
+                            title={`Measure it: ${fmtSi('motorDimensions', prefs.units.motorDimensions, room.lengthM)} ${prefs.units.motorDimensions} from the aft of the mount forward to ${room.limitedBy}. A motor may be longer than its mount tube, so this walks on up the stage to the first real stop — usually an ebay bulkhead. An estimate: it cannot see wadding, a baffle modelled as something else, or a chute packed against the block, and a design with nothing modelled inside it will measure most of its own airframe.`}
                             onClick={() => setMaxMotorLen((prev) => ({ ...prev, [st.id!]: room.lengthM }))}>
                             ⌾ Estimate
                           </button>

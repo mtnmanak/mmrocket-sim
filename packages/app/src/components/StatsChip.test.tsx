@@ -105,7 +105,17 @@ describe('StatsChip — the floating readout', () => {
    * growth would fit it there.
    */
   describe('while the All Stats drawer is open', () => {
-    it('folds to the one-line pill', () => {
+    it('DEFAULTS TO OPEN, even though the drawer starts open', () => {
+      // Owner ruling, 2026-09-01b: "the gadget auto fold is fine, but default
+      // it to open." The drawer is open by default, so folding on the first
+      // render meant a new user never saw the full readout at all. The fold is
+      // a response to OPENING the drawer, not to finding it already open.
+      mount(true);
+      expect(chip().className).not.toContain('stats-chip-folded');
+    });
+
+    it('folds to the one-line pill when the drawer is opened', () => {
+      mount(false);
       mount(true);
       expect(chip().className).toContain('stats-chip-folded');
     });
@@ -114,11 +124,13 @@ describe('StatsChip — the floating readout', () => {
       // The automatic fold is a display decision, not the user's. Persisting it
       // would silently rewrite their setting the first time they opened the
       // drawer, and the chip would come back folded forever after.
+      mount(false);
       mount(true);
       expect(localStorage.getItem(CHIP_KEY)).toBeNull();
     });
 
     it('unfolds again when the drawer closes', () => {
+      mount(false);
       mount(true);
       expect(chip().className).toContain('stats-chip-folded');
       mount(false);
@@ -127,6 +139,7 @@ describe('StatsChip — the floating readout', () => {
 
     it('leaves a chip the user folded themselves folded afterwards', () => {
       localStorage.setItem(CHIP_KEY, JSON.stringify({ x: 64, y: 26, folded: true }));
+      mount(false);
       mount(true);
       mount(false);
       expect(chip().className, 'their own fold was undone by the drawer closing')

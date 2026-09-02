@@ -300,7 +300,18 @@ export function StatsChip({ info, drawerOpen = false }: { info: StaticInfo; draw
    * by hand while the drawer is open still works and is not fought.
    */
   const autoFolded = useRef(false);
+  /**
+   * The gadget OPENS by default (owner ruling, 2026-09-01b: *"the gadget auto fold is fine, but
+   * default it to open"*).
+   *
+   * The All Stats drawer is open by default, so without this the auto-fold fired during the very
+   * first render and the gadget was folded before anyone had seen it — a new user would never
+   * meet the full readout at all. The fold is a response to the user OPENING the drawer, not to
+   * finding it already open, so the first render is skipped and the stored preference stands.
+   */
+  const firstRender = useRef(true);
   useEffect(() => {
+    if (firstRender.current) { firstRender.current = false; return; }
     if (drawerOpen) {
       setChip((c) => {
         if (c.folded) return c;

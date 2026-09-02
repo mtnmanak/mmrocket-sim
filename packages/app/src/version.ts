@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.092';
+export const APP_VERSION = '0.093';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.093',
+    date: '2026-09-01',
+    title: 'A motor can be longer than its mount tube',
+    items: [
+      'THE MOTOR MOUNT TUBE IS NO LONGER TREATED AS A LIMIT. The "Max motor length" estimate stopped at the front of the mount tube, and that is not what stops a motor: the mount tube is a framework for the motor to sit in, and motors are frequently longer than it. The estimate now walks forward out of the mount and on up the stage to the first thing a motor case really cannot pass.',
+      'What stops it: an engine block or a bulkhead anywhere forward in the same stage - in most dual-deploy rockets that is the aft bulkhead of the electronics bay, which is the real answer; the back of the nose cone, which a motor cannot enter; and a transition that narrows going forward. It never crosses a stage boundary, because stages separate, so a booster\'s motor cannot run up into the sustainer.',
+      'READ THE "ROOM FOR ..." LINE, WHICH NAMES WHAT STOPPED IT. If your design models nothing inside the airframe, the estimate can now measure most of the airframe and will say it stopped at the nose cone rather than at a bulkhead. That is the honest answer to "nothing is in the way", and it is the cue to model your ebay bulkhead if you want a real number. On a 4 inch dual-deploy test case with the ebay floor modelled, the estimate is 1000 mm against a 300 mm mount tube.',
+      'THE FLOATING STATS GADGET NOW STARTS OPEN. v0.092 folded it to its one-line pill whenever the All Stats drawer was open - and since the drawer is open by default, the gadget was folded before anyone had seen it. It now opens by default and folds only when you open the drawer yourself, returning to whatever size you had when you close it.',
+    ],
+  },
   {
     version: '0.092',
     date: '2026-09-01',
