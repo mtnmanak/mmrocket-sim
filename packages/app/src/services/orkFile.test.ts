@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
 import { DEFAULT_CONDITIONS, PANEL_TIME_STEP_FLOOR_S } from '../components/LaunchPanel.js';
 import { exportOrk, flightDataAttrs, importOrk, MIN_IMPORTED_TIME_STEP_S, ORK_CREATOR, type OrkExportConfig, type OrkMotorRef } from './orkFile.js';
+import { loadPresets } from './presets.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -2324,7 +2325,10 @@ describe('exportOrk — results for a design with no flight configurations', () 
       flightDataDefault: { maxAltitude: 999 },
     });
     expect(xml).toContain('<flightdata maxaltitude="1"/>');
-    expect(xml).not.toContain('999');
+    // Assert the ATTRIBUTE, not the bare digits: every component <id> is a
+    // random UUID, and one containing "999" failed this at random - the
+    // intermittent orkFile.test.ts failure logged in open-items.md section 8.
+    expect(xml).not.toContain('maxaltitude="999"');
   });
 });
 
@@ -2338,5 +2342,47 @@ describe('flightDataAttrs — the guard against an empty block', () => {
   it('emits only the finite values', () => {
     expect(flightDataAttrs({ maxAltitude: 0, maxVelocity: NaN }))
       .toBe('maxaltitude="0"');
+  });
+});
+
+describe(".ork <preset> — desktop's catalogue link is read (ruled 2026-09-03)", () => {
+  // Build a minimal design with a chute, export it, and inject the <preset> element
+  // desktop's RocketComponentSaver writes (after <id>, before the explicit values)
+  // for the Fruity Chutes 84" Iris Ultra Compact — leaving <cd>auto</cd> as the unset
+  // field the catalogue must fill.
+  const tree = { name: 'P', components: [{ type: 'stage', id: 's', name: 'Sustainer', children: [
+    { type: 'bodytube', id: 'b', name: 'Body', length: 0.5, outerRadius: 0.05, thickness: 0.001, density: 1800, children: [
+      { type: 'parachute', id: 'p', name: 'Main', diameter: 2.1336, lineCount: 12, lineLength: 2.45 },
+    ] },
+  ] }] } as unknown as Parameters<typeof exportOrk>[0]['tree'];
+  const withPreset = () => {
+    const xml = exportOrk({ name: 'P', tree, launch: DEFAULT_CONDITIONS });
+    expect(xml).toContain('<cd>auto</cd>');
+    const injected = xml.replace(
+      /(<parachute>\s*<name>Main<\/name>\s*<id>[^<]*<\/id>)/,
+      '$1<preset type="PARACHUTE" manufacturer="Fruity Chutes" partno="IFC-084-S" digest="0"/>');
+    expect(injected).toContain('partno="IFC-084-S"');
+    return injected;
+  };
+  const chuteOf = (xml: string, presets?: Awaited<ReturnType<typeof loadPresets>>) => {
+    const r = importOrk(xml, presets ? { presets } : undefined);
+    return { r, chute: flatten(r.tree.components).find((c) => c.type === 'parachute')! };
+  };
+
+  it('links the part and takes the catalogue Cd for <cd>auto</cd>', async () => {
+    const { r, chute } = chuteOf(withPreset(), await loadPresets());
+    expect(chute['cd']).toBe(2.2);
+    expect(chute['presetManufacturer']).toBe('Fruity Chutes');
+    expect(chute['presetPartNo']).toBe('IFC-084-S');
+    expect(chute['lineCount']).toBe(12);            // explicit in the file — stands
+    expect(chute['overrideMass']).toBeUndefined();  // the catalogue never supplies the mass
+    expect(chute.name).toBe('Main');
+    expect(r.notes.some((n) => /matched the parts catalogue/.test(n))).toBe(true);
+  });
+
+  it('without a catalogue the file reads exactly as before', () => {
+    const { chute } = chuteOf(withPreset());
+    expect(chute['cd']).toBeUndefined();
+    expect(chute['presetPartNo']).toBeUndefined();
   });
 });

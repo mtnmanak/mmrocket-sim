@@ -8,6 +8,7 @@ import { axialLength, startFromPosition } from '../tree/position.js';
 import { escapeXml as esc, xmlNum as num, xmlText as text } from './xmlUtil.js';
 import { shapeParamDefault } from './orkFile.js';
 import type { OrkExportMotor, OrkMotorRef, OrkTreeImportResult } from './orkFile.js';
+import { applyPresetLinks, type PendingPresetLink, type Preset } from './presets.js';
 
 /**
  * RockSim (.rkt) design import/export — Phase 3 "file imports and exports".
@@ -76,7 +77,7 @@ const FINISH_TO_CODE = (finish: unknown): number => {
 
 // ============================ IMPORT ============================
 
-export function importRkt(data: ArrayBuffer | string): OrkTreeImportResult {
+export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonly Preset[] }): OrkTreeImportResult {
   let xml: string;
   if (typeof data === 'string') {
     xml = data;
@@ -114,6 +115,8 @@ export function importRkt(data: ArrayBuffer | string): OrkTreeImportResult {
 
   const notes: string[] = [];
   const ignored = new Set<string>();
+  /** Parts whose <PartMfg>/<PartNo> may name a catalogue row - resolved after the tree is built. */
+  const pendingLinks: PendingPresetLink[] = [];
   /** Nodes that kept a measured mass or CG desktop OpenRocket would discard. */
   const keptWithoutCGFlag = new Set<ComponentNode>();
   /** RockSim SerialNo → our node id (links EngineSets to mounts). */
@@ -185,6 +188,19 @@ export function importRkt(data: ArrayBuffer | string): OrkTreeImportResult {
   const readCommon = (el: Element, node: ComponentNode) => {
     const nm = text(el, ':scope > Name');
     if (nm) node.name = nm;
+    // RockSim names the catalogue part on every component - <PartMfg> is
+    // "Custom" when it was not picked from one. Recorded here and resolved once
+    // the whole tree is read (applyPresetLinks), so "the file left it unset" is
+    // judged against everything the file said about the part. Desktop
+    // OpenRocket's RockSim loader ignores both tags; the owner's own Wildman
+    // .rkt carries <PartMfg>Fruity Chutes</PartMfg><PartNo>29185</PartNo> on a
+    // chute whose <DragCoefficient> is RockSim's 0.75 "auto" - exactly the
+    // case this closes (ruled 2026-09-03).
+    const mfg = text(el, ':scope > PartMfg');
+    const partNo = text(el, ':scope > PartNo');
+    if (mfg && partNo && mfg.trim().toLowerCase() !== 'custom' && partNo.trim()) {
+      pendingLinks.push({ node, manufacturer: mfg.trim(), partNo: partNo.trim() });
+    }
     const serial = text(el, ':scope > SerialNo');
     if (serial) serialToNode.set(serial, node);
     const densityType = num(el, 'DensityType', 0);
@@ -246,7 +262,7 @@ export function importRkt(data: ArrayBuffer | string): OrkTreeImportResult {
    * was billed at 19.6 g, and the error scales with canopy area.
    *
    * DensityType (RockSimCommonConstants): 0 = bulk (kg/m³, × thickness),
-   * 1 = surface (kg/m², ÷ 0.1), 2 = line (kg/m, ÷ 0.1 like surface).
+   * 1 = surface (kg/m², ÷ 0.1), 2 = line (kg/m, × 1 — NOT the surface divisor).
    */
   const readRecoveryMaterial = (el: Element, node: ComponentNode, kind: 'surface' | 'line') => {
     const densityType = Math.round(num(el, 'DensityType', 0));
@@ -258,6 +274,14 @@ export function importRkt(data: ArrayBuffer | string): OrkTreeImportResult {
       const thickness = num(el, 'Thickness', 0) / LEN;
       if (!(thickness > 0)) return;
       si = density * thickness;
+    } else if (densityType === 2) {
+      // LINE density: RockSim's kg/m IS OpenRocket's kg/m -
+      // ROCKSIM_TO_OPENROCKET_LINE_DENSITY = 1 (RockSimCommonConstants.java:116;
+      // BaseHandler.computeDensity divides by it). Until v0.097 this branch took
+      // the surface divisor too, so every imported shock cord weighed exactly
+      // 10x the file: 2,4-D.rkt's 136.08 g cord landed as 1360.78 g - 24.5 % of
+      // that rocket's dry mass, sitting in the sustainer.
+      si = density;
     } else {
       si = density / 0.1;
     }
@@ -760,6 +784,7 @@ export function importRkt(data: ArrayBuffer | string): OrkTreeImportResult {
     }
   };
   deCollideFins(components);
+  applyPresetLinks(pendingLinks, opts?.presets, notes);
 
   if (ignored.size) {
     notes.push(`Ignored unsupported RockSim components: ${[...ignored].join(', ')}.`);
@@ -918,14 +943,16 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
     // never carry node.density — orkFile stores them as surfaceDensity (chute /
     // streamer) or lineDensity (shock cord) — so emitting the bulk key made
     // every recovery device export at Density 0, i.e. weightless in RockSim.
-    // DensityType: 0 bulk, 1 surface, 2 line (RockSimCommonConstants), and the
-    // surface/line factor is the same 0.1 the importer divides by.
+    // DensityType: 0 bulk, 1 surface, 2 line (RockSimCommonConstants). Surface is
+    // x0.1 here and /0.1 on import; LINE IS x1 BOTH WAYS
+    // (ROCKSIM_TO_OPENROCKET_LINE_DENSITY = 1). Until v0.097 it took the surface
+    // factor too, so a shock cord left here 10x lighter than the design.
     if (node.type === 'parachute' || node.type === 'streamer') {
       emit(`<Density>${nnum(node, 'surfaceDensity', 0.067) * 0.1}</Density>`);
       emit('<DensityType>1</DensityType>');
       emit(`<Material>${esc(typeof node['surfaceMaterialName'] === 'string' ? (node['surfaceMaterialName'] as string) : 'Ripstop nylon')}</Material>`);
     } else if (node.type === 'shockcord') {
-      emit(`<Density>${nnum(node, 'lineDensity', 0.0018) * 0.1}</Density>`);
+      emit(`<Density>${nnum(node, 'lineDensity', 0.0018)}</Density>`);
       emit('<DensityType>2</DensityType>');
       emit(`<Material>${esc(typeof node['lineMaterialName'] === 'string' ? (node['lineMaterialName'] as string) : 'Elastic cord')}</Material>`);
     } else {
@@ -934,6 +961,13 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
       emit(`<Material>${esc(typeof node['materialName'] === 'string' ? (node['materialName'] as string) : 'custom')}</Material>`);
     }
     emit(`<Name>${esc(node.name ?? dfltName)}</Name>`);
+    // The catalogue row this part came from, when it came from one - RockSim's
+    // own convention (it writes "Custom" otherwise), and what our importer reads
+    // back into a catalogue link.
+    if (typeof node['presetManufacturer'] === 'string' && typeof node['presetPartNo'] === 'string') {
+      emit(`<PartMfg>${esc(node['presetManufacturer'] as string)}</PartMfg>`);
+      emit(`<PartNo>${esc(node['presetPartNo'] as string)}</PartNo>`);
+    }
     // EXPORT IS DELIBERATELY UNCHANGED (issue 2026-08-23a). Splitting the flags
     // here — UseKnownCG=0 on a mass-only override, with the measured mass in
     // <KnownMass> — states the truth more precisely, and it is what our own

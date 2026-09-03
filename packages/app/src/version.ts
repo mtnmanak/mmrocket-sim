@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.096';
+export const APP_VERSION = '0.097';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,38 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.097',
+    date: '2026-09-03',
+    title: 'Imported parts find their catalogue row, balsa reducers are solid, and a shock cord weighs what the file says',
+    items: [
+      'A PART THAT A FILE NAMES BY MANUFACTURER AND PART NUMBER IS NOW MATCHED TO THE PARTS CATALOGUE WHEN YOU OPEN IT. RockSim writes a manufacturer and part number on every component, and desktop OpenRocket writes a preset tag on any part picked from its database; the app read neither. It now looks each one up in its own catalogue and fills in whatever the file left UNSET. The file\'s own values always stand - a tube you cut to length is not snapped back to stock, and the catalogue never overrides the mass the file carries. The import note lists every part it matched and what it filled in. A part the file calls "Custom", or one the catalogue does not carry, is left exactly as the file describes it.',
+      'WHY THIS MATTERS FIRST FOR PARACHUTES. RockSim writes a drag coefficient of 0.75 to mean "automatic", and the app honoured that by falling back to its default of 0.8. A Fruity Chutes Iris Ultra is rated 2.2. On a real 4 inch dual-deploy design carrying an Iris Ultra that read as 21 ft/s and a FAILED 20 ft/s landing check, against 13.7 ft/s from the manufacturer\'s own calculator - the file names the chute (Fruity Chutes, part 29185), so it now opens at Cd 2.2 and passes. RE-OPEN ANY .RKT WHOSE CHUTE CAME FROM A CATALOGUE to pick this up. A chute the file calls Custom still uses 0.8; type its Cd in.',
+      'BALSA TRANSITIONS PICKED FROM THE CATALOGUE ARE NOW SOLID. The catalogue marks 314 balsa reducers, tail cones and adapters (SEMROC, BalsaMachining, FlisKits, Estes, MPC) as solid, and the picker honoured that flag for nose cones but not for transitions - so every one of them applied as a hollow 2 mm shell. Measured: a BalsaMachining BT-20 tail cone 0.43 g where the part is 1.01 g; an Estes TA-2050A adapter 0.51 g against 1.52 g; up to 4.5x on the smallest SEMROC reducers. IF A DESIGN USED ONE OF THESE, RE-PICK IT FROM THE CATALOGUE (or tick "Solid" on the part) and expect its mass and balance point to move - they are now right.',
+      'A ROCKSIM SHOCK CORD NO LONGER IMPORTS AT TEN TIMES ITS MASS, AND NO LONGER EXPORTS AT A TENTH. RockSim states cord density in kg per metre and so does OpenRocket, but the importer divided it by 0.1 as it correctly does for canopy fabric, and the exporter multiplied by 0.1 on the way out. On one real file a 136 g cord weighed 1,361 g - 24.5 percent of the whole rocket\'s dry mass, sitting in the sustainer, so the balance point moved too. RE-OPEN ANY .RKT WITH A SHOCK CORD; its mass and CG will move, and they are now right. A .rkt saved from this app before today carries a cord at a tenth of its weight when opened in RockSim - re-save it.',
+      'The What\'s New list missed its own last two releases: v0.095 and v0.096 shipped with no entry here. Both are written in below, and the test suite that gates every release now refuses a build whose newest entry is not the version being shipped.',
+      'Also: an intermittent failure in the release test suite is fixed at its cause - a randomly generated id that happened to contain "999" was tripping a check meant for a flight-data value - and the user guide no longer says RockSim spill holes are unsupported; they have round-tripped for some time.',
+    ],
+  },
+  {
+    version: '0.096',
+    date: '2026-09-01',
+    title: 'Fruity Chutes canopies carry their real drag coefficient, and a batch says when it is done',
+    items: [
+      'A FRUITY CHUTES CANOPY PICKED FROM THE PARTS CATALOGUE NOW CARRIES ITS PUBLISHED DRAG COEFFICIENT. Fruity Chutes appears twice in the catalogue - 42 rows from the OpenRocket database that carry a Cd, and 10 from the RockSim source that did not - and the RockSim ten have the friendlier names ("84 inch Nylon Toroidal"), so those are the ones you pick. Without a Cd they fell back to the app default of 0.8, while a toroidal Iris Ultra is rated 2.2: a descent rate 1.66 times too fast, and a false failure of the 20 ft/s landing check on a correctly built rocket. The five Nylon Toroidal rows now read 2.2 and the three Nylon Elliptical rows 1.55, both taken from this database\'s own rows for the same product. IF A DESIGN USED ONE OF THOSE ROWS, RE-PICK THE PRESET OR TYPE THE CD IN.',
+      'The two 15 and 18 inch Fruity Chutes Drogue rows are deliberately left without a Cd - there is no published row to take one from, and a drogue\'s Cd is not a number to invent. An IMPORTED file is not touched by this change; see v0.097 for that half.',
+      'A BATCH SIMULATION NOW SAYS WHEN IT HAS FINISHED. The progress bar and its "simulating 173/226" line went away at the end and nothing replaced them, so a run over a couple of hundred motors ended in silence. It now states how many motors met your criteria and that the results are ready to download, and says so differently when you stopped it early.',
+    ],
+  },
+  {
+    version: '0.095',
+    date: '2026-09-01',
+    title: 'Batch simulate no longer needs a motor before it will find you one',
+    items: [
+      'BATCH SIMULATE WAS SWITCHED OFF ON ANY ROCKET THAT HAD NO MOTOR LOADED YET - which is exactly the rocket it exists for. The gate read the topmost mount that already had a motor ASSIGNED, rather than asking whether the rocket has a motor mount at all, so a design you had just opened with nothing loaded was told "this rocket has no motor mount" and the feature stayed dark. It now opens on any rocket with a mount.',
+      'This was what lay behind "batch simulate appears to be broken" in the previous batch: two single-stage .ork files saved out of this app carry no motor assignment, so on both of them the button was dead. v0.094 only made the reason visible; reading it is what found the real defect.',
+    ],
+  },
   {
     version: '0.094',
     date: '2026-09-01',

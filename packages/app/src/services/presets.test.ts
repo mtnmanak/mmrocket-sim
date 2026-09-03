@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { csvToPresets, KIND_FOR_TYPE, presetPatch, presetsToCsv, type Preset } from './presets.js';
+import type { ComponentNode } from '@online-openrocket/engine';
+import { applyPresetLinks, csvToPresets, KIND_FOR_TYPE, presetPatch, presetsToCsv, type Preset } from './presets.js';
 import presetsJson from '../data/presets.json';
 
 const db = (presetsJson as { presets: Preset[] }).presets;
@@ -190,5 +191,114 @@ describe('Composite Warehouse tubes', () => {
     for (const name of ['24mm Airframe', '29mm Airframe', '38mm Airframe', '54mm Airframe', '6 Inch MotorMount']) {
       expect(mmt.some((p) => p.partNo === name), name).toBe(true);
     }
+  });
+});
+
+describe('presetPatch — transition `filled` (ruled 2026-09-03: "Fix it.")', () => {
+  const solidNoMass = db.filter((x) => x.kind === 'Transition' && x['filled'] === true && x.mass === undefined);
+
+  it('applies filled:true on a transition exactly as the nose-cone branch always did', () => {
+    const p = solidNoMass[0]!;
+    const patch = presetPatch('transition', p);
+    expect(patch['filled']).toBe(true);
+    // No catalogue mass, so the kernel computes it — which is the whole point of the flag.
+    expect(patch['overrideMass']).toBeUndefined();
+  });
+
+  it('the population the fix moves is hundreds of balsa reducers (314 measured 2026-09-03)', () => {
+    // Not pinned exactly — the catalogue regenerates — but a collapse here would
+    // mean the `filled` column stopped arriving from the .orc source.
+    expect(solidNoMass.length).toBeGreaterThan(250);
+  });
+
+  it('a solid balsa reducer weighs like solid balsa in the kernel, not like a 2 mm shell', async () => {
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    const { engineTree } = await import('../tree/treeModel.js');
+    resetEngine();
+    // A real-sized part: BalsaMachining's BT-20 V2 tail cone, 41 mm long, 18.7 → 12.3 mm.
+    // (A 6 mm nozzle cone is nearly all wall at 2 mm, so its solid/hollow ratio is
+    // only 1.5x — measured 2026-09-03 — and would not make the point.)
+    const p = solidNoMass.find((x) => x.manufacturer === 'BalsaMachining' && x.partNo === 'BMS20V2B')!;
+    expect(p).toBeTruthy();
+    const patch = presetPatch('transition', p) as Record<string, unknown>;
+    const massOf = (children: unknown[]) => {
+      const tree = { name: 't', components: [{ type: 'stage', id: 's', children: [
+        { type: 'bodytube', id: 'b', length: 0.1, outerRadius: 0.012, thickness: 0.0005, density: 680 },
+        ...children,
+      ] }] } as unknown as Parameters<typeof engineTree>[0];
+      return OrkRocket.buildTree(engineTree(tree)).staticInfo().mass;
+    };
+    const base = massOf([]);
+    const hollow: Record<string, unknown> = { ...patch };
+    delete hollow['filled'];
+    const solid = massOf([{ type: 'transition', id: 'x', ...patch }]) - base;
+    const shell = massOf([{ type: 'transition', id: 'x', ...hollow }]) - base;
+    // Measured 2026-09-03: solid 1.013 g, hollow 0.426 g (2.4x). The solid figure
+    // sits within a conical-frustum estimate of the ogive body (0.887 g) plus its
+    // shoulder — so `filled` is reaching the kernel and doing what it says.
+    expect(shell).toBeGreaterThan(0);
+    expect(solid).toBeGreaterThan(shell * 2);
+    const r1 = (p['foreOutsideDiameter'] as number) / 2, r2 = (p['aftOutsideDiameter'] as number) / 2;
+    const frustum = Math.PI / 3 * (p['length'] as number) * (r1 * r1 + r1 * r2 + r2 * r2) * p.material!.density;
+    expect(solid).toBeGreaterThan(frustum * 0.9);
+    expect(solid).toBeLessThan(frustum * 1.5);
+  }, 60000);
+});
+
+describe('presetPatch — the catalogue identity rides with the part (2026-09-03)', () => {
+  it('names its manufacturer and part number so a saved file can find the row again', () => {
+    const p = db.find((x) => x.kind === 'Parachute')!;
+    const patch = presetPatch('parachute', p);
+    expect(patch['presetManufacturer']).toBe(p.manufacturer);
+    expect(patch['presetPartNo']).toBe(p.partNo);
+  });
+});
+
+describe("applyPresetLinks — a file's part matched to its catalogue row (ruled 2026-09-03)", () => {
+  // The owner's own Wildman .rkt: <PartMfg>Fruity Chutes</PartMfg><PartNo>29185</PartNo>
+  // on a chute whose <DragCoefficient> is RockSim's 0.75 "auto" sentinel.
+  const mk = (over: Record<string, unknown> = {}): ComponentNode =>
+    ({ type: 'parachute', id: 'p1', name: 'Main', diameter: 2.4384, lineCount: 6, ...over }) as ComponentNode;
+
+  it("fills what the file left unset and leaves the file's explicit values alone", () => {
+    const node = mk();
+    const notes: string[] = [];
+    expect(applyPresetLinks([{ node, manufacturer: 'Fruity Chutes', partNo: '29185' }], db, notes)).toBe(1);
+    expect(node['cd']).toBe(2.2);                 // unset in the file → the catalogue's
+    expect(node['lineCount']).toBe(6);            // the file said 6; the catalogue's 18 does NOT win
+    expect(node['diameter']).toBe(2.4384);        // ditto
+    expect(node.name).toBe('Main');               // the file's name, not "Fruity Chutes 29185"
+    expect(node['overrideMass']).toBeUndefined(); // the catalogue never supplies the mass
+    expect(node['presetManufacturer']).toBe('Fruity Chutes');
+    expect(node['presetPartNo']).toBe('29185');
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toMatch(/matched the parts catalogue/);
+    expect(notes[0]).toMatch(/drag coefficient/);
+  });
+
+  it('matches through the alias table and part-number normalisation', () => {
+    const node = mk();
+    expect(applyPresetLinks([{ node, manufacturer: 'FRUITY-CHUTES', partNo: ' 29185 ' }], db, [])).toBe(1);
+    expect(node['cd']).toBe(2.2);
+  });
+
+  it('an unknown part is left exactly as the file had it', () => {
+    const node = mk();
+    const notes: string[] = [];
+    expect(applyPresetLinks([{ node, manufacturer: 'Nobody', partNo: 'X-1' }], db, notes)).toBe(0);
+    expect(node['cd']).toBeUndefined();
+    expect(node['presetPartNo']).toBeUndefined();
+    expect(notes).toHaveLength(0);
+  });
+
+  it('does nothing at all without a catalogue', () => {
+    const node = mk();
+    expect(applyPresetLinks([{ node, manufacturer: 'Fruity Chutes', partNo: '29185' }], undefined, [])).toBe(0);
+    expect(node['cd']).toBeUndefined();
+  });
+
+  it('a kind with no catalogue (a fin set) is skipped, not mis-matched', () => {
+    const node = { type: 'trapezoidfinset', id: 'f', name: 'Fins' } as ComponentNode;
+    expect(applyPresetLinks([{ node, manufacturer: 'Fruity Chutes', partNo: '29185' }], db, [])).toBe(0);
   });
 });

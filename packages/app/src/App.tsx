@@ -58,6 +58,7 @@ import { loadExMotors } from './services/exMotors.js';
 import { exportOrk, fmtStepS, importOrk, type OrkDeployOverride, type OrkSeparationOverride, type OrkExportConfig, type OrkExportFlightData, type OrkExportMotor, type OrkImportResult, type OrkMotorRef, type OrkTreeImportResult } from './services/orkFile.js';
 import { decodeShareFragment, encodeShareFragment, hasSharePayload, MAX_FRAGMENT_CHARS } from './services/shareLink.js';
 import { exportRkt, importRkt } from './services/rocksimFile.js';
+import { loadPresets } from './services/presets.js';
 import { componentCsv, componentTable } from './services/componentTable.js';
 import { CSV_BOM, safeName } from './services/fileName.js';
 import { saveFile } from './services/saveFile.js';
@@ -2146,13 +2147,18 @@ export function App() {
   const onOpenOrk = async (file: File) => {
     try {
       const buffer = await file.arrayBuffer();
+      // The parts catalogue rides along so a part the file names by
+      // manufacturer + part number (.rkt <PartMfg>/<PartNo>, .ork <preset>) is
+      // linked to its row and takes the catalogue's values for whatever the
+      // file left unset - a RockSim chute's "auto" Cd, above all.
+      const presets = await loadPresets();
       if (/\.(rkt|cdx1)$/i.test(file.name)) {
-        const imported = /\.rkt$/i.test(file.name) ? importRkt(buffer) : importCdx1(buffer);
+        const imported = /\.rkt$/i.test(file.name) ? importRkt(buffer, { presets }) : importCdx1(buffer);
         applyNameFallback(imported, file.name);
         await applyImported(imported);
         return;
       }
-      const imported = importOrk(buffer);
+      const imported = importOrk(buffer, { presets });
       applyNameFallback(imported, file.name);
       // A multi-configuration .ork used to stop here and ask which one to
       // open. Two testers found that modal the worst moment in the app — it
@@ -2196,7 +2202,7 @@ export function App() {
         if (hash.length > MAX_FRAGMENT_CHARS) {
           throw new Error('the link is far longer than any real design — refusing to decode it');
         }
-        const imported = importOrk(await decodeShareFragment(hash));
+        const imported = importOrk(await decodeShareFragment(hash), { presets: await loadPresets() });
         // A restored session still holding the untouched starter rocket is
         // replaced silently; a design the user actually worked on gets a
         // confirm dialog (declining keeps it — the link is simply dropped).

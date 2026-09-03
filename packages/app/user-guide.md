@@ -257,6 +257,8 @@ Four of the shapes are really *families* of profiles, selected by a **Shape para
 
 Imported files keep whatever parameter they carried — RockSim designs in particular often store explicit values, which you can now see and edit. A nose cone can be **solid (filled)** or a hollow shell of a given wall thickness, and can carry a **shoulder** (radius, length, thickness, and an optional end cap) that plugs into the tube below. A transition is a shoulder-to-shoulder part with independent fore and aft radii plus a shoulder on **each** end — use it as a reducer, boat tail, or coupler flare.
 
+**Parts that came from a catalogue are recognised on import.** A RockSim `.rkt` names the manufacturer and part number of every component it carries, and desktop OpenRocket writes a preset tag on any part picked from its database. When you open either kind of file, the app looks each part up in its own parts catalogue and fills in whatever the file left **unset** — the file's own values always stand, so a tube you cut to length is not snapped back to stock, and the catalogue never overrides the mass the file carries. The import note lists every part it matched and what it filled in. The case this exists for is a parachute: RockSim writes a drag coefficient of 0.75 to mean *automatic*, so a Fruity Chutes Iris Ultra opened from a `.rkt` used to descend at the app's default Cd of 0.8 instead of its rated 2.2 — enough to fail the 20 ft/s landing check on a correctly built rocket. A part the file calls **Custom**, or one the catalogue does not carry, is left exactly as the file describes it.
+
 ## Fins
 
 Four fin families are supported:
@@ -293,7 +295,7 @@ Both attach to a body component (body tube, nose cone, or transition) and hold t
 
 ## Recovery
 
-**Parachutes** take a canopy diameter, a drag coefficient (blank = automatic, defaulting to 0.8 after deployment), line count, and line length. **Streamers** take strip length and width. Both carry a **deployment trigger**: motor ejection charge, apogee, altitude (descending, with an AGL altitude), launch, or never — plus a deploy delay. A **shock cord** and a **mass component** (for nose weight, altimeters, or dead ballast) round out the bay. A mass component's **Type** dropdown records what it actually is — altimeter, flight computer, deployment charge, tracker, payload, recovery hardware, or battery — purely descriptive (the physics only uses the mass), and it travels through .ork files both ways, so the desktop app sees the same identity.
+**Parachutes** take a canopy diameter, a drag coefficient (blank = automatic, defaulting to 0.8 after deployment — unless the file you opened named a catalogue chute, in which case its rated Cd is filled in on import), line count, and line length. **Streamers** take strip length and width. Both carry a **deployment trigger**: motor ejection charge, apogee, altitude (descending, with an AGL altitude), launch, or never — plus a deploy delay. A **shock cord** and a **mass component** (for nose weight, altimeters, or dead ballast) round out the bay. A mass component's **Type** dropdown records what it actually is — altimeter, flight computer, deployment charge, tracker, payload, recovery hardware, or battery — purely descriptive (the physics only uses the mass), and it travels through .ork files both ways, so the desktop app sees the same identity.
 
 ## Mass, CG, and Cd overrides
 
@@ -747,7 +749,7 @@ The app reads and writes several formats. What survives a round-trip depends on 
 | Format | Import | Export | Notes |
 |---|---|---|---|
 | **.ork** (OpenRocket) | Yes | Yes | Full fidelity — all 19 types, motors, materials, overrides, tabs, clusters, shoulders, staging, pods/boosters, nozzle exit diameters, launch conditions. Accepts zipped or bare XML; handles legacy ≤15.03 files. |
-| **.rkt** (RockSim) | Yes | Yes | Up to **3 stages** (export throws beyond that). Uniquely keeps motor designations the desktop drops, so it auto-loads motors. Clusters split into individual tubes; spill holes unsupported. |
+| **.rkt** (RockSim) | Yes | Yes | Up to **3 stages** (export throws beyond that). Uniquely keeps motor designations the desktop drops, so it auto-loads motors. Clusters split into individual tubes. Spill holes round-trip. Parts the file names by manufacturer and part number are matched to the parts catalogue on import, and the link is written back as `<PartMfg>`/`<PartNo>` on export. |
 | **.CDX1** (RASAero II) | Yes | Yes | Aerodynamics only — **no mass or material data**. Walls default to a faked 2 mm and the importer warns you to "review masses before trusting the numbers." Motors round-trip: each engine-carrying `<Simulation>` imports as a flight configuration with the motor mounted on that stage's aft-most tube, and export writes each stage's motor back as a RASAero engine string — only for the manufacturers RASAero's own database documents, others are omitted rather than guessed. Strict export validation (≤3 stages, one fin set per tube, 3–8 fins, conical transitions only). |
 | **.obj** (Wavefront) | — | Yes | External shell only — the meshes the 3D view renders. Meters, nose at x=0. Not guaranteed watertight; for print-preview/CAD reference. |
 | **.svg** (fin template) | — | Yes | True-scale 1:1 cut template with calibration ruler (see *Visualizing the Design*). |
@@ -944,6 +946,8 @@ Found something broken, or want the app to do something it doesn't? Both are gen
 - **No GitHub account?** Email [admin@mountainmanrockets.com](mailto:admin@mountainmanrockets.com) and it gets filed for you — you don't need an account to *read* anything on the tracker.
 
 The open-issues list is the real queue — anything filed there is logged, visible, and not forgotten.
+
+**Your files stay yours.** Design files, flight recordings and screenshots you send in — by email or on the forum — are used to reproduce what you reported and to check the app's predictions against real flights. They are not published, passed on, or added to any public collection. If a comparison drawn from your file is worth showing others, you are asked first and credited the way you prefer. Anything you attach to a public GitHub issue is, of course, public — attach there only what you are comfortable sharing.
 
 ---
 

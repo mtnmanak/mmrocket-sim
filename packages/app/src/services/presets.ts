@@ -1,5 +1,8 @@
 import type { ComponentNode, ComponentType } from '@online-openrocket/engine';
 import { csvCell } from './csvUtil.js';
+// The ONE manufacturer alias table + part-number key, shared with the preset
+// pipeline so the app matches a file's part the same way the database dedupes.
+import { mfrKey, partKey } from '../../scripts/manufacturers.mjs';
 
 /**
  * Component preset database (openrocket-database .orc files → presets.json,
@@ -89,6 +92,10 @@ export function presetPatch(type: ComponentType, p: Preset): Partial<ComponentNo
     set('density', p.material.density);
   }
   if (p.mass !== undefined) set('overrideMass', p.mass);
+  // The catalogue identity rides with the part, so a saved .rkt names the row
+  // it came from (<PartMfg>/<PartNo>) and an import can find it again.
+  set('presetManufacturer', p.manufacturer);
+  set('presetPartNo', p.partNo);
 
   const out = n(p, 'outsideDiameter');
   const inn = n(p, 'insideDiameter');
@@ -114,6 +121,12 @@ export function presetPatch(type: ComponentType, p: Preset): Partial<ComponentNo
       set('foreRadius', half(n(p, 'foreOutsideDiameter')));
       set('aftRadius', half(n(p, 'aftOutsideDiameter')));
       set('shape', typeof p['shape'] === 'string' ? (p['shape'] as string).toLowerCase() : undefined);
+      // A balsa reducer is solid. Until v0.097 only the nose-cone branch honoured
+      // `filled`, so every one of the 314 catalogue transitions marked solid and
+      // carrying no catalogue mass applied as a hollow 2 mm shell - measured
+      // 1.129 g against 5.026 g on one SEMROC part, a 4.5x mass error. Ruled
+      // 2026-09-03: "Fix it."
+      if (p['filled'] === true) set('filled', true);
       set('foreShoulderRadius', half(n(p, 'foreShoulderDiameter')));
       set('foreShoulderLength', n(p, 'foreShoulderLength'));
       set('aftShoulderRadius', half(n(p, 'aftShoulderDiameter')));
@@ -262,4 +275,103 @@ export function csvToPresets(csv: string): Preset[] {
     out.push(p);
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Catalogue links on import (ruled 2026-09-03)
+// ---------------------------------------------------------------------------
+
+/**
+ * A part an importer read together with the catalogue identity the file gave
+ * it — RockSim's <PartMfg>/<PartNo>, desktop's <preset manufacturer partno>.
+ * Resolved once the whole tree is built (applyPresetLinks), so "the file left
+ * it unset" is judged against everything the file said about the part.
+ */
+export interface PendingPresetLink {
+  node: ComponentNode;
+  manufacturer: string;
+  partNo: string;
+}
+
+/** The lookup key the preset pipeline dedupes on: kind | manufacturer | part number. */
+const linkKey = (kind: string, manufacturer: unknown, partNo: unknown): string =>
+  `${kind}|${mfrKey(manufacturer)}|${partKey(partNo)}`;
+
+/** Plain words for the import note — a user reads "drag coefficient", not "cd". */
+const FIELD_WORDS: Record<string, string> = {
+  cd: 'drag coefficient', diameter: 'diameter', lineCount: 'line count', lineLength: 'line length',
+  surfaceDensity: 'canopy material', surfaceMaterialName: 'canopy material',
+  lineDensity: 'line material', lineMaterialName: 'line material',
+  density: 'material', materialName: 'material', length: 'length', outerRadius: 'outer radius',
+  aftRadius: 'base radius', foreRadius: 'fore radius', thickness: 'wall thickness', shape: 'shape',
+  shapeParameter: 'shape parameter', filled: 'solid', shoulderRadius: 'shoulder radius',
+  shoulderLength: 'shoulder length', stripLength: 'strip length', stripWidth: 'strip width',
+};
+
+/**
+ * Link imported parts to the catalogue. The owner's ruling (2026-09-03): "if a
+ * file is imported and the parachute in the file does match a chute in our
+ * parts database, we should import the settings from our database."
+ *
+ * PRECEDENCE. The file's explicit values stand; the catalogue fills only what
+ * the file left unset. That is desktop OpenRocket's own order — its saver writes
+ * <preset> first and every explicit element after it, so the explicit values win
+ * on load — and it is the rule that does not snap a body tube the author cut to
+ * length back to the catalogue's stock length. For a RockSim chute the unset
+ * field is exactly the one that matters: its <DragCoefficient>0.75 is the
+ * "auto" sentinel, which the importer does not pin, so the catalogue's real Cd
+ * lands here (2.2 on a Fruity Chutes toroidal against the kernel default 0.8 —
+ * the difference between failing and passing the 20 ft/s landing check on a
+ * correctly built rocket).
+ *
+ * THE MASS IS NEVER TAKEN FROM THE CATALOGUE. RockSim keeps <PartNo> on a part
+ * the author has since cut down, so a stock mass would land on a shortened
+ * tube; the file's own mass model (density × geometry, or its measured mass) is
+ * the author's and stays. Desktop clears its preset link the moment a dimension
+ * is edited, which is why the same hazard does not arise for .ork.
+ *
+ * Returns how many parts were linked; appends one plain-language note.
+ */
+export function applyPresetLinks(
+  pending: readonly PendingPresetLink[],
+  presets: readonly Preset[] | undefined,
+  notes: string[],
+): number {
+  if (!presets?.length || pending.length === 0) return 0;
+  const byKey = new Map<string, Preset>();
+  for (const p of presets) {
+    const k = linkKey(p.kind, p.manufacturer, p.partNo);
+    if (!byKey.has(k)) byKey.set(k, p);
+  }
+  const lines: string[] = [];
+  let linked = 0;
+  for (const { node, manufacturer, partNo } of pending) {
+    const kind = KIND_FOR_TYPE[node.type];
+    if (!kind) continue;
+    const p = byKey.get(linkKey(kind, manufacturer, partNo));
+    if (!p) continue;
+    const patch = presetPatch(node.type, p) as Record<string, unknown>;
+    const filled = new Set<string>();
+    for (const [key, value] of Object.entries(patch)) {
+      if (value === undefined || key === 'name' || key === 'overrideMass') continue;
+      if (key === 'presetManufacturer' || key === 'presetPartNo') {
+        node[key] = value;
+        continue;
+      }
+      if (node[key] === undefined) {
+        node[key] = value;
+        filled.add(FIELD_WORDS[key] ?? key);
+      }
+    }
+    linked += 1;
+    const took = filled.size ? ` — took ${[...filled].join(', ')} from the catalogue` : '';
+    lines.push(`${node.name ?? node.type} → ${p.manufacturer} ${p.partNo}${took}`);
+  }
+  if (linked > 0) {
+    notes.push(
+      `${linked} part${linked === 1 ? '' : 's'} matched the parts catalogue by manufacturer and part number. `
+      + `The file's own values stand; the catalogue filled in only what the file left unset: ${lines.join('; ')}.`,
+    );
+  }
+  return linked;
 }

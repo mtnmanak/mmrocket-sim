@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
 import { exportRkt, importRkt } from './rocksimFile.js';
+import { loadPresets } from './presets.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -988,5 +989,78 @@ describe('.rkt staging timers round-trip', () => {
     expect(byDes['K250W']!.ignitionDelay).toBe(12);
     // The launch stage stays on the kernel's own default.
     expect(byDes['L2200G']!.ignitionEvent).toBeUndefined();
+  });
+});
+
+describe('RockSim import — a part matched to its catalogue row by <PartMfg>/<PartNo> (ruled 2026-09-03)', () => {
+  // TubeFins2's chute is Apogee 29115 with RockSim's 0.75 "auto" Cd. Re-badge that ONE
+  // block as the Fruity Chutes 96" toroidal the owner's Wildman carries (part 29185), so
+  // the field the file leaves unset — the Cd — is exactly the one the catalogue must fill.
+  const rebadged = (() => {
+    const src = fixture('TubeFins2.rkt');
+    const [head, rest] = src.split('<Parachute>') as [string, string];
+    const [block, tail] = rest.split('</Parachute>') as [string, string];
+    const b = block
+      .replace(/<PartMfg>[^<]*<\/PartMfg>/, '<PartMfg>Fruity Chutes</PartMfg>')
+      .replace(/<PartNo>[^<]*<\/PartNo>/, '<PartNo>29185</PartNo>');
+    return `${head}<Parachute>${b}</Parachute>${tail}`;
+  })();
+  const chuteOf = (r: ReturnType<typeof importRkt>) =>
+    flatten(r.tree.components).find((c) => c.type === 'parachute')!;
+
+  it("takes the catalogue Cd for the 0.75 auto sentinel, and keeps the file's own dimensions", async () => {
+    const r = importRkt(rebadged, { presets: await loadPresets() });
+    const chute = chuteOf(r);
+    expect(chute['cd']).toBe(2.2);
+    expect(chute['presetManufacturer']).toBe('Fruity Chutes');
+    expect(chute['presetPartNo']).toBe('29185');
+    expect(chute['diameter']).toBeCloseTo(0.6096, 9);   // the file's 609.6 mm, not the catalogue's 96 in
+    expect(chute['lineCount']).toBe(6);                  // the file's 6, not the catalogue's 18
+    expect(chute['overrideMass']).toBeUndefined();       // the catalogue never supplies the mass
+    expect(r.notes.some((n) => /matched the parts catalogue/.test(n))).toBe(true);
+  });
+
+  it('without a catalogue nothing changes: the auto Cd stays auto', () => {
+    const chute = chuteOf(importRkt(rebadged));
+    expect(chute['cd']).toBeUndefined();
+    expect(chute['presetPartNo']).toBeUndefined();
+  });
+
+  it('a "Custom" part is never linked, even when its part number would match', async () => {
+    const custom = rebadged.replace('<PartMfg>Fruity Chutes</PartMfg>', '<PartMfg>Custom</PartMfg>');
+    const chute = chuteOf(importRkt(custom, { presets: await loadPresets() }));
+    expect(chute['cd']).toBeUndefined();
+    expect(chute['presetPartNo']).toBeUndefined();
+  });
+
+  it("round-trips the link as <PartMfg>/<PartNo>, RockSim's own convention", async () => {
+    const presets = await loadPresets();
+    const r = importRkt(rebadged, { presets });
+    const xml = exportRkt({ name: 'RT', tree: r.tree });
+    const block = xml.split('<Parachute>')[1]!.split('</Parachute>')[0]!;
+    expect(block).toContain('<PartMfg>Fruity Chutes</PartMfg>');
+    expect(block).toContain('<PartNo>29185</PartNo>');
+    const back = chuteOf(importRkt(xml, { presets }));
+    expect(back['presetPartNo']).toBe('29185');
+    expect(back['cd']).toBe(2.2);
+  });
+});
+
+describe('RockSim LINE density is kg/m both ways — ROCKSIM_TO_OPENROCKET_LINE_DENSITY = 1 (fixed v0.097)', () => {
+  it('a shock cord weighs what the file says, not 10x', () => {
+    const r = importRkt(fixture('TubeFins2.rkt'));
+    const cord = flatten(r.tree.components).find((c) => c.type === 'shockcord')!;
+    // File: <Density>0.00039698</Density> <DensityType>2</DensityType>. Desktop's
+    // BaseHandler.computeDensity divides by 1; until v0.097 we divided by 0.1.
+    expect(cord['lineDensity']).toBeCloseTo(0.00039698, 12);
+  });
+
+  it('and exports it back at the same value', () => {
+    const r = importRkt(fixture('TubeFins2.rkt'));
+    const xml = exportRkt({ name: 'RT', tree: r.tree });
+    const cordBlock = xml.split('<MassObject>').find((b) => b.includes('<TypeCode>1</TypeCode>'))!;
+    const density = Number(/<Density>([^<]*)<\/Density>/.exec(cordBlock)![1]);
+    expect(density).toBeCloseTo(0.00039698, 12);
+    expect(cordBlock).toContain('<DensityType>2</DensityType>');
   });
 });

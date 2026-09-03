@@ -5,6 +5,7 @@ import { asStageNodes, freshId } from '../tree/treeModel.js';
 import { shapeIsClippable, shapeParamDefault } from '../tree/shapeProfile.js';
 import { isConformal, shroudEnds } from '../tree/shroud.js';
 import { escapeXml, xmlText as text } from './xmlUtil.js';
+import { applyPresetLinks, type PendingPresetLink, type Preset } from './presets.js';
 
 // Re-export: rocksimFile.ts (and historical callers) import it from here.
 export { shapeParamDefault };
@@ -144,7 +145,7 @@ export interface OrkImportResult extends OrkTreeImportResult {
 
 // ============================ IMPORT ============================
 
-export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string }): OrkImportResult {
+export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string; presets?: readonly Preset[] }): OrkImportResult {
   let xml: string;
   if (typeof data === 'string') {
     xml = data;
@@ -185,6 +186,8 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
 
   const ignored = new Set<string>();
   const notes: string[] = [];
+  /** Parts whose <preset> names a catalogue row - resolved after the tree is built. */
+  const pendingLinks: PendingPresetLink[] = [];
   let motor: OrkMotorRef | undefined;
   const motors: Record<string, OrkMotorRef> = {};
 
@@ -396,6 +399,15 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       const node: ComponentNode = { type, id: freshId() };
       const nm = text(el, ':scope > name');
       if (nm) node.name = nm;
+      // <preset type manufacturer partno digest/> - desktop's RocketComponentSaver
+      // writes it on any part picked from its catalogue, and writes every
+      // explicit value AFTER it, so on load the explicit values win. We keep
+      // that order: resolved after the tree is built (applyPresetLinks), the
+      // catalogue fills only what the file left unset.
+      const presetEl = el.querySelector(':scope > preset');
+      const pMfr = presetEl?.getAttribute('manufacturer');
+      const pNo = presetEl?.getAttribute('partno');
+      if (pMfr && pNo) pendingLinks.push({ node, manufacturer: pMfr, partNo: pNo });
       const density = matDensity(el);
       if (density !== undefined) node.density = density;
       const matName = matName_(el, 'bulk');
@@ -951,6 +963,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
     }
   }
 
+  applyPresetLinks(pendingLinks, opts?.presets, notes);
   const launch = readLaunchConditions(doc, notes, chosenConfigId);
 
   return {
