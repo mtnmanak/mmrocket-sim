@@ -3,8 +3,9 @@ import { usePrefs } from '../prefs/PrefsContext.js';
 import { fmtSi } from '../prefs/units.js';
 import { UnitChip } from './UnitChip.js';
 import {
-  aeroModelLabel, formatRunStability, ROLL_RATE_MEANINGFUL_RAD_S, stabilityState,
-  WIND_BLOWS_TOWARD_DEG, type DeploymentReport, type SimRun,
+  aeroModelLabel, formatRunStability, formatRunWhen, formatRunWhenProse, listAnd,
+  ROLL_RATE_MEANINGFUL_RAD_S, stabilityState, WIND_BLOWS_TOWARD_DEG,
+  type DeploymentReport, type SimRun,
 } from '../services/simReport.js';
 import { clearRuns, deleteRun, runsToCsv, runsToTable } from '../services/simStore.js';
 import { formatWarning } from '../services/simWarnings.js';
@@ -78,9 +79,16 @@ function compassPoint(deg: number): string {
  * the per-timestep download — the buttons themselves live beside the plots
  * they produce (see FlightCharts).
  */
-export function SimRunDetails({ run, hasSeries }: {
+export function SimRunDetails({ run, hasSeries, changedSince }: {
   run: SimRun;
   hasSeries?: boolean;
+  /**
+   * What has changed since this run was flown: `[]` when it still describes the
+   * design as it stands, a list when it does not, `null`/absent when it cannot
+   * be told. The report must carry its own provenance — it is the panel people
+   * screenshot and forward, and until v0.101 it showed no date at all.
+   */
+  changedSince?: string[] | null;
 }) {
   const { prefs } = usePrefs();
   const [open, setOpen] = useState(false);
@@ -97,6 +105,15 @@ export function SimRunDetails({ run, hasSeries }: {
           Launch report — {run.rocket ? `${run.rocket} · ` : ''}{run.motor}
           {run.manufacturer ? ` (${run.manufacturer})` : ''}
         </h2>
+        {/* The report's own provenance, in its header, because this panel is
+            what gets screenshotted and forwarded — and a report with no date on
+            it cannot be told from a fresh one. */}
+        <span className={changedSince && changedSince.length > 0 ? 'simdet-when simdet-when-stale' : 'simdet-when'}>
+          Flown {formatRunWhenProse(run.when)}
+          {changedSince == null ? '' : changedSince.length === 0
+            ? ' · matches the design as it stands'
+            : ` · ${listAnd(changedSince)} changed since`}
+        </span>
         <button className="file-btn file-btn-ghost" onClick={() => setOpen(!open)}>
           {open ? 'Hide details' : 'Show all details'}
         </button>
@@ -487,7 +504,9 @@ export function SimHistory({
                     <td className={unsafe ? 'stability-bad' : caution ? 'stability-warn' : 'stability-good'}>
                       {unsafe ? '⚠' : caution ? '△' : '✓'}
                     </td>
-                    <td>{new Date(r.when).toLocaleTimeString()}</td>
+                    {/* Date AND time once it is not today's run: the time alone
+                        made a three-day-old row identical to a fresh one. */}
+                    <td style={{ whiteSpace: 'nowrap' }}>{formatRunWhen(r.when)}</td>
                     <td style={{ whiteSpace: 'nowrap' }}>
                       {/* Re-flying is a BUTTON, never automatic: six clicks
                           through history must not cost six flights. It is

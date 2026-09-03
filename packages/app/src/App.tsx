@@ -69,7 +69,8 @@ import {
   sessionPredatesThisBuild, sessionSaveFailing,
 } from './services/session.js';
 import {
-  aeroModelLabel, buildSimRun, conditionsKeyOf, currentModelLabel, formatStability,
+  AERO_MODEL_CHANGED, aeroModelLabel, buildSimRun, changedSinceRun, conditionsKeyOf,
+  currentModelLabel, formatRunWhenProse, formatStability, listAnd,
   hasAerodynamicForce, recommendDelay, shownStability, runMatchesDesign, runMatchesModel, shortHash, storedSimCost,
   type DesignMatchKey, type FlownRecoveryDevice, type MotorMeta, type SimRun,
 } from './services/simReport.js';
@@ -2384,7 +2385,66 @@ export function App() {
   const modelMatch = lastRun
     ? runMatchesModel(lastRun, { aeroMode, effectiveKbf, autoSupersonic })
     : null;
-  const apogeeStale = modelMatch === false;
+  /**
+   * The design, motors and conditions AS THEY STAND, for comparing a stored run
+   * against.
+   *
+   * Deliberately NOT gated on `built && primaryMountId` the way
+   * `currentMatchKey` is. That gate is right for the re-fly path — you cannot
+   * reproduce a flight without a buildable rocket and a mount — but applying it
+   * here made the whole staleness signal vanish in exactly the states where a
+   * stored run is most likely to belong to something else: unload the motor, or
+   * start a new design, and the report went back to rendering an old flight with
+   * nothing to say so. Every term here is computable without a motor.
+   */
+  const provenanceKey = useMemo<DesignMatchKey>(() => ({
+    designKey: shortHash(physicsKey),
+    motorSetKey: motorSetKeyOf(assigned),
+    conditionsKey: conditionsKeyOf(launch),
+    aeroMode,
+    effectiveKbf,
+    autoSupersonic,
+  }), [physicsKey, assigned, launch, aeroMode, effectiveKbf, autoSupersonic, motorSetKeyOf]);
+
+  /**
+   * What has changed since the SHOWN run was flown.
+   *
+   * Selecting a row in Saved simulations loads any stored run into the report —
+   * deliberately, because looking at an earlier flight is a real thing to want.
+   * But the run list is global and outlives the design, and a change that does
+   * not touch the ascent (a parachute's Cd, say) leaves apogee, max velocity and
+   * pad mass identical, so every visible column matched and nothing said the
+   * numbers were from a different rocket. Meanwhile the far milder aerodynamics
+   * MODEL mismatch already got a banner above the tiles. This closes that gap:
+   * same treatment, same place, for the bigger discrepancy.
+   *
+   * `null` when it cannot be told — unknown is not a mismatch.
+   */
+  const changedSince = useMemo(
+    () => (lastRun ? changedSinceRun(lastRun, provenanceKey) : null),
+    [lastRun, provenanceKey],
+  );
+  /**
+   * The non-model changes, which is what the new banner reports.
+   *
+   * The aerodynamics model has had its OWN banner since v0.074 and its own row
+   * in the report; `changedSince` still carries it so the report HEADER can be
+   * a complete answer on its own (that panel gets screenshotted and forwarded
+   * without the banners above it), but repeating it here would be two amber
+   * notes saying the same thing.
+   */
+  const changedSinceNonModel = useMemo(
+    () => (changedSince ?? []).filter((c) => c !== AERO_MODEL_CHANGED),
+    [changedSince],
+  );
+  /**
+   * The vitals strip's apogee ⚠. It used to mark only a model mismatch — but the
+   * strip is the most prominent surface in the app, and `lastApogee` falls back
+   * to the stored run, so selecting a saved flight from another rocket put THAT
+   * rocket's apogee at the top of the screen unmarked while the report below it
+   * carried a warning banner. Any provenance gap earns the mark now.
+   */
+  const apogeeStale = modelMatch === false || (changedSince?.length ?? 0) > 0;
 
   // "Try Auto & re-fly" from the supersonic-flight alert: once the session
   // override has propagated (aeroMode now 'auto') and the engine handle has
@@ -2928,9 +2988,11 @@ export function App() {
           </span>
           {lastApogee !== null && (
             <span className="vitals-item"
-              title={apogeeStale
+              title={modelMatch === false
                 ? `Apogee of the most recent flight, which was flown on ${aeroModelLabel(lastRun?.aeroModel, lastRun?.rogersKbf)} — not the model now selected. Press Launch to re-fly it.`
-                : 'Apogee of the most recent flight'}>
+                : changedSinceNonModel.length > 0
+                  ? `Apogee of a flight from ${formatRunWhenProse(lastRun!.when)} — ${listAnd(changedSinceNonModel)} changed since. Press Launch to fly the current design.`
+                  : 'Apogee of the most recent flight'}>
               <span className="vitals-label">Apogee</span>
               <span className="vitals-value">
                 {fmtSi('distance', prefs.units.distance, lastApogee)}&nbsp;<UnitChip quantity="distance" />
@@ -3655,10 +3717,22 @@ export function App() {
               re-fly this design on the current model.
             </div>
           )}
+          {lastRun && changedSinceNonModel.length > 0 && (
+            // States what the flight DID first, like the two notes above it.
+            // No auxiliary verb: "the launch conditions HAS changed" is wrong,
+            // and picking has/have from the list length gets that case backwards
+            // because one of the three labels is itself plural.
+            <div className="file-note file-note-warn" role="status">
+              These numbers were <strong>flown {formatRunWhenProse(lastRun.when)}</strong>, and{' '}
+              <strong>{listAnd(changedSinceNonModel)}</strong> changed since — they describe the
+              rocket as it was then, not the one you have now.
+              Press <strong>Launch</strong> to fly the current design.
+            </div>
+          )}
           {shownResult && lastRun ? (
             <>
               <FlightStats run={lastRun} />
-              <SimRunDetails run={lastRun} hasSeries />
+              <SimRunDetails run={lastRun} hasSeries changedSince={changedSince} />
               <FlightCharts result={shownResult} onFullSeries={fetchFullSeriesResult}
                 designName={tree.name} />
             </>
@@ -3669,15 +3743,20 @@ export function App() {
             // need series, which run history does not carry.
             <>
               <FlightStats run={lastRun} />
-              <SimRunDetails run={lastRun} />
+              <SimRunDetails run={lastRun} changedSince={changedSince} />
               <div className="panel placeholder empty-state">
                 <p><strong>Flight plots aren&apos;t saved with a run</strong></p>
                 <p>
                   The report above is stored in full, but the plots are drawn from the
                   simulation&apos;s raw time series, which run history doesn&apos;t keep.
+                  {/* This panel owns ONE job: why the plots are missing. The
+                      staleness claim and the Launch instruction belong to the
+                      banner above, which now names exactly what changed —
+                      repeating them here put two "Press Launch" buttons and two
+                      accounts of the same fact on one screen. */}
                   {canShowCharts(lastRun)
                     ? ' This design still matches the run, so it can be flown again to redraw them — the physics is deterministic, so it reproduces this exact flight.'
-                    : ' The design, motor or conditions have changed since this run, so it can no longer be reproduced here. Press Launch to fly the design as it stands now.'}
+                    : ' This run no longer matches the design, so its plots cannot be redrawn for it.'}
                 </p>
                 {canShowCharts(lastRun) && (
                   <button className="file-btn file-btn-primary" disabled={reflying !== null}

@@ -2361,6 +2361,23 @@ html {
   margin: 6px 0 0;
 }
 
+/* The launch report's own provenance, in its header. Quiet when the run still
+   matches the design; coloured only when it does not, so a current report does
+   not nag while a stale one cannot be mistaken for fresh. */
+/* No nowrap: the NON-stale string ("Flown at 10:42 AM · matches the design as
+   it stands") is the longer of the two everyday cases, so pinning it would make
+   the wrong one unbreakable — and .panel-head wraps but sets no min-width, so an
+   over-wide flex item would overrun the panel on a phone. */
+.simdet-when {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.simdet-when-stale {
+  color: var(--status-warn);
+  font-weight: 600;
+}
+
 .simdet-comments {
   font-size: 12px;
   color: var(--text-secondary);

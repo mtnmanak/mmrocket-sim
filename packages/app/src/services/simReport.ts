@@ -481,6 +481,105 @@ export interface DesignMatchKey {
   autoSupersonic: boolean;
 }
 
+/**
+ * When a run was flown, written so a stale one cannot pass for a fresh one.
+ *
+ * Same calendar day → the time alone; any other day → the date with it. The
+ * history table used to print `toLocaleTimeString()` unconditionally, which made
+ * a run from three days ago typographically identical to one flown a minute ago
+ * — and the launch report showed no timestamp at all, so the panel a user
+ * screenshots and forwards carried no date whatsoever. That is the single
+ * strongest cue that a report predates the design, and it was invisible; it cost
+ * two investigations on 2026-09-03.
+ */
+export function formatRunWhen(when: number, now: number = Date.now()): string {
+  const d = new Date(when);
+  // isFinite alone lets 1e16 through, which is a finite number and an Invalid
+  // Date; run history is JSON-parsed from localStorage with no validation of
+  // `when`, so a corrupted entry would print "Invalid Date" into the report.
+  if (!Number.isFinite(when) || Number.isNaN(d.getTime())) return 'an unknown time';
+  const ref = new Date(now);
+  if (ref.toDateString() === d.toDateString()) return d.toLocaleTimeString();
+  // The YEAR matters: the store keeps 500 runs and never expires them, so
+  // without it a run from last December reads exactly like one from a fortnight
+  // ago — the very failure this function exists to prevent, one year out.
+  const date = d.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    ...(d.getFullYear() !== ref.getFullYear() ? { year: 'numeric' } : {}),
+  });
+  return `${date}, ${d.toLocaleTimeString()}`;
+}
+
+/**
+ * The same instant written to sit inside a sentence — "Flown **at 10:42 AM**",
+ * "flown **on Sep 3 at 10:42 AM**".
+ *
+ * Separate from `formatRunWhen` because a table cell under a "When" header
+ * supplies its own preposition and wants the seconds, while prose needs the
+ * preposition and does not: nobody tells two flights apart by the eleventh
+ * second, and "Flown 10:42:11 AM" reads as machine output rather than English.
+ */
+export function formatRunWhenProse(when: number, now: number = Date.now()): string {
+  const d = new Date(when);
+  if (!Number.isFinite(when) || Number.isNaN(d.getTime())) return 'at an unknown time';
+  const ref = new Date(now);
+  const clock = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  if (ref.toDateString() === d.toDateString()) return `at ${clock}`;
+  const date = d.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    ...(d.getFullYear() !== ref.getFullYear() ? { year: 'numeric' } : {}),
+  });
+  return `on ${date} at ${clock}`;
+}
+
+/**
+ * What has changed in the design, motors or launch conditions since a run was
+ * flown — the provenance a stored run is rendered with.
+ *
+ * Returns `null` when it cannot be told (no current design to compare against,
+ * or a run stored before these keys existed). **Unknown is not a mismatch**: an
+ * old run must not be accused of a difference we cannot see, the same rule
+ * `runMatchesModel` already follows.
+ */
+export const AERO_MODEL_CHANGED = 'the aerodynamics model';
+
+export function changedSinceRun(
+  run: SimRun, cur: DesignMatchKey | null,
+): string[] | null {
+  if (!cur) return null;
+  const changed: string[] = [];
+  // A key the run does not carry cannot be compared — but one that IS carried
+  // and differs is a real mismatch worth naming, so a partial run still reports.
+  if (run.designKey && run.designKey !== cur.designKey) changed.push('the design');
+  if (run.motorSetKey && run.motorSetKey !== cur.motorSetKey) changed.push('the motor');
+  if (run.conditionsKey && run.conditionsKey !== cur.conditionsKey) {
+    changed.push('the launch conditions');
+  }
+  // The model is part of "does this still describe my rocket". Leaving it out
+  // let the header print "matches the design as it stands" directly beneath a
+  // banner saying the numbers were flown on a different model and are not
+  // comparable — two lines a finger-width apart contradicting each other.
+  if (runMatchesModel(run, cur) === false) changed.push(AERO_MODEL_CHANGED);
+  if (changed.length > 0) return changed;
+
+  // NOTHING DIFFERS — but silence and a clean bill of health are not the same
+  // claim, and only the second one can be wrong. Clearing a run requires every
+  // key to be present: batch-simulate runs carry `conditionsKey` (buildSimRun
+  // always stamps it) and neither of the other two, so a one-key rule would
+  // have stamped "matches the design as it stands" on a batch row belonging to
+  // a different rocket — worse than the silence this feature replaced.
+  const complete = !!run.designKey && !!run.motorSetKey && !!run.conditionsKey;
+  return complete ? [] : null;
+}
+
+/** "a", "a and b", "a, b and c" — for naming what changed without a bare list. */
+export function listAnd(items: readonly string[]): string {
+  if (items.length <= 1) return items[0] ?? '';
+  return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
+}
+
 export function runMatchesDesign(run: SimRun, cur: DesignMatchKey): boolean {
   if (!run.designKey || run.designKey !== cur.designKey) return false;
   if (!run.motorSetKey || run.motorSetKey !== cur.motorSetKey) return false;

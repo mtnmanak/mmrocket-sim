@@ -4,7 +4,8 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SimHistory, SimRunDetails } from './SimResults.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
-import { buildSimRun, type SimRun } from '../services/simReport.js';
+import { buildSimRun, type SimRun, formatRunWhenProse,
+} from '../services/simReport.js';
 import { DEFAULT_CONDITIONS } from './LaunchPanel.js';
 import type { FlightResult, StaticInfo } from '@online-openrocket/engine';
 
@@ -127,6 +128,44 @@ describe('SimRunDetails — where the raw flight data went', () => {
     const labels = Array.from(host.querySelectorAll('button')).map((b) => b.textContent ?? '');
     expect(labels.some((l) => l.includes('Flight data'))).toBe(false);
     expect(labels.some((l) => l.includes('xlsx'))).toBe(false);
+  });
+});
+
+describe('SimRunDetails — the report carries its own provenance (v0.101)', () => {
+  // This panel is what people screenshot and forward, and it used to show no
+  // timestamp at all. Two investigations on 2026-09-03 turned on "is this
+  // report stale?" — a question nothing on screen could answer.
+  const whenOf = (r: SimRun) => host.querySelector('.simdet-when')?.textContent ?? '';
+
+  it('always says when the flight was flown, in prose', () => {
+    const r = run();
+    render(<SimRunDetails run={r} hasSeries />);
+    // "Flown at 4:58 PM" — the preposition belongs to the sentence, and the
+    // seconds do not: nobody tells two flights apart by the eleventh second.
+    expect(whenOf(r)).toContain('Flown at ');
+    expect(whenOf(r)).toContain(formatRunWhenProse(r.when).replace(/^at /, ''));
+  });
+
+  it('says so plainly when the run still matches the design', () => {
+    render(<SimRunDetails run={run()} hasSeries changedSince={[]} />);
+    expect(host.querySelector('.simdet-when')?.textContent).toContain('matches the design as it stands');
+    expect(host.querySelector('.simdet-when-stale')).toBeNull();
+  });
+
+  it('NAMES what changed, and marks itself stale, when the design has moved on', () => {
+    render(<SimRunDetails run={run()} changedSince={['the design', 'the motor']} />);
+    const el = host.querySelector('.simdet-when');
+    expect(el?.textContent).toContain('the design and the motor changed since');
+    // Coloured only in the stale case — a current report must not nag.
+    expect(el?.className).toContain('simdet-when-stale');
+  });
+
+  it('claims nothing when it cannot be told (a run stored before the keys existed)', () => {
+    render(<SimRunDetails run={run()} hasSeries />);
+    const text = host.querySelector('.simdet-when')?.textContent ?? '';
+    expect(text).toContain('Flown');
+    expect(text).not.toContain('changed since');
+    expect(text).not.toContain('matches the design');
   });
 });
 

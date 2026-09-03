@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest';
 import type { FlightResult, FlightSeries, StaticInfo } from '@online-openrocket/engine';
 import {
   buildSimRun, extractLandingDrift, extractMaxRollRate, formatStability, recommendDelay,
+  AERO_MODEL_CHANGED, changedSinceRun, formatRunWhen, formatRunWhenProse, listAnd,
   ROLL_RATE_MEANINGFUL_RAD_S, runMatchesDesign, SAFETY, stabilityPercent, storedSimCost,
-  type SimRun,
+  type DesignMatchKey, type SimRun,
 } from './simReport.js';
 import { runsToCsv } from './simStore.js';
 import { DEFAULT_CONDITIONS } from '../components/LaunchPanel.js';
@@ -262,6 +263,127 @@ function dualDeployResult(drogueRate: number, landRate: number, windDrift = 0): 
     },
   };
 }
+
+describe('stored-run provenance (2026-09-03, v0.101)', () => {
+  // A stored run was rendered with the full prominence of a fresh one and no
+  // date or design mark anywhere — and because a change that does not touch the
+  // ascent (a chute's Cd) leaves apogee, max velocity and pad mass identical,
+  // every visible column matched. Two investigations in one day turned on
+  // "is this report stale?", which nothing on screen could answer.
+  const KEY: DesignMatchKey = {
+    designKey: 'd1', motorSetKey: 'm1', conditionsKey: 'c1',
+    aeroMode: 'classic', effectiveKbf: true, autoSupersonic: false,
+  };
+  const runWith = (over: Partial<SimRun>): SimRun =>
+    ({ designKey: 'd1', motorSetKey: 'm1', conditionsKey: 'c1', ...over }) as SimRun;
+
+  it('says nothing changed when nothing has', () => {
+    expect(changedSinceRun(runWith({}), KEY)).toEqual([]);
+  });
+
+  it('names each thing that changed, and all of them together', () => {
+    expect(changedSinceRun(runWith({ designKey: 'other' }), KEY)).toEqual(['the design']);
+    expect(changedSinceRun(runWith({ motorSetKey: 'other' }), KEY)).toEqual(['the motor']);
+    expect(changedSinceRun(runWith({ conditionsKey: 'other' }), KEY)).toEqual(['the launch conditions']);
+    expect(changedSinceRun(
+      runWith({ designKey: 'x', motorSetKey: 'y', conditionsKey: 'z' }), KEY,
+    )).toEqual(['the design', 'the motor', 'the launch conditions']);
+  });
+
+  it('UNKNOWN IS NOT A MISMATCH — an old run is never accused of a difference we cannot see', () => {
+    // Runs stored before these keys existed, and the case where there is no
+    // current design to compare against at all.
+    expect(changedSinceRun(runWith({ designKey: undefined, motorSetKey: undefined, conditionsKey: undefined }), KEY))
+      .toBeNull();
+    expect(changedSinceRun(runWith({}), null)).toBeNull();
+  });
+
+  it('a partial run compares only the keys it carries', () => {
+    // A run with a designKey but no conditionsKey is still worth comparing on
+    // the design — reporting nothing would hide a real mismatch.
+    expect(changedSinceRun(
+      runWith({ motorSetKey: undefined, conditionsKey: undefined, designKey: 'other' }), KEY,
+    )).toEqual(['the design']);
+  });
+
+  it('NEVER CLEARS A RUN IT CANNOT FULLY COMPARE — a batch run must not read as current', () => {
+    // The trap: buildSimRun always stamps conditionsKey, but BatchSimulate
+    // stamps neither designKey nor motorSetKey, and `launch` survives a design
+    // switch — so a one-matching-key rule would print "matches the design as it
+    // stands" on a batch row from a different rocket entirely. Silence and a
+    // clean bill of health are different claims, and only the second can be
+    // wrong. Clearing requires ALL THREE keys.
+    const batch = runWith({ designKey: undefined, motorSetKey: undefined }); // conditionsKey matches
+    expect(changedSinceRun(batch, KEY)).toBeNull();
+    // …but a partial run that does differ is still reported, not swallowed.
+    expect(changedSinceRun({ ...batch, designKey: 'other' } as SimRun, KEY)).toEqual(['the design']);
+  });
+
+  it('counts the AERODYNAMICS MODEL as a change, so the header cannot contradict the banner', () => {
+    // Changing only the model left design/motor/conditions identical, so the
+    // header printed "matches the design as it stands" directly beneath a banner
+    // saying the numbers were flown on another model and are not comparable.
+    const flown = runWith({ aeroModel: 'classic', rogersKbf: true } as Partial<SimRun>);
+    expect(changedSinceRun(flown, KEY)).toEqual([]); // same model → nothing to say
+    expect(changedSinceRun(flown, { ...KEY, effectiveKbf: false }))
+      .toEqual([AERO_MODEL_CHANGED]);
+    // …and it joins the others rather than replacing them.
+    expect(changedSinceRun({ ...flown, designKey: 'other' } as SimRun, { ...KEY, effectiveKbf: false }))
+      .toEqual(['the design', AERO_MODEL_CHANGED]);
+  });
+
+  it('the time stamp gains a DATE once the run is not from today', () => {
+    const noon = new Date(2026, 8, 3, 12, 0, 0).getTime();
+    const sameDay = new Date(2026, 8, 3, 9, 30, 0).getTime();
+    const daysAgo = new Date(2026, 7, 31, 9, 30, 0).getTime();
+    // Same day: the time alone, as before.
+    expect(formatRunWhen(sameDay, noon)).toBe(new Date(sameDay).toLocaleTimeString());
+    // Another day: the date too — this is the cue that was missing entirely.
+    const older = formatRunWhen(daysAgo, noon);
+    expect(older).toContain(new Date(daysAgo).toLocaleTimeString());
+    expect(older).not.toBe(new Date(daysAgo).toLocaleTimeString());
+    expect(older).toMatch(/31/); // the day-of-month, however the locale orders it
+  });
+
+  it('AND THE YEAR once it is not this year — the store keeps 500 runs and never expires them', () => {
+    // Without it, a run from last December reads exactly like one from a
+    // fortnight ago: the failure this whole helper exists to prevent, one year
+    // out, on precisely the oldest runs the cue is for.
+    const now = new Date(2027, 8, 3, 12, 0, 0).getTime();
+    const lastYear = new Date(2026, 7, 31, 9, 30, 0).getTime();
+    const thisYear = new Date(2027, 7, 31, 9, 30, 0).getTime();
+    expect(formatRunWhen(lastYear, now)).toMatch(/2026/);
+    expect(formatRunWhen(thisYear, now)).not.toMatch(/2027/); // no noise in the common case
+    expect(formatRunWhen(lastYear, now)).not.toBe(formatRunWhen(thisYear, now));
+  });
+
+  it('a bad timestamp says so rather than printing "Invalid Date"', () => {
+    expect(formatRunWhen(Number.NaN)).toBe('an unknown time');
+    // Finite but outside the Date range — isFinite alone lets this through, and
+    // run history is JSON-parsed from localStorage with no validation.
+    expect(formatRunWhen(1e16)).toBe('an unknown time');
+    expect(formatRunWhenProse(1e16)).toBe('at an unknown time');
+  });
+
+  it('the prose form carries its own preposition and drops the seconds', () => {
+    // "Flown 10:42:11 AM" was missing a word on the branch EVERY fresh report
+    // uses, and seconds read as machine output in a sentence.
+    const now = new Date(2026, 8, 3, 12, 0, 0).getTime();
+    const sameDay = new Date(2026, 8, 3, 10, 42, 11).getTime();
+    const other = new Date(2026, 7, 31, 10, 42, 11).getTime();
+    expect(formatRunWhenProse(sameDay, now)).toMatch(/^at /);
+    expect(formatRunWhenProse(sameDay, now)).not.toMatch(/:11/); // no seconds
+    expect(formatRunWhenProse(other, now)).toMatch(/^on /);
+    expect(formatRunWhenProse(other, now)).toMatch(/31/);
+  });
+
+  it('lists read as prose, not as an array', () => {
+    expect(listAnd([])).toBe('');
+    expect(listAnd(['the design'])).toBe('the design');
+    expect(listAnd(['the design', 'the motor'])).toBe('the design and the motor');
+    expect(listAnd(['a', 'b', 'c'])).toBe('a, b and c');
+  });
+});
 
 describe('dual deployment attribution', () => {
   const build = (drogueRate: number, landRate: number) => buildSimRun({

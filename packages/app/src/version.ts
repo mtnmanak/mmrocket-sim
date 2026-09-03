@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.100';
+export const APP_VERSION = '0.101';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.101',
+    date: '2026-09-03',
+    title: 'A saved flight now says when it was flown and whether it still describes your rocket',
+    items: [
+      'THE LAUNCH REPORT NOW CARRIES ITS OWN DATE. It showed no timestamp at all, which meant the one panel people screenshot and send to someone else gave no way to tell a report from three days ago from one flown a minute ago. It now says "Flown ..." in its header, and adds the date once the flight is not from today.',
+      'AND IT SAYS WHETHER IT STILL MATCHES YOUR ROCKET. Opening a saved flight from the Saved simulations table is still free - looking at an earlier flight is a perfectly reasonable thing to want - but the report now states either that it matches the design as it stands, or exactly what has changed since: the design, the motor, the launch conditions, the aerodynamics model, or several of them.',
+      'A CHANGE THAT DOES NOT AFFECT THE CLIMB IS THE DANGEROUS ONE. Edit a parachute and the apogee, the top speed and the pad weight of an older flight all still match your rocket exactly, so every column you can see agrees and nothing hints that the landing numbers came from a different chute. A banner now says so above the results, in the same place and the same style as the existing note about a flight run on a different aerodynamics model, and the apogee in the top strip carries a warning mark instead of presenting another rocket flight as your latest one.',
+      'The Saved simulations table shows the date beside the time for anything not flown today - and the year as well, once it is not this year. Saved flights are kept 500 deep and never expire, so without it a flight from last December read exactly like one from a fortnight ago.',
+      'IT ONLY GIVES A CLEAN BILL OF HEALTH WHEN IT CAN ACTUALLY CHECK ONE. Where it cannot tell - a flight saved before the app recorded what it was flown against, or a batch-comparison run, which records the conditions but not the design - it says nothing at all. Staying quiet and telling you a stale flight is current are different claims, and only the second one can be wrong.',
+    ],
+  },
   {
     version: '0.100',
     date: '2026-09-03',
