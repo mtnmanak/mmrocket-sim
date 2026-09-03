@@ -1012,10 +1012,13 @@ describe('RockSim import — a part matched to its catalogue row by <PartMfg>/<P
     const r = importRkt(rebadged, { presets: await loadPresets() });
     const chute = chuteOf(r);
     expect(chute['cd']).toBe(2.2);
+    expect(chute['spillHoleDiameter']).toBeGreaterThan(0);
     expect(chute['presetManufacturer']).toBe('Fruity Chutes');
-    expect(chute['presetPartNo']).toBe('29185');
+    // 29185 was dropped as a duplicate on 2026-09-03; the link resolves through
+    // the surviving row's altPartNos and stamps that row's number.
+    expect(chute['presetPartNo']).toBe('IFC-096-N');
     expect(chute['diameter']).toBeCloseTo(0.6096, 9);   // the file's 609.6 mm, not the catalogue's 96 in
-    expect(chute['lineCount']).toBe(6);                  // the file's 6, not the catalogue's 18
+    expect(chute['lineCount']).toBe(6);                  // the file's 6, not the catalogue's
     expect(chute['overrideMass']).toBeUndefined();       // the catalogue never supplies the mass
     expect(r.notes.some((n) => /matched the parts catalogue/.test(n))).toBe(true);
   });
@@ -1039,10 +1042,91 @@ describe('RockSim import — a part matched to its catalogue row by <PartMfg>/<P
     const xml = exportRkt({ name: 'RT', tree: r.tree });
     const block = xml.split('<Parachute>')[1]!.split('</Parachute>')[0]!;
     expect(block).toContain('<PartMfg>Fruity Chutes</PartMfg>');
-    expect(block).toContain('<PartNo>29185</PartNo>');
+    // We write the CANONICAL row we linked to, not the dropped duplicate the
+    // file happened to name — the export states what the design now holds.
+    expect(block).toContain('<PartNo>IFC-096-N</PartNo>');
     const back = chuteOf(importRkt(xml, { presets }));
-    expect(back['presetPartNo']).toBe('29185');
+    expect(back['presetPartNo']).toBe('IFC-096-N');
     expect(back['cd']).toBe(2.2);
+  });
+});
+
+describe('RockSim <SimulationEventList> — dual deploy actually deploys dually (v0.098)', () => {
+  // Until v0.098 nothing read this list, so every device fell to the kernel
+  // default and a dual-deploy design flew drogue and main together at ejection.
+  // The type codes are undocumented and OpenRocket never read them; they are
+  // pinned from 13 corpus files — see readDeploymentEvents' docstring.
+  const evXml = (events: string) => `<RockSimDocument><DesignInformation><RocketDesign>
+      <Name>T</Name><StageCount>1</StageCount>
+      <SimulationEventList>${events}</SimulationEventList>
+      <Stage3Parts><BodyTube><Name>Body</Name><SerialNo>1</SerialNo><Len>500.</Len>
+        <OD>100.</OD><ID>98.</ID><Density>0</Density><DensityType>0</DensityType>
+        <AttachedParts>
+          <Parachute><Name>Main</Name><SerialNo>12</SerialNo><Dia>2438.4</Dia>
+            <Density>0.0054</Density><DensityType>1</DensityType><ShroudLineCount>18</ShroudLineCount></Parachute>
+          <Parachute><Name>Drogue</Name><SerialNo>13</SerialNo><Dia>381.</Dia>
+            <Density>0.0054</Density><DensityType>1</DensityType><ShroudLineCount>18</ShroudLineCount></Parachute>
+        </AttachedParts></BodyTube></Stage3Parts>
+    </RocketDesign></DesignInformation></RockSimDocument>`;
+  const ev = (serial: number, type: number, alt = 0, time = 0) =>
+    `<SimulationEvent><PartSerialNo>${serial}</PartSerialNo><Type>${type}</Type>`
+    + `<DeployAltitude>${alt}</DeployAltitude><DeplyTime>${time}</DeplyTime></SimulationEvent>`;
+  const chutes = (xml: string) => {
+    const r = importRkt(xml);
+    const all = flatten(r.tree.components).filter((c) => c.type === 'parachute');
+    return { r, main: all.find((c) => c.name === 'Main')!, drogue: all.find((c) => c.name === 'Drogue')! };
+  };
+
+  it('type 5 + DeployAltitude is the main at altitude; type 4 is the drogue at apogee', () => {
+    const { r, main, drogue } = chutes(evXml(ev(12, 5, 152.4) + ev(13, 4)));
+    expect(main['deployEvent']).toBe('altitude');
+    expect(main['deployAltitude']).toBeCloseTo(152.4, 6);
+    expect(drogue['deployEvent']).toBe('apogee');
+    expect(drogue['deployAltitude']).toBeUndefined();
+    expect(r.notes.some((n) => /Recovery deployment read from the file/.test(n))).toBe(true);
+  });
+
+  it('type 1 is the ejection charge, and type 2 carries its delay', () => {
+    const { main, drogue } = chutes(evXml(ev(12, 2, 0, 2) + ev(13, 1)));
+    expect(main['deployEvent']).toBe('ejection');
+    expect(main['deployDelay']).toBe(2);
+    expect(drogue['deployEvent']).toBe('ejection');
+    expect(drogue['deployDelay']).toBeUndefined();
+  });
+
+  it("the padding slots RockSim writes (serial 0, type 0) are skipped, not mapped", () => {
+    const { main } = chutes(evXml(ev(0, 0) + ev(0, 0) + ev(12, 4)));
+    expect(main['deployEvent']).toBe('apogee');
+  });
+
+  it('the FIRST simulation slot wins when the repeated lists disagree', () => {
+    // 2,4-D.rkt really does this: serial 26 is type 2 / 2 s in the first slot
+    // and type 5 / 152.4 m in the second.
+    const { main } = chutes(evXml(ev(12, 4) + ev(12, 5, 152.4)));
+    expect(main['deployEvent']).toBe('apogee');
+  });
+
+  it('an unrecognised code leaves the device alone and SAYS so, rather than guessing', () => {
+    const { r, main } = chutes(evXml(ev(12, 28)));
+    expect(main['deployEvent']).toBeUndefined();
+    expect(r.notes.some((n) => /does not recognise \(28\)/.test(n))).toBe(true);
+  });
+
+  it("an altitude trigger naming no altitude reads as apogee, not as 0 m", () => {
+    const { main } = chutes(evXml(ev(12, 5, 0)));
+    expect(main['deployEvent']).toBe('apogee');
+    expect(main['deployAltitude']).toBeUndefined();
+  });
+
+  it("his own Wildman file: main at 152.4 m, drogue at apogee", () => {
+    const r = importRkt(readFileSync(
+      'E:/git/online_open_rocket/docs/User files/4in WM Extreme.rkt', 'utf8'));
+    const all = flatten(r.tree.components).filter((c) => c.type === 'parachute');
+    const main = all.find((c) => c.name === 'Main Parachute')!;
+    const drogue = all.find((c) => /Drouge/i.test(String(c.name)))!;
+    expect(main['deployEvent']).toBe('altitude');
+    expect(main['deployAltitude']).toBeCloseTo(152.4, 6);
+    expect(drogue['deployEvent']).toBe('apogee');
   });
 });
 

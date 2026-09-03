@@ -784,6 +784,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
     }
   };
   deCollideFins(components);
+  readDeploymentEvents(doc, serialToNode, notes);
   applyPresetLinks(pendingLinks, opts?.presets, notes);
 
   if (ignored.size) {
@@ -866,6 +867,105 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
     ...(measured ? { measured } : {}),
   };
 }
+
+/**
+ * RockSim `<SimulationEventList>` → each recovery device's deployment trigger.
+ *
+ * WHY THIS EXISTS. Until v0.098 nothing read this list, so EVERY device fell to
+ * the kernel default and a dual-deploy design flew with drogue and main opening
+ * together at ejection. On Eric's own `4in WM Extreme.rkt` that is not his
+ * rocket: the file says the main opens at 152.4 m (500 ft) and the drogue at
+ * apogee, and simulating both from apogee gives a descent that never happens.
+ * Three of the ten corpus files are dual-deploy (mains at 152.4 / 213.36 /
+ * 237.744 m). Found by the 2026-09-03 format audit.
+ *
+ * THE TYPE CODES ARE NOT DOCUMENTED AND OPENROCKET NEVER READ THEM, so they are
+ * pinned from the corpus rather than guessed — 13 `.rkt` files, 2026-09-03:
+ *   1  → ejection charge      (TubeFins2's only chute; 2,4-D's 1st-stage streamer)
+ *   2  → ejection + `DeplyTime` seconds  (2,4-D's 1st-stage main, DeplyTime 2)
+ *   4  → apogee               (every drogue, and every single-chute sport model)
+ *   5  → altitude, descending, at `DeployAltitude`  (every main: 152.4, 213.36,
+ *        228.6, 237.744, 457.2 m — all plausible real main-deployment heights)
+ *   0  → an EMPTY SLOT: RockSim writes a fixed-size array and pads it with
+ *        `PartSerialNo` 0. Skipped, not mapped.
+ *   28 → seen on four chutes of one file with no altitude or time. Meaning
+ *        unknown, so it is LEFT ALONE (kernel default) and named in a note
+ *        rather than guessed — a wrong deployment event is worse than none.
+ *
+ * FIRST SIMULATION WINS. RockSim stores several simulation slots and repeats the
+ * whole event list in each, and they can disagree (2,4-D's serial 26 is type 2 /
+ * 2 s in the first and type 5 / 152.4 m in the second). Taking the first match
+ * per serial mirrors how the `.ork` reader takes launch conditions from the
+ * file's FIRST `<simulation>`.
+ *
+ * NOT READ, deliberately: `TestType` / `TestCondition` / `TestValue*`, RockSim
+ * Pro's multi-condition elaboration. `Type` + `DeployAltitude` + `DeplyTime` is
+ * the simple pair every file agrees with; the Pro triplet has no analogue in our
+ * one-trigger model, and inventing one would be a guess.
+ */
+const readDeploymentEvents = (
+  doc: Document,
+  serialToNode: Map<string, ComponentNode>,
+  notes: string[],
+): void => {
+  const seen = new Set<string>();
+  const unknown = new Set<number>();
+  const applied: string[] = [];
+  for (const ev of Array.from(doc.querySelectorAll('SimulationEvent'))) {
+    const serial = text(ev, ':scope > PartSerialNo');
+    if (!serial || serial === '0' || seen.has(serial)) continue;
+    const node = serialToNode.get(serial);
+    if (!node || (node.type !== 'parachute' && node.type !== 'streamer')) continue;
+    const type = Math.round(num(ev, 'Type', 0));
+    if (type === 0) continue;
+    seen.add(serial);
+    const label = node.name ?? node.type;
+    switch (type) {
+      case 1:
+        node['deployEvent'] = 'ejection';
+        applied.push(`${label} at the ejection charge`);
+        break;
+      case 2: {
+        node['deployEvent'] = 'ejection';
+        const delay = num(ev, 'DeplyTime', 0);
+        if (delay > 0) node['deployDelay'] = delay;
+        applied.push(`${label} at the ejection charge${delay > 0 ? ` + ${delay} s` : ''}`);
+        break;
+      }
+      case 4:
+        node['deployEvent'] = 'apogee';
+        applied.push(`${label} at apogee`);
+        break;
+      case 5: {
+        const alt = num(ev, 'DeployAltitude', 0);
+        if (alt > 0) {
+          node['deployEvent'] = 'altitude';
+          node['deployAltitude'] = alt;
+          applied.push(`${label} at ${Math.round(alt)} m`);
+        } else {
+          // Altitude trigger with no altitude: apogee is the only honest reading.
+          node['deployEvent'] = 'apogee';
+          applied.push(`${label} at apogee (the file asks for an altitude but names none)`);
+        }
+        break;
+      }
+      default:
+        unknown.add(type);
+        seen.delete(serial);
+    }
+  }
+  if (applied.length) {
+    notes.push(`Recovery deployment read from the file: ${applied.join('; ')}.`);
+  }
+  if (unknown.size) {
+    notes.push(
+      `${unknown.size === 1 ? 'One deployment trigger uses' : 'Some deployment triggers use'} a RockSim `
+      + `code this app does not recognise (${[...unknown].sort((a, b) => a - b).join(', ')}); `
+      + `${unknown.size === 1 ? 'that device keeps' : 'those devices keep'} the default trigger — `
+      + 'check the deployment settings before flying.',
+    );
+  }
+};
 
 /** RockSim PointList: "x,y|x,y|…" in mm; reversed when RockSim-ordered. */
 function parsePointList(raw: string): [number, number][] {

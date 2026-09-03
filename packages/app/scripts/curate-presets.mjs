@@ -182,39 +182,46 @@ export const CURATIONS = [
     to: 'BT-3',
     why: 'Same class as the AeroTech couplers, found by sweeping for partNo === manufacturer.',
   },
-  // --- Fruity Chutes: the drag coefficient the app already applies, on the ten
-  // rows that arrived without one (owner report, 2026-09-01b).
+  // --- Fruity Chutes: the ten RockSim duplicates go.
   //
-  // He asked exactly the right question: "does our parts database properly show
-  // that the Fruity Chutes IFC-084-S has a Cd of 2.2? - if so, why isn't that
-  // updated when I choose that part?" It does, and it IS — `presetPatch` has
-  // applied `dragCoefficient` since v0.033, and picking IFC-084-S really does
-  // set 2.2. But Fruity Chutes appears TWICE in this catalogue: 42 rows from the
-  // OpenRocket database (`desktop-24.12`) that carry a Cd, and 10 from the
-  // RockSim source that do not. Pick one of those ten — and they have the
-  // friendlier names, "84\" Nylon Toroidal" — and the chute silently falls back
-  // to the kernel default of 0.8.
+  // OWNER RULING, 2026-09-03: "drop the ten RockSim rows and size-prefix the
+  // OpenRocket descriptions — yes", and the standing rule that supersedes the
+  // v0.096 patches these entries used to carry: "For Fruity Chutes, the standing
+  // rule should be to take the information they have on their website as
+  // canonical and it should supercede anything from other sources."
   //
-  // Every value below is taken from THIS database's own desktop rows for the
-  // same physical product, not from anywhere else: all Iris Ultra (toroidal)
-  // rows read 2.2 and all Classic Elliptical rows read 1.55, at every diameter
-  // and in every variant, so the mapping is unambiguous.
+  // WHY DROP RATHER THAN PATCH. Each of the ten is a mass-exact duplicate of an
+  // OpenRocket row (matched to the gram: 29184's 539 g is IFC-84-N's 538.6 g,
+  // NOT IFC-84-S's 380 g — the "maps to two rows" worry resolves 1:1), and the
+  // RockSim set carries strictly less: no spill hole, no packed dimensions, no
+  // gore count, a line count of 18 on every row against the real 6-18, a canopy
+  // density of 0.067 kg/m2 (1.9 oz fabric) where Fruity Chutes state 1.1 oz, and
+  // a generic "braided nylon" line where the real one is Spectra or Paraline.
   //
-  // NOT done here: 29161 and 29162, the 15 and 18 inch "Drogue Chute" rows.
-  // There is no desktop row of that name to take a number from, and a drogue's
-  // Cd is not something to invent. They are [ERIC] in open-items.
-  ...[['29181', '48'], ['29182', '60'], ['29183', '72'], ['29184', '84'], ['29185', '96']]
-    .map(([pn, inches]) => ({
-      action: 'set', key: `Parachute|fruitychutes|${pn}`, field: 'dragCoefficient', value: 2.2,
-      why: `The ${inches}" Nylon Toroidal is the Iris Ultra, which every IFC-* row in this same `
-        + 'database rates at Cd 2.2. Without it the row applies the kernel default 0.8 and the '
-        + 'descent rate comes out 1.66x too fast: measured, 22.72 ft/s against 13.70 on an 84 '
-        + "inch canopy at 8.57 kg, which is Fruity Chutes' own published figure.",
-    })),
-  ...[['29163', '24'], ['29165', '36'], ['29167', '48']].map(([pn, inches]) => ({
-    action: 'set', key: `Parachute|fruitychutes|${pn}`, field: 'dragCoefficient', value: 1.55,
-    why: `The ${inches}" Nylon Elliptical is the Classic Elliptical, which every CFC-* row in `
-      + 'this same database rates at Cd 1.55.',
+  // WHAT REPLACES THE FRIENDLY NAMES they were picked for: merge-fruity-chutes
+  // rewrites every surviving row size-first — `84" Iris Ultra Compact — Cd 2.2,
+  // 12 oz, 12 gores` — so "84 inch" still finds it.
+  //
+  // The v0.096 `set` actions that patched Cd onto these ten are GONE, superseded:
+  // the Cd now comes from the manufacturer's own published data, with the spill
+  // hole it is referenced to, in merge-fruity-chutes.mjs.
+  ...[
+    ['29161', '15" Drogue Chute', 'CFC-15 (the page states 1.5 oz / 43 g — our row is 43 g exact)'],
+    ['29162', '18" Drogue Chute', 'CFC-18 (our 60 g is the product page\'s own erroneous figure; oz, API and store all say 48-49 g)'],
+    ['29163', '24" Nylon Elliptical', 'CFC-24'],
+    ['29165', '36" Nylon Elliptical', 'CFC-36'],
+    ['29167', '48" Nylon Elliptical', 'CFC-48'],
+    ['29181', '48" Nylon Toroidal', 'IFC-48'],
+    ['29182', '60" Nylon Toroidal', 'IFC-60'],
+    ['29183', '72" Nylon Toroidal', 'IFC-72'],
+    ['29184', '84" Nylon Toroidal', 'IFC-84 (539 g = IFC-84-N 538.6 g, not the -S at 380 g)'],
+    ['29185', '96" Nylon Toroidal', 'IFC-96'],
+  ].map(([pn, name, dup]) => ({
+    // Each of these is the ONLY row under its key, so the drop empties the
+    // group — see `dropsGroup` in planCurations.
+    action: 'drop', dropsGroup: true, key: `Parachute|fruitychutes|${pn}`,
+    why: `RockSim's "${name}" is a mass-exact duplicate of ${dup}, which carries the `
+      + 'manufacturer\'s own Cd, spill hole, gore count and fabric. Ruled 2026-09-03.',
   })),
   {
     action: 'rename', key: 'NoseCone|quest|quest', descIncludes: 'PNC35N',
@@ -260,6 +267,19 @@ export function planCurations(rows) {
         && presetKey({ ...p, partNo: c.to }) === presetKey(p) && matches(p, c));
       if (done && hits.length === 0) { plan.push({ c, status: 'already' }); continue; }
     } else if (hits.length === 0 && group.length > 0) {
+      plan.push({ c, status: 'already' });
+      continue;
+    } else if (hits.length === 0 && group.length === 0 && c.dropsGroup) {
+      // A drop that removes the LAST row under its key leaves no group behind,
+      // so the rule above cannot see that it already ran. Only entries that say
+      // `dropsGroup` get this reading: everywhere else an empty group still
+      // means a mistyped key, which is the failure this file exists to catch
+      // loudly (the first draft of the table mistyped nine of them).
+      //
+      // The typo protection those entries lose is bought back by a test:
+      // `parachute-cd.test.mjs` asserts BOTH that these ten part numbers are
+      // absent AND that all 68 published Fruity Chutes models are present, so a
+      // key typed wrong here fails there instead of passing silently.
       plan.push({ c, status: 'already' });
       continue;
     }

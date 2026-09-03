@@ -1,7 +1,7 @@
 {
  "generated": "2026-07-03",
  "source": "github.com/openrocket/openrocket-database + OpenRocket 24.12 datafiles/components/internal",
- "count": 4714,
+ "count": 4730,
  "presets": [
   {
    "kind": "BodyTube",
@@ -53862,236 +53862,18 @@
   {
    "kind": "Parachute",
    "manufacturer": "Fruity Chutes",
-   "partNo": "29161",
-   "description": "15\" Drogue Chute",
-   "material": {
-    "name": "Ripstop nylon",
-    "type": "SURFACE",
-    "density": 0.067
-   },
-   "lineMaterial": {
-    "name": "Braided nylon (2 mm, 1/16 in)",
-    "type": "LINE",
-    "density": 0.001
-   },
-   "mass": 0.043,
-   "diameter": 0.381,
-   "lineCount": 18,
-   "lineLength": 0.4318,
-   "source": "rocksim"
-  },
-  {
-   "kind": "Parachute",
-   "manufacturer": "Fruity Chutes",
-   "partNo": "29162",
-   "description": "18\" Drogue Chute",
-   "material": {
-    "name": "Ripstop nylon",
-    "type": "SURFACE",
-    "density": 0.067
-   },
-   "lineMaterial": {
-    "name": "Braided nylon (2 mm, 1/16 in)",
-    "type": "LINE",
-    "density": 0.001
-   },
-   "mass": 0.06,
-   "diameter": 0.4572,
-   "lineCount": 18,
-   "lineLength": 0.5334,
-   "source": "rocksim"
-  },
-  {
-   "kind": "Parachute",
-   "manufacturer": "Fruity Chutes",
-   "partNo": "29163",
-   "description": "24\" Nylon Elliptical",
-   "material": {
-    "name": "Ripstop nylon",
-    "type": "SURFACE",
-    "density": 0.067
-   },
-   "lineMaterial": {
-    "name": "Braided nylon (2 mm, 1/16 in)",
-    "type": "LINE",
-    "density": 0.001
-   },
-   "mass": 0.062,
-   "diameter": 0.6096,
-   "lineCount": 16,
-   "lineLength": 0.7112,
-   "source": "rocksim",
-   "dragCoefficient": 1.55
-  },
-  {
-   "kind": "Parachute",
-   "manufacturer": "Fruity Chutes",
-   "partNo": "29165",
-   "description": "36\" Nylon Elliptical",
-   "material": {
-    "name": "Ripstop nylon",
-    "type": "SURFACE",
-    "density": 0.067
-   },
-   "lineMaterial": {
-    "name": "Braided nylon (2 mm, 1/16 in)",
-    "type": "LINE",
-    "density": 0.001
-   },
-   "mass": 0.12757,
-   "diameter": 0.9144,
-   "lineCount": 18,
-   "lineLength": 1.0414,
-   "source": "rocksim",
-   "dragCoefficient": 1.55
-  },
-  {
-   "kind": "Parachute",
-   "manufacturer": "Fruity Chutes",
-   "partNo": "29167",
-   "description": "48\" Nylon Elliptical",
-   "material": {
-    "name": "Ripstop nylon",
-    "type": "SURFACE",
-    "density": 0.067
-   },
-   "lineMaterial": {
-    "name": "Braided nylon (2 mm, 1/16 in)",
-    "type": "LINE",
-    "density": 0.001
-   },
-   "mass": 0.20695,
-   "diameter": 1.2192,
-   "lineCount": 18,
-   "lineLength": 1.397,
-   "source": "rocksim",
-   "dragCoefficient": 1.55
-  },
-  {
-   "kind": "Parachute",
-   "manufacturer": "Fruity Chutes",
-   "partNo": "29181",
-   "description": "48\" Nylon Toroidal",
-   "material": {
-    "name": "Ripstop nylon",
-    "type": "SURFACE",
-    "density": 0.067
-   },
-   "lineMaterial": {
-    "name": "Braided nylon (2 mm, 1/16 in)",
-    "type": "LINE",
-    "density": 0.001
-   },
-   "mass": 0.2126,
-   "diameter": 1.2192,
-   "lineCount": 18,
-   "lineLength": 1.397,
-   "source": "rocksim",
-   "dragCoefficient": 2.2
-  },
-  {
-   "kind": "Parachute",
-   "manufacturer": "Fruity Chutes",
-   "partNo": "29182",
-   "description": "60\" Nylon Toroidal",
-   "material": {
-    "name": "Ripstop nylon",
-    "type": "SURFACE",
-    "density": 0.067
-   },
-   "lineMaterial": {
-    "name": "Braided nylon (2 mm, 1/16 in)",
-    "type": "LINE",
-    "density": 0.001
-   },
-   "mass": 0.309,
-   "diameter": 1.524,
-   "lineCount": 18,
-   "lineLength": 1.7526,
-   "source": "rocksim",
-   "dragCoefficient": 2.2
-  },
-  {
-   "kind": "Parachute",
-   "manufacturer": "Fruity Chutes",
-   "partNo": "29183",
-   "description": "72\" Nylon Toroidal",
-   "material": {
-    "name": "Ripstop nylon",
-    "type": "SURFACE",
-    "density": 0.067
-   },
-   "lineMaterial": {
-    "name": "Braided nylon (2 mm, 1/16 in)",
-    "type": "LINE",
-    "density": 0.001
-   },
-   "mass": 0.38,
-   "diameter": 1.8288,
-   "lineCount": 18,
-   "lineLength": 2.1082,
-   "source": "rocksim",
-   "dragCoefficient": 2.2
-  },
-  {
-   "kind": "Parachute",
-   "manufacturer": "Fruity Chutes",
-   "partNo": "29184",
-   "description": "84\" Nylon Toroidal",
-   "material": {
-    "name": "Ripstop nylon",
-    "type": "SURFACE",
-    "density": 0.067
-   },
-   "lineMaterial": {
-    "name": "Braided nylon (2 mm, 1/16 in)",
-    "type": "LINE",
-    "density": 0.001
-   },
-   "mass": 0.539,
-   "diameter": 2.1336,
-   "lineCount": 18,
-   "lineLength": 2.4638,
-   "source": "rocksim",
-   "dragCoefficient": 2.2
-  },
-  {
-   "kind": "Parachute",
-   "manufacturer": "Fruity Chutes",
-   "partNo": "29185",
-   "description": "96\" Nylon Toroidal",
-   "material": {
-    "name": "Ripstop nylon",
-    "type": "SURFACE",
-    "density": 0.067
-   },
-   "lineMaterial": {
-    "name": "Braided nylon (2 mm, 1/16 in)",
-    "type": "LINE",
-    "density": 0.001
-   },
-   "mass": 0.709,
-   "diameter": 2.4384,
-   "lineCount": 18,
-   "lineLength": 2.794,
-   "source": "rocksim",
-   "dragCoefficient": 2.2
-  },
-  {
-   "kind": "Parachute",
-   "manufacturer": "Fruity Chutes",
    "partNo": "CFC-012-N",
-   "description": "Elliptical Parachute [Cd 1.55 (1.3 oz) 7.4 in^3]",
+   "description": "12\" Classic Elliptical — Cd 1.5, 1.3 oz, 8 gores",
    "material": {
     "name": "Ripstop nylon, lightweight, 3 mil",
     "type": "SURFACE",
     "density": 0.035653924
    },
-   "mass": 0.03685438,
+   "mass": 0.037138,
    "finish": "",
    "cG": "",
    "diameter": 0.3048,
-   "dragCoefficient": 1.55,
+   "dragCoefficient": 1.5,
    "sides": 8,
    "lineCount": 8,
    "lineLength": 0.35052,
@@ -54102,23 +53884,24 @@
     "type": "LINE",
     "density": 0.002952756
    },
-   "source": "desktop-24.12"
+   "source": "desktop-24.12",
+   "spillHoleDiameter": 0.06096
   },
   {
    "kind": "Parachute",
    "manufacturer": "Fruity Chutes",
    "partNo": "CFC-012-S",
-   "description": "Compact Elliptical Parachute [Cd 1.55 (.85 oz) 4.7 in^3)",
+   "description": "12\" Classic Elliptical Compact — Cd 1.5, 0.9 oz, 8 gores",
    "material": {
     "name": "Ripstop nylon, lightweight, 3 mil",
     "type": "SURFACE",
     "density": 0.035653924
    },
-   "mass": 0.0240971,
+   "mass": 0.0242,
    "finish": "",
    "cG": "",
    "diameter": 0.3048,
-   "dragCoefficient": 1.55,
+   "dragCoefficient": 1.5,
    "sides": 8,
    "lineCount": 8,
    "lineLength": 0.35052,
@@ -54129,23 +53912,24 @@
     "type": "LINE",
     "density": 0.001202975
    },
-   "source": "desktop-24.12"
+   "source": "desktop-24.12",
+   "spillHoleDiameter": 0.06096
   },
   {
    "kind": "Parachute",
    "manufacturer": "Fruity Chutes",
    "partNo": "CFC-015-N",
-   "description": "Elliptical Parachute [Cd 1.55 (1.5 oz) 8.2 in^3]",
+   "description": "15\" Classic Elliptical — Cd 1.5, 1.5 oz, 8 gores",
    "material": {
     "name": "Ripstop nylon, lightweight, 3 mil",
     "type": "SURFACE",
     "density": 0.035653924
    },
-   "mass": 0.04252428,
+   "mass": 0.042525,
    "finish": "",
    "cG": "",
    "diameter": 0.381,
-   "dragCoefficient": 1.55,
+   "dragCoefficient": 1.5,
    "sides": 8,
    "lineCount": 8,
    "lineLength": 0.43815,
@@ -54156,23 +53940,27 @@
     "type": "LINE",
     "density": 0.002952756
    },
-   "source": "desktop-24.12"
+   "source": "desktop-24.12",
+   "spillHoleDiameter": 0.0762,
+   "altPartNos": [
+    "29161"
+   ]
   },
   {
    "kind": "Parachute",
    "manufacturer": "Fruity Chutes",
    "partNo": "CFC-015-S",
-   "description": "Compact Elliptical Parachute [Cd 1.55 (1 oz) 6.4 in^3)",
+   "description": "15\" Classic Elliptical Compact — Cd 1.5, 1.0 oz, 8 gores",
    "material": {
     "name": "Ripstop nylon, lightweight, 3 mil",
     "type": "SURFACE",
     "density": 0.035653924
    },
-   "mass": 0.02834952,
+   "mass": 0.02835,
    "finish": "",
    "cG": "",
    "diameter": 0.381,
-   "dragCoefficient": 1.55,
+   "dragCoefficient": 1.5,
    "sides": 8,
    "lineCount": 8,
    "lineLength": 0.43815,
@@ -54183,23 +53971,24 @@
     "type": "LINE",
     "density": 0.001202975
    },
-   "source": "desktop-24.12"
+   "source": "desktop-24.12",
+   "spillHoleDiameter": 0.0762
   },
   {
    "kind": "Parachute",
    "manufacturer": "Fruity Chutes",
    "partNo": "CFC-018-N",
-   "description": "Elliptical Parachute [Cd 1.55 (1.7 oz) 9.67 in^3]",
+   "description": "18\" Classic Elliptical — Cd 1.5, 1.7 oz, 8 gores",
    "material": {
     "name": "Ripstop nylon, lightweight, 3 mil",
     "type": "SURFACE",
     "density": 0.035653924
    },
-   "mass": 0.04819419,
+   "mass": 0.049329,
    "finish": "",
    "cG": "",
    "diameter": 0.4572,
-   "dragCoefficient": 1.55,
+   "dragCoefficient": 1.5,
    "sides": 8,
    "lineCount": 8,
    "lineLength": 0.52578,
@@ -54210,23 +53999,27 @@
     "type": "LINE",
     "density": 0.002952756
    },
-   "source": "desktop-24.12"
+   "source": "desktop-24.12",
+   "spillHoleDiameter": 0.09144,
+   "altPartNos": [
+    "29162"
+   ]
   },
   {
    "kind": "Parachute",
    "manufacturer": "Fruity Chutes",
    "partNo": "CFC-018-S",
-   "description": "Compact Elliptical Parachute [Cd 1.55 (1.16 oz) 6.4 in^3)",
+   "description": "18\" Classic Elliptical Compact — Cd 1.5, 1.2 oz, 8 gores",
    "material": {
     "name": "Ripstop nylon, lightweight, 3 mil",
     "type": "SURFACE",
     "density": 0.035653924
    },
-   "mass": 0.03288545,
+   "mass": 0.032886,
    "finish": "",
    "cG": "",
    "diameter": 0.4572,
-   "dragCoefficient": 1.55,
+   "dragCoefficient": 1.5,
    "sides": 8,
    "lineCount": 8,
    "lineLength": 0.52578,
@@ -54237,23 +54030,24 @@
     "type": "LINE",
     "density": 0.001202975
    },
-   "source": "desktop-24.12"
+   "source": "desktop-24.12",
+   "spillHoleDiameter": 0.09144
   },
   {
    "kind": "Parachute",
    "manufacturer": "Fruity Chutes",
    "partNo": "CFC-024-N",
-   "description": "Elliptical Parachute [Cd 1.55 (2.2 oz) 12.2 in^3]",
+   "description": "24\" Classic Elliptical — Cd 1.5, 2.2 oz, 8 gores",
    "material": {
     "name": "Ripstop nylon, lightweight, 3 mil",
     "type": "SURFACE",
     "density": 0.035653924
    },
-   "mass": 0.06236895,
+   "mass": 0.06237,
    "finish": "",
    "cG": "",
    "diameter": 0.6096,
-   "dragCoefficient": 1.55,
+   "dragCoefficient": 1.5,
    "sides": 8,
    "lineCount": 8,
    "lineLength": 0.70104,
@@ -54264,23 +54058,27 @@
     "type": "LINE",
     "density": 0.002952756
    },
-   "source": "desktop-24.12"
+   "source": "desktop-24.12",
+   "spillHoleDiameter": 0.12192,
+   "altPartNos": [
+    "29163"
+   ]
   },
   {
    "kind": "Parachute",
    "manufacturer": "Fruity Chutes",
    "partNo": "CFC-024-S",
-   "description": "Compact Elliptical Parachute [Cd 1.55 (1.6 oz) 8.8 in^3)",
+   "description": "24\" Classic Elliptical Compact — Cd 1.5, 1.6 oz, 8 gores",
    "material": {
     "name": "Ripstop nylon, lightweight, 3 mil",
     "type": "SURFACE",
     "density": 0.035653924
    },
-   "mass": 0.045335924,
+   "mass": 0.045077,
    "finish": "",
    "cG": "",
    "diameter": 0.6096,
-   "dragCoefficient": 1.55,
+   "dragCoefficient": 1.5,
    "sides": 8,
    "lineCount": 8,
    "lineLength": 0.70104,
@@ -54291,23 +54089,24 @@
     "type": "LINE",
     "density": 0.001202975
    },
-   "source": "desktop-24.12"
+   "source": "desktop-24.12",
+   "spillHoleDiameter": 0.12192
   },
   {
    "kind": "Parachute",
    "manufacturer": "Fruity Chutes",
    "partNo": "CFC-030-N",
-   "description": "Elliptical Parachute [Cd 1.55 (3.1 oz) 15.9 in^3]",
+   "description": "30\" Classic Elliptical — Cd 1.5, 3.1 oz, 8 gores",
    "material": {
     "name": "Ripstop nylon, lightweight, 3 mil",
     "type": "SURFACE",
     "density": 0.035653924
    },
-   "mass": 0.08788352,
+   "mass": 0.087885,
    "finish": "",
    "cG": "",
    "diameter": 0.762,
-   "dragCoefficient": 1.55,
+   "dragCoefficient": 1.5,
    "sides": 8,
    "lineCount": 8,
    "lineLength": 0.8763,
@@ -54318,23 +54117,24 @@
     "type": "LINE",
     "density": 0.002952756
    },
-   "source": "desktop-24.12"
+   "source": "desktop-24.12",
+   "spillHoleDiameter": 0.1524
   },
   {
    "kind": "Parachute",
    "manufacturer": "Fruity Chutes",
    "partNo": "CFC-030-S",
-   "description": "Compact Elliptical Parachute [Cd 1.55 (2.1 oz) 11.6 in^3)",
+   "description": "30\" Classic Elliptical Compact — Cd 1.5, 2.1 oz, 8 gores",
    "material": {
     "name": "Ripstop nylon, lightweight, 3 mil",
     "type": "SURFACE",
     "density": 0.035653924
    },
-   "mass": 0.059534,
+   "mass": 0.059,
    "finish": "",
    "cG": "",
    "diameter": 0.762,
-   "dragCoefficient": 1.55,
+   "dragCoefficient": 1.5,
    "sides": 8,
    "lineCount": 8,
    "lineLength": 0.8763,
@@ -54345,23 +54145,24 @@
     "type": "LINE",
     "density": 0.001202975
    },
-   "source": "desktop-24.12"
+   "source": "desktop-24.12",
+   "spillHoleDiameter": 0.1524
   },
   {
    "kind": "Parachute",
    "manufacturer": "Fruity Chutes",
    "partNo": "CFC-036-N",
-   "description": "Elliptical Parachute [Cd 1.55 (4.5 oz) 21.2 in^3]",
+   "description": "36\" Classic Elliptical — Cd 1.5, 4.5 oz, 12 gores",
    "material": {
     "name": "Ripstop nylon, lightweight, 3 mil",
     "type": "SURFACE",
     "density": 0.035653924
    },
-   "mass": 0.12757285,
+   "mass": 0.127575,
    "finish": "",
    "cG": "",
    "diameter": 0.9144,
-   "dragCoefficient": 1.55,
+   "dragCoefficient": 1.5,
    "sides": 12,
    "lineCount": 12,
    "lineLength": 1.05156,
@@ -54372,23 +54173,27 @@
     "type": "LINE",
     "density": 0.003718285
    },
-   "source": "desktop-24.12"
+   "source": "desktop-24.12",
+   "spillHoleDiameter": 0.18288,
+   "altPartNos": [
+    "29165"
+   ]
   },
   {
    "kind": "Parachute",
    "manufacturer": "Fruity Chutes",
    "partNo": "CFC-036-S",
-   "description": "Compact Elliptical Parachute [Cd 1.55 (3.3 oz) 18.0 in^3)",
+   "description": "36\" Classic Elliptical Compact — Cd 1.5, 3.3 oz, 12 gores",
    "material": {
     "name": "Ripstop nylon, lightweight, 3 mil",
     "type": "SURFACE",
     "density": 0.035653924
    },
-   "mass": 0.09355343,
+   "mass": 0.092,
    "finish": "",
    "cG": "",
    "diameter": 0.9144,
-   "dragCoefficient": 1.55,
+   "dragCoefficient": 1.5,
    "sides": 12,
    "lineCount": 12,
    "lineLength": 1.05156,
@@ -54399,23 +54204,24 @@
     "type": "LINE",
     "density": 0.001202975
    },
-   "source": "desktop-24.12"
+   "source": "desktop-24.12",
+   "spillHoleDiameter": 0.18288
   },
   {
    "kind": "Parachute",
    "manufacturer": "Fruity Chutes",
    "partNo": "CFC-042-N",
-   "description": "Elliptical Parachute [Cd 1.55 (5.7 oz) 31.9 in^3]",
+   "description": "42\" Classic Elliptical — Cd 1.5, 5.7 oz, 12 gores",
    "material": {
     "name": "Ripstop nylon, lightweight, 3 mil",
     "type": "SURFACE",
     "density": 0.035653924
    },
-   "mass": 0.16159228,
+   "mass": 0.161595,
    "finish": "",
    "cG": "",
    "diameter": 1.0668,
-   "dragCoefficient": 1.55,
+   "dragCoefficient": 1.5,
    "sides": 12,
    "lineCount": 12,
    "lineLength": 1.22682,
@@ -54426,23 +54232,24 @@
     "type": "LINE",
     "density": 0.003718285
    },
-   "source": "desktop-24.12"
+   "source": "desktop-24.12",
+   "spillHoleDiameter": 0.21336
   },
   {
    "kind": "Parachute",
    "manufacturer": "Fruity Chutes",
    "partNo": "CFC-048-N",
-   "description": "Elliptical Parachute [Cd 1.55 (7.3 oz) 37.2 in^3]",
+   "description": "48\" Classic Elliptical — Cd 1.5, 7.3 oz, 12 gores",
    "material": {
     "name": "Ripstop nylon, lightweight, 3 mil",
     "type": "SURFACE",
     "density": 0.035653924
    },
-   "mass": 0.20695152,
+   "mass": 0.206955,
    "finish": "",
    "cG": "",
    "diameter": 1.2192,
-   "dragCoefficient": 1.55,
+   "dragCoefficient": 1.5,
    "sides": 12,
    "lineCount": 12,
    "lineLength": 1.40208,
@@ -54453,23 +54260,27 @@
     "type": "LINE",
     "density": 0.002952756
    },
-   "source": "desktop-24.12"
+   "source": "desktop-24.12",
+   "spillHoleDiameter": 0.24384,
+   "altPartNos": [
+    "29167"
+   ]
   },
   {
    "kind": "Parachute",
    "manufacturer": "Fruity Chutes",
    "partNo": "CFC-060-N",
-   "description": "Elliptical Parachute [Cd 1.55 (10.0 oz) 66.0 in^3]",
+   "description": "60\" Classic Elliptical — Cd 1.5, 10 oz, 12 gores",
    "material": {
     "name": "Ripstop nylon, lightweight, 3 mil",
     "type": "SURFACE",
     "density": 0.035653924
    },
-   "mass": 0.28349523,
+   "mass": 0.2835,
    "finish": "",
    "cG": "",
    "diameter": 1.524,
-   "dragCoefficient": 1.55,
+   "dragCoefficient": 1.5,
    "sides": 12,
    "lineCount": 12,
    "lineLength": 1.7526,
@@ -54480,23 +54291,24 @@
     "type": "LINE",
     "density": 0.002952756
    },
-   "source": "desktop-24.12"
+   "source": "desktop-24.12",
+   "spillHoleDiameter": 0.3048
   },
   {
    "kind": "Parachute",
    "manufacturer": "Fruity Chutes",
    "partNo": "CFC-072-N",
-   "description": "L3 Elliptical Parachute [Cd 1.55 (17.0 oz) 81.7 in^3]",
+   "description": "72\" Classic Elliptical — Cd 1.5, 17 oz, 12 gores",
    "material": {
     "name": "Ripstop nylon, lightweight, 3 mil",
     "type": "SURFACE",
     "density": 0.035653924
    },
-   "mass": 0.48194189,
+   "mass": 0.48195,
    "finish": "",
    "cG": "",
    "diameter": 1.8288,
-   "dragCoefficient": 1.55,
+   "dragCoefficient": 1.5,
    "sides": 12,
    "lineCount": 12,
    "lineLength": 2.10312,
@@ -54507,23 +54319,24 @@
     "type": "LINE",
     "density": 0.002952756
    },
-   "source": "desktop-24.12"
+   "source": "desktop-24.12",
+   "spillHoleDiameter": 0.36576
   },
   {
    "kind": "Parachute",
    "manufacturer": "Fruity Chutes",
    "partNo": "CFC-084-N",
-   "description": "L3 Elliptical Parachute [Cd 1.55 (21.0 oz) 106.8 in^3]",
+   "description": "84\" Classic Elliptical — Cd 1.5, 21 oz, 14 gores",
    "material": {
     "name": "Ripstop nylon, lightweight, 3 mil",
     "type": "SURFACE",
     "density": 0.035653924
    },
-   "mass": 0.59533998,
+   "mass": 0.59535,
    "finish": "",
    "cG": "",
    "diameter": 2.1336,
-   "dragCoefficient": 1.55,
+   "dragCoefficient": 1.5,
    "sides": 14,
    "lineCount": 14,
    "lineLength": 2.45364,
@@ -54534,25 +54347,26 @@
     "type": "LINE",
     "density": 0.002952756
    },
-   "source": "desktop-24.12"
+   "source": "desktop-24.12",
+   "spillHoleDiameter": 0.42672
   },
   {
    "kind": "Parachute",
    "manufacturer": "Fruity Chutes",
    "partNo": "CFC-096-N",
-   "description": "L3 Elliptical Parachute [Cd 1.55 (30 oz) 151.2 in^3]",
+   "description": "96\" Classic Elliptical — Cd 1.5, 30 oz, 12 gores",
    "material": {
     "name": "Ripstop nylon, lightweight, 3 mil",
     "type": "SURFACE",
     "density": 0.035653924
    },
-   "mass": 0.85048569,
+   "mass": 0.8505,
    "finish": "",
    "cG": "",
    "diameter": 2.4384,
-   "dragCoefficient": 1.55,
+   "dragCoefficient": 1.5,
    "sides": 16,
-   "lineCount": 16,
+   "lineCount": 12,
    "lineLength": 2.80416,
    "packedDiameter": 0.1016,
    "packedLength": 0.3048,
@@ -54561,25 +54375,26 @@
     "type": "LINE",
     "density": 0.002952756
    },
-   "source": "desktop-24.12"
+   "source": "desktop-24.12",
+   "spillHoleDiameter": 0.48768
   },
   {
    "kind": "Parachute",
    "manufacturer": "Fruity Chutes",
    "partNo": "CFC-120-N",
-   "description": "L3 Elliptical Parachute [Cd 1.55 (36.0 oz) 190.1 in^3]",
+   "description": "120\" Classic Elliptical — Cd 1.5, 36 oz, 12 gores",
    "material": {
     "name": "Ripstop nylon, lightweight, 3 mil",
     "type": "SURFACE",
     "density": 0.035653924
    },
-   "mass": 1.0205828,
+   "mass": 1.0206,
    "finish": "",
    "cG": "",
    "diameter": 3.048,
-   "dragCoefficient": 1.55,
+   "dragCoefficient": 1.5,
    "sides": 16,
-   "lineCount": 16,
+   "lineCount": 12,
    "lineLength": 3.5052,
    "packedDiameter": 0.1397,
    "packedLength": 0.2032,
@@ -54588,19 +54403,20 @@
     "type": "LINE",
     "density": 0.002952756
    },
-   "source": "desktop-24.12"
+   "source": "desktop-24.12",
+   "spillHoleDiameter": 0.6096
   },
   {
    "kind": "Parachute",
    "manufacturer": "Fruity Chutes",
    "partNo": "IFC-030-S",
-   "description": "Iris Ultra Compact Parachute [Cd 2.2 (1.88 oz) 10.5 in^3]",
+   "description": "30\" Iris Ultra Compact — Cd 2.2, 1.9 oz, 8 gores",
    "material": {
     "name": "Ripstop nylon, lightweight, 3 mil",
     "type": "SURFACE",
     "density": 0.035653924
    },
-   "mass": 0.0532971,
+   "mass": 0.05344,
    "finish": "",
    "cG": "",
    "diameter": 0.762,
@@ -54615,19 +54431,20 @@
     "type": "LINE",
     "density": 0.000656168
    },
-   "source": "desktop-24.12"
+   "source": "desktop-24.12",
+   "spillHoleDiameter": 0.134112
   },
   {
    "kind": "Parachute",
    "manufacturer": "Fruity Chutes",
    "partNo": "IFC-030-SL",
-   "description": "Iris Ultra Light Parachute [Cd 2.2 (1.6 oz) 9.0 in^3]",
+   "description": "30\" Iris Light — Cd 2.2, 1.6 oz, 6 gores",
    "material": {
     "name": "Ripstop nylon, lightweight, 3 mil",
     "type": "SURFACE",
     "density": 0.035653924
    },
-   "mass": 0.04535924,
+   "mass": 0.046069,
    "finish": "",
    "cG": "",
    "diameter": 0.762,
@@ -54642,19 +54459,20 @@
     "type": "LINE",
     "density": 0.000656168
    },
-   "source": "desktop-24.12"
+   "source": "desktop-24.12",
+   "spillHoleDiameter": 0.134112
   },
   {
    "kind": "Parachute",
    "manufacturer": "Fruity Chutes",
    "partNo": "IFC-036-N",
-   "description": "Iris Ultra Parachute [Cd 2.2 (5.0 oz) 27.6 in^3]",
+   "description": "36\" Iris Ultra Standard — Cd 2.2, 5.0 oz, 8 gores",
    "material": {
     "name": "Ripstop nylon, lightweight, 3 mil",
     "type": "SURFACE",
     "density": 0.035653924
    },
-   "mass": 0.14174762,
+   "mass": 0.14175,
    "finish": "",
    "cG": "",
    "diameter": 0.9144,
@@ -54668,19 +54486,20 @@
     "name": "Nylon IIIa Paraline [flat 6.4 mm, 1/4 in]",
     "type": "LINE"
    },
-   "source": "desktop-24.12"
+   "source": "desktop-24.12",
+   "spillHoleDiameter": 0.160934
   },
   {
    "kind": "Parachute",
    "manufacturer": "Fruity Chutes",
    "partNo": "IFC-036-S",
-   "description": "Iris Ultra Compact Parachute [Cd 2.2 (2.41 oz) 13.4 in^3]",
+   "description": "36\" Iris Ultra Compact — Cd 2.2, 2.4 oz, 8 gores",
    "material": {
     "name": "Ripstop nylon, lightweight, 3 mil",
     "type": "SURFACE",
     "density": 0.035653924
    },
-   "mass": 0.06832235,
+   "mass": 0.068323,
    "finish": "",
    "cG": "",
    "diameter": 0.9144,
@@ -54695,19 +54514,20 @@
     "type": "LINE",
     "density": 0.000656168
    },
-   "source": "desktop-24.12"
+   "source": "desktop-24.12",
+   "spillHoleDiameter": 0.160934
   },
   {
    "kind": "Parachute",
    "manufacturer": "Fruity Chutes",
    "partNo": "IFC-036-SL",
-   "description": "Iris Ultra Light Parachute [Cd 2.2 (2.1 oz) 11.9 in^3]",
+   "description": "36\" Iris Light — Cd 2.2, 2.1 oz, 6 gores",
    "material": {
     "name": "Ripstop nylon, lightweight, 3 mil",
     "type": "SURFACE",
     "density": 0.035653924
    },
-   "mass": 0.059534,
+   "mass": 0.060811,
    "finish": "",
    "cG": "",
    "diameter": 0.9144,
@@ -54722,19 +54542,20 @@
     "type": "LINE",
     "density": 0.000656168
    },
-   "source": "desktop-24.12"
+   "source": "desktop-24.12",
+   "spillHoleDiameter": 0.160934
   },
   {
    "kind": "Parachute",
    "manufacturer": "Fruity Chutes",
    "partNo": "IFC-036-SR",
-   "description": "Iris Ultra HP Compact Parachute [Cd 2.2 (2.9 oz) 16.1 in^3]",
+   "description": "36\" Iris Ultra Compact HP — Cd 2.2, 2.9 oz, 8 gores",
    "material": {
     "name": "Ripstop nylon, lightweight, 3 mil",
     "type": "SURFACE",
     "density": 0.035653924
    },
-   "mass": 0.08221362,
+   "mass": 0.08222,
    "finish": "",
    "cG": "",
    "diameter": 0.9144,
@@ -54749,25 +54570,26 @@
     "type": "LINE",
     "density": 0.001202975
    },
-   "source": "desktop-24.12"
+   "source": "desktop-24.12",
+   "spillHoleDiameter": 0.160934
   },
   {
    "kind": "Parachute",
    "manufacturer": "Fruity Chutes",
    "partNo": "IFC-042-SL",
-   "description": "Iris Ultra Light Parachute [Cd 2.2 (2.9 oz) 16.1 in^3]",
+   "description": "42\" Iris Light — Cd 2.2, 3.0 oz, 6 gores",
    "material": {
     "name": "Ripstop nylon, lightweight, 3 mil",
     "type": "SURFACE",
     "density": 0.035653924
    },
-   "mass": 0.08221362,
+   "mass": 0.083916,
    "finish": "",
    "cG": "",
    "diameter": 1.0668,
    "dragCoefficient": 2.2,
    "sides": 8,
-   "lineCount": 8,
+   "lineCount": 6,
    "lineLength": 1.22682,
    "packedDiameter": 0.04826,
    "packedLength": 0.14478,
@@ -54776,19 +54598,20 @@
     "type": "LINE",
     "density": 0.000656168
    },
-   "source": "desktop-24.12"
+   "source": "desktop-24.12",
+   "spillHoleDiameter": 0.187757
   },
   {
    "kind": "Parachute",
    "manufacturer": "Fruity Chutes",
    "partNo": "IFC-048-N",
-   "description": "Iris Ultra Parachute [Cd 2.2 (7.5 oz) 41.4 in^3]",
+   "description": "48\" Iris Ultra Standard — Cd 2.2, 7.5 oz, 8 gores",
    "material": {
     "name": "Ripstop nylon, lightweight, 3 mil",
     "type": "SURFACE",
     "density": 0.035653924
    },
-   "mass": 0.21262142,
+   "mass": 0.212625,
    "finish": "",
    "cG": "",
    "diameter": 1.2192,
@@ -54802,19 +54625,23 @@
     "name": "Nylon IIIa Paraline [flat 6.4 mm, 1/4 in]",
     "type": "LINE"
    },
-   "source": "desktop-24.12"
+   "source": "desktop-24.12",
+   "spillHoleDiameter": 0.214579,
+   "altPartNos": [
+    "29181"
+   ]
   },
   {
    "kind": "Parachute",
    "manufacturer": "Fruity Chutes",
    "partNo": "IFC-048-S",
-   "description": "Iris Ultra Compact Parachute [Cd 2.2 (4.3 oz) 26.0 in^3]",
+   "description": "48\" Iris Ultra Compact — Cd 2.2, 4.3 oz, 8 gores",
    "material": {
     "name": "Ripstop nylon, lightweight, 3 mil",
     "type": "SURFACE",
     "density": 0.035653924
    },
-   "mass": 0.12190295,
+   "mass": 0.121905,
    "finish": "",
    "cG": "",
    "diameter": 1.2192,
@@ -54829,19 +54656,20 @@
     "type": "LINE",
     "density": 0.001202975
    },
-   "source": "desktop-24.12"
+   "source": "desktop-24.12",
+   "spillHoleDiameter": 0.214579
   },
   {
    "kind": "Parachute",
    "manufacturer": "Fruity Chutes",
    "partNo": "IFC-060-N",
-   "description": "Iris Ultra Parachute [Cd 2.2 (10.9 oz) 60.0 in^3]",
+   "description": "60\" Iris Ultra Standard — Cd 2.2, 11 oz, 12 gores",
    "material": {
     "name": "Ripstop nylon, lightweight, 3 mil",
     "type": "SURFACE",
     "density": 0.035653924
    },
-   "mass": 0.3090098,
+   "mass": 0.309015,
    "finish": "",
    "cG": "",
    "diameter": 1.524,
@@ -54855,19 +54683,23 @@
     "name": "Nylon IIIa Paraline [flat 6.4 mm, 1/4 in]",
     "type": "LINE"
    },
-   "source": "desktop-24.12"
+   "source": "desktop-24.12",
+   "spillHoleDiameter": 0.268224,
+   "altPartNos": [
+    "29182"
+   ]
   },
   {
    "kind": "Parachute",
    "manufacturer": "Fruity Chutes",
    "partNo": "IFC-060-S",
-   "description": "Iris Ultra Compact Parachute [Cd 2.2 (4.3 oz) 26.0 in^3]",
+   "description": "60\" Iris Ultra Compact — Cd 2.2, 6.8 oz, 12 gores",
    "material": {
     "name": "Ripstop nylon, lightweight, 3 mil",
     "type": "SURFACE",
     "density": 0.035653924
    },
-   "mass": 0.19277676,
+   "mass": 0.19278,
    "finish": "",
    "cG": "",
    "diameter": 1.524,
@@ -54882,19 +54714,20 @@
     "type": "LINE",
     "density": 0.001202975
    },
-   "source": "desktop-24.12"
+   "source": "desktop-24.12",
+   "spillHoleDiameter": 0.268224
   },
   {
    "kind": "Parachute",
    "manufacturer": "Fruity Chutes",
    "partNo": "IFC-072-N",
-   "description": "Iris Ultra Parachute [Cd 2.2 (13.4 oz) 74.1 in^3]",
+   "description": "72\" Iris Ultra Standard — Cd 2.2, 13 oz, 12 gores",
    "material": {
     "name": "Ripstop nylon, lightweight, 3 mil",
     "type": "SURFACE",
     "density": 0.035653924
    },
-   "mass": 0.37988361,
+   "mass": 0.37989,
    "finish": "",
    "cG": "",
    "diameter": 1.8288,
@@ -54908,19 +54741,23 @@
     "name": "Nylon IIIa Paraline [flat 6.4 mm, 1/4 in]",
     "type": "LINE"
    },
-   "source": "desktop-24.12"
+   "source": "desktop-24.12",
+   "spillHoleDiameter": 0.321869,
+   "altPartNos": [
+    "29183"
+   ]
   },
   {
    "kind": "Parachute",
    "manufacturer": "Fruity Chutes",
    "partNo": "IFC-072-S",
-   "description": "Iris Ultra Compact Parachute [Cd 2.2 (8.8 oz) 49.0 in^3]",
+   "description": "72\" Iris Ultra Compact — Cd 2.2, 9.0 oz, 12 gores",
    "material": {
     "name": "Ripstop nylon, lightweight, 3 mil",
     "type": "SURFACE",
     "density": 0.035653924
    },
-   "mass": 0.2494758,
+   "mass": 0.25515,
    "finish": "",
    "cG": "",
    "diameter": 1.8288,
@@ -54935,19 +54772,20 @@
     "type": "LINE",
     "density": 0.001202975
    },
-   "source": "desktop-24.12"
+   "source": "desktop-24.12",
+   "spillHoleDiameter": 0.321869
   },
   {
    "kind": "Parachute",
    "manufacturer": "Fruity Chutes",
    "partNo": "IFC-084-N",
-   "description": "Iris Ultra Parachute [Cd 2.2 (19.0 oz) 105.1 in^3]",
+   "description": "84\" Iris Ultra Standard — Cd 2.2, 19 oz, 12 gores",
    "material": {
     "name": "Ripstop nylon, lightweight, 3 mil",
     "type": "SURFACE",
     "density": 0.035653924
    },
-   "mass": 0.53864094,
+   "mass": 0.53865,
    "finish": "",
    "cG": "",
    "diameter": 2.1336,
@@ -54961,19 +54799,23 @@
     "name": "Nylon IIIa Paraline [flat 6.4 mm, 1/4 in]",
     "type": "LINE"
    },
-   "source": "desktop-24.12"
+   "source": "desktop-24.12",
+   "spillHoleDiameter": 0.375514,
+   "altPartNos": [
+    "29184"
+   ]
   },
   {
    "kind": "Parachute",
    "manufacturer": "Fruity Chutes",
    "partNo": "IFC-084-S",
-   "description": "Iris Ultra Compact Parachute [Cd 2.2 (13.4 oz) 74.1 in^3]",
+   "description": "84\" Iris Ultra Compact — Cd 2.2, 12 oz, 12 gores",
    "material": {
     "name": "Ripstop nylon, lightweight, 3 mil",
     "type": "SURFACE",
     "density": 0.035653924
    },
-   "mass": 0.37988361,
+   "mass": 0.3402,
    "finish": "",
    "cG": "",
    "diameter": 2.1336,
@@ -54988,19 +54830,20 @@
     "type": "LINE",
     "density": 0.001202975
    },
-   "source": "desktop-24.12"
+   "source": "desktop-24.12",
+   "spillHoleDiameter": 0.375514
   },
   {
    "kind": "Parachute",
    "manufacturer": "Fruity Chutes",
    "partNo": "IFC-096-N",
-   "description": "Iris Ultra Parachute [Cd 2.2 (25.0 oz) 139.5 in^3]",
+   "description": "96\" Iris Ultra Standard — Cd 2.2, 25 oz, 12 gores",
    "material": {
     "name": "Ripstop nylon, lightweight, 3 mil",
     "type": "SURFACE",
     "density": 0.035653924
    },
-   "mass": 0.70873808,
+   "mass": 0.70875,
    "finish": "",
    "cG": "",
    "diameter": 2.4384,
@@ -55014,19 +54857,23 @@
     "name": "Nylon IIIa Paraline [flat 6.4 mm, 1/4 in]",
     "type": "LINE"
    },
-   "source": "desktop-24.12"
+   "source": "desktop-24.12",
+   "spillHoleDiameter": 0.429158,
+   "altPartNos": [
+    "29185"
+   ]
   },
   {
    "kind": "Parachute",
    "manufacturer": "Fruity Chutes",
    "partNo": "IFC-096-S",
-   "description": "Iris Ultra Compact Parachute [Cd 2.2 (16.3 oz) 90.5 in^3]",
+   "description": "96\" Iris Ultra Compact — Cd 2.2, 15 oz, 12 gores",
    "material": {
     "name": "Ripstop nylon, lightweight, 3 mil",
     "type": "SURFACE",
     "density": 0.035653924
    },
-   "mass": 0.046209723,
+   "mass": 0.425534,
    "finish": "",
    "cG": "",
    "diameter": 2.4384,
@@ -55041,19 +54888,20 @@
     "type": "LINE",
     "density": 0.001202975
    },
-   "source": "desktop-24.12"
+   "source": "desktop-24.12",
+   "spillHoleDiameter": 0.429158
   },
   {
    "kind": "Parachute",
    "manufacturer": "Fruity Chutes",
    "partNo": "IFC-120-N",
-   "description": "Iris Ultra Parachute [Cd 2.2 (36.0 oz) 199.9 in^3]",
+   "description": "120\" Iris Ultra Standard — Cd 2.2, 36 oz, 12 gores",
    "material": {
     "name": "Ripstop nylon, lightweight, 3 mil",
     "type": "SURFACE",
     "density": 0.035653924
    },
-   "mass": 1.0205828,
+   "mass": 1.0206,
    "finish": "",
    "cG": "",
    "diameter": 3.048,
@@ -55067,19 +54915,20 @@
     "name": "Nylon IIIa Paraline [flat 6.4 mm, 1/4 in]",
     "type": "LINE"
    },
-   "source": "desktop-24.12"
+   "source": "desktop-24.12",
+   "spillHoleDiameter": 0.536448
   },
   {
    "kind": "Parachute",
    "manufacturer": "Fruity Chutes",
    "partNo": "IFC-120-S",
-   "description": "Iris Ultra Compact Parachute [Cd 2.2 (22.0 oz) 128.2 in^3]",
+   "description": "120\" Iris Ultra Compact — Cd 2.2, 22 oz, 12 gores",
    "material": {
     "name": "Ripstop nylon, lightweight, 3 mil",
     "type": "SURFACE",
     "density": 0.035653924
    },
-   "mass": 0.62368951,
+   "mass": 0.6237,
    "finish": "",
    "cG": "",
    "diameter": 3.048,
@@ -55094,19 +54943,87 @@
     "type": "LINE",
     "density": 0.001202975
    },
-   "source": "desktop-24.12"
+   "source": "desktop-24.12",
+   "spillHoleDiameter": 0.536448
   },
   {
    "kind": "Parachute",
    "manufacturer": "Fruity Chutes",
-   "partNo": "IFC-144-S",
-   "description": "Iris Ultra Compact Parachute [Cd 2.2 (31.0 oz) 172.2 in^3]",
+   "partNo": "IFC-120-SUL",
+   "description": "120\" Iris Ultra Ultralight — Cd 2.2, 12 oz, 12 gores",
    "material": {
     "name": "Ripstop nylon, lightweight, 3 mil",
     "type": "SURFACE",
     "density": 0.035653924
    },
-   "mass": 0.87883522,
+   "lineMaterial": {
+    "name": "Nylon IIIa Paraline [flat 6.4 mm, 1/4 in]",
+    "type": "LINE"
+   },
+   "mass": 0.35012,
+   "diameter": 3.048,
+   "spillHoleDiameter": 0.536448,
+   "dragCoefficient": 2.2,
+   "lineCount": 12,
+   "lineLength": 3.5052,
+   "source": "fruitychutes.com"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Fruity Chutes",
+   "partNo": "IFC-120-SULR",
+   "description": "120\" Iris Ultra Ultralight — Cd 2.2, 13 oz, 12 gores",
+   "material": {
+    "name": "Ripstop nylon, lightweight, 3 mil",
+    "type": "SURFACE",
+    "density": 0.035653924
+   },
+   "lineMaterial": {
+    "name": "Nylon IIIa Paraline [flat 6.4 mm, 1/4 in]",
+    "type": "LINE"
+   },
+   "mass": 0.35891,
+   "diameter": 3.048,
+   "spillHoleDiameter": 0.536448,
+   "dragCoefficient": 2.2,
+   "lineCount": 12,
+   "lineLength": 3.5052,
+   "source": "fruitychutes.com"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Fruity Chutes",
+   "partNo": "IFC-144",
+   "description": "144\" Iris Ultra Standard — Cd 2.2, 49 oz, 14 gores",
+   "material": {
+    "name": "Ripstop nylon, lightweight, 3 mil",
+    "type": "SURFACE",
+    "density": 0.035653924
+   },
+   "lineMaterial": {
+    "name": "Spectra #400 [Oval 2.55 mm, 3/32in]",
+    "type": "LINE",
+    "density": 0.001202975
+   },
+   "mass": 1.38915,
+   "diameter": 3.6576,
+   "spillHoleDiameter": 0.643738,
+   "dragCoefficient": 2.2,
+   "lineCount": 14,
+   "lineLength": 4.191,
+   "source": "fruitychutes.com"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Fruity Chutes",
+   "partNo": "IFC-144-S",
+   "description": "144\" Iris Ultra Compact — Cd 2.2, 31 oz, 14 gores",
+   "material": {
+    "name": "Ripstop nylon, lightweight, 3 mil",
+    "type": "SURFACE",
+    "density": 0.035653924
+   },
+   "mass": 0.87885,
    "finish": "",
    "cG": "",
    "diameter": 3.6576,
@@ -55121,19 +55038,66 @@
     "type": "LINE",
     "density": 0.001202975
    },
-   "source": "desktop-24.12"
+   "source": "desktop-24.12",
+   "spillHoleDiameter": 0.643738
   },
   {
    "kind": "Parachute",
    "manufacturer": "Fruity Chutes",
-   "partNo": "IFC-168-S",
-   "description": "Iris Ultra Compact Parachute [Cd 2.2 (60.0 oz) 245.2 in^3]",
+   "partNo": "IFC-144-SULR",
+   "description": "144\" Iris Ultra Ultralight — Cd 2.2, 17 oz, 12 gores",
    "material": {
     "name": "Ripstop nylon, lightweight, 3 mil",
     "type": "SURFACE",
     "density": 0.035653924
    },
-   "mass": 1.247379,
+   "lineMaterial": {
+    "name": "Spectra #400 [Oval 2.55 mm, 3/32in]",
+    "type": "LINE",
+    "density": 0.001202975
+   },
+   "mass": 0.49471,
+   "diameter": 3.6576,
+   "spillHoleDiameter": 0.643738,
+   "dragCoefficient": 2.2,
+   "lineCount": 12,
+   "lineLength": 4.191,
+   "source": "fruitychutes.com"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Fruity Chutes",
+   "partNo": "IFC-168",
+   "description": "168\" Iris Ultra Standard — Cd 2.2, 56 oz, 16 gores",
+   "material": {
+    "name": "Ripstop nylon, lightweight, 3 mil",
+    "type": "SURFACE",
+    "density": 0.035653924
+   },
+   "lineMaterial": {
+    "name": "Spectra #400 [Oval 2.55 mm, 3/32in]",
+    "type": "LINE",
+    "density": 0.001202975
+   },
+   "mass": 1.5876,
+   "diameter": 4.2672,
+   "spillHoleDiameter": 0.751027,
+   "dragCoefficient": 2.2,
+   "lineCount": 16,
+   "lineLength": 4.90728,
+   "source": "fruitychutes.com"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Fruity Chutes",
+   "partNo": "IFC-168-S",
+   "description": "168\" Iris Ultra Compact — Cd 2.2, 43 oz, 16 gores",
+   "material": {
+    "name": "Ripstop nylon, lightweight, 3 mil",
+    "type": "SURFACE",
+    "density": 0.035653924
+   },
+   "mass": 1.21905,
    "finish": "",
    "cG": "",
    "diameter": 4.2672,
@@ -55148,19 +55112,66 @@
     "type": "LINE",
     "density": 0.001202975
    },
-   "source": "desktop-24.12"
+   "source": "desktop-24.12",
+   "spillHoleDiameter": 0.751027
   },
   {
    "kind": "Parachute",
    "manufacturer": "Fruity Chutes",
-   "partNo": "IFC-192-S",
-   "description": "Iris Ultra Compact Parachute [Cd 2.2 (60.0 oz) 322.2 in^3]",
+   "partNo": "IFC-168-SULR",
+   "description": "168\" Iris Ultra Ultralight — Cd 2.2, 26 oz, 12 gores",
    "material": {
     "name": "Ripstop nylon, lightweight, 3 mil",
     "type": "SURFACE",
     "density": 0.035653924
    },
-   "mass": 1.7009714,
+   "lineMaterial": {
+    "name": "Spectra #400 [Oval 2.55 mm, 3/32in]",
+    "type": "LINE",
+    "density": 0.001202975
+   },
+   "mass": 0.732,
+   "diameter": 4.2672,
+   "spillHoleDiameter": 0.751027,
+   "dragCoefficient": 2.2,
+   "lineCount": 12,
+   "lineLength": 4.90728,
+   "source": "fruitychutes.com"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Fruity Chutes",
+   "partNo": "IFC-192",
+   "description": "192\" Iris Ultra Standard — Cd 2.2, 75 oz, 18 gores",
+   "material": {
+    "name": "Ripstop nylon, lightweight, 3 mil",
+    "type": "SURFACE",
+    "density": 0.035653924
+   },
+   "lineMaterial": {
+    "name": "Spectra #400 [Oval 2.55 mm, 3/32in]",
+    "type": "LINE",
+    "density": 0.001202975
+   },
+   "mass": 2.12625,
+   "diameter": 4.8768,
+   "spillHoleDiameter": 0.858317,
+   "dragCoefficient": 2.2,
+   "lineCount": 18,
+   "lineLength": 5.60832,
+   "source": "fruitychutes.com"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Fruity Chutes",
+   "partNo": "IFC-192-S",
+   "description": "192\" Iris Ultra Compact — Cd 2.2, 58 oz, 18 gores",
+   "material": {
+    "name": "Ripstop nylon, lightweight, 3 mil",
+    "type": "SURFACE",
+    "density": 0.035653924
+   },
+   "mass": 1.6443,
    "finish": "",
    "cG": "",
    "diameter": 4.8768,
@@ -55175,25 +55186,26 @@
     "type": "LINE",
     "density": 0.001202975
    },
-   "source": "desktop-24.12"
+   "source": "desktop-24.12",
+   "spillHoleDiameter": 0.858317
   },
   {
    "kind": "Parachute",
    "manufacturer": "Fruity Chutes",
    "partNo": "IFC-240-S",
-   "description": "Iris Ultra Compact Parachute [Cd 2.2 (101.0 oz) 472.2 in^3]",
+   "description": "240\" Iris Ultra Compact — Cd 2.2, 102 oz, 18 gores",
    "material": {
     "name": "Ripstop nylon, lightweight, 3 mil",
     "type": "SURFACE",
     "density": 0.035653924
    },
-   "mass": 2.8633018,
+   "mass": 2.9,
    "finish": "",
    "cG": "",
    "diameter": 6.096,
    "dragCoefficient": 2.2,
    "sides": 24,
-   "lineCount": 24,
+   "lineCount": 18,
    "lineLength": 7.0104,
    "packedDiameter": 0.1905,
    "packedLength": 0.27178,
@@ -55202,7 +55214,435 @@
     "type": "LINE",
     "density": 0.001202975
    },
-   "source": "desktop-24.12"
+   "source": "desktop-24.12",
+   "spillHoleDiameter": 1.072896
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Fruity Chutes",
+   "partNo": "IFC-240-SP",
+   "description": "240\" Iris Ultra Compact Reinforced — Cd 2.2, 106 oz, 18 gores",
+   "material": {
+    "name": "Ripstop nylon, lightweight, 3 mil",
+    "type": "SURFACE",
+    "density": 0.035653924
+   },
+   "lineMaterial": {
+    "name": "Spectra #400 [Oval 2.55 mm, 3/32in]",
+    "type": "LINE",
+    "density": 0.001202975
+   },
+   "mass": 3.009,
+   "diameter": 6.096,
+   "spillHoleDiameter": 1.072896,
+   "dragCoefficient": 2.2,
+   "lineCount": 18,
+   "lineLength": 7.0104,
+   "source": "fruitychutes.com"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Fruity Chutes",
+   "partNo": "IFC-240-SPR",
+   "description": "240\" Iris Ultra Compact Reinforced — Cd 2.2, 126 oz, 18 gores",
+   "material": {
+    "name": "Ripstop nylon, lightweight, 3 mil",
+    "type": "SURFACE",
+    "density": 0.035653924
+   },
+   "lineMaterial": {
+    "name": "Spectra #400 [Oval 2.55 mm, 3/32in]",
+    "type": "LINE",
+    "density": 0.001202975
+   },
+   "mass": 3.57,
+   "diameter": 6.096,
+   "spillHoleDiameter": 1.072896,
+   "dragCoefficient": 2.2,
+   "lineCount": 18,
+   "lineLength": 7.0104,
+   "source": "fruitychutes.com"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Fruity Chutes",
+   "partNo": "IFC-30-SUL",
+   "description": "30\" Iris Ultra Ultralight — Cd 2.2, 1.7 oz, 8 gores",
+   "material": {
+    "name": "Ripstop nylon, lightweight, 3 mil",
+    "type": "SURFACE",
+    "density": 0.035653924
+   },
+   "lineMaterial": {
+    "name": "Spectra #200 [Round 1.5 mm, 1/16 in]",
+    "type": "LINE",
+    "density": 0.000656168
+   },
+   "mass": 0.04905,
+   "diameter": 0.762,
+   "spillHoleDiameter": 0.134112,
+   "dragCoefficient": 2.2,
+   "lineCount": 8,
+   "lineLength": 0.8763,
+   "source": "fruitychutes.com"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Fruity Chutes",
+   "partNo": "IFC-30-SUZ",
+   "description": "30\" Iris Ultra Zero — Cd 2.2, 1.0 oz, 8 gores",
+   "material": {
+    "name": "Ripstop nylon, lightweight, 3 mil",
+    "type": "SURFACE",
+    "density": 0.035653924
+   },
+   "lineMaterial": {
+    "name": "Spectra #200 [Round 1.5 mm, 1/16 in]",
+    "type": "LINE",
+    "density": 0.000656168
+   },
+   "mass": 0.02778,
+   "diameter": 0.762,
+   "spillHoleDiameter": 0.134112,
+   "dragCoefficient": 2.2,
+   "lineCount": 8,
+   "lineLength": 0.8763,
+   "source": "fruitychutes.com"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Fruity Chutes",
+   "partNo": "IFC-36-SUL",
+   "description": "36\" Iris Ultra Ultralight — Cd 2.2, 1.7 oz, 8 gores",
+   "material": {
+    "name": "Ripstop nylon, lightweight, 3 mil",
+    "type": "SURFACE",
+    "density": 0.035653924
+   },
+   "lineMaterial": {
+    "name": "Nylon IIIa Paraline [flat 6.4 mm, 1/4 in]",
+    "type": "LINE"
+   },
+   "mass": 0.04905,
+   "diameter": 0.9144,
+   "spillHoleDiameter": 0.160934,
+   "dragCoefficient": 2.2,
+   "lineCount": 8,
+   "lineLength": 1.05156,
+   "source": "fruitychutes.com"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Fruity Chutes",
+   "partNo": "IFC-36-SUZ",
+   "description": "36\" Iris Ultra Zero — Cd 2.2, 1.3 oz, 8 gores",
+   "material": {
+    "name": "Ripstop nylon, lightweight, 3 mil",
+    "type": "SURFACE",
+    "density": 0.035653924
+   },
+   "lineMaterial": {
+    "name": "Nylon IIIa Paraline [flat 6.4 mm, 1/4 in]",
+    "type": "LINE"
+   },
+   "mass": 0.03714,
+   "diameter": 0.9144,
+   "spillHoleDiameter": 0.160934,
+   "dragCoefficient": 2.2,
+   "lineCount": 8,
+   "lineLength": 1.05156,
+   "source": "fruitychutes.com"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Fruity Chutes",
+   "partNo": "IFC-42-SUZ",
+   "description": "42\" Iris Ultra Zero — Cd 2.2, 1.6 oz, 8 gores",
+   "material": {
+    "name": "Ripstop nylon, lightweight, 3 mil",
+    "type": "SURFACE",
+    "density": 0.035653924
+   },
+   "lineMaterial": {
+    "name": "Spectra #200 [Round 1.5 mm, 1/16 in]",
+    "type": "LINE",
+    "density": 0.000656168
+   },
+   "mass": 0.04678,
+   "diameter": 1.0668,
+   "spillHoleDiameter": 0.187757,
+   "dragCoefficient": 2.2,
+   "lineCount": 8,
+   "lineLength": 1.22682,
+   "source": "fruitychutes.com"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Fruity Chutes",
+   "partNo": "IFC-48-SUL",
+   "description": "48\" Iris Ultra Ultralight — Cd 2.2, 2.6 oz, 8 gores",
+   "material": {
+    "name": "Ripstop nylon, lightweight, 3 mil",
+    "type": "SURFACE",
+    "density": 0.035653924
+   },
+   "lineMaterial": {
+    "name": "Nylon IIIa Paraline [flat 6.4 mm, 1/4 in]",
+    "type": "LINE"
+   },
+   "mass": 0.0744,
+   "diameter": 1.2192,
+   "spillHoleDiameter": 0.214579,
+   "dragCoefficient": 2.2,
+   "lineCount": 8,
+   "lineLength": 1.40208,
+   "source": "fruitychutes.com"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Fruity Chutes",
+   "partNo": "IFC-60-SUL",
+   "description": "60\" Iris Ultra Ultralight — Cd 2.2, 4.1 oz, 12 gores",
+   "material": {
+    "name": "Ripstop nylon, lightweight, 3 mil",
+    "type": "SURFACE",
+    "density": 0.035653924
+   },
+   "lineMaterial": {
+    "name": "Nylon IIIa Paraline [flat 6.4 mm, 1/4 in]",
+    "type": "LINE"
+   },
+   "mass": 0.1151,
+   "diameter": 1.524,
+   "spillHoleDiameter": 0.268224,
+   "dragCoefficient": 2.2,
+   "lineCount": 12,
+   "lineLength": 1.7526,
+   "source": "fruitychutes.com"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Fruity Chutes",
+   "partNo": "IFC-66-SUL",
+   "description": "66\" Iris Ultra Ultralight — Cd 2.2, 4.8 oz, 12 gores",
+   "material": {
+    "name": "Ripstop nylon, lightweight, 3 mil",
+    "type": "SURFACE",
+    "density": 0.035653924
+   },
+   "lineMaterial": {
+    "name": "Nylon IIIa Paraline [flat 6.4 mm, 1/4 in]",
+    "type": "LINE"
+   },
+   "mass": 0.1352,
+   "diameter": 1.6764,
+   "spillHoleDiameter": 0.295046,
+   "dragCoefficient": 2.2,
+   "lineCount": 12,
+   "lineLength": 1.92786,
+   "source": "fruitychutes.com"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Fruity Chutes",
+   "partNo": "IFC-72-SUL",
+   "description": "72\" Iris Ultra Ultralight — Cd 2.2, 5.5 oz, 12 gores",
+   "material": {
+    "name": "Ripstop nylon, lightweight, 3 mil",
+    "type": "SURFACE",
+    "density": 0.035653924
+   },
+   "lineMaterial": {
+    "name": "Nylon IIIa Paraline [flat 6.4 mm, 1/4 in]",
+    "type": "LINE"
+   },
+   "mass": 0.155,
+   "diameter": 1.8288,
+   "spillHoleDiameter": 0.321869,
+   "dragCoefficient": 2.2,
+   "lineCount": 12,
+   "lineLength": 2.10312,
+   "source": "fruitychutes.com"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Fruity Chutes",
+   "partNo": "IFC-72-ZP",
+   "description": "72\" Iris Ultra Compact ZP — Cd 3, 10 oz, 12 gores",
+   "material": {
+    "name": "Ripstop nylon, lightweight, 3 mil",
+    "type": "SURFACE",
+    "density": 0.035653924
+   },
+   "lineMaterial": {
+    "name": "Nylon IIIa Paraline [flat 6.4 mm, 1/4 in]",
+    "type": "LINE"
+   },
+   "mass": 0.289454,
+   "diameter": 1.8288,
+   "spillHoleDiameter": 0.321869,
+   "dragCoefficient": 3,
+   "lineCount": 12,
+   "lineLength": 2.10312,
+   "source": "fruitychutes.com"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Fruity Chutes",
+   "partNo": "IFC-84-SUL",
+   "description": "84\" Iris Ultra Ultralight — Cd 2.2, 6.9 oz, 12 gores",
+   "material": {
+    "name": "Ripstop nylon, lightweight, 3 mil",
+    "type": "SURFACE",
+    "density": 0.035653924
+   },
+   "lineMaterial": {
+    "name": "Nylon IIIa Paraline [flat 6.4 mm, 1/4 in]",
+    "type": "LINE"
+   },
+   "mass": 0.197,
+   "diameter": 2.1336,
+   "spillHoleDiameter": 0.375514,
+   "dragCoefficient": 2.2,
+   "lineCount": 12,
+   "lineLength": 2.45364,
+   "source": "fruitychutes.com"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Fruity Chutes",
+   "partNo": "IFC-96-SUL",
+   "description": "96\" Iris Ultra Ultralight — Cd 2.2, 8.4 oz, 12 gores",
+   "material": {
+    "name": "Ripstop nylon, lightweight, 3 mil",
+    "type": "SURFACE",
+    "density": 0.035653924
+   },
+   "lineMaterial": {
+    "name": "Nylon IIIa Paraline [flat 6.4 mm, 1/4 in]",
+    "type": "LINE"
+   },
+   "mass": 0.23814,
+   "diameter": 2.4384,
+   "spillHoleDiameter": 0.429158,
+   "dragCoefficient": 2.2,
+   "lineCount": 12,
+   "lineLength": 2.80416,
+   "source": "fruitychutes.com"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Fruity Chutes",
+   "partNo": "IFC-96-SULR",
+   "description": "96\" Iris Ultra Ultralight — Cd 2.2, 8.8 oz, 12 gores",
+   "material": {
+    "name": "Ripstop nylon, lightweight, 3 mil",
+    "type": "SURFACE",
+    "density": 0.035653924
+   },
+   "lineMaterial": {
+    "name": "Nylon IIIa Paraline [flat 6.4 mm, 1/4 in]",
+    "type": "LINE"
+   },
+   "mass": 0.25061,
+   "diameter": 2.4384,
+   "spillHoleDiameter": 0.429158,
+   "dragCoefficient": 2.2,
+   "lineCount": 12,
+   "lineLength": 2.80416,
+   "source": "fruitychutes.com"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Fruity Chutes",
+   "partNo": "TARC-16",
+   "description": "16\" TARC Elliptical — Cd 1.5, 0.8 oz, 6 gores",
+   "material": {
+    "name": "Ripstop nylon, lightweight, 3 mil",
+    "type": "SURFACE",
+    "density": 0.035653924
+   },
+   "lineMaterial": {
+    "name": "Nylon #200 IIa Paraline [flat 4.0 mm, 5/32 in]",
+    "type": "LINE",
+    "density": 0.002952756
+   },
+   "mass": 0.021263,
+   "diameter": 0.4064,
+   "spillHoleDiameter": 0.08128,
+   "dragCoefficient": 1.5,
+   "lineCount": 6,
+   "lineLength": 0.4572,
+   "source": "fruitychutes.com"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Fruity Chutes",
+   "partNo": "TARC-18",
+   "description": "18\" TARC Elliptical — Cd 1.5, 0.8 oz, 6 gores",
+   "material": {
+    "name": "Ripstop nylon, lightweight, 3 mil",
+    "type": "SURFACE",
+    "density": 0.035653924
+   },
+   "lineMaterial": {
+    "name": "Nylon #200 IIa Paraline [flat 4.0 mm, 5/32 in]",
+    "type": "LINE",
+    "density": 0.002952756
+   },
+   "mass": 0.02268,
+   "diameter": 0.4572,
+   "spillHoleDiameter": 0.09144,
+   "dragCoefficient": 1.5,
+   "lineCount": 6,
+   "lineLength": 0.51435,
+   "source": "fruitychutes.com"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Fruity Chutes",
+   "partNo": "TARC-20",
+   "description": "20\" TARC Elliptical — Cd 1.5, 0.8 oz, 6 gores",
+   "material": {
+    "name": "Ripstop nylon, lightweight, 3 mil",
+    "type": "SURFACE",
+    "density": 0.035653924
+   },
+   "lineMaterial": {
+    "name": "Nylon #200 IIa Paraline [flat 4.0 mm, 5/32 in]",
+    "type": "LINE",
+    "density": 0.002952756
+   },
+   "mass": 0.02268,
+   "diameter": 0.508,
+   "spillHoleDiameter": 0.1016,
+   "dragCoefficient": 1.5,
+   "lineCount": 6,
+   "lineLength": 0.5715,
+   "source": "fruitychutes.com"
+  },
+  {
+   "kind": "Parachute",
+   "manufacturer": "Fruity Chutes",
+   "partNo": "TARC-24",
+   "description": "24\" TARC Elliptical — Cd 1.5, 1.2 oz, 6 gores",
+   "material": {
+    "name": "Ripstop nylon, lightweight, 3 mil",
+    "type": "SURFACE",
+    "density": 0.035653924
+   },
+   "lineMaterial": {
+    "name": "Nylon #200 IIa Paraline [flat 4.0 mm, 5/32 in]",
+    "type": "LINE",
+    "density": 0.002952756
+   },
+   "mass": 0.03402,
+   "diameter": 0.6096,
+   "spillHoleDiameter": 0.12192,
+   "dragCoefficient": 1.5,
+   "lineCount": 6,
+   "lineLength": 0.6858,
+   "source": "fruitychutes.com"
   },
   {
    "kind": "Parachute",

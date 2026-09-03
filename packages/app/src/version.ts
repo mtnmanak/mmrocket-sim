@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.097';
+export const APP_VERSION = '0.098';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.098',
+    date: '2026-09-03',
+    title: 'A dual-deploy file now deploys dually, and every Fruity Chutes canopy flies the maker\'s own numbers',
+    items: [
+      'A ROCKSIM FILE\'S DEPLOYMENT SETTINGS ARE NOW READ. Nothing had ever read the .rkt deployment list, so every parachute and streamer fell back to the default trigger and a DUAL-DEPLOY DESIGN FLEW WITH DROGUE AND MAIN OPENING TOGETHER AT EJECTION. That is not the rocket the file describes, and the descent it simulates never happens. Now the drogue opens at apogee and the main at the height the file names. RE-OPEN ANY DUAL-DEPLOY .RKT: its descent, its drift and its flight time all change, and they are now right. Expect a drogue-descent warning where you did not get one before - a small drogue really does come down fast, and you were previously seeing the descent with the main already out.',
+      'FRUITY CHUTES CANOPIES NOW CARRY THE MANUFACTURER\'S OWN PUBLISHED DATA, INCLUDING THE SPILL HOLE. Every Iris Ultra, Classic Elliptical and TARC canopy is taken from Fruity Chutes\' own published figures - 68 models - and a canopy\'s drag coefficient and its spill hole now travel together, because the Cd they publish is measured against the canopy area MINUS the vent. Applying one without the other read about 2 % optimistic on every vented canopy. With both, the app now agrees with Fruity Chutes\' own descent-rate calculator to within about one part in a thousand.',
+      'What moved: the Classic Elliptical rows read Cd 1.5, the figure Fruity Chutes use in their own calculator and in every published "lb at 20 fps" rating, in place of the 1.55 the OpenRocket database had chosen from the middle of a range. The 96 inch Iris Ultra Compact weighed 46 grams and should weigh 425 - a decimal slip inherited from the OpenRocket parts database. 26 canopies that were missing were added, including the whole Ultralight and TARC lines. IF A DESIGN USES A FRUITY CHUTES CANOPY, RE-PICK IT and expect its descent rate to move by a percent or two, and its mass in a few cases by more.',
+      'Ten duplicate Fruity Chutes rows that came from the RockSim parts list were removed - each was the same canopy as one already in the catalogue, matched to the gram, but carrying no spill hole, no gore count and the wrong fabric. THE PART NUMBERS THEY USED STILL WORK: a RockSim file that names one is matched to the canopy that replaced it, so opening a file is unaffected. The surviving names now lead with the size, the way the removed ones did - "84 inch Iris Ultra Compact".',
+      'Picking a parachute from the catalogue now also fills in its spill hole, which the picker never did.',
+    ],
+  },
   {
     version: '0.097',
     date: '2026-09-03',

@@ -153,6 +153,12 @@ export function presetPatch(type: ComponentType, p: Preset): Partial<ComponentNo
       // Fruity Chutes Iris Ultra (Cd 2.2) then descends 1.66× too fast.
       const cd = n(p, 'dragCoefficient');
       if (cd !== undefined && cd > 0) set('cd', cd);
+      // A canopy's Cd and its spill hole are ONE fact. Fruity Chutes (and the
+      // rest) quote a Cd referenced to the canopy area MINUS the vent; the
+      // kernel works from the nominal diameter and scales by 1 − (d/D)², which
+      // is the same area. Taking the Cd and dropping the hole reads 1.5–2 %
+      // slow on every vented canopy — so they travel together.
+      set('spillHoleDiameter', n(p, 'spillHoleDiameter'));
       set('lineCount', n(p, 'lineCount'));
       set('lineLength', n(p, 'lineLength'));
       if (p.material?.type === 'SURFACE') {
@@ -188,7 +194,7 @@ const CSV_COLS = [
   'filled', 'shoulderDiameter', 'shoulderLength', 'thickness', 'foreOutsideDiameter',
   'aftOutsideDiameter', 'foreShoulderDiameter', 'foreShoulderLength',
   'aftShoulderDiameter', 'aftShoulderLength', 'diameter', 'dragCoefficient',
-  'lineCount', 'lineLength', 'width',
+  'spillHoleDiameter', 'lineCount', 'lineLength', 'width',
   'lineMaterialName', 'lineMaterialDensity',
 ];
 
@@ -342,6 +348,18 @@ export function applyPresetLinks(
   for (const p of presets) {
     const k = linkKey(p.kind, p.manufacturer, p.partNo);
     if (!byKey.has(k)) byKey.set(k, p);
+    // A row can answer to part numbers it has absorbed. The ten RockSim Fruity
+    // Chutes rows were dropped as duplicates on 2026-09-03, but `.rkt` FILES
+    // still name them — Eric's own Wildman carries <PartNo>29185</PartNo> — so
+    // the numbers ride on the surviving row. Dropping a duplicate must never
+    // cost a file its catalogue link.
+    const alts = p['altPartNos'];
+    if (Array.isArray(alts)) {
+      for (const alt of alts) {
+        const ak = linkKey(p.kind, p.manufacturer, alt);
+        if (!byKey.has(ak)) byKey.set(ak, p);
+      }
+    }
   }
   const lines: string[] = [];
   let linked = 0;

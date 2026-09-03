@@ -245,6 +245,24 @@ describe('presetPatch — transition `filled` (ruled 2026-09-03: "Fix it.")', ()
   }, 60000);
 });
 
+describe('presetPatch — a canopy Cd travels with its spill hole (2026-09-03)', () => {
+  it('applies both, because the Cd is referenced to the vented area', () => {
+    const p = db.find((x) => x.kind === 'Parachute' && x.partNo === 'IFC-084-S')!;
+    expect(p, 'IFC-084-S has gone from the database').toBeTruthy();
+    const patch = presetPatch('parachute', p);
+    expect(patch['cd']).toBe(2.2);
+    expect(patch['spillHoleDiameter']).toBeCloseTo(84 * 0.176 * 0.0254, 6);
+  });
+
+  it('every Fruity Chutes row patches both or neither — never a bare Cd', () => {
+    for (const p of db.filter((x) => x.kind === 'Parachute' && /fruity/i.test(x.manufacturer))) {
+      const patch = presetPatch('parachute', p) as Record<string, unknown>;
+      expect(typeof patch['cd'], String(p.partNo)).toBe('number');
+      expect(typeof patch['spillHoleDiameter'], `${p.partNo} got a Cd with no spill hole`).toBe('number');
+    }
+  });
+});
+
 describe('presetPatch — the catalogue identity rides with the part (2026-09-03)', () => {
   it('names its manufacturer and part number so a saved file can find the row again', () => {
     const p = db.find((x) => x.kind === 'Parachute')!;
@@ -265,15 +283,30 @@ describe("applyPresetLinks — a file's part matched to its catalogue row (ruled
     const notes: string[] = [];
     expect(applyPresetLinks([{ node, manufacturer: 'Fruity Chutes', partNo: '29185' }], db, notes)).toBe(1);
     expect(node['cd']).toBe(2.2);                 // unset in the file → the catalogue's
-    expect(node['lineCount']).toBe(6);            // the file said 6; the catalogue's 18 does NOT win
+    expect(node['spillHoleDiameter']).toBeGreaterThan(0); // and its spill hole, inseparably
+    expect(node['lineCount']).toBe(6);            // the file said 6; the catalogue's does NOT win
     expect(node['diameter']).toBe(2.4384);        // ditto
-    expect(node.name).toBe('Main');               // the file's name, not "Fruity Chutes 29185"
+    expect(node.name).toBe('Main');               // the file's name, not the catalogue's
     expect(node['overrideMass']).toBeUndefined(); // the catalogue never supplies the mass
     expect(node['presetManufacturer']).toBe('Fruity Chutes');
-    expect(node['presetPartNo']).toBe('29185');
+    // 29185 was DROPPED on 2026-09-03 as a duplicate; the link resolves through
+    // the surviving row's altPartNos, and stamps THAT row's part number.
+    expect(node['presetPartNo']).toBe('IFC-096-N');
     expect(notes).toHaveLength(1);
     expect(notes[0]).toMatch(/matched the parts catalogue/);
     expect(notes[0]).toMatch(/drag coefficient/);
+  });
+
+  it('a dropped duplicate part number still finds its canopy — files outlive catalogue rows', () => {
+    // Eric's own 4in WM Extreme.rkt carries <PartNo>29185</PartNo>. Dropping that
+    // row must not cost his file its Cd.
+    for (const [rockSim, sku] of [['29161', 'CFC-015-N'], ['29184', 'IFC-084-N'], ['29185', 'IFC-096-N']] as const) {
+      const node = mk();
+      expect(applyPresetLinks([{ node, manufacturer: 'Fruity Chutes', partNo: rockSim }], db, []), rockSim).toBe(1);
+      expect(node['presetPartNo'], rockSim).toBe(sku);
+      expect(typeof node['cd'], rockSim).toBe('number');
+      expect(typeof node['spillHoleDiameter'], rockSim).toBe('number');
+    }
   });
 
   it('matches through the alias table and part-number normalisation', () => {
