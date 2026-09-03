@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -1118,9 +1118,14 @@ describe('RockSim <SimulationEventList> — dual deploy actually deploys dually 
     expect(main['deployAltitude']).toBeUndefined();
   });
 
-  it("his own Wildman file: main at 152.4 m, drogue at apogee", () => {
-    const r = importRkt(readFileSync(
-      'E:/git/online_open_rocket/docs/User files/4in WM Extreme.rkt', 'utf8'));
+  // The owner's real file is the case this was built for, but `docs/User files/`
+  // is gitignored — his designs are not ours to commit — so this runs locally
+  // and skips on CI, the same pattern lemivSweep.test.ts uses for the same
+  // reason. (It skipped straight past me once: an absolute path to it failed the
+  // deploy, which is the gate working.)
+  const WM = join(here, '../../../../docs/User files/4in WM Extreme.rkt');
+  it.skipIf(!existsSync(WM))("his own Wildman file: main at 152.4 m, drogue at apogee", () => {
+    const r = importRkt(readFileSync(WM, 'utf8'));
     const all = flatten(r.tree.components).filter((c) => c.type === 'parachute');
     const main = all.find((c) => c.name === 'Main Parachute')!;
     const drogue = all.find((c) => /Drouge/i.test(String(c.name)))!;
