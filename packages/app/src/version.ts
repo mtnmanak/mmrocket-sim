@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.099';
+export const APP_VERSION = '0.100';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.100',
+    date: '2026-09-03',
+    title: 'Wind was being counted as descent — every correctly sized main was failing the landing check on a windy day',
+    items: [
+      'THE LANDING RATE IS NOW THE VERTICAL DESCENT RATE. It was the speed over the ground, which under a parachute includes the whole of the horizontal wind drift - so the app was adding the wind to your descent and then judging the total against a 20 ft/s limit that means descent. IF YOU HAVE EVER BEEN TOLD A ROCKET LANDS TOO FAST ON A WINDY DAY, RE-FLY IT. The error is worst on the slowest, safest canopies, which is exactly where the verdict is trusted.',
+      'How big it was: with a 5 m/s (11 mph) wind the old check could only be passed by a rocket descending under 11.4 ft/s. Measured on a real 4 inch dual-deploy design - the same rocket and the same canopy, only the wind changed - the reported figure went 3.39 m/s at no wind, 4.52 at 3 m/s, 6.04 at 5 m/s, exactly the square root of descent squared plus wind squared. That rocket descends at a healthy 13.3 ft/s and was being reported at 20.9 and failing.',
+      'THE RECOVERY TABLE NOW SHOWS BOTH: "Descent after" is the vertical rate the safety limit is about, and a new "Over ground" column is what the rocket actually meets the ground at, drift included. The drogue band is judged on descent too, for the same reason. The "landing too fast" sentence reconciles them, so the two numbers can never look like a contradiction.',
+      'A new "Ground speed at landing" tile is available under Choose metrics for anyone who wants the impact speed on the dashboard.',
+      'Descent rates now come from the altitude the rocket actually loses per second, rather than from a speed that had the wind in it.',
+    ],
+  },
   {
     version: '0.099',
     date: '2026-09-03',

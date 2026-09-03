@@ -67,7 +67,7 @@ After launching, the headline tiles across the top of the results give you the n
 Two health checks tell you whether the flight is actually *safe and stable*, not just how high it went:
 
 - **Stability margin** (shown in the design stats as **Stability**, in *calibers*). A healthy rocket sits between **1.0 and 3.0 cal**. Below 1.0 the rocket is *under-stable* and may wobble or go unstable — flagged red with a ⚠. Above 3.0 it's *over-stable* and tends to weathercock (turn into the wind) — flagged as a yellow △ caution, not a failure. Right in that band, marked ✓, is what you want. The design page, vitals strip and launch report all use this same rule.
-- **Landing descent rate** — you want to touch down at **20 ft/s (about 6 m/s) or slower** so nothing breaks. The report flags a faster landing. Parachute presets apply the manufacturer's rated drag coefficient when the catalog carries one, but a simulated descent rate is still an estimate — **always cross-check the parachute manufacturer's own sizing guidance** before you fly.
+- **Landing descent rate** — you want to touch down at **20 ft/s (about 6 m/s) or slower** so nothing breaks. The report flags a faster landing. **This is the vertical rate, not the speed over the ground:** under a parachute the rocket also drifts with the wind, so on a windy day it meets the ground faster than it descends — the report shows both, and judges the limit on the descent. Parachute presets apply the manufacturer's rated drag coefficient when the catalog carries one, but a simulated descent rate is still an estimate — **always cross-check the parachute manufacturer's own sizing guidance** before you fly.
 
 Open the full launch report below the tiles for more: **thrust-to-weight at the rod** (aim for at least **5:1**), **rod-exit speed** (at least about 50 ft/s / 15 m/s so the fins have airflow to steer with), deployment timing, and plain-language safety comments that name any problem and where it is.
 
@@ -673,7 +673,7 @@ Too small to read? Every panel's heading has an **⤢ expand** button: the panel
 
 ## The launch report and safety checks
 
-The report header shows the **optimal / recommended(available) / flown** delay, then a per-device **recovery table** (drogue and main each get a row: deploy time, altitude, opening velocity, settled descent rate, and a verdict). "Show all details" expands roughly thirty attributes: max altitude/velocity/Mach/acceleration, times to launch guide exit / burnout / apogee / landing, velocity and thrust:weight at launch guide exit, launch mass, and the angle of attack, CG, CP and static margin at launch guide exit — flight values at the moment the rocket leaves the guide, which is why the CP there sits forward of the Design tab's still-air CP whenever there is a crosswind — landing descent rate, plus the motor's diameter, manufacturer, type, propellant, and case.
+The report header shows the **optimal / recommended(available) / flown** delay, then a per-device **recovery table** (drogue and main each get a row: deploy time, altitude, opening velocity, **the drag coefficient that device actually flew**, its settled **vertical descent rate**, its speed **over the ground** — descent plus wind drift — and a verdict). The Cd column is read from what the physics engine was handed rather than from the design panel, so if the two ever disagree the report shows what flew; a vented canopy reads like `1.44 (1.50 less a 122 mm vent)`, because a manufacturer's rated coefficient is measured against the canopy area minus its vent. "Show all details" expands roughly thirty attributes: max altitude/velocity/Mach/acceleration, times to launch guide exit / burnout / apogee / landing, velocity and thrust:weight at launch guide exit, launch mass, and the angle of attack, CG, CP and static margin at launch guide exit — flight values at the moment the rocket leaves the guide, which is why the CP there sits forward of the Design tab's still-air CP whenever there is a crosswind — landing descent rate, plus the motor's diameter, manufacturer, type, propellant, and case.
 
 Every flight is graded against these thresholds:
 
@@ -683,7 +683,7 @@ Every flight is graded against these thresholds:
 | Thrust:weight | ≥ 5:1 | Adequate initial acceleration |
 | Safe deployment | ≤ 21.34 m/s (70 ft/s) | Opening shock won't zipper the tube |
 | Drogue descent | ≤ 21.34 m/s (70 ft/s) | Top of accepted drogue band |
-| Landing rate | ≤ 6.1 m/s (20 ft/s) | Survivable ground hit |
+| Landing rate (vertical descent, not speed over the ground) | ≤ 6.1 m/s (20 ft/s) | Survivable ground hit |
 | Static margin | 1.0–3.0 cal | Stable but not so over-stable it weathercocks |
 
 The report also flags **weathercocking risk** and echoes the average wind, so an over-stable rocket in a stiff breeze reads as a warning rather than a silent number.

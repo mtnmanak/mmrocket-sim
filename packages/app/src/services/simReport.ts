@@ -214,6 +214,13 @@ export interface DeploymentReport {
    * deployment, or the ground-hit velocity for the last (landing) device.
    */
   descentRate: number | null;
+  /**
+   * Speed over the GROUND at the same instant — descent plus wind drift. What
+   * the rocket actually hits the ground at, and what the report used to call
+   * the descent rate. Kept beside it, never in place of it: the safety limits
+   * are about descent, and in a 5 m/s wind the two differ by half again.
+   */
+  groundSpeed: number | null;
   isLanding: boolean;
   /** Opening shock verdict (false = too fast — THIS device's problem). */
   openingOk: boolean | null;
@@ -604,6 +611,54 @@ export function recommendDelay(optimum: number | null): number | null {
   return Math.max(0, Math.round(optimum));
 }
 
+/**
+ * VERTICAL descent rate (m/s, positive downward) at time `t`, from the altitude
+ * series — NOT from the velocity series.
+ *
+ * WHY THIS EXISTS, and it is a correction. The kernel's velocity series is
+ * `TYPE_VELOCITY_TOTAL`: the speed over the GROUND, which under canopy includes
+ * the full horizontal wind drift, because drag makes the rocket's horizontal
+ * velocity relax to the wind within a fraction of a second
+ * (`AbstractEulerStepper.java:196,214`). Until v0.100 the report drew its
+ * "descent rate" from that and judged it against `SAFETY.maxLandingRate`, whose
+ * own name and comment say DESCENT — so wind was being charged against a
+ * landing-safety limit.
+ *
+ * MEASURED (2026-09-03c, the owner's `WM_4_Extreme.ork`): the same design and
+ * canopy, only the wind changed — 0 m/s → 3.385 m/s reported, 3 → 4.523,
+ * 5 → 6.038 — exact quadrature with √(v_z² + w²) to three decimals. His file
+ * carries `windaverage 5`, so a rocket descending at a healthy 13 ft/s was
+ * reported at 20.9 and failed the 20 ft/s check. **His own screenshot proves the
+ * true rate without any modelling:** the main opened at 376 ft and the flight
+ * ended 28.1 s later, which is 13.4 ft/s.
+ *
+ * The severity is the point: with a 5 m/s wind, the 20 ft/s test could only be
+ * passed by a rocket descending under 11.4 ft/s — so **every correctly sized
+ * main failed it in wind**, and worst on the slowest, safest canopies, which is
+ * exactly where a flyer trusts the verdict.
+ *
+ * Vz is computed inside the kernel (`SimulationStatus.java:640`) and thrown away
+ * before export, so this differences the altitude series instead. Under canopy
+ * the recovery stepper runs a fixed 0.5 s step and the descent is settled, so a
+ * central difference over a short window is exact to the sampling; a longer
+ * window would smear the opening transient into it.
+ */
+const descentRateAt = (
+  time: number[], altitude: number[], t: number, windowS = 1.5,
+): number | null => {
+  if (!time.length) return null;
+  const alt = (x: number) => at(time, altitude, x);
+  // Prefer a window that sits BEFORE t (the settled descent), clamped into range.
+  const t1 = Math.min(t, time[time.length - 1]!);
+  const t0 = Math.max(time[0]!, t1 - windowS);
+  if (!(t1 > t0)) return null;
+  const a1 = alt(t1);
+  const a0 = alt(t0);
+  if (a0 === null || a1 === null || !Number.isFinite(a0) || !Number.isFinite(a1)) return null;
+  const rate = (a0 - a1) / (t1 - t0); // positive while falling
+  return Number.isFinite(rate) ? Math.abs(rate) : null;
+};
+
 /** Per-device deployments for ONE flight branch (drogue/main ordering). */
 function extractDeployments(
   events: FlightEvent[],
@@ -616,14 +671,23 @@ function extractDeployments(
     const device = ev.source ?? `Recovery device ${i + 1}`;
     const isLanding = i === deployEvents.length - 1;
     const vDeploy = at(series.time, series.velocity, ev.time);
-    let descentRate: number | null;
-    if (isLanding) {
-      descentRate = groundHit !== null && Number.isFinite(groundHit) ? groundHit : null;
-    } else {
-      // Sample just before the next device opens — fully settled under this one.
-      const tNext = deployEvents[i + 1]!.time;
-      descentRate = at(series.time, series.velocity, Math.max(ev.time, tNext - 0.2));
-    }
+    // The instant this device's descent is settled: just before the ground, or
+    // just before the next device opens.
+    const tSettled = isLanding
+      ? series.time[series.time.length - 1] ?? ev.time
+      : Math.max(ev.time, deployEvents[i + 1]!.time - 0.2);
+    // VERTICAL — the rate the safety limits are written about. See descentRateAt.
+    const descentRate = descentRateAt(series.time, series.altitude, tSettled)
+      // A branch too short to difference (an immediate ground hit) keeps the old
+      // reading rather than reporting nothing.
+      ?? (isLanding && groundHit !== null && Number.isFinite(groundHit) ? Math.abs(groundHit) : null);
+    // Speed over the ground at the same instant: descent AND drift. Reported
+    // beside the descent rate rather than in place of it, because it is what a
+    // rocket actually hits the ground at.
+    const groundSpeedRaw = isLanding
+      ? (groundHit !== null && Number.isFinite(groundHit) ? groundHit : null)
+      : at(series.time, series.velocity, tSettled);
+    const groundSpeed = groundSpeedRaw === null ? null : Math.abs(groundSpeedRaw);
     const f = flown?.[device];
     return {
       device,
@@ -631,6 +695,7 @@ function extractDeployments(
       altitude: at(series.time, series.altitude, ev.time),
       velocityAtDeployment: vDeploy,
       descentRate,
+      groundSpeed,
       isLanding,
       cd: f?.cd ?? null,
       cdNominal: f?.cdNominal ?? null,
@@ -867,19 +932,40 @@ export function buildSimRun(input: {
     const groundEv = b.events.find((e) => e.type === 'GROUND_HIT');
     const vHit = groundEv ? at(b.series.time, b.series.velocity, groundEv.time) : null;
     const landing = vHit !== null && Number.isFinite(vHit) ? Math.abs(vHit) : null;
+    const bDeployments = extractDeployments(b.events, b.series, landing, flownRecovery);
+    const bLanding = bDeployments.length > 0
+      ? (bDeployments[bDeployments.length - 1]!.descentRate ?? landing)
+      : (descentRateAt(b.series.time, b.series.altitude,
+        groundEv?.time ?? b.series.time[b.series.time.length - 1] ?? 0) ?? landing);
     branches.push({
       name: b.name,
       motorLabel: stageMotorInfo?.[b.name]?.label,
       apogee: alt.length ? Math.max(...alt) : null,
       tumbles: b.events.some((e) => e.type === 'TUMBLE'),
-      deployments: extractDeployments(b.events, b.series, landing, flownRecovery),
-      landingRate: landing,
-      safeLandingRate: landing === null ? null : landing <= SAFETY.maxLandingRate,
+      deployments: bDeployments,
+      // Vertical, like the sustainer's — a booster drifts in the same wind, and
+      // judging its arrival on ground speed charged the wind against it too.
+      landingRate: bLanding,
+      safeLandingRate: bLanding === null ? null : bLanding <= SAFETY.maxLandingRate,
     });
   }
   const landingRaw = Number.isFinite(summary.groundHitVelocity)
     ? summary.groundHitVelocity : (tGround !== null ? at(series.time, series.velocity, tGround) : null);
-  const landingRate = landingRaw === null ? null : Math.abs(landingRaw); // magnitude, like the branch reports
+  /** Speed over the ground at impact: descent AND wind drift. */
+  const landingGroundSpeed = landingRaw === null ? null : Math.abs(landingRaw);
+  /**
+   * The DESCENT rate — vertical — which is what `SAFETY.maxLandingRate` is
+   * about. Drawn from the altitude series, because the kernel's velocity series
+   * is speed over the ground and carries the full wind drift; see descentRateAt.
+   * The landing device's own settled figure is preferred (same instant, same
+   * method); the trailing-window fallback covers a flight with no recovery
+   * device at all, where a tumbling arrival has no settled rate to speak of and
+   * the ground speed IS the honest number.
+   */
+  const landingRate = deployments.length > 0
+    ? (deployments[deployments.length - 1]!.descentRate ?? landingGroundSpeed)
+    : (descentRateAt(series.time, series.altitude,
+      tGround ?? series.time[series.time.length - 1] ?? 0) ?? landingGroundSpeed);
   const safeLandingRate = landingRate === null ? null : landingRate <= SAFETY.maxLandingRate;
 
   const optimumDelayS = summary.optimumDelay ?? null;
@@ -941,19 +1027,25 @@ export function buildSimRun(input: {
       comments.push(`Descent under ${d.device} is ${d.descentRate!.toFixed(1)} m/s (${fps(d.descentRate!)}) — faster than the accepted ${fps(SAFETY.maxDrogueDescentRate)} drogue band.`);
     }
     if (d.descentOk === false && d.isLanding) {
-      // Name the coefficient in the sentence itself. "Landing too fast" is the
-      // app's strongest claim about a design, and the owner's own reports
-      // (2026-09-03) twice turned on which Cd the run had used — a question the
-      // warning should answer where it is made, not leave to a table.
+      // The app's strongest claim about a design has to carry its own
+      // reconciliation. It names the coefficient it rests on (the owner's
+      // reports twice turned on "which Cd did that run use?"), and — when there
+      // is wind — the ground speed too, so the two figures a reader can see
+      // elsewhere cannot look like a contradiction. Before v0.100 this sentence
+      // quoted the GROUND speed and called it a descent rate.
       const cdSaid = d.cd !== null ? ` on a drag coefficient of ${d.cd.toFixed(2)}` : '';
-      comments.push(`Landing under ${d.device} at ${d.descentRate!.toFixed(1)} m/s (${fps(d.descentRate!)})${cdSaid} — above the ${fps(SAFETY.maxLandingRate)} landing target.`);
+      const drift = d.groundSpeed !== null && d.descentRate !== null
+        && d.groundSpeed - d.descentRate > 0.1
+        ? ` It touches down at ${d.groundSpeed.toFixed(1)} m/s (${fps(d.groundSpeed)}) over the ground, the rest of that being wind drift.`
+        : '';
+      comments.push(`Landing under ${d.device} at ${d.descentRate!.toFixed(1)} m/s (${fps(d.descentRate!)}) of descent${cdSaid} — above the ${fps(SAFETY.maxLandingRate)} landing target.${drift}`);
     }
   }
   if (deployments.length === 0 && safeDeployment === false) {
     comments.push(`Deployment at ${Math.abs(velocityAtDeployment!).toFixed(1)} m/s (${fps(Math.abs(velocityAtDeployment!))}) — expect hard opening.`);
   }
   if (deployments.length === 0 && safeLandingRate === false) {
-    comments.push(`Landing at ${landingRate!.toFixed(1)} m/s (${fps(landingRate!)}) — above the ${fps(SAFETY.maxLandingRate)} landing target.`);
+    comments.push(`Landing at ${landingRate!.toFixed(1)} m/s (${fps(landingRate!)}) of descent — above the ${fps(SAFETY.maxLandingRate)} landing target.`);
   }
   if (staticMarginOk === false && launchStaticMarginCal !== null) {
     comments.push(launchStaticMarginCal < SAFETY.minStaticMargin

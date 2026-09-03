@@ -77,13 +77,20 @@ describe('buildSimRun — staged branches (Release C)', () => {
   /** Adds a booster branch to the fake flight. */
   function stagedResult(boosterChute: boolean): FlightResult {
     const base = fakeResult();
-    const bTime = [2, 3, 6, 25];
+    // Coherent by construction, for the same reason as dualDeployResult: the
+    // report reads a descent rate off ALTITUDE from v0.100 on, so a booster
+    // whose altitude disagreed with its own velocity (120 m in 19 s = 6.3 m/s
+    // beside a velocity of 5) would be testing a flight that cannot happen.
+    const vDesc = boosterChute ? 5 : 30; // m/s under chute, or tumbling
+    const T_SEP = 2, T_APOGEE = 3, APOGEE = 190;
+    const T_GROUND = T_APOGEE + APOGEE / vDesc;
+    const bTime = [T_SEP, T_APOGEE, T_APOGEE + 3, T_GROUND];
     const boosterEvents = [
-      { type: 'STAGE_SEPARATION', time: 2, source: 'Booster' },
+      { type: 'STAGE_SEPARATION', time: T_SEP, source: 'Booster' },
       ...(boosterChute
         ? [{ type: 'RECOVERY_DEVICE_DEPLOYMENT', time: 2.5, source: 'BoosterChute' }]
-        : [{ type: 'TUMBLE', time: 3 }]),
-      { type: 'GROUND_HIT', time: 25 },
+        : [{ type: 'TUMBLE', time: T_APOGEE }]),
+      { type: 'GROUND_HIT', time: T_GROUND },
     ];
     return {
       ...base,
@@ -95,8 +102,8 @@ describe('buildSimRun — staged branches (Release C)', () => {
           series: {
             ...base.series,
             time: bTime,
-            altitude: [180, 190, 120, 0],
-            velocity: [80, 20, boosterChute ? 5 : 28, boosterChute ? 5 : 30],
+            altitude: [180, APOGEE, APOGEE - vDesc * 3, 0],
+            velocity: [80, 20, vDesc, vDesc],
           },
         },
       ],
@@ -196,30 +203,59 @@ describe('buildSimRun', () => {
  * profile: drogue settles at `drogueRate`, main opens at that speed, lands
  * at `landRate`.
  */
-function dualDeployResult(drogueRate: number, landRate: number): FlightResult {
-  const time = [0, 2, 7, 7.5, 29.8, 30.0, 30.5, 90];
+/**
+ * The ALTITUDE series is derived from the descent rates, not hand-drawn beside
+ * them.
+ *
+ * It used to be a fixed shape (`[0, 300, 800, 780, 255, 250, 240, 0]`) that
+ * disagreed with its own velocity field — 780 m to 255 m in 22.3 s is 23.5 m/s
+ * where the velocity said 19.5. That was harmless while the report read its
+ * descent rate off `velocity`, and became wrong the moment v0.100 started
+ * reading it off `altitude` (because `velocity` is speed over the GROUND and
+ * carries the wind). A fixture that cannot happen tests nothing, so it is now
+ * coherent by construction: apogee is whatever falling at these two rates for
+ * these two intervals implies.
+ *
+ * `velocity` deliberately stays a touch HIGHER than the descent rate on the
+ * final leg, standing in for wind drift — that is the whole distinction under
+ * test.
+ */
+function dualDeployResult(drogueRate: number, landRate: number, windDrift = 0): FlightResult {
+  const T_APOGEE = 7, T_MAIN = 30, T_GROUND = 90;
+  const altAtMain = landRate * (T_GROUND - T_MAIN);
+  const altAtApogee = altAtMain + drogueRate * (T_MAIN - T_APOGEE);
+  const fall = (t: number) => (t <= T_APOGEE
+    ? (altAtApogee * t) / T_APOGEE // a straight climb is enough for these assertions
+    : t <= T_MAIN
+      ? altAtApogee - drogueRate * (t - T_APOGEE)
+      : Math.max(0, altAtMain - landRate * (t - T_MAIN)));
+  const time = [0, 2, T_APOGEE, 7.5, 29.8, T_MAIN, 30.5, T_GROUND];
   const zeros = time.map(() => 0);
+  // Speed over the ground = √(descent² + drift²), which is what the kernel's
+  // velocity series carries and what the report must NOT call a descent rate.
+  const ground = (vz: number) => Math.hypot(vz, windDrift);
   return {
     summary: {
-      maxAltitude: 800, maxVelocity: 150, maxAcceleration: 200,
-      maxMachNumber: 0.45, timeToApogee: 7, flightTime: 90,
-      groundHitVelocity: landRate, launchRodVelocity: 20,
+      maxAltitude: altAtApogee, maxVelocity: 150, maxAcceleration: 200,
+      maxMachNumber: 0.45, timeToApogee: T_APOGEE, flightTime: T_GROUND,
+      groundHitVelocity: ground(landRate), launchRodVelocity: 20,
       deploymentVelocity: 2.0, optimumDelay: 5.0,
     },
     events: [
       { type: 'LAUNCH', time: 0 },
       { type: 'LAUNCHROD', time: 0.2 },
       { type: 'BURNOUT', time: 2 },
-      { type: 'APOGEE', time: 7 },
-      { type: 'RECOVERY_DEVICE_DEPLOYMENT', time: 7.0, source: 'Drogue' },
-      { type: 'RECOVERY_DEVICE_DEPLOYMENT', time: 30.0, source: 'Main' },
-      { type: 'GROUND_HIT', time: 90 },
-      { type: 'SIMULATION_END', time: 90 },
+      { type: 'APOGEE', time: T_APOGEE },
+      { type: 'RECOVERY_DEVICE_DEPLOYMENT', time: T_APOGEE, source: 'Drogue' },
+      { type: 'RECOVERY_DEVICE_DEPLOYMENT', time: T_MAIN, source: 'Main' },
+      { type: 'GROUND_HIT', time: T_GROUND },
+      { type: 'SIMULATION_END', time: T_GROUND },
     ],
     series: {
       time,
-      altitude: [0, 300, 800, 780, 255, 250, 240, 0],
-      velocity: [0, 150, 2, drogueRate, drogueRate, drogueRate, landRate + 1, landRate],
+      altitude: time.map(fall),
+      velocity: [0, 150, 2, ground(drogueRate), ground(drogueRate), ground(drogueRate),
+        ground(landRate) + 1, ground(landRate)],
       acceleration: zeros, mass: time.map(() => 0.5), thrust: zeros, drag: zeros,
       mach: zeros, stability: time.map(() => 1.5),
       cpLocation: time.map(() => 0.9), cgLocation: time.map(() => 0.7), aoa: zeros,
@@ -232,6 +268,75 @@ describe('dual deployment attribution', () => {
     result: dualDeployResult(drogueRate, landRate), info, motor,
     meta: { label: 'J350-auto', manufacturer: 'AT' },
     launch: DEFAULT_CONDITIONS, rocketName: 'DD', execMs: 1,
+  });
+
+  describe('WIND IS NOT A DESCENT RATE (2026-09-03c, v0.100)', () => {
+    // The defect: the kernel's velocity series is speed over the GROUND, which
+    // under canopy carries the full horizontal wind drift, and the report used
+    // it as the descent rate and judged it against a limit whose own name says
+    // descent. Measured in the real kernel on the owner's own file — same
+    // rocket, same canopy, only the wind changed: 0 m/s → 3.385 m/s reported,
+    // 3 → 4.523, 5 → 6.038, exact quadrature with √(v_z² + w²).
+    //
+    // Severity: at 5 m/s of wind the 20 ft/s landing test could only be passed
+    // by a rocket descending under 11.4 ft/s — so every correctly sized main
+    // failed it in wind, worst on the slowest and safest canopies.
+    const WIND = 5;
+    const withWind = (landRate: number) => buildSimRun({
+      result: dualDeployResult(19.5, landRate, WIND), info, motor,
+      meta: { label: 'J350-auto', manufacturer: 'AT' },
+      launch: DEFAULT_CONDITIONS, rocketName: 'DD', execMs: 1,
+    });
+
+    it('reports the VERTICAL rate, and the ground speed separately', () => {
+      const run = withWind(4); // 4 m/s down in a 5 m/s wind → 6.4 over the ground
+      const main = run.deployments[1]!;
+      expect(main.descentRate).toBeCloseTo(4, 2);
+      expect(main.groundSpeed).toBeCloseTo(Math.hypot(4, WIND), 2);
+      expect(run.landingRate).toBeCloseTo(4, 2);
+    });
+
+    it('a good landing in wind PASSES — the case that failed every main', () => {
+      // 4 m/s descent is well inside the 6.1 m/s limit; √(4²+5²) = 6.40 is not.
+      const run = withWind(4);
+      expect(run.landingRate! <= SAFETY.maxLandingRate).toBe(true);
+      expect(run.safeLandingRate).toBe(true);
+      expect(run.deployments[1]!.descentOk).toBe(true);
+      expect(run.comments ?? '').not.toMatch(/landing target/);
+    });
+
+    it('a genuinely too-fast landing still fails, and the sentence reconciles both figures', () => {
+      const run = withWind(8); // 8 m/s down — really is too fast
+      expect(run.safeLandingRate).toBe(false);
+      const said = run.comments ?? '';
+      expect(said).toMatch(/8\.0 m\/s .* of descent/);
+      expect(said).toMatch(/over the ground/); // so the two numbers cannot look contradictory
+    });
+
+    it('the drogue band is judged on descent too', () => {
+      // 19.5 m/s down is inside the 21.34 m/s drogue band; √(19.5²+5²) = 20.13
+      // also is, so use a rate where the wind is what would tip it over.
+      const run = buildSimRun({
+        result: dualDeployResult(21, 4, 8), info, motor,
+        meta: { label: 'J350-auto', manufacturer: 'AT' },
+        launch: DEFAULT_CONDITIONS, rocketName: 'DD', execMs: 1,
+      });
+      const drogue = run.deployments[0]!;
+      expect(drogue.descentRate).toBeCloseTo(21, 1);          // inside the band
+      expect(drogue.groundSpeed).toBeCloseTo(Math.hypot(21, 8), 1); // 22.5 — outside it
+      expect(drogue.descentOk).toBe(true);
+    });
+
+    it('still-air flights are unchanged', () => {
+      const run = buildSimRun({
+        result: dualDeployResult(19.5, 5.5, 0), info, motor,
+        meta: { label: 'J350-auto', manufacturer: 'AT' },
+        launch: DEFAULT_CONDITIONS, rocketName: 'DD', execMs: 1,
+      });
+      expect(run.landingRate).toBeCloseTo(5.5, 2);
+      expect(run.deployments[1]!.groundSpeed).toBeCloseTo(5.5, 2);
+      expect(run.comments ?? '').not.toMatch(/over the ground/);
+    });
   });
 
   describe('the Cd each device flew (2026-09-03b)', () => {

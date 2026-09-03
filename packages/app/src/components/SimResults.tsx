@@ -159,7 +159,11 @@ export function SimRunDetails({ run, hasSeries }: {
                     take a round trip each to answer "which Cd did that run
                     use?" — a question the page should answer itself. */}
                 <th>Flown at Cd</th>
+                {/* VERTICAL from v0.100. It used to be the speed over the
+                    ground, which carries the wind drift — so a windy day made
+                    every correctly sized main read as landing too fast. */}
                 <th>Descent after (<UnitChip quantity="velocity" />)</th>
+                <th>Over ground (<UnitChip quantity="velocity" />)</th>
                 <th>Verdict</th>
               </tr>
             </thead>
@@ -182,6 +186,7 @@ export function SimRunDetails({ run, hasSeries }: {
                     <td className={d.descentOk === false ? 'stability-bad' : undefined}>
                       {d.descentRate === null ? '—' : fmtSi('velocity', vel, d.descentRate)}
                     </td>
+                    <td>{d.groundSpeed === null ? '—' : fmtSi('velocity', vel, d.groundSpeed)}</td>
                     <td className={problems.length ? 'stability-bad' : 'stability-good'}>
                       {problems.length ? `⚠ ${problems.join(', ')}` : '✓ ok'}
                     </td>
@@ -218,6 +223,7 @@ export function SimRunDetails({ run, hasSeries }: {
                       <th>Opens at (<UnitChip quantity="velocity" />)</th>
                       <th>Flown at Cd</th>
                       <th>Descent after (<UnitChip quantity="velocity" />)</th>
+                      <th>Over ground (<UnitChip quantity="velocity" />)</th>
                       <th>Verdict</th>
                     </tr>
                   </thead>
@@ -238,6 +244,7 @@ export function SimRunDetails({ run, hasSeries }: {
                           <td className={d.descentOk === false ? 'stability-bad' : undefined}>
                             {d.descentRate === null ? '—' : fmtSi('velocity', vel, d.descentRate)}
                           </td>
+                          <td>{d.groundSpeed === null ? '—' : fmtSi('velocity', vel, d.groundSpeed)}</td>
                           <td className={problems.length ? 'stability-bad' : 'stability-good'}>
                             {problems.length ? `⚠ ${problems.join(', ')}` : '✓ ok'}
                           </td>

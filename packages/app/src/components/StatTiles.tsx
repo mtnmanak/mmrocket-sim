@@ -416,11 +416,25 @@ export const RESULT_TILE_METRICS: TileSpec[] = [
   { id: 'maxAccel', label: 'Max accel', render: (r, u) => ({ value: fmtSi('acceleration', u.acc, r.maxAcceleration), quantity: 'acceleration' }) },
   { id: 'apogeeAt', label: 'Apogee at', render: (r) => ({ value: r.timeToApogee.toFixed(1), unit: 's' }) },
   {
+    // "Landing rate" is the most-screenshotted string in the app, and from
+    // v0.100 it means what a flyer means by it: the VERTICAL descent rate.
+    // It used to show the ground-hit velocity, which under canopy carries the
+    // full horizontal wind drift — so in a 5 m/s wind a rocket descending at a
+    // healthy 13 ft/s was shown, and judged, at 21.
     id: 'landingRate', label: 'Landing rate',
-    // The old tile said "Descent hits" and quietly showed ground-hit velocity.
     render: (r, u) => ({
       value: fmtSi('velocity', u.vel, r.landingRate ?? r.groundHitVelocity), quantity: 'velocity',
     }),
+  },
+  {
+    // The other half of the same fact: what it actually hits the ground at,
+    // drift included. Not a default tile — it only matters in wind — but it is
+    // what reconciles the landing rate with the drift figure beside it.
+    id: 'groundSpeed', label: 'Ground speed at landing',
+    render: (r, u) => {
+      const g = (r.deployments ?? []).find((x) => x.isLanding)?.groundSpeed ?? r.groundHitVelocity;
+      return { value: g == null ? '—' : fmtSi('velocity', u.vel, g), quantity: 'velocity' };
+    },
   },
   {
     id: 'drogueRate', label: 'Drogue descent',
