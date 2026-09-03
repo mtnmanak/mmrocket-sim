@@ -4,7 +4,7 @@ import { fmtSi } from '../prefs/units.js';
 import { UnitChip } from './UnitChip.js';
 import {
   aeroModelLabel, formatRunStability, ROLL_RATE_MEANINGFUL_RAD_S, stabilityState,
-  WIND_BLOWS_TOWARD_DEG, type SimRun,
+  WIND_BLOWS_TOWARD_DEG, type DeploymentReport, type SimRun,
 } from '../services/simReport.js';
 import { clearRuns, deleteRun, runsToCsv, runsToTable } from '../services/simStore.js';
 import { formatWarning } from '../services/simWarnings.js';
@@ -38,6 +38,26 @@ function Row({ label, value, quantity, unit, bad, warn }: {
 
 const s = (v: number | null, digits = 2) =>
   v === null || !Number.isFinite(v) ? '—' : v.toFixed(digits);
+
+/**
+ * The drag coefficient a recovery device actually flew.
+ *
+ * A vented canopy shows both figures — "2.13 (2.2 less a 375 mm vent)" — because
+ * the design panel holds the manufacturer's 2.2 and the kernel is handed the
+ * scaled value, and a reader comparing the two should see why they differ
+ * rather than suspect the app of losing their number.
+ *
+ * Runs stored before v0.099 carry no coefficient; they show "—" rather than a
+ * guess.
+ */
+function flownCd(d: DeploymentReport): string {
+  if (d.cd === null) return '—';
+  const flown = d.cd.toFixed(2);
+  const vented = d.spillHoleDiameter !== null && d.spillHoleDiameter > 0
+    && d.cdNominal !== null && Math.abs(d.cdNominal - d.cd) > 1e-9;
+  if (!vented) return flown;
+  return `${flown} (${d.cdNominal!.toFixed(2)} less a ${(d.spillHoleDiameter! * 1000).toFixed(0)} mm vent)`;
+}
 
 function verdict(v: boolean | null): { text: string; bad: boolean } {
   return v === null ? { text: '—', bad: false } : v
@@ -134,6 +154,11 @@ export function SimRunDetails({ run, hasSeries }: {
                 <th>Deploys at</th>
                 <th>Altitude (<UnitChip quantity="distance" />)</th>
                 <th>Opens at (<UnitChip quantity="velocity" />)</th>
+                {/* The coefficient the descent verdict rests on. Naming the
+                    device without it made two landing-rate reports (2026-09-03)
+                    take a round trip each to answer "which Cd did that run
+                    use?" — a question the page should answer itself. */}
+                <th>Flown at Cd</th>
                 <th>Descent after (<UnitChip quantity="velocity" />)</th>
                 <th>Verdict</th>
               </tr>
@@ -153,6 +178,7 @@ export function SimRunDetails({ run, hasSeries }: {
                     <td className={d.openingOk === false ? 'stability-bad' : undefined}>
                       {d.velocityAtDeployment === null ? '—' : fmtSi('velocity', vel, Math.abs(d.velocityAtDeployment))}
                     </td>
+                    <td>{flownCd(d)}</td>
                     <td className={d.descentOk === false ? 'stability-bad' : undefined}>
                       {d.descentRate === null ? '—' : fmtSi('velocity', vel, d.descentRate)}
                     </td>
@@ -190,6 +216,7 @@ export function SimRunDetails({ run, hasSeries }: {
                       <th>Deploys at</th>
                       <th>Altitude (<UnitChip quantity="distance" />)</th>
                       <th>Opens at (<UnitChip quantity="velocity" />)</th>
+                      <th>Flown at Cd</th>
                       <th>Descent after (<UnitChip quantity="velocity" />)</th>
                       <th>Verdict</th>
                     </tr>
@@ -207,6 +234,7 @@ export function SimRunDetails({ run, hasSeries }: {
                           <td className={d.openingOk === false ? 'stability-bad' : undefined}>
                             {d.velocityAtDeployment === null ? '—' : fmtSi('velocity', vel, Math.abs(d.velocityAtDeployment))}
                           </td>
+                          <td>{flownCd(d)}</td>
                           <td className={d.descentOk === false ? 'stability-bad' : undefined}>
                             {d.descentRate === null ? '—' : fmtSi('velocity', vel, d.descentRate)}
                           </td>

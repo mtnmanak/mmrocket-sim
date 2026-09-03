@@ -263,6 +263,48 @@ describe('presetPatch — a canopy Cd travels with its spill hole (2026-09-03)',
   });
 });
 
+describe('the launch report states the Cd each device FLEW (2026-09-03b)', () => {
+  // Two landing-rate reports in one day came down to "which Cd did that run
+  // use?", and neither the results page nor the report could answer it. It now
+  // comes off the ENGINE tree — what the kernel was handed — so it stays true
+  // even if the design and the flight ever disagree.
+  it('reports the flown coefficient, and shows a vent doing its work', async () => {
+    const { engineTree, flownRecoveryDevices } = await import('../tree/treeModel.js');
+    const tree = { name: 'T', components: [{ type: 'stage', id: 's', children: [
+      { type: 'bodytube', id: 'b', length: 0.5, outerRadius: 0.05, thickness: 0.001, density: 1800, children: [
+        { type: 'parachute', id: 'm', name: 'Main', diameter: 2.1336, cd: 2.2 },
+        { type: 'parachute', id: 'd', name: 'Drogue', diameter: 0.6096, cd: 1.5, spillHoleDiameter: 0.12192 },
+      ] },
+    ] }] } as unknown as Parameters<typeof engineTree>[0];
+    const flown = flownRecoveryDevices(engineTree(tree));
+
+    // Unvented: what the kernel got IS the design's number.
+    expect(flown['Main']).toEqual({ cd: 2.2, cdNominal: 2.2, diameter: 2.1336, spillHoleDiameter: null });
+    // Vented: the kernel takes the reduction in the coefficient (it has no vent
+    // concept), and the pre-vent figure is kept so the report can show both.
+    expect(flown['Drogue']!.cd).toBeCloseTo(1.44, 9);
+    expect(flown['Drogue']!.cdNominal).toBe(1.5);
+    expect(flown['Drogue']!.spillHoleDiameter).toBeCloseTo(0.12192, 9);
+  });
+
+  it('drops a duplicated device name rather than attributing one chute to the other', async () => {
+    const { engineTree, flownRecoveryDevices } = await import('../tree/treeModel.js');
+    const tree = { name: 'T', components: [{ type: 'stage', id: 's', children: [
+      { type: 'bodytube', id: 'b', length: 0.5, outerRadius: 0.05, thickness: 0.001, density: 1800, children: [
+        { type: 'parachute', id: 'a', name: 'Chute', diameter: 2.0, cd: 2.2 },
+        { type: 'parachute', id: 'b2', name: 'Chute', diameter: 0.5, cd: 0.8 },
+        { type: 'parachute', id: 'c', name: 'Other', diameter: 1.0, cd: 1.5 },
+      ] },
+    ] }] } as unknown as Parameters<typeof engineTree>[0];
+    const flown = flownRecoveryDevices(engineTree(tree));
+    // The kernel's events are keyed by name too, so a duplicate is genuinely
+    // ambiguous — showing one device's number beside the other's descent rate
+    // would be worse than showing none.
+    expect(flown['Chute']).toBeUndefined();
+    expect(flown['Other']!.cd).toBe(1.5);
+  });
+});
+
 describe('presetPatch — the catalogue identity rides with the part (2026-09-03)', () => {
   it('names its manufacturer and part number so a saved file can find the row again', () => {
     const p = db.find((x) => x.kind === 'Parachute')!;

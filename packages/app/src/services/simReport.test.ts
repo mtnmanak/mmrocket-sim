@@ -234,6 +234,48 @@ describe('dual deployment attribution', () => {
     launch: DEFAULT_CONDITIONS, rocketName: 'DD', execMs: 1,
   });
 
+  describe('the Cd each device flew (2026-09-03b)', () => {
+    // The descent verdict rests entirely on this number, and until v0.099 the
+    // report named the device but never the figure — which cost two round trips
+    // with the owner in one day, both of the form "which Cd did that run use?".
+    const withCd = (landRate: number) => buildSimRun({
+      result: dualDeployResult(19.5, landRate), info, motor,
+      meta: { label: 'J350-auto', manufacturer: 'AT' },
+      launch: DEFAULT_CONDITIONS, rocketName: 'DD', execMs: 1,
+      flownRecovery: {
+        Drogue: { cd: 1.44, cdNominal: 1.5, diameter: 0.6096, spillHoleDiameter: 0.12192 },
+        Main: { cd: 2.2, cdNominal: 2.2, diameter: 2.1336, spillHoleDiameter: null },
+      },
+    });
+
+    it('attaches the flown coefficient to the right device', () => {
+      const [drogue, main] = withCd(5.5).deployments;
+      expect(drogue!.cd).toBe(1.44);
+      expect(drogue!.cdNominal).toBe(1.5);
+      expect(drogue!.spillHoleDiameter).toBeCloseTo(0.12192, 9);
+      expect(main!.cd).toBe(2.2);
+      expect(main!.spillHoleDiameter).toBeNull();
+    });
+
+    it('names the coefficient in the landing-too-fast sentence itself', () => {
+      // "Landing too fast" is the app's strongest claim about a design; the
+      // number it rests on belongs in the sentence, not only in a table.
+      const said = withCd(9.0).comments ?? ''; // 29.5 ft/s — over the 20 ft/s target
+      expect(said, 'no landing comment produced').toMatch(/Landing under/);
+      expect(said).toMatch(/drag coefficient of 2\.20/);
+    });
+
+    it('a run carrying no coefficients still reports cleanly (runs stored before v0.099)', () => {
+      const [drogue, main] = build(19.5, 5.5).deployments;
+      expect(drogue!.cd).toBeNull();
+      expect(main!.cd).toBeNull();
+      expect(main!.cdNominal).toBeNull();
+      const said = build(19.5, 9.0).comments ?? '';
+      expect(said).toMatch(/Landing under/);
+      expect(said).not.toMatch(/drag coefficient/);
+    });
+  });
+
   it('reports each device with its own numbers', () => {
     const run = build(19.5, 5.5); // 64 ft/s drogue, 18 ft/s landing — all good
     expect(run.deployments).toHaveLength(2);

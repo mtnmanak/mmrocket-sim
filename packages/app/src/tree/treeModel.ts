@@ -1000,11 +1000,53 @@ export function engineTree(tree: RocketTree): RocketTree {
       const D = typeof n['diameter'] === 'number' ? (n['diameter'] as number) : 0.3;
       const hole = Math.min(dh, D * 0.95);
       const base = typeof n['cd'] === 'number' ? (n['cd'] as number) : KERNEL_DEFAULT_CD;
-      next = { ...next, cd: base * (1 - (hole / D) ** 2) } as ComponentNode;
+      // `cdNominal` keeps the pre-vent figure so the launch report can show
+      // both — the vent doing its work, rather than a flown coefficient that
+      // silently disagrees with the number in the design panel. The kernel
+      // ignores unknown keys, so this rides along harmlessly.
+      next = { ...next, cd: base * (1 - (hole / D) ** 2), cdNominal: base } as ComponentNode;
     }
     return next;
   });
   return { ...tree, components: walk(tree.components) };
+}
+
+/**
+ * What the kernel was handed for each recovery device, keyed by device name.
+ *
+ * Takes the ENGINE tree — the exact object passed to `OrkRocket.buildTree` —
+ * so the launch report states what actually flew. The kernel's deployment
+ * events are keyed by the component's name, which is what makes the join work.
+ *
+ * A duplicate name is dropped rather than guessed at: two devices called the
+ * same thing cannot be told apart in the events either, and showing one
+ * device's coefficient beside the other's descent rate would be worse than
+ * showing none.
+ */
+export function flownRecoveryDevices(
+  engine: RocketTree,
+): Record<string, { cd: number | null; cdNominal: number | null; diameter: number | null; spillHoleDiameter: number | null }> {
+  const out: Record<string, ReturnType<typeof flownRecoveryDevices>[string]> = {};
+  const dupes = new Set<string>();
+  const num = (n: ComponentNode, k: string): number | null =>
+    (typeof n[k] === 'number' && Number.isFinite(n[k] as number) ? (n[k] as number) : null);
+  const walk = (ns: ComponentNode[]): void => {
+    for (const n of ns) {
+      if ((n.type === 'parachute' || n.type === 'streamer') && n.name) {
+        if (out[n.name] !== undefined) dupes.add(n.name);
+        out[n.name] = {
+          cd: num(n, 'cd'),
+          cdNominal: num(n, 'cdNominal') ?? num(n, 'cd'),
+          diameter: num(n, 'diameter'),
+          spillHoleDiameter: num(n, 'spillHoleDiameter'),
+        };
+      }
+      walk(n.children ?? []);
+    }
+  };
+  walk(engine.components);
+  for (const d of dupes) delete out[d];
+  return out;
 }
 
 export interface ClusterSplit {

@@ -71,7 +71,7 @@ import {
 import {
   aeroModelLabel, buildSimRun, conditionsKeyOf, currentModelLabel, formatStability,
   hasAerodynamicForce, recommendDelay, shownStability, runMatchesDesign, runMatchesModel, shortHash, storedSimCost,
-  type DesignMatchKey, type MotorMeta, type SimRun,
+  type DesignMatchKey, type FlownRecoveryDevice, type MotorMeta, type SimRun,
 } from './services/simReport.js';
 import { formatWarning, formatWarningText } from './services/simWarnings.js';
 import { addRun, loadRuns, persistFailed } from './services/simStore.js';
@@ -79,7 +79,7 @@ import { APP_VERSION } from './version.js';
 import { pokeServiceWorker, useVersionCheck } from './services/versionCheck.js';
 import {
   addChild, addStage, cloneSubtree, defaultTree, duplicateNode, emptyTree, engineTree, findNode,
-  findParent, hasParallelStage, inheritDefaults, isOnLaunchStage, makeNode, motorMounts, moveNode,
+  findParent, flownRecoveryDevices, hasParallelStage, inheritDefaults, isOnLaunchStage, makeNode, motorMounts, moveNode,
   normalizeTree, removeNode, stageIndexOf, stages, suppressingAncestor, updateAllNodes,
   updateNode,
 } from './tree/treeModel.js';
@@ -873,10 +873,16 @@ export function App() {
   // during render breaks under StrictMode's double-invoke).
   const buildResult = useMemo((): {
     rocket: OrkRocket; info: StaticInfo; motorFailures: { mountId: string; text: string }[];
+    flownRecovery: Record<string, FlownRecoveryDevice>;
   } | { error: string } => {
     try {
       resetEngine();
-      const rocket = OrkRocket.buildTree(engineTree(tree));
+      // Built once and kept: the launch report states the drag coefficient each
+      // recovery device ACTUALLY flew, and the only honest source for that is
+      // the tree the kernel was handed — not the design on screen.
+      const engine = engineTree(tree);
+      const flownRecovery = flownRecoveryDevices(engine);
+      const rocket = OrkRocket.buildTree(engine);
       // Opt-in Rogers Modified Barrowman (Kbf) — set before staticInfo() so the
       // reported CP/stability reflects it, and it persists onto this build's
       // handle for later simulate() calls.
@@ -927,7 +933,7 @@ export function App() {
       // steered by the mounting angle. See treeModel's lowering notes.)
       const railWarnings = railInterferenceWarnings(tree);
       if (railWarnings.length) info.warningTexts = [...info.warningTexts, ...railWarnings];
-      return { rocket, info, motorFailures };
+      return { rocket, info, motorFailures, flownRecovery };
     } catch (e) {
       return { error: e instanceof Error ? e.message : String(e) };
     }
@@ -1376,6 +1382,9 @@ export function App() {
           ...(activeConfigId !== null ? { flightConfigId: activeConfigId } : {}),
           designKey: shortHash(physicsKey),
           motorSetKey: motorSetKeyOf(assigned),
+          // What the kernel was handed for each chute — so the report can state
+          // the coefficient the verdict rests on, not just the device's name.
+          flownRecovery: built.flownRecovery,
         });
         // Bound to the run it produced — the id is what lets a click through
         // the history table come back to these charts.

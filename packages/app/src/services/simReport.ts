@@ -219,6 +219,41 @@ export interface DeploymentReport {
   openingOk: boolean | null;
   /** Descent-rate verdict: drogue band ≤70 ft/s, landing ≤20 ft/s. */
   descentOk: boolean | null;
+  /**
+   * THE DRAG COEFFICIENT THIS FLIGHT ACTUALLY FLEW, and the canopy it flew it
+   * on — read from the tree that was handed to the kernel, not from the design
+   * on screen.
+   *
+   * Why it is here: the descent verdict rests entirely on this number, and
+   * until v0.099 the report named the device but never the figure. That cost
+   * two round trips with the owner (2026-09-03): both times a landing-rate
+   * report came down to "which Cd did that run actually use?", and neither the
+   * results page nor the report could answer it. A reader can now check the
+   * verdict against the input in one glance.
+   *
+   * `cd` is what reached the kernel — already scaled by any spill hole, since
+   * the kernel has no vent concept and takes the reduction in the coefficient.
+   * `cdNominal` is the canopy's catalogue/entered figure before that scaling,
+   * so the two together show the vent doing its work rather than hiding it.
+   */
+  cd: number | null;
+  cdNominal: number | null;
+  diameter: number | null;
+  spillHoleDiameter: number | null;
+}
+
+/**
+ * What the kernel was actually handed for each recovery device, keyed by the
+ * device NAME the kernel reports in its deployment events.
+ *
+ * Built from the ENGINE tree rather than the design tree on purpose: if the two
+ * ever diverge, the report must show what flew.
+ */
+export interface FlownRecoveryDevice {
+  cd: number | null;
+  cdNominal: number | null;
+  diameter: number | null;
+  spillHoleDiameter: number | null;
 }
 
 /** One separated stage's own flight (staged rockets; branch 0 excluded). */
@@ -574,6 +609,7 @@ function extractDeployments(
   events: FlightEvent[],
   series: FlightSeries,
   groundHit: number | null,
+  flown?: Record<string, FlownRecoveryDevice>,
 ): DeploymentReport[] {
   const deployEvents = events.filter((e) => e.type === 'RECOVERY_DEVICE_DEPLOYMENT');
   return deployEvents.map((ev, i) => {
@@ -588,6 +624,7 @@ function extractDeployments(
       const tNext = deployEvents[i + 1]!.time;
       descentRate = at(series.time, series.velocity, Math.max(ev.time, tNext - 0.2));
     }
+    const f = flown?.[device];
     return {
       device,
       time: ev.time,
@@ -595,6 +632,10 @@ function extractDeployments(
       velocityAtDeployment: vDeploy,
       descentRate,
       isLanding,
+      cd: f?.cd ?? null,
+      cdNominal: f?.cdNominal ?? null,
+      diameter: f?.diameter ?? null,
+      spillHoleDiameter: f?.spillHoleDiameter ?? null,
       openingOk: vDeploy === null ? null : Math.abs(vDeploy) <= SAFETY.maxDeploymentVelocity,
       // abs like openingOk — descent velocities are magnitudes today, but a
       // signed series would make an unsigned ≤ check pass vacuously.
@@ -759,8 +800,10 @@ export function buildSimRun(input: {
   flightConfigId?: string;
   designKey?: string;
   motorSetKey?: string;
+  /** What the kernel was handed for each recovery device — see FlownRecoveryDevice. */
+  flownRecovery?: Record<string, FlownRecoveryDevice>;
 }): SimRun {
-  const { result, info, motor, meta, launch, rocketName, execMs, stageMotorInfo, boosterMotors, aeroModel, rogersKbf, motorConfig, flightConfig, flightConfigId, designKey, motorSetKey } = input;
+  const { result, info, motor, meta, launch, rocketName, execMs, stageMotorInfo, boosterMotors, aeroModel, rogersKbf, motorConfig, flightConfig, flightConfigId, designKey, motorSetKey, flownRecovery } = input;
   const { summary, series } = result;
 
   const tRod = eventTime(result, 'LAUNCHROD');
@@ -813,7 +856,8 @@ export function buildSimRun(input: {
   // altitude). Descent rate under a device = velocity just before the NEXT
   // deployment; the last device's descent rate is the landing rate.
   const deployments = extractDeployments(result.events, series,
-    Number.isFinite(summary.groundHitVelocity) ? summary.groundHitVelocity : null);
+    Number.isFinite(summary.groundHitVelocity) ? summary.groundHitVelocity : null,
+    flownRecovery);
 
   // Booster branches (staged flights): each separated stage flies its OWN
   // descent — apogee, recovery (or tumble), and landing verdict per stage.
@@ -828,7 +872,7 @@ export function buildSimRun(input: {
       motorLabel: stageMotorInfo?.[b.name]?.label,
       apogee: alt.length ? Math.max(...alt) : null,
       tumbles: b.events.some((e) => e.type === 'TUMBLE'),
-      deployments: extractDeployments(b.events, b.series, landing),
+      deployments: extractDeployments(b.events, b.series, landing, flownRecovery),
       landingRate: landing,
       safeLandingRate: landing === null ? null : landing <= SAFETY.maxLandingRate,
     });
@@ -897,7 +941,12 @@ export function buildSimRun(input: {
       comments.push(`Descent under ${d.device} is ${d.descentRate!.toFixed(1)} m/s (${fps(d.descentRate!)}) — faster than the accepted ${fps(SAFETY.maxDrogueDescentRate)} drogue band.`);
     }
     if (d.descentOk === false && d.isLanding) {
-      comments.push(`Landing under ${d.device} at ${d.descentRate!.toFixed(1)} m/s (${fps(d.descentRate!)}) — above the ${fps(SAFETY.maxLandingRate)} landing target.`);
+      // Name the coefficient in the sentence itself. "Landing too fast" is the
+      // app's strongest claim about a design, and the owner's own reports
+      // (2026-09-03) twice turned on which Cd the run had used — a question the
+      // warning should answer where it is made, not leave to a table.
+      const cdSaid = d.cd !== null ? ` on a drag coefficient of ${d.cd.toFixed(2)}` : '';
+      comments.push(`Landing under ${d.device} at ${d.descentRate!.toFixed(1)} m/s (${fps(d.descentRate!)})${cdSaid} — above the ${fps(SAFETY.maxLandingRate)} landing target.`);
     }
   }
   if (deployments.length === 0 && safeDeployment === false) {

@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.098';
+export const APP_VERSION = '0.099';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.099',
+    date: '2026-09-03',
+    title: 'The launch report now tells you the drag coefficient each parachute actually flew',
+    items: [
+      'THE RECOVERY TABLE HAS A NEW COLUMN, "FLOWN AT CD". The landing verdict rests entirely on a parachute\'s drag coefficient, and the report named the device but never the number - so if a landing rate looked wrong there was no way to tell, from the results page, which coefficient the flight had used. Now it says. A vented canopy shows both figures - "1.44 (1.50 less a 122 mm vent)" - because the design panel holds the manufacturer\'s rating and the simulation is handed the value reduced for the vent, and seeing the two side by side is the point.',
+      'The figure is read from what was handed to the physics engine, not from the design on screen, so if those ever disagree the report shows what actually flew.',
+      'THE "LANDING TOO FAST" SENTENCE NOW NAMES THE COEFFICIENT TOO. It is the strongest claim the app makes about a design, and the number it rests on belongs in the sentence rather than only in a table below it.',
+      'Simulations you ran before this release do not carry the coefficient and show a dash in the new column; re-fly to fill it in.',
+    ],
+  },
   {
     version: '0.098',
     date: '2026-09-03',
