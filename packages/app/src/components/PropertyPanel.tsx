@@ -647,7 +647,17 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
           title="Flat 1:1 cut profile as R12 DXF in millimetres — for laser/router/waterjet CAM and Fusion 360 sketch import. Fin sets export ONE fin as a single closed contour with the through-the-wall tab merged into it (airfoil shaping, cant and sweep-into-the-tube are NOT represented); rings, bulkheads and couplers take their diameters from the parent tube, and a centering ring's bore from the motor mount. Cut geometry is on the CUT layer only — REFERENCE (root chord, centre marks) and TEXT are guides; switch them off before cutting."
           onClick={() => {
             const dxf = componentDxf(node, solidContextFor(parent), tree.name ?? 'Rocket');
-            if (!dxf) return;
+            // Same reason as the STL button below: componentDxf returns null for
+            // a planform that collapses under three distinct corners, and a
+            // button that silently does nothing reads as a broken button.
+            if (!dxf) {
+              setExportNote(node.type.endsWith('finset')
+                ? 'This fin outline crosses itself or encloses no area — fix the '
+                  + 'fin points before exporting.'
+                : 'Nothing to cut for this component.');
+              return;
+            }
+            setExportNote(null);
             downloadBlob(new Blob([dxf.text], { type: DXF_MIME }),
               `${safeName(node.name ?? dxf.label)}-cut.dxf`, 'DXF cut profile');
           }}>

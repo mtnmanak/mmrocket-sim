@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.105';
+export const APP_VERSION = '0.106';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.106',
+    date: '2026-09-04',
+    title: 'The DXF button now says why it refused, the way the STL button already did',
+    items: [
+      'THE ✂ DXF BUTTON NOW EXPLAINS ITSELF. v0.105 made the 3D print button say why it would not export a fin whose outline crosses itself or encloses no area. The DXF cut button had the same refusal underneath and still did nothing visible when you pressed it, which reads as a broken button rather than as a rejected shape. Both now show the same sentence. Nothing about the exported geometry changed.',
+    ],
+  },
   {
     version: '0.105',
     date: '2026-09-04',

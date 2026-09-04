@@ -1,5 +1,5 @@
 {
-  "version": "0.105",
+  "version": "0.106",
   "released": "2026-09-04",
-  "note": "Your Estes motors were flying the wrong thrust curve. When a file named a motor, the app searched three hand-written built-ins FIRST, by nothing but the start of the designation - so any file asking for a C6 got the built-in C6 whoever made it. The published database is now searched first, and the maker named on your file is honoured. This MOVES NUMBERS: an Estes C6 was flying 10.40 Ns and now flies the certified 8.82 Ns (18 percent less), an Estes A8 was flying 1.89 Ns and now flies 2.50 Ns. Re-open and re-run anything with a small black-powder motor. Also in this release, from a twelve-agent engineering audit of the whole app: an inner tube or nose weight you place off the centreline now flies there instead of on the axis, a transition exports the shape you drew rather than a different one, the Max Mach tile no longer blanks the whole designer, a freeform fin cannot be dragged into a shape that breaks the design, and the Recovery sizing panel has moved beside the component properties and folds up."
+  "note": "A follow-up to v0.105: the DXF cut button now says why it refused a fin whose outline crosses itself or encloses no area, instead of appearing to do nothing. The 3D print button already said so. No exported geometry changed. See v0.105 for the release this completes - including the motor-matching fix that moves the numbers on any design flying a small black-powder motor."
 }
