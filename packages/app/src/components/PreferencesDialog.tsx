@@ -305,6 +305,10 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
                 <NumField
                   value={toUi(printer.clearance)}
                   step={niceStep(toUi(0.00005))}
+                  // 0 is not "no clearance", it is two parts that cannot be
+                  // assembled; prefs substitutes the 0.15 mm default for it,
+                  // which is safe but silent. Refuse it at the keyboard.
+                  min={toUi(0.00002)}
                   ariaLabel="Joint clearance"
                   onCommit={(v) => {
                     if (v !== null) setPrinter({ ...printer, clearance: uiToSi('length', lengthSym, v) });

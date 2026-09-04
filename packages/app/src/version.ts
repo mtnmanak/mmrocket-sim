@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.104';
+export const APP_VERSION = '0.105';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,33 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.105',
+    date: '2026-09-04',
+    title: 'An engineering audit of the whole app, and the 84 things it found — including a motor that was flying the wrong thrust curve',
+    items: [
+      'YOUR ESTES MOTORS WERE FLYING THE WRONG THRUST CURVE, AND THAT IS FIXED. When a file named a motor, the app searched three hand-written built-in motors FIRST, by nothing but the start of the designation - so any file asking for a "C6" got the built-in C6 whoever made it, whatever diameter it was. The published database is now searched first and the built-ins are an offline fallback only. This MOVES NUMBERS on existing designs: an Estes C6 was flying a 10.40 Ns curve and now flies the published 8.82 Ns, which is 18 percent less impulse; an Estes A8 was flying 1.89 Ns and now flies 2.50 Ns, 32 percent more. Re-open and re-run any design with a small black-powder motor - the new number is the one the manufacturer certified.',
+      'AND THE MAKER ON THE FILE IS NOW HONOURED. The motor lookup ignored the manufacturer entirely, so a design that clearly said Public Missiles got AeroTech\'s G80T - 136.6 Ns instead of PML\'s 116.25 Ns, 17.5 percent apart on the same designation. Seventeen designation groups in the database are split across makers like that. The vitals strip and the launch report now name the vendor your file names.',
+      'A MOTOR THE APP COULD NOT IDENTIFY IS NO LONGER DELETED WHEN YOU SAVE. If a file named a motor that is not in the database - an experimental load, a newly certified motor, anything whose curve would not download - the app dropped it and wrote the configuration out with an empty mount. The original motor block, including the digest desktop OpenRocket matches on, is now written back exactly as it came in.',
+      'RECOVERY SIZING MOVED, AND IT FOLDS. It shipped yesterday directly under the component tree, where it pushed the Measured mass and CG box off the bottom of the screen. It now sits in the right-hand column under the component properties, and it collapses - and when it is shut the header still carries the answer, "main ~65 in - drogue ~24 in", because a panel that hides its own conclusion is just an extra click. It remembers whether you left it open.',
+      'AND ITS SIZE LINE NOW ACCOUNTS FOR THE SPILL HOLE. The headline "about N inches" was computed without the vent correction while the catalogue list below it applied one - two conventions in the same panel. On an 8.8 kg rocket at Cd 2.2 the quoted size was about an inch small. Same rule as everywhere else: a canopy\'s rated Cd and its spill hole are one fact.',
+      'A PART FROM THE CATALOGUE NO LONGER TAKES HALF A FACT. Linking a component to a catalogue part filled each empty field independently, so a file that stated its own spill hole and no drag coefficient got the maker\'s Cd - which already assumes the maker\'s vent - grafted onto its own. The two now travel together or not at all, and the note says which it took.',
+      'A MOUNT OR A MASS YOU PUT OFF THE CENTRELINE NOW FLIES THERE. The 2D and 3D views have drawn an inner tube\'s or a nose weight\'s radial offset since v0.087, and both file formats have saved it - but it never reached the physics engine, so every one of them flew on the axis, with its mass and inertia computed there. A 250 g ballast 25 mm off centre raises the roll inertia by a third of a gram-metre-squared, which is the difference between a rocket that rolls and one that does not.',
+      'A CAPPED SHOULDER ON A TRANSITION IS NOW WEIGHED. The flag round-tripped through the file and was then dropped on the way to the engine - a nose cone\'s has always been read, a transition\'s never was. A capped shoulder is a closed disc of the part\'s own material, so it is mass.',
+      'THE APP NO LONGER BLANKS ITSELF WHEN A FLIGHT HAS NO MACH NUMBER. The "Max Mach" tile called toFixed on a value the engine reports as nothing for a flight that never really left the pad. That threw inside React\'s render, and with no error boundary above it the whole designer unmounted and repainted as a stack trace. Every tile in that table is now guarded, for a missing value AND for a NaN.',
+      'A TRANSITION EXPORTS THE SHAPE YOU DREW. An unclipped ellipsoid, power or Haack reducer was drawn one way and flown one way, and then written to STL as the OTHER shape, because the print path dropped the unclipped flag. On an ordinary 76 to 38 mm reducer that is 3.5 mm of radius at its worst station and 13 percent of the filament. DXF was not affected.',
+      'A FREEFORM FIN CAN NO LONGER BE DRAGGED INTO A SHAPE THAT BREAKS THE DESIGN. Cross one edge over another in the fin editor and the engine threw an error the app could not even format, and mass, CG, CP, stability and Simulate all vanished until you undid the edit. Both file importers already checked for this; the editor did not. It now refuses the edit and says why. The paper template, the STL and the drawn tab also all agree on where the root chord ends, which they did not.',
+      'A PLUGGED MOTOR IMPORTS AS PLUGGED. A ".eng" file whose designation ends in P was read as having a zero second ejection delay - that is, ejecting at burnout - rather than no ejection charge at all.',
+      'SAVING A DESIGN WHOSE CONFIGURATION NAME CONTAINS AN AMPERSAND NO LONGER PRODUCES A FILE THE APP CANNOT REOPEN. Configuration identifiers were the one string in the .ork writer that was not escaped.',
+      'A FLIGHT DATA OR PARTS CSV CAN NO LONGER RUN AS A FORMULA ON SOMEONE ELSE\'S MACHINE. A component named "=cmd|..." in a design you were sent went into the exported CSV verbatim, and a spreadsheet evaluates that. Negative numbers are untouched, so the columns still sum and chart.',
+      'OPENING TWO FILES QUICKLY NO LONGER LETS THE FIRST ONE WIN. If the first file\'s motor downloads were slow, it could land seconds later and overwrite the second - and mark itself as saved, so the next Open discarded your work without asking.',
+      'A MISSING NUMBER NOW READS AS A DASH, NOT AS ZERO. Anywhere the engine reported no value, the display arithmetic turned it into a confident "0.000" - a landing rate of zero, an apogee of zero.',
+      'SAVE STL NO LONGER DOWNLOADS THE 3D VIEWER. The geometry code was reached through the 3D component, so exporting a mesh pulled in 3.6 MB of 3D rendering libraries you were not about to use. And Stop during a batch now cancels the download in flight instead of waiting it out.',
+      'FASTER, in two places you will feel: the app was re-serialising the whole design and every thrust curve on EVERY render to decide whether it was unsaved (up to 7 ms each time on a big design with twelve configurations), and renaming the rocket rebuilt the entire physics model.',
+      'KEYBOARD AND SCREEN READER: icon-only buttons that announced themselves as a punctuation mark now have names, the search boxes and the saved-simulation rows are reachable without a mouse, and the four dialogs that had no Escape key and no focus handling now use the same machinery as the rest.',
+      'AND UNDER THE HOOD: the repo had no linter and no type check of its own before a deploy - the eight suppression comments in the source had nothing honouring them for months. Both now run in CI ahead of the tests. This release came out of a twelve-agent audit of the app; 86 findings, 5 of them serious, and the report lists what was checked and found sound as well as what was not. Five of the audit\'s own claims were wrong and were refuted rather than "fixed".',
+    ],
+  },
   {
     version: '0.104',
     date: '2026-09-04',

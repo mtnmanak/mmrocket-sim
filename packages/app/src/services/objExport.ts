@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { OBJExporter } from 'three/examples/jsm/exporters/OBJExporter.js';
 import type { RocketTree } from '@online-openrocket/engine';
-import { buildPieces } from '../components/Rocket3D.js';
+import { buildPieces } from '../tree/pieces.js';
 
 /**
  * Wavefront OBJ export of the rocket's EXTERNAL 3D geometry — the same

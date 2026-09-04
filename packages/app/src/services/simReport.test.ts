@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { FlightResult, FlightSeries, StaticInfo } from '@online-openrocket/engine';
 import {
-  buildSimRun, extractLandingDrift, extractMaxRollRate, formatStability, recommendDelay,
+  buildSimRun, conditionsKeyOf, extractLandingDrift, extractMaxRollRate, formatStability,
+  recommendDelay,
   AERO_MODEL_CHANGED, changedSinceRun, formatRunWhen, formatRunWhenProse, listAnd,
   ROLL_RATE_MEANINGFUL_RAD_S, runMatchesDesign, SAFETY, stabilityPercent, storedSimCost,
   type DesignMatchKey, type SimRun,
 } from './simReport.js';
 import { runsToCsv } from './simStore.js';
-import { DEFAULT_CONDITIONS } from '../components/LaunchPanel.js';
+import { DEFAULT_CONDITIONS, type LaunchConditions } from '../components/LaunchPanel.js';
 
 const info: StaticInfo = {
   length: 0.37, lengthAerodynamic: 0.37, mass: 0.051, massEmpty: 0.027, cgEmpty: 0.19, cg: 0.26,
@@ -1008,3 +1009,163 @@ describe('runMatchesDesign — what may be re-flown for its charts', () => {
   });
 });
 
+
+describe('WIND IS NOT AN OPENING SHOCK (services-rest-1)', () => {
+  // The mirror image of the v0.100 descent-rate fix, in the same function and
+  // two lines away from it: `openingOk` was still judged on the kernel's
+  // TYPE_VELOCITY_TOTAL series — speed over the GROUND. For every device after
+  // the first, the rocket has spent the previous descent under canopy with its
+  // horizontal velocity relaxed to the wind, so that reading is sqrt(v_z^2 + w^2).
+  const inWind = (drogueRate: number, wind: number) => buildSimRun({
+    result: dualDeployResult(drogueRate, 4, wind), info, motor,
+    meta: { label: 'J350-auto', manufacturer: 'AT' },
+    launch: DEFAULT_CONDITIONS, rocketName: 'DD', execMs: 1,
+  });
+
+  it('a main opening under a healthy drogue passes in the reference 5 m/s wind', () => {
+    // 20.8 m/s is INSIDE the app's own accepted drogue band (21.34). The old
+    // reading, sqrt(20.8^2 + 5^2) = 21.39, is not — so this rocket got a red
+    // "hard opening" cell and a failed "Safe deployment" row on a main that met
+    // the air at 68 ft/s.
+    expect(Math.hypot(20.8, 5)).toBeGreaterThan(SAFETY.maxDeploymentVelocity);
+    const run = inWind(20.8, 5);
+    const main = run.deployments[1]!;
+    expect(main.velocityAtDeployment).toBeCloseTo(20.8, 1);
+    expect(main.groundSpeedAtDeployment).toBeCloseTo(Math.hypot(20.8, 5), 1);
+    expect(main.openingOk).toBe(true);
+    expect(run.safeDeployment).toBe(true);
+    expect(run.comments).not.toMatch(/hard opening/);
+  });
+
+  it('the allowed drogue rate no longer shrinks as the wind rises', () => {
+    // Before: the effective ceiling was sqrt(21.34^2 - w^2) — 20.74 m/s at 5 m/s
+    // of wind, 18.9 at 10, 15.2 (the very bottom of the accepted band) at 15.
+    for (const wind of [0, 5, 10, 15]) {
+      const run = inWind(21, wind);
+      expect(run.deployments[1]!.openingOk, `wind ${wind} m/s`).toBe(true);
+    }
+  });
+
+  it('a genuinely hard opening still fails, and the sentence reconciles both figures', () => {
+    const run = inWind(26, 5);
+    expect(run.deployments[1]!.openingOk).toBe(false);
+    expect(run.safeDeployment).toBe(false);
+    expect(run.comments).toMatch(/Main opens at 26\.0 m\/s/);
+    expect(run.comments).toMatch(/over the ground/);
+  });
+
+  it('the FIRST device is still judged on ground speed — nothing has slowed it to the wind yet', () => {
+    const drogue = inWind(20.8, 5).deployments[0]!;
+    expect(drogue.velocityAtDeployment).toBeCloseTo(2, 1); // the apogee sample
+    expect(drogue.groundSpeedAtDeployment).toBeCloseTo(2, 1);
+  });
+
+  it('prefers the kernel own Vz over differencing the altitude series', () => {
+    // Vz IS in the DEFAULT summary payload — OrkEngine.java's
+    // SUMMARY_SYMBOL_TYPES contains TYPE_VELOCITY_Z. Positive up, so a descent
+    // is negative and the report takes the magnitude.
+    const r = dualDeployResult(20.8, 4, 5);
+    r.series['Vz'] = r.series.time.map((t) => (t <= 7 ? 30 : t <= 30 ? -20.8 : -4));
+    const run = buildSimRun({
+      result: r, info, motor, launch: DEFAULT_CONDITIONS, rocketName: 'DD', execMs: 1,
+    });
+    expect(run.deployments[1]!.velocityAtDeployment).toBeCloseTo(20.8, 3);
+    expect(run.deployments[1]!.openingOk).toBe(true);
+  });
+
+  it('still-air flights are unchanged — the two figures agree', () => {
+    const run = inWind(19.5, 0);
+    const main = run.deployments[1]!;
+    expect(main.velocityAtDeployment).toBeCloseTo(19.5, 1);
+    expect(main.groundSpeedAtDeployment).toBeCloseTo(19.5, 1);
+    expect(run.comments ?? '').not.toMatch(/over the ground/);
+  });
+});
+
+describe('SimRun.velocityAtDeployment names the FIRST deployment', () => {
+  it('does not take the summary figure, which is the LAST device', () => {
+    // FlightData.java:240-243 assigns deploymentVelocity inside a loop over
+    // EVERY flight event, so on a dual-deploy rocket the last one wins. The
+    // field is documented as the first deployment and sits beside
+    // altitudeAtDeployment, which really is the first — they described
+    // different instants, and the CSV and comments blob carried the mismatch.
+    const r = dualDeployResult(19.5, 5.5);
+    r.summary.deploymentVelocity = 19.5; // what the kernel reports: the MAIN
+    const run = buildSimRun({
+      result: r, info, motor, launch: DEFAULT_CONDITIONS, rocketName: 'DD', execMs: 1,
+    });
+    expect(run.velocityAtDeployment).toBeCloseTo(2, 1); // the drogue, at apogee
+    expect(run.velocityAtDeployment).toBe(run.deployments[0]!.velocityAtDeployment);
+  });
+
+  it('falls back to the summary when there is no deployment report to read', () => {
+    // A payload that reports a deployment velocity with no deployment event to
+    // hang it on: keep today's answer rather than inventing none.
+    const r = fakeResult();
+    r.events = r.events.filter((e) => e.type !== 'RECOVERY_DEVICE_DEPLOYMENT');
+    const run = buildSimRun({
+      result: r, info, motor, launch: DEFAULT_CONDITIONS, rocketName: 'x', execMs: 1,
+    });
+    expect(run.deployments).toHaveLength(0);
+    expect(run.velocityAtDeployment).toBeCloseTo(4.2);
+  });
+});
+
+describe('conditionsKeyOf — absent and cleared are the same flight (services-rest-4)', () => {
+  it('a cleared Time step box hashes identically to one never touched', () => {
+    // DEFAULT_CONDITIONS omits timeStepS; LaunchField.onCommit writes null when
+    // the box is emptied. Both fly the engine default (kernelSimOptions spreads
+    // `timeStep` only when `l.timeStepS != null`), so typing into the box and
+    // clearing it again changed nothing about the physics.
+    expect(conditionsKeyOf({ ...DEFAULT_CONDITIONS, timeStepS: null }))
+      .toBe(conditionsKeyOf(DEFAULT_CONDITIONS));
+  });
+
+  it('THE VISIBLE SYMPTOM: the just-flown run is no longer called stale', () => {
+    const cur: DesignMatchKey = {
+      designKey: 'd1', motorSetKey: 'm1',
+      conditionsKey: conditionsKeyOf({ ...DEFAULT_CONDITIONS, timeStepS: null }),
+      aeroMode: 'classic', effectiveKbf: false, autoSupersonic: false,
+    };
+    const run = {
+      designKey: 'd1', motorSetKey: 'm1', aeroModel: 'classic', rogersKbf: false,
+      conditionsKey: conditionsKeyOf(DEFAULT_CONDITIONS),
+    } as SimRun;
+    // Before: ['the launch conditions'] — the precise accusation changedSinceRun
+    // exists to avoid — and runMatchesDesign false, which disables the
+    // "Show charts" re-fly and blocks the .ork <flightdata> block.
+    expect(changedSinceRun(run, cur)).toEqual([]);
+    expect(runMatchesDesign(run, cur)).toBe(true);
+  });
+
+  it('a step that IS set still changes the key', () => {
+    expect(conditionsKeyOf({ ...DEFAULT_CONDITIONS, timeStepS: 0.02 }))
+      .not.toBe(conditionsKeyOf(DEFAULT_CONDITIONS));
+    expect(conditionsKeyOf({ ...DEFAULT_CONDITIONS, timeStepS: 0.02 }))
+      .not.toBe(conditionsKeyOf({ ...DEFAULT_CONDITIONS, timeStepS: 0.01 }));
+  });
+
+  it('every other launch condition still moves the key', () => {
+    const base = conditionsKeyOf(DEFAULT_CONDITIONS);
+    const patches: Partial<LaunchConditions>[] = [
+      { windAverage: 5 }, { windStdDev: 1 }, { launchRodAngleDeg: 10 },
+      { launchRodLengthM: 2 }, { launchAltitudeM: 300 }, { temperatureC: 30 },
+      { pressureHPa: 900 }, { latitudeDeg: 40 },
+    ];
+    for (const p of patches) {
+      expect(conditionsKeyOf({ ...DEFAULT_CONDITIONS, ...p }), JSON.stringify(p)).not.toBe(base);
+    }
+  });
+
+  it('KEEPS the spelling every stored run already uses for a null REQUIRED field', () => {
+    // DEFAULT_CONDITIONS leaves temperatureC and pressureHPa null, so every
+    // conditionsKey in a user's 500-flight history carries
+    // `temperatureC=|pressureHPa=`. Folding those onto the absent spelling
+    // instead would have re-accused the whole history of a conditions change on
+    // the very release that fixed this.
+    const key = conditionsKeyOf(DEFAULT_CONDITIONS);
+    expect(key).toContain('pressureHPa=|');
+    expect(key).toContain('temperatureC=|');
+    expect(key).not.toContain('timeStepS');
+  });
+});

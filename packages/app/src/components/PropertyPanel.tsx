@@ -9,7 +9,8 @@ import {
   mountRadiusOf, protuberanceCd, protuberanceClass, protuberanceDeliveredCd,
   protuberanceExplicitCd, protuberanceFrontalArea, suppressingAncestor,
 } from '../tree/treeModel.js';
-import { anchorStarts, axialLength, offsetForStart, snapStart, startFromPosition } from '../tree/position.js';
+import { anchorStarts, offsetForStart, snapStart, startFromPosition } from '../tree/position.js';
+import { inKernelFrame, kernelLength } from '../tree/kernelLength.js';
 import { tubeFinMaxCount, tubeFinMaxRadius, tubeFinRadius } from '../tree/tubefins.js';
 import { betweenFinAnglesAmong, finAnglesAmong, frameContaining, nearestAngle } from '../tree/mountAngle.js';
 import { shroudEnds } from '../tree/shroud.js';
@@ -102,12 +103,21 @@ function CdBlockedNotice({ blocker, replaces }: { blocker: ComponentNode; replac
  * include an out-of-range typed value, and is frozen for the duration of a
  * drag so the handle doesn't chase its own updates.
  */
-function ValueSlider({ value, min, max, step, onChange }: {
+function ValueSlider({ value, min, max, step, onChange, ariaLabel }: {
   value: number;
   min: number;
   max: number;
   step: number;
   onChange: (ui: number) => void;
+  /**
+   * REQUIRED, even though the type says otherwise for the one caller that has
+   * no field label. The `.field` blocks render `<label>` as a SIBLING with no
+   * htmlFor, so nothing associates it: on a body tube a screen-reader user met
+   * five or six controls all announced as "slider" with a bare number and no
+   * clue which dimension they were about to change — and these write straight
+   * into the flight model.
+   */
+  ariaLabel?: string;
 }) {
   const drag = useRef<{ min: number; max: number } | null>(null);
   const range = drag.current ?? {
@@ -118,6 +128,7 @@ function ValueSlider({ value, min, max, step, onChange }: {
     <input
       type="range"
       className="field-slider"
+      aria-label={ariaLabel}
       min={range.min}
       max={range.max}
       step={step}
@@ -333,6 +344,9 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
 }) {
   const { prefs } = usePrefs();
   const [showPresets, setShowPresets] = useState(false);
+  // Why an export button did nothing. Cleared on the next attempt, so it
+  // never outlives the outline it is complaining about.
+  const [exportNote, setExportNote] = useState<string | null>(null);
   const fields = FIELDS[node.type] ?? [];
   const parent = findParent(tree, node.id!);
   const positionable = POSITIONABLE.has(node.type) && parent !== 'stage';
@@ -464,6 +478,17 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
         autoPlaceholder = `default: ${shapeParamDefault(sh)}`;
       }
     }
+    // A vent cannot be bigger than the canopy it is cut in. treeModel.ts:1149
+    // already clamps the FLOWN hole to 0.95·D — silently, so the panel could
+    // show a 1 m vent on a 0.3 m chute that the rocket was not flying, on the
+    // one control that scales descent Cd. Same ceiling here, so the two agree
+    // on the number. The 0.3 m fallback for a canopy with no stated diameter
+    // is treeModel's own, and the guard is `> 0` because a canopy diameter
+    // stored as a literal zero is exactly what that function's note is about.
+    if (node.type === 'parachute' && f.key === 'spillHoleDiameter') {
+      const canopy = typeof node['diameter'] === 'number' ? (node['diameter'] as number) : 0.3;
+      if (canopy > 0) maxSi = canopy * 0.95;
+    }
     // A rail button's five geometry dimensions did not exist as fields before
     // v0.103, so a button in a design saved earlier carries none of them and
     // these boxes come up empty. Empty must not read as "zero": the engine
@@ -484,6 +509,9 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
     const label = asDiameter
       ? f.label.replace(/radius/gi, (m) => (m[0] === 'R' ? 'Diameter' : 'diameter'))
       : f.label;
+    /** The accessible name for BOTH controls in this field. The visible
+     *  `<label>` below is a sibling with no htmlFor, so it names neither. */
+    const fieldName = quantity ? `${label} (${symbol ?? ''})`.trim() : label;
     const plainSuffix = PLAIN_SUFFIX[f.unit];
 
     // Step/range are authored in legacy units — convert, then snap the step
@@ -491,7 +519,15 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
     const legacyToDisplay = (v: number) => quantity && symbol
       ? siToUi(quantity, symbol, v * legacy.toSI * geomFactor)
       : v * geomFactor;
-    const step = f.unit === 'count' ? 1 : niceStep(legacyToDisplay(f.step ?? 1));
+    // `|| 1`, not `?? 1`: a schema step of ZERO must fall back too. `??`
+    // substitutes only for undefined/null, so the one field that declares 0 —
+    // schema.ts's `lenMM('spillHoleDiameter', …, 0, 500)` — reached
+    // `niceStep(0)`, which returns 1 for any non-positive input. That 1 is in
+    // the DISPLAY unit, not the field's legacy mm: with Preferences → length
+    // set to m the spill-hole slider ran 0…0.5 in steps of 1 (one reachable
+    // position, no vent settable at all) and one press of ▴ committed a 1 m
+    // hole; with 'in' the step was 25.4 mm, with 'ft' 305 mm.
+    const step = f.unit === 'count' ? 1 : niceStep(legacyToDisplay(f.step || 1));
 
     const commit = (ui: number) => {
       let next = f.unit === 'count'
@@ -530,7 +566,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
           )}
         </label>
         <NumField
-          ariaLabel={quantity ? `${label} (${symbol ?? ''})`.trim() : label}
+          ariaLabel={fieldName}
           value={typeof value === 'number' ? value : undefined}
           step={step}
           allowNegative={allowNegative}
@@ -546,6 +582,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
         />
         {f.smin !== undefined && f.smax !== undefined && typeof value === 'number' && (
           <ValueSlider
+            ariaLabel={fieldName}
             value={value}
             min={f.unit === 'count' ? f.smin : legacyToDisplay(f.smin)}
             max={Math.min(
@@ -576,8 +613,13 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
         </p>
       )}
       <div className="field">
+        {/* The label is a SIBLING, not a wrapper, and carries no htmlFor — so
+            it names nothing. Every other control in this panel passes an
+            explicit aria-label; these two were the exceptions, announced as a
+            bare "edit text" and "color picker". */}
         <label>Name</label>
-        <input value={node.name ?? ''} onChange={(e) => onPatch({ name: e.target.value })} />
+        <input aria-label="Component name"
+          value={node.name ?? ''} onChange={(e) => onPatch({ name: e.target.value })} />
       </div>
       {KIND_FOR_TYPE[node.type] && (
         <button className="file-btn" style={{ marginTop: 6, width: '100%' }}
@@ -632,7 +674,17 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
                   pack.filename, 'ZIP of printable segments');
               } else {
                 const solid = await componentSolid(node, solidContextFor(parent));
-                if (!solid) return;
+                // componentSolid now returns null for a fin whose planform is
+                // unusable as well as for a type that is not printable, and a
+                // button that silently does nothing reads as a broken button.
+                if (!solid) {
+                  setExportNote(node.type.endsWith('finset')
+                    ? 'This fin outline crosses itself or encloses no area — fix the '
+                      + 'fin points before exporting.'
+                    : 'Nothing to export for this component.');
+                  return;
+                }
+                setExportNote(null);
                 // Loaded on click: stlExport imports the whole three.js
                 // namespace, and this panel renders on the design screen.
                 const { solidToStl, STL_MIME } = await import('../services/stlExport.js');
@@ -647,6 +699,9 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
             <p className={offer.tone === 'warn' ? 'print-note print-note-warn' : 'print-note'}>
               {offer.note}
             </p>
+          )}
+          {exportNote && (
+            <p className="print-note print-note-warn" role="alert">{exportNote}</p>
           )}
         </>
       )}
@@ -671,7 +726,15 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
         const AFT_GAP = 0.0254; // "about an inch"
         const aftX = rocketInfo.length - AFT_GAP;
         const fwdX = rocketInfo.cg;
-        const childLen = axialLength(node);
+        // kernelLength, not axialLength: the button's extent here is ZERO, the
+        // kernel's own (`RocketComponent.java:86`). `info.positionX` is the
+        // station the KERNEL reports, so backing the parent's start out of it
+        // with the 25 mm axialLength fallback overstated it by half that on
+        // the default 'middle' method — and the offset written below then put
+        // the forward button 12.5 mm aft of the CG this feature exists to hit
+        // (25 mm on a 'bottom'-anchored button, which is what the app's own
+        // .ork writer emits for surface parts).
+        const childLen = kernelLength(node);
         const parentAbsStart = (info.positionX ?? 0)
           - startFromPosition(pos, childLen, parentLenSi ?? 0);
         // Both buttons must land ON this tube. The CG and the aft end are
@@ -711,7 +774,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
       <div className="field" style={{ marginTop: 6 }}>
         <label>Color (2D/3D display)</label>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-          <input type="color" style={{ width: 44, padding: 2, height: 26 }}
+          <input type="color" aria-label="Component color" style={{ width: 44, padding: 2, height: 26 }}
             value={typeof node['color'] === 'string' ? (node['color'] as string) : '#d5d2cb'}
             onChange={(e) => onPatch({ color: e.target.value })} />
           {COLOR_PRESETS.map((c) => (
@@ -1244,6 +1307,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
                 }}
               />
               <ValueSlider
+                ariaLabel="Position offset"
                 value={lenToUi(pos.offset)}
                 min={lenToUi(-parentLenSi)}
                 max={lenToUi(parentLenSi)}
@@ -1251,9 +1315,14 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
                 onChange={(v) => {
                   // Magnetic slider: snap to structural anchors (tube/sibling ends).
                   // `parent` is a ComponentNode here — positionable excludes 'stage'.
-                  const cLen = axialLength(node);
+                  // Same frame as the 2D drag (TreeSchematic's onMove) and the
+                  // drawings: a rail button is positioned by a zero-length
+                  // component, so the anchor ladder is built in that frame too.
+                  const cLen = kernelLength(node);
                   const start = startFromPosition({ ...pos, offset: lenFromUi(v) }, cLen, parentLenSi);
-                  const snapped = snapStart(start, anchorStarts(parent as ComponentNode, node), parentLenSi * 0.015);
+                  const snapped = snapStart(start,
+                    anchorStarts(inKernelFrame(parent as ComponentNode), inKernelFrame(node)),
+                    parentLenSi * 0.015);
                   onPatch({ position: { ...pos, offset: offsetForStart(pos.method, snapped, cLen, parentLenSi) } });
                 }}
               />

@@ -182,6 +182,34 @@ export async function extrudePolygon(
   }
   const { triangulateOutline } = await import('./triangulate.js');
   const faces = triangulateOutline(outline);
+  // A SIMPLE polygon of m vertices ear-clips to EXACTLY m-2 triangles that
+  // between them touch every vertex. three's earcut (r169, mapbox 2.2.4) does
+  // not report failure — on a self-intersecting or zero-area outline its
+  // cureLocalIntersections path DELETES vertices and returns fewer triangles:
+  // [[0,0],[0.05,0.03],[0,0.03],[0.05,0]] (a fin planform dragged until two
+  // edges cross) gives 1 of the 2 needed, and [[0,0],[0.02,0],[0.04,0],[0.05,0]]
+  // (height typed to 0) gives 0. The side-wall loop below always emits a quad
+  // per edge, so a short cap left the caps holed while the walls stayed —
+  // an open, non-manifold "solid" that still downloaded as an STL and that a
+  // slicer then silently invented a repair for. Refuse instead: every mesh
+  // this function returns is watertight by construction or it is empty.
+  const covered = new Uint8Array(m);
+  let usable = faces.length === m - 2;
+  if (usable) {
+    for (const f of faces) {
+      for (const v of f) {
+        if (!(v >= 0 && v < m)) { usable = false; break; }
+        covered[v] = 1;
+      }
+      if (!usable) break;
+    }
+  }
+  if (usable) {
+    for (let i = 0; i < m; i++) {
+      if (!covered[i]) { usable = false; break; }
+    }
+  }
+  if (!usable) return emptyMesh();
   const tris: number[] = [];
   for (const f of faces) {
     let a = f[0]!;
@@ -339,7 +367,9 @@ function shoulderOf(node: ComponentNode, prefix: string, fallbackWall: number): 
  */
 export function finCutOutline(node: ComponentNode): Array<[number, number]> | null {
   let pts: Array<[number, number]>;
-  let rootLen: number;
+  // null = freeform: its root chord is the LAST point's x and can only be read
+  // AFTER the closed-list trim below, so it is resolved there.
+  let rootLen: number | null = null;
   if (node.type === 'trapezoidfinset') {
     const root = num(node, 'rootChord', 0.05);
     const tip = Math.max(num(node, 'tipChord', 0.025), 0);
@@ -383,7 +413,6 @@ export function finCutOutline(node: ComponentNode): Array<[number, number]> | nu
       if (!Array.isArray(p) || typeof p[0] !== 'number' || typeof p[1] !== 'number') return null;
       pts.push([p[0], p[1]]);
     }
-    rootLen = Math.max(0, ...pts.map((p) => p[0]));
   }
 
   // An explicitly closed point list (last point repeating the first) would
@@ -395,6 +424,19 @@ export function finCutOutline(node: ComponentNode): Array<[number, number]> | nu
     else break;
   }
   if (pts.length < 3) return null;
+
+  // A freeform fin's root chord is the LAST point's x — the kernel's own
+  // definition (FreeformFinSet.java:494 and :546, `this.length =
+  // points.get(lastIndex).x`), which FinSet.getTabFrontEdge() then measures the
+  // tab from. It is NOT the max over all points: FinPointsEditor's constrain()
+  // pins only point 0 and the last point's y, so a tip trailing corner may
+  // overhang the root's. Using max-x there put the tab's fore corner AFT of the
+  // root trailing corner, and the closed contour then walked y = 0 twice in
+  // opposite directions — points [[0,0],[0.02,0.03],[0.05,0.03],[0.01,0]] with
+  // a 20x10 mm tab gave three.js's ear clipper 4 cap triangles where 6 are
+  // needed, i.e. a non-watertight STL and a DXF path that doubled back on
+  // itself. It also placed the tab at a different station than the physics uses.
+  if (rootLen === null) rootLen = Math.max(0, pts[pts.length - 1]![0]);
 
   const tabH = num(node, 'tabHeight', 0);
   const tabL = num(node, 'tabLength', 0);
@@ -456,6 +498,9 @@ export function componentLoop(
       const R = num(node, 'aftRadius', FALLBACK_RADIUS);
       const wall = num(node, 'thickness', 0.002);
       const { shape, param } = shapeOf(node);
+      // No `clipped` argument on purpose: NoseCone.isClipped() is always false
+      // in the kernel, and foreR = 0 makes outerProfile's clip branch
+      // unreachable anyway (it needs r1 > 0). Only the transition below can clip.
       const outer = outerProfile(shape, param, L, 0, R, PROFILE_STEPS, extraX);
       const loop = bodyLoop(outer, wall, node['filled'] === true, null, shoulderOf(node, '', wall));
       return { loop, label: 'Nose cone', bodySpan: [0, L], wall };
@@ -466,7 +511,19 @@ export function componentLoop(
       const Ra = num(node, 'aftRadius', FALLBACK_RADIUS);
       const wall = num(node, 'thickness', 0.002);
       const { shape, param } = shapeOf(node);
-      const outer = outerProfile(shape, param, L, Rf, Ra, PROFILE_STEPS, extraX);
+      // node['clipped'] (.ork <shapeclipped>) MUST ride along, exactly as
+      // Rocket3D.tsx and TreeSchematic.tsx forward it: absent = the kernel
+      // default (clipped), an explicit false = the unclipped delta shape.
+      // Dropping it printed the clipped continuation for a transition drawn
+      // and flown unclipped — on a 76.2 mm -> 38.1 mm power (p=0.5) reducer
+      // 100 mm long the two profiles differ by up to 3.49 mm in RADIUS
+      // (7.0 mm on diameter) and 285.0 vs 323.0 cm^3 of solid — 13% of the
+      // filament — so the printed part did not mate with the airframe it was
+      // designed against.
+      const outer = outerProfile(
+        shape, param, L, Rf, Ra, PROFILE_STEPS, extraX,
+        typeof node['clipped'] === 'boolean' ? (node['clipped'] as boolean) : undefined,
+      );
       const loop = bodyLoop(
         outer, wall, node['filled'] === true,
         shoulderOf(node, 'fore', wall), shoulderOf(node, 'aft', wall),
@@ -529,6 +586,11 @@ export async function componentSolid(
       const outline = finCutOutline(node);
       if (!outline) return null;
       const mesh = await extrudePolygon(outline, num(node, 'thickness', 0.003));
+      // extrudePolygon returns EMPTY rather than an open shell when the
+      // planform cannot be triangulated (edges that cross, a zero-height
+      // outline). Report that the same way an unprintable type reports it —
+      // null — so the caller declines instead of writing a non-manifold STL.
+      if (mesh.triangles.length === 0) return null;
       const label = node.type === 'trapezoidfinset' ? 'Trapezoidal fin'
         : node.type === 'ellipticalfinset' ? 'Elliptical fin' : 'Freeform fin';
       return { mesh, label };

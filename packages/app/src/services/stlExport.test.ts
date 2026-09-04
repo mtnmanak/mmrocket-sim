@@ -8,7 +8,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import type { Piece } from '../components/Rocket3D.js';
+import type { Piece } from '../tree/pieces.js';
 import { STL_MIME, piecesToStl, solidToStl } from './stlExport.js';
 
 interface ParsedTri {

@@ -45,7 +45,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { mfrDisplay, mfrKey, normRaw } from './manufacturers.mjs';
+import { mfrDisplay, mfrKey } from './manufacturers.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(__dirname, '..', '..', '..');
@@ -183,7 +183,6 @@ function mapMaterial(name, table, type) {
 // Astronautics" fell into two buckets, the rocksim rows never met their
 // desktop-24.12 twins, and six duplicate parts were appended rather than
 // deduped. That is the mechanism behind the owner's "double counted" report.
-const normMfg = normRaw;
 const mfgKey = mfrKey;
 
 const normPart = (s) => (s ?? '').toLowerCase().replace(/[\s-]/g, '');

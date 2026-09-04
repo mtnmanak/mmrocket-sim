@@ -17,7 +17,7 @@
  */
 import * as THREE from 'three';
 import type { SolidMesh } from '../tree/solidMesh.js';
-import type { Piece } from '../components/Rocket3D.js';
+import type { Piece } from '../tree/pieces.js';
 
 export const STL_MIME = 'model/stl';
 

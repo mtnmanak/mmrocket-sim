@@ -103,3 +103,39 @@ export function useDialog<T extends HTMLElement = HTMLDivElement>(onClose: () =>
 
   return ref;
 }
+
+/**
+ * Escape-to-close and focus-return for a NON-modal popup — the header's
+ * "Save As / Export ▾" and "Feedback" panels.
+ *
+ * Deliberately not `useDialog`: those two are disclosure popups, not dialogs.
+ * They must not trap Tab (tabbing out of a menu is how a menu is left), and
+ * they must not steal focus on open — a pointer user who clicked the trigger
+ * would have the first export button focused under their cursor. What they DID
+ * lack is the other half: Escape did nothing anywhere in App (there was not a
+ * single key handler in the file), so a keyboard user who opened the export
+ * popup had no way to dismiss it, and closing it by any route left focus
+ * nowhere.
+ *
+ * Call it unconditionally and pass `open` — the popup's own JSX is
+ * conditionally rendered, so a hook inside it could not be.
+ */
+export function useMenuPopup(open: boolean, onClose: () => void): void {
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  useEffect(() => {
+    if (!open) return;
+    // The trigger, which is what had focus when the click opened this.
+    const opener = document.activeElement as HTMLElement | null;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      e.preventDefault();
+      onCloseRef.current();
+      opener?.focus?.();
+    };
+    document.addEventListener('keydown', onKeyDown, true);
+    return () => document.removeEventListener('keydown', onKeyDown, true);
+  }, [open]);
+}

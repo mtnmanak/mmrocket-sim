@@ -53,6 +53,46 @@ export interface TcHeaderMasses {
 }
 
 /**
+ * Loaded/propellant masses that could describe a real motor: both finite, both
+ * positive, and no more propellant than the motor weighs loaded.
+ *
+ * ONE definition, applied on every path a mass pair can arrive by — the data
+ * file's own header and the localStorage cache — because they were allowed to
+ * differ and the cache read won. A cached `{totalWeightG:52, propWeightG:104}`
+ * is the Cesaroni 25E75-17A shape samplesToMotorSpec refuses outright for
+ * CATALOG masses, but those checks never look at the file masses that override
+ * them, so it flew a rocket whose mass crosses zero part-way through the burn:
+ * no throw, just a wrong apogee and wrong recovery numbers.
+ */
+export function isHeaderMasses(m: unknown): m is TcHeaderMasses {
+  if (typeof m !== 'object' || m === null) return false;
+  const { totalWeightG: t, propWeightG: p } = m as Record<string, unknown>;
+  return typeof t === 'number' && typeof p === 'number'
+    // Number.isFinite, not just typeof: JSON.parse('1e999') yields Infinity.
+    && Number.isFinite(t) && Number.isFinite(p)
+    && t > 0 && p > 0 && p <= t;
+}
+
+/**
+ * Every element is a usable {time, thrust} pair.
+ *
+ * `Number.isFinite` rather than `typeof === 'number'`: `JSON.parse('1e999')`
+ * yields Infinity, and either that or a missing field turns into a NaN `dt` in
+ * samplesToMotorSpec — so every time, thrust and mass in the MotorSpec is NaN
+ * and nothing on the way throws. That is the condition the comment in
+ * samplesToMotorSpec describes reaching the kernel, where TeaVM threw a raw
+ * "cannot be converted to a BigInt" and the whole design blanked.
+ */
+export function isSampleList(arr: unknown): arr is TcSample[] {
+  return Array.isArray(arr) && arr.length > 0 && arr.every((s) => {
+    if (typeof s !== 'object' || s === null) return false;
+    const { time, thrust } = s as Record<string, unknown>;
+    return typeof time === 'number' && typeof thrust === 'number'
+      && Number.isFinite(time) && Number.isFinite(thrust);
+  });
+}
+
+/**
  * The masses out of the DATA FILE's own header, which is what desktop
  * OpenRocket reads. thrustcurve.org publishes two different claims about the
  * same motor — the catalog metadata and the file the curve came from — and
@@ -74,11 +114,8 @@ export function headerMasses(file: TcSimFile): TcHeaderMasses | null {
   const init = /initWt\s*=\s*"([\d.eE+-]+)"/.exec(text);
   const prop = /propWt\s*=\s*"([\d.eE+-]+)"/.exec(text);
   if (init && prop) {
-    const t = Number(init[1]);
-    const p = Number(prop[1]);
-    if (Number.isFinite(t) && Number.isFinite(p) && t > 0 && p > 0 && p <= t) {
-      return { totalWeightG: t, propWeightG: p };
-    }
+    const masses = { totalWeightG: Number(init[1]), propWeightG: Number(prop[1]) };
+    if (isHeaderMasses(masses)) return masses;
   }
   // RASP .eng: the first non-comment, non-blank line is
   //   designation diameter(mm) length(mm) delays propWeight(kg) totalWeight(kg) mfr
@@ -87,10 +124,10 @@ export function headerMasses(file: TcSimFile): TcHeaderMasses | null {
     if (!line || line.startsWith(';')) continue;
     const f = line.split(/\s+/);
     if (f.length < 7) return null;
-    const p = Number(f[4]);
-    const t = Number(f[5]);
-    if (!Number.isFinite(p) || !Number.isFinite(t) || t <= 0 || p <= 0 || p > t) return null;
-    return { totalWeightG: t * 1000, propWeightG: p * 1000 };
+    // kg -> g. Scaling is sign- and finiteness-preserving, so the shared test
+    // means the same thing before and after it.
+    const masses = { totalWeightG: Number(f[5]) * 1000, propWeightG: Number(f[4]) * 1000 };
+    return isHeaderMasses(masses) ? masses : null;
   }
   return null;
 }
@@ -232,7 +269,14 @@ export function repairSamples(samples: readonly TcSample[]): RepairedCurve {
 export function pickSampleFile(files: readonly TcSimFile[]): TcSimFile | null {
   const usable = files
     .map((file, index) => ({ file, index }))
-    .filter(({ file }) => (file.samples?.length ?? 0) >= 2);
+    // isSampleList as well as the count. A file whose times or thrusts are not
+    // finite numbers — a schema change, a partial record in a volunteer
+    // archive, a middlebox rewriting the body — is not a candidate at all, so
+    // a sound sibling in the SAME response still wins rather than the response
+    // being flown as NaN. It also makes `sound()` below mean something: on
+    // undefined times `p.time > s[i-1].time` is simply false, which scored a
+    // damaged file identically to a merely out-of-order one.
+    .filter(({ file }) => (file.samples?.length ?? 0) >= 2 && isSampleList(file.samples));
   if (usable.length === 0) return null;
 
   const sound = ({ file }: { file: TcSimFile }): number => {
@@ -364,8 +408,145 @@ export function samplesToMotorSpec(
  * v2: the v1 cache stored raw API samples, including the damaged curves that
  * used to crash the build. Bumping the prefix retires those entries rather
  * than leaving a poisoned cache no code path ever invalidates.
+ *
+ * Bumping made them UNREACHABLE; it never freed them. Three generations have
+ * shipped — `tc:samples:` through v0.060, `tc:samples:v2:` in v0.061-v0.064,
+ * `tc:samples:v3:` from v0.065 — and the beta invite went out 2026-08-22, so
+ * day-one testers hold two dead generations that can never be read and, until
+ * sweepDeadGenerations() below, could never be freed either. Whoever bumps
+ * this next: change only the version segment, CACHE_ROOT is what sweeps.
  */
-const CACHE_PREFIX = 'tc:samples:v3:';
+const CACHE_ROOT = 'tc:samples:';
+const CACHE_PREFIX = `${CACHE_ROOT}v3:`;
+
+/**
+ * Cap on the live generation, and the mark eviction prunes back to.
+ *
+ * localStorage is ONE ~5 MB pool per origin, shared with the session autosave
+ * and the 500-run history. An unbounded cache therefore does not degrade
+ * itself, it breaks "your work saves itself": session.ts starts flagging the
+ * autosave as failing and simStore.persist refuses run writes. One batch run
+ * caches a curve per candidate (BatchSimulate's own example is 226 motors) and
+ * the bundled database holds 1,129, so repeated batches walk toward the whole
+ * catalogue. A cached curve is roughly 1-3 kB of JSON (~30 bytes a sample,
+ * 30-100 samples), so 300 entries is well under a megabyte.
+ *
+ * The two marks are not decoration. Ordering by age has to read every live
+ * entry's stamp, and a batch writes hundreds of keys back to back; pruning to
+ * a low-water mark makes that scan happen once per 60 writes instead of once
+ * per write.
+ */
+const MAX_CACHED_CURVES = 300;
+const EVICT_TO = 240;
+
+/**
+ * Every key this cache owns, across generations. Snapshotted before anything
+ * is deleted, because removeItem renumbers localStorage.key(i) underneath a
+ * live loop. The prefix match is exact: this pool also holds the session
+ * autosave, the run history and the preferences.
+ */
+function cachedKeys(): string[] {
+  const keys: string[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k !== null && k.startsWith(CACHE_ROOT)) keys.push(k);
+  }
+  return keys;
+}
+
+const liveKeys = (): string[] => cachedKeys().filter((k) => k.startsWith(CACHE_PREFIX));
+
+/** The entry's write time; 0 for anything unstamped or unparseable, which
+ *  sorts it oldest — entries written before stamping existed genuinely are. */
+function stampOf(key: string): number {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return 0;
+    const t = (JSON.parse(raw) as { t?: unknown }).t;
+    return typeof t === 'number' && Number.isFinite(t) ? t : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/** Drops the oldest live entries until at most `keep` remain. */
+function evictOldest(keep: number): void {
+  const live = liveKeys();
+  if (live.length <= keep) return;
+  const stamped = live.map((key) => ({ key, t: stampOf(key) }));
+  stamped.sort((a, b) => a.t - b.t);
+  for (const { key } of stamped.slice(0, live.length - keep)) localStorage.removeItem(key);
+}
+
+let sweptDeadGenerations = false;
+
+/**
+ * Deletes the entries of retired cache generations. Once per page load is
+ * enough — a retired prefix can never come back — and it costs one enumeration
+ * of localStorage, against one per motor if it ran on every download.
+ */
+function sweepDeadGenerations(): void {
+  if (sweptDeadGenerations) return;
+  // Set first: a localStorage that throws (private mode) must not re-attempt
+  // this for every motor in a 226-motor batch.
+  sweptDeadGenerations = true;
+  for (const key of cachedKeys()) {
+    if (!key.startsWith(CACHE_PREFIX)) localStorage.removeItem(key);
+  }
+}
+
+/**
+ * How long one motor download may hang before it is abandoned.
+ *
+ * Not a bandwidth budget — a curve is a couple of kB and lands in well under a
+ * second on anything usable. It is a floor under BatchSimulate, which awaits
+ * one of these per candidate and only reads its Stop flag BETWEEN iterations:
+ * a socket that opens and then stalls (a captive portal or a weak hotspot at a
+ * launch site, which is the app's stated flight-day use) parked the loop
+ * inside this await forever, with Stop dead and the progress bar frozen. The
+ * only exit was reloading the tab, which discards every result the batch had
+ * already accepted. Fifteen seconds turns that into the ordinary per-motor
+ * error the batch loop already handles.
+ */
+const FETCH_TIMEOUT_MS = 15_000;
+
+interface Deadline {
+  /** undefined only where AbortController does not exist at all. */
+  signal: AbortSignal | undefined;
+  /** True when OUR timer fired, as opposed to the caller cancelling. */
+  timedOut: () => boolean;
+  /** Always call: clears the timer and unsubscribes from the caller's signal. */
+  done: () => void;
+}
+
+/**
+ * Combines the caller's cancellation with our own deadline.
+ *
+ * Hand-rolled rather than AbortSignal.any(), which is Chrome 116 / Safari 17.4
+ * (2023-24) and would break an older iPad, and rather than a bare
+ * AbortSignal.timeout(), whose abort is indistinguishable from the caller's
+ * once the two are merged. Telling them apart is the point: a timeout has to
+ * read as "the network stalled", a caller abort as "you pressed Stop".
+ */
+function deadline(caller: AbortSignal | undefined, ms: number): Deadline {
+  if (typeof AbortController !== 'function') {
+    return { signal: caller, timedOut: () => false, done: () => { /* nothing to undo */ } };
+  }
+  const ctrl = new AbortController();
+  let expired = false;
+  const timer = setTimeout(() => { expired = true; ctrl.abort(); }, ms);
+  const relay = (): void => ctrl.abort(caller?.reason);
+  if (caller?.aborted) ctrl.abort(caller.reason);
+  else caller?.addEventListener('abort', relay, { once: true });
+  return {
+    signal: ctrl.signal,
+    timedOut: () => expired,
+    done: () => {
+      clearTimeout(timer);
+      caller?.removeEventListener('abort', relay);
+    },
+  };
+}
 
 /**
  * Fetches thrust samples (localStorage-cached) and builds the MotorSpec.
@@ -376,6 +557,13 @@ const CACHE_PREFIX = 'tc:samples:v3:';
 export async function fetchMotorSpec(
   motor: TcMotor,
   ejectionDelay: number,
+  /**
+   * Cancels a download in flight — BatchSimulate's Stop, an unmounting dialog.
+   * Optional on purpose: without one the request STILL gives up after
+   * FETCH_TIMEOUT_MS, so a hung socket stops being permanent without any
+   * caller having to change.
+   */
+  signal?: AbortSignal,
 ): Promise<RepairedMotorSpec> {
   if (motor.motorId.startsWith('ex:')) {
     const { getExMotor } = await import('./exMotors.js');
@@ -412,18 +600,25 @@ export async function fetchMotorSpec(
   let fromFile: TcHeaderMasses | null = null;
 
   try {
+    sweepDeadGenerations();
     const cached = localStorage.getItem(cacheKey);
     if (cached) {
       const parsed = JSON.parse(cached) as unknown;
       // Validate the shape — a corrupt entry parses fine but would break
       // samplesToMotorSpec forever (the cache is never invalidated otherwise).
-      const entry = parsed as { samples?: unknown; masses?: TcHeaderMasses | null };
-      const arr = entry?.samples;
-      if (Array.isArray(arr) && arr.length > 0
-          && arr.every((s) => typeof (s as TcSample)?.time === 'number'
-            && typeof (s as TcSample)?.thrust === 'number')) {
-        samples = arr as TcSample[];
-        fromFile = entry.masses ?? null;
+      const entry = (parsed ?? {}) as { samples?: unknown; masses?: unknown };
+      const arr = entry.samples;
+      if (isSampleList(arr)) {
+        samples = arr;
+        // The masses get the SAME test headerMasses applies on the write path.
+        // Taken verbatim they bypassed the sanity checks in samplesToMotorSpec
+        // — those inspect the CATALOG pair, and a file pair overrides it — so
+        // an impossible cached pair silently changed apogee and the recovery
+        // numbers instead of throwing. null is not a made-up mass: it is
+        // headerMasses' own documented answer for a file it cannot read, and
+        // the caller then flies the catalog values, which ARE checked.
+        const m = entry.masses;
+        fromFile = isHeaderMasses(m) ? m : null;
       } else {
         localStorage.removeItem(cacheKey);
       }
@@ -433,27 +628,67 @@ export async function fetchMotorSpec(
   }
 
   if (!samples) {
-    const res = await fetch(`${API}/download.json`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      // "both" carries the raw .eng/.rse alongside the samples, so the masses
-      // can come from the same document as the curve (see headerMasses).
-      body: JSON.stringify({ motorIds: [motor.motorId], data: 'both' }),
-    });
-    if (!res.ok) {
-      throw new Error(`thrustcurve.org download failed: HTTP ${res.status}`);
+    const limit = deadline(signal, FETCH_TIMEOUT_MS);
+    let body: { results?: TcSimFile[] };
+    try {
+      const res = await fetch(`${API}/download.json`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        // "both" carries the raw .eng/.rse alongside the samples, so the masses
+        // can come from the same document as the curve (see headerMasses).
+        body: JSON.stringify({ motorIds: [motor.motorId], data: 'both' }),
+        signal: limit.signal,
+      });
+      if (!res.ok) {
+        throw new Error(`thrustcurve.org download failed: HTTP ${res.status}`);
+      }
+      // Reading the body is inside the deadline too: a connection that answers
+      // its headers and then stalls hangs here, not in fetch().
+      body = (await res.json()) as { results?: TcSimFile[] };
+    } catch (err) {
+      if (limit.timedOut()) {
+        throw new Error(
+          `thrustcurve.org did not answer within ${FETCH_TIMEOUT_MS / 1000} s for ` +
+            `${motor.designation}. Check the connection and try again, or import ` +
+            "the motor's .rse/.eng file.",
+        );
+      }
+      throw err;
+    } finally {
+      limit.done();
     }
-    const body = (await res.json()) as { results?: TcSimFile[] };
-    const file = pickSampleFile(body.results ?? []);
+
+    // Array.isArray, not `?? []`: a body whose `results` is a string or an
+    // object reached .map() as a TypeError with no motor name in it. Same
+    // failure class as the sample guard below — trust nothing in this body.
+    const results = Array.isArray(body?.results) ? body.results : [];
+    const file = pickSampleFile(results);
     if (!file?.samples) {
-      throw new Error(`No sample data available for ${motor.designation}`);
+      // pickSampleFile rejects a file whose samples are not finite time/thrust
+      // pairs, so "files came back, none of them usable" is its own case and
+      // deserves its own message — silently flying it produced NaN masses.
+      throw new Error(results.some((f) => (f.samples?.length ?? 0) >= 2)
+        ? `thrustcurve.org returned a thrust curve for ${motor.designation} whose `
+          + 'time or thrust values are not numbers, so it cannot be simulated. '
+          + 'Pick another motor, or import its .rse/.eng file.'
+        : `No sample data available for ${motor.designation}`);
     }
     samples = file.samples;
     fromFile = headerMasses(file);
+    const entry = JSON.stringify({ samples, masses: fromFile, t: Date.now() });
     try {
-      localStorage.setItem(cacheKey, JSON.stringify({ samples, masses: fromFile }));
+      if (liveKeys().length > MAX_CACHED_CURVES) evictOldest(EVICT_TO);
+      localStorage.setItem(cacheKey, entry);
     } catch {
-      // cache is best-effort
+      // Quota, or no storage at all. setItem writes NOTHING on quota, so retry
+      // once after a hard prune: swallowing this is how a pure-convenience
+      // cache came to fill the pool the session autosave shares.
+      try {
+        evictOldest(Math.floor(EVICT_TO / 2));
+        localStorage.setItem(cacheKey, entry);
+      } catch {
+        // Still no room, or storage is unavailable — fly the motor uncached.
+      }
     }
   }
 

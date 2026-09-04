@@ -7,8 +7,8 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
 import {
-  collapseLoop, componentSolid, extrudePolygon, finCutOutline, isWatertight, revolveProfile,
-  solidVolume, type SolidMesh,
+  collapseLoop, componentLoop, componentSolid, extrudePolygon, finCutOutline, isWatertight,
+  revolveProfile, solidVolume, type SolidMesh,
 } from './solidMesh.js';
 
 const node = (type: string, params: Record<string, unknown>): ComponentNode =>
@@ -395,5 +395,163 @@ describe('isWatertight', () => {
     const box = await extrudePolygon([[0, 0], [0.01, 0], [0.01, 0.01], [0, 0.01]], 0.01);
     box.positions[0] = NaN;
     expect(isWatertight(box)).toBe(false);
+  });
+});
+
+describe('transition: the stored clipped flag reaches the PRINTED solid', () => {
+  /**
+   * componentLoop used to stop at outerProfile()'s 7th argument, so the STL /
+   * DXF / split-pack path always built the CLIPPED continuation while
+   * Rocket3D and TreeSchematic drew (and the kernel flew) whatever
+   * node['clipped'] said. One node, two shapes.
+   *
+   * The fixture is the case a desktop .ork actually carries: a 76.2 mm ->
+   * 38.1 mm power (p = 0.5) reducer, 100 mm long, with
+   * <shapeclipped>false</shapeclipped>. Both volumes below are analytic, not
+   * regression captures:
+   *   clipped   r(x) = R*sqrt((c + L - x)/(c + L)), c = L/3 solves r(L) = R/2
+   *             V = PI*R^2*L*(c + L/2)/(c + L)      = 285.03 cm^3
+   *   unclipped r(x) = a*(1 + sqrt((L - x)/L)), a = R/2
+   *             V = PI*a^2*L*17/6                    = 323.02 cm^3
+   */
+  const R = 0.0381;
+  const base = {
+    shape: 'power', shapeParameter: 0.5, length: 0.1,
+    foreRadius: R, aftRadius: R / 2, filled: true,
+  };
+  const V_CLIPPED = Math.PI * R * R * 0.1 * 0.625;
+  const V_UNCLIPPED = Math.PI * (R / 2) ** 2 * 0.1 * (17 / 6);
+
+  it('an unclipped transition prints the unclipped curve, 13% more solid', async () => {
+    const vDefault = check((await solid(node('transition', base))).mesh);
+    const vUnclipped = check((await solid(node('transition', { ...base, clipped: false }))).mesh);
+    const vExplicit = check((await solid(node('transition', { ...base, clipped: true }))).mesh);
+    expect(relErr(vDefault, V_CLIPPED)).toBeLessThan(0.01);
+    expect(relErr(vExplicit, V_CLIPPED)).toBeLessThan(0.01);
+    expect(relErr(vUnclipped, V_UNCLIPPED)).toBeLessThan(0.01);
+    // 285.0 vs 323.0 cm^3 — 13% of the filament, and the reason a printed
+    // reducer did not mate with the airframe it was designed against. Without
+    // the flag both readings were 285.0.
+    expect(vUnclipped / vDefault).toBeCloseTo(V_UNCLIPPED / V_CLIPPED, 2);
+  });
+
+  it('the two profiles differ by 3.49 mm in RADIUS at their worst station', async () => {
+    const clipped = componentLoop(node('transition', base), {})!.loop;
+    const unclipped = componentLoop(node('transition', { ...base, clipped: false }), {})!.loop;
+    expect(unclipped.length).toBe(clipped.length); // same x ladder, only r moves
+    let worst = 0;
+    let worstX = 0;
+    for (let i = 0; i < clipped.length; i++) {
+      expect(unclipped[i]![0]).toBeCloseTo(clipped[i]![0], 12);
+      const d = Math.abs(unclipped[i]![1] - clipped[i]![1]);
+      if (d > worst) {
+        worst = d;
+        worstX = clipped[i]![0];
+      }
+    }
+    expect(worst).toBeCloseTo(0.003495, 4); // 3.49 mm radius = 7.0 mm on diameter
+    expect(worstX).toBeCloseTo(0.0828, 3);
+  });
+
+  it('non-clippable shapes ignore the flag, and a nose cone never clips', async () => {
+    // Transition.isClipped() returns false outright for conical/ogive/parabolic,
+    // and NoseCone.isClipped() is always false — so neither may move here.
+    for (const shape of ['conical', 'ogive', 'parabolic']) {
+      const p = { shape, length: 0.08, foreRadius: 0.012, aftRadius: 0.025, filled: true };
+      const a = check((await solid(node('transition', p))).mesh);
+      const b = check((await solid(node('transition', { ...p, clipped: false }))).mesh);
+      expect(relErr(b, a)).toBeLessThan(1e-12);
+    }
+    const cone = { shape: 'power', shapeParameter: 0.5, length: 0.1, aftRadius: 0.02, filled: true };
+    const n1 = check((await solid(node('nosecone', cone))).mesh);
+    const n2 = check((await solid(node('nosecone', { ...cone, clipped: false }))).mesh);
+    expect(relErr(n2, n1)).toBeLessThan(1e-12);
+  });
+});
+
+describe('freeform root chord is the LAST point x, not the max x', () => {
+  /**
+   * FreeformFinSet.java:494/546 — `this.length = points.get(lastIndex).x` — and
+   * FinSet.getTabFrontEdge() measures the tab from that length. Taking the max
+   * over all points instead put the tab AFT of the root trailing corner on a
+   * fin whose tip overhangs the root (FinPointsEditor's constrain() pins only
+   * point 0 and the last point's y, so that planform is drawable), and the
+   * closed contour then walked y = 0 twice in opposite directions.
+   */
+  const overhang = [[0, 0], [0.02, 0.03], [0.05, 0.03], [0.01, 0]];
+  const tab = { tabHeight: 0.004, tabLength: 0.006, tabOffset: 0, tabOffsetMethod: 'middle' };
+
+  it('places the tab inside the 10 mm root, not at the 50 mm tip station', async () => {
+    const outline = finCutOutline(node('freeformfinset', { points: overhang, ...tab }))!;
+    const below = outline.filter((p) => p[1] < 0);
+    expect(below.length).toBe(2); // the tab's two outer corners
+    // rootLen 0.010, tabLength 0.006, middle -> [0.002, 0.008]. With the old
+    // max-x rootLen of 0.050 this was [0.022, 0.028] — past the root's own
+    // trailing corner at x = 0.010, so the contour doubled back along y = 0.
+    expect(Math.min(...below.map((p) => p[0]))).toBeCloseTo(0.002, 12);
+    expect(Math.max(...below.map((p) => p[0]))).toBeCloseTo(0.008, 12);
+  });
+
+  it('the merged outline extrudes watertight with the exact planform volume', async () => {
+    const v = check((await solid(node('freeformfinset', { points: overhang, thickness: 0.003, ...tab }))).mesh);
+    // Shoelace of the fin quad is 6.00e-4 m^2; the tab adds 0.006*0.004.
+    expect(relErr(v, (6e-4 + 0.006 * 0.004) * 0.003)).toBeLessThan(1e-9);
+  });
+
+  it('an ordinary freeform fin (last point IS the max x) is untouched', async () => {
+    const pts = [[0, 0], [0, 0.04], [0.02, 0.04], [0.02, 0.01], [0.05, 0.01], [0.05, 0]];
+    const withTab = { points: pts, thickness: 0.003, tabHeight: 0.005, tabLength: 0.02, tabOffset: 0.005, tabOffsetMethod: 'top' };
+    const v = check((await solid(node('freeformfinset', withTab))).mesh);
+    expect(relErr(v, (0.02 * 0.04 + 0.03 * 0.01 + 0.02 * 0.005) * 0.003)).toBeLessThan(1e-9);
+    // ...and so is one whose point list is explicitly closed: the root chord
+    // must be read AFTER the closing duplicate is trimmed, or it reads 0 and
+    // the tab silently disappears.
+    const closed = finCutOutline(node('freeformfinset', {
+      points: [[0, 0], [0.01, 0.03], [0.05, 0.02], [0.05, 0], [0, 0]],
+      tabHeight: 0.005, tabLength: 0.02, tabOffset: 0.01, tabOffsetMethod: 'top',
+    }))!;
+    expect(closed.filter((p) => p[1] < 0).length).toBe(2);
+  });
+});
+
+describe('extrudePolygon refuses an outline it cannot triangulate', () => {
+  /**
+   * three's earcut (r169, mapbox 2.2.4) reports no error: on a self-crossing
+   * or zero-area outline its cureLocalIntersections path deletes vertices and
+   * returns FEWER than m-2 triangles, while the side-wall loop still emits a
+   * quad per edge — an open, non-manifold shell that used to download as an
+   * STL and that a slicer would silently "repair" into some other part.
+   */
+  it('a self-crossing planform yields nothing, not an open shell', async () => {
+    const crossing: Array<[number, number]> = [[0, 0], [0.05, 0.03], [0, 0.03], [0.05, 0]];
+    const mesh = await extrudePolygon(crossing, 0.003);
+    expect(mesh.triangles.length).toBe(0);
+    expect(mesh.positions.length).toBe(0);
+    // ...and the export path declines rather than handing over the shell.
+    expect(await componentSolid(node('freeformfinset', { points: crossing, thickness: 0.003 }), {})).toBeNull();
+  });
+
+  it('a zero-height (fully collinear) planform yields nothing', async () => {
+    const flat: Array<[number, number]> = [[0, 0], [0.02, 0], [0.04, 0], [0.05, 0]];
+    expect((await extrudePolygon(flat, 0.003)).triangles.length).toBe(0);
+    expect(await componentSolid(node('freeformfinset', { points: flat, thickness: 0.003 }), {})).toBeNull();
+    // A trapezoid fin whose height was typed to 0 is the same degenerate outline.
+    expect(await componentSolid(node('trapezoidfinset', {
+      rootChord: 0.05, tipChord: 0.02, sweep: 0.01, height: 0, thickness: 0.003,
+    }), {})).toBeNull();
+  });
+
+  it('the guard is not over-eager: a collinear RUN inside a real planform still exports', async () => {
+    // Three points on one straight leading edge — earcut keeps all four and
+    // returns the full m-2 faces, so this must NOT be refused.
+    const v = check((await solid(node('freeformfinset', {
+      points: [[0, 0], [0.02, 0.02], [0.04, 0.04], [0.05, 0]], thickness: 0.002,
+    }))).mesh);
+    expect(relErr(v, 1e-3 * 0.002)).toBeLessThan(1e-9);
+    // ...nor is the 65-vertex elliptical planform with its tab merged in.
+    check((await solid(node('ellipticalfinset', {
+      rootChord: 0.05, height: 0.04, thickness: 0.002,
+      tabHeight: 0.006, tabLength: 0.02, tabOffset: 0, tabOffsetMethod: 'middle',
+    }))).mesh);
   });
 });

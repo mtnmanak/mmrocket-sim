@@ -536,3 +536,100 @@ describe('site elevation reaches the answer', () => {
     expect(denver.main.inBand).toBeLessThan(sea.main.inBand);
   });
 });
+
+/**
+ * The SIZE line owes the spill hole the same debt canopyCdA does
+ * (services-rest-3, 2026-09-04).
+ *
+ * `diameterForRate` has no vent term, so feeding it a manufacturer's Cd — which
+ * is referenced to the canopy area MINUS the vent — quoted the headline against
+ * the full nominal disc while the candidate list directly beneath it applied
+ * 1 − (d/D)². Two conventions in one panel, and the headline was the optimistic
+ * one: the number a user sews fabric to came out small.
+ */
+describe('the size line carries the design chute’s spill hole', () => {
+  const inches = (m: number) => m * IN;
+  /** The owner's case: 8.786 kg, Cd 2.2, sea level, the 18 ft/s main target. */
+  const wildman = (over: Partial<ComponentNode>) =>
+    ok(sizing({ tree: tube(0.3, [{ diameter: 1.0, cd: 2.2, deployEvent: 'altitude', ...over }]) }));
+
+  it('is unchanged for an UNVENTED canopy — the fix costs the plain case nothing', () => {
+    const r = wildman({});
+    expect(r.main.ventFactor).toBe(1);
+    expect(r.main.cd).toBe(2.2);
+    expect(r.main.cdNominal).toBe(2.2);
+    expect(inches(r.main.diameter)).toBeCloseTo(64.748, 3);
+  });
+
+  it('grows the main from 64.75 in to 65.78 in at the catalogue’s median 17.6 % vent', () => {
+    const r = wildman({ spillHoleDiameter: 0.176 });
+    expect(r.main.cdNominal).toBe(2.2);
+    expect(r.main.ventFactor).toBeCloseTo(1 - 0.176 ** 2, 12);
+    expect(r.main.cd).toBeCloseTo(2.2 * (1 - 0.176 ** 2), 12);
+    expect(inches(r.main.diameter)).toBeCloseTo(65.775, 3);
+  });
+
+  it('grows it to 66.08 in at the catalogue’s worst 20 % vent', () => {
+    const r = wildman({ spillHoleDiameter: 0.20 });
+    expect(r.main.ventFactor).toBeCloseTo(0.96, 9);
+    expect(inches(r.main.diameter)).toBeCloseTo(66.083, 3);
+  });
+
+  it('round-trips: the size it names really does descend at the target rate', () => {
+    // The old size line did not. A 64.748 in canopy built with the same 17.6 %
+    // vent its Cd was measured against lands at 18.29 ft/s, not 18.
+    const D = wildman({ spillHoleDiameter: 0.176 }).main.diameter;
+    const cdA = 2.2 * (1 - 0.176 ** 2) * Math.PI * D * D / 4;
+    expect(descentRate(WILDMAN_KG, cdA, SEA_LEVEL_DENSITY)).toBeCloseTo(MAIN_BAND.target, 9);
+
+    const old = diameterForRate(WILDMAN_KG, 2.2, SEA_LEVEL_DENSITY, MAIN_BAND.target);
+    const oldCdA = 2.2 * (1 - 0.176 ** 2) * Math.PI * old * old / 4;
+    expect(fps(descentRate(WILDMAN_KG, oldCdA, SEA_LEVEL_DENSITY))).toBeCloseTo(18.285, 3);
+  });
+
+  it('agrees with the candidate list — one convention, not two', () => {
+    // A catalogue row whose Cd and vent are exactly the ones the chute states:
+    // the size line's diameter and canopyCdA's must produce the same rate.
+    const r = wildman({ spillHoleDiameter: 0.176 });
+    const asRow = {
+      kind: 'Parachute', manufacturer: 'X', partNo: 'Y', description: '',
+      diameter: r.main.diameter, dragCoefficient: 2.2,
+      spillHoleDiameter: 0.176 * (r.main.diameter / 1.0),
+    } as unknown as Preset;
+    expect(descentRate(WILDMAN_KG, canopyCdA(asRow)!, SEA_LEVEL_DENSITY))
+      .toBeCloseTo(MAIN_BAND.target, 9);
+  });
+
+  it('takes the vent from the SAME chute the Cd came from, borrowed or not', () => {
+    // One chute in the design: the drogue slot borrows the main's Cd, and must
+    // borrow the main's hole with it rather than quoting a bare 2.2.
+    const r = wildman({ spillHoleDiameter: 0.176 });
+    expect(r.drogue.cdSource).toBe('the design’s other chute');
+    expect(r.drogue.cdNominal).toBe(2.2);
+    expect(r.drogue.ventFactor).toBeCloseTo(1 - 0.176 ** 2, 12);
+  });
+
+  it('leaves the kernel’s 0.8 default unvented — it is not a maker’s figure', () => {
+    const r = ok(sizing({ tree: tube(0.3) }));
+    expect(r.main.cdSource).toBe('default');
+    expect(r.main.ventFactor).toBe(1);
+    expect(r.main.cd).toBe(DEFAULT_CANOPY_CD);
+    expect(Math.round(inches(r.main.diameter))).toBe(107);
+  });
+
+  it('clamps a vent wider than the canopy exactly as engineTree does', () => {
+    // min(hole, 0.95 D): the same guard, so a nonsense entry cannot make the
+    // size line and the flown coefficient disagree.
+    const r = wildman({ spillHoleDiameter: 5 });
+    expect(r.main.ventFactor).toBeCloseTo(1 - 0.95 ** 2, 12);
+    expect(Number.isFinite(r.main.diameter)).toBe(true);
+  });
+
+  it('ignores a vent on a canopy with no diameter rather than dividing by zero', () => {
+    const r = ok(sizing({
+      tree: tube(0.3, [{ cd: 2.2, spillHoleDiameter: 0.1, deployEvent: 'altitude' }]),
+    }));
+    expect(r.main.ventFactor).toBe(1);
+    expect(Number.isFinite(r.main.diameter)).toBe(true);
+  });
+});

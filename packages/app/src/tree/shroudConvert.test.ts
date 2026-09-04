@@ -58,6 +58,35 @@ describe('shroud → fairing conversion', () => {
     expect(f['mass']).toBeCloseTo(0.04, 9);
   });
 
+  /**
+   * The clocking has to survive the conversion. A fin set stores its angle
+   * about the body axis as `rotation` (rocksimFile.ts writes it from RockSim's
+   * <RadialAngle> on the freeform branch, orkFile.ts from .ork <rotation>); a
+   * fairing stores the same angle as `angleOffset` (schema.ts MOUNT_ANGLE).
+   * Both are radians about the same zero, so dropping `rotation` relocated a
+   * deliberately clocked shroud to 0° — which MOUNT_ANGLE's own note calls out
+   * as exactly where an unrotated fin set puts fin 1, so the camera landed on
+   * the fin line in all three views, mountAngle's rail and wake warnings
+   * changed on a part nobody had moved, and the next save persisted the 0.
+   */
+  it('carries the fin set\'s rotation across as the fairing\'s angleOffset', () => {
+    const sixty = (60 * Math.PI) / 180;
+    const f = shroudToFairing(freeform({ id: 'c1', name: 'Camera Shroud', rotation: sixty }));
+    expect(f['angleOffset']).toBeCloseTo(sixty, 12);
+    // Through the tree walk too, since that is the path the import offer takes.
+    const res = convertShrouds(wrap([freeform({ id: 'c1', name: 'shroud', rotation: -Math.PI / 2 })]), ['c1']);
+    expect(findNode(res.tree, 'c1')!['angleOffset']).toBeCloseTo(-Math.PI / 2, 12);
+  });
+
+  it('defaults the angle to 0 when the set was never clocked', () => {
+    // Emitted unconditionally rather than left absent: every reader falls back
+    // to num(n,'angleOffset',0), so 0 and absent behave the same, and an
+    // unconditional key is the testable one.
+    expect(shroudToFairing(freeform({ id: 'c1', name: 'shroud' }))['angleOffset']).toBe(0);
+    // A non-numeric rotation (a malformed import) must not become NaN.
+    expect(shroudToFairing(freeform({ id: 'c1', name: 'shroud', rotation: 'top' }))['angleOffset']).toBe(0);
+  });
+
   it('replaces the node in the tree, same id, and reports it', () => {
     const t = wrap([freeform({ id: 'c1', name: 'Camera Shroud', overrideMass: 0.05 })]);
     const res = convertShrouds(t, ['c1']);

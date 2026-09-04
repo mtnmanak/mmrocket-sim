@@ -164,3 +164,24 @@ describe('unit-preference export', () => {
     );
   });
 });
+
+describe('flightDataCsv — spreadsheet safety', () => {
+  it('neutralises a formula-shaped booster stage name in the column headers', () => {
+    // The only attacker-supplied text in this export: a booster branch's name
+    // is the stage's name, straight off an imported .ork/.rkt/.CDX1. Every
+    // data cell is String(finite number), so the header is the whole surface.
+    const result: FlightResult = {
+      summary,
+      events: [],
+      series: fakeSeries(),
+      branches: [
+        { name: 'Sustainer', events: [], series: fakeSeries() },
+        { name: "=cmd|'/c calc.exe'!A1", events: [], series: fakeSeries() },
+      ],
+    };
+    const headers = flightDataCsv(result).split('\n')[0]!;
+    expect(headers).toContain('"\'=cmd|\'/c calc.exe\'!A1 — Time (s)"');
+    // The bare, evaluable form must not appear anywhere in the header row.
+    expect(headers).not.toContain(",=cmd|'/c calc.exe'!A1");
+  });
+});

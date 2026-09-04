@@ -30,6 +30,8 @@ import {
   withoutAllowance, type BallastSolution,
 } from './services/buildAllowance.js';
 import { builtInMeta, MotorPicker } from './components/MotorPicker.js';
+import { Modal } from './components/Modal.js';
+import { useMenuPopup } from './components/useDialog.js';
 import { NumField } from './components/NumField.js';
 import { PropertyPanel } from './components/PropertyPanel.js';
 import { SimHistory, SimRunDetails } from './components/SimResults.js';
@@ -52,8 +54,9 @@ import { MMR_NAV_FALLBACK, useMmrNav } from './services/useMmrNav.js';
 import { AERO_SHORT, aeroChoiceOf, effectiveAero, usePrefs, type AeroChoice } from './prefs/PrefsContext.js';
 import { UnitChip } from './components/UnitChip.js';
 import { fmtSi, niceStep, siToUi, uiToSi } from './prefs/units.js';
-import { classLabel, diameterClass, displayDesignation, findDbMotor, isHighPower } from './services/motorDb.js';
-import { delayOptions, fetchMotorSpec } from './services/thrustcurve.js';
+import { classLabel, diameterClass } from './services/motorDb.js';
+import { matchImportedMotor, refToExportMotor } from './services/motorMatch.js';
+import { aeroModelFor, rogersKbfFor, stageMotorInfo } from './services/flightPipeline.js';
 import { loadExMotors } from './services/exMotors.js';
 import { exportOrk, fmtStepS, importOrk, type OrkDeployOverride, type OrkSeparationOverride, type OrkExportConfig, type OrkExportFlightData, type OrkExportMotor, type OrkImportResult, type OrkMotorRef, type OrkTreeImportResult } from './services/orkFile.js';
 import { decodeShareFragment, encodeShareFragment, hasSharePayload, MAX_FRAGMENT_CHARS } from './services/shareLink.js';
@@ -91,6 +94,7 @@ import { railInterferenceWarnings, wakeShadowWarnings } from './tree/mountAngle.
 import { convertShrouds, findShroudCandidates, type ShroudCandidate } from './tree/shroudConvert.js';
 import { mountBore } from './tree/scaleRocket.js';
 import { designFingerprint, isDirty, type DesignSnapshot } from './services/dirtyState.js';
+import { createSequencer } from './services/latestWins.js';
 import { recoveryMass, recoveryMassTitle, type RecoveryMass } from './services/recoveryMass.js';
 import { RecoverySizingPanel } from './components/RecoverySizingPanel.js';
 import { ScaleDialog } from './components/ScaleDialog.js';
@@ -124,6 +128,19 @@ export interface SavedConfig {
   /** Designations that couldn't be matched at import — reported when applied. */
   unmatched?: string[];
   /**
+   * The unmatched motor REFERENCES themselves, keyed by mount node id.
+   *
+   * `unmatched` above is display text; this is what the file said. Without it,
+   * a motor the bundled database lacks (an EX load, a newly certified motor,
+   * or any motor whose curve failed to download) was reduced to its
+   * designation string at import, so pressing Save .ork wrote that
+   * configuration with NO motor on the mount — and the original reference,
+   * including the `<digest>` that is desktop's silent-match tier, was gone
+   * from the user's only copy. `exportConfigs` re-emits these verbatim for
+   * mounts that still have nothing matched.
+   */
+  unmatchedRefs?: Record<string, OrkMotorRef>;
+  /**
    * This configuration's stage-separation settings, keyed by stage node id.
    * Separation is per-configuration in the .ork exactly as motors and recovery
    * are, so switching configurations has to carry it: without this, a design
@@ -140,7 +157,15 @@ export interface SavedConfig {
   deployments?: Record<string, OrkDeployOverride>;
 }
 
-/** SimRun -> the ten summary values desktop OpenRocket stores in <flightdata>. */
+/**
+ * SimRun -> the ten summary values desktop OpenRocket stores in <flightdata>.
+ *
+ * The ONE copy of this mapping. It sat here unreferenced while
+ * `flightDataForExport` built the identical literal inline, so a units or
+ * field-name fix made in the obvious place — this function, which is at the
+ * top of the file and named for the job — changed nothing in the file that
+ * came out, and the diff looked correct.
+ */
 function summaryOf(r: SimRun): OrkExportFlightData {
   return {
     maxAltitude: r.maxAltitude,
@@ -362,6 +387,15 @@ export function App() {
   // everything or applying "None" clears it.
   const [savedConfigs, setSavedConfigs] = useState<SavedConfig[]>(session?.savedConfigs ?? []);
   const [activeConfigId, setActiveConfigId] = useState<string | null>(session?.activeConfigId ?? null);
+  /**
+   * The WORKING SET's unmatched motor references, keyed by mount node id — the
+   * motors the file named that nothing could resolve. Kept so Save .ork writes
+   * them back verbatim instead of emitting a mount with no motor; see
+   * SavedConfig.unmatchedRefs. Dropped for a mount as soon as the user assigns
+   * or removes a motor there, because at that point the file's reference is no
+   * longer what the user wants on that mount.
+   */
+  const [unmatchedRefs, setUnmatchedRefs] = useState<Record<string, OrkMotorRef>>({});
   // A RASAero import's Mach-Alt table, offered to the drag panel as a sweep
   // condition. Session-only: it belongs to the imported file, not the design.
   const [fileMachAlt, setFileMachAlt] = useState<[number, number][] | undefined>();
@@ -589,6 +623,13 @@ export function App() {
   }, []);
   const [showFileMenu, setShowFileMenu] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
+  // Escape closes whichever header popup is open and puts focus back on the
+  // button that opened it. Before this, App had no key handling of any kind:
+  // the export popup — the only route to Save .ork — could be opened from the
+  // keyboard and then not dismissed, and closing it by any route left focus
+  // nowhere.
+  useMenuPopup(showFileMenu, () => setShowFileMenu(false));
+  useMenuPopup(showFeedback, () => setShowFeedback(false));
   // Auto aero mode: did the last flight of THIS design cross the Mach-0.9
   // threshold and upgrade to the supersonic model? Sticky until the design,
   // motors or launch conditions change, so the displayed statics match the
@@ -621,18 +662,73 @@ export function App() {
   const [dirtyTick, bumpDirty] = useReducer((x: number) => x + 1, 0);
   /** The file the user picked while there was unsaved work — held for the prompt. */
   const [pendingOpen, setPendingOpen] = useState<File | null>(null);
+  /**
+   * Which OPEN is current. Opening a design is asynchronous — a file read, the
+   * preset catalogue, and one thrustcurve.org fetch per unmatched motor with
+   * no timeout — so two opens overlap freely and the SLOWER one used to land
+   * last and win. Bumped before the first await of every open path; each one
+   * checks it before touching state. See applyImported.
+   */
+  const openSeq = useRef(createSequencer()).current;
+  /**
+   * WHICH BUILD'S IMPORTER produced the tree now in state — not which build is
+   * running.
+   *
+   * The autosave holds the PARSED design, so a session restored from an older
+   * build has never been through this build's importer and `restoredByOlderBuild`
+   * says so. That signal used to self-destruct: the mount-time autosave fires
+   * ~400 ms after any load and re-stamps the stored session with the RUNNING
+   * version, so the notice was gone on the next reload and the tester kept
+   * flying the old parse. Carried forward here until an import or a New
+   * actually re-parses the tree.
+   */
+  const parsedByVersion = useRef<string | undefined>(
+    session ? session.appVersion : APP_VERSION);
+
+  /**
+   * The design as the user would save it, assembled ONCE per change.
+   *
+   * `designFingerprint` walks the tree, every mount motor and every saved
+   * configuration — and a MountMotor.spec is a full MotorSpec, so the whole
+   * thrust curve is in there, twice over for a design with configurations.
+   * Measured with the real `stable`/`shortHash` under node: 0.27 ms for a
+   * 200-point single-motor design, 2.5 ms at 900 points with 6 configurations,
+   * 7.4 ms at 1500 points with 12 — 15 % to 45 % of a 60 fps frame. It used to
+   * run unmemoized in the component body, so dragging the roll slider (a range
+   * input firing on every pointer move) paid it on every frame, as did every
+   * keystroke in the Rocket name field, to produce a string two click handlers
+   * read.
+   *
+   * The dependency list is by construction the set of inputs the snapshot
+   * reads, which is the same list the autosave effect below uses.
+   */
+  const designSnapshot = useMemo<DesignSnapshot>(() => {
+    // Prune limits for stages that no longer exist. The Set is built ONCE,
+    // not inside the filter callback — it was per-entry.
+    const stageIds = new Set(stages(tree).map((s) => s.id));
+    return {
+      tree,
+      mountMotors,
+      launch,
+      maxMotorLengthByStage: Object.fromEntries(
+        Object.entries(maxMotorLen).filter(([id]) => stageIds.has(id))),
+      savedConfigs,
+      activeConfigId,
+      measured,
+    };
+  }, [tree, mountMotors, launch, maxMotorLen, savedConfigs, activeConfigId, measured]);
 
   // Autosave the working state so a closed tab or crash never loses work.
   useEffect(() => {
-    // Prune limits for stages that no longer exist before persisting.
-    const stageIds = new Set(stages(tree).map((s) => s.id));
-    const maxMotorLengthByStage = Object.fromEntries(
-      Object.entries(maxMotorLen).filter(([id]) => stageIds.has(id)));
     saveSessionDebounced({
-      tree, mountMotors, launch, maxMotorLengthByStage, savedConfigs, activeConfigId, measured,
+      ...designSnapshot,
+      // The build that PARSED this design, not the one writing the file — see
+      // parsedByVersion. (session.ts's writeNow currently overrides this with
+      // APP_VERSION unconditionally; carrying it here is the App half.)
+      appVersion: parsedByVersion.current,
       savedMark: savedMark.current ?? undefined, flownSinceSave: flownSinceSave.current,
     });
-  }, [tree, mountMotors, launch, maxMotorLen, savedConfigs, activeConfigId, measured, dirtyTick]);
+  }, [designSnapshot, dirtyTick]);
 
   // Close the 400 ms debounce window on the way out. `pagehide` fires on
   // close, reload and navigation away - and on a mobile browser discarding the
@@ -668,17 +764,13 @@ export function App() {
    * run in an event or re-render for their own reasons. `bumpDirty` exists so
    * the autosave effect re-runs when only the mark moved.
    */
-  const snapshotNow = (): DesignSnapshot => ({
-    tree,
-    mountMotors,
-    launch,
-    maxMotorLengthByStage: Object.fromEntries(
-      Object.entries(maxMotorLen).filter(([id]) => new Set(stages(tree).map((x) => x.id)).has(id))),
-    savedConfigs,
-    activeConfigId,
-    measured,
-  });
-  const dirty = isDirty(designFingerprint(snapshotNow()), savedMark.current, flownSinceSave.current);
+  const snapshotNow = (): DesignSnapshot => designSnapshot;
+  const dirty = useMemo(
+    () => isDirty(designFingerprint(designSnapshot), savedMark.current, flownSinceSave.current),
+    // dirtyTick is how the two REFS above announce a change — markSaved and
+    // the flown-since-save flag do not re-render on their own.
+    [designSnapshot, dirtyTick],
+  );
   /**
    * Clear the design and start over. ONE definition, because the New button
    * now reaches it directly when there is nothing to lose and through the
@@ -686,8 +778,18 @@ export function App() {
    * exactly the shape of thing that gets fixed in one place only.
    */
   const startNewDesign = () => {
-    setTree(emptyTree());
+    // ONE emptyTree(), used for BOTH the state and the mark below. It used to
+    // be called twice, and emptyTree() -> makeStage() -> freshId() mints a new
+    // `c<N>` id every call while designFingerprint hashes the tree WITH its
+    // ids — so the mark described a stage id one greater than the tree in
+    // state, and a design with nothing in it was dirty the instant ✕ New was
+    // pressed. Pressing ✕ New twice then raised "Start a new design?" on an
+    // empty design, which is the always-fires confirmation the comment on the
+    // New button warns about.
+    const fresh = emptyTree();
+    setTree(fresh);
     setMountMotors({});
+    setUnmatchedRefs({});
     setSavedConfigs([]);
     setActiveConfigId(null);
     setMaxMotorLen({});
@@ -695,6 +797,15 @@ export function App() {
     setResult(null);
     setLastRun(null);
     setConfirmNew(false);
+    // This tree was built by THIS build, so the stale-autosave warning no
+    // longer describes what is on screen (and must not survive into the
+    // session the next autosave writes).
+    parsedByVersion.current = APP_VERSION;
+    setRestoredByOlderBuild(false);
+    // The Mach-Alt table belongs to the RASAero file it came in with. Left
+    // standing, the drag panel went on offering the PREVIOUS rocket's flight
+    // altitudes as a sweep condition for a design that never flew them.
+    setFileMachAlt(undefined);
     // A stale "Loaded <old rocket>…" banner over a fresh design
     // reads like the import happened again - clear both notes.
     setFileNote(null);
@@ -706,7 +817,7 @@ export function App() {
     // re-rendered - launch and measured are deliberately not reset here, so
     // they carry their current values.
     markSaved(designFingerprint({
-      tree: emptyTree(),
+      tree: fresh,
       mountMotors: {},
       launch,
       maxMotorLengthByStage: {},
@@ -835,8 +946,18 @@ export function App() {
   }, [undo, redo]);
 
   // ---- engine build + static analysis on every tree change ----
-  const mounts = useMemo(() => motorMounts(tree), [tree]);
-  const stageList = useMemo(() => stages(tree), [tree]);
+  // KEYED ON `tree.components`, NOT `tree`. The Rocket name input does
+  // `setTree({ ...tree, name })` on every keystroke: the spread keeps the SAME
+  // components array, so nothing physical moved — but tree's identity did, and
+  // on tree identity this chain re-ran `resetEngine()`, `OrkRocket.buildTree`,
+  // `staticInfo()` and a fresh one-point `dragSweep` for every character typed.
+  // Measured against the shipped artifact on a THREE-component rocket:
+  // 11.35 ms for resetEngine + buildTree + staticInfo, plus 0.91 ms for the
+  // dragSweep `designCd` then performs — ~12 ms of synchronous main-thread work
+  // per keystroke, and CLAUDE.md records the TeaVM kernel at 11–16x the JVM,
+  // so a real 40-component design is materially worse.
+  const mounts = useMemo(() => motorMounts(tree), [tree.components]);
+  const stageList = useMemo(() => stages(tree), [tree.components]);
   // "Staged" for the batch-sim gate: a serial stage OR a separating parallel
   // booster — both make the flight multi-branch (batch across them explodes
   // combinatorially, per the owner's rule). A non-separating pod alone is fine.
@@ -948,7 +1069,13 @@ export function App() {
     } catch (e) {
       return { error: e instanceof Error ? e.message : String(e) };
     }
-  }, [tree, assigned, effectiveKbf, effectiveSupersonic]);
+    // `tree.components`, not `tree` — see the note on `mounts` above. Renaming
+    // the rocket is not a design change: `engineTree` passes `tree.name`
+    // through structurally and nothing the app reads comes back OUT of the
+    // kernel by rocket name (every consumer uses `tree.name` directly), while
+    // every physical input here — geometry, component names for the THICK_FIN
+    // filter, rail and wake checks — lives inside `tree.components`.
+  }, [tree.components, assigned, effectiveKbf, effectiveSupersonic]);
   const built = 'error' in buildResult ? null : buildResult;
   const buildError = 'error' in buildResult ? buildResult.error : simError;
   const motorFailures = built?.motorFailures ?? [];
@@ -1025,7 +1152,10 @@ export function App() {
       return { ...rest, children: (children ?? []).map(strip) };
     };
     return JSON.stringify(tree.components.map(strip));
-  }, [tree]);
+    // `tree.components` for the same reason as `mounts`/`buildResult` above: a
+    // rename gives `tree` a fresh identity and this whole recursive strip +
+    // JSON.stringify re-ran per keystroke to produce the identical string.
+  }, [tree.components]);
 
   useEffect(() => {
     setResult(null);
@@ -1035,6 +1165,11 @@ export function App() {
     // never outlive its geometry.
     reflightCache.clear();
     setAutoSupersonic(false); // re-evaluate the auto threshold on the next flight
+    // A simulation error describes the flight that threw it, so it dies with
+    // the design too. Without this it was cleared ONLY by the next SUCCESSFUL
+    // run: the user fixed the thing the message complained about and the red
+    // notice stayed up, which reads as though the fix did not take.
+    setSimError(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- physicsKey stands in for tree
     //
     // aeroMode/effectiveKbf are DELIBERATELY NOT deps. They used to be, so
@@ -1236,7 +1371,17 @@ export function App() {
   const notices = useMemo((): Notice[] => {
     const out: Notice[] = [];
     if (buildError) {
-      out.push({ id: 'build-error', severity: 'error', text: buildError });
+      // Dismissible ONLY when it came from a flight. A BUILD error is a
+      // standing fact about the design on screen — it comes straight back on
+      // the next render, so a × would be a button that does nothing. A
+      // simulation failure is a one-off event, and there is no reason a user
+      // who has read it should have to keep looking at it.
+      out.push({
+        id: 'build-error',
+        severity: 'error',
+        text: buildError,
+        ...(!('error' in buildResult) ? { onDismiss: () => setSimError(null) } : {}),
+      });
     }
     for (const f of motorFailures) {
       out.push({ id: `motor-failed:${f.mountId}`, severity: 'warn', text: f.text });
@@ -1287,8 +1432,8 @@ export function App() {
       });
     }
     return out;
-  }, [buildError, motorFailures, curveRepairs, fileNoteState, setFileNote, restoredByOlderBuild,
-    timeStepMigrated, timeStepMigratedFrom]);
+  }, [buildError, buildResult, motorFailures, curveRepairs, fileNoteState, setFileNote,
+    restoredByOlderBuild, timeStepMigrated, timeStepMigratedFrom]);
 
   /** Assigns a motor to a mount, with the G80 power-class ignition default. */
   const assignMotor = (targetMountId: string, label: string, spec: MotorSpec, meta: MotorMeta) => {
@@ -1300,6 +1445,14 @@ export function App() {
       ? { event: 'burnout', delay: 1 }
       : { event: 'automatic', delay: 0 };
     setMountMotors((prev) => ({ ...prev, [targetMountId]: { label, spec, meta, ignition } }));
+    // The file's unresolved reference for this mount stops being what should
+    // ride back out the moment the user picks a motor for it.
+    setUnmatchedRefs((prev) => {
+      if (!(targetMountId in prev)) return prev;
+      const next = { ...prev };
+      delete next[targetMountId];
+      return next;
+    });
   };
 
   const onLaunch = () => {
@@ -1383,25 +1536,11 @@ export function App() {
           }
         }
         // Per-stage motor info so booster branches can be safety-checked
-        // (chuteless HIGH-POWER boosters must warn — the G80 rule). Branches
-        // are named after the SERIAL stage — except mounts inside a parallel
-        // stage (strap-on booster), whose branch carries the parallelstage
-        // node's own name. Key by the name the branch will actually have, so
-        // a strap-on booster neither misses its warning nor overwrites its
-        // host stage's entry.
-        const stageMotorInfo: Record<string, { label: string; highPower: boolean }> = {};
-        for (const [id, mm] of assigned) {
-          let branchName: string | undefined;
-          let p = findParent(tree, id);
-          while (p && p !== 'stage') {
-            if (p.type === 'parallelstage') { branchName = p.name; break; }
-            p = p.id ? findParent(tree, p.id) : null;
-          }
-          branchName ??= stageList[stageIndexOf(tree, id)]?.name;
-          if (branchName) {
-            stageMotorInfo[branchName] = { label: mm.label, highPower: mm.meta.highPower === true };
-          }
-        }
+        // (chuteless HIGH-POWER boosters must warn — the G80 rule). The branch
+        // naming rule, and the reason it is not simply the stage's name, lives
+        // with the function in services/flightPipeline.ts — where a test can
+        // reach it, which it could not while it was inline here.
+        const branchMotors = stageMotorInfo(tree, assigned, stageList);
         // Stage B: which flight configuration flew, by display name (the
         // CSV's trailing "Flight config" column; absent when none active).
         const activeConfig = activeConfigId === null ? undefined
@@ -1417,18 +1556,15 @@ export function App() {
           launch,
           rocketName: tree.name ?? 'Rocket',
           execMs,
-          stageMotorInfo,
+          stageMotorInfo: branchMotors,
           boosterMotors: assigned
             .filter(([id]) => id !== primaryMountId)
             .map(([, mm]) => mm.label),
-          aeroModel: aeroMode === 'auto' && usedSupersonic ? 'auto-supersonic'
-            : usedSupersonic ? 'supersonic' : 'classic',
-          // Kbf only matters on the classic model (supersonic supersedes it).
-          // effectiveKbf, NOT the raw preference: with a strip override active
-          // the two differ, and stamping the preference onto a run flown the
-          // other way would put a permanent lie in the run history — and make
-          // the "flown on <model>" comparison below compare against it.
-          rogersKbf: effectiveKbf && !usedSupersonic,
+          // Both stamps are permanent on the stored run, so both live in
+          // services/flightPipeline.ts with their reasoning and their tests —
+          // including why `effectiveKbf` and never the raw preference.
+          aeroModel: aeroModelFor(aeroMode, usedSupersonic),
+          rogersKbf: rogersKbfFor(effectiveKbf, usedSupersonic),
           ...(activeConfig ? { flightConfig: savedConfigLabel(activeConfig) } : {}),
           // Provenance for the .ork <flightdata> guard: what this flight was
           // computed FROM, so a later export can prove the design, motors and
@@ -1554,9 +1690,18 @@ export function App() {
     setLastRun(run);
     // Let the busy state paint before the synchronous simulation blocks.
     await afterPaint();
+    const primary = mountMotors[primaryMountId]!;
+    // Did this re-fly write a foreign ejection delay onto the SHARED engine
+    // handle? `run.delayS` is the delay the stored run FLEW, which differs from
+    // the spec's whenever auto delay chose the optimum — and `built.rocket` is
+    // the handle the next Launch, the drag panel and the component table all
+    // use. Left behind, a Launch with auto delay switched off reported the
+    // spec's 5 s while the kernel flew the run's 7 s: deployment altitude,
+    // velocity at deployment, the safe-deployment verdict and the
+    // optimum-delay advice all came from a flight the report misattributed.
+    const wroteDelay = run.delayS !== primary.spec.ejectionDelay;
     try {
-      const primary = mountMotors[primaryMountId]!;
-      if (run.delayS !== primary.spec.ejectionDelay) {
+      if (wroteDelay) {
         built.rocket.setMotorById(primaryMountId, { ...primary.spec, ejectionDelay: run.delayS });
       }
       // canShowCharts already required the run's model to equal the current
@@ -1572,6 +1717,13 @@ export function App() {
     } catch (e) {
       setSimError(e instanceof Error ? e.message : String(e));
     } finally {
+      // Hand the shared handle back exactly as it was found — the same
+      // contract fetchFullSeriesResult already keeps for the aero model.
+      if (wroteDelay) {
+        try { built.rocket.setMotorById(primaryMountId, primary.spec); } catch { /* the
+          motor the kernel refused is already reported by buildResult's
+          motorFailures; failing to restore it must not also lose the charts. */ }
+      }
       setReflying(null);
     }
   }, [built, primaryMountId, mountMotors, launch, effectiveSupersonic, effectiveKbf, cacheFlight]);
@@ -1591,7 +1743,8 @@ export function App() {
     // Let the caller's busy state paint before the synchronous re-simulation.
     await afterPaint();
     const primary = mountMotors[primaryMountId]!;
-    if (lastRun.delayS !== primary.spec.ejectionDelay) {
+    const wroteDelay = lastRun.delayS !== primary.spec.ejectionDelay;
+    if (wroteDelay) {
       // Auto delay flew the rounded optimum (recorded on the run); a handle
       // rebuilt since launch (auto-supersonic flips the build memo) still
       // holds the pre-probe spec — restore the flown delay before re-flying.
@@ -1613,6 +1766,13 @@ export function App() {
       // component table read it too, and they follow the CURRENT model.
       built.rocket.setSupersonicAero(effectiveSupersonic);
       built.rocket.setRogersModifiedBarrowman(effectiveKbf);
+      // The MOTOR too, and for the same reason — this finally restored the
+      // aero model and left the run's ejection delay on the shared handle, so
+      // the next Launch flew a delay the report never mentions.
+      if (wroteDelay) {
+        try { built.rocket.setMotorById(primaryMountId, primary.spec); } catch { /* a motor
+          the kernel refuses is already surfaced by buildResult's motorFailures. */ }
+      }
     }
   }, [built, primaryMountId, lastRun, mountMotors, launch, effectiveSupersonic, effectiveKbf]);
 
@@ -1666,6 +1826,16 @@ export function App() {
     for (const [id, mm] of assigned) {
       motors[id] = toExportMotor(mm);
     }
+    // Motors the import could not resolve ride back out VERBATIM on any mount
+    // that still has nothing on it. Without this the file the user saved came
+    // out with that mount empty: opening it again in desktop OpenRocket showed
+    // a configuration with no motor, and the original reference — the
+    // manufacturer, the diameter and length, and the <digest> that is
+    // desktop's silent-match tier — was gone from their only copy. A mount
+    // that HAS a matched motor is not a candidate: the user's choice wins.
+    for (const [id, ref] of Object.entries(unmatchedRefs)) {
+      if (!motors[id] && mounts.some((m) => m.id === id)) motors[id] = refToExportMotor(ref);
+    }
     return motors;
   };
 
@@ -1708,18 +1878,7 @@ export function App() {
         ? assigned
         : Object.entries(cfg.motors);
       if (r.motorSetKey !== motorSetKeyOf(cfgMotors)) continue;
-      out[r.flightConfigId] = {
-        maxAltitude: r.maxAltitude,
-        maxVelocity: r.maxVelocity,
-        maxAcceleration: r.maxAcceleration,
-        maxMach: r.maxMach,
-        timeToApogee: r.timeToApogee,
-        flightTime: r.totalFlightTime,
-        groundHitVelocity: r.groundHitVelocity,
-        launchRodVelocity: r.rodExitVelocity,
-        deploymentVelocity: r.velocityAtDeployment,
-        optimumDelay: r.optimumDelayS,
-      };
+      out[r.flightConfigId] = summaryOf(r);
     }
     return out;
   }, [runs, savedConfigs, activeConfigId, assigned, physicsKey, launch, motorSetKeyOf,
@@ -1732,8 +1891,15 @@ export function App() {
    */
   const exportConfigs = (): OrkExportConfig[] => savedConfigs.map((c) => ({
     id: c.id, name: c.name, isDefault: c.isDefault,
-    motors: Object.fromEntries(
-      Object.entries(c.motors).map(([id, mm]) => [id, toExportMotor(mm)])),
+    motors: {
+      // Same rule as exportMotorsMap: what the file said, re-emitted verbatim
+      // for any mount this configuration could not match, so a preset the user
+      // has never applied does not quietly lose its motors on the way out.
+      ...Object.fromEntries(
+        Object.entries(c.unmatchedRefs ?? {}).map(([id, ref]) => [id, refToExportMotor(ref)])),
+      ...Object.fromEntries(
+        Object.entries(c.motors).map(([id, mm]) => [id, toExportMotor(mm)])),
+    },
     ...(c.deployments ? { deployments: c.deployments } : {}),
     ...(c.separations ? { separations: c.separations } : {}),
   }));
@@ -1913,7 +2079,7 @@ export function App() {
   const onSaveStl = async () => {
     try {
       const [{ buildPieces }, { piecesToStl }] = await Promise.all([
-        import('./components/Rocket3D.js'),
+        import('./tree/pieces.js'),
         import('./services/stlExport.js'),
       ]);
       const { pieces } = buildPieces(tree);
@@ -1924,85 +2090,15 @@ export function App() {
   };
 
   /**
-   * Matches ONE imported motor reference: built-ins first, then the motor
-   * database — the per-mount pass applyImported always did, factored out so
-   * config presets run the same matching. Returns the loaded motor (absent
-   * when nothing matched) and the note describing what happened; the caller
-   * decides whether the note surfaces (applied config) or waits (presets).
-   */
-  const matchImportedMotor = async (ref: OrkMotorRef): Promise<{ motor?: MountMotor; note: string }> => {
-    const builtIn = Object.entries(BUILT_IN_MOTORS).find(
-      ([k]) => k.startsWith(ref.designation));
-    const ignition: MountMotor['ignition'] = {
-      event: (ref.ignitionEvent as IgnitionEvent | undefined) ?? 'automatic',
-      delay: ref.ignitionDelay ?? 0,
-    };
-    // The FILE's motor identity rides the meta so Save writes it back
-    // verbatim and the desktop's matcher resolves silently (digest tier).
-    // 'unknown' is our reader's fallback and 'custom' our old writer's — both
-    // are sentinels, not manufacturers, and must not be re-exported.
-    const fileIdentity: Partial<MotorMeta> = {
-      ...(ref.manufacturer && ref.manufacturer !== 'unknown' && ref.manufacturer !== 'custom'
-        ? { orkManufacturer: ref.manufacturer } : {}),
-      ...(ref.motorType ? { orkType: ref.motorType } : {}),
-      ...(ref.digest ? { orkDigest: ref.digest } : {}),
-    };
-    if (builtIn) {
-      // Keep the FILE's ejection delay — the built-in key's own delay
-      // (e.g. C6-5 matching a saved C6-7) would silently change the flight.
-      // Infinity is a VALID file delay (plugged, .ork "none") — only fall
-      // back to the built-in's delay when the file carried none.
-      const fileDelay = ref.delay === Infinity ? Infinity
-        : Number.isFinite(ref.delay) ? ref.delay : builtIn[1].ejectionDelay;
-      const label = labelWithDelay(builtIn[0], fileDelay);
-      return {
-        motor: {
-          label,
-          spec: { ...builtIn[1], ejectionDelay: fileDelay },
-          meta: { ...builtInMeta(builtIn[0]), ...fileIdentity },
-          ignition,
-        },
-        note: `Motor: ${label} (matched built-in).`,
-      };
-    }
-    // RockSim refs carry no motor diameter (0) — match by designation only.
-    const dbMatch = findDbMotor(ref.designation, ref.diameter > 0 ? ref.diameter * 1000 : undefined);
-    if (!dbMatch) {
-      return { note: `Motor “${ref.designation}” isn't in the motor database — pick one via Browse motor database.` };
-    }
-    try {
-      const spec = await fetchMotorSpec(dbMatch, ref.delay);
-      // Plugged motors (Infinity delay) display the standard "-P" suffix.
-      const delayTag = Number.isFinite(ref.delay) ? String(ref.delay) : 'P';
-      const label = `${dbMatch.commonName}-${delayTag}`;
-      return {
-        motor: {
-          label,
-          spec,
-          meta: {
-            label,
-            manufacturer: dbMatch.manufacturerAbbrev,
-            availableDelays: delayOptions(dbMatch),
-            type: dbMatch.type,
-            propellant: dbMatch.propInfo,
-            motorCase: dbMatch.caseInfo,
-            highPower: isHighPower(dbMatch),
-            ...fileIdentity,
-          },
-          ignition,
-        },
-        note: `Motor: ${dbMatch.manufacturerAbbrev} ${displayDesignation(dbMatch.designation, dbMatch.manufacturerAbbrev)}-${delayTag} (loaded from the motor database).`,
-      };
-    } catch {
-      return { note: `Motor “${ref.designation}” is in the motor database but its thrust curve couldn't be downloaded — pick it via Browse motor database.` };
-    }
-  };
-
-  /**
    * Applies an imported design to the app — the ONE apply path, shared by
    * Open… and the share-link loader so a linked rocket behaves exactly like
-   * an opened file: per-mount motor matching (built-ins first, then the
-   * motor database), launch conditions, notes, the camera-shroud offer.
+   * an opened file: per-mount motor matching, launch conditions, notes, the
+   * camera-shroud offer.
+   *
+   * The matching itself is `matchImportedMotor` in services/motorMatch.ts —
+   * the shipped database first, the built-in approximations only as a gated
+   * offline fallback. It used to be a closure in this file, where the only
+   * thing that could reach it was a regular expression over App.tsx.
    *
    * There used to be an `withoutMotors` option here, driven by the config
    * picker's "Open with no motors loaded" button. The picker is gone
@@ -2010,7 +2106,15 @@ export function App() {
    * The capability did NOT: ⏏ Unload in the vitals strip and the "None" row in
    * the Flight configurations panel both empty the working set in one click.
    */
-  const applyImported = async (imported: ImportedDesign) => {
+  const applyImported = async (imported: ImportedDesign, seq?: number) => {
+    // Which open this is. Every motor in the file can cost a live
+    // thrustcurve.org fetch with no timeout, so two opens a second apart
+    // finish in whatever order the network decides: at a launch site the
+    // second (all built-ins, milliseconds) painted, then the first resolved
+    // and its setter block overwrote it AND stamped its own fingerprint as
+    // saved — leaving the user editing a rocket they had not asked for, with
+    // `dirty` false so the next Open discarded the work silently.
+    const openId = seq ?? openSeq.begin();
     // Freshly parsed by THIS build's importer, so the autosave-is-stale warning
     // no longer applies to what is on screen.
     setRestoredByOlderBuild(false);
@@ -2026,10 +2130,17 @@ export function App() {
     // note has no business restating it. What it IS still the only source of is
     // a motor that could not be matched or downloaded.
     const nextMotors: Record<string, MountMotor> = {};
+    // The refs nothing resolved, kept whole so Save writes them back verbatim
+    // instead of dropping the mount — see SavedConfig.unmatchedRefs.
+    const nextUnmatchedRefs: Record<string, OrkMotorRef> = {};
     for (const [nodeId, ref] of Object.entries(imported.motors)) {
-      const { motor: mm, note } = await matchImportedMotor(ref);
+      const { motor: mm, note, approximated } = await matchImportedMotor(ref);
       if (mm) nextMotors[nodeId] = mm;
-      else notes.push(note);
+      else nextUnmatchedRefs[nodeId] = ref;
+      // A built-in standing in for a database motor whose curve would not
+      // download is a motor the user is FLYING on an approximate curve, so it
+      // is reported even though a motor loaded.
+      if (!mm || approximated) notes.push(note);
     }
     // Stage B: every configuration in the file becomes a ready-to-apply
     // preset, matched in the same pass. Only the APPLIED config's notes
@@ -2039,6 +2150,7 @@ export function App() {
     for (const cfg of imported.configs ?? []) {
       const cfgMotors: Record<string, MountMotor> = {};
       const unmatched: string[] = [];
+      const cfgUnmatchedRefs: Record<string, OrkMotorRef> = {};
       for (const [nodeId, ref] of Object.entries(cfg.motors)) {
         // The applied config's motors were matched (and reported) above —
         // reuse them rather than re-fetching the same thrust curves.
@@ -2046,23 +2158,37 @@ export function App() {
           ? nextMotors[nodeId]
           : (await matchImportedMotor(ref)).motor;
         if (mm) cfgMotors[nodeId] = mm;
-        else unmatched.push(ref.designation);
+        else { unmatched.push(ref.designation); cfgUnmatchedRefs[nodeId] = ref; }
       }
       nextConfigs.push({
         id: cfg.id, name: cfg.name, isDefault: cfg.isDefault, motors: cfgMotors,
         ...(unmatched.length > 0 ? { unmatched } : {}),
+        ...(Object.keys(cfgUnmatchedRefs).length > 0 ? { unmatchedRefs: cfgUnmatchedRefs } : {}),
         ...(cfg.deployments && Object.keys(cfg.deployments).length > 0
           ? { deployments: cfg.deployments } : {}),
         ...(cfg.separations && Object.keys(cfg.separations).length > 0
           ? { separations: cfg.separations } : {}),
       });
     }
+    // EVERY await is behind us; from here on this function writes state. A
+    // newer open started while those fetches were outstanding owns the screen
+    // now, so this one stops here rather than overwriting it — and, crucially,
+    // never reaches the markSaved at the end, which is what made the loser's
+    // work look saved.
+    if (!openSeq.isCurrent(openId)) return;
     const importedTree = normalizeTree(imported.tree);
     setTree(importedTree);
     setMountMotors(nextMotors);
+    setUnmatchedRefs(nextUnmatchedRefs);
     setSavedConfigs(nextConfigs);
     setActiveConfigId(chosenId);
     setFileMachAlt(imported.machAlt);
+    // This design has now been through THIS build's importer, so the session
+    // the next autosave writes really was parsed by the running build.
+    parsedByVersion.current = APP_VERSION;
+    // A simulation error belonged to the design that threw it, and that design
+    // has just been replaced.
+    setSimError(null);
     setMaxMotorLen({}); // imported stages have fresh ids — old limits don't apply
     setSelectedId(null);
     // Launch conditions from the file (.ork's first <simulation>): apply
@@ -2139,6 +2265,10 @@ export function App() {
   /** Loads a flight-configuration preset into the working set (Stage B). */
   const applyConfig = (cfg: SavedConfig) => {
     setMountMotors(cfg.motors);
+    // The working set's unresolved references are this configuration's, so
+    // they switch with it — otherwise a save would write the PREVIOUS
+    // configuration's lost motors onto this one's mounts.
+    setUnmatchedRefs(cfg.unmatchedRefs ?? {});
     setActiveConfigId(cfg.id);
     // A configuration is its motors AND its recovery deployment. These were
     // carried for export only, so applying one here switched the motors and
@@ -2192,6 +2322,9 @@ export function App() {
   const clearConfig = () => {
     const had = Object.keys(mountMotors).length > 0;
     setMountMotors({});
+    // "No motors" has to mean no motors in the saved file too, so the file's
+    // unresolved references go with them.
+    setUnmatchedRefs({});
     setActiveConfigId(null);
     // Every other action in the Flight configurations panel confirms through
     // the notice bar; this one said nothing, and it is now the last control on
@@ -2215,8 +2348,26 @@ export function App() {
     }
   };
 
+  // Mirrors shareLink.ts's MAX_FRAGMENT_CHARS: refuse absurd input at the door
+  // rather than discovering it during a decompress.
+  const MAX_DESIGN_FILE_BYTES = 64 * 1024 * 1024;
+
   const onOpenOrk = async (file: File) => {
+    // Claim the open BEFORE the first await — the parse and the motor fetches
+    // that follow can take seconds, and a second Open in the meantime has to
+    // win however the network orders them. See openSeq.
+    const openId = openSeq.begin();
     try {
+      // Cheap pre-check before the bytes are read, let alone inflated. A .ork is
+      // a zip and gets traded in the beta thread and by email; unzipSync inflates
+      // every entry before the XML is looked at (capped per-entry in orkFile, but
+      // an archive can hold many). The largest real design on hand is 4.46 MB, so
+      // 64 MiB refuses a hostile file without ever refusing a genuine one.
+      if (file.size > MAX_DESIGN_FILE_BYTES) {
+        setFileNote(`${file.name} is ${(file.size / (1024 * 1024)).toFixed(0)} MB — that is not `
+          + 'a rocket design. Nothing was opened.', 'error');
+        return;
+      }
       const buffer = await file.arrayBuffer();
       // The parts catalogue rides along so a part the file names by
       // manufacturer + part number (.rkt <PartMfg>/<PartNo>, .ork <preset>) is
@@ -2226,7 +2377,7 @@ export function App() {
       if (/\.(rkt|cdx1)$/i.test(file.name)) {
         const imported = /\.rkt$/i.test(file.name) ? importRkt(buffer, { presets }) : importCdx1(buffer);
         applyNameFallback(imported, file.name);
-        await applyImported(imported);
+        await applyImported(imported, openId);
         return;
       }
       const imported = importOrk(buffer, { presets });
@@ -2239,16 +2390,23 @@ export function App() {
       // does, and say which one in the import note; the Flight configurations
       // panel on Motors & Launch switches between them (motors AND recovery
       // deployment, since applyConfig applies both now).
-      await applyImported(imported);
+      await applyImported(imported, openId);
     } catch (e) {
+      // A superseded open must not shout about a design nobody is waiting for.
+      if (!openSeq.isCurrent(openId)) return;
       // Name the format the user actually picked. This handler takes .ork, .rkt
       // and .CDX1, and hard-coding ".ork" made a precise importer message read
       // as nonsense — "Could not open that .ork file: This is an older BINARY
       // RockSim file…".
       const ext = /\.(rkt|cdx1|ork)$/i.exec(file.name);
       const kind = ext ? `.${ext[1]!.toLowerCase().replace('cdx1', 'CDX1')}` : '';
+      // 'error', not the default 'info'. The design on screen did not change,
+      // so this note is the ONLY feedback the click produced — and an info
+      // notice never opens the collapsed bar, which is exactly the shape of
+      // "I clicked it and nothing happened". Every other export/import failure
+      // in this file already passes an explicit severity.
       setFileNote(`Could not open that${kind ? ` ${kind}` : ''} file: `
-        + `${e instanceof Error ? e.message : String(e)}`);
+        + `${e instanceof Error ? e.message : String(e)}`, 'error');
     }
   };
 
@@ -2280,7 +2438,11 @@ export function App() {
         if (session && !isPristineDefault(initialTree)) setShareOffer(imported);
         else await applyImported(imported);
       } catch (e) {
-        setFileNote(`Couldn't open the design in this link — it looks damaged or cut short (chat apps sometimes truncate very long links). Ask for the link again, or for the .ork file. (${e instanceof Error ? e.message : String(e)})`);
+        // 'warn', not the default 'info'. The message is 165 characters before the
+        // reason is appended and the collapsed bar truncates at 157, so as an info
+        // notice the reader got the first sentence, an 'i' glyph, no reason, and a
+        // bar that never opened itself — for a link that simply did not work.
+        setFileNote(`Couldn't open the design in this link — it looks damaged or cut short (chat apps sometimes truncate very long links). Ask for the link again, or for the .ork file. (${e instanceof Error ? e.message : String(e)})`, 'warn');
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot startup decode
@@ -2322,10 +2484,12 @@ export function App() {
         // Clipboard refused (permissions, iframe embed, non-secure context):
         // hand the link over for a manual Ctrl+C — prompt() pre-selects it.
         window.prompt('Copy this share link (Ctrl+C):', url);
-        if (sizeNote) setFileNote(sizeNote.trim());
+        if (sizeNote) setFileNote(sizeNote.trim(), 'warn');
       }
     } catch (e) {
-      setFileNote(`Share link failed: ${e instanceof Error ? e.message : String(e)}`);
+      // 'error' — nothing was copied and nothing is on screen to say so
+      // otherwise, matching what onSaveRkt/onSaveCdx1 already do.
+      setFileNote(`Share link failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
     }
   };
 
@@ -2401,8 +2565,6 @@ export function App() {
   );
   // Batch simulate targets the PRIMARY (sustainer) mount; per the owner's rule
   // batch never runs across staged rockets (combinatorics).
-  const primaryMountNode = primaryMountId ? findNode(tree, primaryMountId) : null;
-  const primaryMotorCount = clusterCount(primaryMountNode?.['cluster'] as string | undefined);
   const primaryLabel = primaryMountId ? mountMotors[primaryMountId]?.label : undefined;
 
   // Motor-mount sizes (nominal motor diameter each mount accepts), per stage —
@@ -2591,8 +2753,15 @@ export function App() {
               }} />
           </label>
           <div className="file-menu-wrap">
+            {/* A DISCLOSURE button, not a menu button. It used to carry
+                aria-haspopup="menu" over a container of plain <button>
+                children: a bare button is not an allowed child of
+                role="menu", so assistive tech prunes or misreports them —
+                the ten export formats, Save .ork included, were announced as
+                an empty menu and were effectively pointer-only. Nothing in
+                styles.css keys on the role. */}
             <button className="file-btn" onClick={() => setShowFileMenu((v) => !v)}
-              aria-haspopup="menu" aria-expanded={showFileMenu}>
+              aria-expanded={showFileMenu}>
               {/* "Save As": every entry writes a NEW file/download — nothing
                   saves back in place, so the label says what the button does
                   (Eric's ruling, 2026-08-25). */}
@@ -2601,7 +2770,8 @@ export function App() {
             {showFileMenu && (
               <>
                 <div className="file-menu-backdrop" onClick={() => setShowFileMenu(false)} />
-                <div className="file-menu" role="menu" onClick={() => setShowFileMenu(false)}>
+                <div className="file-menu" role="group" aria-label="Save As / Export"
+                  onClick={() => setShowFileMenu(false)}>
                   <button onClick={() => { void onSaveOrk(); }}>Save .ork — OpenRocket design</button>
                   <button onClick={() => { void onCopyShareLink(); }}
                     title="The whole design — components, motors, launch conditions — packed into a link you can paste in chat or email. It opens right in the browser; the design travels in the link itself and never touches a server.">
@@ -2662,8 +2832,11 @@ export function App() {
             ⟲ Tour
           </button>
           <div className="file-menu-wrap">
+            {/* Disclosure, not a menu — see the Save As button above. This
+                popup is the app's only in-product bug-report route, which
+                makes it the one a blocked user most needs to reach. */}
             <button className="file-btn" onClick={() => setShowFeedback((v) => !v)}
-              aria-haspopup="menu" aria-expanded={showFeedback}
+              aria-expanded={showFeedback}
               title="Report a bug or request a feature — filed on the public tracker; email works too, no account needed">
               <Icon name="bug" /> Feedback
             </button>
@@ -2675,7 +2848,8 @@ export function App() {
                     ruling: don't take the user away from the site); the mailto
                     deliberately does NOT, because a mail client launched into a
                     new tab leaves a blank tab behind. */}
-                <div className="file-menu" role="menu" onClick={() => setShowFeedback(false)}>
+                <div className="file-menu" role="group" aria-label="Feedback"
+                  onClick={() => setShowFeedback(false)}>
                   <button onClick={() => window.open(
                     withVersionParam(mmrNav.feedback?.bug ?? feedbackIssueUrl('bug-report.yml')),
                     '_blank', 'noopener')}>
@@ -2817,137 +2991,128 @@ export function App() {
         />
       )}
       {confirmNew && (
-        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Start a new design">
-          <div className="modal-card">
-            <h2>Start a new design?</h2>
-            <p>
-              This clears “{tree.name ?? 'the current rocket'}” — all components,
-              overrides and the current simulation. Make sure it's saved as an
-              .ork file first: Ctrl+Z brings the components back, but not the
-              motors, the flight configurations or the flight.
-            </p>
-            <div className="modal-actions">
-              <button className="file-btn" onClick={() => { onSaveOrk(); }}>
-                <Icon name="save" /> Save .ork first
-              </button>
-              <button
-                className="file-btn modal-danger"
-                onClick={startNewDesign}
-              >
-                Discard &amp; start new
-              </button>
-              <button className="file-btn" onClick={() => setConfirmNew(false)}>Cancel</button>
-            </div>
+        <Modal label="Start a new design" onClose={() => setConfirmNew(false)}>
+          <h2>Start a new design?</h2>
+          <p>
+            This clears “{tree.name ?? 'the current rocket'}” — all components,
+            overrides and the current simulation. Make sure it's saved as an
+            .ork file first: Ctrl+Z brings the components back, but not the
+            motors, the flight configurations or the flight.
+          </p>
+          <div className="modal-actions">
+            <button className="file-btn" onClick={() => { onSaveOrk(); }}>
+              <Icon name="save" /> Save .ork first
+            </button>
+            <button
+              className="file-btn modal-danger"
+              onClick={startNewDesign}
+            >
+              Discard &amp; start new
+            </button>
+            <button className="file-btn" onClick={() => setConfirmNew(false)}>Cancel</button>
           </div>
-        </div>
+        </Modal>
       )}
       {pendingOpen && (
-        <div className="modal-backdrop" role="dialog" aria-modal="true"
-          aria-label="Unsaved changes">
-          <div className="modal-card">
-            <h2>Save “{tree.name ?? 'the current rocket'}” first?</h2>
-            <p>
-              Opening “{pendingOpen.name}” replaces what is on screen, and
-              “{tree.name ?? 'the current rocket'}” has changes that are not in any
-              file you have saved. There is one autosave slot and the new design
-              takes it, so those changes would be gone — Ctrl+Z does not reach
-              across a file open.
-            </p>
-            <div className="modal-actions">
-              <button
-                className="file-btn"
-                onClick={() => {
-                  const f = pendingOpen;
-                  void (async () => {
-                    const out = await onSaveOrk();
-                    // Backing out of the Save-As picker must NOT then open the
-                    // file — that would discard the work the user just tried
-                    // to protect. Leave the prompt up and let them decide.
-                    if (out.kind === 'cancelled') return;
-                    setPendingOpen(null);
-                    void onOpenOrk(f);
-                  })();
-                }}
-              >
-                <Icon name="save" /> Save .ork, then open
-              </button>
-              <button
-                className="file-btn modal-danger"
-                onClick={() => {
-                  const f = pendingOpen;
+        <Modal label="Unsaved changes" onClose={() => setPendingOpen(null)}>
+          <h2>Save “{tree.name ?? 'the current rocket'}” first?</h2>
+          <p>
+            Opening “{pendingOpen.name}” replaces what is on screen, and
+            “{tree.name ?? 'the current rocket'}” has changes that are not in any
+            file you have saved. There is one autosave slot and the new design
+            takes it, so those changes would be gone — Ctrl+Z does not reach
+            across a file open.
+          </p>
+          <div className="modal-actions">
+            <button
+              className="file-btn"
+              onClick={() => {
+                const f = pendingOpen;
+                void (async () => {
+                  const out = await onSaveOrk();
+                  // Backing out of the Save-As picker must NOT then open the
+                  // file — that would discard the work the user just tried
+                  // to protect. Leave the prompt up and let them decide.
+                  if (out.kind === 'cancelled') return;
                   setPendingOpen(null);
                   void onOpenOrk(f);
-                }}
-              >
-                Open without saving
-              </button>
-              <button className="file-btn" onClick={() => setPendingOpen(null)}>Cancel</button>
-            </div>
+                })();
+              }}
+            >
+              <Icon name="save" /> Save .ork, then open
+            </button>
+            <button
+              className="file-btn modal-danger"
+              onClick={() => {
+                const f = pendingOpen;
+                setPendingOpen(null);
+                void onOpenOrk(f);
+              }}
+            >
+              Open without saving
+            </button>
+            <button className="file-btn" onClick={() => setPendingOpen(null)}>Cancel</button>
           </div>
-        </div>
+        </Modal>
       )}
       {shareOffer && (
-        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Open design from link">
-          <div className="modal-card">
-            <h2>Open design from this link?</h2>
-            <p>
-              This link opens “{shareOffer.name}”. Your current design
-              “{tree.name ?? 'Rocket'}” will be replaced. If you want to keep
-              it, save it as an .ork file first — declining simply drops the
-              link. Ctrl+Z will not put it back: it restores your components and
-              leaves the link's motors and launch conditions on them.
-            </p>
-            <div className="modal-actions">
-              <button className="file-btn" onClick={() => { onSaveOrk(); }}>
-                <Icon name="save" /> Save mine first
-              </button>
-              <button
-                className="file-btn modal-danger"
-                onClick={() => {
-                  const offered = shareOffer;
-                  setShareOffer(null);
-                  void applyImported(offered);
-                }}
-              >
-                Open “{shareOffer.name}”
-              </button>
-              <button className="file-btn" onClick={() => setShareOffer(null)}>Keep my design</button>
-            </div>
+        <Modal label="Open design from link" onClose={() => setShareOffer(null)}>
+          <h2>Open design from this link?</h2>
+          <p>
+            This link opens “{shareOffer.name}”. Your current design
+            “{tree.name ?? 'Rocket'}” will be replaced. If you want to keep
+            it, save it as an .ork file first — declining simply drops the
+            link. Ctrl+Z will not put it back: it restores your components and
+            leaves the link's motors and launch conditions on them.
+          </p>
+          <div className="modal-actions">
+            <button className="file-btn" onClick={() => { onSaveOrk(); }}>
+              <Icon name="save" /> Save mine first
+            </button>
+            <button
+              className="file-btn modal-danger"
+              onClick={() => {
+                const offered = shareOffer;
+                setShareOffer(null);
+                void applyImported(offered);
+              }}
+            >
+              Open “{shareOffer.name}”
+            </button>
+            <button className="file-btn" onClick={() => setShareOffer(null)}>Keep my design</button>
           </div>
-        </div>
+        </Modal>
       )}
       {shroudPrompt && (
-        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Convert camera shrouds">
-          <div className="modal-card">
-            <h2>Camera shroud detected</h2>
-            <p>
-              It looks like this file has {shroudPrompt.length === 1
-                ? <>a camera shroud modeled as a one-fin freeform set (<strong>{shroudPrompt[0]!.name}</strong>)</>
-                : <>{shroudPrompt.length} camera shrouds modeled as one-fin freeform sets ({shroudPrompt.map((s) => `“${s.name}”`).join(', ')})</>}.
-              Convert {shroudPrompt.length === 1 ? 'it' : 'them'} to this app&apos;s native
-              camera-shroud component? The native component models the shroud&apos;s real
-              frontal-area drag and mass instead of treating it as a lifting fin —
-              dimensions carry over, and you can fine-tune shape and as-built mass
-              in its properties. (Ctrl+Z undoes the conversion.)
-            </p>
-            <div className="modal-actions">
-              <button
-                className="file-btn"
-                onClick={() => {
-                  const res = convertShrouds(tree, shroudPrompt.map((s) => s.id));
-                  setTree(res.tree);
-                  setFileNote(res.notes.join('\n'));
-                  setShroudPrompt(null);
-                }}
-              >
-                Convert to camera shroud
-              </button>
-              <button className="file-btn" onClick={() => setShroudPrompt(null)}>
-                Keep as freeform fin
-              </button>
-            </div>
+        <Modal label="Convert camera shrouds" onClose={() => setShroudPrompt(null)}>
+          <h2>Camera shroud detected</h2>
+          <p>
+            It looks like this file has {shroudPrompt.length === 1
+              ? <>a camera shroud modeled as a one-fin freeform set (<strong>{shroudPrompt[0]!.name}</strong>)</>
+              : <>{shroudPrompt.length} camera shrouds modeled as one-fin freeform sets ({shroudPrompt.map((s) => `“${s.name}”`).join(', ')})</>}.
+            Convert {shroudPrompt.length === 1 ? 'it' : 'them'} to this app&apos;s native
+            camera-shroud component? The native component models the shroud&apos;s real
+            frontal-area drag and mass instead of treating it as a lifting fin —
+            dimensions carry over, and you can fine-tune shape and as-built mass
+            in its properties. (Ctrl+Z undoes the conversion.)
+          </p>
+          <div className="modal-actions">
+            <button
+              className="file-btn"
+              onClick={() => {
+                const res = convertShrouds(tree, shroudPrompt.map((s) => s.id));
+                setTree(res.tree);
+                setFileNote(res.notes.join('\n'));
+                setShroudPrompt(null);
+              }}
+            >
+              Convert to camera shroud
+            </button>
+            <button className="file-btn" onClick={() => setShroudPrompt(null)}>
+              Keep as freeform fin
+            </button>
           </div>
-        </div>
+        </Modal>
       )}
       <div className="workspace">
         {/* Always-visible vitals, styled as an instrument readout: the
@@ -3245,16 +3410,6 @@ export function App() {
               }}
             />
           </div>
-          {/* Directly under the tree, and ABOVE the measured-mass box, because
-              this is a design-time decision: the canopy is part of the rocket
-              you are drawing, and the recovery weight it is computed from is
-              the number in the strip right above. See recoverySizing.ts. */}
-          <RecoverySizingPanel
-            recovery={recovery}
-            tree={tree}
-            launch={launch}
-            deviceMass={componentMass}
-          />
           {/* Under the tree, because it is a build-time task rather than a
               design-time one: you come back to it with a scale in your hand. */}
           {built && bare && (
@@ -3416,6 +3571,18 @@ export function App() {
               <p>Select a component in the tree to edit its properties here.</p>
             </div>
           )}
+          {/* Recovery sizing lives in the RIGHT column, under the component
+              properties, and NOT beside the tree where it shipped in v0.104:
+              there it pushed the measured-mass box below the fold (owner,
+              2026-09-04). It renders whether or not a component is selected,
+              because it is a fact about the whole rocket, and it collapses to a
+              one-line summary because this column is already the long one. */}
+          <RecoverySizingPanel
+            recovery={recovery}
+            tree={tree}
+            launch={launch}
+            deviceMass={componentMass}
+          />
         </aside>
         </div>
         )}

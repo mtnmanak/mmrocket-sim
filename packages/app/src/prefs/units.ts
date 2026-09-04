@@ -188,6 +188,11 @@ export function niceStep(x: number): number {
  * readouts lost real precision).
  */
 export function fmtSi(quantity: Quantity, symbol: string, si: number, digits?: number): string {
+  // The kernel bridge emits null for any NaN or Infinity, and `null / toSI`
+  // is 0 — so an ABSENT value printed as a confident zero: a landing rate of
+  // 0 ft/s, an apogee of 0 ft. An em dash is the honest answer, and matches
+  // fmtInertia, which already guards exactly this.
+  if (si === null || si === undefined || !Number.isFinite(si)) return '—';
   const v = siToUi(quantity, symbol, si);
   if (digits !== undefined) return String(Number(v.toFixed(digits)));
   const a = Math.abs(v);

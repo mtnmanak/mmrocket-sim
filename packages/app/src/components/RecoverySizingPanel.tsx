@@ -11,9 +11,12 @@ import type { LaunchConditions } from './LaunchPanel.js';
 import { UnitChip } from './UnitChip.js';
 
 /**
- * "Recovery sizing" — the design page's answer to "so what chute do I buy?",
- * sitting beside the recovery weight it is computed from (the owner's ruling,
- * 2026-09-04).
+ * "Recovery sizing" — the design page's answer to "so what chute do I buy?".
+ *
+ * It sits in the RIGHT column under the component properties. It shipped in
+ * v0.104 beside the tree, next to the recovery weight it is computed from,
+ * which read well but pushed the measured-mass box off the bottom of that
+ * column; the owner moved it the same day.
  *
  * It says BOTH halves, in his order: the SIZE first, because that is the
  * answer for someone sewing their own canopy or shopping outside this
@@ -61,7 +64,7 @@ export function RecoverySizingPanel({ recovery, tree, launch, deviceMass }: {
 
   if (sizing.state === 'no-motor') {
     return (
-      <Shell>
+      <Shell summary="needs a motor">
         <p className="recovery-sizing-hint">
           Load a motor. A canopy is sized on the <strong>recovery weight</strong> — the dry
           rocket plus the spent motor casing — so it cannot be chosen until the motor is.
@@ -71,7 +74,7 @@ export function RecoverySizingPanel({ recovery, tree, launch, deviceMass }: {
   }
   if (sizing.state === 'unavailable') {
     return (
-      <Shell>
+      <Shell summary="no recommendation">
         <p className="recovery-sizing-hint">
           No recommendation: {sizing.reason}.
         </p>
@@ -94,14 +97,27 @@ export function RecoverySizingPanel({ recovery, tree, launch, deviceMass }: {
 
   const pctFaster = Math.round((sizing.siteRateFactor - 1) * 100);
 
+  // What the header says when the panel is shut. The two size lines are the
+  // conclusion; everything the panel expands to is the working behind them.
+  const summary = `main ~${roughLength(sizing.main.diameter)} ${lenSym}`
+    + ` · drogue ~${roughLength(sizing.drogue.diameter)} ${lenSym}`;
+
   return (
-    <Shell>
+    <Shell summary={summary}>
       <p className="recovery-sizing-lede">
         Sized for <strong>{fmtSi('mass', massSym, sizing.massKg)} {massSym}</strong> coming down
         {sizing.elevationM > 0 && (
           <>
-            {' '}at <strong>{fmtSi('distance', distSym, sizing.elevationM, 0)} {distSym}</strong>,
-            where the thinner air lands it {pctFaster}% faster than sea level
+            {' '}at <strong>{fmtSi('distance', distSym, sizing.elevationM, 0)} {distSym}</strong>
+            {/* The ELEVATION is always named — every rate on this panel was
+                computed at its density. The "% faster" clause is not: ISA
+                density falls ~1.16 % per 100 m, so siteRateFactor only reaches
+                1.005 at ~86 m, and every field below that printed "lands it 0%
+                faster than sea level" — a sentence that contradicts itself on
+                the one panel whose job is to be trusted. The same guard drops
+                the clause when a cold, high-pressure site makes the factor less
+                than 1, where it would have read "-1% faster". */}
+            {pctFaster >= 1 && <>, where the thinner air lands it {pctFaster}% faster than sea level</>}
           </>
         )}.
       </p>
@@ -123,11 +139,51 @@ export function RecoverySizingPanel({ recovery, tree, launch, deviceMass }: {
   );
 }
 
-function Shell({ children }: { children: React.ReactNode }) {
+/**
+ * The panel is long — the size line, two bands and up to five catalogue rows
+ * each — and it sits under the component properties, which are long too. So it
+ * collapses, and the COLLAPSED header still carries the answer:
+ * "main ~65 in · drogue ~24 in". A disclosure that hides its own conclusion
+ * would just be a second click on the way to the same place.
+ *
+ * Open on a fresh browser, because a tester who never opens it never learns the
+ * panel exists; the choice then persists, because someone who shut it meant it.
+ * localStorage can throw outright (blocked site data), so every access is
+ * guarded and the default survives.
+ */
+const OPEN_KEY = 'online-openrocket.recovery-sizing-open';
+
+function readOpen(): boolean {
+  try {
+    return localStorage.getItem(OPEN_KEY) !== '0';
+  } catch {
+    return true;
+  }
+}
+
+function Shell({ summary, children }: { summary: string; children: React.ReactNode }) {
+  const [open, setOpen] = useState(readOpen);
+  const toggle = (): void => {
+    setOpen((v) => {
+      try {
+        localStorage.setItem(OPEN_KEY, v ? '0' : '1');
+      } catch {
+        // Preference lost, panel still works. Not worth a message.
+      }
+      return !v;
+    });
+  };
   return (
-    <div className="panel recovery-sizing">
-      <h2>Recovery sizing</h2>
-      {children}
+    <div className={open ? 'panel recovery-sizing' : 'panel panel-dormant recovery-sizing'}>
+      <div className="panel-head">
+        <h2 style={{ flex: 1 }}>Recovery sizing</h2>
+        {!open && <span className="recovery-sizing-summary">{summary}</span>}
+        <button className="file-btn" aria-expanded={open} onClick={toggle}
+          title={open ? 'Collapse the recovery sizing panel' : 'Show the full recommendation'}>
+          {open ? 'Hide' : 'Show'}
+        </button>
+      </div>
+      {open && children}
     </div>
   );
 }
@@ -152,6 +208,13 @@ function BandSection({
       : 'the simulator’s default for a canopy that states no Cd';
   const anyFlagged = advice.candidates.some((c) => c.flagged);
   const anyUnverified = advice.candidates.some((c) => c.fit === 'unverified');
+  // WHICH Cd CONVENTION THE SIZE LINE QUOTED. `advice.cd` is vent-corrected —
+  // the rated figure scaled by 1 − (d/D)² — so the diameter beside it is
+  // reproducible from it by hand. Without saying so, a reader who checks the
+  // sum against the Cd printed on their chute's own field gets a different
+  // number and has no way to tell which one the panel meant.
+  const vented = advice.ventFactor < 1;
+  const cdNum = (v: number) => v.toFixed(2).replace(/\.?0+$/, '');
 
   return (
     <section className="recovery-band">
@@ -167,10 +230,11 @@ function BandSection({
           travels with it because a diameter alone is not an answer. */}
       <p className="recovery-size-line">
         about <strong>{roughLength(advice.diameter)} {lenSym}</strong>
-        {' '}at <strong>Cd {advice.cd.toFixed(2).replace(/\.?0+$/, '')}</strong>
+        {' '}at <strong>Cd {cdNum(advice.cd)}</strong>
       </p>
       <p className="recovery-size-note" title={`Cd ${advice.cd}: ${cdSaid}.`}>
-        for {rate(advice.band.target)} {velSym} — {cdSaid}.
+        for {rate(advice.band.target)} {velSym} — {cdSaid}
+        {vented && <>, its rated Cd {cdNum(advice.cdNominal)} scaled for its spill hole</>}.
       </p>
 
       {advice.candidates.length > 0 ? (

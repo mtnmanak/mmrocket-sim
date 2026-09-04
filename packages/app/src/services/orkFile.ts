@@ -1,10 +1,11 @@
-import { unzipSync, strFromU8 } from 'fflate';
+import { strFromU8 } from 'fflate';
 import type { ComponentNode, ComponentPosition, ComponentType, RocketTree } from '@online-openrocket/engine';
 import { DEFAULT_TIME_STEP_S, PANEL_TIME_STEP_FLOOR_S, type LaunchConditions } from '../components/LaunchPanel.js';
 import { asStageNodes, freshId } from '../tree/treeModel.js';
 import { shapeIsClippable, shapeParamDefault } from '../tree/shapeProfile.js';
 import { isConformal, shroudEnds } from '../tree/shroud.js';
 import { escapeXml, xmlText as text } from './xmlUtil.js';
+import { unzipMember } from './zipMember.js';
 import { applyPresetLinks, type PendingPresetLink, type Preset } from './presets.js';
 
 // Re-export: rocksimFile.ts (and historical callers) import it from here.
@@ -152,11 +153,12 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   } else {
     const bytes = new Uint8Array(data);
     if (bytes[0] === 0x50 && bytes[1] === 0x4b) {
-      const entries = unzipSync(bytes);
-      const entryName = Object.keys(entries).find((n) => n.endsWith('.ork'))
-        ?? Object.keys(entries)[0];
-      if (!entryName) throw new Error('Empty .ork archive');
-      xml = strFromU8(entries[entryName]!);
+      // Same entry choice as before (an entry named *.ork, else the first) but
+      // BOUNDED: the bare `unzipSync(bytes)` this replaced inflated every
+      // member — every decal, and every crafted 1 GB run of zeros — before a
+      // byte of XML was read, and an out-of-memory tab cannot be caught by the
+      // try/catch around this call. See zipMember.ts.
+      xml = strFromU8(unzipMember(bytes, '.ork', '.ork'));
     } else {
       xml = strFromU8(bytes);
     }
@@ -479,6 +481,16 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
           if (l > 0) n[`${key}Length`] = l;
           const th = num(el, `${side}shoulderthickness`, 0);
           if (th > 0) n[`${key}Thickness`] = th;
+          // The disc closing the far end of the shoulder — real material the
+          // desktop weighs. The nose-cone branch above has always read it, and
+          // the exporter has always written it back; this branch did
+          // NEITHER, and the exporter emitted a literal `false` for both ends,
+          // so `two stage L2.ork`'s aft cap (36.9 mm radius, 1.22 mm wall —
+          // ~5.2e-6 m3, several grams) was dropped on open and DELETED from the
+          // builder's own file on the next save. Same key shape
+          // solidMesh.ts's shoulderOf() already reads (`foreShoulderCapped` /
+          // `aftShoulderCapped`), so the 3D view honours it the moment it lands.
+          if (text(el, `:scope > ${side}shouldercapped`) === 'true') n[`${key}Capped`] = true;
         }
         return n;
       }
@@ -1024,6 +1036,20 @@ export const ORK_CREATOR = 'MMRocket Sim';
  */
 export const fmtStepS = (s: number): string => String(Number(s.toPrecision(6)));
 
+/**
+ * The envelope an imported `<atmosphere>` is believed inside: EXACTLY the
+ * bounds the Temperature and Pressure fields enforce on a human
+ * (LaunchPanel.tsx `numField('Temperature', …, -60, 60)` /
+ * `numField('Pressure', …, 300, 1100)`). Sharing the bound is the point — a
+ * value this reader accepted but the panel refuses could not be seen, checked
+ * or re-entered, which is the trap the `<timestep>` floor below documents.
+ */
+export const IMPORTED_TEMP_C_RANGE: readonly [number, number] = [-60, 60];
+export const IMPORTED_PRESSURE_HPA_RANGE: readonly [number, number] = [300, 1100];
+
+/** Shed float noise no one typed, the way fmtStepS does for a time step. */
+const fmt6 = (v: number): string => String(Number(v.toPrecision(6)));
+
 function readLaunchConditions(
   doc: Document, notes: string[], chosenConfigId?: string | null,
 ): Partial<LaunchConditions> | undefined {
@@ -1088,10 +1114,53 @@ function readLaunchConditions(
       launch.temperatureC = null;
       launch.pressureHPa = null;
     } else {
+      // A stated atmosphere is believed only inside the envelope the panel
+      // enforces on a typed value. Outside it the number is a UNIT MISTAKE in
+      // whatever wrote the file, not a launch site, and nothing downstream ever
+      // re-checks it: App.applyImported spreads these straight into launch
+      // state and LaunchPanel's kernelSimOptions converts them raw
+      // (`temperatureC + 273.15`, `pressureHPa * 100`) into the engine.
+      //   • hPa written into this PASCAL-valued element
+      //     (<basepressure>1013.25</basepressure>) flies the design at 1013 Pa
+      //     — 1 % of sea-level density, where drag collapses and apogee is
+      //     overstated several times over.
+      //   • Celsius written into the KELVIN-valued element
+      //     (<basetemperature>20</basetemperature>) gives 20 K, a speed of
+      //     sound near 90 m/s, so a genuinely subsonic flight is computed on
+      //     transonic and supersonic drag.
+      // Fall back to the standard atmosphere and SAY SO — the same shape the
+      // <timestep> clamp below uses, and the same refusal `measuredNum` above
+      // makes for a non-positive weighed mass.
       const tK = num(atmEl, 'basetemperature', NaN);
-      if (!Number.isNaN(tK)) launch.temperatureC = tK - 273.15;
+      if (!Number.isNaN(tK)) {
+        const c = tK - 273.15;
+        if (c >= IMPORTED_TEMP_C_RANGE[0] && c <= IMPORTED_TEMP_C_RANGE[1]) {
+          launch.temperatureC = c;
+        } else {
+          launch.temperatureC = null;
+          notes.push(
+            `The file's launch site states ${fmt6(tK)} K (${fmt6(c)} °C) — outside the `
+            + `${IMPORTED_TEMP_C_RANGE[0]} to ${IMPORTED_TEMP_C_RANGE[1]} °C the Temperature `
+            + 'field accepts, so it is not a launch site this app can fly. (That element holds '
+            + 'KELVIN: a plain 20 in it is 20 K, not 20 °C.) Flying the standard atmosphere '
+            + 'instead — set the temperature under Launch conditions if you know it.');
+        }
+      }
       const pPa = num(atmEl, 'basepressure', NaN);
-      if (!Number.isNaN(pPa)) launch.pressureHPa = pPa / 100;
+      if (!Number.isNaN(pPa)) {
+        const hPa = pPa / 100;
+        if (hPa >= IMPORTED_PRESSURE_HPA_RANGE[0] && hPa <= IMPORTED_PRESSURE_HPA_RANGE[1]) {
+          launch.pressureHPa = hPa;
+        } else {
+          launch.pressureHPa = null;
+          notes.push(
+            `The file's launch site states ${fmt6(pPa)} Pa (${fmt6(hPa)} hPa) — outside the `
+            + `${IMPORTED_PRESSURE_HPA_RANGE[0]} to ${IMPORTED_PRESSURE_HPA_RANGE[1]} hPa the `
+            + 'Pressure field accepts, so it is not a launch site this app can fly. (That element '
+            + 'holds PASCALS: sea level is 101325 in it, not 1013.25.) Flying the standard '
+            + 'atmosphere instead — set the pressure under Launch conditions if you know it.');
+        }
+      }
     }
   }
 
@@ -1311,6 +1380,19 @@ export function exportOrk({
   if (motor && mountId && !motorMap[mountId]) motorMap[mountId] = motor;
   // The configurations to write. Classic path (no configs): ONE minted
   // config carrying the working set — exactly the pre-Stage-B output.
+  //
+  // EVERY `c.id` BELOW IS ESCAPED WHERE IT IS EMITTED — six sites: the
+  // <motorconfiguration>, <deploymentconfiguration>, <separationconfiguration>,
+  // <motor> and <ignitionconfiguration> attributes, and the <configid> element
+  // inside <simulation>. An id is FILE-SOURCED free text
+  // (`c.getAttribute('configid')` on import, kept verbatim as the stable key
+  // through App state) exactly like <name>, <material> and <finish>, which this
+  // exporter has always escaped. Unescaped it was the only one that could break
+  // the file it wrote: a legal `configid="Main &amp; backup"` came back out as a
+  // bare `&`, so the user's own saved design failed to reopen with "XML parse
+  // error", and a `"` in the id closed the attribute and injected markup into a
+  // design they then shared. Escaping round-trips the id byte-for-byte, so
+  // nothing about matching or defaulting changes.
   const active = configs?.find((c) => c.id === activeConfigId) ?? null;
   const writeConfigs: Array<{
     id: string;
@@ -1449,7 +1531,7 @@ export function exportOrk({
         }
         : (node.id ? c.deployments[node.id] ?? {} : {});
       if (Object.keys(o).length === 0) continue;
-      emit(depth, `<deploymentconfiguration configid="${c.id}">`);
+      emit(depth, `<deploymentconfiguration configid="${escapeXml(c.id)}">`);
       if (o.deployEvent !== undefined) emit(depth + 1, `<deployevent>${escapeXml(o.deployEvent)}</deployevent>`);
       if (o.deployAltitude !== undefined) emit(depth + 1, `<deployaltitude>${o.deployAltitude}</deployaltitude>`);
       if (o.deployDelay !== undefined) emit(depth + 1, `<deploydelay>${o.deployDelay}</deploydelay>`);
@@ -1477,7 +1559,7 @@ export function exportOrk({
     sep(depth, liveEv, liveDelay, liveAlt);
     for (const c of writeConfigs) {
       const o = c.separations === null || !node.id ? undefined : c.separations[node.id];
-      emit(depth, `<separationconfiguration configid="${c.id}">`);
+      emit(depth, `<separationconfiguration configid="${escapeXml(c.id)}">`);
       sep(depth + 1, o?.separationEvent ?? liveEv, o?.separationDelay ?? liveDelay,
         o?.separationAltitude ?? liveAlt);
       emit(depth, '</separationconfiguration>');
@@ -1551,7 +1633,7 @@ export function exportOrk({
     emit(depth + 1, `<overhang>${overhangM}</overhang>`);
     for (const c of withMotor) {
       const m = c.motors[nodeId!]!;
-      emit(depth + 1, `<motor configid="${c.id}">`);
+      emit(depth + 1, `<motor configid="${escapeXml(c.id)}">`);
       // Desktop element order (RocketComponentSaver): type, manufacturer,
       // digest, designation, diameter, length, delay. Unknown identity is
       // OMITTED, never guessed: the desktop matcher treats a missing field
@@ -1572,7 +1654,7 @@ export function exportOrk({
     }
     for (const c of withMotor) {
       const m = c.motors[nodeId!]!;
-      emit(depth + 1, `<ignitionconfiguration configid="${c.id}">`);
+      emit(depth + 1, `<ignitionconfiguration configid="${escapeXml(c.id)}">`);
       emit(depth + 2, `<ignitionevent>${escapeXml(m.ignitionEvent ?? 'automatic')}</ignitionevent>`);
       emit(depth + 2, `<ignitiondelay>${m.ignitionDelay ?? 0}</ignitiondelay>`);
       emit(depth + 1, '</ignitionconfiguration>');
@@ -1662,7 +1744,11 @@ export function exportOrk({
           emit(depth + 1, `<${side}shoulderradius>${n(node, `${key}Radius`, 0)}</${side}shoulderradius>`);
           emit(depth + 1, `<${side}shoulderlength>${n(node, `${key}Length`, 0)}</${side}shoulderlength>`);
           emit(depth + 1, `<${side}shoulderthickness>${n(node, `${key}Thickness`, 0)}</${side}shoulderthickness>`);
-          emit(depth + 1, `<${side}shouldercapped>false</${side}shouldercapped>`);
+          // What the design SAYS, not a literal `false`. The hard-coded value
+          // rewrote every capped transition shoulder as uncapped on save (see
+          // the reader), which is the fin-fillet and rail-button data loss over
+          // again. Mirrors the nose cone's `<aftshouldercapped>` above.
+          emit(depth + 1, `<${side}shouldercapped>${node[`${key}Capped`] === true}</${side}shouldercapped>`);
         }
         close('transition');
         break;
@@ -2070,7 +2156,7 @@ export function exportOrk({
   // desktop model); legacy flat trees wrap into one implicit stage.
   const stageNodes = asStageNodes(tree);
   for (const c of writeConfigs) {
-    emit(2, `<motorconfiguration configid="${c.id}"${c.id === defaultId ? ' default="true"' : ''}>`);
+    emit(2, `<motorconfiguration configid="${escapeXml(c.id)}"${c.id === defaultId ? ' default="true"' : ''}>`);
     if (c.name !== null) emit(3, `<name>${escapeXml(c.name)}</name>`);
     for (let i = 0; i < stageNodes.length; i++) {
       emit(3, `<stage number="${i}" active="true"/>`);
@@ -2143,7 +2229,7 @@ export function exportOrk({
       emit(3, '<simulator>RK4Simulator</simulator>');
       emit(3, '<calculator>BarrowmanCalculator</calculator>');
       emit(3, '<conditions>');
-      emit(4, `<configid>${c.id}</configid>`);
+      emit(4, `<configid>${escapeXml(c.id)}</configid>`);
       emit(4, `<launchrodlength>${launch.launchRodLengthM}</launchrodlength>`);
       // Desktop defaults for options we don't model: launch into wind, and
       // rod/wind direction (rod direction is DEGREES on disk, 90 = π/2 rad).

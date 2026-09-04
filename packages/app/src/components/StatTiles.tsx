@@ -433,13 +433,54 @@ interface TileSpec {
   ) => { value: string; quantity?: Quantity; unit?: string };
 }
 
+/** What a tile shows when the kernel produced no number for it. */
+const NO_VALUE = '—';
+
+/**
+ * EVERY tile below must go through `tileSi`/`tileFixed`. Nothing in this table
+ * may read a SimRun result field directly.
+ *
+ * SimRun's "Results (SI)" fields — maxAltitude, maxVelocity, maxMach,
+ * maxAcceleration, timeToApogee, groundHitVelocity, totalFlightTime — are all
+ * typed `number`, but they arrive as `null` whenever the kernel could not
+ * compute them: FlightData initialises maxAcceleration, maxMachNumber and
+ * groundHitVelocity to NaN, and the Java→JS bridge's num() writes null for any
+ * NaN or Infinity. A mount with no motor aborts exactly like that, and on the
+ * beta corpus 17 of the 72 flyable imports end that way
+ * (simReport.kernel.test.ts, "a rocket that cannot fly surfaces SIM_ABORT") —
+ * so the null path is a routine flight, not an edge case.
+ *
+ * Two ways it used to break, both fixed here:
+ *  - `r.maxMach.toFixed(2)` threw `Cannot read properties of null`. There is no
+ *    error boundary above FlightStats (the only one in the app wraps the site
+ *    band), so React 18 unmounted the whole tree and the user lost the design.
+ *  - fmtSi divides by the unit factor and JS coerces null to 0, so an unguarded
+ *    tile printed "Landing rate 0.000 ft/s" — the safest possible reading of
+ *    the most safety-relevant tile on the page — for a rocket that never left
+ *    the pad.
+ *
+ * `Number.isFinite`, never `=== null`: the same field can be NaN as well as
+ * null (an older stored run flown before the bridge nulled non-finites carries
+ * the NaN verbatim), and `=== null` catches only half of that.
+ */
+function tileSi(
+  quantity: Quantity, symbol: string, si: number | null | undefined, digits?: number,
+): string {
+  return Number.isFinite(si) ? fmtSi(quantity, symbol, si as number, digits) : NO_VALUE;
+}
+
+/** {@link tileSi} for the tiles that carry no unit conversion (Mach, seconds). */
+function tileFixed(v: number | null | undefined, digits: number): string {
+  return Number.isFinite(v) ? (v as number).toFixed(digits) : NO_VALUE;
+}
+
 /** Every metric the highlighted tiles can show, in display order. */
 export const RESULT_TILE_METRICS: TileSpec[] = [
-  { id: 'apogee', label: 'Apogee', render: (r, u) => ({ value: fmtSi('distance', u.dist, r.maxAltitude), quantity: 'distance' }) },
-  { id: 'maxVelocity', label: 'Max velocity', render: (r, u) => ({ value: fmtSi('velocity', u.vel, r.maxVelocity), quantity: 'velocity' }) },
-  { id: 'maxMach', label: 'Max Mach', render: (r) => ({ value: r.maxMach.toFixed(2) }) },
-  { id: 'maxAccel', label: 'Max accel', render: (r, u) => ({ value: fmtSi('acceleration', u.acc, r.maxAcceleration), quantity: 'acceleration' }) },
-  { id: 'apogeeAt', label: 'Apogee at', render: (r) => ({ value: r.timeToApogee.toFixed(1), unit: 's' }) },
+  { id: 'apogee', label: 'Apogee', render: (r, u) => ({ value: tileSi('distance', u.dist, r.maxAltitude), quantity: 'distance' }) },
+  { id: 'maxVelocity', label: 'Max velocity', render: (r, u) => ({ value: tileSi('velocity', u.vel, r.maxVelocity), quantity: 'velocity' }) },
+  { id: 'maxMach', label: 'Max Mach', render: (r) => ({ value: tileFixed(r.maxMach, 2) }) },
+  { id: 'maxAccel', label: 'Max accel', render: (r, u) => ({ value: tileSi('acceleration', u.acc, r.maxAcceleration), quantity: 'acceleration' }) },
+  { id: 'apogeeAt', label: 'Apogee at', render: (r) => ({ value: tileFixed(r.timeToApogee, 1), unit: 's' }) },
   {
     // "Landing rate" is the most-screenshotted string in the app, and from
     // v0.100 it means what a flyer means by it: the VERTICAL descent rate.
@@ -447,8 +488,14 @@ export const RESULT_TILE_METRICS: TileSpec[] = [
     // full horizontal wind drift — so in a 5 m/s wind a rocket descending at a
     // healthy 13 ft/s was shown, and judged, at 21.
     id: 'landingRate', label: 'Landing rate',
+    // The fallback tests FINITENESS, not `?? `: a stored run whose landingRate
+    // is NaN (rather than null) would keep the NaN through `??` and print
+    // "NaN ft/s", where the ground-hit velocity beside it is usable.
     render: (r, u) => ({
-      value: fmtSi('velocity', u.vel, r.landingRate ?? r.groundHitVelocity), quantity: 'velocity',
+      value: Number.isFinite(r.landingRate)
+        ? tileSi('velocity', u.vel, r.landingRate)
+        : tileSi('velocity', u.vel, r.groundHitVelocity),
+      quantity: 'velocity',
     }),
   },
   {
@@ -457,33 +504,37 @@ export const RESULT_TILE_METRICS: TileSpec[] = [
     // what reconciles the landing rate with the drift figure beside it.
     id: 'groundSpeed', label: 'Ground speed at landing',
     render: (r, u) => {
-      const g = (r.deployments ?? []).find((x) => x.isLanding)?.groundSpeed ?? r.groundHitVelocity;
-      return { value: g == null ? '—' : fmtSi('velocity', u.vel, g), quantity: 'velocity' };
+      const landing = (r.deployments ?? []).find((x) => x.isLanding)?.groundSpeed;
+      const g = Number.isFinite(landing) ? landing : r.groundHitVelocity;
+      return { value: tileSi('velocity', u.vel, g), quantity: 'velocity' };
     },
   },
   {
     id: 'drogueRate', label: 'Drogue descent',
-    render: (r, u) => {
-      const d = (r.deployments ?? []).find((x) => !x.isLanding)?.descentRate;
-      return { value: d == null ? '—' : fmtSi('velocity', u.vel, d), quantity: 'velocity' };
-    },
+    render: (r, u) => ({
+      value: tileSi('velocity', u.vel, (r.deployments ?? []).find((x) => !x.isLanding)?.descentRate),
+      quantity: 'velocity',
+    }),
   },
-  { id: 'flightTime', label: 'Flight time', render: (r) => ({ value: r.totalFlightTime.toFixed(0), unit: 's' }) },
+  { id: 'flightTime', label: 'Flight time', render: (r) => ({ value: tileFixed(r.totalFlightTime, 0), unit: 's' }) },
   {
     id: 'padWeight', label: 'Pad weight',
-    render: (r, u) => ({ value: r.launchMass === null ? '—' : fmtSi('mass', u.mass, r.launchMass), quantity: 'mass' }),
+    render: (r, u) => ({ value: tileSi('mass', u.mass, r.launchMass), quantity: 'mass' }),
   },
   {
     id: 'recoveryWeight', label: 'Recovery weight',
-    render: (r, u) => ({ value: r.burnoutMass == null ? '—' : fmtSi('mass', u.mass, r.burnoutMass), quantity: 'mass' }),
+    render: (r, u) => ({ value: tileSi('mass', u.mass, r.burnoutMass), quantity: 'mass' }),
   },
   {
     id: 'thrustToWeight', label: 'Thrust : weight',
-    render: (r) => ({ value: r.thrustToWeightAtRod === null ? '—' : `${r.thrustToWeightAtRod.toFixed(1)} : 1` }),
+    render: (r) => {
+      const tw = tileFixed(r.thrustToWeightAtRod, 1);
+      return { value: tw === NO_VALUE ? NO_VALUE : `${tw} : 1` };
+    },
   },
   {
     id: 'guideVelocity', label: 'Guide departure',
-    render: (r, u) => ({ value: r.rodExitVelocity === null ? '—' : fmtSi('velocity', u.vel, r.rodExitVelocity), quantity: 'velocity' }),
+    render: (r, u) => ({ value: tileSi('velocity', u.vel, r.rodExitVelocity), quantity: 'velocity' }),
   },
   {
     id: 'staticMargin', label: 'Static margin',
@@ -492,7 +543,7 @@ export const RESULT_TILE_METRICS: TileSpec[] = [
   },
   {
     id: 'optimalDelay', label: 'Optimal delay',
-    render: (r) => ({ value: r.optimumDelayS === null ? '—' : r.optimumDelayS.toFixed(1), unit: 's' }),
+    render: (r) => ({ value: tileFixed(r.optimumDelayS, 1), unit: 's' }),
   },
 ];
 

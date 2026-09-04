@@ -283,15 +283,75 @@ export function sortMotors(
 }
 
 /**
+ * Desktop-file manufacturer names that are NOT a prefix of our thrustcurve
+ * abbreviation, so the generic prefix rule in {@link manufacturerMatches}
+ * cannot pair them. Keys are normalized (lower-case, alphanumerics only).
+ *
+ * Only names that actually appear in OpenRocket's own Manufacturer table are
+ * listed: an alias nobody writes is a liability, because a wrong one silently
+ * steers a match to the wrong vendor's curve.
+ */
+const MANUFACTURER_ALIASES: Record<string, string> = {
+  publicmissiles: 'pml',
+  publicmissilesltd: 'pml',
+  rcsrocketmotorcomponents: 'aerotech',
+  aerotechrcs: 'aerotech',
+  ctc: 'cesaroni',
+  cti: 'cesaroni',
+  westcoasthybrids: 'wch',
+  propulsionpolymers: 'pp',
+  rocketvision: 'rv',
+  skyrippersystems: 'skyr',
+  skyripper: 'skyr',
+  animalmotorworks: 'amw',
+  amwprox: 'amw',
+};
+
+const normMfr = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+/**
+ * Does the manufacturer a design file names refer to this catalog entry's
+ * vendor?
+ *
+ * The file carries desktop OpenRocket's full name ("Public Missiles Ltd.") and
+ * the bundled catalog carries thrustcurve.org's abbreviation ("PML"), so exact
+ * equality answers almost nothing. The prefix rule covers the common shape
+ * ("Estes Industries" → "Estes", "Cesaroni Technology" → "Cesaroni"); the
+ * alias table above covers the ones it cannot reach.
+ *
+ * Exported for tests — a mis-paired alias sends a flight to another vendor's
+ * thrust curve, which is a wrong number, not a cosmetic slip.
+ */
+export function manufacturerMatches(fileName: string | undefined, abbrev: string): boolean {
+  if (!fileName) return false;
+  const a = normMfr(fileName);
+  // 'unknown' is our own reader's fallback and 'custom' our old writer's —
+  // sentinels, not manufacturers, and they must never steer a match.
+  if (!a || a === 'unknown' || a === 'custom') return false;
+  const b = normMfr(abbrev);
+  if (!b) return false;
+  return a === b || a.startsWith(b) || b.startsWith(a) || MANUFACTURER_ALIASES[a] === b;
+}
+
+/**
  * Finds the bundled-DB motor a .ork file refers to. Desktop files store the
  * catalog designation (sometimes the display form, sometimes with prefixes),
  * so match raw designation, display designation, and common name — using the
  * file's motor diameter as a tiebreaker and preferring in-production entries.
+ *
+ * `manufacturer` (the file's own `<manufacturer>`) is OPTIONAL and ranks
+ * BELOW the designation match but ABOVE the in-production tie-break. Without
+ * it, 18 designation+diameter groups in the shipped catalog span more than one
+ * vendor and the in-production entry always won: a Public Missiles G80T
+ * resolved to AeroTech's (136.6 Ns against PML's 116.25 Ns — 17.5 % of total
+ * impulse), and Apogee's E6/F10 resolved to AeroTech's. Omitting the argument
+ * reproduces the old ordering exactly, so every existing caller is unchanged.
  */
 export function findDbMotor(
   designation: string,
   diameterMm?: number,
   motors: MotorDbEntry[] = MOTOR_DB,
+  manufacturer?: string,
 ): MotorDbEntry | null {
   const want = designation.trim().toLowerCase();
   if (!want) return null;
@@ -311,6 +371,8 @@ export function findDbMotor(
       && (diameterMm === undefined || Math.abs(m.diameter - diameterMm) <= 1.5));
   if (candidates.length === 0) return null;
   candidates.sort((a, b) => a.r - b.r
+    || Number(manufacturerMatches(manufacturer, b.m.manufacturerAbbrev))
+      - Number(manufacturerMatches(manufacturer, a.m.manufacturerAbbrev))
     || Number(b.m.availability === 'regular') - Number(a.m.availability === 'regular'));
   return candidates[0]!.m;
 }

@@ -100,3 +100,39 @@ describe('printerName', () => {
     expect(printerName(undefined)).toBe('printer');
   });
 });
+
+/**
+ * A joint clearance of exactly ZERO (services-rest-6).
+ *
+ * Every other degenerate printer value is rejected — x/y/z and margin must be
+ * finite and strictly positive — but clearance was admitted at 0, and a user
+ * reading the "drop it toward 0.05 mm" hint can type 0 meaning "exact fit".
+ * splitSolid then cuts every spigot at exactly the socket bore, which assembles
+ * on no FDM machine, and printPackReadme prints "Joint clearance is 0.00 mm per
+ * side (0.00 mm on the diameter). Use 30-minute epoxy: it fills that gap" —
+ * instructions for an allowance that is not there. The cost is a multi-hour
+ * print of parts that will not go together.
+ */
+describe('joint clearance is strictly positive', () => {
+  const machine = (clearance: number) => ({
+    preset: CUSTOM_PRESET, x: 0.2, y: 0.2, z: 0.2, margin: 0.008, clearance,
+  });
+
+  it('takes the default rather than planning a zero-allowance joint', () => {
+    expect(toPrinterVolume(machine(0))!.clearance).toBe(DEFAULT_PRINT_CLEARANCE);
+    expect(normalizePrinter(machine(0))!.clearance).toBe(DEFAULT_PRINT_CLEARANCE);
+  });
+
+  it('rejects a negative or non-finite stored clearance the same way', () => {
+    expect(toPrinterVolume(machine(-0.0001))!.clearance).toBe(DEFAULT_PRINT_CLEARANCE);
+    expect(normalizePrinter(machine(-0.0001))!.clearance).toBe(DEFAULT_PRINT_CLEARANCE);
+    expect(normalizePrinter(machine(NaN))!.clearance).toBe(DEFAULT_PRINT_CLEARANCE);
+    expect(normalizePrinter(machine(Infinity))!.clearance).toBe(DEFAULT_PRINT_CLEARANCE);
+  });
+
+  it('still passes a real tuned clearance through untouched', () => {
+    // 0.05 mm — the thin-CA figure the Preferences hint names.
+    expect(toPrinterVolume(machine(0.00005))!.clearance).toBe(0.00005);
+    expect(normalizePrinter(machine(0.00005))!.clearance).toBe(0.00005);
+  });
+});

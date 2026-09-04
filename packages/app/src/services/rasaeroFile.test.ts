@@ -1607,3 +1607,152 @@ describe('RASAero import — measured launch weight and CG', () => {
     expect(info.massEmpty * LB).toBeCloseTo(2.5965, 3);
   }, 120000);
 });
+
+/**
+ * RASAero's two <Recovery> slots are ordered by WHEN THEY FIRE — slot 1 is the
+ * first event of the descent, which is why importCdx1 reads slot 1 back as
+ * 'Drogue' and slot 2 as 'Main'. The exporter used to fill them in TREE order,
+ * and a conventional dual-deploy is laid out main-first (payload bay ahead of
+ * the booster tube), so the MAIN took slot 1 — a file RASAero's own editor
+ * cannot author, in which the drogue never deploys.
+ */
+describe('RASAero export — dual-deploy recovery slot order', () => {
+  const dualDeploy = (mainProps: Record<string, unknown>, drogueProps: Record<string, unknown>) => {
+    const main: ComponentNode = { type: 'parachute', id: 'main', name: 'Main', diameter: 1.5, cd: 0.8 };
+    const drogue: ComponentNode = { type: 'parachute', id: 'drogue', name: 'Drogue', diameter: 0.45, cd: 0.8 };
+    Object.assign(main, mainProps);
+    Object.assign(drogue, drogueProps);
+    return {
+      name: 'DualDeploy',
+      tree: {
+        name: 'DualDeploy',
+        components: [{
+          type: 'stage' as const, id: 's0', name: 'Sustainer',
+          children: [
+            { type: 'nosecone' as const, id: 'n', length: 0.3, aftRadius: 0.0508, thickness: 0.002, shape: 'ogive' },
+            // The payload bay comes FIRST in the tree, which is where a
+            // dual-deploy main lives — the tree position that used to win slot 1.
+            { type: 'bodytube' as const, id: 'pay', length: 0.5, outerRadius: 0.0508, thickness: 0.001, children: [main] },
+            {
+              type: 'bodytube' as const, id: 'b', length: 0.9, outerRadius: 0.0508, thickness: 0.001,
+              children: [
+                { type: 'trapezoidfinset' as const, id: 'f', finCount: 3, rootChord: 0.15, tipChord: 0.07, sweep: 0.05, height: 0.11, thickness: 0.004, position: { method: 'bottom' as const, offset: 0 } },
+                drogue,
+              ],
+            },
+          ],
+        }],
+      },
+      launchMassKg: 4.5,
+      launchCgM: 0.85,
+    };
+  };
+
+  // 213.36 m = 700 ft, the usual main altitude; the drogue is at apogee.
+  const conventional = () => dualDeploy(
+    { deployEvent: 'altitude', deployAltitude: 213.36 },
+    { deployEvent: 'apogee' },
+  );
+
+  it('writes the apogee chute into slot 1 and the altitude chute into slot 2', () => {
+    const xml = exportCdx1(conventional());
+    expect(xml).toContain('<EventType1>Apogee</EventType1>');
+    expect(xml).toContain('<EventType2>Altitude</EventType2>');
+    // The canopies follow their events: slot 1 gets the drogue's 0.45 m
+    // (17.7165 in), slot 2 the main's 1.5 m (59.055 in).
+    expect(xml).toContain('<Size1>17.7165</Size1>');
+    expect(xml).toContain('<Size2>59.055</Size2>');
+    // Apogee deployment carries no altitude; 213.36 m is 700 ft.
+    expect(xml).toContain('<Altitude1>0</Altitude1>');
+    expect(xml).toContain('<Altitude2>700</Altitude2>');
+  });
+
+  it('round-trips the two chutes without swapping their names', () => {
+    const back = importCdx1(exportCdx1(conventional()));
+    const chutes = flatten(back.tree.components).filter((c) => c.type === 'parachute');
+    expect(chutes.map((c) => c.name)).toEqual(['Drogue', 'Main']);
+    const drogue = chutes[0]!;
+    const main = chutes[1]!;
+    expect(drogue['deployEvent']).toBe('apogee');
+    expect(drogue['diameter']).toBeCloseTo(0.45, 4);
+    expect(main['deployEvent']).toBe('altitude');
+    expect(main['diameter']).toBeCloseTo(1.5, 4);
+    expect(main['deployAltitude']).toBeCloseTo(213.36, 2);
+  });
+
+  it('puts the higher-altitude chute first when both deploy on altitude', () => {
+    const back = importCdx1(exportCdx1(dualDeploy(
+      { deployEvent: 'altitude', deployAltitude: 213.36 }, // 700 ft
+      { deployEvent: 'altitude', deployAltitude: 457.2 }, // 1500 ft — opens first
+    )));
+    const chutes = flatten(back.tree.components).filter((c) => c.type === 'parachute');
+    expect(chutes[0]!['deployAltitude']).toBeCloseTo(457.2, 2);
+    expect(chutes[1]!['deployAltitude']).toBeCloseTo(213.36, 2);
+  });
+
+  it('never lets a chute RASAero cannot express take slot 1 from a real event', () => {
+    // 'ejection' has no RASAero event type and exports as None. Tree order puts
+    // it first; the real apogee event must still own slot 1.
+    const xml = exportCdx1(dualDeploy({ deployEvent: 'ejection' }, { deployEvent: 'apogee' }));
+    expect(xml).toContain('<EventType1>Apogee</EventType1>');
+    expect(xml).toContain('<Event1>True</Event1>');
+    expect(xml).toContain('<EventType2>None</EventType2>');
+    expect(xml).toContain('<Event2>False</Event2>');
+  });
+});
+
+/**
+ * RASAero II is a .NET application and writes numbers in the culture of the
+ * machine it ran on. A comma decimal separator makes every geometry read
+ * unparseable, and this importer's fallbacks are real dimensions (Diameter
+ * 4 in, Length 12 in) — so the design used to arrive plausible and completely
+ * wrong with the banner saying nothing.
+ */
+describe('RASAero import — unreadable numbers are reported, not swallowed', () => {
+  const commaDecimal = `<RASAeroDocument>
+  <FileVersion>2</FileVersion>
+  <RocketDesign>
+    <NoseCone><PartType>NoseCone</PartType><Length>4,5</Length><Diameter>0,736</Diameter>
+      <Shape>Tangent Ogive</Shape><BluntRadius>0</BluntRadius><Location>0</Location></NoseCone>
+    <BodyTube><PartType>BodyTube</PartType><Length>18,25</Length><Diameter>0,736</Diameter>
+      <LaunchLugDiameter>0</LaunchLugDiameter><LaunchLugLength>0</LaunchLugLength></BodyTube>
+  </RocketDesign>
+</RASAeroDocument>`;
+
+  it('names every tag it could not read, once each', () => {
+    const note = importCdx1(commaDecimal).notes.find((n) => n.startsWith('Could not read'));
+    expect(note).toBeDefined();
+    // Two distinct tags across four elements — one entry per TAG, not per part,
+    // or a 20-part comma-decimal file produces 60 notes nobody reads.
+    expect(note).toMatch(/Could not read 2 numbers/);
+    expect(note).toContain('<Length> “4,5”');
+    expect(note).toContain('<Diameter> “0,736”');
+    expect(note).toMatch(/comma decimal separator/);
+  });
+
+  it('still imports tolerantly, so the substituted number is visible in the design', () => {
+    const r = importCdx1(commaDecimal);
+    const tube = flatten(r.tree.components).find((c) => c.type === 'bodytube')!;
+    // The 4 in fallback: on a BT-20-class model (0.736 in) that is 5.4x the
+    // diameter and ~30x the reference area. The note exists to expose it.
+    expect(tube['outerRadius']).toBeCloseTo(4 / 39.37 / 2, 6);
+  });
+
+  it('says nothing about a field that is merely ABSENT', () => {
+    // RASAero legitimately omits fields; only present-but-unreadable is a
+    // silent substitution.
+    const sparse = `<RASAeroDocument><FileVersion>2</FileVersion><RocketDesign>
+      <NoseCone><PartType>NoseCone</PartType><Length>4.5</Length><Diameter>0.736</Diameter>
+        <Shape>Tangent Ogive</Shape></NoseCone>
+      <BodyTube><PartType>BodyTube</PartType><Length>18.25</Length><Diameter>0.736</Diameter></BodyTube>
+    </RocketDesign></RASAeroDocument>`;
+    expect(importCdx1(sparse).notes.some((n) => n.startsWith('Could not read'))).toBe(false);
+  });
+
+  it('says nothing on the real RASAero fixture files', () => {
+    for (const f of ['Show-off.CDX1', 'Complex.Two-Stage.CDX1', 'Three-stage rocket.CDX1',
+      'ARCAS-Long - 2.CDX1', 'RMA53D02 - 2.CDX1', 'launch-stage-motorless.CDX1']) {
+      expect(importCdx1(fixture(f)).notes.some((n) => n.startsWith('Could not read'))).toBe(false);
+    }
+  });
+});

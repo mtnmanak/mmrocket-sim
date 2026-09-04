@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { niceStep, siToUi, uiToSi } from '../prefs/units.js';
+import { finOutlineProblem } from '../tree/finOutline.js';
 import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
 
@@ -105,6 +106,39 @@ export function FinPointsEditor({ points, onChange }: {
   const dragIndex = useRef<number | null>(null);
   // Row being edited in the table — its dot lights up in the canvas.
   const [hotRow, setHotRow] = useState<number | null>(null);
+  // Why the last edit was refused, shown under the table (null = nothing wrong).
+  const [refused, setRefused] = useState<string | null>(null);
+
+  const committedProblem = useMemo(() => finOutlineProblem(committed), [committed]);
+  // What is on screen right now — the live drag if there is one. Drives the red
+  // outline, so a crossing shows up under the pointer before the user lets go.
+  const shownProblem = livePts ? finOutlineProblem(livePts) : committedProblem;
+
+  /**
+   * Commit an edited point array, unless the edit is what breaks the outline.
+   *
+   * A self-intersecting or duplicate-point outline is not a cosmetic problem
+   * here: the kernel reports it through a Java `%g` format TeaVM does not
+   * implement, so `OrkRocket.buildTree` throws `Unknown format conversion: g`
+   * and App.tsx blanks the whole design — no mass, CG, CP, stability, stats,
+   * exports or Launch — until the user undoes an edit that looked fine on the
+   * canvas. See tree/finOutline.ts for the mechanism and the kernel citation.
+   *
+   * The `!committedProblem` half matters as much as the check: if a design
+   * ARRIVED broken (saved before this guard existed, or hand-edited .ork),
+   * refusing every edit would trap the user in the exact state they are trying
+   * to edit their way out of. Then we let the edit through and just say so.
+   */
+  const commit = (next: FinPoint[]): boolean => {
+    const problem = finOutlineProblem(next);
+    if (problem && !committedProblem) {
+      setRefused(problem);
+      return false;
+    }
+    setRefused(problem);
+    onChange(next);
+    return true;
+  };
 
   const clientToSvg = (e: { clientX: number; clientY: number }): [number, number] => {
     const rect = svgRef.current!.getBoundingClientRect();
@@ -167,8 +201,11 @@ export function FinPointsEditor({ points, onChange }: {
   };
 
   const endDrag = () => {
+    // A refused commit leaves `committed` alone and setLivePts(null) below
+    // snaps the canvas back to it — the "restore the previous array" half of
+    // the guard, so a crossing outline never reaches buildTree.
     if (dragIndex.current !== null && livePts) {
-      onChange(livePts); // single undo step
+      commit(livePts); // single undo step
     }
     dragIndex.current = null;
     frozenTransform.current = null;
@@ -177,7 +214,9 @@ export function FinPointsEditor({ points, onChange }: {
 
   const removePoint = (i: number) => {
     if (pts.length <= 3 || i === 0 || i === pts.length - 1) return;
-    onChange(committed.filter((_, j) => j !== i));
+    // Deleting a point can cross the outline too — the kernel's own
+    // removePoint() rolls back for exactly this reason (FreeformFinSet.java:229).
+    commit(committed.filter((_, j) => j !== i));
   };
 
   // Coordinate table in the user's rocket-dimension unit (engine stays SI).
@@ -194,14 +233,14 @@ export function FinPointsEditor({ points, onChange }: {
       return constrain(i, q, committed.length);
     });
     next[0] = [0, 0];
-    onChange(next);
+    commit(next);
   };
 
   const addPoint = () => {
     const a = committed[committed.length - 2]!;
     const b = committed[committed.length - 1]!;
     const mid: FinPoint = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
-    onChange([...committed.slice(0, committed.length - 1), mid, committed[committed.length - 1]!]);
+    commit([...committed.slice(0, committed.length - 1), mid, committed[committed.length - 1]!]);
   };
 
   const polygon = pts.map((p) => toScreen(t, p).join(',')).join(' ');
@@ -220,8 +259,10 @@ export function FinPointsEditor({ points, onChange }: {
         {/* body surface line */}
         <line x1={0} y1={bodyY} x2={VIEW_W} y2={bodyY} stroke="#9a978f" strokeWidth="3" />
         <text x={4} y={bodyY + 12} fontSize="9" fill="var(--text-muted)">body tube</text>
-        {/* fin polygon */}
-        <polygon points={polygon} fill="#b9b7b0" fillOpacity="0.75" stroke="#7a786f" strokeWidth="1.5"
+        {/* fin polygon — red while the outline is one the kernel would refuse */}
+        <polygon points={polygon}
+          fill={shownProblem ? '#e34948' : '#b9b7b0'} fillOpacity={shownProblem ? 0.35 : 0.75}
+          stroke={shownProblem ? '#e34948' : '#7a786f'} strokeWidth="1.5"
           style={{ pointerEvents: 'none' }} />
         {/* points: generous invisible hit circle + visible dot */}
         {pts.map((p, i) => {
@@ -284,7 +325,8 @@ export function FinPointsEditor({ points, onChange }: {
                 </td>
                 <td>
                   <button className="fin-row-del" disabled={first || last || pts.length <= 3}
-                    title="Remove point" onClick={() => removePoint(i)}>✕</button>
+                    title="Remove point" aria-label={`Remove point ${i + 1}`}
+                    onClick={() => removePoint(i)}>✕</button>
                 </td>
               </tr>
             );
@@ -294,6 +336,11 @@ export function FinPointsEditor({ points, onChange }: {
       <button className="file-btn" style={{ marginTop: 6 }} onClick={addPoint}>
         + Add point
       </button>
+      {refused && (
+        <p role="alert" style={{ fontSize: 11, color: '#c0392b', margin: '6px 0 0' }}>
+          {refused}{committedProblem ? '' : ' The fin is unchanged.'}
+        </p>
+      )}
       <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '6px 0 0' }}>
         Click the canvas to add a point on the nearest edge · drag points to move
         them · double-click a point to delete it · refine exact values in the

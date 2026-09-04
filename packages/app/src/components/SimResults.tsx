@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { fmtSi } from '../prefs/units.js';
+import { clickable } from './clickable.js';
 import { UnitChip } from './UnitChip.js';
 import {
   aeroModelLabel, formatRunStability, formatRunWhen, formatRunWhenProse, listAnd,
@@ -185,7 +186,10 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
               </tr>
             </thead>
             <tbody>
-              {run.deployments.map((d, i) => {
+              {/* `?? []` because a run stored before `deployments` existed has
+                  none — the same guard the length test at the top of this block
+                  and the history table's verdict already use. */}
+              {(run.deployments ?? []).map((d, i) => {
                 const problems: string[] = [];
                 if (d.openingOk === false) problems.push('hard opening');
                 if (d.descentOk === false) {
@@ -487,12 +491,22 @@ export function SimHistory({
                   || r.safeLandingRate === false
                   || (r.deployments ?? []).some((d) => d.descentOk === false);
                 const caution = !unsafe && stabilityState(r.launchStaticMarginCal) === 'over';
+                // A tab stop and Enter/Space, not a bare onClick. `onSelect` is
+                // the ONLY path that loads a stored run into the launch report,
+                // so with a mouse-only row a keyboard user could reach the ✕
+                // Delete and 📈 Charts buttons INSIDE each row but never open
+                // one — the whole run-comparison workflow this table exists for
+                // needed a pointer. The `title` is no affordance either: titles
+                // never surface to keyboard or touch. clickable() ignores keys
+                // aimed at a nested control, so those two buttons keep working,
+                // and it leaves the element's role alone so the <tr> stays a
+                // table row. No onSelect = nothing to activate, so no tab stop.
                 return (
                   <tr
                     key={r.id}
                     className={`motor-row ${selectedId === r.id ? 'motor-row-picked' : ''}`}
                     title="Click to open this run in the launch report"
-                    onClick={() => onSelect?.(r)}
+                    {...(onSelect ? clickable(() => onSelect(r)) : {})}
                   >
                     <td>{r.rocket || '—'}</td>
                     <td>{r.manufacturer ? `${r.manufacturer} ` : ''}{r.motor}</td>

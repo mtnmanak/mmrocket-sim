@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import type { RocketTree } from '@online-openrocket/engine';
-import { buildPieces } from '../components/Rocket3D.js';
+import { buildPieces } from '../tree/pieces.js';
 
 /**
  * Binary glTF (.glb) export of the rocket's EXTERNAL 3D geometry — the same

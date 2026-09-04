@@ -10,6 +10,8 @@
   "scripts": {
     "dev": "npm run dev -w @online-openrocket/app",
     "build": "npm run build -w @online-openrocket/engine && npm run build -w @online-openrocket/app",
+    "typecheck": "npm run build -w @online-openrocket/engine && npm run typecheck -w @online-openrocket/app",
+    "lint": "eslint .",
     "test": "npm run build -w @online-openrocket/engine && npm run test -w @online-openrocket/engine && npm run test -w @online-openrocket/app",
     "engine:carve": "node engine-java/scripts/carve.mjs",
     "engine:difftest": "node engine-java/scripts/difftest.mjs",
@@ -20,5 +22,12 @@
   },
   "allowScripts": {
     "esbuild@0.21.5": true
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.10.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.12.0",
+    "typescript-eslint": "^8.69.0"
   }
 }

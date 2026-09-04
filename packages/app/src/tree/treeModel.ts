@@ -21,7 +21,7 @@
 // engineTree back out for, and it would not be a cheap split anyway:
 // bodyDragReference and engineTree call each other.
 import { OrkRocket } from '@online-openrocket/engine';
-import type { ComponentNode, ComponentType, RocketTree } from '@online-openrocket/engine';
+import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { resolveAbsolutePositions } from './position.js';
 import { defaultParams, DISPLAY_NAME, FIELDS, type EditorComponentType } from './schema.js';
 import { shroudEnds, surfaceBumpFrontalArea } from './shroud.js';
@@ -1098,11 +1098,29 @@ export function engineTree(tree: RocketTree): RocketTree {
         // frozen. `includesBase` matches the protuberance's `streamlinedbase`: a
         // shroud has a base, whatever its end shapes.
         //
-        // Guarded on a finite, positive reference: bodyDragReference falls back
-        // rather than throwing, and a zero would send the ratio to Infinity.
+        // Guarded on a MEASURED, finite, positive reference. bodyDragReference
+        // falls back rather than throwing (PROTUBERANCE_FALLBACK_BODY_CD, the
+        // ARCAS-Long fixture's own 0.354 with `measured: false`) whenever the
+        // stripped-body probe throws or returns total ≤ 0, and a zero would
+        // send the ratio to Infinity.
+        //
+        // THE `measured` TEST IS THE ONE THIS RATIO NEEDS AND THE PROTUBERANCE'S
+        // DOES NOT. A protuberance emits Rogers' pure area ratio — geometry,
+        // right whichever pair bodyDragReference returned, which is why the
+        // branch 90 lines above says no guard is needed. This one is
+        // `todayCd / bodyCd(M0.3)`, a NORMALISATION: against the fallback pair
+        // it normalises this design's shroud by ANOTHER rocket's drag, and the
+        // kernel then delivers `todayCd · bodyCd_real(M) / 0.354` at every Mach
+        // — for a small-model body CD of ~0.45 that is +27 % shroud drag, while
+        // `fairingDeliveredCd` and the property panel keep printing the
+        // unscaled figure. That printed-vs-flown split is exactly the defect
+        // `referenceArea`'s note records happening once already. Unmeasured, we
+        // emit no ratio and the kernel charges the scalar `overrideCD` above —
+        // v0.102 behaviour, frozen at M0.3, which is honest rather than wrong.
         ...(((): Record<string, number | boolean> => {
-          const ref = bodyDragReference(tree).withBase;
-          if (!Number.isFinite(ref) || ref <= 1e-9) return {};
+          const body = bodyDragReference(tree);
+          const ref = body.withBase;
+          if (!body.measured || !Number.isFinite(ref) || ref <= 1e-9) return {};
           const todayCd = (cdFrontal * surfaceBumpFrontalArea(mountRadiusOf(parent), W, H))
             / Math.max(aRef, 1e-9);
           return { overrideCDBodyRatio: todayCd / ref, overrideCDBodyIncludesBase: true };
@@ -1114,13 +1132,28 @@ export function engineTree(tree: RocketTree): RocketTree {
     const dh = typeof n['spillHoleDiameter'] === 'number' ? (n['spillHoleDiameter'] as number) : 0;
     if (n.type === 'parachute' && dh > 0) {
       const D = typeof n['diameter'] === 'number' ? (n['diameter'] as number) : 0.3;
-      const hole = Math.min(dh, D * 0.95);
-      const base = typeof n['cd'] === 'number' ? (n['cd'] as number) : KERNEL_DEFAULT_CD;
-      // `cdNominal` keeps the pre-vent figure so the launch report can show
-      // both — the vent doing its work, rather than a flown coefficient that
-      // silently disagrees with the number in the design panel. The kernel
-      // ignores unknown keys, so this rides along harmlessly.
-      next = { ...next, cd: base * (1 - (hole / D) ** 2), cdNominal: base } as ComponentNode;
+      // `D > 0` IS THE DIVIDE GUARD, not a tidiness check. The 0.3 fallback
+      // fires only when `diameter` is ABSENT; a canopy diameter STORED as a
+      // literal 0 is a `typeof 'number'` hit, so D was 0, `hole` was
+      // min(dh, 0) = 0, and (0/0)**2 is NaN — the node reached
+      // OrkRocket.buildTree carrying `cd: NaN`, which OrkEngine writes as JSON
+      // null and ComponentFactory reads back as NaN, so `setCD` is never called
+      // and the vented chute silently flies the kernel's automatic coefficient
+      // instead of the user's. Nothing upstream rejects the zero: the schema's
+      // canopy-diameter field has smin 0 and PropertyPanel's `commit` clamps
+      // only the maximum. The guarded twin of this same formula —
+      // `services/recoverySizing.ts` `canopyCdA` — has bailed on `!(d > 0)`
+      // since it was written; this is that bail. `> 0` also rejects a negative
+      // or NaN diameter, which arrive here by the same route.
+      if (D > 0) {
+        const hole = Math.min(dh, D * 0.95);
+        const base = typeof n['cd'] === 'number' ? (n['cd'] as number) : KERNEL_DEFAULT_CD;
+        // `cdNominal` keeps the pre-vent figure so the launch report can show
+        // both — the vent doing its work, rather than a flown coefficient that
+        // silently disagrees with the number in the design panel. The kernel
+        // ignores unknown keys, so this rides along harmlessly.
+        next = { ...next, cd: base * (1 - (hole / D) ** 2), cdNominal: base } as ComponentNode;
+      }
     }
     return next;
   });

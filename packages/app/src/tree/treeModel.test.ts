@@ -29,6 +29,32 @@ describe('engineTree — spill-hole Cd reduction at the engine boundary', () => 
     expect(findNode(out, 'p1')!['cd']).toBeCloseTo(0.8 * 0.75, 9);
   });
 
+  /**
+   * A canopy diameter STORED as a literal 0 (the schema's smin is 0, and
+   * PropertyPanel's `commit` clamps only the maximum, so one drag of the
+   * diameter slider writes it) used to make `hole/D` = 0/0 = NaN and hand the
+   * kernel `cd: NaN`. That crosses the JSON boundary as null, comes back as
+   * NaN, and `setCD` is then never called — so a vented chute silently flew the
+   * kernel's automatic coefficient instead of the 2.2 the user typed, with
+   * nothing on screen saying so.
+   */
+  it('leaves cd finite when the canopy diameter is a stored zero', () => {
+    const out = engineTree(chuteTree({ diameter: 0, cd: 2.2, spillHoleDiameter: 0.15 }));
+    const chute = findNode(out, 'p1')!;
+    expect(Number.isNaN(chute['cd'] as number)).toBe(false);
+    expect(chute['cd']).toBe(2.2);
+    // No vent arithmetic happened at all, so no `cdNominal` claim either.
+    expect(chute['cdNominal']).toBeUndefined();
+  });
+
+  it('leaves cd finite for a negative or NaN diameter, which arrive the same way', () => {
+    for (const diameter of [-0.6, NaN]) {
+      const chute = findNode(engineTree(chuteTree({ diameter, cd: 1.5, spillHoleDiameter: 0.1 })), 'p1')!;
+      expect(Number.isFinite(chute['cd'] as number), `diameter ${diameter}`).toBe(true);
+      expect(chute['cd']).toBe(1.5);
+    }
+  });
+
   it('leaves the editing tree untouched and no-hole chutes alone', () => {
     const src = chuteTree({ cd: 1.5 });
     const out = engineTree(src);
@@ -328,6 +354,62 @@ describe('engineTree — camera shroud (fairing) lowering', () => {
       expect(Number.isNaN(cdOut)).toBe(false);
       expect(cdOut).toBeCloseTo((0.55 * 6.61805328942e-4) / (Math.PI * 0.012 * 0.012), 9);
     });
+  });
+
+  /**
+   * v0.103 gave the shroud a Mach-tracking override and v0.104 gave it the
+   * guard it needed. The key is `todayCd / bodyCd(M0.3)` — a NORMALISATION, not
+   * the protuberance's pure area ratio — so it is only meaningful against a
+   * body CD MEASURED from this design. When the stripped-body probe throws or
+   * returns no drag, `bodyDragReference` hands back PROTUBERANCE_FALLBACK_BODY_CD
+   * (`measured: false`, the ARCAS-Long fixture's 0.354), and dividing by that
+   * normalises this rocket's shroud against a different rocket: the kernel then
+   * delivers `todayCd · bodyCd_real(M) / 0.354` at every Mach — around +27 % on
+   * a small model — while `fairingDeliveredCd` and the property panel keep
+   * printing the unscaled figure. This whole v0.103 path shipped with no test.
+   */
+  describe('the Mach-tracking ratio is emitted only against a MEASURED body CD', () => {
+    it('emits todayCd / bodyCd(M0.3) when the probe measured', () => {
+      resetBodyDragCache();
+      const t = fairingTree({ fairingShape: 'halfround' });
+      const strake = findNode(engineTree(t), 'f1')!;
+      const body = bodyDragReference(t);
+      expect(body.measured).toBe(true);
+      expect(body.mach).toBe(PROTUBERANCE_REF_MACH);
+      expect(strake['overrideCDBodyRatio'] as number)
+        .toBeCloseTo((strake['overrideCD'] as number) / body.withBase, 15);
+      // A shroud has a base whatever its end shapes.
+      expect(strake['overrideCDBodyIncludesBase']).toBe(true);
+    }, 60000);
+
+    it('emits NO ratio when the probe fell back, leaving the M0.3 scalar to stand', () => {
+      resetBodyDragCache();
+      // The fixture bodyDragReference's own cache test uses: a stage that
+      // strips to nothing, so the body-only sweep has no drag and the fallback
+      // pair stands in. The shroud rides along — `fairing` is in
+      // BODY_CD_APPENDAGES, so it is stripped out of the probe either way.
+      const t: RocketTree = {
+        name: 'unmeasured', components: [{
+          type: 'stage', id: 's1',
+          children: [
+            { type: 'trapezoidfinset', id: 'fin', finCount: 3, rootChord: 0.1, tipChord: 0.05, sweep: 0.03, height: 0.05, thickness: 0.003 },
+            {
+              type: 'fairing', id: 'f1', length: 0.08, width: 0.025, height: 0.02,
+              mass: 0.045, fairingShape: 'halfround',
+              position: { method: 'middle', offset: 0 },
+            },
+          ],
+        } as unknown as ComponentNode],
+      };
+      expect(bodyDragReference(t).measured).toBe(false);
+      const strake = findNode(engineTree(t), 'f1')!;
+      expect(strake['overrideCDBodyRatio']).toBeUndefined();
+      expect(strake['overrideCDBodyIncludesBase']).toBeUndefined();
+      // The scalar override — v0.102 behaviour, frozen at M0.3 — still stands,
+      // so the shroud keeps its drag; it just stops tracking a foreign curve.
+      expect(Number.isFinite(strake['overrideCD'] as number)).toBe(true);
+      expect(strake['overrideCD'] as number).toBeGreaterThan(0);
+    }, 60000);
   });
 });
 

@@ -236,7 +236,23 @@ const FIN_TABS: FieldDef[] = [
 const CD: FieldDef = {
   // smax 3: high-efficiency canopies (Fruity Chutes Iris Ultra 2.2, toroidal
   // designs up to ~2.9) sit above the classic 0.75–1.5 flat-sheet range.
-  key: 'cd', label: 'Drag coefficient (blank = auto)', unit: 'none', step: 0.05, smin: 0, smax: 3,
+  //
+  // smin IS ONE STEP, NOT ZERO, and that is deliberate — this is the one field
+  // on the list whose failure mode is a lawn dart. PropertyPanel renders a
+  // ValueSlider whenever smin and smax are both set, its left stop is smin, and
+  // `commit` clamps only the MAXIMUM — so with smin 0 a single mouse drag, no
+  // typing and no confirmation, wrote `cd: 0` and produced a canopy with no
+  // drag at all. engineTree passes it through untouched and ComponentFactory
+  // sees a real 0.0 rather than the NaN that means "auto", so RecoveryDevice
+  // stores it unclamped and clears cdAutomatic; the slider then offers no way
+  // back to auto (only clearing the text field does that).
+  //
+  // The protuberance's `cdFrontal` answers the same shape of problem the other
+  // way — 0 there is the "release the override" stop, honoured by
+  // treeModel.protuberanceExplicitCd — but a recovery Cd has no class to fall
+  // through to, so the fix here is to put the stop out of the slider's reach.
+  // A TYPED 0 still means what the user typed: `commit` never applies smin.
+  key: 'cd', label: 'Drag coefficient (blank = auto)', unit: 'none', step: 0.05, smin: 0.05, smax: 3,
 };
 
 /** Feature #4: supersonic airfoil section + its geometry inputs (see AIRFOIL_SECTIONS). */
@@ -276,6 +292,22 @@ const MOUNT_ANGLE: FieldDef = {
  * than on its surface (OpenRocket's RadiusPositionable): how far off the
  * centreline, and in which direction. A split cluster's motor tubes are the
  * common case — each tube is a single tube at its own radius and angle.
+ *
+ * ⚠ KNOWN LIMIT — DRAWN AND SAVED, NOT YET SIMULATED. Both keys round-trip
+ * (orkFile.ts reads/writes <radialposition>/<radialdirection>, scaleRocket
+ * scales them) and AftView draws with them, but NOTHING BRIDGES THEM TO THE
+ * KERNEL: `grep -rn radial engine-java/src/api/` returns no hit, and
+ * ComponentFactory's innertube case sets motorMount, motorOverhang and the
+ * cluster keys only, so the kernel InnerTube keeps its constructor
+ * radialPosition of 0. A .ork whose split cluster is four tubes at 30 mm off
+ * the axis therefore DRAWS off-axis and FLIES on the centreline: roll inertia
+ * is short by Σmr² (4 × 60 g at 30 mm ≈ 2.2e-4 kg·m² of I_xx), and a single
+ * off-axis tube has the wrong lateral CG outright. Closing it is a kernel
+ * change — `setRadialPosition`/`setRadialDirection` in ComponentFactory's
+ * innertube and masscomponent cases, plus a rebuild and a differential pass —
+ * so do NOT "clean up" these keys as unused on the strength of the bridge
+ * ignoring them. Recorded in docs/testing/format-audit-2026-09-03.md rows 81
+ * and 115.
  */
 const RADIAL_PLACEMENT: FieldDef[] = [
   lenMM('radialPosition', 'Distance off centerline', 1, 300),
@@ -385,6 +417,12 @@ export const FIELDS: Record<EditorComponentType, FieldDef[]> = {
     lenMM('foreShoulderLength', 'Fore shoulder length', 1, 150),
     radMM('aftShoulderRadius', 'Aft shoulder radius', 0.5, 80),
     lenMM('aftShoulderLength', 'Aft shoulder length', 1, 150),
+    // A capped shoulder is a closed disc of the component's own material, so it
+    // is mass. The nose cone has offered this since the beginning (line 404); a
+    // transition read and saved both flags but had nowhere to set them, and the
+    // kernel bridge dropped them entirely until v0.105.
+    { key: 'foreShoulderCapped', label: 'Fore shoulder end capped', unit: 'none', bool: true },
+    { key: 'aftShoulderCapped', label: 'Aft shoulder end capped', unit: 'none', bool: true },
     FINISH,
     DENSITY,
   ],
@@ -543,7 +581,7 @@ export const FIELDS: Record<EditorComponentType, FieldDef[]> = {
     // Spill hole: modeled as an area reduction — effective Cd scales by
     // 1 − (hole ⌀ / canopy ⌀)², applied at the engine boundary (the kernel
     // Parachute has no hole concept). RockSim SpillHoleDia round-trips.
-    lenMM('spillHoleDiameter', 'Spill hole ⌀ (0 = none)', 0, 500),
+    lenMM('spillHoleDiameter', 'Spill hole ⌀ (0 = none)', 1, 500),
     { key: 'lineCount', label: 'Line count', unit: 'count', smin: 0, smax: 16 },
     lenMM('lineLength', 'Line length', 10, 1000),
     { key: 'deployEvent', label: 'Deploy at', unit: 'none', options: DEPLOY_EVENTS },

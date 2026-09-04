@@ -74,7 +74,16 @@ export function finTemplateSvg(node: ComponentNode, rocketName: string): string 
   const mm = (m: number) => m * 1000;
   const xs = outline.map((p) => mm(p.x));
   const ys = outline.map((p) => mm(p.y));
-  const rootLenM = Math.max(...outline.map((p) => p.x));
+  // ROOT CHORD, and it must be the same number solidMesh's finCutOutline uses
+  // (solidMesh.ts:372, 432) — this is the paper template for the part that path
+  // cuts, and a template that disagrees with the cut file is worse than either.
+  // For a freeform fin that is the LAST point's x, which is the kernel's own
+  // definition (FreeformFinSet.java): a fin may legitimately overhang its own
+  // root, so max-x is the drawn EXTENT, not the chord. It sets the tab station
+  // below, the dashed root line, and the printed "root NN.N mm" caption.
+  const rootLenM = node.type === 'freeformfinset' && outline.length > 0
+    ? Math.max(0, outline[outline.length - 1]!.x)
+    : Math.max(...outline.map((p) => p.x));
   const tab = tabOutline(node, rootLenM);
   const tabDepthMm = tab ? mm(tab.depth) : 0;
 
@@ -88,7 +97,49 @@ export function finTemplateSvg(node: ComponentNode, rocketName: string): string 
   // tab below, then the label block + calibration ruler.
   const M = 15;
   const labelBlock = 34;
-  const w = maxX - minX + 2 * M;
+  const RULER_MM = 50;
+  /** Gap from the ruler's right end to the "50 mm" caption. */
+  const CAPTION_GAP = 2;
+
+  const count = typeof node['finCount'] === 'number' ? (node['finCount'] as number) : 3;
+  const thickness = typeof node['thickness'] === 'number' ? (node['thickness'] as number) * 1000 : null;
+  const cross = typeof node['crossSection'] === 'string' ? (node['crossSection'] as string) : 'square';
+  const name = node.name ?? 'Fin set';
+
+  // The label block is built BEFORE the page is sized, because it is part of
+  // what the page has to be wide enough to hold.
+  const CAPTION = `${RULER_MM} mm`;
+  const labelLines = [
+    `${rocketName} — ${name} (cut ${count})`,
+    `root ${(rootLenM * 1000).toFixed(1)} mm · height ${maxY.toFixed(1)} mm`
+    + `${thickness !== null ? ` · thickness ${thickness.toFixed(1)} mm` : ''}`
+    + ` · ${cross} cross-section${tab ? ` · tab ${tabDepthMm.toFixed(1)} mm deep` : ''}`,
+    `Print at 100% — the ruler below must measure exactly ${RULER_MM} mm.`,
+  ];
+
+  // THE PAGE MUST COVER THE RULER, OR THE RULER LIES.
+  //
+  // The width used to come from the fin geometry alone, and the outermost <svg>
+  // clips to its viewport with no error: a 30 mm root chord gave a 60 mm page,
+  // so the 50 mm calibration ruler (drawn from x=15 to x=65) was cut off at 60
+  // and measured 45 mm on paper, under a line that says it must measure exactly
+  // 50. A builder measuring 45 concludes the printer scaled to 90 %, reprints
+  // at 111 %, and cuts every fin 11 % oversize — on the one artifact whose
+  // entire purpose is dimensional trust in cut material. The caption vanished
+  // below a ~46 mm root chord and the ruler itself below ~35 mm; the dimensions
+  // line is clipped far more often than either (91 characters ≈ 160 mm against
+  // the 110 mm page an 80 mm root chord produces).
+  //
+  // There are no font metrics available to a standalone SVG, so the text width
+  // is an ESTIMATE: 0.55 em of the 3.2 mm label font, a shade above Arial's
+  // ~0.5 em average for the digits, spaces and lowercase these lines are made
+  // of. Erring wide costs paper; erring narrow costs a mis-cut fin set.
+  const GLYPH_MM = 3.2 * 0.55;
+  const labelWidth = Math.max(
+    RULER_MM + CAPTION_GAP + CAPTION.length * GLYPH_MM,
+    ...labelLines.map((l) => l.length * GLYPH_MM),
+  );
+  const w = Math.max(maxX - minX, labelWidth) + 2 * M;
   const h = maxY + tabDepthMm + labelBlock + 2 * M;
   const X = (v: number) => v - minX + M;
   const Y = (v: number) => M + maxY - v; // flip: y up
@@ -96,11 +147,6 @@ export function finTemplateSvg(node: ComponentNode, rocketName: string): string 
   const outlinePath = outline
     .map((p, i) => `${i === 0 ? 'M' : 'L'} ${X(mm(p.x)).toFixed(3)} ${Y(mm(p.y)).toFixed(3)}`)
     .join(' ') + ' Z';
-
-  const count = typeof node['finCount'] === 'number' ? (node['finCount'] as number) : 3;
-  const thickness = typeof node['thickness'] === 'number' ? (node['thickness'] as number) * 1000 : null;
-  const cross = typeof node['crossSection'] === 'string' ? (node['crossSection'] as string) : 'square';
-  const name = node.name ?? 'Fin set';
 
   const lines: string[] = [];
   lines.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${w.toFixed(1)}mm" height="${h.toFixed(1)}mm" viewBox="0 0 ${w.toFixed(1)} ${h.toFixed(1)}">`);
@@ -119,18 +165,18 @@ export function finTemplateSvg(node: ComponentNode, rocketName: string): string 
   // Label block + 50 mm calibration ruler.
   const ty = M + maxY + tabDepthMm + 8;
   lines.push(`<g font-family="sans-serif" font-size="3.2" fill="#333">`);
-  lines.push(`<text x="${M}" y="${ty}">${esc(rocketName)} — ${esc(name)} (cut ${count})</text>`);
-  lines.push(`<text x="${M}" y="${ty + 5}">root ${(rootLenM * 1000).toFixed(1)} mm · height ${maxY.toFixed(1)} mm${thickness !== null ? ` · thickness ${thickness.toFixed(1)} mm` : ''} · ${esc(cross)} cross-section${tab ? ` · tab ${tabDepthMm.toFixed(1)} mm deep` : ''}</text>`);
-  lines.push(`<text x="${M}" y="${ty + 10}">Print at 100% — the ruler below must measure exactly 50 mm.</text>`);
+  labelLines.forEach((l, i) => {
+    lines.push(`<text x="${M}" y="${ty + i * 5}">${esc(l)}</text>`);
+  });
   lines.push('</g>');
   const ry = ty + 14;
   lines.push(`<g stroke="#000" stroke-width="0.2">`);
-  lines.push(`<line x1="${M}" y1="${ry}" x2="${M + 50}" y2="${ry}"/>`);
-  for (let i = 0; i <= 5; i++) {
+  lines.push(`<line x1="${M}" y1="${ry}" x2="${M + RULER_MM}" y2="${ry}"/>`);
+  for (let i = 0; i <= RULER_MM / 10; i++) {   // a tick every 10 mm, the last one AT the end
     lines.push(`<line x1="${M + i * 10}" y1="${ry - (i % 5 === 0 ? 3 : 2)}" x2="${M + i * 10}" y2="${ry}"/>`);
   }
   lines.push('</g>');
-  lines.push(`<text x="${M + 52}" y="${ry}" font-family="sans-serif" font-size="3.2" fill="#333">50 mm</text>`);
+  lines.push(`<text x="${M + RULER_MM + CAPTION_GAP}" y="${ry}" font-family="sans-serif" font-size="3.2" fill="#333">${esc(CAPTION)}</text>`);
   lines.push('</svg>');
   return lines.join('\n');
 }

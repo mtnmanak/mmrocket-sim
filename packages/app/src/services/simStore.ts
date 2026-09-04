@@ -12,16 +12,49 @@ import { siToUi, type Quantity, type UnitSelection } from '../prefs/units.js';
 const KEY = 'online-openrocket.sim-runs.v1';
 const MAX_RUNS = 500;
 
+/**
+ * SimRun fields that are arrays, and that every reader in the app takes
+ * through `?? []` and then `.map` / `.find` / `.join`. `??` does not catch a
+ * value of the wrong SHAPE, so a non-array here throws on the method instead
+ * — inside a click handler, which is how a corrupt store turns an export
+ * button into a silent no-op. Normalised to absent on load: absent is a state
+ * every one of those readers already handles.
+ */
+const ARRAY_FIELDS = ['deployments', 'branches', 'boosterMotors', 'simWarnings'] as const;
+
 export function loadRuns(): SimRun[] {
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return [];
-    const list = JSON.parse(raw) as SimRun[];
-    if (!Array.isArray(list)) return [];
-    // Revive plugged delays (persisted as the string "Infinity" — see persist).
-    // Runs saved before that fix came back as null; treat those as plugged too
-    // when the label says so.
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    /*
+     * ONE BAD ELEMENT COSTS ONE ROW, NOT THE STORE.
+     *
+     * The revive loop below used to dereference every element unguarded, so a
+     * single `null` in the array threw a TypeError, the catch returned [], and
+     * `addRun`'s `[run, ...loadRuns()]` then wrote that one run over the whole
+     * history — up to MAX_RUNS = 500 saved flights, the flight-day comparison
+     * table this feature exists for — silently, with `persistFailed()` still
+     * false and nothing anywhere reporting it. `loadSession` clears a corrupt
+     * payload rather than amplifying it; this is the same rule at row
+     * granularity.
+     *
+     * The bar is IDENTITY, not completeness: a row with no string `id` cannot
+     * be shown, selected, deleted or exported, so it is not a row. Bad VALUES
+     * inside an otherwise real row are left to the readers, which degrade on
+     * their own (`round`, `cv`, `flag`, the Date column below, and simReport's
+     * `formatRunWhen`) — dropping a whole saved flight over one unusable field
+     * would be the same over-reaction this guard replaces, one level down.
+     */
+    const list = parsed.filter((r): r is SimRun =>
+      typeof r === 'object' && r !== null && !Array.isArray(r)
+      && typeof (r as { id?: unknown }).id === 'string');
     for (const r of list) {
+      for (const k of ARRAY_FIELDS) if (k in r && !Array.isArray(r[k])) delete r[k];
+      // Revive plugged delays (persisted as the string "Infinity" — see persist).
+      // Runs saved before that fix came back as null; treat those as plugged too
+      // when the label says so.
       const d = r.delayS as unknown;
       if (d === 'Infinity' || (d === null && /-P\b/.test(r.motor ?? ''))) r.delayS = Infinity;
     }
@@ -128,7 +161,19 @@ function buildColumns(u?: UnitSelection): [string, (r: SimRun) => string | numbe
   ['Delay (s)', (r) => (Number.isFinite(r.delayS) ? r.delayS : 'P')],
   ['Pad Weight (g)', (r) => round(r.launchMass === null ? null : r.launchMass * 1000, 1)],
   ['Recovery Weight (g)', (r) => round(r.burnoutMass == null ? null : r.burnoutMass * 1000, 1)],
-  ['Date', (r) => new Date(r.when).toISOString()],
+  // `toISOString()` throws RangeError on an Invalid Date, and BOTH exports are
+  // built in one pass inside a click handler with no try/catch (SimResults'
+  // downloadCsv/downloadXlsx, BatchSimulate's pair) — so one corrupt `when`
+  // anywhere in the table made both buttons silent no-ops for the WHOLE table,
+  // permanently, until the user pressed "Clear all" and destroyed the history.
+  // `when` is untrusted for exactly the reason simReport's `formatRunWhen`
+  // guards it: run history is JSON-parsed from localStorage, and the identity
+  // filter in `loadRuns` deliberately does not police field values. Both tests
+  // are needed — `1e16` is finite AND an Invalid Date.
+  ['Date', (r) => {
+    const d = new Date(r.when);
+    return Number.isFinite(r.when) && !Number.isNaN(d.getTime()) ? d.toISOString() : '';
+  }],
   ['Rocket', (r) => r.rocket],
   [`Max altitude (${sym('distance', 'm')})`, (r) => cv('distance', r.maxAltitude)],
   [`Max velocity (${sym('velocity', 'm/s')})`, (r) => cv('velocity', r.maxVelocity)],

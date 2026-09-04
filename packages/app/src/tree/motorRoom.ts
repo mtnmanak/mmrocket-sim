@@ -175,7 +175,19 @@ export function estimateMotorRoom(tree: RocketTree, mountId: string): MotorRoom 
     }
   }
 
-  const room = mountAft - limit + Math.max(0, num(mount, 'motorOverhang', 0));
+  // THE OVERHANG IS SIGNED, and clamping it at 0 was an over-report. The motor
+  // seats with its aft face at `mountAft + overhang` (that is what the field
+  // means — schema.ts labels it "Motor overhang (past aft end)" and lets it run
+  // to −50 mm on both mount types), so the room forward of that face is
+  // `mountAft - limit + overhang`. A positive overhang lengthened the estimate
+  // correctly; a NEGATIVE one — a motor recessed so a retainer cap can close
+  // over it, the ordinary min-diameter build — was silently thrown away, so a
+  // mount with `motorOverhang: -0.02` reported 20 mm more room than it has.
+  // That number is what the "Max motor length" ⌾ button writes and what gates
+  // the motor browser, so it offered cases that do not fit the airframe.
+  const room = mountAft - limit + num(mount, 'motorOverhang', 0);
+  // Still the guard that catches the other end: a recess deep enough to close
+  // the gap entirely (or a limit aft of the mount) yields no room at all.
   if (!(room > 0)) return null;
   return {
     lengthM: room,

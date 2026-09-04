@@ -351,8 +351,19 @@ export interface BandAdvice {
   band: Band;
   /** Diameter (m) that hits `band.target` at `cd`. THE size line. */
   diameter: number;
-  /** The Cd the size line was computed at — never omitted from the copy. */
+  /**
+   * The Cd the size line was computed at — never omitted from the copy, and
+   * VENT-CORRECTED: it is `cdNominal * ventFactor`, so the diameter beside it
+   * is reproducible from it by hand.
+   */
   cd: number;
+  /** The rated Cd before the vent — what the chute's own field says. */
+  cdNominal: number;
+  /**
+   * 1 − (d/D)² of the chute the Cd came from; 1 when it has no spill hole.
+   * The UI needs it to say WHICH convention the size line quoted.
+   */
+  ventFactor: number;
   /** Where that Cd came from, so the UI can say whose number it is. */
   cdSource: 'this device' | 'the design’s other chute' | 'default';
   /** Mass the size line was computed against (kg). */
@@ -435,6 +446,32 @@ function num(n: ComponentNode | null, key: string): number | null {
 }
 
 /**
+ * The vent factor 1 − (d/D)² of a chute already in the design.
+ *
+ * THE SIZE LINE OWES THE SPILL HOLE THE SAME DEBT `canopyCdA` DOES. The Cd on
+ * a chute that came from the catalogue is the maker's, referenced to the canopy
+ * area MINUS the vent (`presets.ts` writes `cd` and `spillHoleDiameter`
+ * together for exactly that reason), so feeding it to `diameterForRate` — which
+ * has no vent term — quotes a diameter against the full nominal disc. On the
+ * owner's 8.786 kg at sea level with Cd 2.2 and the 18 ft/s main target that
+ * printed "about 64.75 in"; a canopy built to it with the same 17.6–20 % vent
+ * the Cd was measured against lands at 18.29–18.37 ft/s, and the diameter that
+ * really hits 18 is 65.8–66.1 in. The number a user sews fabric to was 1.0–1.3 in
+ * small, and the candidate list directly beneath it — which DOES apply the vent —
+ * was on a different convention from the headline.
+ *
+ * Mirrors `treeModel.ts:engineTree` branch for branch, INCLUDING its
+ * `min(hole, 0.95 D)` clamp and its `D > 0` divide guard, so the size line, the
+ * candidate rates and the flight are one convention rather than three.
+ */
+function ventFactor(n: ComponentNode | null): number {
+  const D = num(n, 'diameter');
+  const dh = num(n, 'spillHoleDiameter');
+  if (D === null || !(D > 0) || dh === null || !(dh > 0)) return 1;
+  return 1 - (Math.min(dh, D * 0.95) / D) ** 2;
+}
+
+/**
  * Build one band's advice.
  *
  * THE SUBSTITUTION (requirement B, and the subtle half of this feature). The
@@ -478,13 +515,23 @@ function bandAdvice(
   // Quoted at the Cd of the chute in THIS slot when there is one (it is the
   // number they are already flying); failing that the design's other chute,
   // which is still their own fabric; failing that the kernel's 0.8. A diameter
-  // with no Cd beside it is not an answer, so the source travels with it.
+  // with no Cd beside it is not an answer, so the source travels with it — and
+  // so does that chute's SPILL HOLE, folded into the quoted Cd (see
+  // `ventFactor`), because the rated figure is referenced to the vented area.
   const own = num(device, 'cd');
   const other = num(otherDevice, 'cd');
-  const cd = own ?? other ?? DEFAULT_CANOPY_CD;
+  const cdNominal = own ?? other ?? DEFAULT_CANOPY_CD;
   const cdSource: BandAdvice['cdSource'] = own !== null ? 'this device'
     : other !== null ? 'the design’s other chute'
       : 'default';
+  // The vent travels with the Cd it was measured against — from the SAME chute,
+  // never a mix of one canopy's coefficient and another's hole. The
+  // DEFAULT_CANOPY_CD fallback is deliberately left at 1: the kernel's 0.8 is
+  // not a manufacturer's figure and implies no vent.
+  const vent = own !== null ? ventFactor(device)
+    : other !== null ? ventFactor(otherDevice)
+      : 1;
+  const cd = cdNominal * vent;
   // The size line uses the recovery weight AS THE DESIGN STANDS. A canopy that
   // has not been chosen has no mass to substitute, so there is nothing honest
   // to swap; the candidate list below is where the substitution belongs.
@@ -581,7 +628,7 @@ function bandAdvice(
   }));
 
   return {
-    role, band, diameter, cd, cdSource, massKg,
+    role, band, diameter, cd, cdNominal, ventFactor: vent, cdSource, massKg,
     candidates, inBand, excludedForFit, mergedVariants,
   };
 }

@@ -298,3 +298,90 @@ describe('flushSession closes the debounce window on the way out', () => {
     expect(loadSession()?.tree.name).toBe('Flushed');
   });
 });
+
+describe('the design outranks a re-downloadable cache at quota (critic-3)', () => {
+  const KEY = 'online-openrocket.session.v1';
+  const CACHE = 'tc:samples:v3:';
+
+  /**
+   * A store that refuses writes while the disposable cache is present — the
+   * shape of the real failure. thrustcurve.ts writes one `tc:samples:v3:<id>`
+   * entry per downloaded curve with no count cap, no size cap and no
+   * clear-cache path anywhere in the UI, so a flight day spent browsing motors
+   * filled the origin and every debounced autosave after that was refused.
+   * `alwaysFull` is the case where freeing the cache is not enough.
+   */
+  function stubStore(opts: { cacheEntries: number; alwaysFull?: boolean }) {
+    const map = new Map<string, string>();
+    for (let i = 0; i < opts.cacheEntries; i++) map.set(`${CACHE}m${i}`, '[1,2,3]');
+    map.set('tc:samples:v4:future', '[4,5]'); // a later cache version must sweep too
+    map.set('online-openrocket.prefs.v1', '{}');
+    const full = () => opts.alwaysFull === true
+      || [...map.keys()].some((k) => k.startsWith('tc:'));
+    vi.stubGlobal('localStorage', {
+      get length() { return map.size; },
+      key: (i: number) => [...map.keys()][i] ?? null,
+      getItem: (k: string) => map.get(k) ?? null,
+      setItem: (k: string, v: string) => {
+        if (full()) throw new DOMException('quota', 'QuotaExceededError');
+        map.set(k, v);
+      },
+      removeItem: (k: string) => { map.delete(k); },
+    });
+    return map;
+  }
+
+  it('spends the thrust-curve cache and retries — the unsaved design survives', () => {
+    const map = stubStore({ cacheEntries: 200 });
+    const seen: boolean[] = [];
+    const off = onSessionSaveStateChange((f) => seen.push(f));
+    saveNow();
+    expect(map.has(KEY)).toBe(true);        // it landed on the retry
+    expect(sessionSaveFailing()).toBe(false);
+    expect(seen).toEqual([]);               // never even reported failing
+    // Only re-downloadable data was given up — including a future cache
+    // version, because the sweep matches the family prefix, not `v3`.
+    expect([...map.keys()].filter((k) => k.startsWith('tc:'))).toEqual([]);
+    expect(map.has('online-openrocket.prefs.v1')).toBe(true);
+    off();
+  });
+
+  it('the sweep is self-limiting: a second refused save frees nothing more', () => {
+    const map = stubStore({ cacheEntries: 3, alwaysFull: true });
+    saveNow();
+    expect(sessionSaveFailing()).toBe(true);          // freeing was not enough
+    expect([...map.keys()].filter((k) => k.startsWith('tc:'))).toEqual([]);
+    const before = [...map.keys()].sort();
+    for (let i = 0; i < 4; i++) saveNow();            // ~2.5 refusals/s while editing
+    expect([...map.keys()].sort()).toEqual(before);   // nothing else is ever spent
+  });
+
+  it('with nothing disposable to give, it fails honestly and signals ONE edge', () => {
+    const map = stubStore({ cacheEntries: 0, alwaysFull: true });
+    map.delete('tc:samples:v4:future');
+    const seen: boolean[] = [];
+    const off = onSessionSaveStateChange((f) => seen.push(f));
+    for (let i = 0; i < 5; i++) saveNow();
+    expect(sessionSaveFailing()).toBe(true);
+    expect(seen).toEqual([true]);                       // the edge, not the level
+    expect(map.has('online-openrocket.prefs.v1')).toBe(true);
+    off();
+  });
+
+  it('leaves the cache alone when the write succeeds', () => {
+    const map = stubStore({ cacheEntries: 5 });
+    // Not full: the sweep must be a quota response, not a routine cost.
+    map.clear();
+    map.set(`${CACHE}m0`, '[1]');
+    vi.stubGlobal('localStorage', {
+      get length() { return map.size; },
+      key: (i: number) => [...map.keys()][i] ?? null,
+      getItem: (k: string) => map.get(k) ?? null,
+      setItem: (k: string, v: string) => { map.set(k, v); },
+      removeItem: (k: string) => { map.delete(k); },
+    });
+    saveNow();
+    expect(map.has(`${CACHE}m0`)).toBe(true);
+    expect(sessionSaveFailing()).toBe(false);
+  });
+});

@@ -217,14 +217,75 @@ function setSaveFailing(failing: boolean): void {
  */
 let pending: Omit<SessionState, 'savedAt'> | null = null;
 
+/**
+ * Key prefixes holding data the app can rebuild for free, in the order they may
+ * be sacrificed to keep the user's design.
+ *
+ * Today that is exactly one family: `tc:samples:v3:<motorId>`, one entry per
+ * downloaded thrust curve. Matched on the FAMILY prefix `tc:` rather than the
+ * versioned one so a bump to `tc:samples:v4:` is still swept without this file
+ * knowing the cache's version — and so this file never has to import from
+ * thrustcurve.ts, which owns the cache and its own eviction policy.
+ *
+ * Nothing else on the origin qualifies. The other ten keys (prefs, session,
+ * sim-runs, custom presets, external motors, motor filters, workspace, batch
+ * criteria, tour flag, nav cache) are all `online-openrocket.*` or
+ * `mmr-chrome:v1`, and every one of them is the only copy of something.
+ */
+const DISPOSABLE_KEY_PREFIXES = ['tc:'] as const;
+
+/**
+ * Free re-downloadable cache. Returns how many keys went, so the caller can
+ * tell "there was room to make" from "there was nothing left to give".
+ */
+function evictDisposableCache(): number {
+  let removed = 0;
+  try {
+    const doomed: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k !== null && DISPOSABLE_KEY_PREFIXES.some((p) => k.startsWith(p))) doomed.push(k);
+    }
+    // Collect first, remove after: removeItem re-indexes the store, so removing
+    // inside the walk skips every second match.
+    for (const k of doomed) { localStorage.removeItem(k); removed++; }
+  } catch {
+    // Storage refusing reads or removes outright (blocked site data) is not a
+    // quota case. Whatever went before it refused still counts: a partial sweep
+    // can have made room, and one retry is cheap.
+  }
+  return removed;
+}
+
 function writeNow(): void {
   if (pending === null) return;
   try {
     // Plugged motors carry ejectionDelay = Infinity; JSON.stringify would
     // silently turn that into null, so round-trip it as a string.
-    localStorage.setItem(KEY, JSON.stringify(
-      { ...pending, appVersion: APP_VERSION, savedAt: Date.now() }, (_k, v) =>
-      typeof v === 'number' && v === Infinity ? 'Infinity' : v));
+    const payload = JSON.stringify(
+      { appVersion: APP_VERSION, ...pending, savedAt: Date.now() }, (_k, v) =>
+      typeof v === 'number' && v === Infinity ? 'Infinity' : v);
+    try {
+      localStorage.setItem(KEY, payload);
+    } catch (quota) {
+      /*
+       * THE DESIGN OUTRANKS THE CACHE. This autosave is the only copy of the
+       * user's unsaved work; the thrust-curve samples above are one fetch away
+       * from being restored. Before this, a user who had browsed a few hundred
+       * motors across sessions filled the origin, every debounced save from
+       * that point on was refused, and the app's entire remedy was a banner
+       * saying so — nothing anywhere could free the space, and the next reload
+       * restored the last design that fit.
+       *
+       * Deliberately ONE retry, and only when the sweep actually freed
+       * something: with nothing left to give up, `evictDisposableCache()`
+       * returns 0 on every subsequent debounce (~2.5/s while editing) and the
+       * original error is re-thrown immediately, so a genuinely full origin
+       * costs one enumeration, not a retry loop.
+       */
+      if (evictDisposableCache() === 0) throw quota;
+      localStorage.setItem(KEY, payload);
+    }
     setSaveFailing(false);
   } catch {
     // Quota/serialization failures must never break editing — but "your

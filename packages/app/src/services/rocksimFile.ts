@@ -1,4 +1,4 @@
-import { strFromU8, unzipSync } from 'fflate';
+import { strFromU8 } from 'fflate';
 import type { ComponentNode, ComponentPosition, RocketTree } from '@online-openrocket/engine';
 import { asStageNodes, freshId, mountsIn } from '../tree/treeModel.js';
 import { mountBore } from '../tree/scaleRocket.js';
@@ -6,6 +6,7 @@ import { CLUSTER_POINTS, clusterOffsets } from '../tree/cluster.js';
 import { resolveAssemblyRadius } from '../tree/assembly.js';
 import { axialLength, startFromPosition } from '../tree/position.js';
 import { escapeXml as esc, xmlNum as num, xmlText as text } from './xmlUtil.js';
+import { unzipMember } from './zipMember.js';
 import { shapeParamDefault } from './orkFile.js';
 import type { OrkExportMotor, OrkMotorRef, OrkTreeImportResult } from './orkFile.js';
 import { applyPresetLinks, type PendingPresetLink, type Preset } from './presets.js';
@@ -135,8 +136,16 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
     xml = data;
   } else {
     const bytes = new Uint8Array(data);
+    // A zipped .rkt: take the .rkt MEMBER, bounded, the way the .ork importer
+    // does. `Object.values(unzipSync(bytes))[0]!` took whatever sorted first in
+    // the central directory and inflated every entry to get there — so a .rkt
+    // zipped on macOS, where `__MACOSX/._design.rkt` rides alongside, decoded
+    // an AppleDouble resource fork as XML and told the user their perfectly
+    // good file was a parse error; and an archive with NO entries made that
+    // non-null assertion hand `undefined` to strFromU8, surfacing as "Cannot
+    // read properties of undefined". See zipMember.ts for the size cap.
     xml = bytes[0] === 0x50 && bytes[1] === 0x4b
-      ? strFromU8(Object.values(unzipSync(bytes))[0]!)
+      ? strFromU8(unzipMember(bytes, '.rkt', '.rkt'))
       : strFromU8(bytes);
   }
   // Old RockSim (pre-9) wrote a BINARY design format, signature "[[RS001024RS]]"
@@ -577,7 +586,10 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
             + 'planform) — OpenRocket only allows freeform fins on a transition.';
           if (!notes.includes(note)) notes.push(note);
         } else {
-          n['points'] = parsePointList(text(el, ':scope > PointList') ?? '');
+          // Fewer than three points is not a polygon: it reaches buildPieces and the
+          // kernel as a fin with no area. orkFile.ts:533 already guards this.
+          const rktPts = parsePointList(text(el, ':scope > PointList') ?? '');
+          if (rktPts.length >= 3) n['points'] = rktPts;
         }
         const tabLen = num(el, 'TabLength', 0);
         const tabDepth = num(el, 'TabDepth', 0);
@@ -693,45 +705,59 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
         if (isCord) {
           n['cordLength'] = num(el, 'Len', 300) / LEN;
           readRecoveryMaterial(el, n, 'line');
-        } else {
-          n['mass'] = num(el, 'KnownMass', 0) / MASS;
-          // RockSim's <Len> on a mass object is NOT geometry. RockSim treats a
-          // mass object as a POINT at <Xb> and does not show a length in its own
-          // UI — desktop says so at MassObjectHandler.java:29-39 — and all 28
-          // TypeCode-0 objects across our 14-file corpus write <KnownCG> == <Xb>,
-          // i.e. the point, whatever <Len> says. Taken at face value it breaks two
-          // things: our kernel puts a MassObject's CG at length/2
-          // (MassObject.java:230-231), and a Len can exceed the whole rocket
-          // (Mach 3.rkt states 7620 mm inside a 1652 mm rocket), which then drives
-          // the Length stat tile and the pitch inertia ((3r^2+L^2)/12).
-          // Keep the raw value for export fidelity; simulate a body that fits
-          // inside its parent; pin the CG on the point.
-          const rawLen = num(el, 'Len', 20) / LEN;
-          n['rocksimLen'] = rawLen;
-          const parentLen = typeof parent?.['length'] === 'number' ? (parent['length'] as number) : 0;
-          n['length'] = parentLen > 0 ? Math.min(rawLen, parentLen) : rawLen;
-        }
-        // Its KnownMass became the component's real mass either way, so no MASS
-        // override survived here and nothing diverged from desktop.
-        delete n['overrideMass'];
-        if (isCord) {
-          // Shock cords keep today's behaviour: the kernel's 0.025 m default packed
-          // length puts their CG at most 12.5 mm off, and changing it drags in the
-          // cord-mass question (format audit row 19) that is not this fix.
+          // Shock cords keep today's behaviour on the CG: the kernel's 0.025 m
+          // default packed length puts theirs at most 12.5 mm off, and changing
+          // it drags in the cord-mass question (format audit row 19) that is not
+          // this fix.
           delete n['overrideCGX'];
-        } else {
-          // overrideCGX is measured from the component's FORE end
-          // (MassCalculation.java:444-445). LocationMode 0/1 map to TOP/ABSOLUTE,
-          // whose fore end sits on the point, so the pin is 0 — which is exactly
-          // what desktop does (MassObjectHandler.java:107). LocationMode 2 maps to
-          // BOTTOM, which anchors the AFT end on the point, so the pin is the
-          // component's own length. Desktop pins 0 there too and lands a full
-          // length forward of the file's own <Station>; we deliberately do not
-          // copy that. Measured on Mach 3.rkt, this reproduces all four of its
-          // <Station> values (225.425 / 422.275 / 665.48 / 814.705 mm) to 0.01 mm.
-          n['overrideCGX'] = n.position?.method === 'bottom' ? (n['length'] as number) : 0;
-          pinnedMassObjects += 1;
+          // THE WEIGHED MASS STAYS. The `delete n['overrideMass']` below used to
+          // run for BOTH branches, under a comment claiming the file's
+          // <KnownMass> had become the component's real mass — true only of the
+          // non-cord branch, which assigns n['mass'] from it. This branch reads
+          // no KnownMass at all: it takes a LINE DENSITY, and
+          // readRecoveryMaterial returns with NONE when <Density> is 0, or when a
+          // DensityType-0 cord states no <Thickness>. So a cord the builder
+          // weighed (<UseKnownCG>1</UseKnownCG><KnownMass>25</KnownMass> beside
+          // <Density>0</Density>) imported with its 25 g thrown away and nothing
+          // in its place — it flew at the kernel's default line density, a real
+          // CG shift in the recovery bay of a small model, and the unconditional
+          // keptWithoutCGFlag.delete() below meant it was not even named in the
+          // "kept without the CG flag" note. A node that no longer carries any
+          // kept value still leaves that set.
+          if (typeof n['overrideMass'] !== 'number') keptWithoutCGFlag.delete(n);
+          return n;
         }
+        n['mass'] = num(el, 'KnownMass', 0) / MASS;
+        // RockSim's <Len> on a mass object is NOT geometry. RockSim treats a
+        // mass object as a POINT at <Xb> and does not show a length in its own
+        // UI — desktop says so at MassObjectHandler.java:29-39 — and all 28
+        // TypeCode-0 objects across our 14-file corpus write <KnownCG> == <Xb>,
+        // i.e. the point, whatever <Len> says. Taken at face value it breaks two
+        // things: our kernel puts a MassObject's CG at length/2
+        // (MassObject.java:230-231), and a Len can exceed the whole rocket
+        // (Mach 3.rkt states 7620 mm inside a 1652 mm rocket), which then drives
+        // the Length stat tile and the pitch inertia ((3r^2+L^2)/12).
+        // Keep the raw value for export fidelity; simulate a body that fits
+        // inside its parent; pin the CG on the point.
+        const rawLen = num(el, 'Len', 20) / LEN;
+        n['rocksimLen'] = rawLen;
+        const parentLen = typeof parent?.['length'] === 'number' ? (parent['length'] as number) : 0;
+        n['length'] = parentLen > 0 ? Math.min(rawLen, parentLen) : rawLen;
+        // Its KnownMass became this component's real mass one line above, so the
+        // override readCommon set from the SAME element is a duplicate and would
+        // count the mass twice. Nothing diverges from desktop here.
+        delete n['overrideMass'];
+        // overrideCGX is measured from the component's FORE end
+        // (MassCalculation.java:444-445). LocationMode 0/1 map to TOP/ABSOLUTE,
+        // whose fore end sits on the point, so the pin is 0 — which is exactly
+        // what desktop does (MassObjectHandler.java:107). LocationMode 2 maps to
+        // BOTTOM, which anchors the AFT end on the point, so the pin is the
+        // component's own length. Desktop pins 0 there too and lands a full
+        // length forward of the file's own <Station>; we deliberately do not
+        // copy that. Measured on Mach 3.rkt, this reproduces all four of its
+        // <Station> values (225.425 / 422.275 / 665.48 / 814.705 mm) to 0.01 mm.
+        n['overrideCGX'] = n.position?.method === 'bottom' ? (n['length'] as number) : 0;
+        pinnedMassObjects += 1;
         keptWithoutCGFlag.delete(n);
         return n;
       }

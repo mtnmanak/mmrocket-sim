@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
 import { exToDbEntry, impulseClassOf, parseEng, parseRse } from './exMotors.js';
+import { delayOptions } from './thrustcurve.js';
 
 const ENG = `; AeroTech K550W
 ; converted from TMT test stand data
@@ -139,5 +140,39 @@ describe('.rse files with missing mass data', () => {
       '<eng-data t="0" f="0"/><eng-data t="1" f="0"/>',
     );
     expect(() => parseRse(xml)).toThrow(/initial mass/i);
+  });
+});
+
+describe('plugged (-P) .eng motors', () => {
+  // The normal header shape for a high-power EX motor: no ejection charge at
+  // all. RASP writes 'P' in the delay field.
+  const ENG_PLUGGED = `; plugged experimental motor
+MyEX-K600 54 410 P 0.900 1.650 EX
+  0.05 620.0
+  1.50 640.0
+  1.55 0.0
+`;
+
+  it('keeps the plugged marker instead of emptying the delay field', () => {
+    const [m] = parseEng(ENG_PLUGGED);
+    expect(m!.delays).toBe('P');
+  });
+
+  it('offers plugged — not a bogus 0 s delay — through the motor browser', () => {
+    // The failure this pins: an emptied delay string made exToDbEntry emit
+    // `delays: undefined`, delayOptions returned [0], and the kernel fired an
+    // ejection charge at burnout on a motor that has none.
+    const [m] = parseEng(ENG_PLUGGED);
+    const entry = exToDbEntry(m!);
+    expect(entry.delays).toBe('P');
+    expect(delayOptions(entry)).toEqual([Infinity]);
+    expect(delayOptions(entry)).not.toContain(0);
+  });
+
+  it('still lists the prescribed delays when a motor offers both', () => {
+    const engMixed = ENG_PLUGGED.replace(' P 0.900', ' 5-10-P 0.900');
+    const [m] = parseEng(engMixed);
+    expect(m!.delays).toBe('5,10,P');
+    expect(delayOptions(exToDbEntry(m!))).toEqual([5, 10, Infinity]);
   });
 });

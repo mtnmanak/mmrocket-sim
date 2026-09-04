@@ -137,6 +137,14 @@ final class ComponentFactory {
                 if (!Double.isNaN(aShL)) {
                     t.setAftShoulderLength(aShL);
                 }
+                // A CAPPED shoulder is closed off by a disc of the component's
+                // own material, so it is mass, not just geometry. The nose-cone
+                // branch above has always called this (line ~86); the transition
+                // branch did not, so both flags round-tripped through the file
+                // and were then dropped on the way to the kernel. Absent keeps
+                // the kernel default (false), so nothing already built moves.
+                t.setForeShoulderCapped(bool(node, "foreShoulderCapped", false));
+                t.setAftShoulderCapped(bool(node, "aftShoulderCapped", false));
                 c = t;
                 break;
             }
@@ -243,6 +251,14 @@ final class ComponentFactory {
                 // safe pre-attach.
                 tube.setMotorMount(bool(node, "motorMount", false));
                 tube.setMotorOverhang(dbl(node, "motorOverhang", 0));
+                // Radial placement off the centreline. The 2D aft view, the 3D
+                // view and both file writers have carried these two since
+                // v0.087, but the bridge never set them - so a mount deliberately
+                // offset in the drawing flew on the axis, and its mass and
+                // inertia were computed there. The 0 default is the kernel's own,
+                // so a design that never set them is bit-identical.
+                tube.setRadialPosition(dbl(node, "radialPosition", 0));
+                tube.setRadialDirection(dbl(node, "radialDirection", 0));
                 // Cluster: pattern by its .ork XML name ("3-ring", "double"…).
                 // One motor definition serves the whole cluster — the kernel
                 // multiplies thrust by tube count and places mass/inertia at
@@ -461,6 +477,12 @@ final class ComponentFactory {
                 m.setComponentMass(dbl(node, "mass", 0.01));
                 m.setLength(dbl(node, "length", 0.02));
                 m.setRadius(dbl(node, "radius", 0.005));
+                // Same fact as the inner tube above: MassObject carries a radial
+                // offset and direction, the file and the drawings keep them, and
+                // the bridge dropped them - so a nose weight taped to one side
+                // was flown on the axis. 0 is the kernel's own default.
+                m.setRadialPosition(dbl(node, "radialPosition", 0));
+                m.setRadialDirection(dbl(node, "radialDirection", 0));
                 c = m;
                 break;
             }

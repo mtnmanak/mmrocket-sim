@@ -72,6 +72,19 @@ export function shroudToFairing(n: ComponentNode): ComponentNode {
     fairingAftShape: 'halfround',
     conformal: true,
     mass,
+    // THE CLOCKING SURVIVES THE CONVERSION. A fin set stores its angle about
+    // the body axis as `rotation` (the kernel's baseRotation — rocksimFile.ts
+    // writes it from RockSim's <RadialAngle>, orkFile.ts from .ork <rotation>),
+    // and every surface-mounted part stores the same angle as `angleOffset`
+    // (schema.ts MOUNT_ANGLE). Both are radians about the body axis with the
+    // same zero, so this is a rename, not a conversion. Without it a shroud a
+    // builder had deliberately clocked to, say, 60° — between the fins, which
+    // is where a camera goes — was relocated to 0°, which schema.ts's MOUNT_ANGLE
+    // note calls out as precisely where an unrotated fin set puts fin 1: all
+    // three views redrew the camera on the fin line, mountAngle's rail and wake
+    // warnings started or stopped firing on a part nobody had moved, and the
+    // next save persisted the 0.
+    angleOffset: num(n, 'rotation', 0),
     position: n.position ?? { method: 'middle', offset: 0 },
   } as ComponentNode;
   if (typeof n['finish'] === 'string') out['finish'] = n['finish'];

@@ -5,6 +5,15 @@
     "moduleResolution": "bundler",
     "strict": true,
     "noUncheckedIndexedAccess": true,
+    // Dead declarations are how a refactor leaves a second, stale copy of live logic
+    // behind — App.tsx once carried a 14-line duplicate of the .ork flight-data writer
+    // that nothing called, and a fix applied to the wrong copy is invisible. Nothing
+    // else in the toolchain reported unused declarations before these were turned on:
+    // vitest transpiles without checking, and the ESLint config added alongside them
+    // only reaches files tsc does not (the .mjs build scripts). Params deliberately
+    // left unused are exempted the way the source already does it — prefix with `_`.
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
     "forceConsistentCasingInFileNames": true,
     "esModuleInterop": true,
     "skipLibCheck": true,

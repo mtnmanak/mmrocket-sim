@@ -22,7 +22,7 @@ export interface ExMotor {
   length: number;
   totalWeightG: number;
   propWeightG: number;
-  /** "0,3,5" | "" */
+  /** "0,3,5" | "P" (plugged — no ejection charge) | "5,10,P" | "" */
   delays: string;
   samples: { time: number; thrust: number }[];
   /** Optional per-sample motor mass (kg) — .rse files carry it. */
@@ -129,7 +129,19 @@ export function parseEng(text: string): ExMotor[] {
       length: Number(lenMm),
       totalWeightG: Number(totKg) * 1000,
       propWeightG: Number(propKg) * 1000,
-      delays: delays === 'P' ? '' : (delays ?? '').split('-').filter((s) => s !== '').join(','),
+      // 'P' in the RASP delay field means PLUGGED — no ejection charge at all
+      // — and it must survive into the delays string. Emptying it here (what
+      // this line used to do) made exToDbEntry emit `delays: undefined`, and
+      // thrustcurve's delayOptions opens with `if (!motor.delays) return [0]`:
+      // a plugged EX motor offered exactly one option, 0 s, MotorBrowser
+      // defaulted to it, and the kernel fired an ejection charge at burnout on
+      // a motor that has none — a deployment at peak velocity on a flight the
+      // real motor cannot produce. delayOptions already maps 'P'/'PLUGGED' to
+      // Infinity (the app's plugged representation, round-tripped through
+      // simStore as the string "Infinity"), so passing the token straight
+      // through is the whole fix. A mixed field ('5-10-P') always worked; only
+      // the pure-'P' case — the normal one for high-power EX motors — did not.
+      delays: (delays ?? '').split('-').filter((s) => s !== '').join(','),
       samples,
       source: 'eng',
       addedAt: Date.now(),

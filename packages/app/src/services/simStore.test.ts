@@ -1,6 +1,8 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { addRun, addRuns, clearRuns, deleteRun, loadRuns, persistFailed } from './simStore.js';
+import {
+  addRun, addRuns, clearRuns, deleteRun, loadRuns, persistFailed, runsToCsv, runsToTable,
+} from './simStore.js';
 import type { SimRun } from './simReport.js';
 
 /**
@@ -105,5 +107,101 @@ describe('persist under quota — the table must not lie', () => {
     const out = clearRuns();
     expect(out.map((r) => r.id)).toEqual(['a']);
     expect(persistFailed()).toBe(true);
+  });
+});
+
+const KEY = 'online-openrocket.sim-runs.v1';
+
+describe('a corrupt history costs ONE row, not the store (net-storage-6)', () => {
+  it('keeps every usable run and drops only the elements that are not runs', () => {
+    localStorage.setItem(KEY, JSON.stringify([
+      mkRun('good'),
+      null,
+      {},                      // no id — cannot be shown, selected or deleted
+      'not a run',
+      [1, 2],
+      { id: 42, when: 1 },     // an id, but not a string one
+      mkRun('alsoGood'),
+    ]));
+    expect(loadRuns().map((r) => r.id)).toEqual(['good', 'alsoGood']);
+  });
+
+  it('THE DATA LOSS: the next saved flight no longer overwrites the whole history', () => {
+    // Before the fix the unguarded revive loop threw a TypeError on the null,
+    // the catch returned [], and addRun's `[run, ...loadRuns()]` persisted just
+    // the fresh run over everything — silently, with persistFailed() false.
+    localStorage.setItem(KEY, JSON.stringify([mkRun('a'), null, mkRun('b')]));
+    expect(addRun(mkRun('fresh')).map((r) => r.id)).toEqual(['fresh', 'a', 'b']);
+    expect(loadRuns().map((r) => r.id)).toEqual(['fresh', 'a', 'b']);
+    expect(persistFailed()).toBe(false);
+  });
+
+  it('a row with unusable FIELD values is kept — dropping it would be the same over-reaction', () => {
+    const bent = { ...mkRun('bent'), when: 'yesterday', maxAltitude: 'high' };
+    localStorage.setItem(KEY, JSON.stringify([bent, mkRun('ok')]));
+    expect(loadRuns().map((r) => r.id)).toEqual(['bent', 'ok']);
+  });
+
+  it('normalises an array-typed field whose shape is wrong', () => {
+    // `?? []` does not catch a value of the wrong SHAPE: a string survives it
+    // and throws on .map/.find/.join instead, inside a click handler.
+    localStorage.setItem(KEY, JSON.stringify([{
+      ...mkRun('x'), deployments: 'nope', boosterMotors: 7, simWarnings: {}, branches: 'no',
+    }]));
+    const r = loadRuns()[0]!;
+    expect(r.deployments).toBeUndefined();
+    expect(r.boosterMotors).toBeUndefined();
+    expect(r.simWarnings).toBeUndefined();
+    expect(r.branches).toBeUndefined();
+    expect(() => runsToCsv(loadRuns())).not.toThrow();
+  });
+
+  it('still revives plugged delays on the rows it keeps', () => {
+    localStorage.setItem(KEY, JSON.stringify([null, { ...mkRun('p'), delayS: 'Infinity' }]));
+    expect(loadRuns()[0]!.delayS).toBe(Infinity);
+  });
+
+  it('a payload that is not an array at all is still nothing', () => {
+    localStorage.setItem(KEY, JSON.stringify({ id: 'a' }));
+    expect(loadRuns()).toEqual([]);
+    localStorage.setItem(KEY, 'not json');
+    expect(loadRuns()).toEqual([]);
+  });
+});
+
+describe('one corrupt timestamp must not kill BOTH exports (net-storage-4)', () => {
+  const dateCell = (r: SimRun): string | number => {
+    const { headers, rows } = runsToTable([r]);
+    return rows[0]![headers.indexOf('Date')]!;
+  };
+
+  it('a good run still exports its ISO date', () => {
+    expect(dateCell(mkRun('a'))).toBe(new Date(1755000000000).toISOString());
+  });
+
+  // toISOString() throws RangeError on an Invalid Date, and neither export
+  // handler has a try/catch — so one bad row made both buttons silent no-ops
+  // for the whole table until the user pressed "Clear all".
+  const bad: [string, unknown][] = [
+    ['absent', undefined],
+    ['a string', 'yesterday'],
+    ['finite but past the Date range', 1e16], // Number.isFinite alone lets this through
+    ['NaN', NaN],
+    ['null', null],
+  ];
+  for (const [label, when] of bad) {
+    it(`degrades to an empty cell, and still exports, when \`when\` is ${label}`, () => {
+      const r = { ...mkRun('bad'), when } as unknown as SimRun;
+      expect(dateCell(r)).toBe('');
+      expect(() => runsToCsv([r])).not.toThrow();
+      expect(() => runsToTable([r])).not.toThrow();
+    });
+  }
+
+  it('one bad row does not cost the good rows their export', () => {
+    const rows = [mkRun('a'), { ...mkRun('b'), when: 'nope' } as unknown as SimRun, mkRun('c')];
+    const csv = runsToCsv(rows);
+    expect(csv.split('\n')).toHaveLength(4); // header + three rows
+    expect(csv).toContain(new Date(1755000000000).toISOString());
   });
 });

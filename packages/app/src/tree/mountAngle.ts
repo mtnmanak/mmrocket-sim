@@ -204,7 +204,34 @@ const nameOf = (n: ComponentNode, fallback: string): string =>
  */
 export function railInterferenceWarnings(tree: RocketTree): string[] {
   const out: string[] = [];
-  const SURFACE = new Set(['launchlug', 'fairing', 'protuberance']);
+  // ASSEMBLIES BELONG HERE, and they are the biggest things on the list. A pod
+  // set or a parallel booster hangs off the airframe at its own `angleOffset`
+  // in the PARENT's frame — collectFrame pushes the assembly NODE into
+  // `members` for exactly that reason — but until v0.104 the classifier below
+  // tested railbutton, then isFinSet, then this set, so an assembly matched
+  // none of the three and was dropped. With the app's own defaults that is a
+  // silent miss on the worst case there is: `defaultParams('parallelstage')`
+  // gives instanceCount 2 / angleOffset 0 and `defaultParams('railbutton')`
+  // gives angleOffset π, so the SECOND strap-on sits exactly on the rail line
+  // for the full length of the airframe — a rocket that cannot go on the rail —
+  // while the same function warned about a 4 mm launch lug in the same place.
+  const SURFACE = new Set(['launchlug', 'fairing', 'protuberance', 'podset', 'parallelstage']);
+  // An assembly is INSTANCED around the body the way a fin set is (schema.ts
+  // ASSEMBLY_FIELDS gives it both `angleOffset` and `instanceCount`), so every
+  // instance has to be tested, not just the node's own angle.
+  const INSTANCED = new Set(['podset', 'parallelstage']);
+  // Fallback names, the same courtesy WAKE_SOURCE_NAME does below: an unnamed
+  // part appears in quotes inside the sentence, and `podset` is not a word the
+  // app shows anywhere (DISPLAY_NAME calls it "Pod set"). Kept local rather
+  // than imported from schema.ts so this module stays free of the editor
+  // tables, which is why WAKE_SOURCE_NAME is local too.
+  const SURFACE_NAME: Record<string, string> = {
+    launchlug: 'Launch lug',
+    fairing: 'Camera shroud',
+    protuberance: 'Protuberance',
+    podset: 'Pod set',
+    parallelstage: 'Booster',
+  };
 
   const checkFrame = (roots: ComponentNode[]) => {
     // The SAME frame walker the snap buttons use — see collectFrame.
@@ -224,7 +251,18 @@ export function railInterferenceWarnings(tree: RocketTree): string[] {
           frame.fins.push({ angle: reducePi(rot + (2 * Math.PI * i) / c), owner: nameOf(n, 'Fins') });
         }
       } else if (SURFACE.has(n.type as string)) {
-        frame.others.push({ angle: reducePi(num(n, 'angleOffset', 0)), name: nameOf(n, n.type) });
+        const base = num(n, 'angleOffset', 0);
+        // Default 2 to match defaultParams('podset'/'parallelstage'); a
+        // non-assembly surface part has no instanceCount and takes the 1.
+        const c = INSTANCED.has(n.type as string)
+          ? Math.max(1, Math.round(num(n, 'instanceCount', 2)))
+          : 1;
+        for (let i = 0; i < c; i++) {
+          frame.others.push({
+            angle: reducePi(base + (2 * Math.PI * i) / c),
+            name: nameOf(n, SURFACE_NAME[n.type as string] ?? n.type),
+          });
+        }
       }
     }
 

@@ -109,7 +109,15 @@ export function toPrinterVolume(p: PrinterPrefs | undefined): PrinterVolume | nu
     y: p.y,
     z: p.z,
     margin: p.margin > 0 ? p.margin : DEFAULT_PRINT_MARGIN,
-    clearance: p.clearance >= 0 ? p.clearance : DEFAULT_PRINT_CLEARANCE,
+    // STRICTLY POSITIVE, like every other value here. A user reading the hint
+    // ("drop it toward 0.05 mm only if you glue with thin CA") can type 0
+    // meaning "exact fit"; splitSolid then cuts every spigot at exactly the
+    // socket bore, which goes together on no FDM machine, and printPackReadme
+    // writes assembly instructions for a joint that has no allowance
+    // ("Joint clearance is 0.00 mm per side… Use 30-minute epoxy: it fills that
+    // gap"). The cost is a multi-hour print of parts that will not assemble, so
+    // 0 is treated as unset and takes the 0.15 mm default.
+    clearance: p.clearance > 0 ? p.clearance : DEFAULT_PRINT_CLEARANCE,
     ...(p.spigot !== undefined ? { spigot: p.spigot } : {}),
   };
 }
@@ -129,7 +137,9 @@ export function normalizePrinter(raw: unknown): PrinterPrefs | undefined {
     ...(p as PrinterPrefs),
     preset: typeof p.preset === 'string' ? p.preset : presetMatching(p.x, p.y, p.z),
     margin: ok(p.margin) ? p.margin : DEFAULT_PRINT_MARGIN,
-    clearance: typeof p.clearance === 'number' && p.clearance >= 0
-      ? p.clearance : DEFAULT_PRINT_CLEARANCE,
+    // `ok` — finite AND strictly positive — is the same bar x/y/z/margin clear.
+    // A stored zero is a joint with no allowance (see `toPrinterVolume`), so it
+    // is repaired to the default rather than carried forward.
+    clearance: ok(p.clearance) ? p.clearance : DEFAULT_PRINT_CLEARANCE,
   };
 }

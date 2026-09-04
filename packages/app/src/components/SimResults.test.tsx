@@ -135,15 +135,15 @@ describe('SimRunDetails — the report carries its own provenance (v0.101)', () 
   // This panel is what people screenshot and forward, and it used to show no
   // timestamp at all. Two investigations on 2026-09-03 turned on "is this
   // report stale?" — a question nothing on screen could answer.
-  const whenOf = (r: SimRun) => host.querySelector('.simdet-when')?.textContent ?? '';
+  const whenOf = () => host.querySelector('.simdet-when')?.textContent ?? '';
 
   it('always says when the flight was flown, in prose', () => {
     const r = run();
     render(<SimRunDetails run={r} hasSeries />);
     // "Flown at 4:58 PM" — the preposition belongs to the sentence, and the
     // seconds do not: nobody tells two flights apart by the eleventh second.
-    expect(whenOf(r)).toContain('Flown at ');
-    expect(whenOf(r)).toContain(formatRunWhenProse(r.when).replace(/^at /, ''));
+    expect(whenOf()).toContain('Flown at ');
+    expect(whenOf()).toContain(formatRunWhenProse(r.when).replace(/^at /, ''));
   });
 
   it('says so plainly when the run still matches the design', () => {

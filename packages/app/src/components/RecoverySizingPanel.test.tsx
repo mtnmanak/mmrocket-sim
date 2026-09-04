@@ -180,4 +180,81 @@ describe('RecoverySizingPanel', () => {
     // 7.7 %, rounded to the whole percent the copy quotes.
     expect(text()).toContain('8% faster');
   });
+
+  it('never claims a difference of 0% — a low field just names itself', async () => {
+    // ISA density falls ~1.16 % per 100 m, so siteRateFactor first reaches
+    // 1.005 — the first value that rounds to 1 % — at about 86 m. Every field
+    // below that printed "the thinner air lands it 0% faster than sea level",
+    // a sentence contradicting itself on the one panel whose whole job is to be
+    // trusted for a chute choice.
+    await mount({ launch: { launchAltitudeM: 45.7 } });   // a 150 ft field
+    expect(text()).not.toContain('0% faster');
+    expect(text()).not.toContain('faster than sea level');
+    // The elevation itself stays in the lede: every rate below it was computed
+    // at that site's density, not at sea level's.
+    expect(text().replace(/\s+/g, ' ')).toContain('coming down at 150 ft.');
+  });
+
+  it('says which Cd convention the size line quoted on a vented canopy', async () => {
+    // The headline used to be computed with no vent term while the candidates
+    // under it applied 1 − (d/D)². 2.2 × (1 − 0.176²) = 2.13, and the diameter
+    // moves 65 in → 66 in for this rocket.
+    await mount({
+      tree: tree([{ diameter: 1.0, cd: 2.2, spillHoleDiameter: 0.176, deployEvent: 'altitude' }]),
+    });
+    expect(sizeLine(0).replace(/\s+/g, ' ')).toContain('about 66 in at Cd 2.13');
+    expect(text()).toContain('its rated Cd 2.2 scaled for its spill hole');
+  });
+
+  it('says nothing about a spill hole when the canopy has none', async () => {
+    await mount({ tree: tree([{ diameter: 1.6, cd: 2.2, deployEvent: 'altitude' }]) });
+    expect(sizeLine(0).replace(/\s+/g, ' ')).toContain('at Cd 2.2');
+    expect(text()).not.toContain('scaled for its spill hole');
+  });
+  // --- collapsing (owner, 2026-09-04): the panel moved under the component
+  // properties, and the right-hand column is the long one, so it folds. The
+  // point of the summary is that a SHUT panel still answers the question.
+  const toggle = () => host.querySelector('button[aria-expanded]') as HTMLButtonElement;
+  const summary = () => host.querySelector('.recovery-sizing-summary')?.textContent ?? '';
+
+  it('is open on a fresh browser, because a panel nobody opens is a panel nobody finds', async () => {
+    await mount();
+    expect(toggle().getAttribute('aria-expanded')).toBe('true');
+    expect(bands()).toHaveLength(2);
+    expect(summary()).toBe('');
+  });
+
+  it('still names both sizes once collapsed', async () => {
+    await mount();
+    await act(async () => { toggle().click(); });
+    expect(toggle().getAttribute('aria-expanded')).toBe('false');
+    expect(bands()).toHaveLength(0);
+    // The conclusion survives the fold: a main and a drogue, both with a size.
+    expect(summary()).toMatch(/^main ~\d+(\.\d+)? in · drogue ~\d+(\.\d+)? in$/);
+    // And it agrees with what the expanded panel said, rather than being a
+    // second calculation that could drift from it.
+    const shut = summary();
+    await act(async () => { toggle().click(); });
+    const main = shut.replace(/^main ~/, '').replace(/ in .*$/, '');
+    expect(sizeLine(0).replace(/\s+/g, ' ')).toContain(`about ${main} in`);
+  });
+
+  it('remembers that you shut it, and re-opening clears the memory', async () => {
+    await mount();
+    await act(async () => { toggle().click(); });
+    expect(localStorage.getItem('online-openrocket.recovery-sizing-open')).toBe('0');
+    // A fresh mount honours it — this is the whole reason it is persisted.
+    act(() => root.unmount());
+    root = createRoot(host);
+    await mount();
+    expect(toggle().getAttribute('aria-expanded')).toBe('false');
+    await act(async () => { toggle().click(); });
+    expect(localStorage.getItem('online-openrocket.recovery-sizing-open')).toBe('1');
+  });
+
+  it('collapses to a plain-words summary when there is no motor to size against', async () => {
+    await mount({ recovery: { state: 'no-motor' } });
+    await act(async () => { toggle().click(); });
+    expect(summary()).toBe('needs a motor');
+  });
 });

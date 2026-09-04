@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "vite",
     "build": "node ../../scripts/build-user-guide.mjs && tsc -b && vite build",
+    "typecheck": "tsc -b",
     "preview": "vite preview",
     "test": "vitest run"
   },

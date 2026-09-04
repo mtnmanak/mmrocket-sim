@@ -63,6 +63,27 @@ jobs:
 
       - run: npm ci
 
+      # Typecheck BEFORE the tests, and this order is the whole point of the step.
+      # `tsc -b` already ran inside `npm run build` further down, so a type error
+      # could never reach production — but it reached it LATE, after ~2 minutes of
+      # npm ci plus the full engine+app suite, and by then main is red with a
+      # version.json already bumped for a release that never shipped (the shape of
+      # commit 3efcf38, "fix: the v0.098 deploy-gate failure"). Worse, `npm test`
+      # is what a developer runs locally before pushing, and vitest transpiles
+      # without checking types — so a green local test run was never evidence of a
+      # green build. `npm run typecheck` is that missing local signal, and putting
+      # it first here is the same fail-fast reasoning as the version-pairing step
+      # above. It builds the engine package because the app typechecks against the
+      # engine's emitted dist/index.d.ts.
+      - run: npm run typecheck
+
+      # ESLint. The rule set is deliberately small (see eslint.config.mjs for what
+      # was measured and what was left out); its core value is react-hooks, whose
+      # eight suppression comments in the source sat inert for months because no
+      # linter was installed to honour them. Warnings do not fail the job — only
+      # errors do.
+      - run: npm run lint
+
       # A push IS a release here, so the suite that guards the physics and the
       # file formats runs BEFORE anything reaches the live beta. `npm test`
       # builds the engine package first (its dist is a build output, not

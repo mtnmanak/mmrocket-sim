@@ -3728,6 +3728,17 @@ select.unit-chip:hover {
    it is computed from. Two bands, each led by the SIZE and followed by the
    catalogue parts that hit it — see services/recoverySizing.ts. */
 .recovery-sizing { margin-top: 12px; }
+/* The conclusion, carried in the header while the panel is shut. Ellipsised
+   rather than wrapped: it shares a flex row with the h2 and the Show button,
+   and a two-line header reads as a broken layout. */
+.recovery-sizing-summary {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
 .recovery-sizing-hint,
 .recovery-sizing-lede {
   margin: 0 0 10px;

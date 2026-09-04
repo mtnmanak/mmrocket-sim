@@ -20,7 +20,7 @@ import { useState } from 'react';
  */
 export function NumField({
   value, onCommit, nullable = false, min, max, allowNegative = false,
-  integer = false, step = 1, placeholder, ariaLabel, id,
+  integer = false, step = 1, placeholder, autoValue, ariaLabel, id,
 }: {
   value: number | undefined;
   /** Called with each valid typed value; null only when nullable and cleared. */
@@ -32,6 +32,23 @@ export function NumField({
   integer?: boolean;
   step?: number;
   placeholder?: string;
+  /**
+   * The computed/auto value a BLANK field is standing in for, in the same unit
+   * as `value`. Only the spinner and the arrow keys use it: they step from it
+   * instead of from zero.
+   *
+   * Why that matters. A blank field here does not mean "zero", it means "use
+   * the computed value the placeholder is showing" — a measured mass of 245.3 g,
+   * an LV-Haack shape parameter of 0.333, a rail button's kernel default. One
+   * click on ▾ used to commit `0 - step` clamped to 0, i.e. a hard zero, and
+   * one click on ▴ committed `step` itself: the measured-mass box then reported
+   * "245.3 g LIGHTER than the model" for a rocket nobody had weighed, and the
+   * nose shape parameter dropped from 0.333 to 0.05, moving the nose's volume,
+   * mass and CP. Optional: when it is not given, a number inside `placeholder`
+   * is used instead (see `autoBase` below), which covers every caller that
+   * already renders the auto value there.
+   */
+  autoValue?: number;
   ariaLabel?: string;
   /**
    * Put on the real <input>, so a sibling `<label htmlFor>` can focus it.
@@ -79,8 +96,31 @@ export function NumField({
     if (v !== null) onCommit(v);
   };
 
+  /**
+   * The value a blank field is standing in for. `autoValue` wins; failing that
+   * we read the number back out of the placeholder, because in every call site
+   * in the app a placeholder that CONTAINS a number is the field's own auto
+   * value rendered in the field's own unit — "245.3" (MeasuredMassBox),
+   * "auto: 12.345" and "default: 0.333" (PropertyPanel), "design: 76.2"
+   * (App.tsx's max motor length). Placeholders that name a state rather than a
+   * number — "—", "standard", "plugged", "no limit" — contain no digits, so
+   * those fields keep the old seed-from-zero behaviour, which is what a blank
+   * "none" field should do.
+   *
+   * If you add a placeholder that contains a number which is NOT the auto value
+   * (an "e.g. 25" hint, say), pass `autoValue` explicitly or the spinner will
+   * step from your example.
+   */
+  const autoBase = (): number | undefined => {
+    if (autoValue !== undefined && Number.isFinite(autoValue)) return autoValue;
+    const m = placeholder?.match(/-?\d+(?:\.\d+)?/);
+    if (!m) return undefined;
+    const v = Number(m[0]);
+    return Number.isFinite(v) ? v : undefined;
+  };
+
   const stepBy = (dir: 1 | -1) => {
-    const base = draft !== null ? (parse(draft) ?? value ?? 0) : (value ?? 0);
+    const base = (draft !== null ? parse(draft) : null) ?? value ?? autoBase() ?? 0;
     let next = base + dir * step;
     // Snap float noise (0.30000000000000004) to the step's precision.
     const decimals = Math.max(0, -Math.floor(Math.log10(step)) + 1);

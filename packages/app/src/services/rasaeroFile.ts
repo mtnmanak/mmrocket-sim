@@ -3,7 +3,7 @@ import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import type { LaunchConditions } from '../components/LaunchPanel.js';
 import { asStageNodes, freshId, mountsIn } from '../tree/treeModel.js';
 import { findDbMotor, hasMassData } from './motorDb.js';
-import { escapeXml as esc, xmlNum as num, xmlText as text } from './xmlUtil.js';
+import { escapeXml as esc, xmlNum, xmlText as text } from './xmlUtil.js';
 import type { OrkFlightConfig, OrkImportResult, OrkMotorRef, OrkSeparationOverride } from './orkFile.js';
 
 /**
@@ -232,6 +232,36 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
 
   const notes: string[] = [];
   const ignored = new Set<string>();
+  /**
+   * Tag → the first raw text under it we could not turn into a number. One
+   * entry per tag, not per part: a file written under a comma-decimal culture
+   * has EVERY number unreadable, and 60 identical notes on a 20-part rocket is
+   * a banner nobody reads.
+   */
+  const unreadable = new Map<string, string>();
+  /**
+   * `xmlNum` with the substitution made VISIBLE. xmlNum cannot tell "the field
+   * is absent" from "the field is there and unreadable" — both land on the
+   * caller's fallback, and this importer's fallbacks are real-looking
+   * dimensions, not sentinels (Diameter 4 in, Length 12 in, Chord 4 in,
+   * Size 36 in). RASAero II is a .NET application, so a file written on a
+   * machine whose culture uses a comma decimal separator carries
+   * `<Diameter>2,5</Diameter>`; Number('2,5') is NaN, and a BT-20-class model
+   * (0.736 in) then imports as a 4 in tube — 5.4x the diameter, ~30x the
+   * reference area, with every drag number, the Barrowman CP and the stability
+   * margin meaningless and the import banner reporting nothing unusual.
+   * '', 'N/A' and '1e999' (Infinity) all land the same way.
+   * ABSENT stays silent — RASAero legitimately omits fields — while
+   * unreadable is collected here and reported once per tag at the end, the
+   * same `notes` mechanism every other lossy branch in this importer uses.
+   */
+  const num = (el: Element, tag: string, fb: number): number => {
+    const raw = text(el, `:scope > ${tag}`);
+    if (raw !== null && !Number.isFinite(Number(raw)) && !unreadable.has(tag)) {
+      unreadable.set(tag, raw.slice(0, 40));
+    }
+    return xmlNum(el, tag, fb);
+  };
   const finish = SURFACE_TO_FINISH[text(design, ':scope > Surface') ?? ''];
 
   const readFin = (parentEl: Element, parentNode: ComponentNode) => {
@@ -1191,6 +1221,16 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
   const machAlt = readMachAltTable(doc);
 
   // ---- what RASAero can't tell us (be honest, don't invent) ----
+  // Leads the honesty block: a substituted dimension changes every number
+  // downstream of it, so it outranks the 2 mm-wall caveat below.
+  if (unreadable.size > 0) {
+    notes.push(`Could not read ${unreadable.size} number${unreadable.size === 1 ? '' : 's'} in this file, `
+      + 'so the import used its own default instead — check these dimensions before trusting any '
+      + `result: ${[...unreadable].map(([tag, raw]) => `<${tag}> “${raw}”`).join(', ')}. `
+      + 'A comma decimal separator (“2,5” for 2.5) is the usual cause: RASAero II writes numbers in '
+      + 'the format of the machine it ran on. Re-saving the file on a machine set to a period '
+      + 'decimal separator fixes it.');
+  }
   notes.push(overrodeEveryStage
     ? 'RASAero designs carry no material or wall data — walls default to 2 mm, but every stage’s '
       + 'mass and CG come from the simulation’s measured launch weight below, so the wall default '
@@ -1750,7 +1790,8 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
   emit(`<WindSpeed>${fmt((launch?.windAverage ?? 0) * MPH)}</WindSpeed>`);
   emit('</LaunchSite>');
 
-  // Recovery: first two parachutes anywhere in the design.
+  // Recovery: the first two parachutes anywhere in the design, then ordered by
+  // deploy event (see below) — tree position decides WHICH two, never which slot.
   const chutes: ComponentNode[] = [];
   const findChutes = (nodes: ComponentNode[]) => {
     for (const n of nodes) {
@@ -1759,6 +1800,29 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
     }
   };
   findChutes(stagesIn);
+  /*
+   * RASAero's two recovery slots are ORDERED BY WHEN THEY FIRE, not
+   * interchangeable: slot 1 is the first event of the descent and slot 2 the
+   * second, which is why importCdx1 reads slot 1 back as 'Drogue' and slot 2
+   * as 'Main' (the Recovery block above). Tree order is the wrong key. A
+   * conventional dual-deploy is laid out nose-to-tail — payload-bay MAIN
+   * (altitude, e.g. 700 ft) ahead of booster-tube DROGUE (apogee) — so
+   * findChutes hands the MAIN to slot 1 and the export carries
+   * <EventType1>Altitude</EventType1> with <EventType2>Apogee</EventType2>.
+   * RASAero's own editor cannot author that file, and reading it back: the
+   * drogue never deploys, the descent is ballistic to 700 ft and the main
+   * opens at terminal velocity. A round trip through our own importer also
+   * swaps the two names. Sort by deploy semantics instead — apogee, then
+   * altitude (higher altitude first, since it opens first), then anything that
+   * exports as no event at all so a real event never loses slot 1. The sort is
+   * stable, so two chutes on the same event keep tree order.
+   */
+  const eventRank = (c: ComponentNode): number => {
+    const ev = String(c['deployEvent'] ?? 'apogee');
+    return ev === 'apogee' ? 0 : ev === 'altitude' ? 1 : 2;
+  };
+  chutes.sort((a, b) => eventRank(a) - eventRank(b)
+    || nnum(b, 'deployAltitude', 0) - nnum(a, 'deployAltitude', 0));
   // Recovery children are grouped BY FIELD (Altitude1, Altitude2, DeviceType1,
   // …) — the order RASAero itself writes. Our old per-slot interleaving
   // matched neither RASAero's files nor the desktop exporter.

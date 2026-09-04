@@ -24,7 +24,17 @@
  *     The correction table is IMPORTED, not restated — one list, not two.
  *  2. openrocket-database HEAD — the commit our snapshot is understood
  *     against. A new commit is not a problem; not knowing about it is.
- *  3. ThrustCurve — the motor database source. `packages/app/src/data/
+ *  3. OpenRocket 24.12 `Databases.java` — the built-in material table, which
+ *     packages/app/src/data/materials.ts transcribes verbatim so .ork files
+ *     exchange materials by name with the desktop. Two of its five elastic
+ *     shock-cord line densities are ~10x too light UPSTREAM (19 mm flat at
+ *     0.0012 kg/m is lighter than the 2 mm round above it, which is not
+ *     physically possible), and this repo deliberately does NOT diverge —
+ *     diverging would make our files disagree with desktop's on the same
+ *     material name. So we watch: if upstream ever corrects them, materials.ts
+ *     must be re-transcribed in the same sitting. Skipped with a note when the
+ *     reference checkout is not on this machine.
+ *  4. ThrustCurve — the motor database source. `packages/app/src/data/
  *     motors.json` is a committed snapshot and thrust curves are fetched
  *     live in-app, so an API shape change breaks the running app, not just
  *     the build.
@@ -147,6 +157,62 @@ async function checkHead() {
   for (const i of issues.slice(0, 10)) say(`       #${i.number} ${i.title}`);
 }
 
+/**
+ * The five LINE elastic-cord densities in OpenRocket 24.12's Databases.java,
+ * as materials.ts transcribes them. Two are wrong upstream and we keep them
+ * wrong ON PURPOSE — see the header. This is the tripwire for the day that
+ * changes.
+ */
+const ELASTIC_CORD = [
+  ['Elastic cord (round 2 mm, 1/16 in)', 0.0018],
+  ['Elastic cord (flat 6 mm, 1/4 in)', 0.0043],
+  ['Elastic cord (flat 12 mm, 1/2 in)', 0.008],
+  ['Elastic cord (flat 19 mm, 3/4 in)', 0.0012],  // ~10x light upstream
+  ['Elastic cord (flat 25 mm, 1 in)', 0.0016],    // ~10x light upstream
+];
+
+async function checkMaterials() {
+  say('');
+  say('3. OpenRocket 24.12 built-in materials (local reference checkout)');
+  let src;
+  try {
+    const { openrocketSrcRoot } = await import('./openrocket-src.mjs');
+    src = openrocketSrcRoot();
+    if (!src) throw new Error('unset');
+  } catch {
+    say('  skip  no reference checkout configured on this machine (.openrocket-src) — not a verdict');
+    return;
+  }
+  const file = `${src}/core/src/main/java/info/openrocket/core/database/Databases.java`;
+  let java;
+  try {
+    java = readFileSync(file, 'utf8');
+  } catch {
+    say(`  skip  ${file} not readable — not a verdict`);
+    return;
+  }
+  for (const [name, expect] of ELASTIC_CORD) {
+    checked++;
+    // newMaterial(Material.Type.LINE, "<name>", <density>, MaterialGroup...)
+    // Parsed by hand rather than by a built regex: the material names carry
+    // parentheses and slashes, and escaping them into a pattern is one more
+    // thing to get wrong for no gain.
+    const at = java.indexOf(`"${name}"`);
+    if (at < 0) {
+      flag(`Databases.java: "${name}" is GONE from upstream.`);
+      notes.push(`material row gone: ${name}`);
+      continue;
+    }
+    const after = java.slice(at + name.length + 2);
+    const cur = Number(after.split(",")[1]);
+    if (cur === expect) say(`  ok   ${name} = ${cur} (unchanged)`);
+    else {
+      flag(`Databases.java "${name}" = ${cur}, was ${expect} — upstream changed a material this app transcribes verbatim. Re-transcribe packages/app/src/data/materials.ts and update its test in the same sitting.`);
+      notes.push(`material density moved: ${name} ${expect} -> ${cur}`);
+    }
+  }
+}
+
 async function checkThrustCurve() {
   say('');
   say('4. ThrustCurve API (bundled motors.json is a snapshot; thrust curves are fetched live in-app)');
@@ -165,6 +231,7 @@ try {
   await checkCorrections();
   await checkWatch();
   await checkHead();
+  await checkMaterials();
   await checkThrustCurve();
   say('');
   if (moved === 0) {

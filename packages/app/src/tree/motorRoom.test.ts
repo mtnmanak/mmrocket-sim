@@ -39,6 +39,37 @@ describe('estimateMotorRoom', () => {
     expect(r.lengthM).toBeCloseTo(0.606, 9);
   });
 
+  /**
+   * The overhang is SIGNED and both signs count. schema.ts gives
+   * `motorOverhang` smin −50 mm on both mount types, and a negative one is the
+   * ordinary min-diameter build: the motor is recessed so a retainer cap can
+   * close over its aft face. The aft datum the search measures forward from is
+   * `mountAft + overhang`, so a recess makes the room SMALLER.
+   *
+   * Until v0.104 the term was `Math.max(0, overhang)`, which threw the negative
+   * away silently — a mount at −20 mm reported 20 mm more room than it has, and
+   * that number is what the "Max motor length" ⌾ button writes and what gates
+   * the motor browser, so a case too long for the airframe was offered as
+   * fitting. Written as a PAIR because the asymmetry is the defect: the
+   * positive case already passed.
+   */
+  it('subtracts a NEGATIVE overhang — a recessed motor has less room, not the same', () => {
+    const recessed = estimateMotorRoom(treeWith([], { motorOverhang: -0.02 }), 'mt')!;
+    expect(recessed.lengthM).toBeCloseTo(0.58, 9);
+    const flush = estimateMotorRoom(treeWith([]), 'mt')!;
+    expect(recessed.lengthM, 'a recessed motor was given the flush-mount room')
+      .toBeLessThan(flush.lengthM);
+  });
+
+  it('returns null when the recess is deeper than the room in front of it', () => {
+    // A 3 mm engine block 10 mm down the 300 mm mount leaves 287 mm; recess the
+    // motor 300 mm and nothing is left. The `room > 0` guard is what catches it.
+    expect(estimateMotorRoom(treeWith([
+      { id: 'eb', type: 'engineblock', length: 0.003, outerRadius: 0.0145,
+        position: { method: 'top', offset: 0.01 } },
+    ], { motorOverhang: -0.30 }), 'mt')).toBeNull();
+  });
+
   it('stops at an engine block, measured to its AFT face', () => {
     // A 3 mm block 100 mm down from the tube's fore end: its aft face is at
     // 103 mm, leaving 197 mm of tube behind it.

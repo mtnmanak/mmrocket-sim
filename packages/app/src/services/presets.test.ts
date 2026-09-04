@@ -46,6 +46,28 @@ describe('presetPatch', () => {
 });
 
 describe('CSV round-trip', () => {
+  // csvUtil prefixes an apostrophe to any cell a spreadsheet would evaluate,
+  // which is what stops an imported design's component name running as a
+  // formula on someone else's machine. The READER has to take it back off, or
+  // this app's own export stops round-tripping through this app's own import.
+  it('survives a part number a spreadsheet would treat as a formula', () => {
+    const hostile: Preset[] = [{
+      kind: 'BodyTube',
+      manufacturer: 'ACME',
+      partNo: '=cmd|calc',
+      description: '@SUM(A1)',
+      outsideDiameter: 0.024,
+    } as Preset];
+    const csv = presetsToCsv(hostile);
+    // The guard is really applied on the way out …
+    expect(csv).toContain(`"'=cmd|calc"`);
+    // … and is gone again on the way back in.
+    const back = csvToPresets(csv);
+    expect(back).toHaveLength(1);
+    expect(back[0]!.partNo).toBe('=cmd|calc');
+    expect(back[0]!.description).toBe('@SUM(A1)');
+  });
+
   it('export → import preserves the essentials', () => {
     const sample = db.filter((p) => p.kind === 'BodyTube').slice(0, 5);
     const back = csvToPresets(presetsToCsv(sample));
@@ -424,5 +446,115 @@ describe('presetPatch — a catalogue engine block carries its own outer radius'
     const patch = presetPatch('engineblock', bare) as Record<string, unknown>;
     expect(patch['outerRadius']).toBeUndefined();
     expect(patch['length']).toBeCloseTo(0.005, 12);
+  });
+});
+
+/**
+ * The pair rule, at the IMPORT boundary (critic-2, 2026-09-04).
+ *
+ * `presetPatch` has written `cd` and `spillHoleDiameter` together since the
+ * 2026-09-03 ruling, but `applyPresetLinks` then applied the patch key by key
+ * under an independent `node[key] === undefined` gate — so a file that stated
+ * one half of the pair took the catalogue's other half. Fruity Chutes CFC-015-N
+ * is the worked case: a 15 in canopy whose maker's Cd 1.5 is measured against
+ * their own 3 in (20 %) vent.
+ */
+describe('applyPresetLinks — the canopy Cd and its spill hole move together', () => {
+  const CFC15 = { manufacturer: 'Fruity Chutes', partNo: 'CFC-015-N' };
+  const row = db.find((p) => p.kind === 'Parachute' && p.partNo === CFC15.partNo)!;
+  const chute = (over: Record<string, unknown> = {}): ComponentNode =>
+    ({ type: 'parachute', id: 'p1', name: 'Main', diameter: 0.381, ...over }) as ComponentNode;
+
+  it('the catalogue row this rests on is still a vented one', () => {
+    expect(row, 'CFC-015-N has gone from the database').toBeTruthy();
+    expect(row['dragCoefficient']).toBe(1.5);
+    // 3 in vent on a 15 in canopy — the worst ratio in the catalogue, 0.20.
+    expect((row['spillHoleDiameter'] as number) / (row['diameter'] as number)).toBeCloseTo(0.2, 6);
+  });
+
+  it('takes BOTH when the file states neither, and names both in the note', () => {
+    const node = chute();
+    const notes: string[] = [];
+    expect(applyPresetLinks([{ node, ...CFC15 }], db, notes)).toBe(1);
+    expect(node['cd']).toBe(1.5);
+    expect(node['spillHoleDiameter']).toBeCloseTo(0.0762, 9);
+    expect(notes[0]).toMatch(/drag coefficient/);
+    expect(notes[0]).toMatch(/spill hole/);
+  });
+
+  it('takes NEITHER when the file states its own vent — the 3.1 % CdA error', () => {
+    // The author typed a 1.5 in vent on the 15 in canopy. Taking the maker's
+    // Cd (measured against their 20 % vent) onto that 10 % vent applied a
+    // factor of 0.99 where 0.96 was meant.
+    const node = chute({ spillHoleDiameter: 0.0381 });
+    const notes: string[] = [];
+    expect(applyPresetLinks([{ node, ...CFC15 }], db, notes)).toBe(1);
+    expect(node['cd'], 'took a Cd referenced to a vent the file does not have').toBeUndefined();
+    expect(node['spillHoleDiameter']).toBe(0.0381);   // the file's own, untouched
+    expect(notes[0]).toMatch(/left the catalogue’s drag coefficient and spill hole out/);
+    // The size of the error the refusal avoids, stated so it cannot be argued
+    // away as rounding: 0.99 / 0.96 on Cd·A, and sqrt of that on descent rate.
+    const bad = 1.5 * (1 - 0.1 ** 2);
+    const good = 1.5 * (1 - 0.2 ** 2);
+    expect(bad / good).toBeCloseTo(1.03125, 5);
+    expect(Math.sqrt(good / bad)).toBeCloseTo(0.98473, 5);
+  });
+
+  it('takes NEITHER in reverse — the catalogue vent never lands on a file-stated Cd', () => {
+    const node = chute({ cd: 0.97 });
+    expect(applyPresetLinks([{ node, ...CFC15 }], db, [])).toBe(1);
+    expect(node['cd']).toBe(0.97);
+    expect(node['spillHoleDiameter'],
+      'grafted the maker’s vent onto a Cd that was never measured against it').toBeUndefined();
+  });
+
+  it('an UNVENTED catalogue row is a whole fact and still supplies its Cd', () => {
+    // 188 of the catalogue's parachutes publish a Cd and no vent; refusing
+    // those would drop a real 0.97 back to the kernel's 0.8 for nothing.
+    const unvented = db.find((p) => p.kind === 'Parachute'
+      && typeof p['dragCoefficient'] === 'number' && (p['dragCoefficient'] as number) > 0
+      && !(typeof p['spillHoleDiameter'] === 'number' && (p['spillHoleDiameter'] as number) > 0))!;
+    expect(unvented).toBeTruthy();
+    const node = chute();
+    expect(applyPresetLinks([{
+      node, manufacturer: unvented.manufacturer, partNo: unvented.partNo,
+    }], db, [])).toBe(1);
+    expect(node['cd']).toBe(unvented['dragCoefficient']);
+    expect(node['spillHoleDiameter']).toBeUndefined();
+  });
+
+  it('the rest of the catalogue row still fills normally around the pair', () => {
+    const node = chute({ spillHoleDiameter: 0.0381 });
+    applyPresetLinks([{ node, ...CFC15 }], db, []);
+    expect(node['lineCount']).toBe(8);
+    expect(node['presetPartNo']).toBe('CFC-015-N');
+  });
+});
+
+describe('csvToPresets — a blank cell is blank, whatever whitespace is in it', () => {
+  it('does not turn a space into the number zero', () => {
+    // `Number(' ') === 0` and `' ' !== ''`, so an untrimmed guard stored a
+    // spreadsheet's leftover space as a real 0 — a zero mass, a zero diameter.
+    const csv = 'kind,manufacturer,partNo,description,mass,length,outsideDiameter\n'
+      + 'BodyTube,Custom,BT-X,test, ,  ,0.0254\n';
+    const [p] = csvToPresets(csv);
+    expect(p!.mass).toBeUndefined();
+    expect(p!['length']).toBeUndefined();
+    expect(p!['outsideDiameter']).toBe(0.0254);
+  });
+
+  it('still reads a padded number as that number', () => {
+    const csv = 'kind,manufacturer,partNo,description,mass\nBodyTube,Custom,BT-X,test, 0.012 \n';
+    expect(csvToPresets(csv)[0]!.mass).toBe(0.012);
+  });
+
+  it('a literal zero mass never becomes an overrideMass of zero', () => {
+    // A component that contributes no mass at all, silently, while every other
+    // field looks right is a CG and stability-margin error nobody can see.
+    const p = { kind: 'NoseCone', manufacturer: 'Custom', partNo: 'X', description: '',
+      mass: 0 } as Preset;
+    expect((presetPatch('nosecone', p) as Record<string, unknown>)['overrideMass']).toBeUndefined();
+    expect((presetPatch('nosecone', { ...p, mass: 0.01 }) as Record<string, unknown>)['overrideMass'])
+      .toBe(0.01);
   });
 });

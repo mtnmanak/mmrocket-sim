@@ -91,7 +91,13 @@ export function presetPatch(type: ComponentType, p: Preset): Partial<ComponentNo
     set('materialName', p.material.name);
     set('density', p.material.density);
   }
-  if (p.mass !== undefined) set('overrideMass', p.mass);
+  // A catalogued mass of ZERO is not a part that weighs nothing, it is a row
+  // that states no mass — and `overrideMass: 0` makes the component contribute
+  // nothing at all while every other field still looks right, which on a nose
+  // cone or a coupler moves the CG and the stability margin silently. No
+  // shipped row carries mass 0 (measured over presets.json, 2026-09-04); the
+  // guard is for the CSV import loop below, where a user can type one.
+  if (p.mass !== undefined && p.mass > 0) set('overrideMass', p.mass);
   // The catalogue identity rides with the part, so a saved .rkt names the row
   // it came from (<PartMfg>/<PartNo>) and an import can find it again.
   set('presetManufacturer', p.manufacturer);
@@ -261,7 +267,11 @@ export function csvToPresets(csv: string): Preset[] {
   const out: Preset[] = [];
   for (const cells of records.slice(1)) {
     const row: Record<string, string> = {};
-    header.forEach((h, i) => { row[h] = cells[i] ?? ''; });
+    // csvCell prefixes ONE apostrophe to a cell a spreadsheet would read as a
+    // formula (see csvUtil.ts). Strip exactly one back off, or a preset this app
+    // exported and re-imported comes back with a literal ' on its part number.
+    // Numeric columns are unaffected: Number("'-1") is NaN either way.
+    header.forEach((h, i) => { row[h] = (cells[i] ?? '').replace(/^'/, ''); });
     if (!row['kind'] || !row['partNo']) continue;
     const p: Preset = {
       kind: row['kind']!,
@@ -269,6 +279,10 @@ export function csvToPresets(csv: string): Preset[] {
       partNo: row['partNo']!,
       description: row['description'] ?? '',
     };
+    // A non-numeric density is left AS PARSED, deliberately. PresetPicker's
+    // rowIsSound refuses the row and names its part number, so the user can go
+    // and fix it; dropping the material here instead would import the row clean
+    // and silently weightless, which is the failure this was meant to stop.
     if (row['materialName'] && row['materialDensity']) {
       p.material = {
         name: row['materialName']!,
@@ -285,8 +299,13 @@ export function csvToPresets(csv: string): Preset[] {
     }
     for (const c of CSV_COLS) {
       if (['kind', 'manufacturer', 'partNo', 'description', 'materialName', 'materialType', 'materialDensity', 'shape', 'filled', 'lineMaterialName', 'lineMaterialDensity'].includes(c)) continue;
-      const v = Number(row[c]);
-      if (row[c] !== '' && Number.isFinite(v)) p[c] = v;
+      // TRIM BEFORE TESTING. `Number(' ')` is 0 and `' ' !== ''`, so a cell a
+      // spreadsheet left holding a single space imported as the NUMBER ZERO —
+      // a zero mass (which used to become `overrideMass: 0`), a zero diameter,
+      // a zero length — rather than being skipped as the blank it is.
+      const raw = (row[c] ?? '').trim();
+      const v = Number(raw);
+      if (raw !== '' && Number.isFinite(v)) p[c] = v;
     }
     if (row['shape']) p['shape'] = row['shape'];
     if (row['filled'] === 'true') p['filled'] = true;
@@ -317,7 +336,8 @@ const linkKey = (kind: string, manufacturer: unknown, partNo: unknown): string =
 
 /** Plain words for the import note — a user reads "drag coefficient", not "cd". */
 const FIELD_WORDS: Record<string, string> = {
-  cd: 'drag coefficient', diameter: 'diameter', lineCount: 'line count', lineLength: 'line length',
+  cd: 'drag coefficient', spillHoleDiameter: 'spill hole',
+  diameter: 'diameter', lineCount: 'line count', lineLength: 'line length',
   surfaceDensity: 'canopy material', surfaceMaterialName: 'canopy material',
   lineDensity: 'line material', lineMaterialName: 'line material',
   density: 'material', materialName: 'material', length: 'length', outerRadius: 'outer radius',
@@ -382,10 +402,40 @@ export function applyPresetLinks(
     if (!p) continue;
     const patch = presetPatch(node.type, p) as Record<string, unknown>;
     const filled = new Set<string>();
+    // THE CANOPY PAIR IS EXEMPT FROM THE PER-KEY GATE BELOW.
+    //
+    // A rated Cd and its spill hole are ONE fact (standing ruling, 2026-09-03):
+    // the maker measures Cd against the canopy area MINUS the vent, and the
+    // kernel re-derives that same area as 1 − (d/D)² of the nominal disc. Filling
+    // them independently grafts the catalogue's half onto the file's half. The
+    // real case: a .rkt naming Fruity Chutes CFC-015-N whose author typed their
+    // own 1.5 in vent on the 15 in canopy. RockSim's <DragCoefficient>0.75 is the
+    // "auto" sentinel the importer does not pin, so `cd` was unset and the
+    // catalogue's 1.5 landed — a figure measured against the maker's 20 % vent —
+    // while the file's own 10 % vent stayed, applying 0.99 where 0.96 was meant:
+    // CdA 3.1 % high, descent rate 1.5 % LOW, which is the optimistic direction.
+    //
+    // So the pair moves together or not at all, and that holds in REVERSE too:
+    // the catalogue's vent never lands on a Cd the file stated. A row with no
+    // `spillHoleDiameter` is a whole fact (an unvented canopy) and may still
+    // supply its Cd; a row with a vent but no Cd is half of one, and supplies
+    // neither.
+    // Only a CANOPY has the pair: a streamer's Cd is referenced to strip area
+    // and it has no vent, so it keeps the plain per-key gate below.
+    const isCanopy = node.type === 'parachute';
+    const PAIR = ['cd', 'spillHoleDiameter'] as const;
+    const canopyStatesHalf = isCanopy && PAIR.some((k) => node[k] !== undefined);
+    const takePair = patch['cd'] !== undefined && !canopyStatesHalf;
     for (const [key, value] of Object.entries(patch)) {
       if (value === undefined || key === 'name' || key === 'overrideMass') continue;
       if (key === 'presetManufacturer' || key === 'presetPartNo') {
         node[key] = value;
+        continue;
+      }
+      if (isCanopy && (key === 'cd' || key === 'spillHoleDiameter')) {
+        if (!takePair) continue;
+        node[key] = value;
+        filled.add(FIELD_WORDS[key] ?? key);
         continue;
       }
       if (node[key] === undefined) {
@@ -395,7 +445,13 @@ export function applyPresetLinks(
     }
     linked += 1;
     const took = filled.size ? ` — took ${[...filled].join(', ')} from the catalogue` : '';
-    lines.push(`${node.name ?? node.type} → ${p.manufacturer} ${p.partNo}${took}`);
+    // Said out loud, because a silently missing Cd is how the 0.8 default gets
+    // blamed on the catalogue instead of on the pairing rule.
+    const declined = canopyStatesHalf && patch['cd'] !== undefined
+      ? ' — left the catalogue’s drag coefficient and spill hole out: this file already'
+        + ' states one of the pair, and the two are one number together'
+      : '';
+    lines.push(`${node.name ?? node.type} → ${p.manufacturer} ${p.partNo}${took}${declined}`);
   }
   if (linked > 0) {
     notes.push(

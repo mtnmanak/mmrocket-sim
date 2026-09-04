@@ -158,6 +158,69 @@ export function batchSummary(
   return `${head} — simulated ${motors}; ${accepted} met your criteria${errs}${tail}`;
 }
 
+/** Thousands separators, pinned to en-US so these labels are deterministic. */
+const group = (n: number) => n.toLocaleString('en-US');
+
+/**
+ * Above this many flights the Simulate button asks a second time.
+ *
+ * The threshold is an ORDER of magnitude, not a budget: the owner's real
+ * 226-motor sweep took several minutes, so one flight is of order a second and
+ * 5,000 of them is over an hour of a page that cannot respond between flights.
+ * The number that made a gate necessary is 1,949,476 — his 226 candidates with
+ * "mixed 4+2 / 2+2+2" ticked, i.e. mixedComboCount(226, 3) + 226 — which is
+ * about three weeks at that rate, and it was one click away behind a button
+ * that said "Simulate 226 motors".
+ */
+export const BATCH_CONFIRM_ABOVE_FLIGHTS = 5000;
+
+/**
+ * The primary button's label.
+ *
+ * It used to read `Simulate ${candidates.length} motors` — the SINGLE-motor
+ * candidate count — while the sweep actually flew `totalFlights`. With a
+ * combination mode ticked those two differ by up to four orders of magnitude,
+ * so the button contradicted the meta line beside it, and the button is what
+ * gets clicked. It counts FLIGHTS, and says so, as soon as the two differ: a
+ * mixed-cluster combination is not a motor.
+ */
+export function batchButtonLabel(
+  { candidates, totalFlights, confirming }:
+  { candidates: number; totalFlights: number; confirming: boolean },
+): string {
+  if (confirming) return `Yes — fly ${group(totalFlights)} flights`;
+  if (totalFlights === candidates) {
+    return `Simulate ${group(candidates)} ${candidates === 1 ? 'motor' : 'motors'}`;
+  }
+  return `Simulate ${group(totalFlights)} flights`;
+}
+
+/** The second-ask copy for a sweep past {@link BATCH_CONFIRM_ABOVE_FLIGHTS}. */
+export function batchConfirmWarning(totalFlights: number): string {
+  return `${group(totalFlights)} flights is a very long run. The page cannot respond `
+    + 'while a flight runs, and Stop only takes effect between them. Press the button '
+    + 'again to start, or untick a combination mode to shrink it.';
+}
+
+/**
+ * What the screen-reader live region says while a sweep runs, or null when
+ * nothing new should be announced.
+ *
+ * Deliberately COARSE. A polite live region on the visible counter would speak
+ * the whole "226 candidate motors · … — simulating 5/226: AeroTech H128" line
+ * once per flight; on sub-second flights the queue never drains and the user
+ * hears a backlog minutes behind the run. This announces the start and then
+ * each 10 % of the sweep — the end already has its own role="status" message,
+ * and role="progressbar" on the bar itself carries the value in between.
+ */
+export function batchProgressAnnouncement(done: number, total: number): string | null {
+  if (total <= 0) return null;
+  if (done <= 0) return `Simulating ${group(total)} flights.`;
+  const step = Math.max(1, Math.ceil(total / 10));
+  if (done % step !== 0) return null;
+  return `${Math.round((done / total) * 100)} percent — ${group(done)} of ${group(total)} flights.`;
+}
+
 export interface BatchMountOption {
   id: string;
   label: string;
@@ -219,10 +282,16 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
   const pairSplit = useMemo(() => splitClusterPairsTree(tree, sel.id), [tree, sel.id]);
   const [rows, setRows] = useState<BatchRow[]>([]);
   const [running, setRunning] = useState(false);
+  /** True once a sweep past BATCH_CONFIRM_ABOVE_FLIGHTS has been asked about. */
+  const [confirming, setConfirming] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number; current: string } | null>(null);
   /** Set when a run ends, cleared when the next one starts — the "it's done" signal. */
   const [finished, setFinished] = useState<{ total: number; stopped: boolean } | null>(null);
   const cancelled = useRef(false);
+  // Stop used to take effect only BETWEEN flights, so pressing it during a
+  // motor download waited out the whole fetch. The controller is per-run and
+  // is replaced at every start, because an aborted signal stays aborted.
+  const abort = useRef<AbortController | null>(null);
 
   const setCriteria = (next: Criteria) => {
     setCriteriaRaw(next);
@@ -258,7 +327,7 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
     };
   }, [criteria, mountDiameterMm, maxMotorLengthM, fittingClasses, allMotors]);
 
-  useEffect(() => () => { cancelled.current = true; }, []);
+  useEffect(() => () => { cancelled.current = true; abort.current?.abort(); }, []);
 
   const toggle = <T,>(list: T[], v: T): T[] =>
     list.includes(v) ? list.filter((x) => x !== v) : [...list, v];
@@ -289,6 +358,7 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
     setRunning(true);
     setFinished(null);
     cancelled.current = false;
+    abort.current = new AbortController();
     setRows([]);
     const out: BatchRow[] = [];
     const accepted: SimRun[] = [];
@@ -355,7 +425,7 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
         // which would turn the comparison flight ballistic.
         const opts = delayOptions(entry).filter((d) => Number.isFinite(d));
         const provisional = opts[opts.length - 1] ?? 0;
-        const spec = await fetchMotorSpec(entry, provisional);
+        const spec = await fetchMotorSpec(entry, provisional, abort.current?.signal);
         specCache.set(entry.motorId, spec);
         // execMs must mean ONE flight at this step: the launch panel's
         // time-step caution prices a reload from the newest stored run
@@ -474,7 +544,7 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
         await new Promise((r) => setTimeout(r, 0));
         try {
           const specs = await Promise.all(entries.map(async (e) =>
-            specCache.get(e.motorId) ?? await fetchMotorSpec(e, 0)));
+            specCache.get(e.motorId) ?? await fetchMotorSpec(e, 0, abort.current?.signal)));
           // One flight at this step — see the single-motor loop's flyTimed.
           let execMs = 0;
           const flyTimed = (): FlightResult => {
@@ -611,7 +681,23 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
   const velUi = (si: number | null) => (si === null ? undefined : siToUi('velocity', vel, si));
   const distUi = (si: number | null) => (si === null ? undefined : siToUi('distance', dist, si));
 
-  const dialogRef = useDialog(onClose);
+  // Escape must NOT close a sweep that is running. The ✕ is disabled={running}
+  // and the backdrop's handler is `running ? undefined : onClose`, but
+  // useDialog's Escape handler is unconditional — so the one key a modal binds
+  // by reflex unmounted this component mid-run, taking `rows` with it. Nothing
+  // survives that: the ⬇ CSV and ⬇ XLSX buttons live inside this dialog, and
+  // the rejected and errored rows — the point of the comparison — exist
+  // nowhere else, since only ACCEPTED runs reach the history and only after
+  // the loop finishes. A several-minute 226-motor sweep was one keystroke from
+  // gone, and reopening starts from an empty table. Stop is the way out; it
+  // keeps every row.
+  //
+  // Read through a ref, not the closure: useDialog installs its listener once
+  // and calls through an onCloseRef it happens to refresh each render, which is
+  // an implementation detail of that hook rather than a contract.
+  const runningRef = useRef(running);
+  runningRef.current = running;
+  const dialogRef = useDialog(() => { if (!runningRef.current) onClose(); });
 
   // What the batch will actually fly — the same counts the meta line quotes.
   // The time-step caution multiplies by this: a fine step's cost is per
@@ -620,6 +706,11 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
   const totalFlights = candidates.length
     + (comboMode && clusterSplit ? mixedComboCount(candidates.length, clusterSplit.mountIds.length) : 0)
     + (pairMode && pairSplit ? mixedComboCount(candidates.length, pairSplit.mountIds.length) : 0);
+
+  // Disarm the second-ask whenever the sweep's size changes: unticking a
+  // combination mode or narrowing the filters must not leave a confirmation
+  // armed for a count that no longer exists.
+  useEffect(() => { setConfirming(false); }, [totalFlights]);
 
   return (
     <div className="prefs-overlay" role="presentation" onClick={running ? undefined : onClose}>
@@ -732,6 +823,12 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
           <TimeStepCaution dt={launch.timeStepS} flights={totalFlights} />
         )}
 
+        {confirming && !running && (
+          <p className="field-caution" role="alert" style={{ margin: '6px 0 0' }}>
+            <Icon name="zap" size={13} /> {batchConfirmWarning(totalFlights)}
+          </p>
+        )}
+
         <div className="motor-load-row">
           <span style={{ flex: 1 }} className="motor-db-meta">
             {candidates.length} candidate motors
@@ -751,21 +848,50 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
             </>
           )}
           {running ? (
-            <button className="file-btn modal-danger" onClick={() => { cancelled.current = true; }}>
+            <button className="file-btn modal-danger"
+              onClick={() => { cancelled.current = true; abort.current?.abort(); }}>
               Stop
             </button>
           ) : (
             <button className="launch-btn" style={{ width: 'auto', marginTop: 0, padding: '6px 16px' }}
-              onClick={start} disabled={candidates.length === 0}>
-              <Icon name="rocket" /> Simulate {candidates.length} motors
+              onClick={() => {
+                // A sweep this big is not something anyone clicks on purpose
+                // by accident — the second ask names the flight count.
+                if (!confirming && totalFlights > BATCH_CONFIRM_ABOVE_FLIGHTS) {
+                  setConfirming(true);
+                  return;
+                }
+                setConfirming(false);
+                void start();
+              }}
+              disabled={candidates.length === 0}>
+              <Icon name="rocket" /> {batchButtonLabel({
+                candidates: candidates.length, totalFlights, confirming,
+              })}
             </button>
           )}
         </div>
         {progress && (
-          <div className="batch-progress">
+          // role="progressbar" so the width-only bar is readable by assistive
+          // tech at all: NVDA and JAWS report a progress bar's value as it
+          // moves, which is the "is anything happening" signal a multi-minute
+          // sweep otherwise gives only in pixels.
+          <div className="batch-progress"
+            role="progressbar"
+            aria-label="Batch simulation progress"
+            aria-valuemin={0}
+            aria-valuemax={progress.total}
+            aria-valuenow={progress.done}
+            aria-valuetext={`${progress.done + 1} of ${progress.total}: ${progress.current}`}>
             <div className="batch-progress-fill" style={{ width: `${(progress.done / Math.max(1, progress.total)) * 100}%` }} />
           </div>
         )}
+        {/* Always mounted, never conditional: a polite live region inserted
+            into the DOM with its text already in place is unreliably announced,
+            so the region has to exist before the first flight starts. */}
+        <span className="sr-only" aria-live="polite">
+          {(progress && batchProgressAnnouncement(progress.done, progress.total)) || ''}
+        </span>
 
         {/* The run is over and the results are ready to download. Says it in
             words, with the counts, because the progress bar vanishing is not an

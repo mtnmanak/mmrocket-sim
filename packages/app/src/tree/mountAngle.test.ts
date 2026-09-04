@@ -118,6 +118,74 @@ describe('rail interference', () => {
     expect(w).toHaveLength(1);
   });
 
+  /**
+   * v0.104 — assemblies are surface parts too, and the largest ones there are.
+   *
+   * `collectFrame` has always pushed a podset/parallelstage NODE into the
+   * frame's members (its `angleOffset` is a clock angle in the PARENT's frame),
+   * but the classifier tested railbutton → isFinSet → SURFACE and an assembly
+   * matched none of the three, so it was silently dropped. The fixture below is
+   * built from the app's OWN defaults, which is what makes it the case that
+   * matters: `defaultParams('parallelstage')` is instanceCount 2 / angleOffset
+   * 0 and `defaultParams('railbutton')` is angleOffset π, so a booster added
+   * with two clicks puts its second strap-on exactly on the rail line for the
+   * full length of the airframe — and the same function warned about a 4 mm
+   * launch lug in the same place.
+   */
+  it('flags a strap-on booster on the rail line, at the app\'s own defaults', () => {
+    const boosterAngle = defaultParams('parallelstage')['angleOffset'] as number;
+    const buttonAngle = defaultParams('railbutton')['angleOffset'] as number;
+    expect(boosterAngle).toBe(0);
+    expect(buttonAngle).toBe(Math.PI);
+    const w = warn([
+      { type: 'railbutton', id: 'r1', name: 'Button', angleOffset: buttonAngle },
+      {
+        type: 'parallelstage', id: 'ps1', name: 'Strap-on',
+        instanceCount: 2, angleOffset: boosterAngle,
+        children: [{ type: 'bodytube', id: 'pb', length: 0.3, outerRadius: 0.02 }],
+      },
+    ]);
+    // ONE sentence, not two: instance 0 is at 0° and clear of the π button; it
+    // is instance 1, at π, that fouls the rail.
+    expect(w).toHaveLength(1);
+    expect(w[0]).toContain('Strap-on');
+    expect(w[0]).toContain("both sit on the rail's line");
+  });
+
+  it('names an unnamed assembly rather than its type', () => {
+    // The same courtesy the wake sentence already does for an unnamed shroud —
+    // "podset" is not a word the app shows anywhere.
+    const w = warn([
+      { type: 'railbutton', id: 'r1', angleOffset: Math.PI },
+      {
+        type: 'parallelstage', id: 'ps1', instanceCount: 2, angleOffset: 0,
+        children: [{ type: 'bodytube', id: 'pb', length: 0.3, outerRadius: 0.02 }],
+      },
+    ]);
+    expect(w).toHaveLength(1);
+    expect(w[0]).toContain('"Booster"');
+    expect(w[0]).not.toContain('"parallelstage"');
+  });
+
+  it('tests every instance of a pod set, not just the node\'s own angle', () => {
+    // A 3-up pod ring clocked 30° off puts instances at 30, 150 and −90. The
+    // button at 150° is on the second of them — invisible if only the node's
+    // own 30° were compared.
+    const podAt = (angleOffset: number, count: number) => ({
+      type: 'podset', id: 'p1', name: 'Pods', instanceCount: count, angleOffset,
+      children: [{ type: 'bodytube', id: 'pb', length: 0.2, outerRadius: 0.015 }],
+    });
+    expect(warn([
+      { type: 'railbutton', id: 'r1', angleOffset: D(150) },
+      podAt(D(30), 3),
+    ])).toHaveLength(1);
+    // …and the same ring with the button in one of the gaps stays silent.
+    expect(warn([
+      { type: 'railbutton', id: 'r1', angleOffset: D(90) },
+      podAt(D(30), 3),
+    ])).toHaveLength(0);
+  });
+
   it('does not compare across frames: a fin inside a POD is not on the core airframe', () => {
     // The pod rotates its whole sub-chain, so its fins are not measured from
     // the core's zero. Comparing the raw numbers would invent a collision.

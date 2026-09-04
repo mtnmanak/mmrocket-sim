@@ -302,7 +302,7 @@ export interface FlightSeries {
   /**
    * Symbol-keyed series beyond the friendly-named dozen above. Which symbols
    * are present depends on {@link SimulationOptions.series}: 'summary' (the
-   * default) carries only Pl, θl, Px, Py, dΦ — the ones the app's flight
+   * default) carries only Pl, θl, Px, Py, dΦ, Vz — the ones the app's flight
    * report reads every run; 'full' carries every series the branch records
    * ("Vz", "Cdf", "ρ"…) except tc (wall-clock noise) and the symbols that
    * would duplicate the friendly dozen ("t", "h"…). NaN/Infinity samples

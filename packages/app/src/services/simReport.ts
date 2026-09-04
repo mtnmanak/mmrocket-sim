@@ -207,8 +207,27 @@ export interface DeploymentReport {
   device: string;
   time: number;
   altitude: number | null;
-  /** Speed when this device opened (opening shock). */
+  /**
+   * Speed when this device opened (opening shock) — the AIRSPEED the canopy
+   * met, so the opening-shock limit is judged on the same quantity it is
+   * written about. For the first device that is the kernel's ground-speed
+   * series: the rocket still carries its own horizontal velocity there, so
+   * that IS the airspeed to within the wind. For every device after it the
+   * rocket has been descending under the previous canopy, where drag relaxes
+   * the horizontal component to the wind within a fraction of a second
+   * (AbstractEulerStepper.java:196,214) — the ground speed there is
+   * √(v_z² + w²) and the vertical rate is the airspeed. See
+   * `groundSpeedAtDeployment` for the figure this replaced.
+   */
   velocityAtDeployment: number | null;
+  /**
+   * Speed over the ground at the same instant — opening speed plus wind drift.
+   * Kept beside `velocityAtDeployment` for the same reason `groundSpeed` sits
+   * beside `descentRate`: it is a real number a reader can see elsewhere, and
+   * it must not look like a contradiction. Absent on runs stored before this
+   * field existed.
+   */
+  groundSpeedAtDeployment?: number | null;
   /**
    * Settled descent rate under this device: velocity just before the next
    * deployment, or the ground-hit velocity for the last (landing) device.
@@ -331,8 +350,17 @@ export interface SimRun {
   /** First deployment (kept for CSV/back-compat; see `deployments`). */
   altitudeAtDeployment: number | null;
   velocityAtDeployment: number | null;
-  /** Every recovery deployment, in order — drogue first, main later. */
-  deployments: DeploymentReport[];
+  /**
+   * Every recovery deployment, in order — drogue first, main later.
+   *
+   * OPTIONAL because a SimRun is a PERSISTED shape: the field arrived in
+   * v0.003 (commit f47481c) and the run store predates it (ee5ac71), so a
+   * history written before then revives without it. Eight call sites already
+   * read it as `?? []`; the type used to promise more than localStorage can
+   * deliver. A run this build just produced always carries it — see
+   * {@link FreshSimRun}, which is what `buildSimRun` returns.
+   */
+  deployments?: DeploymentReport[];
   /** Staged rockets: each separated stage's own flight (booster branches). */
   branches?: BranchReport[];
   /** Labels of booster/other-mount motors flown alongside the primary. */
@@ -430,6 +458,18 @@ export interface SimRun {
   conditionsKey?: string;
   comments: string;
 }
+
+/**
+ * A run THIS build just produced, as opposed to one revived from localStorage.
+ *
+ * `SimRun` is the persisted shape, and every field added after the store
+ * existed has to be optional there — a five-hundred-flight history written
+ * across two months of releases genuinely does not carry them all. A run
+ * `buildSimRun` returns is different: it was written by the code below, so the
+ * fields that code always writes are always there. Saying so here is what
+ * keeps the optional-on-disk fields from forcing a `!` on every fresh run.
+ */
+export type FreshSimRun = SimRun & { deployments: DeploymentReport[] };
 
 /**
  * The launch panel's time-step-caution cost reference when this session has
@@ -671,9 +711,47 @@ export function shortHash(s: string): string {
  */
 export function conditionsKeyOf(launch: LaunchConditions): string {
   const l = launch as unknown as Record<string, unknown>;
-  const keys = Object.keys(l).sort();
+  // ABSENT AND CLEARED ARE THE SAME FLIGHT, so they must hash the same.
+  //
+  // This used to be `Object.keys(launch)` alone, which emitted no segment at
+  // all for an absent key and `<key>=` for the same key present with null.
+  // Only an OPTIONAL field can be absent, and `timeStepS` is the only one —
+  // but it is also the one the panel writes `null` into when its box is
+  // cleared (LaunchPanel's LaunchField.onCommit), while DEFAULT_CONDITIONS
+  // simply omits it. Both fly the engine default: `kernelSimOptions` spreads
+  // `timeStep` only when `l.timeStepS != null`. So typing into Time step and
+  // clearing it again changed the key without changing the physics, and the
+  // launch report then told the user their just-flown run predated a change to
+  // the launch conditions — the one accusation `changedSinceRun` exists to
+  // avoid. It also made `runMatchesDesign` false, which disables the
+  // "Show charts" re-fly and blocks the run's numbers from an exported .ork
+  // <flightdata> block.
+  //
+  // The two states fold onto the ABSENT spelling, not the `<key>=` one, and
+  // that direction is load-bearing: absent is what every conditionsKey already
+  // in a user's run history uses for an unset time step, so folding this way
+  // leaves those runs comparable. A null in a REQUIRED field keeps its
+  // `<key>=` segment for the same reason — DEFAULT_CONDITIONS leaves
+  // temperatureC and pressureHPa null, so every stored key carries
+  // `temperatureC=|pressureHPa=` and dropping them would re-accuse the whole
+  // history of a conditions change on the release that "fixed" this.
+  const keys = Object.keys(l)
+    .filter((k) => l[k] != null || REQUIRED_CONDITION_KEYS.has(k))
+    .sort();
   return keys.map((k) => `${k}=${String(l[k] ?? '')}`).join('|');
 }
+
+/**
+ * The non-optional fields of `LaunchConditions` (LaunchPanel.tsx) — listed as
+ * data because a TypeScript type cannot be enumerated at runtime. A field
+ * added to that interface and not added here still hashes; it merely loses the
+ * absent/null equivalence above until it is listed, which matters only for a
+ * field that is optional there.
+ */
+const REQUIRED_CONDITION_KEYS: ReadonlySet<string> = new Set([
+  'launchRodLengthM', 'launchRodAngleDeg', 'windAverage', 'windStdDev',
+  'launchAltitudeM', 'temperatureC', 'pressureHPa', 'latitudeDeg',
+]);
 
 /**
  * Linear interpolation of a series value at time t.
@@ -796,7 +874,30 @@ function extractDeployments(
   return deployEvents.map((ev, i) => {
     const device = ev.source ?? `Recovery device ${i + 1}`;
     const isLanding = i === deployEvents.length - 1;
-    const vDeploy = at(series.time, series.velocity, ev.time);
+    const vGroundRaw = at(series.time, series.velocity, ev.time);
+    const groundSpeedAtDeployment = vGroundRaw === null ? null : Math.abs(vGroundRaw);
+    /**
+     * WIND IS NOT AN OPENING SHOCK — the same misattribution v0.100 removed
+     * from the descent rate, two lines below and left unfixed here.
+     *
+     * `series.velocity` is TYPE_VELOCITY_TOTAL, speed over the GROUND. For the
+     * FIRST device the rocket is still flying its own trajectory, so that is
+     * the honest reading. For every device AFTER it the rocket has spent the
+     * whole previous descent under canopy, where drag has relaxed its
+     * horizontal velocity to the wind — so the ground speed is √(v_z² + w²)
+     * and the wind was being charged against `SAFETY.maxDeploymentVelocity`.
+     *
+     * Measured consequence: with the owner's reference 5 m/s wind, a drogue
+     * descending at 20.8 m/s — INSIDE the app's own accepted drogue band,
+     * which tops out at 21.34 — made the main report √(20.8²+5²) = 21.39 and
+     * fail, painting a red "hard opening" and a failed "Safe deployment" on a
+     * main that met the air at 20.8 m/s (68 ft/s). The effective allowed drogue
+     * rate fell to √(21.34² − w²): 20.74 m/s at 5 m/s of wind, 18.9 at 10,
+     * 15.2 — the very bottom of the accepted band — at 15.
+     */
+    const vDeploy = i === 0
+      ? vGroundRaw
+      : (verticalRateAt(series, ev.time) ?? vGroundRaw);
     // The instant this device's descent is settled: at the ground hit, or just
     // before the next device opens. GROUND_HIT rather than the last SAMPLE: with a
     // device still queued at impact the kernel stores one extra all-zero sample
@@ -822,6 +923,7 @@ function extractDeployments(
       time: ev.time,
       altitude: at(series.time, series.altitude, ev.time),
       velocityAtDeployment: vDeploy,
+      groundSpeedAtDeployment,
       descentRate,
       groundSpeed,
       isLanding,
@@ -1069,7 +1171,7 @@ export function buildSimRun(input: {
   motorSetKey?: string;
   /** What the kernel was handed for each recovery device — see FlownRecoveryDevice. */
   flownRecovery?: Record<string, FlownRecoveryDevice>;
-}): SimRun {
+}): FreshSimRun {
   const { result, info, motor, meta, launch, rocketName, execMs, stageMotorInfo, boosterMotors, aeroModel, rogersKbf, motorConfig, flightConfig, flightConfigId, designKey, motorSetKey, flownRecovery } = input;
   const { summary, series } = result;
 
@@ -1123,8 +1225,6 @@ export function buildSimRun(input: {
           : info.length) * 100;
 
   const altitudeAtDeployment = tDeploy !== null ? at(series.time, series.altitude, tDeploy) : null;
-  const velocityAtDeployment = summary.deploymentVelocity
-    ?? (tDeploy !== null ? at(series.time, series.velocity, tDeploy) : null);
 
   // Per-device deployment reports (dual deploy: drogue at apogee, main at
   // altitude). Descent rate under a device = velocity just before the NEXT
@@ -1132,6 +1232,21 @@ export function buildSimRun(input: {
   const deployments = extractDeployments(result.events, series,
     Number.isFinite(summary.groundHitVelocity) ? summary.groundHitVelocity : null,
     tGround, flownRecovery);
+
+  /**
+   * The FIRST deployment's own opening speed, to match `altitudeAtDeployment`
+   * standing beside it — and `summary.deploymentVelocity` is NOT that.
+   * FlightData.java:240-243 assigns that field inside a loop over EVERY flight
+   * event, so on a dual-deploy rocket the LAST device wins: the field this app
+   * documents as "first deployment" was carrying the main's speed, over the
+   * ground, wind included. Reading it out of `deployments[0]` also inherits
+   * that report's airspeed correction (see extractDeployments). The summary
+   * stays as the fallback for a payload that reports a deployment velocity
+   * without a deployment event to hang it on.
+   */
+  const velocityAtDeployment = deployments[0]?.velocityAtDeployment
+    ?? summary.deploymentVelocity
+    ?? (tDeploy !== null ? at(series.time, series.velocity, tDeploy) : null);
 
   // Booster branches (staged flights): each separated stage flies its OWN
   // descent — apogee, recovery (or tumble), and landing verdict per stage.
@@ -1231,7 +1346,15 @@ export function buildSimRun(input: {
   }
   for (const d of deployments) {
     if (d.openingOk === false) {
-      comments.push(`${d.device} opens at ${Math.abs(d.velocityAtDeployment!).toFixed(1)} m/s (${fps(Math.abs(d.velocityAtDeployment!))}) — hard opening, over the ${fps(SAFETY.maxDeploymentVelocity)} threshold.`);
+      // Names the ground speed too when the two differ, for the reason the
+      // landing sentence below does: both figures are on screen in the
+      // deployment table, and a sentence quoting only one reads as a
+      // contradiction of the other.
+      const air = Math.abs(d.velocityAtDeployment!);
+      const over = d.groundSpeedAtDeployment != null && d.groundSpeedAtDeployment - air > 0.1
+        ? ` It is moving ${d.groundSpeedAtDeployment.toFixed(1)} m/s (${fps(d.groundSpeedAtDeployment)}) over the ground, the rest of that being wind drift.`
+        : '';
+      comments.push(`${d.device} opens at ${air.toFixed(1)} m/s (${fps(air)}) — hard opening, over the ${fps(SAFETY.maxDeploymentVelocity)} threshold.${over}`);
     }
     if (d.descentOk === false && !d.isLanding) {
       comments.push(`Descent under ${d.device} is ${d.descentRate!.toFixed(1)} m/s (${fps(d.descentRate!)}) — faster than the accepted ${fps(SAFETY.maxDrogueDescentRate)} drogue band.`);

@@ -2,8 +2,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
 import type { ComponentNode, RocketTree, StaticInfo } from '@online-openrocket/engine';
+// buildPieces moved to tree/pieces.ts so Save STL/OBJ/glTF stop pulling in
+// react-three-fiber and drei; the camera and marker helpers stay with the view.
+import { buildPieces } from '../tree/pieces.js';
 import {
-  buildPieces, calloutGadget, exportCamera, fitCameraToBox, FIT_MARGIN, isFittableBox,
+  calloutGadget, exportCamera, fitCameraToBox, FIT_MARGIN, isFittableBox,
   markerVisibility, piecesBounds,
 } from './Rocket3D.js';
 
@@ -518,10 +521,15 @@ describe('calloutGadget — the offset CG/CP gadget', () => {
   });
 
   it('formats the margin and colors it by stability state (dark-theme hexes)', () => {
+    // v0.105: the verdict is carried by a GLYPH and a WORD as well as the
+    // colour — the same string the 2D schematic builds. It used to be the bare
+    // number, so the whole under/over/ok distinction rode on three hexes and
+    // vanished for a red-green colour-blind reader in the one view people
+    // rotate to inspect a build.
     const at = (cal: number) => calloutGadget(infoOf({ stabilityCalibers: cal }), MAX_R, LEN)!.margin!;
-    expect(at(1.67)).toMatchObject({ text: '1.67 cal', color: '#4dbd4d' });  // ok
-    expect(at(0.42)).toMatchObject({ text: '0.42 cal', color: '#f0716f' });  // under: the dangerous case
-    expect(at(3.5)).toMatchObject({ text: '3.50 cal', color: '#e0a53d' });   // over: weathercocking caution
+    expect(at(1.67)).toMatchObject({ text: '✓ 1.67 cal — ok', color: '#4dbd4d' });
+    expect(at(0.42)).toMatchObject({ text: '⚠ 0.42 cal — under-stable', color: '#f0716f' });
+    expect(at(3.5)).toMatchObject({ text: '△ 3.50 cal — over-stable', color: '#e0a53d' });
   });
 
   it('skips the margin when stability is unknown, the whole gadget without CG+CP', () => {

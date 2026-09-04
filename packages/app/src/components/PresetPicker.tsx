@@ -71,6 +71,22 @@ export function PresetPicker({ type, onApply, onClose }: {
       `presets-${kind}.csv`, 'Comma-separated values');
   };
 
+  /**
+   * A material density that did not parse is worse than a missing one.
+   * `csvToPresets` sets `density: Number(cell)` with no finite check (unlike
+   * the dimensional columns beside it), and a spreadsheet round-trip readily
+   * writes "1,250" (thousands separator, or a non-en locale) or "0.68 g/cm3" —
+   * both `NaN`. Storing that row puts the material NAME on the component while
+   * the density is silently dropped (JSON.stringify turns NaN into null and
+   * presetPatch skips null), so a part relabelled fibreglass keeps on being
+   * weighed as cardboard, with no error and no red field anywhere. Reject the
+   * row at import instead, and name it.
+   */
+  const badDensity = (d: unknown) => !(typeof d === 'number' && Number.isFinite(d) && d > 0);
+  const rowIsSound = (p: Preset) =>
+    !(p.material && badDensity(p.material.density))
+    && !(p.lineMaterial && badDensity(p.lineMaterial.density));
+
   const importCsv = async (file: File) => {
     try {
       const parsed = csvToPresets(await file.text());
@@ -78,13 +94,34 @@ export function PresetPicker({ type, onApply, onClose }: {
         setNote('No presets found in that CSV.');
         return;
       }
+      const good = parsed.filter(rowIsSound);
+      const dropped = parsed.length - good.length;
+      const droppedNote = dropped > 0
+        ? ` ${dropped} row(s) skipped — the material density was not a plain number`
+          + ` (first: ${parsed.find((p) => !rowIsSound(p))!.partNo}).`
+        : '';
+      if (good.length === 0) {
+        setNote(`Nothing imported.${droppedNote}`);
+        return;
+      }
       // Imported rows replace custom presets with the same kind+manufacturer+partNo.
       const key = (p: Preset) => `${p.kind}|${p.manufacturer}|${p.partNo}`;
-      const keep = loadCustomPresets().filter((p) => !parsed.some((q) => key(q) === key(p)));
-      saveCustomPresets([...keep, ...parsed]);
+      const keep = loadCustomPresets().filter((p) => !good.some((q) => key(q) === key(p)));
+      saveCustomPresets([...keep, ...good]);
+      // Read the store back before claiming the import worked.
+      // `saveCustomPresets` swallows the setItem failure and returns void, and
+      // localStorage is the ONLY place custom presets live — there is no
+      // in-memory copy — so on a QuotaExceededError (a re-imported ~1,300-row
+      // tube list, a private window, blocked site data) the table quietly
+      // reloads the OLD rows while the note claims the new ones were stored.
+      const stored = new Set(loadCustomPresets().map(key));
+      const missing = good.filter((p) => !stored.has(key(p))).length;
       setAll(null);
       loadPresets().then(setAll);
-      setNote(`Imported ${parsed.length} preset(s) — stored in this browser.`);
+      setNote(missing > 0
+        ? `Could not store ${missing} of ${good.length} preset(s) — this browser's storage`
+          + ` is full or blocked, so they are not in the list.${droppedNote}`
+        : `Imported ${good.length} preset(s) — stored in this browser.${droppedNote}`);
     } catch (e) {
       setNote(`CSV import failed: ${e instanceof Error ? e.message : e}`);
     }
@@ -116,7 +153,12 @@ export function PresetPicker({ type, onApply, onClose }: {
         </div>
 
         <div className="motor-filter-row" style={{ marginBottom: 8 }}>
+          {/* A placeholder is not an accessible name — a screen reader reached
+              this box as a bare "search edit". The label also has to name the
+              THIRD field the filter matches: manufacturer, added with the
+              2026-09-01a consolidation (see the rows filter above). */}
           <input type="search" placeholder="Search part number / description…" style={{ flex: 1 }}
+            aria-label="Search part number, description or manufacturer"
             value={text} onChange={(e) => setText(e.target.value)} />
           <select aria-label="Filter by manufacturer" value={mfr}
             onChange={(e) => setMfr(e.target.value)} style={{ maxWidth: 220 }}>

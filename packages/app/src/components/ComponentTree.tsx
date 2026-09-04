@@ -29,31 +29,53 @@ function NodeRow({ node, depth, selectedId, soleStageId, onSelect, onMove, onDel
   onCut: (id: string) => void;
 }) {
   const selected = node.id === selectedId;
+  const label = node.name ?? DISPLAY_NAME[node.type];
   return (
     <>
+      {/* role="treeitem": `aria-selected` has no defined meaning on a bare
+          <div>, so the selection this row spends a CSS class advertising was
+          invisible to assistive tech. The rows are a flattened tree — every
+          level is always shown — so aria-level carries the nesting the
+          indentation shows, and aria-expanded is stated only where there is
+          something to expand. The `.tree-box` wrapper below is role="tree". */}
       <div
         className={`tree-row ${selected ? 'tree-row-selected' : ''}`}
         style={{ paddingLeft: 8 + depth * 14 }}
+        role="treeitem"
+        aria-level={depth + 1}
         aria-selected={selected}
+        {...(node.children?.length ? { 'aria-expanded': true } : {})}
         {...clickable(() => onSelect(node.id!))}
       >
         <span className="tree-icon">{TYPE_ICON[node.type] ?? '·'}</span>
-        <span className="tree-label">{node.name ?? DISPLAY_NAME[node.type]}</span>
+        <span className="tree-label">{label}</span>
         {node.type === 'stage' && <span className="tree-badge">stage</span>}
         {node['motorMount'] === true && <span className="tree-badge">motor</span>}
         {selected && (
+          // Each aria-label names the COMPONENT as well as the action: the six
+          // buttons repeat on every selected row, and a glyph alone announced
+          // as "scissors button" / "multiplication sign button" gave no way to
+          // tell Cut from Delete before pressing one — and Delete removes a
+          // component. `title` cannot do this job: name-from-content wins over
+          // it, so the glyph WAS the accessible name.
           <span className="tree-actions" onClick={(e) => e.stopPropagation()}>
-            <button title="Move up" onClick={() => onMove(node.id!, -1)}>↑</button>
-            <button title="Move down" onClick={() => onMove(node.id!, 1)}>↓</button>
-            <button title="Duplicate (deep copy)" onClick={() => onDuplicate(node.id!)}>⧉</button>
+            <button title="Move up" aria-label={`Move ${label} up`}
+              onClick={() => onMove(node.id!, -1)}>↑</button>
+            <button title="Move down" aria-label={`Move ${label} down`}
+              onClick={() => onMove(node.id!, 1)}>↓</button>
+            <button title="Duplicate (deep copy)" aria-label={`Duplicate ${label}`}
+              onClick={() => onDuplicate(node.id!)}>⧉</button>
             {node.type !== 'stage' && (
               <>
-                <button title="Copy — then paste into another component" onClick={() => onCopy(node.id!)}>⎘</button>
-                <button title="Cut — then paste into another component" onClick={() => onCut(node.id!)}>✂</button>
+                <button title="Copy — then paste into another component"
+                  aria-label={`Copy ${label}`} onClick={() => onCopy(node.id!)}>⎘</button>
+                <button title="Cut — then paste into another component"
+                  aria-label={`Cut ${label}`} onClick={() => onCut(node.id!)}>✂</button>
               </>
             )}
             {node.id !== soleStageId && (
-              <button title="Delete" onClick={() => onDelete(node.id!)}>✕</button>
+              <button title="Delete" aria-label={`Delete ${label}`}
+                onClick={() => onDelete(node.id!)}>✕</button>
             )}
           </span>
         )}
@@ -156,8 +178,15 @@ export function ComponentTree({
 
   return (
     <div>
-      <div className="tree-box">
-        <div className="tree-row tree-row-root" onClick={() => onSelect('')}>
+      <div className="tree-box" role="tree" aria-label="Rocket components">
+        {/* The root row was a bare onClick div — no tab stop, no key handler —
+            while every other row went through clickable(). Selecting the root
+            is the ONLY way to reach the rocket-level property panel, so that
+            panel was unreachable without a mouse. */}
+        <div className="tree-row tree-row-root"
+          role="treeitem" aria-level={1} aria-selected={selectedId === ''}
+          aria-expanded={tree.components.length > 0}
+          {...clickable(() => onSelect(''))}>
           <span className="tree-icon"><Icon name="rocket" size={12} /></span>
           <span className="tree-label">{tree.name ?? 'Rocket'}</span>
         </div>

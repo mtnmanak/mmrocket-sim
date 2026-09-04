@@ -111,3 +111,78 @@ describe('.ork round-trip preserves every clock angle and radial offset', () => 
     expect(typeof lug['angleOffset'] === 'undefined' || lug['angleOffset'] === 0).toBe(true);
   });
 });
+
+/**
+ * v0.105 — the OTHER half of the same fact, and the half that was still
+ * missing after v0.087 fixed the file round-trip.
+ *
+ * The values survived the file and reached both drawings, but the KERNEL
+ * BRIDGE never called setRadialPosition/setRadialDirection, so every inner
+ * tube and every mass object still flew on the centreline. Proof it was
+ * genuinely absent rather than merely unused: those two symbols occurred ZERO
+ * times in packages/engine/vendor/orkengine.mjs before this change and ten
+ * times after — TeaVM had dead-code-eliminated methods nothing called.
+ *
+ * Rotational inertia is the discriminator. Moving mass off the roll axis
+ * cannot change the total mass and barely moves the longitudinal CG, but it
+ * raises the roll inertia by m*r^2 — so this is the number that proves the
+ * offset reached the physics rather than only the picture.
+ */
+describe('a radial offset reaches the kernel, not just the drawing', () => {
+  const design = (offsetM: number): RocketTree => ({
+    name: 'radial',
+    components: [{
+      type: 'stage', id: 's', name: 'Stage',
+      children: [{
+        type: 'bodytube', id: 'bt', name: 'Body',
+        length: 0.4, outerRadius: 0.04, thickness: 0.001,
+        children: [
+          {
+            type: 'masscomponent', id: 'w', name: 'Ballast',
+            mass: 0.25, length: 0.03, radius: 0.006,
+            axialMethod: 'top', axialOffset: 0.1,
+            radialPosition: offsetM, radialDirection: 0,
+          } as ComponentNode,
+        ],
+      } as ComponentNode],
+    } as ComponentNode],
+  });
+
+  it('raises roll inertia by the parallel-axis term, and scales as r²', async () => {
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    const { engineTree } = await import('../tree/treeModel.js');
+    const info = (r: number) => {
+      resetEngine();
+      return OrkRocket.buildTree(engineTree(design(r))).staticInfo();
+    };
+    const onAxis = info(0);
+    const half = info(0.0125);
+    const full = info(0.025);
+
+    // Same rocket, same material: moving mass sideways cannot change how much
+    // of it there is, and cannot change the inertia about a transverse axis.
+    expect(full.mass).toBeCloseTo(onAxis.mass, 12);
+    expect(full.longitudinalInertia).toBeCloseTo(onAxis.longitudinalInertia, 12);
+
+    // MassObject.getComponentCG() carries the offset as shiftY/shiftZ, so the
+    // WHOLE ROCKET's CG moves off the roll axis too. The roll inertia is
+    // reported about that shifted CG, so the gain is the parallel-axis term
+    // less what the composite centroid takes back:
+    //     ΔIrr = m·r² − M·(m·r/M)² = m·r²·(1 − m/M)
+    // 0.25 kg at 25 mm on a 0.3175 kg rocket: 1.5625e-4 × 0.2126 = 3.322e-5.
+    const m = 0.25;
+    const M = onAxis.mass;
+    const predicted = (r: number) => m * r * r * (1 - m / M);
+    expect(full.rotationalInertia - onAxis.rotationalInertia).toBeCloseTo(predicted(0.025), 8);
+    expect(half.rotationalInertia - onAxis.rotationalInertia).toBeCloseTo(predicted(0.0125), 8);
+
+    // And it is quadratic in the offset, which is the signature of a real
+    // moment arm rather than a number that merely changed.
+    const dFull = full.rotationalInertia - onAxis.rotationalInertia;
+    const dHalf = half.rotationalInertia - onAxis.rotationalInertia;
+    expect(dFull / dHalf).toBeCloseTo(4, 6);
+
+    // Before v0.105 every one of these differences was exactly zero.
+    expect(dHalf).toBeGreaterThan(0);
+  });
+});

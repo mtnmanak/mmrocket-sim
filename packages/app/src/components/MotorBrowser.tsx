@@ -3,7 +3,7 @@ import { clickable } from './clickable.js';
 import { useDialog } from './useDialog.js';
 import type { MotorSpec } from '@online-openrocket/engine';
 import {
-  MOTOR_DB, MOTOR_DB_DATE, classLabel, classesFittingMount, diameterClass,
+  MOTOR_DB, MOTOR_DB_DATE, classLabel, classesFittingMount,
   displayDesignation, filterMotors, hasMassData, impulseClassesForMount, isHighPower,
   manufacturersForMount, propellantsForMount, rangesForMount,
   sortMotors, type MotorDbEntry, type MotorSortKey,
@@ -334,6 +334,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
           <div className="motor-filter-row">
             <input
               type="search"
+              aria-label="Search motor designation"
               placeholder="Search designation…"
               value={text}
               onChange={(e) => setText(e.target.value)}
@@ -460,10 +461,17 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
             <thead>
               <tr>
                 {SORTABLE.map(({ key, label }) => (
-                  <th key={key} onClick={() => onHeader(key)} role="button" tabIndex={0}
+                  // NO role="button" here. `aria-sort` is defined only on a
+                  // columnheader, so overriding the <th>'s implicit role made
+                  // the aria-sort on this very element inert — the reader said
+                  // "Impulse (Ns), button" and never "sorted descending" — and
+                  // it cost the 400 data rows below their column headers, so a
+                  // cell no longer announced which column it was in. tabIndex
+                  // plus onKeyDown give the tab stop and Enter/Space activation
+                  // WITHOUT touching the role, which is the same rule
+                  // clickable() follows for this file's data rows.
+                  <th key={key} onClick={() => onHeader(key)} tabIndex={0}
                     onKeyDown={(e) => {
-                      // role="button" promises keyboard activation; without this
-                      // sorting was mouse-only (the last named a11y defect).
                       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onHeader(key); }
                     }}
                     aria-sort={filters.sortKey === key ? (filters.sortDir === 1 ? 'ascending' : 'descending') : undefined}>
@@ -528,6 +536,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
                     </span>
                     {' '}
                     <button className="fin-row-del" title="Remove this imported motor"
+                      aria-label="Remove this imported motor"
                       onClick={() => {
                         setExMotors(deleteExMotor(picked.motorId));
                         setPicked(null);

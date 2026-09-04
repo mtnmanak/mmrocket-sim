@@ -26,7 +26,7 @@ import { writeFileSync, mkdirSync, readdirSync, readFileSync, existsSync } from 
 import { fileURLToPath } from 'node:url';
 import { openrocketSrcRoot } from '../../../scripts/openrocket-src.mjs';
 import { dirname, join } from 'node:path';
-import { mfrDisplay, mfrKey, presetKey, spellingConflicts } from './manufacturers.mjs';
+import { mfrDisplay, presetKey, spellingConflicts } from './manufacturers.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const OUT_PATH = join(__dirname, '..', 'src', 'data', 'presets.json');
@@ -58,7 +58,6 @@ const DESKTOP_COMPONENTS_DIR = SRC_ROOT
 // script, apply-preset-corrections.mjs and merge-rocksim-parts.mjs. There used
 // to be three, and merge-rocksim's was missing `semrocastronautics`, which is
 // how 88 "SEMROC Astronautics" rows shipped alongside 1,693 "SEMROC".
-const normMfr = mfrKey;
 
 /** Identity for dedupe across sources — shared, see ./manufacturers.mjs. */
 
@@ -144,11 +143,6 @@ const STRING_FIELDS = new Set(['Shape', 'FinishMaterial']);
 
 // Boolean fields.
 const BOOL_FIELDS = new Set(['Filled']);
-
-// Metadata fields handled specially.
-const META_FIELDS = new Set([
-  'Manufacturer', 'PartNumber', 'Description', 'Material', 'LineMaterial', 'Mass',
-]);
 
 // ---------------------------------------------------------------------------
 // Tiny tolerant XML helpers
