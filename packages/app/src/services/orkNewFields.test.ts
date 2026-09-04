@@ -437,3 +437,195 @@ describe('.ork round-trip of the v0.088 shroud fields', () => {
     expect(shroudEnds(twice)).toEqual({ fore: 'box', aft: 'box' });
   });
 });
+
+/**
+ * v0.103 — the rail button's five other dimensions, and its material.
+ *
+ * Until this release the .ork reader took `outerdiameter` and nothing else,
+ * and the writer emitted SIX literals over whatever the user had: material
+ * Delrin 1420, innerdiameter 0.008, height 0.0097, baseheight 0.002,
+ * flangeheight 0.002, screwheight 0.0. So a desktop file's real button was
+ * destroyed on the first save this app made — the same write-only-field
+ * data-loss shape as v0.087, but on a part that also flies: total height sets
+ * the drag reference area (RailButtonCalc.java:57-60) AND, a second time, the
+ * boundary-layer velocity discount (:85-92), so the error is superlinear.
+ *
+ * Both directions are asserted. The IMPORT half proves the keys arrive; the
+ * EXPORT half is the one that catches a regression back to `<height>0.0097`.
+ */
+describe('.ork round-trip of the rail-button geometry fields', () => {
+  const button = (over: Record<string, unknown>): RocketTree => ({
+    name: 'Buttons',
+    components: [{
+      type: 'bodytube', id: 'b1', length: 0.9, outerRadius: 0.027, thickness: 0.001,
+      children: [{
+        type: 'railbutton', id: 'rb1', name: 'RB',
+        position: { method: 'middle', offset: 0 }, ...over,
+      }],
+    }],
+  } as unknown as RocketTree);
+
+  const back = (tree: RocketTree) => {
+    const t = importOrk(exportOrk({ name: 'Buttons', tree })).tree;
+    return t.components[0]!.children![0]!.children!.find((c) => c.type === 'railbutton')!;
+  };
+
+  // SS Wild Bash 20260623v0.ork's RB1515S pair — the tallest real button in the
+  // corpus (14.224 mm against the 9.7 mm we used to fly), and one of the three
+  // corpus files carrying its own density, where the Delrin literal used to
+  // inflate button mass by +42 % on every save.
+  const WILD_BASH = {
+    outerDiameter: 0.012446, innerDiameter: 0.007366, totalHeight: 0.014224,
+    baseHeight: 0.0047625, flangeHeight: 0.0047625, screwHeight: 0,
+    instanceCount: 2, instanceSeparation: 0.5,
+    density: 997.0129438821765, materialName: 'PLA',
+  };
+  // ninja_4in_54mm-MMT.ork's RB-10-D — the only corpus button with a NON-ZERO
+  // screw height, which is mass-only (RailButton.java:301-308) and appears in
+  // no drag term at all.
+  const RB_10_D = {
+    outerDiameter: 0.0070612, innerDiameter: 0.0039116, totalHeight: 0.006858,
+    baseHeight: 0.0011, flangeHeight: 0.0011, screwHeight: 0.002921,
+    density: 1263.44,
+  };
+
+  it('carries all six dimensions out and back, on a taller-than-default button', () => {
+    const b = back(button(WILD_BASH));
+    expect(b['outerDiameter']).toBeCloseTo(0.012446, 9);
+    expect(b['innerDiameter']).toBeCloseTo(0.007366, 9);
+    expect(b['totalHeight']).toBeCloseTo(0.014224, 9);
+    expect(b['baseHeight']).toBeCloseTo(0.0047625, 9);
+    expect(b['flangeHeight']).toBeCloseTo(0.0047625, 9);
+    expect(b['screwHeight']).toBe(0);
+    expect(b['instanceCount']).toBe(2);
+  });
+
+  it('keeps a non-zero screw height, which only mass can see', () => {
+    expect(back(button(RB_10_D))['screwHeight']).toBeCloseTo(0.002921, 9);
+    expect(back(button(RB_10_D))['totalHeight']).toBeCloseTo(0.006858, 9);
+  });
+
+  it('writes the node values, not the old literals', () => {
+    const xml = exportOrk({ name: 'Buttons', tree: button(WILD_BASH) });
+    expect(xml).toContain('<outerdiameter>0.012446</outerdiameter>');
+    expect(xml).toContain('<innerdiameter>0.007366</innerdiameter>');
+    expect(xml).toContain('<height>0.014224</height>');
+    expect(xml).toContain('<baseheight>0.0047625</baseheight>');
+    expect(xml).toContain('<flangeheight>0.0047625</flangeheight>');
+    expect(xml).toContain('<screwheight>0</screwheight>');
+    // Every one of the five geometry literals, named. These are what a desktop
+    // file's real button was being replaced with on save.
+    expect(xml).not.toContain('<innerdiameter>0.008</innerdiameter>');
+    expect(xml).not.toContain('<height>0.0097</height>');
+    expect(xml).not.toContain('<baseheight>0.002</baseheight>');
+    expect(xml).not.toContain('<flangeheight>0.002</flangeheight>');
+    expect(xml).not.toContain('<screwheight>0.0</screwheight>');
+  });
+
+  it("keeps the design's own material density instead of stamping Delrin 1420", () => {
+    const xml = exportOrk({ name: 'Buttons', tree: button(WILD_BASH) });
+    expect(xml).toContain('density="997.0129438821765"');
+    expect(xml).not.toContain('density="1420.0"');
+    expect(back(button(WILD_BASH)).density).toBeCloseTo(997.0129438821765, 9);
+    // A 1263.44 kg/m3 button is a different part again.
+    expect(back(button(RB_10_D)).density).toBeCloseTo(1263.44, 9);
+  });
+
+  it('falls back to the kernel constructor, not to Cardboard, for an undimensioned button', () => {
+    // A button carrying nothing but a position — an old localStorage design, or
+    // the pre-v0.103 shape of every button this app created. Every layer has to
+    // agree on what it is, because the engine flies it as the RailButton
+    // constructor's own part (RailButton.java:58-66: OD 9.7, ID 8.0, height
+    // 9.7, base 2.0, flange 2.0 mm, Delrin 1420). The generic material() helper
+    // would have written Cardboard 680 here, which is the same class of quiet
+    // corruption in the other direction.
+    const xml = exportOrk({ name: 'Buttons', tree: button({}) });
+    expect(xml).toContain('<outerdiameter>0.0097</outerdiameter>');
+    expect(xml).toContain('<innerdiameter>0.008</innerdiameter>');
+    expect(xml).toContain('<height>0.0097</height>');
+    expect(xml).toContain('<baseheight>0.002</baseheight>');
+    expect(xml).toContain('<flangeheight>0.002</flangeheight>');
+    // Delrin verbatim, and Cardboard nowhere INSIDE the button (the parent body
+    // tube legitimately writes Cardboard, so the check has to be scoped).
+    expect(xml).toContain('<material type="bulk" density="1420.0" group="Plastics">Delrin</material>');
+    const block = xml.slice(xml.indexOf('<railbutton>'), xml.indexOf('</railbutton>'));
+    expect(block).not.toContain('Cardboard');
+  });
+
+  it('reads a file that omits an element as the kernel default rather than zero', () => {
+    // Desktop writes all six, but a hand-edited or older file may not. A zero
+    // height would be a degenerate part; the constructor's value is what the
+    // engine would have flown anyway.
+    const partial = `<openrocket version="1.10" creator="OpenRocket 24.12"><rocket>
+      <name>P</name><subcomponents><stage><name>S</name><subcomponents>
+        <bodytube><name>B</name><length>0.9</length><thickness>0.001</thickness><radius>0.027</radius>
+          <subcomponents>
+            <railbutton><name>RB</name><outerdiameter>0.01575</outerdiameter></railbutton>
+          </subcomponents>
+        </bodytube>
+      </subcomponents></stage></subcomponents></rocket></openrocket>`;
+    const rb = importOrk(partial).tree.components[0]!.children![0]!.children!
+      .find((c) => c.type === 'railbutton')!;
+    expect(rb['outerDiameter']).toBeCloseTo(0.01575, 9);
+    expect(rb['totalHeight']).toBeCloseTo(0.0097, 9);
+    expect(rb['innerDiameter']).toBeCloseTo(0.008, 9);
+    expect(rb['baseHeight']).toBeCloseTo(0.002, 9);
+    expect(rb['flangeHeight']).toBeCloseTo(0.002, 9);
+    expect(rb['screwHeight']).toBe(0);
+  });
+});
+
+/**
+ * v0.103 — an explicit zero mounting angle is a VALUE, not an absence.
+ *
+ * `readMountAngle` used to skip `deg === 0`, so a desktop file storing
+ * `<angleoffset>0.0</angleoffset>` — a lug at the top of the airframe — yielded
+ * a node with no key at all. That was invisible until ComponentFactory started
+ * bridging the angle to the kernel, where an absent key would have meant the
+ * constructor's default of PI: the sentinel would have turned a deliberate 0
+ * into a flown 180, silently, which is the exact inverse of the v0.087 bug the
+ * reader was written to fix in the first place.
+ */
+describe('.ork mounting angle: zero is a value, not an absence', () => {
+  const at = (degText: string) => `<openrocket version="1.10" creator="OpenRocket 24.12"><rocket>
+    <name>A</name><subcomponents><stage><name>S</name><subcomponents>
+      <bodytube><name>B</name><length>0.5</length><thickness>0.001</thickness><radius>0.027</radius>
+        <subcomponents>
+          <launchlug><name>L</name><radius>0.003</radius><length>0.04</length><thickness>0.0005</thickness>
+            <angleoffset method="relative">${degText}</angleoffset></launchlug>
+          <railbutton><name>RB</name><outerdiameter>0.0097</outerdiameter>
+            <angleoffset method="relative">${degText}</angleoffset></railbutton>
+        </subcomponents>
+      </bodytube>
+    </subcomponents></stage></subcomponents></rocket></openrocket>`;
+
+  const kids = (xml: string) => importOrk(xml).tree.components[0]!.children![0]!.children!;
+
+  it('keeps an explicit zero as an explicit zero on both parts', () => {
+    const c = kids(at('0.0'));
+    expect(c.find((n) => n.type === 'launchlug')!['angleOffset']).toBe(0);
+    expect(c.find((n) => n.type === 'railbutton')!['angleOffset']).toBe(0);
+  });
+
+  it('still reads a real angle, and still leaves a missing element absent', () => {
+    const c = kids(at('90.0'));
+    expect(c.find((n) => n.type === 'launchlug')!['angleOffset']).toBeCloseTo(Math.PI / 2, 9);
+    const noTag = `<openrocket version="1.10" creator="OpenRocket 24.12"><rocket>
+      <name>A</name><subcomponents><stage><name>S</name><subcomponents>
+        <bodytube><name>B</name><length>0.5</length><thickness>0.001</thickness><radius>0.027</radius>
+          <subcomponents>
+            <launchlug><name>L</name><radius>0.003</radius><length>0.04</length><thickness>0.0005</thickness></launchlug>
+          </subcomponents>
+        </bodytube>
+      </subcomponents></stage></subcomponents></rocket></openrocket>`;
+    expect(kids(noTag)[0]!['angleOffset']).toBeUndefined();
+  });
+
+  it('survives a save and re-open at zero', () => {
+    const once = importOrk(at('0.0')).tree;
+    const twice = importOrk(exportOrk({ name: 'A', tree: once })).tree;
+    const c = twice.components[0]!.children![0]!.children!;
+    expect(c.find((n) => n.type === 'launchlug')!['angleOffset']).toBe(0);
+    expect(c.find((n) => n.type === 'railbutton')!['angleOffset']).toBe(0);
+  });
+});

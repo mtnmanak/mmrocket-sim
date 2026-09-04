@@ -112,7 +112,7 @@ The **Design** workspace's left column is a **stage-rooted tree** of components.
 | Bulkhead | Structure | axial thickness |
 | Engine block | Structure | length, thickness |
 | Launch lug | Guide | length, outer radius, thickness, angle around body |
-| Rail button | Guide | outer diameter, number of buttons, distance between, angle around body |
+| Rail button | Guide | outer diameter, total height, inner diameter, base height, flange height, screw height, number of buttons, distance between, angle around body |
 | Camera shroud / fairing | External | length, width, height, fore/aft end shape, conformal, angle around body, as-built mass, finish |
 | Protuberance (drag bump) | External | frontal area (or width × height), drag class, count, plate angle, angle around body |
 | Parachute | Recovery | canopy diameter, Cd, spill hole ⌀, lines, deploy event |
@@ -156,6 +156,17 @@ the field put it exactly on a fin or exactly between two fins, which is where
 singular parts nearly always go. A shroud in line with a fin has the fin in
 shot.
 
+**A shroud in front of a fin now gets a sentence on the Design tab.** Put one
+within its own width of a fin's line and less than about twenty shroud heights
+ahead of that fin — which is exactly where the **▲ on a fin** button puts it —
+and the app says so, in the warning strip and in the launch report. Nothing
+about the numbers changed when that sentence arrived: the app has always charged
+that fin its full normal force, and a shroud's clock angle makes no difference
+at all to the CP, the stability margin or the drag it reports. The sentence
+exists because that is a modelling limit worth knowing about, not because the
+design is wrong. Clocking the shroud between the fins removes the question, and
+the **⟂ between fins** button beside the angle field does it in one click.
+
 Known limits, stated. The mounting angle steers the shroud's **lift** but not
 its **drag**: a shroud is charged the same drag wherever it sits around the body.
 That is exact while the rocket is flying straight — the air around a round body
@@ -164,7 +175,22 @@ presents it with the same air and the same frontal area. At an angle of attack
 there is a real difference between the windward and leeward sides, and nothing
 models it: not the app, not desktop OR, not RASAero. The wake the shroud sheds
 onto the fins downstream is not modelled either, here or anywhere else in hobby
-software, and that one **does** depend on where the shroud sits. And the coefficients
+software, and that one **does** depend on where the shroud sits. What is known
+about it is the direction: a fin sitting in that wake meets slower air than the
+app gives it, so on its own that term moves CP forward, toward less margin. What
+is not known is how much. There is no measurement anywhere of a shroud's effect
+on a downstream fin — the CFD work that raised the question reports only that
+the camera's shed wake *can interact* with the fins behind it, with no per-fin
+number attached — and the standard wake correlations are being asked to work
+well outside the range they were fitted on, where two of them disagree
+threefold on how wide the wake even is. So the app flags the geometry and
+declines to put a number on it. The nearest published bounds are for the shroud
+as a whole rather than for its wake: Ken Karbon's CFD puts the total CP change
+from a camera shroud at *"perhaps 1 caliber forward at the most"*, and Chuck
+Rogers' worked example moved a 2.63-inch rocket 0.53 caliber. Read them beside
+the finding that runs the other way, from the same CFD work: measured against
+it, Barrowman-based CP predictions sit up to **2.3 calibers too far forward**,
+so the app is already conservative on CP overall. And the coefficients
 themselves have no wind-tunnel anchor taken on a camera shroud — the nearest
 independent checks are Saturn I SA-2/SA-4 flight data and a CFD run on a
 keychain-camera shroud, both of which validate the *area-ratio* family this
@@ -196,9 +222,11 @@ for the with-base class. We compute that body CD by doing exactly what Rogers
 tells OpenRocket users to do by hand: strip the fins and every other appendage,
 run the bare airframe, and read off its drag with and without the base term. The
 property panel prints the two numbers it found for your design, so you can check
-them. They are quoted at Mach 0.3 — the same Mach as the Design tab's
+them. They are **quoted** at Mach 0.3 — the same Mach as the Design tab's
 **Cd (M0.3)** tile, which shows the *whole* rocket including fins, so expect the
-body figures to be the smaller pair.
+body figures to be the smaller pair. Quoted, not flown: Mach 0.3 is the speed the
+panel reads them out at, and in flight the bump is charged against your body's CD
+at whatever Mach it is doing at the time.
 
 That means the same cable tunnel gets a different Cd on a different rocket, which
 is the whole point: a long slender minimum-diameter bird has a much higher body
@@ -217,25 +245,36 @@ out, class and area intact.
 
 Three honest limits.
 
-1. The drag is **Mach-flat**. RASAero re-evaluates the body CD at every Mach, so
-   its protuberance drag tracks the body's transonic drag rise; ours is frozen at
-   **Mach 0.3**. On the NASA ARCAS the true curve runs +0.0093 to +0.0206 CD and
-   ours sits at +0.0158 — inside the band everywhere, exact around M0.3–0.6, low
-   at the transonic peak. If your flight lives up there, read your body CD off
-   the **Drag** tab at your own max-Q Mach and type it into the Cd field.
+1. **It follows your body's drag curve, and inherits its errors.** The two
+   streamlined classes are re-evaluated at every Mach against the body CD of the
+   design you are flying, the way RASAero does it — up through the transonic peak
+   and back down above it. (Before v0.103 the number was measured once at Mach
+   0.3 and charged for the whole flight. On the NASA ARCAS airframe that was
+   +0.0275 CD at every speed, where the method's own answer runs +0.0185 to
+   +0.0333: 18 % too little exactly at the transonic peak, where a fast rocket
+   spends its max-Q, and 49 % too much at Mach 2.) The consequence is that
+   whatever the body CD gets wrong, the bump now gets wrong in proportion — and
+   it tracks the **aero model you have selected**, so turning on the supersonic
+   model raises your protuberance drag above Mach 1 along with the body's. The
+   figure the property panel prints is the Mach 0.3 reading, not the whole
+   flight's. To pin it to a fixed number instead, type a Cd in the Cd field.
    Measured data is harsher still for a *ring* right around the body: a band on a
-   cylinder adds **no** drag at all below about Mach 0.70, which no Mach-flat
-   model can reproduce.
+   cylinder adds **no** drag at all below about Mach 0.70, which no model
+   proportional to the body's CD can reproduce at any speed.
 2. It contributes **no CP shift and no normal force**, the same as RASAero. An
    asymmetric guide really does trim the rocket to a small angle of attack; that
-   is not modeled anywhere in the hobby tools.
+   is not modeled anywhere in the hobby tools. Nor does its wake reach the fins
+   behind it: a protuberance sitting in front of a fin gets the same Design-tab
+   sentence a camera shroud does, for the same reason and with the same
+   non-answer about its size — see **Camera shrouds** above.
 3. Mass is whatever you type — 0 by default. Weigh the part in if it matters.
 
 As a scale check, the four fin-root anchors on the NASA ARCAS (0.178 in² total,
-4.5 % of a 2.25-inch airframe's area) come out at **+0.0158 CD** — small, but the
-same size as the difference between a good sim and a disappointing flight. Before
-v0.069 these classes were flat constants (0.10 and 0.22) and gave +0.0098 for the
-same anchors, about 1.6× low against the method whose names they borrowed.
+4.5 % of a 2.25-inch airframe's area) come out at **+0.0158 CD** at Mach 0.3 —
+small, but the same size as the difference between a good sim and a disappointing
+flight. Before v0.069 these classes were flat constants (0.10 and 0.22) and gave
++0.0098 for the same anchors, about 1.6× low against the method whose names they
+borrowed.
 
 ### Parachute spill holes
 

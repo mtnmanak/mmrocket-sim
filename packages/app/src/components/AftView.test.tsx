@@ -222,3 +222,111 @@ describe('the camera shroud sits ON the tube, not in it', () => {
     expect(d.includes('NaN')).toBe(false);
   });
 });
+
+/**
+ * v0.103 — end-on, a rail button is NOT a circle.
+ *
+ * It is its outer diameter wide TANGENTIALLY and its total height tall
+ * RADIALLY, and on a real part those are two different numbers (a Std 1515 RB
+ * is 15.75 x 11.42 mm). This view used to draw a circle of radius OD/2 centred
+ * at bodyRadius + OD/2, so the diameter stood in for the height — a third
+ * disagreement, because the 3D view used the literal 9.7 mm and the side view
+ * used twice the radius. Now all three read `totalHeight`, which is also the
+ * dimension the kernel flies (RailButtonCalc.java:57-60).
+ */
+describe('a rail button is drawn its own height tall, not its own diameter', () => {
+  const BODY_R = 0.012;
+  // Std 1515 RB from OpenRocket's own RailButton_Database.orc — deliberately a
+  // part whose height and diameter DIFFER, so a drawing that confuses them
+  // cannot pass.
+  const OD = 0.01575;
+  const H = 0.01142;
+
+  const buttonRocket = (over: Record<string, unknown> = {}) => ({
+    name: 'Rocket',
+    components: [{
+      id: 's1', type: 'stage',
+      children: [{
+        id: 'b1', type: 'bodytube', length: 0.3, outerRadius: BODY_R,
+        children: [{
+          id: 'rb', type: 'railbutton', name: 'RB',
+          outerDiameter: OD, totalHeight: H, angleOffset: 0, ...over,
+        }],
+      }],
+    }],
+  } as unknown as RocketTree);
+
+  /** The straight-sided (non-conformal) box path this view now uses. */
+  const boxPts = () => {
+    const d = [...host.querySelectorAll('path')]
+      .map((e) => e.getAttribute('d') ?? '')
+      .find((q) => q.startsWith('M ') && !q.includes('A '));
+    expect(d, 'the button should draw a straight-sided box, not a circle').toBeTruthy();
+    return (d!.match(/-?[\d.e-]+,-?[\d.e-]+/g) ?? [])
+      .map((q) => q.split(',').map(Number) as [number, number]);
+  };
+
+  it('stands off the tube by its TOTAL HEIGHT and spans its OUTER DIAMETER', () => {
+    show(<AftView tree={buttonRocket()} />);
+    const pts = boxPts();
+    expect(pts).toHaveLength(4);
+    // Angle 0 is straight up, and P() negates y, so the outer face is at
+    // screen y = -(R + height). The old circle would have reached
+    // R + OD = 0.02775 instead; the height reaches 0.02342.
+    const outer = Math.min(...pts.map(([, y]) => y));
+    expect(-outer).toBeCloseTo(BODY_R + H, 9);
+    expect(-outer).not.toBeCloseTo(BODY_R + OD, 4);
+    // The floor sits ON the tube, and the box is OD wide across.
+    const inner = Math.max(...pts.map(([, y]) => y));
+    expect(-inner).toBeCloseTo(BODY_R, 9);
+    const xs = pts.map(([x]) => x);
+    expect(Math.max(...xs) - Math.min(...xs)).toBeCloseTo(OD, 9);
+  });
+
+  it('turns with its own mount angle and with the view roll', () => {
+    show(<AftView tree={buttonRocket({ angleOffset: Math.PI / 2 })} />);
+    // A quarter turn puts the outer face on the +z side: screen x positive,
+    // screen y ~0.
+    const pts = boxPts();
+    const far = pts.reduce((a, b) => (Math.hypot(...b) > Math.hypot(...a) ? b : a));
+    expect(far[0]).toBeGreaterThan(0);
+    expect(Math.abs(far[1])).toBeLessThan(OD);
+    // The view roll adds to it, exactly as it does for every other surface part.
+    show(<AftView tree={buttonRocket({ angleOffset: 0 })} roll={Math.PI / 2} />);
+    const rolled = boxPts().reduce((a, b) => (Math.hypot(...b) > Math.hypot(...a) ? b : a));
+    expect(rolled[0]).toBeGreaterThan(0);
+  });
+
+  it('falls back to the kernel constructor, not to the old 4 mm, when undimensioned', () => {
+    // An old design carries neither key. The engine flies such a button as the
+    // RailButton constructor's 9.7 x 9.7 mm part (RailButton.java:58-64), so
+    // that is what has to be drawn — the previous fallback of 4 mm was less
+    // than half of it.
+    show(<AftView tree={buttonRocket({ outerDiameter: undefined, totalHeight: undefined })} />);
+    const pts = boxPts();
+    const outer = Math.min(...pts.map(([, y]) => y));
+    expect(-outer).toBeCloseTo(BODY_R + 0.0097, 9);
+    const xs = pts.map(([x]) => x);
+    expect(Math.max(...xs) - Math.min(...xs)).toBeCloseTo(0.0097, 9);
+  });
+
+  it('leaves a launch lug round — it is a tube lying on the surface', () => {
+    const lug = {
+      name: 'Rocket',
+      components: [{
+        id: 's1', type: 'stage',
+        children: [{
+          id: 'b1', type: 'bodytube', length: 0.3, outerRadius: BODY_R,
+          children: [{ id: 'lg', type: 'launchlug', length: 0.05, outerRadius: 0.003, angleOffset: 0 }],
+        }],
+      }],
+    } as unknown as RocketTree;
+    show(<AftView tree={lug} />);
+    const off = [...host.querySelectorAll('circle')]
+      .map((c) => ({ x: Number(c.getAttribute('cx')), y: Number(c.getAttribute('cy')), r: Number(c.getAttribute('r')) }))
+      .find((c) => Math.abs(c.x) > 1e-9 || Math.abs(c.y) > 1e-9)!;
+    expect(off).toBeTruthy();
+    expect(off.r).toBeCloseTo(0.003, 9);
+    expect(-off.y).toBeCloseTo(BODY_R + 0.003, 9);
+  });
+});

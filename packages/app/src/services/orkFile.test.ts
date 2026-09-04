@@ -832,7 +832,11 @@ describe('.ork round-trip preservation of data the app does not model yet', () =
           <centeringring><name>CRs</name><length>0.003</length>
             <instancecount>3</instancecount><instanceseparation>0.05</instanceseparation>
           </centeringring>
-          <railbutton><name>Buttons</name><outerdiameter>0.0097</outerdiameter>
+          <railbutton><name>Buttons</name>
+            <material type="bulk" density="997.0129438821765">PLA</material>
+            <outerdiameter>0.012446</outerdiameter><innerdiameter>0.007366</innerdiameter>
+            <height>0.014224</height><baseheight>0.0047625</baseheight>
+            <flangeheight>0.0047625</flangeheight><screwheight>0.002921</screwheight>
             <instancecount>2</instancecount><instanceseparation>0.4</instanceseparation>
           </railbutton>
         </subcomponents>
@@ -873,6 +877,22 @@ describe('.ork round-trip preservation of data the app does not model yet', () =
     expect(ringBack['instanceSeparation']).toBeCloseTo(0.05, 9);
     const buttons = flatten(back.tree.components).find((c) => c.type === 'railbutton')!;
     expect(buttons['instanceCount']).toBe(2);
+    // ...and the button's GEOMETRY survives the same trip. Until v0.103 the
+    // exporter wrote six literals over it (innerdiameter 0.008, height 0.0097,
+    // baseheight 0.002, flangeheight 0.002, screwheight 0.0 and a Delrin 1420
+    // material), so this 1515-class button came back out as a generic 9.7 mm
+    // one and the user's own file was overwritten with it.
+    expect(buttons['outerDiameter']).toBeCloseTo(0.012446, 9);
+    expect(buttons['innerDiameter']).toBeCloseTo(0.007366, 9);
+    expect(buttons['totalHeight']).toBeCloseTo(0.014224, 9);
+    expect(buttons['baseHeight']).toBeCloseTo(0.0047625, 9);
+    expect(buttons['flangeHeight']).toBeCloseTo(0.0047625, 9);
+    expect(buttons['screwHeight']).toBeCloseTo(0.002921, 9);
+    expect(buttons.density).toBeCloseTo(997.0129438821765, 9);
+    // The literals themselves, named, so a regression to them is unmissable.
+    expect(xml).not.toContain('<height>0.0097</height>');
+    expect(xml).not.toContain('<innerdiameter>0.008</innerdiameter>');
+    expect(xml).not.toContain('density="1420.0"');
   });
 
   it('tells the user what is preserved-but-not-simulated rather than staying silent', () => {

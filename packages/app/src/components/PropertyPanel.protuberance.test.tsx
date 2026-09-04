@@ -129,4 +129,44 @@ describe('PropertyPanel — protuberance Cd sentence', () => {
     mount(onBody({ dragClass: 'wharrgarbl' }));
     expect(stats()).toContain('including base drag');
   }, 60000);
+
+  /**
+   * THE PANEL MAY NO LONGER SAY THE NUMBER IS FROZEN (v0.103). It said two things
+   * that stopped being true on the same day: that the delivered figure applies "at
+   * every Mach", and — in as many words — that "RASAero re-evaluates it at every
+   * Mach … we freeze it at Mach 0.3". The kernel now carries the area ratio and
+   * re-evaluates it against the body CD at the Mach being flown, so the printed
+   * figure is the Mach 0.3 READING and nothing else.
+   *
+   * The pair of cases matters more than either alone: the flat wording is still
+   * correct for the classes that really are flat, and deleting it everywhere would
+   * be a second false sentence in the other direction.
+   */
+  it('stops claiming the streamlined figure is frozen, and says which Mach it is', () => {
+    mount(onBody({ dragClass: 'streamlinedbase' }));
+    const text = stats();
+    expect(text).not.toContain('we freeze it');
+    expect(text).not.toContain('on the rocket’s CD, at every Mach');
+    expect(text).toContain('on the rocket’s CD at Mach 0.3');
+    expect(text).toContain('re-evaluated at every Mach');
+    // The workaround sentence used to send the reader to pin their own max-Q body
+    // CD, which now argues for making the model worse. It may still offer the pin,
+    // but it must not present it as the fix for a frozen number.
+    expect(text).not.toContain('your body CD at max Q');
+  }, 60000);
+
+  it('keeps the flat wording for the classes that really are flat', () => {
+    // 1.17·sin²θ is modified-Newtonian and carries no Mach term, correctly, so this
+    // sentence is still true for a plate — and for a typed Cd, which is the user's
+    // own constant. Neither emits a body ratio at the engine boundary.
+    mount(bare({ dragClass: 'plate', plateAngle: Math.PI / 4 }));
+    const plate = stats();
+    expect(plate).toContain('on the rocket’s CD, at every Mach');
+    expect(plate).not.toContain('at Mach 0.3');
+
+    mount(bare({ dragClass: 'streamlinedbase', cdFrontal: 0.37 }));
+    const typed = stats();
+    expect(typed).toContain('on the rocket’s CD, at every Mach');
+    expect(typed).toContain('The Cd is the one you typed');
+  });
 });

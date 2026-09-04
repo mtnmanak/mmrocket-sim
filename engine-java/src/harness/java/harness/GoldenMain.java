@@ -46,6 +46,86 @@ public final class GoldenMain {
         supersonicAeroScenarios();
         massOverrideScenarios();
         lineInstanceScenarios();
+        bodyRatioOverrideScenarios();
+    }
+
+    /**
+     * BODY-PROPORTIONAL CD OVERRIDE (`overrideCDBodyRatio`) — the first golden to
+     * exercise ANY CD override at all. Before this, `grep -n overrideCD
+     * engine-java/src/harness` found nothing: difftest would not have touched the new
+     * branch in BarrowmanCalculator.calculateOverrideCD, so a TeaVM/JVM divergence in it
+     * could have shipped unseen.
+     *
+     * APPENDED AT THE END OF THE ROSTER ON PURPOSE — difftest.mjs compares the two
+     * runtimes' output BY LINE INDEX; see massOverrideScenarios.
+     *
+     * WHAT EACH COLUMN IS FOR. Per Mach the line carries, in order: the rocket carrying a
+     * WITH-BASE ratio override, the same rocket with a NO-BASE one, the same rocket with a
+     * plain SCALAR override, the stripped body's total CD, and the stripped body's base
+     * CD. That is enough to check the arithmetic by hand rather than merely notice a
+     * number moved:
+     *   withBase - scalarRocket's non-override part  ==  ratio x bodyTotal
+     *   noBase   - the same                          ==  ratio x (bodyTotal - bodyBase)
+     * and the SCALAR column must be Mach-flat above the same baseline, which is the
+     * scope-leak detector — every `.ork` <overridecd> and every plate-class protuberance
+     * takes that branch and must stay bit-identical to upstream.
+     *
+     * The Mach grid straddles the transonic rise (0.3 / 0.7 / 1.1 / 1.5) because that is
+     * where a frozen scalar and a body-tracking one disagree most: measured on the ARCAS
+     * airframe the honest increment peaks at M1.10 and falls to 2/3 of the frozen value by
+     * M2.00.
+     */
+    private static void bodyRatioOverrideScenarios() {
+        final double ratio = 0.08;
+        final String sweepOpts = "{\"machMin\":0.3,\"machMax\":1.5,\"machStep\":0.4}";
+        // nose + 50 mm tube, three fins at the tube bottom (so stripping them does not
+        // shorten getLengthAerodynamic and move Re), and a RailButton carrier — exactly
+        // the shape the app's protuberance lowering emits.
+        String fins = "{\"type\":\"trapezoidfinset\",\"finCount\":3,\"rootChord\":0.08,\"tipChord\":0.04,"
+                + "\"sweep\":0.03,\"height\":0.05,\"thickness\":0.003,"
+                + "\"position\":{\"method\":\"bottom\",\"offset\":0}}";
+        String json = "{\"components\":[{\"type\":\"stage\",\"name\":\"S\",\"children\":["
+                + "{\"type\":\"nosecone\",\"length\":0.15,\"aftRadius\":0.025,\"thickness\":0.002},"
+                + "{\"type\":\"bodytube\",\"length\":0.50,\"outerRadius\":0.025,\"thickness\":0.001,\"density\":680,"
+                + "  \"children\":[";
+        String tail = "]}]}]}";
+        String button = "{\"type\":\"railbutton\",\"name\":\"Bump\",\"outerDiameter\":0.014,"
+                + "\"position\":{\"method\":\"middle\",\"offset\":0},\"overrideMass\":0";
+
+        int withBase = api.OrkEngine.buildRocket(json + fins + ","
+                + button + ",\"overrideCD\":0.03,\"overrideCDBodyRatio\":" + ratio
+                + ",\"overrideCDBodyIncludesBase\":true}" + tail);
+        int noBase = api.OrkEngine.buildRocket(json + fins + ","
+                + button + ",\"overrideCD\":0.03,\"overrideCDBodyRatio\":" + ratio
+                + ",\"overrideCDBodyIncludesBase\":false}" + tail);
+        int scalar = api.OrkEngine.buildRocket(json + fins + ","
+                + button + ",\"overrideCD\":0.03}" + tail);
+        int bodyOnly = api.OrkEngine.buildRocket(json + tail);
+
+        java.util.List<?> wbTotal = sweepTotals(withBase, sweepOpts, "total");
+        java.util.List<?> nbTotal = sweepTotals(noBase, sweepOpts, "total");
+        java.util.List<?> scTotal = sweepTotals(scalar, sweepOpts, "total");
+        java.util.List<?> boTotal = sweepTotals(bodyOnly, sweepOpts, "total");
+        java.util.List<?> boBase = sweepTotals(bodyOnly, sweepOpts, "base");
+        java.util.List<?> machs = sweepMachs(withBase, sweepOpts);
+        for (int i = 0; i < machs.size(); i++) {
+            line("cdratio." + i, (Double) machs.get(i),
+                    (Double) wbTotal.get(i), (Double) nbTotal.get(i), (Double) scTotal.get(i),
+                    (Double) boTotal.get(i), (Double) boBase.get(i));
+        }
+    }
+
+    /** One power-off series out of a drag sweep, for bodyRatioOverrideScenarios. */
+    private static java.util.List<?> sweepTotals(int handle, String opts, String series) {
+        java.util.Map<String, Object> parsed =
+                api.JsonLite.parseObject(api.OrkEngine.getDragSweep(handle, opts));
+        return (java.util.List<?>) asMap(parsed.get("powerOff")).get(series);
+    }
+
+    /** The Mach grid of a drag sweep, for bodyRatioOverrideScenarios. */
+    private static java.util.List<?> sweepMachs(int handle, String opts) {
+        return (java.util.List<?>) api.JsonLite
+                .parseObject(api.OrkEngine.getDragSweep(handle, opts)).get("machs");
     }
 
     /**

@@ -638,3 +638,51 @@ describe('markerVisibility — what the 3D view draws on top of the rocket', () 
     expect(markerVisibility('nonsense')).toEqual({ axis: true, callout: true });
   });
 });
+
+/**
+ * v0.103 — a rail button stands off the tube by its OWN total height.
+ *
+ * This view carried the literal `const bh = 0.0097;` — the kernel
+ * constructor's default — so every button drew the same height whatever the
+ * user typed or the file said, while the side view used twice the radius and
+ * the aft view used the outer diameter. All three now read `totalHeight`, the
+ * dimension the kernel actually flies (RailButtonCalc.java:57-60 makes
+ * totalHeight x OD the drag reference area).
+ */
+describe('buildPieces — rail button standoff is its own total height', () => {
+  const btnTree = (extra: Partial<ComponentNode> = {}): RocketTree => base([{
+    type: 'railbutton', id: 'rb', outerDiameter: 0.0097,
+    angleOffset: 0, position: { method: 'middle', offset: 0 },
+    ...extra,
+  } as ComponentNode]);
+
+  /** Cylinder axis is +Y before rotation, so bb.max.y is HALF the height. */
+  const drawnHeight = (tree: RocketTree): number => {
+    const { pieces } = buildPieces(tree);
+    const rb = pieces.filter((p) => p.key.startsWith('rbtn'));
+    expect(rb).toHaveLength(1);
+    rb[0]!.geometry.computeBoundingBox();
+    return 2 * rb[0]!.geometry.boundingBox!.max.y;
+  };
+
+  it('draws a tall button tall and a short one short', () => {
+    // Std 1515 RB (11.42 mm) and Std 1010 RB (7.56 mm), both real parts from
+    // OpenRocket's own RailButton_Database.orc. Under the old literal these two
+    // drew identically, at 9.7 mm.
+    expect(drawnHeight(btnTree({ totalHeight: 0.01142 }))).toBeCloseTo(0.01142, 9);
+    expect(drawnHeight(btnTree({ totalHeight: 0.00756 }))).toBeCloseTo(0.00756, 9);
+  });
+
+  it('places the cylinder centre half its height off the surface', () => {
+    // Body radius 0.024, mount angle 0 => +y. A button that stands 11.42 mm
+    // proud has its centre 5.71 mm above the tube.
+    const { pieces } = buildPieces(btnTree({ totalHeight: 0.01142 }));
+    const rb = pieces.find((p) => p.key.startsWith('rbtn'))!;
+    expect(rb.position![1]).toBeCloseTo(0.024 + 0.01142 / 2, 9);
+    expect(rb.position![2]).toBeCloseTo(0, 9);
+  });
+
+  it('keeps the kernel constructor value when the button states no height', () => {
+    expect(drawnHeight(btnTree())).toBeCloseTo(0.0097, 9);
+  });
+});

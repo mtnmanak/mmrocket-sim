@@ -106,6 +106,13 @@ export function formatWarning(w: EngineWarning): FormattedWarning {
  * prepared sentence already existed in WARNING_LABEL. Format at the DISPLAY
  * points only: App.tsx's build memo filters on the raw text, so mapping
  * upstream would break the camera-shroud suppression.
+ *
+ * The app's OWN geometric checks feed the same list — `railInterferenceWarnings`
+ * and `wakeShadowWarnings` in tree/mountAngle.ts — and they arrive as finished
+ * sentences carrying no token, so they fall through unchanged. One thing that
+ * costs them: `stripBrackets` eats a LEADING bracketed token, and a part a user
+ * named "[cam]" is a bracketed token. The wake sentence quotes its part names
+ * for that reason; simWarnings.test.ts pins both halves.
  */
 export function formatWarningText(text: string): string {
   const m = /^\[Warning\.([^\]]+)\]/.exec(text);

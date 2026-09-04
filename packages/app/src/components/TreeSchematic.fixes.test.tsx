@@ -553,3 +553,93 @@ describe('rail button line instances draw as N buttons', () => {
     expect(xs[1]!).toBeGreaterThan(anchor);
   });
 });
+
+/**
+ * v0.103 — the side view stands a rail button off the tube by its TOTAL
+ * HEIGHT, not by its outer diameter.
+ *
+ * The standoff used to be `2 * r`, i.e. the diameter, with a 4 mm fallback
+ * against the kernel's 9.7 — so a 1515 button (15.75 wide, 11.42 tall) drew
+ * 4.3 mm too proud, and the app showed three different button heights in three
+ * views of one rocket. The AXIAL extent is still the diameter: a button is
+ * about as long as it is wide, and that part was always right.
+ */
+describe('rail button standoff is its total height', () => {
+  const buttonTree = (over: Record<string, unknown>) => ({
+    name: 'Rocket',
+    components: [{
+      id: 's1', type: 'stage',
+      children: [
+        { id: 'n1', type: 'nosecone', shape: 'ogive', length: 0.1, aftRadius: BODY_R },
+        {
+          id: 'b1', type: 'bodytube', length: 0.3, outerRadius: BODY_R,
+          children: [{
+            id: 'rb', type: 'railbutton',
+            position: { method: 'top', offset: 0.05 }, ...over,
+          }],
+        },
+      ],
+    }],
+  } as unknown as RocketTree);
+
+  /** The button's own rect (the tube's is the pale one). */
+  const btnRect = () => {
+    const r = [...host.querySelectorAll('rect')]
+      .find((e) => e.getAttribute('fill') === '#c8c5be')!;
+    expect(r, 'the button should draw a rect').toBeTruthy();
+    return {
+      w: Number(r.getAttribute('width')),
+      h: Number(r.getAttribute('height')),
+      y: Number(r.getAttribute('y')),
+    };
+  };
+
+  it('draws the height radially and the diameter axially, and they differ', () => {
+    // Std 1515 RB: 15.75 mm across, 11.42 mm tall. Under the old `2 * r` rule
+    // the rect would have been square.
+    show(<TreeSchematic tree={buttonTree({ outerDiameter: 0.01575, totalHeight: 0.01142 })} info={null} />);
+    const { w, h } = btnRect();
+    expect(h / scale()).toBeCloseTo(0.01142, 6);
+    expect(w / scale()).toBeCloseTo(0.01575, 6);
+    expect(h).not.toBeCloseTo(w, 3);
+  });
+
+  it('a short wide button is drawn short, not as tall as it is wide', () => {
+    // RB-Micro: 4.19 mm across, 4.05 mm tall — and a Std 1010 RB, 11.11 across
+    // and 7.56 tall, where the old rule overstated the standoff by 47 %.
+    show(<TreeSchematic tree={buttonTree({ outerDiameter: 0.01111, totalHeight: 0.00756 })} info={null} />);
+    expect(btnRect().h / scale()).toBeCloseTo(0.00756, 6);
+  });
+
+  it('falls back to the kernel constructor for a button that states neither', () => {
+    // The old fallbacks disagreed with each other AND with the engine: 4 mm
+    // for the diameter here, a 9.7 mm literal in 3D, 9.7 mm in the kernel.
+    show(<TreeSchematic tree={buttonTree({})} info={null} />);
+    const { w, h } = btnRect();
+    expect(h / scale()).toBeCloseTo(0.0097, 6);
+    expect(w / scale()).toBeCloseTo(0.0097, 6);
+  });
+
+  it('leaves a launch lug standing off by its own diameter', () => {
+    // A lug is a tube lying ON the surface, so 2 x its outer radius is right
+    // and must not have been swept up in the button change.
+    const lug = {
+      name: 'Rocket',
+      components: [{
+        id: 's1', type: 'stage',
+        children: [
+          { id: 'n1', type: 'nosecone', shape: 'ogive', length: 0.1, aftRadius: BODY_R },
+          {
+            id: 'b1', type: 'bodytube', length: 0.3, outerRadius: BODY_R,
+            children: [{
+              id: 'lg', type: 'launchlug', length: 0.04, outerRadius: 0.003,
+              position: { method: 'top', offset: 0.05 },
+            }],
+          },
+        ],
+      }],
+    } as unknown as RocketTree;
+    show(<TreeSchematic tree={lug} info={null} />);
+    expect(btnRect().h / scale()).toBeCloseTo(0.006, 6);
+  });
+});

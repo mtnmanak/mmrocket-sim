@@ -82,6 +82,40 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 	 */
 	private boolean supersonicAero = false;
 
+	/**
+	 * PATCH (MMRocket Sim, body-proportional CD override — see
+	 * engine-java/patches/LEDGER.md and RocketComponent.overrideCDBodyRatio).
+	 *
+	 * The ROCKET BODY'S OWN drag, split the way Chuck Rogers tells OpenRocket users to
+	 * split it by hand ("You can add up the Cds of the body components and subtract the
+	 * base drag of the aft body", TRF 197641 #2, endorsed by him in #4): the
+	 * SymmetricComponent-only part of each of the three computed drag buckets. A
+	 * component carrying a body-RATIO override is charged `ratio * (friction + pressure
+	 * [+ base])` from these instead of a frozen scalar.
+	 *
+	 * PER-CALL SCRATCH, and the ordering is load-bearing. Both callers of
+	 * {@link #calculateOverrideCD} — getForceAnalysis and getAerodynamicForces — compute
+	 * friction, then pressure, then base, then the override, in that order and with
+	 * nothing between; these three are written at the end of those three methods and read
+	 * only by the fourth. The calculator is single-threaded (the whole kernel is: `core`
+	 * has no threading), which is the same assumption `stallMargin` and `calcMap` already
+	 * make. Initialised to 0 so a hypothetical future caller that skipped the three would
+	 * charge zero rather than a stale number or a NaN.
+	 *
+	 * MEASURED, and this is why the reference is computed HERE rather than handed in from
+	 * the app: summing these three over the ARCAS-Long fixture reproduces the app's
+	 * stripped-rocket probe (a separate rocket built with every appendage deleted) to at
+	 * worst 5.6e-17 absolute — 0 to 1 ulp — at all 20 Mach points from 0.10 to 2.00. The
+	 * app cannot do it per-Mach in flight: getAerodynamicForces passes a null force map,
+	 * so no per-component decomposition exists during a simulation, and the app hands the
+	 * kernel one static tree per flight.
+	 */
+	private double lastBodyFrictionCD = 0;
+	/** PATCH (MMRocket Sim): see {@link #lastBodyFrictionCD}. Body PRESSURE drag. */
+	private double lastBodyPressureCD = 0;
+	/** PATCH (MMRocket Sim): see {@link #lastBodyFrictionCD}. Body BASE drag. */
+	private double lastBodyBaseCD = 0;
+
 	private final double stallAngle = 17.5 * Math.PI / 180;
 	private double stallMargin;
 	
@@ -226,6 +260,9 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 		calculateForceAnalysis(configuration, conditions, configuration.getRocket(), instMap, eachMap, assemblyMap, warnings);
 
 		// Calculate drag coefficient data
+		// ORDER IS LOAD-BEARING (MMRocket Sim patch): the first three calls write the body
+		// reference (lastBodyFriction/Pressure/BaseCD) that calculateOverrideCD reads for
+		// a body-proportional override. Do not reorder, and do not insert a call between.
 		AerodynamicForces rocketForces = assemblyMap.get(configuration.getRocket());
 		rocketForces.setFrictionCD(calculateFrictionCD(configuration, conditions, eachMap, warnings));
 		rocketForces.setPressureCD(calculatePressureCD(configuration, conditions, eachMap, warnings));
@@ -340,6 +377,10 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 		AerodynamicForces total = calculateNonAxialForces(configuration, conditions, warnings);
 		
 		// Calculate friction data
+		// ORDER IS LOAD-BEARING (MMRocket Sim patch): see the same note in
+		// getForceAnalysis. This is the FLIGHT hot path, and it passes a null force map —
+		// which is exactly why the body reference has to be accumulated inside the three
+		// drag methods instead of read off a per-component decomposition.
 		total.setFrictionCD(calculateFrictionCD(configuration, conditions, null, warnings));
 		total.setPressureCD(calculatePressureCD(configuration, conditions, null, warnings));
 		total.setBaseCD(calculateBaseCD(configuration, conditions, null, warnings));
@@ -724,6 +765,14 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 			}
 		}
 
+		// PATCH (MMRocket Sim, body-proportional CD override): the BODY half of the
+		// friction total, fineness-corrected exactly as the return value is. Fins, lugs,
+		// rail buttons and every other appendage sit in otherFrictionCD and are excluded
+		// — Rogers' method is a fraction of the ROCKET BODY's drag, and his own
+		// instruction to OpenRocket users is literally "removing the Fins from the rocket
+		// and running the rocket with No Fins (Rocket Body Only)" (TRF 197641 #1).
+		lastBodyFrictionCD = correction * bodyFrictionCD;
+
 		return otherFrictionCD + correction * bodyFrictionCD;
 	}
 
@@ -886,6 +935,9 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 		base = effectiveBaseCD(conditions.getMach());
 
 		total = 0;
+		// PATCH (MMRocket Sim, body-proportional CD override): the SymmetricComponent-only
+		// half of `total`, accumulated alongside it. See lastBodyFrictionCD.
+		double bodyPressureCD = 0;
 		final InstanceMap imap = configuration.getActiveInstances();
 		for (Map.Entry<RocketComponent, ArrayList<InstanceContext>> entry : imap.entrySet()) {
 			final RocketComponent c = entry.getKey();
@@ -894,6 +946,25 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 				continue;
 			}
 				
+			// PATCH (MMRocket Sim, body-proportional CD override): a user's own
+			// `<overridecd>` on a nose cone, tube, transition or boat tail is skipped by
+			// all three computed loops, so without this it would VANISH from the body
+			// reference — and the app's stripped-rocket probe, which reads the whole
+			// `total` (= friction + pressure + base + overrideCD), has always included
+			// it. Carrying it forward here is what keeps the kernel's in-place reference
+			// equal to the number this app has been quoting since v0.069. The NaN guard
+			// is what stops a body-RATIO component entering its own reference (it would
+			// be circular, and the ratio components are appendages, not body).
+			// RESIDUAL, stated and not chased: an override on a STAGE or other
+			// ComponentAssembly is not a SymmetricComponent and cannot enter this sum,
+			// while the app's strip left it in the probe. Such a design's protuberance
+			// drag moves.
+			if (c.isCDOverridden() && !c.isCDOverriddenByAncestor()
+					&& c instanceof SymmetricComponent
+					&& Double.isNaN(c.getOverrideCDBodyRatio())) {
+				bodyPressureCD += entry.getValue().size() * c.getOverrideCD();
+			}
+
 			if (c.isCDOverridden() ||
 				c.isCDOverriddenByAncestor()) {
 				continue;
@@ -915,6 +986,12 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 			// and previous component (increasing radii. Decreasing radii handled in
 			// base drag calculation
 			if (c instanceof SymmetricComponent) {
+				// PATCH (MMRocket Sim, body-proportional CD override): the component's own
+				// pressure term, taken HERE because `cd` is REASSIGNED below to the
+				// stagnation-step term. Reading it after that line would charge the step
+				// twice and lose the component term entirely.
+				bodyPressureCD += instanceCount * cd;
+
 				SymmetricComponent s = (SymmetricComponent) c;
 				double foreRadius = s.getForeRadius();
 				double aftRadius = s.getAftRadius();
@@ -933,12 +1010,19 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 					cd = stagnation * area / conditions.getRefArea();
 					total += instanceCount * cd;
 						
+					// PATCH (MMRocket Sim): the stagnation-step term is body drag too —
+					// it is charged only to SymmetricComponents and it is a real part of
+					// what the app's stripped-body probe reads back.
+					bodyPressureCD += instanceCount * cd;
+
 					if (forceMap != null) {
 						forceMap.get(c).setPressureCD(forceMap.get(c).getPressureCD() + cd);
 					}
 				}
 			}
 		}
+
+		lastBodyPressureCD = bodyPressureCD; // PATCH (MMRocket Sim): see lastBodyFrictionCD
 
 		return total;
 	}
@@ -1040,7 +1124,15 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 				}
 			}
 		}
-		
+
+		// PATCH (MMRocket Sim, body-proportional CD override): this loop already visits
+		// SymmetricComponents and nothing else, so the running total IS the body base
+		// drag — no separate accumulator needed. See lastBodyFrictionCD. NOTE that this
+		// carries the RASAero nozzle-plume reduction above, so a "streamlined with base
+		// drag" protuberance correctly sheds drag during boost on a design that names a
+		// nozzle exit diameter and flies a non-parity aero model.
+		lastBodyBaseCD = total;
+
 		return total;
 	}
 	
@@ -1164,7 +1256,35 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 
 			if (c.isCDOverridden() &&
 					!c.isCDOverriddenByAncestor()) {
-				double cd = instanceCount * c.getOverrideCD();
+				// PATCH (MMRocket Sim, body-proportional CD override — see
+				// engine-java/patches/LEDGER.md and RocketComponent.overrideCDBodyRatio).
+				// The `ratio` branch is Chuck Rogers' Streamlined Protuberance Method:
+				// "if the Streamlined Protuberance Frontal Area is 10% of the Rocket Body
+				// Frontal Area, then the Drag Coefficient (CD) of the Rocket Body will go
+				// up by 10%", "for all Mach Numbers" (TRF 197641 #1) — against body CD
+				// EXCLUDING base drag for his no-base class and INCLUDING it for his
+				// with-base class. Upstream has only the scalar branch, and so did this
+				// kernel until now: the app measured the body CD once at Mach 0.3 and
+				// froze it, which on the ARCAS-Long fixture charged 0.0274807 at every
+				// speed where the method's own answer runs 0.0184820 (M2.00) to 0.0333464
+				// (M1.10).
+				//
+				// THE THREE REFERENCE FIELDS ARE WRITTEN BY THE THREE DRAG METHODS THAT
+				// RUN IMMEDIATELY ABOVE THIS ONE, at both call sites. Do not move this
+				// call, and do not add a third caller that skips them.
+				//
+				// NaN is the default and the whole guard: every `.ork` <overridecd>, every
+				// user-typed Cd override and every plate-class protuberance takes the
+				// `else` and stays bit-identical to upstream and to desktop 24.12.
+				double cd;
+				final double ratio = c.getOverrideCDBodyRatio();
+				if (!Double.isNaN(ratio)) {
+					double ref = lastBodyFrictionCD + lastBodyPressureCD
+							+ (c.isOverrideCDBodyIncludesBase() ? lastBodyBaseCD : 0.0);
+					cd = instanceCount * ratio * ref;
+				} else {
+					cd = instanceCount * c.getOverrideCD();
+				}
 				Map<RocketComponent, AerodynamicForces> forceMap = (c instanceof ComponentAssembly) ? assemblyMap
 						: eachMap;
 				if (forceMap != null) {
@@ -1300,6 +1420,13 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 			// PATCH (feature #1 Phase 1): bind the supersonic-aero flag.
 			SymmetricComponentCalc scc = new SymmetricComponentCalc(comp);
 			scc.setSupersonicAero(supersonicAero);
+			// PATCH (C7): and the Rogers Kbf flag, which until now was bound onto
+			// FinSetCalc ONLY. The subsonic nose-pressure floor is gated
+			// rogersKbf || supersonicAero - the same 2026-08-27 ruling FinSetCalc
+			// records - so without this line the floor could never reach the model
+			// the app actually ships, which defaults Rogers Kbf ON while leaving
+			// supersonic aero off.
+			scc.setRogersKbf(rogersKbf);
 			return scc;
 		}
 		if (comp instanceof ComponentAssembly)

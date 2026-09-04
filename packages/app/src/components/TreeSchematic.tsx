@@ -1103,17 +1103,23 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
             }} />,
         );
       } else if (t === 'launchlug' || t === 'railbutton') {
-        // Rail buttons are edited via 'outerDiameter' (their only size field)
-        // and have no axial 'length' — a button is about as long as it is wide.
-        const btnDia = t === 'railbutton' ? num(child, 'outerDiameter', 0.004) : 0;
+        // A rail button has no axial 'length' — it is about as long as it is
+        // wide, so the outer diameter sets the axial extent. What it stands OFF
+        // the tube by is a separate dimension, and until v0.103 this view used
+        // the diameter for that too (`2 * r`), with a 4 mm fallback against the
+        // kernel's 9.7 — so the side view, the 3D view and the flown part each
+        // claimed a different button height. Both fallbacks are now the kernel
+        // constructor's own (RailButton.java:58-64).
+        const btnDia = t === 'railbutton' ? num(child, 'outerDiameter', 0.0097) : 0;
         const len = t === 'railbutton' ? btnDia : num(child, 'length', 0.01);
         const r = t === 'railbutton' ? btnDia / 2 : num(child, 'outerRadius', 0.002);
+        const btnH = t === 'railbutton' ? num(child, 'totalHeight', 0.0097) : 2 * r;
         const start = axialStart(child, len, pStart, pLen);
         // Its own mounting angle places it (v0.087); the view roll turns it
         // from there. Solid at every roll — a button is a lump, not a line.
         const { p: lp, near: lnear } = surfaceAt(child);
         const ySurf = baseY - pRadius * lp * ctx.scale;
-        const yOut = baseY - (pRadius + 2 * r) * lp * ctx.scale;
+        const yOut = baseY - (pRadius + btnH) * lp * ctx.scale;
         // LINE INSTANCES (v0.089): one node is N collinear copies at the same
         // clock angle, instance 0 forward and the rest marching AFT at
         // `instanceSeparation` spacing — the kernel's own convention

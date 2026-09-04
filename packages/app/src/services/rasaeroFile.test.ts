@@ -820,17 +820,26 @@ describe('RASAero export', () => {
    *     ⇒ area ratio 0.044768
    *   body CD at Mach 0.3, fins stripped: 0.311401 without base drag,
    *     0.354024 with it
-   *   ⇒ ΔCD = 0.354024 × 0.044768 = +0.0158488, at every Mach, exactly the
-   *     override.  (It was +0.0098489 under the retired flat Cd 0.22.)
+   *   ⇒ ΔCD = 0.354024 × 0.044768 = +0.0158488 at Mach 0.3 — which is what the
+   *     property panel quotes and what the scalar `overrideCD` carries.
+   *     (It was +0.0098489 under the retired flat Cd 0.22.)
    *
-   * Against RASAero's OWN per-Mach version of the same method on this design —
-   * area ratio × the body CD at each Mach, Re-matched to the file's Mach–Alt
-   * table — the true curve runs +0.0092973 (M3.0) to +0.0206119 (M0.05), and
-   * is +0.015808 at M0.3, +0.015857 at M0.6, +0.018063 at M1.0, +0.013111 at
-   * M1.8. Our Mach-flat scalar sits INSIDE that band everywhere and is exact
-   * at M0.3–0.6; the retired 0.0098489 sat below the entire band except above
-   * M2.9. That is the whole gain, and the remaining error is the Mach-flatness
-   * the scalar `overrideCD` hook forces.
+   * RE-MEASURED AGAIN 2026-09-04, when the Mach-flatness went (v0.103). The
+   * comment this replaces predicted RASAero's own per-Mach answer for this
+   * design — area ratio × the body CD at each Mach, Re-matched to the file's
+   * Mach–Alt table — as +0.015808 at M0.3, +0.015857 at M0.6, +0.018063 at
+   * M1.0 and +0.013111 at M1.8. The kernel now delivers 0.01580732,
+   * 0.01585695, 0.01806251 and 0.01311074 at those four Mach numbers: the
+   * prediction, reproduced to six decimals, because it is the same arithmetic
+   * done in the right place. Over the whole M0.05–5.0 grid the increment runs
+   * +0.0060402 (M5.0) to +0.0206119 (M1.10) — a 3.41× swing where the frozen
+   * scalar charged 0.0158488 at all 198 points.
+   *
+   * The reference the kernel uses is the SymmetricComponent half of friction +
+   * pressure + base, accumulated in place. On this design that reproduces the
+   * separately built stripped rocket below to 1.1e-16 absolute at every one of
+   * the 198 points, and `lengthAerodynamic` is 1.3589027178054358 m with the
+   * fins and without — which is why the two are identical and not merely close.
    *
    * And the things that must NOT move: friction, pressure and base CD, mass,
    * CG, CP, the reference diameter and the aerodynamic length — a protuberance
@@ -855,14 +864,15 @@ describe('RASAero export', () => {
     // The retired constant was 1.61× low on this design.
     expect(expected / (0.22 * ratio)).toBeCloseTo(1.6095, 3);
 
-    const without = {
-      ...r.tree,
-      components: JSON.parse(JSON.stringify(r.tree.components)) as ComponentNode[],
-    };
-    const strip = (ns: ComponentNode[]): ComponentNode[] => ns
-      .filter((n) => (n.type as string) !== 'protuberance')
-      .map((n) => (n.children ? { ...n, children: strip(n.children) } : n));
-    without.components = strip(without.components);
+    const strip = (ns: ComponentNode[], types: string[]): ComponentNode[] => ns
+      .filter((n) => !types.includes(n.type as string))
+      .map((n) => (n.children ? { ...n, children: strip(n.children, types) } : n));
+    const clone = () => JSON.parse(JSON.stringify(r.tree.components)) as ComponentNode[];
+    // The same rocket with the bump removed — what the delta is measured against.
+    const without = { ...r.tree, components: strip(clone(), ['protuberance']) };
+    // Rogers' "Rocket Body Only" (TRF 197641 #1: "the simple expedient of removing
+    // the Fins from the rocket"): the reference the kernel accumulates in place.
+    const bodyOnly = { ...r.tree, components: strip(clone(), ['protuberance', 'trapezoidfinset']) };
 
     // The file's own Mach-Alt table (its rows are the harness's arcas machAlt).
     const opts = {
@@ -876,15 +886,44 @@ describe('RASAero export', () => {
     };
     const a = run(r.tree);
     const b = run(without);
+    const bodyRun = run(bodyOnly);
+    // Stripping the fins must not move the aerodynamic length, or Re moves with it
+    // and the stripped rocket stops being the kernel's own in-place reference.
+    expect(bodyRun.info.lengthAerodynamic).toBe(a.info.lengthAerodynamic);
 
-    // Drag: exactly the override, at every Mach on the grid.
+    // Drag: the METHOD at every Mach on the grid — area ratio × this body's own CD
+    // including base drag — not the Mach 0.3 reading held for the whole flight.
+    const delivered = a.sweep.machs.map((_, i) =>
+      a.sweep.powerOff.total[i]! - b.sweep.powerOff.total[i]!);
     for (let i = 0; i < a.sweep.machs.length; i++) {
-      expect(a.sweep.powerOff.total[i]! - b.sweep.powerOff.total[i]!).toBeCloseTo(expected, 9);
+      expect(delivered[i]!).toBeCloseTo(ratio * bodyRun.sweep.powerOff.total[i]!, 9);
       // …and it is ALL override: the three computed buckets do not move.
       expect(a.sweep.powerOff.friction[i]!).toBeCloseTo(b.sweep.powerOff.friction[i]!, 12);
       expect(a.sweep.powerOff.pressure[i]!).toBeCloseTo(b.sweep.powerOff.pressure[i]!, 12);
       expect(a.sweep.powerOff.base[i]!).toBeCloseTo(b.sweep.powerOff.base[i]!, 12);
     }
+    // AT THE QUOTING MACH THE PANEL AND THE KERNEL DIFFER SLIGHTLY ON THIS DESIGN,
+    // and that is a real, stated limit rather than a rounding artifact. The panel
+    // quotes `protuberanceDeliveredCd`, which is ratio x the APP's stripped-rocket
+    // probe; the kernel charges ratio x the body CD it accumulates IN PLACE. Those
+    // agree to 0-1 ulp on a body-only fixture, but this one's fins overhang the
+    // airframe, and `getLengthAerodynamic()` - which sets both the Reynolds number
+    // and the roughness limit - shortens when the fins come off. Measured here:
+    // panel 0.01584884, flown 0.01580732, a 0.26 % gap, i.e. 0.0000415 of CD.
+    // THE FLOWN NUMBER IS THE TRUTH; the panel's is an estimate of it.
+    const at = (m: number) => a.sweep.machs.findIndex((x) => Math.abs(x - m) < 1e-9);
+    expect(delivered[at(0.3)]!).toBeCloseTo(expected, 4);
+    expect(Math.abs(delivered[at(0.3)]! - expected) / expected).toBeLessThan(0.005);
+    // …and the four points the previous, Mach-flat version of this test predicted
+    // RASAero would give, which are now what the kernel actually delivers.
+    expect(delivered[at(0.3)]!).toBeCloseTo(0.0158073, 7);
+    expect(delivered[at(0.6)]!).toBeCloseTo(0.0158569, 7);
+    expect(delivered[at(1.0)]!).toBeCloseTo(0.0180625, 7);
+    expect(delivered[at(1.8)]!).toBeCloseTo(0.0131107, 7);
+    // The whole curve: a 3.4× swing, where the frozen scalar had a span of exactly 1.
+    expect(Math.min(...delivered)).toBeCloseTo(0.0060402, 7);   // M5.0
+    expect(Math.max(...delivered)).toBeCloseTo(0.0206119, 7);   // M1.10, transonic peak
+    expect(Math.max(...delivered) / Math.min(...delivered)).toBeGreaterThan(3);
     // Statics: untouched, to the last bit.
     expect(a.info.mass).toBe(b.info.mass);
     expect(a.info.cg).toBe(b.info.cg);

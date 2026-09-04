@@ -92,6 +92,10 @@ const kitchenSink = (): RocketTree => ({
           } as ComponentNode,
           {
             type: 'railbutton', id: 'rb', outerDiameter: 0.0102, instanceCount: 2,
+            // v0.103 gave the button its other five dimensions. They are
+            // catalogue hardware like the diameter, so none of them scales.
+            innerDiameter: 0.0058, totalHeight: 0.00756,
+            baseHeight: 0.00185, flangeHeight: 0.00185, screwHeight: 0.0018,
             instanceSeparation: 0.4, angleOffset: 3.14,
             position: { method: 'top', offset: 0.75 },
           } as ComponentNode,
@@ -253,6 +257,8 @@ describe('scaleRocket — the completeness guard', () => {
       'bt.motorOverhang', 'bt.density', 'pc.cd', 'pc.deployAltitude', 'pc.deployDelay',
       'pc.lineCount', 'sm.deployAltitude', 'sm.cd', 'll.outerRadius', 'll.thickness',
       'll.angleOffset', 'rb.outerDiameter', 'rb.instanceCount', 'rb.angleOffset',
+      'rb.innerDiameter', 'rb.totalHeight', 'rb.baseHeight', 'rb.flangeHeight',
+      'rb.screwHeight',
       'fa.length', 'fa.width', 'fa.height', 'fa.mass', 'fa.angleOffset',
       'pr.count', 'pr.cdFrontal', 'pr.angleOffset', 'mc.radialDirection',
       'pd.instanceCount', 'pd.angleOffset', 'ef.cant', 'ff.finCount',
@@ -295,7 +301,6 @@ describe('scaleRocket — the completeness guard', () => {
       'deployAltitude',   // an altitude AGL, not a dimension
       'motorOverhang',    // how far the MOTOR sticks out — motor-referenced
       'nozzleExitDiameter', // the motor's nozzle
-      'outerDiameter',    // rail button: a catalogue size (1010/1515/...)
     ]);
     const missing: string[] = [];
     for (const [type, defs] of Object.entries(FIELDS)) {
@@ -305,6 +310,14 @@ describe('scaleRocket — the completeness guard', () => {
         // fairing is fixed-size hardware; launchlug's radius is the rod's.
         if (type === 'fairing') continue;
         if (type === 'launchlug' && f.key !== 'length' && f.key !== 'instanceSeparation') continue;
+        // A rail button is a CATALOGUE part — micro / mini / 1010 / 1515 /
+        // unistrut — and the rail it rides does not scale with the airframe, so
+        // none of its six dimensions does either (railbutton is in FIXED_SIZE).
+        // Only the SPAN between a pair is an airframe dimension. This clause
+        // replaced a bare 'outerDiameter' exemption when v0.103 gave the button
+        // its other five dimensions; stating the rule once is what keeps the
+        // next five from being exempted one at a time without anyone deciding.
+        if (type === 'railbutton' && f.key !== 'instanceSeparation') continue;
         const hit = [...SCALED].some((s) => s.endsWith(`.${f.key}`));
         if (!hit) missing.push(`${type}.${f.key}`);
       }
@@ -324,10 +337,18 @@ describe('scaleRocket — what Eric ruled does not scale', () => {
     expect(fa.position!.offset).toBeCloseTo(0.35 * K, 12);
   });
 
-  it('a rail button keeps its diameter; the spacing between a pair scales', () => {
+  it('a rail button keeps ALL SIX of its dimensions; only the pair spacing scales', () => {
     const out = scaleRocket(kitchenSink(), K).tree;
     const rb = findNode(out, 'rb')!;
     expect(rb['outerDiameter']).toBe(0.0102); // 1010 stays 1010
+    // v0.103: the other five are catalogue hardware too. A scaled airframe
+    // still bolts to the same rail, so a 1010 button on a 2x rocket is still a
+    // 1010 button — the drag and mass this now drives must not grow with it.
+    expect(rb['innerDiameter']).toBe(0.0058);
+    expect(rb['totalHeight']).toBe(0.00756);
+    expect(rb['baseHeight']).toBe(0.00185);
+    expect(rb['flangeHeight']).toBe(0.00185);
+    expect(rb['screwHeight']).toBe(0.0018);
     expect(rb['instanceCount']).toBe(2);
     expect(rb['instanceSeparation']).toBeCloseTo(0.4 * K, 12);
   });

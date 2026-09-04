@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { OrkRocket, type MotorSpec, type RocketSpec, type RocketTree } from './orkEngine.js';
+import { OrkRocket, type ComponentNode, type MotorSpec, type RocketSpec, type RocketTree } from './orkEngine.js';
 
 /** Index of a Mach in a drag sweep's grid. Float-exact: the grid is generated, not measured. */
 const at = (s: { machs: number[] }, m: number) =>
@@ -1164,6 +1164,160 @@ describe('override semantics through the component hierarchy', () => {
   });
 });
 
+/**
+ * A CD OVERRIDE MAY BE A FRACTION OF THE BODY'S OWN CD, RE-EVALUATED AT EVERY MACH
+ * (`overrideCDBodyRatio`; kernel patch in engine-java/patches, ledgered).
+ *
+ * WHY THE KERNEL HAS TO DO IT. The app has no protuberance calculator: a protuberance
+ * is lowered at the engine boundary to a `railbutton` carrying an `overrideCD`, and
+ * BarrowmanCalculator.calculateOverrideCD added that scalar unchanged at every Mach.
+ * For the two STREAMLINED protuberance classes that is the wrong shape outright —
+ * they implement Chuck Rogers' Streamlined Protuberance Method, which sets the bump's
+ * drag per unit frontal area equal to the ROCKET BODY's own "for all Mach Numbers"
+ * (TRF 197641 #1), and a scalar cannot express a fraction of a curve. The app could
+ * not fix it on its side: getAerodynamicForces is the flight hot path and passes a
+ * null force map, so no per-component decomposition exists during a simulation, and
+ * the app hands the kernel ONE static tree per flight.
+ *
+ * WHAT THE BODY REFERENCE IS. The SymmetricComponent-only half of friction + pressure
+ * (+ base, for the with-base class), accumulated in place by the three drag methods
+ * that already run immediately before calculateOverrideCD at both of its call sites.
+ * Rogers' own instruction to OpenRocket users is to measure it by deleting the fins
+ * ("running the rocket with No Fins (Rocket Body Only)"), which is exactly what
+ * `bodyOnly` below builds — and MEASURED against the committed kernel, the in-place
+ * sum and that separate stripped rocket agree to 5.6e-17 absolute (0-1 ulp) at all 20
+ * Mach points 0.10-2.00 on this airframe, so the two are the same quantity and the
+ * assertions below can use the cheap one. (They part company only when stripping the
+ * fins shortens getLengthAerodynamic() and moves Re; here it is 0.65 m either way.)
+ *
+ * THE NUMBERS THIS PINS, measured on the airframe below (nose 0.15 m ogive + 0.5 m
+ * 50 mm tube, ratio 0.08): body CD with base drag runs 0.267830153 (M2.00) to
+ * 0.503845206 (M1.10), a span of 1.88x, so the honest increment runs 0.021426412 to
+ * 0.040307616 where the frozen scalar sat at 0.030077691 — the M0.3 value — for the
+ * whole flight.
+ */
+describe('a body-proportional CD override tracks the body CD at every Mach', () => {
+  const RATIO = 0.08;
+  const OPTS = { machMin: 0.1, machMax: 2.0, machStep: 0.1, aoaDeg: 0 };
+
+  const FINS = {
+    type: 'trapezoidfinset', name: 'Fins', finCount: 3, rootChord: 0.08, tipChord: 0.04,
+    sweep: 0.03, height: 0.05, thickness: 0.003, density: 680,
+    // Bottom-referenced with offset 0, so the fin trailing edge lands exactly on the
+    // tube bottom and getLengthAerodynamic() is the same with the fins and without —
+    // which is what lets `bodyOnly` stand in for the kernel's in-place reference.
+    position: { method: 'bottom', offset: 0 },
+  } as unknown as ComponentNode;
+
+  /** nose + tube, plus whatever is hung inside the tube. */
+  const airframe = (inside: ComponentNode[]): RocketTree => ({
+    name: 'RatioProbe',
+    components: [{
+      type: 'stage', name: 'S',
+      children: [
+        {
+          type: 'nosecone', name: 'Nose', length: 0.15, aftRadius: 0.025,
+          thickness: 0.002, shape: 'ogive', density: 680,
+        },
+        {
+          type: 'bodytube', name: 'Tube', length: 0.5, outerRadius: 0.025,
+          thickness: 0.001, density: 680, children: inside,
+        },
+      ],
+    } as unknown as ComponentNode],
+  });
+
+  /** The carrier the app's protuberance lowering emits: a RailButton, drag only. */
+  const carrier = (over: Record<string, unknown>): ComponentNode => ({
+    type: 'railbutton', name: 'Bump', outerDiameter: 0.014,
+    position: { method: 'middle', offset: 0 }, overrideMass: 0, ...over,
+  } as unknown as ComponentNode);
+
+  const sweep = (t: RocketTree) => OrkRocket.buildTree(t).dragSweep(OPTS);
+
+  it('delivers ratio x body CD(M), not a frozen scalar', () => {
+    const bodyOnly = sweep(airframe([]));           // Rogers' "Rocket Body Only"
+    const finned = sweep(airframe([FINS]));         // the same rocket, carrier removed
+    const machs = finned.machs;
+
+    // The frozen scalar the app used to hand over: the M0.3 reading, held for the
+    // whole flight. It stays on the node as the fallback, so this is also the proof
+    // that the ratio WINS over it when both are present.
+    const i03 = machs.findIndex((m) => Math.abs(m - 0.3) < 1e-9);
+    const frozen = RATIO * bodyOnly.powerOff.total[i03]!;
+    expect(frozen).toBeCloseTo(0.030077691, 9);
+
+    const withRatio = sweep(airframe([FINS, carrier({
+      overrideCD: frozen, overrideCDBodyRatio: RATIO, overrideCDBodyIncludesBase: true,
+    })]));
+    const delivered = machs.map((_, i) => withRatio.powerOff.total[i]! - finned.powerOff.total[i]!);
+
+    // (a) IT IS NOT CONSTANT. This is the whole defect in one assertion: before the
+    // kernel change every one of these 20 points read 0.030077691.
+    const lo = Math.min(...delivered), hi = Math.max(...delivered);
+    expect(hi / lo).toBeGreaterThan(1.5);
+    expect(lo).toBeCloseTo(0.021426412, 9);   // M2.00
+    expect(hi).toBeCloseTo(0.040307616, 9);   // M1.10, the transonic peak
+
+    // (b) IT IS THE METHOD, at every Mach: ratio x this body's own CD including base
+    // drag, measured from the stripped rocket.
+    machs.forEach((_, i) => {
+      expect(delivered[i]!).toBeCloseTo(RATIO * bodyOnly.powerOff.total[i]!, 9);
+    });
+    for (const m of [0.3, 1.1, 2.0]) {
+      const i = machs.findIndex((x) => Math.abs(x - m) < 1e-9);
+      expect(delivered[i]!).toBeCloseTo(RATIO * bodyOnly.powerOff.total[i]!, 12);
+    }
+    // At the quoting Mach it still delivers exactly what the panel prints.
+    expect(delivered[i03]!).toBeCloseTo(frozen, 12);
+
+    // …and it is ALL override: a CD-overridden component is skipped by the friction,
+    // pressure and base loops, so none of the three computed buckets moves.
+    machs.forEach((_, i) => {
+      expect(withRatio.powerOff.friction[i]!).toBeCloseTo(finned.powerOff.friction[i]!, 12);
+      expect(withRatio.powerOff.pressure[i]!).toBeCloseTo(finned.powerOff.pressure[i]!, 12);
+      expect(withRatio.powerOff.base[i]!).toBeCloseTo(finned.powerOff.base[i]!, 12);
+    });
+  }, 60000);
+
+  it('the no-base class references body CD EXCLUDING base drag', () => {
+    // Rogers' two streamlined classes differ in exactly this: "Streamlined with No
+    // Base Drag" is a fraction of the body CD NOT including body base drag, "with Base
+    // Drag" of the body CD including it.
+    const bodyOnly = sweep(airframe([]));
+    const finned = sweep(airframe([FINS]));
+    const noBase = sweep(airframe([FINS, carrier({
+      overrideCD: 0.01, overrideCDBodyRatio: RATIO, overrideCDBodyIncludesBase: false,
+    })]));
+
+    finned.machs.forEach((_, i) => {
+      const ref = bodyOnly.powerOff.total[i]! - bodyOnly.powerOff.base[i]!;
+      expect(noBase.powerOff.total[i]! - finned.powerOff.total[i]!).toBeCloseTo(RATIO * ref, 9);
+    });
+    // Strictly less than the with-base class, everywhere, by exactly the base term.
+    const withBase = sweep(airframe([FINS, carrier({
+      overrideCD: 0.01, overrideCDBodyRatio: RATIO, overrideCDBodyIncludesBase: true,
+    })]));
+    finned.machs.forEach((_, i) => {
+      expect(withBase.powerOff.total[i]! - noBase.powerOff.total[i]!)
+        .toBeCloseTo(RATIO * bodyOnly.powerOff.base[i]!, 9);
+    });
+  }, 60000);
+
+  it('a plain overrideCD with NO ratio key is still flat, to the last bit', () => {
+    // THE SCOPE GUARD. Every `.ork` <overridecd>, every user-typed Cd override, every
+    // stage-level override and every plate-class protuberance reaches the kernel with
+    // no ratio key at all, leaves the new field at its NaN default, and must take the
+    // untouched `instanceCount * getOverrideCD()` branch. If this ever moves, the
+    // change has leaked out of its own branch and desktop parity is gone.
+    const finned = sweep(airframe([FINS]));
+    const scalar = sweep(airframe([FINS, carrier({ overrideCD: 0.05 })]));
+    scalar.machs.forEach((_, i) => {
+      expect(scalar.powerOff.total[i]! - finned.powerOff.total[i]!).toBeCloseTo(0.05, 12);
+    });
+  }, 60000);
+});
+
 describe('surface finish maps every level OpenRocket defines', () => {
   /**
    * ExternalComponent.Finish has NINE constants. The bridge had cases for seven;
@@ -1509,5 +1663,108 @@ describe('tube fin wall thickness reaches the kernel (A5)', () => {
     expect(info.cna).toBeCloseTo(496.777534, 4);
     expect(info.cna).not.toBeCloseTo(487.065515, 2);
     expect(info.cp).toBeCloseTo(0.293942608, 8);
+  });
+});
+
+/**
+ * C7 — a stubby non-conical nose is no longer charged ZERO subsonic pressure drag.
+ *
+ * Upstream 24.12 routes ELLIPSOID / POWER / PARABOLIC / HAACK to stored fineness-3
+ * tables whose non-blunt entries all START at their drag-divergence Mach with the
+ * value 0. The fineness extrapolation is multiplicative so it maps 0 to 0, and the
+ * subsonic fit is then skipped outright by `if (minValue < 0.001) return;` — after
+ * which LinearInterpolator clamps flat to the leading zero. Net effect: shortening
+ * a Von Karman, Haack, parabolic or power nose made the app's drag go DOWN, because
+ * the only thing shortening changed was wetted area.
+ *
+ * The floor is calibrated on Centuri TIR-100 section 8 (Mercer's 12-shape Javelin
+ * series, L/D 4.0 to 0) corroborated by DeMar NARAM-37, and tapers to nothing by
+ * L/D 1.8 where that tunnel measures no shape effect at all. See
+ * SymmetricComponentCalc.applyStubbyNoseFloor for the derivation and the caveats.
+ */
+describe('stubby non-conical noses carry subsonic pressure drag (C7)', () => {
+  /** A nose of the given shape and fineness on a plain body tube. */
+  const rocket = (shape: string, fineness: number, shapeParameter?: number): RocketTree => {
+    const r = 0.0285750;
+    return {
+      name: 'nose',
+      components: [{
+        type: 'stage', id: 's', children: [
+          {
+            id: 'n', type: 'nosecone', shape, length: fineness * 2 * r,
+            aftRadius: r, thickness: 0.002,
+            ...(shapeParameter === undefined ? {} : { shapeParameter }),
+          },
+          { id: 'b', type: 'bodytube', length: 0.6, outerRadius: r, thickness: 0.001 },
+        ],
+      }],
+    } as unknown as RocketTree;
+  };
+
+  /**
+   * Isolated-nose pressure Cd at M0.3. A body tube contributes no pressure drag and
+   * for a nose frontalArea == refArea, so powerOff.pressure IS the nose term.
+   */
+  const nosePressure = (shape: string, fineness: number, kbf: boolean, param?: number) => {
+    const built = OrkRocket.buildTree(rocket(shape, fineness, param));
+    built.setRogersModifiedBarrowman(kbf);
+    return built.dragSweep({ machMin: 0.3, machMax: 0.3, machStep: 1 }).powerOff.pressure[0]!;
+  };
+
+  it('charges a stubby Von Karman, Haack, parabolic and power nose instead of zero', () => {
+    // Every one of these reads EXACTLY 0.000000 before the fix, at every fineness.
+    for (const [shape, param] of [
+      ['haack', 0], ['haack', 1 / 3], ['parabolic', 1], ['power', 0.5],
+    ] as const) {
+      const cd = nosePressure(shape, 0.5, true, param);
+      expect(cd, `${shape} ${param} at L/D 0.5`).toBeGreaterThan(0.05);
+      expect(cd, `${shape} ${param} at L/D 0.5`).toBeLessThan(0.2);
+    }
+  });
+
+  it('is ZERO above L/D 1.8, so no ordinary nose moves at all', () => {
+    // TIR-100 measures no shape or fineness effect above ~L/D 1.8 and says so.
+    // A 3:1 Von Karman is the commonest high-power nose there is; it must not move.
+    for (const f of [1.8, 2.0, 3.0, 5.0]) {
+      expect(nosePressure('haack', f, true, 0), `VK at L/D ${f}`).toBeCloseTo(0, 9);
+    }
+  });
+
+  it('never charges a table shape more than a CONE of the same fineness', () => {
+    // The floor is 1/3 of the conical value by construction, so the ellipsoid-above-
+    // a-cone inversion the Newtonian candidate produced cannot happen here.
+    for (const f of [0.5, 0.75, 1.0, 1.5]) {
+      const cone = nosePressure('conical', f, true);
+      for (const [shape, param] of [['haack', 0], ['ellipsoid', undefined]] as const) {
+        expect(nosePressure(shape, f, true, param), `${shape} vs cone at L/D ${f}`)
+          .toBeLessThan(cone);
+      }
+    }
+  });
+
+  it('rises as the nose gets stubbier, and the rocket gets DRAGGIER not lighter', () => {
+    // The symptom this item is about: shortening a VK used to REDUCE total drag.
+    const long = nosePressure('haack', 3, true, 0);
+    const mid = nosePressure('haack', 1, true, 0);
+    const stub = nosePressure('haack', 0.5, true, 0);
+    expect(long).toBeCloseTo(0, 9);
+    expect(mid).toBeGreaterThan(long);
+    expect(stub).toBeGreaterThan(mid);
+  });
+
+  it('leaves the CLASSIC model bit-identical to desktop 24.12', () => {
+    // Gated rogersKbf || supersonicAero, the 2026-08-27 ruling. Classic is the
+    // parity model and must not move.
+    for (const f of [0.5, 1.0]) {
+      expect(nosePressure('haack', f, false, 0), `classic VK at L/D ${f}`).toBeCloseTo(0, 9);
+    }
+  });
+
+  it('lands where the measurement says: ~0.12 at L/D 0.5', () => {
+    // (1/3) x 0.8/(1+4*0.25) x (1 - (0.5/1.8)^2) = 0.12305.
+    // Bracketed by TIR-100 + DeMar (a hemisphere at that fineness measures +0.02 to
+    // +0.10 whole-rocket, plus an unquantified friction credit) and @Buckeye's CFD
+    // (~27 % of a CD-0.5 rocket). The rejected Newtonian floor gave 0.270-0.421.
+    expect(nosePressure('haack', 0.5, true, 0)).toBeCloseTo(0.12305, 4);
   });
 });

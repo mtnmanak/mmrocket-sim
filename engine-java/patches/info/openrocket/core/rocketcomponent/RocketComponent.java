@@ -143,6 +143,38 @@ public abstract class RocketComponent implements ChangeSource, Cloneable, Iterab
 	private boolean overrideSubcomponentsCD = false;
 	private RocketComponent CDOverriddenBy = null;	// The (super-)parent component that overrides the CD of this component
 	
+
+	/**
+	 * PATCH (MMRocket Sim, body-proportional CD override — engine-java/patches/LEDGER.md,
+	 * "Correctness fixes"). MMRocket-Sim-original: desktop OpenRocket 24.12 has no such
+	 * field, and neither does its file format.
+	 *
+	 * NaN — the default, and what every `.ork` {@code <overridecd>} keeps — means the
+	 * override is a PLAIN SCALAR, added unchanged at every Mach exactly as upstream does.
+	 * A non-NaN value means the override is instead a FRACTION OF THE ROCKET BODY'S OWN
+	 * CD, re-evaluated by {@link info.openrocket.core.aerodynamics.BarrowmanCalculator
+	 * #calculateOverrideCD} at the flight's current Mach. That is Chuck Rogers'
+	 * Streamlined Protuberance Method, which is a fraction of the body CD "for all Mach
+	 * Numbers" (TRF 197641 #1) and which a scalar cannot express: measured on the
+	 * ARCAS-Long fixture, a 20x10 mm streamlined protuberance's honest increment runs
+	 * 0.0184820 (M2.00) to 0.0333464 (M1.10) while the frozen scalar sat at 0.0274807 at
+	 * every Mach — 12.2 % low at M0.10, 17.6 % low at the M1.10 transonic peak and 48.7 %
+	 * high at M2.00.
+	 *
+	 * This is the ONLY state the feature adds. `cdOverridden` still reads true on such a
+	 * component, so the friction/pressure/base loops keep skipping it and the override
+	 * stays the component's entire drag.
+	 */
+	private double overrideCDBodyRatio = Double.NaN;
+
+	/**
+	 * PATCH (MMRocket Sim, body-proportional CD override): true (the default) means the
+	 * ratio multiplies the body CD INCLUDING base drag — Rogers' "Streamlined with Base
+	 * Drag" class. False means EXCLUDING it, his "Streamlined with No Base Drag" class.
+	 * Read only when {@link #overrideCDBodyRatio} is non-NaN.
+	 */
+	private boolean overrideCDBodyIncludesBase = true;
+
 	// User-given name of the component
     protected String name = null;
 	
@@ -840,6 +872,45 @@ public abstract class RocketComponent implements ChangeSource, Cloneable, Iterab
 		}
 	}
 		
+
+	/**
+	 * PATCH (MMRocket Sim, body-proportional CD override — see the field's javadoc and
+	 * engine-java/patches/LEDGER.md).
+	 *
+	 * @return the body-CD fraction this override represents, or NaN when the override is
+	 *         a plain scalar (the default, and every desktop `.ork` override).
+	 */
+	public final double getOverrideCDBodyRatio() {
+		mutex.verify();
+		return overrideCDBodyRatio;
+	}
+
+	/**
+	 * PATCH (MMRocket Sim): set the body-CD fraction, or NaN to go back to a plain scalar.
+	 *
+	 * DELIBERATELY NOT a `setOverrideCD`-shaped setter: it forwards to no config listener
+	 * and fires no ComponentChangeEvent. The only writer is the JS bridge
+	 * (api.ComponentFactory.applyOverrides), which sets it ONCE while the tree is being
+	 * built from JSON, before any calculator exists to invalidate — the same treatment
+	 * AxialStage.setNozzleExitDiameter gets. Firing an AERODYNAMIC_CHANGE here would be
+	 * harmless but would be dead weight in every rocket build.
+	 */
+	public final void setOverrideCDBodyRatio(double x) {
+		checkState();
+		this.overrideCDBodyRatio = x;
+	}
+
+	/** PATCH (MMRocket Sim): true when the ratio multiplies body CD INCLUDING base drag. */
+	public final boolean isOverrideCDBodyIncludesBase() {
+		mutex.verify();
+		return overrideCDBodyIncludesBase;
+	}
+
+	/** PATCH (MMRocket Sim): see {@link #setOverrideCDBodyRatio} on why this is event-free. */
+	public final void setOverrideCDBodyIncludesBase(boolean o) {
+		checkState();
+		this.overrideCDBodyIncludesBase = o;
+	}
 
 
 	/**

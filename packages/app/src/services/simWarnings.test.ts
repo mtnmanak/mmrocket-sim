@@ -102,4 +102,27 @@ describe('formatWarningText (static warnings from staticInfo)', () => {
   it('leaves an already-plain string alone', () => {
     expect(formatWarningText('Just a sentence.')).toBe('Just a sentence.');
   });
+
+  /**
+   * The app raises geometric warnings of its own — the rail check, and since
+   * C5 the shroud-wake check (tree/mountAngle.ts). They arrive here as finished
+   * English sentences with no DebugTranslator token, and must reach the Design
+   * strip and the launch report byte for byte.
+   *
+   * The trap this pins is `stripBrackets`: it removes a LEADING bracketed token,
+   * which is the whole point for a kernel message, but a user is free to name a
+   * part "[cam]". A sentence that opened with a bare part name would lose it.
+   * The wake sentence QUOTES the name for exactly this reason.
+   */
+  it('passes an app-side geometric sentence through untouched', () => {
+    const wake = '"Camera shroud" at 0° sits 220 mm ahead of a fin of "Fins" — 11 times its '
+      + 'own height upstream, 0° off that fin\'s line. The wake it sheds is not modelled. '
+      + 'Clocking it between the fins removes the question.';
+    expect(formatWarningText(wake)).toBe(wake);
+    const bracketName = '"[cam]" at 0° sits 220 mm ahead of a fin of "Fins".';
+    expect(formatWarningText(bracketName)).toBe(bracketName);
+    // …and the hazard is real: the same name unquoted at the front IS eaten.
+    expect(formatWarningText('[cam] at 0° sits 220 mm ahead of a fin.'))
+      .toBe('at 0° sits 220 mm ahead of a fin.');
+  });
 });

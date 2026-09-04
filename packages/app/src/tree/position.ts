@@ -89,6 +89,90 @@ export function resolveAbsolutePositions(tree: RocketTree): RocketTree {
   return changed ? { ...tree, components } : tree;
 }
 
+/** Where one component sits along the assembled rocket, and what it sits on. */
+export interface AbsoluteStation {
+  /** Leading edge, metres aft of the nose tip of the assembled stack. */
+  start: number;
+  /** Trailing edge — `start + axialLength(node)`. */
+  end: number;
+  node: ComponentNode;
+  /**
+   * The component this one is mounted INSIDE or ON, null for a stage's own
+   * chain members. It is here because the only thing that can answer "how big
+   * is the airframe under this shroud" is the part it is attached to
+   * (treeModel.mountRadiusOf takes exactly this node).
+   */
+  parent: ComponentNode | null;
+}
+
+/**
+ * Every component's axial station in the WHOLE assembled stack, nose tip = 0.
+ *
+ * This is the walk `resolveAbsolutePositions` already performs inside
+ * `fixChildren` (ll. 57–71 above) and throws away once it has rewritten the
+ * positions: chain members (nose cone, body tube, transition) stack nose-to-
+ * tail and ignore their own position field, everything else is placed inside
+ * its parent by `startFromPosition`, and stages continue the same `x` rather
+ * than restarting — which is what makes this the rocket frame the property
+ * panel prints ("starts N mm from nose", PropertyPanel.tsx:553) and the frame
+ * the kernel's own `ComponentInfo.positionX` reports.
+ *
+ * WHOLE STACK, NOT PER STAGE — stated because the repo already carries a
+ * per-stage version of the same walk, `stationsInStage` in motorRoom.ts
+ * (ll. 104–123), and the difference will otherwise be rediscovered as a bug.
+ * That one restarts at each stage's fore end ON PURPOSE: it answers how long a
+ * motor fits, and a motor cannot cross a stage joint because stages separate.
+ * The questions this one is for — where a part sits relative to another part
+ * on the pad, what is upstream of what during boost — are asked of the rocket
+ * as assembled, which is the same frame `railInterferenceWarnings` chose for
+ * the rail line (mountAngle.ts, `checkFrame(tree.components)`). motorRoom's
+ * copy should be folded into this one as `stationsInStage(stage) =
+ * absoluteStations({components:[stage]})`; it is left standing here only
+ * because this sitting did not own that file.
+ *
+ * The one place this walk is stricter than `startFromPosition` alone: an
+ * `absolute` position is ALREADY in this frame (it is the rocket-origin offset
+ * only file importers produce — see `resolveAbsolutePositions` above), so it is
+ * taken literally instead of being added to the parent's start. Feeding a tree
+ * through `resolveAbsolutePositions` first therefore does not move any station,
+ * which `position.test.ts` pins.
+ */
+export function absoluteStations(tree: RocketTree): Map<string, AbsoluteStation> {
+  const out = new Map<string, AbsoluteStation>();
+  const chainTypes = new Set(['nosecone', 'bodytube', 'transition']);
+
+  const descend = (parent: ComponentNode, pStart: number, pLen: number): void => {
+    for (const child of parent.children ?? []) {
+      const cLen = axialLength(child);
+      const pos = (child.position ?? { method: 'top', offset: 0 }) as ComponentPosition;
+      const start = pos.method === 'absolute'
+        ? pos.offset
+        : pStart + startFromPosition(pos, cLen, pLen);
+      if (child.id) out.set(child.id, { start, end: start + cLen, node: child, parent });
+      descend(child, start, cLen);
+    }
+  };
+
+  let x = 0;
+  for (const top of tree.components ?? []) {
+    // A stage contributes its children to the chain; a bare component at the
+    // top level (older trees, and the shape resolveAbsolutePositions handles at
+    // l. 82) is its own single member.
+    const members = top.type === 'stage' ? top.children ?? [] : [top];
+    for (const member of members) {
+      // Only a chain member has axial extent OF ITS OWN in this frame, and only
+      // a chain member advances x — the same rule both existing walkers use, so
+      // a stage-level part that is not a tube reads as a zero-length station at
+      // the current x rather than displacing everything behind it.
+      const len = chainTypes.has(member.type) ? axialLength(member) : 0;
+      if (member.id) out.set(member.id, { start: x, end: x + len, node: member, parent: null });
+      descend(member, x, len);
+      x += len;
+    }
+  }
+  return out;
+}
+
 /**
  * Candidate snap starts for a child inside its parent: the parent's ends and
  * middle, plus alignment with every sibling's ends — that's where parts sit

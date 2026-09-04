@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { OrkRocket } from '@online-openrocket/engine';
-import { bodyDragReference, engineTree, fairingDeliveredCd, fairingFrontalArea, findNode, findParent, mountRadiusOf, hasParallelStage, isOnLaunchStage, makeNode, motorMounts, mountsIn, normalizeTree, protuberanceCd, protuberanceDeliveredCd, PROTUBERANCE_REF_MACH, referenceArea, resetBodyDragCache, splitClusterPairsTree, splitClusterTree } from './treeModel.js';
+import { bodyDragReference, engineTree, fairingDeliveredCd, fairingFrontalArea, findNode, findParent, mountRadiusOf, hasParallelStage, isOnLaunchStage, makeNode, motorMounts, mountsIn, normalizeTree, protuberanceCd, protuberanceDeliveredCd, protuberanceFrontalArea, PROTUBERANCE_REF_MACH, referenceArea, resetBodyDragCache, splitClusterPairsTree, splitClusterTree } from './treeModel.js';
 import { clusterOffsets } from './cluster.js';
 import { allowedChildren, defaultParams, DISPLAY_NAME, FIELDS } from './schema.js';
 
@@ -758,6 +758,62 @@ describe('engineTree — protuberance lowering', () => {
     expect(cd).toBeCloseTo((0.5 * 0.001) / aRef, 12);
   });
 
+  /**
+   * THE TWO STREAMLINED CLASSES ALSO HAND THE KERNEL THE AREA RATIO (v0.103), so it
+   * can re-evaluate them against the body CD at the Mach being flown instead of the
+   * one frozen at PROTUBERANCE_REF_MACH. `overrideCD` stays beside it as the M0.3
+   * fallback and as the number the property panel quotes.
+   *
+   * WHICH CLASSES MAY HAVE IT is the load-bearing half of this test. Rogers' method
+   * is a fraction of the body CD; `plate` is 1.17·sin²θ, modified-Newtonian ramp
+   * pressure, which carries no Mach term CORRECTLY; and a typed `cdFrontal` is the
+   * user's own constant. The last two must never gain a ratio — bending them to the
+   * body's curve would be inventing physics for one and overruling the user for the
+   * other. Absence is what the kernel reads as "plain scalar" (the field defaults to
+   * NaN), so an accidental emit here is a silent numbers change on a design that
+   * asked for a constant.
+   */
+  it('emits the area ratio for the streamlined classes and for nothing else', () => {
+    const ratio = 0.001 / aRef;                       // 0.05 × 0.02 m² of frontal area
+    const carrierFor = (params: Record<string, unknown>) =>
+      findNode(engineTree(protTree(params)), 'x1')!;
+
+    const withBase = carrierFor({ dragClass: 'streamlinedbase' });
+    expect(withBase['overrideCDBodyRatio']).toBeCloseTo(ratio, 15);
+    expect(withBase['overrideCDBodyIncludesBase']).toBe(true);
+    // The ratio and the scalar describe the SAME number at the quoting Mach: the
+    // kernel multiplies the ratio by the body CD, which is what the scalar already is.
+    const body = bodyDragReference(protTree({}));
+    expect((withBase['overrideCDBodyRatio'] as number) * body.withBase)
+      .toBeCloseTo(withBase['overrideCD'] as number, 12);
+
+    const noBase = carrierFor({ dragClass: 'streamlined' });
+    expect(noBase['overrideCDBodyRatio']).toBeCloseTo(ratio, 15);
+    expect(noBase['overrideCDBodyIncludesBase']).toBe(false);
+    expect((noBase['overrideCDBodyRatio'] as number) * body.noBase)
+      .toBeCloseTo(noBase['overrideCD'] as number, 12);
+
+    // It is a pure AREA ratio, so it scales with count exactly as the override does…
+    expect(carrierFor({ count: 4 })['overrideCDBodyRatio']).toBeCloseTo(4 * ratio, 15);
+
+    // …and it is ABSENT — not zero, not NaN — for the two flat cases.
+    for (const flat of [
+      { dragClass: 'plate' as const, plateAngle: Math.PI / 4 },
+      { dragClass: 'plate' as const },
+      { dragClass: 'streamlinedbase' as const, cdFrontal: 0.5 },
+      { dragClass: 'streamlined' as const, cdFrontal: 0.37 },
+    ]) {
+      const c = carrierFor(flat);
+      expect('overrideCDBodyRatio' in c).toBe(false);
+      expect('overrideCDBodyIncludesBase' in c).toBe(false);
+    }
+
+    // A typed 0 is NOT an override (protuberanceExplicitCd), so the class still owns
+    // the Cd — and therefore still gets the ratio. Same rule, one place.
+    const zeroed = carrierFor({ dragClass: 'streamlinedbase', cdFrontal: 0 });
+    expect(zeroed['overrideCDBodyRatio']).toBeCloseTo(ratio, 15);
+  }, 60000);
+
   it('bills a typed mass and nothing when it is left at zero', () => {
     expect(findNode(engineTree(protTree({ mass: 0.12 })), 'x1')!['overrideMass']).toBeCloseTo(0.12, 12);
     expect(findNode(engineTree(protTree({})), 'x1')!['overrideMass']).toBe(0);
@@ -900,10 +956,19 @@ describe('engineTree — the protuberance reference area is the kernel\'s own', 
     // (12/20)² of the CD — 0.0730819, which is what used to be delivered.
     expect(asked * (0.012 ** 2 / 0.02 ** 2)).toBeCloseTo(0.0730819, 7);
 
-    const strip = (ns: ComponentNode[]): ComponentNode[] => ns
-      .filter((n) => n.id !== 'x1')
-      .map((n) => (n.children ? { ...n, children: strip(n.children) } : n));
-    const without: RocketTree = { ...tree, components: strip(tree.components) };
+    const dropIds = (ns: ComponentNode[], ids: string[]): ComponentNode[] => ns
+      .filter((n) => !ids.includes(n.id as string))
+      .map((n) => (n.children ? { ...n, children: dropIds(n.children, ids) } : n));
+    // The same rocket with the bump removed — what the delta is measured against.
+    const without: RocketTree = { ...tree, components: dropIds(tree.components, ['x1']) };
+    // Rogers' "Rocket Body Only": bump AND tube fins gone. This is the reference the
+    // kernel now accumulates IN PLACE (the SymmetricComponent half of friction +
+    // pressure + base). MEASURED against the committed kernel: the in-place sum and
+    // this separate stripped rocket agree to 1.1e-16 absolute at every Mach on this
+    // airframe, so the cheap one stands in for it. (Both tube fins and bump end at the
+    // tube bottom, so getLengthAerodynamic() — and therefore Re — is the same either
+    // way; that is what makes the two identical rather than merely close.)
+    const bodyOnly: RocketTree = { ...tree, components: dropIds(tree.components, ['x1', 'tf1']) };
 
     const opts = { machMin: 0.05, machMax: 3, machStep: 0.05, aoaDeg: 0 };
     const run = (t: RocketTree) => {
@@ -913,18 +978,34 @@ describe('engineTree — the protuberance reference area is the kernel\'s own', 
     };
     const a = run(tree);
     const b = run(without);
+    const bodyRun = run(bodyOnly);
 
     // The kernel agrees on the area everything is referenced to…
     expect(a.info.refDiameter).toBeCloseTo(0.024, 12);
     expect(referenceArea(tree)).toBeCloseTo(Math.PI * (a.info.refDiameter / 2) ** 2, 12);
     expect(b.info.refDiameter).toBe(a.info.refDiameter);
-    // …so asked X, delivered X, at every Mach, in the override bucket alone.
+
+    // …and the delivered drag is Rogers' method at EVERY Mach, not the M0.3 reading
+    // held for the whole flight (v0.103). `asked` is still exactly what arrives at
+    // M0.3 — it is the number the property panel quotes — and the increment then
+    // follows this airframe's own drag curve: measured here it spans 0.0924524 (M3.0)
+    // to 0.2540888 (M1.10), a 2.75x swing that the old frozen 0.2030053 flattened away.
+    const ratio = protuberanceFrontalArea(findNode(tree, 'x1')!) / referenceArea(tree);
+    const delivered = a.sweep.machs.map((_, i) =>
+      a.sweep.powerOff.total[i]! - b.sweep.powerOff.total[i]!);
+    const i03 = a.sweep.machs.findIndex((m) => Math.abs(m - 0.3) < 1e-9);
+    expect(delivered[i03]!).toBeCloseTo(asked, 9);
     for (let i = 0; i < a.sweep.machs.length; i++) {
-      expect(a.sweep.powerOff.total[i]! - b.sweep.powerOff.total[i]!).toBeCloseTo(asked, 9);
+      expect(delivered[i]!).toBeCloseTo(ratio * bodyRun.sweep.powerOff.total[i]!, 9);
+      // Still ALL override: a CD-overridden carrier is skipped by all three computed
+      // loops, so none of them moves. That half was true before and stays true.
       expect(a.sweep.powerOff.friction[i]!).toBeCloseTo(b.sweep.powerOff.friction[i]!, 12);
       expect(a.sweep.powerOff.pressure[i]!).toBeCloseTo(b.sweep.powerOff.pressure[i]!, 12);
       expect(a.sweep.powerOff.base[i]!).toBeCloseTo(b.sweep.powerOff.base[i]!, 12);
     }
+    expect(Math.max(...delivered) / Math.min(...delivered)).toBeGreaterThan(2.5);
+    expect(Math.min(...delivered)).toBeCloseTo(0.0924524, 7);
+    expect(Math.max(...delivered)).toBeCloseTo(0.2540888, 7);
   }, 60000);
 
   it('ignores every other outerRadius in the tree — lug, mount, coupler', () => {
@@ -1260,5 +1341,205 @@ describe('mounting angle steers lift, never drag (four components)', () => {
     const at = (aoaDeg: number) =>
       built.dragSweep({ machMin: 0.3, machMax: 0.3, machStep: 1, aoaDeg }).powerOff.total[0]!;
     expect(at(20)).toBe(at(0));
+  });
+});
+
+/**
+ * C8 — a rail button's SIX dimensions reach the kernel, not just its diameter.
+ *
+ * Until v0.103 `ComponentFactory` read `outerDiameter` and nothing else, so
+ * every rail button in every design flew and weighed as the kernel
+ * constructor's generic part (RailButton.java:58-64: OD 9.7, total height 9.7,
+ * ID 8.0, base 2.0, flange 2.0 mm) whatever the user typed or the file said.
+ * The five dimensions are ONE FACT, not five: total height x OD sizes the drag
+ * reference area and (OD - ID) x inner height cuts the waist notch out of it
+ * (RailButtonCalc.java:57-60), all four are in the mass formula
+ * (RailButton.java:301-308), and screw height is in the mass formula alone.
+ *
+ * Total height enters the drag a SECOND time at RailButtonCalc.java:85-92,
+ * where it is compared against the local boundary-layer thickness to set the
+ * velocity the button actually sees — so CD is SUPERLINEAR in height, which is
+ * why the numbers below spread further than the reference areas do.
+ *
+ * THE EXPECTED VALUES ARE AN ORACLE, not a snapshot: they come from an exact
+ * JS replication of calculatePressureCD (Gowen-Perkins table, MathUtil
+ * interpolate/map, calculateStagnationCD, the kernel's own 293.15 K / 101325 Pa
+ * conditions), validated against this same engine at the kernel-default
+ * geometry to 1e-17. On THIS fixture the button sits at x = 0.35 m.
+ */
+describe('rail button geometry reaches the kernel', () => {
+  const withButton = (over: Record<string, unknown> | null): RocketTree => ({
+    name: 'R',
+    components: [{
+      type: 'stage', id: 's1', children: [
+        { id: 'n1', type: 'nosecone', shape: 'ogive', length: 0.1, aftRadius: 0.025, thickness: 0.002 },
+        {
+          id: 'b1', type: 'bodytube', length: 0.5, outerRadius: 0.025, thickness: 0.001,
+          children: [
+            { id: 'f1', type: 'trapezoidfinset', finCount: 3, rootChord: 0.08, tipChord: 0.04,
+              sweep: 0.03, height: 0.05, thickness: 0.003, position: { method: 'bottom', offset: 0 } },
+            ...(over ? [{ id: 'rb', type: 'railbutton', position: { method: 'middle', offset: 0 }, ...over }] : []),
+          ],
+        },
+      ],
+    }],
+  } as unknown as RocketTree);
+
+  const measure = (over: Record<string, unknown> | null) => {
+    const r = OrkRocket.buildTree(engineTree(withButton(over)));
+    const sweep = r.dragSweep({ machMin: 0.3, machMax: 0.3, machStep: 1 }).powerOff;
+    const info = r.staticInfo();
+    return { cd: sweep.total[0]!, mass: info.massEmpty, iyy: info.longitudinalInertiaEmpty };
+  };
+
+  /** Kernel-constructor geometry with only the total height varied. */
+  const atHeight = (h: number) => ({
+    outerDiameter: 0.0097, innerDiameter: 0.008, totalHeight: h,
+    baseHeight: 0.002, flangeHeight: 0.002, screwHeight: 0,
+  });
+
+  const bare = measure(null);
+
+  it('charges drag for the height the button actually is', () => {
+    // Measured on this fixture, single button, M0.3, whole-rocket CD delta.
+    // BEFORE the bridge carried height, all three of these read 0.0189781219 —
+    // the 9.7 mm default — because the other two values never left the app.
+    const dCd = (h: number) => measure(atHeight(h)).cd - bare.cd;
+    expect(dCd(0.006)).toBeCloseTo(0.0055967772, 9);
+    expect(dCd(0.0097)).toBeCloseTo(0.0189781219, 9);
+    expect(dCd(0.015)).toBeCloseTo(0.0409910618, 9);
+    // The spread is 7.3x across a 2.3x spread of reference area: that gap is
+    // the boundary-layer term, and it is the reason height cannot be treated
+    // as a cosmetic dimension.
+    expect(dCd(0.015) / dCd(0.006)).toBeGreaterThan(7);
+  });
+
+  it('weighs the button the height and waist make it', () => {
+    // getComponentVolume: flange and base are OD-wide discs, the waist is an
+    // ID-wide cylinder of (total - flange - base). Delrin 1420 (the kernel
+    // constructor's material) with no density stated.
+    const g = (h: number) => (measure(atHeight(h)).mass - bare.mass) * 1000;
+    expect(g(0.006)).toBeCloseTo(0.562495, 5);
+    expect(g(0.0097)).toBeCloseTo(0.826590, 5);
+    expect(g(0.015)).toBeCloseTo(1.204888, 5);
+  });
+
+  it('cuts the waist notch with the stated inner diameter, not the default 8 mm', () => {
+    // @Buckeye's vb38 drag-study button: OD 9.5, ID 6.0, H 8.0 mm. Height alone
+    // gets about 60 % of the way to the truth; the rest is his 6 mm waist
+    // against the 8 mm default, which is why the two must move together.
+    const his = { outerDiameter: 0.0095, innerDiameter: 0.006, totalHeight: 0.008,
+      baseHeight: 0.002, flangeHeight: 0.002, screwHeight: 0 };
+    const heightOnly = { ...his, innerDiameter: 0.008 };
+    expect(measure(his).cd).not.toBe(measure(heightOnly).cd);
+  });
+
+  it('keeps a button that states no geometry bit-identical to the old kernel default', () => {
+    // The guard that protects every old localStorage design and the
+    // protuberance carrier below: a node with no geometry keys must still be
+    // the constructor's own part.
+    const none = measure({ outerDiameter: 0.0097 });
+    expect(none.cd).toBeCloseTo(bare.cd + 0.0189781219, 9);
+    expect((none.mass - bare.mass) * 1000).toBeCloseTo(0.826590, 5);
+  });
+
+  it('screw height is mass-only — it is in no drag term at all', () => {
+    const noScrew = measure(atHeight(0.0097));
+    const screwed = measure({ ...atHeight(0.0097), screwHeight: 0.002921 });
+    expect(screwed.cd).toBe(noScrew.cd);
+    expect(screwed.mass).toBeGreaterThan(noScrew.mass);
+  });
+});
+
+/**
+ * C6 §5 — the clock angle of a lug, a button and a protuberance reaches the
+ * kernel. It changes NO drag (that identity is pinned above); what it changes
+ * is where the part's mass sits around the body, and therefore the pitch/yaw
+ * inertia and the 6DOF response to wind.
+ *
+ * The observable is `longitudinalInertiaEmpty`, i.e. the kernel's Iyy. A part
+ * whose CG sits at (x, y, z) contributes m(x^2 + z^2) to Iyy
+ * (RigidBody.java:126-131), and RailButton.java:389-390 / LaunchLug.java:236-237
+ * put that CG at cos/sin of the mount angle times the parent radius — so a part
+ * at 0 degrees (offset in +y) and the same part at 90 (offset in +z) give
+ * DIFFERENT Iyy. Before v0.103 they did not: nothing called setAngleOffset for
+ * either component, so every one flew at the constructor's PI regardless.
+ */
+describe('mounting angle reaches the kernel (inertia, never drag)', () => {
+  const withPart = (part: Record<string, unknown> | null): RocketTree => ({
+    name: 'R',
+    components: [{
+      type: 'stage', id: 's1', children: [
+        { id: 'n1', type: 'nosecone', shape: 'ogive', length: 0.1, aftRadius: 0.025, thickness: 0.002 },
+        {
+          id: 'b1', type: 'bodytube', length: 0.5, outerRadius: 0.025, thickness: 0.001,
+          children: [
+            { id: 'f1', type: 'trapezoidfinset', finCount: 3, rootChord: 0.08, tipChord: 0.04,
+              sweep: 0.03, height: 0.05, thickness: 0.003, position: { method: 'bottom', offset: 0 } },
+            ...(part ? [part] : []),
+          ],
+        },
+      ],
+    }],
+  } as unknown as RocketTree);
+
+  const iyy = (part: Record<string, unknown>) =>
+    OrkRocket.buildTree(engineTree(withPart(part))).staticInfo().longitudinalInertiaEmpty;
+
+  // A Wildman 2052-LG pair — the biggest button in OpenRocket's own database,
+  // chosen so the inertia term is well clear of float noise.
+  const button = (a: number) => ({
+    id: 'rb', type: 'railbutton', outerDiameter: 0.01577, totalHeight: 0.01739,
+    innerDiameter: 0.008, baseHeight: 0.002, flangeHeight: 0.002,
+    instanceCount: 2, instanceSeparation: 0.2,
+    angleOffset: a, position: { method: 'middle', offset: 0 },
+  });
+  const lug = (a: number) => ({
+    id: 'lg', type: 'launchlug', length: 0.05, outerRadius: 0.0022, thickness: 0.0003,
+    angleOffset: a, position: { method: 'middle', offset: 0 },
+  });
+  const bump = (a: number) => ({
+    id: 'pr', type: 'protuberance', dragClass: 'streamlinedbase',
+    width: 0.02, height: 0.01, length: 0.06, count: 1, plateAngle: Math.PI / 4,
+    mass: 0.05, angleOffset: a, position: { method: 'middle', offset: 0 },
+  });
+
+  it('a rail button at 90 degrees has a different pitch inertia from one at 0', () => {
+    // Before the bridge, both read 3.165483257698e-3 kg m^2 — identical,
+    // because both flew at the kernel's default of PI.
+    expect(iyy(button(Math.PI / 2))).not.toBe(iyy(button(0)));
+    // 0 and 180 put the mass on opposite sides of the SAME axis, so Iyy is
+    // unchanged between them; that is the pair a naive test would compare and
+    // wrongly call a pass.
+    expect(iyy(button(Math.PI))).toBeCloseTo(iyy(button(0)), 12);
+  });
+
+  it('a launch lug does too', () => {
+    // Before the bridge, both read 3.135905544176e-3 kg m^2.
+    expect(iyy(lug(Math.PI / 2))).not.toBe(iyy(lug(0)));
+  });
+
+  it('and so does a protuberance, whose angle was dropped one layer earlier', () => {
+    // engineTree lowers a protuberance to a carrier RailButton; that lowering
+    // emitted no angle at all, so bridging ComponentFactory alone would still
+    // never have reached it.
+    expect(iyy(bump(Math.PI / 2))).not.toBe(iyy(bump(0)));
+  });
+
+  it('the protuberance carrier carries the angle onto the kernel node', () => {
+    // The tree-level half of the same fix, and the one that fails fast if the
+    // lowering ever drops the key again.
+    const lowered = engineTree(withPart(bump(Math.PI / 3)));
+    const carrier = lowered.components[0]!.children![1]!.children!
+      .find((c) => c.id === 'pr')!;
+    expect(carrier.type).toBe('railbutton');
+    expect(carrier['angleOffset']).toBeCloseTo(Math.PI / 3, 12);
+    // A protuberance that states no angle lowers as 0 — what every drawing
+    // reads for a missing key, and what the bridge defaults to.
+    const noAngle = { ...bump(0) } as Record<string, unknown>;
+    delete noAngle['angleOffset'];
+    const plain = engineTree(withPart(noAngle));
+    expect(plain.components[0]!.children![1]!.children!.find((c) => c.id === 'pr')!['angleOffset'])
+      .toBe(0);
   });
 });

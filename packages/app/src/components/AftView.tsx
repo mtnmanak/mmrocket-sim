@@ -165,19 +165,43 @@ export function AftView({ tree, motors, roll: rollProp, onRoll }: {
         });
         reach(cy, cz, pRadius + hgt);
       } else if (t === 'launchlug' || t === 'railbutton') {
-        const r = t === 'railbutton' ? num(child, 'outerDiameter', 0.004) / 2 : num(child, 'outerRadius', 0.002);
         // Angle 0 is the top of the side view, and the aft frame's +y is up,
         // so a lug at 0 draws at 12 o'clock here too — the two views agree.
         const a = num(child, 'angleOffset', 0) + roll;
-        outer.push({
-          kind: 'circle',
-          y: cy + (pRadius + r) * Math.cos(a), z: cz + (pRadius + r) * Math.sin(a), r,
-          fill: colorOf(child, '#c8c5be'), stroke: '#7a786f',
-          // Line instances stack in this end-on projection — one circle, so
-          // the title carries the count instead.
-          title: `${child.name ?? t}${num(child, 'instanceCount', 1) > 1 ? ` ×${Math.round(num(child, 'instanceCount', 1))}` : ''}`,
-        });
-        reach(cy, cz, pRadius + 2 * r);
+        // Line instances stack in this end-on projection — one shape, so the
+        // title carries the count instead.
+        const stackTitle = `${child.name ?? t}${num(child, 'instanceCount', 1) > 1 ? ` ×${Math.round(num(child, 'instanceCount', 1))}` : ''}`;
+        if (t === 'railbutton') {
+          // END-ON, A BUTTON IS NOT A CIRCLE (v0.103). It is OD wide
+          // tangentially and TOTAL HEIGHT tall radially, and those are two
+          // different numbers — a 1515 button is 15.75 x 11.42 mm. Drawing a
+          // circle of radius OD/2 centred at pRadius + OD/2 made the diameter
+          // stand in for the height a third time (Rocket3D used a 9.7 mm
+          // literal, TreeSchematic used 2 x radius), so the app showed three
+          // different button heights in three views of one rocket. Reusing the
+          // non-conformal shroud path is exactly the rectangle wanted: it runs
+          // from the tube surface out to baseR + height with straight parallel
+          // sides `width` apart. Fallbacks are the kernel constructor's
+          // (RailButton.java:58-64), not the old 4 mm one.
+          outer.push({
+            kind: 'shroud', y: cy, z: cz, angle: a, baseR: pRadius,
+            height: num(child, 'totalHeight', 0.0097),
+            width: num(child, 'outerDiameter', 0.0097),
+            conformal: false,
+            fill: colorOf(child, '#c8c5be'), stroke: '#7a786f', title: stackTitle,
+          });
+          reach(cy, cz, pRadius + num(child, 'totalHeight', 0.0097));
+        } else {
+          // A lug is a tube lying ON the surface: round end-on, and it stands
+          // off by its own diameter.
+          const r = num(child, 'outerRadius', 0.002);
+          outer.push({
+            kind: 'circle',
+            y: cy + (pRadius + r) * Math.cos(a), z: cz + (pRadius + r) * Math.sin(a), r,
+            fill: colorOf(child, '#c8c5be'), stroke: '#7a786f', title: stackTitle,
+          });
+          reach(cy, cz, pRadius + 2 * r);
+        }
       } else if (t === 'innertube') {
         const r = num(child, 'outerRadius', 0.0095);
         const offs = clusterOffsets(

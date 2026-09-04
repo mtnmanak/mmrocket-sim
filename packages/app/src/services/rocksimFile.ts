@@ -173,6 +173,8 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
   const keptWithoutCGFlag = new Set<ComponentNode>();
   /** Mass objects pinned onto the point the file states, rather than spread over <Len>. */
   let pinnedMassObjects = 0;
+  /** Airfoil fin sets pinned to RockSim's own CalcMass/CalcCG (desktop parity). */
+  const airfoilPinned = new Set<ComponentNode>();
   /** RockSim SerialNo → our node id (links EngineSets to mounts). */
   const serialToNode = new Map<string, ComponentNode>();
   /** Off-axis inner tubes: node → cross-section offset (m), for cluster
@@ -592,6 +594,36 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
         // Set rotation about the body axis (RockSim RadialAngle, radians).
         const finRot = num(el, 'RadialAngle', 0);
         if (finRot !== 0) n['rotation'] = finRot;
+        // Desktop pins an AIRFOIL set's mass AND balance point to RockSim's own
+        // computed numbers (FinSetHandler.java:299-309, via BaseHandler.setOverride
+        // :186-195). RockSim's older dialect ignores the fin cross-section when it
+        // weighs a fin while the kernel scales an airfoil's volume by 0.85
+        // (FinSet.java:54, applied at :1722), so those sets import exactly 15 %
+        // light: Mach2.rkt reads 19.905 g against the file's own 23.417 g. Newer
+        // files carrying <UseConstThickness> model the section themselves and go the
+        // other way — 2,4-D.rkt's two sets state 138.211 g and 519.951 g where this
+        // app computes 277.390 g and 1060.069 g, 679 g of phantom fin mass on one
+        // rocket. Either way the file's number is the one RockSim and desktop agree
+        // on. Ruled ADOPT by Eric 2026-09-04; 271 sets across 195 of 939 designs.
+        //
+        // Desktop keys the skip on <UseKnownCG> alone; this keys it on whether
+        // readCommon already set EITHER override, which is the same thing in
+        // RockSim's own dialect and leaves the 2026-08-23a independent-flag ruling
+        // intact. (0 of the 271 affected sets state a mass with the CG flag off.)
+        //
+        // TWO DELIBERATE DIVERGENCES, both refusals to copy a desktop bug: a
+        // CalcMass of 0 is NOT pinned (desktop's field defaults to 0.0d and it
+        // silently zeroes the set — 1 of the 271 would hit that), and a CalcCG of 0
+        // leaves the CG computed rather than pinning it to the fin root.
+        const calcMassG = num(el, 'CalcMass', 0);
+        const calcCgMm = num(el, 'CalcCG', 0);
+        if (n['crossSection'] === 'airfoil'
+          && n['overrideMass'] === undefined && n['overrideCGX'] === undefined
+          && calcMassG > 0) {
+          n['overrideMass'] = calcMassG / MASS;
+          if (calcCgMm > 0) n['overrideCGX'] = calcCgMm / LEN;
+          airfoilPinned.add(n);
+        }
         return n;
       }
       case 'LaunchLug': {
@@ -599,6 +631,19 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
         n['length'] = num(el, 'Len', 50) / LEN;
         n['outerRadius'] = num(el, 'OD', 5) / RAD;
         n['thickness'] = tubeThickness(el) || 0.0004;
+        // Where the lug sits around the body (RockSim RadialAngle, RADIANS —
+        // same convention this file already reads for tube fins and pods).
+        // Dropped until v0.103, which is why Level 3 Rocket's two lugs, stored
+        // at -1.0472 rad (-60 deg), came in with no angle at all and were flown
+        // at the kernel's default of 180 — 120 degrees from where the builder
+        // put them, on the one line the rail needs clear. Desktop reads it:
+        // rocksim/importt/LaunchLugHandler.java:76-78 calls
+        // lug.setAngleOffset(Double.parseDouble(content)) with no conversion.
+        // Written unconditionally, zero included: after v0.103 an absent key
+        // and an explicit 0 mean the same thing everywhere (drawings, .ork
+        // writer, kernel bridge), so there is nothing to protect by skipping it.
+        const lugAngle = num(el, 'RadialAngle', NaN);
+        if (Number.isFinite(lugAngle)) n['angleOffset'] = lugAngle;
         return n;
       }
       case 'TubeFinSet': {
@@ -983,6 +1028,15 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
       + "sits where the file's own station numbers put it. Desktop OpenRocket drops this and "
       + 'imports the rocket short. Where the cone states a measured mass, that mass already covers '
       + 'the extension, so the added tube carries none of its own.');
+  }
+  if (airfoilPinned.size) {
+    const n = airfoilPinned.size;
+    notes.push(`${n} airfoil fin set${n === 1 ? '' : 's'} took the mass and balance point RockSim `
+      + `recorded for ${n === 1 ? 'it' : 'them'}. RockSim and OpenRocket weigh an airfoil fin `
+      + "differently — on some files they disagree by a factor of two — so the file's own number "
+      + 'is used, which is what desktop OpenRocket does. It sits in Override mass and Override CG '
+      + "on each set; clear those to go back to the app's own calculation, which then follows any "
+      + 'change you make to the fins.');
   }
   if (pinnedMassObjects) {
     const n = pinnedMassObjects;
@@ -1563,6 +1617,12 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
         emit(`<OD>${nnum(node, 'outerRadius', 0.0022) * RAD}</OD>`);
         emit(`<ID>${(nnum(node, 'outerRadius', 0.0022) - nnum(node, 'thickness', 0.0003)) * RAD}</ID>`);
         emit(`<Len>${nnum(node, 'length', 0.05) * LEN}</Len>`);
+        // The clock angle around the body, in RADIANS — desktop's own mapping
+        // (rocksim/export/LaunchLugDTO.java:39 setRadialAngle(getAngleOffset()),
+        // read straight back by importt/LaunchLugHandler.java:76). Omitted
+        // until v0.103, so a lug the user had angled came back out at RockSim's
+        // 0 and every .rkt this app wrote lost that half of the placement.
+        emit(`<RadialAngle>${nnum(node, 'angleOffset', 0)}</RadialAngle>`);
         emit('</LaunchLug>');
         break;
       }

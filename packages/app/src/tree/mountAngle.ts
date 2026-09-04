@@ -1,4 +1,14 @@
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
+import { absoluteStations } from './position.js';
+// mountRadiusOf, not a fourth copy of "how wide is the tube under this part".
+// It is the expression all three views and engineTree already use, fallbacks
+// included (treeModel.ts l. 806), and the wake window below is a fraction of
+// that radius — a wrong radius would silently retune the trigger. The import
+// costs this module the engine value-import treeModel carries; measured, that
+// is one extra kernel eval in the vitest worker for mountAngle.test.ts (~165 ms
+// by treeModel.ts's own note) and nothing at all in the bundle, which already
+// holds the kernel in its eager entry chunk.
+import { mountRadiusOf } from './treeModel.js';
 
 /**
  * Clock angles around the airframe: where a surface-mounted part can SNAP to,
@@ -250,5 +260,202 @@ export function railInterferenceWarnings(tree: RocketTree): string[] {
   checkFrame(tree.components);
 
   // Two buttons at the same angle raise the same sentence twice; say it once.
+  return [...new Set(out)];
+}
+
+/**
+ * Types whose wake is worth flagging: a bluff bump standing off the airframe.
+ *
+ * `launchlug` is in the rail check's SURFACE set and is deliberately NOT here.
+ * A lug is a slender streamwise tube, not a bluff body, and the only thing the
+ * corpus says about lug wakes is a different question entirely — that the
+ * SECOND of two lugs is assumed to ride in the FIRST's wake
+ * (docs/research/trf-aero-research-2026-08-25.md l. 162). Adding it would fire
+ * on nearly every mid-power rocket for a wake nobody has claimed reaches a fin.
+ */
+const WAKE_SOURCES = new Set(['fairing', 'protuberance']);
+
+/** Fallback names, so an unnamed part still reads as a thing in the sentence. */
+const WAKE_SOURCE_NAME: Record<string, string> = {
+  fairing: 'Camera shroud',
+  protuberance: 'Protuberance',
+};
+
+/**
+ * How far downstream a bump is still treated as sitting in front of a fin,
+ * measured in the bump's OWN height off the surface.
+ *
+ * A STATED GEOMETRIC CUTOFF, not a physics claim — there is no correlation in
+ * this repo that survives at these gaps (see the note on wakeShadowWarnings).
+ * 20 heights is chosen from the two ends it has to satisfy: a nose-mounted
+ * camera 1.5 m ahead of the fin can must not speak (for the app's default
+ * 20 mm shroud this cutoff is 400 mm), and the only quantitative wake
+ * observation anywhere in the corpus — @Buckeye's rail button, CFD at M 0.3,
+ * *"the wake closes about two diameters behind the button"* — argues the
+ * structure is short-lived, so a generous cutoff would be claiming more than
+ * anyone has measured. It is a judgement, and the sentence names the actual
+ * gap in millimetres so a reader can apply their own.
+ */
+export const WAKE_REACH_HEIGHTS = 20;
+
+/**
+ * How far off a fin's line a bump still counts as standing IN FRONT of it.
+ *
+ * NOT `IN_LINE_TOLERANCE` on its own, and that is the whole point of this
+ * function. The 10° above is derived from a 1010 rail's SLOT — a rail is a
+ * line. A shroud is a body, and its own width covers more azimuth than 10° on
+ * every airframe a camera is normally flown on: the half-angle it subtends,
+ * asin(W / 2R), is 27.6° for the app's default 25 mm shroud on a 54 mm body,
+ * 19.5° on 75 mm, 14.8° on 98 mm, and 56.4° for a 45 mm GoPro-class shroud on
+ * a 54 mm body. A bare 10° window would stay silent on a shroud clocked 20°
+ * off a fin while the shroud's own body physically covers that fin.
+ *
+ * So the window is the subtended half-angle (derived) PLUS the 10° — the same
+ * judgement it always was, doing a different job here: an allowance for a wake
+ * being wider than the body that sheds it, which every wake is.
+ *
+ * With no usable mount radius — an absent transition radius reads as 0 through
+ * `mountRadiusOf`, as does a bump on something that is not airframe — the
+ * derived term cannot be computed, so this falls back to the bare tolerance
+ * rather than to asin(1) = 90°, which would fire on nearly every design.
+ */
+function wakeWindow(width: number, mountRadius: number): number {
+  if (!(mountRadius > 0) || !(width > 0)) return IN_LINE_TOLERANCE;
+  return Math.asin(Math.min(1, width / (2 * mountRadius))) + IN_LINE_TOLERANCE;
+}
+
+/**
+ * A camera shroud (or protuberance) standing in front of a fin.
+ *
+ * WHAT THE APP DOES TODAY. It charges that fin its full normal force, as if the
+ * shroud were not there. `treeModel.engineTree` lowers a shroud to an
+ * INDEPENDENT 1-fin kernel surface, and the kernel's
+ * `BarrowmanCalculator.calculateComponentNonAxialForces` (patches/…/
+ * BarrowmanCalculator.java ll. 363–390) computes every component's instance
+ * forces in isolation and merges them — there is no cross-component term
+ * anywhere in it. Measured on a 54 mm fixture with the app's default 80×25×20
+ * shroud 220 mm ahead of a 3-fin set: cpWorst 0.623443963 m, cnaWorst
+ * 10.160125562, CD at M 0.3 0.693915199 — the same to ~15 significant digits
+ * (max spread 1 ULP) with the shroud clocked at 0, 30, 45, 60, 90 and 180°.
+ * Shroud clocking is invisible to every number the app shows. This function
+ * changes none of them; it says so out loud, which is this repo's rule for a
+ * known limit.
+ *
+ * WHY NO SIZE IS QUOTED. The evidence that the wake reaches the fins at all is
+ * one qualitative sentence from @Buckeye's CFD — the camera's periodic wake
+ * shedding *"can interact with the fins downstream"* — with no fin-force delta,
+ * no alpha sweep and no clocking variation behind it. The standard wake
+ * correlations (Schlichting far-wake similarity; Silverstein & Katzoff, the one
+ * DATCOM 4.4.1 uses) were both applied to this geometry and both disqualified:
+ * every gap a camera rocket actually has sits at x/(Cd·H) = 12–28 against a
+ * validity floor near 50, the two disagree threefold on wake width, and one
+ * returns a NEGATIVE dynamic pressure for an ordinary box shroud at a 100 mm
+ * gap. Publishing a number off those would be inventing a calibration.
+ *
+ * WHY THE SENTENCE CLAIMS NO NET BIAS. This one term moves CP forward, and that
+ * is worth saying. What it must NOT say is that the app's margin is therefore
+ * optimistic overall: @Buckeye's own CFD puts Barrowman CP up to 2.3 calibers
+ * TOO FAR FORWARD of his measurements, an order of magnitude the other way.
+ * Both facts belong to the reader; the user guide carries the second.
+ *
+ * The app's own "▲ on a fin" snap button puts a shroud exactly here on purpose,
+ * because that is where a camera gets the fin in shot. This is a stated
+ * modelling limit on a reasonable build, not a mistake by the user, and the
+ * sentence is worded that way.
+ */
+export function wakeShadowWarnings(tree: RocketTree): string[] {
+  const out: string[] = [];
+  // Stations in the rocket frame, WHOLE STACK — the same frame the rail check
+  // chose, and the only frame in which "upstream of" means anything during
+  // boost, when every stage is still attached and the margin matters.
+  const stations = absoluteStations(tree);
+
+  interface Source { name: string; angle: number; height: number; window: number; end: number }
+  interface Downstream { owner: string; leading: number; angles: number[] }
+
+  const checkFrame = (roots: ComponentNode[]) => {
+    // The SAME frame walker the snap buttons and the rail check use, recursing
+    // into assemblies separately for the same reason: a pod set rotates its
+    // whole sub-chain, so a core-airframe shroud and a pod's fins are not
+    // measured from one zero and must never be compared.
+    const { members, assemblies } = collectFrame(roots);
+    const sources: Source[] = [];
+    const downstream: Downstream[] = [];
+
+    for (const n of members) {
+      const st = n.id ? stations.get(n.id) : undefined;
+      if (!st) continue;
+      if (WAKE_SOURCES.has(n.type as string)) {
+        const height = num(n, 'height', 0);
+        const width = num(n, 'width', 0);
+        // No height off the surface, no bluff wake to reason about — and the
+        // cutoff below is measured in heights, so it has nothing to divide by.
+        if (!(height > 0)) continue;
+        sources.push({
+          name: nameOf(n, WAKE_SOURCE_NAME[n.type as string] ?? (n.type as string)),
+          angle: reducePi(num(n, 'angleOffset', 0)),
+          height,
+          window: wakeWindow(width, mountRadiusOf(st.parent)),
+          end: st.end,
+        });
+      } else if (isFinSet(n) && n.type !== 'tubefinset') {
+        // Tube fins are excluded deliberately. `finAnglesAmong` happily returns
+        // 6 instances for a tube fin ring, but a ring of tubes is a duct, not a
+        // plate standing in a wake, and nothing in the corpus bears on what a
+        // bump upstream of one does. Silence is the honest answer there.
+        const c = Math.max(1, Math.round(num(n, 'finCount', 3)));
+        const rot = num(n, 'rotation', 0);
+        // The kernel's own instance spacing (FinSet.getInstanceAngles) — the
+        // expression finAnglesAmong uses, and the one all three views mirror.
+        const angles: number[] = [];
+        for (let i = 0; i < c; i++) angles.push(reducePi(rot + (2 * Math.PI * i) / c));
+        downstream.push({ owner: nameOf(n, 'Fins'), leading: st.start, angles });
+      }
+    }
+
+    for (const s of sources) {
+      for (const f of downstream) {
+        // A wake needs somewhere downstream to go: the bump's AFT end has to be
+        // strictly forward of the fin's leading edge. That is all this
+        // condition is — it is NOT a claim about what the physics does when the
+        // two overlap axially. (Measured: cpWorst reverts to the fins-only
+        // value once the shroud's own CP is aft of it, with NO overlap at all,
+        // because `getWorstCP` is a 360-step roll sweep that then picks the
+        // plane where the shroud is edge-on. That reversion is an artefact of
+        // the sweep, not of overlap; it is spelled out because reading it as an
+        // overlap effect is the easy mistake and it has been made once already.)
+        const gap = f.leading - s.end;
+        if (!(gap > 0)) continue;
+        if (gap > WAKE_REACH_HEIGHTS * s.height) continue;
+        // Report the NEAREST instance of the set, once. A 6-fin set can put two
+        // instances inside the window at different separations, which would
+        // otherwise be two sentences about one piece of geometry.
+        let nearest = Infinity;
+        for (const a of f.angles) nearest = Math.min(nearest, angleGap(s.angle, a));
+        if (!(nearest <= s.window)) continue;
+        const mm = Math.round(gap * 1000);
+        const heights = Number((gap / s.height).toFixed(1));
+        // The name is QUOTED, unlike the rail sentences: `stripBrackets`
+        // (simWarnings.ts ll. 73–75) strips a LEADING bracketed token from
+        // every warning string, so a part someone called "[cam]" would lose its
+        // name if the sentence opened with it bare.
+        out.push(
+          `"${s.name}" at ${deg(s.angle)} sits ${mm} mm ahead of a fin of "${f.owner}" — `
+          + `${heights} times its own height upstream, ${deg(nearest)} off that fin's line. `
+          + 'The wake it sheds is not modelled: that fin is flown at full free-stream dynamic '
+          + 'pressure, so the CP shown is computed as if the shroud were not there. On its own '
+          + 'that term moves CP forward, toward less margin — but nothing in hobby software '
+          + 'models it and no measurement sizes it. Clocking it between the fins removes the '
+          + 'question.',
+        );
+      }
+    }
+
+    for (const a of assemblies) checkFrame(a);
+  };
+
+  checkFrame(tree.components);
+
+  // Two identical bumps (a pair of cable tunnels, say) raise one sentence.
   return [...new Set(out)];
 }

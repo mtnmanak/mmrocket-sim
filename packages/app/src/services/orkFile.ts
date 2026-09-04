@@ -618,6 +618,20 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       case 'railbutton': {
         const n = base('railbutton', true);
         n['outerDiameter'] = num(el, 'outerdiameter', 0.0097);
+        // The other FIVE dimensions, dropped until v0.103 — so every desktop
+        // button, whatever the file said, was simulated as the kernel
+        // constructor's generic 9.7 mm part. Read in desktop's own saver order
+        // (RailButtonSaver emits outerdiameter, innerdiameter, height,
+        // baseheight, flangeheight, screwheight) because the kernel setters
+        // clamp against each other and the bridge replays that order.
+        // Fallbacks are the kernel constructor's own values
+        // (RailButton.java:58-64), so a file that omits an element lands
+        // exactly where it did before this read existed.
+        n['innerDiameter'] = num(el, 'innerdiameter', 0.008);
+        n['totalHeight'] = num(el, 'height', 0.0097);
+        n['baseHeight'] = num(el, 'baseheight', 0.002);
+        n['flangeHeight'] = num(el, 'flangeheight', 0.002);
+        n['screwHeight'] = num(el, 'screwheight', 0);
         readMountAngle(el, n);
         readInstances(el, n);
         return n;
@@ -1899,13 +1913,31 @@ export function exportOrk({
         emit(depth + 1, `<angleoffset method="relative">${deg(node, 'angleOffset')}</angleoffset>`);
         position(depth + 1, node, 'middle');
         finishXml(depth + 1, node);
-        emit(depth + 1, '<material type="bulk" density="1420.0" group="Plastics">Delrin</material>');
+        // SIX LITERALS USED TO STAND HERE, and a save wrote them straight over
+        // the user's real part: material Delrin 1420, innerdiameter 0.008,
+        // height 0.0097, baseheight 0.002, flangeheight 0.002, screwheight 0.
+        // So a desktop 1515 button (OD 12.446, ID 7.366, H 14.224 mm) that came
+        // in through this app went out as a generic 9.7 mm one — data loss on
+        // top of the simulation defect, and unrecoverable from the saved file.
+        // Material first: three of the five non-default rail-button files in the
+        // corpus carry their own density (964.30, 997.01, 1263.44 kg/m3, already
+        // read at the <material> parse above), and the literal inflated their
+        // button mass by +47 %, +42 % and +12 % on every save. The Delrin
+        // fallback is kept for a node that states no density — that is the
+        // kernel constructor's own material (RailButton.java:66), so an
+        // undimensioned button still round-trips to exactly what it flies as,
+        // rather than to material()'s generic Cardboard 680.
+        if (typeof node.density === 'number' && node.density > 0) {
+          material(depth + 1, node);
+        } else {
+          emit(depth + 1, '<material type="bulk" density="1420.0" group="Plastics">Delrin</material>');
+        }
         emit(depth + 1, `<outerdiameter>${n(node, 'outerDiameter', 0.0097)}</outerdiameter>`);
-        emit(depth + 1, '<innerdiameter>0.008</innerdiameter>');
-        emit(depth + 1, '<height>0.0097</height>');
-        emit(depth + 1, '<baseheight>0.002</baseheight>');
-        emit(depth + 1, '<flangeheight>0.002</flangeheight>');
-        emit(depth + 1, '<screwheight>0.0</screwheight>');
+        emit(depth + 1, `<innerdiameter>${n(node, 'innerDiameter', 0.008)}</innerdiameter>`);
+        emit(depth + 1, `<height>${n(node, 'totalHeight', 0.0097)}</height>`);
+        emit(depth + 1, `<baseheight>${n(node, 'baseHeight', 0.002)}</baseheight>`);
+        emit(depth + 1, `<flangeheight>${n(node, 'flangeHeight', 0.002)}</flangeheight>`);
+        emit(depth + 1, `<screwheight>${n(node, 'screwHeight', 0)}</screwheight>`);
         close('railbutton');
         break;
       }
@@ -2591,10 +2623,19 @@ function readFillet(el: Element, node: ComponentNode): void {
  * Until v0.087 this was never READ and was hard-written as 180.0, so a lug a
  * user had placed at any other angle came back at 180 — on a four-fin rocket,
  * exactly on a fin root line.
+ *
+ * ZERO IS A VALUE, NOT AN ABSENCE (v0.103). This used to skip `deg === 0`, so a
+ * file storing an explicit `<angleoffset>0.0</angleoffset>` — which is what
+ * desktop writes for a lug at the top of the airframe — produced a node with no
+ * key at all. That was harmless only while nothing downstream could tell the
+ * difference. It stopped being harmless the moment ComponentFactory started
+ * bridging the angle: an absent key there is the kernel's own default of PI, so
+ * the sentinel would have turned a deliberate 0 into a flown 180 — the exact
+ * inverse of the v0.087 bug above, and silently.
  */
 function readMountAngle(el: Element, node: ComponentNode): void {
   const deg = num(el, 'angleoffset', NaN);
-  if (Number.isFinite(deg) && deg !== 0) node['angleOffset'] = (deg * Math.PI) / 180;
+  if (Number.isFinite(deg)) node['angleOffset'] = (deg * Math.PI) / 180;
 }
 
 /**

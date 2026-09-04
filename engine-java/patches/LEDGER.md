@@ -909,6 +909,99 @@ aerodynamic model.
 - **Upstreamable:** yes. This is an upstream bug, not a MMRocket-specific model
   choice, and the patch is confined to one branch of one method.
 
+### rocketcomponent/RocketComponent.java + aerodynamics/BarrowmanCalculator.java — a CD override may be a FRACTION OF THE BODY CD, re-evaluated at every Mach
+
+- **Why:** the app has no protuberance calculator. A protuberance is lowered at the
+  engine boundary to a `railbutton` carrying a scalar `overrideCD`, and
+  `calculateOverrideCD` added that scalar unchanged at every Mach
+  (`double cd = instanceCount * c.getOverrideCD();` — that one line was the whole
+  defect). For the two STREAMLINED protuberance classes the scalar is meaningless as a
+  constant: they implement Chuck Rogers' Streamlined Protuberance Method, which states
+  the drag per unit frontal area of a streamlined bump as **equal to the rocket body's
+  own, "for all Mach Numbers"** (TRF 197641 #1) — no-base class against body CD
+  excluding base drag, with-base class including it. The app measured that body CD ONCE,
+  at Mach 0.3, and froze it. The app's own user guide and property panel already claimed
+  the method "at all Mach numbers".
+- **The measured symptom** (ARCAS-Long fixture, app-default 20x10 mm `streamlinedbase`
+  protuberance, area ratio 0.0779664, sea level, aoa 0, flags off, M0.10-2.00 step 0.05):
+  delivered increment **0.0274806940522049 at all 39 points, max/min = 1.0000000000000020
+  — exactly flat**. The method's own answer over the same range runs **0.0184820 (M2.00)
+  to 0.0333464 (M1.10)**, a span ratio of 1.804, because the body CD it is a fraction of
+  moves 80 % across the range these designs fly. Ours was 12.2 % LOW at M0.10, exact at
+  M0.30, 2.8 % high at M0.50, **17.6 % LOW at the M1.10 transonic peak** — where a fast
+  rocket spends its max-Q — 21.7 % high at M1.50 and **48.7 % HIGH at M2.00**.
+- **Why it could not be fixed on the app side**, which is the finding that settles the
+  design: `getAerodynamicForces` is the FLIGHT hot path and passes `null` for the force
+  maps, so no per-component decomposition exists during a simulation, and the app hands
+  the kernel one static tree per flight. A per-Mach protuberance drag is impossible
+  without a kernel change.
+- **Change, `RocketComponent`:** two new fields beside `overrideCD` —
+  `double overrideCDBodyRatio` (default **NaN** = plain scalar, upstream behaviour) and
+  `boolean overrideCDBodyIncludesBase` (default true) — plus four plain accessors. The
+  setters deliberately fire no `ComponentChangeEvent` and forward to no config listener:
+  the only writer is `api.ComponentFactory.applyOverrides`, which sets them once while
+  the tree is built from JSON, the same treatment `AxialStage.setNozzleExitDiameter`
+  gets. `setOverrideCD` / `setCDOverridden` are UNTOUCHED, so such a carrier still reports
+  `isCDOverridden() == true` and the friction/pressure/base loops keep skipping it —
+  the override remains the component's entire drag. `clone()` is `super.clone()`, a
+  shallow field copy, so both primitives ride along.
+- **Change, `BarrowmanCalculator`:** three private per-call scratch fields
+  (`lastBodyFrictionCD`, `lastBodyPressureCD`, `lastBodyBaseCD`, all initialised 0)
+  accumulating the **SymmetricComponent-only** half of each computed drag bucket, written
+  at the end of the three methods that already run first at BOTH call sites. Then
+  `calculateOverrideCD` charges `instanceCount * ratio * (friction + pressure [+ base])`
+  when the ratio is non-NaN, and the untouched `instanceCount * getOverrideCD()`
+  otherwise.
+  - `calculateFrictionCD`: `correction * bodyFrictionCD` — fineness-corrected exactly as
+    the return value is; `otherFrictionCD` (fins, lugs, buttons) is excluded, which is
+    Rogers' own instruction to OpenRocket users ("removing the Fins from the rocket and
+    running the rocket with No Fins").
+  - `calculatePressureCD`: the component pressure term is taken INSIDE the
+    `instanceof SymmetricComponent` block but **before** `cd` is reassigned to the
+    stagnation-step term, and the step term is added after it. Reading `cd` once, after
+    the reassignment, would charge the step twice and lose the component term.
+  - `calculateBaseCD`: the loop already visits SymmetricComponents only, so its running
+    total IS the body base drag.
+- **The semantics-preserving carry-forward, and why it is in `calculatePressureCD`:** the
+  app's stripped-rocket probe reads the whole `total` (= friction + pressure + base +
+  overrideCD), so a user's own `<overridecd>` on a nose cone, tube, transition or boat
+  tail has always been INSIDE the body CD it quotes. The three loops skip such a
+  component, so it would have vanished from the new in-place reference. It is carried
+  forward **before** the `continue`, guarded on `SymmetricComponent`,
+  `!isCDOverriddenByAncestor()` and `Double.isNaN(getOverrideCDBodyRatio())` — that last
+  guard is what stops a ratio component entering its own reference.
+- **The oracle, and the load-bearing measurement:** summing the three fields reproduces
+  the app's stripped-rocket probe — a *separate rocket* built with every appendage
+  deleted — to at worst **5.551115123125783e-17 absolute (0 to 1 ulp) at all 20 Mach
+  points 0.10-2.00** on ARCAS-Long, most points exactly 0. So the kernel's in-place body
+  reference and the app's probe are the same quantity, and switching to it moves this
+  fixture's Mach-0.3 number not at all. On a design whose fin tips overhang the airframe
+  the two differ by ~0.1 %, because stripping the fins shortens
+  `getLengthAerodynamic()` and moves Re; the in-place sum is the more faithful of the two,
+  being the body drag of the rocket that is actually flying.
+- **Divergence from upstream:** MMRocket-Sim-original. Desktop OpenRocket 24.12 has no
+  such field and its file format has no way to express one. **INERT unless
+  `overrideCDBodyRatio` is present**, and it is synthesized only by the app's
+  `engineTree`, only for `dragClass` `streamlined` / `streamlinedbase`, and only when the
+  user has typed no `cdFrontal` of their own. Everything else — every `.ork`
+  `<overridecd>`, every stage/assembly override, every `plate`-class protuberance, every
+  user-typed Cd — takes the identical old branch with unchanged arithmetic and is
+  bit-identical by construction. `plate` is `1.17*sin^2(theta)`, modified-Newtonian, and
+  a typed Cd is the user's own constant: neither carries a Mach term, correctly, and
+  neither may gain a ratio.
+- **What it does NOT touch:** no normal force, no CP, no CG, no mass — the override
+  contributes drag only, and the carrier's geometry is unchanged. The camera shroud
+  (`fairing`) path is deliberately left flat: its `cdFrontal` is a Hoerner constant with
+  no Mach model of any kind and no Rogers mandate behind it, and giving it a body-CD
+  shape is a modelling choice the owner has to rule on.
+- **Consequence to state in the release note:** the drag now tracks the body CD of the
+  aero model the user is actually flying, including the opt-in supersonic flag. The app's
+  probe was always flags-OFF; measured on arcas-long-finsoff, `setSupersonicAero(true)`
+  alone moves body CD -0.30 % at M0.30 but **+54.3 % at M1.00, +75.4 % at M1.50 and
+  +59.8 % at M2.00**. That is the method behaving correctly, and it means the body's own
+  known subsonic drag bias now propagates into the protuberance instead of being masked
+  at one point — one fix to the body will fix both.
+
 ## Rules
 
 1. A patch NEVER changes physics or observable behavior (except documented quirks-ledger

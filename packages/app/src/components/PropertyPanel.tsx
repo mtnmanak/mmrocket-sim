@@ -58,6 +58,18 @@ const LEGACY: Record<FieldDef['unit'], { quantity: Quantity | null; toSI: number
 const PLAIN_SUFFIX: Partial<Record<FieldDef['unit'], string>> = { s: 's' };
 
 /**
+ * The kernel RailButton constructor's own dimensions in metres
+ * (RailButton.java:58-64), used ONLY to grey a "default: …" placeholder into an
+ * empty box. Every other layer falls back to these same numbers — the .ork
+ * reader, the .ork writer, the engine bridge and all three drawings — so a
+ * button that states nothing reads, saves, draws and flies as one part.
+ */
+const RAILBUTTON_DEFAULTS: Record<string, number> = {
+  outerDiameter: 0.0097, totalHeight: 0.0097, innerDiameter: 0.008,
+  baseHeight: 0.002, flangeHeight: 0.002, screwHeight: 0,
+};
+
+/**
  * What to call the component that is overriding this one. Three copies of this
  * fallback chain existed, and they did not agree on the last resort ("a part
  * above this one" / "a part above").
@@ -399,7 +411,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
     return {
       inline: onFin,
       between,
-      inlineTitle: `Put this in line with the nearest fin (${show(onFin)}). A camera shroud here has the fin in shot; a rail button here fouls the rail.`,
+      inlineTitle: `Put this in line with the nearest fin (${show(onFin)}). A camera shroud here has the fin in shot, and puts that fin in a wake the app does not model; a rail button here fouls the rail.`,
       betweenTitle: `Put this midway between two fins (${show(between)}) — clear of both.`,
     };
   })();
@@ -451,6 +463,16 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
       if (typeof raw !== 'number') {
         autoPlaceholder = `default: ${shapeParamDefault(sh)}`;
       }
+    }
+    // A rail button's five geometry dimensions did not exist as fields before
+    // v0.103, so a button in a design saved earlier carries none of them and
+    // these boxes come up empty. Empty must not read as "zero": the engine
+    // falls back to the kernel constructor (RailButton.java:58-64) exactly as
+    // the .ork reader and writer do, and it is that value the rocket is flying.
+    // Same idiom as the shape-parameter default above.
+    if (node.type === 'railbutton' && typeof raw !== 'number') {
+      const dflt = RAILBUTTON_DEFAULTS[f.key];
+      if (dflt !== undefined) autoPlaceholder = `default: ${Number(toDisplay(dflt).toFixed(3))}`;
     }
     // NumField rejects typed values above max — round the display cap up a
     // hair so typing the shown 3-decimal limit still lands; the commit clamp
@@ -871,8 +893,15 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
             {(protuberanceFrontalArea(node) * 1e6).toFixed(0)} mm² frontal
             {' × '}Cd {protuberanceCd(tree, node).toFixed(3)}
             {' = '}<strong>+{protuberanceDeliveredCd(tree, node).toFixed(5)}</strong> on the
-            rocket&rsquo;s CD, at every Mach.
-            {explicit && ' The Cd is the one you typed.'}
+            rocket&rsquo;s CD
+            {/* "at every Mach" is TRUE for the flat classes and FALSE for the
+                two streamlined ones since v0.103: those hand the kernel the area
+                ratio and it re-evaluates them against the body CD at the Mach
+                being flown, so this figure is the Mach 0.3 reading, not the
+                whole flight's. `body` is non-null exactly when that is the case
+                (streamlined class AND no typed Cd), so it is the right test. */}
+            {body ? <> at Mach {body.mach}.</> : ', at every Mach.'}
+            {explicit && ' The Cd is the one you typed — a fixed number at every Mach.'}
             {zeroed && ' A typed 0 is not an override — blank and 0 both mean “from the class”.'}
             {body && (
               <>
@@ -887,10 +916,12 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
                   : <> — but the kernel could not evaluate this design, so a
                       placeholder body CD ({body.noBase.toFixed(3)} /{' '}
                       {body.withBase.toFixed(3)}) is standing in.</>}
-                {' '}RASAero re-evaluates it at every Mach and so tracks the
-                body&rsquo;s transonic drag rise; we freeze it at Mach {body.mach}.
-                Type a Cd above to pin it yourself — e.g. your body CD at max Q,
-                off the Drag tab.
+                {' '}In flight it is re-evaluated at every Mach against your
+                body&rsquo;s own CD, so the bump&rsquo;s drag rises through the
+                transonic peak and falls away above it exactly as the airframe
+                does — the figure above is the Mach {body.mach} reading, not a
+                constant the whole flight is charged. Type a Cd above only if you
+                want it pinned to a fixed number instead.
               </>
             )}
             {cdBlocker && <CdBlockedNotice blocker={cdBlocker} replaces="this one" />}

@@ -3,6 +3,7 @@ import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import {
   angleGap, betweenFinAnglesAmong, betweenFinAnglesOn, finAnglesAmong, finAnglesOn,
   frameContaining, IN_LINE_TOLERANCE, nearestAngle, railInterferenceWarnings, reducePi,
+  wakeShadowWarnings, WAKE_REACH_HEIGHTS,
 } from './mountAngle.js';
 import { defaultParams } from './schema.js';
 
@@ -272,5 +273,241 @@ describe('the angular frame spans the whole inline stack', () => {
     // The pod's own chain carries no fins, so the snap question has no answer
     // there — and crucially the CORE's fins are not offered.
     expect(finAnglesAmong(members)).toHaveLength(0);
+  });
+});
+
+/**
+ * C5 — a camera shroud standing in front of a fin.
+ *
+ * The app charges that fin its full normal force as if the shroud were not
+ * there, and MEASURED on this very geometry the shroud's clock angle is
+ * invisible to every number the app shows (cpWorst 0.623443963, cnaWorst
+ * 10.160125562, CD at M 0.3 0.693915199 — the same to ~15 significant digits
+ * at 0/30/45/60/90/180°). Nothing here changes a number; these tests pin what
+ * the app now SAYS, and in particular they pin the two thresholds, because
+ * both are easy to "simplify" back into something that never fires.
+ *
+ * The fixture is the one the investigation measured: nose 150 mm, body tube
+ * 700 mm at r 27 mm, 3 fins of 100 mm root chord at the tail, and the app's own
+ * default 80 × 25 × 20 mm shroud 300 mm down the tube — leaving exactly 220 mm
+ * of clear tube between the shroud's trailing edge and the fin leading edge.
+ */
+describe('a shroud in a fin\'s wake', () => {
+  const camTree = (opts: {
+    shroud?: Record<string, unknown>;
+    fins?: Record<string, unknown>;
+    tubeRadius?: number;
+  } = {}): RocketTree => {
+    const r = opts.tubeRadius ?? 0.027;
+    return {
+      name: 'T', components: [{ type: 'stage', id: 's1', children: [
+        { type: 'nosecone', id: 'nc', length: 0.15, aftRadius: r },
+        { type: 'bodytube', id: 'b1', length: 0.7, outerRadius: r, thickness: 0.001, children: [
+          {
+            type: 'fairing', id: 'cam', name: 'Camera shroud',
+            length: 0.08, width: 0.025, height: 0.02, angleOffset: 0,
+            position: { method: 'top', offset: 0.30 },
+            ...(opts.shroud ?? {}),
+          },
+          {
+            type: 'trapezoidfinset', id: 'f1', name: 'Fins',
+            finCount: 3, rootChord: 0.10, height: 0.055,
+            position: { method: 'bottom', offset: 0 },
+            ...(opts.fins ?? {}),
+          },
+        ] },
+      ] }],
+    } as unknown as RocketTree;
+  };
+
+  it('flags the shroud the app\'s own "on a fin" button produces', () => {
+    const w = wakeShadowWarnings(camTree());
+    expect(w).toHaveLength(1);
+    // Names both parts, and states the geometry rather than a verdict.
+    expect(w[0]).toContain('"Camera shroud" at 0°');
+    expect(w[0]).toContain('a fin of "Fins"');
+    expect(w[0]).toContain('220 mm ahead');
+    expect(w[0]).toContain('11 times its own height');
+    expect(w[0]).toContain('0° off that fin\'s line');
+    expect(w[0]).toContain('not modelled');
+    expect(w[0]).toContain('Clocking it between the fins');
+    // THE COPY RULE, pinned: this term moves CP forward and the sentence says
+    // so, but it must never claim the app's margin is optimistic OVERALL —
+    // @Buckeye's own CFD puts Barrowman CP up to 2.3 calibers TOO FAR FORWARD,
+    // an order of magnitude the other way. This is safety-adjacent copy on a
+    // beta with real flyers reading it.
+    expect(w[0]).toContain('moves CP forward');
+    expect(w[0]).not.toContain('optimistic');
+    // And it quotes no size, because nothing in the record sizes it.
+    expect(w[0]).not.toMatch(/calib/i);
+  });
+
+  it('says nothing when the shroud is clocked between the fins', () => {
+    // The fix the sentence recommends, and the pair the investigation measured
+    // as identical in every number the app shows.
+    expect(wakeShadowWarnings(camTree({ shroud: { angleOffset: D(60) } }))).toHaveLength(0);
+    // A 4-fin set is 90° apart, so its own "between" at 45° is clear too.
+    expect(wakeShadowWarnings(camTree({
+      fins: { finCount: 4 }, shroud: { angleOffset: D(45) },
+    }))).toHaveLength(0);
+  });
+
+  /**
+   * THE ASSERTION THAT FAILS IF SOMEONE REVERTS TO A BARE IN_LINE_TOLERANCE.
+   * That 10° is derived from a 1010 rail's slot — a rail is a line. A shroud is
+   * a body: the app's default 25 mm shroud subtends asin(25/54) = 27.6° of
+   * half-angle on a 54 mm airframe, so a 10° window would stay silent on a
+   * shroud whose own body physically covers the fin.
+   */
+  it('measures the window from the shroud\'s own width, not the rail tolerance', () => {
+    // 20° off the fin line: outside 10°, inside 27.6 + 10 = 37.6°.
+    expect(angleGap(D(20), 0)).toBeGreaterThan(IN_LINE_TOLERANCE); // non-vacuous
+    expect(wakeShadowWarnings(camTree({ shroud: { angleOffset: D(20) } }))).toHaveLength(1);
+    // 45° off: outside the window, and a deliberate placement.
+    expect(wakeShadowWarnings(camTree({ shroud: { angleOffset: D(45) } }))).toHaveLength(0);
+    // The SAME shroud on a 152 mm airframe subtends only 9.5°, so the window is
+    // 19.5° and 20° now falls outside it. The window scales with the body.
+    expect(wakeShadowWarnings(camTree({
+      tubeRadius: 0.076, shroud: { angleOffset: D(20) },
+    }))).toHaveLength(0);
+  });
+
+  it('says nothing when the shroud is not upstream of the fin at all', () => {
+    // Trailing edge at 850 mm, fin leading edge at 750 mm. A wake needs
+    // somewhere downstream to go. (NOT a claim about the physics of an axial
+    // overlap — see the note in mountAngle.ts.)
+    expect(wakeShadowWarnings(camTree({
+      shroud: { position: { method: 'top', offset: 0.62 } },
+    }))).toHaveLength(0);
+  });
+
+  it('stops at the stated cutoff of twenty shroud heights', () => {
+    expect(WAKE_REACH_HEIGHTS).toBe(20);
+    // 420 mm ahead of the fins on a 20 mm shroud = 21 heights: silent.
+    expect(wakeShadowWarnings(camTree({
+      shroud: { position: { method: 'top', offset: 0.10 } },
+    }))).toHaveLength(0);
+    // A nose-mounted camera is well outside it (500 mm = 25 heights).
+    expect(wakeShadowWarnings(camTree({
+      shroud: { position: { method: 'top', offset: 0.02 } },
+    }))).toHaveLength(0);
+    // …but a TALLER bump reaches further on the same geometry: 40 mm high at
+    // the same 500 mm gap is 12.5 heights.
+    const tall = wakeShadowWarnings(camTree({
+      shroud: { position: { method: 'top', offset: 0.02 }, height: 0.04 },
+    }));
+    expect(tall).toHaveLength(1);
+    expect(tall[0]).toContain('12.5 times its own height');
+  });
+
+  it('treats a protuberance the same, and a launch lug not at all', () => {
+    const bump = wakeShadowWarnings(camTree({
+      shroud: {
+        type: 'protuberance', name: 'Cable tunnel', dragClass: 'streamlinedbase',
+        width: 0.025, height: 0.02, length: 0.08,
+      },
+    }));
+    expect(bump).toHaveLength(1);
+    expect(bump[0]).toContain('"Cable tunnel"');
+    // A lug is a slender streamwise tube, not a bluff bump — deliberately out.
+    expect(wakeShadowWarnings(camTree({
+      shroud: { type: 'launchlug', name: 'Lug', outerRadius: 0.0022, thickness: 0.0003 },
+    }))).toHaveLength(0);
+  });
+
+  it('says nothing about a TUBE fin ring downstream — a duct, not a plate', () => {
+    expect(wakeShadowWarnings(camTree({
+      fins: { type: 'tubefinset', finCount: 6, length: 0.10, outerRadius: 0.02 },
+    }))).toHaveLength(0);
+  });
+
+  it('names an unnamed shroud rather than its type', () => {
+    const w = wakeShadowWarnings(camTree({ shroud: { name: undefined } }));
+    expect(w).toHaveLength(1);
+    expect(w[0]).toContain('"Camera shroud"');
+    expect(w[0]).not.toContain('"fairing"');
+  });
+
+  it('says it once for a 6-fin set with two instances inside the window', () => {
+    // Fins at 0/60/120/…; a shroud at 25° is 25° from one and 35° from the
+    // next, and BOTH are inside the 37.6° window. One piece of geometry, one
+    // sentence — and it names the nearest fin.
+    const w = wakeShadowWarnings(camTree({
+      fins: { finCount: 6 }, shroud: { angleOffset: D(25) },
+    }));
+    expect(w).toHaveLength(1);
+    expect(w[0]).toContain('25° off that fin\'s line');
+  });
+
+  it('does not compare across frames: a POD\'s fins are not behind a core shroud', () => {
+    // The pod rotates its whole sub-chain, so its fins are not measured from
+    // the core's zero. The same trap the rail check was built to avoid.
+    const pod = (shroudInsidePod: boolean) => {
+      const shroud = {
+        type: 'fairing', id: 'cam', name: 'Camera shroud',
+        length: 0.08, width: 0.025, height: 0.02, angleOffset: 0,
+        position: { method: 'top', offset: shroudInsidePod ? 0 : 0.30 },
+      };
+      const podKids = [{
+        type: 'bodytube', id: 'pb', length: 0.2, outerRadius: 0.027, children: [
+          ...(shroudInsidePod ? [shroud] : []),
+          { type: 'trapezoidfinset', id: 'pf', name: 'Pod fins', finCount: 3,
+            rootChord: 0.05, position: { method: 'bottom', offset: 0 } },
+        ],
+      }];
+      return {
+        name: 'T', components: [{ type: 'stage', id: 's1', children: [
+          { type: 'nosecone', id: 'nc', length: 0.15, aftRadius: 0.027 },
+          { type: 'bodytube', id: 'b1', length: 0.7, outerRadius: 0.027, children: [
+            ...(shroudInsidePod ? [] : [shroud]),
+            { type: 'podset', id: 'p1', instanceCount: 2, angleOffset: 0,
+              position: { method: 'bottom', offset: 0 }, children: podKids },
+          ] },
+        ] }],
+      } as unknown as RocketTree;
+    };
+    // Core shroud, pod fins: aligned at 0° and only 270 mm apart, so the ONLY
+    // thing keeping this quiet is the frame cut.
+    expect(wakeShadowWarnings(pod(false))).toHaveLength(0);
+    // Move the same shroud INSIDE the pod and the pod's own frame speaks —
+    // which is what makes the case above non-vacuous.
+    expect(wakeShadowWarnings(pod(true))).toHaveLength(1);
+  });
+
+  it('sees across a STAGE joint — the stack is assembled during boost', () => {
+    // A shroud on the sustainer's payload bay, fins on the booster. The margin
+    // this bears on is the boost-phase margin, when the two are one airframe —
+    // the same whole-stack frame the rail check uses.
+    const twoStage = {
+      name: 'T', components: [
+        { type: 'stage', id: 'sust', children: [
+          { type: 'nosecone', id: 'nc', length: 0.15, aftRadius: 0.027 },
+          { type: 'bodytube', id: 'pay', length: 0.5, outerRadius: 0.027, children: [
+            { type: 'fairing', id: 'cam', name: 'Camera shroud', length: 0.08,
+              width: 0.025, height: 0.02, angleOffset: 0,
+              position: { method: 'bottom', offset: 0 } },
+          ] },
+        ] },
+        { type: 'stage', id: 'boost', children: [
+          { type: 'bodytube', id: 'bfin', length: 0.3, outerRadius: 0.027, children: [
+            { type: 'trapezoidfinset', id: 'bf', name: 'Booster fins', finCount: 3,
+              rootChord: 0.10, position: { method: 'bottom', offset: 0 } },
+          ] },
+        ] },
+      ],
+    } as unknown as RocketTree;
+    const w = wakeShadowWarnings(twoStage);
+    expect(w).toHaveLength(1);
+    expect(w[0]).toContain('"Booster fins"');
+    expect(w[0]).toContain('200 mm ahead');
+  });
+
+  it('leaves the rail check exactly where it was', () => {
+    // The baseline the investigation measured: a shroud sitting on a fin line
+    // raises NOTHING from railInterferenceWarnings, because both of its loops
+    // key on rail buttons. The new check is additive, not a rewrite.
+    expect(railInterferenceWarnings(camTree())).toHaveLength(0);
+    // …and a design with no bump raises nothing from the new one.
+    expect(wakeShadowWarnings(tree([FINS3]))).toHaveLength(0);
   });
 });

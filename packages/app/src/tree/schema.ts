@@ -498,6 +498,35 @@ export const FIELDS: Record<EditorComponentType, FieldDef[]> = {
   ],
   railbutton: [
     lenMM('outerDiameter', 'Outer diameter', 0.5, 20),
+    // THE BUTTON'S FIVE DIMENSIONS ARE ONE FACT, and they were all missing
+    // until v0.103 — a button flew, weighed and drew as the kernel
+    // constructor's generic 9.7 mm part whatever the user typed or the file
+    // said (RailButton.java:58-66). They belong together because they enter
+    // the SAME two formulas:
+    //  • DRAG. RailButtonCalc.java:57-60 builds the reference area as
+    //    totalHeight*OD − (OD−innerDiameter)*innerHeight, where innerHeight is
+    //    totalHeight − flangeHeight − baseHeight (RailButton.java:104-106). So
+    //    a height typed without its waist mis-sizes the notch: on @Buckeye's
+    //    vb38 button (OD 9.5, ID 6.0, H 8.0 mm) height alone gets ~60 % of the
+    //    way, the rest is his 6 mm waist against the default 8 mm.
+    //  • The SAME totalHeight enters a second time at RailButtonCalc.java:85-92,
+    //    compared against the local boundary-layer thickness to set the velocity
+    //    the button actually sees — so CD is SUPERLINEAR in height, not linear.
+    //    Measured on the ARCAS-short fixture, 2 buttons, whole-rocket CD at
+    //    M0.3: 0.003099 at 6 mm, 0.012523 at the 9.7 mm default, 0.040118 at
+    //    15 mm — a 2.3x span of reference area producing a 13x span of drag.
+    //  • MASS. RailButton.java:301-308 uses flange, base, inner height, ID, OD
+    //    and screw height. screwHeight is mass-only; it is in no drag term.
+    // Same lesson as the Fruity Chutes Cd/spill-hole ruling: carry them
+    // together or the number is wrong in a way nobody can see.
+    // The key is `totalHeight`, NOT `height`: componentTable.ts:74-84 dedupes
+    // FIELDS keys ACROSS types and `height` is already the fairing's and the
+    // protuberance's, so a `height` column here would be silently swallowed.
+    lenMM('totalHeight', 'Total height', 0.5, 25),
+    lenMM('innerDiameter', 'Inner (waist) diameter', 0.5, 20),
+    lenMM('baseHeight', 'Base / standoff height', 0.5, 12),
+    lenMM('flangeHeight', 'Flange height', 0.5, 12),
+    lenMM('screwHeight', 'Screw-head height', 0.5, 12),
     // Rail buttons come in PAIRS (or more): the kernel's RailButton is
     // LineInstanceable — one node draws, weighs and drags as N collinear
     // copies marching AFT from the node's own position at this spacing. That
@@ -630,7 +659,19 @@ export function defaultParams(type: EditorComponentType): Partial<ComponentNode>
     // because the angle was not read from the file, drawn, or editable until
     // v0.087; it became visible the moment it became real.
     case 'launchlug': return { length: 0.05, outerRadius: 0.0022, thickness: 0.0003, angleOffset: Math.PI, position: { method: 'middle', offset: 0 } };
-    case 'railbutton': return { angleOffset: Math.PI, position: { method: 'middle', offset: 0 } };
+    // The five geometry values are EXACTLY the kernel constructor's
+    // (RailButton.java:58-64: OD 9.7, total height 9.7, ID 8.0, flange 2.0,
+    // base 2.0 mm, screw 0), so nothing anyone has already built moves when
+    // these keys start being carried. That geometry matches NONE of the eight
+    // real parts in OpenRocket's own RailButton_Database.orc (total heights
+    // 4.05, 5.21, 6.86, 7.56, 7.75, 11.42, 14.22, 17.39 mm) — it is desktop's
+    // invented default, kept deliberately so this release is a fidelity fix
+    // and not a silent re-sizing of every existing button.
+    case 'railbutton': return {
+      outerDiameter: 0.0097, innerDiameter: 0.008, totalHeight: 0.0097,
+      baseHeight: 0.002, flangeHeight: 0.002, screwHeight: 0,
+      angleOffset: Math.PI, position: { method: 'middle', offset: 0 },
+    };
     case 'parachute': return { diameter: 0.3, position: { method: 'top', offset: 0.02 } };
     case 'streamer': return { stripLength: 0.5, stripWidth: 0.05, position: { method: 'top', offset: 0.02 } };
     case 'shockcord': return { cordLength: 0.3, position: { method: 'top', offset: 0.01 } };

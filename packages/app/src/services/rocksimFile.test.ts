@@ -1614,3 +1614,167 @@ describe('RockSim export writes CalcMass/CalcCG (desktop reads them for airfoil 
     expect(xml).not.toContain('<CalcMass>');
   });
 });
+
+/**
+ * v0.103 — `LaunchLug/RadialAngle`, which was neither read nor written.
+ *
+ * RockSim stores a lug's clock angle around the body in RADIANS, and desktop
+ * OpenRocket maps it straight onto the same field this app calls `angleOffset`
+ * (rocksim/importt/LaunchLugHandler.java:76-78 calls setAngleOffset with no
+ * conversion; rocksim/export/LaunchLugDTO.java:39 writes it back the same way).
+ * This file already read RadialAngle for tube fins and for pods, so the lug was
+ * the one gap — and it cost the whole placement in both directions. Named
+ * casualty from the corpus: Level 3 Rocket's two lugs, stored at -1.0472 rad
+ * (-60 deg), arrived with no angle at all and were flown at the kernel's
+ * default of 180 — 120 degrees from where the builder put them, on the one
+ * line the launch rail has to have clear.
+ *
+ * The angle changes no drag (a bump on a round body blocks the same air
+ * whichever way round it sits, and LaunchLugCalc/TubeCalc read no angle); what
+ * it changes is where the lug is drawn, whether the rail-interference strip
+ * warns, and the lateral CG the kernel gives it.
+ */
+describe('RockSim launch-lug mounting angle', () => {
+  const withAngle = (angleTag: string) => `<RockSimDocument><DesignInformation><RocketDesign>
+      <Name>Lug</Name><StageCount>1</StageCount>
+      <Stage3Parts>
+        <BodyTube><Name>Tube</Name><Len>500</Len><OD>54</OD><ID>52</ID>
+          <AttachedParts>
+            <LaunchLug><Name>Lug</Name><Len>50</Len><OD>6</OD><ID>5</ID>${angleTag}</LaunchLug>
+          </AttachedParts>
+        </BodyTube>
+      </Stage3Parts><Stage2Parts/><Stage1Parts/>
+    </RocketDesign></DesignInformation></RockSimDocument>`;
+
+  const lugOf = (tree: { components: ComponentNode[] }) => tree.components[0]!.children!
+    .flatMap((c) => c.children ?? []).find((c) => c.type === 'launchlug')!;
+
+  it('reads a negative RadialAngle in radians (the Level 3 Rocket case)', () => {
+    const lug = lugOf(importRkt(withAngle('<RadialAngle>-1.0472</RadialAngle>')).tree);
+    expect(lug['angleOffset']).toBeCloseTo(-1.0472, 9);
+  });
+
+  it('reads an explicit zero as zero, not as absent', () => {
+    // Zero is where RockSim puts a lug it was never told about, and it is also
+    // a real choice. It must not become the kernel's 180.
+    expect(lugOf(importRkt(withAngle('<RadialAngle>0</RadialAngle>')).tree)['angleOffset']).toBe(0);
+    // No element at all stays absent — every drawing and the bridge read that
+    // as 0 anyway, so nothing is invented here.
+    expect(lugOf(importRkt(withAngle('')).tree)['angleOffset']).toBeUndefined();
+  });
+
+  it('writes the angle back out, and survives a full round trip', () => {
+    const design = {
+      name: 'Lug',
+      tree: {
+        name: 'Lug',
+        components: [{
+          type: 'stage' as const, id: 's0', name: 'Sustainer',
+          children: [{
+            type: 'bodytube' as const, id: 'b', length: 0.5, outerRadius: 0.027, thickness: 0.001,
+            children: [{
+              type: 'launchlug' as const, id: 'lug', length: 0.05,
+              outerRadius: 0.003, thickness: 0.0005, angleOffset: -1.0472,
+              position: { method: 'top' as const, offset: 0.1 },
+            }],
+          }],
+        }],
+      },
+    };
+    const xml = exportRkt(design);
+    expect(xml).toContain('<RadialAngle>-1.0472</RadialAngle>');
+    expect(lugOf(importRkt(xml).tree)['angleOffset']).toBeCloseTo(-1.0472, 9);
+  });
+});
+
+/**
+ * A6 (import half) — an airfoil fin set takes RockSim's own CalcMass/CalcCG.
+ *
+ * Desktop does this unconditionally (FinSetHandler.java:299-309): RockSim's older
+ * dialect ignores the cross-section when it weighs a fin, while the kernel scales
+ * an airfoil's volume by 0.85, so those sets import exactly 15 % light. Newer files
+ * carrying <UseConstThickness> model the section themselves and go the other way.
+ * Ruled ADOPT by Eric 2026-09-04.
+ */
+describe('RockSim airfoil fin sets take the file’s own computed mass and CG', () => {
+  const design = (fields: string, tip = 2) => `<RockSimDocument><DesignInformation><RocketDesign>
+      <Name>AF</Name><StageCount>1</StageCount>
+      <Stage3Parts>
+        <BodyTube><Name>Tube</Name><Len>300</Len><OD>50</OD><ID>48</ID>
+          <AttachedParts>
+            <FinSet><Name>Fins</Name><FinCount>3</FinCount><ShapeCode>0</ShapeCode>
+              <RootChord>60</RootChord><TipChord>30</TipChord><SemiSpan>40</SemiSpan>
+              <SweepDistance>20</SweepDistance><Thickness>3</Thickness>
+              <TipShapeCode>${tip}</TipShapeCode>
+              ${fields}
+            </FinSet>
+          </AttachedParts>
+        </BodyTube>
+      </Stage3Parts><Stage2Parts/><Stage1Parts/>
+    </RocketDesign></DesignInformation></RockSimDocument>`;
+  const finsOf = (fields: string, tip = 2) =>
+    flatten(importRkt(design(fields, tip)).tree.components)
+      .find((c) => c.type === 'trapezoidfinset')!;
+
+  it('pins both numbers when the cross-section is airfoil and no override was stated', () => {
+    const n = finsOf('<CalcMass>138.211</CalcMass><CalcCG>153.76</CalcCG><UseKnownCG>0</UseKnownCG>');
+    expect(n['crossSection']).toBe('airfoil');
+    expect(n['overrideMass']).toBeCloseTo(0.138211, 9);
+    expect(n['overrideCGX']).toBeCloseTo(0.15376, 9);
+  });
+
+  it('leaves a SQUARE or ROUNDED set alone — this is the airfoil branch only', () => {
+    for (const tip of [0, 1]) {
+      const n = finsOf('<CalcMass>138.211</CalcMass><CalcCG>153.76</CalcCG><UseKnownCG>0</UseKnownCG>', tip);
+      expect(n['overrideMass'], `TipShapeCode ${tip}`).toBeUndefined();
+      expect(n['overrideCGX'], `TipShapeCode ${tip}`).toBeUndefined();
+    }
+  });
+
+  it('a stated measured mass WINS over CalcMass — desktop skips its airfoil branch there', () => {
+    const n = finsOf('<KnownMass>120</KnownMass><KnownCG>150</KnownCG><UseKnownCG>1</UseKnownCG>'
+      + '<CalcMass>95</CalcMass><CalcCG>100</CalcCG>');
+    expect(n['overrideMass']).toBeCloseTo(0.12, 9);
+    expect(n['overrideCGX']).toBeCloseTo(0.15, 9);
+  });
+
+  it('refuses to copy desktop’s two zero bugs', () => {
+    // Desktop's calcMass/calcCg fields default to 0.0d and it pins them anyway,
+    // silently zeroing the fin set. 1 of the 271 affected corpus sets would hit it.
+    expect(finsOf('<UseKnownCG>0</UseKnownCG>')['overrideMass']).toBeUndefined();
+    expect(finsOf('<CalcMass>0</CalcMass><UseKnownCG>0</UseKnownCG>')['overrideMass']).toBeUndefined();
+    // A CalcCG of 0 leaves the CG computed rather than pinning it to the fin root.
+    const n = finsOf('<CalcMass>50</CalcMass><CalcCG>0</CalcCG><UseKnownCG>0</UseKnownCG>');
+    expect(n['overrideMass']).toBeCloseTo(0.05, 9);
+    expect(n['overrideCGX']).toBeUndefined();
+  });
+
+  it('a body tube with a CalcMass is still untouched — the gate is the cross-section', () => {
+    // Guards the pre-existing behaviour asserted elsewhere in this file: we do NOT
+    // believe a CalcMass on an ordinary part whose flag is off.
+    const tube = flatten(importRkt(
+      design('<CalcMass>138.211</CalcMass><UseKnownCG>0</UseKnownCG>'),
+    ).tree.components).find((c) => c.type === 'bodytube')!;
+    expect(tube['overrideMass']).toBeUndefined();
+  });
+
+  it('says so in the import notes', () => {
+    const r = importRkt(design('<CalcMass>138.211</CalcMass><CalcCG>153.76</CalcCG><UseKnownCG>0</UseKnownCG>'));
+    expect(r.notes.join(' ')).toContain('1 airfoil fin set took the mass and balance point');
+  });
+
+  it('reaches the KERNEL, not just the node — the fin set really weighs the file’s number', async () => {
+    // A node-field-only test proves nothing about physics: that is exactly how the
+    // tube-fin wall thickness round-tripped through the file for months while the
+    // kernel ignored it. Assert what the engine was handed.
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    const { engineTree } = await import('../tree/treeModel.js');
+    const r = importRkt(design('<CalcMass>138.211</CalcMass><CalcCG>153.76</CalcCG><UseKnownCG>0</UseKnownCG>'));
+    const fins = flatten(r.tree.components).find((c) => c.type === 'trapezoidfinset')!;
+    resetEngine();
+    const built = OrkRocket.buildTree(engineTree(r.tree));
+    const info = built.componentInfo(fins.id!);
+    expect(info.mass).toBeCloseTo(0.138211, 9);
+    expect(info.cgX).toBeCloseTo(0.15376, 6);
+  }, 60000);
+});

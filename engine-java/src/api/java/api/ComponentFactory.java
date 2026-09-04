@@ -335,16 +335,72 @@ final class ComponentFactory {
                 lug.setLength(dbl(node, "length", 0.05));
                 lug.setOuterRadius(dbl(node, "outerRadius", 0.0022));
                 lug.setThickness(dbl(node, "thickness", 0.0003));
+                applyMountAngle(lug, node);
                 applyLineInstances(lug, node);
                 c = lug;
                 break;
             }
             case "railbutton": {
+                // ALL SIX DIMENSIONS, in DESKTOP'S OWN ORDER. Until v0.103 only
+                // outerDiameter crossed this bridge, so every rail button in
+                // every design flew and weighed as the constructor's generic
+                // 9.7 mm part (RailButton.java:58-64) whatever the file said —
+                // and total height is in the drag twice over
+                // (RailButtonCalc.java:57-60 sizes the reference area, :85-92
+                // compares it against the boundary-layer thickness), so the
+                // error is superlinear. Measured on the ARCAS-short fixture,
+                // 2 buttons, whole-rocket CD at M0.3: 0.003099 at 6 mm,
+                // 0.012523 at the 9.7 mm default, 0.040118 at 15 mm.
+                //
+                // THE ORDER IS LOAD-BEARING — every setter clamps against the
+                // others, so replaying desktop's XML document order is what
+                // makes our clamping bit-identical to its:
+                //   setOuterDiameter re-runs setInnerDiameter(this.innerDiameter_m)
+                //     and can therefore SHRINK the ID (RailButton.java:196-205,
+                //     :177-186) — a 4.19 mm RB-Micro collapses the default 8 mm
+                //     waist to 4.19 and zeroes the notch term;
+                //   setTotalHeight floors at getMinTotalHeight() = base + flange
+                //     (:147-158, :168-170);
+                //   setBaseHeight ceilings at totalHeight - flange (:121-132);
+                //   setFlangeHeight ceilings at totalHeight - base (:134-145).
+                // That inherits desktop's quirk too — a button under 4 mm tall
+                // imported before its base and flange come down is floored at
+                // 4 mm. Do NOT "improve" it; parity ruling.
+                //
+                // GUARDED ON KEY PRESENCE, exactly as applyLineInstances is
+                // (see its comment below): a node carrying no geometry keys —
+                // an old localStorage design, or the protuberance carrier
+                // synthesised at treeModel.ts engineTree — must stay
+                // bit-identical to the pre-v0.103 kernel, which is the
+                // constructor's own values.
                 RailButton rb = new RailButton();
                 double od = dbl(node, "outerDiameter", Double.NaN);
                 if (!Double.isNaN(od)) {
                     rb.setOuterDiameter(od);
                 }
+                double id = dbl(node, "innerDiameter", Double.NaN);
+                if (!Double.isNaN(id)) {
+                    rb.setInnerDiameter(id);
+                }
+                double th = dbl(node, "totalHeight", Double.NaN);
+                if (!Double.isNaN(th)) {
+                    rb.setTotalHeight(th);
+                }
+                double bh = dbl(node, "baseHeight", Double.NaN);
+                if (!Double.isNaN(bh)) {
+                    rb.setBaseHeight(bh);
+                }
+                double fh = dbl(node, "flangeHeight", Double.NaN);
+                if (!Double.isNaN(fh)) {
+                    rb.setFlangeHeight(fh);
+                }
+                // Screw head: mass only. It is in getComponentVolume
+                // (RailButton.java:301-308) and in no drag term at all.
+                double sh = dbl(node, "screwHeight", Double.NaN);
+                if (!Double.isNaN(sh)) {
+                    rb.setScrewHeight(sh);
+                }
+                applyMountAngle(rb, node);
                 applyLineInstances(rb, node);
                 c = rb;
                 break;
@@ -536,6 +592,24 @@ final class ComponentFactory {
         if (!Double.isNaN(overrideCD)) {
             c.setOverrideCD(overrideCD);
             c.setCDOverridden(true);
+        }
+        // Body-proportional CD override (MMRocket Sim; see
+        // engine-java/patches/LEDGER.md and RocketComponent.overrideCDBodyRatio).
+        // The override stops being a frozen scalar and becomes a fraction of the
+        // rocket BODY's own CD, re-evaluated at every Mach —
+        // BarrowmanCalculator.calculateOverrideCD. `overrideCD` above stays the
+        // Mach-0.3 fallback and is the number the app's property panel quotes.
+        //
+        // THESE TWO KEYS ARE SYNTHESIZED ONLY BY THE APP'S engineTree, for the two
+        // STREAMLINED protuberance classes. The `.ork` <overridecd> path
+        // (orkFile.ts readOverrides) must never set them, so every user-typed CD
+        // override and every desktop file stays Mach-flat and desktop-parity is
+        // untouched. An absent key leaves the field at NaN, which is the plain
+        // scalar behaviour.
+        double bodyRatio = dbl(node, "overrideCDBodyRatio", Double.NaN);
+        if (!Double.isNaN(bodyRatio)) {
+            c.setOverrideCDBodyRatio(bodyRatio);
+            c.setOverrideCDBodyIncludesBase(bool(node, "overrideCDBodyIncludesBase", true));
         }
         // The override REPLACES the whole subtree's computed value rather than
         // adding to this component's own.
@@ -813,6 +887,40 @@ final class ComponentFactory {
         // DEFAULT diameter) while the drawing and the saved file showed them
         // coincident: three descriptions of one rocket.
         li.setInstanceSeparation(dbl(node, "instanceSeparation", 0));
+    }
+
+    /**
+     * Where a surface-mounted part sits AROUND the body (the clock angle,
+     * radians). Launch lugs and rail buttons are the kernel's AnglePositionable
+     * components; a protuberance reaches this through the carrier RailButton
+     * that treeModel.ts engineTree lowers it to.
+     *
+     * Until v0.103 nothing called setAngleOffset for either, so a lug or a
+     * button that was read from the file, drawn in all three views, warned
+     * about by the rail-interference strip and written back out at (say) 90
+     * degrees was nevertheless SIMULATED at the kernel constructor's default of
+     * PI (LaunchLug.java:24, RailButton.java:54). That is never a drag error —
+     * LaunchLugCalc.calculateNonaxialForces is empty, TubeCalc reads no angle,
+     * and RailButtonCalc.calculatePressureCD is a function of Mach, Reynolds
+     * and reference area only, so a bump on a round body is charged the same
+     * drag whichever way round it sits. What it IS is a lateral CG error
+     * (LaunchLug.java:236-237 and RailButton.java:389-390 both put the part's CG
+     * at cos/sin of this angle times the parent radius) and therefore a 6DOF
+     * wind-response error.
+     *
+     * DEFAULTS TO 0, NOT to the kernel's PI, deliberately: 0 is what every app
+     * renderer reads for a missing key (Rocket3D, TreeSchematic and AftView all
+     * call num(child, 'angleOffset', 0)) and what the .ork writer emits for one.
+     * Taking the kernel default here instead would fly a part 180 degrees from
+     * where the app draws it and from where the file it just wrote says it is —
+     * the same "three descriptions of one rocket" applyLineInstances refuses
+     * above. The .ork reader was fixed in the same sitting to stop dropping an
+     * explicit zero (orkFile.ts readMountAngle), so "absent" and "zero" now
+     * agree end to end whichever way a design arrived.
+     */
+    private static void applyMountAngle(info.openrocket.core.rocketcomponent.position.AnglePositionable ap,
+            Map<String, Object> node) {
+        ap.setAngleOffset(dbl(node, "angleOffset", 0));
     }
 
     private static void applyAssembly(RocketComponent child, Map<String, Object> node) {

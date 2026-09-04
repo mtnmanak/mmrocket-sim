@@ -87,7 +87,7 @@ import {
 import { clusterCount } from './tree/cluster.js';
 import { estimateMotorRoomForMounts } from './tree/motorRoom.js';
 import { autoAlignFinSets } from './tree/finAlign.js';
-import { railInterferenceWarnings } from './tree/mountAngle.js';
+import { railInterferenceWarnings, wakeShadowWarnings } from './tree/mountAngle.js';
 import { convertShrouds, findShroudCandidates, type ShroudCandidate } from './tree/shroudConvert.js';
 import { mountBore } from './tree/scaleRocket.js';
 import { designFingerprint, isDirty, type DesignSnapshot } from './services/dirtyState.js';
@@ -934,6 +934,14 @@ export function App() {
       // steered by the mounting angle. See treeModel's lowering notes.)
       const railWarnings = railInterferenceWarnings(tree);
       if (railWarnings.length) info.warningTexts = [...info.warningTexts, ...railWarnings];
+      // A bump directly UPSTREAM of a fin sheds a wake onto it, and nothing here
+      // or in any other hobby package models that: the fin is flown at full
+      // free-stream dynamic pressure. Unlike the rail check above this changes no
+      // number at all - it is a stated limit, in the place the reader is already
+      // looking. It must sit AFTER the THICK_FIN fairing-name filter above, or a
+      // shroud named like a fin gets filtered out of its own sentence.
+      const wakeWarnings = wakeShadowWarnings(tree);
+      if (wakeWarnings.length) info.warningTexts = [...info.warningTexts, ...wakeWarnings];
       return { rocket, info, motorFailures, flownRecovery };
     } catch (e) {
       return { error: e instanceof Error ? e.message : String(e) };

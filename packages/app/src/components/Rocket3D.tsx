@@ -259,10 +259,16 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims): { pieces: Pie
         // Rail buttons had NO 3D drawing at all until v0.089 — a part the app
         // simulated and warned about was simply absent from the one view
         // people rotate to inspect the build. A button is a squat cylinder
-        // standing off the surface, its axis radial: height from the kernel's
-        // default total height (9.7 mm), one per line instance marching aft.
+        // standing off the surface, its axis radial: one per line instance
+        // marching aft.
+        // THE STANDOFF IS THE BUTTON'S OWN TOTAL HEIGHT (v0.103). It was the
+        // literal 9.7 mm until then — the kernel constructor's default — so a
+        // 1515 button (14.2 mm) and a micro button (4.05 mm) drew identically,
+        // and the aft view drew a third height again. Same key the kernel now
+        // flies (RailButtonCalc.java:57-60 makes totalHeight x OD the drag
+        // reference area), so the drawing and the number finally agree.
         const bd = num(child, 'outerDiameter', 0.0097);
-        const bh = 0.0097;
+        const bh = num(child, 'totalHeight', 0.0097);
         const start = axialStart(child, bd, pStart, pLen);
         const bGeo = new THREE.CylinderGeometry(bd / 2, bd / 2, bh, 16);
         const ba = num(child, 'angleOffset', 0);
