@@ -1056,6 +1056,29 @@ html {
   color: var(--text-secondary);
 }
 
+/* A tile with no reading yet — "load a motor" on Recovery weight, or an em-dash
+   when the design's masses cannot answer. It is prose, not a number: at the
+   25px tabular size the numbers use it wraps the tile and reads like a value.
+   Muted for the same reason .stability-unknown is — this is the ABSENCE of a
+   reading. */
+.stat-tile .stat-value.stat-value-muted {
+  font-size: 14px;
+  font-weight: 500;
+  font-variant-numeric: normal;
+  color: var(--text-secondary);
+  /* Keep the tile the same height as its numeric neighbours in the row. */
+  padding-top: 9px;
+}
+
+/* Same idea on the phone home screen, where the numbers run 20px and the
+   tiles are a two-column grid — no padding shim, the grid equalizes rows. */
+.fly-stat .stat-value.stat-value-muted {
+  font-size: 13px;
+  font-weight: 500;
+  font-variant-numeric: normal;
+  color: var(--text-secondary);
+}
+
 /* --- Charts --- */
 .chart-panel {
   background: var(--surface-2);
@@ -3699,3 +3722,119 @@ select.unit-chip:hover {
   font-size: 11.5px;
   color: var(--text-muted);
 }
+
+/* --- Recovery sizing (design page) ---------------------------------------- */
+/* Sits under the component tree in the left column, beside the recovery weight
+   it is computed from. Two bands, each led by the SIZE and followed by the
+   catalogue parts that hit it — see services/recoverySizing.ts. */
+.recovery-sizing { margin-top: 12px; }
+.recovery-sizing-hint,
+.recovery-sizing-lede {
+  margin: 0 0 10px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+.recovery-sizing-lede strong { color: var(--text-secondary); }
+
+.recovery-band + .recovery-band { margin-top: 14px; }
+.recovery-band h3 {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 2px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+}
+/* The accepted band, stated beside its own name so the recommendation is never
+   a number with no window around it. The unit is a chip: someone who thinks in
+   m/s should not have to convert the app's own safety band in their head. */
+.recovery-band-range {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+/* The size line is the largest type in the panel on purpose: it is the half of
+   the answer that still works for someone who is not buying from this
+   catalogue at all. */
+.recovery-size-line {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+.recovery-size-line strong {
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.recovery-size-note {
+  margin: 1px 0 8px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+/* The candidate list. Two lines per canopy — what it is and what it does,
+   then the details — because this panel lives in the design page's 290 px
+   left column and a five-column table cannot fit there without truncating
+   the one field a reader carries to a shop. */
+.recovery-parts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--border);
+}
+.recovery-part {
+  padding: 5px 4px;
+  border-bottom: 1px solid var(--border);
+}
+.recovery-part-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 11.5px;
+}
+.recovery-part-name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+.recovery-part-rate {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.recovery-part-mfr,
+.recovery-part-variants { color: var(--text-muted); font-weight: 400; }
+.recovery-part-meta {
+  margin-top: 1px;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+/* A drogue past the app's OWN 70 ft/s report threshold. Tinted, not hidden:
+   the owner's band reaches 75, the launch report complains above 70, and a
+   reader has to be able to see both facts at once. */
+.recovery-part-warn {
+  background: color-mix(in srgb, var(--status-warn) 9%, transparent);
+}
+.recovery-mark {
+  margin-left: 2px;
+  color: var(--text-muted);
+}
+.recovery-mark-warn { color: var(--status-warn); }
+.recovery-band-foot {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+.recovery-band-foot:empty { display: none; }

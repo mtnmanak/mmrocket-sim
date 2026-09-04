@@ -98,4 +98,46 @@ describe('FlyScreen', () => {
     expect(host.querySelector('.fly-compare')).toBeFalsy();
     expect(host.querySelector('.fly-motor-name')?.textContent).toBe('none loaded');
   });
+
+  /**
+   * Recovery weight is the mass under the chute — dry rocket plus the SPENT
+   * casing, not pad weight. It needs no flight, only a motor, so it is the one
+   * number on this screen that reads before Launch is pressed.
+   */
+  describe('recovery weight', () => {
+    const statText = (label: string) => Array.from(host.querySelectorAll('.fly-stat'))
+      .find((el) => el.querySelector('.stat-label')?.textContent === label)
+      ?.querySelector('.stat-value')?.textContent;
+
+    it('reads in the user’s mass unit, with the unit beside it', () => {
+      mount({ recovery: { state: 'ok', mass: 8.786, multiStage: false } });
+      // Default preference is grams (SI), so 8.786 kg reads as 8786.
+      expect(statText('Recovery weight')).toBe('8786g');
+    });
+
+    it('asks for a motor rather than showing a number — the owner’s rule', () => {
+      mount({ recovery: { state: 'no-motor' } });
+      expect(statText('Recovery weight')).toBe('load a motor');
+      const tile = Array.from(host.querySelectorAll('.fly-stat'))
+        .find((el) => el.querySelector('.stat-label')?.textContent === 'Recovery weight');
+      expect(tile?.getAttribute('title')).toMatch(/Load a motor/);
+      // Muted, so a sentence never reads as a value.
+      expect(tile?.querySelector('.stat-value')?.className).toContain('stat-value-muted');
+    });
+
+    it('dashes, with the reason on the tile, when the design cannot answer', () => {
+      mount({ recovery: { state: 'unavailable', reason: 'strap-on boosters separate' } });
+      expect(statText('Recovery weight')).toBe('—');
+      const tile = Array.from(host.querySelectorAll('.fly-stat'))
+        .find((el) => el.querySelector('.stat-label')?.textContent === 'Recovery weight');
+      expect(tile?.getAttribute('title')).toContain('strap-on boosters separate');
+    });
+
+    it('is absent entirely when nothing computed it (no build)', () => {
+      mount();
+      const labels = Array.from(host.querySelectorAll('.fly-stat .stat-label'))
+        .map((el) => el.textContent);
+      expect(labels).not.toContain('Recovery weight');
+    });
+  });
 });

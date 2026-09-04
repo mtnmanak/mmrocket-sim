@@ -9,6 +9,7 @@ import {
   stabilityPercent, stabilityState,
   type SimRun, type StabilityUnit,
 } from '../services/simReport.js';
+import { recoveryMassTitle, type RecoveryMass } from '../services/recoveryMass.js';
 import { UnitChip } from './UnitChip.js';
 
 /** Shared tiered styling: under-stable = red, over-stable = yellow caution. */
@@ -23,16 +24,18 @@ export function stabilityGlyphClass(cal: number | null | undefined): { glyph: st
     : { glyph: '✓', cls: 'stability-good' };
 }
 
-function Tile({ label, value, unit, quantity, className }: {
+function Tile({ label, value, unit, quantity, className, title }: {
   label: string;
   value: string;
   unit?: string;
   /** When set, the unit is a click-to-change chip for this quantity group. */
   quantity?: Quantity;
   className?: string;
+  /** Hover/long-press explanation for the tile as a whole. */
+  title?: string;
 }) {
   return (
-    <div className="stat-tile">
+    <div className="stat-tile" title={title}>
       <div className="stat-label">{label}</div>
       <div className={`stat-value ${className ?? ''}`}>
         {value}
@@ -52,7 +55,7 @@ function Tile({ label, value, unit, quantity, className }: {
  */
 export const CD_REFERENCE_MACH = 0.3;
 
-export function DesignStats({ info, motorLabel, cd }: {
+export function DesignStats({ info, motorLabel, cd, recovery }: {
   info: StaticInfo;
   motorLabel?: string;
   /**
@@ -62,6 +65,8 @@ export function DesignStats({ info, motorLabel, cd }: {
    * the whole override feature had no feedback loop.
    */
   cd?: number | null;
+  /** {@link RecoveryMass} for the current motor set; omitted = not computed. */
+  recovery?: RecoveryMass;
 }) {
   const { prefs } = usePrefs();
   const len = prefs.units.length;
@@ -83,6 +88,26 @@ export function DesignStats({ info, motorLabel, cd }: {
         <Tile label="Max diameter" value={fmtSi('length', len, info.refDiameter, 3)} quantity="length" />
         <Tile label="Mass (empty)" value={fmtSi('mass', mass, info.massEmpty)} quantity="mass" />
         <Tile label="Mass (loaded)" value={fmtSi('mass', mass, info.mass)} quantity="mass" />
+        {/*
+          Recovery weight sits HERE, right of the loaded mass, because the two
+          are read together: the pair is what tells a flyer that the number to
+          size a canopy on is the lighter one. It needs a motor — the spent
+          casing is part of the answer — so with none loaded it says so rather
+          than printing the dry mass and letting it be mistaken for the real
+          figure. See services/recoveryMass.ts for the 8.786 vs 11.7 kg case
+          that prompted it.
+        */}
+        {recovery && (
+          <Tile
+            label="Recovery weight"
+            value={recovery.state === 'ok'
+              ? fmtSi('mass', mass, recovery.mass)
+              : recovery.state === 'no-motor' ? 'load a motor' : '—'}
+            quantity={recovery.state === 'ok' ? 'mass' : undefined}
+            className={recovery.state === 'ok' ? '' : 'stat-value-muted'}
+            title={recoveryMassTitle(recovery)}
+          />
+        )}
         {motorLabel && <Tile label="Motor" value={motorLabel} />}
       </div>
       <div className="stat-row">

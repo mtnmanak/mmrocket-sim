@@ -1,6 +1,7 @@
 import type { RocketTree, StaticInfo } from '@online-openrocket/engine';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { fmtSi } from '../prefs/units.js';
+import { recoveryMassTitle, type RecoveryMass } from '../services/recoveryMass.js';
 import {
   formatStability, hasAerodynamicForce, shownStability, type SimRun,
 } from '../services/simReport.js';
@@ -17,7 +18,8 @@ import { TreeSchematic } from './TreeSchematic.js';
  * a view over App's existing state — no state of its own.
  */
 export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
-  onLaunch, simulating, canLaunch, onChangeMotor, onCompare, canCompare, staleModel }: {
+  onLaunch, simulating, recovery, canLaunch, onChangeMotor, onCompare, canCompare,
+  staleModel }: {
   tree: RocketTree;
   info: StaticInfo | null;
   /** The newest flight (current result's summary, else the last stored run). */
@@ -27,6 +29,12 @@ export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
   onLaunchChange: (v: LaunchConditions) => void;
   onLaunch: () => void;
   simulating: boolean;
+  /**
+   * What comes down under the chute for the motor now loaded — the number a
+   * canopy is sized on, and one this screen exists to put in front of someone
+   * standing at the pad. Omitted = not computed (no build).
+   */
+  recovery?: RecoveryMass;
   canLaunch: boolean;
   /** "Change ▸" — jumps to the Motors & Launch workspace. */
   onChangeMotor: () => void;
@@ -47,10 +55,10 @@ export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
     ? stabilityGlyphClass(shownStability(info)) : null;
   const descent = run ? (run.landingRate ?? run.groundHitVelocity) : null;
 
-  const stat = (label: string, value: string, unit?: string) => (
-    <div className="fly-stat">
+  const stat = (label: string, value: string, unit?: string, opts?: { muted?: boolean; title?: string }) => (
+    <div className="fly-stat" title={opts?.title}>
       <div className="stat-label">{label}</div>
-      <div className="stat-value">
+      <div className={`stat-value${opts?.muted ? ' stat-value-muted' : ''}`}>
         {value}
         {unit && <span className="stat-unit">{unit}</span>}
       </div>
@@ -102,6 +110,21 @@ export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
               descent != null ? prefs.units.velocity : undefined)}
             {stat('Max velocity', run ? fmtSi('velocity', prefs.units.velocity, run.maxVelocity) : '—',
               run ? prefs.units.velocity : undefined)}
+            {/*
+              Recovery weight — the dry rocket plus the SPENT casing, not the
+              pad weight. It needs no flight, only a motor, so unlike the four
+              above it reads the moment a motor is chosen: this screen is where
+              motors get swapped at the pad, and swapping one changes the mass
+              the chute has to hold. See services/recoveryMass.ts for the
+              8.786 kg vs 11.7 kg case behind it.
+            */}
+            {recovery && stat(
+              'Recovery weight',
+              recovery.state === 'ok' ? fmtSi('mass', prefs.units.mass, recovery.mass)
+                : recovery.state === 'no-motor' ? 'load a motor' : '—',
+              recovery.state === 'ok' ? prefs.units.mass : undefined,
+              { muted: recovery.state !== 'ok', title: recoveryMassTitle(recovery) },
+            )}
           </div>
 
           <button className="fly-motor" onClick={onChangeMotor}

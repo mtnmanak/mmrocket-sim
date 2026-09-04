@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.103';
+export const APP_VERSION = '0.104';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,21 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.104',
+    date: '2026-09-04',
+    title: 'The app now tells you what your rocket weighs coming down, and which parachute to fly',
+    items: [
+      'RECOVERY WEIGHT IS NOW ON SCREEN, AND IT IS NOT PAD WEIGHT. A parachute has to lower the rocket plus its SPENT motor casing - the propellant is gone by apogee - and the app showed you "Mass (empty)" and "Mass (loaded)", neither of which is that number. On a 4 inch design with an M motor the pad weight is 5.74 kg and the recovery weight is 3.38 kg: the thing you size a chute against is 70 percent lighter than the number you were reading. It needs a motor loaded, because without one there is no propellant to subtract.',
+      'ON A TWO-STAGE ROCKET IT IS THE SUSTAINER\'S WEIGHT, NOT THE STACK\'S. The boosters and their spent casings are on the ground by the time the main opens, so "whole stack minus propellant" is the weight of no object that exists in the flight - on one bundled two-stage file that figure is 19 percent heavy. Where the app cannot separate the stages cleanly, which is the case for a strap-on booster that lives inside the sustainer\'s own structure, it says so rather than showing a number it cannot stand behind.',
+      'A NEW RECOVERY SIZING PANEL RECOMMENDS A MAIN AND A DROGUE. It leads with the size you need - "about 65 inches at Cd 2.2" - because that is the answer whether or not you buy off a shelf, and it always names the coefficient it used, since a diameter without one means nothing. It uses the drag coefficient of the chute already in your design when there is one. Then it lists real canopies from the parts catalogue with the descent rate each would actually give YOUR rocket, so the list is a decision rather than a catalogue.',
+      'IT ONLY SUGGESTS CANOPIES THAT WILL FIT. A 96 inch main is a perfectly correct answer for an 8.8 kg rocket and useless in a 54 mm tube. The panel measures the bay the chute actually sits in and drops anything that packs wider, saying how many it dropped so the list never looks arbitrary. The 26 catalogue canopies that publish no packed size are still listed, marked, and flagged to check before you buy.',
+      'IT USES THE AIR AT YOUR FIELD, NOT AT SEA LEVEL. Descent happens where you launch, and thinner air means a faster arrival - about 8 percent faster at 5,000 feet, which turns a 65 inch recommendation into a 70 inch one. The panel says so when your site elevation is not zero.',
+      'THE NUMBERS ACCOUNT FOR THE CANOPY\'S OWN WEIGHT. A 96 inch main can weigh most of a kilo, and adding it changes the very weight it was being sized against. Each candidate is sized against what the rocket would weigh WITH that canopy in it, not with the one you have now.',
+      'Targets are 18 ft/s for a main, inside the app\'s own 20 ft/s landing limit with margin to spare, and 60 ft/s for a drogue. A drogue candidate above the accepted 70 ft/s band is sorted last and marked, with the same words the launch report uses - the app should not recommend something it will then warn you about.',
+      'Near-identical catalogue rows are folded together, so the list is five different canopies rather than five fabric weights of the same one, and it spreads across manufacturers instead of filling with one brand.',
+    ],
+  },
   {
     version: '0.103',
     date: '2026-09-04',

@@ -91,6 +91,8 @@ import { railInterferenceWarnings, wakeShadowWarnings } from './tree/mountAngle.
 import { convertShrouds, findShroudCandidates, type ShroudCandidate } from './tree/shroudConvert.js';
 import { mountBore } from './tree/scaleRocket.js';
 import { designFingerprint, isDirty, type DesignSnapshot } from './services/dirtyState.js';
+import { recoveryMass, recoveryMassTitle, type RecoveryMass } from './services/recoveryMass.js';
+import { RecoverySizingPanel } from './components/RecoverySizingPanel.js';
 import { ScaleDialog } from './components/ScaleDialog.js';
 
 /** One mount's assigned motor (Release C: every mount can hold its own). */
@@ -950,6 +952,50 @@ export function App() {
   const built = 'error' in buildResult ? null : buildResult;
   const buildError = 'error' in buildResult ? buildResult.error : simError;
   const motorFailures = built?.motorFailures ?? [];
+
+  /**
+   * RECOVERY WEIGHT — the mass that comes down under the chute, which is
+   * neither of the two masses the vitals strip used to show. Dry structure
+   * plus the SPENT casing: the propellant is gone by apogee. The owner's
+   * Wildman only reproduced its measured drogue rate at the sim's own landing
+   * mass of 8.786 kg, not the 11.7 kg pad weight, so this is a 33 % error in
+   * the one number a canopy is chosen on. See services/recoveryMass.ts.
+   *
+   * Motors the kernel REFUSED are excluded: their mass is not in `info.mass`,
+   * so subtracting their propellant would report a rocket lighter than its own
+   * dry structure. Excluding them makes the tile read "load a motor" when the
+   * only motor failed, which is the truth.
+   */
+  const recovery = useMemo((): RecoveryMass => {
+    if (!built) return { state: 'no-motor' };
+    const failed = new Set(built.motorFailures.map((f) => f.mountId));
+    return recoveryMass({
+      tree,
+      info: built.info,
+      motors: assigned.filter(([id]) => !failed.has(id)),
+      sectionMass: (id) => {
+        try {
+          const v = built.rocket.componentInfo(id).sectionMass;
+          return Number.isFinite(v) ? v : null;
+        } catch { return null; }
+      },
+    });
+  }, [built, tree, assigned]);
+
+  /**
+   * ONE component's own mass (kg), for the recovery-sizing panel's substitution:
+   * swapping the chute in the design for a catalogue canopy changes the very
+   * weight being sized against, so the panel needs to know what the chute
+   * already in there weighs. Null when the kernel cannot answer, which turns
+   * the substitution off rather than guessing — see recoverySizing.ts.
+   */
+  const componentMass = useCallback((node: ComponentNode): number | null => {
+    if (!built || !node.id) return null;
+    try {
+      const v = built.rocket.componentInfo(node.id).mass;
+      return Number.isFinite(v) ? v : null;
+    } catch { return null; }
+  }, [built]);
 
   /**
    * Repairs applied to published thrust curves for the motors currently
@@ -2941,6 +2987,25 @@ export function App() {
                   {fmtSi('mass', prefs.units.mass, built.info.mass)}&nbsp;<UnitChip quantity="mass" />
                 </span>
               </span>
+              {/* RECOVERY WEIGHT, right of the pad weight and on every
+                  workspace the strip shows — which includes Motors & Launch,
+                  where the motor gets chosen and therefore where the mass
+                  under the chute changes. It is deliberately shown even with
+                  no motor loaded, saying "load a motor", because a readout
+                  that only appears once you already know to look for it is a
+                  readout nobody finds. See services/recoveryMass.ts. */}
+              <span className="vitals-item" title={recoveryMassTitle(recovery)}>
+                <span className="vitals-label">Recovery</span>
+                <span className="vitals-value">
+                  {recovery.state === 'ok'
+                    ? <>{fmtSi('mass', prefs.units.mass, recovery.mass)}&nbsp;<UnitChip quantity="mass" /></>
+                    : (
+                      <span className="vitals-none">
+                        {recovery.state === 'no-motor' ? 'load a motor' : 'n/a'}
+                      </span>
+                    )}
+                </span>
+              </span>
             </>
           ) : buildError && (
             <span className="vitals-item" title={buildError}>
@@ -3065,6 +3130,7 @@ export function App() {
             onLaunchChange={setLaunch}
             onLaunch={onLaunch}
             simulating={simulating}
+            recovery={recovery}
             canLaunch={!!built && !!primaryMountId}
             onChangeMotor={() => setTab('motors')}
             onCompare={() => setShowBatch(true)}
@@ -3179,6 +3245,16 @@ export function App() {
               }}
             />
           </div>
+          {/* Directly under the tree, and ABOVE the measured-mass box, because
+              this is a design-time decision: the canopy is part of the rocket
+              you are drawing, and the recovery weight it is computed from is
+              the number in the strip right above. See recoverySizing.ts. */}
+          <RecoverySizingPanel
+            recovery={recovery}
+            tree={tree}
+            launch={launch}
+            deviceMass={componentMass}
+          />
           {/* Under the tree, because it is a build-time task rather than a
               design-time one: you come back to it with a scale in your hand. */}
           {built && bare && (
@@ -3283,6 +3359,7 @@ export function App() {
                     <DesignStats
                       info={built.info}
                       cd={designCd}
+                      recovery={recovery}
                       motorLabel={assigned.length > 1
                         ? assigned.map(([, mm]) => mm.label).join(' + ')
                         : primaryLabel}
