@@ -54,6 +54,9 @@ const motorDia = (n: ComponentNode, defaultOuterRadius: number): number => {
 };
 const MASS = 1000; // g → kg
 
+/** Transient marker: BaseExtensionLen (m) parked on a cone until the chain pass runs. */
+const PENDING_BASE_EXT = '__rktBaseExt';
+
 const NOSE_SHAPES: Record<string, string> = {
   '0': 'conical', '1': 'ogive', '2': 'ellipsoid', '3': 'ellipsoid',
   '4': 'power', '5': 'parabolic', '6': 'haack',
@@ -61,6 +64,55 @@ const NOSE_SHAPES: Record<string, string> = {
 const NOSE_SHAPE_TO_CODE: Record<string, number> = {
   conical: 0, ogive: 1, ellipsoid: 3, power: 4, parabolic: 5, haack: 6,
 };
+/**
+ * The three shapes whose RockSim `<ShapeParameter>` means the same thing
+ * OpenRocket's does. Desktop parity: NoseConeHandler.java:96-107 and
+ * TransitionHandler.java:102-107 read it only for these, and
+ * AbstractTransitionDTO.java:72-76 writes it only for these. RockSim emits the
+ * tag on EVERY cone and transition, but for the other shapes its value is a
+ * different quantity on a different scale — 51 corpus nose cones carry an ogive
+ * ShapeParameter of 4.2, outside OpenRocket's 0–1 ogive range — so transferring
+ * it either way "causes oddities" (the desktop's own words).
+ */
+const RKT_PARAM_SHAPES = ['power', 'haack', 'parabolic'];
+
+/**
+ * RockSim `<ShapeParameter>` → node['shapeParameter'], for a cone OR a
+ * transition. The transition branch never called this and the exponent was
+ * silently replaced by the kernel default — Exa.rkt's two power transitions
+ * carry 0.21 and 0.13 against a default of 0.5, which measured +15.3 % on CD at
+ * M0.3 and −6.5 % on stability once the file's own numbers are used.
+ *
+ * Out-of-range values are NOT clamped here: carved Transition.java:360 clamps to
+ * the shape's own min/max, so the haack 0.76 in Glencoe Jupiter C.rkt lands at
+ * 1/3 exactly where the desktop lands it.
+ *
+ * Must be called AFTER node['shape'] is set — the gate reads it.
+ */
+const readShapeParameter = (el: Element, node: ComponentNode): void => {
+  const sp = num(el, 'ShapeParameter', NaN);
+  if (!Number.isNaN(sp) && RKT_PARAM_SHAPES.includes(node['shape'] as string)) {
+    node['shapeParameter'] = sp;
+  }
+};
+
+/**
+ * The value to put in `<ShapeParameter>`, exactly as the desktop computes it
+ * (AbstractTransitionDTO.java:42 field default 0.0 plus the :72-76 gate): the
+ * component's own parameter for power/haack/parabolic, and a literal 0 for every
+ * other shape. Writing our 0–1 ogive parameter into RockSim's ogive field would
+ * put a foreign quantity there (see RKT_PARAM_SHAPES); 0 is both what the desktop
+ * writes and what RockSim itself writes — 90 of 93 ogive transitions and 550 of
+ * 613 ogive cones in the corpus carry 0.
+ *
+ * The fallback for a GATED shape stays the KERNEL default, never 0: a power-law
+ * part exported with exponent 0 re-imports as a blunt cylinder.
+ */
+const rktShapeParameter = (shape: string, value: unknown): number =>
+  RKT_PARAM_SHAPES.includes(shape)
+    ? (typeof value === 'number' ? value : shapeParamDefault(shape))
+    : 0;
+
 const CROSS_SECTIONS: Record<string, string> = { '0': 'square', '1': 'rounded', '2': 'airfoil' };
 const CROSS_SECTION_TO_CODE: Record<string, number> = { square: 0, rounded: 1, airfoil: 2 };
 const FINISH_FROM_CODE: Record<string, string> = {
@@ -119,6 +171,8 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
   const pendingLinks: PendingPresetLink[] = [];
   /** Nodes that kept a measured mass or CG desktop OpenRocket would discard. */
   const keptWithoutCGFlag = new Set<ComponentNode>();
+  /** Mass objects pinned onto the point the file states, rather than spread over <Len>. */
+  let pinnedMassObjects = 0;
   /** RockSim SerialNo → our node id (links EngineSets to mounts). */
   const serialToNode = new Map<string, ComponentNode>();
   /** Off-axis inner tubes: node → cross-section offset (m), for cluster
@@ -362,10 +416,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
         n['aftRadius'] = num(el, 'BaseDia', 24) / RAD;
         n['thickness'] = num(el, 'WallThickness', 2) / LEN;
         n['shape'] = NOSE_SHAPES[String(Math.round(num(el, 'ShapeCode', 1)))] ?? 'ellipsoid';
-        const sp = num(el, 'ShapeParameter', NaN);
-        if (!Number.isNaN(sp) && ['power', 'haack', 'parabolic'].includes(n['shape'] as string)) {
-          n['shapeParameter'] = sp;
-        }
+        readShapeParameter(el, n);
         if (Math.round(num(el, 'ConstructionType', 1)) === 0) n['filled'] = true;
         const shoulderLen = num(el, 'ShoulderLen', 0);
         if (shoulderLen > 0) {
@@ -375,6 +426,18 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
             ? (n['shoulderRadius'] as number)
             : (n['thickness'] as number);
         }
+        // RockSim's <BaseExtensionLen>: a cylinder at BaseDia, aft of the cone.
+        // The file's own <Station> chain proves it — 4in WM Extreme.rkt has
+        // Len 495 + BaseExt 14.0005 and the next part's Station is 509;
+        // rocksimTestRocket1.rkt has 396.875 + 66.675 = 463.55, exact to the digit —
+        // and so does its own <CalcMass>, which only reconciles with the extension
+        // billed. Desktop OpenRocket 24.12 has NO constant for the element anywhere
+        // in its source, so it imports these rockets short; diverging from it here is
+        // deliberate and is stated in the import note below.
+        // Parked on the node and turned into a real body tube by the chain pass,
+        // which is the only place that knows which chain this cone belongs to.
+        const baseExt = num(el, 'BaseExtensionLen', 0) / LEN;
+        if (baseExt > 1e-6) n[PENDING_BASE_EXT] = baseExt;
         convertAttached(el, n);
         return n;
       }
@@ -385,6 +448,9 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
         n['aftRadius'] = num(el, 'RearDia', 24) / RAD;
         n['thickness'] = num(el, 'WallThickness', 2) / LEN;
         n['shape'] = NOSE_SHAPES[String(Math.round(num(el, 'ShapeCode', 0)))] ?? 'conical';
+        // Desktop reads it for transitions too (TransitionHandler.java:102-107,
+        // the exact mirror of NoseConeHandler.java:96-107); this branch never did.
+        readShapeParameter(el, n);
         if (Math.round(num(el, 'ConstructionType', 1)) === 0) n['filled'] = true;
         const fsl = num(el, 'FrontShoulderLen', 0);
         if (fsl > 0) {
@@ -430,7 +496,16 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
         const n = mk(type);
         n['length'] = num(el, 'Len', 2) / LEN;
         const od = num(el, 'OD', 0);
-        if (od > 0 && (type === 'centeringring' || type === 'tubecoupler')) {
+        // Every ring kind takes the OD the FILE states, not the kernel's automatic
+        // radius. Desktop's RingHandler sets OD on all four (bulkhead, engine block,
+        // coupler, centering ring); we set it on two, so an engine block reached the
+        // kernel automatic and sized itself to the parent's bore. Measured on
+        // TubeFins2.rkt: the file says OD 17.78 mm (r 8.890) while the automatic
+        // radius from its parent inner tube (OR 9.3472 / wall 0.3302) is 9.017 mm —
+        // 1.4 % in radius, ~1.6 % in mass, and unbounded if the block is hung on a
+        // body tube instead of a mount. Harmless until the walls became real (the
+        // post-attach ordering fix); now it is the size.
+        if (od > 0) {
           n['outerRadius'] = od / RAD;
         }
         const id = num(el, 'ID', 0);
@@ -531,7 +606,13 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
         n['finCount'] = Math.round(num(el, 'TubeCount', 6));
         n['length'] = num(el, 'Len', 100) / LEN;
         n['outerRadius'] = num(el, 'OD', 24) / RAD;
-        n['thickness'] = tubeThickness(el);
+        // Desktop sets the wall ONLY when <ID> is actually present
+        // (TubeFinSetHandler.java:89-92); with no ID it leaves the kernel's
+        // BodyTube.addChild inherit standing. We used to write OD/2 — a SOLID tube —
+        // which was harmless only while the bridge threw the value away. Now that the
+        // wall really reaches the kernel, an absent <ID> would fly a solid rod.
+        // <ID>0</ID> IS meaningful and stays: RockSim writes a solid tube that way.
+        if (text(el, ':scope > ID') !== null) n['thickness'] = tubeThickness(el);
         const tubeRot = num(el, 'RadialAngle', 0);
         if (tubeRot !== 0) n['rotation'] = tubeRot;
         return n;
@@ -569,12 +650,43 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
           readRecoveryMaterial(el, n, 'line');
         } else {
           n['mass'] = num(el, 'KnownMass', 0) / MASS;
-          n['length'] = num(el, 'Len', 20) / LEN;
+          // RockSim's <Len> on a mass object is NOT geometry. RockSim treats a
+          // mass object as a POINT at <Xb> and does not show a length in its own
+          // UI — desktop says so at MassObjectHandler.java:29-39 — and all 28
+          // TypeCode-0 objects across our 14-file corpus write <KnownCG> == <Xb>,
+          // i.e. the point, whatever <Len> says. Taken at face value it breaks two
+          // things: our kernel puts a MassObject's CG at length/2
+          // (MassObject.java:230-231), and a Len can exceed the whole rocket
+          // (Mach 3.rkt states 7620 mm inside a 1652 mm rocket), which then drives
+          // the Length stat tile and the pitch inertia ((3r^2+L^2)/12).
+          // Keep the raw value for export fidelity; simulate a body that fits
+          // inside its parent; pin the CG on the point.
+          const rawLen = num(el, 'Len', 20) / LEN;
+          n['rocksimLen'] = rawLen;
+          const parentLen = typeof parent?.['length'] === 'number' ? (parent['length'] as number) : 0;
+          n['length'] = parentLen > 0 ? Math.min(rawLen, parentLen) : rawLen;
         }
-        delete n['overrideMass'];
-        delete n['overrideCGX'];
-        // Its KnownMass became the component's real mass either way, so no
+        // Its KnownMass became the component's real mass either way, so no MASS
         // override survived here and nothing diverged from desktop.
+        delete n['overrideMass'];
+        if (isCord) {
+          // Shock cords keep today's behaviour: the kernel's 0.025 m default packed
+          // length puts their CG at most 12.5 mm off, and changing it drags in the
+          // cord-mass question (format audit row 19) that is not this fix.
+          delete n['overrideCGX'];
+        } else {
+          // overrideCGX is measured from the component's FORE end
+          // (MassCalculation.java:444-445). LocationMode 0/1 map to TOP/ABSOLUTE,
+          // whose fore end sits on the point, so the pin is 0 — which is exactly
+          // what desktop does (MassObjectHandler.java:107). LocationMode 2 maps to
+          // BOTTOM, which anchors the AFT end on the point, so the pin is the
+          // component's own length. Desktop pins 0 there too and lands a full
+          // length forward of the file's own <Station>; we deliberately do not
+          // copy that. Measured on Mach 3.rkt, this reproduces all four of its
+          // <Station> values (225.425 / 422.275 / 665.48 / 814.705 mm) to 0.01 mm.
+          n['overrideCGX'] = n.position?.method === 'bottom' ? (n['length'] as number) : 0;
+          pinnedMassObjects += 1;
+        }
         keptWithoutCGFlag.delete(n);
         return n;
       }
@@ -787,6 +899,74 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
   readDeploymentEvents(doc, serialToNode, notes);
   applyPresetLinks(pendingLinks, opts?.presets, notes);
 
+  // A nose cone's <BaseExtensionLen> becomes a real body tube directly behind it.
+  // Runs AFTER applyPresetLinks so a catalogue row has already filled the cone's
+  // density and material, which the extension inherits.
+  let extCount = 0;
+  /** Insert the parked extension after every nose cone in ONE chain. Deliberately not recursive. */
+  const insertBaseExtensions = (chain: ComponentNode[] | undefined) => {
+    if (!chain) return;
+    for (let i = 0; i < chain.length; i++) {
+      const n = chain[i]!;
+      if (n.type !== 'nosecone') continue;
+      const len = typeof n[PENDING_BASE_EXT] === 'number' ? (n[PENDING_BASE_EXT] as number) : 0;
+      // Deleted on read, so a node reached twice by the pod walk is harmless.
+      delete n[PENDING_BASE_EXT];
+      if (!(len > 1e-6)) continue;
+      const or = typeof n['aftRadius'] === 'number' ? (n['aftRadius'] as number) : 0;
+      const tube = {
+        type: 'bodytube',
+        id: freshId(),
+        name: `${n.name ?? 'Nose cone'} base extension`,
+        length: len,
+        outerRadius: or, // BaseDia/2 — the extension has no diameter of its own
+        // A SOLID cone (ConstructionType 0 → filled) has a SOLID extension. The app
+        // has no `filled` for a body tube: ComponentFactory builds
+        // `new BodyTube(len, radius, thickness)` and never calls setFilled (it does
+        // so only for the nose and transition cases). Express solid as
+        // thickness = outerRadius, which carved BodyTube.java:248-252 turns into
+        // innerRadius 0. Copying the cone's WallThickness instead gives a ZERO-MASS
+        // tube: 8 of the 9 solid corpus cones state WallThickness 0, and
+        // PELTZER-Warp-7.rkt then reads 32.97 g against RockSim's own CalcMass of
+        // 38.63 g, where the solid form gives 38.631 g.
+        thickness: n['filled'] === true ? or : (typeof n['thickness'] === 'number' ? n['thickness'] : 0),
+        position: { method: 'top', offset: 0 },
+        // Durable marker so the .rkt exporter can fold it back into
+        // <BaseExtensionLen>. NOT shape-matched the way the RASAero importer
+        // recognises its synthesised parts: "a body tube right behind the nose cone
+        // at the cone's base diameter" is the commonest real airframe there is, and
+        // folding a user's payload bay into this element would orphan its children.
+        // The marker is not a schema field, so a .ork round trip drops it and a later
+        // .rkt export writes an honest <BodyTube> — same geometry, different
+        // decomposition. Do not "fix" that.
+        rktBaseExtension: true,
+      } as unknown as ComponentNode;
+      if (typeof n['density'] === 'number') (tube as Record<string, unknown>)['density'] = n['density'];
+      if (n['materialName']) (tube as Record<string, unknown>)['materialName'] = n['materialName'];
+      if (n['finish']) (tube as Record<string, unknown>)['finish'] = n['finish'];
+      // RockSim's <KnownMass> is the mass of the WHOLE part, extension included, so a
+      // pinned cone must not gain mass here. ComponentFactory gates the override on
+      // NaN rather than truthiness, so a literal 0 is a real override.
+      if (typeof n['overrideMass'] === 'number') (tube as Record<string, unknown>)['overrideMass'] = 0;
+      chain.splice(i + 1, 0, tube);
+      i++; extCount++;
+    }
+  };
+  /**
+   * Every CHAIN in the tree: each stage's, and each pod / parallel stage's AT ANY
+   * DEPTH. A RockSim <ExternalPod> normally sits in a <BodyTube>'s <AttachedParts>,
+   * so its chain hangs off a body tube, not off the stage. Deliberately NOT
+   * descending into a plain AttachedParts chain: an external cylinder has no meaning
+   * as an internal sibling.
+   */
+  const insertInPods = (nodes: ComponentNode[] | undefined) => {
+    for (const n of nodes ?? []) {
+      if (n.type === 'podset' || n.type === 'parallelstage') insertBaseExtensions(n.children);
+      insertInPods(n.children);
+    }
+  };
+  for (const stage of components) { insertBaseExtensions(stage.children); insertInPods(stage.children); }
+
   if (ignored.size) {
     notes.push(`Ignored unsupported RockSim components: ${[...ignored].join(', ')}.`);
   }
@@ -795,6 +975,21 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
     notes.push(`${n} part${n === 1 ? ' states' : 's state'} a measured mass or balance point that the `
       + `file's “known CG” flag says to ignore — applied ${n === 1 ? 'it' : 'them'}. Desktop `
       + 'OpenRocket discards a measured mass unless the CG is measured too.');
+  }
+  if (extCount) {
+    notes.push(`${extCount} nose cone${extCount === 1 ? ' has' : 's have'} a cylindrical base `
+      + "extension (RockSim's BaseExtensionLen) — added as a body tube of the same diameter "
+      + 'directly behind the cone, so the rocket is its true length and everything aft of the cone '
+      + "sits where the file's own station numbers put it. Desktop OpenRocket drops this and "
+      + 'imports the rocket short. Where the cone states a measured mass, that mass already covers '
+      + 'the extension, so the added tube carries none of its own.');
+  }
+  if (pinnedMassObjects) {
+    const n = pinnedMassObjects;
+    notes.push(`${n} mass object${n === 1 ? '' : 's'} placed at the exact point the file states. `
+      + 'RockSim stores a length for a mass object but treats it as a point, so '
+      + `${n === 1 ? 'its balance point is' : 'their balance points are'} pinned there and shown `
+      + 'as a CG override.');
   }
 
   // Motors: the desktop DROPS these; we read EngineCode + MountSerialNo so
@@ -1021,7 +1216,66 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
   // Parent of the part currently being emitted (set at emitPart dispatch).
   let curParent: ComponentNode | null = null;
 
-  const common = (node: ComponentNode, dfltName: string, opts?: { knownMass?: number; useKnownCG?: boolean }) => {
+  // Fold a synthesised base extension back into its cone's <BaseExtensionLen>.
+  // Without this it goes out as a plain <BodyTube> and its `overrideMass: 0` is lost
+  // on re-import — common() writes <KnownMass>0</KnownMass> and the import gate is
+  // `km > 0 && flagMass`, so a legitimate zero is rejected and the mass recomputed.
+  // Measured export→re-import without the fold: 4in WM Extreme 5308.2 → 5324.9 g;
+  // 6in Goblin 9219.0 → 9719.4 (+5.4 %); rocksimTestRocket1 264.3 → 290.4 (+9.9 %).
+  const baseExtOf = new Map<string, number>();
+  const folded = new Set<ComponentNode>();
+  const foldChain = (chain: ComponentNode[] | undefined) => {
+    for (let i = 0; chain && i < chain.length; i++) {
+      const a = chain[i]!;
+      const b = chain[i + 1];
+      if (a.type !== 'nosecone' || !a.id) continue; // no id = no map key; leave the tube alone
+      if (!b || b.type !== 'bodytube' || b['rktBaseExtension'] !== true) continue;
+      // Fold only a tube the user has not turned into something else — the element
+      // carries a LENGTH and nothing more, so any other edit would die in the fold.
+      const or = nnum(a, 'aftRadius', -1);
+      if (Math.abs(nnum(b, 'outerRadius', -2) - or) > 1e-9) continue;
+      const wantThickness = a['filled'] === true ? or : nnum(a, 'thickness', -2);
+      if (Math.abs(nnum(b, 'thickness', -3) - wantThickness) > 1e-9) continue;
+      if ((b.children ?? []).length) continue;
+      if (typeof b['overrideMass'] === 'number' && b['overrideMass'] !== 0) continue;
+      if (typeof b['overrideCGX'] === 'number' || typeof b['overrideCD'] === 'number') continue;
+      baseExtOf.set(a.id, nnum(b, 'length', 0));
+      folded.add(b);
+    }
+  };
+  const foldInPods = (nodes: ComponentNode[] | undefined) => {
+    for (const n of nodes ?? []) {
+      if (n.type === 'podset' || n.type === 'parallelstage') foldChain(n.children);
+      foldInPods(n.children);
+    }
+  };
+  for (const s of stagesIn) { foldChain(s.children); foldInPods(s.children); }
+
+  /**
+   * RockSim `<LocationMode>` + `<Xb>` for a node. Extracted so the KnownCG line
+   * above it can reach Xb: a MassObject's `<KnownCG>` IS its `<Xb>` (desktop
+   * MassObjectDTO.java:38-39 overrides BasePartDTO to write exactly that, and all
+   * 28 TypeCode-0 objects in our corpus agree). Uses curParent for 'middle'.
+   */
+  const rocksimXb = (node: ComponentNode): { mode: number; xb: number } => {
+    const pos = (node.position ?? { method: 'top', offset: 0 }) as ComponentPosition;
+    const mode = pos.method === 'absolute' ? 1 : pos.method === 'bottom' ? 2 : 0;
+    let xb = pos.method === 'bottom' ? -pos.offset : pos.offset;
+    // RockSim has no "middle" mode — convert to front-referenced, mirroring
+    // the desktop's BasePartDTO: xb = offset + (parentLen - componentLen)/2.
+    if (pos.method === 'middle' && curParent) {
+      const compLen = nnum(node, 'length', nnum(node, 'rootChord', 0));
+      xb = pos.offset + (nnum(curParent, 'length', 0) - compLen) / 2;
+    }
+    return { mode, xb };
+  };
+
+  const common = (
+    node: ComponentNode,
+    dfltName: string,
+    opts?: { knownMass?: number; useKnownCG?: boolean; knownCGIsXb?: boolean },
+  ) => {
+    const { mode, xb } = rocksimXb(node);
     serial += 1;
     // First write wins: cluster copies re-emit the same node — motor
     // references must point at the FIRST copy (the one carrying children).
@@ -1078,23 +1332,40 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
     // is wrong over there. Precision in our dialect is not worth a real user
     // losing a weight when they open the file somewhere else.
     const useKnown = opts?.useKnownCG ?? override;
-    const knownCG = hasCgOv ? (node['overrideCGX'] as number) * LEN
-      : useKnown ? (info?.cgX ?? 0) * LEN : 0;
+    // A MassObject's KnownCG is its Xb, always. Desktop MassObjectDTO.java:38-39
+    // overrides BasePartDTO with `setKnownCG(getXb()); setUseKnownCG(1)` for EVERY
+    // MassObject, and RockSim's own files do the same (28 of 28 in the corpus).
+    // Without this an app-authored mass component exported
+    // `<KnownCG>0</KnownCG><UseKnownCG>1</UseKnownCG>` — telling RockSim its CG sits
+    // at the component's own front — because App.tsx only fills compInfo for nodes
+    // carrying exactly ONE of the two overrides, so `info?.cgX ?? 0` yielded 0.
+    const knownCG = opts?.knownCGIsXb ? xb * LEN
+      : hasCgOv ? (node['overrideCGX'] as number) * LEN
+        : useKnown ? (info?.cgX ?? 0) * LEN : 0;
     emit(`<KnownCG>${knownCG}</KnownCG>`);
     emit(`<UseKnownCG>${useKnown ? 1 : 0}</UseKnownCG>`);
     emit(`<FinishCode>${FINISH_TO_CODE(node['finish'])}</FinishCode>`);
     emit(`<SerialNo>${serial}</SerialNo>`);
-    const pos = (node.position ?? { method: 'top', offset: 0 }) as ComponentPosition;
-    const mode = pos.method === 'absolute' ? 1 : pos.method === 'bottom' ? 2 : 0;
-    let xb = pos.method === 'bottom' ? -pos.offset : pos.offset;
-    // RockSim has no "middle" mode — convert to front-referenced, mirroring
-    // the desktop's BasePartDTO: xb = offset + (parentLen - componentLen)/2.
-    if (pos.method === 'middle' && curParent) {
-      const compLen = nnum(node, 'length', nnum(node, 'rootChord', 0));
-      xb = pos.offset + (nnum(curParent, 'length', 0) - compLen) / 2;
-    }
     emit(`<LocationMode>${mode}</LocationMode>`);
     emit(`<Xb>${xb * LEN}</Xb>`);
+    // RockSim's computed mass/CG. Desktop writes both (BasePartDTO.java:84-85) and
+    // — the load-bearing part — its IMPORTER pins any AIRFOIL fin set with
+    // UseKnownCG=0 to them (FinSetHandler.java:299-309) from a field that defaults
+    // to 0.0d. A .rkt from this app that omits <CalcMass> therefore opens in desktop
+    // OpenRocket with EVERY airfoil fin set weighing zero grams: measured on the
+    // committed fixture auto-radius-15.03.ork, an 829 g fin set — 10.7 % of that
+    // rocket's dry mass — disappears and its stability is over-reported by 0.91 cal.
+    // RockSim itself recomputes these and is unaffected. Desktop also uses <CalcMass>
+    // as the zero-density fallback for a recovery device
+    // (RecoveryDeviceHandler.java:79-101), which this can only improve.
+    // `info.mass` is override-aware where desktop's getComponentMass() is not; that
+    // makes desktop reproduce the number this app shows, and it is immaterial for fin
+    // sets — an overridden set exports UseKnownCG=1, where desktop's airfoil branch
+    // never runs. Real RockSim files put these right here, after <Xb>.
+    if (info) {
+      emit(`<CalcMass>${info.mass * MASS}</CalcMass>`);
+      emit(`<CalcCG>${info.cgX * LEN}</CalcCG>`);
+    }
   };
 
   const attached = (node: ComponentNode) => {
@@ -1134,12 +1405,15 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
         emit(`<BaseDia>${nnum(node, 'aftRadius', 0.012) * RAD}</BaseDia>`);
         emit(`<WallThickness>${nnum(node, 'thickness', 0.002) * LEN}</WallThickness>`);
         emit(`<ShapeCode>${NOSE_SHAPE_TO_CODE[String(node['shape'] ?? 'ogive')] ?? 1}</ShapeCode>`);
-        // Fallback mirrors the kernel default — writing 0 for a power-law nose
-        // degenerates it to a blunt cylinder on re-import (Haack war story).
-        emit(`<ShapeParameter>${nnum(node, 'shapeParameter', shapeParamDefault(String(node['shape'] ?? 'ogive')))}</ShapeParameter>`);
+        emit(`<ShapeParameter>${rktShapeParameter(String(node['shape'] ?? 'ogive'), node['shapeParameter'])}</ShapeParameter>`);
         emit(`<ConstructionType>${node['filled'] === true ? 0 : 1}</ConstructionType>`);
         emit(`<ShoulderLen>${nnum(node, 'shoulderLength', 0) * LEN}</ShoulderLen>`);
         emit(`<ShoulderOD>${nnum(node, 'shoulderRadius', 0) * RAD}</ShoulderOD>`);
+        // Emitted unconditionally (0 for a normal cone) — that is what RockSim
+        // writes, and desktop parses it fine: its own test fixture
+        // rocksimTestRocket1.rkt carries <BaseExtensionLen>66.675</BaseExtensionLen>.
+        // Placed where RockSim's own files put it, after <ShoulderOD>.
+        emit(`<BaseExtensionLen>${(baseExtOf.get(node.id ?? '') ?? 0) * LEN}</BaseExtensionLen>`);
         attached(node);
         emit('</NoseCone>');
         break;
@@ -1152,6 +1426,12 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
         emit(`<RearDia>${nnum(node, 'aftRadius', 0.009) * RAD}</RearDia>`);
         emit(`<WallThickness>${nnum(node, 'thickness', 0.002) * LEN}</WallThickness>`);
         emit(`<ShapeCode>${NOSE_SHAPE_TO_CODE[String(node['shape'] ?? 'conical')] ?? 0}</ShapeCode>`);
+        // MUST follow <ShapeCode>: desktop's reader is SAX and its ShapeParameter
+        // branch tests the shape type set when <ShapeCode> closed
+        // (TransitionHandler.java:102-107). Emitted before it, desktop OpenRocket
+        // silently drops the value. Our own reader is DOM-based and order-free,
+        // so only the ordering test catches a mistake here.
+        emit(`<ShapeParameter>${rktShapeParameter(String(node['shape'] ?? 'conical'), node['shapeParameter'])}</ShapeParameter>`);
         emit(`<ConstructionType>${node['filled'] === true ? 0 : 1}</ConstructionType>`);
         emit(`<FrontShoulderLen>${nnum(node, 'foreShoulderLength', 0) * LEN}</FrontShoulderLen>`);
         emit(`<FrontShoulderDia>${nnum(node, 'foreShoulderRadius', 0) * RAD}</FrontShoulderDia>`);
@@ -1270,7 +1550,8 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
           emit(`<RadialLoc>${centerR * LEN}</RadialLoc>`);
           emit(`<RadialAngle>${angle0 + (2 * Math.PI * i) / count}</RadialAngle>`);
           emit('<AttachedParts>');
-          for (const kid of node.children ?? []) emitPart(kid, node);
+          // `folded` tubes went out inside their cone's <BaseExtensionLen>.
+          for (const kid of node.children ?? []) { if (folded.has(kid)) continue; emitPart(kid, node); }
           emit('</AttachedParts>');
           emit('</ExternalPod>');
         }
@@ -1333,7 +1614,7 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
         // MASS so CG survives the export (aero effect is lost, documented).
         emit('<MassObject>');
         common(node, `${node.name ?? 'Camera shroud'} (mass only)`, {
-          knownMass: nnum(node, 'mass', 0.03) * MASS, useKnownCG: true,
+          knownMass: nnum(node, 'mass', 0.03) * MASS, useKnownCG: true, knownCGIsXb: true,
         });
         emit('<TypeCode>0</TypeCode>');
         emit(`<Len>${nnum(node, 'length', 0.08) * LEN}</Len>`);
@@ -1350,9 +1631,11 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
         const massKg = typeof node['overrideMass'] === 'number'
           ? (node['overrideMass'] as number)
           : nnum(node, 'mass', 0);
-        common(node, 'Mass', { knownMass: massKg * MASS, useKnownCG: true });
+        common(node, 'Mass', { knownMass: massKg * MASS, useKnownCG: true, knownCGIsXb: true });
         emit('<TypeCode>0</TypeCode>');
-        emit(`<Len>${nnum(node, 'length', 0.02) * LEN}</Len>`);
+        // The file's OWN <Len> where we clamped one on import, so a .rkt round trip
+        // returns the value RockSim wrote rather than the body we simulate.
+        emit(`<Len>${nnum(node, 'rocksimLen', nnum(node, 'length', 0.02)) * LEN}</Len>`);
         emit('</MassObject>');
         break;
       }
@@ -1373,7 +1656,8 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
   for (let i = 0; i < 3; i++) {
     emit(`<${slots[i]}>`);
     if (i < stagesIn.length) {
-      for (const node of stagesIn[i]!.children ?? []) emitPart(node, null);
+      // `folded` tubes went out inside their cone's <BaseExtensionLen>.
+      for (const node of stagesIn[i]!.children ?? []) { if (folded.has(node)) continue; emitPart(node, null); }
     }
     emit(`</${slots[i]}>`);
   }

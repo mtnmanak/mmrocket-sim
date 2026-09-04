@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, MotorSpec, RocketTree } from '@online-openrocket/engine';
-import { buildSimRun } from './simReport.js';
+import type { FlightSeries } from '@online-openrocket/engine';
+import { buildSimRun, rodExitFromSeries } from './simReport.js';
 import { runsToCsv } from './simStore.js';
 import { formatWarning } from './simWarnings.js';
 import { DEFAULT_CONDITIONS } from '../components/LaunchPanel.js';
@@ -124,5 +125,116 @@ describe('kernel warnings + drift, end-to-end', () => {
     expect(w!.message.length).toBeGreaterThan(60);
     // …and out to the run-table CSV, like every other simulation warning.
     expect(runsToCsv([run])).toContain('SIM_ABORT');
+  }, 30000);
+});
+
+/**
+ * C4 — the launch-rod exit velocity is read at the instant the rocket leaves the
+ * guide, not at the end of the step that carried it past.
+ *
+ * The kernel raises LAUNCHROD at the END of whichever step first crossed the rod tip
+ * (BasicEventSimulationEngine.java:246-250) and FlightData interpolates at that time,
+ * which is itself a stored sample — so the "interpolation" returned the end-of-step
+ * value verbatim. The rocket is under 15-25 g there, so the figure was ALWAYS high.
+ * Desktop OpenRocket 24.12 has the identical artifact; this is a deliberate
+ * improvement on it, not a parity repair.
+ */
+describe('launch-rod exit is read at the crossing, not at the end of the step', () => {
+  it('interpolates across the straddling step, in distance from the pad', () => {
+    // Pad distance is hypot(Pl, altitude). Crossing 1.0 m exactly half way between
+    // the 0.8 m and 1.2 m samples must give the mid velocity and the mid time.
+    const series = {
+      time: [0, 0.1, 0.2],
+      altitude: [0, 0.8, 1.2],
+      velocity: [0, 10, 14],
+      Pl: [0, 0, 0],
+    } as unknown as FlightSeries;
+    const got = rodExitFromSeries(series, 1.0, 0.1)!;
+    expect(got.velocity).toBeCloseTo(12, 9);
+    expect(got.time).toBeCloseTo(0.15, 9);
+  });
+
+  it('measures along a TILTED rod, not up the vertical', () => {
+    // Same altitudes, but the rocket is also moving downrange: the pad distance is
+    // larger, so the rod is cleared EARLIER and the velocity is lower.
+    const series = {
+      time: [0, 0.1, 0.2],
+      altitude: [0, 0.8, 1.2],
+      velocity: [0, 10, 14],
+      Pl: [0, 0.6, 0.9],
+    } as unknown as FlightSeries;
+    const got = rodExitFromSeries(series, 1.0, 0.1)!;
+    // hypot(0.6, 0.8) = 1.0 exactly — the rod is cleared AT the first sample.
+    expect(got.velocity).toBeCloseTo(10, 9);
+    expect(got.time).toBeCloseTo(0.1, 9);
+  });
+
+  it('fails closed on a series whose samples are not one integration step apart', () => {
+    // A hand-built fixture rather than a flown series. Returning null keeps the
+    // kernel's own number instead of inventing one from two far-apart points.
+    const series = {
+      time: [0, 1.0], altitude: [0, 5], velocity: [0, 40], Pl: [0, 0],
+    } as unknown as FlightSeries;
+    expect(rodExitFromSeries(series, 1.0, 0.05)).toBeNull();
+  });
+
+  it('returns null for a rocket that never clears the rod, and for a nonsense rod', () => {
+    const series = {
+      time: [0, 0.1], altitude: [0, 0.2], velocity: [0, 3], Pl: [0, 0],
+    } as unknown as FlightSeries;
+    expect(rodExitFromSeries(series, 1.0, 0.1)).toBeNull();
+    expect(rodExitFromSeries(series, 0, 0.1)).toBeNull();
+    expect(rodExitFromSeries(series, NaN, 0.1)).toBeNull();
+  });
+
+  it('is LOWER than the kernel summary and matches a fine-step flight, end to end', async () => {
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    resetEngine();
+    const rocket = OrkRocket.buildTree(tree(true));
+    rocket.setMotorById('mount', C6);
+    const coarse = rocket.simulate({ launchRodLength: 1.0, timeStep: 0.05 });
+
+    const run = buildSimRun({
+      result: coarse, info: rocket.staticInfo(), motor: C6, meta: { label: 'C6-5' },
+      launch: { ...DEFAULT_CONDITIONS, launchRodLengthM: 1.0, timeStepS: 0.05 },
+      rocketName: 'Rod', execMs: 1,
+    });
+
+    // The kernel's own number is the end-of-step one and reads high.
+    const raw = coarse.summary.launchRodVelocity!;
+    expect(run.rodExitVelocity!).toBeLessThan(raw);
+    // Measured on this design: +3.97 % before the fix.
+    expect((raw - run.rodExitVelocity!) / run.rodExitVelocity!).toBeGreaterThan(0.02);
+
+    // And it agrees with what a far finer step converges to. The RAW value at a fine
+    // step is still biased (dt[0] floors at MIN_TIME_STEP before the on-rod /5), so
+    // the reference is the fine-step run put through the same interpolation.
+    resetEngine();
+    const fine = OrkRocket.buildTree(tree(true));
+    fine.setMotorById('mount', C6);
+    const fineRun = buildSimRun({
+      result: fine.simulate({ launchRodLength: 1.0, timeStep: 0.0005 }),
+      info: fine.staticInfo(), motor: C6, meta: { label: 'C6-5' },
+      launch: { ...DEFAULT_CONDITIONS, launchRodLengthM: 1.0, timeStepS: 0.0005 },
+      rocketName: 'Rod', execMs: 1,
+    });
+    expect(run.rodExitVelocity!).toBeCloseTo(fineRun.rodExitVelocity!, 1);
+  }, 60000);
+
+  it('reports the departure time from the same instant as the velocity', async () => {
+    // Three rod numbers from two different instants is how the panel came to
+    // contradict its own arithmetic. The departure time must move with the velocity.
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    resetEngine();
+    const rocket = OrkRocket.buildTree(tree(true));
+    rocket.setMotorById('mount', C6);
+    const result = rocket.simulate({ launchRodLength: 1.0, timeStep: 0.05 });
+    const run = buildSimRun({
+      result, info: rocket.staticInfo(), motor: C6, meta: { label: 'C6-5' },
+      launch: { ...DEFAULT_CONDITIONS, launchRodLengthM: 1.0, timeStepS: 0.05 },
+      rocketName: 'Rod', execMs: 1,
+    });
+    const eventT = result.events!.find((e) => e.type === 'LAUNCHROD')!.time;
+    expect(run.timeToRodDeparture!).toBeLessThan(eventT);
   }, 30000);
 });

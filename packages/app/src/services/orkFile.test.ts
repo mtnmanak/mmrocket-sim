@@ -453,6 +453,39 @@ describe('.ork audit regressions (2026-08-04)', () => {
     expect(tf['thickness']).toBeCloseTo(0.001, 9);
   });
 
+  it('and that thickness is what the kernel flies, not the airframe wall', async () => {
+    // The round trip above pinned the FILE. It proved nothing about physics:
+    // the bridge never called TubeFinSet.setThickness at all, so the wall stayed
+    // NaN and BodyTube.addChild inherited the body tube's 0.5 mm instead — a
+    // number the author never typed into this component. Measured on the
+    // shipped kernel before the fix: 0.0078508 kg against the 0.0153812 kg the
+    // 1 mm wall in the file implies. This is the assertion that fails if a wall
+    // survives the file and dies in the bridge.
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    const { engineTree } = await import('../tree/treeModel.js');
+    resetEngine();
+    const tree = {
+      name: 'Tubefins',
+      components: [{
+        type: 'stage' as const, name: 'Sustainer',
+        children: [{
+          type: 'bodytube' as const, length: 0.3, outerRadius: 0.012, thickness: 0.0005,
+          density: 950,
+          children: [{
+            type: 'tubefinset' as const, finCount: 3, length: 0.1,
+            outerRadius: 0.0125, thickness: 0.001, density: 680,
+            position: { method: 'bottom' as const, offset: 0 },
+          }],
+        }],
+      }],
+    };
+    const back = importOrk(exportOrk({ name: 'Tubefins', tree })).tree;
+    const tf = flatten(back.components).find((c) => c.type === 'tubefinset')!;
+    const r = OrkRocket.buildTree(engineTree(back));
+    // pi*(0.0125^2 - 0.0115^2)*0.1*3*680 — the file's own geometry.
+    expect(r.componentInfo(tf.id!).mass).toBeCloseTo(0.015381237631976, 12);
+  });
+
   it('round-trips override-for-all-subcomponents flags (per-quantity and legacy)', () => {
     const tree = {
       name: 'Override',
@@ -1601,6 +1634,59 @@ describe('.ork ring and coupler radii', () => {
     });
     expect(out).toContain('<outerradius>auto</outerradius>');
     expect(out).toContain('<innerradius>auto</innerradius>');
+  });
+
+  /**
+   * The other half of the same story, and the one the audit row records: the
+   * `<thickness>` has always survived the file, and it still bought nothing.
+   * A ring whose `<outerradius>` is `auto` reached the kernel with no
+   * radius, so ComponentFactory's PRE-attach setThickness clamped the wall to
+   * clamp(t, 0, 0) = 0 and the part built at exactly 0 g — measured 12 of 44
+   * couplers and engine blocks across the local .ork corpus, including
+   * LEM-M2B.ork (653.4 g dry against 680.8 g). The walls are now applied AFTER
+   * parent.addChild, so the automatic radius resolves first.
+   *
+   * Every expectation here is the ring formula against the fixture's own bore:
+   * a 50.8 mm / 1.27 mm body tube, so 49.53 mm inside.
+   */
+  it('gives an `auto`-radius coupler and engine block their stated wall', async () => {
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    const { engineTree } = await import('../tree/treeModel.js');
+    resetEngine();
+    const xml = withRings(`
+      <tubecoupler><name>TC</name><length>0.2</length><thickness>0.00089</thickness>
+        <material type="bulk" density="680.0">Test</material>
+        <outerradius>auto</outerradius></tubecoupler>
+      <engineblock><name>EB</name><length>0.005</length><thickness>0.001</thickness>
+        <material type="bulk" density="680.0">Test</material>
+        <outerradius>auto</outerradius></engineblock>`);
+    const tree = importOrk(xml).tree;
+    const id = (type: string) => flatten(tree.components).find((c) => c.type === type)!.id!;
+    const r = OrkRocket.buildTree(engineTree(tree));
+    // pi*(0.04953^2 - 0.04864^2)*0.2*680 — a 4-inch coupler is 37.3 g, not 0.
+    expect(r.componentInfo(id('tubecoupler')).mass).toBeCloseTo(0.037329964653184, 12);
+    // pi*(0.04953^2 - 0.04853^2)*0.005*680.
+    expect(r.componentInfo(id('engineblock')).mass).toBeCloseTo(0.001047419557077, 12);
+  });
+
+  it('gives an `auto`-radius centering ring its area', async () => {
+    // The mirror fault, on the other setter: RadiusRingComponent.setInnerRadius
+    // froze the automatic OUTER radius at the inner radius while the ring was
+    // still parentless, so an explicit `<innerradius>` under an `auto`
+    // `<outerradius>` produced a ring of no area at all.
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    const { engineTree } = await import('../tree/treeModel.js');
+    resetEngine();
+    const xml = withRings(`
+      <centeringring><name>CR</name><length>0.0127</length>
+        <material type="bulk" density="680.0">Test</material>
+        <outerradius>auto</outerradius><innerradius>0.0397</innerradius></centeringring>`);
+    const tree = importOrk(xml).tree;
+    const cr = flatten(tree.components).find((c) => c.type === 'centeringring')!;
+    expect(cr['outerRadius']).toBeUndefined(); // still automatic, as the file says
+    const r = OrkRocket.buildTree(engineTree(tree));
+    // pi*(0.04953^2 - 0.0397^2)*0.0127*680.
+    expect(r.componentInfo(cr.id!).mass).toBeCloseTo(0.023797257896119, 12);
   });
 });
 

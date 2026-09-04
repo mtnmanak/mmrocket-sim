@@ -675,22 +675,28 @@ export function conditionsKeyOf(launch: LaunchConditions): string {
   return keys.map((k) => `${k}=${String(l[k] ?? '')}`).join('|');
 }
 
-/** Linear interpolation of a series value at time t. */
-function at(times: number[], values: number[], t: number): number | null {
+/**
+ * Linear interpolation of a series value at time t.
+ *
+ * Takes a NULLABLE series: the symbol-keyed ones the kernel emits are typed
+ * `(number | null)[] | undefined`, and `noUncheckedIndexedAccess` is on, so the
+ * non-null assertions this used to carry made the null handling decorative.
+ */
+function at(times: number[], values: readonly (number | null)[], t: number): number | null {
   if (times.length === 0 || values.length !== times.length) return null;
-  if (t <= times[0]!) return values[0]!;
+  if (t <= times[0]!) return values[0] ?? null;
   for (let i = 1; i < times.length; i++) {
     if (times[i]! >= t) {
       const t0 = times[i - 1]!;
       const t1 = times[i]!;
       const f = t1 === t0 ? 0 : (t - t0) / (t1 - t0);
-      const v0 = values[i - 1]!;
-      const v1 = values[i]!;
-      if (v0 === null || v1 === null) return null;
+      const v0 = values[i - 1];
+      const v1 = values[i];
+      if (v0 == null || v1 == null) return null;
       return v0 + f * (v1 - v0);
     }
   }
-  return values[values.length - 1]!;
+  return values[values.length - 1] ?? null;
 }
 
 function eventTime(result: FlightResult, type: string): number | null {
@@ -736,23 +742,41 @@ export function recommendDelay(optimum: number | null): number | null {
  * main failed it in wind**, and worst on the slowest, safest canopies, which is
  * exactly where a flyer trusts the verdict.
  *
- * Vz is computed inside the kernel (`SimulationStatus.java:640`) and thrown away
- * before export, so this differences the altitude series instead. Under canopy
- * the recovery stepper runs a fixed 0.5 s step and the descent is settled, so a
- * central difference over a short window is exact to the sampling; a longer
- * window would smear the opening transient into it.
+ * SINCE v0.102 the kernel EXPORTS its own Vz (`SimulationStatus.java:640`, symbol
+ * "Vz", positive up), so the exact number is read straight out. The altitude
+ * differencing below is kept as the fallback — for an engine artifact built
+ * before that, and for a hand-built `FlightResult` in a test — and it is why the
+ * whole account above still stands. Under canopy the recovery stepper runs a
+ * fixed 0.5 s step and the descent is settled, so a difference over a short
+ * window is exact to the sampling; a longer window would smear the opening
+ * transient into it. Measured gap between the two: 0.012 % on a settled descent,
+ * but tens of percent when the last device opens INSIDE the 1.5 s window (18 %
+ * measured with 1.45 s under the main), which is what reading Vz fixes.
  */
-const descentRateAt = (
-  time: number[], altitude: number[], t: number, windowS = 1.5,
+const verticalRateAt = (
+  series: FlightSeries, t: number, windowS = 1.5,
 ): number | null => {
+  const time = series.time;
   if (!time.length) return null;
-  const alt = (x: number) => at(time, altitude, x);
-  // Prefer a window that sits BEFORE t (the settled descent), clamped into range.
   const t1 = Math.min(t, time[time.length - 1]!);
+  const vz = series['Vz'];
+  if (vz && vz.length === time.length) {
+    const v = at(time, vz, t1);
+    // v === 0 is not a hovering rocket. When a recovery device is still queued at
+    // the ground hit, the kernel installs GroundStepper
+    // (BasicEventSimulationEngine.java:604-612) and stores one extra terminal
+    // sample with Vz = Vt = altitude = 0. Measured: [451] t=30.4337 Vz=-14.1099
+    // followed by [452] t=30.4347 Vz=0. Reading that sample would report a 0 m/s
+    // landing and PASS a rocket that arrived at 46 ft/s. Callers read at the
+    // GROUND_HIT instant, which lands on the impact sample; this is the second
+    // line of defence.
+    if (v !== null && Number.isFinite(v) && v !== 0) return Math.abs(v);
+  }
+  // FALLBACK — difference the altitude series, exactly as v0.100 did.
   const t0 = Math.max(time[0]!, t1 - windowS);
   if (!(t1 > t0)) return null;
-  const a1 = alt(t1);
-  const a0 = alt(t0);
+  const a1 = at(time, series.altitude, t1);
+  const a0 = at(time, series.altitude, t0);
   if (a0 === null || a1 === null || !Number.isFinite(a0) || !Number.isFinite(a1)) return null;
   const rate = (a0 - a1) / (t1 - t0); // positive while falling
   return Number.isFinite(rate) ? Math.abs(rate) : null;
@@ -762,7 +786,10 @@ const descentRateAt = (
 function extractDeployments(
   events: FlightEvent[],
   series: FlightSeries,
+  /** Speed over the ground AT IMPACT (m/s) — a velocity, not a time. */
   groundHit: number | null,
+  /** The GROUND_HIT event's TIME. See tSettled below for why it is not the last sample. */
+  tGroundHit: number | null,
   flown?: Record<string, FlownRecoveryDevice>,
 ): DeploymentReport[] {
   const deployEvents = events.filter((e) => e.type === 'RECOVERY_DEVICE_DEPLOYMENT');
@@ -770,13 +797,15 @@ function extractDeployments(
     const device = ev.source ?? `Recovery device ${i + 1}`;
     const isLanding = i === deployEvents.length - 1;
     const vDeploy = at(series.time, series.velocity, ev.time);
-    // The instant this device's descent is settled: just before the ground, or
-    // just before the next device opens.
+    // The instant this device's descent is settled: at the ground hit, or just
+    // before the next device opens. GROUND_HIT rather than the last SAMPLE: with a
+    // device still queued at impact the kernel stores one extra all-zero sample
+    // (see verticalRateAt), and reading that one reports a 0 m/s landing.
     const tSettled = isLanding
-      ? series.time[series.time.length - 1] ?? ev.time
+      ? (tGroundHit ?? series.time[series.time.length - 1] ?? ev.time)
       : Math.max(ev.time, deployEvents[i + 1]!.time - 0.2);
-    // VERTICAL — the rate the safety limits are written about. See descentRateAt.
-    const descentRate = descentRateAt(series.time, series.altitude, tSettled)
+    // VERTICAL — the rate the safety limits are written about. See verticalRateAt.
+    const descentRate = verticalRateAt(series, tSettled)
       // A branch too short to difference (an immediate ground hit) keeps the old
       // reading rather than reporting nothing.
       ?? (isLanding && groundHit !== null && Number.isFinite(groundHit) ? Math.abs(groundHit) : null);
@@ -925,6 +954,80 @@ export function extractLandingDrift(series: FlightSeries): {
 }
 
 /**
+ * The kernel's own floor on an integration step (AbstractSimulationStepper.java:25).
+ * RK4SimulationStepper.java:144 raises the user's step to this BEFORE halving it five
+ * ways on the rod (:153), so a flown series can carry an on-rod step WIDER than a very
+ * fine user step. The bracket guard below allows for that.
+ */
+const KERNEL_MIN_TIME_STEP_S = 0.001;
+
+/**
+ * The state at the instant the rocket actually leaves the launch guide.
+ *
+ * The kernel raises LAUNCHROD at the END of whichever step first carried the rocket
+ * past the rod length (BasicEventSimulationEngine.java:246-250), and FlightData
+ * interpolates velocity at that time — which is itself a stored sample, so the
+ * interpolation returns the end-of-step value verbatim (FlightData.java:235-239,
+ * SimulationStatus.java:621-632). The rocket is still under 15–25 g there, so the
+ * number is ALWAYS high: measured +1.6 % to +4.3 % on ordinary designs at the 0.05 s
+ * default, and +9.9 % on a 0.30 m guide, with the rocket 0.006–0.19 m past the rod tip
+ * by the time the event fires.
+ *
+ * A FINER TIME STEP CANNOT FIX IT. dt[0] is floored at MIN_TIME_STEP = 0.001 s before
+ * the on-rod /5 (RK4SimulationStepper.java:144, :153), so the on-rod step never drops
+ * below 0.0002 s and the raw figure still reads +0.01…+0.16 % high at dt 0.0005.
+ * Desktop OpenRocket 24.12 has the identical artifact — its RK4SimulationStepper and
+ * FlightData are byte-identical to ours — so this is a deliberate improvement ON
+ * desktop, not a parity repair.
+ *
+ * Interpolate across the step that straddled the rod instead. Distance from the pad is
+ * hypot(Pl, altitude): that IS the kernel's own |rocketPosition − origin|, because
+ * branch 0's origin is (0,0,0) and `altitude` is pad-relative
+ * (SimulationStatus.java:624 — site elevation goes to ALTITUDE_ABOVE_SEA at :625).
+ * Linear in distance is not merely adequate, it is the better of the two candidates:
+ * residual −0.033 %…+0.043 %, against −0.011 %…+0.121 % for the v²-linear form, which
+ * also errs OPTIMISTIC on short guides.
+ */
+export function rodExitFromSeries(
+  series: FlightSeries,
+  rodLengthM: number,
+  flownTimeStepS: number,
+): { velocity: number; time: number } | null {
+  if (!(rodLengthM > 0) || !Number.isFinite(rodLengthM)) return null;
+  const { time, altitude, velocity } = series;
+  const lateral = series['Pl'];
+  const fin = (v: number | null | undefined): number | null =>
+    v != null && Number.isFinite(v) ? v : null;
+  const distAt = (i: number): number | null => {
+    const h = fin(altitude[i]);
+    return h === null ? null : Math.hypot(fin(lateral?.[i]) ?? 0, h);
+  };
+  // The two samples must be ONE real integration step apart. On the rod the kernel's
+  // step is at most a quarter of the user's (RK4SimulationStepper.java:153 halves it
+  // five ways; :174-177 can add back at most userDt/20), but never below
+  // MIN_TIME_STEP/5 — hence the max(), without which a sub-0.0002 s flown step would
+  // silently disable the correction. A wider gap means the series is not a flown one
+  // (a hand-built test fixture), and the kernel's own number stands: failing closed
+  // keeps today's behaviour rather than inventing one from two far-apart points.
+  const maxGap = Math.max(flownTimeStepS, KERNEL_MIN_TIME_STEP_S);
+  let prev: { t: number; d: number; v: number } | null = null;
+  for (let i = 0; i < time.length; i++) {
+    const t = fin(time[i]);
+    const d = distAt(i);
+    const v = fin(velocity[i]);
+    if (t === null || d === null || v === null) { prev = null; continue; }
+    if (prev !== null && d >= rodLengthM && prev.d < rodLengthM) {
+      if (t - prev.t > maxGap || !(d > prev.d)) return null;
+      const f = (rodLengthM - prev.d) / (d - prev.d);
+      if (!Number.isFinite(f) || f < 0 || f > 1) return null;
+      return { velocity: prev.v + f * (v - prev.v), time: prev.t + f * (t - prev.t) };
+    }
+    prev = { t, d, v };
+  }
+  return null; // never cleared the rod
+}
+
+/**
  * Below this the "max roll rate" is integrator noise, not rotation: most
  * rockets report ~1e-10…1e-3 rad/s of numerical drift, while the slowest
  * deliberate roll (canted fins) is orders above. 0.01 rad/s ≈ 0.57 °/s
@@ -975,10 +1078,17 @@ export function buildSimRun(input: {
   const tDeploy = eventTime(result, 'RECOVERY_DEVICE_DEPLOYMENT');
   const tGround = eventTime(result, 'GROUND_HIT');
 
-  const rodExitVelocity = summary.launchRodVelocity
+  const rodExit = tRod === null ? null : rodExitFromSeries(
+    series, launch.launchRodLengthM, launch.timeStepS ?? DEFAULT_TIME_STEP_S);
+  // ONE instant for all three rod numbers. Without this the report prints a velocity
+  // from the crossing and a thrust-to-weight and a departure time from up to 4.6 %
+  // later — which is how the panel came to contradict its own arithmetic.
+  const tRodExit = rodExit?.time ?? tRod;
+  const rodExitVelocity = rodExit?.velocity
+    ?? summary.launchRodVelocity
     ?? (tRod !== null ? at(series.time, series.velocity, tRod) : null);
-  const thrustAtRod = tRod !== null ? at(series.time, series.thrust, tRod) : null;
-  const massAtRod = tRod !== null ? at(series.time, series.mass, tRod) : null;
+  const thrustAtRod = tRodExit !== null ? at(series.time, series.thrust, tRodExit) : null;
+  const massAtRod = tRodExit !== null ? at(series.time, series.mass, tRodExit) : null;
   const thrustToWeightAtRod = thrustAtRod !== null && massAtRod !== null && massAtRod > 0
     ? thrustAtRod / (massAtRod * G0)
     : null;
@@ -1021,7 +1131,7 @@ export function buildSimRun(input: {
   // deployment; the last device's descent rate is the landing rate.
   const deployments = extractDeployments(result.events, series,
     Number.isFinite(summary.groundHitVelocity) ? summary.groundHitVelocity : null,
-    flownRecovery);
+    tGround, flownRecovery);
 
   // Booster branches (staged flights): each separated stage flies its OWN
   // descent — apogee, recovery (or tumble), and landing verdict per stage.
@@ -1031,10 +1141,11 @@ export function buildSimRun(input: {
     const groundEv = b.events.find((e) => e.type === 'GROUND_HIT');
     const vHit = groundEv ? at(b.series.time, b.series.velocity, groundEv.time) : null;
     const landing = vHit !== null && Number.isFinite(vHit) ? Math.abs(vHit) : null;
-    const bDeployments = extractDeployments(b.events, b.series, landing, flownRecovery);
+    const bDeployments = extractDeployments(
+      b.events, b.series, landing, groundEv?.time ?? null, flownRecovery);
     const bLanding = bDeployments.length > 0
       ? (bDeployments[bDeployments.length - 1]!.descentRate ?? landing)
-      : (descentRateAt(b.series.time, b.series.altitude,
+      : (verticalRateAt(b.series,
         groundEv?.time ?? b.series.time[b.series.time.length - 1] ?? 0) ?? landing);
     branches.push({
       name: b.name,
@@ -1055,7 +1166,7 @@ export function buildSimRun(input: {
   /**
    * The DESCENT rate — vertical — which is what `SAFETY.maxLandingRate` is
    * about. Drawn from the altitude series, because the kernel's velocity series
-   * is speed over the ground and carries the full wind drift; see descentRateAt.
+   * is speed over the ground and carries the full wind drift; see verticalRateAt.
    * The landing device's own settled figure is preferred (same instant, same
    * method); the trailing-window fallback covers a flight with no recovery
    * device at all, where a tumbling arrival has no settled rate to speak of and
@@ -1063,7 +1174,7 @@ export function buildSimRun(input: {
    */
   const landingRate = deployments.length > 0
     ? (deployments[deployments.length - 1]!.descentRate ?? landingGroundSpeed)
-    : (descentRateAt(series.time, series.altitude,
+    : (verticalRateAt(series,
       tGround ?? series.time[series.time.length - 1] ?? 0) ?? landingGroundSpeed);
   const safeLandingRate = landingRate === null ? null : landingRate <= SAFETY.maxLandingRate;
 
@@ -1197,7 +1308,7 @@ export function buildSimRun(input: {
     maxAcceleration: summary.maxAcceleration,
     timeToApogee: summary.timeToApogee,
     timeToBurnout: tBurnout,
-    timeToRodDeparture: tRod,
+    timeToRodDeparture: tRodExit,
     rodExitVelocity,
     thrustToWeightAtRod,
     launchMass,

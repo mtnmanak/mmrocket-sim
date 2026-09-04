@@ -16,6 +16,11 @@
  * Eric's edited text is the posted text. (When he explicitly asks for a typo fix, fix
  * it in the .txt and re-run, so both files carry it.)
  *
+ * The one thing it does move is VERTICAL SPACING beside a list: a blank line touching a
+ * [LIST] or [/LIST] is dropped, because XenForo already breaks on those tags and the blank
+ * was a second break Eric deleted by hand at every paste. The blank BETWEEN two lists stays.
+ * See dropBlanksAroundLists() for why that exception is load-bearing.
+ *
  * TRF (XenForo) REFUSES A POST OVER 10,000 CHARACTERS, counted on the BBCode. Since Eric's
  * 2026-08-30 ruling the draft is ONE .txt of any length and this script SPLITS it rather than
  * refusing it, writing "<stem> BBCODE (n of N).txt" and adding the joining lines itself.
@@ -62,6 +67,44 @@ const ITEM = /^(\s*)- (.*)$/;
 /** `**bold**` is the only inline markup the blurbs use. */
 const bold = (s) => s.replace(/\*\*(.+?)\*\*/g, '[B]$1[/B]');
 
+/** A line that is nothing but `[LIST]` or `[/LIST]` — the tags this file emits on their own. */
+const LIST_TAG = /^\[\/?LIST\]$/;
+const isListTag = (l) => l !== undefined && LIST_TAG.test(l.trim());
+
+/**
+ * Drop the blank lines that sit BESIDE a list tag.
+ *
+ * XenForo renders [LIST] as a block `<ul>` and [/LIST] closes it, so each tag is ALREADY a
+ * line break on the page. A blank line next to one is therefore a SECOND break, and the .txt
+ * writes those blanks for its own sake: a paragraph break before a bullet run, and the blank
+ * that closes a list at the `closeTo(null)` on :133. Eric was deleting them by hand at every
+ * paste — four of them in the posted v0.092-v0.101 blurb (full-document lines 17, 59, 69 and
+ * 74 of the conversion; a fifth at line 86 is the trailing newline, which splitBBCode's
+ * trimEnd already ate).
+ *
+ * THE ONE BLANK THAT STAYS is the one BETWEEN a [/LIST] and a [LIST]. It is not decoration.
+ * It is the only thing separating two lists the drafter wrote as two — two adjacent `<ul>`
+ * blocks render as one continuous list — and it is the only place splitBBCode may cut between
+ * them (see the blank-line cut candidates at :292-294). Deleting it was measured on the whole
+ * `docs/TRF Blurbs/` corpus: it fused 12 pairs of lists in the POSTED v0.076-v0.087 blurb, and
+ * left that draft and v0.076-v0.085 with no cut point at all, so both stopped converting —
+ * splitBBCode threw "the next unbreakable run is longer than a post" and main() wrote nothing.
+ *
+ * Vertical spacing only. No wording moves and the tag lines themselves are untouched, so
+ * checkTags and splitBBCode see what they always saw, minus blank lines they were merely free
+ * to cut at. The indexes are the ORIGINAL ones (Array.filter gives them), so a deliberate
+ * DOUBLE blank beside a list loses only the line touching the tag and survives as a single
+ * gap rather than collapsing away.
+ */
+export const dropBlanksAroundLists = (lines) =>
+  lines.filter((l, i) => {
+    if (l.trim() !== '') return true;
+    const prev = i > 0 ? lines[i - 1] : undefined;
+    const next = i + 1 < lines.length ? lines[i + 1] : undefined;
+    if (isListTag(prev) && isListTag(next)) return true;   // between two lists: load-bearing
+    return !(isListTag(prev) || isListTag(next));
+  });
+
 export function toBBCode(text) {
   // `\r\n?` and not `\r\n`: a LONE carriage return survives the narrower form, and then no
   // split('\n') ever breaks on it — the paragraphs collapse into one unbreakable "line".
@@ -95,7 +138,7 @@ export function toBBCode(text) {
     out.push(bold(line));
   }
   closeTo(null);
-  return out.join('\n');
+  return dropBlanksAroundLists(out).join('\n');
 }
 
 /** Unbalanced tags are the one failure mode that silently ruins a post. */

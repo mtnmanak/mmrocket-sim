@@ -377,3 +377,52 @@ describe("applyPresetLinks — a file's part matched to its catalogue row (ruled
     expect(applyPresetLinks([{ node, manufacturer: 'Fruity Chutes', partNo: '29185' }], db, [])).toBe(0);
   });
 });
+
+/**
+ * A catalogue engine block gets its OWN diameter, not the airframe's bore.
+ *
+ * The `engineblock` branch read the row's `outsideDiameter` to compute the wall
+ * and then threw the diameter away, so a catalogued thrust ring reached the
+ * kernel with an AUTOMATIC outer radius — the parent tube's inner radius —
+ * while every other tube-like kind (bodytube / tubecoupler / innertube /
+ * launchlug) got `outerRadius` set. Desktop does set it:
+ * ThicknessRingComponent.loadFromPreset:21-36 clears outerRadiusAutomatic and
+ * writes OD/2 whenever the row has an OUTER_DIAMETER.
+ *
+ * It was invisible while the bridge applied the wall pre-attach, because the
+ * clamp made the part weigh 0 g whatever radius it had. Now that the wall is
+ * real, an Apogee CR 10-13 ring hung in a 29 mm mount would weigh the mount's
+ * bore instead of its own 12.95 mm.
+ */
+describe('presetPatch — a catalogue engine block carries its own outer radius', () => {
+  const rows = db.filter((x) => x.kind === 'EngineBlock'
+    && typeof x['outsideDiameter'] === 'number' && typeof x['insideDiameter'] === 'number');
+
+  it('is a populated catalogue, so the assertions below mean something', () => {
+    expect(rows.length).toBeGreaterThan(20);
+  });
+
+  it('applies outerRadius = OD/2, exactly as the tube-coupler branch does', () => {
+    const p = rows.find((x) => x.partNo === '13021') ?? rows[0]!;
+    const patch = presetPatch('engineblock', p) as Record<string, unknown>;
+    expect(patch['outerRadius']).toBeCloseTo((p['outsideDiameter'] as number) / 2, 12);
+    // The wall it always applied stays exactly as it was.
+    expect(patch['thickness']).toBeCloseTo(
+      ((p['outsideDiameter'] as number) - (p['insideDiameter'] as number)) / 2, 12);
+  });
+
+  it('does it for every catalogued ring, not just the one spot-checked', () => {
+    for (const p of rows) {
+      const patch = presetPatch('engineblock', p) as Record<string, unknown>;
+      expect(patch['outerRadius'], p.partNo).toBeCloseTo((p['outsideDiameter'] as number) / 2, 12);
+    }
+  });
+
+  it('leaves a row with no outside diameter alone rather than writing zero', () => {
+    const bare = { kind: 'EngineBlock', manufacturer: 'T', partNo: 'X', description: '',
+      length: 0.005 } as unknown as Preset;
+    const patch = presetPatch('engineblock', bare) as Record<string, unknown>;
+    expect(patch['outerRadius']).toBeUndefined();
+    expect(patch['length']).toBeCloseTo(0.005, 12);
+  });
+});

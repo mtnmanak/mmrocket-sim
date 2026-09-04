@@ -222,6 +222,11 @@ final class ComponentFactory {
                 if (tubeRot != 0) {
                     fins.setBaseRotation(tubeRot);
                 }
+                // Wall thickness is NOT set here. It is applied post-attach by
+                // applyTubeFinThickness: setThickness clamps to getOuterRadius()
+                // (TubeFinSet.java:200), which is 0 for an auto-radius set that
+                // has no parent yet, so a call here would pin the wall to zero
+                // on the app's OWN default set. See that method's comment.
                 c = fins;
                 break;
             }
@@ -229,7 +234,13 @@ final class ComponentFactory {
                 InnerTube tube = new InnerTube();
                 tube.setLength(dbl(node, "length", 0.07));
                 tube.setOuterRadius(dbl(node, "outerRadius", 0.0095));
-                tube.setThickness(dbl(node, "thickness", 0.0005));
+                // Wall thickness is NOT set here — see applyPostAttachDimensions.
+                // An inner tube's outer radius is ALWAYS explicit (the line
+                // above), so its clamp was already real and moving the call is
+                // provably mass-neutral today. It moves anyway so that every
+                // ring wall in the bridge is set in ONE place, and the next
+                // reader does not have to re-derive which of them happens to be
+                // safe pre-attach.
                 tube.setMotorMount(bool(node, "motorMount", false));
                 tube.setMotorOverhang(dbl(node, "motorOverhang", 0));
                 // Cluster: pattern by its .ork XML name ("3-ring", "double"…).
@@ -265,21 +276,31 @@ final class ComponentFactory {
                 } else {
                     tc.setOuterRadius(or);
                 }
-                tc.setThickness(dbl(node, "thickness", 0.0005));
+                // Wall thickness is NOT set here — see applyPostAttachDimensions.
+                // With the automatic radius above, getOuterRadius() falls through
+                // to the raw 0 field until the coupler has a RadialParent
+                // (ThicknessRingComponent.java:40-51), and setThickness clamps to
+                // it (:82-100), so a call here wrote thickness 0 and every
+                // automatic-radius coupler weighed exactly nothing. Measured on
+                // the shipped kernel: 0.0000 g against 7.1298 g for the same
+                // 50 mm x 1.5 mm coupler given an explicit 23 mm outer radius.
                 c = tc;
                 break;
             }
             case "centeringring": {
                 CenteringRing ring = new CenteringRing();
                 ring.setLength(dbl(node, "length", 0.002));
-                double or = dbl(node, "outerRadius", Double.NaN);
-                if (!Double.isNaN(or)) {
-                    ring.setOuterRadius(or);
-                }
-                double ir = dbl(node, "innerRadius", Double.NaN);
-                if (!Double.isNaN(ir)) {
-                    ring.setInnerRadius(ir);
-                }
+                // BOTH radii are set post-attach by applyPostAttachDimensions,
+                // and the centering ring is the ONE ring type whose OUTER radius
+                // has to move as well. RadiusRingComponent.setOuterRadius:66
+                // clamps against getInnerRadius(), and CenteringRing overrides
+                // that to walk the parent's children for a sibling InnerTube
+                // (CenteringRing.java:22-48, guarded on getParent() != null at
+                // :27) — parentless it returns 0, so the clamp desktop would
+                // apply can never fire. setInnerRadius:81-102 has the mirror
+                // fault: :95 freezes an automatic outer radius AT the inner
+                // radius, which measured 0.0000 g against 2.8119 g for the same
+                // ring given an explicit outer radius.
                 c = ring;
                 break;
             }
@@ -300,7 +321,12 @@ final class ComponentFactory {
                 if (!Double.isNaN(or)) {
                     eb.setOuterRadius(or);
                 }
-                eb.setThickness(dbl(node, "thickness", 0.00095));
+                // Wall thickness is NOT set here — see applyPostAttachDimensions.
+                // EngineBlock's constructor sets the automatic radius itself
+                // (EngineBlock.java:13-20), so an engine block that states no
+                // outer radius — which is EVERY engine block the app's own UI
+                // can produce, and every one a .rkt import makes — hit the same
+                // clamp-to-zero as the coupler above and weighed 0 g.
                 c = eb;
                 break;
             }
@@ -597,6 +623,27 @@ final class ComponentFactory {
             if (child instanceof FinSet) {
                 applyFinTabs((FinSet) child, kid);
             }
+            // Ring dimensions run POST-ATTACH for the same reason.
+            // ThicknessRingComponent.setThickness (:82-100) clamps to
+            // getOuterRadius(), and RadiusRingComponent.setInnerRadius (:81-102)
+            // freezes an automatic outer radius at the inner radius. While the
+            // component is parentless an AUTOMATIC outer radius reads 0 — both
+            // getOuterRadius() overrides fall through to the raw field — so the
+            // pre-attach calls this replaces silently wrote thickness 0, and
+            // every tube coupler and engine block in the app weighed exactly
+            // nothing (a 4-inch fibreglass coupler: 0 g where it should be
+            // 27.4 g; Eric's LEM-M2B, 653.4 g dry where it should be 680.8 g).
+            // Desktop never hits this: importt/ComponentHandler.java:51 calls
+            // parent.addChild(c) on element OPEN, before ComponentParameterHandler
+            // applies any setter.
+            // MUST precede the recursion below: TubeCoupler is itself a
+            // RadialParent (TubeCoupler.java:8, :50-52), so a bulkhead or ring
+            // nested INSIDE a coupler reads the inner radius this call
+            // establishes.
+            applyPostAttachDimensions(child, kid);
+            if (child instanceof TubeFinSet) {
+                applyTubeFinThickness((TubeFinSet) child, kid);
+            }
             String id = str(kid, "id", null);
             if (id != null) {
                 idIndex.put(id, child);
@@ -621,6 +668,102 @@ final class ComponentFactory {
         fins.setTabLength(tabLength);
         fins.setTabOffset(dbl(node, "tabOffset", 0));
         fins.setTabHeight(tabHeight);
+    }
+
+    /**
+     * Ring dimensions that must be applied AFTER parent.addChild(): every one of
+     * them clamps against a radius that is only knowable once the component has
+     * a parent. See the comment at the call site in attachChildren.
+     *
+     * Dispatch is on the node's "type" string, NOT instanceof. That keeps each
+     * default beside the type that owns it, it does not rest on a carved class
+     * hierarchy that upstream is free to change, and it adds no new instanceof
+     * checks under TeaVM's fastGlobalAnalysis. The per-type defaults MUST stay
+     * the ones the create() switch used to carry, or a node that omits
+     * "thickness" changes mass.
+     */
+    private static void applyPostAttachDimensions(RocketComponent child, Map<String, Object> node) {
+        switch (str(node, "type", "")) {
+            case "innertube":
+                ((InnerTube) child).setThickness(dbl(node, "thickness", 0.0005));
+                break;
+            case "tubecoupler":
+                ((TubeCoupler) child).setThickness(dbl(node, "thickness", 0.0005));
+                break;
+            case "engineblock":
+                ((EngineBlock) child).setThickness(dbl(node, "thickness", 0.00095));
+                break;
+            case "centeringring": {
+                CenteringRing ring = (CenteringRing) child;
+                // Outer first, then inner — desktop's own element order
+                // (RadiusRingComponentSaver:15-24) and the order the two clamps
+                // in RadiusRingComponent assume of each other.
+                double or = dbl(node, "outerRadius", Double.NaN);
+                if (!Double.isNaN(or)) {
+                    ring.setOuterRadius(or);
+                }
+                double ir = dbl(node, "innerRadius", Double.NaN);
+                if (!Double.isNaN(ir)) {
+                    ring.setInnerRadius(ir);
+                }
+                break;
+            }
+            default:
+                // Bulkhead takes an outer radius only, and for it
+                // RadiusRingComponent.setOuterRadius reads no parent state:
+                // its clamp at :66 calls getInnerRadius(), which Bulkhead
+                // hard-returns 0 from (Bulkhead.java:24-26). Measured 3.3903 g
+                // on an automatic radius, exactly pi*0.023^2*0.003*680 — which
+                // is also the proof that the automatic radius itself resolves
+                // fine once attached, and that only the setter timing was
+                // broken. So the bulkhead stays in create().
+                break;
+        }
+    }
+
+    /**
+     * Tube-fin wall thickness. MUST run AFTER parent.addChild(child), and the
+     * ordering is the entire point of this method existing instead of a line in
+     * the "tubefinset" case.
+     *
+     * TubeFinSet.setThickness clamps to getOuterRadius() (TubeFinSet.java:200).
+     * An AUTOMATIC-radius set — which is the app's OWN default, since
+     * schema.ts defaultsFor('tubefinset') supplies no outerRadius — resolves its
+     * radius from the parent body tube: getOuterRadius() (:84-93) calls
+     * getTouchingRadius() (:109-116), which calls getBodyRadius() (:387-399),
+     * which returns 0 with no parent. MathUtil.clamp(t,0,0) is 0
+     * (MathUtil.java:50-56), so a pre-attach call would pin the wall to ZERO
+     * permanently — and BodyTube.addChild's rescue would not fire either,
+     * because getThickness() would then be 0 rather than NaN. That is strictly
+     * worse than the bug being fixed: it would zero the common case instead of
+     * mis-sizing it.
+     *
+     * Desktop runs its setters post-attach for exactly this reason:
+     * importt/ComponentHandler.java:51 attaches THEN hands over to
+     * ComponentParameterHandler (DocumentConfig.java:317-318 is the setter), and
+     * the RockSim reader does the same at importt/TubeFinSetHandler.java:41-44,
+     * :89-92. Post-attach is the parity order, not a workaround.
+     *
+     * NO KEY MEANS DO NOTHING. BodyTube.addChild (BodyTube.java:584-592) has
+     * already inherited the parent tube's wall into the NaN field, which is
+     * precisely what desktop does for a set that was never given one. Writing a
+     * default here would overwrite that inheritance.
+     *
+     * Until this bridged, a tube fin set flew the AIRFRAME's wall and the wall
+     * box in the property panel was decoration. It drives MASS
+     * (getComponentVolume, TubeFinSet.java:285-293) and both inertia terms
+     * (:318, :336) AND normal force — TubeFinSetCalc.java:67 reads
+     * getInnerRadius() into :82 and :135 — so it moves CP and static margin as
+     * well, even on a set whose mass is pinned by an override. Measured: the
+     * app's own default set on a 2 mm-wall 50 mm airframe goes 123.05 g ->
+     * 31.72 g, and TubeFins2.rkt's geometry 6.759 g -> 20.310 g, which is that
+     * file's own CalcMass to the last digit.
+     */
+    private static void applyTubeFinThickness(TubeFinSet fins, Map<String, Object> node) {
+        double thickness = dbl(node, "thickness", Double.NaN);
+        if (!Double.isNaN(thickness)) {
+            fins.setThickness(thickness);
+        }
     }
 
     /**

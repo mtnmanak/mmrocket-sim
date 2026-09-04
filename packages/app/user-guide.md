@@ -111,10 +111,10 @@ The **Design** workspace's left column is a **stage-rooted tree** of components.
 | Centering ring | Structure | axial thickness |
 | Bulkhead | Structure | axial thickness |
 | Engine block | Structure | length, thickness |
-| Launch lug | Guide | length, outer radius, thickness |
+| Launch lug | Guide | length, outer radius, thickness, angle around body |
 | Rail button | Guide | outer diameter, number of buttons, distance between, angle around body |
 | Camera shroud / fairing | External | length, width, height, fore/aft end shape, conformal, angle around body, as-built mass, finish |
-| Protuberance (drag bump) | External | frontal area (or width × height), drag class, count |
+| Protuberance (drag bump) | External | frontal area (or width × height), drag class, count, plate angle, angle around body |
 | Parachute | Recovery | canopy diameter, Cd, spill hole ⌀, lines, deploy event |
 | Streamer | Recovery | strip length/width, Cd, deploy event |
 | Shock cord | Recovery | cord length |
@@ -157,9 +157,14 @@ singular parts nearly always go. A shroud in line with a fin has the fin in
 shot.
 
 Known limits, stated. The mounting angle steers the shroud's **lift** but not
-its **drag**: a shroud is charged the same drag wherever it sits, which is what
-desktop OpenRocket does too, and the wake it sheds onto the fins downstream is
-not modelled by us or by anything else in hobby software. And the coefficients
+its **drag**: a shroud is charged the same drag wherever it sits around the body.
+That is exact while the rocket is flying straight — the air around a round body
+arrives the same way all round it, so turning a bump about the flight axis
+presents it with the same air and the same frontal area. At an angle of attack
+there is a real difference between the windward and leeward sides, and nothing
+models it: not the app, not desktop OR, not RASAero. The wake the shroud sheds
+onto the fins downstream is not modelled either, here or anywhere else in hobby
+software, and that one **does** depend on where the shroud sits. And the coefficients
 themselves have no wind-tunnel anchor taken on a camera shroud — the nearest
 independent checks are Saturn I SA-2/SA-4 flight data and a CFD run on a
 keychain-camera shroud, both of which validate the *area-ratio* family this
@@ -530,6 +535,12 @@ button in the set is drawn, weighed, and flown. **📍 Auto-place rail buttons**
 panel is a one-shot: the forward button goes at the CG (the loaded CG when a motor is loaded),
 the aft one about an inch from the aft end. Press it again after the CG moves; anything you type
 afterwards wins.
+
+**A lug's or a button's angle decides where it sits, not what it costs you.** Like
+the camera shroud above, a lug and a rail button are charged the same drag wherever
+they sit around the body — a bump on a round airframe blocks the same air whichever
+way round it is, and that is what desktop OR does too. The angle is there to keep
+the part clear of the rail and clear of the fins, which is what the check below is for.
 
 **A rail button with something else on its line gets flagged.** The rail runs down that line for the whole length of the rocket, so a fin, a lug or a shroud sharing it means the rocket will not slide onto the rail — the warning strip on the Design tab names both parts and how far apart they are. Two rail buttons at *different* angles get flagged for the same reason: one rail is a straight line, so they cannot both engage it. (Two buttons at the same angle is the normal build and says nothing.)
 

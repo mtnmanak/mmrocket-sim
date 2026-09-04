@@ -41,7 +41,9 @@ describe('RockSim import — desktop fixture files', () => {
     expect(chain[0]!['shoulderLength']).toBeCloseTo(0.0583997, 9);
     expect(chain[0]!['shoulderRadius']).toBeCloseTo(0.0531012 / 2, 9);
 
-    const body = chain.find((c) => c.type === 'bodytube')!;
+    // Skip the cone's synthesised base extension — it is a bodytube too, and it is
+    // the FIRST one, sitting between the cone and the real airframe.
+    const body = chain.find((c) => c.type === 'bodytube' && c['rktBaseExtension'] !== true)!;
     expect(body['outerRadius']).toBeCloseTo(0.06604 / 2, 9);
     // Wall from OD/ID: (66.04 - 65.786)/2 mm.
     expect(body['thickness']).toBeCloseTo(0.000127, 9);
@@ -1151,5 +1153,464 @@ describe('RockSim LINE density is kg/m both ways — ROCKSIM_TO_OPENROCKET_LINE_
     const density = Number(/<Density>([^<]*)<\/Density>/.exec(cordBlock)![1]);
     expect(density).toBeCloseTo(0.00039698, 12);
     expect(cordBlock).toContain('<DensityType>2</DensityType>');
+  });
+});
+
+/**
+ * A4 — RockSim's <ShapeParameter> on a TRANSITION.
+ *
+ * The nose branch read it; the transition branch never did, so a power, Haack or
+ * parabolic transition silently took the kernel's default exponent. Desktop reads
+ * it for both (TransitionHandler.java:102-107 mirrors NoseConeHandler.java:96-107)
+ * and writes it for both (AbstractTransitionDTO.java:41-42, :72-76).
+ *
+ * Measured on the corpus: 5 transitions in 4 of 953 files move, two of them
+ * materially — Exa.rkt's two power transitions (0.21 and 0.13 against a default of
+ * 0.5) are +15.3 % on CD at M0.3 and −6.5 % on stability.
+ */
+describe('RockSim ShapeParameter — transitions read and written like nose cones', () => {
+  /** One stage holding a nose cone plus the given transition blocks. */
+  const design = (transitions: string) => `<RockSimDocument><DesignInformation><RocketDesign>
+      <Name>SP</Name><StageCount>1</StageCount>
+      <Stage3Parts>
+        <NoseCone><Name>Nose</Name><Len>100</Len><BaseDia>24</BaseDia>
+          <ShapeCode>4</ShapeCode><ShapeParameter>0.63</ShapeParameter></NoseCone>
+        ${transitions}
+      </Stage3Parts><Stage2Parts/><Stage1Parts/>
+    </RocketDesign></DesignInformation></RockSimDocument>`;
+  const transitionsOf = (transitions: string) =>
+    flatten(importRkt(design(transitions)).tree.components).filter((c) => c.type === 'transition');
+
+  const T = (shapeCode: number, param: string, name: string) =>
+    `<Transition><Name>${name}</Name><Len>50</Len><FrontDia>24</FrontDia><RearDia>18</RearDia>`
+    + `<ShapeCode>${shapeCode}</ShapeCode><ShapeParameter>${param}</ShapeParameter></Transition>`;
+
+  it('applies it for power, Haack and parabolic transitions', () => {
+    const [power, haack, parabolic] = transitionsOf(
+      T(4, '0.21', 'Power') + T(6, '0.3', 'Haack') + T(5, '0.4', 'Parabolic'));
+    expect(power!['shape']).toBe('power');
+    expect(power!['shapeParameter']).toBeCloseTo(0.21, 9);
+    expect(haack!['shape']).toBe('haack');
+    expect(haack!['shapeParameter']).toBeCloseTo(0.3, 9);
+    expect(parabolic!['shape']).toBe('parabolic');
+    expect(parabolic!['shapeParameter']).toBeCloseTo(0.4, 9);
+  });
+
+  it('IGNORES it for ogive and conical — RockSim stores a different quantity there', () => {
+    // 51 corpus nose cones carry an ogive ShapeParameter of 4.2, outside
+    // OpenRocket's 0-1 ogive range. Desktop gates on the same three shapes.
+    const [ogive, conical] = transitionsOf(T(1, '0.9', 'Ogive') + T(0, '0.9', 'Conical'));
+    expect(ogive!['shapeParameter']).toBeUndefined();
+    expect(conical!['shapeParameter']).toBeUndefined();
+  });
+
+  it('exports it AFTER <ShapeCode> — desktop reads it with a SAX handler', () => {
+    // Emitted before <ShapeCode>, desktop silently drops the value: its branch
+    // tests the shape type set when <ShapeCode> closed. Our own reader is DOM-based
+    // and order-free, so nothing but this assertion catches a mistake here.
+    const xml = exportRkt({
+      name: 'SP',
+      tree: { name: 'SP', components: [{ type: 'stage', id: 's', children: [
+        { type: 'transition', id: 't', shape: 'power', shapeParameter: 0.21, length: 0.05 },
+      ] }] } as never,
+    });
+    const block = /<Transition>[\s\S]*?<\/Transition>/.exec(xml)![0];
+    expect(block).toContain('<ShapeParameter>0.21</ShapeParameter>');
+    expect(block.indexOf('<ShapeParameter>')).toBeGreaterThan(block.indexOf('<ShapeCode>'));
+  });
+
+  it('round-trips a power nose and power/Haack transitions', () => {
+    const first = importRkt(design(T(4, '0.21', 'Power') + T(6, '0.3', 'Haack')));
+    const again = importRkt(exportRkt({ name: 'SP', tree: first.tree }));
+    const nose = flatten(again.tree.components).find((c) => c.type === 'nosecone')!;
+    const [power, haack] = flatten(again.tree.components).filter((c) => c.type === 'transition');
+    expect(nose['shapeParameter']).toBeCloseTo(0.63, 9);
+    expect(power!['shapeParameter']).toBeCloseTo(0.21, 9);
+    expect(haack!['shapeParameter']).toBeCloseTo(0.3, 9);
+  });
+
+  it('writes a literal 0 for a shape RockSim does not parameterise, stale value or not', () => {
+    // PropertyPanel hides the field for a conical transition but never clears it,
+    // so a stale value is reachable in the app. Desktop writes 0 there
+    // (AbstractTransitionDTO.java:42 default + :72-76 gate) and so does RockSim.
+    const xml = exportRkt({
+      name: 'SP',
+      tree: { name: 'SP', components: [{ type: 'stage', id: 's', children: [
+        { type: 'nosecone', id: 'n', shape: 'ogive', length: 0.1 },
+        { type: 'transition', id: 't', shape: 'conical', shapeParameter: 0.3, length: 0.05 },
+      ] }] } as never,
+    });
+    const cone = /<NoseCone>[\s\S]*?<\/NoseCone>/.exec(xml)![0];
+    const trans = /<Transition>[\s\S]*?<\/Transition>/.exec(xml)![0];
+    expect(cone).toContain('<ShapeParameter>0</ShapeParameter>');
+    expect(trans).toContain('<ShapeParameter>0</ShapeParameter>');
+    // A gated shape with no value still falls back to the KERNEL default, never 0 —
+    // a power-law part exported with exponent 0 re-imports as a blunt cylinder.
+    const power = exportRkt({
+      name: 'SP',
+      tree: { name: 'SP', components: [{ type: 'stage', id: 's', children: [
+        { type: 'nosecone', id: 'n', shape: 'power', length: 0.1 },
+      ] }] } as never,
+    });
+    expect(power).toContain('<ShapeParameter>0.5</ShapeParameter>');
+  });
+});
+
+/**
+ * A1 — a RockSim mass object is a POINT at <Xb>, not a body of length <Len>.
+ *
+ * RockSim stores a length but treats the part as a point and does not show the
+ * length in its own UI (desktop MassObjectHandler.java:29-39 says so). All 28
+ * TypeCode-0 objects across the 14-file corpus write <KnownCG> == <Xb>. Our kernel
+ * puts a MassObject's CG at length/2 (MassObject.java:230-231), so with no pin the
+ * point landed half a length away — measured, Mach 3.rkt's whole-rocket CG sat
+ * 110.6 mm aft of what its own <Station> values state, and 2,4-D.rkt's static
+ * margin read 1.49 cal against a true 4.19.
+ */
+describe('RockSim mass objects are points, not bodies', () => {
+  const design = (fields: string) => `<RockSimDocument><DesignInformation><RocketDesign>
+      <Name>MO</Name><StageCount>1</StageCount>
+      <Stage3Parts>
+        <BodyTube><Name>Tube</Name><Len>300</Len><OD>24</OD><ID>22</ID>
+          <AttachedParts>
+            <MassObject><Name>Sled</Name><TypeCode>0</TypeCode><KnownMass>100</KnownMass>
+              ${fields}
+            </MassObject>
+          </AttachedParts>
+        </BodyTube>
+      </Stage3Parts><Stage2Parts/><Stage1Parts/>
+    </RocketDesign></DesignInformation></RockSimDocument>`;
+  const massObject = (fields: string) =>
+    flatten(importRkt(design(fields)).tree.components).find((c) => c.type === 'masscomponent')!;
+
+  it('pins the CG at the component front for LocationMode 0, and clamps a runaway Len', () => {
+    // Len 1524 mm inside a 300 mm tube. Desktop pins 0 here too
+    // (MassObjectHandler.java:107); the clamp is ours, so the Length stat tile and
+    // the pitch inertia stop being driven by a body longer than the rocket.
+    const n = massObject('<Len>1524</Len><Xb>200</Xb><LocationMode>0</LocationMode>'
+      + '<KnownCG>200</KnownCG><UseKnownCG>1</UseKnownCG>');
+    expect(n['overrideCGX']).toBe(0);
+    expect(n['rocksimLen']).toBeCloseTo(1.524, 9);
+    expect(n['length']).toBeCloseTo(0.3, 9);
+  });
+
+  it('pins the CG at the component REAR for LocationMode 2 — where desktop gets it wrong', () => {
+    // BOTTOM anchors the AFT end on the point, and overrideCGX is measured from the
+    // FORE end (MassCalculation.java:444-445), so the pin is the component's length.
+    // Desktop pins 0 and lands a full length forward of the file's own <Station>.
+    const n = massObject('<Len>1524</Len><Xb>250</Xb><LocationMode>2</LocationMode>'
+      + '<KnownCG>250</KnownCG><UseKnownCG>1</UseKnownCG>');
+    expect(n.position).toEqual({ method: 'bottom', offset: -0.25 });
+    expect(n['overrideCGX']).toBeCloseTo(n['length'] as number, 9);
+  });
+
+  it('leaves a mass object that fits its parent unclamped', () => {
+    const n = massObject('<Len>20</Len><Xb>100</Xb><LocationMode>0</LocationMode>');
+    expect(n['length']).toBeCloseTo(0.02, 9);
+    expect(n['rocksimLen']).toBeCloseTo(0.02, 9);
+  });
+
+  it('leaves a SHOCK CORD alone — its packed length is a separate question', () => {
+    const xml = design('<Len>3000</Len><Xb>100</Xb><LocationMode>0</LocationMode>')
+      .replace('<TypeCode>0</TypeCode>', '<TypeCode>1</TypeCode>');
+    const cord = flatten(importRkt(xml).tree.components).find((c) => c.type === 'shockcord')!;
+    expect(cord['overrideCGX']).toBeUndefined();
+  });
+
+  it('says so in the import notes', () => {
+    const r = importRkt(design('<Len>1524</Len><Xb>200</Xb><LocationMode>0</LocationMode>'));
+    expect(r.notes.join(' ')).toContain('1 mass object placed at the exact point the file states');
+  });
+
+  it('exports <KnownCG> equal to <Xb>, and keeps it before <UseKnownCG>', () => {
+    // Desktop MassObjectDTO.java:38-39 overrides BasePartDTO with
+    // setKnownCG(getXb()) + setUseKnownCG(1) for EVERY MassObject. Order matters:
+    // desktop's simplesax applies setOverride when <UseKnownCG> closes, using the
+    // CG read so far (BaseHandler.java:94-98).
+    const xml = exportRkt({
+      name: 'MO',
+      tree: { name: 'MO', components: [{ type: 'stage', id: 's', children: [
+        { type: 'bodytube', id: 'b', length: 0.3, outerRadius: 0.012, children: [
+          { type: 'masscomponent', id: 'm1', mass: 0.1, length: 0.02,
+            position: { method: 'top', offset: 0.2 } },
+          { type: 'masscomponent', id: 'm2', mass: 0.1, length: 0.02,
+            position: { method: 'bottom', offset: -0.1 } },
+        ] },
+      ] }] } as never,
+    });
+    const blocks = xml.match(/<MassObject>[\s\S]*?<\/MassObject>/g)!;
+    expect(blocks[0]).toContain('<KnownCG>200</KnownCG>');
+    expect(blocks[0]).toContain('<Xb>200</Xb>');
+    expect(blocks[1]).toContain('<KnownCG>100</KnownCG>');
+    expect(blocks[1]).toContain('<Xb>100</Xb>');
+    for (const b of blocks) {
+      expect(b.indexOf('<KnownCG>')).toBeLessThan(b.indexOf('<UseKnownCG>'));
+    }
+  });
+
+  it('writes the file’s ORIGINAL <Len> back, not the clamped body', () => {
+    const r = importRkt(design('<Len>1524</Len><Xb>200</Xb><LocationMode>0</LocationMode>'));
+    const xml = exportRkt({ name: 'MO', tree: r.tree });
+    const block = /<MassObject>[\s\S]*?<\/MassObject>/.exec(xml)![0];
+    expect(block).toContain('<Len>1524</Len>');
+  });
+
+  it('round-trips both modes: pin, position and raw Len all survive', () => {
+    for (const [mode, xb] of [[0, 200], [2, 250]] as const) {
+      const first = importRkt(design(
+        `<Len>1524</Len><Xb>${xb}</Xb><LocationMode>${mode}</LocationMode>`));
+      const before = flatten(first.tree.components).find((c) => c.type === 'masscomponent')!;
+      const again = importRkt(exportRkt({ name: 'MO', tree: first.tree }));
+      const after = flatten(again.tree.components).find((c) => c.type === 'masscomponent')!;
+      expect(after['overrideCGX']).toBeCloseTo(before['overrideCGX'] as number, 9);
+      expect(after['rocksimLen']).toBeCloseTo(1.524, 9);
+      expect(after.position).toEqual(before.position);
+    }
+  });
+});
+
+/**
+ * A2 — a nose cone's <BaseExtensionLen> is a real cylinder and must be imported.
+ *
+ * It is a cylinder at BaseDia, aft of the cone. Two fixture files prove it from
+ * their own <Station> chains: rocksimTestRocket1.rkt has Len 396.875 +
+ * BaseExtensionLen 66.675 = 463.55, which is exactly the next tube's <Station>; the
+ * owner's 4in WM Extreme.rkt has 495 + 14.0005 -> 509. RockSim bills its mass too:
+ * PELTZER-Warp-7.rkt's solid cone reconciles with its own <CalcMass> to 0.003 %
+ * only when the extension is counted.
+ *
+ * DELIBERATE DIVERGENCE FROM DESKTOP: the string appears in ZERO .java files under
+ * the 24.12 tree, so desktop has no handler and imports these rockets short — up to
+ * 127 mm across 53 of 843 corpus designs.
+ */
+describe('RockSim nose cone base extension', () => {
+  const ext = (chain: ComponentNode[]) =>
+    chain.find((c) => c.type === 'bodytube' && c['rktBaseExtension'] === true);
+
+  it('becomes a body tube at the cone base diameter, carrying no mass of its own', () => {
+    const r = importRkt(fixture('rocksimTestRocket1.rkt'));
+    const chain = r.tree.components[0]!.children!;
+    const cone = chain[0]!;
+    // Immediately behind the cone, not somewhere later in the chain.
+    expect(chain[1]).toBe(ext(chain));
+    const e = ext(chain)!;
+    expect(e['length']).toBeCloseTo(0.066675, 9);
+    expect(e['outerRadius']).toBeCloseTo(cone['aftRadius'] as number, 12);
+    expect(e['thickness']).toBeCloseTo(0.002159, 9);
+    // The cone's <KnownMass> already covers the extension, so it must add none.
+    expect(e['overrideMass']).toBe(0);
+  });
+
+  it('puts the next part where the file own <Station> says — the assertion that pins it', () => {
+    // __fixtures__/rocksimTestRocket1.rkt:272 states <Station>463.55</Station> for
+    // the body tube after the cone. Written against that number, not a recomputed sum.
+    const chain = importRkt(fixture('rocksimTestRocket1.rkt')).tree.components[0]!.children!;
+    let station = 0;
+    for (const c of chain) {
+      if (c.type === 'bodytube' && c['rktBaseExtension'] !== true) break;
+      station += (c['length'] as number) ?? 0;
+    }
+    expect(station).toBeCloseTo(0.46355, 9);
+  });
+
+  it('does not change a pinned cone rocket mass', async () => {
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    const { engineTree } = await import('../tree/treeModel.js');
+    resetEngine();
+    const r = importRkt(fixture('rocksimTestRocket1.rkt'));
+    const info = OrkRocket.buildTree(engineTree(r.tree)).staticInfo();
+    // 264.3 g. Without the zero override the extension would be billed twice: 290.4 g.
+    expect(info.massEmpty).toBeCloseTo(0.2643, 3);
+  }, 60000);
+
+  it('bills a SOLID cone extension as solid, not as a zero-mass shell', async () => {
+    // 8 of the 9 solid corpus cones state WallThickness 0, so copying the cone's
+    // wall gives a tube of zero mass. Solid is expressed as thickness = outerRadius,
+    // which carved BodyTube.java:248-252 turns into innerRadius 0.
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    const { engineTree } = await import('../tree/treeModel.js');
+    const xml = `<RockSimDocument><DesignInformation><RocketDesign>
+      <Name>Solid</Name><StageCount>1</StageCount>
+      <Stage3Parts>
+        <NoseCone><Name>Nose</Name><Len>100</Len><BaseDia>50</BaseDia>
+          <WallThickness>0</WallThickness><ShapeCode>0</ShapeCode>
+          <ConstructionType>0</ConstructionType><BaseExtensionLen>50</BaseExtensionLen>
+          <Density>680</Density><DensityType>0</DensityType></NoseCone>
+        <BodyTube><Name>Tube</Name><Len>200</Len><OD>50</OD><ID>48</ID>
+          <Density>680</Density><DensityType>0</DensityType></BodyTube>
+      </Stage3Parts><Stage2Parts/><Stage1Parts/>
+    </RocketDesign></DesignInformation></RockSimDocument>`;
+    const r = importRkt(xml);
+    const chain = r.tree.components[0]!.children!;
+    const e = ext(chain)!;
+    expect(e['overrideMass']).toBeUndefined(); // computed cone: the extension weighs its own
+    expect(e['thickness']).toBeCloseTo(chain[0]!['aftRadius'] as number, 12);
+
+    resetEngine();
+    const withExt = OrkRocket.buildTree(engineTree(r.tree)).staticInfo().massEmpty;
+    resetEngine();
+    const noExt = OrkRocket.buildTree(engineTree({
+      ...r.tree,
+      components: [{ ...r.tree.components[0]!, children: chain.filter((c) => c !== e) }],
+    } as never)).staticInfo().massEmpty;
+    // A solid 50 mm x 50 mm cylinder at 680 kg/m^3: pi * 0.025^2 * 0.05 * 680.
+    expect(withExt - noExt).toBeCloseTo(Math.PI * 0.025 ** 2 * 0.05 * 680, 6);
+  }, 60000);
+
+  it('folds back into <BaseExtensionLen> on export instead of writing an extra tube', () => {
+    const src = fixture('rocksimTestRocket1.rkt');
+    const r = importRkt(src);
+    const xml = exportRkt({ name: r.name, tree: r.tree });
+    expect(xml).toContain('<BaseExtensionLen>66.675</BaseExtensionLen>');
+    expect((xml.match(/<BodyTube>/g) ?? []).length)
+      .toBe((src.match(/<BodyTube>/g) ?? []).length);
+  });
+
+  it('survives a full round trip — mass and length both return', async () => {
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    const { engineTree } = await import('../tree/treeModel.js');
+    const direct = importRkt(fixture('rocksimTestRocket1.rkt'));
+    const round = importRkt(exportRkt({ name: direct.name, tree: direct.tree }));
+    resetEngine();
+    const a = OrkRocket.buildTree(engineTree(direct.tree)).staticInfo();
+    resetEngine();
+    const b = OrkRocket.buildTree(engineTree(round.tree)).staticInfo();
+    expect(b.massEmpty).toBeCloseTo(a.massEmpty, 6);
+    expect(b.length).toBeCloseTo(a.length, 6);
+  }, 60000);
+
+  it('refuses to fold a tube the user has edited', () => {
+    for (const edit of [{ outerRadius: 0.09 }, { thickness: 0.009 }]) {
+      const r = importRkt(fixture('rocksimTestRocket1.rkt'));
+      const chain = r.tree.components[0]!.children!;
+      Object.assign(ext(chain)!, edit);
+      const xml = exportRkt({ name: r.name, tree: r.tree });
+      expect(xml).toContain('<BaseExtensionLen>0</BaseExtensionLen>');
+      expect((xml.match(/<BodyTube>/g) ?? []).length)
+        .toBe((fixture('rocksimTestRocket1.rkt').match(/<BodyTube>/g) ?? []).length + 1);
+    }
+  });
+
+  it('never drops the tube when the cone has no id to key the fold on', () => {
+    const xml = exportRkt({
+      name: 'NoId',
+      tree: { name: 'NoId', components: [{ type: 'stage', id: 's', children: [
+        { type: 'nosecone', length: 0.1, aftRadius: 0.025, thickness: 0.002 },
+        { type: 'bodytube', id: 'b', length: 0.05, outerRadius: 0.025, thickness: 0.002,
+          rktBaseExtension: true },
+      ] }] } as never,
+    });
+    expect(xml).toContain('<BodyTube>');
+  });
+
+  it('adds nothing when the element is absent or zero', () => {
+    const zero = `<RockSimDocument><DesignInformation><RocketDesign>
+      <Name>Z</Name><StageCount>1</StageCount>
+      <Stage3Parts>
+        <NoseCone><Name>Nose</Name><Len>100</Len><BaseDia>24</BaseDia>
+          <BaseExtensionLen>0.</BaseExtensionLen></NoseCone>
+        <BodyTube><Name>Tube</Name><Len>200</Len><OD>24</OD><ID>22</ID></BodyTube>
+      </Stage3Parts><Stage2Parts/><Stage1Parts/>
+    </RocketDesign></DesignInformation></RockSimDocument>`;
+    expect(ext(importRkt(zero).tree.components[0]!.children!)).toBeUndefined();
+    // FinsOnTransitions.rkt carries no such element at all.
+    const none = importRkt(fixture('FinsOnTransitions.rkt'));
+    expect(flatten(none.tree.components).some((c) => c['rktBaseExtension'] === true)).toBe(false);
+  });
+});
+
+/**
+ * A6 (export half) — <CalcMass>/<CalcCG> on every part.
+ *
+ * Desktop writes both (BasePartDTO.java:84-85), and its IMPORTER pins any AIRFOIL
+ * fin set whose <UseKnownCG> is 0 to them (FinSetHandler.java:299-309) from a field
+ * that defaults to 0.0d. A .rkt this app wrote carried neither, so every airfoil fin
+ * set in it opened in desktop OpenRocket weighing ZERO GRAMS — measured on the
+ * committed fixture auto-radius-15.03.ork, an 829 g set, 10.7 % of that rocket's dry
+ * mass, with stability over-reported by 0.91 caliber.
+ *
+ * The fix has two halves and the exporter one alone is inert: App.tsx used to collect
+ * compInfo only for nodes carrying exactly ONE of overrideMass/overrideCGX, and a fin
+ * set with no override satisfies neither. These tests drive the export the way
+ * App.tsx does, which is what would have caught that.
+ */
+describe('RockSim export writes CalcMass/CalcCG (desktop reads them for airfoil fins)', () => {
+  /** The compInfo map App.tsx builds — every node with an id, not just overridden ones. */
+  const collectCompInfo = (
+    built: { componentInfo: (id: string) => { mass: number; cgX: number } },
+    nodes: ComponentNode[],
+  ): Record<string, { mass: number; cgX: number }> => {
+    const out: Record<string, { mass: number; cgX: number }> = {};
+    const walk = (ns: ComponentNode[]) => {
+      for (const n of ns) {
+        if (n.id) {
+          try {
+            const info = built.componentInfo(n.id);
+            out[n.id] = { mass: info.mass, cgX: info.cgX };
+          } catch { /* not in the engine tree */ }
+        }
+        walk(n.children ?? []);
+      }
+    };
+    walk(nodes);
+    return out;
+  };
+
+  it('never leaves an airfoil fin set with UseKnownCG=0 and no CalcMass', async () => {
+    // The property that pins the desktop zero-mass bug, asserted on the emitted XML
+    // rather than on one number: desktop's airfoil branch fires on exactly this
+    // combination, and a missing CalcMass is what zeroes the part.
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    const { engineTree } = await import('../tree/treeModel.js');
+    const { importOrk } = await import('./orkFile.js');
+    const { readFileSync: read } = await import('node:fs');
+    // A .ork is a zip, so it must arrive as bytes — and importOrk takes an
+    // ArrayBuffer, which a Node Buffer's backing store has to be sliced out of.
+    const buf = read(join(here, '__fixtures__', 'auto-radius-15.03.ork'));
+    const r = importOrk(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer);
+    resetEngine();
+    const built = OrkRocket.buildTree(engineTree(r.tree));
+    const xml = exportRkt({
+      name: 'A', tree: r.tree, compInfo: collectCompInfo(built, r.tree.components),
+    });
+    const finBlocks = xml.match(/<FinSet>[\s\S]*?<\/FinSet>/g) ?? [];
+    expect(finBlocks.length).toBeGreaterThan(0);
+    let airfoilChecked = 0;
+    for (const b of finBlocks) {
+      if (!b.includes('<TipShapeCode>2</TipShapeCode>')) continue;
+      if (!b.includes('<UseKnownCG>0</UseKnownCG>')) continue;
+      airfoilChecked += 1;
+      const calc = /<CalcMass>([^<]*)<\/CalcMass>/.exec(b);
+      expect(calc, 'an airfoil fin set exported without <CalcMass> reads 0 g in desktop OR').toBeTruthy();
+      expect(Number(calc![1])).toBeGreaterThan(0);
+    }
+    expect(airfoilChecked).toBeGreaterThan(0);
+  }, 60000);
+
+  it('writes the numbers the app itself shows, after <Xb> where RockSim puts them', () => {
+    const xml = exportRkt({
+      name: 'C',
+      tree: { name: 'C', components: [{ type: 'stage', id: 's', children: [
+        { type: 'bodytube', id: 'b', length: 0.3, outerRadius: 0.025, thickness: 0.001 },
+      ] }] } as never,
+      // Exactly representable in binary: the exporter emits raw JS numbers, so a
+      // value like 0.1234 would print as 123.39999999999999 and the assertion would
+      // be about floating point rather than about the element.
+      compInfo: { b: { mass: 0.125, cgX: 0.15 } },
+    });
+    const block = /<BodyTube>[\s\S]*?<\/BodyTube>/.exec(xml)![0];
+    expect(block).toContain('<CalcMass>125</CalcMass>');
+    expect(block).toContain('<CalcCG>150</CalcCG>');
+    expect(block.indexOf('<CalcMass>')).toBeGreaterThan(block.indexOf('<Xb>'));
+  });
+
+  it('omits them entirely when the caller supplied no computed info', () => {
+    const xml = exportRkt({
+      name: 'C',
+      tree: { name: 'C', components: [{ type: 'stage', id: 's', children: [
+        { type: 'bodytube', id: 'b', length: 0.3, outerRadius: 0.025, thickness: 0.001 },
+      ] }] } as never,
+    });
+    expect(xml).not.toContain('<CalcMass>');
   });
 });

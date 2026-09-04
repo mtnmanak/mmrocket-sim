@@ -371,6 +371,38 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
   const sustainer: ComponentNode = { type: 'stage', id: freshId(), name: 'Sustainer', children: [] };
   const stages: ComponentNode[] = [sustainer];
 
+  /*
+   * AXIAL STATION BOOKKEEPING — why a flat document-order chain is not enough.
+   *
+   * RASAero's part list is flat, but two of its part kinds OVERLAP the part in
+   * front of them and so contribute NO length to the airframe:
+   *  - <FinCan> is a tube that slides OVER the tube ahead of it. Desktop models
+   *    it as an inline PodSet on that tube (FinCanHandler.java:46-58 ctor,
+   *    :82-93 endHandler): instanceCount 1, RadiusMethod.FREE 0,
+   *    AxialMethod.BOTTOM, holding a conical shoulder + the can tube.
+   *  - <BoatTail> sitting above a <Booster> is recessed INTO that booster, so
+   *    the booster starts where the boat tail starts (BoattailHandler.java:52-65).
+   * Stacking either one end-to-end lengthened the rocket by its whole <Length>:
+   * measured, MESOS_Last_Preflight_File imported 160.82 in against the 147.32 in
+   * its own <Location> fields imply (+9.2 %), Complex.Two-Stage 74.00 against
+   * 65.00 (+13.8 %), Show-off 25.34 against 22.00 (+15.2 %) — and every CP,
+   * CG and stability number downstream of that length was wrong with it.
+   *
+   * `stationIn` is the running AFT station in inches — advanced by the parts
+   * that really occupy length (nose, body tube, inline transition/boat tail,
+   * and a whole booster stage), NOT by the two overlapping kinds. It exists to
+   * cross-check <Booster><Location> (below) and to place a fin can that is not
+   * flush with its host tube's aft end.
+   * `stationAftRadius` is the airframe's outer radius AT that station, which is
+   * the fin can's OD once a fin can is in play — the following transition's
+   * fore radius has to come from there and not from the host tube it hides
+   * (see the Transition/BoatTail branch).
+   */
+  let lastTube: ComponentNode | undefined; // last STAGE-LEVEL bodytube appended
+  let stationAftRadius: number | undefined;
+  let stationIn = 0;
+  const hasBoosterEl = Array.from(design.children).some((e) => e.tagName === 'Booster');
+
   for (const el of Array.from(design.children)) {
     switch (el.tagName) {
       case 'NoseCone': {
@@ -392,11 +424,18 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
           notes.push(`Ignored RASAero nose <BluntRadius> ${blunt} in — tip blunting is not modeled.`);
         }
         sustainer.children!.push(nose);
+        stationIn += num(el, 'Length', 12);
+        stationAftRadius = nose['aftRadius'] as number;
         break;
       }
-      case 'BodyTube':
-        sustainer.children!.push(mkTube(el, 'Body tube'));
+      case 'BodyTube': {
+        const tube = mkTube(el, 'Body tube');
+        sustainer.children!.push(tube);
+        lastTube = tube;
+        stationIn += num(el, 'Length', 12);
+        stationAftRadius = tube['outerRadius'] as number;
         break;
+      }
       case 'Transition':
       case 'BoatTail': {
         // A .CDX1 transition takes its FRONT diameter implicitly from the part
@@ -408,12 +447,21 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
         // spurious DISCONTINUITY warnings. Desktop OpenRocket resolves this with
         // setForeRadiusAutomatic(true); resolving from the preceding sibling is
         // the same thing, with <Diameter> kept only for a leading transition.
+        //
+        // …but the preceding SIBLING is no longer the preceding part once a fin
+        // can moves into a pod: the chain's last child is then the HOST tube the
+        // can hides, not the can. `stationAftRadius` is the airframe radius at
+        // the current station and knows about the can; the sibling walk stays as
+        // the fallback for a leading transition. Measured with the sibling walk
+        // alone after the fin-can fix, Complex.Two-Stage's boat tail narrowed
+        // from a 3.00 in front instead of 3.25 and MESOS's from 3.15 instead of
+        // 3.21 — both contradicting the files' own <BoatTail><Diameter>.
         const prev = sustainer.children![sustainer.children!.length - 1];
-        const prevAft = prev
+        const prevAft = stationAftRadius ?? (prev
           ? typeof prev['aftRadius'] === 'number' ? prev['aftRadius'] as number
             : typeof prev['outerRadius'] === 'number' ? prev['outerRadius'] as number
               : undefined
-          : undefined;
+          : undefined);
         const trans: ComponentNode = {
           type: 'transition', id: freshId(),
           name: el.tagName === 'BoatTail' ? 'Boat tail' : 'Transition',
@@ -425,15 +473,120 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
         };
         if (finish && finish !== 'normal') trans['finish'] = finish;
         readFin(el, trans);
+        // A <BoatTail> with a <Booster> below it is RECESSED into that booster:
+        // the booster's shoulder starts where the boat tail starts, so the boat
+        // tail occupies none of the axial chain. Desktop hangs it off the
+        // previous body tube as an inline pod, TOP / hostTube.getLength()
+        // (BoattailHandler.java:52-65) — that is exactly the node built here.
+        // Verified against the corpus: Complex.Two-Stage's <Booster><Location>
+        // 55 and Show-off's 19 both equal the aft station WITHOUT the boat tail,
+        // and were 58 / 20 when we stacked it.
+        //
+        // DELIBERATE DEVIATION FROM DESKTOP: desktop pod-ises EVERY boat tail,
+        // single-stage ones included (and inserts a phantom zero-length tube
+        // when the previous child is a nose cone or transition, :66-75). We only
+        // do it when a <Booster> follows. It is numerically free either way
+        // (ARCAS-Long - 2 measures 53.5001 in / CG 37.4201 / CP 40.6627 /
+        // 1.4412 cal inline AND pod-ised), but TreeSchematic.tsx computes the
+        // drawing's totalLen from the TOP-LEVEL chain only, so a pod that
+        // overhangs its host tube draws off the right edge and mis-scales the
+        // whole schematic. Under this narrower rule no pod this importer builds
+        // ever overhangs: the fin-can pod is bottom-flush, and a recessed boat
+        // tail is always followed by a booster stage longer than it.
+        if (el.tagName === 'BoatTail' && hasBoosterEl && lastTube) {
+          lastTube.children = [...(lastTube.children ?? []), {
+            type: 'podset', id: freshId(), name: 'Boat tail pod',
+            instanceCount: 1, radiusOffset: 0, radiusMethod: 'free', angleOffset: 0,
+            position: { method: 'top', offset: lastTube['length'] as number },
+            children: [trans],
+          } as unknown as ComponentNode];
+          notes.push('The boat tail slides inside the booster below it, so it is imported as a pod on '
+            + '“Body tube” — the booster starts where the boat tail starts, as it does in RASAero.');
+          // stationIn, stationAftRadius and lastTube all stay where they were.
+          break;
+        }
         sustainer.children!.push(trans);
+        stationIn += num(el, 'Length', 2);
+        stationAftRadius = trans['aftRadius'] as number;
         break;
       }
-      case 'FinCan':
-        // The desktop models fin cans as overlapping pod assemblies, which we
-        // don't support yet — the FIN geometry still matters aerodynamically.
-        notes.push('RASAero fin can imported as a body tube with its fins (the sliding overlap is not modeled).');
-        sustainer.children!.push(mkTube(el, 'Fin can'));
+      case 'FinCan': {
+        // A RASAero fin can is a tube that slides OVER the tube in front of it,
+        // not another tube stacked behind it. We used to push it through mkTube
+        // as an ordinary stage-level body tube and say so in a note; that added
+        // its whole <Length> to the airframe — 6 in on Complex.Two-Stage
+        // (74.00 in against the file's own 65.00), 8 in on @Buckeye's MESOS
+        // files (160.82 against 147.32), and dragged CP and stability with it.
+        //
+        // Desktop builds an inline PodSet on the previous body tube holding a
+        // conical shoulder plus the can tube — FinCanHandler.java:46-58 sets
+        // instanceCount 1, RadiusMethod.FREE radius 0, AxialMethod.BOTTOM and
+        // angleOffset 0; :82-93 prepends the shoulder (fore = InsideDiameter/2,
+        // aft = the can's own OD). A pod contributes no axial length, which is
+        // the whole point.
+        const canTube = mkTube(el, 'Fin can tube');
+        if (!lastTube) {
+          // No body tube ahead of it to slide over. Desktop THROWS here
+          // (FinCanHandler.java:39-44); we keep the old flat behaviour rather
+          // than refuse the file. No .CDX1 in the 54-design corpus does this.
+          notes.push('This file’s fin can has no body tube in front of it to slide over, so it is '
+            + 'imported as a plain body tube — it adds its own length to the rocket.');
+          sustainer.children!.push(canTube);
+          lastTube = canTube;
+          stationIn += num(el, 'Length', 12);
+          stationAftRadius = canTube['outerRadius'] as number;
+          break;
+        }
+        const shLen = num(el, 'ShoulderLength', 0) / IN;
+        const insideR = num(el, 'InsideDiameter', 0) / IN / 2;
+        const podKids: ComponentNode[] = [];
+        if (shLen > 0 && insideR > 0) {
+          podKids.push({
+            type: 'transition', id: freshId(), name: 'Fin can shoulder',
+            length: shLen, foreRadius: insideR, aftRadius: canTube['outerRadius'] as number,
+            thickness: 0.002, shape: 'conical',
+          } as unknown as ComponentNode);
+        }
+        podKids.push(canTube);
+        // Desktop hard-codes BOTTOM/0 and never reads <Location> or <Offset> —
+        // RASAeroCommonConstants has no Offset constant at all, and
+        // BaseHandler.java:52-53 parses <Location> into a field no handler
+        // reads. Across the corpus <Offset> appears ONLY on <FinCan>, in three
+        // designs, and is always −<Length> against a <Location> that is the HOST
+        // TUBE'S AFT station (MESOS −8/8 at 66.85, Complex −6/6 at 55, Show-off
+        // −2.34/2.34 at 8) — i.e. bottom-flush, desktop's answer exactly. So
+        // honour the two fields only where they DISAGREE with flush, and say so
+        // rather than silently trusting a convention nothing in the corpus
+        // exercises.
+        const locIn = num(el, 'Location', NaN);
+        const offIn = num(el, 'Offset', NaN);
+        const lenIn = num(el, 'Length', 12);
+        let bottomOffM = 0;
+        if (Number.isFinite(locIn) && Number.isFinite(offIn)) {
+          const delta = (locIn + offIn + lenIn) - stationIn; // inches; 0 in every corpus file
+          if (Math.abs(delta) > 0.001) {
+            bottomOffM = delta / IN;
+            notes.push(`This file’s fin can is not flush with the tube’s aft end — its <Location> ${locIn} `
+              + `and <Offset> ${offIn} put it ${Math.abs(delta).toFixed(3)} in `
+              + `${delta > 0 ? 'aft of' : 'ahead of'} that tube’s end. Imported that way; no RASAero file `
+              + 'we hold does this, so check it.');
+          }
+        }
+        lastTube.children = [...(lastTube.children ?? []), {
+          type: 'podset', id: freshId(), name: 'Fin can',
+          instanceCount: 1, radiusOffset: 0, radiusMethod: 'free', angleOffset: 0,
+          position: { method: 'bottom', offset: bottomOffM },
+          children: podKids,
+        } as unknown as ComponentNode];
+        notes.push('The RASAero fin can slides over the tube in front of it, so it is imported as a pod '
+          + 'on “Body tube”, flush with that tube’s aft end — it adds no length. It shows in the tree '
+          + 'as “Fin can”.');
+        // The can's OD is the airframe radius at this station now — a following
+        // boat tail narrows from IT, not from the tube it covers.
+        stationAftRadius = canTube['outerRadius'] as number;
+        // stationIn and lastTube deliberately unchanged: a pod occupies no chain.
         break;
+      }
       case 'Booster': {
         const idx = stages.length;
         const stage: ComponentNode = {
@@ -451,7 +604,8 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
             thickness: 0.002, shape: 'conical',
           } as ComponentNode);
         }
-        stage.children!.push(mkTube(el, `${stage.name} body tube`));
+        const boosterTube = mkTube(el, `${stage.name} body tube`);
+        stage.children!.push(boosterTube);
         const btLen = num(el, 'BoattailLength', 0);
         const btRear = num(el, 'BoattailRearDiameter', 0);
         if (btLen > 0 && btRear > 0) {
@@ -464,6 +618,35 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
           } as ComponentNode);
         }
         stages.push(stage);
+        /*
+         * READ-ONLY cross-check, never a reposition. <Booster><Location> is the
+         * SHOULDER start (2,4-D 70.875 with ShoulderLength 10; SS Wild Bash 47
+         * then 83 = 47 + shoulder 3 + length 33), which is exactly `stationIn`
+         * here once the fin can and a recessed boat tail have stopped inflating
+         * it. Across the 54 distinct corpus designs it agrees to <0.001 in
+         * EVERYWHERE except ThreeCarbYen-2018's second booster, whose stored
+         * 170.625 sits 2.1875 in ahead of the stack — exactly booster 1's own
+         * <ShoulderLength>, i.e. a cached <Location> RASAero never reflowed.
+         * SS Wild Bash proves the opposite convention on the same shape, so the
+         * corpus is 1-1 on the only two files that discriminate and desktop
+         * breaks the tie: BoosterHandler.java:76-86 builds the shoulder as an
+         * exposed Transition INSIDE the booster stage, which is what we build
+         * above, and no desktop handler reads <Location> at all. So say the
+         * numbers disagree and let the user decide; do not move the stage.
+         */
+        const boosterLocIn = num(el, 'Location', NaN);
+        if (Number.isFinite(boosterLocIn) && Math.abs(boosterLocIn - stationIn) > 0.01) {
+          notes.push(`${stage.name}: the file says it starts at ${boosterLocIn} in, but the parts above `
+            + `it add up to ${stationIn.toFixed(3)} in. Built from the parts — a stale <Location> is the `
+            + 'usual cause, but check this one against RASAero.');
+        }
+        stationIn += shoulderLen + num(el, 'Length', 12) + btLen;
+        stationAftRadius = (btLen > 0 && btRear > 0)
+          ? btRear / IN / 2
+          : boosterTube['outerRadius'] as number;
+        // A booster stage is its own axial chain — nothing above it can slide
+        // over a lower stage, so lastTube must not survive into it.
+        lastTube = undefined;
         break;
       }
       case 'Surface': case 'CD': case 'ModifiedBarrowman': case 'Turbulence':
@@ -979,9 +1162,13 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
         // Outside the stage's own extent is not a CG the file can mean — a
         // stage's mass is inside the stage. Either the file's numbers
         // disagree with each other or our airframe does not match the one
-        // RASAero laid out (we stack a fin can after its tube instead of
-        // sliding it over — see the fin-can note above), and in both cases
-        // the honest move is to leave the computed CG alone.
+        // RASAero laid out, and in both cases the honest move is to leave the
+        // computed CG alone. (Until v0.102 our airframe was the usual culprit:
+        // stacking the fin can and the recessed boat tail end-to-end pushed
+        // every booster stage aft of where RASAero puts it, which is what made
+        // Complex.Two-Stage's booster CG land ahead of the booster's own front.
+        // With the pods in place that file's override applies, and this branch
+        // is back to meaning what it says.)
         skipped.push(`${stageName(i)}: its stated CG ${inTxt(cg[i])} works out to `
           + `${Number.isFinite(stageCg) ? inTxt(stageCg) : 'no computable place'} into a ${inTxt(len)} `
           + 'stage once the motor and the stack above are backed out, which is outside the stage.');
@@ -1319,6 +1506,101 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
     locM += len;
   };
 
+  /**
+   * The two RASAero parts that live in an INLINE POD on a body tube rather than
+   * in the axial chain — a `<FinCan>` sliding over the tube, and a `<BoatTail>`
+   * recessed into the booster below — written back out as siblings of the
+   * `</BodyTube>` they hang off, in the corpus's own part order (fin can, then
+   * boat tail).
+   *
+   * This is the mirror of the importer's fin-can and boat-tail branches, and it
+   * has to exist in the same change: once those two stopped being stage-level
+   * children, the stage walk below (nosecone|bodytube|transition) stopped seeing
+   * them at all, and a Show-off round trip dropped from 6 parts to 5 — a new
+   * silent data loss worse than the mis-stationed `<BodyTube>` it replaced.
+   *
+   * It also goes BEYOND desktop, which loses both on export: RocketDesignDTO.java
+   * :87-120 walks `sustainer.getChild(i)` and handles only BodyTube, NoseCone
+   * and Transition — a PodSet falls to the `else` and is reported as an export
+   * error, so a desktop-imported fin can never comes back out. Round-tripping
+   * our own import matters more here than matching that.
+   *
+   * `locM` must NOT move for either — a pod occupies no axial length, which is
+   * the whole point of this item.
+   */
+  const podXml = (host: ComponentNode, hostLen: number) => {
+    for (const pod of (host.children ?? []).filter((c) => (c.type as string) === 'podset')) {
+      const kids = (pod.children ?? []).filter(
+        (c) => c.type === 'bodytube' || c.type === 'transition',
+      );
+      const pos = pod.position ?? { method: 'bottom', offset: 0 };
+      const canTube = kids.find((c) => c.type === 'bodytube');
+      const shoulder = kids[0] !== canTube && kids[0]?.type === 'transition' ? kids[0] : undefined;
+      if (canTube && (kids.length === 1 || (kids.length === 2 && shoulder
+        && nnum(shoulder, 'foreRadius', 0) <= nnum(shoulder, 'aftRadius', 0)))) {
+        // FIN CAN. <Location> is the HOST tube's aft station and <Offset> is the
+        // can's front measured from it — negative, and exactly −<Length> when
+        // the can is flush, which is what the three corpus fin cans all carry
+        // (MESOS −8/8, Complex −6/6, Show-off −2.34/2.34).
+        const canLen = nnum(canTube, 'length', 0.15);
+        const chainLen = canLen + (shoulder ? nnum(shoulder, 'length', 0) : 0);
+        // Any axial method → the can's aft end relative to the host's aft end.
+        const bottomOff = pos.method === 'bottom' ? pos.offset
+          : pos.method === 'top' ? pos.offset + chainLen - hostLen
+            : pos.method === 'middle' ? pos.offset + (chainLen - hostLen) / 2
+              : 0; // 'absolute' has no host-relative meaning here
+        const lug = (canTube.children ?? []).find((c) => c.type === 'launchlug');
+        emit('<FinCan>');
+        emit('<PartType>FinCan</PartType>');
+        emit(`<Length>${fmt(canLen * IN)}</Length>`);
+        emit(`<Diameter>${fmt(nnum(canTube, 'outerRadius', 0.012) * 2 * IN)}</Diameter>`);
+        emit(`<InsideDiameter>${fmt((shoulder ? nnum(shoulder, 'foreRadius', 0.012)
+          : nnum(host, 'outerRadius', 0.012)) * 2 * IN)}</InsideDiameter>`);
+        emit(`<LaunchLugDiameter>${fmt(lug ? nnum(lug, 'outerRadius', 0.0022) * 2 * IN : 0)}</LaunchLugDiameter>`);
+        emit(`<LaunchLugLength>${fmt(lug ? nnum(lug, 'length', 0.05) * IN : 0)}</LaunchLugLength>`);
+        emit('<RailGuideDiameter>0</RailGuideDiameter>');
+        emit('<RailGuideHeight>0</RailGuideHeight>');
+        emit('<LaunchShoeArea>0</LaunchShoeArea>');
+        emit(`<Location>${fmt((locM + hostLen) * IN)}</Location>`);
+        emit(`<ShoulderLength>${fmt((shoulder ? nnum(shoulder, 'length', 0) : 0) * IN)}</ShoulderLength>`);
+        emit(`<Offset>${fmt((bottomOff - canLen) * IN)}</Offset>`);
+        emit('<Color>Black</Color>');
+        // No <Protuberance> here: no RASAero-written fin can in the 54-design
+        // corpus carries one, and this parser is rigid — the same reasoning
+        // that keeps the block out of <Booster>.
+        finXml(canTube);
+        emit('</FinCan>');
+        continue;
+      }
+      const bt = kids.length === 1 && kids[0]!.type === 'transition' ? kids[0]! : undefined;
+      if (bt && nnum(bt, 'foreRadius', 0) > nnum(bt, 'aftRadius', 0)) {
+        // RECESSED BOAT TAIL. The importer builds it TOP / hostLen, so its
+        // <Location> is the host tube's aft station — the same station the
+        // <Booster> below it claims, which is exactly the overlap.
+        const topOff = pos.method === 'top' ? pos.offset
+          : pos.method === 'bottom' ? pos.offset + hostLen - nnum(bt, 'length', 0.04)
+            : pos.method === 'middle' ? pos.offset + (hostLen - nnum(bt, 'length', 0.04)) / 2
+              : 0;
+        if (String(bt['shape'] ?? 'conical') !== 'conical') {
+          throw new Error('RASAero boat tails must be conical — change the shape or export as .ork/.rkt.');
+        }
+        emit('<BoatTail>');
+        emit('<PartType>BoatTail</PartType>');
+        emit(`<Length>${fmt(nnum(bt, 'length', 0.04) * IN)}</Length>`);
+        emit(`<Diameter>${fmt(nnum(bt, 'foreRadius', 0.012) * 2 * IN)}</Diameter>`);
+        emit(`<RearDiameter>${fmt(nnum(bt, 'aftRadius', 0.009) * 2 * IN)}</RearDiameter>`);
+        emit(`<Location>${fmt((locM + topOff) * IN)}</Location>`);
+        emit('<Color>Black</Color>');
+        finXml(bt); // RASAero boat tails carry fins too
+        emit('</BoatTail>');
+        continue;
+      }
+      // Any other pod (a real off-axis assembly the user built by hand) has no
+      // RASAero representation and drops, the same way the stage walk drops
+      // internals — RASAero's airframe is one axial chain plus these two.
+    }
+  };
+
   const tubeXml = (node: ComponentNode) => {
     const len = nnum(node, 'length', 0.2);
     emit('<BodyTube>');
@@ -1340,6 +1622,7 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
     finXml(node);
     protuberanceXml(node);
     emit('</BodyTube>');
+    podXml(node, len);
     locM += len;
   };
 
@@ -1410,9 +1693,16 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
     emit('<RailGuideDiameter>0</RailGuideDiameter>');
     emit('<RailGuideHeight>0</RailGuideHeight>');
     emit('<LaunchShoeArea>0</LaunchShoeArea>');
-    // The booster body starts after the shoulder (which slides into the
-    // stage above in RASAero's model).
-    emit(`<Location>${fmt((locM + shoulderLen) * IN)}</Location>`);
+    // <Booster><Location> is the SHOULDER START, not the body start. The corpus
+    // says so unambiguously — 2,4-D 70.875 with ShoulderLength 10, 38-54 38.5
+    // with 4, 50k 48 with 4, Rockoon 26 with 10, and SS Wild Bash's second
+    // booster 83 = 47 + shoulder 3 + length 33 — and so does desktop's writer
+    // (BoosterDTO.java:116 takes `stage.getChild(0)`, which IS the shoulder,
+    // and :218 writes its ABSOLUTE axial offset as the Location). We used
+    // to add the shoulder length here, on the theory that the shoulder slid up
+    // into the stage above; it does not, and the round trip walked the booster
+    // one shoulder aft on every export→import.
+    emit(`<Location>${fmt(locM * IN)}</Location>`);
     emit('<Color>Black</Color>');
     emit(`<ShoulderLength>${fmt(shoulderLen * IN)}</ShoulderLength>`);
     emit('<NozzleExitDiameter>0</NozzleExitDiameter>');

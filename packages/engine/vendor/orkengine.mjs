@@ -40660,7 +40660,7 @@ otcic_JSStderrPrintStream_print = ($this, $s) => {
 },
 a_ComponentFactory = $rt_classWithoutFields(),
 a_ComponentFactory_create = $node => {
-    let $type, var$3, $c, var$5, var$6, $shapeParam, $shR, $shL, $shT, $clippedRaw, $fore, $aft, $fShR, $fShL, $aShR, $aShL, var$18, var$19, $rawPoints, $list, $pts, $i, $row, var$25, var$26, var$27, var$28, $or, $tubeRot, $clusterName, $cc, var$33, $known, $ir, $od, $cd, $chuteSurf, $chuteLine, $streamerSurf, $cordLine, $name, $density, $m, $finish, $fs, $rot, $section, $s, $filletRadius, $filletDensity, $position;
+    let $type, var$3, $c, var$5, var$6, $shapeParam, $shR, $shL, $shT, $clippedRaw, $fore, $aft, $fShR, $fShL, $aShR, $aShL, var$18, var$19, $rawPoints, $list, $pts, $i, $row, var$25, var$26, var$27, var$28, $or, $tubeRot, $clusterName, $cc, var$33, $known, $od, $cd, $chuteSurf, $chuteLine, $streamerSurf, $cordLine, $name, $density, $m, $finish, $fs, $rot, $section, $s, $filletRadius, $filletDensity, $position;
     a: {
         $type = a_JsonLite_str($node, $rt_s(741), $rt_s(13));
         var$3 = (-1);
@@ -40909,7 +40909,6 @@ a_ComponentFactory_create = $node => {
                 $c = iocr_InnerTube__init_();
                 iocr_RingComponent_setLength($c, a_JsonLite_dbl($node, $rt_s(806), 0.07));
                 $c.$setOuterRadius(a_JsonLite_dbl($node, $rt_s(1417), 0.0095));
-                $c.$setThickness(a_JsonLite_dbl($node, $rt_s(1403), 5.0E-4));
                 $c.$setMotorMount(a_JsonLite_bool($node, $rt_s(1418), 0));
                 $c.$setMotorOverhang(a_JsonLite_dbl($node, $rt_s(1419), 0.0));
                 $clusterName = a_JsonLite_str($node, $rt_s(1431), null);
@@ -40951,17 +40950,10 @@ a_ComponentFactory_create = $node => {
                     $c.$setOuterRadius($or);
                 else
                     $c.$setOuterRadiusAutomatic(1);
-                $c.$setThickness(a_JsonLite_dbl($node, $rt_s(1403), 5.0E-4));
                 break b;
             case 9:
                 $c = iocr_CenteringRing__init_0();
                 iocr_RingComponent_setLength($c, a_JsonLite_dbl($node, $rt_s(806), 0.002));
-                $or = a_JsonLite_dbl($node, $rt_s(1417), NaN);
-                if (!(isNaN($or) ? 1 : 0))
-                    $c.$setOuterRadius($or);
-                $ir = a_JsonLite_dbl($node, $rt_s(1435), NaN);
-                if (!(isNaN($ir) ? 1 : 0))
-                    $c.$setInnerRadius($ir);
                 break b;
             case 10:
                 $c = iocr_Bulkhead__init_0();
@@ -40976,7 +40968,6 @@ a_ComponentFactory_create = $node => {
                 $or = a_JsonLite_dbl($node, $rt_s(1417), NaN);
                 if (!(isNaN($or) ? 1 : 0))
                     $c.$setOuterRadius($or);
-                $c.$setThickness(a_JsonLite_dbl($node, $rt_s(1403), 9.5E-4));
                 break b;
             case 12:
                 $c = iocr_LaunchLug__init_0();
@@ -40987,59 +40978,59 @@ a_ComponentFactory_create = $node => {
                 break b;
             case 13:
                 $c = iocr_RailButton__init_0();
-                $od = a_JsonLite_dbl($node, $rt_s(1436), NaN);
+                $od = a_JsonLite_dbl($node, $rt_s(1435), NaN);
                 if (!(isNaN($od) ? 1 : 0))
                     $c.$setOuterDiameter($od);
                 a_ComponentFactory_applyLineInstances($c, $node);
                 break b;
             case 14:
                 $c = iocr_Parachute__init_();
-                $c.$setDiameter0(a_JsonLite_dbl($node, $rt_s(1437), 0.3));
-                $cd = a_JsonLite_dbl($node, $rt_s(1438), NaN);
+                $c.$setDiameter0(a_JsonLite_dbl($node, $rt_s(1436), 0.3));
+                $cd = a_JsonLite_dbl($node, $rt_s(1437), NaN);
                 if (!(isNaN($cd) ? 1 : 0))
                     $c.$setCD($cd);
-                iocr_Parachute_setLineCount($c, a_JsonLite_dbl($node, $rt_s(1439), 6.0) | 0);
-                iocr_Parachute_setLineLength($c, a_JsonLite_dbl($node, $rt_s(1440), 0.3));
-                $chuteSurf = a_JsonLite_dbl($node, $rt_s(1441), NaN);
+                iocr_Parachute_setLineCount($c, a_JsonLite_dbl($node, $rt_s(1438), 6.0) | 0);
+                iocr_Parachute_setLineLength($c, a_JsonLite_dbl($node, $rt_s(1439), 0.3));
+                $chuteSurf = a_JsonLite_dbl($node, $rt_s(1440), NaN);
                 if (!(isNaN($chuteSurf) ? 1 : 0)) {
                     iocm_Material$Type_$callClinit();
                     var$25 = iocm_Material$Type_SURFACE;
-                    var$5 = a_JsonLite_str($node, $rt_s(1442), $rt_s(1443));
+                    var$5 = a_JsonLite_str($node, $rt_s(1441), $rt_s(1442));
                     iocr_RecoveryDevice_setMaterial($c, iocm_Material_newMaterial(var$25, var$5, $chuteSurf, 1));
                 }
-                $chuteLine = a_JsonLite_dbl($node, $rt_s(1444), NaN);
+                $chuteLine = a_JsonLite_dbl($node, $rt_s(1443), NaN);
                 if (!(isNaN($chuteLine) ? 1 : 0)) {
                     iocm_Material$Type_$callClinit();
                     var$25 = iocm_Material$Type_LINE;
-                    var$5 = a_JsonLite_str($node, $rt_s(1445), $rt_s(1443));
+                    var$5 = a_JsonLite_str($node, $rt_s(1444), $rt_s(1442));
                     iocr_Parachute_setLineMaterial($c, iocm_Material_newMaterial(var$25, var$5, $chuteLine, 1));
                 }
                 a_ComponentFactory_applyDeployment($c, $node);
                 break b;
             case 15:
                 $c = iocr_Streamer__init_0();
-                $c.$setStripLength(a_JsonLite_dbl($node, $rt_s(1446), 0.5));
-                $c.$setStripWidth(a_JsonLite_dbl($node, $rt_s(1447), 0.05));
-                $cd = a_JsonLite_dbl($node, $rt_s(1438), NaN);
+                $c.$setStripLength(a_JsonLite_dbl($node, $rt_s(1445), 0.5));
+                $c.$setStripWidth(a_JsonLite_dbl($node, $rt_s(1446), 0.05));
+                $cd = a_JsonLite_dbl($node, $rt_s(1437), NaN);
                 if (!(isNaN($cd) ? 1 : 0))
                     $c.$setCD($cd);
-                $streamerSurf = a_JsonLite_dbl($node, $rt_s(1441), NaN);
+                $streamerSurf = a_JsonLite_dbl($node, $rt_s(1440), NaN);
                 if (!(isNaN($streamerSurf) ? 1 : 0)) {
                     iocm_Material$Type_$callClinit();
                     var$25 = iocm_Material$Type_SURFACE;
-                    var$5 = a_JsonLite_str($node, $rt_s(1442), $rt_s(1443));
+                    var$5 = a_JsonLite_str($node, $rt_s(1441), $rt_s(1442));
                     iocr_RecoveryDevice_setMaterial($c, iocm_Material_newMaterial(var$25, var$5, $streamerSurf, 1));
                 }
                 a_ComponentFactory_applyDeployment($c, $node);
                 break b;
             case 16:
                 $c = iocr_ShockCord__init_0();
-                $c.$setCordLength(a_JsonLite_dbl($node, $rt_s(1448), 0.3));
-                $cordLine = a_JsonLite_dbl($node, $rt_s(1444), NaN);
+                $c.$setCordLength(a_JsonLite_dbl($node, $rt_s(1447), 0.3));
+                $cordLine = a_JsonLite_dbl($node, $rt_s(1443), NaN);
                 if (!(isNaN($cordLine) ? 1 : 0)) {
                     iocm_Material$Type_$callClinit();
                     var$25 = iocm_Material$Type_LINE;
-                    var$5 = a_JsonLite_str($node, $rt_s(1445), $rt_s(1443));
+                    var$5 = a_JsonLite_str($node, $rt_s(1444), $rt_s(1442));
                     $c.$setMaterial(iocm_Material_newMaterial(var$25, var$5, $cordLine, 1));
                 }
                 break b;
@@ -41047,7 +41038,7 @@ a_ComponentFactory_create = $node => {
                 $c = iocr_MassComponent__init_0();
                 $c.$setComponentMass(a_JsonLite_dbl($node, $rt_s(807), 0.01));
                 $c.$setLength(a_JsonLite_dbl($node, $rt_s(806), 0.02));
-                $c.$setRadius(a_JsonLite_dbl($node, $rt_s(1449), 0.005));
+                $c.$setRadius(a_JsonLite_dbl($node, $rt_s(1448), 0.005));
                 break b;
             case 18:
                 $c = iocr_PodSet__init_0();
@@ -41059,25 +41050,25 @@ a_ComponentFactory_create = $node => {
         }
         var$25 = new jl_IllegalArgumentException;
         var$5 = jl_StringBuilder__init_();
-        jl_StringBuilder_append0(jl_StringBuilder_append(jl_StringBuilder_append(var$5, $rt_s(1450)), $type), 39);
+        jl_StringBuilder_append0(jl_StringBuilder_append(jl_StringBuilder_append(var$5, $rt_s(1449)), $type), 39);
         jl_IllegalArgumentException__init_(var$25, jl_StringBuilder_toString(var$5));
         $rt_throw(var$25);
     }
     $name = a_JsonLite_str($node, $rt_s(722), null);
     if ($name !== null)
         iocr_RocketComponent_setName($c, $name);
-    $density = a_JsonLite_dbl($node, $rt_s(1451), NaN);
+    $density = a_JsonLite_dbl($node, $rt_s(1450), NaN);
     if (!(isNaN($density) ? 1 : 0) && $density > 0.0) {
         iocm_Material$Type_$callClinit();
         var$25 = iocm_Material$Type_BULK;
-        var$5 = a_JsonLite_str($node, $rt_s(1452), $rt_s(1443));
+        var$5 = a_JsonLite_str($node, $rt_s(1451), $rt_s(1442));
         $m = iocm_Material_newMaterial(var$25, var$5, $density, 1);
         if ($c instanceof iocr_ExternalComponent)
             $c.$setMaterial($m);
         else if ($c instanceof iocr_StructuralComponent)
             iocr_StructuralComponent_setMaterial($c, $m);
     }
-    $finish = a_JsonLite_str($node, $rt_s(1453), null);
+    $finish = a_JsonLite_str($node, $rt_s(1452), null);
     if ($finish !== null && $c instanceof iocr_ExternalComponent)
         $c.$setFinish(a_ComponentFactory_finishOf($finish));
     if ($c instanceof iocr_FinSet) {
@@ -41086,7 +41077,7 @@ a_ComponentFactory_create = $node => {
         if ($rot !== 0.0)
             $fs.$setBaseRotation($rot);
         e: {
-            $section = a_JsonLite_str($node, $rt_s(1454), null);
+            $section = a_JsonLite_str($node, $rt_s(1453), null);
             if ($section !== null) {
                 f: {
                     $s = jl_String_toLowerCase($section);
@@ -41138,68 +41129,68 @@ a_ComponentFactory_create = $node => {
                 }
                 var$25 = new jl_IllegalArgumentException;
                 var$5 = jl_StringBuilder__init_();
-                jl_StringBuilder_append0(jl_StringBuilder_append(jl_StringBuilder_append(var$5, $rt_s(1455)), $section), 39);
+                jl_StringBuilder_append0(jl_StringBuilder_append(jl_StringBuilder_append(var$5, $rt_s(1454)), $section), 39);
                 jl_IllegalArgumentException__init_(var$25, jl_StringBuilder_toString(var$5));
                 $rt_throw(var$25);
             }
         }
-        $fs.$setAirfoilLeDiamond(a_JsonLite_dbl($node, $rt_s(1456), 0.0));
-        $fs.$setAirfoilTeDiamond(a_JsonLite_dbl($node, $rt_s(1457), 0.0));
-        $fs.$setFinLeRadius(a_JsonLite_dbl($node, $rt_s(1458), 0.0));
-        $filletRadius = a_JsonLite_dbl($node, $rt_s(1459), 0.0);
+        $fs.$setAirfoilLeDiamond(a_JsonLite_dbl($node, $rt_s(1455), 0.0));
+        $fs.$setAirfoilTeDiamond(a_JsonLite_dbl($node, $rt_s(1456), 0.0));
+        $fs.$setFinLeRadius(a_JsonLite_dbl($node, $rt_s(1457), 0.0));
+        $filletRadius = a_JsonLite_dbl($node, $rt_s(1458), 0.0);
         if ($filletRadius > 0.0) {
             $fs.$setFilletRadius($filletRadius);
-            $filletDensity = a_JsonLite_dbl($node, $rt_s(1460), NaN);
+            $filletDensity = a_JsonLite_dbl($node, $rt_s(1459), NaN);
             if (!(isNaN($filletDensity) ? 1 : 0) && $filletDensity > 0.0) {
                 iocm_Material$Type_$callClinit();
                 var$25 = iocm_Material$Type_BULK;
-                var$5 = a_JsonLite_str($node, $rt_s(1461), $rt_s(1443));
+                var$5 = a_JsonLite_str($node, $rt_s(1460), $rt_s(1442));
                 $fs.$setFilletMaterial(iocm_Material_newMaterial(var$25, var$5, $filletDensity, 1));
             }
         }
     }
     a_ComponentFactory_applyOverrides($c, $node);
-    $position = a_JsonLite_obj($node, $rt_s(1462));
+    $position = a_JsonLite_obj($node, $rt_s(1461));
     if ($position !== null && !($c instanceof iocr_ComponentAssembly)) {
-        $c.$setAxialMethod(a_ComponentFactory_axialMethodOf(a_JsonLite_str($position, $rt_s(1463), $rt_s(1464))));
-        $c.$setAxialOffset0(a_JsonLite_dbl($position, $rt_s(1465), 0.0));
+        $c.$setAxialMethod(a_ComponentFactory_axialMethodOf(a_JsonLite_str($position, $rt_s(1462), $rt_s(1463))));
+        $c.$setAxialOffset0(a_JsonLite_dbl($position, $rt_s(1464), 0.0));
     }
     return $c;
 },
 a_ComponentFactory_applyOverrides = ($c, $node) => {
     let $overrideMass, $overrideCGX, $overrideCD;
-    $overrideMass = a_JsonLite_dbl($node, $rt_s(1466), NaN);
+    $overrideMass = a_JsonLite_dbl($node, $rt_s(1465), NaN);
     if (!(isNaN($overrideMass) ? 1 : 0)) {
         iocr_RocketComponent_setOverrideMass($c, $overrideMass);
         iocr_RocketComponent_setMassOverridden($c, 1);
     }
-    $overrideCGX = a_JsonLite_dbl($node, $rt_s(1467), NaN);
+    $overrideCGX = a_JsonLite_dbl($node, $rt_s(1466), NaN);
     if (!(isNaN($overrideCGX) ? 1 : 0)) {
         iocr_RocketComponent_setOverrideCGX($c, $overrideCGX);
         iocr_RocketComponent_setCGOverridden($c, 1);
     }
-    $overrideCD = a_JsonLite_dbl($node, $rt_s(1468), NaN);
+    $overrideCD = a_JsonLite_dbl($node, $rt_s(1467), NaN);
     if (!(isNaN($overrideCD) ? 1 : 0)) {
         iocr_RocketComponent_setOverrideCD($c, $overrideCD);
         iocr_RocketComponent_setCDOverridden($c, 1);
     }
-    if (a_JsonLite_bool($node, $rt_s(1469), 0))
+    if (a_JsonLite_bool($node, $rt_s(1468), 0))
         $c.$setSubcomponentsOverriddenMass(1);
-    if (a_JsonLite_bool($node, $rt_s(1470), 0))
+    if (a_JsonLite_bool($node, $rt_s(1469), 0))
         $c.$setSubcomponentsOverriddenCG(1);
-    if (a_JsonLite_bool($node, $rt_s(1471), 0))
+    if (a_JsonLite_bool($node, $rt_s(1470), 0))
         $c.$setSubcomponentsOverriddenCD(1);
 },
 a_ComponentFactory_applyDeployment = ($device, $node) => {
     let $config, $event, $altitude, $delay;
     $config = ($device.$getDeploymentConfigurations()).$getDefault();
-    $event = a_JsonLite_str($node, $rt_s(1472), null);
+    $event = a_JsonLite_str($node, $rt_s(1471), null);
     if ($event !== null)
         $config.$setDeployEvent(a_ComponentFactory_deployEventOf($event));
-    $altitude = a_JsonLite_dbl($node, $rt_s(1473), NaN);
+    $altitude = a_JsonLite_dbl($node, $rt_s(1472), NaN);
     if (!(isNaN($altitude) ? 1 : 0))
         $config.$setDeployAltitude($altitude);
-    $delay = a_JsonLite_dbl($node, $rt_s(1474), NaN);
+    $delay = a_JsonLite_dbl($node, $rt_s(1473), NaN);
     if (!(isNaN($delay) ? 1 : 0))
         $config.$setDeployDelay($delay);
 },
@@ -41215,17 +41206,17 @@ a_ComponentFactory_deployEventOf = $name => {
                 var$3 = 4;
                 break a;
             case -1411096281:
-                if (!jl_String_equals(var$2, $rt_s(1475)))
+                if (!jl_String_equals(var$2, $rt_s(1474)))
                     break a;
                 var$3 = 1;
                 break a;
             case -1109843021:
-                if (!jl_String_equals(var$2, $rt_s(1476)))
+                if (!jl_String_equals(var$2, $rt_s(1475)))
                     break a;
                 var$3 = 0;
                 break a;
             case 104712844:
-                if (!jl_String_equals(var$2, $rt_s(1477)))
+                if (!jl_String_equals(var$2, $rt_s(1476)))
                     break a;
                 var$3 = 3;
                 break a;
@@ -41308,7 +41299,7 @@ a_ComponentFactory_finishOf = $name => {
                 var$3 = 2;
                 break a;
             case 1086463900:
-                if (!jl_String_equals(var$2, $rt_s(1478)))
+                if (!jl_String_equals(var$2, $rt_s(1477)))
                     break a;
                 var$3 = 9;
                 break a;
@@ -41359,7 +41350,7 @@ a_ComponentFactory_finishOf = $name => {
 },
 a_ComponentFactory_attachChildren = ($parent, $node, $idIndex) => {
     let $kids, var$5, $kid, $child, $id;
-    $kids = a_JsonLite_objList($node, $rt_s(1479));
+    $kids = a_JsonLite_objList($node, $rt_s(1478));
     var$5 = $kids.$iterator();
     while (var$5.$hasNext()) {
         $kid = var$5.$next();
@@ -41369,7 +41360,10 @@ a_ComponentFactory_attachChildren = ($parent, $node, $idIndex) => {
             a_ComponentFactory_applyAssembly($child, $kid);
         if ($child instanceof iocr_FinSet)
             a_ComponentFactory_applyFinTabs($child, $kid);
-        $id = a_JsonLite_str($kid, $rt_s(1480), null);
+        a_ComponentFactory_applyPostAttachDimensions($child, $kid);
+        if ($child instanceof iocr_TubeFinSet)
+            a_ComponentFactory_applyTubeFinThickness($child, $kid);
+        $id = a_JsonLite_str($kid, $rt_s(1479), null);
         if ($id !== null)
             $idIndex.$put($id, $child);
         a_ComponentFactory_attachChildren($child, $kid, $idIndex);
@@ -41377,15 +41371,76 @@ a_ComponentFactory_attachChildren = ($parent, $node, $idIndex) => {
 },
 a_ComponentFactory_applyFinTabs = ($fins, $node) => {
     let $tabHeight, $tabLength;
-    $tabHeight = a_JsonLite_dbl($node, $rt_s(1481), 0.0);
-    $tabLength = a_JsonLite_dbl($node, $rt_s(1482), 0.0);
+    $tabHeight = a_JsonLite_dbl($node, $rt_s(1480), 0.0);
+    $tabLength = a_JsonLite_dbl($node, $rt_s(1481), 0.0);
     if (!($tabHeight <= 0.0) && !($tabLength <= 0.0)) {
-        $fins.$setTabOffsetMethod(a_ComponentFactory_axialMethodOf(a_JsonLite_str($node, $rt_s(1483), $rt_s(1484))));
+        $fins.$setTabOffsetMethod(a_ComponentFactory_axialMethodOf(a_JsonLite_str($node, $rt_s(1482), $rt_s(1483))));
         $fins.$setTabLength0($tabLength);
-        $fins.$setTabOffset(a_JsonLite_dbl($node, $rt_s(1485), 0.0));
+        $fins.$setTabOffset(a_JsonLite_dbl($node, $rt_s(1484), 0.0));
         $fins.$setTabHeight0($tabHeight);
         return;
     }
+},
+a_ComponentFactory_applyPostAttachDimensions = ($child, $node) => {
+    let var$3, var$4, $ring, $or, $ir;
+    a: {
+        var$3 = a_JsonLite_str($node, $rt_s(741), $rt_s(13));
+        var$4 = (-1);
+        switch (jl_String_hashCode(var$3)) {
+            case -526994982:
+                if (!jl_String_equals(var$3, $rt_s(1388)))
+                    break a;
+                var$4 = 0;
+                break a;
+            case 340985262:
+                if (!jl_String_equals(var$3, $rt_s(1389)))
+                    break a;
+                var$4 = 1;
+                break a;
+            case 647486237:
+                if (!jl_String_equals(var$3, $rt_s(1392)))
+                    break a;
+                var$4 = 3;
+                break a;
+            case 1703666571:
+                if (!jl_String_equals(var$3, $rt_s(1395)))
+                    break a;
+                var$4 = 2;
+                break a;
+            default:
+        }
+    }
+    b: {
+        switch (var$4) {
+            case 0:
+                break;
+            case 1:
+                $child.$setThickness(a_JsonLite_dbl($node, $rt_s(1403), 5.0E-4));
+                break b;
+            case 2:
+                $child.$setThickness(a_JsonLite_dbl($node, $rt_s(1403), 9.5E-4));
+                break b;
+            case 3:
+                $ring = $child;
+                $or = a_JsonLite_dbl($node, $rt_s(1417), NaN);
+                if (!(isNaN($or) ? 1 : 0))
+                    $ring.$setOuterRadius($or);
+                $ir = a_JsonLite_dbl($node, $rt_s(1485), NaN);
+                if (isNaN($ir) ? 1 : 0)
+                    break b;
+                $ring.$setInnerRadius($ir);
+                break b;
+            default:
+                break b;
+        }
+        $child.$setThickness(a_JsonLite_dbl($node, $rt_s(1403), 5.0E-4));
+    }
+},
+a_ComponentFactory_applyTubeFinThickness = ($fins, $node) => {
+    let $thickness;
+    $thickness = a_JsonLite_dbl($node, $rt_s(1403), NaN);
+    if (!(isNaN($thickness) ? 1 : 0))
+        $fins.$setThickness($thickness);
 },
 a_ComponentFactory_applyLineInstances = ($li, $node) => {
     let $count;
@@ -41405,10 +41460,10 @@ a_ComponentFactory_applyAssembly = ($child, $node) => {
     var$4 = $child instanceof iocr_ParallelStage;
     if (var$4)
         $ring.$setAngleMethod(a_ComponentFactory_angleMethodOf(a_JsonLite_str($node, $rt_s(1492), $rt_s(1489))));
-    $position = a_JsonLite_obj($node, $rt_s(1462));
+    $position = a_JsonLite_obj($node, $rt_s(1461));
     if ($position !== null) {
-        $child.$setAxialMethod(a_ComponentFactory_axialMethodOf(a_JsonLite_str($position, $rt_s(1463), $rt_s(1493))));
-        $child.$setAxialOffset0(a_JsonLite_dbl($position, $rt_s(1465), 0.0));
+        $child.$setAxialMethod(a_ComponentFactory_axialMethodOf(a_JsonLite_str($position, $rt_s(1462), $rt_s(1493))));
+        $child.$setAxialOffset0(a_JsonLite_dbl($position, $rt_s(1464), 0.0));
     }
     if (var$4)
         a_OrkEngine_applySeparationConfig($child, $node);
@@ -41617,12 +41672,12 @@ a_ComponentFactory_axialMethodOf = $name => {
                 var$3 = 2;
                 break a;
             case -1074341483:
-                if (!jl_String_equals(var$2, $rt_s(1484)))
+                if (!jl_String_equals(var$2, $rt_s(1483)))
                     break a;
                 var$3 = 1;
                 break a;
             case 115029:
-                if (!jl_String_equals(var$2, $rt_s(1464)))
+                if (!jl_String_equals(var$2, $rt_s(1463)))
                     break a;
                 var$3 = 3;
                 break a;
@@ -50161,7 +50216,7 @@ a_OrkEngine_buildRocket = $treeJson => {
                 iocr_RocketComponent_addChild($rocket, $stage);
                 if ($firstStage === null)
                     $firstStage = $stage;
-                $stageId = a_JsonLite_str(var$8, $rt_s(1480), null);
+                $stageId = a_JsonLite_str(var$8, $rt_s(1479), null);
                 if ($stageId !== null)
                     $ids.$put($stageId, $stage);
                 a_OrkEngine_applySeparationConfig($stage, var$8);
@@ -50178,7 +50233,7 @@ a_OrkEngine_buildRocket = $treeJson => {
     $ctx.$ids.$putAll($ids);
     if (!$staged) {
         $stageNode = ju_LinkedHashMap__init_();
-        $stageNode.$put($rt_s(1479), $tree.$get($rt_s(702)));
+        $stageNode.$put($rt_s(1478), $tree.$get($rt_s(702)));
         a_ComponentFactory_attachChildren($firstStage, $stageNode, $ctx.$ids);
     }
     $rocket.$enableEvents();
@@ -50227,17 +50282,17 @@ a_OrkEngine_separationEventOf = $name => {
                 var$3 = 1;
                 break a;
             case -1411096281:
-                if (!jl_String_equals(var$2, $rt_s(1475)))
+                if (!jl_String_equals(var$2, $rt_s(1474)))
                     break a;
                 var$3 = 6;
                 break a;
             case -1109843021:
-                if (!jl_String_equals(var$2, $rt_s(1476)))
+                if (!jl_String_equals(var$2, $rt_s(1475)))
                     break a;
                 var$3 = 0;
                 break a;
             case 104712844:
-                if (!jl_String_equals(var$2, $rt_s(1477)))
+                if (!jl_String_equals(var$2, $rt_s(1476)))
                     break a;
                 var$3 = 8;
                 break a;
@@ -50383,7 +50438,7 @@ a_OrkEngine_applyMotor = ($ctx, $mount, $designation, $diameter, $length, $times
         $i = $i + 1 | 0;
     }
     var$15 = iocm_ThrustCurveMotor$Builder__init_0();
-    var$15 = var$15.$setManufacturer(iocm_Manufacturer_getManufacturer($rt_s(1443)));
+    var$15 = var$15.$setManufacturer(iocm_Manufacturer_getManufacturer($rt_s(1442)));
     var$15 = var$15.$setDesignation($designation);
     var$15 = var$15.$setCommonName($designation);
     iocm_Motor$Type_$callClinit();
@@ -50439,12 +50494,12 @@ a_OrkEngine_ignitionEventOf = $name => {
         var$3 = (-1);
         switch (jl_String_hashCode(var$2)) {
             case -1109843021:
-                if (!jl_String_equals(var$2, $rt_s(1476)))
+                if (!jl_String_equals(var$2, $rt_s(1475)))
                     break a;
                 var$3 = 1;
                 break a;
             case 104712844:
-                if (!jl_String_equals(var$2, $rt_s(1477)))
+                if (!jl_String_equals(var$2, $rt_s(1476)))
                     break a;
                 var$3 = 4;
                 break a;
@@ -50979,7 +51034,7 @@ a_OrkEngine_setBulkMaterial = ($c, $density) => {
     if ($density <= 0.0)
         return;
     iocm_Material$Type_$callClinit();
-    $m = iocm_Material_newMaterial(iocm_Material$Type_BULK, $rt_s(1443), $density, 1);
+    $m = iocm_Material_newMaterial(iocm_Material$Type_BULK, $rt_s(1442), $density, 1);
     if ($c instanceof iocr_ExternalComponent)
         $c.$setMaterial($m);
     else if ($c instanceof iocr_StructuralComponent)
@@ -51238,13 +51293,14 @@ let a_OrkEngine__clinit_ = () => {
     ju_HashSet__init_0(var$1, ju_Arrays_asList(var$2));
     a_OrkEngine_FRIENDLY_NAMED_TYPES = var$1;
     var$4 = new ju_HashSet;
-    var$2 = $rt_createArray(iocs_FlightDataType, 5);
+    var$2 = $rt_createArray(iocs_FlightDataType, 6);
     var$3 = var$2.data;
     var$3[0] = iocs_FlightDataType_TYPE_POSITION_XY;
     var$3[1] = iocs_FlightDataType_TYPE_POSITION_DIRECTION;
     var$3[2] = iocs_FlightDataType_TYPE_POSITION_X;
     var$3[3] = iocs_FlightDataType_TYPE_POSITION_Y;
     var$3[4] = iocs_FlightDataType_TYPE_ROLL_RATE;
+    var$3[5] = iocs_FlightDataType_TYPE_VELOCITY_Z;
     ju_HashSet__init_0(var$4, ju_Arrays_asList(var$2));
     a_OrkEngine_SUMMARY_SYMBOL_TYPES = var$4;
 },
@@ -55076,10 +55132,10 @@ $rt_stringPool(["Can\'t enter monitor from another thread synchronously", "(this
 "WCH", "WCR", "WEST COAST", "WEST COAST HYBRID", "WECO Feuerwerk", "WECO", "WECO FEUERWERKS", "SF", "SACHSEN", "SACHSEN FEUERWERK", "SACHSEN FEUERWERKS", "Pressure must be positive (Pascals)", "Temperature must be positive (Kelvin)", "CloneNotSupportedException encountered!", "AtmosphericConditions[T=%.2f,P=%.2f]", "initializing GroundStepper", "step:  position=", ", velocity=", "FreeformFinSet.FreeformFinSet", "request validation of non-existent fin edge segment: ", "Found intersection at %d-%d and %d-%d",
 "                   between (%g, %g) => (%g, %g)", "                       and (%g, %g) => (%g, %g)", "EOI", "%32s / %4s - %s", "No interpolation points defined.", "Wrong number of arguments ", " expected ", "Invalid UUID string: ", "^", "railbutton", "transition", "bulkhead", "ellipticalfinset", "masscomponent", "podset", "tubefinset", "launchlug", "innertube", "tubecoupler", "freeformfinset", "parallelstage", "centeringring", "nosecone", "bodytube", "engineblock", "streamer", "shockcord", "parachute", "trapezoidfinset",
 "shape", "ogive", "aftRadius", "thickness", "shapeParameter", "filled", "shoulderRadius", "shoulderLength", "shoulderThickness", "shoulderCapped", "conical", "clipped", "foreRadius", "foreShoulderRadius", "foreShoulderLength", "aftShoulderRadius", "aftShoulderLength", "outerRadius", "motorMount", "motorOverhang", "finCount", "rootChord", "tipChord", "sweep", "height", "cant", "crossSection", "points", "freeformfinset needs at least 3 points", "freeformfinset points must be [[x,y],...] numbers", "rotation", "cluster",
-"Unknown cluster configuration: ", "clusterScale", "clusterRotation", "innerRadius", "outerDiameter", "diameter", "cd", "lineCount", "lineLength", "surfaceDensity", "surfaceMaterialName", "custom", "lineDensity", "lineMaterialName", "stripLength", "stripWidth", "cordLength", "radius", "Unknown component type: \'", "density", "materialName", "finish", "airfoilSection", "Unknown airfoilSection \'", "airfoilLeDiamond", "airfoilTeDiamond", "finLeRadius", "filletRadius", "filletDensity", "filletMaterialName", "position",
-"method", "top", "offset", "overrideMass", "overrideCGX", "overrideCD", "overrideSubcomponentsMass", "overrideSubcomponentsCG", "overrideSubcomponentsCD", "deployEvent", "deployAltitude", "deployDelay", "apogee", "launch", "never", "regular", "children", "id", "tabHeight", "tabLength", "tabOffsetMethod", "middle", "tabOffset", "instanceCount", "instanceSeparation", "radiusMethod", "relative", "radiusOffset", "angleOffset", "angleMethod", "bottom", "surface", "free", "coaxial", "fixed", "haack", "power", "ellipsoid",
-"parabolic", "absolute", "setShapeType called with null argument", "Transition.Transition", "NoseCone.NoseCone", "Can\'t format argument of ", " using ", " conversion", "PreviousMatch", "NonCapFSet", "  attempted to initialize an InertiaMatrix with a negative inertia value.", " // ", "CoM: %.8fg @[%.8f,%.8f,%.8f]", "MOI: [ %.8f, %.8f, %.8f]", "Either src or dest is null", "java.version", "21", "os.name", "TeaVM", "file.separator", "\\", "path.separator", ":", ";", "line.separator", "java.io.tmpdir", "java.vm.version",
-"user.home", "/tmp", "0.0", "0.00", "0.000", "0.0000", "0.00000", "0.000000", "0E", "0E+", "2147483648", "cm= %.6fg@[%.6f,%.6f,%.6f]", "....", "InnerTube.InnerTube", "InnerTube.setInstanceCount(..) on an", "Programmer Error:  cannot set the instance count of an InnerTube directly.  Please set setClusterConfiguration(ClusterConfiguration) instead.", " attempt to add a MotorConfig to a second mount!", " copyWithOriginalID should return a different instance! ", " copyWithOriginalID should produce different motorSet instances! ",
+"Unknown cluster configuration: ", "clusterScale", "clusterRotation", "outerDiameter", "diameter", "cd", "lineCount", "lineLength", "surfaceDensity", "surfaceMaterialName", "custom", "lineDensity", "lineMaterialName", "stripLength", "stripWidth", "cordLength", "radius", "Unknown component type: \'", "density", "materialName", "finish", "airfoilSection", "Unknown airfoilSection \'", "airfoilLeDiamond", "airfoilTeDiamond", "finLeRadius", "filletRadius", "filletDensity", "filletMaterialName", "position", "method",
+"top", "offset", "overrideMass", "overrideCGX", "overrideCD", "overrideSubcomponentsMass", "overrideSubcomponentsCG", "overrideSubcomponentsCD", "deployEvent", "deployAltitude", "deployDelay", "apogee", "launch", "never", "regular", "children", "id", "tabHeight", "tabLength", "tabOffsetMethod", "middle", "tabOffset", "innerRadius", "instanceCount", "instanceSeparation", "radiusMethod", "relative", "radiusOffset", "angleOffset", "angleMethod", "bottom", "surface", "free", "coaxial", "fixed", "haack", "power",
+"ellipsoid", "parabolic", "absolute", "setShapeType called with null argument", "Transition.Transition", "NoseCone.NoseCone", "Can\'t format argument of ", " using ", " conversion", "PreviousMatch", "NonCapFSet", "  attempted to initialize an InertiaMatrix with a negative inertia value.", " // ", "CoM: %.8fg @[%.8f,%.8f,%.8f]", "MOI: [ %.8f, %.8f, %.8f]", "Either src or dest is null", "java.version", "21", "os.name", "TeaVM", "file.separator", "\\", "path.separator", ":", ";", "line.separator", "java.io.tmpdir",
+"java.vm.version", "user.home", "/tmp", "0.0", "0.00", "0.000", "0.0000", "0.00000", "0.000000", "0E", "0E+", "2147483648", "cm= %.6fg@[%.6f,%.6f,%.6f]", "....", "InnerTube.InnerTube", "InnerTube.setInstanceCount(..) on an", "Programmer Error:  cannot set the instance count of an InnerTube directly.  Please set setClusterConfiguration(ClusterConfiguration) instead.", " attempt to add a MotorConfig to a second mount!", " copyWithOriginalID should return a different instance! ", " copyWithOriginalID should produce different motorSet instances! ",
 "ERROR", "Error", "NON_FUNCTIONAL", "nonFunctional", "MASS", "Mass", "AERODYNAMIC", "Aerodynamic", "TREE", "UNDO", "MOTOR", "Motor", "EVENT", "Event", "TEXTURE", "Texture", "GRAPHIC", "Configuration", "TREE_CHILDREN", "Regex[pattern=", " region=", " lastmatch=", "DotAll", "[attribute=", ", field=", ", beginIndex=", ", endIndex=", "%.", "error: attempt to retrieve via a bad stage number: ", "[{motors}]", "Duplicate format flags: ", "decomposed Hangul syllable:", "PodSet.PodSet", "found a pod positioned via: AFTER, but is not on the centerline?!: ",
 "  is ", "Missing format with for specifier ", "BodyTube.BodyTube", " attempt to add a MotorConfig to a second mount! ", "Could not find a CalculationObject for aerodynamic Component!: ", "No forces for ", "Suitable constructor for component ", " not found", "LaunchLug.Launchlug", "power of ten too big", "WordBoundary", "Infinity", "NaN", "MaterialGroup.Metals", "Metals", "MaterialGroup.Woods", "Woods", "MaterialGroup.Plastics", "Plastics", "MaterialGroup.Fabrics", "Fabrics", "MaterialGroup.PaperProducts", "PaperProducts",
 "MaterialGroup.Foams", "Foams", "MaterialGroup.Composites", "Composites", "MaterialGroup.Fibers", "Fibers", "MaterialGroup.ThreadsLines", "ThreadsLines", "MaterialGroup.Other", "Other", "MaterialGroup.Custom", "Custom", "Ripstop nylon", "Cardboard", "Unknown material type: ", "Elastic cord (round 2 mm, 1/16 in)", "Quaternion instantiated ", "attempting to normalize zero-quaternion", "Quaternion not unit length: ", "Should be zero: ", " c=", "Quaternion[%f,%f,%f,%f,norm=%f]", "openrocket.debug.quaternioncount",

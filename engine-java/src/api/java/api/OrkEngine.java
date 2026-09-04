@@ -1150,14 +1150,27 @@ public final class OrkEngine {
 
     /**
      * The symbol series the app's flight report consumes on EVERY run —
-     * lateral drift (Pl, θl, Px, Py) and roll rate (dΦ) — the only
-     * symbol keys "summary" mode emits.
+     * lateral drift (Pl, thetal, Px, Py), roll rate (dPhi) and VERTICAL
+     * VELOCITY (Vz) — the only symbol keys "summary" mode emits.
+     *
+     * Vz is here because the landing and drogue verdicts are judged on the
+     * VERTICAL rate, while the friendly "velocity" series is
+     * TYPE_VELOCITY_TOTAL — speed over the ground, which under canopy carries
+     * the whole of the wind drift. v0.100 differenced the altitude series as a
+     * stand-in; measured, that is 0.012 % off on a settled descent but reads
+     * tens of percent fast when the last device opens inside the 1.5 s
+     * differencing window (18 % measured with 1.45 s under the main). Measured
+     * price of carrying it: about 1 % of a 120 ms run, and +6.9 % of the
+     * series payload.
+     *
+     * TYPE_COMPUTATION_TIME (tc) is NOT here and must never be: it is
+     * wall-clock measurement noise and it breaks same-seed determinism.
      */
     private static final java.util.Set<FlightDataType> SUMMARY_SYMBOL_TYPES =
             new java.util.HashSet<>(java.util.Arrays.asList(
                     FlightDataType.TYPE_POSITION_XY, FlightDataType.TYPE_POSITION_DIRECTION,
                     FlightDataType.TYPE_POSITION_X, FlightDataType.TYPE_POSITION_Y,
-                    FlightDataType.TYPE_ROLL_RATE));
+                    FlightDataType.TYPE_ROLL_RATE, FlightDataType.TYPE_VELOCITY_Z));
 
     private static void appendBranchSeries(StringBuilder sb, FlightDataBranch branch, boolean fullSeries) {
         sb.append('{');

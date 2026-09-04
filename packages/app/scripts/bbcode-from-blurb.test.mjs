@@ -82,6 +82,64 @@ describe('toBBCode', () => {
     const prose = 'V0.075 is published. Refresh until it reads 0.075.';
     expect(toBBCode(prose)).toBe(prose);
   });
+
+  // Regression (Eric, 2026-09-04): "[LIST] and [/LIST] each generate a line return on the
+  // TRF website, so if there is already a line return before or after those two BBCodes, I
+  // have to delete the extra line when I post." XenForo renders [LIST] as a block <ul>, so
+  // each tag is already a break and a blank line beside one is a SECOND break. He was
+  // deleting four of them by hand out of every paste of the v0.092-v0.101 blurb — measured
+  // at full-document lines 17, 59, 69 and 74 of that conversion.
+  it('leaves no blank line beside a [LIST] or a [/LIST]', () => {
+    expect(toBBCode('Prose above.\n\n- one\n- two\n\nProse below.'))
+      .toBe('Prose above.\n[LIST]\n[*]one\n[*]two\n[/LIST]\nProse below.');
+  });
+
+  // The blank BETWEEN two lists is the exception, and it is load-bearing twice over: it is
+  // the only thing separating two lists the drafter wrote as two — two adjacent <ul> blocks
+  // render as one continuous list — and it is the only place splitBBCode may cut between
+  // them. Dropping it fused 12 pairs of lists in the POSTED v0.076-v0.087 blurb and left
+  // that draft and v0.076-v0.085 with no cut point at all, so both stopped converting.
+  it('KEEPS the blank between two lists, with or without prose around them', () => {
+    expect(toBBCode('- one\n\n- two'))
+      .toBe('[LIST]\n[*]one\n[/LIST]\n\n[LIST]\n[*]two\n[/LIST]');
+    expect(toBBCode('Prose.\n\n- one\n\n- two\n\nProse.'))
+      .toBe('Prose.\n[LIST]\n[*]one\n[/LIST]\n\n[LIST]\n[*]two\n[/LIST]\nProse.');
+  });
+
+  // Guarded by construction rather than by care: Array.filter sees the ORIGINAL indexes, so
+  // only the blank actually touching the tag is dropped and the drafter's bigger break
+  // survives as a single gap. One real draft relies on it — the double blank at
+  // "TRF Blurb - 2026-09-01 CONSOLIDATED v0.092-v0.096.txt" lines 96-97, after a bullet run.
+  it('keeps a deliberate DOUBLE blank beside a list as a single gap', () => {
+    expect(toBBCode('- one\n\n\nProse.')).toBe('[LIST]\n[*]one\n[/LIST]\n\nProse.');
+  });
+
+  it('leaves blank lines that touch no list exactly as they were', () => {
+    expect(toBBCode('A.\n\nB.\n\n\nC.')).toBe('A.\n\nB.\n\n\nC.');
+  });
+
+  it('closes a nested list and still drops the blank after it', () => {
+    // Two [/LIST]s close at once here, and the blank sits beside the OUTER one.
+    expect(toBBCode('- one\n  - sub\n\nProse.'))
+      .toBe('[LIST]\n[*]one\n[LIST]\n[*]sub\n[/LIST]\n[/LIST]\nProse.');
+  });
+
+  // A document that opens on a blank line, or ends on the trailing newline every editor
+  // saves, loses that blank when it touches a list tag. The trailing case is the only place
+  // this reaches disk: main() writes `bb` raw on the SINGLE-part path, so a one-post blurb
+  // ending in a list now ends without a final newline. Measured across docs/TRF Blurbs/: no
+  // draft is both single-part and list-terminated, so nothing on disk changes today.
+  it('drops a blank that touches a list at either end of the document', () => {
+    expect(toBBCode('\n- one')).toBe('[LIST]\n[*]one\n[/LIST]');
+    expect(toBBCode('- one\n')).toBe('[LIST]\n[*]one\n[/LIST]');
+  });
+
+  it('sits a heading tight against the list under it', () => {
+    expect(toBBCode('**Not fixed yet**\n\n- a\n- b'))
+      .toBe('[B]Not fixed yet[/B]\n[LIST]\n[*]a\n[*]b\n[/LIST]');
+    expect(toBBCode('NOT FIXED YET\n\n- a\n- b'))
+      .toBe('NOT FIXED YET\n[LIST]\n[*]a\n[*]b\n[/LIST]');
+  });
 });
 
 describe('checkTags', () => {
@@ -452,5 +510,65 @@ describe('the guards around writing', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+/**
+ * The whole shape of a blurb, converted in one go — the properties that matter on the page,
+ * asserted rather than a golden string that would need regenerating every time Eric edits a
+ * draft.
+ *
+ * The fixture is INLINE and deliberately not the real blurb: `docs/` is gitignored (see
+ * CLAUDE.md, "Two machines"), and commit 3efcf38 is literally "fix: the v0.098 deploy-gate
+ * failure — a test pointed at a gitignored file". A test reading `docs/TRF Blurbs/…` passes
+ * on Eric's machines and fails the deploy on CI, where the file does not exist. The shape is
+ * what is under test, not the copy; both heading forms the drafts use are here, because both
+ * still convert.
+ */
+describe('a blurb-shaped document', () => {
+  const draft = [
+    'v0.102 is live - refresh until the badge reads v0.102.',
+    '',
+    '**Wind was being counted as descent**',
+    'The landing rate the app reported was the speed over the ground.',
+    '',
+    'ON THE FILE FORMATS',
+    '',
+    '- A RockSim mass object is a point mass at its position.',
+    '- A nose cone base extension is dropped on import.',
+    '',
+    '- The two Fruity Chutes drogue rows still hold the old figures.',
+    '',
+    'None of those are fixed yet.',
+  ].join('\n');
+  const bb = toBBCode(draft);
+
+  it('has no blank line beside a list tag, except between two lists', () => {
+    const lines = bb.split('\n');
+    const isTag = (l) => l !== undefined && /^\[\/?LIST\]$/.test(l.trim());
+    const touching = lines.filter((l, i) => l.trim() === ''
+      && !(isTag(lines[i - 1]) && isTag(lines[i + 1]))
+      && (isTag(lines[i - 1]) || isTag(lines[i + 1])));
+    expect(touching).toEqual([]);
+    // The kept one is real and is what keeps the two bullet runs two lists.
+    expect(bb).toContain('[/LIST]\n\n[LIST]');
+    expect(bb).not.toContain('[/LIST]\n[LIST]');
+  });
+
+  it('stays balanced and postable', () => {
+    const parts = splitBBCode(bb);
+    expect(partsOverLimit(parts)).toEqual([]);
+    for (const p of parts) expect(checkTags(p)).toEqual([]);
+  });
+
+  it('changes no wording — every non-blank line survives in order', () => {
+    // The conversion is markup only: Eric's edited text is the posted text. Dropping a blank
+    // line must not drop, merge or reorder anything he wrote, so compare what is left once
+    // the tag-only lines this script adds are taken back out.
+    const solid = (s) => s.split('\n').map((l) => l.trim()).filter(Boolean);
+    const written = solid(bb).filter((l) => !/^\[\/?LIST\]$/.test(l));
+    expect(written).toEqual(solid(draft).map((l) => l
+      .replace(/^- /, '[*]')
+      .replace(/^\*\*(.+)\*\*$/, '[B]$1[/B]')));
   });
 });

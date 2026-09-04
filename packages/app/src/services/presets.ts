@@ -139,6 +139,18 @@ export function presetPatch(type: ComponentType, p: Preset): Partial<ComponentNo
       break;
     case 'engineblock':
       set('length', n(p, 'length'));
+      // The catalogue OD is applied, exactly as the tubecoupler branch above
+      // does and as desktop does: ThicknessRingComponent.loadFromPreset:21-36
+      // sets outerRadiusAutomatic = false and outerRadius = OD/2 whenever the
+      // row has an OUTER_DIAMETER. Without it a catalogue engine block took the
+      // kernel's AUTOMATIC radius - the parent tube's inner radius - while the
+      // very next line read the row's own outsideDiameter to compute the wall
+      // and then threw the diameter away. That was invisible while the bridge
+      // set the wall pre-attach, because the clamp made the part weigh 0 g
+      // whatever its radius; now that the wall is real, the radius has to be
+      // the catalogued one or a thrust ring reads its airframe's bore instead
+      // of its own.
+      set('outerRadius', half(out));
       if (out !== undefined && inn !== undefined) set('thickness', (out - inn) / 2);
       break;
     case 'launchlug':

@@ -1143,3 +1143,122 @@ describe('camera shroud mounting angle reaches the kernel', () => {
     expect(sweepSide).toBe(sweepTop);
   });
 });
+
+/**
+ * C6 — mounting angle steers LIFT and must NOT steer DRAG. This is the answer to a
+ * reported defect, and the answer is that the behaviour is correct.
+ *
+ * `angleOffset` (schema.ts:270-272, "Angle around body") is the CLOCK angle around
+ * the body axis. It is not an inclination to the flow — the only such parameter in
+ * the app is a protuberance's `plateAngle` (schema.ts:570), which DOES drive drag
+ * (treeModel.ts:683-686, Cd = 1.17 sin^2 theta).
+ *
+ * AT ZERO ANGLE OF ATTACK the flow around an axisymmetric body is axisymmetric, so
+ * rotating a surface bump about the flight axis maps the flow field onto itself and
+ * the frontal projected area is exactly invariant. The "obvious" frontal-area
+ * projection has nothing to project: cos(clock angle) projects no area. So the
+ * identity below is physics, not an oversight — and it is desktop 24.12's behaviour
+ * too: LaunchLugCalc.java:16-25, TubeCalc.java:39-76 and RailButtonCalc.java:37-120
+ * are byte-identical to upstream and none of them reads an angle.
+ *
+ * THE COUNTERFACTUAL IS WHY THIS IS LOCKED DOWN. If drag scaled with cos(clock
+ * angle), one click of the app's own "between fins" button (PropertyPanel.tsx:505,
+ * 60 degrees on a 3-fin rocket) would add 2.6 % to apogee with no other edit, and a
+ * side-mounted shroud would lose its drag entirely (+5.4 %).
+ *
+ * What IS genuinely angle-dependent, and is modelled by nobody: a bump directly
+ * upstream of a fin sheds a wake onto it. That is open-items.md piece 2, a research
+ * problem with no defensible calibration.
+ */
+describe('mounting angle steers lift, never drag (four components)', () => {
+  const ANGLES = [0, Math.PI / 12, Math.PI / 6, Math.PI / 4, Math.PI / 2, Math.PI];
+
+  /** The same fixture as above, with one appendage on the body tube. */
+  const withPart = (part: Record<string, unknown> | null): RocketTree => ({
+    name: 'R',
+    components: [{
+      type: 'stage', id: 's1', children: [
+        { id: 'n1', type: 'nosecone', shape: 'ogive', length: 0.1, aftRadius: 0.025, thickness: 0.002 },
+        {
+          id: 'b1', type: 'bodytube', length: 0.5, outerRadius: 0.025, thickness: 0.001,
+          children: [
+            { id: 'f1', type: 'trapezoidfinset', finCount: 3, rootChord: 0.08, tipChord: 0.04,
+              sweep: 0.03, height: 0.05, thickness: 0.003, position: { method: 'bottom', offset: 0 } },
+            ...(part ? [part] : []),
+          ],
+        },
+      ],
+    }],
+  } as unknown as RocketTree);
+
+  const drag = (part: Record<string, unknown> | null) => {
+    const sweep = OrkRocket.buildTree(engineTree(withPart(part)))
+      .dragSweep({ machMin: 0.3, machMax: 0.3, machStep: 1 }).powerOff;
+    return { total: sweep.total[0]!, pressure: sweep.pressure[0]! };
+  };
+
+  const PARTS: Array<{
+    name: string; make: (a: number) => Record<string, unknown>;
+    /** Where this part's contribution actually lands — see the comment in each case. */
+    bucket: 'total' | 'pressure';
+    minDelta: number;
+  }> = [
+    {
+      // A CD override rides OUTSIDE the pressure/base/friction buckets, so its whole
+      // contribution shows up in `total` and pressure is unchanged from the bare rocket.
+      name: 'camera shroud',
+      make: (a) => ({ id: 'sh', type: 'fairing', length: 0.08, width: 0.025, height: 0.02,
+        mass: 0.03, angleOffset: a, position: { method: 'middle', offset: 0 } }),
+      bucket: 'total', minDelta: 0.1,
+    },
+    {
+      name: 'protuberance',
+      make: (a) => ({ id: 'pr', type: 'protuberance', dragClass: 'streamlinedbase',
+        width: 0.02, height: 0.01, length: 0.06, count: 1, plateAngle: Math.PI / 4, mass: 0,
+        angleOffset: a, position: { method: 'middle', offset: 0 } }),
+      bucket: 'total', minDelta: 0.02,
+    },
+    {
+      // A lug's and a button's drag is real Barrowman pressure drag, so it lands there.
+      name: 'launch lug',
+      make: (a) => ({ id: 'lg', type: 'launchlug', length: 0.05, outerRadius: 0.0022,
+        thickness: 0.0003, angleOffset: a, position: { method: 'middle', offset: 0 } }),
+      bucket: 'pressure', minDelta: 0.003,
+    },
+    {
+      name: 'rail button',
+      make: (a) => ({ id: 'rb', type: 'railbutton', outerDiameter: 0.0097,
+        angleOffset: a, position: { method: 'middle', offset: 0 } }),
+      bucket: 'pressure', minDelta: 0.01,
+    },
+  ];
+
+  const bare = drag(null);
+
+  for (const p of PARTS) {
+    it(`charges a ${p.name} the same drag at every clock angle`, () => {
+      const ref = drag(p.make(0));
+      for (const a of ANGLES) {
+        const got = drag(p.make(a));
+        // toBe, not toBeCloseTo: this must be BIT-identical, or something is
+        // steering an axial force by an azimuth.
+        expect(got.total, `${p.name} total at ${a} rad`).toBe(ref.total);
+        expect(got.pressure, `${p.name} pressure at ${a} rad`).toBe(ref.pressure);
+      }
+      // ...and the identity must not be vacuous: the part has to be doing something.
+      // Without this every angle test still passes if a component silently stops
+      // contributing at all.
+      expect(ref[p.bucket] - bare[p.bucket]).toBeGreaterThan(p.minDelta);
+    });
+  }
+
+  it('dragSweep’s angle of attack is inert for CD, so it cannot stand in for a roll term', () => {
+    // Barrowman carries no AoA term in friction, pressure or base drag, so any
+    // AoA-crossed drag assertion compares a constant with itself. Recorded here so
+    // the next session does not write that grid believing it proves something.
+    const built = OrkRocket.buildTree(engineTree(withPart(null)));
+    const at = (aoaDeg: number) =>
+      built.dragSweep({ machMin: 0.3, machMax: 0.3, machStep: 1, aoaDeg }).powerOff.total[0]!;
+    expect(at(20)).toBe(at(0));
+  });
+});

@@ -75,6 +75,209 @@ describe('RASAero import — desktop fixture files', () => {
   });
 });
 
+/**
+ * The parts that OVERLAP instead of stacking. RASAero's part list is flat and
+ * two of its kinds slide over/into the part they belong to, so they add NO
+ * length to the airframe: a `<FinCan>` (a tube over the tube in front of it)
+ * and a `<BoatTail>` sitting above a `<Booster>` (recessed into that booster).
+ *
+ * We used to stack both end to end. Measured with the shipped kernel, that
+ * built @Buckeye's MESOS files 160.82 in long against the 147.32 in their own
+ * `<Location>` fields imply (+9.2 %), Complex.Two-Stage 74.00 against 65.00
+ * (+13.8 %) and Show-off 25.34 against 22.00 (+15.2 %) — with CP, CG and
+ * stability all dragged aft with the length, and two phantom DISCONTINUITY
+ * warnings at the joints that only existed because of the stacking.
+ *
+ * Desktop OpenRocket models both as inline pod sets (FinCanHandler.java:46-58,
+ * BoattailHandler.java:52-65) and so do we now. A pod contributes no axial
+ * length, which is the whole fix.
+ */
+describe('RASAero import — overlapping parts become inline pods', () => {
+  const IN = 39.37;
+  const stageTubes = (stage: ComponentNode) => (stage.children ?? []).filter((c) => c.type === 'bodytube');
+  const podsOn = (node: ComponentNode) =>
+    (node.children ?? []).filter((c) => (c.type as string) === 'podset');
+
+  it('slides a fin can over the tube in front of it instead of stacking it', () => {
+    const r = importCdx1(fixture('Complex.Two-Stage.CDX1'));
+    const sustainer = r.tree.components[0]!;
+    // Nothing named "Fin can" is a stage-level body tube any more.
+    expect((sustainer.children ?? []).some((c) => c.type === 'bodytube' && /Fin can/.test(String(c.name))))
+      .toBe(false);
+
+    const host = stageTubes(sustainer).at(-1)!;
+    const pod = podsOn(host).find((p) => p.name === 'Fin can')!;
+    expect(pod).toBeDefined();
+    // Desktop's exact placement: one instance, RadiusMethod.FREE radius 0,
+    // AxialMethod.BOTTOM offset 0 (FinCanHandler.java:49-57).
+    expect(pod['instanceCount']).toBe(1);
+    expect(pod['radiusMethod']).toBe('free');
+    expect(pod['radiusOffset']).toBe(0);
+    expect(pod['angleOffset']).toBe(0);
+    expect(pod.position?.method).toBe('bottom');
+    expect(pod.position?.offset).toBeCloseTo(0, 9);
+
+    // …holding the conical shoulder then the can tube (FinCanHandler.java:93
+    // prepends the shoulder at index 0).
+    const kids = pod.children ?? [];
+    expect(kids.map((c) => [c.type, c.name])).toEqual([
+      ['transition', 'Fin can shoulder'],
+      ['bodytube', 'Fin can tube'],
+    ]);
+    expect((kids[0]!['length'] as number) * IN).toBeCloseTo(0.25, 6); // <ShoulderLength>
+    expect((kids[0]!['foreRadius'] as number) * 2 * IN).toBeCloseTo(3, 6); // <InsideDiameter>
+    expect((kids[0]!['aftRadius'] as number) * 2 * IN).toBeCloseTo(3.25, 6); // the can's own OD
+    expect((kids[1]!['length'] as number) * IN).toBeCloseTo(6, 6);
+
+    // The fins came with it — they are the reason a fin can matters at all.
+    const fins = (kids[1]!.children ?? []).find((c) => c.type === 'trapezoidfinset')!;
+    expect(fins['finCount']).toBe(5);
+    expect((fins['rootChord'] as number) * IN).toBeCloseTo(6, 6);
+
+    expect(r.notes.join(' ')).toMatch(/fin can slides over the tube in front of it/);
+    expect(r.notes.join(' ')).not.toMatch(/the sliding overlap is not modeled/);
+  });
+
+  it('recesses a boat tail into the booster below it', () => {
+    const r = importCdx1(fixture('Complex.Two-Stage.CDX1'));
+    const sustainer = r.tree.components[0]!;
+    expect((sustainer.children ?? []).some((c) => c.type === 'transition' && c.name === 'Boat tail'))
+      .toBe(false);
+
+    const host = stageTubes(sustainer).at(-1)!;
+    const pod = podsOn(host).find((p) => p.name === 'Boat tail pod')!;
+    expect(pod).toBeDefined();
+    expect(pod['instanceCount']).toBe(1);
+    expect(pod['radiusMethod']).toBe('free');
+    // TOP / the host tube's own length — BoattailHandler.java:64-65 exactly, so
+    // the pod's front sits on the host tube's aft face and the booster below
+    // starts at the same station the boat tail does.
+    expect(pod.position?.method).toBe('top');
+    expect(pod.position?.offset).toBeCloseTo(host['length'] as number, 12);
+    expect((pod.children ?? []).map((c) => [c.type, c.name])).toEqual([['transition', 'Boat tail']]);
+
+    expect(r.notes.join(' ')).toMatch(/boat tail slides inside the booster below it/);
+  });
+
+  it('a boat tail behind a fin can still narrows from the FIN CAN’s diameter', () => {
+    // The fore radius of a .CDX1 transition is implicit — it comes from the
+    // part in front of it. Once the fin can moved into a pod, the preceding
+    // stage-level SIBLING became the host tube the can covers, and taking the
+    // radius from there quietly shrank the boat tail's front: measured,
+    // Complex.Two-Stage went 3.25 → 3.00 in and MESOS_Last_Preflight_File
+    // 3.21 → 3.15 in, both contradicting the files' own <BoatTail><Diameter>.
+    // The importer therefore tracks the airframe radius AT the station, which
+    // the fin can updates even though it adds no length.
+    const r = importCdx1(fixture('Complex.Two-Stage.CDX1'));
+    const bt = flatten(r.tree.components).find((c) => c.name === 'Boat tail')!;
+    expect((bt['foreRadius'] as number) * 2 * IN).toBeCloseTo(3.25, 4); // the file's own <Diameter>
+    expect((bt['aftRadius'] as number) * 2 * IN).toBeCloseTo(2.75, 4);
+  });
+
+  it('leaves a single-stage boat tail inline (no booster to recess into)', () => {
+    // Desktop pod-ises EVERY boat tail; we deliberately do not. It is
+    // numerically free either way (ARCAS-Long - 2 measures 53.5001 in /
+    // CG 37.4201 / CP 40.6627 / 1.4412 cal both ways), but TreeSchematic
+    // computes the drawing's total length from the TOP-LEVEL chain only, so a
+    // pod hanging past its host tube would draw off the canvas edge and
+    // mis-scale the whole schematic. With a booster below it the pod can never
+    // overhang, which is why the rule is narrowed to that case.
+    const r = importCdx1(fixture('ARCAS-Long - 2.CDX1'));
+    const sustainer = r.tree.components[0]!;
+    expect(r.tree.components.length).toBe(1);
+    expect((sustainer.children ?? []).some((c) => c.type === 'transition' && c.name === 'Boat tail'))
+      .toBe(true);
+    expect(flatten(r.tree.components).some((c) => (c.type as string) === 'podset')).toBe(false);
+  });
+
+  it('leaves the stage motor mount on the host tube, not inside the pod', () => {
+    // Desktop's getMotorMountForStage (SimulationHandler.java:219-228) walks
+    // DIRECT stage children only, and a PodSet is not a MotorMount — so the
+    // host body tube stays the mount. It is also numerically identical: the
+    // pod is bottom-flush, both tubes end at the same station (55 in on this
+    // file), and OpenRocket seats a motor from the mount's AFT face.
+    const r = importCdx1(fixture('Complex.Two-Stage.CDX1'));
+    const mount = stageTubes(r.tree.components[0]!).at(-1)!;
+    expect(mount.name).toBe('Body tube');
+    expect(mount['motorMount']).toBe(true);
+    expect(r.motors[mount.id!]!.designation).toBe('J90W');
+    // …and the can's tube is NOT a mount.
+    const canTube = podsOn(mount).find((p) => p.name === 'Fin can')!.children!
+      .find((c) => c.type === 'bodytube')!;
+    expect(canTube['motorMount']).toBeUndefined();
+  });
+
+  it('reports a booster whose stored <Location> disagrees with the parts above it', () => {
+    // READ-ONLY. <Booster><Location> is the shoulder start, which is exactly
+    // the running station once the overlapping parts stop inflating it. Across
+    // the corpus it agrees everywhere except ThreeCarbYen-2018's second
+    // booster, whose stored value sits one shoulder length ahead of the stack —
+    // a <Location> RASAero never reflowed. Positioning from it would silently
+    // move that design, so we say so and build from the parts.
+    const stale = `<?xml version="1.0"?><RASAeroDocument><RocketDesign>
+      <NoseCone><PartType>NoseCone</PartType><Length>10</Length><Diameter>3</Diameter>
+        <Shape>Tangent Ogive</Shape><Location>0</Location></NoseCone>
+      <BodyTube><PartType>BodyTube</PartType><Length>20</Length><Diameter>3</Diameter>
+        <Location>10</Location></BodyTube>
+      <Booster><PartType>Booster</PartType><Length>15</Length><Diameter>3</Diameter>
+        <InsideDiameter>3</InsideDiameter><ShoulderLength>2</ShoulderLength>
+        <Location>28</Location></Booster>
+      </RocketDesign></RASAeroDocument>`;
+    const bad = importCdx1(stale);
+    expect(bad.notes.join(' ')).toMatch(/Booster: the file says it starts at 28 in, but the parts above it add up to 30\.000 in/);
+
+    // …and it stays quiet on the files that agree, which is every other one.
+    for (const name of ['Complex.Two-Stage.CDX1', 'Show-off.CDX1', 'Three-stage rocket.CDX1',
+      'launch-stage-motorless.CDX1']) {
+      expect(importCdx1(fixture(name)).notes.join(' '), name).not.toMatch(/but the parts above it add up to/);
+    }
+  });
+
+  it('MEASURED: the kernel builds each fixture at the length its own file states', async () => {
+    // Exact, re-measured with the shipped kernel — not tolerances to tune.
+    // Complex.Two-Stage and Show-off MOVE (74.00 → 65.00 in and 25.34 → 22.00);
+    // the other three are the regression control and must not budge.
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    const { engineTree } = await import('../tree/treeModel.js');
+    const expected: [string, number][] = [
+      ['Complex.Two-Stage.CDX1', 1.651003302], // 65.0000 in — was 74.0000
+      ['Show-off.CDX1', 0.558801118], //           22.0000 in — was 25.3400
+      ['ARCAS-Long - 2.CDX1', 1.358902718], //     53.5000 in — unchanged
+      ['Three-stage rocket.CDX1', 0.560020320], // 22.0480 in — unchanged
+      ['launch-stage-motorless.CDX1', 2.400304801], // 94.5000 in — unchanged
+    ];
+    for (const [name, lengthM] of expected) {
+      resetEngine();
+      const info = OrkRocket.buildTree(engineTree(importCdx1(fixture(name)).tree)).staticInfo();
+      expect(info.length, name).toBeCloseTo(lengthM, 8);
+    }
+  }, 120000);
+
+  it('MEASURED: the phantom joint warnings the stacking invented are gone', async () => {
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    const { engineTree } = await import('../tree/treeModel.js');
+    resetEngine();
+    const complex = OrkRocket.buildTree(engineTree(importCdx1(fixture('Complex.Two-Stage.CDX1')).tree))
+      .staticInfo().warningTexts;
+    // Was: DISCONTINUITY "Body tube","Fin can" and "Boat tail","Booster
+    // shoulder" — both artefacts of stacking parts that overlap. What is left
+    // is the one real step, into the 6 in booster shoulder.
+    expect(complex.some((w) => /DISCONTINUITY/.test(w) && /Fin can|Boat tail/.test(w))).toBe(false);
+    expect(complex.some((w) => /DISCONTINUITY/.test(w) && /"Body tube", "Booster shoulder"/.test(w))).toBe(true);
+    // The overlap the pod really is, said honestly (desktop raises it too).
+    expect(complex.some((w) => /PODSET_OVERLAP/.test(w) && /Fin can/.test(w))).toBe(true);
+
+    // Show-off GAINS a truthful one: its 1.5 in tube really does step to
+    // 2.73 in, a step the stacked fin can used to bridge. Ship the honest
+    // warning rather than hide it.
+    resetEngine();
+    const showoff = OrkRocket.buildTree(engineTree(importCdx1(fixture('Show-off.CDX1')).tree))
+      .staticInfo().warningTexts;
+    expect(showoff.some((w) => /DISCONTINUITY/.test(w) && /"Body tube", "Body tube"/.test(w))).toBe(true);
+    expect(showoff.some((w) => /DISCONTINUITY/.test(w) && /Fin can|Boat tail/.test(w))).toBe(false);
+  }, 120000);
+});
+
 describe('RASAero import — supersonic airfoils, launch site, simulations', () => {
   it('imports the ARCAS double-wedge airfoil, deriving the TE chamfer', () => {
     const r = importCdx1(fixture('ARCAS-Long - 2.CDX1'));
@@ -705,6 +908,56 @@ describe('RASAero export', () => {
       expect(t['foreRadius']).not.toBeCloseTo(t['aftRadius'] as number, 9);
     }
   });
+
+  it('writes an inline fin-can / boat-tail pod back out as <FinCan> and <BoatTail>', async () => {
+    // The importer's two pods are invisible to the stage walk (nosecone |
+    // bodytube | transition), so without this the export lost both parts
+    // outright: Show-off went from 6 parts to 5, a silent round-trip loss
+    // worse than the mis-stationed <BodyTube> it replaced. Desktop loses them
+    // too — its RocketDesignDTO walks only the axial chain — so this goes
+    // deliberately beyond desktop parity.
+    //
+    // Show-off, not Complex.Two-Stage: Complex's BOOSTER boat tail WIDENS
+    // (6 → 6.5 in) and the booster writer refuses it for unrelated reasons,
+    // which the "refuses a booster with extra transitions" test already pins.
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    const { engineTree } = await import('../tree/treeModel.js');
+    const first = importCdx1(fixture('Show-off.CDX1'));
+    const xml = exportCdx1({ name: 'Show-off', tree: first.tree });
+
+    const finCan = /<FinCan>[\s\S]*?<\/FinCan>/.exec(xml)![0];
+    expect(finCan).toMatch(/<PartType>FinCan<\/PartType>/);
+    expect(finCan).toMatch(/<Length>2\.34<\/Length>/);
+    expect(finCan).toMatch(/<Diameter>2\.73<\/Diameter>/);
+    expect(finCan).toMatch(/<InsideDiameter>1\.5<\/InsideDiameter>/);
+    expect(finCan).toMatch(/<ShoulderLength>0\.23<\/ShoulderLength>/);
+    // Location is the HOST tube's aft station and Offset is the can's front
+    // measured back from it — the file's own convention, −<Length> when flush.
+    expect(finCan).toMatch(/<Location>8<\/Location>/);
+    expect(finCan).toMatch(/<Offset>-2\.34<\/Offset>/);
+    expect(finCan).toMatch(/<Fin>/); // the fins came back with it
+
+    const boatTail = /<BoatTail>[\s\S]*?<\/BoatTail>/.exec(xml)![0];
+    expect(boatTail).toMatch(/<PartType>BoatTail<\/PartType>/);
+    expect(boatTail).toMatch(/<Location>19<\/Location>/);
+    expect(boatTail).toMatch(/<RearDiameter>0\.25<\/RearDiameter>/);
+
+    // <Booster><Location> is the SHOULDER start, not the body start — 19 here,
+    // the same station the recessed boat tail claims. We used to add the
+    // shoulder length, which walked the booster one shoulder aft on every
+    // export → import.
+    const booster = /<Booster>[\s\S]*?<\/Booster>/.exec(xml)![0];
+    expect(booster).toMatch(/<Location>19<\/Location>/);
+
+    // …and the whole trip is length-neutral, which is the point.
+    const back = importCdx1(xml);
+    resetEngine();
+    const a = OrkRocket.buildTree(engineTree(first.tree)).staticInfo();
+    resetEngine();
+    const b = OrkRocket.buildTree(engineTree(back.tree)).staticInfo();
+    expect(b.length).toBeCloseTo(a.length, 6);
+    expect(b.length * 39.37).toBeCloseTo(22, 6);
+  }, 120000);
 });
 
 describe('RASAero engine export (gated — see CDX1_ENGINE_EXPORT)', () => {
@@ -1194,18 +1447,37 @@ describe('RASAero import — measured launch weight and CG', () => {
     expect(r.notes.join(' ')).toMatch(/leaves -0\.100 lb, which is not a mass/);
   });
 
-  it('refuses a back-transformed CG that lands outside the stage', () => {
-    // Complex.Two-Stage's booster CG works out ahead of the booster's own
-    // front in OUR airframe, because we stack the fin can after its tube
-    // instead of sliding it over (the fin-can note). A stage's mass is inside
-    // the stage, so this one is left on the computed CG — with the mass
-    // override, which is frame-independent, still applied.
+  it('applies the booster CG once the airframe matches RASAero’s own', () => {
+    // HISTORY, because this test used to assert the opposite. Complex.Two-Stage's
+    // booster CG landed 6.06 in AHEAD of the booster's own front and was
+    // skipped — not because the file disagreed with itself, but because OUR
+    // airframe disagreed with RASAero's: we stacked the fin can behind its tube
+    // and the boat tail above the booster, which pushed the booster stage 9 in
+    // aft of where the file puts it. Both are inline pods now, the booster
+    // starts at the 55 in its own <Location> states, and the back-transform
+    // lands inside the stage. The skip line is gone with its cause.
     const r = importCdx1(fixture('Complex.Two-Stage.CDX1'));
+    const booster = r.tree.components[1]!;
+    expect(booster['overrideCGX']).toBeCloseTo(0.138803089, 9); // 5.465 in from the booster's own front
+    expect(booster['overrideSubcomponentsCG']).toBe(true);
+    expect(booster['overrideMass']).toBeDefined();
+    expect(r.notes.join(' ')).toMatch(/CG 5\.46 in from its own front/);
+    expect(r.notes.join(' ')).not.toMatch(/which is outside the stage/);
+  });
+
+  it('still refuses a back-transformed CG that lands outside the stage', () => {
+    // The guard itself, on the same file with its booster CG moved 2 in aft.
+    // The back-transform is a lever — 43.06 in lands 5.46 in into the booster,
+    // 45.00 in lands 31.77 in into a 10.00 in stage — so a stated CG that
+    // cannot be true is not a small error, and writing it anyway would be
+    // exactly the authoritative-looking wrong number these guards exist for.
+    const r = importCdx1(fixture('Complex.Two-Stage.CDX1')
+      .replace('<Booster1CG>43.06</Booster1CG>', '<Booster1CG>45</Booster1CG>'));
     const booster = r.tree.components[1]!;
     expect(booster['overrideCGX']).toBeUndefined();
     expect(booster['overrideSubcomponentsCG']).toBeUndefined();
-    expect(booster['overrideMass']).toBeDefined();
-    expect(r.notes.join(' ')).toMatch(/stated CG 43\.06 in works out to .*which is outside the stage/);
+    expect(booster['overrideMass']).toBeDefined(); // mass is frame-independent
+    expect(r.notes.join(' ')).toMatch(/stated CG 45\.00 in works out to .*which is outside the stage/);
   });
 
   it('applies nothing at all to a file with no <Simulation> block', () => {

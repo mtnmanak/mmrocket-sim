@@ -684,21 +684,42 @@ describe('OrkRocket (real OpenRocket kernel via TeaVM)', () => {
     expect(mp[mp.length - 1]!).toBeLessThan(0.015);
   });
 
-  it('defaults to summary series: the 5 report symbols and nothing more', () => {
+  it('defaults to summary series: the 6 report symbols and nothing more', () => {
     const rocket = OrkRocket.build(REFERENCE_ROCKET);
     rocket.setMotor(C6_MOTOR);
     const result = rocket.simulate({ launchRodLength: 1.0, timeStep: 0.05 });
     // Exactly the symbol keys the app's flight report consumes every run:
-    // lateral drift (Pl, θl, Px, Py) and roll rate (dΦ).
+    // lateral drift (Pl, θl, Px, Py), roll rate (dΦ) and VERTICAL VELOCITY (Vz).
     const friendly = [
       'time', 'altitude', 'velocity', 'acceleration', 'mass', 'thrust',
       'drag', 'mach', 'stability', 'cpLocation', 'cgLocation', 'aoa',
     ];
     const symbolKeys = Object.keys(result.series).filter((k) => !friendly.includes(k));
-    expect(symbolKeys.sort()).toEqual(['Pl', 'Px', 'Py', 'dΦ', 'θl'].sort());
+    expect(symbolKeys.sort()).toEqual(['Pl', 'Px', 'Py', 'Vz', 'dΦ', 'θl'].sort());
     expect(result.series['Pl']!.length).toBe(result.series.time.length);
-    // Full-only series stay off the default path (they cost ~45% wall clock).
-    expect(result.series['Vz']).toBeUndefined();
+    expect(result.series['Vz']!.length).toBe(result.series.time.length);
+    // Summary is still not full: these two stay off the default path (~45% wall clock).
+    expect(result.series['Cdf']).toBeUndefined();
+    // …and tc is excluded at EVERY mode: it is wall-clock measurement noise and
+    // dumping it makes same-seed outputs differ. Never re-add it.
+    expect(result.series['tc']).toBeUndefined();
+  });
+
+  it('the exported Vz IS the vertical rate the landing verdict is judged on', () => {
+    // The point of exporting it: the friendly `velocity` series is
+    // TYPE_VELOCITY_TOTAL — speed over the ground, which under canopy carries the
+    // whole wind drift — while the safety limit means DESCENT. v0.100 differenced
+    // the altitude series as a stand-in; this is the number itself.
+    const rocket = OrkRocket.build(REFERENCE_ROCKET);
+    rocket.setMotor(C6_MOTOR);
+    const result = rocket.simulate({ launchRodLength: 1.0, timeStep: 0.05 });
+    const last = result.series.time.length - 1;
+    // SIX places, and do NOT tighten it: the two differ at ~3e-9 because the
+    // horizontal velocity at touchdown is not exactly zero.
+    expect(Math.abs(result.series['Vz']![last]!))
+      .toBeCloseTo(result.summary.groundHitVelocity!, 6);
+    // Vz is signed and points UP, so a descending rocket's is negative.
+    expect(result.series['Vz']![last]!).toBeLessThan(0);
   });
 
   it('rejects unknown component types with a clear message', () => {
@@ -1276,5 +1297,217 @@ describe('rail button line instances', () => {
     const cg2 = OrkRocket.buildTree(withButton({ instanceCount: 2, instanceSeparation: 0.3 }))
       .staticInfo().cgEmpty;
     expect(cg2).toBeGreaterThan(cg1);
+  });
+});
+
+/**
+ * A3 — automatic-radius rings used to weigh EXACTLY NOTHING.
+ *
+ * ComponentFactory.create() built a component fully and only then attached it,
+ * so a tube coupler / engine block / centering ring with an AUTOMATIC outer
+ * radius met its setThickness/setInnerRadius while it was still parentless.
+ * ThicknessRingComponent.getOuterRadius (:40-51) only resolves the automatic
+ * radius when getParent() instanceof RadialParent, so parentless it returned
+ * the raw 0 field, setThickness (:82-100) clamped the wall to clamp(t,0,0)=0,
+ * and — because getThickness() was also 0 — the setter early-returned and the
+ * wall stayed 0 forever. A zero-volume ring: 0 g. Desktop never hits it,
+ * because importt/ComponentHandler.java:51 addChild's on element OPEN, before
+ * ComponentParameterHandler applies any setter.
+ *
+ * These pin the BRIDGE ORDERING, not the arithmetic: pure buildTree +
+ * componentInfo, no importer and no fixture. Measured against the shipped
+ * kernel before the fix, every mass asserted below read exactly 0.
+ */
+describe('automatic-radius rings carry their wall thickness (A3)', () => {
+  /**
+   * One body tube, one of everything inside it, and NOT ONE explicit outer
+   * radius — which is what the app's own UI produces, since schema.ts offers a
+   * tube coupler and an engine block no radius field at all.
+   *
+   * The bulkhead is nested INSIDE the coupler on purpose: TubeCoupler is itself
+   * a RadialParent (TubeCoupler.java:8, :50-52), so the bulkhead's automatic
+   * radius is the coupler's INNER radius — which only exists once the coupler's
+   * own wall has been set. It is the ordering guard.
+   */
+  const rings = (bodyOuterRadius: number): RocketTree => ({
+    components: [{
+      type: 'stage',
+      children: [
+        { type: 'nosecone', length: 0.07, aftRadius: bodyOuterRadius, thickness: 0.002,
+          shape: 'ogive', density: 680 },
+        {
+          type: 'bodytube', length: 0.3, outerRadius: bodyOuterRadius, thickness: 0.0015,
+          density: 680,
+          children: [
+            {
+              type: 'tubecoupler', id: 'tc', length: 0.05, thickness: 0.0015, density: 680,
+              children: [{ type: 'bulkhead', id: 'bh', length: 0.003, density: 680 }],
+            },
+            { type: 'centeringring', id: 'cr', length: 0.003, innerRadius: 0.0095, density: 680,
+              position: { method: 'bottom', offset: 0 } },
+            {
+              type: 'innertube', id: 'it', length: 0.07, outerRadius: 0.0095, thickness: 0.0005,
+              density: 680, position: { method: 'bottom', offset: 0 },
+              children: [{ type: 'engineblock', id: 'eb', length: 0.005, thickness: 0.005,
+                density: 680 }],
+            },
+          ],
+        },
+      ],
+    }],
+  });
+
+  it('a tube coupler with no stated radius weighs its wall, not zero', () => {
+    const r = OrkRocket.buildTree(rings(0.0245));
+    // pi*(0.023^2 - 0.0215^2)*0.05*680 — the parent's inner radius, less the
+    // 1.5 mm wall the node states. Read exactly 0 before the fix.
+    expect(r.componentInfo('tc').mass).toBeCloseTo(0.007129844527322, 12);
+  });
+
+  it('an engine block with no stated radius weighs its wall, not zero', () => {
+    const r = OrkRocket.buildTree(rings(0.0245));
+    // Sized off the InnerTube it sits in (9.5 mm OR, 0.5 mm wall -> 9.0 mm
+    // bore); the 5 mm wall clamps to that radius, leaving a 4 mm bore.
+    // pi*(0.009^2 - 0.004^2)*0.005*680. Read exactly 0 before the fix, and
+    // EVERY engine block the app or a .rkt import can produce is this case.
+    expect(r.componentInfo('eb').mass).toBeCloseTo(0.000694291976443, 12);
+  });
+
+  it('a centering ring with no stated outer radius weighs its ring, not zero', () => {
+    const r = OrkRocket.buildTree(rings(0.0245));
+    // The second instance of the same trap, on the other setter:
+    // RadiusRingComponent.setInnerRadius:95 froze the automatic outer radius AT
+    // the 9.5 mm inner radius while the ring was parentless, so the ring had no
+    // area. pi*(0.023^2 - 0.0095^2)*0.003*680.
+    expect(r.componentInfo('cr').mass).toBeCloseTo(0.002811882504596, 12);
+  });
+
+  it('the automatic radius stays AUTOMATIC — a wider airframe grows the coupler', () => {
+    const narrow = OrkRocket.buildTree(rings(0.0245)).componentInfo('tc').mass;
+    const wide = OrkRocket.buildTree(rings(0.0345)).componentInfo('tc').mass;
+    // A fix that froze the radius at build time would give the identical
+    // number twice. pi*(0.033^2 - 0.0315^2)*0.05*680 on the 69 mm airframe.
+    expect(wide).toBeCloseTo(0.010334269033984, 12);
+    expect(wide).toBeGreaterThan(narrow);
+  });
+
+  it('a ring nested inside the coupler reads the coupler BORE, not its tube', () => {
+    // The ordering guard, and the only assertion in the suite that would catch
+    // the post-attach hook being moved after the recursive attachChildren.
+    // The coupler's bore is 23 - 1.5 = 21.5 mm, so pi*0.0215^2*0.003*680.
+    // Before the fix the coupler's wall was 0, so its bore read the full
+    // 23 mm and this bulkhead measured 3.3903e-3 kg — a bulkhead 14 % too
+    // heavy because its neighbour was 100 % too light.
+    const r = OrkRocket.buildTree(rings(0.0245));
+    expect(r.componentInfo('bh').mass).toBeCloseTo(0.002962490456409, 12);
+  });
+
+  it('an EXPLICIT outer radius is unchanged by the pre- to post-attach move', () => {
+    // The regression guard. With a real radius in hand the clamps produce the
+    // identical value on either side of parent.addChild, so these three numbers
+    // are the same before and after the fix — and they are the same three the
+    // automatic cases above resolve to.
+    const tree = rings(0.0245);
+    const tube = tree.components[0]!.children![1]!;
+    tube.children![0]!.outerRadius = 0.023;
+    tube.children![1]!.outerRadius = 0.023;
+    tube.children![2]!.children![0]!.outerRadius = 0.009;
+    const r = OrkRocket.buildTree(tree);
+    expect(r.componentInfo('tc').mass).toBeCloseTo(0.007129844527322, 12);
+    expect(r.componentInfo('cr').mass).toBeCloseTo(0.002811882504596, 12);
+    expect(r.componentInfo('eb').mass).toBeCloseTo(0.000694291976443, 12);
+    // The inner tube never had a way to be automatic, so its own wall — the one
+    // call in this group whose move is behaviour-neutral by construction — must
+    // still read pi*(0.0095^2 - 0.009^2)*0.07*680.
+    expect(r.componentInfo('it').mass).toBeCloseTo(0.001383243245376, 12);
+  });
+});
+
+/**
+ * A5 — a tube fin set's WALL THICKNESS never reached the kernel.
+ *
+ * The "tubefinset" case set fin count, length, outer radius and rotation and
+ * nothing else, so TubeFinSet.thickness stayed at its NaN default
+ * (TubeFinSet.java:27) and BodyTube.addChild (:584-592) inherited the AIRFRAME's
+ * wall into it. The box in the property panel, the number in the saved file and
+ * the tube drawn in 2D/3D were three descriptions of a rocket the kernel was
+ * not flying.
+ *
+ * The wall drives mass (getComponentVolume :285-293), both inertia terms
+ * (:318, :336) AND normal force — TubeFinSetCalc.java:67 reads getInnerRadius()
+ * into the aspect ratio at :82 and the CNa constant at :135 — so CP and static
+ * margin move with it even where a mass override pins the mass.
+ */
+describe('tube fin wall thickness reaches the kernel (A5)', () => {
+  const tubeFins = (bodyWall: number, fins: Record<string, unknown>): RocketTree => ({
+    components: [{
+      type: 'stage',
+      children: [
+        { type: 'nosecone', length: 0.07, aftRadius: 0.012, thickness: 0.002, shape: 'ogive',
+          density: 680 },
+        {
+          type: 'bodytube', length: 0.3, outerRadius: 0.012, thickness: bodyWall, density: 950,
+          children: [Object.assign(
+            { type: 'tubefinset' as const, id: 'tf', finCount: 3, length: 0.1, density: 680,
+              position: { method: 'bottom' as const, offset: 0 } },
+            fins,
+          )],
+        },
+      ],
+    }],
+  });
+
+  it('a tube fin set own wall drives its mass, not the parent tube', () => {
+    // 3 x 25 mm tubes, 100 mm long, 1 mm wall:
+    // pi*(0.0125^2 - 0.0115^2)*0.1*3*680.
+    const thin = OrkRocket.buildTree(tubeFins(0.0005, { outerRadius: 0.0125, thickness: 0.001 }));
+    expect(thin.componentInfo('tf').mass).toBeCloseTo(0.015381237631976, 12);
+
+    // THE WHOLE DEFECT IN ONE ASSERTION: quadruple the AIRFRAME's wall and the
+    // tube fins must not move. Before the fix they read 0.0078508 kg on the
+    // 0.5 mm airframe and 0.0294807 kg on the 2 mm one — a 3.75x spread from a
+    // number the user never typed into this component.
+    const thick = OrkRocket.buildTree(tubeFins(0.002, { outerRadius: 0.0125, thickness: 0.001 }));
+    expect(thick.componentInfo('tf').mass).toBeCloseTo(thin.componentInfo('tf').mass, 12);
+  });
+
+  it('an AUTO-radius tube fin set gets its wall, not zero', () => {
+    // The regression guard for the ordering trap, and the reason
+    // applyTubeFinThickness exists instead of a line in create(). With no
+    // outerRadius key the set is auto-radius (TubeFinSet.java:25) — which is
+    // the app's OWN default, since schema.ts defaultsFor('tubefinset') supplies
+    // no radius — so getOuterRadius() walks the parent for a touching radius
+    // and returns 0 while parentless. A setThickness called there would clamp
+    // the wall to 0 PERMANENTLY, and BodyTube.addChild's NaN rescue would not
+    // fire either: strictly worse than the bug. The touching radius on a 12 mm
+    // body with 3 tubes is 77.5692 mm, so this is
+    // pi*(0.0775692^2 - 0.0765692^2)*0.1*3*680.
+    const r = OrkRocket.buildTree(tubeFins(0.002, { thickness: 0.001 }));
+    const mass = r.componentInfo('tf').mass;
+    expect(mass).toBeCloseTo(0.098784998118339, 11);
+    expect(mass).toBeGreaterThan(0);                 // a pre-attach setThickness gives exactly 0
+    expect(mass).not.toBeCloseTo(0.19628822643, 6);  // the airframe's 2 mm wall, i.e. the old bug
+  });
+
+  it('a tube fin set with no wall stated still inherits the parent tube', () => {
+    // Desktop parity, and the guard against the helper writing a default of its
+    // own: with no "thickness" key BodyTube.addChild's inherit (:584-592) must
+    // stand, exactly as it does for a desktop set that was never given one.
+    // pi*(0.0125^2 - 0.0117^2)*0.1*3*680 off the 0.8 mm airframe. This one
+    // reads the same before and after the fix.
+    const r = OrkRocket.buildTree(tubeFins(0.0008, { outerRadius: 0.0125 }));
+    expect(r.componentInfo('tf').mass).toBeCloseTo(0.012407531689794, 12);
+  });
+
+  it('the wall changes the tube fins NORMAL FORCE too, not just their mass', () => {
+    // Mass alone does not pin TubeFinSetCalc: CNa is driven by the INNER radius
+    // (:67 -> :82, :135), so a future refactor could fix the mass by another
+    // route and leave the aerodynamics reading the airframe's wall. On the
+    // auto-radius set above the wall moves CNa 487.0655 -> 496.7775 and CP
+    // 0.293922 -> 0.293943 m.
+    const info = OrkRocket.buildTree(tubeFins(0.002, { thickness: 0.001 })).staticInfo();
+    expect(info.cna).toBeCloseTo(496.777534, 4);
+    expect(info.cna).not.toBeCloseTo(487.065515, 2);
+    expect(info.cp).toBeCloseTo(0.293942608, 8);
   });
 });
