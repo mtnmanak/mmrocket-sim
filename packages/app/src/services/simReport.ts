@@ -83,7 +83,8 @@ export const SAFETY = {
  * upper bound while the report red-flagged the same rocket as over-stable).
  * Under-stability is the DANGEROUS case (red); over-stability mostly means
  * weathercocking in wind — a caution (yellow), not a failure. Thresholds are
- * provisional pending the owner's call (response-2026-08-05a.md #4).
+ * provisional pending the owner's call (docs/testing/archive/response-2026-08-05a.md #4 —
+ * that batch was archived 2026-09-01; the call is still open).
  */
 export type StabilityState = 'ok' | 'under' | 'over';
 /**
