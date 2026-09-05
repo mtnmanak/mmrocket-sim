@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.107';
+export const APP_VERSION = '0.108';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.108',
+    date: '2026-09-05',
+    title: 'Twenty-six motors you can buy were hidden as out-of-production, the user guide caught up with v0.104 and v0.107, and two figures in yesterday\'s corrections are restated',
+    items: [
+      'TWENTY-SIX MOTORS YOU CAN BUY WERE HIDDEN BEHIND "INCLUDE OUT-OF-PRODUCTION". thrustcurve.org marks a motor regular, occasional or OOP, and every filter in the browser and the batch runner tested for "regular" alone - so the 26 motors marked occasional, which is Jambol\'s whole line and Ultra\'s, were treated as discontinued. Occasional means produced intermittently, not gone. They now show with the regular motors; only OOP sits behind the checkbox.',
+      'THE USER GUIDE DESCRIBED THINGS THAT NO LONGER EXIST. It told a first-time user to pick from the "Quick picks (built-in, offline)" dropdown - deleted in v0.107 - and said thrust curves are not bundled, when every published curve now ships with the app. It never mentioned the recovery weight readout or the Recovery sizing panel from v0.104 at all. All corrected, and the guide now says plainly what the built-in curves were and that they are gone.',
+      'TWO FIGURES IN THE v0.107 CORRECTIONS, RESTATED. First: v0.107 said 18 designation-and-diameter groups in the motor catalogue span more than one maker (22 by designation alone). That was measured on the catalogue v0.105 shipped; the refreshed catalogue in the same release changed it - it is 31 by designation and diameter and 33 by designation alone as of the 5 September catalogue, because the new Jambol line reuses common low-power designations. Second: v0.107 said the old hand-typed Estes A8 curve read 25 percent low. That is against the catalogue\'s 2.50 Ns total; against the 2.31 Ns the certified curve itself integrates to - the curve the app now flies - it is 18 percent low. Same fact, two references. The TRF post uses 18.',
+    ],
+  },
   {
     version: '0.107',
     date: '2026-09-05',

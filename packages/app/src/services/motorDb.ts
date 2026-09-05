@@ -23,6 +23,17 @@ export const MOTOR_DB: MotorDbEntry[] = db.motors;
 export const MOTOR_DB_DATE: string = db.generated;
 
 /**
+ * Is this motor something you can buy today? thrustcurve.org's availability
+ * field has THREE values — 'regular', 'occasional' and 'OOP' — and until v0.108
+ * every filter here tested `!== 'regular'`, which put the 26 'occasional' motors
+ * (Jambol's whole line, and Ultra's) behind the "include out-of-production"
+ * checkbox and labelled them as discontinued. 'occasional' means produced
+ * intermittently, not gone; only 'OOP' is out of production.
+ */
+export const isAvailable = (m: Pick<MotorDbEntry, 'availability'>): boolean =>
+  m.availability !== 'OOP';
+
+/**
  * Display form of a motor designation (the owner's cleanup rules):
  * - Cesaroni catalogs the total impulse in front of the real designation
  *   ("381I224-15A" is the I224-15A) — strip the leading digits.
@@ -184,7 +195,7 @@ export function rangesForMount(
   let b0 = Infinity; let b1 = -Infinity; let i0 = Infinity; let i1 = -Infinity;
   for (const m of motors) {
     if (!fitting.has(diameterClass(m.diameter))) continue;
-    if (!includeOOP && m.availability !== 'regular') continue;
+    if (!includeOOP && !isAvailable(m)) continue;
     if (Number.isFinite(m.burnTimeS)) { b0 = Math.min(b0, m.burnTimeS); b1 = Math.max(b1, m.burnTimeS); }
     if (Number.isFinite(m.totImpulseNs)) { i0 = Math.min(i0, m.totImpulseNs); i1 = Math.max(i1, m.totImpulseNs); }
   }
@@ -206,7 +217,7 @@ export function impulseClassesForMount(
   const counts = new Map<string, number>();
   for (const m of motors) {
     if (!fitting.has(diameterClass(m.diameter))) continue;
-    if (!includeOOP && m.availability !== 'regular') continue;
+    if (!includeOOP && !isAvailable(m)) continue;
     const l = impulseLetter(m);
     if (!l) continue;
     counts.set(l, (counts.get(l) ?? 0) + 1);
@@ -224,7 +235,7 @@ export function propellantsForMount(
   const counts = new Map<string, number>();
   for (const m of motors) {
     if (!fitting.has(diameterClass(m.diameter))) continue;
-    if (!includeOOP && m.availability !== 'regular') continue;
+    if (!includeOOP && !isAvailable(m)) continue;
     const p = (m.propInfo ?? '').trim();
     if (!p) continue;
     counts.set(p, (counts.get(p) ?? 0) + 1);
@@ -242,7 +253,7 @@ export function filterMotors(filter: MotorFilter, motors: MotorDbEntry[] = MOTOR
     if (!fitting.has(cls)) return false;
     if (filter.classes.size > 0 && !filter.classes.has(cls)) return false;
     if (filter.manufacturers.size > 0 && !filter.manufacturers.has(m.manufacturerAbbrev)) return false;
-    if (!filter.includeOOP && m.availability !== 'regular') return false;
+    if (!filter.includeOOP && !isAvailable(m)) return false;
     if (filter.impulse && filter.impulse.size > 0 && !filter.impulse.has(impulseLetter(m))) return false;
     if (filter.propellants && filter.propellants.size > 0
       && !filter.propellants.has((m.propInfo ?? '').trim())) return false;
@@ -373,7 +384,7 @@ export function findDbMotor(
   candidates.sort((a, b) => a.r - b.r
     || Number(manufacturerMatches(manufacturer, b.m.manufacturerAbbrev))
       - Number(manufacturerMatches(manufacturer, a.m.manufacturerAbbrev))
-    || Number(b.m.availability === 'regular') - Number(a.m.availability === 'regular'));
+    || Number(isAvailable(b.m)) - Number(isAvailable(a.m)));
   return candidates[0]!.m;
 }
 
@@ -387,7 +398,7 @@ export function manufacturersForMount(
   const counts = new Map<string, number>();
   for (const m of motors) {
     if (!fitting.has(diameterClass(m.diameter))) continue;
-    if (!includeOOP && m.availability !== 'regular') continue;
+    if (!includeOOP && !isAvailable(m)) continue;
     counts.set(m.manufacturerAbbrev, (counts.get(m.manufacturerAbbrev) ?? 0) + 1);
   }
   return [...counts.entries()]

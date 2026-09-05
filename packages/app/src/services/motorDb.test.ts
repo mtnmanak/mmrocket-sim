@@ -89,6 +89,18 @@ describe('filtering and sorting', () => {
     boreMm: 39, includeOOP: false, text: '',
   };
 
+  it("shows 'occasional' motors without the OOP toggle — they are in production", () => {
+    // v0.108. The 2026-09-05 catalogue refresh brought in Jambol's whole line
+    // and Ultra's at availability 'occasional', and every filter tested
+    // `!== 'regular'`, so 26 motors you can buy were hidden behind "include
+    // out-of-production" and read as discontinued. A bore wide enough that
+    // every class fits, so the test is about availability and nothing else.
+    const shown = filterMotors({ ...base, boreMm: 160, includeOOP: false });
+    expect(shown.some((m) => m.availability === 'occasional')).toBe(true);
+    expect(shown.some((m) => m.availability === 'OOP')).toBe(false);
+    expect(MOTOR_DB.filter((m) => m.availability === 'occasional').length).toBeGreaterThan(0);
+  });
+
   it('hides OOP unless toggled on', () => {
     const without = filterMotors(base);
     const withOOP = filterMotors({ ...base, includeOOP: true });
