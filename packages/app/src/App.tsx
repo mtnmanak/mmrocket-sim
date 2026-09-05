@@ -48,6 +48,7 @@ const Rocket3D = lazy(() => import('./components/Rocket3D.js').then((m) => ({ de
 import { TreeSchematic } from './components/TreeSchematic.js';
 import { AftView } from './components/AftView.js';
 import { loadCatalogueMotor } from './services/motorMatch.js';
+import { restoreCatalogueOverlay } from './services/catalogueOverlay.js';
 import { PreferencesDialog } from './components/PreferencesDialog.js';
 import { SiteBand, SiteBandFooter } from './components/SiteBand.js';
 import { MMR_NAV_FALLBACK, useMmrNav } from './services/useMmrNav.js';
@@ -391,6 +392,13 @@ export function App() {
     // impulse) synchronously; a real motor needs one await, so it moved.
     return {};
   });
+  // A previous "check thrustcurve.org for newer motors" left its delta in this
+  // browser; install it before anything looks a motor up, so an imported file
+  // naming a motor that exists only in the overlay still resolves. It discards
+  // itself if this build's motors.json is newer than the base it was diffed
+  // against. Runs BEFORE the starter-motor effect below on purpose.
+  useEffect(() => { restoreCatalogueOverlay(); }, []);
+
   const wantsStarterMotor = !session?.mountMotors && !session?.motor && !!defaultMountId;
   useEffect(() => {
     if (!wantsStarterMotor) return;
@@ -3751,6 +3759,7 @@ export function App() {
                     maxMotorLengthM={stMax}
                     selectedLabel={mm?.label ?? ''}
                     onSelect={(label, spec, meta) => assignMotor(m.id!, label, spec, meta)}
+                    loadedMotors={Object.values(mountMotors).map((x) => ({ label: x.label, manufacturer: x.meta.manufacturer }))}
                   />
                   {mm && (
                     <div className="field" style={{ marginTop: 6 }}>

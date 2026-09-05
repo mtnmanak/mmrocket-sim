@@ -1,9 +1,13 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { clickable } from './clickable.js';
 import { useDialog } from './useDialog.js';
+import { useCatalogue, useCatalogueOverlay } from './useCatalogue.js';
+import {
+  changedMotorsInDesign, checkForCatalogueUpdates, describeOverlay, discardCatalogueOverlay,
+} from '../services/catalogueOverlay.js';
 import type { MotorSpec } from '@online-openrocket/engine';
 import {
-  MOTOR_DB, MOTOR_DB_DATE, classLabel, classesFittingMount,
+  MOTOR_DB_DATE, classLabel, classesFittingMount,
   displayDesignation, filterMotors, hasMassData, impulseClassesForMount, isHighPower,
   manufacturersForMount, propellantsForMount, rangesForMount,
   sortMotors, type MotorDbEntry, type MotorSortKey,
@@ -85,15 +89,62 @@ const SORTABLE: { key: MotorSortKey; label: string }[] = [
   { key: 'totImpulseNs', label: 'Impulse (Ns)' },
 ];
 
-export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClose }: {
+export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClose, loadedMotors }: {
   mountDiameterMm: number;
   /** Rocket-level max motor length (SI m); null = no limit. */
   maxMotorLengthM: number | null;
   onSelect: (label: string, spec: MotorSpec, meta: MotorMeta) => void;
   onClose: () => void;
+  /** Every motor loaded in the design, so a catalogue check can name the ones it changed. */
+  loadedMotors?: readonly { label: string; manufacturer?: string }[];
 }) {
   const { prefs } = usePrefs();
   const motorSym = prefs.units.motorDimensions;
+
+  // --- "Check thrustcurve.org for newer motors" (v0.110). The shipped catalogue
+  // plus whatever a previous check left in this browser; see catalogueOverlay.ts.
+  const catalogue = useCatalogue();
+  const overlay = useCatalogueOverlay();
+  const [checking, setChecking] = useState(false);
+  const [checkProgress, setCheckProgress] = useState('');
+  const [checkNote, setCheckNote] = useState<string[] | null>(null);
+  const [checkError, setCheckError] = useState<string | null>(null);
+  const [checkWasRecent, setCheckWasRecent] = useState(false);
+  const checkAbort = useRef<AbortController | null>(null);
+  useEffect(() => () => checkAbort.current?.abort(), []);
+  const catalogueAgeDays = Math.max(0, Math.floor((Date.now() - Date.parse(MOTOR_DB_DATE)) / 86_400_000));
+  const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
+
+  const runCheck = async (force: boolean): Promise<void> => {
+    checkAbort.current?.abort();
+    const ctrl = new AbortController();
+    checkAbort.current = ctrl;
+    setChecking(true);
+    setCheckError(null);
+    setCheckNote(null);
+    setCheckWasRecent(false);
+    try {
+      const { overlay: o, skipped } = await checkForCatalogueUpdates({
+        force,
+        signal: ctrl.signal,
+        onProgress: (done, total, mfr) => setCheckProgress(total ? `${done}/${total}${mfr ? ` ${mfr}` : ''}` : ''),
+      });
+      const lines = describeOverlay(o);
+      const mine = changedMotorsInDesign(o, loadedMotors ?? []);
+      if (mine.length) {
+        // The one line that matters most: a changed certified figure on a motor
+        // that is IN THE DESIGN moves its apogee. Say so by name, first.
+        lines.unshift(`In this design: ${mine.map((c) => `${c.after.manufacturerAbbrev} ${c.after.designation} (${c.fields.join(', ')})`).join('; ')} — re-run the flight.`);
+      }
+      setCheckWasRecent(skipped === 'recent');
+      setCheckNote(lines);
+    } catch (e) {
+      if (e instanceof Error && e.name === 'AbortError') setCheckNote(['Stopped. Nothing was changed.']);
+      else setCheckError(`Could not check thrustcurve.org: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      if (checkAbort.current === ctrl) { setChecking(false); setCheckProgress(''); }
+    }
+  };
 
   const [filters, setFiltersRaw] = useState<StoredFilters>(loadFilters);
   const [text, setText] = useState('');
@@ -112,10 +163,11 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
     } catch { /* best-effort */ }
   };
 
-  // Bundled thrustcurve DB + imported EX motors under manufacturer "EX".
+  // The effective catalogue (shipped + any live overlay) + imported EX motors
+  // under manufacturer "EX".
   const allMotors = useMemo(
-    () => [...MOTOR_DB, ...exMotors.map(exToDbEntry)],
-    [exMotors],
+    () => [...catalogue, ...exMotors.map(exToDbEntry)],
+    [catalogue, exMotors],
   );
 
   const fittingClasses = useMemo(
@@ -273,13 +325,53 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
         tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
       >
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
           <h2 style={{ flex: 1 }}>
             Motor database
-            <span className="motor-db-meta"> thrustcurve.org · {MOTOR_DB_DATE} · mount ⌀ {dimUi(mountDiameterMm).toFixed(1)} {motorSym}</span>
+            <span className="motor-db-meta">
+              {' '}thrustcurve.org · {MOTOR_DB_DATE}
+              {/* The age is always shown: the catalogue sat 63 days unrefreshed
+                  once and nobody could see it. */}
+              {catalogueAgeDays > 0 ? ` (${catalogueAgeDays} day${catalogueAgeDays === 1 ? '' : 's'} old)` : ''}
+              {overlay && (overlay.added.length || overlay.changed.length || overlay.removed.length)
+                ? ` · +${overlay.added.length} new, ${overlay.changed.length} changed since, checked ${overlay.fetchedAt.slice(0, 10)}`
+                : overlay ? ` · up to date as of ${overlay.fetchedAt.slice(0, 10)}` : ''}
+              {' '}· mount ⌀ {dimUi(mountDiameterMm).toFixed(1)} {motorSym}
+            </span>
           </h2>
+          <button className="file-btn" disabled={checking || offline}
+            title={offline
+              ? 'No network — the shipped catalogue is what there is until you are back online'
+              : 'Pull the live motor catalogue from thrustcurve.org and show what has changed since this app\'s copy. Kept in this browser only; nothing is written to the app.'}
+            aria-label="Check thrustcurve.org for newer motors"
+            onClick={() => void runCheck(false)}>
+            {checking ? `↻ checking… ${checkProgress}` : '↻ Check thrustcurve.org'}
+          </button>
+          {checking && (
+            <button className="file-btn" onClick={() => checkAbort.current?.abort()} aria-label="Stop the catalogue check">Stop</button>
+          )}
           <button className="file-btn" onClick={onClose} aria-label="Close motor browser">✕ Close</button>
         </div>
+        {checkError && <p className="print-note print-note-warn" role="alert">{checkError}</p>}
+        {checkNote && (
+          <div className="file-note" role="status" style={{ marginTop: 6 }}>
+            {checkWasRecent && (
+              <p style={{ margin: '0 0 4px' }}>
+                Checked less than six hours ago — this is that result.{' '}
+                <button className="file-btn" onClick={() => void runCheck(true)}>Check again anyway</button>
+              </p>
+            )}
+            {checkNote.map((l, i) => <p key={i} style={{ margin: '0 0 2px' }}>{l}</p>)}
+            {overlay && (
+              <p style={{ margin: '4px 0 0' }}>
+                <button className="file-btn" onClick={() => { discardCatalogueOverlay(); setCheckNote(null); }}
+                  title="Forget the fetched changes and go back to the catalogue this app shipped with">
+                  Discard fetched changes
+                </button>
+              </p>
+            )}
+          </div>
+        )}
 
         <div className="motor-filter-block">
           <div className="motor-chip-row" role="group" aria-label="Manufacturers">

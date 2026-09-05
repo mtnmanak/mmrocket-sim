@@ -19,8 +19,107 @@ export interface MotorDbEntry extends TcMotor {
 
 const db = rawDb as { generated: string; count: number; motors: MotorDbEntry[] };
 
+/** The SHIPPED catalogue — what motors.json holds. Tests and the diff read this. */
 export const MOTOR_DB: MotorDbEntry[] = db.motors;
 export const MOTOR_DB_DATE: string = db.generated;
+
+// ------------------------------------------------------------ the live overlay
+
+/**
+ * One row that thrustcurve.org has changed since the shipped catalogue was
+ * generated, with the fields that differ, so the user can be TOLD — a changed
+ * certified impulse moves an apogee, and silence about it is the failure class
+ * this project spent 4–5 September on.
+ */
+export interface CatalogueChange {
+  motorId: string;
+  before: MotorDbEntry;
+  after: MotorDbEntry;
+  fields: string[];
+}
+
+/**
+ * The difference between the shipped catalogue and thrustcurve.org as of
+ * `fetchedAt`, fetched on the user's request from the motor browser and kept
+ * in THIS BROWSER only — motors.json is never written by the app.
+ *
+ * Why an overlay and not a session flag (owner, 2026-09-05): a session-only
+ * result means a design saved with a motor that exists only in the overlay
+ * comes back "not in the database" the next morning. Persisted per browser,
+ * and discarded automatically the moment a shipped motors.json is newer than
+ * the base it was diffed against — a release supersedes it. Why not a second
+ * permanent catalogue: the shipped file gets a human look at its diff at every
+ * refresh; a live pull does not, so every overlay row is screened first and
+ * the rejects are reported rather than applied.
+ */
+export interface CatalogueOverlay {
+  /** MOTOR_DB_DATE this overlay was diffed against. Any other date → discard. */
+  baseGenerated: string;
+  /** ISO timestamp of the fetch. */
+  fetchedAt: string;
+  /** How many motors thrustcurve.org returned. */
+  liveCount: number;
+  added: MotorDbEntry[];
+  changed: CatalogueChange[];
+  /** motorIds in the shipped catalogue that thrustcurve.org no longer returns. */
+  removed: string[];
+  /** Live rows that failed the plausibility screen, with the reason. Never applied. */
+  rejected: { entry: Partial<MotorDbEntry>; reason: string }[];
+}
+
+/**
+ * The shipped catalogue with an overlay applied: changed rows replaced, added
+ * rows appended, removed rows KEPT but marked out of production — a design may
+ * still reference one, and "hidden by default but resolvable" is the honest
+ * state for a motor thrustcurve.org has dropped. With no overlay it returns
+ * `base` itself, so identity checks against MOTOR_DB (allClasses' fast path)
+ * keep working.
+ */
+export function applyOverlay(base: MotorDbEntry[], overlay: CatalogueOverlay | null): MotorDbEntry[] {
+  if (!overlay || (!overlay.added.length && !overlay.changed.length && !overlay.removed.length)) return base;
+  const changed = new Map(overlay.changed.map((c) => [c.motorId, c.after]));
+  const removed = new Set(overlay.removed);
+  const out = base.map((m) => {
+    const c = changed.get(m.motorId);
+    if (c) return c;
+    if (removed.has(m.motorId) && m.availability !== 'OOP') return { ...m, availability: 'OOP' };
+    return m;
+  });
+  const have = new Set(out.map((m) => m.motorId));
+  for (const a of overlay.added) if (!have.has(a.motorId)) out.push(a);
+  return out;
+}
+
+let activeOverlay: CatalogueOverlay | null = null;
+let effective: MotorDbEntry[] = MOTOR_DB;
+const listeners = new Set<() => void>();
+
+/**
+ * THE catalogue every lookup in this module defaults to — the shipped rows plus
+ * whatever overlay is active. Read at call time (it is the default parameter
+ * of every exported query), so the import matcher, the browser, the batch
+ * runner and the quick picks all see the same motors.
+ */
+export function getCatalogue(): MotorDbEntry[] {
+  return effective;
+}
+
+export function getCatalogueOverlay(): CatalogueOverlay | null {
+  return activeOverlay;
+}
+
+/** Installs (or clears) the overlay and tells every subscriber. */
+export function setCatalogueOverlay(overlay: CatalogueOverlay | null): void {
+  activeOverlay = overlay;
+  effective = applyOverlay(MOTOR_DB, overlay);
+  for (const fn of listeners) fn();
+}
+
+/** For useSyncExternalStore: fires after every setCatalogueOverlay. */
+export function subscribeCatalogue(fn: () => void): () => void {
+  listeners.add(fn);
+  return () => { listeners.delete(fn); };
+}
 
 /**
  * Is this motor something you can buy today? thrustcurve.org's availability
@@ -132,7 +231,7 @@ export function classLabel(cls: number): string {
 let defaultClasses: number[] | null = null;
 
 /** All diameter classes present in the database, ascending. */
-export function allClasses(motors: MotorDbEntry[] = MOTOR_DB): number[] {
+export function allClasses(motors: MotorDbEntry[] = getCatalogue()): number[] {
   if (motors === MOTOR_DB) {
     defaultClasses ??= [...new Set(motors.map((m) => diameterClass(m.diameter)))]
       .sort((a, b) => a - b);
@@ -145,7 +244,7 @@ export function allClasses(motors: MotorDbEntry[] = MOTOR_DB): number[] {
 }
 
 /** Classes that physically fit a mount with the given bore (inner diameter, mm). */
-export function classesFittingMount(boreMm: number, motors: MotorDbEntry[] = MOTOR_DB): number[] {
+export function classesFittingMount(boreMm: number, motors: MotorDbEntry[] = getCatalogue()): number[] {
   return allClasses(motors).filter((c) => c <= boreMm + MOUNT_TOLERANCE_MM);
 }
 
@@ -189,7 +288,7 @@ const inWindow = (v: number, w?: { min: number | null; max: number | null }): bo
 
 /** The burn-time and total-impulse span of the motors that fit this mount. */
 export function rangesForMount(
-  boreMm: number, includeOOP: boolean, motors: MotorDbEntry[] = MOTOR_DB,
+  boreMm: number, includeOOP: boolean, motors: MotorDbEntry[] = getCatalogue(),
 ): { burnS: [number, number]; impulseNs: [number, number] } | null {
   const fitting = new Set(classesFittingMount(boreMm, motors));
   let b0 = Infinity; let b1 = -Infinity; let i0 = Infinity; let i1 = -Infinity;
@@ -211,7 +310,7 @@ export function impulseLetter(m: MotorDbEntry): string {
 
 /** The impulse letters present among motors that fit this mount, in order. */
 export function impulseClassesForMount(
-  boreMm: number, includeOOP: boolean, motors: MotorDbEntry[] = MOTOR_DB,
+  boreMm: number, includeOOP: boolean, motors: MotorDbEntry[] = getCatalogue(),
 ): { letter: string; count: number }[] {
   const fitting = new Set(classesFittingMount(boreMm, motors));
   const counts = new Map<string, number>();
@@ -229,7 +328,7 @@ export function impulseClassesForMount(
 
 /** The propellant names present among motors that fit this mount. */
 export function propellantsForMount(
-  boreMm: number, includeOOP: boolean, motors: MotorDbEntry[] = MOTOR_DB,
+  boreMm: number, includeOOP: boolean, motors: MotorDbEntry[] = getCatalogue(),
 ): { name: string; count: number }[] {
   const fitting = new Set(classesFittingMount(boreMm, motors));
   const counts = new Map<string, number>();
@@ -245,7 +344,7 @@ export function propellantsForMount(
     .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
 }
 
-export function filterMotors(filter: MotorFilter, motors: MotorDbEntry[] = MOTOR_DB): MotorDbEntry[] {
+export function filterMotors(filter: MotorFilter, motors: MotorDbEntry[] = getCatalogue()): MotorDbEntry[] {
   const text = filter.text.trim().toLowerCase();
   const fitting = new Set(classesFittingMount(filter.boreMm, motors));
   return motors.filter((m) => {
@@ -361,7 +460,7 @@ export function manufacturerMatches(fileName: string | undefined, abbrev: string
 export function findDbMotor(
   designation: string,
   diameterMm?: number,
-  motors: MotorDbEntry[] = MOTOR_DB,
+  motors: MotorDbEntry[] = getCatalogue(),
   manufacturer?: string,
 ): MotorDbEntry | null {
   const want = designation.trim().toLowerCase();
@@ -392,7 +491,7 @@ export function findDbMotor(
 export function manufacturersForMount(
   boreMm: number,
   includeOOP: boolean,
-  motors: MotorDbEntry[] = MOTOR_DB,
+  motors: MotorDbEntry[] = getCatalogue(),
 ): { abbrev: string; count: number }[] {
   const fitting = new Set(classesFittingMount(boreMm, motors));
   const counts = new Map<string, number>();

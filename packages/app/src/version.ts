@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.109';
+export const APP_VERSION = '0.110';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.110',
+    date: '2026-09-05',
+    title: 'The motor browser can check thrustcurve.org for motors newer than the catalogue it shipped with',
+    items: [
+      'A NEW BUTTON IN THE MOTOR BROWSER: ↻ CHECK THRUSTCURVE.ORG. The app\'s motor catalogue is a copy taken when a release is built, and until yesterday one copy sat two months old with nothing to say so. Now the browser header shows the catalogue\'s age, and the button pulls the live catalogue - one request per manufacturer - and tells you exactly what has changed: how many motors are new, which existing motors carry different certified figures and by how much, which are no longer listed, and which rows it refused as implausible. If a motor loaded in your design is among the changed ones, it is named first, because a changed total impulse moves your apogee.',
+      'THE RESULT STAYS IN THIS BROWSER AND APPLIES EVERYWHERE A MOTOR IS LOOKED UP - the browser, the quick picks, batch simulation and file import - so a design saved with a newly listed motor reopens correctly tomorrow rather than saying the motor is not in the database. The app\'s own catalogue file is never written. The fetched changes discard themselves the moment an app update ships a newer catalogue, and there is a button to discard them by hand. Repeat checks are refused for six hours unless you insist, out of courtesy to a volunteer-run service.',
+      'EVERY FETCHED ROW IS SCREENED before it is used. The shipped catalogue gets a human look at its changes when it is refreshed; a live pull does not, and the parts catalogue has already shown that upstream data arrives with impossible numbers in it. A motor with no diameter, more propellant than loaded mass, a negative impulse or an unknown availability is refused and reported, not loaded.',
+      'WHAT IT DOES NOT DO: refresh the bundled thrust curves. A newly listed motor downloads its curve on first use as usual; a motor already in the catalogue whose curve file changed upstream keeps flying the bundled curve until the next release. Curves change rarely; the button says "catalogue" and means it.',
+    ],
+  },
   {
     version: '0.109',
     date: '2026-09-05',

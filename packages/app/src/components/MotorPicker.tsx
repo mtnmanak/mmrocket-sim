@@ -27,12 +27,14 @@ const QUICK_PICKS: ReadonlyArray<{ mfr: string; des: string; delay: number }> = 
 
 const pickLabel = (p: { mfr: string; des: string; delay: number }): string => `${p.mfr} ${p.des}-${p.delay}`;
 
-export function MotorPicker({ mountDiameterMm, maxMotorLengthM, selectedLabel, onSelect }: {
+export function MotorPicker({ mountDiameterMm, maxMotorLengthM, selectedLabel, onSelect, loadedMotors }: {
   mountDiameterMm: number;
   /** Rocket-level max motor length (SI m); null = no limit. */
   maxMotorLengthM: number | null;
   selectedLabel: string;
   onSelect: (label: string, spec: MotorSpec, meta: MotorMeta) => void;
+  /** Every motor loaded in the design, so a catalogue check can name the ones it changed. */
+  loadedMotors?: readonly { label: string; manufacturer?: string }[];
 }) {
   const [browsing, setBrowsing] = useState(false);
   const [loading, setLoading] = useState<string | null>(null);
@@ -94,6 +96,7 @@ export function MotorPicker({ mountDiameterMm, maxMotorLengthM, selectedLabel, o
           maxMotorLengthM={maxMotorLengthM}
           onSelect={onSelect}
           onClose={() => setBrowsing(false)}
+          loadedMotors={loadedMotors}
         />
       )}
     </div>

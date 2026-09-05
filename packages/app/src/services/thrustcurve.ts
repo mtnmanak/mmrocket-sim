@@ -5,7 +5,8 @@ import type { MotorSpec } from '@online-openrocket/engine';
  * Access-Control-Allow-Origin). API units: mm, grams — converted to the
  * engine's SI here at the boundary.
  */
-const API = 'https://www.thrustcurve.org/api/v1';
+/** thrustcurve.org API v1 root — shared with the in-app catalogue check (catalogueOverlay.ts). */
+export const API = 'https://www.thrustcurve.org/api/v1';
 
 export interface TcMotor {
   motorId: string;

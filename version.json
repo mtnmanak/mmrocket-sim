@@ -1,5 +1,5 @@
 {
-  "version": "0.109",
+  "version": "0.110",
   "released": "2026-09-05",
-  "note": "The motor catalogue has a shelf life now. It went 63 days without a refresh before v0.107 and nothing said so; the pre-release check now flags it at 30 days and the test suite refuses a release at 120, and the catalogue and the thrust-curve bundle are refreshed together so a half-refresh cannot ship."
+  "note": "The motor browser can now check thrustcurve.org for motors newer than the catalogue the app shipped with. The header shows the catalogue's age; the button pulls the live list, screens every row, and says exactly what changed - naming first any motor loaded in your design whose certified figures moved. The result is kept in your browser, applies to the browser, quick picks, batch runs and file import alike, never edits the app's own catalogue, and discards itself when an update ships a newer one."
 }
