@@ -105,7 +105,8 @@ describe('filtering and sorting', () => {
     const without = filterMotors(base);
     const withOOP = filterMotors({ ...base, includeOOP: true });
     expect(withOOP.length).toBeGreaterThan(without.length);
-    expect(without.every((m) => m.availability === 'regular')).toBe(true);
+    // 'regular' AND 'occasional' both show by default since v0.108; only OOP hides.
+    expect(without.every((m) => m.availability !== 'OOP')).toBe(true);
   });
 
   it('manufacturer and class toggles narrow the list', () => {
