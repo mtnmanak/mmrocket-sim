@@ -513,15 +513,32 @@ export function samplesToMotorSpec(
  * used to crash the build. Bumping the prefix retires those entries rather
  * than leaving a poisoned cache no code path ever invalidates.
  *
- * Bumping made them UNREACHABLE; it never freed them. Three generations have
+ * Bumping made them UNREACHABLE; it never freed them. Four generations have
  * shipped — `tc:samples:` through v0.060, `tc:samples:v2:` in v0.061-v0.064,
- * `tc:samples:v3:` from v0.065 — and the beta invite went out 2026-08-22, so
- * day-one testers hold two dead generations that can never be read and, until
- * sweepDeadGenerations() below, could never be freed either. Whoever bumps
- * this next: change only the version segment, CACHE_ROOT is what sweeps.
+ * `tc:samples:v3:` in v0.065-v0.110, `tc:samples:v4:` from v0.111 — and the
+ * beta invite went out 2026-08-22, so day-one testers hold dead generations
+ * that can never be read and, until sweepDeadGenerations() below, could never
+ * be freed either. Whoever bumps this next: change only the version segment,
+ * CACHE_ROOT is what sweeps.
+ *
+ * v4 (v0.111) is the one to learn from. THE ENTRY IS KEYED BY MOTOR, NOT BY
+ * THE RULE THAT CHOSE IT: a hit is validated for shape and nothing else (see
+ * the read below), so it outranks the bundle and the network for as long as it
+ * survives. v0.107 rewrote pickSampleFile — burn-time agreement, then the
+ * certification file, ahead of the old raw point count — and left this segment
+ * alone, so every curve downloaded before v0.107 kept the pick the OLD rule
+ * made. Replaying both orders over the shipped bundle: 158 of the 810 motors
+ * with two or more published files change file, 14 of them by 3 % or more of
+ * total impulse (Cesaroni 229H255-14A -27.6 %, AMW J230SK-P +22.8 %, Estes A8
+ * +7.8 %). A tester who flew one of those before v0.107 kept flying the wrong
+ * curve through v0.110, and re-picking the motor could not clear it.
+ *
+ * SO: ANY CHANGE TO pickSampleFile, OR TO WHAT IS STORED IN AN ENTRY, BUMPS
+ * THIS SEGMENT IN THE SAME COMMIT. A chooser fix that does not is a fix that
+ * reaches new users only.
  */
 const CACHE_ROOT = 'tc:samples:';
-const CACHE_PREFIX = `${CACHE_ROOT}v3:`;
+const CACHE_PREFIX = `${CACHE_ROOT}v4:`;
 
 /**
  * Cap on the live generation, and the mark eviction prunes back to.

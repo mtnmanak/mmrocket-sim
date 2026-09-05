@@ -301,11 +301,11 @@ describe('flushSession closes the debounce window on the way out', () => {
 
 describe('the design outranks a re-downloadable cache at quota (critic-3)', () => {
   const KEY = 'online-openrocket.session.v1';
-  const CACHE = 'tc:samples:v3:';
+  const CACHE = 'tc:samples:v4:';
 
   /**
    * A store that refuses writes while the disposable cache is present — the
-   * shape of the real failure. thrustcurve.ts writes one `tc:samples:v3:<id>`
+   * shape of the real failure. thrustcurve.ts writes one `tc:samples:v4:<id>`
    * entry per downloaded curve with no count cap, no size cap and no
    * clear-cache path anywhere in the UI, so a flight day spent browsing motors
    * filled the origin and every debounced autosave after that was refused.
@@ -314,7 +314,7 @@ describe('the design outranks a re-downloadable cache at quota (critic-3)', () =
   function stubStore(opts: { cacheEntries: number; alwaysFull?: boolean }) {
     const map = new Map<string, string>();
     for (let i = 0; i < opts.cacheEntries; i++) map.set(`${CACHE}m${i}`, '[1,2,3]');
-    map.set('tc:samples:v4:future', '[4,5]'); // a later cache version must sweep too
+    map.set('tc:samples:v5:future', '[4,5]'); // a later cache version must sweep too
     map.set('online-openrocket.prefs.v1', '{}');
     const full = () => opts.alwaysFull === true
       || [...map.keys()].some((k) => k.startsWith('tc:'));
@@ -340,7 +340,7 @@ describe('the design outranks a re-downloadable cache at quota (critic-3)', () =
     expect(sessionSaveFailing()).toBe(false);
     expect(seen).toEqual([]);               // never even reported failing
     // Only re-downloadable data was given up — including a future cache
-    // version, because the sweep matches the family prefix, not `v3`.
+    // version, because the sweep matches the family prefix, not `v4`.
     expect([...map.keys()].filter((k) => k.startsWith('tc:'))).toEqual([]);
     expect(map.has('online-openrocket.prefs.v1')).toBe(true);
     off();
@@ -358,7 +358,7 @@ describe('the design outranks a re-downloadable cache at quota (critic-3)', () =
 
   it('with nothing disposable to give, it fails honestly and signals ONE edge', () => {
     const map = stubStore({ cacheEntries: 0, alwaysFull: true });
-    map.delete('tc:samples:v4:future');
+    map.delete('tc:samples:v5:future');
     const seen: boolean[] = [];
     const off = onSessionSaveStateChange((f) => seen.push(f));
     for (let i = 0; i < 5; i++) saveNow();

@@ -1,5 +1,5 @@
 {
-  "version": "0.110",
+  "version": "0.111",
   "released": "2026-09-05",
-  "note": "The motor browser can now check thrustcurve.org for motors newer than the catalogue the app shipped with. The header shows the catalogue's age; the button pulls the live list, screens every row, and says exactly what changed - naming first any motor loaded in your design whose certified figures moved. The result is kept in your browser, applies to the browser, quick picks, batch runs and file import alike, never edits the app's own catalogue, and discards itself when an update ships a newer one."
+  "note": "A thrust curve the app had already downloaded was kept in your browser and read before anything else, and it recorded the samples but not the rule that picked them - so v0.107's fix to how the app chooses between a motor's published curves never reached a motor you had already flown. Of the 810 motors with more than one published file, 158 come out different under the corrected rule and 14 of those by more than 3 percent of total impulse. Refreshing discards the stored curves and re-fetches them; nothing else in your browser is touched."
 }

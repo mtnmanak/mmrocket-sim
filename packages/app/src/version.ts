@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.110';
+export const APP_VERSION = '0.111';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.111',
+    date: '2026-09-05',
+    title: 'A motor you had already flown kept the wrong thrust curve, because the browser cache outlived the fix that was meant to correct it',
+    items: [
+      'v0.107 CHANGED HOW THE APP PICKS BETWEEN A MOTOR\'S PUBLISHED CURVES - burn time against the certified figure first, then the certification body\'s own file, ahead of the raw point count that used to decide it. That fix reached anyone downloading a curve for the first time. It did NOT reach a curve already sitting in your browser. A downloaded curve is kept per motor and is read before the shipped bundle and before the network, and the stored entry records the samples but not the rule that chose them - so it was handed back unchecked, and a motor you flew before v0.107 went on flying the file the OLD rule picked, through v0.110. Re-picking the motor did not clear it, because that reads the same store.',
+      'MEASURED, BY REPLAYING BOTH RULES OVER EVERY CURVE THE APP SHIPS: of the 810 catalogued motors with two or more published files, 158 come out with a different file, and 14 of those differ by 3 percent or more of total impulse - Cesaroni 229H255-14A by 27.6 percent, AMW J230SK-P by 22.8, AeroTech G78G/L by 17.6, AeroTech F20W/L by 14.9, AeroTech E15W by 12.9, the Estes A8 by 7.8. Total impulse moves apogee, so those flights were wrong by a margin worth re-flying for.',
+      'THE FIX RETIRES THE STORED CURVES RATHER THAN TRYING TO REPAIR THEM. Refreshing to v0.111 discards every curve the app had downloaded and re-fetches on demand, so the next flight uses the file the current rule chooses. Nothing else in your browser is touched - the design that saves itself, your saved runs and your preferences are all left alone. YOU NEED DO NOTHING BUT REFRESH, though a design whose motor is one of the 14 above is worth re-running.',
+      'AND THE RULE THAT WAS MISSING IS NOW WRITTEN DOWN WHERE IT WILL BE READ: any change to how a curve is chosen, or to what is kept in one of these entries, retires the stored ones in the same commit. A chooser fix that skips that step only ever reaches new users, which is exactly what happened here.',
+    ],
+  },
   {
     version: '0.110',
     date: '2026-09-05',
