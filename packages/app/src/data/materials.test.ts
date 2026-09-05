@@ -96,6 +96,18 @@ describe('the built-in material tables', () => {
     ['LINE_MATERIALS', LINE_MATERIALS],
   ];
 
+  it('carries every row OpenRocket 24.12 Databases.java declares — 31 bulk, 8 surface, 42 line', () => {
+    // The header calls this table a verbatim transcription. The 2026-09-05
+    // audit diffed it row by row against Databases.java and found exactly one
+    // row missing (Styrofoam "Blue foam" (XPS), 32 kg/m3). Pinning the counts
+    // makes the next omission — or the next upstream addition — a failing test
+    // instead of a quiet divergence.
+    expect(BULK_MATERIALS).toHaveLength(31);
+    expect(SURFACE_MATERIALS).toHaveLength(8);
+    expect(LINE_MATERIALS).toHaveLength(42);
+    expect(byName(BULK_MATERIALS, 'Styrofoam "Blue foam" (XPS)')?.density).toBe(32);
+  });
+
   it('names every material once per table', () => {
     for (const [label, list] of TABLES) {
       expect(new Set(list.map((m) => m.name)).size, label).toBe(list.length);

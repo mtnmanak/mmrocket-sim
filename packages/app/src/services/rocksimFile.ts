@@ -1,5 +1,6 @@
 import { strFromU8 } from 'fflate';
 import type { ComponentNode, ComponentPosition, RocketTree } from '@online-openrocket/engine';
+import { finOutlineProblem } from '../tree/finOutline.js';
 import { asStageNodes, freshId, mountsIn } from '../tree/treeModel.js';
 import { mountBore } from '../tree/scaleRocket.js';
 import { CLUSTER_POINTS, clusterOffsets } from '../tree/cluster.js';
@@ -586,10 +587,21 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
             + 'planform) — OpenRocket only allows freeform fins on a transition.';
           if (!notes.includes(note)) notes.push(note);
         } else {
-          // Fewer than three points is not a polygon: it reaches buildPieces and the
-          // kernel as a fin with no area. orkFile.ts:533 already guards this.
+          // The same test the fin editor applies before it commits an outline:
+          // at least three points, none repeated, no edge crossing another. A
+          // crossing outline reaches the kernel's FreeformFinSet, whose reporter
+          // formats the intersection with %g — which TeaVM's String.format does
+          // not have — so the design blanked with "Unknown format conversion: g".
+          // The v0.105 changelog said the importers already checked this; they
+          // did not (only a synthesised zero-tip-chord case was caught). Now they do.
           const rktPts = parsePointList(text(el, ':scope > PointList') ?? '');
-          if (rktPts.length >= 3) n['points'] = rktPts;
+          const outlineProblem = finOutlineProblem(rktPts);
+          if (!outlineProblem) {
+            n['points'] = rktPts;
+          } else {
+            const note = `Fin set "${n.name ?? 'freeform'}": its outline was not used — ${outlineProblem} The set keeps a default outline; redraw it in the fin editor.`;
+            if (!notes.includes(note)) notes.push(note);
+          }
         }
         const tabLen = num(el, 'TabLength', 0);
         const tabDepth = num(el, 'TabDepth', 0);

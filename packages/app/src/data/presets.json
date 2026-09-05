@@ -10518,7 +10518,7 @@
    "material": {
     "name": "Paper, spiral kraft, Motor Mount, 29mm, 12\", thick, bulk",
     "type": "BULK",
-    "density": 110.62
+    "density": 842.4
    },
    "insideDiameter": 0.0291338,
    "outsideDiameter": 0.0313182,
@@ -10532,7 +10532,7 @@
    "material": {
     "name": "Paper, spiral kraft, Motor Mount, 29mm, 12\", thick, bulk",
     "type": "BULK",
-    "density": 110.62
+    "density": 842.4
    },
    "insideDiameter": 0.0291338,
    "outsideDiameter": 0.0313182,
@@ -10826,7 +10826,7 @@
    "material": {
     "name": "Paper, spiral kraft, Motor Mount, BT-50, bulk",
     "type": "BULK",
-    "density": 9072
+    "density": 907.2
    },
    "insideDiameter": 0.02413,
    "outsideDiameter": 0.0247904,
@@ -23812,7 +23812,7 @@
    "material": {
     "name": "Paper, bulk",
     "type": "BULK",
-    "density": 0.0011
+    "density": 657
    },
    "insideDiameter": 0.0186944,
    "outsideDiameter": 0.0240284,
@@ -23826,7 +23826,7 @@
    "material": {
     "name": "Paper, bulk",
     "type": "BULK",
-    "density": 0.0011
+    "density": 657
    },
    "insideDiameter": 0.0186944,
    "outsideDiameter": 0.0240284,
@@ -24050,7 +24050,7 @@
    "material": {
     "name": "Paper, bulk",
     "type": "BULK",
-    "density": 0.0011
+    "density": 657
    },
    "insideDiameter": 0.0095504,
    "outsideDiameter": 0.0131064,
@@ -24162,7 +24162,7 @@
    "material": {
     "name": "Paper, bulk",
     "type": "BULK",
-    "density": 0.0011
+    "density": 657
    },
    "insideDiameter": 0.0248158,
    "outsideDiameter": 0.0288798,
@@ -24176,7 +24176,7 @@
    "material": {
     "name": "Paper, bulk",
     "type": "BULK",
-    "density": 0.0011
+    "density": 657
    },
    "insideDiameter": 0.0248158,
    "outsideDiameter": 0.0288798,
@@ -24204,7 +24204,7 @@
    "material": {
     "name": "Paper, bulk",
     "type": "BULK",
-    "density": 0.0011
+    "density": 657
    },
    "insideDiameter": 0.0248412,
    "outsideDiameter": 0.0325882,
@@ -24428,7 +24428,7 @@
    "material": {
     "name": "Paper, bulk",
     "type": "BULK",
-    "density": 0.0011
+    "density": 657
    },
    "insideDiameter": 0.0137668,
    "outsideDiameter": 0.0179832,
@@ -28615,7 +28615,7 @@
    "material": {
     "name": "Paper, bulk",
     "type": "BULK",
-    "density": 0.0011
+    "density": 657
    },
    "insideDiameter": 0.0186944,
    "outsideDiameter": 0.0240284,
@@ -28629,7 +28629,7 @@
    "material": {
     "name": "Paper, bulk",
     "type": "BULK",
-    "density": 0.0011
+    "density": 657
    },
    "insideDiameter": 0.0186944,
    "outsideDiameter": 0.0240284,
@@ -28853,7 +28853,7 @@
    "material": {
     "name": "Paper, bulk",
     "type": "BULK",
-    "density": 0.0011
+    "density": 657
    },
    "insideDiameter": 0.0095504,
    "outsideDiameter": 0.0131064,
@@ -28965,7 +28965,7 @@
    "material": {
     "name": "Paper, bulk",
     "type": "BULK",
-    "density": 0.0011
+    "density": 657
    },
    "insideDiameter": 0.0248158,
    "outsideDiameter": 0.0288798,
@@ -28979,7 +28979,7 @@
    "material": {
     "name": "Paper, bulk",
     "type": "BULK",
-    "density": 0.0011
+    "density": 657
    },
    "insideDiameter": 0.0248158,
    "outsideDiameter": 0.0288798,
@@ -29007,7 +29007,7 @@
    "material": {
     "name": "Paper, bulk",
     "type": "BULK",
-    "density": 0.0011
+    "density": 657
    },
    "insideDiameter": 0.0248412,
    "outsideDiameter": 0.0314452,
@@ -29231,7 +29231,7 @@
    "material": {
     "name": "Paper, bulk",
     "type": "BULK",
-    "density": 0.0011
+    "density": 657
    },
    "insideDiameter": 0.0137668,
    "outsideDiameter": 0.0179832,
@@ -32271,7 +32271,7 @@
    "material": {
     "name": "Paper, bulk",
     "type": "BULK",
-    "density": 0.0011
+    "density": 657
    },
    "insideDiameter": 0.0095504,
    "outsideDiameter": 0.0131064,
@@ -32285,7 +32285,7 @@
    "material": {
     "name": "Paper, bulk",
     "type": "BULK",
-    "density": 0.0011
+    "density": 657
    },
    "insideDiameter": 0.0137668,
    "outsideDiameter": 0.0179832,
@@ -32299,7 +32299,7 @@
    "material": {
     "name": "Paper, bulk",
     "type": "BULK",
-    "density": 0.0011
+    "density": 657
    },
    "insideDiameter": 0.0186944,
    "outsideDiameter": 0.0240284,
@@ -32313,7 +32313,7 @@
    "material": {
     "name": "Paper, bulk",
     "type": "BULK",
-    "density": 0.0011
+    "density": 657
    },
    "insideDiameter": 0.0248158,
    "outsideDiameter": 0.0288798,
@@ -32412,7 +32412,7 @@
    "material": {
     "name": "Light Ply",
     "type": "BULK",
-    "density": 0
+    "density": 352.4
    },
    "insideDiameter": 0.00508,
    "outsideDiameter": 0.005588,
@@ -33903,7 +33903,7 @@
    "material": {
     "name": "Paper, spiral kraft glassine, 1/8\" Lugs, bulk",
     "type": "BULK",
-    "density": 2525.42
+    "density": 616.44
    },
    "insideDiameter": 0.00381,
    "outsideDiameter": 0.004064,
@@ -33917,7 +33917,7 @@
    "material": {
     "name": "Paper, spiral kraft glassine, 3/16\" Lugs, bulk",
     "type": "BULK",
-    "density": 1498.77
+    "density": 616.44
    },
    "insideDiameter": 0.005334,
    "outsideDiameter": 0.0056388,
@@ -39481,7 +39481,8 @@
    "description": "Plastic nose cone",
    "material": {
     "name": "[material:[material:polystyrene PS]]",
-    "type": "BULK"
+    "type": "BULK",
+    "density": 1049.2093527
    },
    "mass": 0.09922333085,
    "shape": "OGIVE",
@@ -39499,7 +39500,8 @@
    "description": "Plastic nose cone",
    "material": {
     "name": "[material:[material:polystyrene PS]]",
-    "type": "BULK"
+    "type": "BULK",
+    "density": 1049.2093527
    },
    "mass": 0.1133980924,
    "shape": "OGIVE",
@@ -39517,7 +39519,8 @@
    "description": "Plastic nose cone",
    "material": {
     "name": "[material:[material:polystyrene PS]]",
-    "type": "BULK"
+    "type": "BULK",
+    "density": 1049.2093527
    },
    "mass": 0.0850485693,
    "shape": "OGIVE",
@@ -39535,7 +39538,8 @@
    "description": "Plastic nose cone",
    "material": {
     "name": "[material:[material:polystyrene PS]]",
-    "type": "BULK"
+    "type": "BULK",
+    "density": 1049.2093527
    },
    "mass": 0.1417476155,
    "shape": "OGIVE",
@@ -39553,7 +39557,8 @@
    "description": "Plastic nose cone",
    "material": {
     "name": "[material:[material:polystyrene PS]]",
-    "type": "BULK"
+    "type": "BULK",
+    "density": 1049.2093527
    },
    "mass": 0.1417476155,
    "shape": "OGIVE",
@@ -39571,7 +39576,8 @@
    "description": "Plastic nose cone",
    "material": {
     "name": "[material:[material:polystyrene PS]]",
-    "type": "BULK"
+    "type": "BULK",
+    "density": 1049.2093527
    },
    "mass": 0.283495231,
    "shape": "OGIVE",
@@ -39589,7 +39595,8 @@
    "description": "Plastic nose cone",
    "material": {
     "name": "[material:[material:polystyrene PS]]",
-    "type": "BULK"
+    "type": "BULK",
+    "density": 1049.2093527
    },
    "mass": 0.566990462,
    "shape": "OGIVE",
@@ -39607,7 +39614,8 @@
    "description": "Plastic nose cone",
    "material": {
     "name": "[material:[material:polystyrene PS]]",
-    "type": "BULK"
+    "type": "BULK",
+    "density": 1049.2093527
    },
    "mass": 0.9071847392,
    "shape": "OGIVE",
@@ -41009,7 +41017,7 @@
    "material": {
     "name": "Fiberglass",
     "type": "BULK",
-    "density": 128.147704
+    "density": 1900
    },
    "mass": 2.267961848,
    "shape": "OGIVE",
@@ -41028,7 +41036,7 @@
    "material": {
     "name": "Fiberglass",
     "type": "BULK",
-    "density": 128.147704
+    "density": 1900
    },
    "shape": "CONICAL",
    "outsideDiameter": 0.296164,
@@ -41046,7 +41054,7 @@
    "material": {
     "name": "Fiberglass",
     "type": "BULK",
-    "density": 128.147704
+    "density": 1900
    },
    "mass": 0.7937866468,
    "shape": "OGIVE",
@@ -41065,7 +41073,7 @@
    "material": {
     "name": "Fiberglass",
     "type": "BULK",
-    "density": 128.147704
+    "density": 1900
    },
    "mass": 1.2473790164,
    "shape": "OGIVE",
@@ -66601,7 +66609,8 @@
    "description": "Plastic Tail Cone for V2 and R2 and Marvins wild ride",
    "material": {
     "name": "[material:[material:Polystyrene PS]]",
-    "type": "BULK"
+    "type": "BULK",
+    "density": 1049.2093527
    },
    "mass": 0.10772818778,
    "shape": "OGIVE",
@@ -76504,7 +76513,8 @@
    "description": ".98in Tube coupler/2in",
    "material": {
     "name": "Kraft Phenolic",
-    "type": "BULK"
+    "type": "BULK",
+    "density": 958.70503449
    },
    "mass": 0.0283495231,
    "insideDiameter": 0.0234188,
@@ -76519,7 +76529,8 @@
    "description": "1.34in Tube coupler/2.5in",
    "material": {
     "name": "Kraft Phenolic",
-    "type": "BULK"
+    "type": "BULK",
+    "density": 958.70503449
    },
    "mass": 0.0283495231,
    "insideDiameter": 0.03302,

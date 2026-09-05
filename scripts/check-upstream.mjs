@@ -100,6 +100,32 @@ function rowsByPart(xml, element) {
   return out;
 }
 
+/**
+ * The <Density> declared for a named <Material> in an .orc file, as the raw
+ * string upstream wrote, or null when no such material is declared. Parsed by
+ * hand: the names carry quotes, commas and inch marks, and building a regex
+ * from them is one more thing to get wrong.
+ */
+function materialDensityIn(xml, name) {
+  const needle = `<Name>${name}</Name>`;
+  let from = 0;
+  for (;;) {
+    const at = xml.indexOf(needle, from);
+    if (at < 0) return null;
+    // The <Material ...> block this Name belongs to must open before it and
+    // close after it; a part row also has a <Name>, so check the container.
+    const open = xml.lastIndexOf('<Material', at);
+    const close = xml.indexOf('</Material>', at);
+    if (open >= 0 && close >= 0 && xml.lastIndexOf('</Material>', at) < open) {
+      const block = xml.slice(open, close);
+      const d = block.indexOf('<Density>');
+      if (d >= 0) return block.slice(d + 9, block.indexOf('</Density>', d)).trim();
+      return null;
+    }
+    from = at + needle.length;
+  }
+}
+
 const fileCache = new Map();
 async function orc(file) {
   if (!fileCache.has(file)) fileCache.set(file, await text(`${RAW}/${file}`));
@@ -109,6 +135,20 @@ async function orc(file) {
 async function checkCorrections() {
   say('1. openrocket-database rows this app corrects');
   for (const c of CORRECTIONS) {
+    // A material-density correction watches a <Material> block, not a part row.
+    if (c.upstreamMaterial) {
+      const um = c.upstreamMaterial;
+      checked++;
+      const cur = materialDensityIn(await orc(um.file), um.name);
+      if (cur === null) { flag(`${um.file}: material "${um.name}" is GONE from upstream. Our correction keys off it — re-check before the next regeneration.`); continue; }
+      if (cur === um.bad) say(`  ok   ${um.file} material "${um.name}" density = ${cur} (still the known-bad value; our correction is still needed)`);
+      else { flag(`${um.file} material "${um.name}" density = ${cur}, was ${um.bad} — upstream changed it. Re-examine ${c.key}: the correction may be retirable.`); notes.push(`upstream moved material ${um.name} in ${um.file}`); }
+      continue;
+    }
+    if (c.unwatched) {
+      say(`  --   ${c.key}: not watched — ${c.unwatched}`);
+      continue;
+    }
     const u = c.upstream;
     if (!u) { flag(`${c.key}: correction carries no \`upstream\` descriptor — it cannot be watched. Add one.`); continue; }
     const rows = rowsByPart(await orc(u.file), u.element);

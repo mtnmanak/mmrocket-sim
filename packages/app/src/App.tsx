@@ -29,7 +29,7 @@ import {
   BUILD_ALLOWANCE_NAME, coveringMassOverride, findAllowance, placeAtStation, solveBallast,
   withoutAllowance, type BallastSolution,
 } from './services/buildAllowance.js';
-import { builtInMeta, MotorPicker } from './components/MotorPicker.js';
+import { MotorPicker } from './components/MotorPicker.js';
 import { Modal } from './components/Modal.js';
 import { useMenuPopup } from './components/useDialog.js';
 import { NumField } from './components/NumField.js';
@@ -47,7 +47,7 @@ import {
 const Rocket3D = lazy(() => import('./components/Rocket3D.js').then((m) => ({ default: m.Rocket3D })));
 import { TreeSchematic } from './components/TreeSchematic.js';
 import { AftView } from './components/AftView.js';
-import { BUILT_IN_MOTORS } from './motors.js';
+import { loadCatalogueMotor } from './services/motorMatch.js';
 import { PreferencesDialog } from './components/PreferencesDialog.js';
 import { SiteBand, SiteBandFooter } from './components/SiteBand.js';
 import { MMR_NAV_FALLBACK, useMmrNav } from './services/useMmrNav.js';
@@ -371,15 +371,40 @@ export function App() {
   const [clipboard, setClipboard] = useState<ComponentNode | null>(null);
   // Per-mount motors (Release C). Legacy sessions carried ONE motor + the
   // mount it applied to — migrate it onto that mount.
+  const defaultMountId = session?.mountId ?? motorMounts(initialTree)[0]?.id;
   const [mountMotors, setMountMotors] = useState<Record<string, MountMotor>>(() => {
     if (session?.mountMotors) return session.mountMotors;
-    const target = session?.mountId ?? motorMounts(initialTree)[0]?.id;
-    if (!target) return {};
-    const label = session?.motorLabel ?? 'C6-5';
-    const spec = session?.motor ?? BUILT_IN_MOTORS['C6-5']!;
-    const meta = session?.motorMeta ?? builtInMeta(label);
-    return { [target]: { label, spec, meta, ignition: { event: 'automatic', delay: 0 } } };
+    if (!defaultMountId) return {};
+    // A legacy (pre-per-mount) session carried its one motor's spec inline.
+    if (session?.motor) {
+      const label = session.motorLabel ?? 'C6-5';
+      // Those sessions predate the catalogue and only ever held the three
+      // Estes-class starters, so a missing meta can be named honestly.
+      const meta = session.motorMeta
+        ?? { label, manufacturer: 'Estes', type: 'SU', propellant: 'black powder' };
+      return { [defaultMountId]: { label, spec: session.motor, meta, ignition: { event: 'automatic', delay: 0 } } };
+    }
+    // A fresh design starts EMPTY here and gets its starter motor from the
+    // effect below — the catalogue's Estes C6 with its published curve, which
+    // the shipped bundle answers with no network. Until 2026-09-05 this
+    // initializer loaded a hand-written C6-5 approximation (17.5 % high on
+    // impulse) synchronously; a real motor needs one await, so it moved.
+    return {};
   });
+  const wantsStarterMotor = !session?.mountMotors && !session?.motor && !!defaultMountId;
+  useEffect(() => {
+    if (!wantsStarterMotor) return;
+    let live = true;
+    void loadCatalogueMotor('Estes', 'C6', 5)
+      .then((m) => {
+        // Only if nothing beat it: the user may have picked a motor or opened
+        // a file in the time the bundle chunk took to arrive.
+        if (live && m) setMountMotors((prev) => (Object.keys(prev).length ? prev : { [defaultMountId!]: m }));
+      })
+      .catch(() => { /* no bundled curve and no network: the design starts with no motor, honestly */ });
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot startup decision
+  }, []);
   // Stage B: the imported file's flight configurations as presets, and which
   // one the working set (mountMotors) came from. null = custom/none — manual
   // motor edits KEEP the active id (the working set is that config's current

@@ -3,6 +3,7 @@ import type { ComponentNode, ComponentPosition, ComponentType, RocketTree } from
 import { DEFAULT_TIME_STEP_S, PANEL_TIME_STEP_FLOOR_S, type LaunchConditions } from '../components/LaunchPanel.js';
 import { asStageNodes, freshId } from '../tree/treeModel.js';
 import { shapeIsClippable, shapeParamDefault } from '../tree/shapeProfile.js';
+import { finOutlineProblem } from '../tree/finOutline.js';
 import { isConformal, shroudEnds } from '../tree/shroud.js';
 import { escapeXml, xmlText as text } from './xmlUtil.js';
 import { unzipMember } from './zipMember.js';
@@ -542,7 +543,21 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
           .filter((pt) => pt.getAttribute('x') !== null && pt.getAttribute('y') !== null)
           .map((pt) => [Number(pt.getAttribute('x')), Number(pt.getAttribute('y'))] as [number, number])
           .filter((p) => Number.isFinite(p[0]) && Number.isFinite(p[1]));
-        if (pts.length >= 3) n['points'] = pts;
+        // The same test the fin editor applies before it commits an outline:
+        // at least three points, none repeated, no edge crossing another. A
+        // crossing outline reaches the kernel's FreeformFinSet, whose reporter
+        // formats the intersection with %g — which TeaVM's String.format lacks —
+        // and the whole design blanked with "Unknown format conversion: g".
+        // The v0.105 changelog said the importers already checked this; they did
+        // not. A file-supplied outline that fails keeps the default outline and
+        // says so, rather than taking the whole rocket down with it.
+        const outlineProblem = finOutlineProblem(pts);
+        if (!outlineProblem) {
+          n['points'] = pts;
+        } else if (pts.length > 0) {
+          notes.push(`Fin set "${n.name ?? 'freeform'}": its outline was not used — ${outlineProblem} `
+            + 'The set keeps a default outline; redraw it in the fin editor.');
+        }
         return n;
       }
       case 'ellipticalfinset': {

@@ -292,8 +292,26 @@ function parseOrc(xml, fileName, globalMaterials) {
   let skippedComponents = 0;
 
   const materials = parseMaterials(xml, fileName, warnings);
-  const lookupDensity = (name, type) =>
-    materials.get(name)?.[type] ?? globalMaterials.get(name)?.[type];
+  const lookupDensity = (name, type) => {
+    let n = name;
+    // A desktop-24.12 legacy .orc names a material by REFERENCE — "[material:X]"
+    // — and its <Materials> block declares it under that same literal string, so
+    // the plain lookup works. LOC's file wraps one reference twice,
+    // "[material:[material:polystyrene PS]]", which matches nothing, and nine
+    // rows shipped with no density until the 2026-09-05 audit's density screen
+    // caught it. Peel one wrapper at a time and retry; case-fold on the last
+    // try, since that file also disagrees with itself on "polystyrene".
+    for (let tries = 0; tries < 3; tries++) {
+      const hit = materials.get(n)?.[type] ?? globalMaterials.get(n)?.[type];
+      if (hit !== undefined) return hit;
+      const m = /^\[material:(.*)\]$/.exec(n);
+      if (!m) break;
+      n = m[1];
+    }
+    const folded = (map) => [...map.keys()].find((k) => k.toLowerCase() === n.toLowerCase());
+    const k = folded(materials) ?? folded(globalMaterials);
+    return k === undefined ? undefined : (materials.get(k)?.[type] ?? globalMaterials.get(k)?.[type]);
+  };
 
   // --- Components section ---
   const componentsBlock = extractBlock(xml, 'Components');

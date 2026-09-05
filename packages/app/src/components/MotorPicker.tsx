@@ -1,26 +1,31 @@
 import { useState } from 'react';
 import type { MotorSpec } from '@online-openrocket/engine';
-import { BUILT_IN_MOTORS } from '../motors.js';
 import { MotorBrowser } from './MotorBrowser.js';
 import type { MotorMeta } from '../services/simReport.js';
+import { loadCatalogueMotor } from '../services/motorMatch.js';
 
 /**
- * Motor selection: a compact current-motor readout with built-in quick picks
- * (instant, offline) and the full-database browser (filters + sortable table
- * over the bundled thrustcurve.org summary DB).
+ * Motor selection: a short list of common motors for one-click loading, and
+ * the full-database browser (filters + sortable table over the bundled
+ * thrustcurve.org catalogue, plus .eng/.rse import).
+ *
+ * The quick picks are ORDINARY CATALOGUE MOTORS, resolved through the same
+ * path as everything else — findDbMotor for the entry, fetchMotorSpec for the
+ * curve, which the shipped bundle answers with no network. Until 2026-09-05 this
+ * dropdown was labelled "Quick picks (built-in, offline)" and served three
+ * thrust curves written by hand on the project's first day; those are gone, and
+ * there is no second class of motor data left in the app.
  */
 
-/** Meta for the built-in quick picks (all Estes; delay is the key suffix). */
-export function builtInMeta(label: string): MotorMeta {
-  const delay = Number(label.split('-')[1]);
-  return {
-    label,
-    manufacturer: 'Estes',
-    availableDelays: Number.isFinite(delay) ? [delay] : undefined,
-    type: 'SU',
-    propellant: 'black powder',
-  };
-}
+/** Manufacturer + designation + the delay each is normally flown with. */
+const QUICK_PICKS: ReadonlyArray<{ mfr: string; des: string; delay: number }> = [
+  { mfr: 'Estes', des: 'A8', delay: 3 },
+  { mfr: 'Estes', des: 'B6', delay: 4 },
+  { mfr: 'Estes', des: 'C6', delay: 5 },
+  { mfr: 'Estes', des: 'D12', delay: 5 },
+];
+
+const pickLabel = (p: { mfr: string; des: string; delay: number }): string => `${p.mfr} ${p.des}-${p.delay}`;
 
 export function MotorPicker({ mountDiameterMm, maxMotorLengthM, selectedLabel, onSelect }: {
   mountDiameterMm: number;
@@ -30,28 +35,50 @@ export function MotorPicker({ mountDiameterMm, maxMotorLengthM, selectedLabel, o
   onSelect: (label: string, spec: MotorSpec, meta: MotorMeta) => void;
 }) {
   const [browsing, setBrowsing] = useState(false);
+  const [loading, setLoading] = useState<string | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+
+  const current = QUICK_PICKS.find((p) => pickLabel(p) === selectedLabel || `${p.des}-${p.delay}` === selectedLabel);
+
+  const pick = async (p: { mfr: string; des: string; delay: number }): Promise<void> => {
+    setProblem(null);
+    setLoading(pickLabel(p));
+    try {
+      const m = await loadCatalogueMotor(p.mfr, p.des, p.delay);
+      if (!m) throw new Error(`${pickLabel(p)} is not in the motor database.`);
+      onSelect(m.label, m.spec, m.meta);
+    } catch (e) {
+      setProblem(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(null);
+    }
+  };
 
   return (
     <div>
       <div className="field">
-        <label>Quick picks (built-in, offline)</label>
+        <label>Quick picks</label>
         <select
-          aria-label="Quick picks (built-in, offline)"
-          value={BUILT_IN_MOTORS[selectedLabel] ? selectedLabel : ''}
+          aria-label="Quick picks"
+          value={current ? pickLabel(current) : ''}
+          disabled={loading !== null}
           onChange={(e) => {
-            const m = BUILT_IN_MOTORS[e.target.value];
-            if (m) onSelect(e.target.value, m, builtInMeta(e.target.value));
+            const p = QUICK_PICKS.find((q) => pickLabel(q) === e.target.value);
+            if (p) void pick(p);
           }}
         >
-          {!BUILT_IN_MOTORS[selectedLabel] && (
+          {!current && (
             <option value="">
               {selectedLabel ? `${selectedLabel} (from database)` : '— no motor —'}
             </option>
           )}
-          {Object.keys(BUILT_IN_MOTORS).map((key) => (
-            <option key={key} value={key}>{key}</option>
+          {QUICK_PICKS.map((p) => (
+            <option key={pickLabel(p)} value={pickLabel(p)}>
+              {loading === pickLabel(p) ? `${pickLabel(p)} — loading…` : pickLabel(p)}
+            </option>
           ))}
         </select>
+        {problem && <p className="print-note print-note-warn" role="alert">{problem}</p>}
       </div>
       <button
         className="file-btn"

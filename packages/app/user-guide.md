@@ -689,7 +689,7 @@ The simulation runs inside the browser tab, so while it runs the page cannot res
 
 **If a file asks for something finer**, we fly it at 0.05 s and say so in the file-opened note. Nothing is hidden: the Time step field shows what we are actually using, and you can type the file's original value back in if you want to reproduce a desktop number exactly. Below 0.05 s the panel shows what it will cost — as a multiplier, and in seconds per flight once you have flown once.
 
-**The one number that does move.** Launch-rod exit velocity reads up to about 1 m/s (≈3 %) *higher* at 0.05 s than at a converged step, because the rod phase lasts a fraction of a second. If you are checking a marginal rod-exit speed against the 15 m/s guidance, that is the one case where a finer step is worth the wait.
+**Rod-exit velocity no longer depends on the step.** Until v0.102 it read up to about 1 m/s (≈3 %) *higher* at 0.05 s than at a converged step, because it was taken at the end of the integration step that crossed the rod tip rather than at the crossing itself — and this guide told you to fly a finer step to check a marginal rod-exit speed. That was the wrong fix for the right reason: the value is now interpolated across the step to the instant the rocket leaves the rod, so 0.05 s gives the converged answer and a finer step buys nothing here.
 
 **Deterministic by design**: wind turbulence is seeded (default seed 42), so identical inputs always produce an identical flight. This is intentional and differs from the desktop's time-seeded randomness — re-running won't vary the result, and that is not a bug. (The physics behind the wind model and this determinism choice is covered in *How It Works*.)
 

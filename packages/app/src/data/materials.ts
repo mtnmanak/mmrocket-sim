@@ -37,6 +37,9 @@ export const BULK_MATERIALS: MaterialDef[] = [
   { name: 'Spruce', density: 450, group: 'WOODS' },
   { name: 'Steel', density: 7850, group: 'METALS' },
   { name: 'Styrofoam (generic EPS)', density: 20, group: 'FOAMS' },
+  // Databases.java:68. Missed in the original transcription and found by the
+  // 2026-09-05 audit's row-by-row diff — the one row of 81 that was absent.
+  { name: 'Styrofoam "Blue foam" (XPS)', density: 32, group: 'FOAMS' },
   { name: 'Titanium', density: 4500, group: 'METALS' },
   { name: 'Quantum tubing', density: 1050, group: 'PLASTICS' },
   { name: 'Blue tube', density: 1300, group: 'COMPOSITES' },

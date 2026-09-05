@@ -120,6 +120,123 @@ export const CORRECTIONS = [
  * checker watches them, because the day they move is the day to re-read the
  * BMS rows above (the same commit swept CR5060-W into that fix).
  */
+/**
+ * MATERIAL-DENSITY CORRECTIONS (2026-09-05). Found by the second engineering
+ * audit, which was told to hunt for numbers the app presents as real that are
+ * not. Six upstream <Material> definitions are physically impossible, and the
+ * 25 rows below that use them carry NO catalogued mass — so the density is the
+ * only thing that weighs the part, and presetPatch (presets.ts) writes it
+ * straight into the component. Faithfully transcribed, upstream wrong; the
+ * standing rule (Eric, 2026-08-31) is to correct and keep watching.
+ *
+ * Each entry's `fields` uses the dotted path 'material.density'. Upstream is
+ * described one of two ways: `upstreamMaterial` names a <Material> block in a
+ * github .orc for check-upstream.mjs to keep watching, and `unwatched` states
+ * why no watch is possible — the value comes from a desktop-24.12 internal
+ * file, a released artifact that will not change.
+ */
+const PAPER_BULK_BAD = 0.0011;
+/**
+ * 'Fiber, bulk' — the density BMS.ORC and ROCKETARIUM.ORC give their own
+ * FIBER rings (657 kg/m3), which is what a "paper" centering ring physically
+ * is; several of these rows' descriptions say "fiber" outright. Not the app's
+ * generic Cardboard (680): the siblings are the closer reference.
+ */
+const PAPER_BULK_GOOD = 657;
+
+const paperRow = (kind, mfrKeyPart, partNo, file) => ({
+  key: `${kind}|${mfrKeyPart}`,
+  why: `upstream ${file} declares "Paper, bulk" at 0.0011 kg/m3 (six orders of magnitude light — a hundred-thousandth of air); the row has no <Mass>, so it weighed nothing. Pinned to the 657 kg/m3 the same file gives its own fiber rings.`,
+  fields: { 'material.density': { bad: PAPER_BULK_BAD, good: PAPER_BULK_GOOD } },
+  upstreamMaterial: { file, name: 'Paper, bulk', bad: '.0011' },
+  partNo,
+});
+
+export const MATERIAL_CORRECTIONS = [
+  // --- Paper, bulk at 0.0011 kg/m3 — 18 rows, two makers, one shared upstream error
+  ...['cr2050p', 'cr2050p1', 'cr35p', 'cr5052hp', 'cr5052hp1', 'cr5055p', 'cr520p']
+    .map((k) => paperRow('CenteringRing', `balsamachining|${k}`, k.toUpperCase().replace(/P(1?)$/, '-P$1'), 'BMS.ORC')),
+  ...['cr2050p', 'cr2050p1', 'cr35p', 'cr5052hp', 'cr5052hp1', 'cr5055p', 'cr520p']
+    .map((k) => paperRow('CenteringRing', `rocketarium|${k}`, k.toUpperCase().replace(/P(1?)$/, '-P$1'), 'ROCKETARIUM.ORC')),
+  ...['eb13p', 'eb18p', 'eb24p', 'eb29p']
+    .map((k) => paperRow('EngineBlock', `balsamachining|${k}`, k.toUpperCase().replace(/P$/, '-P'), 'BMS.ORC')),
+
+  // --- Rocketarium kraft motor-mount tubes: two decimal slips in one file
+  {
+    key: 'BodyTube|rocketarium|bt50x325motortubes',
+    why: 'upstream ROCKETARIUM.ORC declares "Paper, spiral kraft, Motor Mount, BT-50, bulk" at 9072 kg/m3 — heavier than steel; its own "Motor Mount, BT-50, long" is 887.12. 907.2 is 9072 with the decimal moved and sits where the siblings do. Row has no <Mass>: at 9072 the 82.55 mm tube weighed 19.0 g against 1.9 g.',
+    fields: { 'material.density': { bad: 9072, good: 907.2 } },
+    upstreamMaterial: { file: 'ROCKETARIUM.ORC', name: 'Paper, spiral kraft, Motor Mount, BT-50, bulk', bad: '9072' },
+  },
+  ...[['29mmmotormounttube12tw', '29mm Motor Mount tube 12" (TW)'], ['29mmmotormounttube18tw', '29mm Motor Mount tube 18" (TW)']]
+    .map(([k, partNo]) => ({
+      key: `BodyTube|rocketarium|${k}`,
+      why: 'upstream ROCKETARIUM.ORC declares "Paper, spiral kraft, Motor Mount, 29mm, 12\\", thick, bulk" at 110.62 kg/m3 where its own non-thick "29mm, 12\\"" kraft is 842.4. Density is a property of the paper, not the wall, so the thick tube takes its sibling\'s figure. Row has no <Mass>: at 110.62 the 12 in tube weighed 3.5 g against 26.6 g.',
+      fields: { 'material.density': { bad: 110.62, good: 842.4 } },
+      upstreamMaterial: { file: 'ROCKETARIUM.ORC', name: 'Paper, spiral kraft, Motor Mount, 29mm, 12", thick, bulk', bad: '110.62' },
+      partNo,
+    })),
+
+  // --- Public Missiles fiberglass nose cones at balsa density (desktop-24.12 internal file)
+  ...['pmlfnc1141', 'pmlfnc114hrpn', 'pmlfnc600', 'pmlfnc751'].map((k) => ({
+    key: `NoseCone|publicmissiles|${k}`,
+    why: 'desktop 24.12 publicmissiles-legacy.orc declares this maker\'s "Fiberglass" at 128.147704 kg/m3 — exactly 8 lb/ft3, the BALSA figure. Three of the four rows carry a <Mass> that overrides it; FNC-11.4HRPN does not and computed 0.076 kg for a cone its catalogued sibling lists at 2.27 kg. 1900 is what github publicmissiles.orc gives the same maker\'s "Fiberglass, generic, bulk".',
+    fields: { 'material.density': { bad: 128.147704, good: 1900 } },
+    unwatched: 'value comes from desktop 24.12\'s bundled publicmissiles-legacy.orc, a released artifact that will not change; the github publicmissiles.orc for the same maker already carries 1900',
+  })),
+
+  // --- FlisKits engine block: a material declared at exactly zero
+  {
+    key: 'EngineBlock|fliskits|eb25',
+    why: 'desktop 24.12\'s bundled fliskits .orc declares "Light Ply" at 0 kg/m3, so the block weighed exactly nothing. 352.4 is what 148 other rows in this catalogue give "Plywood, light, bulk" and 3 more give "lite ply" — the same material by its own siblings.',
+    fields: { 'material.density': { bad: 0, good: 352.4 } },
+    unwatched: 'value comes from a desktop 24.12 internal .orc, a released artifact that will not change',
+  },
+
+  // --- Rows with NO density at all (found by the density screen the same day).
+  // All eleven carry a catalogued <Mass>, so their weight was right — presetPatch
+  // writes overrideMass — but the property panel showed a material with no
+  // density, and clearing the override would have left the part weightless.
+  // LOC's legacy .orc names the material "[material:[material:polystyrene PS]]",
+  // a reference wrapped twice, so it matched no <Material> block; the singly
+  // wrapped "[material:Polystyrene PS]" in the same file is 1049.2093527.
+  ...['locpnc152', 'locpnc214', 'locpnc256', 'locpnc300', 'locpnc390', 'locpnc538', 'locpnc538l', 'locpnc751']
+    .map((k) => ({
+      key: `NoseCone|locprecision|${k}`,
+      why: 'desktop 24.12 loc-legacy .orc references the material as "[material:[material:polystyrene PS]]" — wrapped twice — so no <Material> block matched and the row shipped with no density. 1049.2093527 is the same file\'s "[material:Polystyrene PS]".',
+      fields: { 'material.density': { bad: undefined, good: 1049.2093527 } },
+      unwatched: 'value comes from a desktop 24.12 internal .orc, a released artifact that will not change; the pipeline now also unwraps a doubly-wrapped reference (fetch-component-presets.mjs)',
+    })),
+  {
+    key: 'Transition|locprecision|ptc390',
+    why: 'same doubly-wrapped "[material:[material:Polystyrene PS]]" reference as the LOC nose cones above; no density shipped.',
+    fields: { 'material.density': { bad: undefined, good: 1049.2093527 } },
+    unwatched: 'value comes from a desktop 24.12 internal .orc, a released artifact that will not change',
+  },
+  ...['10100', '10104'].map((k) => ({
+    key: `TubeCoupler|quest|${k}`,
+    why: 'desktop 24.12 quest .orc names "Kraft Phenolic" with no matching <Material> block, so the row shipped with no density. 958.70503449 is what the same catalogue gives "[material:Kraft phenolic]" on two other rows.',
+    fields: { 'material.density': { bad: undefined, good: 958.70503449 } },
+    unwatched: 'value comes from a desktop 24.12 internal .orc, a released artifact that will not change',
+  })),
+
+  // --- Rocketarium launch lugs: three sizes of the same glassine kraft, three
+  // densities. 616.44 (the 1/4 in lug) is the only one a paper can have.
+  {
+    key: 'LaunchLug|rocketarium|18launchlug',
+    why: 'upstream ROCKETARIUM.ORC declares the 1/8 in lug\'s kraft at 2525.42 kg/m3 (aluminium is 2700) while its own 1/4 in lug is 616.44. Tiny part, tiny mass, but a density no paper can have.',
+    fields: { 'material.density': { bad: 2525.42, good: 616.44 } },
+    upstreamMaterial: { file: 'ROCKETARIUM.ORC', name: 'Paper, spiral kraft glassine, 1/8" Lugs, bulk', bad: '2525.42' },
+  },
+  {
+    key: 'LaunchLug|rocketarium|316launchlug',
+    why: 'upstream ROCKETARIUM.ORC declares the 3/16 in lug\'s kraft at 1498.77 kg/m3 — denser than solid phenolic — while its own 1/4 in lug is 616.44.',
+    fields: { 'material.density': { bad: 1498.77, good: 616.44 } },
+    upstreamMaterial: { file: 'ROCKETARIUM.ORC', name: 'Paper, spiral kraft glassine, 3/16" Lugs, bulk', bad: '1498.77' },
+  },
+];
+CORRECTIONS.push(...MATERIAL_CORRECTIONS);
+
 export const UPSTREAM_WATCH = [
   {
     file: 'ROCKETARIUM.ORC', element: 'CenteringRing',
@@ -128,6 +245,17 @@ export const UPSTREAM_WATCH = [
     why: 'upstream issue #5 is unfixed for Rocketarium BT-55 rings — each row ships OD 1.238 in under a Description that says 1.283 (verified live 2026-08-31)',
   },
 ];
+
+/** Read/write a dotted path on a row: getAt(row, 'material.density'). */
+function getAt(obj, path) {
+  return path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);
+}
+function setAt(obj, path, value) {
+  const keys = path.split('.');
+  const last = keys.pop();
+  const target = keys.reduce((o, k) => (o[k] ??= {}), obj);
+  target[last] = value;
+}
 
 function main() {
   const raw = readFileSync(DB_PATH, 'utf8');
@@ -159,11 +287,16 @@ function main() {
       process.exit(1);
     }
     for (const [field, { bad, good }] of Object.entries(c.fields)) {
-      const cur = row[field];
+      // `field` may be a dotted path — 'material.density' — since 2026-09-05,
+      // when six upstream MATERIAL definitions turned out to be impossible
+      // (paper at 0.0011 kg/m3, fiberglass at balsa density, a kraft tube
+      // heavier than steel) and the rows that use them carry no mass of their
+      // own, so the density is the only thing that weighs them.
+      const cur = getAt(row, field);
       if (cur === good) {
         already++;
       } else if (cur === bad) {
-        row[field] = good;
+        setAt(row, field, good);
         applied++;
         console.log(`fixed ${c.key} ${field}: ${bad} -> ${good}`);
       } else {

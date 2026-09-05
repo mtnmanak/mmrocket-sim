@@ -1,7 +1,5 @@
 import type { IgnitionEvent, MotorSpec } from '@online-openrocket/engine';
 import type { MountMotor } from '../App.js';
-import { builtInMeta } from '../components/MotorPicker.js';
-import { BUILT_IN_MOTORS } from '../motors.js';
 import {
   displayDesignation, findDbMotor, isHighPower, type MotorDbEntry,
 } from './motorDb.js';
@@ -28,66 +26,28 @@ import { delayOptions, fetchMotorSpec } from './thrustcurve.js';
  *   - Estes C6 (8.82 Ns) flew at 10.40 Ns — 18 % high on total impulse.
  *   - Estes A8 (2.50 Ns) flew the built-in A8-3 at 1.89 Ns — 24 % LOW.
  *
- * The database carries the manufacturer's published curve, so it goes first.
- * The built-ins stay as the OFFLINE fallback (they are the only motors that
- * need no network), and are now gated on the file's own diameter and
- * manufacturer so they can only stand in for what they actually approximate.
+ * The scope, stated exactly because the first account of it was too broad:
+ * three designations (A8, B6, C6, at any delay — every file format writes the
+ * designation bare), on the FILE-IMPORT path only (.ork, .rkt, .CDX1, share
+ * links), for every maker of those motors. Browse motor database always used
+ * the real data.
+ *
+ * v0.105 (2026-09-04) put the database first and kept the built-ins as an
+ * offline fallback. v0.107 (2026-09-05) removed them: the owner's ruling was
+ * that fixing the precedence while leaving invented data in the app was the
+ * wrong fix. Offline is now served by shipping every published curve
+ * (thrustcurve.ts bundledSimFiles), and there is no fallback below the
+ * database — a motor that cannot be loaded is reported, never substituted.
  */
-
-/** Diameter agreement required of a built-in, in mm — the tolerance findDbMotor uses. */
-export const BUILT_IN_DIAMETER_TOLERANCE_MM = 1.5;
 
 /**
  * A designation with any trailing delay suffix removed: "C6-5" → "c6",
  * "H220-P" → "h220", "I224-15A" → "i224-15a" (a delay with a propellant letter
- * is NOT a bare delay and is left alone — the built-ins have no such keys, so
- * leaving it simply means no built-in matches, which is the safe direction).
+ * is NOT a bare delay and is left alone). Written for the old built-in match
+ * and kept because the test that pins the delay grammar is still worth having.
  */
 export function baseDesignation(designation: string): string {
   return designation.trim().replace(/-(\d+(?:\.\d+)?|P)$/i, '').toLowerCase();
-}
-
-/**
- * May a built-in stand in for a motor this file attributes to `manufacturer`?
- *
- * The built-ins' own docblock calls them "approximate Estes-class thrust
- * curves" and every one of them is 18 mm black powder, so an Apogee or Klima
- * C6 is a different motor, not a different label for the same one. Absent and
- * sentinel manufacturers ('unknown' from our reader, 'custom' from our old
- * writer) are permitted: the file said nothing, so nothing is contradicted.
- */
-export function builtInAllowedFor(manufacturer: string | undefined): boolean {
-  const m = (manufacturer ?? '').trim().toLowerCase();
-  if (m === '' || m === 'unknown' || m === 'custom') return true;
-  return m.replace(/[^a-z0-9]/g, '').startsWith('estes');
-}
-
-/**
- * The built-in that really is this reference's motor, or null.
- *
- * Three gates, all of which the old prefix test skipped: the designation must
- * match to the BASE (so "C6" and "C6-7" match 'C6-5', but "C60" does not), the
- * file's diameter must agree within {@link BUILT_IN_DIAMETER_TOLERANCE_MM},
- * and the manufacturer must not name someone else. A .ork with no <diameter>
- * arrives as the reader's 0.018 m default, which passes — that is the Estes
- * case the built-ins exist for.
- */
-export function builtInMatch(
-  ref: Pick<OrkMotorRef, 'designation' | 'diameter' | 'manufacturer'>,
-  builtIns: Record<string, MotorSpec> = BUILT_IN_MOTORS,
-): { key: string; spec: MotorSpec } | null {
-  const want = baseDesignation(ref.designation);
-  if (!want) return null;
-  if (!builtInAllowedFor(ref.manufacturer)) return null;
-  for (const [key, spec] of Object.entries(builtIns)) {
-    if (baseDesignation(key) !== want) continue;
-    if (ref.diameter > 0
-      && Math.abs(ref.diameter * 1000 - spec.diameter * 1000) > BUILT_IN_DIAMETER_TOLERANCE_MM) {
-      continue;
-    }
-    return { key, spec };
-  }
-  return null;
 }
 
 /**
@@ -139,7 +99,9 @@ export interface MotorMatchResult {
    * motor whose published curve could not be fetched. The caller surfaces this
    * one even though a motor was loaded: substituting a hand-written curve for
    * the manufacturer's is a numbers change, and silence about it is the defect
-   * this whole module exists to close.
+   * this whole module exists to close. Always absent since 2026-09-05 — there
+   * is no approximation left to load — and kept on the type only so a stored
+   * result from an older session still typechecks.
    */
   approximated?: boolean;
 }
@@ -148,15 +110,65 @@ export interface MotorMatchResult {
 export interface MotorMatchDeps {
   findDb?: typeof findDbMotor;
   fetchSpec?: (motor: MotorDbEntry, ejectionDelay: number) => Promise<MotorSpec>;
-  builtIns?: Record<string, MotorSpec>;
 }
 
 /**
- * Matches ONE imported motor reference: the shipped motor database first
- * (published curves, manufacturer-aware), then the built-in approximations as
- * the offline fallback. Returns the loaded motor (absent when nothing matched)
- * and the note describing what happened; the caller decides whether the note
- * surfaces (applied config) or waits (presets).
+ * A catalogue motor with its curve loaded, shaped the way App keeps a mounted
+ * motor. Shared by the importer below, the default motor a new design starts
+ * with (App.tsx) and the quick-pick list (MotorPicker.tsx) — one place builds
+ * the meta, so the three cannot drift.
+ */
+export function mountMotorFromDb(
+  db: MotorDbEntry,
+  spec: MotorSpec,
+  delay: number,
+  ignition: MountMotor['ignition'],
+  extraMeta: Partial<MotorMeta> = {},
+): MountMotor {
+  // Plugged motors (Infinity delay) display the standard "-P" suffix.
+  const delayTag = Number.isFinite(delay) ? String(delay) : 'P';
+  const label = `${db.commonName}-${delayTag}`;
+  return {
+    label,
+    spec,
+    meta: {
+      label,
+      manufacturer: db.manufacturerAbbrev,
+      availableDelays: delayOptions(db),
+      type: db.type,
+      propellant: db.propInfo,
+      motorCase: db.caseInfo,
+      highPower: isHighPower(db),
+      ...extraMeta,
+    },
+    ignition,
+  };
+}
+
+/**
+ * Loads a named catalogue motor — "Estes" "C6" at a 5 s delay — with its
+ * published curve. null when the catalogue has no such motor; throws when it
+ * has the motor but no curve can be had (no bundled file and no network).
+ */
+export async function loadCatalogueMotor(
+  manufacturer: string,
+  designation: string,
+  delay: number,
+  deps: MotorMatchDeps = {},
+): Promise<MountMotor | null> {
+  const findDb = deps.findDb ?? findDbMotor;
+  const fetchSpec = deps.fetchSpec ?? fetchMotorSpec;
+  const db = findDb(designation, undefined, undefined, manufacturer);
+  if (!db) return null;
+  const spec = await fetchSpec(db, delay);
+  return mountMotorFromDb(db, spec, delay, { event: 'automatic', delay: 0 });
+}
+
+/**
+ * Matches ONE imported motor reference against the shipped motor database
+ * (published curves, manufacturer-aware). Returns the loaded motor (absent when
+ * nothing matched) and the note describing what happened; the caller decides
+ * whether the note surfaces (applied config) or waits (presets).
  */
 export async function matchImportedMotor(
   ref: OrkMotorRef,
@@ -164,7 +176,6 @@ export async function matchImportedMotor(
 ): Promise<MotorMatchResult> {
   const findDb = deps.findDb ?? findDbMotor;
   const fetchSpec = deps.fetchSpec ?? fetchMotorSpec;
-  const builtIns = deps.builtIns ?? BUILT_IN_MOTORS;
 
   const ignition: MountMotor['ignition'] = {
     event: (ref.ignitionEvent as IgnitionEvent | undefined) ?? 'automatic',
@@ -182,71 +193,25 @@ export async function matchImportedMotor(
   if (dbMatch) {
     try {
       const spec = await fetchSpec(dbMatch, ref.delay);
-      // Plugged motors (Infinity delay) display the standard "-P" suffix.
+      const motor = mountMotorFromDb(dbMatch, spec, ref.delay, ignition, fileIdentity);
       const delayTag = Number.isFinite(ref.delay) ? String(ref.delay) : 'P';
-      const label = `${dbMatch.commonName}-${delayTag}`;
       return {
-        motor: {
-          label,
-          spec,
-          meta: {
-            label,
-            manufacturer: dbMatch.manufacturerAbbrev,
-            availableDelays: delayOptions(dbMatch),
-            type: dbMatch.type,
-            propellant: dbMatch.propInfo,
-            motorCase: dbMatch.caseInfo,
-            highPower: isHighPower(dbMatch),
-            ...fileIdentity,
-          },
-          ignition,
-        },
+        motor,
         note: `Motor: ${dbMatch.manufacturerAbbrev} ${displayDesignation(dbMatch.designation, dbMatch.manufacturerAbbrev)}-${delayTag} (loaded from the motor database).`,
       };
     } catch {
-      // Fall through to the built-in, which needs no network — see below.
+      // No curve to be had — reported below, never substituted.
     }
   }
 
-  const builtIn = builtInMatch(ref, builtIns);
-  if (builtIn) {
-    // Keep the FILE's ejection delay — the built-in key's own delay
-    // (e.g. C6-5 matching a saved C6-7) would silently change the flight.
-    // Infinity is a VALID file delay (plugged, .ork "none") — only fall
-    // back to the built-in's delay when the file carried none.
-    const fileDelay = ref.delay === Infinity ? Infinity
-      : Number.isFinite(ref.delay) ? ref.delay : builtIn.spec.ejectionDelay;
-    const label = labelWithDelay(builtIn.key, fileDelay);
-    return {
-      motor: {
-        label,
-        spec: { ...builtIn.spec, ejectionDelay: fileDelay },
-        meta: { ...builtInMeta(builtIn.key), ...fileIdentity },
-        ignition,
-      },
-      note: dbMatch
-        ? `Motor “${ref.designation}”: its published thrust curve couldn't be downloaded, so`
-          + ` the built-in ${label} approximation is loaded instead — its total impulse differs`
-          + ' from the real motor. Reconnect and re-open the file, or pick it via Browse motor'
-          + ' database.'
-        : `Motor: ${label} (matched built-in).`,
-      ...(dbMatch ? { approximated: true } : {}),
-    };
-  }
-
+  // There is no fallback below the database, deliberately. Until 2026-09-05
+  // three hand-written approximate curves stood in here (see the header), and
+  // a motor that quietly flies the wrong curve is worse than one that says it
+  // could not be loaded. With every published curve now shipped in the bundle
+  // (thrustcurve.ts bundledSimFiles) this branch is reached only for the ~80
+  // catalogued motors thrustcurve.org has no simulator file for at all.
   if (dbMatch) {
-    return { note: `Motor “${ref.designation}” is in the motor database but its thrust curve couldn't be downloaded — pick it via Browse motor database.` };
+    return { note: `Motor “${ref.designation}” is in the motor database but has no thrust curve — thrustcurve.org publishes none for it. Import its .eng/.rse via Browse motor database.` };
   }
   return { note: `Motor “${ref.designation}” isn't in the motor database — pick one via Browse motor database.` };
-}
-
-/**
- * Rewrites a motor label's delay suffix ("H220-14" / "H220-P").
- * Local copy of App's `labelWithDelay` minus its "(auto delay)" branch, which
- * an imported reference can never carry — auto delay is a UI choice, not a
- * file field.
- */
-function labelWithDelay(label: string, delay: number): string {
-  const base = label.replace(/-(\d+(\.\d+)?|P)$/, '');
-  return `${base}-${Number.isFinite(delay) ? delay : 'P'}`;
 }

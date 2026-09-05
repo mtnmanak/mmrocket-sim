@@ -44,6 +44,12 @@ export interface TcSimFile {
   samples?: TcSample[];
   /** The raw .eng/.rse, base64, as download.json returns it for data:"both". */
   data?: string;
+  /**
+   * The header masses already parsed — set only on a file that came out of the
+   * shipped bundle (src/data/motorCurves.json), which stores the two numbers
+   * rather than the raw text they were read from. headerMasses() honours it.
+   */
+  bundledMasses?: TcHeaderMasses;
 }
 
 /** Loaded and propellant mass as a motor's own data file states them. */
@@ -103,6 +109,9 @@ export function isSampleList(arr: unknown): arr is TcSample[] {
  * falls back to the catalog rather than refusing the motor.
  */
 export function headerMasses(file: TcSimFile): TcHeaderMasses | null {
+  // A bundled file carries its masses pre-parsed (the build script mirrors the
+  // parsing below); they still take the same validity test on the way out.
+  if (file.bundledMasses) return isHeaderMasses(file.bundledMasses) ? file.bundledMasses : null;
   if (!file.data) return null;
   let text: string;
   try {
@@ -266,7 +275,18 @@ export function repairSamples(samples: readonly TcSample[]): RepairedCurve {
  * curve, then RASP — the original tie-break, which still decides between files
  * of equal quality.
  */
-export function pickSampleFile(files: readonly TcSimFile[]): TcSimFile | null {
+/**
+ * A file whose burn time is this far from the catalogue's certified figure is
+ * describing a DIFFERENT LOADING of the motor, not a different digitisation of
+ * the same one. Found on the Estes A8 (2026-09-05): thrustcurve.org files the
+ * A8-0 booster's curve (0.534 s, 2.14 Ns, no delay) under the same motor record
+ * as the A8-3/5 (0.73 s, 2.31 Ns), and on point count alone the booster won —
+ * so every Estes A8 flew ~7 % low. Two digitisations of one certification
+ * differ by a few percent at most; a different loading differs by a third.
+ */
+const BURN_AGREEMENT = 0.15;
+
+export function pickSampleFile(files: readonly TcSimFile[], motor?: TcMotor): TcSimFile | null {
   const usable = files
     .map((file, index) => ({ file, index }))
     // isSampleList as well as the count. A file whose times or thrusts are not
@@ -283,14 +303,97 @@ export function pickSampleFile(files: readonly TcSimFile[]): TcSimFile | null {
     const s = file.samples!;
     return s.every((p, i) => i === 0 || p.time > s[i - 1]!.time) ? 1 : 0;
   };
+  // Does the file describe the motor the catalogue describes? Gated on burn
+  // time only: peak thrust is the one figure a coarse RASP digitisation is
+  // allowed to miss, but a burn that ends a third early is another motor.
+  const agrees = ({ file }: { file: TcSimFile }): number => {
+    const ref = motor?.burnTimeS;
+    if (!(typeof ref === 'number' && ref > 0)) return 1;
+    const s = file.samples!;
+    return Math.abs(s[s.length - 1]!.time / ref - 1) <= BURN_AGREEMENT ? 1 : 0;
+  };
+  // thrustcurve.org's own provenance flag: "cert" is the certification body's
+  // data, everything else was uploaded by a user or a manufacturer.
+  const cert = ({ file }: { file: TcSimFile }): number => (file.source === 'cert' ? 1 : 0);
 
   usable.sort((a, b) =>
     sound(b) - sound(a)
+    || agrees(b) - agrees(a)
+    || cert(b) - cert(a)
     || b.file.samples!.length - a.file.samples!.length
     || (b.file.format === 'RASP' ? 1 : 0) - (a.file.format === 'RASP' ? 1 : 0)
     || a.index - b.index);
 
   return usable[0]!.file;
+}
+
+// ------------------------------------------------------------ bundled curves
+
+/**
+ * One motor's simulator files as src/data/motorCurves.json stores them —
+ * samples as [t, F] pairs to keep the bundle small, plus the two header masses
+ * the raw file carried. Expanded to TcSimFile on read so the SAME pickSampleFile
+ * and the same mass handling apply whether the files came from here or from a
+ * live download.
+ */
+interface BundledSimFile {
+  simfileId?: string;
+  source?: string;
+  format?: string;
+  samples: [number, number][];
+  masses?: TcHeaderMasses;
+}
+
+let bundledCurves: Promise<Record<string, BundledSimFile[]>> | null = null;
+
+/**
+ * Every thrust curve thrustcurve.org publishes for every catalogued motor,
+ * shipped with the app so any motor in Browse motor database flies with no
+ * network at all. ~870 KB, loaded lazily on the first motor that needs it.
+ * See scripts/fetch-motor-curves.mjs for what is in it and why all of it.
+ *
+ * Provenance note, because this file replaced something: until 2026-09-05 the
+ * only motors that flew offline were three thrust curves WRITTEN BY HAND on the
+ * project's first day (an A8-3, B6-4, C6-5 — invented approximations with real
+ * masses, the C6-5 17.5 % high on impulse), and an import bug preferred them
+ * over the database for two months. There is no hand-written motor data in the
+ * app any more; this bundle is the offline path.
+ */
+async function loadBundledCurves(): Promise<Record<string, BundledSimFile[]>> {
+  if (!bundledCurves) {
+    // Through `unknown`: resolveJsonModule types the literal's samples as
+    // number[][], which is not comparable to the [t, F] pair type the runtime
+    // relies on. The build script is what guarantees the pairs.
+    bundledCurves = import('../data/motorCurves.json')
+      .then((mod) => (mod.default as unknown as { curves: Record<string, BundledSimFile[]> }).curves)
+      .catch((err) => {
+        bundledCurves = null; // a failed chunk load is not permanent
+        throw err;
+      });
+  }
+  return bundledCurves;
+}
+
+/**
+ * The bundled files for one motor as TcSimFile, or [] when it has none —
+ * exported for the picker's tests and for callers that want to know whether a
+ * motor CAN fly offline before offering it.
+ */
+export async function bundledSimFiles(motorId: string): Promise<TcSimFile[]> {
+  let curves: Record<string, BundledSimFile[]>;
+  try {
+    curves = await loadBundledCurves();
+  } catch {
+    return [];
+  }
+  return (curves[motorId] ?? []).map((f) => ({
+    format: f.format,
+    source: f.source,
+    samples: f.samples.map(([time, thrust]) => ({ time, thrust })),
+    // Carried as parsed masses rather than as the raw .eng text, and surfaced
+    // through the same field a download's header would populate.
+    ...(f.masses ? { bundledMasses: f.masses } : {}),
+  }));
 }
 
 /**
@@ -627,6 +730,18 @@ export async function fetchMotorSpec(
     // storage unavailable (private mode etc.) — just fetch
   }
 
+  // The shipped bundle comes BEFORE the network: it holds every file
+  // thrustcurve.org publishes for this motor, chosen by the same pickSampleFile
+  // a live response goes through, so a motor flies the same curve offline as
+  // on. It is not written to localStorage — it is already local.
+  if (!samples) {
+    const file = pickSampleFile(await bundledSimFiles(motor.motorId), motor);
+    if (file?.samples) {
+      samples = file.samples;
+      fromFile = headerMasses(file);
+    }
+  }
+
   if (!samples) {
     const limit = deadline(signal, FETCH_TIMEOUT_MS);
     let body: { results?: TcSimFile[] };
@@ -662,7 +777,7 @@ export async function fetchMotorSpec(
     // object reached .map() as a TypeError with no motor name in it. Same
     // failure class as the sample guard below — trust nothing in this body.
     const results = Array.isArray(body?.results) ? body.results : [];
-    const file = pickSampleFile(results);
+    const file = pickSampleFile(results, motor);
     if (!file?.samples) {
       // pickSampleFile rejects a file whose samples are not finite time/thrust
       // pairs, so "files came back, none of them usable" is its own case and

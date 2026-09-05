@@ -9,9 +9,15 @@ import type { TcMotor, TcSample, TcSimFile } from './thrustcurve.js';
  * localStorage and a stubbed `fetch`.
  */
 
-/** Real thrustcurve.org catalog entry (Quest C6, probed 2026-07-02). */
+/**
+ * A real thrustcurve.org catalog entry (Quest C6, probed 2026-07-02) under a
+ * SYNTHETIC id. Since 2026-09-05 fetchMotorSpec answers from the shipped curve
+ * bundle before it touches the network, and every real motorId is in that
+ * bundle — so with the real id these tests never reached the download path
+ * they exist to exercise. An id the bundle has never heard of forces the fetch.
+ */
 const QUEST_C6: TcMotor = {
-  motorId: '5f4294d20002310000000016',
+  motorId: 'test:unbundled:quest-c6',
   manufacturerAbbrev: 'Quest',
   designation: 'C6',
   commonName: 'C6',
@@ -45,7 +51,13 @@ const CACHE_KEY = `tc:samples:v3:${QUEST_C6.motorId}`;
  */
 async function freshModule(): Promise<typeof import('./thrustcurve.js')> {
   vi.resetModules();
-  return import('./thrustcurve.js');
+  const tc = await import('./thrustcurve.js');
+  // fetchMotorSpec consults the shipped curve bundle before the network, and
+  // the bundle is a dynamic import of an 870 KB JSON — real I/O that fake
+  // timers cannot advance. Load it once here, on real time, so the tests below
+  // measure the download path and not the time the bundle took to arrive.
+  await tc.bundledSimFiles('warm-the-bundle');
+  return tc;
 }
 
 const okResponse = (body: unknown): Response =>
@@ -71,6 +83,17 @@ function stubHangingFetch(): ReturnType<typeof vi.fn> {
   }));
   vi.stubGlobal('fetch', spy);
   return spy;
+}
+
+/**
+ * Yields microtasks until the stubbed fetch has been called. fetchMotorSpec
+ * awaits the (pre-warmed) bundle lookup before it reaches the network, so
+ * `spy.mock.calls[0]` is no longer populated on the same tick the call is made.
+ * Bounded, so a fetch that never happens fails the test instead of hanging it.
+ */
+async function untilFetched(spy: ReturnType<typeof vi.fn>): Promise<void> {
+  for (let i = 0; i < 100 && spy.mock.calls.length === 0; i++) await Promise.resolve();
+  expect(spy.mock.calls.length, 'fetch was never reached').toBeGreaterThan(0);
 }
 
 beforeEach(() => {
@@ -199,6 +222,7 @@ describe('the download has a deadline, and honours a caller cancelling it', () =
       const spy = stubHangingFetch();
       const ctrl = new AbortController();
       const p = tc.fetchMotorSpec(QUEST_C6, 5, ctrl.signal);
+      await untilFetched(spy);
       // The fetch gets a live signal, not the caller's object verbatim: ours
       // merges the caller's abort with the deadline.
       const init = spy.mock.calls[0]![1] as RequestInit;

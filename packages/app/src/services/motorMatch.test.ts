@@ -1,13 +1,9 @@
-// @vitest-environment happy-dom
-// happy-dom because motorMatch imports `builtInMeta` from components/MotorPicker,
-// whose module graph reaches the React components and PrefsContext. Nothing here
-// touches the DOM; this only keeps the import graph loadable.
 import { describe, expect, it, vi } from 'vitest';
 import type { MotorSpec } from '@online-openrocket/engine';
 import { findDbMotor, type MotorDbEntry } from './motorDb.js';
 import type { OrkMotorRef } from './orkFile.js';
 import {
-  baseDesignation, builtInAllowedFor, builtInMatch, matchImportedMotor, refToExportMotor,
+  baseDesignation, loadCatalogueMotor, matchImportedMotor, mountMotorFromDb, refToExportMotor,
 } from './motorMatch.js';
 
 /** A .ork <motor> block as the importer hands it over. SI: metres, seconds. */
@@ -19,18 +15,6 @@ const ref = (over: Partial<OrkMotorRef> = {}): OrkMotorRef => ({
   delay: 5,
   ...over,
 });
-
-/** The three shipped built-ins, all 18 mm, as motors.ts declares them. */
-const BUILT_INS: Record<string, MotorSpec> = {
-  'A8-3': {
-    designation: 'A8-3', diameter: 0.018, length: 0.07,
-    times: [0, 0.5], thrusts: [0, 0], masses: [0.0163, 0.013], cgX: 0.035, ejectionDelay: 3,
-  },
-  'C6-5': {
-    designation: 'C6-5', diameter: 0.018, length: 0.07,
-    times: [0, 2], thrusts: [0, 0], masses: [0.024, 0.0132], cgX: 0.035, ejectionDelay: 5,
-  },
-};
 
 const dbEntry = (over: Partial<MotorDbEntry> = {}): MotorDbEntry => ({
   motorId: 'x', manufacturerAbbrev: 'Estes', designation: 'C6', commonName: 'C6',
@@ -51,72 +35,16 @@ describe('baseDesignation', () => {
     expect(baseDesignation('C6')).toBe('c6');
     expect(baseDesignation('H220-P')).toBe('h220');
     expect(baseDesignation(' B6-4 ')).toBe('b6');
-    // A delay with a propellant letter is not a bare delay — left whole, which
-    // simply means no built-in matches it. That is the safe direction.
+    // A delay with a propellant letter is not a bare delay — left whole.
     expect(baseDesignation('I224-15A')).toBe('i224-15a');
   });
 });
 
-describe('builtInAllowedFor', () => {
-  it('accepts Estes, and the sentinels that name nobody', () => {
-    expect(builtInAllowedFor('Estes')).toBe(true);
-    expect(builtInAllowedFor('Estes Industries')).toBe(true);
-    expect(builtInAllowedFor(undefined)).toBe(true);
-    expect(builtInAllowedFor('unknown')).toBe(true);
-    expect(builtInAllowedFor('custom')).toBe(true);
-  });
-
-  it('refuses every other vendor — the built-ins are Estes-class approximations', () => {
-    for (const m of ['Apogee', 'Quest', 'Klima', 'AeroTech']) {
-      expect(builtInAllowedFor(m), m).toBe(false);
-    }
-  });
-});
-
-describe('builtInMatch — the gates the old prefix test skipped', () => {
-  it('matches an Estes C6 of either delay', () => {
-    expect(builtInMatch(ref({ designation: 'C6' }), BUILT_INS)?.key).toBe('C6-5');
-    expect(builtInMatch(ref({ designation: 'C6-7' }), BUILT_INS)?.key).toBe('C6-5');
-  });
-
-  /**
-   * The shipped catalog has FOUR C6s: Apogee at 13 mm / 9.98 Ns and three
-   * 18 mm ones (Estes 8.82, Klima 10, Quest 8.76). The built-in C6-5's own
-   * curve integrates to 10.40 Ns, so before this gate an Apogee C6 file flew
-   * a motor 5 mm too fat and 4 % hot — and was re-exported at 18 mm / 70 mm,
-   * because the writer takes the substituted spec's dimensions.
-   */
-  it('refuses a built-in whose diameter is not the file’s', () => {
-    expect(builtInMatch(ref({ designation: 'C6', diameter: 0.013 }), BUILT_INS)).toBeNull();
-  });
-
-  it('refuses a built-in when the file names another manufacturer', () => {
-    expect(builtInMatch(ref({ designation: 'C6', manufacturer: 'Apogee' }), BUILT_INS)).toBeNull();
-    expect(builtInMatch(ref({ designation: 'C6', manufacturer: 'Klima' }), BUILT_INS)).toBeNull();
-  });
-
-  it('matches on the BASE designation, not a prefix', () => {
-    // 'C60' used to match 'C6-5' via key.startsWith(ref.designation) being
-    // read the other way round; both directions of accident are closed.
-    expect(builtInMatch(ref({ designation: 'C60' }), BUILT_INS)).toBeNull();
-    expect(builtInMatch(ref({ designation: 'A' }), BUILT_INS)).toBeNull();
-  });
-
-  it('takes the file’s diameter default (18 mm) when the file carried none', () => {
-    // orkFile's reader defaults <diameter> to 0.018 — the Estes case.
-    expect(builtInMatch(ref({ designation: 'A8-3' }), BUILT_INS)?.key).toBe('A8-3');
-  });
-});
-
-describe('matchImportedMotor — precedence', () => {
-  it('takes the DATABASE motor, not the built-in approximation', async () => {
+describe('matchImportedMotor — the database, and nothing below it', () => {
+  it('loads the database motor with its published curve', async () => {
     const estesC6 = dbEntry();
     const fetchSpec = vi.fn(async () => spec('C6', 5));
-    const res = await matchImportedMotor(ref(), {
-      findDb: () => estesC6,
-      fetchSpec,
-      builtIns: BUILT_INS,
-    });
+    const res = await matchImportedMotor(ref(), { findDb: () => estesC6, fetchSpec });
     expect(fetchSpec).toHaveBeenCalledOnce();
     expect(res.motor?.label).toBe('C6-5');
     expect(res.motor?.meta.manufacturer).toBe('Estes');
@@ -126,55 +54,44 @@ describe('matchImportedMotor — precedence', () => {
 
   it('passes the file’s manufacturer and diameter to the database lookup', async () => {
     const findDb = vi.fn(() => null);
-    await matchImportedMotor(ref({ manufacturer: 'Public Missiles', designation: 'G80T', diameter: 0.029 }), {
-      findDb, builtIns: BUILT_INS,
-    });
+    await matchImportedMotor(ref({ manufacturer: 'Public Missiles', designation: 'G80T', diameter: 0.029 }), { findDb });
     expect(findDb).toHaveBeenCalledWith('G80T', 29, undefined, 'Public Missiles');
   });
 
   it('omits the diameter for a RockSim ref, which carries none (0)', async () => {
     const findDb = vi.fn(() => null);
-    await matchImportedMotor(ref({ diameter: 0 }), { findDb, builtIns: BUILT_INS });
+    await matchImportedMotor(ref({ diameter: 0 }), { findDb });
     expect(findDb).toHaveBeenCalledWith('C6', undefined, undefined, 'Estes');
   });
 
-  it('falls back to the built-in when the curve will not download, and SAYS so', async () => {
+  // THE RULING OF 2026-09-05. Until then a curve that would not load fell back
+  // to one of three hand-written approximations. Now nothing is loaded and the
+  // note says exactly that. A wrong curve flown silently is the worse outcome.
+  it('loads NOTHING when the curve cannot be had, and never substitutes', async () => {
     const res = await matchImportedMotor(ref(), {
       findDb: () => dbEntry(),
       fetchSpec: async () => { throw new Error('offline'); },
-      builtIns: BUILT_INS,
-    });
-    expect(res.motor?.label).toBe('C6-5');
-    expect(res.approximated).toBe(true);
-    expect(res.note).toContain('approximation');
-  });
-
-  it('reports nothing loaded when the curve fails and no built-in may stand in', async () => {
-    const res = await matchImportedMotor(ref({ manufacturer: 'Apogee', diameter: 0.013 }), {
-      findDb: () => dbEntry({ manufacturerAbbrev: 'Apogee', diameter: 13 }),
-      fetchSpec: async () => { throw new Error('offline'); },
-      builtIns: BUILT_INS,
     });
     expect(res.motor).toBeUndefined();
-    expect(res.note).toContain("couldn't be downloaded");
+    expect(res.approximated).toBeUndefined();
+    expect(res.note).toContain('has no thrust curve');
   });
 
-  it('uses the built-in when the database has nothing at all', async () => {
-    const res = await matchImportedMotor(ref(), { findDb: () => null, builtIns: BUILT_INS });
-    expect(res.motor?.label).toBe('C6-5');
-    expect(res.note).toContain('matched built-in');
-    expect(res.approximated).toBeUndefined();
+  it('loads NOTHING when the database has no such motor', async () => {
+    const res = await matchImportedMotor(ref(), { findDb: () => null });
+    expect(res.motor).toBeUndefined();
+    expect(res.note).toContain("isn't in the motor database");
   });
 
   it('keeps the FILE’s ejection delay, plugged included', async () => {
-    const five = await matchImportedMotor(ref({ delay: 7 }), {
-      findDb: () => null, builtIns: BUILT_INS,
+    const seven = await matchImportedMotor(ref({ delay: 7 }), {
+      findDb: () => dbEntry(), fetchSpec: async (_m, d) => spec('C6', d),
     });
-    expect(five.motor?.spec.ejectionDelay).toBe(7);
-    expect(five.motor?.label).toBe('C6-7');
+    expect(seven.motor?.spec.ejectionDelay).toBe(7);
+    expect(seven.motor?.label).toBe('C6-7');
 
     const plugged = await matchImportedMotor(ref({ delay: Infinity }), {
-      findDb: () => null, builtIns: BUILT_INS,
+      findDb: () => dbEntry(), fetchSpec: async (_m, d) => spec('C6', d),
     });
     expect(plugged.motor?.spec.ejectionDelay).toBe(Infinity);
     expect(plugged.motor?.label).toBe('C6-P');
@@ -183,7 +100,7 @@ describe('matchImportedMotor — precedence', () => {
   it('carries the file’s motor identity onto the meta for write-back', async () => {
     const res = await matchImportedMotor(
       ref({ manufacturer: 'Estes Industries', motorType: 'single', digest: 'abc' }),
-      { findDb: () => null, builtIns: BUILT_INS },
+      { findDb: () => dbEntry(), fetchSpec: async () => spec('C6', 5) },
     );
     expect(res.motor?.meta.orkManufacturer).toBe('Estes Industries');
     expect(res.motor?.meta.orkType).toBe('single');
@@ -193,7 +110,7 @@ describe('matchImportedMotor — precedence', () => {
   it('never re-exports the reader’s own sentinels as a manufacturer', async () => {
     for (const m of ['unknown', 'custom']) {
       const res = await matchImportedMotor(ref({ manufacturer: m }), {
-        findDb: () => null, builtIns: BUILT_INS,
+        findDb: () => dbEntry(), fetchSpec: async () => spec('C6', 5),
       });
       expect(res.motor?.meta.orkManufacturer, m).toBeUndefined();
     }
@@ -201,9 +118,42 @@ describe('matchImportedMotor — precedence', () => {
 
   it('carries the file’s ignition event and delay', async () => {
     const res = await matchImportedMotor(ref({ ignitionEvent: 'burnout', ignitionDelay: 1.5 }), {
-      findDb: () => null, builtIns: BUILT_INS,
+      findDb: () => dbEntry(), fetchSpec: async () => spec('C6', 5),
     });
     expect(res.motor?.ignition).toEqual({ event: 'burnout', delay: 1.5 });
+  });
+});
+
+describe('mountMotorFromDb / loadCatalogueMotor — the one place a mounted motor is built', () => {
+  it('names the motor by common name and delay, P for plugged', () => {
+    const ign = { event: 'automatic' as const, delay: 0 };
+    expect(mountMotorFromDb(dbEntry(), spec('C6', 5), 5, ign).label).toBe('C6-5');
+    expect(mountMotorFromDb(dbEntry(), spec('C6', Infinity), Infinity, ign).label).toBe('C6-P');
+  });
+
+  it('fills the meta from the catalogue entry', () => {
+    const m = mountMotorFromDb(dbEntry({ propInfo: 'black powder', caseInfo: '' }), spec('C6', 5), 5,
+      { event: 'automatic', delay: 0 });
+    expect(m.meta.manufacturer).toBe('Estes');
+    expect(m.meta.availableDelays).toEqual([3, 5, 7]);
+    expect(m.meta.propellant).toBe('black powder');
+    expect(m.meta.type).toBe('SU');
+  });
+
+  it('loads a named catalogue motor, or null when the catalogue lacks it', async () => {
+    const fetchSpec = vi.fn(async (_m: MotorDbEntry, d: number) => spec('C6', d));
+    const got = await loadCatalogueMotor('Estes', 'C6', 5, { findDb: () => dbEntry(), fetchSpec });
+    expect(got?.label).toBe('C6-5');
+    expect(fetchSpec).toHaveBeenCalledOnce();
+    expect(await loadCatalogueMotor('Nobody', 'Z9', 1, { findDb: () => null, fetchSpec })).toBeNull();
+  });
+
+  it('asks the real catalogue for Estes C6 and gets Estes, not Apogee or Klima', () => {
+    // The starter motor for a new design goes through this lookup; a
+    // manufacturer-blind match here would be the day-one bug in a new coat.
+    const db = findDbMotor('C6', undefined, undefined, 'Estes')!;
+    expect(db.manufacturerAbbrev).toBe('Estes');
+    expect(db.totImpulseNs).toBe(8.82);
   });
 });
 
@@ -221,7 +171,7 @@ describe('matchImportedMotor against the shipped catalog', () => {
     return picked;
   };
 
-  it('an Apogee C6 file flies Apogee’s 13 mm C6, not an 18 mm built-in', async () => {
+  it('an Apogee C6 file flies Apogee’s 13 mm C6', async () => {
     expect(await chosen(ref({ manufacturer: 'Apogee', diameter: 0.013, length: 0.083 })))
       .toBe('Apogee 9.98');
   });
