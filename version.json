@@ -1,5 +1,5 @@
 {
-  "version": "0.108",
+  "version": "0.109",
   "released": "2026-09-05",
-  "note": "Twenty-six motors you can buy - Jambol's whole line and Ultra's, marked 'occasional' by thrustcurve.org - were hidden behind 'include out-of-production' and treated as discontinued, because every filter tested for 'regular' alone. They now show with the regular motors. The user guide is caught up: it no longer describes the deleted 'Quick picks (built-in, offline)' dropdown or says thrust curves are not bundled, and it now documents recovery weight and the Recovery sizing panel from v0.104. Two figures from yesterday's corrections are restated against the refreshed catalogue and with their reference stated."
+  "note": "The motor catalogue has a shelf life now. It went 63 days without a refresh before v0.107 and nothing said so; the pre-release check now flags it at 30 days and the test suite refuses a release at 120, and the catalogue and the thrust-curve bundle are refreshed together so a half-refresh cannot ship."
 }

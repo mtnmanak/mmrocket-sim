@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.108';
+export const APP_VERSION = '0.109';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.109',
+    date: '2026-09-05',
+    title: 'The motor catalogue can no longer go stale without something saying so',
+    items: [
+      'THE MOTOR CATALOGUE HAS A SHELF LIFE NOW. It sat unrefreshed for 63 days before v0.107 and nothing in the app or the repo said so; in that time 26 motors were added upstream, one certified impulse was corrected and Estes E12 went out of production. The pre-release check now flags the catalogue once it is 30 days old, and the test suite refuses to release at all on one older than 120 days. The refresh command regenerates the catalogue and the thrust-curve bundle together, and a bundle built from a different catalogue than the one shipped is a test failure - so a half-refresh cannot ship either.',
+    ],
+  },
   {
     version: '0.108',
     date: '2026-09-05',

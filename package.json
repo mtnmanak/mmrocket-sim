@@ -16,7 +16,7 @@
     "engine:carve": "node engine-java/scripts/carve.mjs",
     "engine:difftest": "node engine-java/scripts/difftest.mjs",
     "engine:js": "node engine-java/scripts/build-engine.mjs",
-    "motors:refresh": "node packages/app/scripts/fetch-motor-db.mjs",
+    "motors:refresh": "node packages/app/scripts/fetch-motor-db.mjs && node packages/app/scripts/fetch-motor-curves.mjs",
     "package": "npm run build && node scripts/package-dist.mjs",
     "trf:bbcode": "node scripts/bbcode-from-blurb.mjs"
   },

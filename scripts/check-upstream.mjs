@@ -253,16 +253,60 @@ async function checkMaterials() {
   }
 }
 
+/**
+ * How old the bundled motor catalogue may be before this check flags it. 30
+ * days: thrustcurve.org adds and corrects motors continuously (26 new motors,
+ * one certified-impulse correction and 17 availability changes accumulated in
+ * the 63 days the catalogue sat unrefreshed before 2026-09-05), and this check
+ * runs before every release, so a month is the longest a release should ship
+ * a catalogue without someone having refreshed it.
+ */
+const CATALOGUE_MAX_AGE_DAYS = 30;
+
 async function checkThrustCurve() {
   say('');
-  say('4. ThrustCurve API (bundled motors.json is a snapshot; thrust curves are fetched live in-app)');
-  const snapshot = JSON.parse(readFileSync(join(here, '..', 'packages', 'app', 'src', 'data', 'motors.json'), 'utf8'));
+  say('4. ThrustCurve API and the bundled motor catalogue');
+  const dataDir = join(here, '..', 'packages', 'app', 'src', 'data');
+  const snapshot = JSON.parse(readFileSync(join(dataDir, 'motors.json'), 'utf8'));
   const bundled = Array.isArray(snapshot) ? snapshot.length : (snapshot.motors?.length ?? 0);
+
+  // AGE. motors.json was generated 2026-07-04 and not touched again until the
+  // 2026-09-05 audit noticed; nothing in the repo would have said so. Now
+  // something does. `npm run motors:refresh` regenerates the catalogue AND the
+  // curve bundle together.
+  checked++;
+  const generated = snapshot.generated;
+  const ageDays = generated ? Math.floor((Date.now() - Date.parse(generated)) / 86_400_000) : NaN;
+  if (!Number.isFinite(ageDays)) {
+    flag('motors.json carries no readable `generated` date — cannot judge its age. Run `npm run motors:refresh`.');
+  } else if (ageDays > CATALOGUE_MAX_AGE_DAYS) {
+    flag(`motors.json was generated ${generated} — ${ageDays} days ago, over the ${CATALOGUE_MAX_AGE_DAYS}-day limit. Run \`npm run motors:refresh\` before this release.`);
+    notes.push(`motor catalogue ${ageDays} days old`);
+  } else {
+    say(`  ok   motors.json generated ${generated} (${ageDays} days ago; limit ${CATALOGUE_MAX_AGE_DAYS}); ${bundled} motors`);
+  }
+
+  // The curve bundle is keyed by motorId FROM motors.json, so it must have been
+  // built from this exact catalogue — a refresh of one without the other leaves
+  // new motors with no curve and stale ids nobody can look up.
+  checked++;
+  let curves = null;
+  try { curves = JSON.parse(readFileSync(join(dataDir, 'motorCurves.json'), 'utf8')); } catch { /* reported below */ }
+  if (!curves) {
+    flag('motorCurves.json is missing or unreadable — every catalogued motor would need the network to fly. Run `npm run motors:refresh`.');
+  } else if (curves.catalogueGenerated !== generated) {
+    flag(`motorCurves.json was built from the catalogue generated ${curves.catalogueGenerated}, but motors.json is generated ${generated} — a half refresh. Run \`npm run motors:refresh\` (both scripts) to realign them.`);
+    notes.push('curve bundle out of step with the catalogue');
+  } else {
+    say(`  ok   motorCurves.json built from this catalogue: ${curves.motors} of ${bundled} motors carry a curve (${curves.files} files)`);
+  }
+
+  // API SHAPE, as before: the in-app browser and both refresh scripts read it.
   const meta = await json(`${TC_API}/metadata.json`);
   const mfrs = meta.manufacturers?.length ?? 0;
   checked++;
   if (!mfrs) flag('metadata.json returned no manufacturers — the API shape may have changed. The in-app motor browser reads this shape.');
-  else say(`  ok   metadata.json: ${mfrs} manufacturers; bundled snapshot holds ${bundled} motors`);
+  else say(`  ok   metadata.json: ${mfrs} manufacturers live`);
 }
 
 try {
