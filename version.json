@@ -1,5 +1,5 @@
 {
   "version": "0.111",
   "released": "2026-09-05",
-  "note": "A thrust curve the app had already downloaded was kept in your browser and read before anything else, and it recorded the samples but not the rule that picked them - so v0.107's fix to how the app chooses between a motor's published curves never reached a motor you had already flown. Of the 810 motors with more than one published file, 158 come out different under the corrected rule and 14 of those by more than 3 percent of total impulse. Refreshing discards the stored curves and re-fetches them; nothing else in your browser is touched."
+  "note": "A thrust curve the app had already downloaded was kept in your browser and read before anything else, and it recorded the samples but not the rule that picked them - so v0.107's fix to how the app chooses between a motor's published curves never reached a motor you had already flown. Of the 810 motors with more than one published file, 158 come out different under the corrected rule and 14 of those by more than 3 percent of total impulse. Refreshing discards the stored curves; a design you already have open keeps the motor it resolved, so re-pick that motor to pick up the corrected curve."
 }

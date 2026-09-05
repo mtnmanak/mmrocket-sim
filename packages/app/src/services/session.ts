@@ -221,11 +221,17 @@ let pending: Omit<SessionState, 'savedAt'> | null = null;
  * Key prefixes holding data the app can rebuild for free, in the order they may
  * be sacrificed to keep the user's design.
  *
- * Today that is exactly one family: `tc:samples:v3:<motorId>`, one entry per
+ * Today that is exactly one family: `tc:samples:v4:<motorId>`, one entry per
  * downloaded thrust curve. Matched on the FAMILY prefix `tc:` rather than the
- * versioned one so a bump to `tc:samples:v4:` is still swept without this file
+ * versioned one so a bump to `tc:samples:v5:` is still swept without this file
  * knowing the cache's version — and so this file never has to import from
  * thrustcurve.ts, which owns the cache and its own eviction policy.
+ *
+ * NOTE the asymmetry, because v0.111 turned on it: the session is NOT
+ * disposable and is never swept, and `mountMotors[].spec` carries the resolved
+ * thrust curve INSIDE it. Retiring a cache generation therefore does not reach
+ * a design the user already has open — that motor is restored exactly as it
+ * was saved. Re-picking the motor is what re-resolves it.
  *
  * Nothing else on the origin qualifies. The other ten keys (prefs, session,
  * sim-runs, custom presets, external motors, motor filters, workspace, batch
