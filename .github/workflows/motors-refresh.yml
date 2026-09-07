@@ -1,0 +1,290 @@
+# Weekly refresh of the bundled ThrustCurve motor catalogue and curve bundle,
+# delivered as a PULL REQUEST — never as a push to main.
+#
+# WHY A PR AND NOT A PUSH. In this repo a push to main IS the production deploy
+# (.github/workflows/deploy.yml, `on: push: branches: [main]`). A motor-data diff
+# landing on main would deploy itself to every beta tester with nobody having read
+# it, and motor data moves users' numbers — a corrected certified impulse moves an
+# apogee. So this workflow writes a side branch and opens a PR. Merging is the
+# human act, and merging is what deploys.
+#
+# WHY A SCHEDULE AT ALL. v0.109 gave the catalogue a shelf life but no clock:
+#   - scripts/check-upstream.mjs §4 FLAGS a catalogue over 30 days old — but only
+#     when somebody remembers to run it before a release.
+#   - packages/app/scripts/motor-db-age.test.mjs FAILS the deploy at 120 days —
+#     the backstop for when nobody did.
+#   - the v0.110 in-app "check thrustcurve.org" button is the USER's escape hatch.
+# None of the three is a schedule, and motors.json sat 63 days unrefreshed before
+# 2026-09-05 with nothing in the repo saying so. This is the clock. It COMPLEMENTS
+# the other three and never competes with them: it changes no threshold of theirs,
+# and it runs `npm test` — the deploy gate itself, verbatim (see the validate
+# step) — so a half refresh can never become a PR that the gate would then
+# reject on main after somebody merged it.
+#
+# ------------------------------------------------------------------------------
+# REPOSITORY SETTING REQUIRED — without it the LAST step fails, after a good fetch.
+#
+#   Settings -> Actions -> General -> Workflow permissions ->
+#     [x] Allow GitHub Actions to create and approve pull requests
+#
+# With that box unticked, `gh pr create` fails with the API's own refusal:
+#
+#   pull request create failed: GraphQL: GitHub Actions is not permitted to
+#   create or approve pull requests (createPullRequest)
+#
+# The `permissions:` block below is NECESSARY BUT NOT SUFFICIENT — the checkbox is
+# a second, separate gate, and an organisation-level setting of the same name can
+# override the repository one. Symptom to recognise: every step green, the branch
+# pushed, and only the final step red with that GraphQL line.
+# ------------------------------------------------------------------------------
+#
+# NO SECRETS ARE USED OR NEEDED. thrustcurve.org's API v1 is public and
+# unauthenticated — verified 2026-09-07: GET /api/v1/metadata.json?availability=all
+# answered 200 in 88 ms with 26 manufacturers and no credential sent. Both refresh
+# scripts import nothing but node: builtins. The only credential here is the
+# automatic GITHUB_TOKEN.
+#
+# THIS WORKFLOW NEVER DEPLOYS: no wrangler, no Cloudflare secret, no push to main,
+# and no version bump. It pushes one side branch and opens one PR.
+#
+# scripts/check-upstream.mjs is deliberately NOT run here: it also watches the
+# preset pipeline, and a moved centering ring must not fail a motor refresh.
+
+name: Weekly motor catalogue refresh
+
+on:
+  schedule:
+    # 09:17 UTC every Monday = 03:17 Mountain (MDT).
+    #  - MINUTE 17, not 00: GitHub queues every on-the-hour cron in the world at
+    #    once and delays or drops the overflow. An odd minute off the hour runs
+    #    close to on time.
+    #  - HOUR 09 UTC: the middle of the US night, so 27 catalogue requests and 24
+    #    curve-download POSTs land on thrustcurve.org — a volunteer-run service —
+    #    at its quietest.
+    #  - MONDAY: the PR is waiting at the start of the week and sweeps up anything
+    #    certified over the weekend. Weekly against check-upstream's 30-day flag
+    #    gives four chances to catch drift before it complains, and ~16 before
+    #    motor-db-age.test.mjs fails a deploy at 120 days.
+    # NOTE: GitHub disables schedules in a repo with 60 days of no activity. This
+    # repo commits most days; if it ever goes quiet, re-enable from the Actions tab.
+    - cron: '17 9 * * 1'
+  workflow_dispatch:
+
+# A hand-run dispatch must not race the cron — both force-push the same branch.
+concurrency:
+  group: motors-refresh
+  cancel-in-progress: false
+
+permissions:
+  contents: write        # commit the regenerated data, push the side branch
+  pull-requests: write   # open / update the PR
+
+jobs:
+  refresh:
+    # A fork inherits the cron. Without this it would run weekly in someone else's
+    # account and open PRs there against a catalogue they never asked for.
+    if: github.repository == 'mtnmanak/mmrocket-sim'
+    runs-on: ubuntu-latest
+    # Measured shape of the work: ~27 GETs for the catalogue plus 24 POST batches
+    # for the curves with a 250 ms pause between them (fetch-motor-curves.mjs
+    # BATCH=50, PAUSE_MS=250, 1,155 motors) — a couple of minutes when upstream is
+    # healthy. 30 minutes is headroom for a slow day, not an expectation.
+    timeout-minutes: 30
+    env:
+      BRANCH: chore/motors-refresh
+      DATA: packages/app/src/data
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # NO TOKEN LEFT IN .git/config. This job holds `contents: write` and
+          # then runs `npm ci`, which executes the install scripts of ~1,000
+          # transitive dev dependencies. At the default (true) a write-capable
+          # token sits on disk while they run, and in this repo a push to main IS
+          # the production deploy — so any one of them could deploy. deploy.yml
+          # can leave the default alone because its token is `contents: read`;
+          # this one cannot. The push below carries the token explicitly instead,
+          # for the one command that needs it.
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      # Keep the SHIPPED files to diff against. The refresh overwrites them in
+      # place. `git show HEAD:` would also work; a copy does not care what state
+      # the working tree is in.
+      - name: Keep the shipped catalogue to diff against
+        run: |
+          mkdir -p "$RUNNER_TEMP/before"
+          cp "$DATA/motors.json" "$DATA/motorCurves.json" "$RUNNER_TEMP/before/"
+
+      # Both refresh scripts import only node: builtins, so this install exists
+      # ONLY for vitest in the validate step. It is cached by setup-node.
+      - run: npm ci
+
+      # Catalogue THEN curves — and `motors:refresh` IS that order in one script
+      # (package.json: fetch-motor-db.mjs && fetch-motor-curves.mjs). Never split
+      # them: motorCurves.json is keyed by motorId FROM motors.json, so a curve run
+      # against the old catalogue leaves every newly-certified motor curveless.
+      #
+      # Both scripts exit non-zero on trouble — fetch-motor-db.mjs throws on any
+      # non-200, fetch-motor-curves.mjs sets exitCode 1 when a batch failed — and a
+      # non-zero exit ends the job here, before anything is committed. That is
+      # deliberate: fetch-motor-curves.mjs WRITES a partial bundle before it exits,
+      # and a partial bundle must never become a PR. There is no retry: the next
+      # weekly run is the retry, and a red run is the notification. To retry now,
+      # use "Run workflow" on the Actions tab.
+      #
+      # KNOWN WEAKNESS, worth fixing in those scripts rather than here: neither
+      # sends a User-Agent, where check-upstream.mjs sends
+      # 'mmrocket-sim-upstream-check'. From a laptop that is invisible; weekly from
+      # a datacentre IP with 24 POSTs to download.json it is the profile a small
+      # volunteer-run service rate-limits. The symptom would be this step red with
+      # HTTP 403 or HTTP 429.
+      - name: Refresh the catalogue and the curve bundle
+        run: npm run motors:refresh
+
+      # THE WHOLE DEPLOY GATE, not a hand-picked subset of it — because merging
+      # this PR runs exactly this command on main (deploy.yml's `npm test` step)
+      # and a red main blocks the deploy of everything else too.
+      #
+      # It was `npx vitest run scripts/motor-db-age.test.mjs` and that was not
+      # enough. motor-db-age.test.mjs is not the only test that reads the SHIPPED
+      # motor data, and it is the LOOSEST of the ones that do:
+      #   - packages/app/src/services/motorCurves.test.ts:79 needs curve coverage
+      #     > 0.90, where motor-db-age.test.mjs:53 needs only > 0.85. A refresh
+      #     landing between the two passes here and fails on main.
+      #   - motorCurves.test.ts:80 caps motors-without-a-curve at an ABSOLUTE 120,
+      #     which a growing catalogue walks into on its own.
+      #   - catalogueOverlay.test.ts:101 and :160 do
+      #     `MOTOR_DB.find(… 'Estes' … 'C6')!` — a non-null assertion that becomes
+      #     a TypeError if that row is ever renamed or withdrawn upstream.
+      #   - motorDb.test.ts:10 and :101, motorDbIntegrity.test.ts's 25 % unusable
+      #     ceiling: all assertions about real upstream data that upstream can move.
+      # Enumerating those files here would just be a fourth list to drift. Running
+      # the gate itself is drift-proof and stays true as tests are added.
+      #
+      # Cost: `npm test` builds the engine package (tsc; the TeaVM kernel is the
+      # committed artifact, so still no Java) and runs ~2,255 tests — about two
+      # minutes inside the 30-minute budget. Cheap against a merged PR that turns
+      # main red, which is the shape deploy.yml's own typecheck comment exists to
+      # avoid.
+      - name: The deploy gate must pass on the refreshed data
+        run: npm test
+
+      # Printed for the log, and NOTHING is decided by it. Both files are
+      # single-line minified JSON, so this always reports 1 insertion / 1 deletion
+      # for a whole-file rewrite — and the rewrite happens every week regardless,
+      # because both scripts stamp today's date into `generated`. The verdict comes
+      # from the semantic diff below.
+      - name: What git sees (informational only)
+        run: git diff --stat -- "$DATA/motors.json" "$DATA/motorCurves.json"
+
+      # Ignores the two date stamps and the derived counts; compares the 18
+      # catalogue fields with the same float tolerance the in-app overlay uses, and
+      # compares the curve bundle file by file. Writes the PR title, body and
+      # commit message, and sets the open-pr output. Exit 2 = could not run.
+      - name: Summarise what actually changed
+        id: diff
+        run: |
+          node packages/app/scripts/motor-diff-summary.mjs \
+            --before "$RUNNER_TEMP/before" \
+            --after "$DATA" \
+            --markdown "$RUNNER_TEMP/pr-body.md" \
+            --title "$RUNNER_TEMP/pr-title.txt" \
+            --commit-message "$RUNNER_TEMP/commit-msg.txt" \
+            --github-output "$GITHUB_OUTPUT"
+
+      # The run log is the evidence that the catalogue WAS checked, which matters
+      # most in the weeks when nothing changed and no PR is opened.
+      - name: Job summary
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/pr-body.md" ]; then
+            cat "$RUNNER_TEMP/pr-body.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # Nothing moved: discard the re-dated files and stop. No PR, no branch, no
+      # deploy. Restoring is not cosmetic — see FRESHNESS_FLOOR_DAYS in
+      # motor-diff-summary.mjs for why shipping a date-only bump has a real cost to
+      # users (it deletes their stored catalogue overlay).
+      - name: No motor changed — leave main alone
+        if: steps.diff.outputs.open-pr != 'true'
+        run: |
+          git checkout -- "$DATA/motors.json" "$DATA/motorCurves.json"
+          echo "Catalogue and curve bundle are unchanged apart from the date stamp."
+          echo "No pull request opened. The numbers are in the job summary."
+
+      - name: Commit onto the refresh branch
+        if: steps.diff.outputs.open-pr == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- "$DATA/motors.json" "$DATA/motorCurves.json"
+          git commit -F "$RUNNER_TEMP/commit-msg.txt"
+          # FORCE, and always exactly one commit ahead of main. The branch content
+          # is a full regeneration, so last week's is strictly superseded, and two
+          # regenerations of a 1.3 MB single-line JSON cannot be merged by hand if
+          # they ever conflict. Two costs to know about:
+          #  - a force-push marks existing review comments on the open PR as
+          #    outdated;
+          #  - and it DISCARDS anything a human pushed onto this branch. Never
+          #    commit a correction here — the branch is machine-owned and is
+          #    rebuilt from main every Monday. Correct a bad row in
+          #    packages/app/scripts/ (the pipeline, which survives a refresh) on
+          #    a branch of your own, exactly as with presets.json.
+          # --force-with-lease is deliberately NOT used: checkout fetches depth 1
+          # of main only, so there is no remote-tracking ref for this branch to
+          # lease against and the guard would either refuse every week or pass
+          # vacuously.
+          # The token is passed HERE and nowhere else — checkout persists none
+          # (see the checkout step). `x-access-token` is the username GitHub
+          # expects for a GITHUB_TOKEN over HTTPS. Interpolating a secret into a
+          # URL is safe from the log: Actions masks the token in output, and this
+          # is a single command rather than an exported remote.
+          git push --force \
+            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            "HEAD:refs/heads/$BRANCH"
+
+      # gh, not a third-party action, for three reasons:
+      #  1. gh is pre-installed on ubuntu-latest, so nothing new runs with
+      #     `contents: write` in this repo. deploy.yml uses only two first-party
+      #     GitHub actions and Cloudflare's own; a marketplace action here would be
+      #     this repo's first third-party code with write access to its own source,
+      #     needing a SHA pin and a watcher forever.
+      #  2. What we want is ~10 lines. peter-evans/create-pull-request earns its
+      #     keep with branch/commit bookkeeping we specifically do NOT want — it
+      #     manages accumulating commits, where the rule here is main + exactly one.
+      #  3. gh reports the API's own errors verbatim, so the "not permitted to
+      #     create pull requests" refusal above arrives readable.
+      #
+      # The title is interpolated through "$(cat …)" into a shell. That is safe only
+      # because renderTitle() in motor-diff-summary.mjs is ASCII-by-construction and
+      # carries no motor designation — its test pins that with a hostile fixture
+      # name. Do not start passing a motor name through here.
+      - name: Open or update the pull request
+        if: steps.diff.outputs.open-pr == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          n=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
+          if [ -z "$n" ]; then
+            n=$(gh pr create --base main --head "$BRANCH" \
+              --title "$(cat "$RUNNER_TEMP/pr-title.txt")" \
+              --body-file "$RUNNER_TEMP/pr-body.md")
+            echo "opened $n"
+          else
+            # The force-push already updated the PR's diff; this refreshes the
+            # title and body so they describe THIS week's data rather than last
+            # week's. One PR, updated — never a new one every Monday.
+            gh pr edit "$n" \
+              --title "$(cat "$RUNNER_TEMP/pr-title.txt")" \
+              --body-file "$RUNNER_TEMP/pr-body.md"
+            echo "updated existing PR #$n"
+          fi
+          # Cosmetic, and deliberately non-fatal: a failure to assign must not
+          # throw away a good refresh that is already pushed and open.
+          gh pr edit "$n" --add-assignee mtnmanak || echo "(could not assign; PR is open regardless)"

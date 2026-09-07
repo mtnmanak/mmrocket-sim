@@ -24,8 +24,19 @@ const FIELDS = [
   'propInfo', 'caseInfo',
 ];
 
+/**
+ * thrustcurve.org is volunteer-run, so every request this project makes names
+ * itself. The same string as `scripts/check-upstream.mjs:64`, deliberately —
+ * one string to grep for, and one profile for them to recognise if they ever
+ * need to ask us to slow down. It matters more since 2026-09-07, because
+ * `.github/workflows/motors-refresh.yml` now runs this weekly from a datacentre
+ * IP, which is exactly the shape a small service rate-limits when it is
+ * anonymous.
+ */
+const UA = { 'user-agent': 'mmrocket-sim-upstream-check' };
+
 async function getJson(url) {
-  const res = await fetch(url);
+  const res = await fetch(url, { headers: UA });
   if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
   return res.json();
 }

@@ -96,7 +96,10 @@ for (let i = 0; i < motors.length; i += BATCH) {
   try {
     const res = await fetch(`${API}/download.json`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      // Name ourselves, same string as fetch-motor-db.mjs and
+      // scripts/check-upstream.mjs:64. These are 24 POSTs to a volunteer-run
+      // service, run weekly from CI since 2026-09-07.
+      headers: { 'content-type': 'application/json', 'user-agent': 'mmrocket-sim-upstream-check' },
       body: JSON.stringify({ motorIds: batch.map((m) => m.motorId), data: 'both' }),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
