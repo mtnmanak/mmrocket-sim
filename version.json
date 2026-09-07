@@ -1,5 +1,5 @@
 {
-  "version": "0.111",
-  "released": "2026-09-05",
-  "note": "A thrust curve the app had already downloaded was kept in your browser and read before anything else, and it recorded the samples but not the rule that picked them - so v0.107's fix to how the app chooses between a motor's published curves never reached a motor you had already flown. Of the 810 motors with more than one published file, 158 come out different under the corrected rule and 14 of those by more than 3 percent of total impulse. Refreshing discards the stored curves; a design you already have open keeps the motor it resolved, so re-pick that motor to pick up the corrected curve."
+  "version": "0.112",
+  "released": "2026-09-07",
+  "note": "A booster stage set to separate at \"Never\" stays bolted on to the ground, but the recovery weight subtracted it anyway - so the figure a parachute is sized against was lighter than the object under it. Measured on LEM-IV.ork, whose seven Never configurations showed 2.65 kg for a stack that comes down at 5.46 kg plus its spent casing: 51 percent missing, and a main sized against it lands at least 43 percent faster than predicted. If you fly a design with a stage set to Never, re-open it and re-check the chute. The Recovery sizing panel also no longer offers a booster's parachute as the sustainer's drogue."
 }

@@ -9,6 +9,7 @@ import {
   canopyCdA, classifyRecoveryDevices, DEFAULT_CANOPY_CD, descentRate, diameterForRate,
   DROGUE_BAND, MAIN_BAND, recoveryBayBore, recoverySizing, SEA_LEVEL_DENSITY, siteAirDensity,
 } from './recoverySizing.js';
+import { sustainerScope } from './recoveryMass.js';
 
 const db = (presetsJson as { presets: Preset[] }).presets;
 const canopies = db.filter((p) => p.kind === 'Parachute');
@@ -482,6 +483,82 @@ describe('classifyRecoveryDevices', () => {
       } as unknown as ComponentNode],
     };
     expect(classifyRecoveryDevices(t)).toEqual({ main: null, drogue: null });
+  });
+
+  /**
+   * A booster's canopy is not the sustainer's. Before the scope argument
+   * existed the walk covered the whole stack, so on a two-stage design the
+   * BOOSTER's chute could be returned as the sustainer's drogue — and then
+   * have its mass substituted out of a recovery weight the booster is not
+   * part of.
+   */
+  it('does not offer a BOOSTER’s canopy as the sustainer’s drogue', () => {
+    const twoStage: RocketTree = {
+      name: 'two',
+      components: [
+        {
+          type: 'stage', id: 's0', name: 'Sustainer', children: [{
+            type: 'bodytube', id: 'bt0', length: 1, outerRadius: 0.051, thickness: 0.001,
+            children: [{ type: 'parachute', id: 'sustainerMain', diameter: 0.9 } as ComponentNode],
+          } as ComponentNode],
+        } as ComponentNode,
+        {
+          type: 'stage', id: 's1', name: 'Booster', children: [{
+            type: 'bodytube', id: 'bt1', length: 1, outerRadius: 0.101, thickness: 0.001,
+            children: [{ type: 'parachute', id: 'boosterChute', diameter: 0.6 } as ComponentNode],
+          } as ComponentNode],
+        } as ComponentNode,
+      ],
+    };
+
+    // Unscoped — the whole tree — is still the old answer, which is what every
+    // single-stage caller gets and why nothing else moved.
+    expect(classifyRecoveryDevices(twoStage).drogue?.id).toBe('boosterChute');
+
+    // Scoped to what comes down with the sustainer, the booster's chute is not
+    // a candidate at all, and the sustainer has no drogue — which is true.
+    const scope = sustainerScope(twoStage);
+    const { main, drogue } = classifyRecoveryDevices(twoStage, scope);
+    expect(main?.id).toBe('sustainerMain');
+    expect(drogue).toBeNull();
+
+    // Same for the bay: the booster's fatter airframe is not somewhere the
+    // sustainer's canopy can pack once the booster is gone.
+    expect(recoveryBayBore(twoStage, null)).toBeCloseTo(0.2, 9);
+    expect(recoveryBayBore(twoStage, null, scope)).toBeCloseTo(0.1, 9);
+
+    // ...and the whole answer is sized against the sustainer's chute.
+    const r = ok(sizing({ tree: twoStage }));
+    expect(r.boreM).toBeCloseTo(0.1, 9);
+    expect(r.drogue.diameter).toBeGreaterThan(0);
+    expect(r.drogue.cdSource).not.toBe('this device');
+  });
+
+  /**
+   * A booster set to Never never leaves, so its chute IS in scope — the same
+   * `separationEvent` reading that governs the recovery weight.
+   */
+  it('keeps a non-separating booster’s chute in scope', () => {
+    const bolted: RocketTree = {
+      name: 'bolted',
+      components: [
+        {
+          type: 'stage', id: 's0', name: 'Sustainer', children: [{
+            type: 'bodytube', id: 'bt0', length: 1, outerRadius: 0.051, thickness: 0.001,
+            children: [{ type: 'parachute', id: 'sustainerMain', diameter: 0.9 } as ComponentNode],
+          } as ComponentNode],
+        } as ComponentNode,
+        {
+          type: 'stage', id: 's1', name: 'Booster', separationEvent: 'never', children: [{
+            type: 'bodytube', id: 'bt1', length: 1, outerRadius: 0.051, thickness: 0.001,
+            children: [{ type: 'parachute', id: 'boosterChute', diameter: 0.6 } as ComponentNode],
+          } as ComponentNode],
+        } as unknown as ComponentNode,
+      ],
+    };
+    const { main, drogue } = classifyRecoveryDevices(bolted, sustainerScope(bolted));
+    expect(main?.id).toBe('sustainerMain');
+    expect(drogue?.id).toBe('boosterChute');
   });
 });
 

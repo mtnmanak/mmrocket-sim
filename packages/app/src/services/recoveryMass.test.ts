@@ -8,7 +8,8 @@ import { engineTree, motorMounts, stageIndexOf, stages } from '../tree/treeModel
 import { importOrk } from './orkFile.js';
 import { importCdx1 } from './rasaeroFile.js';
 import {
-  motorBurnoutMass, motorPropellantMass, recoveryMass, recoveryMassTitle,
+  motorBurnoutMass, motorPropellantMass, recoveryGroups, recoveryMass, recoveryMassByStage,
+  recoveryMassTitle, sustainerScope,
 } from './recoveryMass.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -96,14 +97,25 @@ async function onKernel(tree: RocketTree, motors: Record<string, MotorSpec>) {
       return Number.isFinite(v) ? v : null;
     } catch { return null; }
   };
-  const answer = recoveryMass({
+  const input = {
     tree,
     info,
     motors: Object.keys(motors).map((id) => [id, { spec: motors[id]! }] as const),
     sectionMass,
-  });
-  return { rocket, info, sectionMass, answer };
+  };
+  const answer = recoveryMass(input);
+  const byStage = recoveryMassByStage(input);
+  return { rocket, info, sectionMass, answer, byStage };
 }
+
+/** The `ok` mass of the group whose top stage has this name, for terse assertions. */
+const groupMass = (
+  byStage: ReturnType<typeof recoveryMassByStage>, stageName: string,
+): number | null => {
+  if (byStage.state !== 'ok') return null;
+  const g = byStage.groups.find((x) => x.stageNames[0] === stageName);
+  return g && g.mass.state === 'ok' ? g.mass.mass : null;
+};
 
 describe('recovery weight — the kernel facts it rests on', () => {
   it('a stage carries NO mass of its own, but its sectionMass is its dry subtree', async () => {
@@ -358,5 +370,172 @@ describe('recovery weight — real corpus designs', () => {
     // The booster's structure is on the ground: this is BELOW the whole
     // rocket's dry mass, which pad weight never is.
     expect(answer.mass).toBeLessThan(info.massEmpty);
+  });
+});
+
+/**
+ * A two-stage tree whose booster is told never to separate — the case that
+ * exists in real files. `LEM-IV.ork` declares `ejection` on the stage node and
+ * then overrides SEVEN of its eight flight configurations to `never`; applying
+ * one writes the value onto the stage node, which is what this builds.
+ */
+const twoStageNeverSeparating = (): RocketTree => {
+  const t = twoStage();
+  const booster = t.components[1] as ComponentNode;
+  return {
+    ...t,
+    components: [t.components[0]!, { ...booster, separationEvent: 'never' } as ComponentNode],
+  };
+};
+
+describe('what actually comes down — one weight per separating object', () => {
+  it('an ordinary two-stage rocket is two objects, and they sum to the whole dry stack', async () => {
+    const tree = twoStage();
+    const { info, sectionMass, byStage } = await onKernel(tree, { m1: C6(), m2: C6() });
+    expect(byStage.state).toBe('ok');
+    if (byStage.state !== 'ok') return;
+
+    expect(byStage.groups.map((g) => g.stageNames)).toEqual([['Sustainer'], ['Booster']]);
+    expect(byStage.groups.map((g) => g.isSustainer)).toEqual([true, false]);
+
+    const sustainer = groupMass(byStage, 'Sustainer')!;
+    const booster = groupMass(byStage, 'Booster')!;
+
+    // The booster is its own dry section plus its own spent casing — the
+    // number a flyer buys the booster's canopy against, and the one the app
+    // gave no way to see before.
+    expect(booster).toBeCloseTo(sectionMass('s2')! + BURNOUT, 9);
+    expect(sustainer).toBeCloseTo(info.massEmpty - sectionMass('s2')! + BURNOUT, 9);
+
+    // Nothing is lost or double-counted: the two objects are the whole rocket
+    // less the propellant that burned.
+    expect(sustainer + booster).toBeCloseTo(info.mass - 2 * PROPELLANT, 9);
+  });
+
+  it('the sustainer entry is bit-identical to what recoveryMass has always returned', async () => {
+    const { answer, byStage } = await onKernel(twoStage(), { m1: C6(), m2: C6() });
+    expect(answer.state).toBe('ok');
+    if (answer.state !== 'ok') return;
+    // Same object, one number: the tile and the per-stage readout cannot
+    // disagree about the same rocket.
+    expect(groupMass(byStage, 'Sustainer')).toBe(answer.mass);
+  });
+
+  /**
+   * THE `never` BUG, pinned. Before 2026-09-07 the multi-stage arm subtracted
+   * every booster's sectionMass without ever reading `separationEvent`, so a
+   * booster that stays bolted on was reported as gone — a recovery weight
+   * LIGHTER than the object under the chute, which is the direction that
+   * undersizes a canopy.
+   */
+  it('a booster set to Never comes down attached, and the weight includes it', async () => {
+    const tree = twoStageNeverSeparating();
+    const { info, sectionMass, answer, byStage } = await onKernel(tree, { m1: C6(), m2: C6() });
+
+    expect(recoveryGroups(tree).map((g) => g.map((s) => s.name)))
+      .toEqual([['Sustainer', 'Booster']]);
+    expect(byStage.state).toBe('ok');
+    if (byStage.state !== 'ok') return;
+    // One object, so one weight to size: there is no second canopy to buy.
+    expect(byStage.groups).toHaveLength(1);
+
+    expect(answer.state).toBe('ok');
+    if (answer.state !== 'ok') return;
+    // The whole stack, less only what burned.
+    expect(answer.mass).toBeCloseTo(info.mass - 2 * PROPELLANT, 9);
+    expect(answer.mass).toBeGreaterThan(info.massEmpty);
+    // ...and it is not the multi-stage wording, because nothing separated.
+    expect(answer.multiStage).toBe(false);
+    expect(recoveryMassTitle(answer)).toContain('the dry rocket plus the spent motor casing');
+
+    // The size of the old error, stated: the booster's whole dry section.
+    const wasReportedBefore = info.massEmpty - sectionMass('s2')! + BURNOUT;
+    expect(answer.mass - wasReportedBefore).toBeCloseTo(sectionMass('s2')! + BURNOUT, 9);
+    expect(answer.mass - wasReportedBefore).toBeGreaterThan(0);
+  });
+
+  it('a three-stage stack cuts only where something separates', () => {
+    const base = twoStage();
+    const third = {
+      type: 'stage', id: 's3', name: 'Booster 2',
+      children: [{
+        type: 'bodytube', id: 'b3', length: 0.3, outerRadius: 0.025, thickness: 0.0005, density: 950,
+      } as ComponentNode],
+    } as ComponentNode;
+
+    // Middle stage bolted on, bottom stage separating: the top two land
+    // together and the bottom one lands alone.
+    const tree: RocketTree = {
+      ...base,
+      components: [
+        base.components[0]!,
+        { ...(base.components[1] as ComponentNode), separationEvent: 'never' } as ComponentNode,
+        third,
+      ],
+    };
+    expect(recoveryGroups(tree).map((g) => g.map((s) => s.name)))
+      .toEqual([['Sustainer', 'Booster'], ['Booster 2']]);
+    expect(sustainerScope(tree).map((s) => s.name)).toEqual(['Sustainer', 'Booster']);
+  });
+
+  it('a booster whose motor has no mass curve does not blank the sustainer', async () => {
+    // The kernel is given real motors — a spec with no mass column makes IT
+    // throw while formatting, long before this file is reached — and the
+    // curve-less spec is substituted only in the call under test.
+    const tree = twoStage();
+    const { info, sectionMass } = await onKernel(tree, { m1: C6(), m2: C6() });
+    const noCurve: MotorSpec = { ...C6(), designation: 'D12', masses: [] };
+    const byStage = recoveryMassByStage({
+      tree, info, sectionMass, motors: [['m1', { spec: C6() }], ['m2', { spec: noCurve }]],
+    });
+    expect(byStage.state).toBe('ok');
+    if (byStage.state !== 'ok') return;
+
+    const sustainer = byStage.groups.find((g) => g.isSustainer)!;
+    const booster = byStage.groups.find((g) => !g.isSustainer)!;
+    // The number most users are reading survives a booster we cannot answer for.
+    expect(sustainer.mass.state).toBe('ok');
+    expect(booster.mass.state).toBe('unavailable');
+    if (booster.mass.state !== 'unavailable') return;
+    expect(booster.mass.reason).toContain('no mass curve');
+  });
+
+  it('a single-stage design is one group and its scope is the whole rocket', async () => {
+    const tree = singleStage();
+    expect(recoveryGroups(tree).map((g) => g.map((s) => s.name))).toEqual([['Sustainer']]);
+    const { answer, byStage } = await onKernel(tree, { m1: C6() });
+    expect(byStage.state).toBe('ok');
+    if (byStage.state !== 'ok' || answer.state !== 'ok') return;
+    expect(byStage.groups).toHaveLength(1);
+    expect(byStage.groups[0]!.mass).toEqual(answer);
+  });
+
+  /**
+   * The real corpus two-stage, so the per-stage arithmetic is exercised on
+   * geometry nobody wrote for it.
+   */
+  it('Complex.Two-Stage.CDX1 gives the booster its own weight', async () => {
+    const imported = importCdx1(readFileSync(
+      join(here, '__fixtures__', 'Complex.Two-Stage.CDX1'), 'utf8'));
+    const stageList = stages(imported.tree);
+    expect(stageList.length).toBeGreaterThan(1);
+    const sustainerMount = motorMounts(imported.tree)
+      .find((m) => stageIndexOf(imported.tree, m.id!) === 0);
+
+    const { info, sectionMass, byStage } = await onKernel(
+      imported.tree, { [sustainerMount!.id!]: C6() });
+    expect(byStage.state).toBe('ok');
+    if (byStage.state !== 'ok') return;
+    expect(byStage.groups.length).toBe(stageList.length);
+
+    const booster = byStage.groups[1]!;
+    expect(booster.isSustainer).toBe(false);
+    expect(booster.mass.state).toBe('ok');
+    if (booster.mass.state !== 'ok') return;
+    // No motor in the booster in this configuration, so it is its dry section
+    // exactly — and it is real mass the flyer has to hang a canopy under.
+    expect(booster.mass.mass).toBeCloseTo(sectionMass(stageList[1]!.id!)!, 9);
+    expect(booster.mass.mass).toBeGreaterThan(0);
+    expect(booster.mass.mass).toBeLessThan(info.massEmpty);
   });
 });

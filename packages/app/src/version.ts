@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.111';
+export const APP_VERSION = '0.112';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.112',
+    date: '2026-09-07',
+    title: 'A booster told never to separate was still counted as gone, so the recovery weight was half the rocket that actually came down',
+    items: [
+      'A STAGE CAN BE SET TO SEPARATE AT "NEVER", AND THE RECOVERY WEIGHT WAS NEVER READING IT. The weight shown beside Mass (loaded) is what comes down under the parachute, and on a multi-stage design it subtracted every booster stage - without ever checking whether that booster separates. Set a booster to Never and it stays bolted on all the way to the ground, but its mass was taken off the figure anyway. The result was LIGHTER than the object under the canopy, which is the direction that buys a canopy too small.',
+      'MEASURED ON A REAL FILE - LEM-IV.ork, which is where this was found. It carries eight flight configurations and SEVEN of them set the booster to Never. On those seven the app showed a recovery weight of 2.65 kg for a stack whose dry mass is 5.46 kg, plus the spent casing on top of that: at least 2.81 kg missing, 51 percent of what comes down. Descent rate goes as the square root of mass, so a main sized against 2.65 kg lands that rocket at least 43 percent faster than the panel predicted. If you fly a design with a stage set to Never, RE-OPEN IT AND RE-CHECK THE CHUTE.',
+      'A SEPARATION IS A PROPERTY OF A FLIGHT CONFIGURATION, NOT OF THE DESIGN, so the same rocket can be right in one configuration and wrong in another - which is exactly what LEM-IV was. The figure now follows the configuration you have applied: stages that stay joined are weighed together as the one object they are, and the tooltip stops claiming boosters have separated when none has.',
+      'AND THE APP NOW KNOWS WHAT EVERY STAGE WEIGHS ON THE WAY DOWN, NOT JUST THE SUSTAINER. A spent booster separates and comes down under its OWN parachute, so a two-stage flyer has a second canopy to size and the app gave them no number for it - and said so wrongly in the last post, which is mine to own. The per-stage weights are computed and tested now; how they are shown, and whether the Recovery sizing panel recommends a canopy per stage, is the next piece.',
+      'ONE MORE THING THE SAME BUG WAS FEEDING: on a multi-stage design the Recovery sizing panel could pick a BOOSTER\'S parachute as the sustainer\'s drogue, because it searched the whole rocket for canopies and took the largest one left over. It could then size the sustainer against a canopy that leaves with the booster, and offer the booster\'s wider airframe as the bay the sustainer\'s chute packs into. The panel now reads only the stages that come down with the sustainer. Single-stage designs, which is nearly all of them, are unaffected.',
+    ],
+  },
   {
     version: '0.111',
     date: '2026-09-05',

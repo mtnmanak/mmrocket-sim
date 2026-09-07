@@ -9,6 +9,7 @@ import { mountBore } from '../tree/scaleRocket.js';
 import { findParent } from '../tree/treeModel.js';
 import type { Preset } from './presets.js';
 import type { RecoveryMass } from './recoveryMass.js';
+import { sustainerScope } from './recoveryMass.js';
 import { SAFETY } from './simReport.js';
 
 /**
@@ -250,9 +251,17 @@ export type DeviceRole = 'main' | 'drogue';
  * referenced to strip area, not to a diameter, so it cannot be substituted for
  * a canopy in the one-exact-substitution arithmetic below without silently
  * mixing two reference areas.
+ *
+ * `scope` limits the walk to the stages that come down together. Without it a
+ * two-stage design let a BOOSTER's canopy be chosen as the sustainer's drogue
+ * — and then have its mass substituted out of the sustainer's recovery weight
+ * — because the walk was over the whole tree and the largest remaining chute
+ * anywhere won. It defaults to the whole tree, so every single-stage design
+ * (which is almost all of them) is unaffected.
  */
 export function classifyRecoveryDevices(
   tree: RocketTree,
+  scope?: readonly ComponentNode[],
 ): { main: ComponentNode | null; drogue: ComponentNode | null } {
   const chutes: ComponentNode[] = [];
   const walk = (ns: readonly ComponentNode[] | undefined): void => {
@@ -261,7 +270,7 @@ export function classifyRecoveryDevices(
       walk(n.children);
     }
   };
-  walk(tree.components);
+  walk(scope ?? tree.components);
   if (chutes.length === 0) return { main: null, drogue: null };
 
   const dia = (n: ComponentNode): number =>
@@ -290,8 +299,17 @@ export function classifyRecoveryDevices(
  * The device's OWN parent tube wins when there is one, because that is the bay
  * the canopy actually rides in. With no device the widest body tube in the
  * design is the honest upper bound: nothing wider exists to pack into.
+ *
+ * `scope` limits that fallback the same way `classifyRecoveryDevices` is
+ * limited: a booster's fatter airframe is not a bay the sustainer's canopy can
+ * pack into once the booster is gone. The parent lookup stays whole-tree,
+ * because a device's own parent is wherever it is.
  */
-export function recoveryBayBore(tree: RocketTree, device: ComponentNode | null): number | null {
+export function recoveryBayBore(
+  tree: RocketTree,
+  device: ComponentNode | null,
+  scope?: readonly ComponentNode[],
+): number | null {
   const TUBES = new Set(['bodytube', 'tubecoupler', 'innertube']);
   if (device?.id) {
     const parent = findParent(tree, device.id);
@@ -307,7 +325,7 @@ export function recoveryBayBore(tree: RocketTree, device: ComponentNode | null):
       walk(n.children);
     }
   };
-  walk(tree.components);
+  walk(scope ?? tree.components);
   return widest > 0 ? widest : null;
 }
 
@@ -649,11 +667,15 @@ export function recoverySizing(input: RecoverySizingInput): RecoverySizing {
   const rho = siteAirDensity(launch);
   if (!(rho > 0)) return { state: 'unavailable', reason: 'the launch conditions give no air density' };
 
-  const { main, drogue } = classifyRecoveryDevices(tree);
+  // `recovery.mass` is the SUSTAINER's weight (`recoveryMass.ts`), so the
+  // devices sized against it have to be the sustainer's too — read over the
+  // stages that come down with it, not over the whole stack.
+  const scope = sustainerScope(tree);
+  const { main, drogue } = classifyRecoveryDevices(tree, scope);
   // The bay is the MAIN's tube when there is one — it is the bigger canopy, so
   // it is the binding constraint, and in almost every dual-deploy design both
   // devices ride in the same diameter airframe anyway.
-  const boreM = recoveryBayBore(tree, main ?? drogue);
+  const boreM = recoveryBayBore(tree, main ?? drogue, scope);
 
   const canopies = presets.filter((p) => p.kind === 'Parachute');
 
