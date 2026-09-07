@@ -699,6 +699,25 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
         const spill = num(el, 'SpillHoleDia', 0);
         if (spill > 0) n['spillHoleDiameter'] = spill / LEN;
         readRecoveryMaterial(el, n, 'surface');
+        // SHROUD LINES — their own material, in their own pair of tags, and
+        // separate from the canopy's <Density>/<DensityType> that
+        // readRecoveryMaterial just handled. Dropped until v0.113, so a chute
+        // stating its line material was billed the kernel's DEFAULT line
+        // density instead: rocksimTestRocket2.rkt's 16 lines × 1.35 m at
+        // 0.00032972 are 7.1 g of line, and the default made them ~39 g —
+        // +31.8 g of mass that is in no real rocket, on 15 of the 16 chutes in
+        // the corpus.
+        //
+        // DESPITE THE TAG NAME, the value is kg/m, not kg/mm:
+        // ROCKSIM_TO_OPENROCKET_LINE_DENSITY = 1 and desktop divides by it
+        // (RockSimCommonConstants.java:116, ParachuteHandler.java:100-103).
+        // The arithmetic agrees — kg/mm would make those 16 lines 7.1 kg.
+        const lineDensity = num(el, 'ShroudLineMassPerMM', 0);
+        if (lineDensity > 0) {
+          n['lineDensity'] = lineDensity;
+          const lineMat = text(el, ':scope > ShroudLineMaterial');
+          if (lineMat) n['lineMaterialName'] = lineMat;
+        }
         return n;
       }
       case 'Streamer': {
@@ -1685,6 +1704,17 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
         emit(`<DragCoefficient>${nnum(node, 'cd', 0.75)}</DragCoefficient>`);
         emit(`<ShroudLineCount>${Math.round(nnum(node, 'lineCount', 6))}</ShroudLineCount>`);
         emit(`<ShroudLineLen>${nnum(node, 'lineLength', 0.3) * LEN}</ShroudLineLen>`);
+        // The other half of the same defect: desktop writes both
+        // (ParachuteDTO.java:56-63, density × 1) and we wrote neither, so a
+        // chute exported from here reached RockSim with weightless lines.
+        // Emitted only when the design states a line density — inventing one
+        // would hand RockSim a number no part of this design ever carried.
+        if (typeof node['lineDensity'] === 'number' && (node['lineDensity'] as number) > 0) {
+          emit(`<ShroudLineMassPerMM>${node['lineDensity'] as number}</ShroudLineMassPerMM>`);
+          const lineMat = typeof node['lineMaterialName'] === 'string'
+            ? (node['lineMaterialName'] as string) : '';
+          if (lineMat) emit(`<ShroudLineMaterial>${esc(lineMat)}</ShroudLineMaterial>`);
+        }
         emit('<ChuteCount>1</ChuteCount>');
         emit(`<SpillHoleDia>${nnum(node, 'spillHoleDiameter', 0) * LEN}</SpillHoleDia>`);
         emit('</Parachute>');

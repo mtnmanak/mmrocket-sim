@@ -1,5 +1,5 @@
 {
-  "version": "0.112",
+  "version": "0.113",
   "released": "2026-09-07",
-  "note": "A booster stage set to separate at \"Never\" stays bolted on to the ground, but the recovery weight subtracted it anyway - so the figure a parachute is sized against was lighter than the object under it. Measured on LEM-IV.ork, whose seven Never configurations showed 2.65 kg for a stack that comes down at 5.46 kg plus its spent casing: 51 percent missing, and a main sized against it lands at least 43 percent faster than predicted. If you fly a design with a stage set to Never, re-open it and re-check the chute. The Recovery sizing panel also no longer offers a booster's parachute as the sustainer's drogue."
+  "note": "RASAero files were imported with the wrong surface finish. 47 of the 60 tester .CDX1 files carry one of the two strings that were wrong, and one of them matters: \"Smooth Paint\" was read as 20 micron paint where the desktop reads 5 micron and RASAero itself says 6.35 - measured on a tester's file, total drag falls 8.5 percent at Mach 0.3 and 14.5 percent at Mach 0.8, so those rockets had their apogee under-predicted. Re-open any RASAero file you have imported; the finish is set at import. Also, a RockSim parachute now weighs the shroud lines the file describes instead of the kernel's default - up to 4 percent of a small rocket's dry mass."
 }

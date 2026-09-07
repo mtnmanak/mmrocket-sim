@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.112';
+export const APP_VERSION = '0.113';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,19 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.113',
+    date: '2026-09-07',
+    title: 'RASAero files were imported with the wrong surface finish, and a RockSim parachute was billed for shroud lines it does not have',
+    items: [
+      'A RASAero FILE\'S SURFACE FINISH WAS NOT BEING TRANSLATED THE WAY THE DESKTOP TRANSLATES IT. RASAero states one surface for the whole rocket and OpenRocket has nine finishes, so the two have to be matched up; the desktop publishes that matching and ours was not it. 47 of the 60 RASAero files testers have sent carry one of the two strings that were wrong.',
+      'ONE OF THE TWO MOVES YOUR NUMBERS, AND IT MOVES THEM A LOT. "Smooth Paint" was being read as 20 micron paint where the desktop reads it as 5 micron - and RASAero\'s own figure for that surface is 6.35 micron, so the old value was wrong by both references. Measured on a tester\'s own file: total drag falls 8.5 percent at Mach 0.3 and 14.5 percent at Mach 0.8. Those rockets were flying with too much skin friction, so their apogee was UNDER-predicted. 22 files carry it. RE-OPEN ANY RASAero FILE YOU HAVE IMPORTED - the finish is set at import, so a design already in the app keeps the old one until you open the file again.',
+      'THE OTHER CHANGES THE LABEL AND NOTHING ELSE. "Smooth (Zero Roughness)" now reads as a mirror surface rather than as 0.5 micron polish, which is the desktop\'s reading - and both are already at the smooth limit of the friction model, so the drag comes out identical to five decimal places. 25 files carry it. "Sheet Metal" and "Cast Iron" also moved one step; no tester file uses either.',
+      'A SURFACE NAME THE APP DOES NOT RECOGNISE NOW SAYS SO in the import note and falls back to regular paint, which is what the desktop does. It used to fall back silently.',
+      'GOING THE OTHER WAY, an exported RASAero file has eight surfaces to carry our nine finishes, so two of them have to share. The desktop sends both of its leftovers to the SMOOTHEST surface it has, which turns a 500 micron rough finish into a mirror - three orders of magnitude of roughness, in the direction that under-predicts drag. Ours go to the nearest neighbour instead, so a re-import costs one step rather than the whole scale.',
+      'AND A ROCKSIM PARACHUTE NOW WEIGHS ITS OWN SHROUD LINES. A .rkt chute states the mass per length of its lines and names the material; the app read neither, so the lines were billed at the simulation kernel\'s default instead of what the file says. 15 of the 16 parachutes in the tester files carry the figure. Where the chute also states a known total mass the override hid the error, but where it does not the weight really moves: 8.15 g across the six chutes of one design, 3.17 g on another, and 5.38 g on a small tube-fin rocket, which is 4 percent of its dry mass. Exporting to RockSim writes both back, so a chute leaving this app no longer arrives there with weightless lines.',
+    ],
+  },
   {
     version: '0.112',
     date: '2026-09-07',

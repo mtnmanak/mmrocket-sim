@@ -1756,3 +1756,99 @@ describe('RASAero import — unreadable numbers are reported, not swallowed', ()
     }
   });
 });
+
+/**
+ * Format-audit rows 3 and 41. The surface map is DESKTOP'S, transcribed from
+ * `RASAeroCommonConstants.RASAERO_TO_OPENROCKET_SURFACE` (24.12, `:340-364`)
+ * and `OPENROCKET_TO_RASAERO_SURFACE` (`:367-388`) — a `.CDX1` opened here and
+ * on the desktop has to get the same skin friction. Until v0.113 the table was
+ * not desktop's, and nothing in these 1,758 lines asserted a finish at all.
+ */
+describe('RASAero surface finish is desktop’s map (audit rows 3/41)', () => {
+  const withSurface = (surface: string): string =>
+    `<?xml version="1.0"?><RASAeroDocument><RocketDesign>
+      <Surface>${surface}</Surface>
+      <NoseCone><PartType>NoseCone</PartType><Length>10</Length><Diameter>2</Diameter>
+        <Shape>Von Karman Ogive</Shape></NoseCone>
+      <BodyTube><PartType>BodyTube</PartType><Length>20</Length><Diameter>2</Diameter></BodyTube>
+    </RocketDesign></RASAeroDocument>`;
+
+  /** Every string RASAero writes, with the finish desktop maps it to. */
+  const DESKTOP: [string, string][] = [
+    ['Smooth (Zero Roughness)', 'mirror'],
+    ['Polished', 'finishpolished'],
+    ['Sheet Metal', 'optimum'],
+    ['Smooth Paint', 'optimum'],
+    ['Camouflage Paint', 'smooth'],
+    ['Rough Camouflage Paint', 'normal'],
+    ['Galvanized Metal', 'unfinished'],
+    ['Cast Iron (Very Rough)', 'roughunfinished'],
+  ];
+
+  it.each(DESKTOP)('imports %s as %s', (surface, finish) => {
+    const parts = flatten(importCdx1(withSurface(surface)).tree.components);
+    const tube = parts.find((n) => n.type === 'bodytube')!;
+    // 'normal' is the schema default and is deliberately not written to the
+    // node — the absence IS regular paint.
+    expect(tube['finish'] ?? 'normal').toBe(finish);
+  });
+
+  it('reads an unknown surface as regular paint and SAYS SO', () => {
+    const r = importCdx1(withSurface('Anodised Unobtainium'));
+    const tube = flatten(r.tree.components).find((n) => n.type === 'bodytube')!;
+    expect(tube['finish'] ?? 'normal').toBe('normal');
+    // Desktop warns here (RASAeroCommonConstants.java:361-363); so do we.
+    expect(r.notes.some((n) => n.includes('Anodised Unobtainium'))).toBe(true);
+  });
+
+  it('the two strings the corpus actually uses changed, and one of them changes drag', () => {
+    // 47 of the 60 corpus .CDX1 files carry one of these two; the census is
+    // 25 "Smooth (Zero Roughness)" and 22 "Smooth Paint".
+    const zero = flatten(importCdx1(withSurface('Smooth (Zero Roughness)')).tree.components)
+      .find((n) => n.type === 'bodytube')!;
+    const paint = flatten(importCdx1(withSurface('Smooth Paint')).tree.components)
+      .find((n) => n.type === 'bodytube')!;
+    expect(zero['finish']).toBe('mirror');        // was finishpolished (0.5 µm)
+    expect(paint['finish']).toBe('optimum');      // was smooth (20 µm) — the mover
+  });
+
+  it('round-trips every finish through the exporter, desktop’s seven plus our two', () => {
+    // RASAero has eight strings for our nine finishes, so POLISHED and ROUGH
+    // must share. Desktop leaves both to an `else` that returns the SMOOTHEST
+    // string; we send each to its nearest neighbour instead, which is one step
+    // of roughness rather than the whole scale.
+    const EXPORT: [string, string, string][] = [
+      // finish            → RASAero string             → what a re-import gives
+      ['mirror', 'Smooth (Zero Roughness)', 'mirror'],
+      ['finishpolished', 'Polished', 'finishpolished'],
+      ['optimum', 'Sheet Metal', 'optimum'],
+      ['smooth', 'Camouflage Paint', 'smooth'],
+      ['normal', 'Rough Camouflage Paint', 'normal'],
+      ['unfinished', 'Galvanized Metal', 'unfinished'],
+      ['roughunfinished', 'Cast Iron (Very Rough)', 'roughunfinished'],
+      // The two divergences, and the single step each costs:
+      ['polished', 'Sheet Metal', 'optimum'],
+      ['rough', 'Cast Iron (Very Rough)', 'roughunfinished'],
+    ];
+    for (const [finish, surface, backAs] of EXPORT) {
+      const xml = exportCdx1({
+        name: 'F',
+        tree: {
+          name: 'F',
+          components: [{
+            type: 'stage' as const, id: 's0', name: 'Sustainer',
+            children: [
+              { type: 'nosecone' as const, id: 'n', length: 0.3, aftRadius: 0.0254, thickness: 0.002, shape: 'haack', shapeParameter: 0, finish },
+              { type: 'bodytube' as const, id: 'b', length: 0.5, outerRadius: 0.0254, thickness: 0.001, finish },
+            ],
+          }],
+        },
+        launchMassKg: 1,
+        launchCgM: 0.4,
+      });
+      expect(xml, finish).toContain(`<Surface>${surface}</Surface>`);
+      const back = flatten(importCdx1(xml).tree.components).find((n) => n.type === 'bodytube')!;
+      expect(back['finish'] ?? 'normal', finish).toBe(backAs);
+    }
+  });
+});

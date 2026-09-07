@@ -1157,6 +1157,96 @@ describe('RockSim LINE density is kg/m both ways — ROCKSIM_TO_OPENROCKET_LINE_
 });
 
 /**
+ * Format-audit row 16 — a parachute's SHROUD LINES have their own material, in
+ * their own pair of tags, and we read neither. The chute was billed the
+ * kernel's default line density instead of the one the file states.
+ *
+ * Desktop reads it (ParachuteHandler.java:100-103) and writes it
+ * (ParachuteDTO.java:56-63). Despite the tag name the value is kg/m, not
+ * kg/mm: ROCKSIM_TO_OPENROCKET_LINE_DENSITY = 1
+ * (RockSimCommonConstants.java:116), and the arithmetic agrees — kg/mm would
+ * make TubeFins2's six 0.61 m lines weigh 1.2 kg.
+ *
+ * Measured across the corpus: 15 of the 16 parachutes carry the tag. Where the
+ * chute also states a KnownMass the override hid the error in the rocket's
+ * total (4in WM Extreme, 2,4-D, Level 3, test01, vb38 — all 0 g); where it does
+ * not, the mass really moves — SS Wild Bash 8.15 g over six chutes, Mach 3
+ * 3.17 g, and the small TubeFins2 5.38 g, which is 4.0 % of its dry mass.
+ */
+describe('RockSim shroud-line density (audit row 16)', () => {
+  it('reads the file’s own line density and material', () => {
+    const r = importRkt(fixture('rocksimTestRocket2.rkt'));
+    const chute = flatten(r.tree.components).find((c) => c.type === 'parachute')!;
+    expect(chute['lineDensity']).toBeCloseTo(0.00032972, 12);
+    expect(chute['lineMaterialName']).toBe('Carpet String (Apogee 29500)');
+    // 16 lines x 1.35 m at that density is 7.12 g of line — a plausible number,
+    // and the check that the units are kg/m and not kg/mm.
+    const lines = (chute['lineCount'] as number) * (chute['lineLength'] as number);
+    expect(lines).toBeCloseTo(21.6, 9);
+    expect(lines * (chute['lineDensity'] as number)).toBeCloseTo(0.007122, 6);
+  });
+
+  it('removes the phantom mass the kernel default was billing', async () => {
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    const { engineTree } = await import('../tree/treeModel.js');
+    const r = importRkt(fixture('TubeFins2.rkt'));
+    const dry = (t: typeof r.tree): number => {
+      resetEngine();
+      return OrkRocket.buildTree(engineTree(t)).staticInfo().massEmpty;
+    };
+    // The pre-v0.113 import, reconstructed by dropping what it never read.
+    const stripped = {
+      ...r.tree,
+      components: r.tree.components.map(function strip(n: ComponentNode): ComponentNode {
+        const c = { ...n } as Record<string, unknown>;
+        if (n.type === 'parachute') { delete c['lineDensity']; delete c['lineMaterialName']; }
+        if (n.children) c['children'] = (n.children as ComponentNode[]).map(strip);
+        return c as unknown as ComponentNode;
+      }),
+    };
+    const before = dry(stripped);
+    const after = dry(r.tree);
+    expect(before - after).toBeCloseTo(0.005378, 5);
+    // Heavy, not light: the default was billing mass no part of this rocket has.
+    expect(after).toBeLessThan(before);
+    expect((before - after) / after).toBeGreaterThan(0.04);
+  });
+
+  it('exports both tags so RockSim does not get weightless lines', () => {
+    const r = importRkt(fixture('rocksimTestRocket2.rkt'));
+    const xml = exportRkt({ name: 'RT', tree: r.tree });
+    const chute = xml.split('<Parachute>')[1]!.split('</Parachute>')[0]!;
+    expect(Number(/<ShroudLineMassPerMM>([^<]*)</.exec(chute)![1]))
+      .toBeCloseTo(0.00032972, 12);
+    expect(chute).toContain('<ShroudLineMaterial>Carpet String (Apogee 29500)</ShroudLineMaterial>');
+    // ...and it survives a round trip.
+    const back = flatten(importRkt(xml).tree.components).find((c) => c.type === 'parachute')!;
+    expect(back['lineDensity']).toBeCloseTo(0.00032972, 12);
+    expect(back['lineMaterialName']).toBe('Carpet String (Apogee 29500)');
+  });
+
+  it('writes nothing when the design states no line density', () => {
+    // Inventing one would hand RockSim a number no part of the design carries.
+    const xml = exportRkt({
+      name: 'Bare',
+      tree: {
+        name: 'Bare',
+        components: [{
+          type: 'stage' as const, id: 's0', name: 'Sustainer',
+          children: [
+            { type: 'bodytube' as const, id: 'b', length: 0.5, outerRadius: 0.03, thickness: 0.001,
+              children: [{ type: 'parachute' as const, id: 'p', diameter: 0.6, lineCount: 6 }] },
+          ],
+        }],
+      },
+    });
+    const chute = xml.split('<Parachute>')[1]!.split('</Parachute>')[0]!;
+    expect(chute).not.toContain('<ShroudLineMassPerMM>');
+    expect(chute).not.toContain('<ShroudLineMaterial>');
+  });
+});
+
+/**
  * A4 — RockSim's <ShapeParameter> on a TRANSITION.
  *
  * The nose branch read it; the transition branch never did, so a power, Haack or

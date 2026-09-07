@@ -68,23 +68,70 @@ const SECTION_TO_AIRFOIL: Record<string, string> = {
   singlewedge: 'Single Wedge',
 };
 
-/** RASAero's global surface strings ↔ our finish ids (desktop mapping, approx). */
+/**
+ * RASAero's eight global surface strings ↔ our nine finish ids.
+ *
+ * THIS IS DESKTOP'S OWN MAP, transcribed from
+ * `RASAeroCommonConstants.RASAERO_TO_OPENROCKET_SURFACE` (24.12, `:340-364`)
+ * and `OPENROCKET_TO_RASAERO_SURFACE` (`:367-388`). It is not a judgement
+ * call: a `.CDX1` opened here and on the desktop has to get the same skin
+ * friction, or the two apps disagree about drag on every part of the rocket
+ * for a reason the user cannot see. Desktop's own comment says the two sets of
+ * finishes "are not really the same… there are some approximations here" —
+ * true, and beside the point, because parity is the requirement.
+ *
+ * Corrected 2026-09-07 (format audit rows 3 and 41). The previous table was
+ * NOT desktop's and read rougher on the two strings the corpus actually uses:
+ * "Smooth (Zero Roughness)" landed on 0.5 µm where desktop says 0, and
+ * "Smooth Paint" on 20 µm where desktop says 5 — 47 of the 60 corpus `.CDX1`
+ * files between them. "Sheet Metal" (2 → 5 µm) and "Cast Iron" (500 → 250 µm)
+ * also moved; no corpus file uses either.
+ */
 const SURFACE_TO_FINISH: Record<string, string> = {
-  'Smooth (Zero Roughness)': 'finishpolished',
+  'Smooth (Zero Roughness)': 'mirror',
   'Polished': 'finishpolished',
-  'Sheet Metal': 'polished',
-  'Smooth Paint': 'smooth',
+  'Sheet Metal': 'optimum',
+  'Smooth Paint': 'optimum',
   'Camouflage Paint': 'smooth',
   'Rough Camouflage Paint': 'normal',
   'Galvanized Metal': 'unfinished',
-  'Cast Iron (Very Rough)': 'rough',
+  'Cast Iron (Very Rough)': 'roughunfinished',
 };
+
+/**
+ * A surface string we do not know is regular paint, which is desktop's
+ * fallback (`:361-363`, with a warning) and our own schema default.
+ */
+const DEFAULT_SURFACE_FINISH = 'normal';
+
+/**
+ * The reverse. Seven entries are desktop's exactly; TWO ARE A DELIBERATE
+ * DIVERGENCE, and this is the reason.
+ *
+ * RASAero has eight surface strings and OpenRocket has nine finishes, so
+ * desktop's export leaves POLISHED (2 µm) and ROUGH (500 µm) with no case at
+ * all — and its `else` branch returns FINISH_SMOOTH, "Smooth (Zero
+ * Roughness)", the SMOOTHEST string it has (`:384-387`). Exporting a
+ * 500 µm surface as a mirror inverts the roughness by three orders of
+ * magnitude and hands RASAero a rocket with far too little skin friction. We
+ * send each to its nearest neighbour instead, which costs one step of
+ * roughness on a re-import rather than the whole scale:
+ *   polished (2 µm)  → "Sheet Metal"            → optimum (5 µm)
+ *   rough    (500)   → "Cast Iron (Very Rough)" → roughunfinished (250 µm)
+ * Both of those RASAero strings are already the destination of another finish,
+ * which is unavoidable with eight slots for nine values.
+ */
 const FINISH_TO_SURFACE: Record<string, string> = {
+  mirror: 'Smooth (Zero Roughness)',
   finishpolished: 'Polished',
-  polished: 'Sheet Metal',
-  smooth: 'Smooth Paint',
+  optimum: 'Sheet Metal',
+  smooth: 'Camouflage Paint',
   normal: 'Rough Camouflage Paint',
   unfinished: 'Galvanized Metal',
+  roughunfinished: 'Cast Iron (Very Rough)',
+  // Desktop has no case for these two and defaults both to the smoothest
+  // string; nearest-neighbour is the honest answer. See the note above.
+  polished: 'Sheet Metal',
   rough: 'Cast Iron (Very Rough)',
 };
 
@@ -262,7 +309,14 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
     }
     return xmlNum(el, tag, fb);
   };
-  const finish = SURFACE_TO_FINISH[text(design, ':scope > Surface') ?? ''];
+  const surfaceStr = text(design, ':scope > Surface');
+  const finish = SURFACE_TO_FINISH[surfaceStr ?? ''] ?? DEFAULT_SURFACE_FINISH;
+  // Desktop warns on a surface string it does not know and falls back to
+  // regular paint (`RASAeroCommonConstants.java:361-363`); say the same thing
+  // rather than silently flying a finish the file never asked for.
+  if (surfaceStr !== null && SURFACE_TO_FINISH[surfaceStr] === undefined) {
+    notes.push(`Unknown RASAero surface finish “${surfaceStr}” — imported as regular paint (60 µm).`);
+  }
 
   const readFin = (parentEl: Element, parentNode: ComponentNode) => {
     const finEl = parentEl.querySelector(':scope > Fin');
