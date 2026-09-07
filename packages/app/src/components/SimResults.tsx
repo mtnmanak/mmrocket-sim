@@ -160,9 +160,25 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
       )}
       {/* simReport joins its advisory sentences with ' | ' — one line each
           reads as ranked flags instead of run-on prose (v0.076). */}
-      {run.comments && run.comments.split(' | ').map((c, i) => (
-        <p key={i} className="simdet-comments" style={{ margin: '2px 0 0' }}>{c}</p>
-      ))}
+      {run.comments && run.comments.split(' | ').map((c, i) => {
+        // Severity rides alongside as an index-aligned array (v0.114). A run
+        // saved before that has none, and every line renders plain exactly as
+        // it did — which is why this reads the array rather than re-deriving
+        // the thresholds here, where they would drift from simReport's.
+        const level = run.commentLevels?.[i] ?? 'info';
+        // The app's two existing severity colours, not new ones:
+        // `stability-bad` is --status-serious (red) and `stability-warn` is
+        // --status-warn (amber), both already used for the verdict rows. The
+        // ⚠ / △ pair matches the kernel-warning block directly above.
+        const cls = level === 'warning' ? 'simdet-comments stability-bad'
+          : level === 'caution' ? 'simdet-comments stability-warn'
+            : 'simdet-comments';
+        return (
+          <p key={i} className={cls} style={{ margin: '2px 0 0' }}>
+            {level === 'warning' ? '⚠ ' : level === 'caution' ? '△ ' : ''}{c}
+          </p>
+        );
+      })}
       {(run.deployments ?? []).length > 0 && (
         <div className="motor-table-wrap" style={{ marginTop: 8 }}>
           <table className="motor-table">

@@ -66,6 +66,39 @@ export const LINE_MATERIALS: MaterialDef[] = [
   { name: 'Elastic cord (flat 12 mm, 1/2 in)', density: 0.008, group: 'THREADS_LINES' },
   { name: 'Elastic cord (flat 19 mm, 3/4 in)', density: 0.0012, group: 'THREADS_LINES' },
   { name: 'Elastic cord (flat 25 mm, 1 in)', density: 0.0016, group: 'THREADS_LINES' },
+  // ── The two corrected alternatives (owner's ruling, 2026-09-07: "yes") ────
+  //
+  // The two rows directly above are WRONG, and wrong upstream. OpenRocket
+  // 24.12's own table (`Databases.java:86-90`) rises 0.0018 → 0.0043 → 0.0080
+  // with width and then collapses to 0.0012 at 19 mm — a 3/4 in flat elastic
+  // lighter than a 1/16 in round one. They are transcribed faithfully and are
+  // NOT ours to edit: `.ork` exchange matches a material by NAME, so silently
+  // changing what "Elastic cord (flat 19 mm, 3/4 in)" weighs would make our
+  // files disagree with the desktop's on the same named material. That is why
+  // `materials.test.ts` pins them and `check-upstream.mjs` watches them.
+  //
+  // These are the way out that costs no parity: NEW names, so nothing that
+  // already exists changes meaning, and a design that uses one still opens
+  // correctly on the desktop — the `.ork` writer emits the density as an
+  // attribute on the material element (`orkFile.ts`, `<material type="line"
+  // density="…">`), so desktop takes the number from the file and creates a
+  // custom material for the unrecognised name.
+  //
+  // THE VALUES ARE DERIVED FROM UPSTREAM'S OWN CONSISTENT POINTS, not invented:
+  // a straight line through its 6 mm (0.0043) and 12 mm (0.0080) entries gives
+  // 0.000617 kg/m per mm of width and reads 0.0123 at 19 mm and 0.0160 at
+  // 25 mm. That is independently the listed values with the decimal point moved
+  // one place (0.0012 → 0.012, 0.0016 → 0.016, both within 2.5 %), which is
+  // what the error looks like. Flat elastic is a constant-thickness ribbon, so
+  // mass per length scaling with width is the right model.
+  //
+  // WHY IT MATTERS: 30 ft of 3/4 in flat elastic is an ordinary mid/high-power
+  // harness. At the upstream figure the app weighs it at 11.0 g; at this one,
+  // 112 g. `recoveryMass.ts` derives the recovery weight from `massEmpty`, so
+  // the upstream value sizes the canopy against a rocket ~100 g light — the
+  // direction that undersizes it.
+  { name: 'Elastic cord, corrected (flat 19 mm, 3/4 in)', density: 0.0123, group: 'THREADS_LINES' },
+  { name: 'Elastic cord, corrected (flat 25 mm, 1 in)', density: 0.0160, group: 'THREADS_LINES' },
   { name: 'Braided nylon (2 mm, 1/16 in)', density: 0.001, group: 'THREADS_LINES' },
   { name: 'Braided nylon (3 mm, 1/8 in)', density: 0.0035, group: 'THREADS_LINES' },
   { name: 'Tubular nylon (11 mm, 7/16 in)', density: 0.013, group: 'THREADS_LINES' },

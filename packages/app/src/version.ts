@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.113';
+export const APP_VERSION = '0.114';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.114',
+    date: '2026-09-07',
+    title: 'The launch report has a caution tier now, so a drogue slightly over the preferred rate stops shouting as loudly as one that is dangerous',
+    items: [
+      'THE DROGUE DESCENT RATE AND THE OPENING-SHOCK SPEED NOW HAVE THREE LEVELS INSTEAD OF TWO. Up to 70 ft/s is the preferred band and the report says nothing. From 70 to 90 ft/s is a CAUTION, marked in amber, and the sentence says plainly that it is above the preferred rate but still inside the accepted band. Above 90 ft/s is a WARNING in red. Before this every rate over 70 got one identical sentence, so a drogue one foot per second over read exactly as loudly as one forty over - which trains you to ignore it.',
+      'THE TWO NUMBERS MOVE TOGETHER ON PURPOSE. 70 ft/s is both the top of the accepted drogue band and the speed above which a deploying parachute risks a zippered tube, and they are the same event seen twice: a drogue in the caution band drags the main\'s opening speed into the caution band as well. Reporting one as acceptable and the other as a failure would be the app contradicting itself about a single flight.',
+      'THE OTHER SAFETY LINES IN THE REPORT ARE COLOURED TOO, for the same reason - a rod-exit speed under the guidance, a landing above the target, an under-stable margin, a high-power booster with no recovery device. These were always failures; they were just printed in the same grey as everything else, which would have made the new amber drogue line look MORE serious than a red one beside it. Nothing about which conditions are flagged has changed, only how loudly each is said.',
+      'SAVED FLIGHTS FROM EARLIER BUILDS ARE UNAFFECTED and still read exactly as they did - the colouring rides alongside the text rather than replacing it, so a run from last week simply has none.',
+      'AND TWO CORRECTED SHOCK-CORD MATERIALS ARE AVAILABLE, as an option rather than a replacement. OpenRocket\'s own material table lists 3/4 inch and 1 inch flat elastic as LIGHTER than 1/16 inch round elastic, which cannot be right: its own numbers rise 0.0018, 0.0043, 0.0080 with width and then drop to 0.0012. Thirty feet of 3/4 inch flat elastic - an ordinary harness - weighs 11 g at that figure against about 112 g on a scale, and since the recovery weight comes off the dry mass, that sizes the parachute against a rocket 100 g light. The original entries are untouched, because a .ork file matches materials by name and changing what a shared name weighs would make your files disagree with desktop OpenRocket. Instead there are two new entries, "Elastic cord, corrected", carrying the value OpenRocket\'s own 6 mm and 12 mm rows imply. A design using one still opens correctly on the desktop, which reads the density out of the file.',
+    ],
+  },
   {
     version: '0.113',
     date: '2026-09-07',

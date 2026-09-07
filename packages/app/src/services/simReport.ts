@@ -70,6 +70,25 @@ export const SAFETY = {
   maxDeploymentVelocity: 21.34,
   /** Descent under a drogue: accepted band tops out at 70 ft/s (the owner). */
   maxDrogueDescentRate: 21.34,
+  /**
+   * ABOVE THIS IT STOPS BEING A CAUTION AND BECOMES A WARNING — 90 ft/s, the
+   * owner's ruling 2026-09-07: *"i think we should keep the preferred drogue
+   * descent rate and opening shock rate at 70 ft/s. 70-90 ft/s should get a
+   * yellow 'caution' type notification, and, above 90 ft/s would be in the red
+   * warning area."*
+   *
+   * So the two thresholds above are unchanged and still mean what they meant —
+   * the top of what is PREFERRED — and these two say where the report stops
+   * advising and starts objecting. It applies to BOTH surfaces on purpose: a
+   * drogue in the 70-90 caution band drags the main's opening speed into the
+   * same band, and reporting one as fine and the other as a failure would be
+   * the app contradicting itself about a single event.
+   *
+   * 27.432 m/s is 90 ft/s exactly (90 x 0.3048).
+   */
+  warnDrogueDescentRate: 27.432,
+  /** The same 90 ft/s step for opening shock. See `warnDrogueDescentRate`. */
+  warnDeploymentVelocity: 27.432,
   /** Landing descent rate: 20 ft/s or lower (the owner). */
   maxLandingRate: 6.1,
   /** Static margin sanity band (calibers). */
@@ -458,7 +477,25 @@ export interface SimRun {
   /** The launch conditions in force, serialized. */
   conditionsKey?: string;
   comments: string;
+  /**
+   * How loud each comment is, index-aligned to `comments.split(' | ')`.
+   *
+   * `comments` stays a joined STRING because it is persisted in every saved run
+   * and exported to CSV/XLSX; this rides alongside it and is optional, so a run
+   * revived from a build before 2026-09-07 simply has no levels and renders the
+   * way it always did. No comment may contain " | " — `commentLevelsAlign()`
+   * pins that, because the alignment is what makes a parallel array safe.
+   *
+   * 'warning' is the red treatment the verdict rows use; 'caution' is the
+   * amber one; 'info' is plain. The owner's 2026-09-07 ruling created the
+   * middle tier — before it, every sentence here was the same weight, so a
+   * drogue 1 ft/s over the preferred rate shouted as loudly as one 40 over.
+   */
+  commentLevels?: CommentLevel[];
 }
+
+/** @see SimRun.commentLevels */
+export type CommentLevel = 'info' | 'caution' | 'warning';
 
 /**
  * A run THIS build just produced, as opposed to one revived from localStorage.
@@ -1330,20 +1367,40 @@ export function buildSimRun(input: {
   // blob becomes the launch report AND the Comments column of the saved-runs
   // CSV/XLSX, where a raw "[Warning.DISCONTINUITY]" token is just noise.
   const comments: string[] = info.warningTexts.map(formatWarningText);
+  /**
+   * Index-aligned severity — see `SimRun.commentLevels`.
+   *
+   * The kernel's own warning texts start as 'info': they are the kernel
+   * describing the model's limits, not the app judging the rocket, and
+   * `SimResults` already renders the kernel's HIGH-priority ones separately in
+   * red from `simWarnings`. Everything the APP checks is levelled below by
+   * `say()`.
+   */
+  const levels: CommentLevel[] = comments.map(() => 'info');
+  /**
+   * Push a comment with its severity. Every `comments.push` in this function
+   * went through here on 2026-09-07 so the two arrays cannot drift apart —
+   * a bare push would leave `levels` short and silently mis-colour every
+   * comment after it.
+   */
+  const say = (text: string, level: CommentLevel = 'info'): void => {
+    comments.push(text);
+    levels.push(level);
+  };
   // Supersonic flight on the classic model: the flyer should know a validated
   // model exists — and that switching changes the model for the WHOLE flight.
   if ((aeroModel ?? 'classic') === 'classic' && summary.maxMachNumber > 0.9) {
-    comments.push(
+    say(
       `Flight reaches Mach ${summary.maxMachNumber.toFixed(2)} on the classic aero model, `
       + 'which is approximate past ~Mach 0.9 (supersonic CP travel is not modeled). '
       + 'Preferences → Aerodynamics offers a validated supersonic model — switching '
       + 'changes the model for the entire flight, so expect stability and apogee to shift.');
   }
   if (safeLiftoffSpeed === false) {
-    comments.push(`Rod-exit speed ${rodExitVelocity!.toFixed(1)} m/s < ${SAFETY.minRodExitVelocity} m/s guidance.`);
+    say(`Rod-exit speed ${rodExitVelocity!.toFixed(1)} m/s < ${SAFETY.minRodExitVelocity} m/s guidance.`, 'warning');
   }
   if (safeThrustToWeight === false) {
-    comments.push(`Thrust:weight ${thrustToWeightAtRod!.toFixed(1)}:1 at rod exit < ${SAFETY.minThrustToWeight}:1.`);
+    say(`Thrust:weight ${thrustToWeightAtRod!.toFixed(1)}:1 at rod exit < ${SAFETY.minThrustToWeight}:1.`, 'warning');
   }
   for (const d of deployments) {
     if (d.openingOk === false) {
@@ -1355,10 +1412,23 @@ export function buildSimRun(input: {
       const over = d.groundSpeedAtDeployment != null && d.groundSpeedAtDeployment - air > 0.1
         ? ` It is moving ${d.groundSpeedAtDeployment.toFixed(1)} m/s (${fps(d.groundSpeedAtDeployment)}) over the ground, the rest of that being wind drift.`
         : '';
-      comments.push(`${d.device} opens at ${air.toFixed(1)} m/s (${fps(air)}) — hard opening, over the ${fps(SAFETY.maxDeploymentVelocity)} threshold.${over}`);
+      // Three tiers since 2026-09-07: preferred to 70 ft/s, caution to 90,
+      // warning above. The sentence says which it is rather than leaving the
+      // reader to compare two numbers.
+      const hard = air > SAFETY.warnDeploymentVelocity;
+      say(`${d.device} opens at ${air.toFixed(1)} m/s (${fps(air)}) — `
+        + (hard
+          ? `hard opening, past the ${fps(SAFETY.warnDeploymentVelocity)} limit.`
+          : `above the preferred ${fps(SAFETY.maxDeploymentVelocity)}; watch for a zippered tube.`)
+        + over, hard ? 'warning' : 'caution');
     }
     if (d.descentOk === false && !d.isLanding) {
-      comments.push(`Descent under ${d.device} is ${d.descentRate!.toFixed(1)} m/s (${fps(d.descentRate!)}) — faster than the accepted ${fps(SAFETY.maxDrogueDescentRate)} drogue band.`);
+      const fast = Math.abs(d.descentRate!) > SAFETY.warnDrogueDescentRate;
+      say(`Descent under ${d.device} is ${d.descentRate!.toFixed(1)} m/s (${fps(d.descentRate!)}) — `
+        + (fast
+          ? `past the ${fps(SAFETY.warnDrogueDescentRate)} limit for a drogue.`
+          : `above the preferred ${fps(SAFETY.maxDrogueDescentRate)}, still inside the accepted band to ${fps(SAFETY.warnDrogueDescentRate)}.`),
+      fast ? 'warning' : 'caution');
     }
     if (d.descentOk === false && d.isLanding) {
       // The app's strongest claim about a design has to carry its own
@@ -1372,29 +1442,34 @@ export function buildSimRun(input: {
         && d.groundSpeed - d.descentRate > 0.1
         ? ` It touches down at ${d.groundSpeed.toFixed(1)} m/s (${fps(d.groundSpeed)}) over the ground, the rest of that being wind drift.`
         : '';
-      comments.push(`Landing under ${d.device} at ${d.descentRate!.toFixed(1)} m/s (${fps(d.descentRate!)}) of descent${cdSaid} — above the ${fps(SAFETY.maxLandingRate)} landing target.${drift}`);
+      say(`Landing under ${d.device} at ${d.descentRate!.toFixed(1)} m/s (${fps(d.descentRate!)}) of descent${cdSaid} — above the ${fps(SAFETY.maxLandingRate)} landing target.${drift}`, 'warning');
     }
   }
   if (deployments.length === 0 && safeDeployment === false) {
-    comments.push(`Deployment at ${Math.abs(velocityAtDeployment!).toFixed(1)} m/s (${fps(Math.abs(velocityAtDeployment!))}) — expect hard opening.`);
+    // The no-deployment-table fallback; same tiers.
+    say(`Deployment at ${Math.abs(velocityAtDeployment!).toFixed(1)} m/s (${fps(Math.abs(velocityAtDeployment!))}) — expect hard opening.`,
+      Math.abs(velocityAtDeployment!) > SAFETY.warnDeploymentVelocity ? 'warning' : 'caution');
   }
   if (deployments.length === 0 && safeLandingRate === false) {
-    comments.push(`Landing at ${landingRate!.toFixed(1)} m/s (${fps(landingRate!)}) of descent — above the ${fps(SAFETY.maxLandingRate)} landing target.`);
+    say(`Landing at ${landingRate!.toFixed(1)} m/s (${fps(landingRate!)}) of descent — above the ${fps(SAFETY.maxLandingRate)} landing target.`, 'warning');
   }
   if (staticMarginOk === false && launchStaticMarginCal !== null) {
-    comments.push(launchStaticMarginCal < SAFETY.minStaticMargin
+    say(launchStaticMarginCal < SAFETY.minStaticMargin
       ? `Static margin ${launchStaticMarginCal.toFixed(2)} cal — under-stable.`
-      : `Static margin ${launchStaticMarginCal.toFixed(2)} cal — over-stable (weathercocks readily).`);
+      : `Static margin ${launchStaticMarginCal.toFixed(2)} cal — over-stable (weathercocks readily).`,
+    // Under-stable is a flight-safety failure; over-stable is a flight
+    // characteristic that costs altitude and drifts, not a danger.
+    launchStaticMarginCal < SAFETY.minStaticMargin ? 'warning' : 'caution');
   }
   if (!Number.isFinite(motor.ejectionDelay)) {
     // Plugged motor: no charge to compare against the optimum — instead note
     // the optimum for anyone flying this motor WITH eject another day.
-    comments.push(optimumDelayS !== null && Number.isFinite(optimumDelayS)
+    say(optimumDelayS !== null && Number.isFinite(optimumDelayS)
       ? `Plugged motor (no ejection charge) — recovery must deploy on apogee/altitude electronics. If flown with motor eject instead, the optimal delay is ${optimumDelayS.toFixed(1)}s.`
       : 'Plugged motor (no ejection charge) — recovery must deploy on apogee/altitude electronics.');
   } else if (optimumDelayS !== null && Number.isFinite(optimumDelayS)
       && Math.abs(motor.ejectionDelay - optimumDelayS) > 1.5) {
-    comments.push(`Flown delay ${motor.ejectionDelay}s vs optimal ${optimumDelayS.toFixed(1)}s.`);
+    say(`Flown delay ${motor.ejectionDelay}s vs optimal ${optimumDelayS.toFixed(1)}s.`);
   }
   // Booster recovery — the owner's G80 rule: high-power boosters MUST have active
   // recovery; low/mid boosters may tumble (no warning).
@@ -1402,14 +1477,19 @@ export function buildSimRun(input: {
     const landTxt = b.landingRate !== null ? `${b.landingRate.toFixed(1)} m/s (${fps(b.landingRate)})` : 'unknown speed';
     if (b.deployments.length === 0) {
       if (stageMotorInfo?.[b.name]?.highPower === true) {
-        comments.push(`${b.name} has NO recovery device — a HIGH-POWER booster must recover actively; it ${b.tumbles ? 'tumbles' : 'falls'} in at ${landTxt}.`);
+        say(`${b.name} has NO recovery device — a HIGH-POWER booster must recover actively; it ${b.tumbles ? 'tumbles' : 'falls'} in at ${landTxt}.`, 'warning');
       }
     } else if (b.safeLandingRate === false) {
-      comments.push(`${b.name} lands at ${landTxt} — above the ${fps(SAFETY.maxLandingRate)} landing target.`);
+      say(`${b.name} lands at ${landTxt} — above the ${fps(SAFETY.maxLandingRate)} landing target.`, 'warning');
     }
     for (const d of b.deployments) {
       if (d.openingOk === false) {
-        comments.push(`${b.name}: ${d.device} opens at ${Math.abs(d.velocityAtDeployment!).toFixed(1)} m/s (${fps(Math.abs(d.velocityAtDeployment!))}) — hard opening.`);
+        // Same three tiers as the sustainer's own devices, above.
+        const v = Math.abs(d.velocityAtDeployment!);
+        const hard = v > SAFETY.warnDeploymentVelocity;
+        say(`${b.name}: ${d.device} opens at ${v.toFixed(1)} m/s (${fps(v)}) — `
+          + (hard ? 'hard opening.' : `above the preferred ${fps(SAFETY.maxDeploymentVelocity)}.`),
+        hard ? 'warning' : 'caution');
       }
     }
   }
@@ -1487,5 +1567,18 @@ export function buildSimRun(input: {
     ...(motorSetKey !== undefined ? { motorSetKey } : {}),
     conditionsKey: conditionsKeyOf(launch),
     comments: comments.join(' | '),
+    commentLevels: levels,
   };
+}
+
+/**
+ * The invariant that makes `commentLevels` safe: the renderer recovers the
+ * individual comments by splitting on " | ", so a comment CONTAINING that
+ * separator would desync every level after it. Exported so the test can assert
+ * it over real reports rather than over a hand-written list.
+ */
+export function commentLevelsAlign(r: Pick<SimRun, 'comments' | 'commentLevels'>): boolean {
+  if (!r.commentLevels) return true;
+  const n = r.comments === '' ? 0 : r.comments.split(' | ').length;
+  return n === r.commentLevels.length;
 }

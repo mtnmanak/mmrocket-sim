@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { FlightResult, FlightSeries, StaticInfo } from '@online-openrocket/engine';
 import {
-  buildSimRun, conditionsKeyOf, extractLandingDrift, extractMaxRollRate, formatStability,
+  buildSimRun, commentLevelsAlign, conditionsKeyOf, extractLandingDrift, extractMaxRollRate, formatStability,
   recommendDelay,
   AERO_MODEL_CHANGED, changedSinceRun, formatRunWhen, formatRunWhenProse, listAnd,
   ROLL_RATE_MEANINGFUL_RAD_S, runMatchesDesign, SAFETY, stabilityPercent, storedSimCost,
@@ -383,6 +383,78 @@ describe('stored-run provenance (2026-09-03, v0.101)', () => {
     expect(listAnd(['the design'])).toBe('the design');
     expect(listAnd(['the design', 'the motor'])).toBe('the design and the motor');
     expect(listAnd(['a', 'b', 'c'])).toBe('a, b and c');
+  });
+});
+
+/**
+ * THE DROGUE BAND IS THREE TIERS, NOT TWO — the owner's ruling 2026-09-07:
+ * *"keep the preferred drogue descent rate and opening shock rate at 70 ft/s.
+ * 70-90 ft/s should get a yellow 'caution' type notification, and, above
+ * 90 ft/s would be in the red warning area."*
+ *
+ * Before this, one sentence covered everything over 70 and it was the same
+ * weight whether the drogue was 1 ft/s over or 40 — which is the report crying
+ * wolf on the common case and under-reporting the dangerous one.
+ */
+describe('the drogue band and opening shock have a caution tier (v0.114)', () => {
+  const FT_S = 0.3048;
+  const buildAt = (drogueRate: number) => buildSimRun({
+    result: dualDeployResult(drogueRate, 5), info, motor,
+    meta: { label: 'J350-auto', manufacturer: 'AT' },
+    launch: DEFAULT_CONDITIONS, rocketName: 'DD', execMs: 1,
+  });
+  /** The comment about descent under the drogue, with its level. */
+  const drogueLine = (run: SimRun) => {
+    const parts = run.comments.split(' | ');
+    const i = parts.findIndex((c) => c.startsWith('Descent under'));
+    return i < 0 ? null : { text: parts[i]!, level: run.commentLevels?.[i] };
+  };
+
+  it('says nothing at all inside the preferred band', () => {
+    // 60 ft/s is the panel's own target.
+    expect(drogueLine(buildAt(60 * FT_S))).toBeNull();
+  });
+
+  it('70-90 ft/s is a CAUTION and says the band still accepts it', () => {
+    const line = drogueLine(buildAt(80 * FT_S))!;
+    expect(line.level).toBe('caution');
+    expect(line.text).toContain('above the preferred 70 ft/s');
+    expect(line.text).toContain('still inside the accepted band');
+    // Eric's own rocket sat here at ~90 ft/s and got the same sentence a
+    // genuinely dangerous descent got.
+  });
+
+  it('above 90 ft/s is a WARNING', () => {
+    const line = drogueLine(buildAt(100 * FT_S))!;
+    expect(line.level).toBe('warning');
+    expect(line.text).toContain('past the 90 ft/s limit');
+  });
+
+  it('the two thresholds are 70 and 90 ft/s exactly, and 70 is unchanged', () => {
+    expect(SAFETY.maxDrogueDescentRate / FT_S).toBeCloseTo(70, 1);
+    expect(SAFETY.warnDrogueDescentRate / FT_S).toBeCloseTo(90, 6);
+    // The opening-shock pair moves WITH the drogue pair, deliberately: a drogue
+    // in the caution band drags the main's opening speed into it too, and one
+    // surface calling that fine while the other calls it a failure would be the
+    // app contradicting itself about a single event.
+    expect(SAFETY.maxDeploymentVelocity).toBe(SAFETY.maxDrogueDescentRate);
+    expect(SAFETY.warnDeploymentVelocity).toBe(SAFETY.warnDrogueDescentRate);
+  });
+
+  it('levels stay index-aligned with the comments they describe', () => {
+    for (const rate of [60, 80, 100]) {
+      const run = buildAt(rate * FT_S);
+      expect(commentLevelsAlign(run), `${rate} ft/s`).toBe(true);
+      // The alignment only holds while no comment contains the separator.
+      for (const c of run.comments.split(' | ')) expect(c).not.toContain(' | ');
+    }
+  });
+
+  it('a run saved before v0.114 has no levels and is still valid', () => {
+    // commentLevels is optional precisely so five hundred stored flights do not
+    // have to carry it; the renderer falls back to plain.
+    const old: Pick<SimRun, 'comments' | 'commentLevels'> = { comments: 'a | b | c' };
+    expect(commentLevelsAlign(old)).toBe(true);
   });
 });
 

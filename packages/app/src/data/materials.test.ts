@@ -96,16 +96,80 @@ describe('the built-in material tables', () => {
     ['LINE_MATERIALS', LINE_MATERIALS],
   ];
 
+  /**
+   * Rows this project adds that are NOT in OpenRocket 24.12, each with the
+   * ruling that put it there. Everything else must be a verbatim upstream row.
+   *
+   * Keeping the list explicit is the point: the count assertion below used to
+   * be a bare 31/8/42, which meant "matches upstream" and "nothing local was
+   * added" were the same number and neither could move without the other
+   * looking like the other's failure.
+   */
+  const LOCAL_ADDITIONS: Record<string, string[]> = {
+    BULK_MATERIALS: [],
+    SURFACE_MATERIALS: [],
+    // Owner's ruling 2026-09-07 — an opt-in corrected pair beside the two
+    // upstream rows that are ~10x light. NEW names, so no existing design and
+    // no `.ork` round trip changes meaning. See materials.ts for the derivation.
+    LINE_MATERIALS: [
+      'Elastic cord, corrected (flat 19 mm, 3/4 in)',
+      'Elastic cord, corrected (flat 25 mm, 1 in)',
+    ],
+  };
+
   it('carries every row OpenRocket 24.12 Databases.java declares — 31 bulk, 8 surface, 42 line', () => {
     // The header calls this table a verbatim transcription. The 2026-09-05
     // audit diffed it row by row against Databases.java and found exactly one
     // row missing (Styrofoam "Blue foam" (XPS), 32 kg/m3). Pinning the counts
     // makes the next omission — or the next upstream addition — a failing test
     // instead of a quiet divergence.
-    expect(BULK_MATERIALS).toHaveLength(31);
-    expect(SURFACE_MATERIALS).toHaveLength(8);
-    expect(LINE_MATERIALS).toHaveLength(42);
+    //
+    // The counts are of UPSTREAM rows, so a deliberate local addition does not
+    // read as an upstream drift and cannot hide one either.
+    for (const [label, table] of TABLES) {
+      const upstream = table.filter((m) => !LOCAL_ADDITIONS[label]!.includes(m.name));
+      const expected = { BULK_MATERIALS: 31, SURFACE_MATERIALS: 8, LINE_MATERIALS: 42 }[label]!;
+      expect(upstream, `${label} upstream rows`).toHaveLength(expected);
+      // ...and every declared local addition really is present, so the list
+      // cannot rot into an allowance for rows that no longer exist.
+      for (const name of LOCAL_ADDITIONS[label]!) {
+        expect(byName(table, name), `${label} is missing declared local row ${name}`).toBeDefined();
+      }
+    }
     expect(byName(BULK_MATERIALS, 'Styrofoam "Blue foam" (XPS)')?.density).toBe(32);
+  });
+
+  /**
+   * The corrected elastic pair, and the parity argument that makes it safe.
+   */
+  it('the corrected elastic rows sit beside the upstream ones, never replacing them', () => {
+    const up19 = byName(LINE_MATERIALS, 'Elastic cord (flat 19 mm, 3/4 in)')!;
+    const up25 = byName(LINE_MATERIALS, 'Elastic cord (flat 25 mm, 1 in)')!;
+    const fixed19 = byName(LINE_MATERIALS, 'Elastic cord, corrected (flat 19 mm, 3/4 in)')!;
+    const fixed25 = byName(LINE_MATERIALS, 'Elastic cord, corrected (flat 25 mm, 1 in)')!;
+
+    // The upstream values are untouched — that is what keeps `.ork` files
+    // agreeing with the desktop on a shared material name.
+    expect(up19.density).toBe(0.0012);
+    expect(up25.density).toBe(0.0016);
+
+    // The corrected ones restore the monotonic series the table should have had.
+    const d12 = byName(LINE_MATERIALS, 'Elastic cord (flat 12 mm, 1/2 in)')!.density;
+    expect(fixed19.density).toBeGreaterThan(d12);
+    expect(fixed25.density).toBeGreaterThan(fixed19.density);
+
+    // And they are the straight line through upstream's own 6 mm and 12 mm
+    // points, not a guess: 0.000617 kg/m per mm, offset 0.0006.
+    const slope = (0.008 - 0.0043) / (12 - 6);
+    const at = (mm: number) => 0.0043 + slope * (mm - 6);
+    expect(fixed19.density).toBeCloseTo(at(19), 4);
+    expect(fixed25.density).toBeCloseTo(at(25), 4);
+
+    // 30 ft of 3/4 in: 11 g upstream against 112 g corrected. That gap is the
+    // whole reason the pair exists, so it is stated as a number here.
+    const thirtyFt = 9.144;
+    expect(up19.density * thirtyFt * 1000).toBeCloseTo(11.0, 1);
+    expect(fixed19.density * thirtyFt * 1000).toBeCloseTo(112.5, 1);
   });
 
   it('names every material once per table', () => {
