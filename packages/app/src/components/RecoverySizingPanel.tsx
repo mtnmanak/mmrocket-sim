@@ -3,7 +3,7 @@ import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { fmtSi, siToUi } from '../prefs/units.js';
 import { loadPresets, type Preset } from '../services/presets.js';
-import type { RecoveryMass } from '../services/recoveryMass.js';
+import { recoveryGroups, type RecoveryByStage, type RecoveryMass } from '../services/recoveryMass.js';
 import {
   recoverySizing, type BandAdvice, type Candidate, type RecoverySizing,
 } from '../services/recoverySizing.js';
@@ -25,12 +25,28 @@ import { UnitChip } from './UnitChip.js';
  * it is meaningless, and a list of parts with no size line strands anyone who
  * does not buy from the five manufacturers we happen to carry.
  *
+ * ONE SECTION PER OBJECT THAT COMES DOWN (v0.115, the owner's ruling
+ * 2026-09-07): *"each stage needs to be treated with its own recovery system
+ * since each stage can also be dual deploy. So, for example, a 3-stage rocket
+ * could have 6 recovery events from launch to landing. However, the extra
+ * sections should only appear if there are multiple stages."* So a design
+ * with more than one separating stage gets a section per stage — the
+ * sustainer's first, then each booster — and each section is the WHOLE
+ * answer for that object: its weight, its main, its drogue, sized against its
+ * own chutes and its own bay. A single-stage design renders exactly as it did
+ * before, and the collapsed header still carries the sustainer's two sizes.
+ *
  * The arithmetic, the bands and every judgement call live in
  * services/recoverySizing.ts; this file is presentation only.
  */
-export function RecoverySizingPanel({ recovery, tree, launch, deviceMass }: {
+export function RecoverySizingPanel({ recovery, byStage, tree, launch, deviceMass }: {
   /** The recovery weight, straight from App — never recomputed here. */
   recovery: RecoveryMass;
+  /**
+   * The per-stage weights, straight from App. Optional so every existing
+   * caller keeps working; without it the panel is the single-stage panel.
+   */
+  byStage?: RecoveryByStage;
   tree: RocketTree;
   launch: LaunchConditions;
   /** Kernel mass of a component (kg), or null. See the substitution note in the service. */
@@ -57,12 +73,36 @@ export function RecoverySizingPanel({ recovery, tree, launch, deviceMass }: {
     return () => { live = false; };
   }, [wanted, presets]);
 
-  const sizing: RecoverySizing = useMemo(
-    () => recoverySizing({ recovery, tree, deviceMass, presets: presets ?? [], launch }),
-    [recovery, tree, deviceMass, presets, launch],
+  /**
+   * The objects to size, in landing order: the sustainer's group first, then
+   * each booster that separates. The stage NODES come from `recoveryGroups`
+   * and the WEIGHTS from `byStage`; both derive from the same partition of
+   * the same tree, so they zip by index. With one object (single stage, or
+   * every booster set to Never) this is one entry and the panel is the panel
+   * it always was.
+   */
+  const objects = useMemo(() => {
+    const nodeGroups = recoveryGroups(tree);
+    if (byStage?.state === 'ok' && byStage.groups.length > 1 && byStage.groups.length === nodeGroups.length) {
+      return byStage.groups.map((g, i) => ({
+        label: g.stageNames.join(' + '),
+        isSustainer: g.isSustainer,
+        recovery: g.mass,
+        scope: nodeGroups[i]!,
+      }));
+    }
+    return [{ label: '', isSustainer: true, recovery, scope: undefined }];
+  }, [byStage, recovery, tree]);
+
+  const sizings: RecoverySizing[] = useMemo(
+    () => objects.map((o) => recoverySizing({
+      recovery: o.recovery, tree, deviceMass, presets: presets ?? [], launch, scope: o.scope,
+    })),
+    [objects, tree, deviceMass, presets, launch],
   );
 
-  if (sizing.state === 'no-motor') {
+  const sustainer = sizings[0]!;
+  if (sustainer.state === 'no-motor') {
     return (
       <Shell summary="needs a motor">
         <p className="recovery-sizing-hint">
@@ -72,11 +112,11 @@ export function RecoverySizingPanel({ recovery, tree, launch, deviceMass }: {
       </Shell>
     );
   }
-  if (sizing.state === 'unavailable') {
+  if (sustainer.state === 'unavailable') {
     return (
       <Shell summary="no recommendation">
         <p className="recovery-sizing-hint">
-          No recommendation: {sizing.reason}.
+          No recommendation: {sustainer.reason}.
         </p>
       </Shell>
     );
@@ -95,15 +135,71 @@ export function RecoverySizingPanel({ recovery, tree, launch, deviceMass }: {
   };
   const rate = (si: number): string => fmtSi('velocity', velSym, si, 1);
 
-  const pctFaster = Math.round((sizing.siteRateFactor - 1) * 100);
-
   // What the header says when the panel is shut. The two size lines are the
   // conclusion; everything the panel expands to is the working behind them.
-  const summary = `main ~${roughLength(sizing.main.diameter)} ${lenSym}`
-    + ` · drogue ~${roughLength(sizing.drogue.diameter)} ${lenSym}`;
+  // On a multi-stage design it is the SUSTAINER's pair — the object the rest
+  // of the app means by "the rocket" — with a count of the others.
+  const summary = `main ~${roughLength(sustainer.main.diameter)} ${lenSym}`
+    + ` · drogue ~${roughLength(sustainer.drogue.diameter)} ${lenSym}`
+    + (objects.length > 1 ? ` · +${objects.length - 1} stage${objects.length > 2 ? 's' : ''}` : '');
+
+  const fmt = { roughLength, rate, lenSym, velSym, massSym, distSym };
 
   return (
     <Shell summary={summary}>
+      {objects.map((o, i) => (
+        <ObjectSection
+          key={o.label || 'rocket'}
+          label={objects.length > 1 ? o.label : null}
+          sizing={sizings[i]!}
+          catalogueReady={presets !== null}
+          fmt={fmt}
+        />
+      ))}
+    </Shell>
+  );
+}
+
+/**
+ * The whole answer for ONE object that comes down: its weight, its main, its
+ * drogue. With `label` null (a single-stage design) it renders without a
+ * heading — byte-for-byte the pre-v0.115 panel body.
+ */
+function ObjectSection({ label, sizing, catalogueReady, fmt }: {
+  label: string | null;
+  sizing: RecoverySizing;
+  catalogueReady: boolean;
+  fmt: Fmt;
+}) {
+  const { roughLength, rate, lenSym, velSym, massSym, distSym } = fmt;
+  const heading = label !== null && (
+    <h3 className="recovery-object">{label}</h3>
+  );
+  if (sizing.state === 'no-motor') {
+    // A booster group with no motor of its own: possible on a design whose
+    // booster mount is empty. Say so under its own heading rather than hiding
+    // the section — the stage still comes down, and the user should see why
+    // there is no number for it.
+    return (
+      <>
+        {heading}
+        <p className="recovery-sizing-hint">No motor loaded in this stage, so its recovery weight is unknown.</p>
+      </>
+    );
+  }
+  if (sizing.state === 'unavailable') {
+    return (
+      <>
+        {heading}
+        <p className="recovery-sizing-hint">No recommendation: {sizing.reason}.</p>
+      </>
+    );
+  }
+
+  const pctFaster = Math.round((sizing.siteRateFactor - 1) * 100);
+  return (
+    <>
+      {heading}
       <p className="recovery-sizing-lede">
         Sized for <strong>{fmtSi('mass', massSym, sizing.massKg)} {massSym}</strong> coming down
         {sizing.elevationM > 0 && (
@@ -126,7 +222,7 @@ export function RecoverySizingPanel({ recovery, tree, launch, deviceMass }: {
         <BandSection
           key={advice.role}
           advice={advice}
-          catalogueReady={presets !== null}
+          catalogueReady={catalogueReady}
           boreM={sizing.boreM}
           roughLength={roughLength}
           rate={rate}
@@ -135,8 +231,17 @@ export function RecoverySizingPanel({ recovery, tree, launch, deviceMass }: {
           massSym={massSym}
         />
       ))}
-    </Shell>
+    </>
   );
+}
+
+interface Fmt {
+  roughLength: (si: number) => string;
+  rate: (si: number) => string;
+  lenSym: string;
+  velSym: string;
+  massSym: string;
+  distSym: string;
 }
 
 /**

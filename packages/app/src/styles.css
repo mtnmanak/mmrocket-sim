@@ -3748,6 +3748,18 @@ select.unit-chip:hover {
 }
 .recovery-sizing-lede strong { color: var(--text-secondary); }
 
+/* One heading per object that comes down (v0.115): "Sustainer", "Booster".
+   Present only on a multi-stage design; a single-stage panel has none, so it
+   reads exactly as it did before. Sits above the lede, in the panel's ink. */
+.recovery-object {
+  margin: 14px 0 2px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  border-top: 1px solid var(--border-subtle, rgba(128, 128, 128, 0.25));
+  padding-top: 10px;
+}
+.recovery-object:first-child { margin-top: 0; border-top: 0; padding-top: 0; }
 .recovery-band + .recovery-band { margin-top: 14px; }
 .recovery-band h3 {
   display: flex;

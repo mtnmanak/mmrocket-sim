@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.114';
+export const APP_VERSION = '0.115';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.115',
+    date: '2026-09-07',
+    title: 'Every stage that comes down gets its own recovery sizing, the import note says when your file disagrees with the catalogue, and a launch can no longer inherit a stale ejection delay',
+    items: [
+      'THE RECOVERY SIZING PANEL NOW HAS A SECTION FOR EVERY STAGE THAT COMES DOWN SEPARATELY - the sustainer first, then each booster - and each section is the whole answer for that stage: the weight coming down, a main and a drogue, each sized against THAT stage\'s own parachutes and its own airframe bore. A booster is a rocket of its own on the way down, it can be dual-deploy of its own, and a three-stage design can have six recovery events between launch and landing; until now the panel sized one canopy against one weight and said nothing about the rest. The sections appear only when the design has more than one stage that separates: a single-stage rocket sees exactly the panel it saw yesterday, and a stage set to separate at Never stays joined to the one above it and gets no section of its own. The collapsed header keeps the sustainer\'s two sizes and counts the others.',
+      'WHEN A FILE\'S OWN VALUE DISAGREES WITH THE CATALOGUE ROW IT WAS MATCHED TO, THE IMPORT NOTE NOW SAYS SO. Since v0.097 an imported part that names a catalogue manufacturer and part number takes the catalogue\'s values only for what the file left unset; the file\'s explicit values stand. What the note never said was when the two DISAGREED - your file says six shroud lines, the catalogue row says eight, the file wins, and nobody was told. Now one sentence after the match sentence names each such part and field, and says plainly that the file\'s value was kept. Nothing is stored and nothing has to be dismissed; the only way to make it go away is to change the value, which you can already do. A canopy\'s drag coefficient and spill hole are compared only when the file states both, because half of that pair against a whole one is not a disagreement about the same fact. This is the first of three tiers; a marker on the field itself and a Detach control follow.',
+      'A LAUNCH NOW SETS EVERY MOTOR MOUNT FROM YOUR DESIGN BEFORE IT FLIES, rather than trusting whatever the simulation engine was last left holding. The engine has one shared rocket that every part of the app flies, and it cannot be asked what ejection delay it is carrying. Two places that re-fly a stored flight wrote that flight\'s delay onto it and shipped without putting the original back - one for 47 releases, one for 30 - so the next launch flew a delay its own report never named. Measured on a real flight: the apogee was identical to the last decimal, so nothing on screen looked wrong, and the report said the parachute opened at 4.5 ft/s when it actually deployed at 45.9 ft/s. Both leaks were repaired in v0.105. This change makes the whole class impossible instead of repaired: the cost is 0.057 milliseconds per mount against a flight that takes 141 to 285, and nothing a user sees is different.',
+    ],
+  },
   {
     version: '0.114',
     date: '2026-09-07',

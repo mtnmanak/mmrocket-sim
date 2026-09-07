@@ -429,6 +429,14 @@ export interface RecoverySizingInput {
   presets: readonly Preset[];
   /** Launch conditions, for the site density. */
   launch: Pick<LaunchConditions, 'launchAltitudeM' | 'temperatureC' | 'pressureHPa'>;
+  /**
+   * The stage nodes whose devices and bay this answer is about. Defaults to
+   * the stages that come down with the sustainer (`sustainerScope`), which is
+   * what a single-stage design always is. The per-stage panel passes each
+   * separating group in turn, so a booster is sized against ITS canopies and
+   * ITS airframe, never the sustainer's.
+   */
+  scope?: readonly ComponentNode[];
 }
 
 // ------------------------------------------------------------------ the work
@@ -667,10 +675,11 @@ export function recoverySizing(input: RecoverySizingInput): RecoverySizing {
   const rho = siteAirDensity(launch);
   if (!(rho > 0)) return { state: 'unavailable', reason: 'the launch conditions give no air density' };
 
-  // `recovery.mass` is the SUSTAINER's weight (`recoveryMass.ts`), so the
-  // devices sized against it have to be the sustainer's too — read over the
-  // stages that come down with it, not over the whole stack.
-  const scope = sustainerScope(tree);
+  // `recovery.mass` is ONE object's weight (`recoveryMass.ts`), so the devices
+  // sized against it have to be that object's too — read over the stages that
+  // come down together, not over the whole stack. The default is the
+  // sustainer's group; the per-stage panel passes each booster group in turn.
+  const scope = input.scope ?? sustainerScope(tree);
   const { main, drogue } = classifyRecoveryDevices(tree, scope);
   // The bay is the MAIN's tube when there is one — it is the bigger canopy, so
   // it is the binding constraint, and in almost every dual-deploy design both

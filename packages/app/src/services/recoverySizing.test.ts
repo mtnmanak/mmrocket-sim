@@ -560,6 +560,46 @@ describe('classifyRecoveryDevices', () => {
     expect(main?.id).toBe('sustainerMain');
     expect(drogue?.id).toBe('boosterChute');
   });
+
+  /**
+   * The per-stage panel (v0.115) sizes each separating object in turn by
+   * passing its own stage nodes as `scope` — so a BOOSTER's answer is built
+   * from the booster's chute and the booster's bore, never the sustainer's.
+   */
+  it('sizes a booster against its own chute and bay when given its scope', () => {
+    const twoStage: RocketTree = {
+      name: 'two',
+      components: [
+        {
+          type: 'stage', id: 's0', name: 'Sustainer', children: [{
+            type: 'bodytube', id: 'bt0', length: 1, outerRadius: 0.051, thickness: 0.001,
+            children: [{ type: 'parachute', id: 'sustainerMain', diameter: 0.9, cd: 2.2 } as ComponentNode],
+          } as ComponentNode],
+        } as ComponentNode,
+        {
+          type: 'stage', id: 's1', name: 'Booster', children: [{
+            type: 'bodytube', id: 'bt1', length: 1, outerRadius: 0.101, thickness: 0.001,
+            children: [{ type: 'parachute', id: 'boosterChute', diameter: 0.6, cd: 1.5 } as ComponentNode],
+          } as ComponentNode],
+        } as ComponentNode,
+      ],
+    };
+    const booster = twoStage.components[1]!;
+    const r = ok(sizing({
+      tree: twoStage,
+      recovery: { state: 'ok', mass: 2.0, multiStage: true },
+      scope: [booster],
+    }));
+    // The booster's bay, not the sustainer's narrower one...
+    expect(r.boreM).toBeCloseTo(0.2, 9);
+    // ...and the booster's own canopy Cd, not the sustainer's 2.2.
+    expect(r.main.cd).toBe(1.5);
+    expect(r.main.cdSource).toBe('this device');
+    // Default scope (no argument) is still the sustainer's group.
+    const s = ok(sizing({ tree: twoStage, recovery: { state: 'ok', mass: 8, multiStage: true } }));
+    expect(s.boreM).toBeCloseTo(0.1, 9);
+    expect(s.main.cd).toBe(2.2);
+  });
 });
 
 describe('the Cd the size line is quoted at — never a bare diameter', () => {

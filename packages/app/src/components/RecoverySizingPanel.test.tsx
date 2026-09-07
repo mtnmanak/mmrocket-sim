@@ -4,7 +4,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
-import type { RecoveryMass } from '../services/recoveryMass.js';
+import type { RecoveryByStage, RecoveryMass } from '../services/recoveryMass.js';
 import { loadPresets } from '../services/presets.js';
 import { DEFAULT_CONDITIONS, type LaunchConditions } from './LaunchPanel.js';
 import { RecoverySizingPanel } from './RecoverySizingPanel.js';
@@ -52,6 +52,7 @@ describe('RecoverySizingPanel', () => {
 
   const mount = async (over: {
     recovery?: RecoveryMass;
+    byStage?: RecoveryByStage;
     tree?: RocketTree;
     launch?: Partial<LaunchConditions>;
   } = {}) => {
@@ -60,6 +61,7 @@ describe('RecoverySizingPanel', () => {
         <PrefsProvider>
           <RecoverySizingPanel
             recovery={over.recovery ?? WILDMAN}
+            byStage={over.byStage}
             tree={over.tree ?? tree()}
             launch={{ ...DEFAULT_CONDITIONS, ...over.launch }}
             deviceMass={() => 0.25}
@@ -81,6 +83,83 @@ describe('RecoverySizingPanel', () => {
   const rows = (i: number) => Array.from(bands()[i]?.querySelectorAll('.recovery-part') ?? []);
   /** The descent rate a row states, as a number in the displayed unit. */
   const rowRate = (r: Element) => parseFloat(r.querySelector('.recovery-part-rate')?.textContent ?? '');
+
+  /**
+   * ONE SECTION PER STAGE (v0.115) — the owner's ruling 2026-09-07: each stage
+   * has its own recovery system, so each gets its own main and drogue; and the
+   * extra sections appear ONLY when there is more than one stage.
+   */
+  describe('a section per separating stage', () => {
+    const twoStageTree: RocketTree = {
+      name: 'two',
+      components: [
+        {
+          type: 'stage', id: 's0', name: 'Sustainer', children: [{
+            type: 'bodytube', id: 'bt0', name: 'Body', length: 1, outerRadius: 0.051, thickness: 0.001,
+            children: [{ type: 'parachute', id: 'sm', diameter: 0.9, cd: 2.2 } as ComponentNode],
+          } as ComponentNode],
+        } as ComponentNode,
+        {
+          type: 'stage', id: 's1', name: 'Booster', children: [{
+            type: 'bodytube', id: 'bt1', name: 'Booster body', length: 1, outerRadius: 0.101, thickness: 0.001,
+            children: [{ type: 'parachute', id: 'bc', diameter: 0.6, cd: 1.5 } as ComponentNode],
+          } as ComponentNode],
+        } as ComponentNode,
+      ],
+    };
+    const twoGroups: RecoveryByStage = {
+      state: 'ok',
+      groups: [
+        { stageIds: ['s0'], stageNames: ['Sustainer'], isSustainer: true, mass: { state: 'ok', mass: 6.0, multiStage: true } },
+        { stageIds: ['s1'], stageNames: ['Booster'], isSustainer: false, mass: { state: 'ok', mass: 2.8, multiStage: true } },
+      ],
+    };
+
+    it('renders the sustainer and the booster each with a main and a drogue', async () => {
+      await mount({
+        tree: twoStageTree,
+        recovery: { state: 'ok', mass: 6.0, multiStage: true },
+        byStage: twoGroups,
+      });
+      const headings = Array.from(host.querySelectorAll('.recovery-object')).map((h) => h.textContent);
+      expect(headings).toEqual(['Sustainer', 'Booster']);
+      // Two objects, two bands each — "a 3-stage rocket could have 6 recovery events".
+      expect(bands()).toHaveLength(4);
+      // Each sized against ITS chute: the sustainer quotes Cd 2.2, the booster Cd 1.5.
+      expect(sizeLine(0).replace(/\s+/g, ' ')).toContain('Cd 2.2');
+      expect(sizeLine(2).replace(/\s+/g, ' ')).toContain('Cd 1.5');
+      // Each against its own weight — 6.00 kg for the sustainer, 2.80 for the
+      // booster, in the order they land.
+      expect(text()).toMatch(/SustainerSized for 6[.,]00\s*kg/);
+      expect(text()).toMatch(/BoosterSized for 2[.,]80\s*kg/);
+      // And the booster's bay is its own: the sustainer's 3.9 in bore excludes
+      // wide canopies, the booster's 7.9 in bore excludes none.
+      const foot = (i: number) => bands()[i]?.querySelector('.recovery-band-foot')?.textContent ?? '';
+      expect(foot(0)).toContain('3.9 in bore');
+      expect(foot(2)).not.toContain('pack wider');
+    });
+
+    it('is byte-identical to the single-stage panel when there is one object', async () => {
+      await mount({
+        byStage: { state: 'ok', groups: [{ stageIds: ['s0'], stageNames: ['Sustainer'], isSustainer: true, mass: WILDMAN }] },
+      });
+      expect(host.querySelectorAll('.recovery-object')).toHaveLength(0);
+      expect(bands()).toHaveLength(2);
+    });
+
+    it('keeps the sustainer’s sizes in the collapsed header and counts the rest', async () => {
+      await mount({
+        tree: twoStageTree,
+        recovery: { state: 'ok', mass: 6.0, multiStage: true },
+        byStage: twoGroups,
+      });
+      await act(async () => {
+        (host.querySelector('button[aria-expanded="true"]') as HTMLButtonElement).click();
+      });
+      const summary = host.querySelector('.recovery-sizing-summary')?.textContent ?? '';
+      expect(summary).toMatch(/main ~.*drogue ~.*\+1 stage$/);
+    });
+  });
 
   it('says nothing but "load a motor" with no motor loaded', async () => {
     await mount({ recovery: { state: 'no-motor' } });

@@ -394,6 +394,8 @@ export function applyPresetLinks(
     }
   }
   const lines: string[] = [];
+  /** Tier (a) of the conflict marker: one line per part whose stated values disagree with its row. */
+  const conflictLines: string[] = [];
   let linked = 0;
   for (const { node, manufacturer, partNo } of pending) {
     const kind = KIND_FOR_TYPE[node.type];
@@ -426,6 +428,43 @@ export function applyPresetLinks(
     const PAIR = ['cd', 'spillHoleDiameter'] as const;
     const canopyStatesHalf = isCanopy && PAIR.some((k) => node[k] !== undefined);
     const takePair = patch['cd'] !== undefined && !canopyStatesHalf;
+    /**
+     * THE CONFLICT MARKER, tier (a) — the owner's caveat on the precedence
+     * ruling (issues-2026-09-03b.md:26: *"in the case where file's explicit
+     * values are in conflict with catalogue values, should we warn the user?
+     * … we don't want to nag them"*), approved 2026-09-07. The file's value
+     * STANDS — that is the ruling and it does not change here — but where it
+     * disagrees with the catalogue row it was matched to, the note says so,
+     * once, in one sentence. Nothing is stored and nothing is dismissed: the
+     * only ways to make it go away are real edits that already persist.
+     *
+     * Read BEFORE any assignment in the loop below, so it only ever compares
+     * a value the file stated with the catalogue's — never a value this loop
+     * just filled in. The canopy pair is compared only when the file states
+     * BOTH halves: half a pair against a whole one is not a disagreement about
+     * the same fact.
+     */
+    const conflicts: string[] = [];
+    for (const [key, value] of Object.entries(patch)) {
+      if (value === undefined || key === 'name' || key === 'overrideMass') continue;
+      if (key === 'presetManufacturer' || key === 'presetPartNo') continue;
+      const have = node[key];
+      if (have === undefined) continue;
+      if (isCanopy && (key === 'cd' || key === 'spillHoleDiameter')
+        && !PAIR.every((k) => node[k] !== undefined)) continue;
+      if (typeof value === 'number' && typeof have === 'number') {
+        // A tolerance, not equality: a .rkt stores 25.4 mm as 25.4000 and a
+        // catalogue row as 0.0254 m, which round-trips to the same number only
+        // to ~1e-12. 0.5 % is well inside any real disagreement and outside
+        // any unit conversion.
+        const scale = Math.max(Math.abs(value), Math.abs(have), 1e-9);
+        if (Math.abs(value - have) / scale > 0.005) conflicts.push(FIELD_WORDS[key] ?? key);
+      } else if (typeof value === 'string' && typeof have === 'string') {
+        if (value.trim().toLowerCase() !== have.trim().toLowerCase()) conflicts.push(FIELD_WORDS[key] ?? key);
+      } else if (typeof value === 'boolean' && typeof have === 'boolean') {
+        if (value !== have) conflicts.push(FIELD_WORDS[key] ?? key);
+      }
+    }
     for (const [key, value] of Object.entries(patch)) {
       if (value === undefined || key === 'name' || key === 'overrideMass') continue;
       if (key === 'presetManufacturer' || key === 'presetPartNo') {
@@ -444,6 +483,7 @@ export function applyPresetLinks(
       }
     }
     linked += 1;
+    if (conflicts.length) conflictLines.push(`${node.name ?? node.type}: ${[...new Set(conflicts)].join(', ')}`);
     const took = filled.size ? ` — took ${[...filled].join(', ')} from the catalogue` : '';
     // Said out loud, because a silently missing Cd is how the 0.8 default gets
     // blamed on the catalogue instead of on the pairing rule.
@@ -458,6 +498,16 @@ export function applyPresetLinks(
       `${linked} part${linked === 1 ? '' : 's'} matched the parts catalogue by manufacturer and part number. `
       + `The file's own values stand; the catalogue filled in only what the file left unset: ${lines.join('; ')}.`,
     );
+    // Said once, after the match sentence, and only when there is something to
+    // say. It names the parts and the fields so a reader can go and look, and
+    // it says what was kept — the file — so nobody reads it as a change.
+    if (conflictLines.length) {
+      const n = conflictLines.length;
+      notes.push(
+        `${n} of ${n === 1 ? 'those parts states' : 'those parts state'} a value that disagrees with `
+        + `${n === 1 ? 'its' : 'their'} catalogue row — the file's value was kept: ${conflictLines.join('; ')}.`,
+      );
+    }
   }
   return linked;
 }

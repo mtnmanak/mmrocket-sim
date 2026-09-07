@@ -356,9 +356,45 @@ describe("applyPresetLinks — a file's part matched to its catalogue row (ruled
     // 29185 was DROPPED on 2026-09-03 as a duplicate; the link resolves through
     // the surviving row's altPartNos, and stamps THAT row's part number.
     expect(node['presetPartNo']).toBe('IFC-096-N');
-    expect(notes).toHaveLength(1);
     expect(notes[0]).toMatch(/matched the parts catalogue/);
     expect(notes[0]).toMatch(/drag coefficient/);
+    // THE CONFLICT MARKER, tier (a) (approved 2026-09-07). The file said 6
+    // lines; the IFC-096-N row says otherwise. The file's value STANDS — the
+    // precedence ruling is unchanged — and a second sentence says so, once,
+    // naming the part and the field. No stored state, nothing to dismiss.
+    expect(notes).toHaveLength(2);
+    expect(notes[1]).toMatch(/1 of those parts states a value that disagrees with its catalogue row/);
+    expect(notes[1]).toMatch(/the file's value was kept/);
+    expect(notes[1]).toMatch(/Main: line count/);
+    expect(node['lineCount']).toBe(6);
+  });
+
+  it('says nothing about a conflict when the file states nothing that disagrees', () => {
+    // A file that states only what the catalogue agrees with, or nothing the
+    // catalogue carries, gets the one match sentence and no second one — the
+    // owner's condition was "warn without nagging".
+    const node = mk({ lineCount: undefined });
+    const notes: string[] = [];
+    expect(applyPresetLinks([{ node, manufacturer: 'Fruity Chutes', partNo: '29185' }], db, notes)).toBe(1);
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).not.toMatch(/disagrees/);
+  });
+
+  it('compares a canopy’s Cd and spill hole only when the file states BOTH', () => {
+    // Half a pair against a whole one is not a disagreement about the same
+    // fact: a file stating a Cd alone (RockSim's usual case) gets no conflict
+    // for the vent it never mentioned. Stating both, at values the catalogue
+    // disagrees with, does.
+    const half = mk({ lineCount: undefined, cd: 1.5 });
+    const n1: string[] = [];
+    applyPresetLinks([{ node: half, manufacturer: 'Fruity Chutes', partNo: '29185' }], db, n1);
+    expect(n1.some((n) => /disagrees/.test(n))).toBe(false);
+
+    const both = mk({ lineCount: undefined, cd: 1.5, spillHoleDiameter: 0.01 });
+    const n2: string[] = [];
+    applyPresetLinks([{ node: both, manufacturer: 'Fruity Chutes', partNo: '29185' }], db, n2);
+    expect(n2.some((n) => /disagrees/.test(n) && /drag coefficient/.test(n))).toBe(true);
+    expect(both['cd']).toBe(1.5); // kept
   });
 
   it('a dropped duplicate part number still finds its canopy — files outlive catalogue rows', () => {

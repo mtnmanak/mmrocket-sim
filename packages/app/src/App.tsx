@@ -96,7 +96,9 @@ import { convertShrouds, findShroudCandidates, type ShroudCandidate } from './tr
 import { mountBore } from './tree/scaleRocket.js';
 import { designFingerprint, isDirty, type DesignSnapshot } from './services/dirtyState.js';
 import { createSequencer } from './services/latestWins.js';
-import { recoveryMass, recoveryMassTitle, type RecoveryMass } from './services/recoveryMass.js';
+import {
+  recoveryMass, recoveryMassByStage, recoveryMassTitle, type RecoveryByStage, type RecoveryMass,
+} from './services/recoveryMass.js';
 import { RecoverySizingPanel } from './components/RecoverySizingPanel.js';
 import { ScaleDialog } from './components/ScaleDialog.js';
 
@@ -1000,6 +1002,39 @@ export function App() {
     () => Object.entries(mountMotors).filter(([id]) => mounts.some((m) => m.id === id)),
     [mountMotors, mounts],
   );
+  /**
+   * Put every assigned mount's motor and ignition onto the engine handle, from
+   * the app's own state, RIGHT NOW — so a flight never trusts whatever the
+   * handle happened to be carrying.
+   *
+   * The handle is shared by Launch, the drag panel, the mass table and the two
+   * re-fly paths (charts, CSV), and it has no way to report its motor state
+   * back. Two of those paths wrote a STORED flight's ejection delay onto it and
+   * shipped without restoring it — one for 47 releases (v0.046–v0.104), one
+   * for 30 — so the next Launch flew a delay its own report never named.
+   * Measured on a real flight: the report said the chute opened at 4.5 ft/s
+   * while it actually deployed at 45.9 ft/s. Both leaks were fixed in v0.105
+   * with restore-after-use; this is the fix the audit ALSO proposed
+   * (`docs/AUDIT.md:518`) and the one that makes the class impossible rather
+   * than merely repaired: set what you need before you use it, and inherited
+   * state cannot matter. `setMotorById` is 0.057 ms against a 141–285 ms
+   * flight — 0.04 % of one Launch.
+   *
+   * Same loop the build runs (below), deliberately: a motor the kernel refused
+   * at build time was reported then in `motorFailures` and stays absent here.
+   */
+  const applyAssignedMotors = (rocket: OrkRocket): void => {
+    for (const [id, mm] of assigned) {
+      try {
+        rocket.setMotorById(id, mm.spec);
+        if (mm.ignition.event !== 'automatic' || mm.ignition.delay !== 0) {
+          rocket.setMotorIgnitionById(id, mm.ignition.event, mm.ignition.delay);
+        }
+      } catch {
+        // Already reported at build time; a Launch must not re-raise it.
+      }
+    }
+  };
   // The PRIMARY mount drives the report's lead columns and auto-delay: the
   // topmost-stage mount with a motor (the sustainer's).
   const primaryMountId = useMemo(() => {
@@ -1126,21 +1161,32 @@ export function App() {
    * dry structure. Excluding them makes the tile read "load a motor" when the
    * only motor failed, which is the truth.
    */
-  const recovery = useMemo((): RecoveryMass => {
-    if (!built) return { state: 'no-motor' };
+  const recoveryInput = useMemo(() => {
+    if (!built) return null;
     const failed = new Set(built.motorFailures.map((f) => f.mountId));
-    return recoveryMass({
+    return {
       tree,
       info: built.info,
       motors: assigned.filter(([id]) => !failed.has(id)),
-      sectionMass: (id) => {
+      sectionMass: (id: string) => {
         try {
           const v = built.rocket.componentInfo(id).sectionMass;
           return Number.isFinite(v) ? v : null;
         } catch { return null; }
       },
-    });
+    };
   }, [built, tree, assigned]);
+  const recovery = useMemo((): RecoveryMass => (
+    recoveryInput ? recoveryMass(recoveryInput) : { state: 'no-motor' }
+  ), [recoveryInput]);
+  /**
+   * One weight per object that comes down (v0.112 arithmetic; v0.115 panel).
+   * Same input, same partition, so the panel's per-stage sections can never
+   * disagree with the tile above them about the sustainer.
+   */
+  const recoveryByStage = useMemo((): RecoveryByStage => (
+    recoveryInput ? recoveryMassByStage(recoveryInput) : { state: 'no-motor' }
+  ), [recoveryInput]);
 
   /**
    * ONE component's own mass (kg), for the recovery-sizing panel's substitution:
@@ -1491,6 +1537,9 @@ export function App() {
   const onLaunch = () => {
     if (!built || !primaryMountId) return;
     const primary = mountMotors[primaryMountId]!;
+    // Never fly inherited handle state — see applyAssignedMotors. This is also
+    // what makes the auto-delay write further down safe to leave unrestored.
+    applyAssignedMotors(built.rocket);
     setSimulating(true);
     // Flying hands off to the Results workspace — land the user there.
     setTab('results');
@@ -3612,6 +3661,7 @@ export function App() {
               one-line summary because this column is already the long one. */}
           <RecoverySizingPanel
             recovery={recovery}
+            byStage={recoveryByStage}
             tree={tree}
             launch={launch}
             deviceMass={componentMass}
