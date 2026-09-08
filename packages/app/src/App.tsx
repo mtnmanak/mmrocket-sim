@@ -110,6 +110,9 @@ import {
   adoptsRefPadMass, assignMotorRecord, migrateLegacyPadMass, restoreUnmatchedRefs, stripPadMass, stripRefPadMass,
   withActiveConfigSynced, withoutStoredRef,
 } from './services/configSync.js';
+import {
+  reconcileAllIncludedMotors, reconcileIncludedMotor, type AttachedMotor,
+} from './services/statedLaunchWeight.js';
 import { RecoverySizingPanel } from './components/RecoverySizingPanel.js';
 import { ScaleDialog } from './components/ScaleDialog.js';
 
@@ -778,6 +781,25 @@ export function App() {
   /** A mass for a notice, in the user's unit ("7480 g"). */
   const massText = (kg: number) => `${fmtSi('mass', prefs.units.mass, kg)} ${prefs.units.mass}`;
   /**
+   * The unit-aware formatters services/statedLaunchWeight.ts asks for, in one
+   * place — four call sites used to build them inline and any one of them could
+   * have drifted into a different unit for the same sentence.
+   */
+  const statedWeightText = {
+    mass: massText,
+    length: (m: number) => `${fmtSi('length', prefs.units.length, m, 3)} ${prefs.units.length}`,
+  };
+  /** One mount's motor in the shape that reconcile takes. */
+  const attachedOf = (spec: MotorSpec): AttachedMotor => ({
+    designation: spec.designation,
+    launchMassKg: spec.masses[0] ?? 0,
+    lengthM: spec.length,
+    cgXFromFrontM: spec.cgX,
+  });
+  /** A whole mount set in that shape — every path that mounts more than one. */
+  const attachedSet = (motors: Record<string, MountMotor>): Record<string, AttachedMotor> =>
+    Object.fromEntries(Object.entries(motors).map(([id, m]) => [id, attachedOf(m.spec)]));
+  /**
    * What became of a pad mass carried in from v0.116/v0.117 — its own entry in
    * the notice strip (`pad-mass-moved`), NOT setFileNote, which would overwrite
    * an import note. Seeded here for the one outcome the restore already knows
@@ -1012,6 +1034,31 @@ export function App() {
    */
   const treeRef = useRef(tree);
   treeRef.current = tree;
+  /**
+   * A tree coming BACK off the undo/redo stack, with any stated-launch-weight
+   * mark a currently-mounted motor has already spent taken off it again.
+   *
+   * Why undo needs this at all (2026-09-08, from review). Motors live in
+   * `mountMotors`, not in the tree, and this stack restores the tree ALONE. So
+   * loading the M787 on an imported MESOS — which corrects the sustainer from
+   * 23.310 lb to 7.940 lb and drops the mark — pushed the marked, uncorrected
+   * tree onto the stack, and one Ctrl+Z put the mark and the motor-inclusive
+   * override back UNDER a motor that was still mounted: 6.97 kg heavy again,
+   * silently, and no longer correctable because the mark had returned.
+   *
+   * Re-running the reconcile on the restored tree is the fix that holds for
+   * every stack entry rather than for the one the assignment happened to push:
+   * a marked stage under a mounted motor is a wrong number whichever way the
+   * user arrived at it. Identity for every design that carries no mark.
+   *
+   * SILENT on purpose — the correction still has to happen, but a paragraph
+   * about stated launch weights is not what Ctrl+Z asked for. Held in a ref
+   * because `undo`/`redo` are `useCallback([])` and must not close over a
+   * render's `mountMotors`.
+   */
+  const spendSpentMarks = useRef<(t: RocketTree) => RocketTree>((t) => t);
+  spendSpentMarks.current = (t) =>
+    reconcileAllIncludedMotors(t, attachedSet(mountMotors), statedWeightText).tree;
   const setTree = useCallback((next: RocketTree) => {
     // Coalesce rapid-fire edits (schematic drags, slider moves, keystrokes)
     // into ONE undo step — otherwise a 2 s drag floods the 50-entry buffer
@@ -1038,7 +1085,7 @@ export function App() {
     // just restored becomes unrecoverable.
     lastEditAt.current = 0;
     bumpHist();
-    setTreeRaw(prev);
+    setTreeRaw(spendSpentMarks.current(prev));
   }, []);
   const redo = useCallback(() => {
     const next = future.current.pop();
@@ -1050,7 +1097,7 @@ export function App() {
     if (history.current.length > 50) history.current.shift();
     lastEditAt.current = 0;
     bumpHist();
-    setTreeRaw(next);
+    setTreeRaw(spendSpentMarks.current(next));
   }, []);
   /**
    * A ONE-SHOT whole-tree transform (Scale) must be exactly one undo step and
@@ -1856,6 +1903,19 @@ export function App() {
     // And the active configuration's STORED copy of that reference, or a
     // reload before the next sync would seed it back (restoreUnmatchedRefs).
     setSavedConfigs((prev) => withoutStoredRef(prev, activeConfigId, targetMountId));
+    // LAST, so its note wins: a RASAero stage whose stated launch weight still
+    // holds this motor's weight has to give it back now, or the motor is
+    // counted twice (+79 % on MESOS — services/statedLaunchWeight.ts). Returns
+    // null for every design that carries no such mark, which is all of them
+    // bar a RASAero import naming a motor the catalogue does not have. It can
+    // only collide with the pad-mass notes above when a file left a weighed
+    // pad mass on an unmatched reference AND a stage carries the mark, and the
+    // mass being 79 % wrong outranks a note about where a weighing went.
+    const fix = reconcileIncludedMotor(tree, targetMountId, attachedOf(spec), statedWeightText);
+    if (fix) {
+      setTree(fix.tree);
+      if (fix.note) setFileNote(fix.note, fix.severity);
+    }
   };
 
   /**
@@ -2760,7 +2820,9 @@ export function App() {
     const chosenId = imported.chosenConfigId ?? null;
     // Normalised BEFORE the configuration loop (it keeps ids): the pad-mass
     // attach below needs the tree's stage order and cluster counts.
-    const importedTree = normalizeTree(imported.tree);
+    // `let`, because the stated-launch-weight reconcile below may rewrite a
+    // stage's overrides once the applied configuration's motors are known.
+    let importedTree = normalizeTree(imported.tree);
     const nextConfigs: SavedConfig[] = [];
     for (const cfg of imported.configs ?? []) {
       const cfgMotors: Record<string, MountMotor> = {};
@@ -2834,6 +2896,28 @@ export function App() {
           ? { nozzles: cfg.nozzles } : {}),
       });
     }
+    // A stage whose stated launch weight still holds an unidentified motor's
+    // weight, opened from a .ork saved BEFORE that motor could be loaded and
+    // now matching a catalogue row (a weekly motors refresh is enough). The
+    // mark rides the file for exactly this case — without it the motor lands
+    // on top of its own weight, silently, at open. Same function as the
+    // assignment path; returns null for every stage with no mark, which is
+    // every design that never came from a RASAero file naming an unknown
+    // motor.
+    //
+    // COUNTED FIRST, and that is not incidental. `motorTrouble` below is
+    // "did anything push a note beyond the load line and the importer's own?",
+    // and it decides whether the whole box reads as a warning. A stage that
+    // reconciled EXACTLY AS DESIGNED is not a motor needing attention, so
+    // counting after this loop would have made a clean correction paint the
+    // import note orange — the same signal pollution the time-step note is
+    // deliberately counted after (see its comment below). The reconcile's own
+    // severity is ORed in separately, so a reconcile that had to CLEAR an
+    // override still warns.
+    const motorTrouble = notes.length > 1 + imported.notes.length;
+    const spent = reconcileAllIncludedMotors(importedTree, attachedSet(nextMotors), statedWeightText);
+    importedTree = spent.tree;
+    notes.push(...spent.notes);
     // EVERY await is behind us; from here on this function writes state. A
     // newer open started while those fetches were outstanding owns the screen
     // now, so this one stops here rather than overwriting it — and, crucially,
@@ -2870,15 +2954,15 @@ export function App() {
     // FILE carries a sub-default step, so a step typed into the panel was
     // being replaced with nothing on screen to say so. Compared as effective
     // values — blank and 0.05 both fly the default, and that non-change is
-    // not worth a sentence. Counted AFTER motorTrouble below, which must keep
-    // meaning "a motor needs the user's attention", not this.
+    // not worth a sentence. Counted AFTER motorTrouble, which is computed up at
+    // the reconcile loop and must keep meaning "a motor needs the user's
+    // attention", not this.
     //
     // Says what will be FLOWN, never "the file sets" — imported.launch.timeStepS
     // is already past the importer's clamp, so a file asking for 0.005 arrives
     // here as 0.05 and attributing that to the file contradicted the importer's
     // own note directly above it in the same box. What the file asked for, and
     // why it was refused, is that note's job.
-    const motorTrouble = notes.length > 1 + imported.notes.length;
     const prevStepS = launch.timeStepS ?? DEFAULT_TIME_STEP_S;
     const nextStepS = imported.launch?.timeStepS ?? DEFAULT_TIME_STEP_S;
     if (prevStepS !== nextStepS) {
@@ -2901,7 +2985,7 @@ export function App() {
     // A file whose motors all matched is routine information; one that lost a
     // motor is a warning the user has to act on (motorTrouble was counted
     // before the time-step note, which is information either way).
-    setFileNote(notes.join('\n'), motorTrouble ? 'warn' : 'info');
+    setFileNote(notes.join('\n'), motorTrouble || spent.severity === 'warn' ? 'warn' : 'info');
     // Hand-rolled shrouds (1-fin freeform sets named like "Camera Shroud")
     // get an offer to become the native fairing component (2026-08-05e).
     const shrouds = findShroudCandidates(importedTree);
@@ -2958,8 +3042,8 @@ export function App() {
     const hasDeploy = cfg.deployments && Object.keys(cfg.deployments).length > 0;
     const hasSep = cfg.separations && Object.keys(cfg.separations).length > 0;
     const hasNozzles = cfg.nozzles && Object.keys(cfg.nozzles).length > 0;
+    let next = tree;
     if (hasDeploy || hasSep || hasNozzles) {
-      let next = tree;
       // The nozzle is the flown motor's, so it switches with the motors: a
       // RASAero file's simulations can each state a different one (0 removes
       // it — the previous configuration's must not linger, same rule as the
@@ -2985,25 +3069,42 @@ export function App() {
           ...(sep.separationAltitude !== undefined ? { separationAltitude: sep.separationAltitude } : {}),
         });
       }
-      if (next !== tree) setTree(next);
     }
+    // Applying a configuration is the THIRD way a motor lands on a mount, and
+    // until 2026-09-08 it was the one that ran no reconcile at all — so a
+    // RASAero stage still holding an unidentified motor's weight got the new
+    // configuration's motor stacked on top of it in one click. Measured on
+    // `PePe2.CDX1`: simulation 1 names N5800-CS (not in the catalogue) over a
+    // stated 47 lb, so the stage imports marked; switching to simulation 6
+    // (M1297W, catalogued, 10.22 lb) weighed the stage 57.2 lb against that
+    // simulation's own 24.2 lb, +136 %, with nothing on screen. Same call as
+    // the open path, folded into the same `next` so it is ONE undo step.
+    const spent = reconcileAllIncludedMotors(next, attachedSet(cfg.motors), statedWeightText);
+    next = spent.tree;
+    if (next !== tree) setTree(next);
     // Always rewrite the note, never only on failure. Writing it solely when
     // `unmatched` was non-empty meant a clean switch left the PREVIOUS file's
     // note standing — the staleness Big Dog reported reads as arbitrary
     // precisely because some actions refresh the box and others don't.
+    // The reconcile's own sentences ride whichever note is written, rather than
+    // a second setFileNote that would overwrite the first: the mass that just
+    // changed by tens of pounds belongs in the box the switch already writes.
+    const withSpent = (lines: string[], sev: NoticeSeverity): void =>
+      setFileNote([...lines, ...spent.notes].join('\n'),
+        spent.severity === 'warn' && sev === 'info' ? 'warn' : sev);
     if (cfg.unmatched?.length) {
       // Quiet at import time (only the applied config reports) — the debt
       // comes due when the user actually loads this preset.
-      setFileNote(cfg.unmatched.map((d) =>
-        `Motor “${d}” couldn't be matched when the file was opened — pick one via Browse motor database.`).join('\n'), 'warn');
+      withSpent(cfg.unmatched.map((d) =>
+        `Motor “${d}” couldn't be matched when the file was opened — pick one via Browse motor database.`), 'warn');
     } else {
       // "… and weighed pad mass" only when this configuration's primary record
       // carries one — the field under that motor shows it.
       const primary = primaryMountOf(tree, Object.keys(cfg.motors));
       const pad = primary ? cfg.motors[primary]?.padMassKg : undefined;
       const hasPad = typeof pad === 'number' && Number.isFinite(pad) && pad > 0;
-      setFileNote(`Flight configuration “${cfg.name || cfg.id}” applied — its motors and recovery settings`
-        + `${hasPad ? ' and weighed pad mass' : ''} are now live.`);
+      withSpent([`Flight configuration “${cfg.name || cfg.id}” applied — its motors and recovery settings`
+        + `${hasPad ? ' and weighed pad mass' : ''} are now live.`], 'info');
     }
   };
 

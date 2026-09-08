@@ -7,6 +7,7 @@ import { mfrKey } from '../../scripts/manufacturers.mjs';
 import type { LaunchConditions } from '../components/LaunchPanel.js';
 import { mountBore } from '../tree/scaleRocket.js';
 import { findParent } from '../tree/treeModel.js';
+import { isaPressurePa } from './atmosphere.js';
 import type { Preset } from './presets.js';
 import type { RecoveryMass } from './recoveryMass.js';
 import { sustainerScope } from './recoveryMass.js';
@@ -167,11 +168,10 @@ export function siteAirDensity(
     pressPa = hasP ? launch.pressureHPa! * 100 : ISA_SEA_LEVEL.pressurePa;
   } else {
     tempK = ISA_SEA_LEVEL.temperatureK - LAPSE * h;
-    // p = p0 . (T/T0)^(g / (L.R)) — the barometric formula, rearranged from
-    // ExtendedISAModel.calculatePressure (24.12, ll. 191-200), whose
-    // `1 + (alt2-alt1).tempRate/temp1` collapses to T0/T for a lapse layer.
-    pressPa = ISA_SEA_LEVEL.pressurePa
-      * Math.pow(tempK / ISA_SEA_LEVEL.temperatureK, G0 / (LAPSE * R_AIR));
+    // The barometric formula moved to atmosphere.ts on 2026-09-08, when the
+    // Launch panel's pad-pressure caution and the RASAero import note started
+    // needing the same number. One copy, or the three screens drift.
+    pressPa = isaPressurePa(h);
   }
   if (!(tempK > 0) || !(pressPa > 0)) return ISA_SEA_LEVEL.pressurePa / (R_AIR * ISA_SEA_LEVEL.temperatureK);
   return pressPa / (R_AIR * tempK);

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useDialog } from './useDialog.js';
 import { OrkRocket, type FlightResult, type MotorSpec, type RocketTree, type SimulationOptions, type StaticInfo } from '@online-openrocket/engine';
+import { includedMotorOf } from '../services/statedLaunchWeight.js';
 import { clearStageNozzles, engineTree, isOnLaunchStage, splitClusterPairsTree, splitClusterTree, stagesWithNozzle, type ClusterSplit } from '../tree/treeModel.js';
 import { sheetsToXlsx, type Sheet } from '../services/xlsx.js';
 import {
@@ -341,6 +342,17 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
   // it would describe a difference that does not exist.
   const nozzleStages = useMemo(
     () => (batchModel === 'eb' ? [] : stagesWithNozzle(tree)), [tree, batchModel]);
+  // The motor whose weight is still inside the swept stage's own mass override
+  // — a RASAero import that named a motor the catalogue does not have, whose
+  // user has not loaded it yet (services/statedLaunchWeight.ts). The design
+  // page takes that weight back out the moment a motor is assigned; the sweep
+  // cannot, because it does not know what the named motor weighs and each
+  // candidate would need a different subtraction on a rocket this dialog
+  // builds ONCE. So it is SAID rather than silently carried: every row is that
+  // one motor's weight heavy, which shifts every absolute number (apogee, rod
+  // T:W, optimum delay) while leaving the ranking roughly intact. Same
+  // treatment, and the same reason, as the stripped nozzle above.
+  const includedMotor = useMemo(() => includedMotorOf(tree, sel.id), [tree, sel.id]);
   const clusterSplit = useMemo(() => splitClusterTree(tree, sel.id), [tree, sel.id]);
   const pairSplit = useMemo(() => splitClusterPairsTree(tree, sel.id), [tree, sel.id]);
   const [rows, setRows] = useState<BatchRow[]>([]);
@@ -986,6 +998,17 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
               + '20 RASAero tester designs that carry a nozzle: under 1 % of apogee on '
               + '11 of them, 2 % on 14, but 8 to 46 % on the six with a large exit on a slim airframe. '
               + 'Compare batch rows with each other, not with a design-page flight.'}
+          </p>
+        )}
+        {includedMotor && (
+          <p className="comp-stats batch-included-motor" style={{ margin: '4px 0 0' }}>
+            {`Stage weight: this stage still carries the launch weight the RASAero file stated for it, `
+              + `with “${includedMotor}” still inside it — that motor is not in the database, so `
+              + 'nothing is loaded on the stage and its weight was never taken out. Every row below '
+              + 'flies that weight ON TOP of its own candidate, so every apogee here reads low, every '
+              + 'rod speed reads low, and the optimum delays belong to a heavier rocket. Load a motor on '
+              + 'the design page first — Browse motor database takes an .eng or .rse file — and the app '
+              + 'takes the stated weight back out before you sweep.'}
           </p>
         )}
         {progress && (

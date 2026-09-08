@@ -8,6 +8,7 @@ import { isConformal, shroudEnds } from '../tree/shroud.js';
 import { escapeXml, xmlText as text } from './xmlUtil.js';
 import { unzipMember } from './zipMember.js';
 import { applyPresetLinks, type PendingPresetLink, type Preset } from './presets.js';
+import { OVERRIDE_INCLUDES_MOTOR } from './statedLaunchWeight.js';
 
 // Re-export: rocksimFile.ts (and historical callers) import it from here.
 export { shapeParamDefault };
@@ -936,6 +937,13 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
     // RASAero power-on base-drag input (metres) — every stage, incl. sustainer.
     const nozzle = num(stageEl, 'nozzleexitdiameter', NaN);
     if (!Number.isNaN(nozzle) && nozzle > 0) stage['nozzleExitDiameter'] = nozzle;
+    // Our own mark: this stage's mass/CG overrides still contain the weight of
+    // the named motor (services/statedLaunchWeight.ts). Only meaningful beside
+    // a mass override, so it is dropped without one.
+    const included = text(stageEl, `:scope > ${OVERRIDE_INCLUDES_MOTOR.toLowerCase()}`);
+    if (included && typeof stage['overrideMass'] === 'number') {
+      stage[OVERRIDE_INCLUDES_MOTOR] = included;
+    }
     if (i > 0) {
       // Like ignition: the chosen config's block overrides the bare defaults
       // (24.12 writes a <separationconfiguration> for EVERY config id).
@@ -2316,6 +2324,17 @@ export function exportOrk({
     // plain design round-trips exactly. Applies to every stage incl. sustainer.
     if (typeof st['nozzleExitDiameter'] === 'number' && (st['nozzleExitDiameter'] as number) > 0) {
       emit(4, `<nozzleexitdiameter>${st['nozzleExitDiameter']}</nozzleexitdiameter>`);
+    }
+    // The mass override above is a LAUNCH weight that still holds an
+    // unidentified motor's weight (RASAero import; services/statedLaunchWeight.ts).
+    // Non-standard element, desktop ignores it, emitted only when the mark is
+    // set — so every other design still round-trips byte-identically. It has to
+    // survive Save: without it, a design saved before the motor was found comes
+    // back looking like a dry mass, and loading that motor doubles it again.
+    if (typeof st[OVERRIDE_INCLUDES_MOTOR] === 'string' && st[OVERRIDE_INCLUDES_MOTOR] !== '') {
+      emit(4, `<${OVERRIDE_INCLUDES_MOTOR.toLowerCase()}>`
+        + `${escapeXml(st[OVERRIDE_INCLUDES_MOTOR] as string)}`
+        + `</${OVERRIDE_INCLUDES_MOTOR.toLowerCase()}>`);
     }
     if (i > 0) {
       // Separation (lower stages only) — desktop writes the DEFAULT params

@@ -1,6 +1,8 @@
-import { DEFAULT_TIME_STEP_S, type SimulationOptions } from '@online-openrocket/engine';
+import { DEFAULT_TIME_STEP_S, ISA_SEA_LEVEL, type SimulationOptions } from '@online-openrocket/engine';
+import { useId } from 'react';
 import { usePrefs } from '../prefs/PrefsContext.js';
-import { niceStep, siToUi, uiToSi, type Quantity } from '../prefs/units.js';
+import { fmtSi, niceStep, siToUi, uiToSi, type Quantity } from '../prefs/units.js';
+import { isaPressurePa, padPressureIssue } from '../services/atmosphere.js';
 import { Icon } from './Icon.js';
 import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
@@ -121,7 +123,7 @@ const FIELD_SPEC: Partial<Record<keyof LaunchConditions, { quantity: Quantity; s
  * closure so the phone Fly screen (S4) renders the SAME conversion and
  * validation for its three field-side conditions instead of a copy.
  */
-export function LaunchField({ label, field, value, onChange, stepStored, min, max, nullable = false }: {
+export function LaunchField({ label, field, value, onChange, stepStored, min, max, nullable = false, help }: {
   label: string;
   field: keyof LaunchConditions;
   value: LaunchConditions;
@@ -130,8 +132,25 @@ export function LaunchField({ label, field, value, onChange, stepStored, min, ma
   min?: number;
   max?: number;
   nullable?: boolean;
+  /**
+   * Field help — the sentence a short label cannot hold: "Station pressure"
+   * says WHAT the field wants, the help says what leaving it blank actually
+   * does.
+   *
+   * Reachable, not hover-only (2026-09-08, from review). This was a `title` on
+   * the wrapper `<div>`, which is neither announced by a screen reader nor
+   * reachable from the keyboard — so the one sentence explaining the blank-
+   * pressure trap was mouse-only. It now renders in a visually-hidden `<span>`
+   * that the input names through `aria-describedby`, which is the association
+   * the `.field` idiom otherwise does not make (the same gap `ariaLabel` was
+   * added for). The `title` stays on the input as well, for the hover.
+   */
+  help?: string;
 }) {
   const { prefs } = usePrefs();
+  // Unique per instance: LaunchField renders in the Launch panel AND on the
+  // phone Fly screen, and two elements sharing an id break the association.
+  const helpId = `${useId()}-help`;
   const spec = FIELD_SPEC[field];
   const symbol = spec ? prefs.units[spec.quantity] : null;
   const toUi = (stored: number) => spec && symbol
@@ -146,14 +165,16 @@ export function LaunchField({ label, field, value, onChange, stepStored, min, ma
   const uiMin = min === undefined ? undefined : toUi(min);
   const uiMax = max === undefined ? undefined : toUi(max);
   return (
-    <div className="field">
+    <div className="field" title={help}>
       <label>{label}{spec ? <> <UnitChip quantity={spec.quantity} /></> : ''}</label>
+      {help ? <span id={helpId} className="sr-only">{help}</span> : null}
       {/* The .field idiom puts the <label> beside the control, not around it, so
           nothing associates them — a screen reader read these eight launch
           inputs as anonymous "edit" boxes. ariaLabel here names every
           LaunchField call site at once, the Fly screen's included. */}
       <NumField
         ariaLabel={symbol ? `${label} (${symbol})` : label}
+        describedBy={help ? helpId : undefined}
         value={value[field] === null ? undefined : toUi(value[field] as number)}
         step={step}
         min={uiMin}
@@ -227,6 +248,67 @@ export function TimeStepCaution({ dt, lastRun, flights = 1 }: {
   );
 }
 
+/**
+ * Field help for the two atmosphere fields — the sentence the labels cannot
+ * hold. Exported so the tests assert on the SAME strings the panel renders.
+ *
+ * The pressure one exists because of the 2026-09-08 finding: the kernel takes
+ * temperature and pressure as a pair, so a typed temperature with a blank
+ * pressure flies 101,325 Pa at the pad however high the site (see
+ * services/atmosphere.ts for the mechanism and the measurements). "Left blank
+ * it is computed from your site altitude" is true only when the temperature is
+ * blank too, and the help now says which.
+ */
+export const STATION_PRESSURE_HELP =
+  'The pressure AT THE PAD — what a barometer reads standing there — not the sea-level '
+  + 'altimeter setting an airport broadcasts. Leave this and Temperature BOTH blank and the '
+  + 'app computes the pad\'s pressure from your site altitude. Leave only this blank while a '
+  + 'temperature is typed and it does not: the flight then uses sea-level pressure — 101,325 Pa '
+  + '— at your pad however high the site.';
+
+export const SITE_TEMPERATURE_HELP =
+  'Air temperature at the pad. Blank = the ISA standard 15 °C at sea level, lapsing with your '
+  + 'site altitude. Typing one also switches the Station pressure field off its computed value, '
+  + 'so type the pad\'s station pressure with it.';
+
+/**
+ * Live caution when the pad's pressure is wrong for the site — the panel half
+ * of the 2026-09-08 pad-pressure finding, and the place a user actually fixes
+ * what the RASAero import note told them about.
+ *
+ * It fires on exactly the two cases `padPressureIssue` names, and it quotes the
+ * number the site itself implies, because "type your station pressure" is not
+ * actionable without one. Silent below 600 m and silent when both fields are
+ * blank — that input is correct, and a caution that cries on correct input is
+ * one users learn to skip past.
+ */
+export function PadPressureCaution({ value }: { value: LaunchConditions }) {
+  const { prefs } = usePrefs();
+  const issue = padPressureIssue(value);
+  if (!issue) return null;
+  const sym = prefs.units.pressure;
+  const altSym = prefs.units.distance;
+  const site = fmtSi('distance', altSym, value.launchAltitudeM);
+  const standing = `${fmtSi('pressure', sym, isaPressurePa(value.launchAltitudeM))} ${sym}`;
+  const seaLevel = `${fmtSi('pressure', sym, ISA_SEA_LEVEL.pressurePa)} ${sym}`;
+  return (
+    <p className="field-caution" role="status" data-caution="pad-pressure">
+      <Icon name="zap" size={13} />{' '}
+      {issue === 'blank'
+        ? <><strong>Station pressure is blank and a temperature is typed.</strong> The flight then
+            uses sea-level pressure — <strong>{seaLevel}</strong> — at a pad {site} {altSym} up,
+            where a barometer reads about {standing}. The air comes out too dense and the motor
+            loses the thrust thin air owes it.</>
+        : <><strong>{fmtSi('pressure', sym, value.pressureHPa! * 100)} {sym} is about sea-level
+            pressure</strong>, and this pad is {site} {altSym} up, where a barometer reads about{' '}
+            {standing}. That looks like an altimeter setting rather than what the pad reads.</>}
+      {' '}Type the pad&rsquo;s station pressure{issue === 'blank'
+        ? <>, or clear the temperature too and the app computes it from your site altitude</>
+        : null}. See <em>Launch Conditions</em> in the Guide.
+    </p>
+  );
+}
+
 export function LaunchPanel({ value, onChange, onLaunch, simulating, lastRun }: {
   value: LaunchConditions;
   onChange: (v: LaunchConditions) => void;
@@ -240,9 +322,9 @@ export function LaunchPanel({ value, onChange, onLaunch, simulating, lastRun }: 
   lastRun?: { ms: number; timeStepS?: number } | null;
 }) {
   const numField = (label: string, key: keyof LaunchConditions, stepStored: number,
-      min?: number, max?: number, nullable = false) => (
+      min?: number, max?: number, nullable = false, help?: string) => (
     <LaunchField label={label} field={key} value={value} onChange={onChange}
-      stepStored={stepStored} min={min} max={max} nullable={nullable} />
+      stepStored={stepStored} min={min} max={max} nullable={nullable} help={help} />
   );
 
   return (
@@ -255,8 +337,13 @@ export function LaunchPanel({ value, onChange, onLaunch, simulating, lastRun }: 
         {numField('Wind gusts σ', 'windStdDev', 0.1, 0)}
         {numField('Site altitude', 'launchAltitudeM', 50, 0, 10000)}
         {numField('Latitude (°)', 'latitudeDeg', 1, -90, 90)}
-        {numField('Temperature', 'temperatureC', 1, -60, 60, true)}
-        {numField('Pressure', 'pressureHPa', 5, 300, 1100, true)}
+        {numField('Temperature', 'temperatureC', 1, -60, 60, true, SITE_TEMPERATURE_HELP)}
+        {/* "Station pressure", not "Pressure" (2026-09-08). The bare label let
+            every reader supply their own meaning, and the common one — the
+            altimeter setting an airport broadcasts, or the sea-level figure a
+            weather app shows — is the wrong number by 15 % at 3,900 ft. Two
+            words, sentence case, the same shape as "Site altitude" beside it. */}
+        {numField('Station pressure', 'pressureHPa', 5, 300, 1100, true, STATION_PRESSURE_HELP)}
         {/* Blank = 0.05 s, the engine's and desktop OpenRocket's default. Smaller
             is slower and NOT more accurate: measured against a converged dt
             0.002 reference on four designs with real thrust curves, 0.05 lands
@@ -270,6 +357,7 @@ export function LaunchPanel({ value, onChange, onLaunch, simulating, lastRun }: 
             measurable accuracy. */}
         {numField('Time step (s)', 'timeStepS', 0.01, PANEL_TIME_STEP_FLOOR_S, 1, true)}
       </div>
+      <PadPressureCaution value={value} />
       <TimeStepCaution dt={value.timeStepS} lastRun={lastRun} />
       <button className="launch-btn" onClick={onLaunch} disabled={simulating}>
         {simulating ? 'Simulating…' : <><Icon name="rocket" size={15} /> Launch</>}

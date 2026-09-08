@@ -196,6 +196,35 @@ describe('the batch dialog', () => {
     expect(host.querySelector('.field-caution')).toBeNull();
   });
 
+  // A stage whose RASAero-stated launch weight still holds an unidentified
+  // motor (services/statedLaunchWeight.ts). The design page takes that weight
+  // out the moment a motor is assigned; this dialog cannot — it does not know
+  // what the named motor weighs, each candidate would need a different
+  // subtraction, and the rocket is built once. So it is SAID (2026-09-08, from
+  // review), the same treatment the stripped nozzle gets above it.
+  it('says nothing about a stage weight on a design with no such mark', () => {
+    mount();
+    expect(host.querySelector('.batch-included-motor')).toBeNull();
+  });
+
+  it('warns that every row is heavy when the swept stage still holds a stated motor', () => {
+    const marked: RocketTree = {
+      ...TREE,
+      components: [{
+        ...TREE.components[0]!,
+        overrideMass: 2,
+        overrideSubcomponentsMass: true,
+        overrideIncludesMotor: 'N5800-CS',
+      }],
+    };
+    mount({}, { tree: marked });
+    const note = host.querySelector('.batch-included-motor');
+    expect(note, 'the stage-weight note').toBeTruthy();
+    expect(note!.textContent).toContain('N5800-CS');
+    expect(note!.textContent).toMatch(/every apogee here reads low/);
+    expect(note!.textContent).toMatch(/Browse motor database/);
+  });
+
   // v0.118: the weighed pad mass rides on the one motor it was weighed with,
   // and the note under the candidates row says which row that is. The weighed
   // motor is taken from the SHIPPED catalogue through the dialog's own default

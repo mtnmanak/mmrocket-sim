@@ -2010,3 +2010,98 @@ describe('RASAero import — nozzle exit diameter, per simulation with the Desig
     expect(xml).toContain('<Booster1NozzleDiameter>0</Booster1NozzleDiameter>');
   });
 });
+
+/**
+ * THE PAD'S OWN PRESSURE (2026-09-08).
+ *
+ * The kernel reads launch-site temperature and pressure as a PAIR: give it a
+ * temperature and leave the pressure blank and it flies sea-level 101,325 Pa at
+ * the pad, however high the site (`OrkEngine.simulateJson`, ll. 919-926;
+ * mechanism and measurements in services/atmosphere.ts). RASAero writes a
+ * temperature into every file and a station pressure into fewer than half, so
+ * an import is exactly where that pair arrives without anyone typing it — and
+ * the import note is the only warning its owner gets.
+ *
+ * Two branches, one line each, and both silent below 600 m.
+ */
+describe('RASAero import — the pad pressure note', () => {
+  const padNote = (xmlOrFixture: string): string | undefined =>
+    importCdx1(xmlOrFixture).notes.find((n) => n.startsWith('Launch site:'));
+
+  /** A minimal design with nothing but the launch site worth reading. */
+  const withSite = (altitudeFt: number, pressureInHg: number, temperatureF: number | null): string =>
+    `<?xml version="1.0"?><RASAeroDocument><FileVersion>2</FileVersion><RocketDesign>
+      <NoseCone><PartType>NoseCone</PartType><Length>4.5</Length><Diameter>0.736</Diameter>
+        <Shape>Tangent Ogive</Shape></NoseCone>
+      <BodyTube><PartType>BodyTube</PartType><Length>18.25</Length><Diameter>0.736</Diameter></BodyTube>
+    </RocketDesign><LaunchSite>
+      <Altitude>${altitudeFt}</Altitude>
+      <Pressure>${pressureInHg}</Pressure>
+      ${temperatureF === null ? '' : `<Temperature>${temperatureF}</Temperature>`}
+      <RodAngle>0</RodAngle><RodLength>10</RodLength><WindSpeed>0</WindSpeed>
+    </LaunchSite></RASAeroDocument>`;
+
+  it('fires on a real file that states a temperature and no pressure at altitude', () => {
+    // ARCAS-Long: 3,933 ft, <Pressure>0</Pressure>, 80 °F.
+    const note = padNote(fixture('ARCAS-Long - 2.CDX1'))!;
+    expect(note).toBeDefined();
+    expect(note).toMatch(/gives a temperature but no pad pressure, at 3933 ft/);
+    expect(note).toMatch(/sea-level pressure — 1013 mbar — at that pad/);
+    // Quotes what that site actually reads, or "type your station pressure"
+    // is not something a user can act on.
+    expect(note).toMatch(/about 877 mbar \(25\.91 in-Hg\)/);
+    expect(note).toMatch(/clear the temperature as well/);
+    // Exactly one line, whatever else the import had to say.
+    expect(importCdx1(fixture('ARCAS-Long - 2.CDX1')).notes.filter((n) => n.startsWith('Launch site:')))
+      .toHaveLength(1);
+  });
+
+  it('fires on the other high-site fixtures, with each site’s own number', () => {
+    expect(padNote(fixture('MESOS_Last_Preflight_File.CDX1'))) // 3,917 ft, 65 °F, no pressure
+      .toMatch(/no pad pressure, at 3917 ft.*about 878 mbar \(25\.92 in-Hg\)/s);
+    expect(padNote(fixture('38-54 2-stage.CDX1'))) // 3,900 ft, 70 °F, no pressure
+      .toMatch(/no pad pressure, at 3900 ft.*about 878 mbar \(25\.94 in-Hg\)/s);
+    expect(padNote(fixture('Wildman_Mach 2 this one.CDX1'))) // 2,500 ft = 762 m, just over the gate
+      .toMatch(/no pad pressure, at 2500 ft.*about 925 mbar/s);
+  });
+
+  it('fires on a stated ALTIMETER SETTING at a high site', () => {
+    // Wildman2Stage's own launch site: <Pressure>30</Pressure> at 3,900 ft,
+    // where a barometer reads about 25.94 in-Hg.
+    const note = padNote(withSite(3900, 30, 90))!;
+    expect(note).toBeDefined();
+    expect(note).toMatch(/this file's pressure, 30\.00 in-Hg, is about sea-level pressure/);
+    expect(note).toMatch(/the pad is at 3900 ft where a barometer reads about 878 mbar \(25\.94 in-Hg\)/);
+    expect(note).toMatch(/altimeter setting rather than the pressure at the pad/);
+    // The blank-pressure wording must NOT appear on this branch.
+    expect(note).not.toMatch(/no pad pressure/);
+  });
+
+  it('says nothing when a plausible station pressure is stated at a high site', () => {
+    // SS Wild Bash: 25.94 in-Hg at 3,904 ft. StratoSpear: 24.5333 at 5,400 ft.
+    // Both testers typed the real reading; the note would be an insult.
+    expect(padNote(withSite(3904, 25.94, 45))).toBeUndefined();
+    expect(padNote(withSite(5400, 24.5333, 40))).toBeUndefined();
+  });
+
+  it('says nothing at a low site, stated pressure or not', () => {
+    expect(padNote(fixture('vb38-dragstudy02.CDX1'))).toBeUndefined(); // 700 ft, 29.92 in-Hg
+    expect(padNote(fixture('LEM-M2B Scratch.CDX1'))).toBeUndefined(); // 10 ft, 29.91 in-Hg
+    expect(padNote(fixture('RMA53D02 - 2.CDX1'))).toBeUndefined(); // sea level, no pressure
+    expect(padNote(withSite(400, 0, 74))).toBeUndefined(); // no pressure, but only 122 m up
+  });
+
+  it('says nothing when the file states no temperature either', () => {
+    // Both blank is the CORRECT input — the kernel computes the pad's pressure
+    // from the site altitude. No real RASAero file does this, but the rule is
+    // about the mechanism, not about RASAero's habits.
+    expect(padNote(withSite(8800, 0, null))).toBeUndefined();
+    expect(padNote(withSite(8800, 0, 55))).toMatch(/no pad pressure, at 8800 ft/);
+  });
+
+  it('quotes the 8,800 ft site the finding is stated at', () => {
+    // G record 2023's launch site: 8,800 ft, <Pressure>0</Pressure>, 55 °F —
+    // 730 mbar standing there against the 1013 the flight would use.
+    expect(padNote(withSite(8800, 0, 55))).toMatch(/about 730 mbar \(21\.55 in-Hg\)/);
+  });
+});

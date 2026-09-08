@@ -2,9 +2,11 @@ import { strFromU8 } from 'fflate';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import type { LaunchConditions } from '../components/LaunchPanel.js';
 import { asStageNodes, freshId, mountsIn } from '../tree/treeModel.js';
+import { isaPressurePa, padPressureIssue } from './atmosphere.js';
 import { findDbMotor, hasMassData } from './motorDb.js';
 import { escapeXml as esc, xmlNum, xmlText as text } from './xmlUtil.js';
 import type { OrkFlightConfig, OrkImportResult, OrkMotorRef, OrkSeparationOverride } from './orkFile.js';
+import { OVERRIDE_INCLUDES_MOTOR } from './statedLaunchWeight.js';
 
 /**
  * RASAero II (.CDX1) design import/export — Phase 3 "file imports and
@@ -1269,9 +1271,24 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
       // stage, so there is no motor mass to subtract and the stated figures
       // describe the airframe as it will fly here.
       const m = slot === 'absent' ? null : slot;
+      /**
+       * The designation whose weight the stated figures still carry, or null.
+       *
+       * `slot === 'absent'` ALONE (2026-09-08, from review). It was gated on
+       * `hasWt` too, which tied the mark to the mass half — but the CG half is
+       * motor-inclusive in exactly the same way and lands on its own path
+       * below, so a stage stating a CG and no usable weight got a launch CG
+       * with the motor's moment inside it, no mark, and no correction when
+       * that motor was later loaded. Narrow (no file in the 138-simulation
+       * corpus has that shape) but it is the same defect on the stability
+       * number instead of the mass, so the mark now follows whichever override
+       * actually landed.
+       */
+      const unbacked = slot === 'absent'
+        ? (chosen?.motors[aftTube(st)?.id ?? '']?.designation ?? null)
+        : null;
       if (slot === 'absent' && hasWt) {
-        const ref = chosen?.motors[aftTube(st)?.id ?? ''];
-        motorless.push(`${stageName(i)}: “${ref?.designation ?? '?'}” isn’t in the motor database, so `
+        motorless.push(`${stageName(i)}: “${unbacked ?? '?'}” isn’t in the motor database, so `
           + `no motor is loaded on it and the stated ${lbTxt(wt[i])} is used as it stands — `
           + 'it still includes that motor’s weight.');
       }
@@ -1290,6 +1307,14 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
             st['overrideMass'] = dry;
             st['overrideSubcomponentsMass'] = true;
             overrideMassKg[i] = dry;
+            // The one case where the override that just landed is NOT a dry
+            // airframe mass: no motor could be backed out of it, so it still
+            // holds that motor's weight. Marked on the stage so that loading
+            // the motor later takes it out instead of adding it twice — see
+            // services/statedLaunchWeight.ts, which measures the MESOS case
+            // this closes (+79 % on the pad). Nothing else in the app writes
+            // this key, and no stage with a catalogued motor ever carries it.
+            if (unbacked !== null) st[OVERRIDE_INCLUDES_MOTOR] = unbacked;
             massDetail[i] = `${lbTxt(wt[i])}${m ? ` − ${m.label} ${lbTxt(m.massKg)}` : ''}`
               + `${above > 0 ? ` − ${lbTxt(above)} above` : ''} = ${lbTxt(dry)}`;
           } else {
@@ -1333,6 +1358,10 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
       }
       st['overrideCGX'] = stageCg;
       st['overrideSubcomponentsCG'] = true;
+      // Same mark, same reason as the mass above: with no motor to back out,
+      // this CG override is a LAUNCH CG and still holds that motor's moment.
+      // Idempotent — the mass branch usually set it already.
+      if (unbacked !== null) st[OVERRIDE_INCLUDES_MOTOR] = unbacked;
       cgDetail[i] = `CG ${inTxt(stageCg)}${i > 0 ? ' from its own front' : ''}`;
     }
   }
@@ -1363,6 +1392,37 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
       + 'mass and CG come from the simulation’s measured launch weight below, so the wall default '
       + 'does not drive the numbers.'
     : 'RASAero designs carry no material or wall data — walls default to 2 mm; review masses before trusting the numbers.');
+  // ---- the pad's own pressure (2026-09-08) ----
+  // RASAero writes a temperature into EVERY file and a station pressure into
+  // fewer than half of them, and the kernel reads the two as a PAIR: a
+  // temperature with no pressure puts sea-level 101,325 Pa at the pad however
+  // high the site (mechanism and measurements in services/atmosphere.ts). An
+  // imported file is the one place that pair arrives without anyone typing it,
+  // so this line is the only warning its owner gets. Both branches of
+  // `padPressureIssue`, one line each, only above 600 m:
+  //  - states nothing (G record 2023: <Pressure>0</Pressure> at 8,800 ft)
+  //  - states an altimeter setting (Wildman2Stage: 30 in-Hg at 3,900 ft, where
+  //    a barometer reads about 25.94)
+  if (launch?.launchAltitudeM !== undefined) {
+    const issue = padPressureIssue(launch);
+    const ft = Math.round(launch.launchAltitudeM * FT);
+    const standingMbar = isaPressurePa(launch.launchAltitudeM) / 100;
+    const standing = `${standingMbar.toFixed(0)} mbar (${(standingMbar / INHG).toFixed(2)} in-Hg)`;
+    if (issue === 'blank') {
+      notes.push(`Launch site: this file gives a temperature but no pad pressure, at ${ft} ft. The `
+        + 'two are read as a pair, so the flight would use sea-level pressure — 1013 mbar — at that '
+        + `pad. Type the pad's station pressure under Launch conditions (about ${standing} there on `
+        + 'a standard day), or clear the temperature as well and the app computes the pressure from '
+        + 'the site altitude. Left as it is, the air is too dense and the motor loses the extra '
+        + 'thrust thin air gives it.');
+    } else if (issue === 'sea-level') {
+      notes.push(`Launch site: this file's pressure, ${(launch.pressureHPa! / INHG).toFixed(2)} in-Hg, `
+        + `is about sea-level pressure, and the pad is at ${ft} ft where a barometer reads about `
+        + `${standing}. That is an altimeter setting rather than the pressure at the pad — replace it `
+        + 'under Launch conditions, or the air is too dense and the motor loses the extra thrust '
+        + 'thin air gives it.');
+    }
+  }
   if (machAlt) {
     const topFt = Math.round(Math.max(...machAlt.map(([, a]) => a)) * FT);
     notes.push(`This file carries a Mach-Alt conditions table (${machAlt.length} point${machAlt.length === 1 ? '' : 's'}, `
@@ -1392,7 +1452,10 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
   }
   if (motorless.length > 0) {
     notes.push('Applied WITH the motor still included, because the file names a motor that isn’t in '
-      + `the database — nothing is loaded on those stages: ${motorless.join(' ')}`);
+      + `the database — nothing is loaded on those stages, so the figure is right for the rocket as it `
+      + `stands here: ${motorless.join(' ')} If you load that motor later — Browse motor database takes `
+      + 'an .eng or .rse file — the app takes its weight back out of the stage mass and CG first, so it '
+      + 'is never counted twice.');
   }
   // The nozzle, once: which stages got one, from which of RASAero's two
   // places, and that other simulations may carry their own. A number that
