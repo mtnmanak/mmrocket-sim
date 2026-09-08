@@ -201,7 +201,20 @@ export type ComponentType =
  * Stage separation trigger (lower stages only; desktop default "ejection").
  * On a `stage` node: `separationEvent`, `separationDelay` (s),
  * `separationAltitude` (m, for the altitude events), and `nozzleExitDiameter`
- * (m; RASAero power-on base-drag reduction, 0/absent = power-off, all stages).
+ * (m; 0/absent = the stage has no nozzle model at all, on every stage).
+ *
+ * `nozzleExitDiameter` drives BOTH halves of the RASAero nozzle model, and
+ * since 2026-09-08 that is two things, not one: the power-on base-drag
+ * reduction (the exhaust pressurizes its own footprint of the base) and
+ * PRESSURE THRUST (`F(h) = F_curve(t) + A_exit x (101325 - P(h))` — a published
+ * thrust curve is a sea-level measurement, so the motor gains the exit area
+ * times the pressure lost as the rocket climbs). Both are gated on
+ * {@link OrkRocket.setRogersModifiedBarrowman} or
+ * {@link OrkRocket.setSupersonicAero}; both are inert in the parity model.
+ *
+ * For a CLUSTER the value is the single equivalent nozzle with the exit AREAS
+ * summed (d_eq = d x sqrt(N) for N identical nozzles) — the kernel charges one
+ * area per stage, never one per motor.
  */
 export type SeparationEvent =
   | 'launch' | 'ignition' | 'burnout' | 'ejection' | 'upperignition'
@@ -290,6 +303,16 @@ export interface FlightSeries {
   velocity: number[];
   acceleration: number[];
   mass: number[];
+  /**
+   * Thrust (N) as FLOWN, which since 2026-09-08 is not the same thing as the
+   * motor's published curve: under Rogers Kbf or the supersonic model, a stage
+   * carrying a `nozzleExitDiameter` gets the RASAero pressure-thrust term
+   * `A_exit x (101325 - P(h))` added on top of the curve while it burns. Any UI
+   * that overlays the catalogue curve on this series will therefore show the
+   * flown trace sitting ABOVE it, by nothing at a sea-level pad and by up to
+   * `A_exit x 101325` near vacuum. Zero before ignition and after burnout, and
+   * zero in the parity model.
+   */
   thrust: number[];
   drag: number[];
   mach: number[];
@@ -573,6 +596,11 @@ export class OrkRocket {
    * interference (Kbf). Affects both the reported static CP/stability and the
    * flight sim. Call before {@link staticInfo}/{@link simulate}. Off by default;
    * off ⇒ classic Barrowman (bit-identical to before).
+   *
+   * This flag (or {@link setSupersonicAero}) is also what admits the two halves
+   * of the nozzle model — power-on base drag and pressure thrust — for a stage
+   * that names a `nozzleExitDiameter`. Both are ours, not desktop
+   * OpenRocket 24.12's, so both stay out of the parity model.
    */
   setRogersModifiedBarrowman(enabled: boolean): void {
     ork.setRogersModifiedBarrowman(this.handle, enabled);
@@ -585,6 +613,10 @@ export class OrkRocket {
    * instead of collapsing forward. Affects staticInfo, simulate and dragSweep.
    * Off by default; off ⇒ classic Extended Barrowman (bit-identical).
    * Validated against the wind-tunnel anchor suite in validation/.
+   *
+   * Like {@link setRogersModifiedBarrowman}, this also admits the nozzle model
+   * (power-on base drag and pressure thrust) for a stage that names a
+   * `nozzleExitDiameter`. The gate is a disjunction: either flag is enough.
    */
   setSupersonicAero(enabled: boolean): void {
     ork.setSupersonicAero(this.handle, enabled);

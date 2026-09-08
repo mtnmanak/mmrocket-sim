@@ -1419,8 +1419,14 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
       // different number in the same box.
       const differs = configs.some((c) => c !== chosen && Object.entries(c.nozzles ?? {})
         .some(([id, m]) => Math.abs(m - (openingNozzles[id] ?? 0)) > 1e-9));
-      notes.push(`Nozzle exit diameter: ${parts.join('; ')}. It trims base drag only while that stage’s `
-        + 'motor burns (Rogers Kbf and Supersonic drag models); clear it under the stage to fly '
+      // The clause about thrust was added 2026-09-08, when the same value
+      // started buying thrust as well as trimming drag: an imported RASAero
+      // design is the ONE place the number arrives without anyone typing it,
+      // so this note is the only thing that tells its owner what it now costs.
+      notes.push(`Nozzle exit diameter: ${parts.join('; ')}. While that stage’s motor burns it both `
+        + 'trims base drag and raises thrust as the rocket climbs — the published sea-level curve '
+        + 'gains the exit area times the pressure left behind, which is what RASAero does (Rogers '
+        + 'Kbf and Supersonic models only); clear it under the stage to fly the published curve and '
         + `power-off drag.${differs ? ' Other simulations in this file carry their own — switching '
           + 'under Flight configurations applies it.' : ''}`);
     }

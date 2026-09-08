@@ -1,5 +1,5 @@
 {
-  "version": "0.118",
+  "version": "0.119",
   "released": "2026-09-08",
-  "note": "The weighed pad mass moves out of the Measured mass & CG box to the motor it was weighed with, under that motor on Motors & Launch: unload the motor and it goes, load a different motor and the field is blank, each flight configuration keeps its own, and the line beneath says what it carries and that the next Launch flies it. Batch simulate now carries it on the weighed motor only. A correction: v0.116 said the hardware was worth about 1.5 percent of apogee; measured through the kernel it is 2.78 and 2.98 percent on the two flights it came from. A pad mass entered in v0.116 or v0.117 is moved for you on first open, or dropped with a notice naming it. And a motor edit now survives switching flight configurations."
+  "note": "Motor thrust now rises as the air thins - a published thrust curve is a sea-level measurement, and the app adds RASAero's pressure term A_exit x (101,325 Pa - P(h)) while a stage with a nozzle exit diameter burns, under Rogers Kbf, Auto and Supersonic. Measured on the 20 nozzle-bearing RASAero tester designs: apogee moves +0.007 to +29.7 percent, median +0.27, four of them over five percent. Two ways back, both exact: Classic Extended Barrowman, or clear the stage's nozzle. Batch simulate now flies every candidate on its published curve. And a finding worth acting on: a file that states no launch pressure is flown at sea-level pressure at its own pad, so type your pad's station pressure whenever you type a temperature."
 }

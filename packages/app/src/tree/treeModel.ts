@@ -277,6 +277,126 @@ export function applyStageNozzles(tree: RocketTree, nozzles: Record<string, numb
   return changed ? { ...tree, components } : tree;
 }
 
+/**
+ * The same tree with EVERY `nozzleExitDiameter` removed — the design flown as
+ * if no stage had one.
+ *
+ * Written for the batch motor sweep (2026-09-08). Since that date the nozzle
+ * does not only trim base drag: under Rogers Kbf or the supersonic
+ * model the kernel adds RASAero's pressure-thrust term
+ * `A_exit x (101325 - P(h))` to the burning stage, and the batch builds ONE
+ * rocket from the design and swaps candidate motors onto it — so a design
+ * carrying a 1.875 in exit would have credited every candidate with that
+ * nozzle, worth about +18 % of thrust on a 100 N H at a 10 kPa mean deficit
+ * (docs/research/thrust-with-altitude-2026-09-08.md, Risks). Candidates fly
+ * their PUBLISHED sea-level curves instead, and the base-drag half goes with
+ * them.
+ *
+ * WHAT THE STRIP COSTS, measured 2026-09-08 (review) across the 20 RASAero
+ * corpus designs that carry a nozzle, each flown under Rogers Kbf at its own
+ * launch conditions with the nozzle and then with it cleared: 0.084 % of
+ * apogee at the low end, under 1 % on 11 of the 20 and under 2 % on 14, but
+ * 7.9 / 8.0 / 9.7 / 13.2 / 15.3 / 45.8 % on the six with a large exit on a
+ * slim airframe (G record 2023, Project Y, 50k, 2,4-D, 38-54 2-stage, OR vs
+ * RAS Test 1). The dialog's note carries that range in words — the earlier
+ * "~0.5 %" here was the v0.117 Wildman Mach 2 base-drag figure generalised,
+ * and it is an order of magnitude low on exactly the designs it matters for.
+ *
+ * Deletes the key rather than writing 0, for the reason `applyStageNozzles`
+ * does: the schema, the .ork reader and the kernel all spell "no nozzle" as
+ * ABSENT. Recursive on purpose — the schema puts the field on `stage` only and
+ * normalizeTree keeps stages at the top level, but a helper whose whole job is
+ * "no nozzle anywhere" must not depend on that. An untouched tree comes back
+ * by identity, so React memos downstream do not see a new object.
+ */
+export function clearStageNozzles(tree: RocketTree): RocketTree {
+  let changed = false;
+  const walk = (nodes: ComponentNode[]): ComponentNode[] => nodes.map((n) => {
+    const kids = n.children ? walk(n.children) : undefined;
+    const hasNozzle = 'nozzleExitDiameter' in n;
+    if (!hasNozzle && (kids === undefined || kids === n.children)) return n;
+    changed = changed || hasNozzle;
+    const next: ComponentNode = { ...n };
+    delete next['nozzleExitDiameter'];
+    if (kids !== undefined) next.children = kids;
+    return next;
+  });
+  const components = walk(tree.components);
+  return changed ? { ...tree, components } : tree;
+}
+
+/**
+ * Every stage carrying a nozzle exit diameter above zero, in tree order —
+ * "does this design spend the pressure-thrust term, and on which stages".
+ *
+ * One definition because three callers ask the same question for different
+ * reasons (2026-09-08): the batch dialog's note, the casing-diameter plausibility
+ * check (services/nozzleCheck.ts) and the launch report's line. Names come out
+ * as the user sees them in the tree, so a caller never has to invent
+ * "Stage 1".
+ */
+export function stagesWithNozzle(tree: RocketTree): { id: string; name: string; exitDiameterM: number }[] {
+  const out: { id: string; name: string; exitDiameterM: number }[] = [];
+  stages(tree).forEach((s, i) => {
+    const d = s['nozzleExitDiameter'];
+    if (typeof d !== 'number' || !Number.isFinite(d) || d <= 0) return;
+    out.push({ id: s.id ?? `stage-${i}`, name: s.name ?? `Stage ${i + 1}`, exitDiameterM: d });
+  });
+  return out;
+}
+
+/**
+ * Which stage's ID owns each node in the tree — `nodeId -> stageId`, every
+ * descendant included.
+ *
+ * Written 2026-09-08 because two callers needed to join a MOTOR MOUNT to its
+ * stage and `stageIndexOf` is the wrong tool for it: that returns an index into
+ * `tree.components` UNFILTERED, while `stages()` filters to `type === 'stage'`,
+ * so the two index spaces agree only while every top-level node is a stage —
+ * which `asStageNodes` exists precisely because the legacy flat shape does not
+ * satisfy. An id is unambiguous in both shapes. Stages with no id are skipped:
+ * they cannot be named on either side of the join.
+ */
+export function stageIdByNode(tree: RocketTree): Map<string, string> {
+  const out = new Map<string, string>();
+  const claim = (stageId: string, n: ComponentNode): void => {
+    if (n.id) out.set(n.id, stageId);
+    for (const kid of n.children ?? []) claim(stageId, kid);
+  };
+  for (const s of stages(tree)) { if (s.id) claim(s.id, s); }
+  return out;
+}
+
+/**
+ * The stages that carry a nozzle exit diameter AND a motor that can burn — the
+ * only stages the pressure-thrust term can actually be spent on.
+ *
+ * `stagesWithNozzle` alone was wrong for the launch report (2026-09-08,
+ * review): it names every stage with a nozzle above zero whether or not the
+ * flown configuration put a motor in it, so a two-stage RASAero import with an
+ * unresolvable booster motor produced "Sustainer and Booster carry a nozzle
+ * exit diameter, so the motor's published sea-level curve gains …" while the
+ * kernel's `getThrust(t) > 0` gate had credited the booster exactly nothing.
+ * An ignition of 'never' is excluded for the same reason — the motor is loaded
+ * and it does not burn.
+ *
+ * `mountIds` is App's own `assigned`, already filtered to mounts the tree still
+ * has, so a stale record cannot name a stage.
+ */
+export function motorisedStagesWithNozzle(
+  tree: RocketTree,
+  motors: readonly (readonly [string, { ignition?: { event?: string } }])[],
+): { id: string; name: string; exitDiameterM: number }[] {
+  const stageOf = stageIdByNode(tree);
+  const live = new Set<string>();
+  for (const [mountId, mm] of motors) {
+    if (mm?.ignition?.event === 'never') continue;
+    const sid = stageOf.get(mountId);
+    if (sid !== undefined) live.add(sid);
+  }
+  return stagesWithNozzle(tree).filter((s) => live.has(s.id));
+}
+
 export function removeNode(tree: RocketTree, id: string): RocketTree {
   const walk = (nodes: ComponentNode[]): ComponentNode[] =>
     nodes

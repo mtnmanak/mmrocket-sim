@@ -476,6 +476,23 @@ export interface SimRun {
   motorSetKey?: string;
   /** The launch conditions in force, serialized. */
   conditionsKey?: string;
+  /**
+   * The stages that flew a nozzle exit diameter AND a motor — and, because
+   * only v0.119 and later write it, THE PHYSICS-REVISION STAMP for the
+   * pressure-thrust term.
+   *
+   * None of the three provenance keys above can see a KERNEL change: the tree,
+   * the motors and the conditions are all identical across a rebuild, so a run
+   * flown on v0.118 certified as "matches the design as it stands" while the
+   * new kernel re-flies it up to +27.6 % higher — the exact
+   * authoritative-looking wrong number `runMatchesDesign` exists to prevent,
+   * and v0.074's changelog promises "Show charts" gives the same flight, not a
+   * new one. So a nozzle-bearing design flown under a model that admits the
+   * term must carry this to be re-flown or exported; see
+   * {@link runCarriesNozzleStamp}. Written only when non-empty, so ABSENT keeps
+   * meaning "older build" (2026-09-08).
+   */
+  nozzleStages?: string[];
   comments: string;
   /**
    * How loud each comment is, index-aligned to `comments.split(' | ')`.
@@ -557,6 +574,14 @@ export interface DesignMatchKey {
   aeroMode: 'classic' | 'supersonic' | 'auto';
   effectiveKbf: boolean;
   autoSupersonic: boolean;
+  /**
+   * Does the design as it stands carry a nozzle exit diameter above zero on a
+   * stage with a motor? Only used to decide whether a stored run needs the
+   * v0.119 pressure-thrust stamp — see {@link runCarriesNozzleStamp}. Optional
+   * so a caller that cannot answer (a test, a future surface) is treated as
+   * "no nozzle", which is the pre-v0.119 behaviour rather than a refusal.
+   */
+  hasNozzle?: boolean;
 }
 
 /**
@@ -652,6 +677,13 @@ export function changedSinceRun(
   // banner saying the numbers were flown on a different model and are not
   // comparable — two lines a finger-width apart contradicting each other.
   if (runMatchesModel(run, cur) === false) changed.push(AERO_MODEL_CHANGED);
+  // The kernel's own physics is part of "does this still describe my rocket"
+  // too, and nothing above can see it — see SimRun.nozzleStages (2026-09-08).
+  // Gated on `designKey` for the same reason the completeness rule below
+  // exists: a batch row carries only `conditionsKey`, belongs to a tree this
+  // function was never given, and must keep answering "unknown" rather than
+  // naming a difference in a design it cannot be attributed to.
+  if (run.designKey && !runCarriesNozzleStamp(run, cur)) changed.push(PRESSURE_THRUST_CHANGED);
   if (changed.length > 0) return changed;
 
   // NOTHING DIFFERS — but silence and a clean bill of health are not the same
@@ -674,6 +706,10 @@ export function runMatchesDesign(run: SimRun, cur: DesignMatchKey): boolean {
   if (!run.designKey || run.designKey !== cur.designKey) return false;
   if (!run.motorSetKey || run.motorSetKey !== cur.motorSetKey) return false;
   if (!run.conditionsKey || run.conditionsKey !== cur.conditionsKey) return false;
+  // Same refusal for a run flown before the pressure-thrust term existed on a
+  // design that now spends it — the three keys above cannot see a kernel
+  // change (2026-09-08).
+  if (!runCarriesNozzleStamp(run, cur)) return false;
   // Unlike the UI's "flown on a different model" mark, an UNKNOWN model is a
   // refusal here: re-flying reproduces a flight, and reproducing one whose
   // model we cannot name is exactly the authoritative-looking wrong number
@@ -710,6 +746,65 @@ export function currentModelLabel(cur: {
   }
   return aeroModelLabel('classic', cur.effectiveKbf);
 }
+
+/**
+ * Was the RASAero pressure-thrust term live on this flight? (2026-09-08.)
+ *
+ * The kernel gates it on exactly the base-drag half's condition — Rogers Kbf
+ * OR the supersonic model, off under Classic Extended Barrowman — reading both
+ * flags straight off the calculator the stepper is handed. There is no export
+ * and no per-run switch to ask, so the app answers from the two stamps every
+ * run already carries. That is not a guess: `rogersKbfFor` records the
+ * EFFECTIVE Kbf flag the kernel was given, and 'supersonic'/'auto-supersonic'
+ * are the same physics under two names (see `runMatchesModel`).
+ *
+ * Deliberately a disjunction: either flag alone admits the term. Deliberately
+ * `=== true` on `rogersKbf`: it is absent on runs before v0.033, and an
+ * unknown must not be read as "the term was on".
+ */
+export function pressureThrustActive(run: Pick<SimRun, 'aeroModel' | 'rogersKbf'>): boolean {
+  return run.aeroModel === 'supersonic' || run.aeroModel === 'auto-supersonic'
+    || run.rogersKbf === true;
+}
+
+/**
+ * Can this stored run still be re-flown or exported now that the kernel adds
+ * pressure thrust? (2026-09-08.)
+ *
+ * `false` for exactly one case: the design on screen carries a nozzle on a
+ * motorised stage, the model the app is set to admits the term, and the run
+ * carries no `nozzleStages` stamp — which means it was flown by a build that
+ * did not have the term. Its stored apogee and the flight a re-fly would draw
+ * are then different numbers, by up to +27.6 % on the corpus, and none of
+ * `designKey`/`motorSetKey`/`conditionsKey` can see the difference because
+ * none of them hashes the kernel.
+ *
+ * `true` everywhere else, and deliberately so:
+ * - no nozzle on the current design ⇒ the term was never spent, so an old run
+ *   is exactly reproducible;
+ * - Classic Extended Barrowman ⇒ the term is off, and a Classic run's numbers
+ *   did not move at all (proven bit-identical across the two kernels on six
+ *   tester designs);
+ * - the run HAS the stamp ⇒ it was flown by this physics.
+ *
+ * Refusal is the safe direction and is the rule already applied to an unknown
+ * aerodynamics model in {@link runMatchesDesign}.
+ */
+export function runCarriesNozzleStamp(
+  run: Pick<SimRun, 'nozzleStages'>,
+  cur: { hasNozzle?: boolean; aeroMode: 'classic' | 'supersonic' | 'auto';
+    effectiveKbf: boolean; autoSupersonic: boolean },
+): boolean {
+  if (cur.hasNozzle !== true) return true;
+  const termLive = cur.aeroMode === 'supersonic'
+    || (cur.aeroMode === 'auto' && cur.autoSupersonic)
+    || cur.effectiveKbf;
+  if (!termLive) return true;
+  return (run.nozzleStages?.length ?? 0) > 0;
+}
+
+/** Named in the staleness banner when {@link runCarriesNozzleStamp} refuses. */
+export const PRESSURE_THRUST_CHANGED = 'the motor thrust model';
 
 /**
  * Whether a stored run was flown on the model the app is set to now.
@@ -1221,8 +1316,17 @@ export function buildSimRun(input: {
   motorSetKey?: string;
   /** What the kernel was handed for each recovery device — see FlownRecoveryDevice. */
   flownRecovery?: Record<string, FlownRecoveryDevice>;
+  /**
+   * Names of the stages that flew BOTH a nozzle exit diameter above zero and a
+   * motor that can burn (`motorisedStagesWithNozzle`). Present so the report
+   * can say the flown thrust is not the catalogue curve, and stamped onto the
+   * run so a later build can tell a v0.119 flight from an older one; absent, or
+   * empty, says nothing. The batch dialog strips the nozzle from its sweep and
+   * so passes nothing.
+   */
+  nozzleStages?: string[];
 }): FreshSimRun {
-  const { result, info, motor, meta, launch, rocketName, execMs, stageMotorInfo, boosterMotors, aeroModel, rogersKbf, motorConfig, flightConfig, flightConfigId, designKey, motorSetKey, flownRecovery } = input;
+  const { result, info, motor, meta, launch, rocketName, execMs, stageMotorInfo, boosterMotors, aeroModel, rogersKbf, motorConfig, flightConfig, flightConfigId, designKey, motorSetKey, flownRecovery, nozzleStages } = input;
   const { summary, series } = result;
 
   const tRod = eventTime(result, 'LAUNCHROD');
@@ -1408,6 +1512,24 @@ export function buildSimRun(input: {
       + 'Preferences → Aerodynamics offers a validated supersonic model — switching '
       + 'changes the model for the entire flight, so expect stability and apogee to shift.');
   }
+  // THE FLOWN THRUST IS NOT THE PUBLISHED CURVE (2026-09-08). Said only when
+  // the design actually carried a nozzle AND the model admits the term, which
+  // together are the kernel's own gate — see `pressureThrustActive`. No number:
+  // the kernel exports no per-run pressure-thrust total, and the only figure
+  // the app could derive would be an app-side re-computation of the atmosphere
+  // sitting beside a kernel value it does not equal. A sentence that says what
+  // happened, with both ways back, beats an invented one.
+  if (nozzleStages && nozzleStages.length > 0
+      && pressureThrustActive({ aeroModel, ...(rogersKbf !== undefined ? { rogersKbf } : {}) })) {
+    say(
+      `Thrust was corrected for ambient pressure: ${listAnd(nozzleStages)} `
+      + `${nozzleStages.length === 1 ? 'carries' : 'carry'} a nozzle exit diameter, so the motor's `
+      + 'published sea-level curve gains the exit area times the pressure the rocket has climbed out '
+      + 'of, for as long as it burns — the same correction RASAero makes while the motor burns. The '
+      + 'flown thrust and the thrust:weight at rod departure therefore read above the catalogue '
+      + 'curve: nothing at a sea-level pad, more with height. Clear the nozzle under the stage, or '
+      + 'fly Classic (Extended Barrowman) with Rogers Kbf off, to fly the published curve.');
+  }
   if (safeLiftoffSpeed === false) {
     say(`Rod-exit speed ${rodExitVelocity!.toFixed(1)} m/s < ${SAFETY.minRodExitVelocity} m/s guidance.`, 'warning');
   }
@@ -1577,6 +1699,11 @@ export function buildSimRun(input: {
     ...(flightConfigId !== undefined ? { flightConfigId } : {}),
     ...(designKey !== undefined ? { designKey } : {}),
     ...(motorSetKey !== undefined ? { motorSetKey } : {}),
+    // The pressure-thrust stamp — see SimRun.nozzleStages. Written only when
+    // there is one, because ABSENT has to keep meaning "flown before v0.119",
+    // and a design carrying a nozzle has a different `designKey` from one that
+    // does not, so a matching run of a nozzle design always carries it.
+    ...(nozzleStages && nozzleStages.length > 0 ? { nozzleStages } : {}),
     conditionsKey: conditionsKeyOf(launch),
     comments: comments.join(' | '),
     commentLevels: levels,

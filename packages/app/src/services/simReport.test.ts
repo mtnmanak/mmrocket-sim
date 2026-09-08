@@ -4,6 +4,7 @@ import {
   buildSimRun, commentLevelsAlign, conditionsKeyOf, extractLandingDrift, extractMaxRollRate, formatStability,
   recommendDelay,
   AERO_MODEL_CHANGED, changedSinceRun, formatRunWhen, formatRunWhenProse, listAnd,
+  pressureThrustActive, PRESSURE_THRUST_CHANGED, runCarriesNozzleStamp,
   ROLL_RATE_MEANINGFUL_RAD_S, runMatchesDesign, SAFETY, stabilityPercent, storedSimCost,
   type DesignMatchKey, type SimRun,
 } from './simReport.js';
@@ -1106,6 +1107,73 @@ describe('runMatchesDesign — what may be re-flown for its charts', () => {
     expect(runMatchesDesign(run({ aeroModel: 'auto-supersonic', rogersKbf: false }),
       { ...auto, autoSupersonic: true })).toBe(true);
   });
+
+  /**
+   * THE KERNEL CHANGED AND NO KEY COULD SEE IT (2026-09-08). designKey,
+   * motorSetKey and conditionsKey all hash app-side state, so a run flown on
+   * v0.118 of a nozzle-bearing design certified as matching while the v0.119
+   * kernel re-flies it up to +27.6 % higher — under the stored run's own
+   * numbers, and into an exported .ork's <flightdata>. `nozzleStages` is the
+   * physics stamp that closes it.
+   */
+  describe('the pressure-thrust stamp', () => {
+    const NOZ = { ...KEY, hasNozzle: true };
+
+    it('refuses a nozzle design\'s run that carries no stamp, under a model that spends the term', () => {
+      expect(runMatchesDesign(run({ nozzleStages: undefined }), NOZ)).toBe(false);
+      expect(runCarriesNozzleStamp({}, NOZ)).toBe(false);
+      expect(changedSinceRun(
+        { designKey: 'd1', motorSetKey: 'm1', conditionsKey: 'c1', aeroModel: 'classic', rogersKbf: true } as SimRun,
+        NOZ,
+      )).toEqual([PRESSURE_THRUST_CHANGED]);
+    });
+
+    it('leaves a batch row alone — no designKey means "unknown", as it always did', () => {
+      // A batch row carries conditionsKey only, and it flew with the nozzle
+      // STRIPPED on purpose. Naming a physics change on it would be attributing
+      // it to a design it was never stamped against.
+      expect(changedSinceRun(
+        { conditionsKey: 'c1', aeroModel: 'classic', rogersKbf: true } as SimRun, NOZ,
+      )).toBeNull();
+    });
+
+    it('accepts the same run once it carries one', () => {
+      expect(runMatchesDesign(run({ nozzleStages: ['Sustainer'] }), NOZ)).toBe(true);
+      expect(runCarriesNozzleStamp({ nozzleStages: ['Sustainer'] }, NOZ)).toBe(true);
+    });
+
+    it('says nothing when the design has no nozzle — those numbers did not move', () => {
+      expect(runMatchesDesign(run({ nozzleStages: undefined }), KEY)).toBe(true);
+      expect(runCarriesNozzleStamp({}, KEY)).toBe(true);
+      // hasNozzle absent entirely (a caller that cannot answer) reads the same.
+      expect(runCarriesNozzleStamp({}, { ...KEY, hasNozzle: undefined })).toBe(true);
+    });
+
+    it('says nothing under Classic EB, where the term is off in both kernels', () => {
+      const classic = { ...NOZ, effectiveKbf: false };
+      expect(runCarriesNozzleStamp({}, classic)).toBe(true);
+      expect(runMatchesDesign(run({ rogersKbf: false, nozzleStages: undefined }), classic)).toBe(true);
+      // …but Auto that has upgraded itself, and Supersonic, both spend it.
+      expect(runCarriesNozzleStamp({}, { ...classic, aeroMode: 'supersonic' })).toBe(false);
+      expect(runCarriesNozzleStamp({}, { ...classic, aeroMode: 'auto', autoSupersonic: true })).toBe(false);
+      expect(runCarriesNozzleStamp({}, { ...classic, aeroMode: 'auto', autoSupersonic: false })).toBe(true);
+    });
+
+    it('buildSimRun stamps the names it was given, and stores nothing when there are none', () => {
+      const stamped = buildSimRun({
+        result: fakeResult(), info, motor, meta: { label: 'C6-5' },
+        launch: DEFAULT_CONDITIONS, rocketName: 'Alpha', execMs: 1,
+        aeroModel: 'classic', rogersKbf: true, nozzleStages: ['Sustainer', 'Booster'],
+      });
+      expect(stamped.nozzleStages).toEqual(['Sustainer', 'Booster']);
+      const bare = buildSimRun({
+        result: fakeResult(), info, motor, meta: { label: 'C6-5' },
+        launch: DEFAULT_CONDITIONS, rocketName: 'Alpha', execMs: 1,
+        aeroModel: 'classic', rogersKbf: true, nozzleStages: [],
+      });
+      expect('nozzleStages' in bare).toBe(false);
+    });
+  });
 });
 
 
@@ -1266,5 +1334,100 @@ describe('conditionsKeyOf — absent and cleared are the same flight (services-r
     expect(key).toContain('pressureHPa=|');
     expect(key).toContain('temperatureC=|');
     expect(key).not.toContain('timeStepS');
+  });
+});
+
+/**
+ * The pressure-thrust line (2026-09-08). The kernel adds RASAero's
+ * `A_exit x (101325 - P(h))` to a stage that carries a nozzle exit diameter,
+ * while its motor burns, under Rogers Kbf or the supersonic model and never
+ * under Classic Extended Barrowman. The kernel exports no per-run total for
+ * it, so the report says what happened and NO number — the only figure the app
+ * could print would be an app-side re-computation sitting beside a kernel
+ * value it does not equal.
+ */
+describe('pressureThrustActive — the report reads the kernel’s own gate off the run stamps', () => {
+  it('is on for Rogers Kbf, and for either spelling of supersonic', () => {
+    expect(pressureThrustActive({ aeroModel: 'classic', rogersKbf: true })).toBe(true);
+    expect(pressureThrustActive({ aeroModel: 'supersonic' })).toBe(true);
+    expect(pressureThrustActive({ aeroModel: 'auto-supersonic' })).toBe(true);
+    // Either flag ALONE admits it — the kernel's condition is a disjunction.
+    expect(pressureThrustActive({ aeroModel: 'supersonic', rogersKbf: false })).toBe(true);
+  });
+
+  it('is off for Classic EB with Kbf off — the parity model, where the nozzle buys nothing', () => {
+    expect(pressureThrustActive({ aeroModel: 'classic', rogersKbf: false })).toBe(false);
+  });
+
+  it('treats an ABSENT rogersKbf as off, not as unknown-so-probably-on', () => {
+    // Runs before v0.033 carry no flag; claiming the term was live on one
+    // would be the app inventing history.
+    expect(pressureThrustActive({ aeroModel: 'classic' })).toBe(false);
+    expect(pressureThrustActive({})).toBe(false);
+  });
+});
+
+describe('the launch report says when thrust was corrected for ambient pressure', () => {
+  const build = (over: {
+    nozzleStages?: string[];
+    aeroModel?: SimRun['aeroModel'];
+    rogersKbf?: boolean;
+  }) => buildSimRun({
+    result: fakeResult(), info, motor, meta: { label: 'C6-5' },
+    launch: DEFAULT_CONDITIONS, rocketName: 'x', execMs: 1,
+    ...over,
+  });
+  const line = (run: SimRun): string | undefined =>
+    run.comments.split(' | ').find((c) => c.startsWith('Thrust was corrected'));
+
+  it('says it, names the stage, and prints NO number', () => {
+    const run = build({ nozzleStages: ['Sustainer'], aeroModel: 'classic', rogersKbf: true });
+    const said = line(run)!;
+    expect(said).toContain('Sustainer carries a nozzle exit diameter');
+    expect(said).toContain('published sea-level curve');
+    expect(said).toContain('thrust:weight at rod departure');
+    // Both ways back, which is what the changelog promises.
+    expect(said).toContain('Clear the nozzle under the stage');
+    expect(said).toContain('Classic (Extended Barrowman) with Rogers Kbf off');
+    // NOTHING numeric: the kernel exports no pressure-thrust total, so a
+    // figure here could only be invented. The only digits allowed in the
+    // sentence are none at all.
+    expect(said).not.toMatch(/\d/);
+  });
+
+  it('is silent under Classic EB, even with a nozzle on the design', () => {
+    expect(line(build({ nozzleStages: ['Sustainer'], aeroModel: 'classic', rogersKbf: false })))
+      .toBeUndefined();
+  });
+
+  it('is silent with no nozzle, on every model', () => {
+    for (const m of ['classic', 'supersonic', 'auto-supersonic'] as const) {
+      expect(line(build({ aeroModel: m, rogersKbf: true })), m).toBeUndefined();
+      expect(line(build({ nozzleStages: [], aeroModel: m, rogersKbf: true })), m).toBeUndefined();
+    }
+  });
+
+  it('is silent on a run with no model stamp at all — the batch, and pre-v0.025 history', () => {
+    expect(line(build({ nozzleStages: ['Sustainer'] }))).toBeUndefined();
+  });
+
+  it('lists several stages and agrees with itself about the verb', () => {
+    const two = line(build({
+      nozzleStages: ['Sustainer', 'Booster'], aeroModel: 'supersonic',
+    }))!;
+    expect(two).toContain('Sustainer and Booster carry a nozzle exit diameter');
+    const three = line(build({
+      nozzleStages: ['Sustainer', 'Booster 1', 'Booster 2'], aeroModel: 'supersonic',
+    }))!;
+    expect(three).toContain('Sustainer, Booster 1 and Booster 2 carry a nozzle');
+  });
+
+  it('keeps the comment levels index-aligned, and carries no separator of its own', () => {
+    const run = build({ nozzleStages: ['Sustainer'], aeroModel: 'supersonic' });
+    expect(commentLevelsAlign(run)).toBe(true);
+    for (const c of run.comments.split(' | ')) expect(c).not.toContain(' | ');
+    const i = run.comments.split(' | ').findIndex((c) => c.startsWith('Thrust was corrected'));
+    // A statement about the model, not a judgement on the rocket.
+    expect(run.commentLevels?.[i]).toBe('info');
   });
 });

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useDialog } from './useDialog.js';
 import { OrkRocket, type FlightResult, type MotorSpec, type RocketTree, type SimulationOptions, type StaticInfo } from '@online-openrocket/engine';
-import { engineTree, isOnLaunchStage, splitClusterPairsTree, splitClusterTree, type ClusterSplit } from '../tree/treeModel.js';
+import { clearStageNozzles, engineTree, isOnLaunchStage, splitClusterPairsTree, splitClusterTree, stagesWithNozzle, type ClusterSplit } from '../tree/treeModel.js';
 import { sheetsToXlsx, type Sheet } from '../services/xlsx.js';
 import {
   MOTOR_DB, classLabel, classesFittingMount, displayDesignation, filterMotors,
@@ -334,6 +334,13 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
   //    candidate multiset — covers 4+2 and 2+2+2 (the owner flies these).
   const [comboMode, setComboMode] = useState(false);
   const [pairMode, setPairMode] = useState(false);
+  // Which stages carry a nozzle exit diameter — what the sweep strips, and
+  // what the note under the candidates row names. Empty under Classic EB on
+  // purpose: neither half of the nozzle (thrust or base drag) is live in the
+  // parity model, so stripping it changes nothing there and a sentence about
+  // it would describe a difference that does not exist.
+  const nozzleStages = useMemo(
+    () => (batchModel === 'eb' ? [] : stagesWithNozzle(tree)), [tree, batchModel]);
   const clusterSplit = useMemo(() => splitClusterTree(tree, sel.id), [tree, sel.id]);
   const pairSplit = useMemo(() => splitClusterPairsTree(tree, sel.id), [tree, sel.id]);
   const [rows, setRows] = useState<BatchRow[]>([]);
@@ -429,7 +436,19 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
         }
       }
     };
-    const batchRocket = OrkRocket.buildTree(engineTree(tree));
+    // THE SWEEP FLIES PUBLISHED CURVES (2026-09-08). Since the pressure-thrust
+    // term went in, a stage's `nozzleExitDiameter` buys thrust as well as
+    // trimming base drag — and this dialog builds ONE rocket from the design
+    // and swaps candidates onto it, so the design's own nozzle would be
+    // credited to every motor in the list. On a 100 N H at a 10 kPa mean
+    // deficit a 1.875 in exit is worth about +18 % of thrust, which is a
+    // comparison between motors decided by a number that belongs to none of
+    // them. Stripped for the whole sweep — both the single-motor pass and the
+    // combination passes below — and the note under the candidates row says
+    // so, because it means a nozzle-bearing design's own motor reads a little
+    // lower here than on the design page.
+    const sweepTree = clearStageNozzles(tree);
+    const batchRocket = OrkRocket.buildTree(engineTree(sweepTree));
     batchRocket.setRogersModifiedBarrowman(kbf);
     batchRocket.setSupersonicAero(batchModel === 'supersonic');
     applyOthers(batchRocket, [sel.id]);
@@ -582,7 +601,9 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
     let done = candidates.length;
     for (const split of activeSplits) {
       if (cancelled.current) break;
-      const comboRocket = OrkRocket.buildTree(engineTree(split.tree));
+      // Same strip as the single-motor pass: `split.tree` is derived from the
+      // DESIGN tree, so it carries the design's nozzles too.
+      const comboRocket = OrkRocket.buildTree(engineTree(clearStageNozzles(split.tree)));
       comboRocket.setRogersModifiedBarrowman(kbf);
       comboRocket.setSupersonicAero(batchModel === 'supersonic');
       applyOthers(comboRocket, [...split.mountIds, sel.id]);
@@ -951,6 +972,22 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
             : `Weighed pad mass: ${weighed.name} on ${mounts.find((m) => m.id === weighed.mountId)?.label} keeps its ${delta} of hardware in every flight; the candidates on this mount fly at their catalogue weight.`;
           return <p className="comp-stats batch-weighed" style={{ margin: '4px 0 0' }}>{text}</p>;
         })()}
+        {/* What the sweep does with the design's nozzle exit diameter, said
+            only when the design has one — every other design would read it as
+            noise about a field it has never touched. Its own line, beside the
+            weighed-mass note rather than folded into it: the two are separate
+            facts and either can be present without the other. */}
+        {nozzleStages.length > 0 && (
+          <p className="comp-stats batch-nozzle" style={{ margin: '4px 0 0' }}>
+            {`Nozzle exit diameter: the sweep flies each candidate on its published sea-level curve `
+              + `and does not apply this design's nozzle (${nozzleStages.map((s) => s.name).join(', ')}), `
+              + 'so a motor you have already flown on the design page reads LOWER here — it loses the '
+              + 'thrust the nozzle buys with height and the base-drag credit with it. Measured across '
+              + '20 RASAero tester designs that carry a nozzle: under 1 % of apogee on '
+              + '11 of them, 2 % on 14, but 8 to 46 % on the six with a large exit on a slim airframe. '
+              + 'Compare batch rows with each other, not with a design-page flight.'}
+          </p>
+        )}
         {progress && (
           // role="progressbar" so the width-only bar is readable by assistive
           // tech at all: NVDA and JAWS report a progress bar's value as it

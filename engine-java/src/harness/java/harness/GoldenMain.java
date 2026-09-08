@@ -47,6 +47,97 @@ public final class GoldenMain {
         massOverrideScenarios();
         lineInstanceScenarios();
         bodyRatioOverrideScenarios();
+        pressureThrustScenarios();
+    }
+
+    /**
+     * RASAero PRESSURE THRUST (feature #5, 2026-09-08) - F(h) = F_curve(t) +
+     * A_exit x (101325 - P(h)), added once per thrusting stage in
+     * RK4SimulationStepper.calculateThrust.
+     *
+     * APPENDED AT THE END OF THE ROSTER ON PURPOSE - difftest.mjs compares the two
+     * runtimes' output BY LINE INDEX, so every existing line must keep its index.
+     *
+     * WHAT EACH ROW IS FOR. The design is the mindia one (a 24 mm minimum-diameter
+     * airframe on a C6, 14 mm nozzle exit) so `flight.pthrust.classic` is a
+     * duplicate of `flight.mindia` BY CONSTRUCTION: it is the leak detector for the
+     * model gate, and the vitest in packages/engine asserts that equality (difftest
+     * cannot - it compares a JVM run against a TeaVM run with no stored baseline, so
+     * a change moving both runtimes together passes it; see LEDGER 2026-08-25b).
+     * `kbf` and `ss` are asserted SEPARATELY because the gate is a disjunction and a
+     * Kbf-only row leaves supersonicAero unexecuted. `nonozzle` pins "flag on, no
+     * nozzle, no term". `kbf.pad` puts the flight on the conditionsScenarios pad
+     * (1400 m / 303.15 K / 86000 Pa) so the custom ExtendedISAModel branch runs and
+     * the term is already non-zero at t = 0. `thrustsample` puts the per-step term
+     * itself in the differential rather than only the apogee it produced.
+     * `pthrust.term` is the formula worked by hand at a fixed altitude, so a reviewer
+     * can check the arithmetic without running a flight.
+     */
+    private static void pressureThrustScenarios() {
+        // Same JSON as minDiameterScenarios, with the nozzle exit diameter as a hole
+        // so the no-nozzle control is the identical airframe.
+        String json = "{\"name\":\"MinDia\",\"components\":[{\"type\":\"stage\",\"name\":\"S\",\"nozzleExitDiameter\":%NOZ%,\"children\":["
+                + "{\"type\":\"nosecone\",\"length\":0.10,\"aftRadius\":0.012,\"thickness\":0.002},"
+                + "{\"type\":\"bodytube\",\"id\":\"body\",\"length\":0.45,\"outerRadius\":0.012,\"thickness\":0.0005,\"density\":950,\"motorMount\":true,\"motorOverhang\":0.006,\"children\":["
+                + "  {\"type\":\"trapezoidfinset\",\"finCount\":3,\"rootChord\":0.05,\"tipChord\":0.03,\"sweep\":0.02,\"height\":0.025,\"thickness\":0.003},"
+                + "  {\"type\":\"parachute\",\"diameter\":0.30}"
+                + "]}]}]}";
+        String[][] cases = {
+                //  tag          nozzle    kbf      supersonic  options
+                { "classic", "0.014", "false", "false", "{\"rodLength\":1.0}" },
+                { "kbf", "0.014", "true", "false", "{\"rodLength\":1.0}" },
+                { "ss", "0.014", "false", "true", "{\"rodLength\":1.0}" },
+                { "nonozzle", "0", "true", "false", "{\"rodLength\":1.0}" },
+                { "kbf.pad", "0.014", "true", "false",
+                        "{\"rodLength\":1.0,\"launchAltitude\":1400,\"temperature\":303.15,\"pressure\":86000}" },
+        };
+        for (String[] c : cases) {
+            int r = api.OrkEngine.buildRocket(json.replace("%NOZ%", c[1]));
+            api.OrkEngine.setMotorById(r, "body", "C6", 0.018, 0.070,
+                    new double[] { 0, 0.1, 0.3, 0.5, 1.0, 1.5, 1.85, 2.0 },
+                    new double[] { 0, 12.0, 6.0, 5.1, 4.9, 4.8, 4.5, 0 },
+                    new double[] { 0.0240, 0.0231, 0.0215, 0.0202, 0.0174, 0.0147, 0.0133, 0.0132 },
+                    0.035, 5.0);
+            if ("true".equals(c[2])) {
+                api.OrkEngine.setRogersModifiedBarrowman(r, true);
+            }
+            if ("true".equals(c[3])) {
+                api.OrkEngine.setSupersonicAero(r, true);
+            }
+            String result = api.OrkEngine.simulateJson(r, c[4]);
+            java.util.Map<String, Object> parsed = api.JsonLite.parseObject(result);
+            java.util.Map<String, Object> summary = asMap(parsed.get("summary"));
+            line("flight.pthrust." + c[0],
+                    api.JsonLite.dbl(summary, "maxAltitude", Double.NaN),
+                    api.JsonLite.dbl(summary, "maxVelocity", Double.NaN),
+                    api.JsonLite.dbl(summary, "timeToApogee", Double.NaN));
+
+            // The thrust series itself, sampled through the burn: the summary alone
+            // could hide a per-step sign or gate error that happens to cancel.
+            java.util.Map<String, Object> series = api.JsonLite.obj(parsed, "series");
+            java.util.List<?> thrust = (java.util.List<?>) series.get("thrust");
+            java.util.List<?> altitude = (java.util.List<?>) series.get("altitude");
+            for (int i = 0; i <= 20; i += 5) {
+                if (thrust != null && altitude != null && i < thrust.size()) {
+                    line("flight.pthrust." + c[0] + ".sample." + i,
+                            ((Number) altitude.get(i)).doubleValue(),
+                            ((Number) thrust.get(i)).doubleValue());
+                }
+            }
+        }
+
+        // The formula, worked by hand at a fixed altitude on the standard model.
+        // A_e for the 14 mm exit is 1.5393804002589984e-4 m^2; at 300 m the standard
+        // ISA gives about 97.81 kPa, so the term is about 0.54 N against a 4.5-12 N
+        // curve. Columns: P(300 m), the pressure deficit, A_e, and the term.
+        double p300 = new ExtendedISAModel().getConditions(300).getPressure();
+        // The kernel's own association, `Math.PI * pow2(d / 2.0)` - i.e. the SQUARE
+        // first, then pi. Written out rather than as `Math.PI * d/2 * d/2`, which
+        // multiplies left to right and lands one ulp away (…9986e-4 against
+        // …9984e-4): a documentation row a reviewer checks a bit-exact assertion
+        // against has to be the same arithmetic as the code (2026-09-08, review).
+        double area = Math.PI * ((0.014 / 2.0) * (0.014 / 2.0));
+        line("pthrust.term", p300, 101325.0 - p300, area, area * (101325.0 - p300));
     }
 
     /**

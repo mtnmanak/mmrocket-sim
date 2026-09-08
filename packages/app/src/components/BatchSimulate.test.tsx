@@ -172,11 +172,11 @@ describe('the batch dialog', () => {
   ];
 
   function mount(launchOver: Partial<LaunchConditions> = {},
-    extra: { weighed?: BatchWeighed; mounts?: BatchMountOption[] } = {}) {
+    extra: { weighed?: BatchWeighed; mounts?: BatchMountOption[]; tree?: RocketTree } = {}) {
     act(() => root.render(
       <PrefsProvider>
         <BatchSimulate
-          tree={TREE}
+          tree={extra.tree ?? TREE}
           info={{} as never}
           mounts={extra.mounts ?? MOUNTS}
           initialMountId="mount"
@@ -236,6 +236,61 @@ describe('the batch dialog', () => {
     mount({}, { mounts, weighed: { ...WEIGHED, mountId: 'centre' } });
     expect(host.querySelector('.batch-weighed')?.textContent).toBe(
       `Weighed pad mass: ${first.commonName} on Centre 29 mm keeps its 182 g of hardware in every flight; the candidates on this mount fly at their catalogue weight.`);
+  });
+
+  /**
+   * THE SWEEP FLIES PUBLISHED CURVES (2026-09-08). The design's nozzle exit
+   * diameter now buys thrust as well as trimming base drag, and the batch
+   * builds ONE rocket and swaps candidates onto it - so the design's nozzle
+   * would be credited to every motor in the list (about +18 % of thrust on a
+   * 100 N H at a 10 kPa mean deficit with a 1.875 in exit). It is stripped,
+   * and the note says so, because it means the design's own motor reads a
+   * little lower here than on the design page.
+   */
+  const NOZZLE_TREE: RocketTree = {
+    ...TREE,
+    components: [{ ...TREE.components[0]!, nozzleExitDiameter: 0.0215 }],
+  };
+
+  it('says nothing about a nozzle when the design has none', () => {
+    mount();
+    expect(host.querySelector('.batch-nozzle')).toBeNull();
+  });
+
+  it('names the stage and says the sweep flies published curves without it', () => {
+    mount({}, { tree: NOZZLE_TREE });
+    const text = host.querySelector('.batch-nozzle')?.textContent ?? '';
+    expect(text).toContain("does not apply this design's nozzle (Sustainer)");
+    expect(text).toContain('published sea-level curve');
+    expect(text).toContain('reads LOWER here');
+    // The base-drag half goes with it - the note owes the reader that too.
+    expect(text).toContain('base-drag credit');
+    // AND THE SIZE OF IT, measured (2026-09-08, review). "a little lower" was
+    // wrong by an order of magnitude on exactly the designs it matters for:
+    // measured across the 20 nozzle-bearing corpus designs the strip costs
+    // 0.08 % of apogee at the low end and 45.8 % on OR vs RAS Test 1, a
+    // minimum-diameter airframe with a 2.737 in exit.
+    expect(text).toContain('8 to 46 %');
+  });
+
+  it('is silent under Classic EB, where neither half of the nozzle is live', () => {
+    mount({}, { tree: NOZZLE_TREE });
+    expect(host.querySelector('.batch-nozzle')).not.toBeNull();
+    const select = [...host.querySelectorAll('select')]
+      .find((el) => [...el.options].some((o) => o.value === 'eb'))!;
+    act(() => {
+      select.value = 'eb';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(host.querySelector('.batch-nozzle')).toBeNull();
+  });
+
+  // The weighed-mass note and the nozzle note are separate facts about the
+  // same sweep; either can be present without the other.
+  it('shows both notes at once without one swallowing the other', () => {
+    mount({}, { tree: NOZZLE_TREE, weighed: WEIGHED });
+    expect(host.querySelector('.batch-weighed')).not.toBeNull();
+    expect(host.querySelector('.batch-nozzle')).not.toBeNull();
   });
 
   // The launch panel's caution is per flight; a batch pays that cost once per
@@ -372,5 +427,31 @@ describe('the completion signal is actually wired up', () => {
     expect(src).toContain('batchSummary({');
     // Announced to assistive tech too, not just painted on screen.
     expect(src).toContain('role="status"');
+  });
+});
+
+/**
+ * The nozzle strip itself, pinned at the two call sites that build a kernel
+ * handle. Exercising a whole sweep here would need the thrustcurve fetch; what
+ * has to be true is narrower and exact — NEITHER handle may be built from a
+ * tree that still carries the design's nozzle. `clearStageNozzles` is proven
+ * to remove it (and to survive `engineTree`) in tree/treeModel.test.ts.
+ */
+describe('the sweep builds its handles from a nozzle-free tree', () => {
+  const src = readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), './BatchSimulate.tsx'), 'utf8');
+
+  it('the single-motor pass strips it', () => {
+    expect(src).toContain('const sweepTree = clearStageNozzles(tree);');
+    expect(src).toContain('OrkRocket.buildTree(engineTree(sweepTree))');
+  });
+
+  it('the combination passes strip it too — split.tree comes from the design tree', () => {
+    expect(src).toContain('OrkRocket.buildTree(engineTree(clearStageNozzles(split.tree)))');
+  });
+
+  it('no handle is built from a raw tree', () => {
+    expect(src).not.toContain('engineTree(tree)');
+    expect(src).not.toContain('engineTree(split.tree)');
   });
 });

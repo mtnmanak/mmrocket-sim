@@ -387,7 +387,21 @@ export const FIELDS: Record<EditorComponentType, FieldDef[]> = {
     // RASAero power-on drag: motor exhaust pressurizes the base during burn,
     // lowering base drag. 0 (default) = power-on CD equals power-off CD. For a
     // cluster, enter the single equivalent nozzle (sum the exit AREAS).
-    lenMM('nozzleExitDiameter', 'Nozzle exit diameter (0 = power-off drag)', 1, 200),
+    //
+    // Since 2026-09-08 the SAME number also buys thrust: under Rogers Kbf or
+    // the supersonic model the kernel adds RASAero's pressure term
+    // `A_exit x (101325 - P(h))` to this stage while its motor burns, so a
+    // published sea-level curve gains the exit area times the pressure the
+    // rocket has climbed out of. The label has to say so — it read
+    // "0 = power-off drag" for two months, which is now half the truth, and a
+    // value typed on the strength of the old label is spent on a safety
+    // number. Both halves are off under Classic EB.
+    //
+    // Kept SHORT deliberately: the panel's longest label before this was 43
+    // characters ('Cd on frontal area (blank or 0 = from class)'), and there is
+    // no tooltip field on FieldDef, so a label is the only copy the box gets.
+    // The full explanation lives in the guide and in the RASAero import note.
+    lenMM('nozzleExitDiameter', 'Nozzle exit diameter (drives thrust and drag; 0 = off)', 1, 200),
   ],
   nosecone: [
     lenMM('length', 'Length'),

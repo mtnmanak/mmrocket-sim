@@ -76,7 +76,8 @@ import {
 import {
   AERO_MODEL_CHANGED, aeroModelLabel, buildSimRun, changedSinceRun, conditionsKeyOf,
   currentModelLabel, formatRunWhenProse, formatStability, listAnd,
-  hasAerodynamicForce, recommendDelay, shownStability, runMatchesDesign, runMatchesModel, shortHash, storedSimCost,
+  hasAerodynamicForce, recommendDelay, runCarriesNozzleStamp, shownStability, runMatchesDesign, runMatchesModel,
+  shortHash, storedSimCost,
   type DesignMatchKey, type FlownRecoveryDevice, type MotorMeta, type SimRun,
 } from './services/simReport.js';
 import { formatWarning, formatWarningText } from './services/simWarnings.js';
@@ -86,8 +87,8 @@ import { pokeServiceWorker, useVersionCheck } from './services/versionCheck.js';
 import {
   addChild, addStage, applyStageNozzles, cloneSubtree, defaultTree, duplicateNode, emptyTree, engineTree, findNode,
   findParent, flownRecoveryDevices, hasParallelStage, inheritDefaults, isOnLaunchStage, makeNode, motorMounts, moveNode,
-  normalizeTree, primaryMountOf, removeNode, stageIndexOf, stages, suppressingAncestor, updateAllNodes,
-  updateNode,
+  motorisedStagesWithNozzle, normalizeTree, primaryMountOf, removeNode, stageIndexOf, stages, stagesWithNozzle,
+  suppressingAncestor, updateAllNodes, updateNode,
 } from './tree/treeModel.js';
 import { clusterCount } from './tree/cluster.js';
 import { estimateMotorRoomForMounts } from './tree/motorRoom.js';
@@ -95,6 +96,7 @@ import { autoAlignFinSets } from './tree/finAlign.js';
 import { railInterferenceWarnings, wakeShadowWarnings } from './tree/mountAngle.js';
 import { convertShrouds, findShroudCandidates, type ShroudCandidate } from './tree/shroudConvert.js';
 import { mountBore } from './tree/scaleRocket.js';
+import { nozzleOversize, nozzleOversizeText } from './services/nozzleCheck.js';
 import { designFingerprint, isDirty, type DesignSnapshot } from './services/dirtyState.js';
 import { createSequencer } from './services/latestWins.js';
 import {
@@ -1780,6 +1782,22 @@ export function App() {
         onDismiss: () => setPadMassNote(null),
       });
     }
+    // A nozzle exit diameter wider than the motors in its stage (2026-09-08).
+    // NOT dismissible, for the reason a build error is not: it is a standing
+    // fact about the design on screen, so a × would be a button that does
+    // nothing — it comes straight back on the next render. One entry per
+    // stage, keyed by the stage id, so a second bad stage cannot hide behind
+    // the first. The check and the sentence are in services/nozzleCheck.ts;
+    // only the unit formatting is here, because that is the one part that
+    // needs prefs.
+    for (const w of nozzleOversize(tree, assigned)) {
+      out.push({
+        id: `nozzle-oversize:${w.stageId}`,
+        severity: 'warn',
+        text: nozzleOversizeText(w, (m) =>
+          `${fmtSi('length', prefs.units.length, m)} ${prefs.units.length}`),
+      });
+    }
     if (fileNoteState) {
       out.push({
         id: 'file-note',
@@ -1790,7 +1808,8 @@ export function App() {
     }
     return out;
   }, [buildError, buildResult, motorFailures, curveRepairs, fileNoteState, setFileNote,
-    restoredByOlderBuild, timeStepMigrated, timeStepMigratedFrom, padMassNote]);
+    restoredByOlderBuild, timeStepMigrated, timeStepMigratedFrom, padMassNote,
+    tree, assigned, prefs.units.length]);
 
   /** Assigns a motor to a mount, with the G80 power-class ignition default. */
   const assignMotor = (targetMountId: string, label: string, spec: MotorSpec, meta: MotorMeta) => {
@@ -2075,6 +2094,14 @@ export function App() {
           // What the kernel was handed for each chute — so the report can state
           // the coefficient the verdict rests on, not just the device's name.
           flownRecovery: built.flownRecovery,
+          // Which stages flew a nozzle AND a motor that can burn, so the report
+          // can say the flown thrust is not the published curve (2026-09-08).
+          // Motorised, not merely nozzle-bearing: the kernel's own gate is
+          // `getThrust(t) > 0`, so a nozzle on a stage the flown configuration
+          // left empty bought exactly nothing and must not be named as
+          // corrected. Names only: whether the term was LIVE is decided from
+          // the two model stamps above, which is the rest of that gate.
+          nozzleStages: motorisedStagesWithNozzle(tree, assigned).map((s) => s.name),
         });
         // Bound to the run it produced — the id is what lets a click through
         // the history table come back to these charts.
@@ -2152,9 +2179,16 @@ export function App() {
       aeroMode,
       effectiveKbf,
       autoSupersonic,
+      // Does the design SPEND the pressure-thrust term? A stored run flown
+      // before v0.119 cannot be re-flown on a design that does — see
+      // simReport's runCarriesNozzleStamp (2026-09-08).
+      hasNozzle: motorisedStagesWithNozzle(tree, assigned).length > 0,
     };
+    // `tree`, not `tree.components`, unlike `buildResult` above: this memo is
+    // ~0.3 ms and re-running it on a rename is cheaper than a suppressed
+    // exhaustive-deps warning is to read.
   }, [built, primaryMountId, physicsKey, assigned, launch, aeroMode, effectiveKbf,
-    autoSupersonic, motorSetKeyOf, hardwareDeltaKg]);
+    autoSupersonic, motorSetKeyOf, hardwareDeltaKg, tree]);
 
   /**
    * Whether a stored run's charts can be recovered by re-flying it here.
@@ -2400,6 +2434,12 @@ export function App() {
     const out: Record<string, OrkExportFlightData> = {};
     const designNow = shortHash(physicsKey);
     const conditionsNow = conditionsKeyOf(launch);
+    // Tree-only, deliberately NOT joined to `assigned` the way the two match
+    // keys are: this loop admits runs from OTHER flight configurations, whose
+    // motors are not the working set, so a stage that is bare right now may
+    // well have burned in the configuration whose numbers are about to be
+    // written into the file. Refusal is the safe direction here (2026-09-08).
+    const hasNozzle = stagesWithNozzle(tree).length > 0;
     for (const r of runs) {
       // Newest-first, so the first qualifying run per config wins.
       if (!r.flightConfigId || out[r.flightConfigId]) continue;
@@ -2412,6 +2452,12 @@ export function App() {
       // wrong number this guard exists to prevent. UNKNOWN (a run predating
       // the field) is a refusal here, as everywhere the numbers travel.
       if (runMatchesModel(r, { aeroMode, effectiveKbf, autoSupersonic }) !== true) continue;
+      // And the kernel's own physics. A run of a nozzle-bearing design flown
+      // before v0.119 carries no pressure-thrust stamp, and none of the three
+      // keys above can see a kernel change — desktop OpenRocket renders a
+      // stale <flightdata> block indistinguishably from a fresh one
+      // (2026-09-08).
+      if (!runCarriesNozzleStamp(r, { hasNozzle, aeroMode, effectiveKbf, autoSupersonic })) continue;
       // The motor set is compared against the CONFIGURATION's own motors, not
       // the live working set: a user who has since switched configurations
       // must still be able to export the results of the others.
@@ -2433,7 +2479,7 @@ export function App() {
     }
     return out;
   }, [runs, savedConfigs, activeConfigId, assigned, mounts, physicsKey, launch, motorSetKeyOf,
-    aeroMode, effectiveKbf, autoSupersonic, hardwareDeltaKg]);
+    aeroMode, effectiveKbf, autoSupersonic, hardwareDeltaKg, tree]);
 
   /**
    * Stage B: the stored presets in exportOrk's shape. Stable ids ride
@@ -3275,8 +3321,9 @@ export function App() {
     aeroMode,
     effectiveKbf,
     autoSupersonic,
+    hasNozzle: motorisedStagesWithNozzle(tree, assigned).length > 0,
   }), [physicsKey, assigned, launch, aeroMode, effectiveKbf, autoSupersonic, motorSetKeyOf,
-    hardwareDeltaKg]);
+    hardwareDeltaKg, tree]);
 
   /**
    * What has changed since the SHOWN run was flown.

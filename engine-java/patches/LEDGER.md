@@ -643,6 +643,179 @@ numbers away from desktop must move OUT of classic"*. Full measurement:
   supersonicAero-only column that same day, because both gates are
   `(rogersKbf || supersonicAero)` and only the first disjunct was exercised.
 
+### RASAero feature #5 — pressure thrust (thrust varies with ambient pressure), 2026-09-08
+
+A published thrust curve is a **sea-level test-stand measurement**. As the rocket climbs
+the atmosphere presses less on the nozzle's exit plane, so the motor gains exactly the
+exit area times the pressure lost. RASAero has always modelled this; we did not, and the
+register carried it as "motor thrust still does not vary with ambient pressure" (§3 item 1,
+C1). Chuck Rogers's own formulation, from his MESOS comparison deck, slides 10-12
+(Dropbox `/online_open_rocket_reference/RASAero II Comparison with MESOS 293K Flight Data -
+Rev B.pdf`):
+
+**F(h) = F_curve(t) + A_exit × (101,325 Pa − P(h))**
+
+The slope is exact physics (Sutton, the rocket thrust equation); the **sea-level reference
+is a convention**, and it is the only one the data supports — a RASP `.eng` file carries no
+test-site field, so nothing else could be filled in. A curve really shot at altitude is
+overstated by a CONSTANT offset which the app already carries today; this term neither adds
+to that bias nor removes it, it supplies only the exact slope above the pad. Assessment and
+the four readers' evidence: `docs/research/thrust-with-altitude-2026-09-08.md` (+ `-readers`).
+Eric's ruling, chat 2026-09-08: *"build it as per your recommendation"* — option C.
+
+**One file.** `simulation/RK4SimulationStepper.java` (NEW patch, +139 lines against upstream
+and **zero deletions**): `calculateThrust` gains a four-line guarded add after the existing
+curve loop (plus its comment), a private helper `calculatePressureThrust`
+and a `PRESSURE_THRUST_REFERENCE_PRESSURE = 101325.0` constant. Four imports
+(`AerodynamicCalculator`, `BarrowmanCalculator`, `AxialStage`, `RocketComponent`). Nothing
+else changed: no new field, no `AxialStage`/`FlightConditions`/`SimulationConditions` edit,
+no bridge export, no TypeScript method. The nozzle already reaches the stage
+(`OrkEngine.applySeparationConfig`) and the model flags already sit on the calculator that
+`simulateJson` hands the stepper, so the helper reads both off objects it is already given.
+
+- **Gate — the same one as the drag half, deliberately.** `(rogersKbf || supersonicAero)`,
+  read as `status.getSimulationConditions().getAerodynamicCalculator() instanceof
+  BarrowmanCalculator` then `isRogersKbf() || isSupersonicAero()` — the exact disjunction at
+  `BarrowmanCalculator.java:1113`. Desktop OpenRocket 24.12 has no nozzle-exit model of any
+  kind (`NozzleExitDiameter` appears in exactly two files in the release, both under
+  `file/rasaero`, and nothing in `core/aerodynamics` reads it), so an ungated term would
+  break the v0.069 parity proof that "OpenRocket — Extended Barrowman" computes what it
+  computes with the nozzle deleted. Eric's standing ruling, 2026-08-25. Ways back for a
+  user: pick Classic EB, or clear the stage's nozzle (which drops the drag half too).
+- **Once per THRUSTING STAGE, not once per motor.** `AxialStage.nozzleExitDiameter` is
+  defined app-side as the cluster's single equivalent nozzle with the exit AREAS summed
+  (the `FIELDS.stage` entry in `packages/app/src/tree/schema.ts` — NOT `model/schema.ts`,
+  which has never existed; corrected 2026-09-08 in the patch javadoc, this bullet and
+  `pressureThrust.test.ts` together), RASAero Manual p.50, so multiplying by
+  `MotorClusterState.motorCount` would count a cluster twice against a field that already
+  holds the sum. It also keeps the two halves consistent — the drag half subtracts one
+  nozzle area per stage INSTANCE. Two mounts on one stage are de-duplicated by stage number,
+  the way `applyThrustState` builds its thrusting-stage set. (This overrules the kernel
+  reader's per-motor recommendation; the physics and inputs readers were right.)
+- **⚠ THE TWO HALVES WILL DISAGREE BY THE INSTANCE COUNT ONCE PARALLEL STAGES REACH THE
+  BRIDGE.** The drag half applies the subtraction inside its per-component loop and then
+  scales: `total += instanceCount * cd` (`BarrowmanCalculator.java` patch :1121), so an
+  N-instance `ParallelStage` removes N nozzle areas of base drag. This half de-duplicates by
+  `stage.getStageNumber()`, which is ONE number for the whole `ParallelStage`, so it adds
+  exactly one area however many instances burn — while `MotorClusterState.getThrust` already
+  returned N × the curve. Not reachable today: `orkEngine.ts`'s `parallelstage`/`podset`
+  comment records that kernel support is compiled in but the JS-bridge build path lands in a
+  later phase, so nothing can construct one. **Resolve it in the sitting that bridge lands** —
+  either multiply by the stage's instance count here, or define the field as
+  per-parallel-instance and change the drag half instead. Recorded 2026-09-08 (review),
+  because the old wording of the bullet above ("exactly one nozzle area per stage") was what
+  hid it.
+- **Staggered ignition over-credits a cluster, and the drag half does too.** The whole summed
+  equivalent area is charged from the moment the stage's FIRST motor lights: a central motor
+  at launch with three outboards airstarted at burnout + 1 (expressible today, per mount, via
+  `setMotorIgnitionById`) is credited the four-motor area for the whole of the central
+  motor's burn. The drag half is gated on the same stage-thrusting flag and behaves
+  identically, so the two stay consistent; correcting it means scaling by the burning
+  fraction in BOTH halves at once, which is a bigger change than this release. Recorded
+  2026-09-08 (review); the guide's "Once per stage" bullet says it in words.
+- **The stage is the burning motor MOUNT's own stage** (`((RocketComponent)
+  m.getMount()).getStage()`), so a booster's nozzle can never be credited to the sustainer,
+  overlapping burn or not.
+- **Only while the motor's CURVE thrust is above zero** — `m.getThrust(t) > 0.0`, the same
+  predicate the drag half switches on, so both halves turn on and off at the same sub-step.
+  RASAero adds its term before ignition and after burnout as well (Chuck confirmed the
+  artefact, TRF 194463 #17/#19); **that is a deliberate, stated deviation**.
+- **P(h) is `store.flightConditions.getAtmosphericConditions().getPressure()`** — the very
+  same `AtmosphericConditions` object the drag term reads at this RK4 sub-step. Zero extra
+  atmosphere-model calls, no second firing of the pre/post atmospheric listeners, and thrust
+  and drag can never disagree about the altitude. The pad's typed temperature and pressure
+  flow through unchanged (`ExtendedISAModel(alt, T, P)`), which is what makes a pad term at a
+  high site possible at all. The golden `flight.pthrust.kbf.pad.sample.*` is the example the
+  kernel actually produces: a 1,400 m / 86,000 Pa pad, a bit-exact 0 at t = 0 (the curve has
+  not lit) and ≈ 2.36 N once it has. On real files, SS_Wild_Bash +10.655 N and StratoSpear
+  +7.478 N at t = 0 — both from `.CDX1` files whose author typed a real station pressure.
+  ⚠ **CORRECTED 2026-09-08 (review): this bullet used to cite "MESOS's 3,910 ft pad gives its
+  M787 sustainer +31.7 N at t = 0", which the kernel cannot produce.** The M787 is the
+  SUSTAINER, lit at ~37,861 ft, so the curve-thrust gate returns exactly 0 for it at t = 0;
+  and `MESOS_Last_Preflight_File` states no pressure, so `OrkEngine`'s
+  `ExtendedISAModel(alt, T, STANDARD_PRESSURE)` branch puts 101,325 Pa at its pad and the term
+  would be ≈ 0 there even for a stage that WAS burning. The assessment's +31.7 N was a
+  magnitude illustration, not a t = 0 claim.
+  `deficit` may be NEGATIVE (a pad above 101,325 Pa, or a below-sea-level site), which is
+  physically right — hence the test is `!= 0.0`, not `> 0.0`.
+- **⚠ A FILE THAT STATES NO PRESSURE IS FLOWN AT 101,325 Pa AT ITS OWN SITE**, so its pad term
+  is ~0 however high the site. `OrkEngine.simulateJson` takes the
+  `ExtendedISAModel(launchAltitude, T, P)` branch when EITHER field is typed and defaults the
+  missing one, and a `.CDX1` always carries a `<Temperature>` while `rasaeroFile.ts` leaves
+  `pressureHPa` null unless `<Pressure>` is above 0. Measured: 21 of the 23 flown corpus
+  designs have a pad term at or below zero; G record 2023 gains −0.003 N on its 8,800 ft pad
+  as imported, and +2.906 N once the station pressure is typed. Nothing here is wrong — the
+  kernel does what it was asked — but the guide and the changelog must say it, and the
+  pressure-field relabel is now the largest input-quality lever open on Eric.
+- **The corrected TOTAL is floored at zero (2026-09-08, review), a third stated deviation.**
+  The term is signed, and a large exit typed against an above-standard pad drove a burning
+  32 N motor to −9.6 N and a 0.000 m apogee with no reason attached. `MathUtil` is not used:
+  the clamp is an `if (thrust < 0.0) thrust = 0.0;` INSIDE the `pressureThrust != 0.0` guard,
+  so the flags-off path still executes no arithmetic on `thrust`. RASAero does not clamp; a
+  real over-expanded nozzle separates and thrust floors near zero, so the clamp is the
+  physical answer as well as the safe one, and it can only bite where the total was already
+  negative.
+- **Tail-off caveat, recorded rather than modelled:** the full geometric exit area assumes a
+  full-flowing nozzle; during tail-off the flow separates and `A_e·ΔP` overstates. RASAero
+  applies the full term whenever the motor burns and reproducing RASAero is the point.
+- **Consequence for the UI, which the changelog must carry:** the stored `thrust` series
+  (`TYPE_THRUST_FORCE`, and `TYPE_THRUST_WEIGHT_RATIO` with it, hence thrust:weight at rod
+  departure) now sits ABOVE the catalogue curve by `A_e·ΔP` in every plot.
+- **Guard — structural, not arithmetic.** With the flags off, or every stage's nozzle at 0,
+  the helper returns `0.0` before any per-motor work and the caller's `if (pressureThrust !=
+  0.0)` means **no floating-point operation touches `thrust` at all**; the existing loop's
+  summation order is untouched. Proven, not asserted: `gradlew goldenJvm` before and after
+  the patch, **all 324 pre-existing lines byte-identical**, only appended ones added, and
+  `flight.pthrust.classic` (the mindia design, flags off, 14 mm nozzle) comes back
+  `329.60970452899176|109.38572576554664|7.149247412564792` — the same three doubles as
+  `flight.mindia`, digit for digit.
+- **Goldens:** `pressureThrustScenarios()`, appended at the END of the roster (difftest
+  compares BY LINE INDEX). 31 new lines: `flight.pthrust.{classic,kbf,ss,nonozzle,kbf.pad}`
+  with five `…sample.<i>` rows each carrying (altitude, thrust) through the burn, plus
+  `pthrust.term`, the formula worked by hand — `P(300 m) = 97806.50274834312`, deficit
+  `3518.4972516568814`, `A_e = 1.539380400258999e-4`, term `0.5416305707565757` N (the area written with the KERNEL's own association, `PI * pow2(d/2)`; the row first shipped with `PI * d/2 * d/2`, one ulp away, so the documentation row and the code disagreed in their last digit — corrected 2026-09-08, review). `kbf`
+  and `ss` are separate because the gate is a disjunction. Differential **324 → 355 lines**,
+  JVM↔TeaVM clean (229 bit-identical, 126 within the existing tolerances).
+- **Behavioural guards** (goldens cannot do this — difftest has no stored baseline, so a
+  change that moves both runtimes together passes it; LEDGER 2026-08-25b):
+  `packages/engine/src/pressureThrust.test.ts`, 8 tests — the formula asserted BIT-EXACTLY at
+  every row of a burn (a 32 N dyadic plateau makes the curve reconstruction exact, so the
+  stored total must equal `curve + A_e·(101325 − P)` under `toBe`), the vacuum limit at an
+  80 km pad, exact zeros before ignition and through the coast on a 2,000 m pad where an
+  ungated term would be 6.9 N, both gates (parity model, and nozzle 0 under each flag
+  separately), a 3-ring cluster gaining ONE equivalent area and provably not three, a
+  booster's 30 mm nozzle never reaching the sustainer's burn, and the mindia parity flight
+  still at 329.6097045289919 m.
+- **Artifact:** `packages/engine/vendor/orkengine.mjs` 2,736,841 → 2,743,381 bytes, md5
+  `fdb06f286dcbab063983a3a77cf9098e` → `bef15ae395e45b0d271946d3234082fa` (the +57 bytes over the
+  first build of this patch are the zero-floor clamp; `iocs_RK4SimulationStepper_calculateThrust`
+  in the artifact reads `if (var$4 < 0.0) var$4 = 0.0;` inside the `$pressureThrust !== 0.0`
+  guard). Post-build greps
+  (TeaVM names a private method `<Class>_<method>`, not `$<method>`):
+  `RK4SimulationStepper_calculatePressureThrust` **0 → 2**, `$isRogersKbf` **0 → 2**,
+  `$isSupersonicAero` **0 → 2**, `$getNozzleExitDiameter` 3 → 4, `101325` 4 → 6. The two
+  getters were dead-code-eliminated before this patch because nothing referenced them —
+  that they are now linked is the proof the new code is really in the artifact.
+- **Corpus A/B, measured 2026-09-08 (review) through the two artifacts.** Every RASAero corpus
+  design that carries a nozzle, imported by the app's own `importCdx1`, motors resolved by
+  `matchImportedMotor`, flown under Rogers Kbf at the file's own launch conditions, once against
+  the committed v0.118 artifact and once against this one. 20 designs resolved (the rest are
+  motor-database gaps). Apogee moves **+0.007 % to +29.655 %, median +0.274 %**; 12 under half a
+  percent, 4 over five (G record 2023 +5.51, 38-54 2-stage +5.89, 2,4-D +9.59, OR vs RAS Test 1
+  +29.65). **The no-op is proven, not asserted:** with the nozzle cleared, all 20 return the same
+  apogee under BOTH artifacts to the last decimal printed — that is the "clear the nozzle" way
+  back. The strip's own cost (nozzle on vs cleared, this kernel) is 0.084 % to 45.757 %, which is
+  what the batch dialog's note and the guide now quote.
+- **`validation/` cannot see this change at all:** `score.mjs` drives `getDragSweep`, which
+  is static and never calls `calculateThrust`, and no fixture sets a nozzle. No tolerance
+  question arises, and none may be invented — there is no published anchor for thrust versus
+  altitude on disk.
+- **Upstreamability: none, and that is intended.** Desktop OpenRocket has no nozzle exit
+  diameter on a stage and no pressure term, so this is a MMRocket Sim extension living
+  behind the same model gate as features #1-#4. On an upstream upgrade, re-diff
+  `RK4SimulationStepper.java` against the new release and re-apply the helper plus the five
+  lines in `calculateThrust`; the insertion touches nothing upstream is likely to move.
+
 ## Performance patches (behaviour-preserving — bit-identical goldens REQUIRED)
 
 Added 2026-08-26 after a beta tester reported 40-second flights and repeated

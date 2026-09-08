@@ -1982,6 +1982,24 @@ describe('RASAero import — nozzle exit diameter, per simulation with the Desig
     expect(note).not.toMatch(/carries no simulation/);
   });
 
+  /**
+   * The note gained a thrust clause on 2026-09-08, when the same value started
+   * buying thrust as well as trimming base drag. An imported RASAero design is
+   * the ONE place the number arrives without anyone typing it, so this note is
+   * the only thing that tells its owner what it now costs.
+   */
+  it('the note says the value raises thrust with altitude, not only that it trims drag', () => {
+    const r = importCdx1(fixture('MESOS_Last_Preflight_File.CDX1'));
+    const note = r.notes.find((n) => /Nozzle exit diameter/.test(n))!;
+    expect(note).toMatch(/raises thrust as the rocket climbs/);
+    expect(note).toMatch(/sea-level curve/);
+    // Still says which model it applies under, and still says the way out.
+    expect(note).toMatch(/Rogers Kbf and Supersonic/);
+    expect(note).toMatch(/clear it under the stage/);
+    // And still leads with where each value came from.
+    expect(note).toMatch(/^Nozzle exit diameter: Sustainer 2\.15 in, Booster 3\.33 in from simulation 1/);
+  });
+
   it('the exporter still writes zeros (recommendation 2 — leave the export alone)', () => {
     const r = importCdx1(fixture('MESOS_Last_Preflight_File.CDX1'));
     expect(r.tree.components[0]!['nozzleExitDiameter']).toBeGreaterThan(0);

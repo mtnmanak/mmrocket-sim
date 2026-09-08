@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { OrkRocket } from '@online-openrocket/engine';
-import { bodyDragReference, engineTree, fairingDeliveredCd, fairingFrontalArea, findNode, findParent, mountRadiusOf, hasParallelStage, isOnLaunchStage, makeNode, motorMounts, mountsIn, normalizeTree, primaryMountOf, protuberanceCd, protuberanceDeliveredCd, protuberanceFrontalArea, PROTUBERANCE_REF_MACH, referenceArea, resetBodyDragCache, splitClusterPairsTree, splitClusterTree } from './treeModel.js';
+import { bodyDragReference, clearStageNozzles, engineTree, fairingDeliveredCd, fairingFrontalArea, findNode, findParent, mountRadiusOf, hasParallelStage, isOnLaunchStage, makeNode, motorMounts, mountsIn, normalizeTree, primaryMountOf, protuberanceCd, protuberanceDeliveredCd, protuberanceFrontalArea, PROTUBERANCE_REF_MACH, referenceArea, resetBodyDragCache, splitClusterPairsTree, splitClusterTree, stageIdByNode, motorisedStagesWithNozzle, stagesWithNozzle } from './treeModel.js';
 import { clusterOffsets } from './cluster.js';
 import { allowedChildren, defaultParams, DISPLAY_NAME, FIELDS } from './schema.js';
 
@@ -1673,5 +1673,162 @@ describe('mounting angle reaches the kernel (inertia, never drag)', () => {
     const plain = engineTree(withPart(noAngle));
     expect(plain.components[0]!.children![1]!.children!.find((c) => c.id === 'pr')!['angleOffset'])
       .toBe(0);
+  });
+});
+
+/**
+ * The batch sweep's nozzle strip, and the "which stages spend the term"
+ * question three callers ask (2026-09-08). Both matter because the same field
+ * now buys thrust as well as trimming base drag: the batch must not credit a
+ * candidate motor with a nozzle that belongs to the design's own motor.
+ */
+describe('clearStageNozzles / stagesWithNozzle', () => {
+  const staged = (): RocketTree => ({
+    name: 'Two stage',
+    components: [
+      {
+        type: 'stage', id: 'sus', name: 'Sustainer', nozzleExitDiameter: 0.0215,
+        children: [{ type: 'bodytube', id: 'bt0', length: 0.4 } as ComponentNode],
+      } as ComponentNode,
+      {
+        type: 'stage', id: 'boo', name: 'Booster', nozzleExitDiameter: 0.0846,
+        children: [{ type: 'bodytube', id: 'bt1', length: 0.6 } as ComponentNode],
+      } as ComponentNode,
+    ],
+  });
+
+  it('names every stage carrying a nozzle above zero, in tree order', () => {
+    expect(stagesWithNozzle(staged())).toEqual([
+      { id: 'sus', name: 'Sustainer', exitDiameterM: 0.0215 },
+      { id: 'boo', name: 'Booster', exitDiameterM: 0.0846 },
+    ]);
+  });
+
+  it('ignores 0, a negative, a non-number and a missing key — "no nozzle" is ABSENT', () => {
+    const t = staged();
+    t.components[0]!['nozzleExitDiameter'] = 0;
+    delete t.components[1]!['nozzleExitDiameter'];
+    expect(stagesWithNozzle(t)).toEqual([]);
+    t.components[0]!['nozzleExitDiameter'] = -0.02;
+    expect(stagesWithNozzle(t)).toEqual([]);
+    t.components[0]!['nozzleExitDiameter'] = Number.NaN;
+    expect(stagesWithNozzle(t)).toEqual([]);
+    t.components[0]!['nozzleExitDiameter'] = '20' as unknown as number;
+    expect(stagesWithNozzle(t)).toEqual([]);
+  });
+
+  it('falls back to a readable stage name rather than inventing an empty one', () => {
+    const t: RocketTree = {
+      name: 'x',
+      components: [{ type: 'stage', id: 's', nozzleExitDiameter: 0.02 } as ComponentNode],
+    };
+    expect(stagesWithNozzle(t)[0]!.name).toBe('Stage 1');
+  });
+
+  it('DELETES the key rather than writing 0 — the kernel and the .ork reader both spell "none" as absent', () => {
+    const out = clearStageNozzles(staged());
+    for (const st of out.components) expect('nozzleExitDiameter' in st).toBe(false);
+    expect(stagesWithNozzle(out)).toEqual([]);
+  });
+
+  it('leaves the rest of the design alone and does not mutate the input', () => {
+    const t = staged();
+    const out = clearStageNozzles(t);
+    // The original still carries both — the batch flies a copy, not the design.
+    expect(t.components[0]!['nozzleExitDiameter']).toBe(0.0215);
+    expect(t.components[1]!['nozzleExitDiameter']).toBe(0.0846);
+    expect(out.name).toBe('Two stage');
+    expect(out.components.map((s) => s.id)).toEqual(['sus', 'boo']);
+    expect(out.components[0]!.children![0]!.id).toBe('bt0');
+  });
+
+  it('returns the SAME tree by identity when there is nothing to clear', () => {
+    const t = clearStageNozzles(staged());
+    expect(clearStageNozzles(t)).toBe(t);
+  });
+
+  it('reaches a nested node too — the helper does not lean on stages being top-level', () => {
+    const t: RocketTree = {
+      name: 'x',
+      components: [{
+        type: 'stage', id: 's', name: 'Sustainer',
+        children: [{ type: 'parallelstage', id: 'ps', nozzleExitDiameter: 0.03 } as ComponentNode],
+      } as ComponentNode],
+    };
+    const out = clearStageNozzles(t);
+    expect('nozzleExitDiameter' in out.components[0]!.children![0]!).toBe(false);
+    // The parent is rebuilt only because its children changed; nothing else moved.
+    expect(out.components[0]!.id).toBe('s');
+  });
+
+  // The whole point: the sweep's kernel tree must carry no nozzle, so a
+  // candidate motor is never credited with the design motor's exit area.
+  it('survives engineTree — the lowered tree the batch builds has no nozzle either', () => {
+    const lowered = engineTree(clearStageNozzles(staged()));
+    for (const st of lowered.components) expect(st['nozzleExitDiameter']).toBeUndefined();
+  });
+});
+
+/**
+ * The launch report used to name every stage with a nozzle as "corrected for
+ * ambient pressure", motor or no motor — while the kernel's own gate is
+ * `getThrust(t) > 0`, so an unmotorised stage bought exactly nothing
+ * (2026-09-08, review). Common shape: a two-stage RASAero import whose booster
+ * motor is not in the database.
+ */
+describe('motorisedStagesWithNozzle', () => {
+  const staged = (): RocketTree => ({
+    name: 'Two stage',
+    components: [
+      {
+        type: 'stage', id: 'sus', name: 'Sustainer', nozzleExitDiameter: 0.0215,
+        children: [{
+          type: 'bodytube', id: 'bt0', length: 0.4,
+          children: [{ type: 'innertube', id: 'ms', length: 0.2 } as ComponentNode],
+        } as ComponentNode],
+      } as ComponentNode,
+      {
+        type: 'stage', id: 'boo', name: 'Booster', nozzleExitDiameter: 0.0846,
+        children: [{
+          type: 'bodytube', id: 'bt1', length: 0.6,
+          children: [{ type: 'innertube', id: 'mb', length: 0.4 } as ComponentNode],
+        } as ComponentNode],
+      } as ComponentNode,
+    ],
+  });
+  const lit = { ignition: { event: 'automatic' } };
+
+  it('names only the stages that actually carried a motor', () => {
+    expect(motorisedStagesWithNozzle(staged(), [['ms', lit]]).map((s) => s.name))
+      .toEqual(['Sustainer']);
+    expect(motorisedStagesWithNozzle(staged(), [['ms', lit], ['mb', lit]]).map((s) => s.name))
+      .toEqual(['Sustainer', 'Booster']);
+    expect(motorisedStagesWithNozzle(staged(), [])).toEqual([]);
+  });
+
+  it('a motor set to never ignite is not a motor that burns', () => {
+    expect(motorisedStagesWithNozzle(staged(), [['ms', lit], ['mb', { ignition: { event: 'never' } }]])
+      .map((s) => s.name)).toEqual(['Sustainer']);
+  });
+
+  it('a stale record whose mount the tree no longer has names nothing', () => {
+    expect(motorisedStagesWithNozzle(staged(), [['gone', lit]])).toEqual([]);
+  });
+
+  it('a motorised stage with no nozzle is still not named', () => {
+    const t = staged();
+    delete t.components[0]!['nozzleExitDiameter'];
+    expect(motorisedStagesWithNozzle(t, [['ms', lit], ['mb', lit]]).map((s) => s.name))
+      .toEqual(['Booster']);
+  });
+
+  it('stageIdByNode joins by ID, so a non-normalized top level cannot shift the answer', () => {
+    // `stages()` filters to type 'stage' while `stageIndexOf` does not, so an
+    // extra top-level node moves one index space and not the other. Ids do not
+    // move.
+    const t = staged();
+    t.components.unshift({ type: 'masscomponent', id: 'ballast' } as ComponentNode);
+    expect(stageIdByNode(t).get('mb')).toBe('boo');
+    expect(motorisedStagesWithNozzle(t, [['mb', lit]]).map((s) => s.name)).toEqual(['Booster']);
   });
 });
