@@ -3,6 +3,8 @@ import { UnitChip } from './UnitChip.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { fmtSi, niceStep, siToUi, uiToSi } from '../prefs/units.js';
 import { solveBallast, type BallastSolution } from '../services/buildAllowance.js';
+import type { HardwareMassResult } from '../services/hardwareMass.js';
+import type { MeasuredFigures } from '../services/orkFile.js';
 
 /**
  * "Measured mass & CG" (issues-2026-08-23a.md §5).
@@ -17,10 +19,18 @@ import { solveBallast, type BallastSolution } from '../services/buildAllowance.j
  * AIRFRAME ONLY. The owner's call: people weigh a build on the bench with the
  * motor out, so both the measured figures and the computed ones they are
  * compared against exclude the motor.
+ *
+ * THE THIRD FIELD IS THE EXCEPTION, and it is used at once (2026-09-07). "Pad
+ * weight (with motor)" is the whole rocket as it goes on the pad; the app
+ * subtracts the dry rocket and the catalogue motor and carries what is left —
+ * adapter, retainer, closure — on the motor. No button, because there is
+ * nothing to decide: it is a measurement, not a model. The line under the
+ * compare list says what was carried, on which mount, or why nothing was. The
+ * arithmetic and the refusals live in services/hardwareMass.ts.
  */
 export function MeasuredMassBox({
   bareMassKg, bareCgM, rocketLengthM, hasAllowance, measured, onChange, onApply,
-  blockedBy, onPinStage,
+  blockedBy, onPinStage, hardware, computedPadMassKg, motorLabel, mountName,
 }: {
   /** Computed dry mass with any existing allowance backed out (kg). */
   bareMassKg: number;
@@ -28,8 +38,8 @@ export function MeasuredMassBox({
   bareCgM: number;
   rocketLengthM: number;
   hasAllowance: boolean;
-  measured: { massKg: number | null; cgM: number | null };
-  onChange: (next: { massKg: number | null; cgM: number | null }) => void;
+  measured: MeasuredFigures;
+  onChange: (next: MeasuredFigures) => void;
   onApply: (solution: Extract<BallastSolution, { kind: 'ok' }>) => void;
   /**
    * The component whose mass override would swallow the ballast, when one
@@ -45,12 +55,24 @@ export function MeasuredMassBox({
    * cannot do it unambiguously (more than one stage covered).
    */
   onPinStage?: () => void;
+  /** What the build derived from the pad weight (App's buildResult.hardware). */
+  hardware?: HardwareMassResult;
+  /**
+   * The pad field's placeholder: dry mass plus catalogue motor(s), kg — what
+   * the app assumes with the field blank. Null when there is no motor, or the
+   * motor carries no mass curve.
+   */
+  computedPadMassKg?: number | null;
+  /** The primary mount's motor as the picker labels it ("AeroTech J540R"). */
+  motorLabel?: string;
+  /** The primary mount's name, for "carried as hardware on 75mm MMT". */
+  mountName?: string;
 }) {
   const { prefs } = usePrefs();
   const massSym = prefs.units.mass;
   const lenSym = prefs.units.length;
 
-  const { massKg, cgM } = measured;
+  const { massKg, cgM, padMassKg } = measured;
   const solution = massKg !== null && cgM !== null
     ? solveBallast({
       computedMassKg: bareMassKg,
@@ -69,8 +91,10 @@ export function MeasuredMassBox({
     <div className="panel measured-box">
       <h2>Measured mass &amp; CG</h2>
       <p className="measured-hint">
-        Weigh and balance the airframe <strong>with the motor out</strong>, then type what you
-        got. Nothing changes until you press the button.
+        Weigh and balance the airframe <strong>with the motor out</strong> and type what you
+        got; nothing changes until you press the button. Then weigh the whole rocket{' '}
+        <strong>with the motor in</strong> — that number is used at once, to carry the adapter,
+        retainer and closure the catalogue motor weight leaves out.
       </p>
 
       <div className="field-grid">
@@ -116,6 +140,26 @@ export function MeasuredMassBox({
             ariaLabel="Measured balance point, measured from the nose tip"
           />
         </div>
+        {/* Row 2 of the two-column grid, alone: this is a different kind of
+            number from the pair above it (motor IN, used at once), and its
+            own row reads that way. */}
+        <div className="field">
+          <label htmlFor="measured-pad">
+            Pad weight (with motor) <UnitChip quantity="mass" />
+          </label>
+          <NumField
+            id="measured-pad"
+            value={padMassKg == null ? undefined : siToUi('mass', massSym, padMassKg)}
+            onCommit={(v) => onChange({
+              ...measured,
+              padMassKg: v === null ? null : uiToSi('mass', massSym, v),
+            })}
+            nullable
+            step={niceStep(siToUi('mass', massSym, 0.005))}
+            placeholder={computedPadMassKg == null ? undefined : fmtSi('mass', massSym, computedPadMassKg)}
+            ariaLabel="Weighed pad mass, motor installed"
+          />
+        </div>
       </div>
 
       <dl className="measured-compare">
@@ -138,6 +182,10 @@ export function MeasuredMassBox({
           </dd>
         </div>
       </dl>
+
+      <p className="measured-hint measured-hardware">
+        <HardwareLine hardware={hardware} mass={mass} motorLabel={motorLabel} mountName={mountName} />
+      </p>
 
       {solution && <Verdict
         solution={solution}
@@ -243,6 +291,55 @@ function Verdict({ solution, hasAllowance, onApply, mass, len, blockedBy, onPinS
           explained by added mass anywhere, so the part masses are wrong in their
           <strong> distribution</strong>, not just their total.
         </p>
+      );
+  }
+}
+
+/**
+ * ONE line, in plain words, saying what the pad weight did — or why it did
+ * nothing. Every number goes through `mass()` so it follows the unit
+ * preference like the compare list above it; the carried figure gets the same
+ * highlight as the deltas there. Each refusal names the catalogue motor it
+ * subtracted, because "a different motor" is the likeliest cause and the user
+ * cannot check that against a number they cannot see.
+ */
+function HardwareLine({ hardware, mass, motorLabel, mountName }: {
+  hardware: HardwareMassResult | undefined;
+  mass: (kg: number) => string;
+  motorLabel: string | undefined;
+  mountName: string | undefined;
+}) {
+  const motor = motorLabel ?? 'motor';
+  const mount = mountName ?? 'the motor mount';
+  // `motorMassKg` sums EVERY mount's catalogue motor, but `motorLabel` is the
+  // primary's alone — so with two mounts the total must not sit beside one
+  // motor's name ("catalogue J540R 1584 g" for a J540R plus a booster motor).
+  const catalogue = (r: { mountCount: number }): string =>
+    r.mountCount > 1 ? `catalogue motors on ${r.mountCount} mounts` : `catalogue ${motor}`;
+  if (!hardware || (hardware.state === 'none' && hardware.why === 'no-pad-mass')) {
+    return <>Enter the weighed pad mass to carry adapter, retainer and closure mass the catalogue motor weight leaves out.</>;
+  }
+  switch (hardware.state) {
+    case 'none':
+      return hardware.why === 'no-motor'
+        ? <>Assign a motor to use the weighed pad mass — the hardware is what is left after the catalogue motor weight.</>
+        : <>The catalogue motor carries no mass curve, so the hardware cannot be separated from it.</>;
+
+    case 'implausible':
+      return hardware.reason === 'negative'
+        ? <>{`Weighed pad mass is ${mass(-hardware.deltaKg)} LIGHTER than the dry rocket plus the ${catalogue(hardware)} (${mass(hardware.motorMassKg)}) — a typo or a different motor. Nothing is carried.`}</>
+        : <>{`That would carry ${mass(hardware.deltaKg)} as hardware — more than the airframe itself. A typo or a different motor; nothing is carried.`}</>;
+
+    case 'ok':
+      return (
+        <>
+          {`${hardware.mountCount > 1 ? 'Motors' : 'Motor'} and hardware: ${mass(hardware.motorMassKg + hardware.deltaKg)} weighed · ${catalogue(hardware)} ${mass(hardware.motorMassKg)} · `}
+          <span className="measured-delta">{mass(hardware.deltaKg)}</span>
+          {` carried as hardware on ${mount}`}
+          {hardware.motorCount > 1 && ` (×${hardware.motorCount}, ${mass(hardware.perMotorShiftKg)} each)`}
+          {` — dry mass ${hardware.drySource === 'measured' ? 'as you measured it' : 'as computed'}.`}
+          {hardware.large && ' More than half the motor’s own weight — check the entry.'}
+        </>
       );
   }
 }

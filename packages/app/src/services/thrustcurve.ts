@@ -287,6 +287,59 @@ export function repairSamples(samples: readonly TcSample[]): RepairedCurve {
  */
 const BURN_AGREEMENT = 0.15;
 
+/**
+ * A file whose integrated impulse is within this of the catalogue's certified
+ * total is describing the certified motor; one further off is either a poor
+ * digitisation or a different burn. 3 % is where the bundle's own distribution
+ * turns: 935 of 1,075 picked files sit inside it (713 inside ±1 %), and two
+ * digitisations of one certification differ by about that much at most. Wider
+ * would let the J460T's +5.3 % cert file through; tighter would start
+ * refusing honest files over quantisation noise.
+ */
+const IMPULSE_AGREEMENT = 0.03;
+
+/**
+ * Past this, the curve a motor actually flies is SAID to disagree with its
+ * certification, in the same note channel as a curve repair. 5 % rather than
+ * the picker's 3 %: the picker is choosing between siblings, this is warning
+ * about the only file there is — 122 of the 140 off-by-≥3 % motors have no
+ * closer sibling — and a note on every 3–5 % digitisation would be noise
+ * against a certified figure that is itself a rounded average. 69 motors
+ * trip it today (2026-09-07 census), the RATT K600TR-P at −73 % the worst.
+ */
+const IMPULSE_FLAG = 0.05;
+
+/**
+ * The sentence, or null when the flown curve agrees with the catalogue to
+ * within IMPULSE_FLAG or the catalogue publishes no total to compare with.
+ * Exported for the tests; the wording names both numbers because a reader
+ * has to be able to decide which one to believe.
+ */
+export function impulseNote(motor: Pick<TcMotor, 'designation' | 'totImpulseNs'>, samples: readonly TcSample[]): string | null {
+  const ref = motor.totImpulseNs;
+  if (!(typeof ref === 'number' && ref > 0)) return null;
+  const got = fileImpulseNs({ samples: [...samples] });
+  const pct = (got / ref - 1) * 100;
+  if (Math.abs(pct) <= IMPULSE_FLAG * 100) return null;
+  return `The thrust curve flown for ${motor.designation} integrates to ${got.toFixed(0)} N·s, `
+    + `${pct > 0 ? '+' : ''}${pct.toFixed(1)} % against the ${ref} N·s it is certified for — `
+    + `expect apogee to read ${pct > 0 ? 'high' : 'low'} by roughly that much. `
+    + 'thrustcurve.org publishes no closer file for it; import the motor\'s own .eng/.rse if you have one.';
+}
+
+/**
+ * Trapezoidal integral of a thrust curve (N·s). Exported so the motor browser
+ * and the tests measure a file the same way the picker does.
+ */
+export function fileImpulseNs(file: TcSimFile): number {
+  const s = file.samples ?? [];
+  let a = 0;
+  for (let i = 1; i < s.length; i++) {
+    a += (s[i]!.time - s[i - 1]!.time) * (s[i]!.thrust + s[i - 1]!.thrust) / 2;
+  }
+  return a;
+}
+
 export function pickSampleFile(files: readonly TcSimFile[], motor?: TcMotor): TcSimFile | null {
   const usable = files
     .map((file, index) => ({ file, index }))
@@ -313,6 +366,31 @@ export function pickSampleFile(files: readonly TcSimFile[], motor?: TcMotor): Tc
     const s = file.samples!;
     return Math.abs(s[s.length - 1]!.time / ref - 1) <= BURN_AGREEMENT ? 1 : 0;
   };
+  // Does the file deliver the impulse the motor is CERTIFIED for? The owner's
+  // ruling 2026-09-07 ("yes on the curve picker"), from his own flight: the
+  // AeroTech J460T's cert RASP file integrates to 848 Ns against the
+  // catalogue's certified 805.5 (+5.3 %), its RockSim/user file to 813 (+0.9 %),
+  // and the cert file was winning on provenance alone — so his WM 4" Extreme
+  // was flown 5 % hotter than its motor is rated, and the sim read 24 % over
+  // the altimeter where the same day's other flight closed to 1 %
+  // (docs/research/metra-flights-2026-09-06.md §7). Censused over the whole
+  // bundle: 140 of 1,075 picked files are ≥ 3 % off their certification, but
+  // only 14 have a SOUND sibling that is inside 3 % and passes the burn-time
+  // gate above — those 14 are what this term moves. The J460T itself is NOT
+  // one: its 813 N·s sibling agrees on burn (1.9 s) and impulse (+0.9 %) but
+  // carries a duplicated t=0 sample, so `sound` ranks it last and the cert
+  // file wins on that alone, despite failing burn (2.16 s vs 1.81) AND
+  // impulse. Whether a REPAIRABLE file that agrees should outrank a sound one
+  // that does not is a further rule change, not made here; the impulse note in
+  // fetchMotorSpec is what tells that user. Sits
+  // BELOW burn-time agreement (a wrong loading is a different motor) and ABOVE
+  // provenance (a cert file that misstates the total is still the wrong number
+  // to fly). Neutral when the catalogue has no total to compare against.
+  const impulseAgrees = ({ file }: { file: TcSimFile }): number => {
+    const ref = motor?.totImpulseNs;
+    if (!(typeof ref === 'number' && ref > 0)) return 1;
+    return Math.abs(fileImpulseNs(file) / ref - 1) <= IMPULSE_AGREEMENT ? 1 : 0;
+  };
   // thrustcurve.org's own provenance flag: "cert" is the certification body's
   // data, everything else was uploaded by a user or a manufacturer.
   const cert = ({ file }: { file: TcSimFile }): number => (file.source === 'cert' ? 1 : 0);
@@ -320,6 +398,7 @@ export function pickSampleFile(files: readonly TcSimFile[], motor?: TcMotor): Tc
   usable.sort((a, b) =>
     sound(b) - sound(a)
     || agrees(b) - agrees(a)
+    || impulseAgrees(b) - impulseAgrees(a)
     || cert(b) - cert(a)
     || b.file.samples!.length - a.file.samples!.length
     || (b.file.format === 'RASP' ? 1 : 0) - (a.file.format === 'RASP' ? 1 : 0)
@@ -536,9 +615,14 @@ export function samplesToMotorSpec(
  * SO: ANY CHANGE TO pickSampleFile, OR TO WHAT IS STORED IN AN ENTRY, BUMPS
  * THIS SEGMENT IN THE SAME COMMIT. A chooser fix that does not is a fix that
  * reaches new users only.
+ *
+ * v5 (v0.116, 2026-09-07): pickSampleFile gained the impulse-agreement term
+ * (see IMPULSE_AGREEMENT), which moves 14 motors to a different file. Same
+ * rule as above, applied the same day it was written down: bumped in the same
+ * commit, v4 becomes a dead generation, sweepDeadGenerations() frees it.
  */
 const CACHE_ROOT = 'tc:samples:';
-const CACHE_PREFIX = `${CACHE_ROOT}v4:`;
+const CACHE_PREFIX = `${CACHE_ROOT}v5:`;
 
 /**
  * Cap on the live generation, and the mark eviction prunes back to.
@@ -825,5 +909,12 @@ export async function fetchMotorSpec(
     }
   }
 
-  return samplesToMotorSpec(motor, samples, ejectionDelay, fromFile);
+  const spec = samplesToMotorSpec(motor, samples, ejectionDelay, fromFile);
+  // Say when the curve flown disagrees with the motor's certification, in the
+  // channel the app already shows for curve repairs (App's fileNote). Found
+  // on the owner's own WM 4" Extreme / J460T flight: the cert file integrates
+  // +5.3 % and the sim read 24 % over the altimeter while the same day's
+  // other flight closed to 1 % (docs/research/metra-flights-2026-09-06.md).
+  const note = impulseNote(motor, samples);
+  return note ? { ...spec, curveRepairs: [...(spec.curveRepairs ?? []), note] } : spec;
 }

@@ -1,5 +1,5 @@
 {
-  "version": "0.115",
+  "version": "0.116",
   "released": "2026-09-07",
-  "note": "The Recovery sizing panel now has a section for every stage that comes down separately - the sustainer, then each booster - each with its own weight, main and drogue, sized against that stage's own parachutes and airframe. A single-stage rocket sees exactly the panel it saw before; the sections appear only when more than one stage separates. Also: when an imported file's own value disagrees with the catalogue row it matched, the import note now says which part and which field, and that the file's value was kept. And a launch now sets every motor from your design before it flies, so it can never inherit a stale ejection delay from an earlier re-fly - a class of bug that shipped twice and was repaired in v0.105, now made impossible."
+  "note": "From the first real flight data the project has been given. A third field in the Measured mass & CG box - Pad weight (with motor) - lets the app carry the adapter, retainer and closure weight the catalogue motor leaves out (182 g and 129 g on the two flights that prompted it), so the pad mass and the recovery weight are what you weighed. The thrust-curve picker now checks a file's impulse against the motor's certification - fourteen motors change file, and as with v0.111 a curve you had already downloaded is discarded, so re-pick the motor on a design you have open. And when the only curve for a motor is more than 5 percent from its certified impulse, the design notes now say so; 69 motors carry that line today."
 }

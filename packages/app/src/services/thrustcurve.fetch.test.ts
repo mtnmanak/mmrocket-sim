@@ -42,7 +42,7 @@ const GOOD_SAMPLES: TcSample[] = [
   { time: 2.5, thrust: 0 },
 ];
 
-const CACHE_KEY = `tc:samples:v4:${QUEST_C6.motorId}`;
+const CACHE_KEY = `tc:samples:v5:${QUEST_C6.motorId}`;
 
 /**
  * A fresh copy of the module for every test. thrustcurve.ts remembers, per
@@ -169,6 +169,10 @@ describe('a damaged curve from thrustcurve.org never reaches the kernel as NaN',
     expect(spec.times.every((t) => Number.isFinite(t))).toBe(true);
     expect(spec.masses.every((m) => Number.isFinite(m))).toBe(true);
     expect(localStorage.getItem(CACHE_KEY)).not.toBeNull();
+    // GOOD_SAMPLES integrate to 9.53 N·s against the C6's certified 8.76
+    // (+8.8 %), so the v0.116 impulse note rides along in curveRepairs — the
+    // channel App already shows for curve repairs.
+    expect(spec.curveRepairs?.some((n) => /\+8\.8 % against the 8\.76 N·s/.test(n))).toBe(true);
   });
 
   it('names the motor when the body itself is the wrong shape', async () => {
@@ -257,18 +261,20 @@ describe('the download has a deadline, and honours a caller cancelling it', () =
 });
 
 describe('the curve cache is bounded and sweeps its retired generations', () => {
-  it('frees the v1, v2 and v3 keys a prefix bump left unreachable, and nothing else',
+  it('frees the v1, v2, v3 and v4 keys a prefix bump left unreachable, and nothing else',
     async () => {
       const tc = await freshModule();
-      // The four generations that shipped: `tc:samples:` (through v0.060),
+      // The five generations that shipped: `tc:samples:` (through v0.060),
       // `tc:samples:v2:` (v0.061-v0.064), `tc:samples:v3:` (v0.065-v0.110),
-      // `tc:samples:v4:` (from v0.111, the pickSampleFile bump — a v3 entry
-      // holds the file the PRE-v0.107 chooser picked, which is the whole
-      // reason v3 is dead rather than merely old).
+      // `tc:samples:v4:` (v0.111-v0.115, the first pickSampleFile bump — a v3
+      // entry holds the file the PRE-v0.107 chooser picked, which is the whole
+      // reason v3 is dead rather than merely old), and `tc:samples:v5:` (from
+      // v0.116, the impulse-agreement term — same rule, so v4 is dead too).
       localStorage.setItem('tc:samples:deadv1', JSON.stringify({ samples: GOOD_SAMPLES }));
       localStorage.setItem('tc:samples:v2:deadv2', JSON.stringify({ samples: GOOD_SAMPLES }));
       localStorage.setItem('tc:samples:v3:deadv3', JSON.stringify({ samples: GOOD_SAMPLES }));
-      localStorage.setItem('tc:samples:v4:keepme', JSON.stringify({ samples: GOOD_SAMPLES }));
+      localStorage.setItem('tc:samples:v4:deadv4', JSON.stringify({ samples: GOOD_SAMPLES }));
+      localStorage.setItem('tc:samples:v5:keepme', JSON.stringify({ samples: GOOD_SAMPLES }));
       // Neighbours in the same ~5 MB pool. The prefix match must not touch them.
       localStorage.setItem('online-openrocket.session', '{"tree":{}}');
       localStorage.setItem('tc:othersfeature:1', 'x');
@@ -279,7 +285,8 @@ describe('the curve cache is bounded and sweeps its retired generations', () => 
       expect(localStorage.getItem('tc:samples:deadv1')).toBeNull();
       expect(localStorage.getItem('tc:samples:v2:deadv2')).toBeNull();
       expect(localStorage.getItem('tc:samples:v3:deadv3')).toBeNull();
-      expect(localStorage.getItem('tc:samples:v4:keepme')).not.toBeNull();
+      expect(localStorage.getItem('tc:samples:v4:deadv4')).toBeNull();
+      expect(localStorage.getItem('tc:samples:v5:keepme')).not.toBeNull();
       expect(localStorage.getItem('online-openrocket.session')).toBe('{"tree":{}}');
       expect(localStorage.getItem('tc:othersfeature:1')).toBe('x');
     });
@@ -287,7 +294,7 @@ describe('the curve cache is bounded and sweeps its retired generations', () => 
   const liveCount = (): number => {
     let n = 0;
     for (let i = 0; i < localStorage.length; i++) {
-      if (localStorage.key(i)?.startsWith('tc:samples:v4:')) n++;
+      if (localStorage.key(i)?.startsWith('tc:samples:v5:')) n++;
     }
     return n;
   };
@@ -296,7 +303,7 @@ describe('the curve cache is bounded and sweeps its retired generations', () => 
     const tc = await freshModule();
     // One over the 300 cap. Stamps ascend with the index, so entry 0 is oldest.
     for (let i = 0; i < 301; i++) {
-      localStorage.setItem(`tc:samples:v4:seed${i}`,
+      localStorage.setItem(`tc:samples:v5:seed${i}`,
         JSON.stringify({ samples: GOOD_SAMPLES, masses: null, t: 1_000 + i }));
     }
     stubDownload([{ format: 'RASP', samples: GOOD_SAMPLES }]);
@@ -304,17 +311,17 @@ describe('the curve cache is bounded and sweeps its retired generations', () => 
 
     // Pruned back to the 240 low-water mark, plus the entry just written.
     expect(liveCount()).toBe(241);
-    expect(localStorage.getItem('tc:samples:v4:seed0')).toBeNull();
-    expect(localStorage.getItem('tc:samples:v4:seed60')).toBeNull();
-    expect(localStorage.getItem('tc:samples:v4:seed61')).not.toBeNull();
-    expect(localStorage.getItem('tc:samples:v4:seed300')).not.toBeNull();
+    expect(localStorage.getItem('tc:samples:v5:seed0')).toBeNull();
+    expect(localStorage.getItem('tc:samples:v5:seed60')).toBeNull();
+    expect(localStorage.getItem('tc:samples:v5:seed61')).not.toBeNull();
+    expect(localStorage.getItem('tc:samples:v5:seed300')).not.toBeNull();
     expect(localStorage.getItem(CACHE_KEY)).not.toBeNull();
   });
 
   it('leaves the cache alone while it is under the cap', async () => {
     const tc = await freshModule();
     for (let i = 0; i < 50; i++) {
-      localStorage.setItem(`tc:samples:v4:seed${i}`,
+      localStorage.setItem(`tc:samples:v5:seed${i}`,
         JSON.stringify({ samples: GOOD_SAMPLES, masses: null, t: 1_000 + i }));
     }
     stubDownload([{ format: 'RASP', samples: GOOD_SAMPLES }]);
@@ -355,7 +362,7 @@ describe('the curve cache is bounded and sweeps its retired generations', () => 
       clear: (): void => map.clear(),
     });
     for (let i = 0; i < 200; i++) {
-      localStorage.setItem(`tc:samples:v4:seed${i}`,
+      localStorage.setItem(`tc:samples:v5:seed${i}`,
         JSON.stringify({ samples: GOOD_SAMPLES, masses: null, t: 1_000 + i }));
     }
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  delayOptions, headerMasses, samplesToMotorSpec, repairSamples, pickSampleFile,
+  delayOptions, fileImpulseNs, headerMasses, impulseNote, samplesToMotorSpec, repairSamples, pickSampleFile,
   type TcMotor, type TcSample,
 } from './thrustcurve.js';
 
@@ -225,6 +225,73 @@ describe('pickSampleFile — choosing among thrustcurve.org sim files', () => {
 
   it('returns null when nothing carries samples', () => {
     expect(pickSampleFile([{ format: 'RASP' }, { format: 'RockSim', samples: [] }])).toBeNull();
+  });
+
+  /**
+   * THE IMPULSE-AGREEMENT TERM (owner's ruling 2026-09-07, from his own WM 4"
+   * Extreme flight). The AeroTech J460T is certified at 805.5 N·s; its cert
+   * RASP file integrates to 848 (+5.3 %) and its RockSim/user file to 813
+   * (+0.9 %). Provenance alone chose the cert file, so the motor was flown 5 %
+   * hotter than rated. Files below are the J460T in miniature: same burn time,
+   * one 5 % hot, one right.
+   */
+  describe('impulse agreement (v0.116)', () => {
+    const J460T = { motorId: 'j460t', designation: 'J460T', totImpulseNs: 805.5, burnTimeS: 1.81 } as TcMotor;
+    // A 1.81 s triangle whose area is exactly the target impulse: ½ × 1.81 × peak.
+    const PEAK = 805.5 * 2 / 1.81;
+    const tri = (peak: number) => [{ time: 0, thrust: 0 }, { time: 0.905, thrust: peak }, { time: 1.81, thrust: 0 }];
+    const right = { format: 'RockSim', source: 'user', samples: tri(PEAK) };     // 805.5 N·s
+    const hot = { format: 'RASP', source: 'cert', samples: tri(PEAK * 1.053) }; // +5.3 %
+
+    it('measures a file the way the census did', () => {
+      expect(fileImpulseNs(right)).toBeCloseTo(805.5, 6);
+      expect(fileImpulseNs(hot) / 805.5 - 1).toBeCloseTo(0.053, 6);
+    });
+
+    it('takes the file that delivers the certified impulse over the cert file that does not', () => {
+      expect(pickSampleFile([hot, right], J460T)).toBe(right);
+      expect(pickSampleFile([right, hot], J460T)).toBe(right);
+    });
+
+    it('still prefers the cert file when both are inside 3 %', () => {
+      const certOk = { format: 'RASP', source: 'cert', samples: tri(PEAK * 1.02) }; // +2 %
+      expect(pickSampleFile([right, certOk], J460T)).toBe(certOk);
+    });
+
+    it('is neutral when the catalogue has no total to compare against', () => {
+      const noTotal = { ...J460T, totImpulseNs: 0 } as TcMotor;
+      expect(pickSampleFile([right, hot], noTotal)).toBe(hot); // cert wins, as before
+      expect(pickSampleFile([right, hot])).toBe(hot);
+    });
+
+    it('ranks below burn-time agreement: a wrong loading is a different motor', () => {
+      // A file that delivers the certified impulse in HALF the burn is another
+      // loading (the Estes A8-0 case); impulse agreement must not rescue it.
+      const wrongLoading = { format: 'RASP', source: 'user', samples: [{ time: 0, thrust: 0 }, { time: 0.4525, thrust: PEAK * 2 }, { time: 0.905, thrust: 0 }] };
+      expect(fileImpulseNs(wrongLoading)).toBeCloseTo(805.5, 6);
+      expect(pickSampleFile([wrongLoading, hot], J460T)).toBe(hot);
+    });
+
+    /**
+     * The J460T's REAL situation: its agreeing file is damaged (a duplicated
+     * t=0 sample), so soundness ranks it last and the hot cert file wins
+     * anyway. The gate cannot help that user; the note has to.
+     */
+    it('cannot rescue a motor whose only agreeing file is damaged — the note says so instead', () => {
+      const damagedRight = { format: 'RockSim', source: 'user', samples: [{ time: 0, thrust: 0 }, ...tri(PEAK)] };
+      expect(pickSampleFile([damagedRight, hot], J460T)).toBe(hot);
+      const note = impulseNote(J460T, hot.samples)!;
+      expect(note).toMatch(/integrates to 848 N·s/);
+      expect(note).toMatch(/\+5\.3 % against the 805\.5 N·s/);
+      expect(note).toMatch(/read high/);
+    });
+
+    it('says nothing inside 5 %, and nothing when the catalogue has no total', () => {
+      expect(impulseNote(J460T, tri(PEAK * 1.04))).toBeNull();
+      expect(impulseNote(J460T, tri(PEAK * 0.96))).toBeNull();
+      expect(impulseNote(J460T, tri(PEAK * 0.94))).toMatch(/read low/);
+      expect(impulseNote({ designation: 'X', totImpulseNs: 0 }, hot.samples)).toBeNull();
+    });
   });
 });
 

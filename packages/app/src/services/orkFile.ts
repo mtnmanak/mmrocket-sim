@@ -59,11 +59,38 @@ export interface OrkTreeImportResult {
    */
   launch?: Partial<LaunchConditions>;
   /**
-   * What the builder weighed and balanced (SI; airframe only, motor out), for
-   * the Design tab's "Measured mass & CG" box. Absent when the file carries
-   * neither number. See the export side for why this lives in the file.
+   * What the builder weighed (SI), for the Design tab's "Measured mass & CG"
+   * box. Absent when the file carries none of the numbers. See the export
+   * side for why this lives in the file.
    */
-  measured?: { massKg: number | null; cgM: number | null };
+  measured?: MeasuredFigures;
+}
+
+/**
+ * The Measured mass & CG box's figures, SI. THE one definition of the shape:
+ * the .ork reader and writer, the session, App's state and the box itself all
+ * import it from here, the format boundary, so the fields cannot drift apart
+ * across five copies.
+ */
+export interface MeasuredFigures {
+  /** The airframe on the scale, motor out (kg). */
+  massKg: number | null;
+  /** Its balance point from the nose tip, motor out (m). */
+  cgM: number | null;
+  /**
+   * The rocket weighed WITH its motor(s) installed, as it goes on the pad
+   * (kg). Optional so a session or file written before the field existed
+   * (2026-09-07) round-trips unchanged; absent and null mean the same thing.
+   *
+   * What it is for: the catalogue motor mass omits the adapter, retainer and
+   * closure around the motor. Eric's METRA flights weighed 10,574 g and
+   * 7,480 g against the app's 10,392 g and 7,351 g (J540R catalogue 1,084 g,
+   * J460T 801 g: 182 g and 129 g light; a 54→75 mm adapter is 126 g, AeroTech
+   * forward closures move a motor ±50 g). The app derives the difference and
+   * flies it — see services/hardwareMass.ts. The DELTA is never stored, only
+   * this weight; it is re-derived on every build.
+   */
+  padMassKg?: number | null;
 }
 
 /** One rocket-level <motorconfiguration> declaration. */
@@ -208,9 +235,14 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   };
   const measuredMassKg = measuredNum('measuredmass');
   const measuredCgM = measuredNum('measuredcg');
-  const measured = measuredMassKg !== null || measuredCgM !== null
-    ? { massKg: measuredMassKg, cgM: measuredCgM }
-    : undefined;
+  // The pad weight goes through the same gate: a zero or negative pad mass is
+  // nonsense, and the hardware it would derive would be too. Absent reads as
+  // null — a file written before the field existed imports unchanged.
+  const measuredPadMassKg = measuredNum('measuredpadmass');
+  const measured: MeasuredFigures | undefined =
+    measuredMassKg !== null || measuredCgM !== null || measuredPadMassKg !== null
+      ? { massKg: measuredMassKg, cgM: measuredCgM, padMassKg: measuredPadMassKg }
+      : undefined;
 
   const stages = Array.from(rocketEl.querySelectorAll(':scope > subcomponents > stage'));
   if (stages.length === 0) throw new Error('No stage found');
@@ -1303,11 +1335,13 @@ export interface OrkTreeExportInput {
   /** Which config the working set (`motors`) came from; null = none/custom. */
   activeConfigId?: string | null;
   /**
-   * The user's weighed mass and balance point (SI, airframe only). Written
-   * only when at least one is set, so a design that never used the feature
-   * produces exactly the file it did before.
+   * The user's weighed mass and balance point (SI, airframe only), and the
+   * weighed pad mass (motor in). Each is written only when set, so a design
+   * that never used the feature produces exactly the file it did before, and
+   * one that never used the pad field produces exactly the file it did before
+   * that field existed.
    */
-  measured?: { massKg: number | null; cgM: number | null };
+  measured?: MeasuredFigures;
   /**
    * Computed flight results to write into each configuration's
    * `<simulation>`, keyed by configid. Absent or empty produces exactly the
@@ -2161,11 +2195,21 @@ export function exportOrk({
   // warns-and-skips, exactly like <fairing> and <nozzleexitdiameter>. Emitted
   // only when set, so a design that never used the box is byte-identical to
   // what this wrote before the feature existed.
+  //
+  // <measuredpadmass> (2026-09-07) is the third of the set and follows the
+  // same two rules — the desktop warns-and-skips it like the other two, and
+  // a design that never typed a pad weight writes no tag, so its file is
+  // byte-identical to what this wrote before the field existed. It is the
+  // weighed rocket WITH the motor in; the hardware the app derives from it is
+  // never written, only the weight (services/hardwareMass.ts).
   if (typeof measured?.massKg === 'number' && Number.isFinite(measured.massKg)) {
     emit(2, `<measuredmass>${measured.massKg}</measuredmass>`);
   }
   if (typeof measured?.cgM === 'number' && Number.isFinite(measured.cgM)) {
     emit(2, `<measuredcg>${measured.cgM}</measuredcg>`);
+  }
+  if (typeof measured?.padMassKg === 'number' && Number.isFinite(measured.padMassKg)) {
+    emit(2, `<measuredpadmass>${measured.padMassKg}</measuredpadmass>`);
   }
   // Stage nodes at the top level export as sibling <stage> blocks (the
   // desktop model); legacy flat trees wrap into one implicit stage.

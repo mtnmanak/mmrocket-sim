@@ -2492,3 +2492,70 @@ describe(".ork <preset> — desktop's catalogue link is read (ruled 2026-09-03)"
     expect(chute['presetPartNo']).toBeUndefined();
   });
 });
+
+/**
+ * The weighed pad mass (2026-09-07): the third rocket-level extension element
+ * beside <measuredmass> and <measuredcg>, whose own round-trip is pinned in
+ * orkNewFields.test.ts ('.ork round-trip of measured mass & CG'). Same rules
+ * as those two — SI, emitted only when set, refused when nonsense — and a
+ * file that never carried it reads back as null, which is how every file
+ * written before the field existed stays accepted. The tree is the same
+ * two-component one that block uses.
+ */
+describe('.ork round-trip of the weighed pad mass', () => {
+  const tree = { name: 'Weighed', components: [{
+    type: 'stage', id: 's1', name: 'Sustainer',
+    children: [
+      { type: 'nosecone', id: 'n1', length: 0.15, aftRadius: 0.025, thickness: 0.002 },
+      { type: 'bodytube', id: 'b1', length: 0.4, outerRadius: 0.025, thickness: 0.001 },
+    ],
+  }] } as unknown as Parameters<typeof exportOrk>[0]['tree'];
+  /** Every export re-mints component and configuration ids. */
+  const stripIds = (x: string) =>
+    x.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, 'UUID');
+
+  it('carries the pad mass across a save and re-open beside the other two', () => {
+    const xml = exportOrk({ name: 'Weighed', tree, measured: { massKg: 9.308, cgM: 0.9, padMassKg: 10.574 } });
+    expect(xml).toMatch(/<measuredpadmass>10\.574<\/measuredpadmass>/);
+    const back = importOrk(xml);
+    expect(back.measured?.padMassKg).toBeCloseTo(10.574, 12);
+    expect(back.measured?.massKg).toBeCloseTo(9.308, 12);
+    expect(back.measured?.cgM).toBeCloseTo(0.9, 12);
+  });
+
+  it('writes no tag when the field was never used, and reads that back as null', () => {
+    const xml = exportOrk({ name: 'Weighed', tree, measured: { massKg: 0.56, cgM: null } });
+    expect(xml).toMatch(/<measuredmass>/);
+    expect(xml).not.toMatch(/<measuredpadmass>/);
+    const back = importOrk(xml);
+    expect(back.measured?.massKg).toBeCloseTo(0.56, 12);
+    expect(back.measured?.padMassKg ?? null).toBeNull();
+  });
+
+  it('an explicit null is byte-identical to an absent key', () => {
+    const without = exportOrk({ name: 'Weighed', tree, measured: { massKg: 0.56, cgM: 0.4 } });
+    const withNull = exportOrk({ name: 'Weighed', tree, measured: { massKg: 0.56, cgM: 0.4, padMassKg: null } });
+    expect(without).not.toMatch(/<measuredpadmass>/);
+    expect(stripIds(withNull)).toBe(stripIds(without));
+  });
+
+  it('a pad mass alone is enough to carry the block', () => {
+    const xml = exportOrk({ name: 'Weighed', tree, measured: { massKg: null, cgM: null, padMassKg: 10.574 } });
+    expect(xml).not.toMatch(/<measuredmass>/);
+    expect(xml).not.toMatch(/<measuredcg>/);
+    const back = importOrk(xml);
+    expect(back.measured).toBeDefined();
+    expect(back.measured?.massKg).toBeNull();
+    expect(back.measured?.cgM).toBeNull();
+    expect(back.measured?.padMassKg).toBeCloseTo(10.574, 12);
+  });
+
+  it('ignores nonsense rather than importing a negative or unparseable pad mass', () => {
+    const good = exportOrk({ name: 'Weighed', tree, measured: { massKg: 9.308, cgM: 0.9, padMassKg: 10.574 } });
+    const swap = (to: string) => good.replace('<measuredpadmass>10.574</measuredpadmass>', `<measuredpadmass>${to}</measuredpadmass>`);
+    expect(importOrk(swap('-3')).measured?.padMassKg ?? null).toBeNull();
+    expect(importOrk(swap('nope')).measured?.padMassKg ?? null).toBeNull();
+    // The other two survive a bad third.
+    expect(importOrk(swap('nope')).measured?.massKg).toBeCloseTo(9.308, 12);
+  });
+});

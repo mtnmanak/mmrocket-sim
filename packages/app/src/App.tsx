@@ -59,7 +59,7 @@ import { classLabel, diameterClass } from './services/motorDb.js';
 import { matchImportedMotor, refToExportMotor } from './services/motorMatch.js';
 import { aeroModelFor, rogersKbfFor, stageMotorInfo } from './services/flightPipeline.js';
 import { loadExMotors } from './services/exMotors.js';
-import { exportOrk, fmtStepS, importOrk, type OrkDeployOverride, type OrkSeparationOverride, type OrkExportConfig, type OrkExportFlightData, type OrkExportMotor, type OrkImportResult, type OrkMotorRef, type OrkTreeImportResult } from './services/orkFile.js';
+import { exportOrk, fmtStepS, importOrk, type MeasuredFigures, type OrkDeployOverride, type OrkSeparationOverride, type OrkExportConfig, type OrkExportFlightData, type OrkExportMotor, type OrkImportResult, type OrkMotorRef, type OrkTreeImportResult } from './services/orkFile.js';
 import { decodeShareFragment, encodeShareFragment, hasSharePayload, MAX_FRAGMENT_CHARS } from './services/shareLink.js';
 import { exportRkt, importRkt } from './services/rocksimFile.js';
 import { loadPresets } from './services/presets.js';
@@ -99,6 +99,9 @@ import { createSequencer } from './services/latestWins.js';
 import {
   recoveryMass, recoveryMassByStage, recoveryMassTitle, type RecoveryByStage, type RecoveryMass,
 } from './services/recoveryMass.js';
+import {
+  catalogueMotorMass, flownSpec, hardwareMass, type HardwareMassResult,
+} from './services/hardwareMass.js';
 import { RecoverySizingPanel } from './components/RecoverySizingPanel.js';
 import { ScaleDialog } from './components/ScaleDialog.js';
 
@@ -676,11 +679,21 @@ export function App() {
   const [pendingRelaunch, setPendingRelaunch] = useState(false);
 
   /**
-   * What the user weighed, in SI, airframe only (motor out). Persisted with
-   * the session so reopening the tab does not lose it; the ballast it produced
-   * lives in the design itself as an ordinary mass component.
+   * What the user weighed, in SI: the airframe (motor out) and, since
+   * 2026-09-07, the whole rocket on the pad (motor in) as `padMassKg`.
+   * Persisted with the session so reopening the tab does not lose it; the
+   * ballast the first pair produced lives in the design itself as an ordinary
+   * mass component, and the hardware the pad mass derives is re-computed on
+   * every build (buildResult below), never stored.
+   *
+   * `padMassKg` is deliberately NOT normalised to null here. dirtyState's
+   * fingerprint hashes the object's KEYS (dirtyState.ts `stable`), so adding a
+   * key to every restored session would make its fingerprint differ from the
+   * stored `savedMark` and ask every user to save on first load after the
+   * upgrade. Absent stays absent; the key appears when the user types in the
+   * field.
    */
-  const [measured, setMeasured] = useState<{ massKg: number | null; cgM: number | null }>(
+  const [measured, setMeasured] = useState<MeasuredFigures>(
     () => session?.measured ?? { massKg: null, cgM: null });
 
   /**
@@ -1022,11 +1035,16 @@ export function App() {
    *
    * Same loop the build runs (below), deliberately: a motor the kernel refused
    * at build time was reported then in `motorFailures` and stays absent here.
+   *
+   * `hardware` is the build's own result (buildResult.hardware): the primary
+   * mount flies the catalogue curve shifted by the weighed hardware, through
+   * the SAME `flownSpec` the build wrote onto the handle — so a Launch flies
+   * the design page's mass, not the catalogue's. See services/hardwareMass.ts.
    */
-  const applyAssignedMotors = (rocket: OrkRocket): void => {
+  const applyAssignedMotors = (rocket: OrkRocket, hardware: HardwareMassResult | undefined): void => {
     for (const [id, mm] of assigned) {
       try {
-        rocket.setMotorById(id, mm.spec);
+        rocket.setMotorById(id, flownSpec(id, mm.spec, hardware));
         if (mm.ignition.event !== 'automatic' || mm.ignition.delay !== 0) {
           rocket.setMotorIgnitionById(id, mm.ignition.event, mm.ignition.delay);
         }
@@ -1066,6 +1084,8 @@ export function App() {
   const buildResult = useMemo((): {
     rocket: OrkRocket; info: StaticInfo; motorFailures: { mountId: string; text: string }[];
     flownRecovery: Record<string, FlownRecoveryDevice>;
+    /** What the weighed pad mass derived, and on which mount it is carried. */
+    hardware: HardwareMassResult;
   } | { error: string } => {
     try {
       resetEngine();
@@ -1102,7 +1122,46 @@ export function App() {
           });
         }
       }
-      const info = rocket.staticInfo();
+      let info = rocket.staticInfo();
+      // WEIGHED PAD MASS (2026-09-07). The catalogue motor weight leaves out
+      // the adapter, retainer and closure; when the user has weighed the
+      // rocket with the motor in, the difference is derived here and carried
+      // on the primary mount's motor curve — services/hardwareMass.ts has the
+      // arithmetic, the refusals and why it rides in the motor. Motors the
+      // kernel refused are excluded, as recoveryInput excludes them: their
+      // catalogue mass is not on the handle to subtract.
+      //
+      // TWO staticInfo() CALLS when a pad mass is set, and only then. The dry
+      // mass the arithmetic needs (massEmpty) is only knowable from the kernel
+      // after the build, so the shifted motor goes on after the first call and
+      // the second reads the loaded mass and CG with it. Measured 2026-09-07
+      // on this machine: the second call is 7.7 ms on lemiv-motors.ork and
+      // 21.7 ms on reference.ork (9 ms steady-state) — and it does not happen
+      // at all for a design without a pad mass, which runs the single call it
+      // always ran, byte-identically.
+      const accepted = assigned.filter(([id]) => !motorFailures.some((f) => f.mountId === id));
+      const hardware = hardwareMass({
+        padMassKg: measured.padMassKg,
+        measuredDryMassKg: measured.massKg,
+        computedDryMassKg: info.massEmpty,
+        tree,
+        motors: accepted,
+        primaryMountId,
+      });
+      if (hardware.state === 'ok') {
+        const mm = accepted.find(([id]) => id === hardware.appliedTo)?.[1];
+        if (mm) {
+          rocket.setMotorById(hardware.appliedTo, flownSpec(hardware.appliedTo, mm.spec, hardware));
+          // Ignition re-applied on the same condition as the loop above: the
+          // bridge's setMotorById (OrkEngine.java applyMotor) installs a fresh
+          // motor configuration on the mount, so the second write would
+          // otherwise leave it on the kernel's default.
+          if (mm.ignition.event !== 'automatic' || mm.ignition.delay !== 0) {
+            rocket.setMotorIgnitionById(hardware.appliedTo, mm.ignition.event, mm.ignition.delay);
+          }
+          info = rocket.staticInfo();
+        }
+      }
       // Camera shrouds lower to deliberately thick strake "fins" — the
       // kernel's THICK_FIN warning is expected there and only alarms users.
       const fairingNames = new Set<string>();
@@ -1133,7 +1192,7 @@ export function App() {
       // shroud named like a fin gets filtered out of its own sentence.
       const wakeWarnings = wakeShadowWarnings(tree);
       if (wakeWarnings.length) info.warningTexts = [...info.warningTexts, ...wakeWarnings];
-      return { rocket, info, motorFailures, flownRecovery };
+      return { rocket, info, motorFailures, flownRecovery, hardware };
     } catch (e) {
       return { error: e instanceof Error ? e.message : String(e) };
     }
@@ -1143,10 +1202,34 @@ export function App() {
     // kernel by rocket name (every consumer uses `tree.name` directly), while
     // every physical input here — geometry, component names for the THICK_FIN
     // filter, rail and wake checks — lives inside `tree.components`.
-  }, [tree.components, assigned, effectiveKbf, effectiveSupersonic]);
+    //
+    // `measured.massKg` and `measured.padMassKg` — the two SCALARS the hardware
+    // arithmetic reads, not `measured` — so typing in the CG field does not
+    // rebuild the rocket. `primaryMountId` derives from `assigned` and `tree`,
+    // so it only ever changes when they do.
+  }, [tree.components, assigned, effectiveKbf, effectiveSupersonic, measured.massKg,
+    measured.padMassKg, primaryMountId]);
   const built = 'error' in buildResult ? null : buildResult;
   const buildError = 'error' in buildResult ? buildResult.error : simError;
   const motorFailures = built?.motorFailures ?? [];
+  /**
+   * The hardware this build carries (kg), 0 when none: a provenance term
+   * (motorSetKeyOf below) so a pad-mass edit marks the shown flight stale.
+   */
+  const hardwareDeltaKg = built && built.hardware.state === 'ok' ? built.hardware.deltaKg : 0;
+  /**
+   * The spec the PRIMARY mount flies — the catalogue spec with the weighed
+   * hardware on it, or the catalogue spec itself. Every re-fly path that
+   * writes the primary's delay onto the shared handle spreads THIS, not
+   * `primary.spec`: that write replaces the whole motor, and spreading the
+   * catalogue spec put the catalogue mass back on the handle, so the reported
+   * flight lost the hardware the design page had just carried.
+   */
+  const primaryFlownSpec = useMemo((): MotorSpec | null => (
+    built && primaryMountId && mountMotors[primaryMountId]
+      ? flownSpec(primaryMountId, mountMotors[primaryMountId]!.spec, built.hardware)
+      : null
+  ), [built, primaryMountId, mountMotors]);
 
   /**
    * RECOVERY WEIGHT — the mass that comes down under the chute, which is
@@ -1167,7 +1250,14 @@ export function App() {
     return {
       tree,
       info: built.info,
-      motors: assigned.filter(([id]) => !failed.has(id)),
+      // The FLOWN specs, hardware included (services/hardwareMass.ts). The
+      // single-object path already sees the hardware through `info.mass`, but
+      // the multi-stage sustainer path reads `motorBurnoutMass(spec)` from the
+      // spec itself (recoveryMass.ts burnoutIn) — handed the catalogue spec it
+      // would drop the adapter from the sustainer's recovery weight.
+      motors: assigned
+        .filter(([id]) => !failed.has(id))
+        .map(([id, mm]) => [id, { ...mm, spec: flownSpec(id, mm.spec, built.hardware) }] as const),
       sectionMass: (id: string) => {
         try {
           const v = built.rocket.componentInfo(id).sectionMass;
@@ -1187,6 +1277,21 @@ export function App() {
   const recoveryByStage = useMemo((): RecoveryByStage => (
     recoveryInput ? recoveryMassByStage(recoveryInput) : { state: 'no-motor' }
   ), [recoveryInput]);
+
+  /**
+   * What the app thinks the rocket weighs on the pad with NO hardware
+   * correction — the pad field's placeholder (kg): `massEmpty` plus every
+   * accepted motor's CATALOGUE mass, cluster-aware; null when a motor carries
+   * no mass curve. Not `info.mass`: once a pad mass is typed that already
+   * carries the hardware, and the placeholder must show the uncorrected figure
+   * (NumField steps from it when the field is blank).
+   */
+  const computedPadMassKg = useMemo((): number | null => {
+    if (!built) return null;
+    const failed = new Set(built.motorFailures.map((f) => f.mountId));
+    const c = catalogueMotorMass(tree, assigned.filter(([id]) => !failed.has(id)));
+    return c === null ? null : built.info.massEmpty + c;
+  }, [built, tree, assigned]);
 
   /**
    * ONE component's own mass (kg), for the recovery-sizing panel's substitution:
@@ -1539,7 +1644,7 @@ export function App() {
     const primary = mountMotors[primaryMountId]!;
     // Never fly inherited handle state — see applyAssignedMotors. This is also
     // what makes the auto-delay write further down safe to leave unrestored.
-    applyAssignedMotors(built.rocket);
+    applyAssignedMotors(built.rocket, built.hardware);
     setSimulating(true);
     // Flying hands off to the Results workspace — land the user there.
     setTab('results');
@@ -1613,7 +1718,11 @@ export function App() {
           const rec = recommendDelay(res.summary.optimumDelay);
           if (rec !== null) {
             flownDelay = rec;
-            built.rocket.setMotorById(primaryMountId, { ...primary.spec, ejectionDelay: rec });
+            // Spread the FLOWN spec (hardware included), not the catalogue
+            // one: this write replaces the whole motor on the handle, and
+            // spreading `primary.spec` put the catalogue mass back — so the
+            // reported flight lost the hardware the build had just carried.
+            built.rocket.setMotorById(primaryMountId, { ...(primaryFlownSpec ?? primary.spec), ejectionDelay: rec });
             res = flyTimed();
           }
         }
@@ -1654,7 +1763,7 @@ export function App() {
           // when they have.
           ...(activeConfigId !== null ? { flightConfigId: activeConfigId } : {}),
           designKey: shortHash(physicsKey),
-          motorSetKey: motorSetKeyOf(assigned),
+          motorSetKey: motorSetKeyOf(assigned, hardwareDeltaKg),
           // What the kernel was handed for each chute — so the report can state
           // the coefficient the verdict rests on, not just the device's name.
           flownRecovery: built.flownRecovery,
@@ -1695,9 +1804,16 @@ export function App() {
    * exact imported entry because two vendors' same-designation curves coexist
    * there. Without them, swapping vendors would leave the old flight's
    * numbers looking current.
+   *
+   * The weighed hardware (services/hardwareMass.ts) is part of the motor's
+   * FLOWN mass, so it is a term here too: a pad-mass edit after a flight marks
+   * the shown run stale the way a motor swap does, and the .ork flightData
+   * guard refuses the stale numbers. Appended ONLY when non-zero, to 0.1 g,
+   * so every stored run and every design without a pad mass keeps the exact
+   * key it always had.
    */
-  const motorSetKeyOf = useCallback((set: [string, MountMotor][]): string =>
-    [...set]
+  const motorSetKeyOf = useCallback((set: [string, MountMotor][], hardwareKg: number): string => {
+    const key = [...set]
       .map(([id, mm]) => [
         id,
         mm.meta.exMotorId ?? `${mm.meta.manufacturer ?? ''}/${mm.spec.designation}`,
@@ -1706,7 +1822,9 @@ export function App() {
         mm.ignition.delay,
       ].join(':'))
       .sort()
-      .join('|'), []);
+      .join('|');
+    return hardwareKg > 0 ? `${key}|hw:${Math.round(hardwareKg * 1e4)}` : key;
+  }, []);
 
   /**
    * The provenance of the design as it stands RIGHT NOW, for comparison
@@ -1721,14 +1839,14 @@ export function App() {
     if (!built || !primaryMountId) return null;
     return {
       designKey: shortHash(physicsKey),
-      motorSetKey: motorSetKeyOf(assigned),
+      motorSetKey: motorSetKeyOf(assigned, hardwareDeltaKg),
       conditionsKey: conditionsKeyOf(launch),
       aeroMode,
       effectiveKbf,
       autoSupersonic,
     };
   }, [built, primaryMountId, physicsKey, assigned, launch, aeroMode, effectiveKbf,
-    autoSupersonic, motorSetKeyOf]);
+    autoSupersonic, motorSetKeyOf, hardwareDeltaKg]);
 
   /**
    * Whether a stored run's charts can be recovered by re-flying it here.
@@ -1784,7 +1902,8 @@ export function App() {
     const wroteDelay = run.delayS !== primary.spec.ejectionDelay;
     try {
       if (wroteDelay) {
-        built.rocket.setMotorById(primaryMountId, { ...primary.spec, ejectionDelay: run.delayS });
+        // The FLOWN spec, hardware included — see onLaunch's auto-delay write.
+        built.rocket.setMotorById(primaryMountId, { ...(primaryFlownSpec ?? primary.spec), ejectionDelay: run.delayS });
       }
       // canShowCharts already required the run's model to equal the current
       // one, so the handle is right as it stands. It is set explicitly anyway
@@ -1802,13 +1921,14 @@ export function App() {
       // Hand the shared handle back exactly as it was found — the same
       // contract fetchFullSeriesResult already keeps for the aero model.
       if (wroteDelay) {
-        try { built.rocket.setMotorById(primaryMountId, primary.spec); } catch { /* the
+        try { built.rocket.setMotorById(primaryMountId, primaryFlownSpec ?? primary.spec); } catch { /* the
           motor the kernel refused is already reported by buildResult's
           motorFailures; failing to restore it must not also lose the charts. */ }
       }
       setReflying(null);
     }
-  }, [built, primaryMountId, mountMotors, launch, effectiveSupersonic, effectiveKbf, cacheFlight]);
+  }, [built, primaryMountId, mountMotors, launch, effectiveSupersonic, effectiveKbf, cacheFlight,
+    primaryFlownSpec]);
 
   /**
    * Re-flies the LAST launch with `series: 'full'` for the flight-data CSV.
@@ -1830,7 +1950,8 @@ export function App() {
       // Auto delay flew the rounded optimum (recorded on the run); a handle
       // rebuilt since launch (auto-supersonic flips the build memo) still
       // holds the pre-probe spec — restore the flown delay before re-flying.
-      built.rocket.setMotorById(primaryMountId, { ...primary.spec, ejectionDelay: lastRun.delayS });
+      // The FLOWN spec, hardware included — see onLaunch's auto-delay write.
+      built.rocket.setMotorById(primaryMountId, { ...(primaryFlownSpec ?? primary.spec), ejectionDelay: lastRun.delayS });
     }
     // Restore the model the SHOWN flight was flown on, not whatever is
     // selected now. Since a model switch no longer discards the flight, the
@@ -1852,11 +1973,12 @@ export function App() {
       // aero model and left the run's ejection delay on the shared handle, so
       // the next Launch flew a delay the report never mentions.
       if (wroteDelay) {
-        try { built.rocket.setMotorById(primaryMountId, primary.spec); } catch { /* a motor
+        try { built.rocket.setMotorById(primaryMountId, primaryFlownSpec ?? primary.spec); } catch { /* a motor
           the kernel refuses is already surfaced by buildResult's motorFailures. */ }
       }
     }
-  }, [built, primaryMountId, lastRun, mountMotors, launch, effectiveSupersonic, effectiveKbf]);
+  }, [built, primaryMountId, lastRun, mountMotors, launch, effectiveSupersonic, effectiveKbf,
+    primaryFlownSpec]);
 
   // ---- design file I/O (.ork native, .rkt RockSim) ----
   const toExportMotor = (mm: MountMotor): OrkExportMotor => {
@@ -1959,12 +2081,16 @@ export function App() {
       const cfgMotors: [string, MountMotor][] = cfg.id === activeConfigId
         ? assigned
         : Object.entries(cfg.motors);
-      if (r.motorSetKey !== motorSetKeyOf(cfgMotors)) continue;
+      // The hardware term is the ACTIVE configuration's: a non-active
+      // configuration's stored run keeps matching only if it flew with no
+      // hardware, and refusal is the safe direction for numbers written into
+      // a file — the same rule the model check above applies to UNKNOWN.
+      if (r.motorSetKey !== motorSetKeyOf(cfgMotors, cfg.id === activeConfigId ? hardwareDeltaKg : 0)) continue;
       out[r.flightConfigId] = summaryOf(r);
     }
     return out;
   }, [runs, savedConfigs, activeConfigId, assigned, physicsKey, launch, motorSetKeyOf,
-    aeroMode, effectiveKbf, autoSupersonic]);
+    aeroMode, effectiveKbf, autoSupersonic, hardwareDeltaKg]);
 
   /**
    * Stage B: the stored presets in exportOrk's shape. Stable ids ride
@@ -2119,6 +2245,9 @@ export function App() {
       await download(exportCdx1({
         name: tree.name ?? 'My Rocket',
         tree,
+        // Loaded mass WITH the weighed hardware when a pad mass is set — the
+        // pad weight the user measured, which is what RASAero's launch weight
+        // means (services/hardwareMass.ts).
         launchMassKg: built?.info.mass,
         launchCgM: built?.info.cg,
         launch,
@@ -2704,12 +2833,13 @@ export function App() {
    */
   const provenanceKey = useMemo<DesignMatchKey>(() => ({
     designKey: shortHash(physicsKey),
-    motorSetKey: motorSetKeyOf(assigned),
+    motorSetKey: motorSetKeyOf(assigned, hardwareDeltaKg),
     conditionsKey: conditionsKeyOf(launch),
     aeroMode,
     effectiveKbf,
     autoSupersonic,
-  }), [physicsKey, assigned, launch, aeroMode, effectiveKbf, autoSupersonic, motorSetKeyOf]);
+  }), [physicsKey, assigned, launch, aeroMode, effectiveKbf, autoSupersonic, motorSetKeyOf,
+    hardwareDeltaKg]);
 
   /**
    * What has changed since the SHOWN run was flown.
@@ -3228,7 +3358,7 @@ export function App() {
                   );
                 })()}
               </span>
-              <span className="vitals-item" title="Mass, loaded (with motors)">
+              <span className="vitals-item" title="Mass, loaded (with motors, and any hardware the weighed pad mass carries)">
                 <span className="vitals-label">Mass</span>
                 <span className="vitals-value">
                   {fmtSi('mass', prefs.units.mass, built.info.mass)}&nbsp;<UnitChip quantity="mass" />
@@ -3505,6 +3635,10 @@ export function App() {
               onApply={applyAllowance}
               blockedBy={allowanceBlocker}
               onPinStage={allowanceBlocker && canPinBlocker ? pinBlockerToMeasured : undefined}
+              hardware={built.hardware}
+              computedPadMassKg={computedPadMassKg}
+              motorLabel={primaryMountId ? mountMotors[primaryMountId]?.label : undefined}
+              mountName={primaryMountId ? findNode(tree, primaryMountId)?.name : undefined}
             />
           )}
         </aside>

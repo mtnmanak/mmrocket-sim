@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import { MeasuredMassBox } from './MeasuredMassBox.js';
 import type { BallastSolution } from '../services/buildAllowance.js';
+import type { HardwareMassResult } from '../services/hardwareMass.js';
+import type { MeasuredFigures } from '../services/orkFile.js';
 
 /**
  * THE UNIT BOUNDARY between a scale reading and the flight model.
@@ -26,7 +28,7 @@ const IN = 0.0254;
 
 let host: HTMLDivElement;
 let root: Root;
-let changes: { massKg: number | null; cgM: number | null }[];
+let changes: MeasuredFigures[];
 let applied: Extract<BallastSolution, { kind: 'ok' }>[];
 
 beforeEach(() => {
@@ -43,8 +45,18 @@ afterEach(() => {
   localStorage.clear();
 });
 
-/** Computed airframe: 1.000 kg balancing 500 mm from the nose tip, 1 m long. */
-const show = (measured: { massKg: number | null; cgM: number | null }) => act(() => root.render(
+/**
+ * Computed airframe: 1.000 kg balancing 500 mm from the nose tip, 1 m long.
+ * `extra` is the pad-weight side (2026-09-07); its default is the state every
+ * pre-field test ran under — no pad mass entered, so the line under the box
+ * asks for one and nothing else changes.
+ */
+const show = (measured: MeasuredFigures, extra: {
+  hardware?: HardwareMassResult;
+  computedPadMassKg?: number | null;
+  motorLabel?: string;
+  mountName?: string;
+} = {}) => act(() => root.render(
   <PrefsProvider>
     <MeasuredMassBox
       bareMassKg={1}
@@ -54,6 +66,10 @@ const show = (measured: { massKg: number | null; cgM: number | null }) => act(()
       measured={measured}
       onChange={(n) => changes.push(n)}
       onApply={(s) => applied.push(s)}
+      hardware={extra.hardware ?? { state: 'none', why: 'no-pad-mass' }}
+      computedPadMassKg={extra.computedPadMassKg}
+      motorLabel={extra.motorLabel}
+      mountName={extra.mountName}
     />
   </PrefsProvider>,
 ));
@@ -62,6 +78,7 @@ const field = (label: string) =>
   [...host.querySelectorAll('input')].find((i) => i.getAttribute('aria-label')?.startsWith(label))!;
 const massBox = () => field('Measured mass');
 const cgBox = () => field('Measured balance point');
+const padBox = () => field('Weighed pad mass');
 
 /** Native setter + input event — how React sees a real keystroke. */
 const type = (input: HTMLInputElement, text: string) => act(() => {
@@ -165,5 +182,145 @@ describe('MeasuredMassBox — the verdict quotes the same numbers back', () => {
   it('shows no verdict at all until BOTH numbers are in', () => {
     show({ massKg: 1.1, cgM: null });
     expect(host.querySelector('.measured-verdict')).toBeNull();
+  });
+});
+
+/**
+ * The third field and the line under the box (2026-09-07). The arithmetic is
+ * pinned in services/hardwareMass.test.ts; this pins the unit boundary on the
+ * way IN — a pad weight typed in grams or ounces must reach App in kilograms,
+ * or the hardware it derives is off by 1,000x or 28x — and the sentence on
+ * the way OUT, with the Monster Mamba figures (10,574 g on the pad, 9,308 g
+ * airframe, AeroTech J540R at 1,084 g: 182 g of hardware).
+ */
+describe('MeasuredMassBox — pad weight and the hardware line', () => {
+  const MAMBA: HardwareMassResult = {
+    state: 'ok', deltaKg: 0.182, appliedTo: 'mmt', motorCount: 1, perMotorShiftKg: 0.182,
+    motorMassKg: 1.084, mountCount: 1, dryMassKg: 9.308, drySource: 'measured', large: false,
+  };
+  const line = () => host.querySelector('.measured-hardware')!.textContent!;
+
+  it('sends the pad weight up in kilograms and leaves the other two figures alone', () => {
+    show({ massKg: 9.308, cgM: 0.9 });
+    type(padBox(), '10574');
+    expect(changes.at(-1)!.padMassKg).toBeCloseTo(10.574, 12);
+    expect(changes.at(-1)!.massKg).toBe(9.308);
+    expect(changes.at(-1)!.cgM).toBe(0.9);
+  });
+
+  it('clearing the pad weight yields null, not zero', () => {
+    show({ massKg: 9.308, cgM: 0.9, padMassKg: 10.574 });
+    expect(padBox().value).toBe('10574');
+    type(padBox(), '');
+    expect(changes.at(-1)!.padMassKg).toBeNull();
+    expect(changes.at(-1)!.massKg).toBe(9.308);
+  });
+
+  it('converts ounces on the way in and shows the stored SI back in ounces', () => {
+    localStorage.setItem(PREFS_KEY, JSON.stringify({ units: { mass: 'oz', length: 'in' } }));
+    show({ massKg: null, cgM: null });
+    type(padBox(), '373');
+    expect(changes.at(-1)!.padMassKg).toBeCloseTo(373 * OZ, 12);
+    show({ massKg: null, cgM: null, padMassKg: 373 * OZ });
+    expect(Number(padBox().value)).toBeCloseTo(373, 6);
+  });
+
+  it('the placeholder is the uncorrected pad mass in the display unit', () => {
+    show({ massKg: null, cgM: null }, { computedPadMassKg: 10.392 });
+    expect(padBox().getAttribute('placeholder')).toBe('10392');
+  });
+
+  it('has no placeholder when there is no motor to add to the dry mass', () => {
+    show({ massKg: null, cgM: null }, { computedPadMassKg: null });
+    expect(padBox().getAttribute('placeholder')).toBeNull();
+  });
+
+  it('names what it carried, on which mount, against which catalogue motor — the Mamba', () => {
+    show({ massKg: 9.308, cgM: 0.9, padMassKg: 10.574 },
+      { hardware: MAMBA, motorLabel: 'AeroTech J540R', mountName: '75mm MMT' });
+    const text = line();
+    expect(text).toContain('1266 g');
+    expect(text).toContain('AeroTech J540R');
+    expect(text).toContain('1084 g');
+    expect(text).toContain('182 g');
+    expect(text).toContain('75mm MMT');
+    expect(text).toContain('as you measured it');
+    expect(text).not.toContain('check the entry');
+    // The carried figure is the highlighted one, like the deltas above it.
+    expect(host.querySelector('.measured-hardware .measured-delta')!.textContent).toBe('182 g');
+  });
+
+  it('quotes the same line in ounces when those are selected', () => {
+    localStorage.setItem(PREFS_KEY, JSON.stringify({ units: { mass: 'oz', length: 'in' } }));
+    show({ massKg: 9.308, cgM: 0.9, padMassKg: 10.574 },
+      { hardware: MAMBA, motorLabel: 'AeroTech J540R', mountName: '75mm MMT' });
+    // 0.182 kg = 6.42 oz; 1.084 kg = 38.2 oz.
+    expect(line()).toMatch(/6\.4\d* oz/);
+    expect(line()).toMatch(/38\.\d+ oz/);
+  });
+
+  it('says how the delta is split across a cluster, and cautions a large one', () => {
+    show({ massKg: null, cgM: null, padMassKg: 1.36 }, {
+      hardware: {
+        state: 'ok', deltaKg: 0.2, appliedTo: 'mmt', motorCount: 3, perMotorShiftKg: 0.2 / 3,
+        motorMassKg: 0.3, mountCount: 1, dryMassKg: 1.0, drySource: 'computed', large: true,
+      },
+      motorLabel: 'Estes D12', mountName: 'Cluster',
+    });
+    expect(line()).toContain('×3');
+    expect(line()).toContain('as computed');
+    expect(line()).toContain('check the entry');
+  });
+
+  it('with two mounts, words the summed catalogue mass as motors on two mounts, not as the primary', () => {
+    // Sustainer J540R (1,084 g) plus a 500 g booster motor: the 1,584 g total
+    // must not read as "catalogue AeroTech J540R 1584 g".
+    show({ massKg: 9.308, cgM: 0.9, padMassKg: 11.158 }, {
+      hardware: {
+        state: 'ok', deltaKg: 0.266, appliedTo: 's-mmt', motorCount: 1, perMotorShiftKg: 0.266,
+        motorMassKg: 1.584, mountCount: 2, dryMassKg: 9.308, drySource: 'measured', large: false,
+      },
+      motorLabel: 'AeroTech J540R', mountName: 'Sustainer MMT',
+    });
+    expect(line()).toContain('Motors and hardware: 1850 g');
+    expect(line()).toContain('catalogue motors on 2 mounts 1584 g');
+    expect(line()).not.toContain('AeroTech J540R 1584');
+    expect(line()).toContain('266 g');
+    expect(line()).toContain('Sustainer MMT');
+  });
+
+  it('asks for the pad weight when none is entered', () => {
+    show({ massKg: null, cgM: null });
+    expect(line()).toContain('Enter the weighed pad mass');
+  });
+
+  it('asks for a motor when there is a pad weight and nothing to subtract it from', () => {
+    show({ massKg: null, cgM: null, padMassKg: 10.574 }, { hardware: { state: 'none', why: 'no-motor' } });
+    expect(line()).toContain('Assign a motor');
+  });
+
+  it('refuses a pad weight lighter than dry plus motor, and carries nothing', () => {
+    show({ massKg: null, cgM: null, padMassKg: 7.0 }, {
+      hardware: {
+        state: 'implausible', reason: 'negative', deltaKg: -0.351, motorMassKg: 0.801,
+        mountCount: 1, dryMassKg: 6.55, drySource: 'computed',
+      },
+      motorLabel: 'AeroTech J460T',
+    });
+    expect(line()).toContain('351 g');
+    expect(line()).toContain('LIGHTER');
+    expect(line()).toContain('AeroTech J460T');
+    expect(line()).toContain('Nothing is carried');
+  });
+
+  it('refuses hardware heavier than the airframe', () => {
+    show({ massKg: null, cgM: null, padMassKg: 105.74 }, {
+      hardware: {
+        state: 'implausible', reason: 'heavier-than-airframe', deltaKg: 95.348, motorMassKg: 1.084,
+        mountCount: 1, dryMassKg: 9.308, drySource: 'measured',
+      },
+    });
+    expect(line()).toContain('more than the airframe itself');
+    expect(line()).toContain('nothing is carried');
   });
 });

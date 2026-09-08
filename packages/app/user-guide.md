@@ -480,6 +480,21 @@ it**, so re-opening the file brings the box back with your measurements still in
 link carries them too. Desktop OpenRocket skips those two extra tags with a warning, the same way
 it treats camera shrouds.
 
+**Pad weight (with motor).** The third field is different: weigh the whole rocket with the motor
+in, as it goes on the pad. The catalogue motor weight leaves out the hardware around the motor — an
+adapter, the retainer, and which forward closure is fitted — and on two real flights that came to
+182 g and 129 g, about 1.7 % of pad mass and 1.5 % on apogee. Rather than ask what your adapter
+weighs, the app takes the pad weight you measured, subtracts the dry rocket (your measured mass if
+you typed one, else the computed one) and the catalogue motor, and flies the difference as extra
+mass on the motor, so the pad mass is exact and the hardware comes down with the rocket in the
+recovery weight. There is no button — it is used the moment you type it, and the line under the box
+says what it did. A pad weight lighter than the dry rocket plus the catalogue motor is a typo or the
+wrong motor and is not applied, and nor is a difference heavier than the airframe itself. Change
+motors and the difference is re-derived against the new catalogue weight, so check the line after a
+swap. The pad weight saves into the `.ork` beside the other two, as a third tag desktop OpenRocket
+skips the same way. Batch simulate flies the catalogue weight of each candidate motor without this
+correction.
+
 ## Scaling a whole design
 
 **⤢ Scale…** sits above the component tree and multiplies the entire rocket by one factor: every

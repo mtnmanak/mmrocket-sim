@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.115';
+export const APP_VERSION = '0.116';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.116',
+    date: '2026-09-07',
+    title: 'A weighed pad mass carries adapter and closure weight the catalogue leaves out; the thrust-curve picker checks impulse against certification, and says so when the only curve is off',
+    items: [
+      'THIS RELEASE CAME OUT OF THE FIRST REAL FLIGHT DATA THE PROJECT HAS BEEN GIVEN - two flights on the same day, same field, same altimeter. One closed to within 1 percent of the simulation once the altimeter\'s standard-atmosphere assumption was corrected for a 90 F pad (a barometric altimeter reads about 6 percent LOW on a day that hot, and every simulator looks optimistic by that much until you allow for it). The other sat 24 percent over, and the peak velocity - reached before wind or drag matter - said why: the motor delivered less than the curve the app flew. Both flights also weighed heavier on the pad than the app said, by 182 g and 129 g, and a 126 g motor adapter plus a forward closure accounted for all of it. Three changes follow.',
+      'A THIRD FIELD IN THE "MEASURED MASS & CG" BOX: PAD WEIGHT (WITH MOTOR). Type what the rocket weighed with the motor installed and the app works out for itself what the catalogue motor weight leaves out - adapter, retainer, closure - and carries it as inert mass on the motor mount, so the pad mass in the app is exactly what you weighed and the recovery weight includes the hardware, because the adapter comes down with the rocket. One line under the box says what it did: "Motor and hardware: 1266 g weighed - catalogue AeroTech J540R 1084 g - 182 g carried as hardware on 75mm MMT". It refuses a figure that is LIGHTER than the dry rocket plus the catalogue motor, or that would carry more than the airframe itself, and says so rather than carrying nonsense; more than half the motor\'s own weight gets a caution. It travels in the .ork file as its own element, so a file without it opens exactly as before. Two limits, stated: batch simulate flies catalogue motors and does NOT carry the hardware, so its apogees read about 1.5 percent higher than a design-page flight once a pad mass is entered; and the figure is not tied to the motor it was weighed with - after a motor change, re-weigh.',
+      'THE THRUST-CURVE PICKER NOW CHECKS A FILE\'S IMPULSE AGAINST THE MOTOR\'S CERTIFIED TOTAL. thrustcurve.org often publishes more than one curve for a motor, and the app chose between them by soundness, burn time and provenance - never by whether the curve actually integrates to the impulse the motor is certified for. Now a file within 3 percent of the certified total outranks one that is not, ahead of provenance. Fourteen motors change which file they fly: AeroTech D9W, G74W, G77R, G8ST, K185W and N2700W-PS; AMW ST-75-7600; Cesaroni 247H143-13A; Contrail M1575-BG; Ellis L330, L600 and M1000; KBA M1450W; SkyR G125 - the largest by 4 to 6 percent of total impulse (G8ST, ST-75-7600, G77R). AS WITH v0.111, A CURVE THE APP HAD ALREADY DOWNLOADED IS DISCARDED BY THIS REFRESH, and a design you have open keeps the motor it already resolved: RE-PICK THE MOTOR to pick up the new choice.',
+      'AND WHEN THE ONLY CURVE THERE IS DISAGREES WITH THE CERTIFICATION, THE APP SAYS SO. Measured across every motor the app ships a curve for: 140 of 1,075 fly a file 3 percent or more from their certified impulse, 24 by more than 10 percent, and most of those have no better file to switch to - thrustcurve.org has one file for them and it is off. So a curve more than 5 percent from its certification now adds a line to the design notes when the motor is loaded: "The thrust curve flown for J460T integrates to 848 N-s, +5.3 percent against the 805.5 N-s it is certified for - expect apogee to read high by roughly that much." Sixty-nine motors carry it today. The J460T that started all this is one of them, and it is worth saying why the picker change did not fix it: its better file is damaged (a duplicated first sample), and a damaged file ranks last before anything else is considered. Whether a repairable file that agrees should beat a sound one that does not is a further decision, not made here.',
+    ],
+  },
   {
     version: '0.115',
     date: '2026-09-07',

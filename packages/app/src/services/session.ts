@@ -3,7 +3,7 @@ import type { LaunchConditions } from '../components/LaunchPanel.js';
 import type { MountMotor, SavedConfig } from '../App.js';
 import type { MotorMeta } from './simReport.js';
 import { APP_VERSION } from '../version.js';
-import { MIN_IMPORTED_TIME_STEP_S } from './orkFile.js';
+import { MIN_IMPORTED_TIME_STEP_S, type MeasuredFigures } from './orkFile.js';
 
 /**
  * Session autosave: the whole working state (design tree, selected motor,
@@ -52,8 +52,14 @@ export interface SessionState {
    * the Design tab's "Measured mass & CG" box (v0.061). Kept here rather than
    * in the .ork so the file format is untouched; the ballast it produces IS in
    * the file, as an ordinary mass component.
+   *
+   * The weighed pad mass (motor in, 2026-09-07) rides with the two figures as
+   * `padMassKg`, absent on sessions written before it existed. Only the WEIGHT
+   * is stored, never the hardware delta the app derives from it: that is
+   * re-derived on every build (services/hardwareMass.ts), so a motor change
+   * re-derives it against the new catalogue weight.
    */
-  measured?: { massKg: number | null; cgM: number | null };
+  measured?: MeasuredFigures;
   /**
    * The design fingerprint as of the last save or import (v0.091+) — what is
    * on disk. Compared against the live design to decide whether opening
