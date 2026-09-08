@@ -38,6 +38,14 @@
  *     motors.json` is a committed snapshot and thrust curves are fetched
  *     live in-app, so an API shape change breaks the running app, not just
  *     the build.
+ *  5. The nozzle database against that catalogue. `packages/app/src/data/
+ *     nozzles.json` is keyed to motorIds and designations that thrustcurve.org
+ *     owns, and it can only be rebuilt on the machine holding
+ *     `docs/RCS Schematics` — so when upstream renames or retires a motor, the
+ *     drift has to be REPORTED somewhere a person reads before a release
+ *     rather than failing a test nobody on CI can clear (2026-09-08, from
+ *     review; nozzle-db.test.mjs reports the same thing and explains the
+ *     split). Local files only — no network in this section.
  *
  * EXIT CODES
  *   0  everything as expected (upstream still broken where we say it is)
@@ -309,6 +317,91 @@ async function checkThrustCurve() {
   else say(`  ok   metadata.json: ${mfrs} manufacturers live`);
 }
 
+/**
+ * THE NOZZLE DATABASE, WHICH ONLY ONE MACHINE CAN REBUILD.
+ *
+ * `packages/app/src/data/nozzles.json` is a committed artifact built from
+ * `docs/RCS Schematics` — local-only, gitignored, and read by a Python
+ * extractor. So it cannot be regenerated on CI, on the laptop, or by anyone
+ * else, and a test that FAILED on upstream drift would have blocked the weekly
+ * motor-refresh PR with no way to clear it (2026-09-08, from review). The test
+ * reports that drift instead; this reports it again where a release is being
+ * prepared, which is the one moment somebody can act on it.
+ *
+ * Local files only — this section makes no network call. What it watches:
+ *   - a motorId this file names that the catalogue no longer has (retired or
+ *     re-issued upstream);
+ *   - a designation the catalogue has renamed under a row;
+ *   - the coverage the file states about itself, recomputed from the catalogue
+ *     — because that is the figure release notes quote, and v0.120's said
+ *     "every 98 mm motor" while four in-production 98 mm motors had no row.
+ */
+function checkNozzles() {
+  say('');
+  say('5. The nozzle database against the bundled catalogue');
+  const dataDir = join(here, '..', 'packages', 'app', 'src', 'data');
+  let nozzles;
+  let snapshot;
+  try {
+    nozzles = JSON.parse(readFileSync(join(dataDir, 'nozzles.json'), 'utf8'));
+    snapshot = JSON.parse(readFileSync(join(dataDir, 'motors.json'), 'utf8'));
+  } catch {
+    say('  skip  nozzles.json or motors.json is missing or unreadable — not a verdict');
+    return;
+  }
+  const byId = new Map(snapshot.motors.map((m) => [m.motorId, m]));
+  const joined = nozzles.motors.filter((r) => r.motorId);
+  if (nozzles.catalogueGenerated !== snapshot.generated) {
+    say(`  note  nozzles.json was keyed against the ${nozzles.catalogueGenerated} catalogue; `
+      + `motors.json is now ${snapshot.generated}. Drift below is expected, not a mistake.`);
+  }
+
+  checked++;
+  const gone = joined.filter((r) => !byId.has(r.motorId));
+  const renamed = joined.filter((r) => byId.has(r.motorId)
+    && byId.get(r.motorId).designation !== r.catalogDesignation);
+  if (!gone.length && !renamed.length) {
+    say(`  ok   all ${joined.length} joined rows still name a motor this catalogue has, under the same name`);
+  } else {
+    for (const r of gone) flag(`nozzles.json ${r.designation}: motorId ${r.motorId} is GONE from the catalogue.`);
+    for (const r of renamed) {
+      flag(`nozzles.json ${r.designation}: the catalogue now calls ${r.motorId} `
+        + `"${byId.get(r.motorId).designation}", the row says "${r.catalogDesignation}".`);
+    }
+    notes.push(`${gone.length + renamed.length} nozzle row(s) drifted against the catalogue — regenerate `
+      + 'with `node packages/app/scripts/build-nozzle-db.mjs` on the machine holding docs/RCS Schematics');
+  }
+
+  // COVERAGE, recomputed. The file states it per casing diameter; anything a
+  // release note says about "every N mm motor" has to come from here.
+  checked++;
+  const have = new Set(joined.map((r) => r.motorId));
+  const now = new Map();
+  for (const m of snapshot.motors) {
+    if (m.manufacturerAbbrev !== 'AeroTech' || m.availability === 'OOP') continue;
+    const mm = String(m.diameter);
+    if (!now.has(mm)) now.set(mm, { inProduction: 0, withNozzleRow: 0 });
+    const e = now.get(mm);
+    e.inProduction++;
+    if (have.has(m.motorId)) e.withNozzleRow++;
+  }
+  const stated = nozzles.coverage?.byCasingDiameterMm ?? {};
+  const off = [...now.entries()].filter(([mm, e]) => !stated[mm]
+    || stated[mm].inProduction !== e.inProduction || stated[mm].withNozzleRow !== e.withNozzleRow);
+  if (!off.length) {
+    const c98 = stated['98'];
+    say('  ok   stated coverage matches the catalogue'
+      + (c98 ? ` (98 mm: ${c98.withNozzleRow} of ${c98.inProduction} in production${c98.missing?.length ? `, no row for ${c98.missing.join(' ')}` : ''})` : ''));
+  } else {
+    for (const [mm, e] of off) {
+      const s = stated[mm];
+      flag(`nozzles.json coverage for ${mm} mm says ${s ? `${s.withNozzleRow} of ${s.inProduction}` : 'nothing'}, `
+        + `the catalogue now gives ${e.withNozzleRow} of ${e.inProduction}.`);
+    }
+    notes.push('nozzle coverage figures are stale — regenerate before quoting one in a release note');
+  }
+}
+
 try {
   say('Upstream vigilance check — READ ONLY, nothing here is written to the repo.');
   say('');
@@ -317,6 +410,7 @@ try {
   await checkHead();
   await checkMaterials();
   await checkThrustCurve();
+  checkNozzles();
   say('');
   if (moved === 0) {
     say(`All ${checked} watched value(s) are where this repo expects them. Nothing to do.`);
