@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, MotorSpec, RocketTree } from '@online-openrocket/engine';
 import {
-  catalogueMotorMass, flownSpec, hardwareMass, HARDWARE_MASS_TOLERANCE_KG, LARGE_HARDWARE_FRACTION,
-  motorLoadedMass, shiftMotorMass,
+  catalogueMotorMass, changedMounts, flownSpec, hardwareMass, HARDWARE_MASS_TOLERANCE_KG,
+  LARGE_HARDWARE_FRACTION, LEGACY_PAD_MASS_KEY, motorIdentity, motorLoadedMass, motorSetIdentity,
+  parseSetIdentity, rekeyUnmatched, shiftMotorMass, type SetEntry,
 } from './hardwareMass.js';
 
 /**
@@ -287,6 +288,16 @@ describe('hardwareMass — the none states', () => {
       ...base, padMassKg: 10.574, tree: twoStage(),
       motors: [['b-mmt', { spec: J540R() }]], primaryMountId: 's-mmt',
     })).toEqual({ state: 'none', why: 'no-motor' });
+    // Exactly what App passes for a refused primary since 2026-09-08: the
+    // value and key from the primary's record (read from `assigned`, not the
+    // accepted subset) with the keys equal — 'no-motor', never 'no-pad-mass',
+    // so the line under the still-visible number says the kernel refused the
+    // curve rather than "Blank".
+    const key = '[["b-mmt","AeroTech/J540R",1],["s-mmt","AeroTech/K550W",1]]';
+    expect(hardwareMass({
+      ...base, padMassKg: 10.574, tree: twoStage(), weighedWith: key, currentSetKey: key,
+      motors: [['b-mmt', { spec: J540R() }]], primaryMountId: 's-mmt',
+    })).toEqual({ state: 'none', why: 'no-motor' });
   });
 
   it('no mass curve: a motor with an empty or non-finite mass column', () => {
@@ -329,5 +340,183 @@ describe('shiftMotorMass and motorLoadedMass', () => {
     expect(motorLoadedMass(J540R())).toBe(1.084);
     expect(motorLoadedMass({ masses: [] })).toBeNull();
     expect(motorLoadedMass({ masses: [Number.NaN] })).toBeNull();
+  });
+});
+
+describe('weighed-with identity', () => {
+  /**
+   * v0.118: the pad mass lives on the primary mount's record, keyed by the
+   * identity of the motor SET it was weighed with. A set that differs is
+   * refused as 'stale-set' before any arithmetic — the measurement covers
+   * every motor in the stack, so a booster swap, an emptied or newly loaded
+   * mount, or a cluster-count change makes the catalogue sum a different
+   * number from the one on the scale.
+   */
+  const at = (mountId: string, identity: string, count = 1): SetEntry => [mountId, identity, count];
+
+  it('motorIdentity: EX id wins, else manufacturer/designation, spelled as the run keys always were', () => {
+    expect(motorIdentity({ manufacturer: 'AeroTech' }, 'J540R')).toBe('AeroTech/J540R');
+    expect(motorIdentity({ exMotorId: 'ex:loki-k1100t', manufacturer: 'EX' }, 'K1100T')).toBe('ex:loki-k1100t');
+    // No manufacturer at all: the slash still leads — the exact term App's
+    // motorSetKeyOf has always produced, so stored run keys do not move.
+    expect(motorIdentity({}, 'J540R')).toBe('/J540R');
+  });
+
+  it('motorSetIdentity is order-independent, excludes delay, plugged and ignition, and includes the cluster count', () => {
+    const a = motorSetIdentity([at('s-mmt', 'AeroTech/J540R'), at('b-mmt', 'AeroTech/I284W')]);
+    const b = motorSetIdentity([at('b-mmt', 'AeroTech/I284W'), at('s-mmt', 'AeroTech/J540R')]);
+    expect(a).toBe(b);
+    expect(a.startsWith('[')).toBe(true);
+    expect(parseSetIdentity(a)).toEqual([['b-mmt', 'AeroTech/I284W', 1], ['s-mmt', 'AeroTech/J540R', 1]]);
+    // Two records that differ only in delay, plugged and ignition spell the
+    // same entry: the hardware does not change with the delay grain.
+    const drilled = {
+      spec: { ...J540R(), ejectionDelay: 10 }, meta: { label: 'J540R', manufacturer: 'AeroTech' },
+      ignition: { event: 'automatic', delay: 0 },
+    };
+    const plugged = {
+      spec: { ...J540R(), ejectionDelay: Number.POSITIVE_INFINITY }, meta: drilled.meta,
+      ignition: { event: 'burnout', delay: 1 },
+    };
+    const entryOf = (mm: typeof drilled) => at('mmt', motorIdentity(mm.meta, mm.spec.designation));
+    expect(motorSetIdentity([entryOf(drilled)])).toBe(motorSetIdentity([entryOf(plugged)]));
+    // The cluster count IS part of it: catalogueMotorMass multiplies by it.
+    expect(motorSetIdentity([at('mmt', 'AeroTech/J540R', 1)]))
+      .not.toBe(motorSetIdentity([at('mmt', 'AeroTech/J540R', 3)]));
+    // The caller's array is not reordered.
+    const given = [at('s-mmt', 'AeroTech/J540R'), at('b-mmt', 'AeroTech/I284W')];
+    motorSetIdentity(given);
+    expect(given.map((e) => e[0])).toEqual(['s-mmt', 'b-mmt']);
+  });
+
+  it('changedMounts reports changed (with was/now and counts), missing, new and count, sorted by mount', () => {
+    const was = motorSetIdentity([
+      at('s-mmt', 'AeroTech/J540R'), at('b-mmt', 'AeroTech/I284W'), at('d-mmt', 'CTI/G80'), at('a-mmt', 'Estes/D12', 2),
+    ]);
+    const now = motorSetIdentity([
+      at('s-mmt', 'AeroTech/J540R'), at('b-mmt', 'AeroTech/J350W'), at('c-mmt', 'AeroTech/H128W'), at('a-mmt', 'Estes/D12', 3),
+    ]);
+    expect(changedMounts(was, now)).toEqual([
+      { mountId: 'a-mmt', kind: 'count', was: 'Estes/D12', wasCount: 2, nowCount: 3 },
+      { mountId: 'b-mmt', kind: 'changed', was: 'AeroTech/I284W', now: 'AeroTech/J350W', wasCount: 1, nowCount: 1 },
+      { mountId: 'c-mmt', kind: 'new', now: 'AeroTech/H128W', nowCount: 1 },
+      { mountId: 'd-mmt', kind: 'missing', was: 'CTI/G80', wasCount: 1 },
+    ]);
+    // The same set: nothing differs.
+    expect(changedMounts(was, was)).toEqual([]);
+    // Identity AND count both differ: ONE 'changed' entry carrying both counts.
+    expect(changedMounts(motorSetIdentity([at('m', 'A/x', 1)]), motorSetIdentity([at('m', 'A/y', 3)]))).toEqual([
+      { mountId: 'm', kind: 'changed', was: 'A/x', now: 'A/y', wasCount: 1, nowCount: 3 },
+    ]);
+  });
+
+  it('an unparsable stored key counts every current mount as new', () => {
+    const now = motorSetIdentity([at('s-mmt', 'AeroTech/J540R'), at('b-mmt', 'AeroTech/I284W')]);
+    for (const bad of ['', 'not json', '{"a":1}', '[["m","x"]]', '[1,2]', '[["m",1,1]]']) {
+      expect(parseSetIdentity(bad), bad).toBeNull();
+      expect(changedMounts(bad, now), bad).toEqual([
+        { mountId: 'b-mmt', kind: 'new', now: 'AeroTech/I284W', nowCount: 1 },
+        { mountId: 's-mmt', kind: 'new', now: 'AeroTech/J540R', nowCount: 1 },
+      ]);
+    }
+  });
+
+  it('rekeyUnmatched rewrites only the named mount’s unmatched: entry and leaves the count', () => {
+    // A file whose sustainer K1100T (a 2-cluster) and booster J350W both
+    // failed to match: the import keys the pad mass to two sentinels.
+    const key = motorSetIdentity([at('s-mmt', 'unmatched:K1100T', 2), at('b-mmt', 'unmatched:J350W')]);
+    const re = rekeyUnmatched(key, 's-mmt', 'AeroTech/K1100T');
+    expect(parseSetIdentity(re)).toEqual([['b-mmt', 'unmatched:J350W', 1], ['s-mmt', 'AeroTech/K1100T', 2]]);
+    // Once it is a real identity the mount is no longer a sentinel: identity return.
+    expect(rekeyUnmatched(re, 's-mmt', 'AeroTech/Other')).toBe(re);
+    // A mount the key does not have, or a key that is not a set identity: identity return.
+    expect(rekeyUnmatched(key, 'x-mmt', 'AeroTech/K1100T')).toBe(key);
+    expect(rekeyUnmatched(LEGACY_PAD_MASS_KEY, 's-mmt', 'AeroTech/K1100T')).toBe(LEGACY_PAD_MASS_KEY);
+    // Loading both satisfies the whole weighing: the key then EQUALS the live set's.
+    const both = rekeyUnmatched(re, 'b-mmt', 'AeroTech/J350W');
+    expect(both).toBe(motorSetIdentity([at('s-mmt', 'AeroTech/K1100T', 2), at('b-mmt', 'AeroTech/J350W')]));
+  });
+
+  it('stale-set: a stored key that differs from the current set returns stale-set with the changes before any arithmetic', () => {
+    // LEM-IV shape: sustainer J540R weighed with an I284W in the booster,
+    // which now holds a J350W. A pad mass the arithmetic would REFUSE (7.0 kg
+    // is lighter than dry + motors) still comes back stale-set — the set
+    // check runs first, because the refusal would be about the wrong rocket.
+    const weighedWith = motorSetIdentity([at('s-mmt', 'AeroTech/J540R'), at('b-mmt', 'AeroTech/I284W')]);
+    const currentSetKey = motorSetIdentity([at('s-mmt', 'AeroTech/J540R'), at('b-mmt', 'AeroTech/J350W')]);
+    const input = {
+      padMassKg: 7.0, measuredDryMassKg: 9.308, computedDryMassKg: 9.308, tree: twoStage(),
+      motors: [['s-mmt', { spec: J540R() }], ['b-mmt', { spec: spec([0.5, 0.4], 'J350W') }]] as const,
+      primaryMountId: 's-mmt', weighedWith, currentSetKey,
+    };
+    const r = hardwareMass(input);
+    expect(r).toEqual({
+      state: 'stale-set',
+      changes: [{ mountId: 'b-mmt', kind: 'changed', was: 'AeroTech/I284W', now: 'AeroTech/J350W', wasCount: 1, nowCount: 1 }],
+    });
+    // Nothing is carried: the flown spec is the catalogue spec, same object.
+    const catalogue = J540R();
+    expect(flownSpec('s-mmt', catalogue, r)).toBe(catalogue);
+    // Step 1 still comes first: no pad mass is 'none', whatever the keys say.
+    expect(hardwareMass({ ...input, padMassKg: null })).toEqual({ state: 'none', why: 'no-pad-mass' });
+    // And the set check precedes 'no-motor' (step 2): stale-set is about the
+    // rocket that was weighed, not the kernel's verdict on a curve.
+    expect(hardwareMass({ ...input, motors: [], primaryMountId: null }).state).toBe('stale-set');
+    // A mount emptied, and a mount newly loaded, read as their own kinds.
+    expect(hardwareMass({
+      ...input, currentSetKey: motorSetIdentity([at('s-mmt', 'AeroTech/J540R')]),
+    })).toEqual({ state: 'stale-set', changes: [{ mountId: 'b-mmt', kind: 'missing', was: 'AeroTech/I284W', wasCount: 1 }] });
+    expect(hardwareMass({
+      ...input, weighedWith: motorSetIdentity([at('s-mmt', 'AeroTech/J540R')]),
+    })).toEqual({ state: 'stale-set', changes: [{ mountId: 'b-mmt', kind: 'new', now: 'AeroTech/J350W', nowCount: 1 }] });
+  });
+
+  it('a cluster-count change alone is stale-set kind count', () => {
+    // Weighed as a single, edited to a 3-ring on the Design tab: without the
+    // count in the identity this would refuse the Mamba's 10,574 g as 'a typo'
+    // (3 × 1,084 g of catalogue motor), and the reverse edit would fly 2 × 1,084 g
+    // of phantom hardware with the number still live.
+    const r = hardwareMass({
+      padMassKg: 10.574, measuredDryMassKg: 9.308, computedDryMassKg: 9.308,
+      tree: singleStage({ cluster: '3-ring' }), motors: [['mmt', { spec: J540R() }]], primaryMountId: 'mmt',
+      weighedWith: motorSetIdentity([at('mmt', 'AeroTech/J540R', 1)]),
+      currentSetKey: motorSetIdentity([at('mmt', 'AeroTech/J540R', 3)]),
+    });
+    expect(r).toEqual({
+      state: 'stale-set',
+      changes: [{ mountId: 'mmt', kind: 'count', was: 'AeroTech/J540R', wasCount: 1, nowCount: 3 }],
+    });
+  });
+
+  it('equal keys fall through to the ok arithmetic, and no keys at all behave exactly as v0.116', () => {
+    const key = motorSetIdentity([at('mmt', 'AeroTech/J540R')]);
+    const base = {
+      padMassKg: 10.574, measuredDryMassKg: 9.308, computedDryMassKg: 9.308, tree: singleStage(),
+      motors: [['mmt', { spec: J540R() }]] as const, primaryMountId: 'mmt',
+    };
+    const v116 = hardwareMass(base);
+    expect(ok(v116).deltaKg).toBeCloseTo(0.182, 9);
+    expect(hardwareMass({ ...base, weighedWith: key, currentSetKey: key })).toEqual(v116);
+    // One key without the other is not a comparison: v0.116's behaviour, byte
+    // for byte. `weighedWith: undefined` is what App passes for the 'legacy'
+    // sentinel, so a v0.116 value gets the arithmetic's verdict, not stale-set.
+    expect(hardwareMass({ ...base, weighedWith: key })).toEqual(v116);
+    expect(hardwareMass({ ...base, currentSetKey: key })).toEqual(v116);
+    expect(hardwareMass({ ...base, weighedWith: undefined, currentSetKey: key })).toEqual(v116);
+    // Equal keys do not rescue a refusal.
+    expect(hardwareMass({ ...base, padMassKg: 7.0, weighedWith: key, currentSetKey: key }).state).toBe('implausible');
+  });
+
+  it('LEGACY_PAD_MASS_KEY is never a valid set identity', () => {
+    expect(LEGACY_PAD_MASS_KEY).toBe('legacy');
+    // Set identities are JSON arrays and start with '['; the sentinel cannot.
+    expect(LEGACY_PAD_MASS_KEY.startsWith('[')).toBe(false);
+    expect(parseSetIdentity(LEGACY_PAD_MASS_KEY)).toBeNull();
+    expect(motorSetIdentity([])).toBe('[]');
+    expect(motorSetIdentity([])).not.toBe(LEGACY_PAD_MASS_KEY);
+    // Reaching the comparison by mistake it reads as stale-set, never as a match.
+    const cur = motorSetIdentity([at('mmt', 'AeroTech/J540R')]);
+    expect(changedMounts(LEGACY_PAD_MASS_KEY, cur))
+      .toEqual([{ mountId: 'mmt', kind: 'new', now: 'AeroTech/J540R', nowCount: 1 }]);
   });
 });

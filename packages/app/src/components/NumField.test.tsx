@@ -241,4 +241,20 @@ describe('NumField — labelling', () => {
     expect(input().id).toBe('measured-mass');
     expect(input().getAttribute('aria-label')).toBe('Measured mass');
   });
+
+  it('invalid sets aria-invalid and describedBy sets aria-describedby on the input', () => {
+    // v0.118: a weighed pad mass whose motor set changed since the weighing is
+    // rendered greyed and NOT applied; the caller says so through these two,
+    // and the line that explains it is what aria-describedby points at.
+    render({ value: 10574, invalid: true, describedBy: 'pad-mass-mmt-line' });
+    expect(input().getAttribute('aria-invalid')).toBe('true');
+    expect(input().getAttribute('aria-describedby')).toBe('pad-mass-mmt-line');
+    // Neither is the draft's error border: a committed value the caller calls
+    // stale is not a typo, so the caller styles that state itself.
+    expect(input().className).not.toBe('num-invalid');
+    // Without them nothing changes for the existing call sites.
+    render({ value: 1 });
+    expect(input().hasAttribute('aria-invalid')).toBe(false);
+    expect(input().hasAttribute('aria-describedby')).toBe(false);
+  });
 });

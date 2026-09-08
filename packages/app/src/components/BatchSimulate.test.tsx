@@ -8,8 +8,12 @@ import { createRoot, type Root } from 'react-dom/client';
 import type { MotorSpec, RocketTree } from '@online-openrocket/engine';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import { splitClusterTree } from '../tree/treeModel.js';
+import { MOTOR_DB, filterMotors, sortMotors } from '../services/motorDb.js';
 import { DEFAULT_CONDITIONS, type LaunchConditions } from './LaunchPanel.js';
-import { BatchSimulate, batchProbeCutoff, batchSummary, batchUnavailableReason, mixedComboCount, type BatchMountOption } from './BatchSimulate.js';
+import {
+  BatchSimulate, batchFlownSpec, batchProbeCutoff, batchSummary, batchUnavailableReason, candidateIdentity,
+  isWeighedCandidate, mixedComboCount, type BatchMountOption, type BatchWeighed,
+} from './BatchSimulate.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -93,6 +97,60 @@ describe('mixedComboCount', () => {
   });
 });
 
+/**
+ * v0.118: the weighed pad mass is carried on the ONE motor it was weighed
+ * with. The batch has to recognise that motor among its candidates by the
+ * same identity App's records use — EX library id when pinned, else
+ * manufacturer/designation — and shift only that row, on that mount.
+ */
+describe('the weighed motor in a batch', () => {
+  const catalogue = { motorId: '5f4294d20002310000000031', manufacturerAbbrev: 'AeroTech', designation: 'E18W' };
+  const ex = { motorId: 'ex:e18w-1', manufacturerAbbrev: 'EX', designation: 'E18W' };
+  const weighed: BatchWeighed = {
+    mountId: 'mount', identity: 'AeroTech/E18W', pinned: false, name: 'E18W',
+    perMotorShiftKg: 0.0455, deltaKg: 0.182,
+  };
+
+  it('candidateIdentity spells an EX entry by its ex: id and a catalogue entry manufacturer/designation', () => {
+    expect(candidateIdentity(ex)).toBe('ex:e18w-1');
+    expect(candidateIdentity(catalogue)).toBe('AeroTech/E18W');
+  });
+
+  it('isWeighedCandidate matches an unpinned EX record by EX/designation and a pinned one only by its ex: id', () => {
+    // A record from before exMotorId existed, or a quick-pick reuse, spells
+    // an EX motor 'EX/<designation>' — the EX candidate must still match it.
+    const unpinned: BatchWeighed = { ...weighed, identity: 'EX/E18W', pinned: false };
+    expect(isWeighedCandidate(ex, unpinned)).toBe(true);
+    expect(isWeighedCandidate(catalogue, unpinned)).toBe(false);
+    // Pinned to a library id: that id and nothing else, not even another EX
+    // entry with the same designation.
+    const pinned: BatchWeighed = { ...weighed, identity: 'ex:e18w-1', pinned: true };
+    expect(isWeighedCandidate(ex, pinned)).toBe(true);
+    expect(isWeighedCandidate({ ...ex, motorId: 'ex:e18w-2' }, pinned)).toBe(false);
+    expect(isWeighedCandidate(catalogue, pinned)).toBe(false);
+    // And a catalogue record matches its catalogue candidate, not the EX one.
+    expect(isWeighedCandidate(catalogue, weighed)).toBe(true);
+    expect(isWeighedCandidate(ex, weighed)).toBe(false);
+  });
+
+  it('batchFlownSpec shifts only the weighed identity on the weighed mount: same motor on another mount and a different motor on the weighed mount stay catalogue; a different delay of the weighed motor is still shifted', () => {
+    const spec = motor(2);
+    const shifted = batchFlownSpec(catalogue, spec, 'mount', weighed);
+    expect(shifted).not.toBe(spec);
+    expect(shifted.masses).toEqual(spec.masses.map((m) => m + 0.0455));
+    // The catalogue spec is handed back BY IDENTITY when nothing applies.
+    expect(batchFlownSpec(catalogue, spec, 'other', weighed)).toBe(spec);
+    expect(batchFlownSpec({ ...catalogue, motorId: 'x', designation: 'E28T' }, spec, 'mount', weighed)).toBe(spec);
+    expect(batchFlownSpec(catalogue, spec, 'mount', undefined)).toBe(spec);
+    // Delay is not part of the identity: the weighed motor at another delay
+    // is still the weighed motor.
+    const other = { ...spec, ejectionDelay: 7 };
+    const shiftedOther = batchFlownSpec(catalogue, other, 'mount', weighed);
+    expect(shiftedOther.masses).toEqual(other.masses.map((m) => m + 0.0455));
+    expect(shiftedOther.ejectionDelay).toBe(7);
+  });
+});
+
 describe('the batch dialog', () => {
   let host: HTMLDivElement;
   let root: Root;
@@ -113,15 +171,17 @@ describe('the batch dialog', () => {
     { id: 'mount', label: '24 mm cluster', diameterMm: 24, motorCount: 4, maxMotorLengthM: null },
   ];
 
-  function mount(launchOver: Partial<LaunchConditions> = {}) {
+  function mount(launchOver: Partial<LaunchConditions> = {},
+    extra: { weighed?: BatchWeighed; mounts?: BatchMountOption[] } = {}) {
     act(() => root.render(
       <PrefsProvider>
         <BatchSimulate
           tree={TREE}
           info={{} as never}
-          mounts={MOUNTS}
+          mounts={extra.mounts ?? MOUNTS}
           initialMountId="mount"
           assignedMotors={{}}
+          weighed={extra.weighed}
           launch={{ ...DEFAULT_CONDITIONS, ...launchOver }}
           rocketName="Cluster bird"
           onRunsChange={() => {}}
@@ -134,6 +194,48 @@ describe('the batch dialog', () => {
   it('says nothing about the time step at the default', () => {
     mount();
     expect(host.querySelector('.field-caution')).toBeNull();
+  });
+
+  // v0.118: the weighed pad mass rides on the one motor it was weighed with,
+  // and the note under the candidates row says which row that is. The weighed
+  // motor is taken from the SHIPPED catalogue through the dialog's own default
+  // filter (every manufacturer, in-production, 24 mm bore, no length cap), so
+  // a weekly motors refresh that drops one motor cannot fail this gate — only
+  // an empty 24 mm catalogue could, and then the dialog itself is broken. The
+  // J540R is 54 mm and never fits a 24 mm mount. App hands `name` over already
+  // delay-stripped (its baseLabel), so the note must never grow a "-7" of its own.
+  const first = sortMotors(filterMotors({
+    manufacturers: new Set(), classes: new Set(), boreMm: 24, includeOOP: false, text: '',
+  }, MOTOR_DB), 'totImpulseNs', -1)[0]!;
+  const WEIGHED: BatchWeighed = {
+    mountId: 'mount', identity: candidateIdentity(first), pinned: false, name: first.commonName,
+    perMotorShiftKg: 0.0455, deltaKg: 0.182,
+  };
+
+  it('the note names the weighed motor without its delay suffix and its hardware when the target is the weighed mount and a candidate matches', () => {
+    expect(first).toBeDefined();
+    mount();
+    expect(host.querySelector('.batch-weighed')).toBeNull();
+    mount({}, { weighed: WEIGHED });
+    const text = host.querySelector('.batch-weighed')?.textContent ?? '';
+    expect(text).toBe(`Weighed pad mass: ${first.commonName} flies with 182 g of hardware (adapter, retainer, closure), as on the design page — expect its apogee to read a little lower than another candidate of the same impulse. Every other candidate flies at its catalogue weight; only that motor was weighed.`);
+    expect(text).not.toMatch(new RegExp(`${first.commonName}-\\d`));
+  });
+
+  it('the note says the weighed motor is not among the candidates when none matches', () => {
+    mount({}, { weighed: { ...WEIGHED, identity: 'AeroTech/J540R', name: 'J540R' } });
+    expect(host.querySelector('.batch-weighed')?.textContent).toBe(
+      'Weighed pad mass: J540R, the motor it was weighed with, is not among these candidates, so every row flies at its catalogue weight.');
+  });
+
+  it('the note says the weighed mount keeps its hardware when another mount is the target', () => {
+    const mounts: BatchMountOption[] = [
+      ...MOUNTS,
+      { id: 'centre', label: 'Centre 29 mm', diameterMm: 29, motorCount: 1, maxMotorLengthM: null },
+    ];
+    mount({}, { mounts, weighed: { ...WEIGHED, mountId: 'centre' } });
+    expect(host.querySelector('.batch-weighed')?.textContent).toBe(
+      `Weighed pad mass: ${first.commonName} on Centre 29 mm keeps its 182 g of hardware in every flight; the candidates on this mount fly at their catalogue weight.`);
   });
 
   // The launch panel's caution is per flight; a batch pays that cost once per

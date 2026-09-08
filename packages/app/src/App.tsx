@@ -25,6 +25,7 @@ import { MACH_AUTO_THRESHOLD, machProbeSeconds } from './services/machProbe.js';
 import { MovedNotice } from './components/MovedNotice.js';
 import { NoticeBar, type Notice, type NoticeSeverity } from './components/NoticeBar.js';
 import { MeasuredMassBox } from './components/MeasuredMassBox.js';
+import { MotorPadMass } from './components/MotorPadMass.js';
 import {
   BUILD_ALLOWANCE_NAME, coveringMassOverride, findAllowance, placeAtStation, solveBallast,
   withoutAllowance, type BallastSolution,
@@ -85,7 +86,7 @@ import { pokeServiceWorker, useVersionCheck } from './services/versionCheck.js';
 import {
   addChild, addStage, applyStageNozzles, cloneSubtree, defaultTree, duplicateNode, emptyTree, engineTree, findNode,
   findParent, flownRecoveryDevices, hasParallelStage, inheritDefaults, isOnLaunchStage, makeNode, motorMounts, moveNode,
-  normalizeTree, removeNode, stageIndexOf, stages, suppressingAncestor, updateAllNodes,
+  normalizeTree, primaryMountOf, removeNode, stageIndexOf, stages, suppressingAncestor, updateAllNodes,
   updateNode,
 } from './tree/treeModel.js';
 import { clusterCount } from './tree/cluster.js';
@@ -100,8 +101,13 @@ import {
   recoveryMass, recoveryMassByStage, recoveryMassTitle, type RecoveryByStage, type RecoveryMass,
 } from './services/recoveryMass.js';
 import {
-  catalogueMotorMass, flownSpec, hardwareMass, type HardwareMassResult,
+  catalogueMotorMass, flownSpec, hardwareMass, LEGACY_PAD_MASS_KEY, motorIdentity, motorSetIdentity,
+  type HardwareMassResult,
 } from './services/hardwareMass.js';
+import {
+  adoptsRefPadMass, assignMotorRecord, migrateLegacyPadMass, restoreUnmatchedRefs, stripPadMass, stripRefPadMass,
+  withActiveConfigSynced, withoutStoredRef,
+} from './services/configSync.js';
 import { RecoverySizingPanel } from './components/RecoverySizingPanel.js';
 import { ScaleDialog } from './components/ScaleDialog.js';
 
@@ -116,6 +122,27 @@ export interface MountMotor {
    * electronics-timed (burnout + 1 s); everything else AUTOMATIC.
    */
   ignition: { event: IgnitionEvent; delay: number };
+  /**
+   * The rocket weighed ready to fly WITH this motor set in (kg, finite > 0).
+   * PRESENT ONLY on the primary mount's record, and only after the user
+   * committed a value (or a file / v0.116 session carried one). ABSENT
+   * otherwise — never null, never undefined: dirtyState's fingerprint hashes
+   * keys, so the key exists exactly when a value does. Cleared by DELETING
+   * both keys. See services/hardwareMass.ts.
+   */
+  padMassKg?: number;
+  /**
+   * EITHER `motorSetIdentity(...)` of the assigned motor SET at the moment
+   * the value was committed (at import: the configuration's own set),
+   * OR the literal `LEGACY_PAD_MASS_KEY` ('legacy') for a value carried in
+   * from v0.116/v0.117 that the app has not yet checked against the loaded
+   * motor (the reconcile effect below decides it after the first build).
+   * Present iff `padMassKg` is. A pad weight is a measurement of the whole
+   * stack with every motor in, so the arithmetic refuses to apply it to a
+   * different set (hardwareMass 'stale-set'). Delay, plugged and ignition are
+   * excluded on purpose; cluster count is included.
+   */
+  padMassWeighedWith?: string;
 }
 
 /**
@@ -300,9 +327,18 @@ function legacyMaxMotorLength(): number | null {
 const afterPaint = (): Promise<void> =>
   new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
 
+/**
+ * A motor label with its delay suffix stripped ("H220-14" / "H220-P" /
+ * "H220 (auto delay)" → "H220"). The pad-mass field and the batch note name
+ * the motor by this: the weighing belongs to the motor, not to its delay grain.
+ */
+function baseLabel(label: string): string {
+  return label.replace(/ \(auto delay\)$/, '').replace(/-(\d+(\.\d+)?|P)$/, '');
+}
+
 /** Rewrites a motor label's delay suffix ("H220-14" / "H220-P" / "H220 (auto delay)"). */
 function labelWithDelay(label: string, delay: number | 'auto'): string {
-  const base = label.replace(/ \(auto delay\)$/, '').replace(/-(\d+(\.\d+)?|P)$/, '');
+  const base = baseLabel(label);
   if (delay === 'auto') return `${base} (auto delay)`;
   return `${base}-${Number.isFinite(delay) ? delay : 'P'}`;
 }
@@ -385,8 +421,27 @@ export function App() {
   // Per-mount motors (Release C). Legacy sessions carried ONE motor + the
   // mount it applied to — migrate it onto that mount.
   const defaultMountId = session?.mountId ?? motorMounts(initialTree)[0]?.id;
+  /**
+   * What became of a v0.116/v0.117 session's `measured.padMassKg` at restore
+   * (configSync.migrateLegacyPadMass): attached to the primary mount's record
+   * under the 'legacy' key, dropped because no in-tree mount had a motor, or
+   * none. Read once, by the `padMassNote` seed below — the notice that says
+   * where the value went is the whole reason the outcome is kept.
+   */
+  const legacyPadMass = useRef<ReturnType<typeof migrateLegacyPadMass> | null>(null);
   const [mountMotors, setMountMotors] = useState<Record<string, MountMotor>>(() => {
-    if (session?.mountMotors) return session.mountMotors;
+    if (session?.mountMotors) {
+      // The pad mass moved from the measured box onto the motor's record in
+      // v0.118. A session written before that carries it as a third measured
+      // key; migrate it onto the restored set (identity when there is none).
+      const m = migrateLegacyPadMass(
+        session.mountMotors,
+        (session.measured as (MeasuredFigures & { padMassKg?: unknown }) | undefined)?.padMassKg,
+        initialTree,
+      );
+      legacyPadMass.current = m;
+      return m.motors;
+    }
     if (!defaultMountId) return {};
     // A legacy (pre-per-mount) session carried its one motor's spec inline.
     if (session?.motor) {
@@ -439,8 +494,15 @@ export function App() {
    * SavedConfig.unmatchedRefs. Dropped for a mount as soon as the user assigns
    * or removes a motor there, because at that point the file's reference is no
    * longer what the user wants on that mount.
+   *
+   * Not persisted itself: at restore it is seeded from the ACTIVE
+   * configuration's stored refs (the session's only copy), minus any mount that
+   * has a record — and the write-back in applyConfig / clearConfig / onSaveOrk
+   * (configSync.withActiveConfigSynced) keeps that copy current, so a reload
+   * no longer costs a configuration its unresolved motors (v0.118).
    */
-  const [unmatchedRefs, setUnmatchedRefs] = useState<Record<string, OrkMotorRef>>({});
+  const [unmatchedRefs, setUnmatchedRefs] = useState<Record<string, OrkMotorRef>>(
+    () => restoreUnmatchedRefs(session?.savedConfigs, session?.activeConfigId, session?.mountMotors ?? {}));
   // A RASAero import's Mach-Alt table, offered to the drag panel as a sweep
   // condition. Session-only: it belongs to the imported file, not the design.
   const [fileMachAlt, setFileMachAlt] = useState<[number, number][] | undefined>();
@@ -686,22 +748,51 @@ export function App() {
   const [pendingRelaunch, setPendingRelaunch] = useState(false);
 
   /**
-   * What the user weighed, in SI: the airframe (motor out) and, since
-   * 2026-09-07, the whole rocket on the pad (motor in) as `padMassKg`.
-   * Persisted with the session so reopening the tab does not lose it; the
-   * ballast the first pair produced lives in the design itself as an ordinary
-   * mass component, and the hardware the pad mass derives is re-computed on
-   * every build (buildResult below), never stored.
+   * What the user weighed, in SI: the AIRFRAME, with the motor out — mass and
+   * CG, the two figures the Measured mass & CG box holds. Persisted with the
+   * session so reopening the tab does not lose it; the ballast the pair
+   * produced lives in the design itself as an ordinary mass component.
    *
-   * `padMassKg` is deliberately NOT normalised to null here. dirtyState's
-   * fingerprint hashes the object's KEYS (dirtyState.ts `stable`), so adding a
-   * key to every restored session would make its fingerprint differ from the
-   * stored `savedMark` and ask every user to save on first load after the
-   * upgrade. Absent stays absent; the key appears when the user types in the
-   * field.
+   * The weighed PAD mass (motor in) is NOT here any more. v0.116 put it beside
+   * these two as a third key, and a pad weight is not an airframe figure: it
+   * is one rocket with one motor set and that set's adapter, retainer and
+   * closure in it, so it must go with the motor. Since v0.118 it rides on the
+   * primary mount's MountMotor (`padMassKg` / `padMassWeighedWith`, above);
+   * the hardware it derives is re-computed on every build (buildResult below),
+   * never stored. A session written by v0.116/v0.117 still carries the third
+   * key here — the mountMotors initializer above migrated it, and it is
+   * stripped below ONLY when present, so every other session's object is
+   * returned by identity and fingerprints exactly as it did (dirtyState hashes
+   * keys; a normaliser that touched every session would ask every user to
+   * save on first load after the upgrade).
    */
-  const [measured, setMeasured] = useState<MeasuredFigures>(
-    () => session?.measured ?? { massKg: null, cgM: null });
+  const [measured, setMeasured] = useState<MeasuredFigures>(() => {
+    if (session?.measured && 'padMassKg' in session.measured) {
+      const { padMassKg: _x, ...rest } = session.measured as MeasuredFigures & { padMassKg?: unknown };
+      return rest;
+    }
+    return session?.measured ?? { massKg: null, cgM: null };
+  });
+  /** A mass for a notice, in the user's unit ("7480 g"). */
+  const massText = (kg: number) => `${fmtSi('mass', prefs.units.mass, kg)} ${prefs.units.mass}`;
+  /**
+   * What became of a pad mass carried in from v0.116/v0.117 — its own entry in
+   * the notice strip (`pad-mass-moved`), NOT setFileNote, which would overwrite
+   * an import note. Seeded here for the one outcome the restore already knows
+   * (dropped: no motor to belong to); the reconcile effect below writes the
+   * other two after the first build has checked the value against the motor.
+   */
+  const [padMassNote, setPadMassNote] = useState<{ text: string; severity: NoticeSeverity } | null>(() => {
+    const m = legacyPadMass.current;
+    return m?.outcome === 'dropped' && typeof m.kg === 'number'
+      ? {
+        severity: 'warn',
+        text: `The weighed pad mass you entered before this version (${massText(m.kg)}) had no motor loaded`
+          + ' to belong to and was not kept. Weigh the rocket with the motor in and type it under that'
+          + ' motor on Motors & Launch.',
+      }
+      : null;
+  });
 
   /**
    * The design fingerprint as of the last save or import — what is on disk.
@@ -1060,13 +1151,38 @@ export function App() {
       }
     }
   };
-  // The PRIMARY mount drives the report's lead columns and auto-delay: the
-  // topmost-stage mount with a motor (the sustainer's).
-  const primaryMountId = useMemo(() => {
-    const byStage = [...assigned].sort(
-      (a, b) => stageIndexOf(tree, a[0]) - stageIndexOf(tree, b[0]));
-    return byStage[0]?.[0] ?? null;
-  }, [assigned, tree]);
+  // The PRIMARY mount drives the report's lead columns, auto-delay and the
+  // weighed pad mass: the topmost-stage mount with a motor (the sustainer's).
+  // ONE definition of "the primary" — treeModel.primaryMountOf — shared with
+  // the export gate, the .ork attach-on-open and the session migration.
+  const primaryMountId = useMemo(
+    () => primaryMountOf(tree, assigned.map(([id]) => id)), [assigned, tree]);
+  /**
+   * The primary as the FILE sees it: the topmost-stage mount among the
+   * assigned motors AND the unmatched references. When the file's sustainer
+   * motor could not be matched this differs from `primaryMountId` (the
+   * booster's), and it gates the pad-mass field and the export gate — a value
+   * typed under the booster would never reach the file (the gate keeps the
+   * primary's), so the field is withheld and the card explains instead.
+   */
+  const filePrimaryMountId = useMemo(
+    () => primaryMountOf(tree, [...assigned.map(([id]) => id), ...Object.keys(unmatchedRefs)]),
+    [assigned, unmatchedRefs, tree]);
+  /**
+   * The identity of the motor set on the rocket RIGHT NOW — what a weighed pad
+   * mass is keyed to when it is committed, and what a stored key is compared
+   * against on every build (hardwareMass 'stale-set'). Built from `assigned`,
+   * not the kernel-accepted subset: a refusal is a transient of the curve, not
+   * of the rocket that was weighed. The tree's cluster counts are part of it,
+   * which is why `tree.components` is a dependency.
+   */
+  const currentSetKey = useMemo(
+    () => motorSetIdentity(assigned.map(([id, mm]) => [
+      id, motorIdentity(mm.meta, mm.spec.designation),
+      clusterCount(findNode(tree, id)?.['cluster'] as string | undefined),
+    ] as const)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- tree.components, not tree: a rename is not a set change
+    [assigned, tree.components]);
 
   // Three-way aero model (feature #1): classic / supersonic / auto. Auto uses
   // classic until a flight crosses Mach 0.9, then the whole design (display,
@@ -1130,13 +1246,19 @@ export function App() {
         }
       }
       let info = rocket.staticInfo();
-      // WEIGHED PAD MASS (2026-09-07). The catalogue motor weight leaves out
-      // the adapter, retainer and closure; when the user has weighed the
-      // rocket with the motor in, the difference is derived here and carried
-      // on the primary mount's motor curve — services/hardwareMass.ts has the
-      // arithmetic, the refusals and why it rides in the motor. Motors the
-      // kernel refused are excluded, as recoveryInput excludes them: their
-      // catalogue mass is not on the handle to subtract.
+      // WEIGHED PAD MASS (2026-09-07; moved onto the motor's record 2026-09-08).
+      // The catalogue motor weight leaves out the adapter, retainer and
+      // closure; when the user has weighed the rocket with the motor in, the
+      // difference is derived here and carried on the primary mount's motor
+      // curve — services/hardwareMass.ts has the arithmetic, the refusals and
+      // why it rides in the motor. The value comes from the PRIMARY mount's
+      // MountMotor (`padMassKg`), keyed to the motor set it was weighed with
+      // (`padMassWeighedWith`); a key that is not the current set's is
+      // refused as 'stale-set' before any arithmetic, and the 'legacy'
+      // sentinel (a v0.116/v0.117 value not yet checked) is passed with NO key
+      // so the arithmetic gives its verdict and the reconcile effect below
+      // decides. Motors the kernel refused are excluded, as recoveryInput
+      // excludes them: their catalogue mass is not on the handle to subtract.
       //
       // TWO staticInfo() CALLS when a pad mass is set, and only then. The dry
       // mass the arithmetic needs (massEmpty) is only knowable from the kernel
@@ -1147,9 +1269,19 @@ export function App() {
       // at all for a design without a pad mass, which runs the single call it
       // always ran, byte-identically.
       const accepted = assigned.filter(([id]) => !motorFailures.some((f) => f.mountId === id));
+      // The record comes from `assigned`, NOT `accepted`: a primary whose curve
+      // the kernel refused still holds the value the field shows, and passing
+      // it lets step 2 answer 'no-motor' (the line then says the kernel refused
+      // the curve) rather than step 1 answering 'no-pad-mass' under a visible
+      // number — the v0.116 class this release removes (2026-09-08 review).
+      // `motors: accepted` still governs what is subtracted.
+      const primaryRecord = assigned.find(([id]) => id === primaryMountId)?.[1];
+      const key = primaryRecord?.padMassWeighedWith;
       const hardware = hardwareMass({
-        padMassKg: measured.padMassKg,
-        measuredDryMassKg: measured.massKg,
+        padMassKg: primaryRecord?.padMassKg ?? null,
+        weighedWith: key === LEGACY_PAD_MASS_KEY ? undefined : key,
+        currentSetKey,
+        measuredDryMassKg: measured.massKg, // the airframe box's dry mass still wins over massEmpty
         computedDryMassKg: info.massEmpty,
         tree,
         motors: accepted,
@@ -1210,12 +1342,14 @@ export function App() {
     // every physical input here — geometry, component names for the THICK_FIN
     // filter, rail and wake checks — lives inside `tree.components`.
     //
-    // `measured.massKg` and `measured.padMassKg` — the two SCALARS the hardware
-    // arithmetic reads, not `measured` — so typing in the CG field does not
-    // rebuild the rocket. `primaryMountId` derives from `assigned` and `tree`,
-    // so it only ever changes when they do.
+    // `measured.massKg` — the one SCALAR the hardware arithmetic reads from
+    // the box, not `measured` — so typing in the CG field does not rebuild
+    // the rocket. The pad mass itself is on the primary's record, reached
+    // through `assigned`; `currentSetKey` is the set it is checked against.
+    // `primaryMountId` derives from `assigned` and `tree`, so it only ever
+    // changes when they do.
   }, [tree.components, assigned, effectiveKbf, effectiveSupersonic, measured.massKg,
-    measured.padMassKg, primaryMountId]);
+    primaryMountId, currentSetKey]);
   const built = 'error' in buildResult ? null : buildResult;
   const buildError = 'error' in buildResult ? buildResult.error : simError;
   const motorFailures = built?.motorFailures ?? [];
@@ -1299,6 +1433,27 @@ export function App() {
     const c = catalogueMotorMass(tree, assigned.filter(([id]) => !failed.has(id)));
     return c === null ? null : built.info.massEmpty + c;
   }, [built, tree, assigned]);
+
+  /**
+   * The weighed motor, for Batch simulate: the candidate matching it on its
+   * mount flies with the hardware, every other candidate at catalogue weight.
+   * Absent for stale-set, a refusal, and a 'legacy' value the reconcile effect
+   * has not yet decided — none of those is a number a sweep should carry.
+   */
+  const batchWeighed = useMemo(() => {
+    if (!built || built.hardware.state !== 'ok') return undefined;
+    const h = built.hardware;
+    const mm = mountMotors[h.appliedTo];
+    if (!mm || mm.padMassWeighedWith === LEGACY_PAD_MASS_KEY) return undefined;
+    return {
+      mountId: h.appliedTo,
+      identity: motorIdentity(mm.meta, mm.spec.designation),
+      pinned: !!mm.meta.exMotorId,
+      name: baseLabel(mm.label),
+      perMotorShiftKg: h.perMotorShiftKg,
+      deltaKg: h.deltaKg,
+    };
+  }, [built, mountMotors]);
 
   /**
    * ONE component's own mass (kg), for the recovery-sizing panel's substitution:
@@ -1614,6 +1769,17 @@ export function App() {
         onDismiss: () => setTimeStepMigrated(false),
       });
     }
+    // Where a pad mass entered in v0.116/v0.117 went (moved under its motor,
+    // or dropped with the value and the motor named) — its own entry, so it
+    // cannot overwrite an import note and an import note cannot overwrite it.
+    if (padMassNote) {
+      out.push({
+        id: 'pad-mass-moved',
+        severity: padMassNote.severity,
+        text: padMassNote.text,
+        onDismiss: () => setPadMassNote(null),
+      });
+    }
     if (fileNoteState) {
       out.push({
         id: 'file-note',
@@ -1624,7 +1790,7 @@ export function App() {
     }
     return out;
   }, [buildError, buildResult, motorFailures, curveRepairs, fileNoteState, setFileNote,
-    restoredByOlderBuild, timeStepMigrated, timeStepMigratedFrom]);
+    restoredByOlderBuild, timeStepMigrated, timeStepMigratedFrom, padMassNote]);
 
   /** Assigns a motor to a mount, with the G80 power-class ignition default. */
   const assignMotor = (targetMountId: string, label: string, spec: MotorSpec, meta: MotorMeta) => {
@@ -1635,15 +1801,150 @@ export function App() {
     const ignition: MountMotor['ignition'] = multiStage && stIdx === 0 && meta.highPower
       ? { event: 'burnout', delay: 1 }
       : { event: 'automatic', delay: 0 };
-    setMountMotors((prev) => ({ ...prev, [targetMountId]: { label, spec, meta, ignition } }));
     // The file's unresolved reference for this mount stops being what should
     // ride back out the moment the user picks a motor for it.
+    const droppedRef = unmatchedRefs[targetMountId];
+    const { [targetMountId]: _dropped, ...remainingRefs } = unmatchedRefs;
+    // A fresh record: a pad mass weighed with a DIFFERENT motor does not
+    // belong to this one, so the field starts blank for it. The three ways a
+    // weighing survives — the same motor re-picked for its delay, the file's
+    // own motor adopting the value the file left on its reference, and the
+    // primary's `unmatched:` sentinel for this mount satisfied — are
+    // configSync.assignMotorRecord, pure and tested there.
+    setMountMotors((prev) => assignMotorRecord(prev, targetMountId, { label, spec, meta, ignition }, {
+      tree, primaryMountId, droppedRef, remainingRefs,
+    }));
+    // When the dropped reference carried the file's pad mass (its motor was
+    // the file's primary and could not be loaded): the file's own motor takes
+    // the value with it and the field under it shows what it carries; any
+    // other motor drops it, and the note says which motor it was weighed with
+    // — never that the motor just loaded is "no longer loaded".
+    const adoptedKg = adoptsRefPadMass(droppedRef, spec.designation);
+    if (adoptedKg !== undefined) {
+      setFileNote(`The file's weighed pad mass (${massText(adoptedKg)}) was weighed with ${droppedRef!.designation},`
+        + ` which is loaded now — it sits under ${baseLabel(label)} on this mount, and the line there says what`
+        + ' it carries.');
+    } else if (droppedRef && typeof droppedRef.padMassKg === 'number' && droppedRef.padMassKg > 0) {
+      setFileNote(`The weighed pad mass in the file was weighed with ${droppedRef.designation}, which is not the`
+        + ` motor now loaded — re-weigh with ${label} in.`);
+    }
     setUnmatchedRefs((prev) => {
       if (!(targetMountId in prev)) return prev;
       const next = { ...prev };
       delete next[targetMountId];
       return next;
     });
+    // And the active configuration's STORED copy of that reference, or a
+    // reload before the next sync would seed it back (restoreUnmatchedRefs).
+    setSavedConfigs((prev) => withoutStoredRef(prev, activeConfigId, targetMountId));
+  };
+
+  /**
+   * The pad-mass field's commit, SI kg or null. Writes BOTH keys or deletes
+   * BOTH — never a null value (dirtyState hashes keys). The key is THIS
+   * render's assigned set: the value is a weighing of the rocket as it stands.
+   * A typed value supersedes any pad mass the file left on an unmatched
+   * reference, so that is stripped too.
+   */
+  const setPadMass = (mountId: string, kg: number | null) => {
+    const key = currentSetKey;
+    setMountMotors((prev) => {
+      const cur = prev[mountId];
+      if (!cur) return prev;
+      if (kg === null || !Number.isFinite(kg) || kg <= 0) {
+        if (!('padMassKg' in cur)) return prev;
+        const { padMassKg: _p, padMassWeighedWith: _w, ...rest } = cur;
+        return { ...prev, [mountId]: rest };
+      }
+      return { ...prev, [mountId]: { ...cur, padMassKg: kg, padMassWeighedWith: key } };
+    });
+    setUnmatchedRefs((prev) => stripRefPadMass(prev));
+  };
+
+  /**
+   * Reconciling a LEGACY pad mass — the effect that makes v0.116's screenshots
+   * impossible. A value keyed 'legacy' (a v0.116/v0.117 session, or a
+   * bare-form .ork attached in applyImported) reaches the build with no set
+   * key, so `built.hardware` is the arithmetic's verdict on it against the
+   * motor now loaded, while the field renders BLANK. After that first build:
+   * accepted (ok, or a motor with no mass curve to separate it from) → the
+   * record is re-keyed to the current set and the notice says where it went;
+   * refused → the keys are deleted and the notice names the value and the
+   * motor, so nothing is ever shown refused under a number that looks live.
+   * 'none/no-motor' (the kernel refused the primary's curve) stays pending:
+   * the next build that accepts a motor decides.
+   */
+  useEffect(() => {
+    if (!built || !primaryMountId) return;
+    const rec = mountMotors[primaryMountId];
+    if (!rec || rec.padMassWeighedWith !== LEGACY_PAD_MASS_KEY || typeof rec.padMassKg !== 'number') return;
+    const h = built.hardware;
+    const kg = rec.padMassKg;
+    const name = baseLabel(rec.label);
+    // The file's primary is a reference the app could not load (a v0.117
+    // session with the sustainer unmatched and the booster loaded): the field
+    // is withheld on that card and the export gate keeps the reference's
+    // slot, so a value placed here would be flown, invisible, and absent from
+    // the saved file. Dropped with a notice, like a refusal (2026-09-08 review).
+    if (filePrimaryMountId !== primaryMountId) {
+      const fileRef = filePrimaryMountId ? unmatchedRefs[filePrimaryMountId] : undefined;
+      const where = (filePrimaryMountId && findNode(tree, filePrimaryMountId)?.name) ?? 'a removed mount';
+      setPadMass(primaryMountId, null);
+      setPadMassNote({
+        severity: 'warn',
+        text: `The weighed pad mass you entered before this version (${massText(kg)}) could not be placed: the`
+          + ` motor the file names on ${where} (${fileRef?.designation ?? 'unknown'}) is not loaded, so the app`
+          + ' cannot tell which motors it was weighed with. Load that motor, or re-weigh with the motors you'
+          + ' have in and type it under the top motor on Motors & Launch.',
+      });
+      return;
+    }
+    if (h.state === 'implausible') {
+      setPadMass(primaryMountId, null);
+      setPadMassNote({
+        severity: 'warn',
+        text: h.reason === 'negative'
+          ? `The weighed pad mass entered before this version (${massText(kg)}) was not kept: it is lighter`
+            + ` than the dry rocket plus the catalogue ${name}, so it was weighed with a different motor.`
+            + ' Re-weigh with this motor in and type it under it on Motors & Launch.'
+          : `The weighed pad mass entered before this version (${massText(kg)}) was not kept: against the`
+            + ` catalogue ${name} it would carry more hardware than the airframe itself. Re-weigh with this`
+            + ' motor in and type it under it on Motors & Launch.',
+      });
+    } else if (h.state === 'ok' || (h.state === 'none' && h.why === 'no-mass-curve')) {
+      setMountMotors((prev) => ({
+        ...prev,
+        [primaryMountId]: { ...prev[primaryMountId]!, padMassWeighedWith: currentSetKey },
+      }));
+      setPadMassNote({
+        severity: 'info',
+        text: `The weighed pad mass you entered in the Measured mass & CG box (${massText(kg)}) now belongs`
+          + ` to the motor it was weighed with: it sits under ${name} on Motors & Launch, and the line there`
+          + ' says what it carries. If that is not the motor you weighed with, clear it and re-weigh.'
+          + (h.state === 'none'
+            ? ` ${name} carries no mass curve, so nothing is carried until a motor with one is loaded.`
+            : ''),
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- setPadMass and massText are per-render closures over the same state
+  }, [built, primaryMountId, filePrimaryMountId, unmatchedRefs, mountMotors, currentSetKey]);
+
+  /**
+   * A stored set-identity term for display on the pad-mass line:
+   * 'AeroTech/I284W' → 'I284W'; 'ex:…' → the EX library entry's designation
+   * (or the id when the library no longer has it); 'unmatched:K' → 'K (named
+   * by the file, not loaded)'. Lives here because loadExMotors reads the
+   * browser's EX library, which the pure component must not.
+   */
+  const describeIdentity = (identity: string): string => {
+    if (identity.startsWith('unmatched:')) {
+      return `${identity.slice('unmatched:'.length)} (named by the file, not loaded)`;
+    }
+    if (identity.startsWith('ex:')) {
+      return loadExMotors().find((m) => m.motorId === identity)?.designation ?? identity;
+    }
+    const slash = identity.indexOf('/');
+    return slash === -1 ? identity : identity.slice(slash + 1);
   };
 
   const onLaunch = () => {
@@ -1823,7 +2124,7 @@ export function App() {
     const key = [...set]
       .map(([id, mm]) => [
         id,
-        mm.meta.exMotorId ?? `${mm.meta.manufacturer ?? ''}/${mm.spec.designation}`,
+        motorIdentity(mm.meta, mm.spec.designation),
         mm.spec.ejectionDelay,
         mm.ignition.event,
         mm.ignition.delay,
@@ -2029,7 +2330,37 @@ export function App() {
       delay: mm.spec.ejectionDelay,
       ignitionEvent: mm.ignition.event,
       ignitionDelay: mm.ignition.delay,
+      // The weighed pad mass rides out with the motor it was weighed with; the
+      // writer lifts it to a rocket-level <measuredpadmass configid> and never
+      // puts it inside <motor>. The set key is NOT written — it is rebuilt at
+      // open from the file's own set.
+      ...(typeof mm.padMassKg === 'number' && mm.padMassKg > 0 ? { padMassKg: mm.padMassKg } : {}),
     };
+  };
+
+  /**
+   * THE PRIMARY GATE: `padMassKg` deleted from every entry except the primary
+   * mount's — in-tree ids only (primaryMountOf), so a record for a mount the
+   * tree no longer has can neither win nor lose it. A value orphaned on a
+   * record that stopped being primary (a motor loaded on a higher stage) is
+   * never applied and must never be written; a configuration whose primary is
+   * an unmatched reference writes the reference's value. The writer takes the
+   * first value it finds per configuration, so this is what makes it one.
+   */
+  const padMassOnPrimaryOnly = (
+    motors: Record<string, OrkExportMotor>, t: RocketTree,
+  ): Record<string, OrkExportMotor> => {
+    const primary = primaryMountOf(t, Object.keys(motors));
+    const out: Record<string, OrkExportMotor> = {};
+    for (const [id, m] of Object.entries(motors)) {
+      if (id !== primary && 'padMassKg' in m) {
+        const { padMassKg: _p, ...rest } = m;
+        out[id] = rest;
+      } else {
+        out[id] = m;
+      }
+    }
+    return out;
   };
 
   const exportMotorsMap = (): Record<string, OrkExportMotor> => {
@@ -2047,7 +2378,7 @@ export function App() {
     for (const [id, ref] of Object.entries(unmatchedRefs)) {
       if (!motors[id] && mounts.some((m) => m.id === id)) motors[id] = refToExportMotor(ref);
     }
-    return motors;
+    return padMassOnPrimaryOnly(motors, tree);
   };
 
   /**
@@ -2085,9 +2416,14 @@ export function App() {
       // the live working set: a user who has since switched configurations
       // must still be able to export the results of the others.
       const cfg = savedConfigs.find((c) => c.id === r.flightConfigId)!;
+      // Filtered by the current mounts, the same predicate as `assigned`: since
+      // the write-back (configSync) a configuration's `motors` is the working
+      // set verbatim and can hold a stale id that the run's key — stamped from
+      // `assigned` — never had. Refusal is the safe direction, but a needless
+      // one loses that configuration's stored result from the file.
       const cfgMotors: [string, MountMotor][] = cfg.id === activeConfigId
         ? assigned
-        : Object.entries(cfg.motors);
+        : Object.entries(cfg.motors).filter(([id]) => mounts.some((m) => m.id === id));
       // The hardware term is the ACTIVE configuration's: a non-active
       // configuration's stored run keeps matching only if it flew with no
       // hardware, and refusal is the safe direction for numbers written into
@@ -2096,25 +2432,29 @@ export function App() {
       out[r.flightConfigId] = summaryOf(r);
     }
     return out;
-  }, [runs, savedConfigs, activeConfigId, assigned, physicsKey, launch, motorSetKeyOf,
+  }, [runs, savedConfigs, activeConfigId, assigned, mounts, physicsKey, launch, motorSetKeyOf,
     aeroMode, effectiveKbf, autoSupersonic, hardwareDeltaKg]);
 
   /**
    * Stage B: the stored presets in exportOrk's shape. Stable ids ride
    * through; the writer swaps the ACTIVE config's motors for the live
-   * working set, so in-app edits persist into the saved file.
+   * working set, so in-app edits persist into the saved file. `configs`
+   * defaults to state; onSaveOrk passes the set it has just written the
+   * working set back into, so the file and the mark agree.
    */
-  const exportConfigs = (): OrkExportConfig[] => savedConfigs.map((c) => ({
+  const exportConfigs = (configs: SavedConfig[] = savedConfigs): OrkExportConfig[] => configs.map((c) => ({
     id: c.id, name: c.name, isDefault: c.isDefault,
-    motors: {
-      // Same rule as exportMotorsMap: what the file said, re-emitted verbatim
-      // for any mount this configuration could not match, so a preset the user
-      // has never applied does not quietly lose its motors on the way out.
+    // Same rule as exportMotorsMap: what the file said, re-emitted verbatim
+    // for any mount this configuration could not match, so a preset the user
+    // has never applied does not quietly lose its motors on the way out — and
+    // the same primary gate, so each configuration writes ONE pad mass, its
+    // primary's.
+    motors: padMassOnPrimaryOnly({
       ...Object.fromEntries(
         Object.entries(c.unmatchedRefs ?? {}).map(([id, ref]) => [id, refToExportMotor(ref)])),
       ...Object.fromEntries(
         Object.entries(c.motors).map(([id, mm]) => [id, toExportMotor(mm)])),
-    },
+    }, tree),
     ...(c.deployments ? { deployments: c.deployments } : {}),
     ...(c.separations ? { separations: c.separations } : {}),
   }));
@@ -2187,12 +2527,20 @@ export function App() {
     // Save-As picker that can sit open indefinitely, and the user can keep
     // editing behind it — marking from post-await state would bless those
     // edits as saved when the file on disk does not have them.
-    const mark = designFingerprint(snapshotNow());
+    //
+    // The working set is written back into the active configuration FIRST and
+    // the mark taken over the synced set: the writer swaps the live motors into
+    // the active configuration anyway, so the file already had them — but the
+    // stored configuration did not, and a switch away and back after the save
+    // read as unsaved work. Identity when nothing changed (configSync).
+    const synced = withActiveConfigSynced(savedConfigs, activeConfigId, mountMotors, unmatchedRefs);
+    if (synced !== savedConfigs) setSavedConfigs(synced);
+    const mark = designFingerprint({ ...snapshotNow(), savedConfigs: synced });
     // WITH launch: the .ork's first <simulation> carries the pad and weather,
     // so the file (and the desktop app) round-trips the whole flight setup.
     const out = await download(exportOrk({
       name: tree.name ?? 'My Rocket', tree, motors: exportMotorsMap(), launch,
-      configs: exportConfigs(), activeConfigId, measured,
+      configs: exportConfigs(synced), activeConfigId, measured,
       flightData: flightDataForExport(),
     }), 'ork');
     // Only a real write counts. 'cancelled' means the user backed out of the
@@ -2364,6 +2712,9 @@ export function App() {
     // preset, matched in the same pass. Only the APPLIED config's notes
     // surface — a preset's failures are reported if/when it is applied.
     const chosenId = imported.chosenConfigId ?? null;
+    // Normalised BEFORE the configuration loop (it keeps ids): the pad-mass
+    // attach below needs the tree's stage order and cluster counts.
+    const importedTree = normalizeTree(imported.tree);
     const nextConfigs: SavedConfig[] = [];
     for (const cfg of imported.configs ?? []) {
       const cfgMotors: Record<string, MountMotor> = {};
@@ -2377,6 +2728,53 @@ export function App() {
           : (await matchImportedMotor(ref)).motor;
         if (mm) cfgMotors[nodeId] = mm;
         else { unmatched.push(ref.designation); cfgUnmatchedRefs[nodeId] = ref; }
+      }
+      // The configuration's weighed pad mass (<measuredpadmass configid>)
+      // attached to its PRIMARY mount — the topmost-stage mount among ALL of
+      // the file's references for it, matched or not, so a configuration whose
+      // sustainer could not be loaded keeps the value on that reference (Save
+      // writes it back unchanged) rather than applying it under the booster.
+      // The key is the configuration's own set, an unmatched reference
+      // contributing the `unmatched:<designation>` sentinel and every mount its
+      // cluster count, so a set the file only half-loaded is never applied
+      // against a partial catalogue sum. The v0.116 attribute-less form is
+      // keyed 'legacy' and checked by the reconcile effect. Immutable spreads:
+      // the chosen configuration shares its records with `nextMotors`, so the
+      // object is replaced in both places, never mutated. A non-chosen
+      // configuration with no primary loses the value silently — a stated limit.
+      if (typeof cfg.padMassKg === 'number') {
+        const padMassKg = cfg.padMassKg;
+        const primary = primaryMountOf(importedTree, Object.keys(cfg.motors));
+        if (!primary) {
+          if (cfg.id === chosenId) {
+            notes.push(`This file's weighed pad mass (${massText(padMassKg)}) has no motor to attach to in configuration`
+              + ` “${cfg.name ?? cfg.id}” and was not kept — re-enter it under the motor you weigh with.`);
+          }
+        } else {
+          const count = (id: string) => clusterCount(findNode(importedTree, id)?.['cluster'] as string | undefined);
+          const key = cfg.padMassLegacy ? LEGACY_PAD_MASS_KEY : motorSetIdentity([
+            ...Object.entries(cfgMotors).map(([id, mm]) =>
+              [id, motorIdentity(mm.meta, mm.spec.designation), count(id)] as const),
+            ...Object.entries(cfgUnmatchedRefs).map(([id, ref]) =>
+              [id, `unmatched:${ref.designation}`, count(id)] as const),
+          ]);
+          if (cfgMotors[primary]) {
+            cfgMotors[primary] = { ...cfgMotors[primary], padMassKg, padMassWeighedWith: key };
+          } else if (cfgUnmatchedRefs[primary]) {
+            const ref = cfgUnmatchedRefs[primary];
+            cfgUnmatchedRefs[primary] = { ...ref, padMassKg };
+            if (cfg.id === chosenId) {
+              const mountName = findNode(importedTree, primary)?.name ?? 'Motor mount';
+              notes.push(`The file's weighed pad mass (${massText(padMassKg)}) belongs to the motor on “${mountName}”`
+                + ` (${ref.designation}), which could not be loaded. It is kept so the file saves unchanged,`
+                + ' and nothing is carried until that motor is loaded — or re-weigh with the motors you have in.');
+            }
+          }
+          if (cfg.id === chosenId) {
+            if (cfgMotors[primary]) nextMotors[primary] = cfgMotors[primary];
+            if (cfgUnmatchedRefs[primary]) nextUnmatchedRefs[primary] = cfgUnmatchedRefs[primary];
+          }
+        }
       }
       nextConfigs.push({
         id: cfg.id, name: cfg.name, isDefault: cfg.isDefault, motors: cfgMotors,
@@ -2396,7 +2794,6 @@ export function App() {
     // never reaches the markSaved at the end, which is what made the loser's
     // work look saved.
     if (!openSeq.isCurrent(openId)) return;
-    const importedTree = normalizeTree(imported.tree);
     setTree(importedTree);
     setMountMotors(nextMotors);
     setUnmatchedRefs(nextUnmatchedRefs);
@@ -2482,8 +2879,22 @@ export function App() {
     }));
   };
 
-  /** Loads a flight-configuration preset into the working set (Stage B). */
-  const applyConfig = (cfg: SavedConfig) => {
+  /**
+   * Loads a flight-configuration preset into the working set (Stage B).
+   *
+   * The working set is written BACK into the configuration it came from
+   * first (configSync.withActiveConfigSynced — identity when nothing changed),
+   * and the target is read from the synced set: a delay, an ignition change or
+   * a weighed pad mass made on A survives A→B→A, and pressing Apply on the
+   * configuration already on screen KEEPS the edits rather than reverting them
+   * to the file's — the three `setSavedConfigs` sites were init / New / import
+   * only, unchanged since v0.050, so every in-app motor edit used to live in the
+   * working set alone.
+   */
+  const applyConfig = (requested: SavedConfig) => {
+    const synced = withActiveConfigSynced(savedConfigs, activeConfigId, mountMotors, unmatchedRefs);
+    if (synced !== savedConfigs) setSavedConfigs(synced);
+    const cfg = synced.find((c) => c.id === requested.id) ?? requested;
     setMountMotors(cfg.motors);
     // The working set's unresolved references are this configuration's, so
     // they switch with it — otherwise a save would write the PREVIOUS
@@ -2540,12 +2951,23 @@ export function App() {
       setFileNote(cfg.unmatched.map((d) =>
         `Motor “${d}” couldn't be matched when the file was opened — pick one via Browse motor database.`).join('\n'), 'warn');
     } else {
-      setFileNote(`Flight configuration “${cfg.name || cfg.id}” applied — its motors and recovery settings are now live.`);
+      // "… and weighed pad mass" only when this configuration's primary record
+      // carries one — the field under that motor shows it.
+      const primary = primaryMountOf(tree, Object.keys(cfg.motors));
+      const pad = primary ? cfg.motors[primary]?.padMassKg : undefined;
+      const hasPad = typeof pad === 'number' && Number.isFinite(pad) && pad > 0;
+      setFileNote(`Flight configuration “${cfg.name || cfg.id}” applied — its motors and recovery settings`
+        + `${hasPad ? ' and weighed pad mass' : ''} are now live.`);
     }
   };
 
   /** The "None" row / full unload: no motors, no active configuration. */
   const clearConfig = () => {
+    // The working set goes back into its configuration before it is emptied,
+    // for the same reason applyConfig does it: "None" is a switch, not a
+    // discard, and the configuration must still hold the edits made on it.
+    const synced = withActiveConfigSynced(savedConfigs, activeConfigId, mountMotors, unmatchedRefs);
+    if (synced !== savedConfigs) setSavedConfigs(synced);
     const had = Object.keys(mountMotors).length > 0;
     setMountMotors({});
     // "No motors" has to mean no motors in the saved file too, so the file's
@@ -3174,6 +3596,25 @@ export function App() {
             // scale it describes one that no longer exists, and the box would
             // report the new design's gap against someone else's scale.
             setMeasured({ massKg: null, cgM: null });
+            // The weighed pad mass, for the same reason — on the working set,
+            // on every saved configuration's records, and on the unmatched
+            // references a file may have left it on (refToExportMotor writes
+            // those back, and the pad weight of a rocket that no longer exists
+            // must not re-attach on the next open). Identity when none carries
+            // one, so a design without a pad mass is untouched.
+            setMountMotors((prev) => stripPadMass(prev));
+            setUnmatchedRefs((prev) => stripRefPadMass(prev));
+            setSavedConfigs((prev) => {
+              let changed = false;
+              const next = prev.map((c) => {
+                const motors = stripPadMass(c.motors);
+                const refs = c.unmatchedRefs ? stripRefPadMass(c.unmatchedRefs) : undefined;
+                if (motors === c.motors && refs === c.unmatchedRefs) return c;
+                changed = true;
+                return { ...c, motors, ...(refs ? { unmatchedRefs: refs } : {}) };
+              });
+              return changed ? next : prev;
+            });
             // 'warn' when something needs attention afterwards, so the bar
             // auto-expands. As plain 'info' it stays collapsed showing only the
             // headline - and "the motor no longer fits", which the dialog warned
@@ -3209,8 +3650,12 @@ export function App() {
           // The mount with a motor when there is one; otherwise the first mount,
           // because a design with nothing loaded is the normal starting point.
           initialMountId={primaryMountId ?? mounts[0]!.id!}
+          // Flown specs, not catalogue: a weighed motor on a NON-target mount
+          // keeps its hardware through the batch's applyOthers; the batch
+          // itself shifts only the target mount's matching candidate (weighed).
           assignedMotors={Object.fromEntries(
-            Object.entries(mountMotors).map(([id, mm]) => [id, mm.spec]))}
+            Object.entries(mountMotors).map(([id, mm]) => [id, flownSpec(id, mm.spec, built.hardware)]))}
+          weighed={batchWeighed}
           launch={launch}
           rocketName={tree.name ?? 'Rocket'}
           onRunsChange={recordRuns}
@@ -3650,10 +4095,6 @@ export function App() {
               onApply={applyAllowance}
               blockedBy={allowanceBlocker}
               onPinStage={allowanceBlocker && canPinBlocker ? pinBlockerToMeasured : undefined}
-              hardware={built.hardware}
-              computedPadMassKg={computedPadMassKg}
-              motorLabel={primaryMountId ? mountMotors[primaryMountId]?.label : undefined}
-              mountName={primaryMountId ? findNode(tree, primaryMountId)?.name : undefined}
             />
           )}
         </aside>
@@ -3946,11 +4387,18 @@ export function App() {
                     </label>
                     {mm && (
                       <button className="fin-row-del" title="Remove this motor"
-                        onClick={() => setMountMotors((prev) => {
-                          const next = { ...prev };
-                          delete next[m.id!];
-                          return next;
-                        })}>✕</button>
+                        onClick={() => {
+                          setMountMotors((prev) => {
+                            const next = { ...prev };
+                            delete next[m.id!];
+                            return next;
+                          });
+                          // An emptied mount stays empty across a reload: the
+                          // active configuration's stored reference for it (a
+                          // v0.117 session kept one beside the motor assigned
+                          // over it) would otherwise be seeded back and saved.
+                          setSavedConfigs((prev) => withoutStoredRef(prev, activeConfigId, m.id!));
+                        }}>✕</button>
                     )}
                   </div>
                   <MotorPicker
@@ -4083,6 +4531,55 @@ export function App() {
                       </div>
                     </div>
                   )}
+                  {/* The weighed pad mass lives under the PRIMARY mount's motor —
+                      one number for the whole rocket, carried on that motor
+                      (services/hardwareMass.ts) — so only the primary's card
+                      gets the field. When the file's primary is a reference the
+                      app could not load, a value typed here would never reach
+                      the file (the export gate keeps the primary's), so the card
+                      explains instead of offering a field. */}
+                  {mm && m.id === primaryMountId && (() => {
+                    if (filePrimaryMountId === primaryMountId) {
+                      return (
+                        <MotorPadMass
+                          mountId={m.id!}
+                          motorLabel={baseLabel(mm.label)}
+                          mountName={m.name ?? 'Motor mount'}
+                          multiMotor={assigned.length > 1 || count > 1}
+                          valueKg={mm.padMassKg ?? null}
+                          legacyPending={mm.padMassWeighedWith === LEGACY_PAD_MASS_KEY}
+                          onChange={(kg) => setPadMass(m.id!, kg)}
+                          computedPadMassKg={computedPadMassKg}
+                          hardware={built?.hardware}
+                          nameOfMount={(id) => findNode(tree, id)?.name ?? 'a removed mount'}
+                          describeIdentity={describeIdentity}
+                          identityKey={motorIdentity(mm.meta, mm.spec.designation)}
+                        />
+                      );
+                    }
+                    // The file's primary is an unmatched reference (filePrimaryMountId
+                    // is never null while primaryMountId is not).
+                    const fileRef = filePrimaryMountId ? unmatchedRefs[filePrimaryMountId] : undefined;
+                    const where = (filePrimaryMountId && findNode(tree, filePrimaryMountId)?.name) ?? 'a removed mount';
+                    const named = fileRef?.designation ?? 'a motor the file names';
+                    return typeof fileRef?.padMassKg === 'number' && fileRef.padMassKg > 0
+                      ? (
+                        <p className="print-note print-note-warn" role="status">
+                          {`The file's weighed pad mass belongs to the motor on ${where} (${named}), which could not`
+                            + ' be loaded. It is kept so the file saves unchanged, and nothing is carried. Load that'
+                            + ' motor to use it, or load a motor there and re-weigh with these motors in.'}
+                        </p>
+                      )
+                      : (
+                        // No pad mass in the file either: say why there is no field
+                        // rather than claiming a value the file never had.
+                        <p className="comp-stats" style={{ margin: '3px 0 0' }}>
+                          {`The motor the file names on ${where} (${named}) could not be loaded, so there is no`
+                            + ' weighed pad mass field here — a weighing belongs with every motor in. Load that'
+                            + ' motor, or another one there, and the field appears under it.'}
+                        </p>
+                      );
+                  })()}
                 </div>
               );
                   })}

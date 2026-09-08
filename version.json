@@ -1,5 +1,5 @@
 {
-  "version": "0.117",
-  "released": "2026-09-07",
-  "note": "A freeform fin whose tip trails behind its root was drawn forward of where it flies, by the overhang - 4.7 inches on one tester's design; no flight number changes, only the picture, so if you placed such a fin by eye against the old drawing, check it. And a RASAero file's nozzle exit diameter is now imported (the simulation's value, with the Design tab as fallback, per flight configuration) instead of dropped: 31 of the 51 RASAero designs testers have sent gain a value, worth about half a percent of apogee under power - re-open the file to get it."
+  "version": "0.118",
+  "released": "2026-09-08",
+  "note": "The weighed pad mass moves out of the Measured mass & CG box to the motor it was weighed with, under that motor on Motors & Launch: unload the motor and it goes, load a different motor and the field is blank, each flight configuration keeps its own, and the line beneath says what it carries and that the next Launch flies it. Batch simulate now carries it on the weighed motor only. A correction: v0.116 said the hardware was worth about 1.5 percent of apogee; measured through the kernel it is 2.78 and 2.98 percent on the two flights it came from. A pad mass entered in v0.116 or v0.117 is moved for you on first open, or dropped with a notice naming it. And a motor edit now survives switching flight configurations."
 }

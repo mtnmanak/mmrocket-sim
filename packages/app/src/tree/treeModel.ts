@@ -155,6 +155,21 @@ export function stageIndexOf(tree: RocketTree, id: string): number {
   return tree.components.findIndex((s) => s.id === id || (s.children ?? []).some(contains));
 }
 
+/**
+ * The mount the hardware is carried on: the topmost-stage mount among
+ * `mountIds` THAT ARE STILL IN THE TREE; ties keep the given (assignment /
+ * file) order; null when none remain. An id the tree no longer has is dropped
+ * BEFORE sorting — `stageIndexOf` returns −1 for it, which would otherwise
+ * sort a deleted mount above the sustainer (a stale `mountMotors` record is
+ * never pruned when its mount is removed). App's `primaryMountId`, the
+ * pad-mass field's gate, the export gate, the .ork attach-on-open and the
+ * session migration all use it (v0.118).
+ */
+export function primaryMountOf(tree: RocketTree, mountIds: readonly string[]): string | null {
+  const inTree = mountIds.filter((id) => stageIndexOf(tree, id) !== -1);
+  return inTree.sort((a, b) => stageIndexOf(tree, a) - stageIndexOf(tree, b))[0] ?? null;
+}
+
 export function findParent(tree: RocketTree, id: string): ComponentNode | 'stage' | null {
   // 'stage' now means "the rocket root" — only stage nodes live there.
   if (tree.components.some((n) => n.id === id)) return 'stage';

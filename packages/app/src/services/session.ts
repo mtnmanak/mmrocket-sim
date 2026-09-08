@@ -53,11 +53,17 @@ export interface SessionState {
    * in the .ork so the file format is untouched; the ballast it produces IS in
    * the file, as an ordinary mass component.
    *
-   * The weighed pad mass (motor in, 2026-09-07) rides with the two figures as
-   * `padMassKg`, absent on sessions written before it existed. Only the WEIGHT
-   * is stored, never the hardware delta the app derives from it: that is
-   * re-derived on every build (services/hardwareMass.ts), so a motor change
-   * re-derives it against the new catalogue weight.
+   * The weighed PAD mass (motor in) is NOT here from v0.118 on. v0.116 and
+   * v0.117 stored it beside the two figures as `padMassKg`, but it is a
+   * measurement of one rocket with one motor set in, so it now rides on the
+   * primary mount's `MountMotor` record — `mountMotors` and every
+   * `savedConfigs[].motors` are stringified whole, so it persists with no
+   * schema change and switches with its configuration. A session written by
+   * those two versions still carries the key here at runtime; App's restore
+   * moves it onto the record (keyed `legacy`, checked against the loaded
+   * motor before it is applied) and strips it from this object. Only the
+   * WEIGHT is ever stored, never the hardware delta the app derives from it
+   * (services/hardwareMass.ts).
    */
   measured?: MeasuredFigures;
   /**

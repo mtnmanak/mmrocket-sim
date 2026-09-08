@@ -14,8 +14,9 @@ import { findNode } from '../tree/treeModel.js';
  * 7,351 g: the catalogue weights (1,084 g and 801 g loaded) were 182 g and
  * 129 g light. His 54→75 mm adapter alone is 126 g, and AeroTech forward
  * closures move a motor ±50 g depending on which one is on it, with the
- * catalogue's assumption unknown. Pad mass 1.7 % light is apogee ~1.5 % high
- * on both rockets.
+ * catalogue's assumption unknown. What that does to apogee was measured
+ * through the kernel — see the v0.118 changelog (an earlier "~1.5 %" here
+ * traced to no table, so no figure is quoted in this file).
  *
  * WHY A WEIGHT AND NOT A QUESTION. The first idea was to ask whether an
  * adapter is fitted and what it weighs. The user's answer to that is a
@@ -28,6 +29,17 @@ import { findNode } from '../tree/treeModel.js';
  *
  * where `dry` is the measured airframe mass when the user typed one and the
  * kernel's `massEmpty` otherwise. The result says which.
+ *
+ * WHERE THE PAD MASS LIVES (v0.118). On the PRIMARY mount's `MountMotor`
+ * record (App.tsx `padMassKg`), keyed by `padMassWeighedWith` — the identity
+ * of the motor SET it was weighed with (`motorSetIdentity` below). v0.116 kept
+ * it in the Measured mass & CG box beside the two airframe figures, which are
+ * meant to survive a motor change; a pad weight cannot, because it is one
+ * rocket with one motor and that motor's hardware in it. On the record, a
+ * swap on the primary replaces the record and the value goes with the motor
+ * it belonged to; a change anywhere else in the set is refused as
+ * 'stale-set' below rather than silently re-derived against a set nobody
+ * weighed.
  *
  * WHERE THE DELTA GOES. Every sample of the PRIMARY mount's motor mass curve
  * is shifted up by the hardware (see `shiftMotorMass`), never a mass
@@ -46,10 +58,10 @@ import { findNode } from '../tree/treeModel.js';
  * the sustainer's mount is where the adapter is, and a split would be a guess
  * dressed as arithmetic. The derived line names the mount.
  *
- * The delta is never stored. It is re-derived on every build from the pad
- * mass, the dry mass and the catalogue motor, so a motor swap re-derives it
- * against the new catalogue weight (and the derived line names the motor it
- * subtracted, which is the user's cue to re-weigh).
+ * The delta is never stored. It is re-derived on every build from the
+ * record's pad mass, the dry mass and the catalogue motor; the line under
+ * the field names the motor it subtracted and the one it was weighed with,
+ * which is the user's cue to re-weigh.
  *
  * Pure: no kernel, no React. App.tsx owns the handle and writes the shifted
  * spec through `flownSpec`, the ONE helper every handle-write site uses.
@@ -130,12 +142,27 @@ export type HardwareMassResult =
     drySource: DrySource;
     /** Above LARGE_HARDWARE_FRACTION of `motorMassKg` — caution, still applied. */
     large: boolean;
-  };
+  }
+  /**
+   * The pad mass was weighed with a different motor SET from the one assigned
+   * now (step 1b). NOTHING is applied — the measurement covers every motor in
+   * the stack, so a booster swapped or emptied, a mount newly loaded or a
+   * cluster count changed makes the catalogue sum a different number from the
+   * one on the scale. `changes` says what differs, per mount, so the line can
+   * name the motor it was weighed with and the one now there.
+   */
+  | { state: 'stale-set'; changes: MountChange[] };
 
 export interface HardwareMassInput {
-  /** The rocket weighed WITH its motor(s) in, as it goes on the pad (kg). */
+  /**
+   * The rocket weighed WITH its motor(s) in, as it goes on the pad (kg) — the
+   * primary mount's record (`MountMotor.padMassKg`), null when it has none.
+   */
   padMassKg: number | null | undefined;
-  /** The Measured mass & CG box's airframe mass (kg), motor out. */
+  /**
+   * The user's measured airframe mass (kg), weighed with the motor out — the
+   * Design tab's measured figure. It still wins over `computedDryMassKg`.
+   */
   measuredDryMassKg: number | null | undefined;
   /**
    * `StaticInfo.massEmpty` — the dry mass the kernel FLIES, any Build
@@ -153,6 +180,124 @@ export interface HardwareMassInput {
   motors: ReadonlyArray<readonly [string, { spec: Pick<MotorSpec, 'masses'> }]>;
   /** App's `primaryMountId`: the topmost-stage mount with a motor. */
   primaryMountId: string | null;
+  /**
+   * `motorSetIdentity` of the set the pad mass was weighed with — the primary
+   * record's `padMassWeighedWith`. Optional, with `currentSetKey`: a caller
+   * that passes neither gets v0.116's behaviour byte for byte. App passes
+   * `undefined` for the 'legacy' sentinel (a value carried in from
+   * v0.116/v0.117 that App reconciles itself after the first build).
+   */
+  weighedWith?: string;
+  /** `motorSetIdentity` of the set assigned now (App's `currentSetKey`). */
+  currentSetKey?: string;
+}
+
+/**
+ * The sentinel key of a value carried in from v0.116/v0.117 and not yet
+ * checked against the loaded motor — never a set identity (those are JSON
+ * arrays and start with '['). App owns the reconciliation; this module only
+ * promises the two can never collide.
+ */
+export const LEGACY_PAD_MASS_KEY = 'legacy';
+
+/**
+ * ONE spelling of a motor's identity: the EX library id when it is one, else
+ * manufacturer/designation. Byte-identical to the term App's `motorSetKeyOf`
+ * has always used, so stored run keys do not move.
+ */
+export function motorIdentity(
+  meta: { exMotorId?: string; manufacturer?: string }, designation: string,
+): string {
+  return meta.exMotorId ?? `${meta.manufacturer ?? ''}/${designation}`;
+}
+
+/** One mount's entry in a set identity. `count` is that mount's cluster count (tree/cluster.ts clusterCount). */
+export type SetEntry = readonly [mountId: string, identity: string, count: number];
+
+const byMountThenIdentity = (a: SetEntry, b: SetEntry): number =>
+  a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0;
+
+/**
+ * The identity of a whole assigned SET: JSON of [mountId, identity, count]
+ * triples sorted by mountId, then identity. Order-independent; delay, plugged
+ * and ignition are NOT part of it — the hardware does not change with the
+ * delay grain; cluster count IS, because `catalogueMotorMass` multiplies by
+ * it (a 1→3 cluster edit after weighing would otherwise re-derive 250 g of
+ * phantom hardware, or refuse as 'a typo'). Session-internal: never written
+ * to a file — the .ork carries only kg and the key is rebuilt at open.
+ */
+export function motorSetIdentity(entries: ReadonlyArray<SetEntry>): string {
+  return JSON.stringify([...entries].sort(byMountThenIdentity).map(([m, i, c]) => [m, i, c]));
+}
+
+/**
+ * A set identity back into its entries, or null when the string is not one
+ * (the 'legacy' sentinel, or anything this app never wrote). App reads the
+ * entry for a mount through this before deciding whether `rekeyUnmatched`
+ * applies.
+ */
+export function parseSetIdentity(key: string): SetEntry[] | null {
+  if (!key.startsWith('[')) return null;
+  let parsed: unknown;
+  try { parsed = JSON.parse(key); } catch { return null; }
+  if (!Array.isArray(parsed)) return null;
+  const out: SetEntry[] = [];
+  for (const e of parsed) {
+    if (!Array.isArray(e) || e.length !== 3
+        || typeof e[0] !== 'string' || typeof e[1] !== 'string' || typeof e[2] !== 'number') return null;
+    out.push([e[0], e[1], e[2]]);
+  }
+  return out;
+}
+
+export type MountChange =
+  | { mountId: string; kind: 'changed'; was: string; now: string; wasCount: number; nowCount: number }
+  | { mountId: string; kind: 'missing'; was: string; wasCount: number }
+  | { mountId: string; kind: 'new'; now: string; nowCount: number }
+  | { mountId: string; kind: 'count'; was: string; wasCount: number; nowCount: number };
+
+/**
+ * What differs between the set a value was weighed with and the current set,
+ * one entry per mount, sorted by mountId. Identity differs → 'changed' (counts
+ * carried too); only the count differs → 'count'; in `weighedWith` only →
+ * 'missing'; in `current` only → 'new'. An unparsable `weighedWith` (never
+ * written by this app; the 'legacy' sentinel is handled by App before this is
+ * reached) counts as every current mount 'new'.
+ */
+export function changedMounts(weighedWith: string, current: string): MountChange[] {
+  const was = new Map((parseSetIdentity(weighedWith) ?? []).map((e) => [e[0], e] as const));
+  const now = new Map((parseSetIdentity(current) ?? []).map((e) => [e[0], e] as const));
+  const out: MountChange[] = [];
+  for (const [mountId, w] of was) {
+    const n = now.get(mountId);
+    if (!n) out.push({ mountId, kind: 'missing', was: w[1], wasCount: w[2] });
+    else if (w[1] !== n[1]) {
+      out.push({ mountId, kind: 'changed', was: w[1], now: n[1], wasCount: w[2], nowCount: n[2] });
+    } else if (w[2] !== n[2]) {
+      out.push({ mountId, kind: 'count', was: w[1], wasCount: w[2], nowCount: n[2] });
+    }
+  }
+  for (const [mountId, n] of now) {
+    if (!was.has(mountId)) out.push({ mountId, kind: 'new', now: n[1], nowCount: n[2] });
+  }
+  return out.sort((a, b) => (a.mountId < b.mountId ? -1 : a.mountId > b.mountId ? 1 : 0));
+}
+
+/**
+ * `key` with the named mount's `unmatched:<designation>` entry rewritten to
+ * `identity`, count kept — the file's own motor, loaded later, satisfying its
+ * own weighing. The string work only: App decides that the loaded designation
+ * equals the sentinel's (case-insensitively, the findDbMotor rank-0 rule)
+ * before calling. Returned by identity when `key` is not a set identity or
+ * the mount's entry is not a sentinel.
+ */
+export function rekeyUnmatched(key: string, mountId: string, identity: string): string {
+  const entries = parseSetIdentity(key);
+  if (!entries) return key;
+  const at = entries.findIndex((e) => e[0] === mountId && e[1].startsWith('unmatched:'));
+  if (at === -1) return key;
+  entries[at] = [mountId, identity, entries[at]![2]];
+  return motorSetIdentity(entries);
 }
 
 /**
@@ -188,13 +333,26 @@ export function catalogueMotorMass(
 
 /** The hardware delta and where it goes — see the header. */
 export function hardwareMass(input: HardwareMassInput): HardwareMassResult {
-  const { padMassKg, measuredDryMassKg, computedDryMassKg, tree, motors, primaryMountId } = input;
+  const {
+    padMassKg, measuredDryMassKg, computedDryMassKg, tree, motors, primaryMountId, weighedWith, currentSetKey,
+  } = input;
 
   // 1. No pad mass typed. A zero or negative pad mass is the same as none —
   //    the .ork reader already refuses those (orkFile.ts measuredNum), and a
   //    field cleared to blank arrives here as null.
   if (typeof padMassKg !== 'number' || !Number.isFinite(padMassKg) || padMassKg <= 0) {
     return { state: 'none', why: 'no-pad-mass' };
+  }
+  // 1b. Weighed with a different motor set. The measurement is of the whole
+  //     stack with every motor in (motorMassKg sums every mount and multiplies
+  //     by cluster count), so a set that differs — a booster swapped or
+  //     removed, a mount gaining a motor, a cluster count changed — cannot
+  //     have this pad mass subtracted from it. Both inputs optional: callers
+  //     that pass neither get v0.116's behaviour, byte for byte. App passes
+  //     `weighedWith: undefined` for the 'legacy' sentinel (it decides that
+  //     one itself, after the first build).
+  if (typeof weighedWith === 'string' && typeof currentSetKey === 'string' && weighedWith !== currentSetKey) {
+    return { state: 'stale-set', changes: changedMounts(weighedWith, currentSetKey) };
   }
   // 2. Nowhere to put it. The primary must be among the ACCEPTED motors: a
   //    primary the kernel refused has no mass on the handle to shift.

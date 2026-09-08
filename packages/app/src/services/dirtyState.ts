@@ -45,8 +45,13 @@ export interface DesignSnapshot {
  * Infinity is mapped the way the session does it (a plugged motor's
  * `ejectionDelay` is Infinity, which JSON turns into null) so a plugged motor
  * and a genuinely absent delay cannot collide.
+ *
+ * Exported (v0.118) so `configSync.withActiveConfigSynced` can decide "is the
+ * stored configuration already the working set?" with the SAME equality the
+ * fingerprint uses — an unchanged configuration is then returned by identity
+ * and fingerprints exactly as before.
  */
-function stable(value: unknown): string {
+export function stableJson(value: unknown): string {
   if (value === null || typeof value !== 'object') {
     if (typeof value === 'number' && value === Infinity) return '"Infinity"';
     if (typeof value === 'number' && value === -Infinity) return '"-Infinity"';
@@ -54,15 +59,15 @@ function stable(value: unknown): string {
     if (typeof value === 'number' && Number.isNaN(value)) return '"NaN"';
     return JSON.stringify(value) ?? 'null';
   }
-  if (Array.isArray(value)) return `[${value.map(stable).join(',')}]`;
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
   const obj = value as Record<string, unknown>;
   const keys = Object.keys(obj).sort();
-  return `{${keys.map((k) => `${JSON.stringify(k)}:${stable(obj[k])}`).join(',')}}`;
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${stableJson(obj[k])}`).join(',')}}`;
 }
 
 /** A short, stable mark for a design. Same design in, same string out. */
 export function designFingerprint(s: DesignSnapshot): string {
-  return shortHash(stable([
+  return shortHash(stableJson([
     s.tree,
     s.mountMotors,
     s.launch,

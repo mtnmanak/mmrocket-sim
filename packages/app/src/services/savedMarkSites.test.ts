@@ -44,8 +44,11 @@ describe('only a full-fidelity save clears the unsaved-changes mark', () => {
     const src = app();
     expect(src).toContain("if (out.kind !== 'cancelled') markSaved(mark);");
     // The mark is taken before the await, or edits made while the Save-As
-    // picker sits open get blessed as saved.
-    expect(/const mark = designFingerprint\(snapshotNow\(\)\);[\s\S]{0,400}?await download\(exportOrk/
+    // picker sits open get blessed as saved. Since v0.118 it is taken over the
+    // configurations with the working set written back into the active one
+    // (configSync.withActiveConfigSynced), so a switch away and back after the
+    // save does not read as unsaved.
+    expect(/const mark = designFingerprint\(\{ \.\.\.snapshotNow\(\), savedConfigs: synced \}\);[\s\S]{0,400}?await download\(exportOrk/
       .test(src)).toBe(true);
   });
 

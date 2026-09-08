@@ -9,6 +9,7 @@ import {
 } from '../services/motorDb.js';
 import { exToDbEntry, loadExMotors } from '../services/exMotors.js';
 import { fetchMotorSpec, delayOptions } from '../services/thrustcurve.js';
+import { motorIdentity, shiftMotorMass } from '../services/hardwareMass.js';
 import { buildSimRun, recommendDelay, type SimRun } from '../services/simReport.js';
 import { addRuns, runsToCsv, runsToTable } from '../services/simStore.js';
 import { XLSX_MIME } from '../services/xlsx.js';
@@ -101,6 +102,54 @@ export function batchProbeCutoff(
  */
 export function mixedComboCount(n: number, groups: number): number {
   return groups === 2 ? (n * (n - 1)) / 2 : (n * (n + 1) * (n + 2)) / 6 - n;
+}
+
+/**
+ * The weighed pad mass the batch carries — on the ONE motor it was weighed
+ * with, and only on the mount it was weighed on (v0.118, 2026-09-07).
+ *
+ * v0.116 flew every candidate at its catalogue weight, so a sweep read a
+ * little higher than the design page for the very motor the user had weighed.
+ * App builds this from `built.hardware` when the arithmetic accepted the pad
+ * mass (state 'ok') and leaves it undefined for a refusal, a stale set or a
+ * pending legacy value. Every OTHER candidate is a motor nobody has weighed —
+ * there is no honest number for hardware that was never on the scale — so it
+ * stays at catalogue weight, and the note under the candidates row says so.
+ */
+export interface BatchWeighed {
+  mountId: string;
+  /** motorIdentity(mm.meta, designation) of the weighed motor. */
+  identity: string;
+  /** True when the identity is a pinned EX id (meta.exMotorId). Unpinned EX records — a session from before
+   *  exMotorId existed, or a quick-pick reuse — are spelled 'EX/<designation>', and an EX candidate may then
+   *  match on that spelling too. */
+  pinned: boolean;
+  /** Delay-stripped display name (App's baseLabel). */
+  name: string;
+  perMotorShiftKg: number;
+  deltaKg: number;
+}
+
+/** A candidate's identity spelled the way MountMotor identities are: EX entries by their ex: id. */
+export function candidateIdentity(entry: Pick<MotorDbEntry, 'motorId' | 'manufacturerAbbrev' | 'designation'>): string {
+  return motorIdentity({ exMotorId: entry.motorId.startsWith('ex:') ? entry.motorId : undefined, manufacturer: entry.manufacturerAbbrev }, entry.designation);
+}
+
+/** Is this candidate the weighed motor? Either spelling when the weighed record is not pinned to an EX id. */
+export function isWeighedCandidate(
+  entry: Pick<MotorDbEntry, 'motorId' | 'manufacturerAbbrev' | 'designation'>, weighed: BatchWeighed,
+): boolean {
+  return candidateIdentity(entry) === weighed.identity
+    || (!weighed.pinned && `${entry.manufacturerAbbrev}/${entry.designation}` === weighed.identity);
+}
+
+/** The spec a candidate flies: shifted by the weighed hardware ONLY when it is the weighed motor on the weighed mount. Delay is not part of the identity. */
+export function batchFlownSpec(
+  entry: Pick<MotorDbEntry, 'motorId' | 'manufacturerAbbrev' | 'designation'>, spec: MotorSpec,
+  targetMountId: string, weighed: BatchWeighed | undefined,
+): MotorSpec {
+  return weighed && targetMountId === weighed.mountId && isWeighedCandidate(entry, weighed)
+    ? shiftMotorMass(spec, weighed.perMotorShiftKg) : spec;
 }
 
 interface BatchRow {
@@ -231,7 +280,7 @@ export interface BatchMountOption {
   maxMotorLengthM: number | null;
 }
 
-export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMotors, launch, rocketName, onRunsChange, onClose }: {
+export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMotors, weighed, launch, rocketName, onRunsChange, onClose }: {
   /** The editing tree — the batch builds its OWN engine handles from it, so
    *  the design's shared handle is never touched (no restore, no stale
    *  motors left on unassigned mounts). */
@@ -243,8 +292,14 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
   mounts: BatchMountOption[];
   initialMountId: string;
   /** Currently assigned motors by mount id — mounts OTHER than the batch
-   *  target fly with these during every batch flight. */
+   *  target fly with these during every batch flight. App hands them over
+   *  already `flownSpec`'d, so a weighed motor on a non-target mount keeps
+   *  its hardware here too. */
   assignedMotors: Record<string, MotorSpec>;
+  /** The weighed pad mass, when the design page is carrying one (see
+   *  {@link BatchWeighed}); the candidate matching it on its mount flies
+   *  shifted, every other row at catalogue weight. */
+  weighed?: BatchWeighed;
   launch: LaunchConditions;
   rocketName: string;
   onRunsChange: (runs: SimRun[]) => void;
@@ -253,6 +308,7 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
   const { prefs } = usePrefs();
   const dist = prefs.units.distance;
   const vel = prefs.units.velocity;
+  const massSym = prefs.units.mass;
 
   const [criteria, setCriteriaRaw] = useState<Criteria>(loadCriteria);
   // Batch-local aero model. Auto is the sensible default: a candidate list
@@ -427,6 +483,13 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
         const provisional = opts[opts.length - 1] ?? 0;
         const spec = await fetchMotorSpec(entry, provisional, abort.current?.signal);
         specCache.set(entry.motorId, spec);
+        // What this candidate FLIES: the catalogue spec, or — for the one
+        // motor the pad mass was weighed with, on the mount it was weighed
+        // on — that spec with the hardware on it, exactly as the design page
+        // flies it. The cache keeps the catalogue spec on purpose: the
+        // combination passes below stay at catalogue weight, because a mixed
+        // multiset has no honest single adapter.
+        const flown = batchFlownSpec(entry, spec, mountId, weighed);
         // execMs must mean ONE flight at this step: the launch panel's
         // time-step caution prices a reload from the newest stored run
         // (storedSimCost), and a span covering the probe plus a re-fly
@@ -444,12 +507,12 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
         // This used to fly the whole classic flight and, on a supersonic
         // candidate, throw it away and fly the whole thing again, per candidate.
         if (batchModel === 'auto') rocket.setSupersonicAero(false);
-        rocket.setMotorById(mountId, spec);
+        rocket.setMotorById(mountId, flown);
         let usedSupersonic = batchModel === 'supersonic';
         if (batchModel === 'auto') {
           const probe = rocket.simulate({
             ...simOpts,
-            maxTime: batchProbeCutoff(tree, assignedMotors, { [mountId]: spec }),
+            maxTime: batchProbeCutoff(tree, assignedMotors, { [mountId]: flown }),
           });
           if (probe.summary.maxMachNumber > MACH_AUTO_THRESHOLD) {
             rocket.setSupersonicAero(true);
@@ -472,7 +535,7 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
           const rec = recommendDelay(res.summary.optimumDelay);
           if (rec !== null && rec !== provisional) {
             flownDelay = rec;
-            rocket.setMotorById(mountId, { ...spec, ejectionDelay: rec });
+            rocket.setMotorById(mountId, { ...flown, ejectionDelay: rec });
             res = flyTimed();
           } else if (rec !== null) {
             flownDelay = rec;
@@ -481,7 +544,7 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
         const run = buildSimRun({
           result: res,
           info,
-          motor: { ...spec, ejectionDelay: flownDelay },
+          motor: { ...flown, ejectionDelay: flownDelay },
           meta: {
             label: entry.designation,
             manufacturer: entry.manufacturerAbbrev,
@@ -871,6 +934,23 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
             </button>
           )}
         </div>
+        {/* Which row carries the weighed hardware, in words. v0.116's batch
+            flew every candidate at catalogue weight and said nothing, so the
+            weighed motor read higher here than on the design page. Three
+            cases: the weighed motor is among these candidates (that row flies
+            shifted), it is not (nothing here was weighed), or the weighed
+            mount is not the one being swept (its hardware rides along on
+            every flight through assignedMotors). */}
+        {weighed && (() => {
+          const delta = `${fmtSi('mass', massSym, weighed.deltaKg)} ${massSym}`;
+          const matched = candidates.some((e) => isWeighedCandidate(e, weighed));
+          const text = mountId === weighed.mountId
+            ? (matched
+              ? `Weighed pad mass: ${weighed.name} flies with ${delta} of hardware (adapter, retainer, closure), as on the design page — expect its apogee to read a little lower than another candidate of the same impulse. Every other candidate flies at its catalogue weight; only that motor was weighed.`
+              : `Weighed pad mass: ${weighed.name}, the motor it was weighed with, is not among these candidates, so every row flies at its catalogue weight.`)
+            : `Weighed pad mass: ${weighed.name} on ${mounts.find((m) => m.id === weighed.mountId)?.label} keeps its ${delta} of hardware in every flight; the candidates on this mount fly at their catalogue weight.`;
+          return <p className="comp-stats batch-weighed" style={{ margin: '4px 0 0' }}>{text}</p>;
+        })()}
         {progress && (
           // role="progressbar" so the width-only bar is readable by assistive
           // tech at all: NVDA and JAWS report a progress bar's value as it
@@ -925,7 +1005,12 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
               <tbody>
                 {sorted.map(({ entry, label, run, error, failed }, rowIdx) => (
                   <tr key={label ?? `${entry.motorId}-${rowIdx}`} className={failed.length ? 'motor-row-long' : ''}>
-                    <td>{label ?? `${entry.manufacturerAbbrev} ${displayDesignation(entry.designation, entry.manufacturerAbbrev)}`}</td>
+                    <td>
+                      {label ?? `${entry.manufacturerAbbrev} ${displayDesignation(entry.designation, entry.manufacturerAbbrev)}`}
+                      {/* The one single-motor row that flew with the weighed hardware on. */}
+                      {!label && weighed && mountId === weighed.mountId && isWeighedCandidate(entry, weighed)
+                        && <span className="motor-db-meta"> · weighed</span>}
+                    </td>
                     <td>{run ? (Number.isFinite(run.delayS) ? `${run.delayS}s` : 'P') : '—'}</td>
                     <td>{run ? fmtSi('distance', dist, run.maxAltitude) : '—'}</td>
                     <td>{run?.rodExitVelocity != null ? fmtSi('velocity', vel, run.rodExitVelocity) : '—'}</td>

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { RocketTree } from '@online-openrocket/engine';
+import type { MountMotor, SavedConfig } from '../App.js';
 import { designFingerprint, isDirty, type DesignSnapshot } from './dirtyState.js';
+import { withActiveConfigSynced } from './configSync.js';
 
 const tree = (name = 'My Rocket'): RocketTree => ({
   name,
@@ -61,7 +63,7 @@ describe('designFingerprint', () => {
   });
 
   it('does NOT change when Record keys arrive in a different order', () => {
-    // This is the test that pins the sort in `stable()`. An import builds
+    // This is the test that pins the sort in `stableJson()`. An import builds
     // mountMotors in file order and editing builds it in click order; without
     // the sort the same design fingerprints two ways and the prompt fires on a
     // file the user has only just saved. Delete the sort and this is the ONLY
@@ -89,6 +91,62 @@ describe('designFingerprint', () => {
       mountMotors: { bt: { ejectionDelay: null } as unknown as DesignSnapshot['mountMotors'][string] },
     };
     expect(designFingerprint(plugged)).not.toBe(designFingerprint(absent));
+  });
+});
+
+describe('designFingerprint — the weighed pad mass on the motor record (v0.118)', () => {
+  const motor = (designation: string, delay = 10): MountMotor => ({
+    label: `${designation}-${delay}`,
+    spec: {
+      designation, diameter: 0.054, length: 0.41, cgX: 0.2, ejectionDelay: delay,
+      times: [0, 1], thrusts: [0, 0], masses: [1.084, 0.6],
+    },
+    meta: { label: designation, manufacturer: 'AeroTech' },
+    ignition: { event: 'automatic', delay: 0 },
+  });
+  const key = '[["mmt","AeroTech/J540R",1]]';
+
+  it('a record that gains padMassKg fingerprints differently, and one whose two keys were deleted fingerprints as it did before they were added', () => {
+    const rec = motor('J540R');
+    const before = designFingerprint({ ...base(), mountMotors: { mmt: rec } });
+    const weighed: MountMotor = { ...rec, padMassKg: 10.574, padMassWeighedWith: key };
+    expect(designFingerprint({ ...base(), mountMotors: { mmt: weighed } })).not.toBe(before);
+    // Clearing DELETES both keys — the key-only-when-set rule. stableJson hashes
+    // keys, so this is the only shape that reads as "back where it was".
+    const { padMassKg: _p, padMassWeighedWith: _w, ...cleared } = weighed;
+    expect(designFingerprint({ ...base(), mountMotors: { mmt: cleared } })).toBe(before);
+    // The trap the rule exists for: a null value is NOT absent. Writing null
+    // on clear would read as unsaved forever (the v0.116 register limit).
+    const nulled = { ...rec, padMassKg: null } as unknown as MountMotor;
+    expect(designFingerprint({ ...base(), mountMotors: { mmt: nulled } })).not.toBe(before);
+  });
+
+  it('a save, a switch to another configuration and a switch back fingerprints as the mark (savedConfigs synced before the mark)', () => {
+    const cfgA: SavedConfig = { id: 'A', name: 'A', isDefault: true, motors: { mmt: motor('J540R') } };
+    const cfgB: SavedConfig = { id: 'B', name: 'B', isDefault: false, motors: { mmt: motor('I284W') } };
+    const configs = [cfgA, cfgB];
+    // The working set: A with a delay edit and a pad mass typed.
+    const working: Record<string, MountMotor> = {
+      mmt: { ...motor('J540R', 7), padMassKg: 10.574, padMassWeighedWith: key },
+    };
+    const snap = (mountMotors: Record<string, MountMotor>, savedConfigs: SavedConfig[], activeConfigId: string) =>
+      designFingerprint({ ...base(), mountMotors, savedConfigs, activeConfigId });
+
+    // Save: onSaveOrk syncs the working set into A, then takes the mark.
+    const synced = withActiveConfigSynced(configs, 'A', working, {});
+    const mark = snap(working, synced, 'A');
+    // Switch to B: applyConfig syncs first (already synced → identity), then swaps.
+    const s2 = withActiveConfigSynced(synced, 'A', working, {});
+    expect(s2).toBe(synced);
+    // Switching AWAY alone is a change, as today: activeConfigId and mountMotors are hashed.
+    expect(snap(cfgB.motors, s2, 'B')).not.toBe(mark);
+    // Switch back: B is unchanged (identity), and A comes back from its SYNCED row.
+    const s3 = withActiveConfigSynced(s2, 'B', cfgB.motors, {});
+    expect(s3).toBe(s2);
+    expect(snap(s3.find((c) => c.id === 'A')!.motors, s3, 'A')).toBe(mark);
+    // Without the sync (v0.117) coming back restored A's import snapshot: the
+    // delay edit and the pad mass were gone, and the mark was missed.
+    expect(snap(cfgA.motors, configs, 'A')).not.toBe(mark);
   });
 });
 

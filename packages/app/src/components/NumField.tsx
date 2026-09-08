@@ -20,7 +20,7 @@ import { useState } from 'react';
  */
 export function NumField({
   value, onCommit, nullable = false, min, max, allowNegative = false,
-  integer = false, step = 1, placeholder, autoValue, ariaLabel, id,
+  integer = false, step = 1, placeholder, autoValue, ariaLabel, id, invalid = false, describedBy,
 }: {
   value: number | undefined;
   /** Called with each valid typed value; null only when nullable and cleared. */
@@ -58,6 +58,16 @@ export function NumField({
    * notices.
    */
   id?: string;
+  /**
+   * The caller's verdict on the COMMITTED value, put on the input as
+   * `aria-invalid` (v0.118: the weighed pad mass rendered greyed and not
+   * applied because the motor set changed since the weighing). Separate from
+   * the draft check above, which is about what is being typed; the error
+   * border stays the draft's — the caller styles its own state.
+   */
+  invalid?: boolean;
+  /** `aria-describedby`: the id of the line that explains the field's state. */
+  describedBy?: string;
 }) {
   const [draft, setDraft] = useState<string | null>(null);
 
@@ -83,7 +93,7 @@ export function NumField({
     v === undefined ? '' : String(Number(v.toFixed(9)));
 
   const shown = draft !== null ? draft : fmtDisplay(value);
-  const invalid = draft !== null && draft.trim() !== ''
+  const draftInvalid = draft !== null && draft.trim() !== ''
     && !isIncomplete(draft.trim()) && parse(draft) === null;
 
   const change = (s: string) => {
@@ -138,11 +148,12 @@ export function NumField({
         id={id}
         type="text"
         inputMode="decimal"
-        className={invalid ? 'num-invalid' : undefined}
+        className={draftInvalid ? 'num-invalid' : undefined}
         value={shown}
         placeholder={placeholder}
         aria-label={ariaLabel}
-        aria-invalid={invalid || undefined}
+        aria-invalid={draftInvalid || invalid || undefined}
+        aria-describedby={describedBy}
         onFocus={() => setDraft(fmtEdit(value))}
         onChange={(e) => change(e.target.value)}
         onBlur={() => setDraft(null)}

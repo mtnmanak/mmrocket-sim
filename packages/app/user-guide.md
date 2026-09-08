@@ -343,7 +343,7 @@ Both attach to a body component (body tube, nose cone, or transition) and hold t
 
 ### Recovery weight, and the Recovery sizing panel
 
-A parachute has to lower the rocket **plus its spent motor casing** — the propellant is gone by apogee — and neither "Mass (empty)" nor "Mass (loaded)" is that number. On a 4 inch design with an M motor the pad weight is 5.74 kg and the recovery weight 3.38 kg, 41 % lighter. The design page shows **recovery weight** once a motor is loaded (without one there is no propellant to subtract). On a multi-stage rocket it is the **sustainer's** weight — what is still attached when the main opens. Note that a spent booster is not weightless just because it has gone: it comes down under its own parachute and needs its own canopy sized for it, and the figure on the design page is not that number. Stages that are set to separate at **Never** stay attached, and are weighed with the sustainer rather than subtracted from it — separation is a property of the applied **flight configuration**, so the same rocket can honestly show different recovery weights under different configurations. Where the app cannot separate the stages cleanly — a strap-on booster living inside the sustainer's own structure — it says so rather than showing a number it cannot stand behind.
+A parachute has to lower the rocket **plus its spent motor casing** — the propellant is gone by apogee — and neither "Mass (empty)" nor "Mass (loaded)" is that number. On a 4 inch design with an M motor the pad weight is 5.74 kg and the recovery weight 3.38 kg, 41 % lighter. The design page shows **recovery weight** once a motor is loaded (without one there is no propellant to subtract) — and, when you have entered a weighed pad mass for that motor, the adapter and closure it carries are in this number too. On a multi-stage rocket it is the **sustainer's** weight — what is still attached when the main opens. Note that a spent booster is not weightless just because it has gone: it comes down under its own parachute and needs its own canopy sized for it, and the figure on the design page is not that number. Stages that are set to separate at **Never** stay attached, and are weighed with the sustainer rather than subtracted from it — separation is a property of the applied **flight configuration**, so the same rocket can honestly show different recovery weights under different configurations. Where the app cannot separate the stages cleanly — a strap-on booster living inside the sustainer's own structure — it says so rather than showing a number it cannot stand behind.
 
 Under the component properties on the right, the **Recovery sizing** panel turns that weight into a recommendation. It leads with the **size** — "about 66 in at Cd 2.13" — because that is the answer whether or not you buy off a shelf, and it always names the drag coefficient it used, since a diameter without one means nothing; it takes the Cd of the chute already in your design when there is one, vent-corrected. Then it lists real catalogue canopies with the descent rate each would give *your* rocket, filtered to the ones whose packed size fits the bay (and saying how many it dropped), sized against what the rocket would weigh with that canopy in it, and using the air at your launch site rather than at sea level — about 8 % faster descent at 5,000 ft. Targets are 18 ft/s for a main and 60 ft/s for a drogue; a drogue candidate above the accepted 70 ft/s is sorted last and marked with the launch report's own words. The panel folds up, and the folded header still carries the two sizes.
 
@@ -480,20 +480,10 @@ it**, so re-opening the file brings the box back with your measurements still in
 link carries them too. Desktop OpenRocket skips those two extra tags with a warning, the same way
 it treats camera shrouds.
 
-**Pad weight (with motor).** The third field is different: weigh the whole rocket with the motor
-in, as it goes on the pad. The catalogue motor weight leaves out the hardware around the motor — an
-adapter, the retainer, and which forward closure is fitted — and on two real flights that came to
-182 g and 129 g, about 1.7 % of pad mass and 1.5 % on apogee. Rather than ask what your adapter
-weighs, the app takes the pad weight you measured, subtracts the dry rocket (your measured mass if
-you typed one, else the computed one) and the catalogue motor, and flies the difference as extra
-mass on the motor, so the pad mass is exact and the hardware comes down with the rocket in the
-recovery weight. There is no button — it is used the moment you type it, and the line under the box
-says what it did. A pad weight lighter than the dry rocket plus the catalogue motor is a typo or the
-wrong motor and is not applied, and nor is a difference heavier than the airframe itself. Change
-motors and the difference is re-derived against the new catalogue weight, so check the line after a
-swap. The pad weight saves into the `.ork` beside the other two, as a third tag desktop OpenRocket
-skips the same way. Batch simulate flies the catalogue weight of each candidate motor without this
-correction.
+The rocket's weight **with the motor in** is a different measurement and lives with the motor, not
+here — see *Weighed pad mass* under Motors. What you type in this box is the airframe, and it is
+meant to survive a motor change; what you weigh on the pad is not, because it includes that motor's
+adapter, retainer and closure.
 
 ## Scaling a whole design
 
@@ -638,7 +628,7 @@ With the airframe drawn, the next step is choosing a motor. The app bundles the 
 
 ## Flight configurations (.ork)
 
-Desktop OpenRocket lets one design carry several **flight configurations** — "club field C6", "demo day D12" — each with its own motors and ignition settings. Those now travel. Opening a multi-configuration `.ork` loads **the file's own default configuration**, exactly as desktop OpenRocket does, and the import note names the one that loaded and says how many the file holds. A **Flight configurations** panel then appears here on Motors & Launch listing every one by its name — or by its motor set when it has none of its own, the way the desktop labels them. Apply any one with a click, switch freely, or pick **None** to fly the design clean; ⏏ Unload does the same from the vitals strip. Applying a configuration switches its motors, its ignition settings **and its recovery deployment**. Whatever you load stays loaded until you change or unload it. Your motor edits belong to the configuration you're flying, and **saving writes every configuration back** to the `.ork` with its names and ids intact — desktop OpenRocket sees them all, with the one you were flying marked default. Share links carry the whole set. (One limit: per-configuration **stage separation** overrides still come from the file's default configuration.)
+Desktop OpenRocket lets one design carry several **flight configurations** — "club field C6", "demo day D12" — each with its own motors and ignition settings. Those now travel. Opening a multi-configuration `.ork` loads **the file's own default configuration**, exactly as desktop OpenRocket does, and the import note names the one that loaded and says how many the file holds. A **Flight configurations** panel then appears here on Motors & Launch listing every one by its name — or by its motor set when it has none of its own, the way the desktop labels them. Apply any one with a click, switch freely, or pick **None** to fly the design clean; ⏏ Unload does the same from the vitals strip. Applying a configuration switches its motors, its ignition settings, its recovery deployment **and the weighed pad mass entered for its motor**, if any. Whatever you load stays loaded until you change or unload it. Your motor edits belong to the configuration you're flying — they are written back into it when you switch to another and when you save, and pressing Apply on the configuration already on screen keeps them — and **saving writes every configuration back** to the `.ork` with its names and ids intact — desktop OpenRocket sees them all, with the one you were flying marked default. Share links carry the whole set. (One limit: per-configuration **stage separation** overrides still come from the file's default configuration.)
 
 ## The database and browser
 
@@ -661,6 +651,59 @@ The mount's inner diameter drives which classes appear. A mount fits **every cla
 ## Delays and the drill-to-fit rule
 
 The prescribed delays from the motor's label are informational only. In the browser's **Delay** select you can choose Auto (optimal), any prescribed delay, or **Custom** and type a value; on the main Motors panel you can type **any whole-second delay** without reloading, or tick **auto (optimal)** on the sustainer. This is the drill-to-fit rule: real flyers drill an adjustable delay to whatever whole second they want, so the recommendation is `round(optimum)` and is **never snapped to the prescribed list**. One subtlety: the kernel's optimum delay is the coast from burnout to *ballistic* apogee (a deployment-free probe), and auto uses a two-pass approach — fly once, read the optimum, round it, and re-fly.
+
+## Weighed pad mass — flying at the mass you put on the pad
+
+Under the loaded motor on Motors & Launch — under the top stage's motor when more than one mount
+carries one — there is one more field. It reads **Weighed pad mass with this motor**, or **Weighed
+pad mass with every motor in** on a rocket that holds more than one motor (a second mount, or a
+cluster). Weigh the rocket ready to fly, with the motor, adapter, retainer and closure all in, and type
+what the scale said. It acts the moment you type it: there is no button, the line under the field says
+what happened, and the next Launch flies it. What it changes is the mass the rocket flies at. The
+catalogue weight is the motor alone; what goes on the pad around it — a motor adapter, the retainer,
+whichever forward closure is fitted — is in no catalogue, and on two real flights it came to 182 g and
+129 g, of which a single 54→75 mm adapter was 126 g. The app subtracts the dry rocket (your measured
+mass if you typed one in the *Measured mass & CG* box on the Design tab, otherwise the computed one)
+and the catalogue motor, and carries the difference as inert mass on the motor for the whole flight:
+the pad mass is exactly what you weighed, apogee and speed off the rail move with it, and the
+recovery weight and recovery sizing include the hardware, because an adapter comes down with the
+rocket.
+
+It is used everywhere a flight is flown — the numbers on the design page, **Launch**, and the batch
+sweep, which carries it on this motor only, because every other candidate is a motor you have not
+weighed; the batch note names the row that carries it. The number belongs to the motor, not the
+airframe: a different motor has different hardware (a 75 mm motor in a 75 mm mount has no adapter at
+all), so loading a different motor leaves the field blank for that motor, with the placeholder showing
+what the app assumes — dry mass plus catalogue motor — until you weigh again; unloading the motor
+takes the number with it; and each flight configuration keeps its own, the way it keeps its own motors
+and separation events. On a staged rocket the weighing covers every motor in the stack and the whole
+difference is carried on the top stage's mount. Change anything else about the set — a booster's
+motor, a mount emptied or newly loaded, a cluster count — and the number is kept but shown greyed
+and **not applied**: the line names the motor it was weighed with and the one now loaded, and nothing
+is carried until you re-weigh with the new set in or clear the field; put the set back the way it was
+weighed and it applies again. The one exception is loading a motor on a stage above the weighed one:
+the field moves to that motor, blank, and the old number stays with the motor it was weighed with,
+out of sight and never flown or saved, until that motor is the top one again. A delay or plugged
+change on the same motor keeps the weighing — the
+hardware does not change with the delay grain — but a different forward closure is a different
+weight, so re-weigh if you change one.
+
+A figure lighter than the dry rocket plus the catalogue motor is a typo or the wrong motor and is not
+applied, nor is a difference heavier than the airframe itself; more than half the motor's own weight
+is carried but flagged, so check the entry. It saves into the `.ork` beside the configuration it was
+weighed with, as an extension tag desktop OpenRocket skips with a warning, the same way it treats the
+two measured airframe figures; a share link carries it too, and a file without it opens exactly as
+before. Nothing is sent anywhere — it is an input to the flight, not a statistic.
+
+If you typed a pad weight in v0.116 or v0.117 it was in the Measured mass & CG box, and the app moves
+it for you: on the first open after updating it is checked against the motor you have loaded, then
+either placed under that motor — a notice says so, and the line under the motor says what it carries —
+or, when it cannot be that motor's weight (lighter than the dry rocket plus that motor), dropped, with a
+notice naming the value and the motor so you can re-weigh. If no motor was loaded when you last closed
+the app, there is no motor for it to belong to, and it is dropped with a notice saying so. A file saved by those versions carried the
+pad mass as a third tag beside the airframe figures; it opens the same way, the value going to the
+motor on the top stage's mount in the file's default configuration, and saves in its new place next
+time.
 
 ## Per-stage maximum motor length
 
@@ -777,7 +820,7 @@ Beside it, **⬇ Flight data + charts (.xlsx)** exports the same data as a real 
 
 ## Batch simulate
 
-Batch mode flies **every motor that fits the mount** (after your manufacturer/class/OOP filters) through the current design at each motor's auto-optimal delay, then grades each flight against your acceptance criteria — minimum rod-exit velocity, minimum thrust:weight, and an apogee window. Results append to the run history and download as CSV. This is the motor-shopping tool: pick the airframe, pour in a manufacturer's whole catalog, and read off which motors hit your target altitude safely.
+Batch mode flies **every motor that fits the mount** (after your manufacturer/class/OOP filters) through the current design at each motor's auto-optimal delay, then grades each flight against your acceptance criteria — minimum rod-exit velocity, minimum thrust:weight, and an apogee window. Results append to the run history and download as CSV. This is the motor-shopping tool: pick the airframe, pour in a manufacturer's whole catalog, and read off which motors hit your target altitude safely. If the loaded motor carries a weighed pad mass, the batch flies that motor at the mass you weighed and every other candidate at its catalogue weight — there is no honest number for hardware you have not weighed — and the note above the table names the row that carries it; expect that row's apogee to read a little lower than another candidate of the same impulse. The mixed-cluster combination rows fly at catalogue weight.
 
 ---
 
@@ -821,7 +864,7 @@ The app reads and writes several formats. What survives a round-trip depends on 
 
 | Format | Import | Export | Notes |
 |---|---|---|---|
-| **.ork** (OpenRocket) | Yes | Yes | Full fidelity — all 19 types, motors, materials, overrides, tabs, clusters, shoulders, staging, pods/boosters, nozzle exit diameters, launch conditions. Accepts zipped or bare XML; handles legacy ≤15.03 files. |
+| **.ork** (OpenRocket) | Yes | Yes | Full fidelity — all 19 types, motors, materials, overrides, tabs, clusters, shoulders, staging, pods/boosters, nozzle exit diameters, launch conditions, a weighed pad mass per flight configuration. Accepts zipped or bare XML; handles legacy ≤15.03 files. |
 | **.rkt** (RockSim) | Yes | Yes | Up to **3 stages** (export throws beyond that). Uniquely keeps motor designations the desktop drops, so it auto-loads motors. Clusters split into individual tubes. Spill holes round-trip. Parts the file names by manufacturer and part number are matched to the parts catalogue on import, and the link is written back as `<PartMfg>`/`<PartNo>` on export. |
 | **.CDX1** (RASAero II) | Yes | Yes | Aerodynamics only — **no mass or material data**. Walls default to a faked 2 mm and the importer warns you to "review masses before trusting the numbers." Motors round-trip: each engine-carrying `<Simulation>` imports as a flight configuration with the motor mounted on that stage's aft-most tube, and export writes each stage's motor back as a RASAero engine string — only for the manufacturers RASAero's own database documents, others are omitted rather than guessed. **Nozzle exit diameters import too** (since v0.117): RASAero keeps one on its Design tab and one inside each simulation, and flies with the simulation's, so that is the one taken — per flight configuration, with the Design-tab value as the fallback when the simulation's is 0. Switching flight configuration switches the stage's nozzle the way it switches the motor; the import note says where each value came from. Export still writes 0, as desktop OR does. Strict export validation (≤3 stages, one fin set per tube, 3–8 fins, conical transitions only). |
 | **.obj** (Wavefront) | — | Yes | External shell only — the meshes the 3D view renders. Meters, nose at x=0. Not guaranteed watertight; for print-preview/CAD reference. |

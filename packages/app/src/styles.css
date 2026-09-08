@@ -896,6 +896,16 @@ html {
   gap: 2px;
 }
 
+/* A weighed pad mass the arithmetic will not apply: weighed with a motor set
+   that is no longer the loaded one (MotorPadMass.tsx, hardwareMass
+   'stale-set'). The number is KEPT, because putting the set back re-applies
+   it, so it has to read as not-live without becoming unreadable — dimmed and
+   dashed, never struck through. Tokens only, so both themes get it. */
+.field-stale input {
+  opacity: .55;
+  border-style: dashed;
+}
+
 .field label {
   font-size: 11px;
   color: var(--text-secondary);

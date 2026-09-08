@@ -57,7 +57,7 @@ export function ConfigPanel({ configs, activeConfigId, hasMotors, onApply, onCle
               <button className="file-btn" style={btnStyle} onClick={() => onApply(c)}
                 aria-label={`Apply ${savedConfigLabel(c)}`}
                 title={isActive
-                  ? "Reload this configuration's saved motors (undoes manual motor edits)"
+                  ? 'Reload this configuration — your motor edits and weighed pad mass are kept'
                   : "Load this configuration's motors and ignition settings"}>
                 Apply
               </button>

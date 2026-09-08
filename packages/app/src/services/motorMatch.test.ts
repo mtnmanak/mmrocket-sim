@@ -232,4 +232,15 @@ describe('refToExportMotor', () => {
   it('keeps a plugged delay as Infinity for the writer to render as "none"', () => {
     expect(refToExportMotor(ref({ delay: Infinity })).delay).toBe(Infinity);
   });
+
+  it('carries padMassKg through and omits the key when the reference has none', () => {
+    // A file's pad mass left on an unmatched primary (v0.118) must reach the
+    // writer, or Save loses a number the user weighed. The key is written only
+    // when set — the same rule as App's toExportMotor — so a reference without
+    // one produces the object it always did.
+    expect(refToExportMotor(ref({ padMassKg: 10.574 })).padMassKg).toBe(10.574);
+    expect('padMassKg' in refToExportMotor(ref({}))).toBe(false);
+    // A zero pad mass is nonsense the writer would drop anyway; not carried.
+    expect('padMassKg' in refToExportMotor(ref({ padMassKg: 0 }))).toBe(false);
+  });
 });

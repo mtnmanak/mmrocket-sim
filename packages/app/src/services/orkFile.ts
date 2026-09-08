@@ -41,6 +41,13 @@ export interface OrkMotorRef {
   /** Kernel ignition-event name (automatic|launch|ejectioncharge|burnout|never). */
   ignitionEvent?: string;
   ignitionDelay?: number;
+  /**
+   * The weighed pad mass (kg) a configuration left on THIS reference when its
+   * primary motor could not be matched (v0.118). Set by App at import, never by
+   * the reader; carried so a Save writes the file's value back unchanged
+   * (`refToExportMotor` copies it) instead of losing a number the user weighed.
+   */
+  padMassKg?: number;
 }
 
 export interface OrkTreeImportResult {
@@ -59,9 +66,12 @@ export interface OrkTreeImportResult {
    */
   launch?: Partial<LaunchConditions>;
   /**
-   * What the builder weighed (SI), for the Design tab's "Measured mass & CG"
-   * box. Absent when the file carries none of the numbers. See the export
-   * side for why this lives in the file.
+   * What the builder weighed (SI, airframe only — motor out), for the Design
+   * tab's "Measured mass & CG" box. Absent when the file carries neither
+   * number. The weighed PAD mass (motor in) is not here: it belongs to the
+   * motor it was weighed with, so it rides on `OrkFlightConfig.padMassKg`,
+   * one per configuration. See the export side for why either lives in the
+   * file.
    */
   measured?: MeasuredFigures;
 }
@@ -70,27 +80,16 @@ export interface OrkTreeImportResult {
  * The Measured mass & CG box's figures, SI. THE one definition of the shape:
  * the .ork reader and writer, the session, App's state and the box itself all
  * import it from here, the format boundary, so the fields cannot drift apart
- * across five copies.
+ * across five copies. Two fields, and meant to survive a motor change: the
+ * weighed pad mass v0.116 kept here as a third (2026-09-07) cannot — it is one
+ * rocket with one motor set in — so from v0.118 it lives on the primary
+ * mount's MountMotor record and in the file per configuration.
  */
 export interface MeasuredFigures {
   /** The airframe on the scale, motor out (kg). */
   massKg: number | null;
   /** Its balance point from the nose tip, motor out (m). */
   cgM: number | null;
-  /**
-   * The rocket weighed WITH its motor(s) installed, as it goes on the pad
-   * (kg). Optional so a session or file written before the field existed
-   * (2026-09-07) round-trips unchanged; absent and null mean the same thing.
-   *
-   * What it is for: the catalogue motor mass omits the adapter, retainer and
-   * closure around the motor. Eric's METRA flights weighed 10,574 g and
-   * 7,480 g against the app's 10,392 g and 7,351 g (J540R catalogue 1,084 g,
-   * J460T 801 g: 182 g and 129 g light; a 54→75 mm adapter is 126 g, AeroTech
-   * forward closures move a motor ±50 g). The app derives the difference and
-   * flies it — see services/hardwareMass.ts. The DELTA is never stored, only
-   * this weight; it is re-derived on every build.
-   */
-  padMassKg?: number | null;
 }
 
 /** One rocket-level <motorconfiguration> declaration. */
@@ -136,6 +135,22 @@ export interface OrkFlightConfig {
    * does. An `.ork` has one nozzle per stage and leaves this absent.
    */
   nozzles?: Record<string, number>;
+  /**
+   * THIS configuration's weighed pad mass (kg): the rocket ready to fly with
+   * this configuration's motor set in, from a rocket-level
+   * `<measuredpadmass configid="…">` (v0.118). App attaches it on open to the
+   * configuration's primary mount — the mount is implied, because no
+   * component id survives a round trip (the reader mints ids, the writer
+   * mints UUIDs), and the app only ever carries the delta on the primary.
+   */
+  padMassKg?: number;
+  /**
+   * Set when `padMassKg` came from the attribute-less v0.116/v0.117 form,
+   * which named no configuration: the reader lands it on the file's default,
+   * and App keys it `legacy` so the arithmetic checks it against the motor
+   * actually loaded before applying it (services/hardwareMass.ts).
+   */
+  padMassLegacy?: true;
 }
 
 /** One configuration's separation settings for one stage. */
@@ -246,13 +261,9 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   };
   const measuredMassKg = measuredNum('measuredmass');
   const measuredCgM = measuredNum('measuredcg');
-  // The pad weight goes through the same gate: a zero or negative pad mass is
-  // nonsense, and the hardware it would derive would be too. Absent reads as
-  // null — a file written before the field existed imports unchanged.
-  const measuredPadMassKg = measuredNum('measuredpadmass');
   const measured: MeasuredFigures | undefined =
-    measuredMassKg !== null || measuredCgM !== null || measuredPadMassKg !== null
-      ? { massKg: measuredMassKg, cgM: measuredCgM, padMassKg: measuredPadMassKg }
+    measuredMassKg !== null || measuredCgM !== null
+      ? { massKg: measuredMassKg, cgM: measuredCgM }
       : undefined;
 
   const stages = Array.from(rocketEl.querySelectorAll(':scope > subcomponents > stage'));
@@ -318,6 +329,38 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
     ?? configs.find((c) => c.isDefault)?.id
     ?? configs[0]?.id
     ?? null;
+
+  // The weighed pad mass, per configuration (our extension; see export). EVERY
+  // rocket-level <measuredpadmass> is read, not just the first: v0.118 writes
+  // one per configuration that carries a value, keyed by configid. The same
+  // gate as the two airframe figures — a zero, negative or unparseable pad
+  // mass is nonsense and the hardware it would derive would be too — so it is
+  // dropped, not imported. A configid the file does not declare has nothing
+  // to attach to and is dropped with a note. The attribute-less form is the
+  // one v0.116/v0.117 wrote beside the airframe figures; it named no
+  // configuration, so it lands on the file's default (every file those
+  // versions wrote declares at least one, because that writer always minted
+  // one) flagged legacy, for App to check against the loaded motor before it
+  // is applied. Never written again, only read.
+  for (const el of Array.from(rocketEl.querySelectorAll(':scope > measuredpadmass'))) {
+    const v = Number(el.textContent?.trim());
+    if (!Number.isFinite(v) || v <= 0) continue;
+    const id = el.getAttribute('configid');
+    const target = id === null
+      ? (configs.find((c) => c.isDefault) ?? configs[0])
+      : configs.find((c) => c.id === id);
+    if (!target) {
+      notes.push(id === null
+        ? `The file's weighed pad mass (${v} kg) belongs to no flight configuration — the file declares none — so it was not kept.`
+        : `The file's weighed pad mass (${v} kg) names a flight configuration this file does not declare, so it was not kept.`);
+      continue;
+    }
+    target.padMassKg = v; // last one wins for a duplicated configid
+    if (id === null) {
+      target.padMassLegacy = true;
+      notes.push(`This file's weighed pad mass (${v} kg) was saved by an earlier version beside the airframe figures. It now belongs to the motor it was weighed with, in configuration “${target.name ?? target.id}”, and is checked against that motor the first time the design is built — the notice will say whether it was kept.`);
+    }
+  }
 
   // The chosen configuration's child of `el` by tag name (per-config motor
   // or override block). With no declared configs, the first such child —
@@ -1302,6 +1345,14 @@ export interface OrkExportMotor {
   /** Kernel ignition-event name (automatic|launch|ejectioncharge|burnout|never). */
   ignitionEvent?: string;
   ignitionDelay?: number;
+  /**
+   * The weighed pad mass (kg) this motor was weighed with, carried on the
+   * configuration's PRIMARY mount only (App gates it there). NEVER emitted
+   * inside <motor>: the writer's rocket-level pass reads it and emits one
+   * `<measuredpadmass configid>` per configuration, so the desktop sees the
+   * same warn-and-skip it gives <measuredmass>, not an unknown motor child.
+   */
+  padMassKg?: number;
 }
 
 /** One flight configuration to write (Stage B) — the stable id from import. */
@@ -1346,11 +1397,11 @@ export interface OrkTreeExportInput {
   /** Which config the working set (`motors`) came from; null = none/custom. */
   activeConfigId?: string | null;
   /**
-   * The user's weighed mass and balance point (SI, airframe only), and the
-   * weighed pad mass (motor in). Each is written only when set, so a design
-   * that never used the feature produces exactly the file it did before, and
-   * one that never used the pad field produces exactly the file it did before
-   * that field existed.
+   * The user's weighed mass and balance point (SI, airframe only — motor
+   * out). Each is written only when set, so a design that never used the box
+   * produces exactly the file it did before. The weighed PAD mass (motor in)
+   * is not here: it travels on `OrkExportMotor.padMassKg` of each
+   * configuration's primary motor and is written per configuration.
    */
   measured?: MeasuredFigures;
   /**
@@ -1441,10 +1492,10 @@ export function exportOrk({
   // The configurations to write. Classic path (no configs): ONE minted
   // config carrying the working set — exactly the pre-Stage-B output.
   //
-  // EVERY `c.id` BELOW IS ESCAPED WHERE IT IS EMITTED — six sites: the
+  // EVERY `c.id` BELOW IS ESCAPED WHERE IT IS EMITTED — seven sites: the
   // <motorconfiguration>, <deploymentconfiguration>, <separationconfiguration>,
-  // <motor> and <ignitionconfiguration> attributes, and the <configid> element
-  // inside <simulation>. An id is FILE-SOURCED free text
+  // <motor>, <ignitionconfiguration> and <measuredpadmass> attributes, and the
+  // <configid> element inside <simulation>. An id is FILE-SOURCED free text
   // (`c.getAttribute('configid')` on import, kept verbatim as the stable key
   // through App state) exactly like <name>, <material> and <finish>, which this
   // exporter has always escaped. Unescaped it was the only one that could break
@@ -2206,21 +2257,36 @@ export function exportOrk({
   // warns-and-skips, exactly like <fairing> and <nozzleexitdiameter>. Emitted
   // only when set, so a design that never used the box is byte-identical to
   // what this wrote before the feature existed.
-  //
-  // <measuredpadmass> (2026-09-07) is the third of the set and follows the
-  // same two rules — the desktop warns-and-skips it like the other two, and
-  // a design that never typed a pad weight writes no tag, so its file is
-  // byte-identical to what this wrote before the field existed. It is the
-  // weighed rocket WITH the motor in; the hardware the app derives from it is
-  // never written, only the weight (services/hardwareMass.ts).
   if (typeof measured?.massKg === 'number' && Number.isFinite(measured.massKg)) {
     emit(2, `<measuredmass>${measured.massKg}</measuredmass>`);
   }
   if (typeof measured?.cgM === 'number' && Number.isFinite(measured.cgM)) {
     emit(2, `<measuredcg>${measured.cgM}</measuredcg>`);
   }
-  if (typeof measured?.padMassKg === 'number' && Number.isFinite(measured.padMassKg)) {
-    emit(2, `<measuredpadmass>${measured.padMassKg}</measuredpadmass>`);
+  // The weighed PAD mass — the rocket ready to fly WITH the motor in — is a
+  // different measurement from the two above and lives with the motor it was
+  // weighed with, so it is written PER CONFIGURATION: one rocket-level
+  // <measuredpadmass configid="…"> for each configuration whose motors carry
+  // a value (v0.118; v0.116 wrote one attribute-less tag beside the airframe
+  // figures, and a v0.116 reader put it back in the airframe box, so that form
+  // is never written again). The value is read off the configuration's
+  // motors here rather than inside <motor>: the mount is implied — App keeps
+  // it on the primary only, and no component id survives a round trip — and
+  // a rocket-level unknown gets the desktop's one-line warn-and-skip, the
+  // same as <measuredmass>. Only the weight is written, never the hardware
+  // the app derives from it (services/hardwareMass.ts).
+  //
+  // The DEFAULT configuration's element comes first: a v0.116/v0.117 reader
+  // takes the first element in document order, attribute ignored, and
+  // applies it to the configuration it opens by default — which is this one.
+  // Nothing is emitted when no motor carries the key, so a design without a
+  // pad mass is byte-identical to what this wrote before the field existed.
+  const padMassOf = (c: typeof writeConfigs[number]) => Object.values(c.motors).find((m) =>
+    typeof m.padMassKg === 'number' && Number.isFinite(m.padMassKg) && m.padMassKg > 0)?.padMassKg;
+  const ordered = [...writeConfigs].sort((a, b) => (a.id === defaultId ? -1 : 0) - (b.id === defaultId ? -1 : 0));
+  for (const c of ordered) {
+    const pm = padMassOf(c);
+    if (pm !== undefined) emit(2, `<measuredpadmass configid="${escapeXml(c.id)}">${pm}</measuredpadmass>`);
   }
   // Stage nodes at the top level export as sibling <stage> blocks (the
   // desktop model); legacy flat trees wrap into one implicit stage.

@@ -631,7 +631,19 @@ export function changedSinceRun(
   // A key the run does not carry cannot be compared — but one that IS carried
   // and differs is a real mismatch worth naming, so a partial run still reports.
   if (run.designKey && run.designKey !== cur.designKey) changed.push('the design');
-  if (run.motorSetKey && run.motorSetKey !== cur.motorSetKey) changed.push('the motor');
+  if (run.motorSetKey && run.motorSetKey !== cur.motorSetKey) {
+    // The motor-set key ends in a `|hw:<0.1 g>` term when a weighed pad mass
+    // carries hardware (App's motorSetKeyOf). Split it off before comparing:
+    // a run flown before the weighing differs ONLY in that term, and saying
+    // "the motor changed" over it would send the user to check a motor that
+    // is exactly the one loaded (v0.118). The last `|hw:` is the split point
+    // — the motor half is joined by `|` itself.
+    const motorsOf = (key: string) => {
+      const at = key.lastIndexOf('|hw:');
+      return at === -1 ? key : key.slice(0, at);
+    };
+    changed.push(motorsOf(run.motorSetKey) !== motorsOf(cur.motorSetKey) ? 'the motor' : 'the weighed pad mass');
+  }
   if (run.conditionsKey && run.conditionsKey !== cur.conditionsKey) {
     changed.push('the launch conditions');
   }

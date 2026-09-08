@@ -2494,68 +2494,216 @@ describe(".ork <preset> — desktop's catalogue link is read (ruled 2026-09-03)"
 });
 
 /**
- * The weighed pad mass (2026-09-07): the third rocket-level extension element
- * beside <measuredmass> and <measuredcg>, whose own round-trip is pinned in
- * orkNewFields.test.ts ('.ork round-trip of measured mass & CG'). Same rules
- * as those two — SI, emitted only when set, refused when nonsense — and a
- * file that never carried it reads back as null, which is how every file
- * written before the field existed stays accepted. The tree is the same
- * two-component one that block uses.
+ * The weighed pad mass, PER CONFIGURATION (v0.118). v0.116 wrote it as a third
+ * rocket-level tag beside <measuredmass> and <measuredcg>, where it could not
+ * belong: those two are the airframe with the motor out and are meant to
+ * survive a motor change; a pad weight is one rocket with one motor set in.
+ * It now travels on each configuration's primary motor (OrkExportMotor.
+ * padMassKg) and is written as one rocket-level
+ * `<measuredpadmass configid="…">` per configuration that carries a value,
+ * read back onto OrkFlightConfig.padMassKg. Same gate as the airframe pair —
+ * SI, emitted only when set, refused when nonsense — the default
+ * configuration's element first (a v0.116 reader takes the first in document
+ * order), and a design without one writes exactly the file it wrote before.
+ * The two-component tree of the airframe block (orkNewFields.test.ts) gains a
+ * motor mount so a configuration has a motor to carry the value.
  */
-describe('.ork round-trip of the weighed pad mass', () => {
+describe('.ork round-trip of the weighed pad mass, per configuration', () => {
   const tree = { name: 'Weighed', components: [{
     type: 'stage', id: 's1', name: 'Sustainer',
     children: [
       { type: 'nosecone', id: 'n1', length: 0.15, aftRadius: 0.025, thickness: 0.002 },
-      { type: 'bodytube', id: 'b1', length: 0.4, outerRadius: 0.025, thickness: 0.001 },
+      { type: 'bodytube', id: 'b1', length: 0.4, outerRadius: 0.025, thickness: 0.001,
+        children: [{ type: 'innertube', id: 'mmt', motorMount: true, length: 0.1, outerRadius: 0.02, thickness: 0.001 }] },
     ],
   }] } as unknown as Parameters<typeof exportOrk>[0]['tree'];
   /** Every export re-mints component and configuration ids. */
   const stripIds = (x: string) =>
     x.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, 'UUID');
+  const J540R = { designation: 'J540R', manufacturer: 'AeroTech', diameter: 0.054, length: 0.32, delay: 10 };
+  const J460T = { designation: 'J460T', manufacturer: 'AeroTech', diameter: 0.054, length: 0.3, delay: 8 };
+  /** cfg-a is the file's default and carries no value of its own; cfg-b carries 7.48 kg on its motor. */
+  const cfgA: OrkExportConfig = { id: 'cfg-a', name: 'Club field', isDefault: true, motors: { mmt: J540R } };
+  const cfgB: OrkExportConfig = { id: 'cfg-b', name: 'Demo day', isDefault: false, motors: { mmt: { ...J460T, padMassKg: 7.48 } } };
+  const AIRFRAME = { massKg: 9.308, cgM: 0.9 };
+  const byId = (back: ReturnType<typeof importOrk>, id: string) => back.configs.find((c) => c.id === id);
+  /** What v0.116/v0.117 wrote: one attribute-less tag beside the airframe figures. */
+  const withBareTag = (xml: string, kg = 10.574) =>
+    xml.replace('<measuredcg>0.9</measuredcg>', `<measuredcg>0.9</measuredcg>\n    <measuredpadmass>${kg}</measuredpadmass>`);
 
-  it('carries the pad mass across a save and re-open beside the other two', () => {
-    const xml = exportOrk({ name: 'Weighed', tree, measured: { massKg: 9.308, cgM: 0.9, padMassKg: 10.574 } });
-    expect(xml).toMatch(/<measuredpadmass>10\.574<\/measuredpadmass>/);
+  it('writes one element per configuration, keyed by its configid, and reads each back onto that configuration', () => {
+    // cfg-a is active, so its value comes from the LIVE working set (`motors`); cfg-b's from its own map.
+    const xml = exportOrk({
+      name: 'Weighed', tree, motors: { mmt: { ...J540R, padMassKg: 10.574 } },
+      configs: [cfgA, cfgB], activeConfigId: 'cfg-a', measured: AIRFRAME,
+    });
+    expect(xml).toMatch(/<measuredpadmass configid="cfg-a">10\.574<\/measuredpadmass>/);
+    expect(xml).toMatch(/<measuredpadmass configid="cfg-b">7\.48<\/measuredpadmass>/);
+    expect(xml.match(/<measuredpadmass/g)).toHaveLength(2);
     const back = importOrk(xml);
-    expect(back.measured?.padMassKg).toBeCloseTo(10.574, 12);
-    expect(back.measured?.massKg).toBeCloseTo(9.308, 12);
-    expect(back.measured?.cgM).toBeCloseTo(0.9, 12);
+    expect(byId(back, 'cfg-a')?.padMassKg).toBeCloseTo(10.574, 12);
+    expect(byId(back, 'cfg-b')?.padMassKg).toBeCloseTo(7.48, 12);
+    // The airframe pair is two fields again; nothing is flagged legacy; no note.
+    expect(Object.keys(back.measured!)).toEqual(['massKg', 'cgM']);
+    expect(back.configs.every((c) => c.padMassLegacy === undefined)).toBe(true);
+    expect(back.notes.some((n) => /pad mass/.test(n))).toBe(false);
   });
 
-  it('writes no tag when the field was never used, and reads that back as null', () => {
-    const xml = exportOrk({ name: 'Weighed', tree, measured: { massKg: 0.56, cgM: null } });
-    expect(xml).toMatch(/<measuredmass>/);
-    expect(xml).not.toMatch(/<measuredpadmass>/);
+  it("the elements sit after <measuredcg> and before the first <motorconfiguration>, the default configuration's first", () => {
+    // default="true" has always ridden the ACTIVE configuration, so with cfg-a first in file
+    // order and cfg-b active, cfg-b's element must lead: a v0.116/v0.117 reader takes the first
+    // element in document order and applies it to the configuration it opens by default.
+    const xml = exportOrk({
+      name: 'Weighed', tree, motors: { mmt: { ...J460T, padMassKg: 7.48 } },
+      configs: [{ ...cfgA, motors: { mmt: { ...J540R, padMassKg: 10.574 } } }, cfgB],
+      activeConfigId: 'cfg-b', measured: AIRFRAME,
+    });
+    expect(xml).toContain('<motorconfiguration configid="cfg-b" default="true">');
+    const cg = xml.indexOf('<measuredcg>');
+    const b = xml.indexOf('<measuredpadmass configid="cfg-b">');
+    const a = xml.indexOf('<measuredpadmass configid="cfg-a">');
+    expect(cg).toBeGreaterThan(-1);
+    expect(b).toBeGreaterThan(cg);
+    expect(a).toBeGreaterThan(b);
+    expect(xml.indexOf('<motorconfiguration')).toBeGreaterThan(a);
+    // No active configuration and no live set: the file's own default leads.
+    const xml2 = exportOrk({
+      name: 'Weighed', tree, motors: {},
+      configs: [{ ...cfgA, isDefault: false, motors: { mmt: { ...J540R, padMassKg: 10.574 } } }, { ...cfgB, isDefault: true }],
+      activeConfigId: null,
+    });
+    expect(xml2).toContain('<motorconfiguration configid="cfg-b" default="true">');
+    expect(xml2.indexOf('<measuredpadmass configid="cfg-b">')).toBeLessThan(xml2.indexOf('<measuredpadmass configid="cfg-a">'));
+  });
+
+  it('writes nothing when no motor carries a pad mass, and a zero, negative or NaN value writes nothing either', () => {
+    // A design without a pad mass must export EXACTLY what v0.117 exported.
+    const input = {
+      name: 'Weighed', tree, motors: { mmt: J540R },
+      configs: [cfgA, { ...cfgB, motors: { mmt: J460T } }], activeConfigId: 'cfg-a', measured: AIRFRAME,
+    };
+    const without = exportOrk(input);
+    expect(without).not.toMatch(/measuredpadmass/);
+    for (const bad of [0, -3, Number.NaN]) {
+      const withBad = exportOrk({ ...input, motors: { mmt: { ...J540R, padMassKg: bad } } });
+      expect(stripIds(withBad)).toBe(stripIds(without));
+    }
+    // The classic no-configs path — what a design built in the app writes.
+    const classic = exportOrk({ name: 'Weighed', tree, motors: { mmt: J540R } });
+    expect(classic).not.toMatch(/measuredpadmass/);
+    expect(stripIds(exportOrk({ name: 'Weighed', tree, motors: { mmt: { ...J540R, padMassKg: 0 } } }))).toBe(stripIds(classic));
+  });
+
+  it('the classic no-configs export keys it to the minted configuration and re-imports onto it', () => {
+    const xml = exportOrk({ name: 'Weighed', tree, motors: { mmt: { ...J540R, padMassKg: 10.574 } } });
+    const m = xml.match(/<measuredpadmass configid="([^"]+)">10\.574<\/measuredpadmass>/);
+    expect(m).not.toBeNull();
+    const minted = m![1]!;
+    expect(xml).toContain(`<motorconfiguration configid="${minted}" default="true">`);
     const back = importOrk(xml);
-    expect(back.measured?.massKg).toBeCloseTo(0.56, 12);
-    expect(back.measured?.padMassKg ?? null).toBeNull();
+    expect(back.configs).toHaveLength(1);
+    expect(back.chosenConfigId).toBe(minted);
+    expect(back.configs[0]?.padMassKg).toBeCloseTo(10.574, 12);
+    expect(back.configs[0]?.padMassLegacy).toBeUndefined();
   });
 
-  it('an explicit null is byte-identical to an absent key', () => {
-    const without = exportOrk({ name: 'Weighed', tree, measured: { massKg: 0.56, cgM: 0.4 } });
-    const withNull = exportOrk({ name: 'Weighed', tree, measured: { massKg: 0.56, cgM: 0.4, padMassKg: null } });
-    expect(without).not.toMatch(/<measuredpadmass>/);
-    expect(stripIds(withNull)).toBe(stripIds(without));
-  });
-
-  it('a pad mass alone is enough to carry the block', () => {
-    const xml = exportOrk({ name: 'Weighed', tree, measured: { massKg: null, cgM: null, padMassKg: 10.574 } });
-    expect(xml).not.toMatch(/<measuredmass>/);
-    expect(xml).not.toMatch(/<measuredcg>/);
+  it("active = none with motors loaded: the minted configuration carries it and the file's own does not", () => {
+    const xml = exportOrk({
+      name: 'Weighed', tree, motors: { mmt: { ...J460T, padMassKg: 7.48 } }, configs: [cfgA], activeConfigId: null,
+    });
+    expect(xml.match(/<measuredpadmass/g)).toHaveLength(1);
+    expect(xml).not.toMatch(/<measuredpadmass configid="cfg-a">/);
     const back = importOrk(xml);
-    expect(back.measured).toBeDefined();
-    expect(back.measured?.massKg).toBeNull();
-    expect(back.measured?.cgM).toBeNull();
-    expect(back.measured?.padMassKg).toBeCloseTo(10.574, 12);
+    expect(back.configs).toHaveLength(2);
+    const minted = back.configs.find((c) => c.id !== 'cfg-a')!;
+    expect(minted.isDefault).toBe(true);
+    expect(back.chosenConfigId).toBe(minted.id);
+    expect(minted.padMassKg).toBeCloseTo(7.48, 12);
+    expect(byId(back, 'cfg-a')?.padMassKg).toBeUndefined();
   });
 
-  it('ignores nonsense rather than importing a negative or unparseable pad mass', () => {
-    const good = exportOrk({ name: 'Weighed', tree, measured: { massKg: 9.308, cgM: 0.9, padMassKg: 10.574 } });
-    const swap = (to: string) => good.replace('<measuredpadmass>10.574</measuredpadmass>', `<measuredpadmass>${to}</measuredpadmass>`);
-    expect(importOrk(swap('-3')).measured?.padMassKg ?? null).toBeNull();
-    expect(importOrk(swap('nope')).measured?.padMassKg ?? null).toBeNull();
-    // The other two survive a bad third.
-    expect(importOrk(swap('nope')).measured?.massKg).toBeCloseTo(9.308, 12);
+  it("the v0.116 attribute-less form lands on the file's default configuration, flagged legacy, with a note", () => {
+    const clean = exportOrk({
+      name: 'Weighed', tree, motors: { mmt: J460T },
+      configs: [cfgA, { ...cfgB, motors: { mmt: J460T } }], activeConfigId: 'cfg-b', measured: AIRFRAME,
+    });
+    expect(clean).not.toMatch(/measuredpadmass/);
+    const back = importOrk(withBareTag(clean));
+    // default="true" rode the active configuration, cfg-b — that is the one a v0.116 build opened.
+    expect(byId(back, 'cfg-b')?.padMassKg).toBeCloseTo(10.574, 12);
+    expect(byId(back, 'cfg-b')?.padMassLegacy).toBe(true);
+    expect(byId(back, 'cfg-a')?.padMassKg).toBeUndefined();
+    expect(back.notes).toContainEqual(expect.stringContaining('saved by an earlier version'));
+    expect(back.notes).toContainEqual(expect.stringContaining('“Demo day”'));
+    // The airframe pair is untouched, and the reader no longer reports a third figure.
+    expect(back.measured).toEqual(AIRFRAME);
+    expect(Object.keys(back.measured!)).toEqual(['massKg', 'cgM']);
+  });
+
+  it('an attribute-less form in a file that declares no configuration is dropped with a note', () => {
+    // No shipped build writes this: every v0.116/v0.117 file declares at least one
+    // <motorconfiguration> because the writer always minted one. A hand-rolled file might.
+    const clean = exportOrk({ name: 'Weighed', tree, motors: {}, measured: AIRFRAME });
+    const noConfigs = clean.replace(/<motorconfiguration[\s\S]*?<\/motorconfiguration>\n/, '');
+    expect(noConfigs).not.toContain('<motorconfiguration');
+    const back = importOrk(withBareTag(noConfigs));
+    expect(back.configs).toEqual([]);
+    expect(back.notes).toContainEqual(expect.stringContaining('belongs to no flight configuration'));
+    expect(back.measured).toEqual(AIRFRAME);
+  });
+
+  it('a configid the file does not declare is dropped with a note', () => {
+    const clean = exportOrk({ name: 'Weighed', tree, motors: { mmt: J540R }, configs: [cfgA], activeConfigId: 'cfg-a' });
+    const ghost = clean.replace('<motorconfiguration',
+      '<measuredpadmass configid="ghost">10.574</measuredpadmass>\n    <motorconfiguration');
+    const back = importOrk(ghost);
+    expect(byId(back, 'cfg-a')?.padMassKg).toBeUndefined();
+    expect(back.notes).toContainEqual(expect.stringContaining('names a flight configuration this file does not declare'));
+  });
+
+  it("nonsense is ignored: '-3', '0', 'nope' — and the airframe figures survive a bad pad mass", () => {
+    const good = exportOrk({
+      name: 'Weighed', tree, motors: { mmt: { ...J540R, padMassKg: 10.574 } },
+      configs: [cfgA], activeConfigId: 'cfg-a', measured: AIRFRAME,
+    });
+    const swap = (to: string) => good.replace(
+      '<measuredpadmass configid="cfg-a">10.574</measuredpadmass>',
+      `<measuredpadmass configid="cfg-a">${to}</measuredpadmass>`);
+    for (const bad of ['-3', '0', 'nope']) {
+      const back = importOrk(swap(bad));
+      expect(byId(back, 'cfg-a')?.padMassKg).toBeUndefined();
+      expect(byId(back, 'cfg-a')?.padMassLegacy).toBeUndefined();
+      expect(back.measured).toEqual(AIRFRAME);
+    }
+  });
+
+  it('the two airframe figures still round-trip on their own', () => {
+    const xml = exportOrk({ name: 'Weighed', tree, measured: AIRFRAME });
+    expect(xml).toMatch(/<measuredmass>9\.308<\/measuredmass>/);
+    expect(xml).toMatch(/<measuredcg>0\.9<\/measuredcg>/);
+    expect(xml).not.toMatch(/measuredpadmass/);
+    const back = importOrk(xml);
+    expect(back.measured).toEqual(AIRFRAME);
+    expect(back.configs[0]?.padMassKg).toBeUndefined();
+  });
+
+  it('<motor> elements never carry a pad mass', () => {
+    const xml = exportOrk({
+      name: 'Weighed', tree, motors: { mmt: { ...J540R, padMassKg: 10.574 } },
+      configs: [cfgA, cfgB], activeConfigId: 'cfg-a',
+    });
+    const mounts = xml.match(/<motormount>[\s\S]*?<\/motormount>/g) ?? [];
+    expect(mounts.length).toBeGreaterThan(0);
+    for (const mount of mounts) {
+      expect(mount).toMatch(/<motor configid="cfg-a">/);
+      expect(mount).not.toMatch(/padmass/i);
+      expect(mount).not.toContain('10.574');
+      expect(mount).not.toContain('7.48');
+    }
+    // ...and the reader never puts one on a motor reference: it belongs to the configuration.
+    const back = importOrk(xml);
+    for (const c of back.configs) {
+      for (const ref of Object.values(c.motors)) expect(ref.padMassKg).toBeUndefined();
+    }
   });
 });

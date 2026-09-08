@@ -291,6 +291,33 @@ describe('stored-run provenance (2026-09-03, v0.101)', () => {
     )).toEqual(['the design', 'the motor', 'the launch conditions']);
   });
 
+  // The motor-set key ends in `|hw:<0.1 g>` when a weighed pad mass carries
+  // hardware (App's motorSetKeyOf). A run from the history flown before the
+  // weighing has the same motors and no such term — the motor loaded is
+  // exactly the one it flew — so "the motor changed" would send the user to
+  // check the wrong thing (v0.118).
+  const SET = 'mmt:AeroTech/J460T:8:automatic:0';
+
+  it('a run whose only difference is the hardware term says the weighed pad mass changed', () => {
+    const weighed = { ...KEY, motorSetKey: `${SET}|hw:1290` };
+    // Flown before the weighing.
+    expect(changedSinceRun(runWith({ motorSetKey: SET }), weighed)).toEqual(['the weighed pad mass']);
+    // Flown with a different weighing.
+    expect(changedSinceRun(runWith({ motorSetKey: `${SET}|hw:1820` }), weighed)).toEqual(['the weighed pad mass']);
+    // The other way round: the run carried hardware and the field has since been cleared.
+    expect(changedSinceRun(runWith({ motorSetKey: `${SET}|hw:1290` }), { ...KEY, motorSetKey: SET }))
+      .toEqual(['the weighed pad mass']);
+  });
+
+  it('a motor change with hardware on both sides still says the motor', () => {
+    const weighed = { ...KEY, motorSetKey: `${SET}|hw:1290` };
+    const other = 'mmt:AeroTech/J540R:10:automatic:0';
+    expect(changedSinceRun(runWith({ motorSetKey: `${other}|hw:1290` }), weighed)).toEqual(['the motor']);
+    expect(changedSinceRun(runWith({ motorSetKey: `${other}|hw:1820` }), weighed)).toEqual(['the motor']);
+    // Hardware on one side only is still a motor change, named once, never both.
+    expect(changedSinceRun(runWith({ motorSetKey: other }), weighed)).toEqual(['the motor']);
+  });
+
   it('UNKNOWN IS NOT A MISMATCH — an old run is never accused of a difference we cannot see', () => {
     // Runs stored before these keys existed, and the case where there is no
     // current design to compare against at all.

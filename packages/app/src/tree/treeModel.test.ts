@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { OrkRocket } from '@online-openrocket/engine';
-import { bodyDragReference, engineTree, fairingDeliveredCd, fairingFrontalArea, findNode, findParent, mountRadiusOf, hasParallelStage, isOnLaunchStage, makeNode, motorMounts, mountsIn, normalizeTree, protuberanceCd, protuberanceDeliveredCd, protuberanceFrontalArea, PROTUBERANCE_REF_MACH, referenceArea, resetBodyDragCache, splitClusterPairsTree, splitClusterTree } from './treeModel.js';
+import { bodyDragReference, engineTree, fairingDeliveredCd, fairingFrontalArea, findNode, findParent, mountRadiusOf, hasParallelStage, isOnLaunchStage, makeNode, motorMounts, mountsIn, normalizeTree, primaryMountOf, protuberanceCd, protuberanceDeliveredCd, protuberanceFrontalArea, PROTUBERANCE_REF_MACH, referenceArea, resetBodyDragCache, splitClusterPairsTree, splitClusterTree } from './treeModel.js';
 import { clusterOffsets } from './cluster.js';
 import { allowedChildren, defaultParams, DISPLAY_NAME, FIELDS } from './schema.js';
 
@@ -523,6 +523,56 @@ describe('isOnLaunchStage — the launch stage is the LAST one', () => {
   it('a single-stage design launches its own (only) stage', () => {
     const single: RocketTree = { name: 's', components: [staged.components[0]!] };
     expect(isOnLaunchStage(single, 'm0')).toBe(true);
+  });
+});
+
+describe('primaryMountOf — the mount the weighed hardware is carried on', () => {
+  // The sustainer carries a central mount and a ring mount (same stage); the
+  // booster carries one. App's primaryMountId, the pad-mass field's gate, the
+  // export gate, the .ork attach-on-open and the session migration all take
+  // this one definition of "the primary" (v0.118).
+  const staged: RocketTree = {
+    name: 'two-stage',
+    components: [
+      {
+        type: 'stage', id: 's0', name: 'Sustainer',
+        children: [{
+          type: 'bodytube', id: 'b0', length: 0.3, children: [
+            { type: 'innertube', id: 'central', motorMount: true } as ComponentNode,
+            { type: 'innertube', id: 'ring', motorMount: true, cluster: '3-ring' } as ComponentNode,
+          ],
+        } as ComponentNode],
+      } as ComponentNode,
+      {
+        type: 'stage', id: 's1', name: 'Booster',
+        children: [{ type: 'bodytube', id: 'b1', length: 0.2, motorMount: true } as ComponentNode],
+      } as ComponentNode,
+    ],
+  };
+
+  it('picks the topmost stage’s mount and keeps the given order on a same-stage tie', () => {
+    expect(primaryMountOf(staged, ['b1', 'central'])).toBe('central');
+    expect(primaryMountOf(staged, ['central', 'b1'])).toBe('central');
+    expect(primaryMountOf(staged, ['b1'])).toBe('b1');
+    // A same-stage tie keeps assignment order: whichever was given first —
+    // unchanged behaviour, stated in the guide.
+    expect(primaryMountOf(staged, ['ring', 'central', 'b1'])).toBe('ring');
+    expect(primaryMountOf(staged, ['central', 'ring', 'b1'])).toBe('central');
+    expect(primaryMountOf(staged, [])).toBeNull();
+  });
+
+  it('ignores a mount id the tree no longer has', () => {
+    // stageIndexOf returns −1 for a deleted mount, and nothing prunes a
+    // mountMotors record when its mount is removed — unfiltered, the stale id
+    // would sort FIRST and a pad mass could attach to, or export from, a mount
+    // that no longer exists.
+    expect(primaryMountOf(staged, ['gone', 'b1'])).toBe('b1');
+    expect(primaryMountOf(staged, ['gone', 'b1', 'central'])).toBe('central');
+    expect(primaryMountOf(staged, ['gone'])).toBeNull();
+    // The caller's array is not reordered.
+    const ids = ['b1', 'central'];
+    primaryMountOf(staged, ids);
+    expect(ids).toEqual(['b1', 'central']);
   });
 });
 
