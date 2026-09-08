@@ -83,7 +83,7 @@ import { addRun, loadRuns, persistFailed } from './services/simStore.js';
 import { APP_VERSION } from './version.js';
 import { pokeServiceWorker, useVersionCheck } from './services/versionCheck.js';
 import {
-  addChild, addStage, cloneSubtree, defaultTree, duplicateNode, emptyTree, engineTree, findNode,
+  addChild, addStage, applyStageNozzles, cloneSubtree, defaultTree, duplicateNode, emptyTree, engineTree, findNode,
   findParent, flownRecoveryDevices, hasParallelStage, inheritDefaults, isOnLaunchStage, makeNode, motorMounts, moveNode,
   normalizeTree, removeNode, stageIndexOf, stages, suppressingAncestor, updateAllNodes,
   updateNode,
@@ -161,6 +161,13 @@ export interface SavedConfig {
    * configuration is open cannot rewrite this one's chute deployment.
    */
   deployments?: Record<string, OrkDeployOverride>;
+  /**
+   * This configuration's nozzle exit diameter per stage (metres, keyed by
+   * stage node id; 0 = none). A RASAero `<Simulation>` carries the nozzle of
+   * the motor it flies, so it switches with the configuration exactly as the
+   * motor does — see `OrkFlightConfig.nozzles`. Absent for .ork files.
+   */
+  nozzles?: Record<string, number>;
 }
 
 /**
@@ -2379,6 +2386,8 @@ export function App() {
           ? { deployments: cfg.deployments } : {}),
         ...(cfg.separations && Object.keys(cfg.separations).length > 0
           ? { separations: cfg.separations } : {}),
+        ...(cfg.nozzles && Object.keys(cfg.nozzles).length > 0
+          ? { nozzles: cfg.nozzles } : {}),
       });
     }
     // EVERY await is behind us; from here on this function writes state. A
@@ -2491,8 +2500,14 @@ export function App() {
     // normalisation), so fold the patches first and set once.
     const hasDeploy = cfg.deployments && Object.keys(cfg.deployments).length > 0;
     const hasSep = cfg.separations && Object.keys(cfg.separations).length > 0;
-    if (hasDeploy || hasSep) {
+    const hasNozzles = cfg.nozzles && Object.keys(cfg.nozzles).length > 0;
+    if (hasDeploy || hasSep || hasNozzles) {
       let next = tree;
+      // The nozzle is the flown motor's, so it switches with the motors: a
+      // RASAero file's simulations can each state a different one (0 removes
+      // it — the previous configuration's must not linger, same rule as the
+      // separation write below).
+      if (hasNozzles) next = applyStageNozzles(next, cfg.nozzles!);
       for (const [nodeId, d] of Object.entries(cfg.deployments ?? {})) {
         if (!findNode(next, nodeId)) continue;
         next = updateNode(next, nodeId, {

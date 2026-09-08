@@ -9,8 +9,7 @@ import {
   mountRadiusOf, protuberanceCd, protuberanceClass, protuberanceDeliveredCd,
   protuberanceExplicitCd, protuberanceFrontalArea, suppressingAncestor,
 } from '../tree/treeModel.js';
-import { anchorStarts, offsetForStart, snapStart, startFromPosition } from '../tree/position.js';
-import { inKernelFrame, kernelLength } from '../tree/kernelLength.js';
+import { anchorStarts, axialLength, offsetForStart, snapStart, startFromPosition } from '../tree/position.js';
 import { tubeFinMaxCount, tubeFinMaxRadius, tubeFinRadius } from '../tree/tubefins.js';
 import { betweenFinAnglesAmong, finAnglesAmong, frameContaining, nearestAngle } from '../tree/mountAngle.js';
 import { shroudEnds } from '../tree/shroud.js';
@@ -736,15 +735,15 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
         const AFT_GAP = 0.0254; // "about an inch"
         const aftX = rocketInfo.length - AFT_GAP;
         const fwdX = rocketInfo.cg;
-        // kernelLength, not axialLength: the button's extent here is ZERO, the
-        // kernel's own (`RocketComponent.java:86`). `info.positionX` is the
-        // station the KERNEL reports, so backing the parent's start out of it
-        // with the 25 mm axialLength fallback overstated it by half that on
-        // the default 'middle' method — and the offset written below then put
-        // the forward button 12.5 mm aft of the CG this feature exists to hit
-        // (25 mm on a 'bottom'-anchored button, which is what the app's own
-        // .ork writer emits for surface parts).
-        const childLen = kernelLength(node);
+        // axialLength is ZERO for a rail button, the kernel's own
+        // (`RocketComponent.java:86`). `info.positionX` is the station the
+        // KERNEL reports, so backing the parent's start out of it with the
+        // 25 mm `length` fallback this used to hit overstated it by half that
+        // on the default 'middle' method — and the offset written below then
+        // put the forward button 12.5 mm aft of the CG this feature exists to
+        // hit (25 mm on a 'bottom'-anchored button, which is what the app's
+        // own .ork writer emits for surface parts).
+        const childLen = axialLength(node);
         const parentAbsStart = (info.positionX ?? 0)
           - startFromPosition(pos, childLen, parentLenSi ?? 0);
         // Both buttons must land ON this tube. The CG and the aft end are
@@ -1075,9 +1074,14 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
           ? outerR - (mount['outerRadius'] as number)
           : ((p['thickness'] as number) ?? 0.001);
         if (depth <= 0) return null;
-        const rootLen = node.type === 'freeformfinset'
-          ? Math.max(...(((node['points'] as FinPoint[] | undefined) ?? [[0, 0]]).map((pt) => pt[0])))
-          : ((node['rootChord'] as number) ?? 0.05);
+        // The ROOT chord — `axialLength`, the kernel's length: rootChord for a
+        // trapezoid/ellipse, the last point's x for a freeform fin. This used
+        // to take the outline's furthest-aft x, so on a fin whose tip
+        // overhangs its root the "60 %" tab came out as 60 % of the overhang
+        // span: 288 mm on the 361 mm root of `ninja_4in_54mm-MMT.ork`'s fin
+        // shape, 80 % of the root it promised. Only a fin with no tab yet is
+        // sized here (`hasLength` below).
+        const rootLen = axialLength(node);
         const hasLength = typeof node['tabLength'] === 'number' && (node['tabLength'] as number) > 0;
         return (
           <button
@@ -1326,12 +1330,13 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
                   // Magnetic slider: snap to structural anchors (tube/sibling ends).
                   // `parent` is a ComponentNode here — positionable excludes 'stage'.
                   // Same frame as the 2D drag (TreeSchematic's onMove) and the
-                  // drawings: a rail button is positioned by a zero-length
-                  // component, so the anchor ladder is built in that frame too.
-                  const cLen = kernelLength(node);
+                  // drawings — axialLength, the kernel's length: zero for a
+                  // rail button, the root chord for a freeform fin — and the
+                  // anchor ladder is built in that frame too.
+                  const cLen = axialLength(node);
                   const start = startFromPosition({ ...pos, offset: lenFromUi(v) }, cLen, parentLenSi);
                   const snapped = snapStart(start,
-                    anchorStarts(inKernelFrame(parent as ComponentNode), inKernelFrame(node)),
+                    anchorStarts(parent as ComponentNode, node),
                     parentLenSi * 0.015);
                   onPatch({ position: { ...pos, offset: offsetForStart(pos.method, snapped, cLen, parentLenSi) } });
                 }}

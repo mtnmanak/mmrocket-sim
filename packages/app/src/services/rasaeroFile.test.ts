@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
+import { applyStageNozzles } from '../tree/treeModel.js';
 import { CDX1_ENGINE_EXPORT, exportCdx1, importCdx1, rasaeroManufacturerAbbrev } from './rasaeroFile.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -1850,5 +1851,144 @@ describe('RASAero surface finish is desktop’s map (audit rows 3/41)', () => {
       const back = flatten(importCdx1(xml).tree.components).find((n) => n.type === 'bodytube')!;
       expect(back['finish'] ?? 'normal', finish).toBe(backAs);
     }
+  });
+});
+
+/**
+ * NOZZLE EXIT DIAMETER — RASAero keeps two and flies with the per-simulation
+ * one (docs/research/rasaero-nozzle-diameters-2026-09-07.md; Eric's ruling
+ * 2026-09-07). Every fixture here is a real corpus file, chosen because the
+ * research doc names it as the proving case for the branch it pins.
+ */
+describe('RASAero import — nozzle exit diameter, per simulation with the Design tab as fallback', () => {
+  const IN = 39.37;
+  const stageNozzle = (r: ReturnType<typeof importCdx1>, i: number): unknown =>
+    r.tree.components[i]!['nozzleExitDiameter'];
+  const cfgById = (r: ReturnType<typeof importCdx1>, id: string) => r.configs.find((c) => c.id === id)!;
+
+  it('MESOS: the simulation value lands on each stage, in metres, where the Design tab says 0', () => {
+    // Chuck Rogers's own preflight file: Design tab 0/0, simulation 2.15/3.33 in.
+    const r = importCdx1(fixture('MESOS_Last_Preflight_File.CDX1'));
+    expect(r.tree.components.length).toBe(2);
+    expect(stageNozzle(r, 0)).toBeCloseTo(2.15 / IN, 9); // 54.6 mm
+    expect(stageNozzle(r, 1)).toBeCloseTo(3.33 / IN, 9); // 84.6 mm — the corpus maximum
+    // Inside the property panel's 1–200 mm range, so nothing clamps.
+    expect(stageNozzle(r, 1) as number).toBeLessThan(0.2);
+    expect(stageNozzle(r, 0) as number).toBeGreaterThan(0.001);
+    // The configuration carries the same numbers, keyed by stage id.
+    const [s0, s1] = r.tree.components;
+    const cfg = r.configs[0]!;
+    expect(cfg.nozzles![s0!.id!]).toBeCloseTo(2.15 / IN, 9);
+    expect(cfg.nozzles![s1!.id!]).toBeCloseTo(3.33 / IN, 9);
+    // Said once, in the file's own units, naming the source.
+    const noteLines = r.notes.filter((n) => /Nozzle exit diameter/.test(n));
+    expect(noteLines.length).toBe(1);
+    expect(noteLines[0]).toMatch(/Sustainer 2\.15 in, Booster 3\.33 in from simulation 1/);
+    expect(noteLines[0]).not.toMatch(/Design tab/);
+    expect(noteLines[0]).not.toMatch(/Other simulations/); // one simulation: nothing to switch to
+  });
+
+  it('LEM-M2B: the simulation value (0.44 in) wins over a non-zero Design tab (0.5 in)', () => {
+    // The family whose Design tab went stale while the user maintained the simulation.
+    const r = importCdx1(fixture('LEM-M2B Scratch.CDX1'));
+    expect(stageNozzle(r, 0)).toBeCloseTo(0.44 / IN, 9);
+    expect(r.notes.join(' ')).toMatch(/Sustainer 0\.44 in from simulation 1/);
+  });
+
+  it('vb38-dragstudy02: falls back to the Design tab (0.3125 in) when the simulation says 0', () => {
+    const r = importCdx1(fixture('vb38-dragstudy02.CDX1'));
+    expect(stageNozzle(r, 0)).toBeCloseTo(0.3125 / IN, 9);
+    const note = r.notes.find((n) => /Nozzle exit diameter/.test(n))!;
+    expect(note).toMatch(/Sustainer 0\.31 in from the Design tab, because simulation 1 leaves it at 0/);
+  });
+
+  it('both 0 leaves the property UNSET — not 0 — and says nothing', () => {
+    const r = importCdx1(fixture('Complex.Two-Stage.CDX1'));
+    for (const st of r.tree.components) {
+      expect('nozzleExitDiameter' in st).toBe(false);
+    }
+    // The configurations still carry an explicit 0 per stage, so applying one
+    // REMOVES a nozzle the previous configuration left behind.
+    for (const cfg of r.configs) {
+      expect(Object.values(cfg.nozzles!)).toEqual([0, 0]);
+    }
+    expect(r.notes.join(' ')).not.toMatch(/Nozzle exit diameter/);
+  });
+
+  it('ThreeCarbYen: Sustainer / Booster1 / Booster2 map to stages 0 / 1 / 2', () => {
+    // Simulation 1 states three DIFFERENT values, so a crossed slot would show.
+    const r = importCdx1(fixture('ThreeCarbYen-2018.CDX1'));
+    expect(r.tree.components.length).toBe(3);
+    expect(r.chosenConfigId).toBe('rasaero-sim-1');
+    expect(stageNozzle(r, 0)).toBeCloseTo(1 / IN, 9);
+    expect(stageNozzle(r, 1)).toBeCloseTo(1.75 / IN, 9);
+    expect(stageNozzle(r, 2)).toBeCloseTo(2.5 / IN, 9);
+    // Simulation 2 moves only Booster 1 (1.75 → 2.5 in).
+    const [s0, s1, s2] = r.tree.components.map((s) => s.id!);
+    const sim2 = cfgById(r, 'rasaero-sim-2').nozzles!;
+    expect(sim2[s0!]).toBeCloseTo(1 / IN, 9);
+    expect(sim2[s1!]).toBeCloseTo(2.5 / IN, 9);
+    expect(sim2[s2!]).toBeCloseTo(2.5 / IN, 9);
+  });
+
+  it('38-54 2-stage: each configuration carries its own, and applying one switches the stage', () => {
+    // Four simulations, same sustainer motor (nozzle 0.9 in throughout) and a
+    // booster that changes: sim 1 excluded (0), sim 2 M1350W 1.25, sim 3 K627LR
+    // 0.9, sim 4 M1350W 1.25. Design tab 0/0/0.
+    const r = importCdx1(fixture('38-54 2-stage.CDX1'));
+    expect(r.tree.components.length).toBe(2);
+    const [sus, boo] = r.tree.components.map((s) => s.id!);
+    // Sim 1 puts no motor on the booster, so sim 2 is the one opened.
+    expect(r.chosenConfigId).toBe('rasaero-sim-2');
+    expect(stageNozzle(r, 0)).toBeCloseTo(0.9 / IN, 9);
+    expect(stageNozzle(r, 1)).toBeCloseTo(1.25 / IN, 9);
+    expect(cfgById(r, 'rasaero-sim-1').nozzles![boo!]).toBe(0);
+    expect(cfgById(r, 'rasaero-sim-3').nozzles![boo!]).toBeCloseTo(0.9 / IN, 9);
+    expect(cfgById(r, 'rasaero-sim-4').nozzles![boo!]).toBeCloseTo(1.25 / IN, 9);
+    expect(r.notes.join(' ')).toMatch(/Other simulations in this file carry their own/);
+
+    // What App.applyConfig does with them.
+    const toSim3 = applyStageNozzles(r.tree, cfgById(r, 'rasaero-sim-3').nozzles!);
+    expect(toSim3.components[0]!['nozzleExitDiameter']).toBeCloseTo(0.9 / IN, 9);
+    expect(toSim3.components[1]!['nozzleExitDiameter']).toBeCloseTo(0.9 / IN, 9);
+    // Sim 1's booster has no nozzle: the property is REMOVED, not zeroed.
+    const toSim1 = applyStageNozzles(r.tree, cfgById(r, 'rasaero-sim-1').nozzles!);
+    expect(toSim1.components[0]!['nozzleExitDiameter']).toBeCloseTo(0.9 / IN, 9);
+    expect('nozzleExitDiameter' in toSim1.components[1]!).toBe(false);
+    // Re-applying the open configuration changes nothing — same tree by identity.
+    expect(applyStageNozzles(r.tree, cfgById(r, 'rasaero-sim-2').nozzles!)).toBe(r.tree);
+    // The sustainer's id is untouched by the switch (only the value moves).
+    expect(toSim3.components[0]!.id).toBe(sus);
+  });
+
+  it('a file with no simulations takes the Design tab directly', () => {
+    const xml = fixture('LEM-M2B Scratch.CDX1').replace(/<SimulationList>[\s\S]*<\/SimulationList>/, '');
+    const r = importCdx1(xml);
+    expect(r.configs).toEqual([]);
+    expect(stageNozzle(r, 0)).toBeCloseTo(0.5 / IN, 9);
+    const note = r.notes.find((n) => /Nozzle exit diameter/.test(n))!;
+    expect(note).toMatch(/Sustainer 0\.50 in from the Design tab \(this file carries no simulation\)/);
+  });
+
+  it('an engine-less simulation still supplies its nozzle when no configuration is built', () => {
+    // ARCAS-Long - 2: one <Simulation>, no engine string, SustainerNozzleDiameter
+    // 1.25 — the same rule the weight/CG block uses when no simulation carries
+    // a motor. It must not be reported as "no simulation".
+    const r = importCdx1(fixture('ARCAS-Long - 2.CDX1'));
+    expect(r.configs).toEqual([]);
+    expect(stageNozzle(r, 0)).toBeCloseTo(1.25 / IN, 9);
+    const note = r.notes.find((n) => /Nozzle exit diameter/.test(n))!;
+    expect(note).toMatch(/Sustainer 1\.25 in from the RASAero simulation/);
+    expect(note).not.toMatch(/carries no simulation/);
+  });
+
+  it('the exporter still writes zeros (recommendation 2 — leave the export alone)', () => {
+    const r = importCdx1(fixture('MESOS_Last_Preflight_File.CDX1'));
+    expect(r.tree.components[0]!['nozzleExitDiameter']).toBeGreaterThan(0);
+    const xml = exportCdx1({ name: r.name, tree: r.tree, launchMassKg: 10, launchCgM: 1 });
+    expect(xml).toContain('<SustainerNozzle>0</SustainerNozzle>');
+    expect(xml).toContain('<Booster1Nozzle>0</Booster1Nozzle>');
+    expect(xml).toContain('<SustainerNozzleDiameter>0</SustainerNozzleDiameter>');
+    expect(xml).toContain('<Booster1NozzleDiameter>0</Booster1NozzleDiameter>');
   });
 });

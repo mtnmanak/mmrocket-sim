@@ -9,7 +9,7 @@ import { tubeFinRadius } from './tubefins.js';
 import { outerProfile } from './shapeProfile.js';
 import { isConformal, shroudEnds } from './shroud.js';
 import { shroudGeometry } from './shroudMesh.js';
-import { kernelLength } from './kernelLength.js';
+import { axialLength } from './position.js';
 
 /**
  * THE APP'S 3D GEOMETRY, and nothing else.
@@ -145,7 +145,15 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims): { pieces: Pie
       ? Math.max(...ffPoints.map((p) => p[1]))
       : num(child, 'height', 0.03);
     const thickness = num(child, 'thickness', 0.003);
-    const start = axialStart(child, root, pStart, pLen);
+    // Stationed by `axialLength` — the kernel's length — NOT by `root`. For a
+    // freeform fin `root` is the outline's furthest-aft x (it sizes nothing
+    // here; the shape below is built from the points themselves), while the
+    // kernel anchors the fin by its ROOT CHORD, the last point's x. Using
+    // max-x put every 'bottom'/'middle'-anchored fin with an overhanging tip
+    // forward of where it flies in every STL/OBJ/glTF export — by 119.5 mm on
+    // `ninja_4in_54mm-MMT.ork`. For the other two fin types the two are the
+    // same number.
+    const start = axialStart(child, axialLength(child), pStart, pLen);
     maxR = Math.max(maxR, pRadius + height);
 
     const shape = new THREE.Shape();
@@ -289,11 +297,11 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims): { pieces: Pie
         // kernel has no third answer to consult: `RocketComponent.java:86`
         // declares `protected double length = 0` and RailButton never assigns
         // it, and `RailButton.getInstanceBoundingBox` extends ±OD/2 ABOUT the
-        // station. `kernelLength` is that zero, shared with the side view and
+        // station. `axialLength` is that zero, shared with the side view and
         // the property panel so the three cannot drift again.
         const bd = num(child, 'outerDiameter', 0.0097);
         const bh = num(child, 'totalHeight', 0.0097);
-        const station = axialStart(child, kernelLength(child), pStart, pLen);
+        const station = axialStart(child, axialLength(child), pStart, pLen);
         const bGeo = new THREE.CylinderGeometry(bd / 2, bd / 2, bh, 16);
         const ba = num(child, 'angleOffset', 0);
         const bdst = pRadius + bh / 2;

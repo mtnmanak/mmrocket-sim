@@ -736,7 +736,10 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
       case 'Surface': case 'CD': case 'ModifiedBarrowman': case 'Turbulence':
       case 'SustainerNozzle': case 'Booster1Nozzle': case 'Booster2Nozzle':
       case 'UseBooster1': case 'UseBooster2': case 'Comments':
-        break; // scalar design fields — Surface handled above, rest N/A
+        // Scalar design fields — Surface handled above, the three Design-tab
+        // nozzles read in the simulation block below (they are the FALLBACK
+        // behind each <Simulation>'s own nozzle), the rest N/A.
+        break;
       default:
         ignored.add(el.tagName);
     }
@@ -828,6 +831,63 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
   const simNumbers = new Map<string, number>();
   const unattached = new Set<string>();
   const sims = Array.from(doc.querySelectorAll('SimulationList > Simulation'));
+  /*
+   * NOZZLE EXIT DIAMETER — RASAero keeps it in TWO places and flies with one.
+   *
+   * `<RocketDesign><SustainerNozzle|Booster1Nozzle|Booster2Nozzle>` is the
+   * Design tab; `<Simulation><Sustainer|Booster1|Booster2NozzleDiameter>` is
+   * per simulation. The per-simulation value governs the flight: Chuck
+   * Rogers's own `MESOS_Last_Preflight_File.CDX1` carries 0/0 on the Design
+   * tab and 2.15/3.33 in in its simulation, and its stored apogee (266,294 ft)
+   * is 58 % above his no-nozzle run of the same rocket (168,979 ft) — with
+   * Design-tab zeros, the Design tab cannot be what RASAero read. Users also
+   * maintain the simulation value and let the Design tab go stale (the
+   * LEM-M2B family: Design tab 0.5 in on every save, simulations 0.44 then
+   * 0.9). So: the simulation's value, and when that is 0 but the Design tab
+   * is not, the Design tab's (3 of the 51 distinct corpus designs —
+   * vb38-dragstudy02 and the two ARCAS No Fins files — are filled in only
+   * there). Both 0 means power-off drag and the property stays UNSET, which
+   * is what the schema, the .ork reader and the kernel all mean by "none".
+   * Eric's ruling 2026-09-07 on docs/research/rasaero-nozzle-diameters-2026-09-07.md.
+   *
+   * Desktop OpenRocket 24.12 reads neither (no nozzle handling anywhere under
+   * file/rasaero/importt/), so this is a deliberate step past parity: our
+   * kernel already spends the number — Rogers Kbf (the default) and the
+   * supersonic model subtract the exit area from the base while the stage
+   * thrusts (BarrowmanCalculator patch) — and every non-zero value in the
+   * corpus (0.04–3.33 in = 1.0–84.6 mm) sits inside the field's 1–200 mm
+   * range. Apogee moves by well under 1 % on the designs that gain a value.
+   *
+   * It is carried PER CONFIGURATION (`OrkFlightConfig.nozzles`, every stage,
+   * 0 = none) and App.applyConfig writes it onto the stage nodes, the way
+   * separation already switches, so a file whose simulations disagree shows
+   * the nozzle of the configuration on screen. The chosen configuration's
+   * values are baked onto the stage nodes below with its separation.
+   */
+  const NOZZLE_TAGS = [
+    { design: 'SustainerNozzle', sim: 'SustainerNozzleDiameter' },
+    { design: 'Booster1Nozzle', sim: 'Booster1NozzleDiameter' },
+    { design: 'Booster2Nozzle', sim: 'Booster2NozzleDiameter' },
+  ] as const;
+  const designNozzleIn = NOZZLE_TAGS.map((t) => Math.max(0, num(design, t.design, 0)));
+  /** Per config id, per stage index: where its nozzle came from — for the ONE note. */
+  const nozzleSource = new Map<string, ('sim' | 'design' | null)[]>();
+  const carriesNozzle = (sim: Element): boolean => NOZZLE_TAGS.some((t) => num(sim, t.sim, 0) > 0);
+  const readNozzles = (sim: Element | null, cfgId: string): Record<string, number> => {
+    const out: Record<string, number> = {};
+    const sources: ('sim' | 'design' | null)[] = [];
+    for (const [stageIdx, t] of NOZZLE_TAGS.entries()) {
+      const stage = stages[stageIdx];
+      if (!stage?.id) break;
+      const simIn = sim ? Math.max(0, num(sim, t.sim, 0)) : 0;
+      const designIn = designNozzleIn[stageIdx] ?? 0;
+      const inches = simIn > 0 ? simIn : designIn;
+      out[stage.id] = inches / IN;
+      sources.push(simIn > 0 ? 'sim' : designIn > 0 ? 'design' : null);
+    }
+    nozzleSource.set(cfgId, sources);
+    return out;
+  };
   for (const [simIdx, sim] of sims.entries()) {
     const cfgMotors: Record<string, OrkMotorRef> = {};
     const separations: Record<string, OrkSeparationOverride> = {};
@@ -910,6 +970,7 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
     configs.push({
       id: cfgId, name: null, isDefault: configs.length === 0,
       motors: cfgMotors, deployments: {}, separations,
+      nozzles: readNozzles(sim, cfgId),
     });
   }
   // Which configuration to open. The first engine-carrying simulation is the
@@ -964,6 +1025,18 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
     }
     if (sep.separationDelay) stage['separationDelay'] = sep.separationDelay;
   }
+  // Same for its nozzles. With NO engine-carrying simulation there is no
+  // configuration to carry them; then, as the weight/CG block below does, the
+  // first simulation that states one wins (ARCAS-Long - 2 is an engine-less
+  // simulation carrying 1.25 in), and with no simulation at all the Design
+  // tab is the only value left — `readNozzles(null, …)` is exactly that branch.
+  const nozzleSim = chosen ? null : (sims.find(carriesNozzle) ?? sims[0] ?? null);
+  const openingNozzles = chosen?.nozzles ?? readNozzles(nozzleSim, 'design');
+  for (const [stageId, m] of Object.entries(openingNozzles)) {
+    const stage = stages.find((s) => s.id === stageId);
+    if (stage && m > 0) stage['nozzleExitDiameter'] = m;
+  }
+  const openingSources = nozzleSource.get(chosen?.id ?? 'design') ?? [];
 
   // ---- measured launch weight + CG -> stage mass/CG overrides ----
   /*
@@ -1320,6 +1393,37 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
   if (motorless.length > 0) {
     notes.push('Applied WITH the motor still included, because the file names a motor that isn’t in '
       + `the database — nothing is loaded on those stages: ${motorless.join(' ')}`);
+  }
+  // The nozzle, once: which stages got one, from which of RASAero's two
+  // places, and that other simulations may carry their own. A number that
+  // changes drag has to say where it came from — and this one comes from a
+  // field desktop OpenRocket silently drops, so nobody expects it.
+  {
+    const fromSim: string[] = [];
+    const fromDesign: string[] = [];
+    for (const [i, src] of openingSources.entries()) {
+      const st = stages[i];
+      const m = st?.id !== undefined ? openingNozzles[st.id] : undefined;
+      if (!src || !st || !(m !== undefined && m > 0)) continue;
+      (src === 'sim' ? fromSim : fromDesign).push(`${st.name ?? `Stage ${i}`} ${inTxt(m)}`);
+    }
+    if (fromSim.length > 0 || fromDesign.length > 0) {
+      const simTxt = chosenSimNr !== undefined ? `simulation ${chosenSimNr}` : 'the RASAero simulation';
+      const parts: string[] = [];
+      if (fromSim.length > 0) parts.push(`${fromSim.join(', ')} from ${simTxt} (the value RASAero flies with)`);
+      if (fromDesign.length > 0) {
+        parts.push(`${fromDesign.join(', ')} from the Design tab`
+          + (chosen || nozzleSim ? `, because ${simTxt} leaves it at 0` : ' (this file carries no simulation)'));
+      }
+      // Only worth a sentence when some other configuration would show a
+      // different number in the same box.
+      const differs = configs.some((c) => c !== chosen && Object.entries(c.nozzles ?? {})
+        .some(([id, m]) => Math.abs(m - (openingNozzles[id] ?? 0)) > 1e-9));
+      notes.push(`Nozzle exit diameter: ${parts.join('; ')}. It trims base drag only while that stage’s `
+        + 'motor burns (Rogers Kbf and Supersonic drag models); clear it under the stage to fly '
+        + `power-off drag.${differs ? ' Other simulations in this file carry their own — switching '
+          + 'under Flight configurations applies it.' : ''}`);
+    }
   }
   if (ignored.size) {
     notes.push(`Ignored RASAero elements: ${[...ignored].join(', ')}.`);

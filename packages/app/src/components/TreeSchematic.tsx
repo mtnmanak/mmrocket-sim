@@ -1,7 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import type { ComponentNode, ComponentPosition, RocketTree, StaticInfo } from '@online-openrocket/engine';
-import { anchorStarts, offsetForStart, snapStart, startFromPosition } from '../tree/position.js';
-import { inKernelFrame, kernelLength } from '../tree/kernelLength.js';
+import { anchorStarts, axialLength, offsetForStart, snapStart, startFromPosition } from '../tree/position.js';
 import { clusterOffsets } from '../tree/cluster.js';
 import { tubeFinRadius } from '../tree/tubefins.js';
 import { DISPLAY_NAME } from '../tree/schema.js';
@@ -434,11 +433,12 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
         parent,
         child,
         pLen,
-        // kernelLength, not axialLength: a rail button is positioned by a
-        // ZERO-length component in the kernel, and resolving the drag in a
-        // 25 mm frame while the drawing used the 9.7 mm outer diameter is what
-        // made a snapped button land 15.3 mm from the anchor it snapped to.
-        relStart: startFromPosition(pos, kernelLength(child), pLen),
+        // axialLength is the KERNEL's length: 0 for a rail button (resolving
+        // the drag in a 25 mm frame while the drawing used the 9.7 mm outer
+        // diameter is what made a snapped button land 15.3 mm from the anchor
+        // it snapped to) and the root chord for a freeform fin, so the drag
+        // starts from the station the fin is drawn at below (l. 921).
+        relStart: startFromPosition(pos, axialLength(child), pLen),
         pointerX: e.clientX,
         clientScale: w / rect.width,
       };
@@ -484,17 +484,17 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
     if (d && onPatchNode) {
       if (Math.abs(e.clientX - d.pointerX) > 4) dragMoved.current = true;
       const dxModel = ((e.clientX - d.pointerX) * d.clientScale) / (scale * zoom.k);
-      // inKernelFrame so the anchor ladder is built in the SAME frame the
-      // drag start and the commit below use — anchorStarts computes the
-      // child's extent, and every sibling's, with axialLength.
-      const anchors = anchorStarts(inKernelFrame(d.parent), inKernelFrame(d.child));
+      // The anchor ladder, the drag start above and the commit below all use
+      // axialLength — the kernel's frame — so a snapped part lands ON the
+      // anchor it snapped to.
+      const anchors = anchorStarts(d.parent, d.child);
       const epsilon = (6 * 1) / (scale * zoom.k); // ~6 screen px of magnetism
       const snapped = snapStart(d.relStart + dxModel, anchors, epsilon);
       const pos = (d.child.position ?? { method: 'top', offset: 0 }) as ComponentPosition;
       onPatchNode(d.childId, {
         position: {
           method: pos.method,
-          offset: offsetForStart(pos.method, snapped, kernelLength(d.child), d.pLen),
+          offset: offsetForStart(pos.method, snapped, axialLength(d.child), d.pLen),
         },
       });
       return;
@@ -911,14 +911,19 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
         if (raw.length >= 3) {
           // TWO different lengths, deliberately. `chord` is the drawn EXTENT —
           // a freeform fin may legitimately overhang its own root, and the
-          // silhouette has to show that. `tabChord` is the kernel's LENGTH for
-          // the same fin (FreeformFinSet.java: the last point's x), and the tab
-          // must be stationed against that or the drawn tab sits somewhere the
-          // physics does not put it. finCutOutline (solidMesh.ts:372) and the
-          // printed template (finTemplate.ts) both use the kernel's definition.
+          // silhouette (and its hover box) has to show that. `axialLength` is
+          // the kernel's LENGTH for the same fin (FreeformFinSet.java: the
+          // last point's x, the root chord), and BOTH the fin's station and
+          // its tab are resolved against that. v0.105 aligned the tab and
+          // left the station on `chord`, so a 'bottom'/'middle'-anchored fin
+          // with an overhanging tip was drawn forward of where the kernel
+          // flew it by the overhang — 119.5 mm on `ninja_4in_54mm-MMT.ork`,
+          // with the property panel printing the kernel's station beside it.
+          // finCutOutline (solidMesh.ts:372) and the printed template
+          // (finTemplate.ts) both use the kernel's definition too.
           const chord = Math.max(...raw.map((p) => p[0]));
           const tabChord = Math.max(0, raw[raw.length - 1]![0]);
-          const start = axialStart(child, chord, pStart, pLen);
+          const start = axialStart(child, axialLength(child), pStart, pLen);
           const ymax = Math.max(0, ...raw.map((p) => p[1]));
           const reach = pRadius + ymax;
           const projections = finFactors(child);
@@ -1159,7 +1164,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
         const r = t === 'railbutton' ? btnDia / 2 : num(child, 'outerRadius', 0.002);
         const btnH = t === 'railbutton' ? num(child, 'totalHeight', 0.0097) : 2 * r;
         // A BUTTON IS CENTRED ON ITS STATION; a lug starts at it (v0.105).
-        // `kernelLength` is 0 for a rail button and the lug's own length for a
+        // `axialLength` is 0 for a rail button and the lug's own length for a
         // lug, so `axialStart` returns the button's CENTRE and the lug's
         // leading edge — matching `RailButton.getInstanceBoundingBox`, which
         // reaches ±OD/2 about the station, and `RocketComponent.java:86`'s
@@ -1168,7 +1173,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
         // 4.85 mm from where it flies on a 'top'- or 'bottom'-anchored button,
         // in the opposite direction each way.
         const start = t === 'railbutton'
-          ? axialStart(child, kernelLength(child), pStart, pLen) - len / 2
+          ? axialStart(child, axialLength(child), pStart, pLen) - len / 2
           : axialStart(child, len, pStart, pLen);
         // Its own mounting angle places it (v0.087); the view roll turns it
         // from there. Solid at every roll — a button is a lump, not a line.

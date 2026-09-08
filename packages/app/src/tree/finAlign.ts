@@ -1,5 +1,5 @@
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
-import { axialLength, startFromPosition } from './position.js';
+import { axialLength, drawnExtent, startFromPosition } from './position.js';
 import { updateNode } from './treeModel.js';
 
 /**
@@ -53,11 +53,13 @@ export function autoAlignFinSets(tree: RocketTree): FinAlignResult {
     const finSets = kids.filter((k) => k.type.endsWith('finset'));
     if (finSets.length >= 2) {
       const pLen = typeof parentNode['length'] === 'number' ? (parentNode['length'] as number) : 0.2;
+      // Anchored by the kernel's length, extended by the drawn outline: a
+      // freeform fin whose tip overhangs its root is stationed by the root
+      // chord but collides with the set behind it out to the tip.
       const range = (k: ComponentNode): [number, number] => {
-        const len = axialLength(k);
         const pos = (k.position ?? { method: 'top', offset: 0 }) as { method: 'top' | 'middle' | 'bottom' | 'absolute'; offset: number };
-        const start = startFromPosition(pos, len, pLen);
-        return [start, start + len];
+        const start = startFromPosition(pos, axialLength(k), pLen);
+        return [start, start + drawnExtent(k)];
       };
       const overlaps = (a: [number, number], b: [number, number]) => a[0] < b[1] && b[0] < a[1];
 

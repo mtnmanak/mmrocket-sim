@@ -125,6 +125,17 @@ export interface OrkFlightConfig {
    * the stages apart at burnout and lost two thirds of the altitude.
    */
   separations: Record<string, OrkSeparationOverride>;
+  /**
+   * THIS configuration's nozzle exit diameter per stage (metres), keyed by the
+   * stage's editor node id; 0 = no nozzle, i.e. power-off base drag. Only the
+   * RASAero importer fills it — a `.CDX1` carries the nozzle INSIDE each
+   * `<Simulation>` (RASAero flies with that one, not the Design tab's:
+   * docs/research/rasaero-nozzle-diameters-2026-09-07.md), so a file with six
+   * simulations and three different nozzles has to switch the stage's
+   * `nozzleExitDiameter` with the configuration, the way the motor already
+   * does. An `.ork` has one nozzle per stage and leaves this absent.
+   */
+  nozzles?: Record<string, number>;
 }
 
 /** One configuration's separation settings for one stage. */

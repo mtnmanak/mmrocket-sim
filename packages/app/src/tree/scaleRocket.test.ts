@@ -368,8 +368,9 @@ describe('scaleRocket — the geometry really is similar', () => {
     const p = findNode(tree, parentId)!;
     const c = findNode(tree, childId)!;
     const pLen = p['length'] as number;
-    // axialLength, not `length`: a freeform fin's extent is max(points[i][0]),
-    // and using the wrong one here would let a broken `points` scale pass.
+    // axialLength, not `length`: a freeform fin is anchored by its root chord
+    // (the last point's x, the kernel's length), and using the wrong one here
+    // would let a broken `points` scale pass.
     const cLen = axialLength(c);
     return startFromPosition(c.position!, cLen, pLen);
   };

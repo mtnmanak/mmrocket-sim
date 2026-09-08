@@ -1,5 +1,5 @@
 import type { ComponentNode, ComponentPosition, RocketTree } from '@online-openrocket/engine';
-import { axialLength, startFromPosition } from './position.js';
+import { axialLength, drawnExtent, startFromPosition } from './position.js';
 import { findNode } from './treeModel.js';
 
 /**
@@ -105,10 +105,14 @@ function stationsInStage(stage: ComponentNode): Map<string, Station> {
   const out = new Map<string, Station>();
   const descend = (parent: ComponentNode, pStart: number, pLen: number): void => {
     for (const child of parent.children ?? []) {
+      // Same two lengths as position.absoluteStations: the kernel's to anchor
+      // (and to place the child's own children against), the drawn extent for
+      // the trailing edge. Kept identical so the fold-in noted there stays a
+      // pure move.
       const cLen = axialLength(child);
       const pos = (child.position ?? { method: 'top', offset: 0 }) as ComponentPosition;
       const start = pStart + startFromPosition(pos, cLen, pLen);
-      if (child.id) out.set(child.id, { start, end: start + cLen, node: child });
+      if (child.id) out.set(child.id, { start, end: start + drawnExtent(child), node: child });
       descend(child, start, cLen);
     }
   };

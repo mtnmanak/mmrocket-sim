@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { OrkRocket, resetEngine } from '@online-openrocket/engine';
-import { absoluteStations, axialLength, resolveAbsolutePositions } from './position.js';
+import {
+  absoluteStations, anchorStarts, axialLength, drawnExtent, resolveAbsolutePositions, startFromPosition,
+} from './position.js';
 import { engineTree } from './treeModel.js';
 
 /**
@@ -157,4 +159,149 @@ describe('absoluteStations', () => {
         .toBeCloseTo(st.get(id)!.start, 9);
     }
   }, 60000);
+});
+
+/**
+ * THE FREEFORM-FIN SPLIT (2026-09-07). `axialLength` is the kernel's length —
+ * `FreeformFinSet.java:448/494/546`: the LAST point's x, the root chord — and
+ * `drawnExtent` is the outline's furthest-aft x. From 2026-07-03 to v0.116
+ * `axialLength` returned max-x, so a 'bottom'/'middle'-anchored fin whose tip
+ * trailing corner overhangs its root was drawn, dragged and exported forward
+ * of where the kernel flew it, by the overhang, while the property panel
+ * printed the kernel's station beside it. The point list here is the fin in
+ * `docs/User files/TRF RASAero Files/ninja_4in_54mm-MMT.ork`, read straight
+ * out of the file: root chord 360.76 mm, max-x 480.26 mm, overhang 119.50 mm,
+ * on an 866.775 mm tube, 'bottom', offset -104.97 mm.
+ */
+describe('axialLength vs drawnExtent — a freeform fin whose tip overhangs its root', () => {
+  const NINJA: [number, number][] = [
+    [0, 0],
+    [0.48026079897864005, 0.15594675369134],
+    [0.405013311838459, 0.0270298288667628],
+    [0.360761749736894, 0],
+  ];
+  const ROOT = 0.360761749736894;
+  const MAXX = 0.48026079897864005;
+  const TUBE = 0.866775;
+  const OFFSET = -0.1049714752044;
+  const fin = (extra: Record<string, unknown> = {}): ComponentNode => ({
+    id: 'ff', type: 'freeformfinset', finCount: 3, thickness: 0.0047625, points: NINJA,
+    position: { method: 'bottom', offset: OFFSET }, ...extra,
+  } as unknown as ComponentNode);
+  const rocket = (f: ComponentNode): RocketTree => ({
+    name: 'ninja', components: [{ type: 'stage', id: 's1', children: [
+      { type: 'nosecone', id: 'nc', length: 0.15, aftRadius: 0.0508, shape: 'ogive', thickness: 0.002 },
+      { type: 'bodytube', id: 'b1', length: TUBE, outerRadius: 0.0508, thickness: 0.0015, children: [f] },
+    ] }],
+  } as unknown as RocketTree);
+
+  it('axialLength is the root chord (the last point), drawnExtent the furthest-aft point', () => {
+    expect(axialLength(fin())).toBeCloseTo(ROOT, 12);
+    expect(drawnExtent(fin())).toBeCloseTo(MAXX, 12);
+    expect(drawnExtent(fin()) - axialLength(fin())).toBeCloseTo(0.11949904924174605, 12);
+  });
+
+  it('a Bottom-anchored fin starts at parentLength - rootChord + offset', () => {
+    const start = startFromPosition({ method: 'bottom', offset: OFFSET }, axialLength(fin()), TUBE);
+    expect(start).toBeCloseTo(TUBE - ROOT + OFFSET, 12);      // 401.04 mm from the tube's front
+    expect(start).toBeCloseTo(0.401041775058706, 9);
+    // The station the max-x frame drew it at, 119.50 mm forward — the bug.
+    expect(start - (TUBE - MAXX + OFFSET)).toBeCloseTo(0.11949904924174605, 12);
+    // Middle moves by half the overhang; Top does not move at all.
+    expect(startFromPosition({ method: 'middle', offset: 0 }, axialLength(fin()), TUBE))
+      .toBeCloseTo((TUBE - ROOT) / 2, 12);
+    expect(startFromPosition({ method: 'top', offset: 0.3 }, axialLength(fin()), TUBE))
+      .toBeCloseTo(0.3, 12);
+  });
+
+  it('absoluteStations: start from the root chord, end from the extent', () => {
+    const st = absoluteStations(rocket(fin())).get('ff')!;
+    expect(st.start).toBeCloseTo(0.15 + TUBE - ROOT + OFFSET, 12);
+    expect(st.end - st.start).toBeCloseTo(MAXX, 12);
+    // Top-anchored: unchanged by the split, and the end still reaches the tip.
+    const top = absoluteStations(rocket(fin({ position: { method: 'top', offset: 0.3 } }))).get('ff')!;
+    expect(top.start).toBeCloseTo(0.45, 12);
+    expect(top.end).toBeCloseTo(0.45 + MAXX, 12);
+  });
+
+  it('a fin with NO overhang answers the same for both — nothing else moved', () => {
+    const plain = fin({ points: [[0, 0], [0.02, 0.05], [0.06, 0.05], [0.08, 0]] });
+    expect(axialLength(plain)).toBeCloseTo(0.08, 12);
+    expect(drawnExtent(plain)).toBeCloseTo(0.08, 12);
+    const trap = { id: 't', type: 'trapezoidfinset', rootChord: 0.1 } as unknown as ComponentNode;
+    expect(drawnExtent(trap)).toBe(axialLength(trap));
+  });
+
+  it('the snap ladder anchors a Bottom fin at the kernel station', () => {
+    const tube = rocket(fin()).components[0]!.children![1]!;
+    // `pLen - cLen` is the "flush with the aft end" anchor: it must be built
+    // from the root chord or a fin snapped there lands 119.5 mm short of it.
+    expect(anchorStarts(tube, fin())).toContainEqual(expect.closeTo(TUBE - ROOT, 12));
+  });
+
+  /**
+   * THE PIN. The property panel's "starts N mm from nose" is the kernel's
+   * `positionX`; the canvas draws at `absoluteStations().start`. On this fin
+   * the two used to differ by 119.50 mm on one screen. The kernel is the
+   * REAL OpenRocket code, so this is also the proof that the kernel anchors a
+   * freeform fin by its root chord — measured, not read.
+   */
+  it('agrees with the kernel positionX for the ninja fin', async () => {
+    const t = rocket(fin());
+    const st = absoluteStations(t);
+    resetEngine();
+    const r = OrkRocket.buildTree(engineTree(t));
+    const info = r.componentInfo('ff');
+    expect(info.length).toBeCloseTo(ROOT, 9);
+    expect(info.positionX).toBeCloseTo(st.get('ff')!.start, 9);
+    // The whole-rocket length the kernel reports runs to the fin TIP, which on
+    // this fin sits past the tube's tail — so it exceeds nose + tube, by
+    // exactly the amount the fin overhangs the airframe.
+    const tipPast = (info.positionX + MAXX) - (0.15 + TUBE);
+    expect(tipPast).toBeCloseTo(MAXX - ROOT + OFFSET, 9);
+    expect(r.staticInfo().length).toBeCloseTo(0.15 + TUBE + tipPast, 9);
+  }, 60000);
+});
+
+/**
+ * A rail button's axial length used to be THREE different numbers in one app:
+ * the drawings resolved its station with the outer diameter (9.7 mm by
+ * default), the drag/slider/auto-place math with `axialLength`'s 25 mm
+ * `packedLength` fallback, and the kernel with 0. v0.105 pinned the one answer
+ * in `kernelLength.ts`; the freeform split folded that branch into
+ * `axialLength` itself, and these are that file's pins, moved.
+ */
+describe('axialLength — a rail button is ZERO, the kernel\'s own', () => {
+  const button = (extra: Record<string, unknown> = {}) =>
+    ({ id: 'rb', type: 'railbutton', outerDiameter: 0.0097, ...extra } as unknown as ComponentNode);
+
+  it('is zero whatever the node carries', () => {
+    expect(axialLength(button())).toBe(0);
+    // Even a button that somehow acquired a length key: the kernel's
+    // RocketComponent.length is 0 and RailButton never assigns it.
+    expect(axialLength(button({ length: 0.05, totalHeight: 0.01142 }))).toBe(0);
+    expect(drawnExtent(button())).toBe(0);
+  });
+
+  it('puts the station where the kernel puts it, for all three methods', () => {
+    // Parent tube 300 mm long. The kernel resolves a zero-length component,
+    // so 'bottom' offset 0 lands ON the aft end and 'middle' dead centre.
+    const pLen = 0.3;
+    const at = (method: string, offset: number) =>
+      startFromPosition({ method, offset } as never, axialLength(button()), pLen);
+    expect(at('top', 0)).toBeCloseTo(0, 12);
+    expect(at('middle', 0)).toBeCloseTo(0.15, 12);
+    expect(at('bottom', 0)).toBeCloseTo(0.3, 12);
+  });
+
+  it('builds the snap ladder in the same frame — no node rewriting needed', () => {
+    const tube = {
+      id: 'b1', type: 'bodytube', length: 0.3,
+      children: [button(), { id: 'cr', type: 'centeringring', length: 0.003 }],
+    } as unknown as ComponentNode;
+    // The button's "flush aft" anchor is the tube's end itself, and 'middle'
+    // is dead centre — what the 25 mm frame put 25 mm and 12.5 mm forward.
+    expect(anchorStarts(tube, button())).toContainEqual(expect.closeTo(0.3, 12));
+    expect(anchorStarts(tube, button())).toContainEqual(expect.closeTo(0.15, 12));
+  });
 });

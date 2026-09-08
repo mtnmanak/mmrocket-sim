@@ -5,7 +5,7 @@ import { asStageNodes, freshId, mountsIn } from '../tree/treeModel.js';
 import { mountBore } from '../tree/scaleRocket.js';
 import { CLUSTER_POINTS, clusterOffsets } from '../tree/cluster.js';
 import { resolveAssemblyRadius } from '../tree/assembly.js';
-import { axialLength, startFromPosition } from '../tree/position.js';
+import { axialLength, drawnExtent, startFromPosition } from '../tree/position.js';
 import { escapeXml as esc, xmlNum as num, xmlText as text } from './xmlUtil.js';
 import { unzipMember } from './zipMember.js';
 import { shapeParamDefault } from './orkFile.js';
@@ -974,11 +974,13 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
       const finSets = kids.filter((k) => k.type.endsWith('finset'));
       if (finSets.length >= 2) {
         const pLen = typeof parentNode['length'] === 'number' ? (parentNode['length'] as number) : 0.2;
+        // Start from the kernel's length, end from the drawn outline — the
+        // same pair finAlign.ts uses, so an overhanging freeform tip still
+        // counts as overlap while the station stays where the kernel puts it.
         const range = (k: ComponentNode): [number, number] => {
-          const len = axialLength(k);
           const start = startFromPosition(
-            (k.position ?? { method: 'top', offset: 0 }) as ComponentPosition, len, pLen);
-          return [start, start + len];
+            (k.position ?? { method: 'top', offset: 0 }) as ComponentPosition, axialLength(k), pLen);
+          return [start, start + drawnExtent(k)];
         };
         const overlaps = (a: [number, number], b: [number, number]) => a[0] < b[1] && b[0] < a[1];
         const rotOf = (k: ComponentNode) => (typeof k['rotation'] === 'number' ? (k['rotation'] as number) : 0);

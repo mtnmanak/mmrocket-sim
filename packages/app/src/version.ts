@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.116';
+export const APP_VERSION = '0.117';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.117',
+    date: '2026-09-07',
+    title: 'A freeform fin is now drawn where it is simulated, and a RASAero file\'s nozzle exit diameter is imported instead of dropped',
+    items: [
+      'A FREEFORM FIN WHOSE TIP TRAILS BEHIND ITS ROOT WAS DRAWN FORWARD OF WHERE IT FLIES. The simulation kernel - the same OpenRocket code the desktop runs - measures a freeform fin\'s length as its root chord, the point where the outline meets the body again. The app\'s drawing measured it to the furthest-aft point of the outline instead. For a fin whose tip trailing corner overhangs the root the two differ, and a fin anchored to the bottom or middle of its parent was drawn, dragged and exported forward of its real station by exactly the overhang, while the property panel two inches away printed the correct number. On one tester\'s 4 inch minimum-diameter design the fin was drawn 119.5 mm (4.7 in) too far forward; on a Wildman Mach 2 file, 12.7 mm. Two of the seven freeform designs testers have sent are affected; trapezoidal and elliptical fins, RockSim and RASAero files are not.',
+      'NO FLIGHT NUMBER CHANGES. The kernel always placed these fins correctly and read nothing from the drawing, so mass, CG, CP, stability, apogee and every saved file are identical before and after - measured to the last decimal on both files above. What changes is the picture: on an affected design the fin appears to jump aft into the place it was already flying, and the 3D, STL, OBJ and glTF exports of it now match. IF YOU PLACED SUCH A FIN BY EYE AGAINST THE OLD DRAWING, CHECK IT - re-placing it now WOULD move the flight. The "Fit tab to motor tube" button, which sized a new tab off the same wrong length (a 60 percent tab came out at 80 percent of the root on an overhanging fin), is corrected with it.',
+      'A RASAero .CDX1 FILE\'S NOZZLE EXIT DIAMETER IS NOW IMPORTED. RASAero keeps this number in two places - once on its Design tab and once inside every simulation - and flies with the simulation\'s; until now the app read neither, as desktop OpenRocket also does not. The importer takes the simulation\'s value for each stage and falls back to the Design tab when the simulation\'s is 0, per flight configuration, so a file whose simulations carry different nozzles shows the nozzle of the configuration on screen and switching configuration switches it, the way the motor already does. The import note says which stage got which value and from where. 31 of the 51 distinct RASAero designs testers have sent gain a number that was blank before: 26 from the opened simulation, 3 from the Design tab, and 2 reachable by switching configuration. RE-OPEN A RASAero FILE TO GET IT - the value is set at import.',
+      'WHAT THAT NUMBER DOES, AND HOW MUCH: while a stage\'s motor burns, the exhaust plume covers part of the base, so the Rogers Kbf (the default) and Supersonic drag models subtract the nozzle\'s exit area from the base drag for that stage. Measured through the kernel on a tester\'s Wildman Mach 2 file with a K805G: a 0.75 inch nozzle in a 2.24 inch airframe raises apogee 0.48 percent and peak velocity 0.43 percent - and RASAero\'s own stored pair for the same two runs differs by 0.60 percent, so the two programs now agree on the size of the effect. Clear the field under the stage to fly power-off drag. Exporting to RASAero still writes 0, matching desktop, until there is a reader for it. The bigger thing this number does in RASAero - thrust rising with altitude as the air thins, which no OpenRocket-derived program models - is not part of this release; it is on the accuracy list as its own item, and this import is the input it needs.',
+    ],
+  },
   {
     version: '0.116',
     date: '2026-09-07',

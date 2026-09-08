@@ -1,5 +1,5 @@
 {
-  "version": "0.116",
+  "version": "0.117",
   "released": "2026-09-07",
-  "note": "From the first real flight data the project has been given. A third field in the Measured mass & CG box - Pad weight (with motor) - lets the app carry the adapter, retainer and closure weight the catalogue motor leaves out (182 g and 129 g on the two flights that prompted it), so the pad mass and the recovery weight are what you weighed. The thrust-curve picker now checks a file's impulse against the motor's certification - fourteen motors change file, and as with v0.111 a curve you had already downloaded is discarded, so re-pick the motor on a design you have open. And when the only curve for a motor is more than 5 percent from its certified impulse, the design notes now say so; 69 motors carry that line today."
+  "note": "A freeform fin whose tip trails behind its root was drawn forward of where it flies, by the overhang - 4.7 inches on one tester's design; no flight number changes, only the picture, so if you placed such a fin by eye against the old drawing, check it. And a RASAero file's nozzle exit diameter is now imported (the simulation's value, with the Design tab as fallback, per flight configuration) instead of dropped: 31 of the 51 RASAero designs testers have sent gain a value, worth about half a percent of apogee under power - re-open the file to get it."
 }

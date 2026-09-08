@@ -10,17 +10,62 @@ import { assemblyChainLength, isAssembly } from './assembly.js';
 const num = (n: ComponentNode, key: string, fb: number): number =>
   typeof n[key] === 'number' ? (n[key] as number) : fb;
 
-/** A component's axial extent used for positioning (fins use root chord). */
+/**
+ * The axial length a component is POSITIONED by — `RocketComponent.getLength()`
+ * as the kernel reads it when it resolves a station
+ * (`RocketComponent.java:1618`, `AxialMethod.java:74/94`: 'middle' and
+ * 'bottom' both subtract this from the parent's length). It is the ANCHORING
+ * question only; "how far aft does the drawn shape reach" is `drawnExtent`
+ * below, and the two differ for exactly one shape.
+ *
+ * FREEFORM FIN: the ROOT CHORD — the last point's x (`FreeformFinSet.java:448`,
+ * re-asserted at `:494` and `:546`), NOT the furthest-aft point of the outline.
+ * They differ when the tip's trailing corner overhangs the root's, a shape the
+ * fin editor draws without complaint. From 2026-07-03 (`e360a43`) to v0.116
+ * this returned max-x, so every 'bottom'/'middle'-anchored overhanging fin was
+ * drawn, dragged and exported FORWARD of where the kernel flew it, by the
+ * overhang — 119.50 mm on `ninja_4in_54mm-MMT.ork`, 12.70 mm on `Wildman Mach
+ * 2 this one.ork` — while the property panel printed the kernel's station two
+ * inches away. Nothing about the flight changes with this line: the kernel
+ * never read it (docs/research/freeform-fin-axiallength-2026-09-07.md).
+ *
+ * RAIL BUTTON: ZERO, the kernel's own (`RocketComponent.java:86` declares
+ * `length = 0` and RailButton never assigns it; its bounding box sits ±OD/2
+ * ABOUT the station, so the station is the button's centre). A button carries
+ * no `length` key, so the tail below used to answer 25 mm and "Auto-place rail
+ * buttons" missed the CG by half that. The branch lived in `kernelLength.ts`
+ * (v0.105) until the freeform split above made this function the one place
+ * for the kernel's frame; that file's own comment asked for the fold.
+ */
 export function axialLength(n: ComponentNode): number {
   if (n.type === 'freeformfinset') {
     const pts = (n['points'] as [number, number][] | undefined) ?? [];
-    return pts.length ? Math.max(...pts.map((p) => p[0])) : 0.05;
+    return pts.length ? pts[pts.length - 1]![0] : 0.05;
   }
   if (n.type === 'trapezoidfinset' || n.type === 'ellipticalfinset') {
     return num(n, 'rootChord', 0.05);
   }
+  if (n.type === 'railbutton') return 0;
   if (isAssembly(n.type)) return assemblyChainLength(n);
   return num(n, 'length', num(n, 'packedLength', 0.025));
+}
+
+/**
+ * How far aft of its OWN leading edge a component's drawn shape reaches — the
+ * EXTENT question, for the silhouette's hover box, the fin-overlap tests that
+ * auto-rotate a second fin set (finAlign.ts, rocksimFile.ts) and the trailing
+ * edge `absoluteStations` reports. Only a freeform fin answers differently
+ * from `axialLength`: its outline may overhang its root, and the overhang is
+ * real geometry that another fin can collide with even though the kernel's
+ * length stops at the root trailing corner. Never use this to resolve a
+ * station — that is `axialLength`, and the split is the whole point.
+ */
+export function drawnExtent(n: ComponentNode): number {
+  if (n.type === 'freeformfinset') {
+    const pts = (n['points'] as [number, number][] | undefined) ?? [];
+    return pts.length ? Math.max(...pts.map((p) => p[0])) : 0.05;
+  }
+  return axialLength(n);
 }
 
 export function startFromPosition(pos: ComponentPosition, childLen: number, pLen: number): number {
@@ -93,7 +138,13 @@ export function resolveAbsolutePositions(tree: RocketTree): RocketTree {
 export interface AbsoluteStation {
   /** Leading edge, metres aft of the nose tip of the assembled stack. */
   start: number;
-  /** Trailing edge — `start + axialLength(node)`. */
+  /**
+   * Trailing edge — `start + drawnExtent(node)`. The START is the kernel's
+   * station (anchored by `axialLength`); the END is where the drawn shape
+   * stops, which for an overhanging freeform fin is further aft than the
+   * root chord the kernel calls its length. One record, two lengths, on
+   * purpose: a wake arrives at the leading edge, a collision reaches the tip.
+   */
   end: number;
   node: ComponentNode;
   /**
@@ -143,12 +194,14 @@ export function absoluteStations(tree: RocketTree): Map<string, AbsoluteStation>
 
   const descend = (parent: ComponentNode, pStart: number, pLen: number): void => {
     for (const child of parent.children ?? []) {
+      // cLen anchors (and is the parent length its own children are placed
+      // against — the kernel's getLength() either way); the END is the extent.
       const cLen = axialLength(child);
       const pos = (child.position ?? { method: 'top', offset: 0 }) as ComponentPosition;
       const start = pos.method === 'absolute'
         ? pos.offset
         : pStart + startFromPosition(pos, cLen, pLen);
-      if (child.id) out.set(child.id, { start, end: start + cLen, node: child, parent });
+      if (child.id) out.set(child.id, { start, end: start + drawnExtent(child), node: child, parent });
       descend(child, start, cLen);
     }
   };
@@ -178,6 +231,13 @@ export function absoluteStations(tree: RocketTree): Map<string, AbsoluteStation>
  * middle, plus alignment with every sibling's ends — that's where parts sit
  * in the real airframe (centering rings at motor-tube and fin-root ends,
  * couplers butted against tubes, etc.).
+ *
+ * Every length here is `axialLength` — the KERNEL's frame — because the drag
+ * (TreeSchematic onMove) and the slider (PropertyPanel) resolve the snapped
+ * start back into an offset with the same length, and a ladder built in any
+ * other frame lands the part somewhere other than the anchor it snapped to.
+ * For a fin that also stations its tab against the root chord, which is what
+ * the kernel's tab offset is measured from.
  */
 export function anchorStarts(parent: ComponentNode, child: ComponentNode): number[] {
   const pLen = num(parent, 'length', 0.2);

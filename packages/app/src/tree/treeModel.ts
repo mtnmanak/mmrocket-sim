@@ -233,6 +233,35 @@ export function updateNode(
   return { ...tree, components: walk(tree.components) };
 }
 
+/**
+ * Writes a flight configuration's per-stage nozzle exit diameters (metres,
+ * keyed by stage node id) onto the stage nodes — `OrkFlightConfig.nozzles`.
+ *
+ * A 0 (or anything not a positive number) REMOVES the property rather than
+ * writing 0: the schema, the .ork reader and the kernel all treat "no
+ * nozzle" as ABSENT (`orkFile.ts` reads it only when `> 0`; the kernel's
+ * `applySeparationConfig` reads NaN as untouched), and `updateNode` cannot
+ * delete a key. Removing it matters for the same reason the separation apply
+ * writes even the default: a configuration whose motor has no stated nozzle
+ * must REPLACE the previous configuration's, not inherit it. Stage ids the
+ * tree no longer has are skipped; an untouched tree comes back by identity.
+ */
+export function applyStageNozzles(tree: RocketTree, nozzles: Record<string, number>): RocketTree {
+  let changed = false;
+  const components = tree.components.map((n) => {
+    if (n.type !== 'stage' || !n.id || !(n.id in nozzles)) return n;
+    const v = nozzles[n.id];
+    const want = typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : undefined;
+    if (n['nozzleExitDiameter'] === want) return n;
+    changed = true;
+    const next: ComponentNode = { ...n };
+    delete next['nozzleExitDiameter'];
+    if (want !== undefined) next['nozzleExitDiameter'] = want;
+    return next;
+  });
+  return changed ? { ...tree, components } : tree;
+}
+
 export function removeNode(tree: RocketTree, id: string): RocketTree {
   const walk = (nodes: ComponentNode[]): ComponentNode[] =>
     nodes
