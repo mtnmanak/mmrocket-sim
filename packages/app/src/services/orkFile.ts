@@ -939,9 +939,20 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
     if (!Number.isNaN(nozzle) && nozzle > 0) stage['nozzleExitDiameter'] = nozzle;
     // Our own mark: this stage's mass/CG overrides still contain the weight of
     // the named motor (services/statedLaunchWeight.ts). Only meaningful beside
-    // a mass override, so it is dropped without one.
+    // an override it can correct, so it is dropped when the stage carries
+    // NEITHER — a bare mark corrects nothing and would only fire a notice.
+    //
+    // EITHER override, not the mass alone (2026-09-08, from review). The
+    // importer marks a CG-only stage too, and the writer emits the element
+    // whenever the mark is set, so gating the READ on `overrideMass` made the
+    // reader discard what the writer had just written: a CG-only marked stage
+    // round-tripped to a motor-inclusive LAUNCH CG with no mark, the next
+    // motor's moment landed on top of one already in it, and the stability
+    // margin counted the motor twice — silently, while the same tree in
+    // session clears that CG with a note. Reader and writer now agree.
     const included = text(stageEl, `:scope > ${OVERRIDE_INCLUDES_MOTOR.toLowerCase()}`);
-    if (included && typeof stage['overrideMass'] === 'number') {
+    if (included
+      && (typeof stage['overrideMass'] === 'number' || typeof stage['overrideCGX'] === 'number')) {
       stage[OVERRIDE_INCLUDES_MOTOR] = included;
     }
     if (i > 0) {
@@ -1147,9 +1158,10 @@ export const fmtStepS = (s: number): string => String(Number(s.toPrecision(6)));
 
 /**
  * The envelope an imported `<atmosphere>` is believed inside: EXACTLY the
- * bounds the Temperature and Pressure fields enforce on a human
+ * bounds the Temperature and Station pressure fields enforce on a human
  * (LaunchPanel.tsx `numField('Temperature', …, -60, 60)` /
- * `numField('Pressure', …, 300, 1100)`). Sharing the bound is the point — a
+ * `numField('Station pressure', …, 300, 1100)` — the pressure control was
+ * renamed in v0.120). Sharing the bound is the point — a
  * value this reader accepted but the panel refuses could not be seen, checked
  * or re-entered, which is the trap the `<timestep>` floor below documents.
  */
@@ -1265,9 +1277,9 @@ function readLaunchConditions(
           notes.push(
             `The file's launch site states ${fmt6(pPa)} Pa (${fmt6(hPa)} hPa) — outside the `
             + `${IMPORTED_PRESSURE_HPA_RANGE[0]} to ${IMPORTED_PRESSURE_HPA_RANGE[1]} hPa the `
-            + 'Pressure field accepts, so it is not a launch site this app can fly. (That element '
-            + 'holds PASCALS: sea level is 101325 in it, not 1013.25.) Flying the standard '
-            + 'atmosphere instead — set the pressure under Launch conditions if you know it.');
+            + 'Station pressure field accepts, so it is not a launch site this app can fly. (That '
+            + 'element holds PASCALS: sea level is 101325 in it, not 1013.25.) Flying the standard '
+            + 'atmosphere instead — set the station pressure under Launch conditions if you know it.');
         }
       }
     }

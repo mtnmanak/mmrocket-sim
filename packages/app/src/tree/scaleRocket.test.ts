@@ -1018,6 +1018,63 @@ describe('scaleRocket — guardrails and reporting', () => {
     expect(findNode(scaleRocket(t, 2).tree, 'mc')!['mass']).toBeCloseTo(0.2, 12);
   });
 
+  it('drops a RASAero stated LAUNCH weight rather than cubing the motor inside it', () => {
+    // A stage marked by the RASAero importer carries the file's stated launch
+    // weight with a motor still inside it (services/statedLaunchWeight.ts).
+    // Scaling multiplied that motor's weight by k³ along with the airframe and
+    // KEPT the mark, so the reconcile then subtracted an UNSCALED motor from a
+    // scaled figure. MEASURED on MESOS at 2x: the sustainer's 10.573 kg became
+    // 84.59 kg and loading the M787 wrote 77.61 kg as “airframe” against a true
+    // 28.81 (2026-09-08, from review). This handler already drops the measured
+    // mass and the weighed pad mass for the same reason; the mark was missed.
+    const t: RocketTree = {
+      name: 'mesos-ish',
+      components: [{
+        type: 'stage',
+        id: 'st',
+        name: 'Sustainer',
+        overrideMass: 10.573,
+        overrideSubcomponentsMass: true,
+        overrideCGX: 1.168,
+        overrideSubcomponentsCG: true,
+        overrideIncludesMotor: 'M787',
+        children: [{ type: 'bodytube', id: 'bt', length: 2.4, outerRadius: 0.04, thickness: 0.002 }],
+      } as unknown as ComponentNode],
+    };
+    const out = scaleRocket(t, 2);
+    const st = out.tree.components[0]!;
+    expect(st['overrideIncludesMotor']).toBeUndefined();
+    expect(st['overrideMass']).toBeUndefined();
+    expect(st['overrideSubcomponentsMass']).toBeUndefined();
+    expect(st['overrideCGX']).toBeUndefined();
+    expect(st['overrideSubcomponentsCG']).toBeUndefined();
+    // The number this replaces, stated so the regression is named.
+    expect(10.573 * 8).toBeCloseTo(84.584, 3);
+    const notes = out.notes.join(' ');
+    expect(notes).toContain('“Sustainer”');
+    expect(notes).toContain('“M787”');
+    expect(notes).toContain('back on its computed geometry');
+    // A mass that just changed by 23 lb must not sit in a collapsed bar.
+    expect(out.needsAttention).toBe(true);
+    // And it is not counted as a pinned mass that survived the scale — that
+    // note tells the reader to go and re-weigh something that is still there.
+    expect(notes).not.toContain('pinned mass');
+  });
+
+  it('leaves an ordinary stage mass override alone', () => {
+    const t: RocketTree = {
+      name: 'plain',
+      components: [{
+        type: 'stage', id: 'st', name: 'Sustainer',
+        overrideMass: 10.573, overrideSubcomponentsMass: true, overrideCGX: 1.168,
+        children: [{ type: 'bodytube', id: 'bt', length: 2.4, outerRadius: 0.04, thickness: 0.002 }],
+      } as unknown as ComponentNode],
+    };
+    const st = scaleRocket(t, 2).tree.components[0]!;
+    expect(st['overrideMass']).toBeCloseTo(10.573 * 8, 9);
+    expect(st['overrideCGX']).toBeCloseTo(1.168 * 2, 9);
+  });
+
   it('measures the rocket for the headline', () => {
     const t = kitchenSink();
     expect(maxBodyDiameter(t)).toBeCloseTo(0.1, 12);

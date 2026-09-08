@@ -21,18 +21,152 @@
  "gaps": {
   "Loki": "No published Loki nozzle geometry in the local document set. Testers' own RASAero files type 0.9 in for the 54 mm K627LR in four files and 0, 0.91 and 1.3 in for the same motor elsewhere — user input, not data, and deliberately not imported. Owner has the hardware and will measure; add through MEASURED_NOZZLES in build-nozzle-db.mjs.",
   "Cesaroni": "No published nozzle geometry found on pro38.com or elsewhere (owner searched 2026-09-08). Known gap.",
-  "AeroTechSingleUse": "AeroTech publish an assembly drawing for RELOADABLE motors, because the drawing is the reload kit's parts list. Single-use and DMS motors have no reload kit, so no drawing and no nozzle part number — that is most of the AeroTech catalogue this file does not cover."
+  "AeroTechSingleUse": "AeroTech publish an assembly drawing for RELOADABLE motors, because the drawing is the reload kit's parts list, and this file is built from that folder (\"Motor Assembly Drawings\"). Most single-use motors have no reload kit and no such drawing — that is most of the AeroTech catalogue this file does not cover. One qualification, found 2026-09-08: the DMS single-use motors ARE drawn, in the same format, under \"DMS Motor Designs\" (51 sheets, 29 mm to 152 mm), and M1340W-PS names its nozzle there — \"NOZZLE ( KLMN 98MM) .734\" I.D. /1.75\" EXIT\", part 01800-3M. That folder is deliberately not read yet: adding a document family adds rows to shipped data, which is a decision rather than a fix."
+ },
+ "coverage": {
+  "note": "What this file covers, per motor CASING DIAMETER, counted from motors.json at build time rather than written down. A hand-written coverage claim is exactly how \"every 98 mm motor\" reached a release note while four in-production 98 mm motors had no row here (M1305M, M1340W, N1975W-PS, O5500X-PS). \"inProduction\" is the AeroTech rows this catalogue does not mark OOP, and every motor short of a row is named. Most of the missing are single-use motors, whose paperwork is not the reload-kit assembly drawing this file is built from — see gaps.AeroTechSingleUse.",
+  "byCasingDiameterMm": {
+   "18": {
+    "inProduction": 6,
+    "withNozzleRow": 4,
+    "missing": [
+     "D10W",
+     "D21T"
+    ]
+   },
+   "24": {
+    "inProduction": 23,
+    "withNozzleRow": 14,
+    "missing": [
+     "D22W",
+     "E20W",
+     "E26W",
+     "E30T",
+     "F30FJ",
+     "F32T",
+     "F44W",
+     "F62FJ",
+     "F63R"
+    ]
+   },
+   "29": {
+    "inProduction": 60,
+    "withNozzleRow": 27,
+    "missing": [
+     "E24C",
+     "F115SN-12A",
+     "F20W/L",
+     "F23FJ",
+     "F25W",
+     "F26FJ",
+     "F27R/L",
+     "F42T/L",
+     "F50T",
+     "F52C",
+     "F67C",
+     "F67W",
+     "G11",
+     "G125T",
+     "G12ST",
+     "G40W",
+     "G72DM-14A",
+     "G73C",
+     "G74W",
+     "G75M",
+     "G77R/L",
+     "G78G/L",
+     "G79W/L",
+     "G80T",
+     "G8ST",
+     "H13ST",
+     "H14ST",
+     "H169WS-13",
+     "HP-H115DM",
+     "HP-H135W",
+     "HP-H182R",
+     "HP-H195NT",
+     "HP-I205W"
+    ]
+   },
+   "32": {
+    "inProduction": 4,
+    "withNozzleRow": 4,
+    "missing": []
+   },
+   "38": {
+    "inProduction": 59,
+    "withNozzleRow": 42,
+    "missing": [
+     "H100W_DMS",
+     "H130W",
+     "H219T",
+     "H283ST-15A",
+     "H550ST",
+     "HP-H45W",
+     "HP-H550ST",
+     "HP-I140W",
+     "HP-I280DM",
+     "HP-I500T",
+     "HP-J270W",
+     "HP-J425R",
+     "I175WS",
+     "I180W",
+     "I350R",
+     "I40N-P",
+     "J435WS"
+    ]
+   },
+   "54": {
+    "inProduction": 53,
+    "withNozzleRow": 41,
+    "missing": [
+     "HP-I65W",
+     "HP-K535W",
+     "HP-L1000W",
+     "J1265T",
+     "J250W",
+     "J450DM",
+     "J550ST-14",
+     "K400C",
+     "K455NW-17",
+     "K62N",
+     "K76WN-P",
+     "K850DM"
+    ]
+   },
+   "75": {
+    "inProduction": 34,
+    "withNozzleRow": 29,
+    "missing": [
+     "L1365M",
+     "L2775ST-PS",
+     "L875DM",
+     "M1350W",
+     "N3120X-PS"
+    ]
+   },
+   "98": {
+    "inProduction": 32,
+    "withNozzleRow": 28,
+    "missing": [
+     "M1305M",
+     "M1340W",
+     "N1975W-PS",
+     "O5500X-PS"
+    ]
+   },
+   "152": {
+    "inProduction": 1,
+    "withNozzleRow": 0,
+    "missing": [
+     "O6000W"
+    ]
+   }
+  }
  },
  "uncovered": {
-  "single-use (no reload case)": [
-   "D10W",
-   "D21T",
-   "D22W",
-   "E15W",
-   "E20W",
+  "29 mm single-use (no reload case)": [
    "E24C",
-   "E26W",
-   "E30T",
    "F115SN-12A",
    "F20W/L",
    "F23FJ",
@@ -40,10 +174,7 @@
    "F25W",
    "F26FJ",
    "F27R/L",
-   "F30FJ",
-   "F32T",
    "F42T/L",
-   "F44W",
    "F50T",
    "F52C",
    "F67C",
@@ -54,7 +185,6 @@
    "G142",
    "G38FJ",
    "G40W",
-   "G42",
    "G72DM-14A",
    "G73C",
    "G74W",
@@ -67,41 +197,50 @@
    "H13ST",
    "H14ST",
    "H169WS-13",
-   "H219T",
    "HP-G75M",
    "HP-H115DM",
    "HP-H135W",
    "HP-H182R",
    "HP-H195NT",
+   "HP-I205W"
+  ],
+  "38 mm single-use (no reload case)": [
+   "H219T",
    "HP-H45W",
    "HP-I140W",
-   "HP-I205W",
    "HP-I280DM",
    "HP-I500T",
-   "HP-I65W",
    "HP-J270W",
    "HP-J425R",
-   "HP-K535W",
-   "HP-L1000W",
    "I175WS",
    "I350R",
    "I40N-P",
+   "J435WS"
+  ],
+  "54 mm single-use (no reload case)": [
+   "HP-I65W",
+   "HP-K535W",
+   "HP-L1000W",
    "J1265T",
-   "J435WS",
    "J450DM",
    "K400C",
    "K455NW-17",
    "K62N",
    "K76WN-P",
-   "K850DM",
-   "M1340W",
-   "M1350W",
-   "N1975W-PS",
-   "N3120X-PS",
-   "O5500X-PS",
-   "O6000W"
+   "K850DM"
   ],
-  "RMS-54/1280": [
+  "24 mm single-use (no reload case)": [
+   "D22W",
+   "E15W",
+   "E20W",
+   "E26W",
+   "E30T",
+   "F30FJ",
+   "F32T",
+   "F44W",
+   "G42"
+  ],
+  "54 mm RMS-54/1280": [
    "J145H_2JET_STD",
    "J170H_3JET_STD",
    "J210H_4JET_STD",
@@ -109,94 +248,114 @@
    "J390H-TURBO",
    "K485H-3JET"
   ],
-  "DMS": [
-   "H100W_DMS",
-   "H283ST-15A",
-   "J250W",
-   "L875DM"
-  ],
-  "RMS-75/5120": [
+  "75 mm RMS-75/5120": [
    "L1120W",
    "L1365M",
    "M2030G-P"
   ],
-  "RMS-24/60": [
+  "98 mm single-use (no reload case)": [
+   "M1340W",
+   "N1975W-PS",
+   "O5500X-PS"
+  ],
+  "18 mm single-use (no reload case)": [
+   "D10W",
+   "D21T"
+  ],
+  "24 mm RMS-24/60": [
    "F62FJ",
    "F63R"
   ],
-  "RMS-38/360": [
-   "H550ST",
-   "I180W"
-  ],
-  "SU 24x95": [
+  "24 mm SU 24x95": [
    "F21W",
    "F32W"
   ],
-  "38 DMS": [
-   "HP-H550ST"
+  "38 mm DMS": [
+   "H100W_DMS",
+   "H283ST-15A"
   ],
-  "RMS 24/20-40 R/C": [
+  "38 mm RMS-38/360": [
+   "H550ST",
+   "I180W"
+  ],
+  "75 mm single-use (no reload case)": [
+   "M1350W",
+   "N3120X-PS"
+  ],
+  "152 mm single-use (no reload case)": [
+   "O6000W"
+  ],
+  "24 mm RMS 24/20-40 R/C": [
    "E6"
   ],
-  "RMS-29/100": [
-   "G101T"
-  ],
-  "RMS-38/240": [
-   "H130W"
-  ],
-  "RMS-38/720": [
-   "J350W-OLD"
-  ],
-  "RMS-54/852": [
-   "J550ST-14"
-  ],
-  "RMS-75/3840": [
-   "L2775ST-PS"
-  ],
-  "RMS-98/18000": [
-   "N4800T"
-  ],
-  "RMS-98/5120": [
-   "M845H"
-  ],
-  "RMS-98/7680": [
-   "M1305M"
-  ],
-  "SU 24x124": [
+  "24 mm SU 24x124": [
    "F72"
   ],
-  "SU 24x177": [
+  "24 mm SU 24x177": [
    "G55"
   ],
-  "SU 29x191": [
+  "29 mm RMS-29/100": [
+   "G101T"
+  ],
+  "29 mm SU 29x191": [
    "H55W"
   ],
-  "SU 29x229": [
+  "29 mm SU 29x229": [
    "H70W"
   ],
-  "SU 29x330": [
+  "29 mm SU 29x330": [
    "H125W"
   ],
-  "SU 29x85": [
+  "29 mm SU 29x85": [
    "F10"
   ],
-  "SU 29x98": [
+  "29 mm SU 29x98": [
    "G35"
   ],
-  "SU 38x194": [
+  "38 mm 38 DMS": [
+   "HP-H550ST"
+  ],
+  "38 mm RMS-38/240": [
+   "H130W"
+  ],
+  "38 mm RMS-38/720": [
+   "J350W-OLD"
+  ],
+  "38 mm SU 38x194": [
    "H45W"
   ],
-  "SU 38x335": [
+  "38 mm SU 38x335": [
    "I132W"
   ],
-  "SU 54x235": [
+  "54 mm DMS": [
+   "J250W"
+  ],
+  "54 mm RMS-54/852": [
+   "J550ST-14"
+  ],
+  "54 mm SU 54x235": [
    "I65W"
   ],
-  "SU 54x368": [
+  "54 mm SU 54x368": [
    "J125W"
   ],
-  "SU 54x676": [
+  "54 mm SU 54x676": [
    "K1050W-SU"
+  ],
+  "75 mm DMS": [
+   "L875DM"
+  ],
+  "75 mm RMS-75/3840": [
+   "L2775ST-PS"
+  ],
+  "98 mm RMS-98/18000": [
+   "N4800T"
+  ],
+  "98 mm RMS-98/5120": [
+   "M845H"
+  ],
+  "98 mm RMS-98/7680": [
+   "M1305M"
   ]
  },
  "measured": [],
@@ -4129,7 +4288,6 @@
    },
    "exitAmbiguous": true,
    "exitPickedBy": "dated-revision",
-   "confidenceNote": "AeroTech publish two nozzles for this motor (01500-5 0.438 in against 01700-15 0.5 in). The one used here is the one that sheet's own dated revision block calls current (2009-12-09); check which nozzle is in your reload kit before trusting the exit area.",
    "alternatives": [
     {
      "nozzlePartNo": "01700-15",
@@ -4139,7 +4297,8 @@
      "assemblyDrawing": "RMS-54-426 High Power/I115W-M Assembly (Original Medusa Nozzle).pdf",
      "lomDescription": "NOZZLE (54MM MEDUSA) 1 X .228C"
     }
-   ]
+   ],
+   "confidenceNote": "AeroTech publish two nozzles for this motor (01500-5 0.438 in against 01700-15 0.5 in). The one used here is the one that sheet's own dated revision block calls current (2009-12-09); check which nozzle is in your reload kit before trusting the exit area."
   },
   {
    "motorId": "5f4294d200023100000001eb",
@@ -4169,7 +4328,6 @@
    },
    "exitAmbiguous": true,
    "exitPickedBy": "dated-revision",
-   "confidenceNote": "AeroTech publish two nozzles for this motor (01500-5 0.438 in against 01700-15 0.5 in). The one used here is the one that sheet's own dated revision block calls current (2009-12-09); check which nozzle is in your reload kit before trusting the exit area.",
    "alternatives": [
     {
      "nozzlePartNo": "01700-15",
@@ -4179,7 +4337,8 @@
      "assemblyDrawing": "RMS-54-426 High Power/I117FJ-M Assembly (Original Medusa Nozzle).pdf",
      "lomDescription": "NOZZLE (54MM MEDUSA) 1 X .228C"
     }
-   ]
+   ],
+   "confidenceNote": "AeroTech publish two nozzles for this motor (01500-5 0.438 in against 01700-15 0.5 in). The one used here is the one that sheet's own dated revision block calls current (2009-12-09); check which nozzle is in your reload kit before trusting the exit area."
   },
   {
    "motorId": "5f4294d200023100000001c5",
@@ -4400,7 +4559,6 @@
    },
    "exitAmbiguous": true,
    "exitPickedBy": "dated-revision",
-   "confidenceNote": "AeroTech publish two nozzles for this motor (01500-5 0.438 in against 01700-15 0.5 in). The one used here is the one that sheet's own dated revision block calls current (2009-12-09); check which nozzle is in your reload kit before trusting the exit area.",
    "alternatives": [
     {
      "nozzlePartNo": "01700-15",
@@ -4410,7 +4568,8 @@
      "assemblyDrawing": "RMS-54-426 High Power/I215R-M Assembly (Original Medusa Nozzle).pdf",
      "lomDescription": "NOZZLE (54MM MEDUSA) 1 X .228C"
     }
-   ]
+   ],
+   "confidenceNote": "AeroTech publish two nozzles for this motor (01500-5 0.438 in against 01700-15 0.5 in). The one used here is the one that sheet's own dated revision block calls current (2009-12-09); check which nozzle is in your reload kit before trusting the exit area."
   },
   {
    "motorId": "5f4294d200023100000000bb",
@@ -4494,7 +4653,6 @@
    },
    "exitAmbiguous": true,
    "exitPickedBy": "dated-revision",
-   "confidenceNote": "AeroTech publish two nozzles for this motor (01550-4 0.688 in against 01700-16 0.5 in). The one used here is the one that sheet's own dated revision block calls current (2009-12-09); check which nozzle is in your reload kit before trusting the exit area.",
    "alternatives": [
     {
      "nozzlePartNo": "01700-16",
@@ -4504,7 +4662,8 @@
      "assemblyDrawing": "RMS-54-426 High Power/I229T-M Assembly (Original Medusa Nozzle).pdf",
      "lomDescription": "NOZZLE (54MM MEDUSA) 1 X .298C"
     }
-   ]
+   ],
+   "confidenceNote": "AeroTech publish two nozzles for this motor (01550-4 0.688 in against 01700-16 0.5 in). The one used here is the one that sheet's own dated revision block calls current (2009-12-09); check which nozzle is in your reload kit before trusting the exit area."
   },
   {
    "motorId": "5f4294d200023100000001e4",
@@ -4618,7 +4777,6 @@
    },
    "exitAmbiguous": true,
    "exitPickedBy": "dated-revision",
-   "confidenceNote": "AeroTech publish two nozzles for this motor (01550-1 0.688 in against 01500-7 0.438 in). The one used here is the one that sheet's own dated revision block calls current (2024-10-09); check which nozzle is in your reload kit before trusting the exit area.",
    "alternatives": [
     {
      "nozzlePartNo": "01500-7",
@@ -4628,7 +4786,8 @@
      "assemblyDrawing": "RMS-38-480 High Power/I300T-L Assembly.pdf",
      "lomDescription": "NOZZLE (F60/G80) DRILLED .313\""
     }
-   ]
+   ],
+   "confidenceNote": "AeroTech publish two nozzles for this motor (01550-1 0.688 in against 01500-7 0.438 in). The one used here is the one that sheet's own dated revision block calls current (2024-10-09); check which nozzle is in your reload kit before trusting the exit area."
   },
   {
    "motorId": "5f4294d200023100000001c9",
@@ -4850,7 +5009,6 @@
    ],
    "exitAmbiguous": true,
    "exitPickedBy": "dated-revision",
-   "confidenceNote": "AeroTech publish two nozzles for this motor (01550-5 0.688 in against 01700-14 0.7289 in). The one used here is the one that sheet's own dated revision block calls current (2009-12-09); check which nozzle is in your reload kit before trusting the exit area.",
    "alternatives": [
     {
      "nozzlePartNo": "01700-14",
@@ -4860,7 +5018,8 @@
      "assemblyDrawing": "RMS-54-426 High Power/I599N-P Assembly (Original Medusa Nozzle).pdf",
      "lomDescription": "NOZZLE (54MM MEDUSA) 1 X .228C / 2 x .228M)"
     }
-   ]
+   ],
+   "confidenceNote": "AeroTech publish two nozzles for this motor (01550-5 0.688 in against 01700-14 0.7289 in). The one used here is the one that sheet's own dated revision block calls current (2009-12-09); check which nozzle is in your reload kit before trusting the exit area."
   },
   {
    "manufacturer": "AeroTech",
@@ -5756,7 +5915,6 @@
    },
    "exitAmbiguous": true,
    "exitPickedBy": "dated-revision",
-   "confidenceNote": "AeroTech publish two nozzles for this motor (01670-3 1.25 in against 01700-12 1.0458 in). The one used here is the one that sheet's own dated revision block calls current (2004-08-19); check which nozzle is in your reload kit before trusting the exit area.",
    "alternatives": [
     {
      "nozzlePartNo": "01700-12",
@@ -5766,7 +5924,8 @@
      "assemblyDrawing": "RMS-54-1706 High Power/K1100T-M Assembly.pdf",
      "lomDescription": "NOZZLE ( 54MM MEDUSA)1x.297\"/ 6x.220\""
     }
-   ]
+   ],
+   "confidenceNote": "AeroTech publish two nozzles for this motor (01670-3 1.25 in against 01700-12 1.0458 in). The one used here is the one that sheet's own dated revision block calls current (2004-08-19); check which nozzle is in your reload kit before trusting the exit area."
   },
   {
    "motorId": "5f4294d200023100000003c9",
@@ -6205,7 +6364,6 @@
    },
    "exitAmbiguous": true,
    "exitPickedBy": "dated-revision",
-   "confidenceNote": "AeroTech publish two nozzles for this motor (01670 1.25 in against 01700-10 0.8197 in). The one used here is the one that sheet's own dated revision block calls current (2004-08-19); check which nozzle is in your reload kit before trusting the exit area.",
    "alternatives": [
     {
      "nozzlePartNo": "01700-10",
@@ -6215,7 +6373,8 @@
      "assemblyDrawing": "RMS-54-1706 High Power/K550W-M Assembly.pdf",
      "lomDescription": "NOZZLE ( 54MM MEDUSA)1x.266\"/ 3x.213\""
     }
-   ]
+   ],
+   "confidenceNote": "AeroTech publish two nozzles for this motor (01670 1.25 in against 01700-10 0.8197 in). The one used here is the one that sheet's own dated revision block calls current (2004-08-19); check which nozzle is in your reload kit before trusting the exit area."
   },
   {
    "motorId": "5f4294d20002310000000149",
@@ -7555,7 +7714,6 @@
    },
    "exitAmbiguous": true,
    "exitPickedBy": "dated-revision",
-   "confidenceNote": "AeroTech publish two nozzles for this motor (01780-1 1.25 in against 01750-2 1.3512 in). The one used here is the one that sheet's own dated revision block calls current (2021-10-19); check which nozzle is in your reload kit before trusting the exit area.",
    "alternatives": [
     {
      "nozzlePartNo": "01750-2",
@@ -7565,7 +7723,8 @@
      "assemblyDrawing": "RMS-75-6400 High Power/M650W-P Assembly (Older Medusa Nozzle).pdf",
      "lomDescription": "NOZZLE (75MM MEDUSA) 4M DRILLED.242\""
     }
-   ]
+   ],
+   "confidenceNote": "AeroTech publish two nozzles for this motor (01780-1 1.25 in against 01750-2 1.3512 in). The one used here is the one that sheet's own dated revision block calls current (2021-10-19); check which nozzle is in your reload kit before trusting the exit area."
   },
   {
    "motorId": "5f4294d200023100000003f0",

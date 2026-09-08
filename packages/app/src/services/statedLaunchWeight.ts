@@ -66,6 +66,39 @@ import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
  * HALF their own stated weight and aborted 17 flights on static instability
  * (docs/research/trf-file-corpus-2026-08-25.md §1). The stated weight is right
  * for the rocket as imported; it is only the later motor that breaks it.
+ *
+ * ONLY THE MOTOR THE MARK NAMES MAY BE BACKED OUT (2026-09-08, from review —
+ * this replaces the rule v0.120 shipped, which backed out whatever motor
+ * arrived). `stated − loadedMotor` is the airframe ONLY when the loaded motor
+ * is the one still inside `stated`. Load any other and the subtraction is
+ * arithmetic on two unrelated numbers, and it is not a small error:
+ *
+ *   MEASURED on `PePe2.CDX1` (2026-09-08). Eight simulations, each with its
+ *   own stated launch weight for the same airframe-plus-motor: 47 lb with
+ *   N5800-CS (which the catalogue does not have, so the stage imports marked),
+ *   24.2 lb with M1297W, 19.7 lb with K510. Open it and switch to simulation 6
+ *   and v0.120 wrote 47 − 10.22 = 36.78 lb as "airframe" against that
+ *   simulation's own ~13.98 lb, flew the rocket at 47.0 lb against the file's
+ *   own 24.2 (+94 %), called it 'info', and spent the mark so no later route
+ *   could put it right.
+ *
+ * So a motor that is not the one named cannot correct the figure — and the
+ * figure it arrives on top of is a launch weight holding a motor the rocket is
+ * not carrying, which is 30–50 % of that weight on these files. Both overrides
+ * are CLEARED and the stage falls back to its computed geometry, with a note
+ * that quotes the file's own number so the user can type it back. That is the
+ * same "a wrong override is worse than none" ruling the two refusal branches
+ * below already run on, and the same one the import block itself runs on.
+ *
+ * THE LIMIT THAT LEAVES, stated rather than hidden. A RASAero file states a
+ * launch weight PER SIMULATION, and only the applied one is read at import
+ * (`rasaeroFile.ts`, "WHICH SIMULATION'S NUMBERS"). Nothing carries the other
+ * simulations' weights, so switching flight configuration cannot re-derive the
+ * new simulation's stage mass — it can only decline to use the old one. Fixing
+ * that means carrying each configuration's stated weights AND re-running the
+ * importer's whole per-stage override pass (stack-above subtraction, motor CG
+ * placement) on every switch; it is a feature, not a review fix, and it is
+ * logged rather than half-built here.
  */
 
 /**
@@ -110,13 +143,62 @@ function stageOf(tree: RocketTree, mountId: string): { stage: ComponentNode; ind
   return stage ? { stage, index } : null;
 }
 
-/** A node's own axial length, 0 when it carries none (the importer's rule). */
-const nodeLength = (n: ComponentNode): number =>
+/**
+ * A node's own axial length, 0 when it carries none.
+ *
+ * SHARED WITH THE IMPORTER (2026-09-08, from review). `rasaeroFile.ts` held
+ * its own copy of this, of {@link stageLength} and of {@link cgFromCombined},
+ * and the two halves of one calculation cannot be allowed to drift: the
+ * importer writes `overrideCGX` in the frame these functions define and this
+ * module reads it back in the same frame. They live here because the import
+ * already depends on this module (for {@link OVERRIDE_INCLUDES_MOTOR}) and not
+ * the other way round.
+ */
+export const nodeLength = (n: ComponentNode): number =>
   typeof n['length'] === 'number' ? (n['length'] as number) : 0;
 
 /** A stage's own length: its DIRECT children only, so pods add nothing. */
-const stageLength = (st: ComponentNode): number =>
-  (st.children ?? []).reduce((sum, c) => sum + nodeLength(c), 0);
+export const stageLength = (st: ComponentNode | undefined): number =>
+  (st?.children ?? []).reduce((sum, c) => sum + nodeLength(c), 0);
+
+/**
+ * Do these two strings name the same motor?
+ *
+ * MIRRORS `motorDb.findDbMotor`'s rank-0 and rank-1 rules deliberately: a
+ * motor only reaches a marked stage because that matcher paired the file's
+ * designation with a catalogue row (or because the user loaded an `.eng` whose
+ * header carries the file's own designation), so the test for "this IS the
+ * motor the file named" has to be the same test that put it there. Case and
+ * surrounding space are ignored; a leading `HP-` and a Cesaroni impulse prefix
+ * are stripped, so the file's “N5800-CS” still matches the catalogue's
+ * “5800N5800-CS”; and a delay suffix on either side is tolerated, so “I224” in
+ * the file matches “I224-15A” in the catalogue.
+ *
+ * THE PREFIX MATCH MAY NOT CUT A NUMBER IN HALF (2026-09-08, from review). It
+ * was `x.startsWith(y) || y.startsWith(x)` with no floor at all, so “M1297W”
+ * matched “M1” and “M787” matched “M7871” — a mark naming a short designation
+ * would let an unrelated motor of the same impulse letter be treated as the one
+ * still inside the stated weight and subtracted from it. A delay suffix always
+ * begins with a delimiter (“I224-15A”) or a propellant letter (“I224W”), never
+ * with another digit, so the guard is exactly that: the character after the
+ * prefix in the longer string must not be a digit. No pair in the shipped
+ * 1,155-row catalogue was affected either way; this closes the shape, not a
+ * reported bug.
+ *
+ * Kept as string comparison rather than a `findDbMotor` call so this module
+ * stays free of the 1,155-row catalogue — `orkFile.ts` imports it, and the
+ * .ork reader has no business pulling in `motors.json`.
+ */
+export function namesSameMotor(a: string, b: string): boolean {
+  const norm = (d: string): string =>
+    d.trim().toLowerCase().replace(/^hp-/, '').replace(/^\d+(?=[a-o]\d)/, '');
+  const x = norm(a);
+  const y = norm(b);
+  if (x === '' || y === '') return false;
+  if (x === y) return true;
+  const [short, long] = x.length < y.length ? [x, y] : [y, x];
+  return long.startsWith(short) && !/\d/.test(long.charAt(short.length));
+}
 
 /**
  * The designation of the motor still inside this stage's overrides, or null.
@@ -135,19 +217,28 @@ function replaceStage(tree: RocketTree, index: number, next: ComponentNode): Roc
 }
 
 /**
- * Desktop `getCGFromCombinedCG` (SimulationHandler.java:487-492), the same
- * arithmetic `rasaeroFile.cgFromCombined` runs at import: the CG of B given
- * A's CG, the combined CG of A+B, and both masses. `bMass > 0` is the
- * caller's to check.
+ * Desktop `getCGFromCombinedCG` (SimulationHandler.java:487-492): the CG of B
+ * given A's CG, the combined CG of A+B, and both masses. `bMass > 0` is the
+ * caller's to check — desktop does not, and divides by a stage mass of zero
+ * whenever the override above it was skipped.
+ *
+ * The import (`rasaeroFile.ts`) and this module run the SAME back-transform in
+ * opposite directions, so they share one copy of it — see {@link nodeLength}.
  */
-const cgFromCombined = (aMass: number, bMass: number, aCg: number, combinedCg: number): number =>
-  combinedCg * (1 + aMass / bMass) - aCg * (aMass / bMass);
+export const cgFromCombined = (
+  aMass: number, bMass: number, aCg: number, combinedCg: number,
+): number => combinedCg * (1 + aMass / bMass) - aCg * (aMass / bMass);
 
 /**
  * Takes a newly assigned motor's weight back out of the stage overrides that
  * still contain it. Returns null — the overwhelmingly common case — when the
  * mount's stage carries no mark, so the caller pays one tree scan and nothing
  * else.
+ *
+ * ONLY the motor the mark names is backed out ({@link namesSameMotor}); any
+ * other one clears the overrides instead, for the reason measured in the module
+ * header. Callers that hold several mounts must offer the matching one FIRST —
+ * {@link reconcileAllIncludedMotors} does.
  *
  * The mark is removed on EVERY path that returns, including the refusals: once
  * a motor is on the stage the stated launch weight has been spent, and a mark
@@ -170,11 +261,44 @@ export function reconcileIncludedMotor(
   } = stage as ComponentNode & Record<string, unknown>;
   const cleared = unmarked as ComponentNode;
   const name = stage.name ?? 'Stage';
-  const who = motor.designation === named
-    ? `“${named}”`
-    : `“${motor.designation}” (the file names “${named}” there)`;
+  const who = `“${named}”`;
 
   const stated = cleared['overrideMass'];
+
+  // ---- a motor that is NOT the one the mark names (2026-09-08, from review) ----
+  // Nothing here can be corrected: the figure holds `named`, whose weight is
+  // the one thing this app does not have, and it is about to be flown under a
+  // different motor. Clear rather than subtract — the module header measures
+  // what subtracting did on PePe2 (+94 %) — and quote the file's own figure in
+  // the note so the user can put it back by hand.
+  if (!namesSameMotor(motor.designation, named)) {
+    const hasMass = typeof stated === 'number' && stated > 0;
+    const hasCg = typeof cleared['overrideCGX'] === 'number';
+    if (!hasMass && !hasCg) {
+      // Nothing left to clear — both were cleared by hand already. Drop the
+      // stale mark quietly, exactly as the matching path does below.
+      return { tree: replaceStage(tree, index, cleared), note: null, severity: 'info' };
+    }
+    const bare = { ...cleared };
+    delete bare['overrideMass'];
+    delete bare['overrideSubcomponentsMass'];
+    delete bare['overrideCGX'];
+    delete bare['overrideSubcomponentsCG'];
+    const what = hasMass
+      ? `the ${text.mass(stated as number)} the RASAero file stated for that stage is a launch weight`
+      : 'the CG the RASAero file stated for that stage is a launch CG';
+    return {
+      tree: replaceStage(tree, index, bare),
+      severity: 'warn',
+      note: `“${name}”: ${what} that still holds ${who}, and the motor loaded on that stage now is `
+        + `“${motor.designation}”. ${who} is not in the motor database, so its weight cannot be taken `
+        + `back out of that figure, and flying it under “${motor.designation}” would carry two motors’ `
+        + 'weight. The stage’s mass and CG overrides have been cleared and it is back on its computed '
+        + 'geometry. Type what the stage weighs without a motor under Overrides. A RASAero file states a launch weight '
+        + `per simulation, and this one belongs to the simulation that named ${who}.`,
+    };
+  }
+
   if (typeof stated !== 'number' || !(stated > 0)) {
     // No mass override to correct — cleared by hand, or the file stated a CG
     // and no usable weight. A CG override that is still here IS motor-inclusive
@@ -283,7 +407,9 @@ export function reconcileIncludedMotor(
  *    `PePe2.CDX1` (simulation 1 names N5800-CS, which the catalogue does not
  *    have, over a stated 47 lb), switch to simulation 6 (M1297W, catalogued,
  *    10.22 lb) and the stage weighed 57.2 lb against that simulation's own
- *    24.2 lb — +136 %, in one click, with nothing on screen.
+ *    24.2 lb — +136 %, in one click, with nothing on screen. (That switch
+ *    mounts a motor the stated weight never held, so what it now gets is the
+ *    module header's clearing branch and a warn note, not a subtraction.)
  *  - UNDO. Motors live outside the tree and the undo stack is the tree alone,
  *    so Ctrl+Z after loading the motor restored the marked, uncorrected
  *    override while the motor stayed mounted.
@@ -291,28 +417,56 @@ export function reconcileIncludedMotor(
  * Both are the same shape: a tree and a set of mounted motors that arrived
  * together. So the fix is one function that takes both, and every caller that
  * changes either runs it. Identity when nothing is marked, which is every
- * design but a RASAero import naming a motor the catalogue does not have.
+ * design but a RASAero import naming a motor the catalogue does not have —
+ * and that case costs one pass over the stage list and nothing more.
  *
- * `silent` is for the undo path: the correction still has to happen (a marked
- * stage under a mounted motor is a wrong number either way), but a note about
- * it would be a sentence the user did not ask for in response to Ctrl+Z.
+ * THE MATCHING MOUNT GOES FIRST (2026-09-08, from review). The mark is on the
+ * STAGE and the first mount in it spends it, so a cluster or a two-mount stage
+ * decided by `Object.keys` insertion order which motor was backed out —
+ * measured at 15.0 kg against a correct 10.5 on a two-mount marked stage, and
+ * the answer changed with the order the motors were loaded in. Every mount
+ * whose motor IS the one its stage's mark names is offered first, so the
+ * correction never depends on that order. The mark still names ONE motor, so a
+ * stage flying two of them backs out one — the importer builds exactly one
+ * mount per stage (`rasaeroFile.aftTube`), so reaching that needs a mount added
+ * by hand after the import, and the note names the weight it did take out.
+ *
+ * Notes are the CALLER's to show. Every route that mounts a motor writes them
+ * into the notice strip, undo and redo included: a stage mass that moves by
+ * tens of pounds is not something to do silently, whatever the keystroke that
+ * caused it (that reverses the "silent on undo" choice v0.120 shipped — the
+ * `silent` parameter its docblock described never existed in the code).
  */
 export function reconcileAllIncludedMotors(
   tree: RocketTree,
   motors: Record<string, AttachedMotor>,
   text: StatedWeightText,
-): { tree: RocketTree; notes: string[]; severity: 'info' | 'warn'; changed: boolean } {
+): { tree: RocketTree; notes: string[]; severity: 'info' | 'warn' } {
+  // The 99 % case: no stage in this design is marked, so no mount can spend a
+  // mark and the per-mount tree walk below is pure cost. Undo/redo run this on
+  // EVERY keystroke's worth of history, so it is worth the four lines.
+  const anyMark = tree.components.some((st) => {
+    const mark = st[OVERRIDE_INCLUDES_MOTOR];
+    return typeof mark === 'string' && mark !== '';
+  });
+  if (!anyMark) return { tree, notes: [], severity: 'info' };
+
+  const ids = Object.keys(motors);
+  const matchesItsMark = (mountId: string): boolean => {
+    const named = includedMotorOf(tree, mountId);
+    return named !== null && namesSameMotor(motors[mountId]!.designation, named);
+  };
+  const ordered = [...ids.filter(matchesItsMark), ...ids.filter((id) => !matchesItsMark(id))];
+
   let next = tree;
   const notes: string[] = [];
   let severity: 'info' | 'warn' = 'info';
-  let changed = false;
-  for (const mountId of Object.keys(motors)) {
+  for (const mountId of ordered) {
     const fix = reconcileIncludedMotor(next, mountId, motors[mountId]!, text);
     if (!fix) continue;
     next = fix.tree;
-    changed = true;
     if (fix.note) notes.push(fix.note);
     if (fix.severity === 'warn') severity = 'warn';
   }
-  return { tree: next, notes, severity, changed };
+  return { tree: next, notes, severity };
 }

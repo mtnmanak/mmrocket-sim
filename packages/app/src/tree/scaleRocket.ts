@@ -2,6 +2,7 @@ import type { ComponentNode, ComponentPosition, RocketTree } from '@online-openr
 import {
   classLabel, classesFittingMount, diameterClass, nearestCommonClass,
 } from '../services/motorDb.js';
+import { OVERRIDE_INCLUDES_MOTOR } from '../services/statedLaunchWeight.js';
 import { motorMounts } from './treeModel.js';
 
 /**
@@ -521,6 +522,8 @@ export function scaleRocket(
   let finSets = 0;
   let massPinned = 0;
   let recovery = false;
+  /** Stages whose overrides were the file's stated LAUNCH weight — see below. */
+  const statedLaunch: { name: string; motor: string; hadMass: boolean }[] = [];
 
   const walk = (nodes: ComponentNode[]): ComponentNode[] => nodes.map((n) => {
     const type = n.type as string;
@@ -541,8 +544,40 @@ export function scaleRocket(
     // have and tell the user to re-weigh a part weighing nothing. It is also
     // the right test for a deliberate `overrideMass: 0`: 0 · k³ is 0, so there
     // is nothing for the reader to go and check either way.
-    if (!FIXED_SIZE.has(type) && MASS_KEYS.some((key) => (num(n, key) ?? 0) !== 0)) massPinned++;
+    //
+    // A stage whose override is about to be DROPPED below is not a pinned mass
+    // that survived the scale, so it is not counted here either — the note
+    // that number drives tells the reader to go and re-weigh something.
+    const marked = typeof n[OVERRIDE_INCLUDES_MOTOR] === 'string'
+      && n[OVERRIDE_INCLUDES_MOTOR] !== '';
+    if (!FIXED_SIZE.has(type) && !marked
+      && MASS_KEYS.some((key) => (num(n, key) ?? 0) !== 0)) massPinned++;
     const scaled = scaleNode(n, k);
+    // A RASAero stage whose overrides are the file's stated LAUNCH figures,
+    // motor still inside them (services/statedLaunchWeight.ts). Scaling has
+    // just multiplied that motor's weight by k³ along with the airframe's,
+    // which is not a weight of anything: the motor did not scale, and the
+    // reconcile that fires when it is loaded would subtract an unscaled motor
+    // from a scaled figure. MEASURED on MESOS at 2x: the sustainer's 10.573 kg
+    // becomes 84.59 kg, and loading the M787 wrote 77.61 kg as "airframe"
+    // against a true 28.81 (2026-09-08, from review).
+    //
+    // So the stated figures go the way the measured mass and the weighed pad
+    // mass already go on this path — they describe a rocket that no longer
+    // exists — and the stage falls back to its computed geometry. The note
+    // below names it. (Missed when the mark shipped in v0.120.)
+    if (marked) {
+      statedLaunch.push({
+        name: n.name ?? 'Stage',
+        motor: n[OVERRIDE_INCLUDES_MOTOR] as string,
+        hadMass: typeof n['overrideMass'] === 'number',
+      });
+      delete scaled[OVERRIDE_INCLUDES_MOTOR];
+      delete scaled['overrideMass'];
+      delete scaled['overrideSubcomponentsMass'];
+      delete scaled['overrideCGX'];
+      delete scaled['overrideSubcomponentsCG'];
+    }
     return n.children ? { ...scaled, children: walk(n.children) } as ComponentNode : scaled;
   });
 
@@ -659,6 +694,14 @@ export function scaleRocket(
     notes.push('A launch lug kept its bore — that is the launch rod’s diameter, and rods come'
       + ' in fixed sizes. Its length scaled.');
   }
+  for (const s of statedLaunch) {
+    notes.push(`“${s.name}” lost the ${s.hadMass ? 'mass and CG' : 'CG'} the RASAero file stated for`
+      + ` it. That was a LAUNCH ${s.hadMass ? 'weight' : 'CG'} with “${s.motor}” still inside it —`
+      + ' that motor is not in the motor database, so nothing could take it out — and scaling it'
+      + ' would have scaled that motor along with the airframe, which describes no rocket. The'
+      + ' stage is back on its computed geometry: weigh the scaled stage and type it under'
+      + ' Overrides.');
+  }
   if (massPinned) {
     notes.push(`${massPinned} pinned mass${massPinned === 1 ? '' : 'es'} scaled the same way that`
       + ' part’s own material would — the cube of the factor for a solid part, the square for a'
@@ -699,7 +742,10 @@ export function scaleRocket(
   // replaces (`!onStandardClass && !(snapMounts && snappable)`), stated in the
   // same vocabulary as the list and the notes.
   // A 'resized' mount is what the user asked for, so it is not a complaint.
-  const needsAttention = mounts.some((m) => !m.motorStillFits
+  // A dropped stated launch weight joins them: the stage's mass just changed by
+  // whatever the file stated, and that note has to be on screen rather than
+  // folded into a collapsed bar.
+  const needsAttention = statedLaunch.length > 0 || mounts.some((m) => !m.motorStillFits
     || m.verdict === 'airframe-left' || m.verdict === 'off-class');
   return { tree: next, notes, needsAttention };
 }

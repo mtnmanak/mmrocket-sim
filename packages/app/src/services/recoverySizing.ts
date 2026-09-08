@@ -7,7 +7,7 @@ import { mfrKey } from '../../scripts/manufacturers.mjs';
 import type { LaunchConditions } from '../components/LaunchPanel.js';
 import { mountBore } from '../tree/scaleRocket.js';
 import { findParent } from '../tree/treeModel.js';
-import { isaPressurePa } from './atmosphere.js';
+import { isaPressurePa, LAPSE, R_AIR } from './atmosphere.js';
 import type { Preset } from './presets.js';
 import type { RecoveryMass } from './recoveryMass.js';
 import { sustainerScope } from './recoveryMass.js';
@@ -44,18 +44,12 @@ import { SAFETY } from './simReport.js';
 /** Feet per second in m/s. The bands are stated in ft/s; the code is SI. */
 const FT_S = 0.3048;
 
-/**
- * Specific gas constant of dry air, J/(kg.K) — `AtmosphericConditions.R` in
- * OpenRocket 24.12, and the same constant the shipped kernel divides by
- * (`packages/engine/vendor/orkengine.mjs:39464`,
- * `getPressure() / (287.053 * getTemperature())`). Not 287.05: a 0.001 %
- * difference is nothing, but two constants for one physical quantity is how a
- * number starts disagreeing with itself across screens.
- */
-const R_AIR = 287.053;
-
-/** ISA troposphere lapse rate as a POSITIVE K/m (the engine states it signed). */
-const LAPSE = -ISA_SEA_LEVEL.lapseRateKPerM;
+// R_AIR (the kernel's `AtmosphericConditions.R`, 287.053) and LAPSE (the ISA
+// troposphere lapse rate as a POSITIVE K/m) used to be declared here as well as
+// in atmosphere.ts. They are imported from there now (2026-09-08, from review):
+// two constants for one physical quantity is how a number starts disagreeing
+// with itself across screens, and this module already takes its barometric
+// formula from the same place.
 
 /**
  * A recovery band: the accepted descent-rate window, plus the single rate the

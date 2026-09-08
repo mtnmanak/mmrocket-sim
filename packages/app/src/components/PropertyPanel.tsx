@@ -34,6 +34,7 @@ import { fmtSi, niceStep, siToUi, uiToSi, type Quantity } from '../prefs/units.j
 import { BULK_MATERIALS, LINE_MATERIALS, SURFACE_MATERIALS, type MaterialDef } from '../data/materials.js';
 import { PresetPicker } from './PresetPicker.js';
 import { KIND_FOR_TYPE } from '../services/presets.js';
+import { OVERRIDE_INCLUDES_MOTOR } from '../services/statedLaunchWeight.js';
 import { finTemplateSvg } from '../services/finTemplate.js';
 import { safeName } from '../services/fileName.js';
 import { downloadBlob } from '../services/saveFile.js';
@@ -376,6 +377,54 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
   const lenToUi = (si: number) => Number(siToUi('length', lengthSym, si).toFixed(6));
   const lenFromUi = (ui: number) => uiToSi('length', lengthSym, ui);
   const massSym = prefs.units.mass;
+
+  /**
+   * Folded into BOTH override commits below: typing a mass or a CG by hand
+   * takes this stage off the RASAero file's stated launch weight, so the mark
+   * that says "a motor's weight is still in here" has to go with it
+   * (services/statedLaunchWeight.ts; 2026-09-08, from review). Without it the
+   * reconcile fired later against the USER's own measurement — subtracting a
+   * motor from a number the file never stated, and saying the file's weight
+   * "cannot be right" about it.
+   *
+   * `undefined` rather than a delete because `updateNode` spreads a patch and
+   * cannot remove a key — the same shape the two clear-the-override commits
+   * beside it already use. Every reader tests `typeof === 'string'`, and
+   * `JSON.stringify` drops the key, so an undefined mark is an absent one.
+   */
+  const statedLaunchMark = typeof node[OVERRIDE_INCLUDES_MOTOR] === 'string'
+    ? { [OVERRIDE_INCLUDES_MOTOR]: undefined }
+    : {};
+
+  /**
+   * The wording of the stated-launch-weight banner below, which depends on
+   * WHICH of the two overrides the file actually landed (2026-09-08, from
+   * review — the banner said "the launch mass and CG" on the mark alone).
+   *
+   * The mark follows whichever override landed, not both: `rasaeroFile.ts`
+   * writes the mass and the CG on separate paths, and either can be skipped on
+   * its own — a stage stating a CG and no usable weight gets the CG alone, and
+   * a stage whose CG works out to a place outside its own extent gets the mass
+   * alone. Naming a figure that is not on screen sends the reader looking for
+   * a blank field.
+   */
+  const statedMass = typeof node['overrideMass'] === 'number';
+  const statedCg = typeof node['overrideCGX'] === 'number';
+  const statedLaunchCopy = statedMass && statedCg
+    ? {
+      lead: 'These came from the RASAero file, with the motor still in them.',
+      figures: 'They are the launch mass and CG the file states for this stage, and they still include',
+      mine: 'both become yours',
+      enter: 'so enter what the stage weighs, and where it balances, with no motor in it',
+    }
+    : {
+      lead: 'This came from the RASAero file, with the motor still in it.',
+      figures: `It is the launch ${statedMass ? 'mass' : 'CG'} the file states for this stage, and it still includes`,
+      mine: 'it becomes yours',
+      enter: statedMass
+        ? 'so enter what the stage weighs with no motor in it'
+        : 'so enter where the stage balances with no motor in it',
+    };
 
   // Tube-fin collision geometry: N tubes around a body of radius R touch at
   // r = R·sin(π/N)/(1−sin(π/N)). The kernel enforces that only in auto mode
@@ -1171,6 +1220,27 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
           Overrides (blank = calculated)
           {node.type === 'stage' ? ' — whole stage' : ''}
         </h3>
+        {/* The one state where the two fields below are NOT the user's own
+            numbers: a RASAero stage still holding the weight of a motor the
+            catalogue does not have (services/statedLaunchWeight.ts). Until
+            2026-09-08 nothing here said so and nothing here cleared the mark,
+            so a user who typed their own weighed mass over the file's figure
+            had it silently reduced by a motor's weight the next time one was
+            loaded — and the note blamed a file that never stated their number.
+            Both halves are fixed: this panel says what the figures are, and
+            typing either one takes the stage off the file's stated weight
+            (`statedLaunchMark` in the two commits below). */}
+        {typeof node[OVERRIDE_INCLUDES_MOTOR] === 'string' && node[OVERRIDE_INCLUDES_MOTOR] !== '' && (
+          <p className="override-inert override-stated-launch" role="note">
+            <strong>{statedLaunchCopy.lead}</strong>
+            {' '}{statedLaunchCopy.figures} the weight of the
+            “{node[OVERRIDE_INCLUDES_MOTOR] as string}” it names — that
+            motor is not in the motor database, so nothing could take it out. Load it and the app
+            takes its weight back out first; Browse motor database on Motors &amp; Launch takes an
+            .eng or .rse file. Type your own figure here instead and {statedLaunchCopy.mine} —{' '}
+            {statedLaunchCopy.enter}.
+          </p>
+        )}
         <div className="field-grid">
           <div className="field">
             <label>Mass{node.type.endsWith('finset') ? ' (all fins combined)' : ''} <UnitChip quantity="mass" /></label>
@@ -1182,8 +1252,8 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
               nullable
               placeholder={info ? fmtSi('mass', massSym, info.mass) : undefined}
               onCommit={(v) => onPatch(v === null
-                ? { overrideMass: undefined, overrideSubcomponentsMass: undefined }
-                : { overrideMass: uiToSi('mass', massSym, v) })}
+                ? { overrideMass: undefined, overrideSubcomponentsMass: undefined, ...statedLaunchMark }
+                : { overrideMass: uiToSi('mass', massSym, v), ...statedLaunchMark })}
             />
             <SubcomponentsToggle
               tree={tree}
@@ -1205,8 +1275,8 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
               nullable
               placeholder={info ? fmtSi('length', lengthSym, info.cgX, 3) : undefined}
               onCommit={(v) => onPatch(v === null
-                ? { overrideCGX: undefined, overrideSubcomponentsCG: undefined }
-                : { overrideCGX: lenFromUi(v) })}
+                ? { overrideCGX: undefined, overrideSubcomponentsCG: undefined, ...statedLaunchMark }
+                : { overrideCGX: lenFromUi(v), ...statedLaunchMark })}
             />
             <SubcomponentsToggle
               tree={tree}

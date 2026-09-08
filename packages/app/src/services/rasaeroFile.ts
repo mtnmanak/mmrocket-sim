@@ -2,11 +2,13 @@ import { strFromU8 } from 'fflate';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import type { LaunchConditions } from '../components/LaunchPanel.js';
 import { asStageNodes, freshId, mountsIn } from '../tree/treeModel.js';
-import { isaPressurePa, padPressureIssue } from './atmosphere.js';
+import { isaPressurePa, isaTemperatureK, padPressureIssue } from './atmosphere.js';
 import { findDbMotor, hasMassData } from './motorDb.js';
 import { escapeXml as esc, xmlNum, xmlText as text } from './xmlUtil.js';
 import type { OrkFlightConfig, OrkImportResult, OrkMotorRef, OrkSeparationOverride } from './orkFile.js';
-import { OVERRIDE_INCLUDES_MOTOR } from './statedLaunchWeight.js';
+import {
+  cgFromCombined, nodeLength, OVERRIDE_INCLUDES_MOTOR, stageLength,
+} from './statedLaunchWeight.js';
 
 /**
  * RASAero II (.CDX1) design import/export — Phase 3 "file imports and
@@ -1082,11 +1084,10 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
    *  `stage.getPosition().x`. Stages stack AFTER one another (the kernel's
    *  default for an AxialStage, and this importer sets no stage position) and
    *  every stage child it builds is a length-carrying body component, so the
-   *  running sum IS the stage front. */
-  const nodeLength = (n: ComponentNode): number =>
-    typeof n['length'] === 'number' ? (n['length'] as number) : 0;
-  const stageLength = (st: ComponentNode | undefined): number =>
-    (st?.children ?? []).reduce((sum, c) => sum + nodeLength(c), 0);
+   *  running sum IS the stage front. `nodeLength`/`stageLength` are imported
+   *  rather than declared here (2026-09-08, from review): the reconcile reads
+   *  `overrideCGX` back in the frame they define, so the two halves have to be
+   *  the same arithmetic and not two copies of it. */
   const stageFrontX: number[] = [];
   for (let x = 0, i = 0; i < stages.length; i++) {
     stageFrontX.push(x);
@@ -1132,13 +1133,6 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
     if (!hasMassData(db) || !(db.length > 0)) return 'unknown';
     return { massKg: db.totalWeightG / 1000, lengthM: db.length / 1000, label: ref.designation };
   };
-
-  /** Desktop `getCGFromCombinedCG` (SimulationHandler.java:487-492): the CG of
-   *  B, given A's CG, the combined CG of A+B, and both masses. Callers must
-   *  have checked `bMass > 0` — desktop does not, and divides by a stage mass
-   *  of zero whenever the override above was skipped. */
-  const cgFromCombined = (aMass: number, bMass: number, aCg: number, combinedCg: number): number =>
-    combinedCg * (1 + aMass / bMass) - aCg * (aMass / bMass);
 
   /**
    * Desktop `getStageCGWithoutMotorCG` (:504-524). `combinedCg` is the CG of a
@@ -1398,11 +1392,20 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
   // temperature with no pressure puts sea-level 101,325 Pa at the pad however
   // high the site (mechanism and measurements in services/atmosphere.ts). An
   // imported file is the one place that pair arrives without anyone typing it,
-  // so this line is the only warning its owner gets. Both branches of
+  // so this line is the only warning its owner gets. All THREE branches of
   // `padPressureIssue`, one line each, only above 600 m:
   //  - states nothing (G record 2023: <Pressure>0</Pressure> at 8,800 ft)
   //  - states an altimeter setting (Wildman2Stage: 30 in-Hg at 3,900 ft, where
   //    a barometer reads about 25.94)
+  //  - states a pressure and no readable temperature — the third branch, added
+  //    2026-09-08 from review. RASAero writes a <Temperature> into every file,
+  //    so this one only appears when that field is absent or unreadable (a
+  //    comma decimal separator is the usual cause, the same one the note above
+  //    names), and then the kernel pins 288.15 K at the pad. Worded about the
+  //    FILE rather than the app's state on purpose: an absent temperature is
+  //    the one launch field this importer leaves out of its patch, so App's
+  //    merge lets a temperature already typed for the previous design survive,
+  //    and "the flight uses 15 °C" would be wrong in that case.
   if (launch?.launchAltitudeM !== undefined) {
     const issue = padPressureIssue(launch);
     const ft = Math.round(launch.launchAltitudeM * FT);
@@ -1421,6 +1424,15 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
         + `${standing}. That is an altimeter setting rather than the pressure at the pad — replace it `
         + 'under Launch conditions, or the air is too dense and the motor loses the extra thrust '
         + 'thin air gives it.');
+    } else if (issue === 'blank-temperature') {
+      const standingC = isaTemperatureK(launch.launchAltitudeM) - 273.15;
+      const standingT = `${(standingC * 9 / 5 + 32).toFixed(0)} °F (${standingC.toFixed(0)} °C)`;
+      notes.push(`Launch site: this file gives a pad pressure but no readable temperature, at ${ft} ft. `
+        + 'The two are read as a pair, so unless a temperature is already typed under Launch '
+        + 'conditions the flight uses the sea-level standard, 59 °F (15 °C), at that pad — where a '
+        + `standard day is about ${standingT}. Type the pad’s temperature, or clear the pressure as `
+        + 'well and the app computes both from the site altitude. Left as it is, the air is too thin '
+        + 'and the speed of sound too high, which shifts every Mach number the drag is read at.');
     }
   }
   if (machAlt) {

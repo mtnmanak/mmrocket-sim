@@ -26,11 +26,15 @@ import { findDbMotor, MOTOR_DB } from '../src/services/motorDb.ts';
  *   - one row per motorId, because the app will look a motor up by id;
  *   - every row says where its number came from.
  *
- * And the join is pinned against the app's OWN matcher. build-nozzle-db.mjs
+ * And the join is checked against the app's OWN matcher. build-nozzle-db.mjs
  * has to duplicate `findDbMotor`'s ranking (motorDb.ts is TypeScript with a
  * JSON import, which plain node cannot load), so the duplicate is checked here
  * rather than trusted: every matched row is re-resolved through the real
  * function and must come back with the same motorId.
+ *
+ * THE JOIN CHECKS ARE NOT ALL HARD GATES, and `judgeAgainstCatalogue` below
+ * says why: half of what they compare belongs to thrustcurve.org, which moves
+ * weekly, and this file can only be rebuilt on one machine.
  */
 const here = dirname(fileURLToPath(import.meta.url));
 const dataDir = join(here, '..', 'src', 'data');
@@ -39,6 +43,61 @@ const db = JSON.parse(readFileSync(join(dataDir, 'nozzles.json'), 'utf8'));
 const rows = db.motors;
 const parts = db.nozzles;
 const byId = new Map(MOTOR_DB.map((m) => [m.motorId, m]));
+
+/**
+ * THE CATALOGUE THIS FILE WAS KEYED AGAINST — and why a disagreement with the
+ * catalogue is sometimes a FAILURE and sometimes only a REPORT.
+ *
+ * (2026-09-08, from review.) The join checks below read thrustcurve.org's own
+ * designations and motorIds out of the shipped motors.json. Upstream renames
+ * motors, retires them and re-issues ids continuously, and
+ * `.github/workflows/motors-refresh.yml` pulls that in every Monday and gates
+ * its pull request on `npm test` — the deploy gate, verbatim. So one upstream
+ * rename would have turned the refresh PR red, and the only thing that can
+ * clear it is a re-run of build-nozzle-db.mjs, which needs `docs/RCS
+ * Schematics` (local-only, gitignored), Python and PyMuPDF: none of which
+ * exist on CI or on the laptop. That is a gate nobody present can open, and it
+ * would block the MOTOR data — which does move users' numbers — over nozzle
+ * data that has not changed at all. This suite already dropped its
+ * `catalogueGenerated` date pin for that exact reason and then kept the same
+ * coupling through these three assertions.
+ *
+ * So the date decides the verdict:
+ *   - `catalogueGenerated` === motors.json's `generated`: both files describe
+ *     the SAME catalogue, so a disagreement is a defect in this repo — the
+ *     matcher build-nozzle-db.mjs duplicates, or a hand edit of a generated
+ *     file — and it FAILS, on the machine that can regenerate.
+ *   - they differ: the catalogue has moved on under a committed artifact.
+ *     Drift is then expected and is nobody's mistake, so it is REPORTED with
+ *     every affected row named, for whoever next regenerates.
+ * Nothing goes silent either way; only the verdict changes.
+ *
+ * `scripts/check-upstream.mjs` §5 reports the same drift before a release,
+ * which is this project's standing mechanism for third-party movement (Eric,
+ * 2026-08-31: "maintain vigilance on anything we rely on from third party
+ * sources").
+ */
+// The raw catalogue, read the way build-nozzle-db.mjs reads it — `MOTOR_DB`
+// above is the app's own view of the same file and carries only the fields the
+// app needs.
+const catalogue = JSON.parse(readFileSync(join(dataDir, 'motors.json'), 'utf8'));
+const catalogueGenerated = catalogue.generated;
+const sameCatalogue = db.catalogueGenerated === catalogueGenerated;
+
+function judgeAgainstCatalogue(bad, what, howToClear) {
+  if (bad.length === 0) return;
+  const detail = bad.join('\n  ');
+  if (sameCatalogue) {
+    expect(bad, `${what} — and nozzles.json says it was keyed against this very catalogue `
+      + `(${db.catalogueGenerated}), so this is a defect here, not upstream drift.\n  ${detail}\n  ${howToClear}`)
+      .toEqual([]);
+    return;
+  }
+  console.warn(`\n[nozzles.json] ${what} — ${bad.length} of them.\n`
+    + `  The nozzle data was keyed against the ${db.catalogueGenerated} catalogue and motors.json is now `
+    + `${catalogueGenerated}, so this is upstream drift, not a defect — reported, not failed, because only a `
+    + `regeneration can clear it and that needs docs/RCS Schematics.\n  ${detail}\n  ${howToClear}\n`);
+}
 
 /** Millimetres of slop on the casing bound: drawings tolerance +/- .005 in. */
 const CASING_SLOP_MM = 0.5;
@@ -59,10 +118,15 @@ describe('the shipped nozzle database', () => {
     // LOCAL-ONLY, gitignored, and absent from CI and from the laptop.
     //
     // What the pin was FOR — "these rows still describe motors this catalogue
-    // has" — is covered exactly, and better, by the three join tests below:
-    // every motorId resolves, every designation agrees, and every row
-    // re-resolves through the app's own findDbMotor. A date is a proxy for
-    // that; those are the thing itself.
+    // has" — is covered exactly, and better, by the join tests below: every
+    // motorId resolves, every designation agrees, and every row re-resolves
+    // through the app's own findDbMotor. A date is a proxy for that; those are
+    // the thing itself.
+    //
+    // The date did not disappear, though: those tests READ it, to tell a defect
+    // in this repo from a catalogue that has moved on since. It decides the
+    // verdict instead of being the check (2026-09-08, from review — the same
+    // coupling had survived inside the three assertions).
     expect(db.catalogueGenerated, 'nozzles.json must record which catalogue it was keyed against')
       .toMatch(/^\d{4}-\d\d-\d\d$/);
     expect(db.generated).toMatch(/^\d{4}-\d\d-\d\d$/);
@@ -261,20 +325,43 @@ describe('the shipped nozzle database', () => {
 });
 
 describe('the join into the motor catalogue', () => {
+  const REGENERATE = 'Regenerate with `node packages/app/scripts/build-nozzle-db.mjs` on the machine '
+    + 'that holds docs/RCS Schematics.';
+
+  it('carries everything a join needs on every matched row', () => {
+    // THE HALF OF THE JOIN THAT UPSTREAM CANNOT MOVE, so it is always a hard
+    // failure: a row that claims a motorId must also carry the catalogue name
+    // it matched, the casing it matched in, and the string it matched on.
+    // Those three come out of this repo's own build, not out of thrustcurve.
+    const bad = rows.filter((r) => r.motorId)
+      .filter((r) => !r.catalogDesignation || !r.casingDiameterMm || !r.provenance?.matchedVia)
+      .map((r) => `${r.designation}: ${r.motorId} with catalogDesignation ${r.catalogDesignation}, `
+        + `casing ${r.casingDiameterMm}, matchedVia ${r.provenance?.matchedVia}`);
+    expect(bad, bad.join('\n')).toEqual([]);
+  });
+
   it('only names motorIds the shipped catalogue actually has', () => {
     const bad = rows.filter((r) => r.motorId && !byId.has(r.motorId))
       .map((r) => `${r.designation}: ${r.motorId}`);
-    expect(bad, bad.join('\n')).toEqual([]);
+    judgeAgainstCatalogue(bad, 'a row names a motorId the shipped catalogue no longer has (a motor '
+      + 'thrustcurve.org retired or re-issued)', REGENERATE);
   });
 
   it('agrees with the catalogue about what the motor is called', () => {
-    const bad = rows.filter((r) => r.motorId)
+    const bad = rows.filter((r) => r.motorId && byId.has(r.motorId))
       .filter((r) => byId.get(r.motorId).designation !== r.catalogDesignation)
       .map((r) => `${r.designation}: says ${r.catalogDesignation}, catalogue says ${byId.get(r.motorId).designation}`);
-    expect(bad, bad.join('\n')).toEqual([]);
+    judgeAgainstCatalogue(bad, 'a row disagrees with the catalogue about a motor\'s designation (an '
+      + 'upstream rename)', REGENERATE);
   });
 
   it('resolves through the app\'s own findDbMotor to the same motor', () => {
+    // The reason this one exists at all: build-nozzle-db.mjs has to duplicate
+    // findDbMotor's ranking, because motorDb.ts is TypeScript with a JSON
+    // import and plain node cannot load it. So the duplicate is checked rather
+    // than trusted — but it is checked against a catalogue that moves, and a
+    // newly certified motor can outrank an old one on the same string without
+    // anything here being wrong.
     const bad = [];
     for (const r of rows) {
       if (!r.motorId) continue;
@@ -283,7 +370,8 @@ describe('the join into the motor catalogue', () => {
         bad.push(`${r.designation} via "${r.provenance.matchedVia}": build says ${r.catalogDesignation}, findDbMotor says ${hit?.designation ?? 'nothing'}`);
       }
     }
-    expect(bad, bad.join('\n')).toEqual([]);
+    judgeAgainstCatalogue(bad, 'a row no longer re-resolves through the app\'s own findDbMotor to the '
+      + 'motor the build matched it to', REGENERATE);
   });
 
   it('keeps the raw designation even where nothing matched, so no motor is lost', () => {
@@ -391,6 +479,79 @@ describe('the independent Tripoli cross-check', () => {
     const disagreeing = comparable.filter((t) => !t.throatAgrees)
       .map((t) => `${t.designation}: cert ${t.certThroatIn} in vs db ${t.dbThroatIn} in (${t.dbNozzlePartNo})`);
     expect(agree / comparable.length, disagreeing.join('\n')).toBeGreaterThanOrEqual(0.7);
+  });
+});
+
+describe('the coverage this file claims about itself', () => {
+  // WHY THIS BLOCK EXISTS (2026-09-08, from review). v0.120's release note said
+  // this database covers "every 98 mm motor". It does not: AeroTech have 32
+  // in-production 98 mm motors in the bundled catalogue and 28 of them have a
+  // row — M1305M, M1340W, N1975W-PS and O5500X-PS have none, because their
+  // paperwork is not the reload-kit assembly drawing this database is built
+  // from. That claim was written by hand from a spot check and
+  // nothing in the repo could contradict it. build-nozzle-db.mjs now COUNTS
+  // coverage per casing diameter and names what is short; this is the check
+  // that the counting is honest, so the next claim can be read off the file.
+  const coverage = db.coverage?.byCasingDiameterMm ?? {};
+
+  it('states, per casing diameter, how much of the catalogue it covers', () => {
+    expect(Object.keys(coverage).length).toBeGreaterThan(0);
+    const bad = Object.entries(coverage)
+      .filter(([, e]) => !(e.inProduction > 0) || !(e.withNozzleRow >= 0)
+        || e.withNozzleRow > e.inProduction
+        || !Array.isArray(e.missing) || e.missing.length !== e.inProduction - e.withNozzleRow)
+      .map(([mm, e]) => `${mm} mm: ${e.withNozzleRow} of ${e.inProduction} covered but `
+        + `${e.missing?.length} named as missing`);
+    expect(bad, bad.join('\n')).toEqual([]);
+    // The 98 mm line is the one a release note quoted, so its presence is
+    // pinned; its numbers are checked against the catalogue below.
+    expect(coverage['98'], 'the 98 mm coverage figure must be stated').toBeDefined();
+  });
+
+  it('names every motor it counts as missing in `uncovered` too', () => {
+    // Both blocks are computed in the same run from the same catalogue, so
+    // they cannot legitimately disagree — and `uncovered` is where a reader
+    // looks for the names behind a coverage figure.
+    const named = new Set(Object.values(db.uncovered).flat());
+    const bad = Object.entries(coverage)
+      .flatMap(([mm, e]) => (e.missing ?? []).filter((d) => !named.has(d))
+        .map((d) => `${mm} mm ${d}: counted as missing but not named in \`uncovered\``));
+    expect(bad, bad.join('\n')).toEqual([]);
+  });
+
+  it('counts that coverage from the shipped catalogue rather than from memory', () => {
+    const have = new Set(rows.filter((r) => r.motorId).map((r) => r.motorId));
+    const recomputed = new Map();
+    for (const m of catalogue.motors) {
+      if (m.manufacturerAbbrev !== 'AeroTech' || m.availability === 'OOP') continue;
+      const mm = String(m.diameter);
+      if (!recomputed.has(mm)) recomputed.set(mm, { inProduction: 0, withNozzleRow: 0, missing: [] });
+      const e = recomputed.get(mm);
+      e.inProduction++;
+      if (have.has(m.motorId)) e.withNozzleRow++;
+      else e.missing.push(m.designation);
+    }
+    const bad = [];
+    for (const [mm, e] of recomputed) {
+      const said = coverage[mm];
+      if (!said) { bad.push(`${mm} mm: catalogue has ${e.inProduction} in production, file states nothing`); continue; }
+      if (said.inProduction !== e.inProduction || said.withNozzleRow !== e.withNozzleRow) {
+        bad.push(`${mm} mm: file says ${said.withNozzleRow} of ${said.inProduction}, catalogue gives `
+          + `${e.withNozzleRow} of ${e.inProduction}`);
+      }
+      const missing = [...(said.missing ?? [])].sort().join(' ');
+      if (missing !== [...e.missing].sort().join(' ')) {
+        bad.push(`${mm} mm: file names [${missing}] as missing, catalogue gives [${[...e.missing].sort().join(' ')}]`);
+      }
+    }
+    for (const mm of Object.keys(coverage)) {
+      if (!recomputed.has(mm)) bad.push(`${mm} mm: stated, but the catalogue has no in-production AeroTech motor that size`);
+    }
+    // Same verdict rule as the join: a stale count against a catalogue that
+    // has moved on is a report, because only a regeneration can clear it.
+    judgeAgainstCatalogue(bad, 'the stated coverage no longer matches the shipped catalogue',
+      'Regenerate with `node packages/app/scripts/build-nozzle-db.mjs` on the machine that holds '
+      + 'docs/RCS Schematics, and correct any coverage figure quoted in a release note.');
   });
 });
 

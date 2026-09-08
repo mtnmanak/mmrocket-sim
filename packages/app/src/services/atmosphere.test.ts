@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   isaPressurePa,
+  isaTemperatureK,
+  ISA_TOP_M,
   padPressureIssue,
   PAD_PRESSURE_SEA_LEVEL_MARGIN,
   PAD_PRESSURE_SITE_M,
@@ -126,5 +128,185 @@ describe('padPressureIssue — the altimeter-setting branch', () => {
     expect(at(std * (1 + PAD_PRESSURE_SEA_LEVEL_MARGIN) + 1)).toBe('sea-level');
     // A strong high over a 1,200 m site — +3 % — is weather, not a mistake.
     expect(at(std * 1.03)).toBeNull();
+  });
+});
+
+/**
+ * THE STRATOSPHERE (2026-09-08, from review).
+ *
+ * `isaPressurePa` used to be one tropospheric power law with only a LOWER
+ * clamp, so it was wrong the moment the profile stopped lapsing and NaN once
+ * the extrapolated temperature went negative (T = 288.15 - 0.0065 h reaches
+ * 0 K at 44,331 m, and Math.pow of a negative base to a fractional exponent is
+ * NaN). That was reachable from a file, not just from a typo: rasaeroFile.ts
+ * feeds <Altitude> through unclamped and the Site altitude field's 10,000 m
+ * `max` only rejects TYPED text.
+ *
+ * Anchors are the published ISA layer values, which the layered model has to
+ * reproduce exactly — they are what "on a standard day" means in the copy this
+ * module feeds.
+ */
+describe('ISA station pressure above the troposphere', () => {
+  it('matches the published ISA at every layer boundary', () => {
+    expect(isaPressurePa(0)).toBeCloseTo(101325, 3);
+    expect(isaPressurePa(5000)).toBeCloseTo(54019.9, 0);   // mid-troposphere
+    expect(isaPressurePa(11000)).toBeCloseTo(22632.06, 1); // tropopause
+    expect(isaPressurePa(20000)).toBeCloseTo(5474.885, 2); // top of the isothermal layer
+    expect(isaPressurePa(32000)).toBeCloseTo(868.02, 2);   // top of the +1 K/km layer
+    expect(isaPressurePa(47000)).toBeCloseTo(110.91, 2);
+  });
+
+  it('matches the published ISA temperature at the same boundaries', () => {
+    expect(isaTemperatureK(0)).toBeCloseTo(288.15, 6);
+    expect(isaTemperatureK(5000)).toBeCloseTo(255.65, 6);
+    expect(isaTemperatureK(11000)).toBeCloseTo(216.65, 6);
+    expect(isaTemperatureK(20000)).toBeCloseTo(216.65, 6); // isothermal, not still falling
+    expect(isaTemperatureK(32000)).toBeCloseTo(228.65, 6); // rising again
+  });
+
+  /**
+   * What the single power law actually quoted, measured: 61.87 mbar at
+   * 60,000 ft where the truth is 71.72 (-13.7 %), and 2.24 mbar at 100,000 ft
+   * where the truth is 10.90 (-79 %).
+   */
+  it('no longer under-reads the pressure the old power law quoted', () => {
+    const old = (h: number) => 101325 * Math.pow((288.15 - 0.0065 * h) / 288.15, 9.80665 / (0.0065 * 287.053));
+    expect(isaPressurePa(18288) / 100).toBeCloseTo(71.72, 1); // 60,000 ft
+    expect(old(18288) / 100).toBeCloseTo(61.87, 1);
+    expect(isaPressurePa(30480) / 100).toBeCloseTo(10.90, 1); // 100,000 ft
+    expect(old(30480) / 100).toBeCloseTo(2.24, 1);
+  });
+
+  /**
+   * The reproduction from the review: a .CDX1 stating <Altitude>150000</Altitude>
+   * (45,720 m) made the import note read "about NaN mbar (NaN in-Hg) there on a
+   * standard day". `toFixed` on a NaN is the string "NaN", so nothing downstream
+   * caught it.
+   */
+  it('is finite at the altitude that used to produce NaN', () => {
+    const h = 150000 / 3.28084; // 45,720 m — past the 44,331 m zero-kelvin point
+    expect(Number.isFinite(isaPressurePa(h))).toBe(true);
+    expect(isaPressurePa(h)).toBeCloseTo(130.5, 0);
+    expect((isaPressurePa(h) / 100).toFixed(0)).not.toBe('NaN');
+    expect(Number.isFinite(isaTemperatureK(h))).toBe(true);
+  });
+
+  it('is total: finite for every input, clamped at both ends', () => {
+    for (const h of [NaN, Infinity, -Infinity, -1e9, 1e9, 84852, 100000]) {
+      expect(Number.isFinite(isaPressurePa(h)), `pressure at ${h}`).toBe(true);
+      expect(isaPressurePa(h), `pressure at ${h}`).toBeGreaterThan(0);
+      expect(Number.isFinite(isaTemperatureK(h)), `temperature at ${h}`).toBe(true);
+      expect(isaTemperatureK(h), `temperature at ${h}`).toBeGreaterThan(0);
+    }
+    // Clamped, not extrapolated: below sea level reads sea level, above the top
+    // of the modelled profile reads the top.
+    expect(isaPressurePa(-100)).toBeCloseTo(101325, 6);
+    expect(isaPressurePa(NaN)).toBeCloseTo(101325, 6);
+    expect(isaPressurePa(1e9)).toBeCloseTo(isaPressurePa(ISA_TOP_M), 12);
+    expect(isaTemperatureK(1e9)).toBeCloseTo(186.95, 6);
+  });
+
+  it('falls monotonically all the way up, layer joins included', () => {
+    let last = Infinity;
+    for (let h = 0; h <= ISA_TOP_M; h += 100) {
+      const p = isaPressurePa(h);
+      expect(p, `pressure at ${h} m`).toBeLessThan(last);
+      last = p;
+    }
+  });
+
+  /** The layers join without a step — each boundary is one pressure, not two. */
+  it('is continuous across every layer boundary', () => {
+    for (const h of [11000, 20000, 32000, 47000, 51000, 71000, 84852]) {
+      // A hair BELOW the boundary is evaluated by the layer beneath it and a
+      // hair above by the layer on top, so this is the join itself. The offset
+      // has to be small against the real gradient: dp/p is -1.58e-4 per metre
+      // at 11 km, which is why a 1 mm offset already shows 1.6e-7 of honest
+      // barometry and would drown a step.
+      expect(isaPressurePa(h - 1e-7) / isaPressurePa(h), `p at ${h} m`).toBeCloseTo(1, 9);
+      expect(isaTemperatureK(h - 1e-7) - isaTemperatureK(h), `T at ${h} m`).toBeCloseTo(0, 6);
+    }
+  });
+});
+
+/**
+ * THE MIRROR OF THE BLANK-PRESSURE TRAP (2026-09-08, from review).
+ *
+ * `ExtendedISAModel(alt, T, p)` writes the value it was given straight into
+ * baseTemperature[1] at layer[1] = alt, so the field left blank — filled with
+ * the sea-level standard — is what the PAD reads. With the temperature blank
+ * that is 288.15 K at the pad however high the site, and the v0.120 help
+ * promised the opposite while telling the reader to type a station pressure.
+ */
+describe('padPressureIssue — the blank-temperature branch', () => {
+  it('fires when a plausible pressure is typed and the temperature is blank', () => {
+    // 878 mbar at 1,190 m and 730 at 2,682 m are those sites' own standard
+    // pressures — nothing wrong with either number, which is why nothing
+    // caught this.
+    expect(padPressureIssue({ launchAltitudeM: 1190, temperatureC: null, pressureHPa: 878 }))
+      .toBe('blank-temperature');
+    expect(padPressureIssue({ launchAltitudeM: 2682, temperatureC: null, pressureHPa: 730 }))
+      .toBe('blank-temperature');
+    // Absent, not just null.
+    expect(padPressureIssue({ launchAltitudeM: 2682, pressureHPa: 730 })).toBe('blank-temperature');
+  });
+
+  it('says nothing when both fields are given', () => {
+    expect(padPressureIssue({ launchAltitudeM: 2682, temperatureC: -2.4, pressureHPa: 730 }))
+      .toBeNull();
+  });
+
+  it('says nothing at a low site — the same 600 m gate as the pressure half', () => {
+    expect(padPressureIssue({ launchAltitudeM: ft(700), temperatureC: null, pressureHPa: 990 }))
+      .toBeNull();
+    const at = (h: number) => padPressureIssue({ launchAltitudeM: h, temperatureC: null, pressureHPa: 943 });
+    expect(at(PAD_PRESSURE_SITE_M)).toBeNull();
+    expect(at(PAD_PRESSURE_SITE_M + 1)).toBe('blank-temperature');
+  });
+
+  /**
+   * A pressure that is BOTH an altimeter setting and missing its temperature is
+   * reported as the altimeter setting: 15 % wrong on pressure outranks 3 %
+   * wrong on temperature, and fixing the pressure is what the user must do
+   * first.
+   */
+  it('yields to the altimeter-setting branch when the pressure is also wrong', () => {
+    expect(padPressureIssue({ launchAltitudeM: 1190, temperatureC: null, pressureHPa: 1015.9 }))
+      .toBe('sea-level');
+  });
+
+  it('leaves the other two branches exactly as they were', () => {
+    expect(padPressureIssue({ launchAltitudeM: 2682, temperatureC: 32.2, pressureHPa: null }))
+      .toBe('blank');
+    expect(padPressureIssue({ launchAltitudeM: 2682, temperatureC: null, pressureHPa: null }))
+      .toBeNull();
+  });
+});
+
+/**
+ * The measurement the copy quotes. With a station pressure typed and the
+ * temperature blank the pad flies 288.15 K instead of the lapsed value, so the
+ * air is thin by exactly T_isa/288.15 - 1 and the speed of sound high by the
+ * square root of the same ratio.
+ */
+describe('what the blank temperature costs', () => {
+  const R = 287.053;
+  it('is 6.05 % on density and 3.17 % on the speed of sound at 2,682 m', () => {
+    const h = 2682;
+    const p = isaPressurePa(h);
+    const rhoRight = p / (R * isaTemperatureK(h));
+    const rhoWrong = p / (R * 288.15);
+    expect(isaTemperatureK(h)).toBeCloseTo(270.72, 2);
+    expect(rhoRight).toBeCloseTo(0.9393, 4);
+    expect(rhoWrong).toBeCloseTo(0.8824, 4);
+    expect((rhoWrong / rhoRight - 1) * 100).toBeCloseTo(-6.05, 2);
+    const aRatio = Math.sqrt(288.15 / isaTemperatureK(h));
+    expect((aRatio - 1) * 100).toBeCloseTo(3.17, 2);
+  });
+
+  it('is 2.68 % on density at 1,190 m', () => {
+    const h = 1190;
+    expect(isaTemperatureK(h)).toBeCloseTo(280.415, 3);
+    expect((isaTemperatureK(h) / 288.15 - 1) * 100).toBeCloseTo(-2.68, 2);
   });
 });

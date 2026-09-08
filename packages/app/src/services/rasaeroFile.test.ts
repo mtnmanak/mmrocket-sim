@@ -2022,7 +2022,10 @@ describe('RASAero import — nozzle exit diameter, per simulation with the Desig
  * an import is exactly where that pair arrives without anyone typing it — and
  * the import note is the only warning its owner gets.
  *
- * Two branches, one line each, and both silent below 600 m.
+ * Three branches, one line each, and all silent below 600 m. The third — a
+ * pressure stated with no readable temperature — was added 2026-09-08 from
+ * review, when `padPressureIssue` grew it and only the live panel caution had
+ * a branch for it.
  */
 describe('RASAero import — the pad pressure note', () => {
   const padNote = (xmlOrFixture: string): string | undefined =>
@@ -2097,6 +2100,29 @@ describe('RASAero import — the pad pressure note', () => {
     // about the mechanism, not about RASAero's habits.
     expect(padNote(withSite(8800, 0, null))).toBeUndefined();
     expect(padNote(withSite(8800, 0, 55))).toMatch(/no pad pressure, at 8800 ft/);
+  });
+
+  it('fires the MIRROR: a good station pressure with no readable temperature', () => {
+    // 2026-09-08, from review. RASAero writes a <Temperature> into every file,
+    // so this shape only arrives when that field is absent or unreadable (a
+    // comma decimal separator is the usual cause) — and then the kernel pins
+    // 288.15 K at the pad. Only the Launch panel's live caution said so; the
+    // import note, which is the one warning the file's owner gets, did not.
+    const note = padNote(withSite(8800, 21.5, null))!;
+    expect(note).toBeDefined();
+    expect(note).toMatch(/gives a pad pressure but no readable temperature, at 8800 ft/);
+    expect(note).toMatch(/sea-level standard, 59 °F \(15 °C\)/);
+    expect(note).toMatch(/standard day is about 28 °F \(-2 °C\)/);
+    expect(note).toMatch(/clear the pressure as well/);
+    // Not the blank-pressure line, and not the altimeter-setting line.
+    expect(note).not.toMatch(/no pad pressure/);
+    expect(note).not.toMatch(/altimeter setting/);
+    // A wrong PRESSURE outranks a missing temperature: an altimeter setting
+    // with no temperature is still reported as the altimeter setting.
+    expect(padNote(withSite(8800, 29.92, null))).toMatch(/altimeter setting/);
+    // And exactly one line, as on the other two branches.
+    expect(importCdx1(withSite(8800, 21.5, null)).notes.filter((n) => n.startsWith('Launch site:')))
+      .toHaveLength(1);
   });
 
   it('quotes the 8,800 ft site the finding is stated at', () => {

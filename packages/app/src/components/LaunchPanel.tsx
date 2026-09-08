@@ -2,7 +2,7 @@ import { DEFAULT_TIME_STEP_S, ISA_SEA_LEVEL, type SimulationOptions } from '@onl
 import { useId } from 'react';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { fmtSi, niceStep, siToUi, uiToSi, type Quantity } from '../prefs/units.js';
-import { isaPressurePa, padPressureIssue } from '../services/atmosphere.js';
+import { isaPressurePa, isaTemperatureK, padPressureIssue } from '../services/atmosphere.js';
 import { Icon } from './Icon.js';
 import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
@@ -137,13 +137,18 @@ export function LaunchField({ label, field, value, onChange, stepStored, min, ma
    * says WHAT the field wants, the help says what leaving it blank actually
    * does.
    *
-   * Reachable, not hover-only (2026-09-08, from review). This was a `title` on
-   * the wrapper `<div>`, which is neither announced by a screen reader nor
-   * reachable from the keyboard — so the one sentence explaining the blank-
-   * pressure trap was mouse-only. It now renders in a visually-hidden `<span>`
-   * that the input names through `aria-describedby`, which is the association
-   * the `.field` idiom otherwise does not make (the same gap `ariaLabel` was
-   * added for). The `title` stays on the input as well, for the hover.
+   * Reachable, not hover-only (2026-09-08, from review). A `title` alone is
+   * neither announced by a screen reader nor reachable from the keyboard — so
+   * the one sentence explaining the blank-pressure trap was mouse-only. It now
+   * ALSO renders in a visually-hidden `<span>` that the input names through
+   * `aria-describedby`, which is the association the `.field` idiom otherwise
+   * does not make (the same gap `ariaLabel` was added for).
+   *
+   * The `title` stays on the wrapper `<div className="field">`, NOT on the
+   * input (a later review read this comment as claiming the input carried it;
+   * it never did, and `NumField` takes no `title` prop). The wrapper is the
+   * better hover target anyway — it covers the label and the unit chip as well
+   * as the box — and LaunchPanel.test.tsx reads the help off `.field[title]`.
    */
   help?: string;
 }) {
@@ -252,35 +257,51 @@ export function TimeStepCaution({ dt, lastRun, flights = 1 }: {
  * Field help for the two atmosphere fields — the sentence the labels cannot
  * hold. Exported so the tests assert on the SAME strings the panel renders.
  *
- * The pressure one exists because of the 2026-09-08 finding: the kernel takes
- * temperature and pressure as a pair, so a typed temperature with a blank
- * pressure flies 101,325 Pa at the pad however high the site (see
- * services/atmosphere.ts for the mechanism and the measurements). "Left blank
- * it is computed from your site altitude" is true only when the temperature is
- * blank too, and the help now says which.
+ * Both exist because of the 2026-09-08 finding: the kernel takes temperature
+ * and pressure as a PAIR, and fills whichever one is blank with the standard
+ * SEA-LEVEL value applied at the pad (see services/atmosphere.ts for the
+ * mechanism and the measurements). So "left blank it is computed from your
+ * site altitude" is true of either field only when BOTH are blank.
+ *
+ * The temperature half was still stated wrongly through v0.120, and by the very
+ * copy that steered people into it: it promised "the ISA standard 15 °C at sea
+ * level, lapsing with your site altitude" one line after telling the reader to
+ * type a station pressure — which is the thing that switches the lapse off.
+ * Measured at 2,682 m, that leaves 288.15 K at the pad against a standard
+ * 270.72 K: air 6.05 % thin and a speed of sound 3.17 % high. Both helps now
+ * say the same thing, which is: type the two together, or leave both blank.
  */
 export const STATION_PRESSURE_HELP =
   'The pressure AT THE PAD — what a barometer reads standing there — not the sea-level '
   + 'altimeter setting an airport broadcasts. Leave this and Temperature BOTH blank and the '
   + 'app computes the pad\'s pressure from your site altitude. Leave only this blank while a '
   + 'temperature is typed and it does not: the flight then uses sea-level pressure — 101,325 Pa '
-  + '— at your pad however high the site.';
+  + '— at your pad however high the site. Type the two together, or leave both blank.';
 
 export const SITE_TEMPERATURE_HELP =
-  'Air temperature at the pad. Blank = the ISA standard 15 °C at sea level, lapsing with your '
-  + 'site altitude. Typing one also switches the Station pressure field off its computed value, '
-  + 'so type the pad\'s station pressure with it.';
+  'Air temperature at the pad. Leave this and Station pressure BOTH blank and the app computes '
+  + 'the pad\'s temperature from your site altitude — the ISA standard, 15 °C at sea level '
+  + 'falling 6.5 °C per km. Leave only this blank while a pressure is typed and it does not: the '
+  + 'flight then uses 15 °C at your pad however high the site, so the air comes out too thin and '
+  + 'the speed of sound too high. Type the two together, or leave both blank: if you type a '
+  + 'temperature, type the pad\'s station pressure with it.';
 
 /**
- * Live caution when the pad's pressure is wrong for the site — the panel half
- * of the 2026-09-08 pad-pressure finding, and the place a user actually fixes
- * what the RASAero import note told them about.
+ * Live caution when the pad's air is wrong for the site — the panel half of the
+ * 2026-09-08 pad-pressure finding, and the place a user actually fixes what the
+ * RASAero import note told them about.
  *
- * It fires on exactly the two cases `padPressureIssue` names, and it quotes the
- * number the site itself implies, because "type your station pressure" is not
- * actionable without one. Silent below 600 m and silent when both fields are
- * blank — that input is correct, and a caution that cries on correct input is
- * one users learn to skip past.
+ * It fires on exactly the three cases `padPressureIssue` names, and it quotes
+ * the number the site itself implies, because "type your station pressure" is
+ * not actionable without one. Silent below 600 m and silent when both fields
+ * are blank — that input is correct, and a caution that cries on correct input
+ * is one users learn to skip past.
+ *
+ * The third branch — a pressure typed with the temperature left blank — was
+ * added from review (2026-09-08). It is the mirror of the first, and the app
+ * itself steers people into it: the Station pressure help asks for a pressure,
+ * and typing one on its own pins 288.15 K at the pad. Nothing caught it, because
+ * the pressure in that case is entirely plausible.
  */
 export function PadPressureCaution({ value }: { value: LaunchConditions }) {
   const { prefs } = usePrefs();
@@ -288,9 +309,12 @@ export function PadPressureCaution({ value }: { value: LaunchConditions }) {
   if (!issue) return null;
   const sym = prefs.units.pressure;
   const altSym = prefs.units.distance;
+  const tSym = prefs.units.temperature;
   const site = fmtSi('distance', altSym, value.launchAltitudeM);
   const standing = `${fmtSi('pressure', sym, isaPressurePa(value.launchAltitudeM))} ${sym}`;
   const seaLevel = `${fmtSi('pressure', sym, ISA_SEA_LEVEL.pressurePa)} ${sym}`;
+  const standingT = `${fmtSi('temperature', tSym, isaTemperatureK(value.launchAltitudeM))} ${tSym}`;
+  const seaLevelT = `${fmtSi('temperature', tSym, ISA_SEA_LEVEL.temperatureK)} ${tSym}`;
   return (
     <p className="field-caution" role="status" data-caution="pad-pressure">
       <Icon name="zap" size={13} />{' '}
@@ -298,13 +322,21 @@ export function PadPressureCaution({ value }: { value: LaunchConditions }) {
         ? <><strong>Station pressure is blank and a temperature is typed.</strong> The flight then
             uses sea-level pressure — <strong>{seaLevel}</strong> — at a pad {site} {altSym} up,
             where a barometer reads about {standing}. The air comes out too dense and the motor
-            loses the thrust thin air owes it.</>
-        : <><strong>{fmtSi('pressure', sym, value.pressureHPa! * 100)} {sym} is about sea-level
-            pressure</strong>, and this pad is {site} {altSym} up, where a barometer reads about{' '}
-            {standing}. That looks like an altimeter setting rather than what the pad reads.</>}
-      {' '}Type the pad&rsquo;s station pressure{issue === 'blank'
-        ? <>, or clear the temperature too and the app computes it from your site altitude</>
-        : null}. See <em>Launch Conditions</em> in the Guide.
+            loses the thrust thin air owes it.{' '}
+            Type the pad&rsquo;s station pressure, or clear the temperature too and the app
+            computes it from your site altitude.</>
+        : issue === 'blank-temperature'
+          ? <><strong>Temperature is blank and a station pressure is typed.</strong> The flight then
+              uses the sea-level standard — <strong>{seaLevelT}</strong> — at a pad {site} {altSym} up,
+              where a standard day is about {standingT}. The air comes out too thin and the speed of
+              sound too high, which shifts every Mach number the drag is read at.{' '}
+              Type the pad&rsquo;s temperature, or clear the pressure too and the app computes both
+              from your site altitude.</>
+          : <><strong>{fmtSi('pressure', sym, value.pressureHPa! * 100)} {sym} is about sea-level
+              pressure</strong>, and this pad is {site} {altSym} up, where a barometer reads about{' '}
+              {standing}. That looks like an altimeter setting rather than what the pad reads.{' '}
+              Type the pad&rsquo;s station pressure.</>}
+      {' '}See <em>Launch Conditions</em> in the Guide.
     </p>
   );
 }

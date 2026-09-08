@@ -506,8 +506,32 @@ export function App() {
    * (configSync.withActiveConfigSynced) keeps that copy current, so a reload
    * no longer costs a configuration its unresolved motors (v0.118).
    */
-  const [unmatchedRefs, setUnmatchedRefs] = useState<Record<string, OrkMotorRef>>(
+  const [unmatchedRefs, setUnmatchedRefsRaw] = useState<Record<string, OrkMotorRef>>(
     () => restoreUnmatchedRefs(session?.savedConfigs, session?.activeConfigId, session?.mountMotors ?? {}));
+  /**
+   * The live references, mirrored into a ref for exactly the reason `treeRef`
+   * mirrors the tree (2026-09-08, from review): `assignMotor` runs after an
+   * AWAITED thrust-curve fetch, so two quick-picks on a two-stage design can
+   * land in one flush, and the second read this render's `unmatchedRefs` —
+   * still holding the reference the first pick had just dropped. The deletions
+   * themselves composed (they were functional updaters), but the
+   * `remainingRefs` SNAPSHOT handed to `assignMotorRecord` was pre-batch, so
+   * the adopted pad mass was keyed against a set naming a mount that already
+   * had a real motor on it, and read back as a stale weighing.
+   *
+   * Every writer goes through `setUnmatchedRefs` below, which advances the
+   * mirror as it writes. The value is computed OUT here and a plain value
+   * handed to React, so the StrictMode purity rule on `treeRef` holds here too.
+   */
+  const unmatchedRefsRef = useRef(unmatchedRefs);
+  unmatchedRefsRef.current = unmatchedRefs;
+  const setUnmatchedRefs = useCallback((
+    next: Record<string, OrkMotorRef> | ((prev: Record<string, OrkMotorRef>) => Record<string, OrkMotorRef>),
+  ) => {
+    const value = typeof next === 'function' ? next(unmatchedRefsRef.current) : next;
+    unmatchedRefsRef.current = value;
+    setUnmatchedRefsRaw(value);
+  }, []);
   // A RASAero import's Mach-Alt table, offered to the drag panel as a sweep
   // condition. Session-only: it belongs to the imported file, not the design.
   const [fileMachAlt, setFileMachAlt] = useState<[number, number][] | undefined>();
@@ -1031,9 +1055,26 @@ export function App() {
    * makes it dangerous: the next tester bug reproduced locally would look like
    * a shipped defect. Refs are mutated out here; the updaters take plain
    * values and stay pure.
+   *
+   * IT IS THE LATEST TREE, NOT THE LAST RENDERED ONE (2026-09-08, from review).
+   * Every writer below advances it as it writes, so two handlers running in the
+   * SAME tick compose: the second reads what the first wrote instead of the
+   * pre-batch snapshot React has not re-rendered yet. That is not theoretical —
+   * `assignMotor` runs after an awaited curve fetch (`MotorPicker.pick`), so
+   * two quick-picks on a two-stage design can land in one flush, and building
+   * both writes from the render-time `tree` discarded the first: one stage kept
+   * its mark and its motor-inclusive override under a mounted motor, which is
+   * the exact double count the mark exists to prevent, with no route left to
+   * rescan it. Assignments happen in handlers, never inside an updater, so the
+   * StrictMode purity rule above is untouched.
    */
   const treeRef = useRef(tree);
   treeRef.current = tree;
+  /** setTreeRaw + the mirror, so no writer can leave the two disagreeing. */
+  const writeTree = useCallback((next: RocketTree) => {
+    treeRef.current = next;
+    setTreeRaw(next);
+  }, []);
   /**
    * A tree coming BACK off the undo/redo stack, with any stated-launch-weight
    * mark a currently-mounted motor has already spent taken off it again.
@@ -1051,14 +1092,24 @@ export function App() {
    * a marked stage under a mounted motor is a wrong number whichever way the
    * user arrived at it. Identity for every design that carries no mark.
    *
-   * SILENT on purpose — the correction still has to happen, but a paragraph
-   * about stated launch weights is not what Ctrl+Z asked for. Held in a ref
-   * because `undo`/`redo` are `useCallback([])` and must not close over a
-   * render's `mountMotors`.
+   * IT SAYS SO NOW (2026-09-08, from review). v0.120 threw the notes away on
+   * the reasoning that a paragraph about stated launch weights is not what
+   * Ctrl+Z asked for. What Ctrl+Z asked for even less is a stage mass that
+   * moves by tens of pounds with nothing on screen: on MESOS a Ctrl+Z with a
+   * motor mounted moves the sustainer by 6.97 kg either way — corrected, or
+   * cleared because the motor mounted now is not the one the file named. The
+   * notice bar is the one place the app says what it did to a number, and this
+   * is a number it changed.
+   *
+   * Held in a ref because `undo`/`redo` are `useCallback([])` and must not
+   * close over a render's `mountMotors`.
    */
   const spendSpentMarks = useRef<(t: RocketTree) => RocketTree>((t) => t);
-  spendSpentMarks.current = (t) =>
-    reconcileAllIncludedMotors(t, attachedSet(mountMotors), statedWeightText).tree;
+  spendSpentMarks.current = (t) => {
+    const spent = reconcileAllIncludedMotors(t, attachedSet(mountMotors), statedWeightText);
+    if (spent.notes.length) setFileNote(spent.notes.join('\n'), spent.severity);
+    return spent.tree;
+  };
   const setTree = useCallback((next: RocketTree) => {
     // Coalesce rapid-fire edits (schematic drags, slider moves, keystrokes)
     // into ONE undo step — otherwise a 2 s drag floods the 50-entry buffer
@@ -1074,8 +1125,8 @@ export function App() {
     // later Ctrl+Shift+Z teleports the design into.
     future.current = [];
     bumpHist();
-    setTreeRaw(next);
-  }, []);
+    writeTree(next);
+  }, [writeTree]);
   const undo = useCallback(() => {
     const prev = history.current.pop();
     if (!prev) return;
@@ -1085,8 +1136,8 @@ export function App() {
     // just restored becomes unrecoverable.
     lastEditAt.current = 0;
     bumpHist();
-    setTreeRaw(spendSpentMarks.current(prev));
-  }, []);
+    writeTree(spendSpentMarks.current(prev));
+  }, [writeTree]);
   const redo = useCallback(() => {
     const next = future.current.pop();
     if (!next) return;
@@ -1097,8 +1148,8 @@ export function App() {
     if (history.current.length > 50) history.current.shift();
     lastEditAt.current = 0;
     bumpHist();
-    setTreeRaw(spendSpentMarks.current(next));
-  }, []);
+    writeTree(spendSpentMarks.current(next));
+  }, [writeTree]);
   /**
    * A ONE-SHOT whole-tree transform (Scale) must be exactly one undo step and
    * must not merge with its neighbours. `setTree`'s 800 ms coalescing window is
@@ -1116,8 +1167,8 @@ export function App() {
     future.current = [];
     lastEditAt.current = 0;
     bumpHist();
-    setTreeRaw(next);
-  }, []);
+    writeTree(next);
+  }, [writeTree]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const z = e.key.toLowerCase() === 'z';
@@ -1860,17 +1911,27 @@ export function App() {
 
   /** Assigns a motor to a mount, with the G80 power-class ignition default. */
   const assignMotor = (targetMountId: string, label: string, spec: MotorSpec, meta: MotorMeta) => {
-    const stIdx = stageIndexOf(tree, targetMountId);
-    const multiStage = stages(tree).length > 1;
+    // THE LIVE TREE, not this render's (2026-09-08, from review). Both motor
+    // pickers call `onSelect` only after an AWAITED thrust-curve fetch, so the
+    // `tree` this closure captured can be several renders old by the time the
+    // motor arrives — and on a two-stage design two picks can even land in one
+    // flush, where the second would rebuild the whole tree from a snapshot
+    // taken before the first. See the note on `treeRef`.
+    const live = treeRef.current;
+    const stIdx = stageIndexOf(live, targetMountId);
+    const multiStage = stages(live).length > 1;
     // High-power sustainer in a staged rocket → electronics-timed (the owner:
     // nobody lights an HPR sustainer off the booster's ejection charge).
     const ignition: MountMotor['ignition'] = multiStage && stIdx === 0 && meta.highPower
       ? { event: 'burnout', delay: 1 }
       : { event: 'automatic', delay: 0 };
     // The file's unresolved reference for this mount stops being what should
-    // ride back out the moment the user picks a motor for it.
-    const droppedRef = unmatchedRefs[targetMountId];
-    const { [targetMountId]: _dropped, ...remainingRefs } = unmatchedRefs;
+    // ride back out the moment the user picks a motor for it. THE LIVE SET,
+    // not this render's, for the reason `live` is the live tree — two picks in
+    // one flush (2026-09-08, from review).
+    const refs = unmatchedRefsRef.current;
+    const droppedRef = refs[targetMountId];
+    const { [targetMountId]: _dropped, ...remainingRefs } = refs;
     // A fresh record: a pad mass weighed with a DIFFERENT motor does not
     // belong to this one, so the field starts blank for it. The three ways a
     // weighing survives — the same motor re-picked for its delay, the file's
@@ -1878,7 +1939,18 @@ export function App() {
     // primary's `unmatched:` sentinel for this mount satisfied — are
     // configSync.assignMotorRecord, pure and tested there.
     setMountMotors((prev) => assignMotorRecord(prev, targetMountId, { label, spec, meta, ignition }, {
-      tree, primaryMountId, droppedRef, remainingRefs,
+      // The primary as of THIS assignment, re-derived inside the updater from
+      // the live tree and the live records — the same definition as the
+      // `primaryMountId` memo above (mounts that exist, topmost stage first),
+      // but not a render old. A first pick in the same flush can move it, and
+      // it decides whether the primary's `unmatched:` sentinel for this mount
+      // gets rewritten to the loaded motor. Pure: it reads its arguments and
+      // mutates nothing, so StrictMode's double-invoke is harmless.
+      tree: live,
+      primaryMountId: primaryMountOf(live, motorMounts(live)
+        .map((m) => m.id).filter((id): id is string => typeof id === 'string' && id in prev)),
+      droppedRef,
+      remainingRefs,
     }));
     // When the dropped reference carried the file's pad mass (its motor was
     // the file's primary and could not be loaded): the file's own motor takes
@@ -1911,10 +1983,19 @@ export function App() {
     // only collide with the pad-mass notes above when a file left a weighed
     // pad mass on an unmatched reference AND a stage carries the mark, and the
     // mass being 79 % wrong outranks a note about where a weighing went.
-    const fix = reconcileIncludedMotor(tree, targetMountId, attachedOf(spec), statedWeightText);
+    const fix = reconcileIncludedMotor(live, targetMountId, attachedOf(spec), statedWeightText);
     if (fix) {
-      setTree(fix.tree);
-      if (fix.note) setFileNote(fix.note, fix.severity);
+      if (fix.note) {
+        setTree(fix.tree);
+        setFileNote(fix.note, fix.severity);
+      } else {
+        // A STALE mark and nothing else: both overrides were already cleared by
+        // hand, so this only drops the bookkeeping key. `setTree` would push an
+        // undo entry the user cannot see and throw away their redo stack for
+        // it, so the mirror is advanced without touching the history
+        // (2026-09-08, from review).
+        writeTree(fix.tree);
+      }
     }
   };
 

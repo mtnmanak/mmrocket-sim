@@ -775,8 +775,22 @@ for (const r of rows) {
 const motorRows = [];
 for (const group of grouped.values()) {
   const drawings = group.map((r) => r.provenance.assemblyDrawing).sort();
-  const exits = [...new Set(group.map((r) => r.exitDiameterM))];
+  // A SHEET WITH NO EXIT IS NOT A SECOND NOZZLE. (2026-09-08, from review.)
+  // `undefined` counted as a distinct member of this Set, so a group holding
+  // one sheet that states an exit and one that does not read as two published
+  // OPTIONS: the row would be marked `exitAmbiguous` and its note would offer
+  // the reader "<part> undefined in" as the alternative. Only sheets that
+  // actually state an exit can disagree about one. No group in the current
+  // document set mixes the two — J615ST-20A, the one exitless motor, is
+  // exitless on every sheet — so this changes no number today; it stops a
+  // future aerospike or blank sheet from making a nonsense row.
+  const exits = [...new Set(group.map((r) => r.exitDiameterM).filter((v) => v !== undefined))];
   const pick = [...group].sort((a, b) => {
+    // ...and it can never be the PRIMARY while a sibling states one. The row's
+    // whole job is to carry an exit diameter (2026-09-08, from review).
+    const ea = a.exitDiameterM === undefined ? 1 : 0;
+    const eb = b.exitDiameterM === undefined ? 1 : 0;
+    if (ea !== eb) return ea - eb;
     const ra = revDate(a.provenance.assemblyDrawing);
     const rb = revDate(b.provenance.assemblyDrawing);
     if (ra !== rb) return rb.localeCompare(ra); // newest dated nozzle revision first
@@ -814,10 +828,31 @@ for (const group of grouped.values()) {
     out.exitPickedBy = revDate(pick.provenance.assemblyDrawing) ? 'dated-revision'
       : label(pick.provenance.assemblyDrawing) !== 1 ? 'sheet-label' : 'majority-of-sheets';
     if (out.exitConfidence === 'high') out.exitConfidence = 'medium';
-    // Deduped: several delay variants of the same motor show the same
-    // alternative part, and listing it three times reads like three nozzles.
-    const others = [...new Map(group.filter((r) => r.exitDiameterM !== pick.exitDiameterM)
-      .map((r) => [r.nozzlePartNo, `${r.nozzlePartNo} ${r.exitDiameterIn} in`])).values()];
+    // ONE LIST, DESCRIBED ONCE. (2026-09-08, from review.) The prose note and
+    // `alternatives` were built from two separate dedupes of the same rows —
+    // a Map, which keeps the LAST row for a repeated part number, against a
+    // findIndex filter, which keeps the FIRST. Where one part number appeared
+    // twice in a group with different exits (a Medusa part whose exit is
+    // resolved per motor is the way that happens), the sentence a user reads
+    // and the list a consumer reads would name the same part with two
+    // different numbers. The note is now written FROM the list it describes,
+    // so they cannot disagree.
+    //
+    // Deduped at all because several delay variants of the same motor show the
+    // same alternative part, and listing it three times reads like three
+    // nozzles.
+    out.alternatives = group
+      .filter((r) => r.exitDiameterM !== undefined && r.exitDiameterM !== pick.exitDiameterM)
+      .filter((r, i, xs) => xs.findIndex((y) => y.nozzlePartNo === r.nozzlePartNo) === i)
+      .map((r) => ({
+        nozzlePartNo: r.nozzlePartNo,
+        exitDiameterM: r.exitDiameterM,
+        exitDiameterIn: r.exitDiameterIn,
+        throatDiameterM: r.throatDiameterM,
+        assemblyDrawing: r.provenance.assemblyDrawing,
+        lomDescription: r.provenance.lomDescription,
+      }));
+    const others = out.alternatives.map((a) => `${a.nozzlePartNo} ${a.exitDiameterIn} in`);
     out.confidenceNote = `AeroTech publish two nozzles for this motor (${pick.nozzlePartNo} `
       + `${pick.exitDiameterIn} in against ${others.join(', ')}). `
       + (out.exitPickedBy === 'dated-revision'
@@ -826,17 +861,6 @@ for (const group of grouped.values()) {
           ? "The one used here is the one AeroTech's own sheet name calls the newer; "
           : 'The one used here is the one more sheets show; ')
       + 'check which nozzle is in your reload kit before trusting the exit area.';
-    out.alternatives = group
-      .filter((r) => r.exitDiameterM !== pick.exitDiameterM)
-      .map((r) => ({
-        nozzlePartNo: r.nozzlePartNo,
-        exitDiameterM: r.exitDiameterM,
-        exitDiameterIn: r.exitDiameterIn,
-        throatDiameterM: r.throatDiameterM,
-        assemblyDrawing: r.provenance.assemblyDrawing,
-        lomDescription: r.provenance.lomDescription,
-      }))
-      .filter((a, i, xs) => xs.findIndex((y) => y.nozzlePartNo === a.nozzlePartNo) === i);
   }
   motorRows.push(out);
 }
@@ -921,8 +945,18 @@ const MEASURED_NOZZLES = [
  */
 const certCheck = (raw.certNozzles ?? []).map((c) => {
   const stem = c.designation.replace(/\s*\(.*\)$/, '');
+  // The fallback strips the letter's plugged-delay suffix ("-P", "-PS") so a
+  // letter can still find a sheet that writes the motor without it. It was
+  // written /-P S?$/ — a literal "-P", a SPACE, then an optional S — which
+  // matches nothing any letter is called, so the fallback silently degraded to
+  // a plain startsWith on the full stem (2026-09-08, from review). All twelve
+  // letters in the current set resolve on the EXACT branch above (the three
+  // that do not are Kosdon-by-AeroTech motors with no row here at all), so
+  // fixing the pattern moves no number in the file today; it makes the
+  // fallback work the first time a letter and a sheet disagree about the
+  // suffix, which is the case it was written for.
   const row = motorRows.find((r) => r.designation === stem)
-    ?? motorRows.find((r) => r.designation.startsWith(stem.replace(/-P S?$/, '')));
+    ?? motorRows.find((r) => r.designation.startsWith(stem.replace(/-PS?$/, '')));
   return {
     designation: c.designation,
     certFile: c.file,
@@ -964,6 +998,50 @@ const sourceDate = (() => {
   return new Date(newest > 0 ? newest : Date.now()).toISOString().slice(0, 10);
 })();
 
+/**
+ * COVERAGE, COUNTED PER CASING DIAMETER — because a diameter is what people
+ * make claims about. (2026-09-08, from review.)
+ *
+ * v0.120's release note said this database covers "every 98 mm motor". It does
+ * not. AeroTech have 32 in-production 98 mm motors in the bundled catalogue and
+ * 28 of them have a row here. The four without one are M1305M, M1340W,
+ * N1975W-PS and O5500X-PS, and what they have in common is which FOLDER their
+ * paperwork sits in: this pipeline reads `Motor Assembly Drawings`, AeroTech
+ * file the DMS single-use motors under `DMS Motor Designs` (51 PDFs, 29 mm to
+ * 152 mm) and M1305M has only an instruction sheet.
+ *
+ * The two 98 mm DMS sheets opened on 2026-09-08 are in the SAME format this
+ * script already parses, nozzle line and part number included — M1340W-PS
+ * reads "NOZZLE ( KLMN 98MM) .734" I.D. /1.75" EXIT", part 01800-3M — so the
+ * gap is reachable by pointing the extractor at that folder too. Not done here:
+ * reading a new document family adds rows to a shipped data file, which is a
+ * decision about what the app tells people, not a defect fix. Recorded so the
+ * decision can be taken deliberately.
+ *
+ * The claim was written by hand from a spot check, and nothing in the repo
+ * could disagree with it. This block is COMPUTED from the same motors.json
+ * every other count comes from and it NAMES what is missing, so the next
+ * person quoting a coverage figure reads one off instead of counting, and a
+ * catalogue refresh moves the figure with it.
+ */
+const coverageByCasing = (() => {
+  const have = new Set(motorRows.filter((m) => m.motorId).map((m) => m.motorId));
+  const by = new Map();
+  for (const m of AEROTECH) {
+    // In production only: coverage of motors nobody can buy is not the claim
+    // anyone means, and `uncovered` below lists the retired ones regardless.
+    if (m.availability === 'OOP') continue;
+    if (!by.has(m.diameter)) by.set(m.diameter, { inProduction: 0, withNozzleRow: 0, missing: [] });
+    const e = by.get(m.diameter);
+    e.inProduction++;
+    if (have.has(m.motorId)) e.withNozzleRow++;
+    else e.missing.push(m.designation);
+  }
+  return Object.fromEntries([...by.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([mm, e]) => [String(mm), { ...e, missing: e.missing.sort() }]));
+})();
+
 const db = {
   generated: sourceDate,
   source: 'AeroTech / RCS Rocket Motor Components published drawings and store pages',
@@ -999,18 +1077,29 @@ const db = {
   gaps: {
     Loki: 'No published Loki nozzle geometry in the local document set. Testers\' own RASAero files type 0.9 in for the 54 mm K627LR in four files and 0, 0.91 and 1.3 in for the same motor elsewhere — user input, not data, and deliberately not imported. Owner has the hardware and will measure; add through MEASURED_NOZZLES in build-nozzle-db.mjs.',
     Cesaroni: 'No published nozzle geometry found on pro38.com or elsewhere (owner searched 2026-09-08). Known gap.',
-    AeroTechSingleUse: 'AeroTech publish an assembly drawing for RELOADABLE motors, because the drawing is the reload kit\'s parts list. Single-use and DMS motors have no reload kit, so no drawing and no nozzle part number — that is most of the AeroTech catalogue this file does not cover.',
+    AeroTechSingleUse: 'AeroTech publish an assembly drawing for RELOADABLE motors, because the drawing is the reload kit\'s parts list, and this file is built from that folder ("Motor Assembly Drawings"). Most single-use motors have no reload kit and no such drawing — that is most of the AeroTech catalogue this file does not cover. One qualification, found 2026-09-08: the DMS single-use motors ARE drawn, in the same format, under "DMS Motor Designs" (51 sheets, 29 mm to 152 mm), and M1340W-PS names its nozzle there — "NOZZLE ( KLMN 98MM) .734" I.D. /1.75" EXIT", part 01800-3M. That folder is deliberately not read yet: adding a document family adds rows to shipped data, which is a decision rather than a fix.',
+  },
+  coverage: {
+    note: 'What this file covers, per motor CASING DIAMETER, counted from motors.json at build time rather than written down. A hand-written coverage claim is exactly how "every 98 mm motor" reached a release note while four in-production 98 mm motors had no row here (M1305M, M1340W, N1975W-PS, O5500X-PS). "inProduction" is the AeroTech rows this catalogue does not mark OOP, and every motor short of a row is named. Most of the missing are single-use motors, whose paperwork is not the reload-kit assembly drawing this file is built from — see gaps.AeroTechSingleUse.',
+    byCasingDiameterMm: coverageByCasing,
   },
   // Which AeroTech motors are NOT here, grouped by the case they belong to.
   // Computed rather than written down, so it cannot go stale against a
   // motors.json refresh, and stated in the file because "no row" and "no data"
   // look identical to a consumer that cannot see this list.
+  //
+  // THE DIAMETER IS PART OF THE KEY (2026-09-08, from review). Grouped by case
+  // alone, the three uncovered 98 mm single-use motors (M1340W, N1975W-PS,
+  // O5500X-PS) sat unlabelled inside a 75-strong "single-use" list, so a reader
+  // checking "does this cover the 98 mm motors?" could not see them and the
+  // "every 98 mm motor" claim went unchallenged. A motor's casing size is the
+  // first thing anyone asks this list about, so it is in the heading.
   uncovered: (() => {
     const have = new Set(motorRows.filter((m) => m.motorId).map((m) => m.motorId));
     const by = new Map();
     for (const m of AEROTECH) {
       if (have.has(m.motorId)) continue;
-      const key = m.caseInfo || 'single-use (no reload case)';
+      const key = `${m.diameter} mm ${m.caseInfo || 'single-use (no reload case)'}`;
       if (!by.has(key)) by.set(key, []);
       by.get(key).push(m.designation);
     }
@@ -1068,6 +1157,15 @@ if (unmatched.length) {
   console.log(`\nnot in motors.json (${unmatched.length}):`);
   for (const u of unmatched) console.log(`  ${u.designation}  (${u.file})`);
 }
+// Per casing diameter, because "covers every N mm motor" is the claim people
+// make about this file and it has to be readable off the run that produced it
+// (2026-09-08, from review — v0.120's note claimed all 98 mm and was four short).
+console.log('\nin-production AeroTech coverage, by casing diameter');
+for (const [mm, e] of Object.entries(db.coverage.byCasingDiameterMm)) {
+  console.log(`  ${`${mm} mm`.padEnd(8)} ${String(e.withNozzleRow).padStart(3)} of ${String(e.inProduction).padEnd(3)}`
+    + (e.missing.length ? `  no row: ${e.missing.join(' ')}` : '  (all)'));
+}
+
 const uncoveredTotal = Object.values(db.uncovered).reduce((a, v) => a + v.length, 0);
 console.log(`\nAeroTech motors with no nozzle row  ${uncoveredTotal}`);
 for (const [k, v] of Object.entries(db.uncovered).slice(0, 6)) {

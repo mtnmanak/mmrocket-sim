@@ -10,7 +10,8 @@ import { importCdx1 } from './rasaeroFile.js';
 import { fetchMotorSpec } from './thrustcurve.js';
 import { MOTOR_DB } from './motorDb.js';
 import {
-  includedMotorOf, OVERRIDE_INCLUDES_MOTOR, reconcileAllIncludedMotors, reconcileIncludedMotor,
+  includedMotorOf, namesSameMotor, OVERRIDE_INCLUDES_MOTOR, reconcileAllIncludedMotors,
+  reconcileIncludedMotor,
 } from './statedLaunchWeight.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -301,12 +302,73 @@ describe('the refusals — a wrong override is worse than none', () => {
     expect(fix.note).toContain('back on its computed geometry');
   });
 
-  it('names both motors when the one loaded is not the one the file named', () => {
+  it('clears rather than subtracts when the motor is NOT the one the file named', () => {
+    // v0.120 subtracted whatever motor arrived — `stated − loaded` — which is
+    // arithmetic on two unrelated numbers unless the loaded motor is the one
+    // still inside `stated`. Measured on PePe2 below; the rule is in the
+    // module header (2026-09-08, from review).
     const fix = reconcileIncludedMotor(marked(), 'bt', {
       designation: 'M1297', launchMassKg: 1, lengthM: 0.3, cgXFromFrontM: 0.15,
     }, TEXT)!;
-    expect(fix.note).toContain('“M1297” (the file names “M787” there)');
-    expect(lb(fix.tree.components[0]!['overrideMass'] as number)).toBeCloseTo(lb(1), 6);
+    const st = fix.tree.components[0]!;
+    expect(st['overrideMass']).toBeUndefined();
+    expect(st['overrideSubcomponentsMass']).toBeUndefined();
+    expect(st['overrideCGX']).toBeUndefined();
+    expect(st['overrideSubcomponentsCG']).toBeUndefined();
+    expect(st[OVERRIDE_INCLUDES_MOTOR]).toBeUndefined();
+    expect(fix.severity).toBe('warn');
+    // Both motors named, and the file's own figure quoted so it can be retyped.
+    expect(fix.note).toContain('“M787”');
+    expect(fix.note).toContain('“M1297”');
+    expect(fix.note).toContain(TEXT.mass(2));
+    expect(fix.note).toContain('Type what the stage weighs without a motor');
+    expect(fix.note).not.toMatch(/\bwe\b/i);
+  });
+
+  it('drops the mark quietly when a different motor lands on an already-cleared stage', () => {
+    const tree = marked({ overrideMass: undefined, overrideCGX: undefined, overrideSubcomponentsCG: undefined });
+    const fix = reconcileIncludedMotor(tree, 'bt', {
+      designation: 'K550', launchMassKg: 1, lengthM: 0.3, cgXFromFrontM: 0.15,
+    }, TEXT)!;
+    expect(fix.note).toBeNull();
+    expect(fix.tree.components[0]![OVERRIDE_INCLUDES_MOTOR]).toBeUndefined();
+  });
+
+  it('still corrects a motor whose catalogue spelling differs from the file’s', () => {
+    // The mark carries the RASAero file's designation and the loaded spec
+    // carries the catalogue's, and `findDbMotor` is what paired them — so the
+    // same rank-0/rank-1 rules decide "this IS that motor" here.
+    for (const [named, loaded] of [
+      ['N5800-CS', '5800N5800-CS'],   // Cesaroni impulse prefix
+      ['I224', 'I224-15A'],           // delay suffix in the catalogue
+      ['M1297W', 'm1297w'],           // case
+    ] as const) {
+      expect(namesSameMotor(loaded, named)).toBe(true);
+      const fix = reconcileIncludedMotor(
+        marked({ [OVERRIDE_INCLUDES_MOTOR]: named }), 'bt',
+        { designation: loaded, launchMassKg: 1, lengthM: 0.3, cgXFromFrontM: 0.15 }, TEXT)!;
+      expect(fix.tree.components[0]!['overrideMass'], loaded).toBeCloseTo(1, 9);
+      expect(fix.severity, loaded).toBe('info');
+    }
+    // And two motors that merely start with the same letter are NOT the same.
+    expect(namesSameMotor('K510', 'K550')).toBe(false);
+    expect(namesSameMotor('M1297W', '')).toBe(false);
+  });
+
+  it('will not let a prefix match cut a thrust number in half', () => {
+    // 2026-09-08, from review: the prefix rule had no floor, so a mark naming a
+    // short designation swallowed any longer one starting with it — and the
+    // subtraction that follows is a whole motor's weight off the stated launch
+    // weight. A delay or propellant suffix never starts with a digit, which is
+    // what separates the pairs below from the ones above.
+    expect(namesSameMotor('M1297W', 'M1')).toBe(false);
+    expect(namesSameMotor('M787', 'M7871')).toBe(false);
+    expect(namesSameMotor('M1297W', 'M')).toBe(false);
+    // Still the same motor: the longer side continues with a delimiter or a
+    // propellant letter, not another digit.
+    expect(namesSameMotor('I224', 'I224-15A')).toBe(true);
+    expect(namesSameMotor('I224W', 'I224')).toBe(true);
+    expect(namesSameMotor('J540R', 'J540R-14A')).toBe(true);
   });
 
   it('drops a stale mark quietly when BOTH overrides have already been cleared', () => {
@@ -373,6 +435,51 @@ describe('the mark survives Save .ork — the motor may only turn up next sessio
     const r = importCdx1(fixture('Complex.Two-Stage.CDX1'));
     expect(exportOrk({ name: 'plain', tree: r.tree })).not.toContain('overrideincludesmotor');
   });
+
+  it('survives on a CG-ONLY stage — the writer emitted what the reader dropped', () => {
+    // The reader kept the mark only beside a numeric `overrideMass`, while the
+    // importer marks a CG-only stage and the writer emits the element whenever
+    // the mark is set. So this tree round-tripped to a motor-inclusive LAUNCH
+    // CG with no mark: the next motor's moment landed on top of one already in
+    // it and the stability margin counted the motor twice, silently, while the
+    // same tree in session clears that CG with a note (2026-09-08, from review).
+    const cgOnly: RocketTree = {
+      name: 'cg only',
+      components: [{
+        type: 'stage',
+        id: 'st',
+        name: 'Sustainer',
+        overrideCGX: 0.6,
+        overrideSubcomponentsCG: true,
+        [OVERRIDE_INCLUDES_MOTOR]: 'M787',
+        children: [{ type: 'bodytube', id: 'bt', length: 1.2, outerRadius: 0.04, thickness: 0.002 }],
+      }],
+    } as unknown as RocketTree;
+    const xml = exportOrk({ name: 'cg only', tree: cgOnly });
+    expect(xml).toContain('<overrideincludesmotor>M787</overrideincludesmotor>');
+    const back = importOrk(xml);
+    const st = back.tree.components.find((c) => c.type === 'stage')!;
+    expect(st['overrideCGX']).toBeCloseTo(0.6, 9);
+    expect(st[OVERRIDE_INCLUDES_MOTOR]).toBe('M787');
+  });
+
+  it('is still dropped when the stage carries NEITHER override', () => {
+    // A bare mark corrects nothing and would only fire a notice, so the reader
+    // still refuses it — that half of the rule is unchanged.
+    const bare: RocketTree = {
+      name: 'bare',
+      components: [{
+        type: 'stage',
+        id: 'st',
+        name: 'Sustainer',
+        [OVERRIDE_INCLUDES_MOTOR]: 'M787',
+        children: [{ type: 'bodytube', id: 'bt', length: 1.2, outerRadius: 0.04, thickness: 0.002 }],
+      }],
+    } as unknown as RocketTree;
+    const back = importOrk(exportOrk({ name: 'bare', tree: bare }));
+    expect(back.tree.components.find((c) => c.type === 'stage')![OVERRIDE_INCLUDES_MOTOR])
+      .toBeUndefined();
+  });
 });
 
 /**
@@ -410,6 +517,59 @@ describe.skipIf(!HAVE_ENGS)('against the author’s own .eng files', () => {
   });
 });
 
+/**
+ * THE FILE THE CROSS-DESIGNATION SUBTRACTION WAS MEASURED ON (2026-09-08, from
+ * review). `PePe2.CDX1` is one airframe with EIGHT simulations, each stating
+ * its own launch weight for its own motor: 47 lb with N5800-CS (which the
+ * catalogue does not have, so the stage imports marked), 24.2 lb with M1297W,
+ * 19.7 lb with K510. Only the applied simulation's weight is read at import,
+ * so switching configuration mounts a motor that has nothing to do with the
+ * figure on the stage — and v0.120 subtracted it from that figure anyway.
+ *
+ * Local-only input, like the `.eng` files above.
+ */
+const PEPE2 = localEng('PePe2.CDX1');
+
+describe.skipIf(!existsSync(PEPE2))('PePe2: another simulation’s motor on a marked stage', () => {
+  it('clears the stated weight rather than subtracting a motor it never held', () => {
+    const r = importCdx1(readFileSync(PEPE2, 'utf8'));
+    const st = stagesOf(r.tree)[0]!;
+    // The file's simulation 1, applied whole because N5800-CS is not catalogued.
+    expect(lb(st['overrideMass'] as number)).toBeCloseTo(47.0, 3);
+    expect(st[OVERRIDE_INCLUDES_MOTOR]).toBe('N5800-CS');
+
+    // Simulation 6's motor, straight off the shipped catalogue — the same
+    // numbers `App.attachedOf` builds from a loaded `MotorSpec`.
+    const m1297 = MOTOR_DB.find((m) => m.designation === 'M1297W' && m.totalWeightG > 0)!;
+    expect(m1297.totalWeightG / 1000).toBeCloseTo(4.637, 3);
+    const mountId = (st.children ?? []).find((c) => c['motorMount'] === true)!.id!;
+    const out = reconcileAllIncludedMotors(r.tree, {
+      [mountId]: {
+        designation: m1297.designation,
+        launchMassKg: m1297.totalWeightG / 1000,
+        lengthM: m1297.length / 1000,
+        cgXFromFrontM: m1297.length / 2000,
+      },
+    }, TEXT);
+
+    const after = stagesOf(out.tree)[0]!;
+    expect(after['overrideMass']).toBeUndefined();
+    expect(after['overrideCGX']).toBeUndefined();
+    expect(after[OVERRIDE_INCLUDES_MOTOR]).toBeUndefined();
+    expect(out.severity).toBe('warn');
+    expect(out.notes[0]).toContain('47.000 lb');
+    expect(out.notes[0]).toContain('“N5800-CS”');
+    expect(out.notes[0]).toContain('“M1297W”');
+
+    // What v0.120 wrote instead, and what it cost: 47.000 − 10.222 = 36.777 lb
+    // called "airframe" against simulation 6's own 24.2 − 10.222 = 13.98 lb, so
+    // the rocket flew at the 47.0 lb of a simulation it was no longer running —
+    // +94 % — at severity 'info', with the mark spent.
+    expect(lb((st['overrideMass'] as number) - m1297.totalWeightG / 1000)).toBeCloseTo(36.777, 3);
+    expect(lb(m1297.totalWeightG / 1000)).toBeCloseTo(10.223, 3);
+  });
+});
+
 
 /**
  * THE OTHER TWO WAYS A MOTOR LANDS ON A MOUNT, both of which put the double
@@ -443,7 +603,7 @@ describe('every path that mounts a motor spends the mark', () => {
       [mountOf(st[0]!).id!]: attach(m787),
       [mountOf(st[1]!).id!]: attach(o4374),
     }, TEXT);
-    expect(out.changed).toBe(true);
+    expect(out.tree).not.toBe(r.tree);
     expect(out.notes).toHaveLength(2);
     const total = stagesOf(out.tree).reduce((sum, s2) => sum + (s2['overrideMass'] as number), 0);
     // The airframe alone: the file's own 87.05 lb less both motors.
@@ -463,7 +623,6 @@ describe('every path that mounts a motor spends the mark', () => {
     };
     const once = reconcileAllIncludedMotors(r.tree, motors, TEXT);
     const twice = reconcileAllIncludedMotors(once.tree, motors, TEXT);
-    expect(twice.changed).toBe(false);
     expect(twice.notes).toEqual([]);
     expect(twice.tree).toBe(once.tree);
   });
@@ -484,11 +643,14 @@ describe('every path that mounts a motor spends the mark', () => {
       .toBeCloseTo(MESOS_SUSTAINER_LB - lb(m787.masses[0]!), 3);
   });
 
-  it('CONFIGURATION SWITCH: a different motor on a marked stage is still backed out', async () => {
+  it('CONFIGURATION SWITCH: a different motor CLEARS the stated weight, it does not subtract', async () => {
     // Applying a flight configuration mounts whatever THAT simulation names,
     // which is often not the motor the marked stage was named after — the file
-    // may have eight simulations and only the applied one is matched at open.
-    // The note names both motors so the number is traceable.
+    // may have eight simulations and only the applied one is read at open.
+    // v0.120 subtracted the newcomer from the OTHER simulation's stated weight
+    // (PePe2: 47 − 10.22 = 36.78 lb of “airframe” against a true ~13.98, and the
+    // mark spent, so no route could put it right). The stated figure belongs to
+    // a motor that is not loaded, so it goes (2026-09-08, from review).
     const r = importCdx1(fixture('MESOS_Last_Preflight_File.CDX1'));
     const other = await exSpec([
       '; a catalogued motor the user switched to',
@@ -499,11 +661,51 @@ describe('every path that mounts a motor spends the mark', () => {
     ].join('\n'));
     const mountId = mountOf(stagesOf(r.tree)[0]!).id!;
     const out = reconcileAllIncludedMotors(r.tree, { [mountId]: attach(other) }, TEXT);
-    expect(out.changed).toBe(true);
+    expect(out.severity).toBe('warn');
     expect(out.notes[0]).toContain('M1297W');
     expect(out.notes[0]).toContain('M787');
-    expect(lb(stagesOf(out.tree)[0]!['overrideMass'] as number))
-      .toBeCloseTo(MESOS_SUSTAINER_LB - lb(other.masses[0]!), 3);
+    const st = stagesOf(out.tree)[0]!;
+    expect(st['overrideMass']).toBeUndefined();
+    expect(st['overrideSubcomponentsMass']).toBeUndefined();
+    expect(st['overrideCGX']).toBeUndefined();
+    expect(st['overrideSubcomponentsCG']).toBeUndefined();
+    expect(st[OVERRIDE_INCLUDES_MOTOR]).toBeUndefined();
+  });
+
+  it('two mounts in one stage: the motor the mark NAMES is the one backed out', async () => {
+    // The mark is on the STAGE and the first mount to reach it spends it, so
+    // `Object.keys` insertion order decided which motor was subtracted — load
+    // them the other way round and the stage weighed something else. Measured
+    // at 15.0 kg against a correct 10.5 (2026-09-08, from review).
+    const [m787] = await bothMotors();
+    const other = { designation: 'K550', launchMassKg: 1.2, lengthM: 0.3, cgXFromFrontM: 0.15 };
+    const twoMounts = (): RocketTree => ({
+      components: [{
+        type: 'stage',
+        id: 'st',
+        name: 'Sustainer',
+        overrideMass: 10.573,
+        overrideSubcomponentsMass: true,
+        [OVERRIDE_INCLUDES_MOTOR]: 'M787',
+        children: [
+          { type: 'bodytube', id: 'a', length: 1, outerRadius: 0.04, thickness: 0.002 },
+          { type: 'bodytube', id: 'b', length: 1, outerRadius: 0.04, thickness: 0.002 },
+        ],
+      }],
+    } as RocketTree);
+    // Both load orders, one answer: the M787 is what comes out, and a K550 that
+    // is not the motor the file named cannot spend the mark ahead of it.
+    for (const motors of [
+      { a: other, b: attach(m787) },
+      { b: attach(m787), a: other },
+    ]) {
+      const out = reconcileAllIncludedMotors(twoMounts(), motors, TEXT);
+      expect(out.tree.components[0]!['overrideMass']).toBeCloseTo(10.573 - 6.97171, 6);
+      expect(out.severity).toBe('info');
+      // The order-dependent number this replaces: 10.573 − 1.2 = 9.373 kg of
+      // “airframe”, which flies 15.0 kg with both motors on against 10.5 correct.
+      expect(out.tree.components[0]!['overrideMass']).not.toBeCloseTo(10.573 - 1.2, 6);
+    }
   });
 
   it('returns identity for a design with no mark at all', () => {
@@ -512,7 +714,6 @@ describe('every path that mounts a motor spends the mark', () => {
     const out = reconcileAllIncludedMotors(r.tree, {
       [mountId]: { designation: 'K627LR', launchMassKg: 1.236, lengthM: 0.4, cgXFromFrontM: 0.2 },
     }, TEXT);
-    expect(out.changed).toBe(false);
     expect(out.tree).toBe(r.tree);
     expect(out.notes).toEqual([]);
   });
