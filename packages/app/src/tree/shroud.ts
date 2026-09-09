@@ -70,6 +70,12 @@ export function isConformal(n: ComponentNode): boolean {
  * than its tube is a real thing people build (a GoPro on a 38 mm minimum
  * diameter bird); it wraps at most half way round, and that is what π/2 means
  * here.
+ *
+ * NO PRODUCTION CALLER (2026-09-08 audit). It is exercised by four assertions
+ * in shroudMesh.test.ts, and AftView.tsx:301 CREDITS it in a comment for a
+ * clamp AftView does not actually call — so the two can drift apart freely.
+ * Either give AftView this function or drop the comment there; recorded here so
+ * the next reader is not misled by that reference.
  */
 export function shroudHalfAngle(bodyRadius: number, width: number): number {
   if (!(bodyRadius > 0) || !(width > 0)) return 0;

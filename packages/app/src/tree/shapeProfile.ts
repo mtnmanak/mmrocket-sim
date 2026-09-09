@@ -144,7 +144,10 @@ function calculateClip(shape: string, param: number, length: number, r1: number,
  *
  * The no-extras path returns the SAME array, built by the same expression, in
  * the same order as before this parameter existed — every existing call site
- * is bit-identical, and shapeProfile.test.ts pins that.
+ * is bit-identical, and `splitSolid.test.ts` pins that — the describe block
+ * "outerProfile extraX is purely additive". (It said `shapeProfile.test.ts`
+ * until 2026-09-08: the CLAIM was true, the pointer was not, and there is no
+ * such assertion in this module's own test file.)
  */
 function sampleXs(length: number, steps: number, extra?: readonly number[]): number[] {
   const xs: number[] = [];

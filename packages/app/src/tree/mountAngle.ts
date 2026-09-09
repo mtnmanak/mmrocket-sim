@@ -31,7 +31,15 @@ import { mountRadiusOf } from './treeModel.js';
 
 const isFinSet = (n: ComponentNode): boolean => n.type.endsWith('finset');
 
-/** Wrap to (−π, π] — the kernel's own range (MathUtil.reducePi). */
+/**
+ * Wrap to [−π, π) — the kernel's own range (MathUtil.reducePi).
+ *
+ * HALF-OPEN, and the docstring said `(−π, π]` until 2026-09-08:
+ * `reducePi(Math.PI)` returns −π, not +π. `defaultParams('railbutton')` sets
+ * `angleOffset: Math.PI`, so the clash warning reads "Rail button at -180° is
+ * in line with …" — measured, verbatim. Cosmetic, because `angleGap` takes
+ * `Math.abs`; recorded because the range is what every caller reasons from.
+ */
 export function reducePi(a: number): number {
   return a - Math.round(a / (2 * Math.PI)) * 2 * Math.PI;
 }
@@ -117,7 +125,16 @@ export function finAnglesAmong(members: ComponentNode[]): number[] {
   return out;
 }
 
-/** Back-compat wrapper: the fins among a single parent's children. */
+/**
+ * The fins among a single parent's children.
+ *
+ * TEST-ONLY, and labelled as such since 2026-09-08. It called itself a
+ * "back-compat wrapper", which implies a production caller — there is none, and
+ * the module does not use it internally either. It survives because 17
+ * assertions in mountAngle.test.ts read better through it than through
+ * `finAnglesAmong(parent.children ?? [])` repeated 17 times. Anything that
+ * needs this in production should call `finAnglesAmong` directly.
+ */
 export function finAnglesOn(parent: ComponentNode): number[] {
   return finAnglesAmong(parent.children ?? []);
 }
@@ -149,7 +166,7 @@ export function betweenFinAnglesAmong(members: ComponentNode[]): number[] {
   return clear.length ? clear : out;
 }
 
-/** Back-compat wrapper: the midpoints among a single parent's children. */
+/** TEST-ONLY, for the same reason as {@link finAnglesOn} above. */
 export function betweenFinAnglesOn(parent: ComponentNode): number[] {
   return betweenFinAnglesAmong(parent.children ?? []);
 }

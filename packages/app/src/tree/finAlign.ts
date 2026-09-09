@@ -1,3 +1,4 @@
+import { num } from './nodeNum.js';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { axialLength, drawnExtent, startFromPosition } from './position.js';
 import { updateNode } from './treeModel.js';
@@ -25,8 +26,19 @@ const rotOf = (n: ComponentNode, patches: Map<string, number>): number => {
   return typeof n['rotation'] === 'number' ? (n['rotation'] as number) : 0;
 };
 
+/**
+ * How many fins (or tubes) a set has.
+ *
+ * The tube-fin branch was MISSING here until 2026-09-08 while `mountAngle.ts`
+ * (three sites) and `pieces.ts` all defaulted a `tubefinset` to 6. So a tube-fin
+ * set whose file omits `finCount` — .rkt and .CDX1 both can — was searched for
+ * clearance against THREE tubes and drawn as six, and the one-click interleave
+ * then rotated the straight set to an angle that is wrong for the set actually
+ * on screen. Found by the audit as a drifted default, which is what it is: one
+ * question, four answers, and only this one different.
+ */
 const countOf = (n: ComponentNode): number =>
-  Math.max(1, Math.round(typeof n['finCount'] === 'number' ? (n['finCount'] as number) : 3));
+  Math.max(1, Math.round(num(n, 'finCount', n.type === 'tubefinset' ? 6 : 3)));
 
 /** Smallest circular distance between any fin of set A and any fin of set B. */
 function minClearance(rotA: number, countA: number, rotB: number, countB: number): number {
