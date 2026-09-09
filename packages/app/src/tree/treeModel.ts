@@ -1450,13 +1450,39 @@ export function splitClusterPairsTree(tree: RocketTree, mountId: string): Cluste
   };
 }
 
-/** Deep copy with fresh ids at every level (clipboard paste, duplicate). */
+/**
+ * Deep copy with fresh ids at every level (clipboard paste, duplicate).
+ *
+ * "Deep" is now true. It was a per-node SHALLOW spread until 2026-09-08, so
+ * every nested value was ALIASED with the original: measured directly,
+ * `copy['points'] === src['points']` and `copy.position === src.position` were
+ * both `true`, and duplicating a freeform fin set gave two tree nodes whose
+ * planform was one array. That is the classic "editing one fin changed the
+ * other", and it was latent only because every editor path happens to be
+ * immutable (FinPointsEditor maps; scaleRocket re-maps). One in-place
+ * `pts[i][0] = x` anywhere would have made it real, across duplicate, paste and
+ * both cluster splits.
+ *
+ * `structuredClone` is deliberately not used: it would also clone any
+ * non-cloneable value a node picks up later and throw, and it is measurably
+ * slower on the paste path. Copying the two composite shapes the schema
+ * actually defines — `points` rows and `position` — is enough, and anything new
+ * of that shape must be added here.
+ */
 export function cloneSubtree(node: ComponentNode): ComponentNode {
-  return {
+  const next: ComponentNode = {
     ...node,
     id: freshId(),
     children: node.children?.map(cloneSubtree),
   } as ComponentNode;
+  const pts = node['points'];
+  if (Array.isArray(pts)) {
+    next['points'] = pts.map((r) => (Array.isArray(r) ? [...r] : r));
+  }
+  if (node.position && typeof node.position === 'object') {
+    next.position = { ...node.position };
+  }
+  return next;
 }
 
 /**

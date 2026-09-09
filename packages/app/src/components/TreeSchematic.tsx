@@ -11,7 +11,7 @@ import {
 import { outerProfile } from '../tree/shapeProfile.js';
 import { shroudEnds } from '../tree/shroud.js';
 import {
-  downloadBlob, IMAGE_FORMAT_EXT, schematicSvg, svgToImage, type ExportData,
+  downloadImage, IMAGE_FORMAT_EXT, schematicSvg, svgToImage, type ExportData,
 } from '../services/schematicExport.js';
 import { ImageExportMenu } from './ImageExportMenu.js';
 import { ROLL_BAR, ROLL_COL, RollControl } from './RollControl.js';
@@ -1614,7 +1614,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
                 if (!svgRef.current) return;
                 try {
                   const data = { ...exportData, spanM: 2 * vHalf };
-                  downloadBlob(schematicSvg(svgRef.current, scale, w, h, data),
+                  downloadImage(schematicSvg(svgRef.current, scale, w, h, data),
                     `${data.name.replace(/[^\w-]+/g, '_')}-2d.svg`);
                 } catch (e) {
                   onError?.(`SVG export failed: ${e instanceof Error ? e.message : String(e)}`);
@@ -1629,7 +1629,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
                 try {
                   const data = { ...exportData, spanM: 2 * vHalf };
                   const svg = schematicSvg(svgRef.current, scale, w, h, data);
-                  downloadBlob(await svgToImage(svg, widthPx, format),
+                  downloadImage(await svgToImage(svg, widthPx, format),
                     `${data.name.replace(/[^\w-]+/g, '_')}-2d.${IMAGE_FORMAT_EXT[format]}`);
                 } catch (e) {
                   onError?.(`Image export failed: ${e instanceof Error ? e.message : String(e)}`

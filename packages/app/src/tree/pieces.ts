@@ -5,6 +5,7 @@ import {
   resolveAssemblyRadius, ringInstanceOffsets,
 } from './assembly.js';
 import { clusterOffsets } from './cluster.js';
+import { finOutlineProblem } from './finOutline.js';
 import { num, numOpt } from './nodeNum.js';
 import { tubeFinRadius } from './tubefins.js';
 import { outerProfile } from './shapeProfile.js';
@@ -166,6 +167,15 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims): { pieces: Pie
     const start = axialStart(child, axialLength(child), pStart, pLen);
     maxR = Math.max(maxR, pRadius + height);
 
+    // A self-intersecting planform is refused, not extruded. three's earcut
+    // silently DELETES vertices it cannot triangulate, so the caps come out
+    // holed while the side walls stay complete: measured on the exact fixture
+    // solidMesh.test.ts:525 uses to prove the refusal, buildPieces returned 222
+    // triangles against a sound 228. `finOutlineProblem` is the same check both
+    // importers and the fin editor already run — this path inherited none of it
+    // (2026-09-08 audit).
+    if (child.type === 'freeformfinset' && finOutlineProblem(ffPoints) !== null) return;
+
     const shape = new THREE.Shape();
     if (child.type === 'freeformfinset') {
       // ffPoints, not a re-read with a default: the >= 3 guard at the top of
@@ -194,6 +204,13 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims): { pieces: Pie
     }
     shape.closePath();
 
+    // A zero-or-negative depth extrudes to COINCIDENT caps: measured on a
+    // 3-fin trapezoid at thickness 0, 228 triangles of which 24 had exactly
+    // zero area, and the whole-rocket STL still wrote 11,484 bytes.
+    // `solidMesh.extrudePolygon` refuses this outright; this path did not
+    // (2026-09-08 audit). Skip the set rather than draw a fin with no
+    // thickness — the same answer the >= 3 point guard above gives.
+    if (!(thickness > 0)) return;
     const geo = new THREE.ExtrudeGeometry(shape, { depth: thickness, bevelEnabled: false });
     geo.translate(0, 0, -thickness / 2);
 

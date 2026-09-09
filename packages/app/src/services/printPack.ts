@@ -5,6 +5,7 @@ import {
   DEFAULT_CLEARANCE, DEFAULT_MARGIN, revolvedVolume, splitComponent,
   type ComponentSplit, type PrinterVolume,
 } from '../tree/splitSolid.js';
+import { safeName } from './fileName.js';
 
 /**
  * The 3D-print export offer: what the 🖨 button says, what it hands you, and
@@ -163,9 +164,20 @@ function clockingNote(node: ComponentNode): string {
     + 'so draw an alignment line down the outside before you glue.';
 }
 
-/** File-name-safe part name, matching what the single-STL path has always used. */
-export function safeName(name: string): string {
-  return name.replace(/[^\w-]+/g, '_');
+/**
+ * A zip-member stem for a part name.
+ *
+ * `safeName` is imported rather than re-declared — this module carried a
+ * byte-identical copy until 2026-09-08, and `fileName.ts` is the one that
+ * documents WHY the result needs checking: `\w` is ASCII-only, so a name
+ * written entirely in Cyrillic, Greek, Japanese or Arabic collapses to
+ * underscores. `stampedName` guards that for single-file exports; the copy here
+ * did not, and these stems name ZIP MEMBERS — every part in a pack built from
+ * such a design would have collided on `_`.
+ */
+function safeZipStem(name: string): string {
+  const s = safeName(name);
+  return /[A-Za-z0-9]/.test(s) ? s : 'part';
 }
 
 /**
@@ -272,7 +284,7 @@ export function printPackReadme(
   split: ComponentSplit, partName: string, printer: PrinterVolume, printerLabel = 'printer',
 ): string {
   const n = split.plan.segments;
-  const base = safeName(partName);
+  const base = safeZipStem(partName);
   const assembled = assembledLength(split);
   // Cut planes are offsets from the fore end, so these are the segment ends.
   const ends = [0, ...split.plan.cuts, assembled];
@@ -381,7 +393,7 @@ export async function buildPrintPack(
 ): Promise<PrintPack> {
   const { solidToStl } = await import('./stlExport.js');
   const n = split.plan.segments;
-  const base = safeName(partName);
+  const base = safeZipStem(partName);
   const files: Record<string, Uint8Array> = {};
   split.loops.forEach((loop, i) => {
     const name = `${base}-print-${i + 1}of${n}.stl`;

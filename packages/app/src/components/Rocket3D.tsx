@@ -5,7 +5,7 @@ import { OrbitControls } from '@react-three/drei';
 import type { RocketTree, StaticInfo } from '@online-openrocket/engine';
 import { buildPieces, type MotorDims, type Piece } from '../tree/pieces.js';
 import {
-  downloadBlob, IMAGE_FORMAT_EXT, snapshotWithHeader,
+  downloadImage, IMAGE_FORMAT_EXT, snapshotWithHeader,
   type ExportData, type ImageFormat,
 } from '../services/schematicExport.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
@@ -398,7 +398,7 @@ export function Rocket3D({ tree, info, motors, exportData }: {
       st.gl.setSize(widthPx, outH, false);
       st.gl.render(st.scene, cam);
       const blob = await snapshotWithHeader(el, { ...exportData, spanM: 2 * maxR }, format);
-      downloadBlob(blob, `${exportData.name.replace(/[^\w-]+/g, '_')}-3d.${IMAGE_FORMAT_EXT[format]}`);
+      downloadImage(blob, `${exportData.name.replace(/[^\w-]+/g, '_')}-3d.${IMAGE_FORMAT_EXT[format]}`);
     } finally {
       st.gl.setPixelRatio(pr);
       st.gl.setSize(cssW, cssH, false);

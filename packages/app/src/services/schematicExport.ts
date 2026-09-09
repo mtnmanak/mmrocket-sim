@@ -194,11 +194,18 @@ export function snapshotWithHeader(glCanvas: HTMLCanvasElement, d: ExportData, f
 }
 
 /**
- * Shared save for the export buttons. Routes through services/saveFile so
- * these get the same Save-As dialog every other export does on Chrome/Edge,
- * and the same deferred object-URL revoke everywhere else.
+ * Shared save for the IMAGE export buttons. Routes through services/saveFile so
+ * these get the same Save-As dialog every other export does on Chrome/Edge, and
+ * the same deferred object-URL revoke everywhere else.
+ *
+ * Named `downloadImage` since 2026-09-08. It was `downloadBlob`, which made
+ * THREE exported symbols of that name — this one, `saveFile`'s, and
+ * `fileName`'s re-export of `saveFile`'s — with different signatures, imported
+ * from three different paths by nine components. A fix applied to the wrong one
+ * would have been invisible. This is the image-specific one: it defaults a bare
+ * string to `image/svg+xml` and labels the picker "Image".
  */
-export function downloadBlob(blob: Blob | string, filename: string): void {
+export function downloadImage(blob: Blob | string, filename: string): void {
   const b = typeof blob === 'string' ? new Blob([blob], { type: 'image/svg+xml' }) : blob;
   saveBlob(b, filename, 'Image');
 }

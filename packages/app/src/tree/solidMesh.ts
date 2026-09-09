@@ -252,7 +252,14 @@ function fitShoulder(s: ShoulderIn | null, bodyR: number): ShoulderFit | null {
   // cross the outer curve (the profile loop must stay simple).
   const rs = Math.min(s.radius, bodyR);
   if (rs <= EPS) return null;
-  const rsi = rs - s.thickness;
+  // Wall CLAMPED at zero. A negative thickness makes rsi > rs, i.e. the bore
+  // outside the skin, and the profile loop then self-intersects: measured on a
+  // 200 mm ogive R 27 mm, shoulderThickness -0.005 gave a WATERTIGHT mesh of
+  // 8.3543e-6 m^3, and thickness -0.003 gave 7.3703e-5 against the correct
+  // 4.2887e-5 — +72 %, a plausible-looking wrong number on a printable part.
+  // `orkFile.num` accepts any finite value, so a hand-edited or corrupt
+  // <thickness> reaches here (2026-09-08 audit).
+  const rsi = rs - Math.max(s.thickness, 0);
   const solid = rsi <= EPS || (s.capped && s.thickness >= s.length - EPS);
   return { rs, rsi: Math.max(rsi, 0), len: s.length, cap: solid ? 0 : s.capped ? s.thickness : 0, solid };
 }
@@ -274,7 +281,10 @@ function bodyLoop(
   const L = outer[last]![0];
   const Rf = outer[0]![1];
   const Ra = outer[last]![1];
-  const innerR = outer.map(([, r]) => Math.max(r - wall, 0));
+  // Same clamp as fitShoulder, and for the same reason: a negative wall would
+  // put the inner curve OUTSIDE the outer one.
+  const w = Math.max(wall, 0);
+  const innerR = outer.map(([, r]) => Math.max(r - w, 0));
   const solid = filled || innerR.every((r) => r <= EPS);
   const fs = fitShoulder(foreSpec, Rf);
   const as = fitShoulder(aftSpec, Ra);
@@ -572,12 +582,38 @@ export function componentLoop(
   }
 }
 
+/**
+ * The smallest solid worth writing to a printable file, m^3 — 1 mm^3.
+ *
+ * A revolved profile can close on itself and produce a watertight mesh of ZERO
+ * or NEGATIVE volume, which `isWatertight` cannot see (it is topology and
+ * finiteness only, by design). Measured on a 200 mm ogive, R 27 mm:
+ *
+ *   thickness 0.002 -> volume  4.2887e-5 m^3   (a real shell)
+ *   thickness 0     -> volume -3.6180e-20 m^3, 24,384 triangles, watertight
+ *
+ * `thickness` is a `lenMM` field with `smin: 0` and PropertyPanel clamps only
+ * its maximum, so one drag of the slider to its left stop reaches it, and the
+ * download button beside it then writes the result. Found by the 2026-09-08
+ * audit.
+ */
+const MIN_PRINTABLE_VOLUME_M3 = 1e-9;
+
 /** Printable solid for one component (one fin / one tube fin per set), or null if unsupported. */
 export async function componentSolid(
   node: ComponentNode, ctx: SolidContext,
 ): Promise<{ mesh: SolidMesh; label: string } | null> {
   const revolved = componentLoop(node, ctx);
-  if (revolved) return { mesh: revolveProfile(revolved.loop), label: revolved.label };
+  if (revolved) {
+    const mesh = revolveProfile(revolved.loop);
+    // The volume oracle, in production. It existed only so tests could prove
+    // this module (its docstring says so) while nothing on the shipping path
+    // ever asked it a question — and the one question worth asking is whether
+    // the thing about to be written is a solid at all. Declining is the same
+    // answer an unprintable type already gets.
+    if (solidVolume(mesh) < MIN_PRINTABLE_VOLUME_M3) return null;
+    return { mesh, label: revolved.label };
+  }
   switch (node.type) {
     case 'trapezoidfinset':
     case 'ellipticalfinset':
