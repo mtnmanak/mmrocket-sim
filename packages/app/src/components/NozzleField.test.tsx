@@ -1,10 +1,10 @@
 // @vitest-environment happy-dom
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { NozzleField } from './NozzleField.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
-import { resetNozzleDbCache } from '../services/nozzleDb.js';
+import { nozzleForMotorId } from '../services/nozzleDb.js';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -19,8 +19,23 @@ let host: HTMLDivElement;
 let root: Root;
 let committed: (number | null)[];
 
+/**
+ * Warm the module cache ONCE, before any test renders.
+ *
+ * The lookup is a dynamic `import()` of a 237 kB JSON module. With the cache
+ * cold, every render raced that import, and the negative cases — which are
+ * waiting for something that never arrives — could only be settled by a
+ * timeout. The first version of this file counted 50 `setTimeout(0)` ticks,
+ * which was ample here and not on a CI runner: it failed the v0.122 deploy.
+ * Warmed, the component's own lookup resolves on a microtask, so a fixed flush
+ * is deterministic for the positive AND the negative cases alike.
+ *
+ * The cache is deliberately NOT reset between tests: it holds the parsed
+ * shipped database, which is exactly what production shares too.
+ */
+beforeAll(async () => { await nozzleForMotorId(D13); });
+
 beforeEach(() => {
-  resetNozzleDbCache();
   committed = [];
   host = document.createElement('div');
   document.body.appendChild(host);
@@ -38,10 +53,19 @@ afterEach(() => {
  * enough, and a fixed count is a race whatever the number. Poll instead, inside
  * act(), until the component has rendered the result.
  */
-const flush = async (until?: () => boolean) => {
-  for (let i = 0; i < 50; i++) {
+/**
+ * The lookup is a dynamic `import()` of a 237 kB JSON module, so it settles on a
+ * real task rather than a microtask. Poll inside act() until the component has
+ * rendered the result, against a WALL-CLOCK budget rather than a fixed number of
+ * ticks: the first version counted 50 `setTimeout(0)`s, which was ample on this
+ * machine and not on a CI runner, and it failed the v0.122 deploy. A test whose
+ * pass depends on how fast the box is is not a test.
+ */
+const flush = async () => {
+  // Enough ticks for: the lookup's already-resolved promise, the setState it
+  // makes, the fill effect that setState triggers, and its own commit.
+  for (let i = 0; i < 6; i++) {
     await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
-    if (!until || until()) return;
   }
 };
 
@@ -63,8 +87,7 @@ const render = async (over: {
       </PrefsProvider>,
     );
   });
-  // Settled = either a provenance line appeared or a fill was committed.
-  await flush(() => committed.length > 0 || /AeroTech|two nozzles/i.test(host.textContent ?? ''));
+  await flush();
 };
 
 const text = () => host.textContent ?? '';
@@ -141,7 +164,6 @@ describe('NozzleField — rule 2: a value that disagrees is NOT overwritten', ()
 describe('NozzleField — rule 3: the nine motors with two published nozzles', () => {
   it('names the alternative rather than choosing silently', async () => {
     await render({ exitDiameterM: null, motorIds: [I115], motorLabel: 'I115W' });
-    await flush(() => /two nozzles/i.test(host.textContent ?? ''));
     // Eric's §6(b) ruling: default to the current motor, and note that other
     // versions exist. The default is picked from AeroTech's own dated revision
     // block; this is the note.
