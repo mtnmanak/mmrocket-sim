@@ -278,7 +278,12 @@ export function AftView({ tree, motors, roll: rollProp, onRoll }: {
   hulls.sort((a, b) => (b.kind === 'circle' ? b.r : 0) - (a.kind === 'circle' ? a.r : 0));
 
   const E = extent * 1.12;
-  eRef.current = E;
+  // Written in an EFFECT, not in the render body (2026-09-08 audit). A ref
+  // assignment during render is undefined under StrictMode's double-render and
+  // under concurrent rendering; the wheel handler reads this, so it has to be
+  // current, but "current as of the last committed render" is what it actually
+  // needs.
+  useEffect(() => { eRef.current = E; }, [E]);
   const scale = 1; // viewBox is in meters — the SVG scales itself.
   const toSvg = (v: number) => v * scale;
 

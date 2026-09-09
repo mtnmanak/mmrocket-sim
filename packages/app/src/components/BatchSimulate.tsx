@@ -402,7 +402,19 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
     };
   }, [criteria, mountDiameterMm, maxMotorLengthM, fittingClasses, allMotors]);
 
-  useEffect(() => () => { cancelled.current = true; abort.current?.abort(); }, []);
+  /**
+   * Separate from `cancelled`, which the Stop BUTTON also sets. Both stop the
+   * loop; only this one means the dialog is gone, and the sweep's tail writes
+   * accepted runs into the design's persisted history — so on unmount it must
+   * not (2026-09-08 audit). The setStates in that tail are already harmless
+   * no-ops; `onRunsChange` is not.
+   */
+  const unmounted = useRef(false);
+  useEffect(() => () => {
+    unmounted.current = true;
+    cancelled.current = true;
+    abort.current?.abort();
+  }, []);
 
   const toggle = <T,>(list: T[], v: T): T[] =>
     list.includes(v) ? list.filter((x) => x !== v) : [...list, v];
@@ -725,6 +737,7 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
     // into Simulate, and nothing ever said the batch was done. On a 226-motor
     // run that is minutes of watching followed by no announcement at all
     // (owner report, 2026-09-01b). This line stays until the next run starts.
+    if (unmounted.current) return;
     setFinished({ total: out.length, stopped: cancelled.current });
     if (accepted.length > 0) onRunsChange(addRuns(accepted));
   };

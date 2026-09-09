@@ -89,6 +89,21 @@ const SORTABLE: { key: MotorSortKey; label: string }[] = [
   { key: 'totImpulseNs', label: 'Impulse (Ns)' },
 ];
 
+/**
+ * A burn/impulse window bound from a typed field: a finite, non-negative number,
+ * or null for "unbounded that end".
+ *
+ * Blank, a partial entry ("1e"), a negative and a non-finite all read as null
+ * rather than as a bound no motor can satisfy. Every other numeric field in
+ * this dialog goes through `NumField`, which applies the same rule; these four
+ * were raw `Number(e.target.value)` and persisted whatever came out.
+ */
+function windowBound(raw: string): number | null {
+  if (raw.trim() === '') return null;
+  const v = Number(raw);
+  return Number.isFinite(v) && v >= 0 ? v : null;
+}
+
 export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClose, loadedMotors }: {
   mountDiameterMm: number;
   /** Rocket-level max motor length (SI m); null = no limit. */
@@ -516,6 +531,13 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
                   <button className="file-btn" onClick={() => setFilters({ ...filters, propellants: [] })}>all</button>
                 )}
               </div>
+              {/* A bound is only committed when it is a USABLE number
+                  (2026-09-08 audit). `min={0}` on <input type="number"> is a
+                  form-VALIDATION hint, not an input filter, so typing "-5" put
+                  burnMax: -5 into the filters — which matches nothing, and is
+                  written to localStorage by setFilters, so the browser then
+                  opened permanently showing "No motors match these filters"
+                  with no visible cause and no way to guess the reason. */}
               {/* Windows, not sliders: a two-ended slider on a range this
                   skewed (a few Ns to tens of thousands) is unusable, and a
                   typed bound is what "0.0 to 2.4 seconds" actually means. */}
@@ -525,26 +547,26 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
                   aria-label="Shortest burn time, seconds"
                   placeholder={ranges ? ranges.burnS[0].toFixed(2) : 'min'}
                   value={filters.burnMin ?? ''}
-                  onChange={(e) => setFilters({ ...filters, burnMin: e.target.value === '' ? null : Number(e.target.value) })} />
+                  onChange={(e) => setFilters({ ...filters, burnMin: windowBound(e.target.value) })} />
                 <span className="motor-db-meta">to</span>
                 <input type="number" className="motor-range-input" min={0} step={0.1}
                   aria-label="Longest burn time, seconds"
                   placeholder={ranges ? ranges.burnS[1].toFixed(2) : 'max'}
                   value={filters.burnMax ?? ''}
-                  onChange={(e) => setFilters({ ...filters, burnMax: e.target.value === '' ? null : Number(e.target.value) })} />
+                  onChange={(e) => setFilters({ ...filters, burnMax: windowBound(e.target.value) })} />
 
                 <span className="motor-chip-caption" style={{ marginLeft: 10 }}>Impulse (Ns)</span>
                 <input type="number" className="motor-range-input" min={0} step={10}
                   aria-label="Smallest total impulse, newton-seconds"
                   placeholder={ranges ? String(Math.round(ranges.impulseNs[0])) : 'min'}
                   value={filters.impulseMin ?? ''}
-                  onChange={(e) => setFilters({ ...filters, impulseMin: e.target.value === '' ? null : Number(e.target.value) })} />
+                  onChange={(e) => setFilters({ ...filters, impulseMin: windowBound(e.target.value) })} />
                 <span className="motor-db-meta">to</span>
                 <input type="number" className="motor-range-input" min={0} step={10}
                   aria-label="Largest total impulse, newton-seconds"
                   placeholder={ranges ? String(Math.round(ranges.impulseNs[1])) : 'max'}
                   value={filters.impulseMax ?? ''}
-                  onChange={(e) => setFilters({ ...filters, impulseMax: e.target.value === '' ? null : Number(e.target.value) })} />
+                  onChange={(e) => setFilters({ ...filters, impulseMax: windowBound(e.target.value) })} />
 
                 {(filters.burnMin !== null || filters.burnMax !== null
                   || filters.impulseMin !== null || filters.impulseMax !== null) && (

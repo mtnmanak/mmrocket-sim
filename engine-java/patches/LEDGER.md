@@ -718,8 +718,34 @@ no bridge export, no TypeScript method. The nozzle already reaches the stage
   overlapping burn or not.
 - **Only while the motor's CURVE thrust is above zero** — `m.getThrust(t) > 0.0`, the same
   predicate the drag half switches on, so both halves turn on and off at the same sub-step.
-  RASAero adds its term before ignition and after burnout as well (Chuck confirmed the
-  artefact, TRF 194463 #17/#19); **that is a deliberate, stated deviation**.
+
+  **CORRECTED 2026-09-08 (evening), by measurement.** This bullet said RASAero adds its term
+  before ignition and after burnout as well (citing Chuck confirming the artefact, TRF 194463
+  #17/#19) and called our behaviour *"a deliberate, stated deviation"*. **It is not a
+  deviation — we match RASAero.** Eric exported paired RASAero runs (same design, nozzle on
+  and nozzle off, so the thrust curve cancels exactly): across **8,515 rows outside the burn**
+  on two designs, the difference between the two runs is **0.00000000 N**.
+
+  | design | pre-ignition | post-burnout |
+  |---|---|---|
+  | G record 2023, F10, 0.45 in | 1 row, 0.00000000 N | 4,424 rows, 0.00000000 N |
+  | Wildman2Stage, both 0.688 in | 1 row, 0.00000000 N | 4,091 rows, 0.00000000 N |
+
+  The exported `Thrust (lb)` column demonstrably CARRIES the term during the burn (that is how
+  the term was measured at all), so it would show one outside the burn if RASAero applied one.
+  No code change: our gate was already right. What was wrong was the record — this claim was
+  written as established fact about RASAero's simulation and never checked. It may still be
+  true of a different RASAero version, or Chuck may have been describing the plot rather than
+  the integrator; neither is established here, and the citation is kept so the next reader can
+  go and look. Measurement written up in
+  `docs/research/rasaero-pressure-thrust-measured-2026-09-08.md`.
+
+  The same paired runs confirmed the three properties this bullet and its neighbours assert:
+  the term is `A_exit x (101325 - P(h))` to within **0.0035 N** over 704 in-burn rows, it is
+  added **once per thrusting stage** (a booster burn on a two-stage design with both nozzles
+  set gives ONE nozzle's worth, not two), and it uses **the burning stage's own nozzle** —
+  booster 0.688/sustainer 0 gives exactly 0.0000 N through the sustainer burn, and the mirror
+  gives exactly 0.0000 N through the booster burn.
 - **P(h) is `store.flightConditions.getAtmosphericConditions().getPressure()`** — the very
   same `AtmosphericConditions` object the drag term reads at this RK4 sub-step. Zero extra
   atmosphere-model calls, no second firing of the pre/post atmospheric listeners, and thrust

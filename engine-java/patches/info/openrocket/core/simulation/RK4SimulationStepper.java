@@ -402,8 +402,13 @@ public class RK4SimulationStepper extends AbstractSimulationStepper {
 	 * <li><b>Burning.</b> Only while the motor's CURVE thrust is above zero - the
 	 * same predicate {@code AbstractSimulationStepper.applyThrustState} uses for the
 	 * drag half, so both halves switch on and off at the same sub-step. RASAero
-	 * applies its term before ignition and after burnout as well (Chuck confirmed
-	 * the artefact, TRF 194463 #17/#19); that is a deliberate deviation.</li>
+	 * MEASURED to do the same (2026-09-08 evening): across 8,515 rows outside the
+	 * burn, in paired RASAero runs of two designs with the nozzle on and off, the
+	 * difference is 0.00000000 N. This bullet previously called our gate "a
+	 * deliberate deviation" on the strength of an unchecked report that RASAero
+	 * applies its term before ignition and after burnout (TRF 194463 #17/#19); it
+	 * is not a deviation. See patches/LEDGER.md and
+	 * docs/research/rasaero-pressure-thrust-measured-2026-09-08.md.</li>
 	 * </ol>
 	 * <p>
 	 * ONCE PER STAGE, not once per motor: {@code AxialStage.nozzleExitDiameter} is
