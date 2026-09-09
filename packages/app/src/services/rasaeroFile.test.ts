@@ -2044,28 +2044,39 @@ describe('RASAero import — the pad pressure note', () => {
       <RodAngle>0</RodAngle><RodLength>10</RodLength><WindSpeed>0</WindSpeed>
     </LaunchSite></RASAeroDocument>`;
 
-  it('fires on a real file that states a temperature and no pressure at altitude', () => {
-    // ARCAS-Long: 3,933 ft, <Pressure>0</Pressure>, 80 °F.
-    const note = padNote(fixture('ARCAS-Long - 2.CDX1'))!;
-    expect(note).toBeDefined();
-    expect(note).toMatch(/gives a temperature but no pad pressure, at 3933 ft/);
-    expect(note).toMatch(/sea-level pressure — 1013 mbar — at that pad/);
-    // Quotes what that site actually reads, or "type your station pressure"
-    // is not something a user can act on.
-    expect(note).toMatch(/about 877 mbar \(25\.91 in-Hg\)/);
-    expect(note).toMatch(/clear the temperature as well/);
-    // Exactly one line, whatever else the import had to say.
-    expect(importCdx1(fixture('ARCAS-Long - 2.CDX1')).notes.filter((n) => n.startsWith('Launch site:')))
-      .toHaveLength(1);
+  /**
+   * NARROWED 2026-09-08b, with the behaviour it described.
+   *
+   * These first assertions used to be about the 24-of-33 corpus files that
+   * state a temperature and no pressure. That is no longer a defect to warn
+   * about: `kernelSimOptions` fills the blank pressure from the site altitude,
+   * so those files now import AND fly correctly, and a note would be the app
+   * apologising for its own default.
+   *
+   * The branch that survives is the file carrying a wrong number — an altimeter
+   * setting where a station pressure belongs. That is the file's own error, the
+   * import is the only place its owner hears about it, and clearing the field
+   * is now a complete fix rather than half of a "type both" instruction.
+   */
+  it('says nothing about a file that states a temperature and no pressure', () => {
+    // ARCAS-Long: 3,933 ft, <Pressure>0</Pressure>, 80 °F. Formerly the
+    // headline case of the note; now correct input.
+    expect(padNote(fixture('ARCAS-Long - 2.CDX1'))).toBeUndefined();
+    expect(padNote(fixture('MESOS_Last_Preflight_File.CDX1'))).toBeUndefined();
+    expect(padNote(fixture('38-54 2-stage.CDX1'))).toBeUndefined();
+    expect(padNote(fixture('Wildman_Mach 2 this one.CDX1'))).toBeUndefined();
+    expect(padNote(withSite(8800, 0, 55))).toBeUndefined();
   });
 
-  it('fires on the other high-site fixtures, with each site’s own number', () => {
-    expect(padNote(fixture('MESOS_Last_Preflight_File.CDX1'))) // 3,917 ft, 65 °F, no pressure
-      .toMatch(/no pad pressure, at 3917 ft.*about 878 mbar \(25\.92 in-Hg\)/s);
-    expect(padNote(fixture('38-54 2-stage.CDX1'))) // 3,900 ft, 70 °F, no pressure
-      .toMatch(/no pad pressure, at 3900 ft.*about 878 mbar \(25\.94 in-Hg\)/s);
-    expect(padNote(fixture('Wildman_Mach 2 this one.CDX1'))) // 2,500 ft = 762 m, just over the gate
-      .toMatch(/no pad pressure, at 2500 ft.*about 925 mbar/s);
+  it('says nothing when the file states no temperature either', () => {
+    expect(padNote(withSite(8800, 0, null))).toBeUndefined();
+  });
+
+  it('says nothing about a pressure with no readable temperature beside it', () => {
+    // The former mirror branch. A good station pressure is a good station
+    // pressure whatever the temperature field holds — the blank one is filled
+    // from the site altitude now.
+    expect(padNote(withSite(8800, 21.5, null))).toBeUndefined();
   });
 
   it('fires on a stated ALTIMETER SETTING at a high site', () => {
@@ -2076,8 +2087,15 @@ describe('RASAero import — the pad pressure note', () => {
     expect(note).toMatch(/this file's pressure, 30\.00 in-Hg, is about sea-level pressure/);
     expect(note).toMatch(/the pad is at 3900 ft where a barometer reads about 878 mbar \(25\.94 in-Hg\)/);
     expect(note).toMatch(/altimeter setting rather than the pressure at the pad/);
-    // The blank-pressure wording must NOT appear on this branch.
-    expect(note).not.toMatch(/no pad pressure/);
+    // The fix it offers is the blank field, not a barometer reading.
+    expect(note).toMatch(/Clear the field under Launch conditions/);
+    // Exactly one line, whatever else the import had to say.
+    expect(importCdx1(withSite(3900, 30, 90)).notes.filter((n) => n.startsWith('Launch site:')))
+      .toHaveLength(1);
+  });
+
+  it('fires on an altimeter setting with no temperature beside it too', () => {
+    expect(padNote(withSite(8800, 29.92, null))).toMatch(/altimeter setting/);
   });
 
   it('says nothing when a plausible station pressure is stated at a high site', () => {
@@ -2094,40 +2112,11 @@ describe('RASAero import — the pad pressure note', () => {
     expect(padNote(withSite(400, 0, 74))).toBeUndefined(); // no pressure, but only 122 m up
   });
 
-  it('says nothing when the file states no temperature either', () => {
-    // Both blank is the CORRECT input — the kernel computes the pad's pressure
-    // from the site altitude. No real RASAero file does this, but the rule is
-    // about the mechanism, not about RASAero's habits.
-    expect(padNote(withSite(8800, 0, null))).toBeUndefined();
-    expect(padNote(withSite(8800, 0, 55))).toMatch(/no pad pressure, at 8800 ft/);
-  });
-
-  it('fires the MIRROR: a good station pressure with no readable temperature', () => {
-    // 2026-09-08, from review. RASAero writes a <Temperature> into every file,
-    // so this shape only arrives when that field is absent or unreadable (a
-    // comma decimal separator is the usual cause) — and then the kernel pins
-    // 288.15 K at the pad. Only the Launch panel's live caution said so; the
-    // import note, which is the one warning the file's owner gets, did not.
-    const note = padNote(withSite(8800, 21.5, null))!;
-    expect(note).toBeDefined();
-    expect(note).toMatch(/gives a pad pressure but no readable temperature, at 8800 ft/);
-    expect(note).toMatch(/sea-level standard, 59 °F \(15 °C\)/);
-    expect(note).toMatch(/standard day is about 28 °F \(-2 °C\)/);
-    expect(note).toMatch(/clear the pressure as well/);
-    // Not the blank-pressure line, and not the altimeter-setting line.
-    expect(note).not.toMatch(/no pad pressure/);
-    expect(note).not.toMatch(/altimeter setting/);
-    // A wrong PRESSURE outranks a missing temperature: an altimeter setting
-    // with no temperature is still reported as the altimeter setting.
-    expect(padNote(withSite(8800, 29.92, null))).toMatch(/altimeter setting/);
-    // And exactly one line, as on the other two branches.
-    expect(importCdx1(withSite(8800, 21.5, null)).notes.filter((n) => n.startsWith('Launch site:')))
-      .toHaveLength(1);
-  });
-
-  it('quotes the 8,800 ft site the finding is stated at', () => {
-    // G record 2023's launch site: 8,800 ft, <Pressure>0</Pressure>, 55 °F —
-    // 730 mbar standing there against the 1013 the flight would use.
-    expect(padNote(withSite(8800, 0, 55))).toMatch(/about 730 mbar \(21\.55 in-Hg\)/);
+  it('quotes the standing pressure for the 8,800 ft site the finding is stated at', () => {
+    // G record 2023's launch site is 8,800 ft, where a barometer reads 730 mbar
+    // against the 1013 the flight used to use. The file itself states
+    // <Pressure>0</Pressure> and is now silent, so the number is asserted
+    // through the branch that still speaks.
+    expect(padNote(withSite(8800, 29.92, 55))).toMatch(/about 730 mbar \(21\.55 in-Hg\)/);
   });
 });

@@ -2,7 +2,7 @@ import { strFromU8 } from 'fflate';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import type { LaunchConditions } from '../components/LaunchPanel.js';
 import { asStageNodes, freshId, mountsIn } from '../tree/treeModel.js';
-import { isaPressurePa, isaTemperatureK, padPressureIssue } from './atmosphere.js';
+import { isaPressurePa, padPressureIssue } from './atmosphere.js';
 import { findDbMotor, hasMassData } from './motorDb.js';
 import { escapeXml as esc, xmlNum, xmlText as text } from './xmlUtil.js';
 import type { OrkFlightConfig, OrkImportResult, OrkMotorRef, OrkSeparationOverride } from './orkFile.js';
@@ -1386,53 +1386,30 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
       + 'mass and CG come from the simulation’s measured launch weight below, so the wall default '
       + 'does not drive the numbers.'
     : 'RASAero designs carry no material or wall data — walls default to 2 mm; review masses before trusting the numbers.');
-  // ---- the pad's own pressure (2026-09-08) ----
-  // RASAero writes a temperature into EVERY file and a station pressure into
-  // fewer than half of them, and the kernel reads the two as a PAIR: a
-  // temperature with no pressure puts sea-level 101,325 Pa at the pad however
-  // high the site (mechanism and measurements in services/atmosphere.ts). An
-  // imported file is the one place that pair arrives without anyone typing it,
-  // so this line is the only warning its owner gets. All THREE branches of
-  // `padPressureIssue`, one line each, only above 600 m:
-  //  - states nothing (G record 2023: <Pressure>0</Pressure> at 8,800 ft)
-  //  - states an altimeter setting (Wildman2Stage: 30 in-Hg at 3,900 ft, where
-  //    a barometer reads about 25.94)
-  //  - states a pressure and no readable temperature — the third branch, added
-  //    2026-09-08 from review. RASAero writes a <Temperature> into every file,
-  //    so this one only appears when that field is absent or unreadable (a
-  //    comma decimal separator is the usual cause, the same one the note above
-  //    names), and then the kernel pins 288.15 K at the pad. Worded about the
-  //    FILE rather than the app's state on purpose: an absent temperature is
-  //    the one launch field this importer leaves out of its patch, so App's
-  //    merge lets a temperature already typed for the previous design survive,
-  //    and "the flight uses 15 °C" would be wrong in that case.
+  // ---- the pad's own pressure (2026-09-08, narrowed 2026-09-08b) ----
+  // Down from three branches to one, for the same reason PadPressureCaution
+  // is: a file that states no pressure is no longer a problem to warn about.
+  // `kernelSimOptions` fills a blank pressure from the site altitude on its
+  // own, so the 24-of-33 corpus files that give a temperature and no pressure
+  // now import and fly correctly with nothing to say. Warning about them was
+  // warning about the app's own fallback.
+  //
+  // What survives is the file that states a pressure which is really an
+  // altimeter setting (Wildman2Stage: 30 in-Hg at 3,900 ft, where a barometer
+  // reads about 25.94). That is a wrong number the file actually carries, the
+  // import is the only place its owner hears about it, and clearing the field
+  // is now a real fix rather than half of a "type both" instruction.
   if (launch?.launchAltitudeM !== undefined) {
     const issue = padPressureIssue(launch);
     const ft = Math.round(launch.launchAltitudeM * FT);
     const standingMbar = isaPressurePa(launch.launchAltitudeM) / 100;
     const standing = `${standingMbar.toFixed(0)} mbar (${(standingMbar / INHG).toFixed(2)} in-Hg)`;
-    if (issue === 'blank') {
-      notes.push(`Launch site: this file gives a temperature but no pad pressure, at ${ft} ft. The `
-        + 'two are read as a pair, so the flight would use sea-level pressure — 1013 mbar — at that '
-        + `pad. Type the pad's station pressure under Launch conditions (about ${standing} there on `
-        + 'a standard day), or clear the temperature as well and the app computes the pressure from '
-        + 'the site altitude. Left as it is, the air is too dense and the motor loses the extra '
-        + 'thrust thin air gives it.');
-    } else if (issue === 'sea-level') {
+    if (issue === 'sea-level') {
       notes.push(`Launch site: this file's pressure, ${(launch.pressureHPa! / INHG).toFixed(2)} in-Hg, `
         + `is about sea-level pressure, and the pad is at ${ft} ft where a barometer reads about `
-        + `${standing}. That is an altimeter setting rather than the pressure at the pad — replace it `
-        + 'under Launch conditions, or the air is too dense and the motor loses the extra thrust '
-        + 'thin air gives it.');
-    } else if (issue === 'blank-temperature') {
-      const standingC = isaTemperatureK(launch.launchAltitudeM) - 273.15;
-      const standingT = `${(standingC * 9 / 5 + 32).toFixed(0)} °F (${standingC.toFixed(0)} °C)`;
-      notes.push(`Launch site: this file gives a pad pressure but no readable temperature, at ${ft} ft. `
-        + 'The two are read as a pair, so unless a temperature is already typed under Launch '
-        + 'conditions the flight uses the sea-level standard, 59 °F (15 °C), at that pad — where a '
-        + `standard day is about ${standingT}. Type the pad’s temperature, or clear the pressure as `
-        + 'well and the app computes both from the site altitude. Left as it is, the air is too thin '
-        + 'and the speed of sound too high, which shifts every Mach number the drag is read at.');
+        + `${standing}. That is an altimeter setting rather than the pressure at the pad. Clear the `
+        + 'field under Launch conditions and the app uses the standing pressure for the site; left '
+        + 'as it is, the air is too dense and the motor loses the extra thrust thin air gives it.');
     }
   }
   if (machAlt) {

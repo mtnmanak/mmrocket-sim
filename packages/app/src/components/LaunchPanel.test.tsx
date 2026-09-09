@@ -4,8 +4,10 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import {
-  DEFAULT_CONDITIONS, DEFAULT_TIME_STEP_S, LaunchPanel, timeStepCostFactor,
+  DEFAULT_CONDITIONS, DEFAULT_TIME_STEP_S, kernelSimOptions, LaunchPanel, timeStepCostFactor,
+  type LaunchConditions,
 } from './LaunchPanel.js';
+import { isaPressurePa, isaTemperatureK } from '../services/atmosphere.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -147,40 +149,60 @@ describe('the station-pressure field', () => {
   it('matches how the other launch fields are labelled', () => {
     renderConditions({});
     const labels = [...host.querySelectorAll('label')].map((l) => (l.textContent ?? '').trim());
-    // Sentence case, two words, the same shape as "Site altitude" beside it —
-    // not Title Case, not an appended explainer.
     expect(labels.some((l) => l.startsWith('Site altitude'))).toBe(true);
     expect(labels.some((l) => l.startsWith('Station pressure'))).toBe(true);
   });
 
-  it('carries field help saying what blank actually does', () => {
+  /**
+   * REWRITTEN 2026-09-08b. The help used to explain a trap; there is no trap
+   * now, so it explains a default instead. What it must NOT do again is ask the
+   * user for a barometer reading at a pad they have not driven to yet.
+   */
+  it('says the field fills itself in, and does not ask for a reading nobody has', () => {
     renderConditions({});
     const help = [...host.querySelectorAll('.field')]
       .map((f) => f.getAttribute('title') ?? '')
-      .find((t) => /^The pressure AT THE PAD/.test(t)) ?? '';
-    expect(help).toMatch(/AT THE PAD/);
-    expect(help).toMatch(/not the sea-level altimeter setting/);
-    // The correction itself: blank is computed from site altitude ONLY when
-    // the temperature is blank too.
-    expect(help).toMatch(/BOTH blank/);
-    expect(help).toMatch(/computes the pad's pressure from your site altitude/);
-    expect(help).toMatch(/Leave only this blank while a temperature is typed and it does not/);
-    // And names the number the flight would actually use.
-    expect(help).toMatch(/sea-level pressure — 101,325 Pa/);
+      .find((t) => /^Filled in from your Site altitude/.test(t) && /STATION pressure/.test(t)) ?? '';
+    expect(help, 'the Station pressure help').toBeTruthy();
+    expect(help).toMatch(/follows the altitude when you change it/);
+    expect(help).toMatch(/Type a value only to try a specific day/);
+    // Still names the KIND of number, because a typed one can still be wrong.
+    expect(help).toMatch(/not the\s+sea-level altimeter setting/);
+    // The v0.120 copy, and the instruction it carried, are both gone.
+    expect(help).not.toMatch(/AT THE PAD/);
+    expect(help).not.toMatch(/BOTH blank/);
+    expect(help).not.toMatch(/Type the two together/);
   });
 
-  it('says on the temperature field that it drags the pressure with it', () => {
-    renderConditions({});
-    const help = [...host.querySelectorAll('.field')]
-      .map((f) => f.getAttribute('title') ?? '')
-      .find((t) => /^Air temperature at the pad/.test(t)) ?? '';
-    expect(help).toMatch(/type the pad's station pressure with it/);
+  it('shows the computed pressure in the box, not the word "standard"', () => {
+    // Eric's ask: "the user should get this filled in automatically based on
+    // the altitude". A placeholder rather than a committed value, so the number
+    // stays LINKED to Site altitude — see LaunchField.autoStored.
+    renderConditions({ launchAltitudeM: 1189 });
+    const input = [...host.querySelectorAll('input')]
+      .find((i) => (i.getAttribute('aria-label') ?? '').startsWith('Station pressure'));
+    expect(input, 'the Station pressure input').toBeTruthy();
+    // 878 mbar is the standing pressure at 1,189 m.
+    expect(input!.getAttribute('placeholder')).toMatch(/878/);
+    expect(input!.getAttribute('placeholder')).not.toBe('standard');
+  });
+
+  it('moves the shown pressure when the site altitude moves', () => {
+    const at = (h: number) => {
+      renderConditions({ launchAltitudeM: h });
+      return [...host.querySelectorAll('input')]
+        .find((i) => (i.getAttribute('aria-label') ?? '').startsWith('Station pressure'))!
+        .getAttribute('placeholder') ?? '';
+    };
+    // The whole reason it is a placeholder and not a written value: a real
+    // number typed into the box would freeze at the old site's air.
+    expect(at(0)).toMatch(/1013/);
+    expect(at(2682)).toMatch(/730/);
   });
 
   it('reaches a screen reader and the keyboard, not only the mouse', () => {
-    // The help used to be a `title` on the wrapper `<div>`: not announced, not
-    // focusable, so the one sentence explaining the blank-pressure trap was
-    // hover-only (2026-09-08, from review). It is now on the input itself
+    // The help used to be a `title` on the wrapper div: not announced, not
+    // focusable (2026-09-08, from review). It is now on the input itself
     // through aria-describedby, which is what the `.field` idiom — label
     // BESIDE the control, not around it — otherwise never provides.
     renderConditions({});
@@ -190,94 +212,83 @@ describe('the station-pressure field', () => {
     const described = input!.getAttribute('aria-describedby');
     expect(described, 'aria-describedby on the pressure input').toBeTruthy();
     const target = host.querySelector(`#${CSS.escape(described!)}`);
-    expect(target?.textContent ?? '').toMatch(/^The pressure AT THE PAD/);
-    // Visually hidden, so it says the sentence without printing it twice.
+    expect(target?.textContent ?? '').toMatch(/^Filled in from your Site altitude/);
     expect(target?.className).toContain('sr-only');
   });
 });
 
-describe('the pad-pressure caution', () => {
-  it('says nothing on the defaults — a sea-level pad with both fields blank', () => {
-    expect(renderConditions({})).toBeNull();
+/**
+ * THE ASSERTION THE WHOLE CHANGE RESTS ON (2026-09-08b).
+ *
+ * Everything above is copy. This is the behaviour: a blank field flies the
+ * value for the SITE, not the value for sea level. It is asserted against
+ * kernelSimOptions because that is the ONE construction Launch, the full-series
+ * CSV re-run and the batch runner all share — right here is right everywhere
+ * that flies.
+ */
+describe('kernelSimOptions fills a blank atmosphere field from the site altitude', () => {
+  const opts = (over: Partial<LaunchConditions>) =>
+    kernelSimOptions({ ...DEFAULT_CONDITIONS, ...over });
+
+  it('gives a blank pressure the standing pressure for the site, not 101,325 Pa', () => {
+    // The MESOS case: a file states a temperature and no pressure at 2,682 m.
+    // This flew sea level through v0.120 and cost 29.7 % of apogee.
+    const o = opts({ launchAltitudeM: 2682, temperatureC: 12.8 });
+    expect(o.pressure).toBeCloseTo(isaPressurePa(2682), 6);
+    expect(o.pressure!).toBeLessThan(80000);
+    expect(o.temperature).toBeCloseTo(12.8 + 273.15, 6);
   });
 
-  it('says nothing at a high site when BOTH fields are blank — that input is right', () => {
-    expect(renderConditions({ launchAltitudeM: 2682 })).toBeNull();
+  it('gives a blank temperature the standing temperature for the site, not 288.15 K', () => {
+    const o = opts({ launchAltitudeM: 2682, pressureHPa: 730 });
+    expect(o.temperature).toBeCloseTo(isaTemperatureK(2682), 6);
+    expect(o.temperature!).toBeLessThan(280);
+    expect(o.pressure).toBeCloseTo(73000, 6);
   });
 
-  it('says nothing at a low site with a temperature typed', () => {
-    expect(renderConditions({ launchAltitudeM: 213, temperatureC: 15 })).toBeNull();
+  it('still defers to the kernel when BOTH are blank, so those flights are unchanged', () => {
+    // Deliberately undefined rather than a value computed here: the kernel's
+    // own atmosphere is the reference, and passing our numbers instead would
+    // move every existing design by whatever the two implementations disagree
+    // by. Both-blank is the common case, so this is the bit-identical guard.
+    const o = opts({ launchAltitudeM: 2682 });
+    expect(o.temperature).toBeUndefined();
+    expect(o.pressure).toBeUndefined();
   });
 
-  it('fires when a temperature is typed and the pressure is left blank at altitude', () => {
-    const c = renderConditions({ launchAltitudeM: 1189, temperatureC: 32.2 });
-    expect(c).not.toBeNull();
-    const t = c!.textContent ?? '';
-    expect(t).toMatch(/Station pressure is blank and a temperature is typed/);
-    // Quotes both numbers: what the flight would use, and what the site reads.
-    expect(t).toMatch(/1013 mbar/);
-    expect(t).toMatch(/878 mbar/);
-    expect(t).toMatch(/clear the temperature too/);
+  it('passes both through untouched when both are typed', () => {
+    const o = opts({ launchAltitudeM: 2682, temperatureC: -2.4, pressureHPa: 730 });
+    expect(o.temperature).toBeCloseTo(270.75, 2);
+    expect(o.pressure).toBeCloseTo(73000, 6);
   });
 
-  it('fires on an altimeter setting typed at a high site', () => {
-    // 30 in-Hg = 1015.9 mbar at 1,189 m, where a barometer reads about 878.
-    const c = renderConditions({ launchAltitudeM: 1189, temperatureC: 32.2, pressureHPa: 1015.9 });
-    expect(c).not.toBeNull();
-    const t = c!.textContent ?? '';
-    expect(t).toMatch(/is about sea-level pressure/);
-    expect(t).toMatch(/looks like an altimeter setting/);
-    expect(t).toMatch(/878 mbar/);
-    // Nothing to clear here — the fix is to replace the number.
-    expect(t).not.toMatch(/clear the temperature too/);
-  });
-
-  it('says nothing when a plausible station pressure is typed at a high site', () => {
-    // A tester who typed the real reading must not be nagged: 878 mbar at
-    // 1,189 m is that site's own standard pressure.
-    expect(renderConditions({ launchAltitudeM: 1189, temperatureC: 32.2, pressureHPa: 878 })).toBeNull();
-    // And a LOW reading is weather or height, never this mistake.
-    expect(renderConditions({ launchAltitudeM: 1189, temperatureC: 32.2, pressureHPa: 820 })).toBeNull();
+  it('does the same at sea level, where the fill is the sea-level value anyway', () => {
+    const o = opts({ launchAltitudeM: 0, temperatureC: 30 });
+    expect(o.pressure).toBeCloseTo(101325, 0);
   });
 });
 
-/**
- * THE OTHER HALF OF THE PAIR (2026-09-08, from review).
- *
- * v0.120's Temperature help said a blank field meant "the ISA standard 15 °C at
- * sea level, lapsing with your site altitude" — and said it one line after
- * telling the reader to type a station pressure, which is precisely what stops
- * the lapse. The kernel bridge (OrkEngine.java:919-923) takes the
- * ExtendedISAModel branch as soon as EITHER field is given and substitutes
- * STANDARD_TEMPERATURE for the blank one, and ExtendedISAModel pins that as the
- * base of a layer starting AT the launch altitude. So the pad flies 288.15 K:
- * measured at 2,682 m, 288.15 K against 270.72 K, density 0.8824 against
- * 0.9393 kg/m³ (6.05 % thin) and the speed of sound 3.17 % high.
- */
 describe('the site-temperature field', () => {
-  it('no longer promises a lapse it does not get', () => {
+  it('says the field fills itself in from the site altitude', () => {
     renderConditions({});
     const help = [...host.querySelectorAll('.field')]
       .map((f) => f.getAttribute('title') ?? '')
-      .find((t) => /^Air temperature at the pad/.test(t)) ?? '';
+      .find((t) => /falling 6\.5/.test(t)) ?? '';
     expect(help, 'the Temperature field help').toBeTruthy();
-    // The false claim itself: blank was never "lapsing with your site altitude"
-    // once a pressure is typed.
-    expect(help).not.toMatch(/Blank = the ISA standard 15 °C at sea level, lapsing/);
-    // It says the same thing the pressure help says, in the same shape.
-    expect(help).toMatch(/BOTH blank/);
-    expect(help).toMatch(/computes the pad's temperature from your site altitude/);
-    expect(help).toMatch(/Leave only this blank while a pressure is typed and it does not/);
-    expect(help).toMatch(/uses 15 °C at your pad however high the site/);
-    expect(help).toMatch(/Type the two together, or leave both blank/);
+    expect(help).toMatch(/^Filled in from your Site altitude/);
+    expect(help).toMatch(/follows the altitude when\s+you change it/);
+    // The v0.120 instruction is gone from this half too.
+    expect(help).not.toMatch(/BOTH blank/);
+    expect(help).not.toMatch(/station pressure with it/);
   });
 
-  it('still says that typing one drags the pressure with it', () => {
-    renderConditions({});
-    const help = [...host.querySelectorAll('.field')]
-      .map((f) => f.getAttribute('title') ?? '')
-      .find((t) => /^Air temperature at the pad/.test(t)) ?? '';
-    expect(help).toMatch(/type the pad's station pressure with it/);
+  it('shows the computed temperature in its box as well', () => {
+    renderConditions({ launchAltitudeM: 2682 });
+    const input = [...host.querySelectorAll('input')]
+      .find((i) => (i.getAttribute('aria-label') ?? '').startsWith('Temperature'));
+    expect(input, 'the Temperature input').toBeTruthy();
+    // About -2.4 °C is the standing temperature at 2,682 m.
+    expect(input!.getAttribute('placeholder')).toMatch(/-2/);
   });
 
   it('reaches a screen reader, the same way the pressure help does', () => {
@@ -288,72 +299,56 @@ describe('the site-temperature field', () => {
     const described = input!.getAttribute('aria-describedby');
     expect(described, 'aria-describedby on the temperature input').toBeTruthy();
     const target = host.querySelector(`#${CSS.escape(described!)}`);
-    expect(target?.textContent ?? '').toMatch(/^Air temperature at the pad/);
+    expect(target?.textContent ?? '').toMatch(/^Filled in from your Site altitude/);
     expect(target?.className).toContain('sr-only');
-  });
-
-  it('tells the pressure reader to type the two together as well', () => {
-    renderConditions({});
-    const help = [...host.querySelectorAll('.field')]
-      .map((f) => f.getAttribute('title') ?? '')
-      .find((t) => /^The pressure AT THE PAD/.test(t)) ?? '';
-    expect(help).toMatch(/Type the two together, or leave both blank/);
   });
 });
 
-describe('the pad-temperature caution', () => {
-  it('fires when a station pressure is typed and the temperature is left blank', () => {
-    // 730 mbar at 2,682 m is that site's own standard pressure — a perfectly
-    // good number, which is why nothing used to say anything.
-    const c = renderConditions({ launchAltitudeM: 2682, temperatureC: null, pressureHPa: 730 });
-    expect(c).not.toBeNull();
-    const t = c!.textContent ?? '';
-    expect(t).toMatch(/Temperature is blank and a station pressure is typed/);
-    // Quotes both temperatures: what the flight would use, and what the site reads.
-    expect(t).toMatch(/15\.0 °C/);
-    expect(t).toMatch(/-2\.43 °C/);
-    expect(t).toMatch(/clear the pressure too/);
-    // Not the pressure branch's copy.
-    expect(t).not.toMatch(/Station pressure is blank/);
-    expect(t).not.toMatch(/altimeter setting/);
-  });
-
-  it('says nothing once the temperature is filled in', () => {
-    expect(renderConditions({ launchAltitudeM: 2682, temperatureC: -2.4, pressureHPa: 730 })).toBeNull();
-  });
-
-  it('says nothing at a low site', () => {
-    expect(renderConditions({ launchAltitudeM: 213, temperatureC: null, pressureHPa: 990 })).toBeNull();
-  });
-
-  it('leaves the altimeter-setting branch in charge when the pressure is also wrong', () => {
-    const c = renderConditions({ launchAltitudeM: 1189, temperatureC: null, pressureHPa: 1015.9 });
-    expect(c).not.toBeNull();
-    const t = c!.textContent ?? '';
-    expect(t).toMatch(/is about sea-level pressure/);
-    expect(t).not.toMatch(/Temperature is blank/);
+describe('the pad-pressure caution', () => {
+  it('says nothing on the defaults — a sea-level pad with both fields blank', () => {
+    expect(renderConditions({})).toBeNull();
   });
 
   /**
-   * Every branch ends with one fix and one pointer, and no branch may leak
-   * another branch's fix — the tail used to be shared, so adding a third case
-   * is exactly where that would break.
+   * The four cases that used to fire and must not any more. Each is correct
+   * input now: the app fills the blank field from the site altitude, so a
+   * caution here would be the app warning the user about its own default.
    */
-  it('gives each branch its own fix, and the Guide pointer to all three', () => {
-    const cases: [Partial<typeof DEFAULT_CONDITIONS>, RegExp, RegExp][] = [
-      [{ launchAltitudeM: 1189, temperatureC: 32.2 },
-        /Type the pad’s station pressure, or clear the temperature too/, /clear the pressure too/],
-      [{ launchAltitudeM: 2682, temperatureC: null, pressureHPa: 730 },
-        /Type the pad’s temperature, or clear the pressure too/, /clear the temperature too/],
-      [{ launchAltitudeM: 1189, temperatureC: 32.2, pressureHPa: 1015.9 },
-        /Type the pad’s station pressure\. /, /clear the /],
-    ];
-    for (const [over, wanted, unwanted] of cases) {
-      const t = renderConditions(over)!.textContent ?? '';
-      expect(t, JSON.stringify(over)).toMatch(wanted);
-      expect(t, JSON.stringify(over)).not.toMatch(unwanted);
-      expect(t, JSON.stringify(over)).toMatch(/See Launch Conditions in the Guide/);
-    }
+  it('says nothing whenever a field is left blank, however high the site', () => {
+    expect(renderConditions({ launchAltitudeM: 2682 })).toBeNull();
+    expect(renderConditions({ launchAltitudeM: 1189, temperatureC: 32.2 })).toBeNull();
+    expect(renderConditions({ launchAltitudeM: 2682, temperatureC: null, pressureHPa: 730 })).toBeNull();
+    expect(renderConditions({ launchAltitudeM: 213, temperatureC: 15 })).toBeNull();
+  });
+
+  it('fires on an altimeter setting typed at a high site', () => {
+    // 30 in-Hg = 1015.9 mbar at 1,189 m, where a barometer reads about 878.
+    // The one case a default cannot rescue: the user typed a number, and it is
+    // the wrong KIND of number.
+    const c = renderConditions({ launchAltitudeM: 1189, temperatureC: 32.2, pressureHPa: 1015.9 });
+    expect(c).not.toBeNull();
+    const t = c!.textContent ?? '';
+    expect(t).toMatch(/is about sea-level\s+pressure/);
+    expect(t).toMatch(/looks like an altimeter setting/);
+    expect(t).toMatch(/878 mbar/);
+    // The fix is now "clear it", not "type the right one" — because clearing
+    // it gets the right one automatically.
+    expect(t).toMatch(/Clear the field/);
+    expect(t).toMatch(/See Launch Conditions in the Guide/);
+  });
+
+  it('fires with the temperature blank too — there is no second issue to outrank', () => {
+    const c = renderConditions({ launchAltitudeM: 1189, temperatureC: null, pressureHPa: 1015.9 });
+    expect(c).not.toBeNull();
+    expect(c!.textContent ?? '').toMatch(/is about sea-level\s+pressure/);
+  });
+
+  it('says nothing when a plausible station pressure is typed at a high site', () => {
+    // A tester who typed the real reading must not be nagged: 878 mbar at
+    // 1,189 m is that site's own standard pressure.
+    expect(renderConditions({ launchAltitudeM: 1189, temperatureC: 32.2, pressureHPa: 878 })).toBeNull();
+    // And a LOW reading is weather or height, never this mistake.
+    expect(renderConditions({ launchAltitudeM: 1189, temperatureC: 32.2, pressureHPa: 820 })).toBeNull();
   });
 
   /**

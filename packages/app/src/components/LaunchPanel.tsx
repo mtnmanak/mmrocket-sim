@@ -1,4 +1,4 @@
-import { DEFAULT_TIME_STEP_S, ISA_SEA_LEVEL, type SimulationOptions } from '@online-openrocket/engine';
+import { DEFAULT_TIME_STEP_S, type SimulationOptions } from '@online-openrocket/engine';
 import { useId } from 'react';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { fmtSi, niceStep, siToUi, uiToSi, type Quantity } from '../prefs/units.js';
@@ -44,14 +44,36 @@ export interface LaunchConditions {
  * numbers in the batch table than the same design gave on the Launch button.
  */
 export function kernelSimOptions(l: LaunchConditions): SimulationOptions {
+  // A BLANK field means "the standard value for THIS SITE" — never "sea level".
+  //
+  // The kernel takes the site-altitude atmosphere only when BOTH fields are
+  // absent. With one of them typed it stops doing that for the other, so a
+  // blank pressure beside a typed temperature silently flew 101,325 Pa at a pad
+  // however high it sat: worth 29.7 % of apogee on MESOS, and 24 of the 33
+  // corpus sites above 1,000 ft state a temperature and no pressure.
+  //
+  // v0.120 answered that with help text and a caution telling people to type
+  // both. That was the wrong half of the problem (Eric, 2026-09-08): this is a
+  // SIMULATION of a flight that has not happened, so nobody knows what the
+  // barometer will read on the day — the pad's standard pressure is something
+  // the app can compute and the user cannot look up. Asking for it "AT THE PAD"
+  // read like a request for flight data after the fact.
+  //
+  // So each field now falls back INDEPENDENTLY to the ISA value at the site
+  // altitude, and the panel shows that value in the box as a placeholder so it
+  // is visible rather than merely documented. Both blank still passes undefined
+  // and lets the kernel do it, so those designs stay bit-identical.
+  const bothBlank = l.temperatureC === null && l.pressureHPa === null;
   return {
     launchRodLength: l.launchRodLengthM,
     launchRodAngle: (l.launchRodAngleDeg * Math.PI) / 180,
     windAverage: l.windAverage,
     windStdDeviation: l.windStdDev,
     launchAltitude: l.launchAltitudeM,
-    temperature: l.temperatureC === null ? undefined : l.temperatureC + 273.15,
-    pressure: l.pressureHPa === null ? undefined : l.pressureHPa * 100,
+    temperature: l.temperatureC !== null ? l.temperatureC + 273.15
+      : bothBlank ? undefined : isaTemperatureK(l.launchAltitudeM),
+    pressure: l.pressureHPa !== null ? l.pressureHPa * 100
+      : bothBlank ? undefined : isaPressurePa(l.launchAltitudeM),
     launchLatitude: l.latitudeDeg,
     // `!= null` covers BOTH absent and cleared: the panel's nullable fields
     // commit null when emptied, and null means the same thing absent does —
@@ -123,7 +145,7 @@ const FIELD_SPEC: Partial<Record<keyof LaunchConditions, { quantity: Quantity; s
  * closure so the phone Fly screen (S4) renders the SAME conversion and
  * validation for its three field-side conditions instead of a copy.
  */
-export function LaunchField({ label, field, value, onChange, stepStored, min, max, nullable = false, help }: {
+export function LaunchField({ label, field, value, onChange, stepStored, min, max, nullable = false, autoStored, help }: {
   label: string;
   field: keyof LaunchConditions;
   value: LaunchConditions;
@@ -132,6 +154,18 @@ export function LaunchField({ label, field, value, onChange, stepStored, min, ma
   min?: number;
   max?: number;
   nullable?: boolean;
+  /**
+   * The value this field flies while it is BLANK, in stored units — shown in
+   * the box as a placeholder so the number is visible rather than merely
+   * described.
+   *
+   * Only the two atmosphere fields pass one. It is deliberately a placeholder
+   * and not a committed value: blank stays LINKED to Site altitude, so moving
+   * the pad from 500 ft to 5,000 ft re-reads both. Writing real numbers into
+   * the boxes instead would freeze them at the old site's air the moment the
+   * altitude changed — the same stale-number trap in a new place.
+   */
+  autoStored?: number;
   /**
    * Field help — the sentence a short label cannot hold: "Station pressure"
    * says WHAT the field wants, the help says what leaving it blank actually
@@ -186,7 +220,14 @@ export function LaunchField({ label, field, value, onChange, stepStored, min, ma
         max={uiMax}
         allowNegative={uiMin === undefined || uiMin < 0}
         nullable={nullable}
-        placeholder={nullable ? 'standard' : undefined}
+        // The auto value as a NUMBER when the field has one, so the box shows
+        // what a blank actually flies — "1013 hPa", not the word "standard",
+        // which told the reader nothing and was the whole complaint. NumField
+        // reads the figure back out of the placeholder for its own
+        // arrow-key-from-blank behaviour, so the two agree by construction.
+        placeholder={autoStored !== undefined
+          ? fmtSi(spec!.quantity, symbol!, autoStored * spec!.storedToSI)
+          : nullable ? 'standard' : undefined}
         onCommit={(ui) => {
           if (ui === null) {
             if (nullable) onChange({ ...value, [field]: null });
@@ -257,51 +298,53 @@ export function TimeStepCaution({ dt, lastRun, flights = 1 }: {
  * Field help for the two atmosphere fields — the sentence the labels cannot
  * hold. Exported so the tests assert on the SAME strings the panel renders.
  *
- * Both exist because of the 2026-09-08 finding: the kernel takes temperature
- * and pressure as a PAIR, and fills whichever one is blank with the standard
- * SEA-LEVEL value applied at the pad (see services/atmosphere.ts for the
- * mechanism and the measurements). So "left blank it is computed from your
- * site altitude" is true of either field only when BOTH are blank.
+ * REWRITTEN 2026-09-08b, on Eric's objection, which is worth keeping because it
+ * is the reason the copy was wrong rather than merely long:
  *
- * The temperature half was still stated wrongly through v0.120, and by the very
- * copy that steered people into it: it promised "the ISA standard 15 °C at sea
- * level, lapsing with your site altitude" one line after telling the reader to
- * type a station pressure — which is the thing that switches the lapse off.
- * Measured at 2,682 m, that leaves 288.15 K at the pad against a standard
- * 270.72 K: air 6.05 % thin and a speed of sound 3.17 % high. Both helps now
- * say the same thing, which is: type the two together, or leave both blank.
+ *   "since this is a simulation, how would the user even know what the actual
+ *   precise pressure or temperature at the pad will be on the day they fly the
+ *   rocket? [...] asking them for the pressure AT THE PAD is weird - are we
+ *   trying to gather historical data from them?"
+ *
+ * v0.120's help was accurate about the mechanism and wrong about the user. It
+ * asked for a barometer reading taken standing at the pad — a measurement of a
+ * flight that has not happened — and made the app's correctness depend on the
+ * user supplying it. The pad's standard pressure is the one quantity here the
+ * app can compute and the user cannot look up.
+ *
+ * So the BEHAVIOUR moved to meet the copy instead of the copy explaining the
+ * behaviour: a blank field now flies the ISA value at the SITE ALTITUDE
+ * (kernelSimOptions), and the box shows that number as its placeholder. The
+ * help no longer has a trap to describe — it says what the field is for, and
+ * that typing one is how you try a different day.
  */
 export const STATION_PRESSURE_HELP =
-  'The pressure AT THE PAD — what a barometer reads standing there — not the sea-level '
-  + 'altimeter setting an airport broadcasts. Leave this and Temperature BOTH blank and the '
-  + 'app computes the pad\'s pressure from your site altitude. Leave only this blank while a '
-  + 'temperature is typed and it does not: the flight then uses sea-level pressure — 101,325 Pa '
-  + '— at your pad however high the site. Type the two together, or leave both blank.';
+  'Filled in from your Site altitude — the greyed number is what a blank field flies, and it '
+  + 'follows the altitude when you change it. Type a value only to try a specific day’s air. '
+  + 'If you do, it is STATION pressure — what a barometer reads at the pad — not the '
+  + 'sea-level altimeter setting an airport broadcasts; those differ by about 15 % at 3,900 ft.';
 
 export const SITE_TEMPERATURE_HELP =
-  'Air temperature at the pad. Leave this and Station pressure BOTH blank and the app computes '
-  + 'the pad\'s temperature from your site altitude — the ISA standard, 15 °C at sea level '
-  + 'falling 6.5 °C per km. Leave only this blank while a pressure is typed and it does not: the '
-  + 'flight then uses 15 °C at your pad however high the site, so the air comes out too thin and '
-  + 'the speed of sound too high. Type the two together, or leave both blank: if you type a '
-  + 'temperature, type the pad\'s station pressure with it.';
+  'Filled in from your Site altitude — the greyed number is what a blank field flies (the ISA '
+  + 'standard, 15 °C at sea level falling 6.5 °C per km), and it follows the altitude when '
+  + 'you change it. Type a value only to try a specific day’s air: a hot pad thins it and '
+  + 'raises the speed of sound, which moves both apogee and the Mach numbers.';
 
 /**
- * Live caution when the pad's air is wrong for the site — the panel half of the
- * 2026-09-08 pad-pressure finding, and the place a user actually fixes what the
- * RASAero import note told them about.
+ * Live caution when a TYPED station pressure is really an altimeter setting.
  *
- * It fires on exactly the three cases `padPressureIssue` names, and it quotes
- * the number the site itself implies, because "type your station pressure" is
- * not actionable without one. Silent below 600 m and silent when both fields
- * are blank — that input is correct, and a caution that cries on correct input
- * is one users learn to skip past.
+ * Down from three branches to one (2026-09-08b). The other two fired when a
+ * field was left blank, and blank is no longer a mistake — `kernelSimOptions`
+ * fills it from the site altitude. A caution that fires on correct input is one
+ * users learn to skip past, and those two were doing exactly that: warning
+ * about the app's own sea-level fallback in the voice of a user error.
  *
- * The third branch — a pressure typed with the temperature left blank — was
- * added from review (2026-09-08). It is the mirror of the first, and the app
- * itself steers people into it: the Station pressure help asks for a pressure,
- * and typing one on its own pins 288.15 K at the pad. Nothing caught it, because
- * the pressure in that case is entirely plausible.
+ * What is left is the case no default can rescue, because the user typed a
+ * number and the app cannot tell it is the wrong KIND of number except by
+ * checking it against the site. It quotes the figure the altitude implies,
+ * since "type your station pressure" is not actionable without one, and it
+ * offers the blank field as the fix rather than asking for a barometer reading
+ * nobody has. Silent below 600 m.
  */
 export function PadPressureCaution({ value }: { value: LaunchConditions }) {
   const { prefs } = usePrefs();
@@ -309,33 +352,18 @@ export function PadPressureCaution({ value }: { value: LaunchConditions }) {
   if (!issue) return null;
   const sym = prefs.units.pressure;
   const altSym = prefs.units.distance;
-  const tSym = prefs.units.temperature;
   const site = fmtSi('distance', altSym, value.launchAltitudeM);
   const standing = `${fmtSi('pressure', sym, isaPressurePa(value.launchAltitudeM))} ${sym}`;
-  const seaLevel = `${fmtSi('pressure', sym, ISA_SEA_LEVEL.pressurePa)} ${sym}`;
-  const standingT = `${fmtSi('temperature', tSym, isaTemperatureK(value.launchAltitudeM))} ${tSym}`;
-  const seaLevelT = `${fmtSi('temperature', tSym, ISA_SEA_LEVEL.temperatureK)} ${tSym}`;
   return (
     <p className="field-caution" role="status" data-caution="pad-pressure">
       <Icon name="zap" size={13} />{' '}
-      {issue === 'blank'
-        ? <><strong>Station pressure is blank and a temperature is typed.</strong> The flight then
-            uses sea-level pressure — <strong>{seaLevel}</strong> — at a pad {site} {altSym} up,
-            where a barometer reads about {standing}. The air comes out too dense and the motor
-            loses the thrust thin air owes it.{' '}
-            Type the pad&rsquo;s station pressure, or clear the temperature too and the app
-            computes it from your site altitude.</>
-        : issue === 'blank-temperature'
-          ? <><strong>Temperature is blank and a station pressure is typed.</strong> The flight then
-              uses the sea-level standard — <strong>{seaLevelT}</strong> — at a pad {site} {altSym} up,
-              where a standard day is about {standingT}. The air comes out too thin and the speed of
-              sound too high, which shifts every Mach number the drag is read at.{' '}
-              Type the pad&rsquo;s temperature, or clear the pressure too and the app computes both
-              from your site altitude.</>
-          : <><strong>{fmtSi('pressure', sym, value.pressureHPa! * 100)} {sym} is about sea-level
-              pressure</strong>, and this pad is {site} {altSym} up, where a barometer reads about{' '}
-              {standing}. That looks like an altimeter setting rather than what the pad reads.{' '}
-              Type the pad&rsquo;s station pressure.</>}
+      <><strong>{fmtSi('pressure', sym, value.pressureHPa! * 100)} {sym} is about sea-level
+        pressure</strong>, and this pad is {site} {altSym} up, where a barometer reads about{' '}
+        {standing}. That looks like an altimeter setting rather than what the pad reads. The flight would
+        then fly air that is too dense — more drag, and less of the extra thrust a motor
+        gains as the air thins — so it under-predicts apogee.{' '}
+        Clear the field and the app uses {standing}, the standing pressure for your site
+        altitude.</>
       {' '}See <em>Launch Conditions</em> in the Guide.
     </p>
   );
@@ -354,9 +382,10 @@ export function LaunchPanel({ value, onChange, onLaunch, simulating, lastRun }: 
   lastRun?: { ms: number; timeStepS?: number } | null;
 }) {
   const numField = (label: string, key: keyof LaunchConditions, stepStored: number,
-      min?: number, max?: number, nullable = false, help?: string) => (
+      min?: number, max?: number, nullable = false, help?: string, autoStored?: number) => (
     <LaunchField label={label} field={key} value={value} onChange={onChange}
-      stepStored={stepStored} min={min} max={max} nullable={nullable} help={help} />
+      stepStored={stepStored} min={min} max={max} nullable={nullable}
+      autoStored={autoStored} help={help} />
   );
 
   return (
@@ -369,13 +398,15 @@ export function LaunchPanel({ value, onChange, onLaunch, simulating, lastRun }: 
         {numField('Wind gusts σ', 'windStdDev', 0.1, 0)}
         {numField('Site altitude', 'launchAltitudeM', 50, 0, 10000)}
         {numField('Latitude (°)', 'latitudeDeg', 1, -90, 90)}
-        {numField('Temperature', 'temperatureC', 1, -60, 60, true, SITE_TEMPERATURE_HELP)}
+        {numField('Temperature', 'temperatureC', 1, -60, 60, true, SITE_TEMPERATURE_HELP,
+          isaTemperatureK(value.launchAltitudeM) - 273.15)}
         {/* "Station pressure", not "Pressure" (2026-09-08). The bare label let
             every reader supply their own meaning, and the common one — the
             altimeter setting an airport broadcasts, or the sea-level figure a
             weather app shows — is the wrong number by 15 % at 3,900 ft. Two
             words, sentence case, the same shape as "Site altitude" beside it. */}
-        {numField('Station pressure', 'pressureHPa', 5, 300, 1100, true, STATION_PRESSURE_HELP)}
+        {numField('Station pressure', 'pressureHPa', 5, 300, 1100, true, STATION_PRESSURE_HELP,
+          isaPressurePa(value.launchAltitudeM) / 100)}
         {/* Blank = 0.05 s, the engine's and desktop OpenRocket's default. Smaller
             is slower and NOT more accurate: measured against a converged dt
             0.002 reference on four designs with real thrust curves, 0.05 lands

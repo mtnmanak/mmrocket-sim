@@ -221,24 +221,26 @@ export const PAD_PRESSURE_SEA_LEVEL_MARGIN = 0.05;
 /**
  * What is wrong with this site's pad air, if anything.
  *
- * - `'blank'` — a temperature is given and the pressure is not, at a site high
- *   enough to matter: the kernel will fly 101,325 Pa at that pad. This is the
- *   one every RASAero import lands in, because RASAero always writes a
- *   temperature.
+ * NARROWED 2026-09-08b to the ONE case that is still a mistake.
+ *
+ * Through v0.120 this reported three, and two of them — a blank pressure beside
+ * a typed temperature, and its mirror — were warnings about the APP's own
+ * behaviour rather than about the user's input. `kernelSimOptions` now fills a
+ * blank field from the site altitude independently, so neither is wrong any
+ * more and neither has anything to caution about: blank is correct input and
+ * always was, which is exactly what Eric said when he asked why the app used
+ * sea level for a field the user had left for it to work out.
+ *
  * - `'sea-level'` — a pressure IS given, but it is more than
- *   `PAD_PRESSURE_SEA_LEVEL_MARGIN` above what that altitude can read: the
- *   same mistake made by hand, an altimeter setting typed into a station-
- *   pressure field. Checked BEFORE `'blank-temperature'`, because a pressure
- *   that is wrong by 15 % outranks a temperature that is wrong by 3 %.
- * - `'blank-temperature'` — the mirror of `'blank'` (2026-09-08, from review):
- *   a plausible pressure is given and the temperature is not, so the kernel
- *   pins 288.15 K at the pad instead of the lapsed value. Nobody arrived here
- *   by accident — the app's own Station pressure help asks for the pressure.
- * - `null` — nothing to say: a low site, both fields blank (the kernel then
- *   computes the pad's air from the site altitude, which is right), or both
- *   given.
+ *   `PAD_PRESSURE_SEA_LEVEL_MARGIN` above what that altitude can read: an
+ *   altimeter setting typed into a station-pressure field. This one survives
+ *   because it is a real error in a value the user chose to type, and no
+ *   default can rescue it — the app cannot tell whether a number it was handed
+ *   is the right kind of number without checking it against the site.
+ * - `null` — nothing to say: a low site, a blank field (the app computes it), or
+ *   a plausible reading.
  */
-export type PadPressureIssue = 'blank' | 'sea-level' | 'blank-temperature';
+export type PadPressureIssue = 'sea-level';
 
 /**
  * Structural, not `Partial<LaunchConditions>`: LaunchPanel imports this module
@@ -255,17 +257,10 @@ export function padPressureIssue(launch: PadConditions): PadPressureIssue | null
   const h = launch.launchAltitudeM;
   if (typeof h !== 'number' || !Number.isFinite(h) || h <= PAD_PRESSURE_SITE_M) return null;
   const p = launch.pressureHPa;
-  const t = launch.temperatureC;
-  const hasT = t != null && Number.isFinite(t);
-  if (p == null || !Number.isFinite(p)) {
-    // Both blank is the CORRECT input — the kernel computes the pad's air
-    // from the site altitude. Only a typed temperature turns the blank into
-    // sea-level air.
-    return hasT ? 'blank' : null;
-  }
+  // A blank field is CORRECT input and says nothing: kernelSimOptions fills it
+  // from the site altitude, independently of whether a temperature is typed
+  // beside it. Only a value the user actually typed can be wrong here.
+  if (p == null || !Number.isFinite(p)) return null;
   if (p * 100 > isaPressurePa(h) * (1 + PAD_PRESSURE_SEA_LEVEL_MARGIN)) return 'sea-level';
-  // A believable station pressure with no temperature beside it: the same pair
-  // broken the other way round, and silent until v0.120's own help started
-  // asking for exactly this input.
-  return hasT ? null : 'blank-temperature';
+  return null;
 }

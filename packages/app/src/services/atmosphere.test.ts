@@ -42,36 +42,50 @@ describe('ISA station pressure', () => {
   });
 });
 
-describe('padPressureIssue — the blank-pressure branch', () => {
-  it('fires when a temperature is typed and the pressure is blank at altitude', () => {
+/**
+ * A BLANK field is correct input and says nothing — at any altitude, with or
+ * without a temperature typed beside it.
+ *
+ * This block asserted the opposite through v0.120, and the behaviour it pinned
+ * is the one Eric objected to (2026-09-08b): the app used sea level for a field
+ * the user had left for it to work out, then warned them about it.
+ * `kernelSimOptions` now fills each field independently from the site altitude,
+ * so there is nothing left to report here. The assertion that the FILL actually
+ * happens lives in LaunchPanel.test.tsx, against kernelSimOptions itself —
+ * which is the function that would have to break for this to matter again.
+ */
+describe('padPressureIssue — a blank field is not a fault', () => {
+  it('says nothing when the pressure is blank, whatever the temperature', () => {
+    // Both of these were 'blank' before. The pad now flies its own standing
+    // pressure in each case.
     expect(padPressureIssue({ launchAltitudeM: ft(3900), temperatureC: 32.2, pressureHPa: null }))
-      .toBe('blank');
+      .toBeNull();
     expect(padPressureIssue({ launchAltitudeM: ft(8800), temperatureC: 12.8, pressureHPa: null }))
-      .toBe('blank');
-  });
-
-  /**
-   * The whole point of the finding: BOTH blank is the correct input — the
-   * kernel then computes the pad's pressure from the site altitude. Only a
-   * typed temperature turns the blank into sea-level air.
-   */
-  it('says nothing when the temperature is blank too, however high the site', () => {
+      .toBeNull();
     expect(padPressureIssue({ launchAltitudeM: ft(8800), temperatureC: null, pressureHPa: null }))
       .toBeNull();
     expect(padPressureIssue({ launchAltitudeM: 9000, pressureHPa: null })).toBeNull();
   });
 
-  it('says nothing at a low site', () => {
-    // 700 ft with a temperature and no pressure — the vb38 fixture's shape.
+  it('says nothing when the temperature is blank and the pressure is plausible', () => {
+    // The former 'blank-temperature' branch: 878 mbar at 1,190 m and 730 at
+    // 2,682 m are those sites' own standard pressures.
+    expect(padPressureIssue({ launchAltitudeM: 1190, temperatureC: null, pressureHPa: 878 }))
+      .toBeNull();
+    expect(padPressureIssue({ launchAltitudeM: 2682, pressureHPa: 730 })).toBeNull();
+  });
+
+  it('still says nothing at a low site', () => {
     expect(padPressureIssue({ launchAltitudeM: ft(700), temperatureC: 15, pressureHPa: null }))
       .toBeNull();
     expect(padPressureIssue({ launchAltitudeM: 0, temperatureC: 23.3, pressureHPa: null })).toBeNull();
   });
 
-  it('takes 600 m as the boundary, exclusive', () => {
-    const at = (h: number) => padPressureIssue({ launchAltitudeM: h, temperatureC: 20, pressureHPa: null });
+  it('takes 600 m as the boundary, exclusive — for the branch that survives', () => {
+    // A sea-level altimeter setting, which is the only thing still reported.
+    const at = (h: number) => padPressureIssue({ launchAltitudeM: h, temperatureC: 20, pressureHPa: 1013 });
     expect(at(PAD_PRESSURE_SITE_M)).toBeNull();
-    expect(at(PAD_PRESSURE_SITE_M + 1)).toBe('blank');
+    expect(at(PAD_PRESSURE_SITE_M + 1)).toBe('sea-level');
   });
 });
 
@@ -238,47 +252,21 @@ describe('ISA station pressure above the troposphere', () => {
  * that is 288.15 K at the pad however high the site, and the v0.120 help
  * promised the opposite while telling the reader to type a station pressure.
  */
-describe('padPressureIssue — the blank-temperature branch', () => {
-  it('fires when a plausible pressure is typed and the temperature is blank', () => {
-    // 878 mbar at 1,190 m and 730 at 2,682 m are those sites' own standard
-    // pressures — nothing wrong with either number, which is why nothing
-    // caught this.
-    expect(padPressureIssue({ launchAltitudeM: 1190, temperatureC: null, pressureHPa: 878 }))
-      .toBe('blank-temperature');
-    expect(padPressureIssue({ launchAltitudeM: 2682, temperatureC: null, pressureHPa: 730 }))
-      .toBe('blank-temperature');
-    // Absent, not just null.
-    expect(padPressureIssue({ launchAltitudeM: 2682, pressureHPa: 730 })).toBe('blank-temperature');
-  });
-
-  it('says nothing when both fields are given', () => {
-    expect(padPressureIssue({ launchAltitudeM: 2682, temperatureC: -2.4, pressureHPa: 730 }))
-      .toBeNull();
-  });
-
-  it('says nothing at a low site — the same 600 m gate as the pressure half', () => {
-    expect(padPressureIssue({ launchAltitudeM: ft(700), temperatureC: null, pressureHPa: 990 }))
-      .toBeNull();
-    const at = (h: number) => padPressureIssue({ launchAltitudeM: h, temperatureC: null, pressureHPa: 943 });
-    expect(at(PAD_PRESSURE_SITE_M)).toBeNull();
-    expect(at(PAD_PRESSURE_SITE_M + 1)).toBe('blank-temperature');
-  });
-
-  /**
-   * A pressure that is BOTH an altimeter setting and missing its temperature is
-   * reported as the altimeter setting: 15 % wrong on pressure outranks 3 %
-   * wrong on temperature, and fixing the pressure is what the user must do
-   * first.
-   */
-  it('yields to the altimeter-setting branch when the pressure is also wrong', () => {
+/**
+ * The altimeter-setting branch is now the ONLY thing padPressureIssue reports,
+ * and it is reported regardless of what the temperature field holds — there is
+ * no longer a second issue for it to outrank.
+ */
+describe('padPressureIssue — the altimeter setting is reported on its own terms', () => {
+  it('fires whether or not a temperature sits beside it', () => {
     expect(padPressureIssue({ launchAltitudeM: 1190, temperatureC: null, pressureHPa: 1015.9 }))
+      .toBe('sea-level');
+    expect(padPressureIssue({ launchAltitudeM: 1190, temperatureC: 20, pressureHPa: 1015.9 }))
       .toBe('sea-level');
   });
 
-  it('leaves the other two branches exactly as they were', () => {
-    expect(padPressureIssue({ launchAltitudeM: 2682, temperatureC: 32.2, pressureHPa: null }))
-      .toBe('blank');
-    expect(padPressureIssue({ launchAltitudeM: 2682, temperatureC: null, pressureHPa: null }))
+  it('says nothing when both fields are given and both are plausible', () => {
+    expect(padPressureIssue({ launchAltitudeM: 2682, temperatureC: -2.4, pressureHPa: 730 }))
       .toBeNull();
   });
 });
