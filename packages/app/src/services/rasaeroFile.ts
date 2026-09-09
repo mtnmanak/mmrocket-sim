@@ -4,7 +4,7 @@ import type { LaunchConditions } from '../components/LaunchPanel.js';
 import { asStageNodes, freshId, mountsIn } from '../tree/treeModel.js';
 import { isaPressurePa, padPressureIssue } from './atmosphere.js';
 import { findDbMotor, hasMassData } from './motorDb.js';
-import { escapeXml as esc, xmlNum, xmlText as text } from './xmlUtil.js';
+import { escapeXml as esc, lookupTable, xmlNum, xmlText as text } from './xmlUtil.js';
 import type { OrkFlightConfig, OrkImportResult, OrkMotorRef, OrkSeparationOverride } from './orkFile.js';
 import {
   cgFromCombined, nodeLength, OVERRIDE_INCLUDES_MOTOR, stageLength,
@@ -35,7 +35,7 @@ const LB = 2.20462262;
 const MPH = 2.23694; // mph per m/s (the desktop's OPENROCKET_TO_RASAERO_SPEED)
 const INHG = 33.8639; // hPa per in-Hg (RASAero's launch-site pressure unit)
 
-const NOSE_SHAPES: Record<string, { shape: string; param?: number }> = {
+const NOSE_SHAPES: Record<string, { shape: string; param?: number }> = lookupTable({
   'Conical': { shape: 'conical' },
   'Tangent Ogive': { shape: 'ogive', param: 1 },
   'Von Karman Ogive': { shape: 'haack', param: 0 },
@@ -43,11 +43,11 @@ const NOSE_SHAPES: Record<string, { shape: string; param?: number }> = {
   'LV-Haack': { shape: 'haack', param: 0.33 },
   'Parabolic': { shape: 'power', param: 0.5 },
   'Elliptical': { shape: 'ellipsoid' },
-};
+});
 
-const CROSS_SECTIONS: Record<string, string> = {
+const CROSS_SECTIONS: Record<string, string> = lookupTable({
   'Square': 'square', 'Rounded': 'rounded', 'Subsonic NACA': 'airfoil',
-};
+});
 
 /**
  * RASAero's SUPERSONIC airfoil strings ↔ our airfoilSection ids (feature #4),
@@ -55,22 +55,22 @@ const CROSS_SECTIONS: Record<string, string> = {
  * desktop maps every non-Square/Rounded/NACA section to AIRFOIL, so that is
  * desktop parity with the section geometry kept on top.
  */
-const AIRFOIL_SECTIONS: Record<string, string> = {
+const AIRFOIL_SECTIONS: Record<string, string> = lookupTable({
   'double wedge': 'doublewedge',
   'hexagonal blunt base': 'hexbluntbase',
   'hexagonal': 'hexagonal',
   'naca': 'naca',
   'biconvex': 'biconvex',
   'single wedge': 'singlewedge',
-};
-const SECTION_TO_AIRFOIL: Record<string, string> = {
+});
+const SECTION_TO_AIRFOIL: Record<string, string> = lookupTable({
   doublewedge: 'Double Wedge',
   hexbluntbase: 'Hexagonal Blunt Base',
   hexagonal: 'Hexagonal',
   naca: 'NACA',
   biconvex: 'Biconvex',
   singlewedge: 'Single Wedge',
-};
+});
 
 /**
  * RASAero's eight global surface strings ↔ our nine finish ids.
@@ -91,7 +91,7 @@ const SECTION_TO_AIRFOIL: Record<string, string> = {
  * files between them. "Sheet Metal" (2 → 5 µm) and "Cast Iron" (500 → 250 µm)
  * also moved; no corpus file uses either.
  */
-const SURFACE_TO_FINISH: Record<string, string> = {
+const SURFACE_TO_FINISH: Record<string, string> = lookupTable({
   'Smooth (Zero Roughness)': 'mirror',
   'Polished': 'finishpolished',
   'Sheet Metal': 'optimum',
@@ -100,7 +100,7 @@ const SURFACE_TO_FINISH: Record<string, string> = {
   'Rough Camouflage Paint': 'normal',
   'Galvanized Metal': 'unfinished',
   'Cast Iron (Very Rough)': 'roughunfinished',
-};
+});
 
 /**
  * A surface string we do not know is regular paint, which is desktop's
@@ -125,7 +125,7 @@ const DEFAULT_SURFACE_FINISH = 'normal';
  * Both of those RASAero strings are already the destination of another finish,
  * which is unavoidable with eight slots for nine values.
  */
-const FINISH_TO_SURFACE: Record<string, string> = {
+const FINISH_TO_SURFACE: Record<string, string> = lookupTable({
   mirror: 'Smooth (Zero Roughness)',
   finishpolished: 'Polished',
   optimum: 'Sheet Metal',
@@ -137,7 +137,7 @@ const FINISH_TO_SURFACE: Record<string, string> = {
   // string; nearest-neighbour is the honest answer. See the note above.
   polished: 'Sheet Metal',
   rough: 'Cast Iron (Very Rough)',
-};
+});
 
 /**
  * Engine-string export gate — PROVEN against real RASAero II 2026-08-25.
@@ -199,8 +199,8 @@ const RASAERO_MFG: Array<[abbrev: string, names: string[]]> = [
   ['HT', ['HYPERTEK', 'HT']],
   ['AMW', ['AMW', 'ANIMAL MOTOR WORKS', 'ANIMAL', 'AMW PROX', 'AMW/PROX']],
 ];
-const RASAERO_MFG_LOOKUP: Record<string, string> = Object.fromEntries(
-  RASAERO_MFG.flatMap(([abbrev, names]) => names.map((n) => [n, abbrev])));
+const RASAERO_MFG_LOOKUP: Record<string, string> = lookupTable(Object.fromEntries(
+  RASAERO_MFG.flatMap(([abbrev, names]) => names.map((n) => [n, abbrev]))));
 
 /**
  * The RASAero abbreviation for one of our manufacturer strings (thrustcurve

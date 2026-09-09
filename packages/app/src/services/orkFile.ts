@@ -5,7 +5,7 @@ import { asStageNodes, freshId } from '../tree/treeModel.js';
 import { shapeIsClippable, shapeParamDefault } from '../tree/shapeProfile.js';
 import { finOutlineProblem } from '../tree/finOutline.js';
 import { isConformal, shroudEnds } from '../tree/shroud.js';
-import { escapeXml, xmlText as text } from './xmlUtil.js';
+import { MAX_FIN_POINTS, escapeXml, xmlText as text } from './xmlUtil.js';
 import { unzipMember } from './zipMember.js';
 import { applyPresetLinks, type PendingPresetLink, type Preset } from './presets.js';
 import { OVERRIDE_INCLUDES_MOTOR } from './statedLaunchWeight.js';
@@ -623,7 +623,13 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
         readAirfoil(el, n);
         readFinTabs(el, n);
         readFinRotation(el, n);
-        const ptEls = Array.from(el.querySelectorAll(':scope > finpoints > point'));
+        // CAPPED before validation, not after: `finOutlineProblem` is O(n^2)
+        // with no early exit on a non-crossing outline, so an uncapped list is
+        // the cost (see MAX_FIN_POINTS). Refused rather than truncated — half
+        // an outline is a different fin, and silently flying one is worse than
+        // declining to read it.
+        const ptEls = Array.from(el.querySelectorAll(':scope > finpoints > point'))
+          .slice(0, MAX_FIN_POINTS + 1);
         // A missing x/y attribute must SKIP the point (Number(null) is 0,
         // which would silently drop a vertex onto the origin).
         const pts = ptEls
@@ -638,7 +644,9 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
         // The v0.105 changelog said the importers already checked this; they did
         // not. A file-supplied outline that fails keeps the default outline and
         // says so, rather than taking the whole rocket down with it.
-        const outlineProblem = finOutlineProblem(pts);
+        const outlineProblem = pts.length > MAX_FIN_POINTS
+          ? `has ${pts.length}+ points; this app reads at most ${MAX_FIN_POINTS}`
+          : finOutlineProblem(pts);
         if (!outlineProblem) {
           n['points'] = pts;
         } else if (pts.length > 0) {

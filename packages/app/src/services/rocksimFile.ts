@@ -6,7 +6,7 @@ import { mountBore } from '../tree/scaleRocket.js';
 import { CLUSTER_POINTS, clusterOffsets } from '../tree/cluster.js';
 import { resolveAssemblyRadius } from '../tree/assembly.js';
 import { axialLength, drawnExtent, startFromPosition } from '../tree/position.js';
-import { escapeXml as esc, xmlNum as num, xmlText as text } from './xmlUtil.js';
+import { MAX_FIN_POINTS, escapeXml as esc, lookupTable, xmlNum as num, xmlText as text } from './xmlUtil.js';
 import { unzipMember } from './zipMember.js';
 import { shapeParamDefault } from './orkFile.js';
 import type { OrkExportMotor, OrkMotorRef, OrkTreeImportResult } from './orkFile.js';
@@ -59,13 +59,13 @@ const MASS = 1000; // g → kg
 /** Transient marker: BaseExtensionLen (m) parked on a cone until the chain pass runs. */
 const PENDING_BASE_EXT = '__rktBaseExt';
 
-const NOSE_SHAPES: Record<string, string> = {
+const NOSE_SHAPES: Record<string, string> = lookupTable({
   '0': 'conical', '1': 'ogive', '2': 'ellipsoid', '3': 'ellipsoid',
   '4': 'power', '5': 'parabolic', '6': 'haack',
-};
-const NOSE_SHAPE_TO_CODE: Record<string, number> = {
+});
+const NOSE_SHAPE_TO_CODE: Record<string, number> = lookupTable({
   conical: 0, ogive: 1, ellipsoid: 3, power: 4, parabolic: 5, haack: 6,
-};
+});
 /**
  * The three shapes whose RockSim `<ShapeParameter>` means the same thing
  * OpenRocket's does. Desktop parity: NoseConeHandler.java:96-107 and
@@ -115,11 +115,11 @@ const rktShapeParameter = (shape: string, value: unknown): number =>
     ? (typeof value === 'number' ? value : shapeParamDefault(shape))
     : 0;
 
-const CROSS_SECTIONS: Record<string, string> = { '0': 'square', '1': 'rounded', '2': 'airfoil' };
-const CROSS_SECTION_TO_CODE: Record<string, number> = { square: 0, rounded: 1, airfoil: 2 };
-const FINISH_FROM_CODE: Record<string, string> = {
+const CROSS_SECTIONS: Record<string, string> = lookupTable({ '0': 'square', '1': 'rounded', '2': 'airfoil' });
+const CROSS_SECTION_TO_CODE: Record<string, number> = lookupTable({ square: 0, rounded: 1, airfoil: 2 });
+const FINISH_FROM_CODE: Record<string, string> = lookupTable({
   '0': 'polished', '1': 'smooth', '2': 'normal', '3': 'unfinished',
-};
+});
 const FINISH_TO_CODE = (finish: unknown): number => {
   switch (finish) {
     case 'polished': case 'finishpolished': return 0;
@@ -166,8 +166,36 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
   xml = xml.replace(/^﻿?/, '');
   // Some DOM parsers (notably the test environment's) reject CDATA sections;
   // RockSim only uses them for plain text (PartDesc etc.) — inline-escape.
-  xml = xml.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, (_, t: string) =>
-    t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'));
+  // LINEAR, not a global lazy regex (2026-09-08 audit). The pattern
+  // `/<!\[CDATA\[([\s\S]*?)\]\]>/g` re-scans to end-of-file once per UNCLOSED
+  // opener, which is quadratic: measured 0.1 MB -> 5 ms, 0.5 MB -> 33 ms,
+  // 2.0 MB -> 514 ms. A ~200 KB zipped `.rkt` legitimately inflates to the
+  // 64 MiB `zipMember` allows, which is ~8 minutes of frozen main thread with
+  // no abort and the user's unsaved design behind it — defeating the zip-bomb
+  // cap one layer above.
+  //
+  // Split on the opener and scan each segment ONCE with indexOf. A segment with
+  // no terminator is text that was never a CDATA section, and is passed through
+  // exactly as the regex left it.
+  if (xml.includes('<![CDATA[')) {
+    const OPEN = '<![CDATA[';
+    const CLOSE = ']]>';
+    const parts = xml.split(OPEN);
+    let rebuilt = parts[0] ?? '';
+    for (let i = 1; i < parts.length; i++) {
+      const seg = parts[i]!;
+      const end = seg.indexOf(CLOSE);
+      if (end < 0) {
+        // Unterminated: not a section. Put the opener back verbatim.
+        rebuilt += OPEN + seg;
+        continue;
+      }
+      const inner = seg.slice(0, end);
+      rebuilt += inner.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        + seg.slice(end + CLOSE.length);
+    }
+    xml = rebuilt;
+  }
   const doc = new DOMParser().parseFromString(xml, 'text/xml');
   if (doc.querySelector('parsererror')) {
     throw new Error('Not a valid RockSim file (XML parse error)');
@@ -1280,7 +1308,14 @@ function parsePointList(raw: string): [number, number][] {
   const pts: [number, number][] = [];
   for (const pair of raw.split('|')) {
     if (!pair.trim()) continue;
-    const [x, y] = pair.split(',').map((v) => Number(v));
+    if (pts.length >= MAX_FIN_POINTS) break;
+    const fields = pair.split(',');
+    // BOTH fields must be present and non-blank. `Number('')` is 0, so a
+    // malformed pair like "1,1|,,|2,2" used to yield a real [0, 0] vertex in
+    // the middle of the outline — which usually then made it self-intersect,
+    // and the note blamed the outline rather than the field (2026-09-08 audit).
+    if (fields.length < 2 || fields[0]!.trim() === '' || fields[1]!.trim() === '') continue;
+    const [x, y] = fields.map((v) => Number(v));
     if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
     // RockSim writes duplicate 0,0 points — drop them.
     if (pts.length > 0 && x === 0 && y === 0 && pts.some(([px, py]) => px === 0 && py === 0)) continue;
