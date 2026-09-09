@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.122';
+export const APP_VERSION = '0.123';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.123',
+    date: '2026-09-09',
+    title: 'The blank Temperature field was advertising -258 C',
+    items: [
+      'THE GREYED-OUT TEMPERATURE IN A BLANK FIELD READ ABOUT -258 C, and on a high site colder still. v0.122 added those greyed numbers so you could see what a blank field flies. The temperature one was computing the number correctly and then converting it wrongly on the way to the screen: the field stores degrees Celsius against an SI unit of kelvin, and the placeholder dropped the 273.15 between them, so the sea-level standard of 15 C was rendered as 15 KELVIN, which is -258.15 C. Reported by the owner within hours of v0.122.',
+      'YOUR FLIGHTS WERE NOT AFFECTED BY THE DISPLAY ITSELF - the simulation was handed the right value all along, and a design with both atmosphere fields blank has flown the correct air throughout. BUT IT WAS REACHABLE. The spinner arrows on a blank field seed from whatever the greyed number says, so pressing the up arrow on a blank Temperature field started from -258.15, hit the field’s own -60 C floor, and committed -60 C - and a typed value IS flown. On a sea-level pad that is 30 percent too much air density. If you pressed the arrows on a blank Temperature field in v0.122, open the design and check that field.',
+      'The conversion now has ONE definition rather than two, because the second copy was what dropped the constant. The spinner is also given the value directly instead of reading it back out of the formatted text. And the test that should have caught this has been rewritten: it asserted the placeholder matched the pattern "-2", which is true of "-2.43" and equally true of "-275.58", so it could not tell the right answer from one 273 degrees out. It now asserts the actual temperature at three site altitudes, refuses anything outside the range the field itself accepts, and steps the spinner to check what gets committed.',
+    ],
+  },
   {
     version: '0.122',
     date: '2026-09-09',

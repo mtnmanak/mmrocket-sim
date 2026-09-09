@@ -120,13 +120,17 @@ describe('timeStepCostFactor', () => {
  * altimeter setting an airport broadcasts, is the wrong number by 15 % at
  * 3,900 ft. Mechanism and measurements: services/atmosphere.ts.
  */
+/** The last conditions the panel committed, so a spinner step can be asserted. */
+let lastLaunch: LaunchConditions | null = null;
+
 function renderConditions(over: Partial<typeof DEFAULT_CONDITIONS>) {
+  lastLaunch = null;
   act(() => {
     root.render(
       <PrefsProvider>
         <LaunchPanel
           value={{ ...DEFAULT_CONDITIONS, ...over }}
-          onChange={() => {}}
+          onChange={(v) => { lastLaunch = v; }}
           onLaunch={() => {}}
           simulating={false}
         />
@@ -282,13 +286,60 @@ describe('the site-temperature field', () => {
     expect(help).not.toMatch(/station pressure with it/);
   });
 
-  it('shows the computed temperature in its box as well', () => {
+  /**
+   * ASSERT THE NUMBER, not a pattern it happens to contain.
+   *
+   * This test used to read `toMatch(/-2/)`, which passes on "-2.43" and passes
+   * just as happily on "-275.58" — and -275.58 is what v0.122 actually shipped,
+   * because the placeholder hand-rolled the stored->SI conversion and dropped
+   * temperature's 273.15 offset. A blank Temperature field advertised the
+   * sea-level standard as MINUS 258.15 C. The test could not tell the right
+   * answer from one 273 degrees out, so it did not.
+   */
+  it('shows the computed temperature in its box, as an actual temperature', () => {
+    renderConditions({ launchAltitudeM: 0 });
+    const at = (label: string) => [...host.querySelectorAll('input')]
+      .find((i) => (i.getAttribute('aria-label') ?? '').startsWith(label))!
+      .getAttribute('placeholder') ?? '';
+    // Sea level: the ISA standard, 15 C. NOT -258.15.
+    expect(Number(at('Temperature'))).toBeCloseTo(15, 1);
+
     renderConditions({ launchAltitudeM: 2682 });
+    // 2,682 m: 15 - 6.5 * 2.682 = -2.43 C.
+    expect(Number(at('Temperature'))).toBeCloseTo(-2.43, 1);
+
+    renderConditions({ launchAltitudeM: 1189 });
+    expect(Number(at('Temperature'))).toBeCloseTo(7.27, 1);
+  });
+
+  it('never advertises a temperature colder than the field will accept', () => {
+    // The blunt guard: whatever the conversion does, a standing temperature is
+    // an ordinary air temperature. The field's own range is -60..60 C.
+    for (const h of [0, 500, 1189, 2682, 5000, 10000]) {
+      renderConditions({ launchAltitudeM: h });
+      const shown = Number([...host.querySelectorAll('input')]
+        .find((i) => (i.getAttribute('aria-label') ?? '').startsWith('Temperature'))!
+        .getAttribute('placeholder'));
+      expect(shown, `site altitude ${h} m`).toBeGreaterThan(-60);
+      expect(shown, `site altitude ${h} m`).toBeLessThan(60);
+    }
+  });
+
+  it('seeds the spinner from the shown value, not from a parsed placeholder', () => {
+    // Why this matters: NumField digs the auto value out of the placeholder
+    // text with a regex when it is not given one explicitly. With the wrong
+    // placeholder that made the display bug REACHABLE — stepping up from a
+    // blank Temperature field seeded from -258.15 and committed the field's own
+    // -60 C floor, and a typed value IS flown. LaunchField now passes
+    // autoValue, so the spinner cannot depend on formatted text at all.
+    renderConditions({ launchAltitudeM: 0 });
     const input = [...host.querySelectorAll('input')]
-      .find((i) => (i.getAttribute('aria-label') ?? '').startsWith('Temperature'));
-    expect(input, 'the Temperature input').toBeTruthy();
-    // About -2.4 °C is the standing temperature at 2,682 m.
-    expect(input!.getAttribute('placeholder')).toMatch(/-2/);
+      .find((i) => (i.getAttribute('aria-label') ?? '').startsWith('Temperature'))!;
+    act(() => {
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    });
+    // One step of 1 C up from the sea-level standard 15 C.
+    expect(lastLaunch?.temperatureC).toBeCloseTo(16, 1);
   });
 
   it('reaches a screen reader, the same way the pressure help does', () => {

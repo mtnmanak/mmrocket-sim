@@ -192,8 +192,24 @@ export function LaunchField({ label, field, value, onChange, stepStored, min, ma
   const helpId = `${useId()}-help`;
   const spec = FIELD_SPEC[field];
   const symbol = spec ? prefs.units[spec.quantity] : null;
+  /**
+   * A stored field value in SI. ONE definition, because there were two and they
+   * disagreed (2026-09-09).
+   *
+   * `storedOffset` exists for exactly one field — `temperatureC`, stored in
+   * degrees Celsius against an SI unit of kelvin — and the placeholder below
+   * hand-rolled this conversion and left the offset out. So a blank Temperature
+   * field advertised the sea-level standard as MINUS 258.15 C: 15 was handed to
+   * a formatter that reads kelvin, and 15 K is -258.15 C. Reported by Eric
+   * within hours of v0.122 shipping.
+   *
+   * Every conversion out of stored units goes through here now. A second copy
+   * of an affine conversion is a second chance to drop the constant term.
+   */
+  const storedToSi = (stored: number) =>
+    stored * (spec?.storedToSI ?? 1) + (spec?.storedOffset ?? 0) * (spec?.storedToSI ?? 1);
   const toUi = (stored: number) => spec && symbol
-    ? siToUi(spec.quantity, symbol, stored * spec.storedToSI + (spec.storedOffset ?? 0) * spec.storedToSI)
+    ? siToUi(spec.quantity, symbol, storedToSi(stored))
     : stored;
   const fromUi = (ui: number) => spec && symbol
     ? (uiToSi(spec.quantity, symbol, ui) - (spec.storedOffset ?? 0) * spec.storedToSI) / spec.storedToSI
@@ -226,8 +242,14 @@ export function LaunchField({ label, field, value, onChange, stepStored, min, ma
         // reads the figure back out of the placeholder for its own
         // arrow-key-from-blank behaviour, so the two agree by construction.
         placeholder={autoStored !== undefined
-          ? fmtSi(spec!.quantity, symbol!, autoStored * spec!.storedToSI)
+          ? fmtSi(spec!.quantity, symbol!, storedToSi(autoStored))
           : nullable ? 'standard' : undefined}
+        // The auto value passed EXPLICITLY as a number as well, in display
+        // units. NumField otherwise digs it back out of the placeholder text
+        // with a regex, which made the wrong number above worse than cosmetic:
+        // stepping the spinner up from a blank field seeded from -258.15 and
+        // committed the field's own -60 C floor, and a typed value IS flown.
+        autoValue={autoStored !== undefined ? toUi(autoStored) : undefined}
         onCommit={(ui) => {
           if (ui === null) {
             if (nullable) onChange({ ...value, [field]: null });

@@ -1,5 +1,5 @@
 {
-  "version": "0.122",
+  "version": "0.123",
   "released": "2026-09-09",
-  "note": "Leave Temperature or Station pressure blank and the app now uses the standard value for YOUR site altitude rather than the sea-level one, and shows you the number it is using - v0.120 read the two as a pair, so typing one silently put sea-level air at your pad. The nozzle exit diameter moved to the Motors and Launch page beside its motor and fills itself in from AeroTech's own published drawings, with the part number and source named, never overwriting a value you already have. The v0.119 pressure-thrust term is confirmed against RASAero's own output to 0.0035 N. A re-flight could lose a sustainer's ignition setting and store that flight instead. Plus an engineering audit of the whole app: 73 findings, keyboard and screen-reader fixes throughout, geometry that could not be printed now refused, and three hardening fixes on files that arrive from other people."
+  "note": "Fixes a display fault in v0.122: the greyed-out number in a blank Temperature field read about -258 C, because the placeholder dropped the 273.15 between the field's Celsius and the kelvin its formatter expects. Your flights were not affected by the display itself - the simulation was handed the right value throughout - but it was reachable, because the spinner arrows seed from that number and could commit -60 C on a blank field. If you pressed the arrows on a blank Temperature field in v0.122, check that field."
 }
