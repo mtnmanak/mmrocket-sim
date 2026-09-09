@@ -14,6 +14,22 @@
     // left unused are exempted the way the source already does it — prefix with `_`.
     "noUnusedLocals": true,
     "noUnusedParameters": true,
+    // The free half of the 2026-09-08 audit's tooling recommendation: every flag
+    // below was MEASURED at zero violations against the tree it was added to
+    // (`npx tsc -p tsconfig.json --noEmit --<flag>`), so each is a pure ratchet
+    // — it costs nothing today and refuses the next instance. They are grouped
+    // because that measurement is the reason they are here, and a future reader
+    // deciding whether to keep one should re-measure rather than assume.
+    //
+    // noImplicitReturns is the load-bearing one for THIS app: a branch that
+    // silently returns undefined where a number is expected is how a wrong
+    // number reaches the screen, which is the defect class the whole audit was
+    // about. noFallthroughCasesInSwitch guards the format readers' switch
+    // chains, where a dropped `break` would mis-read a component type.
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitReturns": true,
+    "allowUnreachableCode": false,
     "forceConsistentCasingInFileNames": true,
     "esModuleInterop": true,
     "skipLibCheck": true,

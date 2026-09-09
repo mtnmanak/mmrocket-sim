@@ -18,8 +18,11 @@
 // Deliberately NOT enabled, with the measured reason:
 //   - type-aware typescript-eslint configs: they need a full program build, too slow
 //     for a gate that is meant to fail before `npm test` does
-//   - @typescript-eslint/no-non-null-assertion: ~284 hits, load-bearing under the
-//     base tsconfig's noUncheckedIndexedAccess
+//   - @typescript-eslint/no-non-null-assertion: 2,902 hits (576 outside tests),
+//     load-bearing under the base tsconfig's noUncheckedIndexedAccess. The figure
+//     read "~284" until 2026-09-08, which was 10x low — a reader sizing the cleanup
+//     off it would have budgeted an afternoon for a week. Re-measure before acting
+//     on it: npx eslint . --rule '{"@typescript-eslint/no-non-null-assertion":"error"}'
 //   - the React-Compiler rules shipped in eslint-plugin-react-hooks v6/v7
 //     (set-state-in-effect, purity, immutability, …): only rules-of-hooks and
 //     exhaustive-deps are wired up, because those are the two the source already
@@ -35,6 +38,15 @@ import reactHooks from 'eslint-plugin-react-hooks';
 import globals from 'globals';
 
 export default tseslint.config(
+  {
+    // A suppression that suppresses nothing reads to a reviewer as a decision
+    // that was made, and 5 of the 13 in this tree had already rotted into that
+    // by 2026-09-08 — the config exists BECAUSE ten disables sat honouring no
+    // linter for months. Flat config defaults this to 'warn'; as an error the
+    // count cannot climb again. The five stale ones were deleted in the same
+    // commit that turned this on.
+    linterOptions: { reportUnusedDisableDirectives: 'error' },
+  },
   {
     ignores: [
       '**/dist/**',
@@ -134,7 +146,19 @@ export default tseslint.config(
       // force those eight to be rewritten blind. A warning still puts a NEW stale dep
       // array in the CI log, which is the failure this whole config is here to catch.
       'react-hooks/exhaustive-deps': 'warn',
-      // ~284 non-null assertions, load-bearing under noUncheckedIndexedAccess.
+      // The free half of the 2026-09-08 audit's recommendation: all three were
+      // MEASURED at zero violations against this tree before being turned on, so
+      // each costs nothing today and refuses the next instance. no-explicit-any
+      // locks in a genuinely any-free codebase (zero `as any`, zero `: any` and
+      // zero tsc-suppression comments, counted the same day). eqeqeq needs the
+      // null:'ignore' option
+      // to be free — all 105 loose comparisons here are the deliberate `== null`
+      // idiom, and plain eqeqeq reports every one of them.
+      '@typescript-eslint/no-explicit-any': 'error',
+      'no-var': 'error',
+      eqeqeq: ['error', 'always', { null: 'ignore' }],
+      // 2,902 non-null assertions (576 outside tests), load-bearing under
+      // noUncheckedIndexedAccess. See the header for why that number is not ~284.
       '@typescript-eslint/no-non-null-assertion': 'off',
       // console.log in shipped code is a leak. warn/error survive because the app
       // reports engine failures through them, and debug because engine/kernelLogSink.ts:35

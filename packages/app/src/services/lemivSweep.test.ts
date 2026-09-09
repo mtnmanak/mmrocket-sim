@@ -170,7 +170,6 @@ describe.skipIf(!ENABLED)('LEM-IV input sweep', () => {
       ...[0.9, 0.95, 1.05, 1.1, 1.2].map((f) =>
         row(`  mass x${f.toFixed(2)}`, fly(massScaled(imp.tree, f), base, launch, false))),
     ];
-    // eslint-disable-next-line no-console
     console.log(`\n${out.join('\n')}\n`);
     expect(out.length).toBeGreaterThan(5);
   }, 180_000);
@@ -202,7 +201,6 @@ describe.skipIf(!ENABLED)('LEM-IV input sweep', () => {
         + ` peak a there ${shot.accelFt.toFixed(0)} ft/s2`,
       );
     }
-    // eslint-disable-next-line no-console
     console.log(`\n${out.join('\n')}\n`);
     expect(out).toHaveLength(4);
   }, 600_000);

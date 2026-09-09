@@ -307,7 +307,6 @@ export function StatsChip({ info, drawerOpen = false }: { info: StaticInfo; draw
     // Re-runs when the drawer opens or closes: that changes how much of the
     // stage is covered, and a chip sitting where the drawer is about to appear
     // has to come back up before it is painted over.
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- clamp reads refs
   }, [drawerOpen]);
 
   /**

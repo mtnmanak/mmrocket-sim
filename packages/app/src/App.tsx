@@ -1644,8 +1644,6 @@ export function App() {
     // run: the user fixed the thing the message complained about and the red
     // notice stayed up, which reads as though the fix did not take.
     setSimError(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- physicsKey stands in for tree
-    //
     // aeroMode/effectiveKbf are DELIBERATELY NOT deps. They used to be, so
     // that a model switch could not leave the strip showing a stability and an
     // apogee computed under two different models — but throwing the flight
@@ -1666,7 +1664,6 @@ export function App() {
   // the exact self-defeat the lastSimCost split exists to prevent.
   useEffect(() => {
     setLastSimCost(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- physicsKey stands in for tree
   }, [physicsKey, mountMotors]);
 
   // What the time-step caution scales from: this session's own measurement
