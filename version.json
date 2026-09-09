@@ -1,5 +1,5 @@
 {
-  "version": "0.124",
+  "version": "0.125",
   "released": "2026-09-09",
-  "note": "Wording, not behaviour. \"Added once per burning stage\" was being read as \"adjusted one time\" - the pressure-thrust term is actually recomputed at every step of the burn, so the extra thrust grows continuously as the rocket climbs (2.9069 N on an 8,800 ft pad rising to 4.3392 N at 5,420 ft on one 7-second burn). \"Once per stage\" was only ever about how many nozzle areas are counted at each step. Also corrects a claim in the v0.119 note: the app does NOT deliberately differ from RASAero outside the burn - measured 0.00000000 N across 8,515 rows, it matches exactly."
+  "note": "Documentation, not behaviour. The thrust model assumes a published thrust curve is referenced to sea level; the guide now says what justifies that. NFPA 1125 requires motors be tested at, or corrected to, sea level and 20 C, and the NAR's own testing manual requires every test site to be within 500 feet of mean sea level. It stays an assumption - no curve file records where it was fired, and only about a third of the curves the app flies come from a certifying body - and the guide says that too. The reference pressure is unchanged."
 }

@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.124';
+export const APP_VERSION = '0.125';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.125',
+    date: '2026-09-09',
+    title: 'Saying what actually stands behind the sea-level assumption in the thrust model',
+    items: [
+      'THE GUIDE SAID THE SEA-LEVEL REFERENCE WAS AN ASSUMPTION AND LEFT IT THERE; the TRF write-up went further and stated it as plain fact. The owner challenged it: some AeroTech certification paperwork shows addresses in Sparks, Nevada, at about 4,400 ft, and AeroTech’s own factory is in Cedar City, Utah at about 5,800 ft. If a curve were really measured at 5,800 ft and flown as though it were sea level, the app would over-add about 9.8 N on a 1 inch nozzle exit for the whole burn.',
+      'IT IS STILL AN ASSUMPTION - THE APP CANNOT KNOW WHERE ANY GIVEN MOTOR WAS FIRED - BUT IT NOW RESTS ON A RULE. NFPA 1125, the code the American certifying bodies test to, requires that motors be tested at, or corrected to, sea level and 20 C. The NAR’s own S&T Motor Testing Manual says the same from the other side: until documented correction procedures exist, every test site must be within 500 feet of mean sea level - which is worth at most about 0.9 N on a 1 inch exit. And where the NAR has tested high it corrects and says so: the AeroTech G77R certification sheet records an elevation of 5,850 ft and the remark "Data taken at 5850 feet ASL and corrected to sea level". The Sparks address turned out to be the return address of a Tripoli Motor Testing chair, not a test site.',
+      'WHAT THE GUIDE NOW ADDS IS THE HONEST HALF. That rule binds CERTIFICATION testing, and only about a third of the curves this app flies come from a certifying body - just over half are contributed by users and the rest come from the manufacturer, counted from thrustcurve.org’s own source tag across the 1,948 curve files the app ships. No thrust-curve file format records where it was fired. What ties them back is that the app already checks every curve against the motor’s certified total impulse, and the certified figures are the ones the rule applies to. Nothing in the simulation changed; the reference pressure was already sea level and remains so.',
+    ],
+  },
   {
     version: '0.124',
     date: '2026-09-09',
