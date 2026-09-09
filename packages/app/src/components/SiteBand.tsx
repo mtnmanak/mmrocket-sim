@@ -148,7 +148,11 @@ function footerLinkTarget(url: string): { target: string; rel?: string } {
   try {
     const host = new URL(url).hostname.toLowerCase();
     if (host === 'github.com' || host.endsWith('.github.com')) {
-      return { target: '_blank', rel: 'noopener' };
+      // `noreferrer` as well as `noopener` (2026-09-08 audit). noopener covers
+      // the window.opener half; noreferrer is the referrer-privacy half, and
+      // App.tsx's equivalent window.open already passes 'noopener'. This is the
+      // only target="_blank" in the components tree.
+      return { target: '_blank', rel: 'noopener noreferrer' };
     }
   } catch {
     /* `new URL` throws on anything it cannot parse, and a throw inside render

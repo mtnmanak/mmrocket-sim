@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { clickable } from './clickable.js';
 import type { ComponentNode, ComponentType, RocketTree } from '@online-openrocket/engine';
 import { allowedChildren, DISPLAY_NAME } from '../tree/schema.js';
@@ -15,10 +15,21 @@ const TYPE_ICON: Partial<Record<ComponentType, string>> = {
   fairing: '⌂',
 };
 
-function NodeRow({ node, depth, selectedId, soleStageId, onSelect, onMove, onDelete, onDuplicate, onCopy, onCut }: {
+function NodeRow({ node, depth, selectedId, soleStageId, rove, onSelect, onMove, onDelete, onDuplicate, onCopy, onCut }: {
   node: ComponentNode;
   depth: number;
   selectedId: string | null;
+  /**
+   * Roving tabindex + arrow keys for one row (2026-09-08 audit).
+   *
+   * `role="tree"` is a PROMISE: it puts NVDA and JAWS into application mode
+   * inside the widget, where Up/Down are expected to move between items — and
+   * here they did nothing at all, while `clickable()` gave every row its own tab
+   * stop, so a 40-part rocket cost 40 tab presses to walk past. Both halves of
+   * that are fixed by the same thing: exactly one row is tabbable at a time, and
+   * the arrows move which.
+   */
+  rove: (id: string) => { tabIndex: number; onKeyDown: (e: ReactKeyboardEvent) => void };
   /** The only stage's id when exactly one stage exists — it can't be deleted. */
   soleStageId: string | null;
   onSelect: (id: string) => void;
@@ -45,7 +56,7 @@ function NodeRow({ node, depth, selectedId, soleStageId, onSelect, onMove, onDel
         aria-level={depth + 1}
         aria-selected={selected}
         {...(node.children?.length ? { 'aria-expanded': true } : {})}
-        {...clickable(() => onSelect(node.id!))}
+        {...rove(node.id!)}
       >
         <span className="tree-icon">{TYPE_ICON[node.type] ?? '·'}</span>
         <span className="tree-label">{label}</span>
@@ -81,7 +92,7 @@ function NodeRow({ node, depth, selectedId, soleStageId, onSelect, onMove, onDel
         )}
       </div>
       {(node.children ?? []).map((c) => (
-        <NodeRow key={c.id} node={c} depth={depth + 1} selectedId={selectedId} soleStageId={soleStageId}
+        <NodeRow key={c.id} node={c} depth={depth + 1} selectedId={selectedId} soleStageId={soleStageId} rove={rove}
           onSelect={onSelect} onMove={onMove} onDelete={onDelete} onDuplicate={onDuplicate}
           onCopy={onCopy} onCut={onCut} />
       ))}
@@ -176,9 +187,82 @@ export function ComponentTree({
     </div>
   );
 
+  /** The tree container, so arrow navigation can move focus with the selection. */
+  const boxRef = useRef<HTMLDivElement | null>(null);
+  /**
+   * The rows in the order they are DRAWN, root first — the order the arrows
+   * move through. Every level is always shown (the rows are a flattened tree,
+   * see NodeRow's comment), so screen order is document order and there is no
+   * expand/collapse state to fold in.
+   */
+  const rowOrder = useMemo(() => {
+    const out: string[] = [''];
+    const walk = (ns: readonly ComponentNode[]): void => {
+      for (const n of ns) {
+        if (n.id) out.push(n.id);
+        if (n.children?.length) walk(n.children);
+      }
+    };
+    walk(tree.components);
+    return out;
+  }, [tree]);
+
+  /**
+   * Roving tabindex + arrow navigation — the contract `role="tree"` makes.
+   *
+   * ONE row is tabbable: the selected one, or the root when the selection is
+   * not in the tree. Arrow Up/Down move the selection (and therefore the tab
+   * stop) by one; Home/End jump to the ends. Left/Right are deliberately NOT
+   * bound: this is a flat always-expanded list, so there is nothing to collapse
+   * and nothing a parent jump would reveal.
+   *
+   * Selecting on arrow rather than only on Enter is right here because
+   * selection is what the widget is FOR — it drives the property panel, and a
+   * keyboard user moving through the rows wants the same thing a mouse user
+   * clicking them wants.
+   */
+  const rove = useCallback((id: string) => {
+    const current = rowOrder.includes(selectedId ?? '') ? (selectedId ?? '') : '';
+    // clickable()'s Enter/Space activation is COMPOSED here, not spread
+    // alongside: two spreads both defining onKeyDown means the second silently
+    // wins, and the first attempt at this shipped arrows by deleting Enter.
+    const base = clickable(() => onSelect(id));
+    return {
+      ...base,
+      tabIndex: id === current ? 0 : -1,
+      onKeyDown: (e: ReactKeyboardEvent) => {
+        // Keys aimed at a control inside the row (its own action buttons) are
+        // that control's business — the same rule clickable() applies.
+        if (e.target !== e.currentTarget) return;
+        const i = rowOrder.indexOf(id);
+        if (i < 0) return;
+        let next: number | null = null;
+        if (e.key === 'ArrowDown') next = Math.min(i + 1, rowOrder.length - 1);
+        else if (e.key === 'ArrowUp') next = Math.max(i - 1, 0);
+        else if (e.key === 'Home') next = 0;
+        else if (e.key === 'End') next = rowOrder.length - 1;
+        if (next === null) {
+          // Not an arrow — let Enter/Space activate the row.
+          base.onKeyDown(e);
+          return;
+        }
+        e.preventDefault();
+        const id2 = rowOrder[next]!;
+        onSelect(id2);
+        // Move focus with the selection, or the tab stop and the focus ring
+        // part company and the next arrow press comes from the old row.
+        const box = boxRef.current;
+        if (box) {
+          const rows = box.querySelectorAll<HTMLElement>('[role="treeitem"]');
+          rows[next]?.focus();
+        }
+      },
+    };
+  }, [rowOrder, selectedId, onSelect]);
+
   return (
     <div>
-      <div className="tree-box" role="tree" aria-label="Rocket components">
+      <div className="tree-box" role="tree" aria-label="Rocket components" ref={boxRef}>
         {/* The root row was a bare onClick div — no tab stop, no key handler —
             while every other row went through clickable(). Selecting the root
             is the ONLY way to reach the rocket-level property panel, so that
@@ -186,12 +270,12 @@ export function ComponentTree({
         <div className="tree-row tree-row-root"
           role="treeitem" aria-level={1} aria-selected={selectedId === ''}
           aria-expanded={tree.components.length > 0}
-          {...clickable(() => onSelect(''))}>
+          {...rove('')}>
           <span className="tree-icon"><Icon name="rocket" size={12} /></span>
           <span className="tree-label">{tree.name ?? 'Rocket'}</span>
         </div>
         {tree.components.map((n) => (
-          <NodeRow key={n.id} node={n} depth={1} selectedId={selectedId}
+          <NodeRow key={n.id} node={n} depth={1} selectedId={selectedId} rove={rove}
             soleStageId={tree.components.length === 1 ? tree.components[0]!.id ?? null : null}
             onSelect={onSelect} onMove={onMove} onDelete={onDelete} onDuplicate={onDuplicate}
             onCopy={onCopy} onCut={onCut} />

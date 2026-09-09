@@ -133,7 +133,10 @@ describe('SiteBand — the rendered band', () => {
     act(() => root.render(<SiteBandFooter nav={nav} />));
     const [gh, site, sub] = [...host.querySelectorAll('.mmr-band-footer-links a')] as HTMLAnchorElement[];
     expect(gh!.getAttribute('target')).toBe('_blank');
-    expect(gh!.getAttribute('rel')).toBe('noopener');
+    // noopener AND noreferrer since 2026-09-08: noopener is the window.opener
+    // half, noreferrer the referrer-privacy half. This is the only
+    // target="_blank" in the components tree, so it is the only place to say so.
+    expect(gh!.getAttribute('rel')).toBe('noopener noreferrer');
     expect(site!.getAttribute('target')).toBe('_top');
     expect(site!.getAttribute('rel')).toBeNull();
     // A subdomain of github.com is still GitHub.

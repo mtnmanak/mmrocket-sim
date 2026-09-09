@@ -32,7 +32,13 @@ export function PresetPicker({ type, onApply, onClose }: {
   const [note, setNote] = useState<string | null>(null);
 
   useEffect(() => {
-    loadPresets().then(setAll).catch((e) => setNote(`Could not load presets: ${e}`));
+    // Same `live` flag as RecoverySizingPanel and ScaleDialog: a ~1.3 MB load
+    // behind a dialog the user can close (2026-09-08 audit).
+    let live = true;
+    loadPresets()
+      .then((p) => { if (live) setAll(p); })
+      .catch((e) => { if (live) setNote(`Could not load presets: ${e}`); });
+    return () => { live = false; };
   }, []);
 
   const ofKind = useMemo(
@@ -170,6 +176,20 @@ export function PresetPicker({ type, onApply, onClose }: {
         <div className="motor-table-wrap">
           {!all && !note && <p className="placeholder">Loading preset database…</p>}
           <table className="motor-table">
+            {/* A <thead> at last (2026-09-08 audit). Five unlabelled data
+                columns, on the dialog whose whole job is COMPARING parts, so a
+                screen reader announced every cell with no column identity. The
+                sibling MotorBrowser table has had full headers with aria-sort
+                throughout — this was drift between two pickers, not a decision. */}
+            <thead>
+              <tr>
+                <th>Manufacturer</th>
+                <th>Part number</th>
+                <th>Description</th>
+                <th>Dimensions</th>
+                <th>Material</th>
+              </tr>
+            </thead>
             <tbody>
               {rows.slice(0, ROW_CAP).map((p, i) => (
                 <tr key={`${p.manufacturer}|${p.partNo}|${i}`} className="motor-row"
@@ -192,7 +212,13 @@ export function PresetPicker({ type, onApply, onClose }: {
             </p>
           )}
         </div>
-        {note && <p className="motor-db-meta" style={{ marginBottom: 0 }}>{note}</p>}
+        {/* role="status" (2026-09-08 audit): `note` carries the CSV-import
+            outcome, including "Could not store N of M preset(s)" — the result of
+            an async operation the user is waiting on, previously announced to
+            nobody. MotorBrowser puts the same class of message in role="alert"
+            and role="status"; this is the polite one, because it also carries
+            ordinary success text. */}
+        {note && <p className="motor-db-meta" role="status" style={{ marginBottom: 0 }}>{note}</p>}
       </div>
     </div>
   );

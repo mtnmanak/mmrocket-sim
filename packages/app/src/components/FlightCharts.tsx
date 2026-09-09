@@ -244,6 +244,15 @@ export function FlightCharts({ result, onFullSeries, designName }: {
   const [exportBusy, setExportBusy] = useState<null | 'csv' | 'xlsx'>(null);
   const [exportError, setExportError] = useState<string | null>(null);
 
+  /**
+   * False once this panel is gone. `onFullSeries` re-flies the whole simulation
+   * and is measured in seconds, so the window in which the user can navigate
+   * away is wide (2026-09-08 audit). The DOWNLOAD still happens either way —
+   * the user asked for the file and it is theirs; only the state writes stop.
+   */
+  const mounted = useRef(true);
+  useEffect(() => () => { mounted.current = false; }, []);
+
   /** Re-fly for the full series, then hand the bytes off as a download. */
   const exportFlightData = (kind: 'csv' | 'xlsx') => {
     if (!onFullSeries) return;
@@ -256,8 +265,10 @@ export function FlightCharts({ result, onFullSeries, designName }: {
           : new Blob([flightXlsx(full, prefs.units) as BlobPart], { type: XLSX_MIME });
         downloadBlob(blob, stampedName(designName, 'flight-data', kind === 'csv' ? 'csv' : 'xlsx'));
       })
-      .catch((e: unknown) => setExportError(e instanceof Error ? e.message : String(e)))
-      .finally(() => setExportBusy(null));
+      .catch((e: unknown) => {
+        if (mounted.current) setExportError(e instanceof Error ? e.message : String(e));
+      })
+      .finally(() => { if (mounted.current) setExportBusy(null); });
   };
 
   return (
@@ -283,7 +294,11 @@ export function FlightCharts({ result, onFullSeries, designName }: {
         )}
       </div>
       {exportError && (
-        <p className="simdet-comments stability-bad" style={{ margin: '4px 0 0' }}>
+        // role="alert" (2026-09-08 audit): this is the outcome of a re-fly the
+        // user pressed a button for and waited several seconds on, and it was
+        // announced to nobody. PropertyPanel and MotorBrowser both use
+        // role="alert" for the same situation.
+        <p className="simdet-comments stability-bad" role="alert" style={{ margin: '4px 0 0' }}>
           Flight-data export failed: {exportError}
         </p>
       )}

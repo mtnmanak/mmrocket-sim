@@ -74,10 +74,15 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
   const setFactorOffCatalogue = (f: number) => { setFactor(f); setTubeRow(''); };
 
   useEffect(() => {
+    // `live` flag, copied from RecoverySizingPanel — the presets file is ~1.3 MB
+    // and this dialog is closeable while it loads, so without it the resolve
+    // sets state on an unmounted component (2026-09-08 audit).
+    let live = true;
     loadPresets()
-      .then((all) => setTubes(all.filter((p) => p.kind === 'BodyTube'
-        && typeof p['outsideDiameter'] === 'number')))
-      .catch(() => setTubes([]));
+      .then((all) => { if (live) setTubes(all.filter((p) => p.kind === 'BodyTube'
+        && typeof p['outsideDiameter'] === 'number')); })
+      .catch(() => { if (live) setTubes([]); });
+    return () => { live = false; };
   }, []);
 
   /**

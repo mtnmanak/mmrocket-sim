@@ -121,3 +121,74 @@ describe('the per-row action buttons', () => {
     expect(names).toEqual(['Move Sustainer up', 'Move Sustainer down', 'Duplicate Sustainer']);
   });
 });
+
+/**
+ * `role="tree"` is a PROMISE, not a label. It puts NVDA and JAWS into
+ * application mode inside the widget, where Up/Down are expected to move
+ * between items — and they did nothing at all, while `clickable()` gave every
+ * row its own tab stop, so a 40-part rocket cost 40 tab presses to walk past
+ * (2026-09-08 audit). Both halves are the same fix.
+ */
+describe('the tree keeps the keyboard contract its role promises', () => {
+  const rows = (): HTMLElement[] =>
+    [...host.querySelectorAll<HTMLElement>('[role="treeitem"]')];
+  const key = (el: HTMLElement, k: string) => {
+    act(() => { el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true })); });
+  };
+
+  it('makes exactly ONE row tabbable, and it is the selected one', () => {
+    show('b1');
+    const tabbable = rows().filter((r) => r.tabIndex === 0);
+    expect(tabbable).toHaveLength(1);
+    expect(tabbable[0]!.textContent).toContain('Airframe');
+    // Every other row is reachable by arrow, not by Tab.
+    expect(rows().filter((r) => r.tabIndex === -1).length).toBe(rows().length - 1);
+  });
+
+  it('falls back to the root row when the selection is not in the tree', () => {
+    show(null);
+    expect(rootRow().tabIndex).toBe(0);
+    expect(rows().filter((r) => r.tabIndex === 0)).toHaveLength(1);
+  });
+
+  it('moves the selection down and up with the arrow keys', () => {
+    show('');
+    // Draw order is root, stage, nose, tube.
+    key(rootRow(), 'ArrowDown');
+    expect(selected.at(-1)).toBe('s1');
+    show('s1');
+    key(rows()[1]!, 'ArrowDown');
+    expect(selected.at(-1)).toBe('n1');
+    show('n1');
+    key(rows()[2]!, 'ArrowUp');
+    expect(selected.at(-1)).toBe('s1');
+  });
+
+  it('jumps to the ends with Home and End', () => {
+    show('n1');
+    key(rows()[2]!, 'End');
+    expect(selected.at(-1)).toBe('b1');
+    show('n1');
+    key(rows()[2]!, 'Home');
+    expect(selected.at(-1)).toBe('');
+  });
+
+  it('does not run off either end', () => {
+    show('');
+    key(rootRow(), 'ArrowUp');
+    expect(selected.at(-1)).toBe('');
+    show('b1');
+    key(rows()[3]!, 'ArrowDown');
+    expect(selected.at(-1)).toBe('b1');
+  });
+
+  it('still activates on Enter and Space — the arrows were added, not swapped in', () => {
+    // The first attempt at this spread rove() over clickable(), so the second
+    // onKeyDown silently won and Enter stopped working. The handlers are
+    // composed now, and this is the assertion that caught it.
+    show('n1');
+    key(rows()[2]!, 'Enter');
+    key(rows()[2]!, ' ');
+    expect(selected.slice(-2)).toEqual(['n1', 'n1']);
+  });
+});

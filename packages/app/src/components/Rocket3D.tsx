@@ -357,6 +357,9 @@ export function Rocket3D({ tree, info, motors, exportData }: {
   const markers = markerVisibility(prefs.markers3d);
   const { pieces, totalLen, maxR } = useMemo(() => buildPieces(tree, motors), [tree, motors]);
   const r3f = useRef<{ gl: THREE.WebGLRenderer; scene: THREE.Scene; camera: THREE.Camera } | null>(null);
+  /** False once this view is gone, so a multi-second export cannot touch a disposed renderer. */
+  const mounted = useRef(true);
+  useEffect(() => () => { mounted.current = false; }, []);
 
   // Hi-res snapshot (issue 2026-08-11b): re-render the SAME scene/camera at
   // the export width (updateStyle=false keeps the on-screen CSS size), grab
@@ -400,9 +403,15 @@ export function Rocket3D({ tree, info, motors, exportData }: {
       const blob = await snapshotWithHeader(el, { ...exportData, spanM: 2 * maxR }, format);
       downloadImage(blob, `${exportData.name.replace(/[^\w-]+/g, '_')}-3d.${IMAGE_FORMAT_EXT[format]}`);
     } finally {
-      st.gl.setPixelRatio(pr);
-      st.gl.setSize(cssW, cssH, false);
-      st.gl.render(st.scene, st.camera);
+      // ONLY if the view is still mounted (2026-09-08 audit). The await above
+      // encodes at up to 8K and takes seconds; switch away from the 3D tab
+      // meanwhile and R3F has disposed this renderer, so restoring its pixel
+      // ratio and re-rendering the scene touches a dead context.
+      if (mounted.current && r3f.current === st) {
+        st.gl.setPixelRatio(pr);
+        st.gl.setSize(cssW, cssH, false);
+        st.gl.render(st.scene, st.camera);
+      }
     }
   };
   // Mesh keys are stable across rebuilds, so R3F never unmounts/auto-disposes

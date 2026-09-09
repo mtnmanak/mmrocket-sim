@@ -252,6 +252,13 @@ export function StatsChip({ info, drawerOpen = false }: { info: StaticInfo; draw
   // Drag bookkeeping: pointer-to-chip offset at grab, and whether the pointer
   // actually traveled (a still click on the pill toggles the fold instead).
   const dragFrom = useRef<{ dx: number; dy: number; moved: boolean } | null>(null);
+  /**
+   * Detach for a drag in flight, so unmounting mid-gesture takes its window
+   * listeners with it. The listeners are on `window`, not on the chip, so
+   * React's own teardown does not reach them.
+   */
+  const dragCleanup = useRef<(() => void) | null>(null);
+  useEffect(() => () => dragCleanup.current?.(), []);
 
   const persist = (next: { x: number; y: number; folded: boolean }) => {
     setChip(next);
@@ -361,9 +368,20 @@ export function StatsChip({ info, drawerOpen = false }: { info: StaticInfo; draw
       if (Math.abs(x - chip.x) + Math.abs(y - chip.y) > 3) dragFrom.current.moved = true;
       setChip((c) => ({ ...c, x, y }));
     };
-    const onUp = (ev: PointerEvent) => {
+    // ONE teardown, shared by pointerup and pointercancel (2026-09-08 audit).
+    // `pointerup` was the only thing that removed these, so a gesture the
+    // BROWSER takes over — a long-press context menu, an interrupted scroll —
+    // fires `pointercancel` instead and left the listeners attached: the chip
+    // then kept following the finger with nothing pressed, and setChip ran on
+    // every move for the rest of the session. Unmounting mid-drag leaked both.
+    const detach = () => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onCancel);
+      dragCleanup.current = null;
+    };
+    const onUp = (ev: PointerEvent) => {
+      detach();
       const from = dragFrom.current;
       dragFrom.current = null;
       const { x, y } = clamp(ev.clientX - start.dx, ev.clientY - start.dy);
@@ -372,8 +390,16 @@ export function StatsChip({ info, drawerOpen = false }: { info: StaticInfo; draw
       if (from && !from.moved && chip.folded) persist({ x, y, folded: false });
       else persist({ ...chip, x, y });
     };
+    // A CANCELLED gesture is not a drop: the chip keeps wherever the last move
+    // put it, and nothing is persisted as a deliberate placement.
+    const onCancel = () => {
+      detach();
+      dragFrom.current = null;
+    };
+    dragCleanup.current = detach;
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onCancel);
   };
 
   const row = (label: string, value: string, cls2?: string) => (

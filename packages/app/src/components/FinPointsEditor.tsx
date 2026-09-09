@@ -251,7 +251,14 @@ export function FinPointsEditor({ points, onChange }: {
       <h2>Fin planform</h2>
       <svg ref={svgRef} viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
           style={{ width: '100%', height: 'auto', background: 'var(--surface-1)', border: '1px solid var(--border)', borderRadius: 6, touchAction: 'none', cursor: 'crosshair' }}
-          role="img" aria-label="Fin planform editor — click to add points, drag to move them"
+          // role="group", not "img" — the fix TreeSchematic.tsx:1499 documents
+          // and applies to its own interactive variant. role="img" makes the
+          // WHOLE subtree presentational, so this label was promising a reader
+          // an affordance ("click to add points, drag to move them") that
+          // assistive tech could not reach, on an element whose own children
+          // are the shapes being described (2026-09-08 audit).
+          role="group"
+          aria-label="Fin planform, drawn. Points are edited in the coordinate table below this drawing."
           onPointerDown={onPointerDownCanvas}
           onPointerMove={onPointerMove}
           onPointerUp={endDrag}
@@ -310,7 +317,8 @@ export function FinPointsEditor({ points, onChange }: {
                 <td>{i + 1}</td>
                 <td>
                   {first
-                    ? <input value={0} disabled />
+                    ? <input value={0} disabled
+                        aria-label={`Point ${i + 1} x (fixed at the root leading edge)`} />
                     : <NumField value={toUi(p[0])} step={tableStep} allowNegative
                         ariaLabel={`Point ${i + 1} x`}
                         onCommit={(v) => { if (v !== null) setPoint(i, 0, v); }} />}
@@ -318,6 +326,7 @@ export function FinPointsEditor({ points, onChange }: {
                 <td>
                   {first || last
                     ? <input value={0} disabled
+                        aria-label={`Point ${i + 1} y (fixed on the body)`}
                         title={last ? 'Trailing corner stays on the body (y = 0)' : undefined} />
                     : <NumField value={toUi(p[1])} step={tableStep}
                         ariaLabel={`Point ${i + 1} y`}

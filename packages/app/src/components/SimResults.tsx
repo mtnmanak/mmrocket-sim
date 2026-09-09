@@ -80,6 +80,78 @@ function compassPoint(deg: number): string {
  * the per-timestep download — the buttons themselves live beside the plots
  * they produce (see FlightCharts).
  */
+/**
+ * The deployment table — ONE definition, rendered for the main flight and for
+ * each booster branch.
+ *
+ * There were two near-identical copies of this (about 50 lines each, eight
+ * `<th>`s, the same `flownCd` cell and the same openingOk/descentOk classes),
+ * and they had already drifted: the main table said "drogue descent too fast"
+ * where the booster copy said "descent too fast". Nothing else differed, which
+ * is exactly how the next fix would have missed one of them too
+ * (2026-09-08 audit).
+ *
+ * The surviving wording is the SPECIFIC one. A deployment that is not the
+ * landing device is a drogue on a booster branch just as much as on the main
+ * flight, and "drogue descent too fast" says which chute to look at.
+ */
+function DeploymentTable({ deployments, dist, vel }: {
+  deployments: readonly DeploymentReport[];
+  dist: string;
+  vel: string;
+}) {
+  return (
+    <table className="motor-table">
+      <thead>
+        <tr>
+          <th>Recovery device</th>
+          <th>Deploys at</th>
+          <th>Altitude (<UnitChip quantity="distance" />)</th>
+          <th>Opens at (<UnitChip quantity="velocity" />)</th>
+          {/* The coefficient the descent verdict rests on. Naming the device
+              without it made two landing-rate reports (2026-09-03) take a round
+              trip each to answer "which Cd did that run use?" — a question the
+              page should answer itself. */}
+          <th>Flown at Cd</th>
+          {/* VERTICAL from v0.100. It used to be the speed over the ground,
+              which carries the wind drift — so a windy day made every correctly
+              sized main read as landing too fast. */}
+          <th>Descent after (<UnitChip quantity="velocity" />)</th>
+          <th>Over ground (<UnitChip quantity="velocity" />)</th>
+          <th>Verdict</th>
+        </tr>
+      </thead>
+      <tbody>
+        {deployments.map((d, i) => {
+          const problems: string[] = [];
+          if (d.openingOk === false) problems.push('hard opening');
+          if (d.descentOk === false) {
+            problems.push(d.isLanding ? 'landing too fast' : 'drogue descent too fast');
+          }
+          return (
+            <tr key={i}>
+              <td>{d.device}{d.isLanding ? ' (landing)' : ''}</td>
+              <td>{d.time.toFixed(1)} s</td>
+              <td>{d.altitude === null ? '\u2014' : fmtSi('distance', dist, d.altitude)}</td>
+              <td className={d.openingOk === false ? 'stability-bad' : undefined}>
+                {d.velocityAtDeployment === null ? '\u2014' : fmtSi('velocity', vel, Math.abs(d.velocityAtDeployment))}
+              </td>
+              <td>{flownCd(d)}</td>
+              <td className={d.descentOk === false ? 'stability-bad' : undefined}>
+                {d.descentRate === null ? '\u2014' : fmtSi('velocity', vel, d.descentRate)}
+              </td>
+              <td>{d.groundSpeed === null ? '\u2014' : fmtSi('velocity', vel, d.groundSpeed)}</td>
+              <td className={problems.length ? 'stability-bad' : 'stability-good'}>
+                {problems.length ? `\u26a0 ${problems.join(', ')}` : '\u2713 ok'}
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
 export function SimRunDetails({ run, hasSeries, changedSince }: {
   run: SimRun;
   hasSeries?: boolean;
@@ -181,57 +253,7 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
       })}
       {(run.deployments ?? []).length > 0 && (
         <div className="motor-table-wrap" style={{ marginTop: 8 }}>
-          <table className="motor-table">
-            <thead>
-              <tr>
-                <th>Recovery device</th>
-                <th>Deploys at</th>
-                <th>Altitude (<UnitChip quantity="distance" />)</th>
-                <th>Opens at (<UnitChip quantity="velocity" />)</th>
-                {/* The coefficient the descent verdict rests on. Naming the
-                    device without it made two landing-rate reports (2026-09-03)
-                    take a round trip each to answer "which Cd did that run
-                    use?" — a question the page should answer itself. */}
-                <th>Flown at Cd</th>
-                {/* VERTICAL from v0.100. It used to be the speed over the
-                    ground, which carries the wind drift — so a windy day made
-                    every correctly sized main read as landing too fast. */}
-                <th>Descent after (<UnitChip quantity="velocity" />)</th>
-                <th>Over ground (<UnitChip quantity="velocity" />)</th>
-                <th>Verdict</th>
-              </tr>
-            </thead>
-            <tbody>
-              {/* `?? []` because a run stored before `deployments` existed has
-                  none — the same guard the length test at the top of this block
-                  and the history table's verdict already use. */}
-              {(run.deployments ?? []).map((d, i) => {
-                const problems: string[] = [];
-                if (d.openingOk === false) problems.push('hard opening');
-                if (d.descentOk === false) {
-                  problems.push(d.isLanding ? 'landing too fast' : 'drogue descent too fast');
-                }
-                return (
-                  <tr key={i}>
-                    <td>{d.device}{d.isLanding ? ' (landing)' : ''}</td>
-                    <td>{d.time.toFixed(1)} s</td>
-                    <td>{d.altitude === null ? '—' : fmtSi('distance', dist, d.altitude)}</td>
-                    <td className={d.openingOk === false ? 'stability-bad' : undefined}>
-                      {d.velocityAtDeployment === null ? '—' : fmtSi('velocity', vel, Math.abs(d.velocityAtDeployment))}
-                    </td>
-                    <td>{flownCd(d)}</td>
-                    <td className={d.descentOk === false ? 'stability-bad' : undefined}>
-                      {d.descentRate === null ? '—' : fmtSi('velocity', vel, d.descentRate)}
-                    </td>
-                    <td>{d.groundSpeed === null ? '—' : fmtSi('velocity', vel, d.groundSpeed)}</td>
-                    <td className={problems.length ? 'stability-bad' : 'stability-good'}>
-                      {problems.length ? `⚠ ${problems.join(', ')}` : '✓ ok'}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <DeploymentTable deployments={run.deployments ?? []} dist={dist} vel={vel} />
         </div>
       )}
       {(run.branches ?? []).map((b) => {
@@ -251,45 +273,7 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
             </p>
             {b.deployments.length > 0 && (
               <div className="motor-table-wrap">
-                <table className="motor-table">
-                  <thead>
-                    <tr>
-                      <th>Recovery device</th>
-                      <th>Deploys at</th>
-                      <th>Altitude (<UnitChip quantity="distance" />)</th>
-                      <th>Opens at (<UnitChip quantity="velocity" />)</th>
-                      <th>Flown at Cd</th>
-                      <th>Descent after (<UnitChip quantity="velocity" />)</th>
-                      <th>Over ground (<UnitChip quantity="velocity" />)</th>
-                      <th>Verdict</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {b.deployments.map((d, i) => {
-                      const problems: string[] = [];
-                      if (d.openingOk === false) problems.push('hard opening');
-                      if (d.descentOk === false) problems.push(d.isLanding ? 'landing too fast' : 'descent too fast');
-                      return (
-                        <tr key={i}>
-                          <td>{d.device}{d.isLanding ? ' (landing)' : ''}</td>
-                          <td>{d.time.toFixed(1)} s</td>
-                          <td>{d.altitude === null ? '—' : fmtSi('distance', dist, d.altitude)}</td>
-                          <td className={d.openingOk === false ? 'stability-bad' : undefined}>
-                            {d.velocityAtDeployment === null ? '—' : fmtSi('velocity', vel, Math.abs(d.velocityAtDeployment))}
-                          </td>
-                          <td>{flownCd(d)}</td>
-                          <td className={d.descentOk === false ? 'stability-bad' : undefined}>
-                            {d.descentRate === null ? '—' : fmtSi('velocity', vel, d.descentRate)}
-                          </td>
-                          <td>{d.groundSpeed === null ? '—' : fmtSi('velocity', vel, d.groundSpeed)}</td>
-                          <td className={problems.length ? 'stability-bad' : 'stability-good'}>
-                            {problems.length ? `⚠ ${problems.join(', ')}` : '✓ ok'}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                <DeploymentTable deployments={b.deployments} dist={dist} vel={vel} />
               </div>
             )}
           </div>
@@ -552,7 +536,17 @@ export function SimHistory({
                           {reflyingId === r.id ? '⏳' : '📈 Charts'}
                         </button>
                       )}
+                      {/* aria-label, not title alone (2026-09-08 audit).
+                          Name-from-content OUTRANKS title in the accname
+                          algorithm, so the glyph WAS the accessible name and
+                          every row in the history announced "✕ button".
+                          ComponentTree.tsx:55-60 documents exactly this rule and
+                          fixes its six row buttons; MotorBrowser fixes its 🗑.
+                          Naming the RUN as well, because a history table has
+                          many of these and "Delete run" alone does not say
+                          which. */}
                       <button className="fin-row-del" title="Delete run"
+                        aria-label={`Delete run ${[r.rocket, r.motor].filter(Boolean).join(' ')}`.trim()}
                         onClick={(e) => { e.stopPropagation(); onRunsChange(deleteRun(r.id)); }}>✕</button>
                     </td>
                   </tr>

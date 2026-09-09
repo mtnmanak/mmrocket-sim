@@ -162,10 +162,17 @@ function Verdict({ solution, hasAllowance, onApply, mass, len, blockedBy, onPinS
   blockedBy: { name?: string } | null;
   onPinStage?: () => void;
 }) {
+  /*
+   * Every branch below carries role="status" (2026-09-08 audit): the verdict is
+   * the entire OUTPUT of this box — including "no ballast anywhere can
+   * reconcile these" — and it changes as the user types. Sighted users watch it
+   * appear; without a live region a screen-reader user had to navigate away and
+   * come back to discover it had changed.
+   */
   switch (solution.kind) {
     case 'matches':
       return (
-        <p className="measured-verdict measured-ok">
+        <p role="status" className="measured-verdict measured-ok">
           Your build matches the model. Nothing to add.
         </p>
       );
@@ -178,7 +185,7 @@ function Verdict({ solution, hasAllowance, onApply, mass, len, blockedBy, onPinS
         const who = blockedBy.name || 'A stage above it';
         return (
           <>
-            <p className="measured-verdict measured-bad">
+            <p role="status" className="measured-verdict measured-bad">
               <strong>{who}</strong> stands in for the mass of everything inside it, so a
               Build allowance added here would weigh nothing.{' '}
               {onPinStage
@@ -202,7 +209,7 @@ function Verdict({ solution, hasAllowance, onApply, mass, len, blockedBy, onPinS
       }
       return (
         <>
-          <p className="measured-verdict measured-ok">
+          <p role="status" className="measured-verdict measured-ok">
             {`Add ${mass(solution.massKg)} at ${len(solution.stationM)} from the nose tip.`}
           </p>
           <button className="file-btn measured-apply" onClick={() => onApply(solution)}>
@@ -217,7 +224,7 @@ function Verdict({ solution, hasAllowance, onApply, mass, len, blockedBy, onPinS
     // finding about the design, not an error to swallow.
     case 'cg-only':
       return (
-        <p className="measured-verdict measured-bad">
+        <p role="status" className="measured-verdict measured-bad">
           {`Your rocket weighs what the model says but balances ${len(Math.abs(solution.cgErrorM))} `}
           {solution.cgErrorM > 0 ? 'further back' : 'further forward'}
           {'. Adding mass cannot move the CG without also changing the total, so the '}
@@ -227,7 +234,7 @@ function Verdict({ solution, hasAllowance, onApply, mass, len, blockedBy, onPinS
 
     case 'overweight-model':
       return (
-        <p className="measured-verdict measured-bad">
+        <p role="status" className="measured-verdict measured-bad">
           {`Your rocket came out ${mass(solution.excessKg)} LIGHTER than the model. `}
           There is no negative ballast — something in the design is modelled heavier than
           you built it. Check the parts you guessed at.
@@ -236,7 +243,7 @@ function Verdict({ solution, hasAllowance, onApply, mass, len, blockedBy, onPinS
 
     case 'unreachable':
       return (
-        <p className="measured-verdict measured-bad">
+        <p role="status" className="measured-verdict measured-bad">
           {`Closing this gap would need ${mass(solution.massKg)} at `}
           {len(solution.stationM)}
           {solution.stationM < 0 ? ' — ahead of the nose tip' : ' — behind the tail'}

@@ -378,7 +378,15 @@ export function AftView({ tree, motors, roll: rollProp, onRoll }: {
       <svg ref={svgRef} className="aft-svg" viewBox={`${-E} ${-E} ${2 * E} ${2 * E}`}
         style={{ width: '100%', height: 'auto', maxHeight: 360, display: 'block',
           touchAction: 'none', cursor: zoom.k > 1 ? 'grab' : undefined }}
-        role="img" aria-label="Aft end view — looking at the rocket from behind; wheel to zoom, drag to pan, roll with the slider"
+        // role="group", not "img" (2026-09-08 audit, same fix as
+        // TreeSchematic.tsx:1499). Every shape below carries a <title> naming
+        // the part — "Fins x3", "Motor", "Camera shroud" — and role="img" made
+        // the entire subtree presentational, so none of them was exposed. The
+        // one label then had to carry the whole view, and it named three
+        // pointer gestures that have no keyboard equivalent. The +/- and fit
+        // buttons beside the drawing are the keyboard path and are labelled.
+        role="group"
+        aria-label="Aft end view, looking at the rocket from behind. Zoom and pan with the buttons beside this drawing."
         onPointerDown={(e) => {
           if (zoom.k === 1) return;
           const { vx, vy } = toView(e.clientX, e.clientY);

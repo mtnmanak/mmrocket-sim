@@ -500,11 +500,18 @@ export function DragPanel({ rocket, supersonicModel, aeroLabel, designName, file
                 <h3>
                   Center of pressure vs Mach ({cpView === 'pct' ? '% of length' : `${lenUnit} from nose`})
                 </h3>
-                <div className="view-toggle" role="tablist">
-                  <button className={cpView === 'pct' ? 'active' : ''} role="tab"
-                    aria-selected={cpView === 'pct'} onClick={() => setCpView('pct')}>% of length</button>
-                  <button className={cpView === 'unit' ? 'active' : ''} role="tab"
-                    aria-selected={cpView === 'unit'} onClick={() => setCpView('unit')}>{lenUnit} from nose</button>
+                {/* role="group" with aria-pressed, NOT tablist/tab
+                    (2026-09-08 audit). These are toggle buttons: there is no
+                    tabpanel, no aria-controls, no roving tabindex and no arrow
+                    handler, so declaring a tablist made a screen reader announce
+                    "tab 1 of 2" and put the user in a widget where Arrow keys
+                    are expected to move between tabs — and here did nothing at
+                    all. aria-pressed describes what these actually are. */}
+                <div className="view-toggle" role="group" aria-label="Center of pressure units">
+                  <button className={cpView === 'pct' ? 'active' : ''}
+                    aria-pressed={cpView === 'pct'} onClick={() => setCpView('pct')}>% of length</button>
+                  <button className={cpView === 'unit' ? 'active' : ''}
+                    aria-pressed={cpView === 'unit'} onClick={() => setCpView('unit')}>{lenUnit} from nose</button>
                 </div>
                 <ChartHeadButtons zoomed={zoomedCharts.has('cp')} expanded={bigCharts.has('cp')}
                   plot={cpPlot} onToggleExpand={() => toggleBig('cp')} />
@@ -532,11 +539,12 @@ export function DragPanel({ rocket, supersonicModel, aeroLabel, designName, file
           <div className="chart-panel">
             <div className="chart-panel-head">
               <h3>Breakdown (power-off)</h3>
-              <div className="view-toggle" role="tablist">
-                <button className={mode === 'component' ? 'active' : ''} role="tab"
-                  aria-selected={mode === 'component'} onClick={() => setMode('component')}>By component</button>
-                <button className={mode === 'type' ? 'active' : ''} role="tab"
-                  aria-selected={mode === 'type'} onClick={() => setMode('type')}>By type</button>
+              {/* Same fix as the CP toggle above — toggle buttons, not tabs. */}
+              <div className="view-toggle" role="group" aria-label="Drag breakdown grouping">
+                <button className={mode === 'component' ? 'active' : ''}
+                  aria-pressed={mode === 'component'} onClick={() => setMode('component')}>By component</button>
+                <button className={mode === 'type' ? 'active' : ''}
+                  aria-pressed={mode === 'type'} onClick={() => setMode('type')}>By type</button>
               </div>
               <ChartHeadButtons zoomed={zoomedCharts.has('breakdown')} expanded={bigCharts.has('breakdown')}
                 plot={bdPlot} onToggleExpand={() => toggleBig('breakdown')} />
