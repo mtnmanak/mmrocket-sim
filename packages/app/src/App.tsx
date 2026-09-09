@@ -1203,12 +1203,22 @@ export function App() {
   // dragSweep `designCd` then performs — ~12 ms of synchronous main-thread work
   // per keystroke, and CLAUDE.md records the TeaVM kernel at 11–16x the JVM,
   // so a real 40-component design is materially worse.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- tree.components deliberately: a rename must not re-run this
   const mounts = useMemo(() => motorMounts(tree), [tree.components]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- tree.components deliberately: a rename must not re-run this
   const stageList = useMemo(() => stages(tree), [tree.components]);
   // "Staged" for the batch-sim gate: a serial stage OR a separating parallel
   // booster — both make the flight multi-branch (batch across them explodes
   // combinatorially, per the owner's rule). A non-separating pod alone is fine.
-  const isStaged = stageList.length > 1 || hasParallelStage(tree);
+  // Memoized (2026-09-08 audit). `hasParallelStage` is a full recursive scan,
+  // and on a SINGLE-stage design the `||` never short-circuits — so this walked
+  // the whole tree on every App render, including the ones that have nothing to
+  // do with the tree (sim progress, a notice dismissal, the 7 s session-note
+  // fade). It sat between two memos that exist for exactly this reason.
+  const isStaged = useMemo(
+    () => stageList.length > 1 || hasParallelStage(tree),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- tree.components deliberately: a rename must not re-run this
+    [stageList.length, tree.components]);
   // Assigned motors on mounts that still exist in the tree.
   const assigned = useMemo(
     () => Object.entries(mountMotors).filter(([id]) => mounts.some((m) => m.id === id)),
@@ -1477,11 +1487,15 @@ export function App() {
     // through `assigned`; `currentSetKey` is the set it is checked against.
     // `primaryMountId` derives from `assigned` and `tree`, so it only ever
     // changes when they do.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- tree.components deliberately: a rename must not re-run this
   }, [tree.components, assigned, effectiveKbf, effectiveSupersonic, measured.massKg,
     primaryMountId, currentSetKey]);
   const built = 'error' in buildResult ? null : buildResult;
   const buildError = 'error' in buildResult ? buildResult.error : simError;
-  const motorFailures = built?.motorFailures ?? [];
+  // A fresh array every render whenever the build failed, which invalidated the
+  // `notices` memo below on every render (eslint reports it by name). Stable
+  // now, so a failed build stops re-rendering the notice stack forever.
+  const motorFailures = useMemo(() => built?.motorFailures ?? [], [built]);
   /**
    * The hardware this build carries (kg), 0 when none: a provenance term
    * (motorSetKeyOf below) so a pad-mass edit marks the shown flight stale.
@@ -1514,6 +1528,16 @@ export function App() {
    * dry structure. Excluding them makes the tile read "load a motor" when the
    * only motor failed, which is the truth.
    */
+  // `tree.components`, not `tree` — the same narrowing the four memos above
+  // (mounts, stageList, buildResult, physicsKey) already make, and for the same
+  // reason: the Rocket name input does `setTree({ ...tree, name })` on EVERY
+  // keystroke, so a whole-tree dep re-runs this on every character typed into a
+  // field that cannot change its answer. Verified before narrowing: nothing in
+  // this computation, or in the functions it calls, reads `tree.name`.
+  //
+  // Deliberately NOT applied to `pinBlockerToMeasured` below, which is a
+  // useCallback that WRITES: narrowing its dep would let it close over a stale
+  // tree and setTree an older one back, silently discarding a rename.
   const recoveryInput = useMemo(() => {
     if (!built) return null;
     const failed = new Set(built.motorFailures.map((f) => f.mountId));
@@ -1535,7 +1559,8 @@ export function App() {
         } catch { return null; }
       },
     };
-  }, [built, tree, assigned]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- tree.components deliberately: a rename must not re-run this
+  }, [built, tree.components, assigned]);
   const recovery = useMemo((): RecoveryMass => (
     recoveryInput ? recoveryMass(recoveryInput) : { state: 'no-motor' }
   ), [recoveryInput]);
@@ -1561,7 +1586,8 @@ export function App() {
     const failed = new Set(built.motorFailures.map((f) => f.mountId));
     const c = catalogueMotorMass(tree, assigned.filter(([id]) => !failed.has(id)));
     return c === null ? null : built.info.massEmpty + c;
-  }, [built, tree, assigned]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- tree.components deliberately: a rename must not re-run this
+  }, [built, tree.components, assigned]);
 
   /**
    * The weighed motor, for Batch simulate: the candidate matching it on its
@@ -1727,7 +1753,8 @@ export function App() {
     } catch {
       return { massKg, cgM };
     }
-  }, [built, allowanceNode, tree]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- tree.components deliberately: a rename must not re-run this
+  }, [built, allowanceNode, tree.components]);
 
   /**
    * Inserts or moves the ballast. Re-editing UPDATES the existing component
@@ -1795,7 +1822,8 @@ export function App() {
     const lengthM = typeof allowanceNode?.['length'] === 'number'
       ? allowanceNode['length'] as number : 0.02;
     return coveringMassOverride(tree, sol.stationM, lengthM);
-  }, [built, bare, measured, tree, allowanceNode]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- tree.components deliberately: a rename must not re-run this
+  }, [built, bare, measured, tree.components, allowanceNode]);
 
   /**
    * Pinning is only unambiguous when ONE component's override covers the whole
@@ -3425,7 +3453,12 @@ export function App() {
     appVersion: APP_VERSION,
   };
 
-  const selectedNode = selectedId ? findNode(tree, selectedId) : null;
+  // Memoized: a `findNode` walk per render, and the dep of the `selectedInfo`
+  // memo below it, so leaving it unstable defeated that one too.
+  const selectedNode = useMemo(
+    () => (selectedId ? findNode(tree, selectedId) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- tree.components deliberately: a rename must not re-run this
+    [tree.components, selectedId]);
   // Per-component static info (mass covers ALL fins of a set, per OpenRocket).
   const selectedInfo = useMemo(() => {
     if (!built || !selectedNode?.id) return null;

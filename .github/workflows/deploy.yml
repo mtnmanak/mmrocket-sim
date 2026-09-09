@@ -83,12 +83,12 @@ jobs:
       # linter was installed to honour them. Errors fail the job.
       #
       # Warnings do not fail it, but the COUNT is now a ceiling (2026-09-08). It
-      # had drifted from 12 to 17 with 5 of those pure rot — inert suppressions
+      # had drifted from 12 to 17 with 5 of those pure rot; it is 8 now — inert suppressions
       # honouring nothing — and a number that only ever climbs is one nobody
       # reads. --max-warnings pins it at the count on the day it was set, so the
       # figure can go down and never up; lower it when you clear some, and think
       # twice before raising it.
-      - run: npm run lint -- --max-warnings 12
+      - run: npm run lint -- --max-warnings 8
 
       # A push IS a release here, so the suite that guards the physics and the
       # file formats runs BEFORE anything reaches the live beta. `npm test`
