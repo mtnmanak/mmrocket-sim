@@ -1251,6 +1251,34 @@ export function App() {
       }
     }
   };
+  /**
+   * Write ONE motor onto a built handle and KEEP its ignition. Every
+   * `setMotorById` outside `buildResult` goes through here.
+   *
+   * Same mechanism the loop above re-applies for, and the reason is the same:
+   * the bridge's `setMotorById` (`OrkEngine.java` `applyMotor`) installs a
+   * FRESH `MotorConfiguration` on the mount, so any write resets the ignition
+   * event and its timer to the kernel default. `buildResult` guards itself and
+   * says so; the three re-flight paths did not.
+   *
+   * What that cost: `assignMotor` gives a high-power sustainer on a staged
+   * design `{ event: 'burnout', delay: 1 }`, and `primaryMountId` IS that
+   * mount. Ticking "auto (optimal)" re-flew it on AUTOMATIC — lighting off the
+   * booster's ejection charge instead of burnout + 1 s — and it is the
+   * RE-FLOWN result that `buildSimRun` stores, the report shows and the `.ork`
+   * `<flightdata>` carries. The charts path re-flew the same way under a
+   * comment promising it "reproduces this exact flight", and the CSV path
+   * exported a flight that disagreed with the plots directly above it.
+   * Found by the 2026-09-08 audit (`docs/AUDIT.md`); the mechanism was read
+   * out of the kernel, not inferred from the comment.
+   */
+  const setFlownMotorOn = useCallback((rocket: OrkRocket, id: string, spec: MotorSpec): void => {
+    rocket.setMotorById(id, spec);
+    const mm = assigned.find(([mid]) => mid === id)?.[1];
+    if (mm && (mm.ignition.event !== 'automatic' || mm.ignition.delay !== 0)) {
+      rocket.setMotorIgnitionById(id, mm.ignition.event, mm.ignition.delay);
+    }
+  }, [assigned]);
   // The PRIMARY mount drives the report's lead columns, auto-delay and the
   // weighed pad mass: the topmost-stage mount with a motor (the sustainer's).
   // ONE definition of "the primary" — treeModel.primaryMountOf — shared with
@@ -2190,7 +2218,7 @@ export function App() {
             // one: this write replaces the whole motor on the handle, and
             // spreading `primary.spec` put the catalogue mass back — so the
             // reported flight lost the hardware the build had just carried.
-            built.rocket.setMotorById(primaryMountId, { ...(primaryFlownSpec ?? primary.spec), ejectionDelay: rec });
+            setFlownMotorOn(built.rocket, primaryMountId, { ...(primaryFlownSpec ?? primary.spec), ejectionDelay: rec });
             res = flyTimed();
           }
         }
@@ -2386,7 +2414,7 @@ export function App() {
     try {
       if (wroteDelay) {
         // The FLOWN spec, hardware included — see onLaunch's auto-delay write.
-        built.rocket.setMotorById(primaryMountId, { ...(primaryFlownSpec ?? primary.spec), ejectionDelay: run.delayS });
+        setFlownMotorOn(built.rocket, primaryMountId, { ...(primaryFlownSpec ?? primary.spec), ejectionDelay: run.delayS });
       }
       // canShowCharts already required the run's model to equal the current
       // one, so the handle is right as it stands. It is set explicitly anyway
@@ -2404,14 +2432,14 @@ export function App() {
       // Hand the shared handle back exactly as it was found — the same
       // contract fetchFullSeriesResult already keeps for the aero model.
       if (wroteDelay) {
-        try { built.rocket.setMotorById(primaryMountId, primaryFlownSpec ?? primary.spec); } catch { /* the
+        try { setFlownMotorOn(built.rocket, primaryMountId, primaryFlownSpec ?? primary.spec); } catch { /* the
           motor the kernel refused is already reported by buildResult's
           motorFailures; failing to restore it must not also lose the charts. */ }
       }
       setReflying(null);
     }
   }, [built, primaryMountId, mountMotors, launch, effectiveSupersonic, effectiveKbf, cacheFlight,
-    primaryFlownSpec]);
+    primaryFlownSpec, setFlownMotorOn]);
 
   /**
    * Re-flies the LAST launch with `series: 'full'` for the flight-data CSV.
@@ -2434,7 +2462,7 @@ export function App() {
       // rebuilt since launch (auto-supersonic flips the build memo) still
       // holds the pre-probe spec — restore the flown delay before re-flying.
       // The FLOWN spec, hardware included — see onLaunch's auto-delay write.
-      built.rocket.setMotorById(primaryMountId, { ...(primaryFlownSpec ?? primary.spec), ejectionDelay: lastRun.delayS });
+      setFlownMotorOn(built.rocket, primaryMountId, { ...(primaryFlownSpec ?? primary.spec), ejectionDelay: lastRun.delayS });
     }
     // Restore the model the SHOWN flight was flown on, not whatever is
     // selected now. Since a model switch no longer discards the flight, the
@@ -2456,12 +2484,12 @@ export function App() {
       // aero model and left the run's ejection delay on the shared handle, so
       // the next Launch flew a delay the report never mentions.
       if (wroteDelay) {
-        try { built.rocket.setMotorById(primaryMountId, primaryFlownSpec ?? primary.spec); } catch { /* a motor
+        try { setFlownMotorOn(built.rocket, primaryMountId, primaryFlownSpec ?? primary.spec); } catch { /* a motor
           the kernel refuses is already surfaced by buildResult's motorFailures. */ }
       }
     }
   }, [built, primaryMountId, lastRun, mountMotors, launch, effectiveSupersonic, effectiveKbf,
-    primaryFlownSpec]);
+    primaryFlownSpec, setFlownMotorOn]);
 
   // ---- design file I/O (.ork native, .rkt RockSim) ----
   const toExportMotor = (mm: MountMotor): OrkExportMotor => {

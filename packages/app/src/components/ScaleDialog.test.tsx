@@ -330,6 +330,36 @@ describe('ScaleDialog', () => {
     expect(btn.disabled).toBe(true);
   });
 
+  it('re-selecting the placeholder leaves the factor alone', async () => {
+    // The placeholder is a real <option value="">, and `Number('')` is 0 — so
+    // clearing the tube choice used to index tubeRows[0]. That list is sorted
+    // ASCENDING by outside diameter, so it landed on the smallest tube in the
+    // catalogue (here Estes BT-55 at 33.4 mm) and nothing reset it:
+    // setFactorOffCatalogue only runs when the factor is edited elsewhere.
+    // Found by the 2026-09-08 audit.
+    await render();
+    const sel = host.querySelector('select') as HTMLSelectElement;
+    const setValue = (v: string) => {
+      act(() => {
+        const setter = Object.getOwnPropertyDescriptor(
+          HTMLSelectElement.prototype, 'value')!.set!;
+        setter.call(sel, v);
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+    };
+    const loc = [...sel.options].find((o) => o.textContent?.includes('LOC 4.0in'))!;
+    setValue(loc.value);
+    const chosen = [...host.querySelectorAll('button')]
+      .find((b) => b.textContent?.includes('Scale to'))!.textContent;
+    // Now clear it. The factor must be exactly what the 4 inch tube set, not
+    // the 33.4 mm one — which on this design reads a different percentage.
+    setValue('');
+    const after = [...host.querySelectorAll('button')]
+      .find((b) => b.textContent?.includes('Scale to'))!.textContent;
+    expect(after, 'clearing the tube choice must not re-scale off tubeRows[0]')
+      .toBe(chosen);
+  });
+
   it('says there is nothing to scale when the design has no airframe', async () => {
     act(() => {
       root.render(

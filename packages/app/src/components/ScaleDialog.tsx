@@ -279,6 +279,14 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
                 disabled={!tubes}
                 onChange={(e) => {
                   setTubeRow(e.target.value);
+                  // The placeholder is a real option with value="" — and
+                  // `Number('')` is 0, so re-selecting it used to index
+                  // tubeRows[0]. That list is sorted ascending by outside
+                  // diameter, so "clear the tube choice" silently set the
+                  // factor from the SMALLEST tube in the catalogue: on a 98 mm
+                  // design the Apply button read "Scale to 5.1 %", and
+                  // setFactorOffCatalogue never ran to undo it.
+                  if (e.target.value === '') return;
                   const row = tubeRows[Number(e.target.value)];
                   // The chosen row's OWN diameter, not its group's. Applying
                   // the group's first row moved the factor by up to 0.3 %

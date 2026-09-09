@@ -143,6 +143,35 @@ describe('.rse files with missing mass data', () => {
   });
 });
 
+describe('.eng header mass columns', () => {
+  // The header check tested only the two DIMENSION columns (diameter, length)
+  // and left the two MASS columns to `Number()`, which returns NaN for junk.
+  // A motor then imported with propWeightG: NaN, survived to fly time, and
+  // failed there with "thrustcurve.org publishes no loaded/propellant weight
+  // for M1297" — naming a remote service for a file read off the user's own
+  // disk. Found by the 2026-09-08 audit.
+  const bad = (propKg: string, totKg: string) => `; experimental
+M1297 75 1000 P ${propKg} ${totKg} Loki
+  0.05 1200.0
+  1.50 1250.0
+  1.55 0.0
+`;
+
+  it('refuses an unparseable propellant mass rather than importing NaN', () => {
+    expect(() => parseEng(bad('notanum', '3.5'))).toThrow(/mass must be numbers/i);
+  });
+
+  it('refuses an unparseable total mass', () => {
+    expect(() => parseEng(bad('1.8', 'oops'))).toThrow(/mass must be numbers/i);
+  });
+
+  it('still accepts a well-formed header', () => {
+    const [m] = parseEng(bad('1.8', '3.5'));
+    expect(m!.propWeightG).toBeCloseTo(1800, 6);
+    expect(m!.totalWeightG).toBeCloseTo(3500, 6);
+  });
+});
+
 describe('plugged (-P) .eng motors', () => {
   // The normal header shape for a high-power EX motor: no ejection charge at
   // all. RASP writes 'P' in the delay field.

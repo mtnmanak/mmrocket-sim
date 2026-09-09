@@ -158,6 +158,19 @@ export function parseEng(text: string): ExMotor[] {
       if (tok.length < 7 || !Number.isFinite(Number(tok[1])) || !Number.isFinite(Number(tok[2]))) {
         throw new Error(`Not a RASP header line: "${line.slice(0, 60)}"`);
       }
+      // The two MASS columns get the same test as the two dimension columns.
+      // They did not, and `Number('notanum')` is NaN, so a malformed header
+      // imported a motor with propWeightG: NaN — which survives all the way to
+      // fly time and then fails there saying "thrustcurve.org publishes no
+      // loaded/propellant weight for <motor>", naming a service that had
+      // nothing to do with a file the user loaded off their own disk.
+      // parseRse already refuses its equivalent ("initial mass missing or
+      // zero"); this is the same refusal, at the same point.
+      if (!Number.isFinite(Number(tok[4])) || !Number.isFinite(Number(tok[5]))) {
+        throw new Error(
+          `Propellant and total mass must be numbers in "${line.slice(0, 60)}" — `
+          + `read "${tok[4]}" and "${tok[5]}".`);
+      }
       header = tok;
       continue;
     }

@@ -112,6 +112,15 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
   const [checkWasRecent, setCheckWasRecent] = useState(false);
   const checkAbort = useRef<AbortController | null>(null);
   useEffect(() => () => checkAbort.current?.abort(), []);
+  /**
+   * Cancels a motor download when the dialog goes away — the case
+   * `fetchMotorSpec`'s own signal parameter names ("an unmounting dialog").
+   * Without it, ✕ Close / the backdrop / Escape all stayed live during the
+   * fetch and `onSelect` fired afterwards, loading a motor the user had
+   * cancelled and moving the design's mass, CG and stability.
+   */
+  const loadAbort = useRef<AbortController | null>(null);
+  useEffect(() => () => loadAbort.current?.abort(), []);
   const catalogueAgeDays = Math.max(0, Math.floor((Date.now() - Date.parse(MOTOR_DB_DATE)) / 86_400_000));
   const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
 
@@ -272,6 +281,9 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
 
   const load = async () => {
     if (!picked) return;
+    loadAbort.current?.abort();
+    const ctrl = new AbortController();
+    loadAbort.current = ctrl;
     setBusy(true);
     setError(null);
     try {
@@ -284,7 +296,11 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
       const chosen = delay === 'auto' ? finite[finite.length - 1] ?? 0
         : delay === 'custom' ? customDelay
         : delay;
-      const spec = await fetchMotorSpec(picked, chosen);
+      const spec = await fetchMotorSpec(picked, chosen, ctrl.signal);
+      // Closed while the download was in flight: the abort above fires, but a
+      // cached spec can also resolve without ever touching the network, so the
+      // check is on the signal rather than on the throw.
+      if (ctrl.signal.aborted) return;
       const label = delay === 'auto'
         ? `${picked.commonName} (auto delay)`
         : `${picked.commonName}-${delayTag(chosen)}`;
@@ -304,6 +320,9 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
       });
       onClose();
     } catch (e) {
+      // A cancelled load is not a failure to report — the user asked for it,
+      // and the dialog it would report into is already going away.
+      if (ctrl.signal.aborted) return;
       setError(String(e instanceof Error ? e.message : e));
     } finally {
       setBusy(false);
@@ -350,7 +369,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
           {checking && (
             <button className="file-btn" onClick={() => checkAbort.current?.abort()} aria-label="Stop the catalogue check">Stop</button>
           )}
-          <button className="file-btn" onClick={onClose} aria-label="Close motor browser">✕ Close</button>
+          <button className="file-btn" onClick={onClose} disabled={busy} aria-label="Close motor browser">✕ Close</button>
         </div>
         {checkError && <p className="print-note print-note-warn" role="alert">{checkError}</p>}
         {checkNote && (
