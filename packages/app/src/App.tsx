@@ -92,6 +92,7 @@ import {
 } from './tree/treeModel.js';
 import { clusterCount } from './tree/cluster.js';
 import { estimateMotorRoomForMounts } from './tree/motorRoom.js';
+import { NozzleField } from './components/NozzleField.js';
 import { autoAlignFinSets } from './tree/finAlign.js';
 import { railInterferenceWarnings, wakeShadowWarnings } from './tree/mountAngle.js';
 import { convertShrouds, findShroudCandidates, type ShroudCandidate } from './tree/shroudConvert.js';
@@ -4576,6 +4577,20 @@ export function App() {
                 .map((m) => findNode(tree, m.id!)?.['maxMotorLength'])
                 .find((v): v is number => typeof v === 'number') ?? null;
               const stMax = (st.id ? maxMotorLen[st.id] : null) ?? designMax;
+              // ONE call, read by the Estimate button and the "Room for" line
+              // below it. It was called twice per stage per render with
+              // identical arguments (docs/AUDIT.md), and it builds a per-stage
+              // station map each time.
+              const stRoom = estimateMotorRoomForMounts(tree, stMounts.map((m) => m.id!));
+              // The motors mounted in THIS stage, for the published-nozzle
+              // lookup: a cluster of identical motors is still one nozzle, and
+              // a mixed cluster is looked up on the first with a figure.
+              const stMotorIds = stMounts
+                .map((m) => mountMotors[m.id!]?.meta.motorId)
+                .filter((id): id is string => typeof id === 'string');
+              const stMotorLabel = stMounts
+                .map((m) => mountMotors[m.id!]?.label)
+                .find((l): l is string => typeof l === 'string') ?? null;
               return (
                 <div key={st.id}>
                   {isStaged && <div className="motor-stage-header">{stName}</div>}
@@ -4605,7 +4620,7 @@ export function App() {
                         })}
                       />
                       {(() => {
-                        const room = estimateMotorRoomForMounts(tree, stMounts.map((m) => m.id!));
+                        const room = stRoom;
                         if (!room || !st.id) return null;
                         return (
                           <button className="file-btn" style={{ whiteSpace: 'nowrap' }}
@@ -4616,15 +4631,31 @@ export function App() {
                         );
                       })()}
                     </div>
-                    {(() => {
-                      const room = estimateMotorRoomForMounts(tree, stMounts.map((m) => m.id!));
-                      return room ? (
-                        <p className="comp-stats" style={{ margin: '3px 0 0' }}>
-                          Room for {fmtSi('motorDimensions', prefs.units.motorDimensions, room.lengthM)}
-                          {' '}{prefs.units.motorDimensions} to {room.limitedBy}.
-                        </p>
-                      ) : null;
-                    })()}
+                    {stRoom ? (
+                      <p className="comp-stats" style={{ margin: '3px 0 0' }}>
+                        Room for {fmtSi('motorDimensions', prefs.units.motorDimensions, stRoom.lengthM)}
+                        {' '}{prefs.units.motorDimensions} to {stRoom.limitedBy}.
+                      </p>
+                    ) : null}
+                    {/* The nozzle exit diameter, beside the motor it belongs to
+                        (Eric, 2026-09-08b: he went looking for it here and it
+                        was on the stage in the Property Panel). Still the SAME
+                        stage field — this is a second view of it, not a second
+                        value — and it fills itself in from AeroTech's published
+                        drawings with the provenance shown. */}
+                    {st.id && (
+                      <NozzleField
+                        stageName={stName}
+                        exitDiameterM={typeof st['nozzleExitDiameter'] === 'number'
+                          ? st['nozzleExitDiameter'] : null}
+                        motorIds={stMotorIds}
+                        motorLabel={stMotorLabel}
+                        // applyStageNozzles, not updateNode: clearing the field
+                        // must DELETE the key, and updateNode cannot (its own
+                        // docstring says so). 0 is its "remove it" value.
+                        onCommit={(m) => setTree(applyStageNozzles(tree, { [st.id!]: m ?? 0 }))}
+                      />
+                    )}
                   </div>
                   {stMounts.map((m) => {
               const mm = mountMotors[m.id!];

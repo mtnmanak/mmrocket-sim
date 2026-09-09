@@ -29,6 +29,15 @@ export interface MotorMeta {
   /** High-power per the owner's G80 rule (>80 N avg or >160 Ns) — drives staging defaults/warnings. */
   highPower?: boolean;
   /**
+   * thrustcurve.org catalogue id, recorded so the published NOZZLE for this
+   * motor can be looked up (services/nozzleDb.ts). Keyed on the id and not the
+   * designation on purpose: designations repeat across manufacturers and across
+   * a motor's own history, and the nozzle database is built against a dated
+   * catalogue snapshot. Absent on an EX motor, which is the user's own file and
+   * has no catalogue row — `exMotorId` carries that case.
+   */
+  motorId?: string;
+  /**
    * EX-library motorId ("ex:" + slug), recorded when an EX motor is picked so
    * export resolves the EXACT imported entry. Two vendors' same-designation
    * curves coexist in the library, and a designation-only lookup wrote

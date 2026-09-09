@@ -143,6 +143,7 @@ export function mountMotorFromDb(
       propellant: db.propInfo,
       motorCase: db.caseInfo,
       highPower: isHighPower(db),
+      motorId: db.motorId,
       ...extraMeta,
     },
     ignition,

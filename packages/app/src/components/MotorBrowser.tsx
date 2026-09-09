@@ -310,7 +310,9 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
         // EX motors: pin the exact library entry ("ex:" namespace), so a
         // later .ork export writes THIS vendor's manufacturer even when two
         // vendors' same-designation curves coexist in the library.
-        ...(picked.motorId.startsWith('ex:') ? { exMotorId: picked.motorId } : {}),
+        ...(picked.motorId.startsWith('ex:')
+          ? { exMotorId: picked.motorId }
+          : { motorId: picked.motorId }),
         availableDelays: opts,
         autoDelay: delay === 'auto',
         type: picked.type,
