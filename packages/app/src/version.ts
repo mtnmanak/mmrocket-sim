@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.125';
+export const APP_VERSION = '0.126';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.126',
+    date: '2026-09-09',
+    title: 'The evidence behind the sea-level assumption, counted properly this time',
+    items: [
+      'v0.125 QUOTED A TEST-ELEVATION SPREAD FROM A SCAN THAT COULD ONLY READ TWO THIRDS OF ITS INPUTS. Of the 312 AeroTech certification documents on file, 212 carry a text layer and 100 are image-only scans; the first pass silently skipped the 100 and reported "observed values 20, 50, 500 and 5850 ft". With all 312 read, 51 record a test elevation and the spread is 200 ft (28), 50 ft (10), 500 ft (5), 100 ft (4), 20 ft (2), 5 ft (1) and 5,850 ft (1). The most common value was missing from the first count entirely.',
+      'AND THE OUTLIER HAS A NAME. That single 5,850 ft firing is Cedar City, Utah - AeroTech’s own factory, at 5,846 ft - which is exactly the site this question started from. It is also the one document in all 312 that says what was done about it: "Data taken at 5850 feet ASL and corrected to sea level". So 50 of the 51 recorded elevations are at or under 500 ft, and the one that is not was corrected. None of the 312 documents records the barometric pressure the motor was fired at.',
+      'The guide now carries those numbers instead of the partial ones, and notes that the modern certification forms dropped the elevation and temperature fields altogether - so this evidence comes from an era the paperwork has since stopped documenting, which is a further reason the sea-level reference stays an assumption resting on the rule rather than on per-motor records. Nothing in the simulation changed.',
+    ],
+  },
   {
     version: '0.125',
     date: '2026-09-09',

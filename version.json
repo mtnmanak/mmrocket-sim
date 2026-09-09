@@ -1,5 +1,5 @@
 {
-  "version": "0.125",
+  "version": "0.126",
   "released": "2026-09-09",
-  "note": "Documentation, not behaviour. The thrust model assumes a published thrust curve is referenced to sea level; the guide now says what justifies that. NFPA 1125 requires motors be tested at, or corrected to, sea level and 20 C, and the NAR's own testing manual requires every test site to be within 500 feet of mean sea level. It stays an assumption - no curve file records where it was fired, and only about a third of the curves the app flies come from a certifying body - and the guide says that too. The reference pressure is unchanged."
+  "note": "Corrects a count in v0.125's note. The test-elevation spread quoted there came from a scan that could only read 212 of the 312 certification documents on file; the other 100 are image-only scans and were skipped without saying so. Read in full: 51 documents record a test elevation, 50 of them at or under 500 ft, and the single 5,850 ft outlier is Cedar City, Utah - AeroTech's own factory - which is also the one document that says the data was corrected to sea level. Nothing in the simulation changed."
 }
