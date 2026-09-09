@@ -5,6 +5,7 @@ import {
   resolveAssemblyRadius, ringInstanceOffsets,
 } from './assembly.js';
 import { clusterOffsets } from './cluster.js';
+import { num, numOpt } from './nodeNum.js';
 import { tubeFinRadius } from './tubefins.js';
 import { outerProfile } from './shapeProfile.js';
 import { isConformal, shroudEnds } from './shroud.js';
@@ -31,11 +32,7 @@ import { axialLength } from './position.js';
 
 const nodeColor = (n: ComponentNode, dflt: string): string => typeof n['color'] === 'string' ? (n['color'] as string) : dflt;
 
-const num = (n: ComponentNode, key: string, fb: number): number =>
-  typeof n[key] === 'number' ? (n[key] as number) : fb;
 
-const numOpt = (n: ComponentNode, key: string): number | undefined =>
-  typeof n[key] === 'number' ? (n[key] as number) : undefined;
 
 
 function axialStart(child: ComponentNode, childLen: number, pStart: number, pLen: number): number {
@@ -120,8 +117,21 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims): { pieces: Pie
 
   const addFins = (child: ComponentNode, pStart: number, pLen: number, pRadius: number, xform?: THREE.Matrix4) => {
     const count = Math.max(1, Math.round(num(child, 'finCount', 3)));
-    const ffPoints = child.type === 'freeformfinset'
-      ? ((child['points'] as [number, number][] | undefined) ?? [])
+    // Rows VALIDATED, not cast (2026-09-08). The cast this replaces trusted
+    // whatever was on the node, so one malformed row put non-finite vertices
+    // into the display mesh and into every export that shares it: measured on
+    // `[[0,0], 'oops', [0.05,0.03], [0.05,0]]`, buildPieces returned 792
+    // vertices of which 156 were non-finite, while solidMesh's `finCutOutline`
+    // — which checks each row (solidMesh.ts:413) — correctly returned null for
+    // the same input. Two readers of one field, one of them checking. This is
+    // the same class as the `num` fallback above and is fixed the same way:
+    // unusable geometry falls back to none, and the guard below then draws the
+    // fin from its chord and height instead.
+    const rawPts = child.type === 'freeformfinset' ? child['points'] : undefined;
+    const ffPoints: [number, number][] = Array.isArray(rawPts)
+      && rawPts.every((r) => Array.isArray(r) && r.length >= 2
+        && Number.isFinite(r[0]) && Number.isFinite(r[1]))
+      ? (rawPts as [number, number][])
       : [];
     // A freeform fin needs THREE points to be a shape. Two lines below guard
     // `ffPoints.length` for the chord and the height, and the profile builder

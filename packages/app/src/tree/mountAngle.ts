@@ -1,4 +1,5 @@
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
+import { num } from './nodeNum.js';
 import { absoluteStations } from './position.js';
 // mountRadiusOf, not a fourth copy of "how wide is the tube under this part".
 // It is the expression all three views and engineTree already use, fallbacks
@@ -27,8 +28,6 @@ import { mountRadiusOf } from './treeModel.js';
  * same zero. Angles are only ever compared between siblings on one parent.
  */
 
-const num = (n: ComponentNode, key: string, fb: number): number =>
-  typeof n[key] === 'number' ? (n[key] as number) : fb;
 
 const isFinSet = (n: ComponentNode): boolean => n.type.endsWith('finset');
 

@@ -1,4 +1,5 @@
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
+import { num } from './nodeNum.js';
 
 /**
  * Hand-rolled camera shrouds (issue 2026-08-05e): RockSim has no shroud
@@ -16,8 +17,6 @@ export interface ShroudCandidate {
 
 const NAME_RE = /shroud|camera|fairing/i;
 
-const num = (n: ComponentNode, key: string, fb: number): number =>
-  typeof n[key] === 'number' ? (n[key] as number) : fb;
 
 /** 1-fin freeform sets whose name reads like a shroud/camera cover. */
 export function findShroudCandidates(tree: RocketTree): ShroudCandidate[] {

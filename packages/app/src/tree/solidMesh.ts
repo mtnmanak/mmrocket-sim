@@ -10,6 +10,7 @@
  * isWatertight()/solidVolume() exist so tests can prove it.
  */
 import type { ComponentNode } from '@online-openrocket/engine';
+import { num } from './nodeNum.js';
 import { outerProfile } from './shapeProfile.js';
 import { tubeFinRadius } from './tubefins.js';
 import { finTabFront } from '../components/TreeSchematic.js';
@@ -36,8 +37,6 @@ const PROFILE_STEPS = 64;
 /** Fallback radius when the context can't size a part (matches the app's 3D-view default). */
 const FALLBACK_RADIUS = 0.012;
 
-const num = (n: ComponentNode, key: string, fb: number): number =>
-  typeof n[key] === 'number' ? (n[key] as number) : fb;
 
 const emptyMesh = (): SolidMesh => ({ positions: new Float64Array(0), triangles: new Uint32Array(0) });
 

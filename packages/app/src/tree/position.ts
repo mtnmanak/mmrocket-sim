@@ -1,5 +1,6 @@
 import type { ComponentNode, ComponentPosition, RocketTree } from '@online-openrocket/engine';
 import { assemblyChainLength, isAssembly } from './assembly.js';
+import { num } from './nodeNum.js';
 
 /**
  * Axial-position math shared by the 2D schematic (drag) and the property
@@ -7,8 +8,6 @@ import { assemblyChainLength, isAssembly } from './assembly.js';
  * from its parent's leading edge.
  */
 
-const num = (n: ComponentNode, key: string, fb: number): number =>
-  typeof n[key] === 'number' ? (n[key] as number) : fb;
 
 /**
  * The axial length a component is POSITIONED by — `RocketComponent.getLength()`

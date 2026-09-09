@@ -1,4 +1,5 @@
 import type { ComponentNode, ComponentPosition, RocketTree } from '@online-openrocket/engine';
+import { num } from './nodeNum.js';
 import { axialLength, drawnExtent, startFromPosition } from './position.js';
 import { findNode } from './treeModel.js';
 
@@ -72,8 +73,6 @@ export interface MotorRoom {
   limitedBy: string;
 }
 
-const num = (n: ComponentNode, key: string, fb: number): number =>
-  typeof n[key] === 'number' ? (n[key] as number) : fb;
 
 /**
  * Components a motor case cannot pass through.

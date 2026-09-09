@@ -406,8 +406,33 @@ describe('isFittableBox — the NaN box Box3.isEmpty() waves straight through', 
   beforeEach(() => { vi.spyOn(console, 'error').mockImplementation(() => {}); });
   afterEach(() => { vi.restoreAllMocks(); });
 
-  it('catches a NaN box that reports itself NON-empty', () => {
+  /**
+   * REWRITTEN 2026-09-08b. Both tests here used to reach the camera by putting
+   * `length: NaN` on a nose cone, and that route is now CLOSED at the source:
+   * `tree/nodeNum.ts` treats a non-finite field as absent, so `nanNose()` builds
+   * a perfectly ordinary rocket at the default length. The old assertions
+   * failed, which is the correct outcome and the reason the fix was worth
+   * making — a NaN on a node used to reach three.js, the STL and the camera.
+   *
+   * `isFittableBox` STAYS and stays tested, because it guards the box rather
+   * than the node: `pieces.ts` still casts `points` without validating its rows
+   * (docs/AUDIT.md), and three's own bounding-box maths can produce a non-finite
+   * result from finite input on a degenerate mesh. So the box is now poisoned
+   * DIRECTLY, which is the honest way to test a guard on a box.
+   */
+  it('a NaN field on a node no longer reaches the geometry at all', () => {
     const box = piecesBounds(buildPieces(nanNose()).pieces);
+    expect(Number.isNaN(box.min.x)).toBe(false);
+    expect(isFittableBox(box)).toBe(true);
+    // It fell back to the schema default rather than vanishing: the nose is
+    // still drawn, so the user gets a rocket instead of a hole.
+    expect(buildPieces(nanNose()).pieces.length).toBe(2);
+  });
+
+  it('catches a NaN box that reports itself NON-empty', () => {
+    // Poisoned directly — see the note above.
+    const box = new THREE.Box3(
+      new THREE.Vector3(NaN, NaN, NaN), new THREE.Vector3(NaN, NaN, NaN));
     expect(Number.isNaN(box.min.x)).toBe(true);
     // The trap the old `!box.isEmpty()` guard fell into: isEmpty() is
     // `max.x < min.x || ...`, and every comparison against NaN is false, so a
@@ -417,11 +442,14 @@ describe('isFittableBox — the NaN box Box3.isEmpty() waves straight through', 
   });
 
   it('is guarding against a real NaN camera, not a hypothetical one', () => {
-    const box = piecesBounds(buildPieces(nanNose()).pieces);
+    const box = new THREE.Box3(
+      new THREE.Vector3(0, 0, 0), new THREE.Vector3(NaN, 0.048, 0.048));
     const f = fitCameraToBox(box, new THREE.Vector3(0, 0, -1), 40, 16 / 9);
     // Fit it anyway and the export renders through a camera at nowhere, with
     // nothing logged — a blank PNG is the only symptom the user ever sees.
     expect([...f.position.toArray(), ...f.target.toArray()].some((v) => Number.isNaN(v))).toBe(true);
+    // Which is why the caller must ask first.
+    expect(isFittableBox(box)).toBe(false);
   });
 
   it('passes a healthy rocket, rejects empty and infinite ones', () => {
