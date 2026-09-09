@@ -76,7 +76,7 @@ import {
 import {
   AERO_MODEL_CHANGED, aeroModelLabel, buildSimRun, changedSinceRun, conditionsKeyOf,
   currentModelLabel, formatRunWhenProse, formatStability, listAnd,
-  hasAerodynamicForce, recommendDelay, runCarriesNozzleStamp, shownStability, runMatchesDesign, runMatchesModel,
+  hasAerodynamicForce, recommendDelay, shownStability, runMatchesDesign, runMatchesModel,
   shortHash, storedSimCost,
   type DesignMatchKey, type FlownRecoveryDevice, type MotorMeta, type SimRun,
 } from './services/simReport.js';
@@ -91,6 +91,7 @@ import {
   suppressingAncestor, updateAllNodes, updateNode,
 } from './tree/treeModel.js';
 import { clusterCount } from './tree/cluster.js';
+import { flightDataForExport as flightDataForExportPure } from './services/orkFlightData.js';
 import { estimateMotorRoomForMounts } from './tree/motorRoom.js';
 import { NozzleField } from './components/NozzleField.js';
 import { autoAlignFinSets } from './tree/finAlign.js';
@@ -203,29 +204,6 @@ export interface SavedConfig {
   nozzles?: Record<string, number>;
 }
 
-/**
- * SimRun -> the ten summary values desktop OpenRocket stores in <flightdata>.
- *
- * The ONE copy of this mapping. It sat here unreferenced while
- * `flightDataForExport` built the identical literal inline, so a units or
- * field-name fix made in the obvious place — this function, which is at the
- * top of the file and named for the job — changed nothing in the file that
- * came out, and the diff looked correct.
- */
-function summaryOf(r: SimRun): OrkExportFlightData {
-  return {
-    maxAltitude: r.maxAltitude,
-    maxVelocity: r.maxVelocity,
-    maxAcceleration: r.maxAcceleration,
-    maxMach: r.maxMach,
-    timeToApogee: r.timeToApogee,
-    flightTime: r.totalFlightTime,
-    groundHitVelocity: r.groundHitVelocity,
-    launchRodVelocity: r.rodExitVelocity,
-    deploymentVelocity: r.velocityAtDeployment,
-    optimumDelay: r.optimumDelayS,
-  };
-}
 
 /**
  * Display name for a working-set configuration. Same rule as the .ork picker's
@@ -2625,55 +2603,34 @@ export function App() {
    * `notsimulated`, which is exactly what desktop shows for a simulation it
    * has not run.
    */
-  const flightDataForExport = useCallback((): Record<string, OrkExportFlightData> => {
-    const out: Record<string, OrkExportFlightData> = {};
-    const designNow = shortHash(physicsKey);
-    const conditionsNow = conditionsKeyOf(launch);
-    // Tree-only, deliberately NOT joined to `assigned` the way the two match
-    // keys are: this loop admits runs from OTHER flight configurations, whose
-    // motors are not the working set, so a stage that is bare right now may
-    // well have burned in the configuration whose numbers are about to be
-    // written into the file. Refusal is the safe direction here (2026-09-08).
-    const hasNozzle = stagesWithNozzle(tree).length > 0;
-    for (const r of runs) {
-      // Newest-first, so the first qualifying run per config wins.
-      if (!r.flightConfigId || out[r.flightConfigId]) continue;
-      if (!savedConfigs.some((c) => c.id === r.flightConfigId)) continue;
-      if (r.designKey !== designNow) continue;
-      if (r.conditionsKey !== conditionsNow) continue;
-      // The model too. Without this a run the app itself marks "flown on a
-      // different model" would be written into the file as that
-      // configuration's up-to-date result — the exact authoritative-looking
-      // wrong number this guard exists to prevent. UNKNOWN (a run predating
-      // the field) is a refusal here, as everywhere the numbers travel.
-      if (runMatchesModel(r, { aeroMode, effectiveKbf, autoSupersonic }) !== true) continue;
-      // And the kernel's own physics. A run of a nozzle-bearing design flown
-      // before v0.119 carries no pressure-thrust stamp, and none of the three
-      // keys above can see a kernel change — desktop OpenRocket renders a
-      // stale <flightdata> block indistinguishably from a fresh one
-      // (2026-09-08).
-      if (!runCarriesNozzleStamp(r, { hasNozzle, aeroMode, effectiveKbf, autoSupersonic })) continue;
-      // The motor set is compared against the CONFIGURATION's own motors, not
-      // the live working set: a user who has since switched configurations
-      // must still be able to export the results of the others.
-      const cfg = savedConfigs.find((c) => c.id === r.flightConfigId)!;
-      // Filtered by the current mounts, the same predicate as `assigned`: since
-      // the write-back (configSync) a configuration's `motors` is the working
-      // set verbatim and can hold a stale id that the run's key — stamped from
-      // `assigned` — never had. Refusal is the safe direction, but a needless
-      // one loses that configuration's stored result from the file.
-      const cfgMotors: [string, MountMotor][] = cfg.id === activeConfigId
-        ? assigned
-        : Object.entries(cfg.motors).filter(([id]) => mounts.some((m) => m.id === id));
-      // The hardware term is the ACTIVE configuration's: a non-active
-      // configuration's stored run keeps matching only if it flew with no
-      // hardware, and refusal is the safe direction for numbers written into
-      // a file — the same rule the model check above applies to UNKNOWN.
-      if (r.motorSetKey !== motorSetKeyOf(cfgMotors, cfg.id === activeConfigId ? hardwareDeltaKg : 0)) continue;
-      out[r.flightConfigId] = summaryOf(r);
-    }
-    return out;
-  }, [runs, savedConfigs, activeConfigId, assigned, mounts, physicsKey, launch, motorSetKeyOf,
+  /**
+   * The stored results this design is allowed to write into a `.ork`.
+   *
+   * The RULES live in services/orkFlightData.ts, pure and tested — every one of
+   * them guards against writing an authoritative-looking wrong number into a
+   * file desktop OpenRocket renders indistinguishably from a fresh result. This
+   * is the adapter that hands them the app's state.
+   */
+  const flightDataForExport = useCallback((): Record<string, OrkExportFlightData> => (
+    flightDataForExportPure({
+      runs,
+      savedConfigs,
+      activeConfigId,
+      assigned,
+      mountIds: mounts.map((m) => m.id).filter((id): id is string => typeof id === 'string'),
+      designKey: shortHash(physicsKey),
+      conditionsKey: conditionsKeyOf(launch),
+      model: { aeroMode, effectiveKbf, autoSupersonic },
+      // Tree-only, deliberately NOT joined to `assigned` the way the two match
+      // keys are: this admits runs from OTHER flight configurations, whose
+      // motors are not the working set, so a stage that is bare right now may
+      // well have burned in the configuration whose numbers are about to be
+      // written. Refusal is the safe direction here (2026-09-08).
+      hasNozzle: stagesWithNozzle(tree).length > 0,
+      motorSetKeyOf,
+      hardwareDeltaKg,
+    })
+  ), [runs, savedConfigs, activeConfigId, assigned, mounts, physicsKey, launch, motorSetKeyOf,
     aeroMode, effectiveKbf, autoSupersonic, hardwareDeltaKg, tree]);
 
   /**

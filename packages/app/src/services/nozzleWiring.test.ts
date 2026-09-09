@@ -95,7 +95,14 @@ describe('App feeds the pressure-thrust provenance stamp', () => {
   });
 
   it('refuses an unstamped run in the .ork <flightdata> export too', () => {
-    expect(app()).toContain(
-      'if (!runCarriesNozzleStamp(r, { hasNozzle, aeroMode, effectiveKbf, autoSupersonic })) continue;');
+    // Moved out of App.tsx on 2026-09-08 into services/orkFlightData.ts, which
+    // is where it can finally be tested for BEHAVIOUR rather than for its own
+    // source text — see orkFlightData.test.ts, "refuses a run with no
+    // pressure-thrust stamp". What stays here is the wiring check: App must
+    // still tell the pure rule whether this design HAS a nozzle, because a
+    // `hasNozzle: false` passed by mistake would disable the guard silently.
+    expect(app()).toContain('hasNozzle: stagesWithNozzle(tree).length > 0,');
+    expect(readFileSync(join(here, 'orkFlightData.ts'), 'utf8')).toContain(
+      'if (!runCarriesNozzleStamp(r, { hasNozzle, ...model })) continue;');
   });
 });
