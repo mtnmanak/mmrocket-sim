@@ -1,5 +1,5 @@
 {
-  "version": "0.127",
+  "version": "0.128",
   "released": "2026-09-13",
-  "note": "Loki Research's published nozzle exit diameters are now in the app - 54 of their 58 in-production motors, read from their own Tech Info tables and reload-kit instruction sheets. Two earlier notes said Loki publish none; they do, at the foot of a page I had read, and both are corrected. The nozzle exit diameter now FOLLOWS THE MOTOR: change the motor and it changes, take the motor out and the field empties, and a line says what the removed value belonged to. A value that arrived with a file is still not overwritten. A cluster is now filled as one equivalent nozzle with the exit areas summed - the automatic fill added in v0.122 wrote one motor's diameter whatever the cluster count."
+  "note": "v0.127's note did not say that it moves your numbers. It does: a Loki design that had no nozzle exit diameter now has Loki's own published one, and since v0.119 that area buys thrust as the air thins. Measured on tester files, each flown twice with nothing else changed: +5.54 % on a 76 mm M900-LR, +0.87 % on a 38 mm J1026CT, +0.52 % on an I405-LW. If you fly Loki, re-open your designs and look at the nozzle exit diameter under the stage. Two exact ways back to the old numbers: clear the field, or pick Classic Extended Barrowman. And if you had a 76 mm exit machined out to 2.0 inches, type it - the app fills Loki's standard 1.818."
 }

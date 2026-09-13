@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.127';
+export const APP_VERSION = '0.128';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.128',
+    date: '2026-09-13',
+    title: 'v0.127 moves apogee on Loki designs, and its note did not say so',
+    items: [
+      'THE RULE HERE IS THAT A RELEASE WHICH MOVES YOUR NUMBERS SAYS WHICH DESIGNS MOVED AND HOW TO GET THE OLD BEHAVIOUR BACK. The v0.127 note said Loki motors "fill their own exit diameter in" and stopped there, as though that were a convenience. It is not: since v0.119 the exit area buys thrust as the air thins, so a design that had no nozzle and now has one FLIES HIGHER THAN IT DID YESTERDAY. Nothing in the simulation changed - the same formula, the same kernel, a number that used to be missing.',
+      'MEASURED, ON THE TESTER FILES THAT CARRY A LOKI MOTOR THE CATALOGUE RESOLVES, each flown twice through the kernel with nothing else altered. Mach 3 (M900-LR, 76 mm, a 1.818 inch exit): 7,153.89 m to 7,550.27 m, PLUS 5.54 PERCENT. LEM-M2B (J1026CT, 38 mm, 0.900 inch): 3,691.50 to 3,723.43 m, plus 0.87 percent. complexj (I405-LW, 38 mm, 0.780 inch): 1,449.47 to 1,456.96 m, plus 0.52 percent. The 76 mm number is the big one because a 1.818 inch exit is five and a half times the AREA of the 38 mm one, and area is the whole of the term. Two-stage files are not quoted: measuring one properly needs its ignition configuration set, which is a separate sitting.',
+      'IF YOU FLY LOKI, RE-OPEN YOUR DESIGNS AND LOOK AT THE NOZZLE EXIT DIAMETER UNDER THE STAGE. It will be filled in, with a line under it naming Loki and the nozzle number. That figure is Loki\'s own published one for the nozzle that motor takes; it is not a guess. TWO WAYS BACK to the numbers you had: clear the field, or pick Classic Extended Barrowman in the Aero selector - both are exact, and both also drop the power-on base-drag reduction, which is the other half of the same field. ONE THING TO CHECK IF YOURS IS A 76 MM MOTOR: Loki will machine a 76 mm exit out to 2.0 inches on request, and the app fills the standard 1.818. If you asked for a custom exit, type it - 2.0 inches is 21 percent more area than 1.818.',
+      'The same applies to any CLUSTER whose motors are in the database: v0.127 corrected the fill to sum the exit areas, so a clustered stage that was filled by v0.122 now carries a larger equivalent nozzle and also flies higher. Four identical motors is twice one motor\'s diameter.',
+    ],
+  },
   {
     version: '0.127',
     date: '2026-09-13',
