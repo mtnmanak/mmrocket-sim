@@ -71,17 +71,26 @@ const flush = async () => {
 
 const render = async (over: {
   exitDiameterM?: number | null;
+  motors?: { motorId: string; count: number }[];
   motorIds?: string[];
   motorLabel?: string | null;
+  clearedFor?: { previousLabel: string; previousM: number } | null;
 } = {}) => {
+  // `motorIds` is kept as a convenience for the single-motor cases: the field
+  // takes cluster counts now (the stage's equivalent nozzle sums exit AREAS),
+  // and spelling `{ motorId, count: 1 }` out in twenty call sites would bury
+  // the two tests where the count is the point.
+  const motors = over.motors
+    ?? (over.motorIds ?? [D13]).map((motorId) => ({ motorId, count: 1 }));
   act(() => {
     root.render(
       <PrefsProvider>
         <NozzleField
           stageName="Sustainer"
           exitDiameterM={over.exitDiameterM ?? null}
-          motorIds={over.motorIds ?? [D13]}
+          motors={motors}
           motorLabel={over.motorLabel ?? 'D13-10'}
+          clearedFor={over.clearedFor ?? null}
           onCommit={(m) => { committed.push(m); }}
         />
       </PrefsProvider>,
@@ -169,5 +178,97 @@ describe('NozzleField — rule 3: the nine motors with two published nozzles', (
     // block; this is the note.
     expect(text()).toMatch(/two nozzles/i);
     expect(text()).toMatch(/check which nozzle is in your reload kit/i);
+  });
+});
+
+describe('NozzleField — a cluster is ONE EQUIVALENT nozzle, areas summed', () => {
+  // The defect this pins (2026-09-13). `schema.ts` defines the field as the
+  // single equivalent nozzle with the exit AREAS added, and `nozzleCheck.ts`
+  // bounds it the same way — but the v0.122 auto-fill wrote ONE motor's
+  // diameter in whatever the cluster count, so a four-motor cluster flew a
+  // quarter of the exit area it really has, and therefore a quarter of the
+  // pressure-thrust term. Four D13s is 2x the diameter of one, not 1x.
+  it('fills four identical motors with twice one motor’s diameter', async () => {
+    await render({ exitDiameterM: null, motors: [{ motorId: D13, count: 4 }] });
+    expect(committed).toHaveLength(1);
+    expect(committed[0]).toBeCloseTo(D13_EXIT_M * 2, 9);
+  });
+
+  it('sums across two mounts as well as within one', async () => {
+    await render({
+      exitDiameterM: null,
+      motors: [{ motorId: D13, count: 1 }, { motorId: D13, count: 1 }],
+    });
+    expect(committed[0]).toBeCloseTo(D13_EXIT_M * Math.SQRT2, 9);
+  });
+
+  it('says out loud that the number covers more than one motor', async () => {
+    await render({ exitDiameterM: D13_EXIT_M * 2, motors: [{ motorId: D13, count: 4 }] });
+    expect(text()).toMatch(/Exit areas summed over the 4 motors/);
+  });
+
+  it('fills nothing when one motor in the stage has no published figure', async () => {
+    // A partial sum is short by exactly what it could not see, and a number
+    // quietly too small is worse than a blank field: the blank is visible.
+    await render({
+      exitDiameterM: null,
+      motors: [{ motorId: D13, count: 1 }, { motorId: 'no-such-motor', count: 1 }],
+    });
+    expect(committed).toEqual([]);
+  });
+});
+
+describe('NozzleField — whose figure it is', () => {
+  // Loki J525-LW: instruction sheet "54mm White 1200.pdf" names nozzle #24,
+  // and Loki's own exit table gives 54 mm #24-#28 a 1.000 in exit. Added
+  // 2026-09-13; before that the panel credited AeroTech unconditionally, which
+  // would have put AeroTech's name on Loki's number.
+  const J525 = '5f4294d20002310000000122';
+  const J525_EXIT_M = 0.0254;
+
+  it('credits Loki, not AeroTech, for a Loki motor', async () => {
+    await render({ exitDiameterM: J525_EXIT_M, motorIds: [J525], motorLabel: 'J525' });
+    expect(text()).toMatch(/Loki’s published figure for J525/);
+    expect(text()).not.toMatch(/AeroTech/);
+    expect(text()).toMatch(/nozzle #24/);
+  });
+
+  it('credits Loki in the disagreement notice and its accept button too', async () => {
+    await render({ exitDiameterM: 0.04, motorIds: [J525], motorLabel: 'J525' });
+    expect(text()).toMatch(/Loki publish/);
+    const btn = [...host.querySelectorAll('button')].find((b) => /Use Loki/.test(b.textContent ?? ''));
+    expect(btn, 'the accept button names the manufacturer').toBeTruthy();
+  });
+});
+
+describe('NozzleField — rule 4: a value cleared because the motor changed', () => {
+  // Eric, 2026-09-13: "unloading the motor keeps the old exit diameter value —
+  // there is no motor loaded, how can there be an exit diameter?" App clears
+  // it; the user has to be TOLD, because a number that vanishes silently is
+  // the same class of surprise as one that changes silently.
+  it('says what the cleared value belonged to when the motor was removed', async () => {
+    await render({ exitDiameterM: null, motors: [], clearedFor: { previousLabel: 'K1127', previousM: 0.02286 } });
+    expect(text()).toMatch(/Cleared/);
+    expect(text()).toMatch(/was for K1127/);
+    expect(text()).toMatch(/No motor is loaded/);
+  });
+
+  it('says what to do when the new motor simply has no published figure', async () => {
+    await render({
+      exitDiameterM: null,
+      motors: [{ motorId: 'no-such-motor', count: 1 }],
+      motorLabel: 'K185W',
+      clearedFor: { previousLabel: 'K1127', previousM: 0.02286 },
+    });
+    expect(text()).toMatch(/No published exit diameter for K185W/);
+    expect(committed).toEqual([]);
+  });
+
+  it('drops the notice as soon as the field has a value again', async () => {
+    await render({
+      exitDiameterM: D13_EXIT_M,
+      clearedFor: { previousLabel: 'K1127', previousM: 0.02286 },
+    });
+    expect(text()).not.toMatch(/Cleared/);
   });
 });

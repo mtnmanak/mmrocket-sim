@@ -171,17 +171,33 @@ describe('the shipped nozzle database', () => {
     // number and tight enough that a doubled diameter (4x the ratio) cannot
     // hide. 1.0 is the floor because a converging-diverging nozzle diverges.
     //
+    // PER MANUFACTURER since 2026-09-13, because LOKI GENUINELY BUILD A 9.04.
+    // Loki mould one exit per casing per band of nozzle numbers and drill the
+    // throat to suit, so the SMALLEST throat in a band gets the largest ratio
+    // the band can produce: their 38 mm #10 (0.1563 in) opens into the
+    // 0.470 in exit that serves #10 through #15. Their published range is
+    // 3.63-9.04 across 55 rows, so 10.0 keeps the same margin over the real
+    // data that 9.0 gives AeroTech, and a doubled Loki exit (>= 14.5) is still
+    // caught. Widening AeroTech's to fit Loki would have been the wrong move:
+    // it is the tightest bound each maker's own hardware allows that makes the
+    // check worth running.
+    //
     // `throat-bored-through` is exempt BY CONSTRUCTION: those rows are motors
     // whose throat was bored wider than the moulded exit, so the exit plane IS
     // the bore and the ratio is exactly 1 by definition, not by measurement.
+    const MAX_RATIO = { AeroTech: 9, Loki: 10 };
     const bad = rows
       .filter((r) => r.exitSource !== 'throat-bored-through')
       .filter((r) => r.exitDiameterIn !== undefined && r.throatDiameterIn > 0)
       .map((r) => ({ r, ratio: (r.exitDiameterIn / r.throatDiameterIn) ** 2 }))
-      .filter(({ ratio }) => !(ratio >= 1 && ratio <= 9))
+      .filter(({ r, ratio }) => !(ratio >= 1 && ratio <= (MAX_RATIO[r.manufacturer] ?? 9)))
       .map(({ r, ratio }) => `${r.designation} (${r.nozzlePartNo}): exit ${r.exitDiameterIn} in over `
         + `throat ${r.throatDiameterIn} in is an area ratio of ${ratio.toFixed(2)}`);
     expect(bad, bad.join('\n')).toEqual([]);
+    // Every manufacturer in the file has a bound, so a third one cannot arrive
+    // and silently inherit AeroTech's.
+    const unbounded = [...new Set(rows.map((r) => r.manufacturer))].filter((m) => !(m in MAX_RATIO));
+    expect(unbounded, `no expansion-ratio bound stated for ${unbounded.join(', ')}`).toEqual([]);
   });
 
   it('takes each motor exit from the part it names, or says why not', () => {
@@ -192,8 +208,14 @@ describe('the shipped nozzle database', () => {
     // sheet opens, a bored-through throat replaces the exit, an assembly
     // description states the motor's own, and a contradicted sheet falls back
     // to the base mould (L400W-PS).
+    //
+    // The two Loki sources are exempt for a different reason: Loki publish no
+    // nozzle PART NUMBERS at all, so there is no parts table for them to be
+    // tied to. The engraved number is the part's identity and the exit follows
+    // from Loki's published band for the casing — which is checked, below, by
+    // re-deriving it from the band table rather than by looking it up here.
     const own = new Set(['medusa-open-throats', 'throat-bored-through', 'assembly-description',
-      'base-spec-page', 'none']);
+      'base-spec-page', 'none', 'loki-sheet', 'loki-case-table']);
     const byPart = new Map(parts.map((p) => [p.partNo, p]));
     const bad = rows
       .filter((r) => !own.has(r.exitSource) && r.exitDiameterIn !== undefined)
@@ -251,7 +273,10 @@ describe('the shipped nozzle database', () => {
 
   it('labels every exit with a known source and confidence', () => {
     const sources = new Set(['spec-page', 'base-spec-page', 'drawing-title', 'assembly-description',
-      'medusa-open-throats', 'medusa', 'throat-bored-through', 'none']);
+      'medusa-open-throats', 'medusa', 'throat-bored-through', 'none',
+      // Loki: the motor's own instruction sheet named the nozzle, or Loki's
+      // published "Commercial Nozzle throat" column for that case did.
+      'loki-sheet', 'loki-case-table']);
     const confidences = new Set(['high', 'medium', 'low', 'none', 'per-motor']);
     const bad = rows
       .filter((r) => !sources.has(r.exitSource) || !confidences.has(r.exitConfidence))
@@ -365,7 +390,12 @@ describe('the join into the motor catalogue', () => {
     const bad = [];
     for (const r of rows) {
       if (!r.motorId) continue;
-      const hit = findDbMotor(r.provenance.matchedVia, r.casingDiameterMm, undefined, 'AeroTech');
+      // The row's OWN manufacturer, not a hard-coded 'AeroTech' (2026-09-13).
+      // The string is the tie-break in findDbMotor's ranking, and Loki's rows
+      // match on `commonName` — "H100", which several makers also use — so
+      // passing AeroTech here would have resolved Loki's H100-SF to AeroTech's
+      // H100W_DMS and reported it as a broken join.
+      const hit = findDbMotor(r.provenance.matchedVia, r.casingDiameterMm, undefined, r.manufacturer);
       if (hit?.motorId !== r.motorId) {
         bad.push(`${r.designation} via "${r.provenance.matchedVia}": build says ${r.catalogDesignation}, findDbMotor says ${hit?.designation ?? 'nothing'}`);
       }
@@ -482,6 +512,106 @@ describe('the independent Tripoli cross-check', () => {
   });
 });
 
+/**
+ * THE SCREEN ON THE LOKI ROWS (2026-09-13).
+ *
+ * Loki's half of this file is not read off a drawing that states an exit for a
+ * part. It is a two-step derivation — nozzle number, then that number's band in
+ * Loki's published table — and both steps are transcriptions from a web page
+ * and 21 instruction sheets. Nothing in the file itself could contradict a
+ * transcription error, which is the same hole the AeroTech half's parts-table
+ * tie was written to close.
+ *
+ * So the BAND TABLE IS RESTATED HERE, independently of the builder, and every
+ * Loki exit is re-derived from the nozzle number the row itself carries. A band
+ * mistyped in one place now disagrees with the other. That is the whole point:
+ * if this block is ever "fixed" by copying the builder's constant, it stops
+ * being a check and becomes an echo.
+ *
+ * Verbatim from https://lokiresearch.com/page/Tech_Info, read 2026-09-13.
+ */
+const LOKI_BANDS = {
+  38: [[10, 15, 0.470], [16, 18, 0.630], [19, 24, 0.780], [25, Infinity, 0.900]],
+  54: [[19, 23, 0.850], [24, 28, 1.000], [29, Infinity, 1.250]],
+  76: [[28, 39, 1.255], [40, 51, 1.500], [52, Infinity, 1.818]],
+};
+
+describe('the Loki rows, derived from Loki\'s own published tables', () => {
+  const loki = rows.filter((r) => r.manufacturer === 'Loki');
+
+  it('is here at all, and every row names the engraved nozzle number', () => {
+    expect(loki.length).toBeGreaterThan(50);
+    const bad = loki.filter((r) => !/^#\d+$/.test(r.nozzlePartNo ?? ''))
+      .map((r) => `${r.designation}: nozzlePartNo ${r.nozzlePartNo}`);
+    expect(bad, bad.join('\n')).toEqual([]);
+  });
+
+  it('gives every throat as the n/64 inch its engraved number means', () => {
+    // Loki's own definition: "Every nozzle is engraved with a number indicating
+    // the throat size in 64ths of an inch." So the throat is not an
+    // independent reading and must be exactly the number over 64 — a row whose
+    // throat drifted from its own label would mean the two were entered apart.
+    const bad = loki
+      .filter((r) => Math.abs(r.throatDiameterIn - Number(r.nozzlePartNo.slice(1)) / 64) > 0.0001)
+      .map((r) => `${r.designation}: ${r.nozzlePartNo} is ${(Number(r.nozzlePartNo.slice(1)) / 64).toFixed(4)} in, row says ${r.throatDiameterIn}`);
+    expect(bad, bad.join('\n')).toEqual([]);
+  });
+
+  it('re-derives every exit from the published band for its casing', () => {
+    const bad = [];
+    for (const r of loki) {
+      const no = Number(r.nozzlePartNo.slice(1));
+      const band = (LOKI_BANDS[r.casingDiameterMm] ?? []).find(([lo, hi]) => no >= lo && no <= hi);
+      const want = band?.[2];
+      if (want === undefined) {
+        // No band published for this casing — the row must then carry NO exit.
+        // Loki's 98 mm hardware is the only case, and shipping a number for it
+        // would be an invention rather than a reading.
+        if (r.exitDiameterM !== undefined) {
+          bad.push(`${r.designation}: ${r.casingDiameterMm} mm has no published band, but the row has an exit`);
+        }
+        continue;
+      }
+      if (r.exitDiameterIn !== want) {
+        bad.push(`${r.designation} (${r.nozzlePartNo}, ${r.casingDiameterMm} mm): row says ${r.exitDiameterIn} in, `
+          + `Loki's published band says ${want} in`);
+      }
+    }
+    expect(bad, bad.join('\n')).toEqual([]);
+  });
+
+  it('says which of the two published sources each row came from', () => {
+    const bad = loki
+      .filter((r) => !(r.exitSource === 'loki-sheet' && r.exitConfidence === 'high')
+        && !(r.exitSource === 'loki-case-table' && r.exitConfidence === 'medium')
+        && !(r.exitSource === 'none' && r.exitConfidence === 'none' && r.exitDiameterM === undefined))
+      .map((r) => `${r.designation}: ${r.exitSource}/${r.exitConfidence}`);
+    expect(bad, bad.join('\n')).toEqual([]);
+    // A row taken from the per-case column instead of the motor's own sheet
+    // has to SAY so, because that is the one step of inference in the chain.
+    const silent = loki.filter((r) => r.exitSource === 'loki-case-table' && !r.confidenceNote)
+      .map((r) => r.designation);
+    expect(silent, silent.join(', ')).toEqual([]);
+  });
+
+  it('records the two documents agreeing, and lets neither be empty', () => {
+    // The cross-check the whole section rests on: each instruction sheet read
+    // against Loki's own per-case commercial-throat column. A build that wrote
+    // an EMPTY comparison would pass a naive "no disagreements" test while
+    // having checked nothing at all.
+    const x = db.crossCheck?.lokiSheetAgainstCaseTable;
+    expect(x?.rows?.length, 'the sheet-against-case-table comparison must not be empty').toBeGreaterThan(20);
+    const bad = x.rows.filter((r) => !r.agrees)
+      .map((r) => `${r.commonName} (${r.caseInfo}): sheet #${r.sheetNozzleNo}, table #${r.caseTableNozzleNo}`);
+    expect(bad, bad.join('\n')).toEqual([]);
+    // And every compared row has to name the sheet it was read from, or the
+    // comparison cannot be traced back to paper.
+    const anon = x.rows.filter((r) => !Array.isArray(r.sheets) || r.sheets.length === 0)
+      .map((r) => r.commonName);
+    expect(anon, anon.join(', ')).toEqual([]);
+  });
+});
+
 describe('the coverage this file claims about itself', () => {
   // WHY THIS BLOCK EXISTS (2026-09-08, from review). v0.120's release note said
   // this database covers "every 98 mm motor". It does not: AeroTech have 32
@@ -492,20 +622,29 @@ describe('the coverage this file claims about itself', () => {
   // nothing in the repo could contradict it. build-nozzle-db.mjs now COUNTS
   // coverage per casing diameter and names what is short; this is the check
   // that the counting is honest, so the next claim can be read off the file.
-  const coverage = db.coverage?.byCasingDiameterMm ?? {};
+  // PER MANUFACTURER since 2026-09-13, when Loki's 60 motors arrived. Keyed by
+  // casing diameter alone, AeroTech's 38 mm motors and Loki's would have been
+  // added together and the figure would have described neither.
+  const byMaker = db.coverage?.byManufacturer ?? {};
+  const allCoverage = Object.entries(byMaker)
+    .flatMap(([maker, c]) => Object.entries(c.byCasingDiameterMm ?? {}).map(([mm, e]) => [maker, mm, e]));
 
-  it('states, per casing diameter, how much of the catalogue it covers', () => {
-    expect(Object.keys(coverage).length).toBeGreaterThan(0);
-    const bad = Object.entries(coverage)
-      .filter(([, e]) => !(e.inProduction > 0) || !(e.withNozzleRow >= 0)
+  it('states, per manufacturer and casing diameter, how much of the catalogue it covers', () => {
+    expect(Object.keys(byMaker).sort()).toEqual(['AeroTech', 'Loki']);
+    expect(allCoverage.length).toBeGreaterThan(0);
+    const bad = allCoverage
+      .filter(([, , e]) => !(e.inProduction > 0) || !(e.withNozzleRow >= 0)
         || e.withNozzleRow > e.inProduction
+        // A row is not a number: `withExitDiameter` counts the rows that carry
+        // the figure the app needs, and it can only ever be a subset.
+        || !(e.withExitDiameter >= 0) || e.withExitDiameter > e.withNozzleRow
         || !Array.isArray(e.missing) || e.missing.length !== e.inProduction - e.withNozzleRow)
-      .map(([mm, e]) => `${mm} mm: ${e.withNozzleRow} of ${e.inProduction} covered but `
-        + `${e.missing?.length} named as missing`);
+      .map(([maker, mm, e]) => `${maker} ${mm} mm: ${e.withNozzleRow} rows / ${e.withExitDiameter} exits `
+        + `of ${e.inProduction}, ${e.missing?.length} named as missing`);
     expect(bad, bad.join('\n')).toEqual([]);
-    // The 98 mm line is the one a release note quoted, so its presence is
-    // pinned; its numbers are checked against the catalogue below.
-    expect(coverage['98'], 'the 98 mm coverage figure must be stated').toBeDefined();
+    // The 98 mm AeroTech line is the one a release note quoted, so its presence
+    // is pinned; its numbers are checked against the catalogue below.
+    expect(byMaker.AeroTech.byCasingDiameterMm['98'], 'the 98 mm coverage figure must be stated').toBeDefined();
   });
 
   it('names every motor it counts as missing in `uncovered` too', () => {
@@ -513,53 +652,74 @@ describe('the coverage this file claims about itself', () => {
     // they cannot legitimately disagree — and `uncovered` is where a reader
     // looks for the names behind a coverage figure.
     const named = new Set(Object.values(db.uncovered).flat());
-    const bad = Object.entries(coverage)
-      .flatMap(([mm, e]) => (e.missing ?? []).filter((d) => !named.has(d))
-        .map((d) => `${mm} mm ${d}: counted as missing but not named in \`uncovered\``));
+    const bad = allCoverage
+      .flatMap(([maker, mm, e]) => (e.missing ?? []).filter((d) => !named.has(d))
+        .map((d) => `${maker} ${mm} mm ${d}: counted as missing but not named in \`uncovered\``));
     expect(bad, bad.join('\n')).toEqual([]);
   });
 
   it('counts that coverage from the shipped catalogue rather than from memory', () => {
-    const have = new Set(rows.filter((r) => r.motorId).map((r) => r.motorId));
-    const recomputed = new Map();
-    for (const m of catalogue.motors) {
-      if (m.manufacturerAbbrev !== 'AeroTech' || m.availability === 'OOP') continue;
-      const mm = String(m.diameter);
-      if (!recomputed.has(mm)) recomputed.set(mm, { inProduction: 0, withNozzleRow: 0, missing: [] });
-      const e = recomputed.get(mm);
-      e.inProduction++;
-      if (have.has(m.motorId)) e.withNozzleRow++;
-      else e.missing.push(m.designation);
-    }
+    const byRow = new Map(rows.filter((r) => r.motorId).map((r) => [r.motorId, r]));
     const bad = [];
-    for (const [mm, e] of recomputed) {
-      const said = coverage[mm];
-      if (!said) { bad.push(`${mm} mm: catalogue has ${e.inProduction} in production, file states nothing`); continue; }
-      if (said.inProduction !== e.inProduction || said.withNozzleRow !== e.withNozzleRow) {
-        bad.push(`${mm} mm: file says ${said.withNozzleRow} of ${said.inProduction}, catalogue gives `
-          + `${e.withNozzleRow} of ${e.inProduction}`);
+    for (const maker of Object.keys(byMaker)) {
+      const stated = byMaker[maker].byCasingDiameterMm ?? {};
+      const recomputed = new Map();
+      for (const m of catalogue.motors) {
+        if (m.manufacturerAbbrev !== maker || m.availability === 'OOP') continue;
+        const mm = String(m.diameter);
+        if (!recomputed.has(mm)) {
+          recomputed.set(mm, { inProduction: 0, withNozzleRow: 0, withExitDiameter: 0, missing: [] });
+        }
+        const e = recomputed.get(mm);
+        e.inProduction++;
+        const row = byRow.get(m.motorId);
+        if (row) {
+          e.withNozzleRow++;
+          if (row.exitDiameterM !== undefined) e.withExitDiameter++;
+        } else e.missing.push(m.designation);
       }
-      const missing = [...(said.missing ?? [])].sort().join(' ');
-      if (missing !== [...e.missing].sort().join(' ')) {
-        bad.push(`${mm} mm: file names [${missing}] as missing, catalogue gives [${[...e.missing].sort().join(' ')}]`);
+      for (const [mm, e] of recomputed) {
+        const said = stated[mm];
+        if (!said) { bad.push(`${maker} ${mm} mm: catalogue has ${e.inProduction} in production, file states nothing`); continue; }
+        if (said.inProduction !== e.inProduction || said.withNozzleRow !== e.withNozzleRow
+          || said.withExitDiameter !== e.withExitDiameter) {
+          bad.push(`${maker} ${mm} mm: file says ${said.withNozzleRow} rows / ${said.withExitDiameter} exits of `
+            + `${said.inProduction}, catalogue gives ${e.withNozzleRow} / ${e.withExitDiameter} of ${e.inProduction}`);
+        }
+        const missing = [...(said.missing ?? [])].sort().join(' ');
+        if (missing !== [...e.missing].sort().join(' ')) {
+          bad.push(`${maker} ${mm} mm: file names [${missing}] as missing, catalogue gives [${[...e.missing].sort().join(' ')}]`);
+        }
       }
-    }
-    for (const mm of Object.keys(coverage)) {
-      if (!recomputed.has(mm)) bad.push(`${mm} mm: stated, but the catalogue has no in-production AeroTech motor that size`);
+      for (const mm of Object.keys(stated)) {
+        if (!recomputed.has(mm)) bad.push(`${maker} ${mm} mm: stated, but the catalogue has no in-production ${maker} motor that size`);
+      }
     }
     // Same verdict rule as the join: a stale count against a catalogue that
     // has moved on is a report, because only a regeneration can clear it.
     judgeAgainstCatalogue(bad, 'the stated coverage no longer matches the shipped catalogue',
       'Regenerate with `node packages/app/scripts/build-nozzle-db.mjs` on the machine that holds '
-      + 'docs/RCS Schematics, and correct any coverage figure quoted in a release note.');
+      + 'docs/RCS Schematics and docs/Loki Data, and correct any coverage figure quoted in a release note.');
   });
 });
 
 describe('the gaps are stated rather than left blank', () => {
-  it('names Loki and Cesaroni and keeps a place for measured data', () => {
-    expect(db.gaps.Loki).toMatch(/measure/i);
+  it('names what is still short for Loki and Cesaroni, and keeps a place for measured data', () => {
+    // Loki went from "no published geometry at all" to 55 of 60 motors on
+    // 2026-09-13, so what this note has to carry is no longer "we will measure
+    // it" but WHICH FIVE ARE STILL SHORT — and each of those has to be a motor
+    // the file really has no row for, checked against the rows rather than
+    // against the sentence.
+    expect(db.gaps.Loki).toMatch(/Loki/);
     expect(db.gaps.Cesaroni).toMatch(/no published/i);
     expect(Array.isArray(db.measured)).toBe(true);
+    const lokiWithExit = new Set(rows
+      .filter((r) => r.manufacturer === 'Loki' && r.exitDiameterM !== undefined)
+      .map((r) => r.designation));
+    const named = [...db.gaps.Loki.matchAll(/\b([A-Z]+-?\d{2,4}[A-Z-]*)\b/g)].map((m) => m[1]);
+    const wrong = named.filter((d) => lokiWithExit.has(d));
+    expect(wrong, `gaps.Loki names ${wrong.join(', ')} as short, but the file has an exit for them`)
+      .toEqual([]);
   });
 
   it('applies the same physical bounds to any measured row that is added', () => {

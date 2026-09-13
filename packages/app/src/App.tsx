@@ -98,7 +98,9 @@ import { autoAlignFinSets } from './tree/finAlign.js';
 import { railInterferenceWarnings, wakeShadowWarnings } from './tree/mountAngle.js';
 import { convertShrouds, findShroudCandidates, type ShroudCandidate } from './tree/shroudConvert.js';
 import { mountBore } from './tree/scaleRocket.js';
+import { nozzleForMotorId } from './services/nozzleDb.js';
 import { nozzleOversize, nozzleOversizeText } from './services/nozzleCheck.js';
+import { equivalentExitDiameterM, followNozzle, stageMotorKey, stageMotors } from './services/nozzleFollow.js';
 import { designFingerprint, isDirty, type DesignSnapshot } from './services/dirtyState.js';
 import { createSequencer } from './services/latestWins.js';
 import {
@@ -1202,6 +1204,102 @@ export function App() {
     () => Object.entries(mountMotors).filter(([id]) => mounts.some((m) => m.id === id)),
     [mountMotors, mounts],
   );
+
+  /**
+   * THE NOZZLE EXIT DIAMETER FOLLOWS THE MOTOR (Eric, 2026-09-13).
+   *
+   * Two reports, one cause: the field was treated as a property of the ROCKET
+   * when it is a property of the MOTOR. Unloading a motor left its exit
+   * diameter behind ("there is no motor loaded, how can there be an exit
+   * diameter?"), and loading a motor whose published exit disagreed raised a
+   * warning the user had to notice and click, "which could cause a very big
+   * issue if they load a motor with a very disparate exit diameter from the
+   * previous motor but fail to see the warning and fly it on the old motor's
+   * exit diameter."
+   *
+   * WHY THE DECISION IS HERE AND NOT IN NozzleField. The rule is "when the
+   * motors CHANGE", and only App can tell a motor change from a file being
+   * opened — a `.ork` or RASAero file arrives with a nozzle AND the motor it
+   * was typed for, and replacing that on load would throw away the very case
+   * the do-not-overwrite rule was written for. So this keeps a per-stage record
+   * of the loadout it last saw: a stage not in it yet is SEEDED and left alone
+   * (that is an open, a restore, a new design), and only a stage whose loadout
+   * has changed under a record is acted on.
+   *
+   * A stage id cannot collide across two opens — ids are minted `c<N>` from a
+   * counter that only ever increases within a page load — so a newly opened
+   * design is always seeded, never mistaken for an edit of the last one.
+   */
+  const stageMotorLoadout = useMemo(() => stageMotors(tree, assigned), [tree, assigned]);
+  const seenStageMotors = useRef(new Map<string, { key: string; label: string }>());
+  const [nozzleCleared, setNozzleCleared] = useState<Record<string, { previousLabel: string; previousM: number }>>({});
+  useEffect(() => {
+    let live = true;
+    void (async () => {
+      const acted = stageMotorLoadout.filter((s) => {
+        const seen = seenStageMotors.current.get(s.stageId);
+        return seen !== undefined && seen.key !== stageMotorKey(s);
+      });
+      // Record what we have seen BEFORE any await, so a second render landing
+      // mid-lookup cannot act on the same change twice.
+      const previous = new Map(seenStageMotors.current);
+      for (const s of stageMotorLoadout) {
+        seenStageMotors.current.set(s.stageId, {
+          key: stageMotorKey(s),
+          label: s.motors[0]?.label ?? '',
+        });
+      }
+      // Stages the tree no longer has: drop them, or a deleted-then-recreated
+      // id would inherit a loadout it never had.
+      for (const id of [...seenStageMotors.current.keys()]) {
+        if (!stageMotorLoadout.some((s) => s.stageId === id)) seenStageMotors.current.delete(id);
+      }
+      if (acted.length === 0) return;
+
+      const updates: Record<string, number> = {};
+      const cleared: Record<string, { previousLabel: string; previousM: number }> = {};
+      const forgotten: string[] = [];
+      for (const s of acted) {
+        const entries = await Promise.all(s.motors.map((m) => nozzleForMotorId(m.motorId)));
+        const node = stageList.find((x) => x.id === s.stageId);
+        const was = previous.get(s.stageId);
+        const act = followNozzle({
+          hadMotorsBefore: (was?.key ?? '') !== '',
+          previousLabel: was?.label ?? '',
+          currentValueM: typeof node?.['nozzleExitDiameter'] === 'number' ? node['nozzleExitDiameter'] : null,
+          publishedM: equivalentExitDiameterM(s.motors.map((m, i) => ({
+            count: m.count,
+            exitDiameterM: entries[i]?.exitDiameterM ?? null,
+          }))),
+        });
+        if (act.kind === 'set') { updates[s.stageId] = act.exitDiameterM; forgotten.push(s.stageId); }
+        else if (act.kind === 'clear') {
+          updates[s.stageId] = 0; // applyStageNozzles deletes the key on 0
+          cleared[s.stageId] = { previousLabel: act.previousLabel, previousM: act.previousM };
+        } else forgotten.push(s.stageId);
+      }
+      if (!live) return;
+      // `writeTree`, NOT `setTree`: this is a consequence of a motor change,
+      // and motors do not live in the tree, so they are not on the undo stack.
+      // Pushing an undo entry here would let one Ctrl+Z put the PREVIOUS
+      // motor's exit diameter back under the motor that is actually loaded —
+      // and the effect would not correct it, because the loadout has not
+      // changed. That is the exact state this whole block exists to prevent.
+      if (Object.keys(updates).length > 0) writeTree(applyStageNozzles(treeRef.current, updates));
+      if (Object.keys(cleared).length > 0 || forgotten.length > 0) {
+        setNozzleCleared((prev) => {
+          const next = { ...prev, ...cleared };
+          for (const id of forgotten) delete next[id];
+          return next;
+        });
+      }
+    })();
+    return () => { live = false; };
+    // `stageList` and `setTree` are read, not watched: this fires on a loadout
+    // change and nothing else, and re-running it when the tree changed for any
+    // other reason would re-decide a change it has already acted on.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the loadout is the trigger
+  }, [stageMotorLoadout]);
   /**
    * Put every assigned mount's motor and ignition onto the engine handle, from
    * the app's own state, RIGHT NOW — so a flight never trusts whatever the
@@ -4573,14 +4671,16 @@ export function App() {
               // station map each time.
               const stRoom = estimateMotorRoomForMounts(tree, stMounts.map((m) => m.id!));
               // The motors mounted in THIS stage, for the published-nozzle
-              // lookup: a cluster of identical motors is still one nozzle, and
-              // a mixed cluster is looked up on the first with a figure.
-              const stMotorIds = stMounts
-                .map((m) => mountMotors[m.id!]?.meta.motorId)
-                .filter((id): id is string => typeof id === 'string');
-              const stMotorLabel = stMounts
-                .map((m) => mountMotors[m.id!]?.label)
-                .find((l): l is string => typeof l === 'string') ?? null;
+              // lookup. WITH THEIR CLUSTER COUNTS (2026-09-13): the field is
+              // the stage's single EQUIVALENT nozzle with exit areas summed
+              // (schema.ts), so a 4x cluster is twice one motor's diameter —
+              // and the comment that used to sit here said the opposite ("a
+              // cluster of identical motors is still one nozzle"), which is
+              // how the auto-fill came to under-fill every cluster by the
+              // cluster count in AREA. One source for it, shared with the
+              // follow-the-motor effect above, so the two cannot drift.
+              const stMotorList = stageMotorLoadout.find((x) => x.stageId === st.id)?.motors ?? [];
+              const stMotorLabel = stMotorList[0]?.label ?? null;
               return (
                 <div key={st.id}>
                   {isStaged && <div className="motor-stage-header">{stName}</div>}
@@ -4638,8 +4738,9 @@ export function App() {
                         stageName={stName}
                         exitDiameterM={typeof st['nozzleExitDiameter'] === 'number'
                           ? st['nozzleExitDiameter'] : null}
-                        motorIds={stMotorIds}
+                        motors={stMotorList}
                         motorLabel={stMotorLabel}
+                        clearedFor={nozzleCleared[st.id] ?? null}
                         // applyStageNozzles, not updateNode: clearing the field
                         // must DELETE the key, and updateNode cannot (its own
                         // docstring says so). 0 is its "remove it" value.

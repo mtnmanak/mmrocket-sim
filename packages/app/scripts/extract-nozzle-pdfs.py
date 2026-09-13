@@ -45,7 +45,11 @@ import os
 import re
 import sys
 
-import fitz  # PyMuPDF
+# `import pymupdf`, not `import fitz`. PyMuPDF renamed its module and the old
+# name now prints a deprecation warning ON STDOUT — which is this script's
+# output channel, so build-nozzle-db.mjs fed that warning to JSON.parse and died
+# with "Unexpected token 'w'". Same library, current name (2026-09-13).
+import pymupdf as fitz
 
 
 # ----------------------------------------------------------------- PDF tables

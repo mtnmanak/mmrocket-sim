@@ -1,11 +1,13 @@
 /**
- * AeroTech's own published nozzle exit diameters, looked up by motor.
+ * The manufacturers' own published nozzle exit diameters, looked up by motor.
  *
  * The database is `src/data/nozzles.json`, built by
- * `packages/app/scripts/build-nozzle-db.mjs` from Eric's local copy of
- * AeroTech's published document set (1,074 files, `docs/RCS Schematics`,
- * gitignored — only one machine can rebuild it, which is why the JSON is a
- * committed artifact and `scripts/check-upstream.mjs` §5 watches it).
+ * `packages/app/scripts/build-nozzle-db.mjs` from Eric's local copies of two
+ * published document sets — AeroTech's (1,074 files, `docs/RCS Schematics`) and
+ * Loki Research's (21 reload-kit instruction sheets, `docs/Loki Data`, plus the
+ * exit-diameter and commercial-throat tables on their Tech Info page). Both are
+ * gitignored and only one machine can rebuild from them, which is why the JSON
+ * is a committed artifact and `scripts/check-upstream.mjs` §5 watches it.
  *
  * WHY THIS EXISTS. The nozzle exit area is not decoration: since v0.119 the
  * supersonic models add RASAero's pressure term `A_exit x (101325 - P(h))` to
@@ -28,6 +30,15 @@
 export interface NozzleEntry {
   motorId: string;
   designation: string;
+  /**
+   * WHOSE published figure this is — 'AeroTech' or 'Loki' today. It is in the
+   * entry because the panel says it out loud, and until 2026-09-13 the panel
+   * said "AeroTech's published figure" unconditionally. That was true while
+   * AeroTech were the only source; the moment Loki's 55 motors arrived it would
+   * have credited AeroTech with Loki's numbers, which is both wrong and exactly
+   * the kind of unfollowable provenance the line exists to prevent.
+   */
+  manufacturer: string;
   /** Metres. Always finite and > 0 — entries without one are not returned. */
   exitDiameterM: number;
   /** AeroTech's part number for the nozzle itself, e.g. `01500-5`. */
@@ -56,6 +67,7 @@ export interface NozzleEntry {
 interface RawMotor {
   motorId: string;
   designation: string;
+  manufacturer?: string;
   exitDiameterM?: number;
   nozzlePartNo?: string;
   exitConfidence?: string;
@@ -83,6 +95,9 @@ function toEntry(m: RawMotor): NozzleEntry | null {
   return {
     motorId: m.motorId,
     designation: m.designation,
+    // Every row in the shipped file carries one; the fallback is here so a
+    // hand-edited or older file names nobody rather than the wrong maker.
+    manufacturer: m.manufacturer ?? 'the manufacturer',
     exitDiameterM: d,
     ...(m.nozzlePartNo ? { nozzlePartNo: m.nozzlePartNo } : {}),
     confidence,
@@ -111,10 +126,11 @@ async function db(): Promise<Map<string, NozzleEntry>> {
  *
  * Keyed on `motorId` and NOT on the designation: designations repeat across
  * manufacturers and across a motor's own history, and the database is built
- * against a dated catalogue snapshot. An id that has no row simply has no
- * published drawing — 189 of AeroTech's 272 in-production motors do, and
- * nothing else does at all (Loki and Cesaroni publish none; see the file's own
- * `gaps`).
+ * against a dated catalogue snapshot. An id that has no row simply has nothing
+ * published — 189 of AeroTech's 272 in-production motors have a figure, and 54
+ * of Loki's 58 (2026-09-13). Cesaroni publish nothing anyone has found; see the
+ * file's own `coverage` and `gaps`, which are counted at build time rather than
+ * written down, so the numbers in this sentence can be checked against it.
  */
 export async function nozzleForMotorId(motorId: string | undefined): Promise<NozzleEntry | null> {
   if (!motorId) return null;

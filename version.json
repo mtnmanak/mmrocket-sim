@@ -1,5 +1,5 @@
 {
-  "version": "0.126",
-  "released": "2026-09-09",
-  "note": "Corrects a count in v0.125's note. The test-elevation spread quoted there came from a scan that could only read 212 of the 312 certification documents on file; the other 100 are image-only scans and were skipped without saying so. Read in full: 51 documents record a test elevation, 50 of them at or under 500 ft, and the single 5,850 ft outlier is Cedar City, Utah - AeroTech's own factory - which is also the one document that says the data was corrected to sea level. Nothing in the simulation changed."
+  "version": "0.127",
+  "released": "2026-09-13",
+  "note": "Loki Research's published nozzle exit diameters are now in the app - 54 of their 58 in-production motors, read from their own Tech Info tables and reload-kit instruction sheets. Two earlier notes said Loki publish none; they do, at the foot of a page I had read, and both are corrected. The nozzle exit diameter now FOLLOWS THE MOTOR: change the motor and it changes, take the motor out and the field empties, and a line says what the removed value belonged to. A value that arrived with a file is still not overwritten. A cluster is now filled as one equivalent nozzle with the exit areas summed - the automatic fill added in v0.122 wrote one motor's diameter whatever the cluster count."
 }

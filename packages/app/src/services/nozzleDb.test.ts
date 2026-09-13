@@ -57,9 +57,10 @@ describe('the published nozzle lookup', () => {
 });
 
 describe('the shipped nozzle data itself', () => {
-  const motors = (nozzles as unknown as {
+  const { motors, counts } = nozzles as unknown as {
     motors: { motorId: string; exitDiameterM?: number; exitConfidence?: string }[];
-  }).motors;
+    counts: { motorsWithExit: number };
+  };
 
   it('never ships an exit diameter that is not a usable length', async () => {
     // The screen that matters: a zero, negative, NaN or absurd exit would be
@@ -80,10 +81,22 @@ describe('the shipped nozzle data itself', () => {
   });
 
   it('still covers the count the record claims', async () => {
-    // 191 motors with an exit, of 192 rows — the one without is at confidence
-    // "none" and must never reach a caller.
+    // AGAINST THE FILE'S OWN COUNT, not against a number typed here
+    // (2026-09-13). This read `toBe(191)` — the figure on the day it was
+    // written — so the first legitimate regeneration broke it: adding Loki's
+    // 55 motors took it to 246 and the failure said nothing about whether the
+    // data was right, only that it had changed. `counts.motorsWithExit` is
+    // computed by the builder from the rows it just wrote, so comparing the
+    // two catches the thing a pin cannot: a file whose summary and whose rows
+    // disagree, which is what a half-finished hand edit looks like.
     const withExit = motors.filter((m) => typeof m.exitDiameterM === 'number' && m.exitDiameterM > 0);
-    expect(withExit.length).toBe(191);
+    expect(withExit.length).toBe(counts.motorsWithExit);
+    // And it is not vacuous: the database has to be substantial, or an empty
+    // file would agree with its own empty summary.
+    expect(withExit.length).toBeGreaterThan(200);
+    // A row at confidence "none" has no usable exit and must never reach a
+    // caller — filling the field with nothing is the one outcome worse than
+    // leaving it blank.
     for (const m of motors) {
       if (m.exitConfidence === 'none') {
         expect(await nozzleForMotorId(m.motorId)).toBeNull();

@@ -372,31 +372,50 @@ function checkNozzles() {
       + 'with `node packages/app/scripts/build-nozzle-db.mjs` on the machine holding docs/RCS Schematics');
   }
 
-  // COVERAGE, recomputed. The file states it per casing diameter; anything a
-  // release note says about "every N mm motor" has to come from here.
+  // COVERAGE, recomputed. The file states it per MANUFACTURER and then per
+  // casing diameter (two of them since 2026-09-13); anything a release note
+  // says about "every N mm motor" has to come from here. `withExitDiameter` is
+  // recomputed too, because a row is not a number — Loki's N3800 has a row and
+  // no exit, and quoting rows as coverage would overstate it.
   checked++;
-  const have = new Set(joined.map((r) => r.motorId));
-  const now = new Map();
-  for (const m of snapshot.motors) {
-    if (m.manufacturerAbbrev !== 'AeroTech' || m.availability === 'OOP') continue;
-    const mm = String(m.diameter);
-    if (!now.has(mm)) now.set(mm, { inProduction: 0, withNozzleRow: 0 });
-    const e = now.get(mm);
-    e.inProduction++;
-    if (have.has(m.motorId)) e.withNozzleRow++;
+  const byRow = new Map(joined.map((r) => [r.motorId, r]));
+  const stated = nozzles.coverage?.byManufacturer ?? {};
+  const off = [];
+  for (const maker of Object.keys(stated)) {
+    const now = new Map();
+    for (const m of snapshot.motors) {
+      if (m.manufacturerAbbrev !== maker || m.availability === 'OOP') continue;
+      const mm = String(m.diameter);
+      if (!now.has(mm)) now.set(mm, { inProduction: 0, withNozzleRow: 0, withExitDiameter: 0 });
+      const e = now.get(mm);
+      e.inProduction++;
+      const row = byRow.get(m.motorId);
+      if (row) {
+        e.withNozzleRow++;
+        if (row.exitDiameterM !== undefined) e.withExitDiameter++;
+      }
+    }
+    const said = stated[maker].byCasingDiameterMm ?? {};
+    for (const [mm, e] of now) {
+      const s = said[mm];
+      if (!s || s.inProduction !== e.inProduction || s.withNozzleRow !== e.withNozzleRow
+        || s.withExitDiameter !== e.withExitDiameter) off.push([maker, mm, e, s]);
+    }
   }
-  const stated = nozzles.coverage?.byCasingDiameterMm ?? {};
-  const off = [...now.entries()].filter(([mm, e]) => !stated[mm]
-    || stated[mm].inProduction !== e.inProduction || stated[mm].withNozzleRow !== e.withNozzleRow);
   if (!off.length) {
-    const c98 = stated['98'];
+    const c98 = stated.AeroTech?.byCasingDiameterMm?.['98'];
+    const loki = stated.Loki?.byCasingDiameterMm ?? {};
+    const lokiExits = Object.values(loki).reduce((n, e) => n + e.withExitDiameter, 0);
+    const lokiPro = Object.values(loki).reduce((n, e) => n + e.inProduction, 0);
     say('  ok   stated coverage matches the catalogue'
-      + (c98 ? ` (98 mm: ${c98.withNozzleRow} of ${c98.inProduction} in production${c98.missing?.length ? `, no row for ${c98.missing.join(' ')}` : ''})` : ''));
+      + (c98 ? ` (AeroTech 98 mm: ${c98.withExitDiameter} of ${c98.inProduction} in production${c98.missing?.length ? `, no row for ${c98.missing.join(' ')}` : ''}` : '')
+      + (lokiPro ? `; Loki: ${lokiExits} of ${lokiPro}` : '')
+      + (c98 ? ')' : ''));
   } else {
-    for (const [mm, e] of off) {
-      const s = stated[mm];
-      flag(`nozzles.json coverage for ${mm} mm says ${s ? `${s.withNozzleRow} of ${s.inProduction}` : 'nothing'}, `
-        + `the catalogue now gives ${e.withNozzleRow} of ${e.inProduction}.`);
+    for (const [maker, mm, e, s] of off) {
+      flag(`nozzles.json coverage for ${maker} ${mm} mm says `
+        + `${s ? `${s.withNozzleRow} rows / ${s.withExitDiameter} exits of ${s.inProduction}` : 'nothing'}, `
+        + `the catalogue now gives ${e.withNozzleRow} / ${e.withExitDiameter} of ${e.inProduction}.`);
     }
     notes.push('nozzle coverage figures are stale — regenerate before quoting one in a release note');
   }

@@ -1,7 +1,7 @@
 {
  "generated": "2026-09-08",
- "source": "AeroTech / RCS Rocket Motor Components published drawings and store pages",
- "sourceNote": "docs/RCS Schematics (LOCAL-ONLY, gitignored). Regenerate with packages/app/scripts/build-nozzle-db.mjs.",
+ "source": "AeroTech / RCS Rocket Motor Components published drawings and store pages; Loki Research published instruction sheets and Tech Info tables",
+ "sourceNote": "docs/RCS Schematics and docs/Loki Data (both LOCAL-ONLY, gitignored). Regenerate with packages/app/scripts/build-nozzle-db.mjs.",
  "catalogueGenerated": "2026-09-05",
  "rule": "A dash number drills the THROAT; the moulded EXIT is unchanged — AeroTech's own note, printed on 14 of the 23 nozzle drawing files. The 98mm 01800 \"M\" mould is the documented exception (1.750 in exit against the base 0.900 in) and is resolved from part-specific sources.",
  "counts": {
@@ -10,162 +10,215 @@
   "distinctNozzleParts": 102,
   "partsWithExitDiameter": 81,
   "partsResolvedPerMotor": 20,
-  "motorsWithExit": 191,
-  "motorsMatchedToCatalogue": 191,
-  "motorsMatchedInProduction": 189,
+  "motorsWithExit": 246,
+  "motorsMatchedToCatalogue": 247,
+  "motorsMatchedInProduction": 244,
   "motorsWithTwoNozzleOptions": 9,
   "catalogueMotors": 1155,
   "catalogueAeroTech": 307,
-  "catalogueAeroTechInProduction": 272
+  "catalogueAeroTechInProduction": 272,
+  "lokiSheetsRead": 21,
+  "lokiMotorsOnASheet": 43,
+  "lokiRows": 56,
+  "lokiRowsWithExit": 55,
+  "lokiRowsFromCaseTable": 13,
+  "catalogueLoki": 60,
+  "catalogueLokiInProduction": 58
  },
  "gaps": {
-  "Loki": "No published Loki nozzle geometry in the local document set. Testers' own RASAero files type 0.9 in for the 54 mm K627LR in four files and 0, 0.91 and 1.3 in for the same motor elsewhere — user input, not data, and deliberately not imported. Owner has the hardware and will measure; add through MEASURED_NOZZLES in build-nozzle-db.mjs.",
-  "Cesaroni": "No published nozzle geometry found on pro38.com or elsewhere (owner searched 2026-09-08). Known gap.",
+  "Loki": "Covered since 2026-09-13 from Loki's OWN published tables, not from measurement: their Tech Info page prints the nozzle exit diameter per casing and nozzle-number band, and each reload kit's instruction sheet names the nozzle that motor takes. 55 of 60 catalogued Loki motors now carry an exit. WHAT IS STILL SHORT: Loki publish no exit band above 76 mm (their 98 mm and 114 mm hardware is listed \"Historical Information Only — Not In Production\"), so N3800-LW has its #64 throat and no exit and N5500LW has neither; the 54/4000 cell in their commercial-throat column reads \"Single Use\", so L2050LW and M1378LR have no nozzle number; and H500-LW is out of production with no case stated. Five motors, named in `uncovered`. A sheet for any of them, or a measured nozzle, closes it — measurements go in MEASURED_NOZZLES, sheet readings in LOKI_SHEETS.",
+  "Cesaroni": "No published nozzle geometry found on pro38.com or elsewhere (owner searched 2026-09-08). Known gap. Worth re-checking the way Loki's was: the Loki exits were on a page we had both already read, at the foot of it, under a heading we were not looking for.",
   "AeroTechSingleUse": "AeroTech publish an assembly drawing for RELOADABLE motors, because the drawing is the reload kit's parts list, and this file is built from that folder (\"Motor Assembly Drawings\"). Most single-use motors have no reload kit and no such drawing — that is most of the AeroTech catalogue this file does not cover. One qualification, found 2026-09-08: the DMS single-use motors ARE drawn, in the same format, under \"DMS Motor Designs\" (51 sheets, 29 mm to 152 mm), and M1340W-PS names its nozzle there — \"NOZZLE ( KLMN 98MM) .734\" I.D. /1.75\" EXIT\", part 01800-3M. That folder is deliberately not read yet: adding a document family adds rows to shipped data, which is a decision rather than a fix."
  },
  "coverage": {
-  "note": "What this file covers, per motor CASING DIAMETER, counted from motors.json at build time rather than written down. A hand-written coverage claim is exactly how \"every 98 mm motor\" reached a release note while four in-production 98 mm motors had no row here (M1305M, M1340W, N1975W-PS, O5500X-PS). \"inProduction\" is the AeroTech rows this catalogue does not mark OOP, and every motor short of a row is named. Most of the missing are single-use motors, whose paperwork is not the reload-kit assembly drawing this file is built from — see gaps.AeroTechSingleUse.",
-  "byCasingDiameterMm": {
-   "18": {
-    "inProduction": 6,
-    "withNozzleRow": 4,
-    "missing": [
-     "D10W",
-     "D21T"
-    ]
+  "note": "What this file covers, per MANUFACTURER and then per motor CASING DIAMETER, counted from motors.json at build time rather than written down. A hand-written coverage claim is exactly how \"every 98 mm motor\" reached a release note while four in-production 98 mm motors had no row here (M1305M, M1340W, N1975W-PS, O5500X-PS). \"inProduction\" is the rows this catalogue does not mark OOP; \"withNozzleRow\" is how many have a row here and \"withExitDiameter\" how many of those carry the number the app actually needs — they differ where a row exists with no exit (an aerospike, or a Loki motor larger than Loki's published exit table). Every motor short of a row is named, and named again in `uncovered`.",
+  "byManufacturer": {
+   "AeroTech": {
+    "byCasingDiameterMm": {
+     "18": {
+      "inProduction": 6,
+      "withNozzleRow": 4,
+      "withExitDiameter": 4,
+      "missing": [
+       "D10W",
+       "D21T"
+      ]
+     },
+     "24": {
+      "inProduction": 23,
+      "withNozzleRow": 14,
+      "withExitDiameter": 14,
+      "missing": [
+       "D22W",
+       "E20W",
+       "E26W",
+       "E30T",
+       "F30FJ",
+       "F32T",
+       "F44W",
+       "F62FJ",
+       "F63R"
+      ]
+     },
+     "29": {
+      "inProduction": 60,
+      "withNozzleRow": 27,
+      "withExitDiameter": 27,
+      "missing": [
+       "E24C",
+       "F115SN-12A",
+       "F20W/L",
+       "F23FJ",
+       "F25W",
+       "F26FJ",
+       "F27R/L",
+       "F42T/L",
+       "F50T",
+       "F52C",
+       "F67C",
+       "F67W",
+       "G11",
+       "G125T",
+       "G12ST",
+       "G40W",
+       "G72DM-14A",
+       "G73C",
+       "G74W",
+       "G75M",
+       "G77R/L",
+       "G78G/L",
+       "G79W/L",
+       "G80T",
+       "G8ST",
+       "H13ST",
+       "H14ST",
+       "H169WS-13",
+       "HP-H115DM",
+       "HP-H135W",
+       "HP-H182R",
+       "HP-H195NT",
+       "HP-I205W"
+      ]
+     },
+     "32": {
+      "inProduction": 4,
+      "withNozzleRow": 4,
+      "withExitDiameter": 4,
+      "missing": []
+     },
+     "38": {
+      "inProduction": 59,
+      "withNozzleRow": 42,
+      "withExitDiameter": 42,
+      "missing": [
+       "H100W_DMS",
+       "H130W",
+       "H219T",
+       "H283ST-15A",
+       "H550ST",
+       "HP-H45W",
+       "HP-H550ST",
+       "HP-I140W",
+       "HP-I280DM",
+       "HP-I500T",
+       "HP-J270W",
+       "HP-J425R",
+       "I175WS",
+       "I180W",
+       "I350R",
+       "I40N-P",
+       "J435WS"
+      ]
+     },
+     "54": {
+      "inProduction": 53,
+      "withNozzleRow": 41,
+      "withExitDiameter": 40,
+      "missing": [
+       "HP-I65W",
+       "HP-K535W",
+       "HP-L1000W",
+       "J1265T",
+       "J250W",
+       "J450DM",
+       "J550ST-14",
+       "K400C",
+       "K455NW-17",
+       "K62N",
+       "K76WN-P",
+       "K850DM"
+      ]
+     },
+     "75": {
+      "inProduction": 34,
+      "withNozzleRow": 29,
+      "withExitDiameter": 29,
+      "missing": [
+       "L1365M",
+       "L2775ST-PS",
+       "L875DM",
+       "M1350W",
+       "N3120X-PS"
+      ]
+     },
+     "98": {
+      "inProduction": 32,
+      "withNozzleRow": 28,
+      "withExitDiameter": 28,
+      "missing": [
+       "M1305M",
+       "M1340W",
+       "N1975W-PS",
+       "O5500X-PS"
+      ]
+     },
+     "152": {
+      "inProduction": 1,
+      "withNozzleRow": 0,
+      "withExitDiameter": 0,
+      "missing": [
+       "O6000W"
+      ]
+     }
+    }
    },
-   "24": {
-    "inProduction": 23,
-    "withNozzleRow": 14,
-    "missing": [
-     "D22W",
-     "E20W",
-     "E26W",
-     "E30T",
-     "F30FJ",
-     "F32T",
-     "F44W",
-     "F62FJ",
-     "F63R"
-    ]
-   },
-   "29": {
-    "inProduction": 60,
-    "withNozzleRow": 27,
-    "missing": [
-     "E24C",
-     "F115SN-12A",
-     "F20W/L",
-     "F23FJ",
-     "F25W",
-     "F26FJ",
-     "F27R/L",
-     "F42T/L",
-     "F50T",
-     "F52C",
-     "F67C",
-     "F67W",
-     "G11",
-     "G125T",
-     "G12ST",
-     "G40W",
-     "G72DM-14A",
-     "G73C",
-     "G74W",
-     "G75M",
-     "G77R/L",
-     "G78G/L",
-     "G79W/L",
-     "G80T",
-     "G8ST",
-     "H13ST",
-     "H14ST",
-     "H169WS-13",
-     "HP-H115DM",
-     "HP-H135W",
-     "HP-H182R",
-     "HP-H195NT",
-     "HP-I205W"
-    ]
-   },
-   "32": {
-    "inProduction": 4,
-    "withNozzleRow": 4,
-    "missing": []
-   },
-   "38": {
-    "inProduction": 59,
-    "withNozzleRow": 42,
-    "missing": [
-     "H100W_DMS",
-     "H130W",
-     "H219T",
-     "H283ST-15A",
-     "H550ST",
-     "HP-H45W",
-     "HP-H550ST",
-     "HP-I140W",
-     "HP-I280DM",
-     "HP-I500T",
-     "HP-J270W",
-     "HP-J425R",
-     "I175WS",
-     "I180W",
-     "I350R",
-     "I40N-P",
-     "J435WS"
-    ]
-   },
-   "54": {
-    "inProduction": 53,
-    "withNozzleRow": 41,
-    "missing": [
-     "HP-I65W",
-     "HP-K535W",
-     "HP-L1000W",
-     "J1265T",
-     "J250W",
-     "J450DM",
-     "J550ST-14",
-     "K400C",
-     "K455NW-17",
-     "K62N",
-     "K76WN-P",
-     "K850DM"
-    ]
-   },
-   "75": {
-    "inProduction": 34,
-    "withNozzleRow": 29,
-    "missing": [
-     "L1365M",
-     "L2775ST-PS",
-     "L875DM",
-     "M1350W",
-     "N3120X-PS"
-    ]
-   },
-   "98": {
-    "inProduction": 32,
-    "withNozzleRow": 28,
-    "missing": [
-     "M1305M",
-     "M1340W",
-     "N1975W-PS",
-     "O5500X-PS"
-    ]
-   },
-   "152": {
-    "inProduction": 1,
-    "withNozzleRow": 0,
-    "missing": [
-     "O6000W"
-    ]
+   "Loki": {
+    "byCasingDiameterMm": {
+     "38": {
+      "inProduction": 27,
+      "withNozzleRow": 27,
+      "withExitDiameter": 27,
+      "missing": []
+     },
+     "54": {
+      "inProduction": 16,
+      "withNozzleRow": 14,
+      "withExitDiameter": 14,
+      "missing": [
+       "L2050LW",
+       "M1378LR"
+      ]
+     },
+     "76": {
+      "inProduction": 13,
+      "withNozzleRow": 13,
+      "withExitDiameter": 13,
+      "missing": []
+     },
+     "98": {
+      "inProduction": 2,
+      "withNozzleRow": 1,
+      "withExitDiameter": 0,
+      "missing": [
+       "N5500LW"
+      ]
+     }
+    }
    }
   }
  },
  "uncovered": {
-  "29 mm single-use (no reload case)": [
+  "AeroTech 29 mm single-use (no reload case)": [
    "E24C",
    "F115SN-12A",
    "F20W/L",
@@ -204,7 +257,7 @@
    "HP-H195NT",
    "HP-I205W"
   ],
-  "38 mm single-use (no reload case)": [
+  "AeroTech 38 mm single-use (no reload case)": [
    "H219T",
    "HP-H45W",
    "HP-I140W",
@@ -217,7 +270,7 @@
    "I40N-P",
    "J435WS"
   ],
-  "54 mm single-use (no reload case)": [
+  "AeroTech 54 mm single-use (no reload case)": [
    "HP-I65W",
    "HP-K535W",
    "HP-L1000W",
@@ -229,7 +282,7 @@
    "K76WN-P",
    "K850DM"
   ],
-  "24 mm single-use (no reload case)": [
+  "AeroTech 24 mm single-use (no reload case)": [
    "D22W",
    "E15W",
    "E20W",
@@ -240,7 +293,7 @@
    "F44W",
    "G42"
   ],
-  "54 mm RMS-54/1280": [
+  "AeroTech 54 mm RMS-54/1280": [
    "J145H_2JET_STD",
    "J170H_3JET_STD",
    "J210H_4JET_STD",
@@ -248,114 +301,124 @@
    "J390H-TURBO",
    "K485H-3JET"
   ],
-  "75 mm RMS-75/5120": [
+  "AeroTech 75 mm RMS-75/5120": [
    "L1120W",
    "L1365M",
    "M2030G-P"
   ],
-  "98 mm single-use (no reload case)": [
+  "AeroTech 98 mm single-use (no reload case)": [
    "M1340W",
    "N1975W-PS",
    "O5500X-PS"
   ],
-  "18 mm single-use (no reload case)": [
+  "AeroTech 18 mm single-use (no reload case)": [
    "D10W",
    "D21T"
   ],
-  "24 mm RMS-24/60": [
+  "AeroTech 24 mm RMS-24/60": [
    "F62FJ",
    "F63R"
   ],
-  "24 mm SU 24x95": [
+  "AeroTech 24 mm SU 24x95": [
    "F21W",
    "F32W"
   ],
-  "38 mm DMS": [
+  "AeroTech 38 mm DMS": [
    "H100W_DMS",
    "H283ST-15A"
   ],
-  "38 mm RMS-38/360": [
+  "AeroTech 38 mm RMS-38/360": [
    "H550ST",
    "I180W"
   ],
-  "75 mm single-use (no reload case)": [
+  "AeroTech 75 mm single-use (no reload case)": [
    "M1350W",
    "N3120X-PS"
   ],
-  "152 mm single-use (no reload case)": [
+  "Loki 54 mm 54/4000": [
+   "L2050LW",
+   "M1378LR"
+  ],
+  "AeroTech 152 mm single-use (no reload case)": [
    "O6000W"
   ],
-  "24 mm RMS 24/20-40 R/C": [
+  "AeroTech 24 mm RMS 24/20-40 R/C": [
    "E6"
   ],
-  "24 mm SU 24x124": [
+  "AeroTech 24 mm SU 24x124": [
    "F72"
   ],
-  "24 mm SU 24x177": [
+  "AeroTech 24 mm SU 24x177": [
    "G55"
   ],
-  "29 mm RMS-29/100": [
+  "AeroTech 29 mm RMS-29/100": [
    "G101T"
   ],
-  "29 mm SU 29x191": [
+  "AeroTech 29 mm SU 29x191": [
    "H55W"
   ],
-  "29 mm SU 29x229": [
+  "AeroTech 29 mm SU 29x229": [
    "H70W"
   ],
-  "29 mm SU 29x330": [
+  "AeroTech 29 mm SU 29x330": [
    "H125W"
   ],
-  "29 mm SU 29x85": [
+  "AeroTech 29 mm SU 29x85": [
    "F10"
   ],
-  "29 mm SU 29x98": [
+  "AeroTech 29 mm SU 29x98": [
    "G35"
   ],
-  "38 mm 38 DMS": [
+  "AeroTech 38 mm 38 DMS": [
    "HP-H550ST"
   ],
-  "38 mm RMS-38/240": [
+  "AeroTech 38 mm RMS-38/240": [
    "H130W"
   ],
-  "38 mm RMS-38/720": [
+  "AeroTech 38 mm RMS-38/720": [
    "J350W-OLD"
   ],
-  "38 mm SU 38x194": [
+  "AeroTech 38 mm SU 38x194": [
    "H45W"
   ],
-  "38 mm SU 38x335": [
+  "AeroTech 38 mm SU 38x335": [
    "I132W"
   ],
-  "54 mm DMS": [
+  "AeroTech 54 mm DMS": [
    "J250W"
   ],
-  "54 mm RMS-54/852": [
+  "AeroTech 54 mm RMS-54/852": [
    "J550ST-14"
   ],
-  "54 mm SU 54x235": [
+  "AeroTech 54 mm SU 54x235": [
    "I65W"
   ],
-  "54 mm SU 54x368": [
+  "AeroTech 54 mm SU 54x368": [
    "J125W"
   ],
-  "54 mm SU 54x676": [
+  "AeroTech 54 mm SU 54x676": [
    "K1050W-SU"
   ],
-  "75 mm DMS": [
+  "AeroTech 75 mm DMS": [
    "L875DM"
   ],
-  "75 mm RMS-75/3840": [
+  "AeroTech 75 mm RMS-75/3840": [
    "L2775ST-PS"
   ],
-  "98 mm RMS-98/18000": [
+  "AeroTech 98 mm RMS-98/18000": [
    "N4800T"
   ],
-  "98 mm RMS-98/5120": [
+  "AeroTech 98 mm RMS-98/5120": [
    "M845H"
   ],
-  "98 mm RMS-98/7680": [
+  "AeroTech 98 mm RMS-98/7680": [
    "M1305M"
+  ],
+  "Loki 38 mm single-use (no reload case)": [
+   "H500-LW"
+  ],
+  "Loki 98 mm Pro-98 6g XL": [
+   "N5500LW"
   ]
  },
  "measured": [],
@@ -503,7 +566,444 @@
     "throatAgrees": true,
     "exitAgrees": true
    }
-  ]
+  ],
+  "lokiSheetAgainstCaseTable": {
+   "note": "43 of 43 instruction-sheet readings agree with Loki's own per-case commercial-throat column. A disagreement fails the build.",
+   "rows": [
+    {
+     "commonName": "G66",
+     "caseInfo": "38/120",
+     "sheetNozzleNo": 10,
+     "caseTableNozzleNo": 10,
+     "agrees": true,
+     "sheets": [
+      "38mm Red.pdf"
+     ]
+    },
+    {
+     "commonName": "G69",
+     "caseInfo": "38/120",
+     "sheetNozzleNo": 10,
+     "caseTableNozzleNo": 10,
+     "agrees": true,
+     "sheets": [
+      "38mm Spitfire.pdf"
+     ]
+    },
+    {
+     "commonName": "G70",
+     "caseInfo": "38/120",
+     "sheetNozzleNo": 10,
+     "caseTableNozzleNo": 10,
+     "agrees": true,
+     "sheets": [
+      "38mm cocktail.pdf"
+     ]
+    },
+    {
+     "commonName": "G80",
+     "caseInfo": "38/120",
+     "sheetNozzleNo": 10,
+     "caseTableNozzleNo": 10,
+     "agrees": true,
+     "sheets": [
+      "38mm White.pdf"
+     ]
+    },
+    {
+     "commonName": "H100",
+     "caseInfo": "38/240",
+     "sheetNozzleNo": 16,
+     "caseTableNozzleNo": 16,
+     "agrees": true,
+     "sheets": [
+      "38mm Spitfire.pdf"
+     ]
+    },
+    {
+     "commonName": "H125",
+     "caseInfo": "38/240",
+     "sheetNozzleNo": 16,
+     "caseTableNozzleNo": 16,
+     "agrees": true,
+     "sheets": [
+      "38mm cocktail.pdf"
+     ]
+    },
+    {
+     "commonName": "H144",
+     "caseInfo": "38/240",
+     "sheetNozzleNo": 16,
+     "caseTableNozzleNo": 16,
+     "agrees": true,
+     "sheets": [
+      "38mm White.pdf"
+     ]
+    },
+    {
+     "commonName": "H160",
+     "caseInfo": "38/240",
+     "sheetNozzleNo": 16,
+     "caseTableNozzleNo": 16,
+     "agrees": true,
+     "sheets": [
+      "38mm blue.pdf"
+     ]
+    },
+    {
+     "commonName": "H90",
+     "caseInfo": "38/240",
+     "sheetNozzleNo": 16,
+     "caseTableNozzleNo": 16,
+     "agrees": true,
+     "sheets": [
+      "38mm Red.pdf"
+     ]
+    },
+    {
+     "commonName": "I210",
+     "caseInfo": "38/480",
+     "sheetNozzleNo": 19,
+     "caseTableNozzleNo": 19,
+     "agrees": true,
+     "sheets": [
+      "38mm Red.pdf"
+     ]
+    },
+    {
+     "commonName": "I316",
+     "caseInfo": "38/480",
+     "sheetNozzleNo": 19,
+     "caseTableNozzleNo": 19,
+     "agrees": true,
+     "sheets": [
+      "38mm Spitfire.pdf"
+     ]
+    },
+    {
+     "commonName": "I377",
+     "caseInfo": "38/480",
+     "sheetNozzleNo": 19,
+     "caseTableNozzleNo": 19,
+     "agrees": true,
+     "sheets": [
+      "38mm cocktail.pdf"
+     ]
+    },
+    {
+     "commonName": "I405",
+     "caseInfo": "38/480",
+     "sheetNozzleNo": 19,
+     "caseTableNozzleNo": 19,
+     "agrees": true,
+     "sheets": [
+      "38mm White.pdf"
+     ]
+    },
+    {
+     "commonName": "I430",
+     "caseInfo": "38/480",
+     "sheetNozzleNo": 19,
+     "caseTableNozzleNo": 19,
+     "agrees": true,
+     "sheets": [
+      "38mm blue.pdf"
+     ]
+    },
+    {
+     "commonName": "J1026",
+     "caseInfo": "38/1200",
+     "sheetNozzleNo": 28,
+     "caseTableNozzleNo": 28,
+     "agrees": true,
+     "sheets": [
+      "38mm Red Blue Cocktail 1200 case.pdf"
+     ]
+    },
+    {
+     "commonName": "J175",
+     "caseInfo": "54/1200",
+     "sheetNozzleNo": 24,
+     "caseTableNozzleNo": 24,
+     "agrees": true,
+     "sheets": [
+      "54mm White 1200.pdf"
+     ]
+    },
+    {
+     "commonName": "J320",
+     "caseInfo": "38/740",
+     "sheetNozzleNo": 22,
+     "caseTableNozzleNo": 22,
+     "agrees": true,
+     "sheets": [
+      "38mm Red.pdf"
+     ]
+    },
+    {
+     "commonName": "J350",
+     "caseInfo": "54/1200",
+     "sheetNozzleNo": 24,
+     "caseTableNozzleNo": 24,
+     "agrees": true,
+     "sheets": [
+      "54mm Spitfire.pdf"
+     ]
+    },
+    {
+     "commonName": "J396",
+     "caseInfo": "38/740",
+     "sheetNozzleNo": 22,
+     "caseTableNozzleNo": 22,
+     "agrees": true,
+     "sheets": [
+      "38mm Spitfire.pdf"
+     ]
+    },
+    {
+     "commonName": "J525",
+     "caseInfo": "54/1200",
+     "sheetNozzleNo": 24,
+     "caseTableNozzleNo": 24,
+     "agrees": true,
+     "sheets": [
+      "54mm White 1200.pdf"
+     ]
+    },
+    {
+     "commonName": "J528",
+     "caseInfo": "38/740",
+     "sheetNozzleNo": 22,
+     "caseTableNozzleNo": 22,
+     "agrees": true,
+     "sheets": [
+      "38mm White.pdf"
+     ]
+    },
+    {
+     "commonName": "J650",
+     "caseInfo": "38/1200",
+     "sheetNozzleNo": 28,
+     "caseTableNozzleNo": 28,
+     "agrees": true,
+     "sheets": [
+      "38mm Spitfire 1200 case.pdf"
+     ]
+    },
+    {
+     "commonName": "J712",
+     "caseInfo": "38/740",
+     "sheetNozzleNo": 22,
+     "caseTableNozzleNo": 22,
+     "agrees": true,
+     "sheets": [
+      "38mm blue.pdf"
+     ]
+    },
+    {
+     "commonName": "J820",
+     "caseInfo": "54/1200",
+     "sheetNozzleNo": 24,
+     "caseTableNozzleNo": 24,
+     "agrees": true,
+     "sheets": [
+      "54mm White 1200.pdf"
+     ]
+    },
+    {
+     "commonName": "K1127",
+     "caseInfo": "38/1200",
+     "sheetNozzleNo": 28,
+     "caseTableNozzleNo": 28,
+     "agrees": true,
+     "sheets": [
+      "38mm Blue 1200 case.pdf"
+     ]
+    },
+    {
+     "commonName": "K250",
+     "caseInfo": "54/2000",
+     "sheetNozzleNo": 29,
+     "caseTableNozzleNo": 29,
+     "agrees": true,
+     "sheets": [
+      "54mm White 2000 case.pdf"
+     ]
+    },
+    {
+     "commonName": "K350",
+     "caseInfo": "54/2800",
+     "sheetNozzleNo": 42,
+     "caseTableNozzleNo": 42,
+     "agrees": true,
+     "sheets": [
+      "54mm_K350_L1400_instructions.pdf"
+     ]
+    },
+    {
+     "commonName": "K690",
+     "caseInfo": "54/2000",
+     "sheetNozzleNo": 29,
+     "caseTableNozzleNo": 29,
+     "agrees": true,
+     "sheets": [
+      "54mm Spitfire.pdf"
+     ]
+    },
+    {
+     "commonName": "K830",
+     "caseInfo": "54/2800",
+     "sheetNozzleNo": 42,
+     "caseTableNozzleNo": 42,
+     "agrees": true,
+     "sheets": [
+      "54mm Spitfire.pdf"
+     ]
+    },
+    {
+     "commonName": "K960",
+     "caseInfo": "54/2000",
+     "sheetNozzleNo": 29,
+     "caseTableNozzleNo": 29,
+     "agrees": true,
+     "sheets": [
+      "54mm White 2000 case.pdf"
+     ]
+    },
+    {
+     "commonName": "L1400",
+     "caseInfo": "54/2800",
+     "sheetNozzleNo": 42,
+     "caseTableNozzleNo": 42,
+     "agrees": true,
+     "sheets": [
+      "54mm_K350_L1400_instructions.pdf"
+     ]
+    },
+    {
+     "commonName": "L1482",
+     "caseInfo": "76/3600",
+     "sheetNozzleNo": 40,
+     "caseTableNozzleNo": 40,
+     "agrees": true,
+     "sheets": [
+      "76mm Blue.pdf"
+     ]
+    },
+    {
+     "commonName": "L480",
+     "caseInfo": "76/3600",
+     "sheetNozzleNo": 40,
+     "caseTableNozzleNo": 40,
+     "agrees": true,
+     "sheets": [
+      "76mm Red.pdf"
+     ]
+    },
+    {
+     "commonName": "L780",
+     "caseInfo": "76/3600",
+     "sheetNozzleNo": 40,
+     "caseTableNozzleNo": 40,
+     "agrees": true,
+     "sheets": [
+      "76mm Spitfire.pdf"
+     ]
+    },
+    {
+     "commonName": "L930",
+     "caseInfo": "76/3600",
+     "sheetNozzleNo": 40,
+     "caseTableNozzleNo": 40,
+     "agrees": true,
+     "sheets": [
+      "76mm White.pdf",
+      "76mm_L930_M1882_instructions.pdf"
+     ]
+    },
+    {
+     "commonName": "M1200",
+     "caseInfo": "76/6000",
+     "sheetNozzleNo": 52,
+     "caseTableNozzleNo": 52,
+     "agrees": true,
+     "sheets": [
+      "76mm Spitfire.pdf"
+     ]
+    },
+    {
+     "commonName": "M1882",
+     "caseInfo": "76/6000",
+     "sheetNozzleNo": 52,
+     "caseTableNozzleNo": 52,
+     "agrees": true,
+     "sheets": [
+      "76mm White.pdf",
+      "76mm_L930_M1882_instructions.pdf"
+     ]
+    },
+    {
+     "commonName": "M1969",
+     "caseInfo": "76/8000",
+     "sheetNozzleNo": 56,
+     "caseTableNozzleNo": 56,
+     "agrees": true,
+     "sheets": [
+      "76mm M1969 Spitfire.pdf"
+     ]
+    },
+    {
+     "commonName": "M2550",
+     "caseInfo": "76/6000",
+     "sheetNozzleNo": 52,
+     "caseTableNozzleNo": 52,
+     "agrees": true,
+     "sheets": [
+      "76mm Blue.pdf"
+     ]
+    },
+    {
+     "commonName": "M3000",
+     "caseInfo": "76/8000",
+     "sheetNozzleNo": 56,
+     "caseTableNozzleNo": 56,
+     "agrees": true,
+     "sheets": [
+      "76mm White M3k.pdf"
+     ]
+    },
+    {
+     "commonName": "M3464",
+     "caseInfo": "76/8000",
+     "sheetNozzleNo": 56,
+     "caseTableNozzleNo": 56,
+     "agrees": true,
+     "sheets": [
+      "76mm Blue 8000 case.pdf"
+     ]
+    },
+    {
+     "commonName": "M900",
+     "caseInfo": "76/6000",
+     "sheetNozzleNo": 52,
+     "caseTableNozzleNo": 52,
+     "agrees": true,
+     "sheets": [
+      "76mm Red.pdf"
+     ]
+    },
+    {
+     "commonName": "N3800",
+     "caseInfo": "98/12500",
+     "sheetNozzleNo": 64,
+     "caseTableNozzleNo": 64,
+     "agrees": true,
+     "sheets": [
+      "98mm_N3800_instructions.pdf"
+     ]
+    }
+   ]
+  }
  },
  "nozzles": [
   {
@@ -7948,6 +8448,1406 @@
     "caseAgrees": true,
     "assemblyDrawings": [
      "RMS-98-20480 High Power/N4000W-PS Assembly.pdf"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d20002310000000449",
+   "manufacturer": "Loki",
+   "designation": "G66-LR",
+   "catalogDesignation": "G66-LR",
+   "commonName": "G66",
+   "caseFamily": "38/120",
+   "casingDiameterMm": 38,
+   "nozzlePartNo": "#10",
+   "exitDiameterM": 0.011938,
+   "exitDiameterIn": 0.47,
+   "throatDiameterM": 0.00397,
+   "throatDiameterIn": 0.1563,
+   "exitSource": "loki-sheet",
+   "exitConfidence": "high",
+   "provenance": {
+    "lomDescription": "Nozzle Size #10 0.156\" (instruction sheet table)",
+    "matchedVia": "G66",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 38 mm, #10 thru #15 = 0.470 in",
+    "assemblyDrawings": [
+     "Loki instruction sheet \"38mm Red.pdf\" (docs/Loki Data)",
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d2000231000000044a",
+   "manufacturer": "Loki",
+   "designation": "G70-CT",
+   "catalogDesignation": "G70-CT",
+   "commonName": "G70",
+   "caseFamily": "38/120",
+   "casingDiameterMm": 38,
+   "nozzlePartNo": "#10",
+   "exitDiameterM": 0.011938,
+   "exitDiameterIn": 0.47,
+   "throatDiameterM": 0.00397,
+   "throatDiameterIn": 0.1563,
+   "exitSource": "loki-sheet",
+   "exitConfidence": "high",
+   "provenance": {
+    "lomDescription": "Nozzle Size #10 0.156\" (instruction sheet table)",
+    "matchedVia": "G70",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 38 mm, #10 thru #15 = 0.470 in",
+    "assemblyDrawings": [
+     "Loki instruction sheet \"38mm cocktail.pdf\" (docs/Loki Data)",
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d20002310000000234",
+   "manufacturer": "Loki",
+   "designation": "G80-LW",
+   "catalogDesignation": "G80-LW",
+   "commonName": "G80",
+   "caseFamily": "38/120",
+   "casingDiameterMm": 38,
+   "nozzlePartNo": "#10",
+   "exitDiameterM": 0.011938,
+   "exitDiameterIn": 0.47,
+   "throatDiameterM": 0.00397,
+   "throatDiameterIn": 0.1563,
+   "exitSource": "loki-sheet",
+   "exitConfidence": "high",
+   "provenance": {
+    "lomDescription": "Nozzle Size #10 0.156\" (instruction sheet table)",
+    "matchedVia": "G80",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 38 mm, #10 thru #15 = 0.470 in",
+    "assemblyDrawings": [
+     "Loki instruction sheet \"38mm White.pdf\" (docs/Loki Data)",
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d20002310000000250",
+   "manufacturer": "Loki",
+   "designation": "H100-SF",
+   "catalogDesignation": "H100-SF",
+   "commonName": "H100",
+   "caseFamily": "38/240",
+   "casingDiameterMm": 38,
+   "nozzlePartNo": "#16",
+   "exitDiameterM": 0.016002,
+   "exitDiameterIn": 0.63,
+   "throatDiameterM": 0.00635,
+   "throatDiameterIn": 0.25,
+   "exitSource": "loki-sheet",
+   "exitConfidence": "high",
+   "provenance": {
+    "lomDescription": "Nozzle Size #16 0.250\" (instruction sheet table)",
+    "matchedVia": "H100",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 38 mm, #16 thru #18 = 0.630 in",
+    "assemblyDrawings": [
+     "Loki instruction sheet \"38mm Spitfire.pdf\" (docs/Loki Data)",
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d20002310000000447",
+   "manufacturer": "Loki",
+   "designation": "H125-CT",
+   "catalogDesignation": "H125-CT",
+   "commonName": "H125",
+   "caseFamily": "38/240",
+   "casingDiameterMm": 38,
+   "nozzlePartNo": "#16",
+   "exitDiameterM": 0.016002,
+   "exitDiameterIn": 0.63,
+   "throatDiameterM": 0.00635,
+   "throatDiameterIn": 0.25,
+   "exitSource": "loki-sheet",
+   "exitConfidence": "high",
+   "provenance": {
+    "lomDescription": "Nozzle Size #16 0.250\" (instruction sheet table)",
+    "matchedVia": "H125",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 38 mm, #16 thru #18 = 0.630 in",
+    "assemblyDrawings": [
+     "Loki instruction sheet \"38mm cocktail.pdf\" (docs/Loki Data)",
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d20002310000000086",
+   "manufacturer": "Loki",
+   "designation": "H144-LW",
+   "catalogDesignation": "H144-LW",
+   "commonName": "H144",
+   "caseFamily": "38/240",
+   "casingDiameterMm": 38,
+   "nozzlePartNo": "#16",
+   "exitDiameterM": 0.016002,
+   "exitDiameterIn": 0.63,
+   "throatDiameterM": 0.00635,
+   "throatDiameterIn": 0.25,
+   "exitSource": "loki-sheet",
+   "exitConfidence": "high",
+   "provenance": {
+    "lomDescription": "Nozzle Size #16 0.250\" (instruction sheet table)",
+    "matchedVia": "H144",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 38 mm, #16 thru #18 = 0.630 in",
+    "assemblyDrawings": [
+     "Loki instruction sheet \"38mm White.pdf\" (docs/Loki Data)",
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d2000231000000023f",
+   "manufacturer": "Loki",
+   "designation": "H160-LB",
+   "catalogDesignation": "H160-LB",
+   "commonName": "H160",
+   "caseFamily": "38/240",
+   "casingDiameterMm": 38,
+   "nozzlePartNo": "#16",
+   "exitDiameterM": 0.016002,
+   "exitDiameterIn": 0.63,
+   "throatDiameterM": 0.00635,
+   "throatDiameterIn": 0.25,
+   "exitSource": "loki-sheet",
+   "exitConfidence": "high",
+   "provenance": {
+    "lomDescription": "Nozzle Size #16 0.250\" (instruction sheet table)",
+    "matchedVia": "H160",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 38 mm, #16 thru #18 = 0.630 in",
+    "assemblyDrawings": [
+     "Loki instruction sheet \"38mm blue.pdf\" (docs/Loki Data)",
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d2000231000000023c",
+   "manufacturer": "Loki",
+   "designation": "H90-LR",
+   "catalogDesignation": "H90-LR",
+   "commonName": "H90",
+   "caseFamily": "38/240",
+   "casingDiameterMm": 38,
+   "nozzlePartNo": "#16",
+   "exitDiameterM": 0.016002,
+   "exitDiameterIn": 0.63,
+   "throatDiameterM": 0.00635,
+   "throatDiameterIn": 0.25,
+   "exitSource": "loki-sheet",
+   "exitConfidence": "high",
+   "provenance": {
+    "lomDescription": "Nozzle Size #16 0.250\" (instruction sheet table)",
+    "matchedVia": "H90",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 38 mm, #16 thru #18 = 0.630 in",
+    "assemblyDrawings": [
+     "Loki instruction sheet \"38mm Red.pdf\" (docs/Loki Data)",
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d200023100000002f3",
+   "manufacturer": "Loki",
+   "designation": "HP-G69-SF",
+   "catalogDesignation": "HP-G69-SF",
+   "commonName": "G69",
+   "caseFamily": "38/120",
+   "casingDiameterMm": 38,
+   "nozzlePartNo": "#10",
+   "exitDiameterM": 0.011938,
+   "exitDiameterIn": 0.47,
+   "throatDiameterM": 0.00397,
+   "throatDiameterIn": 0.1563,
+   "exitSource": "loki-sheet",
+   "exitConfidence": "high",
+   "provenance": {
+    "lomDescription": "Nozzle Size #10 0.156\" (instruction sheet table)",
+    "matchedVia": "G69",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 38 mm, #10 thru #15 = 0.470 in",
+    "assemblyDrawings": [
+     "Loki instruction sheet \"38mm Spitfire.pdf\" (docs/Loki Data)",
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d2000231000000044b",
+   "manufacturer": "Loki",
+   "designation": "HP-G94-IB",
+   "catalogDesignation": "HP-G94-IB",
+   "commonName": "G94",
+   "caseFamily": "38/120",
+   "casingDiameterMm": 38,
+   "nozzlePartNo": "#10",
+   "exitDiameterM": 0.011938,
+   "exitDiameterIn": 0.47,
+   "throatDiameterM": 0.00397,
+   "throatDiameterIn": 0.1563,
+   "exitSource": "loki-case-table",
+   "exitConfidence": "medium",
+   "confidenceNote": "No instruction sheet for this motor is on disk. The nozzle is the one Loki's own \"Commercial Nozzle throat\" column gives for the 38/120 case (#10); every one of the 43 motors whose sheet IS on disk agrees with that column, but this row is the column and not the sheet.",
+   "provenance": {
+    "lomDescription": "Commercial Nozzle throat #10 for the 38/120 case (Tech Info table)",
+    "matchedVia": "G94",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 38 mm, #10 thru #15 = 0.470 in",
+    "assemblyDrawings": [
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d20002310000000205",
+   "manufacturer": "Loki",
+   "designation": "I110-LW",
+   "catalogDesignation": "I110-LW",
+   "commonName": "I110",
+   "caseFamily": "38/480",
+   "casingDiameterMm": 38,
+   "nozzlePartNo": "#19",
+   "exitDiameterM": 0.019812,
+   "exitDiameterIn": 0.78,
+   "throatDiameterM": 0.007541,
+   "throatDiameterIn": 0.2969,
+   "exitSource": "loki-case-table",
+   "exitConfidence": "medium",
+   "confidenceNote": "No instruction sheet for this motor is on disk. The nozzle is the one Loki's own \"Commercial Nozzle throat\" column gives for the 38/480 case (#19); every one of the 43 motors whose sheet IS on disk agrees with that column, but this row is the column and not the sheet.",
+   "provenance": {
+    "lomDescription": "Commercial Nozzle throat #19 for the 38/480 case (Tech Info table)",
+    "matchedVia": "I110",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 38 mm, #19 thru #24 = 0.780 in",
+    "assemblyDrawings": [
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d2000231000000023d",
+   "manufacturer": "Loki",
+   "designation": "I210-LR",
+   "catalogDesignation": "I210-LR",
+   "commonName": "I210",
+   "caseFamily": "38/480",
+   "casingDiameterMm": 38,
+   "nozzlePartNo": "#19",
+   "exitDiameterM": 0.019812,
+   "exitDiameterIn": 0.78,
+   "throatDiameterM": 0.007541,
+   "throatDiameterIn": 0.2969,
+   "exitSource": "loki-sheet",
+   "exitConfidence": "high",
+   "provenance": {
+    "lomDescription": "Nozzle Size #19 0.297\" (instruction sheet table)",
+    "matchedVia": "I210",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 38 mm, #19 thru #24 = 0.780 in",
+    "assemblyDrawings": [
+     "Loki instruction sheet \"38mm Red.pdf\" (docs/Loki Data)",
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d200023100000002ac",
+   "manufacturer": "Loki",
+   "designation": "I316-SF",
+   "catalogDesignation": "I316-SF",
+   "commonName": "I316",
+   "caseFamily": "38/480",
+   "casingDiameterMm": 38,
+   "nozzlePartNo": "#19",
+   "exitDiameterM": 0.019812,
+   "exitDiameterIn": 0.78,
+   "throatDiameterM": 0.007541,
+   "throatDiameterIn": 0.2969,
+   "exitSource": "loki-sheet",
+   "exitConfidence": "high",
+   "provenance": {
+    "lomDescription": "Nozzle Size #19 0.297\" (instruction sheet table)",
+    "matchedVia": "I316",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 38 mm, #19 thru #24 = 0.780 in",
+    "assemblyDrawings": [
+     "Loki instruction sheet \"38mm Spitfire.pdf\" (docs/Loki Data)",
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d20002310000000448",
+   "manufacturer": "Loki",
+   "designation": "I377-CT",
+   "catalogDesignation": "I377-CT",
+   "commonName": "I377",
+   "caseFamily": "38/480",
+   "casingDiameterMm": 38,
+   "nozzlePartNo": "#19",
+   "exitDiameterM": 0.019812,
+   "exitDiameterIn": 0.78,
+   "throatDiameterM": 0.007541,
+   "throatDiameterIn": 0.2969,
+   "exitSource": "loki-sheet",
+   "exitConfidence": "high",
+   "provenance": {
+    "lomDescription": "Nozzle Size #19 0.297\" (instruction sheet table)",
+    "matchedVia": "I377",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 38 mm, #19 thru #24 = 0.780 in",
+    "assemblyDrawings": [
+     "Loki instruction sheet \"38mm cocktail.pdf\" (docs/Loki Data)",
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d200023100000000d9",
+   "manufacturer": "Loki",
+   "designation": "I405-LW",
+   "catalogDesignation": "I405-LW",
+   "commonName": "I405",
+   "caseFamily": "38/480",
+   "casingDiameterMm": 38,
+   "nozzlePartNo": "#19",
+   "exitDiameterM": 0.019812,
+   "exitDiameterIn": 0.78,
+   "throatDiameterM": 0.007541,
+   "throatDiameterIn": 0.2969,
+   "exitSource": "loki-sheet",
+   "exitConfidence": "high",
+   "provenance": {
+    "lomDescription": "Nozzle Size #19 0.297\" (instruction sheet table)",
+    "matchedVia": "I405",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 38 mm, #19 thru #24 = 0.780 in",
+    "assemblyDrawings": [
+     "Loki instruction sheet \"38mm White.pdf\" (docs/Loki Data)",
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "66225d52b1ba54000208d807",
+   "manufacturer": "Loki",
+   "designation": "I426LB",
+   "catalogDesignation": "I426LB",
+   "commonName": "I426",
+   "caseFamily": "38/480",
+   "casingDiameterMm": 38,
+   "nozzlePartNo": "#19",
+   "exitDiameterM": 0.019812,
+   "exitDiameterIn": 0.78,
+   "throatDiameterM": 0.007541,
+   "throatDiameterIn": 0.2969,
+   "exitSource": "loki-case-table",
+   "exitConfidence": "medium",
+   "confidenceNote": "No instruction sheet for this motor is on disk. The nozzle is the one Loki's own \"Commercial Nozzle throat\" column gives for the 38/480 case (#19); every one of the 43 motors whose sheet IS on disk agrees with that column, but this row is the column and not the sheet.",
+   "provenance": {
+    "lomDescription": "Commercial Nozzle throat #19 for the 38/480 case (Tech Info table)",
+    "matchedVia": "I426",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 38 mm, #19 thru #24 = 0.780 in",
+    "assemblyDrawings": [
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d20002310000000240",
+   "manufacturer": "Loki",
+   "designation": "I430-LB",
+   "catalogDesignation": "I430-LB",
+   "commonName": "I430",
+   "caseFamily": "38/480",
+   "casingDiameterMm": 38,
+   "nozzlePartNo": "#19",
+   "exitDiameterM": 0.019812,
+   "exitDiameterIn": 0.78,
+   "throatDiameterM": 0.007541,
+   "throatDiameterIn": 0.2969,
+   "exitSource": "loki-sheet",
+   "exitConfidence": "high",
+   "provenance": {
+    "lomDescription": "Nozzle Size #19 0.297\" (instruction sheet table)",
+    "matchedVia": "I430",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 38 mm, #19 thru #24 = 0.780 in",
+    "assemblyDrawings": [
+     "Loki instruction sheet \"38mm blue.pdf\" (docs/Loki Data)",
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d20002310000000465",
+   "manufacturer": "Loki",
+   "designation": "J-326-LR",
+   "catalogDesignation": "J-326-LR",
+   "commonName": "J326",
+   "caseFamily": "38/740",
+   "casingDiameterMm": 38,
+   "nozzlePartNo": "#22",
+   "exitDiameterM": 0.019812,
+   "exitDiameterIn": 0.78,
+   "throatDiameterM": 0.008733,
+   "throatDiameterIn": 0.3438,
+   "exitSource": "loki-case-table",
+   "exitConfidence": "medium",
+   "confidenceNote": "No instruction sheet for this motor is on disk. The nozzle is the one Loki's own \"Commercial Nozzle throat\" column gives for the 38/740 case (#22); every one of the 43 motors whose sheet IS on disk agrees with that column, but this row is the column and not the sheet.",
+   "provenance": {
+    "lomDescription": "Commercial Nozzle throat #22 for the 38/740 case (Tech Info table)",
+    "matchedVia": "J326",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 38 mm, #19 thru #24 = 0.780 in",
+    "assemblyDrawings": [
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d200023100000002ee",
+   "manufacturer": "Loki",
+   "designation": "J1000-LW",
+   "catalogDesignation": "J1000-LW",
+   "commonName": "J1000",
+   "caseFamily": "38/1200",
+   "casingDiameterMm": 38,
+   "nozzlePartNo": "#28",
+   "exitDiameterM": 0.02286,
+   "exitDiameterIn": 0.9,
+   "throatDiameterM": 0.011112,
+   "throatDiameterIn": 0.4375,
+   "exitSource": "loki-case-table",
+   "exitConfidence": "medium",
+   "confidenceNote": "No instruction sheet for this motor is on disk. The nozzle is the one Loki's own \"Commercial Nozzle throat\" column gives for the 38/1200 case (#28); every one of the 43 motors whose sheet IS on disk agrees with that column, but this row is the column and not the sheet.",
+   "provenance": {
+    "lomDescription": "Commercial Nozzle throat #28 for the 38/1200 case (Tech Info table)",
+    "matchedVia": "J1000",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 38 mm, #25 and up = 0.900 in",
+    "assemblyDrawings": [
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d20002310000000439",
+   "manufacturer": "Loki",
+   "designation": "J1026CT",
+   "catalogDesignation": "J1026CT",
+   "commonName": "J1026",
+   "caseFamily": "38/1200",
+   "casingDiameterMm": 38,
+   "nozzlePartNo": "#28",
+   "exitDiameterM": 0.02286,
+   "exitDiameterIn": 0.9,
+   "throatDiameterM": 0.011112,
+   "throatDiameterIn": 0.4375,
+   "exitSource": "loki-sheet",
+   "exitConfidence": "high",
+   "provenance": {
+    "lomDescription": "Nozzle Size #28 0.437\" (instruction sheet table)",
+    "matchedVia": "J1026",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 38 mm, #25 and up = 0.900 in",
+    "assemblyDrawings": [
+     "Loki instruction sheet \"38mm Red Blue Cocktail 1200 case.pdf\" (docs/Loki Data)",
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d20002310000000206",
+   "manufacturer": "Loki",
+   "designation": "J175-LW",
+   "catalogDesignation": "J175-LW",
+   "commonName": "J175",
+   "caseFamily": "54/1200",
+   "casingDiameterMm": 54,
+   "nozzlePartNo": "#24",
+   "exitDiameterM": 0.0254,
+   "exitDiameterIn": 1,
+   "throatDiameterM": 0.009525,
+   "throatDiameterIn": 0.375,
+   "exitSource": "loki-sheet",
+   "exitConfidence": "high",
+   "provenance": {
+    "lomDescription": "Nozzle Size #24 0.375\" (instruction sheet table)",
+    "matchedVia": "J175",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 54 mm, #24 thru #28 = 1.000 in",
+    "assemblyDrawings": [
+     "Loki instruction sheet \"54mm White 1200.pdf\" (docs/Loki Data)",
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d20002310000000433",
+   "manufacturer": "Loki",
+   "designation": "J300LR",
+   "catalogDesignation": "J300LR",
+   "commonName": "J300",
+   "caseFamily": "54/1200",
+   "casingDiameterMm": 54,
+   "nozzlePartNo": "#24",
+   "exitDiameterM": 0.0254,
+   "exitDiameterIn": 1,
+   "throatDiameterM": 0.009525,
+   "throatDiameterIn": 0.375,
+   "exitSource": "loki-case-table",
+   "exitConfidence": "medium",
+   "confidenceNote": "No instruction sheet for this motor is on disk. The nozzle is the one Loki's own \"Commercial Nozzle throat\" column gives for the 54/1200 case (#24); every one of the 43 motors whose sheet IS on disk agrees with that column, but this row is the column and not the sheet.",
+   "provenance": {
+    "lomDescription": "Commercial Nozzle throat #24 for the 54/1200 case (Tech Info table)",
+    "matchedVia": "J300",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 54 mm, #24 thru #28 = 1.000 in",
+    "assemblyDrawings": [
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d2000231000000023e",
+   "manufacturer": "Loki",
+   "designation": "J320-LR",
+   "catalogDesignation": "J320-LR",
+   "commonName": "J320",
+   "caseFamily": "38/740",
+   "casingDiameterMm": 38,
+   "nozzlePartNo": "#22",
+   "exitDiameterM": 0.019812,
+   "exitDiameterIn": 0.78,
+   "throatDiameterM": 0.008733,
+   "throatDiameterIn": 0.3438,
+   "exitSource": "loki-sheet",
+   "exitConfidence": "high",
+   "provenance": {
+    "lomDescription": "Nozzle Size #22 0.344\" (instruction sheet table)",
+    "matchedVia": "J320",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 38 mm, #19 thru #24 = 0.780 in",
+    "assemblyDrawings": [
+     "Loki instruction sheet \"38mm Red.pdf\" (docs/Loki Data)",
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d200023100000002b1",
+   "manufacturer": "Loki",
+   "designation": "J350-SF",
+   "catalogDesignation": "J350-SF",
+   "commonName": "J350",
+   "caseFamily": "54/1200",
+   "casingDiameterMm": 54,
+   "nozzlePartNo": "#24",
+   "exitDiameterM": 0.0254,
+   "exitDiameterIn": 1,
+   "throatDiameterM": 0.009525,
+   "throatDiameterIn": 0.375,
+   "exitSource": "loki-sheet",
+   "exitConfidence": "high",
+   "provenance": {
+    "lomDescription": "Nozzle Size #24 0.375\" (instruction sheet table)",
+    "matchedVia": "J350",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 54 mm, #24 thru #28 = 1.000 in",
+    "assemblyDrawings": [
+     "Loki instruction sheet \"54mm Spitfire.pdf\" (docs/Loki Data)",
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d20002310000000259",
+   "manufacturer": "Loki",
+   "designation": "J396-SF",
+   "catalogDesignation": "J396-SF",
+   "commonName": "J396",
+   "caseFamily": "38/740",
+   "casingDiameterMm": 38,
+   "nozzlePartNo": "#22",
+   "exitDiameterM": 0.019812,
+   "exitDiameterIn": 0.78,
+   "throatDiameterM": 0.008733,
+   "throatDiameterIn": 0.3438,
+   "exitSource": "loki-sheet",
+   "exitConfidence": "high",
+   "provenance": {
+    "lomDescription": "Nozzle Size #22 0.344\" (instruction sheet table)",
+    "matchedVia": "J396",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 38 mm, #19 thru #24 = 0.780 in",
+    "assemblyDrawings": [
+     "Loki instruction sheet \"38mm Spitfire.pdf\" (docs/Loki Data)",
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d20002310000000466",
+   "manufacturer": "Loki",
+   "designation": "J474-CT",
+   "catalogDesignation": "J474-CT",
+   "commonName": "J474",
+   "caseFamily": "38/740",
+   "casingDiameterMm": 38,
+   "nozzlePartNo": "#22",
+   "exitDiameterM": 0.019812,
+   "exitDiameterIn": 0.78,
+   "throatDiameterM": 0.008733,
+   "throatDiameterIn": 0.3438,
+   "exitSource": "loki-case-table",
+   "exitConfidence": "medium",
+   "confidenceNote": "No instruction sheet for this motor is on disk. The nozzle is the one Loki's own \"Commercial Nozzle throat\" column gives for the 38/740 case (#22); every one of the 43 motors whose sheet IS on disk agrees with that column, but this row is the column and not the sheet.",
+   "provenance": {
+    "lomDescription": "Commercial Nozzle throat #22 for the 38/740 case (Tech Info table)",
+    "matchedVia": "J474",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 38 mm, #19 thru #24 = 0.780 in",
+    "assemblyDrawings": [
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d20002310000000122",
+   "manufacturer": "Loki",
+   "designation": "J525-LW",
+   "catalogDesignation": "J525-LW",
+   "commonName": "J525",
+   "caseFamily": "54/1200",
+   "casingDiameterMm": 54,
+   "nozzlePartNo": "#24",
+   "exitDiameterM": 0.0254,
+   "exitDiameterIn": 1,
+   "throatDiameterM": 0.009525,
+   "throatDiameterIn": 0.375,
+   "exitSource": "loki-sheet",
+   "exitConfidence": "high",
+   "provenance": {
+    "lomDescription": "Nozzle Size #24 0.375\" (instruction sheet table)",
+    "matchedVia": "J525",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 54 mm, #24 thru #28 = 1.000 in",
+    "assemblyDrawings": [
+     "Loki instruction sheet \"54mm White 1200.pdf\" (docs/Loki Data)",
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d20002310000000123",
+   "manufacturer": "Loki",
+   "designation": "J528-LW",
+   "catalogDesignation": "J528-LW",
+   "commonName": "J528",
+   "caseFamily": "38/740",
+   "casingDiameterMm": 38,
+   "nozzlePartNo": "#22",
+   "exitDiameterM": 0.019812,
+   "exitDiameterIn": 0.78,
+   "throatDiameterM": 0.008733,
+   "throatDiameterIn": 0.3438,
+   "exitSource": "loki-sheet",
+   "exitConfidence": "high",
+   "provenance": {
+    "lomDescription": "Nozzle Size #22 0.344\" (instruction sheet table)",
+    "matchedVia": "J528",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 38 mm, #19 thru #24 = 0.780 in",
+    "assemblyDrawings": [
+     "Loki instruction sheet \"38mm White.pdf\" (docs/Loki Data)",
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d200023100000002b2",
+   "manufacturer": "Loki",
+   "designation": "J650-SF",
+   "catalogDesignation": "J650-SF",
+   "commonName": "J650",
+   "caseFamily": "38/1200",
+   "casingDiameterMm": 38,
+   "nozzlePartNo": "#28",
+   "exitDiameterM": 0.02286,
+   "exitDiameterIn": 0.9,
+   "throatDiameterM": 0.011112,
+   "throatDiameterIn": 0.4375,
+   "exitSource": "loki-sheet",
+   "exitConfidence": "high",
+   "provenance": {
+    "lomDescription": "Nozzle Size #28 0.437\" (instruction sheet table)",
+    "matchedVia": "J650",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 38 mm, #25 and up = 0.900 in",
+    "assemblyDrawings": [
+     "Loki instruction sheet \"38mm Spitfire 1200 case.pdf\" (docs/Loki Data)",
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "66225c88b1ba54000208d7b9",
+   "manufacturer": "Loki",
+   "designation": "J670LB",
+   "catalogDesignation": "J670LB",
+   "commonName": "J670",
+   "caseFamily": "54/1200",
+   "casingDiameterMm": 54,
+   "nozzlePartNo": "#24",
+   "exitDiameterM": 0.0254,
+   "exitDiameterIn": 1,
+   "throatDiameterM": 0.009525,
+   "throatDiameterIn": 0.375,
+   "exitSource": "loki-case-table",
+   "exitConfidence": "medium",
+   "confidenceNote": "No instruction sheet for this motor is on disk. The nozzle is the one Loki's own \"Commercial Nozzle throat\" column gives for the 54/1200 case (#24); every one of the 43 motors whose sheet IS on disk agrees with that column, but this row is the column and not the sheet.",
+   "provenance": {
+    "lomDescription": "Commercial Nozzle throat #24 for the 54/1200 case (Tech Info table)",
+    "matchedVia": "J670",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 54 mm, #24 thru #28 = 1.000 in",
+    "assemblyDrawings": [
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d2000231000000023a",
+   "manufacturer": "Loki",
+   "designation": "J712-LB",
+   "catalogDesignation": "J712-LB",
+   "commonName": "J712",
+   "caseFamily": "38/740",
+   "casingDiameterMm": 38,
+   "nozzlePartNo": "#22",
+   "exitDiameterM": 0.019812,
+   "exitDiameterIn": 0.78,
+   "throatDiameterM": 0.008733,
+   "throatDiameterIn": 0.3438,
+   "exitSource": "loki-sheet",
+   "exitConfidence": "high",
+   "provenance": {
+    "lomDescription": "Nozzle Size #22 0.344\" (instruction sheet table)",
+    "matchedVia": "J712",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 38 mm, #19 thru #24 = 0.780 in",
+    "assemblyDrawings": [
+     "Loki instruction sheet \"38mm blue.pdf\" (docs/Loki Data)",
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d20002310000000207",
+   "manufacturer": "Loki",
+   "designation": "J820-LW",
+   "catalogDesignation": "J820-LW",
+   "commonName": "J820",
+   "caseFamily": "54/1200",
+   "casingDiameterMm": 54,
+   "nozzlePartNo": "#24",
+   "exitDiameterM": 0.0254,
+   "exitDiameterIn": 1,
+   "throatDiameterM": 0.009525,
+   "throatDiameterIn": 0.375,
+   "exitSource": "loki-sheet",
+   "exitConfidence": "high",
+   "provenance": {
+    "lomDescription": "Nozzle Size #24 0.375\" (instruction sheet table)",
+    "matchedVia": "J820",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 54 mm, #24 thru #28 = 1.000 in",
+    "assemblyDrawings": [
+     "Loki instruction sheet \"54mm White 1200.pdf\" (docs/Loki Data)",
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d2000231000000043a",
+   "manufacturer": "Loki",
+   "designation": "K1127-LB",
+   "catalogDesignation": "K1127-LB",
+   "commonName": "K1127",
+   "caseFamily": "38/1200",
+   "casingDiameterMm": 38,
+   "nozzlePartNo": "#28",
+   "exitDiameterM": 0.02286,
+   "exitDiameterIn": 0.9,
+   "throatDiameterM": 0.011112,
+   "throatDiameterIn": 0.4375,
+   "exitSource": "loki-sheet",
+   "exitConfidence": "high",
+   "provenance": {
+    "lomDescription": "Nozzle Size #28 0.437\" (instruction sheet table)",
+    "matchedVia": "K1127",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 38 mm, #25 and up = 0.900 in",
+    "assemblyDrawings": [
+     "Loki instruction sheet \"38mm Blue 1200 case.pdf\" (docs/Loki Data)",
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d20002310000000131",
+   "manufacturer": "Loki",
+   "designation": "K250-LW",
+   "catalogDesignation": "K250-LW",
+   "commonName": "K250",
+   "caseFamily": "54/2000",
+   "casingDiameterMm": 54,
+   "nozzlePartNo": "#29",
+   "exitDiameterM": 0.03175,
+   "exitDiameterIn": 1.25,
+   "throatDiameterM": 0.011509,
+   "throatDiameterIn": 0.4531,
+   "exitSource": "loki-sheet",
+   "exitConfidence": "high",
+   "provenance": {
+    "lomDescription": "Nozzle Size #29 0.453\" (instruction sheet table)",
+    "matchedVia": "K250",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 54 mm, #29 and up = 1.250 in",
+    "assemblyDrawings": [
+     "Loki instruction sheet \"54mm White 2000 case.pdf\" (docs/Loki Data)",
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d20002310000000137",
+   "manufacturer": "Loki",
+   "designation": "K350-LW",
+   "catalogDesignation": "K350-LW",
+   "commonName": "K350",
+   "caseFamily": "54/2800",
+   "casingDiameterMm": 54,
+   "nozzlePartNo": "#42",
+   "exitDiameterM": 0.03175,
+   "exitDiameterIn": 1.25,
+   "throatDiameterM": 0.01667,
+   "throatDiameterIn": 0.6563,
+   "exitSource": "loki-sheet",
+   "exitConfidence": "high",
+   "provenance": {
+    "lomDescription": "Nozzle Size #42 0.656\" (instruction sheet table)",
+    "matchedVia": "K350",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 54 mm, #29 and up = 1.250 in",
+    "assemblyDrawings": [
+     "Loki instruction sheet \"54mm_K350_L1400_instructions.pdf\" (docs/Loki Data)",
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d20002310000000434",
+   "manufacturer": "Loki",
+   "designation": "K527LR",
+   "catalogDesignation": "K527LR",
+   "commonName": "K527",
+   "caseFamily": "54/2000",
+   "casingDiameterMm": 54,
+   "nozzlePartNo": "#29",
+   "exitDiameterM": 0.03175,
+   "exitDiameterIn": 1.25,
+   "throatDiameterM": 0.011509,
+   "throatDiameterIn": 0.4531,
+   "exitSource": "loki-case-table",
+   "exitConfidence": "medium",
+   "confidenceNote": "No instruction sheet for this motor is on disk. The nozzle is the one Loki's own \"Commercial Nozzle throat\" column gives for the 54/2000 case (#29); every one of the 43 motors whose sheet IS on disk agrees with that column, but this row is the column and not the sheet.",
+   "provenance": {
+    "lomDescription": "Commercial Nozzle throat #29 for the 54/2000 case (Tech Info table)",
+    "matchedVia": "K527",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 54 mm, #29 and up = 1.250 in",
+    "assemblyDrawings": [
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d20002310000000446",
+   "manufacturer": "Loki",
+   "designation": "K627LR",
+   "catalogDesignation": "K627LR",
+   "commonName": "K627",
+   "caseFamily": "38/1200",
+   "casingDiameterMm": 38,
+   "nozzlePartNo": "#28",
+   "exitDiameterM": 0.02286,
+   "exitDiameterIn": 0.9,
+   "throatDiameterM": 0.011112,
+   "throatDiameterIn": 0.4375,
+   "exitSource": "loki-case-table",
+   "exitConfidence": "medium",
+   "confidenceNote": "No instruction sheet for this motor is on disk. The nozzle is the one Loki's own \"Commercial Nozzle throat\" column gives for the 38/1200 case (#28); every one of the 43 motors whose sheet IS on disk agrees with that column, but this row is the column and not the sheet.",
+   "provenance": {
+    "lomDescription": "Commercial Nozzle throat #28 for the 38/1200 case (Tech Info table)",
+    "matchedVia": "K627",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 38 mm, #25 and up = 0.900 in",
+    "assemblyDrawings": [
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d200023100000002b0",
+   "manufacturer": "Loki",
+   "designation": "K690-SF",
+   "catalogDesignation": "K690-SF",
+   "commonName": "K690",
+   "caseFamily": "54/2000",
+   "casingDiameterMm": 54,
+   "nozzlePartNo": "#29",
+   "exitDiameterM": 0.03175,
+   "exitDiameterIn": 1.25,
+   "throatDiameterM": 0.011509,
+   "throatDiameterIn": 0.4531,
+   "exitSource": "loki-sheet",
+   "exitConfidence": "high",
+   "provenance": {
+    "lomDescription": "Nozzle Size #29 0.453\" (instruction sheet table)",
+    "matchedVia": "K690",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 54 mm, #29 and up = 1.250 in",
+    "assemblyDrawings": [
+     "Loki instruction sheet \"54mm Spitfire.pdf\" (docs/Loki Data)",
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d200023100000002af",
+   "manufacturer": "Loki",
+   "designation": "K830-SF",
+   "catalogDesignation": "K830-SF",
+   "commonName": "K830",
+   "caseFamily": "54/2800",
+   "casingDiameterMm": 54,
+   "nozzlePartNo": "#42",
+   "exitDiameterM": 0.03175,
+   "exitDiameterIn": 1.25,
+   "throatDiameterM": 0.01667,
+   "throatDiameterIn": 0.6563,
+   "exitSource": "loki-sheet",
+   "exitConfidence": "high",
+   "provenance": {
+    "lomDescription": "Nozzle Size #42 0.656\" (instruction sheet table)",
+    "matchedVia": "K830",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 54 mm, #29 and up = 1.250 in",
+    "assemblyDrawings": [
+     "Loki instruction sheet \"54mm Spitfire.pdf\" (docs/Loki Data)",
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d20002310000000160",
+   "manufacturer": "Loki",
+   "designation": "K960-LW",
+   "catalogDesignation": "K960-LW",
+   "commonName": "K960",
+   "caseFamily": "54/2000",
+   "casingDiameterMm": 54,
+   "nozzlePartNo": "#29",
+   "exitDiameterM": 0.03175,
+   "exitDiameterIn": 1.25,
+   "throatDiameterM": 0.011509,
+   "throatDiameterIn": 0.4531,
+   "exitSource": "loki-sheet",
+   "exitConfidence": "high",
+   "provenance": {
+    "lomDescription": "Nozzle Size #29 0.453\" (instruction sheet table)",
+    "matchedVia": "K960",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 54 mm, #29 and up = 1.250 in",
+    "assemblyDrawings": [
+     "Loki instruction sheet \"54mm White 2000 case.pdf\" (docs/Loki Data)",
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d2000231000000043d",
+   "manufacturer": "Loki",
+   "designation": "L1040LR",
+   "catalogDesignation": "L1040LR",
+   "commonName": "L1040",
+   "caseFamily": "54/2800",
+   "casingDiameterMm": 54,
+   "nozzlePartNo": "#42",
+   "exitDiameterM": 0.03175,
+   "exitDiameterIn": 1.25,
+   "throatDiameterM": 0.01667,
+   "throatDiameterIn": 0.6563,
+   "exitSource": "loki-case-table",
+   "exitConfidence": "medium",
+   "confidenceNote": "No instruction sheet for this motor is on disk. The nozzle is the one Loki's own \"Commercial Nozzle throat\" column gives for the 54/2800 case (#42); every one of the 43 motors whose sheet IS on disk agrees with that column, but this row is the column and not the sheet.",
+   "provenance": {
+    "lomDescription": "Commercial Nozzle throat #42 for the 54/2800 case (Tech Info table)",
+    "matchedVia": "L1040",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 54 mm, #29 and up = 1.250 in",
+    "assemblyDrawings": [
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d20002310000000193",
+   "manufacturer": "Loki",
+   "designation": "L1400-LW",
+   "catalogDesignation": "L1400-LW",
+   "commonName": "L1400",
+   "caseFamily": "54/2800",
+   "casingDiameterMm": 54,
+   "nozzlePartNo": "#42",
+   "exitDiameterM": 0.03175,
+   "exitDiameterIn": 1.25,
+   "throatDiameterM": 0.01667,
+   "throatDiameterIn": 0.6563,
+   "exitSource": "loki-sheet",
+   "exitConfidence": "high",
+   "provenance": {
+    "lomDescription": "Nozzle Size #42 0.656\" (instruction sheet table)",
+    "matchedVia": "L1400",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 54 mm, #29 and up = 1.250 in",
+    "assemblyDrawings": [
+     "Loki instruction sheet \"54mm_K350_L1400_instructions.pdf\" (docs/Loki Data)",
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d2000231000000023b",
+   "manufacturer": "Loki",
+   "designation": "L1482-LB",
+   "catalogDesignation": "L1482-LB",
+   "commonName": "L1482",
+   "caseFamily": "76/3600",
+   "casingDiameterMm": 76,
+   "nozzlePartNo": "#40",
+   "exitDiameterM": 0.0381,
+   "exitDiameterIn": 1.5,
+   "throatDiameterM": 0.015875,
+   "throatDiameterIn": 0.625,
+   "exitSource": "loki-sheet",
+   "exitConfidence": "high",
+   "provenance": {
+    "lomDescription": "Nozzle Size #40 0.625\" (instruction sheet table)",
+    "matchedVia": "L1482",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 76 mm, #40 thru #51 = 1.500 in",
+    "assemblyDrawings": [
+     "Loki instruction sheet \"76mm Blue.pdf\" (docs/Loki Data)",
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d200023100000002ef",
+   "manufacturer": "Loki",
+   "designation": "L480-LR",
+   "catalogDesignation": "L480-LR",
+   "commonName": "L480",
+   "caseFamily": "76/3600",
+   "casingDiameterMm": 76,
+   "nozzlePartNo": "#40",
+   "exitDiameterM": 0.0381,
+   "exitDiameterIn": 1.5,
+   "throatDiameterM": 0.015875,
+   "throatDiameterIn": 0.625,
+   "exitSource": "loki-sheet",
+   "exitConfidence": "high",
+   "provenance": {
+    "lomDescription": "Nozzle Size #40 0.625\" (instruction sheet table)",
+    "matchedVia": "L480",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 76 mm, #40 thru #51 = 1.500 in",
+    "assemblyDrawings": [
+     "Loki instruction sheet \"76mm Red.pdf\" (docs/Loki Data)",
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d200023100000002ae",
+   "manufacturer": "Loki",
+   "designation": "L780-SF",
+   "catalogDesignation": "L780-SF",
+   "commonName": "L780",
+   "caseFamily": "76/3600",
+   "casingDiameterMm": 76,
+   "nozzlePartNo": "#40",
+   "exitDiameterM": 0.0381,
+   "exitDiameterIn": 1.5,
+   "throatDiameterM": 0.015875,
+   "throatDiameterIn": 0.625,
+   "exitSource": "loki-sheet",
+   "exitConfidence": "high",
+   "provenance": {
+    "lomDescription": "Nozzle Size #40 0.625\" (instruction sheet table)",
+    "matchedVia": "L780",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 76 mm, #40 thru #51 = 1.500 in",
+    "assemblyDrawings": [
+     "Loki instruction sheet \"76mm Spitfire.pdf\" (docs/Loki Data)",
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d2000231000000043b",
+   "manufacturer": "Loki",
+   "designation": "L840CT",
+   "catalogDesignation": "L840CT",
+   "commonName": "L840",
+   "caseFamily": "76/3600",
+   "casingDiameterMm": 76,
+   "nozzlePartNo": "#40",
+   "exitDiameterM": 0.0381,
+   "exitDiameterIn": 1.5,
+   "throatDiameterM": 0.015875,
+   "throatDiameterIn": 0.625,
+   "exitSource": "loki-case-table",
+   "exitConfidence": "medium",
+   "confidenceNote": "No instruction sheet for this motor is on disk. The nozzle is the one Loki's own \"Commercial Nozzle throat\" column gives for the 76/3600 case (#40); every one of the 43 motors whose sheet IS on disk agrees with that column, but this row is the column and not the sheet.",
+   "provenance": {
+    "lomDescription": "Commercial Nozzle throat #40 for the 76/3600 case (Tech Info table)",
+    "matchedVia": "L840",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 76 mm, #40 thru #51 = 1.500 in",
+    "assemblyDrawings": [
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d20002310000000184",
+   "manufacturer": "Loki",
+   "designation": "L930-LW",
+   "catalogDesignation": "L930-LW",
+   "commonName": "L930",
+   "caseFamily": "76/3600",
+   "casingDiameterMm": 76,
+   "nozzlePartNo": "#40",
+   "exitDiameterM": 0.0381,
+   "exitDiameterIn": 1.5,
+   "throatDiameterM": 0.015875,
+   "throatDiameterIn": 0.625,
+   "exitSource": "loki-sheet",
+   "exitConfidence": "high",
+   "provenance": {
+    "lomDescription": "Nozzle Size #40 0.625\" (instruction sheet table)",
+    "matchedVia": "L930",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 76 mm, #40 thru #51 = 1.500 in",
+    "assemblyDrawings": [
+     "Loki instruction sheet \"76mm White.pdf\" (docs/Loki Data)",
+     "Loki instruction sheet \"76mm_L930_M1882_instructions.pdf\" (docs/Loki Data)",
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d200023100000002ad",
+   "manufacturer": "Loki",
+   "designation": "M1200-SF",
+   "catalogDesignation": "M1200-SF",
+   "commonName": "M1200",
+   "caseFamily": "76/6000",
+   "casingDiameterMm": 76,
+   "nozzlePartNo": "#52",
+   "exitDiameterM": 0.046177,
+   "exitDiameterIn": 1.818,
+   "throatDiameterM": 0.020637,
+   "throatDiameterIn": 0.8125,
+   "exitSource": "loki-sheet",
+   "exitConfidence": "high",
+   "provenance": {
+    "lomDescription": "Nozzle Size #52 0.813\" (instruction sheet table)",
+    "matchedVia": "M1200",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 76 mm, #52 and up = 1.818 in",
+    "assemblyDrawings": [
+     "Loki instruction sheet \"76mm Spitfire.pdf\" (docs/Loki Data)",
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d20002310000000435",
+   "manufacturer": "Loki",
+   "designation": "M1650LC",
+   "catalogDesignation": "M1650LC",
+   "commonName": "M1650",
+   "caseFamily": "76/6000",
+   "casingDiameterMm": 76,
+   "nozzlePartNo": "#52",
+   "exitDiameterM": 0.046177,
+   "exitDiameterIn": 1.818,
+   "throatDiameterM": 0.020637,
+   "throatDiameterIn": 0.8125,
+   "exitSource": "loki-case-table",
+   "exitConfidence": "medium",
+   "confidenceNote": "No instruction sheet for this motor is on disk. The nozzle is the one Loki's own \"Commercial Nozzle throat\" column gives for the 76/6000 case (#52); every one of the 43 motors whose sheet IS on disk agrees with that column, but this row is the column and not the sheet.",
+   "provenance": {
+    "lomDescription": "Commercial Nozzle throat #52 for the 76/6000 case (Tech Info table)",
+    "matchedVia": "M1650",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 76 mm, #52 and up = 1.818 in",
+    "assemblyDrawings": [
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d200023100000001ae",
+   "manufacturer": "Loki",
+   "designation": "M1882-LW",
+   "catalogDesignation": "M1882-LW",
+   "commonName": "M1882",
+   "caseFamily": "76/6000",
+   "casingDiameterMm": 76,
+   "nozzlePartNo": "#52",
+   "exitDiameterM": 0.046177,
+   "exitDiameterIn": 1.818,
+   "throatDiameterM": 0.020637,
+   "throatDiameterIn": 0.8125,
+   "exitSource": "loki-sheet",
+   "exitConfidence": "high",
+   "provenance": {
+    "lomDescription": "Nozzle Size #52 0.813\" (instruction sheet table)",
+    "matchedVia": "M1882",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 76 mm, #52 and up = 1.818 in",
+    "assemblyDrawings": [
+     "Loki instruction sheet \"76mm White.pdf\" (docs/Loki Data)",
+     "Loki instruction sheet \"76mm_L930_M1882_instructions.pdf\" (docs/Loki Data)",
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d2000231000000043c",
+   "manufacturer": "Loki",
+   "designation": "M1969SF",
+   "catalogDesignation": "M1969SF",
+   "commonName": "M1969",
+   "caseFamily": "76/8000",
+   "casingDiameterMm": 76,
+   "nozzlePartNo": "#56",
+   "exitDiameterM": 0.046177,
+   "exitDiameterIn": 1.818,
+   "throatDiameterM": 0.022225,
+   "throatDiameterIn": 0.875,
+   "exitSource": "loki-sheet",
+   "exitConfidence": "high",
+   "provenance": {
+    "lomDescription": "Nozzle Size #56 0.875\" (instruction sheet table)",
+    "matchedVia": "M1969",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 76 mm, #52 and up = 1.818 in",
+    "assemblyDrawings": [
+     "Loki instruction sheet \"76mm M1969 Spitfire.pdf\" (docs/Loki Data)",
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d2000231000000024f",
+   "manufacturer": "Loki",
+   "designation": "M2550-LB",
+   "catalogDesignation": "M2550-LB",
+   "commonName": "M2550",
+   "caseFamily": "76/6000",
+   "casingDiameterMm": 76,
+   "nozzlePartNo": "#52",
+   "exitDiameterM": 0.046177,
+   "exitDiameterIn": 1.818,
+   "throatDiameterM": 0.020637,
+   "throatDiameterIn": 0.8125,
+   "exitSource": "loki-sheet",
+   "exitConfidence": "high",
+   "provenance": {
+    "lomDescription": "Nozzle Size #52 0.813\" (instruction sheet table)",
+    "matchedVia": "M2550",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 76 mm, #52 and up = 1.818 in",
+    "assemblyDrawings": [
+     "Loki instruction sheet \"76mm Blue.pdf\" (docs/Loki Data)",
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d200023100000002f1",
+   "manufacturer": "Loki",
+   "designation": "M3000-LW",
+   "catalogDesignation": "M3000-LW",
+   "commonName": "M3000",
+   "caseFamily": "76/8000",
+   "casingDiameterMm": 76,
+   "nozzlePartNo": "#56",
+   "exitDiameterM": 0.046177,
+   "exitDiameterIn": 1.818,
+   "throatDiameterM": 0.022225,
+   "throatDiameterIn": 0.875,
+   "exitSource": "loki-sheet",
+   "exitConfidence": "high",
+   "provenance": {
+    "lomDescription": "Nozzle Size #56 0.875\" (instruction sheet table)",
+    "matchedVia": "M3000",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 76 mm, #52 and up = 1.818 in",
+    "assemblyDrawings": [
+     "Loki instruction sheet \"76mm White M3k.pdf\" (docs/Loki Data)",
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d20002310000000436",
+   "manufacturer": "Loki",
+   "designation": "M3464LB",
+   "catalogDesignation": "M3464LB",
+   "commonName": "M3464",
+   "caseFamily": "76/8000",
+   "casingDiameterMm": 76,
+   "nozzlePartNo": "#56",
+   "exitDiameterM": 0.046177,
+   "exitDiameterIn": 1.818,
+   "throatDiameterM": 0.022225,
+   "throatDiameterIn": 0.875,
+   "exitSource": "loki-sheet",
+   "exitConfidence": "high",
+   "provenance": {
+    "lomDescription": "Nozzle Size #56 0.875\" (instruction sheet table)",
+    "matchedVia": "M3464",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 76 mm, #52 and up = 1.818 in",
+    "assemblyDrawings": [
+     "Loki instruction sheet \"76mm Blue 8000 case.pdf\" (docs/Loki Data)",
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d200023100000002f0",
+   "manufacturer": "Loki",
+   "designation": "M900-LR",
+   "catalogDesignation": "M900-LR",
+   "commonName": "M900",
+   "caseFamily": "76/6000",
+   "casingDiameterMm": 76,
+   "nozzlePartNo": "#52",
+   "exitDiameterM": 0.046177,
+   "exitDiameterIn": 1.818,
+   "throatDiameterM": 0.020637,
+   "throatDiameterIn": 0.8125,
+   "exitSource": "loki-sheet",
+   "exitConfidence": "high",
+   "provenance": {
+    "lomDescription": "Nozzle Size #52 0.813\" (instruction sheet table)",
+    "matchedVia": "M900",
+    "exitFrom": "lokiresearch.com Tech Info (published nozzle exit diameter table): 76 mm, #52 and up = 1.818 in",
+    "assemblyDrawings": [
+     "Loki instruction sheet \"76mm Red.pdf\" (docs/Loki Data)",
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d200023100000002f2",
+   "manufacturer": "Loki",
+   "designation": "N3800-LW",
+   "catalogDesignation": "N3800-LW",
+   "commonName": "N3800",
+   "caseFamily": "98/12500",
+   "casingDiameterMm": 98,
+   "nozzlePartNo": "#64",
+   "throatDiameterM": 0.0254,
+   "throatDiameterIn": 1,
+   "exitSource": "none",
+   "exitConfidence": "none",
+   "confidenceNote": "Loki publish no exit-diameter band for 98 mm — their 98 mm hardware is listed as \"Historical Information Only — Not In Production\" and the exit table stops at 76 mm. The throat is known (#64); the exit is not.",
+   "provenance": {
+    "lomDescription": "Nozzle Size #64 1.000\" (instruction sheet table)",
+    "matchedVia": "N3800",
+    "assemblyDrawings": [
+     "Loki instruction sheet \"98mm_N3800_instructions.pdf\" (docs/Loki Data)",
+     "lokiresearch.com Tech Info (published nozzle exit diameter table)"
     ]
    }
   }

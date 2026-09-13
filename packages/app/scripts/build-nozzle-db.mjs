@@ -917,7 +917,302 @@ const MEASURED_NOZZLES = [
   // { manufacturer: 'Loki', partNo: '54mm graphite', exitDiameterIn: 0.9,
   //   throatDiameterIn: 0.5, measuredBy: 'owner, calipers', measuredOn: '2026-09-??',
   //   appliesTo: ['K627LR'] },
+  //
+  // NOTHING LOKI NEEDS TO GO HERE ANY MORE — see the LOKI section below, which
+  // reads Loki's own published tables. This list is still the landing place for
+  // a measurement of something nobody publishes (Cesaroni), and it is emitted
+  // as `measured` for the record; it is NOT merged into `motors`, so a row put
+  // here alone would not reach the app.
 ];
+
+/* ------------------------------------------------------------------- LOKI
+ *
+ * LOKI RESEARCH, added 2026-09-13. Until now this file's `gaps.Loki` said there
+ * was no published Loki geometry and that the owner would have to measure his
+ * own nozzles. That was wrong twice over, and both halves are published by Loki
+ * themselves:
+ *
+ *  1. `https://lokiresearch.com/page/Tech_Info` prints NOZZLE EXIT DIAMETERS as
+ *     a band table per casing diameter, and the numbering convention that makes
+ *     it usable — "Every nozzle is engraved with a number indicating the throat
+ *     size in 64ths of an inch. For example, a #24 nozzle has a 24/64" = 0.375"
+ *     throat diameter." The owner had read that page and we both concluded the
+ *     exits were not on it; they are, at the FOOT of the page, below the O-ring
+ *     table (Eric, 2026-09-13: "we thought they didn't publish the exit
+ *     diameters, but the exit diameters are on the bottom of the page").
+ *
+ *  2. Every reload kit's INSTRUCTION SHEET names the nozzle that motor takes,
+ *     in a table headed "Important! The correct nozzle must be used or motor
+ *     failure may occur!". The owner put all 21 in `docs/Loki Data`.
+ *
+ * So the join is Loki's own, in one line:
+ *   instruction sheet -> nozzle number -> that casing's exit band -> motorId
+ *
+ * THE BANDS ARE WHY THIS WORKS AT ALL. Loki mould ONE exit per casing size per
+ * band and drill the throat to suit the motor — the same arrangement AeroTech's
+ * dash numbers describe, and the reason the old gap note could say "five or six
+ * measurements would cover the line, because Loki change only the throat". So
+ * an exit follows from a nozzle number, and a nozzle number is published for
+ * every motor whose CASE is in Loki's table, sheet on disk or not.
+ *
+ * TWO SOURCES FOR THE NUMBER, graded apart:
+ *   - `loki-sheet` (high): the motor's own instruction sheet names it.
+ *   - `loki-case-table` (medium): Loki's "Commercial Nozzle throat" column for
+ *     that case. Published data, but joined through thrustcurve.org's
+ *     `caseInfo` string rather than read off a sheet with the motor's own name
+ *     on it, so it is one inference wide and says so.
+ *
+ * AND THE TWO AGREE EVERYWHERE BOTH EXIST. Every sheet was read independently
+ * of the case table and no sheet contradicts the column for its case. That is
+ * the check this section rests on, so it is RUN on every build
+ * (`lokiSheetVsTable`, reported in the output) rather than claimed here.
+ *
+ * WHAT IS DELIBERATELY NOT USED. The same Tech Info table carries a "Suggested
+ * EX Nozzle throat" column beside the commercial one, and it is a different
+ * number: 38/480 suggests #22 where the commercial motor takes #19, 76/8000
+ * suggests #60 against #56. It is a starting point for people making their own
+ * propellant ("based on the use of typical packable EX propellant
+ * formulations"). Taking that column instead would widen the 38/480 throat by
+ * 34 % in area and move motors into the wrong exit band. Written down because
+ * the two columns sit side by side and the wrong one is the easier to grab.
+ */
+
+/**
+ * Loki's published exit diameters, keyed by casing diameter in mm. Verbatim
+ * from the Tech Info page, read 2026-09-13. A band runs `from` its nozzle
+ * number `to` the next, inclusive; `Infinity` is their "and up".
+ *
+ * There is NO 98 mm or 114 mm band. Their 98 mm and 114 mm hardware sits under
+ * "Historical Information Only — Not In Production", so the two 98 mm motors
+ * thrustcurve.org still lists are a stated gap rather than an oversight.
+ */
+const LOKI_EXIT_BANDS = {
+  38: [{ from: 10, to: 15, exitIn: 0.470 }, { from: 16, to: 18, exitIn: 0.630 },
+    { from: 19, to: 24, exitIn: 0.780 }, { from: 25, to: Infinity, exitIn: 0.900 }],
+  54: [{ from: 19, to: 23, exitIn: 0.850 }, { from: 24, to: 28, exitIn: 1.000 },
+    { from: 29, to: Infinity, exitIn: 1.250 }],
+  76: [{ from: 28, to: 39, exitIn: 1.255 }, { from: 40, to: 51, exitIn: 1.500 },
+    { from: 52, to: Infinity, exitIn: 1.818 }],
+};
+
+/**
+ * Loki's "Commercial Nozzle throat" column, verbatim, keyed by the case
+ * designation thrustcurve.org writes in `caseInfo`. The 98 mm rows are kept
+ * because the N3800's own sheet confirms one of them (#64) and a reader
+ * checking that motor should meet the agreement rather than a blank.
+ *
+ * Two cases with live motors are BLANK in Loki's own column and so are absent
+ * here: 54/4000 (the cell reads "Single Use") and 76/13000.
+ */
+const LOKI_CASE_THROAT = {
+  '38/120': 10, '38/240': 16, '38/480': 19, '38/740': 22, '38/1200': 28,
+  '54/950': 19, '54/1200': 24, '54/1600': 26, '54/2000': 29, '54/2800': 42,
+  '76/2400': 28, '76/3600': 40, '76/4800': 48, '76/6000': 52, '76/8000': 56,
+  '98/5000': 44, '98/7500': 52, '98/10000': 60, '98/12500': 64, '98/16000': 80,
+};
+
+/**
+ * The 21 instruction sheets in `docs/Loki Data`, read 2026-09-13:
+ * `[commonName, nozzle number, the throat the sheet PRINTS]`.
+ *
+ * The printed throat is kept so a reading can be checked against the paper; the
+ * throat this file publishes is the exact n/64 that the number MEANS, because
+ * that is Loki's definition and not a three-decimal rounding of it. The two are
+ * checked against each other below.
+ *
+ * HOW THESE WERE READ, and why "the text of the PDF" is not the answer. Six of
+ * the 76 mm sheets carry their table as an IMAGE with no text layer at all, and
+ * on `76mm_L930_M1882_instructions.pdf` the text layer's READING ORDER pairs
+ * each motor with the OTHER one's nozzle — L930 with #52, M1882 with #40.
+ * Reading order is not layout. Every row here came from the WORD COORDINATES on
+ * the page, or from the rendered image where there is no text, and each was
+ * then checked against Loki's per-case column above and against the case length
+ * the sheet prints beside it. `76mm Blue 8000 case.pdf` heads itself M-3464 and
+ * labels its own table row M-3400; the headline is the motor, the row label is
+ * Loki's typo, and the impulse (9395 N-sec) and case (40.875") settle it.
+ */
+const LOKI_SHEETS = [
+  { file: '38mm Red.pdf', rows: [['G66', 10, 0.156], ['H90', 16, 0.250], ['I210', 19, 0.297], ['J320', 22, 0.344]] },
+  { file: '38mm Spitfire.pdf', rows: [['G69', 10, 0.156], ['H100', 16, 0.250], ['I316', 19, 0.297], ['J396', 22, 0.344]] },
+  { file: '38mm White.pdf', rows: [['G80', 10, 0.156], ['H144', 16, 0.250], ['I405', 19, 0.297], ['J528', 22, 0.344]] },
+  { file: '38mm blue.pdf', rows: [['H160', 16, 0.250], ['I430', 19, 0.297], ['J712', 22, 0.344]] },
+  { file: '38mm cocktail.pdf', rows: [['G70', 10, 0.156], ['H125', 16, 0.250], ['I377', 19, 0.297]] },
+  { file: '38mm Blue 1200 case.pdf', rows: [['K1127', 28, 0.437]] },
+  { file: '38mm Red Blue Cocktail 1200 case.pdf', rows: [['J1026', 28, 0.437]] },
+  { file: '38mm Spitfire 1200 case.pdf', rows: [['J650', 28, 0.437]] },
+  { file: '54mm White 1200.pdf', rows: [['J175', 24, 0.375], ['J525', 24, 0.375], ['J820', 24, 0.375]] },
+  { file: '54mm Spitfire.pdf', rows: [['J350', 24, 0.375], ['K690', 29, 0.453], ['K830', 42, 0.656]] },
+  { file: '54mm White 2000 case.pdf', rows: [['K250', 29, 0.453], ['K960', 29, 0.453]] },
+  { file: '54mm_K350_L1400_instructions.pdf', rows: [['K350', 42, 0.656], ['L1400', 42, 0.656]] },
+  { file: '76mm Red.pdf', rows: [['L480', 40, 0.625], ['M900', 52, 0.813]] },
+  { file: '76mm Spitfire.pdf', rows: [['L780', 40, 0.625], ['M1200', 52, 0.813]] },
+  { file: '76mm White.pdf', rows: [['L930', 40, 0.625], ['M1882', 52, 0.813]] },
+  { file: '76mm Blue.pdf', rows: [['L1482', 40, 0.625], ['M2550', 52, 0.813]] },
+  { file: '76mm_L930_M1882_instructions.pdf', rows: [['L930', 40, 0.625], ['M1882', 52, 0.813]] },
+  { file: '76mm White M3k.pdf', rows: [['M3000', 56, 0.875]] },
+  { file: '76mm Blue 8000 case.pdf', rows: [['M3464', 56, 0.875]] },
+  { file: '76mm M1969 Spitfire.pdf', rows: [['M1969', 56, 0.875]] },
+  { file: '98mm_N3800_instructions.pdf', rows: [['N3800', 64, 1.0]] },
+];
+
+const LOKI_TECH_INFO = 'lokiresearch.com Tech Info (published nozzle exit diameter table)';
+
+/** The exit Loki mould for this nozzle number in this casing, or undefined. */
+const lokiBand = (casingMm, nozzleNo) => (LOKI_EXIT_BANDS[casingMm] ?? [])
+  .find((b) => nozzleNo >= b.from && nozzleNo <= b.to);
+
+/** Which band a number landed in, spelled out for the provenance line. */
+function lokiBandLabel(casingMm, nozzleNo) {
+  const b = lokiBand(casingMm, nozzleNo);
+  if (!b) return undefined;
+  const range = b.to === Infinity ? `#${b.from} and up` : `#${b.from} thru #${b.to}`;
+  return `${casingMm} mm, ${range} = ${b.exitIn.toFixed(3)} in`;
+}
+
+const LOKI = motorsDb.motors.filter((m) => m.manufacturerAbbrev === 'Loki');
+
+// `commonName` is the join key: it is what Loki's sheets print once the hyphen
+// is dropped ("J-525" -> "J525"), and it is unique across all 60 Loki rows in
+// the bundled catalogue. The designation is not usable — the catalogue appends
+// the propellant ("J525-LW", "HP-G69-SF") and the sheets never do.
+const lokiByCommon = new Map();
+for (const m of LOKI) {
+  if (lokiByCommon.has(m.commonName)) {
+    throw new Error(`Loki commonName ${m.commonName} is not unique in the catalogue — the join key has to change.`);
+  }
+  lokiByCommon.set(m.commonName, m);
+}
+
+// Sheet readings per motor. A motor printed on two sheets — L930 and M1882 are,
+// on the 2005 instruction sheet and again on the 2013 reload-kit sheet — keeps
+// both files as provenance and has to agree with itself.
+const lokiFromSheet = new Map();
+const lokiSheetProblems = [];
+for (const { file, rows: sheetRows } of LOKI_SHEETS) {
+  for (const [common, nozzleNo, printedThroatIn] of sheetRows) {
+    // The number IS the throat in 64ths — Loki's own definition — so the
+    // printed decimal is a rounding of it, and a disagreement wider than that
+    // rounding means one of the two was misread.
+    if (Math.abs(nozzleNo / 64 - printedThroatIn) > 0.001) {
+      lokiSheetProblems.push(`${file} ${common}: #${nozzleNo} is ${(nozzleNo / 64).toFixed(4)} in, sheet prints ${printedThroatIn}`);
+    }
+    const prev = lokiFromSheet.get(common);
+    if (prev && prev.nozzleNo !== nozzleNo) {
+      lokiSheetProblems.push(`${common}: ${prev.files.join(', ')} say #${prev.nozzleNo}, ${file} says #${nozzleNo}`);
+    }
+    if (prev) prev.files.push(file);
+    else lokiFromSheet.set(common, { nozzleNo, printedThroatIn, files: [file] });
+  }
+}
+for (const common of lokiFromSheet.keys()) {
+  if (!lokiByCommon.has(common)) {
+    lokiSheetProblems.push(`${common}: read off a sheet, but the catalogue has no Loki motor by that name`);
+  }
+}
+
+// THE CROSS-CHECK, run rather than asserted: every sheet reading against Loki's
+// own per-case commercial throat column, wherever both exist.
+const lokiSheetVsTable = [...lokiFromSheet]
+  .map(([common, read]) => {
+    const m = lokiByCommon.get(common);
+    const stated = m?.caseInfo ? LOKI_CASE_THROAT[m.caseInfo] : undefined;
+    return stated === undefined ? null : {
+      commonName: common,
+      caseInfo: m.caseInfo,
+      sheetNozzleNo: read.nozzleNo,
+      caseTableNozzleNo: stated,
+      agrees: stated === read.nozzleNo,
+      sheets: read.files,
+    };
+  })
+  .filter((x) => x !== null)
+  .sort((a, b) => a.commonName.localeCompare(b.commonName));
+
+const lokiRows = [];
+for (const m of LOKI) {
+  const read = lokiFromSheet.get(m.commonName);
+  const fromTable = m.caseInfo ? LOKI_CASE_THROAT[m.caseInfo] : undefined;
+  const nozzleNo = read?.nozzleNo ?? fromTable;
+  // No sheet and no case in Loki's own column: nothing published at all. No
+  // row, and the motor is named in `uncovered` instead — the same treatment as
+  // an AeroTech motor whose reload kit has no assembly drawing.
+  if (nozzleNo === undefined) continue;
+
+  const throatIn = Math.round((nozzleNo / 64) * 1e4) / 1e4;
+  const exitIn = lokiBand(m.diameter, nozzleNo)?.exitIn;
+  const fromSheet = read !== undefined;
+
+  lokiRows.push({
+    motorId: m.motorId,
+    manufacturer: 'Loki',
+    designation: m.designation,
+    catalogDesignation: m.designation,
+    commonName: m.commonName,
+    caseFamily: m.caseInfo ?? 'no case stated',
+    casingDiameterMm: m.diameter,
+    // Loki publish no nozzle part numbers; the ENGRAVED NUMBER is the part's
+    // identity, and checking it is what the instruction sheet tells a flyer to
+    // do before every flight. So that is what this field carries.
+    nozzlePartNo: `#${nozzleNo}`,
+    ...(exitIn !== undefined ? { exitDiameterM: round6(inToM(exitIn)), exitDiameterIn: exitIn } : {}),
+    throatDiameterM: round6(inToM(throatIn)),
+    throatDiameterIn: throatIn,
+    exitSource: exitIn === undefined ? 'none' : fromSheet ? 'loki-sheet' : 'loki-case-table',
+    exitConfidence: exitIn === undefined ? 'none' : fromSheet ? 'high' : 'medium',
+    ...(exitIn === undefined
+      ? {
+        confidenceNote: `Loki publish no exit-diameter band for ${m.diameter} mm — their ${m.diameter} mm `
+          + 'hardware is listed as "Historical Information Only — Not In Production" and the exit table '
+          + `stops at 76 mm. The throat is known (#${nozzleNo}); the exit is not.`,
+      }
+      : !fromSheet
+        ? {
+          confidenceNote: 'No instruction sheet for this motor is on disk. The nozzle is the one Loki\'s own '
+            + `"Commercial Nozzle throat" column gives for the ${m.caseInfo} case (#${nozzleNo}); every one of `
+            + `the ${lokiSheetVsTable.length} motors whose sheet IS on disk agrees with that column, but this `
+            + 'row is the column and not the sheet.',
+        }
+        : {}),
+    provenance: {
+      lomDescription: fromSheet
+        ? `Nozzle Size #${nozzleNo} ${read.printedThroatIn.toFixed(3)}" (instruction sheet table)`
+        : `Commercial Nozzle throat #${nozzleNo} for the ${m.caseInfo} case (Tech Info table)`,
+      matchedVia: m.commonName,
+      ...(exitIn !== undefined
+        ? { exitFrom: `${LOKI_TECH_INFO}: ${lokiBandLabel(m.diameter, nozzleNo)}` }
+        : {}),
+      assemblyDrawings: fromSheet
+        ? [...read.files.map((f) => `Loki instruction sheet "${f}" (docs/Loki Data)`), LOKI_TECH_INFO]
+        : [LOKI_TECH_INFO],
+    },
+  });
+}
+
+// A misread sheet is a wrong exit AREA on a live motor, so it stops the build
+// rather than shipping. The two checks it covers — the engraved number against
+// the throat the same cell prints, and a motor that appears on two sheets
+// against itself — are the only two places the transcription above can be
+// checked without the paper.
+if (lokiSheetProblems.length > 0) {
+  console.error('Loki sheet readings do not hold together:');
+  for (const p of lokiSheetProblems) console.error(`  ${p}`);
+  process.exit(1);
+}
+const lokiDisagree = lokiSheetVsTable.filter((x) => !x.agrees);
+if (lokiDisagree.length > 0) {
+  console.error('A Loki instruction sheet disagrees with Loki\'s own commercial-throat column:');
+  for (const d of lokiDisagree) {
+    console.error(`  ${d.commonName} (${d.caseInfo}): sheet #${d.sheetNozzleNo}, table #${d.caseTableNozzleNo}`);
+  }
+  process.exit(1);
+}
+
+// ONE table, two manufacturers, one sort — so the file still diffs cleanly and
+// nothing downstream has to know there are two sources behind it.
+motorRows.push(...lokiRows);
+motorRows.sort((a, b) => a.manufacturer.localeCompare(b.manufacturer)
+  || a.designation.localeCompare(b.designation)
+  || a.caseFamily.localeCompare(b.caseFamily));
 
 /**
  * AN INDEPENDENT CHECK, and what it does and does not settle.
@@ -1024,28 +1319,44 @@ const sourceDate = (() => {
  * person quoting a coverage figure reads one off instead of counting, and a
  * catalogue refresh moves the figure with it.
  */
-const coverageByCasing = (() => {
-  const have = new Set(motorRows.filter((m) => m.motorId).map((m) => m.motorId));
+/**
+ * PER MANUFACTURER since 2026-09-13, because there are now two of them and one
+ * table keyed by casing diameter alone would have added AeroTech's 38 mm motors
+ * to Loki's and reported a coverage figure for neither.
+ *
+ * `withExitDiameter` is counted apart from `withNozzleRow` (2026-09-13). A row
+ * is not a number: J615ST-20A has a row and no exit because an aerospike has no
+ * exit plane, and Loki's N3800 has a row with a known #64 throat and no exit
+ * because Loki's exit table stops at 76 mm. Quoting "has a row" as coverage of
+ * the thing the app actually needs would overstate both.
+ */
+const coverageFor = (motors) => {
+  const have = new Map(motorRows.filter((m) => m.motorId).map((m) => [m.motorId, m]));
   const by = new Map();
-  for (const m of AEROTECH) {
+  for (const m of motors) {
     // In production only: coverage of motors nobody can buy is not the claim
     // anyone means, and `uncovered` below lists the retired ones regardless.
     if (m.availability === 'OOP') continue;
-    if (!by.has(m.diameter)) by.set(m.diameter, { inProduction: 0, withNozzleRow: 0, missing: [] });
+    if (!by.has(m.diameter)) {
+      by.set(m.diameter, { inProduction: 0, withNozzleRow: 0, withExitDiameter: 0, missing: [] });
+    }
     const e = by.get(m.diameter);
     e.inProduction++;
-    if (have.has(m.motorId)) e.withNozzleRow++;
-    else e.missing.push(m.designation);
+    const row = have.get(m.motorId);
+    if (row) {
+      e.withNozzleRow++;
+      if (row.exitDiameterM !== undefined) e.withExitDiameter++;
+    } else e.missing.push(m.designation);
   }
   return Object.fromEntries([...by.entries()]
     .sort((a, b) => a[0] - b[0])
     .map(([mm, e]) => [String(mm), { ...e, missing: e.missing.sort() }]));
-})();
+};
 
 const db = {
   generated: sourceDate,
-  source: 'AeroTech / RCS Rocket Motor Components published drawings and store pages',
-  sourceNote: 'docs/RCS Schematics (LOCAL-ONLY, gitignored). Regenerate with packages/app/scripts/build-nozzle-db.mjs.',
+  source: 'AeroTech / RCS Rocket Motor Components published drawings and store pages; Loki Research published instruction sheets and Tech Info tables',
+  sourceNote: 'docs/RCS Schematics and docs/Loki Data (both LOCAL-ONLY, gitignored). Regenerate with packages/app/scripts/build-nozzle-db.mjs.',
   catalogueGenerated: motorsDb.generated,
   rule: 'A dash number drills the THROAT; the moulded EXIT is unchanged — AeroTech\'s own note, printed on 14 of the 23 nozzle drawing files. The 98mm 01800 "M" mould is the documented exception (1.750 in exit against the base 0.900 in) and is resolved from part-specific sources.',
   counts: {
@@ -1073,15 +1384,25 @@ const db = {
     catalogueMotors: motorsDb.motors.length,
     catalogueAeroTech: AEROTECH.length,
     catalogueAeroTechInProduction: AEROTECH.filter((m) => m.availability !== 'OOP').length,
+    lokiSheetsRead: LOKI_SHEETS.length,
+    lokiMotorsOnASheet: lokiFromSheet.size,
+    lokiRows: lokiRows.length,
+    lokiRowsWithExit: lokiRows.filter((m) => m.exitDiameterM !== undefined).length,
+    lokiRowsFromCaseTable: lokiRows.filter((m) => m.exitSource === 'loki-case-table').length,
+    catalogueLoki: LOKI.length,
+    catalogueLokiInProduction: LOKI.filter((m) => m.availability !== 'OOP').length,
   },
   gaps: {
-    Loki: 'No published Loki nozzle geometry in the local document set. Testers\' own RASAero files type 0.9 in for the 54 mm K627LR in four files and 0, 0.91 and 1.3 in for the same motor elsewhere — user input, not data, and deliberately not imported. Owner has the hardware and will measure; add through MEASURED_NOZZLES in build-nozzle-db.mjs.',
-    Cesaroni: 'No published nozzle geometry found on pro38.com or elsewhere (owner searched 2026-09-08). Known gap.',
+    Loki: `Covered since 2026-09-13 from Loki's OWN published tables, not from measurement: their Tech Info page prints the nozzle exit diameter per casing and nozzle-number band, and each reload kit's instruction sheet names the nozzle that motor takes. ${lokiRows.filter((m) => m.exitDiameterM !== undefined).length} of ${LOKI.length} catalogued Loki motors now carry an exit. WHAT IS STILL SHORT: Loki publish no exit band above 76 mm (their 98 mm and 114 mm hardware is listed "Historical Information Only — Not In Production"), so N3800-LW has its #64 throat and no exit and N5500LW has neither; the 54/4000 cell in their commercial-throat column reads "Single Use", so L2050LW and M1378LR have no nozzle number; and H500-LW is out of production with no case stated. Five motors, named in \`uncovered\`. A sheet for any of them, or a measured nozzle, closes it — measurements go in MEASURED_NOZZLES, sheet readings in LOKI_SHEETS.`,
+    Cesaroni: 'No published nozzle geometry found on pro38.com or elsewhere (owner searched 2026-09-08). Known gap. Worth re-checking the way Loki\'s was: the Loki exits were on a page we had both already read, at the foot of it, under a heading we were not looking for.',
     AeroTechSingleUse: 'AeroTech publish an assembly drawing for RELOADABLE motors, because the drawing is the reload kit\'s parts list, and this file is built from that folder ("Motor Assembly Drawings"). Most single-use motors have no reload kit and no such drawing — that is most of the AeroTech catalogue this file does not cover. One qualification, found 2026-09-08: the DMS single-use motors ARE drawn, in the same format, under "DMS Motor Designs" (51 sheets, 29 mm to 152 mm), and M1340W-PS names its nozzle there — "NOZZLE ( KLMN 98MM) .734" I.D. /1.75" EXIT", part 01800-3M. That folder is deliberately not read yet: adding a document family adds rows to shipped data, which is a decision rather than a fix.',
   },
   coverage: {
-    note: 'What this file covers, per motor CASING DIAMETER, counted from motors.json at build time rather than written down. A hand-written coverage claim is exactly how "every 98 mm motor" reached a release note while four in-production 98 mm motors had no row here (M1305M, M1340W, N1975W-PS, O5500X-PS). "inProduction" is the AeroTech rows this catalogue does not mark OOP, and every motor short of a row is named. Most of the missing are single-use motors, whose paperwork is not the reload-kit assembly drawing this file is built from — see gaps.AeroTechSingleUse.',
-    byCasingDiameterMm: coverageByCasing,
+    note: 'What this file covers, per MANUFACTURER and then per motor CASING DIAMETER, counted from motors.json at build time rather than written down. A hand-written coverage claim is exactly how "every 98 mm motor" reached a release note while four in-production 98 mm motors had no row here (M1305M, M1340W, N1975W-PS, O5500X-PS). "inProduction" is the rows this catalogue does not mark OOP; "withNozzleRow" is how many have a row here and "withExitDiameter" how many of those carry the number the app actually needs — they differ where a row exists with no exit (an aerospike, or a Loki motor larger than Loki\'s published exit table). Every motor short of a row is named, and named again in `uncovered`.',
+    byManufacturer: {
+      AeroTech: { byCasingDiameterMm: coverageFor(AEROTECH) },
+      Loki: { byCasingDiameterMm: coverageFor(LOKI) },
+    },
   },
   // Which AeroTech motors are NOT here, grouped by the case they belong to.
   // Computed rather than written down, so it cannot go stale against a
@@ -1097,9 +1418,9 @@ const db = {
   uncovered: (() => {
     const have = new Set(motorRows.filter((m) => m.motorId).map((m) => m.motorId));
     const by = new Map();
-    for (const m of AEROTECH) {
+    for (const m of [...AEROTECH, ...LOKI]) {
       if (have.has(m.motorId)) continue;
-      const key = `${m.diameter} mm ${m.caseInfo || 'single-use (no reload case)'}`;
+      const key = `${m.manufacturerAbbrev} ${m.diameter} mm ${m.caseInfo || 'single-use (no reload case)'}`;
       if (!by.has(key)) by.set(key, []);
       by.get(key).push(m.designation);
     }
@@ -1111,6 +1432,17 @@ const db = {
   crossCheck: {
     note: 'Tripoli certification letters that print a measured throat and exit. All are 1997-2001 tests on 98 mm motors, predating AeroTech\'s 2003 "REDESIGNED FOR NET MOLDED EXIT/THROAT" revision, so the throats corroborate this database and the exits describe the older hardware. Comparison only — never an input.',
     tripoli: certCheck,
+    // The second independent check in this file, and the one the whole Loki
+    // section rests on: every motor whose instruction sheet is on disk, read
+    // from the sheet, against the "Commercial Nozzle throat" Loki publish for
+    // that case. Two documents, no shared step. Recorded rather than only
+    // asserted so a reader can see the agreement instead of taking it on trust
+    // — and the build refuses to write this file if any row says `agrees:
+    // false`.
+    lokiSheetAgainstCaseTable: {
+      note: `${lokiSheetVsTable.filter((x) => x.agrees).length} of ${lokiSheetVsTable.length} instruction-sheet readings agree with Loki's own per-case commercial-throat column. A disagreement fails the build.`,
+      rows: lokiSheetVsTable,
+    },
   },
   nozzles: partRows,
   motors: motorRows,
@@ -1160,11 +1492,22 @@ if (unmatched.length) {
 // Per casing diameter, because "covers every N mm motor" is the claim people
 // make about this file and it has to be readable off the run that produced it
 // (2026-09-08, from review — v0.120's note claimed all 98 mm and was four short).
-console.log('\nin-production AeroTech coverage, by casing diameter');
-for (const [mm, e] of Object.entries(db.coverage.byCasingDiameterMm)) {
-  console.log(`  ${`${mm} mm`.padEnd(8)} ${String(e.withNozzleRow).padStart(3)} of ${String(e.inProduction).padEnd(3)}`
-    + (e.missing.length ? `  no row: ${e.missing.join(' ')}` : '  (all)'));
+for (const [maker, cov] of Object.entries(db.coverage.byManufacturer)) {
+  console.log(`\nin-production ${maker} coverage, by casing diameter`);
+  for (const [mm, e] of Object.entries(cov.byCasingDiameterMm)) {
+    console.log(`  ${`${mm} mm`.padEnd(8)} ${String(e.withExitDiameter).padStart(3)} with an exit`
+      + ` of ${String(e.inProduction).padEnd(3)}`
+      + (e.withNozzleRow !== e.withExitDiameter ? ` (${e.withNozzleRow} rows)` : '')
+      + (e.missing.length ? `  no row: ${e.missing.join(' ')}` : '  (all)'));
+  }
 }
+
+// Loki, whose whole section rests on two documents agreeing (2026-09-13).
+console.log(`\nLoki: ${c.lokiSheetsRead} instruction sheets read, ${c.lokiMotorsOnASheet} motors named on one`);
+console.log(`  rows written                    ${c.lokiRows} of ${c.catalogueLoki} catalogued Loki motors`);
+console.log(`    with an exit diameter         ${c.lokiRowsWithExit}`);
+console.log(`    nozzle from the case table    ${c.lokiRowsFromCaseTable} (no sheet on disk for these)`);
+console.log(`  sheet vs Loki's own case table  ${lokiSheetVsTable.filter((x) => x.agrees).length}/${lokiSheetVsTable.length} agree`);
 
 const uncoveredTotal = Object.values(db.uncovered).reduce((a, v) => a + v.length, 0);
 console.log(`\nAeroTech motors with no nozzle row  ${uncoveredTotal}`);
