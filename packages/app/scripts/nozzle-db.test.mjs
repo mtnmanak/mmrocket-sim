@@ -388,6 +388,7 @@ describe('the join into the motor catalogue', () => {
     // newly certified motor can outrank an old one on the same string without
     // anything here being wrong.
     const bad = [];
+    const divergent = [];
     for (const r of rows) {
       if (!r.motorId) continue;
       // The row's OWN manufacturer, not a hard-coded 'AeroTech' (2026-09-13).
@@ -396,12 +397,39 @@ describe('the join into the motor catalogue', () => {
       // passing AeroTech here would have resolved Loki's H100-SF to AeroTech's
       // H100W_DMS and reported it as a broken join.
       const hit = findDbMotor(r.provenance.matchedVia, r.casingDiameterMm, undefined, r.manufacturer);
-      if (hit?.motorId !== r.motorId) {
-        bad.push(`${r.designation} via "${r.provenance.matchedVia}": build says ${r.catalogDesignation}, findDbMotor says ${hit?.designation ?? 'nothing'}`);
+      if (hit?.motorId === r.motorId) continue;
+      // A DMS ROW MAY LEGITIMATELY DIVERGE, and only a DMS row (2026-09-13).
+      // `findDbMotor` has no notion of which document family a nozzle row came
+      // from, and the catalogue carries BOTH forms of some motors: H550ST is
+      // the RMS-38/360 reload, HP-H550ST the same motor as a DMS single-use.
+      // The 38mm/H550ST-14A sheet is in "DMS Motor Designs", so the build is
+      // right to attach it to HP-H550ST; the app, given the bare designation,
+      // returns the reload. Neither is a defect.
+      //
+      // It is BOUNDED, though. The divergence may only be to the same motor in
+      // another form — same common name, same diameter — never to an unrelated
+      // one, and the build separately refuses to write the file at all if a DMS
+      // row lands on a motor the catalogue does not call single-use.
+      const mine = byId.get(r.motorId);
+      if (r.docFamily === 'dms' && hit && mine
+        && hit.commonName === mine.commonName && hit.diameter === mine.diameter) {
+        divergent.push(`${r.designation}: build ${r.catalogDesignation} (DMS single-use), findDbMotor ${hit.designation}`);
+        continue;
       }
+      bad.push(`${r.designation} via "${r.provenance.matchedVia}": build says ${r.catalogDesignation}, findDbMotor says ${hit?.designation ?? 'nothing'}`);
     }
     judgeAgainstCatalogue(bad, 'a row no longer re-resolves through the app\'s own findDbMotor to the '
       + 'motor the build matched it to', REGENERATE);
+    // Reported, never silent: each entry is a motor whose nozzle a user's FILE
+    // will not find by name, even though the browser will.
+    if (divergent.length > 0) {
+      console.warn(`\n[nozzles.json] ${divergent.length} DMS row(s) resolve to the OTHER FORM of the same `
+        + 'motor through the app\'s own matcher, which cannot know the drawing was a single-use one:\n  '
+        + `${divergent.join('\n  ')}\n`);
+    }
+    expect(divergent.length,
+      'a DMS divergence is expected to be rare; a large number means the join has drifted')
+      .toBeLessThan(5);
   });
 
   it('keeps the raw designation even where nothing matched, so no motor is lost', () => {

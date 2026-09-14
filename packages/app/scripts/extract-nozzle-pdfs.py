@@ -205,8 +205,29 @@ def main(root):
     out = {'root': os.path.abspath(root), 'assemblies': [], 'specPages': [],
            'nozzleDrawings': [], 'certNozzles': []}
 
-    asm_root = os.path.join(root, 'Motor Assembly Drawings')
-    for path in sorted(glob.glob(os.path.join(asm_root, '**', '*.pdf'), recursive=True)):
+    # TWO DOCUMENT FAMILIES, read the same way (2026-09-13).
+    #
+    # "Motor Assembly Drawings" is the reload kit's parts list, so it exists
+    # only for RELOADABLE motors. "DMS Motor Designs" is the same drawing, in
+    # the same LIST OF MATERIAL format, for AeroTech's single-use DMS line —
+    # 51 sheets, 29 mm to 152 mm, and 50 of them name a nozzle part from the
+    # very same families (01500, 01550, 01670, 01770, 01800, 01880).
+    #
+    # THIS FOLDER WAS FOUND ON 2026-09-08 AND NOT READ FOR FIVE DAYS. The gap
+    # note in nozzles.json recorded that it existed, quoted the M1340W-PS
+    # nozzle row out of it, and deferred it as "a decision rather than a fix" —
+    # a deferral that was never put to the owner, so it was not a decision, it
+    # was a drop. Eric asked the obvious question on 2026-09-13: the motor
+    # designs carry the nozzle part number, which is the whole method, so why
+    # were they not read? No good answer. They are read now.
+    #
+    # The difference that matters downstream: a DMS folder is the CASING SIZE
+    # ("29mm"), not a reload case family ("RMS-29-180 High Power"), so the
+    # folder cannot tie-break the catalogue join the way it does for reloadable
+    # sheets. `docFamily` is carried so the .mjs can tell them apart.
+    for family, sub in (('reloadable', 'Motor Assembly Drawings'), ('dms', 'DMS Motor Designs')):
+      asm_root = os.path.join(root, sub)
+      for path in sorted(glob.glob(os.path.join(asm_root, '**', '*.pdf'), recursive=True)):
         rel = os.path.relpath(path, asm_root).replace(os.sep, '/')
         doc = fitz.open(path)
         rows, found_header = [], False
@@ -226,7 +247,11 @@ def main(root):
         # Provenance, not parsing: a filename is a claim until the drawing agrees.
         designation = re.sub(r'\s*\([^)]*\)\s*$', '', os.path.basename(path)[:-4])
         designation = re.sub(r'\s+(?:2-Grain|LMS)\b.*$', '', designation, flags=re.I)
-        designation = re.sub(r'\s+Assembly.*$', '', designation, flags=re.I).strip()
+        designation = re.sub(r'\s+Assembly.*$', '', designation, flags=re.I)
+        # DMS filenames add a note after the designation on two sheets
+        # ("O5500X-PS dimensioned", "O6000W-P exterior dimensions"); strip it so
+        # the two O5500X-PS sheets resolve to one motor instead of two.
+        designation = re.sub(r'\s+(?:dimensioned|exterior dimensions).*$', '', designation, flags=re.I).strip()
         squash = lambda s: re.sub(r'[^A-Z0-9]', '', s.upper())
         # The sheet often prints the motor WITHOUT the delay tag the filename
         # carries ("H165R" for H165R-L) or with a different one (the K1800ST-PS
@@ -235,6 +260,7 @@ def main(root):
         stem = re.sub(r'-(?:S|M|L|X|P|PS|\d+A)$', '', designation)
         out['assemblies'].append({
             'file': rel,
+            'docFamily': family,
             'caseFolder': rel.split('/')[0],
             'designationFromFile': designation,
             'foundLomHeader': found_header,

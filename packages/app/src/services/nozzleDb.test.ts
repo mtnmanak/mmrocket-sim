@@ -76,8 +76,25 @@ describe('the shipped nozzle data itself', () => {
   });
 
   it('has no duplicate motor ids, so a lookup cannot be ambiguous', () => {
-    const ids = motors.map((m) => m.motorId);
-    expect(new Set(ids).size).toBe(ids.length);
+    // ROWS WITHOUT AN ID ARE NOT DUPLICATES OF EACH OTHER (2026-09-13). This
+    // read `new Set(motors.map(m => m.motorId)).size === motors.length`, and
+    // every row that matched NO catalogue motor carries `motorId: undefined` —
+    // so a Set collapsed all of them into one entry and the count came up
+    // short. It passed for two months because there was exactly ONE such row
+    // (AeroTech I59N-P, which has a drawing and no catalogue entry); adding the
+    // DMS drawings took it to ten and the test failed with "expected 288 to be
+    // 297", which says nothing at all about duplicate ids.
+    //
+    // What the check is FOR is the lookup: `nozzleForMotorId` keys a Map by
+    // motorId, so two rows sharing one id would make the answer depend on
+    // insertion order. Only rows that HAVE an id can do that.
+    const ids = motors.map((m) => m.motorId).filter((id): id is string => typeof id === 'string');
+    const seen = new Map<string, number>();
+    for (const id of ids) seen.set(id, (seen.get(id) ?? 0) + 1);
+    const dupes = [...seen.entries()].filter(([, n]) => n > 1).map(([id]) => id);
+    expect(dupes, `these motorIds appear on more than one row: ${dupes.join(', ')}`).toEqual([]);
+    // And the check is not vacuous: most rows do carry an id.
+    expect(ids.length).toBeGreaterThan(motors.length / 2);
   });
 
   it('still covers the count the record claims', async () => {

@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.130';
+export const APP_VERSION = '0.131';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.131',
+    date: '2026-09-13',
+    title: 'AeroTech single-use motors have published nozzles after all - 33 more motors covered',
+    items: [
+      'I TOLD YOU SINGLE-USE MOTORS HAD NO DRAWING TO READ. THEY DO. AeroTech publish a MOTOR DESIGN sheet for their DMS single-use line - 51 of them, 29 mm to 152 mm - in the identical format to the reload-kit assembly drawings this database was built from, naming the same nozzle part numbers. I found that folder on 8 September, wrote a note about it in the data file, deferred it as "a decision rather than a fix", and never actually put the decision to anyone. The owner asked the obvious question on 13 September - the designs carry the nozzle part number, which is the whole method, so why were they not read? There was no good answer.',
+      'SO 33 MORE IN-PRODUCTION MOTORS NOW FILL THEIR OWN EXIT DIAMETER IN, taking AeroTech from 188 of their 272 current motors to 221. Among them: M1340W and O5500X-PS, two of the four 98 mm motors the app has been reporting as uncovered since v0.120, which takes 98 mm to 30 of 32; H13ST and H14ST; the whole DMS H- and I-motor range in 29 and 38 mm; and the 54 mm J250W, J450DM, K400C, K455NW, K535W, K850DM and L1000W. If you fly any of those, RE-OPEN THE DESIGN AND RE-FLY IT - the exit area adds thrust as the air thins, so your predicted apogee will read higher than it did.',
+      'NOTHING THAT WAS ALREADY IN THE FILE MOVED. 49 rows were added, none removed, and not one existing row changed its part, throat, exit, source or confidence - checked against the previous file rather than asserted. Seven of the new sheets name a nozzle with no published exit and are recorded as such rather than guessed at: four 29 mm motors whose nozzle is MOULDED INTO THE CASE so there is no separate part to look up, two on a machined part whose drawing gives an outside diameter and no exit, and one Medusa. An eighth, the K76WN-P, has its exit withheld on purpose: its sheet says the nozzle was "CUT TO 1.395 LONG", and a bell cut shorter exits NARROWER than the mould it came from, so publishing the mould figure would have overstated it.',
+      'EVERY ONE OF THE 41 NEW ROWS WAS THEN READ BACK OFF ITS OWN PDF by something other than the code that wrote it, and every published exit was attacked a second time by a reader told to refute it. NONE was refuted. That pass did turn up four things the drawings say which this file does not, and they are recorded in it rather than quietly acted on: two motors whose sheets draw a throat 7.6 percent narrower than the part they name, and two motors whose sheets appear to dimension an exit the file publishes as unknown. A dimension drawn with a leader line is an unlabelled number, so it stays a cross-check here and never becomes the answer - but it is written down now instead of being found again.',
+    ],
+  },
   {
     version: '0.130',
     date: '2026-09-13',

@@ -54,3 +54,8 @@ engine-java/build/
 # NOTE: ignored files do not sync between machines via git — the canonical
 # copy is kept outside the repository.
 docs/
+
+# Python bytecode from packages/app/scripts/extract-nozzle-pdfs.py (the one Python
+# file in the pipeline). Never committed.
+__pycache__/
+*.pyc
