@@ -975,6 +975,12 @@ const MEASURED_NOZZLES = [
  * formulations"). Taking that column instead would widen the 38/480 throat by
  * 34 % in area and move motors into the wrong exit band. Written down because
  * the two columns sit side by side and the wrong one is the easier to grab.
+ *
+ * AND THIS PARAGRAPH DID NOT PREVENT IT. The first transcription took the EX
+ * number on all five rows where Loki's commercial cell is EMPTY, because it was
+ * read from a flattened text dump in which an empty cell simply is not there.
+ * See `LOKI_CASE_NOZZLE` below, which now carries both columns so the mistake
+ * has nowhere to hide. A warning in a comment is not a mechanism.
  */
 
 /**
@@ -996,19 +1002,81 @@ const LOKI_EXIT_BANDS = {
 };
 
 /**
- * Loki's "Commercial Nozzle throat" column, verbatim, keyed by the case
- * designation thrustcurve.org writes in `caseInfo`. The 98 mm rows are kept
- * because the N3800's own sheet confirms one of them (#64) and a reader
- * checking that motor should meet the agreement rather than a blank.
+ * Loki's per-case nozzle columns, verbatim, keyed by the case designation
+ * thrustcurve.org writes in `caseInfo`. Read cell by cell from the Tech Info
+ * page's HTML (columns 7 and 8 of its one big table), 2026-09-13.
  *
- * Two cases with live motors are BLANK in Loki's own column and so are absent
- * here: 54/4000 (the cell reads "Single Use") and 76/13000.
+ * BOTH COLUMNS ARE HERE, AND ONLY ONE IS USED. That is the whole point of the
+ * shape.
+ *
+ * The first version of this constant was a flat `case -> number` map built from
+ * a FLATTENED text dump of the page, and on every row where Loki's Commercial
+ * cell is empty the flattening silently slid the Suggested EX number into its
+ * place. FIVE of twenty keys were wrong that way — 76/4800 (#48), 98/5000
+ * (#44), 98/7500 (#52), 98/10000 (#60) and 98/16000 (#80) are all EX numbers
+ * sitting where a commercial one was claimed — and the comment above them said
+ * "verbatim ... Commercial Nozzle throat column". No catalogued motor uses any
+ * of those five cases, so nothing user-facing was ever wrong; a thrustcurve.org
+ * refresh adding one 76/4800 motor would have published an EX throat as
+ * commercial, in a field that buys thrust.
+ *
+ * Found 2026-09-13 by an adversarial re-check of this file's own claims, and it
+ * is worth noticing WHAT it caught: the section header forty lines above warns
+ * in capitals that the EX column is a different number and that "the wrong one
+ * is the easier to grab". I wrote that warning and then grabbed the wrong one
+ * five times. A warning is not a mechanism. THIS is the mechanism: a null
+ * commercial cell is spelled out, the EX number sits beside it labelled, and
+ * `lokiCommercialThroat()` is the only reader.
+ *
+ * `suggestedEx` is recorded rather than dropped precisely so nobody later
+ * "fills in the gap" from the page and reintroduces the same error.
  */
-const LOKI_CASE_THROAT = {
-  '38/120': 10, '38/240': 16, '38/480': 19, '38/740': 22, '38/1200': 28,
-  '54/950': 19, '54/1200': 24, '54/1600': 26, '54/2000': 29, '54/2800': 42,
-  '76/2400': 28, '76/3600': 40, '76/4800': 48, '76/6000': 52, '76/8000': 56,
-  '98/5000': 44, '98/7500': 52, '98/10000': 60, '98/12500': 64, '98/16000': 80,
+const LOKI_CASE_NOZZLE = {
+  // 29 mm has no commercial column at all — Loki list no 29 mm hardware.
+  '38/120': { commercial: 10, suggestedEx: 11 },
+  '38/240': { commercial: 16, suggestedEx: 16 },
+  '38/480': { commercial: 19, suggestedEx: 22 },
+  '38/740': { commercial: 22, suggestedEx: 28 },
+  '38/1200': { commercial: 28, suggestedEx: 28 },
+  '54/950': { commercial: 19, suggestedEx: 24 },
+  '54/1200': { commercial: 24, suggestedEx: 29 },
+  '54/1600': { commercial: 26, suggestedEx: 33 },
+  '54/2000': { commercial: 29, suggestedEx: 36 },
+  // The cell reads "#42 Single Use" — the number is stated, the qualifier is
+  // Loki's own note that the 2800 case's nozzle is not reloadable.
+  '54/2800': { commercial: 42, suggestedEx: 44 },
+  // "Single Use" and nothing else: no number. L2050LW and M1378LR live here,
+  // which is why they are a gap the owner is closing with calipers.
+  '54/4000': { commercial: null, suggestedEx: null },
+  '76/2400': { commercial: 28, suggestedEx: 32 },
+  '76/3600': { commercial: 40, suggestedEx: 40 },
+  '76/4800': { commercial: null, suggestedEx: 48 },
+  '76/6000': { commercial: 52, suggestedEx: 52 },
+  '76/8000': { commercial: 56, suggestedEx: 60 },
+  '76/13000': { commercial: null, suggestedEx: 80 },
+  // Everything below is under Loki's "Historical Information Only — Not In
+  // Production" banner. 98/12500 is the one that matters and the one that has a
+  // commercial number: the N3800-LW's own instruction sheet says #64 too, which
+  // is a real corroboration across two documents. It still yields no EXIT,
+  // because the exit-band table stops at 76 mm.
+  '98/5000': { commercial: null, suggestedEx: 44 },
+  '98/7500': { commercial: null, suggestedEx: 52 },
+  '98/10000': { commercial: null, suggestedEx: 60 },
+  '98/12500': { commercial: 64, suggestedEx: 76 },
+  '98/16000': { commercial: null, suggestedEx: 80 },
+  '114/6000': { commercial: null, suggestedEx: 48 },
+  '114/9000': { commercial: null, suggestedEx: 60 },
+  '114/12000': { commercial: null, suggestedEx: 64 },
+  '114/22000': { commercial: null, suggestedEx: 90 },
+};
+
+/**
+ * The COMMERCIAL throat for a case, or undefined. The only reader of the table
+ * above, so the EX column cannot reach a shipped row by accident.
+ */
+const lokiCommercialThroat = (caseInfo) => {
+  const cell = LOKI_CASE_NOZZLE[caseInfo];
+  return cell && cell.commercial !== null ? cell.commercial : undefined;
 };
 
 /**
@@ -1144,7 +1212,7 @@ for (const common of lokiFromSheet.keys()) {
 const lokiSheetVsTable = [...lokiFromSheet]
   .map(([common, read]) => {
     const m = lokiByCommon.get(common);
-    const stated = m?.caseInfo ? LOKI_CASE_THROAT[m.caseInfo] : undefined;
+    const stated = m?.caseInfo ? lokiCommercialThroat(m.caseInfo) : undefined;
     return stated === undefined ? null : {
       commonName: common,
       caseInfo: m.caseInfo,
@@ -1160,7 +1228,7 @@ const lokiSheetVsTable = [...lokiFromSheet]
 const lokiRows = [];
 for (const m of LOKI) {
   const read = lokiFromSheet.get(m.commonName);
-  const fromTable = m.caseInfo ? LOKI_CASE_THROAT[m.caseInfo] : undefined;
+  const fromTable = m.caseInfo ? lokiCommercialThroat(m.caseInfo) : undefined;
   const nozzleNo = read?.nozzleNo ?? fromTable;
   // No sheet and no case in Loki's own column: nothing published at all. No
   // row, and the motor is named in `uncovered` instead — the same treatment as

@@ -143,8 +143,10 @@ async function db(): Promise<Map<string, NozzleEntry>> {
  * Keyed on `motorId` and NOT on the designation: designations repeat across
  * manufacturers and across a motor's own history, and the database is built
  * against a dated catalogue snapshot. An id that has no row simply has nothing
- * published — 189 of AeroTech's 272 in-production motors have a figure, and 54
- * of Loki's 58 (2026-09-13). Cesaroni publish nothing anyone has found; see the
+ * published — 188 of AeroTech's 272 in-production motors have a figure, and 54
+ * of Loki's 58 (2026-09-13). (189 AeroTech rows exist; the 189th is the J615ST
+ * aerospike, which has no exit plane for the term to act on, so it is a row
+ * with no number and is deliberately never returned.) Cesaroni publish nothing anyone has found; see the
  * file's own `coverage` and `gaps`, which are counted at build time rather than
  * written down, so the numbers in this sentence can be checked against it.
  */
