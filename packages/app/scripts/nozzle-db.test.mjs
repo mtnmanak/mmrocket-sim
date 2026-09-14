@@ -594,6 +594,48 @@ describe('the Loki rows, derived from Loki\'s own published tables', () => {
     expect(silent, silent.join(', ')).toEqual([]);
   });
 
+  it("carries Loki's own custom-exit caution on exactly the 76 mm rows", () => {
+    // Eric's ruling (b), 2026-09-13. Loki publish: "76mm nozzle exits up to
+    // 2.0\" are available upon request for an additional machining fee." It
+    // names no other casing, so a 38 or 54 mm row carrying it would be a
+    // caution about an option that flyer cannot buy.
+    const withNote = rows.filter((r) => r.customExitNote);
+    expect(withNote.length).toBeGreaterThan(0);
+    const wrong = withNote.filter((r) => r.manufacturer !== 'Loki' || r.casingDiameterMm !== 76
+      || r.exitDiameterIn === undefined)
+      .map((r) => `${r.designation}: ${r.manufacturer} ${r.casingDiameterMm} mm, exit ${r.exitDiameterIn}`);
+    expect(wrong, wrong.join('\n')).toEqual([]);
+    // And EVERY 76 mm Loki row with an exit has it — a note on some of them
+    // would be worse than none, because its absence would read as "not this one".
+    const missing = rows
+      .filter((r) => r.manufacturer === 'Loki' && r.casingDiameterMm === 76 && r.exitDiameterIn !== undefined)
+      .filter((r) => !r.customExitNote)
+      .map((r) => r.designation);
+    expect(missing, missing.join(', ')).toEqual([]);
+  });
+
+  it("states an area increase the row's own numbers actually give", () => {
+    // THE NUMBER IN THE SENTENCE, checked against the number in the row. A
+    // caution whose arithmetic is wrong is worse than no caution: it is a
+    // figure a flyer may act on, in a field that buys thrust. 2.0 in against
+    // 1.818 is +21 %; against the 1.500 band it is +78 %, and the note is
+    // generated per row precisely so both are right.
+    const bad = [];
+    for (const r of rows.filter((x) => x.customExitNote)) {
+      const m = /([\d.]+) in is (\d+) % more exit AREA/.exec(r.customExitNote);
+      if (!m) { bad.push(`${r.designation}: the note states no area figure`); continue; }
+      const want = Math.round(((Number(m[1]) / r.exitDiameterIn) ** 2 - 1) * 100);
+      if (Number(m[2]) !== want) {
+        bad.push(`${r.designation}: note says ${m[2]} %, ${m[1]} in over ${r.exitDiameterIn} in gives ${want} %`);
+      }
+      // And the standard figure it quotes must be the row's own.
+      if (!r.customExitNote.includes(`STANDARD ${r.exitDiameterIn} in`)) {
+        bad.push(`${r.designation}: the note does not quote this row's own ${r.exitDiameterIn} in`);
+      }
+    }
+    expect(bad, bad.join('\n')).toEqual([]);
+  });
+
   it('records the two documents agreeing, and lets neither be empty', () => {
     // The cross-check the whole section rests on: each instruction sheet read
     // against Loki's own per-case commercial-throat column. A build that wrote

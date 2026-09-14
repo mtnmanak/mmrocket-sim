@@ -172,6 +172,19 @@ export function NozzleField({
           {entry.note}
         </p>
       )}
+      {/* The manufacturer's own caution about this figure — Loki's 76 mm
+          custom exits today. Eric's ruling (b), 2026-09-13: show it under the
+          field and nowhere else, because "since these are custom built nozzles,
+          the user will definitely know they are using a non-standard exit
+          diameter and will know to update that field. The average user may not
+          even know what the exit diameter is or why it should be changed."
+          Shown whenever the stage HAS a published figure, filled or not, since
+          the point is that the figure may not describe the part in the case. */}
+      {entry?.customExitNote && published !== null && (
+        <p className="comp-stats" style={{ margin: '3px 0 0' }} data-nozzle="custom-exit">
+          {entry.customExitNote}
+        </p>
+      )}
     </div>
   );
 }

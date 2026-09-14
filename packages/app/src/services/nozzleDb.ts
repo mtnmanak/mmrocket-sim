@@ -60,6 +60,20 @@ export interface NozzleEntry {
    * an older reload kit can tell.
    */
   note?: string;
+  /**
+   * A caution the MANUFACTURER publishes about this row's own figure — today,
+   * Loki's note that a 76 mm exit can be machined out to 2.0 in on request, so
+   * the standard figure this database carries may not be the nozzle in the
+   * case (Eric's ruling (b), 2026-09-13).
+   *
+   * Separate from `note`, which is about the database's own ambiguity (two
+   * published nozzles for one motor). This one is not an ambiguity: the figure
+   * is right for the standard part and the user may hold a different part.
+   * Written by the builder with the citation, never assembled in the UI — a
+   * component spelling out "Loki AND 76 mm" would put a manufacturer's data
+   * where nothing checks it.
+   */
+  customExitNote?: string;
   /** The published drawings the reading came from, for the provenance line. */
   drawings: string[];
 }
@@ -72,6 +86,7 @@ interface RawMotor {
   nozzlePartNo?: string;
   exitConfidence?: string;
   confidenceNote?: string;
+  customExitNote?: string;
   provenance?: { assemblyDrawings?: string[] };
 }
 
@@ -102,6 +117,7 @@ function toEntry(m: RawMotor): NozzleEntry | null {
     ...(m.nozzlePartNo ? { nozzlePartNo: m.nozzlePartNo } : {}),
     confidence,
     ...(m.confidenceNote ? { note: m.confidenceNote } : {}),
+    ...(m.customExitNote ? { customExitNote: m.customExitNote } : {}),
     drawings: m.provenance?.assemblyDrawings ?? [],
   };
 }

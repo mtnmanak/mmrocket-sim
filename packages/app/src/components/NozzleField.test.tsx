@@ -272,3 +272,59 @@ describe('NozzleField — rule 4: a value cleared because the motor changed', ()
     expect(text()).not.toMatch(/Cleared/);
   });
 });
+
+describe('NozzleField — the manufacturer’s own caution about its own figure', () => {
+  // Eric's ruling (b), 2026-09-13, on `issues-2026-09-13b.md`. Loki publish:
+  // "76mm nozzle exits up to 2.0" are available upon request for an additional
+  // machining fee." So the 1.818 in this database carries is their STANDARD
+  // part, and a flyer who asked for a custom exit holds a different one —
+  // 21 % more area, on a term worth 5.5 % of apogee on a real tester file.
+  const M900 = '5f4294d200023100000002f0';   // Loki, 76 mm, 1.818 in standard
+  const M900_EXIT_M = 0.046177;
+  const J525 = '5f4294d20002310000000122';   // Loki, 54 mm — NOT 76 mm
+
+  it('tells a 76 mm Loki flyer the exit can be machined out, and by how much', async () => {
+    await render({ exitDiameterM: M900_EXIT_M, motorIds: [M900], motorLabel: 'M900' });
+    expect(text()).toMatch(/machine a 76 mm exit out to 2\.0 in on request/);
+    expect(text()).toMatch(/21 % more exit AREA/);
+  });
+
+  it('says it on the row even before the field is filled', async () => {
+    // The point of the caution is that the figure may not describe the part in
+    // the case, which is as true of the number arriving as of the number sat
+    // there. It must not wait for a `matches` state to appear.
+    await render({ exitDiameterM: null, motorIds: [M900], motorLabel: 'M900' });
+    expect(host.querySelector('[data-nozzle="custom-exit"]')).toBeTruthy();
+  });
+
+  it('says NOTHING on a Loki motor that is not 76 mm', async () => {
+    // Loki's note names no other size, and a caution about an option you cannot
+    // buy is the noise the say-nothing rule exists to prevent.
+    await render({ exitDiameterM: 0.0254, motorIds: [J525], motorLabel: 'J525' });
+    expect(host.querySelector('[data-nozzle="custom-exit"]')).toBeNull();
+  });
+
+  it('says nothing on an AeroTech motor', async () => {
+    await render({ exitDiameterM: D13_EXIT_M });
+    expect(host.querySelector('[data-nozzle="custom-exit"]')).toBeNull();
+  });
+
+  it('says nothing when the stage has no published figure at all', async () => {
+    await render({ exitDiameterM: null, motorIds: ['no-such-motor'] });
+    expect(host.querySelector('[data-nozzle="custom-exit"]')).toBeNull();
+  });
+
+  it('says nothing when the stage cannot be filled, even though a motor in it carries the note', async () => {
+    // The case that actually exercises the `published !== null` guard: the
+    // M900 HAS a note, but the stage also holds a motor with no figure, so the
+    // equivalent nozzle is unknown and the field stays blank. A caution about
+    // machining out a number the app is not offering has nothing to qualify.
+    await render({
+      exitDiameterM: null,
+      motors: [{ motorId: M900, count: 1 }, { motorId: 'no-such-motor', count: 1 }],
+      motorLabel: 'M900',
+    });
+    expect(committed).toEqual([]);
+    expect(host.querySelector('[data-nozzle="custom-exit"]')).toBeNull();
+  });
+});

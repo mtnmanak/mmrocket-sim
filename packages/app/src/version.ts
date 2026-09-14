@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.128';
+export const APP_VERSION = '0.129';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.129',
+    date: '2026-09-13',
+    title: 'A 76 mm Loki nozzle can be machined out, and the app now says so',
+    items: [
+      'LOKI WILL MACHINE A 76 MM EXIT OUT TO 2.0 INCHES ON REQUEST, and until now nothing in the app said it. Their own note, on the same page the exit table sits on: "76mm nozzle exits up to 2.0 are available upon request for an additional machining fee, however this removes more graphite material, thus weakening the part and making it more vulnerable to cracking." What v0.127 fills in is Loki STANDARD exit for that case. If yours was machined out, the number in the field is not your nozzle - and 2.0 inches against the standard 1.818 is 21 percent more AREA, on a term worth 5.5 percent of apogee on a real tester file.',
+      'SO EVERY 76 MM LOKI MOTOR NOW CARRIES A LINE UNDER THE FIELD saying what the standard is, that it can be machined out, and by how much the area changes for that particular motor - 21 percent on the 1.818 inch band, 78 percent on the 1.500 inch one. It is said there and nowhere else: a 38 or 54 mm flyer would be reading a caution about an option they cannot buy. The owner reasoning, which is why it is worth saying at all: "since these are custom built nozzles, the user will definitely know they are using a non-standard exit diameter and will know to update that field. The average user may not even know what the exit diameter is or why it should be changed."',
+      'AND THE FOUR LOKI MOTORS STILL WITHOUT AN EXIT NOW SAY WHY, individually, rather than as one gap. N3800-LW and N5500LW are specialist motors nobody has the figure for - N3800 own instruction sheet gives its throat and Loki publish no exit band above 76 mm - so they stay unknown until the data turns up. L2050LW and M1378LR use one-time-use nozzles the owner has in hand and will measure, so those two are a measurement pending rather than a gap. Nothing else changed.',
+    ],
+  },
   {
     version: '0.128',
     date: '2026-09-13',

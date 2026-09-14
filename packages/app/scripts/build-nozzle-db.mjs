@@ -1057,6 +1057,35 @@ const LOKI_SHEETS = [
 
 const LOKI_TECH_INFO = 'lokiresearch.com Tech Info (published nozzle exit diameter table)';
 
+/**
+ * LOKI WILL MACHINE A 76 MM EXIT WIDER THAN THE ONE IN THE TABLE, and say so on
+ * the same page (2026-09-13, Eric's ruling (b) on `issues-2026-09-13b.md`):
+ *
+ *   "76mm nozzle exits up to 2.0" are available upon request for an additional
+ *    machining fee, however this removes more graphite material, thus weakening
+ *    the part and making it more vulnerable to cracking."
+ *
+ * So the 76 mm figure this file publishes is the STANDARD one, and a flyer who
+ * asked for a custom exit has a different nozzle in the case. 2.0 in against
+ * 1.818 in is **21 % more AREA**, and on `Mach 3.rkt` the whole pressure-thrust
+ * term was worth +5.54 % of apogee — so the difference is not decoration.
+ *
+ * WHY IT IS DATA AND NOT UI COPY. It is a fact Loki publish, with a citation,
+ * about specific hardware. Spelling "Loki AND 76 mm" into a React component
+ * would put a manufacturer's data in the one place nothing checks it; here it
+ * rides with the row, the panel renders whatever it finds, and the day another
+ * casing or another maker offers the same thing it is one line in this file.
+ *
+ * ONLY 76 mm: Loki's note names no other size, and 38/54 mm flyers seeing a
+ * caution about an option they cannot buy is exactly the noise Eric's ruling
+ * on the absence-line was about. His reasoning for showing it at all: "since
+ * these are custom built nozzles, the user will definitely know they are using
+ * a non-standard exit diameter and will know to update that field. The average
+ * user may not even know what the exit diameter is or why it should be changed."
+ */
+const LOKI_CUSTOM_EXIT_CASING_MM = 76;
+const LOKI_CUSTOM_EXIT_MAX_IN = 2.0;
+
 /** The exit Loki mould for this nozzle number in this casing, or undefined. */
 const lokiBand = (casingMm, nozzleNo) => (LOKI_EXIT_BANDS[casingMm] ?? [])
   .find((b) => nozzleNo >= b.from && nozzleNo <= b.to);
@@ -1173,6 +1202,17 @@ for (const m of LOKI) {
             + 'row is the column and not the sheet.',
         }
         : {}),
+    // Loki's own published note about custom exits, on the rows it applies to.
+    // Only where an exit was actually published: a row with no figure has
+    // nothing for the note to qualify.
+    ...(exitIn !== undefined && m.diameter === LOKI_CUSTOM_EXIT_CASING_MM
+      ? {
+        customExitNote: `Loki will machine a 76 mm exit out to ${LOKI_CUSTOM_EXIT_MAX_IN.toFixed(1)} in on request `
+          + `(their own note, for a machining fee). This is their STANDARD ${exitIn} in. If yours was `
+          + `machined out, type it — ${LOKI_CUSTOM_EXIT_MAX_IN.toFixed(1)} in is `
+          + `${Math.round(((LOKI_CUSTOM_EXIT_MAX_IN / exitIn) ** 2 - 1) * 100)} % more exit AREA.`,
+      }
+      : {}),
     provenance: {
       lomDescription: fromSheet
         ? `Nozzle Size #${nozzleNo} ${read.printedThroatIn.toFixed(3)}" (instruction sheet table)`
@@ -1393,7 +1433,7 @@ const db = {
     catalogueLokiInProduction: LOKI.filter((m) => m.availability !== 'OOP').length,
   },
   gaps: {
-    Loki: `Covered since 2026-09-13 from Loki's OWN published tables, not from measurement: their Tech Info page prints the nozzle exit diameter per casing and nozzle-number band, and each reload kit's instruction sheet names the nozzle that motor takes. ${lokiRows.filter((m) => m.exitDiameterM !== undefined).length} of ${LOKI.length} catalogued Loki motors now carry an exit. WHAT IS STILL SHORT: Loki publish no exit band above 76 mm (their 98 mm and 114 mm hardware is listed "Historical Information Only — Not In Production"), so N3800-LW has its #64 throat and no exit and N5500LW has neither; the 54/4000 cell in their commercial-throat column reads "Single Use", so L2050LW and M1378LR have no nozzle number; and H500-LW is out of production with no case stated. Five motors, named in \`uncovered\`. A sheet for any of them, or a measured nozzle, closes it — measurements go in MEASURED_NOZZLES, sheet readings in LOKI_SHEETS.`,
+    Loki: `Covered since 2026-09-13 from Loki's OWN published tables, not from measurement: their Tech Info page prints the nozzle exit diameter per casing and nozzle-number band, and each reload kit's instruction sheet names the nozzle that motor takes. ${lokiRows.filter((m) => m.exitDiameterM !== undefined).length} of ${LOKI.length} catalogued Loki motors now carry an exit. WHAT IS STILL SHORT — four motors, and Eric ruled on each of them 2026-09-13: N3800-LW and N5500LW are SPECIALIST MOTORS HE DOES NOT HAVE THE FIGURES FOR ("we can leave them as unknown and, if we get the data, we can update the database") — Loki publish no exit band above 76 mm, their 98 mm hardware being listed "Historical Information Only — Not In Production", so N3800-LW carries its #64 throat and no exit and N5500LW has neither. L2050LW and M1378LR (54/4000, whose commercial-throat cell reads "Single Use") are ONE-TIME-USE NOZZLES HE OWNS AND WILL MEASURE — expect those two through MEASURED_NOZZLES, not through a sheet. H500-LW is a fifth row-less motor, out of production with no case stated. All are named in \`uncovered\`.`,
     Cesaroni: 'No published nozzle geometry found on pro38.com or elsewhere (owner searched 2026-09-08). Known gap. Worth re-checking the way Loki\'s was: the Loki exits were on a page we had both already read, at the foot of it, under a heading we were not looking for.',
     AeroTechSingleUse: 'AeroTech publish an assembly drawing for RELOADABLE motors, because the drawing is the reload kit\'s parts list, and this file is built from that folder ("Motor Assembly Drawings"). Most single-use motors have no reload kit and no such drawing — that is most of the AeroTech catalogue this file does not cover. One qualification, found 2026-09-08: the DMS single-use motors ARE drawn, in the same format, under "DMS Motor Designs" (51 sheets, 29 mm to 152 mm), and M1340W-PS names its nozzle there — "NOZZLE ( KLMN 98MM) .734" I.D. /1.75" EXIT", part 01800-3M. That folder is deliberately not read yet: adding a document family adds rows to shipped data, which is a decision rather than a fix.',
   },
