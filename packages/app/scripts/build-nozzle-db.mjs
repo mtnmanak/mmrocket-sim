@@ -1250,6 +1250,84 @@ if (lokiDisagree.length > 0) {
 // ONE table, two manufacturers, one sort — so the file still diffs cleanly and
 // nothing downstream has to know there are two sources behind it.
 motorRows.push(...lokiRows);
+
+/**
+ * MEASURED NOZZLES, MERGED — and until 2026-09-13 they were not.
+ *
+ * `MEASURED_NOZZLES` was written on 2026-09-08 as the documented landing place
+ * for a nozzle nobody publishes, and `gaps.Loki` told the owner to put his
+ * caliper readings there. It was emitted as `measured` in the JSON and NEVER
+ * MERGED INTO `motors`, so a row put there would have reached the file and not
+ * the app: `nozzleDb.ts` reads `motors` and nothing else. The escape hatch was
+ * a hole. Found 2026-09-13, the day before Eric measures the two 54/4000
+ * one-time-use nozzles (L2050LW, M1378LR) that are the last closeable Loki gap.
+ *
+ * TWO RULES, both deliberate:
+ *
+ *  1. A measurement fills a motor that has NO row. It never overwrites a
+ *     published one. If it names a motor already covered, the build FAILS
+ *     rather than silently preferring one source over the other — that is a
+ *     decision a person should make in the open, not a precedence rule hidden
+ *     in a script. (Today no measured entry collides with anything.)
+ *  2. Provenance is mandatory, exactly as it is for a published row: who
+ *     measured it and when. A measured number with no measurer is
+ *     indistinguishable, downstream, from one read off a drawing.
+ *
+ * `exitSource: 'measured'` and `exitConfidence: 'high'` — high because a
+ * caliper on the part in hand is better evidence about THAT part than a band
+ * that covers a run of throat sizes; the source field is what keeps the two
+ * kinds of number tellable apart.
+ */
+const measuredRows = [];
+const measuredProblems = [];
+for (const mn of MEASURED_NOZZLES) {
+  if (!(mn.exitDiameterIn > 0)) { measuredProblems.push(`${mn.partNo}: no usable exitDiameterIn`); continue; }
+  if (!mn.measuredBy || !mn.measuredOn) { measuredProblems.push(`${mn.partNo}: measurements need measuredBy and measuredOn`); continue; }
+  if (!Array.isArray(mn.appliesTo) || mn.appliesTo.length === 0) { measuredProblems.push(`${mn.partNo}: appliesTo names no motor`); continue; }
+  for (const want of mn.appliesTo) {
+    const m = motorsDb.motors.find((x) => x.designation === want || x.commonName === want);
+    if (!m) { measuredProblems.push(`${mn.partNo}: the catalogue has no motor "${want}"`); continue; }
+    if (motorRows.some((r) => r.motorId === m.motorId)) {
+      measuredProblems.push(`${mn.partNo}: ${want} already has a PUBLISHED row — a measurement must not `
+        + 'silently replace one. Decide which source wins and say so here.');
+      continue;
+    }
+    const exitIn = mn.exitDiameterIn;
+    const throatIn = mn.throatDiameterIn;
+    measuredRows.push({
+      motorId: m.motorId,
+      manufacturer: mn.manufacturer,
+      designation: m.designation,
+      catalogDesignation: m.designation,
+      commonName: m.commonName,
+      caseFamily: m.caseInfo ?? 'no case stated',
+      casingDiameterMm: m.diameter,
+      nozzlePartNo: mn.partNo,
+      exitDiameterM: round6(inToM(exitIn)),
+      exitDiameterIn: exitIn,
+      ...(throatIn > 0
+        ? { throatDiameterM: round6(inToM(throatIn)), throatDiameterIn: throatIn }
+        : {}),
+      exitSource: 'measured',
+      exitConfidence: 'high',
+      confidenceNote: `Measured from the hardware by ${mn.measuredBy} on ${mn.measuredOn}, because `
+        + `${mn.manufacturer} publish no figure for this motor. Not a published number.`,
+      provenance: {
+        lomDescription: `${mn.partNo} — measured exit ${exitIn} in`
+          + (throatIn > 0 ? `, throat ${throatIn} in` : ''),
+        matchedVia: want,
+        exitFrom: `Measured: ${mn.measuredBy}, ${mn.measuredOn}`,
+        assemblyDrawings: [`Measured from the hardware (${mn.measuredBy}, ${mn.measuredOn})`],
+      },
+    });
+  }
+}
+if (measuredProblems.length > 0) {
+  console.error('MEASURED_NOZZLES cannot be merged:');
+  for (const p of measuredProblems) console.error(`  ${p}`);
+  process.exit(1);
+}
+motorRows.push(...measuredRows);
 motorRows.sort((a, b) => a.manufacturer.localeCompare(b.manufacturer)
   || a.designation.localeCompare(b.designation)
   || a.caseFamily.localeCompare(b.caseFamily));

@@ -764,6 +764,48 @@ describe('the gaps are stated rather than left blank', () => {
       .toEqual([]);
   });
 
+  it('MERGES a measured nozzle into the rows the app reads, not only into `measured`', () => {
+    // THE HOLE THIS CLOSES (2026-09-13). `MEASURED_NOZZLES` was written on
+    // 2026-09-08 as the documented landing place for a nozzle nobody
+    // publishes, and `gaps.Loki` told the owner to put his caliper readings
+    // there. It was emitted as `measured` and NEVER MERGED INTO `motors` — and
+    // `nozzleDb.ts` reads `motors` and nothing else, so a measurement would
+    // have reached this file and not the app. The builder now merges them.
+    //
+    // ⚠ THIS TEST IS VACUOUS WHILE `measured` IS EMPTY, and it is today. That
+    // is deliberate and it is said out loud: it goes live the moment the first
+    // measurement lands (Eric is measuring L2050LW and M1378LR), which is
+    // exactly when a silent regression here would cost something. The merge
+    // itself was proved by hand on 2026-09-13 with a temporary entry: two rows
+    // appeared in `motors` at exitSource "measured" and Loki 54 mm coverage
+    // went 14/16 to 16/16. Do not read a green tick here as proof of the merge
+    // until `measured` has an entry in it.
+    const byId = new Map(rows.map((r) => [r.motorId, r]));
+    const byDesignation = new Map(rows.map((r) => [r.designation, r]));
+    const bad = [];
+    for (const m of db.measured) {
+      for (const want of m.appliesTo ?? []) {
+        const row = byDesignation.get(want) ?? [...byId.values()].find((r) => r.commonName === want);
+        if (!row) { bad.push(`${m.partNo}: ${want} is in \`measured\` but has no row in \`motors\``); continue; }
+        if (row.exitSource !== 'measured') {
+          bad.push(`${m.partNo}: ${want}'s row says exitSource ${row.exitSource}, not "measured"`);
+        }
+        if (row.exitDiameterIn !== m.exitDiameterIn) {
+          bad.push(`${m.partNo}: ${want}'s row says ${row.exitDiameterIn} in, the measurement says ${m.exitDiameterIn}`);
+        }
+        if (!row.provenance?.exitFrom?.includes(m.measuredBy)) {
+          bad.push(`${m.partNo}: ${want}'s row does not name who measured it`);
+        }
+      }
+    }
+    expect(bad, bad.join('\n')).toEqual([]);
+    // A note in the run output, so an empty list reads as "nothing to check"
+    // and never as "the merge was verified".
+    if (db.measured.length === 0) {
+      console.warn('[nozzles.json] `measured` is empty, so the measured-merge check had nothing to assert.');
+    }
+  });
+
   it('applies the same physical bounds to any measured row that is added', () => {
     const bad = db.measured
       .filter((m) => !(m.exitDiameterIn > 0) || !m.measuredBy || !m.manufacturer
