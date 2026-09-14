@@ -226,49 +226,58 @@ def main(root):
     # folder cannot tie-break the catalogue join the way it does for reloadable
     # sheets. `docFamily` is carried so the .mjs can tell them apart.
     for family, sub in (('reloadable', 'Motor Assembly Drawings'), ('dms', 'DMS Motor Designs')):
-      asm_root = os.path.join(root, sub)
-      for path in sorted(glob.glob(os.path.join(asm_root, '**', '*.pdf'), recursive=True)):
-        rel = os.path.relpath(path, asm_root).replace(os.sep, '/')
-        doc = fitz.open(path)
-        rows, found_header = [], False
-        for page in doc:
-            page_rows = lom_rows(page)
-            if page_rows is None:
-                continue
-            found_header = True
-            for line in page_rows:
-                m = LOM_ROW.match(line)
-                if not m:
+        asm_root = os.path.join(root, sub)
+        for path in sorted(glob.glob(os.path.join(asm_root, '**', '*.pdf'), recursive=True)):
+            rel = os.path.relpath(path, asm_root).replace(os.sep, '/')
+            doc = fitz.open(path)
+            rows, found_header = [], False
+            for page in doc:
+                page_rows = lom_rows(page)
+                if page_rows is None:
                     continue
-                rows.append({'qty': m.group(1), 'part': m.group(2),
-                             'desc': m.group(3).strip(), 'item': m.group(4), 'raw': line})
-        text = page_text(doc)
-        # Does the designation the filename claims actually appear on the sheet?
-        # Provenance, not parsing: a filename is a claim until the drawing agrees.
-        designation = re.sub(r'\s*\([^)]*\)\s*$', '', os.path.basename(path)[:-4])
-        designation = re.sub(r'\s+(?:2-Grain|LMS)\b.*$', '', designation, flags=re.I)
-        designation = re.sub(r'\s+Assembly.*$', '', designation, flags=re.I)
-        # DMS filenames add a note after the designation on two sheets
-        # ("O5500X-PS dimensioned", "O6000W-P exterior dimensions"); strip it so
-        # the two O5500X-PS sheets resolve to one motor instead of two.
-        designation = re.sub(r'\s+(?:dimensioned|exterior dimensions).*$', '', designation, flags=re.I).strip()
-        squash = lambda s: re.sub(r'[^A-Z0-9]', '', s.upper())
-        # The sheet often prints the motor WITHOUT the delay tag the filename
-        # carries ("H165R" for H165R-L) or with a different one (the K1800ST-PS
-        # sheet says K1800ST-P, and so does thrustcurve.org), so the stem is
-        # reported separately rather than counted as a failure to corroborate.
-        stem = re.sub(r'-(?:S|M|L|X|P|PS|\d+A)$', '', designation)
-        out['assemblies'].append({
-            'file': rel,
-            'docFamily': family,
-            'caseFolder': rel.split('/')[0],
-            'designationFromFile': designation,
-            'foundLomHeader': found_header,
-            'designationOnSheet': squash(designation) in squash(text),
-            'designationStemOnSheet': squash(stem) in squash(text),
-            'revisions': revisions(text),
-            'lomRows': rows,
-        })
+                found_header = True
+                for line in page_rows:
+                    m = LOM_ROW.match(line)
+                    if not m:
+                        continue
+                    rows.append({'qty': m.group(1), 'part': m.group(2),
+                                 'desc': m.group(3).strip(), 'item': m.group(4), 'raw': line})
+            text = page_text(doc)
+            # Does the designation the filename claims actually appear on the sheet?
+            # Provenance, not parsing: a filename is a claim until the drawing agrees.
+            designation = re.sub(r'\s*\([^)]*\)\s*$', '', os.path.basename(path)[:-4])
+            designation = re.sub(r'\s+(?:2-Grain|LMS)\b.*$', '', designation, flags=re.I)
+            designation = re.sub(r'\s+Assembly.*$', '', designation, flags=re.I)
+            # DMS filenames add a note after the designation on two sheets
+            # ("O5500X-PS dimensioned", "O6000W-P exterior dimensions"); strip it so
+            # the two O5500X-PS sheets resolve to one motor instead of two.
+            designation = re.sub(r'\s+(?:dimensioned|exterior dimensions).*$', '', designation, flags=re.I).strip()
+            squash = lambda s: re.sub(r'[^A-Z0-9]', '', s.upper())
+            # The sheet often prints the motor WITHOUT the delay tag the filename
+            # carries ("H165R" for H165R-L) or with a different one (the K1800ST-PS
+            # sheet says K1800ST-P, and so does thrustcurve.org), so the stem is
+            # reported separately rather than counted as a failure to corroborate.
+            stem = re.sub(r'-(?:S|M|L|X|P|PS|\d+A)$', '', designation)
+            # caseFolder is the FIRST PATH SEGMENT, which is only a folder when the
+            # PDF is nested. Every sheet in both families is today, but nothing
+            # enforced it, and a sheet dropped at a family root would yield
+            # caseFolder "H550ST-14A.pdf" — which reaches shipped data as a
+            # caseFamily and makes the .mjs read no diameter, dropping the +/-1.5 mm
+            # filter that keeps a same-named motor of another size out of the join
+            # (2026-09-13, from review). Flagged rather than guessed at.
+            nested = '/' in rel
+            out['assemblies'].append({
+                'file': rel,
+                'docFamily': family,
+                'caseFolder': rel.split('/')[0] if nested else '',
+                'atFamilyRoot': not nested,
+                'designationFromFile': designation,
+                'foundLomHeader': found_header,
+                'designationOnSheet': squash(designation) in squash(text),
+                'designationStemOnSheet': squash(stem) in squash(text),
+                'revisions': revisions(text),
+                'lomRows': rows,
+            })
 
     noz_root = os.path.join(root, 'Nozzles')
     for path in sorted(glob.glob(os.path.join(noz_root, '*.mhtml'))):

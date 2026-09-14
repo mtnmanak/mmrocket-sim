@@ -22,7 +22,7 @@
  * panel shows both — a filled field the user cannot trace is worse than an
  * empty one, because it looks like their own input.
  *
- * The file is ~237 kB and lazy-loaded: nothing here is needed until a motor is
+ * The file is ~345 kB and lazy-loaded: nothing here is needed until a motor is
  * assigned, and the entry chunk should not carry it.
  */
 
@@ -129,6 +129,13 @@ async function db(): Promise<Map<string, NozzleEntry>> {
     meta = { generated: raw.generated, source: raw.source };
     const map = new Map<string, NozzleEntry>();
     for (const m of raw.motors ?? []) {
+      // A ROW WITH NO motorId CANNOT BE LOOKED UP, so it must not be inserted.
+      // Nine shipped rows have a drawing and an exit but matched no catalogue
+      // motor, and `map.set(undefined, e)` put every one of them on the same
+      // unreachable key — harmless only because `nozzleForMotorId` returns
+      // early on a falsy id, which is a second guard standing in for a missing
+      // first one (2026-09-13, from review).
+      if (typeof m.motorId !== 'string' || !m.motorId) continue;
       const e = toEntry(m);
       if (e) map.set(e.motorId, e);
     }
@@ -143,10 +150,12 @@ async function db(): Promise<Map<string, NozzleEntry>> {
  * Keyed on `motorId` and NOT on the designation: designations repeat across
  * manufacturers and across a motor's own history, and the database is built
  * against a dated catalogue snapshot. An id that has no row simply has nothing
- * published — 188 of AeroTech's 272 in-production motors have a figure, and 54
- * of Loki's 58 (2026-09-13). (189 AeroTech rows exist; the 189th is the J615ST
- * aerospike, which has no exit plane for the term to act on, so it is a row
- * with no number and is deliberately never returned.) Cesaroni publish nothing anyone has found; see the
+ * published — 221 of AeroTech's 272 in-production motors have a figure since
+ * v0.131 added their DMS single-use drawings, and 54 of Loki's 58. Eight
+ * AeroTech rows exist with no number on purpose: the J615ST aerospike (no exit
+ * plane at all), four 29 mm DMS motors whose nozzle is moulded into the case,
+ * two on a machined part that states an O.D. and no exit, and one whose sheet
+ * says the nozzle was cut shorter than its mould. Cesaroni publish nothing anyone has found; see the
  * file's own `coverage` and `gaps`, which are counted at build time rather than
  * written down, so the numbers in this sentence can be checked against it.
  */

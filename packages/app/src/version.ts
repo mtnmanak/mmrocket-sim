@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.131';
+export const APP_VERSION = '0.132';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.132',
+    date: '2026-09-13',
+    title: 'Five nozzle throats were wrong in v0.131, and a discrepancy I reported did not exist',
+    items: [
+      'FIVE MOTORS SHIPPED A THROAT THEIR OWN DRAWING CONTRADICTS. The DMS sheets write "NOZZLE DRILLED TO .209" where the reload-kit ones write "DRILLED .192", and the parser only understood the second - so on sixteen of the new rows the motor's stated throat was dropped and the nozzle PART's nominal was used instead. Eleven of the sixteen happened to agree, which is why nothing looked wrong. Five did not: H115DM-14A shipped .180 where its sheet says .209, I140W-14A .180 for .242, I175WS-13A .180 for .281, I500T-14A .398 for .469, and G72DM-14A no throat at all where the sheet says .155. NO EXIT DIAMETER MOVED and no flight number with it - the exit comes from the nozzle part's moulded bell, which was right - but the throat is published data and it was wrong.',
+      'AND A DISAGREEMENT I REPORTED BETWEEN TWO SOURCES SIMPLY WAS NOT THERE. v0.131 recorded, in the data file and in its own release note, that the H195NT and I205W sheets draw a throat 7.6 percent narrower than the part they name. Both rows publish .291, which is exactly what those sheets say and what the part says. The .313 I compared them against belongs to a different part. It got in because I typed the verification input by hand instead of feeding the file, mistyped those two numbers, and the checkers correctly reported a disagreement against my typo - which I then published. That entry is gone, and the remaining ones are now checked against the rows they describe every time the data is rebuilt, so a made-up discrepancy fails the build rather than shipping.',
+      'THREE MORE COUNTS THAT MIXED THE TWO MANUFACTURERS. A line reporting how many motors matched the catalogue divided every maker's rows by AeroTech's catalogue and called it "93.5 percent of AeroTech" - the real AeroTech figure is 75.2 percent. A second printed "AeroTech motors with no nozzle row: 80" when four of those are Loki. Both are the same fault as the one v0.131 fixed, one line away from it, in the same commit. And the guide said the app ships exit diameters for 287 motors when nine of those have no catalogue entry and can never be loaded; it is 278.',
+      'Also: a row with no catalogue match is no longer put into the lookup table under an empty key; five separate reasons a nozzle reading is uncertain can no longer overwrite one another, so a row that trips two now says both; the parts table works out which motors each no-exit part affects instead of carrying a hand-written list; and the build now refuses to run if a drawing turns up somewhere it cannot read a casing size from. None of those changed a number.',
+    ],
+  },
   {
     version: '0.131',
     date: '2026-09-13',

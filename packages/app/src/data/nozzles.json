@@ -12,6 +12,8 @@
   "partsResolvedPerMotor": 20,
   "motorsWithExit": 287,
   "motorsMatchedToCatalogue": 287,
+  "aerotechMatched": 231,
+  "lokiMatched": 56,
   "aerotechMatchedInProduction": 229,
   "lokiMatchedInProduction": 55,
   "motorsWithTwoNozzleOptions": 9,
@@ -486,18 +488,8 @@
    }
   ],
   "dmsSheetObservations": {
-   "note": "All 41 DMS rows were read back from their own PDFs on 2026-09-13 by readers other than the code that built them, and every published exit was then attacked by a second reader told to refute it. NONE was refuted. These are the differences between what the drawings show and what this file publishes, kept as a comparison — a drawing callout is an unlabelled number and is never an input here.",
+   "note": "The 41 DMS rows that carry an EXIT were read back from their own PDFs on 2026-09-13 by readers other than the code that built them, and each of those exits was then attacked by a second reader told to refute it. NONE was refuted. (There are 49 DMS rows in all; the rest publish no exit, so there was no exit to check.) These are the differences between what the drawings show and what this file publishes, kept as a comparison — a drawing callout is an unlabelled number and is never an input here.",
    "rows": [
-    {
-     "motors": [
-      "H195NT-14A",
-      "I205W-14A"
-     ],
-     "field": "throat",
-     "published": 0.313,
-     "onSheet": 0.291,
-     "note": "Part 01550 \"L2 NOZZLE (AS MOLDED)\". The description states no throat, so the throat falls back to the part's own as-moulded 0.313 in; both sheets instead carry an AFT END VIEW callout of Ø0.291, and the string \"313\" appears nowhere in either PDF. Two independent readers found this on two sheets. It moves no flight number — the pressure-thrust term uses the EXIT — but the two sources disagree by 7.6 % in diameter and the file should say so rather than look settled."
-    },
     {
      "motors": [
       "K76WN-P"
@@ -505,7 +497,7 @@
      "field": "exit",
      "published": null,
      "onSheet": 0.625,
-     "note": "This row deliberately publishes NO exit: its description says the 01650 nozzle was \"CUT TO 1.395\" LONG\", and a bell cut shorter exits narrower than the mould's 0.812 in by an amount the text does not give. The drawing appears to dimension the answer — Ø0.625, twice — which both confirms the reasoning (0.625 < 0.812) and offers the real number. Still a callout, so still not taken."
+     "note": "This row deliberately publishes NO exit: its description says the 01650 nozzle was \"CUT TO 1.395 in LONG\", and a bell cut shorter exits narrower than the mould's 0.812 in by an amount the text does not give. The drawing appears to dimension the answer - 0.625 in, twice - which both confirms the reasoning (0.625 < 0.812) and offers the real number. Still a callout, so still not taken."
     },
     {
      "motors": [
@@ -514,7 +506,7 @@
      "field": "exit",
      "published": null,
      "onSheet": 0.289,
-     "note": "Part 01600 has no published exit anywhere, so this row publishes none. The sheet carries two leadered aft-end diameters, Ø0.289 and Ø0.156, the second being the stated throat — which makes the first a candidate exit. A callout, so not taken."
+     "note": "Part 01600 has no published exit anywhere, so this row publishes none. The sheet carries two leadered aft-end diameters, 0.289 in and 0.156 in, the second being the stated throat - which makes the first a candidate exit. A callout, so not taken."
     },
     {
      "motors": [
@@ -523,7 +515,7 @@
      "field": "exitSource",
      "published": "spec-page",
      "onSheet": 0.5,
-     "note": "The 0.5 in exit is right, and the sheet states it DIRECTLY (a leadered Ø0.500 beside the Ø0.250 throat) as well as the part page. The row's provenance understates what backs it. No number changes."
+     "note": "The 0.5 in exit is right, and the sheet states it DIRECTLY (a leadered 0.500 in callout beside the 0.250 in throat) as well as the part page. The row's provenance understates what backs it. No number changes."
     }
    ]
   },
@@ -1538,8 +1530,8 @@
    "exitDiameterIn": 0.438,
    "exitSource": "base-spec-page",
    "exitConfidence": "high",
-   "throatDiameterIn": 0.18,
-   "throatSource": "base-spec-page",
+   "throatDiameterIn": 0.242,
+   "throatSource": "assembly-description",
    "provenance": {
     "baseSpecPage": "Nozzles/29_38mm Nozzle, 0.180_ Throat.mhtml",
     "drawing": "Nozzles/rcs_01500_nozzle_dwg_1723678699691.pdf",
@@ -1548,7 +1540,7 @@
    "exitOnDrawing": true,
    "usedByDrawings": 1,
    "exitDiameterM": 0.011125,
-   "throatDiameterM": 0.004572
+   "throatDiameterM": 0.006147
   },
   {
    "partNo": "01500-11",
@@ -1598,8 +1590,8 @@
    "exitDiameterIn": 0.438,
    "exitSource": "base-spec-page",
    "exitConfidence": "high",
-   "throatDiameterIn": 0.18,
-   "throatSource": "base-spec-page",
+   "throatDiameterIn": 0.281,
+   "throatSource": "assembly-description",
    "provenance": {
     "baseSpecPage": "Nozzles/29_38mm Nozzle, 0.180_ Throat.mhtml",
     "drawing": "Nozzles/rcs_01500_nozzle_dwg_1723678699691.pdf",
@@ -1608,7 +1600,7 @@
    "exitOnDrawing": true,
    "usedByDrawings": 1,
    "exitDiameterM": 0.011125,
-   "throatDiameterM": 0.004572
+   "throatDiameterM": 0.007137
   },
   {
    "partNo": "01500-2",
@@ -1659,7 +1651,7 @@
    "exitSource": "base-spec-page",
    "exitConfidence": "high",
    "throatDiameterIn": 0.22,
-   "throatSource": "drawing-dash-table",
+   "throatSource": "assembly-description",
    "provenance": {
     "baseSpecPage": "Nozzles/29_38mm Nozzle, 0.180_ Throat.mhtml",
     "drawing": "Nozzles/rcs_01500_nozzle_dwg_1723678699691.pdf",
@@ -1741,6 +1733,7 @@
    "throatDiameterIn": 0.18,
    "throatSource": "base-spec-page",
    "throatVariesAcrossSheets": [
+    0.209,
     0.25,
     0.261
    ],
@@ -1866,7 +1859,11 @@
    "exitSource": "base-spec-page",
    "exitConfidence": "high",
    "throatDiameterIn": 0.398,
-   "throatSource": "assembly-description",
+   "throatSource": "drawing-dash-table",
+   "throatVariesAcrossSheets": [
+    0.398,
+    0.469
+   ],
    "provenance": {
     "baseSpecPage": "Nozzles/29_38mm Nozzle, 0.291_ Throat.mhtml",
     "drawing": "Nozzles/29mm l2 hp nozzle (01550) 'd'_1712939381457(1).pdf",
@@ -1951,7 +1948,7 @@
    },
    "usedByDrawings": 2,
    "throatDiameterM": 0.003962,
-   "note": "A machined 38 mm nozzle whose drawing states an outside diameter (1.25 in) and a drilled throat, and no exit. The O.D. is the part's outside, NOT the exit plane, and guessing one from the other is how a 1.25 in exit would reach a thrust term that has no business with it. Affects I40N-P and J33N-P."
+   "note": "A machined 38 mm nozzle whose drawing states an outside diameter (1.25 in) and a drilled throat, and no exit. The O.D. is the part's outside, NOT the exit plane, and guessing one from the other is how a 1.25 in exit would reach a thrust term that has no business with it. Affects I40N-P, J33N-P."
   },
   {
    "partNo": "01650",
@@ -2146,7 +2143,7 @@
     "dashNumberRuleStatedOnDrawing": false
    },
    "usedByDrawings": 1,
-   "note": "Aerospike with an annular ring — no conventional exit plane, so the pressure-thrust term does not apply as it does to a bell nozzle. Deliberately blank."
+   "note": "Aerospike with an annular ring — no conventional exit plane, so the pressure-thrust term does not apply as it does to a bell nozzle. Deliberately blank. Affects J615ST-20A."
   },
   {
    "partNo": "01700",
@@ -3020,6 +3017,7 @@
    "exitSource": "none",
    "exitConfidence": "none",
    "throatVariesAcrossSheets": [
+    0.155,
     0.18,
     0.221,
     0.234
@@ -3028,7 +3026,7 @@
     "dashNumberRuleStatedOnDrawing": false
    },
    "usedByDrawings": 4,
-   "note": "Not a nozzle part at all: the 29 mm DMS \"REV. C G MOLDED CASE\" has its nozzle MOULDED INTO THE CASE, and the sheet gives only the throat it is drilled to. There is no nozzle drawing or store page to take an exit from, because there is no separate part. Affects G125T, G72DM, G75M and G80T."
+   "note": "Not a nozzle part at all: the 29 mm DMS moulded case has its nozzle MOULDED INTO THE CASE, and the sheet gives only the throat it is drilled to. There is no nozzle drawing or store page to take an exit from, because there is no separate part. Affects G125T-14A, G72DM-14A, G75M-13A, G80T-14A."
   },
   {
    "partNo": "EDMGN",
@@ -4434,6 +4432,8 @@
    "docFamily": "dms",
    "casingDiameterMm": 29,
    "nozzlePartNo": "01912",
+   "throatDiameterM": 0.003937,
+   "throatDiameterIn": 0.155,
    "exitSource": "none",
    "exitConfidence": "none",
    "provenance": {
@@ -4714,8 +4714,8 @@
    "nozzlePartNo": "01500-8",
    "exitDiameterM": 0.011125,
    "exitDiameterIn": 0.438,
-   "throatDiameterM": 0.004572,
-   "throatDiameterIn": 0.18,
+   "throatDiameterM": 0.005309,
+   "throatDiameterIn": 0.209,
    "exitSource": "base-spec-page",
    "exitConfidence": "high",
    "provenance": {
@@ -5664,8 +5664,8 @@
    "nozzlePartNo": "01500-10",
    "exitDiameterM": 0.011125,
    "exitDiameterIn": 0.438,
-   "throatDiameterM": 0.004572,
-   "throatDiameterIn": 0.18,
+   "throatDiameterM": 0.006147,
+   "throatDiameterIn": 0.242,
    "exitSource": "base-spec-page",
    "exitConfidence": "high",
    "provenance": {
@@ -5775,8 +5775,8 @@
    "nozzlePartNo": "01500-15",
    "exitDiameterM": 0.011125,
    "exitDiameterIn": 0.438,
-   "throatDiameterM": 0.004572,
-   "throatDiameterIn": 0.18,
+   "throatDiameterM": 0.007137,
+   "throatDiameterIn": 0.281,
    "exitSource": "base-spec-page",
    "exitConfidence": "high",
    "provenance": {
@@ -6450,8 +6450,8 @@
    "nozzlePartNo": "01550-5",
    "exitDiameterM": 0.017475,
    "exitDiameterIn": 0.688,
-   "throatDiameterM": 0.010109,
-   "throatDiameterIn": 0.398,
+   "throatDiameterM": 0.011913,
+   "throatDiameterIn": 0.469,
    "exitSource": "base-spec-page",
    "exitConfidence": "high",
    "provenance": {

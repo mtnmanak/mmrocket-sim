@@ -411,7 +411,11 @@ describe('the join into the motor catalogue', () => {
       // one, and the build separately refuses to write the file at all if a DMS
       // row lands on a motor the catalogue does not call single-use.
       const mine = byId.get(r.motorId);
+      // `commonName` must be a real string on BOTH sides: two undefineds
+      // compare equal, which would have admitted an unrelated motor as "the
+      // same motor in another form" (2026-09-13, from review).
       if (r.docFamily === 'dms' && hit && mine
+        && typeof mine.commonName === 'string' && mine.commonName.length > 0
         && hit.commonName === mine.commonName && hit.diameter === mine.diameter) {
         divergent.push(`${r.designation}: build ${r.catalogDesignation} (DMS single-use), findDbMotor ${hit.designation}`);
         continue;
@@ -427,9 +431,14 @@ describe('the join into the motor catalogue', () => {
         + 'motor through the app\'s own matcher, which cannot know the drawing was a single-use one:\n  '
         + `${divergent.join('\n  ')}\n`);
     }
-    expect(divergent.length,
-      'a DMS divergence is expected to be rare; a large number means the join has drifted')
-      .toBeLessThan(5);
+    // PINNED TO THE KNOWN SET, not to a ceiling (2026-09-13, from review). A
+    // `toBeLessThan(5)` let three new mis-joins appear as a console.warn nobody
+    // reads in CI. There is exactly one motor the catalogue carries in both a
+    // reloadable and a DMS form whose DMS sheet we hold; if a second appears
+    // that is worth a human looking, not a silent pass.
+    expect(divergent.map((d) => d.split(':')[0]).sort(),
+      'the set of DMS rows that resolve to the other form of their motor has changed')
+      .toEqual(['H550ST-14A']);
   });
 
   it('keeps the raw designation even where nothing matched, so no motor is lost', () => {
