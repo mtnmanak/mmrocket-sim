@@ -8,9 +8,21 @@ export default defineConfig({
   plugins: [
     react(),
     // PWA/offline: remote launch sites (Black Rock…) have no internet, so the
-    // whole app shell — including the engine and motor DB chunks — precaches.
-    // Motor thrust curves fetched from thrustcurve.org already persist in
-    // localStorage, so previously-loaded motors also work offline.
+    // ENTIRE build precaches — 24 files, about 6 MB: the engine, the parts
+    // catalogue, the nozzle database, three.js and the exporters, the fonts, and
+    // the bundled thrust curves. Everything lazy-loaded is precached too, so a
+    // feature the user never opened online still works offline.
+    //
+    // The curve line here used to read "fetched from thrustcurve.org … persist in
+    // localStorage, so PREVIOUSLY-LOADED motors also work offline". That is
+    // pre-v0.107 and it was false for a month: v0.107 bundled every published
+    // curve (1,948 files, 1,075 of 1,155 motors), so a motor flies offline whether
+    // or not it was ever flown online. It had already propagated into the user
+    // guide in two places, which is what a stale comment does (2026-09-15).
+    //
+    // ONE DELIBERATE EXCLUSION: version.json. globPatterns below has no `json`, so
+    // the update check always reaches the real server instead of reading a cached
+    // copy of itself — see services/versionCheck.ts.
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.png', 'apple-touch-icon.png'],
@@ -31,7 +43,8 @@ export default defineConfig({
       workbox: {
         // woff/woff2: the self-hosted Rajdhani display face must work offline.
         globPatterns: ['**/*.{js,css,html,png,webmanifest,woff,woff2}'],
-        // The engine chunk is ~2.5 MB — well over workbox's 2 MB default cap.
+        // The main chunk is 2.68 MB (measured 2026-09-15; it carries the TeaVM kernel
+        // AND the React app, so it grows with both) — well over workbox's 2 MB default.
         maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
       },
     }),

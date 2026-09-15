@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.133';
+export const APP_VERSION = '0.134';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.134',
+    date: '2026-09-15',
+    title: 'Does it work offline? Yes - and the guide now says how, and what clearing your browser data costs',
+    items: [
+      'THE GUIDE NOW EXPLAINS OFFLINE USE PROPERLY, BECAUSE SOMEONE ON THE FORUM HAD TO ASK. The short answer is that it works at a field with no signal and you do not have to install anything to make that true: the first visit downloads the whole program - about 6 MB across 24 files - and every visit after that runs from your own copy. The new section says what is in that copy (everything, including all 1,948 bundled thrust curves), what the four network requests are and what each one looks like when there is no network, how updates arrive, and what installing does and does not change.',
+      'AND IT ANSWERS THE QUESTION THAT ACTUALLY GETS PEOPLE: what happens if you clear your browser cache. Three different actions, three different answers, and only one of them touches your designs. Clearing cached files deletes the offline copy of the program and nothing of yours. Clearing cookies and site data takes your current design, your saved runs, your preferences, and - the part that cannot be recovered from anywhere - any parts you imported or created and any EX motors you imported from your own files. Uninstalling behaves differently on desktop and mobile. The rule underneath all three is that the only durable copy of a design is an .ork file you saved.',
+      'FOUR CLAIMS IN THE GUIDE WERE STALE AND ONE OF THEM WOULD HAVE MATTERED AT A LAUNCH SITE. It said in two places that thrust curves download on demand and cache as you use them. That has been wrong since v0.107 bundled every published curve: a motor flies offline whether or not you ever flew it online, and a flyer reading the old text might reasonably have flown a few motors at home first, believing that was what made them work in the field. Also corrected: the share-link note claiming an unusual motor may need re-picking offline, an overclaim that every catalogued motor has a curve (1,075 of 1,155 do), and a line implying offline use needs setting up. The comment in the build config that kept regenerating the wrong text is corrected too.',
+      'ONE THING IS SAID OUT LOUD RATHER THAN IMPLIED: offline use on iOS and iPadOS has not been tested here. The app has no iOS-specific code, but how iOS keeps a web app’s stored data is the platform’s business and nobody has measured it. If a phone is your field machine, the guide asks you to put it in airplane mode, reload, and fly something before you rely on it - thirty seconds, and worth doing on any device you take to a launch.',
+    ],
+  },
   {
     version: '0.133',
     date: '2026-09-14',

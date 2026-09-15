@@ -1,5 +1,5 @@
 {
-  "version": "0.133",
-  "released": "2026-09-14",
-  "note": "Fixes a motor that shipped with no nozzle exit at all. The I65W-PS's AeroTech sheet writes 'MEDUSA NOZZLE CENTER DRILL TO .266\"' - the bare verb - where every other sheet writes 'DRILLED TO', so its throat could not be read, its Medusa could not be resolved, and the row fell through to no exit where part 01700-1 publishes 0.500 in. Re-open and re-fly an I65W-PS design: the exit area adds thrust as the air thins, so apogee reads higher. One exit changed, no throat changed, nothing added or removed. Also corrects the v0.132 note, which said 'five throats changed, 0 exits, 0 rows added or removed' - true of the motor list, false of the file: two nozzle PART throats moved (01500-10 .180 to .242, 01500-15 .180 to .281) and three parts gained a record of disagreeing sheets. No flight number moved either way. The guide's '278 motors you can load' is now 279 and is counted at build time rather than typed."
+  "version": "0.134",
+  "released": "2026-09-15",
+  "note": "Documentation only - no simulation behaviour changes. The user guide now explains offline use: the first visit downloads the whole app (about 6 MB across 24 files) and every visit after runs from that copy, no install required; what the four network requests are and how each degrades offline; and what clearing your browser data costs - three actions, three answers, only one of which touches your designs. Corrects four stale guide claims, the most important being that thrust curves download on demand: they have been bundled since v0.107, so a motor flies offline whether or not you flew it online. Says plainly that offline use on iOS/iPadOS is untested."
 }

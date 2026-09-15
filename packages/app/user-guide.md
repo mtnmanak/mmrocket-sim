@@ -46,7 +46,7 @@ This section gets you to your first successful flight in about a minute. The res
 
 When the app opens, you already have a complete, flyable rocket called **My Rocket** — a nose cone, a body tube, a fin set, a motor mount, and a parachute. You don't have to build anything to get started. All it's missing is a motor. (On your very first visit a **six-step tour** points out the component tree, the drawing, the Motors & Launch workspace, the Launch button, the Results workspace, and the Guide and Feedback buttons — it shows once, and you can replay it any time with the **⟲ Tour** button in the header. *Preferences → Display* has an **Off** switch that takes effect immediately — including on a tour that is currently on screen — and putting it back to **On** genuinely re-arms the tour for your next visit.)
 
-**1. Load a motor.** Open the **Motors & Launch** workspace (the tabs under the header) and find the **Motors** panel. The fastest option is the **Quick picks** dropdown — pick a classic Estes motor like **B6-4** or **C6-5** and it loads at once. (The number after the dash is the ejection delay in seconds.) These are ordinary catalogue motors with their certified thrust curves; every curve in the catalogue ships with the app, so nothing here needs a network. Want something specific? Click **🔎 Browse motor database…** to search the full thrustcurve.org catalog of about 1,150 motors — but for your first flight, a quick pick is all you need.
+**1. Load a motor.** Open the **Motors & Launch** workspace (the tabs under the header) and find the **Motors** panel. The fastest option is the **Quick picks** dropdown — pick a classic Estes motor like **B6-4** or **C6-5** and it loads at once. (The number after the dash is the ejection delay in seconds.) These are ordinary catalogue motors with their certified thrust curves; their curves ship with the app, so nothing here needs a network. Want something specific? Click **🔎 Browse motor database…** to search the full thrustcurve.org catalog of about 1,150 motors — but for your first flight, a quick pick is all you need.
 
 **2. Check your launch conditions (optional).** Beside the Motors panel is the **Launch conditions** panel. The defaults are sensible: a 1-meter launch rod, pointed straight up, no wind, standard sea-level atmosphere. You can leave every field alone for now.
 
@@ -624,7 +624,7 @@ On the **Results** workspace, the **Drag analysis** panel plots your design's dr
 
 ## Motors
 
-With the airframe drawn, the next step is choosing a motor. The app bundles the full thrustcurve.org catalog metadata and downloads the actual thrust curves on demand.
+With the airframe drawn, the next step is choosing a motor. The app bundles the full thrustcurve.org catalog metadata **and every thrust curve it publishes for those motors**, so picking and flying a motor needs no network.
 
 ## Flight configurations (.ork)
 
@@ -901,7 +901,7 @@ Three things it deliberately does not touch:
 
 ## Files, Units, and Offline Use
 
-Finally, save your work, move it between tools, and set up the app for offline use.
+Finally, save your work, move it between tools, and use the app with no network.
 
 ## File formats
 
@@ -937,7 +937,7 @@ The most important domain caveat is **RASAero has no mass data** — a `.CDX1` i
 
 ## Sharing a design by link
 
-**Save As / Export → 🔗 Copy share link** packs the whole design — components, materials, overrides, assigned motors, and the launch conditions — into the link itself, compressed into the part after the `#`. Paste it in a chat or an email; opening it loads the rocket straight into the recipient's browser, no account and no upload involved — the design never touches a server, because browsers don't send the `#` fragment anywhere. If the recipient already has a design open, the app asks before replacing it. Two caveats: motors named in the link load from the motor database on arrival, so an unusual motor may need re-picking when opened offline; and a very complex design makes a very long link, which some chat apps truncate — if a pasted link refuses to open, send the `.ork` file instead.
+**Save As / Export → 🔗 Copy share link** packs the whole design — components, materials, overrides, assigned motors, and the launch conditions — into the link itself, compressed into the part after the `#`. Paste it in a chat or an email; opening it loads the rocket straight into the recipient's browser, no account and no upload involved — the design never touches a server, because browsers don't send the `#` fragment anywhere. If the recipient already has a design open, the app asks before replacing it. Two caveats: motors named in the link are resolved against the bundled catalogue on arrival, which needs no network; and a very complex design makes a very long link, which some chat apps truncate — if a pasted link refuses to open, send the `.ork` file instead.
 
 ## Printing oversized parts on a 3D printer
 
@@ -953,9 +953,44 @@ Open **Preferences** to switch between one-click **Metric** and **Imperial** pre
 
 ## Installing, offline, and saving your work
 
-MMRocket Sim is a **PWA** — install it from the browser and it runs offline, since the physics kernel, the motor database metadata, and the preset catalog are all bundled locally. Only motor thrust curves fetch on demand, and once fetched they cache in your browser. Your work — the design tree, assigned motors, launch conditions, per-stage motor-length limits, run history, and motor filters — persists to local storage and survives reloads. If browser storage ever fills up, the app says so instead of losing work quietly: the saved-runs table shows what is actually stored, and a warning banner stays up while autosave cannot write, clearing itself once saving recovers. Autosaves also belong to the web address you saved them at — the same design opened at a different address, or inside a page embedding the app, starts fresh — so use Save As / Export → .ork to carry work between addresses. The app **header** carries **Open…**, **Undo/Redo** (Ctrl+Z / Ctrl+Shift+Z, 50 steps each way — they cover the **design tree** only: assigned motors, flight configurations and launch conditions are not undone, and re-applying a flight configuration is what puts a motor set back), and the **Save As / Export** menu (.ork, share link, and every format in the table above), alongside the **Guide**, **Feedback**, **Changelog** (the version badge), and **Preferences**; **New** sits atop the component tree in the Design workspace.
+**It works at a field with no signal, and you do not have to install anything to make that true.** The first time you open the address, your browser downloads the whole program — about **6 MB across 24 files** — and keeps its own copy. Every visit after that runs from that copy. The simulation has always run in your browser rather than on a server, so with the program local there is nothing left to ask the network for.
 
-Beside the version badge sits the answer to *"am I on the current version?"* — **✓ Up to date** when the running build matches what is deployed, or **↻ v0.0NN available — Reload** when it does not, which reloads onto the new build. It checks once when the app loads and again whenever you click it, and it reads the deployed version directly rather than anything cached, so it is never fooled by the offline cache the app runs from. Offline it reads **Version unknown** and says so rather than guessing — it will never tell you that you are out of date when it simply could not ask. For a durable archive or to move a design to another machine or to the OpenRocket desktop, **Save as .ork** — it's the format that keeps everything.
+That copy is made by a **service worker**, and it is made on an ordinary page load. You do not have to install the app, click anything, or find a setting. Installing (below) gives you a window and an icon; it is not what makes it work offline.
+
+**The download is all-or-nothing, which is the part worth knowing before you drive out.** The browser only starts using the offline copy once every one of those 24 files has arrived. Lose the connection part-way through and there is no half-built copy to go wrong — you simply do not have one yet, and the next visit with a connection tries again. So give the first visit a moment on a real connection, and then **prove it**: turn on airplane mode, reload, and fly something. It takes thirty seconds and is worth doing once on every device you plan to take to a launch.
+
+**What is in the offline copy:** everything. The physics kernel, the parts catalogue, the nozzle database, the 3D view and the OBJ/STL/GLB exporters, the fonts — and **every thrust curve**, all 1,948 simulator files covering 1,075 of the 1,155 catalogued motors. A motor flies offline whether or not you ever flew it online. The 80 motors without a bundled curve are not an offline problem: thrustcurve.org publishes no simulator file for them at all, so a connection would not help either, and the answer both ways is to import the motor's own `.eng` or `.rse`.
+
+**What needs the network, and what you see without it.** Four things ever reach out, and none of them carries your design. Two happen by themselves on every page load: the **version badge**, which offline reads *Version unknown* rather than guessing — it will never tell you that you are out of date when it simply could not ask — and the **site navigation band** across the top, which offline draws from a stored copy. The other two only happen when you ask: pressing **↻ Check thrustcurve.org**, which offline greys out with a tooltip saying why; and downloading a thrust curve the app does not already have, which only arises for a motor a live ↻ check added after this build was made. A download that stalls gives up after fifteen seconds and names the motor rather than spinning.
+
+### What happens if I clear my browser cache?
+
+Three different actions, three different answers, and **only the middle one touches your designs**.
+
+- **Clear cached images and files.** Deletes the offline copy of the program. Nothing of yours is lost. The next visit with a connection downloads it again; until then the app needs a network to open at all. Harmless at home — do not do it the night before a launch.
+- **Clear cookies and site data** for this address. This is the one to be careful with. It removes everything the app remembers **and**, in Chrome and Edge, the offline copy as well. You lose the design you were working on, your saved simulation runs, your preferences, **any parts you imported or created, and any EX motors you imported from your own motor files**. Those last two came off your own disk, so nothing can re-download them.
+- **Uninstall the installed app.** On desktop this normally leaves the browser's own copy of the site alone, so opening the address again finds your work. On mobile, uninstalling can take the site's data with it.
+
+**The rule underneath all three: the only durable copy of a design is an .ork file you saved.** The autosave is a convenience, not an archive. Your work also lives in exactly one browser profile, on one device, at one address — nothing syncs, there is no account, and a different browser or a different machine starts empty. **Save As → .ork** before you clear anything, change browsers, or rely on a design you care about.
+
+### Installing it
+
+Optional, and it changes nothing about the offline copy — same cache, same storage, same app, in its own window with its own icon. **Chrome and Edge:** an install icon appears in the address bar. **Android Chrome:** menu → *Add to Home screen*. **iOS and iPadOS Safari:** Share → *Add to Home Screen*.
+
+**One honest caveat: offline use on iOS and iPadOS has not been tested here.** The app has no iOS-specific code, but how iOS keeps a web app's stored data and offline copy is the platform's business, not the app's, and nobody has measured it. If a phone or tablet is your field machine, run the airplane-mode rehearsal above before you rely on it — and please say what you find.
+
+### Updates
+
+When a new version ships, the browser picks it up the next time you open the app with a connection, and applies it on the following load. You never have to reinstall. The main program chunk changes on every release, so an update re-downloads about 2.7 MB; the big data files — the parts catalogue, the thrust curves, the nozzle data, the 3D library — are separate and are reused from your existing copy unless their own contents changed, which is rare. Offline, nothing changes and nothing nags: you keep running the version you have.
+
+### Your work, and where it is kept
+
+The design tree, assigned motors, launch conditions, per-stage motor-length limits, run history, motor filters, imported parts and imported EX motors all persist in your browser's local storage and survive reloads and restarts. If that storage ever fills, the app says so rather than losing work quietly — the saved-runs table shows what is really stored, and a banner stays up while autosave cannot write, clearing itself once saving recovers. Autosaves also belong to the web address you saved them at, so the same design opened at a different address, or inside a page embedding the app, starts fresh.
+
+The app **header** carries **Open…**, **Undo/Redo** (Ctrl+Z / Ctrl+Shift+Z, 50 steps each way — they cover the **design tree** only: assigned motors, flight configurations and launch conditions are not undone, and re-applying a flight configuration is what puts a motor set back), and the **Save As / Export** menu (.ork, share link, and every format in the table above), alongside the **Guide**, **Feedback**, **Changelog** (the version badge), and **Preferences**; **New** sits atop the component tree in the Design workspace.
+
+Beside the version badge sits the answer to *"am I on the current version?"* — **✓ Up to date** when the running build matches what is deployed, or **↻ v0.0NN available — Reload** when it does not, which reloads onto the new build. It checks once when the app loads and again whenever you click it, and it reads the deployed version directly rather than anything cached, so it is never fooled by the offline copy the app runs from. For a durable archive or to move a design to another machine or to the OpenRocket desktop, **Save as .ork** — it's the format that keeps everything.
+
 
 Because the whole app is a self-contained static build, the same files can also be **embedded inside another web page** — for example a WordPress post — through an `<iframe>`. If you meet MMRocket Sim living inside someone else's site rather than at its own address, it is the identical app running the identical kernel, with the same design, motor, and simulation tools described in this guide.
 
