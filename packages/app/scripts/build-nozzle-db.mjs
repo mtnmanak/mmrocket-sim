@@ -243,7 +243,15 @@ function throatFromDescription(desc) {
     // group and returned 209 for .209, which turned 322 fields of this file
     // into integers in one build. Caught immediately by diffing against the
     // previous file, which is why that diff is worth running every time.
-    /(?:UNDRILLED|DRILLED|SPADED|THROAT|MOLDED)\s*(?:TO\s+)?[:=]?\s*([\d.]+)/i,
+    // `DRILL(?:ED)?`, not `DRILLED` (2026-09-14, from review). The DMS sheets write the
+    // bare verb as well as the participle — I65W-PS's LOM row reads
+    // `MEDUSA NOZZLE CENTER DRILL TO .266"` — and matching only "DRILLED" returned
+    // undefined for it. That fell all the way through: `medusaOpening` tries four patterns
+    // and then this function as its last resort, so a Medusa whose throat could not be read
+    // resolved to `exitSource: 'none'` and I65W-PS SHIPPED WITH NO EXIT DIAMETER AT ALL,
+    // where part 01700-1 publishes a 0.500 in centre exit. UNDRILLED stays first in the
+    // alternation, so it still wins over the bare verb inside its own word.
+    /(?:UNDRILLED|DRILL(?:ED)?|SPADED|THROAT|MOLDED)\s*(?:TO\s+)?[:=]?\s*([\d.]+)/i,
   ];
   for (const p of pats) {
     const m = p.exec(desc);
@@ -618,7 +626,18 @@ for (const { asm, folder, row, part } of perDrawing) {
         outerThroatIn: open.outerThroatIn,
       };
     } else {
+      // SAY WHY, like every other exit-less row (2026-09-14, from review). This branch
+      // dropped the exit silently, so a Medusa whose description no pattern could read
+      // shipped with `exitSource: 'none'` and NO explanation — in a file whose stated rule is
+      // that every absence names its reason (`NO_EXIT_NOTES` covers 01680/01912/01600,
+      // `cutNote` covers K76WN-P). I65W-PS was the one row in the whole file with an
+      // unexplained blank; the `DRILL TO` fix above means nothing reaches here today, which
+      // is exactly when a fallback is worth writing down rather than after it bites.
       exitSource = 'none'; exitConfidence = 'none';
+      contradictedNote = `The nozzle is a Medusa, but this sheet's description `
+        + `(${JSON.stringify(row.desc)}) does not state which throats are opened in any form `
+        + `this build understands, so the equivalent exit area cannot be derived. `
+        + `Reported rather than guessed: assuming centre-only would publish a number the sheet does not support.`;
     }
   }
 
@@ -963,7 +982,31 @@ for (const group of grouped.values()) {
         lomDescription: r.provenance.lomDescription,
       }));
     const others = out.alternatives.map((a) => `${a.nozzlePartNo} ${a.exitDiameterIn} in`);
-    out.confidenceNote = `AeroTech publish two nozzles for this motor (${pick.nozzlePartNo} `
+    // APPEND, NEVER ASSIGN (2026-09-14, from review) — a LATENT fix, and the record of what
+    // it is and is not matters, because the review that prompted it got the mechanism wrong.
+    //
+    // This was `out.confidenceNote = ...`, which would silently destroy whatever the "one
+    // field, every reason that applies" block above had built — the identical defect that
+    // block was written to fix, in the same field, one commit later.
+    //
+    // THE REVIEW CLAIMED IT WAS LIVE ON EIGHT SHIPPED ROWS (I115W-M, I117FJ-M, I215R-M,
+    // I229T-M, I300T-14A, I599N-P, K1100T-L, M650W-P), reasoning that each carries
+    // `exitSource: 'base-spec-page'` at `medium` and so had the dash-number sentence
+    // generated and then overwritten. IT DID NOT. Those rows read `medium` only BECAUSE of
+    // the downgrade three lines above; at row-build time they were `high`, so the sentence —
+    // whose condition is `base-spec-page && medium` — was never generated for them at all.
+    // Proved by making this change and regenerating: the notes on all eight are byte-identical
+    // and only I65W-PS moved. The 24-vs-0 split the review measured is real and has a
+    // different cause: the dash sentence marks a family whose own drawing does not print the
+    // rule, which is what `high` vs `medium` encodes at ROW level, and the ambiguity downgrade
+    // is about something else entirely. Those eight are correctly without it.
+    //
+    // So this changes no published note today. It is still right: `cutNote` and
+    // `contradictedNote` are set per row and CAN coexist with ambiguity, and either would
+    // have been destroyed here without a word. A field that accumulates reasons must be
+    // written in one place and appended to everywhere else — the row that trips two rules is
+    // always the one nobody tested.
+    const ambiguityNote = `AeroTech publish two nozzles for this motor (${pick.nozzlePartNo} `
       + `${pick.exitDiameterIn} in against ${others.join(', ')}). `
       + (out.exitPickedBy === 'dated-revision'
         ? `The one used here is the one that sheet's own dated revision block calls current (${revDate(pick.provenance.assemblyDrawing)}); `
@@ -971,6 +1014,9 @@ for (const group of grouped.values()) {
           ? "The one used here is the one AeroTech's own sheet name calls the newer; "
           : 'The one used here is the one more sheets show; ')
       + 'check which nozzle is in your reload kit before trusting the exit area.';
+    out.confidenceNote = out.confidenceNote
+      ? `${out.confidenceNote} ${ambiguityNote}`
+      : ambiguityNote;
   }
   motorRows.push(out);
 }
@@ -988,8 +1034,9 @@ motorRows.sort((a, b) => a.designation.localeCompare(b.designation) || a.caseFam
  * published exit was then attacked by a second reader. NO EXIT WAS REFUTED.
  * (41 of the 49 DMS rows carry an exit; the other eight publish none, so there
  * was nothing to check on them.)
- * These four are what that pass turned up anyway, and they are kept because a
- * finding nobody writes down is a finding that has to be made twice.
+ * What that pass turned up anyway is kept below (the count is no longer written out here -
+ * it was "These four" after the list had been cut to three, in the very commit that added a
+ * build-time check because the list "is no longer trusted prose"), because a
  *
  * NONE OF THEM CHANGES A ROW, and the reason is a standing rule of this file:
  * a leader-line CALLOUT on a drawing is an unlabelled number, so it is only
@@ -1054,26 +1101,6 @@ const DMS_SHEET_OBSERVATIONS = [
  * mismatch FAILS THE BUILD. An observation that cannot survive that check is
  * not an observation, it is a story.
  */
-const observationProblems = [];
-for (const ob of DMS_SHEET_OBSERVATIONS) {
-  for (const des of ob.motors) {
-    const row = motorRows.find((m) => m.designation === des);
-    if (!row) { observationProblems.push(`${des}: named in DMS_SHEET_OBSERVATIONS but has no row`); continue; }
-    const actual = ob.field === 'exit' ? (row.exitDiameterIn ?? null)
-      : ob.field === 'throat' ? (row.throatDiameterIn ?? null)
-        : ob.field === 'exitSource' ? row.exitSource : undefined;
-    if (actual === undefined) { observationProblems.push(`${des}: unknown observation field "${ob.field}"`); continue; }
-    if (actual !== ob.published) {
-      observationProblems.push(`${des}: the observation says this file publishes ${JSON.stringify(ob.published)} `
-        + `for ${ob.field}, but it publishes ${JSON.stringify(actual)}`);
-    }
-  }
-}
-if (observationProblems.length > 0) {
-  console.error('DMS_SHEET_OBSERVATIONS does not describe the rows this build produced:');
-  for (const o of observationProblems) console.error(`  ${o}`);
-  process.exit(1);
-}
 
 
 const NO_EXIT_NOTES = {
@@ -1098,22 +1125,6 @@ const NO_EXIT_NOTES = {
  * reached a release note"). One of them also quoted the part as
  * `REV. C G MOLDED CASE`, a string this same commit strips as a column bleed.
  */
-const noExitAffects = (partNo) => motorRows
-  .filter((m) => m.nozzlePartNo === partNo).map((m) => m.designation).sort();
-
-const partRows = [...parts.values()]
-  .map((p) => ({
-    ...p,
-    ...(p.exitDiameterIn !== undefined ? { exitDiameterM: round6(inToM(p.exitDiameterIn)) } : {}),
-    ...(p.throatDiameterIn !== undefined ? { throatDiameterM: round6(inToM(p.throatDiameterIn)) } : {}),
-    ...(NO_EXIT_NOTES[p.partNo]
-      ? {
-        note: NO_EXIT_NOTES[p.partNo]
-          + (noExitAffects(p.partNo).length ? ` Affects ${noExitAffects(p.partNo).join(', ')}.` : ''),
-      }
-      : {}),
-  }))
-  .sort((a, b) => a.partNo.localeCompare(b.partNo));
 
 // ------------------------------------------------------------------ gaps
 
@@ -1651,6 +1662,91 @@ motorRows.sort((a, b) => a.manufacturer.localeCompare(b.manufacturer)
   || a.designation.localeCompare(b.designation)
   || a.caseFamily.localeCompare(b.caseFamily));
 
+const observationProblems = [];
+for (const ob of DMS_SHEET_OBSERVATIONS) {
+  for (const des of ob.motors) {
+    const row = motorRows.find((m) => m.designation === des);
+    if (!row) { observationProblems.push(`${des}: named in DMS_SHEET_OBSERVATIONS but has no row`); continue; }
+    const actual = ob.field === 'exit' ? (row.exitDiameterIn ?? null)
+      : ob.field === 'throat' ? (row.throatDiameterIn ?? null)
+        : ob.field === 'exitSource' ? row.exitSource : undefined;
+    if (actual === undefined) { observationProblems.push(`${des}: unknown observation field "${ob.field}"`); continue; }
+    if (actual !== ob.published) {
+      observationProblems.push(`${des}: the observation says this file publishes ${JSON.stringify(ob.published)} `
+        + `for ${ob.field}, but it publishes ${JSON.stringify(actual)}`);
+    }
+    // CHECK THE OTHER HALF TOO (2026-09-14, from review). Only `published` was compared, and
+    // every one of these observations is a claim about TWO numbers: what the drawing says
+    // (`onSheet`) and what we publish (`published`). The entry that had to be withdrawn was
+    // wrong in its `published` half, so the check written in response covers exactly the
+    // failure that had already happened and nothing else — and for K76WN-P and I40N-P the
+    // assertion reduces to `null === null`, which passes even if the observation were attached
+    // to a completely different part. `onSheet` is the half a mistyped verification input
+    // corrupts, which is precisely how the withdrawn entry got here.
+    if (ob.onSheet !== undefined) {
+      if (typeof ob.onSheet !== 'number' || !Number.isFinite(ob.onSheet) || ob.onSheet <= 0) {
+        observationProblems.push(`${des}: onSheet is ${JSON.stringify(ob.onSheet)}, which is not a dimension`);
+      } else if (ob.published !== null && Math.abs(ob.onSheet - ob.published) < 1e-9) {
+        // If the two agree there is no observation to make: these entries exist only to
+        // record a difference between the drawing and the file.
+        observationProblems.push(`${des}: onSheet and published are the same number `
+          + `(${ob.onSheet}), so there is nothing for this observation to observe`);
+      }
+    }
+    // An observation must name the part it is about, so it cannot silently survive the row
+    // being re-keyed to a different nozzle.
+    if (ob.partNo !== undefined && row.nozzlePartNo !== ob.partNo) {
+      observationProblems.push(`${des}: the observation is about part ${ob.partNo}, but this row's `
+        + `nozzle is ${JSON.stringify(row.nozzlePartNo)}`);
+    }
+  }
+}
+if (observationProblems.length > 0) {
+  console.error('DMS_SHEET_OBSERVATIONS does not describe the rows this build produced:');
+  for (const o of observationProblems) console.error(`  ${o}`);
+  process.exit(1);
+}
+
+/**
+ * Which motors a no-exit part affects, and the DMS observation check — BOTH RUN AFTER EVERY
+ * ROW EXISTS (moved here 2026-09-14, from review).
+ *
+ * They used to sit immediately after the AeroTech loop, while `motorRows` still held ONLY
+ * AeroTech rows: Loki's are pushed further down and the measured ones after those. So an
+ * observation naming a Loki motor reported "named in DMS_SHEET_OBSERVATIONS but has no row"
+ * and exited 1 on a file that does contain the row, and a NO_EXIT_NOTES entry for a Loki or
+ * measured part silently produced no "Affects ..." sentence at all — a check that fails on
+ * good data, and a check that passes by finding nothing. Neither could bite today because
+ * every entry in both tables is AeroTech's, which is precisely why they would have bitten
+ * the first person to add a Loki one.
+ *
+ * ONE PASS, ONE MAP (2026-09-14, from review). `noExitAffects(p.partNo)` was called twice per
+ * part — once for the length test and once for the join — so every no-exit part scanned all
+ * of `motorRows` twice.
+ */
+const affectedByPart = new Map();
+for (const m of motorRows) {
+  if (!m.nozzlePartNo) continue;
+  if (!affectedByPart.has(m.nozzlePartNo)) affectedByPart.set(m.nozzlePartNo, []);
+  affectedByPart.get(m.nozzlePartNo).push(m.designation);
+}
+for (const list of affectedByPart.values()) list.sort();
+const noExitAffects = (partNo) => affectedByPart.get(partNo) ?? [];
+
+const partRows = [...parts.values()]
+  .map((p) => {
+    const affects = noExitAffects(p.partNo);
+    return {
+      ...p,
+      ...(p.exitDiameterIn !== undefined ? { exitDiameterM: round6(inToM(p.exitDiameterIn)) } : {}),
+      ...(p.throatDiameterIn !== undefined ? { throatDiameterM: round6(inToM(p.throatDiameterIn)) } : {}),
+      ...(NO_EXIT_NOTES[p.partNo]
+        ? { note: NO_EXIT_NOTES[p.partNo] + (affects.length ? ` Affects ${affects.join(', ')}.` : '') }
+        : {}),
+    };
+  })
+  .sort((a, b) => a.partNo.localeCompare(b.partNo));
+
 /**
  * AN INDEPENDENT CHECK, and what it does and does not settle.
  *
@@ -1820,6 +1916,16 @@ const db = {
     partsResolvedPerMotor: partRows.filter((p) => p.exitSource === 'medusa').length,
     motorsWithExit: motorRows.filter((m) => m.exitDiameterM !== undefined).length,
     motorsMatchedToCatalogue: motorRows.filter((m) => m.motorId).length,
+    // THE NUMBER THE GUIDE QUOTES, DERIVED (2026-09-14, from review). The guide said "278
+    // motors you can load" as hand-typed prose with nothing behind it, and the paragraph's
+    // own components (221 AeroTech + 54 Loki) sum to 275, because three of the covered motors
+    // are out of production and the sentence never said so. Neither `motorsWithExit` (287, all
+    // rows) nor `motorsMatchedToCatalogue` (287, ignoring the exit) is that figure: a motor a
+    // user can LOAD and get a number for needs BOTH a catalogue id and an exit. It is now
+    // counted here, so the guide can quote a build-derived value the way the coverage block
+    // already forced everything else to - the 287 this replaced survived exactly because
+    // nothing computed it.
+    motorsLoadableWithExit: motorRows.filter((m) => m.motorId && m.exitDiameterM !== undefined).length,
     // The honest coverage figure — AND IT IS PER MANUFACTURER, because it was
     // not, and that broke the moment a second manufacturer arrived.
     //
@@ -1951,10 +2057,18 @@ console.log(`    Loki                          ${c.lokiMatched} (${pct(c.lokiMat
 console.log(`  of the IN-PRODUCTION AeroTech   ${c.aerotechMatchedInProduction} (${pct(c.aerotechMatchedInProduction, c.catalogueAeroTechInProduction)} of ${c.catalogueAeroTechInProduction})`);
 console.log(`  of the IN-PRODUCTION Loki       ${c.lokiMatchedInProduction} (${pct(c.lokiMatchedInProduction, c.catalogueLokiInProduction)} of ${c.catalogueLokiInProduction})`);
 console.log(`  with an exit diameter           ${c.motorsWithExit}`);
-for (const conf of ['high', 'medium', 'low', 'none', 'per-motor']) {
-  const n = motorRows.filter((m) => m.exitConfidence === conf).length;
+// ONE POPULATION PER HEADING (2026-09-14, from review). This loop counted ALL rows while
+// printed as an indented subdivision of "with an exit diameter", so the report read
+// `with an exit diameter 287` over `high 238 / medium 48 / low 1 / none 10` - 238+48+1 = 287,
+// and the 10 "none" rows are exactly the ones that heading EXCLUDES. A reader totalling the
+// indented lines got 297 under a heading of 287. Same mixed-population fault fixed three
+// lines above, in the same block, in the same commit.
+for (const conf of ['high', 'medium', 'low', 'per-motor']) {
+  const n = motorRows.filter((m) => m.exitDiameterM !== undefined && m.exitConfidence === conf).length;
   if (n) console.log(`    confidence ${conf.padEnd(10)}      ${n}`);
 }
+const noExitRows = motorRows.filter((m) => m.exitDiameterM === undefined).length;
+if (noExitRows) console.log(`  with NO exit diameter           ${noExitRows} (each reason is in the part's note)`);
 console.log(`  two nozzle options published    ${c.motorsWithTwoNozzleOptions}`);
 for (const m of motorRows.filter((x) => x.exitAmbiguous)) {
   console.log(`    ${m.designation.padEnd(11)} ${m.nozzlePartNo} ${m.exitDiameterIn} in`
@@ -2009,10 +2123,22 @@ const uncoveredTotal = Object.values(db.uncovered).reduce((a, v) => a + v.length
 // it printed 80 under an "AeroTech" heading when AeroTech's own count is 76
 // (2026-09-13, from review). Same shape as the percentage above: a figure that
 // grew a second manufacturer and kept its old name.
-const uncoveredAeroTech = Object.entries(db.uncovered)
-  .filter(([k]) => k.startsWith('AeroTech')).reduce((a, [, v]) => a + v.length, 0);
-console.log(`\nMotors with no nozzle row  ${uncoveredTotal} (AeroTech ${uncoveredAeroTech}, `
-  + `Loki ${uncoveredTotal - uncoveredAeroTech})`);
+// GROUPED, NOT PREFIX-MATCHED-AND-SUBTRACTED (2026-09-14, from review). This filtered on
+// `k.startsWith('AeroTech')` and called the REMAINDER Loki - correct only while exactly two
+// makers exist, and `db.gaps` already names Cesaroni as a live gap. The first third
+// manufacturer would have had its motors printed as Loki's: the identical fault the comment
+// two lines up describes, reintroduced one line below it. The key's first token IS the
+// manufacturer, so group by it and let a new maker appear on its own line.
+const uncoveredByMaker = new Map();
+for (const [k, v] of Object.entries(db.uncovered)) {
+  const maker = k.split(/[\s/]/)[0];
+  uncoveredByMaker.set(maker, (uncoveredByMaker.get(maker) ?? 0) + v.length);
+}
+const uncoveredBreakdown = [...uncoveredByMaker.entries()]
+  .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+  .map(([maker, n]) => `${maker} ${n}`).join(', ');
+console.log(`
+Motors with no nozzle row  ${uncoveredTotal} (${uncoveredBreakdown})`);
 for (const [k, v] of Object.entries(db.uncovered).slice(0, 6)) {
   console.log(`  ${k.padEnd(28)} ${String(v.length).padStart(3)}  ${v.slice(0, 6).join(' ')}${v.length > 6 ? ' ...' : ''}`);
 }

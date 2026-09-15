@@ -10,8 +10,9 @@
   "distinctNozzleParts": 115,
   "partsWithExitDiameter": 92,
   "partsResolvedPerMotor": 20,
-  "motorsWithExit": 287,
+  "motorsWithExit": 288,
   "motorsMatchedToCatalogue": 287,
+  "motorsLoadableWithExit": 279,
   "aerotechMatched": 231,
   "lokiMatched": 56,
   "aerotechMatchedInProduction": 229,
@@ -23,8 +24,8 @@
   "reloadableDrawings": 324,
   "dmsDrawings": 51,
   "dmsRows": 49,
-  "dmsRowsWithExit": 41,
-  "dmsInProductionWithExit": 33,
+  "dmsRowsWithExit": 42,
+  "dmsInProductionWithExit": 34,
   "lokiSheetsRead": 21,
   "lokiMotorsOnASheet": 43,
   "lokiRows": 56,
@@ -36,7 +37,7 @@
  "gaps": {
   "Loki": "Covered since 2026-09-13 from Loki's OWN published tables, not from measurement: their Tech Info page prints the nozzle exit diameter per casing and nozzle-number band, and each reload kit's instruction sheet names the nozzle that motor takes. 55 of 60 catalogued Loki motors now carry an exit. WHAT IS STILL SHORT — four motors, and Eric ruled on each of them 2026-09-13: N3800-LW and N5500LW are SPECIALIST MOTORS HE DOES NOT HAVE THE FIGURES FOR (\"we can leave them as unknown and, if we get the data, we can update the database\") — Loki publish no exit band above 76 mm, their 98 mm hardware being listed \"Historical Information Only — Not In Production\", so N3800-LW carries its #64 throat and no exit and N5500LW has neither. L2050LW and M1378LR (54/4000, whose commercial-throat cell reads \"Single Use\") are ONE-TIME-USE NOZZLES HE OWNS AND WILL MEASURE — expect those two through MEASURED_NOZZLES, not through a sheet. H500-LW is a fifth row-less motor, out of production with no case stated. All are named in `uncovered`.",
   "Cesaroni": "No published nozzle geometry found on pro38.com or elsewhere (owner searched 2026-09-08). Known gap. Worth re-checking the way Loki's was: the Loki exits were on a page we had both already read, at the foot of it, under a heading we were not looking for.",
-  "AeroTechSingleUse": "AeroTech publish an assembly drawing for RELOADABLE motors, because the drawing is the reload kit's parts list — that is the \"Motor Assembly Drawings\" folder. SINCE 2026-09-13 THE SINGLE-USE DMS LINE IS READ TOO, from \"DMS Motor Designs\": 51 sheets, 29 mm to 152 mm, in the identical LIST OF MATERIAL format and naming the same nozzle part families, which is worth 33 more motors with a published exit. That folder was FOUND on 2026-09-08 and left unread for five days behind a deferral (\"adding a document family is a decision rather than a fix\") that was recorded here and never actually put to the owner — he asked why on 2026-09-13 and there was no good answer. What is STILL not covered is the older single-use line, which has neither a reload kit nor a DMS sheet: 43 in-production AeroTech motors have no row here at all, most of them 24 mm and 29 mm hobby motors, and every one is named in `uncovered`."
+  "AeroTechSingleUse": "AeroTech publish an assembly drawing for RELOADABLE motors, because the drawing is the reload kit's parts list — that is the \"Motor Assembly Drawings\" folder. SINCE 2026-09-13 THE SINGLE-USE DMS LINE IS READ TOO, from \"DMS Motor Designs\": 51 sheets, 29 mm to 152 mm, in the identical LIST OF MATERIAL format and naming the same nozzle part families, which is worth 34 more motors with a published exit. That folder was FOUND on 2026-09-08 and left unread for five days behind a deferral (\"adding a document family is a decision rather than a fix\") that was recorded here and never actually put to the owner — he asked why on 2026-09-13 and there was no good answer. What is STILL not covered is the older single-use line, which has neither a reload kit nor a DMS sheet: 43 in-production AeroTech motors have no row here at all, most of them 24 mm and 29 mm hobby motors, and every one is named in `uncovered`."
  },
  "coverage": {
   "note": "What this file covers, per MANUFACTURER and then per motor CASING DIAMETER, counted from motors.json at build time rather than written down. A hand-written coverage claim is exactly how \"every 98 mm motor\" reached a release note while four in-production 98 mm motors had no row here (M1305M, M1340W, N1975W-PS, O5500X-PS). \"inProduction\" is the rows this catalogue does not mark OOP; \"withNozzleRow\" is how many have a row here and \"withExitDiameter\" how many of those carry the number the app actually needs — they differ where a row exists with no exit (an aerospike, or a Loki motor larger than Loki's published exit table). Every motor short of a row is named, and named again in `uncovered`.",
@@ -115,7 +116,7 @@
      "54": {
       "inProduction": 53,
       "withNozzleRow": 51,
-      "withExitDiameter": 48,
+      "withExitDiameter": 49,
       "missing": [
        "J1265T",
        "J550ST-14"
@@ -488,7 +489,7 @@
    }
   ],
   "dmsSheetObservations": {
-   "note": "The 41 DMS rows that carry an EXIT were read back from their own PDFs on 2026-09-13 by readers other than the code that built them, and each of those exits was then attacked by a second reader told to refute it. NONE was refuted. (There are 49 DMS rows in all; the rest publish no exit, so there was no exit to check.) These are the differences between what the drawings show and what this file publishes, kept as a comparison — a drawing callout is an unlabelled number and is never an input here.",
+   "note": "The 42 DMS rows that carry an EXIT were read back from their own PDFs on 2026-09-13 by readers other than the code that built them, and each of those exits was then attacked by a second reader told to refute it. NONE was refuted. (There are 49 DMS rows in all; the rest publish no exit, so there was no exit to check.) These are the differences between what the drawings show and what this file publishes, kept as a comparison — a drawing callout is an unlabelled number and is never an input here.",
    "rows": [
     {
      "motors": [
@@ -6595,14 +6596,24 @@
    "docFamily": "dms",
    "casingDiameterMm": 54,
    "nozzlePartNo": "01700-1",
+   "exitDiameterM": 0.0127,
+   "exitDiameterIn": 0.5,
    "throatDiameterM": 0.006756,
    "throatDiameterIn": 0.266,
-   "exitSource": "none",
-   "exitConfidence": "none",
+   "exitSource": "medusa-open-throats",
+   "exitConfidence": "medium",
+   "confidenceNote": "The sheet gives a drilled throat with no count, so only the centre throat is taken as open — the moulded state. If outer throats were also opened the exit area is larger.",
+   "medusa": {
+    "openOuterThroats": 0,
+    "outerCountAssumed": true,
+    "centerExitIn": 0.5,
+    "outerExitIn": 0.375,
+    "centerThroatIn": 0.266
+   },
    "provenance": {
     "lomDescription": "MEDUSA NOZZLE CENTER DRILL TO .266\"",
     "designationOnSheet": "exact",
-    "exitFrom": "Nozzles/54mm Medusa Nozzle.mhtml",
+    "exitFrom": "Nozzles/54mm Medusa Nozzle.mhtml (geometry) + 54mm/I65W-PS.pdf (throats opened)",
     "matchedVia": "I65W-PS",
     "caseAgrees": false,
     "assemblyDrawings": [

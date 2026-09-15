@@ -436,9 +436,35 @@ describe('the join into the motor catalogue', () => {
     // reads in CI. There is exactly one motor the catalogue carries in both a
     // reloadable and a DMS form whose DMS sheet we hold; if a second appears
     // that is worth a human looking, not a silent pass.
-    expect(divergent.map((d) => d.split(':')[0]).sort(),
-      'the set of DMS rows that resolve to the other form of their motor has changed')
-      .toEqual(['H550ST-14A']);
+    //
+    // ROUTED THROUGH THE DRIFT ESCAPE HATCH (2026-09-14, from review). The pin was a bare
+    // `expect(...).toEqual([...])`, which is a HARD gate on a set that upstream can change
+    // without us touching anything: this set is derived by joining our rows to
+    // `motors.json` through the app's own matcher, so a thrustcurve.org rename, or a second
+    // motor gaining both a reloadable and a DMS form, moves it. `.github/workflows/
+    // motors-refresh.yml` runs on a cron ('17 9 * * 1'), stamps a new date into motors.json
+    // and runs `npm test` as its gate — so that rename would have hard-failed the weekly
+    // workflow, and every deploy after it, with NO WAY TO CLEAR IT IN CI: clearing needs a
+    // regeneration, and regeneration needs the local-only `docs/RCS Schematics`.
+    //
+    // This is the exact break this file removed on 2026-09-08 and then reintroduced five
+    // days later in a different check. Every other join check already goes through
+    // `judgeAgainstCatalogue`, which fails hard while the catalogue is the one we were keyed
+    // against and downgrades to a warning once it is not. There is no reason for this one to
+    // be the exception.
+    const unexpected = divergent.map((d) => d.split(':')[0]).sort()
+      .filter((d) => d !== 'H550ST-14A');
+    judgeAgainstCatalogue(unexpected,
+      'the set of DMS rows that resolve to the OTHER FORM of their motor has changed — only '
+      + 'H550ST-14A is known to do this', REGENERATE);
+    // The known member must still BE there while the catalogue is unchanged; if it vanishes
+    // the join has changed shape and the pin above would silently pass on an empty set.
+    if (sameCatalogue) {
+      expect(divergent.map((d) => d.split(':')[0]).sort(),
+        'H550ST-14A no longer resolves to the other form of its motor, against the very '
+        + 'catalogue these rows were keyed to — the join has changed shape')
+        .toEqual(['H550ST-14A']);
+    }
   });
 
   it('keeps the raw designation even where nothing matched, so no motor is lost', () => {

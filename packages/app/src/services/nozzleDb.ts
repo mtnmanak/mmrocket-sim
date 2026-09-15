@@ -79,7 +79,17 @@ export interface NozzleEntry {
 }
 
 interface RawMotor {
-  motorId: string;
+  /**
+   * OPTIONAL, because the DATA says so (2026-09-14, from review). This was declared
+   * `motorId: string` while ten shipped rows carry none — the eight AeroTech parts in no
+   * thrustcurve.org catalogue entry, plus two more. `nozzles.json` reaches this file through
+   * `as unknown as RawDb`, which casts straight past the real shape, so the declaration was
+   * simply a lie the compiler could not see: the runtime guard below reads as dead code, and
+   * any future `map.set(m.motorId, …)` or `m.motorId.startsWith(…)` would typecheck clean and
+   * throw on the first row without one. Patching the symptom and leaving the type lying is
+   * how the NEXT consumer inherits the bug.
+   */
+  motorId?: string;
   designation: string;
   manufacturer?: string;
   exitDiameterM?: number;
@@ -100,8 +110,18 @@ let byMotorId: Map<string, NozzleEntry> | null = null;
 let meta: { generated: string; source: string } | null = null;
 
 function toEntry(m: RawMotor): NozzleEntry | null {
+  // A row with no motorId cannot become an entry, because `NozzleEntry.motorId` is the key
+  // callers look it up by. The caller already skips these, but with `motorId` now declared
+  // OPTIONAL — which is what the data has always been — that guard no longer narrows across
+  // this function boundary, and stating it here is what makes the honest type compile instead
+  // of being cast away. This is the check the old `motorId: string` lie was hiding.
+  if (typeof m.motorId !== 'string' || !m.motorId) return null;
   const d = m.exitDiameterM;
-  // A motor row can exist with no usable exit (one does, at confidence "none").
+  // A motor row can exist with no usable exit. TEN do (2026-09-14, from review — this said
+  // "one does", a count that predates v0.127 and v0.131 and was not touched while the lines
+  // below it were edited, in a release whose whole subject was counts going stale): nine
+  // AeroTech rows and Loki's N3800-LW, whose throat is known and whose exit Loki do not
+  // publish above 76 mm.
   // Returning it would fill the field with nothing, which is the one outcome
   // worse than leaving it blank.
   if (typeof d !== 'number' || !Number.isFinite(d) || d <= 0) return null;
@@ -151,11 +171,13 @@ async function db(): Promise<Map<string, NozzleEntry>> {
  * manufacturers and across a motor's own history, and the database is built
  * against a dated catalogue snapshot. An id that has no row simply has nothing
  * published — 221 of AeroTech's 272 in-production motors have a figure since
- * v0.131 added their DMS single-use drawings, and 54 of Loki's 58. Eight
- * AeroTech rows exist with no number on purpose: the J615ST aerospike (no exit
- * plane at all), four 29 mm DMS motors whose nozzle is moulded into the case,
- * two on a machined part that states an O.D. and no exit, and one whose sheet
- * says the nozzle was cut shorter than its mould. Cesaroni publish nothing anyone has found; see the
+ * v0.131 added their DMS single-use drawings, and 54 of Loki's 58. NINE
+ * AeroTech rows exist with no number on purpose — this said EIGHT and then listed
+ * eight, while the file held nine (2026-09-14, from review; 1+4+2+1 = 8, and the
+ * Medusa was the one left out, even though v0.131's own changelog entry names it):
+ * the J615ST aerospike (no exit plane at all), four 29 mm DMS motors whose nozzle is
+ * moulded into the case, two on a machined part that states an O.D. and no exit, one
+ * whose sheet says the nozzle was cut shorter than its mould, and the I65W-PS Medusa. Cesaroni publish nothing anyone has found; see the
  * file's own `coverage` and `gaps`, which are counted at build time rather than
  * written down, so the numbers in this sentence can be checked against it.
  */

@@ -11,7 +11,7 @@
  * script fails if it doesn't match APP_VERSION), commit, push.
  */
 
-export const APP_VERSION = '0.132';
+export const APP_VERSION = '0.133';
 
 export interface ChangelogEntry {
   version: string;
@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.133',
+    date: '2026-09-14',
+    title: 'A motor that shipped with no nozzle exit at all, and a count in the v0.132 note that was wrong',
+    items: [
+      'THE I65W-PS SHIPPED WITH NO NOZZLE EXIT DIAMETER, and it should have had one all along. Its AeroTech sheet writes "MEDUSA NOZZLE CENTER DRILL TO .266" - the bare verb - where every other sheet writes "DRILLED TO", and the reader only understood the second form. So the throat could not be read, the Medusa could not be resolved, and the row fell through to no exit at all, where part 01700-1 publishes a 0.500 in centre exit. IF YOU FLY THE I65W-PS, RE-OPEN THE DESIGN AND RE-FLY IT: the field now fills in at 0.500 in and, under Rogers Kbf, Auto or Supersonic, the exit area adds thrust as the air thins, so your predicted apogee will read HIGHER than it did. Clear the field, or pick Classic Extended Barrowman, to get the old numbers back - both are exact, and both also drop the power-on base-drag reduction. It is the only motor whose number moves in this release: 297 rows, one exit changed, no throat changed, nothing added or removed.',
+      'A CORRECTION TO THE v0.132 NOTE, WHICH IS THE FIFTH RELEASE IN NINE TO NEED ONE. That note said "five throats changed, 0 exits, 0 rows added or removed". That is true of the motor list and FALSE OF THE FILE: two nozzle PART throats also moved - 01500-10 from .180 to .242 in, which is 34 percent more area, and 01500-15 from .180 to .281 in, 56 percent more - and three parts gained or changed a record of disagreeing sheets. No flight number moved either way, because the app simulates with the exit and not the throat. The cause is the one this project keeps meeting: the verification diff covered the motors array and the file has two arrays, so a check that looked thorough only ever saw half of what it was checking. ROWS ARE NOT MOTORS, AND A MOTOR LIST IS NOT A FILE.',
+      'THE SAME MOTOR WAS ALSO THE ONE BLANK IN THE FILE WITH NO REASON GIVEN. The rule here is that every absence says why - the aerospike has no exit plane, the moulded 29 mm cases have no separate nozzle part, one sheet cut its nozzle shorter than its mould - and the Medusa path was the one branch that dropped an exit silently. It now states, per row, that the sheet description could not be read, rather than leaving a blank a reader has to guess at. Nothing reaches that branch today, which is exactly when it was worth writing.',
+      'AND THE GUIDE NOW QUOTES A NUMBER THE BUILD COUNTS. It said "278 motors you can load" as hand-typed prose, while the same paragraph own components summed to 275 and the true figure was 279 - the three-motor gap being motors that are out of production, which the sentence never said. That count is now computed when the database is built, the way the coverage figures already were, so it cannot drift again. Under the hood: a nozzle-database check that would have hard-failed the weekly motor refresh with no way to clear it in CI now reports upstream drift instead of failing on it, two build-time checks that ran before half the rows existed now run after all of them, and three stale counts in the code own comments are corrected.',
+    ],
+  },
   {
     version: '0.132',
     date: '2026-09-13',
