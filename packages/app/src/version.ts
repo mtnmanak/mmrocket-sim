@@ -5,10 +5,19 @@
  * 1.0.0. The npm package versions stay independent (they're internal
  * workspace plumbing; npm requires strict semver).
  *
- * Release checklist: bump APP_VERSION, prepend a CHANGELOG entry, update
+ * Release checklist: merge or close any open motors-refresh PR and rebuild
+ * nozzles.json if the catalogue moved (2026-09-19 — `check-upstream` flags a
+ * catalogue over 8 days old, and printed `ok` over a 14-day one before that
+ * limit came down); then bump APP_VERSION, prepend a CHANGELOG entry, update
  * /version.json at the repo root (version + released + a short user-facing
  * note — the site's online-tools page polls it to prompt refreshes; the package
  * script fails if it doesn't match APP_VERSION), commit, push.
+ *
+ * ⚠ AND CHECK THE ENTRY'S OWN NUMBERS BEFORE PUSHING, claim by claim, against
+ * the code — not against this file and not against the commit messages. Five of
+ * the last ten releases have had to correct a published claim, and the v0.135
+ * check caught fourteen, one of which was a guide paragraph that still stated a
+ * rule the same release had deleted from the code.
  */
 
 export const APP_VERSION = '0.135';

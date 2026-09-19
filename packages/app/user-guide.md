@@ -570,7 +570,7 @@ Solid and structural parts pick a **bulk material** from the built-in material d
 
 ## Component presets
 
-The bundled catalog holds roughly **4,700 real-world parts** (tubes, nose cones, transitions, rings, couplers, bulkheads, engine blocks, launch lugs, parachutes, streamers) from named manufacturers with part numbers, materials, and cataloged mass. Open the preset picker on a selected component, choose a part, and its dimensions, material, and mass override are patched in. The 1.3 MB bundle loads lazily on first use, and you can round-trip your own custom presets through CSV. **Inner tubes also get the body-tube catalogue**
+The bundled catalog holds roughly **4,700 real-world parts** (tubes, nose cones, transitions, rings, couplers, bulkheads, engine blocks, launch lugs, parachutes, streamers) from named manufacturers with part numbers, materials, and cataloged mass. Open the preset picker on a selected component, choose a part, and its dimensions, material, and mass override are patched in. The 1.3 MB bundle loads lazily on first use, and you can round-trip your own custom presets through CSV. **Inner tubes also get the body-tube catalogue**, so a motor mount can be set to a real catalogue tube — which is where the Composite Warehouse motor-mount tubes live.
 
 ### Adding your own parts through CSV
 
