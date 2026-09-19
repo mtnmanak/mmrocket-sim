@@ -2,7 +2,7 @@
  "generated": "2026-09-08",
  "source": "AeroTech / RCS Rocket Motor Components published drawings and store pages; Loki Research published instruction sheets and Tech Info tables",
  "sourceNote": "docs/RCS Schematics and docs/Loki Data (both LOCAL-ONLY, gitignored). Regenerate with packages/app/scripts/build-nozzle-db.mjs.",
- "catalogueGenerated": "2026-09-05",
+ "catalogueGenerated": "2026-09-19",
  "rule": "A dash number drills the THROAT; the moulded EXIT is unchanged — AeroTech's own note, printed on 14 of the 23 nozzle drawing files. The 98mm 01800 \"M\" mould is the documented exception (1.750 in exit against the base 0.900 in) and is resolved from part-specific sources.",
  "counts": {
   "assemblyDrawings": 375,
@@ -18,7 +18,7 @@
   "aerotechMatchedInProduction": 229,
   "lokiMatchedInProduction": 55,
   "motorsWithTwoNozzleOptions": 9,
-  "catalogueMotors": 1155,
+  "catalogueMotors": 1156,
   "catalogueAeroTech": 307,
   "catalogueAeroTechInProduction": 272,
   "reloadableDrawings": 324,
