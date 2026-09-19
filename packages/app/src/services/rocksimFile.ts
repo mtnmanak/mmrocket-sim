@@ -1355,7 +1355,10 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
 
   const stagesIn = asStageNodes(tree);
   if (stagesIn.length > 3) {
-    throw new Error('RockSim supports at most 3 stages.');
+    // The FORMAT is the limit, not the application: every .rkt seen here
+    // writes three fixed Stage1/2/3 element families rather than a repeating
+    // stage element, so there is nowhere for a fourth to go.
+    throw new Error('A .rkt file holds at most 3 stages.');
   }
 
   const nnum = (node: ComponentNode, key: string, fb: number): number =>

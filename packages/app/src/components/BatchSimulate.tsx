@@ -136,6 +136,45 @@ export interface BatchWeighed {
   deltaKg: number;
 }
 
+/**
+ * THE STAGE EXIT ONE BATCH CANDIDATE FLIES, as one equivalent nozzle — pure, so
+ * the headline behaviour of this dialog has a test that would fail if it broke.
+ *
+ * Two rules, in order:
+ *
+ *  1. If the user has TYPED an exit under the stage and this candidate is the
+ *     motor still loaded on the mount being swept, that row flies THEIR number.
+ *     The field is already the whole stage's equivalent, so it is used as-is.
+ *     This is the case the database cannot serve: a nozzle machined out by hand
+ *     is not in anyone's drawings.
+ *  2. Otherwise the candidate's own published exit is summed with the exits of
+ *     every other motor firing on the stage. `equivalentExitDiameterM` returns
+ *     null the moment ANY of them is unknown, which is the honest answer — a
+ *     sum short by the motors it could not see is worse than no number at all,
+ *     because the blank is visible and the short sum is not.
+ *
+ * Null means "fly with no nozzle", which is what every candidate did before.
+ */
+export function batchStageExit(input: {
+  candidateId: string;
+  /** Motors firing on the swept mount (a cluster count), not the whole stage. */
+  count: number;
+  /** This candidate's published exit, or null when the app holds none. */
+  ownExitM: number | null;
+  /** The other mounts firing alongside it, already resolved. */
+  otherParts: readonly { count: number; exitDiameterM: number | null }[];
+  /** The exit typed under the stage, or null. */
+  typedStageExitM: number | null;
+  /** The motor currently loaded on the mount being swept, if any. */
+  loadedIdOnTarget: string | undefined;
+}): number | null {
+  const { candidateId, count, ownExitM, otherParts, typedStageExitM, loadedIdOnTarget } = input;
+  if (typedStageExitM !== null && loadedIdOnTarget && candidateId === loadedIdOnTarget) {
+    return typedStageExitM;
+  }
+  return equivalentExitDiameterM([{ count, exitDiameterM: ownExitM }, ...otherParts]);
+}
+
 /** A candidate's identity spelled the way MountMotor identities are: EX entries by their ex: id. */
 export function candidateIdentity(entry: Pick<MotorDbEntry, 'motorId' | 'manufacturerAbbrev' | 'designation'>): string {
   return motorIdentity({ exMotorId: entry.motorId.startsWith('ex:') ? entry.motorId : undefined, manufacturer: entry.manufacturerAbbrev }, entry.designation);
@@ -553,13 +592,15 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
     const loadedIdOnTarget = assignedMotorIds[mountId];
 
     /** The equivalent stage exit this candidate should fly, or null for none. */
-    const exitForCandidate = async (e: MotorDbEntry, count: number): Promise<number | null> => {
-      if (typedStageExitM !== null && loadedIdOnTarget && e.motorId === loadedIdOnTarget) {
-        return typedStageExitM;
-      }
-      const own = (await nozzleForMotorId(e.motorId))?.exitDiameterM ?? null;
-      return equivalentExitDiameterM([{ count, exitDiameterM: own }, ...otherParts]);
-    };
+    const exitForCandidate = async (e: MotorDbEntry, count: number): Promise<number | null> =>
+      batchStageExit({
+        candidateId: e.motorId,
+        count,
+        ownExitM: (await nozzleForMotorId(e.motorId))?.exitDiameterM ?? null,
+        otherParts,
+        typedStageExitM,
+        loadedIdOnTarget,
+      });
     // The shared construction — this used to be a private copy that omitted
     // `timeStep`, so a design carrying its own step from its .ork gave one set
     // of numbers here and a different set on the Launch button.
@@ -1200,8 +1241,15 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
                         third of a 54 mm sweep has one, and without this marker
                         that shows up as two motors of the same impulse a few
                         percent apart with nothing on screen to explain it.
+                        HIDDEN UNDER CLASSIC EB, where neither half of the
+                        nozzle model runs: the marker would be pointing at a
+                        difference that is not there, and the note that explains
+                        it is hidden under that model too. The nozzleStages
+                        STAMP is deliberately left alone — the design page
+                        stamps it unconditionally as well (App.tsx), and both
+                        of its consumers gate on the model themselves.
                       */}
-                      {(run?.nozzleStages?.length ?? 0) > 0
+                      {batchModel !== 'eb' && (run?.nozzleStages?.length ?? 0) > 0
                         && <span className="motor-db-meta"> · nozzle</span>}
                     </td>
                     <td>{run ? (Number.isFinite(run.delayS) ? `${run.delayS}s` : 'P') : '—'}</td>

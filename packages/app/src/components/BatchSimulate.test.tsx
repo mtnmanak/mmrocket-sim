@@ -12,7 +12,7 @@ import { MOTOR_DB, filterMotors, sortMotors } from '../services/motorDb.js';
 import { DEFAULT_CONDITIONS, type LaunchConditions } from './LaunchPanel.js';
 import {
   BatchSimulate, batchFlownSpec, batchProbeCutoff, batchSummary, batchUnavailableReason, candidateIdentity,
-  isWeighedCandidate, mixedComboCount, type BatchMountOption, type BatchWeighed,
+  isWeighedCandidate, mixedComboCount, type BatchMountOption, type BatchWeighed, batchStageExit,
 } from './BatchSimulate.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -521,5 +521,80 @@ describe('the sweep applies each candidate nozzle over a stripped tree', () => {
 
   it('falls back to no nozzle when a candidate has none', () => {
     expect(src).toContain("const key = usable ? (equivM as number).toFixed(6) : 'none';");
+  });
+});
+
+/**
+ * THE HEADLINE BEHAVIOUR OF v0.135, with a test that would fail if it broke.
+ *
+ * Until v0.135 the sweep stripped the stage nozzle and gave every candidate
+ * none, while the Launch button used it — so the same motor gave two different
+ * answers in two places (the owner, 2026-09-18). These pin the rule that
+ * replaced it. The sibling describe block above pins that the design's OWN
+ * nozzle is still stripped first, which is the 2026-09-08 bug; this one pins
+ * what goes back on top.
+ */
+describe('batchStageExit — the nozzle one candidate flies', () => {
+  const IN = 0.0254;
+  const base = { count: 1, otherParts: [], typedStageExitM: null, loadedIdOnTarget: undefined };
+
+  it('gives a candidate its own published exit', () => {
+    expect(batchStageExit({ ...base, candidateId: 'm1', ownExitM: 2.15 * IN }))
+      .toBeCloseTo(2.15 * IN, 12);
+  });
+
+  it('gives no nozzle to a candidate the app holds none for', () => {
+    // Two thirds of a typical sweep. This is the pre-v0.135 behaviour, kept
+    // exactly, for the rows where there is nothing better to do.
+    expect(batchStageExit({ ...base, candidateId: 'm1', ownExitM: null })).toBeNull();
+  });
+
+  it('sums a cluster by AREA, so four motors is twice one diameter', () => {
+    const one = 0.02;
+    expect(batchStageExit({ ...base, count: 4, candidateId: 'm1', ownExitM: one }))
+      .toBeCloseTo(2 * one, 12);
+  });
+
+  it('adds the motors firing on the other mounts', () => {
+    // 3-4-5: two mounts at 0.03 and 0.04 give one equivalent of 0.05.
+    expect(batchStageExit({
+      ...base, candidateId: 'm1', ownExitM: 0.03,
+      otherParts: [{ count: 1, exitDiameterM: 0.04 }],
+    })).toBeCloseTo(0.05, 12);
+  });
+
+  it('returns null when ANY motor on the stage is unknown', () => {
+    // A sum short by the motors it could not see is worse than no number: the
+    // blank is visible to the user and the short sum is not.
+    expect(batchStageExit({
+      ...base, candidateId: 'm1', ownExitM: 0.03,
+      otherParts: [{ count: 1, exitDiameterM: null }],
+    })).toBeNull();
+  });
+
+  it('flies YOUR typed exit for the motor you typed it for', () => {
+    // The case the database cannot serve — a nozzle machined out by hand is in
+    // nobody's drawings. Note it wins even though a published exit exists.
+    expect(batchStageExit({
+      ...base, candidateId: 'm1', ownExitM: 0.03,
+      typedStageExitM: 0.076, loadedIdOnTarget: 'm1',
+    })).toBeCloseTo(0.076, 12);
+  });
+
+  it('does not lend that typed exit to any other candidate', () => {
+    // The whole reason the sweep strips the design's nozzle in the first place.
+    expect(batchStageExit({
+      ...base, candidateId: 'm2', ownExitM: 0.03,
+      typedStageExitM: 0.076, loadedIdOnTarget: 'm1',
+    })).toBeCloseTo(0.03, 12);
+  });
+
+  it('ignores a typed exit when the mount being swept carries no motor', () => {
+    // The natural state while shopping for one: there is no motor for the
+    // typed number to belong to, so every row falls back to the database.
+    expect(batchStageExit({
+      ...base, candidateId: 'm1', ownExitM: 0.03,
+      typedStageExitM: 0.076, loadedIdOnTarget: undefined,
+    })).toBeCloseTo(0.03, 12);
   });
 });

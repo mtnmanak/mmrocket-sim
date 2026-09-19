@@ -167,7 +167,7 @@ as-built mass — printed parts weigh what they weigh.
 **The two ends are shaped separately.** Most shrouds are flat or domed on the end the
 camera looks out of, to give the lens a clear aperture, and tapered at the other
 end. Set **Fore end** and **Aft end** independently; a forward-facing camera
-just swaps them. The default is streamlined at the front, domed at the back. A
+just swaps them. The default is streamlined at the front and flat at the back, which is the shape most real shrouds take: tapered into the wind, flat where the lens looks out. A
 shroud with matching ends is charged exactly the coefficient above; give it two
 different ends and it is charged the mean of the two, which is an interpolation
 rather than a measurement.
@@ -739,19 +739,42 @@ The prescribed delays from the motor's label are informational only. In the brow
 
 ## Weighed pad mass — flying at the mass you put on the pad
 
-Weigh the rocket the way it goes on the pad — motor, adapter, retainer and closure all in — and type that weight into the field under the loaded motor on Motors & Launch. The field reads **Weighed pad mass with this motor**, or **Weighed pad mass with every motor in** on a rocket that holds more than one (a second mount, or a cluster), where it sits under the top stage's motor and covers the whole stack. There is no button: it acts the moment you type it, the line under the field says what the app did with the number, and the next Launch flies it.
+Weigh the rocket the way it goes on the pad — motor, adapter, retainer and closure all in — and type that
+weight into the field under the loaded motor on **Motors & Launch**. There is no button: it acts as you type,
+the line under the field says what the app did with it, and the next **Launch** flies it.
 
-What it buys you is the hardware no catalogue counts. The catalogue weight is the motor alone — the adapter, the retainer and whichever forward closure is fitted are in no catalogue, and not in the airframe either. The app subtracts the dry rocket (your figure from the *Measured mass & CG* box on the Design tab if you typed one, otherwise the computed one) and the catalogue motor, then carries the difference as inert mass on that motor for the whole flight. The pad mass comes out at exactly what you weighed, apogee and speed off the rail move with it, and the recovery weight and recovery sizing include the hardware.
+**What it buys you is the hardware no catalogue counts.** A catalogue weight is the motor alone; the adapter,
+the retainer and whichever forward closure is fitted are in no catalogue and not in your airframe figures
+either. The app subtracts the dry rocket and the catalogue motor from what you weighed and carries the
+difference as inert mass on that motor for the whole flight. Your pad mass then comes out at exactly what you
+measured, apogee and speed off the rail move with it, and the recovery sizing includes the hardware. It
+applies everywhere a flight is flown — the design page, **Launch**, and the batch sweep, where a note says
+which row carries it.
 
-It applies wherever a flight is flown: the design page's numbers, **Launch**, and the batch sweep, where a note under the candidate list says which row carries the hardware — the motor you weighed, when it is among the candidates; none of them, when it is not; or every flight on this mount, when the weighing belongs to a motor on another mount that rides along in all of them. On a staged rocket the weighing covers every motor in the stack, and the whole difference is carried on the top stage's mount.
+**The number belongs to that motor in this design, and goes no further.** It is stored with the flight
+configuration it was weighed with, inside the design, so it travels in the `.ork` file and in a share link and
+switches with the configuration the way its motors do. Nothing is recorded against the motor itself: weighing
+a J460T here does not follow a J460T you load in another design. Load a different motor on this mount and the
+field is blank for it, showing dry mass plus the catalogue motor as a placeholder until you weigh again;
+unload the motor and the number goes with it.
 
-**The number belongs to that motor in this design, and goes no further.** It is stored with the flight configuration it was weighed with, inside the design, so it travels in the `.ork` file and in a share link and switches with the configuration the way its motors do. Nothing is recorded against the motor itself: weighing a J460T here does not follow a J460T you load in another design. Load a different motor on this mount and the field is blank for it too, its placeholder showing dry mass plus the catalogue motor, until you weigh again; unload the motor and the number goes with it.
+**When the set changes, it stops being applied rather than quietly going wrong.** Swap a booster's motor,
+empty or fill another mount, or edit a cluster count, and the number is kept but greyed and **not flown** —
+the line names what changed. Put the set back and it applies again; re-weigh with the new set in, or clear it,
+to move on. Load a motor on a stage above the one you weighed and the field follows to that motor, blank,
+while your number waits with its own. Changing the delay keeps the weighing, because the hardware does not
+change with the delay grain — but a different forward closure is a different weight, so re-weigh if you swap
+one.
 
-Change the motor set after weighing — a booster's motor swapped, a mount emptied or newly loaded, a cluster count edited — and the number is kept but greyed and **not applied**: the line names what changed, and nothing is carried until you re-weigh with the new set in or clear the field. Put the set back as it was and it applies again. Load a motor on a stage above the one you weighed and the field moves up to that motor, blank; your number waits with its own motor, unflown and unsaved, until that motor is the top one again. Changing the delay, or going plugged, on the same motor keeps the weighing — the hardware does not change with the delay grain — but a different forward closure is a different weight, so re-weigh if you swap one. Open a file whose weighed motor cannot be loaded and there is no field, only a note naming that motor: the weight is kept so the file saves unchanged, and nothing is carried until you load it.
+Two entries are refused outright, with the line saying why: a weight lighter than the dry rocket plus the
+catalogue motor, which is a typo or the wrong motor, and a difference heavier than the airframe itself. A
+difference over half the motor's own weight is flown but flagged, so check it. Nothing is sent anywhere — it
+is an input to the flight, not a statistic. Desktop OpenRocket does not read the figure: it skips the tag with
+a warning, the same way it treats the two measured airframe figures, and a file without one opens exactly as
+before.
 
-Two entries are refused outright, with the line saying why: a weight lighter than the dry rocket plus the catalogue motor (a typo, or the wrong motor), and a difference heavier than the airframe itself. A difference over half the motor's own weight is flown but flagged, so check the entry. Desktop OR does not read this figure — it skips the tag with a warning, the same way it treats the two measured airframe figures — and a file without one opens exactly as before. Nothing is sent anywhere: it is an input to the flight, not a statistic.
-
-A pad weight left in the Measured mass & CG box by an older version is moved for you on the first open: it is checked against the motor you have loaded and either placed under that motor — a notice says so, and the line under the motor says what it carries — or dropped, with a notice naming the value and the motor so you can re-weigh, when it cannot be that motor's weight (lighter than the dry rocket plus that motor) or when there is no motor for it to belong to. A pad mass carried in an `.ork` saved by one of those versions goes to the motor on the top stage's mount in the file's default configuration, is checked the same way, and saves in its new place next time. Which versions kept it in the old place is in the changelog, behind the version badge in the header.
+If you have a pad weight typed into an older version's *Measured mass & CG* box, opening the design moves it
+under the motor it belongs to, or tells you it could not and names the value so you can re-weigh.
 
 ## Per-stage maximum motor length
 
@@ -894,7 +917,7 @@ Add stages as siblings under the rocket root; they flatten nose-to-tail into one
 
 Each staged motor has an **ignition trigger**: Automatic (the launch stage at launch, every stage above it on the ejection charge of the stage immediately below), lower-stage burnout + delay (electronics), launch + delay (timer), lower-stage ejection charge + delay, or never. **You can set the trigger on any motor**, and what decides which one is right is the motor's **propellant**, not the rocket's power class: gap staging lights a black powder motor off the charge below it, and a composite motor generally will not light that way — so plenty of ordinary mid-power composites need electronics.
 
-The app has to start somewhere, so a motor loaded into the **sustainer** of a multi-stage rocket starts on *burnout + 1 s* (electronics-timed) when its average thrust is above 80 N or its total impulse above 160 Ns, and on Automatic otherwise. Treat that as a starting point rather than a recommendation, and set it to match your own staging hardware. One thing to watch: picking a motor sets that mount's trigger afresh, so choose the motor first and the trigger after.
+The app has to start somewhere, so a motor loaded into **any stage above the launch stage** — the sustainer, and the middle stage of a three-stage rocket too — starts on *burnout + 1 s* (electronics-timed) unless the catalogue records its propellant as black powder, in which case it starts on Automatic. A motor the catalogue records no propellant for also starts electronics-timed: that is the safer of the two guesses, because a sustainer that will not light is a flight you can see going wrong, while one the app lit for you in a simulation is not. A strap-on booster starts on Automatic whatever it burns, because it lights at launch alongside the stage it rides on. Treat all of that as a starting point rather than a recommendation, and set it to match your own staging hardware. One thing to watch: picking a motor sets that mount's trigger afresh, so choose the motor first and the trigger after.
 
 ## Booster recovery and clusters
 
@@ -935,7 +958,7 @@ Over a whole flight it is worth measuring on your own design. Across the twenty 
 Three things it deliberately does not touch:
 
 - **Batch simulate** gives each candidate **its own** published exit where the app has one, so a motor reads the same there as it does here — see *Simulating and Reading Results → Batch simulate*.
-- **Exports.** Saving an `.ork` here and re-opening it keeps the nozzle exit diameter — the element is this app's own addition to the format, so desktop OR skips it, with a warning, when it opens the file. A `.CDX1` export carries it too, into both of the places RASAero keeps it, so a design sent out to RASAero II and read back comes home with its nozzle intact. The app's `.rkt` export is the one that cannot: the format has no field for a nozzle exit diameter, so a round trip through `.rkt` drops the number and with it both the drag reduction and the thrust term.
+- **Exports.** Saving an `.ork` here and re-opening it keeps the nozzle exit diameter — the element is this app's own addition to the format, so desktop OpenRocket skips it, with a warning, when it opens the file. A `.CDX1` export carries it too, into both of the places RASAero keeps it, so a design sent out to RASAero II and read back comes home with its nozzle intact. The app's `.rkt` export is the one that cannot: the format has no field for a nozzle exit diameter, so a round trip through `.rkt` drops the number and with it both the drag reduction and the thrust term.
 - **Drag analysis** stays a static, no-flight property of the geometry: its power-on curve is the drag half only. Thrust appears in a flight, not in a CD sweep.
 
 ---
@@ -1024,7 +1047,7 @@ Optional. On **Chrome, Edge and Android Chrome** it is exactly what it sounds li
 
 ### iPhone and iPad: read this before you take one to a launch
 
-Measured for v0.135 on **one iPad running iPadOS 18.6.2**. No iPhone has been tested. An iPhone Home Screen app is the same kind of container, so treat it the same way until someone measures one.
+Measured on **one iPad running iPadOS 18.6.2**. No iPhone has been tested. An iPhone Home Screen app is the same kind of container, so treat it the same way until someone measures one.
 
 On an iPhone or iPad, the Home Screen app is not the same app as Safari with the same address open. It is a separate copy with its own storage, and nothing passes between the two:
 
@@ -1221,7 +1244,7 @@ Wind is modeled as **pink noise** around a mean speed. You set an average wind s
 
 There is also a deliberately tiny random perturbation (±0.0005) added to the pitch and yaw moments each step, which prevents an unnaturally perfect, knife-edge-symmetric flight from never tipping over.
 
-One difference survives every aerodynamics model, the parity setting included. Desktop OpenRocket seeds these random streams from the wall clock, so two identical runs give slightly different gust histories. **MMRocket Sim seeds them deterministically** (a fixed seed, 42). Same design + same settings ⇒ **exactly the same flight, every time** — better for teaching, sharing and comparing, and it makes a clean before/after comparison of a design change possible. (For the same reason the engine also fixes a couple of internal iteration orders that desktop OpenRocket leaves free to wander at the sub-rounding-error level. Results stay inside desktop OpenRocket's own run-to-run envelope.)
+One of those differences is worth spelling out, because it is the one you can see in two runs of the same design. Desktop OpenRocket seeds these random streams from the wall clock, so two identical runs give slightly different gust histories. **MMRocket Sim seeds them deterministically** (a fixed seed, 42). Same design + same settings ⇒ **exactly the same flight, every time** — better for teaching, sharing and comparing, and it makes a clean before/after comparison of a design change possible. (For the same reason the engine also fixes a couple of internal iteration orders that desktop OpenRocket leaves free to wander at the sub-rounding-error level. Results stay inside desktop OpenRocket's own run-to-run envelope.)
 
 ---
 
