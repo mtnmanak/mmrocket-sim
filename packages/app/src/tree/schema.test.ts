@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { FIELDS } from './schema.js';
+import { defaultParams, FIELDS } from './schema.js';
+import { shroudEnds } from './shroud.js';
 
 const field = (type: string, key: string) =>
   (FIELDS[type as keyof typeof FIELDS] ?? []).find((f) => f.key === key);
@@ -79,5 +80,38 @@ describe('the nozzle exit diameter label states both halves', () => {
     expect(f().smin).toBe(0);
     expect(f().smax).toBe(200);
     expect(f().step).toBe(1);
+  });
+});
+
+/**
+ * A NEW camera shroud is born tapered fore and FLAT aft (Eric, 2026-09-18,
+ * with photographs: "Most shrouds are flat ended where the camera is … the
+ * default config should be tapered at the front and flat at the back").
+ *
+ * The creation default had never been pinned by anything, which is how it sat
+ * at a domed aft end while the guide described what the photographs show.
+ */
+describe('camera shroud end shapes', () => {
+  it('creates a shroud tapered at the front and flat at the back', () => {
+    const p = defaultParams('fairing');
+    expect(p['fairingForeShape']).toBe('streamlined');
+    expect(p['fairingAftShape']).toBe('box');
+  });
+
+  /**
+   * ⚠ THIS IS NOT THE SAME NUMBER AS THE ONE ABOVE, AND IT MUST NOT BE MADE TO
+   * MATCH IT. `dflt` is what an ABSENT key MEANS, so it has to equal the reader
+   * fallback in shroudEnds(); the creation default is what a new part is born
+   * with. Aligning the two "for consistency" would silently re-shape every
+   * saved shroud that carries no explicit end shape.
+   */
+  it('still reads an absent aft shape as half-round, matching shroudEnds', () => {
+    expect(field('fairing', 'fairingAftShape')?.dflt).toBe('halfround');
+    expect(shroudEnds({ id: 'x', type: 'fairing', name: 'S' }).aft).toBe('halfround');
+  });
+
+  it('offers the flat end as an option at all', () => {
+    expect(field('fairing', 'fairingAftShape')?.options?.map((o) => o[0]))
+      .toContain('box');
   });
 });

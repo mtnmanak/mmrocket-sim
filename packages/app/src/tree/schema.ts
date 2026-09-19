@@ -340,11 +340,24 @@ const ASSEMBLY_FIELDS: FieldDef[] = [
  * the end the camera is pointing (to give the camera lens a proper aperture to
  * shoot video through) and then the other end is usually streamlined."*
  *
- * So it was never one shape. The DEFAULTS are streamlined fore / domed aft,
- * which is the rear-facing camera — the common case, and the one that also puts
- * the streamlined end into the wind. A forward-facing camera swaps the two;
- * that is why they are separate fields and not a single "which way does the
- * camera point" switch.
+ * So it was never one shape. That is why they are separate fields and not a
+ * single "which way does the camera point" switch.
+ *
+ * THE CREATION DEFAULT IS streamlined fore / FLAT aft (Eric, 2026-09-18:
+ * *"Most shrouds are flat ended where the camera is … the default config
+ * should be tapered at the front and flat at the back"*, with photographs).
+ * It replaces the domed aft end this comment used to justify. Tapered into the
+ * wind, flat where the lens looks out.
+ *
+ * ⚠ THE FIELD'S `dflt` BELOW IS STILL 'halfround' AND MUST STAY THAT WAY. The
+ * two look like the same number and are not: `dflt` is what an ABSENT key
+ * MEANS, so it has to equal the reader fallback in shroudEnds (shroud.ts) or a
+ * shroud saved without an end shape would display one shape and fly another.
+ * The creation default is what a NEW part is born with. Only the second moved.
+ *
+ * A file written before the ends were split carries one `fairingShape` for the
+ * whole part; it migrates to BOTH ends on read, so an existing shroud is drawn
+ * exactly as it was, and no saved design moves with this change.
  *
  * A file written before v0.088 carries one `fairingShape` for the whole part;
  * it migrates to BOTH ends on read, so an existing shroud is drawn exactly as
@@ -731,7 +744,8 @@ export function defaultParams(type: EditorComponentType): Partial<ComponentNode>
     // A typical 3D-printed keychain-camera shroud on a mid/high-power bird.
     case 'fairing': return {
       length: 0.08, width: 0.025, height: 0.02,
-      fairingForeShape: 'streamlined', fairingAftShape: 'halfround', conformal: true,
+      // Tapered into the wind, flat where the lens looks out — see END_SHAPES.
+      fairingForeShape: 'streamlined', fairingAftShape: 'box', conformal: true,
       mass: 0.03, position: { method: 'middle', offset: 0 },
     };
     // A typical cable tunnel / camera housing: 20 x 10 mm frontal, 60 mm long,

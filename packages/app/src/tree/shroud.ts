@@ -116,9 +116,16 @@ export function shroudHalfAngle(bodyRadius: number, width: number): number {
  *
  * What it does and does not claim: it makes the AREA right for a coefficient
  * Hoerner measured on a flat wall. It does not improve the COEFFICIENT, which
- * still has no wind-tunnel anchor of its own (the nearest anchors are the
- * Saturn I SA-2/SA-4 flight comparison and Buckeye's shroud CFD, both on the
- * area-ratio method rather than on this Cd table).
+ * still has no anchor of its own.
+ *
+ * ⚠ AND THE SATURN I DATA IS NOT ONE. This comment used to call the SA-2/SA-4
+ * flight comparison a "nearest anchor"; our own assessment scores it **No** —
+ * its drawn error margin (±20-25 %) is larger than the effect being measured,
+ * it is power-on, and it is two different vehicles
+ * (docs/research/trf-aero-research-2026-08-25.md:576, whose recommendation at
+ * :602 is "Do not anchor on Saturn I", a sanity bound only). Buckeye's shroud
+ * CFD is corroborating, not an anchor, and both are on the area-ratio method
+ * rather than on this Cd table.
  */
 export function surfaceBumpFrontalArea(
   bodyRadius: number, width: number, height: number,

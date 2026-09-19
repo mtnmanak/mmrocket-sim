@@ -1579,6 +1579,14 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
     };
   });
   const stageEngines = stageSlots.map((s) => s.engine);
+  /**
+   * A stage's nozzle exit diameter in INCHES, which is the unit this format
+   * uses for every length. The importer reads these back and divides by IN.
+   */
+  const stageNozzleIn = (i: number): string => {
+    const st = stagesIn[i];
+    return fmt(st ? nnum(st, 'nozzleExitDiameter', 0) * IN : 0);
+  };
   const stageIgnitionDelays = stageSlots.map((s) => s.ignitionDelay);
 
   const nnum = (node: ComponentNode, key: string, fb: number): number =>
@@ -1961,6 +1969,11 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
     emit(`<Location>${fmt(locM * IN)}</Location>`);
     emit('<Color>Black</Color>');
     emit(`<ShoulderLength>${fmt(shoulderLen * IN)}</ShoulderLength>`);
+    // DELIBERATELY STILL ZERO, and not the same field as the two nozzle tags
+    // written further down. This one sits inside a <Booster> PART block; all
+    // 26 occurrences across the corpus here are 0, and no RASAero
+    // documentation in this repo says what it drives. A number here would be
+    // a guess about its meaning.
     emit('<NozzleExitDiameter>0</NozzleExitDiameter>');
     emit(`<BoattailLength>${fmt(btLen * IN)}</BoattailLength>`);
     emit(`<BoattailRearDiameter>${fmt(boattail ? nnum(boattail, 'aftRadius', 0) * 2 * IN : 0)}</BoattailRearDiameter>`);
@@ -1987,9 +2000,14 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
   emit('<CD>0</CD>');
   emit('<ModifiedBarrowman>False</ModifiedBarrowman>');
   emit('<Turbulence>False</Turbulence>');
-  emit('<SustainerNozzle>0</SustainerNozzle>');
-  emit('<Booster1Nozzle>0</Booster1Nozzle>');
-  emit('<Booster2Nozzle>0</Booster2Nozzle>');
+  // THE NOZZLE EXIT DIAMETER, which this exporter used to write as six zeros.
+  // The format keeps it in two places and we read BOTH on import (see the
+  // NOZZLE EXIT DIAMETER note on importCdx1); writing 0 threw the number away
+  // on every export, and with it RASAero's own base-drag and pressure-thrust
+  // terms. Inches, like every other length in this format.
+  emit(`<SustainerNozzle>${stageNozzleIn(0)}</SustainerNozzle>`);
+  emit(`<Booster1Nozzle>${stageEngines[1] ? stageNozzleIn(1) : '0'}</Booster1Nozzle>`);
+  emit(`<Booster2Nozzle>${stageEngines[2] ? stageNozzleIn(2) : '0'}</Booster2Nozzle>`);
   emit(`<UseBooster1>${stagesIn.length >= 2 ? 'True' : 'False'}</UseBooster1>`);
   emit(`<UseBooster2>${stagesIn.length === 3 ? 'True' : 'False'}</UseBooster2>`);
   emit(`<Comments>${esc(name)}</Comments>`);
@@ -2132,7 +2150,7 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
   emit('<Simulation>');
   if (stageEngines[0]) emit(`<SustainerEngine>${esc(stageEngines[0])}</SustainerEngine>`);
   emit(`<SustainerLaunchWt>${stackWt(0)}</SustainerLaunchWt>`);
-  emit('<SustainerNozzleDiameter>0</SustainerNozzleDiameter>');
+  emit(`<SustainerNozzleDiameter>${stageNozzleIn(0)}</SustainerNozzleDiameter>`);
   emit(`<SustainerCG>${stackCg(0)}</SustainerCG>`);
   emit(`<SustainerIgnitionDelay>${stageIgnitionDelays[0] ?? 0}</SustainerIgnitionDelay>`);
   if (stageEngines[1]) emit(`<Booster1Engine>${esc(stageEngines[1])}</Booster1Engine>`);
@@ -2140,7 +2158,10 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
   emit(`<Booster1SeparationDelay>${stageSeparationDelay(1)}</Booster1SeparationDelay>`);
   emit(`<Booster1IgnitionDelay>${stageIgnitionDelays[1] ?? 0}</Booster1IgnitionDelay>`);
   emit(`<Booster1CG>${stackCg(1)}</Booster1CG>`);
-  emit('<Booster1NozzleDiameter>0</Booster1NozzleDiameter>');
+  // Gated on the engine exactly as IncludeBooster1 below is, which is what
+  // RASAero's own files do: across the 132 simulations in the 66-file corpus
+  // here, every simulation whose IncludeBooster1 is not True carries a zero.
+  emit(`<Booster1NozzleDiameter>${stageEngines[1] ? stageNozzleIn(1) : '0'}</Booster1NozzleDiameter>`);
   // IncludeBooster mirrors the desktop (mount present && is a motor mount):
   // True only when that stage got an engine string. A sim that claims a
   // booster without an engine is another null lookup waiting to happen. The
@@ -2150,7 +2171,7 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
   emit(`<Booster2LaunchWt>${stackWt(2)}</Booster2LaunchWt>`);
   emit(`<Booster2Delay>${stageSeparationDelay(2)}</Booster2Delay>`);
   emit(`<Booster2CG>${stackCg(2)}</Booster2CG>`);
-  emit('<Booster2NozzleDiameter>0</Booster2NozzleDiameter>');
+  emit(`<Booster2NozzleDiameter>${stageEngines[2] ? stageNozzleIn(2) : '0'}</Booster2NozzleDiameter>`);
   emit(`<IncludeBooster2>${stageEngines[2] ? 'True' : 'False'}</IncludeBooster2>`);
   emit('<FlightTime>0</FlightTime>');
   emit('<TimetoApogee>0</TimetoApogee>');

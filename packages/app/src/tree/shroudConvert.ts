@@ -67,8 +67,11 @@ export function shroudToFairing(n: ComponentNode): ComponentNode {
     length,
     width,
     height,
+    // A one-fin shroud in a .rkt carries no end-shape information, so these are
+    // defaults and must be THE SAME defaults a new shroud is born with — see
+    // END_SHAPES in schema.ts.
     fairingForeShape: 'streamlined',
-    fairingAftShape: 'halfround',
+    fairingAftShape: 'box',
     conformal: true,
     mass,
     // THE CLOCKING SURVIVES THE CONVERSION. A fin set stores its angle about

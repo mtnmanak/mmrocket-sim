@@ -262,14 +262,39 @@ async function checkMaterials() {
 }
 
 /**
- * How old the bundled motor catalogue may be before this check flags it. 30
- * days: thrustcurve.org adds and corrects motors continuously (26 new motors,
- * one certified-impulse correction and 17 availability changes accumulated in
- * the 63 days the catalogue sat unrefreshed before 2026-09-05), and this check
- * runs before every release, so a month is the longest a release should ship
- * a catalogue without someone having refreshed it.
+ * How old the bundled motor catalogue may be before this check flags it.
+ *
+ * EIGHT DAYS, because a cron now refreshes it WEEKLY and opens a PR. The
+ * question this check asks is therefore no longer "has anyone refreshed it
+ * this month" but "did last week's refresh actually get merged" — and at 30
+ * days it could not ask that: it printed `ok` over a 13-day-old catalogue
+ * whose refresh PR had been sitting open and unnoticed (the owner, 2026-09-18:
+ * "the database is 13 days old. That is too long").
+ *
+ * Eight and not seven so that an ordinary Monday-to-Monday week, plus the
+ * hours the scheduled run waits in GitHub's queue, does not flag every time.
  */
-const CATALOGUE_MAX_AGE_DAYS = 30;
+const CATALOGUE_MAX_AGE_DAYS = 8;
+
+/**
+ * Compares the shipped catalogue's size against what thrustcurve.org says it
+ * holds now. A NOTE, never a failure.
+ *
+ * Its blind spot is stated rather than hidden: this is a population count, so
+ * it nets out simultaneous additions and withdrawals, and it cannot see a
+ * motor whose FIGURES were corrected without the count changing. A match here
+ * is weak evidence, a mismatch is strong.
+ */
+export function cataloguePopulationNote(bundled, upstream) {
+  if (!Number.isFinite(upstream) || upstream <= 0) return null;
+  const d = upstream - bundled;
+  if (d === 0) {
+    return `catalogue population matches thrustcurve.org (${bundled}) — though a count cannot see a corrected figure.`;
+  }
+  return d > 0
+    ? `thrustcurve.org now lists ${upstream} motors, ${d} more than the bundled ${bundled}. Run \`npm run motors:refresh\`, or merge the open refresh PR.`
+    : `thrustcurve.org now lists ${upstream} motors, ${-d} FEWER than the bundled ${bundled} — motors have been withdrawn since this catalogue was built.`;
+}
 
 async function checkThrustCurve() {
   say('');
@@ -292,6 +317,18 @@ async function checkThrustCurve() {
     notes.push(`motor catalogue ${ageDays} days old`);
   } else {
     say(`  ok   motors.json generated ${generated} (${ageDays} days ago; limit ${CATALOGUE_MAX_AGE_DAYS}); ${bundled} motors`);
+  }
+
+  // POPULATION, live. The age check above can only say when we last asked;
+  // this says whether the answer would be different now. Deliberately a NOTE
+  // and never a failure — it depends on a third-party endpoint being up, and a
+  // release must not be blocked by someone else's outage.
+  try {
+    const probe = await json(`${TC_API}/search.json?availability=all&maxResults=1`);
+    const msg = cataloguePopulationNote(bundled, probe?.matches);
+    if (msg) say(`  note ${msg}`);
+  } catch (e) {
+    say(`  note could not reach thrustcurve.org to compare catalogue size (${e.message}) — the age check above still stands.`);
   }
 
   // The curve bundle is keyed by motorId FROM motors.json, so it must have been

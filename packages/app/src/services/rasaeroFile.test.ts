@@ -2000,14 +2000,60 @@ describe('RASAero import — nozzle exit diameter, per simulation with the Desig
     expect(note).toMatch(/^Nozzle exit diameter: Sustainer 2\.15 in, Booster 3\.33 in from simulation 1/);
   });
 
-  it('the exporter still writes zeros (recommendation 2 — leave the export alone)', () => {
+  /**
+   * THE EXPORT WRITES THE NUMBER NOW. It used to write six zeros, on a 2026-09-07
+   * ruling that the export should be left alone; the owner reopened that on
+   * 2026-09-18 ("Doesn't RASAero store the exit diameters … If so, we should be
+   * using their method when exporting CDX1 files so we don't break exports to
+   * RASAero"), and he is right that the format has the fields — this importer
+   * has read both of them since v0.117.
+   *
+   * Round-tripping MESOS is the real assertion: what goes out comes back as the
+   * same metres, so a design that leaves the app for RASAero and returns keeps
+   * its base-drag and pressure-thrust terms instead of silently losing them.
+   */
+  it('exports the nozzle exit diameters, in both places the format keeps them', () => {
     const r = importCdx1(fixture('MESOS_Last_Preflight_File.CDX1'));
     expect(r.tree.components[0]!['nozzleExitDiameter']).toBeGreaterThan(0);
     const xml = exportCdx1({ name: r.name, tree: r.tree, launchMassKg: 10, launchCgM: 1 });
-    expect(xml).toContain('<SustainerNozzle>0</SustainerNozzle>');
-    expect(xml).toContain('<Booster1Nozzle>0</Booster1Nozzle>');
-    expect(xml).toContain('<SustainerNozzleDiameter>0</SustainerNozzleDiameter>');
+    // Inches, 4 dp, like every other length this format carries.
+    expect(xml).toContain('<SustainerNozzleDiameter>2.15</SustainerNozzleDiameter>');
+    expect(xml).toContain('<SustainerNozzle>2.15</SustainerNozzle>');
+  });
+
+  it('round-trips the exit diameter back to the same metres', () => {
+    const r = importCdx1(fixture('MESOS_Last_Preflight_File.CDX1'));
+    const back = importCdx1(
+      exportCdx1({ name: r.name, tree: r.tree, launchMassKg: 10, launchCgM: 1 }),
+    );
+    expect(stageNozzle(back, 0)).toBeCloseTo(2.15 / IN, 9);
+  });
+
+  /**
+   * A booster stage with no engine writes a zero, which is what RASAero's own
+   * files do: across the 132 simulations in the corpus here, every simulation
+   * whose IncludeBooster1 is not True carries Booster1NozzleDiameter 0.
+   */
+  it('zeroes a booster nozzle when that stage carries no engine', () => {
+    const r = importCdx1(fixture('MESOS_Last_Preflight_File.CDX1'));
+    const xml = exportCdx1({
+      name: r.name, tree: r.tree, launchMassKg: 10, launchCgM: 1, engineExport: false,
+    });
+    expect(xml).toContain('<IncludeBooster1>False</IncludeBooster1>');
     expect(xml).toContain('<Booster1NozzleDiameter>0</Booster1NozzleDiameter>');
+    expect(xml).toContain('<Booster1Nozzle>0</Booster1Nozzle>');
+  });
+
+  /**
+   * The <Booster> PART block's own NozzleExitDiameter is a DIFFERENT field and
+   * stays zero deliberately — all 26 occurrences in the corpus are 0 and no
+   * RASAero documentation here says what it drives, so a number would be a
+   * guess about its meaning. Pinned so nobody "fixes" it to match the two above.
+   */
+  it('leaves the Booster part block NozzleExitDiameter at zero', () => {
+    const r = importCdx1(fixture('MESOS_Last_Preflight_File.CDX1'));
+    const xml = exportCdx1({ name: r.name, tree: r.tree, launchMassKg: 10, launchCgM: 1 });
+    expect(xml).toContain('<NozzleExitDiameter>0</NozzleExitDiameter>');
   });
 });
 
