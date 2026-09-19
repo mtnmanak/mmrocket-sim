@@ -31,7 +31,7 @@ export type AeroMode = 'classic' | 'supersonic' | 'auto';
 
 /**
  * Per-branch motor info for the launch report's staging safety checks — a
- * chuteless HIGH-POWER booster has to warn (the owner's G80 rule).
+ * chuteless booster above the high-power line has to warn.
  *
  * Branches are named after the SERIAL stage, EXCEPT mounts inside a parallel
  * stage (a strap-on booster), whose branch carries the parallelstage node's own

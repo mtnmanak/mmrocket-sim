@@ -2,7 +2,12 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useDialog } from './useDialog.js';
 import { OrkRocket, type FlightResult, type MotorSpec, type RocketTree, type SimulationOptions, type StaticInfo } from '@online-openrocket/engine';
 import { includedMotorOf } from '../services/statedLaunchWeight.js';
-import { clearStageNozzles, engineTree, isOnLaunchStage, splitClusterPairsTree, splitClusterTree, stagesWithNozzle, type ClusterSplit } from '../tree/treeModel.js';
+import {
+  applyStageNozzles, clearStageNozzles, engineTree, isOnLaunchStage, splitClusterPairsTree,
+  splitClusterTree, stageIdByNode, stagesWithNozzle, type ClusterSplit,
+} from '../tree/treeModel.js';
+import { equivalentExitDiameterM } from '../services/nozzleFollow.js';
+import { nozzleForMotorId } from '../services/nozzleDb.js';
 import { sheetsToXlsx, type Sheet } from '../services/xlsx.js';
 import {
   MOTOR_DB, classLabel, classesFittingMount, displayDesignation, filterMotors,
@@ -281,7 +286,7 @@ export interface BatchMountOption {
   maxMotorLengthM: number | null;
 }
 
-export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMotors, weighed, launch, rocketName, onRunsChange, onClose }: {
+export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMotors, assignedMotorIds, weighed, launch, rocketName, onRunsChange, onClose }: {
   /** The editing tree — the batch builds its OWN engine handles from it, so
    *  the design's shared handle is never touched (no restore, no stale
    *  motors left on unassigned mounts). */
@@ -297,6 +302,15 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
    *  already `flownSpec`'d, so a weighed motor on a non-target mount keeps
    *  its hardware here too. */
   assignedMotors: Record<string, MotorSpec>;
+  /**
+   * Catalogue ids for those same motors, by mount id. A MotorSpec carries no
+   * id, and the nozzle database is keyed on one — so without this the sweep
+   * can resolve the CANDIDATE's published exit but not the exits of the other
+   * mounts firing alongside it, and a cluster's equivalent nozzle cannot be
+   * summed. Absent for a mount flying an imported EX motor, which has no
+   * catalogue row.
+   */
+  assignedMotorIds: Record<string, string | undefined>;
   /** The weighed pad mass, when the design page is carrying one (see
    *  {@link BatchWeighed}); the candidate matching it on its mount flies
    *  shifted, every other row at catalogue weight. */
@@ -472,11 +486,80 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
     // so, because it means a nozzle-bearing design's own motor reads a little
     // lower here than on the design page.
     const sweepTree = clearStageNozzles(tree);
-    const batchRocket = OrkRocket.buildTree(engineTree(sweepTree));
-    batchRocket.setRogersModifiedBarrowman(kbf);
-    batchRocket.setSupersonicAero(batchModel === 'supersonic');
-    applyOthers(batchRocket, [sel.id]);
-    const rocket = batchRocket;
+
+    /*
+     * EACH CANDIDATE FLIES ITS OWN PUBLISHED NOZZLE EXIT.
+     *
+     * The design's own nozzle is still stripped first — crediting one motor's
+     * exit to every candidate is the bug the strip was written for — but the
+     * stage's exit is then re-applied per candidate from the nozzle database,
+     * so a motor gives the same answer here as it does on the design page.
+     * Eric, 2026-09-18: "if we default the single motor launch to using the
+     * nozzle data in our database, but do not use it in batch sims, the user
+     * would see two different results for the same motor and lose trust."
+     *
+     * The nozzle is geometry, so it cannot be set per flight the way a motor
+     * can — it needs its own engine handle. Handles are therefore POOLED on the
+     * equivalent exit diameter: a 54 mm sweep has a handful of distinct exits
+     * across ~180 candidates, so this is a few builds (0.8 ms each) against
+     * 600 ms a flight. Never call resetEngine() in here: it frees every handle
+     * including the design's.
+     */
+    const stageIdOfTarget = stageIdByNode(tree).get(mountId) ?? '';
+    const stageNameOfTarget = tree.components
+      .find((st) => st.id === stageIdOfTarget)?.name ?? 'Sustainer';
+    const handlePool = (base: RocketTree, exclude: string[]) => {
+      const pool = new Map<string, OrkRocket>();
+      return (equivM: number | null): OrkRocket => {
+        const usable = equivM !== null && Number.isFinite(equivM) && equivM > 0 && stageIdOfTarget !== '';
+        const key = usable ? (equivM as number).toFixed(6) : 'none';
+        const hit = pool.get(key);
+        if (hit) return hit;
+        const t = usable ? applyStageNozzles(base, { [stageIdOfTarget]: equivM as number }) : base;
+        const r = OrkRocket.buildTree(engineTree(t));
+        r.setRogersModifiedBarrowman(kbf);
+        r.setSupersonicAero(batchModel === 'supersonic');
+        applyOthers(r, exclude);
+        pool.set(key, r);
+        return r;
+      };
+    };
+    const sweepHandle = handlePool(sweepTree, [sel.id]);
+
+    /*
+     * The motors firing BESIDE the candidate, on the same stage. A batch refuses
+     * a staged rocket, so every mount here is on the one stage and every one of
+     * them contributes its exit area to the equivalent nozzle.
+     */
+    const otherParts = await Promise.all(mounts
+      .filter((m) => m.id !== mountId && assignedMotorIds[m.id])
+      .map(async (m) => ({
+        count: m.motorCount ?? 1,
+        exitDiameterM: (await nozzleForMotorId(assignedMotorIds[m.id]))?.exitDiameterM ?? null,
+      })));
+
+    /*
+     * The one case where the database is not the answer: the user has typed
+     * their own exit over the published one, and the candidate IS the motor
+     * they typed it for. Then that row flies what they typed — which is what
+     * makes "the same motor reads the same in both places" true without
+     * exception, including for a machined-out nozzle the app cannot look up.
+     * The field is already the whole stage's equivalent, so it is used as-is.
+     */
+    const typedStageExitM = (() => {
+      const st = stagesWithNozzle(tree).find((s) => s.id === stageIdOfTarget);
+      return st && st.exitDiameterM > 0 ? st.exitDiameterM : null;
+    })();
+    const loadedIdOnTarget = assignedMotorIds[mountId];
+
+    /** The equivalent stage exit this candidate should fly, or null for none. */
+    const exitForCandidate = async (e: MotorDbEntry, count: number): Promise<number | null> => {
+      if (typedStageExitM !== null && loadedIdOnTarget && e.motorId === loadedIdOnTarget) {
+        return typedStageExitM;
+      }
+      const own = (await nozzleForMotorId(e.motorId))?.exitDiameterM ?? null;
+      return equivalentExitDiameterM([{ count, exitDiameterM: own }, ...otherParts]);
+    };
     // The shared construction — this used to be a private copy that omitted
     // `timeStep`, so a design carrying its own step from its .ork gave one set
     // of numbers here and a different set on the Launch button.
@@ -533,6 +616,11 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
         // combination passes below stay at catalogue weight, because a mixed
         // multiset has no honest single adapter.
         const flown = batchFlownSpec(entry, spec, mountId, weighed);
+        // This candidate's own stage nozzle, and the handle carrying it. Null
+        // for a motor with no published exit — about two thirds of a 54 mm
+        // sweep — which gets the nozzle-free handle and today's numbers.
+        const candidateExitM = await exitForCandidate(entry, motorCount);
+        const rocket = sweepHandle(candidateExitM);
         // execMs must mean ONE flight at this step: the launch panel's
         // time-step caution prices a reload from the newest stored run
         // (storedSimCost), and a span covering the probe plus a re-fly
@@ -605,6 +693,10 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
           aeroModel: batchModel === 'auto' && usedSupersonic ? 'auto-supersonic'
             : usedSupersonic ? 'supersonic' : 'classic',
           rogersKbf: kbf && !usedSupersonic,
+          // Stamped only when this row actually flew a nozzle, the same way the
+          // design page stamps it — it is what the launch report keys its
+          // pressure-thrust note off, and what marks the row in the table.
+          ...(candidateExitM !== null ? { nozzleStages: [stageNameOfTarget] } : {}),
           ...(comboActive ? { motorConfig: 'single' } : {}),
         });
         const failed = gradeRun(run);
@@ -625,12 +717,11 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
     let done = candidates.length;
     for (const split of activeSplits) {
       if (cancelled.current) break;
-      // Same strip as the single-motor pass: `split.tree` is derived from the
-      // DESIGN tree, so it carries the design's nozzles too.
-      const comboRocket = OrkRocket.buildTree(engineTree(clearStageNozzles(split.tree)));
-      comboRocket.setRogersModifiedBarrowman(kbf);
-      comboRocket.setSupersonicAero(batchModel === 'supersonic');
-      applyOthers(comboRocket, [...split.mountIds, sel.id]);
+      // Same strip and the same per-candidate re-apply as the single-motor
+      // pass: `split.tree` is derived from the DESIGN tree, so it carries the
+      // design's nozzles too, and its own pool is keyed on the equivalent exit
+      // of whatever multiset is flying.
+      const comboHandle = handlePool(clearStageNozzles(split.tree), [...split.mountIds, sel.id]);
       for (const idxs of comboAssignments(candidates.length, split.mountIds.length)) {
         if (cancelled.current) break;
         const entries = idxs.map((i) => candidates[i]!);
@@ -653,6 +744,21 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
         try {
           const specs = await Promise.all(entries.map(async (e) =>
             specCache.get(e.motorId) ?? await fetchMotorSpec(e, 0, abort.current?.signal)));
+          /*
+           * The multiset's own equivalent nozzle. split.tree has already broken
+           * the cluster into one mount per group, so each entry contributes its
+           * group's worth of exits; equivalentExitDiameterM sums the AREAS and
+           * returns null the moment any leg is unknown — which is the honest
+           * answer for a mixed combination the database only half covers.
+           */
+          const comboParts = entries.map(async (e) => ({
+            count: split.groupSize,
+            exitDiameterM: (await nozzleForMotorId(e.motorId))?.exitDiameterM ?? null,
+          }));
+          const comboExitM = equivalentExitDiameterM(
+            [...await Promise.all(comboParts), ...otherParts],
+          );
+          const comboRocket = comboHandle(comboExitM);
           // One flight at this step — see the single-motor loop's flyTimed.
           let execMs = 0;
           const flyTimed = (): FlightResult => {
@@ -716,6 +822,7 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
             aeroModel: batchModel === 'auto' && usedSupersonic ? 'auto-supersonic'
               : usedSupersonic ? 'supersonic' : 'classic',
             rogersKbf: kbf && !usedSupersonic,
+            ...(comboExitM !== null ? { nozzleStages: [stageNameOfTarget] } : {}),
             motorConfig: configTag,
           });
           // The stored designation is the combo label so saved runs read right.
@@ -741,6 +848,10 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
     setFinished({ total: out.length, stopped: cancelled.current });
     if (accepted.length > 0) onRunsChange(addRuns(accepted));
   };
+
+  /** Did any row actually fly a published nozzle? Drives the note below. */
+  const anyRowFlewNozzle = useMemo(
+    () => rows.some((r) => (r.run?.nozzleStages?.length ?? 0) > 0), [rows]);
 
   const sorted = useMemo(() => [...rows].sort((a, b) => {
     if (!a.run) return 1;
@@ -1002,15 +1113,16 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
             noise about a field it has never touched. Its own line, beside the
             weighed-mass note rather than folded into it: the two are separate
             facts and either can be present without the other. */}
-        {nozzleStages.length > 0 && (
+        {batchModel !== 'eb' && (nozzleStages.length > 0 || anyRowFlewNozzle) && (
           <p className="comp-stats batch-nozzle" style={{ margin: '4px 0 0' }}>
-            {`Nozzle exit diameter: the sweep flies each candidate on its published sea-level curve `
-              + `and does not apply this design's nozzle (${nozzleStages.map((s) => s.name).join(', ')}), `
-              + 'so a motor you have already flown on the design page reads LOWER here — it loses the '
-              + 'thrust the nozzle buys with height and the base-drag credit with it. Measured across '
-              + '20 RASAero tester designs that carry a nozzle: under 1 % of apogee on '
-              + '11 of them, 2 % on 14, but 8 to 46 % on the six with a large exit on a slim airframe. '
-              + 'Compare batch rows with each other, not with a design-page flight.'}
+            {'Nozzle exit diameter: each candidate flies its OWN published exit where the app has '
+              + 'one, so a motor reads the same here as it does on the design page. Rows that flew '
+              + 'one are marked · nozzle; the rest have no published exit and fly without it, '
+              + 'which is why two motors of similar impulse can sit a few percent apart. '
+              + (nozzleStages.length > 0
+                ? `The exit you typed under ${nozzleStages.map((s) => s.name).join(', ')} is used `
+                  + 'for the motor you typed it for, so that row matches your design-page flight exactly.'
+                : '')}
           </p>
         )}
         {includedMotor && (
@@ -1083,6 +1195,14 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
                       {/* The one single-motor row that flew with the weighed hardware on. */}
                       {!label && weighed && mountId === weighed.mountId && isWeighedCandidate(entry, weighed)
                         && <span className="motor-db-meta"> · weighed</span>}
+                      {/*
+                        Which rows flew a published nozzle exit. Only about a
+                        third of a 54 mm sweep has one, and without this marker
+                        that shows up as two motors of the same impulse a few
+                        percent apart with nothing on screen to explain it.
+                      */}
+                      {(run?.nozzleStages?.length ?? 0) > 0
+                        && <span className="motor-db-meta"> · nozzle</span>}
                     </td>
                     <td>{run ? (Number.isFinite(run.delayS) ? `${run.delayS}s` : 'P') : '—'}</td>
                     <td>{run ? fmtSi('distance', dist, run.maxAltitude) : '—'}</td>

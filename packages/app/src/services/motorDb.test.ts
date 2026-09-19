@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   MOTOR_DB, allClasses, classLabel, classesFittingMount, diameterClass,
   displayDesignation, filterMotors, findDbMotor, impulseClassesForMount, impulseLetter,
+  isBlackPowder,
   manufacturersForMount, nearestCommonClass, propellantsForMount, rangesForMount, sortMotors,
 } from './motorDb.js';
 
@@ -336,5 +337,69 @@ describe('burn-time and impulse windows', () => {
       impulse: new Set(['H']), burnS: { min: 0, max: 1.5 },
     });
     expect(got.every((m) => impulseLetter(m) === 'H' && m.burnTimeS <= 1.5 + 1e-9)).toBe(true);
+  });
+});
+
+/**
+ * WHAT LIGHTS OFF AN EJECTION CHARGE. Pinned against live catalogue rows so a
+ * refresh that recapitalises or restyles the propellant field turns this red
+ * rather than silently moving 58 motors onto electronic ignition.
+ */
+describe('isBlackPowder', () => {
+  it('recognises the catalogue spelling', () => {
+    expect(isBlackPowder({ propInfo: 'black powder' })).toBe(true);
+  });
+
+  it('survives a recapitalisation or stray whitespace upstream', () => {
+    expect(isBlackPowder({ propInfo: 'Black Powder' })).toBe(true);
+    expect(isBlackPowder({ propInfo: '  BLACK POWDER  ' })).toBe(true);
+    expect(isBlackPowder({ propInfo: 'blackpowder' })).toBe(true);
+  });
+
+  it('is false for a composite trade name, whatever the motor size', () => {
+    // The whole point of the change: an AeroTech E is well under the old
+    // high-power line and still cannot be lit by an ejection charge.
+    expect(isBlackPowder({ propInfo: 'Blue Thunder' })).toBe(false);
+    expect(isBlackPowder({ propInfo: 'White Lightning' })).toBe(false);
+    expect(isBlackPowder({ propInfo: 'composite' })).toBe(false);
+  });
+
+  it('is false, not throwing, when the catalogue records nothing', () => {
+    // 223 of the 1,156 shipped rows are in this state.
+    expect(isBlackPowder({})).toBe(false);
+    expect(isBlackPowder({ propInfo: '' })).toBe(false);
+    expect(isBlackPowder({ propInfo: '   ' })).toBe(false);
+  });
+});
+
+/**
+ * WHAT LIGHTS OFF AN EJECTION CHARGE. Pinned against live catalogue spellings
+ * so a refresh that recapitalises or restyles the propellant field turns this
+ * red rather than silently moving 58 motors onto electronic ignition.
+ */
+describe('isBlackPowder', () => {
+  it('recognises the catalogue spelling', () => {
+    expect(isBlackPowder({ propInfo: 'black powder' })).toBe(true);
+  });
+
+  it('survives a recapitalisation or stray whitespace upstream', () => {
+    expect(isBlackPowder({ propInfo: 'Black Powder' })).toBe(true);
+    expect(isBlackPowder({ propInfo: '  BLACK POWDER  ' })).toBe(true);
+    expect(isBlackPowder({ propInfo: 'blackpowder' })).toBe(true);
+  });
+
+  it('is false for a composite trade name, whatever the motor size', () => {
+    // The whole point of the change: an AeroTech E is well under the old
+    // high-power line and still cannot be lit by an ejection charge.
+    expect(isBlackPowder({ propInfo: 'Blue Thunder' })).toBe(false);
+    expect(isBlackPowder({ propInfo: 'White Lightning' })).toBe(false);
+    expect(isBlackPowder({ propInfo: 'composite' })).toBe(false);
+  });
+
+  it('is false, not throwing, when the catalogue records nothing', () => {
+    // 223 of the 1,156 shipped rows are in this state.
+    expect(isBlackPowder({})).toBe(false);
+    expect(isBlackPowder({ propInfo: '' })).toBe(false);
+    expect(isBlackPowder({ propInfo: '   ' })).toBe(false);
   });
 });

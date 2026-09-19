@@ -180,7 +180,7 @@ describe('the batch dialog', () => {
           info={{} as never}
           mounts={extra.mounts ?? MOUNTS}
           initialMountId="mount"
-          assignedMotors={{}}
+          assignedMotors={{}} assignedMotorIds={{}}
           weighed={extra.weighed}
           launch={{ ...DEFAULT_CONDITIONS, ...launchOver }}
           rocketName="Cluster bird"
@@ -286,20 +286,26 @@ describe('the batch dialog', () => {
     expect(host.querySelector('.batch-nozzle')).toBeNull();
   });
 
-  it('names the stage and says the sweep flies published curves without it', () => {
+  /**
+   * THE NOTE NOW SAYS THE OPPOSITE, because the behaviour is the opposite.
+   * It used to warn that the sweep dropped the nozzle and so read LOWER than
+   * the design page; each candidate now flies its own published exit, so the
+   * note's job is to explain the PARTIAL coverage instead — about a third of a
+   * 54 mm sweep has a published exit and the rest do not.
+   */
+  it('says each candidate flies its own published exit, and marks the rows', () => {
     mount({}, { tree: NOZZLE_TREE });
     const text = host.querySelector('.batch-nozzle')?.textContent ?? '';
-    expect(text).toContain("does not apply this design's nozzle (Sustainer)");
-    expect(text).toContain('published sea-level curve');
-    expect(text).toContain('reads LOWER here');
-    // The base-drag half goes with it - the note owes the reader that too.
-    expect(text).toContain('base-drag credit');
-    // AND THE SIZE OF IT, measured (2026-09-08, review). "a little lower" was
-    // wrong by an order of magnitude on exactly the designs it matters for:
-    // measured across the 20 nozzle-bearing corpus designs the strip costs
-    // 0.08 % of apogee at the low end and 45.8 % on OR vs RAS Test 1, a
-    // minimum-diameter airframe with a 2.737 in exit.
-    expect(text).toContain('8 to 46 %');
+    expect(text).toContain('its OWN published exit');
+    expect(text).toContain('the same here as it does on the design page');
+    // Partial coverage has to be named, or it reads as an inconsistency.
+    expect(text).toContain('· nozzle');
+    expect(text).toContain('no published exit');
+    // And a typed exit still wins for the motor it was typed for.
+    expect(text).toContain('The exit you typed under Sustainer');
+    // The old claim must be gone, not merely softened.
+    expect(text).not.toContain('reads LOWER here');
+    expect(text).not.toContain("does not apply this design's nozzle");
   });
 
   it('is silent under Classic EB, where neither half of the nozzle is live', () => {
@@ -466,21 +472,54 @@ describe('the completion signal is actually wired up', () => {
  * tree that still carries the design's nozzle. `clearStageNozzles` is proven
  * to remove it (and to survive `engineTree`) in tree/treeModel.test.ts.
  */
-describe('the sweep builds its handles from a nozzle-free tree', () => {
+/**
+ * THE SWEEP'S NOZZLE POLICY, in two halves that must both hold.
+ *
+ * (1) The DESIGN's own nozzle is still stripped first. Crediting one motor's
+ *     exit to all 180 candidates was the 2026-09-08 bug, and it is worth up to
+ *     +18 % of thrust on a 100 N H — a comparison between motors decided by a
+ *     number belonging to none of them.
+ * (2) Each candidate's OWN published exit is then applied on top, so a motor
+ *     reads the same here as on the design page (the owner, 2026-09-18).
+ *
+ * Dropping (1) while keeping (2) is the regression these pin. They are
+ * source-text assertions because the alternative is driving a real sweep.
+ */
+describe('the sweep applies each candidate nozzle over a stripped tree', () => {
   const src = readFileSync(
     join(dirname(fileURLToPath(import.meta.url)), './BatchSimulate.tsx'), 'utf8');
 
-  it('the single-motor pass strips it', () => {
+  it('strips the design nozzle before the single-motor pass', () => {
     expect(src).toContain('const sweepTree = clearStageNozzles(tree);');
-    expect(src).toContain('OrkRocket.buildTree(engineTree(sweepTree))');
+    expect(src).toContain('const sweepHandle = handlePool(sweepTree, [sel.id]);');
   });
 
-  it('the combination passes strip it too — split.tree comes from the design tree', () => {
-    expect(src).toContain('OrkRocket.buildTree(engineTree(clearStageNozzles(split.tree)))');
+  it('strips it for the combination passes too — split.tree comes from the design tree', () => {
+    expect(src).toContain('handlePool(clearStageNozzles(split.tree)');
   });
 
   it('no handle is built from a raw tree', () => {
     expect(src).not.toContain('engineTree(tree)');
     expect(src).not.toContain('engineTree(split.tree)');
+  });
+
+  it('builds every handle through the pool, from the stripped base', () => {
+    // One buildTree in the whole file, inside handlePool, over `applyStageNozzles`
+    // of the base it was given — so no path can reintroduce a raw or
+    // design-nozzled tree.
+    expect(src.match(/OrkRocket\.buildTree\(/g)).toHaveLength(1);
+    expect(src).toContain('applyStageNozzles(base, { [stageIdOfTarget]: equivM as number })');
+  });
+
+  it('never frees the engine mid-sweep', () => {
+    // resetEngine() frees EVERY handle, including the design's. The handle pool
+    // exists precisely so the sweep never needs to. Comments are stripped
+    // first — the warning against calling it is itself written in one.
+    const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+    expect(code).not.toContain('resetEngine(');
+  });
+
+  it('falls back to no nozzle when a candidate has none', () => {
+    expect(src).toContain("const key = usable ? (equivM as number).toFixed(6) : 'none';");
   });
 });

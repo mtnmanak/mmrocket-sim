@@ -57,6 +57,7 @@ import { AERO_SHORT, aeroChoiceOf, effectiveAero, usePrefs, type AeroChoice } fr
 import { UnitChip } from './components/UnitChip.js';
 import { fmtSi, niceStep, siToUi, uiToSi } from './prefs/units.js';
 import { classLabel, diameterClass } from './services/motorDb.js';
+import { ignitionDefaultFor } from './services/ignitionDefault.js';
 import { matchImportedMotor, refToExportMotor } from './services/motorMatch.js';
 import { aeroModelFor, rogersKbfFor, stageMotorInfo } from './services/flightPipeline.js';
 import { loadExMotors } from './services/exMotors.js';
@@ -126,9 +127,10 @@ export interface MountMotor {
   spec: MotorSpec;
   meta: MotorMeta;
   /**
-   * When this motor ignites. Assigned a power-class-aware default at
-   * selection time (the owner's G80 rule): high-power sustainers are
-   * electronics-timed (burnout + 1 s); everything else AUTOMATIC.
+   * When this motor ignites. Given a PROPELLANT-aware default at selection
+   * time: a motor above the launch stage is electronics-timed (burnout + 1 s)
+   * unless it burns black powder, which an ejection charge can light.
+   * Everything else is AUTOMATIC. See assignMotor.
    */
   ignition: { event: IgnitionEvent; delay: number };
   /**
@@ -434,6 +436,12 @@ export function App() {
       const label = session.motorLabel ?? 'C6-5';
       // Those sessions predate the catalogue and only ever held the three
       // Estes-class starters, so a missing meta can be named honestly.
+      // The invented `propellant` now feeds an ignition decision as well as a
+      // label — harmless here because such a session is single-stage by
+      // construction (one inline motor, one mount), so nothing above a launch
+      // stage can read it. If that ever stops being true, drop the field
+      // rather than guessing it: an unknown propellant defaults to
+      // electronics-timed on purpose, and this would quietly override that.
       const meta = session.motorMeta
         ?? { label, manufacturer: 'Estes', type: 'SU', propellant: 'black powder' };
       return { [defaultMountId]: { label, spec: session.motor, meta, ignition: { event: 'automatic', delay: 0 } } };
@@ -2048,7 +2056,7 @@ export function App() {
     restoredByOlderBuild, timeStepMigrated, timeStepMigratedFrom, padMassNote,
     tree, assigned, prefs.units.length]);
 
-  /** Assigns a motor to a mount, with the G80 power-class ignition default. */
+  /** Assigns a motor to a mount, with the propellant-aware ignition default. */
   const assignMotor = (targetMountId: string, label: string, spec: MotorSpec, meta: MotorMeta) => {
     // THE LIVE TREE, not this render's (2026-09-08, from review). Both motor
     // pickers call `onSelect` only after an AWAITED thrust-curve fetch, so the
@@ -2057,13 +2065,12 @@ export function App() {
     // flush, where the second would rebuild the whole tree from a snapshot
     // taken before the first. See the note on `treeRef`.
     const live = treeRef.current;
-    const stIdx = stageIndexOf(live, targetMountId);
-    const multiStage = stages(live).length > 1;
-    // High-power sustainer in a staged rocket → electronics-timed (the owner:
-    // nobody lights an HPR sustainer off the booster's ejection charge).
-    const ignition: MountMotor['ignition'] = multiStage && stIdx === 0 && meta.highPower
-      ? { event: 'burnout', delay: 1 }
-      : { event: 'automatic', delay: 0 };
+    // The default is PROPELLANT-aware, not power-class aware — see
+    // services/ignitionDefault.ts, which carries the rule and Eric's striking
+    // of the one it replaced. It lives there rather than inline so a test can
+    // reach it, the same reason stageMotorInfo moved to flightPipeline.
+    const ignition: MountMotor['ignition'] =
+      ignitionDefaultFor(live, { mountId: targetMountId, propellant: meta.propellant });
     // The file's unresolved reference for this mount stops being what should
     // ride back out the moment the user picks a motor for it. THE LIVE SET,
     // not this render's, for the reason `live` is the live tree — two picks in
@@ -2334,7 +2341,7 @@ export function App() {
           }
         }
         // Per-stage motor info so booster branches can be safety-checked
-        // (chuteless HIGH-POWER boosters must warn — the G80 rule). The branch
+        // (a chuteless booster above the high-power line must warn). The branch
         // naming rule, and the reason it is not simply the stage's name, lives
         // with the function in services/flightPipeline.ts — where a test can
         // reach it, which it could not while it was inline here.
@@ -4007,6 +4014,12 @@ export function App() {
           // itself shifts only the target mount's matching candidate (weighed).
           assignedMotors={Object.fromEntries(
             Object.entries(mountMotors).map(([id, mm]) => [id, flownSpec(id, mm.spec, built.hardware)]))}
+          // The catalogue ids alongside the specs: the nozzle database is keyed
+          // on motorId and a MotorSpec has none, so the sweep needs these to
+          // resolve the published exit of every motor firing beside the
+          // candidate. Same field nozzleFollow reads.
+          assignedMotorIds={Object.fromEntries(
+            Object.entries(mountMotors).map(([id, mm]) => [id, mm.meta.motorId]))}
           weighed={batchWeighed}
           launch={launch}
           rocketName={tree.name ?? 'Rocket'}
@@ -4879,7 +4892,7 @@ export function App() {
                   )}
                   {mm && isStaged && (
                     <div className="field" style={{ marginTop: 6 }}
-                      title="When this motor lights. Automatic = launch-stage motors at launch, upper motors on the ejection charge of the stage below (low/mid power). High-power sustainers are electronics-timed (e.g. booster burnout + delay).">
+                      title="When this motor lights. Automatic = launch-stage motors at launch, upper-stage motors on the ejection charge of the stage below — which lights a black powder motor, but not a composite one. Composite and hybrid motors need an igniter whatever their size, so they default to booster burnout + delay.">
                       <label>Ignition</label>
                       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                         <select

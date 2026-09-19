@@ -186,7 +186,52 @@ function renderBlocks(lines, base) {
 
 // ---- split the document into anchored sections --------------------------------
 
-const lines = readFileSync(SRC, 'utf8').replace(/\r\n/g, '\n').split('\n');
+/**
+ * NUMBERS THE GUIDE MUST NOT HARD-CODE.
+ *
+ * The motor counts were typed into the prose by hand and went stale every time
+ * the catalogue was refreshed — which is now a weekly cron. Eric asked for an
+ * as-of date beside them (2026-09-18: "if Thrustcurve adds, deletes or changes
+ * motors in between builds, this number will not be correct"). The better
+ * answer is that the guide should not hold the number at all: these tokens are
+ * substituted from the SHIPPED data files at build time, so the sentence is
+ * true of the build it ships in, by construction. Within one session of writing
+ * this, a refresh had already made three hand-typed figures wrong.
+ *
+ * An unknown {{TOKEN}} is a hard failure, not a silent pass-through — a typo
+ * would otherwise reach a reader as literal braces.
+ */
+function guideTokens() {
+  const data = join(root, 'packages', 'app', 'src', 'data');
+  const motors = JSON.parse(readFileSync(join(data, 'motors.json'), 'utf8'));
+  const curves = JSON.parse(readFileSync(join(data, 'motorCurves.json'), 'utf8'));
+  const total = motors.count ?? motors.motors.length;
+  const n = (v) => Number(v).toLocaleString('en-US');
+  // "19 September 2026" — the guide writes dates in prose, and an ISO string
+  // in the middle of a sentence reads like a version number.
+  const [y, m, d] = String(motors.generated).split('-').map(Number);
+  const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'];
+  if (!y || !m || !d || !MONTHS[m - 1]) fail(`motors.json has an unreadable generated date: ${motors.generated}`);
+  return {
+    MOTOR_COUNT: n(total),
+    MOTOR_DB_DATE: `${d} ${MONTHS[m - 1]} ${y}`,
+    CURVE_MOTORS: n(curves.motors),
+    CURVE_FILES: n(curves.files),
+    CURVE_MISSING: n(total - curves.motors),
+  };
+}
+
+const TOKENS = guideTokens();
+
+const lines = readFileSync(SRC, 'utf8').replace(/\r\n/g, '\n')
+  .replace(/\{\{([A-Z_]+)\}\}/g, (_m, key) => {
+    if (!(key in TOKENS)) {
+      fail(`unknown guide token {{${key}}} — known: ${Object.keys(TOKENS).join(', ')}`);
+    }
+    return TOKENS[key];
+  })
+  .split('\n');
 const anchors = [];
 lines.forEach((l, n) => {
   const m = l.match(/^<a id="([a-z0-9-]+)"><\/a>\s*$/);

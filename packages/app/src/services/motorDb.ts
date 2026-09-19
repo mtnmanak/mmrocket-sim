@@ -147,13 +147,47 @@ export function displayDesignation(designation: string, manufacturer?: string): 
 }
 
 /**
- * High-power line — the owner's G80 rule, which matches certification: high power
- * ⇔ average thrust > 80 N or total impulse > 160 Ns. The G80 itself is
- * low/mid. Drives staging defaults (electronics-timed HPR sustainers) and
- * booster-recovery warnings (HPR boosters MUST have active recovery).
+ * Average thrust over 80 N, or total impulse over 160 Ns.
+ *
+ * ⚠ THIS NO LONGER DECIDES IGNITION, and the name it used to be given here —
+ * "the G80 rule" — is struck. Eric, 2026-09-18: *"that is NOT a real rule and
+ * doesn't exist … The differentiation is in the propellant of the motor, not
+ * its classification."* See isBlackPowder below, which is what ignition keys
+ * off now.
+ *
+ * It still drives the chuteless-booster warning, where a threshold on what the
+ * motor delivers is the right shape. Note the limit of that too: power class is
+ * a property of the WHOLE ROCKET's total impulse, not of one stage's motor, so
+ * this tests the stage in front of it and nothing wider. No clause number is
+ * quoted here on purpose — the certification standard is paywalled and unread
+ * in this repo, so the code states what it tests and not what it conforms to.
  */
 export function isHighPower(m: { avgThrustN: number; totImpulseNs: number }): boolean {
   return m.avgThrustN > 80 || m.totImpulseNs > 160;
+}
+
+/**
+ * Whether a motor burns black powder, which is the real line for whether the
+ * stage below can light it off its ejection charge. A black powder grain takes
+ * from the charge; a composite or hybrid needs an igniter, whatever its size.
+ *
+ * ⚠ WHAT THIS CAN AND CANNOT PROVE. It proves "black powder"; it CANNOT prove
+ * "composite". Measured on the shipped catalogue (1,156 rows, 2026-09-19): 58
+ * say `black powder`, 13 say the literal `composite`, and the other 64 distinct
+ * propellant values are trade names — White Lightning, Blue Thunder, Skidmark —
+ * that happen to be composites but are not labelled as such. And 223 rows
+ * record NO propellant at all, 97 of them still in production, most being
+ * Contrail and Hypertek hybrids. So a false result means "not recorded as black
+ * powder", never "known to be composite". The caller decides what an unrecorded
+ * propellant defaults to; see services/ignitionDefault.ts, which takes the
+ * conservative side deliberately and says why.
+ *
+ * Case-insensitive and whitespace-tolerant even though all 58 rows are exactly
+ * `black powder` today, so a catalogue refresh that recapitalises the field
+ * cannot silently flip 58 motors onto electronics.
+ */
+export function isBlackPowder(m: { propInfo?: string }): boolean {
+  return /black\s*powder/i.test((m.propInfo ?? '').trim());
 }
 
 /** Common casing sizes (mm). 76 intentionally absent — it snaps to 75. */

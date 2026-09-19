@@ -136,18 +136,30 @@ describe('buildSimRun — staged branches (Release C)', () => {
     expect(run.boosterMotors).toEqual(['C6-0']);
   });
 
-  it('lets a LOW-POWER booster tumble without a warning (G80 rule)', () => {
+  it('lets a small chuteless booster tumble without the must-recover warning', () => {
     const run = buildSimRun(stagedInput(false, false));
     const b = run.branches![0]!;
     expect(b.tumbles).toBe(true);
     expect(b.deployments.length).toBe(0);
-    expect(run.comments).not.toMatch(/HIGH-POWER booster/);
+    expect(run.comments).not.toMatch(/must recover actively/);
   });
 
-  it('flags a chuteless HIGH-POWER booster loudly (G80 rule)', () => {
+  it('flags a chuteless booster above the high-power line loudly', () => {
     const run = buildSimRun(stagedInput(false, true));
-    expect(run.comments).toMatch(/Booster has NO recovery device — a HIGH-POWER booster/);
+    expect(run.comments).toMatch(/Booster has NO recovery device — a booster this size must recover actively/);
     expect(run.branches![0]!.safeLandingRate).toBe(false);
+  });
+
+  /**
+   * THE HOLE BEHIND THAT WARNING. The landing-rate check used to sit in the
+   * `else` of "has no recovery device", so a chuteless booster was never graded
+   * on how fast it came in — at any speed. safeLandingRate was computed for it
+   * all along; only the branching hid it.
+   */
+  it('still grades a chuteless booster on how fast it lands', () => {
+    const run = buildSimRun(stagedInput(false, false));
+    expect(run.branches![0]!.safeLandingRate).toBe(false);
+    expect(run.comments).toMatch(/Booster lands at .* above the .* landing target/);
   });
 
   it('serializes booster columns into the CSV', () => {

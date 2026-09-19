@@ -26,7 +26,12 @@ export interface MotorMeta {
   motorCase?: string;
   /** Motors firing together (cluster count of the mount); 1 = no cluster. */
   motorCount?: number;
-  /** High-power per the owner's G80 rule (>80 N avg or >160 Ns) — drives staging defaults/warnings. */
+  /**
+   * Over 80 N average thrust or 160 Ns total impulse (isHighPower). Drives the
+   * chuteless-booster warning only — it no longer decides ignition, which keys
+   * off propellant. KEEP THIS FIELD whatever else changes: SimRuns stored in
+   * localStorage carry it, and dropping it breaks older runs read back.
+   */
   highPower?: boolean;
   /**
    * thrustcurve.org catalogue id, recorded so the published NOZZLE for this
@@ -1313,7 +1318,7 @@ export function buildSimRun(input: {
   launch: LaunchConditions;
   rocketName: string;
   execMs: number;
-  /** Per-stage motor info by STAGE NAME (staged rockets; G80 safety rules). */
+  /** Per-stage motor info by STAGE NAME (staged rockets; booster-recovery checks). */
   stageMotorInfo?: Record<string, { label: string; highPower: boolean }>;
   boosterMotors?: string[];
   aeroModel?: 'classic' | 'supersonic' | 'auto-supersonic';
@@ -1614,14 +1619,17 @@ export function buildSimRun(input: {
       && Math.abs(motor.ejectionDelay - optimumDelayS) > 1.5) {
     say(`Flown delay ${motor.ejectionDelay}s vs optimal ${optimumDelayS.toFixed(1)}s.`);
   }
-  // Booster recovery — the owner's G80 rule: high-power boosters MUST have active
-  // recovery; low/mid boosters may tumble (no warning).
+  // BOOSTER RECOVERY. A booster flying a motor over the high-power line has to
+  // recover actively; a smaller one may tumble in, and that is not warned about.
+  //
+  // The landing-rate check used to sit in the `else` of "no recovery device",
+  // so a CHUTELESS booster was never graded on how fast it came in — at any
+  // speed, high power or not. b.safeLandingRate is computed for every branch,
+  // so the data was always there and only the branching hid it.
   for (const b of branches) {
     const landTxt = b.landingRate !== null ? `${b.landingRate.toFixed(1)} m/s (${fps(b.landingRate)})` : 'unknown speed';
-    if (b.deployments.length === 0) {
-      if (stageMotorInfo?.[b.name]?.highPower === true) {
-        say(`${b.name} has NO recovery device — a HIGH-POWER booster must recover actively; it ${b.tumbles ? 'tumbles' : 'falls'} in at ${landTxt}.`, 'warning');
-      }
+    if (b.deployments.length === 0 && stageMotorInfo?.[b.name]?.highPower === true) {
+      say(`${b.name} has NO recovery device — a booster this size must recover actively; it ${b.tumbles ? 'tumbles' : 'falls'} in at ${landTxt}.`, 'warning');
     } else if (b.safeLandingRate === false) {
       say(`${b.name} lands at ${landTxt} — above the ${fps(SAFETY.maxLandingRate)} landing target.`, 'warning');
     }
