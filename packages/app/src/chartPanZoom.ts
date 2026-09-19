@@ -16,8 +16,99 @@ import type uPlot from 'uplot';
  * each peer explicitly.
  */
 
-export const WHEEL_ZOOM_IN = 0.85;
-export const WHEEL_ZOOM_OUT = 1.15;
+/**
+ * ONE base for the wheel, and the two directions are exact inverses of it.
+ *
+ * They were 0.85 and 1.15, which are not inverses: 0.85 × 1.15 = 0.9775, so
+ * every wheel-in-then-out left the window 2.25 % narrower than it started and
+ * a fidgeting cursor crept inward.
+ *
+ * 0.9 rather than 0.85 because the zoom ran away (the owner, 2026-09-18: "the
+ * zoom goes very, very fast … a few clicks of turning the wheel and the plot
+ * zooms in very close"). One detent is now 10 %: 7 to double, 22 to reach 10×.
+ * The bigger half of that report is wheelZoomFactor below — the rate was only
+ * ever half the problem.
+ */
+export const WHEEL_ZOOM_BASE = 0.9;
+export const WHEEL_ZOOM_IN = WHEEL_ZOOM_BASE;
+export const WHEEL_ZOOM_OUT = 1 / WHEEL_ZOOM_BASE;
+
+/**
+ * Deepest the WHEEL may go: one fiftieth of the data extent, i.e. 5000 %.
+ * Box-drag stays unlimited — a drag says "exactly this much", where the wheel
+ * is the gesture that overshoots.
+ */
+export const WHEEL_MAX_DEPTH = 50;
+
+/*
+ * One wheel DETENT, in each of the three units a browser may report.
+ * These are browser conventions, not figures measured here: Chrome on Windows
+ * reports ~100 px per detent, Firefox reports lines, and a page-mode wheel
+ * reports one page. They only have to be the right ORDER for a detent to mean
+ * about one notch in each mode.
+ */
+const PX_PER_NOTCH = 100;
+const LINES_PER_NOTCH = 3;
+const PAGES_PER_NOTCH = 1;
+
+/** At most this many notches from a single event, so one flick cannot bottom out. */
+const MAX_NOTCHES_PER_EVENT = 3;
+
+/**
+ * The zoom factor for one wheel event, normalised by how much scrolling it
+ * actually represents.
+ *
+ * THIS IS THE REAL CAUSE of "very, very fast". The handler used to apply a
+ * fixed factor per EVENT and read nothing but the sign of deltaY — so a
+ * high-resolution or free-spinning wheel, which fires several events per
+ * physical detent, zoomed several times as far per detent as a detented one,
+ * and a trackpad further still. Normalising by deltaY and deltaMode makes one
+ * detent mean one notch on every device, and makes the composition exact: six
+ * events of a sixth of a detent each multiply out to the same factor as one
+ * whole-detent event.
+ *
+ * Returns exactly 1 for a zero or non-finite deltaY, which leaves the window
+ * untouched and lets the caller's no-op guard hand the event back to the page.
+ */
+export function wheelZoomFactor(e: { deltaY: number; deltaMode?: number }): number {
+  // Both directions are powers of the SAME base, so any sequence of wheel
+  // events and its reverse multiply back to exactly 1.
+  return WHEEL_ZOOM_BASE ** wheelNotches(e);
+}
+
+/**
+ * How many wheel notches one event represents, SIGNED: positive is zoom in
+ * (deltaY negative, wheel pushed away), negative is zoom out. Zero for a
+ * zero or non-finite deltaY.
+ *
+ * Shared by the charts and by the 2D and aft drawings, so one physical detent
+ * means one notch everywhere rather than "however many events this particular
+ * mouse happens to emit".
+ */
+export function wheelNotches(e: { deltaY: number; deltaMode?: number }): number {
+  const d = e.deltaY;
+  if (!Number.isFinite(d) || d === 0) return 0;
+  const per = e.deltaMode === 1 ? LINES_PER_NOTCH
+    : e.deltaMode === 2 ? PAGES_PER_NOTCH
+      : PX_PER_NOTCH;
+  const n = Math.min(Math.abs(d) / per, MAX_NOTCHES_PER_EVENT);
+  return d < 0 ? n : -n;
+}
+
+/**
+ * How far in the x-axis is zoomed, as a percentage: 100 % is the whole flight,
+ * 200 % is half of it on screen. Degenerate or missing scales read 100 %,
+ * because "all of it" is what an un-zoomed chart shows.
+ */
+export function zoomPercent(p: XPlot): number {
+  const sc = p.scales['x'];
+  if (!sc || sc.min == null || sc.max == null) return 100;
+  const win = sc.max - sc.min;
+  const [d0, d1] = xDataExtent(p);
+  const extent = d1 - d0;
+  if (!(win > 0) || !(extent > 0)) return 100;
+  return (extent / win) * 100;
+}
 
 export interface XWindow {
   min: number;
@@ -163,8 +254,17 @@ export function panZoomPlugin(
           if (sc.min == null || sc.max == null) return;
           const focus = u.posToVal(e.clientX - over.getBoundingClientRect().left, 'x');
           const [d0, d1] = extent();
-          const win = zoomWindow(sc.min, sc.max, focus,
-            e.deltaY < 0 ? WHEEL_ZOOM_IN : WHEEL_ZOOM_OUT, d0, d1);
+          // Normalised by how far the wheel actually turned, so one physical
+          // detent means the same thing on every device — see wheelZoomFactor.
+          let win = zoomWindow(sc.min, sc.max, focus, wheelZoomFactor(e), d0, d1);
+          // The wheel does not get to zoom for ever. Past WHEEL_MAX_DEPTH the
+          // axis labels stop being useful and getting back out is a long
+          // scroll; a box drag, which says "exactly this much", is unlimited.
+          const floor = (d1 - d0) / WHEEL_MAX_DEPTH;
+          if (floor > 0 && win.max - win.min < floor) {
+            win = zoomWindow(sc.min, sc.max, focus,
+              floor / (sc.max - sc.min), d0, d1);
+          }
           // Only swallow the wheel when the zoom actually changes the window.
           // A no-op (wheel-out at full extent, the common resting state) must
           // leave the event to the page, or charts become scroll traps. The

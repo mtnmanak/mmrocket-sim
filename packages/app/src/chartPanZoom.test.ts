@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   clampWindow, isFullExtent, panelHeight, panWindow, plotIsZoomed, resetPlots,
-  WHEEL_ZOOM_IN, WHEEL_ZOOM_OUT, xDataExtent, zoomWindow, type XPlot, type XWindow,
+  WHEEL_ZOOM_BASE, WHEEL_ZOOM_IN, WHEEL_ZOOM_OUT, wheelNotches, wheelZoomFactor,
+  xDataExtent, zoomPercent, zoomWindow, type XPlot, type XWindow,
 } from './chartPanZoom.js';
 
 // Data extent used throughout: a 0–20 s flight.
@@ -200,5 +201,80 @@ describe('panWindow', () => {
 
   it('is a no-op when already showing the full extent', () => {
     expect(panWindow(D0, D1, 5, D0, D1)).toEqual({ min: D0, max: D1 });
+  });
+});
+
+/**
+ * THE WHEEL, which had no test at all until now — and two defects under it.
+ *
+ * The owner, 2026-09-18: "the zoom goes very, very fast when scrolling the
+ * mouse wheel. A few clicks of turning the wheel and the plot zooms in very
+ * close." The rate was part of it; the larger part was that the handler applied
+ * a fixed factor per EVENT and read nothing but the sign of deltaY, so a
+ * high-resolution wheel firing several events per detent zoomed several times
+ * as far for the same turn of the hand.
+ */
+describe('wheelNotches / wheelZoomFactor', () => {
+  it('reads one standard detent as one notch, in each deltaMode', () => {
+    expect(wheelNotches({ deltaY: -100 })).toBeCloseTo(1, 12);          // pixels
+    expect(wheelNotches({ deltaY: -3, deltaMode: 1 })).toBeCloseTo(1, 12);  // lines
+    expect(wheelNotches({ deltaY: -1, deltaMode: 2 })).toBeCloseTo(1, 12);  // pages
+    expect(wheelZoomFactor({ deltaY: -100 })).toBeCloseTo(WHEEL_ZOOM_BASE, 12);
+  });
+
+  it('composes: six small events equal one whole detent', () => {
+    // This is the defect. Six events of a sixth of a detent used to zoom six
+    // times as far as one event of a whole detent.
+    let f = 1;
+    for (let i = 0; i < 6; i++) f *= wheelZoomFactor({ deltaY: -100 / 6 });
+    expect(f).toBeCloseTo(WHEEL_ZOOM_BASE, 12);
+  });
+
+  it('is exactly reversible, which 0.85 and 1.15 were not', () => {
+    // 0.85 * 1.15 = 0.9775, so every in-then-out crept 2.25% inward.
+    expect(wheelZoomFactor({ deltaY: -100 }) * wheelZoomFactor({ deltaY: 100 }))
+      .toBeCloseTo(1, 12);
+    expect(WHEEL_ZOOM_IN * WHEEL_ZOOM_OUT).toBeCloseTo(1, 12);
+  });
+
+  it('treats a zero or non-finite delta as no movement', () => {
+    expect(wheelNotches({ deltaY: 0 })).toBe(0);
+    expect(wheelZoomFactor({ deltaY: 0 })).toBe(1);
+    expect(wheelZoomFactor({ deltaY: NaN })).toBe(1);
+  });
+
+  it('clamps one violent flick so it cannot bottom out in a single event', () => {
+    expect(wheelNotches({ deltaY: -10000 })).toBe(3);
+    expect(wheelNotches({ deltaY: 10000 })).toBe(-3);
+  });
+
+  /**
+   * Pinned off the constant rather than typed in, so a figure quoted in a
+   * release note cannot drift from what the code does.
+   */
+  it('takes 7 notches to double and 22 to reach 10x', () => {
+    expect(Math.ceil(Math.log(0.5) / Math.log(WHEEL_ZOOM_BASE))).toBe(7);
+    expect(Math.ceil(Math.log(0.1) / Math.log(WHEEL_ZOOM_BASE))).toBe(22);
+  });
+});
+
+describe('zoomPercent', () => {
+  const plot = (min: number | null, max: number | null, xs: number[] = [0, 10]): XPlot => ({
+    data: [xs],
+    scales: { x: { min, max } },
+    setScale: () => {},
+  });
+
+  it('reads 100% at the full extent and scales inversely with the window', () => {
+    expect(zoomPercent(plot(0, 10))).toBeCloseTo(100, 9);
+    expect(zoomPercent(plot(0, 5))).toBeCloseTo(200, 9);
+    expect(zoomPercent(plot(2.5, 5))).toBeCloseTo(400, 9);
+  });
+
+  it('reads 100% rather than dividing by zero on degenerate input', () => {
+    expect(zoomPercent(plot(null, null))).toBe(100);
+    expect(zoomPercent(plot(0, 0))).toBe(100);
+    expect(zoomPercent(plot(0, 10, []))).toBe(100);
+    expect(zoomPercent(plot(0, 10, [4]))).toBe(100);
   });
 });

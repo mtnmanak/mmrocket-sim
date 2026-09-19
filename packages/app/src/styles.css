@@ -1120,6 +1120,19 @@ html {
   background: var(--surface-1);
 }
 
+/* THE DRAG-TO-ZOOM BOX. uPlot's own stylesheet paints it rgba(0, 0, 0, 0.07),
+   which is 1.17:1 against the Daylight plot and 1.02:1 against the dark one —
+   invisible in both, so dragging a zoom looks like nothing is happening until
+   the axes jump. Tint it with the theme's accent instead, per theme, via
+   color-mix.
+   The edge MUST be an inset box-shadow and not a border: uPlot hides this div
+   between drags by zeroing its width and height, and a border on a 0x0 box
+   still paints — a permanent 2px accent square in the corner of every plot. */
+.chart-panel .u-select {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
 /* Chart heading row: title + (optional) toggles + the ↺/⤢ buttons. Riding
    the heading that already exists means the controls cost zero vertical
    space — the "charts are too small" complaint and the discoverability
@@ -1207,6 +1220,17 @@ html {
 
 .chart-toolbar .chart-btn {
   margin-left: auto;
+}
+
+/* Zoom depth, beside the reset button. Tabular figures so the toolbar does not
+   twitch as the number changes under the wheel, and a min-width wide enough
+   for "5000%" for the same reason. */
+.chart-zoom-pct {
+  min-width: 5ch;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--text-muted);
 }
 
 .chart-hints {
@@ -1699,14 +1723,17 @@ html {
   }
 
   .workspace {
-    padding-bottom: 76px;
+    /* Matches .mmr-band-footer's reserve exactly (see its rule): the tab bar
+       plus whatever the notice bar is currently tall. --notice-h defaults to
+       0px on :root, so the calc is valid before the bar ever renders. */
+    padding-bottom: calc(76px + env(safe-area-inset-bottom) + var(--notice-h, 0px));
   }
 
-  /* Sit ABOVE the fixed tab bar rather than under it — same 76px constant
-     the workspace reserves. */
-  .notice-bar {
-    bottom: 76px;
-  }
+  /* The phone lift for .notice-bar USED TO LIVE HERE and never once applied:
+     the unconditional `.notice-bar { bottom: 0 }` further down the file has
+     the same (0,1,0) specificity, so source order decided it and this block
+     lost, in every release from v0.074 to v0.134. It now sits AFTER that base
+     rule instead. Do not move it back up here. */
 
   .workspace-tabs {
     position: fixed;
@@ -2050,6 +2077,14 @@ html {
   border-color: var(--text-secondary);
   color: var(--text-primary);
   background: var(--surface-3);
+}
+
+/* The app authored no hover state for these, so the only feedback on a press
+   was the browser's own momentary grey — which reads as "the button did
+   nothing" once the press ends. Unselected only: a selected chip already
+   carries its own fill and must not lose it under the pointer. */
+.series-chip:not(.series-chip-on):hover {
+  background: var(--hover);
 }
 
 .series-dot {
@@ -3387,6 +3422,12 @@ select.unit-chip:hover {
   opacity: 0.55;
 }
 
+/* Double the zoom box's edge in sun, keeping --accent rather than the black
+   every other hairline doubles to — at 2px of black it reads as an axis. */
+.viz-root[data-contrast='high'] .chart-panel .u-select {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
 /* Disabled chart buttons keep full opacity in sun (rule above); the state
    reads through ink instead — muted text on a gray border vs. black-on-black
    for a live button. */
@@ -3396,10 +3437,23 @@ select.unit-chip:hover {
 }
 
 /* Selection must read without relying on a tint alone. */
-.viz-root[data-contrast='high'] .series-chip-on,
 .viz-root[data-contrast='high'] .view-toggle button.active {
   outline: 2px solid var(--border);
   outline-offset: -2px;
+  font-weight: 700;
+}
+
+/* A SELECTED CHIP NEEDS A FILL IN SUN, and until now it had none: the outline
+   above is 2px of var(--border) inset by -2px, which lands exactly on the 2px
+   black border every chip already carries in this theme (the hairline-doubling
+   rule near the top of the block), and the font-weight is already 700 on ALL
+   chips. So `on` and `off` painted identically — white on white — and a user
+   picking motor diameters could not tell which were chosen. Fill it instead.
+   --selected (#ffd18a) against black text is 14:1; the worst Daylight series
+   dot, #8a5000 in SERIES_DAYLIGHT (chartTheme.ts:41), is 4.57:1 on it. */
+.viz-root[data-contrast='high'] .series-chip-on {
+  background: var(--selected);
+  color: var(--text-primary);
   font-weight: 700;
 }
 
@@ -3566,8 +3620,10 @@ select.unit-chip:hover {
   right: 0;
   bottom: 0;
   /* Above the phone tab bar's 50 — at 40 the tab bar painted over the
-     notice, which is the one message the user most needs to read. The
-     ≤767px block also lifts the bar clear of the tab bar entirely.
+     notice, which is the one message the user most needs to read. On a phone
+     the bar is ALSO lifted clear of the tab bar, by the ≤767px rule that
+     follows this one — it has to follow, because the two selectors have the
+     same specificity and source order is the whole mechanism.
      The file menu and its click-outside backdrop are lifted above THIS
      (61/62), so raising the bar cannot leave a dead strip where a click
      fails to close the menu. */
@@ -3583,6 +3639,19 @@ select.unit-chip:hover {
   border-top: 1px solid var(--note-border);
   box-shadow: 0 -2px 10px rgb(0 0 0 / 12%);
 }
+
+/* THE PHONE LIFT. It must stay AFTER the rule above: both selectors are the
+   bare class, so specificity ties and the later one wins. 76px is the same
+   constant .workspace and .mmr-band-footer reserve; env() is written only so
+   all three reserves stay one expression (index.html sets no viewport-fit,
+   so the inset resolves to 0 today). Without this the bar sits at bottom: 0,
+   on top of the fixed tab bar, and takes the taps meant for the four tabs. */
+@media (max-width: 767px) {
+  .notice-bar {
+    bottom: calc(76px + env(safe-area-inset-bottom));
+  }
+}
+
 /* Severity tints the BAR, not just a hairline: a collapsed error used to be
    a tan strip distinguished from an info strip by a 2px border. */
 .notice-bar.notice-warn {

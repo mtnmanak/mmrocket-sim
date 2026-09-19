@@ -24,7 +24,8 @@ afterEach(() => {
   host.remove();
 });
 
-function render(timeStepS?: number | null, lastRun?: { ms: number; timeStepS?: number } | null) {
+function render(timeStepS?: number | null, lastRun?: { ms: number; timeStepS?: number } | null,
+    canLaunch = true) {
   act(() => {
     root.render(
       <PrefsProvider>
@@ -33,6 +34,7 @@ function render(timeStepS?: number | null, lastRun?: { ms: number; timeStepS?: n
           onChange={() => {}}
           onLaunch={() => {}}
           simulating={false}
+          canLaunch={canLaunch}
           lastRun={lastRun}
         />
       </PrefsProvider>,
@@ -133,6 +135,7 @@ function renderConditions(over: Partial<typeof DEFAULT_CONDITIONS>) {
           onChange={(v) => { lastLaunch = v; }}
           onLaunch={() => {}}
           simulating={false}
+          canLaunch
         />
       </PrefsProvider>,
     );
@@ -414,5 +417,32 @@ describe('the pad-pressure caution', () => {
     const t = c!.textContent ?? '';
     expect(t).not.toMatch(/NaN/);
     expect(t).not.toMatch(/—\s*(mbar|°C)/);
+  });
+});
+
+/**
+ * THE THIRD LAUNCH BUTTON. This one was enabled with no motor assigned, and
+ * the click fell through onLaunch's early return with no message and no
+ * navigation — silence — while the vitals strip on the same workspace showed
+ * a greyed-out Launch at that moment. FlyScreen's button already took this
+ * prop from the same expression; all three agree now.
+ */
+describe('Launch is disabled until a motor is assigned', () => {
+  const launchBtn = () => [...host.querySelectorAll('button')]
+    .find((b) => /Launch/.test(b.textContent ?? '')) as HTMLButtonElement | undefined;
+
+  it('is disabled and says why with no motor', () => {
+    render(undefined, null, false);
+    const b = launchBtn();
+    expect(b).toBeTruthy();
+    expect(b!.disabled).toBe(true);
+    expect(b!.title).toBe('Assign a motor first');
+  });
+
+  it('is enabled once one is', () => {
+    render(undefined, null, true);
+    const b = launchBtn();
+    expect(b!.disabled).toBe(false);
+    expect(b!.title).toBe('Simulate the flight');
   });
 });

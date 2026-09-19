@@ -5,7 +5,9 @@ import type { FlightResult, FlightSeries } from '@online-openrocket/engine';
 import { usePrefs, type Preferences } from '../prefs/PrefsContext.js';
 import { siToUi, type Quantity } from '../prefs/units.js';
 import { chartInk, seriesPalette } from '../chartTheme.js';
-import { panelHeight, panZoomPlugin, plotIsZoomed, resetPlots } from '../chartPanZoom.js';
+import {
+  panelHeight, panZoomPlugin, plotIsZoomed, resetPlots, zoomPercent,
+} from '../chartPanZoom.js';
 import { formatReadout, tooltipPlugin } from '../chartTooltip.js';
 import { UnitChip } from './UnitChip.js';
 import { flightDataCsv } from '../services/flightDataCsv.js';
@@ -89,7 +91,7 @@ function Panel({ result, def, plots, expanded, onToggleExpand, onZoomChange }: {
   expanded: boolean;
   onToggleExpand: () => void;
   /** Reports whether this panel (== the synced group) is zoomed in. */
-  onZoomChange: (zoomed: boolean) => void;
+  onZoomChange: (zoomed: boolean, percent: number) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const { resolvedTheme, daylight } = usePrefs();
@@ -132,7 +134,11 @@ function Panel({ result, def, plots, expanded, onToggleExpand, onZoomChange }: {
         { stroke: ink.axis, grid: { stroke: ink.grid, width: 1 }, ticks: { stroke: ink.tick, width: 1 }, font: ink.font },
         { stroke: ink.axis, grid: { stroke: ink.grid, width: 1 }, ticks: { stroke: ink.tick, width: 1 }, font: ink.font, size: 56 },
       ],
-      plugins: [panZoomPlugin(() => plots, (u) => onZoomChangeRef.current(plotIsZoomed(u))), tooltipPlugin()],
+      plugins: [
+        panZoomPlugin(() => plots,
+          (u) => onZoomChangeRef.current(plotIsZoomed(u), zoomPercent(u))),
+        tooltipPlugin(),
+      ],
     };
     const plot = new uPlot(opts, data, el);
     const t = result.series.time;
@@ -208,7 +214,11 @@ export function FlightCharts({ result, onFullSeries, designName }: {
   // Whether the synced group is zoomed in (drives the Reset-view button).
   // Any panel's report speaks for the group — every gesture is broadcast to
   // all peers, so their windows agree.
+  // The panels are peers — a zoom on one is applied to all of them — so there
+  // is one depth for the grid, reported once beside the reset button rather
+  // than repeated on every panel.
   const [zoomed, setZoomed] = useState(false);
+  const [zoomPct, setZoomPct] = useState(100);
   // One Set instance for the component's whole life: Panels register their
   // uPlot in it and the pan/zoom plugin broadcasts window changes to every
   // member (programmatic setScale does not ride uPlot's cursor-sync bus).
@@ -322,17 +332,28 @@ export function FlightCharts({ result, onFullSeries, designName }: {
         <div className="chart-toolbar">
           <GestureHints />
           <button className="chart-btn" disabled={!zoomed}
-            onClick={() => { resetPlots(plotsRef.current); setZoomed(false); }}
+            onClick={() => {
+              resetPlots(plotsRef.current); setZoomed(false); setZoomPct(100);
+            }}
             title="Show the whole flight again (same as double-clicking a chart)">
             ↺ Reset view
           </button>
+          {/*
+            How far in the wheel has gone. 100% is the whole flight. Deliberately
+            NOT aria-live: it changes on every wheel event, which would make a
+            screen reader announce dozens of times per gesture; the reset button
+            beside it is the accessible way back.
+          */}
+          <span className="chart-zoom-pct" title="Zoom depth — 100% is the whole flight">
+            {zoomPct < 1000 ? zoomPct.toFixed(0) : Math.round(zoomPct / 100) * 100}%
+          </span>
         </div>
       )}
       <div className="charts-grid">
         {visible.map((d) => (
           <Panel key={String(d.key)} result={result} def={d} plots={plotsRef.current}
             expanded={expandedKeys.has(d.key)} onToggleExpand={() => toggleExpand(d.key)}
-            onZoomChange={setZoomed} />
+            onZoomChange={(z, pct) => { setZoomed(z); setZoomPct(pct); }} />
         ))}
       </div>
       {selected.size === 0 && (

@@ -3,6 +3,7 @@ import type { ComponentNode, ComponentPosition, RocketTree, StaticInfo } from '@
 import { anchorStarts, axialLength, offsetForStart, snapStart, startFromPosition } from '../tree/position.js';
 import { clusterOffsets } from '../tree/cluster.js';
 import { tubeFinRadius } from '../tree/tubefins.js';
+import { wheelNotches } from '../chartPanZoom.js';
 import { DISPLAY_NAME } from '../tree/schema.js';
 import {
   assemblyBoundingRadius, assemblyChainLength, isAssembly,
@@ -544,7 +545,11 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
       const px = ((e.clientX - rect.left) / rect.width) * w;
       const py = ((e.clientY - rect.top) / rect.height) * h;
       setZoom((z) => {
-        const k = Math.min(12, Math.max(1, z.k * (e.deltaY < 0 ? 1.2 : 1 / 1.2)));
+        // Normalised per wheel NOTCH, not per event: a high-resolution wheel
+        // fires several events per detent and used to zoom several times as
+        // far for the same turn of the hand. Same helper as the charts, so one
+        // detent means the same thing on every view.
+        const k = Math.min(12, Math.max(1, z.k * 1.2 ** wheelNotches(e)));
         if (k === z.k) return z;
         // Keep the model point under the cursor fixed while scaling.
         const mx = (px - z.x) / z.k;

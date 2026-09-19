@@ -898,8 +898,10 @@ export function App() {
     saveSessionDebounced({
       ...designSnapshot,
       // The build that PARSED this design, not the one writing the file — see
-      // parsedByVersion. (session.ts's writeNow currently overrides this with
-      // APP_VERSION unconditionally; carrying it here is the App half.)
+      // parsedByVersion. writeNow spreads `pending` AFTER its own
+      // `appVersion: APP_VERSION`, so this value is the one that reaches
+      // storage; the APP_VERSION there is only the fallback for a payload
+      // that carries none.
       appVersion: parsedByVersion.current,
       savedMark: savedMark.current ?? undefined, flownSinceSave: flownSinceSave.current,
     });
@@ -1967,8 +1969,15 @@ export function App() {
     }
     if (restoredByOlderBuild) {
       out.push({
+        // `info`, not `warn`, and deliberately: NoticeBar opens the bar for any
+        // non-info notice, and this one fires for EVERY returning user after
+        // EVERY release (sessionPredatesThisBuild is appVersion !== APP_VERSION,
+        // and this app releases near daily). A self-opening bar on a phone is
+        // how it came to cover the tab bar. The message is advisory — nothing
+        // is wrong, there is a better version of the file to re-open — which is
+        // exactly the bar's own stated rule for what stays quiet.
         id: 'stale-session',
-        severity: 'warn',
+        severity: 'info',
         text: 'This design was restored from autosave and was read in by an earlier build of'
           + ' the app, so file-reading fixes made since then have not been applied to it.'
           + ' Re-open the original file to pick them up.',
@@ -4995,6 +5004,7 @@ export function App() {
           </div>
 
           <LaunchPanel value={launch} onChange={setLaunch} onLaunch={onLaunch} simulating={simulating}
+            canLaunch={!!built && !!primaryMountId}
             lastRun={simCostRef} />
 
           {/* Last row of the grid, full width (`.config-panel` spans

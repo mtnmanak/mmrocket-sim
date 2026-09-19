@@ -391,11 +391,21 @@ export function PadPressureCaution({ value }: { value: LaunchConditions }) {
   );
 }
 
-export function LaunchPanel({ value, onChange, onLaunch, simulating, lastRun }: {
+export function LaunchPanel({
+  value, onChange, onLaunch, simulating, canLaunch, lastRun,
+}: {
   value: LaunchConditions;
   onChange: (v: LaunchConditions) => void;
   onLaunch: () => void;
   simulating: boolean;
+  /**
+   * False until a motor is assigned. Without it this button was enabled with
+   * no motor loaded and the click fell through the early return in onLaunch,
+   * so the user got silence — while the vitals strip on the SAME page showed
+   * a greyed-out Launch. FlyScreen takes the identical prop from the identical
+   * expression; the three Launch buttons agree now.
+   */
+  canLaunch: boolean;
   /**
    * The last flight's measured duration and the step it flew at, when there has
    * been one. Turns the time-step caution from an abstract multiplier into the
@@ -444,7 +454,9 @@ export function LaunchPanel({ value, onChange, onLaunch, simulating, lastRun }: 
       </div>
       <PadPressureCaution value={value} />
       <TimeStepCaution dt={value.timeStepS} lastRun={lastRun} />
-      <button className="launch-btn" onClick={onLaunch} disabled={simulating}>
+      <button className="launch-btn" onClick={onLaunch}
+        disabled={!canLaunch || simulating}
+        title={!canLaunch ? 'Assign a motor first' : 'Simulate the flight'}>
         {simulating ? 'Simulating…' : <><Icon name="rocket" size={15} /> Launch</>}
       </button>
     </div>

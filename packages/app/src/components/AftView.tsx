@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { clusterOffsets } from '../tree/cluster.js';
 import { tubeFinRadius } from '../tree/tubefins.js';
+import { wheelNotches } from '../chartPanZoom.js';
 import { isAssembly, resolveAssemblyRadius, ringInstanceOffsets } from '../tree/assembly.js';
 import { isConformal } from '../tree/shroud.js';
 import { RollControl } from './RollControl.js';
@@ -80,7 +81,8 @@ export function AftView({ tree, motors, roll: rollProp, onRoll }: {
       const vx = -Ev + ((e.clientX - rect.left) / rect.width) * 2 * Ev;
       const vy = -Ev + ((e.clientY - rect.top) / rect.height) * 2 * Ev;
       setZoom((z) => {
-        const k = Math.min(12, Math.max(1, z.k * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
+        // Per NOTCH, not per event — see the same change on the 2D schematic.
+        const k = Math.min(12, Math.max(1, z.k * 1.15 ** wheelNotches(e)));
         if (k === z.k) return z;
         const mx = (vx - z.x) / z.k;
         const my = (vy - z.y) / z.k;
