@@ -5,6 +5,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { NozzleField } from './NozzleField.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import { nozzleForMotorId } from '../services/nozzleDb.js';
+import { addExMotors } from '../services/exMotors.js';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -326,5 +327,59 @@ describe('NozzleField — the manufacturer’s own caution about its own figure'
     });
     expect(committed).toEqual([]);
     expect(host.querySelector('[data-nozzle="custom-exit"]')).toBeNull();
+  });
+});
+
+/**
+ * An EX motor’s exit comes out of the .rse the USER imported. The panel must
+ * never dress that as a manufacturer’s published figure — crediting "Klima’s
+ * published figure" for a number somebody typed into their own motor file is
+ * exactly the unfollowable provenance the manufacturer line exists to stop
+ * (2026-09-21). Before this release an EX motor reached none of these paths at
+ * all: it has no `motorId`, so the stage read as having no motor loaded.
+ */
+describe('NozzleField — a figure that came from an imported motor file', () => {
+  const EX_ID = 'ex:klima-b2';
+  const EX_EXIT_M = 0.005;
+
+  beforeEach(() => {
+    addExMotors([{
+      motorId: EX_ID, designation: 'B2', realManufacturer: 'Klima',
+      diameter: 18, length: 70, totalWeightG: 17, propWeightG: 6, delays: '0,4',
+      samples: [{ time: 0, thrust: 0 }, { time: 2.5, thrust: 0 }],
+      exitDiameterM: EX_EXIT_M, source: 'rse', addedAt: 0,
+    }]);
+  });
+
+  it('fills an empty field from the file — the number the app used to throw away', async () => {
+    // Rule 1. The component commits; it does not re-render itself, so the
+    // provenance line is asserted in the next test, where the value is in.
+    await render({ exitDiameterM: null, motorIds: [EX_ID], motorLabel: 'B2' });
+    expect(committed[committed.length - 1]).toBeCloseTo(EX_EXIT_M, 9);
+  });
+
+  it('says the file is where it came from, and does NOT credit the manufacturer', async () => {
+    await render({ exitDiameterM: EX_EXIT_M, motorIds: [EX_ID], motorLabel: 'B2' });
+    expect(text()).toContain('from the motor file you imported');
+    expect(text()).not.toMatch(/published figure/);
+    expect(text()).not.toMatch(/Klima\u2019s published/);
+  });
+
+  it('names the file, not the maker, when your typed value disagrees', async () => {
+    await render({ exitDiameterM: 0.009, motorIds: [EX_ID], motorLabel: 'B2' });
+    expect(text()).toContain('the motor file you imported says');
+    expect(text()).not.toMatch(/Klima publish/);
+  });
+
+  it('says nothing for an EX motor whose file carried no exit', async () => {
+    addExMotors([{
+      motorId: 'ex:no-exit', designation: 'M1234', realManufacturer: 'EX Labs',
+      diameter: 75, length: 620, totalWeightG: 4200, propWeightG: 2400, delays: '',
+      samples: [{ time: 0, thrust: 0 }, { time: 2, thrust: 0 }],
+      source: 'rse', addedAt: 0,
+    }]);
+    await render({ exitDiameterM: null, motorIds: ['ex:no-exit'], motorLabel: 'M1234' });
+    expect(committed).toHaveLength(0);
+    expect(text()).not.toMatch(/published figure|motor file you imported/);
   });
 });

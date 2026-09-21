@@ -72,7 +72,13 @@ export function stageMotors(
   for (const [mountId, mm] of assigned) {
     const stageId = stageOfNode.get(mountId);
     if (stageId === undefined) continue;
-    const motorId = mm.meta.motorId;
+    // An EX motor carries `exMotorId`, never `motorId` (MotorBrowser pins the
+    // library entry that way so an .ork export names the right vendor). Reading
+    // only `motorId` made every imported motor INVISIBLE here: the stage read
+    // as empty, the panel said no motor was loaded, and a motor file's own
+    // exit diameter could never reach the field. Since 2026-09-21 an EX motor
+    // can publish an exit of its own, so it has to be in this list to do it.
+    const motorId = mm.meta.motorId ?? mm.meta.exMotorId;
     if (typeof motorId !== 'string' || !motorId) continue;
     const list = byStage.get(stageId) ?? [];
     list.push({

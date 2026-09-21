@@ -116,6 +116,12 @@ export function NozzleField({
     && Math.abs(published - exitDiameterM) > 0.00005;
   const matches = published !== null && exitDiameterM !== null && !differs;
   const maker = entry?.manufacturer ?? 'The manufacturer';
+  // An EX motor's exit comes out of the .rse the USER imported, not out of a
+  // manufacturer's drawing, and the panel must not dress one as the other:
+  // "Klima's published figure" for a number somebody typed into their own
+  // motor file is exactly the unfollowable provenance this line exists to
+  // prevent (2026-09-21).
+  const fromFile = entry?.fromImportedFile === true;
 
   return (
     <div style={{ marginTop: 8 }}>
@@ -135,8 +141,9 @@ export function NozzleField({
       </div>
       {matches && entry && (
         <p className="comp-stats" style={{ margin: '3px 0 0' }} data-nozzle="published">
-          {ui(published)} — {maker}&rsquo;s published figure
-          {motorLabel ? ` for ${motorLabel}` : ''}
+          {ui(published)} — {fromFile
+            ? `from the motor file you imported${motorLabel ? ` for ${motorLabel}` : ''}`
+            : `${maker}\u2019s published figure${motorLabel ? ` for ${motorLabel}` : ''}`}
           {entry.nozzlePartNo ? `, nozzle ${entry.nozzlePartNo}` : ''}.
           {clustered && ` Exit areas summed over the ${motors.reduce((n, m) => n + m.count, 0)} motors in this stage.`}
           {entry.confidence !== 'high' && ' Read at lower confidence.'}
@@ -145,7 +152,9 @@ export function NozzleField({
       )}
       {differs && entry && (
         <p className="field-caution" style={{ margin: '3px 0 0' }} data-nozzle="disagrees">
-          <strong>This design says {ui(exitDiameterM)}; {maker} publish {ui(published)}</strong>
+          <strong>This design says {ui(exitDiameterM)}; {fromFile
+            ? `the motor file you imported says ${ui(published)}`
+            : `${maker} publish ${ui(published)}`}</strong>
           {motorLabel ? ` for ${motorLabel}` : ''}
           {entry.nozzlePartNo ? ` (nozzle ${entry.nozzlePartNo})` : ''}.
           {' '}The exit area drives both base drag and the thrust a motor gains as the air thins, so

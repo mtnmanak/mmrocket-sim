@@ -26,6 +26,8 @@
  * assigned, and the entry chunk should not carry it.
  */
 
+import { getExMotor } from './exMotors.js';
+
 /** One motor's published nozzle, as the panel needs it. */
 export interface NozzleEntry {
   motorId: string;
@@ -49,6 +51,13 @@ export interface NozzleEntry {
    * in `note`. Anything without a usable exit never reaches a caller.
    */
   confidence: 'high' | 'medium' | 'low';
+  /**
+   * True when this came out of a motor file the USER imported rather than a
+   * manufacturer's published data. The panel must say so: crediting "Klima's
+   * published figure" for a number somebody typed into their own .rse is
+   * exactly the unfollowable provenance `manufacturer` exists to prevent.
+   */
+  fromImportedFile?: boolean;
   /**
    * Present when AeroTech publish MORE THAN ONE nozzle for this motor — nine
    * motors do, and the two options for the K1100T differ by 43 % in area.
@@ -183,8 +192,36 @@ async function db(): Promise<Map<string, NozzleEntry>> {
  */
 export async function nozzleForMotorId(motorId: string | undefined): Promise<NozzleEntry | null> {
   if (!motorId) return null;
-  // An EX motor is the user's own file, never AeroTech's catalogue.
-  if (motorId.startsWith('ex:')) return null;
+  // An EX motor is never in AeroTech's or Loki's catalogue — but since
+  // 2026-09-21 its own .rse may carry an exit diameter, and if it does that is
+  // the ONLY nozzle figure that motor will ever have. Before this the number
+  // was read past and the builder had to type it back by hand, on a field the
+  // app then cleared from under them the next time they changed motors.
+  //
+  // The entry is synthesised rather than stored: the EX library is the single
+  // source of truth for it, so a motor re-imported from a corrected file is
+  // corrected here too, with no second copy to go stale. `manufacturer` is the
+  // file's own `mfg`, because the panel says whose figure this is out loud and
+  // it must never credit AeroTech with a number out of somebody's own file.
+  if (motorId.startsWith('ex:')) {
+    const ex = getExMotor(motorId);
+    const d = ex?.exitDiameterM;
+    if (!ex || typeof d !== 'number' || !Number.isFinite(d) || d <= 0) return null;
+    return {
+      motorId,
+      designation: ex.designation,
+      manufacturer: ex.realManufacturer || 'your own motor file',
+      exitDiameterM: d,
+      // 'low' is the honest grade: a catalogue 'high' means a part number
+      // traced to a dimensioned drawing, and a value typed into a motor file
+      // by its author has no such chain. The panel shows the note beside it.
+      confidence: 'low',
+      note: `read from the ${ex.source === 'rse' ? '.rse' : 'motor'} file you imported, not from a manufacturer's drawing`,
+      // No drawing chain exists for a file somebody wrote themselves.
+      drawings: [],
+      fromImportedFile: true,
+    };
+  }
   return (await db()).get(motorId) ?? null;
 }
 

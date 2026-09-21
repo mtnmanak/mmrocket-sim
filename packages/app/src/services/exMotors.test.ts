@@ -1,6 +1,9 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
-import { exToDbEntry, impulseClassOf, parseEng, parseRse } from './exMotors.js';
+import {
+  EXIT_MAX_FRACTION_OF_CASE, EXIT_MIN_FRACTION_OF_CASE, exToDbEntry, exitDiameterFromRse,
+  impulseClassOf, parseEng, parseRse,
+} from './exMotors.js';
 import { delayOptions } from './thrustcurve.js';
 
 const ENG = `; AeroTech K550W
@@ -203,5 +206,84 @@ MyEX-K600 54 410 P 0.900 1.650 EX
     const [m] = parseEng(engMixed);
     expect(m!.delays).toBe('5,10,P');
     expect(delayOptions(exToDbEntry(m!))).toEqual([5, 10, Infinity]);
+  });
+});
+
+/**
+ * The nozzle exit an .rse can carry (Eric, 2026-09-21). It is worth almost
+ * nothing for catalogue motors and everything for a home-written EX file: of
+ * 1,275 engine records in the local .rse corpus, 1,274 state exitDia="0." and
+ * the one that does not is the Klima B2 reproduced below, byte for byte from
+ * G:/Documents/Dropbox/Rocksim Engine Files/Klima.rse. An EX motor matches
+ * nothing in the nozzle database, so the file is the only source it has.
+ */
+describe('a .rse nozzle exit diameter', () => {
+  const rse = (attrs: string) => `<engine-database><engine-list>
+  <engine mfg="Klima" code="B2" Type="single-use" dia="18." len="70." initWt="17."
+    propWt="6." delays="0,4" ${attrs}>
+   <data>
+     <eng-data t="0" f="0" m="17"/>
+     <eng-data t="0.5" f="2" m="14"/>
+     <eng-data t="2.5" f="0" m="11"/>
+   </data>
+  </engine>
+ </engine-list></engine-database>`;
+
+  it('reads the real Klima B2 value, in MILLIMETRES', () => {
+    // 5 mm on an 18 mm case. Inches would be a 5-inch exit on an 18 mm motor
+    // and metres would be 5 m; only mm is physical, which is what settles the
+    // unit the whole feature waited on.
+    const [m] = parseRse(rse('throatDia="3.6" exitDia="5."'));
+    expect(m!.exitDiameterM).toBeCloseTo(0.005, 9);
+  });
+
+  it('reads NOTHING from the 1,274 files that state zero', () => {
+    const [m] = parseRse(rse('throatDia="0." exitDia="0."'));
+    expect(m!.exitDiameterM).toBeUndefined();
+  });
+
+  it('reads nothing when the attribute is absent, as every .eng is', () => {
+    const [m] = parseRse(rse(''));
+    expect(m!.exitDiameterM).toBeUndefined();
+  });
+
+  it('REFUSES a value too small to be an exit plane — the inches case', () => {
+    // A file meaning 1.5 INCHES on a 29 mm motor, read as 1.5 mm, is 1/645th
+    // of the true area. It fails safe in the thrust term, but it is still
+    // wrong, and a one-sided "smaller than the case" bound would pass it.
+    const [m] = parseRse(rse('exitDia="1.5"'));
+    expect(m!.exitDiameterM).toBeUndefined();
+  });
+
+  it('REFUSES a value that looks like the case diameter — the over-credit case', () => {
+    // The only way a wrong number can ADD thrust it should not: the case OD
+    // typed into the exit field.
+    const [m] = parseRse(rse('exitDia="18."'));
+    expect(m!.exitDiameterM).toBeUndefined();
+  });
+
+  it('takes the whole measured band and nothing outside it', () => {
+    // The band is the shipped nozzle database’s own range, 0.1664 to 0.7094
+    // of the case, with a little air either side.
+    expect(exitDiameterFromRse(18 * EXIT_MIN_FRACTION_OF_CASE, 18))
+      .toEqual({ exitDiameterM: 18 * EXIT_MIN_FRACTION_OF_CASE / 1000 });
+    expect(exitDiameterFromRse(18 * EXIT_MAX_FRACTION_OF_CASE, 18))
+      .toEqual({ exitDiameterM: 18 * EXIT_MAX_FRACTION_OF_CASE / 1000 });
+    expect(exitDiameterFromRse(18 * 0.14, 18)).toHaveProperty('rejected');
+    expect(exitDiameterFromRse(18 * 0.76, 18)).toHaveProperty('rejected');
+  });
+
+  it('says WHY it refused, so the number is not silently dropped', () => {
+    const low = exitDiameterFromRse(1.5, 29) as { rejected: string };
+    expect(low.rejected).toContain('too small');
+    expect(low.rejected).toContain('inches');
+    const high = exitDiameterFromRse(29, 29) as { rejected: string };
+    expect(high.rejected).toContain('case diameter');
+  });
+
+  it('ignores a throat entirely — nothing in the app reads one', () => {
+    const [m] = parseRse(rse('throatDia="3.6" exitDia="5."'));
+    expect(Object.keys(m!)).not.toContain('throatDiameterM');
+    expect(JSON.stringify(m)).not.toMatch(/throat/i);
   });
 });

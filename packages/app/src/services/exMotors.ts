@@ -27,10 +27,70 @@ export interface ExMotor {
   samples: { time: number; thrust: number }[];
   /** Optional per-sample motor mass (kg) — .rse files carry it. */
   sampleMassesKg?: number[];
+  /**
+   * The nozzle EXIT diameter the `.rse` states, in METRES, when the file gives
+   * a plausible one. Absent for every `.eng` (the RASP format has no such
+   * field) and for the overwhelming majority of `.rse` files, which state
+   * `exitDia="0."`.
+   *
+   * This is the only nozzle figure an EX motor will ever have: the app's
+   * nozzle database covers AeroTech and Loki catalogue motors, and an `ex:` id
+   * matches nothing in it. Without this the number in a builder's own file was
+   * thrown away and they had to type it back by hand (Eric, 2026-09-21).
+   */
+  exitDiameterM?: number;
   source: 'eng' | 'rse';
   addedAt: number;
 }
 
+/**
+ * The plausible band for a stated nozzle exit, as a fraction of the motor’s
+ * own case diameter. MEASURED, not invented: across the 279 rows of the
+ * shipped nozzle database that carry both figures, exit ÷ casing runs
+ * **0.1664** (AeroTech E16-4W, 4.826 mm on 29 mm) to **0.7094** (AeroTech
+ * O5500X-PS, 69.52 mm on 98 mm), median 0.4536. The band below is those
+ * bounds with a little air either side.
+ */
+export const EXIT_MIN_FRACTION_OF_CASE = 0.15;
+export const EXIT_MAX_FRACTION_OF_CASE = 0.75;
+
+/**
+ * A `.rse`’s `exitDia`, in METRES, or null when it is absent, zero or not
+ * believable.
+ *
+ * **THE UNIT IS MILLIMETRES.** Every linear attribute in the format is —
+ * desktop OpenRocket’s own RockSim loader divides `dia`, `len` and each
+ * point’s `cg` by 1000 and nothing else — and the one real file on this
+ * machine carrying a nonzero value settles it: Klima’s B2 states
+ * `dia="18." throatDia="3.6" exitDia="5."`, which is a 5 mm exit and an
+ * expansion ratio of 1.93 in millimetres, and absurd in any other unit.
+ *
+ * **WHY A TWO-SIDED GATE AND NOT JUST "SMALLER THAN THE CASE".** A wrong
+ * unit fails SAFE on its own: the term is A_exit × Δp, so a file quoting
+ * inches and read as millimetres gives 1/645th of the area and the flight
+ * comes out conservative. It is the LOW side that therefore needs the check,
+ * and a one-sided "exit < dia" bound would pass 1.5 mm on a 29 mm case
+ * without blinking. The high side catches the other real mistake — a case
+ * diameter typed into the exit field — which is the only way a unit error
+ * can over-credit thrust.
+ *
+ * A rejected value is DROPPED, not clamped: a number we do not believe is
+ * worth less than the blank the user can fill in themselves.
+ */
+export function exitDiameterFromRse(
+  exitDiaMm: number | null, caseDiaMm: number,
+): { exitDiameterM: number } | { rejected: string } | null {
+  if (exitDiaMm === null || !Number.isFinite(exitDiaMm) || exitDiaMm <= 0) return null;
+  if (!Number.isFinite(caseDiaMm) || caseDiaMm <= 0) return null;
+  const f = exitDiaMm / caseDiaMm;
+  if (f < EXIT_MIN_FRACTION_OF_CASE) {
+    return { rejected: `${exitDiaMm} (only ${(f * 100).toFixed(0)}% of the ${caseDiaMm} mm case, which is too small to be an exit plane — if the file means inches, type the value yourself in your own units)` };
+  }
+  if (f > EXIT_MAX_FRACTION_OF_CASE) {
+    return { rejected: `${exitDiaMm} (${(f * 100).toFixed(0)}% of the ${caseDiaMm} mm case — larger than any nozzle in the database, so it reads like a case diameter rather than an exit)` };
+  }
+  return { exitDiameterM: exitDiaMm / 1000 };
+}
 export function loadExMotors(): ExMotor[] {
   try {
     const raw = localStorage.getItem(KEY);
@@ -226,6 +286,14 @@ export function parseRse(text: string): ExMotor[] {
     });
     const haveMasses = masses.length === samples.length
       && masses.every((m) => Number.isFinite(m) && m > 0);
+    // The nozzle exit, when the file states a believable one. 1,274 of the
+    // 1,275 engine records in the local .rse corpus say exitDia="0."; the one
+    // that does not is a real 5 mm exit on an 18 mm Klima B2. throatDia is
+    // deliberately NOT read: no line of this app or its kernel uses a throat.
+    const exitRaw = el.getAttribute('exitDia');
+    const exit = exitDiameterFromRse(
+      exitRaw === null || exitRaw.trim() === '' ? null : Number(exitRaw), numAttr('dia'),
+    );
     return {
       motorId: `ex:${slug(`${mfr}-${name}`)}`,
       designation: name,
@@ -237,6 +305,7 @@ export function parseRse(text: string): ExMotor[] {
       delays: attr('delays').split(',').map((s) => s.trim()).filter(Boolean).join(','),
       samples,
       sampleMassesKg: haveMasses ? masses.map((m) => m / 1000) : undefined,
+      ...(exit && 'exitDiameterM' in exit ? { exitDiameterM: exit.exitDiameterM } : {}),
       source: 'rse' as const,
       addedAt: Date.now(),
     };
