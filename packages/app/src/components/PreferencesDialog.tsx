@@ -253,8 +253,9 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
           kernel's own aerodynamics, with every addition below switched off. It is not a
           promise that a flight here matches one particular desktop run: the app seeds
           wind turbulence from a fixed number, 42, so the same design always flies the
-          same flight, where desktop OpenRocket draws a fresh seed every
-          run. <strong>Rogers Modified Barrowman</strong> adds the
+          same flight, while desktop OpenRocket draws a random seed for each simulation
+          and does not save it, so the same design opened there again does not repeat
+          its gusts. <strong>Rogers Modified Barrowman</strong> adds the
           body-in-presence-of-fins lift carryover (NACA&nbsp;1307) that classic Barrowman
           drops — a slightly more aft CP that tracks real flight data
           better, so it's the default. An aft CP RAISES the stability margin shown,
