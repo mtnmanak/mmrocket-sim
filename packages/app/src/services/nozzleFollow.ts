@@ -1,7 +1,7 @@
 import type { RocketTree } from '@online-openrocket/engine';
 import type { MountMotor } from '../App.js';
 import { clusterCount } from '../tree/cluster.js';
-import { findNode, stageIdByNode, stages } from '../tree/treeModel.js';
+import { findNode, kernelStageIdByNode, stages } from '../tree/treeModel.js';
 
 /**
  * THE NOZZLE EXIT DIAMETER FOLLOWS THE MOTOR.
@@ -60,7 +60,14 @@ export function stageMotors(
   tree: RocketTree,
   assigned: readonly (readonly [string, MountMotor])[],
 ): StageMotors[] {
-  const stageOfNode = stageIdByNode(tree);
+  // KERNEL ownership, not the app's grouping (2026-09-21). A mount inside a
+  // parallel stage belongs to THAT stage for pressure thrust and power-on base
+  // drag, so its exit area must not be summed into the serial stage hosting
+  // it: the core was being credited a strap-on's nozzle, and only while the
+  // core's own motor burned. A parallel stage is not in `stages(tree)`, so its
+  // motors drop out of this list entirely — which is the honest outcome until
+  // the field exists on a parallel stage (board: the parallel-stage nozzle).
+  const stageOfNode = kernelStageIdByNode(tree);
   const byStage = new Map<string, StageMotors['motors']>();
   for (const [mountId, mm] of assigned) {
     const stageId = stageOfNode.get(mountId);

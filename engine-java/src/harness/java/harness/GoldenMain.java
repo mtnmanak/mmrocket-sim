@@ -798,7 +798,7 @@ public final class GoldenMain {
      * Opt-in Rogers Modified Barrowman body-fin interference (feature #3). With
      * the flag ON the fin set adds the Kbf body carryover (τ·cna at the fin root
      * quarter-chord), so total CNα rises and CP moves slightly AFT (more
-     * conservative margin) vs classic Barrowman. Flag OFF must reproduce the
+     * a HIGHER displayed margin, not a safer one) vs classic Barrowman. Flag OFF must reproduce the
      * plain-Barrowman CP exactly (covered by the existing aero.cp goldens; here
      * we assert on≠off and the direction). Both JVM and JS run the patched calc.
      */

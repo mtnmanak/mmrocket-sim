@@ -94,7 +94,7 @@ export function MotorPadMass({
   return (
     <div className={`field${stale ? ' field-stale' : ''}`} style={{ marginTop: 6 }} title={help}>
       <label htmlFor={id}>
-        {multiMotor ? 'Weighed pad mass with every motor in' : 'Weighed pad mass with this motor'}
+        {multiMotor ? 'Weighed pad mass with every motor installed' : 'Weighed pad mass with this motor'}
         {' '}<UnitChip quantity="mass" />
       </label>
       {/* A numeric placeholder is what NumField's autoBase steps the spinner

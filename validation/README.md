@@ -94,6 +94,14 @@ base CD ≈ 0.09 at M1.19 vs the ±0.02 tolerance). Phase-1..4 scorecards below
 are historical (scored against the 137-gate anchors); the current state under
 revised anchors is `scorecard-audit-2026-08-04.md`.
 
+**Read a percentage with its denominator or not at all.** The gate corpus has been revised five
+times — 137 → 135 (the 2026-08-04 audit) → 164 (the ARCAS re-fixture plus 29 free-flight gates) →
+166 (fins-off cells) → 175 (the fins-off curve from the report scans) → 191 (the sharp-airfoil
+cell). Percentages across revisions are not comparable; per-scorecard gate FLIPS are. A denominator
+pins the gate SET, not the anchor values — some anchor values moved inside a revision as well, so a
+row's grade can change with neither the model nor the denominator moving. *(Hoisted here
+2026-09-21: it was one sentence buried 25 lines below the table it governs.)*
+
 | Model | Gate points | Scorecard |
 |---|---|---|
 | Classic Extended Barrowman | 7/135 historical | `baseline-classic-2026-08-04.md` (135-gate anchors) |
@@ -197,8 +205,11 @@ node validation/score.mjs > validation/scorecard.md
   `_readme`; `gate: false` series are informational)
 - `score.mjs` — builds each fixture, runs `dragSweep` (which emits CD
   power-off/on + CP + CNα per Mach), interpolates at anchor Machs, grades
-- `scorecard-airfoil-le-2026-08-27.md` — **the NEWEST scorecard**; read it first. Start
-  from it and walk back through the two below for how the current 10/17/71 was reached.
+- `scorecard-nosection-2026-08-29.md` — **the NEWEST scorecard**; read it first. It is where
+  the current **13/191 · 21/191 · 77/191** was set. Walk back through the entries below for how
+  each earlier revision's denominator was reached. *(This line named the 27 August scorecard and
+  its 10/17/71 until 2026-09-21 — two revisions of the gate set out of date, in the one place
+  that tells a reader where to start.)*
 - `scorecard-finsoff-figs-2026-08-25.md` — where the gate count reached 175: TN D-4013
   retrieved from NTRS, Figures 11/12 digitized off the report's own page scans,
   the fins-off gates expanded 2 → 11 at a tolerance derived from the report's

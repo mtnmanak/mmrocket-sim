@@ -186,13 +186,27 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims): { pieces: Pie
         shape.lineTo(ffPoints[i]![0], ffPoints[i]![1]);
       }
     } else if (child.type === 'ellipticalfinset') {
-      // Half-ellipse fin profile.
+      // A TRUE half-ellipse: x as cos and y as sin over the SAME parameter.
+      // Until 2026-09-21 this walked x linearly while y ran as sin(pi*t),
+      // which is a sine hump, not an ellipse — it encloses (2/pi)*root*height
+      // against the ellipse's (pi/4)*root*height, 18.94 % short, with the
+      // wrong curve at both root corners. v0.044 fixed exactly this in
+      // solidMesh.ts and stopped there, so the printable part and the shell
+      // have disagreed since. This is byte-for-byte solidMesh.ts:410-415 and
+      // finTemplate's finOutline(), STEPS included, so the shell, the printed
+      // part, the DXF and the paper template now describe one curve.
+      //
+      // Display and export only: fin aerodynamics come from the kernel out of
+      // rootChord/height, never from these points.
+      const steps = 64;
       shape.moveTo(0, 0);
-      const steps = 24;
-      for (let i = 1; i <= steps; i++) {
-        const t = i / steps;
-        shape.lineTo(root * t, height * Math.sin(Math.PI * t));
+      for (let i = 1; i < steps; i++) {
+        const t = (Math.PI * i) / steps;
+        shape.lineTo((root / 2) * (1 - Math.cos(t)), height * Math.sin(t));
       }
+      // Explicit, and the loop stops one short of it: at t = pi the parametric
+      // point is (root, 1.2e-16*height), which would leave a degenerate sliver
+      // for earcut to make a zero-area triangle out of before closePath().
       shape.lineTo(root, 0);
     } else {
       const tip = num(child, 'tipChord', 0.03);

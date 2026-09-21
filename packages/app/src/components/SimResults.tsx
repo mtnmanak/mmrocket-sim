@@ -51,14 +51,30 @@ const s = (v: number | null, digits = 2) =>
  *
  * Runs stored before v0.099 carry no coefficient; they show "—" rather than a
  * guess.
+ *
+ * FOUR CASES, since 2026-09-21:
+ *   typed, unvented    `2.20`
+ *   typed, vented      `1.44 (1.50 less a 122 mm vent)`
+ *   untyped, unvented  `0.80 (auto)`                      — was `—`
+ *   untyped, vented    `0.77 (0.80 auto, less a 122 mm vent)`
+ * A canopy with nothing typed flies the kernel's automatic 0.80, and this
+ * column showed nothing at all for it — while the landing verdict beside it
+ * rested on that very number. "auto" is the word the entry field already uses
+ * (`schema.ts`), so the column and the field say the same thing. A STREAMER
+ * keeps the dash: its automatic coefficient is computed from strip length and
+ * material density, not a constant this can name.
  */
 function flownCd(d: DeploymentReport): string {
   if (d.cd === null) return '—';
   const flown = d.cd.toFixed(2);
   const vented = d.spillHoleDiameter !== null && d.spillHoleDiameter > 0
     && d.cdNominal !== null && Math.abs(d.cdNominal - d.cd) > 1e-9;
-  if (!vented) return flown;
-  return `${flown} (${d.cdNominal!.toFixed(2)} less a ${(d.spillHoleDiameter! * 1000).toFixed(0)} mm vent)`;
+  if (!vented) return d.cdAutomatic ? `${flown} (auto)` : flown;
+  // The TYPED vented string stays byte-identical — the guide and the v0.099
+  // changelog both quote "1.44 (1.50 less a 122 mm vent)". Only the untyped
+  // case gains the word, and it needs the comma to stay readable.
+  const nominal = d.cdAutomatic ? `${d.cdNominal!.toFixed(2)} auto,` : `${d.cdNominal!.toFixed(2)}`;
+  return `${flown} (${nominal} less a ${(d.spillHoleDiameter! * 1000).toFixed(0)} mm vent)`;
 }
 
 function verdict(v: boolean | null): { text: string; bad: boolean } {

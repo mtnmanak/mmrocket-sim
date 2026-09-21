@@ -335,9 +335,15 @@ describe('MotorPadMass — the line under the field', () => {
 });
 
 describe('MotorPadMass — label, help and remounting', () => {
-  it('on a multi-motor design the label, help and blank line say every motor in', () => {
+  it('on a multi-motor design the LABEL says installed, and the help and blank line say every motor in', () => {
     show({ multiMotor: true });
-    expect(host.querySelector('label')!.textContent).toContain('Weighed pad mass with every motor in');
+    // ANCHORED, not toContain — Eric ruled (b) on 2026-09-21 because the bare
+    // label read as cut off, and "in" is a PREFIX of "installed", so a
+    // toContain on the old text would pass against the new label and against
+    // a revert alike. (The label also carries the unit chips, so it cannot be
+    // asserted whole.)
+    expect(host.querySelector('label')!.textContent)
+      .toMatch(/^Weighed pad mass with every motor installed/);
     expect(host.querySelector('.field')!.getAttribute('title'))
       .toBe('Weigh the rocket ready to fly, with every motor in. Used at once; it carries the adapter, retainer and closure the catalogue motor weight leaves out. Re-weigh for each motor set.');
     expect(text()).toContain('with every motor in, and type it here');

@@ -89,9 +89,13 @@ export function PresetPicker({ type, onApply, onClose }: {
    * row at import instead, and name it.
    */
   const badDensity = (d: unknown) => !(typeof d === 'number' && Number.isFinite(d) && d > 0);
-  const rowIsSound = (p: Preset) =>
-    !(p.material && badDensity(p.material.density))
-    && !(p.lineMaterial && badDensity(p.lineMaterial.density));
+  // A material needs BOTH halves. A name with no density used to skip the
+  // material block at parse time and import as a clean success, so the part
+  // kept its old weight under a new label — silent, which is the one outcome
+  // this guard exists to prevent (2026-09-21).
+  const matBad = (m?: { name: string; density: number }) =>
+    !!m && (badDensity(m.density) || !m.name.trim());
+  const rowIsSound = (p: Preset) => !matBad(p.material) && !matBad(p.lineMaterial);
 
   const importCsv = async (file: File) => {
     try {
@@ -103,7 +107,7 @@ export function PresetPicker({ type, onApply, onClose }: {
       const good = parsed.filter(rowIsSound);
       const dropped = parsed.length - good.length;
       const droppedNote = dropped > 0
-        ? ` ${dropped} row(s) skipped — the material density was not a plain number`
+        ? ` ${dropped} row(s) skipped — a material needs both a name and a plain positive density`
           + ` (first: ${parsed.find((p) => !rowIsSound(p))!.partNo}).`
         : '';
       if (good.length === 0) {
@@ -145,7 +149,8 @@ export function PresetPicker({ type, onApply, onClose }: {
             {kind} presets
             <span className="motor-db-meta">openrocket-database{all ? ` · ${ofKind.length} parts` : ''}</span>
           </h2>
-          <button className="file-btn" onClick={exportCsv} title="Export the current list as CSV">⬇ CSV</button>
+          <button className="file-btn" onClick={exportCsv}
+            title={`Export all ${rows.length} row(s) matching the search — not just the ${ROW_CAP} the table shows`}>⬇ CSV</button>
           <label className="file-btn" title="Import an edited CSV (adds/updates your own presets)">
             ⬆ CSV
             <input type="file" accept=".csv" style={{ display: 'none' }}

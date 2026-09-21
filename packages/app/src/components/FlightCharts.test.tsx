@@ -46,9 +46,10 @@ function fakeResult(): FlightResult {
   } as unknown as FlightResult;
 }
 
-const mount = (onFullSeries?: () => Promise<FlightResult>) => act(() => root.render(
+const mount = (onFullSeries?: () => Promise<FlightResult>, staleReason?: string | null) => act(() => root.render(
   <PrefsProvider>
-    <FlightCharts result={fakeResult()} onFullSeries={onFullSeries} designName="Big Dog 4in" />
+    <FlightCharts result={fakeResult()} onFullSeries={onFullSeries} designName="Big Dog 4in"
+      staleReason={staleReason} />
   </PrefsProvider>,
 ));
 
@@ -127,5 +128,53 @@ describe('FlightCharts — the Flight plots block', () => {
     mount(full);
     await act(async () => { labelled('⬇ Flight data (.csv)')!.click(); });
     expect(host.textContent).toContain('Flight-data export failed: kernel said no');
+  });
+
+  /**
+   * These two files are produced by RE-FLYING the design as it stands, so
+   * while something has changed under the shown flight the file they write
+   * describes a different rocket from the plots above them — with the plots'
+   * own design name on it. The 📈 Charts button already refused in that
+   * state; these did not (his 18 Sep item 43, shipped 2026-09-21).
+   *
+   * The reachable route is the MEASURED AIRFRAME MASS: it changes the
+   * hardware the weighed pad mass implies without touching the design, and it
+   * is not in the dependency list of the effect that clears the flight.
+   * Editing the design, the motors, the launch conditions — or the pad mass
+   * itself — clears the flight outright, so there is no button left to press.
+   */
+  describe('the downloads refuse while the shown flight is stale', () => {
+    it('disables both, and says why in text rather than only in a tooltip', () => {
+      mount(vi.fn(), 'the weighed pad mass');
+      expect(labelled('⬇ Flight data (.csv)')!.disabled).toBe(true);
+      expect(labelled('⬇ Flight data + charts (.xlsx)')!.disabled).toBe(true);
+      // A browser shows no tooltip on a disabled button, so the reason has to
+      // be on the page.
+      expect(host.textContent)
+        .toContain('Not available — the weighed pad mass changed since this flight');
+      expect(host.textContent).toContain('Press Launch to fly the current design');
+    });
+
+    it('points the buttons at that explanation for a screen reader', () => {
+      mount(vi.fn(), 'the weighed pad mass');
+      const csv = labelled('⬇ Flight data (.csv)')!;
+      expect(csv.getAttribute('aria-describedby')).toBe('flight-data-stale');
+      expect(host.querySelector('#flight-data-stale')!.getAttribute('role')).toBe('status');
+    });
+
+    it('leaves them alone, and the caption unchanged, when nothing has changed', () => {
+      mount(vi.fn(), null);
+      expect(labelled('⬇ Flight data (.csv)')!.disabled).toBe(false);
+      expect(host.textContent).toContain('Download this flight, every timestep');
+      expect(host.querySelector('#flight-data-stale')!.getAttribute('role')).toBe('status');
+      expect(labelled('⬇ Flight data (.csv)')!.getAttribute('aria-describedby')).toBeNull();
+    });
+
+    it('does not fire the re-fly when a disabled button is clicked', () => {
+      const full = vi.fn(() => Promise.resolve(fakeResult()));
+      mount(full, 'the weighed pad mass');
+      labelled('⬇ Flight data (.csv)')!.click();
+      expect(full).not.toHaveBeenCalled();
+    });
   });
 });

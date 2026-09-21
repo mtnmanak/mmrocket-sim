@@ -242,7 +242,18 @@ export function clampToVisible(
   };
 }
 
-export function StatsChip({ info, drawerOpen = false }: { info: StaticInfo; drawerOpen?: boolean }) {
+export function StatsChip({ info, drawerOpen = false, tight = false }: {
+  info: StaticInfo;
+  drawerOpen?: boolean;
+  /**
+   * The canvas is too short to carry an unfolded chip (App's own
+   * `drawerAutoState` verdict). A SECOND reason to fold, and it has to be
+   * here: once the drawer auto-collapses on a short window the chip would
+   * otherwise spring back open onto the canvas that had just been rescued
+   * (2026-09-21).
+   */
+  tight?: boolean;
+}) {
   const { prefs } = usePrefs();
   const len = prefs.units.length;
   const aero = hasAerodynamicForce(info);
@@ -343,7 +354,8 @@ export function StatsChip({ info, drawerOpen = false }: { info: StaticInfo; draw
   const firstRender = useRef(true);
   useEffect(() => {
     if (firstRender.current) { firstRender.current = false; return; }
-    if (drawerOpen) {
+    // EITHER reason folds; the chip comes back only when BOTH are gone.
+    if (drawerOpen || tight) {
       setChip((c) => {
         if (c.folded) return c;
         autoFolded.current = true;
@@ -353,7 +365,7 @@ export function StatsChip({ info, drawerOpen = false }: { info: StaticInfo; draw
       autoFolded.current = false;
       setChip((c) => (c.folded ? { ...c, folded: false } : c));
     }
-  }, [drawerOpen]);
+  }, [drawerOpen, tight]);
 
   const onPointerDown = (e: React.PointerEvent) => {
     if ((e.target as HTMLElement).closest('button')) return;

@@ -193,8 +193,10 @@ export type ComponentType =
   | 'parachute' | 'streamer' | 'shockcord' | 'masscomponent'
   // Off-axis assemblies (ComponentAssembly): a non-separating pod, or a
   // separable parallel booster. Nested under a body component, never at the
-  // rocket root. Kernel support (PodSet/ParallelStage) is compiled in; the
-  // JS-bridge build path lands in a later phase.
+  // rocket root. Kernel support (PodSet/ParallelStage) is compiled in AND the
+  // bridge builds them (ComponentFactory.buildAssembly, since v0.021) — the
+  // "lands in a later phase" this comment used to carry was stale by four
+  // months and priced a real defect as unreachable (corrected 2026-09-21).
   | 'podset' | 'parallelstage';
 
 /**
@@ -478,6 +480,43 @@ export interface DragSweep {
 }
 
 /**
+ * A nozzle exit diameter on a POD SET or PARALLEL STAGE is refused at the
+ * package boundary, because the kernel would under-count it.
+ *
+ * `RK4SimulationStepper.calculatePressureThrust` credits ONE nozzle area per
+ * distinct stage NUMBER, while the thrust itself and the power-on base-drag
+ * recovery both scale by the assembly's instance count. So two instances of a
+ * 10 mm-nozzle motor collect one nozzle's worth of pressure thrust and two
+ * motors' worth of everything else: measured through the raw API at about
+ * 86 kPa, 65.203822 N against the 66.407645 N per-instance accounting gives.
+ *
+ * No app path can produce this — `FIELDS.parallelstage` has no such field and
+ * `applyStageNozzles` writes only top-level stages — so this guard costs
+ * nothing today and exists to keep that true by construction rather than by
+ * luck. A THROW rather than a silent strip: a raw-API caller who sets it means
+ * it, and dropping it quietly would be the same class of defect. The open
+ * question behind the refusal — whether such a field would mean the
+ * per-instance exit or the assembly's total — is on the board (2026-09-21).
+ */
+function assertNoAssemblyNozzle(tree: RocketTree): void {
+  const walk = (nodes: readonly ComponentNode[]): void => {
+    for (const n of nodes) {
+      const d = n['nozzleExitDiameter'];
+      if ((n.type === 'podset' || n.type === 'parallelstage') && typeof d === 'number' && d > 0) {
+        throw new Error(
+          `nozzleExitDiameter on a ${n.type} (${n.id ?? 'unnamed'}) is not supported: the kernel `
+          + 'credits one nozzle area per stage number but flies one motor per instance, so a '
+          + 'repeated stage would collect too little pressure thrust. Put the exit on the serial '
+          + 'stage, or leave it unset.',
+        );
+      }
+      walk(n.children ?? []);
+    }
+  };
+  walk(tree.components);
+}
+
+/**
  * Guards the motor curve before it crosses into the kernel. TeaVM reports a
  * non-finite number as an opaque BigInt conversion RangeError from deep inside
  * the compiled Java, so catching it here is the difference between a message
@@ -536,6 +575,7 @@ export class OrkRocket {
    * Give the motor-mount inner tube an `id` and pass it to setMotorById.
    */
   static buildTree(tree: RocketTree): OrkRocket {
+    assertNoAssemblyNozzle(tree);
     const handle = ork.buildRocket(JSON.stringify(tree));
     return new OrkRocket(handle, -1);
   }

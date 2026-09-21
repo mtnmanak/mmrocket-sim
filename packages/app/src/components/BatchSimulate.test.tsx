@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import type { MotorSpec, RocketTree } from '@online-openrocket/engine';
+import type { IgnitionEvent, MotorSpec, RocketTree } from '@online-openrocket/engine';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import { splitClusterTree } from '../tree/treeModel.js';
 import { MOTOR_DB, filterMotors, sortMotors } from '../services/motorDb.js';
@@ -172,7 +172,11 @@ describe('the batch dialog', () => {
   ];
 
   function mount(launchOver: Partial<LaunchConditions> = {},
-    extra: { weighed?: BatchWeighed; mounts?: BatchMountOption[]; tree?: RocketTree } = {}) {
+    extra: {
+      weighed?: BatchWeighed; mounts?: BatchMountOption[]; tree?: RocketTree;
+      assignedMotors?: Record<string, MotorSpec>;
+      assignedIgnitions?: Record<string, { event: IgnitionEvent; delay: number }>;
+    } = {}) {
     act(() => root.render(
       <PrefsProvider>
         <BatchSimulate
@@ -180,7 +184,8 @@ describe('the batch dialog', () => {
           info={{} as never}
           mounts={extra.mounts ?? MOUNTS}
           initialMountId="mount"
-          assignedMotors={{}} assignedMotorIds={{}}
+          assignedMotors={extra.assignedMotors ?? {}} assignedMotorIds={{}}
+          assignedIgnitions={extra.assignedIgnitions ?? {}}
           weighed={extra.weighed}
           launch={{ ...DEFAULT_CONDITIONS, ...launchOver }}
           rocketName="Cluster bird"

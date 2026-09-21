@@ -146,6 +146,37 @@ describe('.ork permissive handling', () => {
       </bodytube>
     </subcomponents></stage></subcomponents></rocket></openrocket>`;
 
+  /**
+   * An unknown `<clusterconfiguration>` used to be copied onto the node as
+   * written. The drawing helpers then read it out of a plain object and got
+   * `Object.prototype` members back (`constructor` -> 0.5 motors, NaN
+   * offsets), and the kernel refused to build the design at all
+   * (ComponentFactory.java:277) — an error with nothing on screen to explain
+   * it. Both halves are fixed: the table is null-prototype, and the value is
+   * stopped here, at the file boundary, with a note (2026-09-21).
+   */
+  const CLUSTERED = (pattern: string) => BODY_MOUNT.replace(
+    '<podset><name>P</name></podset>',
+    `<podset><name>P</name></podset>
+          <innertube><name>Mount</name><length>0.07</length><outerradius>0.0095</outerradius>
+            <thickness>0.0005</thickness><clusterconfiguration>${pattern}</clusterconfiguration></innertube>`,
+  );
+
+  it('keeps a cluster pattern it knows', () => {
+    const result = importOrk(CLUSTERED('4-ring'));
+    const tube = flatten(result.tree.components).find((c) => c.type === 'innertube')!;
+    expect(tube['cluster']).toBe('4-ring');
+    expect(result.notes.join(' ')).not.toMatch(/not one this app knows/);
+  });
+
+  it.each(['constructor', 'toString', '__proto__', 'bogus'])(
+    'drops the unknown cluster pattern %j and says so', (pattern) => {
+      const result = importOrk(CLUSTERED(pattern));
+      const tube = flatten(result.tree.components).find((c) => c.type === 'innertube')!;
+      expect(tube['cluster']).toBeUndefined();
+      expect(result.notes.join(' ')).toMatch(/is not one this app knows/);
+    });
+
   it('imports a body-tube motor mount as a REAL mount (minimum-diameter)', () => {
     const result = importOrk(BODY_MOUNT);
     const body = flatten(result.tree.components).find((c) => c.type === 'bodytube')!;

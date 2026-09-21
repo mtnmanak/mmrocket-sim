@@ -226,7 +226,7 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
               });
             }}
           >
-            <option value="eb">OpenRocket — Extended Barrowman (exact desktop parity)</option>
+            <option value="eb">Classic Extended Barrowman</option>
             <option value="kbf">Rogers Modified Barrowman (Kbf) — the default</option>
             <option value="auto">Auto — Rogers Kbf, switching to our supersonic model past Mach 0.9</option>
             <option value="supersonic">Supersonic — our extended model at all speeds (validated to Mach 4.6)</option>
@@ -249,11 +249,16 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
           </p>
         )}
         <p className="prefs-hint">
-          <strong>OpenRocket — Extended Barrowman</strong> is the desktop program's exact
-          physics, bit-for-bit. <strong>Rogers Modified Barrowman</strong> adds the
+          <strong>Classic Extended Barrowman</strong> is the desktop OpenRocket 24.12
+          kernel's own aerodynamics, with every addition below switched off. It is not a
+          promise that a flight here matches one particular desktop run: the app seeds
+          wind turbulence from a fixed number, 42, so the same design always flies the
+          same flight, where desktop OpenRocket draws a fresh seed every
+          run. <strong>Rogers Modified Barrowman</strong> adds the
           body-in-presence-of-fins lift carryover (NACA&nbsp;1307) that classic Barrowman
-          drops — a slightly more aft, more conservative CP that tracks real flight data
-          better, so it's the default. <strong>Our supersonic model</strong> extends the
+          drops — a slightly more aft CP that tracks real flight data
+          better, so it's the default. An aft CP RAISES the stability margin shown,
+          so it is not the safer answer by itself; it is the closer one. <strong>Our supersonic model</strong> extends the
           same kernel with corrected supersonic fin lift (2D Busemann level), the exact
           NACA&nbsp;1307 interference, Mach-dependent nose lift, per-shape wave drag with
           physical hypersonic decay, and Van&nbsp;Driest&nbsp;II friction — CP and drag

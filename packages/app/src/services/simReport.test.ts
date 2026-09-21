@@ -605,6 +605,35 @@ describe('dual deployment attribution', () => {
       expect(said).toMatch(/drag coefficient of 2\.20/);
     });
 
+    /**
+     * A canopy with NOTHING typed flies the kernel's automatic 0.80, and the
+     * report used to print a dash for it while the landing verdict rested on
+     * that very number — 46 % of the catalogue canopies (217 of 473) carry no
+     * coefficient at all. The flown value is now resolved and LABELLED.
+     */
+    it('names the automatic coefficient, and says it was automatic', () => {
+      const run = buildSimRun({
+        result: dualDeployResult(19.5, 9.0), info, motor,
+        meta: { label: 'J350-auto', manufacturer: 'AT' },
+        launch: DEFAULT_CONDITIONS, rocketName: 'DD', execMs: 1,
+        flownRecovery: {
+          Drogue: { cd: 0.8, cdNominal: 0.8, cdAutomatic: true, diameter: 0.6096, spillHoleDiameter: null },
+          Main: { cd: 0.8, cdNominal: 0.8, cdAutomatic: true, diameter: 2.1336, spillHoleDiameter: null },
+        },
+      });
+      const [drogue] = run.deployments;
+      expect(drogue!.cd).toBe(0.8);
+      expect(drogue!.cdAutomatic).toBe(true);
+      const said = run.comments ?? '';
+      expect(said).toMatch(/drag coefficient of 0\.80, the automatic value for a canopy with none typed/);
+    });
+
+    it('does NOT call a typed coefficient automatic', () => {
+      const said = withCd(9.0).comments ?? '';
+      expect(said).toMatch(/drag coefficient of 2\.20/);
+      expect(said).not.toMatch(/automatic value/);
+    });
+
     it('a run carrying no coefficients still reports cleanly (runs stored before v0.099)', () => {
       const [drogue, main] = build(19.5, 5.5).deployments;
       expect(drogue!.cd).toBeNull();
@@ -1400,7 +1429,7 @@ describe('the launch report says when thrust was corrected for ambient pressure'
     expect(said).toContain('thrust:weight at rod departure');
     // Both ways back, which is what the changelog promises.
     expect(said).toContain('Clear the nozzle under the stage');
-    expect(said).toContain('Classic (Extended Barrowman) with Rogers Kbf off');
+    expect(said).toContain('fly Classic Extended Barrowman, to fly the published curve');
     // NOTHING numeric: the kernel exports no pressure-thrust total, so a
     // figure here could only be invented. The only digits allowed in the
     // sentence are none at all.

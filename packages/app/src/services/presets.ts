@@ -206,13 +206,34 @@ export function presetPatch(type: ComponentType, p: Preset): Partial<ComponentNo
 
 // ---------------- CSV round-trip ----------------
 
+/**
+ * `bodytube` is not a kind. Every picker and the recovery sizer match kind by
+ * exact string (`p.kind === 'Parachute'`), so a lower-case row imported, was
+ * counted a success, and then appeared nowhere at all. Derived from
+ * KIND_FOR_TYPE so there is one list of kinds and not two; an unrecognised
+ * kind passes through as typed, exactly as before (2026-09-21).
+ */
+const CANONICAL_KIND = new Map(
+  Object.values(KIND_FOR_TYPE).filter((k): k is string => !!k).map((k) => [k.toLowerCase(), k]),
+);
+
+/**
+ * Measured over the shipped presets.json (2026-09-21): material type is a pure
+ * function of kind — Parachute 473/473 and Streamer 67/67 SURFACE, and no row
+ * outside those two kinds is SURFACE; of the other 4,190, 4,165 are BULK and 25
+ * carry no material object at all.  Re-derived from the shipped file, 4,730 rows. So a blank materialType cell is filled from the
+ * KIND rather than assumed BULK, which on a canopy threw the fabric weight
+ * away and wrote a meaningless bulk density onto the part instead.
+ */
+const SURFACE_KINDS = new Set(['Parachute', 'Streamer']);
+
 const CSV_COLS = [
   'kind', 'manufacturer', 'partNo', 'description', 'materialName', 'materialType',
   'materialDensity', 'mass', 'length', 'outsideDiameter', 'insideDiameter', 'shape',
   'filled', 'shoulderDiameter', 'shoulderLength', 'thickness', 'foreOutsideDiameter',
   'aftOutsideDiameter', 'foreShoulderDiameter', 'foreShoulderLength',
   'aftShoulderDiameter', 'aftShoulderLength', 'diameter', 'dragCoefficient',
-  'spillHoleDiameter', 'lineCount', 'lineLength', 'width',
+  'spillHoleDiameter', 'packedDiameter', 'packedLength', 'lineCount', 'lineLength', 'width',
   'lineMaterialName', 'lineMaterialDensity',
 ];
 
@@ -274,7 +295,7 @@ export function csvToPresets(csv: string): Preset[] {
     header.forEach((h, i) => { row[h] = (cells[i] ?? '').replace(/^'/, ''); });
     if (!row['kind'] || !row['partNo']) continue;
     const p: Preset = {
-      kind: row['kind']!,
+      kind: CANONICAL_KIND.get(row['kind']!.trim().toLowerCase()) ?? row['kind']!.trim(),
       manufacturer: row['manufacturer'] || 'Custom',
       partNo: row['partNo']!,
       description: row['description'] ?? '',
@@ -283,14 +304,18 @@ export function csvToPresets(csv: string): Preset[] {
     // rowIsSound refuses the row and names its part number, so the user can go
     // and fix it; dropping the material here instead would import the row clean
     // and silently weightless, which is the failure this was meant to stop.
-    if (row['materialName'] && row['materialDensity']) {
+    // A HALF-FILLED PAIR goes the same way (2026-09-21): `&&` here meant a
+    // name with no density skipped the material block entirely and imported as
+    // a clean success, so the part kept its old weight under a new label —
+    // exactly the silent case the paragraph above refuses.
+    if (row['materialName'] || row['materialDensity']) {
       p.material = {
         name: row['materialName']!,
-        type: row['materialType'] || 'BULK',
+        type: row['materialType'] || (SURFACE_KINDS.has(p.kind) ? 'SURFACE' : 'BULK'),
         density: Number(row['materialDensity']),
       };
     }
-    if (row['lineMaterialName'] && row['lineMaterialDensity']) {
+    if (row['lineMaterialName'] || row['lineMaterialDensity']) {
       p.lineMaterial = {
         name: row['lineMaterialName']!,
         type: 'LINE',

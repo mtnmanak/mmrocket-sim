@@ -342,9 +342,10 @@ export function TimeStepCaution({ dt, lastRun, flights = 1 }: {
  */
 export const STATION_PRESSURE_HELP =
   'Filled in from your Site altitude — the greyed number is what a blank field flies, and it '
-  + 'follows the altitude when you change it. Type a value only to try a specific day’s air. '
-  + 'If you do, it is STATION pressure — what a barometer reads at the pad — not the '
-  + 'sea-level altimeter setting an airport broadcasts; those differ by about 15 % at 3,900 ft.';
+  + 'follows the altitude when you change it. Type a value only to try a specific day’s air, and '
+  + 'then it must be STATION pressure: the raw barometer reading at the pad, not the sea-level '
+  + 'altimeter setting a weather app or an airport gives you. At a 3,900 ft pad those are about '
+  + '878 and 1,013 hPa, and typing the sea-level one makes the app fly air about 15 % too dense.';
 
 export const SITE_TEMPERATURE_HELP =
   'Filled in from your Site altitude — the greyed number is what a blank field flies (the ISA '

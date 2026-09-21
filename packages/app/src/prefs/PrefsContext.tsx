@@ -16,7 +16,9 @@ export interface Preferences {
   /**
    * "Rogers Modified Barrowman" body-in-presence-of-fins interference (Kbf).
    * When on, the CP/stability and flight sim include the body carryover
-   * classic Barrowman drops — a slightly more aft, more conservative CP.
+   * classic Barrowman drops — a slightly more aft CP, which RAISES the
+   * stability margin shown (aft is not "conservative": see Karbon, Peak of
+   * Flight 687, and the note in FinSetCalc).
    * DEFAULT ON since v0.034 (the owner: matches his actual flight data better).
    * Absent = the default; an explicit stored false is an intentional opt-out
    * and is preserved. Turn it off for exact desktop-OpenRocket parity.
@@ -118,13 +120,19 @@ export const DEFAULT_PREFS: Preferences = {
 export type AeroChoice = 'eb' | 'kbf' | 'auto' | 'supersonic';
 
 /**
- * Short labels for the vitals strip, where the cell has to stay narrow. The
- * Preferences pulldown keeps its own long-form wording — it has the room, and
- * it is where someone goes to LEARN the difference rather than to flip it.
+ * Labels for the vitals strip.
+ *
+ * ONE NAME EVERYWHERE for the parity model (Eric, 2026-09-21). It used to
+ * carry four — "OpenRocket — Extended Barrowman (exact desktop parity)" in
+ * Preferences, "Extended Barrowman (desktop)" in batch, "Classic EB" here and
+ * "Classic Extended Barrowman" in the guide — so a reader who met it in one
+ * place could not tell it was the same setting in another. The parenthetical
+ * that went with the longest of them is now hint text, because "exact desktop
+ * parity" claimed more than can be shown.
  */
 export const AERO_SHORT: Record<AeroChoice, string> = {
   kbf: 'Rogers Kbf',
-  eb: 'Classic EB',
+  eb: 'Classic Extended Barrowman',
   auto: 'Auto',
   supersonic: 'Supersonic',
 };

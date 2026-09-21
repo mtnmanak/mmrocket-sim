@@ -301,7 +301,11 @@ describe('the launch report states the Cd each device FLEW (2026-09-03b)', () =>
     const flown = flownRecoveryDevices(engineTree(tree));
 
     // Unvented: what the kernel got IS the design's number.
-    expect(flown['Main']).toEqual({ cd: 2.2, cdNominal: 2.2, diameter: 2.1336, spillHoleDiameter: null });
+    // cdAutomatic false: this one was TYPED, so the column prints 2.20 with
+    // no "(auto)" beside it (2026-09-21).
+    expect(flown['Main']).toEqual({
+      cd: 2.2, cdNominal: 2.2, cdAutomatic: false, diameter: 2.1336, spillHoleDiameter: null,
+    });
     // Vented: the kernel takes the reduction in the coefficient (it has no vent
     // concept), and the pre-vent figure is kept so the report can show both.
     expect(flown['Drogue']!.cd).toBeCloseTo(1.44, 9);
@@ -592,5 +596,69 @@ describe('csvToPresets — a blank cell is blank, whatever whitespace is in it',
     expect((presetPatch('nosecone', p) as Record<string, unknown>)['overrideMass']).toBeUndefined();
     expect((presetPatch('nosecone', { ...p, mass: 0.01 }) as Record<string, unknown>)['overrideMass'])
       .toBe(0.01);
+  });
+});
+
+/**
+ * The custom-preset CSV round trip (his 18 September item 28), fixed
+ * 2026-09-21. Four defects, three of them silent: a lower-case kind imported
+ * and then appeared in no picker; a blank material type made a canopy BULK and
+ * threw its fabric weight away; a material name with no density skipped the
+ * material block and imported as a clean success; and a parachute's packed
+ * size had no columns at all, so an exported canopy came back unable to be
+ * fit-checked against the airframe it came out of.
+ */
+describe('preset CSV round trip', () => {
+  const HEAD = 'kind,manufacturer,partNo,description,materialName,materialType,'
+    + 'materialDensity,diameter,packedDiameter,packedLength';
+  const csvOf = (row: string) => `${HEAD}\n${row}`;
+
+  it('canonicalises a lower-case kind, so the row reaches its picker', () => {
+    const [p] = csvToPresets(csvOf('parachute,Acme,X1,Chute,Ripstop,,0.067,0.6,0.05,0.12'));
+    expect(p!.kind).toBe('Parachute');
+  });
+
+  it('leaves a kind it does not know exactly as typed', () => {
+    const [p] = csvToPresets(csvOf('Widget,Acme,X1,Thing,,,,,,'));
+    expect(p!.kind).toBe('Widget');
+  });
+
+  it('gives a canopy SURFACE material when the type cell is blank', () => {
+    // BULK on a parachute threw the fabric weight away and wrote a
+    // meaningless bulk density onto the part instead.
+    const [p] = csvToPresets(csvOf('Parachute,Acme,X1,Chute,Ripstop,,0.067,0.6,0.05,0.12'));
+    expect(p!.material!.type).toBe('SURFACE');
+  });
+
+  it('still gives a body tube BULK', () => {
+    const [p] = csvToPresets(csvOf('BodyTube,Acme,BT-50,Tube,Kraft,,680,0.024,,'));
+    expect(p!.material!.type).toBe('BULK');
+  });
+
+  it('keeps an explicit material type over the derived one', () => {
+    const [p] = csvToPresets(csvOf('Parachute,Acme,X1,Chute,Ripstop,BULK,0.067,0.6,,'));
+    expect(p!.material!.type).toBe('BULK');
+  });
+
+  it('carries a half-filled material through so the picker can REFUSE it', () => {
+    // The old `&&` skipped the block entirely: the row imported clean and the
+    // part kept its old weight under a new material's name.
+    const [named] = csvToPresets(csvOf('BodyTube,Acme,BT-50,Tube,Kraft,BULK,,0.024,,'));
+    expect(named!.material).toBeDefined();
+    expect(named!.material!.density).toBe(0);
+    const [numbered] = csvToPresets(csvOf('BodyTube,Acme,BT-51,Tube,,BULK,680,0.024,,'));
+    expect(numbered!.material).toBeDefined();
+    expect(numbered!.material!.name).toBe('');
+  });
+
+  it('round-trips a canopy packed size', () => {
+    const csv = presetsToCsv([{
+      kind: 'Parachute', manufacturer: 'Acme', partNo: 'X1', description: 'Chute',
+      diameter: 0.6, packedDiameter: 0.05, packedLength: 0.12,
+    } as never]);
+    expect(csv.split('\n')[0]).toContain('packedDiameter');
+    const [back] = csvToPresets(csv);
+    expect(back!['packedDiameter']).toBeCloseTo(0.05, 12);
+    expect(back!['packedLength']).toBeCloseTo(0.12, 12);
   });
 });

@@ -298,6 +298,15 @@ export interface DeploymentReport {
    */
   cd: number | null;
   cdNominal: number | null;
+  /**
+   * True when no coefficient was typed and the flight ran the kernel's
+   * automatic 0.80. `cd` is still the flown number; this only says where it
+   * came from — so the column can label it rather than printing a default as
+   * though someone had entered it. OPTIONAL because a run stored before
+   * v0.136 carries no such key: those keep the dash rather than gaining a
+   * guess about what they flew.
+   */
+  cdAutomatic?: boolean;
   diameter: number | null;
   spillHoleDiameter: number | null;
 }
@@ -312,6 +321,8 @@ export interface DeploymentReport {
 export interface FlownRecoveryDevice {
   cd: number | null;
   cdNominal: number | null;
+  /** The flown `cd` is the kernel's automatic 0.80, not a typed number. */
+  cdAutomatic?: boolean;
   diameter: number | null;
   spillHoleDiameter: number | null;
 }
@@ -741,7 +752,11 @@ export function aeroModelLabel(
   switch (aeroModel) {
     case 'supersonic': return 'Supersonic (our extended model)';
     case 'auto-supersonic': return 'Supersonic (auto — flight exceeded Mach 0.9)';
-    case 'classic': return `Classic (Extended Barrowman${rogersKbf ? ' + Rogers Kbf' : ''})`;
+    // ONE NAME for the parity model (Eric, 2026-09-21): the same
+    // "Classic Extended Barrowman" the selector, the batch dropdown, the
+    // vitals strip and the guide all use. The Kbf row keeps the same base
+    // name and says what is added, rather than inventing a fifth.
+    case 'classic': return `Classic Extended Barrowman${rogersKbf ? ' + Rogers Kbf' : ''}`;
     default: return '—';
   }
 }
@@ -1088,6 +1103,7 @@ function extractDeployments(
       isLanding,
       cd: f?.cd ?? null,
       cdNominal: f?.cdNominal ?? null,
+      cdAutomatic: f?.cdAutomatic ?? false,
       diameter: f?.diameter ?? null,
       spillHoleDiameter: f?.spillHoleDiameter ?? null,
       openingOk: vDeploy === null ? null : Math.abs(vDeploy) <= SAFETY.maxDeploymentVelocity,
@@ -1542,7 +1558,7 @@ export function buildSimRun(input: {
       + 'of, for as long as it burns — the same correction RASAero makes while the motor burns. The '
       + 'flown thrust and the thrust:weight at rod departure therefore read above the catalogue '
       + 'curve: nothing at a sea-level pad, more with height. Clear the nozzle under the stage, or '
-      + 'fly Classic (Extended Barrowman) with Rogers Kbf off, to fly the published curve.');
+      + 'fly Classic Extended Barrowman, to fly the published curve.');
   }
   if (safeLiftoffSpeed === false) {
     say(`Rod-exit speed ${rodExitVelocity!.toFixed(1)} m/s < ${SAFETY.minRodExitVelocity} m/s guidance.`, 'warning');
@@ -1585,7 +1601,11 @@ export function buildSimRun(input: {
       // is wind — the ground speed too, so the two figures a reader can see
       // elsewhere cannot look like a contradiction. Before v0.100 this sentence
       // quoted the GROUND speed and called it a descent rate.
-      const cdSaid = d.cd !== null ? ` on a drag coefficient of ${d.cd.toFixed(2)}` : '';
+      // Name where the coefficient came from as well as what it was: a
+      // landing-too-fast verdict on an untyped canopy rests on a number
+      // nobody entered, and the reader has to be able to see that.
+      const cdSaid = d.cd === null ? ''
+        : ` on a drag coefficient of ${d.cd.toFixed(2)}${d.cdAutomatic ? ', the automatic value for a canopy with none typed' : ''}`;
       const drift = d.groundSpeed !== null && d.descentRate !== null
         && d.groundSpeed - d.descentRate > 0.1
         ? ` It touches down at ${d.groundSpeed.toFixed(1)} m/s (${fps(d.groundSpeed)}) over the ground, the rest of that being wind drift.`

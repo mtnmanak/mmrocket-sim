@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const app = () => readFileSync(join(here, '../App.tsx'), 'utf8');
+const batch = () => readFileSync(join(here, '../components/BatchSimulate.tsx'), 'utf8');
 
 /**
  * EVERY write of a motor onto a built handle must re-apply that mount's
@@ -65,6 +66,38 @@ describe('a motor written onto a built handle keeps its ignition', () => {
     expect(body).toContain('rocket.setMotorById(id, spec);');
     expect(body).toContain("mm.ignition.event !== 'automatic' || mm.ignition.delay !== 0");
     expect(body).toContain('rocket.setMotorIgnitionById(id, mm.ignition.event, mm.ignition.delay);');
+  });
+
+  /**
+   * The guard above reads App.tsx ONLY, and that is exactly how the same bug
+   * survived in Batch until 2026-09-21: the dialog builds its own handles
+   * (`OrkRocket.buildTree`), so nothing it does is a `built.rocket.` write and
+   * nothing here saw it. `applyOthers` wrote every non-target mount's motor
+   * with no restore, so an imported single-stage design carrying a `never` or
+   * delayed mount fired that motor through the whole sweep while the Launch
+   * button honoured it.
+   */
+  it('Batch restores ignition after writing the other mounts motors', () => {
+    const src = batch();
+    const at = src.indexOf('const applyOthers');
+    expect(at, 'applyOthers is gone — where do the non-target mounts get their motors now?')
+      .toBeGreaterThan(-1);
+    const body = src.slice(at, src.indexOf('\n    };', at));
+    expect(body).toContain('r.setMotorById(id, spec);');
+    expect(body).toContain("ig.event !== 'automatic' || ig.delay !== 0");
+    expect(body).toContain('r.setMotorIgnitionById(id, ig.event, ig.delay);');
+  });
+
+  it('no other site in Batch writes a motor without restoring ignition', () => {
+    // Every per-candidate write below applyOthers targets the mount being
+    // SWEPT, which carries the candidate and not a design ignition. If one
+    // ever writes a NON-target mount it belongs in applyOthers instead.
+    const src = batch();
+    const writes = src.match(/\.setMotorById\(/g) ?? [];
+    expect(writes.length,
+      'a setMotorById was added to BatchSimulate — if it writes a mount the '
+      + 'design configured, its ignition has to go back too')
+      .toBe(5);
   });
 
   it('every re-flight site routes through the helper', () => {

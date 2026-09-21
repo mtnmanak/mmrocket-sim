@@ -4,6 +4,7 @@ import { DEFAULT_TIME_STEP_S, PANEL_TIME_STEP_FLOOR_S, type LaunchConditions } f
 import { asStageNodes, freshId } from '../tree/treeModel.js';
 import { shapeIsClippable, shapeParamDefault } from '../tree/shapeProfile.js';
 import { finOutlineProblem } from '../tree/finOutline.js';
+import { CLUSTER_POINTS } from '../tree/cluster.js';
 import { isConformal, shroudEnds } from '../tree/shroud.js';
 import { MAX_FIN_POINTS, escapeXml, xmlText as text } from './xmlUtil.js';
 import { unzipMember } from './zipMember.js';
@@ -688,7 +689,15 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
         n['thickness'] = num(el, 'thickness', 0.0005);
         // Cluster (desktop stores rotation in DEGREES; we keep radians).
         const cluster = text(el, ':scope > clusterconfiguration');
-        if (cluster && cluster !== 'single') {
+        // Stop an unknown pattern at the file boundary (2026-09-21). The
+        // kernel refuses one outright (ComponentFactory.java:277), so a design
+        // carrying it would import, draw, and then fail to build with an error
+        // the user cannot connect to anything on screen. Fall back to a single
+        // mount and SAY SO — the same answer rasaeroFile.ts:321 gives an
+        // unknown <Surface>.
+        if (cluster && cluster !== 'single' && !Object.hasOwn(CLUSTER_POINTS, cluster)) {
+          notes.push(`Motor mount "${n['name'] ?? 'inner tube'}": cluster pattern “${cluster}” is not one this app knows, so the mount was imported as a single tube.`);
+        } else if (cluster && cluster !== 'single') {
           n['cluster'] = cluster;
           n['clusterScale'] = num(el, 'clusterscale', 1);
           n['clusterRotation'] = (num(el, 'clusterrotation', 0) * Math.PI) / 180;

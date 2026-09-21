@@ -453,7 +453,7 @@ export function DragPanel({ rocket, supersonicModel, aeroLabel, designName, file
               // model the sweep actually ran on, not a fixed string.
               aeroModel: aeroLabel ?? (supersonicModel
                 ? 'Supersonic (our extended model)'
-                : `Classic (Extended Barrowman${(prefs.rogersKbf ?? true) ? ' + Rogers Kbf' : ''})`),
+                : `Classic Extended Barrowman${(prefs.rogersKbf ?? true) ? ' + Rogers Kbf' : ''}`),
               lengthUnit: lenUnit,
               // The SAME string the chart caption prints, so an exported table
               // and a screenshot of the chart can't claim different air.

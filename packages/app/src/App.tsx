@@ -48,6 +48,7 @@ import {
 const Rocket3D = lazy(() => import('./components/Rocket3D.js').then((m) => ({ default: m.Rocket3D })));
 import { TreeSchematic } from './components/TreeSchematic.js';
 import { AftView } from './components/AftView.js';
+import { View3DBoundary } from './components/View3DBoundary.js';
 import { loadCatalogueMotor } from './services/motorMatch.js';
 import { restoreCatalogueOverlay } from './services/catalogueOverlay.js';
 import { PreferencesDialog } from './components/PreferencesDialog.js';
@@ -88,10 +89,11 @@ import { pokeServiceWorker, useVersionCheck } from './services/versionCheck.js';
 import {
   addChild, addStage, applyStageNozzles, cloneSubtree, defaultTree, duplicateNode, emptyTree, engineTree, findNode,
   findParent, flownRecoveryDevices, hasParallelStage, inheritDefaults, isOnLaunchStage, makeNode, motorMounts, moveNode,
-  motorisedStagesWithNozzle, normalizeTree, primaryMountOf, removeNode, stageIndexOf, stages, stagesWithNozzle,
+  isPristineDefault, motorisedStagesWithNozzle, mountMotorCount, normalizeTree, primaryMountOf, removeNode, stageIndexOf, stages, stagesWithNozzle,
   suppressingAncestor, updateAllNodes, updateNode,
 } from './tree/treeModel.js';
 import { clusterCount } from './tree/cluster.js';
+import { DRAWER_CLOSE_BELOW_PX, drawerAutoState } from './components/heroDrawer.js';
 import { flightDataForExport as flightDataForExportPure } from './services/orkFlightData.js';
 import { estimateMotorRoomForMounts } from './tree/motorRoom.js';
 import { NozzleField } from './components/NozzleField.js';
@@ -329,23 +331,6 @@ function labelWithDelay(label: string, delay: number | 'auto'): string {
   const base = baseLabel(label);
   if (delay === 'auto') return `${base} (auto delay)`;
   return `${base}-${Number.isFinite(delay) ? delay : 'P'}`;
-}
-
-/**
- * Is this tree still the untouched starter rocket? Compares against a fresh
- * defaultTree() with ids stripped — every normalizeTree/defaultTree call
- * mints new ids, so ids never match and everything else must. Used by the
- * share-link loader: replacing the pristine default needs no confirmation,
- * anything the user actually worked on does.
- */
-function isPristineDefault(t: RocketTree): boolean {
-  const strip = (n: ComponentNode): unknown => {
-    const { id: _id, children, ...rest } = n;
-    return { ...rest, children: (children ?? []).map(strip) };
-  };
-  const ref = defaultTree();
-  return t.name === ref.name
-    && JSON.stringify(t.components.map(strip)) === JSON.stringify(ref.components.map(strip));
 }
 
 export function App() {
@@ -640,6 +625,33 @@ export function App() {
   const [statsDrawer, setStatsDrawer] = useState(
     () => typeof matchMedia !== 'undefined' && matchMedia('(min-width: 981px)').matches,
   );
+  /**
+   * Has the user opened or closed the drawer themselves? A ref, not storage:
+   * the block above rules this session state and not a stored preference, and
+   * auto-collapse must not quietly promote it. It only stops the automatic
+   * rules fighting a deliberate choice — it is manners, not mechanism.
+   */
+  const userSetDrawer = useRef(false);
+  const setDrawerByUser = (v: boolean) => { userSetDrawer.current = true; setStatsDrawer(v); };
+  /**
+   * The breakpoint is LIVE now (2026-09-21). The initializer above ran once at
+   * startup, so a window dragged from wide to narrow kept a drawer that
+   * covers most of the drawing at that width, and one dragged the other way
+   * never gained it. Same shape as the theme listener in PrefsContext.
+   */
+  const [heroWide, setHeroWide] = useState(
+    () => typeof matchMedia !== 'undefined' && matchMedia('(min-width: 981px)').matches,
+  );
+  useEffect(() => {
+    if (typeof matchMedia === 'undefined') return;
+    const mq = matchMedia('(min-width: 981px)');
+    const onChange = (e: MediaQueryListEvent) => {
+      setHeroWide(e.matches);
+      if (!userSetDrawer.current) setStatsDrawer(e.matches);
+    };
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
   // Measured drawer height + gap: the hero view's bottom edge lifts above the
   // open drawer so the drawing shrinks to the visible sky instead of being
   // covered (batch 08-21d — vertical mode has no zoom/pan to escape with).
@@ -669,13 +681,47 @@ export function App() {
    *  on the airframe. */
   const HERO_CHIP_RESERVE = 140;
   useEffect(() => {
-    if (!statsDrawer || !drawerEl) { setDrawerClearance(0); return; }
+    // Only while the drawer OVERLAYS the drawing. Below 981px it is a block
+    // under the canvas (heroWide false), so there is nothing to lift clear of.
+    if (!statsDrawer || !drawerEl || !heroWide) { setDrawerClearance(0); return; }
     const measure = () => setDrawerClearance(drawerEl.offsetHeight + 20);
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(drawerEl);
     return () => ro.disconnect();
-  }, [statsDrawer, drawerEl]);
+  }, [statsDrawer, drawerEl, heroWide]);
+  /**
+   * AUTO-COLLAPSE ON A SHORT CANVAS (2026-09-21, Eric's quarter-screen
+   * window). The measurement is the STAGE's own padding box, never the drawer
+   * and never the band left over above it — and that choice is the whole fix,
+   * because of the SIGN of the dependency. The leftover band grows when the
+   * drawer closes, so a rule reading it would immediately reverse its own
+   * verdict and oscillate. The stage's height can only FALL when the drawer
+   * closes (the drawer's height feeds the stage's ceiling, never its floor),
+   * so "too short" stays true once it is true. Hysteresis is still needed for
+   * the other direction: reopening raises the ceiling again, so the reopen
+   * threshold sits 60px above the close one.
+   */
+  const [stageEl, setStageEl] = useState<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!stageEl) return;
+    const check = () => {
+      const next = drawerAutoState({
+        // Below 981px the drawer is a block under the canvas and costs the
+        // drawing nothing, so there is nothing for the rule to rescue.
+        stageH: heroWide ? stageEl.clientHeight : Infinity,
+        open: statsDrawer,
+        userSet: userSetDrawer.current,
+      });
+      if (next !== null) setStatsDrawer(next);
+    };
+    check();
+    const ro = new ResizeObserver(check);
+    ro.observe(stageEl);
+    return () => ro.disconnect();
+  }, [stageEl, statsDrawer, heroWide]);
+  /** The canvas is too short to carry an unfolded stats chip as well. */
+  const heroTight = heroWide && (stageEl?.clientHeight ?? Infinity) < DRAWER_CLOSE_BELOW_PX;
   /** S1's 90° toggle: draw the 2D view nose-up (viewing mode — drag/zoom off). */
   const [vert2d, setVert2d] = useState(false);
   /**
@@ -1404,7 +1450,11 @@ export function App() {
   const currentSetKey = useMemo(
     () => motorSetIdentity(assigned.map(([id, mm]) => [
       id, motorIdentity(mm.meta, mm.spec.designation),
-      clusterCount(findNode(tree, id)?.['cluster'] as string | undefined),
+      // The KERNEL's motor count for the mount, not just its cluster: an
+      // enclosing pod set or parallel stage multiplies it, so an instance-count
+      // edit after weighing has to invalidate the weighing the same way a
+      // cluster edit does (2026-09-21).
+      mountMotorCount(tree, id),
     ] as const)),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- tree.components, not tree: a rename is not a set change
     [assigned, tree.components]);
@@ -3065,7 +3115,10 @@ export function App() {
               + ` “${cfg.name ?? cfg.id}” and was not kept — re-enter it under the motor you weigh with.`);
           }
         } else {
-          const count = (id: string) => clusterCount(findNode(importedTree, id)?.['cluster'] as string | undefined);
+          // The SAME count `currentSetKey` uses (mountMotorCount), or an
+          // imported pad mass would read 'stale-set' the moment it is opened
+          // on any design whose mount sits inside a pod set.
+          const count = (id: string) => mountMotorCount(importedTree, id);
           const key = cfg.padMassLegacy ? LEGACY_PAD_MASS_KEY : motorSetIdentity([
             ...Object.entries(cfgMotors).map(([id, mm]) =>
               [id, motorIdentity(mm.meta, mm.spec.designation), count(id)] as const),
@@ -3588,6 +3641,15 @@ export function App() {
   }), [mounts, tree, stageList]);
 
   /**
+   * Offer the Quick Picks at all? They are the Quick Start's four Estes
+   * motors, so they are advice only while the design is still the Quick
+   * Start's rocket (Eric, 2026-09-21). Memoised on the tree rather than called
+   * inline: `isPristineDefault` builds a fresh `defaultTree()`, which mints six
+   * ids, and this is read once per mount card per render.
+   */
+  const quickPicksOffered = useMemo(() => isPristineDefault(tree), [tree]);
+
+  /**
    * The series to draw for whatever run the Results tab is showing — the one
    * value every chart/alert gate reads. Either the in-memory flight, when it
    * belongs to this run, or a cached re-flight of it. Null means "this run's
@@ -3686,6 +3748,29 @@ export function App() {
     onLaunch();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingRelaunch, built, primaryMountId]);
+
+  /**
+   * The All-stats drawer, built ONCE and rendered in one of two places: inside
+   * the hero stage as an overlay at >= 981px, or as a block under the canvas
+   * below that (2026-09-21). One element, so its state, its ref and its
+   * Collapse button cannot drift between the two placements.
+   */
+  const statsDrawerNode = built ? (
+    <div className={heroWide ? 'stats-drawer' : 'stats-drawer stats-drawer-flow'} ref={setDrawerEl}>
+      <div className="stats-drawer-head">
+        <span>All stats</span>
+        <button className="file-btn" onClick={() => setDrawerByUser(false)}>▾ Collapse</button>
+      </div>
+      <DesignStats
+        info={built.info}
+        cd={designCd}
+        recovery={recovery}
+        motorLabel={assigned.length > 1
+          ? assigned.map(([, mm]) => mm.label).join(' + ')
+          : primaryLabel}
+      />
+    </div>
+  ) : null;
 
   return (
     <div className="viz-root" data-theme={resolvedTheme} data-contrast={daylight ? 'high' : undefined}
@@ -4020,6 +4105,13 @@ export function App() {
           // candidate. Same field nozzleFollow reads.
           assignedMotorIds={Object.fromEntries(
             Object.entries(mountMotors).map(([id, mm]) => [id, mm.meta.motorId]))}
+          // …and their ignition settings, for the same reason: a MotorSpec
+          // carries none, and every setMotorById resets the mount to
+          // AUTOMATIC. An imported single-stage design can hold a `never` or
+          // a delayed mount even though this app shows the control only on a
+          // staged design.
+          assignedIgnitions={Object.fromEntries(
+            Object.entries(mountMotors).map(([id, mm]) => [id, mm.ignition]))}
           weighed={batchWeighed}
           launch={launch}
           rocketName={tree.name ?? 'Rocket'}
@@ -4250,7 +4342,7 @@ export function App() {
                 disabled={simulating}
                 onChange={(e) => setAeroOverride(e.target.value as AeroChoice)}>
                 <option value="kbf">Rogers Kbf</option>
-                <option value="eb">Classic EB</option>
+                <option value="eb">Classic Extended Barrowman</option>
                 <option value="auto">Auto</option>
                 <option value="supersonic">Supersonic</option>
               </select>
@@ -4493,6 +4585,7 @@ export function App() {
                 the user is on 3D/Aft — where the taller cap would just be
                 letterbox. */}
             <div className="rocket-stage hero-stage" data-tour="canvas"
+              ref={setStageEl}
               data-vert={view === '2d' && vert2d ? 'on' : undefined}
               style={view === '2d' && !vert2d && heroNatural
                 ? ({
@@ -4534,32 +4627,30 @@ export function App() {
                   )
                   : view === '3d'
                   ? (
-                    <Suspense fallback={<div className="hero-loading">Loading 3D view…</div>}>
-                      <Rocket3D tree={tree} info={built?.info ?? null} motors={motorDims} exportData={viewExportData} />
-                    </Suspense>
+                    // Boundary OUTSIDE the Suspense on purpose: that is what
+                    // makes a lazy chunk that fails to DOWNLOAD land here too.
+                    <View3DBoundary onBack={() => setView('2d')}>
+                      <Suspense fallback={<div className="hero-loading">Loading 3D view…</div>}>
+                        <Rocket3D tree={tree} info={built?.info ?? null} motors={motorDims} exportData={viewExportData} />
+                      </Suspense>
+                    </View3DBoundary>
                   )
                   : <AftView tree={tree} motors={motorDims} roll={viewRoll} onRoll={setViewRoll} />}
               </div>
-              {built && <StatsChip info={built.info} drawerOpen={statsDrawer} />}
+              {built && <StatsChip info={built.info} drawerOpen={statsDrawer} tight={heroTight} />}
+              {/* THE DRAWER IS AN OVERLAY ONLY WHERE IT CAN AFFORD TO BE
+                  (2026-09-21). At >= 981px the stage has a height and the
+                  drawing is lifted clear of the drawer; below that the stage
+                  has no height at all, the inline lift is inert, and the
+                  drawer simply painted over the rocket. There it renders as a
+                  BLOCK under the canvas instead — a sibling of the stage, so
+                  it is outside the stage's border and drafting-grid sky
+                  rather than a white card floating on it. Same element, same
+                  state, same buttons; only where it sits changes. */}
               {built && (statsDrawer
-                ? (
-                  <div className="stats-drawer" ref={setDrawerEl}>
-                    <div className="stats-drawer-head">
-                      <span>All stats</span>
-                      <button className="file-btn" onClick={() => setStatsDrawer(false)}>▾ Collapse</button>
-                    </div>
-                    <DesignStats
-                      info={built.info}
-                      cd={designCd}
-                      recovery={recovery}
-                      motorLabel={assigned.length > 1
-                        ? assigned.map(([, mm]) => mm.label).join(' + ')
-                        : primaryLabel}
-                    />
-                  </div>
-                )
+                ? (heroWide ? statsDrawerNode : null)
                 : (
-                  <button className="file-btn stats-drawer-chip" onClick={() => setStatsDrawer(true)}
+                  <button className="file-btn stats-drawer-chip" onClick={() => setDrawerByUser(true)}
                     title="Every design stat, with unit switches">▤ All stats</button>
                 ))}
               {mountSizes.length > 0 && (
@@ -4575,6 +4666,7 @@ export function App() {
                 </div>
               )}
             </div>
+            {built && statsDrawer && !heroWide && statsDrawerNode}
             {built && built.info.warningTexts.length > 0 && (
               <div className="file-note file-note-warn" role="alert">
                 {built.info.warningTexts.map(formatWarningText).join('\n')}
@@ -4805,6 +4897,7 @@ export function App() {
                     selectedLabel={mm?.label ?? ''}
                     onSelect={(label, spec, meta) => assignMotor(m.id!, label, spec, meta)}
                     loadedMotors={Object.values(mountMotors).map((x) => ({ label: x.label, manufacturer: x.meta.manufacturer }))}
+                    showQuickPicks={quickPicksOffered}
                   />
                   {mm && (
                     <div className="field" style={{ marginTop: 6 }}>
@@ -5122,7 +5215,15 @@ export function App() {
               <FlightStats run={lastRun} />
               <SimRunDetails run={lastRun} hasSeries changedSince={changedSince} />
               <FlightCharts result={shownResult} onFullSeries={fetchFullSeriesResult}
-                designName={tree.name} />
+                designName={tree.name}
+                /* The two downloads re-fly the design AS IT STANDS, so they
+                   refuse where the 📈 Charts button already does. The
+                   aerodynamics model is excluded on purpose —
+                   fetchFullSeriesResult puts the flown model back before it
+                   runs, so a model switch is a labelling matter, not a
+                   different rocket. */
+                staleReason={changedSinceNonModel.length > 0
+                  ? listAnd(changedSinceNonModel) : null} />
             </>
           ) : lastRun ? (
             // A stored run whose series nobody has computed in this session —

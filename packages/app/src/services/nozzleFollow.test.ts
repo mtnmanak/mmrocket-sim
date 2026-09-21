@@ -57,6 +57,41 @@ describe('stageMotors', () => {
     expect(out[0]!.motors[0]!.count).toBe(4);
   });
 
+  /**
+   * A STRAP-ON booster's mount lives under a `parallelstage` node nested inside
+   * the serial stage. The kernel charges pressure thrust and power-on base
+   * drag to the motor's own nearest AxialStage, and ParallelStage IS one — so
+   * that motor's exit area belongs to the parallel stage, never to the core.
+   * Until 2026-09-21 it was summed into the core's equivalent nozzle, which
+   * credited the core area it does not have (and only while the CORE's motor
+   * burned) while the boosters were credited nothing.
+   */
+  it('does NOT sum a parallel-stage motor into the serial stage hosting it', () => {
+    const tree: RocketTree = {
+      name: 'Strap-on',
+      components: [{
+        type: 'stage', id: 'sus', name: 'Sustainer',
+        children: [{
+          type: 'bodytube', id: 'bt', length: 0.5,
+          children: [
+            { type: 'innertube', id: 'core', length: 0.2 } as ComponentNode,
+            {
+              type: 'parallelstage', id: 'pod', name: 'Strap-on', instanceCount: 2,
+              children: [{
+                type: 'bodytube', id: 'pod-bt', length: 0.3,
+                children: [{ type: 'innertube', id: 'strap', length: 0.2 } as ComponentNode],
+              } as ComponentNode],
+            } as ComponentNode,
+          ],
+        } as ComponentNode],
+      } as ComponentNode],
+    };
+    const out = stageMotors(tree, [['core', mm('aero-core')], ['strap', mm('aero-strap')]]);
+    // One serial stage, carrying ONLY its own motor.
+    expect(out.map((s) => s.stageId)).toEqual(['sus']);
+    expect(out[0]!.motors.map((m) => m.motorId)).toEqual(['aero-core']);
+  });
+
   it('ignores a record whose mount the tree no longer has', () => {
     const tree = design([{ id: 'sus', mounts: [['m1']] }]);
     const out = stageMotors(tree, [['m1', mm('aero-1')], ['gone', mm('aero-2')]]);

@@ -7,6 +7,8 @@
  * match visually.
  */
 
+import { lookupTable } from '../services/xmlUtil.js';
+
 const SQRT2 = Math.SQRT2;
 const SQRT3 = Math.sqrt(3);
 const R5 = 1.0 / (2 * Math.sin((2 * Math.PI) / 10));
@@ -18,8 +20,19 @@ const ring = (n: number, r: number, centered: boolean): number[] => {
   return pts;
 };
 
-/** Flat [x0,y0, x1,y1, …] unit points per pattern (kernel XML names). */
-export const CLUSTER_POINTS: Record<string, number[]> = {
+/**
+ * Flat [x0,y0, x1,y1, …] unit points per pattern (kernel XML names).
+ *
+ * `lookupTable` (a null-prototype object) and not a plain literal: the name
+ * comes out of an `.ork` file, so `CLUSTER_POINTS[name]` on a plain object
+ * resolves `Object.prototype` members. Measured 2026-09-21 before the wrap:
+ * `clusterCount('constructor')` returned 0.5 and its offsets were NaN,
+ * `toString` gave 0 motors, `__proto__` gave NaN — each of them defeating BOTH
+ * the `?? 'single'` and the `?? [0, 0]` fallbacks, because an inherited value
+ * is not undefined. Same hardening, same helper, as the 12 other file-keyed
+ * maps (services/xmlUtil.ts `lookupTable`).
+ */
+export const CLUSTER_POINTS: Record<string, number[]> = lookupTable({
   single: [0, 0],
   double: [-0.5, 0, 0.5, 0],
   '3-row': [-1, 0, 0, 0, 1, 0],
@@ -34,7 +47,7 @@ export const CLUSTER_POINTS: Record<string, number[]> = {
   '6-star': [0, 0, 0, 1, SQRT3 / 2, 0.5, SQRT3 / 2, -0.5, 0, -1, -SQRT3 / 2, -0.5, -SQRT3 / 2, 0.5],
   '9-grid': [-1.4, 1.4, 0, 1.4, 1.4, 1.4, -1.4, 0, 0, 0, 1.4, 0, -1.4, -1.4, 0, -1.4, 1.4, -1.4],
   '9-star': [0, 0, 1.4, 0, 1.4 / SQRT2, -1.4 / SQRT2, 0, -1.4, -1.4 / SQRT2, -1.4 / SQRT2, -1.4, 0, -1.4 / SQRT2, 1.4 / SQRT2, 0, 1.4, 1.4 / SQRT2, 1.4 / SQRT2],
-};
+});
 
 /** Dropdown options in kernel order, labelled with their motor counts. */
 export const CLUSTER_OPTIONS: [string, string][] = Object.entries(CLUSTER_POINTS).map(

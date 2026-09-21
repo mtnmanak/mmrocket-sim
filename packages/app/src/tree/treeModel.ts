@@ -25,6 +25,7 @@ import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { resolveAbsolutePositions } from './position.js';
 import { defaultParams, DISPLAY_NAME, FIELDS, type EditorComponentType } from './schema.js';
 import { shroudEnds, surfaceBumpFrontalArea } from './shroud.js';
+import { clusterCount } from './cluster.js';
 
 /**
  * Immutable tree-editing helpers. Every node carries a unique editor id
@@ -142,9 +143,23 @@ export function asStageNodes(tree: RocketTree): ComponentNode[] {
 }
 
 /** Appends a booster stage below the existing ones. */
+/**
+ * The default name for the stage at index `i`: Sustainer, Booster, then
+ * Booster 2, 3 …
+ *
+ * A stage's name is POSITIONAL — it says where the stage sits in the stack,
+ * not what anyone called it — so every place that has to invent one names it
+ * from here. One copy, because the same three cases were written out in four
+ * places and had already drifted apart (the `.ork` importer calls index 1
+ * "Booster 1" where this calls it "Booster"); the importers are left alone for
+ * now, because changing them changes what an imported file is called.
+ */
+export function stageDefaultName(i: number): string {
+  return i === 0 ? 'Sustainer' : i === 1 ? 'Booster' : `Booster ${i}`;
+}
+
 export function addStage(tree: RocketTree): { tree: RocketTree; newId: string } {
-  const n = stages(tree).length;
-  const stage = makeStage(n === 0 ? 'Sustainer' : n === 1 ? 'Booster' : `Booster ${n}`);
+  const stage = makeStage(stageDefaultName(stages(tree).length));
   return { tree: { ...tree, components: [...tree.components, stage] }, newId: stage.id! };
 }
 
@@ -207,6 +222,30 @@ export function ancestorsOf(tree: RocketTree, id: string): ComponentNode[] {
   };
   walk(tree.components, []);
   return chain;
+}
+
+/**
+ * How many motors the KERNEL flies for this mount: its own cluster count times
+ * the instance count of every enclosing pod set and parallel stage.
+ *
+ * `clusterCount` alone is NOT that number, and the difference is real mass.
+ * `MassCalculation.calculateMotors` (carved, :499-536) recurses once per
+ * instance at every assembly level and only then multiplies by the cluster, so
+ * the multiplicities MULTIPLY down the path. Measured on the shipped kernel
+ * 2026-09-21: one 0.1 kg motor on a mount inside a 2-instance pod set adds
+ * 0.2 kg, not 0.1 kg — and a weighed pad mass that counted only the cluster
+ * invented the difference as airframe hardware and then flew it on every
+ * repeated motor.
+ */
+export function mountMotorCount(tree: RocketTree, mountId: string): number {
+  let k = clusterCount(findNode(tree, mountId)?.['cluster'] as string | undefined);
+  for (const a of ancestorsOf(tree, mountId)) {
+    if (a.type === 'podset' || a.type === 'parallelstage') {
+      const c = a['instanceCount'];
+      k *= typeof c === 'number' && c >= 1 ? Math.round(c) : 1;
+    }
+  }
+  return k;
 }
 
 /**
@@ -368,6 +407,39 @@ export function stageIdByNode(tree: RocketTree): Map<string, string> {
 }
 
 /**
+ * The same join as {@link stageIdByNode}, but with the KERNEL's idea of which
+ * stage owns a node: the walk stops at a `parallelstage`, because everything
+ * inside one belongs to THAT stage, not to the serial stage hosting it.
+ *
+ * `RocketComponent.getStage()` returns the nearest `AxialStage` ancestor, and
+ * `ParallelStage extends AxialStage` — so a strap-on booster's motor is on the
+ * parallel stage as far as pressure thrust and power-on base drag are
+ * concerned. `stageIdByNode` claims it for the serial stage, which is right
+ * for the app's own grouping (the ignition default and the branch report both
+ * want the airframe that carries it) and wrong for anything that has to line
+ * up with the kernel: the nozzle autofill summed a booster's exit area into
+ * the CORE stage's equivalent nozzle, so the core was credited area it does
+ * not have — and only while the core's own motor burned — while the boosters
+ * were credited nothing at all (2026-09-21, from the 19 Sep review).
+ *
+ * A node inside a parallel stage is mapped to that parallel stage's id, which
+ * is not in `stages(tree)`, so a caller joining on serial stages simply does
+ * not see it. That is the intended outcome: a visible blank beats a quietly
+ * wrong number.
+ */
+export function kernelStageIdByNode(tree: RocketTree): Map<string, string> {
+  const out = new Map<string, string>();
+  const claim = (stageId: string, n: ComponentNode): void => {
+    if (n.id) out.set(n.id, stageId);
+    for (const kid of n.children ?? []) {
+      claim(kid.type === 'parallelstage' && kid.id ? kid.id : stageId, kid);
+    }
+  };
+  for (const s of stages(tree)) { if (s.id) claim(s.id, s); }
+  return out;
+}
+
+/**
  * The stages that carry a nozzle exit diameter AND a motor that can burn — the
  * only stages the pressure-thrust term can actually be spent on.
  *
@@ -387,7 +459,9 @@ export function motorisedStagesWithNozzle(
   tree: RocketTree,
   motors: readonly (readonly [string, { ignition?: { event?: string } }])[],
 ): { id: string; name: string; exitDiameterM: number }[] {
-  const stageOf = stageIdByNode(tree);
+  // KERNEL ownership: a strap-on's motor burning does not credit the core
+  // stage's nozzle, so it must not make the core stage "live" here either.
+  const stageOf = kernelStageIdByNode(tree);
   const live = new Set<string>();
   for (const [mountId, mm] of motors) {
     if (mm?.ignition?.event === 'never') continue;
@@ -1128,8 +1202,20 @@ export function protuberanceDeliveredCd(tree: RocketTree, node: ComponentNode): 
  *    length to the aft-most LaunchLug, so a synthetic lug would quietly change
  *    guide-exit velocity. Nothing in the kernel's simulation reads RailButton.
  */
+/**
+ * The coefficient a parachute flies when no Cd is typed.
+ *
+ * `RecoveryDevice.cd` is initialised to `Parachute.DEFAULT_CD` with
+ * `cdAutomatic = true`, and `Parachute.getComponentCD` returns that field
+ * unchanged, so an untyped canopy flies exactly 0.80 at every Mach.
+ * `ComponentFactory` calls `setCD` only for a finite `cd`, so leaving the key
+ * OFF is the automatic path — never write this value into the engine tree.
+ * A STREAMER has no constant: `Streamer.getComponentCD` computes one from
+ * strip length and material density.
+ */
+export const KERNEL_DEFAULT_CD = 0.8;
+
 export function engineTree(tree: RocketTree): RocketTree {
-  const KERNEL_DEFAULT_CD = 0.8;
   const nnum = (n: ComponentNode, key: string, fb: number): number =>
     typeof n[key] === 'number' ? (n[key] as number) : fb;
 
@@ -1311,12 +1397,20 @@ export function engineTree(tree: RocketTree): RocketTree {
       // or NaN diameter, which arrive here by the same route.
       if (D > 0) {
         const hole = Math.min(dh, D * 0.95);
-        const base = typeof n['cd'] === 'number' ? (n['cd'] as number) : KERNEL_DEFAULT_CD;
+        const typedBase = typeof n['cd'] === 'number';
+        const base = typedBase ? (n['cd'] as number) : KERNEL_DEFAULT_CD;
         // `cdNominal` keeps the pre-vent figure so the launch report can show
         // both — the vent doing its work, rather than a flown coefficient that
         // silently disagrees with the number in the design panel. The kernel
         // ignores unknown keys, so this rides along harmlessly.
-        next = { ...next, cd: base * (1 - (hole / D) ** 2), cdNominal: base } as ComponentNode;
+        // `cdAuto` says `base` was the kernel's automatic 0.80 and not a
+        // number anyone typed, so the report can label it rather than printing
+        // a default as if it were an entry. Rides along like `cdNominal` —
+        // ComponentFactory reads named keys only and ignores this one.
+        next = {
+          ...next, cd: base * (1 - (hole / D) ** 2), cdNominal: base,
+          ...(typedBase ? {} : { cdAuto: true }),
+        } as ComponentNode;
       }
     }
     return next;
@@ -1338,7 +1432,10 @@ export function engineTree(tree: RocketTree): RocketTree {
  */
 export function flownRecoveryDevices(
   engine: RocketTree,
-): Record<string, { cd: number | null; cdNominal: number | null; diameter: number | null; spillHoleDiameter: number | null }> {
+): Record<string, {
+    cd: number | null; cdNominal: number | null; cdAutomatic: boolean;
+    diameter: number | null; spillHoleDiameter: number | null;
+  }> {
   const out: Record<string, ReturnType<typeof flownRecoveryDevices>[string]> = {};
   const dupes = new Set<string>();
   const num = (n: ComponentNode, k: string): number | null =>
@@ -1347,9 +1444,20 @@ export function flownRecoveryDevices(
     for (const n of ns) {
       if ((n.type === 'parachute' || n.type === 'streamer') && n.name) {
         if (out[n.name] !== undefined) dupes.add(n.name);
+        // A PARACHUTE WITH NO Cd TYPED IS NOT A PARACHUTE WITH NO Cd IN
+        // FLIGHT. ComponentFactory calls setCD only for a finite `cd`, so an
+        // absent key leaves `cdAutomatic` true and the canopy flies 0.80 —
+        // and the report printed a DASH for it. 217 of the 473 catalogue
+        // canopies carry no dragCoefficient at all (re-derived from the
+        // shipped presets.json, 2026-09-21), plus every hand-built chute.
+        // A STREAMER stays null: its automatic coefficient comes from strip
+        // length and material density and is not resolvable from here.
+        const isChute = n.type === 'parachute';
+        const typed = num(n, 'cd');
         out[n.name] = {
-          cd: num(n, 'cd'),
-          cdNominal: num(n, 'cdNominal') ?? num(n, 'cd'),
+          cd: typed ?? (isChute ? KERNEL_DEFAULT_CD : null),
+          cdNominal: num(n, 'cdNominal') ?? typed ?? (isChute ? KERNEL_DEFAULT_CD : null),
+          cdAutomatic: isChute && (typed === null || n['cdAuto'] === true),
           diameter: num(n, 'diameter'),
           spillHoleDiameter: num(n, 'spillHoleDiameter'),
         };
@@ -1494,10 +1602,32 @@ export function duplicateNode(tree: RocketTree, id: string): { tree: RocketTree;
   const walk = (nodes: ComponentNode[]): ComponentNode[] => {
     const idx = nodes.findIndex((n) => n.id === id);
     if (idx >= 0) {
-      const copy = cloneSubtree(nodes[idx]!);
-      copy.name = nodes[idx]!.name ? `${nodes[idx]!.name} (copy)` : copy.name;
+      const src = nodes[idx]!;
+      const copy = cloneSubtree(src);
+      // A STAGE is the one node whose name is positional, so "(copy)" names
+      // the one thing the copy is not: duplicating the Sustainer left a
+      // "Sustainer (copy)" sitting in the BOOSTER slot (Eric, 18 Sep item 17).
+      // Name it for the slot it lands in instead — the same name Add stage
+      // would give it — but only while the original still carries the name the
+      // app handed it. Rename a stage yourself and it is yours, and the copy
+      // gets "(copy)" like any other part.
+      const stageIdx = nodes.slice(0, idx).filter((n) => n.type === 'stage').length;
+      const positional = src.type === 'stage' && src.name === stageDefaultName(stageIdx);
+      if (positional) copy.name = stageDefaultName(stageIdx + 1);
+      else if (src.name) copy.name = `${src.name} (copy)`;
       newId = copy.id!;
-      return [...nodes.slice(0, idx + 1), copy, ...nodes.slice(idx + 1)];
+      // Inserting into a numbered sequence renumbers the rest of it — but only
+      // the names the app itself wrote, and only when this insert was itself
+      // positional, so a stage anyone has named is never renamed under them.
+      let below = stageIdx;
+      const after = nodes.slice(idx + 1).map((n) => {
+        if (n.type !== 'stage') return n;
+        below += 1;
+        return positional && n.name === stageDefaultName(below)
+          ? ({ ...n, name: stageDefaultName(below + 1) } as ComponentNode)
+          : n;
+      });
+      return [...nodes.slice(0, idx + 1), copy, ...after];
     }
     return nodes.map((n) => (n.children ? ({ ...n, children: walk(n.children) } as ComponentNode) : n));
   };
@@ -1628,4 +1758,24 @@ export function defaultTree(): RocketTree {
     name: 'My Rocket',
     components: [nose, { ...body, children: [fins, mount, chute] } as ComponentNode],
   });
+}
+
+/**
+ * Is this tree still the untouched starter rocket? Compares against a fresh
+ * `defaultTree()` with ids stripped — every `normalizeTree`/`defaultTree` call
+ * mints new ids, so ids never match and everything else must.
+ *
+ * TWO callers: the share-link loader (replacing the pristine default needs no
+ * confirmation, anything the user actually worked on does) and the Motors
+ * panel, which offers the Quick Picks only while the design is still the
+ * rocket the Quick Start was written for (Eric, 2026-09-21).
+ */
+export function isPristineDefault(t: RocketTree): boolean {
+  const strip = (n: ComponentNode): unknown => {
+    const { id: _id, children, ...rest } = n;
+    return { ...rest, children: (children ?? []).map(strip) };
+  };
+  const ref = defaultTree();
+  return t.name === ref.name
+    && JSON.stringify(t.components.map(strip)) === JSON.stringify(ref.components.map(strip));
 }

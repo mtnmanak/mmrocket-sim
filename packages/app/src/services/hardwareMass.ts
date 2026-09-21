@@ -1,6 +1,5 @@
 import type { MotorSpec, RocketTree } from '@online-openrocket/engine';
-import { clusterCount } from '../tree/cluster.js';
-import { findNode } from '../tree/treeModel.js';
+import { mountMotorCount } from '../tree/treeModel.js';
 
 /**
  * WEIGHED PAD MASS → the motor hardware the catalogue weight leaves out.
@@ -326,7 +325,9 @@ export function catalogueMotorMass(
   for (const [mountId, mm] of motors) {
     const loaded = motorLoadedMass(mm.spec);
     if (loaded === null) return null;
-    sum += loaded * clusterCount(findNode(tree, mountId)?.['cluster'] as string | undefined);
+    // EVERY motor the kernel flies for this mount — cluster count times any
+    // enclosing pod set / parallel stage instance count (2026-09-21).
+    sum += loaded * mountMotorCount(tree, mountId);
   }
   return sum;
 }
@@ -392,7 +393,7 @@ export function hardwareMass(input: HardwareMassInput): HardwareMassResult {
 
   // 7. Apply — the whole delta to the primary, divided by its cluster count.
   deltaKg = Math.max(0, deltaKg);
-  const motorCount = clusterCount(findNode(tree, primaryMountId)?.['cluster'] as string | undefined);
+  const motorCount = mountMotorCount(tree, primaryMountId);
   return {
     state: 'ok',
     deltaKg,

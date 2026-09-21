@@ -1431,6 +1431,34 @@ describe('RASAero import — measured launch weight and CG', () => {
     expect(stages[1]?.['overrideMass']).toBeUndefined();
   });
 
+  /**
+   * The backout lookup must resolve to the SAME catalogue row the app will
+   * mount. Until 2026-09-21 it passed the designation alone while
+   * `matchImportedMotor` also passed the manufacturer (motorMatch.ts:192), so
+   * on a designation two makers share the mass subtracted here could come
+   * from a different motor than the one that flies. 33 designations in the
+   * shipped catalogue are shared; H130W is the cleanest — AeroTech's is 237 g
+   * and KBA's 709 g, and both publish a mass, so the override lands either
+   * way and a regression reads as a 472 g airframe, not as a skip.
+   */
+  it('backs out the motor the manufacturer names, not the first of that designation', async () => {
+    const { findDbMotor } = await import('./motorDb.js');
+    const kba = findDbMotor('H130W', undefined, undefined, 'KBA')!;
+    const at = findDbMotor('H130W', undefined, undefined, 'AT')!;
+    // Guard the premise: if a catalogue refresh ever unshares this
+    // designation the test must fail loudly rather than pass vacuously.
+    expect(kba.manufacturerAbbrev).toBe('KBA');
+    expect(kba.totalWeightG).not.toBeCloseTo(at.totalWeightG, 1);
+
+    const f = fixture('Wildman_Mach 2 this one.CDX1')
+      .replaceAll('<SustainerEngine>K805G  (AT)</SustainerEngine>',
+        '<SustainerEngine>H130W  (KBA)</SustainerEngine>');
+    const sustainer = (importCdx1(f).tree.components as ComponentNode[])[0]!;
+    const stated = lbToKg(7.3);
+    expect(sustainer['overrideMass']).toBeCloseTo(stated - kba.totalWeightG / 1000, 9);
+    expect(sustainer['overrideMass']).not.toBeCloseTo(stated - at.totalWeightG / 1000, 3);
+  });
+
   it('takes the weights from the CHOSEN simulation, not the first one', () => {
     // launch-stage-motorless.CDX1's simulation 1 leaves the launch stage
     // unpowered, so the importer opens simulation 2 — and 2 states 3.5 lb

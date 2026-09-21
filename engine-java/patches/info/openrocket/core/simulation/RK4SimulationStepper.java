@@ -470,10 +470,15 @@ public class RK4SimulationStepper extends AbstractSimulationStepper {
 	 * <li><b>Parallel stages.</b> {@code getStageNumber()} is ONE number for a whole
 	 * {@code ParallelStage}, so this half charges one area however many strap-on
 	 * instances burn, while the drag half removes one per INSTANCE
-	 * ({@code total += instanceCount * cd}). Not reachable today - the JS bridge has
-	 * no PodSet/ParallelStage build path - and it must be resolved in the same
-	 * sitting that bridge lands, either by multiplying here or by redefining the
-	 * field as per-instance and changing the drag half.</li>
+	 * ({@code total += instanceCount * cd}). CORRECTED 2026-09-21: this used to say
+	 * "not reachable today - the JS bridge has no PodSet/ParallelStage build path",
+	 * which stopped being true in v0.021 - the bridge builds both and applies the
+	 * field to them. What actually makes it unreachable is the APP: no FIELDS entry
+	 * for a parallelstage nozzle, and applyStageNozzles writes only top-level
+	 * stages. That is now enforced rather than assumed - OrkRocket.buildTree throws
+	 * on an exit diameter set on a podset/parallelstage. Resolving it properly
+	 * means deciding whether the field is per-instance or the assembly total, then
+	 * either multiplying here or changing the drag half.</li>
 	 * </ul>
 	 *
 	 * @param status          the current simulation status

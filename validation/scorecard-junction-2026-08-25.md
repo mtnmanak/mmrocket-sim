@@ -242,8 +242,15 @@ Two things fall out, and they are the crux:
    term rather than to the body: removing it fixes those gates by taking drag off the one
    component the data shows is already under-predicted where the data exists.
 
-(The tunnel increment is itself an upper bound — it includes the fin anchors, per the provenance
-section. Both readings above therefore *understate* how short our fin model is.)
+(On the two ARCAS Short rows the tunnel increment is a *lower* bound on the true fin increment, not
+an upper one: the short model kept its un-faired fin anchors for its fins-off run, so the subtracted
+number is inflated and fins-on − fins-off = fin drag − anchor drag. The true fin increment is
+therefore larger than the 0.073 and 0.080 read here, and both readings *understate* how short our
+fin model is. The ARCAS Long row carries no such bias — that model's fin slots were faired flush
+with the skin for its fins-off run — so its −39 % is the clean reading. **Corrected 2026-09-21:**
+this said "upper bound", which is the bound belonging to the *length*-increment ratio in
+`scorecard-finsoff-figs-2026-08-25.md` §5.2, not to the fin increment. The conclusion it drew was
+right; the reason under it was inverted.)
 
 ## The flights
 

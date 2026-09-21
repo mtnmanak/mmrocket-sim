@@ -82,6 +82,54 @@ describe('stageMotorInfo', () => {
       .toEqual({ Sustainer: { label: 'C6-5', highPower: false } });
   });
 
+  /**
+   * Two mounts on ONE branch — a cluster split into individual tubes, which is
+   * how a design gives each motor its own ignition. Until 2026-09-21 the entry
+   * was overwritten per mount, so the LAST motor assigned decided whether the
+   * branch counted as high power, and `assigned` is in assignment order rather
+   * than any order the user controls. The property is order-independence, so
+   * both orders are asserted; the third case stops the OR being written true.
+   */
+  const twoMountBranch = (): RocketTree => ({
+    name: 'Split cluster',
+    components: [
+      stage('s0', 'Sustainer', [mount('m0')]),
+      stage('s1', 'Booster', [mount('m1'), mount('m2')]),
+    ],
+  } as RocketTree);
+
+  it('keeps a branch high power when ANY of its motors is', () => {
+    const tree = twoMountBranch();
+    const assigned: [string, MountMotor][] = [
+      ['m0', motor('J350-P', true)],
+      ['m1', motor('H128-0', true)],
+      ['m2', motor('D12-0', false)],
+    ];
+    expect(stageMotorInfo(tree, assigned, stages(tree)).Booster)
+      .toEqual({ label: 'H128-0 + D12-0', highPower: true });
+  });
+
+  it('is independent of the order the motors were assigned in', () => {
+    const tree = twoMountBranch();
+    const assigned: [string, MountMotor][] = [
+      ['m0', motor('J350-P', true)],
+      ['m2', motor('D12-0', false)],
+      ['m1', motor('H128-0', true)],
+    ];
+    expect(stageMotorInfo(tree, assigned, stages(tree)).Booster)
+      .toEqual({ label: 'D12-0 + H128-0', highPower: true });
+  });
+
+  it('leaves a branch low power when none of its motors is high power', () => {
+    const tree = twoMountBranch();
+    const assigned: [string, MountMotor][] = [
+      ['m1', motor('D12-0', false)],
+      ['m2', motor('C11-0', false)],
+    ];
+    expect(stageMotorInfo(tree, assigned, stages(tree)).Booster)
+      .toEqual({ label: 'D12-0 + C11-0', highPower: false });
+  });
+
   it('drops a mount whose stage has no name rather than keying on undefined', () => {
     const tree: RocketTree = {
       name: 'Nameless',

@@ -35,6 +35,16 @@ const { OrkRocket, resetEngine } = await import(
 );
 
 const anchors = JSON.parse(readFileSync(join(here, 'anchors.json'), 'utf8'));
+// The gate count, DERIVED with the same predicate the grading loop uses below
+// and never typed. The header carried a hand-written 175 from the 2026-08-29
+// revision long after that revision became 191, which is what a number typed
+// into prose does; this one cannot go stale (corrected 2026-09-21).
+const gateTotalExpected = Object.entries(anchors)
+  .filter(([n]) => !n.startsWith('_'))
+  .reduce((t, [, spec]) => t + spec.series.reduce((sum, ser) => sum + (ser.gate
+    ? ser.points.filter(([m]) => (ser.gateMaxMach == null || m <= ser.gateMaxMach)
+      && (ser.gateMinMach == null || m >= ser.gateMinMach)).length
+    : 0), 0), 0);
 const strict = process.argv.includes('--strict');
 const supersonic = process.argv.includes('--supersonic');
 const kbf = process.argv.includes('--kbf');
@@ -73,12 +83,18 @@ out.push('> wind-tunnel or free-flight datapoint, and FAIL means it lands outsid
 out.push("> that dataset's own stated reading accuracy — a deliberately unforgiving");
 out.push('> bar, and one no Barrowman-class method clears through the transonic');
 out.push('> drag spike (M 0.95–1.2), where most failures cluster. These are NOT');
-out.push('> comparisons against desktop OpenRocket: with the classic model this');
-out.push('> engine is bit-identical to the desktop (see engine-java difftest).');
-out.push("> For scale, that classic model — desktop OpenRocket's exact physics —");
-out.push('> scores **10/175** on these same anchors; the app default (Rogers Kbf)');
-out.push('> scores **17/175** and the supersonic model **71/175**. Improving that');
-out.push('> number is the point of the harness.');
+out.push('> comparisons against desktop OpenRocket, and nothing in this repo has');
+out.push('> ever been run against a desktop build. With the classic model this');
+out.push("> engine executes OpenRocket 24.12's own carved Extended Barrowman code");
+out.push('> with every added term gated off, which is a PARITY-BY-CONSTRUCTION');
+out.push('> argument, not a measurement: engine-java/scripts/difftest.mjs');
+out.push('> compares THIS kernel on the JVM against the same kernel compiled to');
+out.push('> JavaScript, to a stated tolerance, so what it proves is the TeaVM');
+out.push('> compile - not desktop equivalence.');
+out.push(`> For scale, on the ${gateTotalExpected}-gate anchor set classic scored **13**, the app`);
+out.push('> default (Rogers Kbf) **21** and the supersonic model **77** when');
+out.push('> scorecard-nosection-2026-08-29.md was written; the table below is the');
+out.push('> live count. Improving it is the point of the harness.');
 out.push('> Tolerances come from the datasets and are NEVER widened to make a');
 out.push('> phase pass (see README).');
 out.push('');

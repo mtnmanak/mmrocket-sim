@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useDialog } from './useDialog.js';
-import { OrkRocket, type FlightResult, type MotorSpec, type RocketTree, type SimulationOptions, type StaticInfo } from '@online-openrocket/engine';
+import { OrkRocket, type FlightResult, type IgnitionEvent, type MotorSpec, type RocketTree, type SimulationOptions, type StaticInfo } from '@online-openrocket/engine';
 import { includedMotorOf } from '../services/statedLaunchWeight.js';
 import {
   applyStageNozzles, clearStageNozzles, engineTree, isOnLaunchStage, splitClusterPairsTree,
@@ -325,7 +325,7 @@ export interface BatchMountOption {
   maxMotorLengthM: number | null;
 }
 
-export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMotors, assignedMotorIds, weighed, launch, rocketName, onRunsChange, onClose }: {
+export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMotors, assignedMotorIds, assignedIgnitions, weighed, launch, rocketName, onRunsChange, onClose }: {
   /** The editing tree — the batch builds its OWN engine handles from it, so
    *  the design's shared handle is never touched (no restore, no stale
    *  motors left on unassigned mounts). */
@@ -350,6 +350,16 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
    * catalogue row.
    */
   assignedMotorIds: Record<string, string | undefined>;
+  /**
+   * The ignition setting for those same motors, by mount id. A MotorSpec does
+   * not carry one, and the bridge installs a FRESH MotorConfiguration on every
+   * `setMotorById` (OrkEngine.java:379), so writing a motor here silently
+   * resets its mount to AUTOMATIC. Without this an imported single-stage
+   * design with a `never` or delayed mount fired that motor through the whole
+   * sweep while the Launch button honoured it — the same motor reading two
+   * ways in two places (2026-09-21, from the 19 Sep review).
+   */
+  assignedIgnitions: Record<string, { event: IgnitionEvent; delay: number }>;
   /** The weighed pad mass, when the design page is carrying one (see
    *  {@link BatchWeighed}); the candidate matching it on its mount flies
    *  shifted, every other row at catalogue weight. */
@@ -509,7 +519,19 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
     const applyOthers = (r: OrkRocket, targetIds: string[]) => {
       for (const [id, spec] of Object.entries(assignedMotors)) {
         if (!targetIds.includes(id)) {
-          try { r.setMotorById(id, spec); } catch { /* mount absent in variant */ }
+          try {
+            r.setMotorById(id, spec);
+            // …and put the ignition back, exactly as the Launch path does
+            // (App.tsx:1342). The write above installs a fresh
+            // MotorConfiguration, so the mount lands on AUTOMATIC whatever the
+            // design says. One restore here covers the sweep AND both
+            // combination passes, because every per-candidate write below
+            // touches only the TARGET mounts, which this loop skips.
+            const ig = assignedIgnitions[id];
+            if (ig && (ig.event !== 'automatic' || ig.delay !== 0)) {
+              r.setMotorIgnitionById(id, ig.event, ig.delay);
+            }
+          } catch { /* mount absent in variant */ }
         }
       }
     };
@@ -1037,7 +1059,7 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
                 onChange={(e) => setBatchModel(e.target.value as typeof batchModel)}>
                 <option value="auto">Auto (recommended)</option>
                 <option value="kbf">Rogers Modified Barrowman</option>
-                <option value="eb">Extended Barrowman (desktop)</option>
+                <option value="eb">Classic Extended Barrowman</option>
                 <option value="supersonic">Supersonic — all speeds</option>
               </select>
             </label>

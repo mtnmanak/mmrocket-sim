@@ -53,7 +53,19 @@ export function stageMotorInfo(
     }
     branchName ??= stageList[stageIndexOf(tree, id)]?.name;
     if (branchName) {
-      out[branchName] = { label: mm.label, highPower: mm.meta.highPower === true };
+      // MERGE, never overwrite (2026-09-21, from the 19 Sep review). A branch
+      // can carry more than one mount, and `assigned` arrives in assignment
+      // order, so writing the entry outright let the LAST motor decide the
+      // branch: a D12 assigned after an H128 un-classified the branch and
+      // swapped the "no recovery device" warning for the milder landing-rate
+      // line. Any high-power motor on a branch makes the branch high power —
+      // a second, smaller motor cannot un-certify the first — and the label
+      // names every motor rather than an arbitrary one of them.
+      const prev = out[branchName];
+      out[branchName] = {
+        label: prev ? `${prev.label} + ${mm.label}` : mm.label,
+        highPower: prev?.highPower === true || mm.meta.highPower === true,
+      };
     }
   }
   return out;

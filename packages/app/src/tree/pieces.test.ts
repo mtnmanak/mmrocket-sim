@@ -166,3 +166,77 @@ describe('an inner tube honours radialPosition / radialDirection', () => {
     expect(meanY).toBeCloseTo(0.03, 9);
   });
 });
+
+/**
+ * The half of the v0.044 elliptical-fin fix that was never applied. solidMesh
+ * (the printable part, the DXF and the paper template) has drawn a true half
+ * ellipse since then; this path — the 3D tab and every whole-rocket .stl/.obj/
+ * .glb — kept walking x linearly against y = sin(pi*t), which is a sine hump
+ * 18.94 % short on area. Nothing in this suite built an `ellipticalfinset`, so
+ * nothing held it for 91 releases. The guard mirrors solidMesh.test.ts:269-287.
+ */
+describe('an elliptical fin set draws a TRUE half ellipse', () => {
+  const ROOT = 0.05, SPAN = 0.04, THK = 0.002;
+
+  const finTree = (): RocketTree => withChildren([{
+    id: 'ef', type: 'ellipticalfinset', finCount: 1,
+    rootChord: ROOT, height: SPAN, thickness: THK,
+    position: { method: 'bottom', offset: 0 },
+  } as unknown as ComponentNode]);
+
+  /** Signed volume of a closed triangle mesh, by the divergence theorem. */
+  const volumeOf = (g: { getAttribute: (n: string) => { count: number; getX: (i: number) => number; getY: (i: number) => number; getZ: (i: number) => number }; getIndex: () => { count: number; getX: (i: number) => number } | null }): number => {
+    const pos = g.getAttribute('position');
+    const idx = g.getIndex();
+    const n = idx ? idx.count : pos.count;
+    const at = (i: number): [number, number, number] => {
+      const j = idx ? idx.getX(i) : i;
+      return [pos.getX(j), pos.getY(j), pos.getZ(j)];
+    };
+    let v = 0;
+    for (let i = 0; i < n; i += 3) {
+      const [ax, ay, az] = at(i), [bx, by, bz] = at(i + 1), [cx, cy, cz] = at(i + 2);
+      v += (ax * (by * cz - bz * cy) - ay * (bx * cz - bz * cx) + az * (bx * cy - by * cx)) / 6;
+    }
+    return Math.abs(v);
+  };
+
+  it('encloses (PI/4)*root*height*thickness, not the sine hump (2/PI)*root*height*thickness', () => {
+    const fin = buildPieces(finTree()).pieces.find((p) => p.key.startsWith('fin'));
+    expect(fin).toBeDefined();
+    const v = volumeOf(fin!.geometry);
+    const ellipse = (Math.PI / 4) * ROOT * SPAN * THK;
+    expect(Math.abs(v - ellipse) / ellipse).toBeLessThan(0.01);
+    // ...and nowhere near the sine hump, so a silent revert cannot pass. The
+    // two differ by only 19 %, so a loose tolerance would accept either.
+    const sineHump = (2 / Math.PI) * ROOT * SPAN * THK;
+    expect(Math.abs(v - sineHump) / sineHump).toBeGreaterThan(0.1);
+  });
+
+  it('puts every planform vertex ON the ellipse', () => {
+    // Pins the CURVE, not just the area: a wrong curve of the right area
+    // would pass the volume check alone.
+    const fin = buildPieces(finTree()).pieces.find((p) => p.key.startsWith('fin'))!;
+    const pos = fin.geometry.getAttribute('position');
+    // One fin at rotation 0, so the only transform is the translation onto the
+    // tube: the root chord sits at the minimum y, the leading root at minimum
+    // x. Normalise by those and the planform is back in fin coordinates.
+    let minX = Infinity, minY = Infinity;
+    for (let i = 0; i < pos.count; i++) {
+      minX = Math.min(minX, pos.getX(i));
+      minY = Math.min(minY, pos.getY(i));
+    }
+    const a = ROOT / 2;
+    let checked = 0;
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i) - minX, y = pos.getY(i) - minY;
+      if (y <= 1e-12) continue; // the root chord itself
+      // 5 decimals, not more: BufferGeometry stores Float32, so a coordinate
+      // near 0.05 m carries about 1e-7 of relative slop and the squared sum
+      // lands within ~1.3e-6 of 1. The sine hump misses by up to 0.3.
+      expect(((x - a) / a) ** 2 + (y / SPAN) ** 2).toBeCloseTo(1, 5);
+      checked++;
+    }
+    expect(checked).toBeGreaterThan(8);
+  });
+});

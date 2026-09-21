@@ -136,7 +136,13 @@ OFF ⇒ CP/CNα bit-identical to classic Barrowman. Model: slender-body theory g
 fin+carryover load `(1+τ)² · (fin-alone)`; OpenRocket already credits `(1+τ)`, so the body
 carryover that completes it is `τ(1+τ)·(fin-alone) = τ·cna`, placed at the fin ROOT
 quarter-chord (NACA 1307 puts the carryover near the root; forward of the swept-fin MAC).
-Net effect: CP moves slightly AFT (more conservative margin). Two files + bridge:
+Net effect: CP moves slightly AFT, which **RAISES the static margin the app shows** — static
+margin is `(xCP − xCG)/d` with x increasing aft, so "aft" is not "conservative", and this line
+said *"more conservative margin"* until **2026-09-21**. It is the closer answer for the
+geometries it was validated against, not automatically the safer one; on an erroneous aft
+prediction it overstates how much margin the rocket has. *(Correction prompted by Ken Karbon,
+Apogee Peak of Flight 687, which measures the base's own contribution to CP at 0.0015 caliber.)*
+Two files + bridge:
 
 - **aerodynamics/BarrowmanCalculator.java** (extends the existing TeaVM-reflection patch):
   add `boolean rogersKbf` + `setRogersKbf`/`isRogersKbf`; `newInstance()` preserves it;
@@ -698,13 +704,26 @@ no bridge export, no TypeScript method. The nozzle already reaches the stage
   N-instance `ParallelStage` removes N nozzle areas of base drag. This half de-duplicates by
   `stage.getStageNumber()`, which is ONE number for the whole `ParallelStage`, so it adds
   exactly one area however many instances burn — while `MotorClusterState.getThrust` already
-  returned N × the curve. Not reachable today: `orkEngine.ts`'s `parallelstage`/`podset`
-  comment records that kernel support is compiled in but the JS-bridge build path lands in a
-  later phase, so nothing can construct one. **Resolve it in the sitting that bridge lands** —
-  either multiply by the stage's instance count here, or define the field as
-  per-parallel-instance and change the drag half instead. Recorded 2026-09-08 (review),
-  because the old wording of the bullet above ("exactly one nozzle area per stage") was what
-  hid it.
+  returned N × the curve. **CORRECTED 2026-09-21: "not reachable because the bridge cannot
+  build one" was FALSE, and had been since v0.021 (`727e6e0`).** The bridge builds both
+  assemblies (`ComponentFactory.buildAssembly`) and applies `nozzleExitDiameter` to them
+  (`ComponentFactory.java:962` → `OrkEngine.java:221`); measured through the raw API at
+  ~86 kPa, two instances of a 32 N motor with a 10 mm nozzle produce **65.203822 N** where
+  per-instance accounting gives **66.407645 N**, exactly one nozzle term short. What makes it
+  unreachable is the APP — no `FIELDS.parallelstage` nozzle entry, and `applyStageNozzles`
+  writes top-level stages only — and that is now ENFORCED instead of assumed:
+  `OrkRocket.buildTree` throws on an exit diameter set on a `podset`/`parallelstage`
+  (`orkEngine.ts` `assertNoAssemblyNozzle`, covered in `pressureThrust.test.ts`). **Resolving
+  it means ruling the DEFINITION first** — is the field the per-instance exit or the
+  assembly's total? — then either multiplying by the instance count here or changing the drag
+  half. Recorded 2026-09-08 (review), because the old wording of the bullet above ("exactly
+  one nozzle area per stage") was what hid it; corrected 2026-09-21 after the 19 September
+  review measured it.
+
+  *(The Java comment this mirrors was corrected in the same sitting. Both are COMMENT-ONLY
+  edits: `orkengine.mjs` is unchanged and stays byte-identical to its v0.119 build, because
+  comments do not survive compilation — so no `engine:js`, no difftest, and the artifact is
+  not stale against its source in any way that can affect behaviour.)*
 - **Staggered ignition over-credits a cluster, and the drag half does too.** The whole summed
   equivalent area is charged from the moment the stage's FIRST motor lights: a central motor
   at launch with three outboards airstarted at burnout + 1 (expressible today, per mount, via

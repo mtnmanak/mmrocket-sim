@@ -1,6 +1,6 @@
 import type { RocketTree } from '@online-openrocket/engine';
 import type { MountMotor } from '../App.js';
-import { findNode, stageIdByNode, stagesWithNozzle } from '../tree/treeModel.js';
+import { findNode, kernelStageIdByNode, stagesWithNozzle } from '../tree/treeModel.js';
 import { clusterCount } from '../tree/cluster.js';
 
 /**
@@ -63,7 +63,10 @@ export function nozzleOversize(
   // IS a stage — and `asStageNodes` exists precisely because the legacy flat
   // shape does not satisfy that. Off by one there would accuse a stage whose
   // motors were never counted (2026-09-08, review).
-  const stageOfNode = stageIdByNode(tree);
+  // Kernel ownership (2026-09-21): a strap-on's casing must not pad the
+  // core stage's bound, for the same reason its exit must not pad the core's
+  // equivalent nozzle — see nozzleFollow.stageMotors.
+  const stageOfNode = kernelStageIdByNode(tree);
 
   // Summed casing AREA per stage id, plus how many motors went into it.
   const sumSq = new Map<string, { area: number; count: number }>();

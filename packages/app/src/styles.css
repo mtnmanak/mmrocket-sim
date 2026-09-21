@@ -199,7 +199,15 @@ html {
   border-radius: 5px;
   padding: 0 2px;
   margin: -1px 0;
-  max-width: 148px;
+  /* Wide enough for the longest option, MEASURED rather than guessed: the
+     names are drawn at bold 15px Rajdhani, where "Classic Extended Barrowman"
+     is 179.2px and every other option is under 69. 200 clears it with room
+     for the arrow. It was 148 while that option read "Classic EB"; when the
+     four names for the parity model became one (2026-09-21) the longest grew
+     and the cell clipped it to "Classic Extended Ba". The strip wraps
+     (flex-wrap above), so a wider cell costs a wrapped row on a narrow
+     window, never an overflow. */
+  max-width: 200px;
   cursor: pointer;
 }
 
@@ -1515,8 +1523,37 @@ html {
   flex-direction: column;
   gap: 8px;
   z-index: 3;
-  max-height: 75%;
+  /* THE DRAWING KEEPS ITS FLOOR (2026-09-21, Eric's quarter-screen window).
+     75% alone let the drawer take everything: at a 900px viewport it stood
+     366px tall over a stage that had ~390px to give, so the rocket was drawn
+     BELOW the visible strip rather than covered by it. 246 is exact, not a
+     guess, and it was MEASURED in Chrome rather than reasoned: 200 (the
+     drawing's own layout floor, TreeSchematic.tsx) + 20 (the gap App.tsx adds
+     when it measures the drawer) + 4 (.hero-view's top inset) + 22 (this
+     element's OWN 10px padding twice and 1px border twice — max-height caps
+     the CONTENT box, so the drawer stands 22px taller than the number here,
+     and a budget that forgot that left the drawing 180px, not 200). Verified
+     at a 410px stage: drawer 164 content / 184 rendered, drawing 202; and at
+     500 and 900 the drawing is 202 as well, so the floor holds as the stage
+     grows rather than only at one height.
+     The max(120px, ...) guard is because this rule runs at EVERY width, and
+     on a short stage the calc would go negative and the drawer would vanish.
+     It already scrolls (overflow-y below), so nothing is lost. */
+  max-height: min(75%, max(120px, calc(100% - 246px)));
   overflow-y: auto;
+}
+
+/* BELOW 981px THE DRAWER IS A BLOCK, NOT AN OVERLAY (2026-09-21). There the
+   hero stage has no height of its own and `.hero-view` is a static block, so
+   the inline lift that keeps the drawing clear of the drawer at wider widths
+   is inert and the card simply painted over the rocket. Rendered as a sibling
+   AFTER the stage (App.tsx), it is outside the stage's border and drafting
+   grid, so it reads as a panel rather than a white card floating on the sky. */
+.stats-drawer-flow {
+  position: static;
+  margin-top: 8px;
+  max-height: none;
+  box-shadow: none;
 }
 
 .stats-drawer-head {
@@ -1784,6 +1821,35 @@ html {
 /* 3D viewport: grows with the monitor instead of a fixed 300px letterbox. */
 .rocket3d-wrap {
   height: clamp(300px, 42vh, 560px);
+}
+
+/* The 3D tab's failure state (components/View3DBoundary.tsx). It needs a
+   min-height of its own: .hero-view is only position:absolute inside
+   @media (min-width: 981px) — below that it is an ordinary block and this
+   notice is the only thing giving the stage any height at all. */
+.hero-fallback {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 8px;
+  min-height: 180px;
+  padding: 16px;
+  max-width: 62ch;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+
+.hero-fallback p {
+  margin: 0;
+}
+
+/* The raw thrown message, e.g. "Error creating WebGL context." — the one
+   string a bug report actually needs, so it is shown rather than logged only. */
+.hero-fallback-detail {
+  font-size: 11.5px;
+  color: var(--text-muted);
 }
 
 /* --- File buttons --- */

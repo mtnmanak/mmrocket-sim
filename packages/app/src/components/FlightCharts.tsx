@@ -192,7 +192,7 @@ function Panel({ result, def, plots, expanded, onToggleExpand, onZoomChange }: {
   );
 }
 
-export function FlightCharts({ result, onFullSeries, designName }: {
+export function FlightCharts({ result, onFullSeries, designName, staleReason }: {
   result: FlightResult;
   /**
    * Re-flies the shown flight with the full series payload. Absent = the
@@ -200,6 +200,18 @@ export function FlightCharts({ result, onFullSeries, designName }: {
    */
   onFullSeries?: () => Promise<FlightResult>;
   designName?: string;
+  /**
+   * What has moved since the SHOWN flight was flown, as prose ("the weighed
+   * pad mass"), or null when nothing has. The downloads REFUSE while it is
+   * set: they work by re-flying the design as it stands NOW, so the file
+   * would describe a different rocket from the plots it sits under and is
+   * named after.
+   *
+   * It deliberately does NOT carry the aerodynamics model — that one the
+   * re-fly restores from the run itself, so a model switch is a labelling
+   * matter and not a reason to refuse.
+   */
+  staleReason?: string | null;
 }) {
   const { prefs, daylight, resolvedTheme } = usePrefs();
   const catalog = useMemo(
@@ -289,14 +301,29 @@ export function FlightCharts({ result, onFullSeries, designName }: {
         <h2 style={{ flex: 1 }}>Flight plots</h2>
         {onFullSeries && (
           <>
-            <span className="download-caption">Download this flight, every timestep:</span>
-            <button className="file-btn" disabled={exportBusy !== null}
-              title={'Re-flies the shown flight to capture every series the physics kernel records (deterministic — the same flight, more columns), one row per timestep, in your preferred units (each header names its unit; thrust and drag stay in newtons). Booster stages append as name-prefixed column groups. Not stored with run history.'}
+            {/* The caption carries the refusal, not the `title`: a browser
+                shows no tooltip on a disabled button, and a dead button whose
+                only explanation is an attribute is a dead button with no
+                explanation. role="status" announces it the way the
+                export-failure line below does. */}
+            <span className="download-caption" id="flight-data-stale" role="status">
+              {staleReason
+                ? `Not available — ${staleReason} changed since this flight. Press Launch to fly the current design, then export.`
+                : 'Download this flight, every timestep:'}
+            </span>
+            <button className="file-btn" disabled={exportBusy !== null || !!staleReason}
+              aria-describedby={staleReason ? 'flight-data-stale' : undefined}
+              title={staleReason
+                ? `Unavailable: ${staleReason} changed since this flight was flown. These files are produced by re-flying the design as it stands now, so this one would describe a different rocket from the plots above it. Press Launch to fly the current design.`
+                : 'Re-flies the shown flight to capture every series the physics kernel records (deterministic — the same flight, more columns), one row per timestep, in your preferred units (each header names its unit; thrust and drag stay in newtons). Booster stages append as name-prefixed column groups. Not stored with run history.'}
               onClick={() => exportFlightData('csv')}>
               {exportBusy === 'csv' ? '⏳ Re-flying…' : '⬇ Flight data (.csv)'}
             </button>
-            <button className="file-btn" disabled={exportBusy !== null}
-              title={'Excel workbook of the same flight data: typed numeric cells under unit-labelled headers, plus a live Excel chart tab for every exported column — the headline quantities one per tab, the coefficient and rate families grouped — referencing the data sheet. Booster stages get their own data sheets and their own chart tabs.'}
+            <button className="file-btn" disabled={exportBusy !== null || !!staleReason}
+              aria-describedby={staleReason ? 'flight-data-stale' : undefined}
+              title={staleReason
+                ? `Unavailable: ${staleReason} changed since this flight was flown. These files are produced by re-flying the design as it stands now, so this one would describe a different rocket from the plots above it. Press Launch to fly the current design.`
+                : 'Excel workbook of the same flight data: typed numeric cells under unit-labelled headers, plus a live Excel chart tab for every exported column — the headline quantities one per tab, the coefficient and rate families grouped — referencing the data sheet. Booster stages get their own data sheets and their own chart tabs.'}
               onClick={() => exportFlightData('xlsx')}>
               {exportBusy === 'xlsx' ? '⏳ Re-flying…' : '⬇ Flight data + charts (.xlsx)'}
             </button>

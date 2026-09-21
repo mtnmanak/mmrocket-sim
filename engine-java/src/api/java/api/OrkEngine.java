@@ -431,7 +431,9 @@ public final class OrkEngine {
      * Opt-in "Rogers Modified Barrowman" body-in-presence-of-fins interference
      * (Kbf), feature #3. When enabled, the displayed CP/stability and the flight
      * sim both include the body carryover load classic Barrowman drops (a more
-     * conservative, slightly more aft CP). Off by default; a per-design setting.
+     * slightly more aft CP, which RAISES the displayed static margin - aft is not
+     * "conservative", see the note in the FinSetCalc patch). Off by default; a
+     * per-design setting.
      */
     @JSExport
     public static void setRogersModifiedBarrowman(int rocketHandle, boolean enabled) {

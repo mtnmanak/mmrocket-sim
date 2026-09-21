@@ -256,6 +256,67 @@ describe('hardwareMass — clusters and multiple mounts', () => {
     expect(flownSpec('b-mmt', booster, r)).toBe(booster);
   });
 
+  /**
+   * A mount inside a POD SET or a PARALLEL STAGE flies once per instance —
+   * `MassCalculation.calculateMotors` recurses per instance and only then
+   * multiplies by the cluster, so the two multiplicities MULTIPLY. Counting
+   * the cluster alone invented the missing motors as airframe hardware and
+   * then flew that invention on every copy: measured on the shipped kernel,
+   * a correctly weighed 1.2 kg (1 kg dry + two 0.1 kg motors) flew at 1.4 kg
+   * (2026-09-21, from the 19 Sep review).
+   */
+  const inAssembly = (type: 'podset' | 'parallelstage', instanceCount: number,
+    mount: Partial<ComponentNode> = {}): RocketTree => ({
+    name: 'assembly',
+    components: [{
+      type: 'stage', id: 's1', name: 'Sustainer',
+      children: [{
+        type: 'bodytube', id: 'b1', length: 0.4, outerRadius: 0.025, thickness: 0.0005,
+        children: [{
+          type, id: 'pod', name: 'Strap-on', instanceCount,
+          children: [{
+            type: 'bodytube', id: 'b2', length: 0.3, outerRadius: 0.02, thickness: 0.0005,
+            children: [{
+              type: 'innertube', id: 'mmt', name: 'Mount', length: 0.3, outerRadius: 0.015,
+              thickness: 0.0005, motorMount: true, ...mount,
+            } as ComponentNode],
+          } as ComponentNode],
+        } as ComponentNode],
+      } as ComponentNode],
+    } as ComponentNode],
+  });
+
+  it('counts a mount once per POD SET instance', () => {
+    expect(catalogueMotorMass(inAssembly('podset', 2), [['mmt', { spec: spec([0.1]) }]]))
+      .toBeCloseTo(0.2, 12);
+  });
+
+  it('counts a mount once per PARALLEL STAGE instance', () => {
+    expect(catalogueMotorMass(inAssembly('parallelstage', 3), [['mmt', { spec: spec([0.1]) }]]))
+      .toBeCloseTo(0.3, 12);
+  });
+
+  it('MULTIPLIES the cluster by the enclosing instance count', () => {
+    // Two strap-ons, each carrying a 3-ring: six motors, not two and not three.
+    expect(catalogueMotorMass(inAssembly('parallelstage', 2, { cluster: '3-ring' }),
+      [['mmt', { spec: spec([0.1]) }]])).toBeCloseTo(0.6, 12);
+  });
+
+  it('invents no hardware from a correctly weighed two-instance design', () => {
+    // 1 kg dry + two 0.1 kg motors, weighed at exactly 1.2 kg. Before the fix
+    // the app saw one motor, derived 0.1 kg of "hardware", and then carried it
+    // on EACH repeated motor — 1.4 kg flown against a 1.2 kg scale reading.
+    const r = ok(hardwareMass({
+      padMassKg: 1.2, measuredDryMassKg: null, computedDryMassKg: 1.0,
+      tree: inAssembly('parallelstage', 2), motors: [['mmt', { spec: spec([0.1, 0.05]) }]],
+      primaryMountId: 'mmt',
+    }));
+    expect(r.motorMassKg).toBeCloseTo(0.2, 12);
+    expect(r.deltaKg).toBeCloseTo(0, 9);
+    expect(r.motorCount).toBe(2);
+    expect(r.perMotorShiftKg).toBeCloseTo(0, 9);
+  });
+
   it('catalogueMotorMass is cluster-aware and null when any curve lacks a mass column', () => {
     expect(catalogueMotorMass(singleStage({ cluster: '4-ring' }), [['mmt', { spec: spec([0.25]) }]]))
       .toBeCloseTo(1.0, 12);

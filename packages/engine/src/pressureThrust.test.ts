@@ -382,4 +382,39 @@ describe('RASAero pressure thrust (kernel feature #5)', () => {
     });
     expect(rocket.simulate({}).summary.maxAltitude).toBeCloseTo(329.6097045289919, 4);
   });
+
+  /**
+   * The kernel credits ONE nozzle area per distinct stage NUMBER while flying
+   * one motor per instance, so a repeated parallel stage carrying an exit
+   * diameter would collect too little pressure thrust — measured through the
+   * raw API at ~86 kPa: 65.203822 N where per-instance accounting gives
+   * 66.407645 N. No app path can set that field on an assembly; this keeps it
+   * that way by construction instead of by luck (2026-09-21).
+   */
+  it('refuses a nozzle exit diameter on a pod set or parallel stage', () => {
+    const withAssemblyNozzle = (type: 'podset' | 'parallelstage'): RocketTree => ({
+      name: 'Assembly nozzle',
+      components: [{
+        type: 'stage', name: 'S',
+        children: [
+          { type: 'nosecone', length: 0.10, aftRadius: 0.012, thickness: 0.002 },
+          {
+            type: 'bodytube', id: 'body', length: 0.45, outerRadius: 0.012, thickness: 0.0005,
+            children: [{
+              type, id: 'pod', instanceCount: 2, nozzleExitDiameter: 0.010,
+              children: [{
+                type: 'bodytube', id: 'pod-body', length: 0.3, outerRadius: 0.010,
+                thickness: 0.0005, motorMount: true,
+              }],
+            }],
+          },
+        ],
+      }],
+    } as unknown as RocketTree);
+
+    for (const type of ['podset', 'parallelstage'] as const) {
+      expect(() => OrkRocket.buildTree(withAssemblyNozzle(type)))
+        .toThrow(/nozzleExitDiameter on a (podset|parallelstage)/);
+    }
+  });
 });

@@ -920,7 +920,7 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
       mount['motorMount'] = true;
       const ref: OrkMotorRef = {
         designation: eng.designation,
-        manufacturer: eng.manufacturer, // RASAero abbreviation (AT/CTI/…) — informational
+        manufacturer: eng.manufacturer, // RASAero abbreviation (AT/CTI/…) — a HINT, used by both motor lookups
         diameter: 0, // unknown in the file — match by designation alone
         length: 0,
         // RASAero requires apogee deployment, so the sustainer motor is
@@ -1113,9 +1113,15 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
     const mount = aftTube(stages[stageIdx]);
     const ref = mount?.id ? chosen?.motors[mount.id] : undefined;
     if (!ref) return null;
-    // RockSim/RASAero refs carry no motor diameter — match by designation
-    // alone, the same call App.matchImportedMotor makes to load it.
-    const db = findDbMotor(ref.designation);
+    // RockSim/RASAero refs carry no motor diameter, so the diameter argument
+    // stays undefined — but the MANUFACTURER hint must be passed, because this
+    // lookup has to resolve to the same catalogue row that
+    // App.matchImportedMotor will mount (motorMatch.ts:192 passes it). It did
+    // not until 2026-09-21, so on a designation two makers share — 33 such
+    // groups in the shipped catalogue — the mass and moment subtracted here
+    // could come from a different motor than the one that flies. Worst real
+    // case measured: Contrail K456 at 2.220 kg against the other K456.
+    const db = findDbMotor(ref.designation, undefined, undefined, ref.manufacturer);
     // NO catalog entry at all is not the same as an entry we cannot trust, and
     // the two must not skip together. With no entry App.matchImportedMotor
     // mounts NOTHING and says so, so the rocket really does fly with no motor

@@ -282,6 +282,19 @@ export function classesFittingMount(boreMm: number, motors: MotorDbEntry[] = get
   return allClasses(motors).filter((c) => c <= boreMm + MOUNT_TOLERANCE_MM);
 }
 
+/**
+ * Does this catalogued motor fit a mount with that bore? Exactly the test
+ * `filterMotors` applies per row, exposed for a caller holding ONE motor —
+ * rather than a fifth hand-rolled copy of the same arithmetic, which is how a
+ * 24 mm D12 came to be offered on the starter rocket's 18 mm mount while the
+ * browser had always refused it (2026-09-21).
+ */
+export function fitsMount(
+  boreMm: number, m: Pick<MotorDbEntry, 'diameter'>, motors: MotorDbEntry[] = getCatalogue(),
+): boolean {
+  return classesFittingMount(boreMm, motors).includes(diameterClass(m.diameter));
+}
+
 export interface MotorFilter {
   /** Selected manufacturer abbrevs; empty set = all. */
   manufacturers: Set<string>;

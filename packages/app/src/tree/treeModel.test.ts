@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { OrkRocket } from '@online-openrocket/engine';
-import { bodyDragReference, clearStageNozzles, engineTree, fairingDeliveredCd, fairingFrontalArea, findNode, findParent, mountRadiusOf, hasParallelStage, isOnLaunchStage, makeNode, motorMounts, mountsIn, normalizeTree, primaryMountOf, protuberanceCd, protuberanceDeliveredCd, protuberanceFrontalArea, PROTUBERANCE_REF_MACH, referenceArea, resetBodyDragCache, splitClusterPairsTree, splitClusterTree, stageIdByNode, motorisedStagesWithNozzle, stagesWithNozzle } from './treeModel.js';
+import { addStage, bodyDragReference, clearStageNozzles, defaultTree, duplicateNode, engineTree, flownRecoveryDevices, isPristineDefault, stageDefaultName, fairingDeliveredCd, fairingFrontalArea, findNode, findParent, mountRadiusOf, hasParallelStage, isOnLaunchStage, makeNode, motorMounts, mountsIn, normalizeTree, primaryMountOf, protuberanceCd, protuberanceDeliveredCd, protuberanceFrontalArea, PROTUBERANCE_REF_MACH, referenceArea, resetBodyDragCache, splitClusterPairsTree, splitClusterTree, stageIdByNode, kernelStageIdByNode, motorisedStagesWithNozzle, stagesWithNozzle } from './treeModel.js';
 import { clusterOffsets } from './cluster.js';
 import { allowedChildren, defaultParams, DISPLAY_NAME, FIELDS } from './schema.js';
 
@@ -1822,6 +1822,43 @@ describe('motorisedStagesWithNozzle', () => {
       .toEqual(['Booster']);
   });
 
+  /**
+   * `ParallelStage extends AxialStage`, and `RocketComponent.getStage()`
+   * returns the nearest one — so everything inside a strap-on belongs to the
+   * strap-on as far as pressure thrust and power-on base drag go. The app's
+   * own grouping deliberately claims it for the host airframe (the ignition
+   * default and the branch report both want that); anything joining against
+   * the kernel must use this one instead (2026-09-21).
+   */
+  it('kernelStageIdByNode stops at a parallel stage where stageIdByNode does not', () => {
+    const t: RocketTree = {
+      name: 'Strap-on',
+      components: [{
+        type: 'stage', id: 'sus', name: 'Sustainer', nozzleExitDiameter: 0.05,
+        children: [{
+          type: 'bodytube', id: 'bt', length: 0.5,
+          children: [
+            { type: 'innertube', id: 'core', length: 0.2 } as ComponentNode,
+            {
+              type: 'parallelstage', id: 'pod', name: 'Strap-on', instanceCount: 2,
+              children: [{
+                type: 'bodytube', id: 'pod-bt', length: 0.3,
+                children: [{ type: 'innertube', id: 'strap', length: 0.2 } as ComponentNode],
+              } as ComponentNode],
+            } as ComponentNode,
+          ],
+        } as ComponentNode],
+      } as ComponentNode],
+    };
+    expect(stageIdByNode(t).get('strap')).toBe('sus');
+    expect(kernelStageIdByNode(t).get('strap')).toBe('pod');
+    // The core is unaffected by either rule.
+    expect(kernelStageIdByNode(t).get('core')).toBe('sus');
+    // And a strap-on motor alone does not make the CORE stage's nozzle live.
+    expect(motorisedStagesWithNozzle(t, [['strap', lit]])).toEqual([]);
+    expect(motorisedStagesWithNozzle(t, [['core', lit]]).map((s) => s.name)).toEqual(['Sustainer']);
+  });
+
   it('stageIdByNode joins by ID, so a non-normalized top level cannot shift the answer', () => {
     // `stages()` filters to type 'stage' while `stageIndexOf` does not, so an
     // extra top-level node moves one index space and not the other. Ids do not
@@ -1830,5 +1867,159 @@ describe('motorisedStagesWithNozzle', () => {
     t.components.unshift({ type: 'masscomponent', id: 'ballast' } as ComponentNode);
     expect(stageIdByNode(t).get('mb')).toBe('boo');
     expect(motorisedStagesWithNozzle(t, [['mb', lit]]).map((s) => s.name)).toEqual(['Booster']);
+  });
+});
+
+/**
+ * The predicate the Quick Picks now hang on (2026-09-21) and the share-link
+ * loader has always hung on — and which had no test at all. It compares
+ * stringified JSON, so it is key-order sensitive; the round trip below is the
+ * part that matters, because the symptom of getting it wrong is quiet: the
+ * picks vanish after a reload for a user who touched nothing.
+ */
+describe('isPristineDefault', () => {
+  it('is true for a fresh default tree', () => {
+    expect(isPristineDefault(defaultTree())).toBe(true);
+  });
+
+  it('survives a JSON round trip and normalizeTree, the way a restored session does', () => {
+    const restored = normalizeTree(JSON.parse(JSON.stringify(defaultTree())) as RocketTree);
+    expect(isPristineDefault(restored)).toBe(true);
+  });
+
+  it('is false once the rocket is renamed', () => {
+    expect(isPristineDefault({ ...defaultTree(), name: 'Monster Mamba' })).toBe(false);
+  });
+
+  it('is false once a component changes', () => {
+    const t = defaultTree();
+    const tube = t.components[0]!.children!.find((c) => c.type === 'bodytube')!;
+    tube['length'] = (tube['length'] as number) + 0.01;
+    expect(isPristineDefault(t)).toBe(false);
+  });
+
+  it('is false once a component is added', () => {
+    const t = defaultTree();
+    t.components[0]!.children!.push({ type: 'masscomponent', id: 'x' } as ComponentNode);
+    expect(isPristineDefault(t)).toBe(false);
+  });
+});
+
+/**
+ * The flown coefficient, resolved rather than left blank (2026-09-21). An
+ * untyped canopy flies the kernel's automatic 0.80 — `ComponentFactory` calls
+ * `setCD` only for a finite `cd`, so an absent key IS the automatic path — and
+ * the report printed a dash for it while the landing verdict rested on it.
+ */
+describe('flownRecoveryDevices resolves the automatic parachute Cd', () => {
+  const chute = (extra: Record<string, unknown> = {}, type = 'parachute'): RocketTree => ({
+    name: 'r',
+    components: [{
+      type: 'stage', id: 's1',
+      children: [{
+        type: 'bodytube', id: 'b1', length: 0.3, outerRadius: 0.02,
+        children: [{ type, id: 'p1', name: 'Main', diameter: 0.6, ...extra } as ComponentNode],
+      } as ComponentNode],
+    } as ComponentNode],
+  } as RocketTree);
+
+  it('reports 0.80, flagged automatic, when no Cd is typed', () => {
+    const d = flownRecoveryDevices(engineTree(chute())).Main!;
+    expect(d.cd).toBe(0.8);
+    expect(d.cdAutomatic).toBe(true);
+  });
+
+  it('leaves a typed coefficient alone and does not call it automatic', () => {
+    const d = flownRecoveryDevices(engineTree(chute({ cd: 2.2 }))).Main!;
+    expect(d.cd).toBe(2.2);
+    expect(d.cdAutomatic).toBe(false);
+  });
+
+  it('scales the automatic value by a vent, and still says it was automatic', () => {
+    const d = flownRecoveryDevices(engineTree(chute({ spillHoleDiameter: 0.12192 }))).Main!;
+    // 0.8 * (1 - (0.12192/0.6)^2)
+    expect(d.cd).toBeCloseTo(0.8 * (1 - (0.12192 / 0.6) ** 2), 12);
+    expect(d.cdNominal).toBe(0.8);
+    expect(d.cdAutomatic).toBe(true);
+  });
+
+  it('leaves a STREAMER null — its automatic Cd is computed from the strip, not a constant', () => {
+    const d = flownRecoveryDevices(engineTree(chute({}, 'streamer'))).Main!;
+    expect(d.cd).toBeNull();
+    expect(d.cdAutomatic).toBe(false);
+  });
+
+  it('never writes the automatic value INTO the engine tree', () => {
+    // Writing it would call setCD and turn cdAutomatic off in the kernel,
+    // which is the same number today and a silently pinned one tomorrow.
+    const eng = engineTree(chute());
+    const node = findNode(eng, 'p1')!;
+    expect(node['cd']).toBeUndefined();
+  });
+});
+
+/**
+ * Duplicating a STAGE used to call the copy "Sustainer (copy)" and drop it in
+ * the booster slot (Eric, 18 September item 17) — the one node type whose name
+ * is structural getting the one suffix that describes its origin instead of
+ * its position. Neither `duplicateNode` nor `addStage` had any coverage at all
+ * before this block.
+ */
+describe('duplicating a stage names it for where it lands', () => {
+  const stacked = (...names: string[]): RocketTree => ({
+    name: 'Stack',
+    components: names.map((n, i) => ({
+      type: 'stage', id: `s${i}`, name: n, children: [],
+    } as unknown as ComponentNode)),
+  } as RocketTree);
+  const namesOf = (t: RocketTree) => t.components.map((c) => c.name);
+
+  it('gives the positional name, and renumbers the stages below it', () => {
+    const out = duplicateNode(stacked('Sustainer', 'Booster'), 's0');
+    expect(namesOf(out.tree)).toEqual(['Sustainer', 'Booster', 'Booster 2']);
+  });
+
+  it('numbers a copy of the LAST stage as the next in the sequence', () => {
+    const out = duplicateNode(stacked('Sustainer', 'Booster'), 's1');
+    expect(namesOf(out.tree)).toEqual(['Sustainer', 'Booster', 'Booster 2']);
+  });
+
+  it('keeps going past Booster 2', () => {
+    const out = duplicateNode(stacked('Sustainer', 'Booster', 'Booster 2'), 's1');
+    expect(namesOf(out.tree)).toEqual(['Sustainer', 'Booster', 'Booster 2', 'Booster 3']);
+  });
+
+  it('leaves a stage YOU named alone — it gets "(copy)" like any other part', () => {
+    const out = duplicateNode(stacked('Upper', 'Booster'), 's0');
+    expect(namesOf(out.tree)).toEqual(['Upper', 'Upper (copy)', 'Booster']);
+  });
+
+  it('never renames a stage the user named, even while renumbering', () => {
+    const out = duplicateNode(stacked('Sustainer', 'Kicker'), 's0');
+    expect(namesOf(out.tree)).toEqual(['Sustainer', 'Booster', 'Kicker']);
+  });
+
+  it('still suffixes an ordinary part with (copy)', () => {
+    const t: RocketTree = {
+      name: 'r',
+      components: [{
+        type: 'stage', id: 's0', name: 'Sustainer',
+        children: [{ type: 'bodytube', id: 'b1', name: 'Airframe', length: 0.3 } as ComponentNode],
+      } as unknown as ComponentNode],
+    } as RocketTree;
+    const out = duplicateNode(t, 'b1');
+    expect(out.tree.components[0]!.children!.map((c) => c.name))
+      .toEqual(['Airframe', 'Airframe (copy)']);
+  });
+
+  it('is the same rule Add stage uses', () => {
+    expect(stageDefaultName(0)).toBe('Sustainer');
+    expect(stageDefaultName(1)).toBe('Booster');
+    expect(stageDefaultName(2)).toBe('Booster 2');
+    // addStage must go on giving the same names it always did.
+    let t = stacked('Sustainer');
+    t = addStage(t).tree;
+    t = addStage(t).tree;
+    expect(namesOf(t)).toEqual(['Sustainer', 'Booster', 'Booster 2']);
   });
 });
