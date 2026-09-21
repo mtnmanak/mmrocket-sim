@@ -28,6 +28,10 @@ npm-debug.log*
 # copies are kept outside the repository.
 .claude/
 CLAUDE.md
+# Codex’s copy of the same local-only guidance (added 2026-09-21 after a
+# `git add -A` staged it into a PUBLIC repo). Same rule as CLAUDE.md: it is
+# working guidance, not corresponding source, and it does not sync by git.
+AGENTS.md
 
 # Editor/OS noise
 .DS_Store
