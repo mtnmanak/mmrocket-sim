@@ -23,18 +23,27 @@
  */
 
 /**
- * Below this stage height (px, the padding box) an open drawer has been
- * squeezed under about 140 px — a header and one line of tiles — and is worth
- * less than the canvas it is standing on.
+ * Below this stage height (px, the padding box) the CSS floor stops holding
+ * and the drawer is worth less than the canvas it is standing on.
  *
- * 356 = 140 + 216, where 216 is the drawing's own budget: the 200 px layout
- * floor the schematic keeps, plus the 20 px gap the clearance measurement
- * adds, less the 4 px inset that is already outside the padding box.
+ * 366 IS NOT A ROUND NUMBER — IT IS WHERE THE CSS RULE GIVES OUT, and the two
+ * have to meet exactly. `.stats-drawer`'s cap is
+ * `min(75%, max(120px, calc(100% - 246px)))`: the `calc` is what reserves the
+ * drawing's 200 px, and it stops being the binding term when it falls under
+ * the 120 px guard — at `100% = 366`. Below that the drawer is pinned at its
+ * floor and the drawing loses a pixel for every pixel the stage loses.
+ *
+ * This was 356 for about an hour on 2026-09-21, which left a live 10 px band
+ * — a stage of 356 to 365 px, reachable on a window about 776 to 786 px tall,
+ * the same quarter-screen shape as Eric's original report — where the drawer
+ * stayed open and the drawing got 190 to 199 px. Found by an adversarial pass
+ * over the release note that claimed the drawing "keeps 200 px right down to
+ * the point where the drawer puts itself away". It does now.
  */
-export const DRAWER_CLOSE_BELOW_PX = 356;
+export const DRAWER_CLOSE_BELOW_PX = 366;
 
 /** And above this it is worth reopening. The 60 px gap is the hysteresis. */
-export const DRAWER_OPEN_ABOVE_PX = 416;
+export const DRAWER_OPEN_ABOVE_PX = 426;
 
 /**
  * `true`/`false` to set the drawer, or `null` to leave it exactly as it is.

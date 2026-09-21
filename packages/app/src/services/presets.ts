@@ -221,9 +221,14 @@ const CANONICAL_KIND = new Map(
  * Measured over the shipped presets.json (2026-09-21): material type is a pure
  * function of kind — Parachute 473/473 and Streamer 67/67 SURFACE, and no row
  * outside those two kinds is SURFACE; of the other 4,190, 4,165 are BULK and 25
- * carry no material object at all.  Re-derived from the shipped file, 4,730 rows. So a blank materialType cell is filled from the
- * KIND rather than assumed BULK, which on a canopy threw the fabric weight
- * away and wrote a meaningless bulk density onto the part instead.
+ * carry no material object at all (4,730 rows in all).
+ *
+ * So a blank materialType cell is filled from the KIND rather than assumed
+ * BULK, which on a canopy threw the fabric weight away: `presetPatch` writes
+ * `surfaceDensity` only for a SURFACE material, and the bulk `density` it
+ * wrote instead reaches nothing — `ComponentFactory` applies a density only to
+ * an External or Structural component and a Parachute is neither — so the
+ * canopy arrived weightless rather than wrongly weighted.
  */
 const SURFACE_KINDS = new Set(['Parachute', 'Streamer']);
 
