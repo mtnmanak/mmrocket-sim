@@ -1,4 +1,5 @@
 import type { TcMotor } from './thrustcurve.js';
+import { lookupTable } from './xmlUtil.js';
 import rawDb from '../data/motors.json';
 
 /**
@@ -447,8 +448,12 @@ export function sortMotors(
  * Only names that actually appear in OpenRocket's own Manufacturer table are
  * listed: an alias nobody writes is a liability, because a wrong one silently
  * steers a match to the wrong vendor's curve.
+ *
+ * A lookupTable, because the key is a FILE's manufacturer text: on a plain
+ * object `constructor` reads back as a function (audit 2026-09-22 — inert
+ * here only because the read is an `===` compare).
  */
-const MANUFACTURER_ALIASES: Record<string, string> = {
+const MANUFACTURER_ALIASES: Record<string, string> = lookupTable({
   publicmissiles: 'pml',
   publicmissilesltd: 'pml',
   rcsrocketmotorcomponents: 'aerotech',
@@ -462,7 +467,7 @@ const MANUFACTURER_ALIASES: Record<string, string> = {
   skyripper: 'skyr',
   animalmotorworks: 'amw',
   amwprox: 'amw',
-};
+});
 
 const normMfr = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]/g, '');
 

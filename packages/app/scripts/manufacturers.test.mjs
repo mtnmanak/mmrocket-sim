@@ -79,6 +79,15 @@ describe('manufacturer names in the shipped preset database', () => {
     expect(mfrKey('Madcow')).not.toBe(mfrKey('MPC'));
     expect(mfrKey('Estes')).not.toBe(mfrKey('Quest'));
   });
+
+  it('reads a name that is also a prototype key as a name', () => {
+    // Audit 2026-09-22: a <PartMfg>Constructor</PartMfg> made mfrKey return
+    // Object itself, and mfrDisplay a function, because the plain-object maps
+    // inherit `constructor`.
+    expect(mfrKey('Constructor')).toBe('constructor');
+    expect(mfrDisplay('Constructor')).toBe('Constructor');
+    expect(mfrKey('hasOwnProperty')).toBe('hasownproperty');
+  });
 });
 
 describe('the duplicate-row cleanup', () => {

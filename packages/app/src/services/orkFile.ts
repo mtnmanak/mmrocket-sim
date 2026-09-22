@@ -2438,7 +2438,8 @@ export function exportOrk({
       // way; what matters is that a configuration with nothing to say still
       // says notsimulated rather than claiming a result it does not have.
       const fdAttrs = flightDataAttrs(
-        flightData?.[c.id] ?? (c.id === defaultId ? flightDataDefault : undefined));
+        (flightData && Object.hasOwn(flightData, c.id) ? flightData[c.id] : undefined) // own keys: ids are file text
+          ?? (c.id === defaultId ? flightDataDefault : undefined));
       emit(2, `<simulation status="${fdAttrs ? 'uptodate' : 'notsimulated'}">`);
       // The desktop's sim table shows this name — a renamed configuration
       // reads as itself; unnamed ones get the desktop's own "Simulation N".

@@ -2,6 +2,7 @@ import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import type { MountMotor } from '../App.js';
 import type { SimRun } from './simReport.js';
 import { findParent, stageIndexOf } from '../tree/treeModel.js';
+import { lookupTable } from './xmlUtil.js';
 
 /**
  * The three-way aerodynamics mode, as `effectiveAero` in prefs/PrefsContext
@@ -43,7 +44,10 @@ export function stageMotorInfo(
   assigned: [string, MountMotor][],
   stageList: ComponentNode[],
 ): Record<string, { label: string; highPower: boolean }> {
-  const out: Record<string, { label: string; highPower: boolean }> = {};
+  // Keyed by a STAGE NAME, which is file or user text: on a plain object a
+  // stage called `constructor` found Object as its "previous" entry and was
+  // labelled "undefined + H128W" (audit 2026-09-22).
+  const out = lookupTable<{ label: string; highPower: boolean }>({});
   for (const [id, mm] of assigned) {
     let branchName: string | undefined;
     let p = findParent(tree, id);
