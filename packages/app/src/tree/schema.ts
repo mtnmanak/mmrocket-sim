@@ -293,21 +293,19 @@ const MOUNT_ANGLE: FieldDef = {
  * centreline, and in which direction. A split cluster's motor tubes are the
  * common case — each tube is a single tube at its own radius and angle.
  *
- * ⚠ KNOWN LIMIT — DRAWN AND SAVED, NOT YET SIMULATED. Both keys round-trip
- * (orkFile.ts reads/writes <radialposition>/<radialdirection>, scaleRocket
- * scales them) and AftView draws with them, but NOTHING BRIDGES THEM TO THE
- * KERNEL: `grep -rn radial engine-java/src/api/` returns no hit, and
- * ComponentFactory's innertube case sets motorMount, motorOverhang and the
- * cluster keys only, so the kernel InnerTube keeps its constructor
- * radialPosition of 0. A .ork whose split cluster is four tubes at 30 mm off
- * the axis therefore DRAWS off-axis and FLIES on the centreline: roll inertia
- * is short by Σmr² (4 × 60 g at 30 mm ≈ 2.2e-4 kg·m² of I_xx), and a single
- * off-axis tube has the wrong lateral CG outright. Closing it is a kernel
- * change — `setRadialPosition`/`setRadialDirection` in ComponentFactory's
- * innertube and masscomponent cases, plus a rebuild and a differential pass —
- * so do NOT "clean up" these keys as unused on the strength of the bridge
- * ignoring them. Recorded in docs/testing/format-audit-2026-09-03.md rows 81
- * and 115.
+ * Both keys round-trip (orkFile.ts reads/writes <radialposition>/
+ * <radialdirection>, scaleRocket scales them), AftView draws with them, and
+ * ComponentFactory's innertube and masscomponent cases hand them to the kernel
+ * (since v0.105), so do NOT "clean up" either as unused. What the kernel does
+ * with them: a mass component's CG moves with its offset; an off-axis inner
+ * tube and the motor in it keep their CG on the tube's parent axis and carry
+ * the offset as a parallel-axis ROLL-inertia term, m·r² each (kernel fix for
+ * code review E1, 2026-09-22 — until then a split cluster flew with the roll
+ * inertia of the same tubes stacked on the axis, as desktop OpenRocket 24.12
+ * still does; engine-java/patches/LEDGER.md "Correctness fixes"). The kernel
+ * reads only the CG's x, and an off-axis motor's thrust still makes no moment
+ * (upstream's own TODO in RK4SimulationStepper.calculateThrust). Recorded in
+ * docs/testing/format-audit-2026-09-03.md rows 81 and 115.
  */
 const RADIAL_PLACEMENT: FieldDef[] = [
   lenMM('radialPosition', 'Distance off centerline', 1, 300),

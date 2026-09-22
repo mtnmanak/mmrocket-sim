@@ -1220,6 +1220,110 @@ aerodynamic model.
   known subsonic drag bias now propagates into the protuberance instead of being masked
   at one point — one fix to the body will fix both.
 
+### masscalc/MassCalculation.java + rocketcomponent/RingComponent.java — an OFF-AXIS mount carries its parallel-axis ROLL inertia (code review E1, 2026-09-22)
+
+- **Why:** an inner tube placed off the centreline on its own (`radialPosition` ≠ 0 — the
+  desktop "split cluster", one tube per motor, is the everyday case) contributed NO
+  transport term to roll inertia, neither for the motor in it nor for the tube itself.
+  Two holes, one per half:
+  - **Motor** — `MassCalculation.calculateMountData` puts the motor's CM on the mount's
+    PARENT axis (`clusterLocalCM` has y = z = 0) and adds `eachMass * d²` per instance,
+    but only inside `if( 1 < instanceCount )` ("more than 1 motor => motors are not at
+    the centerline"). `InnerTube.getInstanceOffsets()` carries the radial shift for every
+    cluster count, so a single off-axis mount's offset was right there and was skipped.
+  - **Tube** — `RingComponent.getRotationalUnitInertia` is the ring's own
+    `(ro² + ri²)/2` and nothing else, while `getComponentCG` puts a single tube's mass on
+    the parent axis and a cluster's at the MEAN of its offsets. So a single off-axis tube
+    missed `m·r²` and a cluster's tubes missed their spread about the mean — the second
+    one in EVERY cluster, including the ones built with the cluster dropdown.
+  Upstream 24.12 has both holes byte for byte; this is an inherited defect, not a
+  regression. Found by the 19 September code review
+  (`docs/testing/review-2026-09-19-engine-app-physics.md` E1), verified and measured in
+  `docs/testing/response-2026-09-21a.md` §1 (roll inertia 52.7 % low, peak roll rate
+  6.2 % over, apogee 1.3 % on that sitting's motor-dominated split cluster). Ruled by Eric
+  in `docs/testing/issues-2026-09-22a.md`: *"fix all the issues found in the code-review"*
+  — that review's E1, whose own measured omission is `2 × (m_tube + m_motor) × 0.03²`, i.e.
+  both halves.
+- **The measured symptom, from the goldens this entry added** (`inertia.offaxis.*`, before
+  the fix): `split` (two tubes at ±30 mm) printed the SAME seven numbers as `centre` (the
+  same two tubes on the axis), bit for bit, while `double` — the identical geometry built
+  as one 'double' cluster — carried its motors' `2 × 0.35 × 0.03²` = 6.3e-4 kg·m². And
+  `ring3`'s DRY roll inertia equalled `ring3zero`'s (the same cluster at clusterScale 0)
+  to the last digit: the tubes' spread was never charged.
+- **Change, `MassCalculation` (the motor half, extends the v0.088 patch):** the guard is
+  gone; every instance gets `eachMass * hypot(y, z)²`. The N > 1 path runs exactly the
+  expression it always ran, and a centreline mount's single offset is (0, 0, 0), so the
+  added term is `eachMass * 0² = +0.0` and `clusterIr` is bit-identical by construction.
+- **Change, `RingComponent` (the tube half, NEW patch — promoted from carved):**
+  `getRotationalUnitInertia` returns `own + instanceSpreadUnitInertia()` — the per-unit-mass
+  `Σ|d_i − ref|² / N` of the instance offsets' lateral components — and returns `own`
+  UNTOUCHED when the spread is exactly 0.0 (a structural guard, not `own + 0.0`). The
+  spread is 0.0 for every centering ring, bulkhead, coupler and engine block (their
+  offsets are the inherited single ZERO, or a RadiusRingComponent line pattern along x
+  only) and for every centreline tube.
+- **The modelling choice, stated because it is one:** `ref` is the lateral point
+  `getComponentCG()` ALREADY reports — (0, 0) for one instance, the mean of the offsets for
+  several — and the motor half's reference is the mount's parent axis, where
+  `clusterLocalCM` already sits. So both halves add ROLL inertia and nothing else: no CG
+  moves, and no pitch/yaw term appears through `rebase()`. Rejected: moving a single
+  tube's CG out to its offset (the `MassObject` convention). That is exact inside a pod
+  set, but it also adds `m·z²` to Iyy and `m·y²` to Izz through `rebase()` — and the
+  stepper uses Iyy for BOTH pitch and yaw, so a tube's pitch/yaw inertia would depend on
+  which way round the body it was clocked. Outside the ruling, and not an improvement.
+- **Known residuals, recorded rather than modelled:** (a) the terms are about the mount's
+  PARENT axis, so a tube that is off the axis INSIDE an off-axis pod set is charged
+  `m(D² + d²)` for pod offset D and tube offset d, missing the `2m·D·d` cross term —
+  shared with upstream's own cluster motors in pods, and `calculateMotors` applies no
+  instance ROTATION to a pod's children, so the motor half could not be exact there
+  without a wider rewrite; (b) an off-axis motor's thrust still makes no moment
+  (upstream's own `TODO: HIGH` on `RK4SimulationStepper.calculateThrust`); (c) the pitch
+  spread of a RadiusRingComponent LINE pattern (rings strung along x) is still missing
+  from Iyy — the same species on the other axis, upstream, untouched here.
+- **Divergence from upstream:** YES, deliberate, in ALL THREE aerodynamic models — masscalc
+  has no carrier for the model flags, exactly as the v0.088 entry above records. It makes
+  the app's mass model disagree with desktop OpenRocket 24.12 on purpose for any design
+  with an off-axis tube.
+- **Oracle:** the before/after `goldenJvm` diff (difftest compares JVM with TeaVM and has no
+  baseline). **All 355 pre-existing lines are bit-identical** — including
+  `cluster.ring3.*` and `flight.cluster.ring3`: no pre-existing golden prints a cluster's
+  Ixx, and that one cluster flight is vertical, windless and uncanted, so its roll moment
+  is exactly 0 and `momZ / Ixx` is 0 whatever Ixx is. The prediction in the 21 September
+  verification that the tube half "moves existing cluster goldens" did not hold. Movement
+  is confined to the new `inertia.offaxis.split/double/single/ring3` and
+  `flight.offaxis.split.canted`; `centre` and `ring3zero` did not move. **Checked as
+  arithmetic, not as "the number changed":** `split − centre` Ixx = 6.472473436682075e-4
+  against `2 × (0.009581857593448866 + 0.35) × 0.03²` = 6.47247343668208e-4; the dry
+  difference 1.72473436682077e-5 against `2 × 0.009581857593448866 × 0.03²`;
+  `single − centre-of-one` likewise at one mount; `ring3 − ring3zero` = 3.4555816514730e-4
+  against `3 (m_t + m_m) r²` with `r = 2·ro/√3`; and `split` equals `double` in Ixx
+  (0.0022048313168307873) and dry Ixx to the last printed digit.
+- **User-visible, measured** on the golden fixture (98 mm airframe, two 31 mm mounts at
+  ±30 mm, 0.35 kg motors), through the shipped wrapper and the TeaVM artifact: loaded roll
+  inertia **1.5575839731625798e-3 → 2.2048313168307873e-3 kg·m²** (the old value 29.4 %
+  low), dry **1.4839964731625797e-3 → 1.5012438168307874e-3** (1.1 % low). Mass, CG and
+  pitch inertia unchanged bit for bit. With 0.5° of fin cant the roll is quasi-steady (a
+  steady roll rate does not depend on inertia) and max roll rate moves 7.98266 → 7.98173
+  rad/s, apogee +0.0001 m; with a 0.4 s, 800 N burn per motor and 2° of cant, max roll
+  rate **166.534 → 164.595 rad/s** (the old value 1.2 % over) and apogee 867.222 →
+  867.203 m. The verification's own motor-dominated case is the one quoted above (52.7 %).
+- **Goldens:** `offAxisInertiaScenarios()`, appended at the END of the roster (difftest
+  compares by line index). Differential **355 → 362 lines**, JVM↔TeaVM clean (235
+  bit-identical, 127 within the existing tolerances).
+- **Behavioural guards:** `packages/engine/src/rollInertia.test.ts`, 6 tests — the split's
+  loaded and dry increments as parallel-axis arithmetic on masses the kernel reports, the
+  split equal to the double cluster, the single asymmetric mount, the 3-ring cluster's
+  tube spread, a centreline design pinned to its pre-fix values with `toBe`, and the split
+  and double FLYING identically with canted fins. Five of the six fail against the pre-fix
+  artifact; the centreline pin passes on both, which is its job.
+- **Artifact:** `packages/engine/vendor/orkengine.mjs` 2,743,381 → 2,751,636 bytes, md5
+  `bef15ae395e45b0d271946d3234082fa` → `dec183bb5dd8d3cae8a0e857e97377a1`.
+  `instanceSpreadUnitInertia` 0 → 2 in the artifact (TeaVM links it only if something calls
+  it, so the count is the proof the tube half is really in). The Gradle log said
+  `teavmClasses UP-TO-DATE` while `compileJava` recompiled — the grep, not the log, is the
+  evidence.
+- **Upstreamable:** yes, both halves — an upstream arithmetic bug, confined to one guard and
+  one accessor.
+
 ## Rules
 
 1. A patch NEVER changes physics or observable behavior (except documented quirks-ledger

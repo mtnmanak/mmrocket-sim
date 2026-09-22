@@ -255,13 +255,32 @@ public class MassCalculation {
 		
 		double clusterIt = motorConfig.getUnitLongitudinalInertia()*instanceCount*eachMass;
 		
-		// if more than 1 motor => motors are not at the centerline => adjust via parallel-axis theorem
-		double clusterIr = clusterBaseIr; 
-		if( 1 < instanceCount ){
-			for( Coordinate coord : offsets ){
-				double distance = Math.hypot( coord.y, coord.z);
-				clusterIr += eachMass*Math.pow( distance, 2);
-			}
+		// ===== MMRocket Sim patch (audit 2026-09-22, code review E1): EVERY
+		// instance gets its parallel-axis term, not only a multi-motor cluster.
+		//
+		// Upstream wrapped this loop in `if( 1 < instanceCount )`, reasoning "if
+		// more than 1 motor => motors are not at the centerline". The converse
+		// does not hold: ONE mount can sit off the axis. InnerTube's
+		// getInstanceOffsets() carries its radial shift (radialPosition /
+		// radialDirection) for every cluster count, but the guard skipped the
+		// single-instance case, so an individually positioned mount - the desktop
+		// "split cluster", one tube per motor - added NO transport term to roll
+		// inertia. Measured on a +/-30 mm split pair of 0.35 kg motors: roll
+		// inertia bit-identical to the same two mounts on the axis, where the
+		// same geometry built as a 'double' cluster got its 2 * 0.35 * 0.03^2.
+		//
+		// clusterLocalCM above sits on the mount's PARENT axis (y = z = 0) for
+		// every instance count, so the term about that axis is the one that
+		// belongs to this body, and rebase() cannot add it a second time. The
+		// N > 1 path runs exactly the expression it always ran. A centreline
+		// mount has the single offset (0, 0, 0): the added term is
+		// eachMass * 0^2 = +0.0, so clusterIr is bit-identical by construction.
+		// Ungated in all three aero models, like the v0.088 fix below: masscalc
+		// carries no model flags. See patches/LEDGER.md, "Correctness fixes".
+		double clusterIr = clusterBaseIr;
+		for( Coordinate coord : offsets ){
+			double distance = Math.hypot( coord.y, coord.z);
+			clusterIr += eachMass*Math.pow( distance, 2);
 		}
 		
 		final Coordinate clusterCM = transform.transform( clusterLocalCM  );

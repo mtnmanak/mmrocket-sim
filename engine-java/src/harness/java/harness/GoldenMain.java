@@ -48,6 +48,93 @@ public final class GoldenMain {
         lineInstanceScenarios();
         bodyRatioOverrideScenarios();
         pressureThrustScenarios();
+        offAxisInertiaScenarios();
+    }
+
+    /**
+     * OFF-AXIS ROLL INERTIA (code review E1, fixed 2026-09-22) - an inner tube placed
+     * off the centreline, and the motor in it, must carry the parallel-axis term the
+     * same geometry gets when it is built as a cluster.
+     *
+     * APPENDED AT THE END OF THE ROSTER ON PURPOSE - difftest.mjs compares the two
+     * runtimes' output BY LINE INDEX, so every existing line must keep its index.
+     *
+     * The airframe is a 98 mm body with 31 mm mounts, each flying a 0.35 kg motor.
+     * Columns: mass, massEmpty, cg, Ixx, Iyy, IxxEmpty, IyyEmpty. The rows are built
+     * so the arithmetic can be checked by hand rather than merely noticed moving:
+     *   centre    - two mounts both ON the axis: the reference, bit-identical to 24.12.
+     *   split     - the desktop "split cluster", one mount at +30 mm and one at -30 mm.
+     *               Ixx - centre.Ixx == 2 (m_tube + m_motor) 0.03^2, and every other
+     *               column equals centre's: the fix adds roll inertia and nothing else.
+     *   double    - the same two tubes as ONE 'double' cluster at +/-30 mm. Must equal
+     *               split in every column (to rounding): two ways of building one rocket.
+     *   single    - one mount only, off the axis at 30 mm: the asymmetric case.
+     *   ring3 / ring3zero - a '3-ring' cluster at its natural separation and at
+     *               clusterScale 0 (all three tubes on the axis). The dry Ixx
+     *               difference is the TUBES' spread, which upstream never charged.
+     * flight.offaxis.split.canted flies `split` with 0.5 degrees of fin cant, so the
+     * roll equation - the one consumer of Ixx - runs on the new inertia in both runtimes.
+     * The behavioural guards are in packages/engine/src/rollInertia.test.ts: difftest
+     * compares JVM against TeaVM with no stored baseline (LEDGER 2026-08-25b).
+     */
+    private static void offAxisInertiaScenarios() {
+        final double d = 0.03;
+        final double ro = 0.0155;
+        final String split = mountJson("m1", ",\"radialPosition\":" + d + ",\"radialDirection\":0") + ","
+                + mountJson("m2", ",\"radialPosition\":" + d + ",\"radialDirection\":" + Math.PI);
+        String[][] cases = {
+                //  tag            mounts (JSON)                                              fin cant (rad)
+                { "centre", mountJson("m1", ",\"radialPosition\":0") + "," + mountJson("m2", ",\"radialPosition\":0"), "0" },
+                { "split", split, "0" },
+                { "double", mountJson("m1", ",\"cluster\":\"double\",\"clusterScale\":" + (d / ro) + ",\"clusterRotation\":0"), "0" },
+                { "single", mountJson("m1", ",\"radialPosition\":" + d + ",\"radialDirection\":0"), "0" },
+                { "ring3", mountJson("m1", ",\"cluster\":\"3-ring\",\"clusterScale\":1.0,\"clusterRotation\":0"), "0" },
+                { "ring3zero", mountJson("m1", ",\"cluster\":\"3-ring\",\"clusterScale\":0,\"clusterRotation\":0"), "0" },
+                { "split.canted", split, Double.toString(0.5 * Math.PI / 180.0) },
+        };
+        for (String[] c : cases) {
+            String json = "{\"name\":\"OffAxis\",\"components\":["
+                    + "{\"type\":\"nosecone\",\"length\":0.25,\"aftRadius\":0.049,\"thickness\":0.002},"
+                    + "{\"type\":\"bodytube\",\"length\":0.9,\"outerRadius\":0.049,\"thickness\":0.0012,\"density\":950,\"children\":["
+                    + "  {\"type\":\"trapezoidfinset\",\"finCount\":4,\"rootChord\":0.14,\"tipChord\":0.07,\"sweep\":0.07,"
+                    + "   \"height\":0.09,\"thickness\":0.003,\"cant\":" + c[2] + "},"
+                    + c[1] + ","
+                    + "  {\"type\":\"parachute\",\"diameter\":0.9}"
+                    + "]}]}";
+            int r = api.OrkEngine.buildRocket(json);
+            for (String id : c[1].contains("\"m2\"") ? new String[] { "m1", "m2" } : new String[] { "m1" }) {
+                api.OrkEngine.setMotorById(r, id, "M29", 0.029, 0.2,
+                        new double[] { 0, 0.05, 1.9, 2.0 },
+                        new double[] { 0, 160.0, 160.0, 0 },
+                        new double[] { 0.35, 0.345, 0.155, 0.15 },
+                        0.1, 8.0);
+            }
+            if (c[0].endsWith(".canted")) {
+                java.util.Map<String, Object> summary = asMap(api.JsonLite.parseObject(
+                        api.OrkEngine.simulateJson(r, "{\"rodLength\":1.5}")).get("summary"));
+                line("flight.offaxis." + c[0],
+                        api.JsonLite.dbl(summary, "maxAltitude", Double.NaN),
+                        api.JsonLite.dbl(summary, "maxVelocity", Double.NaN),
+                        api.JsonLite.dbl(summary, "timeToApogee", Double.NaN));
+                continue;
+            }
+            java.util.Map<String, Object> info = api.JsonLite.parseObject(api.OrkEngine.getStaticInfo(r));
+            line("inertia.offaxis." + c[0],
+                    api.JsonLite.dbl(info, "mass", Double.NaN),
+                    api.JsonLite.dbl(info, "massEmpty", Double.NaN),
+                    api.JsonLite.dbl(info, "cg", Double.NaN),
+                    api.JsonLite.dbl(info, "rotationalInertia", Double.NaN),
+                    api.JsonLite.dbl(info, "longitudinalInertia", Double.NaN),
+                    api.JsonLite.dbl(info, "rotationalInertiaEmpty", Double.NaN),
+                    api.JsonLite.dbl(info, "longitudinalInertiaEmpty", Double.NaN));
+        }
+    }
+
+    /** A 31 mm motor-mount inner tube for offAxisInertiaScenarios; `extra` is raw JSON. */
+    private static String mountJson(String id, String extra) {
+        return "{\"type\":\"innertube\",\"id\":\"" + id + "\",\"length\":0.2,\"outerRadius\":0.0155,"
+                + "\"thickness\":0.0005,\"density\":1000,\"motorMount\":true" + extra
+                + ",\"position\":{\"method\":\"bottom\",\"offset\":0}}";
     }
 
     /**
