@@ -796,6 +796,25 @@ function deadline(caller: AbortSignal | undefined, ms: number): Deadline {
 }
 
 /**
+ * Drops every downloaded-curve entry, of every generation, and says how many.
+ *
+ * For a write that matters more than this cache and has just hit the quota —
+ * the imported EX-motor library (exMotors.ts persist, audit 2026-09-22). The
+ * cache is a pure convenience: every catalogue curve is in the shipped bundle
+ * and anything else downloads again on its next use, so emptying it loses
+ * nothing a user made, where losing their imported motors does.
+ */
+export function clearCurveCache(): number {
+  try {
+    const keys = cachedKeys();
+    for (const k of keys) localStorage.removeItem(k);
+    return keys.length;
+  } catch {
+    return 0; // no storage at all
+  }
+}
+
+/**
  * Fetches thrust samples (localStorage-cached) and builds the MotorSpec.
  * Imported EX motors ("ex:" ids) build entirely from local data — .rse files
  * carry measured per-sample masses, which beat the impulse-proportional

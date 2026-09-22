@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   EXIT_MAX_FRACTION_OF_CASE, EXIT_MIN_FRACTION_OF_CASE, exToDbEntry, exitDiameterFromRse,
   impulseClassOf, parseEng, parseRse,
@@ -285,5 +285,67 @@ describe('a .rse nozzle exit diameter', () => {
     const [m] = parseRse(rse('throatDia="3.6" exitDia="5."'));
     expect(Object.keys(m!)).not.toContain('throatDiameterM');
     expect(JSON.stringify(m)).not.toMatch(/throat/i);
+  });
+});
+
+/**
+ * A full browser storage (audit 2026-09-22). `persist` swallowed the quota
+ * error, the notice promised the motors "survive reloads", and every reader —
+ * fetchMotorSpec's getExMotor among them — went back to storage, so the motor
+ * could not fly even in the same session. A tester's 891-motor rasp.eng is
+ * 753 KB of JSON; a near-full origin refuses it.
+ */
+describe('the EX library on a full storage', () => {
+  /** A Map-backed localStorage whose setItem refuses the library key `refusals` times. */
+  const quotaStorage = (refusals: number) => {
+    const map = new Map<string, string>();
+    let left = refusals;
+    const store = {
+      get length() { return map.size; },
+      key: (i: number): string | null => [...map.keys()][i] ?? null,
+      getItem: (k: string): string | null => map.get(k) ?? null,
+      setItem: (k: string, v: string): void => {
+        if (k === 'online-openrocket.ex-motors.v1' && left > 0) {
+          left--;
+          const err = new Error('The quota has been exceeded.');
+          err.name = 'QuotaExceededError';
+          throw err;
+        }
+        map.set(k, v);
+      },
+      removeItem: (k: string): void => { map.delete(k); },
+      clear: (): void => map.clear(),
+    };
+    vi.stubGlobal('localStorage', store);
+    return map;
+  };
+  /** exMotors with its session state fresh — `unstored` is module-level by design. */
+  const fresh = async () => { vi.resetModules(); return import('./exMotors.js'); };
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it('empties the downloaded-curve cache and tries again, and says it stored', async () => {
+    const map = quotaStorage(1);
+    map.set('tc:samples:v5:abc', '{"samples":[]}');
+    map.set('tc:samples:v4:old', '{}');
+    map.set('online-openrocket.session.v1', 'the user’s design');
+    const ex = await fresh();
+    const w = ex.addExMotors(parseEng(ENG));
+    expect(w.stored).toBe(true);
+    expect([...map.keys()].filter((k) => k.startsWith('tc:'))).toEqual([]);
+    expect(map.get('online-openrocket.session.v1')).toBe('the user’s design'); // only the cache goes
+    expect(ex.getExMotor(w.motors[0]!.motorId)).toBeDefined();
+  });
+
+  it('says stored: false when it still will not fit — and the motor still flies this session', async () => {
+    quotaStorage(Infinity);
+    const ex = await fresh();
+    const w = ex.addExMotors(parseEng(ENG));
+    expect(w.stored).toBe(false);
+    const id = w.motors[0]!.motorId;
+    // What fetchMotorSpec does for an ex: id — it used to find nothing here.
+    expect(ex.getExMotor(id)?.designation).toBe('K550W');
+    const { fetchMotorSpec } = await import('./thrustcurve.js');
+    const spec = await fetchMotorSpec(ex.exToDbEntry(ex.getExMotor(id)!), 0);
+    expect(spec.designation).toBe('K550W');
   });
 });

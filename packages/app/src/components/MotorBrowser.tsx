@@ -13,7 +13,7 @@ import {
   sortMotors, type MotorDbEntry, type MotorSortKey,
 } from '../services/motorDb.js';
 import {
-  addExMotors, deleteExMotor, exToDbEntry, loadExMotors, parseMotorFile,
+  addExMotors, deleteExMotor, exToDbEntry, loadExMotors, parseMotorFile, type ExMotor,
 } from '../services/exMotors.js';
 import {
   bundledSimFiles, defaultDelay, delayOptions, delayTag, fetchMotorSpec, headerMasses, pickSampleFile,
@@ -269,31 +269,45 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
       setError('No .eng or .rse files found in that selection.');
       return;
     }
-    const imported: string[] = [];
+    const parsed: ExMotor[] = [];
     const failed: string[] = [];
-    let next = exMotors;
     for (const f of motorFiles) {
       try {
-        const motors = parseMotorFile(f.name, await f.text());
-        next = addExMotors(motors);
-        imported.push(...motors.map((m) => m.designation));
+        parsed.push(...parseMotorFile(f.name, await f.text()));
       } catch (e) {
         failed.push(`${f.name}: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
-    if (imported.length) {
-      setExMotors(next);
+    // ONE library write for the whole selection, not one per file: a folder of
+    // fifty files rewrote an ever-growing list fifty times, and one write means
+    // one honest answer to "did it save?".
+    const imported = parsed.map((m) => m.designation);
+    const write = parsed.length ? addExMotors(parsed) : null;
+    const unsaved = write !== null && !write.stored;
+    const problems: string[] = [];
+    if (write) {
+      setExMotors(write.motors);
       setText('');
       // Clear the maker AND diameter chips: a persisted class selection would
       // silently hide the motor that was just imported ("where did it go?").
       setFilters({ ...filters, manufacturers: [], classes: [] });
-      setNotice(`Imported ${imported.length} EX motor${imported.length === 1 ? '' : 's'} `
-        + `(${imported.slice(0, 6).join(', ')}${imported.length > 6 ? ', …' : ''}) — `
-        + 'they live in this browser under manufacturer EX and survive reloads.');
+      const list = `${imported.length} EX motor${imported.length === 1 ? '' : 's'} `
+        + `(${imported.slice(0, 6).join(', ')}${imported.length > 6 ? ', …' : ''})`;
+      // Say "survive reloads" only when they do (audit 2026-09-22). A full
+      // browser storage used to be swallowed here, and the motors then could
+      // not even fly: every reader went back to storage and found nothing.
+      if (unsaved) {
+        problems.push(`Imported ${list}, but this browser's storage is full or blocked, so they are NOT saved — `
+          + 'they fly in this session and are gone after a reload. Free some room (the saved-runs '
+          + 'table, or imported motors you no longer need) and import them again to keep them.');
+      } else {
+        setNotice(`Imported ${list} — they live in this browser under manufacturer EX and survive reloads.`);
+      }
     }
     if (failed.length) {
-      setError(`Skipped ${failed.length} file${failed.length === 1 ? '' : 's'} — ${failed.join(' · ')}`);
+      problems.push(`Skipped ${failed.length} file${failed.length === 1 ? '' : 's'} — ${failed.join(' · ')}`);
     }
+    if (problems.length) setError(problems.join(' '));
   };
 
   useEffect(() => {

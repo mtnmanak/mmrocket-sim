@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MotorBrowser } from './MotorBrowser.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 
@@ -130,6 +130,23 @@ const settle = async (ms = 0) => { await act(async () => { await new Promise((r)
 const loadButton = (h: Harness) => Array.from(h.host.querySelectorAll('button'))
   .find((b) => /Load motor|Loading/.test(b.textContent ?? ''));
 
+/** Drops files onto the "Import .eng/.rse" input, the way the picker hands them over. */
+async function importFiles(h: Harness, files: { name: string; text: string }[]): Promise<void> {
+  const input = h.host.querySelector<HTMLInputElement>('input[type="file"][accept=".eng,.rse,.txt"]')!;
+  const list = files.map((f) => new File([f.text], f.name));
+  Object.defineProperty(input, 'files', { value: list, configurable: true });
+  act(() => { input.dispatchEvent(new Event('change', { bubbles: true })); });
+  for (let i = 0; i < 20; i++) await settle(5);
+}
+
+const ENG_K550 = `; AeroTech K550W
+K550W 54 410 0-6-10 0.919744 1.48736 AT
+   0.065 604.264
+   1.86 682.197
+   3.38 449.371
+   3.4 0.0
+`;
+
 describe('MotorBrowser — the delay a fresh pick starts at (audit 2026-09-22)', () => {
   let h: Harness;
   afterEach(() => closeBrowser(h));
@@ -175,5 +192,38 @@ describe('MotorBrowser — a motor refused on its catalogue weight but not its f
     const row = rowFor(h, 'KBA', 'K1000S');
     expect(row, 'KBA K1000S has left the catalogue').toBeTruthy();
     expect(row!.getAttribute('aria-disabled')).toBe('true');
+  });
+});
+
+describe('MotorBrowser — importing EX motors (audit 2026-09-22)', () => {
+  let h: Harness;
+  afterEach(() => { vi.restoreAllMocks(); closeBrowser(h); });
+
+  it('imports, says the motors survive reloads, and lists them under EX', async () => {
+    h = openBrowser({ mountDiameterMm: 54 });
+    await importFiles(h, [{ name: 'k550.eng', text: ENG_K550 }]);
+    expect(h.host.textContent).toMatch(/Imported 1 EX motor \(K550W\).*survive reloads/);
+    expect(rowFor(h, 'EX', 'K550W')).toBeTruthy();
+  });
+
+  it('on a full storage says the motors are NOT saved — and they still load this session', async () => {
+    h = openBrowser({ mountDiameterMm: 54 });
+    const real = Storage.prototype.setItem;
+    vi.spyOn(window.localStorage, 'setItem').mockImplementation(function (this: Storage, k: string, v: string) {
+      if (k === 'online-openrocket.ex-motors.v1') throw new DOMException('full', 'QuotaExceededError');
+      return real.call(this, k, v);
+    });
+    await importFiles(h, [{ name: 'k550.eng', text: ENG_K550 }]);
+    const text = h.host.textContent ?? '';
+    expect(text).toMatch(/NOT saved/);
+    expect(text).not.toMatch(/survive reloads/);
+    click(rowFor(h, 'EX', 'K550W')!);
+    click(loadButton(h)!);
+    for (let i = 0; i < 20 && h.selected.length === 0; i++) await settle(10);
+    expect(h.selected.map((s) => s.label)).toEqual(['K550W-10']);
+    // Leave no session-only library behind for the next test.
+    vi.restoreAllMocks();
+    const { deleteExMotor } = await import('../services/exMotors.js');
+    deleteExMotor('none');
   });
 });

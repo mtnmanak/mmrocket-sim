@@ -1,4 +1,5 @@
 import type { MotorDbEntry } from './motorDb.js';
+import { clearCurveCache } from './thrustcurve.js';
 
 /**
  * User-imported (EX / experimental) motors from RASP .eng or RockSim .rse
@@ -91,7 +92,20 @@ export function exitDiameterFromRse(
   }
   return { exitDiameterM: exitDiaMm / 1000 };
 }
+/**
+ * The library as last CHANGED, while that change is not in storage — null
+ * whenever storage holds the current list (audit 2026-09-22).
+ *
+ * A failed write used to be swallowed, and every reader goes back to
+ * localStorage (fetchMotorSpec's `getExMotor` among them), so a motor the
+ * notice had just called imported could not fly even in the same session:
+ * "Imported motor … is no longer stored". Holding the list here keeps it
+ * flying until the page goes away, which is exactly what the notice says.
+ */
+let unstored: ExMotor[] | null = null;
+
 export function loadExMotors(): ExMotor[] {
+  if (unstored) return unstored;
   try {
     const raw = localStorage.getItem(KEY);
     const list = raw ? (JSON.parse(raw) as ExMotor[]) : [];
@@ -101,19 +115,45 @@ export function loadExMotors(): ExMotor[] {
   }
 }
 
-function persist(motors: ExMotor[]): ExMotor[] {
-  try { localStorage.setItem(KEY, JSON.stringify(motors)); } catch { /* quota */ }
-  return motors;
+/** A library write: the list as it now stands, and whether it reached storage. */
+export interface ExLibraryWrite {
+  motors: ExMotor[];
+  stored: boolean;
 }
 
-export function addExMotors(added: ExMotor[]): ExMotor[] {
+/**
+ * Writes the library, and says whether it stuck (audit 2026-09-22).
+ *
+ * localStorage is one ~5 MB pool per origin, and an EX library can be most of
+ * it: a tester's 891-motor rasp.eng is 753 KB of JSON. On a quota refusal the
+ * downloaded-curve cache is emptied — a convenience that refills itself, where
+ * this list is the user's own work — and the write tried once more. If that
+ * fails too the list lives in memory for the session and `stored` is false, so
+ * the caller can say so instead of promising it survives a reload.
+ */
+function persist(motors: ExMotor[]): ExLibraryWrite {
+  const json = JSON.stringify(motors);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      localStorage.setItem(KEY, json);
+      unstored = null;
+      return { motors, stored: true };
+    } catch {
+      if (attempt === 0) clearCurveCache();
+    }
+  }
+  unstored = motors;
+  return { motors, stored: false };
+}
+
+export function addExMotors(added: ExMotor[]): ExLibraryWrite {
   const existing = loadExMotors().filter(
     (m) => !added.some((a) => a.motorId === m.motorId));
   return persist([...existing, ...added]);
 }
 
 export function deleteExMotor(motorId: string): ExMotor[] {
-  return persist(loadExMotors().filter((m) => m.motorId !== motorId));
+  return persist(loadExMotors().filter((m) => m.motorId !== motorId)).motors;
 }
 
 export function getExMotor(motorId: string): ExMotor | undefined {
