@@ -688,7 +688,8 @@ no bridge export, no TypeScript method. The nozzle already reaches the stage
   break the v0.069 parity proof that "OpenRocket — Extended Barrowman" computes what it
   computes with the nozzle deleted. Eric's standing ruling, 2026-08-25. Ways back for a
   user: pick Classic EB, or clear the stage's nozzle (which drops the drag half too).
-- **Once per THRUSTING STAGE, not once per motor.** `AxialStage.nozzleExitDiameter` is
+- **Once per THRUSTING STAGE (per stage INSTANCE since 2026-09-22 — see the next bullet),
+  not once per motor.** `AxialStage.nozzleExitDiameter` is
   defined app-side as the cluster's single equivalent nozzle with the exit AREAS summed
   (the `FIELDS.stage` entry in `packages/app/src/tree/schema.ts` — NOT `model/schema.ts`,
   which has never existed; corrected 2026-09-08 in the patch javadoc, this bullet and
@@ -698,8 +699,15 @@ no bridge export, no TypeScript method. The nozzle already reaches the stage
   nozzle area per stage INSTANCE. Two mounts on one stage are de-duplicated by stage number,
   the way `applyThrustState` builds its thrusting-stage set. (This overrules the kernel
   reader's per-motor recommendation; the physics and inputs readers were right.)
-- **⚠ THE TWO HALVES WILL DISAGREE BY THE INSTANCE COUNT ONCE PARALLEL STAGES REACH THE
-  BRIDGE.** The drag half applies the subtraction inside its per-component loop and then
+- **RESOLVED 2026-09-22 (code review E2) — the halves now agree per stage INSTANCE.** This
+  half multiplies each credited stage's term by `stage.getComponentLocations().length`, so
+  an N-instance `ParallelStage` gets N areas, as the drag half always charged it; on a
+  parallel stage the field therefore means ONE strap-on's equivalent exit. The throw below
+  is gone for a `parallelstage` and kept for a `podset` (which is not a stage and never
+  receives the field). Entry, goldens and measurements: "Correctness fixes" at the end of
+  this ledger. The history this bullet recorded until then, kept because it is why the
+  throw existed: **⚠ THE TWO HALVES WILL DISAGREE BY THE INSTANCE COUNT ONCE PARALLEL STAGES
+  REACH THE BRIDGE.** The drag half applies the subtraction inside its per-component loop and then
   scales: `total += instanceCount * cd` (`BarrowmanCalculator.java` patch :1121), so an
   N-instance `ParallelStage` removes N nozzle areas of base drag. This half de-duplicates by
   `stage.getStageNumber()`, which is ONE number for the whole `ParallelStage`, so it adds
@@ -1323,6 +1331,74 @@ aerodynamic model.
   evidence.
 - **Upstreamable:** yes, both halves — an upstream arithmetic bug, confined to one guard and
   one accessor.
+
+### simulation/RK4SimulationStepper.java — pressure thrust is charged once per stage INSTANCE, as the drag half always was (code review E2, 2026-09-22)
+
+- **Why:** `calculatePressureThrust` (feature #5 above) de-duplicated its term by
+  `stage.getStageNumber()` and stopped there. That is ONE number for a whole
+  `ParallelStage`, so N strap-ons collected one nozzle's worth of pressure thrust while
+  `MotorClusterState` flew N curves (`motorCount = mount.getComponentLocations().length`) and
+  the power-on base-drag half removed N nozzle areas (`BarrowmanCalculator.calculateBaseCD`,
+  `total += instanceCount * cd`). Found by the 19 September code review
+  (`docs/testing/review-2026-09-19-engine-app-physics.md` E2): through the raw API at ~86 kPa,
+  two instances of a 32 N motor behind a 10 mm exit flew 65.203822 N where per-instance
+  accounting gives 66.407645 N. v0.136 made that input THROW in `OrkRocket.buildTree`
+  (`assertNoAssemblyNozzle`) rather than fly it short; this entry is the arithmetic that lets
+  the throw go. Ruled in `docs/testing/issues-2026-09-22a.md` with the rest of the review.
+- **The definition, stated because the feature #5 bullet said it had to be ruled first:**
+  per INSTANCE — on a parallel stage the field is ONE strap-on's equivalent exit. That is what
+  it already meant to the drag half, so choosing it changes one half, not both; the other
+  reading (the assembly's total) would have meant rewriting the drag half's per-component
+  subtraction. The app has no nozzle field on a parallel stage yet (`FIELDS.parallelstage`
+  carries none; `applyStageNozzles` writes top-level stages), so no user file carries either
+  reading today.
+- **Change:** after the stage-number de-dup, the credited stage's term is multiplied by
+  `stage.getComponentLocations().length` — the accessor `MotorClusterState` reads on the
+  MOUNT for `motorCount`, here read on the stage, so an enclosing assembly's multiplicity
+  counts the way the motors' curve thrust counts it. The multiply is STRUCTURAL: skipped when
+  the count is 1, which it always is for a serial stage (its parent is the `Rocket`), so every
+  path the app can reach runs exactly the arithmetic it ran before. `orkEngine.ts`: the guard
+  is now `assertNoPodSetNozzle` — a `podset` is still refused (it is not an `AxialStage`,
+  `ComponentFactory` never hands it the field, and its pods burn as part of the enclosing
+  stage, so the value would be dropped without a word); a `parallelstage` is accepted.
+- **Divergence from upstream:** none new — pressure thrust is a feature patch that upstream
+  does not have; gated, as before, to Rogers Kbf / Supersonic.
+- **Oracle:** the before/after `goldenJvm` diff. Goldens `flight.pthrust.para1..3`
+  (`parallelPressureThrustScenarios()`, appended at the end: a motorless core with N = 1, 2, 3
+  strap-ons, each a 32 N plateau motor behind a 10 mm exit, Kbf, the 1,400 m / 303.15 K /
+  86,000 Pa pad, cut at 3 s). **367 of 377 lines bit-identical** — every pre-existing line and
+  all five `para1` lines (the N = 1 path takes no multiply). Movement is confined to `para2` and
+  `para3`, and it checks as arithmetic: `para2.sample.5` reads P = 86015.92597998893 Pa and
+  thrust 66.40474372372645 N, which is `2 × 32 + 2 × (π × 0.005²) × (101325 − P)` to the last
+  digit; before the fix the same row read 65.20237145593025 N, `64 +` ONE term. Altitude at the
+  3 s cut: `para2` 234.335 → 237.920 m, `para3` 264.015 → 278.388 m. Differential 362 → 377
+  lines, JVM↔TeaVM clean (250 bit-identical, 127 within tolerance).
+- **User-visible:** none today. No app path puts a nozzle exit on a parallel stage (above), so
+  the only way to reach the old or the new arithmetic is the raw engine API, where the old one
+  now cannot be reached at all. When the queued parallel-stage nozzle field lands, it gets the
+  per-instance reading both halves share.
+- **Known residual, FOUND while doing this and NOT fixed here (outside E2):** the drag half
+  subtracts the nozzle area from EVERY base in the stage — each `SymmetricComponent` whose aft
+  radius exceeds the next one's fore radius, pods included, since a pod's `getStage()` is the
+  enclosing stage — so a stage with more than one base per instance recovers more than one
+  nozzle area, while this half charges exactly one. **Reachable in the app today:** a serial
+  stage carrying a pod set, with the stage's nozzle exit set, under Kbf/Supersonic. Measured
+  through the shipped wrapper at Mach 0.3 (29 mm airframe, 20 mm exit, two 24 mm pods):
+  power-off base CD 0.13170 → power-on 0.11604 without pods (reduction 0.015660, one area);
+  with the pods 0.17680 → 0.12982 (reduction 0.046980, exactly THREE areas — core plus two
+  pods). Same species as E2, on the drag side, and pre-existing; it moves reachable numbers,
+  so it goes to the board rather than riding in on this entry.
+- **Behavioural guard:** `packages/engine/src/pressureThrust.test.ts`, *"credits a parallel
+  stage one nozzle area per strap-on"* — for N = 1, 2, 3, every plateau row bit-exact against
+  `N × 32 + N × term` and, for N > 1, NOT equal to the pre-fix `N × 32 + term`. It fails
+  against the pre-fix artifact (65.20240478887837 read where 66.40480957775674 is due) and
+  passes after. *"still refuses a nozzle exit diameter on a pod set"* keeps the other half of
+  the v0.136 guard pinned.
+- **Artifact:** `packages/engine/vendor/orkengine.mjs` 2,751,636 → 2,755,268 bytes (the harness
+  scenario is most of it), md5 `dec183bb5dd8d3cae8a0e857e97377a1` →
+  `dafd535038530da83eacef3083d33f19`. `getComponentLocations` 13 → 14 occurrences — the new
+  call site in `calculatePressureThrust`, which is the proof the change is in the build.
+- **Upstreamable:** n/a — upstream has no pressure-thrust term.
 
 ## Rules
 

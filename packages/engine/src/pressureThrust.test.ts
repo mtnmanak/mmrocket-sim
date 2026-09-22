@@ -3,8 +3,9 @@ import { OrkRocket, type MotorSpec, type RocketTree } from './orkEngine.js';
 
 /**
  * RASAero PRESSURE THRUST — F(h) = F_curve(t) + A_exit x (P_ref - P(h)), added once
- * per thrusting stage in the kernel's RK4SimulationStepper.calculateThrust (see
- * engine-java/patches/LEDGER.md, feature #5, and
+ * per thrusting stage INSTANCE (once for a serial stage, N times for an N-strap-on
+ * parallel stage — code review E2, 2026-09-22) in the kernel's
+ * RK4SimulationStepper.calculateThrust (see engine-java/patches/LEDGER.md, feature #5, and
  * docs/research/thrust-with-altitude-2026-09-08.md).
  *
  * These are the BEHAVIOURAL guards. engine-java's goldens cannot be: difftest
@@ -384,16 +385,82 @@ describe('RASAero pressure thrust (kernel feature #5)', () => {
   });
 
   /**
-   * The kernel credits ONE nozzle area per distinct stage NUMBER while flying
-   * one motor per instance, so a repeated parallel stage carrying an exit
-   * diameter would collect too little pressure thrust — measured through the
-   * raw API at ~86 kPa: 65.203822 N where per-instance accounting gives
-   * 66.407645 N. No app path can set that field on an assembly; this keeps it
-   * that way by construction instead of by luck (2026-09-21).
+   * PARALLEL STAGES — code review E2 (2026-09-19), fixed 2026-09-22. The kernel
+   * de-duplicated the term by stage NUMBER, which is ONE number for a whole
+   * ParallelStage, so N strap-ons collected one nozzle's worth of pressure thrust
+   * while MotorClusterState flew N curves and the power-on base-drag half removed
+   * N nozzle areas (`total += instanceCount * cd`). Measured through the raw API at
+   * ~86 kPa: two of these 32 N strap-ons behind a 10 mm exit flew 65.203822 N where
+   * per-instance accounting gives 66.407645 N. v0.136 refused the field on a
+   * parallel stage rather than fly it short; the kernel now charges one area per
+   * stage INSTANCE, so on a parallel stage the field is ONE strap-on's equivalent
+   * exit — what it always meant to the drag half.
    */
-  it('refuses a nozzle exit diameter on a pod set or parallel stage', () => {
-    const withAssemblyNozzle = (type: 'podset' | 'parallelstage'): RocketTree => ({
-      name: 'Assembly nozzle',
+  const strapOns = (instanceCount: number, nozzleExitDiameter: number): RocketTree => ({
+    name: 'StrapOns',
+    components: [{
+      type: 'stage', name: 'Core',
+      children: [
+        { type: 'nosecone', length: 0.2, aftRadius: 0.029, thickness: 0.002 },
+        {
+          type: 'bodytube', length: 0.8, outerRadius: 0.029, thickness: 0.001, density: 950,
+          children: [
+            // Four large fins: with the 0.07 m three-fin set the other tests use,
+            // three strap-ons tumbled under thrust and the flight aborted mid-plateau.
+            { type: 'trapezoidfinset', finCount: 4, rootChord: 0.15, tipChord: 0.08, sweep: 0.07, height: 0.10, thickness: 0.003 },
+            { type: 'parachute', diameter: 0.6 },
+            {
+              type: 'parallelstage', id: 'boost', instanceCount, nozzleExitDiameter,
+              radiusMethod: 'relative', radiusOffset: 0, angleOffset: 0, angleMethod: 'relative',
+              separationEvent: 'burnout', separationDelay: 0, position: { method: 'bottom', offset: 0 },
+              children: [
+                { type: 'nosecone', length: 0.06, aftRadius: 0.0155, thickness: 0.002 },
+                {
+                  type: 'bodytube', id: 'bmount', length: 0.3, outerRadius: 0.0155, thickness: 0.0005,
+                  density: 950, motorMount: true,
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    }],
+  } as unknown as RocketTree);
+
+  it('credits a parallel stage one nozzle area per strap-on, not one per ring (review E2)', () => {
+    const d = 0.010;
+    // The conditionsScenarios pad (1,400 m, 86,000 Pa), where the review measured it.
+    const pad = { launchAltitude: 1400, temperature: 303.15, pressure: 86000 };
+    for (const n of [1, 2, 3]) {
+      const f = fly(strapOns(n, d), 'kbf', pad, CONST_MOTOR, 'bmount');
+      const rows = plateauRows(f);
+      expect(rows.length).toBeGreaterThan(30);
+      expect(P_REF - f.pressure[rows[0]!]!).toBeGreaterThan(15000);
+
+      // MotorClusterState flies n curves: n x 32 N, dyadic for n = 1 and 2 and an
+      // exact integer for 3, so the curve still reconstructs to the bit.
+      const curve = n * PLATEAU_N;
+      for (const i of rows) {
+        const term = pressureTerm(d, f.pressure[i]!);
+        // The kernel's own arithmetic: `term *= n` (skipped at n = 1, where 1 x term
+        // is term anyway), `sum = 0.0 + term`, then `thrust += sum`.
+        expect(f.thrust[i]).toBe(curve + n * term);
+        // And NOT the pre-fix accounting, one area however many strap-ons burn.
+        if (n > 1) expect(f.thrust[i]).not.toBe(curve + term);
+      }
+      expect(Math.max(...rows.map((i) => f.thrust[i]! - curve))).toBeGreaterThan(n * 1.2);
+    }
+  });
+
+  /**
+   * A POD SET is still refused: it is not a stage, the bridge never hands the
+   * field to one, and its pods' motors burn as part of the ENCLOSING stage — so
+   * the value would be dropped without a word. That half of the v0.136 guard is
+   * unchanged by E2.
+   */
+  it('still refuses a nozzle exit diameter on a pod set', () => {
+    const podNozzle: RocketTree = {
+      name: 'Pod nozzle',
       components: [{
         type: 'stage', name: 'S',
         children: [
@@ -401,7 +468,7 @@ describe('RASAero pressure thrust (kernel feature #5)', () => {
           {
             type: 'bodytube', id: 'body', length: 0.45, outerRadius: 0.012, thickness: 0.0005,
             children: [{
-              type, id: 'pod', instanceCount: 2, nozzleExitDiameter: 0.010,
+              type: 'podset', id: 'pod', instanceCount: 2, nozzleExitDiameter: 0.010,
               children: [{
                 type: 'bodytube', id: 'pod-body', length: 0.3, outerRadius: 0.010,
                 thickness: 0.0005, motorMount: true,
@@ -410,11 +477,7 @@ describe('RASAero pressure thrust (kernel feature #5)', () => {
           },
         ],
       }],
-    } as unknown as RocketTree);
-
-    for (const type of ['podset', 'parallelstage'] as const) {
-      expect(() => OrkRocket.buildTree(withAssemblyNozzle(type)))
-        .toThrow(/nozzleExitDiameter on a (podset|parallelstage)/);
-    }
+    } as unknown as RocketTree;
+    expect(() => OrkRocket.buildTree(podNozzle)).toThrow(/nozzleExitDiameter on a podset/);
   });
 });

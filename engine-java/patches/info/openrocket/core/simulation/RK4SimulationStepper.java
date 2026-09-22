@@ -412,7 +412,8 @@ public class RK4SimulationStepper extends AbstractSimulationStepper {
 	/**
 	 * PATCH (see engine-java/patches/LEDGER.md, RASAero feature #5, 2026-09-08):
 	 * the RASAero pressure-thrust correction, {@code A_exit * (P_ref - P(h))},
-	 * summed ONCE PER THRUSTING STAGE.
+	 * summed ONCE PER THRUSTING STAGE INSTANCE - once for a serial stage, N times for
+	 * an N-instance parallel stage (audit 2026-09-22, code review E2).
 	 * <p>
 	 * Gates, in the order they are cheapest to fail:
 	 * <ol>
@@ -446,16 +447,32 @@ public class RK4SimulationStepper extends AbstractSimulationStepper {
 	 * docs/research/rasaero-pressure-thrust-measured-2026-09-08.md.</li>
 	 * </ol>
 	 * <p>
-	 * ONCE PER STAGE, not once per motor: {@code AxialStage.nozzleExitDiameter} is
-	 * defined app-side as the single equivalent nozzle of the whole cluster, with the
-	 * exit AREAS summed (the {@code FIELDS.stage} entry in
-	 * packages/app/src/tree/schema.ts, and RASAero's own manual p.50), so multiplying
-	 * by {@code MotorClusterState.motorCount} would count a cluster twice. It also
-	 * keeps this half consistent with the drag half, which subtracts one nozzle area
-	 * per stage INSTANCE. Two mounts on one stage are therefore de-duplicated by
-	 * stage number, the way {@code applyThrustState} builds its thrusting-stage set.
+	 * ONCE PER STAGE INSTANCE, not once per motor: {@code
+	 * AxialStage.nozzleExitDiameter} is defined app-side as the single equivalent
+	 * nozzle of the whole cluster, with the exit AREAS summed (the {@code FIELDS.stage}
+	 * entry in packages/app/src/tree/schema.ts, and RASAero's own manual p.50), so
+	 * multiplying by {@code MotorClusterState.motorCount} would count a cluster twice.
+	 * Two mounts on one stage are therefore de-duplicated by stage number, the way
+	 * {@code applyThrustState} builds its thrusting-stage set.
 	 * <p>
-	 * Three caveats, recorded rather than modelled (all three are in the LEDGER too):
+	 * PER INSTANCE, because that is what the drag half already does: it subtracts
+	 * the area from each aft base and then scales, {@code total += instanceCount *
+	 * cd}, so an N-instance {@code ParallelStage} recovers N areas of base drag. For
+	 * a serial stage N is 1 and nothing changes; for a parallel stage the field
+	 * therefore means ONE strap-on's equivalent exit, in both halves. Until
+	 * 2026-09-22 this half dedup'd by {@code getStageNumber()} - ONE number for a
+	 * whole ParallelStage - and stopped there, so it charged one area however many
+	 * strap-ons burned: measured through the raw API at ~86 kPa, two instances of a
+	 * 32 N motor with a 10 mm exit flew 65.203822 N against the 66.407645 N
+	 * per-instance accounting gives (code review E2). v0.136 made that path throw
+	 * in {@code OrkRocket.buildTree} instead; the throw is gone for parallel stages
+	 * because the arithmetic is right now. The instance count is
+	 * {@code stage.getComponentLocations().length} - the accessor
+	 * {@code MotorClusterState} reads on the MOUNT for {@code motorCount}, here read
+	 * on the stage - so it carries every enclosing assembly's multiplicity exactly
+	 * as the motors' curve thrust does.
+	 * <p>
+	 * Two caveats, recorded rather than modelled (both are in the LEDGER too):
 	 * <ul>
 	 * <li><b>Tail-off.</b> The full geometric exit area assumes a full-flowing
 	 * nozzle. During tail-off the flow separates and {@code A_e * dP} overstates.
@@ -467,18 +484,6 @@ public class RK4SimulationStepper extends AbstractSimulationStepper {
 	 * exactly the same shape (its gate is the stage's thrusting flag), so the two
 	 * halves stay consistent; correcting it would mean scaling by the burning
 	 * fraction, in both halves at once.</li>
-	 * <li><b>Parallel stages.</b> {@code getStageNumber()} is ONE number for a whole
-	 * {@code ParallelStage}, so this half charges one area however many strap-on
-	 * instances burn, while the drag half removes one per INSTANCE
-	 * ({@code total += instanceCount * cd}). CORRECTED 2026-09-21: this used to say
-	 * "not reachable today - the JS bridge has no PodSet/ParallelStage build path",
-	 * which stopped being true in v0.021 - the bridge builds both and applies the
-	 * field to them. What actually makes it unreachable is the APP: no FIELDS entry
-	 * for a parallelstage nozzle, and applyStageNozzles writes only top-level
-	 * stages. That is now enforced rather than assumed - OrkRocket.buildTree throws
-	 * on an exit diameter set on a podset/parallelstage. Resolving it properly
-	 * means deciding whether the field is per-instance or the assembly total, then
-	 * either multiplying here or changing the drag half.</li>
 	 * </ul>
 	 *
 	 * @param status          the current simulation status
@@ -534,7 +539,16 @@ public class RK4SimulationStepper extends AbstractSimulationStepper {
 			creditedStages.add(stageNumber);
 			// Same expression as the drag half's nozzle area, so the two halves
 			// cannot disagree about what a diameter means.
-			sum += Math.PI * MathUtil.pow2(exitDiameter / 2.0) * deficit;
+			double term = Math.PI * MathUtil.pow2(exitDiameter / 2.0) * deficit;
+			// One area per INSTANCE of the stage, as the drag half charges it (see
+			// the javadoc). Structural, not arithmetic: a serial stage has exactly
+			// one location, so on every path the app can reach today no operation
+			// is added and the sum is bit-identical to the pre-2026-09-22 kernel.
+			int stageInstances = stage.getComponentLocations().length;
+			if (stageInstances != 1) {
+				term *= stageInstances;
+			}
+			sum += term;
 		}
 		return sum;
 	}

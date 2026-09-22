@@ -49,6 +49,7 @@ public final class GoldenMain {
         bodyRatioOverrideScenarios();
         pressureThrustScenarios();
         offAxisInertiaScenarios();
+        parallelPressureThrustScenarios();
     }
 
     /**
@@ -138,8 +139,70 @@ public final class GoldenMain {
     }
 
     /**
+     * PRESSURE THRUST ON A PARALLEL STAGE (code review E2, fixed 2026-09-22) - the
+     * term is charged once per stage INSTANCE, as the power-on base-drag half always
+     * charged its nozzle area, not once per stage NUMBER (one number for a whole
+     * ParallelStage).
+     *
+     * APPENDED AT THE END OF THE ROSTER ON PURPOSE - difftest.mjs compares the two
+     * runtimes' output BY LINE INDEX, so every existing line must keep its index.
+     *
+     * A motorless core carrying N strap-ons (N = 1, 2, 3), each flying a 32 N plateau
+     * motor behind a 10 mm exit, under Rogers Kbf from the conditionsScenarios pad
+     * (1400 m / 303.15 K / 86000 Pa), cut at 3 s so the whole run is on the plateau.
+     * Each sample row is (time, P, thrust), so the arithmetic checks by hand:
+     *   thrust == N * 32 + N * (PI * 0.005^2) * (101325 - P).
+     * N = 1 takes the structural no-multiply path; before the fix N = 2 and N = 3
+     * read N * 32 + ONE term. The behavioural guard, bit-exact at every plateau row,
+     * is packages/engine/src/pressureThrust.test.ts.
+     */
+    private static void parallelPressureThrustScenarios() {
+        for (int n = 1; n <= 3; n++) {
+            String json = "{\"name\":\"StrapOns\",\"components\":[{\"type\":\"stage\",\"name\":\"Core\",\"children\":["
+                    + "{\"type\":\"nosecone\",\"length\":0.2,\"aftRadius\":0.029,\"thickness\":0.002},"
+                    + "{\"type\":\"bodytube\",\"length\":0.8,\"outerRadius\":0.029,\"thickness\":0.001,\"density\":950,\"children\":["
+                    + "  {\"type\":\"trapezoidfinset\",\"finCount\":4,\"rootChord\":0.15,\"tipChord\":0.08,\"sweep\":0.07,\"height\":0.10,\"thickness\":0.003},"
+                    + "  {\"type\":\"parachute\",\"diameter\":0.6},"
+                    + "  {\"type\":\"parallelstage\",\"id\":\"boost\",\"instanceCount\":" + n + ",\"nozzleExitDiameter\":0.010,"
+                    + "   \"radiusMethod\":\"relative\",\"radiusOffset\":0,\"angleOffset\":0,\"angleMethod\":\"relative\","
+                    + "   \"separationEvent\":\"burnout\",\"separationDelay\":0,\"position\":{\"method\":\"bottom\",\"offset\":0},\"children\":["
+                    + "    {\"type\":\"nosecone\",\"length\":0.06,\"aftRadius\":0.0155,\"thickness\":0.002},"
+                    + "    {\"type\":\"bodytube\",\"id\":\"bmount\",\"length\":0.3,\"outerRadius\":0.0155,\"thickness\":0.0005,\"density\":950,\"motorMount\":true}"
+                    + "  ]}"
+                    + "]}]}]}";
+            int r = api.OrkEngine.buildRocket(json);
+            api.OrkEngine.setMotorById(r, "bmount", "CONST32", 0.029, 0.2,
+                    new double[] { 0, 0.001, 3.999, 4.0 },
+                    new double[] { 0, 32.0, 32.0, 0 },
+                    new double[] { 0.35, 0.3499, 0.1501, 0.15 },
+                    0.1, 8.0);
+            api.OrkEngine.setRogersModifiedBarrowman(r, true);
+            String result = api.OrkEngine.simulateJson(r, "{\"rodLength\":1.0,\"launchAltitude\":1400,"
+                    + "\"temperature\":303.15,\"pressure\":86000,\"maxTime\":3,\"series\":\"full\"}");
+            java.util.Map<String, Object> parsed = api.JsonLite.parseObject(result);
+            java.util.Map<String, Object> summary = asMap(parsed.get("summary"));
+            line("flight.pthrust.para" + n,
+                    api.JsonLite.dbl(summary, "maxAltitude", Double.NaN),
+                    api.JsonLite.dbl(summary, "maxVelocity", Double.NaN));
+            java.util.Map<String, Object> series = api.JsonLite.obj(parsed, "series");
+            java.util.List<?> time = (java.util.List<?>) series.get("time");
+            java.util.List<?> pressure = (java.util.List<?>) series.get("P");
+            java.util.List<?> thrust = (java.util.List<?>) series.get("thrust");
+            for (int i = 5; i <= 20; i += 5) {
+                if (time != null && pressure != null && thrust != null && i < thrust.size()) {
+                    line("flight.pthrust.para" + n + ".sample." + i,
+                            ((Number) time.get(i)).doubleValue(),
+                            ((Number) pressure.get(i)).doubleValue(),
+                            ((Number) thrust.get(i)).doubleValue());
+                }
+            }
+        }
+    }
+
+    /**
      * RASAero PRESSURE THRUST (feature #5, 2026-09-08) - F(h) = F_curve(t) +
-     * A_exit x (101325 - P(h)), added once per thrusting stage in
+     * A_exit x (101325 - P(h)), added once per thrusting stage (per stage INSTANCE
+     * since 2026-09-22 - see parallelPressureThrustScenarios) in
      * RK4SimulationStepper.calculateThrust.
      *
      * APPENDED AT THE END OF THE ROSTER ON PURPOSE - difftest.mjs compares the two

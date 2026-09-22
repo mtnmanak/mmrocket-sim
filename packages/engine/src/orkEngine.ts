@@ -216,7 +216,11 @@ export type ComponentType =
  *
  * For a CLUSTER the value is the single equivalent nozzle with the exit AREAS
  * summed (d_eq = d x sqrt(N) for N identical nozzles) — the kernel charges one
- * area per stage, never one per motor.
+ * area per stage, never one per motor. A `parallelstage` node takes the field
+ * too, and there it is ONE strap-on's equivalent exit: both halves charge one
+ * area per stage INSTANCE, so N strap-ons get N areas (code review E2, fixed
+ * 2026-09-22 — pressure thrust used to charge one area for the whole ring). A
+ * `podset` refuses it; see `assertNoPodSetNozzle`.
  */
 export type SeparationEvent =
   | 'launch' | 'ignition' | 'burnout' | 'ejection' | 'upperignition'
@@ -480,34 +484,37 @@ export interface DragSweep {
 }
 
 /**
- * A nozzle exit diameter on a POD SET or PARALLEL STAGE is refused at the
- * package boundary, because the kernel would under-count it.
+ * A nozzle exit diameter on a POD SET is refused at the package boundary,
+ * because the kernel has nowhere to put it.
  *
- * `RK4SimulationStepper.calculatePressureThrust` credits ONE nozzle area per
- * distinct stage NUMBER, while the thrust itself and the power-on base-drag
- * recovery both scale by the assembly's instance count. So two instances of a
- * 10 mm-nozzle motor collect one nozzle's worth of pressure thrust and two
- * motors' worth of everything else: measured through the raw API at about
- * 86 kPa, 65.203822 N against the 66.407645 N per-instance accounting gives.
+ * A pod set is not a stage. The bridge hands `nozzleExitDiameter` to serial
+ * and parallel stages only (`OrkEngine.applySeparationConfig`), and a pod's
+ * motors burn as part of the ENCLOSING stage, whose own exit already stands for
+ * them — so on a pod set the field would be dropped without a word. A THROW
+ * rather than a silent strip: a raw-API caller who sets it means it, and
+ * dropping it quietly would be the defect. No app path produces it — the stage
+ * schema is the only one carrying the field, and `applyStageNozzles` writes
+ * top-level stages only.
  *
- * No app path can produce this — `FIELDS.parallelstage` has no such field and
- * `applyStageNozzles` writes only top-level stages — so this guard costs
- * nothing today and exists to keep that true by construction rather than by
- * luck. A THROW rather than a silent strip: a raw-API caller who sets it means
- * it, and dropping it quietly would be the same class of defect. The open
- * question behind the refusal — whether such a field would mean the
- * per-instance exit or the assembly's total — is on the board (2026-09-21).
+ * A PARALLEL STAGE was refused here too, from v0.136 until 2026-09-22, because
+ * `RK4SimulationStepper.calculatePressureThrust` credited ONE area per stage
+ * NUMBER while the thrust and the power-on base-drag recovery both scale by the
+ * instance count: two instances of a 32 N, 10 mm-exit motor at about 86 kPa flew
+ * 65.203822 N against the 66.407645 N per-instance accounting gives (code review
+ * E2). The kernel now charges one area per stage INSTANCE, as the drag half
+ * always did, so on a parallel stage the field means ONE strap-on's equivalent
+ * exit and is accepted (`pressureThrust.test.ts` pins it bit-exactly).
  */
-function assertNoAssemblyNozzle(tree: RocketTree): void {
+function assertNoPodSetNozzle(tree: RocketTree): void {
   const walk = (nodes: readonly ComponentNode[]): void => {
     for (const n of nodes) {
       const d = n['nozzleExitDiameter'];
-      if ((n.type === 'podset' || n.type === 'parallelstage') && typeof d === 'number' && d > 0) {
+      if (n.type === 'podset' && typeof d === 'number' && d > 0) {
         throw new Error(
-          `nozzleExitDiameter on a ${n.type} (${n.id ?? 'unnamed'}) is not supported: the kernel `
-          + 'credits one nozzle area per stage number but flies one motor per instance, so a '
-          + 'repeated stage would collect too little pressure thrust. Put the exit on the serial '
-          + 'stage, or leave it unset.',
+          `nozzleExitDiameter on a podset (${n.id ?? 'unnamed'}) is not supported: a pod set is `
+          + 'not a stage, so the kernel has nowhere to hold it, and the motors in its pods burn '
+          + 'as part of the enclosing stage. Put the exit on that stage (or on a parallel stage), '
+          + 'or leave it unset.',
         );
       }
       walk(n.children ?? []);
@@ -575,7 +582,7 @@ export class OrkRocket {
    * Give the motor-mount inner tube an `id` and pass it to setMotorById.
    */
   static buildTree(tree: RocketTree): OrkRocket {
-    assertNoAssemblyNozzle(tree);
+    assertNoPodSetNozzle(tree);
     const handle = ork.buildRocket(JSON.stringify(tree));
     return new OrkRocket(handle, -1);
   }
