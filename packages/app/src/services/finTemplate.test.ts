@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
+import { finCutOutline } from '../tree/solidMesh.js';
 import { finOutline, finTemplateSvg, tabOutline } from './finTemplate.js';
 
 describe('fin outlines', () => {
@@ -132,5 +133,108 @@ describe('finTemplateSvg — the calibration ruler is never off the page', () =>
     const svg = finTemplateSvg(small, 'X');
     const w = pageWidth(svg);
     expect(svg).toContain(`viewBox="0 0 ${w.toFixed(1)} `);
+  });
+});
+
+/**
+ * THE ROOT CHORD IS THE ROOT CHORD, NOT THE WIDEST POINT (audit 2026-09-22).
+ *
+ * For a trapezoid the template took max-x over the outline, which is the TIP's
+ * trailing corner whenever sweep + tip > root. Measured on root 100 / tip 50 /
+ * sweep 80 mm: the caption read "root 130.0 mm" and a middle tab was drawn at
+ * 35-95 mm, where the STL and the DXF (finCutOutline) cut it at 20-80 mm — a
+ * builder cutting from the paper got a tab that does not seat. Every existing
+ * test used sweep + tip < root, where the two readings agree.
+ */
+describe('finTemplateSvg — root chord and tab agree with the cut files', () => {
+  const swept: ComponentNode = {
+    type: 'trapezoidfinset', name: 'Swept', finCount: 3,
+    rootChord: 0.1, tipChord: 0.05, sweep: 0.08, height: 0.05, thickness: 0.003,
+    tabHeight: 0.01, tabLength: 0.06, tabOffset: 0, tabOffsetMethod: 'middle',
+  } as ComponentNode;
+  /** The tab path's two x's in page units (the second path in the cut group). */
+  const tabXs = (svg: string): [number, number] | null => {
+    const d = [...svg.matchAll(/<path d="([^"]+)"\/>/g)].map((m) => m[1]!);
+    if (d.length < 2) return null;
+    const xs = [...d[1]!.matchAll(/[ML] ([\d.-]+) /g)].map((m) => Number(m[1]));
+    return [Math.min(...xs), Math.max(...xs)];
+  };
+  /** Page x of a physical x in mm: M (15) plus the outline's own left edge. */
+  const pageX = (mm: number, minXmm = 0) => mm - minXmm + 15;
+  /** The tab corners the STL/DXF contour actually cuts, in mm. */
+  const cutTab = (node: ComponentNode): [number, number] => {
+    const below = finCutOutline(node)!.filter((p) => p[1] < 0).map((p) => p[0] * 1000);
+    return [Math.min(...below), Math.max(...below)];
+  };
+
+  it('captions the 100 mm root as 100.0, not the 130 mm tip overhang', () => {
+    const svg = finTemplateSvg(swept, 'X');
+    expect(svg).toContain('root 100.0 mm');
+    expect(svg).not.toContain('root 130.0 mm');
+  });
+
+  it('draws the middle tab at 20-80 mm — the station the STL and DXF cut it at', () => {
+    const svg = finTemplateSvg(swept, 'X');
+    const [a, b] = cutTab(swept);
+    expect(a).toBeCloseTo(20, 9);
+    expect(b).toBeCloseTo(80, 9);
+    const [x0, x1] = tabXs(svg)!;
+    expect(x0).toBeCloseTo(pageX(20), 3);
+    expect(x1).toBeCloseTo(pageX(80), 3);
+    // ...and the dashed root reference line stops at the root, not the tip.
+    expect(svg).toContain(`x2="${pageX(100).toFixed(3)}"`);
+  });
+
+  it('reads a closed freeform point list the way finCutOutline does', () => {
+    // Last point repeats the first: the root chord is the point BEFORE it
+    // (50 mm), not 0 — finCutOutline trims the duplicate, and so must this.
+    const closed = {
+      type: 'freeformfinset', name: 'FF',
+      points: [[0, 0], [0.01, 0.03], [0.05, 0.02], [0.05, 0], [0, 0]],
+      tabHeight: 0.005, tabLength: 0.02, tabOffset: 0, tabOffsetMethod: 'middle',
+    } as unknown as ComponentNode;
+    const svg = finTemplateSvg(closed, 'X');
+    expect(svg).toContain('root 50.0 mm');
+    const [x0, x1] = tabXs(svg)!;
+    const [a, b] = cutTab(closed);
+    expect([a, b]).toEqual([expect.closeTo(15, 9), expect.closeTo(35, 9)]);
+    expect(x0).toBeCloseTo(pageX(a), 3);
+    expect(x1).toBeCloseTo(pageX(b), 3);
+  });
+});
+
+/**
+ * The paper tab is CLAMPED into the root chord exactly as the STL and DXF
+ * clamp it (audit 2026-09-22). It used to be drawn unclamped, so a tab hanging
+ * off the leading edge printed longer than the part the cut files make.
+ */
+describe('tab outline — clamped into the root like the cut files', () => {
+  const base = {
+    type: 'trapezoidfinset', rootChord: 0.05, tipChord: 0.02, sweep: 0.01, height: 0.04,
+    tabHeight: 0.008, tabLength: 0.02,
+  };
+
+  it('a tab hanging off the leading edge is cut at the leading edge', () => {
+    const node = { ...base, tabOffset: -0.01, tabOffsetMethod: 'top' } as unknown as ComponentNode;
+    const tab = tabOutline(node, 0.05)!;
+    expect(tab.x0).toBe(0);
+    expect(tab.x1).toBeCloseTo(0.01, 12);
+    const below = finCutOutline(node)!.filter((p) => p[1] < 0).map((p) => p[0]);
+    expect(Math.min(...below)).toBeCloseTo(tab.x0, 12);
+    expect(Math.max(...below)).toBeCloseTo(tab.x1, 12);
+  });
+
+  it('a tab hanging off the trailing edge is cut at the trailing edge', () => {
+    const tab = tabOutline({ ...base, tabOffset: 0.02, tabOffsetMethod: 'middle' } as unknown as ComponentNode, 0.05)!;
+    expect(tab.x0).toBeCloseTo(0.035, 12);
+    expect(tab.x1).toBeCloseTo(0.05, 12);
+  });
+
+  it('a tab pushed entirely off the root is not drawn at all — the cut files drop it too', () => {
+    const node = { ...base, tabOffset: 0.2, tabOffsetMethod: 'top' } as unknown as ComponentNode;
+    expect(tabOutline(node, 0.05)).toBeNull();
+    const svg = finTemplateSvg(node, 'X');
+    expect((svg.match(/<path /g) ?? []).length).toBe(1);
+    expect(svg).not.toContain('tab ');
   });
 });

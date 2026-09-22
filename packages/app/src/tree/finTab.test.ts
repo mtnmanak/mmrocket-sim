@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
-import { finTabFront } from './finTab.js';
+import { finRootChord, finTabFront, finTabSpan } from './finTab.js';
 
 const fin = (params: Record<string, unknown>): ComponentNode =>
   ({ type: 'trapezoidfinset', ...params } as unknown as ComponentNode);
@@ -46,5 +46,37 @@ describe('tree/ imports no React component', () => {
     const offenders = modules.filter((f) =>
       /from\s+['"]\.\.\/components\//.test(readFileSync(`${dir}/${f}`, 'utf8')));
     expect(offenders).toEqual([]);
+  });
+});
+
+describe('finRootChord — the chord, never the drawn extent', () => {
+  it('trapezoid: rootChord, even when sweep + tip overhangs it', () => {
+    expect(finRootChord(fin({ rootChord: 0.1, tipChord: 0.05, sweep: 0.08 }))).toBe(0.1);
+  });
+
+  it('freeform: the LAST point x, not the max x (FreeformFinSet.java:494)', () => {
+    const ff = { type: 'freeformfinset', points: [[0, 0], [0.02, 0.03], [0.05, 0.03], [0.01, 0]] } as unknown as ComponentNode;
+    expect(finRootChord(ff)).toBe(0.01);
+  });
+
+  it('freeform: a closing point that repeats the first is dropped first', () => {
+    const ff = { type: 'freeformfinset', points: [[0, 0], [0.01, 0.03], [0.05, 0.02], [0.05, 0], [0, 0]] } as unknown as ComponentNode;
+    expect(finRootChord(ff)).toBe(0.05);
+  });
+});
+
+describe('finTabSpan — the tab as it is cut', () => {
+  it('clamps into [0, root] and drops a tab with nothing left', () => {
+    const t = (tabOffset: number, tabOffsetMethod: string) =>
+      finTabSpan(fin({ tabHeight: 0.008, tabLength: 0.02, tabOffset, tabOffsetMethod }), 0.05);
+    expect(t(-0.01, 'top')).toEqual({ x0: 0, x1: expect.closeTo(0.01, 12), depth: 0.008 });
+    expect(t(0.02, 'middle')).toEqual({ x0: expect.closeTo(0.035, 12), x1: 0.05, depth: 0.008 });
+    expect(t(0.2, 'top')).toBeNull();
+  });
+
+  it('is null with no tab height, no tab length or no root', () => {
+    expect(finTabSpan(fin({ tabLength: 0.02 }), 0.05)).toBeNull();
+    expect(finTabSpan(fin({ tabHeight: 0.01 }), 0.05)).toBeNull();
+    expect(finTabSpan(fin({ tabHeight: 0.01, tabLength: 0.02 }), 0)).toBeNull();
   });
 });

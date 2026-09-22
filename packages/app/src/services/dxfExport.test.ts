@@ -350,14 +350,17 @@ describe('fin cut profiles', () => {
   });
 
   it('labels the tab extent that was CUT, not the one that was designed', () => {
-    // A 40 mm 'top' tab starting 20 mm ahead of the root: OpenRocket (and the
-    // SVG template) place it at [-20, +20] mm, the cut profile clamps it into
-    // the root at [0, 20]. Printing the design length would send the operator
-    // to cut a 40 mm airframe slot for a 20 mm tab.
+    // A 40 mm 'top' tab starting 20 mm ahead of the root: OpenRocket places it
+    // at [-20, +20] mm, the cut profile clamps it into the root at [0, 20].
+    // Printing the design length would send the operator to cut a 40 mm
+    // airframe slot for a 20 mm tab.
     const clamped = node('trapezoidfinset', {
       ...FIN, tabHeight: 0.012, tabLength: 0.04, tabOffsetMethod: 'top', tabOffset: -0.02,
     });
-    expect(tabOutline(clamped, 0.1)).toEqual({ x0: -0.02, x1: 0.02, depth: 0.012 });
+    // The SVG template clamps it to the SAME [0, 20] (audit 2026-09-22) — this
+    // line used to pin the template's unclamped [-20, +20], i.e. pin the paper
+    // and the cut file disagreeing.
+    expect(tabOutline(clamped, 0.1)).toEqual({ x0: 0, x1: 0.02, depth: 0.012 });
     const label = labelText(clamped);
     expect(label).toContain('TTW tab 12.0 mm deep x 20.0 mm long at x 0.0-20.0 mm');
     expect(label).not.toContain('40.0 mm long');

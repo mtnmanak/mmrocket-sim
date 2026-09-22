@@ -1,4 +1,5 @@
 import type { ComponentNode } from '@online-openrocket/engine';
+import { finRootChord, finTabSpan } from '../tree/finTab.js';
 import { escapeXml as esc } from './xmlUtil.js';
 
 /**
@@ -11,8 +12,10 @@ import { escapeXml as esc } from './xmlUtil.js';
  * - trapezoid: root at y=0, tip chord offset by sweep;
  * - elliptical: half-ellipse over the root chord;
  * - freeform: the editor's own points, leading-root → trailing-root.
- * A through-the-wall tab (when present) hangs BELOW the root line exactly
- * as the kernel models it.
+ * A through-the-wall tab (when present) hangs BELOW the root line at the
+ * station the kernel models, clamped into the root chord exactly as the STL
+ * and DXF cut it — the root chord and the tab both come from tree/finTab.ts,
+ * the readers solidMesh.finCutOutline uses.
  */
 
 interface Pt { x: number; y: number }
@@ -53,19 +56,12 @@ export function finOutline(node: ComponentNode): Pt[] {
   }
 }
 
-/** Tab rectangle in meters (below the root line), or null. */
+/**
+ * Tab rectangle in meters (below the root line), or null — clamped into the
+ * root chord exactly as the STL and DXF cut it (tree/finTab.ts finTabSpan).
+ */
 export function tabOutline(node: ComponentNode, rootLen: number): { x0: number; x1: number; depth: number } | null {
-  const n = (k: string, fb: number) => (typeof node[k] === 'number' ? (node[k] as number) : fb);
-  const depth = n('tabHeight', 0);
-  const len = n('tabLength', 0);
-  if (depth <= 0 || len <= 0) return null;
-  const offset = n('tabOffset', 0);
-  const method = String(node['tabOffsetMethod'] ?? 'middle');
-  let x0: number;
-  if (method === 'top') x0 = offset;
-  else if (method === 'bottom') x0 = rootLen - len + offset;
-  else x0 = (rootLen - len) / 2 + offset;
-  return { x0, x1: x0 + len, depth };
+  return finTabSpan(node, rootLen);
 }
 
 export function finTemplateSvg(node: ComponentNode, rocketName: string): string {
@@ -74,23 +70,24 @@ export function finTemplateSvg(node: ComponentNode, rocketName: string): string 
   const mm = (m: number) => m * 1000;
   const xs = outline.map((p) => mm(p.x));
   const ys = outline.map((p) => mm(p.y));
-  // ROOT CHORD, and it must be the same number solidMesh's finCutOutline uses
-  // (solidMesh.ts:372, 432) — this is the paper template for the part that path
-  // cuts, and a template that disagrees with the cut file is worse than either.
-  // For a freeform fin that is the LAST point's x, which is the kernel's own
-  // definition (FreeformFinSet.java): a fin may legitimately overhang its own
-  // root, so max-x is the drawn EXTENT, not the chord. It sets the tab station
-  // below, the dashed root line, and the printed "root NN.N mm" caption.
-  const rootLenM = node.type === 'freeformfinset' && outline.length > 0
-    ? Math.max(0, outline[outline.length - 1]!.x)
-    : Math.max(...outline.map((p) => p.x));
+  // ROOT CHORD, read by the SAME function solidMesh's finCutOutline uses
+  // (tree/finTab.ts finRootChord) — this is the paper template for the part
+  // that path cuts, and a template that disagrees with the cut file is worse
+  // than either. It is never max-x: a fin whose tip overhangs its root (a
+  // trapezoid with sweep + tip > root, or a dragged freeform tip) has a drawn
+  // EXTENT longer than its chord. Taking max-x for a trapezoid printed "root
+  // 130.0 mm" on a 100 mm root and put the tab 15 mm aft of where the cut
+  // files put it, until the 2026-09-22 audit. It sets the tab station below,
+  // the dashed root line, and the printed "root NN.N mm" caption.
+  const rootLenM = finRootChord(node);
   const tab = tabOutline(node, rootLenM);
   const tabDepthMm = tab ? mm(tab.depth) : 0;
 
-  // Tabs can extend past the outline on BOTH sides (a 'top' tab with a
-  // negative offset starts left of x=0) — include them or they get clipped.
-  const minX = Math.min(0, ...xs, tab ? mm(tab.x0) : 0);
-  const maxX = Math.max(...xs, tab ? mm(tab.x1) : 0);
+  // The tab needs no share of the page width: it is clamped into [0, root
+  // chord], and the outline always spans that — its first and last points
+  // are the two ends of the root.
+  const minX = Math.min(0, ...xs);
+  const maxX = Math.max(...xs);
   const maxY = Math.max(...ys);
 
   // Layout: margin, fin (flipped so height grows UP on paper), root line,

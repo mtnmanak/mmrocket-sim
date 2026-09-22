@@ -13,7 +13,7 @@ import type { ComponentNode } from '@online-openrocket/engine';
 import { num } from './nodeNum.js';
 import { outerProfile } from './shapeProfile.js';
 import { tubeFinRadius } from './tubefins.js';
-import { finTabFront } from './finTab.js';
+import { finRootChord, finTabSpan } from './finTab.js';
 
 export interface SolidMesh {
   /** xyz triples, meters */
@@ -376,16 +376,12 @@ function shoulderOf(node: ComponentNode, prefix: string, fallbackWall: number): 
  */
 export function finCutOutline(node: ComponentNode): Array<[number, number]> | null {
   let pts: Array<[number, number]>;
-  // null = freeform: its root chord is the LAST point's x and can only be read
-  // AFTER the closed-list trim below, so it is resolved there.
-  let rootLen: number | null = null;
   if (node.type === 'trapezoidfinset') {
     const root = num(node, 'rootChord', 0.05);
     const tip = Math.max(num(node, 'tipChord', 0.025), 0);
     const sweep = num(node, 'sweep', 0.02);
     const height = num(node, 'height', 0.03);
     pts = [[0, 0], [sweep, height], [sweep + tip, height], [root, 0]];
-    rootLen = root;
   } else if (node.type === 'ellipticalfinset') {
     const root = num(node, 'rootChord', 0.05);
     const height = num(node, 'height', 0.03);
@@ -413,7 +409,6 @@ export function finCutOutline(node: ComponentNode): Array<[number, number]> | nu
       const t = (Math.PI * i) / steps;
       pts.push([(root / 2) * (1 - Math.cos(t)), height * Math.sin(t)]);
     }
-    rootLen = root;
   } else {
     const raw = node['points'];
     if (!Array.isArray(raw) || raw.length < 3) return null;
@@ -434,35 +429,30 @@ export function finCutOutline(node: ComponentNode): Array<[number, number]> | nu
   }
   if (pts.length < 3) return null;
 
-  // A freeform fin's root chord is the LAST point's x — the kernel's own
-  // definition (FreeformFinSet.java:494 and :546, `this.length =
-  // points.get(lastIndex).x`), which FinSet.getTabFrontEdge() then measures the
-  // tab from. It is NOT the max over all points: FinPointsEditor's constrain()
-  // pins only point 0 and the last point's y, so a tip trailing corner may
-  // overhang the root's. Using max-x there put the tab's fore corner AFT of the
-  // root trailing corner, and the closed contour then walked y = 0 twice in
-  // opposite directions — points [[0,0],[0.02,0.03],[0.05,0.03],[0.01,0]] with
-  // a 20x10 mm tab gave three.js's ear clipper 4 cap triangles where 6 are
-  // needed, i.e. a non-watertight STL and a DXF path that doubled back on
-  // itself. It also placed the tab at a different station than the physics uses.
-  if (rootLen === null) rootLen = Math.max(0, pts[pts.length - 1]![0]);
-
-  const tabH = num(node, 'tabHeight', 0);
-  const tabL = num(node, 'tabLength', 0);
-  if (tabH > EPS && tabL > EPS && rootLen > EPS) {
+  // The root chord and the tab come from tree/finTab.ts — the SAME two readers
+  // the paper template (services/finTemplate.ts) uses, so the printed prism,
+  // the DXF and the template cannot put the tab in three places. A freeform
+  // fin's root chord is the LAST point's x (FinSet.getTabFrontEdge() measures
+  // the tab from it), NOT the max over all points: FinPointsEditor's
+  // constrain() pins only point 0 and the last point's y, so a tip trailing
+  // corner may overhang the root's. Using max-x there put the tab's fore
+  // corner AFT of the root trailing corner, and the closed contour then walked
+  // y = 0 twice in opposite directions — points
+  // [[0,0],[0.02,0.03],[0.05,0.03],[0.01,0]] with a 20x10 mm tab gave three.js's
+  // ear clipper 4 cap triangles where 6 are needed, i.e. a non-watertight STL
+  // and a DXF path that doubled back on itself. It also placed the tab at a
+  // different station than the physics uses.
+  const tab = finTabSpan(node, finRootChord(node));
+  if (tab) {
     const first = pts[0]!;
     const lastP = pts[pts.length - 1]!;
     if (Math.abs(first[1]) <= 1e-7 && Math.abs(lastP[1]) <= 1e-7) {
-      const front = finTabFront(node, rootLen);
-      const x0 = Math.min(Math.max(front, 0), rootLen);
-      const x1 = Math.min(Math.max(front + tabL, 0), rootLen);
-      if (x1 - x0 > EPS) {
-        const tab: Array<[number, number]> =
-          lastP[0] >= first[0]
-            ? [[x1, 0], [x1, -tabH], [x0, -tabH], [x0, 0]]
-            : [[x0, 0], [x0, -tabH], [x1, -tabH], [x1, 0]];
-        pts = pts.concat(tab);
-      }
+      const { x0, x1, depth } = tab;
+      pts = pts.concat(
+        lastP[0] >= first[0]
+          ? [[x1, 0], [x1, -depth], [x0, -depth], [x0, 0]]
+          : [[x0, 0], [x0, -depth], [x1, -depth], [x1, 0]],
+      );
     }
   }
   return pts;
