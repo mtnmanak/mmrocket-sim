@@ -87,6 +87,43 @@ describe('solidContextFor — the bore a part sits in', () => {
     expect(solidContextFor(t, find(t, 'bh')).parentInnerRadius).toBeCloseTo(0.0266, 12);
   });
 
+  it('a nose or transition that omits a field reads the KERNEL bridge defaults', () => {
+    // ComponentFactory: nose length 70 mm, aft radius 12 mm, ogive; transition
+    // conical. A conical nose stating nothing else: a 4 mm bulkhead flush aft
+    // spans x = 66..70 mm -> 12 * 66/70 - 2 = 9.3143 mm. (The old 100 mm / 0
+    // fallbacks gave no bore at all.)
+    const nose = tree({
+      id: 'n1', type: 'nosecone', shape: 'conical',
+      children: [{ ...bulkhead, position: { method: 'bottom', offset: 0 } }],
+    });
+    expect(solidContextFor(nose, find(nose, 'bh')).parentInnerRadius).toBeCloseTo((0.012 * 66) / 70 - 0.002, 12);
+    // A transition with no shape is conical, as the kernel and the schematic
+    // draw it — the same 26.6 mm as the conical transition above, not the
+    // ogive's figure.
+    const tr = tree({
+      id: 't1', type: 'transition', length: 0.1, foreRadius: 0.03, aftRadius: 0.02,
+      thickness: 0.002, children: [{ ...bulkhead, position: { method: 'top', offset: 0.01 } }],
+    });
+    expect(solidContextFor(tr, find(tr, 'bh')).parentInnerRadius).toBeCloseTo(0.0266, 12);
+  });
+
+  it('a transition radius left AUTOMATIC is not read as 0 — the part says its size is assumed', () => {
+    // No foreRadius: the kernel takes it from the tube ahead. Read as 0, a
+    // bulkhead flush aft came out at 17.2 mm where the kernel flies 18.0 mm,
+    // and was not flagged.
+    const t = tree(
+      { id: 'b0', type: 'bodytube', outerRadius: 0.025, thickness: 0.001, length: 0.2 },
+      {
+        id: 't1', type: 'transition', shape: 'conical', length: 0.1, aftRadius: 0.02, thickness: 0.002,
+        children: [{ ...bulkhead, position: { method: 'bottom', offset: 0 } }],
+      },
+    );
+    const node = find(t, 'bh');
+    const ctx = solidContextFor(t, node);
+    expect(ctx.parentInnerRadius).toBeUndefined();
+    expect(componentLoop(node, ctx)!.label).toBe('Bulkhead (assumed size)');
+  });
+
   it('a body tube is unchanged: outer radius less the wall', () => {
     const t = tree({
       id: 'b1', type: 'bodytube', outerRadius: 0.0245, thickness: 0.0008, length: 0.4,

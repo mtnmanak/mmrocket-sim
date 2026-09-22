@@ -28,7 +28,8 @@ import type { SolidContext } from './solidMesh.js';
  *    imported part), else — automatic — the bore of ITS parent at the
  *    coupler's station; less its wall either way;
  *  - nose cone / transition: the profile's radius at the part's station,
- *    less the wall.
+ *    less the wall — except a transition radius left automatic, which the
+ *    kernel takes from the neighbouring part and this does not resolve.
  *
  * Anything else leaves the bore unset, and the exporters then label the part
  * "(assumed size)" and say so under the 🖨 button rather than printing a
@@ -74,15 +75,24 @@ function boreAt(chain: ComponentNode[], i: number, child: ComponentNode): number
   switch (host.type) {
     case 'nosecone':
     case 'transition': {
-      const L = num(host, 'length', host.type === 'nosecone' ? 0.1 : 0.05);
-      const foreR = host.type === 'nosecone' ? 0 : num(host, 'foreRadius', 0);
-      const aftR = num(host, 'aftRadius', 0);
+      // A field the node omits reads the kernel bridge's own default
+      // (ComponentFactory: nose 70 mm long, 12 mm aft radius, ogive; transition
+      // 50 mm, conical; 2 mm wall), or "the way the kernel resolves it" is not
+      // true of a hand-built or share-link tree. A transition radius it omits is
+      // AUTOMATIC there — taken from the neighbouring part — and is not read as
+      // 0 here: that came out 17.2 mm where the kernel flies 18.0, unflagged.
+      // Unresolved, the part is labelled "(assumed size)" instead.
+      const nose = host.type === 'nosecone';
+      const L = num(host, 'length', nose ? 0.07 : 0.05);
+      const foreR = nose ? 0 : numOpt(host, 'foreRadius');
+      const aftR = nose ? num(host, 'aftRadius', 0.012) : numOpt(host, 'aftRadius');
+      if (foreR === undefined || aftR === undefined) return undefined;
       const wall = Math.max(num(host, 'thickness', 0.002), 0);
       const len = axialLength(child);
       const pos = (child.position ?? { method: 'top', offset: 0 }) as ComponentPosition;
       const x0 = Math.min(Math.max(startFromPosition(pos, len, L), 0), L);
       const x1 = Math.min(Math.max(startFromPosition(pos, len, L) + len, 0), L);
-      const shape = typeof host['shape'] === 'string' ? (host['shape'] as string) : 'ogive';
+      const shape = typeof host['shape'] === 'string' ? (host['shape'] as string) : nose ? 'ogive' : 'conical';
       const param = typeof host['shapeParameter'] === 'number' ? (host['shapeParameter'] as number) : undefined;
       const clipped = typeof host['clipped'] === 'boolean' ? (host['clipped'] as boolean) : undefined;
       // Exact samples AT the two ends (outerProfile's extraX), not the nearest
