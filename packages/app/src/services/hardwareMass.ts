@@ -432,8 +432,8 @@ export function shiftMotorMass(spec: MotorSpec, perMotorShiftKg: number): MotorS
  * The spec a mount FLIES: the catalogue spec shifted by the weighed hardware
  * when this is the mount the hardware is carried on, the catalogue spec
  * otherwise. The one helper every place that writes a motor onto the engine
- * handle goes through (the build loop, `applyAssignedMotors`, and the re-fly
- * paths in App.tsx) — so a Launch can never fly a different mass from the
+ * handle goes through (the build loop in App.tsx, and every flight in
+ * services/flightRunner.ts) — so a Launch can never fly a different mass from the
  * design page.
  */
 export function flownSpec(
