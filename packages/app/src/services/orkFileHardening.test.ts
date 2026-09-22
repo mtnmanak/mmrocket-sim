@@ -37,12 +37,13 @@ const buf = (u: Uint8Array): ArrayBuffer =>
 
 /**
  * Rewrite fields of ONE entry's central-directory record. That record is where
- * fflate reads the compression method and the uncompressed size from
- * (`zh()`: method at +10, uncompressed size at +24, name length at +28, name at
- * +46), so patching it is how a crafted archive is simulated without shipping
- * one: a bomb PROMISES a gigabyte in a few hundred bytes, and `method` 14 is a
- * probe that throws the moment fflate is asked to inflate that entry — which is
- * exactly what must never happen to an entry the importer does not want.
+ * zipMember.ts reads the compression method and the uncompressed size from
+ * (mirroring fflate's `zh()`: method at +10, uncompressed size at +24, name
+ * length at +28, name at +46), so patching it is how a crafted archive is
+ * simulated without shipping one: a bomb PROMISES a gigabyte in a few hundred
+ * bytes, and `method` 14 is a probe that throws the moment the reader is asked
+ * to inflate that entry — which is exactly what must never happen to an entry
+ * the importer does not want.
  * (rocksimFileHardening.test.ts carries the same helper for the .rkt path.)
  */
 function patchZipEntry(zip: Uint8Array, name: string,
@@ -76,7 +77,7 @@ describe('.ork zip reading is bounded', () => {
   });
 
   it('never inflates an entry it will not read', () => {
-    // The decoy is marked compression 14 (LZMA), which fflate refuses to
+    // The decoy is marked compression 14 (LZMA), which the reader refuses to
     // inflate — so the import can only succeed if the decoy is skipped before
     // any inflate. The old `unzipSync(bytes)` inflated EVERY entry to build the
     // map it then searched, which is the decompression-bomb vector: real files
@@ -92,7 +93,7 @@ describe('.ork zip reading is bounded', () => {
   it('refuses an entry that declares more than the cap', () => {
     const zip = zipSync({ 'rocket.ork': strToU8(orkXml(BODY_TUBE)) });
     patchZipEntry(zip, 'rocket.ork', { originalSize: MAX_ZIP_MEMBER_BYTES + 1 });
-    // Rejected on the DECLARED size, before the allocation fflate would size
+    // Rejected on the DECLARED size, before the allocation the reader sizes
     // from that same field — a caught Error the user can read, not an
     // out-of-memory tab that takes their open design with it.
     expect(() => importOrk(buf(zip))).toThrow(/expands to .* MB/);
@@ -121,6 +122,22 @@ describe('.ork zip reading is bounded', () => {
 
   it('names an empty archive instead of crashing on it', () => {
     expect(() => importOrk(buf(zipSync({})))).toThrow(/Empty \.ork archive/);
+  });
+
+  it('refuses a 98-byte archive that declares 2^32 entries, as an Error', () => {
+    // Audit 2026-09-22: a zip64 end record's entry count was trusted, and the
+    // enumeration read zeros past the end of the buffer until the tab ran out
+    // of memory — a crash from the ordinary Open button that no catch can see.
+    // Now importOrk throws, and App.tsx shows the message after "Could not open
+    // that .ork file: ". zipMember.test.ts builds the same file byte by byte.
+    const bomb = new Uint8Array(98);
+    const dv = new DataView(bomb.buffer);
+    dv.setUint32(0, 0x06064b50, true); // zip64 end record ("PK" — the importer's zip test)
+    dv.setUint32(32, 0xffffffff, true); // its entry count
+    dv.setUint32(56, 0x07064b50, true); // zip64 locator -> offset 0
+    dv.setUint32(76, 0x06054b50, true); // classic end record
+    dv.setUint16(84, 1, true);
+    expect(() => importOrk(buf(bomb))).toThrow(/lists 4,294,967,295 entries/);
   });
 });
 
