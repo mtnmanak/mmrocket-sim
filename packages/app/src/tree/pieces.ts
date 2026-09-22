@@ -72,6 +72,17 @@ export interface Piece {
   innerGlass?: boolean;
 }
 
+/**
+ * Whether a piece belongs in a whole-rocket FILE export — the .obj, the .glb
+ * and the display-shell .stl, which the guide and each exporter describe as
+ * the EXTERNAL shell only. The 3D view draws the inner tubes too, as glass
+ * through the translucent shell, and every export used to carry them: a motor
+ * mount buried inside the body tube of a "shell" model (audit 2026-09-22).
+ * The loaded motors the view also draws need no filter — they exist only when
+ * the view passes `MotorDims`, which no exporter does.
+ */
+export const isShellPiece = (p: Piece): boolean => !p.innerGlass;
+
 /** Loaded motor case dimensions (m) keyed by mount node id — the same shape
  *  TreeSchematic takes. */
 export type MotorDims = Record<string, { length: number; diameter: number; label?: string }>;

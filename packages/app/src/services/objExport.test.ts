@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { RocketTree } from '@online-openrocket/engine';
 import { rocketToObj } from './objExport.js';
+import { buildPieces } from '../tree/pieces.js';
 
 const tree: RocketTree = {
   name: 'ObjTest',
@@ -39,6 +40,33 @@ describe('rocketToObj', () => {
   it('refuses an empty design', () => {
     expect(() => rocketToObj({ components: [{ type: 'stage', children: [] }] } as RocketTree, 'X'))
       .toThrow(/Nothing to export/);
+  });
+
+  it('is the EXTERNAL shell: a motor mount inside the body tube is not in the file', () => {
+    // The 3D view draws inner tubes as glass through its translucent shell,
+    // and every whole-rocket export used to carry them too — while the guide
+    // and this module's own header say "external shell only" (audit
+    // 2026-09-22).
+    const body = tree.components[0]!.children![1]!;
+    const withMount = {
+      ...tree,
+      components: [{
+        ...tree.components[0]!,
+        children: [tree.components[0]!.children![0]!, {
+          ...body,
+          children: [...(body.children ?? []), {
+            type: 'innertube', id: 'mm', length: 0.1, outerRadius: 0.0065, thickness: 0.0005,
+            position: { method: 'bottom', offset: 0 },
+          }],
+        }],
+      }],
+    } as RocketTree;
+    // The 3D view still draws it...
+    expect(buildPieces(withMount).pieces.filter((p) => p.innerGlass)).toHaveLength(1);
+    // ...and the file does not: nose + body + 3 fins, as without it.
+    const obj = rocketToObj(withMount, 'ObjTest');
+    expect((obj.match(/^o /gm) ?? []).length).toBe(5);
+    expect(obj).not.toMatch(/^o inner/m);
   });
 });
 

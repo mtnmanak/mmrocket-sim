@@ -46,6 +46,28 @@ describe('rocketToGlb', () => {
     expect(u32(glb, binOff)).toBeGreaterThan(0);
   });
 
+  it('is the EXTERNAL shell: a motor mount inside the body tube is not in the file', async () => {
+    // The 3D view draws inner tubes as glass through the shell, and the .glb
+    // used to carry them too (audit 2026-09-22).
+    const withMount: RocketTree = {
+      ...tree,
+      components: [{
+        type: 'stage', id: 's', name: 'Sustainer',
+        children: [
+          { type: 'nosecone', id: 'n', length: 0.07, aftRadius: 0.012, shape: 'ogive' } as ComponentNode,
+          { type: 'bodytube', id: 'b', length: 0.3, outerRadius: 0.012, children: [
+            { type: 'innertube', id: 'mm', length: 0.1, outerRadius: 0.0065, position: { method: 'bottom', offset: 0 } },
+          ] } as unknown as ComponentNode,
+        ],
+      } as ComponentNode],
+    };
+    const glb = await rocketToGlb(withMount, 'GlbTest');
+    const json = JSON.parse(new TextDecoder().decode(new Uint8Array(glb, 20, u32(glb, 12))));
+    const names = (json.nodes ?? []).map((n: { name?: string }) => n.name ?? '');
+    expect(names.some((n: string) => n.startsWith('body'))).toBe(true);
+    expect(names.filter((n: string) => n.startsWith('inner'))).toEqual([]);
+  });
+
   it('rejects an empty design', async () => {
     await expect(rocketToGlb({ components: [{ type: 'stage', children: [] }] } as RocketTree, 'X'))
       .rejects.toThrow(/Nothing to export/);

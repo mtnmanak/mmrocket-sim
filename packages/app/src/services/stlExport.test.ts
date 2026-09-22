@@ -152,6 +152,17 @@ describe('piecesToStl', () => {
     const { count } = parseStl(piecesToStl([piece('a'), piece('b')], 'two'));
     expect(count).toBe(24);
   });
+
+  it('skips the inner tubes the 3D view draws through the shell — the file is the external shell', () => {
+    // The Export -> STL display shell, like the .obj and .glb, used to carry
+    // every motor mount buried inside the body tube (audit 2026-09-22).
+    const box = (key: string, innerGlass?: boolean): Piece => ({
+      key, geometry: new THREE.BoxGeometry(0.01, 0.01, 0.01), color: '#888888',
+      ...(innerGlass ? { innerGlass } : {}),
+    });
+    const { count } = parseStl(piecesToStl([box('body0'), box('inner1', true), box('fin2')], 'shell'));
+    expect(count).toBe(24);
+  });
 });
 
 describe('STL_MIME', () => {
