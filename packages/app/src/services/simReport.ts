@@ -1,6 +1,8 @@
 import type { EngineWarning, FlightEvent, FlightResult, FlightSeries, MotorSpec, StaticInfo } from '@online-openrocket/engine';
 import { boosterBranches, DEFAULT_TIME_STEP_S, G0 } from '@online-openrocket/engine';
 import type { LaunchConditions } from '../components/LaunchPanel.js';
+import type { MountMotor } from '../App.js';
+import { motorIdentity } from './hardwareMass.js';
 import { displayDesignation } from './motorDb.js';
 import { formatWarningText } from './simWarnings.js';
 
@@ -610,6 +612,102 @@ export interface DesignMatchKey {
 }
 
 /**
+ * The weighed-hardware term of a motor-set key: `|hw:<0.1 g>`. Produced by
+ * {@link motorSetKeyOf} and split off again by {@link changedSinceRun}, which
+ * is why the two sit side by side (audit 2026-09-22 — the producer used to
+ * live in App.tsx and the parser here, one file apart from each other).
+ */
+const HW_TERM = '|hw:';
+
+/**
+ * The flown motor set as one comparable string: every mount that carried a
+ * motor, WHICH motor, its ejection delay and its ignition setting.
+ *
+ * THE FORMAT IS PERSISTED — every stored run carries one, and a run can only
+ * be re-flown, marked current or exported while its stamp still equals the
+ * key the design produces now. Change the format and every run in every
+ * user's history reads "the motor changed". `simReport.provenance.test.ts`
+ * pins it byte for byte.
+ *
+ * The stored run's `motor`/`delayS` describe only the PRIMARY mount and
+ * `boosterMotors` is labels-only, so neither can tell a two-stage design
+ * re-motored on the booster from the same design untouched.
+ *
+ * The manufacturer is part of the identity, not decoration: designations
+ * are not unique across vendors (an AeroTech J350 and a Cesaroni J350 are
+ * different motors with different curves), and the EX library keys on the
+ * exact imported entry because two vendors' same-designation curves coexist
+ * there. Without them, swapping vendors would leave the old flight's
+ * numbers looking current.
+ *
+ * The delay is the SPEC's — the one the motor is set to and a saved file
+ * carries — never the one an auto-delay flight chose: that optimum is only
+ * known after flying, so a key built before a flight could never contain it.
+ * What a run FLEW is `SimRun.delayS`.
+ *
+ * The weighed hardware (services/hardwareMass.ts) is part of the motor's
+ * FLOWN mass, so it is a term here too: a pad-mass edit after a flight marks
+ * the shown run stale the way a motor swap does, and the .ork flightData
+ * guard refuses the stale numbers. Appended ONLY when non-zero, to 0.1 g,
+ * so every stored run and every design without a pad mass keeps the exact
+ * key it always had.
+ *
+ * Moved here from App.tsx on 2026-09-22 (audit): the key was produced there
+ * and parsed here, and assembled around it in four places.
+ */
+export function motorSetKeyOf(
+  set: readonly (readonly [string, MountMotor])[], hardwareKg: number,
+): string {
+  const key = [...set]
+    .map(([id, mm]) => [
+      id,
+      motorIdentity(mm.meta, mm.spec.designation),
+      mm.spec.ejectionDelay,
+      mm.ignition.event,
+      mm.ignition.delay,
+    ].join(':'))
+    .sort()
+    .join('|');
+  return hardwareKg > 0 ? `${key}${HW_TERM}${Math.round(hardwareKg * 1e4)}` : key;
+}
+
+/** What {@link designMatchKeyOf} reads: the design, its motors and the conditions, as they stand. */
+export interface DesignMatchInput {
+  /** App's `physicsKey`: the physics-relevant tree, names and colours stripped. */
+  physicsKey: string;
+  /** App's `assigned`: every in-tree mount with a motor. */
+  assigned: readonly (readonly [string, MountMotor])[];
+  /** The weighed hardware the primary carries (kg); 0 when there is none. */
+  hardwareDeltaKg: number;
+  launch: LaunchConditions;
+  aeroMode: DesignMatchKey['aeroMode'];
+  /** The EFFECTIVE Kbf — with the vitals strip's session override, not the stored preference. */
+  effectiveKbf: boolean;
+  autoSupersonic: boolean;
+  /** Whether a stage with a motor carries a nozzle (App's `motorisedStagesWithNozzle`). */
+  hasNozzle: boolean;
+}
+
+/**
+ * The ONE assembly of a run-provenance key: what Launch stamps onto a run, and
+ * what a stored run is compared against to be re-flown, marked current or
+ * written into a `.ork`. It used to be assembled term by term in four places
+ * in App.tsx (audit 2026-09-22), and a term added to one of them and not the
+ * others is exactly how a stamp and a comparison drift apart.
+ */
+export function designMatchKeyOf(input: DesignMatchInput): DesignMatchKey {
+  return {
+    designKey: shortHash(input.physicsKey),
+    motorSetKey: motorSetKeyOf(input.assigned, input.hardwareDeltaKg),
+    conditionsKey: conditionsKeyOf(input.launch),
+    aeroMode: input.aeroMode,
+    effectiveKbf: input.effectiveKbf,
+    autoSupersonic: input.autoSupersonic,
+    hasNozzle: input.hasNozzle,
+  };
+}
+
+/**
  * When a run was flown, written so a stale one cannot pass for a fresh one.
  *
  * Same calendar day → the time alone; any other day → the date with it. The
@@ -683,13 +781,13 @@ export function changedSinceRun(
   if (run.designKey && run.designKey !== cur.designKey) changed.push('the design');
   if (run.motorSetKey && run.motorSetKey !== cur.motorSetKey) {
     // The motor-set key ends in a `|hw:<0.1 g>` term when a weighed pad mass
-    // carries hardware (App's motorSetKeyOf). Split it off before comparing:
+    // carries hardware (motorSetKeyOf, above). Split it off before comparing:
     // a run flown before the weighing differs ONLY in that term, and saying
     // "the motor changed" over it would send the user to check a motor that
     // is exactly the one loaded (v0.118). The last `|hw:` is the split point
     // — the motor half is joined by `|` itself.
     const motorsOf = (key: string) => {
-      const at = key.lastIndexOf('|hw:');
+      const at = key.lastIndexOf(HW_TERM);
       return at === -1 ? key : key.slice(0, at);
     };
     changed.push(motorsOf(run.motorSetKey) !== motorsOf(cur.motorSetKey) ? 'the motor' : 'the weighed pad mass');

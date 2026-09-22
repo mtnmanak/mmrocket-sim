@@ -77,10 +77,10 @@ import {
   sessionPredatesThisBuild, sessionSaveFailing,
 } from './services/session.js';
 import {
-  AERO_MODEL_CHANGED, aeroModelLabel, buildSimRun, changedSinceRun, conditionsKeyOf,
-  currentModelLabel, formatRunWhenProse, formatStability, listAnd,
-  hasAerodynamicForce, shownStability, runMatchesDesign, runMatchesModel,
-  shortHash, storedSimCost,
+  AERO_MODEL_CHANGED, aeroModelLabel, buildSimRun, changedSinceRun,
+  currentModelLabel, designMatchKeyOf, formatRunWhenProse, formatStability, listAnd,
+  hasAerodynamicForce, motorSetKeyOf, shownStability, runMatchesDesign, runMatchesModel,
+  storedSimCost,
   type DesignMatchKey, type FlownRecoveryDevice, type MotorMeta, type SimRun,
 } from './services/simReport.js';
 import { formatWarning, formatWarningText } from './services/simWarnings.js';
@@ -1568,7 +1568,7 @@ export function App() {
   const motorFailures = useMemo(() => built?.motorFailures ?? [], [built]);
   /**
    * The hardware this build carries (kg), 0 when none: a provenance term
-   * (motorSetKeyOf below) so a pad-mass edit marks the shown flight stale.
+   * (simReport's motorSetKeyOf) so a pad-mass edit marks the shown flight stale.
    */
   const hardwareDeltaKg = built && built.hardware.state === 'ok' ? built.hardware.deltaKg : 0;
 
@@ -2281,10 +2281,11 @@ export function App() {
           // Provenance for the .ork <flightdata> guard: what this flight was
           // computed FROM, so a later export can prove the design, motors and
           // conditions have not moved since — and refuse to write the numbers
-          // when they have.
+          // when they have. Stamped from the SAME key every comparison uses
+          // (`provenanceKey`, below), so the two cannot be assembled apart.
           ...(activeConfigId !== null ? { flightConfigId: activeConfigId } : {}),
-          designKey: shortHash(physicsKey),
-          motorSetKey: motorSetKeyOf(assigned, hardwareDeltaKg),
+          designKey: provenanceKey.designKey,
+          motorSetKey: provenanceKey.motorSetKey,
           // What the kernel was handed for each chute — so the report can state
           // the coefficient the verdict rests on, not just the device's name.
           flownRecovery: built.flownRecovery,
@@ -2320,69 +2321,45 @@ export function App() {
   };
 
   /**
-   * The flown motor set as one comparable string: every mount that carried a
-   * motor, WHICH motor, the delay it flew and its ignition setting.
-   *
-   * The stored run's `motor`/`delayS` describe only the PRIMARY mount and
-   * `boosterMotors` is labels-only, so neither can tell a two-stage design
-   * re-motored on the booster from the same design untouched.
-   *
-   * The manufacturer is part of the identity, not decoration: designations
-   * are not unique across vendors (an AeroTech J350 and a Cesaroni J350 are
-   * different motors with different curves), and the EX library keys on the
-   * exact imported entry because two vendors' same-designation curves coexist
-   * there. Without them, swapping vendors would leave the old flight's
-   * numbers looking current.
-   *
-   * The weighed hardware (services/hardwareMass.ts) is part of the motor's
-   * FLOWN mass, so it is a term here too: a pad-mass edit after a flight marks
-   * the shown run stale the way a motor swap does, and the .ork flightData
-   * guard refuses the stale numbers. Appended ONLY when non-zero, to 0.1 g,
-   * so every stored run and every design without a pad mass keeps the exact
-   * key it always had.
-   */
-  const motorSetKeyOf = useCallback((set: [string, MountMotor][], hardwareKg: number): string => {
-    const key = [...set]
-      .map(([id, mm]) => [
-        id,
-        motorIdentity(mm.meta, mm.spec.designation),
-        mm.spec.ejectionDelay,
-        mm.ignition.event,
-        mm.ignition.delay,
-      ].join(':'))
-      .sort()
-      .join('|');
-    return hardwareKg > 0 ? `${key}|hw:${Math.round(hardwareKg * 1e4)}` : key;
-  }, []);
-
-  /**
-   * The provenance of the design as it stands RIGHT NOW, for comparison
-   * against what a stored run recorded at launch. Every term is stamped onto
-   * every run by onLaunch, so the comparison is like-for-like.
+   * The provenance of the design, its motors and the conditions AS THEY STAND:
+   * what onLaunch stamps onto every run, and what a stored run is compared
+   * against — for the stale marks, for "Show charts" and for the `.ork`
+   * `<flightdata>` guard. ONE assembly (simReport's designMatchKeyOf) since the
+   * 2026-09-22 audit found it built term by term in four places here.
    *
    * effectiveKbf, not the stored preference: with the vitals strip's session
    * override active the two differ, and the run this is compared against was
    * stamped with the effective value.
+   *
+   * Deliberately NOT gated on `built && primaryMountId` the way
+   * `currentMatchKey` is. That gate is right for the re-fly path — you cannot
+   * reproduce a flight without a buildable rocket and a mount — but applying it
+   * here made the whole staleness signal vanish in exactly the states where a
+   * stored run is most likely to belong to something else: unload the motor, or
+   * start a new design, and the report went back to rendering an old flight with
+   * nothing to say so. Every term here is computable without a motor.
    */
-  const currentMatchKey = useMemo<DesignMatchKey | null>(() => {
-    if (!built || !primaryMountId) return null;
-    return {
-      designKey: shortHash(physicsKey),
-      motorSetKey: motorSetKeyOf(assigned, hardwareDeltaKg),
-      conditionsKey: conditionsKeyOf(launch),
-      aeroMode,
-      effectiveKbf,
-      autoSupersonic,
-      // Does the design SPEND the pressure-thrust term? A stored run flown
-      // before v0.119 cannot be re-flown on a design that does — see
-      // simReport's runCarriesNozzleStamp (2026-09-08).
-      hasNozzle: motorisedStagesWithNozzle(tree, assigned).length > 0,
-    };
+  const provenanceKey = useMemo<DesignMatchKey>(() => designMatchKeyOf({
+    physicsKey,
+    assigned,
+    hardwareDeltaKg,
+    launch,
+    aeroMode,
+    effectiveKbf,
+    autoSupersonic,
+    // Does the design SPEND the pressure-thrust term? A stored run flown
+    // before v0.119 cannot be re-flown on a design that does — see
+    // simReport's runCarriesNozzleStamp (2026-09-08).
+    hasNozzle: motorisedStagesWithNozzle(tree, assigned).length > 0,
     // `tree`, not `tree.components`, unlike `buildResult` above: this memo is
     // ~0.3 ms and re-running it on a rename is cheaper than a suppressed
     // exhaustive-deps warning is to read.
-  }, [built, primaryMountId, physicsKey, assigned, launch, aeroMode, effectiveKbf,
-    autoSupersonic, motorSetKeyOf, hardwareDeltaKg, tree]);
+  }), [physicsKey, assigned, hardwareDeltaKg, launch, aeroMode, effectiveKbf, autoSupersonic, tree]);
+  /** The same key, only when there is a rocket and a motor to re-fly it on. */
+  const currentMatchKey = useMemo<DesignMatchKey | null>(
+    () => (built && primaryMountId ? provenanceKey : null),
+    [built, primaryMountId, provenanceKey],
+  );
 
   /**
    * Whether a stored run's charts can be recovered by re-flying it here.
@@ -2607,8 +2584,11 @@ export function App() {
       activeConfigId,
       assigned,
       mountIds: mounts.map((m) => m.id).filter((id): id is string => typeof id === 'string'),
-      designKey: shortHash(physicsKey),
-      conditionsKey: conditionsKeyOf(launch),
+      // The design and conditions terms of the ONE key a run is stamped with.
+      // The motor set is not taken from it: a non-active configuration is
+      // compared against its OWN motors, so the function is handed over.
+      designKey: provenanceKey.designKey,
+      conditionsKey: provenanceKey.conditionsKey,
       model: { aeroMode, effectiveKbf, autoSupersonic },
       // Tree-only, deliberately NOT joined to `assigned` the way the two match
       // keys are: this admits runs from OTHER flight configurations, whose
@@ -2619,7 +2599,7 @@ export function App() {
       motorSetKeyOf,
       hardwareDeltaKg,
     })
-  ), [runs, savedConfigs, activeConfigId, assigned, mounts, physicsKey, launch, motorSetKeyOf,
+  ), [runs, savedConfigs, activeConfigId, assigned, mounts, provenanceKey,
     aeroMode, effectiveKbf, autoSupersonic, hardwareDeltaKg, tree]);
 
   /**
@@ -3501,31 +3481,10 @@ export function App() {
   const modelMatch = lastRun
     ? runMatchesModel(lastRun, { aeroMode, effectiveKbf, autoSupersonic })
     : null;
-  /**
-   * The design, motors and conditions AS THEY STAND, for comparing a stored run
-   * against.
-   *
-   * Deliberately NOT gated on `built && primaryMountId` the way
-   * `currentMatchKey` is. That gate is right for the re-fly path — you cannot
-   * reproduce a flight without a buildable rocket and a mount — but applying it
-   * here made the whole staleness signal vanish in exactly the states where a
-   * stored run is most likely to belong to something else: unload the motor, or
-   * start a new design, and the report went back to rendering an old flight with
-   * nothing to say so. Every term here is computable without a motor.
-   */
-  const provenanceKey = useMemo<DesignMatchKey>(() => ({
-    designKey: shortHash(physicsKey),
-    motorSetKey: motorSetKeyOf(assigned, hardwareDeltaKg),
-    conditionsKey: conditionsKeyOf(launch),
-    aeroMode,
-    effectiveKbf,
-    autoSupersonic,
-    hasNozzle: motorisedStagesWithNozzle(tree, assigned).length > 0,
-  }), [physicsKey, assigned, launch, aeroMode, effectiveKbf, autoSupersonic, motorSetKeyOf,
-    hardwareDeltaKg, tree]);
 
   /**
-   * What has changed since the SHOWN run was flown.
+   * What has changed since the SHOWN run was flown, against `provenanceKey`
+   * (the design as it stands — deliberately not gated on a motor, see there).
    *
    * Selecting a row in Saved simulations loads any stored run into the report —
    * deliberately, because looking at an earlier flight is a real thing to want.

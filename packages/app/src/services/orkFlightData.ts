@@ -59,7 +59,11 @@ export interface FlightDataForExportInput {
   model: { aeroMode: 'classic' | 'supersonic' | 'auto'; effectiveKbf: boolean; autoSupersonic: boolean };
   /** Whether ANY stage carries a nozzle exit diameter. */
   hasNozzle: boolean;
-  /** The app's own motor-set key function, injected so this module stays pure. */
+  /**
+   * simReport's `motorSetKeyOf` — the SAME function Launch stamps a run with.
+   * Passed in rather than imported so a test can hand each configuration a key
+   * of its own and exercise one rule at a time.
+   */
   motorSetKeyOf: (motors: [string, MountMotor][], hardwareDeltaKg: number) => string;
   hardwareDeltaKg: number;
 }
