@@ -2233,3 +2233,47 @@ describe('RASAero import — the pad pressure note', () => {
     expect(r.notes.some((n) => /is outside the/.test(n))).toBe(false);
   });
 });
+
+/**
+ * THE REST OF THE LAUNCH SITE (audit 2026-09-22). <RodAngle>, <RodLength>,
+ * <WindSpeed> and <Altitude> were taken raw, and nothing downstream re-checks
+ * them, so a file could fly an 80° rail or a negative rail. Each is now clamped
+ * into the Launch panel's own range, with a note in the file's units.
+ */
+describe('RASAero import — the launch site is held to the panel’s own bounds', () => {
+  const site = (inner: string): string =>
+    `<?xml version="1.0"?><RASAeroDocument><FileVersion>2</FileVersion><RocketDesign>
+      <NoseCone><PartType>NoseCone</PartType><Length>4.5</Length><Diameter>0.736</Diameter>
+        <Shape>Tangent Ogive</Shape></NoseCone>
+      <BodyTube><PartType>BodyTube</PartType><Length>18.25</Length><Diameter>0.736</Diameter></BodyTube>
+    </RocketDesign><LaunchSite>${inner}</LaunchSite></RASAeroDocument>`;
+  const boundNotes = (notes: string[]) => notes.filter((n) => /field under Launch conditions accepts/.test(n));
+
+  it('takes an ordinary site verbatim, with nothing to say', () => {
+    const r = importCdx1(site('<Altitude>3900</Altitude><RodAngle>5</RodAngle><RodLength>12</RodLength>'
+      + '<WindSpeed>10</WindSpeed>'));
+    expect(r.launch!.launchRodAngleDeg).toBe(5);
+    expect(r.launch!.launchRodLengthM).toBeCloseTo(12 / 3.28084, 9);
+    expect(r.launch!.windAverage).toBeCloseTo(10 / 2.23694, 9);
+    expect(boundNotes(r.notes)).toHaveLength(0);
+  });
+
+  it('clamps a rail past the panel’s 30° and a negative rail length, quoting the file', () => {
+    const r = importCdx1(site('<Altitude>0</Altitude><RodAngle>80</RodAngle><RodLength>-10</RodLength>'
+      + '<WindSpeed>-5</WindSpeed>'));
+    expect(r.launch!.launchRodAngleDeg).toBe(30);
+    expect(r.launch!.launchRodLengthM).toBe(0);
+    expect(r.launch!.windAverage).toBe(0);
+    const said = boundNotes(r.notes).join('\n');
+    expect(said).toMatch(/launch rod angle is 80°, .*accepts -30° to 30° — imported as 30°/);
+    expect(said).toMatch(/launch rod length is -10 ft, .*accepts nothing below 0 ft — imported as 0 ft/);
+    expect(said).toMatch(/wind speed is -5 mph, .*accepts nothing below 0 mph/);
+  });
+
+  it('holds the site altitude to the field’s 0-10,000 m', () => {
+    // 150,000 ft once reached the atmosphere unclamped (atmosphere.ts's NaN note).
+    const r = importCdx1(site('<Altitude>150000</Altitude>'));
+    expect(r.launch!.launchAltitudeM).toBe(10000);
+    expect(boundNotes(r.notes).join('\n')).toMatch(/launch site altitude is 150000 ft, .*imported as 32808\.4 ft/);
+  });
+});

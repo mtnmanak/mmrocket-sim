@@ -271,3 +271,64 @@ describe('an imported atmosphere is checked before it reaches the engine', () =>
     expect(atmosphereNotes(r.notes)).toHaveLength(0);
   });
 });
+
+/**
+ * THE REST OF THE LAUNCH ENVELOPE (audit 2026-09-22). The atmosphere above had
+ * the panel's bounds since v0.105; rod angle and length, wind, altitude and
+ * latitude were imported raw, and nothing downstream re-checks them — so a file
+ * flew an 80° rail (the panel stops at 30°, desktop at 60°) or a negative rod
+ * length. Each is now clamped into the panel's own range, with a note.
+ */
+describe('an imported launch site is held to the panel’s own bounds', () => {
+  const withConditions = (inner: string): string => orkXml(BODY_TUBE,
+    `<simulations><simulation status="notsimulated"><name>Sim</name>
+      <conditions>${inner}</conditions>
+    </simulation></simulations>`);
+  const boundNotes = (notes: string[]) => notes.filter((n) => /field under Launch conditions accepts/.test(n));
+
+  it('takes an ordinary launch site verbatim, with nothing to say', () => {
+    const r = importOrk(withConditions('<launchrodlength>1.8</launchrodlength>'
+      + '<launchrodangle>5</launchrodangle><launchaltitude>1190</launchaltitude>'
+      + '<launchlatitude>32.9</launchlatitude><wind model="average"><speed>3</speed>'
+      + '<standarddeviation>0.3</standarddeviation></wind>'));
+    expect(r.launch).toMatchObject({
+      launchRodLengthM: 1.8, launchRodAngleDeg: 5, launchAltitudeM: 1190, latitudeDeg: 32.9,
+      windAverage: 3, windStdDev: 0.3,
+    });
+    expect(boundNotes(r.notes)).toHaveLength(0);
+  });
+
+  it('clamps a rail past the panel’s 30° and says what the file said', () => {
+    const r = importOrk(withConditions('<launchrodangle>80</launchrodangle>'));
+    expect(r.launch?.launchRodAngleDeg).toBe(30);
+    expect(boundNotes(r.notes)).toEqual([
+      "The file's launch rod angle is 80°, and the Rod angle field under Launch conditions accepts "
+      + '-30° to 30° — imported as 30°. Change it there if you meant something else.',
+    ]);
+    expect(importOrk(withConditions('<launchrodangle>-45</launchrodangle>')).launch?.launchRodAngleDeg).toBe(-30);
+  });
+
+  it('refuses a negative rod length, altitude or gust spread, and a latitude off the globe', () => {
+    const r = importOrk(withConditions('<launchrodlength>-2</launchrodlength>'
+      + '<launchaltitude>-40</launchaltitude><launchlatitude>123</launchlatitude>'
+      + '<wind model="average"><speed>2</speed><standarddeviation>-1</standarddeviation></wind>'));
+    expect(r.launch).toMatchObject({
+      launchRodLengthM: 0, launchAltitudeM: 0, latitudeDeg: 90, windStdDev: 0, windAverage: 2,
+    });
+    expect(boundNotes(r.notes)).toHaveLength(4);
+    expect(boundNotes(r.notes).join('\n')).toMatch(/launch rod length is -2 m, .*accepts nothing below 0 m/);
+    // Above the Site altitude field's top, too.
+    expect(importOrk(withConditions('<launchaltitude>45720</launchaltitude>')).launch?.launchAltitudeM)
+      .toBe(10000);
+  });
+
+  it('reads a negative wind as that speed the other way — desktop’s reading — not as calm', () => {
+    // PinkNoiseWindModel.setAverage flips the direction and keeps the speed;
+    // the speed is what moves the flight, so the magnitude is imported. The
+    // legacy turbulence product is formed from the magnitude too, as desktop's.
+    const r = importOrk(withConditions('<windaverage>-4</windaverage><windturbulence>0.1</windturbulence>'));
+    expect(r.launch?.windAverage).toBe(4);
+    expect(r.launch?.windStdDev).toBeCloseTo(0.4, 12);
+    expect(r.notes.some((n) => /average wind is -4 m\/s.*imported as 4 m\/s/.test(n))).toBe(true);
+  });
+});

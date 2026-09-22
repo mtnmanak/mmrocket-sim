@@ -1,8 +1,12 @@
 import { strFromU8 } from 'fflate';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
-import type { LaunchConditions } from '../components/LaunchPanel.js';
+import {
+  importLaunchValue, ROD_ANGLE_DEG_RANGE, ROD_LENGTH_M_RANGE, WIND_MS_RANGE, type LaunchConditions,
+} from '../components/LaunchPanel.js';
 import { asStageNodes, freshId, mountsIn } from '../tree/treeModel.js';
-import { isaPressurePa, PAD_PRESSURE_HPA_RANGE, PAD_TEMP_C_RANGE, padPressureIssue } from './atmosphere.js';
+import {
+  isaPressurePa, PAD_PRESSURE_HPA_RANGE, PAD_TEMP_C_RANGE, padPressureIssue, SITE_ALTITUDE_M_RANGE,
+} from './atmosphere.js';
 import { findDbMotor, hasMassData } from './motorDb.js';
 import { escapeXml as esc, lookupTable, xmlNum, xmlText as text } from './xmlUtil.js';
 import type { OrkFlightConfig, OrkImportResult, OrkMotorRef, OrkSeparationOverride } from './orkFile.js';
@@ -785,8 +789,17 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
   const site = doc.querySelector('RASAeroDocument > LaunchSite');
   if (site) {
     launch = {};
+    // Each value is clamped into the Launch panel's own bounds, with a note in
+    // the file's units (audit 2026-09-22) — the rule the .ork reader follows.
+    // Nothing downstream re-checks these, so a <RodAngle>80</RodAngle> used to
+    // fly an 80° rail, and the <Altitude> reached the atmosphere unclamped
+    // (150,000 ft once made an import note read "about NaN mbar").
+    const ft = (m: number): string => `${Number((m * FT).toPrecision(6))} ft`;
     const alt = num(site, 'Altitude', NaN);
-    if (!Number.isNaN(alt)) launch.launchAltitudeM = alt / FT;
+    if (!Number.isNaN(alt)) {
+      launch.launchAltitudeM = importLaunchValue(alt / FT, SITE_ALTITUDE_M_RANGE,
+        { what: 'launch site altitude', field: 'Site altitude', show: ft }, notes);
+    }
     // The pad's air is believed only inside the envelope the Temperature and
     // Station pressure fields enforce on a typed value (audit 2026-09-22) —
     // the same arrays the .ork reader checks its <atmosphere> against. This
@@ -830,11 +843,20 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
         + 'instead — set the station pressure under Launch conditions if you know it.');
     }
     const rodAngle = num(site, 'RodAngle', NaN);
-    if (!Number.isNaN(rodAngle)) launch.launchRodAngleDeg = rodAngle;
+    if (!Number.isNaN(rodAngle)) {
+      launch.launchRodAngleDeg = importLaunchValue(rodAngle, ROD_ANGLE_DEG_RANGE,
+        { what: 'launch rod angle', field: 'Rod angle', show: (d) => `${Number(d.toPrecision(6))}°` }, notes);
+    }
     const rodLen = num(site, 'RodLength', NaN); // FEET, unlike the part geometry
-    if (!Number.isNaN(rodLen)) launch.launchRodLengthM = rodLen / FT;
+    if (!Number.isNaN(rodLen)) {
+      launch.launchRodLengthM = importLaunchValue(rodLen / FT, ROD_LENGTH_M_RANGE,
+        { what: 'launch rod length', field: 'Rod length', show: ft }, notes);
+    }
     const wind = num(site, 'WindSpeed', NaN);
-    if (!Number.isNaN(wind)) launch.windAverage = wind / MPH;
+    if (!Number.isNaN(wind)) {
+      launch.windAverage = importLaunchValue(wind / MPH, WIND_MS_RANGE,
+        { what: 'wind speed', field: 'Wind avg', show: (v) => `${Number((v * MPH).toPrecision(6))} mph` }, notes);
+    }
   }
 
   // ---- simulations → motors + flight configurations (desktop SimulationHandler) ----

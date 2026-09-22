@@ -1,6 +1,9 @@
 import { strFromU8 } from 'fflate';
 import type { ComponentNode, ComponentPosition, ComponentType, RocketTree } from '@online-openrocket/engine';
-import { DEFAULT_TIME_STEP_S, PANEL_TIME_STEP_FLOOR_S, type LaunchConditions } from '../components/LaunchPanel.js';
+import {
+  DEFAULT_TIME_STEP_S, importLaunchValue, LATITUDE_DEG_RANGE, PANEL_TIME_STEP_FLOOR_S, ROD_ANGLE_DEG_RANGE,
+  ROD_LENGTH_M_RANGE, WIND_MS_RANGE, type LaunchConditions,
+} from '../components/LaunchPanel.js';
 import { asStageNodes, freshId } from '../tree/treeModel.js';
 import { shapeIsClippable, shapeParamDefault } from '../tree/shapeProfile.js';
 import { finOutlineProblem } from '../tree/finOutline.js';
@@ -10,7 +13,7 @@ import { MAX_FIN_POINTS, escapeXml, xmlText as text } from './xmlUtil.js';
 import { unzipMember } from './zipMember.js';
 import { applyPresetLinks, type PendingPresetLink, type Preset } from './presets.js';
 import { OVERRIDE_INCLUDES_MOTOR } from './statedLaunchWeight.js';
-import { PAD_PRESSURE_HPA_RANGE, PAD_TEMP_C_RANGE } from './atmosphere.js';
+import { PAD_PRESSURE_HPA_RANGE, PAD_TEMP_C_RANGE, SITE_ALTITUDE_M_RANGE } from './atmosphere.js';
 
 // Re-export: rocksimFile.ts (and historical callers) import it from here.
 export { shapeParamDefault };
@@ -1208,10 +1211,25 @@ function readLaunchConditions(
   if (!condEl) return undefined;
   const launch: Partial<LaunchConditions> = {};
 
+  // Every launch value is believed only inside the bounds the panel enforces on
+  // a typed one (audit 2026-09-22) — the rule `<atmosphere>` below has followed
+  // since v0.105, for the same reason: nothing downstream re-checks what this
+  // returns, so a file could fly an 80° rail or a negative rod length that the
+  // panel would refuse to have typed. Clamped into the panel's range, with a
+  // note quoting the file's own number.
+  const m = (x: number): string => `${fmt6(x)} m`;
+  const deg = (x: number): string => `${fmt6(x)}°`;
+  const ms = (x: number): string => `${fmt6(x)} m/s`;
   const rodLen = num(condEl, 'launchrodlength', NaN);
-  if (!Number.isNaN(rodLen)) launch.launchRodLengthM = rodLen;
+  if (!Number.isNaN(rodLen)) {
+    launch.launchRodLengthM = importLaunchValue(rodLen, ROD_LENGTH_M_RANGE,
+      { what: 'launch rod length', field: 'Rod length', show: m }, notes);
+  }
   const rodAngle = num(condEl, 'launchrodangle', NaN);
-  if (!Number.isNaN(rodAngle)) launch.launchRodAngleDeg = rodAngle;
+  if (!Number.isNaN(rodAngle)) {
+    launch.launchRodAngleDeg = importLaunchValue(rodAngle, ROD_ANGLE_DEG_RANGE,
+      { what: 'launch rod angle', field: 'Rod angle', show: deg }, notes);
+  }
 
   const windEls = Array.from(condEl.querySelectorAll(':scope > wind'));
   // Honesty: a MultiLevel wind profile (24.x altitude-layered winds) is not
@@ -1234,18 +1252,39 @@ function readLaunchConditions(
   const windEl = windEls.find((w) => w.getAttribute('model') === 'average');
   let avg = windEl ? num(windEl, 'speed', NaN) : NaN;
   if (Number.isNaN(avg)) avg = num(condEl, 'windaverage', NaN);
+  if (avg < 0) {
+    // NOT clamped to zero: desktop's `PinkNoiseWindModel.setAverage` reads a
+    // negative average as that speed blowing the other way, and so does the
+    // kernel. The speed is what moves a flight; the app's wind has one
+    // direction, so the magnitude is the faithful import. Taken before the
+    // legacy turbulence product below, which desktop also forms from the
+    // magnitude.
+    notes.push(`The file's average wind is ${ms(avg)}. A negative wind is that speed blowing the `
+      + `other way, and the app's wind has no direction to reverse, so it was imported as `
+      + `${ms(-avg)}; the landing drift points the opposite way to the file's.`);
+    avg = -avg;
+  }
   if (!Number.isNaN(avg)) launch.windAverage = avg;
   let sd = windEl ? num(windEl, 'standarddeviation', NaN) : NaN;
   if (Number.isNaN(sd)) {
     const turb = num(condEl, 'windturbulence', NaN);
     if (!Number.isNaN(turb) && !Number.isNaN(avg)) sd = turb * avg;
   }
-  if (!Number.isNaN(sd)) launch.windStdDev = sd;
+  if (!Number.isNaN(sd)) {
+    launch.windStdDev = importLaunchValue(sd, WIND_MS_RANGE,
+      { what: 'wind gust standard deviation', field: 'Wind gusts σ', show: ms }, notes);
+  }
 
   const alt = num(condEl, 'launchaltitude', NaN);
-  if (!Number.isNaN(alt)) launch.launchAltitudeM = alt;
+  if (!Number.isNaN(alt)) {
+    launch.launchAltitudeM = importLaunchValue(alt, SITE_ALTITUDE_M_RANGE,
+      { what: 'site altitude', field: 'Site altitude', show: m }, notes);
+  }
   const lat = num(condEl, 'launchlatitude', NaN);
-  if (!Number.isNaN(lat)) launch.latitudeDeg = lat;
+  if (!Number.isNaN(lat)) {
+    launch.latitudeDeg = importLaunchValue(lat, LATITUDE_DEG_RANGE,
+      { what: 'launch latitude', field: 'Latitude', show: deg }, notes);
+  }
 
   const atmEl = condEl.querySelector(':scope > atmosphere');
   if (atmEl) {

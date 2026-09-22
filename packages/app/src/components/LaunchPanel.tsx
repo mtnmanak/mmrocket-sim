@@ -157,6 +157,51 @@ export const DEFAULT_CONDITIONS: LaunchConditions = {
   latitudeDeg: 28.61,
 };
 
+/**
+ * THE PANEL'S OWN BOUNDS for the launch fields that are not the pad's air
+ * (those are atmosphere.ts's `PAD_*` / `SITE_ALTITUDE_M_RANGE`), in stored
+ * units, `Infinity` for an open end. The panel's `numField` calls below read
+ * them (the phone Fly screen's three fields still repeat the same literals),
+ * and both importers clamp a file's value into them with a note — the same rule
+ * the .ork reader has applied to `<atmosphere>` since v0.105: a value the panel
+ * refuses could not be seen, checked or re-entered.
+ *
+ * Before the audit of 2026-09-22 the importers took these raw, so a file could
+ * fly an 80° rail or a negative rod length. The rod angle's ±30° is the
+ * panel's, deliberately tighter than desktop OpenRocket's ±60°
+ * (`SimulationOptions.MAX_LAUNCH_ROD_ANGLE`): a desktop file flying a 45° rail
+ * imports at 30° and says so, rather than carrying a number nobody could type
+ * back into the panel.
+ */
+export const ROD_LENGTH_M_RANGE: readonly [number, number] = [0, Infinity];
+export const ROD_ANGLE_DEG_RANGE: readonly [number, number] = [-30, 30];
+export const WIND_MS_RANGE: readonly [number, number] = [0, Infinity];
+export const LATITUDE_DEG_RANGE: readonly [number, number] = [-90, 90];
+
+/**
+ * An imported launch value clamped into the panel's `range`, with one import
+ * note when that moved it. `what` names the setting in prose and `field` is
+ * the panel's own label, so the note names the box the user will look in;
+ * `show` formats a value in the FILE's units, so the note quotes the number
+ * its author typed.
+ */
+export function importLaunchValue(
+  v: number,
+  range: readonly [number, number],
+  say: { what: string; field: string; show: (x: number) => string },
+  notes: string[],
+): number {
+  const [lo, hi] = range;
+  const b = Math.min(hi, Math.max(lo, v));
+  if (b !== v) {
+    const { what, field, show } = say;
+    const accepts = hi === Infinity ? `nothing below ${show(lo)}` : `${show(lo)} to ${show(hi)}`;
+    notes.push(`The file's ${what} is ${show(v)}, and the ${field} field under Launch conditions `
+      + `accepts ${accepts} — imported as ${show(b)}. Change it there if you meant something else.`);
+  }
+  return b;
+}
+
 /** How each stored field maps to a preference quantity (stored value → SI). */
 const FIELD_SPEC: Partial<Record<keyof LaunchConditions, { quantity: Quantity; storedToSI: number; storedOffset?: number }>> = {
   launchRodLengthM: { quantity: 'length', storedToSI: 1 },
@@ -453,12 +498,13 @@ export function LaunchPanel({
     <div className="panel">
       <h2>Launch conditions</h2>
       <div className="field-grid">
-        {numField('Rod length', 'launchRodLengthM', 0.1, 0)}
-        {numField('Rod angle', 'launchRodAngleDeg', 1, -30, 30)}
-        {numField('Wind avg', 'windAverage', 0.5, 0)}
-        {numField('Wind gusts σ', 'windStdDev', 0.1, 0)}
+        {/* Open-ended bounds pass no max: the field has none to enforce. */}
+        {numField('Rod length', 'launchRodLengthM', 0.1, ROD_LENGTH_M_RANGE[0])}
+        {numField('Rod angle', 'launchRodAngleDeg', 1, ...ROD_ANGLE_DEG_RANGE)}
+        {numField('Wind avg', 'windAverage', 0.5, WIND_MS_RANGE[0])}
+        {numField('Wind gusts σ', 'windStdDev', 0.1, WIND_MS_RANGE[0])}
         {numField('Site altitude', 'launchAltitudeM', 50, ...SITE_ALTITUDE_M_RANGE)}
-        {numField('Latitude (°)', 'latitudeDeg', 1, -90, 90)}
+        {numField('Latitude (°)', 'latitudeDeg', 1, ...LATITUDE_DEG_RANGE)}
         {/* The atmosphere bounds are atmosphere.ts's, not literals: the importers
             and kernelSimOptions's chokepoint read the same arrays, so the panel
             refusing a value and the flight refusing it are one rule. */}
