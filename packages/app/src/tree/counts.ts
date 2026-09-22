@@ -12,12 +12,16 @@ import { KERNEL_MAX_FINS, KERNEL_MAX_LINE_INSTANCES, MAX_ASSEMBLY_INSTANCES } fr
  * itself, as the audit measured: a .rkt FinCount of 70,000 made the side view's
  * `Math.min(...ys)` spread throw RangeError (unmounting the whole app into the
  * "Something went wrong" panel), a TubeCount of 100,000 held `buildPieces` for
- * 19.3 s, and a lug `instancecount` of 20,000 produced 2.0 M vertices. These
- * readers are the guarantee that nothing stored can DRAW more.
+ * 19.3 s, and a lug `instancecount` of 20,000 produced 2.0 M vertices. The
+ * sanitize pass keeps a loaded tree inside these limits and the property panel
+ * refuses to go past them, which is what keeps the exporters (which read the
+ * node itself) honest; these readers are the guarantee that nothing stored can
+ * DRAW more.
  *
  * Rounded, where the bridge truncates (`(int) dbl(node, …)`): the stored value
- * is a whole number in practice (the .ork reader and the panel both round), so
- * the two only differ for a count no path writes.
+ * is a whole number in practice (the .ork reader and the panel both round, and
+ * the sanitize pass rounds anything else), so the two only differ for a count
+ * no path writes.
  */
 
 /**

@@ -4,6 +4,7 @@ import { DEFAULT_TIME_STEP_S, PANEL_TIME_STEP_FLOOR_S, type LaunchConditions } f
 import { asStageNodes, freshId } from '../tree/treeModel.js';
 import { shapeIsClippable, shapeParamDefault } from '../tree/shapeProfile.js';
 import { finOutlineProblem } from '../tree/finOutline.js';
+import { sanitizeTree } from '../tree/sanitize.js';
 import { CLUSTER_POINTS } from '../tree/cluster.js';
 import { isConformal, shroudEnds } from '../tree/shroud.js';
 import { MAX_FIN_POINTS, escapeXml, xmlText as text } from './xmlUtil.js';
@@ -1129,8 +1130,16 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   applyPresetLinks(pendingLinks, opts?.presets, notes);
   const launch = readLaunchConditions(doc, notes, chosenConfigId);
 
+  // THE LIMITS TABLE, applied here where its notes still reach the import
+  // banner (audit 2026-09-22): every count, dimension and enum string outside
+  // schema.ts's limits is repaired and named, one note each — a <fincount> of
+  // 70000, a lug <instancecount> of 20000, a negative fin height, an unknown
+  // <airfoilsection>. normalizeTree runs the same pass again at every load
+  // boundary (this path included, with nothing left to do).
+  const tree = sanitizeTree({ name, components }, notes);
+
   return {
-    name, tree: { name, components }, motor, motors, configs, chosenConfigId,
+    name, tree, motor, motors, configs, chosenConfigId,
     ignored: [...ignored], notes, ...(launch ? { launch } : {}),
     ...(measured ? { measured } : {}),
   };
