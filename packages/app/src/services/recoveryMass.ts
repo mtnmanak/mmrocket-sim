@@ -178,6 +178,11 @@ export function recoveryGroups(tree: RocketTree): ComponentNode[][] {
  * The stage nodes that come down with the sustainer — the scope anything
  * describing "the rocket that lands" has to be read over.
  *
+ * It is STAGE nodes, and a strap-on lives inside one: a walk over this scope
+ * reaches every parallel stage in it, including one that separates and comes
+ * down on its own. Such a walk has to stop there (`isSeparatingParallelStage`);
+ * recoverySizing.ts's two walks do (audit 2026-09-22).
+ *
  * A legacy flat tree (no stage nodes) is its own scope.
  */
 export function sustainerScope(tree: RocketTree): readonly ComponentNode[] {

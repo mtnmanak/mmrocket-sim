@@ -678,6 +678,50 @@ describe('classifyRecoveryDevices', () => {
   });
 
   /**
+   * A strap-on lives INSIDE the core stage, so a scope of stage nodes reaches
+   * it — and one that separates comes down under its own canopy (audit
+   * 2026-09-22). The walks stop at it; one set to Never stays bolted on and is
+   * walked like a pod.
+   */
+  it('stops at a strap-on that separates, and walks one on Never', () => {
+    const withStrapOn = (separationEvent?: string): RocketTree => ({
+      name: 'strap',
+      components: [{
+        type: 'stage', id: 's0', name: 'Sustainer', children: [{
+          type: 'bodytube', id: 'bt0', length: 1, outerRadius: 0.051, thickness: 0.001,
+          children: [
+            { type: 'parachute', id: 'coreChute', diameter: 0.6 } as ComponentNode,
+            {
+              type: 'parallelstage', id: 'ps', name: 'Strap-on', instanceCount: 2,
+              ...(separationEvent ? { separationEvent } : {}),
+              children: [{
+                type: 'bodytube', id: 'psTube', length: 0.6, outerRadius: 0.081, thickness: 0.001,
+                children: [{ type: 'parachute', id: 'strapChute', diameter: 0.9 } as ComponentNode],
+              } as ComponentNode],
+            } as ComponentNode,
+          ],
+        } as ComponentNode],
+      } as ComponentNode],
+    });
+
+    // Separating (absent is ejection): the strap-on's bigger chute and fatter
+    // tube are not the core's.
+    const leaves = withStrapOn();
+    const scope = sustainerScope(leaves);
+    const got = classifyRecoveryDevices(leaves, scope);
+    expect(got.main?.id).toBe('coreChute');
+    expect(got.drogue).toBeNull();
+    expect(recoveryBayBore(leaves, null, scope)).toBeCloseTo(0.1, 9);
+
+    // On Never it comes down with the core: its chute and its tube are in scope.
+    const bolted = withStrapOn('never');
+    const kept = classifyRecoveryDevices(bolted, sustainerScope(bolted));
+    expect(kept.main?.id).toBe('strapChute');
+    expect(kept.drogue?.id).toBe('coreChute');
+    expect(recoveryBayBore(bolted, null, sustainerScope(bolted))).toBeCloseTo(0.16, 9);
+  });
+
+  /**
    * The per-stage panel (v0.115) sizes each separating object in turn by
    * passing its own stage nodes as `scope` — so a BOOSTER's answer is built
    * from the booster's chute and the booster's bore, never the sustainer's.

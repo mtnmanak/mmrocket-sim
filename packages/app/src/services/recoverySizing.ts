@@ -6,7 +6,7 @@ import { G0, ISA_SEA_LEVEL } from '@online-openrocket/engine';
 import { mfrKey } from '../../scripts/manufacturers.mjs';
 import type { LaunchConditions } from '../components/LaunchPanel.js';
 import { mountBore } from '../tree/scaleRocket.js';
-import { findParent, suppressingAncestor } from '../tree/treeModel.js';
+import { findParent, isSeparatingParallelStage, suppressingAncestor } from '../tree/treeModel.js';
 import { padAir, R_AIR } from './atmosphere.js';
 import type { Preset } from './presets.js';
 import type { RecoveryMass } from './recoveryMass.js';
@@ -267,6 +267,12 @@ export type DeviceRole = 'main' | 'drogue';
  * — because the walk was over the whole tree and the largest remaining chute
  * anywhere won. It defaults to the whole tree, so every single-stage design
  * (which is almost all of them) is unaffected.
+ *
+ * The walk also STOPS at a strap-on that separates (`isSeparatingParallelStage`,
+ * audit 2026-09-22): it lives inside the core stage's subtree, so a scope of
+ * stage nodes reaches it, but it leaves and comes down under its own canopy —
+ * its chute is not the core's. Latent while the recovery weight refuses such a
+ * design; one on Never stays bolted on, so its chute is walked like a pod's.
  */
 export function classifyRecoveryDevices(
   tree: RocketTree,
@@ -275,6 +281,7 @@ export function classifyRecoveryDevices(
   const chutes: ComponentNode[] = [];
   const walk = (ns: readonly ComponentNode[] | undefined): void => {
     for (const n of ns ?? []) {
+      if (isSeparatingParallelStage(n)) continue;
       if (n.type === 'parachute') chutes.push(n);
       walk(n.children);
     }
@@ -311,8 +318,10 @@ export function classifyRecoveryDevices(
  *
  * `scope` limits that fallback the same way `classifyRecoveryDevices` is
  * limited: a booster's fatter airframe is not a bay the sustainer's canopy can
- * pack into once the booster is gone. The parent lookup stays whole-tree,
- * because a device's own parent is wherever it is.
+ * pack into once the booster is gone — and, for the same reason, neither is a
+ * strap-on that separates, so the walk stops there too (audit 2026-09-22). The
+ * parent lookup stays whole-tree, because a device's own parent is wherever it
+ * is.
  */
 export function recoveryBayBore(
   tree: RocketTree,
@@ -330,6 +339,7 @@ export function recoveryBayBore(
   let widest = 0;
   const walk = (ns: readonly ComponentNode[] | undefined): void => {
     for (const n of ns ?? []) {
+      if (isSeparatingParallelStage(n)) continue;
       if (n.type === 'bodytube') widest = Math.max(widest, mountBore(n));
       walk(n.children);
     }
