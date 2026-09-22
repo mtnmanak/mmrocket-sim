@@ -1,6 +1,6 @@
 import { useEffect, useId, useState } from 'react';
 import { usePrefs } from '../prefs/PrefsContext.js';
-import { fmtSi, siToUi, uiToSi } from '../prefs/units.js';
+import { fmtSi, niceStep, siToUi, uiToSi } from '../prefs/units.js';
 import { nozzleForMotorId, type NozzleEntry } from '../services/nozzleDb.js';
 import { equivalentExitDiameterM } from '../services/nozzleFollow.js';
 import { NumField } from './NumField.js';
@@ -137,7 +137,9 @@ export function NozzleField({
           id={inputId}
           ariaLabel={`Nozzle exit diameter for ${stageName} (${sym})`}
           value={exitDiameterM === null ? undefined : siToUi('motorDimensions', sym, exitDiameterM)}
-          step={0.5}
+          // Half a millimetre's worth in the display unit. A fixed 0.5 was half
+          // an INCH in inches — 12.7 mm a click on a 4.8 mm exit (audit 2026-09-22).
+          step={niceStep(siToUi('motorDimensions', sym, 0.0005))}
           min={0}
           nullable
           placeholder={published !== null ? fmtSi('motorDimensions', sym, published) : 'none (0 = off)'}

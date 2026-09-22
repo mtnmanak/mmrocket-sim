@@ -64,13 +64,13 @@ let applied: ScaleResult | null = null;
  */
 const flush = async () => { await act(async () => { await Promise.resolve(); }); };
 
-const render = async (assigned: Record<string, number> = {}) => {
+const render = async (assigned: Record<string, number> = {}, design: RocketTree = tree()) => {
   applied = null;
   act(() => {
     root.render(
       <PrefsProvider>
         <ScaleDialog
-          tree={tree()}
+          tree={design}
           assignedMotorDiameters={assigned}
           onApply={(r) => { applied = r; }}
           onSaveBackup={() => {}}
@@ -98,6 +98,8 @@ const type = (el: HTMLInputElement, value: string) => {
 };
 
 const text = () => host.textContent ?? '';
+const applyButton = (): HTMLButtonElement => [...host.querySelectorAll('button')]
+  .find((b) => b.textContent?.includes('Scale to'))!;
 
 beforeEach(() => {
   localStorage.clear();
@@ -377,6 +379,114 @@ describe('ScaleDialog', () => {
       .find((b) => b.textContent?.includes('Scale to'))!.textContent;
     expect(after, 'clearing the tube choice must not re-scale off tubeRows[0]')
       .toBe(chosen);
+  });
+
+  /**
+   * Audit 2026-09-22: the target-diameter spinner stepped 1 in the DISPLAY
+   * unit, so in metres one ▴ added a metre to the airframe (×11.2 on a 98 mm
+   * rocket). It steps a millimetre's worth in every unit now.
+   */
+  it('the target-diameter spinner steps a millimetre in metres, not a metre', async () => {
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { length: 'm' } }));
+    await render();
+    const [, target] = numberInputs();
+    const up = target!.closest('.numfield')!.querySelector('button')!;
+    act(() => { up.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    // (0.104 + 0.001) / 0.052, not (0.104 + 1) / 0.052 = 2123.1 %.
+    expect(applyButton().textContent).toBe('Scale to 201.9 %');
+  });
+
+  /**
+   * Audit 2026-09-22: nothing bounded the mount sizes or the factor. A 380 mm
+   * custom bore previewed as "resized" in a 98 mm rocket and applied a motor
+   * tube four times wider than the airframe around it; the Standard sizes list
+   * took an oversized class the same way; and the target diameter and the
+   * catalogue could set a factor the factor box itself refuses.
+   *
+   * This design at ×2: the body tube is 2 × 49 = 98 mm inside and the mount's
+   * scaled walls are 1.6 mm, so the widest bore that fits is 98 − 3.2 = 94.8 mm.
+   */
+  describe('bounds', () => {
+    const mountSelect = () => host.querySelector<HTMLSelectElement>('#mount-size-m')!;
+    const customBore = () =>
+      host.querySelector<HTMLInputElement>('input[aria-label^="Custom mount bore"]')!;
+    const pick = (el: HTMLSelectElement, v: string) => act(() => {
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(el, v);
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    const mountOf = (r: ScaleResult) => r.tree.components[0]!.children![1]!.children![0]!;
+
+    it('refuses a custom bore wider than the body tube it sits in', async () => {
+      await render();
+      pick(mountSelect(), 'custom');
+      type(customBore(), '380');
+      expect(customBore().getAttribute('aria-invalid')).toBe('true');
+      expect(text()).not.toContain('380.0 mm mount you chose');
+      expect(text()).toContain('at most 94.8 mm');
+      type(customBore(), '94');
+      expect(customBore().getAttribute('aria-invalid')).toBeNull();
+      expect(text()).toContain('the 94.0 mm mount you chose');
+      type(customBore(), '95');
+      expect(customBore().getAttribute('aria-invalid')).toBe('true');
+      act(() => { applyButton().dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+      // The last size that fitted is the one applied, inside the 98 mm bore.
+      const mt = mountOf(applied!);
+      expect((mt['outerRadius'] as number) * 2).toBeCloseTo(0.094 + 0.0032, 9);
+    });
+
+    it('greys out a standard size that would not fit, and keeps the ones that do', async () => {
+      await render();
+      const opt = (v: string) => [...mountSelect().options].find((o) => o.value === v)!;
+      for (const big of ['c98', 'c132', 'c152']) expect(opt(big).disabled, big).toBe(true);
+      for (const ok of ['c54', 'c75']) expect(opt(ok).disabled, ok).toBe(false);
+    });
+
+    it('will not apply a snap that makes a mount wider than its body tube', async () => {
+      // A mount that nearly fills its tube: 46.4 mm bore, 48 mm outside, in a
+      // 49 mm bore. At ×1.13 the scaled bore is 52.43 mm and the room
+      // (49 − 1.6) × 1.13 = 53.56 mm, but the nearest standard size is 54.
+      const tight = tree();
+      const mt = tight.components[0]!.children![1]!.children![0]!;
+      mt['outerRadius'] = 0.024;
+      await render({}, tight);
+      type(numberInputs()[0]!, '1.13');
+      const snap = host.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+      act(() => { snap.click(); });
+      expect(text()).toContain('snapped up from 52.4 mm');
+      expect(text()).toContain('at most 53.6 mm');
+      expect(applyButton().disabled).toBe(true);
+      // Nearest is not offered as a choice either, and the scaled size still is.
+      expect([...mountSelect().options].find((o) => o.value === 'nearest')!.disabled).toBe(true);
+      pick(mountSelect(), 'scaled');
+      expect(applyButton().disabled).toBe(false);
+    });
+
+    it('refuses a typed target diameter past the factor box’s own 100×', async () => {
+      await render();
+      const [, target] = numberInputs();
+      act(() => target!.focus());
+      type(target!, '6000'); // 6000 / 52 = 115×
+      expect(target!.getAttribute('aria-invalid')).toBe('true');
+      expect(applyButton().textContent).toBe('Scale to 200.0 %');
+    });
+
+    it('will not apply a catalogue factor outside 0.01–100', async () => {
+      // A 1 mm model: the 102 mm catalogue tube is ×102.
+      const tiny: RocketTree = {
+        name: 'tiny',
+        components: [{
+          type: 'stage', id: 's', children: [
+            { type: 'bodytube', id: 'b', length: 0.02, outerRadius: 0.0005, thickness: 0.0001 } as ComponentNode,
+          ],
+        } as ComponentNode],
+      };
+      await render({}, tiny);
+      const sel = host.querySelector('#scale-tube') as HTMLSelectElement;
+      pick(sel, [...sel.options].find((o) => o.textContent?.includes('LOC 4.0in'))!.value);
+      expect(applyButton().textContent).toBe('Scale to 10200.0 %');
+      expect(applyButton().disabled).toBe(true);
+      expect(text()).toContain('between 0.01× and 100×');
+    });
   });
 
   it('says there is nothing to scale when the design has no airframe', async () => {

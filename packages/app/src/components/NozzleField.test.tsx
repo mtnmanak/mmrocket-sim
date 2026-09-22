@@ -181,6 +181,26 @@ describe('NozzleField — its label', () => {
   });
 });
 
+describe('NozzleField — its spinner', () => {
+  /**
+   * Audit 2026-09-22: the step was a fixed 0.5 in the DISPLAY unit, so in
+   * inches every ▴/▾ moved the exit by 12.7 mm — 2.7× this D13's whole exit.
+   * It steps half a millimetre's worth in every unit now (0.02 in).
+   */
+  it('steps about half a millimetre in inches, not half an inch', async () => {
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { motorDimensions: 'in' } }));
+    try {
+      await render({ exitDiameterM: D13_EXIT_M });
+      const up = host.querySelector<HTMLButtonElement>('.numfield button')!;
+      act(() => { up.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+      const shown = Number((D13_EXIT_M / 0.0254 + 0.02).toFixed(4));
+      expect(committed[committed.length - 1]).toBeCloseTo(shown * 0.0254, 9);
+    } finally {
+      localStorage.removeItem('online-openrocket.prefs.v1');
+    }
+  });
+});
+
 describe('NozzleField — rule 3: the nine motors with two published nozzles', () => {
   it('names the alternative rather than choosing silently', async () => {
     await render({ exitDiameterM: null, motorIds: [I115], motorLabel: 'I115W' });

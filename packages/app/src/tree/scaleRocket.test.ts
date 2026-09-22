@@ -533,6 +533,19 @@ describe('scaleRocket — motor mounts', () => {
     expect(p!.nearestMm).toBe(38);
   });
 
+  it('knows the widest bore that still fits inside the tube around the mount', () => {
+    // Audit 2026-09-22: nothing bounded a chosen size, so a mount could be
+    // resized wider than the airframe it sits in. The 57 mm bore of this body
+    // tube, less the mount's two 0.8 mm walls, both scaled ×2.
+    const [p] = previewMounts(withMount(0.018), 2);
+    expect(p!.maxBoreMm).toBeCloseTo((57 - 1.6) * 2, 9);
+    // A mount that IS the airframe has no tube around it to measure.
+    const md: RocketTree = { name: 'md', components: [{ type: 'stage', id: 's', children: [{
+      type: 'bodytube', id: 'b', length: 0.5, outerRadius: 0.0145, thickness: 0.001, motorMount: true,
+    } as ComponentNode] } as ComponentNode] };
+    expect(previewMounts(md, 2)[0]!.maxBoreMm).toBeNull();
+  });
+
   it('snapping keeps the wall and puts the bore exactly on the standard size', () => {
     const t = withMount(0.018);
     const out = scaleRocket(t, 2.27, { snapMounts: true }).tree;

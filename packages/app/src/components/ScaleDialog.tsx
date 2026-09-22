@@ -3,13 +3,17 @@ import type { RocketTree } from '@online-openrocket/engine';
 import { NumField } from './NumField.js';
 import { useDialog } from './useDialog.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
-import { fmtSig, siToUi, uiToSi } from '../prefs/units.js';
+import { fmtSig, niceStep, siToUi, uiToSi } from '../prefs/units.js';
 import { loadPresets, type Preset } from '../services/presets.js';
 import { COMMON_CLASSES, classLabel } from '../services/motorDb.js';
 import {
   maxBodyDiameter, previewMounts, rocketLength, scaleRocket,
   type MountChoice, type MountPreview, type ScaleResult,
 } from '../tree/scaleRocket.js';
+
+/** The factor box's range, which every other way of setting the factor now honours too. */
+const FACTOR_MIN = 0.01;
+const FACTOR_MAX = 100;
 
 /**
  * Scale the whole rocket — the upscale/downscale workflow Eric queued in
@@ -142,27 +146,51 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
   };
 
   const onChooseMount = (m: MountPreview, value: string) => {
+    // Custom… starts from today's bore to the millimetre — rounded DOWN when
+    // rounding up would no longer fit the tube around it (`fitsRoom`).
+    const seed = fitsRoom(m, Math.round(m.finalBoreMm)) || m.maxBoreMm === null
+      ? Math.round(m.finalBoreMm) : Math.floor(m.maxBoreMm);
     setCustom((prev) => {
       const next = { ...prev };
-      if (value === 'custom') next[m.id] = String(Math.round(m.finalBoreMm));
+      if (value === 'custom') next[m.id] = String(seed);
       else delete next[m.id];
       return next;
     });
     setChoices((prev) => {
       const next = { ...prev };
-      if (value === 'custom') next[m.id] = { boreMm: Math.round(m.finalBoreMm) };
+      if (value === 'custom') next[m.id] = { boreMm: seed };
       else if (value.startsWith('c')) next[m.id] = { boreMm: Number(value.slice(1)) };
       else next[m.id] = value as MountChoice;
       return next;
     });
   };
 
+  /**
+   * Whether a bore fits inside the tube around the mount once scaled (audit
+   * 2026-09-22) — see `MountPreview.maxBoreMm`, null where there is no tube to
+   * measure against. Nothing checked it before: a 380 mm custom bore
+   * previewed as "resized" in a 98 mm rocket and applied a motor tube four
+   * times the airframe's width.
+   */
+  const fitsRoom = (m: MountPreview, boreMm: number) =>
+    m.maxBoreMm === null || boreMm <= m.maxBoreMm + 1e-6;
+  /** A size someone CHOSE, or the snap picked, that does not fit. */
+  const overflows = (m: MountPreview) => m.targetBoreMm !== null && !fitsRoom(m, m.targetBoreMm);
+  /** The Custom box holds something that cannot be applied (it is not). */
+  const customBad = (m: MountPreview) => {
+    const raw = custom[m.id];
+    if (raw === undefined || raw.trim() === '') return false;
+    const mm = Number(raw);
+    return !(Number.isFinite(mm) && mm > 0 && fitsRoom(m, mm));
+  };
+
   const onCustomBore = (m: MountPreview, raw: string) => {
     setCustom((prev) => ({ ...prev, [m.id]: raw }));
     const mm = Number(raw);
-    // An empty or nonsense box must not resize anything; hold the last good
-    // value rather than snapping the preview back to the scaled size mid-type.
-    if (Number.isFinite(mm) && mm > 0) {
+    // An empty, nonsense or oversized box must not resize anything; hold the
+    // last good value rather than snapping the preview back to the scaled size
+    // mid-type. The box is marked invalid instead (`customBad`).
+    if (Number.isFinite(mm) && mm > 0 && fitsRoom(m, mm)) {
       setChoices((prev) => ({ ...prev, [m.id]: { boreMm: mm } }));
     }
   };
@@ -187,7 +215,13 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
     onClose();
   };
 
-  const usable = Number.isFinite(factor) && factor > 0 && factor !== 1 && baseD > 0;
+  /**
+   * The factor box's own limits, held on EVERY way in (audit 2026-09-22): the
+   * box refused anything outside 0.01-100, but the target diameter and the
+   * catalogue could set any factor at all, and Apply took it.
+   */
+  const factorInRange = Number.isFinite(factor) && factor >= FACTOR_MIN && factor <= FACTOR_MAX;
+  const usable = factorInRange && factor !== 1 && baseD > 0 && !mounts.some(overflows);
 
   return (
     <div className="prefs-overlay" role="presentation" onClick={onClose}>
@@ -240,8 +274,8 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
                   id="scale-factor"
                   value={factor}
                   onCommit={(v) => { if (v !== null && v > 0) setFactorOffCatalogue(v); }}
-                  min={0.01}
-                  max={100}
+                  min={FACTOR_MIN}
+                  max={FACTOR_MAX}
                   step={0.05}
                 />
                 <span className="comp-stats" style={{ whiteSpace: 'nowrap' }}>
@@ -268,10 +302,20 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
                 onCommit={(v) => {
                   if (v === null || !(v > 0)) return;
                   const si = uiToSi('length', lenSym, v);
-                  if (si > 0 && baseD > 0) setFactorOffCatalogue(si / baseD);
+                  // The box already refuses a diameter outside the factor's
+                  // range; the clamp only absorbs the unit round trip's noise.
+                  if (si > 0 && baseD > 0) {
+                    setFactorOffCatalogue(Math.min(FACTOR_MAX, Math.max(FACTOR_MIN, si / baseD)));
+                  }
                 }}
-                min={0.0001}
-                step={1}
+                // The factor box's range, as a diameter: typing one this box
+                // cannot scale to is refused here, not at Apply (audit 2026-09-22).
+                min={siToUi('length', lenSym, baseD * FACTOR_MIN)}
+                max={siToUi('length', lenSym, baseD * FACTOR_MAX)}
+                // A millimetre's worth in every unit. A fixed 1 was a metre in
+                // metres, and one ▴ scaled a 98 mm airframe ×11.2 (audit
+                // 2026-09-22) — the rule PropertyPanel's fields already follow.
+                step={niceStep(siToUi('length', lenSym, 0.001))}
               />
               <span className="comp-stats">
                 The widest body diameter is {fmt(baseD)} {lenSym} today. Type what you are
@@ -374,6 +418,13 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
                               {m.scaledBoreMm.toFixed(1)} mm bore still takes it.</>
                           )}</>
                       )}
+                      {/* Why Apply is off: the size chosen (or snapped to) no
+                          longer fits the tube around it — `usable`. */}
+                      {overflows(m) && (
+                        <> <strong>A {m.finalBoreMm.toFixed(1)} mm mount does not fit inside the
+                          tube around it once scaled — at most {m.maxBoreMm!.toFixed(1)} mm does.</strong>
+                          {' '}Choose the scaled size or a smaller one.</>
+                      )}
                       {m.choosable && (
                         <div style={{ marginTop: 4 }}>
                           <label
@@ -390,12 +441,16 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
                             <option value="scaled">
                               Scaled size ({m.scaledBoreMm.toFixed(1)} mm)
                             </option>
-                            <option value="nearest">
+                            {/* A size that would not fit the tube around the
+                                mount is offered but greyed (`fitsRoom`). */}
+                            <option value="nearest" disabled={!fitsRoom(m, m.nearestMm)}>
                               Nearest standard ({classLabel(m.nearestMm)} mm)
                             </option>
                             <optgroup label="Standard sizes">
                               {COMMON_CLASSES.map((c) => (
-                                <option key={c} value={`c${c}`}>{classLabel(c)} mm</option>
+                                <option key={c} value={`c${c}`} disabled={!fitsRoom(m, c)}>
+                                  {classLabel(c)} mm
+                                </option>
                               ))}
                             </optgroup>
                             <option value="custom">Custom…</option>
@@ -406,13 +461,19 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
                               <input
                                 type="number"
                                 min={1}
+                                max={m.maxBoreMm ?? undefined}
                                 step={1}
                                 aria-label={`Custom mount bore for ${m.name}, mm`}
+                                aria-invalid={customBad(m) || undefined}
+                                className={customBad(m) ? 'num-invalid' : undefined}
                                 value={custom[m.id] ?? ''}
                                 style={{ width: 90 }}
                                 onChange={(e) => onCustomBore(m, e.target.value)}
                               />
                               {' mm'}
+                              {m.maxBoreMm !== null && (
+                                <> — at most {m.maxBoreMm.toFixed(1)} mm fits inside the tube around it</>
+                              )}
                             </>
                           )}
                         </div>
@@ -458,6 +519,13 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
               assumed — which is the point of doing it here rather than on a photocopier — but a
               big downscale can fly worse than the arithmetic suggests.
             </p>
+
+            {!factorInRange && (
+              <p className="file-note file-note-warn">
+                That is a factor of {fmtSig(factor, 3)}× — this dialog scales between{' '}
+                {FACTOR_MIN}× and {FACTOR_MAX}×. Choose a tube nearer this rocket&rsquo;s size.
+              </p>
+            )}
 
             {lostMotors.length > 0 && (
               <p className="file-note file-note-warn">

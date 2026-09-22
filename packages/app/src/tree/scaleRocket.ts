@@ -3,7 +3,7 @@ import {
   classLabel, classesFittingMount, diameterClass, nearestCommonClass,
 } from '../services/motorDb.js';
 import { OVERRIDE_INCLUDES_MOTOR } from '../services/statedLaunchWeight.js';
-import { motorMounts } from './treeModel.js';
+import { findParent, motorMounts } from './treeModel.js';
 
 /**
  * Scale a whole rocket by one factor — the "upscale/downscale a plan" workflow
@@ -351,7 +351,27 @@ export interface MountPreview {
    * — 54 — loses it.
    */
   motorFitsUnsnapped: boolean;
+  /**
+   * The widest bore (mm) this mount can be given and still fit inside the tube
+   * around it, once both are scaled: that tube's bore less this mount's own two
+   * walls. Null when there is nothing to measure against — a mount that IS the
+   * airframe, or one whose parent is not a tube.
+   *
+   * Nothing bounded a chosen size before (audit 2026-09-22): a 380 mm custom
+   * bore previewed as "resized" in a 98 mm rocket and applied a 190.8 mm-radius
+   * motor tube inside a 49 mm-radius airframe, and the Standard sizes list and
+   * the snap took an oversized class the same way. The dialog refuses a
+   * CHOSEN size past this. The scaled size needs no check: it is the design's
+   * own geometry, and fits exactly as well as it did before the scale.
+   *
+   * A necessary condition, not a sufficient one: a clustered or off-axis mount
+   * can pass it and still hit the wall, which the 2D view shows.
+   */
+  maxBoreMm: number | null;
 }
+
+/** The parents whose bore a motor mount sits in (`mountBore` reads them as tubes). */
+const TUBE_PARENTS = new Set(['bodytube', 'tubecoupler', 'innertube']);
 
 /**
  * What each motor mount becomes under `factor` — the dialog's live preview and
@@ -381,7 +401,8 @@ export function previewMounts(
     // docstring promising they "cannot disagree" resting on two functions
     // somebody remembers to keep in step. `scaleNode` scales keys `mountBore`
     // never reads, which costs nothing and cannot drift.
-    const scaledBoreMm = mountBore(scaleNode(m, factor)) * 1000;
+    const scaledMount = scaleNode(m, factor);
+    const scaledBoreMm = mountBore(scaledMount) * 1000;
     const nearestMm = nearestCommonClass(scaledBoreMm);
     const motorM = m.id ? assigned[m.id] : undefined;
     const motorMm = typeof motorM === 'number' ? motorM * 1000 : null;
@@ -426,6 +447,14 @@ export function previewMounts(
             : 'off-class';
     const fits = (boreMm2: number) => motorMm === null
       || classesFittingMount(boreMm2).includes(diameterClass(motorMm));
+    // The room inside the scaled tube around it, less this mount's own walls —
+    // `outerRadiusForBore` at a zero bore IS the wall, case-airframe branch
+    // included. Both through the real `scaleNode`, as the bore above is.
+    const parent = choosable && m.id ? findParent(tree, m.id) : null;
+    const maxBoreMm = parent && parent !== 'stage' && TUBE_PARENTS.has(parent.type)
+      && parent['caseAirframe'] !== true
+      ? (mountBore(scaleNode(parent, factor)) - 2 * outerRadiusForBore(scaledMount, 0)) * 1000
+      : null;
     return {
       id: m.id ?? '',
       name: m.name ?? 'Motor mount',
@@ -442,6 +471,7 @@ export function previewMounts(
       isAirframe,
       motorStillFits: fits(finalBoreMm),
       motorFitsUnsnapped: fits(scaledBoreMm),
+      maxBoreMm,
     };
   });
 }
