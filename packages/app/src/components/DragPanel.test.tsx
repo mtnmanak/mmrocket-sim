@@ -4,6 +4,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { DragSweep, OrkRocket } from '@online-openrocket/engine';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
+import { LOCALE_DECIMAL_COMMA } from '../prefs/units.js';
 import { DragPanel } from './DragPanel.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -201,5 +202,37 @@ describe('DragPanel — sweep conditions', () => {
 
     type(input, '');
     expect(Object.keys(calls[calls.length - 1] as object)).toEqual(['machMax']);
+  });
+
+  /**
+   * Audit 2026-09-22: the bare box read "10,000" as NaN and swept at SEA LEVEL
+   * while still showing 10,000; only the caption under the chart said so. It
+   * is a NumField now, so a draft it cannot read is marked at the input.
+   */
+  it('marks "10,000" invalid at the box instead of silently sweeping at sea level', () => {
+    mount();
+    openPanel();
+    setSelect(condSelect(), 'altitude');
+    const input = altInput()!;
+    act(() => input.focus());
+    type(input, '10,000');
+    if (!LOCALE_DECIMAL_COMMA) {
+      expect(input.getAttribute('aria-invalid')).toBe('true');
+      // Nothing was committed, so the sweep is honestly still the default one,
+      // and leaving the box shows the blank it is flying rather than 10,000.
+      expect(Object.keys(calls[calls.length - 1] as object)).toEqual(['machMax']);
+      act(() => input.blur());
+      expect(input.value).toBe('');
+    }
+  });
+
+  it('converts a typed altitude from the display unit', () => {
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { distance: 'ft' } }));
+    mount();
+    openPanel();
+    setSelect(condSelect(), 'altitude');
+    type(altInput()!, '10000');
+    const opts = calls[calls.length - 1] as { machAlt: [number, number][] };
+    expect(opts.machAlt[0]![1]).toBeCloseTo(3048, 6);
   });
 });

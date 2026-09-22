@@ -3,7 +3,8 @@ import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import type { DragSweep, OrkRocket } from '@online-openrocket/engine';
 import { usePrefs } from '../prefs/PrefsContext.js';
-import { fmtSi, siToUi, uiToSi } from '../prefs/units.js';
+import { fmtSi, niceStep, siToUi, uiToSi } from '../prefs/units.js';
+import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
 import { chartInk, seriesPalette, seriesStyle } from '../chartTheme.js';
 import { panelHeight, panZoomPlugin, plotIsZoomed, resetPlots } from '../chartPanZoom.js';
@@ -252,10 +253,10 @@ export function DragPanel({ rocket, supersonicModel, aeroLabel, designName, file
   const [open, setOpen] = useState(false);
   const [machMax, setMachMax] = useState(3);
   const [conditions, setConditions] = useState<Conditions>('sealevel');
-  // The sweep altitude is stored in SI; the typed TEXT is kept beside it so
-  // clearing the box (or typing "1e") doesn't snap the display back to 0.
+  // The sweep altitude, stored in SI so it is the same PHYSICAL altitude
+  // whatever the distance unit (10000 ft becomes 3048 m, not 10000 m). The
+  // box itself is a NumField, which keeps its own draft while typing.
   const [altM, setAltM] = useState(0);
-  const [altText, setAltText] = useState('');
   const [mode, setMode] = useState<BreakdownMode>('component');
   const [cpView, setCpView] = useState<CpView>('pct');
   // ⤢-expanded charts and which are zoomed in (per-chart: these three don't
@@ -297,22 +298,6 @@ export function DragPanel({ rocket, supersonicModel, aeroLabel, designName, file
   useEffect(() => {
     if (conditions === 'file' && !(fileMachAlt && fileMachAlt.length > 0)) setConditions('sealevel');
   }, [conditions, fileMachAlt]);
-
-  // Keep the typed altitude at the same PHYSICAL altitude when the distance
-  // unit preference changes (10000 ft becomes 3048 m, not 10000 m). altM is the
-  // stored SI value, so it is exactly what survives the unit switch; the text
-  // is only the draft the user is editing.
-  const prevDistUnit = useRef(distUnit);
-  useEffect(() => {
-    if (prevDistUnit.current === distUnit) return;
-    prevDistUnit.current = distUnit;
-    setAltText(altM > 0 ? fmtSi('distance', distUnit, altM, 3) : '');
-  }, [distUnit, altM]);
-  const commitAlt = (s: string) => {
-    setAltText(s);
-    const v = Number(s.trim());
-    setAltM(s.trim() !== '' && Number.isFinite(v) && v > 0 ? uiToSi('distance', distUnit, v) : 0);
-  };
 
   /**
    * The conditions table handed to the kernel. `undefined` — never `[]` — for
@@ -438,11 +423,23 @@ export function DragPanel({ rocket, supersonicModel, aeroLabel, designName, file
             {conditions === 'altitude' && (
               <span className="motor-inline-label" style={{ whiteSpace: 'nowrap' }}>
                 Altitude <UnitChip quantity="distance" />
-                <input type="text" inputMode="decimal" value={altText}
-                  aria-label={`Sweep altitude (${distUnit})`}
-                  placeholder="0"
-                  style={{ width: 76, marginLeft: 4 }}
-                  onChange={(e) => commitAlt(e.target.value)} />
+                {/* A NumField, not a bare input (audit 2026-09-22): the bare
+                    box read "10,000" as NaN and silently swept at SEA LEVEL
+                    while still showing 10,000 — only the caption under the
+                    chart said so. A draft it cannot read is now marked
+                    invalid and commits nothing, as in every other field. */}
+                <span style={{ width: 96 }}>
+                  <NumField
+                    ariaLabel={`Sweep altitude (${distUnit})`}
+                    value={altM > 0 ? siToUi('distance', distUnit, altM) : undefined}
+                    step={niceStep(siToUi('distance', distUnit, 100))}
+                    nullable
+                    // Blank IS sea level, so a spinner on the blank box steps
+                    // from 0 (NumField reads the base out of the placeholder).
+                    placeholder="0"
+                    onCommit={(v) => setAltM(v !== null && v > 0 ? uiToSi('distance', distUnit, v) : 0)}
+                  />
+                </span>
               </span>
             )}
             <span style={{ flex: 1 }} />
