@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ComponentInfo, ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { PropertyPanel } from './PropertyPanel.js';
-import { PrefsProvider } from '../prefs/PrefsContext.js';
+import { PrefsProvider, usePrefs } from '../prefs/PrefsContext.js';
 
 /**
  * The property panel's numeric inputs, driven through the real panel — the
@@ -233,5 +233,78 @@ describe('PropertyPanel — the export note belongs to one component', () => {
     expect(note()).toMatch(/fin outline/);
     show(tree, nose);
     expect(note(), 'the fin warning under the nose cone').toBe('');
+  });
+});
+
+describe('PropertyPanel — sliders', () => {
+  const sliderNamed = (name: string): HTMLInputElement =>
+    host.querySelector<HTMLInputElement>(`input[type="range"][aria-label="${name}"]`)!;
+  const pointer = (el: HTMLElement, type: string) => act(() => {
+    el.dispatchEvent(new PointerEvent(type, { bubbles: true }));
+  });
+  /** What an arrow key does to a range input: a new value and an input event, no pointer. */
+  const slideTo = (el: HTMLInputElement, v: number) => act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, String(v));
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+
+  /**
+   * Audit 2026-09-22: the range a drag freezes (so the handle does not chase
+   * its own updates) was released only on pointerup. A touch the browser
+   * cancels — a scroll gesture taking over — never sends one, and the slider
+   * stayed on the stale range until the next complete drag.
+   */
+  for (const release of ['pointercancel', 'lostpointercapture']) {
+    it(`${release} releases a frozen range`, () => {
+      const a = tube('A');
+      show(treeOf(a), a);
+      pointer(sliderNamed('Length (mm)'), 'pointerdown');
+      pointer(sliderNamed('Length (mm)'), release);
+      // A tube longer than the slider's 1000 mm: the live range grows to hold it.
+      const long = tube('A', { length: 5 });
+      show(treeOf(long), long);
+      expect(sliderNamed('Length (mm)').max).toBe('5000');
+    });
+  }
+
+  it('a unit switch mid-drag does not keep the old unit’s range', () => {
+    // Frozen in mm (0-1000), then inches: 1000 on an inch slider is 25 m.
+    function Switch() {
+      const { prefs, setPrefs } = usePrefs();
+      return (
+        <button type="button" id="to-inches"
+          onClick={() => setPrefs({ ...prefs, units: { ...prefs.units, length: 'in' } })}>in</button>
+      );
+    }
+    const a = tube('A');
+    act(() => root.render(
+      <PrefsProvider>
+        <Switch />
+        <PropertyPanel tree={treeOf(a)} node={a} onPatch={(p) => patches.push(p)} />
+      </PrefsProvider>,
+    ));
+    pointer(sliderNamed('Length (mm)'), 'pointerdown');
+    click(host.querySelector<HTMLButtonElement>('#to-inches')!);
+    expect(Number(sliderNamed('Length (in)').max)).toBeCloseTo(1000 / 25.4, 6);
+  });
+
+  /**
+   * Audit 2026-09-22: the Position slider snaps to structural anchors (tube and
+   * sibling ends) within 1.5 % of the parent's length — right for a drag, and a
+   * trap for the keyboard: one arrow press moves 1 mm off an anchor, and the
+   * snap put it straight back, so the slider stuck at every tube end.
+   */
+  it('arrow keys step the Position slider off an anchor; a drag still snaps', () => {
+    const mount = { id: 'm', type: 'innertube', name: 'm', length: 0.07, outerRadius: 0.009,
+      thickness: 0.0005, position: { method: 'top', offset: 0 } } as unknown as ComponentNode;
+    const tree = treeOf(tube('A', { children: [mount] }));
+    show(tree, mount);
+    slideTo(sliderNamed('Position offset'), 1);
+    expect((patches.at(-1)!['position'] as { offset: number }).offset).toBeCloseTo(0.001, 12);
+
+    pointer(sliderNamed('Position offset'), 'pointerdown');
+    slideTo(sliderNamed('Position offset'), 1);
+    pointer(sliderNamed('Position offset'), 'pointerup');
+    expect((patches.at(-1)!['position'] as { offset: number }).offset).toBe(0);
   });
 });

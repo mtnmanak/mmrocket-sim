@@ -1,4 +1,4 @@
-import { Fragment, useId, useMemo, useRef, useState } from 'react';
+import { Fragment, useId, useMemo, useState } from 'react';
 import type { ComponentInfo, ComponentNode, ComponentPosition, RocketTree, StaticInfo } from '@online-openrocket/engine';
 import { FinPointsEditor, type FinPoint } from './FinPointsEditor.js';
 import { NumField } from './NumField.js';
@@ -102,13 +102,24 @@ function CdBlockedNotice({ blocker, replaces }: { blocker: ComponentNode; replac
  * Slider synced with a numeric value (display units). The range grows to
  * include an out-of-range typed value, and is frozen for the duration of a
  * drag so the handle doesn't chase its own updates.
+ *
+ * The freeze ends on pointerup, AND on pointercancel and lostpointercapture,
+ * and it is void once `min`/`max` change under it (audit 2026-09-22). Released
+ * on pointerup alone, a touch the browser cancelled — a scroll gesture taking
+ * over — left the slider on a stale range until the next complete drag, and a
+ * unit switch meanwhile left a millimetre range on an inch slider (1000 in).
  */
 function ValueSlider({ value, min, max, step, onChange, ariaLabel }: {
   value: number;
   min: number;
   max: number;
   step: number;
-  onChange: (ui: number) => void;
+  /**
+   * `pointer` is true while a pointer holds the handle, false for the
+   * keyboard (arrows, Page Up/Down, Home/End) — so a caller that snaps can
+   * snap a DRAG without trapping the arrow keys at every snap point.
+   */
+  onChange: (ui: number, pointer: boolean) => void;
   /**
    * REQUIRED, even though the type says otherwise for the one caller that has
    * no field label. A `<label>` names ONE control, and each `.field` label is
@@ -120,11 +131,11 @@ function ValueSlider({ value, min, max, step, onChange, ariaLabel }: {
    */
   ariaLabel?: string;
 }) {
-  const drag = useRef<{ min: number; max: number } | null>(null);
-  const range = drag.current ?? {
-    min: Math.min(min, value),
-    max: Math.max(max, value),
-  };
+  /** Set while a pointer holds the handle: the range it froze, and the props it froze from. */
+  const [held, setHeld] = useState<{ min: number; max: number; ofMin: number; ofMax: number } | null>(null);
+  const live = { min: Math.min(min, value), max: Math.max(max, value) };
+  const range = held !== null && held.ofMin === min && held.ofMax === max ? held : live;
+  const release = () => setHeld(null);
   return (
     <input
       type="range"
@@ -134,9 +145,11 @@ function ValueSlider({ value, min, max, step, onChange, ariaLabel }: {
       max={range.max}
       step={step}
       value={value}
-      onPointerDown={() => { drag.current = range; }}
-      onPointerUp={() => { drag.current = null; }}
-      onChange={(e) => onChange(Number(e.target.value))}
+      onPointerDown={() => setHeld({ ...range, ofMin: min, ofMax: max })}
+      onPointerUp={release}
+      onPointerCancel={release}
+      onLostPointerCapture={release}
+      onChange={(e) => onChange(Number(e.target.value), held !== null)}
     />
   );
 }
@@ -1436,7 +1449,15 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
                 min={lenToUi(-parentLenSi)}
                 max={lenToUi(parentLenSi)}
                 step={niceStep(siToUi('length', lengthSym, 0.001))}
-                onChange={(v) => {
+                onChange={(v, pointer) => {
+                  // The keyboard steps exactly: snapping an arrow press put it
+                  // straight back on the anchor it had just left (1 mm against
+                  // a 1.5 % window), so the slider stuck at every tube end
+                  // (audit 2026-09-22). Only a pointer drag is magnetic.
+                  if (!pointer) {
+                    onPatch({ position: { ...pos, offset: lenFromUi(v) } });
+                    return;
+                  }
                   // Magnetic slider: snap to structural anchors (tube/sibling ends).
                   // `parent` is a ComponentNode here — positionable excludes 'stage'.
                   // Same frame as the 2D drag (TreeSchematic's onMove) and the
