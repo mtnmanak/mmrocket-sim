@@ -157,6 +157,57 @@ describe('outerProfile — transition semantics (kernel Transition.getRadius)', 
   });
 });
 
+describe('the clip search is bounded (audit 2026-09-22)', () => {
+  it('returns for a transition too long for the clip precision, instead of spinning', () => {
+    // Past 2^39 m one ULP is wider than the 1e-4 m precision the bisection
+    // waits for, so its midpoint stopped moving: 1e12 m returned, 3e12 m froze
+    // the tab for good on first render. Measured at the old code: still
+    // spinning when killed at 20 s.
+    const t0 = performance.now();
+    const pts = outerProfile('power', 0.5, 3e12, 0.01, 0.02, 8);
+    expect(performance.now() - t0).toBeLessThan(1000);
+    expect(pts[0]![1]).toBe(0.01);
+    expect(pts[pts.length - 1]![1]).toBe(0.02);
+    expect(pts.every(([, r]) => Number.isFinite(r))).toBe(true);
+  });
+
+  it('changes nothing a transition that converged used to return, to the last bit', () => {
+    // The old search, verbatim and unbounded — safe here, because every input
+    // below is one it finished on.
+    const oldClip = (shape: string, p: number, len: number, r1: number, r2: number): number => {
+      let min = 0;
+      let max = len;
+      let n = 0;
+      while (shapeRadius(shape, max, r2, max + len, p) - r1 < 0) {
+        min = max;
+        max *= 2;
+        if (++n > 10) break;
+      }
+      for (;;) {
+        const clip = (min + max) / 2;
+        if (max - min < 0.0001) return clip;
+        if (shapeRadius(shape, clip, r2, clip + len, p) - r1 > 0) max = clip;
+        else min = clip;
+      }
+    };
+    let compared = 0;
+    for (const [shape, p] of [['ellipsoid', 0], ['power', 0.3], ['power', 0.5], ['power', 0.75],
+      ['haack', 0], ['haack', 1 / 3]] as const) {
+      for (const len of [0.001, 0.05, 0.3, 2, 40, 1e3, 1e6, 1e9]) {
+        for (const [r1, r2] of [[0.001, 0.05], [0.012, 0.024], [0.2, 0.21], [0.049, 0.0495]]) {
+          const clip = oldClip(shape, p, len, r1, r2);
+          for (const [x, r] of outerProfile(shape, p, len, r1, r2, 16)) {
+            const want = x <= 0 ? r1 : x >= len ? r2 : shapeRadius(shape, clip + x, r2, clip + len, p);
+            expect(r, `${shape} ${p} L=${len} ${r1}->${r2} at x=${x}`).toBe(want);
+            compared++;
+          }
+        }
+      }
+    }
+    expect(compared).toBe(6 * 8 * 4 * 17);
+  });
+});
+
 describe('shape metadata mirrors the kernel enum', () => {
   it('defaults', () => {
     expect(shapeParamDefault('ogive')).toBe(1);

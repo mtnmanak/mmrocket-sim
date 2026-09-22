@@ -22,6 +22,15 @@
 
 const MINFEATURE = 0.001;
 const CLIP_PRECISION = 0.0001;
+/**
+ * The most bisection steps calculateClip takes. Every input that converged
+ * before this bound existed does so well inside it — its interval starts at
+ * most 2^11 × the length and halves each step, so a length the clip precision
+ * can still resolve (below 2^39 m, where one ULP passes 1e-4 m) needs about
+ * 64 steps and a real transition ~21. Those return exactly as they did; only
+ * the inputs that used to spin for ever now stop (audit 2026-09-22).
+ */
+const CLIP_MAX_STEPS = 200;
 
 const safeSqrt = (v: number): number => Math.sqrt(Math.max(0, v));
 const pow2 = (x: number): number => x * x;
@@ -105,6 +114,16 @@ export function shapeRadius(shape: string, x: number, radius: number, length: nu
  * Transition.calculateClip(): solve clipLength from
  * r1 == getRadius(clipLength, r2, clipLength + length) by binary search.
  * Assumes r1 < r2 (the caller has already flipped).
+ *
+ * The search is BOUNDED, where the kernel's `for(;;)` is not. It exits only
+ * when max − min < CLIP_PRECISION, and once the clip passes 2^39 m ≈ 5.5e11 m
+ * one ULP is wider than that: the midpoint stops moving and the loop never
+ * ends. A power-0.5 transition 3e12 m long — any finite length an importer
+ * keeps, from a crafted file or share link — froze the tab on its first
+ * render (audit 2026-09-22). Past CLIP_MAX_STEPS the midpoint is returned as
+ * it stands. The carved kernel runs the identical unbounded loop, which this
+ * bound cannot reach: keeping such a length out of a design at import is the
+ * other half of that finding, and lives with the importers' own checks.
  */
 function calculateClip(shape: string, param: number, length: number, r1: number, r2: number): number {
   let min = 0;
@@ -117,7 +136,7 @@ function calculateClip(shape: string, param: number, length: number, r1: number,
     n++;
     if (n > 10) break;
   }
-  for (;;) {
+  for (let step = 0; step < CLIP_MAX_STEPS; step++) {
     const clip = (min + max) / 2;
     if (max - min < CLIP_PRECISION) return clip;
     const val = shapeRadius(shape, clip, r2, clip + length, param);
@@ -127,6 +146,7 @@ function calculateClip(shape: string, param: number, length: number, r1: number,
       min = clip;
     }
   }
+  return (min + max) / 2;
 }
 
 /**
