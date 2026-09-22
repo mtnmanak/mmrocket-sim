@@ -1,4 +1,5 @@
 import type { ComponentNode, IgnitionEvent, MotorSpec, RocketTree, StaticInfo } from '@online-openrocket/engine';
+import { num } from '../tree/nodeNum.js';
 import { hasSeparatingParallelStage, mountMotorCount, stageIndexOf, stages } from '../tree/treeModel.js';
 
 /**
@@ -35,8 +36,10 @@ import { hasSeparatingParallelStage, mountMotorCount, stageIndexOf, stages } fro
  *    instanceCount > 1 is counted ONCE while `massEmpty` counts every instance.
  *    Deriving the sustainer as `massEmpty − Σ(booster sectionMass)` rather than
  *    as `sectionMass(sustainer)` puts that discrepancy where it can only bite a
- *    design with an instanced POD on a BOOSTER stage — the sustainer's own pods
- *    come out right, which is the case that exists.
+ *    design with an instanced assembly on a BOOSTER stage — the sustainer's own
+ *    pods come out right. That case is refused, not weighed (`holdsInstanced`):
+ *    it used to be weighed, and a ring of two pods on a booster read the
+ *    booster 11 % LIGHT and the sustainer 15 % heavy (audit 2026-09-22 review).
  *
  * ONE WEIGHT PER OBJECT THAT COMES DOWN, not one per rocket (2026-09-07). The
  * original note here said "the boosters are on the ground by apogee, so the
@@ -108,6 +111,19 @@ export function motorLoadedMass(spec: Pick<MotorSpec, 'masses'>): number | null 
  */
 function neverLights(mm: { ignition?: { event?: IgnitionEvent } }): boolean {
   return mm.ignition?.event === 'never';
+}
+
+/**
+ * Does anything under these nodes fly more than once — a pod set, or a strap-on
+ * ring (on Never: a separating one is refused before this is asked)? Those are
+ * what `sectionMass` counts ONCE and `massEmpty` counts per instance (header
+ * note). An absent count is the kernel's own default of 2
+ * (ComponentFactory.applyAssembly), truncated as it truncates — so a node the
+ * app cannot read a count off errs toward refusing, never toward a light weight.
+ */
+function holdsInstanced(nodes: readonly ComponentNode[]): boolean {
+  return nodes.some((n) => ((n.type === 'podset' || n.type === 'parallelstage')
+    && Math.trunc(num(n, 'instanceCount', 2)) > 1) || holdsInstanced(n.children ?? []));
 }
 
 export interface RecoveryMassInput {
@@ -239,6 +255,12 @@ export type RecoveryByStage =
  * of two such strap-ons with a C6 in each (and one in the core) lands at
  * 149.5 g, which is what this returns. It used to be refused with "strap-on
  * boosters separate", which was false for it (audit 2026-09-22).
+ *
+ * "Like a pod set" includes a pod set's one limit: on a BOOSTER stage of a
+ * design that separates, either kind is counted once by `sectionMass`, so that
+ * booster's group is unavailable rather than weighed light, and the sustainer
+ * is summed from its own stages instead of subtracted from `massEmpty` —
+ * unavailable too if it holds one of its own (`holdsInstanced`).
  */
 export function recoveryMassByStage(input: RecoveryMassInput): RecoveryByStage {
   const { tree, info, motors, sectionMass } = input;
@@ -319,24 +341,53 @@ export function recoveryMassByStage(input: RecoveryMassInput): RecoveryByStage {
   const indexOfStage = new Map<ComponentNode, number>();
   stages(tree).forEach((s, i) => indexOfStage.set(s, i));
 
+  /**
+   * A booster group holding a pod set or a never-separating strap-on ring has
+   * a `sectionMass` that counts the ring once where the kernel flies every
+   * instance — measured, two pods on a booster read it 11 % light (the unsafe
+   * direction for ITS canopy) and the sustainer 15 % heavy (audit 2026-09-22
+   * review). Such a group is not weighed.
+   */
+  const instancedGroup = groups.map((g, gi) => gi > 0 && holdsInstanced(g));
+  const boosterInstanced = instancedGroup.some(Boolean);
+
   const out: StageRecovery[] = [];
   for (let gi = 0; gi < groups.length; gi++) {
     const group = groups[gi]!;
     const isSustainer = gi === 0;
     const idx = new Set(group.map((s) => indexOfStage.get(s) ?? -1));
 
+    if (instancedGroup[gi] || (isSustainer && boosterInstanced && holdsInstanced(group))) {
+      out.push({
+        ...label(group),
+        isSustainer,
+        mass: {
+          state: 'unavailable',
+          reason: isSustainer
+            ? 'pod sets or strap-ons ride on both this stage and a booster — the app cannot yet weigh them per pod'
+            : 'a pod set or strap-on on this stage is counted once, not per pod — the app cannot yet weigh it',
+        },
+      });
+      continue;
+    }
+
     // The sustainer is derived by SUBTRACTING what leaves rather than by
-    // summing its own sections — see the header note on instanced pods. Every
-    // other group is summed, which is the only thing available for it.
-    let dry = isSustainer ? info.massEmpty : 0;
+    // summing its own sections — see the header note on instanced pods: that
+    // keeps its own pods right. Every other group is summed, which is the only
+    // thing available for it — and so is the sustainer when a booster holds a
+    // ring, since subtracting that booster's once-counted ring would leave the
+    // extra instances on the sustainer (it holds none of its own, or the branch
+    // above has already refused it).
+    const subtract = isSustainer && !boosterInstanced;
+    let dry = subtract ? info.massEmpty : 0;
     let dryKnown = true;
-    const contributing = isSustainer
+    const contributing = subtract
       ? groups.slice(1).flat()
       : group;
     for (const stage of contributing) {
       const sm = stage.id ? sectionMass(stage.id) : null;
       if (sm === null || !Number.isFinite(sm)) { dryKnown = false; break; }
-      dry += isSustainer ? -sm : sm;
+      dry += subtract ? -sm : sm;
     }
     if (!dryKnown) {
       out.push({
@@ -344,7 +395,7 @@ export function recoveryMassByStage(input: RecoveryMassInput): RecoveryByStage {
         isSustainer,
         mass: {
           state: 'unavailable',
-          reason: isSustainer
+          reason: subtract
             ? 'the booster stages’ masses are unavailable'
             : 'this stage’s mass is unavailable',
         },

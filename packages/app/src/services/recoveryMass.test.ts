@@ -403,6 +403,76 @@ describe('recovery weight — a strap-on that never separates', () => {
       expect(answer.state === 'unavailable' && answer.reason).toMatch(/strap-on boosters separate/);
     }
   });
+
+  /**
+   * A RING ON A BOOSTER STAGE (audit 2026-09-22 review). Lifting the refusal
+   * for a Never strap-on let it through on a booster too, where `sectionMass`
+   * counts the ring ONCE: the booster read 96.1 g for a branch that lands at
+   * 108.0 g — 11 % light, the unsafe way for its canopy — and the sustainer,
+   * `massEmpty` less that once-counted ring, 93.2 g for 81.3 g. A pod set there
+   * did the same before this row. Such a booster is refused, and the sustainer
+   * is summed from its own stage instead. Checked against the kernel's branches.
+   */
+  describe('on a booster stage of a design that separates', () => {
+    /** `twoStage`, finned to fly, with a two-instance ring on the booster body and optionally the core. */
+    const staged = (type: 'parallelstage' | 'podset', onCore = false): RocketTree => {
+      const t = twoStage();
+      t.components[1]!.children![0]!.children!.unshift({
+        type: 'trapezoidfinset', id: 'f2', finCount: 3, rootChord: 0.1, tipChord: 0.05,
+        sweep: 0.05, height: 0.08, thickness: 0.003, position: { method: 'bottom', offset: 0 },
+      } as ComponentNode);
+      const ring = (suffix: string): ComponentNode => {
+        const r = strapOn({ type, separationEvent: 'never' }, false);
+        return {
+          ...r, id: `ps${suffix}`,
+          children: r.children!.map((c) => ({ ...c, id: `${c.id}${suffix}` })),
+        } as ComponentNode;
+      };
+      t.components[1]!.children![0]!.children!.push(ring('B'));
+      if (onCore) t.components[0]!.children![1]!.children!.push(ring('S'));
+      return t;
+    };
+    /** Each branch's landing mass, sustainer first (kg). */
+    const branchLandings = async (rocket: Awaited<ReturnType<typeof onKernel>>['rocket']) => {
+      const { DEFAULT_CONDITIONS, kernelSimOptions } = await import('../components/LaunchPanel.js');
+      const flight = rocket.simulate(kernelSimOptions(DEFAULT_CONDITIONS));
+      return (flight.branches ?? []).map((b) => b.series.mass[b.series.mass.length - 1]!);
+    };
+
+    for (const type of ['parallelstage', 'podset'] as const) {
+      it(`refuses the booster and sums the sustainer — a ${type} on the booster`, async () => {
+        const { rocket, sectionMass, byStage } = await onKernel(staged(type), { m1: C6(), m2: C6() });
+        const [sustainerLands, boosterLands] = await branchLandings(rocket);
+        expect(byStage.state).toBe('ok');
+        if (byStage.state !== 'ok') return;
+        const [sustainer, booster] = byStage.groups;
+        expect(sustainer!.mass.state === 'ok' && sustainer!.mass.mass).toBeCloseTo(sectionMass('s1')! + BURNOUT, 12);
+        expect(sustainer!.mass.state === 'ok' && sustainer!.mass.mass).toBeCloseTo(sustainerLands!, 9);
+        expect(booster!.mass.state).toBe('unavailable');
+        expect(booster!.mass.state === 'unavailable' && booster!.mass.reason).toMatch(/counted once, not per pod/);
+        // What the booster would have read: its once-counted section, light.
+        expect(sectionMass('s2')! + BURNOUT).toBeLessThan(boosterLands! - 0.01);
+      });
+    }
+
+    it('refuses both when the sustainer holds a ring of its own as well', async () => {
+      const { byStage } = await onKernel(staged('podset', true), { m1: C6(), m2: C6() });
+      expect(byStage.state).toBe('ok');
+      if (byStage.state !== 'ok') return;
+      expect(byStage.groups.map((g) => g.mass.state)).toEqual(['unavailable', 'unavailable']);
+    });
+
+    it('a ring on the sustainer alone is still weighed, both objects as they land', async () => {
+      const t = staged('parallelstage');
+      // Move the ring from the booster body to the core's.
+      const ring = t.components[1]!.children![0]!.children!.pop()!;
+      t.components[0]!.children![1]!.children!.push(ring);
+      const { rocket, byStage } = await onKernel(t, { m1: C6(), m2: C6() });
+      const lands = await branchLandings(rocket);
+      expect(groupMass(byStage, 'Sustainer')).toBeCloseTo(lands[0]!, 9);
+      expect(groupMass(byStage, 'Booster')).toBeCloseTo(lands[1]!, 9);
+    });
+  });
 });
 
 describe('recovery weight — degenerate motor curves', () => {
