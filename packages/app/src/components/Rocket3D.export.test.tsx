@@ -12,7 +12,8 @@ import { Rocket3D } from './Rocket3D.js';
  * run here, so `Canvas` is replaced by a stand-in that renders the wrapper div
  * the real one renders (react-three-fiber 8.18's CanvasImpl spreads its HTML
  * props onto that div) and hands `onCreated` a recording renderer. Everything
- * between the menu pick and the download is the real code.
+ * between the menu pick and the download is the real code. (The canvas's own
+ * name is pinned at the foot of this file, because it needs the same stand-in.)
  *
  *  • The export restored the renderer only AFTER awaiting the encode, so the live
  *    view rendered at up to 8K (~33 Mpx a frame) for the seconds the encode
@@ -159,5 +160,22 @@ describe('the 3D image export', () => {
     await act(async () => { finishEncode(new Blob(['x'])); await done; });
     expect(log).toHaveLength(before);
     root = createRoot(host); // afterEach unmounts again
+  });
+});
+
+/**
+ * Audit 2026-09-22: the 3D canvas had no accessible name — a screen reader met
+ * an unlabelled canvas between the camera buttons and the "drag to rotate"
+ * caption. The name rides on the Canvas wrapper div (the stand-in above
+ * renders the same div, with the same props, as the real Canvas).
+ */
+describe('the 3D canvas', () => {
+  it('is an image with a name that says what it shows and how to move it', () => {
+    mount(false);
+    const wrap = host.querySelector('[data-r3f]')!;
+    expect(wrap.getAttribute('role')).toBe('img');
+    const name = wrap.getAttribute('aria-label') ?? '';
+    expect(name).toMatch(/^3D view of the rocket/);
+    expect(name).toMatch(/Reset, Side and Aft/);
   });
 });

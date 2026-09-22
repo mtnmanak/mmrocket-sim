@@ -509,6 +509,11 @@ export function Rocket3D({ tree, info, motors, exportData }: {
         // Snapshot export reads the drawing buffer after the frame — without
         // this flag WebGL may have discarded it and toDataURL returns black.
         gl={{ preserveDrawingBuffer: true }}
+        // A name for the canvas (audit 2026-09-22): a screen reader met an
+        // unlabelled canvas here. R3F spreads HTML props onto its wrapper div,
+        // so the role and name land on the element that holds the <canvas>.
+        role="img"
+        aria-label="3D view of the rocket. Drag to rotate, scroll to zoom; the Reset, Side and Aft buttons above move the camera."
         onCreated={(state) => { r3f.current = { gl: state.gl, scene: state.scene, camera: state.camera }; }}>
         {/* Soft studio setup (S5): warm-neutral key, cool fill, low rim —
             subtle and blueprint-serious, no shadows or environment maps. */}
