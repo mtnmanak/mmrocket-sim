@@ -345,3 +345,22 @@ describe('MotorBrowser — filters that persist where they cannot be seen (audit
     expect(stored()).toMatchObject({ manufacturers: [], impulse: [], propellants: [], impulseMax: null });
   });
 });
+
+describe('MotorBrowser — the import buttons are keyboard-reachable (audit 2026-09-22)', () => {
+  let h: Harness;
+  afterEach(() => closeBrowser(h));
+
+  it('keeps both file inputs in the Tab order, each with a name', () => {
+    // Importing an .eng/.rse is the ONLY way to fly an EX motor; display:none
+    // put both inputs out of reach of the keyboard.
+    h = openBrowser({ mountDiameterMm: 29 });
+    const inputs = Array.from(h.host.querySelectorAll<HTMLInputElement>('input[type="file"]'));
+    expect(inputs).toHaveLength(2);
+    for (const input of inputs) {
+      expect(input.style.display).not.toBe('none');
+      expect(input.classList.contains('file-btn-input')).toBe(true);
+      expect(input.tabIndex).not.toBe(-1);
+      expect(input.getAttribute('aria-label')).toMatch(/Import/);
+    }
+  });
+});

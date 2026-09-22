@@ -151,9 +151,12 @@ export function PresetPicker({ type, onApply, onClose }: {
           </h2>
           <button className="file-btn" onClick={exportCsv}
             title={`Export all ${rows.length} row(s) matching the search — not just the ${ROW_CAP} the table shows`}>⬇ CSV</button>
+          {/* Visually hidden, NOT display:none (audit 2026-09-22): the App
+              header's Open… rule (styles.css .file-btn-input) — display:none
+              took the input out of the Tab order, so the keyboard could not reach it. */}
           <label className="file-btn" title="Import an edited CSV (adds/updates your own presets)">
             ⬆ CSV
-            <input type="file" accept=".csv" style={{ display: 'none' }}
+            <input type="file" accept=".csv" className="file-btn-input" aria-label="Import presets from a CSV file"
               onChange={(e) => {
                 const f = e.target.files?.[0];
                 if (f) importCsv(f);

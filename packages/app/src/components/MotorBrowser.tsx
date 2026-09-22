@@ -598,9 +598,15 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
                 clear
               </button>
             )}
+            {/* Visually hidden, NOT display:none (audit 2026-09-22) — the App
+                header's Open… rule (styles.css .file-btn-input): display:none
+                takes the input out of the Tab order, and importing a file is the
+                ONLY way to fly an EX motor, so keyboard and switch users could
+                not reach it. The label paints the focus ring via :focus-within. */}
             <label className="file-btn" title="Import experimental/EX motors from RASP (.eng) or RockSim (.rse) files — they appear under manufacturer EX and persist across sessions">
               ⬆ Import .eng/.rse
-              <input type="file" accept=".eng,.rse,.txt" multiple style={{ display: 'none' }}
+              <input type="file" accept=".eng,.rse,.txt" multiple className="file-btn-input"
+                aria-label="Import EX motor files (.eng or .rse)"
                 onChange={(e) => {
                   const fs = Array.from(e.target.files ?? []);
                   if (fs.length) importMotorFiles(fs);
@@ -609,7 +615,8 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
             </label>
             <label className="file-btn" title="Pick the folder where you keep your EX motor files — every .eng/.rse inside is added to the library in one go">
               📁 Import EX folder
-              <input type="file" style={{ display: 'none' }}
+              <input type="file" className="file-btn-input"
+                aria-label="Import every EX motor file in a folder"
                 {...({ webkitdirectory: '' } as Record<string, string>)}
                 onChange={(e) => {
                   const fs = Array.from(e.target.files ?? []);

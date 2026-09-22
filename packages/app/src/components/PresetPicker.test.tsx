@@ -135,4 +135,15 @@ describe('PresetPicker — labelling', () => {
     expect(search.getAttribute('aria-label'))
       .toBe('Search part number, description or manufacturer');
   });
+
+  it('keeps the ⬆ CSV file input in the Tab order, named (audit 2026-09-22)', async () => {
+    // display:none took it out of the Tab order; the App header's Open… was
+    // fixed the same way (styles.css .file-btn-input).
+    await render();
+    const input = host.querySelector<HTMLInputElement>('input[type="file"]')!;
+    expect(input.style.display).not.toBe('none');
+    expect(input.classList.contains('file-btn-input')).toBe(true);
+    expect(input.tabIndex).not.toBe(-1);
+    expect(input.getAttribute('aria-label')).toBe('Import presets from a CSV file');
+  });
 });
