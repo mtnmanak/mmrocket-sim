@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useDialog } from './useDialog.js';
+import { useBackdropClose, useDialog } from './useDialog.js';
 import { OrkRocket, type FlightResult, type IgnitionEvent, type MotorSpec, type RocketTree, type SimulationOptions, type StaticInfo } from '@online-openrocket/engine';
 import { includedMotorOf } from '../services/statedLaunchWeight.js';
 import {
@@ -965,7 +965,7 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
   const distUi = (si: number | null) => (si === null ? undefined : siToUi('distance', dist, si));
 
   // Escape must NOT close a sweep that is running. The ✕ is disabled={running}
-  // and the backdrop's handler is `running ? undefined : onClose`, but
+  // and the backdrop's close is guarded on the same ref below, but
   // useDialog's Escape handler is unconditional — so the one key a modal binds
   // by reflex unmounted this component mid-run, taking `rows` with it. Nothing
   // survives that: the ⬇ CSV and ⬇ XLSX buttons live inside this dialog, and
@@ -981,6 +981,10 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
   const runningRef = useRef(running);
   runningRef.current = running;
   const dialogRef = useDialog(() => { if (!runningRef.current) onClose(); });
+  // A press AND a release on the backdrop itself (useBackdropClose): a name
+  // drag-selected in a finished results table and released past the card's
+  // edge closed the dialog and threw the batch away (audit 2026-09-22).
+  const backdrop = useBackdropClose(() => { if (!runningRef.current) onClose(); });
 
   // What the batch will actually fly — the same counts the meta line quotes.
   // The time-step caution multiplies by this: a fine step's cost is per
@@ -996,7 +1000,7 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
   useEffect(() => { setConfirming(false); }, [totalFlights]);
 
   return (
-    <div className="prefs-overlay" role="presentation" onClick={running ? undefined : onClose}>
+    <div className="prefs-overlay" role="presentation" {...backdrop}>
       <div className="prefs-dialog panel motor-browser" role="dialog" aria-modal="true" aria-label="Batch simulate motors"
         ref={dialogRef} tabIndex={-1}
         onClick={(e) => e.stopPropagation()}>

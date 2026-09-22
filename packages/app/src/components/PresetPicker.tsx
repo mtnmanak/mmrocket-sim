@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { clickable } from './clickable.js';
-import { useDialog } from './useDialog.js';
+import { useBackdropClose, useDialog } from './useDialog.js';
 import type { ComponentNode, ComponentType } from '@online-openrocket/engine';
 import {
   KIND_FOR_TYPE, csvToPresets, loadCustomPresets, loadPresets, presetPatch,
@@ -141,9 +141,13 @@ export function PresetPicker({ type, onApply, onClose }: {
   };
 
   const dialogRef = useDialog(onClose);
+  // Closes only on a press and a release on the backdrop itself, so text
+  // selected in the search box or the table and dragged past the card's edge
+  // keeps it open (audit 2026-09-22).
+  const backdrop = useBackdropClose(onClose);
 
   return (
-    <div className="prefs-overlay" role="presentation" onClick={onClose}>
+    <div className="prefs-overlay" role="presentation" {...backdrop}>
       <div className="prefs-dialog panel motor-browser" role="dialog" aria-modal="true" aria-label="Component presets"
         ref={dialogRef} tabIndex={-1}
         onClick={(e) => e.stopPropagation()}>
