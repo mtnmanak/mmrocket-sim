@@ -61,7 +61,7 @@ import info.openrocket.core.util.WorldCoordinate;
 public final class OrkEngine {
 
     private static final Map<Integer, Object> HANDLES = new HashMap<>();
-    private static int nextHandle = 1;
+    private static int nextHandle = 1; // MONOTONIC: reset() never rewinds it - see unknownOrStale()
 
     private OrkEngine() {}
 
@@ -83,7 +83,7 @@ public final class OrkEngine {
     private static Object get(int handle) {
         Object o = HANDLES.get(handle);
         if (o == null) {
-            throw new IllegalArgumentException("Unknown handle: " + handle);
+            throw unknownOrStale(handle);
         }
         return o;
     }
@@ -93,11 +93,11 @@ public final class OrkEngine {
         return ((RocketCtx) get(rocketHandle)).rocket;
     }
 
-    /** Frees every handle (rockets, components, motors). */
+    /** Frees every handle (rockets, components, motors); the numbering carries on. */
     @JSExport
     public static void reset() {
         HANDLES.clear();
-        nextHandle = 1;
+        // nextHandle is deliberately NOT rewound (audit 2026-09-22) - see unknownOrStale().
     }
 
     // ---------- Rocket construction ----------
@@ -1262,5 +1262,29 @@ public final class OrkEngine {
             }
         }
         return sb.toString();
+    }
+
+    /**
+     * The error for a handle that is not registered (audit 2026-09-22).
+     * <p>
+     * reset() frees every handle and the app calls it on every rebuild. It used to
+     * rewind nextHandle to 1 as well, so a handle held across a reset - a Batch
+     * sweep's pooled candidate when Ctrl+Z rebuilt the design mid-sweep, a rocket
+     * kept by a stale closure - silently addressed whatever was built next under
+     * the same number (measured: a stale handle reported the NEW design's length).
+     * The counter is now monotonic for the life of the module, so every number
+     * below it was issued, and since nothing frees a single handle, an issued
+     * number that is missing can only have been freed by reset(). 2^31 handles
+     * would wrap; a session builds thousands.
+     * <p>
+     * Placed at the end of the file, with the edits above kept line-for-line, so
+     * the line numbers the app's comments cite into this file stay true.
+     */
+    private static IllegalArgumentException unknownOrStale(int handle) {
+        if (0 < handle && handle < nextHandle) {
+            return new IllegalArgumentException("stale engine handle " + handle
+                    + ": the engine was reset after it was built - rebuild the rocket");
+        }
+        return new IllegalArgumentException("Unknown handle: " + handle);
     }
 }

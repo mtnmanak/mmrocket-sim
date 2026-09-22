@@ -761,7 +761,13 @@ export class OrkRocket {
   }
 }
 
-/** Frees all engine-side objects (all OrkRocket handles become invalid). */
+/**
+ * Frees all engine-side objects (all OrkRocket handles become invalid). Handle
+ * numbers are NOT reused afterwards, so any call on an OrkRocket built before
+ * the reset throws `stale engine handle` rather than addressing whatever rocket
+ * was built next under the same number — which is what it did until the
+ * 2026-09-22 audit, when the kernel restarted its numbering at 1 on every reset.
+ */
 export function resetEngine(): void {
   ork.reset();
 }
