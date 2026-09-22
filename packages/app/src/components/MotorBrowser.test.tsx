@@ -421,3 +421,48 @@ describe('MotorBrowser — load and import results reach a screen reader (audit 
     expect(h.host.querySelector('.motor-browser > [role="status"]')!.textContent).toMatch(/Imported 1 EX motor/);
   });
 });
+
+describe('MotorBrowser — the table is ONE tab stop, walked with the arrows (audit 2026-09-22)', () => {
+  let h: Harness;
+  afterEach(() => closeBrowser(h));
+
+  const key = (el: Element, k: string) => act(() => {
+    el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true }));
+  });
+  const stops = (h: Harness) => bodyRows(h).filter((tr) => tr.tabIndex === 0);
+
+  it('makes exactly one row tabbable, where every row used to be', () => {
+    // 29 mm offers hundreds of rows; each was a Tab press before Load.
+    h = openBrowser({ mountDiameterMm: 29 });
+    expect(bodyRows(h).length).toBeGreaterThan(100);
+    expect(stops(h)).toEqual([bodyRows(h)[0]]);
+    expect(bodyRows(h).slice(1).every((tr) => tr.tabIndex === -1)).toBe(true);
+  });
+
+  it('moves focus — and the tab stop — with ArrowDown/Up, Home and End, without picking', () => {
+    h = openBrowser({ mountDiameterMm: 29 });
+    const rows = bodyRows(h);
+    act(() => rows[0]!.focus());
+    key(rows[0]!, 'ArrowDown');
+    expect(document.activeElement).toBe(bodyRows(h)[1]);
+    expect(stops(h)).toEqual([bodyRows(h)[1]]);
+    key(bodyRows(h)[1]!, 'End');
+    expect(document.activeElement).toBe(bodyRows(h).at(-1));
+    key(bodyRows(h).at(-1)!, 'ArrowDown'); // stays at the end
+    expect(document.activeElement).toBe(bodyRows(h).at(-1));
+    key(bodyRows(h).at(-1)!, 'Home');
+    expect(document.activeElement).toBe(bodyRows(h)[0]);
+    key(bodyRows(h)[0]!, 'ArrowUp'); // stays at the top
+    expect(document.activeElement).toBe(bodyRows(h)[0]);
+    expect(h.host.querySelector('.motor-row-picked')).toBeNull(); // passing over is not picking
+  });
+
+  it('still picks on Enter, and the picked row keeps the tab stop', () => {
+    h = openBrowser({ mountDiameterMm: 18 });
+    search(h, 'C6');
+    const row = rowFor(h, 'Estes', 'C6')!;
+    key(row, 'Enter');
+    expect(h.host.querySelector('.motor-load-row')!.textContent).toMatch(/Estes C6/);
+    expect(stops(h)).toEqual([rowFor(h, 'Estes', 'C6')]);
+  });
+});
