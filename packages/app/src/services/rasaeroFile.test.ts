@@ -457,6 +457,16 @@ describe('RASAero import — supersonic airfoils, launch site, simulations', () 
     expect(plain.notes.join(' ')).not.toMatch(/Mach-Alt/);
   });
 
+  it('reads no hex or blank Mach-Alt field as a number', () => {
+    // `Number('0x10')` is 16 and `Number(' ')` is 0, so these two rows used to
+    // become Mach 16 and Mach 0 (audit 2026-09-22). Decimal only, as xmlNum.
+    const xml = fixture('RMA53D02 - 2.CDX1').replace(/<MachAlt>\s*<Item>/,
+      '<MachAlt><Item>0x10, 1000</Item><Item> , 2000</Item><Item>');
+    const table = importCdx1(xml).machAlt!;
+    expect(table.map(([m]) => m)).toEqual([0, 2.5, 5, 10, 25]);
+    expect(table[0]![1]).toBe(0); // the file's own Mach 0 row, not the blank one's 2000 ft
+  });
+
   it('imports the RMA hexagonal-blunt-base airfoil (no TE chamfer)', () => {
     const r = importCdx1(fixture('RMA53D02 - 2.CDX1'));
     const fins = flatten(r.tree.components).find((c) => c.type === 'trapezoidfinset')!;

@@ -249,8 +249,10 @@ export function readMachAltTable(doc: Document): MachAltTable | undefined {
   for (const item of Array.from(el.querySelectorAll(':scope > Item'))) {
     const [machStr, altStr] = (item.textContent ?? '').split(',');
     if (altStr === undefined) continue;
-    const mach = Number(machStr);
-    const altFt = Number(altStr);
+    // Decimal only, as xmlNum: `Number` read "0x10" as Mach 16 and a blank
+    // field (", 4750") as Mach 0 (audit 2026-09-22).
+    const mach = parseDecimal(machStr);
+    const altFt = parseDecimal(altStr);
     // A negative Mach or a sub-sea-level altitude is not a row RASAero can
     // mean; dropping it beats handing the ISA model an altitude it clamps.
     if (!Number.isFinite(mach) || !Number.isFinite(altFt) || mach < 0 || altFt < 0) continue;
