@@ -661,7 +661,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
           onClick={() => {
             const svg = finTemplateSvg(node, tree.name ?? 'Rocket');
             downloadBlob(new Blob([svg], { type: 'image/svg+xml' }),
-              `${safeName(node.name ?? 'fin')}-template.svg`, 'SVG cut template');
+              `${safeName(node.name ?? 'fin', 'fin')}-template.svg`, 'SVG cut template');
           }}>
           📐 Fin template (SVG, 1:1)
         </button>
@@ -686,7 +686,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
             }
             setExportNote(null);
             downloadBlob(new Blob([dxf.text], { type: DXF_MIME }),
-              `${safeName(node.name ?? dxf.label)}-cut.dxf`, 'DXF cut profile');
+              `${safeName(node.name ?? dxf.label, safeName(dxf.label))}-cut.dxf`, 'DXF cut profile');
           }}>
           ✂ DXF (CNC/laser, 1:1)
         </button>
@@ -727,7 +727,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
                 const { solidToStl, STL_MIME } = await import('../services/stlExport.js');
                 const stl = solidToStl(solid.mesh, node.name ?? solid.label);
                 downloadBlob(new Blob([stl as BlobPart], { type: STL_MIME }),
-                  `${safeName(node.name ?? solid.label)}-print.stl`, 'STL 3D print');
+                  `${safeName(node.name ?? solid.label, safeName(solid.label))}-print.stl`, 'STL 3D print');
               }
             }}>
             {offer?.button ?? SINGLE_BUTTON}

@@ -169,15 +169,14 @@ function clockingNote(node: ComponentNode): string {
  *
  * `safeName` is imported rather than re-declared — this module carried a
  * byte-identical copy until 2026-09-08, and `fileName.ts` is the one that
- * documents WHY the result needs checking: `\w` is ASCII-only, so a name
- * written entirely in Cyrillic, Greek, Japanese or Arabic collapses to
- * underscores. `stampedName` guards that for single-file exports; the copy here
- * did not, and these stems name ZIP MEMBERS — every part in a pack built from
- * such a design would have collided on `_`.
+ * documents WHY a fallback is needed: `\w` is ASCII-only, so a name written
+ * entirely in Cyrillic, Greek, Japanese or Arabic collapses to underscores,
+ * and these stems name ZIP MEMBERS — every part in a pack built from such a
+ * design would have collided on `_`. `safeName` applies the fallback itself
+ * since the 2026-09-22 audit; a part's is `part`, not the design's `rocket`.
  */
 function safeZipStem(name: string): string {
-  const s = safeName(name);
-  return /[A-Za-z0-9]/.test(s) ? s : 'part';
+  return safeName(name, 'part');
 }
 
 /**

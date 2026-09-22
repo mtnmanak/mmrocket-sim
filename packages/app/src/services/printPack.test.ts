@@ -219,6 +219,15 @@ describe('the zip', () => {
     ]);
   });
 
+  it('names a part written in another script "part", not "_" and not the design\'s "rocket"', async () => {
+    // safeName carries the fallback itself since the 2026-09-22 audit; the zip
+    // stem keeps its own, because these are the part's files, not the design's.
+    const p = await buildPrintPack(split, 'Носовой обтекатель', H2D, 'Bambu H2D');
+    expect(p.filename).toBe('part-print-2-pieces.zip');
+    expect(Object.keys(unzipSync(p.bytes)).sort())
+      .toEqual(['README.txt', 'part-print-1of2.stl', 'part-print-2of2.stl']);
+  });
+
   it('writes real binary STLs (header, triangle count, not an ASCII "solid")', () => {
     for (const name of ['Nose_Cone-print-1of2.stl', 'Nose_Cone-print-2of2.stl']) {
       const bytes = entries[name]!;

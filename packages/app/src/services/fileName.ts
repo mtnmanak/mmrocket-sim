@@ -9,23 +9,30 @@
  * nothing in it saying which rocket — or which aero model — produced it.
  */
 
-/** File-name-safe part name, matching what the .ork/.rkt exports have always used. */
-export function safeName(name: string): string {
-  return name.replace(/[^\w-]+/g, '_');
+/**
+ * File-name-safe stem, matching what the .ork/.rkt exports have always used —
+ * or `fallback` when nothing usable survives.
+ *
+ * It keeps `\w`, which is ASCII-only, so a name written entirely in Cyrillic,
+ * Greek, Japanese or Arabic collapses to underscores, and every export from
+ * every such design would land on the same `_.ork` or `_-cut.dxf`, silently
+ * overwriting the last one in the Downloads folder. The fallback lives HERE,
+ * in the one sanitiser, since the 2026-09-22 audit: before that only
+ * `stampedName` and printPack's zip stems applied it, and the design save, the
+ * batch export and the fin-template, DXF and STL buttons all called this bare.
+ * ONE ASCII letter or digit is enough to keep the name's own stem.
+ */
+export function safeName(name: string, fallback = 'rocket'): string {
+  const s = name.replace(/[^\w-]+/g, '_');
+  return /[A-Za-z0-9]/.test(s) ? s : fallback;
 }
 
 /**
- * `<design>-<base>.<ext>`, with the design sanitized and a sane fallback.
- *
- * `safeName` keeps `\w`, which is ASCII-only — so a name written entirely in
- * Cyrillic, Greek, Japanese or Arabic collapses to underscores and every
- * export from every such design would land on the same filename. When nothing
- * usable survives, fall back to the generic stem rather than shipping a name
- * that silently collides.
+ * `<design>-<base>.<ext>`, with the design sanitized and a sane fallback
+ * (`safeName`'s, so a design with no usable name exports as `rocket-…`).
  */
 export function stampedName(design: string | undefined | null, base: string, ext: string): string {
-  const d = safeName((design ?? '').trim() || 'rocket');
-  return `${/[A-Za-z0-9]/.test(d) ? d : 'rocket'}-${base}.${ext}`;
+  return `${safeName((design ?? '').trim())}-${base}.${ext}`;
 }
 
 // The download primitive itself lives in saveFile.ts — it is no longer a bare

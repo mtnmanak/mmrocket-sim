@@ -22,11 +22,21 @@ describe('safeName', () => {
     expect(safeName('BT-50_v2')).toBe('BT-50_v2');
   });
 
-  it('is ASCII-only, which is exactly why stampedName needs its guard', () => {
+  it('falls back when NOTHING ASCII survives, rather than shipping "_.ork"', () => {
     // `\w` does not match Cyrillic, Greek, Japanese or Arabic, so a name written
-    // in any of them survives as nothing but separators.
-    expect(safeName('Ракета')).toBe('_');
-    expect(safeName('ロケット')).toBe('_');
+    // in any of them survives as nothing but separators. This test used to pin
+    // that '_' (audit 2026-09-22): only stampedName and the print pack applied
+    // a fallback, and the design save, the batch export and the fin template,
+    // DXF and STL buttons all shipped '_' — every such design colliding on one
+    // filename.
+    expect(safeName('Ракета')).toBe('rocket');
+    expect(safeName('ロケット')).toBe('rocket');
+    expect(safeName('')).toBe('rocket');
+    expect(safeName('!!!')).toBe('rocket');
+    // A caller names its own fallback: a part is not a rocket.
+    expect(safeName('Стабилизатор', 'fin')).toBe('fin');
+    // ONE ASCII alphanumeric is enough to keep the name's own stem.
+    expect(safeName('Ракета 2')).toBe('_2');
   });
 });
 
