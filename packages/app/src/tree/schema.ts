@@ -371,19 +371,15 @@ const ASSEMBLY_FIELDS: FieldDef[] = [
  * It replaces the domed aft end this comment used to justify. Tapered into the
  * wind, flat where the lens looks out.
  *
- * ⚠ THE FIELD'S `dflt` BELOW IS STILL 'halfround' AND MUST STAY THAT WAY. The
- * two look like the same number and are not: `dflt` is what an ABSENT key
- * MEANS, so it has to equal the reader fallback in shroudEnds (shroud.ts) or a
- * shroud saved without an end shape would display one shape and fly another.
- * The creation default is what a NEW part is born with. Only the second moved.
- *
- * A file written before the ends were split carries one `fairingShape` for the
- * whole part; it migrates to BOTH ends on read, so an existing shroud is drawn
- * exactly as it was, and no saved design moves with this change.
- *
- * A file written before v0.088 carries one `fairingShape` for the whole part;
- * it migrates to BOTH ends on read, so an existing shroud is drawn exactly as
- * it was.
+ * That is NOT what an ABSENT key means, and the two must not be confused. An
+ * absent end is decided by `shroudEnds` (shroud.ts) alone — half-round on
+ * both ends, and a file written before v0.088 has its single `fairingShape`
+ * migrated to both ends — and the panel shows exactly that, because it
+ * resolves these two selects through the same function (RESOLVE_SELECT in
+ * PropertyPanel). So the two end fields carry NO `dflt`: one used to sit here,
+ * was never read, and the fore end's said 'streamlined' against shroudEnds'
+ * 'halfround' (audit 2026-09-22). The creation default is what a NEW part is
+ * born with (`defaultParams('fairing')`), so no saved design moves with it.
  */
 const END_SHAPES: [string, string][] = [
   ['streamlined', 'Streamlined (tapered)'],
@@ -676,10 +672,9 @@ export const FIELDS: Record<EditorComponentType, FieldDef[]> = {
     lenMM('length', 'Length (along body)', 5, 500),
     lenMM('width', 'Width (across body)', 2, 200),
     lenMM('height', 'Height (off the surface)', 2, 200),
-    { key: 'fairingForeShape', label: 'Fore end (toward the nose)', unit: 'none',
-      options: END_SHAPES, dflt: 'streamlined' },
-    { key: 'fairingAftShape', label: 'Aft end (toward the tail)', unit: 'none',
-      options: END_SHAPES, dflt: 'halfround' },
+    // No `dflt`: an absent end is whatever shroudEnds says (see END_SHAPES).
+    { key: 'fairingForeShape', label: 'Fore end (toward the nose)', unit: 'none', options: END_SHAPES },
+    { key: 'fairingAftShape', label: 'Aft end (toward the tail)', unit: 'none', options: END_SHAPES },
     CONFORMAL,
     { key: 'mass', label: 'Mass (as built)', unit: 'g', step: 1, smin: 0, smax: 500 },
     MOUNT_ANGLE,

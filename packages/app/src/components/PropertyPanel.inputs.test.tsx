@@ -199,6 +199,17 @@ describe('PropertyPanel — an unset select shows what the design flies', () => 
     expect(patches).toEqual([{ tabOffsetMethod: 'top' }]);
   });
 
+  it('a camera shroud with no end shapes shows half-round at both ends, as shroudEnds reads it', () => {
+    const sh = { id: 'sh', type: 'fairing', length: 0.08, width: 0.025, height: 0.02 } as unknown as ComponentNode;
+    show(treeOf(tube('A', { children: [sh] })), sh);
+    expect(selectNamed('Fore end (toward the nose)').value).toBe('halfround');
+    expect(selectNamed('Aft end (toward the tail)').value).toBe('halfround');
+    // And a pre-v0.088 single shape reaches both ends.
+    const old = { ...sh, fairingShape: 'box' } as unknown as ComponentNode;
+    show(treeOf(tube('A', { children: [old] })), old);
+    expect(selectNamed('Fore end (toward the nose)').value).toBe('box');
+  });
+
   it('a transition with no shape shows Conical', () => {
     const tr = { id: 't', type: 'transition', length: 0.04, foreRadius: 0.012,
       aftRadius: 0.009, thickness: 0.002 } as unknown as ComponentNode;

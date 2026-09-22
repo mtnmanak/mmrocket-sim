@@ -103,15 +103,20 @@ describe('camera shroud end shapes', () => {
   });
 
   /**
-   * ⚠ THIS IS NOT THE SAME NUMBER AS THE ONE ABOVE, AND IT MUST NOT BE MADE TO
-   * MATCH IT. `dflt` is what an ABSENT key MEANS, so it has to equal the reader
-   * fallback in shroudEnds(); the creation default is what a new part is born
-   * with. Aligning the two "for consistency" would silently re-shape every
-   * saved shroud that carries no explicit end shape.
+   * ⚠ THIS IS NOT THE SAME ANSWER AS THE ONE ABOVE, AND IT MUST NOT BE MADE TO
+   * MATCH IT. What an ABSENT end means is shroudEnds' call alone — the panel
+   * resolves both selects through it — while the creation default is what a
+   * new part is born with. Aligning the two "for consistency" would silently
+   * re-shape every saved shroud that carries no explicit end shape.
+   *
+   * The two fields carry no `dflt` for the same reason (audit 2026-09-22): one
+   * sat here unread, and the fore end's said 'streamlined' against
+   * shroudEnds' 'halfround'. A second declaration can only drift.
    */
-  it('still reads an absent aft shape as half-round, matching shroudEnds', () => {
-    expect(field('fairing', 'fairingAftShape')?.dflt).toBe('halfround');
-    expect(shroudEnds({ id: 'x', type: 'fairing', name: 'S' }).aft).toBe('halfround');
+  it('still reads an absent end as half-round, and declares it only in shroudEnds', () => {
+    expect(shroudEnds({ id: 'x', type: 'fairing', name: 'S' })).toEqual({ fore: 'halfround', aft: 'halfround' });
+    expect(field('fairing', 'fairingForeShape')?.dflt).toBeUndefined();
+    expect(field('fairing', 'fairingAftShape')?.dflt).toBeUndefined();
   });
 
   it('offers the flat end as an option at all', () => {
