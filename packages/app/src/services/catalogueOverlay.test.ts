@@ -155,6 +155,25 @@ describe('persistence and expiry', () => {
     expect(loadStoredOverlay()).toBeNull();
   });
 
+  it('re-screens a stored overlay, so a row written before a rule existed cannot reach the browser', () => {
+    // An overlay stored before the screen required burnTimeS and commonName:
+    // the motor browser draws `burnTimeS.toFixed(1)` on every row, and its
+    // Check-again button is inside that browser, so the row stuck until a release.
+    const shipped = MOTOR_DB[0]!;
+    const noBurn = { ...row({ motorId: 'no-burn' }), burnTimeS: undefined } as unknown as MotorDbEntry;
+    const noName = { ...shipped, commonName: undefined } as unknown as MotorDbEntry;
+    localStorage.setItem(OVERLAY_KEY, JSON.stringify(stored({
+      added: [row({ motorId: 'kept' }), noBurn],
+      changed: [{ motorId: shipped.motorId, before: shipped, after: noName, fields: ['commonName'] }],
+    })));
+    const o = restoreCatalogueOverlay()!;
+    expect(o.added.map((m) => m.motorId)).toEqual(['kept']);
+    expect(o.changed).toEqual([]);
+    expect(o.rejected.map((r) => r.reason)).toEqual(['burn time undefined s', 'no common name']);
+    expect(getCatalogue().some((m) => m.motorId === 'no-burn')).toBe(false);
+    expect(getCatalogue().find((m) => m.motorId === shipped.motorId)?.commonName).toBe(shipped.commonName);
+  });
+
   it('discardCatalogueOverlay clears both the store and the live catalogue', () => {
     localStorage.setItem(OVERLAY_KEY, JSON.stringify(stored()));
     restoreCatalogueOverlay();
