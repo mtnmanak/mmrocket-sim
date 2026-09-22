@@ -5,7 +5,7 @@ import { mountBore } from '../tree/scaleRocket.js';
 import { CLUSTER_POINTS, clusterOffsets } from '../tree/cluster.js';
 import { resolveAssemblyRadius } from '../tree/assembly.js';
 import { axialLength, drawnExtent, startFromPosition } from '../tree/position.js';
-import { MAX_FIN_POINTS, TOO_MANY_FIN_POINTS, decodeXml, escapeXml as esc, lookupTable, parseDecimal, xmlNum as num, xmlText as text } from './xmlUtil.js';
+import { MAX_FIN_POINTS, TOO_MANY_FIN_POINTS, decodeXml, escapeXml as esc, lookupTable, parseDecimal, unreadableFinPoints, xmlNum as num, xmlText as text } from './xmlUtil.js';
 import { unzipMember } from './zipMember.js';
 import { shapeParamDefault } from './orkFile.js';
 import type { OrkExportMotor, OrkMotorRef, OrkTreeImportResult } from './orkFile.js';
@@ -625,6 +625,10 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
           // The v0.105 changelog said the importers already checked this; they
           // did not (only a synthesised zero-tip-chord case was caught). Now they do.
           const parsed = parsePointList(text(el, ':scope > PointList') ?? '');
+          if (parsed.unreadable > 0) {
+            const note = `Fin set "${n.name ?? 'freeform'}": ${unreadableFinPoints(parsed.unreadable)}`;
+            if (!notes.includes(note)) notes.push(note);
+          }
           const outlineProblem = parsed.problem ?? finOutlineProblem(parsed.pts);
           if (!outlineProblem) {
             n['points'] = parsed.pts;
@@ -1310,10 +1314,12 @@ const readDeploymentEvents = (
  *
  * Returns the outline, or `problem` when the list is too long to read — then
  * with NO points, because the caller must not fly the first 5,000 of a longer
- * outline (see MAX_FIN_POINTS).
+ * outline (see MAX_FIN_POINTS). `unreadable` counts the pairs left out because
+ * they were not two decimals, for the caller's note.
  */
-function parsePointList(raw: string): { pts: [number, number][]; problem?: string } {
+function parsePointList(raw: string): { pts: [number, number][]; problem?: string; unreadable: number } {
   const pts: [number, number][] = [];
+  let unreadable = 0;
   // The cap counts every PAIR the file wrote, skipped ones included, and the
   // list is walked with indexOf rather than split. Audit 2026-09-22: the cap
   // was tested only before a push, and each duplicate `0,0` ran `pts.some`
@@ -1332,17 +1338,23 @@ function parsePointList(raw: string): { pts: [number, number][]; problem?: strin
     const pair = raw.slice(at, bar);
     at = bar + 1;
     if (!pair.trim()) continue;
-    if (++pairs > MAX_FIN_POINTS + 1) return { pts: [], problem: TOO_MANY_FIN_POINTS };
+    if (++pairs > MAX_FIN_POINTS + 1) return { pts: [], problem: TOO_MANY_FIN_POINTS, unreadable: 0 };
     const fields = pair.split(',', 3);
     // BOTH fields must be present and non-blank — parseDecimal reads a blank
     // as NaN. `Number('')` was 0, so a malformed pair like "1,1|,,|2,2" used
     // to yield a real [0, 0] vertex in the middle of the outline, which
     // usually then made it self-intersect, and the note blamed the outline
     // rather than the field (2026-09-08 audit). Decimal only, like xmlNum.
-    if (fields.length < 2) continue;
-    const x = parseDecimal(fields[0]);
-    const y = parseDecimal(fields[1]);
-    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+    // Such a pair is left out and COUNTED, and the caller says so — the
+    // desktop warns and skips it too ("Invalid fin point pair." / "Fin point
+    // not in numeric format."); skipped silently, as it was until audit
+    // 2026-09-22, the fin flew with a vertex missing and nothing said.
+    const x = fields.length < 2 ? NaN : parseDecimal(fields[0]);
+    const y = fields.length < 2 ? NaN : parseDecimal(fields[1]);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      unreadable++;
+      continue;
+    }
     // RockSim writes duplicate 0,0 points — drop them. A flag, not a scan of
     // the kept points: that scan was the quadratic above.
     if (x === 0 && y === 0) {
@@ -1351,12 +1363,12 @@ function parsePointList(raw: string): { pts: [number, number][]; problem?: strin
     }
     pts.push([x / LEN, y / LEN]);
   }
-  if (pts.length > MAX_FIN_POINTS) return { pts: [], problem: TOO_MANY_FIN_POINTS };
+  if (pts.length > MAX_FIN_POINTS) return { pts: [], problem: TOO_MANY_FIN_POINTS, unreadable: 0 };
   // Our order is leading-root → trailing-root; RockSim's is usually reversed.
   if (pts.length > 1 && pts[pts.length - 1]![0] === 0 && pts[pts.length - 1]![1] === 0) {
     pts.reverse();
   }
-  return { pts };
+  return { pts, unreadable };
 }
 
 // ============================ EXPORT ============================

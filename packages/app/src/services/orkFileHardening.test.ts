@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
 import { DEFAULT_CONDITIONS } from '../components/LaunchPanel.js';
 import { exportOrk, importOrk, type OrkExportConfig, type OrkExportMotor } from './orkFile.js';
-import { MAX_FIN_POINTS, TOO_MANY_FIN_POINTS } from './xmlUtil.js';
+import { MAX_FIN_POINTS, TOO_MANY_FIN_POINTS, unreadableFinPoints } from './xmlUtil.js';
 import { MAX_ZIP_MEMBER_BYTES } from './zipMember.js';
 
 /**
@@ -229,23 +229,36 @@ describe('.ork freeform fin points are read as the file wrote them', () => {
     expect(r.notes).toContain(refusal(TOO_MANY_FIN_POINTS));
   });
 
-  it('refuses a blank coordinate instead of reading it as zero', () => {
+  const skipped = (n: number) => `Fin set "Fins": ${unreadableFinPoints(n)}`;
+
+  it('leaves out a blank coordinate, and says so, instead of reading it as zero', () => {
     // `Number('')` is 0: this outline imported with its second vertex on
-    // x = 0, a valid-looking and different fin, with no note at all.
+    // x = 0, a valid-looking and different fin, with no note at all. The
+    // desktop skips the point with a warning; so does this, now.
     const r = fins('<point x="0.0" y="0.0"/><point x="" y="0.03"/>'
       + '<point x="0.04" y="0.03"/><point x="0.06" y="0.0"/>');
-    expect(r.points).toBeUndefined();
-    expect(r.notes).toContain(refusal('Point 2 is not a pair of numbers.'));
+    expect(r.points).toEqual([[0, 0], [0.04, 0.03], [0.06, 0]]);
+    expect(r.notes).toContain(skipped(1));
   });
 
-  it('refuses a point with a missing or unreadable coordinate instead of dropping it', () => {
-    // Dropped, the vertex simply vanished from the fin with no note.
-    for (const bad of ['<point y="0.03"/>', '<point x="0x1" y="0.03"/>', '<point x=" " y="0.03"/>']) {
+  it('leaves out a point with a missing or unreadable coordinate, and says so', () => {
+    // Dropped as the desktop drops it (FinSetPointHandler), so both fly the
+    // same fin — but no longer silently: the vertex used to vanish with no note.
+    for (const bad of ['<point y="0.03"/>', '<point x="0x1" y="0.03"/>', '<point x=" " y="0.03"/>',
+      '<point x="0.02" y="1e999"/>']) {
       const r = fins(`<point x="0.0" y="0.0"/><point x="0.01" y="0.03"/>${bad}`
         + '<point x="0.04" y="0.03"/><point x="0.06" y="0.0"/>');
-      expect(r.points, bad).toBeUndefined();
-      expect(r.notes, bad).toContain(refusal('Point 3 is not a pair of numbers.'));
+      expect(r.points, bad).toEqual([[0, 0], [0.01, 0.03], [0.04, 0.03], [0.06, 0]]);
+      expect(r.notes, bad).toContain(skipped(1));
     }
+  });
+
+  it('refuses the outline when what is left cannot be one, with both notes', () => {
+    const r = fins('<point x="0.0" y="0.0"/><point x="a" y="0.03"/><point x="0.04" y="b"/>'
+      + '<point x="0.06" y="0.0"/>');
+    expect(r.points).toBeUndefined();
+    expect(r.notes).toContain(skipped(2));
+    expect(r.notes.some((m) => m.startsWith('Fin set "Fins": its outline was not used'))).toBe(true);
   });
 });
 

@@ -185,3 +185,15 @@ export const MAX_FIN_POINTS = 5000;
 /** The refusal both importers put in their fin-set note, as one sentence. */
 export const TOO_MANY_FIN_POINTS =
   `It has more than ${MAX_FIN_POINTS.toLocaleString('en-US')} points, the most this app reads.`;
+
+/**
+ * The rest of a fin-set note (after `Fin set "name": `) when an importer left
+ * out `n` points it could not read as a pair of decimals. Both importers keep
+ * the readable points and fly them, as both desktop importers do — each warns
+ * and skips the point (FinSetPointHandler for .ork, the RockSim FinSetHandler's
+ * "Fin point not in numeric format.") — so the note is what makes that visible.
+ */
+export const unreadableFinPoints = (n: number): string =>
+  `${n === 1 ? 'one point' : `${n.toLocaleString('en-US')} points`} of its outline could not be read as `
+  + `a pair of numbers and ${n === 1 ? 'was' : 'were'} left out, as desktop OpenRocket also does — `
+  + 'check the outline in the fin editor.';

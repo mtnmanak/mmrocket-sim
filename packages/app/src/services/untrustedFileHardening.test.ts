@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import { importCdx1 } from './rasaeroFile.js';
 import { importRkt } from './rocksimFile.js';
-import { MAX_FIN_POINTS, TOO_MANY_FIN_POINTS, lookupTable } from './xmlUtil.js';
+import { MAX_FIN_POINTS, TOO_MANY_FIN_POINTS, lookupTable, unreadableFinPoints } from './xmlUtil.js';
 
 /**
  * The three untrusted-input findings from the 2026-09-08 audit that were not
@@ -203,30 +203,27 @@ describe('a freeform fin outline is capped', () => {
 
   it('reads no hex coordinate as a number', () => {
     // parseDecimal, as xmlNum: `Number('0x10')` put a vertex at 16 mm. The
-    // pair is skipped like any other unreadable one.
+    // pair is left out like any other unreadable one — and said so.
     const out = importRkt(rktFin('0,0|0x10,30|50,30|60,0'));
     expect(finOf(out)).toEqual([[0, 0], [0.05, 0.03], [0.06, 0]]);
+    expect(out.notes).toContain(`Fin set "f": ${unreadableFinPoints(1)}`);
   });
 
-  it('drops a malformed pair rather than inserting an origin vertex', () => {
+  it('drops a malformed pair rather than inserting an origin vertex, and says so', () => {
     // `Number('')` is 0, so "1,1|,,|2,2" used to yield a real [0,0] point in the
     // middle of the outline — which usually made it self-intersect, and the
-    // note then blamed the outline rather than the field.
-    const xml = `<RockSimDocument><DesignInformation><RocketDesign><Name>t</Name>
-      <Stage3Parts><BodyTube><Name>b</Name><Len>300</Len><OD>24</OD>
-        <AttachedParts><CustomFinSet><Name>f</Name><FinCount>3</FinCount>
-          <PointList>0,0|50,30|,,|60,0</PointList></CustomFinSet></AttachedParts>
-      </BodyTube></Stage3Parts></RocketDesign></DesignInformation></RockSimDocument>`;
-    const out = importRkt(xml);
-    const json = JSON.stringify(out.tree);
-    // Three real points survive; the blank pair contributes none.
-    const fin = out.tree.components[0]!.children![0]!.children![0]!;
-    const pts = fin['points'] as [number, number][] | undefined;
-    if (pts) {
-      const origins = pts.filter(([x, y]) => x === 0 && y === 0).length;
-      expect(origins, 'at most the one genuine 0,0 corner').toBeLessThanOrEqual(1);
-    }
-    expect(json.length).toBeGreaterThan(0);
+    // note then blamed the outline rather than the field. It was then skipped
+    // with NO note (audit 2026-09-22); the desktop warns and skips, and so does
+    // this now — the same fin, and the user told a vertex is missing.
+    const out = importRkt(rktFin('0,0|10,30|,,|50,30|7|60,0'));
+    expect(finOf(out)).toEqual([[0, 0], [0.01, 0.03], [0.05, 0.03], [0.06, 0]]);
+    expect(out.notes).toContain(`Fin set "f": ${unreadableFinPoints(2)}`);
+  });
+
+  it('says nothing about an ordinary list, blank pairs and duplicate origins included', () => {
+    const out = importRkt(rktFin('60,0|50,30|10,30|0,0||0,0|'));
+    expect(finOf(out)).toEqual([[0, 0], [0.01, 0.03], [0.05, 0.03], [0.06, 0]]);
+    expect(out.notes.some((m) => m.startsWith('Fin set'))).toBe(false);
   });
 });
 

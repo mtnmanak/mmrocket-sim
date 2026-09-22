@@ -5,7 +5,7 @@ import { shapeIsClippable, shapeParamDefault } from '../tree/shapeProfile.js';
 import { finOutlineProblem } from '../tree/finOutline.js';
 import { CLUSTER_POINTS } from '../tree/cluster.js';
 import { isConformal, shroudEnds } from '../tree/shroud.js';
-import { MAX_FIN_POINTS, TOO_MANY_FIN_POINTS, decodeXml, escapeXml, escapeXmlAttr, parseDecimal, xmlText as text } from './xmlUtil.js';
+import { MAX_FIN_POINTS, TOO_MANY_FIN_POINTS, decodeXml, escapeXml, escapeXmlAttr, parseDecimal, unreadableFinPoints, xmlText as text } from './xmlUtil.js';
 import { unzipMember } from './zipMember.js';
 import { applyPresetLinks, type PendingPresetLink, type Preset } from './presets.js';
 import { OVERRIDE_INCLUDES_MOTOR } from './statedLaunchWeight.js';
@@ -634,15 +634,24 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
         // points with one malformed were kept as 5,000 and flown with no note
         // (audit 2026-09-22).
         const ptEls = el.querySelectorAll(':scope > finpoints > point');
-        // Every point is KEPT, and a missing, blank or non-decimal x/y reads
-        // as NaN, so finOutlineProblem refuses the outline naming that point
-        // ("Point 4 is not a pair of numbers."). Dropping it, as this did,
-        // flew a different fin with no note; and `Number('')` is 0, so `x=""`
-        // put the vertex on x = 0. The desktop drops such a point with an
-        // "Illegal fin points specification" warning; with no warning list
-        // here, refusing and saying so is the honest equivalent.
-        const pts = ptEls.length > MAX_FIN_POINTS ? [] : Array.from(ptEls, (pt) =>
-          [parseDecimal(pt.getAttribute('x')), parseDecimal(pt.getAttribute('y'))] as [number, number]);
+        // A point whose x or y is missing, blank or not a decimal is LEFT OUT,
+        // and a note says how many: what the desktop does with the same file
+        // (FinSetPointHandler: "Illegal fin points specification, ignoring."),
+        // so both fly the same fin. Before, such a point was dropped with no
+        // note at all, and `Number('')` is 0, so `x=""` KEPT the vertex, on
+        // x = 0 — a different, valid-looking fin (audit 2026-09-22). The .rkt
+        // importer does the same (parsePointList).
+        const pts: [number, number][] = [];
+        let unreadable = 0;
+        if (ptEls.length <= MAX_FIN_POINTS) {
+          for (const pt of Array.from(ptEls)) {
+            const x = parseDecimal(pt.getAttribute('x'));
+            const y = parseDecimal(pt.getAttribute('y'));
+            if (Number.isFinite(x) && Number.isFinite(y)) pts.push([x, y]);
+            else unreadable++;
+          }
+        }
+        if (unreadable > 0) notes.push(`Fin set "${n.name ?? 'freeform'}": ${unreadableFinPoints(unreadable)}`);
         // The same test the fin editor applies before it commits an outline:
         // at least three points, none repeated, no edge crossing another. A
         // crossing outline reaches the kernel's FreeformFinSet, whose reporter
