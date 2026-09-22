@@ -1,4 +1,5 @@
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
+import { finOutlineProblem, type FinOutlinePoint } from './finOutline.js';
 import {
   applyFieldLimit, canonicalEnum, DISPLAY_NAME, ENUM_LIMITS, FIELDS, fieldLimit, IGNITION_EVENT_LIMIT,
   IGNITION_EVENT_VALUES, MAX_DIMENSION_M, SEPARATION_EVENT_VALUES,
@@ -228,4 +229,58 @@ export function configSeparationNote(stage: ComponentNode, raw: string): string 
 export function ignitionNote(mount: ComponentNode, raw: string): string {
   const f = enumFinding(mount, 'motor ignition event', raw, IGNITION_EVENT_LIMIT);
   return `${f.problem} — ${f.repair}.`;
+}
+
+/**
+ * Everything in `tree` the kernel is known to refuse or that is outside a hard
+ * limit, one sentence per problem, naming the part and the field — the
+ * sanitize table read as a validator, plus the freeform outline check the fin
+ * editor and the importers already use. Pure: nothing is repaired.
+ */
+export function treeProblems(tree: RocketTree): string[] {
+  const found: Finding[] = [];
+  const outlines: string[] = [];
+  const visit = (nodes: ComponentNode[]) => {
+    for (const n of nodes) {
+      sanitizeOwn(n, found);
+      // Only a STATED outline: a freeform set with no points flies the
+      // kernel's own default planform, which is not a problem.
+      if (n.type === 'freeformfinset' && Array.isArray(n['points'])) {
+        const why = finOutlineProblem(n['points'] as FinOutlinePoint[]);
+        if (why) outlines.push(`${partName(n)}: ${why.replace(/\.$/, '')}`);
+      }
+      visit(n.children ?? []);
+    }
+  };
+  visit(tree.components);
+  return [...found.map((f) => f.problem), ...outlines];
+}
+
+/**
+ * The build error the user reads (audit 2026-09-22). The kernel's own text —
+ * "The number NaN cannot be converted to a BigInt", "Unknown format
+ * conversion: g", "attempted to initialize an InertiaMatrix with a negative
+ * inertia value" — names nothing on screen, and the design it describes has
+ * lost its mass, stability, Launch and every export. When the validator finds
+ * something, the message leads with the part and the field; the kernel's words
+ * stay in brackets at the end, because they are what a bug report needs. It
+ * says "likely", because the validator knows what is out of limits, not which
+ * of those the kernel tripped on. When it finds nothing, the kernel's text is
+ * returned unchanged — and so it is if the validator itself throws on a tree
+ * malformed enough to have failed the build: this runs inside App's build
+ * catch, where a throw would take the whole app down with the design.
+ */
+export function explainBuildFailure(tree: RocketTree, kernelMessage: string): string {
+  let problems: string[];
+  try {
+    problems = treeProblems(tree);
+  } catch {
+    return kernelMessage;
+  }
+  if (problems.length === 0) return kernelMessage;
+  const shown = problems.slice(0, 3);
+  const more = problems.length - shown.length;
+  return `This design could not be built. The likely cause${problems.length === 1 ? '' : 's'}: `
+    + `${shown.join('; ')}${more > 0 ? `; and ${more} more` : ''}. `
+    + `(The simulation reported: ${kernelMessage})`;
 }

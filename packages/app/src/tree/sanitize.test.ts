@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { OrkRocket, resetEngine, type ComponentNode, type RocketTree } from '@online-openrocket/engine';
-import { sanitizeTree, separationEventOrDefault } from './sanitize.js';
+import { explainBuildFailure, sanitizeTree, separationEventOrDefault, treeProblems } from './sanitize.js';
 import { defaultTree, engineTree, normalizeTree } from './treeModel.js';
 import {
   FIELDS, fieldLimit, KERNEL_MAX_FINS, MAX_ASSEMBLY_INSTANCES, MAX_DIMENSION_M,
@@ -214,6 +214,45 @@ describe('the degenerate values that failed the whole build now build', () => {
     // not normalise, so the engine boundary has to read '' as "none" itself.
     const t = rocket([{ id: 'f', type: 'trapezoidfinset', rootChord: 0.05, tipChord: 0.03, sweep: 0.02, height: 0.03, thickness: 0.003, airfoilSection: '' }]);
     expect(build(t)).toBeNull();
+  });
+});
+
+describe('explainBuildFailure — naming the part (audit 2026-09-22)', () => {
+  it('leads with the part and the field, and keeps the kernel\'s words for a bug report', () => {
+    const t = rocket([{ id: 't', type: 'tubefinset', name: 'Tube fins', length: 0 }]);
+    const kernel = build(t)!;
+    expect(kernel).toMatch(/BigInt/);
+    const msg = explainBuildFailure(t, kernel);
+    expect(msg).toBe('This design could not be built. The likely cause: “Tube fins”: length 0 mm is below'
+      + ' the minimum of 0.1 mm. (The simulation reported: ' + kernel + ')');
+  });
+
+  it('names at most three, and counts the rest', () => {
+    const t = rocket([
+      { id: 'a', type: 'trapezoidfinset', name: 'A', height: -0.01 },
+      { id: 'b', type: 'trapezoidfinset', name: 'B', height: -0.01 },
+      { id: 'c', type: 'trapezoidfinset', name: 'C', height: -0.01 },
+      { id: 'd', type: 'trapezoidfinset', name: 'D', height: -0.01 },
+    ]);
+    const msg = explainBuildFailure(t, 'kernel text');
+    expect(msg).toMatch(/^This design could not be built\. The likely causes: “A”: .*; “B”: .*; “C”: .*; and 1 more\. \(The simulation reported: kernel text\)$/);
+    expect(msg).not.toContain('“D”');
+  });
+
+  it('names a freeform outline the kernel refuses', () => {
+    const t = rocket([{ id: 'f', type: 'freeformfinset', name: 'Canards', points: [[0, 0], [0.02, 0.03], [0.02, 0.03], [0.05, 0]] }]);
+    expect(treeProblems(t)).toEqual(['“Canards”: Points 2 and 3 are in the same place — move one of them or delete it']);
+  });
+
+  it('returns the kernel text unchanged when nothing in the table explains it', () => {
+    expect(explainBuildFailure(defaultTree(), 'Unknown component type: \'x\'')).toBe('Unknown component type: \'x\'');
+  });
+
+  it('never throws itself — it runs inside the app\'s build catch', () => {
+    // A child list holding a null: malformed enough to fail any walk.
+    const broken = { name: 'R', components: [{ id: 's', type: 'stage', children: [null] }] } as unknown as RocketTree;
+    expect(() => treeProblems(broken)).toThrow();
+    expect(explainBuildFailure(broken, 'kernel text')).toBe('kernel text');
   });
 });
 

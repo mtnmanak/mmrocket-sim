@@ -101,7 +101,7 @@ import { autoAlignFinSets } from './tree/finAlign.js';
 import { railInterferenceWarnings, wakeShadowWarnings } from './tree/mountAngle.js';
 import { convertShrouds, findShroudCandidates, type ShroudCandidate } from './tree/shroudConvert.js';
 import { mountBore } from './tree/scaleRocket.js';
-import { separationEventOrDefault } from './tree/sanitize.js';
+import { explainBuildFailure, separationEventOrDefault } from './tree/sanitize.js';
 import { nozzleForMotorId } from './services/nozzleDb.js';
 import { nozzleOversize, nozzleOversizeText } from './services/nozzleCheck.js';
 import { equivalentExitDiameterM, followNozzle, stageMotorKey, stageMotors } from './services/nozzleFollow.js';
@@ -1609,7 +1609,12 @@ export function App() {
       if (wakeWarnings.length) info.warningTexts = [...info.warningTexts, ...wakeWarnings];
       return { rocket, info, motorFailures, flownRecovery, hardware };
     } catch (e) {
-      return { error: e instanceof Error ? e.message : String(e) };
+      // Named, not raw (audit 2026-09-22): the kernel's own text — "The number
+      // NaN cannot be converted to a BigInt", "Unknown format conversion: g" —
+      // names nothing on screen, while the design has lost its mass,
+      // stability, Launch and every export. The limits table is read as a
+      // validator to name the part and the field; the kernel's words follow.
+      return { error: explainBuildFailure(tree, e instanceof Error ? e.message : String(e)) };
     }
     // `tree.components`, not `tree` — see the note on `mounts` above. Renaming
     // the rocket is not a design change: `engineTree` passes `tree.name`
