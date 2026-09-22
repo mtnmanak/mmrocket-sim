@@ -364,3 +364,30 @@ describe('MotorBrowser — the import buttons are keyboard-reachable (audit 2026
     }
   });
 });
+
+describe('MotorBrowser — filter chips say whether they are on (audit 2026-09-22)', () => {
+  let h: Harness;
+  afterEach(() => closeBrowser(h));
+
+  const chip = (h: Harness, group: string, label: RegExp) =>
+    Array.from(h.host.querySelectorAll<HTMLButtonElement>(`[role="group"][aria-label="${group}"] button`))
+      .find((b) => label.test(b.textContent ?? ''))!;
+
+  it('every chip is a toggle with aria-pressed, and an on chip carries a ✓ as well as its colour', () => {
+    h = openBrowser({ mountDiameterMm: 29, filters: { impulse: ['G'] } });
+    for (const g of ['Manufacturers', 'Diameter classes', 'Impulse classes']) {
+      const chips = Array.from(h.host.querySelectorAll(`[role="group"][aria-label="${g}"] button.series-chip`));
+      expect(chips.length, g).toBeGreaterThan(0);
+      for (const c of chips) expect(['true', 'false']).toContain(c.getAttribute('aria-pressed'));
+    }
+    // The persisted G reads as pressed, with its ✓; H does not.
+    expect(chip(h, 'Impulse classes', /^✓ G/).getAttribute('aria-pressed')).toBe('true');
+    const hChip = chip(h, 'Impulse classes', /^H /);
+    expect(hChip.getAttribute('aria-pressed')).toBe('false');
+    click(hChip);
+    expect(chip(h, 'Impulse classes', /H /).getAttribute('aria-pressed')).toBe('true');
+    expect(chip(h, 'Impulse classes', /H /).textContent).toMatch(/^✓ H/);
+    // The ✓ is for the eye only; the reader hears "pressed".
+    expect(chip(h, 'Impulse classes', /H /).querySelector('[aria-hidden="true"]')!.textContent).toBe('✓ ');
+  });
+});

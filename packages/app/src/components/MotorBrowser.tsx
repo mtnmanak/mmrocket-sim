@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { clickable } from './clickable.js';
 import { useDialog } from './useDialog.js';
 import { useCatalogue, useCatalogueOverlay } from './useCatalogue.js';
@@ -109,6 +109,28 @@ function windowBound(raw: string): number | null {
   if (raw.trim() === '') return null;
   const v = Number(raw);
   return Number.isFinite(v) && v >= 0 ? v : null;
+}
+
+/**
+ * One filter chip. It is a TOGGLE, so it says so (audit 2026-09-22): the
+ * on-state was a CSS class alone — outside the Daylight theme a border and text
+ * shade, no fill — so a screen reader heard no state and a low-vision user saw
+ * only a slightly darker edge, while persisted chips hid motors with no audible
+ * reason. `aria-pressed` carries the state (FlightCharts' series chips already
+ * set it) and a ✓ carries it without colour; the ✓ is hidden from the reader,
+ * which already hears "pressed".
+ */
+function FilterChip({ on, onToggle, children }: {
+  on: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button className={`series-chip ${on ? 'series-chip-on' : ''}`} aria-pressed={on} onClick={onToggle}>
+      {on && <span aria-hidden="true">✓ </span>}
+      {children}
+    </button>
+  );
 }
 
 export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClose, loadedMotors }: {
@@ -511,13 +533,10 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
           <div className="motor-chip-row" role="group" aria-label="Manufacturers">
             <span className="motor-chip-caption">Makers</span>
             {manufacturers.map(({ abbrev, count }) => (
-              <button
-                key={abbrev}
-                className={`series-chip ${filters.manufacturers.includes(abbrev) ? 'series-chip-on' : ''}`}
-                onClick={() => setFilters({ ...filters, manufacturers: toggle(filters.manufacturers, abbrev) })}
-              >
+              <FilterChip key={abbrev} on={filters.manufacturers.includes(abbrev)}
+                onToggle={() => setFilters({ ...filters, manufacturers: toggle(filters.manufacturers, abbrev) })}>
                 {abbrev} <span className="motor-chip-count">{count}</span>
-              </button>
+              </FilterChip>
             ))}
             {shown.manufacturers.length > 0 && (
               <button className="file-btn" onClick={() => setFilters({ ...filters, manufacturers: [] })}>all</button>
@@ -527,13 +546,10 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
           <div className="motor-chip-row" role="group" aria-label="Diameter classes">
             <span className="motor-chip-caption">Diameter</span>
             {fittingClasses.map((c) => (
-              <button
-                key={c}
-                className={`series-chip ${filters.classes.includes(c) ? 'series-chip-on' : ''}`}
-                onClick={() => setFilters({ ...filters, classes: toggle(filters.classes, c) })}
-              >
+              <FilterChip key={c} on={filters.classes.includes(c)}
+                onToggle={() => setFilters({ ...filters, classes: toggle(filters.classes, c) })}>
                 {classLabel(c)} mm
-              </button>
+              </FilterChip>
             ))}
             {shown.classes.length > 0 && (
               <button className="file-btn" onClick={() => setFilters({ ...filters, classes: [] })}>all</button>
@@ -544,13 +560,10 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
           <div className="motor-chip-row" role="group" aria-label="Impulse classes">
             <span className="motor-chip-caption">Class</span>
             {impulseClasses.map(({ letter, count }) => (
-              <button
-                key={letter}
-                className={`series-chip ${filters.impulse.includes(letter) ? 'series-chip-on' : ''}`}
-                onClick={() => setFilters({ ...filters, impulse: toggle(filters.impulse, letter) })}
-              >
+              <FilterChip key={letter} on={filters.impulse.includes(letter)}
+                onToggle={() => setFilters({ ...filters, impulse: toggle(filters.impulse, letter) })}>
                 {letter} <span className="motor-chip-count">{count}</span>
-              </button>
+              </FilterChip>
             ))}
             {shown.impulse.length > 0 && (
               <button className="file-btn" onClick={() => setFilters({ ...filters, impulse: [] })}>all</button>
@@ -635,13 +648,10 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
               <div className="motor-chip-row" role="group" aria-label="Propellants">
                 <span className="motor-chip-caption">Propellant</span>
                 {propellants.slice(0, 14).map(({ name, count }) => (
-                  <button
-                    key={name}
-                    className={`series-chip ${filters.propellants.includes(name) ? 'series-chip-on' : ''}`}
-                    onClick={() => setFilters({ ...filters, propellants: toggle(filters.propellants, name) })}
-                  >
+                  <FilterChip key={name} on={filters.propellants.includes(name)}
+                    onToggle={() => setFilters({ ...filters, propellants: toggle(filters.propellants, name) })}>
                     {name} <span className="motor-chip-count">{count}</span>
-                  </button>
+                  </FilterChip>
                 ))}
                 {shown.propellants.length > 0 && (
                   <button className="file-btn" onClick={() => setFilters({ ...filters, propellants: [] })}>all</button>
