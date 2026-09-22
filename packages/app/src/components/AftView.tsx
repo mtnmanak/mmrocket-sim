@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { clusterOffsets } from '../tree/cluster.js';
 import { tubeFinRadius } from '../tree/tubefins.js';
+import { assemblyInstanceCount, finCountOf, lineInstanceCount } from '../tree/counts.js';
 import { wheelNotches } from '../chartPanZoom.js';
 import { isAssembly, resolveAssemblyRadius, ringInstanceOffsets } from '../tree/assembly.js';
 import { isConformal } from '../tree/shroud.js';
@@ -122,12 +123,12 @@ export function AftView({ tree, motors, roll: rollProp, onRoll }: {
       const t = child.type;
       if (isAssembly(t)) {
         const podRadius = resolveAssemblyRadius(child, pRadius);
-        const count = Math.max(1, Math.round(num(child, 'instanceCount', 2)));
+        const count = assemblyInstanceCount(child);
         for (const off of ringInstanceOffsets(count, podRadius, num(child, 'angleOffset', 0) + roll)) {
           walkChain(child.children ?? [], cy + off.y, cz + off.z);
         }
       } else if (t === 'trapezoidfinset' || t === 'ellipticalfinset' || t === 'freeformfinset') {
-        const count = Math.max(1, Math.round(num(child, 'finCount', 3)));
+        const count = finCountOf(child);
         const span = finSpan(child);
         const thick = num(child, 'thickness', 0.003);
         for (let i = 0; i < count; i++) {
@@ -142,7 +143,7 @@ export function AftView({ tree, motors, roll: rollProp, onRoll }: {
         }
         reach(cy, cz, pRadius + span);
       } else if (t === 'tubefinset') {
-        const count = Math.max(1, Math.round(num(child, 'finCount', 6)));
+        const count = finCountOf(child);
         const rt = tubeFinRadius(child, pRadius);
         for (let i = 0; i < count; i++) {
           const angle = num(child, 'rotation', 0) + roll + (2 * Math.PI * i) / count;
@@ -172,7 +173,7 @@ export function AftView({ tree, motors, roll: rollProp, onRoll }: {
         const a = num(child, 'angleOffset', 0) + roll;
         // Line instances stack in this end-on projection — one shape, so the
         // title carries the count instead.
-        const stackTitle = `${child.name ?? t}${num(child, 'instanceCount', 1) > 1 ? ` ×${Math.round(num(child, 'instanceCount', 1))}` : ''}`;
+        const stackTitle = `${child.name ?? t}${lineInstanceCount(child) > 1 ? ` ×${lineInstanceCount(child)}` : ''}`;
         if (t === 'railbutton') {
           // END-ON, A BUTTON IS NOT A CIRCLE (v0.103). It is OD wide
           // tangentially and TOTAL HEIGHT tall radially, and those are two

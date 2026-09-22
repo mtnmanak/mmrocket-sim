@@ -1,6 +1,7 @@
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { num } from './nodeNum.js';
 import { absoluteStations } from './position.js';
+import { assemblyInstanceCount, finCountOf } from './counts.js';
 // mountRadiusOf, not a fourth copy of "how wide is the tube under this part".
 // It is the expression all three views and engineTree already use, fallbacks
 // included (treeModel.ts l. 806), and the wake window below is a fraction of
@@ -118,7 +119,7 @@ export function finAnglesAmong(members: ComponentNode[]): number[] {
   const out: number[] = [];
   for (const k of members) {
     if (!isFinSet(k)) continue;
-    const n = Math.max(1, Math.round(num(k, 'finCount', k.type === 'tubefinset' ? 6 : 3)));
+    const n = finCountOf(k);
     const rot = num(k, 'rotation', 0);
     for (let i = 0; i < n; i++) out.push(reducePi(rot + (2 * Math.PI * i) / n));
   }
@@ -155,7 +156,7 @@ export function betweenFinAnglesAmong(members: ComponentNode[]): number[] {
   const out: number[] = [];
   for (const k of members) {
     if (!isFinSet(k)) continue;
-    const n = Math.max(1, Math.round(num(k, 'finCount', k.type === 'tubefinset' ? 6 : 3)));
+    const n = finCountOf(k);
     const rot = num(k, 'rotation', 0);
     // A single fin has no "between two fins"; its opposite side is the closest
     // thing, and that is what (2i+1)π/N gives for N = 1.
@@ -261,7 +262,7 @@ export function railInterferenceWarnings(tree: RocketTree): string[] {
       if (n.type === 'railbutton') {
         frame.buttons.push({ angle: reducePi(num(n, 'angleOffset', 0)), name: nameOf(n, 'Rail button') });
       } else if (isFinSet(n)) {
-        const c = Math.max(1, Math.round(num(n, 'finCount', n.type === 'tubefinset' ? 6 : 3)));
+        const c = finCountOf(n);
         const rot = num(n, 'rotation', 0);
         for (let i = 0; i < c; i++) {
           frame.fins.push({ angle: reducePi(rot + (2 * Math.PI * i) / c), owner: nameOf(n, 'Fins') });
@@ -271,7 +272,7 @@ export function railInterferenceWarnings(tree: RocketTree): string[] {
         // Default 2 to match defaultParams('podset'/'parallelstage'); a
         // non-assembly surface part has no instanceCount and takes the 1.
         const c = INSTANCED.has(n.type as string)
-          ? Math.max(1, Math.round(num(n, 'instanceCount', 2)))
+          ? assemblyInstanceCount(n)
           : 1;
         for (let i = 0; i < c; i++) {
           frame.others.push({
@@ -457,7 +458,7 @@ export function wakeShadowWarnings(tree: RocketTree): string[] {
         // 6 instances for a tube fin ring, but a ring of tubes is a duct, not a
         // plate standing in a wake, and nothing in the corpus bears on what a
         // bump upstream of one does. Silence is the honest answer there.
-        const c = Math.max(1, Math.round(num(n, 'finCount', 3)));
+        const c = finCountOf(n);
         const rot = num(n, 'rotation', 0);
         // The kernel's own instance spacing (FinSet.getInstanceAngles) — the
         // expression finAnglesAmong uses, and the one all three views mirror.

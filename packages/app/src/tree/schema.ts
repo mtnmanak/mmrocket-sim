@@ -213,7 +213,41 @@ const radMM = (key: string, label: string, step = 1, smax = 300): FieldDef =>
 const DENSITY: FieldDef = {
   key: 'density', label: 'Material density', unit: 'kg/m3', step: 10, smin: 0, smax: 3000,
 };
-const FIN_COUNT: FieldDef = { key: 'finCount', label: 'Fin count', unit: 'count', smin: 1, smax: 8 };
+
+/**
+ * THE KERNEL'S FIN-COUNT RULE: 1 to 8, for every fin type. `FinSet.setFinCount`
+ * and `TubeFinSet.setFinCount` both clamp to it (FinSet.java:179-182,
+ * TubeFinSet.java:233-236), and desktop's four fin dialogs all bound their
+ * spinner to it (`new IntegerModel(component, "FinCount", 1, 8)`).
+ *
+ * Until audit 2026-09-22 the app did not: the tube-fin slider ran to 12, a
+ * typed count had no ceiling at all, and every drawing and export looped the
+ * raw number — so a 12-fin set was drawn, printed and exported as 12 while the
+ * kernel flew 8. Measured by that audit: trapezoid sets of 8 and 12 gave an identical
+ * kernel fin-set mass (19.584 g) and CP (0.34217 m), and 12 tube fins printed
+ * an 8.66 mm OD against the 15.37 mm the kernel flew. Every reader now goes
+ * through `finCountOf` (counts.ts), so nothing draws more than this.
+ */
+export const KERNEL_MAX_FINS = 8;
+
+/**
+ * Line instances (launch lugs, rail buttons): the bridge's own ceiling —
+ * `ComponentFactory.applyLineInstances` clamps to 1..64 (ComponentFactory.java
+ * :904), whose comment says why: every mass and aero pass allocates one
+ * Coordinate per instance, so a file saying 100000000 would wedge the tab.
+ */
+export const KERNEL_MAX_LINE_INSTANCES = 64;
+
+/**
+ * Pod sets and boosters: the kernel has NO ceiling (PodSet/ParallelStage
+ * .setInstanceCount only refuse < 1), so this one is the app's. Every instance
+ * is a whole nose-body-fins chain in all three views and in the kernel, and 32
+ * is four times the panel slider's 8 — far above any real ring of pods — while
+ * keeping a hostile count from multiplying the drawing into the millions.
+ */
+export const MAX_ASSEMBLY_INSTANCES = 32;
+
+const FIN_COUNT: FieldDef = { key: 'finCount', label: 'Fin count', unit: 'count', smin: 1, smax: KERNEL_MAX_FINS };
 const CANT: FieldDef = { key: 'cant', label: 'Cant angle', unit: 'deg', step: 0.5, smin: -15, smax: 15 };
 // Rotation of the whole set about the body axis (kernel FinSet/TubeFinSet
 // baseRotation) — lets straight fins sit BETWEEN tube fins (2026-08-05d).
@@ -511,7 +545,9 @@ export const FIELDS: Record<EditorComponentType, FieldDef[]> = {
     DENSITY,
   ],
   tubefinset: [
-    { ...FIN_COUNT, smax: 12 },
+    // FIN_COUNT's own 1..8, the kernel's (see KERNEL_MAX_FINS). This slider ran
+    // to 12 until audit 2026-09-22, and 9–12 drew tubes the kernel never flew.
+    FIN_COUNT,
     lenMM('length', 'Length', 1, 200),
     radMM('outerRadius', 'Outer radius', 0.5, 50),
     lenMM('thickness', 'Wall thickness', 0.1, 5),
