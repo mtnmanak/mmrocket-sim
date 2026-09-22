@@ -78,6 +78,20 @@ describe('the drawing is reachable by keyboard', () => {
     // It attaches no handlers at all, so there is nothing inside to expose.
     show(<TreeSchematic tree={tree} info={null} vertical />);
     expect(svg().getAttribute('role')).toBe('img');
+    expect(svg().querySelectorAll('[tabindex]')).toHaveLength(0);
+  });
+
+  it('exposes a vertical drawing that offers selection, rather than hiding its tab stops', () => {
+    // The Design tab's ⟳90° drawing passes onSelect, so its parts are tab
+    // stops. Inside a role="img" svg a screen reader could not see them — a
+    // stop that announces nothing (audit 2026-09-22). A drawing with tab stops
+    // is a group, nose-up or not.
+    show(<TreeSchematic tree={tree} info={null} vertical onSelect={() => {}} />);
+    expect(svg().getAttribute('role')).toBe('group');
+    expect(svg().getAttribute('aria-label')).toMatch(/nose up/);
+    const stops = [...svg().querySelectorAll('[tabindex="0"]')];
+    expect(stops.length).toBeGreaterThan(0);
+    expect(stops.every((s) => s.getAttribute('role') === 'button')).toBe(true);
   });
 
   it('gives every selectable shape a tab stop and a name', () => {

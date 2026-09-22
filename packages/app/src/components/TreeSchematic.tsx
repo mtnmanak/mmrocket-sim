@@ -1568,12 +1568,17 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
           // role="img" makes the WHOLE subtree presentational, so the shapes'
           // tab stops and <title>s were hidden from assistive tech — while
           // this very label promised a reader they could select and drag
-          // components here. The read-only `vertical` variant has no handlers
-          // at all and stays an image; the interactive one is a group, whose
-          // children are exposed.
-          role={vertical ? 'img' : 'group'}
+          // components here. So it is an image only when there is nothing
+          // inside to reach: a nose-up drawing with no onSelect (the Fly
+          // screen's). Anything with tab stops is a group, whose children are
+          // exposed. Until audit 2026-09-22 every vertical drawing was an
+          // image, and two of them had tab stops inside it that no screen
+          // reader could see: the Design tab's ⟳90° view, which really does
+          // select, and the Fly screen, which passed a no-op onSelect and so
+          // cost a keyboard user one dead stop per drawn part.
+          role={vertical && !onSelect ? 'img' : 'group'}
           aria-label={vertical
-            ? 'Rocket side view, nose up, with CG and CP markers'
+            ? `Rocket side view, nose up, with CG and CP markers${onSelect ? ' — select components' : ''}`
             : 'Rocket side view with CG and CP markers — drag components, wheel to zoom, drag background to pan'}
           onPointerDownCapture={resetDragLatch}
           onPointerDown={vertical ? undefined : beginPan}
