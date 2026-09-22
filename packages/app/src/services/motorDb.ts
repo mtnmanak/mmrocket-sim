@@ -97,8 +97,11 @@ const listeners = new Set<() => void>();
 /**
  * THE catalogue every lookup in this module defaults to — the shipped rows plus
  * whatever overlay is active. Read at call time (it is the default parameter
- * of every exported query), so the import matcher, the browser, the batch
- * runner and the quick picks all see the same motors.
+ * of every exported query), so the import matcher and the quick picks see the
+ * same motors as everything else. The browser and the batch runner pass their
+ * OWN list, this one plus the imported EX motors, and each builds it from
+ * `useCatalogue()` so it follows an overlay too; the batch built it from the
+ * static MOTOR_DB until the 2026-09-22 audit, and flew the stale rows.
  */
 export function getCatalogue(): MotorDbEntry[] {
   return effective;

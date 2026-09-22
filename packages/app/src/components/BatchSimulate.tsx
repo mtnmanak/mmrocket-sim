@@ -7,7 +7,7 @@ import {
 } from '../tree/treeModel.js';
 import { sheetsToXlsx, type Sheet } from '../services/xlsx.js';
 import {
-  MOTOR_DB, classLabel, classesFittingMount, filterMotors, manufacturersForMount, sortMotors,
+  classLabel, classesFittingMount, filterMotors, manufacturersForMount, sortMotors,
 } from '../services/motorDb.js';
 import { exToDbEntry, loadExMotors } from '../services/exMotors.js';
 import type { SimRun } from '../services/simReport.js';
@@ -18,6 +18,7 @@ import {
   isWeighedCandidate, mixedComboCount, runBatchSweep, type BatchModel, type BatchMountOption, type BatchRow,
   type BatchWeighed,
 } from '../services/batchSweep.js';
+import { useCatalogue } from './useCatalogue.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { Icon } from './Icon.js';
 import { fmtSi, siToUi, uiToSi } from '../prefs/units.js';
@@ -332,8 +333,14 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
   const criteriaRef = useRef(criteria);
   criteriaRef.current = criteria;
 
-  // Bundled DB + imported EX motors (they simulate like any other).
-  const allMotors = useMemo(() => [...MOTOR_DB, ...loadExMotors().map(exToDbEntry)], []);
+  // The EFFECTIVE catalogue — shipped rows plus any "Check thrustcurve.org"
+  // overlay — and the imported EX motors, which simulate like any other; the
+  // same pair the motor browser lists. This was the static MOTOR_DB import, so
+  // after a check the same motor could fly a changed catalogue row on the
+  // design page and the stale one here: two apogees for one motor, which is
+  // the trust problem v0.135 was written to remove (audit 2026-09-22).
+  const catalogue = useCatalogue();
+  const allMotors = useMemo(() => [...catalogue, ...loadExMotors().map(exToDbEntry)], [catalogue]);
 
   const fittingClasses = useMemo(
     () => classesFittingMount(mountDiameterMm, allMotors), [mountDiameterMm, allMotors]);

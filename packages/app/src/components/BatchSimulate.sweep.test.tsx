@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RocketTree } from '@online-openrocket/engine';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import type { SimRun } from '../services/simReport.js';
+import { MOTOR_DB, MOTOR_DB_DATE, isAvailable, setCatalogueOverlay } from '../services/motorDb.js';
 import { DEFAULT_CONDITIONS } from './LaunchPanel.js';
 import { BATCH_TABLE_ROWS, BatchSimulate } from './BatchSimulate.js';
 import {
@@ -78,6 +79,7 @@ afterEach(() => {
   act(() => root.unmount());
   host.remove();
   localStorage.clear();
+  setCatalogueOverlay(null);
   vi.restoreAllMocks();
 });
 
@@ -112,6 +114,37 @@ const type = (input: HTMLInputElement, text: string) => act(() => {
   input.dispatchEvent(new Event('input', { bubbles: true }));
 });
 const start = () => act(async () => { primary().click(); });
+const candidateCount = () => Number(/(\d+) candidate motors/.exec(host.textContent ?? '')![1]);
+
+describe('the candidates', () => {
+  /**
+   * THE EFFECTIVE CATALOGUE (audit 2026-09-22). The candidates came from the
+   * static MOTOR_DB import while every other motor path read the live
+   * thrustcurve.org overlay, so after a check the same motor flew a changed
+   * row on the design page and the stale one here — two apogees for one motor.
+   */
+  it('follow a thrustcurve.org overlay, installed while the dialog is open', async () => {
+    sweep.mockResolvedValue({ rows: [], stopped: false });
+    mount();
+    const before = candidateCount();
+    const shipped = MOTOR_DB.find((m) => m.diameter === 24 && isAvailable(m))!;
+    const changed = { ...shipped, totImpulseNs: shipped.totImpulseNs + 1 };
+    const added = { ...shipped, motorId: 'overlay-added', designation: 'E99-T', commonName: 'E99' };
+    act(() => setCatalogueOverlay({
+      baseGenerated: MOTOR_DB_DATE, fetchedAt: '2026-09-22T00:00:00Z', liveCount: 0,
+      added: [added],
+      changed: [{ motorId: shipped.motorId, before: shipped, after: changed, fields: ['totImpulseNs'] }],
+      removed: [], rejected: [],
+    }));
+    expect(candidateCount()).toBe(before + 1);
+    await start();
+    const flown = sweep.mock.calls[0]![0].candidates;
+    expect(flown).toContain(added);
+    // The changed row flies as thrustcurve.org now publishes it, not as shipped.
+    expect(flown).toContain(changed);
+    expect(flown).not.toContain(shipped);
+  });
+});
 
 describe('the criteria boxes', () => {
   /**
