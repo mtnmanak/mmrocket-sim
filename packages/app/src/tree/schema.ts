@@ -807,7 +807,10 @@ export function defaultParams(type: EditorComponentType): Partial<ComponentNode>
 /**
  * How many fins an ABSENT `finCount` means: the kernel constructors' own,
  * FinSet 3 and TubeFinSet 6 — the same counts `defaultParams` gives a new set.
- * A .rkt or .CDX1 fin set can arrive without one.
+ * No importer writes a set without one (the .ork and .rkt readers fall back to
+ * these same 3 / 6). An absent count comes from a design saved while the panel
+ * could still clear the Fin count box — which deleted the key until
+ * FieldDef.optional (audit 2026-09-22) — or from a hand-edited file.
  */
 export function finCountDefault(type: EditorComponentType): number {
   return type === 'tubefinset' ? 6 : 3;
