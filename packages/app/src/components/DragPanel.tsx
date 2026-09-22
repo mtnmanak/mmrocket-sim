@@ -9,6 +9,7 @@ import { chartInk, seriesPalette, seriesStyle } from '../chartTheme.js';
 import { panelHeight, panZoomPlugin, plotIsZoomed, resetPlots } from '../chartPanZoom.js';
 import { formatReadout, tooltipPlugin } from '../chartTooltip.js';
 import { downloadBlob, stampedName } from '../services/fileName.js';
+import { foldTypography, oneLine } from '../services/textFold.js';
 import { GestureHints } from './FlightCharts.js';
 import { APP_VERSION } from '../version.js';
 
@@ -168,7 +169,9 @@ type MachAlt = [number, number][];
  * function so the two can never disagree — the failure that put a mislabeled
  * curve on The Rocketry Forum was exactly a chart and a file disagreeing about
  * what produced them. Commas are avoided for the same reason the design-name
- * line avoids them (naive CSV parsers read them as cells).
+ * line avoids them (naive CSV parsers read them as cells). The CSV's copy has
+ * its typography folded to ASCII (exportCsv) — the same words, "20 degC" for
+ * "20 °C" — so the file opens clean in Excel.
  */
 function conditionsText(mode: Conditions, altM: number, table: MachAlt | undefined, distUnit: string): string {
   // fmtSi's precision ladder gives sub-1 values three decimals, so a sea-level
@@ -203,17 +206,25 @@ function exportCsv(sweep: DragSweep, meta: { design: string; aeroModel: string; 
     ['pressure', sweep.powerOff.pressure],
     ['base_power_off', sweep.powerOff.base],
     ['base_power_on', sweep.powerOn.base],
-    ...sweep.components.map((c): [string, number[]] => [`cd_${c.name.replace(/[,\s]+/g, '_')}`, c.cd]),
+    ...sweep.components.map((c): [string, number[]] =>
+      [`cd_${oneLine(foldTypography(c.name)).replace(/[,\s]+/g, '_')}`, c.cd]),
   ];
-  // The design name is user text: a newline would break the four-line comment
-  // block and a comma would read as extra CSV cells in naive parsers — flatten
-  // both (same reason the conditions line avoids its own comma).
-  const design = meta.design.replace(/[\r\n]+/g, ' ').replace(/,/g, ';');
+  // Every header line is one line (oneLine: a newline in the design name would
+  // break the four-line comment block, and a comma would read as extra CSV
+  // cells in naive parsers — the same reason the conditions line avoids its
+  // own comma) and carries the app's typography folded to ASCII. The file
+  // ships with no BOM, because its leading `#` block has to be the first bytes
+  // for the tools that read it (services/fileName.ts, CSV_BOM) — so Excel
+  // decodes it as ANSI, and the "20 °C — the kernel default" of the sea-level
+  // line opened as "20 Â°C â€” the kernel default" (audit 2026-09-22). A name
+  // the user wrote in another script still passes through as UTF-8: folding
+  // it would throw the name away.
+  const header = (s: string) => oneLine(foldTypography(s)).replace(/,/g, ';');
   const rows = [
     `# MMRocket Sim ${APP_VERSION}`,
-    `# design: ${design}`,
-    `# aero model: ${meta.aeroModel}`,
-    `# conditions: ${meta.conditions.replace(/[\r\n]+/g, ' ').replace(/,/g, ';')}`,
+    `# design: ${header(meta.design)}`,
+    `# aero model: ${header(meta.aeroModel)}`,
+    `# conditions: ${header(meta.conditions)}`,
     cols.map(([h]) => h).join(','),
   ];
   for (let i = 0; i < sweep.machs.length; i++) {

@@ -39,7 +39,12 @@ export { downloadBlob } from './saveFile.js';
  *
  * Prepended by the CSVs whose headers actually carry those characters — the
  * flight data, the run table, the component table and the batch results. The
- * drag table and the preset CSV are plain ASCII and deliberately do not
- * (the drag table's leading `#` comment block is parsed by other tools).
+ * drag table and the preset CSV deliberately do not (the drag table's leading
+ * `#` comment block is parsed by other tools), so they must stay ASCII: the
+ * drag table folds the app's own typography in its header to ASCII
+ * (textFold.foldTypography) — it shipped the conditions line's "20 °C —"
+ * unfolded, which Excel opened as "20 Â°C â€”", until the 2026-09-22 audit. A
+ * design or component name written in another script is the one thing still
+ * passed through as UTF-8, because folding it would throw the name away.
  */
 export const CSV_BOM = '\uFEFF';

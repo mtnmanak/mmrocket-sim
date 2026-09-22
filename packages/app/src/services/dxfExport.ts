@@ -1,5 +1,6 @@
 import type { ComponentNode } from '@online-openrocket/engine';
 import { collapseLoop, finCutOutline, ringOuterRadius, type SolidContext } from '../tree/solidMesh.js';
+import { asciiOnly } from './textFold.js';
 
 /**
  * DXF export — the 2D CNC/laser boundary. Everything offered here is a FLAT
@@ -121,19 +122,13 @@ const dim = (meters: number): string => toMm(meters).toFixed(1);
  * its 80-byte header: fold the typography the app itself emits down to
  * ASCII, then force whatever is left into the printable range. Keeping the
  * whole file 7-bit also makes it byte-identical under UTF-8 and ANSI.
+ *
+ * The folding is services/textFold.ts's, shared with the other text-format
+ * headers since the 2026-09-22 audit. The copy that lived here did not know
+ * the ⌀ this module's own "BORE ASSUMED" line writes, so a CAM operator read
+ * "motor mount ? 29.0 mm does not fit".
  */
-function ascii(s: string): string {
-  return s
-    .replace(/[‐-―]/g, '-') // hyphen .. horizontal bar (em/en dash)
-    .replace(/[‘’]/g, "'")
-    .replace(/[“”]/g, '"')
-    .replace(/·/g, '-') // middle dot — the app's own separator
-    .replace(/×/g, 'x')
-    .replace(/°/g, ' deg')
-    .replace(/\s+/g, ' ')
-    .replace(/[^\x20-\x7e]/g, '?')
-    .trim();
-}
+const ascii = asciiOnly;
 
 // --- geometry builders -----------------------------------------------------
 

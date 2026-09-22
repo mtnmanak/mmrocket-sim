@@ -191,6 +191,19 @@ describe('DXF stream shape', () => {
     expect(label).toContain('Gr??e - "?75" pathfinder');
   });
 
+  it('writes its OWN words in plain ASCII — the diameter mark is "dia", not "?"', () => {
+    // The "BORE ASSUMED" line for a mount too big for its ring wrote "⌀", which
+    // the old folding did not know, so a CAM operator read "motor mount ?
+    // 40.0 mm" (audit 2026-09-22). A newline inside a name folds to a space.
+    const out = componentDxf(node('centeringring', { length: 0.003 }),
+      { parentInnerRadius: 0.0145, mountOuterRadius: 0.02 }, 'Two\nlines')!;
+    expect(out.text).toMatch(/^[\x20-\x7e\r\n]*$/);
+    const label = entities(parse(out.text)).filter((e) => e.type === 'TEXT').map((e) => first(e, 1)).join('\n');
+    expect(label).toContain('BORE ASSUMED: motor mount dia 40.0 mm does not fit this ring\'s 29.0 mm OD');
+    expect(label).not.toContain('?');
+    expect(label).toContain('Two lines - Centering ring (assumed bore)');
+  });
+
   it('defines every layer, linetype and text style its entities reference', () => {
     for (const [n, ctx] of [[FIN, {}], [node('bulkhead'), RING_CTX], [node('centeringring'), RING_CTX]] as const) {
       const pairs = parse(dxf(n, ctx));

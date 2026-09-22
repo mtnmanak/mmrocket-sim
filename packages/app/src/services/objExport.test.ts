@@ -41,3 +41,23 @@ describe('rocketToObj', () => {
       .toThrow(/Nothing to export/);
   });
 });
+
+/**
+ * The rocket name goes into the `#` header, and a name from an imported file
+ * or a share link can carry a raw newline (audit 2026-09-22). Every line after
+ * it used to become a live OBJ record: "Goblin\nv 9 9 9\nf 1 2 3" added a
+ * vertex and a face, and three's absolute face indices then pointed at the
+ * wrong vertices.
+ */
+describe('rocketToObj — the header stays a header', () => {
+  it('folds a line break in the name into the comment instead of injecting records', () => {
+    const clean = rocketToObj(tree, 'Goblin');
+    for (const br of ['\n', '\r\n', '\u2028', '\u2029']) {
+      const obj = rocketToObj(tree, `Goblin${br}v 9 9 9${br}f 1 2 3`);
+      expect(obj.split('\n')[0], JSON.stringify(br)).toBe('# MMRocket Sim — Goblin v 9 9 9 f 1 2 3');
+      const records = (s: string) => s.split('\n').filter((l) => /^[vf] /.test(l)).length;
+      expect(records(obj), JSON.stringify(br)).toBe(records(clean));
+      expect(obj).not.toMatch(/[\r\u2028\u2029]/);
+    }
+  });
+});

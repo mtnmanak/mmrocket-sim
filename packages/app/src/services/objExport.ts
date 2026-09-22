@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { OBJExporter } from 'three/examples/jsm/exporters/OBJExporter.js';
 import type { RocketTree } from '@online-openrocket/engine';
 import { buildPieces } from '../tree/pieces.js';
+import { oneLine } from './textFold.js';
 
 /**
  * Wavefront OBJ export of the rocket's EXTERNAL 3D geometry — the same
@@ -27,7 +28,11 @@ export function rocketToObj(tree: RocketTree, name: string): string {
   group.updateMatrixWorld(true);
   const obj = new OBJExporter().parse(group);
   return [
-    `# MMRocket Sim — ${name}`,
+    // oneLine: a name from an imported file or a share link can carry a raw
+    // line break, and everything after it would become a live `v`/`f` record
+    // (audit 2026-09-22) — three's absolute face indices then point at the
+    // wrong vertices. The name stays UTF-8: this is a comment, not a field.
+    `# MMRocket Sim — ${oneLine(name)}`,
     '# Units: METERS (rocket axis = +X, nose tip at x=0)',
     `# Overall length: ${(totalLen * 1000).toFixed(1)} mm`,
     obj,
