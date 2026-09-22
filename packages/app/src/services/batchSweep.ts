@@ -249,21 +249,36 @@ export function batchRowKey(configTag: string, motorIds: readonly string[]): str
 }
 
 /**
- * The delay a candidate flies before any optimum is known: its longest
- * PRESCRIBED delay, or plugged (Infinity) when plugged is all it is sold as —
- * the same default the motor browser gives the design page.
+ * The delay a candidate flies before any optimum is known — the SAME first
+ * flight the motor browser gives the design page in the same mode, because a
+ * motor must read the same in both places (v0.135, Eric 2026-09-18). Its
+ * longest PRESCRIBED delay when it has one; for a motor with none:
  *
- * It used to be `longest finite delay ?? 0`, so each of the catalogue's
- * plugged-only motors (604 of its 1,156 as delayOptions reads them, 374 of
- * those in production — measured 2026-09-22) flew with a charge at burnout
- * that the motor does not have (audit 2026-09-22). delayOptions never
- * returns an empty list — no listed delays reads as [0] — so the last option
- * always exists.
+ *  - "optimal delay per motor" ticked: 0, as the browser's auto load flies it
+ *    (MotorBrowser `load()`, `finite[finite.length - 1] ?? 0`) before App
+ *    re-flies it at the rounded optimum. NOT plugged, even for a motor sold
+ *    plugged only: the kernel takes its optimum from a coast probe when the
+ *    recovery deploys before apogee, and from the flight's own apogee when
+ *    nothing has deployed by then (BasicEventSimulationEngine, the APOGEE and
+ *    RECOVERY_DEVICE_DEPLOYMENT cases), and the two sit a few hundredths of a
+ *    second apart — enough to round to a different whole second. Flown
+ *    plugged here, an Ellis I160 in a 50 mm test airframe took 10 s /
+ *    1595.2 m against the design page's 9 s / 1594.9 m (measured 2026-09-22,
+ *    in review of the row-407 fix below).
+ *  - unticked: plugged (Infinity) when plugged is all it is sold as, the
+ *    browser's default pick for such a motor. This used to be `?? 0` as well,
+ *    so each plugged-only motor (604 of the catalogue's 1,156 as delayOptions
+ *    reads them, 374 of those in production — measured 2026-09-22) flew with
+ *    a charge at burnout that the motor does not have (audit 2026-09-22);
+ *    batchDelayRule decides what a flight with no charge then flies.
+ *
+ * delayOptions never returns an empty list — no listed delays reads as [0] —
+ * so the last option always exists.
  */
-export function provisionalDelay(entry: TcMotor): number {
+export function provisionalDelay(entry: TcMotor, autoDelay: boolean): number {
   const opts = delayOptions(entry);
   const finite = opts.filter((d) => Number.isFinite(d));
-  return finite[finite.length - 1] ?? opts[opts.length - 1]!;
+  return finite[finite.length - 1] ?? (autoDelay ? 0 : opts[opts.length - 1]!);
 }
 
 /** The deploy events the kernel does NOT read as the ejection charge (ComponentFactory.deployEventOf). */
@@ -322,6 +337,25 @@ export function batchDelayRule(input: {
   const rec = recommendDelay(optimum);
   if (rec === null) return { delay: earliest, refly: false, optimumForPlugged: false };
   return { delay: rec, refly: flownDelays.some((d) => d !== rec), optimumForPlugged: !autoDelay };
+}
+
+/**
+ * The same exception, said ON THE RUN. The dialog marks such a row "· opt.",
+ * but the run is what reaches the history, the CSV and the XLSX, and there its
+ * Delay column printed a delay the motor is not sold with and nothing said why
+ * (review of the row-407 fix, 2026-09-22). So the run carries it as its last
+ * comment — the report's text and the exports' Comments column — at 'info',
+ * the level of the report's own plugged-motor and delay comments. No `|` in it:
+ * the comments are stored joined on " | " and split back on it.
+ */
+export function notePluggedAtOptimum(run: SimRun, legs: number): void {
+  const them = legs > 1 ? 'them' : 'it';
+  const note = `${legs > 1 ? 'Every motor in this combination is' : 'This motor is'} sold plugged `
+    + `(no ejection charge), and this design deploys its recovery on the motor’s charge, so the `
+    + `batch flew ${them} at the optimum delay of ${run.delayS} s rather than with no deployment at `
+    + `all. To fly ${them} as sold, set the recovery to deploy at apogee or altitude.`;
+  run.comments = run.comments === '' ? note : `${run.comments} | ${note}`;
+  if (run.commentLevels) run.commentLevels = [...run.commentLevels, 'info'];
 }
 
 /** One row of the sweep. Its verdict is NOT stored here: the dialog grades in render, against the criteria it shows. */
@@ -616,7 +650,7 @@ export async function runBatchSweep(
     hooks.onProgress?.({ done: i, total, current: label });
     await yieldToUi();
     try {
-      const spec = await fetchSpec(entry, provisionalDelay(entry), signal);
+      const spec = await fetchSpec(entry, provisionalDelay(entry, autoDelay), signal);
       specCache.set(entry.motorId, spec);
       // What this candidate FLIES: the catalogue spec, or — for the one
       // motor the pad mass was weighed with, on the mount it was weighed
@@ -656,6 +690,7 @@ export async function runBatchSweep(
         ...(exitM !== null ? { nozzleStages: [stageNameOfTarget] } : {}),
         ...(comboActive ? { motorConfig: 'single' } : {}),
       });
+      if (f.optimumForPlugged) notePluggedAtOptimum(run, 1);
       out.push({
         key, entry, label, combo: false, run, exitM,
         ...(f.optimumForPlugged ? { optimumForPlugged: true } : {}),
@@ -708,7 +743,7 @@ export async function runBatchSweep(
           if (hit) return hit;
           // Only a candidate whose single-motor flight failed gets here; it
           // flies the same provisional delay that flight would have.
-          const spec = await fetchSpec(e, provisionalDelay(e), signal);
+          const spec = await fetchSpec(e, provisionalDelay(e, autoDelay), signal);
           specCache.set(e.motorId, spec);
           return spec;
         }));
@@ -751,6 +786,7 @@ export async function runBatchSweep(
         });
         // The stored designation is the combo label so saved runs read right.
         run.motor = label;
+        if (f.optimumForPlugged) notePluggedAtOptimum(run, entries.length);
         out.push({
           key, entry: entries[0]!, label, combo: true, run, exitM,
           ...(f.optimumForPlugged ? { optimumForPlugged: true } : {}),

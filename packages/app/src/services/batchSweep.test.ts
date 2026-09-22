@@ -3,12 +3,12 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { OrkRocket, type ComponentNode, type MotorSpec, type RocketTree } from '@online-openrocket/engine';
-import { DEFAULT_CONDITIONS } from '../components/LaunchPanel.js';
+import { DEFAULT_CONDITIONS, kernelSimOptions } from '../components/LaunchPanel.js';
 import { engineTree, splitClusterPairsTree, splitClusterTree } from '../tree/treeModel.js';
 import { MOTOR_DB, type MotorDbEntry } from './motorDb.js';
 import type { NozzleEntry } from './nozzleDb.js';
-import { fetchMotorSpec } from './thrustcurve.js';
-import { recommendDelay } from './simReport.js';
+import { delayOptions, fetchMotorSpec } from './thrustcurve.js';
+import { commentLevelsAlign, recommendDelay } from './simReport.js';
 import {
   batchDelayRule, batchMotorNames, batchRowKey, deploysOnEjectionCharge, provisionalDelay, runBatchSweep,
   type BatchMountOption, type BatchSweepDeps, type BatchSweepInput,
@@ -74,6 +74,27 @@ function clusterRocket(cluster: '4-ring' | '6-ring'): RocketTree {
   };
 }
 
+/** A 50 mm airframe around a 38 mm mount, for the catalogue motors that need one. */
+function fiftyMm(): RocketTree {
+  return {
+    name: 'Parity bird',
+    components: [{
+      type: 'stage', id: 'st0', name: 'Sustainer',
+      children: [
+        { type: 'nosecone', id: 'nc', length: 0.25, aftRadius: 0.025, thickness: 0.002, shape: 'ogive' } as ComponentNode,
+        {
+          type: 'bodytube', id: 'bt', length: 0.8, outerRadius: 0.025, thickness: 0.001,
+          children: [
+            { type: 'trapezoidfinset', id: 'fins', finCount: 3, rootChord: 0.1, tipChord: 0.05, sweep: 0.05, height: 0.06, thickness: 0.003 },
+            { type: 'innertube', id: 'mount', length: 0.35, outerRadius: 0.0195, thickness: 0.0005, motorMount: true },
+            { type: 'parachute', id: 'chute', name: 'Main', diameter: 0.6 } as ComponentNode,
+          ],
+        } as ComponentNode,
+      ],
+    }],
+  };
+}
+
 /** A small E-class curve; `k` scales the thrust so two candidates differ. */
 const curve = (designation: string, k = 1): MotorSpec => ({
   designation, diameter: 0.024, length: 0.07,
@@ -113,19 +134,42 @@ const sweep = (inp: BatchSweepInput, deps: Partial<BatchSweepDeps>, signal = new
   runBatchSweep(inp, { signal }, { yieldToUi: noYield, ...deps });
 
 describe('provisionalDelay — what a candidate flies before any optimum is known', () => {
-  it('is the longest prescribed delay, and plugged only when plugged is all the motor is sold as', () => {
-    expect(provisionalDelay(entry('a', 'X', 'A', '3,5,7'))).toBe(7);
-    expect(provisionalDelay(entry('a', 'X', 'A', '6,10,P'))).toBe(10);
-    // The audit's case: `?? 0` flew this with a charge at burnout.
-    expect(provisionalDelay(entry('a', 'X', 'A', 'P'))).toBe(Infinity);
-    // Unlisted delays read as [0] in delayOptions — unknown, not plugged.
-    expect(provisionalDelay(entry('a', 'X', 'A', ''))).toBe(0);
+  it('is the longest prescribed delay in either mode', () => {
+    for (const auto of [false, true]) {
+      expect(provisionalDelay(entry('a', 'X', 'A', '3,5,7'), auto)).toBe(7);
+      expect(provisionalDelay(entry('a', 'X', 'A', '6,10,P'), auto)).toBe(10);
+      // Unlisted delays read as [0] in delayOptions — unknown, not plugged.
+      expect(provisionalDelay(entry('a', 'X', 'A', ''), auto)).toBe(0);
+    }
   });
 
-  it('agrees with the design page default for every plugged-only motor in the shipped catalogue', () => {
-    const pluggedOnly = MOTOR_DB.filter((m) => (m.delays ?? '').split(',').every((d) => /^P/i.test(d.trim())));
-    expect(pluggedOnly.length).toBeGreaterThan(100);
-    for (const m of pluggedOnly) expect(provisionalDelay(m), m.designation).toBe(Infinity);
+  it('flies a plugged-only motor plugged unticked, and at 0 under auto delay — as the design page does', () => {
+    // The audit's case: unticked, `?? 0` flew this with a charge at burnout.
+    expect(provisionalDelay(entry('a', 'X', 'A', 'P'), false)).toBe(Infinity);
+    // Under auto delay 0 is only the FIRST flight, re-flown at the optimum.
+    expect(provisionalDelay(entry('a', 'X', 'A', 'P'), true)).toBe(0);
+  });
+
+  /**
+   * The motor browser is where the design page's first flight comes from, and
+   * the batch has to start from the same one in the same mode (v0.135). Its two
+   * expressions are pinned in its source, then held against every motor in the
+   * shipped catalogue.
+   */
+  it("matches the motor browser's first flight in both modes, for every motor in the shipped catalogue", () => {
+    const browser = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../components/MotorBrowser.tsx'), 'utf8');
+    // Its default pick (a fixed delay), and what its auto load flies before App re-flies at the optimum.
+    expect(browser).toContain('setDelay(finite[finite.length - 1] ?? opts[opts.length - 1] ?? 0);');
+    expect(browser).toContain("const chosen = delay === 'auto' ? finite[finite.length - 1] ?? 0");
+    let pluggedOnly = 0;
+    for (const m of MOTOR_DB) {
+      const opts = delayOptions(m);
+      const finite = opts.filter((d) => Number.isFinite(d));
+      if (finite.length === 0 && opts.includes(Infinity)) pluggedOnly++;
+      expect(provisionalDelay(m, false), m.designation).toBe(finite[finite.length - 1] ?? opts[opts.length - 1] ?? 0);
+      expect(provisionalDelay(m, true), m.designation).toBe(finite[finite.length - 1] ?? 0);
+    }
+    expect(pluggedOnly).toBeGreaterThan(100);
   });
 });
 
@@ -221,6 +265,15 @@ describe('the sweep, flown on the real kernel', () => {
     expect(row.error).toBeUndefined();
     expect(row.optimumForPlugged).toBe(true);
     expect(row.run!.delayS).toBe(recommendDelay(row.run!.optimumDelayS));
+    // …and the RUN says so, not only the dialog: the run is what reaches the
+    // history, the CSV and the XLSX, where its Delay column reads a delay the
+    // motor is not sold with.
+    const said = row.run!.comments.split(' | ');
+    expect(said[said.length - 1]).toBe('This motor is sold plugged (no ejection charge), and this design '
+      + 'deploys its recovery on the motor’s charge, so the batch flew it at the optimum delay of '
+      + `${row.run!.delayS} s rather than with no deployment at all. To fly it as sold, set the recovery `
+      + 'to deploy at apogee or altitude.');
+    expect(commentLevelsAlign(row.run!)).toBe(true);
     // What the old `?? 0` flew, on the same airframe.
     const r = OrkRocket.buildTree(engineTree(tree));
     r.setRogersModifiedBarrowman(true);
@@ -233,7 +286,40 @@ describe('the sweep, flown on the real kernel', () => {
     const apogee = await sweep(input(rocket({ deployEvent: 'apogee' }), { candidates: [f13], autoDelay: false }), deps);
     expect(apogee.rows[0]!.optimumForPlugged).toBeUndefined();
     expect(apogee.rows[0]!.run!.delayS).toBe(Infinity);
+    expect(apogee.rows[0]!.run!.comments).not.toContain('the batch flew it');
     expect(apogee.rows[0]!.run!.maxAltitude).toBeCloseTo(row.run!.maxAltitude, 0);
+  }, 60000);
+
+  /**
+   * THE SAME MOTOR READS THE SAME IN BOTH PLACES (v0.135) — for a plugged-only
+   * motor under "optimal delay per motor" as well. Flown beside the design
+   * page's own sequence: the motor browser's auto load flies `longest
+   * prescribed ?? 0` (pinned above), and App re-flies at the rounded optimum.
+   * The first cut of the row-407 fix flew such a motor PLUGGED here, and the
+   * kernel takes a flight's optimum from a coast probe when the recovery
+   * deploys before apogee but from the flight's own apogee when nothing has —
+   * a few hundredths of a second apart. On this airframe the Ellis I160 then
+   * rounded to 10 s here against 9 s on the design page.
+   */
+  it('flies a plugged-only motor under auto delay exactly as the design page does', async () => {
+    const i160 = MOTOR_DB.find((m) => m.manufacturerAbbrev === 'Ellis' && m.designation === 'I160')!;
+    expect(delayOptions(i160)).toEqual([Infinity]);
+    const tree = fiftyMm();
+    const opts = kernelSimOptions(DEFAULT_CONDITIONS);
+    const r = OrkRocket.buildTree(engineTree(tree));
+    r.setRogersModifiedBarrowman(true);
+    const spec = await fetchMotorSpec(i160, 0);
+    r.setMotorById('mount', spec);
+    const rec = recommendDelay(r.simulate(opts).summary.optimumDelay)!;
+    r.setMotorById('mount', { ...spec, ejectionDelay: rec });
+    const designPage = r.simulate(opts).summary.maxAltitude;
+
+    const target = { ...MOUNT, diameterMm: 38 };
+    const { rows } = await sweep(input(tree, { mounts: [target], target, candidates: [i160] }), {
+      fetchSpec: fetchMotorSpec, nozzleFor: nozzles({}),
+    });
+    expect(rows[0]!.run!.delayS).toBe(rec);
+    expect(rows[0]!.run!.maxAltitude).toBe(designPage);
   }, 60000);
 
   it('stamps the aero model through flightPipeline, and keeps Kbf off anything flown supersonic', async () => {
