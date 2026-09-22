@@ -6,7 +6,7 @@ import { mountBore } from '../tree/scaleRocket.js';
 import { CLUSTER_POINTS, clusterOffsets } from '../tree/cluster.js';
 import { resolveAssemblyRadius } from '../tree/assembly.js';
 import { axialLength, drawnExtent, startFromPosition } from '../tree/position.js';
-import { MAX_FIN_POINTS, escapeXml as esc, lookupTable, xmlNum as num, xmlText as text } from './xmlUtil.js';
+import { MAX_FIN_POINTS, TOO_MANY_FIN_POINTS, escapeXml as esc, lookupTable, parseDecimal, xmlNum as num, xmlText as text } from './xmlUtil.js';
 import { unzipMember } from './zipMember.js';
 import { shapeParamDefault } from './orkFile.js';
 import type { OrkExportMotor, OrkMotorRef, OrkTreeImportResult } from './orkFile.js';
@@ -622,10 +622,10 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
           // not have — so the design blanked with "Unknown format conversion: g".
           // The v0.105 changelog said the importers already checked this; they
           // did not (only a synthesised zero-tip-chord case was caught). Now they do.
-          const rktPts = parsePointList(text(el, ':scope > PointList') ?? '');
-          const outlineProblem = finOutlineProblem(rktPts);
+          const parsed = parsePointList(text(el, ':scope > PointList') ?? '');
+          const outlineProblem = parsed.problem ?? finOutlineProblem(parsed.pts);
           if (!outlineProblem) {
-            n['points'] = rktPts;
+            n['points'] = parsed.pts;
           } else {
             const note = `Fin set "${n.name ?? 'freeform'}": its outline was not used — ${outlineProblem} The set keeps a default outline; redraw it in the fin editor.`;
             if (!notes.includes(note)) notes.push(note);
@@ -1303,29 +1303,58 @@ const readDeploymentEvents = (
   }
 };
 
-/** RockSim PointList: "x,y|x,y|…" in mm; reversed when RockSim-ordered. */
-function parsePointList(raw: string): [number, number][] {
+/**
+ * RockSim PointList: "x,y|x,y|…" in mm; reversed when RockSim-ordered.
+ *
+ * Returns the outline, or `problem` when the list is too long to read — then
+ * with NO points, because the caller must not fly the first 5,000 of a longer
+ * outline (see MAX_FIN_POINTS).
+ */
+function parsePointList(raw: string): { pts: [number, number][]; problem?: string } {
   const pts: [number, number][] = [];
-  for (const pair of raw.split('|')) {
+  // The cap counts every PAIR the file wrote, skipped ones included, and the
+  // list is walked with indexOf rather than split. Audit 2026-09-22: the cap
+  // was tested only before a push, and each duplicate `0,0` ran `pts.some`
+  // over every kept point WITHOUT growing `pts` — so a 4,998-point outline
+  // followed by `0,0` pairs never met the cap, at ~20 µs a pair: 3.5 s for
+  // 0.85 MB, minutes for the 64 MiB a zipped .rkt may inflate to. And past the
+  // cap the list was truncated, so the partial outline flew with no note
+  // (leading-to-trailing order) or drew a misleading "last point must be aft"
+  // (RockSim's reversed order). `.ork` refused it; now both do. The `+ 1`
+  // leaves room for the duplicate closing 0,0 RockSim writes.
+  let pairs = 0;
+  let sawOrigin = false;
+  for (let at = 0; at <= raw.length;) {
+    let bar = raw.indexOf('|', at);
+    if (bar < 0) bar = raw.length;
+    const pair = raw.slice(at, bar);
+    at = bar + 1;
     if (!pair.trim()) continue;
-    if (pts.length >= MAX_FIN_POINTS) break;
-    const fields = pair.split(',');
-    // BOTH fields must be present and non-blank. `Number('')` is 0, so a
-    // malformed pair like "1,1|,,|2,2" used to yield a real [0, 0] vertex in
-    // the middle of the outline — which usually then made it self-intersect,
-    // and the note blamed the outline rather than the field (2026-09-08 audit).
-    if (fields.length < 2 || fields[0]!.trim() === '' || fields[1]!.trim() === '') continue;
-    const [x, y] = fields.map((v) => Number(v));
+    if (++pairs > MAX_FIN_POINTS + 1) return { pts: [], problem: TOO_MANY_FIN_POINTS };
+    const fields = pair.split(',', 3);
+    // BOTH fields must be present and non-blank — parseDecimal reads a blank
+    // as NaN. `Number('')` was 0, so a malformed pair like "1,1|,,|2,2" used
+    // to yield a real [0, 0] vertex in the middle of the outline, which
+    // usually then made it self-intersect, and the note blamed the outline
+    // rather than the field (2026-09-08 audit). Decimal only, like xmlNum.
+    if (fields.length < 2) continue;
+    const x = parseDecimal(fields[0]);
+    const y = parseDecimal(fields[1]);
     if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
-    // RockSim writes duplicate 0,0 points — drop them.
-    if (pts.length > 0 && x === 0 && y === 0 && pts.some(([px, py]) => px === 0 && py === 0)) continue;
-    pts.push([x! / LEN, y! / LEN]);
+    // RockSim writes duplicate 0,0 points — drop them. A flag, not a scan of
+    // the kept points: that scan was the quadratic above.
+    if (x === 0 && y === 0) {
+      if (sawOrigin) continue;
+      sawOrigin = true;
+    }
+    pts.push([x / LEN, y / LEN]);
   }
+  if (pts.length > MAX_FIN_POINTS) return { pts: [], problem: TOO_MANY_FIN_POINTS };
   // Our order is leading-root → trailing-root; RockSim's is usually reversed.
   if (pts.length > 1 && pts[pts.length - 1]![0] === 0 && pts[pts.length - 1]![1] === 0) {
     pts.reverse();
   }
-  return pts;
+  return { pts };
 }
 
 // ============================ EXPORT ============================

@@ -6,7 +6,7 @@ import { shapeIsClippable, shapeParamDefault } from '../tree/shapeProfile.js';
 import { finOutlineProblem } from '../tree/finOutline.js';
 import { CLUSTER_POINTS } from '../tree/cluster.js';
 import { isConformal, shroudEnds } from '../tree/shroud.js';
-import { MAX_FIN_POINTS, escapeXml, parseDecimal, xmlText as text } from './xmlUtil.js';
+import { MAX_FIN_POINTS, TOO_MANY_FIN_POINTS, escapeXml, parseDecimal, xmlText as text } from './xmlUtil.js';
 import { unzipMember } from './zipMember.js';
 import { applyPresetLinks, type PendingPresetLink, type Preset } from './presets.js';
 import { OVERRIDE_INCLUDES_MOTOR } from './statedLaunchWeight.js';
@@ -628,15 +628,20 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
         // with no early exit on a non-crossing outline, so an uncapped list is
         // the cost (see MAX_FIN_POINTS). Refused rather than truncated — half
         // an outline is a different fin, and silently flying one is worse than
-        // declining to read it.
-        const ptEls = Array.from(el.querySelectorAll(':scope > finpoints > point'))
-          .slice(0, MAX_FIN_POINTS + 1);
-        // A missing x/y attribute must SKIP the point (Number(null) is 0,
-        // which would silently drop a vertex onto the origin).
-        const pts = ptEls
-          .filter((pt) => pt.getAttribute('x') !== null && pt.getAttribute('y') !== null)
-          .map((pt) => [Number(pt.getAttribute('x')), Number(pt.getAttribute('y'))] as [number, number])
-          .filter((p) => Number.isFinite(p[0]) && Number.isFinite(p[1]));
+        // declining to read it. The cap counts the <point> ELEMENTS the file
+        // wrote, not the ones that parsed: counted after a filter, 5,501
+        // points with one malformed were kept as 5,000 and flown with no note
+        // (audit 2026-09-22).
+        const ptEls = el.querySelectorAll(':scope > finpoints > point');
+        // Every point is KEPT, and a missing, blank or non-decimal x/y reads
+        // as NaN, so finOutlineProblem refuses the outline naming that point
+        // ("Point 4 is not a pair of numbers."). Dropping it, as this did,
+        // flew a different fin with no note; and `Number('')` is 0, so `x=""`
+        // put the vertex on x = 0. The desktop drops such a point with an
+        // "Illegal fin points specification" warning; with no warning list
+        // here, refusing and saying so is the honest equivalent.
+        const pts = ptEls.length > MAX_FIN_POINTS ? [] : Array.from(ptEls, (pt) =>
+          [parseDecimal(pt.getAttribute('x')), parseDecimal(pt.getAttribute('y'))] as [number, number]);
         // The same test the fin editor applies before it commits an outline:
         // at least three points, none repeated, no edge crossing another. A
         // crossing outline reaches the kernel's FreeformFinSet, whose reporter
@@ -645,12 +650,12 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
         // The v0.105 changelog said the importers already checked this; they did
         // not. A file-supplied outline that fails keeps the default outline and
         // says so, rather than taking the whole rocket down with it.
-        const outlineProblem = pts.length > MAX_FIN_POINTS
-          ? `has ${pts.length}+ points; this app reads at most ${MAX_FIN_POINTS}`
+        const outlineProblem = ptEls.length > MAX_FIN_POINTS
+          ? TOO_MANY_FIN_POINTS
           : finOutlineProblem(pts);
         if (!outlineProblem) {
           n['points'] = pts;
-        } else if (pts.length > 0) {
+        } else if (ptEls.length > 0) {
           notes.push(`Fin set "${n.name ?? 'freeform'}": its outline was not used — ${outlineProblem} `
             + 'The set keeps a default outline; redraw it in the fin editor.');
         }

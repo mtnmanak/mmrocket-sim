@@ -81,5 +81,15 @@ export function lookupTable<T>(entries: Record<string, T>): Record<string, T> {
  * outline then handed to the kernel as well (2026-09-08 audit).
  *
  * 5,000 is two orders of magnitude above any real fin and ~0.1 s of validation.
+ *
+ * Past it an outline is REFUSED, never truncated, by both importers: the
+ * first 5,000 points of a longer list are a different fin, and flying one
+ * silently is worse than declining to read it. The count is of what the file
+ * WROTE — every `<point>`, every PointList pair — so a malformed or duplicate
+ * entry can neither slip past the cap nor keep a loop running under it.
  */
 export const MAX_FIN_POINTS = 5000;
+
+/** The refusal both importers put in their fin-set note, as one sentence. */
+export const TOO_MANY_FIN_POINTS =
+  `It has more than ${MAX_FIN_POINTS.toLocaleString('en-US')} points, the most this app reads.`;

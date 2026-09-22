@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
 import { DEFAULT_CONDITIONS } from '../components/LaunchPanel.js';
 import { exportOrk, importOrk, type OrkExportConfig, type OrkExportMotor } from './orkFile.js';
+import { MAX_FIN_POINTS, TOO_MANY_FIN_POINTS } from './xmlUtil.js';
 import { MAX_ZIP_MEMBER_BYTES } from './zipMember.js';
 
 /**
@@ -173,6 +174,63 @@ describe('.ork numbers are decimal, as the desktop reads them', () => {
     expect(nodes.find((c) => c.type === 'bodytube')!.density).toBeUndefined();
     expect(nodes.find((c) => c.type === 'innertube')!.position).toEqual({ method: 'top', offset: 0 });
     expect(measured).toBeUndefined();
+  });
+});
+
+describe('.ork freeform fin points are read as the file wrote them', () => {
+  /** A freeform fin set on a body tube, its <point>s written verbatim. */
+  const finOrk = (points: string): string => orkXml('<bodytube><name>Tube</name><length>0.3</length>'
+    + '<radius>0.025</radius><thickness>0.001</thickness><subcomponents>'
+    + `<freeformfinset><name>Fins</name><fincount>3</fincount><finpoints>${points}</finpoints>`
+    + '</freeformfinset></subcomponents></bodytube>');
+  const fins = (points: string) => {
+    const r = importOrk(finOrk(points));
+    const set = flatten(r.tree.components).find((c) => c.type === 'freeformfinset')!;
+    return { points: set['points'] as [number, number][] | undefined, notes: r.notes };
+  };
+  const refusal = (why: string) => `Fin set "Fins": its outline was not used — ${why} `
+    + 'The set keeps a default outline; redraw it in the fin editor.';
+
+  it('reads an ordinary outline', () => {
+    const r = fins('<point x="0.0" y="0.0"/><point x="0.01" y="0.03"/>'
+      + '<point x="0.04" y="0.03"/><point x="0.06" y="0.0"/>');
+    expect(r.points).toEqual([[0, 0], [0.01, 0.03], [0.04, 0.03], [0.06, 0]]);
+    expect(r.notes.some((n) => n.startsWith('Fin set'))).toBe(false);
+  });
+
+  it('counts every <point> against the cap, the malformed ones included', () => {
+    // Audit 2026-09-22: the cap was counted AFTER the filter, so 5,501 points
+    // with one malformed were kept as 5,000 — the front of a longer outline,
+    // flown with no note, where the 8 September fix promised "refused rather
+    // than truncated".
+    const n = MAX_FIN_POINTS + 501;
+    const pts = Array.from({ length: n }, (_, i) => {
+      const x = (i * 0.2 / (n - 1)).toFixed(6);
+      const y = i === 0 || i === n - 1 ? '0' : (0.05 * Math.sin(Math.PI * i / (n - 1))).toFixed(6);
+      return i === 100 ? `<point x="abc" y="${y}"/>` : `<point x="${x}" y="${y}"/>`;
+    });
+    const r = fins(pts.join(''));
+    expect(r.points).toBeUndefined();
+    expect(r.notes).toContain(refusal(TOO_MANY_FIN_POINTS));
+  });
+
+  it('refuses a blank coordinate instead of reading it as zero', () => {
+    // `Number('')` is 0: this outline imported with its second vertex on
+    // x = 0, a valid-looking and different fin, with no note at all.
+    const r = fins('<point x="0.0" y="0.0"/><point x="" y="0.03"/>'
+      + '<point x="0.04" y="0.03"/><point x="0.06" y="0.0"/>');
+    expect(r.points).toBeUndefined();
+    expect(r.notes).toContain(refusal('Point 2 is not a pair of numbers.'));
+  });
+
+  it('refuses a point with a missing or unreadable coordinate instead of dropping it', () => {
+    // Dropped, the vertex simply vanished from the fin with no note.
+    for (const bad of ['<point y="0.03"/>', '<point x="0x1" y="0.03"/>', '<point x=" " y="0.03"/>']) {
+      const r = fins(`<point x="0.0" y="0.0"/><point x="0.01" y="0.03"/>${bad}`
+        + '<point x="0.04" y="0.03"/><point x="0.06" y="0.0"/>');
+      expect(r.points, bad).toBeUndefined();
+      expect(r.notes, bad).toContain(refusal('Point 3 is not a pair of numbers.'));
+    }
   });
 });
 

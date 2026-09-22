@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import { importCdx1 } from './rasaeroFile.js';
 import { importRkt } from './rocksimFile.js';
-import { MAX_FIN_POINTS, lookupTable } from './xmlUtil.js';
+import { MAX_FIN_POINTS, TOO_MANY_FIN_POINTS, lookupTable } from './xmlUtil.js';
 
 /**
  * The three untrusted-input findings from the 2026-09-08 audit that were not
@@ -131,22 +131,81 @@ describe('the .rkt CDATA pre-pass is linear, not quadratic', () => {
   });
 });
 
+/** A one-fin-set .rkt whose CustomFinSet carries `pointList` verbatim. */
+const rktFin = (pointList: string): string =>
+  `<RockSimDocument><DesignInformation><RocketDesign><Name>t</Name>
+      <Stage3Parts><BodyTube><Name>b</Name><Len>300</Len><OD>24</OD>
+        <AttachedParts><CustomFinSet><Name>f</Name><FinCount>3</FinCount>
+          <PointList>${pointList}</PointList></CustomFinSet></AttachedParts>
+      </BodyTube></Stage3Parts></RocketDesign></DesignInformation></RockSimDocument>`;
+
+/** The fin set of a `rktFin` import, and its outline if one was taken. */
+const finOf = (out: ReturnType<typeof importRkt>): [number, number][] | undefined =>
+  out.tree.components[0]!.children![0]!.children![0]!['points'] as [number, number][] | undefined;
+
 describe('a freeform fin outline is capped', () => {
   it('refuses an absurd point count instead of validating it in O(n^2)', () => {
     // A monotone staircase: NOT self-intersecting, so finOutlineIntersection's
     // double loop runs to completion — the expensive case.
     const pts = Array.from({ length: MAX_FIN_POINTS + 500 }, (_, i) => `${i * 0.001},${i * 0.0005}`);
-    const xml = `<RockSimDocument><DesignInformation><RocketDesign><Name>t</Name>
-      <Stage3Parts><BodyTube><Name>b</Name><Len>300</Len><OD>24</OD>
-        <AttachedParts><CustomFinSet><Name>f</Name><FinCount>3</FinCount>
-          <PointList>${pts.join('|')}</PointList></CustomFinSet></AttachedParts>
-      </BodyTube></Stage3Parts></RocketDesign></DesignInformation></RockSimDocument>`;
     const t0 = performance.now();
-    const out = importRkt(xml);
+    const out = importRkt(rktFin(pts.join('|')));
     const ms = performance.now() - t0;
     expect(out.tree.components.length).toBeGreaterThan(0);
     // Generous, but far below the ~27 s an uncapped 90,000-point list cost.
     expect(ms, `import took ${ms.toFixed(0)} ms`).toBeLessThan(4000);
+    // REFUSED, not truncated (audit 2026-09-22): the first 5,000 of these
+    // points are a different fin, and they used to fly with no note.
+    expect(finOf(out)).toBeUndefined();
+    expect(out.notes).toContain(`Fin set "f": its outline was not used — ${TOO_MANY_FIN_POINTS} `
+      + 'The set keeps a default outline; redraw it in the fin editor.');
+  });
+
+  it('counts duplicate 0,0 pairs against the cap, so they cannot spin the loop', () => {
+    // Audit 2026-09-22: the cap was tested only before a push, and a duplicate
+    // origin is never pushed — each one scanned every kept point instead, so
+    // 4,998 real points and then `0,0` pairs ran ~20 µs a pair, unbounded:
+    // 3.5 s for 0.85 MB, minutes for a 64 MiB zipped .rkt. RockSim's own
+    // order, trailing root first, puts the origin LAST among the kept points,
+    // so each scan walked all of them before finding it.
+    const n = MAX_FIN_POINTS - 2;
+    const real = Array.from({ length: n }, (_, i) => `${(n - i) * 0.01},${i === 0 ? 0 : 5 + (i % 2)}`);
+    const list = `${real.join('|')}|0,0|${'0,0|'.repeat(150_000)}`;
+    const t0 = performance.now();
+    const out = importRkt(rktFin(list));
+    const ms = performance.now() - t0;
+    expect(ms, `import took ${ms.toFixed(0)} ms`).toBeLessThan(1500);
+    expect(finOf(out)).toBeUndefined();
+    expect(out.notes.some((n) => n.includes(TOO_MANY_FIN_POINTS))).toBe(true);
+  });
+
+  it("says the list is too long in RockSim's reversed order too, not that the root is backwards", () => {
+    // Truncated trailing-first, the kept half never reached 0,0, was never
+    // reversed, and was refused as "The last point must be aft of the first" —
+    // a true statement about a list the file never wrote.
+    const n = MAX_FIN_POINTS + 10;
+    const pts = Array.from({ length: n }, (_, i) => {
+      const x = (n - 1 - i) * 0.02;
+      return `${x},${i === 0 || i === n - 1 ? 0 : 10}`;
+    });
+    const out = importRkt(rktFin(pts.join('|')));
+    expect(finOf(out)).toBeUndefined();
+    const note = out.notes.find((m) => m.startsWith('Fin set "f"')) ?? '';
+    expect(note).toContain(TOO_MANY_FIN_POINTS);
+    expect(note).not.toMatch(/aft of the first/);
+  });
+
+  it('still reads an ordinary reversed list with its duplicate closing origin', () => {
+    // RockSim's own shape: trailing root first, the origin twice at the end.
+    const out = importRkt(rktFin('60,0|50,30|10,30|0,0|0,0|'));
+    expect(finOf(out)).toEqual([[0, 0], [0.01, 0.03], [0.05, 0.03], [0.06, 0]]);
+  });
+
+  it('reads no hex coordinate as a number', () => {
+    // parseDecimal, as xmlNum: `Number('0x10')` put a vertex at 16 mm. The
+    // pair is skipped like any other unreadable one.
+    const out = importRkt(rktFin('0,0|0x10,30|50,30|60,0'));
+    expect(finOf(out)).toEqual([[0, 0], [0.05, 0.03], [0.06, 0]]);
   });
 
   it('drops a malformed pair rather than inserting an origin vertex', () => {
