@@ -3413,10 +3413,11 @@ export function App() {
     const openId = openSeq.begin();
     try {
       // Cheap pre-check before the bytes are read, let alone inflated. A .ork is
-      // a zip and gets traded in the beta thread and by email; unzipSync inflates
-      // every entry before the XML is looked at (capped per-entry in orkFile, but
-      // an archive can hold many). The largest real design on hand is 4.46 MB, so
-      // 64 MiB refuses a hostile file without ever refusing a genuine one.
+      // a zip and gets traded in the beta thread and by email; zipMember.ts then
+      // walks its directory with bounds and inflates only the one member it
+      // reads, capped, but every byte of the file is in memory before it can
+      // look. The largest real design on hand is 4.46 MB, so 64 MiB refuses a
+      // hostile file without ever refusing a genuine one.
       if (file.size > MAX_DESIGN_FILE_BYTES) {
         setFileNote(`${file.name} is ${(file.size / (1024 * 1024)).toFixed(0)} MB — that is not `
           + 'a rocket design. Nothing was opened.', 'error');
