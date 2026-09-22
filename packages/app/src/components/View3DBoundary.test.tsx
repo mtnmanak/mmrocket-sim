@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { View3DBoundary } from './View3DBoundary.js';
+import { View3DBoundary, isChunkLoadError } from './View3DBoundary.js';
 
 /**
  * The app had exactly ONE error boundary — round the site nav band — so a
@@ -81,5 +81,49 @@ describe('the 3D view’s error boundary', () => {
       <View3DBoundary onBack={() => {}}><Boom message="Error creating WebGL context." /></View3DBoundary>,
     ));
     expect(spy.mock.calls.some((c) => String(c[0]).includes('3D view failed to start'))).toBe(true);
+  });
+});
+
+/**
+ * Audit 2026-09-22: a 3D chunk that failed to DOWNLOAD was blamed on the
+ * graphics hardware, and the boundary offered no way to recover it — React.lazy
+ * keeps the rejected import, so leaving the tab and coming back throws the
+ * same error again until the page is reloaded.
+ */
+describe('the 3D view’s error boundary — a chunk that failed to download', () => {
+  const CHROME = 'Failed to fetch dynamically imported module: https://mmrsim.mountainmanrockets.com/assets/Rocket3D-abc123.js';
+
+  it('recognises each engine’s wording, and nothing else', () => {
+    expect(isChunkLoadError(new TypeError(CHROME))).toBe(true);
+    expect(isChunkLoadError(new TypeError('error loading dynamically imported module: https://x/a.js'))).toBe(true);
+    expect(isChunkLoadError(new TypeError('Importing a module script failed.'))).toBe(true);
+    expect(isChunkLoadError(new Error('Unable to preload CSS for /assets/Rocket3D.css'))).toBe(true);
+    const named = new Error('Loading chunk 7 failed.');
+    named.name = 'ChunkLoadError';
+    expect(isChunkLoadError(named)).toBe(true);
+    expect(isChunkLoadError(new Error('Error creating WebGL context.'))).toBe(false);
+    expect(isChunkLoadError('Failed to fetch dynamically imported module')).toBe(false);
+  });
+
+  it('says the download failed, not the graphics hardware, and offers a reload', () => {
+    render(<Boom message={CHROME} />);
+    expect(host.textContent).toContain('could not be downloaded');
+    expect(host.textContent).not.toContain('hardware acceleration');
+    const reload = vi.fn();
+    vi.spyOn(window, 'location', 'get').mockReturnValue({ ...window.location, reload } as Location);
+    const btn = [...host.querySelectorAll('button')].find((b) => /Reload/.test(b.textContent ?? ''))!;
+    expect(btn, 'a reload button').toBeDefined();
+    act(() => { btn.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    expect(reload).toHaveBeenCalledTimes(1);
+    // The way back to 2D is still there.
+    const back = [...host.querySelectorAll('button')].find((b) => /2D view/.test(b.textContent ?? ''))!;
+    act(() => { back.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    expect(backs).toBe(1);
+  });
+
+  it('still blames the drawing surface for a WebGL failure, with no reload', () => {
+    render(<Boom message="Error creating WebGL context." />);
+    expect(host.textContent).toContain('hardware acceleration');
+    expect([...host.querySelectorAll('button')].some((b) => /Reload/.test(b.textContent ?? ''))).toBe(false);
   });
 });

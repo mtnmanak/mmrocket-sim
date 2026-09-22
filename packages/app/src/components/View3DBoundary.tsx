@@ -1,6 +1,20 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 
 /**
+ * Whether an error is a lazy chunk that could not be DOWNLOADED, in each
+ * engine's own words: Chrome "Failed to fetch dynamically imported module",
+ * Firefox "error loading dynamically imported module", Safari "Importing a
+ * module script failed", Vite's preload helper "Unable to preload CSS", and a
+ * `ChunkLoadError` by name. Only a real Error counts.
+ */
+export function isChunkLoadError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  if (err.name === 'ChunkLoadError') return true;
+  return /dynamically imported module|Importing a module script failed|Unable to preload CSS/i
+    .test(err.message);
+}
+
+/**
  * A boundary round the 3D tab, and nothing else.
  *
  * WHAT IT CATCHES. three's WebGLRenderer constructor throws "Error creating
@@ -15,6 +29,13 @@ import { Component, type ErrorInfo, type ReactNode } from 'react';
  * inside only covers the download SUCCEEDING) and any throw out of the scene
  * graph, which R3F's own inner boundary deliberately re-throws.
  *
+ * A FAILED DOWNLOAD IS TOLD APART (audit 2026-09-22). It used to get the
+ * WebGL message, blaming the graphics hardware for a dropped connection or a
+ * chunk a newer deploy had replaced — and it offered no way out that could
+ * work: React.lazy keeps the rejected import, so every later mount of the 3D
+ * view throws the same error until the page is reloaded. That case says what
+ * happened and offers the reload (`isChunkLoadError`).
+ *
  * WHAT IT DOES NOT CATCH, and must not be described as if it does: a WebGL
  * CONTEXT LOSS after the view is already up. three registers its own
  * `webglcontextlost` handler and calls `preventDefault()` — nothing is thrown,
@@ -24,16 +45,21 @@ import { Component, type ErrorInfo, type ReactNode } from 'react';
  * It re-arms itself. `.hero-view` renders the 2D schematic, this, or the aft
  * view in the same child slot, so leaving the 3D tab changes the element TYPE
  * there and React unmounts this instance; coming back mounts a fresh one.
- * That is why there is no reset key — one would be dead code.
+ * That is why there is no reset key — one would be dead code. (Re-arming does
+ * not help a failed download, for the React.lazy reason above.)
  */
 export class View3DBoundary extends Component<
   { children: ReactNode; onBack: () => void },
-  { failed: boolean; detail: string }
+  { failed: boolean; detail: string; download: boolean }
 > {
-  override state = { failed: false, detail: '' };
+  override state = { failed: false, detail: '', download: false };
 
   static getDerivedStateFromError(err: unknown) {
-    return { failed: true, detail: err instanceof Error ? err.message : String(err) };
+    return {
+      failed: true,
+      detail: err instanceof Error ? err.message : String(err),
+      download: isChunkLoadError(err),
+    };
   }
 
   override componentDidCatch(err: Error, info: ErrorInfo) {
@@ -46,16 +72,38 @@ export class View3DBoundary extends Component<
     if (!this.state.failed) return this.props.children;
     return (
       <div className="hero-fallback" role="status">
-        <p>
-          <strong>The 3D view could not start.</strong> This browser would not give the app a 3D
-          drawing surface. That is usually hardware acceleration switched off, a graphics driver
-          the browser has blocked, or a remote-desktop session.
-        </p>
-        <p>
-          Nothing else is affected — the 2D and Aft views draw the same rocket from the same data,
-          and every number on the page is unchanged.
-        </p>
+        {this.state.download ? (
+          <>
+            <p>
+              <strong>The 3D view could not be downloaded.</strong> Its code is a separate file,
+              fetched the first time the 3D tab opens, and this page could not get it — the
+              connection may have dropped, or the app may have been updated since this page
+              loaded. It is not your graphics hardware.
+            </p>
+            <p>
+              Reloading the page downloads it again; the design is restored from this
+              browser&rsquo;s autosave, as on any reload. Nothing else is affected — the 2D and Aft
+              views draw the same rocket from the same data, and every number on the page is
+              unchanged.
+            </p>
+          </>
+        ) : (
+          <>
+            <p>
+              <strong>The 3D view could not start.</strong> This browser would not give the app a 3D
+              drawing surface. That is usually hardware acceleration switched off, a graphics driver
+              the browser has blocked, or a remote-desktop session.
+            </p>
+            <p>
+              Nothing else is affected — the 2D and Aft views draw the same rocket from the same data,
+              and every number on the page is unchanged.
+            </p>
+          </>
+        )}
         {this.state.detail && <p className="hero-fallback-detail">{this.state.detail}</p>}
+        {this.state.download && (
+          <button className="file-btn" onClick={() => window.location.reload()}>↻ Reload the page</button>
+        )}
         <button className="file-btn" onClick={this.props.onBack}>← Back to the 2D view</button>
       </div>
     );
