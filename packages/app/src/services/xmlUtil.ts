@@ -41,6 +41,65 @@ export function escapeXmlAttr(s: string): string {
   return escapeXml(s).replace(/\t/g, '&#9;').replace(/\n/g, '&#10;').replace(/\r/g, '&#13;');
 }
 
+/**
+ * A design file's bytes as text, decoded the way an XML parser decides the
+ * encoding (XML 1.0 Appendix F) rather than always as UTF-8: a byte-order
+ * mark first; then UTF-16 recognised by the NUL beside its opening `<`; then
+ * the declaration's `encoding=`, honoured when it names a single-byte encoding
+ * the browser can decode (windows-1252, ISO-8859-1, …); otherwise UTF-8, the
+ * XML default. A UTF-16 label on a declaration readable as single bytes is
+ * ignored, since a real UTF-16 file cannot be read that way — .NET writes that
+ * mismatch.
+ *
+ * `note` is set when the bytes are not valid UTF-8 and nothing said otherwise:
+ * they are still decoded, with U+FFFD for what could not be read, and the note
+ * says how many were replaced. Audit 2026-09-22 (carried from 8 September):
+ * every importer assumed UTF-8 and discarded `encoding=`, so a windows-1252
+ * name silently came in with replacement characters, and a UTF-16 file did
+ * not open at all.
+ */
+export function decodeXml(bytes: Uint8Array): { xml: string; note?: string } {
+  const [b0, b1, b2] = [bytes[0], bytes[1], bytes[2]];
+  if (b0 === 0xef && b1 === 0xbb && b2 === 0xbf) return decodeUtf8(bytes);
+  if ((b0 === 0xff && b1 === 0xfe) || (b0 === 0x3c && b1 === 0x00)) {
+    return { xml: new TextDecoder('utf-16le').decode(bytes) };
+  }
+  if ((b0 === 0xfe && b1 === 0xff) || (b0 === 0x00 && b1 === 0x3c)) {
+    return { xml: new TextDecoder('utf-16be').decode(bytes) };
+  }
+  const head = String.fromCharCode(...bytes.subarray(0, 256));
+  const label = /^\s*<\?xml\s[^>]*?\bencoding\s*=\s*["']([A-Za-z][\w.:-]*)["']/.exec(head)?.[1];
+  if (label) {
+    let decoder: TextDecoder | null = null;
+    try {
+      decoder = new TextDecoder(label);
+    } catch {
+      // A label the browser does not know: UTF-8 below, as for no label.
+    }
+    const enc = decoder?.encoding;
+    if (decoder && enc !== 'utf-8' && enc !== 'replacement' && !enc?.startsWith('utf-16')) {
+      return { xml: decoder.decode(bytes) };
+    }
+  }
+  return decodeUtf8(bytes);
+}
+
+function decodeUtf8(bytes: Uint8Array): { xml: string; note?: string } {
+  try {
+    return { xml: new TextDecoder('utf-8', { fatal: true }).decode(bytes) };
+  } catch {
+    const xml = new TextDecoder('utf-8').decode(bytes);
+    let n = 0;
+    for (let i = xml.indexOf('\u{FFFD}'); i >= 0; i = xml.indexOf('\u{FFFD}', i + 1)) n++;
+    return {
+      xml,
+      note: `${n.toLocaleString('en-US')} character${n === 1 ? '' : 's'} in this file could not be read and `
+        + `${n === 1 ? 'was' : 'were'} replaced — it is not UTF-8 and does not say which encoding it uses. `
+        + 'Check the part and material names.',
+    };
+  }
+}
+
 /** Trimmed text of the first selector match; null when absent or empty. */
 export function xmlText(el: Element, selector: string): string | null {
   const t = el.querySelector(selector)?.textContent;

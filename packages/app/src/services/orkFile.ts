@@ -1,4 +1,3 @@
-import { strFromU8 } from 'fflate';
 import type { ComponentNode, ComponentPosition, ComponentType, RocketTree } from '@online-openrocket/engine';
 import { DEFAULT_TIME_STEP_S, PANEL_TIME_STEP_FLOOR_S, type LaunchConditions } from '../components/LaunchPanel.js';
 import { asStageNodes, freshId } from '../tree/treeModel.js';
@@ -6,7 +5,7 @@ import { shapeIsClippable, shapeParamDefault } from '../tree/shapeProfile.js';
 import { finOutlineProblem } from '../tree/finOutline.js';
 import { CLUSTER_POINTS } from '../tree/cluster.js';
 import { isConformal, shroudEnds } from '../tree/shroud.js';
-import { MAX_FIN_POINTS, TOO_MANY_FIN_POINTS, escapeXml, escapeXmlAttr, parseDecimal, xmlText as text } from './xmlUtil.js';
+import { MAX_FIN_POINTS, TOO_MANY_FIN_POINTS, decodeXml, escapeXml, escapeXmlAttr, parseDecimal, xmlText as text } from './xmlUtil.js';
 import { unzipMember } from './zipMember.js';
 import { applyPresetLinks, type PendingPresetLink, type Preset } from './presets.js';
 import { OVERRIDE_INCLUDES_MOTOR } from './statedLaunchWeight.js';
@@ -204,20 +203,22 @@ export interface OrkImportResult extends OrkTreeImportResult {
 
 export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string; presets?: readonly Preset[] }): OrkImportResult {
   let xml: string;
+  // Set when the bytes were not valid UTF-8 and named no other encoding (see
+  // decodeXml): the first import note, once there are notes.
+  let encodingNote: string | undefined;
   if (typeof data === 'string') {
     xml = data;
   } else {
-    const bytes = new Uint8Array(data);
+    let bytes: Uint8Array = new Uint8Array(data);
     if (bytes[0] === 0x50 && bytes[1] === 0x4b) {
       // Same entry choice as before (an entry named *.ork, else the first) but
       // BOUNDED: the bare `unzipSync(bytes)` this replaced inflated every
       // member — every decal, and every crafted 1 GB run of zeros — before a
       // byte of XML was read, and an out-of-memory tab cannot be caught by the
       // try/catch around this call. See zipMember.ts.
-      xml = strFromU8(unzipMember(bytes, '.ork', '.ork'));
-    } else {
-      xml = strFromU8(bytes);
+      bytes = unzipMember(bytes, '.ork', '.ork');
     }
+    ({ xml, note: encodingNote } = decodeXml(bytes));
   }
 
   // OpenRocket writes a single-quoted XML declaration; some parsers reject it.
@@ -243,7 +244,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   const digestsTrusted = fileVersion >= 104;
 
   const ignored = new Set<string>();
-  const notes: string[] = [];
+  const notes: string[] = encodingNote ? [encodingNote] : [];
   /** Parts whose <preset> names a catalogue row - resolved after the tree is built. */
   const pendingLinks: PendingPresetLink[] = [];
   let motor: OrkMotorRef | undefined;

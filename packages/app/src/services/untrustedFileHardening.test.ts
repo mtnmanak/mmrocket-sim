@@ -229,3 +229,37 @@ describe('a freeform fin outline is capped', () => {
     expect(json.length).toBeGreaterThan(0);
   });
 });
+
+/** A string as single bytes — the file a windows-1252 or ISO-8859-1 writer saves. */
+const singleBytes = (s: string): ArrayBuffer => new Uint8Array([...s].map((c) => c.charCodeAt(0))).buffer;
+
+describe('the importers read the encoding a file declares', () => {
+  // Audit 2026-09-22 (carried from 8 September): the bytes were always read as
+  // UTF-8 and `encoding=` discarded, so a windows-1252 name came in with
+  // replacement characters and no word about it.
+  it('reads a windows-1252 .rkt as windows-1252', () => {
+    const xml = '<?xml version="1.0" encoding="windows-1252"?>'
+      + rktFin('0,0|50,30|60,0').replace('<Name>t</Name>', '<Name>Fin 30° cant</Name>');
+    const out = importRkt(singleBytes(xml));
+    expect(out.name).toBe('Fin 30° cant');
+    expect(out.notes.some((n) => /could not be read and/.test(n))).toBe(false);
+  });
+
+  it('says so when a .rkt is not UTF-8 and names no encoding', () => {
+    const out = importRkt(singleBytes(rktFin('0,0|50,30|60,0').replace('<Name>t</Name>', '<Name>Fin 30° cant</Name>')));
+    expect(out.name).toBe('Fin 30\u{FFFD} cant');
+    expect(out.notes[0]).toMatch(/^1 character in this file could not be read and was replaced/);
+  });
+
+  it('reads a UTF-16 .CDX1, which used to be a parse error', () => {
+    const doc = cdx1().replace('<?xml version="1.0"?>', '<?xml version="1.0" encoding="utf-16"?>');
+    const le = new Uint8Array(2 + doc.length * 2);
+    le.set([0xff, 0xfe]);
+    for (let i = 0; i < doc.length; i++) {
+      le[2 + 2 * i] = doc.charCodeAt(i) & 255;
+      le[3 + 2 * i] = doc.charCodeAt(i) >> 8;
+    }
+    const out = importCdx1(le.buffer);
+    expect(out.tree.components[0]!.children!.length).toBeGreaterThan(0);
+  });
+});

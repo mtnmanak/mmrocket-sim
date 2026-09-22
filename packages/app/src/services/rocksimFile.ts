@@ -1,4 +1,3 @@
-import { strFromU8 } from 'fflate';
 import type { ComponentNode, ComponentPosition, RocketTree } from '@online-openrocket/engine';
 import { finOutlineProblem } from '../tree/finOutline.js';
 import { asStageNodes, freshId, mountsIn } from '../tree/treeModel.js';
@@ -6,7 +5,7 @@ import { mountBore } from '../tree/scaleRocket.js';
 import { CLUSTER_POINTS, clusterOffsets } from '../tree/cluster.js';
 import { resolveAssemblyRadius } from '../tree/assembly.js';
 import { axialLength, drawnExtent, startFromPosition } from '../tree/position.js';
-import { MAX_FIN_POINTS, TOO_MANY_FIN_POINTS, escapeXml as esc, lookupTable, parseDecimal, xmlNum as num, xmlText as text } from './xmlUtil.js';
+import { MAX_FIN_POINTS, TOO_MANY_FIN_POINTS, decodeXml, escapeXml as esc, lookupTable, parseDecimal, xmlNum as num, xmlText as text } from './xmlUtil.js';
 import { unzipMember } from './zipMember.js';
 import { shapeParamDefault } from './orkFile.js';
 import type { OrkExportMotor, OrkMotorRef, OrkTreeImportResult } from './orkFile.js';
@@ -133,6 +132,9 @@ const FINISH_TO_CODE = (finish: unknown): number => {
 
 export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonly Preset[] }): OrkTreeImportResult {
   let xml: string;
+  // Set when the bytes were not valid UTF-8 and named no other encoding (see
+  // decodeXml): the first import note, once there are notes.
+  let encodingNote: string | undefined;
   if (typeof data === 'string') {
     xml = data;
   } else {
@@ -145,9 +147,9 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
     // good file was a parse error; and an archive with NO entries made that
     // non-null assertion hand `undefined` to strFromU8, surfacing as "Cannot
     // read properties of undefined". See zipMember.ts for the size cap.
-    xml = bytes[0] === 0x50 && bytes[1] === 0x4b
-      ? strFromU8(unzipMember(bytes, '.rkt', '.rkt'))
-      : strFromU8(bytes);
+    ({ xml, note: encodingNote } = decodeXml(bytes[0] === 0x50 && bytes[1] === 0x4b
+      ? unzipMember(bytes, '.rkt', '.rkt')
+      : bytes));
   }
   // Old RockSim (pre-9) wrote a BINARY design format, signature "[[RS001024RS]]"
   // in the first bytes. Neither we nor desktop OpenRocket can read it, but it IS
@@ -203,7 +205,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
   const design = doc.querySelector('RockSimDocument > DesignInformation > RocketDesign');
   if (!design) throw new Error('Not a RockSim design file (missing RocketDesign)');
 
-  const notes: string[] = [];
+  const notes: string[] = encodingNote ? [encodingNote] : [];
   const ignored = new Set<string>();
   /** Parts whose <PartMfg>/<PartNo> may name a catalogue row - resolved after the tree is built. */
   const pendingLinks: PendingPresetLink[] = [];

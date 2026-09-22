@@ -125,6 +125,21 @@ describe('.ork zip reading is bounded', () => {
     expect(() => importOrk(buf(zipSync({})))).toThrow(/Empty \.ork archive/);
   });
 
+  it('reads a UTF-16 .ork, which used to be a parse error', () => {
+    // Audit 2026-09-22: the bytes were always read as UTF-8, so a UTF-16 file
+    // (byte-order mark and all) failed with "Not a valid .ork file".
+    const doc = orkXml(BODY_TUBE).replace("encoding='utf-8'", "encoding='utf-16'");
+    const le = new Uint8Array(2 + doc.length * 2);
+    le.set([0xff, 0xfe]);
+    for (let i = 0; i < doc.length; i++) {
+      le[2 + 2 * i] = doc.charCodeAt(i) & 255;
+      le[3 + 2 * i] = doc.charCodeAt(i) >> 8;
+    }
+    expect(importOrk(buf(le)).name).toBe('Test');
+    // Zipped, the member goes through the same decoder.
+    expect(importOrk(buf(zipSync({ 'rocket.ork': le }))).name).toBe('Test');
+  });
+
   it('refuses a 98-byte archive that declares 2^32 entries, as an Error', () => {
     // Audit 2026-09-22: a zip64 end record's entry count was trusted, and the
     // enumeration read zeros past the end of the buffer until the tab ran out

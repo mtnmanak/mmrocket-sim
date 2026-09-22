@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
-import { escapeXml, escapeXmlAttr, parseDecimal, xmlNum, xmlText } from './xmlUtil.js';
+import { decodeXml, escapeXml, escapeXmlAttr, parseDecimal, xmlNum, xmlText } from './xmlUtil.js';
 import { exportOrk } from './orkFile.js';
 import { exportRkt } from './rocksimFile.js';
 import { exportCdx1 } from './rasaeroFile.js';
@@ -233,5 +233,58 @@ describe('the .rkt and .CDX1 writers escape what they emit', () => {
     const out = exportCdx1({ name: NASTY, tree: tree(NASTY), motors: {} });
     expect(out).toContain('&amp;');
     expect(parses(out), 'the exported .CDX1 must be well-formed XML').toBe(true);
+  });
+});
+
+/** Bytes from ASCII text and raw byte runs, in order. */
+const bytesOf = (...parts: (string | number[])[]): Uint8Array =>
+  new Uint8Array(parts.flatMap((p) => (typeof p === 'string' ? [...p].map((c) => c.charCodeAt(0)) : p)));
+/** UTF-16 code units as little- or big-endian byte pairs. */
+const utf16 = (s: string, le: boolean): number[] =>
+  [...s].flatMap((c) => { const u = c.charCodeAt(0); return le ? [u & 255, u >> 8] : [u >> 8, u & 255]; });
+
+describe('decodeXml — the encoding a file declares, not always UTF-8', () => {
+  // Audit 2026-09-22 (carried from 8 September): every importer read the
+  // bytes as UTF-8 and discarded `encoding=`. A windows-1252 name came in with
+  // replacement characters and no word about it; a UTF-16 file did not parse.
+  const DEG = 'Fin 30° cant';
+
+  it('reads plain UTF-8, with or without a byte-order mark, and says nothing', () => {
+    const utf8 = [...new TextEncoder().encode(`<a>${DEG}</a>`)];
+    expect(decodeXml(bytesOf(utf8))).toEqual({ xml: `<a>${DEG}</a>` });
+    expect(decodeXml(bytesOf([0xef, 0xbb, 0xbf], utf8))).toEqual({ xml: `<a>${DEG}</a>` });
+  });
+
+  it('honours a single-byte encoding the declaration names', () => {
+    for (const enc of ['windows-1252', 'ISO-8859-1', 'latin1']) {
+      const b = bytesOf(`<?xml version="1.0" encoding="${enc}"?><a>Fin 30`, [0xb0], ' cant</a>');
+      expect(decodeXml(b).xml).toBe(`<?xml version="1.0" encoding="${enc}"?><a>${DEG}</a>`);
+      expect(decodeXml(b).note).toBeUndefined();
+    }
+  });
+
+  it('reads UTF-16 by its byte-order mark, or by the NUL beside its first "<"', () => {
+    const doc = `<?xml version="1.0" encoding="utf-16"?><a>${DEG}</a>`;
+    expect(decodeXml(bytesOf([0xff, 0xfe], utf16(doc, true))).xml).toBe(doc);
+    expect(decodeXml(bytesOf([0xfe, 0xff], utf16(doc, false))).xml).toBe(doc);
+    expect(decodeXml(bytesOf(utf16(doc, true))).xml).toBe(doc);
+    expect(decodeXml(bytesOf(utf16(doc, false))).xml).toBe(doc);
+  });
+
+  it('ignores a UTF-16 label on a file written in single bytes, as .NET can write it', () => {
+    const b = bytesOf('<?xml version="1.0" encoding="utf-16"?><a>', [...new TextEncoder().encode(DEG)], '</a>');
+    expect(decodeXml(b).xml).toBe(`<?xml version="1.0" encoding="utf-16"?><a>${DEG}</a>`);
+  });
+
+  it('keeps reading, and says how many characters it replaced, when the bytes are not UTF-8', () => {
+    const r = decodeXml(bytesOf('<a>Fin 30', [0xb0], ' cant, 12', [0xbd], ' in</a>'));
+    expect(r.xml).toBe('<a>Fin 30\u{FFFD} cant, 12\u{FFFD} in</a>');
+    expect(r.note).toBe('2 characters in this file could not be read and were replaced — it is not UTF-8 '
+      + 'and does not say which encoding it uses. Check the part and material names.');
+  });
+
+  it('falls back to UTF-8 for a label the browser does not know', () => {
+    const b = bytesOf('<?xml version="1.0" encoding="x-no-such-thing"?><a>', [...new TextEncoder().encode(DEG)], '</a>');
+    expect(decodeXml(b)).toEqual({ xml: `<?xml version="1.0" encoding="x-no-such-thing"?><a>${DEG}</a>` });
   });
 });
