@@ -217,3 +217,21 @@ describe('PropertyPanel — an unset select shows what the design flies', () => 
     expect(selectNamed('Shape').value).toBe('conical');
   });
 });
+
+describe('PropertyPanel — the export note belongs to one component', () => {
+  it("a fin's failed-export note does not follow the selection to the next part", () => {
+    // Audit 2026-09-22: the note was panel state, so it outlived its component.
+    const fins = { id: 'f', type: 'freeformfinset', finCount: 3, thickness: 0.003,
+      points: [[0, 0], [0.05, 0]] } as unknown as ComponentNode; // no outline to cut
+    const nose = { id: 'n', type: 'nosecone', length: 0.07, aftRadius: 0.012,
+      thickness: 0.002, shape: 'ogive' } as unknown as ComponentNode;
+    const tree = treeOf(nose, tube('A', { children: [fins] }));
+    show(tree, fins);
+    const dxf = [...host.querySelectorAll('button')].find((b) => b.textContent?.includes('DXF'))!;
+    click(dxf);
+    const note = () => host.querySelector('[role="alert"]')?.textContent ?? '';
+    expect(note()).toMatch(/fin outline/);
+    show(tree, nose);
+    expect(note(), 'the fin warning under the nose cone').toBe('');
+  });
+});

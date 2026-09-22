@@ -357,9 +357,15 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
   const uid = useId();
   const idFor = (key: string) => `${uid}-${key}`;
   const [showPresets, setShowPresets] = useState(false);
-  // Why an export button did nothing. Cleared on the next attempt, so it
-  // never outlives the outline it is complaining about.
-  const [exportNote, setExportNote] = useState<string | null>(null);
+  // Why an export button did nothing, and for WHICH component. Cleared on the
+  // next attempt, and shown only while that component is the one selected, so
+  // it never outlives the outline it is complaining about: a self-crossing-fin
+  // warning used to sit under the next nose cone selected, because this is one
+  // panel across selections unless its parent keys it (audit 2026-09-22).
+  const [exportNoteFor, setExportNoteFor] = useState<{ id: string | undefined; text: string } | null>(null);
+  const exportNote = exportNoteFor !== null && exportNoteFor.id === node.id ? exportNoteFor.text : null;
+  const setExportNote = (text: string | null) =>
+    setExportNoteFor(text === null ? null : { id: node.id, text });
   const fields = FIELDS[node.type] ?? [];
   const parent = findParent(tree, node.id!);
   const positionable = POSITIONABLE.has(node.type) && parent !== 'stage';
