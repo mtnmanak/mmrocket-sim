@@ -50,7 +50,11 @@ const s = (v: number | null, digits = 2) =>
  * rather than suspect the app of losing their number.
  *
  * Runs stored before v0.099 carry no coefficient; they show "—" rather than a
- * guess.
+ * guess. "No coefficient" there means NO KEY — the row predates the fields, so
+ * `cd`, `cdNominal` and `spillHoleDiameter` are undefined, not null, and the
+ * guards below are `== null` for that reason. An `=== null` guard let an
+ * absent `cd` through to `.toFixed` and took the whole app down on a click in
+ * Saved simulations (audit 2026-09-22).
  *
  * FOUR CASES, since 2026-09-21:
  *   typed, unvented    `2.20`
@@ -65,10 +69,10 @@ const s = (v: number | null, digits = 2) =>
  * material density, not a constant this can name.
  */
 function flownCd(d: DeploymentReport): string {
-  if (d.cd === null) return '—';
+  if (d.cd == null) return '—';
   const flown = d.cd.toFixed(2);
-  const vented = d.spillHoleDiameter !== null && d.spillHoleDiameter > 0
-    && d.cdNominal !== null && Math.abs(d.cdNominal - d.cd) > 1e-9;
+  const vented = d.spillHoleDiameter != null && d.spillHoleDiameter > 0
+    && d.cdNominal != null && Math.abs(d.cdNominal - d.cd) > 1e-9;
   if (!vented) return d.cdAutomatic ? `${flown} (auto)` : flown;
   // The TYPED vented string stays byte-identical — the guide and the v0.099
   // changelog both quote "1.44 (1.50 less a 122 mm vent)". Only the untyped
