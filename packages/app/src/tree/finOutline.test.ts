@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
-import { finOutlineIntersection, finOutlineProblem, isValidFinOutline } from './finOutline.js';
+import { finOutlineIntersection, finOutlineProblem, isValidFinOutline, kernelFinPoints } from './finOutline.js';
 import { engineTree } from './treeModel.js';
 
 /**
@@ -102,6 +102,53 @@ describe('finOutlineProblem — self-intersection', () => {
 });
 
 // ---------------------------------------------------------------------------
+// The outline the kernel tests: translated, then snapped to 2.5 m
+// ---------------------------------------------------------------------------
+
+/**
+ * Audit 2026-09-22: the validator checked the drawn points while the kernel
+ * snaps x/y past 2.5 m to 2.5 BEFORE its intersection test, so an outline
+ * could validate clean and still crash the build with the %g error. These
+ * three outlines are the ones the kernel-agreement block below also builds.
+ */
+const SNAP_CROSSES: [number, number][] = [[0, 0], [2.6, 1], [2.7, 2], [3, 0]];
+const SNAP_MERGES: [number, number][] = [[0, 0], [2.6, 1], [2.7, 1], [3, 0]];
+const SNAP_SAFE: [number, number][] = [[0, 0], [1, 2.6], [2, 2.7], [2.2, 0]];
+
+describe('kernelFinPoints — FreeformFinSet.setPoints, transcribed', () => {
+  it('snaps x and y past 2.5 m to 2.5 m and leaves the rest alone', () => {
+    expect(kernelFinPoints(SNAP_CROSSES)).toEqual([[0, 0], [2.5, 1], [2.5, 2], [2.5, 0]]);
+    expect(kernelFinPoints(GOOD)).toEqual(GOOD);
+  });
+
+  it('keeps x on a point past 2.5 m on BOTH axes — the kernel builds the y snap from the original', () => {
+    expect(kernelFinPoints([[0, 0], [3, 4], [3.5, 0]])).toEqual([[0, 0], [3, 2.5], [2.5, 0]]);
+  });
+
+  it('measures from the first point, as the kernel translates it to the origin first', () => {
+    expect(kernelFinPoints([[1, 1], [3.7, 2], [4, 1]])).toEqual([[0, 0], [2.5, 1], [2.5, 0]]);
+    // Within the kernel's 1e-12 squared-distance window it does NOT translate.
+    expect(kernelFinPoints([[1e-7, 0], [3, 1], [4, 0]])).toEqual([[1e-7, 0], [2.5, 1], [2.5, 0]]);
+  });
+});
+
+describe('finOutlineProblem — on the outline the kernel tests', () => {
+  it('refuses an outline that only crosses itself once snapped', () => {
+    expect(finOutlineIntersection(SNAP_CROSSES)).toBeNull(); // clean as drawn
+    expect(finOutlineProblem(SNAP_CROSSES)).toMatch(/crosses itself once the simulator pulls every point/);
+    expect(finOutlineProblem(SNAP_CROSSES)).toMatch(/edge 1–2 meets edge 3–4/);
+  });
+
+  it('refuses two points the snap puts in one place', () => {
+    expect(finOutlineProblem(SNAP_MERGES)).toMatch(/Points 2 and 3 land in the same place/);
+  });
+
+  it('still accepts a snapped outline that stays simple', () => {
+    expect(finOutlineProblem(SNAP_SAFE)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Kernel agreement
 // ---------------------------------------------------------------------------
 
@@ -137,10 +184,18 @@ describe('finOutlineProblem agrees with the kernel', () => {
     for (const bad of [
       [[0, 0], [0.020, 0.030], [0.005, 0.020], [0.060, 0]] as [number, number][],
       [[0, 0], [0.020, 0.030], [0.020, 0.030], [0.060, 0]] as [number, number][],
+      // Clean as drawn, crossing or merging once the kernel snaps to 2.5 m.
+      SNAP_CROSSES,
+      SNAP_MERGES,
     ]) {
       expect(finOutlineProblem(bad)).not.toBeNull();
       resetEngine();
       expect(() => OrkRocket.buildTree(engineTree(treeWithPoints(bad)))).toThrow();
     }
+
+    // And the snapped outline that stays simple builds, so it must validate.
+    expect(finOutlineProblem(SNAP_SAFE)).toBeNull();
+    resetEngine();
+    expect(OrkRocket.buildTree(engineTree(treeWithPoints(SNAP_SAFE))).staticInfo().mass).toBeGreaterThan(0);
   }, 120000);
 });

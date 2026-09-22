@@ -38,6 +38,34 @@ export type FinOutlinePoint = readonly [number, number];
 const IGNORE_SMALLER_THAN = 1e-12;
 
 /**
+ * FreeformFinSet.java:28 — `setPoints` pulls any x or y past this (metres)
+ * back to it BEFORE it runs `intersects()`.
+ */
+const SNAP_LARGER_THAN = 2.5;
+
+/**
+ * The outline as the kernel's `setPoints` hands it to `intersects()`
+ * (FreeformFinSet.java:274-287): translated so point 0 is the origin (only
+ * when it is off it by more than the kernel's 1e-12 on the SQUARED distance),
+ * then every x or y past 2.5 m pulled back to 2.5 m. Transcribed quirk and
+ * all: the y snap is built from the ORIGINAL point, so a point past 2.5 m on
+ * both axes keeps its x. The parent-body clamps `update()` applies after this
+ * need the body, and are not modelled here — they never were.
+ */
+export function kernelFinPoints(points: readonly FinOutlinePoint[]): FinOutlinePoint[] {
+  const [x0, y0] = points[0] ?? [0, 0];
+  const move = IGNORE_SMALLER_THAN < x0 * x0 + y0 * y0;
+  return points.map(([px, py]) => {
+    const x = move ? px + -x0 : px;
+    const y = move ? py + -y0 : py;
+    let q: FinOutlinePoint = [x, y];
+    if (x > SNAP_LARGER_THAN) q = [SNAP_LARGER_THAN, y];
+    if (y > SNAP_LARGER_THAN) q = [x, SNAP_LARGER_THAN];
+    return q;
+  });
+}
+
+/**
  * Two points closer than this (metres) are treated as one. 1 nm is far below
  * anything reachable through the UI: the coordinate table rounds the DISPLAY
  * unit to 4 decimals, which is 1e-7 m even in millimetres, so no two rows a
@@ -117,6 +145,12 @@ export function finOutlineIntersection(
  *    clampFirstPoint():493), so a trailing corner at or forward of the leading
  *    one gives a fin of zero or negative length
  *  - a self-intersecting outline
+ *  - and the last two again on the outline the kernel actually tests
+ *    (`kernelFinPoints`), whenever that differs from the one drawn. Audit
+ *    2026-09-22: checked on the raw points only, `[0,0] [2.6,1] [2.7,2] [3,0]`
+ *    validated clean, the kernel snapped it to `[0,0] [2.5,1] [2.5,2] [2.5,0]`
+ *    — whose last edge runs through the first edge's end — and the build died
+ *    with "Unknown format conversion: g".
  */
 export function finOutlineProblem(
   points: readonly FinOutlinePoint[] | undefined | null,
@@ -143,6 +177,22 @@ export function finOutlineProblem(
   if (hit) {
     return `The outline crosses itself — edge ${hit.target + 1}–${hit.target + 2} meets `
       + `edge ${hit.comparison + 1}–${hit.comparison + 2}.`;
+  }
+  const placed = kernelFinPoints(points);
+  if (placed.every((p, i) => p[0] === points[i]![0] && p[1] === points[i]![1])) return null;
+  const PULLED = 'once the simulator pulls every point more than 2.5 m aft of or above the first one '
+    + 'back to 2.5 m';
+  for (let i = 1; i < placed.length; i++) {
+    const a = placed[i - 1]!;
+    const b = placed[i]!;
+    if (Math.hypot(b[0] - a[0], b[1] - a[1]) <= COINCIDENT_M) {
+      return `Points ${i} and ${i + 1} land in the same place ${PULLED} — keep the fin within 2.5 m.`;
+    }
+  }
+  const placedHit = finOutlineIntersection(placed);
+  if (placedHit) {
+    return `The outline crosses itself ${PULLED} — edge ${placedHit.target + 1}–${placedHit.target + 2} `
+      + `meets edge ${placedHit.comparison + 1}–${placedHit.comparison + 2}. Keep the fin within 2.5 m.`;
   }
   return null;
 }
