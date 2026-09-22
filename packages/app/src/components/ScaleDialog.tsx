@@ -3,7 +3,7 @@ import type { RocketTree } from '@online-openrocket/engine';
 import { NumField } from './NumField.js';
 import { useDialog } from './useDialog.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
-import { siToUi, uiToSi } from '../prefs/units.js';
+import { fmtSig, siToUi, uiToSi } from '../prefs/units.js';
 import { loadPresets, type Preset } from '../services/presets.js';
 import { COMMON_CLASSES, classLabel } from '../services/motorDb.js';
 import {
@@ -175,7 +175,10 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
   const snappable = mounts.filter((m) => m.snappable);
   const lostMotors = mounts.filter((m) => !m.motorStillFits);
 
-  const fmt = (si: number, places = 1) => siToUi('length', lenSym, si).toFixed(places);
+  // `places` is what each line showed in mm; `sig` keeps a metre or foot figure
+  // from collapsing under it — at a fixed one decimal a 98 mm airframe read
+  // "0.1 m", and the summary "1 × 0.1 m becomes 2 × 0.2 m" (audit 2026-09-22).
+  const fmt = (si: number, places = 1, sig = 3) => fmtSig(siToUi('length', lenSym, si), sig, places);
 
   const apply = () => {
     if (busy) return;
@@ -308,8 +311,12 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
                 </option>
                 {tubeGroups.map((g) => (
                   // Three decimals in inches: at two, 0.254 mm of resolution
-                  // makes distinct sizes print the same number.
-                  <optgroup key={g.key} label={`${fmt(g.od, lenSym === 'in' ? 3 : 2)} ${lenSym}`}>
+                  // makes distinct sizes print the same number. And four
+                  // significant figures in any unit: at a fixed two decimals
+                  // the 215 sizes printed as 22 labels in metres ("0.03 m"
+                  // named 30 of them) and 51 in feet; at four figures every
+                  // unit shows all 215 (measured on the shipped catalogue).
+                  <optgroup key={g.key} label={`${fmt(g.od, lenSym === 'in' ? 3 : 2, 4)} ${lenSym}`}>
                     {g.rows.map(({ i, p }) => (
                       <option key={i} value={i}>
                         {p.manufacturer} {p.partNo}

@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { readDecimal } from '../prefs/units.js';
+import { fmtSig, readDecimal } from '../prefs/units.js';
 
 /**
  * Numeric input that lets the user TYPE anything mid-edit (including "-",
@@ -17,8 +17,9 @@ import { readDecimal } from '../prefs/units.js';
  * - Unfocused, the box always shows `value`. The draft exists only while the
  *   input has focus, so a spinner click — which never focuses it — cannot
  *   leave one behind for the next component, an undo or a unit switch.
- * - Unfocused display is capped at 3 decimals (display only — the stored
- *   value keeps full precision, which is what you edit on focus).
+ * - Unfocused display is capped at 3 decimals, or 3 significant figures for
+ *   a value too small for that (display only — the stored value keeps full
+ *   precision, which is what you edit on focus).
  * - Clearing the field commits null when `nullable` (blank = auto/calculated
  *   fields); otherwise it's treated as an incomplete draft.
  * - ArrowUp/ArrowDown and the spinner buttons step by `step`, from the draft,
@@ -117,8 +118,11 @@ export function NumField({
   // error styling — not invalid.
   const isIncomplete = (t: string) => /^-?[.,]?$/.test(t);
 
+  // Three decimals, or three significant figures where three decimals would
+  // round a real value away: in metres a 0.4 mm wall is 0.0004, and it used to
+  // show as "0" (audit 2026-09-22). Values of 0.1 and up read exactly as before.
   const fmtDisplay = (v: number | undefined) =>
-    v === undefined ? '' : String(Number(v.toFixed(3)));
+    v === undefined ? '' : fmtSig(v, 3, 3);
   const fmtEdit = (v: number | undefined) =>
     v === undefined ? '' : String(Number(v.toFixed(9)));
 

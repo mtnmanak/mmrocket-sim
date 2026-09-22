@@ -114,9 +114,28 @@ afterEach(() => {
 describe('ScaleDialog', () => {
   it('shows the design it is about to scale, in the preference units', async () => {
     await render();
-    // Metric default: 1050 mm long, 52.0 mm across, doubling by default.
-    expect(text()).toContain('52.0');
+    // Metric default: 1050 mm long, 52 mm across, doubling by default.
+    expect(text()).toContain('1050 × 52 mm becomes 2100 × 104 mm');
     expect(text()).toContain('200.0 %');
+  });
+
+  it('keeps the design readable in metres and feet, not "1 × 0.1 m"', async () => {
+    // Audit 2026-09-22: one fixed decimal in the DISPLAY unit made a 1050 mm ×
+    // 52 mm rocket "1 × 0.1 m becomes 2 × 0.1 m", and two fixed decimals put
+    // both catalogue sizes under one "0.03"/"0.10"-style label.
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { length: 'm' } }));
+    await render();
+    expect(text()).toContain('1.05 × 0.052 m becomes 2.1 × 0.104 m');
+    expect(text()).toContain('The widest body diameter is 0.052 m today');
+    const labels = [...(host.querySelector('#scale-tube') as HTMLSelectElement)
+      .querySelectorAll('optgroup')].map((g) => g.label);
+    expect(labels).toEqual(['0.0334 m', '0.102 m']);
+
+    act(() => root.unmount());
+    root = createRoot(host);
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { length: 'ft' } }));
+    await render();
+    expect(text()).toContain('3.44 × 0.171 ft becomes 6.89 × 0.341 ft');
   });
 
   it('typing a target diameter sets the reciprocal-correct factor', async () => {
@@ -127,7 +146,7 @@ describe('ScaleDialog', () => {
     // rocket, which is exactly why this is pinned.
     type(target!, '102');
     expect(text()).toContain('196.2 %');
-    expect(text()).toContain('102.0');
+    expect(text()).toContain('× 102 mm');
   });
 
   it('typing a factor moves the target diameter with it', async () => {
@@ -135,7 +154,7 @@ describe('ScaleDialog', () => {
     const [factor] = numberInputs();
     type(factor!, '0.5');
     expect(text()).toContain('50.0 %');
-    expect(text()).toContain('26.0'); // half of 52 mm
+    expect(text()).toContain('× 26 mm'); // half of 52 mm
   });
 
   it('names the motor mount it is about to make un-buyable', async () => {

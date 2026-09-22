@@ -116,6 +116,22 @@ describe('NumField — typing', () => {
     expect(input().value).toBe('12.3456789');
   });
 
+  it('keeps three significant figures where three decimals would round a value away', () => {
+    // Audit 2026-09-22: in metres a 0.4 mm wall is 0.0004, and at a flat three
+    // decimals the unfocused box showed "0" for a wall that is there.
+    render({ value: 0.0004 });
+    expect(input().value).toBe('0.0004');
+    render({ value: 0.0123456 });
+    expect(input().value).toBe('0.0123');
+    // 0.1 and up read exactly as the three-decimal cap always did.
+    render({ value: 0.1234567 });
+    expect(input().value).toBe('0.123');
+    render({ value: 1219.25 });
+    expect(input().value).toBe('1219.25');
+    render({ value: 0 });
+    expect(input().value).toBe('0');
+  });
+
   it('commits every draft that parses', () => {
     render({ value: 1 });
     type('2.5');

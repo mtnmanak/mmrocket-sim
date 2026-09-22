@@ -126,6 +126,28 @@ describe('PresetPicker — CSV import', () => {
   });
 });
 
+describe('PresetPicker — dimensions', () => {
+  const T24 = JSON.stringify([{
+    kind: 'BodyTube', manufacturer: 'ACME', partNo: 'T-24', description: '',
+    outsideDiameter: 0.02413, length: 0.4572,
+  }]);
+
+  it('keeps a part’s size readable in metres rather than "⌀0.0 L0.5 m"', async () => {
+    // Audit 2026-09-22: one fixed decimal in the DISPLAY unit printed a 24 mm
+    // tube as ⌀0.0 in metres, and every sub-50 mm part the same way.
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { length: 'm' } }));
+    localStorage.setItem('online-openrocket.custom-presets.v1', T24);
+    await render();
+    expect(text()).toContain('⌀0.0241 L0.457 m');
+  });
+
+  it('shows millimetres to one decimal, as before', async () => {
+    localStorage.setItem('online-openrocket.custom-presets.v1', T24);
+    await render();
+    expect(text()).toContain('⌀24.1 L457.2 mm');
+  });
+});
+
 describe('PresetPicker — labelling', () => {
   it('gives the search box an accessible name naming all three fields it matches', async () => {
     await render();

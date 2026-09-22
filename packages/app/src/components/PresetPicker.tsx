@@ -7,7 +7,7 @@ import {
   presetsToCsv, saveCustomPresets, type Preset,
 } from '../services/presets.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
-import { siToUi } from '../prefs/units.js';
+import { fmtSig, siToUi } from '../prefs/units.js';
 import { downloadBlob } from '../services/saveFile.js';
 
 const ROW_CAP = 300;
@@ -67,7 +67,10 @@ export function PresetPicker({ type, onApply, onClose }: {
     const v = (k: string) => (typeof p[k] === 'number' ? (p[k] as number) : undefined);
     const d = v('outsideDiameter') ?? v('aftOutsideDiameter') ?? v('diameter');
     const len = v('length');
-    const f = (x: number) => `${siToUi('length', lenSym, x).toFixed(1)}`;
+    // One decimal in mm, as before; three significant figures where one decimal
+    // would flatten it — a fixed `toFixed(1)` printed a 24 mm tube as "⌀0.0 m"
+    // (audit 2026-09-22).
+    const f = (x: number) => fmtSig(siToUi('length', lenSym, x), 3, 1);
     return [d !== undefined ? `⌀${f(d)}` : null, len !== undefined ? `L${f(len)}` : null]
       .filter(Boolean).join(' ') + ` ${lenSym}`;
   };

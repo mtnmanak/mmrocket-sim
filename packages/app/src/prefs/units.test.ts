@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   IMPERIAL_UNITS, INITIAL_UNITS, METRIC_UNITS, UNITS,
-  fmtSi, niceStep, readDecimal, siToUi, uiToSi, type Quantity,
+  fmtSi, fmtSig, niceStep, readDecimal, siToUi, uiToSi, type Quantity,
 } from './units.js';
 
 describe('unit conversions (factors from desktop UnitGroup 24.12)', () => {
@@ -117,6 +117,45 @@ describe('fmtSi — the app’s single SI display formatter', () => {
     // well-meant "keep the decimals" change — so it is pinned.
     expect(fmtSi('length', 'm', 0.0001, 3)).toBe('0');
     expect(fmtSi('length', 'm', 0.0005, 3)).toBe('0.001');
+  });
+});
+
+describe('fmtSig — a display-unit value that does not collapse in a big unit', () => {
+  /**
+   * Audit 2026-09-22: decimal counts chosen for millimetres were inherited by
+   * metres and feet — a 98 mm airframe read "0.1 m", 215 catalogue tube sizes
+   * printed as 22 labels in metres, and a 0.4 mm wall showed "0".
+   */
+  it('keeps `places` decimals where they carry the figure, as the mm sites did', () => {
+    expect(fmtSig(98, 3, 1)).toBe('98');        // trailing zero stripped
+    expect(fmtSig(52.37, 3, 1)).toBe('52.4');
+    expect(fmtSig(1219.2, 3, 0)).toBe('1219');  // the integer part is never rounded
+    expect(fmtSig(304.8, 3, 1)).toBe('304.8');
+    expect(fmtSig(100, 3, 0)).toBe('100');      // no point, so no zero is lost
+    expect(fmtSig(12.3456789, 3, 3)).toBe('12.346');
+  });
+
+  it('switches to significant figures where `places` would flatten a small value', () => {
+    expect(fmtSig(0.098, 3, 1)).toBe('0.098');
+    expect(fmtSig(0.0004, 3, 3)).toBe('0.0004');
+    expect(fmtSig(0.0254, 4, 2)).toBe('0.0254');
+    expect(fmtSig(0.02413, 4, 2)).toBe('0.02413');
+    expect(fmtSig(-0.0123456, 3, 1)).toBe('-0.0123');
+  });
+
+  it('prints zero as "0" and a non-finite value as a dash', () => {
+    expect(fmtSig(0, 3, 3)).toBe('0');
+    expect(fmtSig(Number.NaN, 3)).toBe('—');
+    expect(fmtSig(Number.POSITIVE_INFINITY, 3)).toBe('—');
+  });
+
+  it('keeps two close tube sizes apart in metres and feet, where two decimals did not', () => {
+    // Four figures, as the Scale dialog's size list uses. 23.00 and 24.13 mm
+    // were one "0.02 m" label at two decimals.
+    const m = (mm: number) => fmtSig(siToUi('length', 'm', mm / 1000), 4, 2);
+    expect([m(23), m(24.13)]).toEqual(['0.023', '0.02413']);
+    const ft = (mm: number) => fmtSig(siToUi('length', 'ft', mm / 1000), 4, 2);
+    expect(ft(98)).toBe('0.3215');
   });
 });
 

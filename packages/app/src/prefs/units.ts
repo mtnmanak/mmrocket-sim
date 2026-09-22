@@ -200,6 +200,30 @@ export function fmtSi(quantity: Quantity, symbol: string, si: number, digits?: n
 }
 
 /**
+ * A value ALREADY IN ITS DISPLAY UNIT, rounded to `places` decimals — or to
+ * `sig` significant figures wherever `places` would leave fewer — with
+ * trailing zeros stripped. The integer part is never rounded away: 1219 at
+ * three figures is "1219", not "1220".
+ *
+ * Why it exists (audit 2026-09-22). A fixed decimal count is chosen for
+ * millimetres, and every other length unit inherits it: at one decimal a
+ * 98 mm airframe is "0.1 m" and the Scale dialog read "1 × 0.1 m becomes
+ * 2 × 0.2 m"; at two, the catalogue's 215 tube sizes printed as 22 distinct
+ * labels in metres ("0.03 m" named 30 of them); at NumField's three, a 0.4 mm
+ * wall displayed as "0". `places` keeps what those sites showed in mm, and
+ * `sig` stops a small number in a big unit collapsing to nothing.
+ */
+export function fmtSig(v: number, sig: number, places = 0): string {
+  if (!Number.isFinite(v)) return '—';
+  const a = Math.abs(v);
+  const forSig = a > 0 ? sig - 1 - Math.floor(Math.log10(a)) : 0;
+  const d = Math.min(20, Math.max(places, forSig));
+  const s = v.toFixed(d);
+  // Only a string WITH a point has trailing zeros to lose ("100" must stay).
+  return d > 0 ? s.replace(/\.?0+$/, '') : s;
+}
+
+/**
  * Whether this browser's own locale writes 1.5 as "1,5". Read once; any
  * failure (an engine without Intl) answers no, which is the stricter reading
  * in `readDecimal` below.

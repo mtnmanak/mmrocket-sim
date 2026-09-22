@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { usePrefs } from '../prefs/PrefsContext.js';
-import { fmtSi, siToUi } from '../prefs/units.js';
+import { fmtSi, fmtSig, siToUi } from '../prefs/units.js';
 import { loadPresets, type Preset } from '../services/presets.js';
 import { recoveryGroups, type RecoveryByStage, type RecoveryMass } from '../services/recoveryMass.js';
 import {
@@ -370,7 +370,7 @@ function BandSection({
         {advice.excludedForFit > 0 && boreM !== null && (
           <>
             {advice.excludedForFit} of {advice.inBand} canopies that hit this band pack wider
-            than this airframe’s {fmtSi('length', lenSym, boreM, 1)} {lenSym} bore and are
+            than this airframe’s {fmtSig(siToUi('length', lenSym, boreM), 3, 1)} {lenSym} bore and are
             not listed.{' '}
           </>
         )}
@@ -408,8 +408,11 @@ function PartRow({ c, lenSym, velSym, massSym }: {
   massSym: string;
 }) {
   const { prefs } = usePrefs();
-  const len = (si: number) => fmtSi('length', lenSym, si, 1);
-  // A FIXED decimal here, unlike the size line: `fmtSi` strips trailing zeros,
+  // One decimal in mm, three significant figures in m or ft: at a fixed one
+  // decimal a 0.914 m canopy read "0.9 m" and a 64 mm packed diameter "0.1 m"
+  // (audit 2026-09-22). The bore in the footer uses the same rule.
+  const len = (si: number) => fmtSig(siToUi('length', lenSym, si), 3, 1);
+  // A FIXED decimal here, unlike the size line: `fmtSig` strips trailing zeros,
   // which puts "58" under "59.3" and breaks the alignment of the one figure a
   // reader scans down the list.
   const fixedRate = siToUi('velocity', prefs.units.velocity, c.rate).toFixed(1);
