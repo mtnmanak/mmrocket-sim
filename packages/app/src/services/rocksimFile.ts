@@ -5,7 +5,7 @@ import { mountBore } from '../tree/scaleRocket.js';
 import { CLUSTER_POINTS, clusterOffsets } from '../tree/cluster.js';
 import { resolveAssemblyRadius } from '../tree/assembly.js';
 import { axialLength, drawnExtent, startFromPosition } from '../tree/position.js';
-import { MAX_FIN_POINTS, TOO_MANY_FIN_POINTS, decodeXml, escapeXml as esc, lookupTable, parseDecimal, unreadableFinPoints, xmlNum as num, xmlText as text } from './xmlUtil.js';
+import { MAX_FIN_POINTS, MAX_NESTING, TOO_DEEP_NESTING, TOO_MANY_FIN_POINTS, decodeXml, escapeXml as esc, lookupTable, parseDecimal, unreadableFinPoints, xmlNum as num, xmlText as text } from './xmlUtil.js';
 import { unzipMember } from './zipMember.js';
 import { shapeParamDefault } from './orkFile.js';
 import type { OrkExportMotor, OrkMotorRef, OrkTreeImportResult } from './orkFile.js';
@@ -426,21 +426,44 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
     }
   };
 
+  // Parts nest at most MAX_NESTING levels below their stage, as in the .ork
+  // importer; deeper ones are left out with a note (see MAX_NESTING). Uncapped
+  // until the review of audit 2026-09-22: a .rkt 500 levels deep imported
+  // whole in 1.2 s and saved as an 8.9 MB .ork, and 1,500 overflowed the
+  // stack. `level` is the level convertPart is building at; a sub-assembly
+  // flattens into its parent's level, so only real children go one deeper.
+  let level = 1;
+  let tooDeep = false;
+  const oneLevelDown = (hasParts: boolean, convert: () => void): void => {
+    if (level >= MAX_NESTING) {
+      if (hasParts) tooDeep = true;
+      return;
+    }
+    level++;
+    try {
+      convert();
+    } finally {
+      level--;
+    }
+  };
+
   const convertAttached = (el: Element, parentNode: ComponentNode) => {
     const wrap = el.querySelector(':scope > AttachedParts');
     if (!wrap) return;
-    for (const child of Array.from(wrap.children)) {
-      if (child.tagName === 'SubAssembly') {
-        flattenSubAssembly(child, parentNode, (n) => {
-          parentNode.children = [...(parentNode.children ?? []), n];
-        });
-        continue;
+    oneLevelDown(wrap.children.length > 0, () => {
+      for (const child of Array.from(wrap.children)) {
+        if (child.tagName === 'SubAssembly') {
+          flattenSubAssembly(child, parentNode, (n) => {
+            parentNode.children = [...(parentNode.children ?? []), n];
+          });
+          continue;
+        }
+        const node = convertPart(child, parentNode);
+        if (node) {
+          parentNode.children = [...(parentNode.children ?? []), node];
+        }
       }
-      const node = convertPart(child, parentNode);
-      if (node) {
-        parentNode.children = [...(parentNode.children ?? []), node];
-      }
-    }
+    });
   };
 
   const convertPart = (el: Element, parent: ComponentNode | null): ComponentNode | null => {
@@ -843,22 +866,27 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
           n['separationDelay'] = 0;
         }
         // RockSim allows the pod's chain both directly under the pod and
-        // inside AttachedParts (desktop handles both) — collect from both.
-        const chain: ComponentNode[] = [];
+        // inside AttachedParts (desktop handles both) — collect from both, in
+        // document order, then convert them ONE LEVEL DOWN: the pod's chain is
+        // its children, so it counts against MAX_NESTING like attached parts.
+        const chainEls: Element[] = [];
         const CHAIN_TAGS = ['NoseCone', 'BodyTube', 'Transition'];
         for (const sub of Array.from(el.children)) {
           if (CHAIN_TAGS.includes(sub.tagName)) {
-            const kid = convertPart(sub, null);
-            if (kid) chain.push(kid);
+            chainEls.push(sub);
           } else if (sub.tagName === 'AttachedParts') {
             for (const sub2 of Array.from(sub.children)) {
-              if (CHAIN_TAGS.includes(sub2.tagName)) {
-                const kid = convertPart(sub2, null);
-                if (kid) chain.push(kid);
-              }
+              if (CHAIN_TAGS.includes(sub2.tagName)) chainEls.push(sub2);
             }
           }
         }
+        const chain: ComponentNode[] = [];
+        oneLevelDown(chainEls.length > 0, () => {
+          for (const sub of chainEls) {
+            const kid = convertPart(sub, null);
+            if (kid) chain.push(kid);
+          }
+        });
         n.children = chain;
         notes.push(`External pod “${n.name ?? 'Pod'}” imported as ${detachable ? 'a strap-on booster (parallel stage)' : 'a pod set'}.`);
         return n;
@@ -1108,6 +1136,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
   if (ignored.size) {
     notes.push(`Ignored unsupported RockSim components: ${[...ignored].join(', ')}.`);
   }
+  if (tooDeep) notes.push(TOO_DEEP_NESTING);
   if (keptWithoutCGFlag.size) {
     const n = keptWithoutCGFlag.size;
     notes.push(`${n} part${n === 1 ? ' states' : 's state'} a measured mass or balance point that the `

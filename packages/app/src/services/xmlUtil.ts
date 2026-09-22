@@ -194,6 +194,24 @@ export const TOO_MANY_FIN_POINTS =
   `It has more than ${MAX_FIN_POINTS.toLocaleString('en-US')} points, the most this app reads.`;
 
 /**
+ * The deepest a design file's components may nest below their stage; both
+ * importers leave out anything deeper, with TOO_DEEP_NESTING as the note.
+ *
+ * Audit 2026-09-22: import took any depth the exporter could not give back —
+ * the .ork writer recurses AND indents per level, so depth 500 saved as
+ * 5.7 MB and 1,500 as 50 MB (after a 15.7 s import), and in a browser's
+ * smaller stack Save threw RangeError on the user's own design. Only .ork was
+ * capped at first; a .rkt 500 levels deep still imported whole (1.2 s) and
+ * saved as an 8.9 MB .ork, and at 1,500 levels its import overflowed the
+ * stack. The deepest real design in the corpus nests 5 levels.
+ */
+export const MAX_NESTING = 64;
+
+/** The note an importer adds when it left out components past MAX_NESTING. */
+export const TOO_DEEP_NESTING = `Components nested more than ${MAX_NESTING} levels deep were left out — `
+  + 'no real design nests that far, so the file is probably damaged or crafted.';
+
+/**
  * The rest of a fin-set note (after `Fin set "name": `) when an importer left
  * out `n` points it could not read as a pair of decimals. Both importers keep
  * the readable points and fly them, as both desktop importers do — each warns

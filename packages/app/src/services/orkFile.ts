@@ -5,7 +5,7 @@ import { shapeIsClippable, shapeParamDefault } from '../tree/shapeProfile.js';
 import { finOutlineProblem } from '../tree/finOutline.js';
 import { CLUSTER_POINTS } from '../tree/cluster.js';
 import { isConformal, shroudEnds } from '../tree/shroud.js';
-import { MAX_FIN_POINTS, TOO_MANY_FIN_POINTS, decodeXml, escapeXml, escapeXmlAttr, parseDecimal, unreadableFinPoints, xmlText as text } from './xmlUtil.js';
+import { MAX_FIN_POINTS, MAX_NESTING, TOO_DEEP_NESTING, TOO_MANY_FIN_POINTS, decodeXml, escapeXml, escapeXmlAttr, parseDecimal, unreadableFinPoints, xmlText as text } from './xmlUtil.js';
 import { unzipMember } from './zipMember.js';
 import { applyPresetLinks, type PendingPresetLink, type Preset } from './presets.js';
 import { OVERRIDE_INCLUDES_MOTOR } from './statedLaunchWeight.js';
@@ -938,12 +938,8 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   };
 
   // Components nest at most MAX_NESTING levels below their stage; deeper
-  // ones are left out, with a note. Audit 2026-09-22: import took any depth
-  // the exporter could not give back — it recurses AND indents per level, so
-  // depth 500 saved as 5.7 MB and 1,500 as 50 MB (after a 15.7 s import), and
-  // in a browser's smaller stack Save threw RangeError on the user's own
-  // design. The deepest real design in the corpus nests 5 levels.
-  const MAX_NESTING = 64;
+  // ones are left out, with a note (see MAX_NESTING; the .rkt importer caps
+  // the same way).
   let tooDeep = false;
   const convertChildren = (parentEl: Element, depth = 1): ComponentNode[] => {
     const out: ComponentNode[] = [];
@@ -1021,10 +1017,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   if (ignored.size) {
     notes.push(`Ignored unsupported components: ${[...ignored].join(', ')}.`);
   }
-  if (tooDeep) {
-    notes.push(`Components nested more than ${MAX_NESTING} levels deep were left out — no real design `
-      + 'nests that far, so the file is probably damaged or crafted.');
-  }
+  if (tooDeep) notes.push(TOO_DEEP_NESTING);
 
   // Say when a dimension was INFERRED. The user opened an archived file and got
   // a number nobody typed; without this note the only clue that anything was

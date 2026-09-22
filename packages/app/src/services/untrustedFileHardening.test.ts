@@ -1,8 +1,12 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
+import type { ComponentNode } from '@online-openrocket/engine';
+import { exportOrk } from './orkFile.js';
 import { importCdx1 } from './rasaeroFile.js';
 import { importRkt } from './rocksimFile.js';
-import { MAX_FIN_POINTS, TOO_MANY_FIN_POINTS, lookupTable, unreadableFinPoints } from './xmlUtil.js';
+import {
+  MAX_FIN_POINTS, MAX_NESTING, TOO_DEEP_NESTING, TOO_MANY_FIN_POINTS, lookupTable, unreadableFinPoints,
+} from './xmlUtil.js';
 
 /**
  * The three untrusted-input findings from the 2026-09-08 audit that were not
@@ -224,6 +228,58 @@ describe('a freeform fin outline is capped', () => {
     const out = importRkt(rktFin('60,0|50,30|10,30|0,0||0,0|'));
     expect(finOf(out)).toEqual([[0, 0], [0.01, 0.03], [0.05, 0.03], [0.06, 0]]);
     expect(out.notes.some((m) => m.startsWith('Fin set'))).toBe(false);
+  });
+});
+
+describe('.rkt component nesting is capped as .ork nesting is', () => {
+  // Review of audit 2026-09-22 row 236: only the .ork importer was capped, so
+  // a .rkt nested 500 deep imported whole (1.2 s), saved as an 8.9 MB .ork,
+  // and at 1,500 levels the import overflowed the stack.
+  /** A body tube carrying `n` inner tubes, each attached inside the last. */
+  const nested = (n: number): string => {
+    let parts = '';
+    for (let i = n; i > 0; i--) {
+      parts = `<BodyTube><Name>t${i}</Name><Len>10</Len><OD>20</OD><ID>19</ID>`
+        + `<AttachedParts>${parts}</AttachedParts></BodyTube>`;
+    }
+    return `<RockSimDocument><DesignInformation><RocketDesign><Name>t</Name>
+      <Stage3Parts><BodyTube><Name>b</Name><Len>300</Len><OD>24</OD>
+        <AttachedParts>${parts}</AttachedParts></BodyTube></Stage3Parts>
+      </RocketDesign></DesignInformation></RockSimDocument>`;
+  };
+  const depth = (ns: ComponentNode[], k = 0): number =>
+    ns.reduce((m, n) => Math.max(m, depth(n.children ?? [], k + 1)), k);
+
+  it('keeps a design exactly MAX_NESTING levels deep whole, with no note', () => {
+    const r = importRkt(nested(MAX_NESTING - 1)); // the body tube is level 1
+    expect(depth(r.tree.components)).toBe(MAX_NESTING + 1); // the stage, then 64 levels
+    expect(r.notes).not.toContain(TOO_DEEP_NESTING);
+  });
+
+  it('leaves out what is deeper, says so, and can save what it kept', () => {
+    const t0 = performance.now();
+    const r = importRkt(nested(500));
+    const ms = performance.now() - t0;
+    expect(depth(r.tree.components)).toBe(MAX_NESTING + 1);
+    expect(r.notes).toContain(TOO_DEEP_NESTING);
+    expect(ms, `import took ${ms.toFixed(0)} ms`).toBeLessThan(1000);
+    expect(exportOrk({ name: 'Deep', tree: r.tree }).length).toBeLessThan(500_000);
+  });
+
+  it('counts a pod as a level too', () => {
+    // A pod's chain is converted without AttachedParts, so a counter kept only
+    // there would let pod-in-tube-in-pod nest twice as deep as the cap.
+    let parts = '';
+    for (let i = 0; i < 100; i++) {
+      parts = `<ExternalPod><Name>p${i}</Name><BodyTube><Name>b${i}</Name><Len>10</Len><OD>20</OD>`
+        + `<AttachedParts>${parts}</AttachedParts></BodyTube></ExternalPod>`;
+    }
+    const r = importRkt(`<RockSimDocument><DesignInformation><RocketDesign><Name>t</Name>
+      <Stage3Parts><BodyTube><Name>b</Name><Len>300</Len><OD>24</OD>
+        <AttachedParts>${parts}</AttachedParts></BodyTube></Stage3Parts>
+      </RocketDesign></DesignInformation></RockSimDocument>`);
+    expect(depth(r.tree.components)).toBe(MAX_NESTING + 1);
+    expect(r.notes).toContain(TOO_DEEP_NESTING);
   });
 });
 
