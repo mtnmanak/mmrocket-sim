@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
@@ -10,6 +10,9 @@ import { ROLL_COL } from './RollControl.js';
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const CHIP_KEY = 'online-openrocket.chip.v1';
+
+/** A primary mouse pointer's left button. */
+const LEFT = { pointerId: 1, isPrimary: true, button: 0 };
 
 const INFO = {
   length: 0.37, refDiameter: 0.024, mass: 0.0513, massEmpty: 0.0273,
@@ -91,12 +94,15 @@ describe('StatsChip — the floating readout', () => {
 
   it('dragging moves the chip and persists where it landed', () => {
     mount();
+    // A mouse press as a browser sends it: pointer 1, primary, left button.
+    // (PointerEventInit defaults isPrimary to false, which no mouse sends —
+    // and which the chip now refuses, as it must refuse a second finger.)
     act(() => {
-      chip().dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: 20, clientY: 20 }));
+      chip().dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, ...LEFT, buttons: 1, clientX: 20, clientY: 20 }));
     });
     act(() => {
-      window.dispatchEvent(new PointerEvent('pointermove', { clientX: 140, clientY: 90 }));
-      window.dispatchEvent(new PointerEvent('pointerup', { clientX: 140, clientY: 90 }));
+      window.dispatchEvent(new PointerEvent('pointermove', { ...LEFT, buttons: 1, clientX: 140, clientY: 90 }));
+      window.dispatchEvent(new PointerEvent('pointerup', { ...LEFT, buttons: 0, clientX: 140, clientY: 90 }));
     });
     const stored = JSON.parse(localStorage.getItem(CHIP_KEY)!) as { x: number; y: number };
     // happy-dom's zero-size layout clamps to the origin — the point pinned
@@ -159,6 +165,157 @@ describe('StatsChip — the floating readout', () => {
         .toContain('stats-chip-folded');
     });
 
+    it('a drag while the drawer has it folded does not save the fold as theirs', () => {
+      mount(false);
+      mount(true);
+      expect(chip().className).toContain('stats-chip-folded');
+      act(() => {
+        chip().dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, ...LEFT, buttons: 1, clientX: 20, clientY: 20 }));
+      });
+      act(() => {
+        window.dispatchEvent(new PointerEvent('pointermove', { ...LEFT, buttons: 1, clientX: 140, clientY: 90 }));
+        window.dispatchEvent(new PointerEvent('pointerup', { ...LEFT, buttons: 0, clientX: 140, clientY: 90 }));
+      });
+      expect(JSON.parse(localStorage.getItem(CHIP_KEY)!).folded).toBe(false);
+    });
+
+  });
+
+  /**
+   * Audit 2026-09-22: the drag started on ANY button (a macOS right-click then
+   * lost its release to the context menu and left the chip glued to the
+   * cursor), followed any pointer, and wrote transient positions back as the
+   * user's own.
+   */
+  describe('who may move it, and what gets remembered', () => {
+    const press = (init: PointerEventInit) => act(() => {
+      chip().dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: 20, clientY: 20, ...init }));
+    });
+    const onWindow = (type: string, init: PointerEventInit) => act(() => {
+      window.dispatchEvent(new PointerEvent(type, init));
+    });
+
+    it('a right-press does not pick the chip up', () => {
+      mount();
+      const before = chip().style.left;
+      press({ pointerId: 1, isPrimary: true, button: 2, buttons: 2 });
+      onWindow('pointermove', { pointerId: 1, isPrimary: true, buttons: 2, clientX: 140, clientY: 90 });
+      expect(chip().style.left).toBe(before);
+      expect(localStorage.getItem(CHIP_KEY)).toBeNull();
+    });
+
+    it('a second finger does not steer the first one\'s drag', () => {
+      mount();
+      press({ ...LEFT, buttons: 1 });
+      onWindow('pointermove', { pointerId: 2, isPrimary: false, buttons: 1, clientX: 400, clientY: 300 });
+      expect(chip().style.left).toBe(`${ROLL_COL + RULER_LEFT + 8}px`);
+      onWindow('pointerup', { pointerId: 2, isPrimary: false, buttons: 0, clientX: 400, clientY: 300 });
+      expect(localStorage.getItem(CHIP_KEY)).toBeNull();
+    });
+
+    it('a move with the button already up ends the drag instead of gluing the chip on', () => {
+      mount();
+      press({ ...LEFT, buttons: 1 });
+      onWindow('pointermove', { ...LEFT, buttons: 1, clientX: 60, clientY: 40 });
+      const dropped = chip().style.left;
+      onWindow('pointermove', { ...LEFT, buttons: 0, clientX: 300, clientY: 200 });
+      onWindow('pointermove', { ...LEFT, buttons: 0, clientX: 320, clientY: 220 });
+      expect(chip().style.left).toBe(dropped);
+      // It was a real drag, so where it was left is where the user put it.
+      expect(JSON.parse(localStorage.getItem(CHIP_KEY)!).x).toBe(Number.parseFloat(dropped));
+    });
+
+    it('a still click on the open chip is not a placement', () => {
+      mount();
+      press({ ...LEFT, buttons: 1 });
+      onWindow('pointerup', { ...LEFT, buttons: 0, clientX: 20, clientY: 20 });
+      expect(localStorage.getItem(CHIP_KEY)).toBeNull();
+    });
+
+    /**
+     * A real layout, which happy-dom does not do: a 400 x 670 stage with a
+     * 210 x 124 chip in it. The stage WIDTH is live so a test can widen it.
+     */
+    describe('against a narrow window', () => {
+      let stageW = 400;
+      beforeEach(() => {
+        stageW = 400;
+        Object.defineProperty(HTMLElement.prototype, 'offsetParent', {
+          configurable: true,
+          get(this: HTMLElement) { return this.classList.contains('stats-chip') ? host : null; },
+        });
+        Object.defineProperty(host, 'clientWidth', { configurable: true, get: () => stageW });
+        Object.defineProperty(host, 'clientHeight', { configurable: true, get: () => 670 });
+        vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(210);
+        vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(124);
+      });
+      afterEach(() => {
+        delete (HTMLElement.prototype as { offsetParent?: unknown }).offsetParent;
+        vi.restoreAllMocks();
+      });
+
+      it('shows a wide-window placement clamped, and the fold button does not save the clamp', () => {
+        localStorage.setItem(CHIP_KEY, JSON.stringify({ x: 600, y: 80, folded: false }));
+        mount();
+        expect(chip().style.left).toBe('190px'); // 400 - 210
+        act(() => { (host.querySelector('.stats-chip-fold') as HTMLButtonElement).click(); });
+        expect(JSON.parse(localStorage.getItem(CHIP_KEY)!)).toEqual({ x: 600, y: 80, folded: true });
+      });
+
+      it('goes back to where the user put it once the window is wide again', () => {
+        localStorage.setItem(CHIP_KEY, JSON.stringify({ x: 600, y: 80, folded: false }));
+        mount();
+        expect(chip().style.left).toBe('190px');
+        stageW = 1041;
+        act(() => { window.dispatchEvent(new Event('resize')); });
+        expect(chip().style.left).toBe('600px');
+      });
+
+      it('a still click on the clamped chip does not save the clamp either', () => {
+        localStorage.setItem(CHIP_KEY, JSON.stringify({ x: 600, y: 80, folded: true }));
+        mount();
+        press({ ...LEFT, buttons: 1, clientX: 200, clientY: 90 });
+        onWindow('pointerup', { ...LEFT, buttons: 0, clientX: 200, clientY: 90 });
+        // The still click unfolds the pill — and that is ALL it records.
+        expect(JSON.parse(localStorage.getItem(CHIP_KEY)!)).toEqual({ x: 600, y: 80, folded: false });
+      });
+    });
+  });
+
+  /** Audit 2026-09-22: it could be repositioned only by pointer drag. */
+  describe('from the keyboard', () => {
+    const key = (k: string, shiftKey = false) => act(() => {
+      chip().dispatchEvent(new KeyboardEvent('keydown', { key: k, shiftKey, bubbles: true, cancelable: true }));
+    });
+
+    it('is a named tab stop', () => {
+      mount();
+      expect(chip().tabIndex).toBe(0);
+      expect(chip().getAttribute('aria-label')).toMatch(/arrow keys/i);
+    });
+
+    it('arrow keys move it 10 px, 50 with Shift, and it stays where it was put', () => {
+      localStorage.setItem(CHIP_KEY, JSON.stringify({ x: 100, y: 100, folded: false }));
+      mount();
+      key('ArrowRight');
+      expect(chip().style.left).toBe('110px');
+      key('ArrowDown', true);
+      expect(chip().style.top).toBe('150px');
+      key('ArrowLeft');
+      key('ArrowUp');
+      expect([chip().style.left, chip().style.top]).toEqual(['100px', '140px']);
+      expect(JSON.parse(localStorage.getItem(CHIP_KEY)!)).toEqual({ x: 100, y: 140, folded: false });
+    });
+
+    it('leaves the fold button\'s own keys alone', () => {
+      localStorage.setItem(CHIP_KEY, JSON.stringify({ x: 100, y: 100, folded: false }));
+      mount();
+      act(() => {
+        host.querySelector('.stats-chip-fold')!
+          .dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+      });
+      expect(chip().style.left).toBe('100px');
+    });
   });
 });
 

@@ -271,8 +271,19 @@ export function StatsChip({ info, drawerOpen = false, tight = false }: {
   const dragCleanup = useRef<(() => void) | null>(null);
   useEffect(() => () => dragCleanup.current?.(), []);
 
+  /**
+   * Where the USER put the chip, and whether they folded it — exactly what
+   * storage holds. `chip` is what is DRAWN, and it is often not this: the
+   * reclamp below pulls it inside a narrow window, and the drawer folds it.
+   * Only deliberate acts write here (a drop, the fold button, the arrow keys),
+   * and each writes only what it changed. It used to be one state for both, so
+   * the fold button persisted `{ ...chip, folded }` — a window-resize clamp,
+   * or the drawer's automatic fold on a drag, saved as the user's own choice
+   * (audit 2026-09-22).
+   */
+  const placed = useRef(chip);
   const persist = (next: { x: number; y: number; folded: boolean }) => {
-    setChip(next);
+    placed.current = next;
     try { localStorage.setItem(CHIP_KEY, JSON.stringify(next)); } catch { /* ignore */ }
   };
 
@@ -306,12 +317,15 @@ export function StatsChip({ info, drawerOpen = false, tight = false }: {
   // narrow one — outside the overflow:hidden stage, invisible, with no reset
   // control to get it back. Clamping the rendered position without rewriting
   // storage means the chip reappears here now and still returns to where the
-  // user put it once the window is wide again.
+  // user put it once the window is wide again — clamped FROM their placement,
+  // not from the last drawn position, or it only ever came back after a
+  // reload. Mid-drag the pointer owns the position, so it is left alone.
   useLayoutEffect(() => {
     const host = ref.current?.offsetParent as HTMLElement | null;
     if (!host) return;
     const reclamp = () => setChip((c) => {
-      const { x, y } = clamp(c.x, c.y);
+      const from = dragFrom.current ? c : placed.current;
+      const { x, y } = clamp(from.x, from.y);
       return x === c.x && y === c.y ? c : { ...c, x, y };
     });
     reclamp();
@@ -369,15 +383,29 @@ export function StatsChip({ info, drawerOpen = false, tight = false }: {
 
   const onPointerDown = (e: React.PointerEvent) => {
     if ((e.target as HTMLElement).closest('button')) return;
+    // The primary button of the primary pointer, and one drag at a time (audit
+    // 2026-09-22). Any button used to pick the chip up: a macOS right-click
+    // then lost its release to the context menu and left the chip glued to the
+    // cursor. And the window listeners below heard EVERY pointer, so a second
+    // finger anywhere on the page steered the first one's drag.
+    if (e.button !== 0 || !e.isPrimary || dragFrom.current) return;
     const el = ref.current;
     if (!el) return;
     e.preventDefault();
+    const pointerId = e.pointerId;
     const start = { dx: e.clientX - chip.x, dy: e.clientY - chip.y, moved: false };
     dragFrom.current = start;
+    // Where the last move drew it — the drop point for a release never heard.
+    let last = { x: chip.x, y: chip.y };
     const onMove = (ev: PointerEvent) => {
-      if (!dragFrom.current) return;
+      if (ev.pointerId !== pointerId || !dragFrom.current) return;
+      // Button already up: the release happened where these listeners could
+      // not hear it (outside the window, or into a ctrl-click's menu). Drop the
+      // chip where it was, rather than letting it follow a bare pointer.
+      if ((ev.buttons & 1) === 0) { drop(last.x, last.y); return; }
       const { x, y } = clamp(ev.clientX - start.dx, ev.clientY - start.dy);
       if (Math.abs(x - chip.x) + Math.abs(y - chip.y) > 3) dragFrom.current.moved = true;
+      last = { x, y };
       setChip((c) => ({ ...c, x, y }));
     };
     // ONE teardown, shared by pointerup and pointercancel (2026-09-08 audit).
@@ -392,19 +420,33 @@ export function StatsChip({ info, drawerOpen = false, tight = false }: {
       window.removeEventListener('pointercancel', onCancel);
       dragCleanup.current = null;
     };
-    const onUp = (ev: PointerEvent) => {
+    const drop = (x: number, y: number) => {
       detach();
       const from = dragFrom.current;
       dragFrom.current = null;
+      if (from && !from.moved) {
+        // A still click on the folded pill unfolds it — cheaper than aiming at
+        // the tiny fold button on a phone. A still click is not a PLACEMENT,
+        // though: the position it would record is only where the chip is
+        // drawn, which may be a narrow window's clamp of the user's own.
+        if (chip.folded) {
+          setChip((c) => ({ ...c, folded: false }));
+          persist({ ...placed.current, folded: false });
+        }
+        return;
+      }
+      setChip((c) => ({ ...c, x, y }));
+      persist({ ...placed.current, x, y });
+    };
+    const onUp = (ev: PointerEvent) => {
+      if (ev.pointerId !== pointerId) return;
       const { x, y } = clamp(ev.clientX - start.dx, ev.clientY - start.dy);
-      // A still click on the folded pill unfolds it — cheaper than aiming at
-      // the tiny fold button on a phone.
-      if (from && !from.moved && chip.folded) persist({ x, y, folded: false });
-      else persist({ ...chip, x, y });
+      drop(x, y);
     };
     // A CANCELLED gesture is not a drop: the chip keeps wherever the last move
     // put it, and nothing is persisted as a deliberate placement.
-    const onCancel = () => {
+    const onCancel = (ev: PointerEvent) => {
+      if (ev.pointerId !== pointerId) return;
       detach();
       dragFrom.current = null;
     };
@@ -412,6 +454,26 @@ export function StatsChip({ info, drawerOpen = false, tight = false }: {
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
     window.addEventListener('pointercancel', onCancel);
+  };
+
+  /**
+   * Arrow keys move the focused chip — 10 px a press, 50 with Shift (audit
+   * 2026-09-22: it could be repositioned only by pointer drag). Only when the
+   * chip ITSELF has focus, so the fold button inside keeps its own keys. A
+   * keyed move is a deliberate placement, so it is remembered like a drop.
+   */
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (e.target !== e.currentTarget) return;
+    const step = e.shiftKey ? 50 : 10;
+    const move: Record<string, [number, number]> = {
+      ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step],
+    };
+    const d = move[e.key];
+    if (!d) return;
+    e.preventDefault();
+    const { x, y } = clamp(chip.x + d[0], chip.y + d[1]);
+    setChip((c) => ({ ...c, x, y }));
+    persist({ ...placed.current, x, y });
   };
 
   const row = (label: string, value: string, cls2?: string) => (
@@ -427,13 +489,23 @@ export function StatsChip({ info, drawerOpen = false, tight = false }: {
       className={`stats-chip${chip.folded ? ' stats-chip-folded' : ''}`}
       style={{ left: chip.x, top: chip.y }}
       onPointerDown={onPointerDown}
-      title="Drag to move this readout anywhere on the canvas"
+      onKeyDown={onKeyDown}
+      tabIndex={0}
+      role="group"
+      aria-label="Design stats readout. Arrow keys move it."
+      title="Drag to move this readout anywhere on the canvas, or focus it and use the arrow keys"
     >
       <button
         className="stats-chip-fold"
         aria-label={chip.folded ? 'Expand the stats readout' : 'Collapse the stats readout to one line'}
         title={chip.folded ? 'Expand' : 'Collapse to one line'}
-        onClick={() => persist({ ...chip, folded: !chip.folded })}
+        onClick={() => {
+          // The fold is the only thing this changes — the position stored is
+          // the user's own, not wherever a narrow window has clamped it to.
+          const folded = !chip.folded;
+          setChip((c) => ({ ...c, folded }));
+          persist({ ...placed.current, folded });
+        }}
       >
         {chip.folded ? '▸' : '▾'}
       </button>
