@@ -172,8 +172,9 @@ export function NumField({
     // a blank Cd override ("auto") committed 0.05 and ▾ committed 0, either
     // one replacing the component's whole computed drag; the launch time step
     // ("standard", i.e. 0.05 s) committed its 0.01 s floor, making every
-    // simulation 3.7-6.0x slower to run; ▴ on a plugged motor's delay committed a 1 s ejection; and a
-    // mass override with no computed mass to show committed 0.1 g.
+    // simulation 3.7-6.0x slower to run; ▴ on a plugged motor's delay
+    // committed a 1 s ejection; and a mass override with no computed mass to
+    // show committed 0.1 g.
     if (base === undefined) {
       if (!focused) inputRef.current?.focus();
       return;
