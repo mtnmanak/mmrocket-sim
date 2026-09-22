@@ -1694,10 +1694,39 @@ export function inheritDefaults(
   return out;
 }
 
-/** True if the tree contains a separating parallel stage (booster) anywhere. */
+/**
+ * True if the tree contains a parallel stage (strap-on booster) anywhere,
+ * separating OR NOT. For "does anything drop away sideways", which is what a
+ * refusal about separation has to ask, use `hasSeparatingParallelStage`.
+ */
 export function hasParallelStage(tree: RocketTree): boolean {
   const scan = (nodes: ComponentNode[]): boolean =>
     nodes.some((n) => n.type === 'parallelstage' || scan(n.children ?? []));
+  return scan(tree.components);
+}
+
+/**
+ * Does this node come off the rocket sideways — a parallel stage whose
+ * separation trigger is anything but Never? Absent is `'ejection'`, the
+ * kernel's default (`StageSeparationConfiguration`), exactly as for a serial
+ * stage. A strap-on on Never stays bolted on for the whole flight — the kernel
+ * flies no branch for it — so it is structure, like a pod set.
+ */
+export function isSeparatingParallelStage(n: ComponentNode): boolean {
+  if (n.type !== 'parallelstage') return false;
+  const ev = n['separationEvent'];
+  return (typeof ev === 'string' ? ev : 'ejection') !== 'never';
+}
+
+/**
+ * True if the tree contains a parallel stage that actually separates
+ * (`isSeparatingParallelStage`) anywhere. `hasParallelStage` counted a strap-on
+ * set to Never too, so the recovery weight refused such a design with "strap-on
+ * boosters separate" — a reason that was false for it (audit 2026-09-22).
+ */
+export function hasSeparatingParallelStage(tree: RocketTree): boolean {
+  const scan = (nodes: ComponentNode[]): boolean =>
+    nodes.some((n) => isSeparatingParallelStage(n) || scan(n.children ?? []));
   return scan(tree.components);
 }
 

@@ -4,7 +4,10 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, IgnitionEvent, MotorSpec, RocketTree } from '@online-openrocket/engine';
-import { engineTree, motorMounts, stageIndexOf, stages } from '../tree/treeModel.js';
+import {
+  engineTree, hasParallelStage, hasSeparatingParallelStage, isSeparatingParallelStage, motorMounts, stageIndexOf,
+  stages,
+} from '../tree/treeModel.js';
 import { importOrk } from './orkFile.js';
 import { importCdx1 } from './rasaeroFile.js';
 import {
@@ -309,6 +312,95 @@ describe('recovery weight — a motor that never lights', () => {
     for (const event of ['automatic', 'launch', 'burnout', 'ejectioncharge'] as const) {
       const { info, answer } = await onKernel(singleStage(), { m1: C6() }, { m1: event });
       expect(answer.state === 'ok' && answer.mass, event).toBeCloseTo(info.mass - PROPELLANT, 12);
+    }
+  });
+});
+
+/**
+ * A STRAP-ON ON NEVER IS STRUCTURE (audit 2026-09-22). `hasParallelStage`
+ * counted it as separating, so the recovery weight was refused with "strap-on
+ * boosters separate" — false for a booster that never leaves. It stays bolted
+ * on, the kernel flies no branch for it, and it comes down with the core like
+ * a pod set. Every case is checked against the kernel's own landing mass.
+ */
+describe('recovery weight — a strap-on that never separates', () => {
+  const strapOn = (over: Partial<ComponentNode>, withMotor: boolean): ComponentNode => ({
+    type: 'parallelstage', id: 'ps1', name: 'Strap-on', instanceCount: 2,
+    radiusOffset: 0, radiusMethod: 'relative', angleOffset: 0, position: { method: 'bottom', offset: 0 },
+    ...over,
+    children: [
+      { type: 'nosecone', id: 'pn', length: 0.05, aftRadius: 0.012, thickness: 0.002 } as ComponentNode,
+      {
+        type: 'bodytube', id: 'pb1', length: 0.25, outerRadius: 0.012, thickness: 0.0005, density: 950,
+        children: withMotor ? [{
+          type: 'innertube', id: 'pm', length: 0.08, outerRadius: 0.0095, thickness: 0.0005,
+          motorMount: true, position: { method: 'bottom', offset: 0 },
+        } as ComponentNode] : [],
+      } as ComponentNode,
+    ],
+  } as ComponentNode);
+  /** `singleStage` with a ring of strap-ons, and fins big enough to fly three C6s straight. */
+  const withRing = (over: Partial<ComponentNode>, withMotor: boolean, pod = false): RocketTree => {
+    const t = singleStage();
+    const body = t.components[0]!.children![1]!;
+    Object.assign(body.children![0]!, { rootChord: 0.1, tipChord: 0.05, sweep: 0.05, height: 0.08 });
+    const ring = strapOn(over, withMotor);
+    body.children!.push(pod ? ({ ...ring, type: 'podset', name: 'Pods' } as ComponentNode) : ring);
+    return t;
+  };
+  const landing = async (rocket: Awaited<ReturnType<typeof onKernel>>['rocket']) => {
+    const { DEFAULT_CONDITIONS, kernelSimOptions } = await import('../components/LaunchPanel.js');
+    const flight = rocket.simulate(kernelSimOptions(DEFAULT_CONDITIONS));
+    expect(flight.events.map((e) => e.type)).toContain('GROUND_HIT');
+    return flight.series.mass[flight.series.mass.length - 1]!;
+  };
+
+  it('tells a strap-on on Never from one that leaves', () => {
+    const never = withRing({ separationEvent: 'never' }, false);
+    expect(hasParallelStage(never)).toBe(true);
+    expect(hasSeparatingParallelStage(never)).toBe(false);
+    // Absent is the kernel's default, ejection — it separates.
+    expect(hasSeparatingParallelStage(withRing({}, false))).toBe(true);
+    for (const ev of ['ejection', 'burnout', 'launch', 'apogee', 'altitude']) {
+      expect(isSeparatingParallelStage(strapOn({ separationEvent: ev }, false)), ev).toBe(true);
+    }
+    // Only a parallel stage separates sideways; a pod set never does.
+    expect(isSeparatingParallelStage({ type: 'podset' } as ComponentNode)).toBe(false);
+  });
+
+  it('weighs a design whose strap-ons never leave — what the flight lands with', async () => {
+    const { rocket, info, answer } = await onKernel(withRing({ separationEvent: 'never' }, false), { m1: C6() });
+    expect(answer.state).toBe('ok');
+    if (answer.state !== 'ok') return;
+    expect(answer.mass).toBeCloseTo(info.mass - PROPELLANT, 12);
+    expect(answer.mass).toBeCloseTo(await landing(rocket), 9);
+  });
+
+  it('subtracts the propellant of EVERY strap-on instance — the count the kernel flies', async () => {
+    // One C6 in the core, one in each of two strap-ons: three burn. Counting
+    // the strap-on mount by its cluster alone subtracted two, reading 161.5 g
+    // for a rocket that lands at 149.5 g.
+    const { rocket, info, answer } = await onKernel(
+      withRing({ separationEvent: 'never' }, true), { m1: C6(), pm: C6() });
+    expect(answer.state).toBe('ok');
+    if (answer.state !== 'ok') return;
+    expect(info.mass - info.massEmpty).toBeCloseTo(3 * 0.021, 12);
+    expect(answer.mass).toBeCloseTo(info.mass - 3 * PROPELLANT, 12);
+    expect(answer.mass).toBeCloseTo(await landing(rocket), 9);
+  });
+
+  it('counts a pod set’s motors the same way', async () => {
+    const { rocket, info, answer } = await onKernel(withRing({}, true, true), { m1: C6(), pm: C6() });
+    expect(answer.state === 'ok' && answer.mass).toBeCloseTo(info.mass - 3 * PROPELLANT, 12);
+    expect(answer.state === 'ok' && answer.mass).toBeCloseTo(await landing(rocket), 9);
+  });
+
+  it('still refuses a strap-on that leaves, whatever its trigger', async () => {
+    for (const separationEvent of [undefined, 'burnout']) {
+      const over = separationEvent ? { separationEvent } : {};
+      const { answer } = await onKernel(withRing(over, false), { m1: C6() });
+      expect(answer.state).toBe('unavailable');
+      expect(answer.state === 'unavailable' && answer.reason).toMatch(/strap-on boosters separate/);
     }
   });
 });

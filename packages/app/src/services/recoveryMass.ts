@@ -1,6 +1,5 @@
 import type { ComponentNode, IgnitionEvent, MotorSpec, RocketTree, StaticInfo } from '@online-openrocket/engine';
-import { clusterCount } from '../tree/cluster.js';
-import { findNode, hasParallelStage, stageIndexOf, stages } from '../tree/treeModel.js';
+import { hasSeparatingParallelStage, mountMotorCount, stageIndexOf, stages } from '../tree/treeModel.js';
 
 /**
  * RECOVERY WEIGHT — the mass that actually comes down under the recovery
@@ -23,9 +22,10 @@ import { findNode, hasParallelStage, stageIndexOf, stages } from '../tree/treeMo
  * every one of them through the real kernel):
  *
  *  - `StaticInfo.mass` is the LOADED mass and is cluster-aware: a 4-ring mount
- *    with one motor spec adds four motors' worth of mass. So the propellant we
- *    subtract has to be multiplied by the same cluster count, or the two halves
- *    of the subtraction disagree.
+ *    with one motor spec adds four motors' worth of mass — and so is every
+ *    enclosing pod set and strap-on, whose instances multiply it again. So the
+ *    propellant we subtract has to be multiplied by the same count
+ *    (`mountMotorCount`), or the two halves of the subtraction disagree.
  *  - `componentInfo(stageId).mass` is exactly 0 — a stage carries no mass of
  *    its own — but `componentInfo(stageId).sectionMass` is the stage's whole
  *    DRY subtree, motors excluded, and the per-stage sectionMasses sum to
@@ -228,7 +228,12 @@ export type RecoveryByStage =
  * Separating strap-on boosters (`parallelstage`) are refused rather than
  * guessed: they live INSIDE the sustainer stage's subtree, so no stage-level
  * mass can separate them out, and their instanceCount is counted once by
- * `sectionMass` and N times by `massEmpty`.
+ * `sectionMass` and N times by `massEmpty`. A strap-on set to separate NEVER is
+ * not refused: it comes down bolted on, so it is structure like a pod set and
+ * the arithmetic below already weighs it — measured through the kernel, a ring
+ * of two such strap-ons with a C6 in each (and one in the core) lands at
+ * 149.5 g, which is what this returns. It used to be refused with "strap-on
+ * boosters separate", which was false for it (audit 2026-09-22).
  */
 export function recoveryMassByStage(input: RecoveryMassInput): RecoveryByStage {
   const { tree, info, motors, sectionMass } = input;
@@ -237,18 +242,26 @@ export function recoveryMassByStage(input: RecoveryMassInput): RecoveryByStage {
     return { state: 'unavailable', reason: 'the design has no mass yet' };
   }
 
-  if (hasParallelStage(tree)) {
+  if (hasSeparatingParallelStage(tree)) {
     // A strap-on drops away like a booster stage but is modelled as a child of
     // the sustainer's airframe, so it is inside every stage-level mass here.
+    // One on Never does not drop away, so it does not stop the answer.
     return {
       state: 'unavailable',
       reason: 'strap-on boosters separate — the app cannot yet say what stays with the sustainer',
     };
   }
 
-  /** Motors on this mount: the cluster count the rest of the app reads. */
-  const countAt = (mountId: string): number =>
-    clusterCount(findNode(tree, mountId)?.['cluster'] as string | undefined);
+  /**
+   * Motors the kernel flies on this mount: its cluster count times every
+   * enclosing pod set's and strap-on's instance count (`mountMotorCount`) —
+   * the multiplicity `info.mass` carries. The cluster alone under-subtracted a
+   * motor inside a ring of never-separating strap-ons, the case the refusal
+   * above now lets through: measured, a two-instance ring read 161.5 g where
+   * the flight lands at 149.5 g (audit 2026-09-22; the same count row 351
+   * names for pod sets).
+   */
+  const countAt = (mountId: string): number => mountMotorCount(tree, mountId);
 
   const groups = recoveryGroups(tree);
   const label = (g: ComponentNode[]): Pick<StageRecovery, 'stageIds' | 'stageNames'> => ({
