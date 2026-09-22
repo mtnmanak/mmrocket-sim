@@ -10,7 +10,7 @@
  * isWatertight()/solidVolume() exist so tests can prove it.
  */
 import type { ComponentNode } from '@online-openrocket/engine';
-import { num } from './nodeNum.js';
+import { num, numOpt } from './nodeNum.js';
 import { outerProfile } from './shapeProfile.js';
 import { tubeFinRadius } from './tubefins.js';
 import { finRootChord, finTabSpan } from './finTab.js';
@@ -23,7 +23,11 @@ export interface SolidMesh {
 }
 
 export interface SolidContext {
-  /** inner radius of the parent tube (m) — outer radius for bulkhead/centering ring/coupler */
+  /**
+   * the bore the part sits in (m), resolved by tree/solidContext.ts — the outer
+   * radius of a bulkhead/centering ring/coupler/engine block that states none
+   * of its own (ringOuterRadius)
+   */
   parentInnerRadius?: number;
   /** outer radius of the motor-mount inner tube (m) — centering ring bore */
   mountOuterRadius?: number;
@@ -34,7 +38,11 @@ export interface SolidContext {
 const EPS = 1e-9;
 /** Curve samples for nose/transition profiles — keeps revolve volume well inside 1%. */
 const PROFILE_STEPS = 64;
-/** Fallback radius when the context can't size a part (matches the app's 3D-view default). */
+/**
+ * Fallback radius when nothing can size a part (matches the app's 3D-view
+ * default). A ring-type part that lands on it is labelled "(assumed size)" —
+ * see ringOuterRadius.
+ */
 const FALLBACK_RADIUS = 0.012;
 
 
@@ -477,6 +485,36 @@ export interface PrintableLoop {
   bodySpan: [number, number];
   /** nominal wall thickness as authored (m) */
   wall: number;
+  /**
+   * The part's OUTER diameter is a placeholder, not a measurement: nothing
+   * stated it and the context could not resolve the bore it sits in (see
+   * ringOuterRadius). The label says "(assumed size)" and printOffer puts a
+   * warning under the 🖨 button.
+   */
+  sizeAssumed?: boolean;
+}
+
+/**
+ * The outer radius (m) a ring-type part — coupler, engine block, centering
+ * ring, bulkhead — is printed or cut at, and whether it had to be ASSUMED.
+ * Shared by componentLoop and the DXF writer, so the printed and the machined
+ * version of one part cannot come out different sizes.
+ *
+ * In the kernel's order (audit 2026-09-22): the part's OWN outer radius when
+ * it states one — a catalogue part, and every RockSim ring, carries its OD, and
+ * the kernel bridge flies that radius — then the bore it sits in
+ * (tree/solidContext.ts resolves it the way the kernel resolves an automatic
+ * radius). Only when neither exists does it fall back to FALLBACK_RADIUS, and
+ * then it SAYS so. It used to take the bore alone and fall back silently: a
+ * bulkhead in a coupler from the Add menu exported as a 24.0 mm disc labelled
+ * plainly "Bulkhead" whatever the airframe diameter.
+ */
+export function ringOuterRadius(node: ComponentNode, ctx: SolidContext): { r: number; assumed: boolean } {
+  const own = numOpt(node, 'outerRadius');
+  if (own !== undefined && own > EPS) return { r: own, assumed: false };
+  const bore = ctx.parentInnerRadius;
+  if (bore !== undefined && Number.isFinite(bore) && bore > EPS) return { r: bore, assumed: false };
+  return { r: FALLBACK_RADIUS, assumed: true };
 }
 
 /**
@@ -540,26 +578,41 @@ export function componentLoop(
     }
     case 'tubecoupler':
     case 'engineblock': {
-      const R = ctx.parentInnerRadius && ctx.parentInnerRadius > 0 ? ctx.parentInnerRadius : FALLBACK_RADIUS;
+      const { r: R, assumed } = ringOuterRadius(node, ctx);
       const wall = num(node, 'thickness', 0.001);
       const L = num(node, 'length', 0.05);
-      const label = node.type === 'tubecoupler' ? 'Tube coupler' : 'Engine block';
-      return { loop: ringLoop(R, R - wall, L), label, bodySpan: [0, L], wall };
+      const label = (node.type === 'tubecoupler' ? 'Tube coupler' : 'Engine block')
+        + (assumed ? ' (assumed size)' : '');
+      return {
+        loop: ringLoop(R, R - wall, L), label, bodySpan: [0, L], wall,
+        ...(assumed ? { sizeAssumed: true } : {}),
+      };
     }
     case 'centeringring': {
-      const R = ctx.parentInnerRadius && ctx.parentInnerRadius > 0 ? ctx.parentInnerRadius : FALLBACK_RADIUS;
+      const { r: R, assumed } = ringOuterRadius(node, ctx);
       const L = num(node, 'length', 0.003);
       const bore = ctx.mountOuterRadius;
+      const size = assumed ? { sizeAssumed: true } : {};
       if (typeof bore === 'number' && bore > EPS && bore < R - EPS) {
-        return { loop: ringLoop(R, bore, L), label: 'Centering ring', bodySpan: [0, L], wall: R - bore };
+        return {
+          loop: ringLoop(R, bore, L), label: `Centering ring${assumed ? ' (assumed size)' : ''}`,
+          bodySpan: [0, L], wall: R - bore, ...size,
+        };
       }
       // No bore is a bulkhead, not a ring — assume a half-radius bore and say so.
-      return { loop: ringLoop(R, R * 0.5, L), label: 'Centering ring (assumed bore)', bodySpan: [0, L], wall: R * 0.5 };
+      return {
+        loop: ringLoop(R, R * 0.5, L),
+        label: assumed ? 'Centering ring (assumed size and bore)' : 'Centering ring (assumed bore)',
+        bodySpan: [0, L], wall: R * 0.5, ...size,
+      };
     }
     case 'bulkhead': {
-      const R = ctx.parentInnerRadius && ctx.parentInnerRadius > 0 ? ctx.parentInnerRadius : FALLBACK_RADIUS;
+      const { r: R, assumed } = ringOuterRadius(node, ctx);
       const L = num(node, 'length', 0.003);
-      return { loop: ringLoop(R, 0, L), label: 'Bulkhead', bodySpan: [0, L], wall: R };
+      return {
+        loop: ringLoop(R, 0, L), label: assumed ? 'Bulkhead (assumed size)' : 'Bulkhead',
+        bodySpan: [0, L], wall: R, ...(assumed ? { sizeAssumed: true } : {}),
+      };
     }
     case 'tubefinset': {
       const r = tubeFinRadius(node, ctx.bodyRadius ?? FALLBACK_RADIUS);

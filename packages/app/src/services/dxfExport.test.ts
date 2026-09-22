@@ -497,10 +497,31 @@ describe('disc cut profiles', () => {
     }
   });
 
-  it('sizes to the shared fallback radius when the parent gives nothing', () => {
-    const radii = entities(parse(dxf(node('bulkhead'), {}))).filter((e) => e.type === 'CIRCLE')
-      .map((c) => real(c, 40));
-    expect(radii).toEqual([12]); // solidMesh's FALLBACK_RADIUS, in mm
+  it('sizes to the shared fallback radius when the parent gives nothing — and SAYS so', () => {
+    // It used to cut the 24 mm placeholder labelled plainly "Bulkhead"
+    // (audit 2026-09-22). The label, the filename stem and the TEXT layer now
+    // all carry the assumption, in the same words the STL's label uses.
+    for (const [type, label] of [
+      ['bulkhead', 'Bulkhead (assumed size)'],
+      ['tubecoupler', 'Tube coupler (assumed size)'],
+      ['engineblock', 'Engine block (assumed size)'],
+      ['centeringring', 'Centering ring (assumed size and bore)'],
+    ] as const) {
+      const out = componentDxf(node(type), {}, 'X')!;
+      expect(out.label, type).toBe(label);
+      const ents = entities(parse(out.text));
+      const radii = ents.filter((e) => e.type === 'CIRCLE').map((c) => real(c, 40));
+      expect(Math.max(...radii), type).toBe(12); // solidMesh's FALLBACK_RADIUS, in mm
+      expect(ents.filter((e) => e.type === 'TEXT').map((e) => first(e, 1)).join('\n'), type)
+        .toContain('OD ASSUMED: no tube found to size this part from');
+    }
+  });
+
+  it('a part stating its own OD is cut at it, as the kernel flies it', () => {
+    const out = componentDxf(node('bulkhead', { outerRadius: 0.02, length: 0.003 }), RING_CTX, 'X')!;
+    expect(out.label).toBe('Bulkhead');
+    const radii = entities(parse(out.text)).filter((e) => e.type === 'CIRCLE').map((c) => real(c, 40));
+    expect(radii).toEqual([20]);
   });
 });
 

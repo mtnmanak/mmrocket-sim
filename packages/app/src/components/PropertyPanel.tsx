@@ -25,7 +25,8 @@ const RESOLVE_SELECT: Record<string, (n: ComponentNode) => string | undefined> =
   fairingAftShape: (n) => shroudEnds(n).aft,
 };
 import { shapeParamDefault, shapeParamMax, shapeUsesParameter } from '../tree/shapeProfile.js';
-import { componentSolid, type SolidContext } from '../tree/solidMesh.js';
+import { componentSolid } from '../tree/solidMesh.js';
+import { solidContextFor } from '../tree/solidContext.js';
 import { componentDxf, DXF_CUTTABLE, DXF_MIME } from '../services/dxfExport.js';
 import { buildPrintPack, printOffer, SINGLE_BUTTON, ZIP_MIME } from '../services/printPack.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
@@ -216,13 +217,6 @@ const PRINTABLE = new Set([
 ]);
 
 /**
- * Parent-derived diameters, shared by the STL and DXF exports: rings,
- * bulkheads and couplers size to the parent tube's bore, and a centering
- * ring's own bore comes from the motor-mount tube it centers. Both exporters
- * must read the SAME context or the printed and the machined version of one
- * part would come out different sizes.
- */
-/**
  * "Use instead of everything inside" for one override, plus the notice that
  * says when an ANCESTOR'S flag is suppressing this one.
  *
@@ -301,23 +295,6 @@ function SubcomponentsToggle({ tree, node, quantity, valueKey, flagKey, onPatch 
   );
 }
 
-function solidContextFor(parent: ComponentNode | 'stage' | null): SolidContext {
-  const ctx: SolidContext = {};
-  if (parent && parent !== 'stage') {
-    const pOuter = typeof parent['outerRadius'] === 'number' ? (parent['outerRadius'] as number) : undefined;
-    const pThick = typeof parent['thickness'] === 'number' ? (parent['thickness'] as number) : 0.001;
-    if (pOuter !== undefined) {
-      ctx.parentInnerRadius = Math.max(0.0005, pOuter - pThick);
-      ctx.bodyRadius = pOuter;
-    }
-    const mount = (parent.children ?? []).find((c) => c.type === 'innertube');
-    if (mount && typeof mount['outerRadius'] === 'number') {
-      ctx.mountOuterRadius = mount['outerRadius'] as number;
-    }
-  }
-  return ctx;
-}
-
 /** Quick palette for the display color (the owner: basic colors one click away). */
 const COLOR_PRESETS = [
   '#ffffff', '#1c1c1c', '#e34948', '#f5871f', '#f2c230',
@@ -363,14 +340,16 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
    *
    * Memoised because it plans the split and clips the profile; cheap in
    * absolute terms, but this panel re-renders on every keystroke in the fields
-   * below and nothing here changes unless the node or the printer does.
+   * below and nothing here changes unless the node, the tree or the printer
+   * does — the tree, because a ring's size comes from the tube it sits in
+   * and that tube's own ancestors (tree/solidContext.ts).
    */
   const printer = prefs.printer;
   const offer = useMemo(
     () => (PRINTABLE.has(node.type)
-      ? printOffer(node, solidContextFor(parent), toPrinterVolume(printer), printerName(printer))
+      ? printOffer(node, solidContextFor(tree, node), toPrinterVolume(printer), printerName(printer))
       : null),
-    [node, parent, printer],
+    [tree, node, printer],
   );
 
   const lengthSym = prefs.units.length;
@@ -694,7 +673,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
         <button className="file-btn" style={{ marginTop: 6, width: '100%' }}
           title="Flat 1:1 cut profile as R12 DXF in millimetres — for laser/router/waterjet CAM and Fusion 360 sketch import. Fin sets export ONE fin as a single closed contour with the through-the-wall tab merged into it (airfoil shaping, cant and sweep-into-the-tube are NOT represented); rings, bulkheads and couplers take their diameters from the parent tube, and a centering ring's bore from the motor mount. Cut geometry is on the CUT layer only — REFERENCE (root chord, centre marks) and TEXT are guides; switch them off before cutting."
           onClick={() => {
-            const dxf = componentDxf(node, solidContextFor(parent), tree.name ?? 'Rocket');
+            const dxf = componentDxf(node, solidContextFor(tree, node), tree.name ?? 'Rocket');
             // Same reason as the STL button below: componentDxf returns null for
             // a planform that collapses under three distinct corners, and a
             // button that silently does nothing reads as a broken button.
@@ -731,7 +710,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
                 downloadBlob(new Blob([pack.bytes as BlobPart], { type: ZIP_MIME }),
                   pack.filename, 'ZIP of printable segments');
               } else {
-                const solid = await componentSolid(node, solidContextFor(parent));
+                const solid = await componentSolid(node, solidContextFor(tree, node));
                 // componentSolid now returns null for a fin whose planform is
                 // unusable as well as for a type that is not printable, and a
                 // button that silently does nothing reads as a broken button.

@@ -95,6 +95,21 @@ describe('printOffer — no printer configured (the compatibility guarantee)', (
       expect(o.note).toBeNull();
     }
   });
+
+  it('a ring part with no bore to size from warns that its diameter is a placeholder', () => {
+    // It used to print the 24 mm placeholder with nothing on screen to say so
+    // (audit 2026-09-22). Printer or not, the warning comes first.
+    for (const p of [null, H2D]) {
+      const o = printOffer(node('bulkhead', { length: 0.004 }), {}, p);
+      expect(o.kind).toBe('single');
+      expect(o.button).toBe(SINGLE_BUTTON);
+      expect(o.note).toBe('Diameter assumed: 24.0 mm is a placeholder — the app could not find the '
+        + 'tube this part sits in. Measure the bore before you print or cut it.');
+      expect(o.tone).toBe('warn');
+    }
+    // ...and a sized one says nothing, as before.
+    expect(printOffer(node('bulkhead', { length: 0.004 }), { parentInnerRadius: 0.0366 }, null).note).toBeNull();
+  });
 });
 
 describe('printOffer — printer set, part fits', () => {
