@@ -118,6 +118,28 @@ describe('flight runner — every motor write keeps its ignition', () => {
   });
 });
 
+/**
+ * reflyRun's own half of the delay contract. Launch now hands the handle back
+ * at the spec delay, so a re-fly would pass every other test here even if it
+ * went back to trusting the handle — writing the run's delay only when it
+ * differed from the spec's, as "Show charts" and the flight-data download did
+ * until the 2026-09-22 audit. These put a foreign delay on the handle FIRST,
+ * the way any path that forgets the protocol would leave one.
+ */
+describe('flight runner — a re-fly never trusts the delay it finds on the handle', () => {
+  it('flies the run’s delay even when it is the spec’s', () => {
+    const { handle, calls } = recordingHandle();
+    writeMountMotor(handle, 'sustainer', { ...SPEC, ejectionDelay: 7 }, { event: 'burnout', delay: 1 });
+    reflyRun(handle, {
+      ...staged(false), delayS: SPEC.ejectionDelay,
+      fly: { supersonic: false, kbf: false }, restore: { supersonic: false, kbf: false },
+    });
+    const beforeFlight = calls.slice(0, calls.findIndex((c) => c[0] === 'simulate'));
+    const flown = [...beforeFlight].reverse().find((c) => c[0] === 'motor' && c[1] === 'sustainer');
+    expect(flown, 'the re-fly flew the 7 s it found on the handle').toEqual(['motor', 'sustainer', 10]);
+  });
+});
+
 describe('flight runner — the shared handle is handed back', () => {
   it('a re-fly that throws still restores the model and the motor', () => {
     const { handle, calls } = recordingHandle({}, { throwOnSimulate: true });
@@ -194,6 +216,20 @@ describe('flight runner — a stored run re-flies at the delay it flew (real ker
       ...motors(true), delayS: runA.flownDelayS,
       simOptions: kernelSimOptions(DEFAULT_CONDITIONS), fly: classic, restore: classic,
     });
+    expect(refly.summary).toEqual(runA.result.summary);
+  }, 60_000);
+
+  it('a stored 9 s run re-flies at 9 s whatever delay the handle was left carrying', () => {
+    const runA = flyLaunch(rocket, motors(false));
+    // A foreign 7 s put on the handle directly — not by a Launch, whose own
+    // restore would hide a re-fly that trusts the handle.
+    const [mount, f39] = motors(false).assigned[0]!;
+    writeMountMotor(rocket, mount, { ...f39.spec, ejectionDelay: 7 }, f39.ignition);
+    const refly = reflyRun(rocket, {
+      ...motors(false), delayS: runA.flownDelayS,
+      simOptions: kernelSimOptions(DEFAULT_CONDITIONS), fly: classic, restore: classic,
+    });
+    expect(deployAt(refly, 9)).toBeCloseTo(18.14, 2);
     expect(refly.summary).toEqual(runA.result.summary);
   }, 60_000);
 
