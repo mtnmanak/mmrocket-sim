@@ -101,9 +101,49 @@ export function gradeBatchRun(run: SimRun, criteria: Criteria): string[] {
  * thousands of combinations, and drawing every row after every flight built a
  * DOM of ~200k nodes on a 25k-row sweep (audit 2026-09-22). The table shows
  * the best of them in the sweep's own order — accepted first, then by apogee —
- * and says how many it is not showing; the CSV and XLSX still carry every row.
+ * and says how many it is not showing; the CSV and XLSX still carry every
+ * flown row. See batchTableRows for the rows that could not be flown.
  */
 export const BATCH_TABLE_ROWS = 400;
+
+/**
+ * The rows the table draws, from the sorted list (flown rows first, then the
+ * ones that could not be flown): the best BATCH_TABLE_ROWS flown rows, then
+ * the rows that could not be flown, with an allowance of their own.
+ *
+ * Their own, because they sort last: a plain top-400 slice of a sweep with
+ * more than 400 flown rows dropped every one of them, and neither export
+ * carries them either — only a flown row has a run to export — so which
+ * motors failed, and why, was shown nowhere at all while the summary line
+ * still counted them (review of the row-512 cap, 2026-09-22). Capped all the
+ * same: a combination sweep turns each candidate that cannot be flown into a
+ * failed combination with every other candidate.
+ */
+export function batchTableRows<T extends { run?: unknown }>(
+  sorted: readonly T[],
+): { shown: T[]; flown: number; failed: number } {
+  const flown = sorted.filter((r) => r.run);
+  const failed = sorted.filter((r) => !r.run);
+  return {
+    shown: [...flown.slice(0, BATCH_TABLE_ROWS), ...failed.slice(0, BATCH_TABLE_ROWS)],
+    flown: flown.length,
+    failed: failed.length,
+  };
+}
+
+/** What the table says about the rows it leaves out, or null when it draws them all. */
+export function batchCapNote({ flown, failed }: { flown: number; failed: number }): string | null {
+  const said: string[] = [];
+  if (flown > BATCH_TABLE_ROWS) {
+    said.push(`Showing the top ${group(BATCH_TABLE_ROWS)} of ${group(flown)} flown rows — the CSV and `
+      + 'XLSX carry every one.');
+  }
+  if (failed > BATCH_TABLE_ROWS) {
+    said.push(`Listing the first ${group(BATCH_TABLE_ROWS)} of ${group(failed)} rows that could not be `
+      + 'flown, which neither export carries.');
+  }
+  return said.length > 0 ? said.join(' ') : null;
+}
 
 /**
  * Why batch simulation is unavailable, in words, or null when it is available.
@@ -451,8 +491,9 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
       if ((a.failed.length === 0) !== (b.failed.length === 0)) return a.failed.length === 0 ? -1 : 1;
       return b.run.maxAltitude - a.run.maxAltitude;
     }), [rows, criteria]);
-  /** The rows the table draws — every row still reaches the CSV and XLSX. */
-  const shown = sorted.length > BATCH_TABLE_ROWS ? sorted.slice(0, BATCH_TABLE_ROWS) : sorted;
+  /** The rows the table draws — every FLOWN row still reaches the CSV and XLSX. */
+  const table = useMemo(() => batchTableRows(sorted), [sorted]);
+  const capNote = batchCapNote(table);
 
   const downloadAs = (blob: Blob, ext: string) => {
     downloadBlob(blob, `batch-${safeName(rocketName)}.${ext}`,
@@ -810,11 +851,8 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
               + 'at apogee or altitude.'}
           </p>
         )}
-        {sorted.length > shown.length && (
-          <p className="comp-stats batch-cap" style={{ margin: '4px 0 0' }}>
-            {`Showing the top ${group(shown.length)} of ${group(sorted.length)} rows — the CSV and `
-              + 'XLSX carry every one.'}
-          </p>
+        {capNote && (
+          <p className="comp-stats batch-cap" style={{ margin: '4px 0 0' }}>{capNote}</p>
         )}
 
         {sorted.length > 0 && (
@@ -835,7 +873,7 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
                 {/* Keyed on the row's own identity (batchRowKey: configuration
                     plus the motor ids flown), never on its label or its sorted
                     position — see batchRowKey for what each of those broke. */}
-                {shown.map(({ key, entry, label, combo, run, error, failed, optimumForPlugged }) => (
+                {table.shown.map(({ key, entry, label, combo, run, error, failed, optimumForPlugged }) => (
                   <tr key={key} className={failed.length ? 'motor-row-long' : ''}>
                     <td>
                       {label}

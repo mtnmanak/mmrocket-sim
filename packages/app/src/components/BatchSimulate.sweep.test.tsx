@@ -7,7 +7,7 @@ import { PrefsProvider } from '../prefs/PrefsContext.js';
 import type { SimRun } from '../services/simReport.js';
 import { MOTOR_DB, MOTOR_DB_DATE, isAvailable, setCatalogueOverlay } from '../services/motorDb.js';
 import { DEFAULT_CONDITIONS } from './LaunchPanel.js';
-import { BATCH_TABLE_ROWS, BatchSimulate } from './BatchSimulate.js';
+import { BATCH_TABLE_ROWS, BatchSimulate, batchCapNote } from './BatchSimulate.js';
 import {
   runBatchSweep, type BatchMountOption, type BatchRow, type BatchSweepHooks,
 } from '../services/batchSweep.js';
@@ -57,6 +57,11 @@ const run = (id: string, motor: string, maxAltitude: number): SimRun => ({
 /** A sweep row; `label` may repeat between rows, `key` never does. */
 const row = (key: string, label: string, maxAltitude: number): BatchRow => ({
   key, label, combo: false, run: run(key, label, maxAltitude),
+  entry: { motorId: key, manufacturerAbbrev: 'Acme', designation: label } as BatchRow['entry'],
+});
+/** A row that could not be flown. */
+const failedRow = (key: string, label: string): BatchRow => ({
+  key, label, combo: false, error: 'no thrust curve',
   entry: { motorId: key, manufacturerAbbrev: 'Acme', designation: label } as BatchRow['entry'],
 });
 
@@ -292,7 +297,7 @@ describe('the table', () => {
    * flight, and a mixed-cluster sweep reaches tens of thousands of rows — a
    * DOM of ~200k nodes on a 25k-row sweep. The export is not capped.
    */
-  it(`draws the best ${BATCH_TABLE_ROWS} rows, says how many it leaves out, and exports every one`, async () => {
+  it(`draws the best ${BATCH_TABLE_ROWS} flown rows, says how many it leaves out, and exports every one`, async () => {
     const rows = Array.from({ length: BATCH_TABLE_ROWS + 50 }, (_, i) => row(`m${i}`, `Acme E${i}`, 100 + i));
     sweep.mockResolvedValue({ rows, stopped: false });
     mount();
@@ -301,11 +306,55 @@ describe('the table', () => {
     // The highest apogee first; the 50 lowest are the ones left off.
     expect(bodyRows()[0]!.textContent).toContain(`Acme E${BATCH_TABLE_ROWS + 49}`);
     expect(host.querySelector('.batch-cap')?.textContent)
-      .toBe(`Showing the top ${BATCH_TABLE_ROWS} of ${BATCH_TABLE_ROWS + 50} rows — the CSV and XLSX carry every one.`);
+      .toBe(`Showing the top ${BATCH_TABLE_ROWS} of ${BATCH_TABLE_ROWS + 50} flown rows — the CSV and XLSX carry every one.`);
     act(() => { buttons().find((b) => b.textContent === '⬇ CSV')!.click(); });
     const csv = await vi.mocked(downloadBlob).mock.calls[0]![0].text();
     // A header line, then one line per row — none of them capped away.
     expect(csv.trim().split('\n')).toHaveLength(BATCH_TABLE_ROWS + 51);
+  });
+
+  /**
+   * The rows that could not be flown sort LAST, so the first cut of the cap —
+   * the top 400 of everything — dropped every one of them from any sweep with
+   * more than 400 flown rows, and neither export carries them: which motors
+   * failed, and why, was nowhere while the summary still counted them (review
+   * of the cap, 2026-09-22). They get an allowance of their own.
+   */
+  it('still lists every row that could not be flown when the flown rows fill the cap', async () => {
+    const rows = [
+      ...Array.from({ length: BATCH_TABLE_ROWS + 50 }, (_, i) => row(`m${i}`, `Acme E${i}`, 100 + i)),
+      failedRow('x1', 'Acme F1'), failedRow('x2', 'Acme F2'), failedRow('x3', 'Acme F3'),
+    ];
+    sweep.mockResolvedValue({ rows, stopped: false });
+    mount();
+    await start();
+    expect(bodyRows()).toHaveLength(BATCH_TABLE_ROWS + 3);
+    expect(bodyRows().slice(-3).map((tr) => tr.querySelector('td:last-child')!.textContent))
+      .toEqual(['error: no thrust curve', 'error: no thrust curve', 'error: no thrust curve']);
+    expect(host.querySelector('.batch-finished')?.textContent).toContain('3 could not be flown');
+    // The note speaks only of the flown rows, which is what the exports carry.
+    expect(host.querySelector('.batch-cap')?.textContent)
+      .toBe(`Showing the top ${BATCH_TABLE_ROWS} of ${BATCH_TABLE_ROWS + 50} flown rows — the CSV and XLSX carry every one.`);
+  });
+
+  it('caps the rows that could not be flown as well, and says so', async () => {
+    const rows = [
+      row('a', 'Acme E20', 300),
+      ...Array.from({ length: BATCH_TABLE_ROWS + 5 }, (_, i) => failedRow(`x${i}`, `Acme F${i}`)),
+    ];
+    sweep.mockResolvedValue({ rows, stopped: false });
+    mount();
+    await start();
+    expect(bodyRows()).toHaveLength(BATCH_TABLE_ROWS + 1);
+    expect(host.querySelector('.batch-cap')?.textContent)
+      .toBe(`Listing the first ${BATCH_TABLE_ROWS} of ${BATCH_TABLE_ROWS + 5} rows that could not be flown, which neither export carries.`);
+  });
+
+  it('names both cuts when both are made, and nothing when neither is', () => {
+    expect(batchCapNote({ flown: 26796, failed: 3600 })).toBe(
+      'Showing the top 400 of 26,796 flown rows — the CSV and XLSX carry every one. '
+      + 'Listing the first 400 of 3,600 rows that could not be flown, which neither export carries.');
+    expect(batchCapNote({ flown: BATCH_TABLE_ROWS, failed: BATCH_TABLE_ROWS })).toBeNull();
   });
 
   it('says nothing about a cap it has not reached', async () => {
