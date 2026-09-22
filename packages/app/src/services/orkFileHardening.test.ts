@@ -265,6 +265,38 @@ describe('a long chain of automatic radii resolves in linear time', () => {
   });
 });
 
+describe('method attributes are written from their closed sets', () => {
+  it('writes the default, never raw text, for a method outside the set', () => {
+    // Audit 2026-09-22: `<axialoffset method>`, `<position type>` and
+    // `<tabposition relativeto>` interpolated the node's value unescaped.
+    // Unreachable through today's importers, which whitelist all three — this
+    // is the tree a future path that kept a file's value would hand over.
+    const EVIL = 'top"><evil x="';
+    const tree = {
+      name: 'M',
+      components: [{
+        type: 'stage', id: 's', name: 'S',
+        children: [{
+          type: 'bodytube', id: 'b', name: 'Tube', length: 0.3, outerRadius: 0.025, thickness: 0.001,
+          position: { method: EVIL, offset: 0.01 },
+          children: [{
+            type: 'trapezoidfinset', id: 'f', name: 'Fins', finCount: 3, rootChord: 0.05, tipChord: 0.03,
+            height: 0.04, sweepLength: 0.02, thickness: 0.003,
+            tabHeight: 0.01, tabLength: 0.02, tabOffset: 0, tabOffsetMethod: EVIL,
+          }],
+        }],
+      }] as unknown as ComponentNode[],
+    };
+    const xml = exportOrk({ name: 'M', tree });
+    expect(xml).not.toContain('<evil');
+    for (const [, v] of xml.matchAll(/<(?:axialoffset method|position type)="([^"]*)"/g)) {
+      expect(['top', 'middle', 'bottom', 'absolute']).toContain(v);
+    }
+    expect(xml).toContain('<tabposition relativeto="center">0</tabposition>');
+    expect(xml).toContain('<tabposition relativeto="middle">0</tabposition>');
+  });
+});
+
 describe('component nesting is capped at import', () => {
   // Audit 2026-09-22: import took any depth and the exporter could not give
   // it back — it recurses and indents per level, so depth 1,500 saved as

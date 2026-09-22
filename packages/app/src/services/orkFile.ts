@@ -1630,8 +1630,13 @@ export function exportOrk({
 
   const position = (depth: number, node: ComponentNode, dflt: ComponentPosition['method'] = 'top') => {
     const pos = (node.position ?? { method: dflt, offset: 0 }) as ComponentPosition;
-    emit(depth, `<axialoffset method="${pos.method}">${pos.offset}</axialoffset>`);
-    emit(depth, `<position type="${pos.method}">${pos.offset}</position>`);
+    // Mapped through the closed set AT THE EMIT, like radiusoffset/angleoffset
+    // below, not trusted because today's importers whitelist it: a future path
+    // that kept a file-sourced method would write it raw into an attribute —
+    // one `"` and the saved file is broken (audit 2026-09-22).
+    const method = AXIAL_METHODS.includes(pos.method) ? pos.method : dflt;
+    emit(depth, `<axialoffset method="${method}">${pos.offset}</axialoffset>`);
+    emit(depth, `<position type="${method}">${pos.offset}</position>`);
   };
 
   const header = (depth: number, node: ComponentNode, fallback: string) => {
@@ -1771,8 +1776,10 @@ export function exportOrk({
     const h = n(node, 'tabHeight', 0);
     const len = n(node, 'tabLength', 0);
     if (h <= 0 || len <= 0) return;
-    const method = typeof node['tabOffsetMethod'] === 'string'
-      ? (node['tabOffsetMethod'] as string) : 'middle';
+    // The closed set the editor offers, mapped at the emit as position() does
+    // — anything else is the default, never raw text in an attribute.
+    const m = node['tabOffsetMethod'];
+    const method = m === 'top' || m === 'bottom' ? m : 'middle';
     const legacy = method === 'top' ? 'front' : method === 'bottom' ? 'end' : 'center';
     const offset = n(node, 'tabOffset', 0);
     emit(depth, `<tabheight>${h}</tabheight>`);
@@ -3013,6 +3020,9 @@ function readDeployment(el: Element, node: ComponentNode, configEl: Element | nu
     }
   }
 }
+
+/** The axial-position methods an .ork carries — the exporter's closed set for `method=`/`type=`. */
+const AXIAL_METHODS: readonly string[] = ['top', 'middle', 'bottom', 'absolute'];
 
 function readPosition(el: Element): ComponentPosition | undefined {
   // Modern files write <axialoffset method="...">; OpenRocket ≤ 15.03 wrote
