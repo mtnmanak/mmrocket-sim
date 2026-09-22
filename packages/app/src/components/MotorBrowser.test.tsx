@@ -466,3 +466,45 @@ describe('MotorBrowser — the table is ONE tab stop, walked with the arrows (au
     expect(stops(h)).toEqual([rowFor(h, 'Estes', 'C6')]);
   });
 });
+
+describe('MotorBrowser — two earlier fixes with no test until now (audit 2026-09-22)', () => {
+  let h: Harness;
+  afterEach(() => { vi.unstubAllGlobals(); if (h.host.isConnected) closeBrowser(h); });
+
+  it('a Load still downloading when the dialog closes never loads the motor', async () => {
+    // Estes G80 has no bundled curve, so its load waits on the network. The
+    // answer arrives AFTER the dialog is gone, and ignores the abort — the case
+    // the post-fetch `signal.aborted` check exists for.
+    let answered = false;
+    const spy = vi.fn(() => new Promise((resolve) => setTimeout(() => {
+      answered = true;
+      resolve({
+        ok: true, status: 200,
+        json: async () => ({ results: [{ format: 'RASP', samples: [{ time: 0.1, thrust: 80 }, { time: 1.5, thrust: 0 }] }] }),
+      } as unknown as Response);
+    }, 30)));
+    vi.stubGlobal('fetch', spy);
+    h = openBrowser({ mountDiameterMm: 29, filters: { includeOOP: true } });
+    search(h, 'G80');
+    click(rowFor(h, 'Estes', 'G80')!);
+    click(loadButton(h)!);
+    closeBrowser(h);
+    // Wait out the whole download (the bundle lookup comes first), then some.
+    for (let i = 0; i < 300 && !answered; i++) await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+    await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+    expect(answered).toBe(true);
+    expect(h.selected).toEqual([]);
+  });
+
+  it('a negative or partial window bound is not persisted as a bound no motor meets (windowBound)', () => {
+    h = openBrowser({ mountDiameterMm: 29, filters: { showAll: true } });
+    const before = bodyRows(h).length;
+    typeInto(h.host.querySelector<HTMLInputElement>('input[aria-label="Longest burn time, seconds"]')!, '-5');
+    typeInto(h.host.querySelector<HTMLInputElement>('input[aria-label="Smallest total impulse, newton-seconds"]')!, '1e');
+    const stored = JSON.parse(localStorage.getItem(FILTERS_KEY)!) as Record<string, unknown>;
+    expect(stored['burnMax']).toBeNull();
+    expect(stored['impulseMin']).toBeNull();
+    expect(bodyRows(h).length).toBe(before);
+    expect(h.host.textContent).not.toMatch(/No motors match/);
+  });
+});
