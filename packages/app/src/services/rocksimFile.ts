@@ -807,7 +807,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
         // count the mass twice. Nothing diverges from desktop here.
         delete n['overrideMass'];
         // overrideCGX is measured from the component's FORE end
-        // (MassCalculation.java:444-445). LocationMode 0/1 map to TOP/ABSOLUTE,
+        // (MassCalculation.java:463-464). LocationMode 0/1 map to TOP/ABSOLUTE,
         // whose fore end sits on the point, so the pin is 0 — which is exactly
         // what desktop does (MassObjectHandler.java:107). LocationMode 2 maps to
         // BOTTOM, which anchors the AFT end on the point, so the pin is the

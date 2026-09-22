@@ -1386,7 +1386,7 @@ describe('RockSim mass objects are points, not bodies', () => {
 
   it('pins the CG at the component REAR for LocationMode 2 — where desktop gets it wrong', () => {
     // BOTTOM anchors the AFT end on the point, and overrideCGX is measured from the
-    // FORE end (MassCalculation.java:444-445), so the pin is the component's length.
+    // FORE end (MassCalculation.java:463-464), so the pin is the component's length.
     // Desktop pins 0 and lands a full length forward of the file's own <Station>.
     const n = massObject('<Len>1524</Len><Xb>250</Xb><LocationMode>2</LocationMode>'
       + '<KnownCG>250</KnownCG><UseKnownCG>1</UseKnownCG>');
