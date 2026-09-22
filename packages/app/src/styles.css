@@ -951,6 +951,17 @@ html {
   padding-right: 22px;
 }
 
+/* A NumField sized by a wrapper in a row of inline controls, outside any
+   `.field` — whose `.field input { width: 100% }` is what sizes every other
+   one. Without this the input keeps the browser's default ~20-character width
+   and overflows the wrapper, and the spinner, positioned against `.numfield`,
+   lands on the digits: the drag sweep's altitude box drew a 159 px input in
+   its 96 px wrapper (Chrome, audit 2026-09-22 review). */
+.inline-numfield .numfield input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
 .numfield input.num-invalid {
   border-color: var(--status-serious);
   outline: none;

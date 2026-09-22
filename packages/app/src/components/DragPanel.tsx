@@ -427,8 +427,10 @@ export function DragPanel({ rocket, supersonicModel, aeroLabel, designName, file
                     box read "10,000" as NaN and silently swept at SEA LEVEL
                     while still showing 10,000 — only the caption under the
                     chart said so. A draft it cannot read is now marked
-                    invalid and commits nothing, as in every other field. */}
-                <span style={{ width: 96 }}>
+                    invalid and commits nothing, as in every other field.
+                    `inline-numfield` makes the input fill this 96 px wrapper
+                    (styles.css); outside a `.field` nothing else sizes it. */}
+                <span className="inline-numfield" style={{ width: 96 }}>
                   <NumField
                     ariaLabel={`Sweep altitude (${distUnit})`}
                     value={altM > 0 ? siToUi('distance', distUnit, altM) : undefined}
