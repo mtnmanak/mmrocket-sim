@@ -194,7 +194,7 @@ describe('the clip search is bounded (audit 2026-09-22)', () => {
     for (const [shape, p] of [['ellipsoid', 0], ['power', 0.3], ['power', 0.5], ['power', 0.75],
       ['haack', 0], ['haack', 1 / 3]] as const) {
       for (const len of [0.001, 0.05, 0.3, 2, 40, 1e3, 1e6, 1e9]) {
-        for (const [r1, r2] of [[0.001, 0.05], [0.012, 0.024], [0.2, 0.21], [0.049, 0.0495]]) {
+        for (const [r1, r2] of [[0.001, 0.05], [0.012, 0.024], [0.2, 0.21], [0.049, 0.0495]] as const) {
           const clip = oldClip(shape, p, len, r1, r2);
           for (const [x, r] of outerProfile(shape, p, len, r1, r2, 16)) {
             const want = x <= 0 ? r1 : x >= len ? r2 : shapeRadius(shape, clip + x, r2, clip + len, p);
