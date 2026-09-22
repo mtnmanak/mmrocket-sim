@@ -288,8 +288,11 @@ public class FinSetCalc extends RocketComponentCalc {
 		// credits Kfb=(1+tau) to the fins (line above), so the body carryover that
 		// completes the (1+tau)^2 total is tau*(1+tau)*(fin-alone) = tau*cna. It
 		// acts on the body near the fin root; placed at the root quarter-chord
-		// (forward of the swept-fin MAC) it nudges the total CP aft — a more
-		// conservative static margin. Flag off ⇒ identical to before.
+		// (forward of the swept-fin MAC) it nudges the total CP aft, which RAISES
+		// the static margin ((xCP-xCG)/d with x aft). Aft is not "conservative" —
+		// this comment said so until 2026-09-21 — it is closer to the CFD for the
+		// geometries it was validated against, and it shows MORE margin, not less
+		// (Karbon, Apogee Peak of Flight 687). Flag off ⇒ identical to before.
 		// (feature #1 Phase 1: the NACA-1307 interference above already contains
 		// the full body carryover, so the separate Kbf term is suppressed while
 		// supersonicAero is on — it would double-count.)
