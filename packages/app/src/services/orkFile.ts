@@ -10,6 +10,7 @@ import { MAX_FIN_POINTS, escapeXml, xmlText as text } from './xmlUtil.js';
 import { unzipMember } from './zipMember.js';
 import { applyPresetLinks, type PendingPresetLink, type Preset } from './presets.js';
 import { OVERRIDE_INCLUDES_MOTOR } from './statedLaunchWeight.js';
+import { PAD_PRESSURE_HPA_RANGE, PAD_TEMP_C_RANGE } from './atmosphere.js';
 
 // Re-export: rocksimFile.ts (and historical callers) import it from here.
 export { shapeParamDefault };
@@ -1175,15 +1176,16 @@ export const fmtStepS = (s: number): string => String(Number(s.toPrecision(6)));
 
 /**
  * The envelope an imported `<atmosphere>` is believed inside: EXACTLY the
- * bounds the Temperature and Station pressure fields enforce on a human
- * (LaunchPanel.tsx `numField('Temperature', …, -60, 60)` /
- * `numField('Station pressure', …, 300, 1100)` — the pressure control was
- * renamed in v0.120). Sharing the bound is the point — a
- * value this reader accepted but the panel refuses could not be seen, checked
- * or re-entered, which is the trap the `<timestep>` floor below documents.
+ * bounds the Temperature and Station pressure fields enforce on a human —
+ * since the audit of 2026-09-22 literally the same arrays
+ * (`atmosphere.ts` PAD_TEMP_C_RANGE / PAD_PRESSURE_HPA_RANGE), which the
+ * panel's fields, the RASAero reader and `kernelSimOptions` also read. Sharing
+ * the bound is the point — a value this reader accepted but the panel refuses
+ * could not be seen, checked or re-entered, which is the trap the
+ * `<timestep>` floor below documents.
  */
-export const IMPORTED_TEMP_C_RANGE: readonly [number, number] = [-60, 60];
-export const IMPORTED_PRESSURE_HPA_RANGE: readonly [number, number] = [300, 1100];
+export const IMPORTED_TEMP_C_RANGE: readonly [number, number] = PAD_TEMP_C_RANGE;
+export const IMPORTED_PRESSURE_HPA_RANGE: readonly [number, number] = PAD_PRESSURE_HPA_RANGE;
 
 /** Shed float noise no one typed, the way fmtStepS does for a time step. */
 const fmt6 = (v: number): string => String(Number(v.toPrecision(6)));

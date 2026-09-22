@@ -2,7 +2,10 @@ import { DEFAULT_TIME_STEP_S, type SimulationOptions } from '@online-openrocket/
 import { useId } from 'react';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { fmtSi, niceStep, siToUi, uiToSi, type Quantity } from '../prefs/units.js';
-import { isaPressurePa, isaTemperatureK, padPressureIssue } from '../services/atmosphere.js';
+import {
+  isaPressurePa, isaTemperatureK, PAD_PRESSURE_HPA_RANGE, PAD_TEMP_C_RANGE, padAir, padPressureIssue,
+  SITE_ALTITUDE_M_RANGE,
+} from '../services/atmosphere.js';
 import { Icon } from './Icon.js';
 import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
@@ -14,9 +17,15 @@ export interface LaunchConditions {
   /** Gusts: standard deviation (m/s). */
   windStdDev: number;
   launchAltitudeM: number;
-  /** °C at the launch site; blank/NaN = ISA standard. */
+  /**
+   * °C at the launch site. Blank, NaN or outside `PAD_TEMP_C_RANGE` = the ISA
+   * standard for the SITE altitude (`padAir`), never for sea level.
+   */
   temperatureC: number | null;
-  /** hPa at the launch site; blank/NaN = ISA standard. */
+  /**
+   * hPa at the launch site (station pressure). Blank, NaN or outside
+   * `PAD_PRESSURE_HPA_RANGE` = the ISA standard for the SITE altitude.
+   */
   pressureHPa: number | null;
   latitudeDeg: number;
   /**
@@ -63,17 +72,36 @@ export function kernelSimOptions(l: LaunchConditions): SimulationOptions {
   // altitude, and the panel shows that value in the box as a placeholder so it
   // is visible rather than merely documented. Both blank still passes undefined
   // and lets the kernel do it, so those designs stay bit-identical.
-  const bothBlank = l.temperatureC === null && l.pressureHPa === null;
+  //
+  // THE RULE LIVES IN `padAir` NOW (audit 2026-09-22), not here, because the
+  // Recovery sizing panel needs the same two numbers and kept its own copy of
+  // the kernel's old sea-level fill from v0.122 to v0.137 — sizing canopies in
+  // air the flight never flew. One reading of the pad, used by both, is what
+  // stops that recurring.
+  //
+  // It is also the CHOKEPOINT for a stored atmosphere nothing checked: a
+  // temperature or pressure outside the panel's own envelope flies as blank
+  // (the site's standard day) and the altitude is clamped to the Site altitude
+  // field's range. The .ork importer always refused such values; the .CDX1
+  // reader did not, and a pressure typed in hPa into RASAero's in-Hg field
+  // flew 34x sea-level density with no note. Such a value is not a launch
+  // site, so the site's standard day is the lesser wrong even for a session
+  // that stored one before the importers checked.
+  //
+  // The other launch fields are bounded where they ENTER — the panel refuses
+  // an out-of-range value and both importers clamp one with a note — and are
+  // passed here as stored. Outside its bounds a rod angle or a wind is still a
+  // setting the kernel can fly, so clamping it at flight time would only make
+  // the flight disagree, silently, with the number in the box.
+  const air = padAir(l);
   return {
     launchRodLength: l.launchRodLengthM,
     launchRodAngle: (l.launchRodAngleDeg * Math.PI) / 180,
     windAverage: l.windAverage,
     windStdDeviation: l.windStdDev,
-    launchAltitude: l.launchAltitudeM,
-    temperature: l.temperatureC !== null ? l.temperatureC + 273.15
-      : bothBlank ? undefined : isaTemperatureK(l.launchAltitudeM),
-    pressure: l.pressureHPa !== null ? l.pressureHPa * 100
-      : bothBlank ? undefined : isaPressurePa(l.launchAltitudeM),
+    launchAltitude: air.altitudeM,
+    temperature: air.standard ? undefined : air.temperatureK,
+    pressure: air.standard ? undefined : air.pressurePa,
     launchLatitude: l.latitudeDeg,
     // `!= null` covers BOTH absent and cleared: the panel's nullable fields
     // commit null when emptied, and null means the same thing absent does —
@@ -429,16 +457,19 @@ export function LaunchPanel({
         {numField('Rod angle', 'launchRodAngleDeg', 1, -30, 30)}
         {numField('Wind avg', 'windAverage', 0.5, 0)}
         {numField('Wind gusts σ', 'windStdDev', 0.1, 0)}
-        {numField('Site altitude', 'launchAltitudeM', 50, 0, 10000)}
+        {numField('Site altitude', 'launchAltitudeM', 50, ...SITE_ALTITUDE_M_RANGE)}
         {numField('Latitude (°)', 'latitudeDeg', 1, -90, 90)}
-        {numField('Temperature', 'temperatureC', 1, -60, 60, true, SITE_TEMPERATURE_HELP,
+        {/* The atmosphere bounds are atmosphere.ts's, not literals: the importers
+            and kernelSimOptions's chokepoint read the same arrays, so the panel
+            refusing a value and the flight refusing it are one rule. */}
+        {numField('Temperature', 'temperatureC', 1, ...PAD_TEMP_C_RANGE, true, SITE_TEMPERATURE_HELP,
           isaTemperatureK(value.launchAltitudeM) - 273.15)}
         {/* "Station pressure", not "Pressure" (2026-09-08). The bare label let
             every reader supply their own meaning, and the common one — the
             altimeter setting an airport broadcasts, or the sea-level figure a
             weather app shows — is the wrong number by 15 % at 3,900 ft. Two
             words, sentence case, the same shape as "Site altitude" beside it. */}
-        {numField('Station pressure', 'pressureHPa', 5, 300, 1100, true, STATION_PRESSURE_HELP,
+        {numField('Station pressure', 'pressureHPa', 5, ...PAD_PRESSURE_HPA_RANGE, true, STATION_PRESSURE_HELP,
           isaPressurePa(value.launchAltitudeM) / 100)}
         {/* Blank = 0.05 s, the engine's and desktop OpenRocket's default. Smaller
             is slower and NOT more accurate: measured against a converged dt

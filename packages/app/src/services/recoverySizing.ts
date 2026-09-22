@@ -7,7 +7,7 @@ import { mfrKey } from '../../scripts/manufacturers.mjs';
 import type { LaunchConditions } from '../components/LaunchPanel.js';
 import { mountBore } from '../tree/scaleRocket.js';
 import { findParent } from '../tree/treeModel.js';
-import { isaPressurePa, LAPSE, R_AIR } from './atmosphere.js';
+import { padAir, R_AIR } from './atmosphere.js';
 import type { Preset } from './presets.js';
 import type { RecoveryMass } from './recoveryMass.js';
 import { sustainerScope } from './recoveryMass.js';
@@ -44,12 +44,12 @@ import { SAFETY } from './simReport.js';
 /** Feet per second in m/s. The bands are stated in ft/s; the code is SI. */
 const FT_S = 0.3048;
 
-// R_AIR (the kernel's `AtmosphericConditions.R`, 287.053) and LAPSE (the ISA
-// troposphere lapse rate as a POSITIVE K/m) used to be declared here as well as
-// in atmosphere.ts. They are imported from there now (2026-09-08, from review):
-// two constants for one physical quantity is how a number starts disagreeing
-// with itself across screens, and this module already takes its barometric
-// formula from the same place.
+// R_AIR (the kernel's `AtmosphericConditions.R`, 287.053) used to be declared
+// here as well as in atmosphere.ts, and so did the ISA lapse rate. R_AIR is
+// imported from there now (2026-09-08, from review): two constants for one
+// physical quantity is how a number starts disagreeing with itself across
+// screens. The lapse rate is not needed here at all any more — the pad's
+// temperature comes whole from `padAir` (audit 2026-09-22).
 
 /**
  * A recovery band: the accepted descent-rate window, plus the single rate the
@@ -132,43 +132,37 @@ const PER_MANUFACTURER_LIMIT = 2;
  * the band, but a 20 ft/s sea-level choice is outside it, and the app would
  * have said it was fine.
  *
- * This mirrors what the flight actually flies, branch for branch, from
- * `engine-java/src/api/java/api/OrkEngine.java:919-926`: a launch-site
- * temperature OR pressure switches the kernel to
- * `ExtendedISAModel(launchAltitude, T, p)`, whose values AT that altitude are
- * exactly the given ones — and whose fallback for the field left blank is the
- * STANDARD SEA-LEVEL value applied at the site (that is the kernel's quirk,
- * not ours; matching it is the point). With both blank it is plain ISA at the
- * site altitude.
+ * It is `p / (R.T)` of the pad temperature and pressure `padAir` returns —
+ * the SAME two numbers `kernelSimOptions` hands the kernel, whose
+ * `ExtendedISAModel(launchAltitude, T, p)` reads exactly them at the pad. So a
+ * blank field is the ISA value for the SITE here as it is in the flight, and a
+ * canopy is sized in the air it will come down through.
  *
- * The kernel then interpolates its atmosphere on a 500 m grid
- * (`InterpolatingAtmosphericModel.DELTA`); we evaluate ISA analytically. The
- * two differ by at most 0.059 % in density anywhere in the site-altitude
- * field's 0-10,000 m range (measured, worst case at 9,754 m, mid-cell), which
- * is 0.029 % on a descent rate — far below the spread between two
- * manufacturers' published Cd for the same canopy shape.
+ * It did not use to be. This function mirrored the kernel's own branch at
+ * `OrkEngine.java:919-926` — a blank field beside a typed one filled with the
+ * STANDARD SEA-LEVEL value — and kept doing so after v0.122 stopped the
+ * flight doing it (audit 2026-09-22). That is the unsafe direction: at
+ * 2,682 m and 30 °C with the pressure blank it sized on 1.1644 kg/m^3 while
+ * the flight flew 0.8388, so the Wildman's size line at Cd 2.2 read 66.4 in
+ * where 78.2 in hits the 18 ft/s target, and every canopy listed landed
+ * 17.8 % faster than its listed rate (sqrt of the density ratio).
+ *
+ * With both fields blank the kernel interpolates its own ISA on a 500 m grid
+ * (`InterpolatingAtmosphericModel.DELTA`); `padAir` evaluates the same profile
+ * analytically. The two differ by at most 0.059 % in density anywhere in the
+ * site-altitude field's 0-10,000 m range (measured, worst case at 9,754 m,
+ * mid-cell), which is 0.029 % on a descent rate — far below the spread between
+ * two manufacturers' published Cd for the same canopy shape.
  */
 export function siteAirDensity(
   launch: Pick<LaunchConditions, 'launchAltitudeM' | 'temperatureC' | 'pressureHPa'>,
 ): number {
-  const h = Number.isFinite(launch.launchAltitudeM) ? Math.max(0, launch.launchAltitudeM) : 0;
-  const hasT = launch.temperatureC != null && Number.isFinite(launch.temperatureC);
-  const hasP = launch.pressureHPa != null && Number.isFinite(launch.pressureHPa);
-
-  let tempK: number;
-  let pressPa: number;
-  if (hasT || hasP) {
-    tempK = hasT ? launch.temperatureC! + 273.15 : ISA_SEA_LEVEL.temperatureK;
-    pressPa = hasP ? launch.pressureHPa! * 100 : ISA_SEA_LEVEL.pressurePa;
-  } else {
-    tempK = ISA_SEA_LEVEL.temperatureK - LAPSE * h;
-    // The barometric formula moved to atmosphere.ts on 2026-09-08, when the
-    // Launch panel's pad-pressure caution and the RASAero import note started
-    // needing the same number. One copy, or the three screens drift.
-    pressPa = isaPressurePa(h);
-  }
-  if (!(tempK > 0) || !(pressPa > 0)) return ISA_SEA_LEVEL.pressurePa / (R_AIR * ISA_SEA_LEVEL.temperatureK);
-  return pressPa / (R_AIR * tempK);
+  // `padAir` never returns a non-positive temperature or pressure: a typed one
+  // is inside the panel's envelope (-60 °C, 300 hPa at the bottom) and a blank
+  // one is ISA at an altitude clamped to 0-10,000 m, so there is no fallback
+  // branch left to take.
+  const { temperatureK, pressurePa } = padAir(launch);
+  return pressurePa / (R_AIR * temperatureK);
 }
 
 /** ISA sea-level density (kg/m^3), 1.225 — the figure the elevation clause compares against. */
@@ -686,7 +680,9 @@ export function recoverySizing(input: RecoverySizingInput): RecoverySizing {
     state: 'ok',
     massKg: recovery.mass,
     rho,
-    elevationM: Number.isFinite(launch.launchAltitudeM) ? Math.max(0, launch.launchAltitudeM) : 0,
+    // The altitude the density above was evaluated at — `padAir`'s clamp, so
+    // the clause the panel prints and the air it sized in are one site.
+    elevationM: padAir(launch).altitudeM,
     siteRateFactor: Math.sqrt(SEA_LEVEL_DENSITY / rho),
     boreM,
     main: bandAdvice('main', MAIN_BAND, {

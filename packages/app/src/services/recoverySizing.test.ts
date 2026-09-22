@@ -5,6 +5,8 @@ import type { Preset } from './presets.js';
 import { presetPatch } from './presets.js';
 import { engineTree } from '../tree/treeModel.js';
 import { SAFETY } from './simReport.js';
+import { DEFAULT_CONDITIONS, kernelSimOptions } from '../components/LaunchPanel.js';
+import { isaPressurePa, isaTemperatureK } from './atmosphere.js';
 import {
   canopyCdA, classifyRecoveryDevices, DEFAULT_CANOPY_CD, descentRate, diameterForRate,
   DROGUE_BAND, MAIN_BAND, recoveryBayBore, recoverySizing, SEA_LEVEL_DENSITY, siteAirDensity,
@@ -137,12 +139,51 @@ describe('siteAirDensity — the field, not sea level', () => {
     expect(rho).toBeCloseTo(87500 / (287.053 * 305.15), 9);
   });
 
-  it('matches the kernel’s quirk when only one of the two is given', () => {
-    // OrkEngine.java:919-926 fills the MISSING field with the ISA SEA-LEVEL
-    // value and applies it at the site altitude. Reproducing that is the point:
-    // the panel must predict the flight the app would actually fly.
-    const rho = siteAirDensity({ launchAltitudeM: 2000, temperatureC: 35, pressureHPa: null });
-    expect(rho).toBeCloseTo(101325 / (287.053 * 308.15), 9);
+  /**
+   * THE FLIGHT'S OWN AIR, in every combination (audit 2026-09-22).
+   *
+   * This test used to pin the kernel's quirk — a blank field beside a typed one
+   * filled with the SEA-LEVEL value — as "the flight the app would actually
+   * fly". It stopped being that in v0.122, when `kernelSimOptions` began filling
+   * each blank from the SITE altitude, and the test kept the sizing panel on the
+   * old air through v0.137. So the assertion is now the relation that
+   * was always the point: the density sized in is `p / (R.T)` of exactly the
+   * temperature and pressure the kernel is handed. With both blank the kernel
+   * is handed nothing and flies its own ISA, which is the site's standard day.
+   */
+  it('sizes in exactly the air kernelSimOptions hands the kernel, blank or typed', () => {
+    for (const h of [0, 1190, 2682]) {
+      for (const [temperatureC, pressureHPa] of [
+        [null, null], [30, null], [null, 730], [30, 730],
+      ] as const) {
+        const l = { ...DEFAULT_CONDITIONS, launchAltitudeM: h, temperatureC, pressureHPa };
+        const o = kernelSimOptions(l);
+        const bothBlank = temperatureC === null && pressureHPa === null;
+        expect(o.temperature === undefined, `T passed at ${h} m`).toBe(bothBlank);
+        const T = o.temperature ?? isaTemperatureK(h);
+        const p = o.pressure ?? isaPressurePa(h);
+        expect(siteAirDensity(l), `${h} m, T ${temperatureC}, p ${pressureHPa}`)
+          .toBe(p / (287.053 * T));
+      }
+    }
+  });
+
+  it('fills a blank pressure from the site, not sea level — the unsafe direction', () => {
+    // The audit's measurement: 2,682 m, 30 °C typed, pressure blank. Sizing
+    // read 101,325 Pa and 1.1644 kg/m³ where the flight flew 72,990 Pa and
+    // 0.8388, so the size line quoted 66.4 in on the Wildman at Cd 2.2 where
+    // 78.2 in hits the 18 ft/s target — and the canopy it named landed at
+    // 21.21 ft/s, past the app's own 20 ft/s landing limit.
+    const site = { launchAltitudeM: 2682, temperatureC: 30, pressureHPa: null };
+    const rho = siteAirDensity(site);
+    expect(rho).toBeCloseTo(0.8388, 4);
+    expect(101325 / (287.053 * 303.15)).toBeCloseTo(1.1644, 4); // what it used to read
+    const inches = (d: number) => d * IN;
+    expect(inches(diameterForRate(WILDMAN_KG, 2.2, rho, MAIN_BAND.target))).toBeCloseTo(78.2, 1);
+    expect(inches(diameterForRate(WILDMAN_KG, 2.2, 1.1644, MAIN_BAND.target))).toBeCloseTo(66.4, 1);
+    const r = ok(sizing({ launch: site }));
+    expect(r.rho).toBe(rho);
+    expect(r.main.diameter).toBe(diameterForRate(WILDMAN_KG, DEFAULT_CANOPY_CD, rho, MAIN_BAND.target));
   });
 });
 

@@ -6,6 +6,8 @@ import { describe, expect, it } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
 import { applyStageNozzles } from '../tree/treeModel.js';
 import { CDX1_ENGINE_EXPORT, exportCdx1, importCdx1, rasaeroManufacturerAbbrev } from './rasaeroFile.js';
+import { DEFAULT_CONDITIONS, kernelSimOptions } from '../components/LaunchPanel.js';
+import { isaPressurePa } from './atmosphere.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixture = (name: string) => readFileSync(join(here, '__fixtures__', name), 'utf8');
@@ -2192,5 +2194,42 @@ describe('RASAero import — the pad pressure note', () => {
     // <Pressure>0</Pressure> and is now silent, so the number is asserted
     // through the branch that still speaks.
     expect(padNote(withSite(8800, 29.92, 55))).toMatch(/about 730 mbar \(21\.55 in-Hg\)/);
+  });
+
+  /**
+   * THE ENVELOPE (audit 2026-09-22). This reader had none of the .ork reader's
+   * temperature/pressure envelope, so a unit mistake flew raw: hPa typed into
+   * the in-Hg field flew 3,431,260 Pa — 34x sea-level density — and -300 °F
+   * flew 88.7 K, with no note. Out of range is now blank, and said.
+   */
+  it('refuses a pressure no barometer reads — hPa typed into the in-Hg field — and says so', () => {
+    const r = importCdx1(withSite(3900, 1013.25, 80));
+    expect(r.launch!.pressureHPa).toBeNull();
+    expect(r.launch!.temperatureC).toBeCloseTo((80 - 32) * 5 / 9, 9); // the good half survives
+    const note = padNote(withSite(3900, 1013.25, 80))!;
+    expect(note).toMatch(/this file's pressure, 1013\.25 in-Hg \(34313 mbar\), is outside the 8\.86 to 32\.48 in-Hg/);
+    expect(note).toMatch(/sea level is 29\.92 in it, not 1013\.25/);
+    // One line: the altimeter-setting note has nothing left to fire on.
+    expect(r.notes.filter((n) => n.startsWith('Launch site:'))).toHaveLength(1);
+    // And what flies is the site's standard day, not 34 atmospheres.
+    const o = kernelSimOptions({ ...DEFAULT_CONDITIONS, ...r.launch });
+    expect(o.pressure).toBe(isaPressurePa(3900 / 3.28084));
+  });
+
+  it('refuses a temperature no launch site reads, and says so in °F', () => {
+    const r = importCdx1(withSite(3900, 0, -300));
+    expect(r.launch!.temperatureC).toBeNull();
+    const note = padNote(withSite(3900, 0, -300))!;
+    expect(note).toMatch(/this file's temperature, -300 °F \(-184\.4 °C\), is outside the -76 to 140 °F/);
+    // Both blank now, so the kernel flies its own standard day for the site.
+    const o = kernelSimOptions({ ...DEFAULT_CONDITIONS, ...r.launch });
+    expect(o.temperature).toBeUndefined();
+  });
+
+  it('keeps a value on the envelope’s edge — the envelope is the field’s, closed', () => {
+    const r = importCdx1(withSite(3900, 1100 / 33.8639, 140));
+    expect(r.launch!.pressureHPa).toBeCloseTo(1100, 9);
+    expect(r.launch!.temperatureC).toBeCloseTo(60, 9);
+    expect(r.notes.some((n) => /is outside the/.test(n))).toBe(false);
   });
 });

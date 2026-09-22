@@ -1,9 +1,10 @@
 import { G0, ISA_SEA_LEVEL } from '@online-openrocket/engine';
 
 /**
- * THE PAD'S OWN AIR — one definition, shared by the Launch panel's caution and
- * the RASAero import note, so the two can never disagree about what counts as
- * a wrong pad pressure.
+ * THE PAD'S OWN AIR — one definition, shared by what the flight is handed
+ * (`kernelSimOptions`), what the Recovery sizing panel sizes against
+ * (`siteAirDensity`), the Launch panel's caution and the RASAero import note,
+ * so none of them can disagree about the air at the pad.
  *
  * Why this module exists (2026-09-08). The kernel takes the launch-site
  * temperature and pressure as a PAIR: `OrkEngine.simulateJson` (ll. 919-926)
@@ -14,7 +15,7 @@ import { G0, ISA_SEA_LEVEL } from '@online-openrocket/engine';
  * `layer[1] = alt` (24.12, ll. 108-140), so whatever was substituted is what
  * the pad reads.
  *
- * IT IS A TRAP WITH TWO HALVES, and both are live:
+ * IT WAS A TRAP WITH TWO HALVES, and both were live until v0.122:
  *
  *  - PRESSURE BLANK, temperature typed: 101,325 Pa at the pad however high the
  *    site. Measured, a 1,190 m pad reads 87,823 Pa with both fields blank and
@@ -40,9 +41,16 @@ import { G0, ISA_SEA_LEVEL } from '@online-openrocket/engine';
  * and 25 state a pressure, and 24 of the 33 flown from 1,000 ft or higher
  * state none.
  *
- * `siteAirDensity` in recoverySizing.ts mirrors the same kernel branch and
- * takes its barometric formula and its two constants from here rather than
- * keeping a second copy.
+ * The kernel still behaves that way; the app no longer lets it. `padAir`
+ * below fills each blank field from the SITE altitude before the pair reaches
+ * the kernel, and it is the ONE reading of the pad's air: `kernelSimOptions`
+ * hands the kernel its temperature and pressure, and `siteAirDensity` in
+ * recoverySizing.ts divides the same two numbers. From v0.122 to v0.137 the
+ * sizing side kept its own copy of the kernel's OLD branch — the sea-level
+ * fill the flight had stopped using — and sized canopies on air that was not
+ * the air flown (audit 2026-09-22). At 2,682 m and 30 °C with the pressure
+ * blank it sized on 1.1644 kg/m³ against 0.8388 flown, 39 % too dense, so
+ * every canopy it offered there landed faster than the list said.
  */
 
 /**
@@ -55,13 +63,11 @@ import { G0, ISA_SEA_LEVEL } from '@online-openrocket/engine';
  */
 export const R_AIR = 287.053;
 
-/**
- * ISA TROPOSPHERIC lapse rate as a positive number (K/m). Valid to 11 km only
- * — above that the profile turns isothermal and then rises; use
- * `isaTemperatureK` for anything that is not certainly below the tropopause.
- * Exported for recoverySizing.ts, which reads it at launch-site altitudes.
- */
-export const LAPSE = -ISA_SEA_LEVEL.lapseRateKPerM;
+// `LAPSE` (the tropospheric lapse rate as a positive K/m) used to be exported
+// from here for recoverySizing.ts, which rebuilt the standard pad temperature
+// as `288.15 − LAPSE·h` by itself. It reads `padAir` now (audit 2026-09-22),
+// which takes the temperature from `isaTemperatureK` like everything else, so
+// the constant had no reader left and went with it.
 
 /** One ISA layer: where it starts, how warm it is there, and how it lapses. */
 interface IsaLayer {
@@ -238,7 +244,9 @@ export const PAD_PRESSURE_SEA_LEVEL_MARGIN = 0.05;
  *   default can rescue it — the app cannot tell whether a number it was handed
  *   is the right kind of number without checking it against the site.
  * - `null` — nothing to say: a low site, a blank field (the app computes it), or
- *   a plausible reading.
+ *   a plausible reading. A stored pressure outside `PAD_PRESSURE_HPA_RANGE`
+ *   counts as blank here for the reason it does in `padAir`: it is not flown,
+ *   so there is nothing about the flight to caution over.
  */
 export type PadPressureIssue = 'sea-level';
 
@@ -256,11 +264,95 @@ export interface PadConditions {
 export function padPressureIssue(launch: PadConditions): PadPressureIssue | null {
   const h = launch.launchAltitudeM;
   if (typeof h !== 'number' || !Number.isFinite(h) || h <= PAD_PRESSURE_SITE_M) return null;
-  const p = launch.pressureHPa;
   // A blank field is CORRECT input and says nothing: kernelSimOptions fills it
   // from the site altitude, independently of whether a temperature is typed
-  // beside it. Only a value the user actually typed can be wrong here.
-  if (p == null || !Number.isFinite(p)) return null;
+  // beside it. Only a value the user actually typed can be wrong here — and
+  // only one inside the field's envelope, because `padAir` flies anything
+  // outside it as blank too.
+  const p = inEnvelope(launch.pressureHPa, PAD_PRESSURE_HPA_RANGE);
+  if (p === null) return null;
   if (p * 100 > isaPressurePa(h) * (1 + PAD_PRESSURE_SEA_LEVEL_MARGIN)) return 'sea-level';
   return null;
+}
+
+/**
+ * THE ENVELOPE A PAD'S AIR IS BELIEVED INSIDE — exactly the bounds the Launch
+ * panel's Temperature (°C), Station pressure (hPa) and Site altitude (m) fields
+ * enforce on a typed value. LaunchPanel's `numField` calls read them from here,
+ * the .ork importer's `IMPORTED_TEMP_C_RANGE` / `IMPORTED_PRESSURE_HPA_RANGE`
+ * ARE these arrays, and the RASAero importer checks a file against them, so a
+ * value the panel refuses can neither be imported nor flown.
+ *
+ * They live here rather than in LaunchPanel because `padAir` needs them and
+ * LaunchPanel imports this module: the other way round is a cycle.
+ *
+ * Outside them a number is a unit mistake in whatever wrote it, not weather:
+ * hPa written into RASAero's in-Hg field (1013.25 in-Hg is 34,313 hPa, 34x
+ * sea-level density) or °C into the .ork's kelvin one (20 K). Measured before
+ * the audit of 2026-09-22 closed the .CDX1 path, `<Pressure>1013.25</Pressure>`
+ * flew at 3,431,260 Pa and `<Temperature>-300</Temperature>` at 88.7 K, with
+ * no note.
+ */
+export const PAD_TEMP_C_RANGE: readonly [number, number] = [-60, 60];
+export const PAD_PRESSURE_HPA_RANGE: readonly [number, number] = [300, 1100];
+export const SITE_ALTITUDE_M_RANGE: readonly [number, number] = [0, 10000];
+
+/**
+ * The value when it is a finite number inside `[lo, hi]`, else null. NaN fails
+ * both comparisons, so it reads as blank without a separate test.
+ */
+function inEnvelope(v: number | null | undefined, [lo, hi]: readonly [number, number]): number | null {
+  return typeof v === 'number' && v >= lo && v <= hi ? v : null;
+}
+
+/** The pad's air as the flight flies it — see `padAir`. */
+export interface PadAir {
+  /** Site altitude flown (m): the stored one, clamped into `SITE_ALTITUDE_M_RANGE`. */
+  altitudeM: number;
+  /** Pad temperature (K). */
+  temperatureK: number;
+  /** Pad (station) pressure (Pa). */
+  pressurePa: number;
+  /**
+   * Both fields read as blank. `kernelSimOptions` then passes neither and lets
+   * the kernel fly its own standard atmosphere, which keeps those flights
+   * bit-identical to every release before v0.122; the two numbers above are
+   * the same profile evaluated analytically (the kernel interpolates it on a
+   * 500 m grid, within 0.06 % on density over this altitude range).
+   */
+  standard: boolean;
+}
+
+/**
+ * THE PAD'S AIR, ONCE (audit 2026-09-22) — the one reading of the launch
+ * conditions that both the flight and the Recovery sizing panel use, so the
+ * canopy recommended and the descent flown are computed in the same air.
+ *
+ * Each field falls back INDEPENDENTLY to the ISA value at the site altitude:
+ * a blank, a non-finite or an out-of-envelope temperature reads as the
+ * standard one for the site, and likewise the pressure. That is the rule
+ * `kernelSimOptions` has flown since v0.122; `siteAirDensity` kept the kernel's
+ * older sea-level fill until this helper replaced both copies. Out of envelope
+ * means blank rather than clamped, because such a value is a unit mistake
+ * (see `PAD_TEMP_C_RANGE`) and the nearest bound is not a better guess at it
+ * than the site's own standard day.
+ *
+ * The altitude is CLAMPED rather than blanked — a site altitude always exists
+ * — into the Site altitude field's own range, and the clamped figure is the
+ * one `kernelSimOptions` hands the kernel, so the pad the atmosphere is
+ * evaluated at and the pad the flight starts from cannot differ.
+ */
+export function padAir(launch: PadConditions): PadAir {
+  const h = launch.launchAltitudeM;
+  const altitudeM = typeof h === 'number' && Number.isFinite(h)
+    ? Math.min(Math.max(h, SITE_ALTITUDE_M_RANGE[0]), SITE_ALTITUDE_M_RANGE[1])
+    : 0;
+  const tC = inEnvelope(launch.temperatureC, PAD_TEMP_C_RANGE);
+  const pHPa = inEnvelope(launch.pressureHPa, PAD_PRESSURE_HPA_RANGE);
+  return {
+    altitudeM,
+    temperatureK: tC !== null ? tC + 273.15 : isaTemperatureK(altitudeM),
+    pressurePa: pHPa !== null ? pHPa * 100 : isaPressurePa(altitudeM),
+    standard: tC === null && pHPa === null,
+  };
 }

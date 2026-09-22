@@ -2,7 +2,7 @@ import { strFromU8 } from 'fflate';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import type { LaunchConditions } from '../components/LaunchPanel.js';
 import { asStageNodes, freshId, mountsIn } from '../tree/treeModel.js';
-import { isaPressurePa, padPressureIssue } from './atmosphere.js';
+import { isaPressurePa, PAD_PRESSURE_HPA_RANGE, PAD_TEMP_C_RANGE, padPressureIssue } from './atmosphere.js';
 import { findDbMotor, hasMassData } from './motorDb.js';
 import { escapeXml as esc, lookupTable, xmlNum, xmlText as text } from './xmlUtil.js';
 import type { OrkFlightConfig, OrkImportResult, OrkMotorRef, OrkSeparationOverride } from './orkFile.js';
@@ -787,14 +787,48 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
     launch = {};
     const alt = num(site, 'Altitude', NaN);
     if (!Number.isNaN(alt)) launch.launchAltitudeM = alt / FT;
+    // The pad's air is believed only inside the envelope the Temperature and
+    // Station pressure fields enforce on a typed value (audit 2026-09-22) —
+    // the same arrays the .ork reader checks its <atmosphere> against. This
+    // reader had none, and nothing downstream checked either, so a unit
+    // mistake flew raw: hPa typed into this in-Hg field
+    // (<Pressure>1013.25</Pressure>) is 34,313 hPa and flew 34x sea-level
+    // density; <Temperature>-300</Temperature> (°F) flew 88.7 K. Out of range
+    // the field is left blank — the site's standard day, as a blank flies —
+    // and the note says so, in the file's own units.
     const temp = num(site, 'Temperature', NaN);
-    if (!Number.isNaN(temp)) launch.temperatureC = (temp - 32) * 5 / 9;
+    if (!Number.isNaN(temp)) {
+      const c = (temp - 32) * 5 / 9;
+      if (c >= PAD_TEMP_C_RANGE[0] && c <= PAD_TEMP_C_RANGE[1]) {
+        launch.temperatureC = c;
+      } else {
+        launch.temperatureC = null;
+        const [loF, hiF] = PAD_TEMP_C_RANGE.map((b) => Math.round(b * 9 / 5 + 32));
+        notes.push(`Launch site: this file's temperature, ${Number(temp.toPrecision(6))} °F `
+          + `(${Number(c.toPrecision(4))} °C), is outside the ${loF} to ${hiF} °F the Temperature field `
+          + 'accepts, so it is not a launch site this app can fly. Flying the standard temperature for '
+          + 'the site altitude instead — set it under Launch conditions if you know it.');
+      }
+    }
     // RASAero writes <Pressure>0</Pressure> for "unset" — only >0 is a
     // reading. Unset means explicit ISA (null), never an ABSENT field: App
     // merges launch over the previous design's conditions, and an absent
     // pressure would let a stale barometric reading survive into this import.
     const press = num(site, 'Pressure', 0);
-    launch.pressureHPa = press > 0 ? press * INHG : null;
+    const hPa = press * INHG;
+    if (!(press > 0)) {
+      launch.pressureHPa = null;
+    } else if (hPa >= PAD_PRESSURE_HPA_RANGE[0] && hPa <= PAD_PRESSURE_HPA_RANGE[1]) {
+      launch.pressureHPa = hPa;
+    } else {
+      launch.pressureHPa = null;
+      const [loIn, hiIn] = PAD_PRESSURE_HPA_RANGE.map((b) => (b / INHG).toFixed(2));
+      notes.push(`Launch site: this file's pressure, ${Number(press.toPrecision(6))} in-Hg `
+        + `(${Math.round(hPa)} mbar), is outside the ${loIn} to ${hiIn} in-Hg the Station pressure `
+        + 'field accepts, so it is not a launch site this app can fly. (That field holds in-Hg: sea '
+        + 'level is 29.92 in it, not 1013.25.) Flying the standard pressure for the site altitude '
+        + 'instead — set the station pressure under Launch conditions if you know it.');
+    }
     const rodAngle = num(site, 'RodAngle', NaN);
     if (!Number.isNaN(rodAngle)) launch.launchRodAngleDeg = rodAngle;
     const rodLen = num(site, 'RodLength', NaN); // FEET, unlike the part geometry
