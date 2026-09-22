@@ -260,26 +260,42 @@ describe('the catalogue, sized for the same 8.786 kg rocket', () => {
     expect(count(50, 75)).toBe(28);
   });
 
-  it('finds ONE more main through SAFETY.maxLandingRate, and it is nameable', () => {
-    // MAIN_BAND.max is SAFETY.maxLandingRate, 6.1 m/s = 20.013 ft/s, 4 mm/s
-    // above a literal 20 ft/s. Exactly one catalogue canopy lands in that
-    // sliver on this rocket, so the count is 34 rather than the owner's 33 —
-    // and it is admitted deliberately: at 6.098 m/s the app's own launch
-    // report would not complain either. A silent off-by-one is what this test
-    // exists to prevent.
+  /**
+   * AN EMPTY SLOT WEIGHS EACH CANDIDATE WITH ITS OWN MASS (audit 2026-09-22).
+   *
+   * This test used to pin 34 mains here and blame the 34th on the 4 mm/s
+   * sliver between a literal 20 ft/s and SAFETY.maxLandingRate (20.013 ft/s),
+   * naming CFC-072-N at 20.008 ft/s. Both figures were rates taken WITHOUT the
+   * canopy's own mass: `tube(10)` has no chute in it, and an empty slot passed
+   * "unknown" rather than 0, so no candidate carried its own weight. Weighed
+   * honestly the panel finds the owner's own 33, and the sliver is empty.
+   */
+  it('finds exactly the owner’s 33 mains — an empty slot weighs each candidate with its own mass', () => {
     const r = ok(sizing({ tree: tube(10) }));
-    expect(r.main.inBand).toBe(34);
+    expect(r.main.inBand).toBe(33);
     expect(r.drogue.inBand).toBe(28);
+    for (const c of [...r.main.candidates, ...r.drogue.candidates]) {
+      const row = canopies.find((p) => p.partNo === c.partNo && p.manufacturer === c.manufacturer)!;
+      expect(c.rate, c.partNo).toBeCloseTo(
+        descentRate(WILDMAN_KG + (row.mass as number), canopyCdA(row)!, SEA_LEVEL_DENSITY), 12);
+    }
 
+    // The canopy the defect listed: 19.25 ft/s without its 964 g, 20.28 with it
+    // — past the landing limit, so it is not offered at all.
+    const crt = canopies.find((p) => p.partNo === 'CRT-080 L')!;
+    expect(fps(descentRate(WILDMAN_KG, canopyCdA(crt)!, SEA_LEVEL_DENSITY))).toBeCloseTo(19.25, 2);
+    expect(fps(descentRate(WILDMAN_KG + (crt.mass as number), canopyCdA(crt)!, SEA_LEVEL_DENSITY)))
+      .toBeCloseTo(20.28, 2);
+    expect(r.main.candidates.some((c) => c.partNo === 'CRT-080 L')).toBe(false);
+
+    // And the sliver the old note blamed: empty once each canopy carries its mass.
     const sliver = canopies.filter((p) => {
       const cdA = canopyCdA(p);
       if (cdA === null) return false;
-      const v = descentRate(WILDMAN_KG, cdA, SEA_LEVEL_DENSITY);
+      const v = descentRate(WILDMAN_KG + (p.mass ?? 0), cdA, SEA_LEVEL_DENSITY);
       return v > 20 / FPS && v <= MAIN_BAND.max;
     });
-    expect(sliver.map((p) => p.partNo)).toEqual(['CFC-072-N']);
-    expect(descentRate(WILDMAN_KG, canopyCdA(sliver[0]!)!, SEA_LEVEL_DENSITY))
-      .toBeCloseTo(6.09833, 5);
+    expect(sliver).toEqual([]);
   });
 });
 
@@ -697,13 +713,27 @@ describe('site elevation reaches the answer', () => {
     expect(sea.siteRateFactor).toBeCloseTo(1, 6);
   });
 
-  it('thins the field of catalogue mains that still make the band', () => {
+  /**
+   * This asserted the field THINS — fewer mains in the band at 5,000 ft. That
+   * held only while an empty slot rated every candidate without its own mass
+   * (audit 2026-09-22). Weighed honestly the count stays at 33: the thinner
+   * air speeds every canopy by the same factor, ten leave at the fast edge and
+   * ten larger ones come in at the slow edge. So what reaches the answer is
+   * the RATE of each canopy, and with it which canopies are offered.
+   */
+  it('speeds every catalogue main by the site factor, and changes which are offered', () => {
     const sea = ok(sizing({ tree: tube(10) }));
     const denver = ok(sizing({
       tree: tube(10),
       launch: { launchAltitudeM: 1524, temperatureC: null, pressureHPa: null },
     }));
-    expect(denver.main.inBand).toBeLessThan(sea.main.inBand);
+    for (const c of denver.main.candidates) {
+      const row = canopies.find((p) => p.partNo === c.partNo && p.manufacturer === c.manufacturer)!;
+      const atSea = descentRate(WILDMAN_KG + (row.mass as number), canopyCdA(row)!, SEA_LEVEL_DENSITY);
+      expect(c.rate, c.partNo).toBeCloseTo(atSea * denver.siteRateFactor, 9);
+    }
+    expect(denver.main.candidates.map((c) => c.partNo))
+      .not.toEqual(sea.main.candidates.map((c) => c.partNo));
   });
 });
 

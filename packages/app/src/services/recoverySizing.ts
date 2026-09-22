@@ -100,12 +100,18 @@ export interface Band {
  * that rounding: what this panel offers and what the launch report complains
  * about are then the same threshold, on the same rocket.
  *
- * It is not free, and the row it costs is named so nobody has to rediscover
- * it. On the owner's 8.786 kg at sea level the sliver admits exactly ONE
- * canopy: Fruity Chutes CFC-072-N, 6.09833 m/s — 20.008 ft/s. That is the
- * difference between the 33 mains he counted at a literal 20 ft/s and the 34
- * this code finds. Admitting it is the point rather than the price: the app's
- * own report would not complain about a rocket landing at 6.098 m/s either.
+ * The sliver is real but, on the owner's 8.786 kg at sea level, EMPTY: every
+ * candidate is weighed with its own mass (`bandAdvice`), and weighed that way
+ * no catalogue canopy lands between 20.000 and 20.013 ft/s, so this code finds
+ * exactly the 33 mains he counted at a literal 20 ft/s. Admitting a canopy in
+ * it would be the point rather than the price: the app's own report would not
+ * complain about a rocket landing at 6.098 m/s either.
+ *
+ * This note used to say the sliver held one canopy — Fruity Chutes CFC-072-N,
+ * 20.008 ft/s — and that it made the count 34. That was a rate taken WITHOUT
+ * the canopy's own 482 g, which lands it at 20.55 ft/s; the 34 was the
+ * empty-slot defect in `recoverySizing` rating every candidate without its own
+ * mass, blamed on the sliver (audit 2026-09-22).
  */
 export const MAIN_BAND: Band = {
   min: 15 * FT_S,
@@ -425,7 +431,8 @@ export interface RecoverySizingInput {
   /**
    * Per-role mass of the chute already in the design (kg), from the kernel's
    * `componentInfo(id).mass`. Null when unknown, which turns the substitution
-   * off for that role rather than guessing.
+   * off for that role rather than guessing. Not called for an EMPTY slot, which
+   * holds nothing and is weighed as 0 — see `bandAdvice`.
    */
   deviceMass: (node: ComponentNode) => number | null;
   /** The catalogue. Rows of other kinds are ignored. */
@@ -524,6 +531,14 @@ function ventFactor(n: ComponentNode | null): number {
  * rather than half-applied: subtracting the old canopy without adding the new
  * one understates the rocket, and understating buys a canopy that is too small
  * — the direction that breaks airframes.
+ *
+ * AN EMPTY SLOT IS NOT AN UNKNOWN ONE (audit 2026-09-22). It holds nothing, so
+ * its `currentMass` is 0 and every candidate is weighed with its whole own
+ * mass added. It used to pass null — "unknown" — which skipped the
+ * substitution and rated every candidate WITHOUT its own mass: on the owner's
+ * 8.786 kg at sea level with no main in the design, b2's CRT-080 L (964 g)
+ * was listed at 19.25 ft/s and lands at 20.28, past the landing limit, and
+ * the main band counted 34 canopies where 33 make it.
  */
 function bandAdvice(
   role: DeviceRole,
@@ -702,11 +717,11 @@ export function recoverySizing(input: RecoverySizingInput): RecoverySizing {
     boreM,
     main: bandAdvice('main', MAIN_BAND, {
       massKg: recovery.mass, rho, boreM, device: main, otherDevice: drogue,
-      currentMass: main ? deviceMass(main) : null, canopies,
+      currentMass: main ? deviceMass(main) : 0, canopies,
     }),
     drogue: bandAdvice('drogue', DROGUE_BAND, {
       massKg: recovery.mass, rho, boreM, device: drogue, otherDevice: main,
-      currentMass: drogue ? deviceMass(drogue) : null, canopies,
+      currentMass: drogue ? deviceMass(drogue) : 0, canopies,
     }),
   };
 }
