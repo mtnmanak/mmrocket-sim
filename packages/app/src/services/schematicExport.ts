@@ -158,17 +158,29 @@ export function svgToImage(svgString: string, widthPx = 3840, format: ImageForma
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(new Blob([svgString], { type: 'image/svg+xml' }));
     const img = new Image();
+    // This body runs in an EVENT CALLBACK, outside the executor: a throw here
+    // neither rejects the promise nor reaches the caller's catch, so the export
+    // waited forever and the ⬇ Image button went dead with nothing reported
+    // (audit 2026-09-22). getContext('2d') returns null when the browser
+    // refuses the canvas — the 7680 px width on a long rocket is exactly the
+    // case TreeSchematic's catch was written for — and drawImage can throw.
     img.onload = () => {
-      const ratio = img.naturalHeight / Math.max(1, img.naturalWidth);
-      const canvas = document.createElement('canvas');
-      canvas.width = widthPx;
-      canvas.height = Math.round(widthPx * ratio);
-      const c = canvas.getContext('2d')!;
-      c.fillStyle = '#ffffff';
-      c.fillRect(0, 0, canvas.width, canvas.height);
-      c.drawImage(img, 0, 0, canvas.width, canvas.height);
-      URL.revokeObjectURL(url);
-      encodeCanvas(canvas, format).then(resolve, reject);
+      try {
+        const ratio = img.naturalHeight / Math.max(1, img.naturalWidth);
+        const canvas = document.createElement('canvas');
+        canvas.width = widthPx;
+        canvas.height = Math.round(widthPx * ratio);
+        const c = canvas.getContext('2d');
+        if (!c) throw new Error(`the browser refused a ${canvas.width} x ${canvas.height} px canvas`);
+        c.fillStyle = '#ffffff';
+        c.fillRect(0, 0, canvas.width, canvas.height);
+        c.drawImage(img, 0, 0, canvas.width, canvas.height);
+        encodeCanvas(canvas, format).then(resolve, reject);
+      } catch (e) {
+        reject(e instanceof Error ? e : new Error(String(e)));
+      } finally {
+        URL.revokeObjectURL(url);
+      }
     };
     img.onerror = () => {
       URL.revokeObjectURL(url);
