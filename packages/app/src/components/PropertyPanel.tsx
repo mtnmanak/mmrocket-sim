@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useRef, useState } from 'react';
+import { Fragment, useId, useMemo, useRef, useState } from 'react';
 import type { ComponentInfo, ComponentNode, ComponentPosition, RocketTree, StaticInfo } from '@online-openrocket/engine';
 import { FinPointsEditor, type FinPoint } from './FinPointsEditor.js';
 import { NumField } from './NumField.js';
@@ -111,11 +111,12 @@ function ValueSlider({ value, min, max, step, onChange, ariaLabel }: {
   onChange: (ui: number) => void;
   /**
    * REQUIRED, even though the type says otherwise for the one caller that has
-   * no field label. The `.field` blocks render `<label>` as a SIBLING with no
-   * htmlFor, so nothing associates it: on a body tube a screen-reader user met
-   * five or six controls all announced as "slider" with a bare number and no
-   * clue which dimension they were about to change — and these write straight
-   * into the flight model.
+   * no field label. A `<label>` names ONE control, and each `.field` label is
+   * wired to its typed box (htmlFor), so the slider beside it is named by
+   * nothing else: before this, on a body tube a screen-reader user met five or
+   * six controls all announced as "slider" with a bare number and no clue
+   * which dimension they were about to change — and these write straight into
+   * the flight model.
    */
   ariaLabel?: string;
 }) {
@@ -178,10 +179,12 @@ function MaterialSelect({ label, list, nameKey, densityKey, densityUnit, node, o
   const foreign = named !== null && !known ? named : null;
   const foreignDensity = typeof node[densityKey] === 'number'
     ? (node[densityKey] as number) : undefined;
+  const id = useId();
   return (
     <div className="field">
-      <label>{label}</label>
+      <label htmlFor={id}>{label}</label>
       <select
+        id={id}
         aria-label={label}
         value={named ?? ''}
         onChange={(e) => {
@@ -343,6 +346,16 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
   onAutoAlignFins?: () => void;
 }) {
   const { prefs } = usePrefs();
+  /**
+   * Every field's `<label htmlFor>` points at its own control through these
+   * ids (audit 2026-09-22). Without one, a label names its first labelable
+   * DESCENDANT — the unit chip's <select> on every field that shows a unit,
+   * and on Surface finish the "→ all" button, so clicking the words "Surface
+   * finish" rewrote the finish, and so the skin-friction drag, of every
+   * component in the rocket.
+   */
+  const uid = useId();
+  const idFor = (key: string) => `${uid}-${key}`;
   const [showPresets, setShowPresets] = useState(false);
   // Why an export button did nothing. Cleared on the next attempt, so it
   // never outlives the outline it is complaining about.
@@ -558,8 +571,10 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
       ? f.label.replace(/radius/gi, (m) => (m[0] === 'R' ? 'Diameter' : 'diameter'))
       : f.label;
     /** The accessible name for BOTH controls in this field. The visible
-     *  `<label>` below is a sibling with no htmlFor, so it names neither. */
+     *  `<label>` is wired to the typed box only — a label names one control —
+     *  so the slider needs this, and it begins with the label's own words. */
     const fieldName = quantity ? `${label} (${symbol ?? ''})`.trim() : label;
+    const inputId = idFor(f.key);
     const plainSuffix = PLAIN_SUFFIX[f.unit];
 
     // Step/range are authored in legacy units — convert, then snap the step
@@ -593,27 +608,35 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
     // (sweep, cant angle) — dimensions and counts reject a typed minus sign.
     const allowNegative = f.smin !== undefined && f.smin < 0;
 
+    const fieldLabel = (
+      <label htmlFor={inputId}>
+        {label}
+        {quantity ? <> <UnitChip quantity={quantity} /></> : plainSuffix && ` (${plainSuffix})`}
+      </label>
+    );
+
     return (
       <div className="field" key={f.key}>
-        <label>
-          {label}
-          {quantity ? <> <UnitChip quantity={quantity} /></> : plainSuffix && ` (${plainSuffix})`}
-          {f.key === 'angleOffset' && snapTargets && (
-            <>
-              {' '}
-              <button className="finish-all-btn" title={snapTargets.inlineTitle}
-                onClick={() => onPatch({ angleOffset: snapTargets.inline })}>
-                ▲ on a fin
-              </button>
-              {' '}
-              <button className="finish-all-btn" title={snapTargets.betweenTitle}
-                onClick={() => onPatch({ angleOffset: snapTargets.between })}>
-                ⟂ between fins
-              </button>
-            </>
-          )}
-        </label>
+        {/* The snap buttons sit BESIDE the label, never inside it: a button
+            inside a label is that label's control, so a click on the words
+            would press it (see `uid`). */}
+        {f.key === 'angleOffset' && snapTargets ? (
+          <div>
+            {fieldLabel}
+            {' '}
+            <button className="finish-all-btn" title={snapTargets.inlineTitle}
+              onClick={() => onPatch({ angleOffset: snapTargets.inline })}>
+              ▲ on a fin
+            </button>
+            {' '}
+            <button className="finish-all-btn" title={snapTargets.betweenTitle}
+              onClick={() => onPatch({ angleOffset: snapTargets.between })}>
+              ⟂ between fins
+            </button>
+          </div>
+        ) : fieldLabel}
         <NumField
+          id={inputId}
           ariaLabel={fieldName}
           value={typeof value === 'number' ? value : undefined}
           step={step}
@@ -661,12 +684,11 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
         </p>
       )}
       <div className="field">
-        {/* The label is a SIBLING, not a wrapper, and carries no htmlFor — so
-            it names nothing. Every other control in this panel passes an
-            explicit aria-label; these two were the exceptions, announced as a
-            bare "edit text" and "color picker". */}
-        <label>Name</label>
-        <input aria-label="Component name"
+        {/* The label is wired by htmlFor, and the explicit aria-label stays:
+            these two were once announced as a bare "edit text" and "color
+            picker", and every other control in the panel carries one. */}
+        <label htmlFor={idFor('name')}>Name</label>
+        <input id={idFor('name')} aria-label="Component name"
           value={node.name ?? ''} onChange={(e) => onPatch({ name: e.target.value })} />
       </div>
       {KIND_FOR_TYPE[node.type] && (
@@ -830,9 +852,9 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
         <PresetPicker type={node.type} onApply={onPatch} onClose={() => setShowPresets(false)} />
       )}
       <div className="field" style={{ marginTop: 6 }}>
-        <label>Color (2D/3D display)</label>
+        <label htmlFor={idFor('color')}>Color (2D/3D display)</label>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-          <input type="color" aria-label="Component color" style={{ width: 44, padding: 2, height: 26 }}
+          <input type="color" id={idFor('color')} aria-label="Component color" style={{ width: 44, padding: 2, height: 26 }}
             value={typeof node['color'] === 'string' ? (node['color'] as string) : '#d5d2cb'}
             onChange={(e) => onPatch({ color: e.target.value })} />
           {COLOR_PRESETS.map((c) => (
@@ -880,22 +902,25 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
             );
           }
           if (f.options) {
+            const selectLabel = <label htmlFor={idFor(f.key)}>{f.label}</label>;
             return (
               <div className="field" key={f.key}>
-                <label>
-                  {f.label}
-                  {f.key === 'finish' && onPatchAll && (
-                    <>
-                      {' '}
-                      <button className="finish-all-btn"
-                        title="Apply this finish to every component"
-                        onClick={() => onPatchAll({ finish: node['finish'] ?? 'normal' })}>
-                        → all
-                      </button>
-                    </>
-                  )}
-                </label>
+                {/* "→ all" sits BESIDE the label. Inside it, the button was the
+                    label's control, and a click on the words "Surface finish"
+                    rewrote the finish of every component (audit 2026-09-22). */}
+                {f.key === 'finish' && onPatchAll ? (
+                  <div>
+                    {selectLabel}
+                    {' '}
+                    <button className="finish-all-btn"
+                      title="Apply this finish to every component"
+                      onClick={() => onPatchAll({ finish: node['finish'] ?? 'normal' })}>
+                      → all
+                    </button>
+                  </div>
+                ) : selectLabel}
                 <select
+                  id={idFor(f.key)}
                   aria-label={f.label}
                   // An unset select shows what the READERS fall back to, never
                   // options[0]. Those two disagreed until v0.088: unset finish
@@ -948,11 +973,12 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
               <Fragment key={f.key}>
                 {renderNumeric(f)}
                 <div className="field">
-                  <label>
+                  <label htmlFor={idFor('innerDiameter')}>
                     {node.type === 'nosecone' ? 'Base inner diameter' : 'Inner diameter'}
                     {' '}<UnitChip quantity="length" />
                   </label>
                   <NumField
+                    id={idFor('innerDiameter')}
                     ariaLabel={node.type === 'nosecone' ? 'Base inner diameter' : 'Inner diameter'}
                     value={siToUi(idQuantity, idSym, innerSi)}
                     step={niceStep(siToUi(idQuantity, idSym, 0.001))}
@@ -1243,8 +1269,9 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
         )}
         <div className="field-grid">
           <div className="field">
-            <label>Mass{node.type.endsWith('finset') ? ' (all fins combined)' : ''} <UnitChip quantity="mass" /></label>
+            <label htmlFor={idFor('overrideMass')}>Mass{node.type.endsWith('finset') ? ' (all fins combined)' : ''} <UnitChip quantity="mass" /></label>
             <NumField
+              id={idFor('overrideMass')}
               ariaLabel="Mass override"
               value={typeof node['overrideMass'] === 'number'
                 ? siToUi('mass', massSym, node['overrideMass'] as number) : undefined}
@@ -1265,8 +1292,9 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
             />
           </div>
           <div className="field">
-            <label>CG from component top <UnitChip quantity="length" /></label>
+            <label htmlFor={idFor('overrideCGX')}>CG from component top <UnitChip quantity="length" /></label>
             <NumField
+              id={idFor('overrideCGX')}
               ariaLabel="CG override, from component top"
               value={typeof node['overrideCGX'] === 'number'
                 ? lenToUi(node['overrideCGX'] as number) : undefined}
@@ -1314,10 +1342,11 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
                 whole set — measured, not assumed: Cd 0.5 contributes 1.5 / 2.0
                 / 3.0 on 3 / 4 / 6 fins. That asymmetry has to be on the label
                 or it silently triples someone's drag. */}
-            <label>
+            <label htmlFor={idFor('overrideCD')}>
               Drag coefficient (Cd){node.type.endsWith('finset') ? ' — per fin' : ''}
             </label>
             <NumField
+              id={idFor('overrideCD')}
               ariaLabel="Drag coefficient (Cd) override"
               value={typeof node['overrideCD'] === 'number' ? (node['overrideCD'] as number) : undefined}
               step={0.05}
@@ -1367,8 +1396,9 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
           <h3 style={{ marginTop: 0 }}>Position (in parent)</h3>
           <div className="field-grid">
             <div className="field">
-              <label>Relative to</label>
+              <label htmlFor={idFor('positionMethod')}>Relative to</label>
               <select
+                id={idFor('positionMethod')}
                 aria-label="Position relative to"
                 value={pos.method}
                 onChange={(e) =>
@@ -1380,8 +1410,9 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
               </select>
             </div>
             <div className="field">
-              <label>Offset <UnitChip quantity="length" /></label>
+              <label htmlFor={idFor('positionOffset')}>Offset <UnitChip quantity="length" /></label>
               <NumField
+                id={idFor('positionOffset')}
                 ariaLabel="Position offset"
                 value={lenToUi(pos.offset)}
                 step={niceStep(siToUi('length', lengthSym, 0.001))}

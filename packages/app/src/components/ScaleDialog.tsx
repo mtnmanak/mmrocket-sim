@@ -225,11 +225,12 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
                   BEATS an associated <label> in the accessible-name
                   computation, so "Scale factor" would replace the visible
                   "Scale by" — WCAG 2.5.3 label-in-name, and a voice-control
-                  user saying "click Scale by" matches nothing. Elsewhere in
-                  the app (LaunchPanel, PropertyPanel) ariaLabel is right,
-                  because those labels are NOT associated and the aria-label is
-                  the only name there is; the rule is that once a label is
-                  wired, it is the name. */}
+                  user saying "click Scale by" matches nothing. In LaunchPanel
+                  ariaLabel is right, because those labels are NOT associated
+                  and the aria-label is the only name there is. PropertyPanel
+                  wires its labels (2026-09-22) but keeps its aria-labels,
+                  because a label names one control and each field's slider
+                  needs the same name. */}
               <label htmlFor="scale-factor">Scale by</label>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <NumField

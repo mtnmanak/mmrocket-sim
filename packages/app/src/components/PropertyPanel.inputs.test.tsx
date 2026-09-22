@@ -34,9 +34,10 @@ const infoOf = (massKg: number): ComponentInfo => ({
  * sat in App before the audit, and the way it still sits for one component
  * across an undo or a unit switch.
  */
-const show = (tree: RocketTree, node: ComponentNode, info?: ComponentInfo) => act(() => root.render(
+const show = (tree: RocketTree, node: ComponentNode, info?: ComponentInfo,
+  extra: Partial<Parameters<typeof PropertyPanel>[0]> = {}) => act(() => root.render(
   <PrefsProvider>
-    <PropertyPanel tree={tree} node={node} info={info} onPatch={(p) => patches.push(p)} />
+    <PropertyPanel tree={tree} node={node} info={info} onPatch={(p) => patches.push(p)} {...extra} />
   </PrefsProvider>,
 ));
 
@@ -46,6 +47,8 @@ const inputNamed = (name: string): HTMLInputElement =>
 const spinner = (name: string, i: 0 | 1): HTMLButtonElement =>
   inputNamed(name).closest('.numfield')!.querySelectorAll('button')[i] as HTMLButtonElement;
 const click = (el: HTMLElement) => act(() => { el.click(); });
+const labelStarting = (text: string): HTMLLabelElement =>
+  [...host.querySelectorAll('label')].find((l) => (l.textContent ?? '').startsWith(text))!;
 
 beforeEach(() => {
   localStorage.clear();
@@ -100,5 +103,44 @@ describe('PropertyPanel — a spinner on a blank field with no figure behind it'
     show(treeOf(a), a, undefined);
     click(spinner('Mass override', 0));
     expect(patches).toEqual([]);
+  });
+});
+
+describe('PropertyPanel — every field label names its own control', () => {
+  /**
+   * Audit 2026-09-22, measured with happy-dom: a label with no htmlFor labels
+   * its first labelable descendant, which on Surface finish was the "→ all"
+   * button — so clicking the words rewrote the finish, and the skin-friction
+   * drag, of every component in the rocket.
+   */
+  it('clicking the words "Surface finish" does not apply it to every component', () => {
+    const a = tube('A', { finish: 'smooth' });
+    const all: Record<string, unknown>[] = [];
+    show(treeOf(a), a, infoOf(0.05), { onPatchAll: (p) => all.push(p) });
+    const label = labelStarting('Surface finish');
+    click(label);
+    expect(all, 'the label pressed "→ all"').toEqual([]);
+    expect(label.querySelector('button'), 'no button lives inside the label').toBeNull();
+    // The button itself still does its job.
+    const allBtn = [...host.querySelectorAll('button')].find((b) => b.textContent?.includes('→ all'))!;
+    click(allBtn);
+    expect(all).toEqual([{ finish: 'smooth' }]);
+  });
+
+  it('points each field label at its own input or select, never at a unit chip or a button', () => {
+    const a = tube('A');
+    show(treeOf(a), a, infoOf(0.05), { onPatchAll: () => {} });
+    const labels = [...host.querySelectorAll('label')]
+      // A label that WRAPS its checkbox is associated by nesting, correctly.
+      .filter((l) => !l.querySelector('input[type="checkbox"]'));
+    expect(labels.length).toBeGreaterThan(8);
+    for (const l of labels) {
+      const target = l.htmlFor ? document.getElementById(l.htmlFor) : null;
+      expect(target, `"${l.textContent}" has no control`).not.toBeNull();
+      expect(target!.classList.contains('unit-chip'), l.textContent ?? '').toBe(false);
+      expect(['INPUT', 'SELECT'], l.textContent ?? '').toContain(target!.tagName);
+    }
+    // The DOM's own resolution agrees: the label's control is the typed box.
+    expect(labelStarting('Length').control).toBe(inputNamed('Length (mm)'));
   });
 });

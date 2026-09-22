@@ -171,6 +171,16 @@ describe('NozzleField — rule 2: a value that disagrees is NOT overwritten', ()
   });
 });
 
+describe('NozzleField — its label', () => {
+  it('names the typed box, not the unit chip inside it', async () => {
+    // Audit 2026-09-22: with no htmlFor the label's control was its first
+    // labelable descendant, the unit chip's <select>.
+    await render({ exitDiameterM: D13_EXIT_M });
+    const label = host.querySelector('label')!;
+    expect(label.control).toBe(host.querySelector('input'));
+  });
+});
+
 describe('NozzleField — rule 3: the nine motors with two published nozzles', () => {
   it('names the alternative rather than choosing silently', async () => {
     await render({ exitDiameterM: null, motorIds: [I115], motorLabel: 'I115W' });

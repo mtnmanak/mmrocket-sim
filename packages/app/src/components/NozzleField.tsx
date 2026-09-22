@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { fmtSi, siToUi, uiToSi } from '../prefs/units.js';
 import { nozzleForMotorId, type NozzleEntry } from '../services/nozzleDb.js';
@@ -73,6 +73,7 @@ export function NozzleField({
 }) {
   const { prefs } = usePrefs();
   const sym = prefs.units.motorDimensions;
+  const inputId = useId();
   const [entries, setEntries] = useState<(NozzleEntry | null)[] | null>(null);
 
   const key = motors.map((m) => `${m.motorId}x${m.count}`).join(',');
@@ -126,10 +127,14 @@ export function NozzleField({
   return (
     <div style={{ marginTop: 8 }}>
       <div className="field">
-        <label>
+        {/* htmlFor, or the label's control is the unit chip's <select> — its
+            first labelable descendant — and clicking the words focused that
+            instead of the box (audit 2026-09-22). */}
+        <label htmlFor={inputId}>
           Nozzle exit diameter <UnitChip quantity="motorDimensions" />
         </label>
         <NumField
+          id={inputId}
           ariaLabel={`Nozzle exit diameter for ${stageName} (${sym})`}
           value={exitDiameterM === null ? undefined : siToUi('motorDimensions', sym, exitDiameterM)}
           step={0.5}

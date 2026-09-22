@@ -11,10 +11,12 @@ import { PrefsProvider } from '../prefs/PrefsContext.js';
  * readers: controls with no accessible name, and a schema step of 0 reaching a
  * slider that then had one usable position.
  *
- * The `.field` blocks render `<label>` as a SIBLING with no htmlFor, so the
- * visible text names nothing. NumField and every <select> in the file pass an
- * explicit aria-label; the range inputs, the Name box and the colour picker
- * did not.
+ * The `.field` blocks render `<label>` as a SIBLING. It had no htmlFor, so the
+ * visible text named nothing; since the 2026-09-22 audit it points at the
+ * field's typed box — but a label names ONE control, so the range input beside
+ * it still needs a name of its own. NumField and every <select> in the file
+ * pass an explicit aria-label; the range inputs, the Name box and the colour
+ * picker did not.
  */
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
