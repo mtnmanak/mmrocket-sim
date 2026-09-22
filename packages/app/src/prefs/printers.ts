@@ -55,7 +55,11 @@ export const PRINTER_PRESETS: PrinterPreset[] = [
   { id: 'neptune-4-plus', label: 'Elegoo Neptune 4 Plus', mm: [320, 320, 385] },
 ];
 
-/** Keep-out inset at each end of each axis (m) — brim below, gantry above. */
+/**
+ * Keep-out inset (m): off both edges of X and Y (room for a brim), off the top
+ * of Z only (gantry clearance) — the part stands on the bed, so nothing comes
+ * off the bottom of Z (splitSolid.usableBox).
+ */
 export const DEFAULT_PRINT_MARGIN = 0.008;
 /** Joint clearance per side (m): 0.15 mm, an FDM-realistic slip fit. */
 export const DEFAULT_PRINT_CLEARANCE = 0.00015;
