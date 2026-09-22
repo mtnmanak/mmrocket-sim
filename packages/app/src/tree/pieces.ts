@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { ComponentNode, ComponentPosition, RocketTree } from '@online-openrocket/engine';
+import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import {
   assemblyBoundingRadius, assemblyChainLength, isAssembly,
   resolveAssemblyRadius, ringInstanceOffsets,
@@ -11,7 +11,7 @@ import { tubeFinRadius } from './tubefins.js';
 import { outerProfile } from './shapeProfile.js';
 import { isConformal, shroudEnds } from './shroud.js';
 import { shroudGeometry } from './shroudMesh.js';
-import { axialLength } from './position.js';
+import { axialLength, axialStart } from './position.js';
 
 /**
  * THE APP'S 3D GEOMETRY, and nothing else.
@@ -32,19 +32,6 @@ import { axialLength } from './position.js';
  */
 
 const nodeColor = (n: ComponentNode, dflt: string): string => typeof n['color'] === 'string' ? (n['color'] as string) : dflt;
-
-
-
-
-function axialStart(child: ComponentNode, childLen: number, pStart: number, pLen: number): number {
-  const pos = (child.position ?? { method: 'top', offset: 0 }) as ComponentPosition;
-  switch (pos.method) {
-    case 'middle': return pStart + (pLen - childLen) / 2 + pos.offset;
-    case 'bottom': return pStart + pLen - childLen + pos.offset;
-    case 'absolute': return pos.offset;
-    default: return pStart + pos.offset;
-  }
-}
 
 /**
  * Lathe points for a nose/transition outer profile (kernel-exact shapes from

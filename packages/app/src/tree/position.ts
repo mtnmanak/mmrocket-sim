@@ -77,6 +77,25 @@ export function startFromPosition(pos: ComponentPosition, childLen: number, pLen
   }
 }
 
+/**
+ * A child's leading edge in the frame its parent's `pStart` is given in — the
+ * placement step every tree walker repeats: the 2D schematic, the 3D pieces,
+ * and `absoluteStations` below.
+ *
+ * One copy since the 2026-09-22 audit. TreeSchematic.tsx and pieces.ts each
+ * carried their own, and they disagreed about 'absolute': the schematic added
+ * the offset to the parent's start, the 3D view took it literally. Literal is
+ * right — an 'absolute' offset is already the rocket-origin frame (see
+ * `resolveAbsolutePositions`) — and is what `absoluteStations` always did.
+ * Neither view could show the difference, because `normalizeTree` rewrites
+ * every 'absolute' position away at each load boundary; it is one copy so
+ * that stays true by construction rather than by that rewrite.
+ */
+export function axialStart(child: ComponentNode, childLen: number, pStart: number, pLen: number): number {
+  const pos = (child.position ?? { method: 'top', offset: 0 }) as ComponentPosition;
+  return pos.method === 'absolute' ? pos.offset : pStart + startFromPosition(pos, childLen, pLen);
+}
+
 export function offsetForStart(method: ComponentPosition['method'], start: number, childLen: number, pLen: number): number {
   switch (method) {
     case 'middle': return start - (pLen - childLen) / 2;
@@ -183,7 +202,8 @@ export interface AbsoluteStation {
  * The one place this walk is stricter than `startFromPosition` alone: an
  * `absolute` position is ALREADY in this frame (it is the rocket-origin offset
  * only file importers produce — see `resolveAbsolutePositions` above), so it is
- * taken literally instead of being added to the parent's start. Feeding a tree
+ * taken literally instead of being added to the parent's start (`axialStart`,
+ * which the schematic and the 3D pieces share). Feeding a tree
  * through `resolveAbsolutePositions` first therefore does not move any station,
  * which `position.test.ts` pins.
  */
@@ -196,10 +216,7 @@ export function absoluteStations(tree: RocketTree): Map<string, AbsoluteStation>
       // cLen anchors (and is the parent length its own children are placed
       // against — the kernel's getLength() either way); the END is the extent.
       const cLen = axialLength(child);
-      const pos = (child.position ?? { method: 'top', offset: 0 }) as ComponentPosition;
-      const start = pos.method === 'absolute'
-        ? pos.offset
-        : pStart + startFromPosition(pos, cLen, pLen);
+      const start = axialStart(child, cLen, pStart, pLen);
       if (child.id) out.set(child.id, { start, end: start + drawnExtent(child), node: child, parent });
       descend(child, start, cLen);
     }

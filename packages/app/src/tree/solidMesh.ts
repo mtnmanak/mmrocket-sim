@@ -13,7 +13,7 @@ import type { ComponentNode } from '@online-openrocket/engine';
 import { num } from './nodeNum.js';
 import { outerProfile } from './shapeProfile.js';
 import { tubeFinRadius } from './tubefins.js';
-import { finTabFront } from '../components/TreeSchematic.js';
+import { finTabFront } from './finTab.js';
 
 export interface SolidMesh {
   /** xyz triples, meters */

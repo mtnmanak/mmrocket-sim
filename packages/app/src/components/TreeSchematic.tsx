@@ -1,6 +1,9 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import type { ComponentNode, ComponentPosition, RocketTree, StaticInfo } from '@online-openrocket/engine';
-import { anchorStarts, axialLength, offsetForStart, snapStart, startFromPosition } from '../tree/position.js';
+import {
+  anchorStarts, axialLength, axialStart, offsetForStart, snapStart, startFromPosition,
+} from '../tree/position.js';
+import { finTabFront } from '../tree/finTab.js';
 import { clusterOffsets } from '../tree/cluster.js';
 import { tubeFinRadius } from '../tree/tubefins.js';
 import { wheelNotches } from '../chartPanZoom.js';
@@ -140,21 +143,6 @@ export function calloutLayout(
     margin = { x, y: laneBottom };
   }
   return { cg, cp, margin };
-}
-
-/** Tab front edge from the fin's leading edge (AxialMethod.getAsPosition). */
-export function finTabFront(n: ComponentNode, finLen: number): number {
-  const offset = num(n, 'tabOffset', 0);
-  const tabLen = num(n, 'tabLength', 0);
-  const method = typeof n['tabOffsetMethod'] === 'string' ? (n['tabOffsetMethod'] as string) : 'middle';
-  if (method === 'top') return offset;
-  if (method === 'bottom') return offset + (finLen - tabLen);
-  return offset + (finLen - tabLen) / 2;
-}
-
-function axialStart(child: ComponentNode, childLen: number, pStart: number, pLen: number): number {
-  const pos = (child.position ?? { method: 'top', offset: 0 }) as ComponentPosition;
-  return pStart + startFromPosition(pos, childLen, pLen);
 }
 
 interface DragState {
