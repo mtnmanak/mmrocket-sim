@@ -9,9 +9,11 @@ import { MOTOR_DB, type MotorDbEntry } from './motorDb.js';
 import type { NozzleEntry } from './nozzleDb.js';
 import { delayOptions, fetchMotorSpec } from './thrustcurve.js';
 import { commentLevelsAlign, recommendDelay } from './simReport.js';
+import { stageMotors } from './nozzleFollow.js';
+import type { MountMotor } from '../App.js';
 import {
-  batchDelayRule, batchMotorNames, batchRowKey, deploysOnEjectionCharge, provisionalDelay, runBatchSweep,
-  type BatchMountOption, type BatchSweepDeps, type BatchSweepInput,
+  batchDelayRule, batchMotorIds, batchMotorNames, batchRowKey, deploysOnEjectionCharge, provisionalDelay,
+  runBatchSweep, type BatchMountOption, type BatchSweepDeps, type BatchSweepInput,
 } from './batchSweep.js';
 
 /**
@@ -429,6 +431,20 @@ describe('the sweep, flown on the real kernel', () => {
     // …and only for it.
     expect(rows.find((r) => r.entry.motorId === 'cat')!.exitM).toBeCloseTo(0.02, 12);
   }, 60000);
+
+  it("App's ids read an imported motor by its ex: id — the id nozzleFollow reads for the same motor", () => {
+    const tree = rocket({ sideMount: true });
+    const mm = (meta: MountMotor['meta']) => ({ label: meta.label, spec: curve('E20'), meta } as MountMotor);
+    const motors = {
+      mount: mm({ label: 'E22', manufacturer: 'Acme', motorId: 'cat' }),
+      side: mm({ label: 'E20', manufacturer: 'EX', exMotorId: 'ex:side' }),
+    };
+    const ids = batchMotorIds(motors);
+    expect(ids).toEqual({ mount: 'cat', side: 'ex:side' });
+    // …which is exactly what nozzleFollow sees on the design page.
+    const follow = stageMotors(tree, Object.entries(motors))[0]!.motors;
+    expect(Object.fromEntries(follow.map((m) => [m.mountId, m.motorId]))).toEqual(ids);
+  });
 
   it("an imported motor on another mount adds its file's exit to every candidate's stage sum", async () => {
     const side: BatchMountOption = { id: 'side', label: 'Side', diameterMm: 24, motorCount: 1, maxMotorLengthM: null };

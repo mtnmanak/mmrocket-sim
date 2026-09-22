@@ -550,7 +550,10 @@ describe('batchStageExit — the nozzle one candidate flies', () => {
    * motor carries `exMotorId` and never `motorId`, and App handed the sweep
    * `meta.motorId` alone — so a loaded EX motor was `undefined` on both sides
    * of this rule: its row never flew the exit typed for it, and on another
-   * mount it dropped out of every candidate's stage sum.
+   * mount it dropped out of every candidate's stage sum. The rule itself never
+   * looked at the id's form, so these held before that fix too: they pin that
+   * an ex: id is served like any other. The fix — the ids App hands over — is
+   * tested against nozzleFollow in services/batchSweep.test.ts (batchMotorIds).
    */
   it('flies the typed exit for the imported motor it was typed for, by its ex: id', () => {
     expect(batchStageExit({
@@ -577,10 +580,10 @@ describe('batchStageExit — the nozzle one candidate flies', () => {
 describe('App hands the sweep the ids the nozzle database is keyed on', () => {
   const app = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../App.tsx'), 'utf8');
 
-  it('reads an EX motor by its ex: id — the SAME expression nozzleFollow reads', () => {
-    const at = app.indexOf('assignedMotorIds={Object.fromEntries(');
-    expect(at, 'assignedMotorIds is no longer built where it was').toBeGreaterThan(-1);
-    const expr = app.slice(at, app.indexOf(')}', at));
-    expect(expr).toContain('mm.meta.motorId ?? mm.meta.exMotorId');
+  // What batchMotorIds reads — an EX motor by its ex: id, as nozzleFollow does —
+  // is flown against nozzleFollow itself in services/batchSweep.test.ts. This
+  // pins that App builds the prop through it rather than an inline copy.
+  it('builds the ids through batchMotorIds, not an inline copy of the expression', () => {
+    expect(app).toContain('assignedMotorIds={batchMotorIds(mountMotors)}');
   });
 });

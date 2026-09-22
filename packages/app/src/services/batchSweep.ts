@@ -11,7 +11,7 @@ import { nozzleForMotorId } from './nozzleDb.js';
 import { displayDesignation, isHighPower, type MotorDbEntry } from './motorDb.js';
 import { delayOptions, fetchMotorSpec, type TcMotor } from './thrustcurve.js';
 import { motorIdentity, shiftMotorMass } from './hardwareMass.js';
-import { buildSimRun, recommendDelay, type SimRun } from './simReport.js';
+import { buildSimRun, recommendDelay, type MotorMeta, type SimRun } from './simReport.js';
 import { aeroModelFor, rogersKbfFor, type AeroMode } from './flightPipeline.js';
 import { MACH_AUTO_THRESHOLD, machProbeSeconds } from './machProbe.js';
 import { kernelSimOptions, type LaunchConditions } from '../components/LaunchPanel.js';
@@ -156,8 +156,8 @@ export interface BatchWeighed {
  *     because the blank is visible and the short sum is not.
  *
  * The ids are the ones the nozzle database is keyed on: a catalogue motorId,
- * or an imported motor's `ex:` library id (App hands over `motorId ??
- * exMotorId`, the expression nozzleFollow reads).
+ * or an imported motor's `ex:` library id (App hands over batchMotorIds, the
+ * expression nozzleFollow reads).
  *
  * Null means "fly with no nozzle", which is what every candidate did before.
  */
@@ -179,6 +179,21 @@ export function batchStageExit(input: {
     return typedStageExitM;
   }
   return equivalentExitDiameterM([{ count, exitDiameterM: ownExitM }, ...otherParts]);
+}
+
+/**
+ * The nozzle-database id of each loaded motor, by mount — what App hands the
+ * sweep as `assignedMotorIds`. The SAME expression nozzleFollow's stageMotors
+ * reads: a catalogue motor by its `motorId`, an imported EX motor by its
+ * `exMotorId`, because an EX motor never has a `motorId`. App read `motorId`
+ * alone until audit 2026-09-22, which kept every EX motor out of the rule in
+ * batchStageExit on both sides. A function rather than App's inline map so a
+ * test can hold it to nozzleFollow with a motor that carries only the EX id.
+ */
+export function batchMotorIds(
+  motors: Record<string, { meta: Pick<MotorMeta, 'motorId' | 'exMotorId'> }>,
+): Record<string, string | undefined> {
+  return Object.fromEntries(Object.entries(motors).map(([id, mm]) => [id, mm.meta.motorId ?? mm.meta.exMotorId]));
 }
 
 /** A candidate's identity spelled the way MountMotor identities are: EX entries by their ex: id. */
