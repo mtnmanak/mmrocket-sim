@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 
 /**
  * Numeric input that lets the user TYPE anything mid-edit (including "-",
@@ -19,7 +19,9 @@ import { useState } from 'react';
  *   value keeps full precision, which is what you edit on focus).
  * - Clearing the field commits null when `nullable` (blank = auto/calculated
  *   fields); otherwise it's treated as an incomplete draft.
- * - ArrowUp/ArrowDown and the spinner buttons step by `step`.
+ * - ArrowUp/ArrowDown and the spinner buttons step by `step`, from the draft,
+ *   the value or the auto value; a blank field with none of those commits
+ *   nothing and just takes focus.
  */
 export function NumField({
   value, onCommit, nullable = false, min, max, allowNegative = false,
@@ -37,8 +39,8 @@ export function NumField({
   placeholder?: string;
   /**
    * The computed/auto value a BLANK field is standing in for, in the same unit
-   * as `value`. Only the spinner and the arrow keys use it: they step from it
-   * instead of from zero.
+   * as `value`. Only the spinner and the arrow keys use it: they step from it,
+   * and with no such figure at all they commit nothing (see `stepBy`).
    *
    * Why that matters. A blank field here does not mean "zero", it means "use
    * the computed value the placeholder is showing" — a measured mass of 245.3 g,
@@ -88,6 +90,7 @@ export function NumField({
    */
   const [focused, setFocused] = useState(false);
   const live = focused ? draft : null;
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const lowBound = min !== undefined ? min : (allowNegative ? undefined : 0);
 
@@ -131,9 +134,8 @@ export function NumField({
    * value rendered in the field's own unit — "245.3" (MeasuredMassBox),
    * "auto: 12.345" and "default: 0.333" (PropertyPanel), "design: 76.2"
    * (App.tsx's max motor length). Placeholders that name a state rather than a
-   * number — "—", "standard", "plugged", "no limit" — contain no digits, so
-   * those fields keep the old seed-from-zero behaviour, which is what a blank
-   * "none" field should do.
+   * number — "—", "auto", "standard", "plugged", "no limit" — contain no
+   * digits, so there is no base and the spinner commits nothing (`stepBy`).
    *
    * If you add a placeholder that contains a number which is NOT the auto value
    * (an "e.g. 25" hint, say), pass `autoValue` explicitly or the spinner will
@@ -150,7 +152,19 @@ export function NumField({
   const stepBy = (dir: 1 | -1) => {
     // Unfocused (a spinner click), the committed value is the only truth: a
     // draft is never read here, and none is written below.
-    const base = (live !== null ? parse(live) : null) ?? value ?? autoBase() ?? 0;
+    const base = (live !== null ? parse(live) : null) ?? value ?? autoBase();
+    // A blank field with no figure behind it: nothing to step FROM, so commit
+    // nothing and put the caret in the box for typing instead. This used to
+    // seed from 0, and a blank there is rarely "zero" (audit 2026-09-22): ▴ on
+    // a blank Cd override ("auto") committed 0.05 and ▾ committed 0, either
+    // one replacing the component's whole computed drag; the launch time step
+    // ("standard", i.e. 0.05 s) committed its 0.01 s floor, flying 3.7-6.0x
+    // slower; ▴ on a plugged motor's delay committed a 1 s ejection; and a
+    // mass override with no computed mass to show committed 0.1 g.
+    if (base === undefined) {
+      if (!focused) inputRef.current?.focus();
+      return;
+    }
     let next = base + dir * step;
     // Snap float noise (0.30000000000000004) to the step's precision.
     const decimals = Math.max(0, -Math.floor(Math.log10(step)) + 1);
@@ -168,6 +182,7 @@ export function NumField({
   return (
     <div className="numfield">
       <input
+        ref={inputRef}
         id={id}
         type="text"
         inputMode="decimal"

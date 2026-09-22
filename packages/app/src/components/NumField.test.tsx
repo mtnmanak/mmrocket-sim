@@ -283,12 +283,28 @@ describe('NumField — stepping', () => {
     expect(commits).toEqual([250.34]);
   });
 
-  it('still seeds from zero when the placeholder names a state, not a number', () => {
-    // "—", "standard", "plugged", "no limit": blank means "none" there, so
-    // stepping up to one `step` is the right seed and stays as it was.
-    render({ value: undefined, nullable: true, step: 10, placeholder: '—' });
-    click(spinners()[0]!);
-    expect(commits).toEqual([10]);
+  /**
+   * Audit 2026-09-22: a blank field whose placeholder names a state — "auto",
+   * "standard", "plugged", "no limit", "—" — or shows nothing has no number to
+   * step from. It used to seed from 0: ▴ on a blank Cd override committed 0.05
+   * and ▾ committed 0, replacing the component's whole drag, and the time step
+   * ("standard") committed its 0.01 s floor. Now it commits nothing and puts
+   * the caret in the box.
+   */
+  it('a blank field with no number behind it commits nothing, and takes focus instead', () => {
+    for (const placeholder of ['auto', 'standard', 'plugged', '—', undefined]) {
+      render({ value: undefined, nullable: true, step: 0.05, placeholder });
+      click(spinners()[0]!);
+      click(spinners()[1]!);
+      expect(commits, String(placeholder)).toEqual([]);
+      expect(document.activeElement, String(placeholder)).toBe(input());
+    }
+    // And from the keyboard, where the field already has focus.
+    render({ value: undefined, nullable: true, step: 0.05, placeholder: 'auto' });
+    key('ArrowUp');
+    key('ArrowDown');
+    expect(commits).toEqual([]);
+    expect(input().value).toBe('');
   });
 
   it('a typed draft still wins over value and autoValue', () => {

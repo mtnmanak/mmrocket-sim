@@ -82,3 +82,23 @@ describe('PropertyPanel — a spinner click leaves nothing behind for the next c
     expect(patches.at(-1)!['overrideMass']).toBeCloseTo(0.1201, 9);
   });
 });
+
+describe('PropertyPanel — a spinner on a blank field with no figure behind it', () => {
+  it('▴/▾ on a blank Cd override ("auto") commit nothing: the computed drag stays', () => {
+    // Audit 2026-09-22, measured: ▴ committed overrideCD 0.05 and ▾ committed 0,
+    // either one replacing the component's whole computed drag.
+    const a = tube('A');
+    show(treeOf(a), a, infoOf(0.05));
+    click(spinner('Drag coefficient (Cd) override', 0));
+    click(spinner('Drag coefficient (Cd) override', 1));
+    expect(patches).toEqual([]);
+    expect(document.activeElement).toBe(inputNamed('Drag coefficient (Cd) override'));
+  });
+
+  it('▴ on a blank mass override with no computed mass (a broken build) commits nothing', () => {
+    const a = tube('A');
+    show(treeOf(a), a, undefined);
+    click(spinner('Mass override', 0));
+    expect(patches).toEqual([]);
+  });
+});
