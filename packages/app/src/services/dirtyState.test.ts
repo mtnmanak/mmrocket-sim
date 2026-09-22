@@ -92,6 +92,24 @@ describe('designFingerprint', () => {
     };
     expect(designFingerprint(plugged)).not.toBe(designFingerprint(absent));
   });
+
+  it('reads a key holding undefined as absent — what the session\'s JSON stores (audit 2026-09-22)', () => {
+    // A catalogue pick now writes `cd: undefined` (and the like) for every field
+    // the row lacks, and a panel clear always has; updateNode cannot delete a
+    // key. JSON drops them, so the reloaded tree has no such key: hashing it
+    // as null put a design saved after a pick back to "unsaved" on every reload.
+    const cleared = tree();
+    const nose = cleared.components[0]!.children![0]! as Record<string, unknown>;
+    nose['cd'] = undefined;
+    nose['filled'] = undefined;
+    const withUndefined = { ...base(), tree: cleared };
+    const reloaded = { ...base(), tree: JSON.parse(JSON.stringify(cleared)) as RocketTree };
+    expect(designFingerprint(withUndefined)).toBe(designFingerprint(reloaded));
+    expect(designFingerprint(withUndefined)).toBe(designFingerprint(base()));
+    // null is still a value, not an absence.
+    nose['cd'] = null;
+    expect(designFingerprint({ ...base(), tree: cleared })).not.toBe(designFingerprint(base()));
+  });
 });
 
 describe('designFingerprint — the weighed pad mass on the motor record (v0.118)', () => {
