@@ -190,9 +190,8 @@ describe('flightDataForExport — the rules that are about OTHER configurations'
  * optimum, which is only known after flying. So an auto-delay run matched its
  * configuration, and its flight went into the file under a delay it never
  * flew. Measured on the starter rocket (classic + Kbf, the default) with an
- * Estes C6 whose spec says 3 s:
- * auto flew 5 s, and the file said the chute opened at 3.81 m/s where the 3 s
- * motor it names deploys at 16.81 m/s.
+ * Estes C6 whose spec says 3 s: auto flew 5 s, and the file said the chute
+ * opened at 3.81 m/s where the 3 s motor it names deploys at 16.81 m/s.
  */
 describe('flightDataForExport — the flown delay must be the one the file names', () => {
   const withDelay = (delay: number): MountMotor =>
