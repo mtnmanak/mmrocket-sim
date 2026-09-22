@@ -159,6 +159,26 @@ export function aftLayout(
           title: child.name ?? 'Camera shroud',
         });
         reach(cy, cz, pRadius + hgt);
+      } else if ((t as string) === 'protuberance') {
+        // A drag bump, end-on: the frontal box it IS aerodynamically, `width`
+        // across and `height` off the surface — the same box the 3D view
+        // builds (pieces.ts) and the rectangle the rail button below already
+        // uses. This view had no branch for it until audit 2026-09-22, so a
+        // part the side and 3D views both drew was missing from this one.
+        // `count` identical bumps have no positions of their own (the count
+        // multiplies the drag, treeModel.protuberanceFrontalArea), so one
+        // shape stands for them and the title carries the count, as a lug's
+        // stacked line instances do.
+        const wid = num(child, 'width', 0.02);
+        const hgt = num(child, 'height', 0.01);
+        const count = Math.max(1, Math.round(num(child, 'count', 1)));
+        outer.push({
+          key: keyFor(child), kind: 'shroud', y: cy, z: cz, angle: num(child, 'angleOffset', 0) + roll,
+          baseR: pRadius, height: hgt, width: wid, conformal: false,
+          fill: colorOf(child, '#c8c5be'), stroke: '#7a786f',
+          title: `${child.name ?? 'Protuberance'}${count > 1 ? ` ×${count}` : ''}`,
+        });
+        reach(cy, cz, pRadius + hgt);
       } else if (t === 'launchlug' || t === 'railbutton') {
         // Angle 0 is the top of the side view, and the aft frame's +y is up,
         // so a lug at 0 draws at 12 o'clock here too — the two views agree.

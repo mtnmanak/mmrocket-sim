@@ -332,6 +332,61 @@ describe('a rail button is drawn its own height tall, not its own diameter', () 
 });
 
 /**
+ * Audit 2026-09-22: the aft view had no protuberance branch, so a drag bump the
+ * side view and the 3D view both drew was simply absent here — the two views
+ * of one rocket disagreed about what was on its surface.
+ */
+describe('a protuberance is drawn end-on, as the frontal box it is', () => {
+  const BODY_R = 0.012;
+  const bumpRocket = (over: Record<string, unknown> = {}) => ({
+    name: 'Rocket',
+    components: [{
+      id: 's1', type: 'stage',
+      children: [{
+        id: 'b1', type: 'bodytube', length: 0.3, outerRadius: BODY_R,
+        children: [{
+          id: 'pr', type: 'protuberance', dragClass: 'streamlinedbase',
+          width: 0.02, height: 0.01, length: 0.06, count: 1, angleOffset: 0, ...over,
+        }],
+      }],
+    }],
+  } as unknown as RocketTree);
+  const box = () => {
+    const path = [...host.querySelectorAll('path')]
+      .find((e) => e.querySelector('title')?.textContent?.startsWith('Protuberance'));
+    expect(path, 'the protuberance should be drawn').toBeTruthy();
+    const pts = (path!.getAttribute('d')!.match(/-?[\d.e-]+,-?[\d.e-]+/g) ?? [])
+      .map((q) => q.split(',').map(Number) as [number, number]);
+    return { path: path!, pts };
+  };
+
+  it('stands WIDTH wide and HEIGHT tall on the tube surface, at its own angle', () => {
+    show(<AftView tree={bumpRocket()} />);
+    const { pts } = box();
+    expect(pts).toHaveLength(4);
+    // Angle 0 is straight up and P() negates y: the outer face at -(R + h).
+    expect(-Math.min(...pts.map(([, y]) => y))).toBeCloseTo(BODY_R + 0.01, 9);
+    expect(-Math.max(...pts.map(([, y]) => y))).toBeCloseTo(BODY_R, 9);
+    const xs = pts.map(([x]) => x);
+    expect(Math.max(...xs) - Math.min(...xs)).toBeCloseTo(0.02, 9);
+  });
+
+  it('turns with its mount angle and the view roll, like every surface part', () => {
+    show(<AftView tree={bumpRocket({ angleOffset: Math.PI / 2 })} />);
+    const far = box().pts.reduce((a, b) => (Math.hypot(...b) > Math.hypot(...a) ? b : a));
+    expect(far[0]).toBeGreaterThan(0);
+    show(<AftView tree={bumpRocket()} roll={Math.PI / 2} />);
+    const rolled = box().pts.reduce((a, b) => (Math.hypot(...b) > Math.hypot(...a) ? b : a));
+    expect(rolled[0]).toBeGreaterThan(0);
+  });
+
+  it('names the part, and says so when one shape stands for several', () => {
+    show(<AftView tree={bumpRocket({ count: 3 })} />);
+    expect(box().path.querySelector('title')!.textContent).toBe('Protuberance ×3');
+  });
+});
+
+/**
  * Audit 2026-09-22 — React keys. The view keyed every shape off ONE render-time
  * counter shared by the hull, internal and external layers, so adding a single
  * hull re-keyed everything drawn after it and React patched one part's DOM node
