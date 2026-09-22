@@ -276,6 +276,14 @@ describe('buildSimRun — the recovery weight on a staged flight', () => {
       result: fakeResult(), info, motor, launch: DEFAULT_CONDITIONS, rocketName: 'x', execMs: 1,
     }).burnoutMass).toBeCloseTo(0.040, 9);
   });
+
+  it('stamps every run it builds as read at the settled instant, so a stored one can tell', () => {
+    // simStore.loadRuns blanks a multi-mount run WITHOUT this stamp: it was
+    // read at the first burnout, before this fix.
+    expect(buildSimRun({
+      result: fakeResult(), info, motor, launch: DEFAULT_CONDITIONS, rocketName: 'x', execMs: 1,
+    }).burnoutMassSettled).toBe(true);
+  });
 });
 
 /**

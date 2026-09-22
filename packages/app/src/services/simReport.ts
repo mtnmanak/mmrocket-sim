@@ -389,8 +389,19 @@ export interface SimRun {
    * stage separation and its first recovery deployment. Named for the burnout
    * it used to be read at — the FIRST one, which on a staged flight is the
    * booster's (audit 2026-09-22); the name is kept so stored runs still read.
+   * A run saved before carries that old reading, which is why
+   * `burnoutMassSettled` exists.
    */
   burnoutMass?: number | null;
+  /**
+   * True when `burnoutMass` was read at the settled instant above — every run
+   * `buildSimRun` makes. ABSENT on a run saved before audit 2026-09-22, whose
+   * `burnoutMass` is the mass at the FIRST burnout: on a flight with more than
+   * one motor mount that can be the whole stack, measured 1.9x what comes down.
+   * `loadRuns` blanks such a run's figure rather than show it under a label that
+   * now means something else.
+   */
+  burnoutMassSettled?: boolean;
   /**
    * Angle of attack (RADIANS) at launch guide exit. The crosswind, not the
    * design, is what separates the CP below from the Design tab's: at zero wind
@@ -1725,6 +1736,7 @@ export function buildSimRun(input: {
     thrustToWeightAtRod,
     launchMass,
     burnoutMass,
+    burnoutMassSettled: true,
     rodExitAoa,
     launchCG,
     launchCP,
