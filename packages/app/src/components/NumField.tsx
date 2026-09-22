@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import { readDecimal } from '../prefs/units.js';
 
 /**
  * Numeric input that lets the user TYPE anything mid-edit (including "-",
@@ -8,8 +9,9 @@ import { useRef, useState } from 'react';
  * Behavior:
  * - While focused, keystrokes edit a local draft string. Every draft that
  *   parses to a valid number is committed live; invalid drafts ("e", "abc",
- *   a negative where negatives aren't allowed, out-of-range) show an error
- *   border and commit nothing.
+ *   a negative where negatives aren't allowed, out-of-range, a grouped
+ *   "10,000") show an error border and commit nothing. A single comma is a
+ *   decimal separator ("1,5" is 1.5) — see `readDecimal` in prefs/units.
  * - Blur/Enter reformats from the last committed value; an invalid draft is
  *   simply discarded (the previous value survives).
  * - Unfocused, the box always shows `value`. The draft exists only while the
@@ -93,20 +95,27 @@ export function NumField({
   const inputRef = useRef<HTMLInputElement>(null);
 
   const lowBound = min !== undefined ? min : (allowNegative ? undefined : 0);
+  /**
+   * iOS's decimal pad has no minus key, so a field that takes a negative gets
+   * the full keyboard instead (audit 2026-09-22): with `inputMode="decimal"`
+   * everywhere, no iPhone user could type a negative cant, offset or CG.
+   * Fields that cannot go negative keep the compact pad.
+   */
+  const inputMode = lowBound === undefined || lowBound < 0 ? 'text' : 'decimal';
 
   const parse = (s: string): number | null => {
-    const t = s.trim();
-    if (t === '') return null;
-    const v = Number(t);
-    if (!Number.isFinite(v)) return null;
+    // "1,5" is 1.5; "10,000" is refused rather than read as 10 (readDecimal).
+    const v = readDecimal(s);
+    if (v === null) return null;
     if (lowBound !== undefined && v < lowBound) return null;
     if (max !== undefined && v > max) return null;
     if (integer && !Number.isInteger(v)) return null;
     return v;
   };
 
-  // "-", ".", "-." are incomplete (no error styling), not invalid.
-  const isIncomplete = (t: string) => /^-?\.?$/.test(t);
+  // "-", ".", "-." (and their decimal-comma spellings) are incomplete — no
+  // error styling — not invalid.
+  const isIncomplete = (t: string) => /^-?[.,]?$/.test(t);
 
   const fmtDisplay = (v: number | undefined) =>
     v === undefined ? '' : String(Number(v.toFixed(3)));
@@ -158,8 +167,8 @@ export function NumField({
     // seed from 0, and a blank there is rarely "zero" (audit 2026-09-22): ▴ on
     // a blank Cd override ("auto") committed 0.05 and ▾ committed 0, either
     // one replacing the component's whole computed drag; the launch time step
-    // ("standard", i.e. 0.05 s) committed its 0.01 s floor, flying 3.7-6.0x
-    // slower; ▴ on a plugged motor's delay committed a 1 s ejection; and a
+    // ("standard", i.e. 0.05 s) committed its 0.01 s floor, making every
+    // simulation 3.7-6.0x slower to run; ▴ on a plugged motor's delay committed a 1 s ejection; and a
     // mass override with no computed mass to show committed 0.1 g.
     if (base === undefined) {
       if (!focused) inputRef.current?.focus();
@@ -185,7 +194,7 @@ export function NumField({
         ref={inputRef}
         id={id}
         type="text"
-        inputMode="decimal"
+        inputMode={inputMode}
         className={draftInvalid ? 'num-invalid' : undefined}
         value={shown}
         placeholder={placeholder}

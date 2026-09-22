@@ -198,3 +198,50 @@ export function fmtSi(quantity: Quantity, symbol: string, si: number, digits?: n
   const a = Math.abs(v);
   return v.toFixed(a >= 100 ? 0 : a >= 10 ? 1 : a >= 1 ? 2 : 3);
 }
+
+/**
+ * Whether this browser's own locale writes 1.5 as "1,5". Read once; any
+ * failure (an engine without Intl) answers no, which is the stricter reading
+ * in `readDecimal` below.
+ */
+export const LOCALE_DECIMAL_COMMA: boolean = (() => {
+  try {
+    return new Intl.NumberFormat().formatToParts(1.5)
+      .find((p) => p.type === 'decimal')?.value === ',';
+  } catch {
+    return false;
+  }
+})();
+
+/**
+ * A typed number, accepting a single `,` as the decimal separator — or null
+ * when the text is not one number. The one parser every numeric input goes
+ * through (audit 2026-09-22).
+ *
+ * `Number()` alone reads "1,5" as NaN, so in a comma-decimal locale no
+ * fraction could be typed at all — an iPhone's decimal pad there has no "."
+ * key. But a comma is ALSO the thousands separator for everyone else, and
+ * reading "10,000" ft as 10.000 would silently fly sea level instead of ten
+ * thousand feet. So:
+ *
+ *  - no comma: exactly `Number()`, as before;
+ *  - one comma and no point: a decimal comma — "1,5", "0,25", "12,3456" —
+ *    EXCEPT that "1,500" / "10,000" (one to three digits, a comma, exactly
+ *    three digits) is ambiguous and refused, unless this locale itself writes
+ *    a decimal comma, where it reads the way the user's own keyboard means it;
+ *  - two commas, or a comma and a point: grouping, refused. The input then
+ *    shows its error border and commits nothing, which is the one safe answer
+ *    to a number the app cannot read with certainty.
+ */
+export function readDecimal(text: string, decimalComma = LOCALE_DECIMAL_COMMA): number | null {
+  let t = text.trim();
+  if (t === '') return null;
+  const commas = t.split(',').length - 1;
+  if (commas > 1 || (commas === 1 && t.includes('.'))) return null;
+  if (commas === 1) {
+    if (!decimalComma && /^[-+]?\d{1,3},\d{3}$/.test(t)) return null;
+    t = t.replace(',', '.');
+  }
+  const v = Number(t);
+  return Number.isFinite(v) ? v : null;
+}

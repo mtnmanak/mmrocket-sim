@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   IMPERIAL_UNITS, INITIAL_UNITS, METRIC_UNITS, UNITS,
-  fmtSi, niceStep, siToUi, uiToSi, type Quantity,
+  fmtSi, niceStep, readDecimal, siToUi, uiToSi, type Quantity,
 } from './units.js';
 
 describe('unit conversions (factors from desktop UnitGroup 24.12)', () => {
@@ -120,3 +120,45 @@ describe('fmtSi — the app’s single SI display formatter', () => {
   });
 });
 
+
+describe('readDecimal — the one parser behind every typed number', () => {
+  it('reads what Number() reads, and refuses what is not one finite number', () => {
+    expect(readDecimal('2.5')).toBe(2.5);
+    expect(readDecimal(' -3 ')).toBe(-3);
+    expect(readDecimal('.5')).toBe(0.5);
+    for (const t of ['', '  ', '-', '.', 'abc', '1e400', 'Infinity', 'NaN']) {
+      expect(readDecimal(t), t).toBeNull();
+    }
+  });
+
+  /**
+   * Audit 2026-09-22: in a comma-decimal locale an iPhone's decimal pad has no
+   * "." key, and Number('1,5') is NaN, so no fraction could be typed at all.
+   */
+  it('accepts a single comma as the decimal separator', () => {
+    for (const comma of [false, true]) {
+      expect(readDecimal('1,5', comma)).toBe(1.5);
+      expect(readDecimal('0,25', comma)).toBe(0.25);
+      expect(readDecimal('-12,3456', comma)).toBe(-12.3456);
+      expect(readDecimal('1,50', comma)).toBe(1.5);
+      expect(readDecimal(',5', comma)).toBe(0.5);
+    }
+  });
+
+  it('refuses "10,000" in a decimal-point locale rather than reading it as 10', () => {
+    // A thousands group. Read as a decimal comma it would silently turn ten
+    // thousand feet into ten; refused, the input shows its error border.
+    expect(readDecimal('10,000', false)).toBeNull();
+    expect(readDecimal('1,500', false)).toBeNull();
+    // Where the locale itself writes a decimal comma, that is what it means.
+    expect(readDecimal('1,500', true)).toBe(1.5);
+  });
+
+  it('refuses grouping it cannot read with certainty in any locale', () => {
+    for (const comma of [false, true]) {
+      expect(readDecimal('1,000,000', comma)).toBeNull();
+      expect(readDecimal('1,000.5', comma)).toBeNull();
+      expect(readDecimal('1.000,5', comma)).toBeNull();
+    }
+  });
+});

@@ -3,6 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { NumField } from './NumField.js';
+import { LOCALE_DECIMAL_COMMA } from '../prefs/units.js';
 
 /**
  * NumField is the single numeric input every dimension in the app passes
@@ -167,6 +168,25 @@ describe('NumField — typing', () => {
     expect(commits).toEqual([4]);
   });
 
+  it('reads a decimal comma, and refuses a thousands group instead of misreading it', () => {
+    // Audit 2026-09-22: "1,5" was NaN, so a comma-decimal iPhone user could
+    // type no fraction at all. "10,000" must not become 10 in the process.
+    render({ value: 1 });
+    type('1,5');
+    expect(commits).toEqual([1.5]);
+    type('10,000');
+    if (LOCALE_DECIMAL_COMMA) {
+      expect(commits).toEqual([1.5, 10]); // "10,000" IS ten, where 1,5 is 1.5
+    } else {
+      expect(commits).toEqual([1.5]);
+      expect(input().className).toBe('num-invalid');
+    }
+    // Mid-typing "-," is as incomplete as "-.", not an error.
+    render({ value: 1, allowNegative: true });
+    type('-,');
+    expect(input().className).not.toBe('num-invalid');
+  });
+
   it('clearing commits null when nullable, nothing otherwise', () => {
     render({ value: 4, nullable: true });
     type('');
@@ -313,6 +333,21 @@ describe('NumField — stepping', () => {
     type('40');
     key('ArrowUp');
     expect(commits).toEqual([40, 41]);
+  });
+});
+
+describe('NumField — the on-screen keyboard', () => {
+  it('a field that takes a negative asks for the full keyboard; the rest keep the decimal pad', () => {
+    // iOS's decimal pad has no minus key (audit 2026-09-22): no negative cant,
+    // offset or CG could be typed on an iPhone.
+    render({ value: 1, allowNegative: true });
+    expect(input().inputMode).toBe('text');
+    render({ value: 1, min: -90, max: 90 });
+    expect(input().inputMode).toBe('text');
+    render({ value: 1 });
+    expect(input().inputMode).toBe('decimal');
+    render({ value: 1, min: 0.01 });
+    expect(input().inputMode).toBe('decimal');
   });
 });
 
