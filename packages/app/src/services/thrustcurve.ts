@@ -476,24 +476,58 @@ export async function bundledSimFiles(motorId: string): Promise<TcSimFile[]> {
   }));
 }
 
+/** Desktop's RockSimMotorLoader.DELAY_LIMIT: a listed delay this long means "no charge". */
+const PLUGGED_DELAY_CODE = 90;
+
 /**
  * Delay options parsed from the motor's delays string ("0,3,5" → [0,3,5]).
  * "P" (plugged — no ejection charge) becomes Infinity, always listed last;
  * 623 motors in the bundled DB carry it and it used to be silently dropped
  * (a "P"-only motor even showed a bogus 0 s delay).
+ *
+ * A number of 90 or more is ALSO plugged (audit 2026-09-22). RASP and RockSim
+ * files write "no ejection charge" as 100 or 1000 — 125 of the 891 motors in a
+ * tester's rasp.eng say 1000 and 26 say 100 — and read as seconds those were
+ * the "longest" option: the browser picked them and the report printed
+ * "Flown delay 1000s vs optimal 7.3s". 90 is desktop's own line for RockSim
+ * files (RockSimMotorLoader.DELAY_LIMIT, "any delay longer than this will be
+ * interpreted as a plugged motor"); no real motor is drilled that long.
+ *
+ * And a field with nothing usable in it — absent, or KBA's "S,M,L" — gives
+ * `[]`, never `[0]`: 0 s is a real delay (a booster's charge at burnout), so
+ * inventing it put a chute out at burnout on a motor whose delay is simply
+ * unknown. Callers read "no options" as "no prescribed delay"; see defaultDelay.
  */
 export function delayOptions(motor: TcMotor): number[] {
-  if (!motor.delays) return [0];
+  if (!motor.delays) return [];
   const opts: number[] = [];
   let plugged = false;
   for (const raw of motor.delays.split(',')) {
     const s = raw.trim().toUpperCase();
     if (s === 'P' || s === 'PLUGGED') { plugged = true; continue; }
+    if (s === '') continue; // Number('') is 0 — an empty item is not a 0 s delay
     const n = Number(s);
-    if (Number.isFinite(n)) opts.push(n);
+    if (!Number.isFinite(n) || n < 0) continue;
+    if (n >= PLUGGED_DELAY_CODE) { plugged = true; continue; }
+    opts.push(n);
   }
   if (plugged) opts.push(Infinity);
-  return opts.length ? opts : [0];
+  return opts;
+}
+
+/**
+ * The delay a fresh pick of this motor starts at: the longest PRESCRIBED
+ * delay, and plugged only when that is the motor's sole option — nobody should
+ * get a chute-less flight by default. null when the motor lists no delay at
+ * all, which the motor browser answers with "Auto (optimal)" rather than with
+ * a number it would have to make up. One rule for every place a delay is
+ * chosen on the user's behalf: the browser's default, and RockSim's "every
+ * delay" sentinel on import (rocksimFile.ts).
+ */
+export function defaultDelay(motor: TcMotor): number | null {
+  const opts = delayOptions(motor);
+  const finite = opts.filter((d) => Number.isFinite(d));
+  return finite[finite.length - 1] ?? opts[opts.length - 1] ?? null;
 }
 
 /** Display tag for a delay value: "5" / "P" (plugged). */

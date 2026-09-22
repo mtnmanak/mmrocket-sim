@@ -71,3 +71,77 @@ describe('MotorBrowser — sortable headers stay column headers', () => {
     expect(headers().filter((th) => th.hasAttribute('aria-sort')).length).toBe(1);
   });
 });
+
+// ---------------------------------------------------------------- harness
+//
+// Audit 2026-09-22 (row 478): the four tests above were the whole of this
+// file's coverage — nothing drove a pick, a load, an import or the catalogue
+// check. The blocks below do, through the real component and the real shipped
+// catalogue, the way a user does: search, click a row, press Load.
+
+const FILTERS_KEY = 'online-openrocket.motor-filters.v1';
+
+interface Harness {
+  host: HTMLDivElement;
+  root: Root;
+  selected: { label: string; ejectionDelay: number }[];
+}
+
+function openBrowser(props: { mountDiameterMm: number; filters?: Record<string, unknown> }): Harness {
+  if (props.filters) localStorage.setItem(FILTERS_KEY, JSON.stringify(props.filters));
+  const host = document.createElement('div');
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  const selected: Harness['selected'] = [];
+  act(() => root.render(
+    <PrefsProvider>
+      <MotorBrowser mountDiameterMm={props.mountDiameterMm} maxMotorLengthM={null}
+        onSelect={(label, spec) => selected.push({ label, ejectionDelay: spec.ejectionDelay })}
+        onClose={() => {}} />
+    </PrefsProvider>,
+  ));
+  return { host, root, selected };
+}
+
+function closeBrowser(h: Harness): void {
+  act(() => h.root.unmount());
+  h.host.remove();
+  localStorage.clear();
+}
+
+/** Native setter + input event — how React sees a real keystroke. */
+function typeInto(el: HTMLInputElement, value: string): void {
+  act(() => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+    setter.call(el, value);
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+}
+
+const search = (h: Harness, text: string) =>
+  typeInto(h.host.querySelector<HTMLInputElement>('input[type="search"]')!, text);
+const bodyRows = (h: Harness) => Array.from(h.host.querySelectorAll<HTMLTableRowElement>('tbody tr'));
+const rowFor = (h: Harness, mfr: string, designation: string) => bodyRows(h).find((tr) =>
+  tr.cells[1]?.textContent === mfr && (tr.cells[0]?.textContent ?? '').replace(/OOP$/, '').trim() === designation);
+const delaySelect = (h: Harness) => h.host.querySelector<HTMLSelectElement>('.motor-load-row select');
+const click = (el: Element) => act(() => { (el as HTMLElement).click(); });
+
+describe('MotorBrowser — the delay a fresh pick starts at (audit 2026-09-22)', () => {
+  let h: Harness;
+  afterEach(() => closeBrowser(h));
+
+  it('a motor that lists no usable delay starts on Auto, not on a made-up 0 s', () => {
+    // KBA G135R's catalogue delay field is "M" — nothing a number can be read from.
+    h = openBrowser({ mountDiameterMm: 29, filters: { includeOOP: true } });
+    search(h, 'G135');
+    click(rowFor(h, 'KBA', 'G135R')!);
+    expect(delaySelect(h)!.value).toBe('auto');
+  });
+
+  it('an ordinary motor still starts on its longest prescribed delay', () => {
+    h = openBrowser({ mountDiameterMm: 18 });
+    search(h, 'C6');
+    click(rowFor(h, 'Estes', 'C6')!);
+    expect(delaySelect(h)!.value).toBe('7');
+  });
+});

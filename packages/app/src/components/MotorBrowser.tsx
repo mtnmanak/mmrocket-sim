@@ -15,7 +15,7 @@ import {
 import {
   addExMotors, deleteExMotor, exToDbEntry, loadExMotors, parseMotorFile,
 } from '../services/exMotors.js';
-import { delayOptions, delayTag, fetchMotorSpec } from '../services/thrustcurve.js';
+import { defaultDelay, delayOptions, delayTag, fetchMotorSpec } from '../services/thrustcurve.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { siToUi } from '../prefs/units.js';
 import { NumField } from './NumField.js';
@@ -274,12 +274,10 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
   useEffect(() => {
     // Default to the longest PRESCRIBED delay; plugged (Infinity) only when
     // it's the motor's sole option — nobody should get a chute-less flight
-    // by default.
-    if (picked) {
-      const opts = delayOptions(picked);
-      const finite = opts.filter((d) => Number.isFinite(d));
-      setDelay(finite[finite.length - 1] ?? opts[opts.length - 1] ?? 0);
-    }
+    // by default. A motor that lists no delay at all (KBA's "S,M,L", an EX
+    // file with an empty field) starts on Auto rather than on a 0 s the
+    // catalogue never said (audit 2026-09-22).
+    if (picked) setDelay(defaultDelay(picked) ?? 'auto');
   }, [picked]);
 
   const tooLong = (m: MotorDbEntry) =>

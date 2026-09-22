@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  delayOptions, fileImpulseNs, headerMasses, impulseNote, samplesToMotorSpec, repairSamples, pickSampleFile,
+  defaultDelay, delayOptions, fileImpulseNs, headerMasses, impulseNote, samplesToMotorSpec, repairSamples, pickSampleFile,
   type TcMotor, type TcSample,
 } from './thrustcurve.js';
 
@@ -36,7 +36,36 @@ const SAMPLES = [
 describe('thrustcurve transforms', () => {
   it('parses delay options', () => {
     expect(delayOptions(QUEST_C6)).toEqual([0, 3, 5]);
-    expect(delayOptions({ ...QUEST_C6, delays: undefined })).toEqual([0]);
+  });
+
+  /**
+   * Audit 2026-09-22: a field with nothing usable in it is NO options, not a
+   * made-up 0 s (which fires the charge at burnout), and RASP/RockSim's "no
+   * ejection charge" codes — 1000 and 100, 151 of the 891 motors in a tester's
+   * rasp.eng — are plugged, not the "longest delay" the browser used to pick.
+   */
+  it('reads an unusable field as no options, never as a 0 s delay', () => {
+    expect(delayOptions({ ...QUEST_C6, delays: undefined })).toEqual([]);
+    expect(delayOptions({ ...QUEST_C6, delays: '' })).toEqual([]);
+    expect(delayOptions({ ...QUEST_C6, delays: 'S,M,L' })).toEqual([]); // KBA K400S
+    expect(delayOptions({ ...QUEST_C6, delays: '6,' })).toEqual([6]); // not [6, 0]
+  });
+
+  it('reads 90 s and over as plugged, the way desktop reads RockSim files', () => {
+    expect(delayOptions({ ...QUEST_C6, delays: '1000' })).toEqual([Infinity]);
+    expect(delayOptions({ ...QUEST_C6, delays: '100' })).toEqual([Infinity]);
+    expect(delayOptions({ ...QUEST_C6, delays: '6,10,14,1000' })).toEqual([6, 10, 14, Infinity]);
+    // One plugged option however many ways the field says it.
+    expect(delayOptions({ ...QUEST_C6, delays: '5,P,1000' })).toEqual([5, Infinity]);
+    expect(delayOptions({ ...QUEST_C6, delays: '89' })).toEqual([89]);
+  });
+
+  it('defaultDelay: longest prescribed, plugged only when alone, null when nothing is listed', () => {
+    expect(defaultDelay(QUEST_C6)).toBe(5);
+    expect(defaultDelay({ ...QUEST_C6, delays: '6,10,14,1000' })).toBe(14);
+    expect(defaultDelay({ ...QUEST_C6, delays: '1000' })).toBe(Infinity);
+    expect(defaultDelay({ ...QUEST_C6, delays: 'S,M,L' })).toBeNull();
+    expect(defaultDelay({ ...QUEST_C6, delays: undefined })).toBeNull();
   });
 
   it('builds an SI MotorSpec with an impulse-proportional mass curve', () => {
