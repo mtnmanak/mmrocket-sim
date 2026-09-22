@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { clusterOffsets } from '../tree/cluster.js';
 import { tubeFinRadius } from '../tree/tubefins.js';
@@ -51,61 +51,25 @@ type Shape =
   | { kind: 'shroud'; y: number; z: number; angle: number; baseR: number; height: number;
       width: number; conformal: boolean; fill: string; stroke: string; title?: string };
 
-export function AftView({ tree, motors, roll: rollProp, onRoll }: {
-  tree: RocketTree;
-  /** Loaded motor dimensions per mount node id (real case sizes). */
-  motors?: Record<string, MotorDims>;
-  /**
-   * Roll about the long axis (rad). Controlled-or-not, the same way
-   * TreeSchematic takes it, so App can share ONE angle between the two views.
-   */
-  roll?: number;
-  onRoll?: (rad: number) => void;
-}) {
-  const [rollLocal, setRollLocal] = useState(0);
-  const roll = rollProp ?? rollLocal;
-  const setRoll = onRoll ?? setRollLocal;
-  // Zoom/pan in viewBox (meter) coordinates — same pattern as TreeSchematic
-  // (issue 2026-08-05b #13: "the user needs to be able to zoom the aft view").
-  const [zoom, setZoom] = useState({ k: 1, x: 0, y: 0 });
-  const svgRef = useRef<SVGSVGElement | null>(null);
-  const eRef = useRef(0.02);
-  const pan = useRef<{ px: number; py: number; x: number; y: number } | null>(null);
-  // The zoom as last committed, so the wheel listener can tell BEFORE it
-  // updates whether this notch zooms at all — effect-written, like eRef.
-  const zoomRef = useRef(zoom);
-  useEffect(() => { zoomRef.current = zoom; }, [zoom]);
-  useEffect(() => {
-    const svg = svgRef.current;
-    if (!svg) return;
-    const onWheel = (e: WheelEvent) => {
-      // Per NOTCH, not per event — see the same change on the 2D schematic.
-      const stepK = (k0: number) => Math.min(12, Math.max(1, k0 * 1.15 ** wheelNotches(e)));
-      // Swallow the wheel only when it zooms (audit 2026-09-22): at fit or at
-      // 12x the unconditional preventDefault stopped the page scrolling with
-      // the pointer over this drawing — the same fix as the 2D schematic's.
-      if (stepK(zoomRef.current.k) === zoomRef.current.k) return;
-      e.preventDefault();
-      const rect = svg.getBoundingClientRect();
-      const Ev = eRef.current;
-      const vx = -Ev + ((e.clientX - rect.left) / rect.width) * 2 * Ev;
-      const vy = -Ev + ((e.clientY - rect.top) / rect.height) * 2 * Ev;
-      setZoom((z) => {
-        const k = stepK(z.k);
-        if (k === z.k) return z;
-        const mx = (vx - z.x) / z.k;
-        const my = (vy - z.y) / z.k;
-        return k === 1 ? { k: 1, x: 0, y: 0 } : { k, x: vx - mx * k, y: vy - my * k };
-      });
-    };
-    svg.addEventListener('wheel', onWheel, { passive: false });
-    return () => svg.removeEventListener('wheel', onWheel);
-  }, []);
-  const zoomBy = (f: number) => setZoom((z) => {
-    // About the viewBox origin — the rocket axis is always at (0,0) here.
-    const k = Math.min(12, Math.max(1, z.k * f));
-    return k === 1 ? { k: 1, x: 0, y: 0 } : { k, x: z.x * (k / z.k), y: z.y * (k / z.k) };
-  });
+/** Every shape of the cross-section, in its painter's layer, and how far out it reaches (m). */
+export interface AftLayout {
+  hulls: Shape[];
+  inner: Shape[];
+  outer: Shape[];
+  extent: number;
+}
+
+/**
+ * The aft view's cross-section: a pure walk of the tree at one roll angle.
+ *
+ * Pure so the view can memoise it on (tree, roll, motors) — the only inputs it
+ * reads. It ran in the render body until audit 2026-09-22, so every pan move
+ * and every wheel notch, which change nothing but the view transform, re-walked
+ * the whole tree to rebuild identical shapes: jank on pods and clusters.
+ */
+export function aftLayout(
+  tree: RocketTree, roll: number, motors?: Record<string, MotorDims>,
+): AftLayout {
   // Painter's layers: hulls (opaque, big→small), then internals, then externals.
   const hulls: Shape[] = [];
   const inner: Shape[] = [];
@@ -287,6 +251,69 @@ export function AftView({ tree, motors, roll: rollProp, onRoll }: {
 
   // Big circles first so nested ones stay visible.
   hulls.sort((a, b) => (b.kind === 'circle' ? b.r : 0) - (a.kind === 'circle' ? a.r : 0));
+
+  return { hulls, inner, outer, extent };
+}
+
+export function AftView({ tree, motors, roll: rollProp, onRoll }: {
+  tree: RocketTree;
+  /** Loaded motor dimensions per mount node id (real case sizes). */
+  motors?: Record<string, MotorDims>;
+  /**
+   * Roll about the long axis (rad). Controlled-or-not, the same way
+   * TreeSchematic takes it, so App can share ONE angle between the two views.
+   */
+  roll?: number;
+  onRoll?: (rad: number) => void;
+}) {
+  const [rollLocal, setRollLocal] = useState(0);
+  const roll = rollProp ?? rollLocal;
+  const setRoll = onRoll ?? setRollLocal;
+  // Zoom/pan in viewBox (meter) coordinates — same pattern as TreeSchematic
+  // (issue 2026-08-05b #13: "the user needs to be able to zoom the aft view").
+  const [zoom, setZoom] = useState({ k: 1, x: 0, y: 0 });
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  const eRef = useRef(0.02);
+  const pan = useRef<{ px: number; py: number; x: number; y: number } | null>(null);
+  // The zoom as last committed, so the wheel listener can tell BEFORE it
+  // updates whether this notch zooms at all — effect-written, like eRef.
+  const zoomRef = useRef(zoom);
+  useEffect(() => { zoomRef.current = zoom; }, [zoom]);
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const onWheel = (e: WheelEvent) => {
+      // Per NOTCH, not per event — see the same change on the 2D schematic.
+      const stepK = (k0: number) => Math.min(12, Math.max(1, k0 * 1.15 ** wheelNotches(e)));
+      // Swallow the wheel only when it zooms (audit 2026-09-22): at fit or at
+      // 12x the unconditional preventDefault stopped the page scrolling with
+      // the pointer over this drawing — the same fix as the 2D schematic's.
+      if (stepK(zoomRef.current.k) === zoomRef.current.k) return;
+      e.preventDefault();
+      const rect = svg.getBoundingClientRect();
+      const Ev = eRef.current;
+      const vx = -Ev + ((e.clientX - rect.left) / rect.width) * 2 * Ev;
+      const vy = -Ev + ((e.clientY - rect.top) / rect.height) * 2 * Ev;
+      setZoom((z) => {
+        const k = stepK(z.k);
+        if (k === z.k) return z;
+        const mx = (vx - z.x) / z.k;
+        const my = (vy - z.y) / z.k;
+        return k === 1 ? { k: 1, x: 0, y: 0 } : { k, x: vx - mx * k, y: vy - my * k };
+      });
+    };
+    svg.addEventListener('wheel', onWheel, { passive: false });
+    return () => svg.removeEventListener('wheel', onWheel);
+  }, []);
+  const zoomBy = (f: number) => setZoom((z) => {
+    // About the viewBox origin — the rocket axis is always at (0,0) here.
+    const k = Math.min(12, Math.max(1, z.k * f));
+    return k === 1 ? { k: 1, x: 0, y: 0 } : { k, x: z.x * (k / z.k), y: z.y * (k / z.k) };
+  });
+  // Memoised on exactly what the walk reads (audit 2026-09-22): a pan move or a
+  // wheel notch changes only `zoom`, and must not re-walk the tree.
+  const { hulls, inner, outer, extent } = useMemo(
+    () => aftLayout(tree, roll, motors), [tree, roll, motors]);
 
   const E = extent * 1.12;
   // Written in an EFFECT, not in the render body (2026-09-08 audit). A ref
