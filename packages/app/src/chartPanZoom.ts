@@ -143,6 +143,31 @@ export function zoomWindow(
   return clampWindow(nMin, nMax, dataMin, dataMax);
 }
 
+/**
+ * One wheel event's window: zoomWindow, plus the WHEEL_MAX_DEPTH floor.
+ *
+ * The floor stops the WHEEL crossing into the depths — it does not drag back
+ * out a window something else put there. A box drag is unlimited, and the
+ * floor used to be applied to whatever the wheel produced, so a wheel-IN on a
+ * box zoom deeper than 50x re-zoomed to the floor, i.e. zoomed OUT: [40, 40.5]
+ * s of a 100 s flight became [39.25, 41.25] s, on every synced panel (audit
+ * 2026-09-22). Now:
+ *  - a wheel-out is never floored (it can only widen the window);
+ *  - a wheel-in that would cross the floor stops ON it, as before;
+ *  - a wheel-in on a window already at or under the floor holds it exactly —
+ *    the wheel goes no deeper, and the exact hold is what lets the caller's
+ *    no-op test hand the event back to the page.
+ */
+export function wheelWindow(
+  min: number, max: number, focus: number, factor: number, dataMin: number, dataMax: number,
+): XWindow {
+  const win = zoomWindow(min, max, focus, factor, dataMin, dataMax);
+  const floor = (dataMax - dataMin) / WHEEL_MAX_DEPTH;
+  if (!(floor > 0) || factor >= 1 || win.max - win.min >= floor) return win;
+  if (max - min <= floor) return { min, max };
+  return zoomWindow(min, max, focus, floor / (max - min), dataMin, dataMax);
+}
+
 /** Translates the window by dx (value space), clamped without resizing. */
 export function panWindow(
   min: number, max: number, dx: number, dataMin: number, dataMax: number,
@@ -256,15 +281,11 @@ export function panZoomPlugin(
           const [d0, d1] = extent();
           // Normalised by how far the wheel actually turned, so one physical
           // detent means the same thing on every device — see wheelZoomFactor.
-          let win = zoomWindow(sc.min, sc.max, focus, wheelZoomFactor(e), d0, d1);
           // The wheel does not get to zoom for ever. Past WHEEL_MAX_DEPTH the
           // axis labels stop being useful and getting back out is a long
-          // scroll; a box drag, which says "exactly this much", is unlimited.
-          const floor = (d1 - d0) / WHEEL_MAX_DEPTH;
-          if (floor > 0 && win.max - win.min < floor) {
-            win = zoomWindow(sc.min, sc.max, focus,
-              floor / (sc.max - sc.min), d0, d1);
-          }
+          // scroll; a box drag, which says "exactly this much", is unlimited —
+          // and wheelWindow leaves a box zoom deeper than that alone.
+          const win = wheelWindow(sc.min, sc.max, focus, wheelZoomFactor(e), d0, d1);
           // Only swallow the wheel when the zoom actually changes the window.
           // A no-op (wheel-out at full extent, the common resting state) must
           // leave the event to the page, or charts become scroll traps. The
