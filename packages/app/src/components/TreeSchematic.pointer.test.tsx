@@ -216,3 +216,38 @@ describe('the gesture belongs to one pointer and one button', () => {
     expect(transform()).toBe(before);
   });
 });
+
+describe('the wheel is swallowed only when it zooms (audit 2026-09-22)', () => {
+  // The drawing's own preventDefault ran on EVERY wheel event, so at fit (or
+  // at the 12x stop) the page could not scroll with the pointer over it.
+  const wheel = (deltaY: number): boolean => {
+    const ev = new WheelEvent('wheel', { deltaY, clientX: 320, clientY: 120, bubbles: true, cancelable: true });
+    act(() => { svgEl().dispatchEvent(ev); });
+    return ev.defaultPrevented;
+  };
+  const scaleOf = () => [...svgEl().querySelectorAll('g')]
+    .map((g) => g.getAttribute('transform') ?? '').find((t) => t.includes('translate')) ?? '';
+
+  it('wheel-out at fit leaves the event to the page and the view alone', () => {
+    mount(rocket([]));
+    const before = scaleOf();
+    expect(wheel(100)).toBe(false);
+    expect(scaleOf()).toBe(before);
+  });
+
+  it('wheel-in zooms and keeps the page still; back out to fit, then hands over again', () => {
+    mount(rocket([]));
+    expect(wheel(-100)).toBe(true);
+    expect(scaleOf()).toContain('scale(1.2)');
+    expect(wheel(100)).toBe(true); // this one does zoom: 1.2x -> fit
+    expect(scaleOf()).toContain('scale(1)');
+    expect(wheel(100)).toBe(false);
+  });
+
+  it('wheel-in at the 12x stop hands the event back too', () => {
+    mount(rocket([]));
+    for (let i = 0; i < 20; i++) wheel(-300);
+    expect(scaleOf()).toContain('scale(12)');
+    expect(wheel(-100)).toBe(false);
+  });
+});

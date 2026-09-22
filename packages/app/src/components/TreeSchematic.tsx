@@ -579,23 +579,37 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
     return () => obs.disconnect();
   }, []);
 
+  // The zoom as last committed, for the wheel listener below, which has to
+  // know BEFORE it updates whether this notch zooms at all. Written in an
+  // effect, not in render — a render-time ref write is undefined under
+  // StrictMode's double render (the same rule AftView's eRef follows).
+  const zoomRef = useRef(zoom);
+  useEffect(() => { zoomRef.current = zoom; }, [zoom]);
+
   // Wheel zoom around the pointer. Native listener: React's onWheel is
   // passive, so preventDefault (to stop page scroll) must be attached here.
   useEffect(() => {
     const svg = svgRef.current;
     if (!svg || vertical) return;
     const onWheel = (e: WheelEvent) => {
-      e.preventDefault();
       const rect = svg.getBoundingClientRect();
       if (rect.width === 0) return;
+      // Normalised per wheel NOTCH, not per event: a high-resolution wheel
+      // fires several events per detent and used to zoom several times as
+      // far for the same turn of the hand. Same helper as the charts, so one
+      // detent means the same thing on every view.
+      const stepK = (k0: number) => Math.min(12, Math.max(1, k0 * 1.2 ** wheelNotches(e)));
+      // Swallow the wheel only when it zooms (audit 2026-09-22). This used to
+      // preventDefault unconditionally, so at either stop — wheel-out at fit,
+      // wheel-in at 12x — the page could not scroll with the pointer over the
+      // drawing, which on the Motors tab is most of the page. The charts
+      // already hand a no-op wheel back the same way.
+      if (stepK(zoomRef.current.k) === zoomRef.current.k) return;
+      e.preventDefault();
       const px = ((e.clientX - rect.left) / rect.width) * w;
       const py = ((e.clientY - rect.top) / rect.height) * h;
       setZoom((z) => {
-        // Normalised per wheel NOTCH, not per event: a high-resolution wheel
-        // fires several events per detent and used to zoom several times as
-        // far for the same turn of the hand. Same helper as the charts, so one
-        // detent means the same thing on every view.
-        const k = Math.min(12, Math.max(1, z.k * 1.2 ** wheelNotches(e)));
+        const k = stepK(z.k);
         if (k === z.k) return z;
         // Keep the model point under the cursor fixed while scaling.
         const mx = (px - z.x) / z.k;

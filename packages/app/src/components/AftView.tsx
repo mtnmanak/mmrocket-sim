@@ -71,18 +71,27 @@ export function AftView({ tree, motors, roll: rollProp, onRoll }: {
   const svgRef = useRef<SVGSVGElement | null>(null);
   const eRef = useRef(0.02);
   const pan = useRef<{ px: number; py: number; x: number; y: number } | null>(null);
+  // The zoom as last committed, so the wheel listener can tell BEFORE it
+  // updates whether this notch zooms at all — effect-written, like eRef.
+  const zoomRef = useRef(zoom);
+  useEffect(() => { zoomRef.current = zoom; }, [zoom]);
   useEffect(() => {
     const svg = svgRef.current;
     if (!svg) return;
     const onWheel = (e: WheelEvent) => {
+      // Per NOTCH, not per event — see the same change on the 2D schematic.
+      const stepK = (k0: number) => Math.min(12, Math.max(1, k0 * 1.15 ** wheelNotches(e)));
+      // Swallow the wheel only when it zooms (audit 2026-09-22): at fit or at
+      // 12x the unconditional preventDefault stopped the page scrolling with
+      // the pointer over this drawing — the same fix as the 2D schematic's.
+      if (stepK(zoomRef.current.k) === zoomRef.current.k) return;
       e.preventDefault();
       const rect = svg.getBoundingClientRect();
       const Ev = eRef.current;
       const vx = -Ev + ((e.clientX - rect.left) / rect.width) * 2 * Ev;
       const vy = -Ev + ((e.clientY - rect.top) / rect.height) * 2 * Ev;
       setZoom((z) => {
-        // Per NOTCH, not per event — see the same change on the 2D schematic.
-        const k = Math.min(12, Math.max(1, z.k * 1.15 ** wheelNotches(e)));
+        const k = stepK(z.k);
         if (k === z.k) return z;
         const mx = (vx - z.x) / z.k;
         const my = (vy - z.y) / z.k;
