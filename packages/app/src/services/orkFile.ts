@@ -2682,29 +2682,47 @@ function makeAutoRadii(rocketEl: Element): AutoRadii {
     return Number.isFinite(v) ? v : null;
   };
 
-  /** `getFrontAutoRadius()` — the face this component shows to the one BEHIND it. */
-  const front = (el: Element, seen: Set<Element>): number => {
-    if (seen.has(el)) return UNRESOLVED; // cyclic auto chain — desktop's refComp guard
-    seen.add(el);
-    if (el.tagName === 'bodytube') {
-      const r = stated(el, 'radius');
-      if (r !== null) return r;
-      const p = prevOf(el);
-      return p ? front(p, seen) : UNRESOLVED;
+  // The two walks below are LOOPS with a per-element memo, not recursion.
+  // Audit 2026-09-22: recursive and unmemoised, a chain of bare-`auto` tubes
+  // was walked afresh from every tube in it — O(n²) DOM queries, with the
+  // recursion as deep as the chain: 4,000 tubes (420 KB) took 7.7 s with the
+  // anchor ahead of them and 15.6 s with it behind, and 8,000 overflowed the
+  // stack. A walk's answer depends only on where it starts — backward it can
+  // reach only predecessors and the chains of enclosing assemblies, forward
+  // only successors, so the caller's own element is never on its path — so
+  // each element's answer is computed once and reused by every later walk
+  // that passes it. `seen` stays as the cycle guard it always was, and a walk
+  // that ends on it is not memoised, so the memo never outlives its caller.
+  const frontMemo = new Map<Element, number>();
+  const rearMemo = new Map<Element, number>();
+  const walk = (start: Element, seen: Set<Element>, memo: Map<Element, number>,
+      step: (el: Element) => Element | null, answer: (el: Element) => number | null): number => {
+    const path: Element[] = [];
+    let r = UNRESOLVED;
+    let cyclic = false;
+    for (let el: Element | null = start; el; el = step(el)) {
+      const known = memo.get(el);
+      if (known !== undefined) { r = known; break; }
+      if (seen.has(el)) { cyclic = true; break; } // cyclic auto chain — desktop's refComp guard
+      seen.add(el);
+      path.push(el);
+      const a = answer(el);
+      if (a !== null) { r = a; break; }
     }
-    return stated(el, 'aftradius') ?? UNRESOLVED;
+    if (!cyclic) for (const el of path) memo.set(el, r);
+    return r;
   };
 
+  /** `getFrontAutoRadius()` — the face this component shows to the one BEHIND it. */
+  const front = (el: Element, seen: Set<Element>): number => walk(el, seen, frontMemo, prevOf,
+    // A body tube states its radius or defers to the one ahead (null: keep
+    // walking); anything else answers with its aft face, stated or not.
+    (e) => e.tagName === 'bodytube' ? stated(e, 'radius') : stated(e, 'aftradius') ?? UNRESOLVED);
+
   /** `getRearAutoRadius()` — the face this component shows to the one AHEAD of it. */
-  const rear = (el: Element, seen: Set<Element>): number => {
-    if (seen.has(el)) return UNRESOLVED;
-    seen.add(el);
-    if (el.tagName === 'bodytube') {
-      const r = stated(el, 'radius');
-      if (r !== null) return r;
-      const n = nextOf(el);
-      return n ? rear(n, seen) : UNRESOLVED;
-    }
+  const rear = (el: Element, seen: Set<Element>): number => walk(el, seen, rearMemo, nextOf, rearFace);
+  function rearFace(el: Element): number | null {
+    if (el.tagName === 'bodytube') return stated(el, 'radius');
     // A DELIBERATE DEVIATION from 24.12, not a mirror of it. An un-flipped
     // nose cone's fore radius is 0 and NOT automatic (`NoseCone
     // .resetForeRadius`, NoseCone.java:276-278), so `Transition
@@ -2718,7 +2736,7 @@ function makeAutoRadii(rocketEl: Element): AutoRadii {
     // attempts to close.)
     if (el.tagName === 'nosecone') return UNRESOLVED;
     return stated(el, 'foreradius') ?? UNRESOLVED;
-  };
+  }
 
   const bodyTube = (el: Element): number => {
     const p = prevOf(el);

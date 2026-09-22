@@ -234,6 +234,37 @@ describe('.ork freeform fin points are read as the file wrote them', () => {
   });
 });
 
+describe('a long chain of automatic radii resolves in linear time', () => {
+  // Audit 2026-09-22: the resolver walked the chain afresh from every tube,
+  // recursively — measured at the old code, 4,000 bare-`auto` tubes took
+  // 7.7 s with the stated radius ahead of them and 15.6 s with it behind,
+  // and 8,000 overflowed the stack ("Maximum call stack size exceeded").
+  // The bounds are generous — about 1-2 s here now, 21.8 s for the 6,000
+  // below at the old code.
+  const tube = (r: string) =>
+    `<bodytube><name>t</name><length>0.01</length><radius>${r}</radius><thickness>0.001</thickness></bodytube>`;
+  const radii = (xml: string): Set<unknown> => new Set(flatten(importOrk(xml).tree.components)
+    .filter((c) => c.type === 'bodytube').map((c) => c['outerRadius']));
+
+  it('chains every tube to a stated radius AHEAD of it', () => {
+    const t0 = performance.now();
+    const got = radii(orkXml('<nosecone><name>n</name><length>0.1</length><aftradius>0.03</aftradius>'
+      + `</nosecone>${tube('auto').repeat(6000)}`));
+    const ms = performance.now() - t0;
+    expect([...got]).toEqual([0.03]);
+    expect(ms, `import took ${ms.toFixed(0)} ms`).toBeLessThan(5000);
+  });
+
+  it('chains every tube to a stated radius BEHIND it, without recursing the length of the chain', () => {
+    const t0 = performance.now();
+    const got = radii(orkXml('<nosecone><name>n</name><length>0.1</length><aftradius>auto</aftradius>'
+      + `</nosecone>${tube('auto').repeat(8000)}${tube('0.03')}`));
+    const ms = performance.now() - t0;
+    expect([...got]).toEqual([0.03]);
+    expect(ms, `import took ${ms.toFixed(0)} ms`).toBeLessThan(5000);
+  });
+});
+
 describe('flight-configuration ids survive the exporter as XML', () => {
   // A configid is file-sourced free text kept verbatim as the stable key.
   // This one is legal in a .ork (`configid="Main &amp; backup"` and friends)
