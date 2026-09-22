@@ -10,10 +10,11 @@ import { PrefsProvider } from '../prefs/PrefsContext.js';
 import { splitClusterTree } from '../tree/treeModel.js';
 import { MOTOR_DB, filterMotors, sortMotors } from '../services/motorDb.js';
 import { DEFAULT_CONDITIONS, type LaunchConditions } from './LaunchPanel.js';
+import { BatchSimulate, batchSummary, batchUnavailableReason } from './BatchSimulate.js';
 import {
-  BatchSimulate, batchFlownSpec, batchProbeCutoff, batchSummary, batchUnavailableReason, candidateIdentity,
-  isWeighedCandidate, mixedComboCount, type BatchMountOption, type BatchWeighed, batchStageExit,
-} from './BatchSimulate.js';
+  batchFlownSpec, batchProbeCutoff, candidateIdentity, isWeighedCandidate, mixedComboCount,
+  type BatchMountOption, type BatchWeighed, batchStageExit,
+} from '../services/batchSweep.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -76,8 +77,8 @@ describe('batchProbeCutoff', () => {
 
 describe('mixedComboCount', () => {
   // The one definition of "how many mixed rows a split adds" — it must agree
-  // with what the comboAssignments odometer in start() actually yields:
-  // multisets of group assignments minus the all-same ones.
+  // with what the comboAssignments odometer in services/batchSweep.ts
+  // actually yields: multisets of group assignments minus the all-same ones.
   it('matches a brute-force multiset enumeration for both split shapes', () => {
     const brute = (n: number, groups: number): number => {
       let count = 0;
@@ -455,7 +456,7 @@ describe('the completion signal is actually wired up', () => {
     join(dirname(fileURLToPath(import.meta.url)), './BatchSimulate.tsx'), 'utf8');
 
   it('raises the signal when the run ends', () => {
-    expect(src).toContain('setFinished({ total: out.length, stopped: cancelled.current });');
+    expect(src).toContain('setFinished({ total: out.length, stopped });');
   });
 
   it('clears it when the next run starts, so it cannot go stale', () => {
@@ -471,71 +472,12 @@ describe('the completion signal is actually wired up', () => {
 });
 
 /**
- * The nozzle strip itself, pinned at the two call sites that build a kernel
- * handle. Exercising a whole sweep here would need the thrustcurve fetch; what
- * has to be true is narrower and exact — NEITHER handle may be built from a
- * tree that still carries the design's nozzle. `clearStageNozzles` is proven
- * to remove it (and to survive `engineTree`) in tree/treeModel.test.ts.
- */
-/**
- * THE SWEEP'S NOZZLE POLICY, in two halves that must both hold.
- *
- * (1) The DESIGN's own nozzle is still stripped first. Crediting one motor's
- *     exit to all 180 candidates was the 2026-09-08 bug, and it is worth up to
- *     +18 % of thrust on a 100 N H — a comparison between motors decided by a
- *     number belonging to none of them.
- * (2) Each candidate's OWN published exit is then applied on top, so a motor
- *     reads the same here as on the design page (the owner, 2026-09-18).
- *
- * Dropping (1) while keeping (2) is the regression these pin. They are
- * source-text assertions because the alternative is driving a real sweep.
- */
-describe('the sweep applies each candidate nozzle over a stripped tree', () => {
-  const src = readFileSync(
-    join(dirname(fileURLToPath(import.meta.url)), './BatchSimulate.tsx'), 'utf8');
-
-  it('strips the design nozzle before the single-motor pass', () => {
-    expect(src).toContain('const sweepTree = clearStageNozzles(tree);');
-    expect(src).toContain('const sweepHandle = handlePool(sweepTree, [sel.id]);');
-  });
-
-  it('strips it for the combination passes too — split.tree comes from the design tree', () => {
-    expect(src).toContain('handlePool(clearStageNozzles(split.tree)');
-  });
-
-  it('no handle is built from a raw tree', () => {
-    expect(src).not.toContain('engineTree(tree)');
-    expect(src).not.toContain('engineTree(split.tree)');
-  });
-
-  it('builds every handle through the pool, from the stripped base', () => {
-    // One buildTree in the whole file, inside handlePool, over `applyStageNozzles`
-    // of the base it was given — so no path can reintroduce a raw or
-    // design-nozzled tree.
-    expect(src.match(/OrkRocket\.buildTree\(/g)).toHaveLength(1);
-    expect(src).toContain('applyStageNozzles(base, { [stageIdOfTarget]: equivM as number })');
-  });
-
-  it('never frees the engine mid-sweep', () => {
-    // resetEngine() frees EVERY handle, including the design's. The handle pool
-    // exists precisely so the sweep never needs to. Comments are stripped
-    // first — the warning against calling it is itself written in one.
-    const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
-    expect(code).not.toContain('resetEngine(');
-  });
-
-  it('falls back to no nozzle when a candidate has none', () => {
-    expect(src).toContain("const key = usable ? (equivM as number).toFixed(6) : 'none';");
-  });
-});
-
-/**
  * THE HEADLINE BEHAVIOUR OF v0.135, with a test that would fail if it broke.
  *
  * Until v0.135 the sweep stripped the stage nozzle and gave every candidate
  * none, while the Launch button used it — so the same motor gave two different
  * answers in two places (the owner, 2026-09-18). These pin the rule that
- * replaced it. The sibling describe block above pins that the design's OWN
+ * replaced it. services/batchSweep.test.ts pins that the design's OWN
  * nozzle is still stripped first, which is the 2026-09-08 bug; this one pins
  * what goes back on top.
  */
