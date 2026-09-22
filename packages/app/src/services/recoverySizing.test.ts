@@ -351,6 +351,53 @@ describe('the candidate’s own mass — one exact substitution', () => {
   });
 });
 
+/**
+ * UNDER A PINNED MASS THERE IS NOTHING TO SUBSTITUTE (audit 2026-09-22). A mass
+ * override that includes everything inside replaces the subtree's mass, so the
+ * kernel weighs a stage pinned at 2.5 kg at 2.5 kg whatever chute is in it
+ * (measured: 2.5000 with a 0.1 kg chute and with a 0.9 kg one), while the
+ * chute's own componentInfo mass still reads 0.1. Every RASAero .CDX1 stating a
+ * launch weight pins its stages. Candidates are rated at the weight as it
+ * stands.
+ */
+describe('a pinned stage mass — swapping the canopy changes nothing', () => {
+  const pin = (t: RocketTree, over: Partial<ComponentNode> = { overrideMass: WILDMAN_KG, overrideSubcomponentsMass: true }): RocketTree => ({
+    ...t, components: [{ ...t.components[0]!, ...over } as ComponentNode],
+  });
+  const rateOf = (r: ReturnType<typeof ok>, role: 'main' | 'drogue', m: (row: Preset) => number) => {
+    for (const c of r[role].candidates) {
+      const row = canopies.find((p) => p.partNo === c.partNo && p.manufacturer === c.manufacturer)!;
+      expect(c.rate, c.partNo).toBeCloseTo(descentRate(m(row), canopyCdA(row)!, SEA_LEVEL_DENSITY), 12);
+    }
+  };
+
+  it('rates every candidate at the recovery weight when an ancestor pins the chute’s mass', () => {
+    const withChute = tube(0.3, [{ diameter: 0.6, cd: 1.5, deployEvent: 'altitude' }]);
+    const r = ok(sizing({ tree: pin(withChute), deviceMass: () => 0.3 }));
+    expect(r.main.candidates.length).toBeGreaterThan(0);
+    rateOf(r, 'main', () => WILDMAN_KG);
+    // The same design unpinned still substitutes — the override is the switch.
+    rateOf(ok(sizing({ tree: withChute, deviceMass: () => 0.3 })), 'main',
+      (row) => WILDMAN_KG - 0.3 + (row.mass as number));
+  });
+
+  it('rates an empty slot at the recovery weight when every stage it could go in is pinned', () => {
+    const r = ok(sizing({ tree: pin(tube(10)) }));
+    rateOf(r, 'main', () => WILDMAN_KG);
+    rateOf(r, 'drogue', () => WILDMAN_KG);
+  });
+
+  it('needs BOTH halves of the override, as the kernel does', () => {
+    // The flag with no value suppresses nothing (suppressingAncestor): the
+    // candidate is still weighed with its own mass.
+    const r = ok(sizing({ tree: pin(tube(10), { overrideSubcomponentsMass: true }) }));
+    rateOf(r, 'main', (row) => WILDMAN_KG + (row.mass as number));
+    // A value that covers only the stage's own mass pins nothing inside it.
+    const own = ok(sizing({ tree: pin(tube(10), { overrideMass: WILDMAN_KG }) }));
+    rateOf(own, 'main', (row) => WILDMAN_KG + (row.mass as number));
+  });
+});
+
 describe('the 70-vs-75 ft/s conflict — ordered and marked, never dropped or hidden', () => {
   /**
    * 0.9 kg is chosen, not arbitrary: it is a mass where the catalogue offers

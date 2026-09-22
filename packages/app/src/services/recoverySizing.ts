@@ -6,7 +6,7 @@ import { G0, ISA_SEA_LEVEL } from '@online-openrocket/engine';
 import { mfrKey } from '../../scripts/manufacturers.mjs';
 import type { LaunchConditions } from '../components/LaunchPanel.js';
 import { mountBore } from '../tree/scaleRocket.js';
-import { findParent } from '../tree/treeModel.js';
+import { findParent, suppressingAncestor } from '../tree/treeModel.js';
 import { padAir, R_AIR } from './atmosphere.js';
 import type { Preset } from './presets.js';
 import type { RecoveryMass } from './recoveryMass.js';
@@ -508,6 +508,38 @@ function ventFactor(n: ComponentNode | null): number {
 }
 
 /**
+ * Is the weight that comes down PINNED against a change of canopy in this slot?
+ *
+ * A mass override that "includes everything inside" replaces the whole
+ * subtree's mass with one number, so under it a heavier or lighter canopy
+ * changes nothing the kernel flies — measured, a stage pinned at 2.5 kg weighs
+ * 2.5000 kg with a 0.1 kg chute in it and 2.5000 kg with a 0.9 kg one — while
+ * `componentInfo(chute).mass` still answers the chute's own 0.1. Substituting
+ * then rated every candidate against a weight the flight will never have
+ * (audit 2026-09-22). Every RASAero `.CDX1` stating a launch weight pins its
+ * stages this way, and "Use instead of everything inside" does it by hand.
+ *
+ * With a chute in the slot, it is pinned when an ancestor suppresses its mass
+ * — `suppressingAncestor`, the kernel's own two-condition rule. An EMPTY slot
+ * has no node to ask, so it is pinned only when EVERY stage it could be added
+ * to — each stage of `scope` — pins its subtree: wherever the canopy goes, the
+ * weight is the override. Anything short of that weighs the candidate, which
+ * errs heavy, the safe direction for a canopy.
+ */
+function slotMassPinned(
+  tree: RocketTree,
+  device: ComponentNode | null,
+  scope: readonly ComponentNode[],
+): boolean {
+  if (device?.id) {
+    return suppressingAncestor(tree, device.id, 'overrideSubcomponentsMass', 'overrideMass') !== null;
+  }
+  const stageNodes = scope.filter((n) => n.type === 'stage');
+  return stageNodes.length > 0 && stageNodes.every(
+    (st) => st['overrideSubcomponentsMass'] === true && typeof st['overrideMass'] === 'number');
+}
+
+/**
  * Build one band's advice.
  *
  * THE SUBSTITUTION (requirement B, and the subtle half of this feature). The
@@ -539,6 +571,11 @@ function ventFactor(n: ComponentNode | null): number {
  * 8.786 kg at sea level with no main in the design, b2's CRT-080 L (964 g)
  * was listed at 19.25 ft/s and lands at 20.28, past the landing limit, and
  * the main band counted 34 canopies where 33 make it.
+ *
+ * UNDER A PINNED MASS THERE IS NOTHING TO SUBSTITUTE (audit 2026-09-22): when
+ * a mass override above the slot covers everything inside it, swapping the
+ * canopy changes nothing the kernel flies, so every candidate is rated at the
+ * recovery weight as it stands — see `slotMassPinned`.
  */
 function bandAdvice(
   role: DeviceRole,
@@ -550,10 +587,12 @@ function bandAdvice(
     device: ComponentNode | null;
     otherDevice: ComponentNode | null;
     currentMass: number | null;
+    /** A mass override above this slot covers it — see `slotMassPinned`. */
+    massPinned: boolean;
     canopies: readonly Preset[];
   },
 ): BandAdvice {
-  const { massKg, rho, boreM, device, otherDevice, currentMass, canopies } = opts;
+  const { massKg, rho, boreM, device, otherDevice, currentMass, massPinned, canopies } = opts;
 
   // --- the size line -------------------------------------------------------
   // Quoted at the Cd of the chute in THIS slot when there is one (it is the
@@ -588,7 +627,8 @@ function bandAdvice(
     const cdA = canopyCdA(p);
     if (cdA === null) continue;
     const cm = presetMass(p);
-    const m = cm !== null && currentMass !== null ? massKg - currentMass + cm : massKg;
+    const m = massPinned ? massKg
+      : cm !== null && currentMass !== null ? massKg - currentMass + cm : massKg;
     if (!(m > 0)) continue;
     const rate = descentRate(m, cdA, rho);
     if (!Number.isFinite(rate) || rate < band.min || rate > band.max) continue;
@@ -717,11 +757,13 @@ export function recoverySizing(input: RecoverySizingInput): RecoverySizing {
     boreM,
     main: bandAdvice('main', MAIN_BAND, {
       massKg: recovery.mass, rho, boreM, device: main, otherDevice: drogue,
-      currentMass: main ? deviceMass(main) : 0, canopies,
+      currentMass: main ? deviceMass(main) : 0,
+      massPinned: slotMassPinned(tree, main, scope), canopies,
     }),
     drogue: bandAdvice('drogue', DROGUE_BAND, {
       massKg: recovery.mass, rho, boreM, device: drogue, otherDevice: main,
-      currentMass: drogue ? deviceMass(drogue) : 0, canopies,
+      currentMass: drogue ? deviceMass(drogue) : 0,
+      massPinned: slotMassPinned(tree, drogue, scope), canopies,
     }),
   };
 }
