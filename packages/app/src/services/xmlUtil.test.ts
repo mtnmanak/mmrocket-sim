@@ -54,8 +54,11 @@ describe('escapeXml', () => {
     // A LONE surrogate goes; a pair is one legal character and stays.
     expect(escapeXml('a\uD800b\uDC00c')).toBe('abc');
     expect(escapeXml('fin \u{1F680} set')).toBe('fin \u{1F680} set');
-    // TAB, LF and CR are legal XML and are kept in text.
-    expect(escapeXml('a\tb\nc\rd')).toBe('a\tb\nc\rd');
+    // TAB and LF are legal XML and are kept in text. CR is legal too, but a
+    // parser's end-of-line handling reads it back as LF, so it is written as
+    // a reference, which that handling leaves alone.
+    expect(escapeXml('a\tb\nc\rd')).toBe('a\tb\nc&#13;d');
+    expect(escapeXml('line\r\nnext')).toBe('line&#13;\nnext');
     // C1 controls and U+FFFD are legal (if unusual) and are kept.
     expect(escapeXml('\u0085\u{FFFD}')).toBe('\u0085\u{FFFD}');
   });

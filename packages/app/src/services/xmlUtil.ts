@@ -23,22 +23,29 @@ const XML_ILLEGAL = /[^\t\n\r\u{20}-\u{D7FF}\u{E000}-\u{FFFD}\u{10000}-\u{10FFFF
  * reopened neither here ("Not a valid … file") nor in desktop OR, its share
  * link failed, and the XLSX needed Excel's repair — while the autosave, which
  * is JSON, stayed fine and hid it until the file was needed.
+ *
+ * A CR is written as `&#13;`, in text as well as in attributes: raw, a
+ * parser's end-of-line handling reads it back as LF (and CRLF as one LF), so
+ * a configuration id carrying a CR came back from its `<configid>` element as
+ * a different id from the one its `configid="…"` attributes kept, and the two
+ * no longer matched. A reference is not normalised, so the CR survives.
  */
 export function escapeXml(s: string): string {
   return s.replace(XML_ILLEGAL, '')
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+    .replace(/\r/g, '&#13;');
 }
 
 /**
- * escapeXml for a double-quoted ATTRIBUTE value: TAB, LF and CR are also
- * written as character references. Raw, a parser's attribute-value
- * normalisation reads each back as a space — so a configuration id with a
- * newline returned from its `configid="…"` attributes as a different id from
- * the one the same file carries as `<configid>` text, and the two no longer
- * matched (audit 2026-09-22).
+ * escapeXml for a double-quoted ATTRIBUTE value: TAB and LF are also written
+ * as character references (escapeXml already writes CR as one). Raw, a
+ * parser's attribute-value normalisation reads each back as a space — so a
+ * configuration id with a newline returned from its `configid="…"` attributes
+ * as a different id from the one the same file carries as `<configid>` text,
+ * and the two no longer matched (audit 2026-09-22).
  */
 export function escapeXmlAttr(s: string): string {
-  return escapeXml(s).replace(/\t/g, '&#9;').replace(/\n/g, '&#10;').replace(/\r/g, '&#13;');
+  return escapeXml(s).replace(/\t/g, '&#9;').replace(/\n/g, '&#10;');
 }
 
 /**
