@@ -114,10 +114,37 @@ describe('CP vs Mach — no lift is a gap, not a CP at the nose tip', () => {
   });
 
   it('with no lift anywhere, says so instead of drawing a flat 0 %', () => {
-    // A bare tube: no normal force at any roll angle either.
-    open(rocketOf(sweepOf(flat(0), flat(0)), { length: 0.3, cp: 0, cpWorst: 0 }));
+    // A bare tube: no normal force at any roll angle either (measured on the
+    // real kernel: cna 0 and cnaWorst 0).
+    open(rocketOf(sweepOf(flat(0), flat(0)), { length: 0.3, cp: 0, cna: 0, cpWorst: 0, cnaWorst: 0 }));
     expect(cpSeries()).toBeNull();
     expect(texts().some((t) => t.startsWith('No lift yet — this design makes no aerodynamic normal'))).toBe(true);
+  });
+
+  it('with no figures to scale by, draws no CP panel at all — so says nothing about lift', () => {
+    // staticInfo() throwing, or a zero length, leaves the chart nothing to
+    // plot against. The panel (heading, toggle and every sentence under it) is
+    // not rendered then, so "No lift yet" cannot be claimed for a design whose
+    // sweep has lift.
+    const lifting = sweepOf(flat(0.6), flat(12));
+    const throwing = { dragSweep: () => lifting, staticInfo: () => { throw new Error('no'); } } as unknown as OrkRocket;
+    for (const rocket of [throwing, rocketOf(lifting, { length: 0, cp: 0.6, cna: 12, cpWorst: 0.6, cnaWorst: 12 })]) {
+      plots.length = 0;
+      open(rocket);
+      expect(cpSeries()).toBeNull();
+      expect(host.textContent).not.toContain('Center of pressure vs Mach');
+      expect(host.textContent).not.toContain('No lift yet');
+      act(() => root.unmount());
+      root = createRoot(host);
+    }
+  });
+
+  it('chooses "No lift yet" by the force itself, not by whether the CP moves with roll', () => {
+    // No lift in the sweep's plane, but lift elsewhere with cp == cpWorst (a
+    // kernel that gives no swept CP): not "no lift".
+    open(rocketOf(sweepOf(flat(0), flat(0)), { length: 0.3, cp: 0, cna: 0, cnaWorst: 0.809 }));
+    expect(texts().some((t) => t.startsWith('No CP to plot in this roll plane'))).toBe(true);
+    expect(texts().some((t) => t.includes('No lift yet'))).toBe(false);
   });
 
   it('a symmetric design keeps its four-line header and carries no roll note', async () => {
@@ -138,16 +165,21 @@ describe('CP vs Mach — a roll-dependent design says which plane it is', () => 
     open(rocketOf(sweepOf(flat(0.3016), flat(16.27)), info));
     expect(cpSeries()![0]).toBeCloseTo(81.5, 1);
     const note = texts().find((t) => t.includes('depends on its roll angle'))!;
-    expect(note).toContain('this chart is one roll plane, with the fins as drawn');
+    expect(note).toContain('and this chart is one roll plane, with the fins as drawn.');
     expect(note).toContain('forward-most CP over every roll angle, 8.7 % of length — the conservative figure.');
   });
 
   it('with no lift in the swept plane, says it is the PLANE that has none', () => {
-    // Tube + two fins, no nose: nothing in the theta = 0 plane, lift in others.
-    open(rocketOf(sweepOf(flat(0), flat(0)), { length: 0.3, cp: 0, cpWorst: 0.269348 }));
+    // Tube + two fins, no nose: nothing in the theta = 0 plane, lift in others
+    // (measured on the real kernel: cna 0, cnaWorst 0.809 at cpWorst 270.8 mm).
+    open(rocketOf(sweepOf(flat(0), flat(0)), { length: 0.3, cp: 0, cna: 0, cpWorst: 0.269348, cnaWorst: 0.809 }));
     expect(cpSeries()).toBeNull();
     expect(texts().some((t) => t.startsWith('No CP to plot in this roll plane'))).toBe(true);
-    expect(texts().some((t) => t.includes('89.8 % of length'))).toBe(true);
+    // No chart is drawn, so the roll note must not point at one.
+    const note = texts().find((t) => t.includes('depends on its roll angle'))!;
+    expect(note).not.toContain('this chart');
+    expect(note).toContain('and the CP-vs-Mach sweep is measured in one roll plane, with the fins as drawn.');
+    expect(note).toContain('89.8 % of length');
   });
 
   it('adds ONE comment line to the CSV naming the plane and the CP to fly on', async () => {

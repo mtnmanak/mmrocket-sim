@@ -441,6 +441,12 @@ export function DragPanel({ rocket, supersonicModel, aeroLabel, designName, file
     }];
   }, [sweep, info, C, cpView, lenUnit]);
   const cpHasLift = cpLines.length > 0 && cpLines[0]!.values.some((v) => v != null);
+  // With no CP to chart, WHICH sentence replaces it is decided by the force
+  // itself, the tiles' own test (hasAerodynamicForce): "No lift yet" only for
+  // a design with none at any roll angle, "this roll plane" for one with lift
+  // only in others. (No figures at all — staticInfo threw, or no length — hides
+  // the whole CP panel, since cpLines is then empty.)
+  const cpNoLift = info != null && !hasAerodynamicForce(info);
 
   const totalLines = useMemo<Line[]>(() => {
     if (!sweep || 'error' in sweep) return [];
@@ -598,7 +604,7 @@ export function DragPanel({ rocket, supersonicModel, aeroLabel, designName, file
                 // Not a flat line at 0 %: that reads as a CP at the nose tip,
                 // and it is the kernel's "nothing to measure" (sweepCp).
                 <p className="motor-db-meta" style={{ marginTop: 4 }}>
-                  {rollNote == null
+                  {cpNoLift
                     ? <><strong>No lift yet</strong> — this design makes no aerodynamic normal
                       force, so there is no CP to plot.</>
                     : <><strong>No CP to plot in this roll plane</strong> — with the fins as
@@ -608,7 +614,10 @@ export function DragPanel({ rocket, supersonicModel, aeroLabel, designName, file
               {rollNote != null && info && (
                 <p className="motor-db-meta" style={{ marginTop: 4 }}>
                   <strong>This design&apos;s CP depends on its roll angle</strong> (fewer than
-                  three fins, or a part off the axis), and this chart is one roll plane, with
+                  three fins, or a part off the axis), and{' '}
+                  {cpHasLift
+                    ? 'this chart is one roll plane'
+                    : 'the CP-vs-Mach sweep is measured in one roll plane'}, with
                   the fins as drawn. The stability margin everywhere else in the app uses the
                   forward-most CP over every roll angle,{' '}
                   {cpView === 'pct'
