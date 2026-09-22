@@ -61,7 +61,7 @@ import { classLabel, diameterClass } from './services/motorDb.js';
 import { ignitionDefaultFor } from './services/ignitionDefault.js';
 import { matchImportedMotor, refToExportMotor } from './services/motorMatch.js';
 import { aeroModelFor, rogersKbfFor, stageMotorInfo } from './services/flightPipeline.js';
-import { flyLaunch, reflyRun } from './services/flightRunner.js';
+import { flyLaunch, reflyRun, writeMountMotor } from './services/flightRunner.js';
 import { loadExMotors } from './services/exMotors.js';
 import { exportOrk, fmtStepS, importOrk, type MeasuredFigures, type OrkDeployOverride, type OrkSeparationOverride, type OrkExportConfig, type OrkExportFlightData, type OrkExportMotor, type OrkImportResult, type OrkMotorRef, type OrkTreeImportResult } from './services/orkFile.js';
 import { decodeShareFragment, encodeShareFragment, hasSharePayload, MAX_FRAGMENT_CHARS } from './services/shareLink.js';
@@ -1444,10 +1444,12 @@ export function App() {
       const motorFailures: { mountId: string; text: string }[] = [];
       for (const [id, mm] of assigned) {
         try {
-          rocket.setMotorById(id, mm.spec);
-          if (mm.ignition.event !== 'automatic' || mm.ignition.delay !== 0) {
-            rocket.setMotorIgnitionById(id, mm.ignition.event, mm.ignition.delay);
-          }
+          // The motor and its ignition, through the ONE writer every flight
+          // uses too (services/flightRunner.ts). It refuses an ignition event
+          // the kernel does not know BEFORE the motor goes on, so a mount
+          // reported here is also absent from the handle — recovery weight
+          // and the pad-mass arithmetic below already treat it so.
+          writeMountMotor(rocket, id, mm.spec, mm.ignition);
         } catch (e) {
           motorFailures.push({
             mountId: id,
@@ -1500,14 +1502,11 @@ export function App() {
       if (hardware.state === 'ok') {
         const mm = accepted.find(([id]) => id === hardware.appliedTo)?.[1];
         if (mm) {
-          rocket.setMotorById(hardware.appliedTo, flownSpec(hardware.appliedTo, mm.spec, hardware));
-          // Ignition re-applied on the same condition as the loop above: the
-          // bridge's setMotorById (OrkEngine.java applyMotor) installs a fresh
-          // motor configuration on the mount, so the second write would
-          // otherwise leave it on the kernel's default.
-          if (mm.ignition.event !== 'automatic' || mm.ignition.delay !== 0) {
-            rocket.setMotorIgnitionById(hardware.appliedTo, mm.ignition.event, mm.ignition.delay);
-          }
+          // Through the same writer as the loop above, which re-applies the
+          // ignition: the bridge's setMotorById (OrkEngine.java applyMotor)
+          // installs a fresh motor configuration on the mount, so the second
+          // write would otherwise leave it on the kernel's default.
+          writeMountMotor(rocket, hardware.appliedTo, flownSpec(hardware.appliedTo, mm.spec, hardware), mm.ignition);
           info = rocket.staticInfo();
         }
       }

@@ -10,6 +10,7 @@ import { MAX_FIN_POINTS, escapeXml, xmlText as text } from './xmlUtil.js';
 import { unzipMember } from './zipMember.js';
 import { applyPresetLinks, type PendingPresetLink, type Preset } from './presets.js';
 import { OVERRIDE_INCLUDES_MOTOR } from './statedLaunchWeight.js';
+import { knownIgnitionEvent } from './ignitionEvent.js';
 
 // Re-export: rocksimFile.ts (and historical callers) import it from here.
 export { shapeParamDefault };
@@ -423,6 +424,8 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
     }
   };
 
+  /** `designation|value` pairs already named in a note (resolveRef below). */
+  const unknownIgnitions = new Set<string>();
   const readMotor = (el: Element, node: ComponentNode) => {
     const mountEl = el.querySelector(':scope > motormount');
     if (!mountEl) return;
@@ -443,8 +446,25 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       // digestsTrusted above). <type>/<manufacturer> are version-independent.
       const digest = digestsTrusted ? text(motorEl, ':scope > digest') : null;
       const motorType = text(motorEl, ':scope > type');
+      const designation = text(motorEl, ':scope > designation') ?? 'unknown';
+      // One of the five events the kernel knows, or AUTOMATIC. Desktop
+      // OpenRocket's reader ignores any other value with a warning ("Unknown
+      // ignition event type … ignoring"), which leaves a mount's default on
+      // AUTOMATIC. Carried verbatim, it reached the build, which put the motor
+      // on and then refused it, so the handle flew a motor that recovery
+      // weight and the pad-mass arithmetic left out (audit 2026-09-22). Named
+      // once per value in the notes, whichever configuration carries it:
+      // nothing later would say it was replaced.
+      const rawEvent = text(igEl, ':scope > ignitionevent');
+      const knownEvent = knownIgnitionEvent(rawEvent);
+      const ignitionEvent = rawEvent === null ? undefined : knownEvent ?? 'automatic';
+      if (rawEvent !== null && knownEvent === null && !unknownIgnitions.has(`${designation}|${rawEvent}`)) {
+        unknownIgnitions.add(`${designation}|${rawEvent}`);
+        notes.push(`Motor ${designation}: the file's ignition event “${rawEvent}” is not one OpenRocket`
+          + ' knows, so it lights on Automatic. Desktop OpenRocket ignores it too, with a warning.');
+      }
       return {
-        designation: text(motorEl, ':scope > designation') ?? 'unknown',
+        designation,
         manufacturer: text(motorEl, ':scope > manufacturer') ?? 'unknown',
         diameter: num(motorEl, 'diameter', 0.018),
         length: num(motorEl, 'length', 0.07),
@@ -452,13 +472,15 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
         ...(digest ? { digest } : {}),
         ...(motorType ? { motorType } : {}),
         mountId: node.id,
-        ignitionEvent: text(igEl, ':scope > ignitionevent') ?? undefined,
+        ignitionEvent,
         ignitionDelay: num(igEl, 'ignitiondelay', 0),
       };
     };
     // Stage B: EVERY declared configuration's motor rides along as a preset
     // (its own ignition override winning over the bare defaults, same as the
-    // chosen read below). Quiet — only the chosen config's notes surface.
+    // chosen read below). Quiet — only the chosen config's notes surface,
+    // except resolveRef's unknown-ignition note, which names any
+    // configuration's (audit 2026-09-22).
     if (node.id) {
       for (const cfg of configs) {
         const byId = (tag: string) => Array.from(mountEl.children).find(

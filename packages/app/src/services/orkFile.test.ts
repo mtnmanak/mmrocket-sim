@@ -177,6 +177,35 @@ describe('.ork permissive handling', () => {
       expect(result.notes.join(' ')).toMatch(/is not one this app knows/);
     });
 
+  /**
+   * An `<ignitionevent>` that is none of the five (audit 2026-09-22). It used
+   * to be carried verbatim; the build then put the motor on the handle, the
+   * ignition write threw, and the mount was reported as REFUSED — so recovery
+   * weight and the pad-mass arithmetic left it out — while the handle flew it
+   * on AUTOMATIC. Desktop OpenRocket's reader warns "Unknown ignition event
+   * type" and ignores the value, which leaves the mount on AUTOMATIC; so does
+   * this one now, and it says so.
+   */
+  const IGNITED = (event: string) => BODY_MOUNT.replace(
+    '<ignitionevent>automatic</ignitionevent>', `<ignitionevent>${event}</ignitionevent>`);
+
+  it('reads an unknown ignition event as automatic, and names it in a note', () => {
+    const result = importOrk(IGNITED('bogus'));
+    expect(result.motor?.ignitionEvent).toBe('automatic');
+    expect(result.notes.join(' ')).toMatch(/D12.*“bogus”/);
+  });
+
+  it('keeps a known ignition event in the spelling the kernel parses it by, with no note', () => {
+    // OrkEngine.java lower-cases the name and drops underscores, so these have
+    // always FLOWN as the ejection charge and launch; they now also show as
+    // such in the Ignition select.
+    for (const [raw, want] of [['EJECTION_CHARGE', 'ejectioncharge'], ['Launch', 'launch']] as const) {
+      const result = importOrk(IGNITED(raw));
+      expect(result.motor?.ignitionEvent, raw).toBe(want);
+      expect(result.notes.join(' '), raw).not.toMatch(/ignition event/);
+    }
+  });
+
   it('imports a body-tube motor mount as a REAL mount (minimum-diameter)', () => {
     const result = importOrk(BODY_MOUNT);
     const body = flatten(result.tree.components).find((c) => c.type === 'bodytube')!;

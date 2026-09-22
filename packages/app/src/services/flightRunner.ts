@@ -3,6 +3,7 @@ import type {
 } from '@online-openrocket/engine';
 import type { MountMotor } from '../App.js';
 import { flownSpec, type HardwareMassResult } from './hardwareMass.js';
+import { knownIgnitionEvent } from './ignitionEvent.js';
 import { MACH_AUTO_THRESHOLD, machProbeSeconds } from './machProbe.js';
 import { recommendDelay } from './simReport.js';
 
@@ -64,13 +65,29 @@ export interface AeroFlags {
  *
  * The condition is the build's own: an AUTOMATIC mount with no timer is left
  * exactly as the kernel configured it rather than re-stated in other words.
+ *
+ * THE EVENT IS CHECKED BEFORE THE MOTOR GOES ON (audit 2026-09-22). The
+ * bridge's ignition write can throw for only one reason once `setMotorById`
+ * has succeeded — an event name it does not know — and it used to be reached
+ * AFTER the motor was installed. The build then reported the mount as refused,
+ * so recovery weight and the pad-mass arithmetic left the motor out, while the
+ * handle flew it on AUTOMATIC: numbers computed with and without the same
+ * motor. There is no bridge call that takes a motor back off, so refusing
+ * first is what keeps "refused" and "absent from the handle" one fact. The
+ * event is written in the kernel's own spelling (`knownIgnitionEvent`).
  */
 export function writeMountMotor(
   rocket: FlightHandle, id: string, spec: MotorSpec, ignition: MountMotor['ignition'],
 ): void {
+  const event = knownIgnitionEvent(ignition.event);
+  if (event === null) {
+    throw new Error(`${spec.designation}: its ignition event “${ignition.event}” is not one the`
+      + ' simulator knows, so the motor was left off the rocket rather than flown on a guess.'
+      + ' Pick it again on Motors & Launch.');
+  }
   rocket.setMotorById(id, spec);
-  if (ignition.event !== 'automatic' || ignition.delay !== 0) {
-    rocket.setMotorIgnitionById(id, ignition.event, ignition.delay);
+  if (event !== 'automatic' || ignition.delay !== 0) {
+    rocket.setMotorIgnitionById(id, event, ignition.delay);
   }
 }
 
@@ -100,7 +117,9 @@ export function applyAssignedMotors(rocket: FlightHandle, { assigned, hardware }
     try {
       writeMountMotor(rocket, id, flownSpec(id, mm.spec, hardware), mm.ignition);
     } catch {
-      // Already reported at build time; a flight must not re-raise it.
+      // Already reported at build time; a flight must not re-raise it. A
+      // refused write leaves the mount as it was — empty on a built handle —
+      // because writeMountMotor refuses before it writes.
     }
   }
 }

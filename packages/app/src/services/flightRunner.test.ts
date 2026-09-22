@@ -3,7 +3,9 @@ import type { FlightResult, IgnitionEvent, MotorSpec, OrkRocket } from '@online-
 import type { MountMotor } from '../App.js';
 import { DEFAULT_CONDITIONS, kernelSimOptions } from '../components/LaunchPanel.js';
 import { defaultTree, engineTree, flownRecoveryDevices, motorMounts } from '../tree/treeModel.js';
-import { flyLaunch, reflyRun, type FlightHandle, type LaunchInput } from './flightRunner.js';
+import {
+  applyAssignedMotors, flyLaunch, reflyRun, writeMountMotor, type FlightHandle, type LaunchInput,
+} from './flightRunner.js';
 import { findDbMotor } from './motorDb.js';
 import { mountMotorFromDb } from './motorMatch.js';
 import { buildSimRun } from './simReport.js';
@@ -210,5 +212,48 @@ describe('flight runner — a stored run re-flies at the delay it flew (real ker
       simOptions: kernelSimOptions(DEFAULT_CONDITIONS), fly: classic, restore: classic,
     });
     expect(refly.summary).toEqual(runB.result.summary);
+  }, 60_000);
+});
+
+/**
+ * An ignition event that is none of the five (audit 2026-09-22). The bridge's
+ * ignition write throws for it — but only AFTER `setMotorById` has installed
+ * the motor, and there is no bridge call that takes a motor back off. So the
+ * build reported the mount as REFUSED (recovery weight and the pad-mass
+ * arithmetic left it out) while the handle flew it on AUTOMATIC: numbers
+ * computed with and without the same motor.
+ */
+describe('flight runner — a motor whose ignition nothing knows stays OFF the handle', () => {
+  const bogus = { event: 'bogus' as IgnitionEvent, delay: 0 };
+
+  it('is refused before anything is written', () => {
+    const { handle, calls } = recordingHandle();
+    expect(() => writeMountMotor(handle, 'mount', SPEC, bogus)).toThrow(/H128.*“bogus”/);
+    expect(calls).toEqual([]);
+  });
+
+  it('a known event is written in the spelling the kernel parses it by', () => {
+    const { handle, calls } = recordingHandle();
+    writeMountMotor(handle, 'mount', SPEC, { event: 'BURNOUT' as IgnitionEvent, delay: 1 });
+    expect(calls).toEqual([['motor', 'mount', 10], ['ignition', 'mount', 'burnout', 1]]);
+  });
+
+  it('on the real kernel, the refused mount carries no motor at all', async () => {
+    const { OrkRocket: Ork } = await import('@online-openrocket/engine');
+    const tree = defaultTree();
+    const mount = motorMounts(tree)[0]!.id!;
+    const db = findDbMotor('C6', undefined, undefined, 'Estes')!;
+    const c6 = await fetchMotorSpec(db, 5);
+    const rocket = Ork.buildTree(engineTree(tree));
+    expect(() => writeMountMotor(rocket, mount, c6, bogus)).toThrow();
+    const info = rocket.staticInfo();
+    // Dry mass only — the refusal and the handle are one fact again.
+    expect(info.mass).toBeCloseTo(info.massEmpty, 9);
+    // …and applyAssignedMotors, which every flight starts from, keeps it so.
+    applyAssignedMotors(rocket, {
+      assigned: [[mount, { label: 'C6-5', spec: c6, meta: { label: 'C6-5' }, ignition: bogus }]],
+      hardware: undefined,
+    });
+    expect(rocket.staticInfo().mass).toBeCloseTo(info.massEmpty, 9);
   }, 60_000);
 });
