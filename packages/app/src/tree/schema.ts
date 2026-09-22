@@ -222,13 +222,19 @@ const DENSITY: FieldDef = {
  * spinner to it (`new IntegerModel(component, "FinCount", 1, 8)`).
  *
  * Until audit 2026-09-22 the app did not: the tube-fin slider ran to 12, a
- * typed count had no ceiling at all, and every drawing and export looped the
- * raw number — so a 12-fin set was drawn, printed and exported as 12 while the
- * kernel flew 8. Measured by that audit: trapezoid sets of 8 and 12 gave an identical
- * kernel fin-set mass (19.584 g) and CP (0.34217 m), and 12 tube fins printed
- * an 8.66 mm OD against the 15.37 mm the kernel flew. Every reader now goes
- * through `finCountOf` (counts.ts), the panel's count field stops here, and the
- * sanitize pass (sanitize.ts) repairs a file or a saved session that says more.
+ * typed count had no ceiling at all, every drawing looped the raw number and
+ * every export wrote it — so a 12-fin set was drawn, printed and exported as 12
+ * while the kernel flew 8. Measured by that audit: trapezoid sets of 8 and 12
+ * gave an identical kernel fin-set mass (19.584 g) and CP (0.34217 m), and 12
+ * tube fins printed an 8.66 mm OD against the 15.37 mm the kernel flew. Every
+ * DRAWING, the tube-fin geometry, the fin alignment and the rail and wake
+ * checks (mountAngle.ts) now read the count through `finCountOf` (counts.ts),
+ * so nothing stored can draw more than the kernel flies. The
+ * other readers — the exporters, the fin template and DXF labels, the
+ * interleave rotation for a second set — still read the node itself, and are
+ * kept honest by the two places a count is written: the panel's count field
+ * stops here, and the sanitize pass (sanitize.ts) repairs a file or a saved
+ * session that says more.
  */
 export const KERNEL_MAX_FINS = 8;
 

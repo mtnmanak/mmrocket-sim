@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act } from 'react';
+import { act, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
@@ -72,22 +72,42 @@ afterEach(() => {
 });
 
 describe('PropertyPanel — fin count stops at the kernel\'s 8', () => {
-  it('refuses a typed 12 on a planar fin set, and takes 8', () => {
+  it('takes a typed 12 on a planar fin set as 8, flagged until blur', () => {
     mount(onBody({ id: 'f1', type: 'trapezoidfinset', name: 'Fins', finCount: 4,
       rootChord: 0.05, tipChord: 0.03, sweep: 0.02, height: 0.03, thickness: 0.003 }));
     type(box('Fin count'), '12');
-    expect(patches).toEqual([]);
-    expect(box('Fin count').getAttribute('aria-invalid')).toBe('true');
-    type(box('Fin count'), '8');
     expect(patches).toEqual([{ finCount: 8 }]);
+    expect(box('Fin count').getAttribute('aria-invalid')).toBe('true');
     expect(slider('Fin count').max).toBe('8');
   });
 
-  it('the tube-fin slider stops at 8, not 12', () => {
+  it('typed a keystroke at a time, 12 ends as 8 fins — not the 1 committed on the way', () => {
+    // Every draft commits live, so "12" is "1" and then "12". Refusing the
+    // "12" at the field's max left the 1 stored: a user asking for twelve fins
+    // got ONE (review of audit 2026-09-22). The panel is live here — each
+    // patch goes back onto the node, as App does — so blur shows what stuck.
+    function Live({ tree, node }: { tree: RocketTree; node: ComponentNode }) {
+      const [n, setN] = useState(node);
+      return <PropertyPanel tree={tree} node={n}
+        onPatch={(p) => { patches.push(p); setN((o) => ({ ...o, ...p }) as ComponentNode); }} />;
+    }
+    const { tree, node } = onBody({ id: 'f1', type: 'trapezoidfinset', name: 'Fins', finCount: 4,
+      rootChord: 0.05, tipChord: 0.03, sweep: 0.02, height: 0.03, thickness: 0.003 });
+    act(() => root.render(<PrefsProvider><Live tree={tree} node={node} /></PrefsProvider>));
+    const el = box('Fin count');
+    act(() => { el.dispatchEvent(new FocusEvent('focusin', { bubbles: true })); });
+    type(el, '1');
+    type(el, '12');
+    act(() => { el.dispatchEvent(new FocusEvent('focusout', { bubbles: true })); });
+    expect(patches).toEqual([{ finCount: 1 }, { finCount: 8 }]);
+    expect(box('Fin count').value).toBe('8');
+  });
+
+  it('the tube-fin slider stops at 8, not 12, and a typed 12 is 8', () => {
     mount(onBody({ id: 't1', type: 'tubefinset', name: 'Tubes', finCount: 6, length: 0.1, thickness: 0.0005 }));
     expect(slider('Fin count').max).toBe('8');
     type(box('Fin count'), '12');
-    expect(patches).toEqual([]);
+    expect(patches).toEqual([{ finCount: 8 }]);
   });
 });
 

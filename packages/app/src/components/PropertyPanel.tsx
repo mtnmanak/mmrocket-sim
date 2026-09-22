@@ -520,10 +520,13 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
     // THE HARD LIMIT (audit 2026-09-22) — the same table the load boundary's
     // sanitize pass applies (schema.ts `fieldLimit`), so a typed or dragged
     // value can never be one a reopened file would have to repair. A count's
-    // ceiling goes on the field itself, so typing 12 fins is refused on sight
-    // (the kernel flies at most 8, and it used to draw and export 12); every
-    // other bound is enforced in `commit` below — a tube-fin length or shroud
-    // height of 0 at the slider's left stop failed the whole build.
+    // ceiling goes on the field itself, which CLAMPS a typed count to it
+    // (NumField `clampToMax`, below): typing 12 fins stores 8 and flags the
+    // box until blur shows 8 (the kernel flies at most 8, and the app used to
+    // draw and export 12). Refusing it instead kept the "1" committed on the
+    // way to "12" — a one-fin set. Every other bound is enforced in `commit`
+    // below — a tube-fin length or shroud height of 0 at the slider's left
+    // stop failed the whole build.
     const limit = fieldLimit(node.type, f.key);
     if (f.unit === 'count' && limit?.hmax !== undefined) {
       maxCount = Math.min(maxCount ?? Infinity, limit.hmax);
@@ -635,6 +638,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
           integer={f.unit === 'count'}
           min={f.unit === 'count' ? (f.smin ?? 1) : undefined}
           max={maxUi}
+          clampToMax={f.unit === 'count'}
           placeholder={autoPlaceholder}
           nullable
           onCommit={(v) => {
