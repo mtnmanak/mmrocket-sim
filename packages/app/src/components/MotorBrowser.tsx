@@ -271,9 +271,13 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
     }
     const parsed: ExMotor[] = [];
     const failed: string[] = [];
+    /** What the parsers had to say about motors they DID import (a refused nozzle exit, …). */
+    const said: string[] = [];
     for (const f of motorFiles) {
       try {
-        parsed.push(...parseMotorFile(f.name, await f.text()));
+        const notes: string[] = [];
+        parsed.push(...parseMotorFile(f.name, await f.text(), notes));
+        said.push(...notes.map((n) => `${f.name}: ${n}`));
       } catch (e) {
         failed.push(`${f.name}: ${e instanceof Error ? e.message : String(e)}`);
       }
@@ -300,8 +304,10 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
         problems.push(`Imported ${list}, but this browser's storage is full or blocked, so they are NOT saved — `
           + 'they fly in this session and are gone after a reload. Free some room (the saved-runs '
           + 'table, or imported motors you no longer need) and import them again to keep them.');
+        if (said.length) setNotice(said.join(' · '));
       } else {
-        setNotice(`Imported ${list} — they live in this browser under manufacturer EX and survive reloads.`);
+        setNotice(`Imported ${list} — they live in this browser under manufacturer EX and survive reloads.`
+          + (said.length ? ` ${said.join(' · ')}` : ''));
       }
     }
     if (failed.length) {

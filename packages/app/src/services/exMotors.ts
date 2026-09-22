@@ -286,8 +286,13 @@ export function parseEng(text: string): ExMotor[] {
   return motors;
 }
 
-/** RockSim .rse parser (engine-database XML; attrs in mm/g). */
-export function parseRse(text: string): ExMotor[] {
+/**
+ * RockSim .rse parser (engine-database XML; attrs in mm/g).
+ *
+ * `notes` collects what the import should TELL the user about a motor it did
+ * import — today a nozzle exit it read and would not believe.
+ */
+export function parseRse(text: string, notes?: string[]): ExMotor[] {
   const doc = new DOMParser().parseFromString(text, 'text/xml');
   if (doc.querySelector('parsererror')) throw new Error('Not valid XML (.rse)');
   const engines = Array.from(doc.querySelectorAll('engine'));
@@ -334,6 +339,12 @@ export function parseRse(text: string): ExMotor[] {
     const exit = exitDiameterFromRse(
       exitRaw === null || exitRaw.trim() === '' ? null : Number(exitRaw), numAttr('dia'),
     );
+    // Said, not just dropped (audit 2026-09-22): the v0.137 notes and the guide
+    // promise an out-of-band exit "is ignored with a note", and without one an
+    // inches-denominated file lost its exit with nothing to say why.
+    if (exit && 'rejected' in exit) {
+      notes?.push(`${name}: its nozzle exit, exitDia ${exit.rejected}, was not used.`);
+    }
     return {
       motorId: `ex:${slug(`${mfr}-${name}`)}`,
       designation: name,
@@ -352,9 +363,9 @@ export function parseRse(text: string): ExMotor[] {
   });
 }
 
-/** Parse by extension/content — returns the motors found in the file. */
-export function parseMotorFile(fileName: string, text: string): ExMotor[] {
+/** Parse by extension/content — returns the motors found in the file, and `notes` what to say about them. */
+export function parseMotorFile(fileName: string, text: string, notes?: string[]): ExMotor[] {
   const lower = fileName.toLowerCase();
-  if (lower.endsWith('.rse') || text.trimStart().startsWith('<')) return parseRse(text);
+  if (lower.endsWith('.rse') || text.trimStart().startsWith('<')) return parseRse(text, notes);
   return parseEng(text);
 }

@@ -227,3 +227,18 @@ describe('MotorBrowser — importing EX motors (audit 2026-09-22)', () => {
     deleteExMotor('none');
   });
 });
+
+describe('MotorBrowser — what an import says about the motors it took (audit 2026-09-22)', () => {
+  let h: Harness;
+  afterEach(() => closeBrowser(h));
+
+  it('names a refused .rse nozzle exit in the import notice', async () => {
+    h = openBrowser({ mountDiameterMm: 29 });
+    await importFiles(h, [{ name: 'inches.rse', text: `<engine-database><engine-list>
+      <engine mfg="Home" code="H99X" dia="29." len="200." initWt="300." propWt="150." delays="6" exitDia="0.5">
+        <data><eng-data t="0" f="0"/><eng-data t="0.5" f="120"/><eng-data t="1.5" f="0"/></data>
+      </engine></engine-list></engine-database>` }]);
+    expect(h.host.textContent).toMatch(/Imported 1 EX motor \(H99X\)/);
+    expect(h.host.textContent).toMatch(/inches\.rse: H99X: its nozzle exit, exitDia 0\.5 .*was not used/);
+  });
+});

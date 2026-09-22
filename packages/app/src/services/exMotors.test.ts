@@ -281,6 +281,24 @@ describe('a .rse nozzle exit diameter', () => {
     expect(high.rejected).toContain('case diameter');
   });
 
+  it('says so when it refuses one — the note the v0.137 notes and the guide promise', () => {
+    // Audit 2026-09-22: the reason was built and thrown away, so an
+    // inches-denominated file lost its exit with nothing said.
+    const notes: string[] = [];
+    const [m] = parseRse(rse('exitDia="1.5"'), notes);
+    expect(m!.exitDiameterM).toBeUndefined();
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toMatch(/^B2: its nozzle exit, exitDia 1\.5 \(only 8% of the 18 mm case.*inches.*was not used\.$/);
+    const high: string[] = [];
+    parseRse(rse('exitDia="18."'), high);
+    expect(high[0]).toMatch(/case diameter/);
+    // A believable exit, or none at all, has nothing to say.
+    const none: string[] = [];
+    parseRse(rse('throatDia="3.6" exitDia="5."'), none);
+    parseRse(rse('exitDia="0."'), none);
+    expect(none).toEqual([]);
+  });
+
   it('ignores a throat entirely — nothing in the app reads one', () => {
     const [m] = parseRse(rse('throatDia="3.6" exitDia="5."'));
     expect(Object.keys(m!)).not.toContain('throatDiameterM');
