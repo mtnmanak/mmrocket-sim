@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { cloneElement, isValidElement, useEffect, useId, useRef, useState } from 'react';
 import type { ComponentNode, ComponentPosition, RocketTree, StaticInfo } from '@online-openrocket/engine';
 import { anchorStarts, axialLength, offsetForStart, snapStart, startFromPosition } from '../tree/position.js';
 import { clusterOffsets } from '../tree/cluster.js';
@@ -654,31 +654,69 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
    * so the two names cannot be confused again.
    *
    * `role="button"` + a name: a bare tabbable <rect> announces nothing.
+   *
+   * These props go on every drawn INSTANCE of the part; keepFirstTabStops
+   * below leaves the keyboard half on the first of them only.
    */
-  const selectable = (n: ComponentNode) => ({
-    ...(n.id
-      ? {
-        onPointerEnter: () => setHoverId(n.id!),
-        onPointerLeave: () => setHoverId((cur) => (cur === n.id ? null : cur)),
-      }
-      : {}),
-    ...(onSelect && n.id
-      ? {
-        // Enter/Space from the shared helper; the pointer path keeps its own
-        // onClick because it must stopPropagation (or the svg's background
-        // handler also fires) and must ignore a click that was really a drag.
-        onKeyDown: keyActivation(() => onSelect(n.id!)).onKeyDown,
-        tabIndex: 0,
-        role: 'button',
-        'aria-label': `Select ${n.name ?? DISPLAY_NAME[n.type]}`,
-        onClick: (e: React.MouseEvent) => {
-          e.stopPropagation();
-          if (!dragMoved.current) onSelect(n.id!);
-        },
-        style: { cursor: 'pointer' } as React.CSSProperties,
-      }
-      : {}),
-  });
+  const selectable = (n: ComponentNode) => {
+    // Enter/Space from the shared helper; the pointer path keeps its own
+    // onClick because it must stopPropagation (or the svg's background
+    // handler also fires) and must ignore a click that was really a drag.
+    const onKeyDown = onSelect && n.id ? keyActivation(() => onSelect(n.id!)).onKeyDown : null;
+    if (onKeyDown) tabStopOwner.set(onKeyDown, n.id!);
+    return {
+      ...(n.id
+        ? {
+          onPointerEnter: () => setHoverId(n.id!),
+          onPointerLeave: () => setHoverId((cur) => (cur === n.id ? null : cur)),
+        }
+        : {}),
+      ...(onSelect && onKeyDown
+        ? {
+          onKeyDown,
+          tabIndex: 0,
+          role: 'button',
+          'aria-label': `Select ${n.name ?? DISPLAY_NAME[n.type]}`,
+          onClick: (e: React.MouseEvent) => {
+            e.stopPropagation();
+            if (!dragMoved.current) onSelect(n.id!);
+          },
+          style: { cursor: 'pointer' } as React.CSSProperties,
+        }
+        : {}),
+    };
+  };
+
+  /**
+   * ONE TAB STOP PER PART, not one per drawn instance (audit 2026-09-22). A fin
+   * set draws a shape per fin, a cluster a rect per tube, a rail button one per
+   * line instance, a pod ring its whole chain once per instance — and each of
+   * them carried the part's tab stop, so Tab stepped through "Select
+   * Trapezoidal fins" three times running (8 stops for 5 components,
+   * measured). selectable() records which part each keyboard handler it hands
+   * out belongs to; this one pass over what is actually DRAWN, in document
+   * order (which is tab order), keeps the keys on each part's first instance
+   * and takes them off the rest, which keep their pointer handlers. Run over
+   * the finished layers rather than at each spread, so an instance that is
+   * built but never pushed — a fin hidden inside the airframe — cannot take
+   * the part's only stop with it, and a new multi-instance drawing needs
+   * nothing of its own to get this right.
+   */
+  const tabStopOwner = new Map<unknown, string>();
+  const keepFirstTabStops = (layers: React.ReactNode[][]) => {
+    const seen = new Set<string>();
+    for (const layer of layers) {
+      layer.forEach((el, i) => {
+        if (!isValidElement<Record<string, unknown>>(el)) return;
+        const id = tabStopOwner.get(el.props['onKeyDown']);
+        if (id === undefined) return;
+        if (!seen.has(id)) { seen.add(id); return; }
+        layer[i] = cloneElement(el, {
+          onKeyDown: undefined, tabIndex: undefined, role: undefined, 'aria-label': undefined,
+        });
+      });
+    }
+  };
   const selStroke = (n: ComponentNode, dflt: string) => (isSel(n) ? 'var(--accent)' : dflt);
   const selWidth = (n: ComponentNode, dflt: number | string = 1) => (isSel(n) ? 2 : dflt);
 
@@ -840,9 +878,10 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   ) => {
     wires.push(shape(wireInk(n, grab)));
     // The hit surface is an INVISIBLE duplicate of the outline above, so it
-    // takes the pointer props and drops the keyboard ones — otherwise every
-    // rolled fin instance would contribute two identical tab stops with the
-    // same name, and a three-fin set alone would cost six.
+    // takes the pointer props and drops the keyboard ones: it must never be
+    // the shape that holds the part's tab stop — focus would land on nothing
+    // visible. (keepFirstTabStops collapses the instances to one stop; this
+    // keeps the invisible copies out of the running for it.)
     const { tabIndex: _t, role: _r, onKeyDown: _k, 'aria-label': _a, ...pointerOnly } =
       grab as Record<string, unknown>;
     wires.push(shape({
@@ -1467,6 +1506,8 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   };
 
   renderChain(chain, 0, ctx.cy);
+  // The three layers in the order they are painted below — and tabbed.
+  keepFirstTabStops([shapes, overlay, wires]);
 
   const aero = !!info && hasAerodynamicForce(info);
   const cgX = info ? ctx.x0 + info.cg * scale : null;

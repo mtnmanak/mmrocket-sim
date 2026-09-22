@@ -132,6 +132,58 @@ describe('the drawing is reachable by keyboard', () => {
   });
 });
 
+/**
+ * Audit 2026-09-22: the tab stop rode on every drawn INSTANCE — each fin of a
+ * set, each tube of a cluster, each rail button of a line, a pod's whole chain
+ * once per ring instance — so Tab stepped through "Select Trapezoidal fins"
+ * three times running (8 stops for 5 components, measured). One per part now,
+ * on its first drawn instance; every instance still takes the pointer.
+ */
+describe('one tab stop per part, not per drawn instance', () => {
+  const busy = withChildren([
+    { id: 'f1', type: 'trapezoidfinset', name: 'Main fins', finCount: 3, rootChord: 0.05,
+      tipChord: 0.03, sweep: 0.02, height: 0.03 },
+    { id: 'rb', type: 'railbutton', name: 'Buttons', outerDiameter: 0.01, totalHeight: 0.0097,
+      instanceCount: 2, instanceSeparation: 0.1, position: { method: 'middle', offset: 0 } },
+    { id: 'mt', type: 'innertube', name: 'Motor tubes', length: 0.08, outerRadius: 0.006,
+      cluster: '3-ring', position: { method: 'bottom', offset: 0 } },
+    { id: 'p1', type: 'podset', name: 'Pods', instanceCount: 2, radiusOffset: 0.02,
+      children: [{ id: 'pb', type: 'bodytube', name: 'Pod tube', length: 0.1, outerRadius: 0.008 }] },
+  ]);
+  const PARTS = ['Select Body tube', 'Select Buttons', 'Select Main fins', 'Select Motor tubes',
+    'Select Nose cone', 'Select Pod tube'];
+  const stopNames = () => [...svg().querySelectorAll('[tabindex="0"]')]
+    .map((s) => s.getAttribute('aria-label')).sort();
+
+  it('at rest', () => {
+    show(<TreeSchematic tree={busy} info={null} onSelect={() => {}} />);
+    // The instances ARE drawn — each named part still draws more than once.
+    expect(host.querySelectorAll('polygon').length).toBeGreaterThanOrEqual(3);
+    expect(stopNames()).toEqual(PARTS);
+  });
+
+  it('rolled, where every fin is an outline', () => {
+    show(<TreeSchematic tree={busy} info={null} roll={0.6} onSelect={() => {}} />);
+    expect(host.querySelectorAll('[data-fin="wire"]').length).toBe(3);
+    expect(stopNames()).toEqual(PARTS);
+  });
+
+  it('keeps the pointer on every instance, and the keys on the one stop', () => {
+    const picked: string[] = [];
+    show(<TreeSchematic tree={busy} info={null} onSelect={(id) => picked.push(id)} />);
+    const tubes = [...host.querySelectorAll('rect[stroke-dasharray="3 2"]')]
+      .filter((r) => r.querySelector('title')?.textContent === 'Motor tubes');
+    expect(tubes).toHaveLength(3);
+    expect(tubes.filter((t) => t.getAttribute('tabindex') === '0')).toHaveLength(1);
+    expect(tubes.filter((t) => t.getAttribute('role') === 'button')).toHaveLength(1);
+    // A click on the LAST copy still selects the part.
+    act(() => { tubes[2]!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    const stop = tubes.find((t) => t.getAttribute('tabindex') === '0')!;
+    act(() => { stop.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+    expect(picked).toEqual(['mt', 'mt']);
+  });
+});
+
 describe('a rail button is drawn centred on its station', () => {
   const button = (method: string) => withChildren([{
     id: 'rb', type: 'railbutton', outerDiameter: 0.01, totalHeight: 0.0097,
