@@ -328,6 +328,34 @@ describe('the sweep, flown on the real kernel', () => {
   });
 
   /**
+   * v0.137 made nozzleFollow read `motorId ?? exMotorId`; App's batch wiring
+   * still read `motorId` alone (audit 2026-09-22). With the ex: id handed
+   * over, an imported motor counts on both sides of the nozzle rule.
+   */
+  it('an imported motor loaded on the target flies the exit typed for it', async () => {
+    const tree = rocket({ nozzleExitDiameter: 0.05 });
+    const cands = [entry('ex:mine', 'EX', 'E20', '5'), entry('cat', 'Acme', 'E22', '5')];
+    const specs = { 'ex:mine': curve('E20'), cat: curve('E22') };
+    const { rows } = await sweep(input(tree, { candidates: cands, assignedMotorIds: { mount: 'ex:mine' } }), {
+      fetchSpec: fetchFrom(specs), nozzleFor: nozzles({ cat: 0.02 }),
+    });
+    expect(rows.find((r) => r.entry.motorId === 'ex:mine')!.exitM).toBe(0.05);
+    // …and only for it.
+    expect(rows.find((r) => r.entry.motorId === 'cat')!.exitM).toBeCloseTo(0.02, 12);
+  }, 60000);
+
+  it("an imported motor on another mount adds its file's exit to every candidate's stage sum", async () => {
+    const side: BatchMountOption = { id: 'side', label: 'Side', diameterMm: 24, motorCount: 1, maxMotorLengthM: null };
+    const tree = rocket({ sideMount: true });
+    const { rows } = await sweep(input(tree, {
+      mounts: [MOUNT, side], candidates: [entry('cat', 'Acme', 'E22', '5')],
+      assignedMotors: { side: curve('E20') }, assignedMotorIds: { side: 'ex:side' },
+    }), { fetchSpec: fetchFrom({ cat: curve('E22') }), nozzleFor: nozzles({ cat: 0.04, 'ex:side': 0.03 }) });
+    // 3-4-5: the two areas sum to one 0.05 m equivalent.
+    expect(rows[0]!.exitM).toBeCloseTo(0.05, 12);
+  }, 60000);
+
+  /**
    * applyOthers' ignition restore, FLOWN rather than counted in the source
    * (flownIgnitionSites.test.ts can only see that a write happened). Every
    * setMotorById installs a fresh MotorConfiguration, so without the restore a

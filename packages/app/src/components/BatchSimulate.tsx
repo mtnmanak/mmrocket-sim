@@ -229,12 +229,14 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
    *  its hardware here too. */
   assignedMotors: Record<string, MotorSpec>;
   /**
-   * Catalogue ids for those same motors, by mount id. A MotorSpec carries no
-   * id, and the nozzle database is keyed on one — so without this the sweep
-   * can resolve the CANDIDATE's published exit but not the exits of the other
-   * mounts firing alongside it, and a cluster's equivalent nozzle cannot be
-   * summed. Absent for a mount flying an imported EX motor, which has no
-   * catalogue row.
+   * Nozzle-database ids for those same motors, by mount id. A MotorSpec
+   * carries no id, and the nozzle database is keyed on one — so without this
+   * the sweep can resolve the CANDIDATE's published exit but not the exits of
+   * the other mounts firing alongside it, and a cluster's equivalent nozzle
+   * cannot be summed. An imported EX motor is carried by its `ex:` library id
+   * (App passes `motorId ?? exMotorId`, as nozzleFollow reads it), which
+   * resolves to the exit its own file states. Absent for a motor recorded with
+   * neither id — an EX record from before exMotorId existed, say.
    */
   assignedMotorIds: Record<string, string | undefined>;
   /**

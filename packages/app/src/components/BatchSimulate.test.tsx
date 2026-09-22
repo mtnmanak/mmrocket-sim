@@ -544,4 +544,43 @@ describe('batchStageExit — the nozzle one candidate flies', () => {
       typedStageExitM: 0.076, loadedIdOnTarget: undefined,
     })).toBeCloseTo(0.03, 12);
   });
+
+  /**
+   * IMPORTED (EX) MOTORS, by their `ex:` library id (audit 2026-09-22). An EX
+   * motor carries `exMotorId` and never `motorId`, and App handed the sweep
+   * `meta.motorId` alone — so a loaded EX motor was `undefined` on both sides
+   * of this rule: its row never flew the exit typed for it, and on another
+   * mount it dropped out of every candidate's stage sum.
+   */
+  it('flies the typed exit for the imported motor it was typed for, by its ex: id', () => {
+    expect(batchStageExit({
+      ...base, candidateId: 'ex:mine', ownExitM: null,
+      typedStageExitM: 0.05, loadedIdOnTarget: 'ex:mine',
+    })).toBeCloseTo(0.05, 12);
+    // …and to no other imported motor.
+    expect(batchStageExit({
+      ...base, candidateId: 'ex:other', ownExitM: null,
+      typedStageExitM: 0.05, loadedIdOnTarget: 'ex:mine',
+    })).toBeNull();
+  });
+
+  it("sums an imported motor's own file exit into a catalogue candidate's stage", () => {
+    // The part list is what the sweep resolves from assignedMotorIds; an ex:
+    // id resolves to the exit its own .rse states (nozzleForMotorId).
+    expect(batchStageExit({
+      ...base, candidateId: 'm1', ownExitM: 0.03,
+      otherParts: [{ count: 1, exitDiameterM: 0.04 }],
+    })).toBeCloseTo(0.05, 12);
+  });
+});
+
+describe('App hands the sweep the ids the nozzle database is keyed on', () => {
+  const app = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../App.tsx'), 'utf8');
+
+  it('reads an EX motor by its ex: id — the SAME expression nozzleFollow reads', () => {
+    const at = app.indexOf('assignedMotorIds={Object.fromEntries(');
+    expect(at, 'assignedMotorIds is no longer built where it was').toBeGreaterThan(-1);
+    const expr = app.slice(at, app.indexOf(')}', at));
+    expect(expr).toContain('mm.meta.motorId ?? mm.meta.exMotorId');
+  });
 });

@@ -155,6 +155,10 @@ export interface BatchWeighed {
  *     sum short by the motors it could not see is worse than no number at all,
  *     because the blank is visible and the short sum is not.
  *
+ * The ids are the ones the nozzle database is keyed on: a catalogue motorId,
+ * or an imported motor's `ex:` library id (App hands over `motorId ??
+ * exMotorId`, the expression nozzleFollow reads).
+ *
  * Null means "fly with no nozzle", which is what every candidate did before.
  */
 export function batchStageExit(input: {
@@ -352,7 +356,7 @@ export interface BatchSweepInput {
   splits: readonly ClusterSplit[];
   /** Flown specs of the motors on the OTHER mounts, by mount id. */
   assignedMotors: Record<string, MotorSpec>;
-  /** Their catalogue ids, which the nozzle database is keyed on; absent for an imported EX motor. */
+  /** Their nozzle-database ids — catalogue motorId, or an imported motor's ex: id. */
   assignedMotorIds: Record<string, string | undefined>;
   /** Their ignition settings — a MotorSpec carries none. */
   assignedIgnitions: Record<string, { event: IgnitionEvent; delay: number }>;
@@ -481,7 +485,10 @@ export async function runBatchSweep(
   /*
    * The motors firing BESIDE the candidate, on the same stage. A batch refuses
    * a staged rocket, so every mount here is on the one stage and every one of
-   * them contributes its exit area to the equivalent nozzle.
+   * them contributes its exit area to the equivalent nozzle. An imported EX
+   * motor is in this list by its ex: id since audit 2026-09-22; before that App
+   * handed over `meta.motorId` alone, which an EX motor never has, so its mount
+   * silently dropped out of the sum.
    */
   const otherParts = await Promise.all(mounts
     .filter((m) => m.id !== target.id && assignedMotorIds[m.id])
