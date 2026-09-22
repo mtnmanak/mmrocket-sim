@@ -68,6 +68,20 @@ describe('thrustcurve transforms', () => {
     expect(defaultDelay({ ...QUEST_C6, delays: undefined })).toBeNull();
   });
 
+  /**
+   * Review of the audit 2026-09-22 fixes: "longest" was "last in file order".
+   * A RASP file lists delays in whatever order its author typed — the tester's
+   * rasp.eng has I115W, I215R and I117FJ as "6-10-14-0" and E6T as "2-4-8-0" —
+   * and those defaulted to 0 s, a charge at burnout.
+   */
+  it('sorts the delays, so the longest is the longest whatever order the file lists them in', () => {
+    expect(delayOptions({ ...QUEST_C6, delays: '6,10,14,0' })).toEqual([0, 6, 10, 14]);
+    expect(delayOptions({ ...QUEST_C6, delays: '13,10,8,6,4' })).toEqual([4, 6, 8, 10, 13]);
+    expect(delayOptions({ ...QUEST_C6, delays: 'P,7,4,1000,7' })).toEqual([4, 7, Infinity]);
+    expect(defaultDelay({ ...QUEST_C6, delays: '6,10,14,0' })).toBe(14);
+    expect(defaultDelay({ ...QUEST_C6, delays: '2,4,8,0' })).toBe(8);
+  });
+
   it('builds an SI MotorSpec with an impulse-proportional mass curve', () => {
     const spec = samplesToMotorSpec(QUEST_C6, SAMPLES, 5);
 

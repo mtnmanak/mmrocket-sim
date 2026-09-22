@@ -497,6 +497,16 @@ const PLUGGED_DELAY_CODE = 90;
  * `[]`, never `[0]`: 0 s is a real delay (a booster's charge at burnout), so
  * inventing it put a chute out at burnout on a motor whose delay is simply
  * unknown. Callers read "no options" as "no prescribed delay"; see defaultDelay.
+ *
+ * The prescribed delays come back SORTED, shortest first, once each —
+ * desktop's RASPMotorLoader sorts them too (Collections.sort). Every caller that
+ * wants "the longest" takes the last finite entry (defaultDelay, the un-plug
+ * restore in App, the batch run's provisional flight), and a RASP file lists
+ * them in whatever order its author typed: 70 of the 889 motors in a tester's
+ * rasp.eng do not end on their longest, and five end on 0 — E6T "2-4-8-0",
+ * I115W "6-10-14-0" — so those defaulted to a charge AT BURNOUT (review of the
+ * audit 2026-09-22 fixes). The shipped catalogue is always ascending, which is
+ * why nothing caught it.
  */
 export function delayOptions(motor: TcMotor): number[] {
   if (!motor.delays) return [];
@@ -511,8 +521,9 @@ export function delayOptions(motor: TcMotor): number[] {
     if (n >= PLUGGED_DELAY_CODE) { plugged = true; continue; }
     opts.push(n);
   }
-  if (plugged) opts.push(Infinity);
-  return opts;
+  const sorted = [...new Set(opts)].sort((a, b) => a - b);
+  if (plugged) sorted.push(Infinity);
+  return sorted;
 }
 
 /**
@@ -525,7 +536,7 @@ export function delayOptions(motor: TcMotor): number[] {
  * delay" sentinel on import (rocksimFile.ts).
  */
 export function defaultDelay(motor: TcMotor): number | null {
-  const opts = delayOptions(motor);
+  const opts = delayOptions(motor); // sorted, so the last finite entry IS the longest
   const finite = opts.filter((d) => Number.isFinite(d));
   return finite[finite.length - 1] ?? opts[opts.length - 1] ?? null;
 }

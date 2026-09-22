@@ -4,7 +4,7 @@ import {
   EXIT_MAX_FRACTION_OF_CASE, EXIT_MIN_FRACTION_OF_CASE, addExMotors, exToDbEntry, exitDiameterFromRse,
   getExMotor, impulseClassOf, parseEng, parseRse,
 } from './exMotors.js';
-import { delayOptions } from './thrustcurve.js';
+import { defaultDelay, delayOptions } from './thrustcurve.js';
 
 const ENG = `; AeroTech K550W
 ; converted from TMT test stand data
@@ -325,6 +325,16 @@ MyEX-K600 54 410 P 0.900 1.650 EX
     const [m] = parseEng(engMixed);
     expect(m!.delays).toBe('5,10,P');
     expect(delayOptions(exToDbEntry(m!))).toEqual([5, 10, Infinity]);
+  });
+
+  it('a delay list typed out of order still defaults to its longest, not to its last', () => {
+    // The tester's rasp.eng lists I115W, I215R and I117FJ as "6-10-14-0"; read
+    // in file order the "longest" was 0 s, a charge at burnout.
+    const [m] = parseEng(ENG_PLUGGED.replace(' P 0.900', ' 6-10-14-0 0.900'));
+    expect(m!.delays).toBe('6,10,14,0');
+    const entry = exToDbEntry(m!);
+    expect(delayOptions(entry)).toEqual([0, 6, 10, 14]);
+    expect(defaultDelay(entry)).toBe(14);
   });
 });
 
