@@ -115,3 +115,43 @@ describe('camera shroud end shapes', () => {
       .toContain('box');
   });
 });
+
+/**
+ * Which numeric fields may be CLEARED (audit 2026-09-22). Before FieldDef.optional
+ * every schema field was clearable, and a cleared required dimension meant a
+ * different hidden default in every layer — a body tube's length flew 0.3 m and
+ * drew 0. Blank is legitimate only where the panel says what it means.
+ */
+describe('only a field whose blank means something is optional', () => {
+  const numeric = () => Object.entries(FIELDS).flatMap(([type, fs]) =>
+    fs.filter((f) => !f.options && !f.bool).map((f) => ({ type, f })));
+
+  it('every label that says what blank means is optional', () => {
+    for (const { type, f } of numeric()) {
+      if (/blank/i.test(f.label)) expect(f.optional, `${type}.${f.key}`).toBe(true);
+    }
+  });
+
+  it('the fields whose blank the panel prints as a default are optional', () => {
+    // The panel shows "default: …" / "auto: …" placeholders for exactly these.
+    for (const type of ['nosecone', 'transition']) {
+      expect(field(type, 'shapeParameter')!.optional, type).toBe(true);
+    }
+    expect(field('tubefinset', 'outerRadius')!.optional).toBe(true);
+    for (const key of ['outerDiameter', 'totalHeight', 'innerDiameter', 'baseHeight',
+      'flangeHeight', 'screwHeight']) {
+      expect(field('railbutton', key)!.optional, key).toBe(true);
+    }
+    expect(field('stage', 'nozzleExitDiameter')!.optional).toBe(true);
+  });
+
+  it('a structural dimension is never optional', () => {
+    for (const [type, key] of [
+      ['bodytube', 'length'], ['bodytube', 'outerRadius'], ['bodytube', 'thickness'],
+      ['nosecone', 'length'], ['innertube', 'outerRadius'], ['trapezoidfinset', 'rootChord'],
+      ['trapezoidfinset', 'finCount'], ['parachute', 'diameter'], ['podset', 'instanceCount'],
+    ] as const) {
+      expect(field(type, key)!.optional, `${type}.${key}`).not.toBe(true);
+    }
+  });
+});

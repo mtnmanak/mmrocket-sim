@@ -645,7 +645,10 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
           min={f.unit === 'count' ? (f.smin ?? 1) : undefined}
           max={maxUi}
           placeholder={autoPlaceholder}
-          nullable
+          // Only a field whose blank MEANS something can be cleared; on any
+          // other, an emptied box commits nothing and reverts on blur
+          // (FieldDef.optional).
+          nullable={f.optional === true}
           onCommit={(v) => {
             if (v === null) onPatch({ [f.key]: undefined });
             else commit(v);

@@ -127,6 +127,20 @@ export interface FieldDef {
    * shows/accepts the doubled value and swaps "radius" → "diameter" in the label.
    */
   radius?: boolean;
+  /**
+   * BLANK IS A REAL STATE for this field, so clearing the box commits
+   * `undefined`: "auto", a kernel default the panel prints as a placeholder,
+   * "no limit", "off". Every other numeric field DISCARDS an empty draft — the
+   * box reverts to its value on blur (audit 2026-09-22).
+   *
+   * Before this flag every schema field was clearable, and a cleared REQUIRED
+   * dimension had no single meaning: every layer substituted its own hidden
+   * default. A body tube with its length cleared flew 0.3 m in the kernel,
+   * drew 0 long in 3D, measured 0.025 m in the 2D drawing and positioning,
+   * and framed its children's position sliders at 0.2 m. Mark a field
+   * optional only when every reader agrees what its absence means.
+   */
+  optional?: boolean;
 }
 
 const SHAPES: [string, string][] = [
@@ -253,6 +267,7 @@ const CD: FieldDef = {
   // through to, so the fix here is to put the stop out of the slider's reach.
   // A TYPED 0 still means what the user typed: `commit` never applies smin.
   key: 'cd', label: 'Drag coefficient (blank = auto)', unit: 'none', step: 0.05, smin: 0.05, smax: 3,
+  optional: true,
 };
 
 /** Feature #4: supersonic airfoil section + its geometry inputs (see AIRFOIL_SECTIONS). */
@@ -414,7 +429,10 @@ export const FIELDS: Record<EditorComponentType, FieldDef[]> = {
     // characters ('Cd on frontal area (blank or 0 = from class)'), and there is
     // no tooltip field on FieldDef, so a label is the only copy the box gets.
     // The full explanation lives in the guide and in the RASAero import note.
-    lenMM('nozzleExitDiameter', 'Nozzle exit diameter (drives thrust and drag; 0 = off)', 1, 200),
+    // Optional: blank is "off", the same state the Motors & Launch field's
+    // clear commits (NozzleField), and what its fill-from-the-database rule
+    // looks for.
+    { ...lenMM('nozzleExitDiameter', 'Nozzle exit diameter (drives thrust and drag; 0 = off)', 1, 200), optional: true },
   ],
   nosecone: [
     lenMM('length', 'Length'),
@@ -423,7 +441,8 @@ export const FIELDS: Record<EditorComponentType, FieldDef[]> = {
     { key: 'shape', label: 'Shape', unit: 'none', options: SHAPES },
     // Shown only for shapes that use it (ogive/power/parabolic/haack) —
     // PropertyPanel hides it otherwise and caps it per shape (haack ≤ 1/3).
-    { key: 'shapeParameter', label: 'Shape parameter', unit: 'none', step: 0.05, smin: 0, smax: 1 },
+    // Optional: blank is the shape's kernel default, printed as the placeholder.
+    { key: 'shapeParameter', label: 'Shape parameter', unit: 'none', step: 0.05, smin: 0, smax: 1, optional: true },
     { key: 'filled', label: 'Solid (filled)', unit: 'none', bool: true },
     radMM('shoulderRadius', 'Shoulder radius', 0.5, 80),
     lenMM('shoulderLength', 'Shoulder length', 1, 150),
@@ -438,7 +457,7 @@ export const FIELDS: Record<EditorComponentType, FieldDef[]> = {
     radMM('aftRadius', 'Aft radius', 0.5, 80),
     lenMM('thickness', 'Wall thickness', 0.1, 10),
     { key: 'shape', label: 'Shape', unit: 'none', options: SHAPES },
-    { key: 'shapeParameter', label: 'Shape parameter', unit: 'none', step: 0.05, smin: 0, smax: 1 },
+    { key: 'shapeParameter', label: 'Shape parameter', unit: 'none', step: 0.05, smin: 0, smax: 1, optional: true },
     { key: 'filled', label: 'Solid (filled)', unit: 'none', bool: true },
     radMM('foreShoulderRadius', 'Fore shoulder radius', 0.5, 80),
     lenMM('foreShoulderLength', 'Fore shoulder length', 1, 150),
@@ -513,7 +532,9 @@ export const FIELDS: Record<EditorComponentType, FieldDef[]> = {
   tubefinset: [
     { ...FIN_COUNT, smax: 12 },
     lenMM('length', 'Length', 1, 200),
-    radMM('outerRadius', 'Outer radius', 0.5, 50),
+    // Optional: blank is the kernel's auto radius, the one at which the tubes
+    // touch, printed as the placeholder.
+    { ...radMM('outerRadius', 'Outer radius', 0.5, 50), optional: true },
     lenMM('thickness', 'Wall thickness', 0.1, 5),
     FIN_ROTATION,
     FINISH,
@@ -533,7 +554,7 @@ export const FIELDS: Record<EditorComponentType, FieldDef[]> = {
     // A physical property of the airframe (how much room the mount really
     // has), so it lives ON the mount and persists through sessions and .ork
     // files. The Motors & Launch tab offers a per-stage override on top.
-    { key: 'maxMotorLength', label: 'Max motor length (blank = no limit)', unit: 'mm', step: 5 },
+    { key: 'maxMotorLength', label: 'Max motor length (blank = no limit)', unit: 'mm', step: 5, optional: true },
     ...RADIAL_PLACEMENT,
     DENSITY,
   ],
@@ -562,7 +583,11 @@ export const FIELDS: Record<EditorComponentType, FieldDef[]> = {
     MOUNT_ANGLE,
   ],
   railbutton: [
-    lenMM('outerDiameter', 'Outer diameter', 0.5, 20),
+    // All six geometry fields are optional: a button saved before v0.103 has
+    // none of them, and blank is the kernel constructor's part, printed as the
+    // placeholder and used by every reader alike (see RAILBUTTON_DEFAULTS in
+    // PropertyPanel).
+    { ...lenMM('outerDiameter', 'Outer diameter', 0.5, 20), optional: true },
     // THE BUTTON'S FIVE DIMENSIONS ARE ONE FACT, and they were all missing
     // until v0.103 — a button flew, weighed and drew as the kernel
     // constructor's generic 9.7 mm part whatever the user typed or the file
@@ -587,11 +612,11 @@ export const FIELDS: Record<EditorComponentType, FieldDef[]> = {
     // The key is `totalHeight`, NOT `height`: componentTable.ts:74-84 dedupes
     // FIELDS keys ACROSS types and `height` is already the fairing's and the
     // protuberance's, so a `height` column here would be silently swallowed.
-    lenMM('totalHeight', 'Total height', 0.5, 25),
-    lenMM('innerDiameter', 'Inner (waist) diameter', 0.5, 20),
-    lenMM('baseHeight', 'Base / standoff height', 0.5, 12),
-    lenMM('flangeHeight', 'Flange height', 0.5, 12),
-    lenMM('screwHeight', 'Screw-head height', 0.5, 12),
+    { ...lenMM('totalHeight', 'Total height', 0.5, 25), optional: true },
+    { ...lenMM('innerDiameter', 'Inner (waist) diameter', 0.5, 20), optional: true },
+    { ...lenMM('baseHeight', 'Base / standoff height', 0.5, 12), optional: true },
+    { ...lenMM('flangeHeight', 'Flange height', 0.5, 12), optional: true },
+    { ...lenMM('screwHeight', 'Screw-head height', 0.5, 12), optional: true },
     // Rail buttons come in PAIRS (or more): the kernel's RailButton is
     // LineInstanceable — one node draws, weighs and drags as N collinear
     // copies marching AFT from the node's own position at this spacing. That
@@ -669,7 +694,7 @@ export const FIELDS: Record<EditorComponentType, FieldDef[]> = {
     // blank both fall through to the class (treeModel.protuberanceExplicitCd),
     // which is why the label names both. A slider has no blank position, so
     // without that the left stop would silently zero the component's physics.
-    { key: 'cdFrontal', label: 'Cd on frontal area (blank or 0 = from class)', unit: 'none', step: 0.05, smin: 0, smax: 2 },
+    { key: 'cdFrontal', label: 'Cd on frontal area (blank or 0 = from class)', unit: 'none', step: 0.05, smin: 0, smax: 2, optional: true },
     { key: 'mass', label: 'Mass, all of them (0 = not counted)', unit: 'g', step: 1, smin: 0, smax: 2000 },
     lenMM('length', 'Length along body (shape only, no drag)', 1, 1000),
     MOUNT_ANGLE,

@@ -144,3 +144,36 @@ describe('PropertyPanel — every field label names its own control', () => {
     expect(labelStarting('Length').control).toBe(inputNamed('Length (mm)'));
   });
 });
+
+describe('PropertyPanel — clearing a field', () => {
+  /** Native setter + input event, after a real focus — a keystroke. */
+  const typeInto = (el: HTMLInputElement, text: string) => {
+    if (document.activeElement !== el) act(() => el.focus());
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, text);
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  };
+
+  /**
+   * Audit 2026-09-22: clearing a required dimension committed `undefined`, and
+   * every layer then used its own hidden default — a body tube's length flew
+   * 0.3 m in the kernel and drew 0 in 3D.
+   */
+  it('an emptied REQUIRED dimension commits nothing and reverts on blur', () => {
+    const a = tube('A');
+    show(treeOf(a), a, infoOf(0.05));
+    const length = inputNamed('Length (mm)');
+    typeInto(length, '');
+    expect(patches, 'no length: undefined reached the design').toEqual([]);
+    act(() => length.blur());
+    expect(length.value).toBe('300');
+  });
+
+  it('an OPTIONAL field still clears to its blank state', () => {
+    const chute = { id: 'c', type: 'parachute', name: 'c', diameter: 0.5, cd: 1.2 } as unknown as ComponentNode;
+    show(treeOf(tube('A', { children: [chute] })), chute);
+    typeInto(inputNamed('Drag coefficient (blank = auto)'), '');
+    expect(patches).toEqual([{ cd: undefined }]);
+  });
+});
