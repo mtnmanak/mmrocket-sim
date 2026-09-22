@@ -383,7 +383,11 @@ BEFORE YOU COMMIT TO THE LONG PRINT
 
 Printer this was planned for: ${printerLabel} `
     + `(${mmInt(printer.x)} × ${mmInt(printer.y)} × ${mmInt(printer.z)} mm build volume,\n`
-    + `${mmInt(printer.margin ?? DEFAULT_MARGIN)} mm kept clear at each end of every axis).\n`;
+    // usableBox (tree/splitSolid.ts) takes the margin off X and Y at both
+    // edges but off Z ONCE, at the top — see usableZ above. This line said "at
+    // each end of every axis" until the 2026-09-22 audit, so the README
+    // disagreed with the split it was describing.
+    + `${mmInt(printer.margin ?? DEFAULT_MARGIN)} mm kept clear at both edges of X and Y, and at the top of Z).\n`;
 }
 
 export interface PrintPack {

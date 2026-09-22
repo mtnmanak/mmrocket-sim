@@ -272,7 +272,11 @@ describe('the zip', () => {
   it('quotes the machine it was planned for', () => {
     const readme = printPackReadme(split, 'Nose Cone', H2D, 'Bambu H2D');
     expect(readme).toContain('Bambu H2D (350 × 320 × 325 mm build volume');
-    expect(readme).toContain('8 mm kept clear at each end of every axis');
+    // The margin comes off X and Y at both edges and off Z once, at the top
+    // (splitSolid.usableBox). This line used to pin "at each end of every
+    // axis", which the split it describes does not do (audit 2026-09-22).
+    expect(readme).toContain('8 mm kept clear at both edges of X and Y, and at the top of Z)');
+    expect(readme).not.toContain('every axis');
   });
 
   it('a tuned clearance travels into the README', () => {

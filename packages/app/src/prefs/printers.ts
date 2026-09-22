@@ -25,7 +25,7 @@ export interface PrinterPrefs {
   y: number;
   /** maximum Z (m) */
   z: number;
-  /** keep-out inset applied at both ends of every axis (m) */
+  /** keep-out inset (m): off both edges of X and Y, off the top of Z only (splitSolid.usableBox) */
   margin: number;
   /** joint clearance per side (m) */
   clearance: number;
