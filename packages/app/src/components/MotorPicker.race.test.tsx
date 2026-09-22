@@ -21,6 +21,8 @@ vi.mock('../services/motorMatch.js', () => ({ loadCatalogueMotor: vi.fn() }));
 
 const SPEC = {} as MotorSpec;
 const META = {} as MotorMeta;
+/** What the load resolves with — only the label is read on this path. */
+const A8 = { label: 'Estes A8-3', spec: SPEC, meta: META } as NonNullable<Awaited<ReturnType<typeof loadCatalogueMotor>>>;
 
 vi.mock('./MotorBrowser.js', () => ({
   MotorBrowser: ({ onSelect }: { onSelect: (label: string, spec: MotorSpec, meta: MotorMeta) => void }) => (
@@ -88,7 +90,7 @@ describe('MotorPicker — the latest choice wins', () => {
     expect(selected).toEqual(['AeroTech F20W']);
 
     await act(async () => {
-      slow.resolve({ label: 'Estes A8-3', spec: SPEC, meta: META });
+      slow.resolve(A8);
       await slow.promise;
     });
     expect(selected, 'the A8 arrived late and must not replace the F20W').toEqual(['AeroTech F20W']);
@@ -102,7 +104,7 @@ describe('MotorPicker — the latest choice wins', () => {
     render();
     quickPick('Estes A8-3');
     await act(async () => {
-      slow.resolve({ label: 'Estes A8-3', spec: SPEC, meta: META });
+      slow.resolve(A8);
       await slow.promise;
     });
     expect(selected).toEqual(['Estes A8-3']);
@@ -116,7 +118,7 @@ describe('MotorPicker — the latest choice wins', () => {
     clickBrowserPick();
     quickPick('Estes A8-3');
     await act(async () => {
-      slow.resolve({ label: 'Estes A8-3', spec: SPEC, meta: META });
+      slow.resolve(A8);
       await slow.promise;
     });
     expect(selected).toEqual(['AeroTech F20W', 'Estes A8-3']);
