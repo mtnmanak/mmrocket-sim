@@ -17,6 +17,7 @@ import { shroudEnds } from '../tree/shroud.js';
 import {
   downloadImage, IMAGE_FORMAT_EXT, schematicSvg, svgToImage, type ExportData,
 } from '../services/schematicExport.js';
+import { safeName } from '../services/fileName.js';
 import { ImageExportMenu } from './ImageExportMenu.js';
 import { ROLL_BAR, ROLL_COL, RollControl } from './RollControl.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
@@ -1607,8 +1608,11 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
                 if (!svgRef.current) return;
                 try {
                   const data = { ...exportData, spanM: 2 * vHalf };
+                  // safeName, not an inline copy of its regex: the copy had no
+                  // fallback, so a design named in Cyrillic saved "_-2d.svg"
+                  // (audit 2026-09-22).
                   downloadImage(schematicSvg(svgRef.current, scale, w, h, data),
-                    `${data.name.replace(/[^\w-]+/g, '_')}-2d.svg`);
+                    `${safeName(data.name)}-2d.svg`);
                 } catch (e) {
                   onError?.(`SVG export failed: ${e instanceof Error ? e.message : String(e)}`);
                 }
@@ -1623,7 +1627,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
                   const data = { ...exportData, spanM: 2 * vHalf };
                   const svg = schematicSvg(svgRef.current, scale, w, h, data);
                   downloadImage(await svgToImage(svg, widthPx, format),
-                    `${data.name.replace(/[^\w-]+/g, '_')}-2d.${IMAGE_FORMAT_EXT[format]}`);
+                    `${safeName(data.name)}-2d.${IMAGE_FORMAT_EXT[format]}`);
                 } catch (e) {
                   onError?.(`Image export failed: ${e instanceof Error ? e.message : String(e)}`
                     + ' — try a smaller width, or use ⬇ SVG.');
