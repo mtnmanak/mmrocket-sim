@@ -216,6 +216,19 @@ describe('curation renames never collide', () => {
     expect(planCurations(rows).find((x) => x.c.to === 'BNC-50SF2').status).toBe('todo');
   });
 
+  it('refuses it after the fact too — a collision already in the data is not "done"', async () => {
+    // The shape the shipped file was in until 2026-09-22: the rename had run,
+    // and its row sat on the same number as a different part.
+    const { planCurations } = await import('./curate-presets.mjs');
+    const renamed = { kind: 'NoseCone', manufacturer: 'SEMROC', partNo: 'BNC-50SF2', description: 'cone', mass: 0.00368543800625 };
+    const occupant = { kind: 'NoseCone', manufacturer: 'SEMROC', partNo: 'BNC-50SF2', description: 'occupant' };
+    const entry = planCurations([renamed, occupant]).find((x) => x.c.to === 'BNC-50SF2');
+    expect(entry.status).toBe('error');
+    expect(entry.detail).toMatch(/already taken/);
+    // …and the same rename, alone on its number, is still simply done.
+    expect(planCurations([renamed]).find((x) => x.c.to === 'BNC-50SF2').status).toBe('already');
+  });
+
   it('the shipped data holds ONE Quest PNC35N, the desktop row', () => {
     const pnc = db.presets.filter((p) => p.kind === 'NoseCone' && mfrKey(p.manufacturer) === 'quest'
       && partKey(p.partNo) === partKey('PNC35N'));
