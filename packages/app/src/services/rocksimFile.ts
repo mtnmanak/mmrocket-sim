@@ -457,7 +457,12 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
         n['thickness'] = num(el, 'WallThickness', 2) / LEN;
         n['shape'] = NOSE_SHAPES[String(Math.round(num(el, 'ShapeCode', 1)))] ?? 'ellipsoid';
         readShapeParameter(el, n);
-        if (Math.round(num(el, 'ConstructionType', 1)) === 0) n['filled'] = true;
+        // Written EITHER WAY, not only when solid (audit 2026-09-22): <ConstructionType>
+        // is the file saying solid (0) or hollow (1), and a catalogue link
+        // (applyPresetLinks) fills only what a file left unset — so a hollow part left
+        // unset took the catalogue's `filled: true`, 19.6 g → 107.8 g on a Rocketarium
+        // HIPS nose.
+        n['filled'] = Math.round(num(el, 'ConstructionType', 1)) === 0;
         const shoulderLen = num(el, 'ShoulderLen', 0);
         if (shoulderLen > 0) {
           n['shoulderLength'] = shoulderLen / LEN;
@@ -491,7 +496,8 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
         // Desktop reads it for transitions too (TransitionHandler.java:102-107,
         // the exact mirror of NoseConeHandler.java:96-107); this branch never did.
         readShapeParameter(el, n);
-        if (Math.round(num(el, 'ConstructionType', 1)) === 0) n['filled'] = true;
+        // Either way, for the reason on the NoseCone branch above.
+        n['filled'] = Math.round(num(el, 'ConstructionType', 1)) === 0;
         const fsl = num(el, 'FrontShoulderLen', 0);
         if (fsl > 0) {
           n['foreShoulderLength'] = fsl / LEN;

@@ -37,7 +37,9 @@ describe('RockSim import — desktop fixture files', () => {
     expect(chain[0]!['length']).toBeCloseTo(0.396875, 9);
     expect(chain[0]!['aftRadius']).toBeCloseTo(0.028575, 9);
     expect(chain[0]!['shape']).toBe('conical'); // ShapeCode 0
-    expect(chain[0]!['filled']).toBeUndefined(); // ConstructionType 1 = hollow
+    // ConstructionType 1 = hollow, and it is WRITTEN, not left unset: an unset
+    // `filled` is what a catalogue link fills (audit 2026-09-22).
+    expect(chain[0]!['filled']).toBe(false);
     expect(chain[0]!['shoulderLength']).toBeCloseTo(0.0583997, 9);
     expect(chain[0]!['shoulderRadius']).toBeCloseTo(0.0531012 / 2, 9);
 
@@ -1050,6 +1052,25 @@ describe('RockSim import — a part matched to its catalogue row by <PartMfg>/<P
     const back = chuteOf(importRkt(xml, { presets }));
     expect(back['presetPartNo']).toBe('IFC-096-N');
     expect(back['cd']).toBe(2.2);
+  });
+
+  it('a HOLLOW nose linked to a solid catalogue row stays hollow (audit 2026-09-22)', async () => {
+    // The desktop fixture's nose (ConstructionType 1, a 2.159 mm wall) re-badged as
+    // Madcow's 2.6" fiberglass cone, which the catalogue marks solid. Before the
+    // importer wrote `filled: false`, the link filled `true` onto it: 96.1 g →
+    // 377.2 g through the kernel with the file's known mass switched off.
+    const src = fixture('rocksimTestRocket1.rkt');
+    const [head, rest] = src.split('<NoseCone>') as [string, string];
+    const [block, tail] = rest.split('</NoseCone>') as [string, string];
+    const b = block
+      .replace(/<PartMfg>[^<]*<\/PartMfg>/, '<PartMfg>Madcow</PartMfg>')
+      .replace(/<PartNo>[^<]*<\/PartNo>/, '<PartNo>2.6&quot; Fiberglass 5:1 Ogive Nose Cone</PartNo>');
+    const r = importRkt(`${head}<NoseCone>${b}</NoseCone>${tail}`, { presets: await loadPresets() });
+    const nose = r.tree.components[0]!.children![0]!;
+    expect(nose['presetManufacturer']).toBe('Madcow'); // it DID link
+    expect(nose['filled']).toBe(false);
+    expect(r.notes.join(' ')).not.toMatch(/took[^;]*solid/);
+    expect(r.notes.some((n) => /disagrees/.test(n) && /Nose cone: [^;]*solid/.test(n))).toBe(true);
   });
 });
 

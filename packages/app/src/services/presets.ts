@@ -79,12 +79,34 @@ const n = (p: Preset, key: string): number | undefined =>
  * Preset → node patch (editor params, SI). Same semantics as the desktop:
  * dimensions and material apply; a cataloged mass becomes a mass override
  * (real parts weigh what they weigh, not what the geometry computes).
+ *
+ * THE PATCH DESCRIBES THE WHOLE PART, not only the fields the row happens to
+ * carry (audit 2026-09-22). It is merged over the node (`updateNode` spreads
+ * it), so a field the row lacks used to keep whatever the PREVIOUS part left
+ * there — and trying one catalogue part and then another is ordinary. Measured
+ * then: Fruity Chutes IFC-030-S followed by Apogee 29093 (no Cd, no vent) flew
+ * the Fruity Chutes Cd 2.2 and its vent on the Apogee canopy, a flown Cd of
+ * 2.09 where desktop flies the 0.8 default, so the rocket came down at 1.14 m/s
+ * instead of 1.84 — the optimistic direction; and an Apogee 19490 thin-wall
+ * nose applied after a solid cone stayed solid, 975.8 g instead of 86.5 g. So
+ * every field this function OWNS is written either way: the row's value, or
+ * `undefined`, which is how this app says "the default" (`updateNode` spreads
+ * it over the old value, JSON drops it on the way to the kernel, and the kernel
+ * applies its own default — the same one desktop's loadFromPreset resets to).
+ *
+ * `applyPresetLinks` below skips every undefined entry, so a catalogue link on
+ * import still only ever FILLS what a file left unset; a clear here never
+ * erases a value a file stated.
  */
 export function presetPatch(type: ComponentType, p: Preset): Partial<ComponentNode> {
   const patch: Partial<ComponentNode> = { name: `${p.manufacturer} ${p.partNo}` };
   const half = (v: number | undefined) => (v === undefined ? undefined : v / 2);
   const set = (key: string, v: unknown) => {
     if (v !== undefined && v !== null) (patch as Record<string, unknown>)[key] = v;
+  };
+  /** An owned field: the row's value, or back to the default when the row has none. */
+  const own = (key: string, v: unknown) => {
+    (patch as Record<string, unknown>)[key] = v === null ? undefined : v;
   };
 
   if (p.material?.type === 'BULK') {
@@ -97,7 +119,13 @@ export function presetPatch(type: ComponentType, p: Preset): Partial<ComponentNo
   // cone or a coupler moves the CG and the stability margin silently. No
   // shipped row carries mass 0 (measured over presets.json, 2026-09-04); the
   // guard is for the CSV import loop below, where a user can type one.
+  //
+  // A row with NO mass clears the override, with its subcomponents flag, the
+  // pair PropertyPanel's own Mass field clears together: the override was the
+  // previous part's weight (usually its catalogue mass), not this one's, and
+  // desktop's Parachute.loadFromPreset does the same (massOverridden = false).
   if (p.mass !== undefined && p.mass > 0) set('overrideMass', p.mass);
+  else { own('overrideMass', undefined); own('overrideSubcomponentsMass', undefined); }
   // The catalogue identity rides with the part, so a saved .rkt names the row
   // it came from (<PartMfg>/<PartNo>) and an import can find it again.
   set('presetManufacturer', p.manufacturer);
@@ -105,6 +133,20 @@ export function presetPatch(type: ComponentType, p: Preset): Partial<ComponentNo
 
   const out = n(p, 'outsideDiameter');
   const inn = n(p, 'insideDiameter');
+  /**
+   * A row that names a shape brings that shape's DEFAULT parameter with it, and
+   * (transitions) its default clipping — desktop's Transition.loadFromPreset
+   * calls setShapeParameter(s.defaultParameter()) and setClipped(s.canClip).
+   * Left alone, a 0.5 power-series parameter from the previous part rode onto
+   * the catalogue's ogive, which reads it as a secant ogive: a different shape.
+   * `undefined` is the kernel's own "setShapeType's default" (ComponentFactory).
+   */
+  const setShape = () => {
+    if (typeof p['shape'] !== 'string') return;
+    set('shape', (p['shape'] as string).toLowerCase());
+    own('shapeParameter', undefined);
+    if (type === 'transition') own('clipped', undefined);
+  };
   switch (type) {
     case 'bodytube':
     case 'tubecoupler':
@@ -116,8 +158,14 @@ export function presetPatch(type: ComponentType, p: Preset): Partial<ComponentNo
     case 'nosecone':
       set('length', n(p, 'length'));
       set('aftRadius', half(out));
-      set('shape', typeof p['shape'] === 'string' ? (p['shape'] as string).toLowerCase() : undefined);
-      if (p['filled'] === true) set('filled', true);
+      setShape();
+      // Solid or hollow is part of the part: a row that does not say solid
+      // describes a hollow shell (every shipped nose row either says
+      // `filled: true` or states a wall thickness, measured 2026-09-22, and
+      // desktop's SymmetricComponent.loadFromPreset sets filled = false on a
+      // THICKNESS). Writing only `true` left a solid cone's flag on the next,
+      // hollow, part — the 975.8 g thin-wall nose above.
+      own('filled', p['filled'] === true);
       set('shoulderRadius', half(n(p, 'shoulderDiameter')));
       set('shoulderLength', n(p, 'shoulderLength'));
       set('thickness', n(p, 'thickness'));
@@ -126,13 +174,14 @@ export function presetPatch(type: ComponentType, p: Preset): Partial<ComponentNo
       set('length', n(p, 'length'));
       set('foreRadius', half(n(p, 'foreOutsideDiameter')));
       set('aftRadius', half(n(p, 'aftOutsideDiameter')));
-      set('shape', typeof p['shape'] === 'string' ? (p['shape'] as string).toLowerCase() : undefined);
+      setShape();
       // A balsa reducer is solid. Until v0.097 only the nose-cone branch honoured
       // `filled`, so every one of the 314 catalogue transitions marked solid and
       // carrying no catalogue mass applied as a hollow 2 mm shell - measured
       // 1.129 g against 5.026 g on one SEMROC part, a 4.5x mass error. Ruled
-      // 2026-09-03: "Fix it."
-      if (p['filled'] === true) set('filled', true);
+      // 2026-09-03: "Fix it." And a hollow row writes `false`, for the reason
+      // given on the nose-cone branch.
+      own('filled', p['filled'] === true);
       set('foreShoulderRadius', half(n(p, 'foreShoulderDiameter')));
       set('foreShoulderLength', n(p, 'foreShoulderLength'));
       set('aftShoulderRadius', half(n(p, 'aftShoulderDiameter')));
@@ -165,39 +214,45 @@ export function presetPatch(type: ComponentType, p: Preset): Partial<ComponentNo
       if (out !== undefined && inn !== undefined) set('thickness', (out - inn) / 2);
       break;
     case 'parachute': {
-      set('diameter', n(p, 'diameter'));
+      // Every canopy field below is OWNED — desktop's Parachute.loadFromPreset
+      // resets each one the row lacks to its default (diameter, Cd → automatic
+      // 0.8, line count 6, line length 0.3 m, both materials), and so does this.
+      const pos = (v: number | undefined) => (v !== undefined && v > 0 ? v : undefined);
+      own('diameter', pos(n(p, 'diameter')));
       // Manufacturer-rated canopy Cd (referenced to the nominal diameter).
       // Dropping this silently falls back to the kernel default 0.8 — a
-      // Fruity Chutes Iris Ultra (Cd 2.2) then descends 1.66× too fast.
-      const cd = n(p, 'dragCoefficient');
-      if (cd !== undefined && cd > 0) set('cd', cd);
+      // Fruity Chutes Iris Ultra (Cd 2.2) then descends 1.66× too fast. A row
+      // with no rated Cd (217 of 473, measured 2026-09-22) flies that default,
+      // NOT the previous canopy's rating.
+      own('cd', pos(n(p, 'dragCoefficient')));
       // A canopy's Cd and its spill hole are ONE fact. Fruity Chutes (and the
       // rest) quote a Cd referenced to the canopy area MINUS the vent; the
       // kernel works from the nominal diameter and scales by 1 − (d/D)², which
       // is the same area. Taking the Cd and dropping the hole reads 1.5–2 %
-      // slow on every vented canopy — so they travel together.
-      set('spillHoleDiameter', n(p, 'spillHoleDiameter'));
-      set('lineCount', n(p, 'lineCount'));
-      set('lineLength', n(p, 'lineLength'));
-      if (p.material?.type === 'SURFACE') {
-        set('surfaceMaterialName', p.material.name);
-        set('surfaceDensity', p.material.density);
-      }
-      if (p.lineMaterial) {
-        set('lineMaterialName', p.lineMaterial.name);
-        set('lineDensity', p.lineMaterial.density);
-      }
+      // slow on every vented canopy — so they travel together, and a row with
+      // no vent (188 rows carry a Cd and no vent) CLEARS the last canopy's, or
+      // its Cd would be flown against somebody else's hole.
+      own('spillHoleDiameter', n(p, 'spillHoleDiameter'));
+      own('lineCount', pos(n(p, 'lineCount')));
+      own('lineLength', pos(n(p, 'lineLength')));
+      const surf = p.material?.type === 'SURFACE' ? p.material : undefined;
+      own('surfaceMaterialName', surf?.name);
+      own('surfaceDensity', surf?.density);
+      own('lineMaterialName', p.lineMaterial?.name);
+      own('lineDensity', p.lineMaterial?.density);
       break;
     }
     case 'streamer': {
       set('stripLength', n(p, 'length'));
       set('stripWidth', n(p, 'width'));
+      // Owned like the canopy's: no rated Cd means the kernel's automatic
+      // streamer Cd, which is what desktop's Streamer.loadFromPreset restores
+      // (cdAutomatic = true) on every preset.
       const scd = n(p, 'dragCoefficient');
-      if (scd !== undefined && scd > 0) set('cd', scd);
-      if (p.material?.type === 'SURFACE') {
-        set('surfaceMaterialName', p.material.name);
-        set('surfaceDensity', p.material.density);
-      }
+      own('cd', scd !== undefined && scd > 0 ? scd : undefined);
+      const surf = p.material?.type === 'SURFACE' ? p.material : undefined;
+      own('surfaceMaterialName', surf?.name);
+      own('surfaceDensity', surf?.density);
       break;
     }
   }
@@ -459,6 +514,20 @@ export function applyPresetLinks(
     const canopyStatesHalf = isCanopy && PAIR.some((k) => node[k] !== undefined);
     const takePair = patch['cd'] !== undefined && !canopyStatesHalf;
     /**
+     * A WALL THICKNESS IS A STATEMENT THAT THE PART IS HOLLOW (audit 2026-09-22).
+     * The .ork reader marks a solid part `filled: true` and a hollow one only by
+     * its numeric <thickness> — desktop's own setThickness clears `filled` — so
+     * "filled is unset" on such a node is not "the file left it unset". Before
+     * this, the catalogue's `filled: true` landed on hollow noses a file had
+     * modelled with a wall: 19.6 g → 107.8 g (Rocketarium HIPS) and 103.1 g →
+     * 907.4 g (Madcow 2.6" fiberglass), overstating stability, from any file.
+     * Read as `filled: false` for both the fill and the conflict marker. (The
+     * RockSim reader now writes the `false` itself; this covers every reader.)
+     */
+    const statesHollow = (node.type === 'nosecone' || node.type === 'transition')
+      && node['filled'] === undefined && typeof node['thickness'] === 'number';
+    const stated = (key: string): unknown => (key === 'filled' && statesHollow ? false : node[key]);
+    /**
      * THE CONFLICT MARKER, tier (a) — the owner's caveat on the precedence
      * ruling (issues-2026-09-03b.md:26: *"in the case where file's explicit
      * values are in conflict with catalogue values, should we warn the user?
@@ -478,7 +547,7 @@ export function applyPresetLinks(
     for (const [key, value] of Object.entries(patch)) {
       if (value === undefined || key === 'name' || key === 'overrideMass') continue;
       if (key === 'presetManufacturer' || key === 'presetPartNo') continue;
-      const have = node[key];
+      const have = stated(key);
       if (have === undefined) continue;
       if (isCanopy && (key === 'cd' || key === 'spillHoleDiameter')
         && !PAIR.every((k) => node[k] !== undefined)) continue;
@@ -507,7 +576,11 @@ export function applyPresetLinks(
         filled.add(FIELD_WORDS[key] ?? key);
         continue;
       }
-      if (node[key] === undefined) {
+      // A hollow row's `filled: false` is the default an unset node already
+      // flies, so there is nothing to fill — and "took solid from the
+      // catalogue" would be a false note.
+      if (key === 'filled' && value === false) continue;
+      if (stated(key) === undefined) {
         node[key] = value;
         filled.add(FIELD_WORDS[key] ?? key);
       }
