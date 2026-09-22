@@ -643,7 +643,9 @@ const HW_TERM = '|hw:';
  * The delay is the SPEC's — the one the motor is set to and a saved file
  * carries — never the one an auto-delay flight chose: that optimum is only
  * known after flying, so a key built before a flight could never contain it.
- * What a run FLEW is `SimRun.delayS`.
+ * What a run FLEW is `SimRun.delayS`, and the `.ork` export refuses a run
+ * whose flown delay is not the one the file will carry (orkFlightData.ts,
+ * audit 2026-09-22).
  *
  * The weighed hardware (services/hardwareMass.ts) is part of the motor's
  * FLOWN mass, so it is a term here too: a pad-mass edit after a flight marks

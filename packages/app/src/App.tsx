@@ -2598,6 +2598,9 @@ export function App() {
       hasNozzle: stagesWithNozzle(tree).length > 0,
       motorSetKeyOf,
       hardwareDeltaKg,
+      // Whose delay a run's `delayS` is: an auto-delay run is written only when
+      // it flew the delay the file's <delay> will name (audit 2026-09-22).
+      primaryMountOf: (ids) => primaryMountOf(tree, ids),
     })
   ), [runs, savedConfigs, activeConfigId, assigned, mounts, provenanceKey,
     aeroMode, effectiveKbf, autoSupersonic, hardwareDeltaKg, tree]);
