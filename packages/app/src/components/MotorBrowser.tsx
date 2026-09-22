@@ -848,8 +848,18 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
             </span>
           )}
         </div>
-        {notice && <p className="motor-db-meta" style={{ marginBottom: 0 }}>{notice}</p>}
-        {error && <p className="file-note file-note-error" style={{ marginBottom: 0 }}>{error}</p>}
+        {/* Live regions, ALWAYS mounted (audit 2026-09-22). These were plain
+            <p>s, so a Load that failed offline and an import's result or its
+            "NOT saved" warning reached nobody who could not see them; and a
+            region inserted with its text already in place is announced
+            unreliably, so the containers exist before their first message.
+            The import result and its notes are polite; a failure is an alert. */}
+        <div role="status">
+          {notice && <p className="motor-db-meta" style={{ marginBottom: 0 }}>{notice}</p>}
+        </div>
+        <div role="alert">
+          {error && <p className="file-note file-note-error" style={{ marginBottom: 0 }}>{error}</p>}
+        </div>
       </div>
     </div>
   );

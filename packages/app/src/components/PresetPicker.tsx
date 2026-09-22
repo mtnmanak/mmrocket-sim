@@ -224,9 +224,14 @@ export function PresetPicker({ type, onApply, onClose }: {
             outcome, including "Could not store N of M preset(s)" — the result of
             an async operation the user is waiting on, previously announced to
             nobody. MotorBrowser puts the same class of message in role="alert"
-            and role="status"; this is the polite one, because it also carries
-            ordinary success text. */}
-        {note && <p className="motor-db-meta" role="status" style={{ marginBottom: 0 }}>{note}</p>}
+            and role="status" (since the 2026-09-22 audit; before that they were
+            plain <p>s); this is the polite one, because it also carries
+            ordinary success text. The region is ALWAYS mounted (2026-09-22): it
+            was rendered only with its text already in it, and a live region
+            inserted that way is announced unreliably. */}
+        <div role="status">
+          {note && <p className="motor-db-meta" style={{ marginBottom: 0 }}>{note}</p>}
+        </div>
       </div>
     </div>
   );

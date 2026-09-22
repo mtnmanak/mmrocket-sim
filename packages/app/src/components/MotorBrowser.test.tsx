@@ -391,3 +391,33 @@ describe('MotorBrowser — filter chips say whether they are on (audit 2026-09-2
     expect(chip(h, 'Impulse classes', /H /).querySelector('[aria-hidden="true"]')!.textContent).toBe('✓ ');
   });
 });
+
+describe('MotorBrowser — load and import results reach a screen reader (audit 2026-09-22)', () => {
+  let h: Harness;
+  afterEach(() => { vi.unstubAllGlobals(); closeBrowser(h); });
+
+  it('has its status and alert regions in place before any message', () => {
+    // A live region inserted with its text already in it is announced unreliably.
+    h = openBrowser({ mountDiameterMm: 54 });
+    const regions = h.host.querySelectorAll('.motor-browser > [role="status"], .motor-browser > [role="alert"]');
+    expect(Array.from(regions).map((r) => [r.getAttribute('role'), r.textContent])).toEqual([['status', ''], ['alert', '']]);
+  });
+
+  it('a Load that fails offline lands in the alert region', async () => {
+    // Estes G80 has catalogue masses but no bundled curve, so it needs the network.
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch'); }));
+    h = openBrowser({ mountDiameterMm: 29, filters: { includeOOP: true } });
+    search(h, 'G80');
+    click(rowFor(h, 'Estes', 'G80')!);
+    click(loadButton(h)!);
+    for (let i = 0; i < 50 && !(h.host.querySelector('.motor-browser > [role="alert"]')!.textContent); i++) await settle(10);
+    expect(h.host.querySelector('.motor-browser > [role="alert"]')!.textContent).toMatch(/Failed to fetch/);
+    expect(h.selected).toEqual([]);
+  });
+
+  it('an import result lands in the status region', async () => {
+    h = openBrowser({ mountDiameterMm: 54 });
+    await importFiles(h, [{ name: 'k550.eng', text: ENG_K550 }]);
+    expect(h.host.querySelector('.motor-browser > [role="status"]')!.textContent).toMatch(/Imported 1 EX motor/);
+  });
+});

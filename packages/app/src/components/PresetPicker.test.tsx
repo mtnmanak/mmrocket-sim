@@ -146,4 +146,14 @@ describe('PresetPicker — labelling', () => {
     expect(input.tabIndex).not.toBe(-1);
     expect(input.getAttribute('aria-label')).toBe('Import presets from a CSV file');
   });
+
+  it('keeps its status region mounted before the first message (audit 2026-09-22)', async () => {
+    // Rendered only with its text in place, it was announced unreliably.
+    await render();
+    const region = host.querySelector('.motor-browser > [role="status"]')!;
+    expect(region.textContent).toBe('');
+    await importCsv(CSV);
+    expect(host.querySelector('.motor-browser > [role="status"]')).toBe(region);
+    expect(region.textContent).toMatch(/Imported 1 preset\(s\)/);
+  });
 });
