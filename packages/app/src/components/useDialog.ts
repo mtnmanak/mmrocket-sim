@@ -19,14 +19,23 @@ import { useEffect, useRef } from 'react';
  * so it can hold focus when it contains nothing focusable yet.
  */
 
+/**
+ * What Tab can land on. Every entry excludes `tabindex="-1"`, which takes an
+ * element OUT of the tab order however focusable it is (audit 2026-09-22):
+ * without that, a trailing NumField's ▾ button — tabIndex -1, so the browser
+ * never tabs to it — was taken for the dialog's `last`. Tab from the real
+ * last control then was not wrapped and escaped into the page behind the
+ * scrim, and Shift+Tab from the first landed on ▾, where Enter decremented
+ * the Preferences dialog's joint clearance.
+ */
 const FOCUSABLE = [
   'a[href]',
   'button:not([disabled])',
   'input:not([disabled]):not([type="hidden"])',
   'select:not([disabled])',
   'textarea:not([disabled])',
-  '[tabindex]:not([tabindex="-1"])',
-].join(',');
+  '[tabindex]',
+].map((sel) => `${sel}:not([tabindex="-1"])`).join(',');
 
 /** Open dialogs, innermost last. Only the last one answers Escape. */
 const stack: symbol[] = [];
