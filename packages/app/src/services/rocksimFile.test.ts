@@ -996,6 +996,82 @@ describe('.rkt staging timers round-trip', () => {
   });
 });
 
+/**
+ * RockSim's two negative <EjectionDelay> codes are SENTINELS (audit
+ * 2026-09-22, HIGH): −2 is plugged (its simulations are named "[A8-P]" /
+ * "[A8-Plugged]", 3,250 sets in the 939-file corpus) and −1 is its multi-delay
+ * "every delay" run ("[H128W-*]", 1,113). Passed through as delays, both put
+ * the charge before burnout and the kernel fired it AT burnout — the reference
+ * C6 rocket's apogee fell 331.8 → 168.1 m.
+ */
+describe('RockSim ejection-delay sentinels', () => {
+  const rkt = (engineSets: string[]) => `<RockSimDocument><DesignInformation><RocketDesign>
+    <Name>Delays</Name><StageCount>1</StageCount>
+    <Stage3Parts><BodyTube><Name>Body</Name><OD>24.8</OD><ID>24.1</ID><Len>300</Len>
+      <IsMotorMount>1</IsMotorMount><SerialNo>7</SerialNo></BodyTube></Stage3Parts>
+    <SimulationResultsList>${engineSets.map((s) => `<SimulationResults><Stage3Engines>
+      <EngineSet><EngineCode>C6</EngineCode><EngineMfg>Estes</EngineMfg>
+        <IgnitionDelay>0.</IgnitionDelay><MountSerialNo>7</MountSerialNo>${s}</EngineSet>
+    </Stage3Engines></SimulationResults>`).join('')}</SimulationResultsList>
+  </RocketDesign></DesignInformation></RockSimDocument>`;
+  const one = (s: string) => {
+    const r = importRkt(rkt([s]));
+    return { delay: Object.values(r.motors)[0]!.delay, notes: r.notes.join(' ') };
+  };
+
+  it('−2 is plugged, and the note says so', () => {
+    const { delay, notes } = one('<EjectionDelay>-2.</EjectionDelay>');
+    expect(delay).toBe(Infinity);
+    expect(notes).toMatch(/C6: plugged/);
+  });
+
+  it('−1 is the catalogue’s own default — the longest prescribed delay — never a negative', () => {
+    // Estes C6 lists 0,3,5,7 in the shipped catalogue.
+    const { delay, notes } = one('<EjectionDelay>-1.</EjectionDelay>');
+    expect(delay).toBe(7);
+    expect(notes).toMatch(/every delay/);
+    expect(notes).toMatch(/7 s/);
+  });
+
+  it('−1 on a motor the catalogue does not know records 0 s and says so, never −1', () => {
+    const r = importRkt(rkt(['<EjectionDelay>-1.</EjectionDelay>']).replace(/C6/g, 'ZQ9999X'));
+    expect(Object.values(r.motors)[0]!.delay).toBe(0);
+    expect(r.notes.join(' ')).toMatch(/lists no delay/);
+  });
+
+  it('an ordinary delay is untouched and adds no note', () => {
+    const { delay, notes } = one('<EjectionDelay>5.</EjectionDelay>');
+    expect(delay).toBe(5);
+    expect(notes).not.toMatch(/EjectionDelay/);
+  });
+
+  it('reads the literal "Infinity" this app used to write as plugged, not as 0 s', () => {
+    expect(one('<EjectionDelay>Infinity</EjectionDelay>').delay).toBe(Infinity);
+  });
+
+  it('notes a motor once, however many stored simulations repeat its engine set', () => {
+    const r = importRkt(rkt(['<EjectionDelay>-2.</EjectionDelay>', '<EjectionDelay>-2.</EjectionDelay>']));
+    expect(r.notes.filter((n) => /C6: plugged/.test(n))).toHaveLength(1);
+  });
+
+  it('exports a plugged motor as RockSim’s −2, never "Infinity", and re-imports it plugged', () => {
+    // xmlNum read "Infinity" back as 0 s, so every chute on ejection deployed at burnout.
+    const tree = {
+      name: 'P',
+      components: [{ type: 'stage', id: 's', children: [
+        { type: 'bodytube', id: 'mt', length: 0.3, outerRadius: 0.0124, thickness: 0.0004, motorMount: true },
+      ] }] as ComponentNode[],
+    };
+    const xml = exportRkt({
+      name: 'P', tree,
+      motors: { mt: { designation: 'C6', manufacturer: 'Estes', diameter: 0.018, length: 0.07, delay: Infinity } },
+    });
+    expect(xml).toContain('<EjectionDelay>-2</EjectionDelay>');
+    expect(xml).not.toMatch(/Infinity/);
+    expect(Object.values(importRkt(xml).motors)[0]!.delay).toBe(Infinity);
+  });
+});
+
 describe('RockSim import — a part matched to its catalogue row by <PartMfg>/<PartNo> (ruled 2026-09-03)', () => {
   // TubeFins2's chute is Apogee 29115 with RockSim's 0.75 "auto" Cd. Re-badge that ONE
   // block as the Fruity Chutes 96" toroidal the owner's Wildman carries (part 29185), so

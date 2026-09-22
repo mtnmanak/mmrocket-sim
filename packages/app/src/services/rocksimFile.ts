@@ -11,6 +11,8 @@ import { unzipMember } from './zipMember.js';
 import { shapeParamDefault } from './orkFile.js';
 import type { OrkExportMotor, OrkMotorRef, OrkTreeImportResult } from './orkFile.js';
 import { applyPresetLinks, type PendingPresetLink, type Preset } from './presets.js';
+import { findDbMotor } from './motorDb.js';
+import { defaultDelay } from './thrustcurve.js';
 
 /**
  * RockSim (.rkt) design import/export — Phase 3 "file imports and exports".
@@ -1145,6 +1147,8 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
   // back to the first motor mount of the EngineSet's stage.
   const motors: Record<string, OrkMotorRef> = {};
   let firstMotor: OrkMotorRef | undefined;
+  /** Refs whose <EjectionDelay> was a RockSim sentinel, for the import note below. */
+  const sentinelRefs = new Map<OrkMotorRef, 'plugged' | 'every' | 'every-unknown'>();
   for (const engineSet of Array.from(doc.querySelectorAll('EngineSet'))) {
     const code = text(engineSet, ':scope > EngineCode');
     if (!code) continue;
@@ -1186,17 +1190,44 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
     const ignitionDelay = num(engineSet, 'IgnitionDelay', 0);
     const isBottomStage = components.length <= 1
       || mountsIn(components[components.length - 1]?.children ?? []).some((m) => m.id === mount!.id);
+    const manufacturer = text(engineSet, ':scope > EngineMfg') ?? 'unknown';
+    // RockSim's two negative <EjectionDelay> codes are sentinels, not delays —
+    // see rktEjectionDelay. Resolved here, so no negative delay leaves the reader.
+    const read = rktEjectionDelay(engineSet);
+    const fromCatalogue = read === 'every' ? catalogueDefaultDelay(code, manufacturer) : null;
     const ref: OrkMotorRef = {
       designation: code,
-      manufacturer: text(engineSet, ':scope > EngineMfg') ?? 'unknown',
+      manufacturer,
       diameter: 0, // unknown in the file — match by designation alone
       length: 0,
-      delay: num(engineSet, 'EjectionDelay', 0),
+      delay: read === 'plugged' ? Infinity : read === 'every' ? (fromCatalogue ?? 0) : read,
       mountId: mount.id,
       ...(isBottomStage ? {} : { ignitionEvent: 'burnout' as const, ignitionDelay }),
     };
+    if (read === 'plugged') sentinelRefs.set(ref, 'plugged');
+    else if (read === 'every') sentinelRefs.set(ref, fromCatalogue === null ? 'every-unknown' : 'every');
     motors[mount.id] = ref;
     firstMotor = firstMotor ?? ref;
+  }
+  // One note per motor that IS loaded — a file repeats its engine sets once per
+  // stored simulation, and only the last one per mount survives above.
+  for (const ref of Object.values(motors)) {
+    const kind = sentinelRefs.get(ref);
+    if (kind === 'plugged') {
+      notes.push(`Motor ${ref.designation}: plugged (no ejection charge — RockSim's EjectionDelay −2) — `
+        + 'make sure recovery deploys on apogee/altitude, not the ejection charge.');
+    } else if (kind === 'every') {
+      notes.push(`Motor ${ref.designation}: the file asks for RockSim's “every delay” run (EjectionDelay −1), `
+        + 'which flies each listed delay in turn; '
+        + (Number.isFinite(ref.delay)
+          ? `loaded at the longest, ${ref.delay} s — the one RockSim's own run reports.`
+          : 'the only option the motor database lists is plugged, so it is loaded plugged.')
+        + ' Change it on the Motors & Launch tab.');
+    } else if (kind === 'every-unknown') {
+      notes.push(`Motor ${ref.designation}: the file asks for RockSim's “every delay” run (EjectionDelay −1), `
+        + 'and the motor database lists no delay for it to take — recorded as 0 s. Set the real delay '
+        + 'on the Motors & Launch tab.');
+    }
   }
 
   return {
@@ -1208,6 +1239,54 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
     notes,
     ...(measured ? { measured } : {}),
   };
+}
+
+/**
+ * RockSim's plugged sentinel for <EjectionDelay> — what RockSim itself writes,
+ * and what the exporter below writes for a plugged motor.
+ */
+const RKT_PLUGGED_DELAY = -2;
+
+/**
+ * An engine set's <EjectionDelay>: a delay in seconds, or one of RockSim's two
+ * SENTINELS (audit 2026-09-22), which until then were passed through as delays.
+ *
+ * Neither is documented; both are pinned from the 939-file corpus
+ * (G:/Documents/Dropbox/Rocksim Designs) by the NAME RockSim gives the stored
+ * simulation that carries each:
+ *   −2 → "[A8-P]", "[A8-None]", "[A8-Plugged]": no ejection charge. 3,250 sets.
+ *   −1 → "[H128W-*]": RockSim's multi-delay run, which flies EVERY listed delay
+ *        (<MultiDelayCount>3, <DelayTime>6.,10.,14.) and reports the longest as
+ *        its <TimeToEject>. 1,113 sets.
+ * As delays, both scheduled the charge before burnout, so the kernel fired it AT
+ * burnout: 159 of the 939 files load a motor with one, 64 of them with a
+ * recovery device on the ejection charge (Apogee_Avion/Avion.rkt,
+ * Wildman/darkstar4.rkt), and the reference C6 rocket's apogee fell from 331.8
+ * to 168.1 m. Any other negative is read as plugged too: a delay cannot be one.
+ *
+ * The literal "Infinity" is plugged as well. This app's own .rkt export wrote
+ * it for a plugged motor through v0.137, and Number() of it is not finite, so
+ * xmlNum read it back as 0 s — every chute on ejection then deployed at burnout.
+ */
+function rktEjectionDelay(engineSet: Element): number | 'plugged' | 'every' {
+  const raw = text(engineSet, ':scope > EjectionDelay');
+  if (raw !== null && /^\+?inf/i.test(raw)) return 'plugged';
+  const v = num(engineSet, 'EjectionDelay', 0);
+  if (Math.round(v) === -1) return 'every';
+  return v < 0 ? 'plugged' : v;
+}
+
+/**
+ * The delay RockSim's "every delay" (−1) is loaded at: the catalogue motor's
+ * own default — its longest prescribed delay, the rule the motor browser
+ * applies to a fresh pick and the delay RockSim's own multi-delay run reports.
+ * Matched the way motorMatch will match the same reference (designation and
+ * maker, no diameter: a .rkt carries none). null when the catalogue has no such
+ * motor, or the motor lists no delay.
+ */
+function catalogueDefaultDelay(designation: string, manufacturer: string): number | null {
+  const m = findDbMotor(designation, undefined, undefined, manufacturer);
+  return m ? defaultDelay(m) : null;
 }
 
 /**
@@ -1849,7 +1928,9 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
       emit('<EngineCount>1</EngineCount>');
       emit(`<EngineCode>${esc(m.designation)}</EngineCode>`);
       emit(`<EngineMfg>${esc(m.manufacturer ?? 'unknown')}</EngineMfg>`);
-      emit(`<EjectionDelay>${m.delay}</EjectionDelay>`);
+      // Never "Infinity" (audit 2026-09-22): a plugged motor is RockSim's own −2,
+      // which RockSim reads as plugged and so does our importer (rktEjectionDelay).
+      emit(`<EjectionDelay>${Number.isFinite(m.delay) ? m.delay : RKT_PLUGGED_DELAY}</EjectionDelay>`);
       // Staging timer, so a .rkt written here round-trips through our own
       // importer (and through RockSim) with its staging intact. RockSim
       // measures IgnitionDelay from the stage below's BURNOUT, which is exactly
