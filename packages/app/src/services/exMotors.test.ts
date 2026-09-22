@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  EXIT_MAX_FRACTION_OF_CASE, EXIT_MIN_FRACTION_OF_CASE, exToDbEntry, exitDiameterFromRse,
-  impulseClassOf, parseEng, parseRse,
+  EXIT_MAX_FRACTION_OF_CASE, EXIT_MIN_FRACTION_OF_CASE, addExMotors, exToDbEntry, exitDiameterFromRse,
+  getExMotor, impulseClassOf, parseEng, parseRse,
 } from './exMotors.js';
 import { delayOptions } from './thrustcurve.js';
 
@@ -128,13 +128,45 @@ describe('.rse files with missing mass data', () => {
     expect(m!.sampleMassesKg).toBeUndefined(); // falls back to impulse-proportional
   });
 
-  it('keeps per-sample masses when they are all really there', () => {
+  it('keeps per-sample masses when the file turns RockSim’s mass model off and they are all there', () => {
     const xml = rse(
-      'code="EX-MASS" mfg="Home" dia="29" len="120" initWt="100" propWt="50" delays="5"',
+      'code="EX-MASS" mfg="Home" dia="29" len="120" initWt="100" propWt="50" delays="5" auto-calc-mass="0"',
       '<eng-data t="0" f="0" m="100"/><eng-data t="0.5" f="60" m="75"/><eng-data t="1" f="0" m="50"/>',
     );
     const [m] = parseRse(xml);
     expect(m!.sampleMassesKg).toEqual([0.1, 0.075, 0.05]);
+  });
+
+  /**
+   * RockSim's `m` is the PROPELLANT aboard (the first point equals propWt in
+   * 1,239 of the 1,275 corpus records, initWt in none), and auto-calc-mass —
+   * on in every one of them, and on unless a file says "0" — tells desktop to
+   * rebuild the curve from initWt/propWt instead (audit 2026-09-22). Read as
+   * the motor's total mass, the points put it in the air lighter by its case.
+   */
+  it('flies the mass model, not the points, when auto-calc-mass is on or absent', () => {
+    const pts = '<eng-data t="0" f="0" m="50"/><eng-data t="0.5" f="60" m="25"/><eng-data t="1" f="0" m="1"/>';
+    const attrs = 'code="EX-AUTO" mfg="Home" dia="29" len="120" initWt="100" propWt="50" delays="5"';
+    expect(parseRse(rse(attrs, pts))[0]!.sampleMassesKg).toBeUndefined();
+    expect(parseRse(rse(`${attrs} auto-calc-mass="1"`, pts))[0]!.sampleMassesKg).toBeUndefined();
+  });
+
+  it('reads points that start at propWt as propellant aboard, and adds the case', () => {
+    const [m] = parseRse(rse(
+      'code="EX-PROP" mfg="Home" dia="29" len="120" initWt="100" propWt="50" delays="5" auto-calc-mass="0"',
+      '<eng-data t="0" f="0" m="50"/><eng-data t="0.5" f="60" m="25"/><eng-data t="1" f="0" m="0"/>',
+    ));
+    expect(m!.sampleMassesKg).toEqual([0.1, 0.075, 0.05]); // 50 g of case under each
+  });
+
+  it('flies the model, and says so, when the points match neither mass', () => {
+    const notes: string[] = [];
+    const [m] = parseRse(rse(
+      'code="EX-ODD" mfg="Home" dia="29" len="120" initWt="100" propWt="50" delays="5" auto-calc-mass="0"',
+      '<eng-data t="0" f="0" m="80"/><eng-data t="0.5" f="60" m="40"/><eng-data t="1" f="0" m="20"/>',
+    ), notes);
+    expect(m!.sampleMassesKg).toBeUndefined();
+    expect(notes[0]).toMatch(/EX-ODD: .*neither its loaded mass/);
   });
 
   it('refuses a file with no initial mass instead of importing a 0 g motor', () => {
@@ -143,6 +175,17 @@ describe('.rse files with missing mass data', () => {
       '<eng-data t="0" f="0"/><eng-data t="1" f="0"/>',
     );
     expect(() => parseRse(xml)).toThrow(/initial mass/i);
+  });
+
+  it('skips only the bad engine in a multi-engine file, and names it (audit 2026-09-22)', () => {
+    const good = '<engine code="OK1" mfg="Home" dia="29" len="120" initWt="100" propWt="50" delays="5">'
+      + '<data><eng-data t="0" f="0"/><eng-data t="0.5" f="60"/><eng-data t="1" f="0"/></data></engine>';
+    const heavy = '<engine code="HEAVY" mfg="Home" dia="29" len="120" initWt="100" propWt="150" delays="5">'
+      + '<data><eng-data t="0" f="0"/><eng-data t="0.5" f="60"/><eng-data t="1" f="0"/></data></engine>';
+    const notes: string[] = [];
+    const motors = parseRse(`<engine-database><engine-list>${heavy}${good}</engine-list></engine-database>`, notes);
+    expect(motors.map((m) => m.designation)).toEqual(['OK1']);
+    expect(notes).toEqual([expect.stringMatching(/skipped 1 motor — Motor HEAVY: more propellant \(150 g\)/)]);
   });
 });
 
@@ -172,6 +215,82 @@ M1297 75 1000 P ${propKg} ${totKg} Loki
     const [m] = parseEng(bad('1.8', '3.5'));
     expect(m!.propWeightG).toBeCloseTo(1800, 6);
     expect(m!.totalWeightG).toBeCloseTo(3500, 6);
+  });
+
+  // Audit 2026-09-22: masses checked for finiteness only, so a motor with more
+  // propellant than it weighs imported and failed at fly time — and a bad
+  // header sank every other motor in the file with it.
+  it('refuses a header with more propellant than loaded mass', () => {
+    expect(() => parseEng(bad('3.9', '3.5'))).toThrow(/more propellant \(3900 g\) than loaded mass \(3500 g\)/);
+  });
+
+  it('skips only the bad motor in a multi-motor file, and names it', () => {
+    const notes: string[] = [];
+    const motors = parseEng(`${ENG_MULTI.replace('0.00624 0.01935', '0.02 0.01935')}\n${bad('notanum', '3.5')}`, notes);
+    expect(motors.map((m) => m.designation)).toEqual(['A8']);
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toMatch(/skipped 2 motors .*B6: more propellant.*mass must be numbers/);
+  });
+});
+
+describe('.eng motor boundaries', () => {
+  // Audit 2026-09-22: a motor ended at its FIRST zero-thrust sample, so a
+  // two-pulse curve was cut at the gap and its second pulse then read as a
+  // header — refusing the whole file. It ends at the next header now.
+  const DUAL = `; two-pulse research motor
+DP-54 54 600 P 1.2 2.6 EX
+0.05 900
+1.00 850
+1.05 0
+2.00 0
+2.05 700
+3.00 650
+3.05 0
+`;
+
+  it('reads a two-pulse motor as one motor, both pulses', () => {
+    const [m, ...rest] = parseEng(DUAL);
+    expect(rest).toEqual([]);
+    expect(m!.samples.map((s) => s.thrust)).toEqual([0, 900, 850, 0, 0, 700, 650, 0]);
+    expect(m!.samples[m!.samples.length - 1]!.time).toBe(3.05);
+  });
+
+  it('still ends a motor at the next header, with or without a comment between', () => {
+    const noComment = ENG_MULTI.replace('; next\n', '');
+    expect(parseEng(noComment).map((m) => m.designation)).toEqual(['A8', 'B6']);
+    expect(parseEng(noComment)[0]!.samples.at(-1)).toEqual({ time: 0.7, thrust: 0 });
+  });
+
+  it('keeps one zero after the burn and drops a trailing run of them', () => {
+    const [m] = parseEng(`${ENG}   3.5 0.0\n   3.6 0.0\n`);
+    expect(m!.samples.at(-1)).toEqual({ time: 3.4, thrust: 0 });
+  });
+});
+
+describe('addExMotors — motors that share a maker and name', () => {
+  // Audit 2026-09-22: the id is maker + name. Two in one batch both went in and
+  // every lookup answered with the first; a tester's rasp.eng lists AMW K475WW
+  // twice, with a 0 s and a 100 (no charge) delay.
+  const twin = (delay: string) => `K475WW 54 403 ${delay} 0.7286 1.4925 AMW
+0.05 600
+1.5 500
+1.6 0
+`;
+  afterEach(() => { localStorage.clear(); });
+
+  it('keeps a different motor under a taken id as <id>~2, and says which', () => {
+    const w = addExMotors(parseEng(`${twin('0')}${twin('100')}`));
+    expect(w.motors.map((m) => m.motorId)).toEqual(['ex:amw-k475ww', 'ex:amw-k475ww~2']);
+    expect(w.duplicates).toEqual(['K475WW']);
+    expect(getExMotor('ex:amw-k475ww~2')!.delays).toBe('100');
+  });
+
+  it('drops an exact repeat, and re-importing lands on the same ids — reported as replaced', () => {
+    addExMotors(parseEng(`${twin('0')}${twin('100')}`));
+    const again = addExMotors(parseEng(`${twin('0')}${twin('0')}${twin('100')}`));
+    expect(again.motors.map((m) => m.motorId)).toEqual(['ex:amw-k475ww', 'ex:amw-k475ww~2']);
+    expect(again.duplicates).toEqual(['K475WW']);
+    expect(again.replaced).toEqual(['K475WW', 'K475WW']);
   });
 });
 

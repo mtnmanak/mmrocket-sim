@@ -816,9 +816,9 @@ export function clearCurveCache(): number {
 
 /**
  * Fetches thrust samples (localStorage-cached) and builds the MotorSpec.
- * Imported EX motors ("ex:" ids) build entirely from local data — .rse files
- * carry measured per-sample masses, which beat the impulse-proportional
- * approximation.
+ * Imported EX motors ("ex:" ids) build entirely from local data — an .rse that
+ * turns RockSim's own mass model off carries per-sample masses, which fly
+ * instead of the impulse-proportional approximation (exMotors.rseSampleMassesKg).
  */
 export async function fetchMotorSpec(
   motor: TcMotor,

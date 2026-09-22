@@ -241,4 +241,18 @@ describe('MotorBrowser — what an import says about the motors it took (audit 2
     expect(h.host.textContent).toMatch(/Imported 1 EX motor \(H99X\)/);
     expect(h.host.textContent).toMatch(/inches\.rse: H99X: its nozzle exit, exitDia 0\.5 .*was not used/);
   });
+
+  it('names twins kept side by side, motors skipped for impossible masses, and replacements', async () => {
+    h = openBrowser({ mountDiameterMm: 54 });
+    const twin = (delay: string) => `K475WW 54 403 ${delay} 0.7286 1.4925 AMW\n0.05 600\n1.5 500\n1.6 0\n`;
+    const heavy = 'K700RT 54 400 P 0.90135 0.17535 AMW\n0.05 700\n1.2 0\n';
+    await importFiles(h, [{ name: 'rasp.eng', text: `${twin('0')}${twin('100')}${heavy}` }]);
+    const text = h.host.textContent ?? '';
+    expect(text).toMatch(/Imported 2 EX motors/);
+    expect(text).toMatch(/K475WW: listed more than once with different data/);
+    expect(text).toMatch(/rasp\.eng: skipped 1 motor with impossible masses — K700RT: more propellant/);
+    await importFiles(h, [{ name: 'rasp.eng', text: twin('0') }]);
+    expect(h.host.textContent).toMatch(/1 replaced the library's earlier motor of the same maker and name \(K475WW\)/);
+  });
 });
+

@@ -288,6 +288,15 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
     const imported = parsed.map((m) => m.designation);
     const write = parsed.length ? addExMotors(parsed) : null;
     const unsaved = write !== null && !write.stored;
+    const some = (names: string[]) => `${names.slice(0, 6).join(', ')}${names.length > 6 ? ', …' : ''}`;
+    if (write?.duplicates.length) {
+      said.push(`${some(write.duplicates)}: listed more than once with different data — each copy is kept `
+        + 'as its own entry under the same name.');
+    }
+    if (write?.replaced.length) {
+      said.push(`${write.replaced.length} replaced the library's earlier motor of the same maker and name `
+        + `(${some(write.replaced)}).`);
+    }
     const problems: string[] = [];
     if (write) {
       setExMotors(write.motors);
