@@ -10,6 +10,7 @@ import type { NozzleEntry } from './nozzleDb.js';
 import { delayOptions, fetchMotorSpec } from './thrustcurve.js';
 import { commentLevelsAlign, recommendDelay } from './simReport.js';
 import { stageMotors } from './nozzleFollow.js';
+import { historyMotorLabel } from '../components/SimResults.js';
 import type { MountMotor } from '../App.js';
 import {
   batchDelayRule, batchMotorIds, batchMotorNames, batchRowKey, deploysOnEjectionCharge, provisionalDelay,
@@ -385,7 +386,18 @@ describe('the sweep, flown on the real kernel', () => {
     expect(combos.map((r) => r.label).sort()).toEqual(['2× Acme E20 + 4× Bolt E20', '4× Acme E20 + 2× Bolt E20']);
     expect(combos.every((r) => r.run!.motor === r.label)).toBe(true);
     expect(new Set(rows.map((r) => r.key)).size).toBe(rows.length);
+    // The run history prints `<manufacturer> <motor>`; a label that already
+    // names every maker must not get them all a second time in front of it.
+    for (const c of combos) expect(historyMotorLabel(c.run!)).toBe(c.label);
+    expect(historyMotorLabel(rows.find((r) => !r.combo)!.run!)).toBe('Acme E20');
   }, 60000);
+
+  it('the history keeps the maker in front of a combination stored before its label named one', () => {
+    expect(historyMotorLabel({ manufacturer: 'Acme+Bolt', motor: '4× E20 + 2× E20', motorConfig: 'mixed 4+2' }))
+      .toBe('Acme+Bolt 4× E20 + 2× E20');
+    expect(historyMotorLabel({ manufacturer: 'Acme', motor: 'E20', motorConfig: 'single' })).toBe('Acme E20');
+    expect(historyMotorLabel({ manufacturer: '', motor: 'E20' })).toBe('E20');
+  });
 
   it('records nothing for a motor whose download Stop cut short — it was never flown', async () => {
     const ctrl = new AbortController();
