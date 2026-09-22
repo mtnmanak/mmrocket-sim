@@ -605,7 +605,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
             const sweep = num(el, 'SweepDistance', 0) / LEN;
             // A zero tip chord (a triangular fin) must collapse to ONE tip
             // point: repeating it makes a zero-length edge that the kernel
-            // reports as a self-intersection through a %g format TeaVM lacks,
+            // refuses as a self-intersection,
             // which aborts the whole build. Same guard as rasaeroFile.ts.
             n['points'] = tipChord > 1e-9
               ? [[0, 0], [sweep, height], [sweep + tipChord, height], [rootChord, 0]]
@@ -617,9 +617,9 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
         } else {
           // The same test the fin editor applies before it commits an outline:
           // at least three points, none repeated, no edge crossing another. A
-          // crossing outline reaches the kernel's FreeformFinSet, whose reporter
-          // formats the intersection with %g — which TeaVM's String.format does
-          // not have — so the design blanked with "Unknown format conversion: g".
+          // crossing outline reaches the kernel's FreeformFinSet, which refuses
+          // it, so the design blanks (with "Unknown format conversion: g" until
+          // the kernel's %g log line was patched on 2026-09-22; by name since).
           // The v0.105 changelog said the importers already checked this; they
           // did not (only a synthesised zero-tip-chord case was caught). Now they do.
           const rktPts = parsePointList(text(el, ':scope > PointList') ?? '');

@@ -212,7 +212,7 @@ final class ComponentFactory {
                         throw new IllegalArgumentException(
                                 "freeformfinset needs at least 3 points");
                     }
-                    fins.setPoints(pts);
+                    setOutline(fins, pts, node); // throws if the kernel refuses the outline
                 }
                 c = fins;
                 break;
@@ -1012,6 +1012,37 @@ final class ComponentFactory {
             case "bottom": return AxialMethod.BOTTOM;
             case "top":
             default: return AxialMethod.TOP;
+        }
+    }
+
+    /**
+     * Sets a freeform outline, and refuses the build if the kernel refused it
+     * (audit 2026-09-22).
+     * <p>
+     * FreeformFinSet.setPoints refuses an outline that crosses or touches itself
+     * and rolls back to the previous outline - on a fin set built here, the
+     * constructor's DEFAULT fin - reporting it only as a log line. Left alone
+     * that flies a fin the design does not draw, which is what the desktop does.
+     * Before this, the refusal's own log line threw under TeaVM ("Unknown format
+     * conversion: g" - the %g patch in patches/.../FreeformFinSet.java), which
+     * refused the build but named nothing. This names the fin set. The app
+     * pre-empts the case with packages/app/src/tree/finOutline.ts; this is the
+     * backstop for whatever gets past it.
+     * <p>
+     * Placed at the end of the file, and called from the one line that used to
+     * call setPoints, so the line numbers the app's comments cite into this file
+     * stay true.
+     */
+    private static void setOutline(FreeformFinSet fins, Coordinate[] pts, Map<String, Object> node) {
+        fins.setPoints(pts);
+        if (fins.isOutlineRefused()) {
+            String label = str(node, "name", null);
+            if (label == null) {
+                label = str(node, "id", "freeform fins");
+            }
+            throw new IllegalArgumentException("Fin set \"" + label
+                    + "\": its outline crosses or touches itself, so it cannot be"
+                    + " simulated. Redraw it in the fin editor.");
         }
     }
 }

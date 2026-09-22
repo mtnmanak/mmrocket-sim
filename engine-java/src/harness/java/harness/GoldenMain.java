@@ -50,6 +50,46 @@ public final class GoldenMain {
         pressureThrustScenarios();
         offAxisInertiaScenarios();
         parallelPressureThrustScenarios();
+        freeformRefusalScenarios();
+    }
+
+    /**
+     * A REFUSED FREEFORM OUTLINE (audit 2026-09-22) - the one path where the two
+     * runtimes used to DISAGREE outright rather than by an ulp. FreeformFinSet
+     * refuses an outline that crosses or touches itself; on the JVM it logged that
+     * with a %g format and rolled back to the default fin (so the build "succeeded"
+     * with a fin the design does not draw), while TeaVM, which has no %g, threw
+     * "Unknown format conversion: g" out of the same log line. Nothing here ran the
+     * path, so difftest never saw the split. Both runtimes must now print the same
+     * bridge refusal, naming the fin set, and the valid outline must still build.
+     *
+     * APPENDED AT THE END OF THE ROSTER ON PURPOSE - difftest.mjs compares the two
+     * runtimes' output BY LINE INDEX, so every existing line must keep its index.
+     */
+    private static void freeformRefusalScenarios() {
+        String[][] cases = {
+                //  tag         points (JSON)
+                { "valid", "[[0,0],[0.02,0.03],[0.045,0.03],[0.06,0]]" },
+                { "crossing", "[[0,0],[0.02,0.03],[0.005,0.02],[0.06,0]]" },
+                { "repeated", "[[0,0],[0.02,0.03],[0.02,0.03],[0.06,0]]" },
+        };
+        for (String[] c : cases) {
+            String json = "{\"components\":["
+                    + "{\"type\":\"nosecone\",\"length\":0.15,\"aftRadius\":0.02,\"thickness\":0.002},"
+                    + "{\"type\":\"bodytube\",\"length\":0.4,\"outerRadius\":0.02,\"thickness\":0.001,\"children\":["
+                    + "  {\"type\":\"freeformfinset\",\"id\":\"ff\",\"name\":\"Fins\",\"finCount\":3,\"thickness\":0.003,"
+                    + "   \"points\":" + c[1] + "}"
+                    + "]}]}";
+            String tag = "freeform.outline." + c[0];
+            int r;
+            try {
+                r = api.OrkEngine.buildRocket(json);
+            } catch (IllegalArgumentException e) {
+                System.out.println(tag + ".refused|" + e.getMessage());
+                continue;
+            }
+            lineStaticInfo(tag + ".info", api.OrkEngine.getStaticInfo(r));
+        }
     }
 
     /**

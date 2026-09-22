@@ -18,6 +18,52 @@ git diff --no-index <openrocket-src>/<path> patches/<path>
   Log-only (stderr); zero physics/goldens impact. Found by the staging golden
   scenarios (2026-07-03, Phase 3 Release B).
 
+### rocketcomponent/FreeformFinSet.java (audit 2026-09-22)
+- **Why:** the same TeaVM `%g` gap, in the one place it could still be reached.
+  `setPoints` refuses an outline that crosses or touches itself (a repeated point does it)
+  and rolls back to the previous outline — on a fin set the bridge has just built, the
+  constructor's DEFAULT fin — and reports the refusal through two `log.warn(String.format(
+  "... (%g, %g) ..."))` lines in `intersects(int)`. On the JVM that logged and the build
+  "succeeded" with a fin the design does not draw; under TeaVM the log line itself threw
+  `UnknownFormatConversionException: Unknown format conversion: g` out of `buildTree`, which
+  refused the build but named nothing. The two runtimes DISAGREED outright, and difftest never
+  saw it because no golden ran the path. Audit 2026-09-22, "Degenerate values fail the whole
+  build" (the kernel half; the app-side sanitize is separate).
+- **Change (three lines changed in place, one block appended):** the two log lines `%g` →
+  `%s` with `Double.toString(...)`, exactly as in BasicEventSimulationEngine; `if
+  (intersects())` in `setPoints(ArrayList, boolean)` → `if (outlineRefused = intersects())`
+  (the same single call); and a `private boolean outlineRefused` + `public boolean
+  isOutlineRefused()` appended after upstream's last line. Nothing is inserted above line 609,
+  so every line number upstream has — and the app's comments cite (`tree/finOutline.ts`,
+  `position.ts`, `solidMesh.ts`, `FinPointsEditor.tsx`) — still holds in the carved copy.
+- **The bridge half (not a patch — `api/ComponentFactory.java`):** the freeformfinset case
+  now calls `setOutline(fins, pts, node)`, which runs `setPoints` and throws
+  `Fin set "<name>": its outline crosses or touches itself, so it cannot be simulated.
+  Redraw it in the fin editor.` when `isOutlineRefused()`. Deliberately NOT "roll back like
+  the desktop": a design that silently flies the default fin while drawing its own is the
+  worse outcome, and it is what the plain `%g` → `%s` alone would have produced in the
+  browser — the app's kernel-agreement test (`finOutline.test.ts`, "rejects what buildTree
+  dies on") pins the refusal. A DIVERGENCE from desktop's silent substitution, in the bridge,
+  in all three aero models.
+- **Oracle:** new goldens `freeform.outline.valid/crossing/repeated`
+  (`freeformRefusalScenarios()`, appended at the end). **Before the fix difftest FAILED on
+  exactly the two refused lines** — JVM `freeform.outline.crossing.info|0.575|...` (the
+  default fin: its tip runs 25 mm aft of its root, so the rocket reads 0.575 m against the
+  valid outline's 0.55 m) against TeaVM `freeform.outline.crossing.refused|Unknown format
+  conversion: g`. After: both runtimes print the same named refusal; differential 377 → 380
+  lines, clean (252 bit-identical, 128 within tolerance), and all 377 existing lines — the
+  freeform and fillet goldens included — are bit-identical to before.
+- **Behavioural guard:** `packages/engine/src/freeformOutline.test.ts` (the named message for
+  a crossing and a repeated-point outline, the id fallback, and a valid outline still
+  building at its own length). The first two fail against the pre-fix artifact.
+- **Artifact:** md5 `dafd535038530da83eacef3083d33f19` → `ee941192e22db85624dd5ed9fd0a03fb`;
+  `isOutlineRefused` 0 → 4 occurrences and the `between (%s` format string present.
+- **Other `%g` left in the kernel, recorded not changed:** `FinSet.getPointDescr` (`%6.4g`;
+  upstream marks it "for debugging", and only `toDebugDetail` calls it) and
+  `BoundingBox.toString` (`%g`) — debug and `toString` output only; a grep of the carved
+  sources, the patches and the bridge found no build or simulate path calling either. Same fix
+  if one ever becomes reachable.
+
 ### rocketcomponent/FlightConfigurationId.java + motor/MotorConfigurationId.java
 - **Why:** TeaVM 0.15's `java.util.UUID` is string-backed; it lacks `UUID(long, long)`,
   `getMostSignificantBits()`, and `compareTo` — all used by these two key classes.

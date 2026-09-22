@@ -4,14 +4,13 @@
  * (engine-java/src/carved/java/info/openrocket/core/rocketcomponent/FreeformFinSet.java:556-607).
  *
  * WHY THIS EXISTS. On the desktop a self-intersecting outline is a non-event:
- * `setPoints` runs `intersects()`, logs a warning and rolls the points back.
- * In the browser it is fatal. The kernel formats that warning with
- *
- *     String.format("                   between (%g, %g) => (%g, %g)", …)
- *
- * and TeaVM's `String.format` implements no `%g` conversion, so it throws
- * `UnknownFormatConversionException: Unknown format conversion: g` straight
- * out of `OrkRocket.buildTree`. App.tsx catches that into an error banner and
+ * `setPoints` runs `intersects()`, logs a warning and rolls the points back —
+ * to the DEFAULT fin, without a word. Here it is fatal, on purpose: the kernel
+ * bridge reads that refusal and `OrkRocket.buildTree` throws `Fin set "<name>":
+ * its outline crosses or touches itself…` (ComponentFactory.setOutline, since
+ * the 2026-09-22 audit — until then the refusal's own `%g` log line threw
+ * "Unknown format conversion: g" under TeaVM, which named nothing). App.tsx
+ * catches that into an error banner and
  * `built` becomes null: the design loses mass, CG, CP, stability, the stats
  * drawer, every export and both Launch buttons, until the user manually undoes
  * an edit that looked perfectly fine on the canvas. Both file importers already
@@ -111,7 +110,7 @@ export function finOutlineIntersection(
  *
  *  - fewer than 3 points, or a coordinate that is not a finite number
  *  - two consecutive points in the same place (the zero-length edge that the
- *    kernel reports as a self-intersection, i.e. the %g crash above)
+ *    kernel refuses as a self-intersection, i.e. the build failure above)
  *  - a root chord that is not positive — the kernel defines a freeform fin's
  *    length as `points[last].x - points[0].x` (FreeformFinSet.update():447 and
  *    clampFirstPoint():493), so a trailing corner at or forward of the leading

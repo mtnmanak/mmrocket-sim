@@ -8,8 +8,7 @@ import { PrefsProvider } from '../prefs/PrefsContext.js';
 /**
  * What this file protects: a freeform fin outline that crosses itself, or that
  * repeats a point, must never leave this editor. The kernel refuses such an
- * outline by logging it through a Java `%g` format TeaVM does not implement, so
- * in the browser `OrkRocket.buildTree` throws `Unknown format conversion: g`
+ * outline, so `OrkRocket.buildTree` throws (naming the fin set)
  * and App.tsx blanks the entire design — mass, CG, CP, stability, the stats
  * drawer, every export and both Launch buttons — after an edit that looked
  * fine on the canvas. tree/finOutline.test.ts pins that the check agrees with

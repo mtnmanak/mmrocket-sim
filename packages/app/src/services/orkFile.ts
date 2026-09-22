@@ -639,9 +639,9 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
           .filter((p) => Number.isFinite(p[0]) && Number.isFinite(p[1]));
         // The same test the fin editor applies before it commits an outline:
         // at least three points, none repeated, no edge crossing another. A
-        // crossing outline reaches the kernel's FreeformFinSet, whose reporter
-        // formats the intersection with %g — which TeaVM's String.format lacks —
-        // and the whole design blanked with "Unknown format conversion: g".
+        // crossing outline reaches the kernel's FreeformFinSet, which refuses it,
+        // and the whole design blanks (with "Unknown format conversion: g" until
+        // the kernel's %g log line was patched on 2026-09-22; by name since).
         // The v0.105 changelog said the importers already checked this; they did
         // not. A file-supplied outline that fails keeps the default outline and
         // says so, rather than taking the whole rocket down with it.

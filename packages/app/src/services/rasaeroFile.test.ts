@@ -790,9 +790,9 @@ describe('RASAero export', () => {
 
   it('every bundled .CDX1 fixture builds in the kernel', async () => {
     // The regression this pins: a fin with TipChord 0 on a boat tail produced a
-    // repeated tip point, which the kernel reads as a self-intersection and
-    // reports via a Java %g format TeaVM does not implement — buildTree died
-    // with "Unknown format conversion: g" and the design had no CG/CP/Simulate.
+    // repeated tip point, which the kernel refuses as a self-intersection —
+    // buildTree died (then with "Unknown format conversion: g", from a %g log
+    // line patched on 2026-09-22) and the design had no CG/CP/Simulate.
     // Import-only assertions were green throughout, so the build is the test.
     const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
     const { engineTree } = await import('../tree/treeModel.js');

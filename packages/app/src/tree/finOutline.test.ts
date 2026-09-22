@@ -7,8 +7,10 @@ import { engineTree } from './treeModel.js';
  * The contract this file pins is not "some outlines are rejected" — it is that
  * this module rejects EXACTLY what the kernel's FreeformFinSet.intersects()
  * rejects. Stricter and Eric's freeform designs stop being editable; looser and
- * the %g crash (buildTree throws `Unknown format conversion: g`, the design
- * loses mass/CG/CP/stability/exports/Launch) gets through again.
+ * the kernel's refusal (buildTree throws — `Fin set "<name>": its outline
+ * crosses or touches itself…` since 2026-09-22, `Unknown format conversion: g`
+ * before — and the design loses mass/CG/CP/stability/exports/Launch) gets
+ * through again.
  *
  * The last describe block therefore runs the same outlines through the real
  * kernel and asserts the two agree.
@@ -132,8 +134,9 @@ describe('finOutlineProblem agrees with the kernel', () => {
     expect(Number.isFinite(ok.mass)).toBe(true);
     expect(ok.mass).toBeGreaterThan(0);
 
-    // The two outlines the guard exists for. Both throw out of buildTree today
-    // (TeaVM has no %g), which is why the editor must never commit them.
+    // The two outlines the guard exists for. Both throw out of buildTree (the
+    // kernel refuses them and the bridge says so by name), which is why the
+    // editor must never commit them.
     for (const bad of [
       [[0, 0], [0.020, 0.030], [0.005, 0.020], [0.060, 0]] as [number, number][],
       [[0, 0], [0.020, 0.030], [0.020, 0.030], [0.060, 0]] as [number, number][],

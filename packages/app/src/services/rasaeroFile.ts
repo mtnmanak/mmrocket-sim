@@ -345,10 +345,10 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
     };
     if (onTransition) {
       // A zero tip chord (an ordinary triangular/delta fin, and RASAero's
-      // default) would repeat the tip point. The kernel reads that zero-length
-      // edge as a self-intersection and reports it through a Java %g format
-      // that TeaVM does not implement, so the build died with "Unknown format
-      // conversion: g" and the design lost CG, CP, stability and Simulate.
+      // default) would repeat the tip point. The kernel refuses that zero-length
+      // edge as a self-intersection, so the build dies (with "Unknown format
+      // conversion: g" until 2026-09-22, naming the fin set since) and the
+      // design loses CG, CP, stability and Simulate.
       // Collapse the tip to a single point instead.
       fin['points'] = tipChord > 1e-9
         ? [[0, 0], [sweep, height], [sweep + tipChord, height], [rootChord, 0]]
