@@ -6,7 +6,8 @@
 //
 // What that costs, MEASURED 2026-08-25 rather than assumed. To the shipped
 // bundle: NOTHING. App.tsx already value-imports OrkRocket/resetEngine (so do
-// services/batchSweep for OrkRocket and simReport for G0), and no code path in the
+// simReport for G0 and, then, BatchSimulate for OrkRocket — services/batchSweep
+// since the 2026-09-22 audit), and no code path in the
 // app dynamic-imports the engine — so vendor/orkengine.mjs (2,705,823 bytes;
 // 41 ms of top-level eval, since orkEngine.ts imports it statically and TeaVM
 // has no lazy init) is in the eager entry chunk either way. The build emits one

@@ -222,18 +222,20 @@ export function batchFlownSpec(
  * WHAT THE BATCH CALLS EACH CANDIDATE — `<manufacturer> <designation>`.
  *
  * The combination labels used to leave the manufacturer out, and a label is
- * what a combination row stores as its motor: measured on the audit's 29 mm
- * sweep (232 candidates), 9,136 of the 26,796 "3+3" rows shared a label with
- * another row, so a saved run could not be traced to the motors that flew it
- * (audit 2026-09-22). With the manufacturer that fell to 428, every one of them
+ * what a combination row stores as its motor. The audit (2026-09-22) measured
+ * 9,136 of the 26,796 combination rows at 29 mm sharing a label with another
+ * row — every pair of its 232 candidates — so a saved run could not be traced
+ * to the motors that flew it. Re-measured for this fix, the same day and the
+ * same pairs: with the manufacturer alone that falls to 428, every one of them
  * a pair the catalogue itself spells alike once displayDesignation has done
  * its job: Cesaroni's 229H255-14A and 315H255-14A (Pro29-4G and Pro29-6G) are
  * both "H255-14A", and AeroTech's H550ST reload and HP-H550ST DMS are both
  * "H550ST". For exactly those — a name more than one candidate would share —
  * the RAW designation is used instead, which is the catalogue's own identity:
- * no two of the shipped file's 1,156 motors share a name this way (measured
- * 2026-09-22). Two imported EX files with the same designation still can, and
- * that costs only the label — rows are keyed on motor ids (batchRowKey).
+ * no two of the shipped file's 1,156 motors share a name this way (also
+ * measured for this fix). Two imported EX files with the same designation
+ * still can, and that costs only the label — rows are keyed on motor ids
+ * (batchRowKey).
  */
 export function batchMotorNames(
   candidates: readonly Pick<MotorDbEntry, 'motorId' | 'manufacturerAbbrev' | 'designation'>[],
@@ -338,7 +340,7 @@ export function deploysOnEjectionCharge(tree: RocketTree): boolean {
 export function batchDelayRule(input: {
   /** The delay each leg flew the first flight at; Infinity is plugged. */
   flownDelays: readonly number[];
-  /** The kernel's optimum from that flight (its own deployment-free probe). */
+  /** The kernel's optimum from that flight: a coast probe's if it deployed before apogee, else its own apogee's. */
   optimum: number | null;
   autoDelay: boolean;
   deploysOnCharge: boolean;
