@@ -59,11 +59,14 @@ const mount = (tree: RocketTree, onSelect = vi.fn()) => {
 const svgEl = () => host.querySelector('svg')!;
 const finShape = () => host.querySelector('polygon')!;
 
-interface Ptr { x: number; y?: number; id?: number; primary?: boolean; button?: number; buttons?: number }
+interface Ptr {
+  x: number; y?: number; id?: number; primary?: boolean; button?: number; buttons?: number;
+  kind?: 'mouse' | 'touch';
+}
 const pointer = (el: Element, type: string, p: Ptr) => act(() => {
   el.dispatchEvent(new PointerEvent(type, {
     bubbles: true, cancelable: true,
-    pointerId: p.id ?? 1, isPrimary: p.primary ?? true,
+    pointerId: p.id ?? 1, isPrimary: p.primary ?? true, pointerType: p.kind ?? 'mouse',
     clientX: p.x, clientY: p.y ?? 0,
     button: p.button ?? 0,
     buttons: p.buttons ?? (type === 'pointerup' || type === 'pointercancel' ? 0 : 1),
@@ -197,11 +200,13 @@ describe('the gesture belongs to one pointer and one button', () => {
     expect(patches).toHaveLength(1);
   });
 
-  it('losing pointer capture ends the drag', () => {
+  it('losing the pointer capture the drag took ends the drag', () => {
+    // The drag captures on the pressed shape itself, so that is where the
+    // browser fires lostpointercapture when it takes the pointer away.
     const { patches } = mount(rocket([fin({ method: 'top', offset: 0.1 })]));
     pointer(finShape(), 'pointerdown', { x: 200 });
     pointer(svgEl(), 'pointermove', { x: 240 });
-    pointer(svgEl(), 'lostpointercapture', { x: 240 });
+    pointer(finShape(), 'lostpointercapture', { x: 240, buttons: 0 });
     pointer(svgEl(), 'pointermove', { x: 300 });
     expect(patches).toHaveLength(1);
   });
@@ -214,6 +219,50 @@ describe('the gesture belongs to one pointer and one button', () => {
     pointer(svgEl(), 'pointerdown', { x: 100, y: 100, button: 2, buttons: 2 });
     pointer(svgEl(), 'pointermove', { x: 160, y: 140, buttons: 2 });
     expect(transform()).toBe(before);
+  });
+});
+
+describe('a lost capture ends only the gesture whose capture it was', () => {
+  // On touch the browser captures the pointer IMPLICITLY to whatever was
+  // pressed. The pan takes the capture for the svg only once it passes the
+  // slop, which moves it off the pressed shape — and the browser then fires a
+  // bubbling lostpointercapture FROM THAT SHAPE (reproduced in headless Chrome
+  // with CDP touch input). The first cut of the lost-capture handling ended the
+  // pan on it, so a touch pan that started on the rocket froze after its first
+  // step. happy-dom raises no capture events of its own, so the tests fire the
+  // one the browser fires, where it fires it.
+  const transform = () => [...svgEl().querySelectorAll('g')]
+    .map((g) => g.getAttribute('transform') ?? '').find((t) => t.includes('translate')) ?? '';
+  const bodyTube = () => host.querySelector('[aria-label="Select Body tube"]')!;
+
+  it('a touch pan that starts on the rocket survives the hand-off of the capture to the svg', () => {
+    mount(rocket([]));
+    pointer(bodyTube(), 'pointerdown', { x: 200, y: 120, kind: 'touch' });
+    pointer(bodyTube(), 'pointermove', { x: 206, y: 120, kind: 'touch' });
+    expect(transform()).toBe('translate(6 0) scale(1)');
+    // The pan has just taken the capture for the svg: the tube loses its own.
+    pointer(bodyTube(), 'lostpointercapture', { x: 206, y: 120, kind: 'touch' });
+    pointer(svgEl(), 'pointermove', { x: 280, y: 120, kind: 'touch' });
+    expect(transform()).toBe('translate(80 0) scale(1)');
+  });
+
+  it('the pan losing the capture it took ends the pan', () => {
+    mount(rocket([]));
+    pointer(svgEl(), 'pointerdown', { x: 200, y: 120, kind: 'touch' });
+    pointer(svgEl(), 'pointermove', { x: 206, y: 120, kind: 'touch' });
+    pointer(svgEl(), 'lostpointercapture', { x: 206, y: 120, kind: 'touch' });
+    pointer(svgEl(), 'pointermove', { x: 280, y: 120, kind: 'touch' });
+    expect(transform()).toBe('translate(6 0) scale(1)');
+  });
+
+  it('a touch drag of a part is not ended by a lost capture it never held', () => {
+    const { patches } = mount(rocket([fin({ method: 'top', offset: 0.1 })]));
+    pointer(finShape(), 'pointerdown', { x: 200, kind: 'touch' });
+    pointer(finShape(), 'pointermove', { x: 240, kind: 'touch' });
+    expect(patches).toHaveLength(1);
+    pointer(bodyTube(), 'lostpointercapture', { x: 240, kind: 'touch' });
+    pointer(finShape(), 'pointermove', { x: 280, kind: 'touch' });
+    expect(patches).toHaveLength(2);
   });
 });
 

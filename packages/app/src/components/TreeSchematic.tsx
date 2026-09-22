@@ -182,6 +182,9 @@ interface DragState {
   clientScale: number;
   /** The pointer that owns this drag; every other pointer's moves are ignored. */
   pointerId: number;
+  /** The element the drag captured the pointer to — the only one whose
+   *  lostpointercapture ends it (see onLostCapture). */
+  captured: Element;
   /** Past PAN_SLOP yet. Until then the press is a click and patches NOTHING. */
   active: boolean;
   /** The offset the node carries now — the press's own, then each one patched. */
@@ -312,10 +315,13 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   const roll = rollProp ?? rollLocal;
   const setRoll = onRoll ?? setRollLocal;
   // `active` only becomes true once the pointer has travelled past PAN_SLOP —
-  // see beginPan for why a press must not pan until then.
-  const pan = useRef<
-    { pointerX: number; pointerY: number; x0: number; y0: number; active: boolean; pointerId: number } | null
-  >(null);
+  // see beginPan for why a press must not pan until then. `captured` is the
+  // element the pan took the pointer for, set at that same moment (null while
+  // it is only armed and holds no capture of its own) — see onLostCapture.
+  const pan = useRef<{
+    pointerX: number; pointerY: number; x0: number; y0: number; active: boolean; pointerId: number;
+    captured: Element | null;
+  } | null>(null);
 
   // --- measure the axial chain ---
   // Stages flatten into one nose-to-tail chain (sustainer first, boosters
@@ -448,8 +454,10 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
       e.stopPropagation(); // don't also start a background pan
       dragMoved.current = false;
       const pos = (child.position ?? { method: 'top', offset: 0 }) as ComponentPosition;
+      const captured = e.currentTarget as Element;
       drag.current = {
         pointerId: e.pointerId,
+        captured,
         active: false,
         offset: pos.offset,
         childId: child.id,
@@ -465,7 +473,9 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
         pointerX: e.clientX,
         clientScale: w / rect.width,
       };
-      (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+      // Taken INSIDE pointerdown, so on touch it replaces the browser's
+      // implicit capture before that one ever lands: no lostpointercapture.
+      captured.setPointerCapture?.(e.pointerId);
     };
 
   /**
@@ -502,7 +512,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
     if (!rect || rect.width === 0) return;
     pan.current = {
       pointerX: e.clientX, pointerY: e.clientY, x0: zoom.x, y0: zoom.y, active: false,
-      pointerId: e.pointerId,
+      pointerId: e.pointerId, captured: null,
     };
   };
 
@@ -550,7 +560,8 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
       if (!p.active) {
         if (Math.abs(dx) < PAN_SLOP && Math.abs(dy) < PAN_SLOP) return;
         p.active = true;
-        (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+        p.captured = e.currentTarget as Element;
+        p.captured.setPointerCapture?.(e.pointerId);
       }
       const rect = svgRef.current?.getBoundingClientRect();
       if (!rect || rect.width === 0) return;
@@ -564,6 +575,25 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   const endDrag = (e: React.PointerEvent) => {
     if (drag.current?.pointerId === e.pointerId) drag.current = null;
     if (pan.current?.pointerId === e.pointerId) pan.current = null;
+  };
+
+  /**
+   * A lost capture ends a gesture only when it is the capture THAT gesture
+   * took. On touch the browser captures the pointer implicitly to whatever was
+   * pressed; the pan takes it for the svg only once it passes the slop (see
+   * beginPan for why not on press), which moves it off the pressed shape — and
+   * the browser fires lostpointercapture from that shape, bubbling up to here.
+   * The first cut of this handler was endDrag itself, which ended the pan on
+   * it: a touch pan that started on the nose, a tube or a ruler froze after
+   * its first step, and once zoomed in that is nearly every touch pan
+   * (reproduced in Chrome with CDP touch input, review of audit 2026-09-22).
+   * An armed pan holds no capture of its own, so nothing here can end it.
+   */
+  const onLostCapture = (e: React.PointerEvent) => {
+    const d = drag.current;
+    if (d?.pointerId === e.pointerId && e.target === d.captured) drag.current = null;
+    const p = pan.current;
+    if (p?.pointerId === e.pointerId && p.captured && e.target === p.captured) pan.current = null;
   };
 
   // Track the container's size so the viewBox can follow it (height feeds
@@ -1647,9 +1677,10 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
           onPointerUp={vertical ? undefined : endDrag}
           onPointerLeave={vertical ? undefined : endDrag}
           // A gesture the browser takes over ends here rather than living on
-          // to be driven by whatever pointer moves next (audit 2026-09-22).
+          // to be driven by whatever pointer moves next (audit 2026-09-22) —
+          // a lost capture only when it is the gesture's own (onLostCapture).
           onPointerCancel={vertical ? undefined : endDrag}
-          onLostPointerCapture={vertical ? undefined : endDrag}>
+          onLostPointerCapture={vertical ? undefined : onLostCapture}>
         <defs>
           {/* Bulkhead fill: the engineering-drawing diagonal hatch. */}
           <pattern id="bulkhead-hatch" patternUnits="userSpaceOnUse" width="5" height="5">
