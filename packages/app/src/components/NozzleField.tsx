@@ -166,9 +166,12 @@ export function NozzleField({
           the difference moves apogee. Yours is kept — a value that came in with your own file is not
           overwritten. Change the motor and it will follow the new one.
           {' '}
+          {/* Credited the way the sentence above credits it: the button used to
+              say "Use Klima's" for a figure from the user's own .rse while the
+              sentence said the file (audit 2026-09-22). */}
           <button className="file-btn" style={{ marginLeft: 4 }}
             onClick={() => onCommit(published)}>
-            Use {maker}&rsquo;s {ui(published)}
+            Use {fromFile ? 'the file' : maker}&rsquo;s {ui(published)}
           </button>
         </p>
       )}

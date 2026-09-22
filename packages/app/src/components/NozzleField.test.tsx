@@ -381,6 +381,19 @@ describe('NozzleField — a figure that came from an imported motor file', () =>
     expect(text()).not.toMatch(/Klima publish/);
   });
 
+  it('labels the accept button with the file too, and it still commits the file’s figure', async () => {
+    // Audit 2026-09-22: the sentence beside it said "the motor file you
+    // imported says …" while the button read "Use Klima’s 5 mm" — crediting a
+    // manufacturer for a number that came from the user's own .rse.
+    await render({ exitDiameterM: 0.009, motorIds: [EX_ID], motorLabel: 'B2' });
+    const btn = [...host.querySelectorAll('button')].find((b) => /^Use /.test(b.textContent ?? ''));
+    expect(btn, 'the accept button').toBeTruthy();
+    expect(btn!.textContent).not.toMatch(/Klima/);
+    expect(btn!.textContent).toMatch(/^Use the file’s /);
+    act(() => { btn!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    expect(committed[committed.length - 1]).toBeCloseTo(EX_EXIT_M, 9);
+  });
+
   it('says nothing for an EX motor whose file carried no exit', async () => {
     addExMotors([{
       motorId: 'ex:no-exit', designation: 'M1234', realManufacturer: 'EX Labs',
