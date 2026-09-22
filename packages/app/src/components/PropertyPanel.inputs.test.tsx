@@ -145,6 +145,52 @@ describe('PropertyPanel — every field label names its own control', () => {
   });
 });
 
+describe('PropertyPanel — a "default:" or "auto:" figure in metres', () => {
+  const prefs = (p: Record<string, unknown>) =>
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify(p));
+
+  /**
+   * Audit 2026-09-22 (review of the fix): these placeholders were rounded to
+   * three decimals in the DISPLAY unit, and the spinner reads its base back
+   * out of the placeholder. In metres a pre-v0.103 rail button's kernel 9.7 mm
+   * read "default: 0.01", and one ▴ committed 10.5 mm, not 9.7 + 0.5.
+   */
+  it("a rail button's kernel default reads 0.0097 m, and ▴ steps from 9.7 mm", () => {
+    prefs({ units: { length: 'm' } });
+    const rb = { id: 'rb', type: 'railbutton', name: 'rb' } as unknown as ComponentNode;
+    show(treeOf(tube('A', { children: [rb] })), rb);
+    expect(inputNamed('Outer diameter (m)').placeholder).toBe('default: 0.0097');
+    click(spinner('Outer diameter (m)', 0));
+    expect(patches.at(-1)!['outerDiameter']).toBeCloseTo(0.0102, 9);
+  });
+
+  it("a tube-fin set's auto radius keeps its figures, and ▾ steps from the exact radius", () => {
+    prefs({ units: { length: 'm' }, radiusMode: 'radius' });
+    // Five tubes touching round a 20 mm-radius body: r = R·s / (1 − s), s = sin(π/5),
+    // 28.52 mm — "auto: 0.029" at three decimals.
+    const tf = { id: 'tf', type: 'tubefinset', name: 'tf', finCount: 5, length: 0.1,
+      thickness: 0.0005 } as unknown as ComponentNode;
+    show(treeOf(tube('A', { children: [tf] })), tf);
+    const s = Math.sin(Math.PI / 5);
+    const auto = 0.02 * s / (1 - s);
+    expect(inputNamed('Outer radius (m)').placeholder).toBe('auto: 0.0285');
+    click(spinner('Outer radius (m)', 1));
+    expect(patches.at(-1)!['outerRadius']).toBeCloseTo(auto - 0.0005, 5);
+  });
+
+  it('the mass and CG overrides step from the computed figures, not their rounding', () => {
+    // In kg a 4.5 g part's placeholder reads "0.004" and a 123.4 mm CG in m
+    // reads "0.123"; ▴ committed 4.1 g and 124 mm.
+    prefs({ units: { length: 'm', mass: 'kg' } });
+    const a = tube('A');
+    show(treeOf(a), a, { ...infoOf(0.0045), cgX: 0.1234 } as ComponentInfo);
+    click(spinner('Mass override', 0));
+    expect(patches.at(-1)!['overrideMass']).toBeCloseTo(0.0046, 9);
+    click(spinner('CG override, from component top', 0));
+    expect(patches.at(-1)!['overrideCGX']).toBeCloseTo(0.1244, 9);
+  });
+});
+
 describe('PropertyPanel — clearing a field', () => {
   /** Native setter + input event, after a real focus — a keystroke. */
   const typeInto = (el: HTMLInputElement, text: string) => {

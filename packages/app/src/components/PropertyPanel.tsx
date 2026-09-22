@@ -30,7 +30,7 @@ import { componentDxf, DXF_CUTTABLE, DXF_MIME } from '../services/dxfExport.js';
 import { buildPrintPack, printOffer, SINGLE_BUTTON, ZIP_MIME } from '../services/printPack.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { printerName, toPrinterVolume } from '../prefs/printers.js';
-import { fmtSi, niceStep, siToUi, uiToSi, type Quantity } from '../prefs/units.js';
+import { fmtSi, fmtSig, niceStep, siToUi, uiToSi, type Quantity } from '../prefs/units.js';
 import { BULK_MATERIALS, LINE_MATERIALS, SURFACE_MATERIALS, type MaterialDef } from '../data/materials.js';
 import { PresetPicker } from './PresetPicker.js';
 import { KIND_FOR_TYPE } from '../services/presets.js';
@@ -535,12 +535,19 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
     let maxSi: number | undefined;
     let maxCount: number | undefined;
     let autoPlaceholder: string | undefined;
+    // The exact figure behind a numeric placeholder, in the display unit. The
+    // placeholder is rounded for reading (fmtSig, NumField's own display rule);
+    // the spinner steps from THIS. Both used to be one `toFixed(3)` string in
+    // the display unit, which NumField parsed back as the spinner's base (audit
+    // 2026-09-22): in metres the kernel's 9.7 mm rail button read
+    // "default: 0.01", and one ▴ committed 10.5 mm instead of 10.2.
+    let autoValue: number | undefined;
     if (tubeFinBodyR !== null && f.key === 'outerRadius') {
       const n = Math.round(typeof node['finCount'] === 'number' ? (node['finCount'] as number) : 6);
       maxSi = tubeFinMaxRadius(n, tubeFinBodyR) ?? undefined;
       if (typeof raw !== 'number') {
-        const autoUi = toDisplay(tubeFinRadius(node, tubeFinBodyR));
-        autoPlaceholder = `auto: ${Number(autoUi.toFixed(3))}`;
+        autoValue = toDisplay(tubeFinRadius(node, tubeFinBodyR));
+        autoPlaceholder = `auto: ${fmtSig(autoValue, 3, 3)}`;
       }
     }
     if (tubeFinBodyR !== null && f.key === 'finCount') {
@@ -577,11 +584,15 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
     // Same idiom as the shape-parameter default above.
     if (node.type === 'railbutton' && typeof raw !== 'number') {
       const dflt = RAILBUTTON_DEFAULTS[f.key];
-      if (dflt !== undefined) autoPlaceholder = `default: ${Number(toDisplay(dflt).toFixed(3))}`;
+      if (dflt !== undefined) {
+        autoValue = toDisplay(dflt);
+        autoPlaceholder = `default: ${fmtSig(autoValue, 3, 3)}`;
+      }
     }
     // NumField rejects typed values above max — round the display cap up a
-    // hair so typing the shown 3-decimal limit still lands; the commit clamp
-    // below keeps the stored SI value exactly at the ceiling.
+    // hair so typing the limit as NumField shows it (three decimals, or three
+    // figures below 0.1) still lands; the commit clamp below keeps the stored
+    // SI value exactly at the ceiling.
     const maxUi = f.unit === 'count'
       ? maxCount
       : maxSi !== undefined ? Math.ceil(toDisplay(maxSi) * 1e4) / 1e4 : undefined;
@@ -664,6 +675,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
           min={f.unit === 'count' ? (f.smin ?? 1) : undefined}
           max={maxUi}
           placeholder={autoPlaceholder}
+          autoValue={autoValue}
           // Only a field whose blank MEANS something can be cleared; on any
           // other, an emptied box commits nothing and reverts on blur
           // (FieldDef.optional).
@@ -1300,6 +1312,10 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
               step={niceStep(siToUi('mass', massSym, 0.0001))}
               nullable
               placeholder={info ? fmtSi('mass', massSym, info.mass) : undefined}
+              // The spinner steps from the computed figure itself, not from the
+              // placeholder's rounding of it: in kg a 4.5 g part reads "0.004",
+              // and ▴ committed 4.1 g (audit 2026-09-22, as `autoValue` above).
+              autoValue={info ? siToUi('mass', massSym, info.mass) : undefined}
               onCommit={(v) => onPatch(v === null
                 ? { overrideMass: undefined, overrideSubcomponentsMass: undefined, ...statedLaunchMark }
                 : { overrideMass: uiToSi('mass', massSym, v), ...statedLaunchMark })}
@@ -1324,6 +1340,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
               allowNegative
               nullable
               placeholder={info ? fmtSi('length', lengthSym, info.cgX, 3) : undefined}
+              autoValue={info ? lenToUi(info.cgX) : undefined}
               onCommit={(v) => onPatch(v === null
                 ? { overrideCGX: undefined, overrideSubcomponentsCG: undefined, ...statedLaunchMark }
                 : { overrideCGX: lenFromUi(v), ...statedLaunchMark })}
