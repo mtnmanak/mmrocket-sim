@@ -185,6 +185,42 @@ describe('a damaged curve from thrustcurve.org never reaches the kernel as NaN',
     await expect(tc.fetchMotorSpec(QUEST_C6, 5)).rejects.toThrow(/No sample data available for C6/);
   });
 
+  it('skips a null or non-object file in `results` instead of throwing a TypeError', async () => {
+    // Audit 2026-09-22: `{"results":[null]}` threw "Cannot read properties of
+    // null (reading 'samples')" out of pickSampleFile, naming no motor.
+    const tc = await freshModule();
+    vi.stubGlobal('fetch', vi.fn(async () => okResponse({ results: [null, 7, 'x'] })));
+    await expect(tc.fetchMotorSpec(QUEST_C6, 5)).rejects.toThrow(/No sample data available for C6/);
+    // …and a sound file beside the junk is still found.
+    vi.stubGlobal('fetch', vi.fn(async () =>
+      okResponse({ results: [null, { format: 'RASP', samples: GOOD_SAMPLES }] })));
+    const spec = await tc.fetchMotorSpec(QUEST_C6, 5);
+    expect(spec.masses.every((m) => Number.isFinite(m))).toBe(true);
+  });
+
+  it('reads the body capped, and names the motor when it runs past the cap', async () => {
+    // Audit 2026-09-22: `res.json()` read any size of body whole. This one
+    // is well-formed JSON a little over 4 MB — the old reader flew it.
+    const tc = await freshModule();
+    const big = JSON.stringify({ results: [{ format: 'RASP', samples: GOOD_SAMPLES }], pad: 'x'.repeat(4.5e6) });
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(big, { status: 200 })));
+    await expect(tc.fetchMotorSpec(QUEST_C6, 5)).rejects.toThrow(/answer for C6 ran past 4 MB/);
+  });
+
+  it('reads an ordinary streamed body exactly as before', async () => {
+    const tc = await freshModule();
+    vi.stubGlobal('fetch', vi.fn(async () =>
+      new Response(JSON.stringify({ results: [{ format: 'RASP', samples: GOOD_SAMPLES }] }), { status: 200 })));
+    const spec = await tc.fetchMotorSpec(QUEST_C6, 5);
+    expect(spec.masses.every((m) => Number.isFinite(m))).toBe(true);
+  });
+
+  it('names the motor when the body is not JSON at all', async () => {
+    const tc = await freshModule();
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('<html>502 Bad Gateway</html>', { status: 200 })));
+    await expect(tc.fetchMotorSpec(QUEST_C6, 5)).rejects.toThrow(/answer for C6 was not readable/);
+  });
+
   it('drops a cached entry whose samples are not numeric and re-fetches', async () => {
     const tc = await freshModule();
     localStorage.setItem(CACHE_KEY, JSON.stringify({ samples: [{ thrust: 5 }, { thrust: 7 }] }));

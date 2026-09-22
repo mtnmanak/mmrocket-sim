@@ -60,6 +60,59 @@ export interface TcHeaderMasses {
 }
 
 /**
+ * Most bytes of a download.json body read. One motor's answer — its handful
+ * of simulator files, samples and raw text both — is tens of kilobytes; the
+ * origin is a pinned HTTPS service, so this is defence in depth against a
+ * body that never ends, not a limit any real answer comes near (audit
+ * 2026-09-22: the body was read whole with `res.json()`). It also bounds what
+ * headerMasses hands to `atob`: the raw file text only ever arrives inside
+ * this body.
+ */
+const MAX_DOWNLOAD_BYTES = 4 * 1024 * 1024;
+
+/**
+ * A response body as JSON, read as a stream and refused past
+ * MAX_DOWNLOAD_BYTES — the shareLink `inflateCapped` pattern. `designation`
+ * names the motor in both refusals, so neither reaches the user as a bare
+ * parser error. A response with no body stream falls back to `json()`.
+ */
+async function readJsonCapped(res: Response, designation: string): Promise<unknown> {
+  const tooBig = () => new Error(`thrustcurve.org's answer for ${designation} ran past `
+    + `${MAX_DOWNLOAD_BYTES / (1024 * 1024)} MB, far beyond any real motor file, so it was not read.`);
+  if (Number(res.headers?.get('content-length')) > MAX_DOWNLOAD_BYTES) throw tooBig();
+  if (!res.body) return res.json();
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.length;
+      if (total > MAX_DOWNLOAD_BYTES) throw tooBig();
+      chunks.push(value);
+    }
+  } finally {
+    // Stop the download the moment the loop exits early; a finished stream
+    // makes this a resolved no-op.
+    reader.cancel().catch(() => { /* already errored — nothing to release */ });
+  }
+  const bytes = new Uint8Array(total);
+  let off = 0;
+  for (const c of chunks) {
+    bytes.set(c, off);
+    off += c.length;
+  }
+  const text = new TextDecoder().decode(bytes);
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`thrustcurve.org's answer for ${designation} was not readable, so no curve `
+      + 'came with it. Try again, or import the motor\'s .rse/.eng file.');
+  }
+}
+
+/**
  * Loaded/propellant masses that could describe a real motor: both finite, both
  * positive, and no more propellant than the motor weighs loaded.
  *
@@ -846,7 +899,7 @@ export async function fetchMotorSpec(
 
   if (!samples) {
     const limit = deadline(signal, FETCH_TIMEOUT_MS);
-    let body: { results?: TcSimFile[] };
+    let body: { results?: unknown } | null | undefined;
     try {
       const res = await fetch(`${API}/download.json`, {
         method: 'POST',
@@ -860,8 +913,9 @@ export async function fetchMotorSpec(
         throw new Error(`thrustcurve.org download failed: HTTP ${res.status}`);
       }
       // Reading the body is inside the deadline too: a connection that answers
-      // its headers and then stalls hangs here, not in fetch().
-      body = (await res.json()) as { results?: TcSimFile[] };
+      // its headers and then stalls hangs here, not in fetch(). And it is read
+      // CAPPED, never whole (see readJsonCapped).
+      body = (await readJsonCapped(res, motor.designation)) as { results?: unknown } | null;
     } catch (err) {
       if (limit.timedOut()) {
         throw new Error(
@@ -877,8 +931,12 @@ export async function fetchMotorSpec(
 
     // Array.isArray, not `?? []`: a body whose `results` is a string or an
     // object reached .map() as a TypeError with no motor name in it. Same
-    // failure class as the sample guard below — trust nothing in this body.
-    const results = Array.isArray(body?.results) ? body.results : [];
+    // failure class as the sample guard below — trust nothing in this body,
+    // its ELEMENTS included: `{"results":[null]}` threw "Cannot read
+    // properties of null" from pickSampleFile (audit 2026-09-22).
+    const results = Array.isArray(body?.results)
+      ? body.results.filter((f): f is TcSimFile => typeof f === 'object' && f !== null)
+      : [];
     const file = pickSampleFile(results, motor);
     if (!file?.samples) {
       // pickSampleFile rejects a file whose samples are not finite time/thrust
