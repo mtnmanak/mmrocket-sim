@@ -927,17 +927,29 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
     }
   };
 
-  const convertChildren = (parentEl: Element): ComponentNode[] => {
+  // Components nest at most MAX_NESTING levels below their stage; deeper
+  // ones are left out, with a note. Audit 2026-09-22: import took any depth
+  // the exporter could not give back — it recurses AND indents per level, so
+  // depth 500 saved as 5.7 MB and 1,500 as 50 MB (after a 15.7 s import), and
+  // in a browser's smaller stack Save threw RangeError on the user's own
+  // design. The deepest real design in the corpus nests 5 levels.
+  const MAX_NESTING = 64;
+  let tooDeep = false;
+  const convertChildren = (parentEl: Element, depth = 1): ComponentNode[] => {
     const out: ComponentNode[] = [];
     const wrap = parentEl.querySelector(':scope > subcomponents');
     if (!wrap) return out;
+    if (depth > MAX_NESTING) {
+      if (wrap.children.length > 0) tooDeep = true;
+      return out;
+    }
     for (const el of Array.from(wrap.children)) {
       const node = convertElement(el);
       if (node === null) {
         ignored.add(el.tagName);
         continue;
       }
-      const kids = convertChildren(el);
+      const kids = convertChildren(el, depth + 1);
       if (kids.length > 0) node.children = kids;
       out.push(node);
     }
@@ -998,6 +1010,10 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   }
   if (ignored.size) {
     notes.push(`Ignored unsupported components: ${[...ignored].join(', ')}.`);
+  }
+  if (tooDeep) {
+    notes.push(`Components nested more than ${MAX_NESTING} levels deep were left out — no real design `
+      + 'nests that far, so the file is probably damaged or crafted.');
   }
 
   // Say when a dimension was INFERRED. The user opened an archived file and got

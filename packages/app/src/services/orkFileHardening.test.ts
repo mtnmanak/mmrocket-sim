@@ -265,6 +265,38 @@ describe('a long chain of automatic radii resolves in linear time', () => {
   });
 });
 
+describe('component nesting is capped at import', () => {
+  // Audit 2026-09-22: import took any depth and the exporter could not give
+  // it back — it recurses and indents per level, so depth 1,500 saved as
+  // 50 MB (measured at the old code) and threw RangeError in a browser's
+  // stack. The cap is 64 levels below the stage; real designs nest 5.
+  const nested = (n: number): string => {
+    let open = '';
+    for (let i = 0; i < n; i++) {
+      open += `<bodytube><name>t${i}</name><length>0.1</length><radius>0.02</radius>`
+        + '<thickness>0.001</thickness><subcomponents>';
+    }
+    return orkXml(open + '</subcomponents></bodytube>'.repeat(n));
+  };
+  const depth = (ns: ComponentNode[], k = 0): number =>
+    ns.reduce((m, n) => Math.max(m, depth(n.children ?? [], k + 1)), k);
+
+  it('keeps a design exactly 64 levels deep whole, with no note', () => {
+    const r = importOrk(nested(64));
+    expect(depth(r.tree.components)).toBe(65); // the stage, then 64 levels
+    expect(r.notes.some((n) => /nested more than/.test(n))).toBe(false);
+  });
+
+  it('leaves out what is deeper, says so, and can save what it kept', () => {
+    const r = importOrk(nested(500));
+    expect(depth(r.tree.components)).toBe(65);
+    expect(r.notes).toContain('Components nested more than 64 levels deep were left out — no real '
+      + 'design nests that far, so the file is probably damaged or crafted.');
+    const saved = exportOrk({ name: 'Deep', tree: r.tree });
+    expect(saved.length).toBeLessThan(500_000); // 5.7 MB at the old code
+  });
+});
+
 describe('flight-configuration ids survive the exporter as XML', () => {
   // A configid is file-sourced free text kept verbatim as the stable key.
   // This one is legal in a .ork (`configid="Main &amp; backup"` and friends)
