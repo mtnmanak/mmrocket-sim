@@ -152,13 +152,33 @@ export interface LaunchFlight {
  * Launch: fly the design as it stands, and say what flew.
  */
 export function flyLaunch(rocket: FlightHandle, input: LaunchInput): LaunchFlight {
-  const { primaryMountId, simOptions, aeroMode } = input;
-  const primary = input.assigned.find(([id]) => id === primaryMountId)?.[1];
+  const primary = input.assigned.find(([id]) => id === input.primaryMountId)?.[1];
   if (!primary) throw new Error('no motor on the primary mount — assign one first');
   const now = input.now ?? (() => performance.now());
-  // Never fly inherited handle state — see applyAssignedMotors. This is also
-  // what makes the auto-delay write further down safe to leave unrestored.
+  // Never fly inherited handle state — see applyAssignedMotors.
   applyAssignedMotors(rocket, input);
+  try {
+    return flyFromCleanHandle(rocket, input, primary, now);
+  } finally {
+    // And never LEAVE any. The auto-delay write below puts the rounded optimum
+    // on the primary, and this used to be called "safe to leave unrestored"
+    // because Launch starts from applyAssignedMotors — which held only while
+    // EVERY path did, and the two re-fly paths did not: "Show charts" on a
+    // stored 9 s run, after an auto-delay Launch had left 7 s behind, deployed
+    // at 1.76 m/s under a report saying 18.14 (audit 2026-09-22). Every path
+    // now starts from the design, and this puts the design back as well.
+    //
+    // The aero flag an Auto upgrade set is deliberately left: the upgrade
+    // callback has already moved the app's own state to the supersonic model,
+    // so the handle and the design agree, and the rebuild that follows keeps it.
+    applyAssignedMotors(rocket, input);
+  }
+}
+
+function flyFromCleanHandle(
+  rocket: FlightHandle, input: LaunchInput, primary: MountMotor, now: () => number,
+): LaunchFlight {
+  const { primaryMountId, simOptions, aeroMode } = input;
   // The cost the time-step caution quotes is ONE flight at the current step,
   // so each full flight is timed alone and the LAST measurement wins — that is
   // the flight whose result is shown. t0 used to sit before the Mach probe, so
@@ -246,32 +266,39 @@ export interface ReflyInput extends AssignedMotors {
  * Re-fly a STORED run: the same design, motors and conditions, at the delay and
  * on the model that run flew. The physics is deterministic (fixed seed), so
  * this reproduces the stored flight exactly rather than approximating it.
+ *
+ * It starts from the design (applyAssignedMotors) and writes the run's delay
+ * UNCONDITIONALLY. Both halves matter, and the second is the one that was
+ * missing: the charts and CSV paths used to write the delay only when
+ * `delayS` differed from the SPEC's, trusting the handle to hold the spec
+ * otherwise — and an auto-delay Launch had left its rounded optimum there. A
+ * stored run whose delay WAS the spec's was then re-flown at the optimum, and
+ * the "Show charts" result is cached under the run's id, so the vitals
+ * apogee, the plots and the flight-data CSV/XLSX all showed the wrong flight
+ * (audit 2026-09-22, measured on the starter rocket with an F39-9: stored
+ * deployment 18.14 m/s, re-fly 1.76 m/s).
  */
 export function reflyRun(rocket: FlightHandle, input: ReflyInput): FlightResult {
   const { primaryMountId, delayS, simOptions, fly, restore } = input;
-  const primary = input.assigned.find(([id]) => id === primaryMountId)?.[1];
-  // Did this re-fly write a foreign ejection delay onto the SHARED engine
-  // handle? `delayS` is the delay the stored run FLEW, which differs from the
-  // spec's whenever auto delay chose the optimum.
-  const wroteDelay = primary !== undefined && delayS !== primary.spec.ejectionDelay;
+  if (!input.assigned.some(([id]) => id === primaryMountId)) {
+    throw new Error('no motor on the primary mount — assign one first');
+  }
+  applyAssignedMotors(rocket, input);
   try {
-    if (wroteDelay) writePrimaryDelay(rocket, input, primaryMountId, delayS);
+    writePrimaryDelay(rocket, input, primaryMountId, delayS);
     rocket.setSupersonicAero(fly.supersonic);
     rocket.setRogersModifiedBarrowman(fly.kbf);
     return rocket.simulate(simOptions);
   } finally {
-    // Hand the shared handle back exactly as it was found: the drag panel and
-    // the component table read it too, and they follow the CURRENT model.
+    // Hand the shared handle back as the design has it: the drag panel and the
+    // component table read it too, and they follow the CURRENT model.
     rocket.setSupersonicAero(restore.supersonic);
     rocket.setRogersModifiedBarrowman(restore.kbf);
-    // The MOTOR too, and for the same reason: a finally that restored only the
-    // aero model left the run's ejection delay on the shared handle, so the
-    // next Launch flew a delay the report never mentions.
-    if (wroteDelay) {
-      try { writePrimaryDelay(rocket, input, primaryMountId, primary.spec.ejectionDelay); } catch {
-        // A motor the kernel refuses is already reported by the build's
-        // motorFailures; failing to restore it must not also lose the flight.
-      }
-    }
+    // The MOTORS too, and for the same reason: a finally that restored only
+    // the aero model left the run's ejection delay on the shared handle, so the
+    // next Launch flew a delay the report never mentions. applyAssignedMotors
+    // swallows a refusal (the build already reported it), so a restore can
+    // never replace the error that brought us here.
+    applyAssignedMotors(rocket, input);
   }
 }

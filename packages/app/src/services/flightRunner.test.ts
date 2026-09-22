@@ -1,7 +1,13 @@
-import { describe, expect, it } from 'vitest';
-import type { FlightResult, IgnitionEvent, MotorSpec } from '@online-openrocket/engine';
+import { beforeAll, describe, expect, it } from 'vitest';
+import type { FlightResult, IgnitionEvent, MotorSpec, OrkRocket } from '@online-openrocket/engine';
 import type { MountMotor } from '../App.js';
+import { DEFAULT_CONDITIONS, kernelSimOptions } from '../components/LaunchPanel.js';
+import { defaultTree, engineTree, flownRecoveryDevices, motorMounts } from '../tree/treeModel.js';
 import { flyLaunch, reflyRun, type FlightHandle, type LaunchInput } from './flightRunner.js';
+import { findDbMotor } from './motorDb.js';
+import { mountMotorFromDb } from './motorMatch.js';
+import { buildSimRun } from './simReport.js';
+import { fetchMotorSpec } from './thrustcurve.js';
 
 /**
  * The flight runner, flown — the behavioural replacement for the source-text
@@ -124,4 +130,85 @@ describe('flight runner — the shared handle is handed back', () => {
     const lastPrimary = [...after].reverse().find((c) => c[0] === 'motor' && c[1] === 'sustainer');
     expect(lastPrimary).toEqual(['motor', 'sustainer', 10]);
   });
+});
+
+// ---------------------------------------------------------------------------
+// The delay contract, flown on the REAL kernel — the audit's measured case.
+// ---------------------------------------------------------------------------
+
+/**
+ * The starter rocket on an AeroTech F39-9 from the bundled curve: 9 s is
+ * longer than this flight's 6.85 s optimum, so auto delay flies 7 s. Measured
+ * by the 2026-09-22 audit — the stored 9 s run deploys at 18.14 m/s; its
+ * "Show charts" re-fly after an auto-delay Launch deployed at 1.76 m/s, the
+ * 7 s flight, under copy promising it "reproduces this exact flight".
+ */
+describe('flight runner — a stored run re-flies at the delay it flew (real kernel)', () => {
+  let rocket: OrkRocket;
+  let engine: ReturnType<typeof engineTree>;
+  let motors: (auto: boolean) => LaunchInput;
+
+  beforeAll(async () => {
+    const { OrkRocket: Ork, resetEngine } = await import('@online-openrocket/engine');
+    const tree = defaultTree();
+    const mount = motorMounts(tree)[0]!.id!;
+    const db = findDbMotor('F39', undefined, undefined, 'AeroTech')!;
+    const f39 = mountMotorFromDb(db, await fetchMotorSpec(db, 9), 9, { event: 'automatic', delay: 0 });
+    resetEngine();
+    engine = engineTree(tree);
+    rocket = Ork.buildTree(engine);
+    rocket.setRogersModifiedBarrowman(false);
+    rocket.setSupersonicAero(false);
+    rocket.setMotorById(mount, f39.spec);
+    motors = (auto) => ({
+      assigned: [[mount, { ...f39, meta: { ...f39.meta, autoDelay: auto } }]],
+      hardware: undefined,
+      primaryMountId: mount,
+      simOptions: kernelSimOptions(DEFAULT_CONDITIONS),
+      aeroMode: 'classic',
+      supersonic: false,
+      isOnLaunchStage: () => true,
+      onSupersonicUpgrade: () => {},
+    });
+  }, 60_000);
+
+  const deployAt = (res: FlightResult, delayS: number) => buildSimRun({
+    result: res, info: rocket.staticInfo(),
+    motor: { ...motors(false).assigned[0]![1].spec, ejectionDelay: delayS },
+    meta: { label: 'F39-9' }, launch: DEFAULT_CONDITIONS, rocketName: 'starter', execMs: 1,
+    flownRecovery: flownRecoveryDevices(engine),
+  }).velocityAtDeployment;
+  const classic = { supersonic: false, kbf: false };
+
+  it('Show charts after an auto-delay Launch reproduces the stored 9 s flight, not the 7 s one', () => {
+    const runA = flyLaunch(rocket, motors(false)); // auto off: flies the spec
+    const runB = flyLaunch(rocket, motors(true)); // auto on: flies the optimum
+    expect(runA.flownDelayS).toBe(9);
+    expect(runB.flownDelayS).toBe(7);
+    expect(deployAt(runA.result, 9)).toBeCloseTo(18.14, 2);
+    expect(deployAt(runB.result, 7)).toBeCloseTo(1.76, 2);
+
+    const refly = reflyRun(rocket, {
+      ...motors(true), delayS: runA.flownDelayS,
+      simOptions: kernelSimOptions(DEFAULT_CONDITIONS), fly: classic, restore: classic,
+    });
+    expect(refly.summary).toEqual(runA.result.summary);
+  }, 60_000);
+
+  it('Launch hands the handle back at the spec delay, whatever auto delay flew', () => {
+    const plain = flyLaunch(rocket, motors(false)).result.summary;
+    flyLaunch(rocket, motors(true));
+    // Anything that flies the bare handle next — the next path to forget the
+    // protocol — gets the design as it stands, not the auto delay.
+    expect(rocket.simulate(kernelSimOptions(DEFAULT_CONDITIONS)).summary).toEqual(plain);
+  }, 60_000);
+
+  it('the auto-delay run itself re-flies at its own 7 s', () => {
+    const runB = flyLaunch(rocket, motors(true));
+    const refly = reflyRun(rocket, {
+      ...motors(true), delayS: runB.flownDelayS,
+      simOptions: kernelSimOptions(DEFAULT_CONDITIONS), fly: classic, restore: classic,
+    });
+    expect(refly.summary).toEqual(runB.result.summary);
+  }, 60_000);
 });
