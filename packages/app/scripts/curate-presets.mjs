@@ -23,7 +23,9 @@
  * within that group by exact field equality, and `descIncludes` by a substring
  * of the description. Together they must select EXACTLY ONE row: zero or two is
  * a hard error, never a silent skip, because "the data moved under us" is the
- * failure this file has to catch rather than paper over.
+ * failure this file has to catch rather than paper over. A rename's target
+ * number must also be FREE under its kind and manufacturer — landing on an
+ * occupied one files two parts under one key, and is the same hard error.
  *
  * IDEMPOTENT. A drop whose row is already gone, and a rename whose target name
  * is already in place, both count as done. Running twice changes nothing and
@@ -223,10 +225,34 @@ export const CURATIONS = [
     why: `RockSim's "${name}" is a mass-exact duplicate of ${dup}, which carries the `
       + 'manufacturer\'s own Cd, spill hole, gore count and fabric. Ruled 2026-09-03.',
   })),
+  // --- Quest PNC35N: the RockSim row goes, the desktop row stays.
+  //
+  // This USED to be a rename ('Quest' → PNC35N, same class as the AeroTech
+  // couplers), and the rename landed on a number that was already taken: the
+  // desktop-24.12 PNC35N, 8.0 in and 25.5 g. The file then held two "Quest
+  // PNC35N" nose cones, and the RockSim one's 13.3 g became the overrideMass of
+  // any nose it was applied to — against 23.5–25.5 g from two independent
+  // sources (audit 2026-09-22). Settled by the owner's standing "keep desktop,
+  // drop RockSim" rule (open-items.md, 2026-09-03b: "no decision needed").
+  // planCurations now refuses any rename onto an occupied key.
+  //
+  // Two entries for one row, because it can arrive in two shapes: a fresh
+  // regeneration still files it as partNo "Quest" (the first entry, which
+  // empties its group — hence `dropsGroup`), and a presets.json curated before
+  // this fix already carries the collided "PNC35N" (the second). Each reads as
+  // `already` in the other's shape. Typo protection for the `dropsGroup` entry
+  // is manufacturers.test.mjs, which asserts exactly one Quest PNC35N remains
+  // and that it is the desktop row.
   {
-    action: 'rename', key: 'NoseCone|quest|quest', descIncludes: 'PNC35N',
-    to: 'PNC35N',
-    why: 'Same class as the AeroTech couplers, found by sweeping for partNo === manufacturer.',
+    action: 'drop', dropsGroup: true, key: 'NoseCone|quest|quest', descIncludes: 'PNC35N',
+    why: 'RockSim\'s PNC35N (8.31 in, 13.3 g) against desktop 24.12\'s (8.0 in, 25.5 g) and a '
+      + 'third catalogue\'s Q20201 (8.0 in, 23.5 g). Two sources agree and it is the outlier; '
+      + '"keep desktop, drop RockSim".',
+  },
+  {
+    action: 'drop', key: 'NoseCone|quest|pnc35n', match: { source: 'rocksim' },
+    why: 'The same RockSim row, in the shape the old collided rename left it: filed on top of '
+      + 'the desktop PNC35N.',
   },
 ];
 
@@ -263,9 +289,24 @@ export function planCurations(rows) {
     if (c.action === 'rename') {
       // Already applied? The target name is present and the source group no
       // longer holds a matching row under the old key.
-      const done = rows.some((p) => String(p.partNo) === c.to
+      const done = rows.find((p) => String(p.partNo) === c.to
         && presetKey({ ...p, partNo: c.to }) === presetKey(p) && matches(p, c));
-      if (done && hits.length === 0) { plan.push({ c, status: 'already' }); continue; }
+      if (done && hits.length === 0) {
+        // Done only if the renamed row is ALONE on its number: a rename that
+        // already landed on an occupied one (Quest PNC35N, until 2026-09-22) is
+        // a collision sitting in the data, not a finished curation.
+        const shared = rows.find((p) => p !== done && presetKey(p) === presetKey(done));
+        if (shared) {
+          plan.push({
+            c, status: 'error',
+            detail: `${c.to} is already taken by "${shared.description}" (${shared.source ?? 'no source'}) `
+              + 'as well as the renamed row — drop one of the two',
+          });
+          continue;
+        }
+        plan.push({ c, status: 'already' });
+        continue;
+      }
     } else if (hits.length === 0 && group.length > 0) {
       plan.push({ c, status: 'already' });
       continue;
@@ -287,6 +328,22 @@ export function planCurations(rows) {
     if (hits.length !== 1) {
       plan.push({ c, status: 'error', detail: `${hits.length} rows matched (expected 1)` });
       continue;
+    }
+    if (c.action === 'rename') {
+      // A rename must land on a FREE number. 'Quest' → PNC35N landed on the
+      // desktop PNC35N and left two different nose cones under one key (audit
+      // 2026-09-22); fusing parts that way is exactly what the preset pipeline's
+      // dedupe exists to prevent, so it is an error here, never a silent merge.
+      const target = presetKey({ ...hits[0].p, partNo: c.to });
+      const taken = rows.find((p, i) => i !== hits[0].i && presetKey(p) === target);
+      if (taken) {
+        plan.push({
+          c, status: 'error',
+          detail: `the target ${c.to} is already taken by "${taken.description}" `
+            + `(${taken.source ?? 'no source'}) — drop one of the two instead of renaming`,
+        });
+        continue;
+      }
     }
     plan.push({ c, status: 'todo', index: hits[0].i });
   }

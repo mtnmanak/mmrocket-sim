@@ -184,3 +184,78 @@ describe('the curations ruled on 2026-09-01', () => {
     expect(pn24[0].lineLength).toBeCloseTo(0.6096, 6);
   });
 });
+
+/**
+ * A curation RENAME must never land on a part number that is already taken
+ * (audit 2026-09-22). `'Quest' → PNC35N` did: it fixed the stutter on a RockSim
+ * row and filed it on top of the desktop-24.12 PNC35N, leaving two conflicting
+ * "Quest PNC35N" nose cones at 25.5 g and 13.3 g — and presetPatch writes the
+ * row's mass as overrideMass, so picking the RockSim one put 13.3 g on a nose
+ * two sources weigh at 23.5–25.5 g (1.9×). Settled by the owner's standing
+ * "keep desktop, drop RockSim" rule (open-items.md, 2026-09-03b).
+ */
+describe('curation renames never collide', () => {
+  it('planCurations refuses a rename whose target part number is occupied', async () => {
+    const { planCurations } = await import('./curate-presets.mjs');
+    const rows = [
+      // The source row the BNC-50SF1 → BNC-50SF2 curation addresses…
+      { kind: 'NoseCone', manufacturer: 'SEMROC', partNo: 'BNC-50SF1', description: 'cone', mass: 0.00368543800625 },
+      // …and a DIFFERENT part already sitting on the target number.
+      { kind: 'NoseCone', manufacturer: 'SEMROC', partNo: 'BNC-50SF2', description: 'occupant' },
+    ];
+    const entry = planCurations(rows).find((x) => x.c.to === 'BNC-50SF2');
+    expect(entry.status).toBe('error');
+    expect(entry.detail).toMatch(/already/);
+  });
+
+  it('still plans the same rename onto a free number', async () => {
+    const { planCurations } = await import('./curate-presets.mjs');
+    const rows = [
+      { kind: 'NoseCone', manufacturer: 'SEMROC', partNo: 'BNC-50SF1', description: 'cone', mass: 0.00368543800625 },
+    ];
+    expect(planCurations(rows).find((x) => x.c.to === 'BNC-50SF2').status).toBe('todo');
+  });
+
+  it('the shipped data holds ONE Quest PNC35N, the desktop row', () => {
+    const pnc = db.presets.filter((p) => p.kind === 'NoseCone' && mfrKey(p.manufacturer) === 'quest'
+      && partKey(p.partNo) === partKey('PNC35N'));
+    expect(pnc.map((p) => `${p.partNo} ${p.source} ${p.mass}`)).toHaveLength(1);
+    expect(pnc[0].source).toBe('desktop-24.12');
+    expect(pnc[0].mass).toBeCloseTo(0.0255, 3);
+  });
+
+  it('a fresh regeneration — RockSim row still filed as "Quest" — drops it cleanly', async () => {
+    // What fetch → merge-rocksim-parts produces before this script runs: the
+    // RockSim cone carries the manufacturer in its part number. The plan must
+    // drop it, not rename it onto the desktop row.
+    const { planCurations } = await import('./curate-presets.mjs');
+    const rows = [
+      ...db.presets,
+      { kind: 'NoseCone', manufacturer: 'Quest', partNo: 'Quest', description: 'PNC35N', mass: 0.0133243, source: 'rocksim' },
+    ];
+    const plan = planCurations(rows);
+    expect(plan.filter((x) => x.status === 'error').map((e) => `${e.c.key}: ${e.detail}`)).toEqual([]);
+    const todo = plan.filter((x) => x.status === 'todo');
+    expect(todo).toHaveLength(1);
+    expect(todo[0].c.action).toBe('drop');
+    expect(rows[todo[0].index].description).toBe('PNC35N');
+  });
+
+  it('no rename in the table collides on a regeneration either', async () => {
+    // Un-apply every rename on a copy of the shipped data (the part number
+    // back to its source key) and re-plan: every rename must come back as
+    // `todo`, never as a collision.
+    const { CURATIONS, planCurations } = await import('./curate-presets.mjs');
+    const rows = db.presets.map((p) => ({ ...p }));
+    for (const c of CURATIONS.filter((x) => x.action === 'rename')) {
+      const [kind, mfr] = c.key.split('|');
+      const i = rows.findIndex((p) => p.kind === kind && mfrKey(p.manufacturer) === mfr
+        && String(p.partNo) === c.to);
+      expect(i, `renamed row ${c.to} not found`).toBeGreaterThanOrEqual(0);
+      rows[i].partNo = c.key.split('|')[2];
+    }
+    const plan = planCurations(rows);
+    expect(plan.filter((x) => x.status === 'error').map((e) => `${e.c.key}: ${e.detail}`)).toEqual([]);
+    expect(plan.filter((x) => x.c.action === 'rename' && x.status !== 'todo')).toEqual([]);
+  });
+});
