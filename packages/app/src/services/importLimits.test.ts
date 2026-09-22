@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
 import { OrkRocket, resetEngine, type ComponentNode, type RocketTree } from '@online-openrocket/engine';
-import { importOrk } from './orkFile.js';
+import { exportOrk, importOrk } from './orkFile.js';
 import { importRkt } from './rocksimFile.js';
 import { importCdx1 } from './rasaeroFile.js';
 import { decodeShareFragment, encodeShareFragment } from './shareLink.js';
@@ -250,6 +250,23 @@ describe('.ork — enum strings', () => {
     const r = importOrk(ork(MOUNT('EJECTION_CHARGE')));
     expect(r.motor!.ignitionEvent).toBe('ejectioncharge');
     expect(r.notes.some((n) => /ignition/.test(n))).toBe(false);
+  });
+
+  it('a deploy event is left as the file wrote it — desktop\'s lowerstageseparation included — and saved back', () => {
+    // Not an enum the pass repairs: the bridge never throws on a deploy event
+    // (ComponentFactory.deployEventOf flies what it does not name as the
+    // ejection charge), and desktop 24.12 has one the app's menu lacks —
+    // LOWER_STAGE_SEPARATION, saved as "lowerstageseparation". A first cut of
+    // this pass checked deploy events against the app's five, deleted that one
+    // with a note, and the .ork export then wrote "ejection" in its place.
+    const r = importOrk(ork('<parachute><name>Chute</name><diameter>0.3</diameter>'
+      + '<deployevent>lowerstageseparation</deployevent></parachute>'));
+    expect(ofType(r.tree, 'parachute')['deployEvent']).toBe('lowerstageseparation');
+    expect(r.notes.some((n) => /deploy/.test(n))).toBe(false);
+    const tree = normalizeTree(r.tree);
+    expect(ofType(tree, 'parachute')['deployEvent']).toBe('lowerstageseparation');
+    expect(exportOrk({ name: r.name, tree })).toContain('<deployevent>lowerstageseparation</deployevent>');
+    expect(build(r.tree)).toBeNull();
   });
 });
 

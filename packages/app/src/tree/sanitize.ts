@@ -120,7 +120,6 @@ const ENUM_LABEL: Record<string, string> = {
   airfoilSection: 'supersonic airfoil section',
   separationEvent: 'separation event',
   cluster: 'cluster pattern',
-  deployEvent: 'deploy event',
 };
 
 /**

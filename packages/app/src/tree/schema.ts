@@ -478,15 +478,20 @@ const SEPARATION: EnumLimit = {
   values: SEPARATION_EVENT_VALUES,
   fallback: 'this stage’s ejection charge, desktop OpenRocket’s default',
 };
-// The bridge does not throw on an unknown deploy event — it flies the
-// ejection charge (ComponentFactory.deployEventOf) — but the panel's select and
-// the recovery code compare the exact spelling, so it is carried with the rest.
-const DEPLOY: EnumLimit = {
-  values: DEPLOY_EVENTS.map(([v]) => v),
-  fallback: 'the motor ejection charge, desktop OpenRocket’s default',
-};
 
-/** The enum fields by component type — a lookupTable, keyed by a node's `type`. */
+/**
+ * The enum fields by component type — a lookupTable, keyed by a node's `type`.
+ *
+ * A recovery device's `deployEvent` is deliberately NOT here. The bridge never
+ * throws on one (ComponentFactory.deployEventOf flies any value it does not
+ * name as the ejection charge), and desktop 24.12 has a sixth value the app's
+ * menu lacks — LOWER_STAGE_SEPARATION, saved as "lowerstageseparation". A first
+ * cut of this table checked deploy events against the app's five and deleted
+ * that one, so a desktop file lost it on save; and an absent deployEvent does
+ * not mean one thing everywhere (the .ork writer reads it as ejection, the
+ * .CDX1 writer as apogee), which breaks the rule above. It stays as the file
+ * wrote it, the way it always has.
+ */
 export const ENUM_LIMITS: Record<string, Record<string, EnumLimit>> = lookupTable<Record<string, EnumLimit>>({
   trapezoidfinset: { airfoilSection: AIRFOIL },
   ellipticalfinset: { airfoilSection: AIRFOIL },
@@ -494,8 +499,6 @@ export const ENUM_LIMITS: Record<string, Record<string, EnumLimit>> = lookupTabl
   stage: { separationEvent: SEPARATION },
   parallelstage: { separationEvent: SEPARATION },
   innertube: { cluster: { values: CLUSTER_OPTIONS.map(([v]) => v), fallback: 'a single tube' } },
-  parachute: { deployEvent: DEPLOY },
-  streamer: { deployEvent: DEPLOY },
 });
 
 const FIN_COUNT: FieldDef = { key: 'finCount', label: 'Fin count', unit: 'count', smin: 1, smax: KERNEL_MAX_FINS };

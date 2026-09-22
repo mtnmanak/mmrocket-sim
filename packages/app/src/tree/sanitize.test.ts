@@ -120,20 +120,36 @@ describe('sanitizeTree — enum strings', () => {
       [
         { id: 'f1', type: 'trapezoidfinset', name: 'Fins', airfoilSection: 'wedgie' },
         { id: 'm1', type: 'innertube', name: 'Mount', cluster: 'ninefold' },
-        { id: 'c1', type: 'parachute', name: 'Chute', deployEvent: 'whenever' },
       ],
       [{ id: 's2', type: 'stage', name: 'Booster', separationEvent: 'sometime', children: [] }],
     ), notes);
     expect(kid(t, 0)).not.toHaveProperty('airfoilSection');
     expect(kid(t, 1)).not.toHaveProperty('cluster');
-    expect(kid(t, 2)).not.toHaveProperty('deployEvent');
     expect(t.components[1]).not.toHaveProperty('separationEvent');
     expect(notes).toEqual([
       '“Fins”: supersonic airfoil section “wedgie” is not one the simulation knows — it now uses the classic cross-section drag.',
       '“Mount”: cluster pattern “ninefold” is not one the simulation knows — it now uses a single tube.',
-      '“Chute”: deploy event “whenever” is not one the simulation knows — it now uses the motor ejection charge, desktop OpenRocket’s default.',
       '“Booster”: separation event “sometime” is not one the simulation knows — it now uses this stage’s ejection charge, desktop OpenRocket’s default.',
     ]);
+  });
+
+  it('leaves a recovery device\'s deploy event exactly as it was written', () => {
+    // Not one the pass repairs: the bridge never throws on a deploy event
+    // (ComponentFactory.deployEventOf flies any value it does not name as the
+    // ejection charge), and desktop 24.12 writes one the app's menu lacks —
+    // "lowerstageseparation". Deleting it lost it on save, and an ABSENT key
+    // does not mean one thing everywhere: the .ork writer reads it as
+    // ejection, the .CDX1 writer as apogee.
+    const notes: string[] = [];
+    const input = rocket([
+      { id: 'c1', type: 'parachute', name: 'Chute', deployEvent: 'lowerstageseparation' },
+      { id: 'c2', type: 'streamer', name: 'Streamer', deployEvent: 'whenever' },
+      { id: 'c3', type: 'parachute', name: 'Drogue', deployEvent: 'Apogee' },
+    ]);
+    const t = sanitizeTree(input, notes);
+    expect(t).toBe(input);
+    expect(notes).toEqual([]);
+    expect(treeProblems(input)).toEqual([]);
   });
 
   it('respells a value the kernel reads case- and underscore-blind, silently', () => {
@@ -142,13 +158,11 @@ describe('sanitizeTree — enum strings', () => {
       [
         { id: 'f1', type: 'trapezoidfinset', airfoilSection: 'HEX_BLUNT_BASE' },
         { id: 'f2', type: 'trapezoidfinset', airfoilSection: '' },
-        { id: 'c1', type: 'parachute', deployEvent: 'Apogee' },
       ],
       [{ id: 's2', type: 'stage', separationEvent: 'ALTITUDE_ASCENDING', children: [] }],
     ), notes);
     expect(kid(t, 0)['airfoilSection']).toBe('hexbluntbase');
     expect(kid(t, 1)).not.toHaveProperty('airfoilSection'); // the panel's "Classic" option
-    expect(kid(t, 2)['deployEvent']).toBe('apogee');
     expect(t.components[1]!['separationEvent']).toBe('altitudeascending');
     expect(notes).toEqual([]);
   });
