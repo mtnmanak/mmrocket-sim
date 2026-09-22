@@ -1,4 +1,4 @@
-import type { ComponentNode, MotorSpec, RocketTree, StaticInfo } from '@online-openrocket/engine';
+import type { ComponentNode, IgnitionEvent, MotorSpec, RocketTree, StaticInfo } from '@online-openrocket/engine';
 import { clusterCount } from '../tree/cluster.js';
 import { findNode, hasParallelStage, stageIndexOf, stages } from '../tree/treeModel.js';
 
@@ -85,12 +85,41 @@ export function motorBurnoutMass(spec: Pick<MotorSpec, 'masses'>): number | null
   return Number.isFinite(last) ? Math.max(0, last) : null;
 }
 
+/**
+ * Motor mass as loaded (kg) — the first mass sample: what a motor that never
+ * lights still weighs when it comes down. Null under the same rule as
+ * `motorBurnoutMass`, for the same reason.
+ */
+export function motorLoadedMass(spec: Pick<MotorSpec, 'masses'>): number | null {
+  const m = spec.masses;
+  if (!Array.isArray(m) || m.length === 0) return null;
+  const first = m[0]!;
+  return Number.isFinite(first) ? Math.max(0, first) : null;
+}
+
+/**
+ * A motor set to ignite NEVER burns nothing: it comes down loaded. That is
+ * the "what if the sustainer fails to light" check, exactly the flight where
+ * the canopy carries the most, and this file used to subtract its propellant
+ * anyway because the motors tuple carried no ignition (audit 2026-09-22):
+ * measured on a two-stage C6/C6 design with the sustainer on Never, the
+ * recovery weight read 81.3 g while the kernel's flight came down at 93.3 g.
+ * An absent ignition is the kernel's AUTOMATIC, which lights.
+ */
+function neverLights(mm: { ignition?: { event?: IgnitionEvent } }): boolean {
+  return mm.ignition?.event === 'never';
+}
+
 export interface RecoveryMassInput {
   tree: RocketTree;
   /** Whole-rocket static analysis for the CURRENT motor set. */
   info: Pick<StaticInfo, 'mass' | 'massEmpty'>;
-  /** [mount node id, motor] for every mount that currently holds a motor. */
-  motors: ReadonlyArray<readonly [string, { spec: MotorSpec }]>;
+  /**
+   * [mount node id, motor] for every mount that currently holds a motor, with
+   * its ignition where the caller has one (App passes its `MountMotor`, which
+   * does). A motor on NEVER is counted loaded — see `neverLights`.
+   */
+  motors: ReadonlyArray<readonly [string, { spec: MotorSpec; ignition?: { event?: IgnitionEvent } }]>;
   /**
    * `OrkRocket.componentInfo(id).sectionMass`, or null when the kernel cannot
    * answer for that id. A callback so this stays a pure function and the
@@ -228,9 +257,11 @@ export function recoveryMassByStage(input: RecoveryMassInput): RecoveryByStage {
   });
 
   if (groups.length <= 1) {
-    // Nothing separates: everything on the pad, less what burned.
+    // Nothing separates: everything on the pad, less what burned — and a
+    // motor on Never burns nothing (`neverLights`).
     let mass = info.mass;
     for (const [mountId, mm] of motors) {
+      if (neverLights(mm)) continue;
       mass -= motorPropellantMass(mm.spec) * countAt(mountId);
     }
     // Cannot come down lighter than the bare structure. This is the guard for
@@ -249,8 +280,9 @@ export function recoveryMassByStage(input: RecoveryMassInput): RecoveryByStage {
   }
 
   /**
-   * Burnout mass of every motor mounted inside this group of stages. `null`
-   * when one of them publishes no mass column — "cannot answer" rather than a
+   * Burnout mass of every motor mounted inside this group of stages — its
+   * LOADED mass for a motor on Never, which comes down unburned. `null` when
+   * one of them publishes no mass column — "cannot answer" rather than a
    * guessed zero, because zero understates and understating is the unsafe
    * direction.
    */
@@ -258,7 +290,7 @@ export function recoveryMassByStage(input: RecoveryMassInput): RecoveryByStage {
     let sum = 0;
     for (const [mountId, mm] of motors) {
       if (!stageIdx.has(stageIndexOf(tree, mountId))) continue;
-      const burnout = motorBurnoutMass(mm.spec);
+      const burnout = neverLights(mm) ? motorLoadedMass(mm.spec) : motorBurnoutMass(mm.spec);
       if (burnout === null) return null;
       sum += burnout * countAt(mountId);
     }

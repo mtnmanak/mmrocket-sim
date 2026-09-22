@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import type { ComponentNode, MotorSpec, RocketTree } from '@online-openrocket/engine';
+import type { ComponentNode, IgnitionEvent, MotorSpec, RocketTree } from '@online-openrocket/engine';
 import { engineTree, motorMounts, stageIndexOf, stages } from '../tree/treeModel.js';
 import { importOrk } from './orkFile.js';
 import { importCdx1 } from './rasaeroFile.js';
@@ -85,11 +85,15 @@ const twoStage = (): RocketTree => ({
  * rather than out of hand arithmetic: this repo has been bitten more than once
  * by a test that asserted a node field the kernel then ignored.
  */
-async function onKernel(tree: RocketTree, motors: Record<string, MotorSpec>) {
+async function onKernel(
+  tree: RocketTree, motors: Record<string, MotorSpec>, ignition: Record<string, IgnitionEvent> = {},
+) {
   const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
   resetEngine();
   const rocket = OrkRocket.buildTree(engineTree(tree));
   for (const [id, spec] of Object.entries(motors)) rocket.setMotorById(id, spec);
+  // The kernel and the input are handed the SAME ignition, as App hands both.
+  for (const [id, event] of Object.entries(ignition)) rocket.setMotorIgnitionById(id, event);
   const info = rocket.staticInfo();
   const sectionMass = (id: string): number | null => {
     try {
@@ -100,7 +104,9 @@ async function onKernel(tree: RocketTree, motors: Record<string, MotorSpec>) {
   const input = {
     tree,
     info,
-    motors: Object.keys(motors).map((id) => [id, { spec: motors[id]! }] as const),
+    motors: Object.keys(motors).map((id) => [id, {
+      spec: motors[id]!, ...(ignition[id] ? { ignition: { event: ignition[id] } } : {}),
+    }] as const),
     sectionMass,
   };
   const answer = recoveryMass(input);
@@ -242,6 +248,68 @@ describe('recovery weight — serial multi-stage', () => {
     if (answer.state !== 'unavailable') return;
     expect(answer.reason).toMatch(/strap-on/i);
     expect(recoveryMassTitle(answer)).toMatch(/unavailable/i);
+  });
+});
+
+/**
+ * A MOTOR ON NEVER COMES DOWN LOADED (audit 2026-09-22). The motors tuple
+ * carried no ignition, so the propellant of a motor set never to light was
+ * subtracted anyway — on the "what if the sustainer fails to light" check,
+ * exactly the flight where the canopy carries the most. Each case is checked
+ * against the mass the kernel's own flight lands with.
+ */
+describe('recovery weight — a motor that never lights', () => {
+  /** The mass the kernel's own flight lands with (kg). */
+  const landingMass = async (rocket: Awaited<ReturnType<typeof onKernel>>['rocket']) => {
+    const { DEFAULT_CONDITIONS, kernelSimOptions } = await import('../components/LaunchPanel.js');
+    const flight = rocket.simulate(kernelSimOptions(DEFAULT_CONDITIONS));
+    expect(flight.events.map((e) => e.type)).toContain('GROUND_HIT');
+    return flight.series.mass[flight.series.mass.length - 1]!;
+  };
+  /** `twoStage` with fins on the booster too, so the stack flies to a landing. */
+  const flyable = (): RocketTree => {
+    const t = twoStage();
+    t.components[1]!.children![0]!.children!.unshift({
+      type: 'trapezoidfinset', id: 'f2', finCount: 3, rootChord: 0.07, tipChord: 0.04,
+      sweep: 0.03, height: 0.04, thickness: 0.003, position: { method: 'bottom', offset: 0 },
+    } as ComponentNode);
+    return t;
+  };
+
+  it('a sustainer on Never is its dry stage plus the LOADED motor — the flight’s own landing mass', async () => {
+    const { rocket, sectionMass, answer } = await onKernel(
+      flyable(), { m1: C6(), m2: C6() }, { m1: 'never' });
+    expect(answer.state).toBe('ok');
+    if (answer.state !== 'ok') return;
+    expect(answer.mass).toBeCloseTo(sectionMass('s1')! + 0.021, 12);
+    expect(answer.mass).toBeCloseTo(await landingMass(rocket), 9);
+    // What it used to show: the spent casing, 12 g light.
+    expect(answer.mass - (sectionMass('s1')! + BURNOUT)).toBeCloseTo(PROPELLANT, 12);
+  });
+
+  it('the same sustainer lighting still loses its propellant, and lands as shown', async () => {
+    const { rocket, sectionMass, answer } = await onKernel(flyable(), { m1: C6(), m2: C6() });
+    expect(answer.state === 'ok' && answer.mass).toBeCloseTo(sectionMass('s1')! + BURNOUT, 12);
+    expect(answer.state === 'ok' && answer.mass).toBeCloseTo(await landingMass(rocket), 9);
+  });
+
+  it('a single-stage mount on Never gives up nothing; the one that lights still does', async () => {
+    const tree = singleStage();
+    tree.components[0]!.children![1]!.children!.push({
+      type: 'innertube', id: 'm2', length: 0.08, outerRadius: 0.0095, thickness: 0.0005,
+      motorMount: true, position: { method: 'bottom', offset: 0 },
+    } as ComponentNode);
+    const { info, answer } = await onKernel(tree, { m1: C6(), m2: C6() }, { m2: 'never' });
+    expect(answer.state).toBe('ok');
+    if (answer.state !== 'ok') return;
+    expect(answer.mass).toBeCloseTo(info.mass - PROPELLANT, 12);
+  });
+
+  it('every other ignition lights, and an absent one is the kernel’s Automatic', async () => {
+    for (const event of ['automatic', 'launch', 'burnout', 'ejectioncharge'] as const) {
+      const { info, answer } = await onKernel(singleStage(), { m1: C6() }, { m1: event });
+      expect(answer.state === 'ok' && answer.mass, event).toBeCloseTo(info.mass - PROPELLANT, 12);
+    }
   });
 });
 
