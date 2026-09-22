@@ -576,13 +576,21 @@ export function samplesToMotorSpec(
   // whole design blanked. Refuse with something a rocketeer can act on — never
   // substitute a made-up mass, which would trade a visible error for silently
   // wrong altitudes.
-  if (!Number.isFinite(motor.totalWeightG) || !Number.isFinite(motor.propWeightG)) {
+  //
+  // What is checked is the pair that will FLY (audit 2026-09-22): the data
+  // file's own masses when it states a usable pair — they win below — and the
+  // catalogue's only when it does not. Checking the catalogue regardless
+  // refused motors whose file carries good masses: 116 of the 157 catalogue
+  // rows with no usable weight, 14 of them in production (Estes 1/2A6,
+  // Cesaroni 320H565-14A, Klima B2, ...), all of which desktop flies.
+  const file = isHeaderMasses(fromFile) ? fromFile : null;
+  if (!file && (!Number.isFinite(motor.totalWeightG) || !Number.isFinite(motor.propWeightG))) {
     throw new Error(
       `thrustcurve.org publishes no loaded/propellant weight for ${motor.designation}, ` +
         'so it cannot be simulated. Pick another motor, or import its .rse/.eng file.',
     );
   }
-  if (motor.propWeightG > motor.totalWeightG) {
+  if (!file && motor.propWeightG > motor.totalWeightG) {
     throw new Error(
       `${motor.designation} is catalogued with more propellant (${motor.propWeightG} g) than ` +
         `loaded mass (${motor.totalWeightG} g), so its burn would end at a negative mass. ` +
@@ -590,8 +598,8 @@ export function samplesToMotorSpec(
     );
   }
 
-  const totalMass = (fromFile?.totalWeightG ?? motor.totalWeightG) / 1000;
-  const propMass = (fromFile?.propWeightG ?? motor.propWeightG) / 1000;
+  const totalMass = (file?.totalWeightG ?? motor.totalWeightG) / 1000;
+  const propMass = (file?.propWeightG ?? motor.propWeightG) / 1000;
 
   // Cumulative impulse via trapezoid rule.
   const cumImpulse: number[] = [0];

@@ -15,7 +15,9 @@ import {
 import {
   addExMotors, deleteExMotor, exToDbEntry, loadExMotors, parseMotorFile,
 } from '../services/exMotors.js';
-import { defaultDelay, delayOptions, delayTag, fetchMotorSpec } from '../services/thrustcurve.js';
+import {
+  bundledSimFiles, defaultDelay, delayOptions, delayTag, fetchMotorSpec, headerMasses, pickSampleFile,
+} from '../services/thrustcurve.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { siToUi } from '../prefs/units.js';
 import { NumField } from './NumField.js';
@@ -193,6 +195,29 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
     () => [...catalogue, ...exMotors.map(exToDbEntry)],
     [catalogue, exMotors],
   );
+
+  /**
+   * Catalogue motors with no usable CATALOGUE weight whose bundled data file
+   * states a good pair — the pair that flies (samplesToMotorSpec checks the
+   * file's masses first). They are pickable (audit 2026-09-22): 116 of the 157
+   * rows the table used to lock out, 14 of them in production (Estes 1/2A6,
+   * Cesaroni 320H565-14A, Klima B2, ...), and desktop flies every one. Found
+   * the way fetchMotorSpec will find the curve: the same bundle and the same
+   * pickSampleFile. Empty until the bundle chunk loads, so a row unlocks a
+   * moment after the dialog opens rather than ever the other way round.
+   */
+  const [fileMassed, setFileMassed] = useState<ReadonlySet<string>>(() => new Set());
+  useEffect(() => {
+    let live = true;
+    const need = catalogue.filter((m) => !hasMassData(m));
+    void Promise.all(need.map(async (m) => {
+      const file = pickSampleFile(await bundledSimFiles(m.motorId), m);
+      return file && headerMasses(file) ? m.motorId : null;
+    })).then((ids) => {
+      if (live) setFileMassed(new Set(ids.filter((id): id is string => id !== null)));
+    });
+    return () => { live = false; };
+  }, [catalogue]);
 
   const fittingClasses = useMemo(
     () => classesFittingMount(mountDiameterMm, allMotors),
@@ -619,10 +644,11 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
             <tbody>
               {rows.slice(0, ROW_CAP).map((m) => {
                 const flagged = tooLong(m);
-                // thrustcurve.org has no usable weights for ~13% of the catalog;
-                // those cannot be simulated at all, so they stay listed (they are
-                // real motors) but are not pickable. See motorDb.hasMassData.
-                const noMass = !hasMassData(m);
+                // thrustcurve.org has no usable catalogue weights for ~13% of the
+                // catalog; the ones whose data file has none either cannot be
+                // simulated at all, so they stay listed (they are real motors)
+                // but are not pickable. See motorDb.hasMassData and fileMassed.
+                const noMass = !hasMassData(m) && !fileMassed.has(m.motorId);
                 return (
                   <tr
                     key={m.motorId}

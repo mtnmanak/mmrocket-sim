@@ -125,6 +125,10 @@ const rowFor = (h: Harness, mfr: string, designation: string) => bodyRows(h).fin
   tr.cells[1]?.textContent === mfr && (tr.cells[0]?.textContent ?? '').replace(/OOP$/, '').trim() === designation);
 const delaySelect = (h: Harness) => h.host.querySelector<HTMLSelectElement>('.motor-load-row select');
 const click = (el: Element) => act(() => { (el as HTMLElement).click(); });
+/** Lets pending promises (a lazy JSON chunk, a file read) settle inside act. */
+const settle = async (ms = 0) => { await act(async () => { await new Promise((r) => setTimeout(r, ms)); }); };
+const loadButton = (h: Harness) => Array.from(h.host.querySelectorAll('button'))
+  .find((b) => /Load motor|Loading/.test(b.textContent ?? ''));
 
 describe('MotorBrowser — the delay a fresh pick starts at (audit 2026-09-22)', () => {
   let h: Harness;
@@ -143,5 +147,33 @@ describe('MotorBrowser — the delay a fresh pick starts at (audit 2026-09-22)',
     search(h, 'C6');
     click(rowFor(h, 'Estes', 'C6')!);
     expect(delaySelect(h)!.value).toBe('7');
+  });
+});
+
+describe('MotorBrowser — a motor refused on its catalogue weight but not its file (audit 2026-09-22)', () => {
+  let h: Harness;
+  afterEach(() => closeBrowser(h));
+
+  it('Estes 1/2A6 — no catalogue weight, good bundled file — is pickable and loads', async () => {
+    h = openBrowser({ mountDiameterMm: 18 });
+    search(h, '1/2A6');
+    // The bundle chunk behind fileMassed is 840 kB of JSON; wait for it.
+    for (let i = 0; i < 100 && rowFor(h, 'Estes', '1/2A6')!.hasAttribute('aria-disabled'); i++) await settle(50);
+    const row = rowFor(h, 'Estes', '1/2A6')!;
+    expect(row.getAttribute('aria-disabled')).toBeNull();
+    click(row);
+    click(loadButton(h)!);
+    for (let i = 0; i < 20 && h.selected.length === 0; i++) await settle(10);
+    expect(h.selected.map((s) => s.label)).toEqual(['1/2A6-2']);
+  });
+
+  it('a motor with no weight anywhere stays locked', async () => {
+    // KBA K1000S carries no catalogue weight and has no bundled file at all.
+    h = openBrowser({ mountDiameterMm: 54, filters: { includeOOP: true } });
+    search(h, 'K1000S');
+    await settle(500);
+    const row = rowFor(h, 'KBA', 'K1000S');
+    expect(row, 'KBA K1000S has left the catalogue').toBeTruthy();
+    expect(row!.getAttribute('aria-disabled')).toBe('true');
   });
 });

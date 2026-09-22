@@ -423,4 +423,36 @@ J1026 38 625.5 P 0.616 1.172 Loki
     const catalog: TcMotor = { ...QUEST_C6, totalWeightG: 2078, propWeightG: 1292 };
     expect(samplesToMotorSpec(catalog, SAMPLES, 5).masses[0]).toBeCloseTo(2.078, 12);
   });
+
+  /**
+   * Audit 2026-09-22: the refusal checked the CATALOGUE pair even when the file
+   * pair — the one that flies — was good. 116 of the 157 catalogue rows with no
+   * usable weight carry good file masses, 14 of them in production.
+   */
+  it('flies a motor the catalogue gives no weight when its file states a good pair', () => {
+    const noCatalogMass = { ...QUEST_C6, totalWeightG: undefined as unknown as number };
+    const spec = samplesToMotorSpec(noCatalogMass, SAMPLES, 5, { totalWeightG: 20.5, propWeightG: 9.6 });
+    expect(spec.masses[0]).toBeCloseTo(0.0205, 12);
+    expect(spec.masses[spec.masses.length - 1]).toBeCloseTo(0.0205 - 0.0096, 12);
+    const inverted = { ...QUEST_C6, totalWeightG: 52, propWeightG: 104 };
+    expect(samplesToMotorSpec(inverted, SAMPLES, 5, { totalWeightG: 20.5, propWeightG: 9.6 })
+      .masses[0]).toBeCloseTo(0.0205, 12);
+  });
+
+  it('still refuses when neither the file nor the catalogue has a usable pair', () => {
+    const noCatalogMass = { ...QUEST_C6, totalWeightG: undefined as unknown as number };
+    expect(() => samplesToMotorSpec(noCatalogMass, SAMPLES, 5, null)).toThrow(/publishes no loaded/);
+    // An impossible file pair is no pair: it neither flies nor rescues the catalogue.
+    expect(() => samplesToMotorSpec(noCatalogMass, SAMPLES, 5, { totalWeightG: 5, propWeightG: 9 }))
+      .toThrow(/publishes no loaded/);
+  });
+
+  it('Estes 1/2A6 — no catalogue weight, good bundled file — now loads from the shipped data', async () => {
+    const { MOTOR_DB, hasMassData } = await import('./motorDb.js');
+    const { fetchMotorSpec } = await import('./thrustcurve.js');
+    const m = MOTOR_DB.find((x) => x.manufacturerAbbrev === 'Estes' && x.designation === '1/2A6')!;
+    expect(hasMassData(m)).toBe(false); // the premise
+    const spec = await fetchMotorSpec(m, 2);
+    expect(spec.masses.every((x) => Number.isFinite(x) && x > 0)).toBe(true);
+  });
 });
