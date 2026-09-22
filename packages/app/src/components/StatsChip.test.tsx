@@ -53,6 +53,20 @@ describe('StatsChip — the floating readout', () => {
     expect(chip().style.top).toBe(`${RULER_TOP + 8}px`);
   });
 
+  it('prints no CP for a design with no aerodynamic force (audit 2026-09-22)', () => {
+    // A bare body tube — a state a from-scratch build passes through. The
+    // kernel reports cp 0 and cna 0; the row printed that 0 as a CP.
+    act(() => root.render(
+      <PrefsProvider><StatsChip info={{ ...(INFO as object), cp: 0, cna: 0 } as never} /></PrefsProvider>,
+    ));
+    const values = Array.from(host.querySelectorAll('.stats-chip-row')).map((r) => [
+      r.querySelector('.stats-chip-label')?.textContent,
+      r.querySelector('.stats-chip-value')?.textContent,
+    ]);
+    expect(values).toContainEqual(['CP', '—']);
+    expect(values).toContainEqual(['Stability', '– no lift yet']);
+  });
+
   it('restores a remembered position and fold', () => {
     localStorage.setItem(CHIP_KEY, JSON.stringify({ x: 240, y: 80, folded: true }));
     mount();

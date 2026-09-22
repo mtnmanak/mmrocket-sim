@@ -48,7 +48,9 @@ export interface CalloutGadget {
   /** Gadget sphere radius — smaller than the on-axis markers. */
   r: number;
   cg: { pos: [number, number, number]; text: string; color: string };
-  cp: { pos: [number, number, number]; text: string; color: string };
+  /** Null when the design generates no aerodynamic normal force — see
+   *  hasAerodynamicForce: there is no CP to mark, only the kernel's 0. */
+  cp: { pos: [number, number, number]; text: string; color: string } | null;
   /** Margin readout between the spheres; null when stability is unknown. */
   margin: { pos: [number, number, number]; text: string; color: string } | null;
 }
@@ -86,15 +88,18 @@ export function calloutGadget(
   if (!info || !Number.isFinite(info.cg) || !Number.isFinite(info.cp)) return null;
   const markerR = markerRadius(totalLen, maxR);
   const off = maxR + markerR * 2.2;
-  // No aerodynamic normal force -> no meaningful CP to mark. See
-  // hasAerodynamicForce; the kernel reports cp 0 there, which would draw the
-  // marker on the nose tip as though that were a measurement.
-  const state = hasAerodynamicForce(info) ? stabilityState(shownStability(info)) : null;
+  // No aerodynamic normal force -> no meaningful CP to mark, and no margin.
+  // See hasAerodynamicForce; the kernel reports cp 0 there, which would draw
+  // the marker on the nose tip as though that were a measurement. Until audit
+  // 2026-09-22 this dropped only the margin and still drew that CP sphere —
+  // a violently unstable-looking rocket while the tiles said "no lift yet".
+  const aero = hasAerodynamicForce(info);
+  const state = aero ? stabilityState(shownStability(info)) : null;
   return {
     off,
     r: markerR * 0.55,
     cg: { pos: [info.cg, 0, off], text: 'CG', color: '#e9edf1' },
-    cp: { pos: [shownCp(info), 0, off], text: 'CP', color: '#e34948' },
+    cp: aero ? { pos: [shownCp(info), 0, off], text: 'CP', color: '#e34948' } : null,
     // Glyph and word, not colour alone — the same string the 2D schematic
     // builds (TreeSchematic's marginText). `formatStability` returns a bare
     // number ("1.85 cal", or a percentage), so before v0.105 the whole
@@ -105,6 +110,21 @@ export function calloutGadget(
       text: stabilityReadout(state, formatStability(info, stabilityUnit)),
       color: MARGIN_COLOR[state],
     },
+  };
+}
+
+/**
+ * Axial stations of the two ON-AXIS marker spheres, null for one with nothing
+ * to mark. Pure for the same reason as calloutGadget: the canvas cannot mount
+ * in tests. The CP needs a finite kernel CP AND some aerodynamic normal force —
+ * without the second it is the kernel's cp 0, and the sphere sat on the nose
+ * tip (audit 2026-09-22), the same artefact the gadget above now skips.
+ */
+export function axisMarkers(info: StaticInfo | null): { cg: number | null; cp: number | null } {
+  if (!info) return { cg: null, cp: null };
+  return {
+    cg: Number.isFinite(info.cg) ? info.cg : null,
+    cp: Number.isFinite(info.cp) && hasAerodynamicForce(info) ? shownCp(info) : null,
   };
 }
 
@@ -424,6 +444,7 @@ export function Rocket3D({ tree, info, motors, exportData }: {
   const camDist = Math.max(totalLen * 1.1, maxR * 6, 0.25);
   const markerR = markerRadius(totalLen, maxR);
   const gadget = markers.callout ? calloutGadget(info, maxR, totalLen, prefs.stabilityUnit) : null;
+  const axis = axisMarkers(info);
 
   // View presets + recovery (batch 08-21d): a pan or deep zoom could lose the
   // rocket with no way back — these jump the camera to known-good stations.
@@ -505,14 +526,14 @@ export function Rocket3D({ tree, info, motors, exportData }: {
               would wash over them. */}
           {/* 0.45× the shared size rule (batch 08-21d): full-size axis balls
               overwhelmed small rockets; the gadget keeps the size rule. */}
-          {markers.axis && info && Number.isFinite(info.cg) && (
-            <mesh position={[info.cg, 0, 0]} renderOrder={10}>
+          {markers.axis && axis.cg !== null && (
+            <mesh position={[axis.cg, 0, 0]} renderOrder={10}>
               <sphereGeometry args={[markerR * 0.45, 24, 24]} />
               <meshStandardMaterial color="#e9edf1" emissive="#8891a0" depthTest={false} transparent />
             </mesh>
           )}
-          {markers.axis && info && Number.isFinite(info.cp) && (
-            <mesh position={[shownCp(info), 0, 0]} renderOrder={11}>
+          {markers.axis && axis.cp !== null && (
+            <mesh position={[axis.cp, 0, 0]} renderOrder={11}>
               <sphereGeometry args={[markerR * 0.45, 24, 24]} />
               <meshStandardMaterial color="#e34948" emissive="#5a1010" depthTest={false} transparent />
             </mesh>
@@ -522,7 +543,7 @@ export function Rocket3D({ tree, info, motors, exportData }: {
               so it never swallows OrbitControls' events. */}
           {gadget && (
             <group>
-              {Math.abs(gadget.cg.pos[0] - gadget.cp.pos[0]) > 1e-9 && (
+              {gadget.cp && Math.abs(gadget.cg.pos[0] - gadget.cp.pos[0]) > 1e-9 && (
                 <mesh position={[(gadget.cg.pos[0] + gadget.cp.pos[0]) / 2, 0, gadget.off]}
                   rotation={[0, 0, -Math.PI / 2]} renderOrder={11}>
                   <cylinderGeometry args={[gadget.r * 0.12, gadget.r * 0.12,
@@ -534,14 +555,18 @@ export function Rocket3D({ tree, info, motors, exportData }: {
                 <sphereGeometry args={[gadget.r, 24, 24]} />
                 <meshStandardMaterial color="#e9edf1" emissive="#8891a0" depthTest={false} transparent />
               </mesh>
-              <mesh position={gadget.cp.pos} renderOrder={12}>
-                <sphereGeometry args={[gadget.r, 24, 24]} />
-                <meshStandardMaterial color="#e34948" emissive="#5a1010" depthTest={false} transparent />
-              </mesh>
+              {gadget.cp && (
+                <mesh position={gadget.cp.pos} renderOrder={12}>
+                  <sphereGeometry args={[gadget.r, 24, 24]} />
+                  <meshStandardMaterial color="#e34948" emissive="#5a1010" depthTest={false} transparent />
+                </mesh>
+              )}
               <CalloutLabel text={gadget.cg.text} color={gadget.cg.color} place="above"
                 position={gadget.cg.pos} height={markerR * 1.2} gap={gadget.r * 1.5} />
-              <CalloutLabel text={gadget.cp.text} color={gadget.cp.color} place="below"
-                position={gadget.cp.pos} height={markerR * 1.2} gap={gadget.r * 1.5} />
+              {gadget.cp && (
+                <CalloutLabel text={gadget.cp.text} color={gadget.cp.color} place="below"
+                  position={gadget.cp.pos} height={markerR * 1.2} gap={gadget.r * 1.5} />
+              )}
               {gadget.margin && (
                 <CalloutLabel text={gadget.margin.text} color={gadget.margin.color} place="right"
                   position={gadget.margin.pos} height={markerR * 1.1} gap={markerR * 1.1} />
@@ -560,8 +585,8 @@ export function Rocket3D({ tree, info, motors, exportData }: {
         {/* The legend goes with the markers — a key for dots nobody is drawing
             is worse than no key. */}
         {markers.axis && (
-          <> · <span style={{ color: '#aab2bd' }}>●</span> CG ·{' '}
-            <span style={{ color: '#e34948' }}>●</span> CP</>
+          <> · <span style={{ color: '#aab2bd' }}>●</span> CG
+            {axis.cp !== null && <> · <span style={{ color: '#e34948' }}>●</span> CP</>}</>
         )}
       </p>
     </div>

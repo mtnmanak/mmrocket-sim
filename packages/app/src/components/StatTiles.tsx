@@ -450,7 +450,9 @@ export function StatsChip({ info, drawerOpen = false, tight = false }: {
             {row('Length', `${fmtSi('length', len, info.length, 3)} ${len}`)}
             {row('Mass loaded', `${fmtSi('mass', prefs.units.mass, info.mass)} ${prefs.units.mass}`)}
             {row('CG', `${fmtSi('length', len, info.cg, 3)} ${len}`)}
-            {row('CP', `${fmtSi('length', len, shownCp(info), 3)} ${len}`)}
+            {/* The same "no force, no CP" rule as the drawer's CP tile — this
+                row printed the kernel's 0 as "CP 0.000" (audit 2026-09-22). */}
+            {row('CP', aero ? `${fmtSi('length', len, shownCp(info), 3)} ${len}` : '—')}
             {row('Stability', `${glyph} ${aero ? formatStability(info, prefs.stabilityUnit) : 'no lift yet'}`, cls)}
           </>
         )}

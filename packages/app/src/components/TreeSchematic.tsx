@@ -1454,10 +1454,14 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
 
   renderChain(chain, 0, ctx.cy);
 
+  const aero = !!info && hasAerodynamicForce(info);
   const cgX = info ? ctx.x0 + info.cg * scale : null;
-  const cpX = info ? ctx.x0 + shownCp(info) * scale : null;
-  const stab = info && hasAerodynamicForce(info)
-    ? stabilityState(shownStability(info)) : null;
+  // No aerodynamic normal force = no CP, only the kernel's 0: drawn, that was a
+  // red CP marker and callout at the front of a bare body tube — a violently
+  // unstable-looking rocket beside tiles saying "no lift yet" (audit
+  // 2026-09-22). The margin text already needed the force; now the CP does too.
+  const cpX = info && aero ? ctx.x0 + shownCp(info) * scale : null;
+  const stab = info && aero ? stabilityState(shownStability(info)) : null;
   // One builder for both views — components/stabilityWording.ts. The 3D
   // callout printed the bare number until v0.105, so the whole verdict rode on
   // colour there while this view spelled it out.

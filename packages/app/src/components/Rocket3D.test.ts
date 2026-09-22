@@ -6,7 +6,7 @@ import type { ComponentNode, RocketTree, StaticInfo } from '@online-openrocket/e
 // react-three-fiber and drei; the camera and marker helpers stay with the view.
 import { buildPieces } from '../tree/pieces.js';
 import {
-  calloutGadget, exportCamera, fitCameraToBox, FIT_MARGIN, isFittableBox,
+  axisMarkers, calloutGadget, exportCamera, fitCameraToBox, FIT_MARGIN, isFittableBox,
   markerVisibility, piecesBounds,
 } from './Rocket3D.js';
 
@@ -536,7 +536,7 @@ describe('calloutGadget — the offset CG/CP gadget', () => {
     expect(g.off).toBeCloseTo(MAX_R + MARKER_R * 2.2, 12);
     expect(g.r).toBeCloseTo(MARKER_R * 0.55, 12);
     expect(g.cg.pos).toEqual([0.2, 0, g.off]);
-    expect(g.cp.pos).toEqual([0.28, 0, g.off]);
+    expect(g.cp!.pos).toEqual([0.28, 0, g.off]);
     // Margin readout sits midway between the spheres, on the same column.
     expect(g.margin!.pos[0]).toBeCloseTo(0.24, 12);
     expect(g.margin!.pos[2]).toBeCloseTo(g.off, 12);
@@ -565,6 +565,39 @@ describe('calloutGadget — the offset CG/CP gadget', () => {
     expect(calloutGadget(null, MAX_R, LEN)).toBeNull();
     expect(calloutGadget(infoOf({ cg: NaN }), MAX_R, LEN)).toBeNull();
     expect(calloutGadget(infoOf({ cp: Infinity }), MAX_R, LEN)).toBeNull();
+  });
+
+  it('marks no CP for a design with no aerodynamic force (audit 2026-09-22)', () => {
+    // The kernel's cp 0 on a bare body tube: the gadget dropped the margin
+    // there and still hung a CP sphere level with the nose tip.
+    const g = calloutGadget(infoOf({ cp: 0, cna: 0 }), MAX_R, LEN)!;
+    expect(g.cg.pos).toEqual([0.2, 0, g.off]);
+    expect(g.cp).toBeNull();
+    expect(g.margin).toBeNull();
+  });
+});
+
+describe('axisMarkers — the two on-axis spheres', () => {
+  const infoOf = (over: Partial<StaticInfo> = {}): StaticInfo => ({
+    length: 0.37, lengthAerodynamic: 0.37, mass: 0.12, massEmpty: 0.1, cgEmpty: 0.21, cg: 0.2, cp: 0.28,
+    rotationalInertia: 1.2e-4, longitudinalInertia: 3.4e-3,
+    rotationalInertiaEmpty: 1.0e-4, longitudinalInertiaEmpty: 3.0e-3,
+    cna: 10, stabilityCalibers: 1.67, refDiameter: 0.048, warnings: 0, warningTexts: [],
+    ...over,
+  });
+
+  it('sits the spheres at the CG and the shown (swept) CP', () => {
+    expect(axisMarkers(infoOf())).toEqual({ cg: 0.2, cp: 0.28 });
+    expect(axisMarkers(infoOf({ cpWorst: 0.26, cnaWorst: 9 }))).toEqual({ cg: 0.2, cp: 0.26 });
+  });
+
+  it('puts no CP sphere on the nose tip when there is no aerodynamic force', () => {
+    expect(axisMarkers(infoOf({ cp: 0, cna: 0 }))).toEqual({ cg: 0.2, cp: null });
+  });
+
+  it('draws nothing it has no finite number for', () => {
+    expect(axisMarkers(null)).toEqual({ cg: null, cp: null });
+    expect(axisMarkers(infoOf({ cg: NaN, cp: NaN }))).toEqual({ cg: null, cp: null });
   });
 });
 
