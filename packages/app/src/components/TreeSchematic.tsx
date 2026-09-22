@@ -66,9 +66,22 @@ const num = (n: ComponentNode, key: string, fb: number): number =>
 const fillOf = (n: ComponentNode, dflt: string): string =>
   typeof n['color'] === 'string' ? (n['color'] as string) : dflt;
 
-/** Client px a press may wander before it counts as a pan rather than a click.
- *  Matches the drag threshold in onMove — a physical click jitters 1-3 px. */
+/** Client px a press may wander before it counts as a pan or a drag rather
+ *  than a click — ONE threshold for both gestures in onMove, because a
+ *  physical click jitters 1-3 px whichever of them it could turn into. */
 const PAN_SLOP = 4;
+
+/**
+ * Whether a press may start a gesture here: the primary button of the primary
+ * pointer only (audit 2026-09-22). A right-press started a drag — and on
+ * macOS the context menu then swallows the release, leaving the part glued to
+ * a bare mouse — and a second finger on a touch screen started a second
+ * gesture that drove the first one's state.
+ */
+const startsGesture = (e: React.PointerEvent): boolean => e.button === 0 && e.isPrimary;
+
+/** A move with the primary button up is a release this view never saw. */
+const releasedDuring = (e: React.PointerEvent): boolean => (e.buttons & 1) === 0;
 
 const MARKER_R = 9;
 
@@ -167,6 +180,12 @@ interface DragState {
   pointerX: number;
   /** viewBox px per client px */
   clientScale: number;
+  /** The pointer that owns this drag; every other pointer's moves are ignored. */
+  pointerId: number;
+  /** Past PAN_SLOP yet. Until then the press is a click and patches NOTHING. */
+  active: boolean;
+  /** The offset the node carries now — the press's own, then each one patched. */
+  offset: number;
 }
 
 /**
@@ -295,7 +314,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   // `active` only becomes true once the pointer has travelled past PAN_SLOP —
   // see beginPan for why a press must not pan until then.
   const pan = useRef<
-    { pointerX: number; pointerY: number; x0: number; y0: number; active: boolean } | null
+    { pointerX: number; pointerY: number; x0: number; y0: number; active: boolean; pointerId: number } | null
   >(null);
 
   // --- measure the axial chain ---
@@ -423,13 +442,16 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
 
   const beginDrag = (child: ComponentNode, parent: ComponentNode, pLen: number) =>
     (e: React.PointerEvent) => {
-      if (!onPatchNode || !child.id) return;
+      if (!onPatchNode || !child.id || !startsGesture(e)) return;
       const rect = svgRef.current?.getBoundingClientRect();
       if (!rect || rect.width === 0) return;
       e.stopPropagation(); // don't also start a background pan
       dragMoved.current = false;
       const pos = (child.position ?? { method: 'top', offset: 0 }) as ComponentPosition;
       drag.current = {
+        pointerId: e.pointerId,
+        active: false,
+        offset: pos.offset,
         childId: child.id,
         parent,
         child,
@@ -475,15 +497,31 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
    * Both now wait for real movement, so a click stays a click.
    */
   const beginPan = (e: React.PointerEvent) => {
+    if (!startsGesture(e)) return;
     const rect = svgRef.current?.getBoundingClientRect();
     if (!rect || rect.width === 0) return;
-    pan.current = { pointerX: e.clientX, pointerY: e.clientY, x0: zoom.x, y0: zoom.y, active: false };
+    pan.current = {
+      pointerX: e.clientX, pointerY: e.clientY, x0: zoom.x, y0: zoom.y, active: false,
+      pointerId: e.pointerId,
+    };
   };
 
   const onMove = (e: React.PointerEvent) => {
     const d = drag.current;
     if (d && onPatchNode) {
-      if (Math.abs(e.clientX - d.pointerX) > 4) dragMoved.current = true;
+      if (e.pointerId !== d.pointerId) return;
+      if (releasedDuring(e)) { endDrag(e); return; }
+      // THE THRESHOLD GATES THE PATCH, not just the click (audit 2026-09-22).
+      // It used to set dragMoved and nothing else, so every pointermove of an
+      // ordinary click patched the tree and the snap below ran at zero
+      // distance: 2 px of jitter moved a fin set 1.5 mm, a fin 3 mm from the
+      // tube end snapped onto it without moving at all, and each one was a
+      // real edit — CG/CP moved, an undo step went, the design went unsaved.
+      if (!d.active) {
+        if (Math.abs(e.clientX - d.pointerX) <= PAN_SLOP) return;
+        d.active = true;
+        dragMoved.current = true;
+      }
       const dxModel = ((e.clientX - d.pointerX) * d.clientScale) / (scale * zoom.k);
       // The anchor ladder, the drag start above and the commit below all use
       // axialLength — the kernel's frame — so a snapped part lands ON the
@@ -492,16 +530,19 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
       const epsilon = (6 * 1) / (scale * zoom.k); // ~6 screen px of magnetism
       const snapped = snapStart(d.relStart + dxModel, anchors, epsilon);
       const pos = (d.child.position ?? { method: 'top', offset: 0 }) as ComponentPosition;
-      onPatchNode(d.childId, {
-        position: {
-          method: pos.method,
-          offset: offsetForStart(pos.method, snapped, axialLength(d.child), d.pLen),
-        },
-      });
+      const offset = offsetForStart(pos.method, snapped, axialLength(d.child), d.pLen);
+      // Inside a snap zone every move lands on the same anchor. Writing that
+      // again is a whole-tree update and a kernel rebuild in App's render for
+      // a part that has not moved — 73 ms a move on kitchensink.ork.
+      if (offset === d.offset) return;
+      d.offset = offset;
+      onPatchNode(d.childId, { position: { method: pos.method, offset } });
       return;
     }
     const p = pan.current;
     if (p) {
+      if (e.pointerId !== p.pointerId) return;
+      if (releasedDuring(e)) { endDrag(e); return; }
       const dx = e.clientX - p.pointerX;
       const dy = e.clientY - p.pointerY;
       // Below the slop this press is still a click, not a pan. Once it IS a
@@ -518,7 +559,12 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
     }
   };
 
-  const endDrag = () => { drag.current = null; pan.current = null; };
+  /** Ends the gesture its OWN pointer started — a second finger lifting (or
+   *  leaving, or being cancelled) must not end the first finger's drag. */
+  const endDrag = (e: React.PointerEvent) => {
+    if (drag.current?.pointerId === e.pointerId) drag.current = null;
+    if (pan.current?.pointerId === e.pointerId) pan.current = null;
+  };
 
   // Track the container's size so the viewBox can follow it (height feeds
   // the vertical mode's length axis).
@@ -1515,7 +1561,11 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
           onPointerDown={vertical ? undefined : beginPan}
           onPointerMove={vertical ? undefined : onMove}
           onPointerUp={vertical ? undefined : endDrag}
-          onPointerLeave={vertical ? undefined : endDrag}>
+          onPointerLeave={vertical ? undefined : endDrag}
+          // A gesture the browser takes over ends here rather than living on
+          // to be driven by whatever pointer moves next (audit 2026-09-22).
+          onPointerCancel={vertical ? undefined : endDrag}
+          onLostPointerCapture={vertical ? undefined : endDrag}>
         <defs>
           {/* Bulkhead fill: the engineering-drawing diagonal hatch. */}
           <pattern id="bulkhead-hatch" patternUnits="userSpaceOnUse" width="5" height="5">
