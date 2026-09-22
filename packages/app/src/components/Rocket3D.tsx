@@ -384,9 +384,6 @@ export function Rocket3D({ tree, info, motors, exportData }: {
   const markers = markerVisibility(prefs.markers3d);
   const { pieces, totalLen, maxR } = useMemo(() => buildPieces(tree, motors), [tree, motors]);
   const r3f = useRef<{ gl: THREE.WebGLRenderer; scene: THREE.Scene; camera: THREE.Camera } | null>(null);
-  /** False once this view is gone, so a multi-second export cannot touch a disposed renderer. */
-  const mounted = useRef(true);
-  useEffect(() => () => { mounted.current = false; }, []);
 
   // Hi-res snapshot (issue 2026-08-11b): re-render the SAME scene/camera at
   // the export width (updateStyle=false keeps the on-screen CSS size), grab
@@ -410,11 +407,12 @@ export function Rocket3D({ tree, info, motors, exportData }: {
     //
     // The fit renders through a THROWAWAY camera instead of moving the live
     // one and restoring it. OrbitControls owns the on-screen camera and
-    // re-derives its state from it every frame, and the hi-res encode below
-    // takes long enough (seconds, at 8K) for plenty of frames to land — a
-    // mutate/restore pair would flash a jumped view at the user and risks
-    // leaving the controls desynced if the capture throws. A throwaway cannot
-    // desync: there is nothing to put back. Building it fresh rather than
+    // re-derives its state from it every frame, so a mutate/restore pair risks
+    // leaving the controls desynced if the capture throws between the two. (It
+    // was also written to avoid flashing a jumped view during the seconds-long
+    // encode; since audit 2026-09-22 the renderer is restored before that
+    // encode is awaited, so no frame lands mid-capture either way.) A throwaway
+    // cannot desync: there is nothing to put back. Building it fresh rather than
     // cloning also guarantees a clean projection (no inherited zoom or view
     // offset). spanM stays 2*maxR: framing moves the camera, never the rocket.
     const src = st.camera as THREE.PerspectiveCamera;
@@ -423,23 +421,33 @@ export function Rocket3D({ tree, info, motors, exportData }: {
       ? exportCamera(box, src, widthPx / outH)
       : st.camera;
 
+    // The renderer goes back to the view's own size BEFORE the encode is
+    // awaited, not after it (audit 2026-09-22). snapshotWithHeader copies the
+    // frame into a canvas of its own (drawImage) before it returns, so the
+    // pixels are safe the moment the call returns; restoring only after the
+    // multi-second encode kept the live view rendering at up to 8K — ~33 Mpx a
+    // frame, the size that costs a mobile GPU its context.
+    //
+    // It also retires the "still mounted?" flag the old after-the-await restore
+    // needed (2026-09-08 audit: switch tabs mid-encode and R3F has disposed the
+    // renderer). Nothing here touches the renderer once an await has passed, so
+    // there is no unmount left to race — and the flag had a bug of its own: its
+    // effect only ever cleared it, so under StrictMode's mount-unmount-mount it
+    // was false from the first commit and every `npm run dev` export skipped the
+    // restore and left the view at export size.
+    let encoding: Promise<Blob>;
     try {
       st.gl.setPixelRatio(1);
       st.gl.setSize(widthPx, outH, false);
       st.gl.render(st.scene, cam);
-      const blob = await snapshotWithHeader(el, { ...exportData, spanM: 2 * maxR }, format);
-      downloadImage(blob, `${exportData.name.replace(/[^\w-]+/g, '_')}-3d.${IMAGE_FORMAT_EXT[format]}`);
+      encoding = snapshotWithHeader(el, { ...exportData, spanM: 2 * maxR }, format);
     } finally {
-      // ONLY if the view is still mounted (2026-09-08 audit). The await above
-      // encodes at up to 8K and takes seconds; switch away from the 3D tab
-      // meanwhile and R3F has disposed this renderer, so restoring its pixel
-      // ratio and re-rendering the scene touches a dead context.
-      if (mounted.current && r3f.current === st) {
-        st.gl.setPixelRatio(pr);
-        st.gl.setSize(cssW, cssH, false);
-        st.gl.render(st.scene, st.camera);
-      }
+      st.gl.setPixelRatio(pr);
+      st.gl.setSize(cssW, cssH, false);
+      st.gl.render(st.scene, st.camera);
     }
+    const blob = await encoding;
+    downloadImage(blob, `${exportData.name.replace(/[^\w-]+/g, '_')}-3d.${IMAGE_FORMAT_EXT[format]}`);
   };
   // Mesh keys are stable across rebuilds, so R3F never unmounts/auto-disposes
   // the swapped-out geometries — release them ourselves or every edit leaks
