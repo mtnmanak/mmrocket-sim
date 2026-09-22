@@ -171,7 +171,7 @@ describe('CP vs Mach — a roll-dependent design says which plane it is', () => 
 
   it('with no lift in the swept plane, says it is the PLANE that has none', () => {
     // Tube + two fins, no nose: nothing in the theta = 0 plane, lift in others
-    // (measured on the real kernel: cna 0, cnaWorst 0.809 at cpWorst 270.8 mm).
+    // (on the real kernel such a design reads cna 0 with a nonzero cnaWorst).
     open(rocketOf(sweepOf(flat(0), flat(0)), { length: 0.3, cp: 0, cna: 0, cpWorst: 0.269348, cnaWorst: 0.809 }));
     expect(cpSeries()).toBeNull();
     expect(texts().some((t) => t.startsWith('No CP to plot in this roll plane'))).toBe(true);
