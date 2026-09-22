@@ -96,6 +96,24 @@ export function wheelNotches(e: { deltaY: number; deltaMode?: number }): number 
 }
 
 /**
+ * Which way one ARROW KEY pans the 2D and aft drawings, as unit steps of the
+ * drawing's own translation — null for any other key. The VIEW moves the way
+ * the arrow points, so the drawing moves the other way: exactly what the same
+ * key does to a page that scrolls. One rule for both drawings, as wheelNotches
+ * is for the wheel; neither drawing could be panned from the keyboard before
+ * audit 2026-09-22, so a part zoomed out of sight stayed out of sight.
+ */
+export function arrowPan(key: string): [number, number] | null {
+  switch (key) {
+    case 'ArrowLeft': return [1, 0];
+    case 'ArrowRight': return [-1, 0];
+    case 'ArrowUp': return [0, 1];
+    case 'ArrowDown': return [0, -1];
+    default: return null;
+  }
+}
+
+/**
  * How far in the x-axis is zoomed, as a percentage: 100 % is the whole flight,
  * 200 % is half of it on screen. Degenerate or missing scales read 100 %,
  * because "all of it" is what an un-zoomed chart shows.

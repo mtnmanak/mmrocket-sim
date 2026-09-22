@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  clampWindow, isFullExtent, panelHeight, panWindow, plotIsZoomed, resetPlots,
+  arrowPan, clampWindow, isFullExtent, panelHeight, panWindow, plotIsZoomed, resetPlots,
   WHEEL_ZOOM_BASE, WHEEL_ZOOM_IN, WHEEL_ZOOM_OUT, wheelNotches, wheelWindow, wheelZoomFactor,
   xDataExtent, zoomPercent, zoomWindow, type XPlot, type XWindow,
 } from './chartPanZoom.js';
@@ -221,6 +221,19 @@ describe('wheelWindow — the wheel floor', () => {
     for (let i = 0; i < 60; i++) w = wheelWindow(w.min, w.max, 45, WHEEL_ZOOM_IN, E0, E1);
     expect(w.max - w.min).toBeCloseTo(2, 9);
     expect(wheelWindow(w.min, w.max, 45, WHEEL_ZOOM_IN, E0, E1)).toEqual(w);
+  });
+});
+
+describe('arrowPan — the drawings\' keyboard pan (audit 2026-09-22)', () => {
+  it('moves the drawing AGAINST the arrow, as a scrolling page moves', () => {
+    expect(arrowPan('ArrowRight')).toEqual([-1, 0]);
+    expect(arrowPan('ArrowLeft')).toEqual([1, 0]);
+    expect(arrowPan('ArrowDown')).toEqual([0, -1]);
+    expect(arrowPan('ArrowUp')).toEqual([0, 1]);
+  });
+
+  it('ignores every other key, so Enter and Space stay the parts\' own', () => {
+    for (const k of ['Enter', ' ', 'Tab', 'a', 'Home']) expect(arrowPan(k)).toBeNull();
   });
 });
 

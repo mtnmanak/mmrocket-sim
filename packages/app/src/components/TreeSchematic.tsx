@@ -3,7 +3,7 @@ import type { ComponentNode, ComponentPosition, RocketTree, StaticInfo } from '@
 import { anchorStarts, axialLength, offsetForStart, snapStart, startFromPosition } from '../tree/position.js';
 import { clusterOffsets } from '../tree/cluster.js';
 import { tubeFinRadius } from '../tree/tubefins.js';
-import { wheelNotches } from '../chartPanZoom.js';
+import { arrowPan, wheelNotches } from '../chartPanZoom.js';
 import { DISPLAY_NAME } from '../tree/schema.js';
 import {
   assemblyBoundingRadius, assemblyChainLength, isAssembly,
@@ -637,6 +637,22 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
     const my = (ay - z.y) / z.k;
     return k === 1 ? { k: 1, x: 0, y: 0 } : { k, x: ax - mx * k, y: ay - my * k };
   });
+
+  /**
+   * Arrow keys pan the drawing a tenth of its size a press, the keyboard twin
+   * of the background drag (audit 2026-09-22). The buttons above zoom about the
+   * centre, so once zoomed a keyboard user could Tab onto a part — the nose, the
+   * fin can — that was out of sight, with no way to bring it back. Handled on
+   * the svg, so the arrows work from the focused drawing AND from a focused
+   * part (whose own keys are Enter and Space). Like the drag, it pans at any
+   * zoom; the Fit button then appears to put it back.
+   */
+  const onKeyPan = (e: React.KeyboardEvent) => {
+    const d = arrowPan(e.key);
+    if (!d) return;
+    e.preventDefault();
+    setZoom((z) => ({ ...z, x: z.x + d[0] * 0.1 * w, y: z.y + d[1] * 0.1 * h }));
+  };
 
   // Selection sync: click any drawn component to select it in the tree; the
   // selected component draws with an accent outline.
@@ -1620,7 +1636,11 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
           role={vertical && !onSelect ? 'img' : 'group'}
           aria-label={vertical
             ? `Rocket side view, nose up, with CG and CP markers${onSelect ? ' — select components' : ''}`
-            : 'Rocket side view with CG and CP markers — drag components, wheel to zoom, drag background to pan'}
+            : 'Rocket side view with CG and CP markers — drag components, wheel to zoom, drag the background or use the arrow keys to pan'}
+          // A tab stop of its own for the arrow-key pan (see onKeyPan) — the
+          // nose-up drawing neither pans nor zooms, so it takes no keys.
+          tabIndex={vertical ? undefined : 0}
+          onKeyDown={vertical ? undefined : onKeyPan}
           onPointerDownCapture={resetDragLatch}
           onPointerDown={vertical ? undefined : beginPan}
           onPointerMove={vertical ? undefined : onMove}
@@ -1768,7 +1788,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
             ⤢ Fit
           </button>
         )}
-        <button className="file-btn" title="Zoom in — or scroll on the drawing; drag to pan"
+        <button className="file-btn" title="Zoom in — or scroll on the drawing; drag it, or use the arrow keys, to pan"
           aria-label="Zoom in" onClick={() => zoomBy(1.5)} disabled={zoom.k >= 12}>+</button>
         <button className="file-btn" title="Zoom out"
           aria-label="Zoom out" onClick={() => zoomBy(1 / 1.5)} disabled={zoom.k <= 1}>−</button>

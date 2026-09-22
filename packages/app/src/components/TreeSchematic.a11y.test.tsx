@@ -184,6 +184,62 @@ describe('one tab stop per part, not per drawn instance', () => {
   });
 });
 
+/**
+ * Audit 2026-09-22: the side view panned only by pointer drag, so once zoomed a
+ * keyboard user could Tab onto a part that had been panned out of sight and had
+ * no way to bring it back.
+ */
+describe('side view keyboard panning', () => {
+  const tree = withChildren([{
+    id: 'f1', type: 'trapezoidfinset', finCount: 3, rootChord: 0.05,
+    tipChord: 0.03, sweep: 0.02, height: 0.03,
+  }]);
+  const translate = () => [...svg().querySelectorAll('g')]
+    .map((g) => g.getAttribute('transform') ?? '').find((t) => t.includes('translate'))!
+    .match(/translate\((-?[\d.e-]+) (-?[\d.e-]+)\)/)!.slice(1).map(Number);
+  const key = (el: Element, k: string): boolean => {
+    const ev = new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true });
+    act(() => { el.dispatchEvent(ev); });
+    return ev.defaultPrevented;
+  };
+
+  it('the drawing is a tab stop that says the arrow keys pan it', () => {
+    show(<TreeSchematic tree={tree} info={null} onSelect={() => {}} />);
+    expect(svg().tabIndex).toBe(0);
+    expect(svg().getAttribute('aria-label')).toMatch(/arrow keys to pan/);
+  });
+
+  it('the arrows move the view the way a scroll moves a page', () => {
+    show(<TreeSchematic tree={tree} info={null} onSelect={() => {}} />);
+    const [x0, y0] = translate();
+    expect(key(svg(), 'ArrowRight')).toBe(true);
+    expect(translate()[0]!).toBeLessThan(x0!); // view right = drawing left
+    expect(key(svg(), 'ArrowDown')).toBe(true);
+    expect(translate()[1]!).toBeLessThan(y0!);
+    key(svg(), 'ArrowLeft');
+    key(svg(), 'ArrowUp');
+    expect(translate()).toEqual([x0, y0]);
+  });
+
+  it('pans from a focused part too, and leaves its Enter alone', () => {
+    const picked: string[] = [];
+    show(<TreeSchematic tree={tree} info={null} onSelect={(id) => picked.push(id)} />);
+    const nose = [...svg().querySelectorAll('[tabindex="0"]')]
+      .find((s) => s.getAttribute('aria-label') === 'Select Nose cone')!;
+    const [x0] = translate();
+    expect(key(nose, 'ArrowLeft')).toBe(true);
+    expect(translate()[0]!).toBeGreaterThan(x0!);
+    key(nose, 'Enter');
+    expect(picked).toEqual(['n1']);
+  });
+
+  it('the nose-up drawing, which neither pans nor zooms, takes no arrows', () => {
+    show(<TreeSchematic tree={tree} info={null} vertical />);
+    expect(svg().getAttribute('tabindex')).toBeNull();
+    expect(key(svg(), 'ArrowRight')).toBe(false);
+  });
+});
+
 describe('a rail button is drawn centred on its station', () => {
   const button = (method: string) => withChildren([{
     id: 'rb', type: 'railbutton', outerDiameter: 0.01, totalHeight: 0.0097,

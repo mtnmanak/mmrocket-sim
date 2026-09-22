@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { clusterOffsets } from '../tree/cluster.js';
 import { tubeFinRadius } from '../tree/tubefins.js';
-import { wheelNotches } from '../chartPanZoom.js';
+import { arrowPan, wheelNotches } from '../chartPanZoom.js';
 import { isAssembly, resolveAssemblyRadius, ringInstanceOffsets } from '../tree/assembly.js';
 import { isConformal } from '../tree/shroud.js';
 import { RollControl } from './RollControl.js';
@@ -451,6 +451,20 @@ export function AftView({ tree, motors, roll: rollProp, onRoll }: {
       vy: -E + ((clientY - rect.top) / rect.height) * 2 * E,
     };
   };
+  /**
+   * Arrow keys pan a ZOOMED view a tenth of its width a press (audit
+   * 2026-09-22) — the zoom buttons zoom about the axis, so without this a pod
+   * or cluster tube off the centre left the view with no keyboard way back.
+   * At fit there is nothing to pan (the pointer pan is off there too), and the
+   * arrows go on scrolling the page.
+   */
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    const d = arrowPan(e.key);
+    if (!d || zoom.k === 1) return;
+    e.preventDefault();
+    const step = 0.2 * E; // a tenth of the 2E-wide view
+    setZoom((z) => ({ ...z, x: z.x + d[0] * step, y: z.y + d[1] * step }));
+  };
   return (
     <div style={{ position: 'relative' }}>
       {/* className marks this svg as METER-scaled: its viewBox spans ~0.4
@@ -465,10 +479,14 @@ export function AftView({ tree, motors, roll: rollProp, onRoll }: {
         // the part — "Fins x3", "Motor", "Camera shroud" — and role="img" made
         // the entire subtree presentational, so none of them was exposed. The
         // one label then had to carry the whole view, and it named three
-        // pointer gestures that have no keyboard equivalent. The +/- and fit
-        // buttons beside the drawing are the keyboard path and are labelled.
+        // pointer gestures that have no keyboard equivalent. The keyboard path
+        // is the labelled +/- and fit buttons beside the drawing, and — since
+        // audit 2026-09-22, when this label still promised pan buttons that
+        // never existed — the arrow keys on the focused drawing.
         role="group"
-        aria-label="Aft end view, looking at the rocket from behind. Zoom and pan with the buttons beside this drawing."
+        tabIndex={0}
+        aria-label="Aft end view, looking at the rocket from behind. Zoom with the buttons beside this drawing; once zoomed in, the arrow keys pan it."
+        onKeyDown={onKeyDown}
         onPointerDown={(e) => {
           if (zoom.k === 1) return;
           const { vx, vy } = toView(e.clientX, e.clientY);
