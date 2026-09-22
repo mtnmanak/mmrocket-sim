@@ -520,11 +520,14 @@ describe('the drogue band and opening shock have a caution tier (v0.114)', () =>
     expect(drogueLine(buildAt(60 * FT_S))).toBeNull();
   });
 
-  it('70-90 ft/s is a CAUTION and says the band still accepts it', () => {
+  it('70-90 ft/s is a CAUTION and says it is in the caution band', () => {
     const line = drogueLine(buildAt(80 * FT_S))!;
     expect(line.level).toBe('caution');
-    expect(line.text).toContain('above the preferred 70 ft/s');
-    expect(line.text).toContain('still inside the accepted band');
+    expect(line.text).toContain('above the preferred 70 ft/s, in the caution band up to 90 ft/s.');
+    // One vocabulary with the Recovery sizing panel (audit 2026-09-22): 70-90
+    // used to be "still inside the accepted band" here while the panel called
+    // 70 "the accepted" band — the app contradicting itself on one threshold.
+    expect(line.text).not.toContain('accepted');
     // Eric's own rocket sat here at ~90 ft/s and got the same sentence a
     // genuinely dangerous descent got.
   });
@@ -742,7 +745,7 @@ describe('dual deployment attribution', () => {
   });
 
   it('a main opening under a healthy drogue does NOT trip the hard-opening flag', () => {
-    const run = build(20.5, 5.5); // 67 ft/s — inside the accepted band
+    const run = build(20.5, 5.5); // 67 ft/s — inside the preferred band
     expect(run.deployments[1]!.openingOk).toBe(true);
     expect(run.safeDeployment).toBe(true);
     expect(run.comments).not.toMatch(/hard opening/);
@@ -1296,7 +1299,7 @@ describe('WIND IS NOT AN OPENING SHOCK (services-rest-1)', () => {
   });
 
   it('a main opening under a healthy drogue passes in the reference 5 m/s wind', () => {
-    // 20.8 m/s is INSIDE the app's own accepted drogue band (21.34). The old
+    // 20.8 m/s is INSIDE the app's own preferred drogue rate (21.34). The old
     // reading, sqrt(20.8^2 + 5^2) = 21.39, is not — so this rocket got a red
     // "hard opening" cell and a failed "Safe deployment" row on a main that met
     // the air at 68 ft/s.
@@ -1312,7 +1315,7 @@ describe('WIND IS NOT AN OPENING SHOCK (services-rest-1)', () => {
 
   it('the allowed drogue rate no longer shrinks as the wind rises', () => {
     // Before: the effective ceiling was sqrt(21.34^2 - w^2) — 20.74 m/s at 5 m/s
-    // of wind, 18.9 at 10, 15.2 (the very bottom of the accepted band) at 15.
+    // of wind, 18.9 at 10, 15.2 (the very bottom of the sizing panel's drogue band) at 15.
     for (const wind of [0, 5, 10, 15]) {
       const run = inWind(21, wind);
       expect(run.deployments[1]!.openingOk, `wind ${wind} m/s`).toBe(true);

@@ -240,8 +240,15 @@ describe('RecoverySizingPanel', () => {
     await mount({ recovery: { state: 'ok', mass: 0.9, multiStage: false } });
     const drogue = bands()[1]!;
     expect(drogue.querySelector('.recovery-part-warn')).not.toBeNull();
-    expect(drogue.textContent).toContain('faster than the accepted');
-    expect(drogue.textContent).toContain('drogue band — the launch report will say so');
+    // The report's three tiers, in the report's words (audit 2026-09-22): the
+    // panel used to call 70 ft/s "the accepted" drogue band while the report
+    // called 70-90 "still inside the accepted band".
+    expect(drogue.textContent).toContain('is above the preferred 70 ft/s for a drogue');
+    expect(drogue.textContent).toContain('in the caution band up to 90 ft/s');
+    expect(drogue.textContent).toContain('the launch report will flag it as a caution');
+    expect(drogue.textContent).not.toContain('accepted');
+    expect(drogue.querySelector('.recovery-part-warn .recovery-mark-warn')?.getAttribute('aria-label'))
+      .toBe('above the preferred drogue rate — a caution');
     // Marked, and LAST — never ahead of a canopy that clears the threshold.
     const flagged = rows(1).map((r) => r.classList.contains('recovery-part-warn'));
     expect(flagged[flagged.length - 1]).toBe(true);

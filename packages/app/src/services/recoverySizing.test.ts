@@ -207,6 +207,18 @@ describe('the bands', () => {
     // can never be one its own launch report complains about.
     expect(DROGUE_BAND.target).toBeLessThan(DROGUE_BAND.warnAbove!);
   });
+
+  it('carries the report’s caution tier, and a marked drogue can only be a caution', () => {
+    // Three tiers, one vocabulary (audit 2026-09-22): preferred to 70, caution
+    // to 90, warning above — the panel quotes both edges from here.
+    expect(DROGUE_BAND.cautionTo).toBe(SAFETY.warnDrogueDescentRate);
+    expect(fps(DROGUE_BAND.cautionTo!)).toBeCloseTo(90, 6);
+    // The searched window stops inside the caution tier, never in the warning.
+    expect(DROGUE_BAND.max).toBeLessThan(DROGUE_BAND.cautionTo!);
+    // The main's own edge IS the report's landing limit: no tiers to quote.
+    expect(MAIN_BAND.warnAbove).toBeNull();
+    expect(MAIN_BAND.cautionTo).toBeNull();
+  });
 });
 
 describe('the size line — the owner’s worked example, 8.786 kg at sea level', () => {

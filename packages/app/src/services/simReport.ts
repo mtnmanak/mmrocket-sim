@@ -77,12 +77,23 @@ export const SAFETY = {
   /** Minimum thrust:weight at rod departure. */
   minThrustToWeight: 5,
   /**
-   * Opening shock: a device deploying faster than ~70 ft/s risks a zippered
-   * tube / torn chute. 70 ft/s is also the top of the accepted drogue-descent
-   * band, so a main opening under a healthy drogue never trips this.
+   * Opening shock, the top of the PREFERRED tier: at or under 70 ft/s the
+   * report says nothing; above it a device opening risks a zippered tube or a
+   * torn chute — a CAUTION up to `warnDeploymentVelocity` (90 ft/s), a WARNING
+   * past it. 70 ft/s is also the top of the preferred drogue descent rate, so
+   * a main opening under a healthy drogue never trips this.
+   *
+   * THREE TIERS, ONE VOCABULARY (audit 2026-09-22): preferred to 70, caution
+   * 70-90, warning above 90 — in this report and on the Recovery sizing panel
+   * alike. The panel used to call 70 ft/s "the accepted" drogue band while this
+   * report called 70-90 "still inside the accepted band to 90", so the app
+   * contradicted itself on the very threshold v0.114 existed to make one rule.
    */
   maxDeploymentVelocity: 21.34,
-  /** Descent under a drogue: accepted band tops out at 70 ft/s (the owner). */
+  /**
+   * Descent under a drogue: the PREFERRED rate tops out at 70 ft/s (the
+   * owner); 70-90 is a caution and above 90 a warning (`warnDrogueDescentRate`).
+   */
   maxDrogueDescentRate: 21.34,
   /**
    * ABOVE THIS IT STOPS BEING A CAUTION AND BECOMES A WARNING — 90 ft/s, the
@@ -277,7 +288,7 @@ export interface DeploymentReport {
   isLanding: boolean;
   /** Opening shock verdict (false = too fast — THIS device's problem). */
   openingOk: boolean | null;
-  /** Descent-rate verdict: drogue band ≤70 ft/s, landing ≤20 ft/s. */
+  /** Descent-rate verdict: preferred drogue rate ≤70 ft/s, landing ≤20 ft/s. */
   descentOk: boolean | null;
   /**
    * THE DRAG COEFFICIENT THIS FLIGHT ACTUALLY FLEW, and the canopy it flew it
@@ -1068,12 +1079,12 @@ function extractDeployments(
      * and the wind was being charged against `SAFETY.maxDeploymentVelocity`.
      *
      * Measured consequence: with the owner's reference 5 m/s wind, a drogue
-     * descending at 20.8 m/s — INSIDE the app's own accepted drogue band,
+     * descending at 20.8 m/s — INSIDE the app's own preferred drogue rate,
      * which tops out at 21.34 — made the main report √(20.8²+5²) = 21.39 and
      * fail, painting a red "hard opening" and a failed "Safe deployment" on a
      * main that met the air at 20.8 m/s (68 ft/s). The effective allowed drogue
      * rate fell to √(21.34² − w²): 20.74 m/s at 5 m/s of wind, 18.9 at 10,
-     * 15.2 — the very bottom of the accepted band — at 15.
+     * 15.2 — the very bottom of the sizing panel's drogue band — at 15.
      */
     const vDeploy = i === 0
       ? vGroundRaw
@@ -1617,7 +1628,7 @@ export function buildSimRun(input: {
       say(`Descent under ${d.device} is ${d.descentRate!.toFixed(1)} m/s (${fps(d.descentRate!)}) — `
         + (fast
           ? `past the ${fps(SAFETY.warnDrogueDescentRate)} limit for a drogue.`
-          : `above the preferred ${fps(SAFETY.maxDrogueDescentRate)}, still inside the accepted band to ${fps(SAFETY.warnDrogueDescentRate)}.`),
+          : `above the preferred ${fps(SAFETY.maxDrogueDescentRate)}, in the caution band up to ${fps(SAFETY.warnDrogueDescentRate)}.`),
       fast ? 'warning' : 'caution');
     }
     if (d.descentOk === false && d.isLanding) {

@@ -390,10 +390,14 @@ function BandSection({
           <>
             {/* The app contradicting itself is the defect this wording exists to
                 avoid: the owner's drogue band reaches 75 ft/s, the launch report
-                complains above 70, and both facts belong on the same line. */}
-            <span className="recovery-mark recovery-mark-warn">†</span> is faster than the
-            accepted {rate(advice.band.warnAbove!)} {velSym} drogue band — the launch report
-            will say so.
+                cautions above 70, and both facts belong on the same line. It
+                speaks the report's three tiers — preferred to 70, caution to 90,
+                warning above — because it used to call 70 "the accepted" band
+                while the report called 70-90 still accepted (audit 2026-09-22). */}
+            <span className="recovery-mark recovery-mark-warn">†</span> is above the preferred
+            {' '}{rate(advice.band.warnAbove!)} {velSym} for a drogue, in the caution band up
+            to {rate(advice.band.cautionTo!)} {velSym} — the launch report will flag it as a
+            caution.
           </>
         )}
       </p>
@@ -432,7 +436,7 @@ function PartRow({ c, lenSym, velSym, massSym }: {
           {fixedRate} {velSym}
           {c.flagged && (
             <span className="recovery-mark recovery-mark-warn"
-              aria-label="above the accepted drogue band">†</span>
+              aria-label="above the preferred drogue rate — a caution">†</span>
           )}
         </span>
       </div>

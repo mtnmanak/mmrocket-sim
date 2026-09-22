@@ -52,8 +52,8 @@ const FT_S = 0.3048;
 // temperature comes whole from `padAir` (audit 2026-09-22).
 
 /**
- * A recovery band: the accepted descent-rate window, plus the single rate the
- * SIZE line is computed at.
+ * A recovery band: the descent-rate window this panel searches the catalogue
+ * over, plus the single rate the SIZE line is computed at.
  *
  * The targets are not the arithmetic midpoints, and both have a reason:
  *
@@ -63,25 +63,34 @@ const FT_S = 0.3048;
  *    and drifting proportionally further downwind. It is still clear of
  *    `SAFETY.maxLandingRate`, which is the rate the flight report checks.
  *  - DROGUE 60 ft/s is the middle of 50-70, NOT of 50-75. 70 ft/s is
- *    `SAFETY.maxDrogueDescentRate`, the rate above which this app's own launch
- *    report writes "faster than the accepted 70 ft/s drogue band"
- *    (simReport.ts:1237). Sizing at the raw 62.5 ft/s midpoint would put the
- *    app's recommendation within 8 ft/s of the app's own complaint; sizing at
- *    60 cannot.
+ *    `SAFETY.maxDrogueDescentRate`, the top of the PREFERRED drogue rate: above
+ *    it this app's own launch report writes a CAUTION ("above the preferred
+ *    70 ft/s, in the caution band up to 90 ft/s"), and above 90 a warning —
+ *    the three tiers of `SAFETY`, one vocabulary on both surfaces (audit
+ *    2026-09-22). Sizing at the raw 62.5 ft/s midpoint would put the app's
+ *    recommendation within 8 ft/s of the app's own caution; sizing at 60
+ *    cannot.
  */
 export interface Band {
-  /** Slow edge of the accepted window (m/s). */
+  /** Slow edge of the searched window (m/s). */
   min: number;
-  /** Fast edge of the accepted window (m/s). */
+  /** Fast edge of the searched window (m/s). */
   max: number;
   /** The rate the SIZE line is computed at (m/s). */
   target: number;
   /**
-   * Rate above which the app's own flight report complains (m/s), or null when
-   * the band's own `max` is already that rate. Candidates above it are ordered
-   * last and MARKED — never silently dropped and never silently recommended.
+   * The top of the PREFERRED tier (m/s): above it the app's own flight report
+   * writes a caution. Null when the band's own `max` is already the report's
+   * limit. Candidates above it are ordered last and MARKED — never silently
+   * dropped and never silently recommended.
    */
   warnAbove: number | null;
+  /**
+   * The top of the CAUTION tier (m/s): above it the report's caution becomes
+   * a warning. Null alongside a null `warnAbove`. The panel quotes it so a
+   * marked candidate says which tier it is in, in the report's own words.
+   */
+  cautionTo: number | null;
 }
 
 /**
@@ -103,14 +112,20 @@ export const MAIN_BAND: Band = {
   max: SAFETY.maxLandingRate,
   target: 18 * FT_S,
   warnAbove: null,
+  cautionTo: null,
 };
 
-/** Drogue: 50-75 ft/s, with the app's own 70 ft/s complaint threshold marked. */
+/**
+ * Drogue: 50-75 ft/s, with the top of the app's own preferred 70 ft/s marked.
+ * The window's 75 ft/s edge sits inside the report's 70-90 caution tier, so a
+ * marked drogue is always a caution, never a warning.
+ */
 export const DROGUE_BAND: Band = {
   min: 50 * FT_S,
   max: 75 * FT_S,
   target: 60 * FT_S,
   warnAbove: SAFETY.maxDrogueDescentRate,
+  cautionTo: SAFETY.warnDrogueDescentRate,
 };
 
 /** The Cd the kernel gives a canopy that states none — `treeModel.ts:968`. */
@@ -342,7 +357,7 @@ export interface Candidate {
    * to measure against. Never a reason to drop a canopy silently.
    */
   fit: 'fits' | 'unverified';
-  /** Above the app's own flight-report threshold for this band (drogues only). */
+  /** Above the band's preferred rate — the report's caution tier (drogues only). */
   flagged: boolean;
   /**
    * How many catalogue rows this line stands for — the same canopy in a
@@ -591,7 +606,7 @@ function bandAdvice(
 
   // --- order, then spread across manufacturers -----------------------------
   // A drogue above SAFETY.maxDrogueDescentRate goes LAST, not away: the owner's
-  // band reaches 75 ft/s and the app's launch report complains above 70, and
+  // band reaches 75 ft/s and the app's launch report cautions above 70, and
   // the resolution he can act on is to see both facts on the same line.
   const ranked = [...families.values()].sort((a, b) => {
     const fa = band.warnAbove !== null && a.best.rate > band.warnAbove ? 1 : 0;
