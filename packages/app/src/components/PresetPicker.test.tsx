@@ -124,6 +124,28 @@ describe('PresetPicker — CSV import', () => {
     expect(text()).not.toContain('Imported 1 preset(s)');
     expect(text()).toContain('1 row(s) skipped'); // the bad row is still reported
   });
+
+  /**
+   * Audit 2026-09-22: a CSV with a density column but NO materialName column
+   * parsed each material with an undefined name, and the soundness check's
+   * `m.name.trim()` threw — "CSV import failed: Cannot read properties of
+   * undefined", nothing imported and no row named. A missing name is a half
+   * pair like any other: that row is skipped and named, and the rest import.
+   */
+  it('skips and names a row whose material has a density but no name column', async () => {
+    await render();
+    await importCsv([
+      'kind,manufacturer,partNo,description,materialDensity,outsideDiameter',
+      'BodyTube,ACME,NONAME-1,Density only,680,0.024',
+      'BodyTube,ACME,PLAIN-1,No material at all,,0.024',
+    ].join('\n'));
+
+    expect(text()).not.toContain('CSV import failed');
+    expect(text()).toContain('Imported 1 preset(s)');
+    expect(text()).toContain('1 row(s) skipped');
+    expect(text()).toContain('NONAME-1');
+    expect(loadCustomPresets().map((p) => p.partNo)).toEqual(['PLAIN-1']);
+  });
 });
 
 describe('PresetPicker — dimensions', () => {
