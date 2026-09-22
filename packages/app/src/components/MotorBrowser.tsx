@@ -73,6 +73,11 @@ const DEFAULT_FILTERS: StoredFilters = {
   sortDir: -1,
 };
 
+/** The narrowing filters that live under "All filters", reset. */
+const FOLDED_CLEAR: Partial<StoredFilters> = {
+  propellants: [], burnMin: null, burnMax: null, impulseMin: null, impulseMax: null,
+};
+
 function loadFilters(): StoredFilters {
   try {
     const raw = localStorage.getItem(FILTERS_KEY);
@@ -244,12 +249,40 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
     [mountDiameterMm, filters.includeOOP, allMotors],
   );
 
+  /**
+   * The chips that APPLY: the persisted selection, intersected with what this
+   * mount offers as chips (audit 2026-09-22) — the rule the diameter classes
+   * always followed. The filters persist across sessions and mounts, so a maker,
+   * letter or propellant chosen on another mount (or under "All filters", which
+   * may now be folded) went on filtering with no chip on screen to show it: "No
+   * motors match", or a just-imported EX motor missing while the EX chip counted
+   * it, because a propellant chip excludes a motor with no propellant at all.
+   * The persisted lists are left as they are, so the choice comes back on a
+   * mount that offers it. Propellants are the fourteen chips actually drawn.
+   */
+  const shown = useMemo(() => {
+    const makers = new Set(manufacturers.map((m) => m.abbrev));
+    const letters = new Set(impulseClasses.map((c) => c.letter));
+    const props = new Set(propellants.slice(0, 14).map((p) => p.name));
+    return {
+      manufacturers: filters.manufacturers.filter((m) => makers.has(m)),
+      classes: filters.classes.filter((c) => fittingClasses.includes(c)),
+      impulse: filters.impulse.filter((l) => letters.has(l)),
+      propellants: filters.propellants.filter((p) => props.has(p)),
+    };
+  }, [filters, manufacturers, impulseClasses, propellants, fittingClasses]);
+
+  /** Narrowing filters folded away under "All filters" while it is closed — counted on its button. */
+  const hiddenCount = filters.showAll ? 0
+    : shown.propellants.length
+      + [filters.burnMin, filters.burnMax, filters.impulseMin, filters.impulseMax].filter((b) => b !== null).length;
+
   const rows = useMemo(() => {
     const filtered = filterMotors({
-      manufacturers: new Set(filters.manufacturers),
-      classes: new Set(filters.classes.filter((c) => fittingClasses.includes(c))),
-      impulse: new Set(filters.impulse),
-      propellants: new Set(filters.propellants),
+      manufacturers: new Set(shown.manufacturers),
+      classes: new Set(shown.classes),
+      impulse: new Set(shown.impulse),
+      propellants: new Set(shown.propellants),
       // Only enforceable when the rocket actually states its room; the
       // checkbox is disabled and explained when it does not.
       maxLengthM: filters.fitsOnly ? maxMotorLengthM : null,
@@ -260,7 +293,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
       text,
     }, allMotors);
     return sortMotors(filtered, filters.sortKey, filters.sortDir);
-  }, [filters, text, mountDiameterMm, fittingClasses, allMotors, maxMotorLengthM]);
+  }, [filters, shown, text, mountDiameterMm, allMotors, maxMotorLengthM]);
 
   // Single files or a whole EX-motor folder (2026-08-05e): every .eng/.rse
   // found is parsed and added to the persistent library; unreadable files are
@@ -305,9 +338,18 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
     if (write) {
       setExMotors(write.motors);
       setText('');
-      // Clear the maker AND diameter chips: a persisted class selection would
-      // silently hide the motor that was just imported ("where did it go?").
-      setFilters({ ...filters, manufacturers: [], classes: [] });
+      // Clear every filter that could hide the motor just imported ("where did
+      // it go?"): the maker and diameter chips, and — audit 2026-09-22 — the
+      // impulse letters, the propellant chips and the burn/impulse windows too,
+      // folded or not. An EX motor has no propellant name, so any propellant
+      // chip hid it while the EX chip counted it. "Only motors that fit" goes
+      // off only when one of them is too long for it.
+      const tooLongNow = maxMotorLengthM !== null
+        && parsed.some((m) => m.length / 1000 > maxMotorLengthM);
+      setFilters({
+        ...filters, ...FOLDED_CLEAR, manufacturers: [], classes: [], impulse: [],
+        fitsOnly: filters.fitsOnly && !tooLongNow,
+      });
       const list = `${imported.length} EX motor${imported.length === 1 ? '' : 's'} `
         + `(${imported.slice(0, 6).join(', ')}${imported.length > 6 ? ', …' : ''})`;
       // Say "survive reloads" only when they do (audit 2026-09-22). A full
@@ -477,7 +519,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
                 {abbrev} <span className="motor-chip-count">{count}</span>
               </button>
             ))}
-            {filters.manufacturers.length > 0 && (
+            {shown.manufacturers.length > 0 && (
               <button className="file-btn" onClick={() => setFilters({ ...filters, manufacturers: [] })}>all</button>
             )}
           </div>
@@ -493,7 +535,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
                 {classLabel(c)} mm
               </button>
             ))}
-            {filters.classes.length > 0 && (
+            {shown.classes.length > 0 && (
               <button className="file-btn" onClick={() => setFilters({ ...filters, classes: [] })}>all</button>
             )}
           </div>
@@ -510,7 +552,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
                 {letter} <span className="motor-chip-count">{count}</span>
               </button>
             ))}
-            {filters.impulse.length > 0 && (
+            {shown.impulse.length > 0 && (
               <button className="file-btn" onClick={() => setFilters({ ...filters, impulse: [] })}>all</button>
             )}
           </div>
@@ -544,7 +586,18 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
               title={filters.showAll ? 'Hide the extra filters' : 'Propellant, out-of-production'}
               onClick={() => setFilters({ ...filters, showAll: !filters.showAll })}>
               {filters.showAll ? '▾' : '▸'} All filters
+              {/* Folded is not off (audit 2026-09-22): a propellant chip or a
+                  burn/impulse window chosen last session keeps filtering with
+                  the row closed, and nothing on screen said so. */}
+              {hiddenCount > 0 && ` · ${hiddenCount} hidden`}
             </button>
+            {hiddenCount > 0 && (
+              <button className="file-btn"
+                aria-label={`Clear the ${hiddenCount} hidden filter${hiddenCount === 1 ? '' : 's'}`}
+                onClick={() => setFilters({ ...filters, ...FOLDED_CLEAR })}>
+                clear
+              </button>
+            )}
             <label className="file-btn" title="Import experimental/EX motors from RASP (.eng) or RockSim (.rse) files — they appear under manufacturer EX and persist across sessions">
               ⬆ Import .eng/.rse
               <input type="file" accept=".eng,.rse,.txt" multiple style={{ display: 'none' }}
@@ -583,7 +636,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
                     {name} <span className="motor-chip-count">{count}</span>
                   </button>
                 ))}
-                {filters.propellants.length > 0 && (
+                {shown.propellants.length > 0 && (
                   <button className="file-btn" onClick={() => setFilters({ ...filters, propellants: [] })}>all</button>
                 )}
               </div>

@@ -301,3 +301,47 @@ describe('MotorBrowser — the "Check thrustcurve.org" button (audit 2026-09-22)
     expect(getCatalogueOverlay()).toBeNull();
   });
 });
+
+describe('MotorBrowser — filters that persist where they cannot be seen (audit 2026-09-22)', () => {
+  let h: Harness;
+  afterEach(() => closeBrowser(h));
+
+  const allFilters = (h: Harness) => Array.from(h.host.querySelectorAll('button'))
+    .find((b) => /All filters/.test(b.textContent ?? ''))!;
+  const stored = () => JSON.parse(localStorage.getItem(FILTERS_KEY)!) as Record<string, unknown>;
+
+  it('counts a folded propellant chip and window on the "All filters" button, and clears them', () => {
+    h = openBrowser({ mountDiameterMm: 29, filters: { propellants: ['Blue Thunder'], burnMax: 1, showAll: false } });
+    const narrowed = bodyRows(h).length;
+    expect(allFilters(h).textContent).toMatch(/All filters · 2 hidden/);
+    const clear = h.host.querySelector<HTMLButtonElement>('button[aria-label="Clear the 2 hidden filters"]')!;
+    click(clear);
+    expect(allFilters(h).textContent).not.toMatch(/hidden/);
+    expect(bodyRows(h).length).toBeGreaterThan(narrowed);
+    expect(stored()['propellants']).toEqual([]);
+    expect(stored()['burnMax']).toBeNull();
+  });
+
+  it('shows no count while the row is open — the chips are on screen then', () => {
+    h = openBrowser({ mountDiameterMm: 29, filters: { propellants: ['Blue Thunder'], showAll: true } });
+    expect(allFilters(h).textContent).not.toMatch(/hidden/);
+  });
+
+  it('does not apply a maker chip this mount does not offer', () => {
+    // Loki makes nothing that fits 18 mm, so its chip is not drawn here — and
+    // must not filter the table down to "No motors match".
+    h = openBrowser({ mountDiameterMm: 18, filters: { manufacturers: ['Loki'], impulse: ['M'] } });
+    expect(h.host.textContent).not.toMatch(/No motors match/);
+    expect(bodyRows(h).length).toBeGreaterThan(20);
+    expect(stored()['manufacturers']).toEqual(['Loki']); // kept for a mount that offers it
+  });
+
+  it('an import clears every filter that would hide the motor it just added', async () => {
+    h = openBrowser({ mountDiameterMm: 54, filters: {
+      manufacturers: ['AeroTech'], impulse: ['H'], propellants: ['Blue Thunder'], impulseMax: 100, showAll: false,
+    } });
+    await importFiles(h, [{ name: 'k550.eng', text: ENG_K550 }]);
+    expect(rowFor(h, 'EX', 'K550W')).toBeTruthy();
+    expect(stored()).toMatchObject({ manufacturers: [], impulse: [], propellants: [], impulseMax: null });
+  });
+});
