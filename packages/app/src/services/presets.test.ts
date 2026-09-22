@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
-import { applyPresetLinks, csvToPresets, KIND_FOR_TYPE, presetPatch, presetsToCsv, type Preset } from './presets.js';
+import { applyPresetLinks, csvToPresets, holdsCatalogueMass, KIND_FOR_TYPE, presetPatch, presetsToCsv, type Preset } from './presets.js';
 import presetsJson from '../data/presets.json';
 
 const db = (presetsJson as { presets: Preset[] }).presets;
@@ -678,8 +678,9 @@ describe('presetPatch describes the whole part — a second pick keeps nothing o
     expect(p, `${kind} ${pn} has gone from the database`).toBeTruthy();
     return p!;
   };
+  /** A pick the way PresetPicker makes one: the node it replaces and the catalogue it shows. */
   const pick = (node: ComponentNode, p: Preset): ComponentNode =>
-    ({ ...node, ...presetPatch(node.type, p) }) as ComponentNode;
+    ({ ...node, ...presetPatch(node.type, p, { node, presets: db }) }) as ComponentNode;
   const fresh = (type: ComponentNode['type'], p: Preset) => pick({ type, id: 'x' } as ComponentNode, p);
 
   it('IFC-030-S then Apogee 29093: the Apogee canopy flies the default Cd with no vent', () => {
@@ -724,6 +725,69 @@ describe('presetPatch describes the whole part — a second pick keeps nothing o
     const second = pick(first, unmassed);
     expect(second['overrideMass']).toBeUndefined();
     expect(second['overrideSubcomponentsMass']).toBeUndefined();
+  });
+
+  /**
+   * Review of the audit 2026-09-22 fix: it cleared EVERY override on a row with
+   * no mass, so a weight the user typed went with the old part's catalogue
+   * mass — on 1,197 of the 1,308 body-tube rows. Desktop never touches the mass
+   * of anything but a parachute on a preset load; the app clears only the
+   * catalogue mass it wrote itself.
+   */
+  it('a mass the user typed survives a pick of a part with none — desktop keeps it too', () => {
+    const noMassTube = db.find((x) => x.kind === 'BodyTube' && x.mass === undefined)!;
+    const weighed = { type: 'bodytube', id: 'b', overrideMass: 0.25, overrideSubcomponentsMass: true } as ComponentNode;
+    const after = pick(weighed, noMassTube);
+    expect(after['overrideMass']).toBe(0.25);
+    expect(after['overrideSubcomponentsMass']).toBe(true);
+    // Linked to a massed row, but not at that row's mass: the user retyped it.
+    const massed = db.find((x) => x.kind === 'NoseCone' && typeof x.mass === 'number')!;
+    const retyped = { ...fresh('nosecone', massed), overrideMass: massed.mass! * 1.3 } as ComponentNode;
+    expect(pick(retyped, row('NoseCone', '19490'))['overrideMass']).toBeCloseTo(massed.mass! * 1.3, 12);
+  });
+
+  it('a parachute goes back to its computed mass on a row with none, as desktop’s does', () => {
+    const noMass = db.find((x) => x.kind === 'Parachute' && x.mass === undefined)!;
+    const typed = { type: 'parachute', id: 'p', overrideMass: 0.045 } as ComponentNode;
+    expect(pick(typed, noMass)['overrideMass']).toBeUndefined();
+  });
+
+  it('a catalogue mass is never a subtree’s mass, and never replaces an assembly the user weighed', () => {
+    const tube = row('BodyTube', '10063');
+    expect(tube.mass).toBeGreaterThan(0);
+    // The flag riding on the PREVIOUS part's catalogue mass (the state the
+    // unfixed patch left): the new part's mass lands and the flag goes, or the
+    // tube's 5.8 g would be the weight of everything under it.
+    const prevTube = db.find((x) => x.kind === 'BodyTube' && typeof x.mass === 'number' && x.partNo !== '10063')!;
+    const flagged = { ...fresh('bodytube', prevTube), overrideSubcomponentsMass: true } as ComponentNode;
+    const next = pick(flagged, tube);
+    expect(next['overrideMass']).toBe(tube.mass);
+    expect(next['overrideSubcomponentsMass']).toBeUndefined();
+    // A section the user weighed as a whole keeps their figure.
+    const section = { type: 'bodytube', id: 'b', overrideMass: 0.25, overrideSubcomponentsMass: true } as ComponentNode;
+    const kept = pick(section, tube);
+    expect(kept['overrideMass']).toBe(0.25);
+    expect(kept['overrideSubcomponentsMass']).toBe(true);
+    // With nothing to go on, the patch still never leaves the flag under a catalogue mass.
+    const bare = presetPatch('bodytube', tube);
+    expect('overrideSubcomponentsMass' in bare && bare['overrideSubcomponentsMass'] === undefined).toBe(true);
+  });
+
+  it('holdsCatalogueMass: the linked row’s own mass, through an alternate part number, to 0.01 %', () => {
+    const massed = db.find((x) => x.kind === 'NoseCone' && typeof x.mass === 'number')!;
+    const linked = fresh('nosecone', massed);
+    expect(holdsCatalogueMass(linked, db)).toBe(true);
+    expect(holdsCatalogueMass({ ...linked, overrideMass: massed.mass! * (1 + 5e-5) } as ComponentNode, db)).toBe(true);
+    expect(holdsCatalogueMass({ ...linked, overrideMass: massed.mass! * 1.01 } as ComponentNode, db)).toBe(false);
+    expect(holdsCatalogueMass({ type: 'nosecone', id: 'n', overrideMass: massed.mass } as ComponentNode, db)).toBe(false);
+    const alt = db.find((x) => Array.isArray(x['altPartNos']) && typeof x.mass === 'number'
+      && KIND_FOR_TYPE.parachute === x.kind)!;
+    expect(alt, 'no massed canopy with an alternate part number left to test with').toBeTruthy();
+    const viaAlt = {
+      type: 'parachute', id: 'p', overrideMass: alt.mass,
+      presetManufacturer: alt.manufacturer, presetPartNo: (alt['altPartNos'] as string[])[0],
+    } as ComponentNode;
+    expect(holdsCatalogueMass(viaAlt, db)).toBe(true);
   });
 
   it('a hollow row after a solid one is hollow: `filled` is written either way', () => {

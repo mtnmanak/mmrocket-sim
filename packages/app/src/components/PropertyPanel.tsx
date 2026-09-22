@@ -827,7 +827,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
         );
       })()}
       {showPresets && (
-        <PresetPicker type={node.type} onApply={onPatch} onClose={() => setShowPresets(false)} />
+        <PresetPicker type={node.type} node={node} onApply={onPatch} onClose={() => setShowPresets(false)} />
       )}
       <div className="field" style={{ marginTop: 6 }}>
         <label>Color (2D/3D display)</label>

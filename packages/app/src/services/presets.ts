@@ -76,9 +76,10 @@ const n = (p: Preset, key: string): number | undefined =>
   typeof p[key] === 'number' ? (p[key] as number) : undefined;
 
 /**
- * Preset → node patch (editor params, SI). Same semantics as the desktop:
- * dimensions and material apply; a cataloged mass becomes a mass override
- * (real parts weigh what they weigh, not what the geometry computes).
+ * Preset → node patch (editor params, SI). Desktop's semantics for dimensions
+ * and material; a cataloged mass becomes a mass override on every part, where
+ * desktop does that for a parachute only (real parts weigh what they weigh, not
+ * what the geometry computes).
  *
  * THE PATCH DESCRIBES THE WHOLE PART, not only the fields the row happens to
  * carry (audit 2026-09-22). It is merged over the node (`updateNode` spreads
@@ -93,12 +94,24 @@ const n = (p: Preset, key: string): number | undefined =>
  * `undefined`, which is how this app says "the default" (`updateNode` spreads
  * it over the old value, JSON drops it on the way to the kernel, and the kernel
  * applies its own default — the same one desktop's loadFromPreset resets to).
+ * The mass override is the one exception, and has its own rule below: a user's
+ * weighed mass is theirs, not the part's.
  *
  * `applyPresetLinks` below skips every undefined entry, so a catalogue link on
  * import still only ever FILLS what a file left unset; a clear here never
  * erases a value a file stated.
  */
-export function presetPatch(type: ComponentType, p: Preset): Partial<ComponentNode> {
+export function presetPatch(
+  type: ComponentType,
+  p: Preset,
+  /**
+   * The part being replaced, and the catalogue it may have been picked from.
+   * Only the mass override reads them, to tell a catalogue mass (the patch's to
+   * clear) from a weight the user typed (never its to clear). The picker passes
+   * both; without them nothing that might be the user's is cleared.
+   */
+  prior?: { node: ComponentNode; presets: readonly Preset[] },
+): Partial<ComponentNode> {
   const patch: Partial<ComponentNode> = { name: `${p.manufacturer} ${p.partNo}` };
   const half = (v: number | undefined) => (v === undefined ? undefined : v / 2);
   const set = (key: string, v: unknown) => {
@@ -120,12 +133,34 @@ export function presetPatch(type: ComponentType, p: Preset): Partial<ComponentNo
   // shipped row carries mass 0 (measured over presets.json, 2026-09-04); the
   // guard is for the CSV import loop below, where a user can type one.
   //
-  // A row with NO mass clears the override, with its subcomponents flag, the
-  // pair PropertyPanel's own Mass field clears together: the override was the
-  // previous part's weight (usually its catalogue mass), not this one's, and
-  // desktop's Parachute.loadFromPreset does the same (massOverridden = false).
-  if (p.mass !== undefined && p.mass > 0) set('overrideMass', p.mass);
-  else { own('overrideMass', undefined); own('overrideSubcomponentsMass', undefined); }
+  // WHAT A PICK DOES TO A MASS OVERRIDE (audit 2026-09-22, narrowed on review).
+  // Desktop's loadFromPreset touches the mass on a PARACHUTE — the row's mass,
+  // or back to computed (Parachute: massOverridden = false) — and on no other
+  // part this picker serves, so a weight the user typed survives a change of
+  // part. This app writes a catalogued mass as the override on EVERY part, so
+  // it owes a clear of what it wrote, and nothing more:
+  //  - a row with a mass writes it, and drops the subcomponents flag with it: a
+  //    catalogue mass is one part's weight, never an assembly's. Left on, the
+  //    flag made that weight the whole subtree's — a tube's fins, mount and
+  //    everything under it together weighing the tube's 5.8 g;
+  //  - a row with no mass clears the override (and flag, the pair the panel's
+  //    Mass field clears together) where it is the PREVIOUS part's catalogue
+  //    mass — else that part's weight rode onto this one — and on a parachute,
+  //    as desktop does; a mass the user typed on any other part stays;
+  //  - an assembly the user weighed (the flag on a mass that is not a
+  //    catalogue mass) stays whole either way: one part changing inside it does
+  //    not change what they weighed, and desktop keeps it too.
+  const held = prior?.node['overrideMass'];
+  const heldIsCatalogue = prior != null && holdsCatalogueMass(prior.node, prior.presets);
+  const weighedAssembly = type !== 'parachute' && typeof held === 'number' && !heldIsCatalogue
+    && prior?.node['overrideSubcomponentsMass'] === true;
+  if (!weighedAssembly && p.mass !== undefined && p.mass > 0) {
+    set('overrideMass', p.mass);
+    own('overrideSubcomponentsMass', undefined);
+  } else if (!weighedAssembly && (type === 'parachute' || heldIsCatalogue)) {
+    own('overrideMass', undefined);
+    own('overrideSubcomponentsMass', undefined);
+  }
   // The catalogue identity rides with the part, so a saved .rkt names the row
   // it came from (<PartMfg>/<PartNo>) and an import can find it again.
   set('presetManufacturer', p.manufacturer);
@@ -418,6 +453,30 @@ export interface PendingPresetLink {
 /** The lookup key the preset pipeline dedupes on: kind | manufacturer | part number. */
 const linkKey = (kind: string, manufacturer: unknown, partNo: unknown): string =>
   `${kind}|${mfrKey(manufacturer)}|${partKey(partNo)}`;
+
+/**
+ * Is this node's mass override the catalogue mass of the part it is linked to
+ * — one `presetPatch` wrote, or a file copied from the same row — rather than a
+ * weight the user typed? `presetPatch` clears the first kind on a pick and
+ * never the second (review of audit 2026-09-22: clearing every override threw
+ * away a user's weighed mass on 1,197 of the 1,308 body-tube rows, which carry
+ * none). Matched on the key applyPresetLinks matches on, alternate part numbers
+ * included, and to 0.01 % so a mass that has been through a saved file still
+ * reads as the catalogue's (a user who typed the catalogue's own figure has, in
+ * effect, kept the catalogue's mass, and it goes with that part).
+ */
+export function holdsCatalogueMass(node: ComponentNode, presets: readonly Preset[]): boolean {
+  const held = node['overrideMass'];
+  const kind = KIND_FOR_TYPE[node.type];
+  if (typeof held !== 'number' || !kind || node['presetPartNo'] == null) return false;
+  const want = linkKey(kind, node['presetManufacturer'], node['presetPartNo']);
+  return presets.some((p) => {
+    if (p.kind !== kind || !(typeof p.mass === 'number' && p.mass > 0)) return false;
+    if (Math.abs(held - p.mass) > 1e-4 * p.mass) return false;
+    const alts = Array.isArray(p['altPartNos']) ? (p['altPartNos'] as unknown[]) : [];
+    return [p.partNo, ...alts].some((pn) => linkKey(kind, p.manufacturer, pn) === want);
+  });
+}
 
 /** Plain words for the import note — a user reads "drag coefficient", not "cd". */
 const FIELD_WORDS: Record<string, string> = {

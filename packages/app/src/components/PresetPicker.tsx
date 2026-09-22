@@ -17,8 +17,13 @@ const ROW_CAP = 300;
  * (plus user CSV imports). Applying a preset patches the node's dimensions,
  * material, and — when the catalog lists a real-world mass — a mass override.
  */
-export function PresetPicker({ type, onApply, onClose }: {
+export function PresetPicker({ type, node, onApply, onClose }: {
   type: ComponentType;
+  /**
+   * The part a pick replaces. presetPatch needs it to tell the previous part's
+   * catalogue mass (cleared) from a weight the user typed (kept) — see there.
+   */
+  node?: ComponentNode;
   onApply: (patch: Partial<ComponentNode>) => void;
   onClose: () => void;
 }) {
@@ -201,7 +206,10 @@ export function PresetPicker({ type, onApply, onClose }: {
             <tbody>
               {rows.slice(0, ROW_CAP).map((p, i) => (
                 <tr key={`${p.manufacturer}|${p.partNo}|${i}`} className="motor-row"
-                  {...clickable(() => { onApply(presetPatch(type, p)); onClose(); })}>
+                  {...clickable(() => {
+                    onApply(presetPatch(type, p, node && { node, presets: all ?? [] }));
+                    onClose();
+                  })}>
                   <td>{p.manufacturer}</td>
                   <td><strong>{p.partNo}</strong></td>
                   <td>{p.description}</td>
