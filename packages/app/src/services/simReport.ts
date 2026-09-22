@@ -372,7 +372,13 @@ export interface SimRun {
   rodExitVelocity: number | null;
   thrustToWeightAtRod: number | null;
   launchMass: number | null;
-  /** Rocket mass after motor burnout (kg) — the owner's "recovery weight". */
+  /**
+   * The owner's "recovery weight" (kg): the sustainer branch's mass once
+   * nothing is left to change it — at the latest of its last burnout, its last
+   * stage separation and its first recovery deployment. Named for the burnout
+   * it used to be read at — the FIRST one, which on a staged flight is the
+   * booster's (audit 2026-09-22); the name is kept so stored runs still read.
+   */
   burnoutMass?: number | null;
   /**
    * Angle of attack (RADIANS) at launch guide exit. The crosswind, not the
@@ -1392,7 +1398,27 @@ export function buildSimRun(input: {
     i >= 0 && arr[i] !== null && Number.isFinite(arr[i]!) ? arr[i]! : null;
   const iRodClear = series.cpLocation.findIndex((v) => v !== null && Number.isFinite(v));
   const launchMass = series.mass[0] ?? null;
-  const burnoutMass = tBurnout !== null ? at(series.time, series.mass, tBurnout) : null;
+  // RECOVERY WEIGHT: what comes down, read once nothing is left to change it —
+  // the LATEST of this (the sustainer's) branch's last burnout, its last stage
+  // separation and its first recovery deployment. After the last burnout no
+  // propellant is left to burn, after the last separation nothing is left to
+  // drop, and from the deployment on it hangs under the canopy.
+  //
+  // It used to be read at the FIRST burnout, which on a staged flight is the
+  // BOOSTER's: the sustainer still full of propellant and, until the booster
+  // lets go, the whole stack. Measured on a two-stage C6/C6 design whose
+  // booster separates at its ejection charge, the Results tile and the CSV
+  // showed 154.3 g where the Design tab's recovery weight — and the flight's
+  // own landing mass — is 81.3 g, 1.9x what comes down (audit 2026-09-22).
+  // On a single-stage, single-motor flight the mass is constant from burnout
+  // to landing, so every one of those instants reads the same number.
+  const lastOf = (type: string): number | null => {
+    const hits = result.events.filter((e) => e.type === type);
+    return hits.length > 0 ? hits[hits.length - 1]!.time : null;
+  };
+  const settled = [lastOf('BURNOUT'), lastOf('STAGE_SEPARATION'), tDeploy]
+    .filter((t): t is number => t !== null && Number.isFinite(t));
+  const burnoutMass = settled.length > 0 ? at(series.time, series.mass, Math.max(...settled)) : null;
   const rodExitAoa = sampleAt(series.aoa, iRodClear);
   const launchCG = sampleAt(series.cgLocation, iRodClear) ?? info.cg ?? null;
   const launchCP = sampleAt(series.cpLocation, iRodClear) ?? info.cp ?? null;
