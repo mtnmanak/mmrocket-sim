@@ -17,12 +17,12 @@ import type { EngineWarning } from '@online-openrocket/engine';
 /**
  * The kernel's high-speed-deployment flag, in the app's voice — see its entry
  * below. The kernel's own speed follows the label as its detail
- * (' — (21.0 m/s): "Main"'), so the clause that speed belongs to, the ground
- * speed, is the one the label ends on.
+ * (' — (21.0 m/s): "Main"'), so the label ENDS on the words that speed belongs
+ * to.
  */
 const HIGH_SPEED_DEPLOYMENT = 'Recovery device opened faster than the simulator’s fixed 20 m/s '
-  + '(65.6 ft/s) — a flag of its own, separate from the report’s opening verdict, which is judged '
-  + 'on airspeed: this one is the speed over the ground, wind included';
+  + '(65.6 ft/s) — a stricter flag than the report’s Safe deployment check, which prefers 70 ft/s '
+  + 'or less and cautions up to 90 ft/s; the speed at opening';
 
 /**
  * Every key the kernel can emit during a flight, with a flyer-facing label.
@@ -37,14 +37,17 @@ export const WARNING_LABEL: Record<string, string> = {
   // Flight-event warnings (BasicEventSimulationEngine / RK4SimulationStepper)
   NO_RECOVERY_DEVICE: 'No recovery device — the rocket comes down ballistic',
   RECOVERY_LAUNCH_ROD: 'Recovery device deployed while still on the launch guide',
-  // THE KERNEL'S OWN THRESHOLD, SAID (audit 2026-09-22). It fires on the speed
-  // over the ground above a fixed 20 m/s (BasicEventSimulationEngine
-  // `getRocketVelocity().length() > 20`, 65.6 ft/s, wind included), while the
-  // launch report's opening verdict is AIRSPEED against its own tiers (preferred
-  // to 70 ft/s, caution to 90 — simReport SAFETY). The old label, "opened at
-  // high speed — risk of a zippered tube or torn chute", put a 20-21.3 m/s
-  // opening beside "Safe deployment: yes" in one report. It now says what it
-  // measured and defers the verdict to the report.
+  // THE KERNEL'S OWN THRESHOLD, SAID (audit 2026-09-22). It fires above a fixed
+  // 20 m/s (BasicEventSimulationEngine `getRocketVelocity().length() > 20`,
+  // 65.6 ft/s), while the launch report's Safe deployment check allows up to
+  // 70 ft/s and cautions to 90 (simReport SAFETY). The old label, "opened at high
+  // speed — risk of a zippered tube or torn chute", put a 20-21.3 m/s opening
+  // beside "Safe deployment: yes" in one report. It now names the THRESHOLD as
+  // the difference — and only that. For the first device the two read the very
+  // same number (simReport extractDeployments takes series.velocity, the
+  // kernel's TYPE_VELOCITY_TOTAL, the |getRocketVelocity()| this tests); a
+  // wording that blamed airspeed against ground speed was false for every
+  // single-deploy flight and every drogue (audit 2026-09-22 review).
   RECOVERY_HIGH_SPEED: HIGH_SPEED_DEPLOYMENT,
   HighSpeedDeployment: HIGH_SPEED_DEPLOYMENT,
   LargeAOA: 'Large angle of attack — the rocket flew notably sideways to its path',
