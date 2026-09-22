@@ -23,32 +23,59 @@ let commits: (number | null)[];
 type Props = Parameters<typeof NumField>[0];
 
 /**
- * A fresh `key` each time: NumField keeps the in-progress draft in its own
- * state, so re-rendering the same element position inside one test would carry
- * the previous case's draft into the next one.
+ * A fresh `key` per `render()`: every case starts from a newly mounted field,
+ * so one case's focus cannot leak into the next. `rerender()` keeps the SAME
+ * element, which is what the parent panel does when the selection, an undo or
+ * a unit switch hands the field a new value — the case the draft used to
+ * survive (audit 2026-09-22), pinned in "a spinner click leaves no draft".
  */
 let seq = 0;
+let current: Partial<Props> = {};
+/** Re-render with each committed value, the way every real call site does. */
+let controlled = false;
 
-const render = (props: Partial<Props> = {}) => {
+const element = () => (
+  <NumField
+    key={seq}
+    value={undefined}
+    onCommit={(v) => {
+      commits.push(v);
+      // Already inside the act() that dispatched the event.
+      if (controlled && v !== null) { current = { ...current, value: v }; root.render(element()); }
+    }}
+    {...current}
+  />
+);
+
+const mount = () => act(() => { root.render(element()); });
+
+const render = (props: Partial<Props> = {}, opts: { controlled?: boolean } = {}) => {
   commits = [];
   seq += 1;
-  act(() => {
-    root.render(
-      <NumField
-        key={seq}
-        value={undefined}
-        onCommit={(v) => commits.push(v)}
-        {...props}
-      />,
-    );
-  });
+  controlled = opts.controlled ?? false;
+  current = props;
+  mount();
+};
+
+/** Same element, new props — as a parent re-render. */
+const rerender = (props: Partial<Props>) => {
+  current = { ...current, ...props };
+  mount();
 };
 
 const input = (): HTMLInputElement => host.querySelector('input')!;
 const spinners = (): HTMLButtonElement[] => [...host.querySelectorAll('button')];
 
-/** Native setter + input event — how React sees a real keystroke. */
+const focus = () => act(() => input().focus());
+const blur = () => act(() => input().blur());
+const focused = () => document.activeElement === input();
+
+/**
+ * Native setter + input event — how React sees a real keystroke. A keystroke
+ * only reaches a focused input, so it focuses first when nothing has.
+ */
 const type = (value: string) => {
+  if (!focused()) focus();
   act(() => {
     const setter = Object.getOwnPropertyDescriptor(
       HTMLInputElement.prototype, 'value')!.set!;
@@ -57,11 +84,14 @@ const type = (value: string) => {
   });
 };
 
-const focus = () => act(() => { input().dispatchEvent(new FocusEvent('focusin', { bubbles: true })); });
-const blur = () => act(() => { input().dispatchEvent(new FocusEvent('focusout', { bubbles: true })); });
-const key = (k: string) => act(() => {
-  input().dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true }));
-});
+/** A key press, which likewise only reaches a focused input. */
+const key = (k: string) => {
+  if (!focused()) focus();
+  act(() => {
+    input().dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true }));
+  });
+};
+/** A spinner click. ▴/▾ preventDefault their mousedown, so this never focuses. */
 const click = (btn: HTMLButtonElement) => act(() => {
   btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 });
@@ -190,13 +220,48 @@ describe('NumField — stepping', () => {
    * a rocket nobody had weighed.
    */
   it('steps a blank field from the auto value its placeholder shows', () => {
-    render({ value: undefined, nullable: true, step: 5, placeholder: '245.3' });
+    render({ value: undefined, nullable: true, step: 5, placeholder: '245.3' }, { controlled: true });
     click(spinners()[1]!); // ▾
     expect(commits).toEqual([240.3]);
     // The field is no longer blank after that first commit, so the second click
     // steps from what it now holds — the auto value is only the SEED.
     click(spinners()[0]!); // ▴
     expect(commits).toEqual([240.3, 245.3]);
+  });
+
+  /**
+   * Audit 2026-09-22 (HIGH), measured through the real panel: the spinner never
+   * focuses the input, but it wrote its result into the draft, which only a
+   * blur clears. PropertyPanel is one element for every selected component, so
+   * tube B's blank Mass override showed tube A's figure and one ▴ committed A's
+   * mass plus a step onto B. The same element here, handed a new value the way
+   * a selection change, an undo or a unit switch hands it one.
+   */
+  it('a spinner click leaves no draft: the display and the next step follow a new value', () => {
+    render({ value: 45.1, step: 0.1, nullable: true });
+    click(spinners()[0]!); // ▴ on "tube A", unfocused
+    expect(commits).toEqual([45.2]);
+
+    // "Tube B": a different committed value.
+    rerender({ value: 7 });
+    expect(input().value, 'the display follows the new value').toBe('7');
+    click(spinners()[0]!);
+    expect(commits, 'the next step works off 7, not off 45.2').toEqual([45.2, 7.1]);
+
+    // "Tube C": blank, with its own computed mass in the placeholder.
+    rerender({ value: undefined, placeholder: '120' });
+    expect(input().value, 'a blank field stays blank').toBe('');
+    click(spinners()[0]!);
+    expect(commits, 'seeded from 120, not from any earlier figure').toEqual([45.2, 7.1, 120.1]);
+  });
+
+  it('a focused field keeps its draft across a parent re-render', () => {
+    // The other half of the contract: while the user is typing, the draft is
+    // theirs, and a re-render with the (just committed) value must not snap it.
+    render({ value: 1, allowNegative: true });
+    type('-');
+    rerender({ value: 1 });
+    expect(input().value).toBe('-');
   });
 
   it('reads the auto value out of a labelled placeholder', () => {

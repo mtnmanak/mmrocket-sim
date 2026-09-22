@@ -77,12 +77,19 @@ const text = () => line().textContent!;
 const imperial = () => localStorage.setItem(
   PREFS_KEY, JSON.stringify({ units: { mass: 'oz', length: 'in' } }));
 
-/** Native setter + input event — how React sees a real keystroke. */
-const type = (el: HTMLInputElement, s: string) => act(() => {
-  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
-  setter.call(el, s);
-  el.dispatchEvent(new Event('input', { bubbles: true }));
-});
+/**
+ * Native setter + input event — how React sees a real keystroke. A keystroke
+ * only ever reaches a FOCUSED input, and NumField shows its draft only while
+ * focused (audit 2026-09-22), so the field is focused first.
+ */
+const type = (el: HTMLInputElement, s: string) => {
+  if (document.activeElement !== el) act(() => el.focus());
+  act(() => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+    setter.call(el, s);
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+};
 
 const stale = (changes: Extract<HardwareMassResult, { state: 'stale-set' }>['changes']): HardwareMassResult =>
   ({ state: 'stale-set', changes });

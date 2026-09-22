@@ -4678,6 +4678,12 @@ export function App() {
         <aside className="design-props">
           {selectedNode ? (
             <PropertyPanel
+              // Keyed by the component, so nothing the panel holds for one part
+              // — an in-progress field, the export note, a slider's frozen drag
+              // range — is inherited by the next one selected (audit
+              // 2026-09-22: tube A's mass-override draft once committed onto
+              // tube B through this very element).
+              key={selectedNode.id}
               tree={tree}
               node={selectedNode}
               info={selectedInfo}

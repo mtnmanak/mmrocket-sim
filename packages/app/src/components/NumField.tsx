@@ -12,6 +12,9 @@ import { useState } from 'react';
  *   border and commit nothing.
  * - Blur/Enter reformats from the last committed value; an invalid draft is
  *   simply discarded (the previous value survives).
+ * - Unfocused, the box always shows `value`. The draft exists only while the
+ *   input has focus, so a spinner click — which never focuses it — cannot
+ *   leave one behind for the next component, an undo or a unit switch.
  * - Unfocused display is capped at 3 decimals (display only — the stored
  *   value keeps full precision, which is what you edit on focus).
  * - Clearing the field commits null when `nullable` (blank = auto/calculated
@@ -70,6 +73,21 @@ export function NumField({
   describedBy?: string;
 }) {
   const [draft, setDraft] = useState<string | null>(null);
+  /**
+   * Whether the input itself has focus. The draft is an EDITING state and means
+   * nothing once focus is gone, so it is shown, stepped from and validated
+   * only while this is true (audit 2026-09-22, HIGH).
+   *
+   * It used to be `draft !== null` alone, and the spinner broke that: ▴/▾
+   * `preventDefault` their mousedown so a click never focuses the input, yet
+   * `stepBy` wrote its result into the draft — which only onBlur clears, and
+   * onBlur never came. The draft then outlived everything: PropertyPanel is
+   * the same element for every selected component, so tube B's blank Mass
+   * override showed tube A's 45.1 g, and one ▴ on B committed 45.2 g onto a
+   * tube whose computed mass was 120 g. Undo and unit switches kept it too.
+   */
+  const [focused, setFocused] = useState(false);
+  const live = focused ? draft : null;
 
   const lowBound = min !== undefined ? min : (allowNegative ? undefined : 0);
 
@@ -92,9 +110,9 @@ export function NumField({
   const fmtEdit = (v: number | undefined) =>
     v === undefined ? '' : String(Number(v.toFixed(9)));
 
-  const shown = draft !== null ? draft : fmtDisplay(value);
-  const draftInvalid = draft !== null && draft.trim() !== ''
-    && !isIncomplete(draft.trim()) && parse(draft) === null;
+  const shown = live !== null ? live : fmtDisplay(value);
+  const draftInvalid = live !== null && live.trim() !== ''
+    && !isIncomplete(live.trim()) && parse(live) === null;
 
   const change = (s: string) => {
     setDraft(s);
@@ -130,7 +148,9 @@ export function NumField({
   };
 
   const stepBy = (dir: 1 | -1) => {
-    const base = (draft !== null ? parse(draft) : null) ?? value ?? autoBase() ?? 0;
+    // Unfocused (a spinner click), the committed value is the only truth: a
+    // draft is never read here, and none is written below.
+    const base = (live !== null ? parse(live) : null) ?? value ?? autoBase() ?? 0;
     let next = base + dir * step;
     // Snap float noise (0.30000000000000004) to the step's precision.
     const decimals = Math.max(0, -Math.floor(Math.log10(step)) + 1);
@@ -138,7 +158,10 @@ export function NumField({
     if (lowBound !== undefined && next < lowBound) next = lowBound;
     if (max !== undefined && next > max) next = max;
     if (integer) next = Math.round(next);
-    setDraft(String(next));
+    // Focused, the draft follows the step so the box shows it and a second
+    // step works off it. Unfocused, the parent's re-render with the committed
+    // value is what the box shows — see `focused` above.
+    if (focused) setDraft(String(next));
     onCommit(next);
   };
 
@@ -154,9 +177,9 @@ export function NumField({
         aria-label={ariaLabel}
         aria-invalid={draftInvalid || invalid || undefined}
         aria-describedby={describedBy}
-        onFocus={() => setDraft(fmtEdit(value))}
+        onFocus={() => { setFocused(true); setDraft(fmtEdit(value)); }}
         onChange={(e) => change(e.target.value)}
-        onBlur={() => setDraft(null)}
+        onBlur={() => { setFocused(false); setDraft(null); }}
         onKeyDown={(e) => {
           if (e.key === 'ArrowUp') { e.preventDefault(); stepBy(1); }
           else if (e.key === 'ArrowDown') { e.preventDefault(); stepBy(-1); }
