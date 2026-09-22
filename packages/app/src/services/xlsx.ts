@@ -191,12 +191,29 @@ function sheetXml({ headers, rows }: Sheet): string {
  * names (they address sheets by final name, so the two must agree).
  */
 export function sheetsToXlsx(sheets: Sheet[], charts: ChartSpec[] = []): Uint8Array {
+  // Excel's rules: 1–31 characters, none of : \ / ? * [ ], no apostrophe at
+  // either end, not the reserved "History", and unique IGNORING CASE — so
+  // `used` holds lower-cased names. A clash takes `_2`, `_3`, … counted from
+  // the sanitised base. Audit 2026-09-22: the old loop re-suffixed its own
+  // output, `name.slice(0, 28) + '_' + (i + 1)`, which is a fixed point for a
+  // name already of that shape — two stage tabs called `AAAA…(28)_2` hung the
+  // flight-data export for good — and it compared case-sensitively and let
+  // `'Booster'` and `History` through, all of which Excel reports as a
+  // corrupt workbook. Control characters become spaces: a tab name cannot
+  // show them and XML cannot carry most of them.
   const used = new Set<string>();
+  const fit = (s: string, max: number): string => s.slice(0, max).replace(/^[\s']+|[\s']+$/g, '');
   const sanitize = (raw: string, i: number): string => {
-    // Excel: ≤31 chars, no : \ / ? * [ ]
-    let name = (raw || `Sheet${i + 1}`).replace(/[:\\/?*[\]]/g, ' ').trim().slice(0, 31) || `Sheet${i + 1}`;
-    while (used.has(name)) name = `${name.slice(0, 28)}_${i + 1}`;
-    used.add(name);
+    // `[^\u{20}-\u{10FFFF}]` is every code point below a space: the C0
+    // controls, spelled without writing one into the pattern.
+    let base = fit((raw || '').replace(/[:\\/?*[\]]|[^\u{20}-\u{10FFFF}]/gu, ' '), 31) || `Sheet${i + 1}`;
+    if (base.toLowerCase() === 'history') base = 'History_';
+    let name = base;
+    for (let k = 2; used.has(name.toLowerCase()); k++) {
+      const suffix = `_${k}`;
+      name = (fit(base, 31 - suffix.length) || 'Sheet') + suffix;
+    }
+    used.add(name.toLowerCase());
     return name;
   };
   const safeNames = sheets.map((s, i) => sanitize(s.name, i));
