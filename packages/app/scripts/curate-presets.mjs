@@ -317,10 +317,12 @@ export function planCurations(rows) {
       // means a mistyped key, which is the failure this file exists to catch
       // loudly (the first draft of the table mistyped nine of them).
       //
-      // The typo protection those entries lose is bought back by a test:
-      // `parachute-cd.test.mjs` asserts BOTH that these ten part numbers are
-      // absent AND that all 68 published Fruity Chutes models are present, so a
-      // key typed wrong here fails there instead of passing silently.
+      // The typo protection those entries lose is bought back by tests:
+      // `parachute-cd.test.mjs` asserts BOTH that the ten Fruity Chutes part
+      // numbers are absent AND that all 68 published Fruity Chutes models are
+      // present, and `manufacturers.test.mjs` that exactly one Quest PNC35N —
+      // the desktop row — remains, so a key typed wrong here fails there
+      // instead of passing silently.
       plan.push({ c, status: 'already' });
       continue;
     }
