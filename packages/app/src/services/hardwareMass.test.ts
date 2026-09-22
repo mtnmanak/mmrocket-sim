@@ -418,8 +418,9 @@ describe('weighed-with identity', () => {
   it('motorIdentity: EX id wins, else manufacturer/designation, spelled as the run keys always were', () => {
     expect(motorIdentity({ manufacturer: 'AeroTech' }, 'J540R')).toBe('AeroTech/J540R');
     expect(motorIdentity({ exMotorId: 'ex:loki-k1100t', manufacturer: 'EX' }, 'K1100T')).toBe('ex:loki-k1100t');
-    // No manufacturer at all: the slash still leads — the exact term App's
-    // motorSetKeyOf has always produced, so stored run keys do not move.
+    // No manufacturer at all: the slash still leads — the exact term
+    // motorSetKeyOf (now in simReport.ts) has always produced, so stored run
+    // keys do not move.
     expect(motorIdentity({}, 'J540R')).toBe('/J540R');
   });
 

@@ -201,8 +201,8 @@ export const LEGACY_PAD_MASS_KEY = 'legacy';
 
 /**
  * ONE spelling of a motor's identity: the EX library id when it is one, else
- * manufacturer/designation. Byte-identical to the term App's `motorSetKeyOf`
- * has always used, so stored run keys do not move.
+ * manufacturer/designation. Byte-identical to the term `motorSetKeyOf` (now
+ * in simReport.ts) has always used, so stored run keys do not move.
  */
 export function motorIdentity(
   meta: { exMotorId?: string; manufacturer?: string }, designation: string,

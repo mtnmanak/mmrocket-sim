@@ -47,7 +47,13 @@ export interface AeroFlags {
  * Write ONE motor onto a built handle and KEEP its ignition. Every motor write
  * on the design's own handle — App's build and every flight below — goes
  * through here. (Batch builds handles of its own and writes them itself;
- * flownIgnitionSites.test.ts guards those until it is extracted.)
+ * flownIgnitionSites.test.ts guards those until it is extracted. Its
+ * `applyOthers` still writes the motor BEFORE the ignition and swallows the
+ * throw, so a mount carrying an event the kernel does not know — reachable
+ * only from an autosave or saved configuration made before the .ork reader
+ * began mapping one to AUTOMATIC — is left off the design's handle here and
+ * flown on AUTOMATIC there. Route that write through this one when Batch is
+ * extracted.)
  *
  * The bridge's `setMotorById` (`OrkEngine.java` `applyMotor`) installs a FRESH
  * `MotorConfiguration` on the mount:
