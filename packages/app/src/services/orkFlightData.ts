@@ -118,13 +118,13 @@ export function flightDataForExport(
     // the one this file's `<delay>` will name — never an auto-delay optimum,
     // which is only known after flying (simReport's motorSetKeyOf). So an
     // auto-delay run matched its configuration and its flight was written
-    // under a delay it never flew: measured on the starter rocket (audit
-    // 2026-09-22), an Estes C6 set to 3 s that auto flew at 5 s went into the
-    // file deploying at 3.81 m/s, where the 3 s motor the file names deploys
-    // at 16.81 m/s. The run's `delayS` is the PRIMARY's — the only mount auto
-    // delay writes — so it is read against this configuration's own primary.
-    // An optimum that rounded to the spec delay flew exactly what the file
-    // says, and is written.
+    // under a delay it never flew: measured on the starter rocket on the default
+    // model (classic + Kbf; audit 2026-09-22), an Estes C6 set to 3 s that auto
+    // flew at 5 s went into the file deploying at 3.81 m/s, where the 3 s motor
+    // the file names deploys at 16.81 m/s. The run's `delayS` is the PRIMARY's
+    // — the only mount auto delay writes — so it is read against this
+    // configuration's own primary. An optimum that rounded to the spec delay
+    // flew exactly what the file says, and is written.
     const primaryId = primaryMountOf(cfgMotors.map(([id]) => id));
     const primary = cfgMotors.find(([id]) => id === primaryId)?.[1];
     if (!primary || r.delayS !== primary.spec.ejectionDelay) continue;

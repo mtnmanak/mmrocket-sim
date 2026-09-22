@@ -189,7 +189,8 @@ describe('flightDataForExport — the rules that are about OTHER configurations'
  * motor's SPEC delay — the one the file's `<delay>` names — never an auto-delay
  * optimum, which is only known after flying. So an auto-delay run matched its
  * configuration, and its flight went into the file under a delay it never
- * flew. Measured on the starter rocket with an Estes C6 whose spec says 3 s:
+ * flew. Measured on the starter rocket (classic + Kbf, the default) with an
+ * Estes C6 whose spec says 3 s:
  * auto flew 5 s, and the file said the chute opened at 3.81 m/s where the 3 s
  * motor it names deploys at 16.81 m/s.
  */
