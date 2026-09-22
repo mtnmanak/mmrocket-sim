@@ -520,13 +520,17 @@ export interface SimRun {
   nozzleStages?: string[];
   comments: string;
   /**
-   * How loud each comment is, index-aligned to `comments.split(' | ')`.
+   * How loud each comment is, index-aligned to `comments.split(COMMENT_SEP)`
+   * — read them together through `commentsOf()`.
    *
    * `comments` stays a joined STRING because it is persisted in every saved run
    * and exported to CSV/XLSX; this rides alongside it and is optional, so a run
    * revived from a build before 2026-09-07 simply has no levels and renders the
-   * way it always did. No comment may contain " | " — `commentLevelsAlign()`
-   * pins that, because the alignment is what makes a parallel array safe.
+   * way it always did. No comment may contain the separator: `buildSimRun`'s
+   * `say()` scrubs every `|` out of what it says (since the 2026-09-22 audit —
+   * a device name carrying " | " used to shift every later level), and
+   * `commentLevelsAlign()` pins it, because the alignment is what makes a
+   * parallel array safe.
    *
    * 'warning' is the red treatment the verdict rows use; 'caution' is the
    * amber one; 'info' is plain. The owner's 2026-09-07 ruling created the
@@ -538,6 +542,9 @@ export interface SimRun {
 
 /** @see SimRun.commentLevels */
 export type CommentLevel = 'info' | 'caution' | 'warning';
+
+/** What `SimRun.comments` is joined on — see commentsOf(). */
+export const COMMENT_SEP = ' | ';
 
 /**
  * A run THIS build just produced, as opposed to one revived from localStorage.
@@ -1509,30 +1516,37 @@ export function buildSimRun(input: {
     : launch.windAverage / rodExitVelocity < 0.25 ? 'moderate'
     : 'high';
 
-  // Format the kernel's static warnings into the app's voice here too: this
-  // blob becomes the launch report AND the Comments column of the saved-runs
-  // CSV/XLSX, where a raw "[Warning.DISCONTINUITY]" token is just noise.
-  const comments: string[] = info.warningTexts.map(formatWarningText);
-  /**
-   * Index-aligned severity — see `SimRun.commentLevels`.
-   *
-   * The kernel's own warning texts start as 'info': they are the kernel
-   * describing the model's limits, not the app judging the rocket, and
-   * `SimResults` already renders the kernel's HIGH-priority ones separately in
-   * red from `simWarnings`. Everything the APP checks is levelled below by
-   * `say()`.
-   */
-  const levels: CommentLevel[] = comments.map(() => 'info');
+  const comments: string[] = [];
+  /** Index-aligned severity — see `SimRun.commentLevels`. */
+  const levels: CommentLevel[] = [];
   /**
    * Push a comment with its severity. Every `comments.push` in this function
    * went through here on 2026-09-07 so the two arrays cannot drift apart —
    * a bare push would leave `levels` short and silently mis-colour every
    * comment after it.
+   *
+   * And every comment is SCRUBBED of the separator's `|` here (audit
+   * 2026-09-22), because the comments are stored joined on COMMENT_SEP and
+   * recovered by splitting on it. Comments quote names from the design file —
+   * a recovery device's, a booster's — and a chute named "Main | 36in" split
+   * into two, shifting every later level by one: the under-stable warning
+   * rendered as plain info, a flight-safety failure without its red. With no
+   * `|` in any comment, every one in the joined string is a separator and the
+   * split gives back exactly what was said. Any `|`, not just " | ": a name
+   * ending "Main |" would put a second, unspaced bar beside the separator.
    */
   const say = (text: string, level: CommentLevel = 'info'): void => {
-    comments.push(text);
+    comments.push(text.replace(/\|/g, '/'));
     levels.push(level);
   };
+  // Format the kernel's static warnings into the app's voice here too: this
+  // blob becomes the launch report AND the Comments column of the saved-runs
+  // CSV/XLSX, where a raw "[Warning.DISCONTINUITY]" token is just noise. They
+  // are 'info': the kernel describing the model's limits, not the app judging
+  // the rocket, and `SimResults` already renders the kernel's HIGH-priority
+  // ones separately in red from `simWarnings`. Everything the APP checks is
+  // levelled below.
+  for (const t of info.warningTexts) say(formatWarningText(t));
   // Supersonic flight on the classic model: the flyer should know a validated
   // model exists — and that switching changes the model for the WHOLE flight.
   if ((aeroModel ?? 'classic') === 'classic' && summary.maxMachNumber > 0.9) {
@@ -1742,19 +1756,41 @@ export function buildSimRun(input: {
     // does not, so a matching run of a nozzle design always carries it.
     ...(nozzleStages && nozzleStages.length > 0 ? { nozzleStages } : {}),
     conditionsKey: conditionsKeyOf(launch),
-    comments: comments.join(' | '),
+    comments: comments.join(COMMENT_SEP),
     commentLevels: levels,
   };
 }
 
 /**
  * The invariant that makes `commentLevels` safe: the renderer recovers the
- * individual comments by splitting on " | ", so a comment CONTAINING that
- * separator would desync every level after it. Exported so the test can assert
- * it over real reports rather than over a hand-written list.
+ * individual comments by splitting on COMMENT_SEP, so a comment CONTAINING
+ * that separator would desync every level after it. `buildSimRun`'s `say()`
+ * scrubs it from everything it says, so a run this build makes always aligns;
+ * a run saved before the 2026-09-22 audit, whose device or booster name
+ * carried " | ", may not. Exported so the test can assert it over real reports
+ * rather than over a hand-written list.
  */
 export function commentLevelsAlign(r: Pick<SimRun, 'comments' | 'commentLevels'>): boolean {
   if (!r.commentLevels) return true;
-  const n = r.comments === '' ? 0 : r.comments.split(' | ').length;
+  const n = r.comments === '' ? 0 : r.comments.split(COMMENT_SEP).length;
   return n === r.commentLevels.length;
+}
+
+/**
+ * A run's comments, one per line, each with its level — the ONE place the
+ * joined string is split back apart, beside the one place it is joined.
+ *
+ * Levels are applied only when they align (commentLevelsAlign). A run saved
+ * before the 2026-09-22 audit with the separator inside a name splits into
+ * more pieces than it has levels, and indexing them anyway shifted every later
+ * level — an under-stable warning rendered plain while an innocuous line took
+ * its red. Such a run renders every line plain, the way a run with no levels
+ * at all always has; re-flying it restores the colours.
+ */
+export function commentsOf(
+  r: Pick<SimRun, 'comments' | 'commentLevels'>,
+): { text: string; level: CommentLevel }[] {
+  if (!r.comments) return [];
+  const levels = commentLevelsAlign(r) ? r.commentLevels : undefined;
+  return r.comments.split(COMMENT_SEP).map((text, i) => ({ text, level: levels?.[i] ?? 'info' }));
 }

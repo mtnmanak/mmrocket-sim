@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { FlightResult, FlightSeries, StaticInfo } from '@online-openrocket/engine';
 import {
-  buildSimRun, commentLevelsAlign, conditionsKeyOf, extractLandingDrift, extractMaxRollRate, formatStability,
+  buildSimRun, commentLevelsAlign, commentsOf, conditionsKeyOf, extractLandingDrift, extractMaxRollRate,
+  formatStability,
   recommendDelay,
   AERO_MODEL_CHANGED, changedSinceRun, formatRunWhen, formatRunWhenProse, listAnd,
   pressureThrustActive, PRESSURE_THRUST_CHANGED, runCarriesNozzleStamp,
@@ -495,6 +496,57 @@ describe('the drogue band and opening shock have a caution tier (v0.114)', () =>
     // have to carry it; the renderer falls back to plain.
     const old: Pick<SimRun, 'comments' | 'commentLevels'> = { comments: 'a | b | c' };
     expect(commentLevelsAlign(old)).toBe(true);
+    expect(commentsOf(old).map((c) => c.level)).toEqual(['info', 'info', 'info']);
+  });
+
+  /**
+   * A NAME FROM THE DESIGN FILE CANNOT SHIFT THE LEVELS (audit 2026-09-22).
+   *
+   * Comments quote device names, and the comments are joined on " | " and
+   * split back on it. A drogue named "Drogue | 36in" split into two, so every
+   * later level moved down one: the under-stable warning rendered plain — a
+   * flight-safety failure without its red — while the line before it took it.
+   */
+  const underStableWithName = (device: string) => {
+    const result = dualDeployResult(100 * FT_S, 5);
+    result.events = result.events.map((e) => (e.source === 'Drogue' ? { ...e, source: device } : e));
+    // The launch margin is read off the flight series at rod clear.
+    result.series.stability = result.series.time.map(() => 0.4);
+    return buildSimRun({
+      result, info, motor,
+      meta: { label: 'J350-auto', manufacturer: 'AT' },
+      launch: DEFAULT_CONDITIONS, rocketName: 'DD', execMs: 1,
+    });
+  };
+
+  it('a device named with the separator keeps every level on its own comment', () => {
+    for (const device of ['Drogue | 36in', 'Drogue |', '| Drogue', 'A|B']) {
+      const run = underStableWithName(device);
+      expect(commentLevelsAlign(run), device).toBe(true);
+      const lines = commentsOf(run);
+      const stab = lines.find((c) => c.text.startsWith('Static margin'))!;
+      expect(stab, device).toEqual({ text: 'Static margin 0.40 cal — under-stable.', level: 'warning' });
+      // The drogue's own line keeps its level too, with the name's bar folded.
+      const drogue = lines.find((c) => c.text.startsWith('Descent under'))!;
+      expect(drogue.level, device).toBe('warning');
+      expect(drogue.text, device).toContain(device.replace(/\|/g, '/'));
+      expect(run.comments, device).not.toMatch(/\|(?! )|(?<! )\|/);
+    }
+  });
+
+  it('a stored run whose name already split renders plain, never shifted', () => {
+    // Saved before the fix: three comments, three levels, and a separator
+    // inside the first one's device name — four pieces.
+    const stale: Pick<SimRun, 'comments' | 'commentLevels'> = {
+      comments: 'Descent under Drogue | 36in is fast. | Flown delay 6s vs optimal 4.0s. | Static margin 0.40 cal — under-stable.',
+      commentLevels: ['warning', 'info', 'warning'],
+    };
+    expect(commentLevelsAlign(stale)).toBe(false);
+    const lines = commentsOf(stale);
+    expect(lines).toHaveLength(4);
+    // Indexing the levels anyway would put 'info' on the static-margin line's
+    // neighbour and nothing on the line itself; plain is honest, shifted is not.
+    expect(lines.map((c) => c.level)).toEqual(['info', 'info', 'info', 'info']);
   });
 });
 

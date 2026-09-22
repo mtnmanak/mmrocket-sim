@@ -4,7 +4,7 @@ import { fmtSi } from '../prefs/units.js';
 import { clickable } from './clickable.js';
 import { UnitChip } from './UnitChip.js';
 import {
-  aeroModelLabel, formatRunStability, formatRunWhen, formatRunWhenProse, listAnd,
+  aeroModelLabel, commentsOf, formatRunStability, formatRunWhen, formatRunWhenProse, listAnd,
   ROLL_RATE_MEANINGFUL_RAD_S, stabilityState, WIND_BLOWS_TOWARD_DEG,
   type DeploymentReport, type SimRun,
 } from '../services/simReport.js';
@@ -246,14 +246,16 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
           })}
         </div>
       )}
-      {/* simReport joins its advisory sentences with ' | ' — one line each
-          reads as ranked flags instead of run-on prose (v0.076). */}
-      {run.comments && run.comments.split(' | ').map((c, i) => {
+      {/* simReport joins its advisory sentences on COMMENT_SEP — one line each
+          reads as ranked flags instead of run-on prose (v0.076) — and
+          commentsOf is the one place they are split back apart. */}
+      {commentsOf(run).map(({ text: c, level }, i) => {
         // Severity rides alongside as an index-aligned array (v0.114). A run
         // saved before that has none, and every line renders plain exactly as
         // it did — which is why this reads the array rather than re-deriving
-        // the thresholds here, where they would drift from simReport's.
-        const level = run.commentLevels?.[i] ?? 'info';
+        // the thresholds here, where they would drift from simReport's. A
+        // run whose levels no longer align renders plain too, rather than
+        // shifted (commentsOf, audit 2026-09-22).
         // The app's two existing severity colours, not new ones:
         // `stability-bad` is --status-serious (red) and `stability-warn` is
         // --status-warn (amber), both already used for the verdict rows. The
