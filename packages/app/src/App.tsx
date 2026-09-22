@@ -1613,8 +1613,21 @@ export function App() {
       // NaN cannot be converted to a BigInt", "Unknown format conversion: g" —
       // names nothing on screen, while the design has lost its mass,
       // stability, Launch and every export. The limits table is read as a
-      // validator to name the part and the field; the kernel's words follow.
-      return { error: explainBuildFailure(tree, e instanceof Error ? e.message : String(e)) };
+      // validator to name the part and the field; failing that, the part the
+      // design builds without is named, found with bare `buildTree` trials —
+      // ~2 ms each, where `staticInfo` would be ~75 (sanitize.ts
+      // `partBlockingBuild`). The kernel's words follow either way.
+      return {
+        error: explainBuildFailure(tree, e instanceof Error ? e.message : String(e), (t) => {
+          try {
+            resetEngine();
+            OrkRocket.buildTree(engineTree(t));
+            return true;
+          } catch {
+            return false;
+          }
+        }),
+      };
     }
     // `tree.components`, not `tree` — see the note on `mounts` above. Renaming
     // the rocket is not a design change: `engineTree` passes `tree.name`

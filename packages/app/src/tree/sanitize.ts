@@ -255,6 +255,54 @@ export function treeProblems(tree: RocketTree): string[] {
   return [...found.map((f) => f.problem), ...outlines];
 }
 
+/** `nodes` with `gone` (and everything under it) left out, by identity. */
+const without = (nodes: ComponentNode[], gone: ComponentNode): ComponentNode[] =>
+  nodes.filter((n) => n !== gone)
+    .map((n) => (n.children ? { ...n, children: without(n.children, gone) } : n));
+
+/**
+ * Trial builds `partBlockingBuild` makes at most, after the one of the whole
+ * tree: past a hundred parts it gives up and the kernel's text stands.
+ */
+const MAX_OMISSION_TRIALS = 100;
+
+/**
+ * The one part the design builds without, when it does not build whole — the
+ * audit's fallback (2026-09-22) for a failure the limits table cannot name: a
+ * restored session carrying a component type this build does not know
+ * ("Unknown component type: 'widget'"), or anything else the table has no row
+ * for. Each part is left out in turn, its children before it, so a bad part is
+ * named rather than the tube it sits on.
+ *
+ * `builds` should be the kernel's `buildTree` ALONE. Measured 2026-09-22 on
+ * the 18-part kitchensink.ork fixture (vitest, shipped kernel): 1.8 ms a build,
+ * but 73–79 ms with `staticInfo()`, which would be 1.3–1.4 s on every edit while a
+ * design stays broken. The failures that only `staticInfo` meets ("NaN …
+ * BigInt", "InertiaMatrix … negative") are the out-of-limit values the table
+ * already names.
+ *
+ * Null when the whole tree builds — the failure lay elsewhere (a later stage
+ * of the build, a motor), so no part is to blame — when no single omission
+ * clears it, or after MAX_OMISSION_TRIALS.
+ */
+export function partBlockingBuild(
+  tree: RocketTree, builds: (t: RocketTree) => boolean, maxTrials = MAX_OMISSION_TRIALS,
+): ComponentNode | null {
+  if (builds(tree)) return null;
+  const order: ComponentNode[] = [];
+  const visit = (nodes: ComponentNode[]) => {
+    for (const n of nodes) {
+      visit(n.children ?? []);
+      order.push(n);
+    }
+  };
+  visit(tree.components);
+  for (const n of order.slice(0, maxTrials)) {
+    if (builds({ ...tree, components: without(tree.components, n) })) return n;
+  }
+  return null;
+}
+
 /**
  * The build error the user reads (audit 2026-09-22). The kernel's own text —
  * "The number NaN cannot be converted to a BigInt", "Unknown format
@@ -264,15 +312,26 @@ export function treeProblems(tree: RocketTree): string[] {
  * something, the message leads with the part and the field; the kernel's words
  * stay in brackets at the end, because they are what a bug report needs. It
  * says "likely", because the validator knows what is out of limits, not which
- * of those the kernel tripped on. When it finds nothing, the kernel's text is
- * returned unchanged — and so it is if the validator itself throws on a tree
- * malformed enough to have failed the build: this runs inside App's build
- * catch, where a throw would take the whole app down with the design.
+ * of those the kernel tripped on. When it finds nothing and `builds` is given,
+ * the part the design builds without is named instead (`partBlockingBuild`).
+ * Failing both, the kernel's text is returned unchanged — and so it is if
+ * either throws on a tree malformed enough to have failed the build: this runs
+ * inside App's build catch, where a throw would take the whole app down with
+ * the design.
  */
-export function explainBuildFailure(tree: RocketTree, kernelMessage: string): string {
+export function explainBuildFailure(
+  tree: RocketTree, kernelMessage: string, builds?: (t: RocketTree) => boolean,
+): string {
   let problems: string[];
   try {
     problems = treeProblems(tree);
+    if (problems.length === 0 && builds) {
+      const part = partBlockingBuild(tree, builds);
+      if (part) {
+        problems = [`${partName(part)}${part.children?.length ? ' or a part inside it' : ''}`
+          + ' — the rest of the design builds without it'];
+      }
+    }
   } catch {
     return kernelMessage;
   }

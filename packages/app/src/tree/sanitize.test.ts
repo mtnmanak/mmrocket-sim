@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { OrkRocket, resetEngine, type ComponentNode, type RocketTree } from '@online-openrocket/engine';
-import { explainBuildFailure, sanitizeTree, separationEventOrDefault, treeProblems } from './sanitize.js';
+import {
+  explainBuildFailure, partBlockingBuild, sanitizeTree, separationEventOrDefault, treeProblems,
+} from './sanitize.js';
 import { defaultTree, engineTree, normalizeTree } from './treeModel.js';
 import {
   FIELDS, fieldLimit, KERNEL_MAX_FINS, MAX_ASSEMBLY_INSTANCES, MAX_DIMENSION_M,
@@ -267,6 +269,64 @@ describe('explainBuildFailure — naming the part (audit 2026-09-22)', () => {
     const broken = { name: 'R', components: [{ id: 's', type: 'stage', children: [null] }] } as unknown as RocketTree;
     expect(() => treeProblems(broken)).toThrow();
     expect(explainBuildFailure(broken, 'kernel text')).toBe('kernel text');
+    expect(explainBuildFailure(broken, 'kernel text', () => false)).toBe('kernel text');
+  });
+});
+
+describe('explainBuildFailure — the omit-one-part fallback (audit 2026-09-22)', () => {
+  /** The kernel's buildTree alone, the way App.tsx's build catch passes it. */
+  let calls = 0;
+  const buildsBare = (t: RocketTree): boolean => {
+    calls++;
+    try {
+      resetEngine();
+      OrkRocket.buildTree(engineTree(t));
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  it('names the part the design builds without, when the table has nothing to say', () => {
+    // A restored session can carry a component type this build does not know:
+    // no limit covers it, and the kernel's words name nothing on screen.
+    const t = rocket([{ id: 'w', type: 'widget', name: 'Widget' }]);
+    const kernel = build(t)!;
+    expect(kernel).toBe('Unknown component type: \'widget\'');
+    expect(treeProblems(t)).toEqual([]);
+    expect(explainBuildFailure(t, kernel)).toBe(kernel); // no builder: as before
+    // Its body tube also builds once dropped (the widget goes with it), but a
+    // part's children are tried before it, so the widget itself is named.
+    expect(explainBuildFailure(t, kernel, buildsBare)).toBe('This design could not be built. The likely cause:'
+      + ' “Widget” — the rest of the design builds without it. (The simulation reported: ' + kernel + ')');
+  });
+
+  it('says "or a part inside it" when only a whole assembly clears it', () => {
+    // Two unknown parts on one tube: neither alone clears the build, the tube does.
+    const t = rocket([{ id: 'w', type: 'widget', name: 'W1' }, { id: 'g', type: 'gizmo', name: 'W2' }]);
+    expect(explainBuildFailure(t, 'k', buildsBare)).toBe('This design could not be built. The likely cause:'
+      + ' “Body tube” or a part inside it — the rest of the design builds without it. (The simulation reported: k)');
+  });
+
+  it('blames no part when the rocket itself builds — the failure lay elsewhere, one build to find out', () => {
+    calls = 0;
+    expect(explainBuildFailure(defaultTree(), 'kernel text', buildsBare)).toBe('kernel text');
+    expect(calls).toBe(1);
+  });
+
+  it('blames no part when no single omission clears it', () => {
+    const t = rocket([{ id: 'w', type: 'widget', name: 'W1' }],
+      [{ id: 's2', type: 'stage', name: 'Booster', children: [{ id: 'g', type: 'gizmo', name: 'W2' }] }]);
+    expect(explainBuildFailure(t, 'kernel text', buildsBare)).toBe('kernel text');
+  });
+
+  it('stops after a bounded number of trial builds', () => {
+    calls = 0;
+    // Post-order: nose, widget — the widget is the second part tried.
+    const t = rocket([{ id: 'w', type: 'widget', name: 'Widget' }]);
+    expect(partBlockingBuild(t, buildsBare, 1)).toBeNull();
+    expect(calls).toBe(2); // the whole tree, then one omission
+    expect(partBlockingBuild(t, buildsBare, 2)?.name).toBe('Widget');
   });
 });
 
