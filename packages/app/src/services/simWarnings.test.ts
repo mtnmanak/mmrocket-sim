@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { formatWarning, formatWarningText, warningKeysCell, WARNING_LABEL } from './simWarnings.js';
+import { SAFETY } from './simReport.js';
 
 describe('formatWarning', () => {
   it('maps a known key to its plain-language label (no detail when the message is bare)', () => {
@@ -21,9 +22,32 @@ describe('formatWarning', () => {
       message: '[Warning.RECOVERY_HIGH_SPEED] (71.1 m/s):  "BoosterChute"',
       priority: 'HIGH',
     });
-    expect(f.label).toBe('Recovery device opened at high speed — risk of a zippered tube or torn chute');
+    expect(f.label).toMatch(/^Recovery device opened faster than the simulator’s fixed 20 m\/s \(65\.6 ft\/s\)/);
     expect(f.detail).toBe('(71.1 m/s): "BoosterChute"');
     expect(f.high).toBe(true);
+  });
+
+  /**
+   * THE KERNEL'S 20 m/s IS NOT THE APP'S VERDICT (audit 2026-09-22). The kernel
+   * flags any opening above a fixed 20 m/s over the ground (65.6 ft/s, wind
+   * included); the report's own opening check is airspeed against 70 ft/s. The
+   * old label called every such opening a "risk of a zippered tube", so a
+   * 20-21.3 m/s opening read "Safe deployment: yes" and that warning in one
+   * report. The label now states the kernel's threshold and makes no verdict.
+   */
+  it('states the kernel’s own 20 m/s threshold and leaves the verdict to the report', () => {
+    for (const key of ['HighSpeedDeployment', 'RECOVERY_HIGH_SPEED']) {
+      const label = WARNING_LABEL[key]!;
+      expect(label).toContain('20 m/s (65.6 ft/s)');
+      expect(label).toContain('judged on airspeed');
+      // The kernel's speed is appended as the detail, so the label ENDS on the
+      // clause that speed belongs to: over the ground, wind included.
+      expect(label).toMatch(/over the ground, wind included$/);
+      expect(label).not.toMatch(/zipper|torn/);
+    }
+    expect(20 / 0.3048).toBeCloseTo(65.6, 1);
+    // The gap the old wording fell into: the report's preferred limit sits above it.
+    expect(SAFETY.maxDeploymentVelocity).toBeGreaterThan(20);
   });
 
   it('non-HIGH priorities (and absent priority) are not styled as failures', () => {
