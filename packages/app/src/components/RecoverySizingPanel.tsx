@@ -340,6 +340,13 @@ function BandSection({
       <p className="recovery-size-note" title={`Cd ${advice.cd}: ${cdSaid}.`}>
         for {rate(advice.band.target)} {velSym} — {cdSaid}
         {vented && <>, its rated Cd {cdNum(advice.cdNominal)} scaled for its spill hole</>}.
+        {/* A chute in a pod set is one canopy per pod (audit 2026-09-22), so
+            the size is per canopy and the rates are for all of them — said,
+            or "about 14 in" reads as the whole answer. */}
+        {advice.instances > 1 && (
+          <> Per canopy: the design opens {advice.instances} of this {advice.role}, one in each pod
+            it rides in, and every rate below is for all {advice.instances}.</>
+        )}
       </p>
 
       {advice.candidates.length > 0 ? (

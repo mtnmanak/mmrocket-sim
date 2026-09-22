@@ -6,7 +6,7 @@ import { G0, ISA_SEA_LEVEL } from '@online-openrocket/engine';
 import { mfrKey } from '../../scripts/manufacturers.mjs';
 import type { LaunchConditions } from '../components/LaunchPanel.js';
 import { mountBore } from '../tree/scaleRocket.js';
-import { findParent, isSeparatingParallelStage, suppressingAncestor } from '../tree/treeModel.js';
+import { findParent, isSeparatingParallelStage, mountMotorCount, suppressingAncestor } from '../tree/treeModel.js';
 import { padAir, R_AIR } from './atmosphere.js';
 import type { Preset } from './presets.js';
 import type { RecoveryMass } from './recoveryMass.js';
@@ -365,7 +365,10 @@ export interface Candidate {
   mass: number | null;
   packedDiameter: number | null;
   packedLength: number | null;
-  /** Descent rate this rocket would have under it (m/s) — see the substitution note. */
+  /**
+   * Descent rate this rocket would have under it (m/s) — under all of the
+   * slot's `instances` of it — see the substitution note.
+   */
   rate: number;
   /**
    * 'fits' — its published packed diameter clears the bay;
@@ -405,6 +408,13 @@ export interface BandAdvice {
   cdSource: 'this device' | 'the design’s other chute' | 'default';
   /** Mass the size line was computed against (kg). */
   massKg: number;
+  /**
+   * How many of this slot's canopy the design deploys at once — one per
+   * instance of every pod set or strap-on it rides in (`deviceInstances`); 1
+   * for an empty slot. The size line is PER CANOPY, and every candidate's rate
+   * is for this many of it.
+   */
+  instances: number;
   candidates: Candidate[];
   /** Catalogue canopies whose rate falls inside the band, before any filtering. */
   inBand: number;
@@ -518,6 +528,25 @@ function ventFactor(n: ComponentNode | null): number {
 }
 
 /**
+ * How many of this device the kernel deploys at once: one per instance of
+ * every pod set and strap-on it rides in. The landing stepper sums
+ * `imap.count(c) * c.getCD() * c.getArea()` over the deployed devices
+ * (BasicLandingStepper), so a chute inside a two-instance pod set is two
+ * canopies in the air. Sizing it as one listed every rate sqrt(N) too fast —
+ * measured on an H128 design with a Fruity Chutes CFC-018-S in each of two
+ * pods, the flight descends at 13.58 ft/s where the panel rated that canopy at
+ * 19.22 (audit 2026-09-22).
+ *
+ * The count is `mountMotorCount`'s — the same walk the kernel's instance
+ * multiplicities take for a motor, and a canopy has no cluster of its own —
+ * so the two cannot drift. An empty slot is 1: a canopy not yet placed rides
+ * in no pod.
+ */
+function deviceInstances(tree: RocketTree, device: ComponentNode | null): number {
+  return device?.id ? mountMotorCount(tree, device.id) : 1;
+}
+
+/**
  * Is the weight that comes down PINNED against a change of canopy in this slot?
  *
  * A mass override that "includes everything inside" replaces the whole
@@ -599,10 +628,12 @@ function bandAdvice(
     currentMass: number | null;
     /** A mass override above this slot covers it — see `slotMassPinned`. */
     massPinned: boolean;
+    /** Canopies this slot deploys at once — see `deviceInstances`. */
+    instances: number;
     canopies: readonly Preset[];
   },
 ): BandAdvice {
-  const { massKg, rho, boreM, device, otherDevice, currentMass, massPinned, canopies } = opts;
+  const { massKg, rho, boreM, device, otherDevice, currentMass, massPinned, instances, canopies } = opts;
 
   // --- the size line -------------------------------------------------------
   // Quoted at the Cd of the chute in THIS slot when there is one (it is the
@@ -628,7 +659,9 @@ function bandAdvice(
   // The size line uses the recovery weight AS THE DESIGN STANDS. A canopy that
   // has not been chosen has no mass to substitute, so there is nothing honest
   // to swap; the candidate list below is where the substitution belongs.
-  const diameter = diameterForRate(massKg, cd, rho, band.target);
+  // It is PER CANOPY: with `instances` of them open at once each carries its
+  // share of the weight (see `deviceInstances`).
+  const diameter = diameterForRate(massKg / instances, cd, rho, band.target);
 
   // --- the candidates ------------------------------------------------------
   interface Scored { p: Preset; rate: number; fits: boolean; known: boolean }
@@ -637,10 +670,12 @@ function bandAdvice(
     const cdA = canopyCdA(p);
     if (cdA === null) continue;
     const cm = presetMass(p);
+    // Every instance of the slot's canopy is swapped, so the substitution and
+    // the drag area both scale with `instances`.
     const m = massPinned ? massKg
-      : cm !== null && currentMass !== null ? massKg - currentMass + cm : massKg;
+      : cm !== null && currentMass !== null ? massKg + instances * (cm - currentMass) : massKg;
     if (!(m > 0)) continue;
-    const rate = descentRate(m, cdA, rho);
+    const rate = descentRate(m, instances * cdA, rho);
     if (!Number.isFinite(rate) || rate < band.min || rate > band.max) continue;
     const packed = typeof p['packedDiameter'] === 'number' ? (p['packedDiameter'] as number) : null;
     const known = packed !== null && packed > 0 && boreM !== null;
@@ -722,7 +757,7 @@ function bandAdvice(
   }));
 
   return {
-    role, band, diameter, cd, cdNominal, ventFactor: vent, cdSource, massKg,
+    role, band, diameter, cd, cdNominal, ventFactor: vent, cdSource, massKg, instances,
     candidates, inBand, excludedForFit, mergedVariants,
   };
 }
@@ -768,12 +803,12 @@ export function recoverySizing(input: RecoverySizingInput): RecoverySizing {
     main: bandAdvice('main', MAIN_BAND, {
       massKg: recovery.mass, rho, boreM, device: main, otherDevice: drogue,
       currentMass: main ? deviceMass(main) : 0,
-      massPinned: slotMassPinned(tree, main, scope), canopies,
+      massPinned: slotMassPinned(tree, main, scope), instances: deviceInstances(tree, main), canopies,
     }),
     drogue: bandAdvice('drogue', DROGUE_BAND, {
       massKg: recovery.mass, rho, boreM, device: drogue, otherDevice: main,
       currentMass: drogue ? deviceMass(drogue) : 0,
-      massPinned: slotMassPinned(tree, drogue, scope), canopies,
+      massPinned: slotMassPinned(tree, drogue, scope), instances: deviceInstances(tree, drogue), canopies,
     }),
   };
 }

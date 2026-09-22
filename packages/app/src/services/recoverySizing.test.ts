@@ -398,6 +398,72 @@ describe('a pinned stage mass — swapping the canopy changes nothing', () => {
   });
 });
 
+/**
+ * ONE CANOPY PER POD (audit 2026-09-22). The kernel's landing stepper sums
+ * `imap.count(c) * Cd * A` over the deployed devices, so a chute inside a pod
+ * set opens once per pod. Sized as one, every rate was sqrt(N) too fast:
+ * measured on an H128 design with a CFC-018-S in each of two pods, the flight
+ * descends at 13.58 ft/s where the panel rated that canopy at 19.22 — and with
+ * the fix the panel's first listed main, flown in both pods, lands at 17.78
+ * against 17.79 listed.
+ */
+describe('a chute inside a pod set is one canopy per pod', () => {
+  const inPods = (n: number, chute: Partial<ComponentNode>, wrap = 'podset'): RocketTree => ({
+    name: 'pods',
+    components: [{
+      type: 'stage', id: 's0', name: 'Sustainer',
+      children: [{
+        type: 'bodytube', id: 'bt', name: 'Body', length: 1, outerRadius: 5.001, thickness: 0.001,
+        children: [{
+          type: wrap, id: 'pods', name: 'Pods', instanceCount: n,
+          ...(wrap === 'parallelstage' ? { separationEvent: 'never' } : {}),
+          children: [{
+            type: 'bodytube', id: 'pb', name: 'Pod body', length: 0.5, outerRadius: 0.1, thickness: 0.001,
+            children: [{ type: 'parachute', id: 'pc', deployEvent: 'altitude', ...chute } as ComponentNode],
+          } as ComponentNode],
+        } as ComponentNode],
+      } as ComponentNode],
+    } as ComponentNode],
+  });
+
+  it('sizes each canopy for its share and rates every candidate as N of it', () => {
+    const r = ok(sizing({ tree: inPods(2, { diameter: 0.6, cd: 2.2 }), deviceMass: () => 0.3 }));
+    expect(r.main.instances).toBe(2);
+    // Per canopy: each of the two carries half the weight.
+    expect(r.main.diameter).toBeCloseTo(diameterForRate(WILDMAN_KG / 2, 2.2, SEA_LEVEL_DENSITY, MAIN_BAND.target), 12);
+    expect(r.main.diameter).toBeCloseTo(
+      diameterForRate(WILDMAN_KG, 2.2, SEA_LEVEL_DENSITY, MAIN_BAND.target) / Math.SQRT2, 12);
+    expect(r.main.candidates.length).toBeGreaterThan(0);
+    for (const c of r.main.candidates) {
+      const row = canopies.find((p) => p.partNo === c.partNo && p.manufacturer === c.manufacturer)!;
+      // Both pods' chutes are swapped: the weight moves by 2 x (candidate - current).
+      const m = WILDMAN_KG + 2 * ((row.mass as number) - 0.3);
+      expect(c.rate, c.partNo).toBeCloseTo(descentRate(m, 2 * canopyCdA(row)!, SEA_LEVEL_DENSITY), 12);
+    }
+    // The empty drogue slot rides in no pod.
+    expect(r.drogue.instances).toBe(1);
+  });
+
+  it('multiplies nested pods, and counts a strap-on that stays on', () => {
+    // A two-pod set inside each of three pods: the pod body's chute is
+    // replaced by it, so the nested chute is the only canopy — six of it.
+    const nested: RocketTree = inPods(3, {});
+    const podBody = nested.components[0]!.children![0]!.children![0]!.children![0]!;
+    podBody.children = [{
+      type: 'podset', id: 'inner', instanceCount: 2,
+      children: [{ type: 'parachute', id: 'pc2', diameter: 0.6, cd: 2.2, deployEvent: 'altitude' } as ComponentNode],
+    } as ComponentNode];
+    expect(ok(sizing({ tree: nested })).main.instances).toBe(6);
+    expect(ok(sizing({ tree: inPods(3, { diameter: 0.6, cd: 2.2 }, 'parallelstage') })).main.instances).toBe(3);
+  });
+
+  it('leaves a chute in the airframe itself as one canopy', () => {
+    const r = ok(sizing({ tree: tube(0.3, [{ diameter: 0.6, cd: 2.2, deployEvent: 'altitude' }]) }));
+    expect(r.main.instances).toBe(1);
+    expect(r.main.diameter).toBe(diameterForRate(WILDMAN_KG, 2.2, SEA_LEVEL_DENSITY, MAIN_BAND.target));
+  });
+});
+
 describe('the 70-vs-75 ft/s conflict — ordered and marked, never dropped or hidden', () => {
   /**
    * 0.9 kg is chosen, not arbitrary: it is a mass where the catalogue offers
