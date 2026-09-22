@@ -1,5 +1,6 @@
 import type { ComponentNode, ComponentType } from '@online-openrocket/engine';
 import { CLUSTER_OPTIONS } from './cluster.js';
+import { num } from './nodeNum.js';
 
 /**
  * Editor schema: display names, containment rules, default nodes, and the
@@ -801,4 +802,28 @@ export function defaultParams(type: EditorComponentType): Partial<ComponentNode>
       position: { method: 'bottom', offset: 0 }, children: [],
     };
   }
+}
+
+/**
+ * How many fins an ABSENT `finCount` means: the kernel constructors' own,
+ * FinSet 3 and TubeFinSet 6 — the same counts `defaultParams` gives a new set.
+ * A .rkt or .CDX1 fin set can arrive without one.
+ */
+export function finCountDefault(type: EditorComponentType): number {
+  return type === 'tubefinset' ? 6 : 3;
+}
+
+/**
+ * The rotation a fin set is born with when it is added to a tube that already
+ * carries one: half the existing set's pitch past its first fin, so the new
+ * fins sit BETWEEN the old ones (2026-08-05d — tube fins + straight fins
+ * interleave).
+ *
+ * The existing set's count falls back per TYPE (audit 2026-09-22). App used a
+ * flat 3, so beside a tube-fin set with no `finCount` — six tubes to the
+ * kernel — the new set turned 60° instead of 30° and landed ON a tube.
+ */
+export function interleaveRotation(existing: ComponentNode): number {
+  const count = Math.max(1, Math.round(num(existing, 'finCount', finCountDefault(existing.type))));
+  return num(existing, 'rotation', 0) + Math.PI / count;
 }

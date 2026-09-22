@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
-import { defaultParams, FIELDS } from './schema.js';
+import { defaultParams, FIELDS, finCountDefault, interleaveRotation } from './schema.js';
 import { shroudEnds } from './shroud.js';
 import { protuberanceClass } from './treeModel.js';
 import { clusterCount } from './cluster.js';
@@ -176,7 +176,7 @@ describe('only a field whose blank means something is optional', () => {
 describe('an unset select shows what the readers do with the absent key', () => {
   const shown = (type: string, key: string) => {
     const f = field(type, key)!;
-    return f.dflt ?? f.options![0]![0];
+    return String(f.dflt ?? f.options![0]![0]);
   };
 
   /**
@@ -220,5 +220,31 @@ describe('an unset select shows what the readers do with the absent key', () => 
     expect(shown('protuberance', 'dragClass'))
       .toBe(protuberanceClass({ id: 'p', type: 'fairing' } as ComponentNode));
     expect(clusterCount(shown('innertube', 'cluster'))).toBe(clusterCount(undefined));
+  });
+});
+
+/**
+ * A fin set added beside an existing one starts half a pitch round, between
+ * its fins. The existing set's count was read with a flat fallback of 3, so
+ * beside a tube-fin set with no `finCount` — six tubes to the kernel — the
+ * new set landed ON a tube (audit 2026-09-22).
+ */
+describe('a new fin set starts between the existing set\'s fins', () => {
+  it('reads an absent count the way the kernel builds it: 3 fins, 6 tubes', () => {
+    for (const type of ['trapezoidfinset', 'ellipticalfinset', 'freeformfinset', 'tubefinset'] as const) {
+      expect(finCountDefault(type), type).toBe(defaultParams(type)['finCount']);
+    }
+  });
+
+  it('turns 30° beside six tubes with no finCount, not 60°', () => {
+    const tubes = { id: 't', type: 'tubefinset', length: 0.1 } as unknown as ComponentNode;
+    expect(interleaveRotation(tubes)).toBeCloseTo(Math.PI / 6, 12);
+  });
+
+  it('turns half a pitch past the existing rotation for a stated count', () => {
+    const fins = { id: 'f', type: 'trapezoidfinset', finCount: 4, rotation: 0.1 } as unknown as ComponentNode;
+    expect(interleaveRotation(fins)).toBeCloseTo(0.1 + Math.PI / 4, 12);
+    const bare = { id: 'g', type: 'trapezoidfinset' } as unknown as ComponentNode;
+    expect(interleaveRotation(bare)).toBeCloseTo(Math.PI / 3, 12);
   });
 });
