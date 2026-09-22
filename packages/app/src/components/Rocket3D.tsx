@@ -32,6 +32,13 @@ import { ImageExportMenu, type ImageExportOptions } from './ImageExportMenu.js';
  * the old import path working while callers move.
  */
 
+/**
+ * The identity position/rotation for a piece that carries none of its own:
+ * ONE shared tuple rather than two fresh `[0, 0, 0]` arrays per mesh per render
+ * (audit 2026-09-22). R3F copies the values out and never writes to the array.
+ */
+const ZERO3: [number, number, number] = [0, 0, 0];
+
 /** One size rule for the on-axis marker spheres AND the callout gadget. */
 const markerRadius = (totalLen: number, maxR: number): number =>
   Math.max(totalLen * 0.015, maxR * 0.35);
@@ -504,8 +511,8 @@ export function Rocket3D({ tree, info, motors, exportData }: {
         <group>
           {pieces.map((p) => (
             <mesh key={p.key} geometry={p.geometry}
-              position={p.position ?? [0, 0, 0]}
-              rotation={p.rotation ?? [0, 0, 0]}
+              position={p.position ?? ZERO3}
+              rotation={p.rotation ?? ZERO3}
               renderOrder={p.translucent ? 2 : p.innerGlass ? 1 : 0}>
               {/* See-through layering (batch 08-21d — 0.88 with depth writes
                   on looked opaque in practice): opaque pieces (motor, fins)
