@@ -177,3 +177,32 @@ describe('PropertyPanel — clearing a field', () => {
     expect(patches).toEqual([{ cd: undefined }]);
   });
 });
+
+describe('PropertyPanel — an unset select shows what the design flies', () => {
+  const selectNamed = (name: string): HTMLSelectElement =>
+    host.querySelector<HTMLSelectElement>(`select[aria-label="${name}"]`)!;
+  const pick = (el: HTMLSelectElement, value: string) => act(() => {
+    el.value = value;
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+
+  it('a fin tab with no method shows Middle, and Front of fin is reachable', () => {
+    // Audit 2026-09-22: it showed "Front of fin" (options[0]) for a tab every
+    // reader placed mid-fin, and choosing Front of fin fired no change.
+    const fins = { id: 'f', type: 'trapezoidfinset', finCount: 3, rootChord: 0.05,
+      tipChord: 0.03, sweep: 0.02, height: 0.03, thickness: 0.003,
+      tabHeight: 0.005, tabLength: 0.02 } as unknown as ComponentNode;
+    show(treeOf(tube('A', { children: [fins] })), fins);
+    const method = selectNamed('Tab offset from');
+    expect(method.value).toBe('middle');
+    pick(method, 'top');
+    expect(patches).toEqual([{ tabOffsetMethod: 'top' }]);
+  });
+
+  it('a transition with no shape shows Conical', () => {
+    const tr = { id: 't', type: 'transition', length: 0.04, foreRadius: 0.012,
+      aftRadius: 0.009, thickness: 0.002 } as unknown as ComponentNode;
+    show(treeOf(tr), tr);
+    expect(selectNamed('Shape').value).toBe('conical');
+  });
+});

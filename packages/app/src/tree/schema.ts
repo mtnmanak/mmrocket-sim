@@ -245,6 +245,13 @@ const FIN_TABS: FieldDef[] = [
   {
     key: 'tabOffsetMethod', label: 'Tab offset from', unit: 'none',
     options: [['top', 'Front of fin'], ['middle', 'Middle of fin'], ['bottom', 'End of fin']],
+    // What an absent method MEANS to every reader — the kernel, the drawing
+    // (TreeSchematic.finTabFront), the cut template, the .ork writer and the
+    // snap anchors all fall back to middle. Without it the panel showed
+    // options[0], "Front of fin", for a tab they all placed mid-fin, and
+    // picking "Front of fin" then fired no change, so the state on screen was
+    // unreachable (audit 2026-09-22).
+    dflt: 'middle',
   },
 ];
 const CD: FieldDef = {
@@ -456,7 +463,10 @@ export const FIELDS: Record<EditorComponentType, FieldDef[]> = {
     radMM('foreRadius', 'Fore radius', 0.5, 80),
     radMM('aftRadius', 'Aft radius', 0.5, 80),
     lenMM('thickness', 'Wall thickness', 0.1, 10),
-    { key: 'shape', label: 'Shape', unit: 'none', options: SHAPES },
+    // A transition with no shape is CONICAL to every reader (the drawing, the
+    // .ork writer, the panel's own shape-parameter rule) — not options[0],
+    // the nose cone's ogive, which the panel used to show for it.
+    { key: 'shape', label: 'Shape', unit: 'none', options: SHAPES, dflt: 'conical' },
     { key: 'shapeParameter', label: 'Shape parameter', unit: 'none', step: 0.05, smin: 0, smax: 1, optional: true },
     { key: 'filled', label: 'Solid (filled)', unit: 'none', bool: true },
     radMM('foreShoulderRadius', 'Fore shoulder radius', 0.5, 80),
@@ -682,7 +692,10 @@ export const FIELDS: Record<EditorComponentType, FieldDef[]> = {
   // RailButtonCalc contributes no normal force and no friction, so the override
   // IS the whole contribution. Length is drawing/placement only.
   protuberance: [
-    { key: 'dragClass', label: 'Drag class', unit: 'none', options: PROTUBERANCE_CLASSES },
+    // treeModel.protuberanceClass reads an absent class as streamlinedbase;
+    // options[0] is the no-base class, which the panel showed instead.
+    { key: 'dragClass', label: 'Drag class', unit: 'none', options: PROTUBERANCE_CLASSES,
+      dflt: 'streamlinedbase' },
     lenMM('width', 'Width (across body)', 1, 300),
     lenMM('height', 'Height (off the surface)', 1, 300),
     { key: 'count', label: 'How many (identical)', unit: 'count', smin: 1, smax: 24 },

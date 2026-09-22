@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
+import type { ComponentNode } from '@online-openrocket/engine';
 import { defaultParams, FIELDS } from './schema.js';
 import { shroudEnds } from './shroud.js';
+import { protuberanceClass } from './treeModel.js';
+import { clusterCount } from './cluster.js';
+import { tabOutline } from '../services/finTemplate.js';
 
 const field = (type: string, key: string) =>
   (FIELDS[type as keyof typeof FIELDS] ?? []).find((f) => f.key === key);
@@ -153,5 +157,63 @@ describe('only a field whose blank means something is optional', () => {
     ] as const) {
       expect(field(type, key)!.optional, `${type}.${key}`).not.toBe(true);
     }
+  });
+});
+
+/**
+ * An unset <select> shows `dflt ?? options[0]`, and that has to be what the
+ * READERS do with the absent key (audit 2026-09-22). Two did not: a fin tab
+ * with no method showed "Front of fin" while the kernel, the drawing, the cut
+ * template and the .ork writer all placed it mid-fin — and picking "Front of
+ * fin" then fired no change, so the displayed state was unreachable. A
+ * transition with no shape showed Ogive where every reader draws a cone.
+ */
+describe('an unset select shows what the readers do with the absent key', () => {
+  const shown = (type: string, key: string) => {
+    const f = field(type, key)!;
+    return f.dflt ?? f.options![0]![0];
+  };
+
+  /**
+   * Every select field, and the value its readers fall back to. A new select
+   * with no entry fails here, which is the point: decide what absent means.
+   * The two camera-shroud ends are resolved through shroudEnds instead, which
+   * migrates the legacy single shape (PropertyPanel's RESOLVE_SELECT).
+   */
+  const READER_FALLBACK: Record<string, string> = {
+    finish: 'normal',                 // the engine's regular paint
+    separationEvent: 'ejection',      // orkFile.ts writer and the kernel default
+    shape: 'ogive',                   // nose cone; the transition is below
+    crossSection: 'square',           // dxfExport, finTemplate, orkFile writer
+    airfoilSection: '',               // unset = classic, from the cross section
+    tabOffsetMethod: 'middle',        // finTemplate.tabOutline, TreeSchematic, orkFile
+    cluster: 'single',                // clusterCount(undefined) === 1
+    deployEvent: 'ejection',          // orkFile reader and writer
+    massComponentType: 'masscomponent', // orkFile writer
+    dragClass: 'streamlinedbase',     // treeModel.protuberanceClass
+    radiusMethod: 'relative',         // assembly.ts
+    angleMethod: 'relative',          // orkFile writer
+  };
+
+  it('holds for every select field in the schema', () => {
+    for (const [type, fs] of Object.entries(FIELDS)) {
+      for (const f of fs.filter((x) => x.options)) {
+        if (f.key === 'fairingForeShape' || f.key === 'fairingAftShape') continue;
+        const want = type === 'transition' && f.key === 'shape' ? 'conical' : READER_FALLBACK[f.key];
+        expect(want, `no reader fallback declared for ${type}.${f.key}`).toBeDefined();
+        expect(shown(type, f.key), `${type}.${f.key}`).toBe(want);
+      }
+    }
+  });
+
+  it('agrees with the readers themselves where they are callable', () => {
+    // A tab placed with the method the panel SHOWS lands where the absent key does.
+    const fin = { id: 'f', type: 'trapezoidfinset', tabHeight: 0.005, tabLength: 0.02, tabOffset: 0 };
+    const method = shown('trapezoidfinset', 'tabOffsetMethod');
+    expect(tabOutline({ ...fin, tabOffsetMethod: method } as unknown as ComponentNode, 0.06))
+      .toEqual(tabOutline(fin as unknown as ComponentNode, 0.06));
+    expect(shown('protuberance', 'dragClass'))
+      .toBe(protuberanceClass({ id: 'p', type: 'fairing' } as ComponentNode));
+    expect(clusterCount(shown('innertube', 'cluster'))).toBe(clusterCount(undefined));
   });
 });
