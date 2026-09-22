@@ -4218,6 +4218,9 @@ export function App() {
             canCompare={!!built && !!primaryMountId && !isStaged}
             staleModel={modelMatch === false && lastRun
               ? aeroModelLabel(lastRun.aeroModel, lastRun.rogersKbf) : null}
+            // The same provenance the vitals strip's ⚠ and the Results note
+            // read — this screen replaces the strip on a phone.
+            changedSince={changedSinceNonModel}
           />
         )}
 
