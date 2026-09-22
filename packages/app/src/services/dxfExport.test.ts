@@ -456,6 +456,23 @@ describe('disc cut profiles', () => {
     expect(ents.filter((e) => e.type === 'TEXT').map((e) => first(e, 1)).join('\n')).toContain('BORE ASSUMED');
   });
 
+  it('centering ring that STATES its bore is cut to it, mount or none', () => {
+    // The kernel flies a stated inner radius (CenteringRing.getInnerRadius);
+    // the cut file read only the sibling mount and cut this ring to a 20 mm
+    // bore labelled "no motor mount found".
+    const ring = node('centeringring', { outerRadius: 0.02, innerRadius: 0.0145, length: 0.003 });
+    for (const ctx of [{ parentInnerRadius: 0.0245 }, RING_CTX]) {
+      const out = componentDxf(ring, ctx, 'WM Goblin')!;
+      expect(out.label).toBe('Centering ring');
+      const ents = entities(parse(out.text));
+      const radii = ents.filter((e) => e.type === 'CIRCLE').map((c) => real(c, 40)).sort((a, b) => a - b);
+      expect(radii).toEqual([14.5, 20]);
+      const text = ents.filter((e) => e.type === 'TEXT').map((e) => first(e, 1)).join('\n');
+      expect(text).toContain('OD 40.0 mm | bore 29.0 mm');
+      expect(text).not.toContain('ASSUMED');
+    }
+  });
+
   it('bulkhead: one cut circle plus centre cross-hairs on REFERENCE', () => {
     const ents = entities(parse(dxf(node('bulkhead', { length: 0.005 }), RING_CTX)));
     const circles = ents.filter((e) => e.type === 'CIRCLE');

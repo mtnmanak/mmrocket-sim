@@ -109,6 +109,21 @@ describe('componentSolid: tubes, rings, discs', () => {
     expect(relErr(v, Math.PI * (0.0165 ** 2 - 0.009 ** 2) * 0.003)).toBeLessThan(0.01);
   });
 
+  it('centering ring that STATES its bore is cut to it, as the kernel flies it', async () => {
+    // Every .ork and .rkt ring that states an ID carries innerRadius, and the
+    // kernel flies it (CenteringRing.getInnerRadius: a stated inner radius is
+    // not automatic, so the sibling mount is not consulted). Measured: OD 40 /
+    // ID 29 mm in a tube with no inner tube printed a 20 mm "assumed bore".
+    const ring = node('centeringring', { outerRadius: 0.02, innerRadius: 0.0145, length: 0.003 });
+    const ctxs: Record<string, number>[] = [{ parentInnerRadius: 0.0245 }, { parentInnerRadius: 0.0245, mountOuterRadius: 0.009 }];
+    for (const ctx of ctxs) {
+      const s = await solid(ring, ctx);
+      expect(s.label).toBe('Centering ring');
+      const v = check(s.mesh);
+      expect(relErr(v, Math.PI * (0.02 ** 2 - 0.0145 ** 2) * 0.003)).toBeLessThan(0.01);
+    }
+  });
+
   it('centering ring without a mount assumes a bore and says so', async () => {
     const s = await solid(node('centeringring', { length: 0.003 }), { parentInnerRadius: 0.012 });
     expect(s.label).toBe('Centering ring (assumed bore)');

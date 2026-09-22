@@ -134,5 +134,8 @@ describe('PropertyPanel — a ring part sizes to the tube it sits in', () => {
       expect(t).not.toContain('from the parent tube');
       expect(t).toContain('their own stated diameter, else the bore of the tube, coupler, nose or transition');
     }
+    // The DXF's ring-bore clause: the ring's own stated ID comes first too.
+    const dxfTitle = titles.find((t) => t.includes('DXF'))!;
+    expect(dxfTitle).toContain("a centering ring's bore from its own stated ID, else the motor mount");
   });
 });

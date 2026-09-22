@@ -29,7 +29,10 @@ export interface SolidContext {
    * of its own (ringOuterRadius)
    */
   parentInnerRadius?: number;
-  /** outer radius of the motor-mount inner tube (m) — centering ring bore */
+  /**
+   * outer radius of the motor-mount inner tube (m) — the bore of a centering
+   * ring that states none of its own (centeringRingBore)
+   */
   mountOuterRadius?: number;
   /** parent body outer radius (m) — tube-fin auto sizing */
   bodyRadius?: number;
@@ -518,6 +521,26 @@ export function ringOuterRadius(node: ComponentNode, ctx: SolidContext): { r: nu
 }
 
 /**
+ * The bore (m) a centering ring of outer radius `R` is cut to, before the
+ * fits-inside-R check its two callers (componentLoop, the DXF writer) make —
+ * undefined when nothing gives one.
+ *
+ * The same order as ringOuterRadius, and the kernel's: the ring's OWN stated
+ * inner radius first — every .ork and .rkt ring that states an ID carries one,
+ * and CenteringRing.getInnerRadius flies it, consulting the sibling motor mount
+ * only when the radius is automatic — then the mount's OD. The exports read the
+ * mount alone until the 2026-09-22 audit's review, so an imported ring of OD 40
+ * / ID 29 mm in a tube with no inner tube printed and cut with a made-up 20 mm
+ * bore labelled "no motor mount found". A stated 0, or one at or past `R`,
+ * leaves no ring to cut, so both fall through to the mount as before.
+ */
+export function centeringRingBore(node: ComponentNode, ctx: SolidContext, R: number): number | undefined {
+  const own = numOpt(node, 'innerRadius');
+  if (own !== undefined && own > EPS && own < R - EPS) return own;
+  return ctx.mountOuterRadius;
+}
+
+/**
  * Profile loop for one revolved printable component, or null if this type is
  * not a revolve (fins) or not printable at all.
  *
@@ -591,7 +614,7 @@ export function componentLoop(
     case 'centeringring': {
       const { r: R, assumed } = ringOuterRadius(node, ctx);
       const L = num(node, 'length', 0.003);
-      const bore = ctx.mountOuterRadius;
+      const bore = centeringRingBore(node, ctx, R);
       const size = assumed ? { sizeAssumed: true } : {};
       if (typeof bore === 'number' && bore > EPS && bore < R - EPS) {
         return {
