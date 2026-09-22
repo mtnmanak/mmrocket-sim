@@ -671,7 +671,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
         // two sit adjacent, and with a shared glyph a user scanning for the
         // laser export stops at the print-and-trace template instead.
         <button className="file-btn" style={{ marginTop: 6, width: '100%' }}
-          title="Flat 1:1 cut profile as R12 DXF in millimetres — for laser/router/waterjet CAM and Fusion 360 sketch import. Fin sets export ONE fin as a single closed contour with the through-the-wall tab merged into it (airfoil shaping, cant and sweep-into-the-tube are NOT represented); rings, bulkheads and couplers take their diameters from the parent tube, and a centering ring's bore from the motor mount. Cut geometry is on the CUT layer only — REFERENCE (root chord, centre marks) and TEXT are guides; switch them off before cutting."
+          title="Flat 1:1 cut profile as R12 DXF in millimetres — for laser/router/waterjet CAM and Fusion 360 sketch import. Fin sets export ONE fin as a single closed contour with the through-the-wall tab merged into it (airfoil shaping, cant and sweep-into-the-tube are NOT represented); rings, bulkheads and couplers take their own stated diameter, else the bore of the tube, coupler, nose or transition they sit in (the label says so when neither can be found), and a centering ring's bore from the motor mount. Cut geometry is on the CUT layer only — REFERENCE (root chord, centre marks) and TEXT are guides; switch them off before cutting."
           onClick={() => {
             const dxf = componentDxf(node, solidContextFor(tree, node), tree.name ?? 'Rocket');
             // Same reason as the STL button below: componentDxf returns null for
@@ -696,7 +696,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
           <button className="file-btn" style={{ marginTop: 6, width: '100%' }}
             title={offer?.kind === 'split'
               ? 'This part is taller than your printer, so it exports as a ZIP: one STL per segment plus a README with the print orientation, the glue, and the shrinkage rule that decides whether the halves fit each other. Each cut adds a tapered spigot and a flat land — the land sets the assembled length, so nothing is lost at the joint.'
-              : 'Watertight solid STL in millimetres, ready to slice. Hollow noses/transitions include shoulders and end caps at your wall thickness; fin sets export ONE fin as a flat prism with its tab (airfoil/cross-section shaping is left to sanding, cant not baked); rings, bulkheads and couplers take their diameters from the parent tube. Verify fit before a long print.'}
+              : 'Watertight solid STL in millimetres, ready to slice. Hollow noses/transitions include shoulders and end caps at your wall thickness; fin sets export ONE fin as a flat prism with its tab (airfoil/cross-section shaping is left to sanding, cant not baked); rings, bulkheads and couplers take their own stated diameter, else the bore of the tube, coupler, nose or transition they sit in (a warning appears under this button when neither can be found). Verify fit before a long print.'}
             onClick={async () => {
               // Split path: a zip of segments. Everything else — no printer, a
               // part that fits, a part that cannot be split — takes the single

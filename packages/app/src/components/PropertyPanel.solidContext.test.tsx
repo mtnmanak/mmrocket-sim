@@ -117,4 +117,22 @@ describe('PropertyPanel — a ring part sizes to the tube it sits in', () => {
     expect(dxf).toContain('OD 24.0 mm | stock thickness 4.0 mm');
     expect(dxf).toContain('OD ASSUMED: no tube found to size this part from');
   });
+
+  it('the two buttons describe the sizing they do, not "from the parent tube"', () => {
+    // A part's OWN stated diameter comes first, and the bore may be a
+    // coupler's, a nose cone's or a transition's (audit 2026-09-22).
+    mount({
+      name: 'Rocket',
+      components: [{ id: 's1', type: 'stage', children: [{
+        id: 'b1', type: 'bodytube', outerRadius: 0.0381, thickness: 0.001, length: 0.6, children: [bulkhead],
+      }] }],
+    } as unknown as RocketTree, bulkhead);
+    const titles = [...host.querySelectorAll('button')].map((b) => b.title)
+      .filter((t) => t.includes('bulkheads'));
+    expect(titles).toHaveLength(2);
+    for (const t of titles) {
+      expect(t).not.toContain('from the parent tube');
+      expect(t).toContain('their own stated diameter, else the bore of the tube, coupler, nose or transition');
+    }
+  });
 });
