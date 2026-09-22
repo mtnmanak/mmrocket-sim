@@ -459,6 +459,16 @@ export interface EnumLimit {
 
 /** Stage separation triggers — exactly the kernel's set (OrkEngine.separationEventOf). */
 export const SEPARATION_EVENT_VALUES: readonly string[] = SEPARATION_EVENTS.map(([v]) => v);
+/** Ignition events — exactly the kernel's set (OrkEngine.ignitionEventOf). */
+export const IGNITION_EVENT_VALUES: readonly string[] = ['automatic', 'launch', 'ejectioncharge', 'burnout', 'never'];
+/**
+ * A motor's ignition event. Not in ENUM_LIMITS: it lives on the motor, not on
+ * a tree node, so the .ork reader applies it (sanitize.ts `ignitionEventOf`).
+ */
+export const IGNITION_EVENT_LIMIT: EnumLimit = {
+  values: IGNITION_EVENT_VALUES,
+  fallback: 'automatic ignition, desktop OpenRocket’s default',
+};
 
 const AIRFOIL: EnumLimit = {
   values: AIRFOIL_SECTIONS.map(([v]) => v).filter((v) => v !== ''),

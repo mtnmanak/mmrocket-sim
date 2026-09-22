@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { OrkRocket, resetEngine, type ComponentNode, type RocketTree } from '@online-openrocket/engine';
-import { sanitizeTree } from './sanitize.js';
+import { sanitizeTree, separationEventOrDefault } from './sanitize.js';
 import { defaultTree, engineTree, normalizeTree } from './treeModel.js';
 import {
   FIELDS, fieldLimit, KERNEL_MAX_FINS, MAX_ASSEMBLY_INSTANCES, MAX_DIMENSION_M,
@@ -151,6 +151,11 @@ describe('sanitizeTree — enum strings', () => {
     expect(kid(t, 2)['deployEvent']).toBe('apogee');
     expect(t.components[1]!['separationEvent']).toBe('altitudeascending');
     expect(notes).toEqual([]);
+  });
+
+  it('gives a per-configuration separation the same answer', () => {
+    expect(separationEventOrDefault('UPPER_IGNITION')).toBe('upperignition');
+    expect(separationEventOrDefault('bogus')).toBe('ejection');
   });
 });
 

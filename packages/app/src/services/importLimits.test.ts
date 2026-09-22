@@ -192,6 +192,65 @@ describe('.ork — enum strings', () => {
     ]);
     expect(build(r.tree)).toBeNull();
   });
+
+  const BOOSTER = (sep: string) => `<stage><name>Booster</name>${sep}<subcomponents>
+    <bodytube><name>Booster tube</name><length>0.3</length><radius>0.025</radius><thickness>0.001</thickness></bodytube>
+  </subcomponents></stage>`;
+  const CONFIGS = `<motorconfiguration configid="a" default="true"><name>A</name></motorconfiguration>
+    <motorconfiguration configid="b"><name>B</name></motorconfiguration>`;
+
+  it('an unknown separation in a configuration NOT opened is repaired too, not left to fail the day it is picked', () => {
+    // At a7756c5 configuration B carried "sometime" verbatim; applying it put
+    // the string on the stage and OrkEngine.separationEventOf threw, failing
+    // the whole build.
+    const r = importOrk(ork('', {
+      rocketExtra: CONFIGS,
+      stages: BOOSTER(`<separationconfiguration configid="a"><separationevent>burnout</separationevent></separationconfiguration>
+        <separationconfiguration configid="b"><separationevent>sometime</separationevent></separationconfiguration>`),
+    }));
+    expect(r.chosenConfigId).toBe('a');
+    const boosterId = r.tree.components[1]!.id!;
+    const b = r.configs!.find((c) => c.id === 'b')!;
+    expect(b.separations[boosterId]!.separationEvent).toBe('ejection');
+    expect(r.notes).toContain('“Booster”: separation event “sometime”, in a flight configuration other than'
+      + ' the one opened, is not one the simulation knows — that configuration now uses this stage’s ejection'
+      + ' charge, desktop OpenRocket’s default.');
+  });
+
+  it('an unknown separation in the OPENED configuration is dropped from the stage, one note', () => {
+    const r = importOrk(ork('', {
+      rocketExtra: CONFIGS,
+      stages: BOOSTER('<separationevent>sometime</separationevent>'),
+    }));
+    expect(r.tree.components[1]).not.toHaveProperty('separationEvent');
+    // Both configurations inherit the bare tag — still ONE note, the tree pass's.
+    expect(r.notes.filter((n) => /sometime/.test(n))).toEqual([
+      '“Booster”: separation event “sometime” is not one the simulation knows — it now uses this stage’s'
+        + ' ejection charge, desktop OpenRocket’s default.',
+    ]);
+    for (const c of r.configs!) expect(c.separations[r.tree.components[1]!.id!]!.separationEvent).toBe('ejection');
+    expect(build(r.tree)).toBeNull();
+  });
+
+  const MOUNT = (ignition: string) => `<innertube><name>Mount</name><length>0.07</length>
+    <outerradius>0.0095</outerradius><thickness>0.0005</thickness>
+    <motormount><ignitionevent>${ignition}</ignitionevent><ignitiondelay>0</ignitiondelay>
+      <motor><type>single</type><manufacturer>Estes</manufacturer><designation>C6</designation>
+        <diameter>0.018</diameter><length>0.07</length><delay>5</delay></motor>
+    </motormount></innertube>`;
+
+  it('an unknown ignition event falls back to automatic with a note (the kernel threw on it)', () => {
+    const r = importOrk(ork(MOUNT('whenever')));
+    expect(r.motor!.ignitionEvent).toBeUndefined();
+    expect(r.notes).toContain('“Mount”: motor ignition event “whenever” is not one the simulation knows'
+      + ' — it now uses automatic ignition, desktop OpenRocket’s default.');
+  });
+
+  it('an ignition event in another spelling is read in the kernel\'s', () => {
+    const r = importOrk(ork(MOUNT('EJECTION_CHARGE')));
+    expect(r.motor!.ignitionEvent).toBe('ejectioncharge');
+    expect(r.notes.some((n) => /ignition/.test(n))).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------- share link

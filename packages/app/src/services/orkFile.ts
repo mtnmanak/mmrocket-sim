@@ -4,7 +4,9 @@ import { DEFAULT_TIME_STEP_S, PANEL_TIME_STEP_FLOOR_S, type LaunchConditions } f
 import { asStageNodes, freshId } from '../tree/treeModel.js';
 import { shapeIsClippable, shapeParamDefault } from '../tree/shapeProfile.js';
 import { finOutlineProblem } from '../tree/finOutline.js';
-import { sanitizeTree } from '../tree/sanitize.js';
+import {
+  configSeparationNote, ignitionEventOf, ignitionNote, sanitizeTree, separationEventOf,
+} from '../tree/sanitize.js';
 import { CLUSTER_POINTS } from '../tree/cluster.js';
 import { isConformal, shroudEnds } from '../tree/shroud.js';
 import { MAX_FIN_POINTS, escapeXml, xmlText as text } from './xmlUtil.js';
@@ -245,6 +247,14 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
 
   const ignored = new Set<string>();
   const notes: string[] = [];
+  /**
+   * Enum strings the kernel refuses, met OUTSIDE the tree — a configuration's
+   * separation, a motor's ignition — where the sanitize pass at the end never
+   * looks (audit 2026-09-22). Keyed by part and value, so a bad string that
+   * every configuration inherits from the bare tags is one note, not one per
+   * configuration.
+   */
+  const outsideTreeEnums = new Map<string, string>();
   /** Parts whose <preset> names a catalogue row - resolved after the tree is built. */
   const pendingLinks: PendingPresetLink[] = [];
   let motor: OrkMotorRef | undefined;
@@ -413,7 +423,19 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       const src = block ?? el;
       const o: OrkSeparationOverride = {};
       const event = text(src, ':scope > separationevent');
-      if (event) o.separationEvent = event;
+      if (event) {
+        // The kernel's spelling, or desktop's default for a value it does not
+        // name. OrkEngine.separationEventOf THROWS on one, and a configuration
+        // is applied outside the tree, so a file carrying one opened and flew —
+        // then failed the whole build the day that configuration was picked
+        // (audit 2026-09-22). The opened configuration's value is also on the
+        // stage node, where the sanitize pass reports it; this reports the rest.
+        const known = separationEventOf(event);
+        o.separationEvent = known ?? 'ejection';
+        if (known === null && node['separationEvent'] !== event) {
+          outsideTreeEnums.set(`${node.id}\u0000separation\u0000${event}`, configSeparationNote(node, event));
+        }
+      }
       if (text(src, ':scope > separationdelay') !== null) {
         o.separationDelay = num(src, 'separationdelay', 0);
       }
@@ -444,6 +466,15 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       // digestsTrusted above). <type>/<manufacturer> are version-independent.
       const digest = digestsTrusted ? text(motorEl, ':scope > digest') : null;
       const motorType = text(motorEl, ':scope > type');
+      // In the kernel's spelling, or absent — AUTOMATIC, desktop's default —
+      // for a value it does not name: OrkEngine.ignitionEventOf throws on one,
+      // and the motor was then reported as a failure in the kernel's own words
+      // (audit 2026-09-22). One note per mount and value.
+      const igRaw = text(igEl, ':scope > ignitionevent');
+      const ignitionEvent = igRaw === null ? undefined : ignitionEventOf(igRaw) ?? undefined;
+      if (igRaw !== null && ignitionEvent === undefined) {
+        outsideTreeEnums.set(`${node.id}\u0000ignition\u0000${igRaw}`, ignitionNote(node, igRaw));
+      }
       return {
         designation: text(motorEl, ':scope > designation') ?? 'unknown',
         manufacturer: text(motorEl, ':scope > manufacturer') ?? 'unknown',
@@ -453,7 +484,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
         ...(digest ? { digest } : {}),
         ...(motorType ? { motorType } : {}),
         mountId: node.id,
-        ignitionEvent: text(igEl, ':scope > ignitionevent') ?? undefined,
+        ignitionEvent,
         ignitionDelay: num(igEl, 'ignitiondelay', 0),
       };
     };
@@ -1136,6 +1167,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   // 70000, a lug <instancecount> of 20000, a negative fin height, an unknown
   // <airfoilsection>. normalizeTree runs the same pass again at every load
   // boundary (this path included, with nothing left to do).
+  notes.push(...outsideTreeEnums.values());
   const tree = sanitizeTree({ name, components }, notes);
 
   return {

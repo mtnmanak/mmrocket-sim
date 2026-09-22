@@ -1,6 +1,7 @@
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import {
-  applyFieldLimit, canonicalEnum, DISPLAY_NAME, ENUM_LIMITS, FIELDS, fieldLimit, MAX_DIMENSION_M,
+  applyFieldLimit, canonicalEnum, DISPLAY_NAME, ENUM_LIMITS, FIELDS, fieldLimit, IGNITION_EVENT_LIMIT,
+  IGNITION_EVENT_VALUES, MAX_DIMENSION_M, SEPARATION_EVENT_VALUES,
   type EnumLimit, type FieldDef, type FieldLimit, type LimitKind,
 } from './schema.js';
 
@@ -35,8 +36,10 @@ import {
  * quietly — it can only hold an out-of-limit value an older build let through.
  *
  * NOT here, by design: freeform point lists (their own pass in the importers),
- * nesting depth (orkFile), and the launch/atmosphere envelope (not tree
- * values — orkFile's readLaunchConditions ranges).
+ * nesting depth (orkFile), the launch/atmosphere envelope (not tree values —
+ * orkFile's readLaunchConditions ranges), and the enum values that live
+ * outside the tree — a flight configuration's separation and a motor's
+ * ignition — which orkFile repairs with the helpers at the end of this file.
  */
 
 /**
@@ -180,4 +183,49 @@ export function sanitizeTree(tree: RocketTree, notes?: string[]): RocketTree {
   const components = walk(tree.components, found);
   if (notes) for (const f of found) notes.push(`${f.problem} — ${f.repair}.`);
   return components ? { ...tree, components } : tree;
+}
+
+/**
+ * A stage separation trigger in the kernel's spelling, or null when it names
+ * none of the kernel's nine — `OrkEngine.separationEventOf` throws on anything
+ * else. For the per-configuration separations, which live outside the tree
+ * (a file's flight configurations, a session's saved ones) and so never pass
+ * through `sanitizeTree`.
+ */
+export function separationEventOf(raw: string): string | null {
+  return canonicalEnum(SEPARATION_EVENT_VALUES, raw);
+}
+
+/** `separationEventOf`, with desktop's default ("ejection") for an unknown value. */
+export function separationEventOrDefault(raw: string): string {
+  return separationEventOf(raw) ?? 'ejection';
+}
+
+/**
+ * A motor's ignition event in the kernel's spelling, or null when it names
+ * none of the kernel's five — `OrkEngine.ignitionEventOf` throws on anything
+ * else, where desktop drops it with a warning and keeps AUTOMATIC
+ * (MotorMountHandler, IgnitionConfigurationHandler). Ignition lives on the
+ * motor, not the tree, so this is the .ork reader's to call.
+ */
+export function ignitionEventOf(raw: string): string | null {
+  return canonicalEnum(IGNITION_EVENT_VALUES, raw);
+}
+
+/**
+ * The import note for an unknown separation event in a flight configuration
+ * other than the one opened — worded like the tree pass's own notes, so the
+ * banner reads as one list. The opened configuration's value is on the stage
+ * node, where `sanitizeTree` reports it.
+ */
+export function configSeparationNote(stage: ComponentNode, raw: string): string {
+  const { fallback } = ENUM_LIMITS['stage']!['separationEvent']!;
+  return `${partName(stage)}: separation event “${raw}”, in a flight configuration other than the one `
+    + `opened, is not one the simulation knows — that configuration now uses ${fallback}.`;
+}
+
+/** The import note for a motor ignition event the kernel does not know. */
+export function ignitionNote(mount: ComponentNode, raw: string): string {
+  const f = enumFinding(mount, 'motor ignition event', raw, IGNITION_EVENT_LIMIT);
+  return `${f.problem} — ${f.repair}.`;
 }

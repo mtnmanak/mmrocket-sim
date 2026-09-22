@@ -101,6 +101,7 @@ import { autoAlignFinSets } from './tree/finAlign.js';
 import { railInterferenceWarnings, wakeShadowWarnings } from './tree/mountAngle.js';
 import { convertShrouds, findShroudCandidates, type ShroudCandidate } from './tree/shroudConvert.js';
 import { mountBore } from './tree/scaleRocket.js';
+import { separationEventOrDefault } from './tree/sanitize.js';
 import { nozzleForMotorId } from './services/nozzleDb.js';
 import { nozzleOversize, nozzleOversizeText } from './services/nozzleCheck.js';
 import { equivalentExitDiameterM, followNozzle, stageMotorKey, stageMotors } from './services/nozzleFollow.js';
@@ -3320,10 +3321,17 @@ export function App() {
       // ("ejection"): the point is to REPLACE whatever the previously applied
       // configuration left behind, so skipping the default would strand a
       // "never" from the last one.
+      //
+      // The event in the kernel's spelling, or desktop's default: a saved
+      // configuration lives outside the tree, so the load boundary's sanitize
+      // pass never sees it, and OrkEngine THROWS on a value it does not know —
+      // which failed the whole build the moment the configuration was applied
+      // (audit 2026-09-22). The .ork reader repairs one with a note; this
+      // guards a configuration a session saved before it did.
       for (const [nodeId, sep] of Object.entries(cfg.separations ?? {})) {
         if (!findNode(next, nodeId)) continue;
         next = updateNode(next, nodeId, {
-          ...(sep.separationEvent !== undefined ? { separationEvent: sep.separationEvent } : {}),
+          ...(sep.separationEvent !== undefined ? { separationEvent: separationEventOrDefault(sep.separationEvent) } : {}),
           ...(sep.separationDelay !== undefined ? { separationDelay: sep.separationDelay } : {}),
           ...(sep.separationAltitude !== undefined ? { separationAltitude: sep.separationAltitude } : {}),
         });
