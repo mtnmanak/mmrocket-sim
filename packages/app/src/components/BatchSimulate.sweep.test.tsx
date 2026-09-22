@@ -146,6 +146,27 @@ describe('the candidates', () => {
   });
 });
 
+describe('the filter chips', () => {
+  /**
+   * They are toggles, and said so only by a CSS class — outside Daylight a
+   * border and text shade, no fill — with no aria-pressed (audit 2026-09-22).
+   * The filters persist, so a chip left on hides motors with nothing to say why.
+   */
+  it('say whether they are on, to a screen reader and without colour', () => {
+    mount();
+    for (const group of ['Manufacturers', 'Diameter classes']) {
+      const chip = () => host.querySelector<HTMLButtonElement>(`[aria-label="${group}"] button.series-chip`)!;
+      expect(chip().getAttribute('aria-pressed'), group).toBe('false');
+      expect(chip().textContent, group).not.toContain('✓');
+      act(() => { chip().click(); });
+      expect(chip().getAttribute('aria-pressed'), group).toBe('true');
+      expect(chip().textContent, group).toContain('✓');
+      // The tick is visual only: aria-pressed already says it.
+      expect(chip().querySelector('[aria-hidden="true"]')?.textContent, group).toBe('✓');
+    }
+  });
+});
+
 describe('the criteria boxes', () => {
   /**
    * A <label> with no `for` names its FIRST labelable descendant, which in the

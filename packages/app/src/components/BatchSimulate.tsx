@@ -540,28 +540,44 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
         </div>
 
         <div className="motor-filter-block">
+          {/* The chips are TOGGLES, so they say so: aria-pressed for a screen
+              reader, and a ✓ for anyone who cannot tell the on-state's border
+              and text shade from the off one's — outside Daylight that shade is
+              the only difference, and these filters persist, so a chip left on
+              last week hides motors with nothing else to say why (audit
+              2026-09-22). The ✓ is aria-hidden: aria-pressed already says it. */}
           <div className="motor-chip-row" role="group" aria-label="Manufacturers">
             <span className="motor-chip-caption">Makers</span>
-            {manufacturers.map(({ abbrev, count }) => (
-              <button key={abbrev}
-                className={`series-chip ${criteria.manufacturers.includes(abbrev) ? 'series-chip-on' : ''}`}
-                onClick={() => setCriteria({ ...criteria, manufacturers: toggle(criteria.manufacturers, abbrev) })}>
-                {abbrev} <span className="motor-chip-count">{count}</span>
-              </button>
-            ))}
+            {manufacturers.map(({ abbrev, count }) => {
+              const on = criteria.manufacturers.includes(abbrev);
+              return (
+                <button key={abbrev}
+                  className={`series-chip ${on ? 'series-chip-on' : ''}`}
+                  aria-pressed={on}
+                  onClick={() => setCriteria({ ...criteria, manufacturers: toggle(criteria.manufacturers, abbrev) })}>
+                  {on && <span aria-hidden="true">✓</span>}
+                  {abbrev} <span className="motor-chip-count">{count}</span>
+                </button>
+              );
+            })}
             {criteria.manufacturers.length > 0 && (
               <button className="file-btn" onClick={() => setCriteria({ ...criteria, manufacturers: [] })}>all</button>
             )}
           </div>
           <div className="motor-chip-row" role="group" aria-label="Diameter classes">
             <span className="motor-chip-caption">Diameter</span>
-            {fittingClasses.map((c) => (
-              <button key={c}
-                className={`series-chip ${criteria.classes.includes(c) ? 'series-chip-on' : ''}`}
-                onClick={() => setCriteria({ ...criteria, classes: toggle(criteria.classes, c) })}>
-                {classLabel(c)} mm
-              </button>
-            ))}
+            {fittingClasses.map((c) => {
+              const on = criteria.classes.includes(c);
+              return (
+                <button key={c}
+                  className={`series-chip ${on ? 'series-chip-on' : ''}`}
+                  aria-pressed={on}
+                  onClick={() => setCriteria({ ...criteria, classes: toggle(criteria.classes, c) })}>
+                  {on && <span aria-hidden="true">✓</span>}
+                  {classLabel(c)} mm
+                </button>
+              );
+            })}
           </div>
           {/* Each criteria box names ITSELF. A <label> with no `for` labels its
               first labelable descendant, and in the three with a unit that is
