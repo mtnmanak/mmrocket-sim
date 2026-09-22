@@ -201,12 +201,24 @@ export function sheetsToXlsx(sheets: Sheet[], charts: ChartSpec[] = []): Uint8Ar
   // `'Booster'` and `History` through, all of which Excel reports as a
   // corrupt workbook. Control characters become spaces: a tab name cannot
   // show them and XML cannot carry most of them.
+  //
+  // The name deduplicated here must be EXACTLY the name written, so nothing
+  // escapeXml would strip may survive into it: lone surrogates and U+FFFE/
+  // U+FFFF become spaces with the controls, and a 31-unit cut that splits an
+  // emoji drops the orphaned high half. Stripped only at the write (review of
+  // audit 2026-09-22), `X…(30)🚀` cut to `X…(30)` + a lone surrogate passed
+  // the clash check beside a plain `X…(30)` and then wrote the same name
+  // twice, and a name that was only a lone surrogate wrote an empty one —
+  // both of which Excel refuses.
   const used = new Set<string>();
-  const fit = (s: string, max: number): string => s.slice(0, max).replace(/^[\s']+|[\s']+$/g, '');
+  const fit = (s: string, max: number): string =>
+    s.slice(0, max).replace(/[\uD800-\uDBFF]$/, '').replace(/^[\s']+|[\s']+$/g, '');
   const sanitize = (raw: string, i: number): string => {
-    // `[^\u{20}-\u{10FFFF}]` is every code point below a space: the C0
-    // controls, spelled without writing one into the pattern.
-    let base = fit((raw || '').replace(/[:\\/?*[\]]|[^\u{20}-\u{10FFFF}]/gu, ' '), 31) || `Sheet${i + 1}`;
+    // The class is the complement of what XML carries MINUS TAB/LF/CR, i.e.
+    // every C0 control, lone surrogate and non-character, spelled without
+    // writing one into the pattern; the `u` flag keeps a real pair whole.
+    let base = fit((raw || '').replace(
+      /[:\\/?*[\]]|[^\u{20}-\u{D7FF}\u{E000}-\u{FFFD}\u{10000}-\u{10FFFF}]/gu, ' '), 31) || `Sheet${i + 1}`;
     if (base.toLowerCase() === 'history') base = 'History_';
     let name = base;
     for (let k = 2; used.has(name.toLowerCase()); k++) {

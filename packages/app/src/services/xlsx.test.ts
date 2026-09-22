@@ -103,6 +103,19 @@ describe("sheet names follow all of Excel's rules", () => {
     expect(tabNames([`${'x'.repeat(29)} 'tail`, `${'y'.repeat(30)}'tail`]))
       .toEqual(['x'.repeat(29), 'y'.repeat(30)]);
   });
+
+  it('deduplicates the name it writes: a cut through an emoji, a lone surrogate', () => {
+    // The 31-unit cut split the rocket emoji, and the orphaned high half made
+    // the name "different" from a plain X…(30) until escapeXml stripped it at
+    // the write — two tabs of the same name. A name that was only a lone
+    // surrogate wrote an EMPTY one. Excel refuses both.
+    const X30 = 'X'.repeat(30);
+    expect(tabNames([`${X30}\u{1F680}`, X30])).toEqual([X30, `${'X'.repeat(29)}_2`]);
+    expect(tabNames(['\uD800', ''])).toEqual(['Sheet1', 'Sheet2']);
+    expect(tabNames(['Stage\uDC00 1'])).toEqual(['Stage  1']);
+    // A whole emoji inside the limit is kept.
+    expect(tabNames(['Booster \u{1F680}'])).toEqual(['Booster \u{1F680}']);
+  });
 });
 
 describe('chart tabs', () => {
