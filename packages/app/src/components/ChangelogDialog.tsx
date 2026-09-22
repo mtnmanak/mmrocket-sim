@@ -1,11 +1,12 @@
 import { APP_VERSION, CHANGELOG, PRE_VERSIONING_NOTE } from '../version.js';
-import { useDialog } from './useDialog.js';
+import { useBackdropClose, useDialog } from './useDialog.js';
 
 /** What's-new dialog, opened from the version badge in the header. */
 export function ChangelogDialog({ onClose }: { onClose: () => void }) {
   const dialogRef = useDialog(onClose);
+  const backdrop = useBackdropClose(onClose);
   return (
-    <div className="prefs-overlay" role="presentation" onClick={onClose}>
+    <div className="prefs-overlay" role="presentation" {...backdrop}>
       <div className="prefs-dialog panel" role="dialog" aria-modal="true" aria-label="Changelog"
         ref={dialogRef} tabIndex={-1}
         onClick={(e) => e.stopPropagation()}>

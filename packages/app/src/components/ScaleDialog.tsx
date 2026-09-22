@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { RocketTree } from '@online-openrocket/engine';
 import { NumField } from './NumField.js';
-import { useDialog } from './useDialog.js';
+import { useBackdropClose, useDialog } from './useDialog.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { fmtSig, niceStep, siToUi, uiToSi } from '../prefs/units.js';
 import { loadPresets, type Preset } from '../services/presets.js';
@@ -43,6 +43,7 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
   onClose: () => void;
 }) {
   const dialogRef = useDialog(onClose);
+  const backdrop = useBackdropClose(onClose);
   const { prefs } = usePrefs();
   const lenSym = prefs.units.length;
 
@@ -224,7 +225,7 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
   const usable = factorInRange && factor !== 1 && baseD > 0 && !mounts.some(overflows);
 
   return (
-    <div className="prefs-overlay" role="presentation" onClick={onClose}>
+    <div className="prefs-overlay" role="presentation" {...backdrop}>
       <div
         className="prefs-dialog panel"
         role="dialog"

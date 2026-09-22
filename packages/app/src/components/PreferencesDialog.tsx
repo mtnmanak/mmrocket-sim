@@ -1,6 +1,6 @@
 import { clearTourDone, markTourDone } from './FirstRunTour.js';
 import { NumField } from './NumField.js';
-import { useDialog } from './useDialog.js';
+import { useBackdropClose, useDialog } from './useDialog.js';
 import { UnitChip } from './UnitChip.js';
 import { AERO_SHORT, aeroChoiceOf, usePrefs } from '../prefs/PrefsContext.js';
 import {
@@ -51,9 +51,10 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
   );
 
   const dialogRef = useDialog(onClose);
+  const backdrop = useBackdropClose(onClose);
 
   return (
-    <div className="prefs-overlay" role="presentation" onClick={onClose}>
+    <div className="prefs-overlay" role="presentation" {...backdrop}>
       <div
         className="prefs-dialog panel"
         role="dialog"

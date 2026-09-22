@@ -1,4 +1,6 @@
-import { useEffect, useRef } from 'react';
+import {
+  useEffect, useRef, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent,
+} from 'react';
 
 /**
  * Shared modal behaviour for every `role="dialog"` overlay in the app.
@@ -111,6 +113,32 @@ export function useDialog<T extends HTMLElement = HTMLDivElement>(onClose: () =>
   }, []);
 
   return ref;
+}
+
+/**
+ * Props for a dialog's backdrop that close it on a click which STARTS and ENDS
+ * on the backdrop itself: `<div className="prefs-overlay" {...backdrop}>`.
+ *
+ * `onClick={onClose}` on the backdrop closed the dialog for ANY click whose
+ * target was the backdrop, and a click's target is the nearest element holding
+ * both the press and the release (audit 2026-09-22). Select text in the guide,
+ * let the drag run off the card's edge, and that element is the backdrop: the
+ * dialog closed under the selection. The card's `stopPropagation` cannot help,
+ * because such a click never reaches the card.
+ */
+export function useBackdropClose(onClose: () => void) {
+  const pressed = useRef(false);
+  const released = useRef(false);
+  return {
+    onPointerDown: (e: ReactPointerEvent<HTMLElement>) => { pressed.current = e.target === e.currentTarget; },
+    onPointerUp: (e: ReactPointerEvent<HTMLElement>) => { released.current = e.target === e.currentTarget; },
+    onClick: (e: ReactMouseEvent<HTMLElement>) => {
+      const onBackdrop = pressed.current && released.current && e.target === e.currentTarget;
+      pressed.current = false;
+      released.current = false;
+      if (onBackdrop) onClose();
+    },
+  };
 }
 
 /**

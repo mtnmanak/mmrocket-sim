@@ -56,6 +56,7 @@ const tree = (): RocketTree => ({
 });
 
 let applied: ScaleResult | null = null;
+let closes = 0;
 
 /**
  * Flush the microtask the mocked `loadPresets` resolves on, INSIDE act(), so the
@@ -66,6 +67,7 @@ const flush = async () => { await act(async () => { await Promise.resolve(); });
 
 const render = async (assigned: Record<string, number> = {}, design: RocketTree = tree()) => {
   applied = null;
+  closes = 0;
   act(() => {
     root.render(
       <PrefsProvider>
@@ -74,7 +76,7 @@ const render = async (assigned: Record<string, number> = {}, design: RocketTree 
           assignedMotorDiameters={assigned}
           onApply={(r) => { applied = r; }}
           onSaveBackup={() => {}}
-          onClose={() => {}}
+          onClose={() => { closes++; }}
         />
       </PrefsProvider>,
     );
@@ -487,6 +489,23 @@ describe('ScaleDialog', () => {
       expect(applyButton().disabled).toBe(true);
       expect(text()).toContain('between 0.01× and 100×');
     });
+  });
+
+  it('closes on a backdrop click, not on a text selection dragged off the card', async () => {
+    // Audit 2026-09-22 (useBackdropClose): the click after a drag lands on the
+    // backdrop, the nearest element holding both the press and the release.
+    await render();
+    const backdrop = host.querySelector('.prefs-overlay')!;
+    const heading = host.querySelector('[role="dialog"] h2')!;
+    const gesture = (down: Element, up: Element) => act(() => {
+      down.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+      up.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
+      backdrop.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    gesture(heading, backdrop);
+    expect(closes).toBe(0);
+    gesture(backdrop, backdrop);
+    expect(closes).toBe(1);
   });
 
   it('says there is nothing to scale when the design has no airframe', async () => {
