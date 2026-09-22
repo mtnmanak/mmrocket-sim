@@ -45,7 +45,9 @@ export interface AeroFlags {
 
 /**
  * Write ONE motor onto a built handle and KEEP its ignition. Every motor write
- * the app makes on a built handle goes through here.
+ * on the design's own handle — App's build and every flight below — goes
+ * through here. (Batch builds handles of its own and writes them itself;
+ * flownIgnitionSites.test.ts guards those until it is extracted.)
  *
  * The bridge's `setMotorById` (`OrkEngine.java` `applyMotor`) installs a FRESH
  * `MotorConfiguration` on the mount:
@@ -184,7 +186,8 @@ export function flyLaunch(rocket: FlightHandle, input: LaunchInput): LaunchFligh
     // because Launch starts from applyAssignedMotors — which held only while
     // EVERY path did, and the two re-fly paths did not: "Show charts" on a
     // stored 9 s run, after an auto-delay Launch had left 7 s behind, deployed
-    // at 1.76 m/s under a report saying 18.14 (audit 2026-09-22). Every path
+    // at 1.76 m/s under a report saying 18.14 (audit 2026-09-22; starter rocket,
+    // AeroTech F39, classic aero without Kbf). Every path
     // now starts from the design, and this puts the design back as well.
     //
     // The aero flag an Auto upgrade set is deliberately left: the upgrade
@@ -294,8 +297,9 @@ export interface ReflyInput extends AssignedMotors {
  * stored run whose delay WAS the spec's was then re-flown at the optimum, and
  * the "Show charts" result is cached under the run's id, so the vitals
  * apogee, the plots and the flight-data CSV/XLSX all showed the wrong flight
- * (audit 2026-09-22, measured on the starter rocket with an F39-9: stored
- * deployment 18.14 m/s, re-fly 1.76 m/s).
+ * (audit 2026-09-22, measured on the starter rocket with an F39-9 on classic
+ * aero without Kbf: stored deployment 18.14 m/s, re-fly 1.76 m/s; with Kbf,
+ * the default, 18.54 and 4.24).
  */
 export function reflyRun(rocket: FlightHandle, input: ReflyInput): FlightResult {
   const { primaryMountId, delayS, simOptions, fly, restore } = input;
