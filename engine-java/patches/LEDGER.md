@@ -1336,7 +1336,16 @@ aerodynamic model.
 - **Divergence from upstream:** YES, deliberate, in ALL THREE aerodynamic models — masscalc
   has no carrier for the model flags, exactly as the v0.088 entry above records. It makes
   the app's mass model disagree with desktop OpenRocket 24.12 on purpose for any design
-  with an off-axis tube.
+  with an off-axis tube — and a cluster's tubes ARE off-axis tubes, so that is EVERY
+  cluster with a non-zero spacing, the ones built with the cluster dropdown included (the
+  tube half; their motors already had the term). Roll inertia is printed in All stats, so
+  under Classic Extended Barrowman too those designs now show a figure desktop 24.12 does
+  not. **Copy that must say so:** the user guide's "If you want the 24.12 model's own
+  answers" list (How It Works: Physics & Math) names what Classic Extended Barrowman does
+  NOT switch off — the fixed turbulence seed, the v0.088 override inertia, the streamlined
+  protuberance — and this belongs beside the v0.088 item. The guide is release copy, not a
+  kernel file, so the wording rides in this package's return (audit 2026-09-22); until it
+  lands, that paragraph overstates parity for every clustered design.
 - **Oracle:** the before/after `goldenJvm` diff (difftest compares JVM with TeaVM and has no
   baseline). **All 355 pre-existing lines are bit-identical** — including
   `cluster.ring3.*` and `flight.cluster.ring3`: no pre-existing golden prints a cluster's
@@ -1360,6 +1369,13 @@ aerodynamic model.
   rad/s, apogee +0.0001 m; with a 0.4 s, 800 N burn per motor and 2° of cant, max roll
   rate **166.534 → 164.595 rad/s** (the old value 1.2 % over) and apogee 867.222 →
   867.203 m. The verification's own motor-dominated case is the one quoted above (52.7 %).
+  **A cluster built with the dropdown moves too, by the tube half alone** (the goldens,
+  before → after, same airframe): `ring3` — three 31 mm tubes touching, 3-ring, 0.35 kg
+  motors — loaded roll inertia 1.9329567027852556e-3 → 1.94216486793256e-3 kg·m²
+  (+0.48 %), dry 1.4862254527852556e-3 → 1.49543361793256e-3 (+0.62 %); `double` at
+  ±30 mm, loaded 2.1875839731625795e-3 → 2.2048313168307873e-3 (+0.79 %), dry +1.16 %.
+  Small, because a paper tube is light against its motor, but no longer bit-identical to
+  desktop for any spaced cluster.
 - **Goldens:** `offAxisInertiaScenarios()`, appended at the END of the roster (difftest
   compares by line index). Differential **355 → 362 lines**, JVM↔TeaVM clean (235
   bit-identical, 127 within the existing tolerances).
@@ -1433,7 +1449,11 @@ aerodynamic model.
   power-off base CD 0.13170 → power-on 0.11604 without pods (reduction 0.015660, one area);
   with the pods 0.17680 → 0.12982 (reduction 0.046980, exactly THREE areas — core plus two
   pods). Same species as E2, on the drag side, and pre-existing; it moves reachable numbers,
-  so it goes to the board rather than riding in on this entry.
+  so it belongs on the board (Tier 1: a wrong number reaching users) and in `open-items.md`,
+  not in this entry. **It was NOT on either when this entry was written** — the package that
+  found it could not write the local-only `docs/` folder, so its return (audit 2026-09-22,
+  package A8) hands the row over for filing. Until a board row exists, this bullet is the
+  only record; whoever files it should replace this sentence with the row's pointer.
 - **Behavioural guard:** `packages/engine/src/pressureThrust.test.ts`, *"credits a parallel
   stage one nozzle area per strap-on"* — for N = 1, 2, 3, every plateau row bit-exact against
   `N × 32 + N × term` and, for N > 1, NOT equal to the pre-fix `N × 32 + term`. It fails

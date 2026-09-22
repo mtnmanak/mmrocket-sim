@@ -297,14 +297,19 @@ const MOUNT_ANGLE: FieldDef = {
  * <radialdirection>, scaleRocket scales them), AftView draws with them, and
  * ComponentFactory's innertube and masscomponent cases hand them to the kernel
  * (since v0.105), so do NOT "clean up" either as unused. What the kernel does
- * with them: a mass component's CG moves with its offset; an off-axis inner
- * tube and the motor in it keep their CG on the tube's parent axis and carry
- * the offset as a parallel-axis ROLL-inertia term, m·r² each (kernel fix for
- * code review E1, 2026-09-22 — until then a split cluster flew with the roll
- * inertia of the same tubes stacked on the axis, as desktop OpenRocket 24.12
- * still does; engine-java/patches/LEDGER.md "Correctness fixes"). The kernel
- * reads only the CG's x, and an off-axis motor's thrust still makes no moment
- * (upstream's own TODO in RK4SimulationStepper.calculateThrust). Recorded in
+ * with them: a mass component's CG moves with its offset. A SINGLE off-axis
+ * inner tube, and every mount's motor, keep their CG on the tube's parent axis
+ * and carry the offset as a parallel-axis ROLL-inertia term, m·r² per
+ * instance; a CLUSTERED tube's CG sits at the mean of its instances' offsets
+ * (the pattern shifted by this offset), and its tubes carry their spread about
+ * that mean the same way (kernel fix for code review E1, 2026-09-22 — until
+ * then a split cluster flew with the roll inertia of the same tubes stacked on
+ * the axis, as desktop OpenRocket 24.12 still does; engine-java/patches/
+ * LEDGER.md "Correctness fixes"). The flight's pitch and yaw moment arms use
+ * only the CG's x — a lateral CG reaches the numbers through the inertia
+ * build-up (RigidBody.rebase) and nowhere else — and an off-axis motor's
+ * thrust still makes no moment (upstream's own TODO in
+ * RK4SimulationStepper.calculateThrust). Recorded in
  * docs/testing/format-audit-2026-09-03.md rows 81 and 115.
  */
 const RADIAL_PLACEMENT: FieldDef[] = [

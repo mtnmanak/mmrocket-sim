@@ -229,7 +229,7 @@ export function ancestorsOf(tree: RocketTree, id: string): ComponentNode[] {
  * the instance count of every enclosing pod set and parallel stage.
  *
  * `clusterCount` alone is NOT that number, and the difference is real mass.
- * `MassCalculation.calculateMotors` (carved, :499-536) recurses once per
+ * `MassCalculation.calculateMotors` (carved, :518-555) recurses once per
  * instance at every assembly level and only then multiplies by the cluster, so
  * the multiplicities MULTIPLY down the path. Measured on the shipped kernel
  * 2026-09-21: one 0.1 kg motor on a mount inside a 2-instance pod set adds
