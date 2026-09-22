@@ -305,7 +305,7 @@ describe('stored-run provenance (2026-09-03, v0.101)', () => {
   });
 
   // The motor-set key ends in `|hw:<0.1 g>` when a weighed pad mass carries
-  // hardware (App's motorSetKeyOf). A run from the history flown before the
+  // hardware (motorSetKeyOf, beside it). A run from the history flown before the
   // weighing has the same motors and no such term — the motor loaded is
   // exactly the one it flew — so "the motor changed" would send the user to
   // check the wrong thing (v0.118).
