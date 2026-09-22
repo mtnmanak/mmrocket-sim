@@ -6,7 +6,7 @@ import { shapeIsClippable, shapeParamDefault } from '../tree/shapeProfile.js';
 import { finOutlineProblem } from '../tree/finOutline.js';
 import { CLUSTER_POINTS } from '../tree/cluster.js';
 import { isConformal, shroudEnds } from '../tree/shroud.js';
-import { MAX_FIN_POINTS, TOO_MANY_FIN_POINTS, escapeXml, parseDecimal, xmlText as text } from './xmlUtil.js';
+import { MAX_FIN_POINTS, TOO_MANY_FIN_POINTS, escapeXml, escapeXmlAttr, parseDecimal, xmlText as text } from './xmlUtil.js';
 import { unzipMember } from './zipMember.js';
 import { applyPresetLinks, type PendingPresetLink, type Preset } from './presets.js';
 import { OVERRIDE_INCLUDES_MOTOR } from './statedLaunchWeight.js';
@@ -1545,7 +1545,12 @@ export function exportOrk({
   // bare `&`, so the user's own saved design failed to reopen with "XML parse
   // error", and a `"` in the id closed the attribute and injected markup into a
   // design they then shared. Escaping round-trips the id byte-for-byte, so
-  // nothing about matching or defaulting changes.
+  // nothing about matching or defaulting changes. The six attributes use
+  // escapeXmlAttr, which also writes TAB/LF/CR as character references: raw,
+  // attribute-value normalisation read them back as spaces while <configid>
+  // kept them, and the two stopped matching. Characters XML cannot carry at
+  // all are dropped at all seven sites alike (audit 2026-09-22), so the file
+  // still agrees with itself.
   const active = configs?.find((c) => c.id === activeConfigId) ?? null;
   const writeConfigs: Array<{
     id: string;
@@ -1684,7 +1689,7 @@ export function exportOrk({
         }
         : (node.id ? c.deployments[node.id] ?? {} : {});
       if (Object.keys(o).length === 0) continue;
-      emit(depth, `<deploymentconfiguration configid="${escapeXml(c.id)}">`);
+      emit(depth, `<deploymentconfiguration configid="${escapeXmlAttr(c.id)}">`);
       if (o.deployEvent !== undefined) emit(depth + 1, `<deployevent>${escapeXml(o.deployEvent)}</deployevent>`);
       if (o.deployAltitude !== undefined) emit(depth + 1, `<deployaltitude>${o.deployAltitude}</deployaltitude>`);
       if (o.deployDelay !== undefined) emit(depth + 1, `<deploydelay>${o.deployDelay}</deploydelay>`);
@@ -1712,7 +1717,7 @@ export function exportOrk({
     sep(depth, liveEv, liveDelay, liveAlt);
     for (const c of writeConfigs) {
       const o = c.separations === null || !node.id ? undefined : c.separations[node.id];
-      emit(depth, `<separationconfiguration configid="${escapeXml(c.id)}">`);
+      emit(depth, `<separationconfiguration configid="${escapeXmlAttr(c.id)}">`);
       sep(depth + 1, o?.separationEvent ?? liveEv, o?.separationDelay ?? liveDelay,
         o?.separationAltitude ?? liveAlt);
       emit(depth, '</separationconfiguration>');
@@ -1732,7 +1737,7 @@ export function exportOrk({
       ? node['filletMaterialGroup'] as string : 'PaperProducts';
     const matName = typeof node['filletMaterialName'] === 'string'
       ? node['filletMaterialName'] as string : 'Cardboard';
-    emit(depth, `<filletmaterial type="bulk" density="${density}" group="${escapeXml(group)}">`
+    emit(depth, `<filletmaterial type="bulk" density="${density}" group="${escapeXmlAttr(group)}">`
       + `${escapeXml(matName)}</filletmaterial>`);
   };
 
@@ -1786,7 +1791,7 @@ export function exportOrk({
     emit(depth + 1, `<overhang>${overhangM}</overhang>`);
     for (const c of withMotor) {
       const m = c.motors[nodeId!]!;
-      emit(depth + 1, `<motor configid="${escapeXml(c.id)}">`);
+      emit(depth + 1, `<motor configid="${escapeXmlAttr(c.id)}">`);
       // Desktop element order (RocketComponentSaver): type, manufacturer,
       // digest, designation, diameter, length, delay. Unknown identity is
       // OMITTED, never guessed: the desktop matcher treats a missing field
@@ -1807,7 +1812,7 @@ export function exportOrk({
     }
     for (const c of withMotor) {
       const m = c.motors[nodeId!]!;
-      emit(depth + 1, `<ignitionconfiguration configid="${escapeXml(c.id)}">`);
+      emit(depth + 1, `<ignitionconfiguration configid="${escapeXmlAttr(c.id)}">`);
       emit(depth + 2, `<ignitionevent>${escapeXml(m.ignitionEvent ?? 'automatic')}</ignitionevent>`);
       emit(depth + 2, `<ignitiondelay>${m.ignitionDelay ?? 0}</ignitiondelay>`);
       emit(depth + 1, '</ignitionconfiguration>');
@@ -2328,13 +2333,13 @@ export function exportOrk({
   const ordered = [...writeConfigs].sort((a, b) => (a.id === defaultId ? -1 : 0) - (b.id === defaultId ? -1 : 0));
   for (const c of ordered) {
     const pm = padMassOf(c);
-    if (pm !== undefined) emit(2, `<measuredpadmass configid="${escapeXml(c.id)}">${pm}</measuredpadmass>`);
+    if (pm !== undefined) emit(2, `<measuredpadmass configid="${escapeXmlAttr(c.id)}">${pm}</measuredpadmass>`);
   }
   // Stage nodes at the top level export as sibling <stage> blocks (the
   // desktop model); legacy flat trees wrap into one implicit stage.
   const stageNodes = asStageNodes(tree);
   for (const c of writeConfigs) {
-    emit(2, `<motorconfiguration configid="${escapeXml(c.id)}"${c.id === defaultId ? ' default="true"' : ''}>`);
+    emit(2, `<motorconfiguration configid="${escapeXmlAttr(c.id)}"${c.id === defaultId ? ' default="true"' : ''}>`);
     if (c.name !== null) emit(3, `<name>${escapeXml(c.name)}</name>`);
     for (let i = 0; i < stageNodes.length; i++) {
       emit(3, `<stage number="${i}" active="true"/>`);

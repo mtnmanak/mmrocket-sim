@@ -1,11 +1,44 @@
 /**
  * Tiny shared XML helpers for the file-format services (.ork/.rkt/.CDX1/SVG).
  * One escape implementation app-wide — the per-file copies had drifted (some
- * skipped the quote escape).
+ * skipped the quote escape) — with an attribute-value variant beside it.
  */
 
+/**
+ * Everything XML 1.0's `Char` production does NOT allow: the C0 controls other
+ * than TAB, LF and CR, U+FFFE/U+FFFF, and a UTF-16 surrogate that is not half
+ * of a pair. Written as the complement of the allowed set, and with the `u`
+ * flag, which is what makes the class see a well-formed pair as the one code
+ * point it encodes (allowed) and only a LONE surrogate as a surrogate.
+ */
+const XML_ILLEGAL = /[^\t\n\r\u{20}-\u{D7FF}\u{E000}-\u{FFFD}\u{10000}-\u{10FFFF}]/gu;
+
+/**
+ * Text escaped for XML content (or a double-quoted attribute — but see
+ * escapeXmlAttr), with the characters XML cannot carry at all REMOVED.
+ *
+ * Removed, because no escape exists for them: `&#2;` is as ill-formed as the
+ * raw byte. Audit 2026-09-22: a name pasted from a vendor PDF can carry a
+ * U+0002, and the name inputs keep it, so the saved .ork/.rkt/.CDX1 could be
+ * reopened neither here ("Not a valid … file") nor in desktop OR, its share
+ * link failed, and the XLSX needed Excel's repair — while the autosave, which
+ * is JSON, stayed fine and hid it until the file was needed.
+ */
 export function escapeXml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  return s.replace(XML_ILLEGAL, '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+/**
+ * escapeXml for a double-quoted ATTRIBUTE value: TAB, LF and CR are also
+ * written as character references. Raw, a parser's attribute-value
+ * normalisation reads each back as a space — so a configuration id with a
+ * newline returned from its `configid="…"` attributes as a different id from
+ * the one the same file carries as `<configid>` text, and the two no longer
+ * matched (audit 2026-09-22).
+ */
+export function escapeXmlAttr(s: string): string {
+  return escapeXml(s).replace(/\t/g, '&#9;').replace(/\n/g, '&#10;').replace(/\r/g, '&#13;');
 }
 
 /** Trimmed text of the first selector match; null when absent or empty. */

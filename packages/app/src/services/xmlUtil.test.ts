@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
-import { escapeXml, parseDecimal, xmlNum, xmlText } from './xmlUtil.js';
+import { escapeXml, escapeXmlAttr, parseDecimal, xmlNum, xmlText } from './xmlUtil.js';
+import { exportOrk } from './orkFile.js';
 import { exportRkt } from './rocksimFile.js';
 import { exportCdx1 } from './rasaeroFile.js';
 import type { RocketTree } from '@online-openrocket/engine';
@@ -41,6 +42,70 @@ describe('escapeXml', () => {
   it('leaves ordinary text, including non-ASCII, alone', () => {
     expect(escapeXml('Ласточка 76 mm')).toBe('Ласточка 76 mm');
     expect(escapeXml('')).toBe('');
+  });
+
+  it('drops the characters XML cannot carry at all, and only those', () => {
+    // Audit 2026-09-22: a U+0002 pasted from a vendor PDF passed straight
+    // through, and the saved file could not be reopened here or on the
+    // desktop. No escape exists for it (`&#2;` is just as ill-formed).
+    expect(escapeXml('Nose\u0002cone')).toBe('Nosecone');
+    expect(escapeXml('a\u0000b\u0008c\u000Bd\u000Ce\u001Ff')).toBe('abcdef');
+    expect(escapeXml('x\u{FFFE}y\u{FFFF}z')).toBe('xyz');
+    // A LONE surrogate goes; a pair is one legal character and stays.
+    expect(escapeXml('a\uD800b\uDC00c')).toBe('abc');
+    expect(escapeXml('fin \u{1F680} set')).toBe('fin \u{1F680} set');
+    // TAB, LF and CR are legal XML and are kept in text.
+    expect(escapeXml('a\tb\nc\rd')).toBe('a\tb\nc\rd');
+    // C1 controls and U+FFFD are legal (if unusual) and are kept.
+    expect(escapeXml('\u0085\u{FFFD}')).toBe('\u0085\u{FFFD}');
+  });
+});
+
+describe('escapeXmlAttr', () => {
+  it('writes TAB, LF and CR as character references, which normalisation leaves alone', () => {
+    // Raw in an attribute, each reads back as a space.
+    expect(escapeXmlAttr('a\tb\nc\rd')).toBe('a&#9;b&#10;c&#13;d');
+    expect(escapeXmlAttr('Main & "backup"\u0002')).toBe('Main &amp; &quot;backup&quot;');
+  });
+});
+
+/** Every character in `s` is one XML 1.0's `Char` production allows. */
+const xmlLegal = (s: string): boolean => !/[^\t\n\r\u{20}-\u{D7FF}\u{E000}-\u{FFFD}\u{10000}-\u{10FFFF}]/u.test(s);
+
+/**
+ * The writers end to end. happy-dom's DOMParser is lenient here and accepts
+ * these characters, so it cannot show the failure; a browser's parser and
+ * the desktop's refuse the file, and the XML 1.0 `Char` production is what
+ * they apply — so that is what is asserted.
+ */
+describe('no writer emits a character XML forbids', () => {
+  const PDF_NAME = 'Nose\u0002cone \uD800v2';
+  const tree = (name: string): RocketTree => ({
+    name,
+    components: [{
+      type: 'stage', id: 's', name,
+      children: [
+        { type: 'nosecone', id: 'n', name, length: 0.1, aftRadius: 0.024, shape: 'ogive' },
+        { type: 'bodytube', id: 'b', name, length: 0.3, outerRadius: 0.024 },
+      ],
+    }],
+  } as unknown as RocketTree);
+
+  it('.rkt', () => {
+    const out = exportRkt({ name: PDF_NAME, tree: tree(PDF_NAME), motors: {} });
+    expect(xmlLegal(out)).toBe(true);
+    expect(out).toContain('Nosecone v2');
+  });
+
+  it('.CDX1', () => {
+    const out = exportCdx1({ name: PDF_NAME, tree: tree(PDF_NAME), motors: {} });
+    expect(xmlLegal(out)).toBe(true);
+  });
+
+  it('.ork', () => {
+    const out = exportOrk({ name: PDF_NAME, tree: tree(PDF_NAME) });
+    expect(xmlLegal(out)).toBe(true);
+    expect(out).toContain('<name>Nosecone v2</name>');
   });
 });
 

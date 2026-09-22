@@ -44,6 +44,16 @@ describe('minimal xlsx writer', () => {
     expect(sheet).toContain('a&lt;b&amp;c');
     expect(sheet).toContain('<row r="3"></row>');
   });
+
+  it('drops the characters XML cannot carry from cells and tab names', () => {
+    // Audit 2026-09-22: a U+0002 pasted into a part name from a vendor PDF
+    // reached the cell verbatim, and Excel had to repair the workbook.
+    const files = unzipSync(sheetsToXlsx([
+      { name: 'Stage\u0002 1', headers: ['Part'], rows: [['Nose\u0002cone \uD800!']] },
+    ]));
+    expect(strFromU8(files['xl/worksheets/sheet1.xml']!)).toContain('>Nosecone !</t>');
+    expect(strFromU8(files['xl/workbook.xml']!)).toContain('<sheet name="Stage 1"');
+  });
 });
 
 describe('chart tabs', () => {

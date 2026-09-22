@@ -293,6 +293,25 @@ describe('flight-configuration ids survive the exporter as XML', () => {
     expect(back.chosenConfigId).toBe(WEIRD);
     expect(back.configs[0]!.name).toBe('A & B');
   });
+
+  it('writes a TAB, LF or CR in an id as a character reference in every attribute', () => {
+    // Raw, attribute-value normalisation reads each back as a space, while the
+    // <configid> ELEMENT keeps it — so the simulation named an id no
+    // configuration carried any more (audit 2026-09-22). happy-dom does not
+    // normalise, so the assertion is on the text a real parser would read.
+    const ID = 'Main\tbackup\nline\r2';
+    const out = exportOrk({
+      name: 'Cfg', tree, motors: { mount: MOTOR }, activeConfigId: ID, launch: DEFAULT_CONDITIONS,
+      configs: [{ ...configs[1]!, id: ID, isDefault: true }],
+    });
+    const attrs = [...out.matchAll(/configid="([^"]*)"/g)].map((m) => m[1]);
+    // <motorconfiguration>, <motor>, <ignitionconfiguration> and
+    // <separationconfiguration> (this deployment matches the default, so it
+    // writes no <deploymentconfiguration>).
+    expect(attrs).toHaveLength(4);
+    for (const a of attrs) expect(a).toBe('Main&#9;backup&#10;line&#13;2');
+    expect(out).toContain(`<configid>${ID}</configid>`);
+  });
 });
 
 describe("a transition's shoulder caps round-trip", () => {

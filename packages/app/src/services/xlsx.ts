@@ -1,5 +1,5 @@
 import { strToU8, zipSync } from 'fflate';
-import { escapeXml } from './xmlUtil.js';
+import { escapeXml, escapeXmlAttr } from './xmlUtil.js';
 
 /**
  * Minimal .xlsx writer (2026-08-05c #4; multi-sheet 2026-08-05 chat; charts
@@ -220,7 +220,7 @@ export function sheetsToXlsx(sheets: Sheet[], charts: ChartSpec[] = []): Uint8Ar
 
   const workbook = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-<sheets>${allTabs.map((t, i) => `<sheet name="${escapeXml(t.name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('')}</sheets>
+<sheets>${allTabs.map((t, i) => `<sheet name="${escapeXmlAttr(t.name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('')}</sheets>
 </workbook>`;
 
   const workbookRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
