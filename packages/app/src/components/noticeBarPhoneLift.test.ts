@@ -99,6 +99,8 @@ describe('the stale-autosave notice does not open the bar', () => {
   });
 
   it('and NoticeBar still opens itself for anything that is not info', () => {
-    expect(read('./NoticeBar.tsx')).toMatch(/notices\.some\(\(n\) => n\.severity !== 'info'\)/);
+    // For any NEW notice that is not info, since the 2026-09-22 audit — one
+    // already on the bar does not re-open it after the user collapsed it.
+    expect(read('./NoticeBar.tsx')).toMatch(/notices\.some\(\(n\) => n\.severity !== 'info' && !seen\.has\(/);
   });
 });

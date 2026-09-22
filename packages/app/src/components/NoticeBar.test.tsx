@@ -102,6 +102,35 @@ describe('NoticeBar', () => {
     expect(bar()!.textContent).not.toContain('Second line.');
   });
 
+  /**
+   * Audit 2026-09-22: the bar re-opened whenever ANY notice changed while a
+   * warning was still present, so after the user collapsed a warning, a
+   * routine "Share link copied" threw it open again. Only a NEW problem
+   * opens it now.
+   */
+  it('stays collapsed for a routine notice that arrives beside a warning already seen', () => {
+    draw([warn]);
+    act(() => { buttonByLabel(/collapse notices/i).click(); });
+    draw([warn, info]);
+    expect(bar()!.className, 'a new info notice re-opened the collapsed bar').not.toContain('expanded');
+    draw([warn]);
+    expect(bar()!.className).not.toContain('expanded');
+  });
+
+  it('still opens for a NEW problem, and for one that escalates', () => {
+    draw([warn]);
+    act(() => { buttonByLabel(/collapse notices/i).click(); });
+    draw([warn, err]);
+    expect(bar()!.className).toContain('expanded');
+
+    act(() => { buttonByLabel(/collapse notices/i).click(); });
+    draw([warn, err, { ...info, id: 'e' }]);
+    expect(bar()!.className).not.toContain('expanded');
+    // Same id, now a warning: that is new information.
+    draw([warn, err, { ...info, id: 'e', severity: 'warn' }]);
+    expect(bar()!.className).toContain('expanded');
+  });
+
   it('counts the notices it is not showing while collapsed', () => {
     draw([info, { ...warn, severity: 'info', id: 'd' }]);
     expect(host.querySelector('.notice-count')?.textContent).toBe('+1');
