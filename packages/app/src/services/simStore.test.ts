@@ -205,3 +205,33 @@ describe('one corrupt timestamp must not kill BOTH exports (net-storage-4)', () 
     expect(csv).toContain(new Date(1755000000000).toISOString());
   });
 });
+
+/**
+ * THE LEAD COLUMNS SAY "MISSING" THE WAY THE DETAIL COLUMNS DO (audit
+ * 2026-09-22). `null * k` is 0, so a refused-motor flight — maxAcceleration
+ * null — exported "Accel 0" beside a blank m/s² column. Apogee and velocity
+ * used the same unguarded product.
+ */
+describe('the flight-day lead columns', () => {
+  const cell = (r: SimRun, header: string): string | number => {
+    const { headers, rows } = runsToTable([r]);
+    return rows[0]![headers.indexOf(header)]!;
+  };
+
+  it('are blank, not 0, when the run has no figure', () => {
+    const r = { ...mkRun('refused'), maxAltitude: null, maxVelocity: null, maxAcceleration: null } as unknown as SimRun;
+    expect(cell(r, 'Accel (Gs)')).toBe('');
+    expect(cell(r, 'Apogee (ft)')).toBe('');
+    expect(cell(r, 'Velocity (mph)')).toBe('');
+    // ...exactly as the detail column already was.
+    expect(cell(r, 'Max acceleration (m/s2)')).toBe('');
+  });
+
+  it('still convert a real figure, and a real zero', () => {
+    const r = mkRun('ok', { maxAltitude: 300, maxVelocity: 100, maxAcceleration: 9.80665 * 12 });
+    expect(cell(r, 'Apogee (ft)')).toBe(984);
+    expect(cell(r, 'Velocity (mph)')).toBe(223.7);
+    expect(cell(r, 'Accel (Gs)')).toBe(12);
+    expect(cell(mkRun('flat', { maxAcceleration: 0 }), 'Accel (Gs)')).toBe(0);
+  });
+});

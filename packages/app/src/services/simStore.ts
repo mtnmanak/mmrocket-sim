@@ -148,8 +148,8 @@ function buildColumns(u?: UnitSelection): [string, (r: SimRun) => string | numbe
   const sym = (quantity: Quantity, siLabel: string) => (u ? u[quantity] : siLabel);
   return [
   ['Designation', (r) => r.motor],
-  ['Apogee (ft)', (r) => round(r.maxAltitude * FT, 0)],
-  ['Velocity (mph)', (r) => round(r.maxVelocity * MPH, 1)],
+  ['Apogee (ft)', (r) => round(scaled(r.maxAltitude, FT), 0)],
+  ['Velocity (mph)', (r) => round(scaled(r.maxVelocity, MPH), 1)],
   ['Manufacturer', (r) => r.manufacturer],
   ['Diameter (mm)', (r) => r.motorDiameterMm],
   ['Type', (r) => r.motorType ?? ''],
@@ -157,7 +157,7 @@ function buildColumns(u?: UnitSelection): [string, (r: SimRun) => string | numbe
   ['Case', (r) => r.motorCase ?? ''],
   ['T:W', (r) => round(r.thrustToWeightAtRod, 1)],
   ['Guide (mph)', (r) => round(r.rodExitVelocity === null ? null : r.rodExitVelocity * MPH, 1)],
-  ['Accel (Gs)', (r) => round(r.maxAcceleration / G_MS2, 1)],
+  ['Accel (Gs)', (r) => round(scaled(r.maxAcceleration, 1 / G_MS2), 1)],
   ['Delay (s)', (r) => (Number.isFinite(r.delayS) ? r.delayS : 'P')],
   ['Pad Weight (g)', (r) => round(r.launchMass === null ? null : r.launchMass * 1000, 1)],
   ['Recovery Weight (g)', (r) => round(r.burnoutMass == null ? null : r.burnoutMass * 1000, 1)],
@@ -242,6 +242,18 @@ function buildColumns(u?: UnitSelection): [string, (r: SimRun) => string | numbe
 
 function round(v: number | null, digits = 2): string | number {
   return v === null || !Number.isFinite(v) ? '' : Number(v.toFixed(digits));
+}
+
+/**
+ * `v * k` for a lead column, or null when the run has no `v`. `round` blanks a
+ * null, but it never saw one here: `null * k` is 0 in JavaScript, so a flight
+ * the kernel refused a motor for (maxAcceleration null) exported "Accel 0" in
+ * the lead columns beside the blank the m/s² detail column gives the same
+ * missing value (audit 2026-09-22). The typed field says `number`; the stored
+ * run is JSON and says otherwise, which is why `cv` above guards it too.
+ */
+function scaled(v: number | null | undefined, k: number): number | null {
+  return v == null ? null : v * k;
 }
 
 function flag(v: boolean | null): string {
