@@ -1778,6 +1778,21 @@ describe('RASAero import — unreadable numbers are reported, not swallowed', ()
     expect(importCdx1(sparse).notes.some((n) => n.startsWith('Could not read'))).toBe(false);
   });
 
+  it('reports a hex literal as unreadable instead of reading it as a number', () => {
+    // `Number('0x10')` is 16, so this tube used to import 16 in long with no
+    // note. .NET never writes one, and reading it as sixteen inches is a guess
+    // the desktop's parser does not make either (audit 2026-09-22).
+    const hex = `<RASAeroDocument><FileVersion>2</FileVersion><RocketDesign>
+      <NoseCone><PartType>NoseCone</PartType><Length>4.5</Length><Diameter>0.736</Diameter>
+        <Shape>Tangent Ogive</Shape></NoseCone>
+      <BodyTube><PartType>BodyTube</PartType><Length>0x10</Length><Diameter>0.736</Diameter></BodyTube>
+    </RocketDesign></RASAeroDocument>`;
+    const r = importCdx1(hex);
+    const tube = flatten(r.tree.components).find((c) => c.type === 'bodytube')!;
+    expect(tube['length']).not.toBeCloseTo(16 / 39.37, 6);
+    expect(r.notes.find((n) => n.startsWith('Could not read'))).toContain('<Length> “0x10”');
+  });
+
   it('says nothing on the real RASAero fixture files', () => {
     for (const f of ['Show-off.CDX1', 'Complex.Two-Stage.CDX1', 'Three-stage rocket.CDX1',
       'ARCAS-Long - 2.CDX1', 'RMA53D02 - 2.CDX1', 'launch-stage-motorless.CDX1']) {

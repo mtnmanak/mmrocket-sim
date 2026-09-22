@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
-import { escapeXml, xmlNum, xmlText } from './xmlUtil.js';
+import { escapeXml, parseDecimal, xmlNum, xmlText } from './xmlUtil.js';
 import { exportRkt } from './rocksimFile.js';
 import { exportCdx1 } from './rasaeroFile.js';
 import type { RocketTree } from '@online-openrocket/engine';
@@ -93,6 +93,42 @@ describe('xmlNum', () => {
   it('rejects an infinity rather than propagating it into the geometry', () => {
     const el = doc('<r><a>1e999</a></r>');
     expect(xmlNum(el, 'a', 0.3)).toBe(0.3);
+  });
+
+  it('falls back on a hex, binary or octal literal, as the desktop does', () => {
+    // `Number('0x10')` is 16. Desktop's Double.parseDouble throws on it, so
+    // the field is unreadable there and must fall back here, not import as a
+    // different number (audit 2026-09-22).
+    const el = doc('<r><a>0x10</a><b>0b11</b><c>0o17</c><d>0X1F</d></r>');
+    for (const tag of ['a', 'b', 'c', 'd']) expect(xmlNum(el, tag, 0.3)).toBe(0.3);
+  });
+});
+
+describe('parseDecimal', () => {
+  it('reads every decimal spelling a file writes', () => {
+    expect(parseDecimal('0.42')).toBe(0.42);
+    expect(parseDecimal(' 12 ')).toBe(12);
+    expect(parseDecimal('-.5')).toBe(-0.5);
+    expect(parseDecimal('+5.')).toBe(5);
+    expect(parseDecimal('1.0E-4')).toBe(1e-4); // Java's Double.toString form
+    expect(parseDecimal('2e+3')).toBe(2000);
+    expect(parseDecimal('007')).toBe(7);
+  });
+
+  it('is NaN for a blank, a prefix literal, a comma decimal or text', () => {
+    // Blank is the one that mattered most: `Number('')` is 0, which put a fin
+    // vertex on x = 0 from `x=""`.
+    for (const s of ['', '   ', null, undefined, '0x10', '0b11', '0o17', '2,5', 'NaN', 'auto', '1e', '.']) {
+      expect(parseDecimal(s), String(s)).toBeNaN();
+    }
+  });
+
+  it('stays linear on a long run of digits with one bad character', () => {
+    // The grammar is unambiguous, so this cannot backtrack quadratically.
+    const s = `${'1'.repeat(2_000_000)}x`;
+    const t0 = performance.now();
+    expect(parseDecimal(s)).toBeNaN();
+    expect(performance.now() - t0).toBeLessThan(1000);
   });
 });
 

@@ -4,7 +4,7 @@ import type { LaunchConditions } from '../components/LaunchPanel.js';
 import { asStageNodes, freshId, mountsIn } from '../tree/treeModel.js';
 import { isaPressurePa, padPressureIssue } from './atmosphere.js';
 import { findDbMotor, hasMassData } from './motorDb.js';
-import { escapeXml as esc, lookupTable, xmlNum, xmlText as text } from './xmlUtil.js';
+import { escapeXml as esc, lookupTable, parseDecimal, xmlNum, xmlText as text } from './xmlUtil.js';
 import type { OrkFlightConfig, OrkImportResult, OrkMotorRef, OrkSeparationOverride } from './orkFile.js';
 import {
   cgFromCombined, nodeLength, OVERRIDE_INCLUDES_MOTOR, stageLength,
@@ -308,7 +308,9 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
    */
   const num = (el: Element, tag: string, fb: number): number => {
     const raw = text(el, `:scope > ${tag}`);
-    if (raw !== null && !Number.isFinite(Number(raw)) && !unreadable.has(tag)) {
+    // parseDecimal, the parser xmlNum itself uses: with `Number(raw)` here a
+    // "0x10" would pass this test and still fall back below, silently.
+    if (raw !== null && !Number.isFinite(parseDecimal(raw)) && !unreadable.has(tag)) {
       unreadable.set(tag, raw.slice(0, 40));
     }
     return xmlNum(el, tag, fb);

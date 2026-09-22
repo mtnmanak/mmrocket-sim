@@ -6,7 +6,7 @@ import { shapeIsClippable, shapeParamDefault } from '../tree/shapeProfile.js';
 import { finOutlineProblem } from '../tree/finOutline.js';
 import { CLUSTER_POINTS } from '../tree/cluster.js';
 import { isConformal, shroudEnds } from '../tree/shroud.js';
-import { MAX_FIN_POINTS, escapeXml, xmlText as text } from './xmlUtil.js';
+import { MAX_FIN_POINTS, escapeXml, parseDecimal, xmlText as text } from './xmlUtil.js';
 import { unzipMember } from './zipMember.js';
 import { applyPresetLinks, type PendingPresetLink, type Preset } from './presets.js';
 import { OVERRIDE_INCLUDES_MOTOR } from './statedLaunchWeight.js';
@@ -258,7 +258,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   const measuredNum = (tag: string): number | null => {
     const raw = text(rocketEl, `:scope > ${tag}`);
     if (raw === null) return null;
-    const v = Number(raw);
+    const v = parseDecimal(raw);
     return Number.isFinite(v) && v > 0 ? v : null;
   };
   const measuredMassKg = measuredNum('measuredmass');
@@ -298,7 +298,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       autoFallback = DEFAULT_AUTO_RADIUS): number => {
     const raw = text(el, `:scope > ${tag}`);
     if (raw === null) return fallback;
-    const last = Number(raw.trim().split(/\s+/).pop());
+    const last = parseDecimal(raw.trim().split(/\s+/).pop()); // decimal only, as num() below
     if (Number.isFinite(last)) return last; // plain number, or `auto <lastvalue>`
     if (!/^auto\b/i.test(raw.trim())) return fallback; // unparseable — unchanged
     const label = text(el, ':scope > name') ?? el.tagName;
@@ -345,7 +345,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   // one) flagged legacy, for App to check against the loaded motor before it
   // is applied. Never written again, only read.
   for (const el of Array.from(rocketEl.querySelectorAll(':scope > measuredpadmass'))) {
-    const v = Number(el.textContent?.trim());
+    const v = parseDecimal(el.textContent);
     if (!Number.isFinite(v) || v <= 0) continue;
     const id = el.getAttribute('configid');
     const target = id === null
@@ -889,14 +889,14 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
         n['instanceCount'] = Math.round(num(el, 'instancecount', 2));
         const radEl = el.querySelector(':scope > radiusoffset');
         if (radEl) {
-          const rv = Number(radEl.textContent?.trim());
+          const rv = parseDecimal(radEl.textContent);
           n['radiusOffset'] = Number.isFinite(rv) ? rv : 0; // metres, no conversion
           n['radiusMethod'] = (radEl.getAttribute('method') ?? 'relative').toLowerCase() === 'free'
             ? 'free' : 'relative';
         }
         const angEl = el.querySelector(':scope > angleoffset');
         if (angEl) {
-          const av = Number(angEl.textContent?.trim());
+          const av = parseDecimal(angEl.textContent);
           n['angleOffset'] = (Number.isFinite(av) ? av : 0) * Math.PI / 180; // deg → rad, like cant
           if (asmType === 'parallelstage') {
             n['angleMethod'] = (angEl.getAttribute('method') ?? 'relative').toLowerCase() === 'fixed'
@@ -2521,7 +2521,7 @@ function readOverrides(el: Element, node: ComponentNode): void {
 function autoNum(el: Element, tag: string): number | undefined {
   const t = text(el, `:scope > ${tag}`);
   if (!t || t.trim().toLowerCase() === 'auto') return undefined;
-  const v = Number(t.split(/\s+/).pop());
+  const v = parseDecimal(t.split(/\s+/).pop()); // decimal only, as num() below
   return Number.isFinite(v) ? v : undefined;
 }
 
@@ -2666,7 +2666,9 @@ function makeAutoRadii(rocketEl: Element): AutoRadii {
   const stated = (el: Element, tag: string): number | null => {
     const t = text(el, `:scope > ${tag}`);
     if (t === null) return null;
-    const v = Number(t.trim().split(/\s+/).pop());
+    // parseDecimal, like num() below: the neighbour's radius must read the
+    // way the neighbour's own node reads it.
+    const v = parseDecimal(t.trim().split(/\s+/).pop());
     return Number.isFinite(v) ? v : null;
   };
 
@@ -2760,27 +2762,29 @@ function makeAutoRadii(rocketEl: Element): AutoRadii {
 /**
  * A recovery device's `<cd>`: a number, or the literal `auto` (desktop's
  * `RecoveryDevice.setCDAutomatic`, which the kernel factory honours by leaving
- * the field off). Anything else is dropped — `Number("auto 0.8")` is NaN, and a
- * NaN drag coefficient reaches the descent solver.
+ * the field off). Anything else is dropped — `parseDecimal("auto 0.8")` is NaN,
+ * and a NaN drag coefficient reaches the descent solver.
  */
 function readAutoCd(el: Element, node: ComponentNode): void {
   const t = text(el, ':scope > cd');
   if (t === null || /^auto\b/i.test(t)) return;
-  const v = Number(t);
+  const v = parseDecimal(t);
   if (Number.isFinite(v) && v >= 0) node['cd'] = v;
 }
 
 function num(el: Element, tag: string, fallback: number): number {
   const t = text(el, `:scope > ${tag}`);
-  // Values like "auto 0.012" carry an automatic flag + last value.
-  const v = t ? Number(t.split(/\s+/).pop()) : NaN;
+  // Values like "auto 0.012" carry an automatic flag + last value. Decimal
+  // only: `Number` read "0x10" as 16 where the desktop's parseDouble refuses
+  // the field (audit 2026-09-22).
+  const v = t ? parseDecimal(t.split(/\s+/).pop()) : NaN;
   return Number.isFinite(v) ? v : fallback;
 }
 
 function matDensity(el: Element): number | undefined {
   const m = el.querySelector(':scope > material');
   if (!m || m.getAttribute('type') !== 'bulk') return undefined;
-  const d = Number(m.getAttribute('density'));
+  const d = parseDecimal(m.getAttribute('density'));
   return Number.isFinite(d) && d > 0 ? d : undefined;
 }
 
@@ -2797,7 +2801,7 @@ function readSoftMaterial(el: Element, node: ComponentNode, kind: 'surface' | 'l
     densityKey: string, nameKey: string, selector = ':scope > material'): void {
   const m = el.querySelector(selector);
   if (!m || m.getAttribute('type') !== kind) return;
-  const d = Number(m.getAttribute('density'));
+  const d = parseDecimal(m.getAttribute('density'));
   if (Number.isFinite(d) && d > 0) node[densityKey] = d;
   const name = matName_(el, kind, selector);
   if (name) node[nameKey] = name;
@@ -2876,7 +2880,7 @@ function readFillet(el: Element, node: ComponentNode): void {
   node['filletRadius'] = r;
   const m = el.querySelector(':scope > filletmaterial');
   if (!m) return;
-  const d = Number(m.getAttribute('density'));
+  const d = parseDecimal(m.getAttribute('density'));
   if (Number.isFinite(d) && d > 0) node['filletDensity'] = d;
   const group = m.getAttribute('group');
   if (group) node['filletMaterialGroup'] = group;
@@ -2942,7 +2946,7 @@ function readFinTabs(el: Element, node: ComponentNode): void {
       : rel.includes('end') || rel === 'bottom' ? 'bottom'
       : 'middle';
     node['tabOffsetMethod'] = method;
-    const v = Number(last.textContent?.trim());
+    const v = parseDecimal(last.textContent);
     node['tabOffset'] = Number.isFinite(v) ? v : 0;
   }
 }
@@ -2973,7 +2977,7 @@ function readPosition(el: Element): ComponentPosition | undefined {
   const off = el.querySelector(':scope > axialoffset') ?? el.querySelector(':scope > position');
   if (!off) return undefined;
   const method = (off.getAttribute('method') ?? off.getAttribute('type') ?? 'top') as ComponentPosition['method'];
-  const offset = Number(off.textContent ?? '0');
+  const offset = parseDecimal(off.textContent);
   if (!['top', 'middle', 'bottom', 'absolute'].includes(method)) return undefined;
   return { method, offset: Number.isFinite(offset) ? offset : 0 };
 }

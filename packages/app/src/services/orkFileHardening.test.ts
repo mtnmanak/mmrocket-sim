@@ -141,6 +141,41 @@ describe('.ork zip reading is bounded', () => {
   });
 });
 
+describe('.ork numbers are decimal, as the desktop reads them', () => {
+  it('falls back on a hex length instead of reading 0x10 as sixteen metres', () => {
+    // `Number('0x10')` is 16. The desktop's Double.parseDouble refuses it, so
+    // the field is unreadable there and must fall back here (audit 2026-09-22).
+    const tube = (length: string, radius: string): ComponentNode => {
+      const { tree } = importOrk(orkXml('<bodytube><name>Tube</name>'
+        + `<length>${length}</length><radius>${radius}</radius>`
+        + '<thickness>0.001</thickness></bodytube>'));
+      return flatten(tree.components).find((c) => c.type === 'bodytube')!;
+    };
+    expect(tube('0x10', '0.025')['length']).toBe(0.3); // the reader's default
+    expect(tube('0b11', '0.025')['length']).toBe(0.3);
+    expect(tube('0.5', '0.025')['length']).toBe(0.5);
+    // `auto 0x1` is a bare `auto` with no readable last value: resolved like
+    // one (no neighbour here, so the desktop's 25 mm DEFAULT_RADIUS), never 1 m.
+    expect(tube('0.5', 'auto 0x1')['outerRadius']).toBe(0.025);
+  });
+
+  it('reads no hex density, offset or weighed mass either', () => {
+    // The raw attribute and element reads beside num(), same defect: a
+    // `density="0x10"` was 16 kg/m³ on the part's mass.
+    const { tree, measured } = importOrk(orkXml('<bodytube><name>Tube</name>'
+      + '<material type="bulk" density="0x10">Custom</material>'
+      + '<length>0.3</length><radius>0.025</radius><thickness>0.001</thickness>'
+      + '<subcomponents><innertube><name>MMT</name><axialoffset method="top">0x1</axialoffset>'
+      + '<length>0.1</length><outerradius>0.01</outerradius><thickness>0.001</thickness>'
+      + '</innertube></subcomponents></bodytube>',
+    ).replace('<name>Test</name>', '<name>Test</name><measuredmass>0x2</measuredmass>'));
+    const nodes = flatten(tree.components);
+    expect(nodes.find((c) => c.type === 'bodytube')!.density).toBeUndefined();
+    expect(nodes.find((c) => c.type === 'innertube')!.position).toEqual({ method: 'top', offset: 0 });
+    expect(measured).toBeUndefined();
+  });
+});
+
 describe('flight-configuration ids survive the exporter as XML', () => {
   // A configid is file-sourced free text kept verbatim as the stable key.
   // This one is legal in a .ork (`configid="Main &amp; backup"` and friends)

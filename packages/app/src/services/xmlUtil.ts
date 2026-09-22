@@ -14,11 +14,35 @@ export function xmlText(el: Element, selector: string): string | null {
   return t == null || t.trim() === '' ? null : t.trim();
 }
 
+/**
+ * Plain decimal: sign, digits, optional fraction, optional exponent. The
+ * integer part is `\d+(?:\.\d*)?` and not `\d+\.?\d*` on purpose: that
+ * spelling is ambiguous, and a long run of digits followed by one bad
+ * character backtracks quadratically — a denial of service from one field.
+ */
+const DECIMAL = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
+
+/**
+ * A number as a design file writes one, or NaN.
+ *
+ * NOT `Number()`, which also reads `0x10` as 16, `0b11` as 3 and `0o17` as 15,
+ * and a blank or whitespace-only string as 0. The desktop parses every one of
+ * these fields with Java's `Double.parseDouble`, which rejects all three
+ * prefixes and a blank, so the same file must not import here as a different
+ * number (audit 2026-09-22). Callers keep their own `Number.isFinite` test:
+ * `1e999` is decimal and still Infinity.
+ */
+export function parseDecimal(s: string | null | undefined): number {
+  if (s == null) return NaN;
+  const t = s.trim();
+  return DECIMAL.test(t) ? Number(t) : NaN;
+}
+
 /** Numeric content of a DIRECT child tag, with fallback. */
 export function xmlNum(el: Element, tag: string, fb: number): number {
   const t = xmlText(el, `:scope > ${tag}`);
   if (t === null) return fb;
-  const v = Number(t);
+  const v = parseDecimal(t);
   return Number.isFinite(v) ? v : fb;
 }
 
