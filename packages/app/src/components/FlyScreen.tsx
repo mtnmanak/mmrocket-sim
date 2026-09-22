@@ -119,10 +119,7 @@ export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
             // below shows the one loaded now, which may not be it.
             <p className="fly-stale" role="status">
               ⚠ Flown with{' '}
-              <strong>
-                {`${run.manufacturer ? `${run.manufacturer} ` : ''}${run.motor}-${
-                  Number.isFinite(run.delayS) ? run.delayS : 'P'}`}
-              </strong>{' '}
+              <strong>{flownMotorLabel(run)}</strong>{' '}
               {formatRunWhenProse(run.when)} — <strong>{listAnd(changedSince)}</strong> changed
               since. Press Launch to fly the current design.
             </p>
@@ -186,4 +183,20 @@ export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
       </button>
     </main>
   );
+}
+
+/**
+ * What flew, for the provenance note. A Batch COMBINATION run (`motorConfig`
+ * 'mixed …', the test the batch table groups its sheets by) already carries
+ * the whole multi-motor label in `motor` ("4× G80 + 2× F39") and a '+'-joined
+ * manufacturer set, so the single-motor form read "AT+CTI 4× G80 + 2× F39-7",
+ * with the delay hung on the last leg alone. It is named as the launch
+ * report's header names it instead, with no delay.
+ */
+function flownMotorLabel(run: SimRun): string {
+  if (run.motorConfig?.startsWith('mixed')) {
+    return `${run.motor}${run.manufacturer ? ` (${run.manufacturer})` : ''}`;
+  }
+  return `${run.manufacturer ? `${run.manufacturer} ` : ''}${run.motor}-${
+    Number.isFinite(run.delayS) ? run.delayS : 'P'}`;
 }

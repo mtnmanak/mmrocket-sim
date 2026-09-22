@@ -129,6 +129,25 @@ describe('FlyScreen', () => {
       expect(notes()[0]).toContain('Estes C6-P');
     });
 
+    it('names a Batch combination as the report header does, with no delay hung on its last leg', () => {
+      // Batch stores a combination with the whole label as `motor` and the
+      // manufacturers '+'-joined; it carries a conditions key, so a change of
+      // launch conditions shows this note for it.
+      mount({
+        run: {
+          ...FLOWN, motor: '4× G80 + 2× F39', manufacturer: 'AT+CTI', delayS: 7, motorConfig: 'mixed 4+2',
+        },
+        changedSince: ['the launch conditions'],
+      });
+      expect(notes()[0]).toMatch(/Flown with 4× G80 \+ 2× F39 \(AT\+CTI\) at .+ — the launch conditions changed since/);
+      expect(notes()[0]).not.toContain('F39-7');
+    });
+
+    it('a single-motor Batch row keeps the single-motor form', () => {
+      mount({ run: { ...FLOWN, motorConfig: 'single' }, changedSince: ['the design'] });
+      expect(notes()[0]).toContain('Estes C6-3');
+    });
+
     it('says nothing when nothing changed, or when it cannot be told', () => {
       mount({ run: FLOWN, changedSince: [] });
       expect(notes()).toEqual([]);
