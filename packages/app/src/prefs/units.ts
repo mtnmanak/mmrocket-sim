@@ -244,18 +244,24 @@ export const LOCALE_DECIMAL_COMMA: boolean = (() => {
  *
  * `Number()` alone reads "1,5" as NaN, so in a comma-decimal locale no
  * fraction could be typed at all — an iPhone's decimal pad there has no "."
- * key. But a comma is ALSO the thousands separator for everyone else, and
+ * key. But each separator is ALSO the other locale's thousands separator:
  * reading "10,000" ft as 10.000 would silently fly sea level instead of ten
- * thousand feet. So:
+ * thousand feet, and in a decimal-comma locale "10.000" is how ten thousand
+ * is written. So:
  *
+ *  - one comma and no point: a decimal comma — "1,5", "0,25", "12,3456";
  *  - no comma: exactly `Number()`, as before;
- *  - one comma and no point: a decimal comma — "1,5", "0,25", "12,3456" —
- *    EXCEPT that "1,500" / "10,000" (one to three digits, a comma, exactly
- *    three digits) is ambiguous and refused, unless this locale itself writes
- *    a decimal comma, where it reads the way the user's own keyboard means it;
- *  - two commas, or a comma and a point: grouping, refused. The input then
- *    shows its error border and commits nothing, which is the one safe answer
- *    to a number the app cannot read with certainty.
+ *  - EXCEPT, either way, a lone separator that could be a thousands group —
+ *    one to three digits not starting with 0, the separator, exactly three
+ *    digits: "1,500", "10,000", "10.000". That is ambiguous wherever the
+ *    separator is the OTHER locale's: "10,000" is refused in a decimal-point
+ *    locale and "10.000" in a decimal-comma one, while each reads the way the
+ *    user's own keyboard means it at home. A leading 0 ("0,125", "0.125")
+ *    cannot be a group, so it never is;
+ *  - two commas, or a comma and a point: grouping, refused.
+ *
+ * A refused draft shows the input's error border and commits nothing, which is
+ * the one safe answer to a number the app cannot read with certainty.
  */
 export function readDecimal(text: string, decimalComma = LOCALE_DECIMAL_COMMA): number | null {
   let t = text.trim();
@@ -263,8 +269,10 @@ export function readDecimal(text: string, decimalComma = LOCALE_DECIMAL_COMMA): 
   const commas = t.split(',').length - 1;
   if (commas > 1 || (commas === 1 && t.includes('.'))) return null;
   if (commas === 1) {
-    if (!decimalComma && /^[-+]?\d{1,3},\d{3}$/.test(t)) return null;
+    if (!decimalComma && /^[-+]?[1-9]\d{0,2},\d{3}$/.test(t)) return null;
     t = t.replace(',', '.');
+  } else if (decimalComma && /^[-+]?[1-9]\d{0,2}\.\d{3}$/.test(t)) {
+    return null;
   }
   const v = Number(t);
   return Number.isFinite(v) ? v : null;

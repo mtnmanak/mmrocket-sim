@@ -193,6 +193,28 @@ describe('readDecimal — the one parser behind every typed number', () => {
     expect(readDecimal('1,500', true)).toBe(1.5);
   });
 
+  it('refuses "10.000" in a decimal-comma locale, where that is how ten thousand is written', () => {
+    // The mirror case (review of the audit fix): it fell through to Number()
+    // and read 10, so a German user's 10.000 ft swept at ten feet, unmarked.
+    expect(readDecimal('10.000', true)).toBeNull();
+    expect(readDecimal('1.500', true)).toBeNull();
+    expect(readDecimal('-2.500', true)).toBeNull();
+    // A point that cannot be a group still reads as a decimal point there.
+    expect(readDecimal('1.5', true)).toBe(1.5);
+    expect(readDecimal('1.2345', true)).toBe(1.2345);
+    expect(readDecimal('1000.000', true)).toBe(1000);
+    // And at home a decimal point is only ever a decimal point.
+    expect(readDecimal('10.000', false)).toBe(10);
+  });
+
+  it('never refuses a leading-zero figure, which no thousands group can be', () => {
+    for (const comma of [false, true]) {
+      expect(readDecimal('0,125', comma)).toBe(0.125);
+      expect(readDecimal('0.125', comma)).toBe(0.125);
+      expect(readDecimal('-0,375', comma)).toBe(-0.375);
+    }
+  });
+
   it('refuses grouping it cannot read with certainty in any locale', () => {
     for (const comma of [false, true]) {
       expect(readDecimal('1,000,000', comma)).toBeNull();
