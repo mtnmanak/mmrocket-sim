@@ -256,3 +256,48 @@ describe('MotorBrowser — what an import says about the motors it took (audit 2
   });
 });
 
+
+describe('MotorBrowser — the "Check thrustcurve.org" button (audit 2026-09-22)', () => {
+  let h: Harness;
+  afterEach(async () => {
+    vi.unstubAllGlobals();
+    closeBrowser(h);
+    const { discardCatalogueOverlay } = await import('../services/catalogueOverlay.js');
+    discardCatalogueOverlay();
+  });
+
+  /** A thrustcurve.org stand-in: metadata, then one search page per maker, from `live`. */
+  const stubThrustcurve = async (live: (m: { manufacturerAbbrev: string }) => boolean) => {
+    const { MOTOR_DB } = await import('../services/motorDb.js');
+    const rows = MOTOR_DB.filter(live);
+    const makers = [...new Set(rows.map((m) => m.manufacturerAbbrev))];
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      const u = new URL(url);
+      const body = u.pathname.endsWith('/metadata.json')
+        ? { manufacturers: makers.map((abbrev) => ({ abbrev })), impulseClasses: [] }
+        : { results: rows.filter((m) => m.manufacturerAbbrev === u.searchParams.get('manufacturer')) };
+      return { ok: true, status: 200, json: async () => body } as unknown as Response;
+    }));
+  };
+  const checkButton = (h: Harness) => h.host.querySelector<HTMLButtonElement>('button[aria-label="Check thrustcurve.org for newer motors"]')!;
+
+  it('reports the diff in a status region, and names a maker that came back empty', async () => {
+    await stubThrustcurve((m) => m.manufacturerAbbrev !== 'Klima');
+    h = openBrowser({ mountDiameterMm: 29 });
+    click(checkButton(h));
+    for (let i = 0; i < 50 && !h.host.querySelector('.file-note[role="status"]'); i++) await settle(10);
+    const note = h.host.querySelector('.file-note[role="status"]')!;
+    expect(note.textContent).toMatch(/0 new, 0 changed, 0 no longer listed/);
+    expect(note.textContent).toMatch(/returned no motors at all for Klima/);
+  });
+
+  it('reports a failed check as an alert and installs nothing', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 503, json: async () => ({}) }) as unknown as Response));
+    h = openBrowser({ mountDiameterMm: 29 });
+    click(checkButton(h));
+    for (let i = 0; i < 50 && !/Could not check/.test(h.host.textContent ?? ''); i++) await settle(10);
+    expect(h.host.querySelector('[role="alert"]')!.textContent).toMatch(/Could not check thrustcurve\.org: .*HTTP 503/);
+    const { getCatalogueOverlay } = await import('../services/motorDb.js');
+    expect(getCatalogueOverlay()).toBeNull();
+  });
+});

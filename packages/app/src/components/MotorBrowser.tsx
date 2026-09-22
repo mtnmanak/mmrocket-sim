@@ -150,12 +150,16 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
     setCheckNote(null);
     setCheckWasRecent(false);
     try {
-      const { overlay: o, skipped } = await checkForCatalogueUpdates({
+      const { overlay: o, skipped, silent } = await checkForCatalogueUpdates({
         force,
         signal: ctrl.signal,
         onProgress: (done, total, mfr) => setCheckProgress(total ? `${done}/${total}${mfr ? ` ${mfr}` : ''}` : ''),
       });
       const lines = describeOverlay(o);
+      if (silent.length) {
+        lines.push(`thrustcurve.org returned no motors at all for ${silent.join(', ')} — `
+          + 'read as a failed answer, so none of them were marked out of production.');
+      }
       const mine = changedMotorsInDesign(o, loadedMotors ?? []);
       if (mine.length) {
         // The one line that matters most: a changed certified figure on a motor

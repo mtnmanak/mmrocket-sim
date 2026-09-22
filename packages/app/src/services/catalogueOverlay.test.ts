@@ -60,7 +60,17 @@ describe('screenEntry — a live row must be a possible motor', () => {
   });
 
   it('tolerates the fields thrustcurve.org legitimately leaves blank', () => {
-    expect(screenEntry(row({ totalWeightG: undefined, propWeightG: undefined, burnTimeS: undefined }))).toBeNull();
+    // 156 of the shipped rows lack one or both weights.
+    expect(screenEntry(row({ totalWeightG: undefined, propWeightG: undefined }))).toBeNull();
+  });
+
+  it('requires what the motor browser draws on every row (audit 2026-09-22)', () => {
+    // The table calls burnTimeS.toFixed and the search commonName.toLowerCase:
+    // one live row without either threw inside the render. Every shipped row
+    // has both, so a live row without them is refused, not drawn.
+    expect(screenEntry(row({ burnTimeS: undefined }))).toMatch(/burn time/);
+    expect(screenEntry(row({ commonName: undefined as unknown as string }))).toMatch(/common name/);
+    expect(screenEntry(row({ commonName: ' ' }))).toMatch(/common name/);
   });
 });
 
@@ -233,6 +243,23 @@ describe('checkForCatalogueUpdates — the button', () => {
     t += RECHECK_MIN_MS + 1;
     const later = await checkForCatalogueUpdates({ fetchImpl: spy as unknown as typeof fetch, now });
     expect(later.skipped).toBeNull();
+  });
+
+  it('never marks a whole maker out of production because its pull came back empty (audit 2026-09-22)', async () => {
+    // Estes answers with nothing at all (the stub's metadata then omits it too,
+    // which is the "maker missing from metadata.json" shape); Quest answers
+    // with all but one row. Only Quest's missing motor is believed removed.
+    const estes = MOTOR_DB.filter((m) => m.manufacturerAbbrev === 'Estes');
+    const quest = MOTOR_DB.filter((m) => m.manufacturerAbbrev === 'Quest');
+    expect(estes.length).toBeGreaterThan(10);
+    const live = MOTOR_DB.filter((m) => m.manufacturerAbbrev !== 'Estes' && m.motorId !== quest[0]!.motorId);
+    const { overlay, silent } = await checkForCatalogueUpdates({
+      fetchImpl: stubApi(live) as unknown as typeof fetch, force: true,
+    });
+    expect(overlay.removed).toEqual([quest[0]!.motorId]);
+    expect(silent).toEqual(['Estes']);
+    expect(getCatalogue().filter((m) => m.manufacturerAbbrev === 'Estes' && m.availability === 'OOP').length)
+      .toBe(estes.filter((m) => m.availability === 'OOP').length);
   });
 
   it('surfaces an HTTP failure as an error naming the endpoint, and installs nothing', async () => {
