@@ -8,7 +8,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import { DEFAULT_CONDITIONS, type LaunchConditions } from './LaunchPanel.js';
 import { WeatherDialog, WEATHER_DIALOG_COPY } from './WeatherDialog.js';
-import { clearWeatherCache } from '../services/openMeteo.js';
+import { clearWeatherCache, type WeatherPlace } from '../services/openMeteo.js';
 import type { WeatherPatch, WeatherSnapshot } from '../services/weatherSnapshot.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -53,7 +53,7 @@ afterEach(() => {
 });
 
 function render(opts: { launch?: LaunchConditions; route?: Route; geolocation?: Pick<Geolocation, 'getCurrentPosition'> | null;
-    initialPlace?: WeatherSnapshot['place'] } = {}) {
+    initialPlace?: WeatherPlace; initialHour?: { validUnix: number; timezone: string } } = {}) {
   const route = opts.route ?? GERLACH;
   const fetchImpl: typeof fetch = async (input) => {
     const url = String(input);
@@ -66,7 +66,7 @@ function render(opts: { launch?: LaunchConditions; route?: Route; geolocation?: 
       <PrefsProvider>
         <WeatherDialog launch={opts.launch ?? DEFAULT_CONDITIONS} fetchImpl={fetchImpl} now={() => NOW}
           geolocation={opts.geolocation === undefined ? null : opts.geolocation}
-          initialPlace={opts.initialPlace}
+          initialPlace={opts.initialPlace} initialHour={opts.initialHour}
           onApply={(patch, snapshot) => { applied.push({ patch, snapshot }); }}
           onClose={() => { closed++; }} />
       </PrefsProvider>,
@@ -98,6 +98,7 @@ function choose(el: HTMLSelectElement | null, value: string) {
   });
 }
 const row = (key: string) => q(`tr[data-row="${key}"]`);
+const GERLACH_PLACE: WeatherPlace = { label: 'Gerlach, Nevada, US', latitudeDeg: 40.65157, longitudeDeg: -119.35519, method: 'search' };
 
 /** Search Gerlach, pick the town, fetch Saturday, and show 2 PM. */
 async function reviewGerlach(launch?: LaunchConditions) {
@@ -372,6 +373,52 @@ describe('the weather dialog', () => {
     render({ geolocation: null });
     await click(button(WEATHER_DIALOG_COPY.locate));
     expect(host.textContent).toContain(WEATHER_DIALOG_COPY.unavailable);
+  });
+
+  // FETCH AGAIN (review of 2026-09-23): it opened on TODAY, so a user who
+  // applied Saturday 2 PM, moved Site altitude and fetched again got today's
+  // 2 PM air for Saturday's launch — and an ERA5 re-fly lost its date
+  // altogether. It opens on the applied hour's own date now, and picks that
+  // hour, ahead of the hour the dialog last remembered.
+  it('opens Fetch again on the applied weather’s date, and picks its hour', async () => {
+    localStorage.setItem('online-openrocket.weather.v1', JSON.stringify({ lastHour: 9 }));
+    render({
+      launch: { ...DEFAULT_CONDITIONS, latitudeDeg: 40.87, longitudeDeg: -119.06 },
+      initialPlace: { ...GERLACH_PLACE, timezone: 'America/Los_Angeles' },
+      initialHour: { validUnix: SAT_2PM, timezone: 'America/Los_Angeles' },
+    });
+    expect(q<HTMLInputElement>('input[type="date"]')!.value).toBe('2026-09-26');
+    await click(button('Fetch'));
+    expect(urls.at(-1)).toContain('start_date=2026-09-25&end_date=2026-09-27');
+    expect(q<HTMLSelectElement>('.weather-when select')!.value).toBe(String(SAT_2PM));
+    expect(q('.weather-review h3')!.textContent).toBe('Forecast for Gerlach, Nevada, US · 2:00 PM PDT, Sat 26 Sep');
+    // Another place keeps the date: it is the launch's, not today's.
+    await click(button(/^This design’s site/));
+    expect(q<HTMLInputElement>('input[type="date"]')!.value).toBe('2026-09-26');
+  });
+
+  it('opens an ERA5 re-fly’s Fetch again on its own date, and asks the archive again', async () => {
+    const JUNE_2PM = Date.UTC(2025, 5, 14, 21) / 1000;
+    render({
+      launch: { ...DEFAULT_CONDITIONS, launchAltitudeM: 1190 },
+      route: (u) => (u.includes('/v1/elevation') ? { body: fixture('elevation-blackrock.json') }
+        : u.startsWith('https://archive-api.open-meteo.com/v1/archive?') ? { body: fixture('archive-blackrock-2025-06-14.json') }
+          : { status: 404, body: { reason: `unexpected ${u}` } }),
+      initialPlace: { label: '40.870, −119.060', latitudeDeg: 40.87, longitudeDeg: -119.06, method: 'coordinates', timezone: 'America/Los_Angeles' },
+      initialHour: { validUnix: JUNE_2PM, timezone: 'America/Los_Angeles' },
+    });
+    expect(q<HTMLInputElement>('input[type="date"]')!.value).toBe('2025-06-14');
+    await click(button('Fetch'));
+    expect(urls.at(-1)).toMatch(/^https:\/\/archive-api\.open-meteo\.com\/v1\/archive\?/);
+    expect(q<HTMLSelectElement>('.weather-when select')!.value).toBe(String(JUNE_2PM));
+    expect(q('.weather-review h3')!.textContent).toBe('ERA5 reanalysis for 40.870, −119.060 · 2:00 PM PDT, Sat 14 Jun 2025');
+  });
+
+  // ☁ Get weather opens on today — the SITE's today, once the last place's
+  // zone is known: 18:00 UTC on the 22nd is already the 23rd at UTC+14.
+  it('opens ☁ Get weather on today at the last place', () => {
+    render({ initialPlace: { ...GERLACH_PLACE, timezone: 'Pacific/Kiritimati' } });
+    expect(q<HTMLInputElement>('input[type="date"]')!.value).toBe('2026-09-23');
   });
 
   it('offers this design’s own site when it has one, and starts from the last place on Fetch again', async () => {

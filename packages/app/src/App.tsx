@@ -515,7 +515,12 @@ export function App() {
    * (applyImported), since it would then describe numbers no longer there.
    */
   const [weather, setWeather] = useState<WeatherSnapshot | null>(session?.weather ?? null);
-  const [showWeather, setShowWeather] = useState(false);
+  /**
+   * The weather dialog, and which way in: ☁ Get weather opens on today; the
+   * stale strip's Fetch again opens on the applied weather's own date and
+   * hour (WeatherDialog `initialHour`).
+   */
+  const [showWeather, setShowWeather] = useState<false | 'get' | 'again'>(false);
   /** ☁ Apply: ONE functional write — never from a render-captured `launch` (AUDIT row 304). */
   const applyWeather = (patch: Parameters<typeof applyProposal>[1], snapshot: WeatherSnapshot) => {
     setLaunch((prev) => applyProposal(prev, patch));
@@ -3089,7 +3094,10 @@ export function App() {
       {tour.open && <FirstRunTour onSetTab={setTab} onClose={tour.close} />}
       {showChangelog && <ChangelogDialog onClose={() => setShowChangelog(false)} />}
       {showWeather && (
-        <WeatherDialog launch={launch} initialPlace={weather?.place ?? null}
+        <WeatherDialog launch={launch}
+          initialPlace={weather ? { ...weather.place, timezone: weather.timezone } : null}
+          initialHour={showWeather === 'again' && weather
+            ? { validUnix: weather.validUnix, timezone: weather.timezone } : null}
           onApply={applyWeather} onClose={() => setShowWeather(false)} />
       )}
       {showScale && (
@@ -3514,7 +3522,7 @@ export function App() {
             // The same provenance the vitals strip's ⚠ and the Results note
             // read — this screen replaces the strip on a phone.
             changedSince={changedSinceNonModel}
-            onGetWeather={() => setShowWeather(true)}
+            onGetWeather={() => setShowWeather('get')}
             weather={weather}
           />
         )}
@@ -4219,7 +4227,8 @@ export function App() {
           <LaunchPanel value={launch} onChange={setLaunch} onLaunch={onLaunch} simulating={simulating}
             canLaunch={!!built && !!primaryMountId}
             lastRun={simCostRef}
-            weather={weather} onGetWeather={() => setShowWeather(true)}
+            weather={weather} onGetWeather={() => setShowWeather('get')}
+            onWeatherFetchAgain={() => setShowWeather('again')}
             onWeatherUndo={undoWeather} onWeatherDismiss={() => setWeather(null)} />
 
           {/* Last row of the grid, full width (`.config-panel` spans

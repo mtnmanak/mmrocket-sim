@@ -148,11 +148,24 @@ function refusalText(key: ProposalRow['key'], r: RowRefusal, fmt: (k: ProposalRo
 }
 
 export function WeatherDialog({
-  launch, initialPlace, onApply, onClose, fetchImpl, now = Date.now, geolocation,
+  launch, initialPlace, initialHour, onApply, onClose, fetchImpl, now = Date.now, geolocation,
 }: {
   launch: LaunchConditions;
-  /** Where the last applied weather was for — "Fetch again" starts there. */
-  initialPlace?: WeatherSnapshot['place'] | null;
+  /**
+   * Where the last applied weather was for — both ways in start there. With
+   * its zone (the applied answer's), so "today" is the site's today.
+   */
+  initialPlace?: WeatherPlace | null;
+  /**
+   * The strip's FETCH AGAIN: the hour the applied weather was for, in the
+   * site's zone. The dialog opens on its date — not today — and a fetch picks
+   * that hour, so fetching again for a moved Site altitude asks for the same
+   * hour's air, and an ERA5 re-fly asks the archive again (review of
+   * 2026-09-23: it opened on today, and Fetch then brought today's weather
+   * for Saturday's launch, with only the review heading showing the swap).
+   * Absent for ☁ Get weather, which opens on today.
+   */
+  initialHour?: { validUnix: number; timezone: string } | null;
   /** ONE write: the ticked fields, and where they came from. */
   onApply: (patch: WeatherPatch, snapshot: WeatherSnapshot) => void;
   onClose: () => void;
@@ -176,8 +189,12 @@ export function WeatherDialog({
   const [note, setNote] = useState<string | null>(null);
   const [locateNote, setLocateNote] = useState<string | null>(null);
   const [place, setPlace] = useState<WeatherPlace | null>(initialPlace ? { ...initialPlace } : null);
-  const [date, setDate] = useState(() => ymdInZone(now(), undefined));
-  const [dateTouched, setDateTouched] = useState(false);
+  const [date, setDate] = useState(() => (initialHour
+    ? ymdInZone(initialHour.validUnix * 1000, initialHour.timezone)
+    : ymdInZone(now(), initialPlace?.timezone)));
+  // Fetch again's date is the applied weather's, chosen as surely as a typed
+  // one: picking another place keeps it rather than jumping to today.
+  const [dateTouched, setDateTouched] = useState(!!initialHour);
   const [dateNote, setDateNote] = useState<string | null>(null);
   const [answer, setAnswer] = useState<WeatherAnswer | null>(null);
   const [hourUnix, setHourUnix] = useState<number | null>(null);
@@ -279,7 +296,11 @@ export function WeatherDialog({
       if (!seq.current.isCurrent(id)) return;
       const hs = hoursOnLocalDate(a.variants[0]?.samples ?? [], a.timezone, a.date);
       const nowUnix = now() / 1000;
-      const pick = hs.find((h) => h.hour === memory.lastHour)
+      // Fetch again's own hour first — by the instant, not the clock hour, so
+      // a DST day's two 1 AMs cannot be confused; on another date it matches
+      // nothing and the usual choice follows.
+      const pick = (initialHour ? hs.find((h) => h.unix === initialHour.validUnix) : undefined)
+        ?? hs.find((h) => h.hour === memory.lastHour)
         ?? (a.date === ymdInZone(now(), a.timezone) ? hs.find((h) => h.unix + 3600 > nowUnix) : undefined)
         ?? hs.find((h) => h.hour === 12)
         ?? hs[0];

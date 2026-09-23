@@ -763,6 +763,24 @@ describe('applied weather in the Launch panel', () => {
     expect(calls).toEqual(['undo', 'dismiss']);
   });
 
+  // Fetch again is its own way into the dialog — App opens it on the applied
+  // weather's date and hour, where ☁ Get weather opens on today.
+  it('routes Fetch again to its own handler when App gives one', () => {
+    const got: string[] = [];
+    act(() => {
+      root.render(
+        <PrefsProvider>
+          <LaunchPanel value={{ ...APPLIED, launchAltitudeM: 1524 }} onChange={() => {}} onLaunch={() => {}}
+            simulating={false} canLaunch weather={SNAP}
+            onGetWeather={() => { got.push('get'); }} onWeatherFetchAgain={() => { got.push('again'); }} />
+        </PrefsProvider>,
+      );
+    });
+    act(() => btn('Fetch again')!.click());
+    act(() => host.querySelector<HTMLButtonElement>('.panel-head .weather-btn')!.click());
+    expect(got).toEqual(['again', 'get']);
+  });
+
   // The ERA5 archive is the weather as it was, not a forecast (spec §3.1;
   // review of 2026-09-23): nothing that names the source may say "forecast".
   it('calls an ERA5 answer a reanalysis — in the strip, the stale line, each field and the σ chip', () => {

@@ -9,6 +9,7 @@ import { exportOrk } from './services/orkFile.js';
 import { encodeShareFragment } from './services/shareLink.js';
 import { DEFAULT_CONDITIONS, type LaunchConditions } from './components/LaunchPanel.js';
 import type { WeatherSnapshot } from './services/weatherSnapshot.js';
+import { ymdInZone } from './services/openMeteo.js';
 import { APP_VERSION } from './version.js';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -120,6 +121,29 @@ describe('applied weather across a reload and an open', () => {
     const newButton = [...host.querySelectorAll('button')].find((b) => b.textContent?.includes('✕ New'))!;
     await act(async () => { newButton.click(); });
     expect(host.textContent).not.toContain('Start a new design?');
+  }, 30000);
+
+  // The stale strip's Fetch again opens on the applied weather's own date —
+  // it opened on today, so fetching again for a moved Site altitude brought
+  // today's air for Saturday's launch (review of 2026-09-23). ☁ Get weather
+  // still opens on today, at the site.
+  it('opens Fetch again on the applied hour’s date, and ☁ Get weather on today', async () => {
+    localStorage.setItem(SESSION_KEY, JSON.stringify({
+      tree: { name: 'Mine', components: [] }, launch: { ...APPLIED, launchAltitudeM: 1524 }, weather: SNAP,
+      appVersion: APP_VERSION, savedAt: Date.now(),
+    }));
+    const host = await mountApp();
+    const button = (text: string) => [...host.querySelectorAll('button')].find((b) => b.textContent?.trim() === text);
+    const dateBox = () => host.querySelector<HTMLInputElement>('.weather-dialog input[type="date"]');
+    await waitFor(() => button('Fetch again') !== undefined, 'the stale line’s Fetch again');
+    await act(async () => { button('Fetch again')!.click(); });
+    expect(dateBox()!.value).toBe('2026-09-26');
+    expect(host.querySelector('.weather-chosen')!.textContent).toContain('Gerlach, Nevada, US');
+    await act(async () => { host.querySelector<HTMLButtonElement>('[aria-label="Close the weather dialog"]')!.click(); });
+    expect(dateBox()).toBeNull();
+    const before = ymdInZone(Date.now(), SNAP.timezone);
+    await act(async () => { host.querySelector<HTMLButtonElement>('.panel-head .weather-btn')!.click(); });
+    expect([before, ymdInZone(Date.now(), SNAP.timezone)]).toContain(dateBox()!.value);
   }, 30000);
 
   it('is dropped when a share link opens a design with launch conditions of its own', async () => {

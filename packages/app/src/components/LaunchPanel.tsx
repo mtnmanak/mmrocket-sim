@@ -724,7 +724,8 @@ function PadPressureCaution({ value }: { value: LaunchConditions }) {
 }
 
 export function LaunchPanel({
-  value, onChange, onLaunch, simulating, canLaunch, lastRun, weather, onGetWeather, onWeatherUndo, onWeatherDismiss,
+  value, onChange, onLaunch, simulating, canLaunch, lastRun, weather, onGetWeather, onWeatherFetchAgain, onWeatherUndo,
+  onWeatherDismiss,
 }: {
   value: LaunchConditions;
   onChange: (v: LaunchConditions) => void;
@@ -753,6 +754,11 @@ export function LaunchPanel({
   weather?: WeatherSnapshot | null;
   /** Opens App's ☁ Get weather dialog; no button without it. */
   onGetWeather?: () => void;
+  /**
+   * The stale strip's Fetch again: the same dialog, opened on the applied
+   * weather's date and hour rather than today. Falls back to `onGetWeather`.
+   */
+  onWeatherFetchAgain?: () => void;
   /** The strip's Undo: puts back what the applied fields held (App, functionally). */
   onWeatherUndo?: () => void;
   /** The strip's Dismiss: keeps the values, drops the provenance. */
@@ -845,7 +851,8 @@ export function LaunchPanel({
           as the one about what was typed. */}
       {weather && (
         <WeatherStrip weather={weather} launch={value} onChange={onChange}
-          onUndo={() => onWeatherUndo?.()} onDismiss={() => onWeatherDismiss?.()} onFetchAgain={onGetWeather} />
+          onUndo={() => onWeatherUndo?.()} onDismiss={() => onWeatherDismiss?.()}
+          onFetchAgain={onWeatherFetchAgain ?? onGetWeather} />
       )}
       <PadPressureCaution value={value} />
       <TimeStepCaution dt={value.timeStepS} lastRun={lastRun} />
