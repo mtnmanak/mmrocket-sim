@@ -38,6 +38,15 @@
 // (tsconfig.base.json records the one compiler flag declined the same way,
 // exactOptionalPropertyTypes.)
 //
+// TEST FILE NAMES, going forward (audit 2026-09-22; also in README.md):
+// `<module>.<aspect>.test.ts` beside the module, `.tsx` when the test renders JSX —
+// FinPointsEditor.pointer.test.tsx tests FinPointsEditor.tsx's pointer handling.
+// A name whose first segment names no module beside it makes finding a module's
+// tests a grep: 33 of the 197 files in packages/app/src did on 2026-09-22. They
+// keep their names; renaming buys churn in `git log` and nothing else. The one
+// exception is a tool config: vitest's default exclude drops every `*.config.*`
+// file, so this config's own guard is packages/app/scripts/eslint-config.guards.test.mjs.
+//
 // The file extension is .mjs because the root package.json has no "type": "module".
 
 import js from '@eslint/js';
