@@ -6,7 +6,7 @@ import { act, createElement, useMemo, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { RocketTree } from '@online-openrocket/engine';
-import type { MountMotor, SavedConfig } from '../App.js';
+import type { MountMotor, SavedConfig } from '../model/design.js';
 import { DEFAULT_CONDITIONS } from '../components/LaunchPanel.js';
 import { useNozzleFollow, type NozzleCleared, type NozzleLookup } from '../hooks/useNozzleFollow.js';
 import { useTreeHistory, type TreeHistory } from '../hooks/useTreeHistory.js';
@@ -152,52 +152,21 @@ describe('App wires the nozzle-follow hook into the switch and the history', () 
 });
 
 /**
- * The two places App has to spend the nozzle exit diameter (2026-09-08), both
- * of which are absences that no other test in the suite can see.
+ * The two places App has to spend the nozzle exit diameter (2026-09-08): the
+ * notice and the launch report. The check and the sentence are pure and tested
+ * in nozzleCheck.test.ts; the report line is pure and tested in
+ * simReport.test.ts. What neither can prove is that App still CALLS them —
+ * delete either call and every one of those tests still passes while the user
+ * sees nothing.
  *
- * The check and the sentence are pure and tested in nozzleCheck.test.ts; the
- * report line is pure and tested in simReport.test.ts. What neither can prove
- * is that App still CALLS them — delete either call and every one of those
- * tests still passes while the user sees nothing. These stay source guards
- * until the notice list and the Launch path have units of their own to call
- * (audit 2026-09-22, the regex-test row): they are App wiring, not the
- * nozzle-follow bookkeeping, which is tested by behaviour above.
+ * The NOTICE is behaviour now (audit 2026-09-22, rows 501 and 477): the list
+ * is services/notices.ts, where notices.test.ts asserts the entry — checked
+ * against the design and the motors loaded, keyed per stage, a warning, no × —
+ * and App.render.test.tsx mounts App on a design with an oversized exit, finds
+ * it on the bar, switches the length unit and reads it again in inches (the
+ * memo key this file used to hold as a string match). The LAUNCH path below is
+ * still a source guard.
  */
-describe('App surfaces the nozzle plausibility warning', () => {
-  it('runs the check against the design and the motors actually loaded', () => {
-    expect(app()).toContain('for (const w of nozzleOversize(tree, assigned)) {');
-  });
-
-  it('renders it through the notice channel, keyed per stage, as a warning', () => {
-    const src = app();
-    const start = src.indexOf('id: `nozzle-oversize:');
-    expect(start, 'the notice entry is gone').toBeGreaterThan(0);
-    const block = src.slice(start, src.indexOf('});', start));
-    expect(block).toContain('id: `nozzle-oversize:${w.stageId}`');
-    expect(block).toContain("severity: 'warn'");
-    expect(block).toContain('text: nozzleOversizeText(w, (m) =>');
-  });
-
-  /**
-   * NOT dismissible, for the reason a build error is not: it is a standing
-   * fact about the design on screen, so a x would be a button that does
-   * nothing — the warning comes straight back on the next render.
-   */
-  it('offers no dismiss on it', () => {
-    const src = app();
-    const start = src.indexOf('id: `nozzle-oversize:');
-    expect(start).toBeGreaterThan(0);
-    const block = src.slice(start, src.indexOf('});', start));
-    expect(block).not.toContain('onDismiss');
-  });
-
-  it('re-runs when the design, the motors or the length unit change', () => {
-    // The memo would otherwise hold a warning about a nozzle that has been
-    // corrected, or print millimetres to someone who has switched to inches.
-    expect(app()).toContain('tree, assigned, prefs.units.length]);');
-  });
-});
-
 describe('App tells the launch report which stages flew a nozzle', () => {
   /**
    * MOTORISED, not merely nozzle-bearing (2026-09-08, review). The kernel's

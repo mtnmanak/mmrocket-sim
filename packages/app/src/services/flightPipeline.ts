@@ -1,5 +1,5 @@
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
-import type { MountMotor } from '../App.js';
+import type { MountMotor } from '../model/design.js';
 import type { SimRun } from './simReport.js';
 import { findParent, stageIndexOf } from '../tree/treeModel.js';
 import { lookupTable } from './xmlUtil.js';

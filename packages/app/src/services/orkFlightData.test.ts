@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { flightDataForExport, flownAutoDelays, summaryOf, type FlightDataForExportInput } from './orkFlightData.js';
 import type { SimRun } from './simReport.js';
-import type { MountMotor, SavedConfig } from '../App.js';
+import type { MountMotor, SavedConfig } from '../model/design.js';
 
 /**
  * SIX INDEPENDENT REFUSAL RULES, none of which had a test until this function

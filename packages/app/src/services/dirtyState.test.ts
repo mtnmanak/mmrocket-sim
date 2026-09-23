@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { RocketTree } from '@online-openrocket/engine';
-import type { MountMotor, SavedConfig } from '../App.js';
+import type { MountMotor, SavedConfig } from '../model/design.js';
 import { designFingerprint, isDirty, type DesignSnapshot } from './dirtyState.js';
 import { withActiveConfigSynced } from './configSync.js';
 

@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MotorSpec, RocketTree } from '@online-openrocket/engine';
-import type { MountMotor } from '../App.js';
+import type { MountMotor } from '../model/design.js';
 import { defaultTree, motorMounts } from '../tree/treeModel.js';
 import { DEFAULT_CONDITIONS } from '../components/LaunchPanel.js';
 import { autosavedDesignFile } from './autosaveBackup.js';

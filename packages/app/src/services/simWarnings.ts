@@ -125,7 +125,7 @@ export function formatWarning(w: EngineWarning): FormattedWarning {
  * kernel's l10n shim is a DebugTranslator, so those read
  * `[Warning.DISCONTINUITY]:  "Nose cone", "Body tube"` — a debug token where a
  * prepared sentence already existed in WARNING_LABEL. Format at the DISPLAY
- * points only: App.tsx's build memo filters on the raw text, so mapping
+ * points only: the design build (services/buildDesign.ts) filters on the raw text, so mapping
  * upstream would break the camera-shroud suppression.
  *
  * The app's OWN geometric checks feed the same list — `railInterferenceWarnings`

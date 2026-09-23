@@ -14,7 +14,7 @@ import type { HardwareMassResult, MountChange } from '../services/hardwareMass.j
  * closure in it. So unloading the motor left the number showing, and loading a
  * different one left it showing and refused it in small print (Eric's two
  * screenshots, 2026-09-07). The value now lives on the motor's own record
- * (App's MountMotor.padMassKg, keyed to the set it was weighed with), and this
+ * (MountMotor.padMassKg in model/design.ts, keyed to the set it was weighed with), and this
  * card renders it: unload the motor and the field goes with it; load a
  * different one and the field is blank for that motor, its placeholder showing
  * what the app assumes.

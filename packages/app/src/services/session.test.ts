@@ -11,7 +11,7 @@ import {
 import { APP_VERSION } from '../version.js';
 import type { MotorSpec, RocketTree } from '@online-openrocket/engine';
 import type { LaunchConditions } from '../components/LaunchPanel.js';
-import type { MountMotor } from '../App.js';
+import type { MountMotor } from '../model/design.js';
 import { designFingerprint, isDirty, type DesignSnapshot } from './dirtyState.js';
 import { findDbMotor } from './motorDb.js';
 import { mountMotorFromDb } from './motorMatch.js';

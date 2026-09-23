@@ -1,7 +1,7 @@
 import type {
   FlightResult, MotorSpec, OrkRocket, SimulationOptions,
 } from '@online-openrocket/engine';
-import type { MountMotor } from '../App.js';
+import type { MountMotor } from '../model/design.js';
 import { flownSpec, type HardwareMassResult } from './hardwareMass.js';
 import { knownIgnitionEvent } from './ignitionEvent.js';
 import { MACH_AUTO_THRESHOLD, machProbeSeconds } from './machProbe.js';

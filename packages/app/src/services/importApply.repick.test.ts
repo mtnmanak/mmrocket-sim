@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
-import type { MountMotor } from '../App.js';
+import type { MountMotor } from '../model/design.js';
 import { DEFAULT_CONDITIONS } from '../components/LaunchPanel.js';
 import type { MotorMatchResult } from './motorMatch.js';
 import type { OrkFlightConfig, OrkMotorRef } from './orkFile.js';

@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { HERO_WIDE_QUERY } from '../hooks/useHeroDrawer.js';
+import { PHONE_QUERY } from '../hooks/useWorkspaceTab.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const read = (rel: string) => readFileSync(join(here, rel), 'utf8');
@@ -10,22 +12,25 @@ const read = (rel: string) => readFileSync(join(here, rel), 'utf8');
 /**
  * "All stats" opens by default on a desktop and stays closed on anything
  * narrower (the owner, 2026-08-23). The breakpoint is 981px because that is where
- * the hero-canvas layout starts; below it the drawer covers most of the
- * drawing. The JS check and the CSS layout must agree — if they drift, the
- * drawer opens on a viewport laid out for a phone, which is the exact problem
- * it was closed to avoid.
+ * the hero-canvas layout starts: above it the drawer overlays the canvas, below
+ * it (since 2026-09-21) it is a block under the canvas. The JS check and the
+ * CSS layout must agree — if they drift, the hook opens and places the drawer
+ * for one layout while the stylesheet draws the other.
+ *
+ * WHAT IS BEHAVIOUR NOW (audit 2026-09-22, row 477). This file was regexes over
+ * App.tsx as well as the stylesheet. The drawer moved into hooks/useHeroDrawer.ts
+ * and the workspace tab into hooks/useWorkspaceTab.ts (row 501), and each is
+ * rendered against its breakpoint in its own test; App.render.test.tsx
+ * mounts App and reads the hero stage it sizes. What stays here is what only
+ * the stylesheet can say — and it is checked against the hooks' own constants,
+ * so the two halves cannot drift apart unseen.
  */
 describe('stats-drawer default and the desktop breakpoint', () => {
-  it('App.tsx opens the drawer on the same breakpoint the layout uses', () => {
-    const app = read('../App.tsx');
-    expect(app).toContain("matchMedia('(min-width: 981px)').matches");
-    // It must be the drawer's initial state, not some other decision.
-    expect(/const \[statsDrawer, setStatsDrawer\] = useState\(\s*\(\) =>[^;]*min-width: 981px/s.test(app))
-      .toBe(true);
-  });
-
-  it('styles.css still lays the hero canvas out at that same width', () => {
-    expect(read('../styles.css')).toContain('@media (min-width: 981px)');
+  it('styles.css lays the hero canvas out at the breakpoint the drawer opens on', () => {
+    // HERO_WIDE_QUERY is what useHeroDrawer opens the drawer at, and what
+    // useHeroDrawer.test.tsx renders it against.
+    expect(HERO_WIDE_QUERY).toBe('(min-width: 981px)');
+    expect(read('../styles.css')).toContain(`@media ${HERO_WIDE_QUERY}`);
   });
 
   it('the hero canvas fits the rocket, capped by what the viewport affords', () => {
@@ -68,59 +73,29 @@ describe('stats-drawer default and the desktop breakpoint', () => {
     // Match the DECLARATION, not the string — the rule's comment quotes the
     // old value on purpose, to record what was wrong with it.
     expect(css).not.toContain('height: max(420px');
-    // And the reporter that feeds the variable must stay wired.
-    const app = read('../App.tsx');
-    expect(app).toContain('onNaturalHeight={setHeroNatural}');
-    expect(read('./TreeSchematic.tsx')).toContain('onNaturalHeightRef.current?.(naturalH)');
-    // The ceiling can only grow if something publishes the clearance. Without
-    // this line the CSS above silently falls back to a bare 620px, which is
-    // precisely the state this fixed — and every other test would still pass.
-    expect(app).toContain("'--drawer-clearance': `${drawerClearance}px`");
-    // The chip's headroom has to reach the DRAWING, not just the container:
-    // the stage grew by HERO_CHIP_RESERVE from v0.076, but centring split it
-    // in half, so the chip sat on the rocket regardless.
-    expect(app).toContain('topReserve={vert2d ? 0 : HERO_CHIP_RESERVE}');
+    // The other half is behaviour now (audit 2026-09-22, row 477), in
+    // App.render.test.tsx: App mounted, the schematic REPORTING its natural
+    // height into the stage (it used to be a regex for the callback's name),
+    // the stage publishing --drawer-clearance — without which the CSS above
+    // silently falls back to a bare 620px, precisely the state this fixed —
+    // and the chip's headroom (HERO_CHIP_RESERVE) reaching the DRAWING, not
+    // just the container: the stage grew by it from v0.076, but centring split
+    // it in half, so the chip sat on the rocket regardless. The arithmetic is
+    // hooks/useHeroDrawer.test.tsx's (heroStageStyle).
   });
 
-  /**
-   * Owner report, 2026-09-01b: *"'batch simulate motors' appears to be broken,
-   * when I click the button, nothing happens."* It was disabled, not broken —
-   * his design is staged. A disabled button gives no click feedback, so the
-   * reason has to be ON SCREEN, not in a `title` nobody hovers.
+  /*
+   * THE BATCH-SIMULATE GATE (owner reports 2026-09-01b: "when I click the
+   * button, nothing happens" — disabled, with the reason only in a tooltip;
+   * then "no motor mount" on a rocket with a 75mm mount, because the gate read
+   * the ASSIGNED motors) was two cases of regexes over App.tsx here. They are
+   * behaviour now (audit 2026-09-22, row 477), in App.render.test.tsx's "the
+   * Batch simulate button": a staged rocket shows the button off and the same
+   * reason on screen as in its title; a rocket with a mount and no motor shows
+   * it on, and it opens the dialog. Mutation-checked: the gate back on
+   * `!!primaryMountId` fails the second, the visible sentence removed fails
+   * the first.
    */
-  it('the batch-simulate button says WHY it is unavailable, visibly', () => {
-    const app = read('../App.tsx');
-    // One expression decides both the disabled state and the explanation, so
-    // the button cannot gain a disabled case with no reason attached.
-    expect(app).toContain('const blocked = batchUnavailableReason({');
-    expect(app).toContain('disabled={!!blocked}');
-    // And the reason is rendered, not merely put in a tooltip.
-    expect(app).toContain('Batch simulation is not available here — {blocked}.');
-  });
-
-  /**
-   * Owner report, 2026-09-01b, after v0.094 put the reason on screen: *"there is
-   * a note … that says 'Batch simulation is not available here — this rocket has
-   * no motor mount', but the rocket clearly has a 75mm motor mount."*
-   *
-   * He was right, and the visible reason is what exposed it. The gate was wired
-   * to `primaryMountId`, which is the topmost mount **with a motor assigned** —
-   * so a design with a mount and nothing loaded reported "no motor mount" and
-   * the whole feature was unavailable. Batch simulation exists to FIND a motor,
-   * so requiring one already chosen was backwards, and it made the feature
-   * unavailable on exactly the designs it is for: two of his own single-stage
-   * `.ork` files import with `motors: []`.
-   */
-  it('the batch gate asks for a motor MOUNT, not an assigned motor', () => {
-    const app = read('../App.tsx');
-    expect(app).toContain('hasMount: mounts.length > 0');
-    // The panel itself must open on the same condition, or the button enables
-    // and then renders nothing — which is the original "nothing happens".
-    expect(app).toContain('showBatch && built && mounts.length > 0 && !isStaged');
-    // And it must not have drifted back to the assigned-motor list.
-    expect(app).not.toContain('hasMount: !!primaryMountId');
-    expect(app).not.toContain('showBatch && built && primaryMountId');
-  });
 
   it('the fixed notice bar reserves its own space instead of covering the footer', () => {
     // NoticeBar publishes its measured height; the footer band and the hero
@@ -132,7 +107,9 @@ describe('stats-drawer default and the desktop breakpoint', () => {
     // its own explanation, and a naive match would find that instead.
     const rules = css.replace(/\/\*[\s\S]*?\*\//g, '');
     expect(css).toContain('calc(10px + var(--notice-h, 0px))');
-    expect(read('../components/NoticeBar.tsx')).toContain("setProperty('--notice-h'");
+    // That NoticeBar publishes it — and takes it back when the bar goes — is
+    // behaviour, in NoticeBar.test.tsx ("publishes its measured height"),
+    // which fails if the write is removed; this file used to regex for it.
     // The default MUST live on :root, not on .viz-root. NoticeBar publishes
     // the measured height as an inline style on <html>; a declaration on
     // .viz-root would beat that inherited value for the whole app subtree and
@@ -144,7 +121,11 @@ describe('stats-drawer default and the desktop breakpoint', () => {
 
   it('the phone home screen keeps its own, narrower breakpoint', () => {
     // 767px is the phone rule (tab default, drawer chrome). The two must stay
-    // distinct: a phone must not inherit the desktop drawer.
-    expect(read('../App.tsx')).toContain("matchMedia('(max-width: 767px)').matches");
+    // distinct: a phone must not inherit the desktop drawer. The tab it opens
+    // on is hooks/useWorkspaceTab.test.tsx's and App.render.test.tsx's; the
+    // stylesheet's phone block must be the same query.
+    expect(PHONE_QUERY).toBe('(max-width: 767px)');
+    expect(PHONE_QUERY).not.toBe(HERO_WIDE_QUERY);
+    expect(read('../styles.css')).toContain(`@media ${PHONE_QUERY}`);
   });
 });

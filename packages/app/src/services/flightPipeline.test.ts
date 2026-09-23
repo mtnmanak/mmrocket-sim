@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, MotorSpec, RocketTree } from '@online-openrocket/engine';
-import type { MountMotor } from '../App.js';
+import type { MountMotor } from '../model/design.js';
 import { stages } from '../tree/treeModel.js';
 import { aeroModelFor, rogersKbfFor, stageMotorInfo } from './flightPipeline.js';
 

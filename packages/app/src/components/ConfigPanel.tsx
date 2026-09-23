@@ -1,4 +1,4 @@
-import { savedConfigLabel, type SavedConfig } from '../App.js';
+import { savedConfigLabel, type SavedConfig } from '../model/design.js';
 
 /**
  * Flight-configuration presets (Stage B): the imported file's configurations

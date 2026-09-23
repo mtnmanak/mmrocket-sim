@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { aeroChoiceOf, effectiveAero, type AeroChoice, type Preferences } from './PrefsContext.js';
+import { aeroChoiceOf, effectiveAero, prefsForAeroChoice, type AeroChoice, type Preferences } from './PrefsContext.js';
 import { aeroModelLabel, currentModelLabel, runMatchesModel } from '../services/simReport.js';
 
 /**
@@ -66,6 +66,37 @@ describe('effectiveAero — with an override, the strip wins for the session', (
       const eff = effectiveAero(P(), choice);
       const asPrefs = P({ aeroModel: eff.aeroMode, rogersKbf: eff.effectiveKbf });
       expect(aeroChoiceOf(asPrefs)).toBe(choice);
+    }
+  });
+});
+
+/**
+ * THE ONE MAPPING (audit 2026-09-22, row 499). Preferences writes a choice
+ * into the store through it and the strip's override flies through it, so a
+ * choice means the same physics from either control. It used to be written
+ * out twice, kept in step by a comment.
+ */
+describe('prefsForAeroChoice — the pair both controls turn a choice into', () => {
+  const ALL: AeroChoice[] = ['eb', 'kbf', 'auto', 'supersonic'];
+
+  it('maps each choice to its model and Kbf flag', () => {
+    expect(prefsForAeroChoice('eb')).toEqual({ aeroModel: 'classic', rogersKbf: false });
+    expect(prefsForAeroChoice('kbf')).toEqual({ aeroModel: 'classic', rogersKbf: true });
+    // Kbf rides along under Auto and Supersonic — only 'eb' turns it off.
+    expect(prefsForAeroChoice('auto')).toEqual({ aeroModel: 'auto', rogersKbf: true });
+    expect(prefsForAeroChoice('supersonic')).toEqual({ aeroModel: 'supersonic', rogersKbf: true });
+  });
+
+  it('round-trips: what the dialog stores reads back as the choice made', () => {
+    for (const c of ALL) expect(aeroChoiceOf(P(prefsForAeroChoice(c))), c).toBe(c);
+  });
+
+  it('a choice STORED flies what the same choice as an OVERRIDE flies', () => {
+    for (const c of ALL) {
+      // The override over a preference opposite in both halves, so a term
+      // leaking through from the stored side would show.
+      expect(effectiveAero(P(prefsForAeroChoice(c)), null), c)
+        .toEqual(effectiveAero(P({ aeroModel: 'supersonic', rogersKbf: false }), c));
     }
   });
 });

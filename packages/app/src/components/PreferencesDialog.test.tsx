@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { PreferencesDialog } from './PreferencesDialog.js';
-import { aeroChoiceOf, PrefsProvider, usePrefs, type AeroChoice, type Preferences } from '../prefs/PrefsContext.js';
+import { aeroChoiceOf, effectiveAero, PrefsProvider, usePrefs, type AeroChoice, type Preferences } from '../prefs/PrefsContext.js';
 
 /**
  * The 3D-printing section: picking a machine fills the build volume, typing
@@ -269,6 +269,25 @@ describe('Preferences → Aerodynamics vs the strip override', () => {
     mountBoth();
     pick(strip(), 'kbf'); // the stored default
     expect(host.textContent).not.toContain('overriding the setting above');
+  });
+
+  /**
+   * The same choice made from either control flies the same physics (audit
+   * 2026-09-22, row 499). The choice → (model, Kbf) mapping used to be written
+   * twice — here and in PrefsContext's override branch — kept in step only by
+   * a comment, so one edit could fly a different rocket depending on which
+   * select set it. Both now read prefsForAeroChoice; this pins the outcome.
+   */
+  it('each choice made here flies exactly what the strip flies for it', () => {
+    const choices: AeroChoice[] = ['eb', 'kbf', 'auto', 'supersonic'];
+    mountBoth();
+    for (const c of choices) {
+      pick(aeroSelect(), c);
+      // Chosen here: no override, so what flies is the stored preference.
+      expect(effectiveAero(stored(), null), c).toEqual(effectiveAero(stored(), c));
+      // And the strip shows the choice made.
+      expect(strip().value).toBe(c);
+    }
   });
 });
 

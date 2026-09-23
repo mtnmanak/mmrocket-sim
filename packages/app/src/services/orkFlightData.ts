@@ -1,4 +1,4 @@
-import type { MountMotor, SavedConfig } from '../App.js';
+import type { MountMotor, SavedConfig } from '../model/design.js';
 import type { OrkExportFlightData } from './orkFile.js';
 import { runCarriesNozzleStamp, runMatchesModel, type SimRun } from './simReport.js';
 import { lookupTable } from './xmlUtil.js';

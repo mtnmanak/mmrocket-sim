@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { RocketTree } from '@online-openrocket/engine';
-import type { MountMotor } from '../App.js';
+import type { MountMotor } from '../model/design.js';
 import { DEFAULT_CONDITIONS, type LaunchConditions } from '../components/LaunchPanel.js';
 import { designFingerprint, isDirty, type DesignSnapshot } from './dirtyState.js';
 import {
@@ -132,8 +132,10 @@ describe('only a full-fidelity save clears the unsaved-changes mark (App-only ab
   it('names markSaved in exactly three places', () => {
     // onSaveOrk and startNewDesign call it; applyImported hands it to
     // applyImportPlan (tested above). Its own definition and comments do not
-    // count.
-    const code = app().split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
+    // count — and since the 2026-09-22 audit (row 501) its definition is
+    // hooks/useDesignDirty.ts, so App's destructuring of that hook is it.
+    const code = app().split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n')
+      .replace(/const \{[^}]*\} = useDesignDirty\(/, '');
     const refs = code.match(/\bmarkSaved\b(?! = \()/g) ?? [];
     expect(refs.length, 'a new markSaved site appeared — is it full fidelity?').toBe(3);
   });
@@ -197,7 +199,10 @@ describe('App hands the tested units what their fixes depend on', () => {
     expect(start).toBeGreaterThan(-1);
     const call = src.slice(start, src.indexOf('});', start));
     expect(call).toMatch(/\n\s+unmatchedRefs,\r?\n/);
-    expect(src).toContain('}, [designSnapshot, dirtyTick, unmatchedRefs]);');
+    // In the effect's dependencies, or the refs reach storage only when
+    // something else changes. (The two refs useDesignDirty hands back sit
+    // beside it; they are stable, so they cost no runs.)
+    expect(src).toMatch(/\}, \[designSnapshot, dirtyTick, unmatchedRefs\b[^\]]*\]\);/);
     expect(src).toMatch(/restoreUnmatchedRefs\(session\?\.savedConfigs, session\?\.activeConfigId, session\?\.mountMotors \?\? \{\},\s+session\?\.unmatchedRefs\)/);
   });
 

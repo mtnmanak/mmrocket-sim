@@ -5,6 +5,7 @@ import {
   coveringMassOverride,
   findAllowance,
   placeAtStation,
+  solePinnedStage,
   solveBallast,
   withoutAllowance,
 } from './buildAllowance.js';
@@ -233,5 +234,29 @@ describe('coveringMassOverride — what would swallow a Build allowance', () => 
     expect(coveringMassOverride(t, 0.2, 0.02)?.id).toBe('tube');
     // ...and a station in the nose is unaffected by the tube's override.
     expect(coveringMassOverride(t, 0.05, 0.02)).toBeNull();
+  });
+});
+
+describe('solePinnedStage — whether pinning to the scale is unambiguous', () => {
+  const stage = (id: string, extra: Record<string, unknown> = {}) =>
+    ({ id, type: 'stage', name: id, children: [], ...extra }) as unknown as RocketTree['components'][number];
+  const PINNED = { overrideMass: 0.5, overrideSubcomponentsMass: true };
+
+  it('names the one stage that stands in for its contents', () => {
+    const sustainer = stage('sustainer', PINNED);
+    expect(solePinnedStage([sustainer, stage('booster')])).toBe(sustainer);
+  });
+
+  it('names none when no stage is pinned, or when more than one is', () => {
+    // Two pinned stages and one whole-airframe weighing: nothing says which
+    // of them should absorb the difference, so there is nothing to offer.
+    expect(solePinnedStage([stage('sustainer'), stage('booster')])).toBeNull();
+    expect(solePinnedStage([stage('sustainer', PINNED), stage('booster', PINNED)])).toBeNull();
+  });
+
+  it('counts a stage only with BOTH the flag and a value — the kernel’s rule', () => {
+    const sustainer = stage('sustainer', PINNED);
+    expect(solePinnedStage([sustainer, stage('booster', { overrideSubcomponentsMass: true })])).toBe(sustainer);
+    expect(solePinnedStage([sustainer, stage('booster', { overrideMass: 0.2 })])).toBe(sustainer);
   });
 });

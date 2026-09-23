@@ -134,8 +134,10 @@ describe('App wires both in', () => {
   it('moves a restored session’s pad mass, and every stored configuration’s', () => {
     expect(app).toContain('const ranked = padMassOntoRankedPrimary(initialTree, m.motors);');
     expect(app).toContain('const ranked = padMassOntoRankedPrimary(initialTree, c.motors);');
-    // …and says where it went.
-    expect(app).toContain('const r = rankedPadMass.current;');
+    // …and says where it went: behaviour since the 2026-09-22 audit (row 501
+    // moved the sentence into services/padMassReconcile.ts). App.render.test.tsx
+    // ("a session's pad mass saved under a pod picked first") restores such a
+    // session and finds the value on the core's record and the note on the bar.
   });
 
   it('takes each card’s box from autoDelayBox', () => {

@@ -1,5 +1,5 @@
 import type { RocketTree } from '@online-openrocket/engine';
-import type { MountMotor, SavedConfig } from '../App.js';
+import type { MountMotor, SavedConfig } from '../model/design.js';
 import type { OrkDeployOverride, OrkMotorRef, OrkSeparationOverride } from './orkFile.js';
 import { stableJson } from './dirtyState.js';
 import {

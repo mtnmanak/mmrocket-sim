@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import type { FlightResult, IgnitionEvent, MotorSpec, OrkRocket } from '@online-openrocket/engine';
-import type { MountMotor } from '../App.js';
+import type { MountMotor } from '../model/design.js';
 import { DEFAULT_CONDITIONS, kernelSimOptions } from '../components/LaunchPanel.js';
 import { defaultTree, engineTree, flownRecoveryDevices, motorMounts } from '../tree/treeModel.js';
 import {

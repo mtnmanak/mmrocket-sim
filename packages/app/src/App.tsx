@@ -1,14 +1,11 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  OrkRocket,
-  resetEngine,
   type ComponentNode,
   type ComponentType,
   type FlightResult,
   type IgnitionEvent,
   type MotorSpec,
   type RocketTree,
-  type StaticInfo,
 } from '@online-openrocket/engine';
 import { BatchSimulate, batchUnavailableReason } from './components/BatchSimulate.js';
 import { batchMotorIds } from './services/batchSweep.js';
@@ -16,7 +13,7 @@ import { ConfigPanel } from './components/ConfigPanel.js';
 import { Icon } from './components/Icon.js';
 import { ChangelogDialog } from './components/ChangelogDialog.js';
 import { GuideDialog } from './components/GuideDialog.js';
-import { FirstRunTour, shouldAutoStartTour } from './components/FirstRunTour.js';
+import { FirstRunTour } from './components/FirstRunTour.js';
 import { FlyScreen } from './components/FlyScreen.js';
 import { ComponentTree } from './components/ComponentTree.js';
 import { FlightCharts } from './components/FlightCharts.js';
@@ -29,12 +26,11 @@ import { MeasuredMassBox } from './components/MeasuredMassBox.js';
 import { MotorPadMass } from './components/MotorPadMass.js';
 import {
   BUILD_ALLOWANCE_NAME, coveringMassOverride, findAllowance, placeAtStation, solveBallast,
-  withoutAllowance, type BallastSolution,
+  solePinnedStage, withoutAllowance, type BallastSolution,
 } from './services/buildAllowance.js';
 import { MotorPicker } from './components/MotorPicker.js';
 import { Modal } from './components/Modal.js';
 import { useMenuPopup } from './components/useDialog.js';
-import { useFocusHandoff } from './components/useFocusHandoff.js';
 import { NumField } from './components/NumField.js';
 import { PropertyPanel } from './components/PropertyPanel.js';
 import { SimHistory, SimRunDetails } from './components/SimResults.js';
@@ -64,9 +60,10 @@ import { classLabel, diameterClass } from './services/motorDb.js';
 import { ignitionDefaultFor } from './services/ignitionDefault.js';
 import { refToExportMotor } from './services/motorMatch.js';
 import { aeroModelFor, rogersKbfFor, stageMotorInfo } from './services/flightPipeline.js';
-import { flyLaunch, reflyRun, writeMountMotor } from './services/flightRunner.js';
+import { flyLaunch, reflyRun } from './services/flightRunner.js';
+import { buildDesign, KERNEL_HANDLES, type DesignBuild } from './services/buildDesign.js';
 import { loadExMotors } from './services/exMotors.js';
-import { autoDelaySaveNote, exportOrk, fmtStepS, importOrk, type MeasuredFigures, type OrkDeployOverride, type OrkSeparationOverride, type OrkExportConfig, type OrkExportFlightData, type OrkExportMotor, type OrkMotorRef } from './services/orkFile.js';
+import { autoDelaySaveNote, exportOrk, importOrk, type MeasuredFigures, type OrkExportConfig, type OrkExportFlightData, type OrkExportMotor, type OrkMotorRef } from './services/orkFile.js';
 import {
   decodeShareFragment, encodeShareFragment, hasSharePayload, MAX_FRAGMENT_CHARS, shareLinkOpenFailure,
 } from './services/shareLink.js';
@@ -86,21 +83,20 @@ import {
   currentModelLabel, designMatchKeyOf, formatRunWhenProse, formatStability, listAnd,
   hasAerodynamicForce, motorSetKeyOf, shownStability, runMatchesDesign, runMatchesModel,
   storedSimCost,
-  type DesignMatchKey, type FlownRecoveryDevice, type MotorMeta, type SimRun,
+  type DesignMatchKey, type MotorMeta, type SimRun,
 } from './services/simReport.js';
 import { formatWarning, formatWarningText } from './services/simWarnings.js';
 import {
-  addRun, loadRuns, persistFailed, runCapNote, runsEvictedByLastWrite, runsUnsavedByLastWrite,
+  addRun, loadRuns, persistFailed, runsEvictedByLastWrite, runsUnsavedByLastWrite,
 } from './services/simStore.js';
 import { APP_VERSION } from './version.js';
 import { pokeServiceWorker, useVersionCheck } from './services/versionCheck.js';
 import {
-  addChild, addStage, applyStageNozzles, autoDelayBox, cloneSubtree, defaultTree, duplicateNode, engineTree, findNode,
-  findParent, flownRecoveryDevices, hasParallelStage, inheritDefaults, isOnLaunchStage, makeNode, motorMounts, moveNode,
+  addChild, addStage, applyStageNozzles, autoDelayBox, cloneSubtree, defaultTree, duplicateNode, findNode,
+  findParent, hasParallelStage, inheritDefaults, isOnLaunchStage, makeNode, motorMounts, moveNode,
   isPristineDefault, motorisedStagesWithNozzle, mountCountNote, mountMotorCount, normalizeTree, padMassOntoRankedPrimary, primaryMountOf, removeNode, stageIndexOf, stages, stagesWithNozzle,
   suppressingAncestor, updateAllNodes, updateNode,
 } from './tree/treeModel.js';
-import { DRAWER_CLOSE_BELOW_PX, drawerAutoState } from './components/heroDrawer.js';
 import {
   flightDataForExport as flightDataForExportPure, flownAutoDelays, type FlightDataForExportInput,
 } from './services/orkFlightData.js';
@@ -108,20 +104,20 @@ import { estimateMotorRoomForMounts } from './tree/motorRoom.js';
 import { NozzleField } from './components/NozzleField.js';
 import { autoAlignFinSets } from './tree/finAlign.js';
 import { interleaveRotation } from './tree/schema.js';
-import { railInterferenceWarnings, wakeShadowWarnings } from './tree/mountAngle.js';
 import { convertShrouds, type ShroudCandidate } from './tree/shroudConvert.js';
 import { mountBore } from './tree/scaleRocket.js';
-import { explainBuildFailure } from './tree/sanitize.js';
-import { nozzleOversize, nozzleOversizeText } from './services/nozzleCheck.js';
+import { designNotices, type HeldNote } from './services/notices.js';
+import {
+  reconcileLegacyPadMass, restoredPadMassNote, type PadMassText,
+} from './services/padMassReconcile.js';
 import { stageMotors } from './services/nozzleFollow.js';
-import { designFingerprint, isDirty, type DesignSnapshot } from './services/dirtyState.js';
+import type { DesignSnapshot } from './services/dirtyState.js';
 import { createSequencer } from './services/latestWins.js';
 import {
   recoveryMass, recoveryMassByStage, recoveryMassTitle, type RecoveryByStage, type RecoveryMass,
 } from './services/recoveryMass.js';
 import {
-  catalogueMotorMass, flownSpec, hardwareMass, LEGACY_PAD_MASS_KEY, motorIdentity,
-  type HardwareMassResult,
+  catalogueMotorMass, flownSpec, LEGACY_PAD_MASS_KEY, motorIdentity,
 } from './services/hardwareMass.js';
 import {
   adoptsRefPadMass, assignMotorRecord, migrateLegacyPadMass, padMassSetKey, restoreUnmatchedRefs, stripPadMass,
@@ -139,111 +135,11 @@ import { ScaleDialog } from './components/ScaleDialog.js';
 import { useTreeHistory } from './hooks/useTreeHistory.js';
 import { useNozzleFollow } from './hooks/useNozzleFollow.js';
 import { useRelaunchLatch } from './hooks/useRelaunchLatch.js';
-
-/** One mount's assigned motor (Release C: every mount can hold its own). */
-export interface MountMotor {
-  label: string;
-  spec: MotorSpec;
-  meta: MotorMeta;
-  /**
-   * When this motor ignites. Given a PROPELLANT-aware default at selection
-   * time: a motor above the launch stage is electronics-timed (burnout + 1 s)
-   * unless it burns black powder, which an ejection charge can light.
-   * Everything else is AUTOMATIC. See assignMotor.
-   */
-  ignition: { event: IgnitionEvent; delay: number };
-  /**
-   * The rocket weighed ready to fly WITH this motor set in (kg, finite > 0).
-   * PRESENT ONLY on the primary mount's record, and only after the user
-   * committed a value (or a file / v0.116 session carried one). ABSENT
-   * otherwise — never null, never undefined: dirtyState's fingerprint hashes
-   * keys, so the key exists exactly when a value does. Cleared by DELETING
-   * both keys. See services/hardwareMass.ts.
-   */
-  padMassKg?: number;
-  /**
-   * EITHER `motorSetIdentity(...)` of the assigned motor SET at the moment
-   * the value was committed (at import: the configuration's own set),
-   * OR the literal `LEGACY_PAD_MASS_KEY` ('legacy') for a value carried in
-   * from v0.116/v0.117 that the app has not yet checked against the loaded
-   * motor (the reconcile effect below decides it after the first build).
-   * Present iff `padMassKg` is. A pad weight is a measurement of the whole
-   * stack with every motor in, so the arithmetic refuses to apply it to a
-   * different set (hardwareMass 'stale-set'). Delay, plugged and ignition are
-   * excluded on purpose; cluster count is included.
-   */
-  padMassWeighedWith?: string;
-}
-
-/**
- * One of the imported file's flight configurations, kept as a ready-to-apply
- * preset (Stage B). `mountMotors` stays the live working set every consumer
- * reads; applying a preset copies its motors in and marks it active.
- */
-export interface SavedConfig {
-  /** The .ork configid — stable through save, so desktop round-trips keep it. */
-  id: string;
-  /** null = unnamed in the file (the desktop shows its motor list instead). */
-  name: string | null;
-  isDefault: boolean;
-  /** Matched motors keyed by mount node id; unmatched refs dropped out. */
-  motors: Record<string, MountMotor>;
-  /** Designations that couldn't be matched at import — reported when applied. */
-  unmatched?: string[];
-  /**
-   * The unmatched motor REFERENCES themselves, keyed by mount node id.
-   *
-   * `unmatched` above is display text; this is what the file said. Without it,
-   * a motor the bundled database lacks (an EX load, a newly certified motor,
-   * or any motor whose curve failed to download) was reduced to its
-   * designation string at import, so pressing Save .ork wrote that
-   * configuration with NO motor on the mount — and the original reference,
-   * including the `<digest>` that is desktop's silent-match tier, was gone
-   * from the user's only copy. `exportConfigs` re-emits these verbatim for
-   * mounts that still have nothing matched.
-   */
-  unmatchedRefs?: Record<string, OrkMotorRef>;
-  /**
-   * This configuration's stage-separation settings, keyed by stage node id.
-   * Separation is per-configuration in the .ork exactly as motors and recovery
-   * are, so switching configurations has to carry it: without this, a design
-   * that says "never separate" on the configuration you switch TO still flew
-   * the configuration you OPENED with, and a 0 s motor delay tore the stages
-   * apart at burnout.
-   */
-  separations?: Record<string, OrkSeparationOverride>;
-  /**
-   * This configuration's recovery-deployment settings as they were in the file,
-   * keyed by recovery-device node id. Carried untouched so saving while another
-   * configuration is open cannot rewrite this one's chute deployment.
-   */
-  deployments?: Record<string, OrkDeployOverride>;
-  /**
-   * This configuration's nozzle exit diameter per stage (metres, keyed by
-   * stage node id; 0 = none). A RASAero `<Simulation>` carries the nozzle of
-   * the motor it flies, so it switches with the configuration exactly as the
-   * motor does — see `OrkFlightConfig.nozzles`. Absent for .ork files.
-   */
-  nozzles?: Record<string, number>;
-}
-
-
-/**
- * Display name for a working-set configuration. Same rule as the .ork picker's
- * {@link configLabel} — a nameless configuration reads as its motor set, never
- * as a GUID — but SavedConfig's motors are already MATCHED (`label`), with the
- * ones we could not match moved aside into `unmatched`. Both belong in the
- * label, or a configuration whose only motor is unmatched would read as
- * "No motors".
- */
-export function savedConfigLabel(c: SavedConfig): string {
-  if (c.name) return c.name;
-  const labels = [
-    ...Object.values(c.motors).map((m) => m.label),
-    ...(c.unmatched ?? []),
-  ].filter(Boolean);
-  return labels.length ? `[${labels.join(', ')}]` : 'No motors';
-}
+import { useDesignDirty, type PreRankRestore } from './hooks/useDesignDirty.js';
+import { useFirstRunTour } from './hooks/useFirstRunTour.js';
+import { HERO_CHIP_RESERVE, useHeroDrawer } from './hooks/useHeroDrawer.js';
+import { useWorkspaceTab } from './hooks/useWorkspaceTab.js';
+import { savedConfigLabel, type MountMotor, type SavedConfig } from './model/design.js';
 
 import './styles.css';
 
@@ -434,9 +330,9 @@ export function App() {
   /**
    * The working set and configurations exactly as the session stored them,
    * kept only when padMassOntoRankedPrimary moved a pad mass in either — for
-   * the one re-take of the saved mark below the mark's seed.
+   * the one re-take of the saved mark after the mark's seed (useDesignDirty).
    */
-  const preRankRestore = useRef<{ motors: Record<string, MountMotor>; configs: SavedConfig[] } | null>(null);
+  const preRankRestore = useRef<PreRankRestore | null>(null);
   const [mountMotors, setMountMotors] = useState<Record<string, MountMotor>>(() => {
     if (session?.mountMotors) {
       // The pad mass moved from the measured box onto the motor's record in
@@ -739,127 +635,10 @@ export function App() {
     return () => { clearTimeout(fade); clearTimeout(clear); };
   }, [sessionNote]);
   const [view, setView] = useState<'2d' | '3d' | 'aft'>('2d');
-  /**
-   * S1 stats drawer over the hero canvas.
-   * "All stats" starts OPEN on a desktop and closed on anything narrower
-   * (the owner, 2026-08-23: "there is enough screen real estate"). 981px is the
-   * breakpoint where the hero-canvas layout kicks in — below it the drawer
-   * overlays most of the drawing, which is why it defaulted closed for
-   * everyone. Session state, not a stored preference: collapsing it still
-   * sticks for as long as you are working, and nobody's saved choice is
-   * stomped because there was never one to stomp.
-   */
-  const [statsDrawer, setStatsDrawer] = useState(
-    () => typeof matchMedia !== 'undefined' && matchMedia('(min-width: 981px)').matches,
-  );
-  /**
-   * Has the user opened or closed the drawer themselves? A ref, not storage:
-   * the block above rules this session state and not a stored preference, and
-   * auto-collapse must not quietly promote it. It only stops the automatic
-   * rules fighting a deliberate choice — it is manners, not mechanism.
-   */
-  const userSetDrawer = useRef(false);
-  /**
-   * The chip and Collapse replace each other, so a press hands focus to the
-   * one that appears (review of the audit 2026-09-22 branch, row 462): it fell
-   * to <body>, and neither button's aria-expanded was ever heard changing.
-   * Only a press — the automatic rules below never move focus.
-   */
-  const drawerFocus = useFocusHandoff<'chip' | 'collapse'>();
-  const setDrawerByUser = (v: boolean) => {
-    userSetDrawer.current = true;
-    drawerFocus.handTo(v ? 'collapse' : 'chip');
-    setStatsDrawer(v);
-  };
-  /**
-   * The breakpoint is LIVE now (2026-09-21). The initializer above ran once at
-   * startup, so a window dragged from wide to narrow kept a drawer that
-   * covers most of the drawing at that width, and one dragged the other way
-   * never gained it. Same shape as the theme listener in PrefsContext.
-   */
-  const [heroWide, setHeroWide] = useState(
-    () => typeof matchMedia !== 'undefined' && matchMedia('(min-width: 981px)').matches,
-  );
-  useEffect(() => {
-    if (typeof matchMedia === 'undefined') return;
-    const mq = matchMedia('(min-width: 981px)');
-    const onChange = (e: MediaQueryListEvent) => {
-      setHeroWide(e.matches);
-      if (!userSetDrawer.current) setStatsDrawer(e.matches);
-    };
-    mq.addEventListener('change', onChange);
-    return () => mq.removeEventListener('change', onChange);
-  }, []);
-  // Measured drawer height + gap: the hero view's bottom edge lifts above the
-  // open drawer so the drawing shrinks to the visible sky instead of being
-  // covered (batch 08-21d — vertical mode has no zoom/pan to escape with).
-  // A CALLBACK ref, not a plain one, and the effect keys on the NODE: the
-  // drawer lives inside the design tab's subtree (and behind `built &&`), so
-  // switching tabs unmounts it while statsDrawer stays true. Keyed on
-  // statsDrawer alone the effect never re-ran, the ResizeObserver kept
-  // watching the detached node — Chrome reports it as a 0x0 box, so the
-  // clearance collapsed to 20px — and the fresh drawer that mounted on the way
-  // back was never measured at all. The drawing then ran under the drawer
-  // again, which is the exact failure this measurement exists to prevent
-  // (batch 08-21d: vertical mode has no zoom/pan to escape with).
-  const [drawerEl, setDrawerEl] = useState<HTMLDivElement | null>(null);
-  const [drawerClearance, setDrawerClearance] = useState(0);
-  /**
-   * Fit-to-content hero canvas (v0.076, owner report 2026-08-29): the 2D
-   * schematic reports its natural drawn height and the stage sizes to
-   * rocket + chip headroom + drawer clearance, capped by the old
-   * viewport-availability clamp (see styles.css) — so a long thin rocket
-   * stops paying for a window-tall band of empty sky, and the footer gets
-   * its screen back. 3D and Aft keep the pure CSS clamp: a 3D scene has no
-   * "natural" height.
-   */
-  const [heroNatural, setHeroNatural] = useState<number | null>(null);
-  /** Headroom over the drawn rocket for the floating stats chip's default
-   *  spot (~110px unfolded + margin), so fit-to-content never lands the chip
-   *  on the airframe. */
-  const HERO_CHIP_RESERVE = 140;
-  useEffect(() => {
-    // Only while the drawer OVERLAYS the drawing. Below 981px it is a block
-    // under the canvas (heroWide false), so there is nothing to lift clear of.
-    if (!statsDrawer || !drawerEl || !heroWide) { setDrawerClearance(0); return; }
-    const measure = () => setDrawerClearance(drawerEl.offsetHeight + 20);
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(drawerEl);
-    return () => ro.disconnect();
-  }, [statsDrawer, drawerEl, heroWide]);
-  /**
-   * AUTO-COLLAPSE ON A SHORT CANVAS (2026-09-21, Eric's quarter-screen
-   * window). The measurement is the STAGE's own padding box, never the drawer
-   * and never the band left over above it — and that choice is the whole fix,
-   * because of the SIGN of the dependency. The leftover band grows when the
-   * drawer closes, so a rule reading it would immediately reverse its own
-   * verdict and oscillate. The stage's height can only FALL when the drawer
-   * closes (the drawer's height feeds the stage's ceiling, never its floor),
-   * so "too short" stays true once it is true. Hysteresis is still needed for
-   * the other direction: reopening raises the ceiling again, so the reopen
-   * threshold sits 60px above the close one.
-   */
-  const [stageEl, setStageEl] = useState<HTMLDivElement | null>(null);
-  useEffect(() => {
-    if (!stageEl) return;
-    const check = () => {
-      const next = drawerAutoState({
-        // Below 981px the drawer is a block under the canvas and costs the
-        // drawing nothing, so there is nothing for the rule to rescue.
-        stageH: heroWide ? stageEl.clientHeight : Infinity,
-        open: statsDrawer,
-        userSet: userSetDrawer.current,
-      });
-      if (next !== null) setStatsDrawer(next);
-    };
-    check();
-    const ro = new ResizeObserver(check);
-    ro.observe(stageEl);
-    return () => ro.disconnect();
-  }, [stageEl, statsDrawer, heroWide]);
-  /** The canvas is too short to carry an unfolded stats chip as well. */
-  const heroTight = heroWide && (stageEl?.clientHeight ?? Infinity) < DRAWER_CLOSE_BELOW_PX;
+  // The All-stats drawer over the hero canvas, its breakpoint, its
+  // auto-collapse and the canvas's fit-to-content sizing — hooks/useHeroDrawer.ts
+  // (audit 2026-09-22, row 501), tested there.
+  const hero = useHeroDrawer();
   /** S1's 90° toggle: draw the 2D view nose-up (viewing mode — drag/zoom off). */
   const [vert2d, setVert2d] = useState(false);
   /**
@@ -876,60 +655,11 @@ export function App() {
   const [showScale, setShowScale] = useState(false);
   const [showChangelog, setShowChangelog] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
-  const [tourOpen, setTourOpen] = useState(false);
-  // First-run tour: decided once at startup (ref = StrictMode double-invoke
-  // guard, same pattern as shareHandled below). A share link suppresses it —
-  // that visitor came for a design, don't stand in front of it.
-  const tourChecked = useRef(false);
-  useEffect(() => {
-    if (tourChecked.current) return;
-    tourChecked.current = true;
-    if (shouldAutoStartTour({
-      tourOff: prefs.tourOff ?? false,
-      hasShare: hasSharePayload(window.location.hash),
-      hasSession: session != null,
-    })) setTourOpen(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot startup decision
-  }, []);
-  // Turning the tour off WHILE IT IS ON SCREEN must dismiss it. The tour's
-  // spotlight and scrim are both pointer-events:none, so the app stays fully
-  // usable behind the card and opening Preferences mid-tour is the natural
-  // thing to do — and until now the card just sat there, which is the literal
-  // reading of "setting Tour Off doesn't work".
-  //
-  // Guarded on the false→true TRANSITION, not on the current value: a plain
-  // `if (off) setTourOpen(false)` would make the header's ⟲ Tour replay
-  // button dead for exactly the people who turned the auto-tour off.
-  const prevTourOff = useRef(prefs.tourOff ?? false);
-  useEffect(() => {
-    const off = prefs.tourOff ?? false;
-    if (off && !prevTourOff.current) setTourOpen(false);
-    prevTourOff.current = off;
-  }, [prefs.tourOff]);
-  const closeTour = useCallback(() => {
-    setTourOpen(false);
-    // The tour walks through tabs — land back on the device's home screen
-    // (phones open on Fly, everything else on Design).
-    setTab(typeof matchMedia !== 'undefined' && matchMedia('(max-width: 767px)').matches
-      ? 'fly' : 'design');
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- setTab is stable
-  }, []);
-  // Workspace tab (Fly / Design / Motors & Launch / Results) — persisted so a
-  // reload lands the user back where they were working. Fly (S4, batch
-  // 08-21c) is the phone home: launch-centered, first and default below the
-  // phone breakpoint; its tab button is CSS-hidden on desktop.
-  const [tab, setTabRaw] = useState<'fly' | 'design' | 'motors' | 'results'>(() => {
-    try {
-      const t = localStorage.getItem('online-openrocket.workspace.v1');
-      if (t === 'fly' || t === 'motors' || t === 'results' || t === 'design') return t;
-    } catch { /* fall through */ }
-    return typeof matchMedia !== 'undefined' && matchMedia('(max-width: 767px)').matches
-      ? 'fly' : 'design';
-  });
-  const setTab = useCallback((t: 'fly' | 'design' | 'motors' | 'results') => {
-    setTabRaw(t);
-    try { localStorage.setItem('online-openrocket.workspace.v1', t); } catch { /* ignore */ }
-  }, []);
+  // The workspace tab, persisted, and the first-run tour that walks it —
+  // hooks/useWorkspaceTab.ts and hooks/useFirstRunTour.ts (audit 2026-09-22,
+  // row 501), each tested there.
+  const [tab, setTab] = useWorkspaceTab();
+  const tour = useFirstRunTour({ tourOff: prefs.tourOff ?? false, hasSession: session != null, setTab });
   const [showFileMenu, setShowFileMenu] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
   // Escape closes whichever header popup is open and puts focus back on the
@@ -984,6 +714,11 @@ export function App() {
     length: (m: number) => `${fmtSi('length', prefs.units.length, m, 3)} ${prefs.units.length}`,
   };
   /**
+   * The words a pad-mass note is written with (services/padMassReconcile.ts):
+   * the user's mass unit, and a motor named without its delay grain.
+   */
+  const padMassText: PadMassText = { mass: massText, motorName: baseLabel };
+  /**
    * What became of a pad mass carried in from v0.116/v0.117 — its own entry in
    * the notice strip (`pad-mass-moved`), NOT setFileNote, which would overwrite
    * an import note. Seeded here for the one outcome the restore already knows
@@ -991,45 +726,11 @@ export function App() {
    * other two after the first build has checked the value against the motor.
    * Also where a pad mass the core-first ranking moved went (rankedPadMass),
    * so the value is not seen to jump from one card to another unexplained.
+   * The sentences are services/padMassReconcile.ts's, tested there.
    */
-  const [padMassNote, setPadMassNote] = useState<{ text: string; severity: NoticeSeverity } | null>(() => {
-    const m = legacyPadMass.current;
-    if (m?.outcome === 'dropped' && typeof m.kg === 'number') {
-      return {
-        severity: 'warn',
-        text: `The weighed pad mass you entered before this version (${massText(m.kg)}) had no motor loaded`
-          + ' to belong to and was not kept. Weigh the rocket with the motor in and type it under that'
-          + ' motor on Motors & Launch.',
-      };
-    }
-    const r = rankedPadMass.current;
-    if (r?.from && r.to && typeof r.kg === 'number') {
-      const from = mountMotors[r.from];
-      const to = mountMotors[r.to];
-      return {
-        severity: 'info',
-        text: `The weighed pad mass (${massText(r.kg)}) now sits under ${to ? baseLabel(to.label) : 'another motor'}`
-          + ` on ${findNode(initialTree, r.to)?.name ?? 'its mount'}, not under`
-          + ` ${from ? baseLabel(from.label) : 'the motor'} on ${findNode(initialTree, r.from)?.name ?? 'its mount'}:`
-          + ' the weighed hardware now rides with the core\'s motor ahead of a pod\'s or a strap-on\'s, where it used'
-          + ' to ride with whichever was picked first. The value itself is unchanged.',
-      };
-    }
-    return null;
-  });
+  const [padMassNote, setPadMassNote] = useState<HeldNote | null>(() => restoredPadMassNote(
+    legacyPadMass.current, rankedPadMass.current, { tree: initialTree, motors: mountMotors, text: padMassText }));
 
-  /**
-   * The design fingerprint as of the last save or import — what is on disk.
-   *
-   * SEEDING RULE, and it is load-bearing. A FIRST visit (session === null,
-   * tree = the starter rocket) is seeded CLEAN below, so a brand-new visitor
-   * is never asked to save a rocket they have not touched. A RESTORED session
-   * takes the mark it stored, and a session written before this field existed
-   * has none — which counts as dirty, because it cannot prove it was saved.
-   */
-  const savedMark = useRef<string | null>(session ? (session.savedMark ?? null) : null);
-  const flownSinceSave = useRef<boolean>(session?.flownSinceSave ?? false);
-  const [dirtyTick, bumpDirty] = useReducer((x: number) => x + 1, 0);
   /** The file the user picked while there was unsaved work — held for the prompt. */
   const [pendingOpen, setPendingOpen] = useState<File | null>(null);
   /**
@@ -1090,6 +791,19 @@ export function App() {
     };
   }, [tree, mountMotors, launch, maxMotorLen, savedConfigs, activeConfigId, measured]);
 
+  /**
+   * "Is there work a file on disk does not have?" — hooks/useDesignDirty.ts:
+   * the mark, the seeding rule (a first visit is clean, and stays clean when
+   * the starter motor lands; a restore that moved a pad mass onto the ranked
+   * primary stays as saved as it was stored), the flown-since-save flag and
+   * `dirty` itself, tested there by behaviour (audit 2026-09-22, row 501).
+   * WHICH actions may call `markSaved` is App's to decide, and
+   * savedMarkSites.test.ts holds it to three: a .ork save, an import and ✕ New.
+   */
+  const {
+    dirty, markSaved, markFlown, savedMark, flownSinceSave, dirtyTick,
+  } = useDesignDirty(designSnapshot, session, { landing: starterLanding, mountId: defaultMountId }, preRankRestore);
+
   // Autosave the working state so a closed tab or crash never loses work.
   useEffect(() => {
     saveSessionDebounced({
@@ -1105,7 +819,9 @@ export function App() {
       appVersion: parsedByVersion.current,
       savedMark: savedMark.current ?? undefined, flownSinceSave: flownSinceSave.current,
     });
-  }, [designSnapshot, dirtyTick, unmatchedRefs]);
+  // savedMark and flownSinceSave are useDesignDirty's refs — stable, so naming
+  // them costs no runs — and dirtyTick is how they announce a change.
+  }, [designSnapshot, dirtyTick, unmatchedRefs, savedMark, flownSinceSave]);
 
   // Close the 400 ms debounce window on the way out. `pagehide` fires on
   // close, reload and navigation away - and on a mobile browser discarding the
@@ -1119,76 +835,8 @@ export function App() {
     return () => { window.removeEventListener('pagehide', onHide); };
   }, []);
 
-  // A first visit starts on the starter rocket, which is not work anybody
-  // would mind losing — seed the mark so a share link or an Open does not ask
-  // permission to replace a design the visitor has never touched. Runs once;
-  // a restored session already carries its own mark (or deliberately lacks one).
-  useEffect(() => {
-    if (session === null && savedMark.current === null) {
-      savedMark.current = designFingerprint(snapshotNow());
-      bumpDirty();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  // A pad mass the restore moved onto the ranked primary (rankedPadMass) is
-  // not an edit: the file on disk carries it per configuration, not per mount,
-  // so it already IS the moved design. But the stored mark was taken over the
-  // design before the move, and the move changes the fingerprinted records —
-  // so a design the user had saved read as unsaved, ✕ New and Open asked, and
-  // the stale mark was autosaved to ask again on every reload (seam review of
-  // audit 2026-09-22). Re-taken over the moved design exactly when it
-  // described the design before the move, the same guard as the starter
-  // landing's below; a mark that did not (unsaved work) keeps its prompt.
-  useEffect(() => {
-    const pre = preRankRestore.current;
-    preRankRestore.current = null;
-    if (pre === null || savedMark.current === null) return;
-    if (designFingerprint({ ...designSnapshot, mountMotors: pre.motors, savedConfigs: pre.configs }) !== savedMark.current) return;
-    savedMark.current = designFingerprint(designSnapshot);
-    bumpDirty();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, over the design as restored
-  }, []);
-  // ...and when the starter motor lands (one await after that seed), take the
-  // mark again over the rocket WITH it — but only if the mark still describes
-  // everything else on screen. An edit, a pick or an open that got in first
-  // has already moved the design off the seed, and that work keeps its prompt
-  // (audit 2026-09-22). No motor ever landing (no bundle, no network) leaves
-  // the seed standing, which is the design on screen.
-  useEffect(() => {
-    const m = starterLanding.current;
-    if (m === null) return;
-    if (designSnapshot.mountMotors[defaultMountId ?? ''] !== m) {
-      // Not in state yet — or beaten, in which case it never will be.
-      if (Object.keys(designSnapshot.mountMotors).length > 0) starterLanding.current = null;
-      return;
-    }
-    starterLanding.current = null;
-    if (savedMark.current !== null
-      && designFingerprint({ ...designSnapshot, mountMotors: {} }) === savedMark.current) {
-      savedMark.current = designFingerprint(designSnapshot);
-      bumpDirty();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- defaultMountId is fixed at mount
-  }, [designSnapshot]);
-
-  /**
-   * "Is there work a file on disk does not have?" — the guard behind the Open
-   * prompt (2026-09-01a). The autosave is ONE localStorage slot, so opening a
-   * design really does discard whatever was in it; desktop OR and RockSim both
-   * ask first.
-   *
-   * A ref, not state: marking a save must not re-render the app, and the two
-   * places that read it (the Open handler and the prompt's own gating) either
-   * run in an event or re-render for their own reasons. `bumpDirty` exists so
-   * the autosave effect re-runs when only the mark moved.
-   */
+  /** The design as it would be saved, as of this render — what a save marks. */
   const snapshotNow = (): DesignSnapshot => designSnapshot;
-  const dirty = useMemo(
-    () => isDirty(designFingerprint(designSnapshot), savedMark.current, flownSinceSave.current),
-    // dirtyTick is how the two REFS above announce a change — markSaved and
-    // the flown-since-save flag do not re-render on their own.
-    [designSnapshot, dirtyTick],
-  );
   /**
    * Clear the design and start over. ONE definition, because the New button
    * now reaches it directly when there is nothing to lose and through the
@@ -1242,13 +890,6 @@ export function App() {
     // The mark is the plan's, taken over exactly the values just set, not from
     // state, which has not re-rendered.
     markSaved(mark);
-  };
-
-  /** Records that what is in the app right now is also what is on disk. */
-  const markSaved = (mark: string) => {
-    savedMark.current = mark;
-    flownSinceSave.current = false;
-    bumpDirty();
   };
 
   // ---- undo / redo (Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y / buttons) ----
@@ -1400,156 +1041,21 @@ export function App() {
   const { aeroMode, effectiveKbf } = effectiveAero(prefs, aeroOverride);
   const effectiveSupersonic = aeroMode === 'supersonic' || (aeroMode === 'auto' && autoSupersonic);
 
-  // No setState in here — the error is part of the memo's value (setState
-  // during render breaks under StrictMode's double-invoke).
-  const buildResult = useMemo((): {
-    rocket: OrkRocket; info: StaticInfo; motorFailures: { mountId: string; text: string }[];
-    flownRecovery: Record<string, FlownRecoveryDevice>;
-    /** What the weighed pad mass derived, and on which mount it is carried. */
-    hardware: HardwareMassResult;
-  } | { error: string } => {
-    try {
-      resetEngine();
-      // Built once and kept: the launch report states the drag coefficient each
-      // recovery device ACTUALLY flew, and the only honest source for that is
-      // the tree the kernel was handed — not the design on screen.
-      const engine = engineTree(tree);
-      const flownRecovery = flownRecoveryDevices(engine);
-      const rocket = OrkRocket.buildTree(engine);
-      // Opt-in Rogers Modified Barrowman (Kbf) — set before staticInfo() so the
-      // reported CP/stability reflects it, and it persists onto this build's
-      // handle for later simulate() calls.
-      rocket.setRogersModifiedBarrowman(effectiveKbf);
-      // Opt-in RASAero-class supersonic aerodynamics (feature #1) — CP/drag
-      // move with Mach; affects staticInfo, dragSweep and simulate alike.
-      rocket.setSupersonicAero(effectiveSupersonic);
-      // A motor the kernel refuses must NOT blank the whole design. Before
-      // this, one malformed published thrust curve (issues-2026-08-23a.md) took
-      // out stability, mass, CP/CG, the stats drawer, the drag panel, every
-      // export and both Launch buttons — for a fault in a file the user did not
-      // write. Now the rocket still builds; only the motor is missing, and the
-      // notice says which and why.
-      const motorFailures: { mountId: string; text: string }[] = [];
-      for (const [id, mm] of assigned) {
-        try {
-          // The motor and its ignition, through the ONE writer every flight
-          // uses too (services/flightRunner.ts). It refuses an ignition event
-          // the kernel does not know BEFORE the motor goes on, so a mount
-          // reported here is also absent from the handle — recovery weight
-          // and the pad-mass arithmetic below already treat it so.
-          writeMountMotor(rocket, id, mm.spec, mm.ignition);
-        } catch (e) {
-          motorFailures.push({
-            mountId: id,
-            text: e instanceof Error ? e.message : String(e),
-          });
-        }
-      }
-      let info = rocket.staticInfo();
-      // WEIGHED PAD MASS (2026-09-07; moved onto the motor's record 2026-09-08).
-      // The catalogue motor weight leaves out the adapter, retainer and
-      // closure; when the user has weighed the rocket with the motor in, the
-      // difference is derived here and carried on the primary mount's motor
-      // curve — services/hardwareMass.ts has the arithmetic, the refusals and
-      // why it rides in the motor. The value comes from the PRIMARY mount's
-      // MountMotor (`padMassKg`), keyed to the motor set it was weighed with
-      // (`padMassWeighedWith`); a key that is not the current set's is
-      // refused as 'stale-set' before any arithmetic, and the 'legacy'
-      // sentinel (a v0.116/v0.117 value not yet checked) is passed with NO key
-      // so the arithmetic gives its verdict and the reconcile effect below
-      // decides. Motors the kernel refused are excluded, as recoveryInput
-      // excludes them: their catalogue mass is not on the handle to subtract.
-      //
-      // TWO staticInfo() CALLS when a pad mass is set, and only then. The dry
-      // mass the arithmetic needs (massEmpty) is only knowable from the kernel
-      // after the build, so the shifted motor goes on after the first call and
-      // the second reads the loaded mass and CG with it. Measured 2026-09-07
-      // on this machine: the second call is 7.7 ms on lemiv-motors.ork and
-      // 21.7 ms on reference.ork (9 ms steady-state) — and it does not happen
-      // at all for a design without a pad mass, which runs the single call it
-      // always ran, byte-identically.
-      const accepted = assigned.filter(([id]) => !motorFailures.some((f) => f.mountId === id));
-      // The record comes from `assigned`, NOT `accepted`: a primary whose curve
-      // the kernel refused still holds the value the field shows, and passing
-      // it lets step 2 answer 'no-motor' (the line then says the kernel refused
-      // the curve) rather than step 1 answering 'no-pad-mass' under a visible
-      // number — the v0.116 class this release removes (2026-09-08 review).
-      // `motors: accepted` still governs what is subtracted.
-      const primaryRecord = assigned.find(([id]) => id === primaryMountId)?.[1];
-      const key = primaryRecord?.padMassWeighedWith;
-      const hardware = hardwareMass({
-        padMassKg: primaryRecord?.padMassKg ?? null,
-        weighedWith: key === LEGACY_PAD_MASS_KEY ? undefined : key,
-        currentSetKey,
-        measuredDryMassKg: measured.massKg, // the airframe box's dry mass still wins over massEmpty
-        computedDryMassKg: info.massEmpty,
-        tree,
-        motors: accepted,
-        primaryMountId,
-      });
-      if (hardware.state === 'ok') {
-        const mm = accepted.find(([id]) => id === hardware.appliedTo)?.[1];
-        if (mm) {
-          // Through the same writer as the loop above, which re-applies the
-          // ignition: the bridge's setMotorById (OrkEngine.java applyMotor)
-          // installs a fresh motor configuration on the mount, so the second
-          // write would otherwise leave it on the kernel's default.
-          writeMountMotor(rocket, hardware.appliedTo, flownSpec(hardware.appliedTo, mm.spec, hardware), mm.ignition);
-          info = rocket.staticInfo();
-        }
-      }
-      // Camera shrouds lower to deliberately thick strake "fins" — the
-      // kernel's THICK_FIN warning is expected there and only alarms users.
-      const fairingNames = new Set<string>();
-      const scanF = (nodes: ComponentNode[]) => {
-        for (const nd of nodes) {
-          if (nd.type === 'fairing') fairingNames.add(nd.name ?? 'Camera shroud');
-          scanF(nd.children ?? []);
-        }
-      };
-      scanF(tree.components);
-      if (fairingNames.size > 0) {
-        info.warningTexts = info.warningTexts.filter((wtext) =>
-          !(wtext.includes('THICK_FIN') && [...fairingNames].some((fn) => wtext.includes(fn))));
-      }
-      // Interference around the rail (v0.088). An APP-side check, appended to
-      // the same strip. It is a build problem, not a physics one: a fin on the
-      // rail's line means the rocket does not go on the pad. Eric asked for it
-      // on 2026-08-31. (A LUG or RAIL BUTTON's angle still changes no flight
-      // number; since v0.089 a CAMERA SHROUD's does — its strake's lift is
-      // steered by the mounting angle. See treeModel's lowering notes.)
-      const railWarnings = railInterferenceWarnings(tree);
-      if (railWarnings.length) info.warningTexts = [...info.warningTexts, ...railWarnings];
-      // A bump directly UPSTREAM of a fin sheds a wake onto it, and nothing here
-      // or in any other hobby package models that: the fin is flown at full
-      // free-stream dynamic pressure. Unlike the rail check above this changes no
-      // number at all - it is a stated limit, in the place the reader is already
-      // looking. It must sit AFTER the THICK_FIN fairing-name filter above, or a
-      // shroud named like a fin gets filtered out of its own sentence.
-      const wakeWarnings = wakeShadowWarnings(tree);
-      if (wakeWarnings.length) info.warningTexts = [...info.warningTexts, ...wakeWarnings];
-      return { rocket, info, motorFailures, flownRecovery, hardware };
-    } catch (e) {
-      // Named, not raw (audit 2026-09-22): the kernel's own text — "The number
-      // NaN cannot be converted to a BigInt", "Unknown format conversion: g" —
-      // names nothing on screen, while the design has lost its mass,
-      // stability, Launch and every export. The limits table is read as a
-      // validator to name the part and the field; failing that, the part the
-      // design builds without is named, found with bare `buildTree` trials —
-      // ~2 ms each, where `staticInfo` would be ~75 (sanitize.ts
-      // `partBlockingBuild`). The kernel's words follow either way.
-      return {
-        error: explainBuildFailure(tree, e instanceof Error ? e.message : String(e), (t) => {
-          try {
-            resetEngine();
-            OrkRocket.buildTree(engineTree(t));
-            return true;
-          } catch {
-            return false;
-          }
-        }),
-      };
-    }
+  // THE BUILD — services/buildDesign.ts, where the two orderings that decide
+  // numbers (the ignition re-applied after the weighed-hardware write; the
+  // camera-shroud THICK_FIN filter before the wake sentences) are pinned by
+  // tests on a recording handle and on the kernel (audit 2026-09-22, row 494).
+  // It never throws: the error is part of the memo's value, because setState
+  // during render breaks under StrictMode's double-invoke.
+  const buildResult = useMemo((): DesignBuild => buildDesign({
+    tree,
+    assigned,
+    kbf: effectiveKbf,
+    supersonic: effectiveSupersonic,
+    measuredDryMassKg: measured.massKg,
+    primaryMountId,
+    currentSetKey,
+  }, KERNEL_HANDLES),
     // `tree.components`, not `tree` — see the note on `mounts` above. Renaming
     // the rocket is not a design change: `engineTree` passes `tree.name`
     // through structurally and nothing the app reads comes back OUT of the
@@ -1564,8 +1070,7 @@ export function App() {
     // `primaryMountId` derives from `assigned` and `tree`, so it only ever
     // changes when they do.
   // eslint-disable-next-line react-hooks/exhaustive-deps -- tree.components deliberately: a rename must not re-run this
-  }, [tree.components, assigned, effectiveKbf, effectiveSupersonic, measured.massKg,
-    primaryMountId, currentSetKey]);
+  [tree.components, assigned, effectiveKbf, effectiveSupersonic, measured.massKg, primaryMountId, currentSetKey]);
   const built = 'error' in buildResult ? null : buildResult;
   const buildError = 'error' in buildResult ? buildResult.error : simError;
   // A fresh array every render whenever the build failed, which invalidated the
@@ -1688,25 +1193,6 @@ export function App() {
     } catch { return null; }
   }, [built]);
 
-  /**
-   * Repairs applied to published thrust curves for the motors currently
-   * loaded. thrustcurve.org carries manufacturer files with coincident time
-   * points; we mend them rather than refuse the motor, and say so here so a
-   * silent fix never changes someone's numbers without telling them.
-   */
-  const curveRepairs = useMemo(() => {
-    const out: string[] = [];
-    for (const [, mm] of assigned) {
-      const repairs = (mm.spec as { curveRepairs?: string[] }).curveRepairs;
-      if (repairs?.length) {
-        out.push(`${mm.spec.designation}: its published thrust curve needed repair `
-          + `before it could be flown (${repairs.join('; ')}). This is a fault in the `
-          + 'motor file, not in your design.');
-      }
-    }
-    return out;
-  }, [assigned]);
-
   // Cosmetic edits (rocket/component names, display colors) must NOT wipe the
   // current flight result — reset on a physics-relevant projection of the
   // tree, not on tree identity (renaming used to clear Results per keystroke).
@@ -1788,8 +1274,25 @@ export function App() {
 
   // ---- Measured mass & CG -> "Build allowance" ballast (v0.061) ----
 
-  /** The existing allowance, if this design already carries one. */
-  const allowanceNode = useMemo(() => findAllowance(tree), [tree]);
+  /**
+   * The existing allowance, if this design already carries one.
+   *
+   * This memo and the four below it that read the tree — `solePinned` (the
+   * check behind `canPinBlocker`), `notices`, `provenanceKey` and `mountSizes`
+   * — key on `tree.components`, like `mounts` and `buildResult` above, and for
+   * their reason: the Rocket name input does `setTree({ ...tree, name })` on
+   * every keystroke, and none of them reads `tree.name` (checked through every
+   * function they call). The 8 September audit named nine such memos and
+   * f5a4993 narrowed four; these are the other five (audit 2026-09-22, row
+   * 513). App.render.test.tsx holds each to it by counting calls to a function
+   * that memo alone makes — exhaustive-deps cannot, because it accepts the
+   * whole `tree` wherever `tree.components` is read. A callback that WRITES the
+   * tree is still never narrowed — see `pinBlockerToMeasured`.
+   */
+  const allowanceNode = useMemo(
+    () => findAllowance(tree),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- tree.components deliberately: a rename must not re-run this
+    [tree.components]);
 
   /**
    * Computed dry mass and CG with any existing allowance BACKED OUT, so a
@@ -1894,14 +1397,13 @@ export function App() {
    * per-stage, and there is no rule for which stage absorbs the difference.
    * With more than one pinned stage the box states the problem and stops,
    * which is the same refusal the RASAero importer itself makes rather than
-   * guessing.
+   * guessing. The rule is services/buildAllowance.ts's `solePinnedStage`; it
+   * reads the stages alone, so it is memoized on them — not on whether this
+   * render has a blocker — which is what lets App.render.test.tsx count its
+   * calls through a rename.
    */
-  const canPinBlocker = useMemo(() => {
-    if (!allowanceBlocker) return false;
-    const pinned = tree.components.filter((n) =>
-      n['overrideSubcomponentsMass'] === true && typeof n['overrideMass'] === 'number');
-    return pinned.length === 1 && pinned[0] === allowanceBlocker;
-  }, [allowanceBlocker, tree]);
+  const solePinned = useMemo(() => solePinnedStage(tree.components), [tree.components]);
+  const canPinBlocker = allowanceBlocker != null && solePinned === allowanceBlocker;
 
   /**
    * Replace the covering override with what the user actually weighed —
@@ -1926,123 +1428,38 @@ export function App() {
   }, [allowanceBlocker, measured, tree, prefs.units, setFileNote]);
 
   /**
-   * Everything transient the user should see, in one channel with a severity.
-   * Motor trouble is a WARNING, never a build error: a malformed published
-   * thrust curve is a fault in someone else's file and must not take the
-   * design down with it (issues-2026-08-23a.md).
+   * Everything transient the user should see, in one channel with a severity
+   * — services/notices.ts, where each branch's copy and its rule for offering
+   * a × are tested by what the list says (audit 2026-09-22, row 501). What
+   * stays here is what only App holds: the state it reads and the setters its
+   * dismissals call.
    */
-  const notices = useMemo((): Notice[] => {
-    const out: Notice[] = [];
-    if (buildError) {
-      // Dismissible ONLY when it came from a flight. A BUILD error is a
-      // standing fact about the design on screen — it comes straight back on
-      // the next render, so a × would be a button that does nothing. A
-      // simulation failure is a one-off event, and there is no reason a user
-      // who has read it should have to keep looking at it.
-      out.push({
-        id: 'build-error',
-        severity: 'error',
-        text: buildError,
-        ...(!('error' in buildResult) ? { onDismiss: () => setSimError(null) } : {}),
-      });
-    }
-    for (const f of motorFailures) {
-      out.push({ id: `motor-failed:${f.mountId}`, severity: 'warn', text: f.text });
-    }
-    for (const [i, text] of curveRepairs.entries()) {
-      out.push({ id: `curve-repair:${i}`, severity: 'warn', text });
-    }
-    if (restoredByOlderBuild) {
-      out.push({
-        // `info`, not `warn`, and deliberately: NoticeBar opens the bar for any
-        // non-info notice, and this one fires for EVERY returning user after
-        // EVERY release (sessionPredatesThisBuild is appVersion !== APP_VERSION,
-        // and this app releases near daily). A self-opening bar on a phone is
-        // how it came to cover the tab bar. The message is advisory — nothing
-        // is wrong, there is a better version of the file to re-open — which is
-        // exactly the bar's own stated rule for what stays quiet.
-        id: 'stale-session',
-        severity: 'info',
-        text: 'This design was restored from autosave and was read in by an earlier build of'
-          + ' the app, so file-reading fixes made since then have not been applied to it.'
-          + ' Re-open the original file to pick them up.',
-        onDismiss: () => setRestoredByOlderBuild(false),
-      });
-    }
-    // One-time, on the first load after upgrading: the restored session carried
-    // a time step finer than the default, inherited from some file opened long
-    // ago and invisible until this build. Say so rather than letting the number
-    // in the new field differ from what the user was silently flying.
-    if (timeStepMigrated) {
-      out.push({
-        id: 'timestep-migrated',
-        severity: 'info',
-        // The closing sentence names the replaced value when the session
-        // carried it — the migration overwrites it in place, so this notice is
-        // the last thing that can — and promises nothing when it did not:
-        // "if you want it back" with no number and 0.05 in every field was a
-        // promise the migrated tester could not act on.
-        text: 'Your saved session was flying a finer simulation time step than the default,'
-          + ' inherited from a design file — it is now set to 0.05 s, which is several times'
-          + ' faster and, in our testing, no less accurate.'
-          + (timeStepMigratedFrom !== null
-            ? ` To get the old step back, type ${fmtStepS(timeStepMigratedFrom)} into the`
-              + ' Time step field in the Launch panel.'
-            : ' The Time step field in the Launch panel takes a finer step, if you have a'
-              + ' reason to pay for one.'),
-        onDismiss: () => setTimeStepMigrated(false),
-      });
-    }
-    // Where a pad mass entered in v0.116/v0.117 went (moved under its motor,
-    // or dropped with the value and the motor named) — its own entry, so it
-    // cannot overwrite an import note and an import note cannot overwrite it.
-    if (padMassNote) {
-      out.push({
-        id: 'pad-mass-moved',
-        severity: padMassNote.severity,
-        text: padMassNote.text,
-        onDismiss: () => setPadMassNote(null),
-      });
-    }
-    // A nozzle exit diameter wider than the motors in its stage (2026-09-08).
-    // NOT dismissible, for the reason a build error is not: it is a standing
-    // fact about the design on screen, so a × would be a button that does
-    // nothing — it comes straight back on the next render. One entry per
-    // stage, keyed by the stage id, so a second bad stage cannot hide behind
-    // the first. The check and the sentence are in services/nozzleCheck.ts;
-    // only the unit formatting is here, because that is the one part that
-    // needs prefs.
-    for (const w of nozzleOversize(tree, assigned)) {
-      out.push({
-        id: `nozzle-oversize:${w.stageId}`,
-        severity: 'warn',
-        text: nozzleOversizeText(w, (m) =>
-          `${fmtSi('length', prefs.units.length, m)} ${prefs.units.length}`),
-      });
-    }
-    if (fileNoteState) {
-      out.push({
-        id: 'file-note',
-        severity: fileNoteState.severity,
-        text: fileNoteState.text,
-        onDismiss: () => setFileNote(null),
-      });
-    }
-    // Saved runs the cap removed — its own entry, so it neither overwrites an
-    // import note nor is overwritten by one. A warning: those runs are gone.
-    if (runsCapped.evicted > 0 || runsCapped.unsaved > 0) {
-      out.push({
-        id: 'runs-evicted',
-        severity: 'warn',
-        text: `${runCapNote(runsCapped.evicted, runsCapped.unsaved)} Download the run table`
-          + ' (Results) to keep a copy of the rest before more go.',
-        onDismiss: () => setRunsCapped({ evicted: 0, unsaved: 0 }),
-      });
-    }
-    return out;
-  }, [buildError, buildResult, motorFailures, curveRepairs, fileNoteState, setFileNote,
+  const buildFailed = 'error' in buildResult;
+  const notices = useMemo((): Notice[] => designNotices({
+    error: buildError,
+    buildFailed,
+    motorFailures,
+    tree,
+    assigned,
+    restoredByOlderBuild,
+    timeStepMigrated,
+    timeStepMigratedFrom,
+    padMassNote,
+    fileNote: fileNoteState,
+    runsCapped,
+    lengthText: (m) => `${fmtSi('length', prefs.units.length, m)} ${prefs.units.length}`,
+  }, {
+    simError: () => setSimError(null),
+    staleSession: () => setRestoredByOlderBuild(false),
+    timeStep: () => setTimeStepMigrated(false),
+    padMassNote: () => setPadMassNote(null),
+    fileNote: () => setFileNote(null),
+    runsCapped: () => setRunsCapped({ evicted: 0, unsaved: 0 }),
+  }),
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- tree.components deliberately: a rename must not re-run this (row 513)
+  [buildError, buildFailed, motorFailures, fileNoteState, setFileNote,
     restoredByOlderBuild, timeStepMigrated, timeStepMigratedFrom, padMassNote, runsCapped,
-    tree, assigned, prefs.units.length]);
+    tree.components, assigned, prefs.units.length]);
 
   /** Assigns a motor to a mount, with the propellant-aware ignition default. */
   const assignMotor = (targetMountId: string, label: string, spec: MotorSpec, meta: MotorMeta) => {
@@ -2160,67 +1577,34 @@ export function App() {
    * impossible. A value keyed 'legacy' (a v0.116/v0.117 session, or a
    * bare-form .ork attached in applyImported) reaches the build with no set
    * key, so `built.hardware` is the arithmetic's verdict on it against the
-   * motor now loaded, while the field renders BLANK. After that first build:
-   * accepted (ok, or a motor with no mass curve to separate it from) → the
-   * record is re-keyed to the current set and the notice says where it went;
-   * refused → the keys are deleted and the notice names the value and the
-   * motor, so nothing is ever shown refused under a number that looks live.
-   * 'none/no-motor' (the kernel refused the primary's curve) stays pending:
-   * the next build that accepts a motor decides.
+   * motor now loaded, while the field renders BLANK. After that first build it
+   * is re-keyed to the current set or dropped, and the notice says which —
+   * the four-way decision and its sentences are
+   * services/padMassReconcile.ts's reconcileLegacyPadMass, tested there; what
+   * stays here is writing the step into state.
    */
   useEffect(() => {
-    if (!built || !primaryMountId) return;
-    const rec = mountMotors[primaryMountId];
-    if (!rec || rec.padMassWeighedWith !== LEGACY_PAD_MASS_KEY || typeof rec.padMassKg !== 'number') return;
-    const h = built.hardware;
-    const kg = rec.padMassKg;
-    const name = baseLabel(rec.label);
-    // The file's primary is a reference the app could not load (a v0.117
-    // session with the sustainer unmatched and the booster loaded): the field
-    // is withheld on that card and the export gate keeps the reference's
-    // slot, so a value placed here would be flown, invisible, and absent from
-    // the saved file. Dropped with a notice, like a refusal (2026-09-08 review).
-    if (filePrimaryMountId !== primaryMountId) {
-      const fileRef = filePrimaryMountId ? unmatchedRefs[filePrimaryMountId] : undefined;
-      const where = (filePrimaryMountId && findNode(tree, filePrimaryMountId)?.name) ?? 'a removed mount';
-      setPadMass(primaryMountId, null);
-      setPadMassNote({
-        severity: 'warn',
-        text: `The weighed pad mass you entered before this version (${massText(kg)}) could not be placed: the`
-          + ` motor the file names on ${where} (${fileRef?.designation ?? 'unknown'}) is not loaded, so the app`
-          + ' cannot tell which motors it was weighed with. Load that motor, or re-weigh with the motors you'
-          + ' have in and type it under the top motor on Motors & Launch.',
-      });
-      return;
-    }
-    if (h.state === 'implausible') {
-      setPadMass(primaryMountId, null);
-      setPadMassNote({
-        severity: 'warn',
-        text: h.reason === 'negative'
-          ? `The weighed pad mass entered before this version (${massText(kg)}) was not kept: it is lighter`
-            + ` than the dry rocket plus the catalogue ${name}, so it was weighed with a different motor.`
-            + ' Re-weigh with this motor in and type it under it on Motors & Launch.'
-          : `The weighed pad mass entered before this version (${massText(kg)}) was not kept: against the`
-            + ` catalogue ${name} it would carry more hardware than the airframe itself. Re-weigh with this`
-            + ' motor in and type it under it on Motors & Launch.',
-      });
-    } else if (h.state === 'ok' || (h.state === 'none' && h.why === 'no-mass-curve')) {
+    const step = reconcileLegacyPadMass({
+      hardware: built ? built.hardware : null,
+      primaryMountId,
+      filePrimaryMountId,
+      motors: mountMotors,
+      unmatchedRefs,
+      tree,
+      currentSetKey,
+      text: padMassText,
+    });
+    if (!step) return;
+    if (step.kind === 'drop') {
+      setPadMass(step.mountId, null);
+    } else {
       setMountMotors((prev) => ({
         ...prev,
-        [primaryMountId]: { ...prev[primaryMountId]!, padMassWeighedWith: currentSetKey },
+        [step.mountId]: { ...prev[step.mountId]!, padMassWeighedWith: step.key },
       }));
-      setPadMassNote({
-        severity: 'info',
-        text: `The weighed pad mass you entered in the Measured mass & CG box (${massText(kg)}) now belongs`
-          + ` to the motor it was weighed with: it sits under ${name} on Motors & Launch, and the line there`
-          + ' says what it carries. If that is not the motor you weighed with, clear it and re-weigh.'
-          + (h.state === 'none'
-            ? ` ${name} carries no mass curve, so nothing is carried until a motor with one is loaded.`
-            : ''),
-      });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- setPadMass and massText are per-render closures over the same state
+    setPadMassNote(step.note);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- setPadMass and padMassText are per-render closures over the same state
   }, [built, primaryMountId, filePrimaryMountId, unmatchedRefs, mountMotors, currentSetKey]);
 
   /**
@@ -2334,8 +1718,7 @@ export function App() {
         // recorded - NOT inside recordRuns, which is also SimResults' delete-one
         // and clear-all callback, where it would mark a design dirty for
         // REMOVING a flight.
-        flownSinceSave.current = true;
-        bumpDirty();
+        markFlown();
         setSimError(null);
         setFlightSaid((prev) => ({
           seq: prev.seq + 1,
@@ -2381,10 +1764,12 @@ export function App() {
     // before v0.119 cannot be re-flown on a design that does — see
     // simReport's runCarriesNozzleStamp (2026-09-08).
     hasNozzle: motorisedStagesWithNozzle(tree, assigned).length > 0,
-    // `tree`, not `tree.components`, unlike `buildResult` above: this memo is
-    // ~0.3 ms and re-running it on a rename is cheaper than a suppressed
-    // exhaustive-deps warning is to read.
-  }), [physicsKey, assigned, hardwareDeltaKg, launch, aeroMode, effectiveKbf, autoSupersonic, tree]);
+    // `tree.components`, not `tree` (row 513, see `allowanceNode`). The memo
+    // itself is ~0.3 ms, but a new key per keystroke re-ran everything keyed
+    // on it too: `currentMatchKey`, `canShowCharts` and so `chartableRun`'s
+    // match against every saved run, and `changedSince`.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- tree.components deliberately: a rename must not re-run this
+  }), [physicsKey, assigned, hardwareDeltaKg, launch, aeroMode, effectiveKbf, autoSupersonic, tree.components]);
   /** The same key, only when there is a rocket and a motor to re-fly it on. */
   const currentMatchKey = useMemo<DesignMatchKey | null>(
     () => (built && primaryMountId ? provenanceKey : null),
@@ -3262,7 +2647,8 @@ export function App() {
       // 2026-09-22, row 351) — the same count the mass figures carry.
       count: mountMotorCount(tree, m.id!),
     };
-  }), [mounts, tree, stageList]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- tree.components deliberately: a rename must not re-run this (row 513)
+  }), [mounts, tree.components, stageList]);
 
   /**
    * Offer the Quick Picks at all? They are the Quick Start's four Estes
@@ -3369,11 +2755,11 @@ export function App() {
    * Collapse button cannot drift between the two placements.
    */
   const statsDrawerNode = built ? (
-    <div className={heroWide ? 'stats-drawer' : 'stats-drawer stats-drawer-flow'} ref={setDrawerEl}>
+    <div className={hero.wide ? 'stats-drawer' : 'stats-drawer stats-drawer-flow'} ref={hero.drawerRef}>
       <div className="stats-drawer-head">
         <span>All stats</span>
-        <button className="file-btn" aria-expanded={true} ref={drawerFocus.refFor('collapse')}
-          onClick={() => setDrawerByUser(false)}>▾ Collapse</button>
+        <button className="file-btn" aria-expanded={true} ref={hero.focusRef('collapse')}
+          onClick={() => hero.setByUser(false)}>▾ Collapse</button>
       </div>
       <DesignStats
         info={built.info}
@@ -3534,7 +2920,7 @@ export function App() {
             <Icon name="book" /> Guide
           </button>
           {/* Replay lives in the header, not inside the Guide (batch 08-21c). */}
-          <button className="file-btn" onClick={() => setTourOpen(true)}
+          <button className="file-btn" onClick={tour.start}
             title="Replay the six-step interface tour">
             ⟲ Tour
           </button>
@@ -3661,7 +3047,7 @@ export function App() {
       </header>
       {showPrefs && <PreferencesDialog onClose={() => setShowPrefs(false)} />}
       {showGuide && <GuideDialog onClose={() => setShowGuide(false)} />}
-      {tourOpen && <FirstRunTour onSetTab={setTab} onClose={closeTour} />}
+      {tour.open && <FirstRunTour onSetTab={setTab} onClose={tour.close} />}
       {showChangelog && <ChangelogDialog onClose={() => setShowChangelog(false)} />}
       {showScale && (
         <ScaleDialog
@@ -4238,23 +3624,16 @@ export function App() {
                 the user is on 3D/Aft — where the taller cap would just be
                 letterbox. */}
             <div className="rocket-stage hero-stage" data-tour="canvas"
-              ref={setStageEl}
+              ref={hero.stageRef}
               data-vert={view === '2d' && vert2d ? 'on' : undefined}
-              style={view === '2d' && !vert2d && heroNatural
-                ? ({
-                  '--hero-natural': `${heroNatural + HERO_CHIP_RESERVE + drawerClearance}px`,
-                  // The drawer's own height, published so the stage's CEILING can
-                  // grow by it. Without this the line above was discarded by the
-                  // min() in styles.css for every rocket of any size, and the
-                  // drawer came straight out of the drawing.
-                  '--drawer-clearance': `${drawerClearance}px`,
-                } as React.CSSProperties)
-                : undefined}>
+              // Fit-to-content sizing for a horizontal 2D drawing only — 3D and
+              // Aft have no natural height (hooks/useHeroDrawer.ts heroStageStyle).
+              style={view === '2d' && !vert2d ? hero.stageStyle : undefined}>
               {/* .hero-view owns fill-and-center: the drawing must never size
                   its own container (see the styles.css note on the feedback
                   loop), and the schematic wrap carries inline positioning of
                   its own, so the absolute box has to be ours. */}
-              <div className="hero-view" style={drawerClearance ? { bottom: drawerClearance } : undefined}>
+              <div className="hero-view" style={hero.clearance ? { bottom: hero.clearance } : undefined}>
                 {view === '2d'
                   ? (
                     <TreeSchematic
@@ -4268,7 +3647,7 @@ export function App() {
                       onError={setFileNote}
                       vertical={vert2d}
                       fillHeight
-                      onNaturalHeight={setHeroNatural}
+                      onNaturalHeight={hero.setNatural}
                       // Spend the chip's headroom above the rocket instead of
                       // letting centring split it in half. Only in horizontal
                       // 2D: ⟳90° draws the rocket along the height axis, where
@@ -4291,7 +3670,7 @@ export function App() {
                   )
                   : <AftView tree={tree} motors={motorDims} roll={viewRoll} onRoll={setViewRoll} />}
               </div>
-              {built && <StatsChip info={built.info} drawerOpen={statsDrawer} tight={heroTight} />}
+              {built && <StatsChip info={built.info} drawerOpen={hero.open} tight={hero.tight} />}
               {/* THE DRAWER IS AN OVERLAY ONLY WHERE IT CAN AFFORD TO BE
                   (2026-09-21). At >= 981px the stage has a height and the
                   drawing is lifted clear of the drawer; below that the stage
@@ -4301,14 +3680,14 @@ export function App() {
                   it is outside the stage's border and drafting-grid sky
                   rather than a white card floating on it. Same element, same
                   state, same buttons; only where it sits changes. */}
-              {built && (statsDrawer
-                ? (heroWide ? statsDrawerNode : null)
+              {built && (hero.open
+                ? (hero.wide ? statsDrawerNode : null)
                 : (
                   // aria-expanded on both halves of the drawer's disclosure
                   // (audit 2026-09-22): this one only shows while it is shut,
-                  // and a press hands focus across — see drawerFocus.
-                  <button className="file-btn stats-drawer-chip" aria-expanded={false} ref={drawerFocus.refFor('chip')}
-                    onClick={() => setDrawerByUser(true)}
+                  // and a press hands focus across — see useHeroDrawer.
+                  <button className="file-btn stats-drawer-chip" aria-expanded={false} ref={hero.focusRef('chip')}
+                    onClick={() => hero.setByUser(true)}
                     title="Every design stat, with unit switches">▤ All stats</button>
                 ))}
               {mountSizes.length > 0 && (
@@ -4324,7 +3703,7 @@ export function App() {
                 </div>
               )}
             </div>
-            {built && statsDrawer && !heroWide && statsDrawerNode}
+            {built && hero.open && !hero.wide && statsDrawerNode}
             {built && built.info.warningTexts.length > 0 && (
               <div className="file-note file-note-warn" role="alert">
                 {built.info.warningTexts.map(formatWarningText).join('\n')}

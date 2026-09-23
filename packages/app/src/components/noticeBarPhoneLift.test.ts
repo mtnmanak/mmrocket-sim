@@ -82,25 +82,24 @@ describe('the phone lift for the notice bar', () => {
   });
 });
 
-/**
- * The bar opens ITSELF for any notice above `info`. The stale-autosave notice
- * fires whenever the restored session's appVersion differs from this build's —
- * which is every returning user after every release — so leaving it at `warn`
- * meant a self-opening bar on most loads, and on a phone that bar was the one
- * covering the tabs. It is advisory: nothing is wrong, there is simply a better
- * version of the file to re-open.
+/*
+ * THE STALE-AUTOSAVE NOTICE DOES NOT OPEN THE BAR — the other half of what the
+ * phone lift is for. The bar opens ITSELF for any new notice above `info`, and
+ * the stale-autosave notice fires whenever the restored session's appVersion
+ * differs from this build's, which is every returning user after every release;
+ * at `warn` it opened the bar on most loads, and on a phone that bar was the one
+ * covering the tabs.
+ *
+ * This file held both halves as regexes over App.tsx and NoticeBar.tsx. They
+ * are behaviour now (audit 2026-09-22, row 477):
+ *  - the notice's severity: services/notices.test.ts ("names a design restored
+ *    from an older build as INFORMATION"), since the list moved out of App;
+ *  - App, mounted on a session an older build wrote, puts it on the bar
+ *    collapsed: App.render.test.tsx ("a design restored from an older build");
+ *  - NoticeBar opens for a new problem and not for information:
+ *    NoticeBar.test.tsx ("opens itself for a warning", "shows information
+ *    collapsed", "still opens for a NEW problem"), which fail if the rule opens
+ *    for `info` or stops opening for `warn` — mutation-checked both ways.
+ * What stays here is the CSS, where order is the mechanism and no test in this
+ * suite can render a pixel.
  */
-describe('the stale-autosave notice does not open the bar', () => {
-  it('is an info notice', () => {
-    const app = read('../App.tsx');
-    const push = /out\.push\(\{[^}]*?id: 'stale-session',[\s\S]*?\}\);/.exec(app)?.[0] ?? '';
-    expect(push).not.toBe('');
-    expect(push).toContain("severity: 'info'");
-  });
-
-  it('and NoticeBar still opens itself for anything that is not info', () => {
-    // For any NEW notice that is not info, since the 2026-09-22 audit — one
-    // already on the bar does not re-open it after the user collapsed it.
-    expect(read('./NoticeBar.tsx')).toMatch(/notices\.some\(\(n\) => n\.severity !== 'info' && !seen\.has\(/);
-  });
-});

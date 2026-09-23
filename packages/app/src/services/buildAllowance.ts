@@ -174,6 +174,26 @@ export function coveringMassOverride(
   return suppressingAncestor(tree, place.parentId, 'overrideSubcomponentsMass', 'overrideMass');
 }
 
+/**
+ * The ONE top-level stage whose mass override covers everything inside it —
+ * null when none is, and null when more than one is.
+ *
+ * It decides whether the Measured box may offer to pin the component that
+ * swallows an allowance (`coveringMassOverride`) to the scale reading instead.
+ * That is only unambiguous for exactly one: the measured figures are
+ * whole-airframe, the overrides are per-stage, and there is no rule for which
+ * stage would absorb the difference — the same refusal the RASAero importer
+ * makes rather than guess. The flag-and-number rule is the kernel's, as above.
+ * It takes the components, not the tree, because App keys it on
+ * `tree.components`: a rename is not a design change (audit 2026-09-22, row
+ * 513), and App.render.test.tsx counts its calls to hold App to that.
+ */
+export function solePinnedStage(components: readonly ComponentNode[]): ComponentNode | null {
+  const pinned = components.filter((n) =>
+    n['overrideSubcomponentsMass'] === true && typeof n['overrideMass'] === 'number');
+  return pinned.length === 1 ? pinned[0]! : null;
+}
+
 export function placeAtStation(
   tree: RocketTree,
   stationM: number,

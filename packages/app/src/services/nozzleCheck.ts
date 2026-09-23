@@ -1,5 +1,5 @@
 import type { RocketTree } from '@online-openrocket/engine';
-import type { MountMotor } from '../App.js';
+import type { MountMotor } from '../model/design.js';
 import { kernelStageIdByNode, mountMotorCount, stagesWithNozzle } from '../tree/treeModel.js';
 
 /**
