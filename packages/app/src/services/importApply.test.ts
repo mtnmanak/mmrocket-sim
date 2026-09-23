@@ -1,0 +1,264 @@
+import { describe, expect, it, vi } from 'vitest';
+import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
+import type { MountMotor, SavedConfig } from '../App.js';
+import { DEFAULT_CONDITIONS, type LaunchConditions } from '../components/LaunchPanel.js';
+import { designFingerprint, isDirty } from './dirtyState.js';
+import { LEGACY_PAD_MASS_KEY, motorIdentity, motorSetIdentity } from './hardwareMass.js';
+import type { MotorMatchResult } from './motorMatch.js';
+import type { OrkFlightConfig, OrkMotorRef } from './orkFile.js';
+import { padMassSetKey } from './configSync.js';
+import {
+  importedLaunch, importMark, planConfigSwitch, planImport, planNewDesign, resolveImportMotors,
+  type ImportedDesign, type ResolvedImportMotors,
+} from './importApply.js';
+
+/**
+ * What an Open, a configuration switch and ✕ New put on screen (audit
+ * 2026-09-22, extraction #3). These were ~370 lines of App.tsx that no test
+ * could reach, and two of their rules were written twice there — the launch
+ * merge and the pad-mass key — so the saved mark and the state it describes
+ * could be assembled apart. Every plan here is what App applies AND what it
+ * marks from.
+ */
+
+const TEXT = {
+  mass: (kg: number) => `${(kg * 1000).toFixed(0)} g`,
+  length: (m: number) => `${(m * 1000).toFixed(1)} mm`,
+};
+
+const motor = (designation: string, motorId = `db-${designation}`): MountMotor => ({
+  label: `${designation}-10`,
+  spec: {
+    designation, diameter: 0.029, length: 0.2, cgX: 0.1, ejectionDelay: 10,
+    times: [0, 1], thrusts: [0, 0], masses: [0.2, 0.1],
+  },
+  meta: { label: designation, manufacturer: 'AeroTech', motorId },
+  ignition: { event: 'automatic', delay: 0 },
+});
+
+const ref = (designation: string): OrkMotorRef => ({
+  designation, manufacturer: 'AeroTech', diameter: 0.029, length: 0.2, delay: 10,
+});
+
+/** A stage whose motor mount sits inside a pod set of TWO: the kernel flies two motors. */
+const podTree = (): RocketTree => ({
+  name: 'Pods',
+  components: [{
+    type: 'stage', id: 'st', name: 'Sustainer',
+    children: [{
+      type: 'bodytube', id: 'bt', length: 0.5, outerRadius: 0.03, thickness: 0.001,
+      children: [{
+        type: 'podset', id: 'pods', instanceCount: 2, radiusOffset: 0.05,
+        children: [{
+          type: 'bodytube', id: 'podtube', length: 0.3, outerRadius: 0.016, thickness: 0.001,
+          children: [{
+            type: 'innertube', id: 'mmt', length: 0.2, outerRadius: 0.015, thickness: 0.0005, motorMount: true,
+          } as ComponentNode],
+        } as ComponentNode],
+      } as ComponentNode],
+    } as ComponentNode],
+  } as ComponentNode],
+});
+
+const config = (id: string, motors: Record<string, OrkMotorRef>, extra: Partial<OrkFlightConfig> = {}): OrkFlightConfig => ({
+  id, name: id, isDefault: false, motors, deployments: {}, separations: {}, ...extra,
+});
+
+/** Every reference resolves to the catalogue motor of the same designation. */
+const resolvedAll = (imported: ImportedDesign): ResolvedImportMotors => ({
+  working: Object.fromEntries(Object.entries(imported.motors).map(([id, r]) => [id, { motor: motor(r.designation), note: '' }])),
+  configs: Object.fromEntries((imported.configs ?? []).filter((c) => c.id !== imported.chosenConfigId)
+    .map((c) => [c.id, Object.fromEntries(Object.entries(c.motors).map(([id, r]) => [id, motor(r.designation)]))])),
+});
+
+const LAUNCH: LaunchConditions = { ...DEFAULT_CONDITIONS, windAverage: 4 };
+
+describe('importedLaunch — THE launch merge', () => {
+  it('applies every field the file carried, explicit nulls included, and keeps the rest', () => {
+    const prev: LaunchConditions = { ...DEFAULT_CONDITIONS, windAverage: 4, temperatureC: 27 };
+    const next = importedLaunch(prev, { launchRodAngleDeg: 5, temperatureC: null });
+    expect(next.windAverage).toBe(4);
+    expect(next.launchRodAngleDeg).toBe(5);
+    expect(next.temperatureC).toBeNull();
+  });
+
+  it('always assigns the time step: a file without one goes back to the default', () => {
+    const prev = { ...DEFAULT_CONDITIONS, timeStepS: 0.01 };
+    expect(importedLaunch(prev, {}).timeStepS).toBeUndefined();
+    expect(importedLaunch(prev, undefined).timeStepS).toBeUndefined();
+    expect(importedLaunch(prev, { timeStepS: 0.02 }).timeStepS).toBe(0.02);
+  });
+});
+
+describe('resolveImportMotors — the awaits of an open', () => {
+  it('matches the applied set once and every OTHER configuration after it, in file order', async () => {
+    const imported: ImportedDesign = {
+      name: 'x', tree: podTree(), notes: [], motors: { mmt: ref('H100') },
+      configs: [config('A', { mmt: ref('H100') }), config('B', { mmt: ref('I200') })],
+      chosenConfigId: 'A',
+    };
+    const seen: string[] = [];
+    const match = vi.fn(async (r: OrkMotorRef): Promise<MotorMatchResult> => {
+      seen.push(r.designation);
+      return { motor: motor(r.designation), note: '' };
+    });
+    const out = await resolveImportMotors(imported, match);
+    // The applied configuration is not fetched a second time.
+    expect(seen).toEqual(['H100', 'I200']);
+    expect(Object.keys(out.configs)).toEqual(['B']);
+    expect(out.configs['B']!['mmt']!.spec.designation).toBe('I200');
+  });
+});
+
+describe('planImport — one plan, applied and marked', () => {
+  it('marks exactly what it writes, so a fresh file reads clean', () => {
+    const imported: ImportedDesign = {
+      name: 'x', tree: podTree(), notes: ['from the reader'], motors: { mmt: ref('H100') },
+      launch: { windAverage: 9 },
+      measured: { massKg: 1.2, cgM: 0.3 },
+    };
+    const plan = planImport(imported, resolvedAll(imported), { launch: LAUNCH, text: TEXT });
+    expect(importMark(plan)).toBe(designFingerprint(plan.snapshot));
+    expect(isDirty(designFingerprint(plan.snapshot), importMark(plan), false)).toBe(false);
+    // The launch in the snapshot is THE merge rule's, from the launch handed in.
+    expect(plan.snapshot.launch).toEqual(importedLaunch(LAUNCH, imported.launch));
+    expect(plan.snapshot.measured).toEqual({ massKg: 1.2, cgM: 0.3 });
+    expect(plan.snapshot.maxMotorLengthByStage).toEqual({});
+    expect(plan.note.severity).toBe('info');
+    expect(plan.note.text.split('\n')[0]).toBe('Loaded “x”.');
+  });
+
+  it('keeps an unmatched reference whole, says so, and reads as a warning', () => {
+    const imported: ImportedDesign = { name: 'x', tree: podTree(), notes: [], motors: { mmt: ref('Z9999') } };
+    const plan = planImport(imported, {
+      working: { mmt: { note: 'Motor “Z9999” is not in the motor database.' } }, configs: {},
+    }, { launch: LAUNCH, text: TEXT });
+    expect(plan.snapshot.mountMotors).toEqual({});
+    expect(plan.unmatchedRefs['mmt']!.designation).toBe('Z9999');
+    expect(plan.note.severity).toBe('warn');
+    expect(plan.note.text).toContain('Z9999');
+  });
+
+  it('clears the previous rocket’s measured figures when the file carries none', () => {
+    const imported: ImportedDesign = { name: 'x', tree: podTree(), notes: [], motors: {} };
+    const plan = planImport(imported, resolvedAll(imported), { launch: LAUNCH, text: TEXT });
+    expect(plan.snapshot.measured).toEqual({ massKg: null, cgM: null });
+  });
+
+  /**
+   * THE pad-mass key rule, once. The set on screen is keyed by
+   * configSync.padMassSetKey; an imported pad mass must be stored under the
+   * same key or hardwareMass reads it as weighed with a different set the
+   * moment the file opens. A pod set of two is the case that rule is for: the
+   * kernel flies two motors from one mount, where the mount's cluster says one.
+   */
+  it('keys an imported pad mass by the rule the set on screen is keyed by', () => {
+    const imported: ImportedDesign = {
+      name: 'x', tree: podTree(), notes: [], motors: { mmt: ref('H100') },
+      configs: [config('A', { mmt: ref('H100') }, { padMassKg: 1.5 })],
+      chosenConfigId: 'A',
+    };
+    const plan = planImport(imported, resolvedAll(imported), { launch: LAUNCH, text: TEXT });
+    const rec = plan.snapshot.mountMotors['mmt']!;
+    expect(rec.padMassKg).toBe(1.5);
+    expect(rec.padMassWeighedWith).toBe(padMassSetKey(plan.snapshot.tree, plan.snapshot.mountMotors));
+    expect(rec.padMassWeighedWith).toBe(motorSetIdentity([['mmt', motorIdentity(rec.meta, 'H100'), 2]]));
+    // The configuration's own record carries the same value and key.
+    expect(plan.snapshot.savedConfigs[0]!.motors['mmt']).toEqual(rec);
+  });
+
+  it('keys a pad mass on a half-loaded set with the unmatched sentinel, and the v0.116 form legacy', () => {
+    const imported: ImportedDesign = {
+      name: 'x', tree: podTree(), notes: [], motors: { mmt: ref('H100') },
+      configs: [config('A', { mmt: ref('H100') }, { padMassKg: 1.5, padMassLegacy: true })],
+      chosenConfigId: 'A',
+    };
+    const legacy = planImport(imported, resolvedAll(imported), { launch: LAUNCH, text: TEXT });
+    expect(legacy.snapshot.mountMotors['mmt']!.padMassWeighedWith).toBe(LEGACY_PAD_MASS_KEY);
+
+    const unmatched = planImport({ ...imported, configs: [config('A', { mmt: ref('Z1') }, { padMassKg: 1.5 })], motors: { mmt: ref('Z1') } },
+      { working: { mmt: { note: 'no Z1' } }, configs: {} }, { launch: LAUNCH, text: TEXT });
+    // No record to carry it: the value stays on the reference so Save writes it back.
+    expect(unmatched.unmatchedRefs['mmt']!.padMassKg).toBe(1.5);
+    expect(unmatched.note.text).toContain('could not be loaded');
+  });
+});
+
+describe('planConfigSwitch — one switch, applied and noted', () => {
+  const tree = (): RocketTree => ({
+    name: 'two',
+    components: [
+      { type: 'stage', id: 's1', name: 'Sustainer', children: [
+        { type: 'bodytube', id: 'b1', length: 0.4, outerRadius: 0.03, thickness: 0.001, children: [
+          { type: 'innertube', id: 'm1', length: 0.2, outerRadius: 0.015, thickness: 0.0005, motorMount: true } as ComponentNode,
+          { type: 'parachute', id: 'chute', diameter: 0.5, deployEvent: 'apogee', deployDelay: 0 } as ComponentNode,
+        ] } as ComponentNode,
+      ] } as ComponentNode,
+      { type: 'stage', id: 's2', name: 'Booster', separationEvent: 'ejection', separationDelay: 0, children: [
+        { type: 'bodytube', id: 'b2', length: 0.3, outerRadius: 0.03, thickness: 0.001, children: [
+          { type: 'innertube', id: 'm2', length: 0.2, outerRadius: 0.015, thickness: 0.0005, motorMount: true } as ComponentNode,
+        ] } as ComponentNode,
+      ] } as ComponentNode,
+    ],
+  });
+  const A: SavedConfig = { id: 'A', name: 'A', isDefault: true, motors: { m1: motor('H100'), m2: motor('I200') } };
+  const B: SavedConfig = {
+    id: 'B', name: 'B', isDefault: false, motors: { m1: motor('H100'), m2: motor('J300') },
+    deployments: { chute: { deployEvent: 'altitude', deployAltitude: 150 } },
+    separations: { s2: { separationEvent: 'bogus-event', separationDelay: 1.5 } },
+    nozzles: { s2: 0.02 },
+  };
+
+  it('writes the working set back into the configuration being left, then applies the target', () => {
+    const working = { ...A.motors, m1: { ...A.motors['m1']!, label: 'H100-14' } };
+    const plan = planConfigSwitch({
+      savedConfigs: [A, B], activeConfigId: 'A', mountMotors: working, unmatchedRefs: {}, tree: tree(),
+    }, B, TEXT);
+    expect(plan.savedConfigs[0]!.motors['m1']!.label).toBe('H100-14');
+    expect(plan.savedConfigs[1]).toBe(B);
+    expect(plan.mountMotors).toBe(B.motors);
+    expect(plan.activeConfigId).toBe('B');
+    expect(plan.unmatchedRefs).toEqual({});
+  });
+
+  it('puts the configuration’s deployment, separation and nozzle on the tree, the event in the kernel’s spelling', () => {
+    const plan = planConfigSwitch({
+      savedConfigs: [A, B], activeConfigId: 'A', mountMotors: A.motors, unmatchedRefs: {}, tree: tree(),
+    }, B, TEXT);
+    const chute = plan.tree.components[0]!.children![0]!.children![1]!;
+    expect(chute['deployEvent']).toBe('altitude');
+    expect(chute['deployAltitude']).toBe(150);
+    const booster = plan.tree.components[1]!;
+    expect(booster['separationEvent']).toBe('ejection');
+    expect(booster['separationDelay']).toBe(1.5);
+    expect(booster['nozzleExitDiameter']).toBe(0.02);
+    expect(plan.note).toEqual({
+      text: 'Flight configuration “B” applied — its motors and recovery settings are now live.',
+      severity: 'info',
+    });
+  });
+
+  it('names an unmatched motor as the debt that comes due on applying', () => {
+    const C: SavedConfig = { id: 'C', name: 'C', isDefault: false, motors: {}, unmatched: ['Z1'], unmatchedRefs: { m1: ref('Z1') } };
+    const plan = planConfigSwitch({
+      savedConfigs: [A, C], activeConfigId: 'A', mountMotors: A.motors, unmatchedRefs: {}, tree: tree(),
+    }, C, TEXT);
+    expect(plan.unmatchedRefs).toEqual({ m1: ref('Z1') });
+    expect(plan.note.severity).toBe('warn');
+    expect(plan.note.text).toContain('Motor “Z1” couldn\'t be matched');
+  });
+});
+
+describe('planNewDesign — ✕ New marks what it writes', () => {
+  it('takes the mark over the very tree it hands back, launch and measured carried', () => {
+    const measured = { massKg: 0.5, cgM: 0.2 };
+    const { snapshot, mark } = planNewDesign({ launch: LAUNCH, measured });
+    expect(mark).toBe(designFingerprint(snapshot));
+    expect(snapshot.tree.components).toHaveLength(1);
+    expect(snapshot.launch).toBe(LAUNCH);
+    expect(snapshot.measured).toBe(measured);
+    expect(snapshot.mountMotors).toEqual({});
+    expect(snapshot.savedConfigs).toEqual([]);
+    expect(snapshot.activeConfigId).toBeNull();
+  });
+});

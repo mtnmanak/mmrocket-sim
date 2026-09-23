@@ -6,7 +6,7 @@ import {
   LEGACY_PAD_MASS_KEY, motorIdentity, motorSetIdentity, parseSetIdentity, rekeyUnmatched,
 } from './hardwareMass.js';
 import { clusterCount } from '../tree/cluster.js';
-import { findNode, motorMounts, primaryMountOf } from '../tree/treeModel.js';
+import { findNode, motorMounts, mountMotorCount, primaryMountOf } from '../tree/treeModel.js';
 
 /**
  * The working motor set ↔ the flight configuration it belongs to (v0.118).
@@ -22,6 +22,32 @@ import { findNode, motorMounts, primaryMountOf } from '../tree/treeModel.js';
  * the working references are seeded from the active configuration at
  * restore. Pure — no React, no kernel — so each is a unit test.
  */
+
+/**
+ * THE key a weighed pad mass is stored under, and compared against: the motor
+ * SET it was weighed with — each mount's motor identity and the kernel's motor
+ * count for that mount (a pod set or parallel stage around it multiplies its
+ * cluster) — plus an `unmatched:<designation>` sentinel for every reference the
+ * file named that nothing could load, so a set only half loaded is never
+ * applied against a partial catalogue sum (hardwareMass 'stale-set').
+ *
+ * ONE rule (audit 2026-09-22). App built it twice — once at import from the
+ * configuration's own set, once for the set on screen — and the two had to be
+ * kept in step by hand; when they drift, a freshly opened pad mass reads as
+ * weighed with some other motor set. `refs` is empty for the set on screen:
+ * the working references are not loaded motors, and the sentinel is what keeps
+ * the weighing pending until they are.
+ */
+export function padMassSetKey(
+  tree: RocketTree, motors: Record<string, MountMotor>, refs: Record<string, OrkMotorRef> = {},
+): string {
+  return motorSetIdentity([
+    ...Object.entries(motors).map(([id, mm]) =>
+      [id, motorIdentity(mm.meta, mm.spec.designation), mountMotorCount(tree, id)] as const),
+    ...Object.entries(refs).map(([id, ref]) =>
+      [id, `unmatched:${ref.designation}`, mountMotorCount(tree, id)] as const),
+  ]);
+}
 
 /**
  * The working set written back into the active configuration. Returns

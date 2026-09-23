@@ -21,7 +21,7 @@ import { FlyScreen } from './components/FlyScreen.js';
 import { ComponentTree } from './components/ComponentTree.js';
 import { FlightCharts } from './components/FlightCharts.js';
 import { DragPanel } from './components/DragPanel.js';
-import { DEFAULT_CONDITIONS, DEFAULT_TIME_STEP_S, kernelSimOptions, LaunchPanel, PANEL_TIME_STEP_FLOOR_S, type LaunchConditions } from './components/LaunchPanel.js';
+import { DEFAULT_CONDITIONS, kernelSimOptions, LaunchPanel, PANEL_TIME_STEP_FLOOR_S, type LaunchConditions } from './components/LaunchPanel.js';
 import { MACH_AUTO_THRESHOLD } from './services/machProbe.js';
 import { MovedNotice } from './components/MovedNotice.js';
 import { NoticeBar, type Notice, type NoticeSeverity } from './components/NoticeBar.js';
@@ -60,11 +60,11 @@ import { UnitChip } from './components/UnitChip.js';
 import { fmtSi, niceStep, siToUi, uiToSi } from './prefs/units.js';
 import { classLabel, diameterClass } from './services/motorDb.js';
 import { ignitionDefaultFor } from './services/ignitionDefault.js';
-import { matchImportedMotor, refToExportMotor } from './services/motorMatch.js';
+import { refToExportMotor } from './services/motorMatch.js';
 import { aeroModelFor, rogersKbfFor, stageMotorInfo } from './services/flightPipeline.js';
 import { flyLaunch, reflyRun, writeMountMotor } from './services/flightRunner.js';
 import { loadExMotors } from './services/exMotors.js';
-import { exportOrk, fmtStepS, importOrk, type MeasuredFigures, type OrkDeployOverride, type OrkSeparationOverride, type OrkExportConfig, type OrkExportFlightData, type OrkExportMotor, type OrkImportResult, type OrkMotorRef, type OrkTreeImportResult } from './services/orkFile.js';
+import { exportOrk, fmtStepS, importOrk, type MeasuredFigures, type OrkDeployOverride, type OrkSeparationOverride, type OrkExportConfig, type OrkExportFlightData, type OrkExportMotor, type OrkMotorRef } from './services/orkFile.js';
 import { decodeShareFragment, encodeShareFragment, hasSharePayload, MAX_FRAGMENT_CHARS } from './services/shareLink.js';
 import { exportRkt, importRkt } from './services/rocksimFile.js';
 import { loadPresets } from './services/presets.js';
@@ -89,9 +89,9 @@ import { addRun, loadRuns, persistFailed } from './services/simStore.js';
 import { APP_VERSION } from './version.js';
 import { pokeServiceWorker, useVersionCheck } from './services/versionCheck.js';
 import {
-  addChild, addStage, applyStageNozzles, cloneSubtree, defaultTree, duplicateNode, emptyTree, engineTree, findNode,
+  addChild, addStage, applyStageNozzles, cloneSubtree, defaultTree, duplicateNode, engineTree, findNode,
   findParent, flownRecoveryDevices, hasParallelStage, inheritDefaults, isOnLaunchStage, makeNode, motorMounts, moveNode,
-  isPristineDefault, motorisedStagesWithNozzle, mountMotorCount, normalizeTree, primaryMountOf, removeNode, stageIndexOf, stages, stagesWithNozzle,
+  isPristineDefault, motorisedStagesWithNozzle, normalizeTree, primaryMountOf, removeNode, stageIndexOf, stages, stagesWithNozzle,
   suppressingAncestor, updateAllNodes, updateNode,
 } from './tree/treeModel.js';
 import { clusterCount } from './tree/cluster.js';
@@ -102,9 +102,9 @@ import { NozzleField } from './components/NozzleField.js';
 import { autoAlignFinSets } from './tree/finAlign.js';
 import { interleaveRotation } from './tree/schema.js';
 import { railInterferenceWarnings, wakeShadowWarnings } from './tree/mountAngle.js';
-import { convertShrouds, findShroudCandidates, type ShroudCandidate } from './tree/shroudConvert.js';
+import { convertShrouds, type ShroudCandidate } from './tree/shroudConvert.js';
 import { mountBore } from './tree/scaleRocket.js';
-import { explainBuildFailure, separationEventOrDefault } from './tree/sanitize.js';
+import { explainBuildFailure } from './tree/sanitize.js';
 import { nozzleForMotorId } from './services/nozzleDb.js';
 import { nozzleOversize, nozzleOversizeText } from './services/nozzleCheck.js';
 import { equivalentExitDiameterM, followNozzle, stageMotorKey, stageMotors } from './services/nozzleFollow.js';
@@ -114,17 +114,21 @@ import {
   recoveryMass, recoveryMassByStage, recoveryMassTitle, type RecoveryByStage, type RecoveryMass,
 } from './services/recoveryMass.js';
 import {
-  catalogueMotorMass, flownSpec, hardwareMass, LEGACY_PAD_MASS_KEY, motorIdentity, motorSetIdentity,
+  catalogueMotorMass, flownSpec, hardwareMass, LEGACY_PAD_MASS_KEY, motorIdentity,
   type HardwareMassResult,
 } from './services/hardwareMass.js';
 import {
-  adoptsRefPadMass, assignMotorRecord, migrateLegacyPadMass, restoreUnmatchedRefs, stripPadMass, stripRefPadMass,
-  withActiveConfigSynced, withoutStoredRef,
+  adoptsRefPadMass, assignMotorRecord, migrateLegacyPadMass, padMassSetKey, restoreUnmatchedRefs, stripPadMass,
+  stripRefPadMass, withActiveConfigSynced, withoutStoredRef,
 } from './services/configSync.js';
 import {
-  reconcileAllIncludedMotors, reconcileIncludedMotor, type AttachedMotor,
+  reconcileAllIncludedMotors, reconcileIncludedMotor,
 } from './services/statedLaunchWeight.js';
 import { RecoverySizingPanel } from './components/RecoverySizingPanel.js';
+import {
+  attachedOf, attachedSet, importedLaunch, importMark, planConfigSwitch, planImport, planNewDesign, resolveImportMotors,
+  type ImportedDesign,
+} from './services/importApply.js';
 import { ScaleDialog } from './components/ScaleDialog.js';
 import { useTreeHistory } from './hooks/useTreeHistory.js';
 
@@ -234,18 +238,6 @@ export function savedConfigLabel(c: SavedConfig): string {
 }
 
 import './styles.css';
-
-/**
- * What the design importers hand the shared apply path (file open AND share
- * link). Structural subset of OrkTreeImportResult so importRkt/importCdx1
- * results — same shape minus `launch` — fit too; only .ork parses carry the
- * flight-configuration fields.
- */
-type ImportedDesign = Pick<OrkTreeImportResult, 'name' | 'tree' | 'motors' | 'notes' | 'launch' | 'measured'>
-  & Partial<Pick<OrkImportResult, 'configs' | 'chosenConfigId'>>
-  // RASAero files carry a Mach-Alt table; the drag panel offers it as a
-  // sweep condition so a user can reproduce tunnel-matched Reynolds.
-  & { machAlt?: [number, number][] };
 
 /** Rocket names that mean "the user never named it" (desktop default is "Rocket"). */
 const GENERIC_ROCKET_NAMES = new Set([
@@ -863,16 +855,6 @@ export function App() {
     mass: massText,
     length: (m: number) => `${fmtSi('length', prefs.units.length, m, 3)} ${prefs.units.length}`,
   };
-  /** One mount's motor in the shape that reconcile takes. */
-  const attachedOf = (spec: MotorSpec): AttachedMotor => ({
-    designation: spec.designation,
-    launchMassKg: spec.masses[0] ?? 0,
-    lengthM: spec.length,
-    cgXFromFrontM: spec.cgX,
-  });
-  /** A whole mount set in that shape — every path that mounts more than one. */
-  const attachedSet = (motors: Record<string, MountMotor>): Record<string, AttachedMotor> =>
-    Object.fromEntries(Object.entries(motors).map(([id, m]) => [id, attachedOf(m.spec)]));
   /**
    * What became of a pad mass carried in from v0.116/v0.117 — its own entry in
    * the notice strip (`pad-mass-moved`), NOT setFileNote, which would overwrite
@@ -1024,16 +1006,12 @@ export function App() {
    * exactly the shape of thing that gets fixed in one place only.
    */
   const startNewDesign = () => {
-    // ONE emptyTree(), used for BOTH the state and the mark below. It used to
-    // be called twice, and emptyTree() -> makeStage() -> freshId() mints a new
-    // `c<N>` id every call while designFingerprint hashes the tree WITH its
-    // ids — so the mark described a stage id one greater than the tree in
-    // state, and a design with nothing in it was dirty the instant ✕ New was
-    // pressed. Pressing ✕ New twice then raised "Start a new design?" on an
-    // empty design, which is the always-fires confirmation the comment on the
-    // New button warns about.
-    const fresh = emptyTree();
-    setTree(fresh);
+    // ONE emptyTree(), for BOTH the state and the mark (importApply's
+    // planNewDesign says why that matters). Pressing ✕ New twice used to raise
+    // "Start a new design?" on an empty design, which is the always-fires
+    // confirmation the comment on the New button warns about.
+    const { snapshot: fresh, mark } = planNewDesign({ launch, measured });
+    setTree(fresh.tree);
     setMountMotors({});
     setUnmatchedRefs({});
     setSavedConfigs([]);
@@ -1059,18 +1037,9 @@ export function App() {
     setShroudPrompt(null);
     // An empty design is not work anybody would mind losing, so the NEXT Open
     // must not ask about it. Same reasoning as seeding a first visit clean.
-    // Built from the values just set, not from state, which has not
-    // re-rendered - launch and measured are deliberately not reset here, so
-    // they carry their current values.
-    markSaved(designFingerprint({
-      tree: fresh,
-      mountMotors: {},
-      launch,
-      maxMotorLengthByStage: {},
-      savedConfigs: [],
-      activeConfigId: null,
-      measured,
-    }));
+    // The mark is the plan's, taken over exactly the values just set, not from
+    // state, which has not re-rendered.
+    markSaved(mark);
   };
 
   /** Records that what is in the app right now is also what is on disk. */
@@ -1290,14 +1259,12 @@ export function App() {
    * which is why `tree.components` is a dependency.
    */
   const currentSetKey = useMemo(
-    () => motorSetIdentity(assigned.map(([id, mm]) => [
-      id, motorIdentity(mm.meta, mm.spec.designation),
-      // The KERNEL's motor count for the mount, not just its cluster: an
-      // enclosing pod set or parallel stage multiplies it, so an instance-count
-      // edit after weighing has to invalidate the weighing the same way a
-      // cluster edit does (2026-09-21).
-      mountMotorCount(tree, id),
-    ] as const)),
+    // THE key rule (configSync.padMassSetKey), the one an imported pad mass is
+    // keyed by too. It counts the KERNEL's motors for each mount, not just its
+    // cluster: an enclosing pod set or parallel stage multiplies it, so an
+    // instance-count edit after weighing invalidates the weighing the same way a
+    // cluster edit does (2026-09-21).
+    () => padMassSetKey(tree, Object.fromEntries(assigned)),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- tree.components, not tree: a rename is not a set change
     [assigned, tree.components]);
 
@@ -2786,332 +2753,57 @@ export function App() {
     // Freshly parsed by THIS build's importer, so the autosave-is-stale warning
     // no longer applies to what is on screen.
     setRestoredByOlderBuild(false);
-    const notes: string[] = [`Loaded “${imported.name}”.`, ...imported.notes];
-    // Load EVERY mount's motor (staged/multi-mount files included).
-    //
-    // Only motor PROBLEMS go in the note. The successful "Motor: C6-5 (matched
-    // built-in)." sentences used to go here too, and they were the note's worst
-    // habit: nothing in the motor path rewrites this note, so after the user
-    // loaded a different motor the box still named the old one — reported from
-    // the beta by Big Dog, and true of every motor change, not just his. The
-    // vitals strip and the Motors tab both show the loaded motor live, so the
-    // note has no business restating it. What it IS still the only source of is
-    // a motor that could not be matched or downloaded.
-    const nextMotors: Record<string, MountMotor> = {};
-    // The refs nothing resolved, kept whole so Save writes them back verbatim
-    // instead of dropping the mount — see SavedConfig.unmatchedRefs.
-    const nextUnmatchedRefs: Record<string, OrkMotorRef> = {};
-    for (const [nodeId, ref] of Object.entries(imported.motors)) {
-      const { motor: mm, note, approximated } = await matchImportedMotor(ref);
-      if (mm) nextMotors[nodeId] = mm;
-      else nextUnmatchedRefs[nodeId] = ref;
-      // A built-in standing in for a database motor whose curve would not
-      // download is a motor the user is FLYING on an approximate curve, so it
-      // is reported even though a motor loaded.
-      if (!mm || approximated) notes.push(note);
-    }
-    // Stage B: every configuration in the file becomes a ready-to-apply
-    // preset, matched in the same pass. Only the APPLIED config's notes
-    // surface — a preset's failures are reported if/when it is applied.
-    const chosenId = imported.chosenConfigId ?? null;
-    // Normalised BEFORE the configuration loop (it keeps ids): the pad-mass
-    // attach below needs the tree's stage order and cluster counts.
-    // `let`, because the stated-launch-weight reconcile below may rewrite a
-    // stage's overrides once the applied configuration's motors are known.
-    let importedTree = normalizeTree(imported.tree);
-    const nextConfigs: SavedConfig[] = [];
-    for (const cfg of imported.configs ?? []) {
-      const cfgMotors: Record<string, MountMotor> = {};
-      const unmatched: string[] = [];
-      const cfgUnmatchedRefs: Record<string, OrkMotorRef> = {};
-      for (const [nodeId, ref] of Object.entries(cfg.motors)) {
-        // The applied config's motors were matched (and reported) above —
-        // reuse them rather than re-fetching the same thrust curves.
-        const mm = cfg.id === chosenId
-          ? nextMotors[nodeId]
-          : (await matchImportedMotor(ref)).motor;
-        if (mm) cfgMotors[nodeId] = mm;
-        else { unmatched.push(ref.designation); cfgUnmatchedRefs[nodeId] = ref; }
-      }
-      // The configuration's weighed pad mass (<measuredpadmass configid>)
-      // attached to its PRIMARY mount — the topmost-stage mount among ALL of
-      // the file's references for it, matched or not, so a configuration whose
-      // sustainer could not be loaded keeps the value on that reference (Save
-      // writes it back unchanged) rather than applying it under the booster.
-      // The key is the configuration's own set, an unmatched reference
-      // contributing the `unmatched:<designation>` sentinel and every mount its
-      // cluster count, so a set the file only half-loaded is never applied
-      // against a partial catalogue sum. The v0.116 attribute-less form is
-      // keyed 'legacy' and checked by the reconcile effect. Immutable spreads:
-      // the chosen configuration shares its records with `nextMotors`, so the
-      // object is replaced in both places, never mutated. A non-chosen
-      // configuration with no primary loses the value silently — a stated limit.
-      if (typeof cfg.padMassKg === 'number') {
-        const padMassKg = cfg.padMassKg;
-        const primary = primaryMountOf(importedTree, Object.keys(cfg.motors));
-        if (!primary) {
-          if (cfg.id === chosenId) {
-            notes.push(`This file's weighed pad mass (${massText(padMassKg)}) has no motor to attach to in configuration`
-              + ` “${cfg.name ?? cfg.id}” and was not kept — re-enter it under the motor you weigh with.`);
-          }
-        } else {
-          // The SAME count `currentSetKey` uses (mountMotorCount), or an
-          // imported pad mass would read 'stale-set' the moment it is opened
-          // on any design whose mount sits inside a pod set.
-          const count = (id: string) => mountMotorCount(importedTree, id);
-          const key = cfg.padMassLegacy ? LEGACY_PAD_MASS_KEY : motorSetIdentity([
-            ...Object.entries(cfgMotors).map(([id, mm]) =>
-              [id, motorIdentity(mm.meta, mm.spec.designation), count(id)] as const),
-            ...Object.entries(cfgUnmatchedRefs).map(([id, ref]) =>
-              [id, `unmatched:${ref.designation}`, count(id)] as const),
-          ]);
-          if (cfgMotors[primary]) {
-            cfgMotors[primary] = { ...cfgMotors[primary], padMassKg, padMassWeighedWith: key };
-          } else if (cfgUnmatchedRefs[primary]) {
-            const ref = cfgUnmatchedRefs[primary];
-            cfgUnmatchedRefs[primary] = { ...ref, padMassKg };
-            if (cfg.id === chosenId) {
-              const mountName = findNode(importedTree, primary)?.name ?? 'Motor mount';
-              notes.push(`The file's weighed pad mass (${massText(padMassKg)}) belongs to the motor on “${mountName}”`
-                + ` (${ref.designation}), which could not be loaded. It is kept so the file saves unchanged,`
-                + ' and nothing is carried until that motor is loaded — or re-weigh with the motors you have in.');
-            }
-          }
-          if (cfg.id === chosenId) {
-            if (cfgMotors[primary]) nextMotors[primary] = cfgMotors[primary];
-            if (cfgUnmatchedRefs[primary]) nextUnmatchedRefs[primary] = cfgUnmatchedRefs[primary];
-          }
-        }
-      }
-      nextConfigs.push({
-        id: cfg.id, name: cfg.name, isDefault: cfg.isDefault, motors: cfgMotors,
-        ...(unmatched.length > 0 ? { unmatched } : {}),
-        ...(Object.keys(cfgUnmatchedRefs).length > 0 ? { unmatchedRefs: cfgUnmatchedRefs } : {}),
-        ...(cfg.deployments && Object.keys(cfg.deployments).length > 0
-          ? { deployments: cfg.deployments } : {}),
-        ...(cfg.separations && Object.keys(cfg.separations).length > 0
-          ? { separations: cfg.separations } : {}),
-        ...(cfg.nozzles && Object.keys(cfg.nozzles).length > 0
-          ? { nozzles: cfg.nozzles } : {}),
-      });
-    }
-    // A stage whose stated launch weight still holds an unidentified motor's
-    // weight, opened from a .ork saved BEFORE that motor could be loaded and
-    // now matching a catalogue row (a weekly motors refresh is enough). The
-    // mark rides the file for exactly this case — without it the motor lands
-    // on top of its own weight, silently, at open. Same function as the
-    // assignment path; returns null for every stage with no mark, which is
-    // every design that never came from a RASAero file naming an unknown
-    // motor.
-    //
-    // COUNTED FIRST, and that is not incidental. `motorTrouble` below is
-    // "did anything push a note beyond the load line and the importer's own?",
-    // and it decides whether the whole box reads as a warning. A stage that
-    // reconciled EXACTLY AS DESIGNED is not a motor needing attention, so
-    // counting after this loop would have made a clean correction paint the
-    // import note orange — the same signal pollution the time-step note is
-    // deliberately counted after (see its comment below). The reconcile's own
-    // severity is ORed in separately, so a reconcile that had to CLEAR an
-    // override still warns.
-    const motorTrouble = notes.length > 1 + imported.notes.length;
-    const spent = reconcileAllIncludedMotors(importedTree, attachedSet(nextMotors), statedWeightText);
-    importedTree = spent.tree;
-    notes.push(...spent.notes);
+    // The awaits of an open: every motor the file names, resolved.
+    const resolved = await resolveImportMotors(imported);
     // EVERY await is behind us; from here on this function writes state. A
     // newer open started while those fetches were outstanding owns the screen
     // now, so this one stops here rather than overwriting it — and, crucially,
     // never reaches the markSaved at the end, which is what made the loser's
     // work look saved.
     if (!openSeq.isCurrent(openId)) return;
-    setTree(importedTree);
-    setMountMotors(nextMotors);
-    setUnmatchedRefs(nextUnmatchedRefs);
-    setSavedConfigs(nextConfigs);
-    setActiveConfigId(chosenId);
-    setFileMachAlt(imported.machAlt);
+    // What goes on screen, decided in services/importApply.ts; applied here and
+    // marked from the SAME plan, so the two cannot be assembled apart.
+    const plan = planImport(imported, resolved, { launch, text: statedWeightText });
+    const { snapshot } = plan;
+    setTree(snapshot.tree);
+    setMountMotors(snapshot.mountMotors);
+    setUnmatchedRefs(plan.unmatchedRefs);
+    setSavedConfigs(snapshot.savedConfigs);
+    setActiveConfigId(snapshot.activeConfigId);
+    setFileMachAlt(plan.machAlt);
     // This design has now been through THIS build's importer, so the session
     // the next autosave writes really was parsed by the running build.
     parsedByVersion.current = APP_VERSION;
     // A simulation error belonged to the design that threw it, and that design
     // has just been replaced.
     setSimError(null);
-    setMaxMotorLen({}); // imported stages have fresh ids — old limits don't apply
+    setMaxMotorLen(snapshot.maxMotorLengthByStage); // imported stages have fresh ids — old limits don't apply
     setSelectedId(null);
-    // Launch conditions from the file (.ork's first <simulation>): apply
-    // EVERY field the file carried — explicit nulls included (an ISA file
-    // sets temperature/pressure to null deliberately) — and keep the
-    // panel's fields the file didn't mention. The importer already pushed
-    // a user-visible note about what it found.
-    // timeStepS is the exception to "keep what the file didn't mention": it is
-    // a FIDELITY setting belonging to the file, not a site condition the user
-    // set. Merging it made it sticky — open a .ork carrying 0.01 and every
-    // later design, including .rkt and .CDX1 imports that carry no step at all,
-    // silently inherited it and ran several times slower forever. Always
-    // assign, so a file without one goes back to the engine default.
-    //
-    // Deliberate, but not silent: the importer's notes only speak up when a
-    // FILE carries a sub-default step, so a step typed into the panel was
-    // being replaced with nothing on screen to say so. Compared as effective
-    // values — blank and 0.05 both fly the default, and that non-change is
-    // not worth a sentence. Counted AFTER motorTrouble, which is computed up at
-    // the reconcile loop and must keep meaning "a motor needs the user's
-    // attention", not this.
-    //
-    // Says what will be FLOWN, never "the file sets" — imported.launch.timeStepS
-    // is already past the importer's clamp, so a file asking for 0.005 arrives
-    // here as 0.05 and attributing that to the file contradicted the importer's
-    // own note directly above it in the same box. What the file asked for, and
-    // why it was refused, is that note's job.
-    const prevStepS = launch.timeStepS ?? DEFAULT_TIME_STEP_S;
-    const nextStepS = imported.launch?.timeStepS ?? DEFAULT_TIME_STEP_S;
-    if (prevStepS !== nextStepS) {
-      notes.push(imported.launch?.timeStepS != null
-        ? `Flights here now use a ${fmtStepS(nextStepS)} s simulation time step, replacing `
-          + `the ${fmtStepS(prevStepS)} s they were using.`
-        : `The simulation time step is back to the ${fmtStepS(DEFAULT_TIME_STEP_S)} s default `
-          + `— this file carries none, and the ${fmtStepS(prevStepS)} s in the Launch panel `
-          + 'belonged to the design it was set for.');
-    }
-    if (imported.launch) {
-      setLaunch((prev) => ({ ...prev, ...imported.launch, timeStepS: imported.launch!.timeStepS }));
-    } else {
-      setLaunch((prev) => ({ ...prev, timeStepS: undefined }));
-    }
-    // What the builder weighed, if the file carried it. Always assigned — a
-    // file WITHOUT the numbers must clear the previous rocket's, or the box
-    // would report the new design's gap against someone else's scale.
-    setMeasured(imported.measured ?? { massKg: null, cgM: null });
-    // A file whose motors all matched is routine information; one that lost a
-    // motor is a warning the user has to act on (motorTrouble was counted
-    // before the time-step note, which is information either way).
-    setFileNote(notes.join('\n'), motorTrouble || spent.severity === 'warn' ? 'warn' : 'info');
-    // Hand-rolled shrouds (1-fin freeform sets named like "Camera Shroud")
-    // get an offer to become the native fairing component (2026-08-05e).
-    const shrouds = findShroudCandidates(importedTree);
-    setShroudPrompt(shrouds.length ? shrouds : null);
-    // The design now IS the file on disk, so the baseline moves with it. Built
-    // from the values this function just computed, NOT from React state, which
-    // has not re-rendered yet - reading state here would mark the PREVIOUS
-    // design as saved and leave the imported one looking dirty forever.
-    markSaved(designFingerprint({
-      tree: importedTree,
-      mountMotors: nextMotors,
-      // The same merge the two setLaunch calls above perform. `launch` still
-      // holds the pre-import value here, which is exactly the `prev` they see.
-      launch: imported.launch
-        ? { ...launch, ...imported.launch, timeStepS: imported.launch.timeStepS }
-        : { ...launch, timeStepS: undefined },
-      maxMotorLengthByStage: {}, // setMaxMotorLen({}) above - imported stages have fresh ids
-      savedConfigs: nextConfigs,
-      activeConfigId: chosenId,
-      measured: imported.measured ?? { massKg: null, cgM: null },
-    }));
+    setLaunch((prev) => importedLaunch(prev, imported.launch));
+    setMeasured(snapshot.measured);
+    setFileNote(plan.note.text, plan.note.severity);
+    setShroudPrompt(plan.shrouds.length ? plan.shrouds : null);
+    // The design now IS the file on disk, so the baseline moves with it —
+    // taken over the plan, NOT from React state, which has not re-rendered yet:
+    // reading state here would mark the PREVIOUS design as saved and leave the
+    // imported one looking dirty forever.
+    markSaved(importMark(plan));
   };
 
   /**
-   * Loads a flight-configuration preset into the working set (Stage B).
-   *
-   * The working set is written BACK into the configuration it came from
-   * first (configSync.withActiveConfigSynced — identity when nothing changed),
-   * and the target is read from the synced set: a delay, an ignition change or
-   * a weighed pad mass made on A survives A→B→A, and pressing Apply on the
-   * configuration already on screen KEEPS the edits rather than reverting them
-   * to the file's — the three `setSavedConfigs` sites were init / New / import
-   * only, unchanged since v0.050, so every in-app motor edit used to live in the
-   * working set alone.
+   * Loads a flight-configuration preset into the working set (Stage B) — the
+   * decision is importApply's planConfigSwitch, which says what a switch writes
+   * back and what it carries across.
    */
   const applyConfig = (requested: SavedConfig) => {
-    const synced = withActiveConfigSynced(savedConfigs, activeConfigId, mountMotors, unmatchedRefs);
-    if (synced !== savedConfigs) setSavedConfigs(synced);
-    const cfg = synced.find((c) => c.id === requested.id) ?? requested;
-    setMountMotors(cfg.motors);
-    // The working set's unresolved references are this configuration's, so
-    // they switch with it — otherwise a save would write the PREVIOUS
-    // configuration's lost motors onto this one's mounts.
-    setUnmatchedRefs(cfg.unmatchedRefs ?? {});
-    setActiveConfigId(cfg.id);
-    // A configuration is its motors AND its recovery deployment. These were
-    // carried for export only, so applying one here switched the motors and
-    // left the chute set the way the previously-opened configuration wanted
-    // it — the one thing picking a configuration at file-open used to do that
-    // this panel could not. Applying them makes the panel a complete switch,
-    // which is what lets the open-time picker go away.
-    // setTree takes a value, not an updater (it also runs the autosave and
-    // normalisation), so fold the patches first and set once.
-    const hasDeploy = cfg.deployments && Object.keys(cfg.deployments).length > 0;
-    const hasSep = cfg.separations && Object.keys(cfg.separations).length > 0;
-    const hasNozzles = cfg.nozzles && Object.keys(cfg.nozzles).length > 0;
-    let next = tree;
-    if (hasDeploy || hasSep || hasNozzles) {
-      // The nozzle is the flown motor's, so it switches with the motors: a
-      // RASAero file's simulations can each state a different one (0 removes
-      // it — the previous configuration's must not linger, same rule as the
-      // separation write below).
-      if (hasNozzles) next = applyStageNozzles(next, cfg.nozzles!);
-      for (const [nodeId, d] of Object.entries(cfg.deployments ?? {})) {
-        if (!findNode(next, nodeId)) continue;
-        next = updateNode(next, nodeId, {
-          ...(d.deployEvent !== undefined ? { deployEvent: d.deployEvent } : {}),
-          ...(d.deployAltitude !== undefined ? { deployAltitude: d.deployAltitude } : {}),
-          ...(d.deployDelay !== undefined ? { deployDelay: d.deployDelay } : {}),
-        });
-      }
-      // Separation must be written even when it is the kernel default
-      // ("ejection"): the point is to REPLACE whatever the previously applied
-      // configuration left behind, so skipping the default would strand a
-      // "never" from the last one.
-      //
-      // The event in the kernel's spelling, or desktop's default: a saved
-      // configuration lives outside the tree, so the load boundary's sanitize
-      // pass never sees it, and OrkEngine THROWS on a value it does not know —
-      // which failed the whole build the moment the configuration was applied
-      // (audit 2026-09-22). The .ork reader repairs one with a note; this
-      // guards a configuration a session saved before it did.
-      for (const [nodeId, sep] of Object.entries(cfg.separations ?? {})) {
-        if (!findNode(next, nodeId)) continue;
-        next = updateNode(next, nodeId, {
-          ...(sep.separationEvent !== undefined ? { separationEvent: separationEventOrDefault(sep.separationEvent) } : {}),
-          ...(sep.separationDelay !== undefined ? { separationDelay: sep.separationDelay } : {}),
-          ...(sep.separationAltitude !== undefined ? { separationAltitude: sep.separationAltitude } : {}),
-        });
-      }
-    }
-    // Applying a configuration is the THIRD way a motor lands on a mount, and
-    // until 2026-09-08 it was the one that ran no reconcile at all — so a
-    // RASAero stage still holding an unidentified motor's weight got the new
-    // configuration's motor stacked on top of it in one click. Measured on
-    // `PePe2.CDX1`: simulation 1 names N5800-CS (not in the catalogue) over a
-    // stated 47 lb, so the stage imports marked; switching to simulation 6
-    // (M1297W, catalogued, 10.22 lb) weighed the stage 57.2 lb against that
-    // simulation's own 24.2 lb, +136 %, with nothing on screen. Same call as
-    // the open path, folded into the same `next` so it is ONE undo step.
-    const spent = reconcileAllIncludedMotors(next, attachedSet(cfg.motors), statedWeightText);
-    next = spent.tree;
-    if (next !== tree) setTree(next);
-    // Always rewrite the note, never only on failure. Writing it solely when
-    // `unmatched` was non-empty meant a clean switch left the PREVIOUS file's
-    // note standing — the staleness Big Dog reported reads as arbitrary
-    // precisely because some actions refresh the box and others don't.
-    // The reconcile's own sentences ride whichever note is written, rather than
-    // a second setFileNote that would overwrite the first: the mass that just
-    // changed by tens of pounds belongs in the box the switch already writes.
-    const withSpent = (lines: string[], sev: NoticeSeverity): void =>
-      setFileNote([...lines, ...spent.notes].join('\n'),
-        spent.severity === 'warn' && sev === 'info' ? 'warn' : sev);
-    if (cfg.unmatched?.length) {
-      // Quiet at import time (only the applied config reports) — the debt
-      // comes due when the user actually loads this preset.
-      withSpent(cfg.unmatched.map((d) =>
-        `Motor “${d}” couldn't be matched when the file was opened — pick one via Browse motor database.`), 'warn');
-    } else {
-      // "… and weighed pad mass" only when this configuration's primary record
-      // carries one — the field under that motor shows it.
-      const primary = primaryMountOf(tree, Object.keys(cfg.motors));
-      const pad = primary ? cfg.motors[primary]?.padMassKg : undefined;
-      const hasPad = typeof pad === 'number' && Number.isFinite(pad) && pad > 0;
-      withSpent([`Flight configuration “${cfg.name || cfg.id}” applied — its motors and recovery settings`
-        + `${hasPad ? ' and weighed pad mass' : ''} are now live.`], 'info');
-    }
+    const plan = planConfigSwitch(
+      { savedConfigs, activeConfigId, mountMotors, unmatchedRefs, tree }, requested, statedWeightText);
+    if (plan.savedConfigs !== savedConfigs) setSavedConfigs(plan.savedConfigs);
+    setMountMotors(plan.mountMotors);
+    setUnmatchedRefs(plan.unmatchedRefs);
+    setActiveConfigId(plan.activeConfigId);
+    if (plan.tree !== tree) setTree(plan.tree);
+    setFileNote(plan.note.text, plan.note.severity);
   };
 
   /** The "None" row / full unload: no motors, no active configuration. */
