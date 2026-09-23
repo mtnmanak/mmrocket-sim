@@ -75,6 +75,9 @@ describe('PropertyPanel — fin count stops at the kernel\'s 8', () => {
   it('takes a typed 12 on a planar fin set as 8, flagged until blur', () => {
     mount(onBody({ id: 'f1', type: 'trapezoidfinset', name: 'Fins', finCount: 4,
       rootChord: 0.05, tipChord: 0.03, sweep: 0.02, height: 0.03, thickness: 0.003 }));
+    // Typing needs focus: NumField shows its draft (and so its error flag)
+    // only while the input is focused (audit 2026-09-22, the spinner-draft fix).
+    act(() => { box('Fin count').dispatchEvent(new FocusEvent('focusin', { bubbles: true })); });
     type(box('Fin count'), '12');
     expect(patches).toEqual([{ finCount: 8 }]);
     expect(box('Fin count').getAttribute('aria-invalid')).toBe('true');
