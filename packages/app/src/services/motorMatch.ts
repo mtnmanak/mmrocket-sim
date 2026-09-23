@@ -42,13 +42,29 @@ import { delayOptions, fetchMotorSpec } from './thrustcurve.js';
  */
 
 /**
- * A designation with any trailing delay suffix removed: "C6-5" → "c6",
- * "H220-P" → "h220", "I224-15A" → "i224-15a" (a delay with a propellant letter
- * is NOT a bare delay and is left alone). Written for the old built-in match
- * and kept because the test that pins the delay grammar is still worth having.
+ * A motor designation or picker label with its delay removed, case kept:
+ * "H220-14", "H220-P", "H220-p" and the picker's "H220 (auto delay)" are all
+ * "H220"; "I224-15A" is left whole (a delay with a propellant letter is NOT a
+ * bare delay).
+ *
+ * THE ONE COPY of the rule (audit 2026-09-22, Dead code row 575). There were
+ * three: this module's (tested, but called by nothing in production), the
+ * catalogue overlay's private copy of the same regex, and App's baseLabel,
+ * which had drifted: case-sensitive and untrimmed, so "H220-p" kept its "-p",
+ * while the overlay's copy never knew "(auto delay)", so a changed motor flown
+ * on auto delay was never named as loaded. App's labels and the overlay's
+ * matcher both call this now.
+ */
+export function stripDelay(label: string): string {
+  return label.trim().replace(/ \(auto delay\)$/, '').replace(/-(\d+(?:\.\d+)?|P)$/i, '');
+}
+
+/**
+ * `stripDelay`, lower-cased: the key two spellings of one motor share
+ * ("C6-5" and "C6" are both "c6"). The catalogue overlay matches on it.
  */
 export function baseDesignation(designation: string): string {
-  return designation.trim().replace(/-(\d+(?:\.\d+)?|P)$/i, '').toLowerCase();
+  return stripDelay(designation).toLowerCase();
 }
 
 /**

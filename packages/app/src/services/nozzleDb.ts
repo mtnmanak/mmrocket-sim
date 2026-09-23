@@ -116,7 +116,6 @@ interface RawDb {
 }
 
 let byMotorId: Map<string, NozzleEntry> | null = null;
-let meta: { generated: string; source: string } | null = null;
 
 function toEntry(m: RawMotor): NozzleEntry | null {
   // A row with no motorId cannot become an entry, because `NozzleEntry.motorId` is the key
@@ -155,7 +154,6 @@ async function db(): Promise<Map<string, NozzleEntry>> {
   if (!byMotorId) {
     const mod = await import('../data/nozzles.json');
     const raw = mod.default as unknown as RawDb;
-    meta = { generated: raw.generated, source: raw.source };
     const map = new Map<string, NozzleEntry>();
     for (const m of raw.motors ?? []) {
       // A ROW WITH NO motorId CANNOT BE LOOKED UP, so it must not be inserted.
@@ -225,13 +223,7 @@ export async function nozzleForMotorId(motorId: string | undefined): Promise<Noz
   return (await db()).get(motorId) ?? null;
 }
 
-/** Where the database came from, for the provenance line. Null until loaded. */
-export function nozzleDbMeta(): { generated: string; source: string } | null {
-  return meta;
-}
-
 /** Test seam — the module-level cache would otherwise leak between cases. */
 export function resetNozzleDbCache(): void {
   byMotorId = null;
-  meta = null;
 }

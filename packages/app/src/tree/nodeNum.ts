@@ -41,8 +41,9 @@ export function numOpt(n: ComponentNode, key: string): number | undefined {
 
 /**
  * `num` returning null rather than a fallback, for callers that branch on
- * "is there a usable number here at all" — `scaleRocket`'s field walk and
- * `treeModel`'s radial reader, which both had this shape already.
+ * "is there a usable number here at all" — `motorRoom`'s transition-face
+ * radii (an absent radius is AUTOMATIC there, not zero) and `treeModel`'s
+ * split of a mount's mass override.
  */
 export function numOrNull(n: ComponentNode, key: string): number | null {
   const v = n[key];

@@ -17,7 +17,8 @@ import type uPlot from 'uplot';
  */
 
 /**
- * ONE base for the wheel, and the two directions are exact inverses of it.
+ * ONE base for the wheel: a detent in multiplies the window by it and a detent
+ * out by its inverse (wheelZoomFactor), so the two directions undo each other.
  *
  * They were 0.85 and 1.15, which are not inverses: 0.85 × 1.15 = 0.9775, so
  * every wheel-in-then-out left the window 2.25 % narrower than it started and
@@ -30,8 +31,6 @@ import type uPlot from 'uplot';
  * ever half the problem.
  */
 export const WHEEL_ZOOM_BASE = 0.9;
-export const WHEEL_ZOOM_IN = WHEEL_ZOOM_BASE;
-export const WHEEL_ZOOM_OUT = 1 / WHEEL_ZOOM_BASE;
 
 /**
  * Deepest the WHEEL may go: one fiftieth of the data extent, i.e. 5000 %.

@@ -3,7 +3,7 @@ import type { MotorSpec } from '@online-openrocket/engine';
 import { findDbMotor, type MotorDbEntry } from './motorDb.js';
 import type { OrkMotorRef } from './orkFile.js';
 import {
-  baseDesignation, loadCatalogueMotor, matchImportedMotor, mountMotorFromDb, refToExportMotor,
+  baseDesignation, stripDelay, loadCatalogueMotor, matchImportedMotor, mountMotorFromDb, refToExportMotor,
 } from './motorMatch.js';
 
 /** A .ork <motor> block as the importer hands it over. SI: metres, seconds. */
@@ -27,6 +27,22 @@ const dbEntry = (over: Partial<MotorDbEntry> = {}): MotorDbEntry => ({
 const spec = (designation: string, ejectionDelay: number): MotorSpec => ({
   designation, diameter: 0.018, length: 0.07,
   times: [0, 1], thrusts: [0, 0], masses: [0.02, 0.01], cgX: 0.035, ejectionDelay,
+});
+
+describe('stripDelay — the one delay-strip rule (label, catalogue match, overlay)', () => {
+  it('drops a bare delay, a plugged P in either case, or the picker label\'s "(auto delay)", keeping case', () => {
+    expect(stripDelay('H220-14')).toBe('H220');
+    expect(stripDelay('H220-P')).toBe('H220');
+    expect(stripDelay('H220-p')).toBe('H220');
+    expect(stripDelay('H220 (auto delay)')).toBe('H220');
+    expect(stripDelay('G80T-7.5')).toBe('G80T');
+    expect(stripDelay('J460T')).toBe('J460T');
+    expect(stripDelay(' B6-4 ')).toBe('B6');
+  });
+
+  it('leaves a delay with a propellant letter whole — it is not a bare delay', () => {
+    expect(stripDelay('I224-15A')).toBe('I224-15A');
+  });
 });
 
 describe('baseDesignation', () => {

@@ -52,7 +52,7 @@ import { TreeSchematic } from './components/TreeSchematic.js';
 import { AftView } from './components/AftView.js';
 import { View3DBoundary } from './components/View3DBoundary.js';
 import { PanelBoundary } from './components/PanelBoundary.js';
-import { loadCatalogueMotor } from './services/motorMatch.js';
+import { loadCatalogueMotor, stripDelay } from './services/motorMatch.js';
 import { restoreCatalogueOverlay } from './services/catalogueOverlay.js';
 import { PreferencesDialog } from './components/PreferencesDialog.js';
 import { SiteBand, SiteBandFooter } from './components/SiteBand.js';
@@ -324,9 +324,10 @@ const afterPaint = (): Promise<void> =>
  * A motor label with its delay suffix stripped ("H220-14" / "H220-P" /
  * "H220 (auto delay)" → "H220"). The pad-mass field and the batch note name
  * the motor by this: the weighing belongs to the motor, not to its delay grain.
+ * The rule is motorMatch's stripDelay, the one copy.
  */
 function baseLabel(label: string): string {
-  return label.replace(/ \(auto delay\)$/, '').replace(/-(\d+(\.\d+)?|P)$/, '');
+  return stripDelay(label);
 }
 
 /** Rewrites a motor label's delay suffix ("H220-14" / "H220-P" / "H220 (auto delay)"). */
