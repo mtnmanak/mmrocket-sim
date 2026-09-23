@@ -81,10 +81,15 @@ const NAMED_CHARTS: string[] = [
  *
  * Every group is single-unit by construction — see the module doc. The drag
  * group leads because it is the one family whose members are meant to be read
- * against each other: Cd is Cdf + Cdp + Cdb plus any drag override the
- * design carries, which has no column of its own — so on a design with an
- * override the three do not add up to Cd (BarrowmanCalculator sets CD as
- * friction + pressure + base + override).
+ * against each other: while the rocket is flying on its own aerodynamics, Cd
+ * is Cdf + Cdp + Cdb plus any drag override (BarrowmanCalculator sets CD as
+ * friction + pressure + base + override), and the override has no column of
+ * its own. So on a design carrying one — a typed Cd, or a protuberance or
+ * camera shroud, which engineTree hands the kernel as override carriers — Cd
+ * reads higher than the three summed. Under a chute or while tumbling, the
+ * descent stepper records its whole Cd as Cdp with Cdf and Cdb at 0
+ * (AbstractEulerStepper), so on that stretch of the chart the three do add up
+ * to Cd.
  */
 const GROUPED_CHARTS: { tab: string; axis: string; members: string[] }[] = [
   { tab: 'Drag coefficients', axis: 'Coefficient', members: ['Cd', 'Cdf', 'Cdp', 'Cdb', 'Cda'] },
