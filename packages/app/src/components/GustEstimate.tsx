@@ -68,7 +68,13 @@ export function GustEstimate({ value, onChange, forecastWind }: {
         {meanMatches && applied && (
           <>
             Wind gusts σ is an estimate from the forecast: ({num(forecastWind.gustMs)} − {speed(forecastWind.meanMs)})
-            {' '}÷ {GUST_PEAK_FACTOR} = {speed(est.sigmaMs)}, taking {gust} as the hour’s strongest 3-second gust.
+            {/* Capped, the division's own result is printed and then the cap:
+                "= 1 m/s" after "(6 − 1 m/s) ÷ 3" would be an equation that
+                does not add up. Two decimals, so a quotient just over the
+                mean does not print as the mean it was capped to. */}
+            {' '}÷ {GUST_PEAK_FACTOR} = {est.capped
+              ? <>{fmtSi('windspeed', sym, est.rawSigmaMs, 2)} {sym}, capped at {speed(est.sigmaMs)}</>
+              : speed(est.sigmaMs)}, taking {gust} as the hour’s strongest 3-second gust.
             Good to about ±25 %. See <em>Launch Conditions → Wind gusts from a forecast</em> in the Guide.{extras}
           </>
         )}

@@ -116,6 +116,14 @@ describe('the gust-to-σ chip', () => {
   it('says when σ was capped at the average, and gives no convective warning at exactly 30 %', () => {
     render({ ...FIVE, windAverage: 1 }, { meanMs: 1, gustMs: 6 });
     expect(text()).toContain('Capped at the average wind, the most desktop OpenRocket’s panel allows.');
+    // Applied and capped: the arithmetic still adds up — the quotient, THEN the cap.
+    render({ ...FIVE, windAverage: 1, windStdDev: 1 }, { meanMs: 1, gustMs: 6 });
+    expect(text()).toMatch(/\(6 − 1 m\/s\)\s+÷ 3 = 1\.67 m\/s, capped at 1 m\/s, taking 6 m\/s as the hour’s strongest 3-second gust\./);
+    expect(text()).toContain('Capped at the average wind, the most desktop OpenRocket’s panel allows.');
+    // Not capped (raw exactly the mean): the plain equation.
+    render({ ...FIVE, windAverage: 1, windStdDev: 1 }, { meanMs: 1, gustMs: 4 });
+    expect(text()).toMatch(/\(4 − 1 m\/s\)\s+÷ 3 = 1 m\/s, taking/);
+    expect(text()).not.toMatch(/capped/i);
     render(FIVE, { meanMs: 5, gustMs: 9.5 });
     expect(text()).toContain('σ ≈ 1.5 m/s');
     expect(text()).not.toMatch(/far above the average/);
