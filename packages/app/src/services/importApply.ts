@@ -170,6 +170,9 @@ interface FlyablePick {
  * the 593 multi-configuration .rkt files in the owner's RockSim corpus and the
  * tester uploads, 36 opened that way; with this all 36 open on one that can
  * leave the pad, and the 6 still opening with no motor have none that could.
+ * (Level2-PELTZER's J240-RL and Wildman_2stage's L1030-RL are Cesaroni motors
+ * named by propellant code, which the matcher reads since audit 2026-09-23:
+ * those files open their first simulation again, and fly it.)
  *
  * So: when the reader's pick puts nothing loadable on the stage that lifts off
  * (its own lowest motorised stage) and another configuration does, open the
@@ -640,8 +643,9 @@ export function planConfigSwitch(
   // until 2026-09-08 it was the one that ran no reconcile at all — so a
   // RASAero stage still holding an unidentified motor's weight got the new
   // configuration's motor stacked on top of it in one click. Measured on
-  // `PePe2.CDX1`: simulation 1 names N5800-CS (not in the catalogue) over a
-  // stated 47 lb, so the stage imports marked; switching to simulation 6
+  // `PePe2.CDX1`: simulation 1 names N5800-CS (which the matcher could not
+  // find until audit 2026-09-23) over a stated 47 lb, so the stage imported
+  // marked; switching to simulation 6
   // (M1297W, catalogued, 10.22 lb) weighed the stage 57.2 lb against that
   // simulation's own 24.2 lb, +136 %, with nothing on screen. Same call as
   // the open path, folded into the same tree.

@@ -520,30 +520,51 @@ describe.skipIf(!HAVE_ENGS)('against the author’s own .eng files', () => {
 /**
  * THE FILE THE CROSS-DESIGNATION SUBTRACTION WAS MEASURED ON (2026-09-08, from
  * review). `PePe2.CDX1` is one airframe with EIGHT simulations, each stating
- * its own launch weight for its own motor: 47 lb with N5800-CS (which the
- * catalogue does not have, so the stage imports marked), 24.2 lb with M1297W,
- * 19.7 lb with K510. Only the applied simulation's weight is read at import,
- * so switching configuration mounts a motor that has nothing to do with the
- * figure on the stage — and v0.120 subtracted it from that figure anyway.
+ * its own launch weight for its own motor: 47 lb with N5800-CS, 24.2 lb with
+ * M1297W, 19.7 lb with K510. Only the applied simulation's weight is read at
+ * import, so switching configuration mounts a motor that has nothing to do
+ * with the figure on the stage — and v0.120 subtracted it from that figure
+ * anyway.
+ *
+ * N5800-CS is Cesaroni's N5800 C-Star, and the catalogue has it: until audit
+ * 2026-09-23 the matcher could not read the propellant code, so the stage
+ * imported MARKED, 47 lb applied whole. It imports with the motor backed out
+ * now. The mark is built below as those imports left it, because a design
+ * saved from one still carries it.
  *
  * Local-only input, like the `.eng` files above.
  */
 const PEPE2 = localEng('PePe2.CDX1');
 
 describe.skipIf(!existsSync(PEPE2))('PePe2: another simulation’s motor on a marked stage', () => {
-  it('clears the stated weight rather than subtracting a motor it never held', () => {
+  it('imports simulation 1 with its N5800 backed out, now that the matcher finds it', () => {
     const r = importCdx1(readFileSync(PEPE2, 'utf8'));
     const st = stagesOf(r.tree)[0]!;
-    // The file's simulation 1, applied whole because N5800-CS is not catalogued.
+    const n5800 = MOTOR_DB.find((m) => m.designation === '20146N5800-P')!;
+    expect(lb(n5800.totalWeightG / 1000)).toBeCloseTo(32.686, 3);
+    expect(lb(st['overrideMass'] as number)).toBeCloseTo(47.0 - 32.686, 3);
+    expect(st[OVERRIDE_INCLUDES_MOTOR]).toBeUndefined();
+  });
+
+  it('clears the stated weight rather than subtracting a motor it never held', () => {
+    const imported = importCdx1(readFileSync(PEPE2, 'utf8'));
+    // The file's simulation 1 as an import before audit 2026-09-23 left it:
+    // applied whole, and marked as still holding N5800-CS.
+    const tree: RocketTree = {
+      ...imported.tree,
+      components: imported.tree.components.map((n) => (n === stagesOf(imported.tree)[0]
+        ? { ...n, overrideMass: 47.0 / LB, overrideSubcomponentsMass: true, [OVERRIDE_INCLUDES_MOTOR]: 'N5800-CS' }
+        : n)),
+    };
+    const st = stagesOf(tree)[0]!;
     expect(lb(st['overrideMass'] as number)).toBeCloseTo(47.0, 3);
-    expect(st[OVERRIDE_INCLUDES_MOTOR]).toBe('N5800-CS');
 
     // Simulation 6's motor, straight off the shipped catalogue — the same
     // numbers `App.attachedOf` builds from a loaded `MotorSpec`.
     const m1297 = MOTOR_DB.find((m) => m.designation === 'M1297W' && m.totalWeightG > 0)!;
     expect(m1297.totalWeightG / 1000).toBeCloseTo(4.637, 3);
     const mountId = (st.children ?? []).find((c) => c['motorMount'] === true)!.id!;
-    const out = reconcileAllIncludedMotors(r.tree, {
+    const out = reconcileAllIncludedMotors(tree, {
       [mountId]: {
         designation: m1297.designation,
         launchMassKg: m1297.totalWeightG / 1000,
@@ -567,6 +588,40 @@ describe.skipIf(!existsSync(PEPE2))('PePe2: another simulation’s motor on a ma
     // +94 % — at severity 'info', with the mark spent.
     expect(lb((st['overrideMass'] as number) - m1297.totalWeightG / 1000)).toBeCloseTo(36.777, 3);
     expect(lb(m1297.totalWeightG / 1000)).toBeCloseTo(10.223, 3);
+  });
+
+  /**
+   * The same saved mark with the motor it NAMES loading on it — what reopening
+   * a design saved before audit 2026-09-23 does, now that “N5800-CS” finds the
+   * 20146N5800-P. namesSameMotor cannot see that they are one motor (see its
+   * docblock), so the overrides are cleared, never subtracted twice; and the
+   * note no longer says the motor "is not in the motor database" — it is.
+   */
+  it('a saved mark whose motor the matcher finds now: cleared, and the note stays true', () => {
+    const imported = importCdx1(readFileSync(PEPE2, 'utf8'));
+    const tree: RocketTree = {
+      ...imported.tree,
+      components: imported.tree.components.map((n) => (n === stagesOf(imported.tree)[0]
+        ? { ...n, overrideMass: 47.0 / LB, overrideSubcomponentsMass: true, [OVERRIDE_INCLUDES_MOTOR]: 'N5800-CS' }
+        : n)),
+    };
+    const st = stagesOf(tree)[0]!;
+    const n5800 = MOTOR_DB.find((m) => m.designation === '20146N5800-P')!;
+    const mountId = (st.children ?? []).find((c) => c['motorMount'] === true)!.id!;
+    const out = reconcileAllIncludedMotors(tree, {
+      [mountId]: {
+        designation: n5800.designation,
+        launchMassKg: n5800.totalWeightG / 1000,
+        lengthM: n5800.length / 1000,
+        cgXFromFrontM: n5800.length / 2000,
+      },
+    }, TEXT);
+    const after = stagesOf(out.tree)[0]!;
+    expect(after['overrideMass']).toBeUndefined();
+    expect(after[OVERRIDE_INCLUDES_MOTOR]).toBeUndefined();
+    expect(out.severity).toBe('warn');
+    expect(out.notes[0]).toContain('“N5800-CS” was not in the motor database when the file was imported');
+    expect(out.notes[0]).not.toContain('is not in the motor database');
   });
 });
 

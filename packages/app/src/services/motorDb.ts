@@ -472,7 +472,7 @@ const MANUFACTURER_ALIASES: Record<string, string> = lookupTable({
   amwprox: 'amw',
 });
 
-const normMfr = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+const normName = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]/g, '');
 
 /**
  * Does the manufacturer a design file names refer to this catalog entry's
@@ -489,11 +489,11 @@ const normMfr = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]/g, '')
  */
 export function manufacturerMatches(fileName: string | undefined, abbrev: string): boolean {
   if (!fileName) return false;
-  const a = normMfr(fileName);
+  const a = normName(fileName);
   // 'unknown' is our own reader's fallback and 'custom' our old writer's —
   // sentinels, not manufacturers, and they must never steer a match.
   if (!a || a === 'unknown' || a === 'custom') return false;
-  const b = normMfr(abbrev);
+  const b = normName(abbrev);
   if (!b) return false;
   return a === b || a.startsWith(b) || b.startsWith(a) || MANUFACTURER_ALIASES[a] === b;
 }
@@ -505,6 +505,63 @@ export function manufacturerMatches(fileName: string | undefined, abbrev: string
  */
 function prefixWithoutSplit(short: string, long: string): boolean {
   return long.startsWith(short) && !/\d/.test(long.charAt(short.length));
+}
+
+/**
+ * Cesaroni's reload codes, as design files write them after a common name —
+ * RockSim's “G115-WT” and “L1395BS”, RASAero's “N2501-WH-P” — mapped to the
+ * propellant thrustcurve.org records for the row (`propInfo`). Cesaroni's
+ * catalogue designation carries the impulse and the delay (“141G115-13A”) but
+ * not the propellant, so without this a file naming one matches nothing.
+ *
+ * Pinned from the corpus, not from memory (audit 2026-09-23): every code is
+ * written after a common name Cesaroni catalogues ONCE, so the reference can
+ * mean only that row, and in every such reference the row's propellant is the
+ * one listed here — bs 49 references, wh 48, rl 46, cl 45, wt 43, sk 42, ss 41,
+ * im 31, vm 25, gr 17, my 13, cs 7, pk 6 (the owner's RockSim collection and
+ * the tester uploads, 1,070 files). The references that DISAGREE with their
+ * only row are left unmatched rather than flown on another propellant: E31WH,
+ * F30WH and G65WH name White where the row is White Thunder, M2505CL Classic
+ * where it is White Thunder, and G69-Classic Classic where it is Skidmark. “DT”
+ * (Dual Thrust) is left out because two catalogue propellants carry it.
+ *
+ * Exported for the test that holds each name to the shipped catalogue — a
+ * propellant thrustcurve.org renames would otherwise stop matching silently.
+ */
+export const PROPELLANT_CODES: Record<string, string> = lookupTable({
+  bs: 'Blue Streak',
+  cl: 'Classic',
+  cs: 'C-Star',
+  gr: 'Green3',
+  im: 'Imax',
+  my: 'Mellow',
+  pk: 'Pink',
+  rl: 'Red Lightning',
+  sk: 'Skidmark',
+  ss: 'Smoky Sam',
+  vm: 'Vmax',
+  wh: 'White',
+  wt: 'White Thunder',
+});
+
+/**
+ * Does `want` name this row by its common name followed by the propellant the
+ * row is catalogued with? “g115-wt” names Cesaroni's 141G115-13A (G115, White
+ * Thunder); “h160-cl” names its 312H160-12A and not the 220H160-14A, both H160s
+ * but Classic and Skidmark, 312 against 220 Ns. After the common name — which
+ * may not be cut short of a digit — the delay tokens (“14a”, “p”) are dropped
+ * and what is left must be one of {@link PROPELLANT_CODES} for the row's
+ * propellant, or that propellant spelled out (“classic”, “vmax”, “c-star”). A
+ * suffix that names no propellant, or one this cannot read, matches nothing.
+ */
+function namesByCommonAndPropellant(want: string, m: MotorDbEntry): boolean {
+  const common = m.commonName.toLowerCase();
+  if (!common || !m.propInfo || !prefixWithoutSplit(common, want)) return false;
+  const named = want.slice(common.length).split(/[-\s_/]+/)
+    .filter((t) => t !== '' && t !== 'p' && !/^\d+[a-z]?$/.test(t))
+    .join('');
+  return named !== ''
+    && (PROPELLANT_CODES[named] === m.propInfo || named === normName(m.propInfo));
 }
 
 /**
@@ -523,15 +580,26 @@ function prefixWithoutSplit(short: string, long: string): boolean {
  *
  * A PREFIX MAY NOT CUT A NUMBER IN TWO (audit 2026-09-23). The prefix tests
  * below were bare `startsWith`, so RockSim's “G115-WT” — Cesaroni's 38 mm G115
- * White Thunder — began with AeroTech's “G11” and opened on that 29 mm motor
- * plugged: Apogee's Katana-38mm.rkt fell from 533.8 m to 0.2 m, and seven more
- * of the owner's RockSim files named it. The same shape sent CTI's G118-BS and
- * I800-Vmax, Hypertek's J100 (to Loki's J1000) and a bare “H55” (to the H550ST)
- * to the wrong motor. A delay or propellant suffix begins with a delimiter
+ * White Thunder — began with AeroTech's “G11”, a 29 mm motor averaging 10 N.
+ * Eight files in the owner's RockSim collection name it, and six opened on the
+ * G11: Apogee's Katana-38mm.rkt flew to 0.2 m, where the G115 takes it to
+ * 117.0 m (RockSim's own stored run: 129.2 m). The same shape sent CTI's
+ * G118-BS and I800-Vmax, a J100 (to Loki's J1000) and a bare “H55” (to the
+ * H550ST) to the wrong motor. A delay or propellant suffix begins with a delimiter
  * (“I224-15A”) or a letter (“H128W”), never with another digit, so the guard
  * is exactly that: the character after the prefix, in the longer string, is not
  * a digit. statedLaunchWeight's namesSameMotor has carried the same guard since
  * 2026-09-08; the two are one rule.
+ *
+ * With the bad match gone, “G115-WT” still has to find the G115 — and Cesaroni's
+ * catalogue designation (“141G115-13A”) names the impulse and the delay but not
+ * the propellant the file names it by. So a file may also name a row by its
+ * common name plus that row's propellant ({@link namesByCommonAndPropellant}),
+ * at the same rank as the prefix tests so the file's manufacturer still steers
+ * it. The propellant has to AGREE: without that, “H160-CL” took whichever
+ * Cesaroni H160 came first — the Skidmark, 220 Ns against the Classic's 312 —
+ * and “F36-BS” the Smoky Sam. namesSameMotor does NOT mirror this test: it is
+ * catalogue-free and cannot read a row's propellant (see its docblock).
  */
 export function findDbMotor(
   designation: string,
@@ -548,7 +616,8 @@ export function findDbMotor(
     // Delay-suffix tolerance: "I224-15A" in the file vs "I224" cataloged, or
     // the file omitting the delay the catalog lists — never by cutting a number.
     if (prefixWithoutSplit(want, raw) || prefixWithoutSplit(want, disp)
-      || prefixWithoutSplit(disp, want) || m.commonName.toLowerCase() === want) return 1;
+      || prefixWithoutSplit(disp, want) || m.commonName.toLowerCase() === want
+      || namesByCommonAndPropellant(want, m)) return 1;
     return -1;
   };
   const candidates = motors

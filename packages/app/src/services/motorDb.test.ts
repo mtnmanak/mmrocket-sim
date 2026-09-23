@@ -3,7 +3,7 @@ import {
   MOTOR_DB, allClasses, classLabel, classesFittingMount, diameterClass,
   displayDesignation, filterMotors, findDbMotor, impulseClassesForMount, impulseLetter,
   isBlackPowder,
-  manufacturersForMount, nearestCommonClass, propellantsForMount, rangesForMount, sortMotors,
+  manufacturersForMount, nearestCommonClass, PROPELLANT_CODES, propellantsForMount, rangesForMount, sortMotors,
 } from './motorDb.js';
 
 describe('bundled motor database', () => {
@@ -211,10 +211,10 @@ describe('findDbMotor (.ork motor matching)', () => {
 
   /**
    * A PREFIX MAY NOT CUT A NUMBER IN TWO (audit 2026-09-23). RockSim's
-   * “G115-WT” — Cesaroni's 38 mm G115 — began with AeroTech's “G11”, and eight
-   * RockSim files opened on that 29 mm motor plugged: the owner's Apogee
-   * Katana-38mm.rkt flew to 0.2 m instead of 533.8. Every case below is a
-   * reference from the owner's RockSim collection or tester uploads, with what
+   * “G115-WT” — Cesaroni's 38 mm G115 — began with AeroTech's 29 mm “G11”, and
+   * six RockSim files in the owner's collection opened on the G11: Apogee's
+   * Katana-38mm.rkt flew to 0.2 m, and flies 117.0 m on the G115. Every case
+   * below is a reference from that collection or the tester uploads, with what
    * the bare prefix used to pick.
    */
   it('never matches by cutting a number in two', () => {
@@ -222,9 +222,9 @@ describe('findDbMotor (.ork motor matching)', () => {
     expect(des('G115-WT', 'Cesaroni Technology Inc.')).not.toBe('G11');
     expect(des('G118-BS', 'CTI')).not.toBe('G11');
     expect(des('G117WH', 'Cesaroni Technology Inc.')).not.toBe('G11');
+    expect(des('I800-Vmax', 'Cesaroni Technology Inc.')).not.toBe('I80');   // RATT's
     expect(des('H55', 'unknown')).toBe('H55W');                             // was the 38 mm H550ST
     expect(des('J100', 'HYPER')).toBeNull();                                // was Loki's J1000-LW
-    expect(des('I800-Vmax', 'Cesaroni Technology Inc.')).toBeNull();        // was RATT's I80
     // The catalogue's own short common names now find their own rows.
     expect(des('G8', 'AeroTech')).toBe('G8ST');                             // was the G80T
     expect(des('H13', 'AeroTech')).toBe('H13ST');                           // was the H130W
@@ -236,6 +236,58 @@ describe('findDbMotor (.ork motor matching)', () => {
     expect(findDbMotor('H128W-14A')?.designation).toBe('H128W');
     expect(findDbMotor('I224-15A')?.designation).toBe('381I224-15A');
     expect(findDbMotor('G80T-7', 29, undefined, 'AeroTech')?.designation).toBe('G80T');
+  });
+
+  /**
+   * BY COMMON NAME AND PROPELLANT (audit 2026-09-23). Cesaroni's catalogue
+   * designation carries no propellant, so a file's “G115-WT” found nothing once
+   * it stopped finding the G11. Every reference below is from the owner's
+   * RockSim collection or the tester uploads.
+   */
+  describe('a Cesaroni motor named by common name and propellant code', () => {
+    const find = (d: string, mfr = 'Cesaroni Technology Inc.') => findDbMotor(d, undefined, undefined, mfr);
+
+    it('finds the one the file names — dash, no dash, spelled out, with a delay', () => {
+      expect(find('G115-WT')?.designation).toBe('141G115-13A');         // Katana-38mm.rkt, 38 mm White Thunder
+      expect(find('G118-BS', 'CTI')?.designation).toBe('159G118-15A');
+      expect(find('G118BS')?.designation).toBe('159G118-15A');
+      expect(find('G117WH')?.designation).toBe('142G117-11A');          // White
+      expect(find('I800-Vmax')?.designation).toBe('419I800-15A');
+      expect(find('H125-Classic', 'CTI')?.designation).toBe('266H125-12A');
+      expect(find('I165 C-Star')?.designation).toBe('518I165-17A');
+      expect(find('I165CS')?.designation).toBe('518I165-17A');
+      expect(find('H110-WH-14A', 'CTI')?.designation).toBe('269H110-14A');
+      expect(find('N2501-WH-P', 'CTI')?.designation).toBe('15227N2501-P'); // ThreeCarbYen-2018.CDX1
+      // Cesaroni's own name wins over another maker's bare designation.
+      expect(find('G125-RL', 'CTI')?.designation).toBe('159G125-14A');   // was SkyR's G125
+    });
+
+    it('picks between two rows of one common name by the propellant, never by catalogue order', () => {
+      // Classic 312 Ns and Skidmark 220 Ns: the first-listed took both until now.
+      expect(find('H160-CL', 'CTI')?.designation).toBe('312H160-12A');
+      expect(find('H160-SK', 'CTI')?.designation).toBe('220H160-14A');
+      expect(find('F36-BS', 'CTI')?.designation).toBe('51F36-14A');
+      expect(find('F36-SS', 'CTI')?.designation).toBe('41F36-11A');
+      expect(find('H255-BS', 'CTI')?.designation).toBe('315H255-14A');
+      expect(find('H255-WT', 'CTI')?.designation).toBe('229H255-14A');
+    });
+
+    it('matches nothing it cannot confirm: a propellant that disagrees, or none named', () => {
+      // The only Cesaroni G69 is Skidmark; the only E31 White Thunder.
+      expect(find('G69-Classic')?.manufacturerAbbrev).not.toBe('Cesaroni');
+      expect(find('E31WH')).toBeNull();
+      expect(find('H123A')).toBeNull();                                 // “A” names no propellant
+      expect(find('K590-DT')).toBeNull();                               // Dual Thrust: two propellants carry it
+      // AeroTech's glued propellant letter is not a Cesaroni code: F52T stays F52T, never F52C.
+      expect(findDbMotor('F52T-8', undefined, undefined, 'AeroTech')?.designation).toBe('F52T');
+      // A common name is not cut short of a digit either.
+      expect(find('G1150-WT')?.designation).not.toBe('141G115-13A');
+    });
+
+    it('names only propellants the shipped catalogue carries', () => {
+      const carried = new Set(MOTOR_DB.map((m) => m.propInfo));
+      for (const [code, name] of Object.entries(PROPELLANT_CODES)) expect(carried.has(name), code).toBe(true);
+    });
   });
 });
 

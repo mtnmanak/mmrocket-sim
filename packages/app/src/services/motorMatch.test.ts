@@ -205,6 +205,18 @@ describe('matchImportedMotor against the shipped catalog', () => {
   it('a Klima C6 file flies Klima’s, not Estes’, at the same 18 mm', async () => {
     expect(await chosen(ref({ manufacturer: 'Klima' }))).toBe('Klima 10');
   });
+
+  /**
+   * RockSim's “G115-WT” (no diameter: a .rkt carries none) flew AeroTech's
+   * 29 mm G11 plugged until audit 2026-09-23 — the owner's Katana-38mm.rkt to
+   * 0.2 m. It is Cesaroni's 38 mm G115 White Thunder, 140.6 Ns.
+   */
+  it('a RockSim G115-WT flies Cesaroni’s 38 mm G115, never AeroTech’s G11', async () => {
+    const rkt = ref({ designation: 'G115-WT', manufacturer: 'Cesaroni Technology Inc.', diameter: 0, length: 0, delay: 10 });
+    expect(await chosen(rkt)).toBe('Cesaroni 140.6');
+    expect((await matchImportedMotor(rkt, { fetchSpec: async (m) => spec(m.designation, 10) })).note)
+      .toBe('Motor: Cesaroni G115-13A-10 (loaded from the motor database).');
+  });
 });
 
 describe('findDbMotor with the file’s manufacturer', () => {
