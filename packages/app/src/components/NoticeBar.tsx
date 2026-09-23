@@ -176,78 +176,79 @@ export function NoticeBar({ notices }: { notices: Notice[] }) {
     return () => { ro.disconnect(); clear(); };
   }, [key, expanded, notices.length]);
 
-  const announcers = (
-    <>
-      <div className="notice-announce sr-only" role="status" aria-live="polite">
-        {said.polite && <span key={said.seq}>{said.polite}</span>}
-      </div>
-      <div className="notice-announce sr-only" role="alert" aria-live="assertive">
-        {said.assertive && <span key={said.seq}>{said.assertive}</span>}
-      </div>
-    </>
-  );
-
-  if (notices.length === 0) return announcers;
-
   // Show the most serious one when collapsed — an error must never hide behind
   // "Loaded Rocket.ork" — and among equals the NEWEST (audit 2026-09-22): the
   // first of equals was whichever standing notice the App lists first, so the
   // stale-session note hid every "Saved" and "Share link copied" behind it.
   // A notice missing from `age` is this render's newcomer (in the render
   // React throws away for the setAge above); Array.sort is stable, so a tie
-  // keeps the App's order.
+  // keeps the App's order. No notices → no lead → no bar.
   const newest = (n: Notice) => age.batch.get(noticeKey(n)) ?? age.next;
   const lead = [...notices].sort((a, b) =>
-    RANK[b.severity] - RANK[a.severity] || newest(b) - newest(a))[0]!;
+    RANK[b.severity] - RANK[a.severity] || newest(b) - newest(a))[0];
   const others = notices.length - 1;
 
+  // ONE shape with and without a bar: [bar-or-nothing, polite, alert]. The
+  // empty case used to return the announcers' fragment on its own and the busy
+  // case `<>{bar}{announcers}</>`, so React matched the polite region's <div>
+  // to the bar's by position and rebuilt both regions whenever the bar came or
+  // went — creating them in the same commit as their first words, and
+  // re-inserting a dismissed error's text as a fresh role="alert" (review of
+  // the audit 2026-09-22 branch, measured). An empty slot keeps its position.
   return (
     <>
-    {/* A named region, not a live one: the announcers below speak for it, and
-        a live bar re-read itself whenever expanding rewrote its content. */}
-    <div
-      ref={barRef}
-      className={`notice-bar notice-${worst}${expanded ? ' expanded' : ''}`}
-      role="region"
-      aria-label="Notices"
-    >
-      {expanded ? (
-        <ul className="notice-list">
-          {notices.map((n) => (
-            <li key={n.id} className={`notice-item notice-${n.severity}`}>
-              <span className="notice-glyph" aria-hidden="true">{GLYPH[n.severity]}</span>
-              <span className="notice-text">
-                <span className="sr-only">{`${LABEL[n.severity]}: `}</span>
-                {n.text}
+      {lead && (
+        /* A named region, not a live one: the announcers below speak for it,
+           and a live bar re-read itself whenever expanding rewrote it. */
+        <div
+          ref={barRef}
+          className={`notice-bar notice-${worst}${expanded ? ' expanded' : ''}`}
+          role="region"
+          aria-label="Notices"
+        >
+          {expanded ? (
+            <ul className="notice-list">
+              {notices.map((n) => (
+                <li key={n.id} className={`notice-item notice-${n.severity}`}>
+                  <span className="notice-glyph" aria-hidden="true">{GLYPH[n.severity]}</span>
+                  <span className="notice-text">
+                    <span className="sr-only">{`${LABEL[n.severity]}: `}</span>
+                    {n.text}
+                  </span>
+                  {n.onDismiss && (
+                    <button
+                      className="notice-dismiss"
+                      onClick={n.onDismiss}
+                      aria-label={`Dismiss: ${firstLine(n.text)}`}
+                    >×</button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className={`notice-item notice-${lead.severity}`}>
+              <span className="notice-glyph" aria-hidden="true">{GLYPH[lead.severity]}</span>
+              <span className="notice-text notice-oneline">
+                <span className="sr-only">{`${LABEL[lead.severity]}: `}</span>
+                {firstLine(lead.text)}
               </span>
-              {n.onDismiss && (
-                <button
-                  className="notice-dismiss"
-                  onClick={n.onDismiss}
-                  aria-label={`Dismiss: ${firstLine(n.text)}`}
-                >×</button>
-              )}
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <div className={`notice-item notice-${lead.severity}`}>
-          <span className="notice-glyph" aria-hidden="true">{GLYPH[lead.severity]}</span>
-          <span className="notice-text notice-oneline">
-            <span className="sr-only">{`${LABEL[lead.severity]}: `}</span>
-            {firstLine(lead.text)}
-          </span>
-          {others > 0 && <span className="notice-count">{`+${others}`}</span>}
+              {others > 0 && <span className="notice-count">{`+${others}`}</span>}
+            </div>
+          )}
+          <button
+            className="notice-toggle"
+            onClick={() => setExpanded((v) => !v)}
+            aria-expanded={expanded}
+            aria-label={expanded ? 'Collapse notices' : `Show ${notices.length} notice${notices.length === 1 ? '' : 's'} in full`}
+          >{expanded ? '⌄' : '⌃'}</button>
         </div>
       )}
-      <button
-        className="notice-toggle"
-        onClick={() => setExpanded((v) => !v)}
-        aria-expanded={expanded}
-        aria-label={expanded ? 'Collapse notices' : `Show ${notices.length} notice${notices.length === 1 ? '' : 's'} in full`}
-      >{expanded ? '⌄' : '⌃'}</button>
-    </div>
-    {announcers}
+      <div className="notice-announce sr-only" role="status" aria-live="polite">
+        {said.polite && <span key={said.seq}>{said.polite}</span>}
+      </div>
+      <div className="notice-announce sr-only" role="alert" aria-live="assertive">
+        {said.assertive && <span key={said.seq}>{said.assertive}</span>}
+      </div>
     </>
   );
 }

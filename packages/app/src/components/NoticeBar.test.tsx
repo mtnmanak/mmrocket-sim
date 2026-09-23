@@ -75,6 +75,54 @@ describe('NoticeBar', () => {
     expect(assertive()?.getAttribute('aria-live')).toBe('assertive');
   });
 
+  /**
+   * Review of the audit branch, measured: "always mounted" was false. The
+   * empty render returned the announcers' fragment and the busy one returned
+   * `<>{bar}{fragment}</>`, so React reused the polite region's node AS the
+   * bar and built both regions afresh each time the bar appeared or emptied —
+   * the insert-with-first-message case the regions exist to avoid. Worse, the
+   * rebuilt alert region arrived already holding the last problem's words, so
+   * dismissing an error inserted it again and a screen reader re-read it.
+   */
+  it('keeps the SAME two region nodes as the bar comes and goes', () => {
+    draw([]);
+    const p = polite()!;
+    const a = assertive()!;
+    const liveInserted: Element[] = [];
+    const said = new Map<Element, string[]>([[p, []], [a, []]]);
+    const log = (records: MutationRecord[]) => {
+      for (const r of records) {
+        for (const n of r.addedNodes) {
+          if (!(n instanceof Element)) continue;
+          for (const el of [n, ...n.querySelectorAll('*')]) {
+            if (el.matches('[role="alert"], [role="status"], [aria-live]')) liveInserted.push(el);
+          }
+          said.get(r.target as Element)?.push(n.textContent ?? '');
+        }
+      }
+    };
+    const mo = new MutationObserver(log);
+    mo.observe(host, { childList: true, subtree: true });
+    try {
+      const steps: Notice[][] = [[info], [], [err], [], [info], [warn, info], []];
+      for (const step of steps) {
+        draw(step);
+        expect(polite(), `polite region replaced at [${step.map((n) => n.id)}]`).toBe(p);
+        expect(assertive(), `alert region replaced at [${step.map((n) => n.id)}]`).toBe(a);
+      }
+      log(mo.takeRecords());
+      expect(bar()).toBeNull();
+      // Inserting a live region that already has words is itself an
+      // announcement: after the first render none may be inserted at all.
+      expect(liveInserted).toEqual([]);
+      // Each problem is spoken once, as it ARRIVES — not again as it goes.
+      expect(said.get(a)).toEqual([`Error: ${err.text}`, `Warning: ${warn.text}`]);
+      expect(said.get(p)).toEqual(['Notice: Loaded “Goblin.ork”.', 'Notice: Loaded “Goblin.ork”.']);
+    } finally {
+      mo.disconnect();
+    }
+  });
+
   it('shows information collapsed to a single line, announced politely', () => {
     draw([]);
     draw([info]);
