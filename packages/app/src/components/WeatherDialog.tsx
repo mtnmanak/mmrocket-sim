@@ -20,8 +20,9 @@ import {
 } from './weatherText.js';
 
 /**
- * ☁ GET WEATHER (weather build, step 3): fetch one hour's forecast for one
- * place, REVIEW it beside the launch conditions, then apply what you tick.
+ * ☁ GET WEATHER (weather build, step 3): fetch one hour's weather (a
+ * forecast, or the ERA5 reanalysis for an older date) for one place, REVIEW
+ * it beside the launch conditions, then apply what you tick.
  *
  * NOTHING IS WRITTEN UNTIL APPLY. Cancel, Escape, closing and every failure
  * write nothing; Apply hands App ONE patch of the ticked fields plus the
