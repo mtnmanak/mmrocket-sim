@@ -21,6 +21,11 @@ import { useEffect, useState } from 'react';
 export const NETWORK_HOSTS: readonly string[] = [
   'https://www.thrustcurve.org',
   'https://www.mountainmanrockets.com',
+  // The weather lookup (services/openMeteo.ts): forecasts and terrain height,
+  // the ERA5 archive for dates more than 92 days back, and place search.
+  'https://api.open-meteo.com',
+  'https://archive-api.open-meteo.com',
+  'https://geocoding-api.open-meteo.com',
 ];
 
 /** A request's deadline, merged with the caller's own cancellation. */
