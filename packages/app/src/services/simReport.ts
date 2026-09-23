@@ -67,7 +67,7 @@ export interface MotorMeta {
 }
 
 /** Human label for the catalog motor type. */
-export function motorTypeLabel(type: string | undefined): string {
+function motorTypeLabel(type: string | undefined): string {
   return type === 'SU' ? 'single-use'
     : type === 'reload' ? 'reload'
     : type === 'hybrid' ? 'hybrid'
@@ -177,7 +177,7 @@ export function hasAerodynamicForce(info: Pick<StaticInfo, 'cna' | 'cnaWorst'>):
  */
 export const shownCp = (info: Pick<StaticInfo, 'cp' | 'cpWorst'>): number =>
   info.cpWorst ?? info.cp;
-export const shownCna = (info: Pick<StaticInfo, 'cna' | 'cnaWorst'>): number =>
+const shownCna = (info: Pick<StaticInfo, 'cna' | 'cnaWorst'>): number =>
   info.cnaWorst ?? info.cna;
 export const shownStability = (
   info: Pick<StaticInfo, 'stabilityCalibers' | 'stabilityCalibersWorst'>,

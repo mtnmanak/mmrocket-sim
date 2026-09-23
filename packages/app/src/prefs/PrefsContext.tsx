@@ -103,7 +103,7 @@ export interface Preferences {
   printer?: PrinterPrefs;
 }
 
-export const DEFAULT_PREFS: Preferences = {
+const DEFAULT_PREFS: Preferences = {
   units: INITIAL_UNITS,
   radiusMode: 'diameter',
   theme: 'dark',

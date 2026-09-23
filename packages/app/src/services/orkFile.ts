@@ -20,9 +20,6 @@ import {
 } from './atmosphere.js';
 import { knownIgnitionEvent } from './ignitionEvent.js';
 
-// Re-export: rocksimFile.ts (and historical callers) import it from here.
-export { shapeParamDefault };
-
 /**
  * .ork import/export for full component trees (P2.5 — all 17 editor types).
  *
@@ -198,7 +195,7 @@ export interface OrkSeparationOverride {
  * to the beta thread, carries TEN.) Desktop substitutes the motor set for a
  * nameless configuration; so do we.
  */
-export function configLabel(c: { name: string | null; motors: Record<string, { designation: string }> }): string {
+function configLabel(c: { name: string | null; motors: Record<string, { designation: string }> }): string {
   if (c.name) return c.name;
   const designations = Object.values(c.motors).map((m) => m.designation).filter(Boolean);
   return designations.length ? `[${designations.join(', ')}]` : 'No motors';
@@ -1302,8 +1299,8 @@ export const fmtStepS = (s: number): string => String(Number(s.toPrecision(6)));
  * could not be seen, checked or re-entered, which is the trap the
  * `<timestep>` floor below documents.
  */
-export const IMPORTED_TEMP_C_RANGE: readonly [number, number] = PAD_TEMP_C_RANGE;
-export const IMPORTED_PRESSURE_HPA_RANGE: readonly [number, number] = PAD_PRESSURE_HPA_RANGE;
+const IMPORTED_TEMP_C_RANGE: readonly [number, number] = PAD_TEMP_C_RANGE;
+const IMPORTED_PRESSURE_HPA_RANGE: readonly [number, number] = PAD_PRESSURE_HPA_RANGE;
 
 /** Shed float noise no one typed, the way fmtStepS does for a time step. */
 const fmt6 = (v: number): string => String(Number(v.toPrecision(6)));

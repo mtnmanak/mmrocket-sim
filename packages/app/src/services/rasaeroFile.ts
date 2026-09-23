@@ -246,7 +246,7 @@ export type MachAltTable = [number, number][];
  * not tidiness — the engine's interpolator walks the rows assuming each Mach
  * appears once and ascending. First row wins for a repeated Mach.
  */
-export function readMachAltTable(doc: Document): MachAltTable | undefined {
+function readMachAltTable(doc: Document): MachAltTable | undefined {
   const el = doc.querySelector('RASAeroDocument > MachAlt');
   if (!el) return undefined;
   const byMach = new Map<number, number>();

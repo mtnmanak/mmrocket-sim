@@ -70,7 +70,7 @@ const BODY_CHILDREN: ComponentType[] = [
 // axial chain (nose/body/transition), exactly like a mini-rocket.
 const ASSEMBLIES: ComponentType[] = ['podset', 'parallelstage'];
 
-export const CONTAINMENT: Partial<Record<EditorComponentType | 'stage', ComponentType[]>> = {
+const CONTAINMENT: Partial<Record<EditorComponentType | 'stage', ComponentType[]>> = {
   stage: STAGE_CHILDREN,
   bodytube: [...BODY_CHILDREN, ...ASSEMBLIES],
   // NO assemblies on a nose cone or a transition: Transition.isCompatible

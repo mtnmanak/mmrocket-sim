@@ -534,7 +534,7 @@ export function watchOtherTabs(): () => void {
   return () => { window.removeEventListener('storage', onStorage); };
 }
 
-export function clearSession(): void {
+function clearSession(): void {
   try {
     localStorage.removeItem(KEY);
   } catch { /* ignore */ }

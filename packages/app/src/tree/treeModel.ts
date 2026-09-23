@@ -132,7 +132,7 @@ export function normalizeTree(tree: RocketTree): RocketTree {
   };
 }
 
-export function makeStage(name: string): ComponentNode {
+function makeStage(name: string): ComponentNode {
   return { type: 'stage', id: freshId(), name, children: [] } as ComponentNode;
 }
 

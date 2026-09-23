@@ -219,7 +219,7 @@ async function getJson(url: string, fetchImpl: typeof fetch, signal?: AbortSigna
  * subdivided by impulse class when a manufacturer hits the 500-result cap.
  * Projected to the same 18 fields so the diff compares like with like.
  */
-export async function fetchLiveCatalogue(opts: CheckOptions = {}): Promise<MotorDbEntry[]> {
+async function fetchLiveCatalogue(opts: CheckOptions = {}): Promise<MotorDbEntry[]> {
   const fetchImpl = opts.fetchImpl ?? fetch;
   const meta = await getJson(`${API}/metadata.json?availability=all`, fetchImpl, opts.signal) as {
     manufacturers?: { abbrev: string }[]; impulseClasses?: string[];

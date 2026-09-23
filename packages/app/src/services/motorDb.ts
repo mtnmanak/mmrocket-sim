@@ -484,10 +484,11 @@ const normMfr = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]/g, '')
  * ("Estes Industries" → "Estes", "Cesaroni Technology" → "Cesaroni"); the
  * alias table above covers the ones it cannot reach.
  *
- * Exported for tests — a mis-paired alias sends a flight to another vendor's
- * thrust curve, which is a wrong number, not a cosmetic slip.
+ * A mis-paired alias sends a flight to another vendor's thrust curve, which is
+ * a wrong number, not a cosmetic slip. motorMatch.test.ts holds it through
+ * findDbMotor (the Public Missiles G80T, the 'unknown'/'custom' sentinels).
  */
-export function manufacturerMatches(fileName: string | undefined, abbrev: string): boolean {
+function manufacturerMatches(fileName: string | undefined, abbrev: string): boolean {
   if (!fileName) return false;
   const a = normMfr(fileName);
   // 'unknown' is our own reader's fallback and 'custom' our old writer's —

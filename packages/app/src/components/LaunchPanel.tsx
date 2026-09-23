@@ -413,14 +413,14 @@ export function TimeStepCaution({ dt, lastRun, flights = 1 }: {
  * help no longer has a trap to describe — it says what the field is for, and
  * that typing one is how you try a different day.
  */
-export const STATION_PRESSURE_HELP =
+const STATION_PRESSURE_HELP =
   'Filled in from your Site altitude — the greyed number is what a blank field flies, and it '
   + 'follows the altitude when you change it. Type a value only to try a specific day’s air, and '
   + 'then it must be STATION pressure: the raw barometer reading at the pad, not the sea-level '
   + 'altimeter setting a weather app or an airport gives you. At a 3,900 ft pad those are about '
   + '878 and 1,013 hPa, and typing the sea-level one makes the app fly air about 15 % too dense.';
 
-export const SITE_TEMPERATURE_HELP =
+const SITE_TEMPERATURE_HELP =
   'Filled in from your Site altitude — the greyed number is what a blank field flies (the ISA '
   + 'standard, 15 °C at sea level falling 6.5 °C per km), and it follows the altitude when '
   + 'you change it. Type a value only to try a specific day’s air: a hot pad thins it and '
@@ -442,7 +442,7 @@ export const SITE_TEMPERATURE_HELP =
  * offers the blank field as the fix rather than asking for a barometer reading
  * nobody has. Silent below 600 m.
  */
-export function PadPressureCaution({ value }: { value: LaunchConditions }) {
+function PadPressureCaution({ value }: { value: LaunchConditions }) {
   const { prefs } = usePrefs();
   const issue = padPressureIssue(value);
   if (!issue) return null;

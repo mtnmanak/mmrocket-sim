@@ -57,7 +57,7 @@ export function baseDesignation(designation: string): string {
  * 'unknown' is our reader's fallback and 'custom' our old writer's — both are
  * sentinels, not manufacturers, and must not be re-exported.
  */
-export function fileMotorIdentity(ref: OrkMotorRef): Partial<MotorMeta> {
+function fileMotorIdentity(ref: OrkMotorRef): Partial<MotorMeta> {
   return {
     ...(ref.manufacturer && ref.manufacturer !== 'unknown' && ref.manufacturer !== 'custom'
       ? { orkManufacturer: ref.manufacturer } : {}),

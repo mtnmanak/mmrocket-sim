@@ -281,7 +281,7 @@ function outerRadiusForBore(n: ComponentNode, boreM: number): number {
  * two files, so changing it meant four coordinated edits and one miss made the
  * dialog's list disagree with its own checkbox.
  */
-export const CLASS_TOLERANCE_MM = 0.05;
+const CLASS_TOLERANCE_MM = 0.05;
 
 export interface MountPreview {
   id: string;

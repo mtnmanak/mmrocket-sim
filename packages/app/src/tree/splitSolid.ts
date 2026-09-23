@@ -105,7 +105,7 @@ export class SplitError extends Error {
 
 export const DEFAULT_MARGIN = 0.008;
 export const DEFAULT_CLEARANCE = 0.00015;
-export const DEFAULT_MAX_SEGMENTS = 6;
+const DEFAULT_MAX_SEGMENTS = 6;
 /** Spigot wall: thin enough to stay stiff-but-printable, never thicker than the part's own. */
 const SPIGOT_WALL = 0.0016;
 const MIN_SPIGOT = 0.006;

@@ -38,7 +38,7 @@ export const WHEEL_ZOOM_OUT = 1 / WHEEL_ZOOM_BASE;
  * Box-drag stays unlimited — a drag says "exactly this much", where the wheel
  * is the gesture that overshoots.
  */
-export const WHEEL_MAX_DEPTH = 50;
+const WHEEL_MAX_DEPTH = 50;
 
 /*
  * One wheel DETENT, in each of the three units a browser may report.

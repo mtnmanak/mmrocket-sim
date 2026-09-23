@@ -74,7 +74,7 @@ export interface AngularFrame {
   assemblies: ComponentNode[][];
 }
 
-export function collectFrame(nodes: ComponentNode[]): AngularFrame {
+function collectFrame(nodes: ComponentNode[]): AngularFrame {
   const members: ComponentNode[] = [];
   const assemblies: ComponentNode[][] = [];
   const walk = (ns: ComponentNode[]) => {

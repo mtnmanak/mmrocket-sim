@@ -83,7 +83,7 @@ export const WARNING_LABEL: Record<string, string> = {
 };
 
 /** A warning at this priority is a flight-safety failure, not a note. */
-export function isHighPriority(w: EngineWarning): boolean {
+function isHighPriority(w: EngineWarning): boolean {
   return w.priority === 'HIGH';
 }
 

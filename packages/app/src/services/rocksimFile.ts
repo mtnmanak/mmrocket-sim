@@ -9,7 +9,7 @@ import { sanitizeTree } from '../tree/sanitize.js';
 import { finCountOf } from '../tree/counts.js';
 import { MAX_FIN_POINTS, MAX_NESTING, TOO_DEEP_NESTING, TOO_MANY_FIN_POINTS, decodeXml, escapeXml as esc, lookupTable, parseDecimal, unreadableFinPoints, xmlNum, xmlText as text } from './xmlUtil.js';
 import { unzipMember } from './zipMember.js';
-import { shapeParamDefault } from './orkFile.js';
+import { shapeParamDefault } from '../tree/shapeProfile.js';
 import type { OrkExportMotor, OrkFlightConfig, OrkImportResult, OrkMotorRef } from './orkFile.js';
 import { applyPresetLinks, type PendingPresetLink, type Preset } from './presets.js';
 import { findDbMotor } from './motorDb.js';
