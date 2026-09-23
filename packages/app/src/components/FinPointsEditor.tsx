@@ -414,8 +414,11 @@ export function FinPointsEditor({ points, onChange }: {
       <button className="file-btn" style={{ marginTop: 6 }} onClick={addPoint}>
         + Add point
       </button>
+      {/* The status token, not the hard-coded red this line had (audit
+          2026-09-22): on the default dark theme's panel that red was 2.95:1;
+          the token is 5.57:1 there, and AA in light and Daylight too. */}
       {refused && (
-        <p role="alert" style={{ fontSize: 11, color: '#c0392b', margin: '6px 0 0' }}>
+        <p role="alert" style={{ fontSize: 11, color: 'var(--status-serious)', margin: '6px 0 0' }}>
           {refused}{committedProblem ? '' : ' The fin is unchanged.'}
         </p>
       )}

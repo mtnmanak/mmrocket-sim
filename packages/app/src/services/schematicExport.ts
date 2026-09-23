@@ -76,9 +76,11 @@ export const EXPORT_VARS: [string, string][] = [
   ['var(--border)', '#c6c2b8'],
   ['var(--accent)', '#b8511d'],
   ['var(--launch)', '#c65420'],
-  ['var(--status-good)', '#008300'],
-  ['var(--status-warn)', '#a06b00'],
-  ['var(--status-serious)', '#e34948'],
+  // The light theme's own status tokens — darkened to AA by the 2026-09-22
+  // audit, which this list must follow (contrastTokens.test.ts holds it).
+  ['var(--status-good)', '#007100'],
+  ['var(--status-warn)', '#845800'],
+  ['var(--status-serious)', '#bd1e1d'],
 ];
 
 /**

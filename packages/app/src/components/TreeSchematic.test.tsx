@@ -191,10 +191,12 @@ describe('TreeSchematic — CG/CP callouts', () => {
 
 describe('schematic export', () => {
   it('bakes the status vars the callouts use to their light values', () => {
+    // The AA-darkened light tokens (audit 2026-09-22); contrastTokens.test.ts
+    // reads them from styles.css and holds this list to them.
     expect(EXPORT_VARS).toEqual(expect.arrayContaining([
-      ['var(--status-good)', '#008300'],
-      ['var(--status-warn)', '#a06b00'],
-      ['var(--status-serious)', '#e34948'],
+      ['var(--status-good)', '#007100'],
+      ['var(--status-warn)', '#845800'],
+      ['var(--status-serious)', '#bd1e1d'],
     ]));
   });
 
