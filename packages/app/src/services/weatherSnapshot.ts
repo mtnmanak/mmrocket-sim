@@ -80,6 +80,17 @@ export interface WeatherSnapshot {
    * restores the absence, not a null.
    */
   before: Partial<Record<ApplyKey, number | null>>;
+  /**
+   * Wind gusts σ as the GUST CHIP wrote it from this record, and what σ held
+   * just before that click — absent until the chip is clicked. Apply never
+   * writes σ; the chip's click is a separate, later write, and this is its
+   * receipt, so the strip's Undo can take back a σ that came from this
+   * weather along with the fields Apply wrote (review of 2026-09-23: Undo
+   * cleared the chip's explanation and left the forecast-derived σ in the box
+   * with nothing saying where it came from). Dismiss keeps it, as it keeps
+   * every value.
+   */
+  sigmaEstimate?: { applied: number; before: number };
 }
 
 /** Two stored values the same for provenance purposes: equal, or equal to float noise. */
@@ -119,9 +130,11 @@ export function beforeOf(launch: LaunchConditions, patch: WeatherPatch): Weather
 /**
  * Undo an Apply: each applied field goes back to what it held before — but
  * ONLY where it still holds the applied value. A field edited by hand since is
- * the user's newer decision and is left alone.
+ * the user's newer decision and is left alone. Wind gusts σ goes back the same
+ * way when the gust chip set it from this record (`sigmaEstimate`).
  */
-export function undoApply(launch: LaunchConditions, snap: Pick<WeatherSnapshot, 'applied' | 'before'>): LaunchConditions {
+export function undoApply(launch: LaunchConditions,
+    snap: Pick<WeatherSnapshot, 'applied' | 'before' | 'sigmaEstimate'>): LaunchConditions {
   let next: LaunchConditions | null = null;
   for (const k of APPLY_KEYS) {
     if (!(k in snap.applied) || !sameValue(launch[k], snap.applied[k])) continue;
@@ -130,7 +143,16 @@ export function undoApply(launch: LaunchConditions, snap: Pick<WeatherSnapshot, 
     if (Object.hasOwn(snap.before, k)) rec[k] = snap.before[k];
     else delete rec[k];
   }
+  const sigma = snap.sigmaEstimate;
+  if (sigma && sameValue(launch.windStdDev, sigma.applied)) {
+    next = { ...(next ?? launch), windStdDev: sigma.before };
+  }
   return next ?? launch;
+}
+
+/** The record after the gust chip writes `sigmaMs` over a σ of `beforeMs`: its receipt, for Undo. */
+export function withSigmaEstimate(snap: WeatherSnapshot, sigmaMs: number, beforeMs: number): WeatherSnapshot {
+  return { ...snap, sigmaEstimate: { applied: sigmaMs, before: beforeMs } };
 }
 
 /**
@@ -203,6 +225,11 @@ export function validWeatherSnapshot(x: unknown): WeatherSnapshot | null {
     if (!(APPLY_KEYS as readonly string[]).includes(k) || n === undefined) return null;
     before[k as ApplyKey] = n;
   }
+  // Optional; when present, two non-negative finite speeds, or the record goes
+  // — a malformed receipt must not let Undo write a σ nobody had.
+  const s = x['sigmaEstimate'];
+  if (s !== undefined && (!isObj(s) || !finite(s['applied']) || !finite(s['before'])
+    || s['applied'] < 0 || s['before'] < 0)) return null;
   return {
     v: 1, provider: 'open-meteo', endpoint: x['endpoint'], model: 'best_match',
     place: {
@@ -220,5 +247,6 @@ export function validWeatherSnapshot(x: unknown): WeatherSnapshot | null {
     fetched: fetched as WeatherSnapshot['fetched'],
     applied,
     before,
+    ...(isObj(s) ? { sigmaEstimate: { applied: s['applied'] as number, before: s['before'] as number } } : {}),
   };
 }

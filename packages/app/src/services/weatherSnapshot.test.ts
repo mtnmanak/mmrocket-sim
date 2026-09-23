@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CONDITIONS, type LaunchConditions } from '../components/LaunchPanel.js';
 import {
-  applyProposal, beforeOf, fieldProvenance, staleness, undoApply, validWeatherSnapshot, type WeatherSnapshot,
+  applyProposal, beforeOf, fieldProvenance, staleness, undoApply, validWeatherSnapshot, withSigmaEstimate,
+  type WeatherSnapshot,
 } from './weatherSnapshot.js';
 
 /**
@@ -69,6 +70,23 @@ describe('undoApply', () => {
     expect(Object.hasOwn(back, 'longitudeDeg')).toBe(false);
     expect(back).toEqual(HOT_PAD);
   });
+
+  // Review of 2026-09-23: Undo took the chip's explanation away and left the
+  // σ it had written from this forecast. The chip's click leaves a receipt on
+  // the record, and Undo reads it like any applied field's.
+  it('puts back a σ the gust chip wrote from this weather, unless it was edited since', () => {
+    const s = withSigmaEstimate(snap(), 2, 0.7);
+    expect(s.sigmaEstimate).toEqual({ applied: 2, before: 0.7 });
+    const withSigma = { ...applied(), windStdDev: 2 };
+    expect(undoApply(withSigma, s)).toEqual(HOT_PAD);
+    // Edited since: the user's newer decision stays, as for any field.
+    expect(undoApply({ ...withSigma, windStdDev: 1.2 }, s).windStdDev).toBe(1.2);
+    // No receipt, no σ change: Apply never wrote σ.
+    expect(undoApply(withSigma, snap()).windStdDev).toBe(2);
+    // A σ-only receipt still undoes, with nothing else to put back.
+    const onlySigma = snap({ applied: {}, before: {}, sigmaEstimate: { applied: 2, before: 0 } });
+    expect(undoApply({ ...HOT_PAD, windStdDev: 2 }, onlySigma)).toEqual({ ...HOT_PAD, windStdDev: 0 });
+  });
 });
 
 describe('staleness', () => {
@@ -104,6 +122,8 @@ describe('fieldProvenance', () => {
 describe('validWeatherSnapshot', () => {
   it('keeps a well-formed record through JSON', () => {
     expect(validWeatherSnapshot(JSON.parse(JSON.stringify(snap())))).toEqual(snap());
+    const s = withSigmaEstimate(snap(), 2, 0.7);
+    expect(validWeatherSnapshot(JSON.parse(JSON.stringify(s)))).toEqual(s);
   });
 
   it('drops a malformed one rather than put a wrong "forecast said" beside a field', () => {
@@ -117,6 +137,9 @@ describe('validWeatherSnapshot', () => {
       { ...snap(), forAltitudeM: null },
       // Finite, but past what a Date can hold: the strip could not show it.
       { ...snap(), validUnix: 1e16 }, { ...snap(), validUnix: -1e16 },
+      // A σ receipt Undo could write a σ nobody had from.
+      { ...snap(), sigmaEstimate: null }, { ...snap(), sigmaEstimate: { applied: 2 } },
+      { ...snap(), sigmaEstimate: { applied: 2, before: 'x' } }, { ...snap(), sigmaEstimate: { applied: -1, before: 0 } },
     ];
     for (const b of bad) expect(validWeatherSnapshot(b), JSON.stringify(b)).toBeNull();
   });

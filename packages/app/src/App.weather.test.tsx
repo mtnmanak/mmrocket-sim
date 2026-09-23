@@ -146,6 +146,43 @@ describe('applied weather across a reload and an open', () => {
     expect([before, ymdInZone(Date.now(), SNAP.timezone)]).toContain(dateBox()!.value);
   }, 30000);
 
+  // Review of 2026-09-23: Undo took the gust chip's explanation away and left
+  // the σ it had written from the forecast, unlabelled. Undo now puts that σ
+  // back too; Dismiss keeps it, as it keeps every value, and only the notes go.
+  it('Undo puts back the σ the gust chip wrote; Dismiss keeps it', async () => {
+    const WIND_SNAP: WeatherSnapshot = {
+      ...SNAP, applied: { ...SNAP.applied, windAverage: 1.75 }, before: { ...SNAP.before, windAverage: 0 },
+    };
+    const start = { ...APPLIED, windAverage: 1.75, windStdDev: 0.3 };
+    const sigmaBox = (host: HTMLElement) => [...host.querySelectorAll('input')]
+      .find((i) => (i.getAttribute('aria-label') ?? '').startsWith('Wind gusts σ'))!;
+    const button = (host: HTMLElement, text: string) => [...host.querySelectorAll('button')]
+      .find((b) => b.textContent?.trim() === text)!;
+    for (const [end, expected] of [['Undo', 0.3], ['Dismiss', 0.95]] as const) {
+      localStorage.setItem(SESSION_KEY, JSON.stringify({
+        tree: { name: 'Mine', components: [] }, launch: start, weather: WIND_SNAP, appVersion: APP_VERSION, savedAt: Date.now(),
+      }));
+      const host = await mountApp();
+      await waitFor(() => host.querySelector('.gust-estimate button') !== null, 'the gust chip');
+      expect(sigmaBox(host).value).toBe('0.3');
+      await act(async () => { host.querySelector<HTMLButtonElement>('.gust-estimate button')!.click(); });
+      expect(sigmaBox(host).value).toBe('0.95');
+      await act(async () => { button(host, end).click(); });
+      expect(host.querySelector('[data-weather="strip"]'), end).toBeNull();
+      expect(host.querySelector('.gust-estimate'), end).toBeNull();
+      expect(sigmaBox(host).value, end).toBe(String(expected));
+      window.dispatchEvent(new Event('pagehide'));
+      expect(stored()!.launch.windStdDev, end).toBe(expected);
+      // Undo puts back every field the weather wrote, Wind avg included.
+      if (end === 'Undo') expect(stored()!.launch).toMatchObject({ windAverage: 0, launchAltitudeM: 0, temperatureC: null });
+      for (const m of mounted) {
+        await act(async () => { m.root.unmount(); });
+        m.host.remove();
+      }
+      mounted = [];
+    }
+  }, 30000);
+
   it('is dropped when a share link opens a design with launch conditions of its own', async () => {
     const xml = exportOrk({
       name: 'Linked',

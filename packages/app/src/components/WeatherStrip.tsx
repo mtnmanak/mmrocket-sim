@@ -44,11 +44,15 @@ export function WeatherStrip({ weather, launch, onUndo, onDismiss, onFetchAgain,
       {sourceHeading(weather.endpoint)}{' '}
       <strong>{weather.place.label}</strong> · {formatValidTime(weather.validUnix, weather.timezone, year)} · fetched {fetchedText}
       {' '}
+      {/* Undo takes back a σ the gust chip worked out from this weather too
+          (weatherSnapshot.sigmaEstimate); Dismiss keeps every value, σ
+          included, and drops only the notes — the chip's goes with the rest. */}
       <button type="button" className="file-btn" onClick={onUndo}
-        title="Put back what the applied fields held — any you have edited since stay as they are">Undo</button>
+        title={'Put back what the applied fields held, and Wind gusts σ if you took the estimate — '
+          + 'any you have edited since stay as they are'}>Undo</button>
       {' '}
       <button type="button" className="file-btn file-btn-ghost" onClick={onDismiss}
-        title="Keep the values and stop showing where they came from">Dismiss</button>
+        title="Keep every value, an estimated Wind gusts σ included, and stop showing where they came from">Dismiss</button>
       {' — '}
       <a href={WEATHER_CREDIT.source.href} target="_blank" rel="noopener noreferrer">{WEATHER_CREDIT.source.text}</a>
       {' · '}

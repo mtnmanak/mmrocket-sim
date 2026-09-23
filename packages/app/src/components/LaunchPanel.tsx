@@ -725,7 +725,7 @@ function PadPressureCaution({ value }: { value: LaunchConditions }) {
 
 export function LaunchPanel({
   value, onChange, onLaunch, simulating, canLaunch, lastRun, weather, onGetWeather, onWeatherFetchAgain, onWeatherUndo,
-  onWeatherDismiss,
+  onWeatherDismiss, onWeatherSigma,
 }: {
   value: LaunchConditions;
   onChange: (v: LaunchConditions) => void;
@@ -763,6 +763,12 @@ export function LaunchPanel({
   onWeatherUndo?: () => void;
   /** The strip's Dismiss: keeps the values, drops the provenance. */
   onWeatherDismiss?: () => void;
+  /**
+   * The gust chip's click: App writes σ and records what it replaced on the
+   * weather record, so Undo can put it back. Without it the chip writes σ
+   * through `onChange` alone.
+   */
+  onWeatherSigma?: (sigmaMs: number) => void;
 }) {
   const { prefs } = usePrefs();
   // The applied forecast hour's mean wind and gust — what the σ chip works
@@ -813,7 +819,7 @@ export function LaunchPanel({
         {/* The gust-to-σ chip (weather build, step 4): directly under the wind
             pair, full width, and only here — never inside LaunchField, which the
             Fly screen shares. */}
-        <GustEstimate value={value} onChange={onChange} forecastWind={forecastWind} />
+        <GustEstimate value={value} onChange={onChange} onEstimate={onWeatherSigma} forecastWind={forecastWind} />
         {numField('Rod length', 'launchRodLengthM', 0.1, ROD_LENGTH_M_RANGE[0])}
         {numField('Site altitude', 'launchAltitudeM', 50, ...SITE_ALTITUDE_M_RANGE)}
         {/* The atmosphere bounds are atmosphere.ts's, not literals: the importers

@@ -133,7 +133,7 @@ import {
 } from './services/importApply.js';
 import { ScaleDialog } from './components/ScaleDialog.js';
 import { WeatherDialog } from './components/WeatherDialog.js';
-import { applyProposal, undoApply, type WeatherSnapshot } from './services/weatherSnapshot.js';
+import { applyProposal, undoApply, withSigmaEstimate, type WeatherSnapshot } from './services/weatherSnapshot.js';
 import { useTreeHistory } from './hooks/useTreeHistory.js';
 import { useNozzleFollow } from './hooks/useNozzleFollow.js';
 import { useRelaunchLatch } from './hooks/useRelaunchLatch.js';
@@ -526,12 +526,25 @@ export function App() {
     setLaunch((prev) => applyProposal(prev, patch));
     setWeather(snapshot);
   };
-  /** The strip's Undo: each applied field back, unless it has been edited since. */
+  /**
+   * The strip's Undo: each applied field back, unless it has been edited
+   * since — and Wind gusts σ too, when the gust chip set it from this weather.
+   */
   const undoWeather = () => {
     const snap = weather;
     if (!snap) return;
     setLaunch((prev) => undoApply(prev, snap));
     setWeather(null);
+  };
+  /**
+   * The gust chip's click: σ written, and what σ held a moment before kept
+   * on the weather record, so Undo can put it back (review of 2026-09-23).
+   * `launchRef` is the launch this click was made against.
+   */
+  const estimateSigma = (sigmaMs: number) => {
+    const before = launchRef.current.windStdDev;
+    setLaunch((prev) => ({ ...prev, windStdDev: sigmaMs }));
+    setWeather((w) => (w ? withSigmaEstimate(w, sigmaMs, before) : w));
   };
   /**
    * The in-memory flight, BOUND TO THE RUN IT BELONGS TO. It used to be a
@@ -4229,7 +4242,7 @@ export function App() {
             lastRun={simCostRef}
             weather={weather} onGetWeather={() => setShowWeather('get')}
             onWeatherFetchAgain={() => setShowWeather('again')}
-            onWeatherUndo={undoWeather} onWeatherDismiss={() => setWeather(null)} />
+            onWeatherUndo={undoWeather} onWeatherDismiss={() => setWeather(null)} onWeatherSigma={estimateSigma} />
 
           {/* Last row of the grid, full width (`.config-panel` spans
               `1 / -1` wherever auto-placement drops it). It sat second, above

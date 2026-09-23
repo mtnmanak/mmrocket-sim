@@ -19,9 +19,15 @@ import { windNumber } from './weatherText.js';
  * Not a `.field-caution`: the panel's tests (and a reader) take the first of
  * those as the caution about what was typed, and this renders ahead of them.
  */
-export function GustEstimate({ value, onChange, forecastWind }: {
+export function GustEstimate({ value, onChange, onEstimate, forecastWind }: {
   value: LaunchConditions;
   onChange: (v: LaunchConditions) => void;
+  /**
+   * The click, when App wants it: App writes σ AND keeps what σ held before on
+   * the weather record, so the strip's Undo can put it back. Without it the
+   * click is a plain `onChange` of σ alone.
+   */
+  onEstimate?: (sigmaMs: number) => void;
   /**
    * The applied hour's mean wind and gust (m/s), or null when there is none.
    * `source` is what the copy calls them: "forecast" unless the hour came from
@@ -70,7 +76,7 @@ export function GustEstimate({ value, onChange, forecastWind }: {
       {meanMatches && !applied && (
         <button type="button" className="file-btn" aria-describedby={lineId}
           title={`Works out σ from the ${source}’s gust and average wind. Nothing changes until you click.`}
-          onClick={() => onChange({ ...value, windStdDev: est.sigmaMs })}>
+          onClick={() => (onEstimate ? onEstimate(est.sigmaMs) : onChange({ ...value, windStdDev: est.sigmaMs }))}>
           Estimate from {source} gust
         </button>
       )}
