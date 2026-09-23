@@ -1503,8 +1503,23 @@ export function App() {
 
   // ---- Measured mass & CG -> "Build allowance" ballast (v0.061) ----
 
-  /** The existing allowance, if this design already carries one. */
-  const allowanceNode = useMemo(() => findAllowance(tree), [tree]);
+  /**
+   * The existing allowance, if this design already carries one.
+   *
+   * This memo and the four below it that read the tree — `canPinBlocker`,
+   * `notices`, `provenanceKey` and `mountSizes` — key on `tree.components`,
+   * like `mounts` and `buildResult` above, and for their reason: the Rocket
+   * name input does `setTree({ ...tree, name })` on every keystroke, and none
+   * of them reads `tree.name` (checked through every function they call).
+   * The 8 September audit named nine such memos and f5a4993 narrowed four;
+   * these are the other five (audit 2026-09-22, row 513), pinned by
+   * App.render.test.tsx. A callback that WRITES the tree is still never
+   * narrowed — see `pinBlockerToMeasured`.
+   */
+  const allowanceNode = useMemo(
+    () => findAllowance(tree),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- tree.components deliberately: a rename must not re-run this
+    [tree.components]);
 
   /**
    * Computed dry mass and CG with any existing allowance BACKED OUT, so a
@@ -1616,7 +1631,7 @@ export function App() {
     const pinned = tree.components.filter((n) =>
       n['overrideSubcomponentsMass'] === true && typeof n['overrideMass'] === 'number');
     return pinned.length === 1 && pinned[0] === allowanceBlocker;
-  }, [allowanceBlocker, tree]);
+  }, [allowanceBlocker, tree.components]);
 
   /**
    * Replace the covering override with what the user actually weighed —
@@ -1755,9 +1770,10 @@ export function App() {
       });
     }
     return out;
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- tree.components deliberately: a rename must not re-run this (row 513)
   }, [buildError, buildResult, motorFailures, curveRepairs, fileNoteState, setFileNote,
     restoredByOlderBuild, timeStepMigrated, timeStepMigratedFrom, padMassNote, runsCapped,
-    tree, assigned, prefs.units.length]);
+    tree.components, assigned, prefs.units.length]);
 
   /** Assigns a motor to a mount, with the propellant-aware ignition default. */
   const assignMotor = (targetMountId: string, label: string, spec: MotorSpec, meta: MotorMeta) => {
@@ -2096,10 +2112,13 @@ export function App() {
     // before v0.119 cannot be re-flown on a design that does — see
     // simReport's runCarriesNozzleStamp (2026-09-08).
     hasNozzle: motorisedStagesWithNozzle(tree, assigned).length > 0,
-    // `tree`, not `tree.components`, unlike `buildResult` above: this memo is
-    // ~0.3 ms and re-running it on a rename is cheaper than a suppressed
-    // exhaustive-deps warning is to read.
-  }), [physicsKey, assigned, hardwareDeltaKg, launch, aeroMode, effectiveKbf, autoSupersonic, tree]);
+    // `tree.components`, not `tree` (row 513, see `allowanceNode`). The memo
+    // itself is ~0.3 ms, but a new key per keystroke re-ran everything keyed
+    // on it too: `currentMatchKey`, `canShowCharts` and so `chartableRun`'s
+    // match against every saved run, `changedSince` and the export's
+    // `flightDataForExport`.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- tree.components deliberately: a rename must not re-run this
+  }), [physicsKey, assigned, hardwareDeltaKg, launch, aeroMode, effectiveKbf, autoSupersonic, tree.components]);
   /** The same key, only when there is a rocket and a motor to re-fly it on. */
   const currentMatchKey = useMemo<DesignMatchKey | null>(
     () => (built && primaryMountId ? provenanceKey : null),
@@ -2940,7 +2959,8 @@ export function App() {
       // 2026-09-22, row 351) — the same count the mass figures carry.
       count: mountMotorCount(tree, m.id!),
     };
-  }), [mounts, tree, stageList]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- tree.components deliberately: a rename must not re-run this (row 513)
+  }), [mounts, tree.components, stageList]);
 
   /**
    * Offer the Quick Picks at all? They are the Quick Start's four Estes

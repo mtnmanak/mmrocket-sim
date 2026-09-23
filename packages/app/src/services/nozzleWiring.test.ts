@@ -194,7 +194,9 @@ describe('App surfaces the nozzle plausibility warning', () => {
   it('re-runs when the design, the motors or the length unit change', () => {
     // The memo would otherwise hold a warning about a nozzle that has been
     // corrected, or print millimetres to someone who has switched to inches.
-    expect(app()).toContain('tree, assigned, prefs.units.length]);');
+    // The design as `tree.components` since audit 2026-09-22 row 513: a rename
+    // is not a design change (App.render.test.tsx).
+    expect(app()).toContain('tree.components, assigned, prefs.units.length]);');
   });
 });
 
