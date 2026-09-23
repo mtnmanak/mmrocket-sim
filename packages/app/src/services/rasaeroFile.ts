@@ -1710,7 +1710,12 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
     return null;
   };
 
-  const finXml = (parent: ComponentNode): void => {
+  /**
+   * `aftOfParentM`: body length aft of `parent` that RASAero measures the fin
+   * from too — non-zero only for a booster built from several tubes (see the
+   * booster loop).
+   */
+  const finXml = (parent: ComponentNode, aftOfParentM = 0): void => {
     const finSets = (parent.children ?? []).filter((c) => c.type.endsWith('finset'));
     if (finSets.length === 0) return;
     if (finSets.length > 1) {
@@ -1738,8 +1743,9 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
       : pos.method === 'top' ? pos.offset + plan.root - tubeLen
       : pos.method === 'middle' ? pos.offset + (plan.root - tubeLen) / 2
       : 0; // 'absolute' has no tube-relative meaning here
-    // Fin Location = front edge from the tube bottom (inches).
-    const locIn = (plan.root - bottomOffset) * IN;
+    // Fin Location = front edge from the tube bottom (inches) — from the
+    // bottom of the whole booster body on a booster, hence `aftOfParentM`.
+    const locIn = (plan.root - bottomOffset + aftOfParentM) * IN;
     const cs = String(fin['crossSection'] ?? 'square');
     // A supersonic airfoil section (feature #4) beats the plain cross section.
     // FX3 is only real for Hexagonal — RASAero derives the other TEs itself
@@ -2019,6 +2025,28 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
     if (finParents.length > 1) {
       throw new Error(`RASAero allows ONE fin set per booster — stage "${st.name}" has several; export as .ork/.rkt.`);
     }
+    // A booster's fins sit on the booster BODY: RASAero measures their
+    // <Location> from its bottom, and the importer puts them on the one body
+    // tube it builds. A fin set on the shoulder or the boat tail has no such
+    // location (audit 2026-09-22): written relative to that transition, a fin
+    // on a boat tail re-opened on the body, moved aft by the boat tail's
+    // length. Refused, never dropped — desktop only looks for fins on the
+    // tubes (BoosterDTO.getFinSetFromBodyTube) and so loses these silently.
+    const finParent = finParents[0];
+    if (finParent && finParent.type !== 'bodytube') {
+      const where = finParent === boattail ? 'boat tail' : finParent === shoulder ? 'shoulder' : finParent.type;
+      throw new Error(`RASAero puts a booster's fins on its body tube — the fins on “${finParent.name ?? where}” `
+        + `(stage "${st.name}"'s ${where}) can't be exported there. Move them to the body tube, or export as .ork/.rkt.`);
+    }
+    // RASAero's booster body is every tube of the stage end to end, and its
+    // fin <Location> counts from the bottom of all of them — so a fin set on
+    // one tube also sits above the tubes aft of it. Desktop adds exactly this
+    // (BoosterDTO.java:159-212, `finLocationOffset`); without it a fin on the
+    // first of two tubes moved aft by the second tube's length.
+    const aftOfFins = finParent
+      ? kids.slice(kids.indexOf(finParent) + 1).filter((c) => c.type === 'bodytube')
+        .reduce((s, t) => s + nnum(t, 'length', 0.1), 0)
+      : 0;
     emit('<Booster>');
     emit('<PartType>Booster</PartType>');
     emit(`<Length>${fmt(bodyLen * IN)}</Length>`);
@@ -2049,7 +2077,7 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
     emit('<NozzleExitDiameter>0</NozzleExitDiameter>');
     emit(`<BoattailLength>${fmt(btLen * IN)}</BoattailLength>`);
     emit(`<BoattailRearDiameter>${fmt(boattail ? nnum(boattail, 'aftRadius', 0) * 2 * IN : 0)}</BoattailRearDiameter>`);
-    finXml(finParents[0] ?? tubes[0]!);
+    finXml(finParent ?? tubes[0]!, aftOfFins);
     emit('</Booster>');
     locM += shoulderLen + bodyLen + btLen;
   }

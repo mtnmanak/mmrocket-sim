@@ -2302,3 +2302,67 @@ describe('RASAero import — the launch site is held to the panel’s own bounds
     expect(boundNotes(r.notes).join('\n')).toMatch(/launch site altitude is 150000 ft, .*imported as 32808\.4 ft/);
   });
 });
+
+/**
+ * Audit 2026-09-22 row 386. RASAero measures a booster fin's <Location> from
+ * the bottom of the WHOLE booster body — the one tube the importer builds —
+ * while this exporter measured it from the fin's own parent tube. Desktop adds
+ * the later tubes' length (BoosterDTO.java:159-212, finLocationOffset). A fin
+ * on a boat tail or shoulder has no booster-body location at all.
+ */
+describe('RASAero export — booster fins are located on the whole booster body', () => {
+  const booster = (children: ComponentNode[]) => ({
+    name: 'B',
+    tree: { components: [
+      { type: 'stage' as const, id: 's0', name: 'Sustainer', children: [
+        { type: 'nosecone' as const, id: 'n', length: 0.25, aftRadius: 0.0381, thickness: 0.002, shape: 'ogive' },
+        { type: 'bodytube' as const, id: 'b0', length: 0.7, outerRadius: 0.0381, thickness: 0.001 },
+      ] },
+      { type: 'stage' as const, id: 's1', name: 'Booster', children },
+    ] },
+  });
+  const fin = (): ComponentNode => ({ type: 'trapezoidfinset', id: 'f1', finCount: 3, rootChord: 0.12, tipChord: 0.05,
+    sweep: 0.05, height: 0.07, thickness: 0.003, position: { method: 'bottom', offset: 0 } });
+  const boosterFin = (xml: string) => /<Booster>[^]*?<Fin>[^]*?<Location>([^<]*)<\/Location>/.exec(xml)![1];
+
+  it('adds the tubes aft of the fin’s own tube, as desktop does', () => {
+    const d = booster([
+      { type: 'bodytube', id: 't1', length: 0.3, outerRadius: 0.0381, thickness: 0.001, children: [fin()] },
+      { type: 'bodytube', id: 't2', length: 0.2, outerRadius: 0.0381, thickness: 0.001 },
+    ]);
+    const xml = exportCdx1(d);
+    // Front edge 0.12 + 0.2 m above the booster's bottom, in inches; it was 0.12 m.
+    expect(Number(boosterFin(xml))).toBeCloseTo(0.32 * 39.37, 3);
+    // Re-opened on the one booster tube, the fin sits where it was: its
+    // trailing edge 0.2 m above the booster's bottom.
+    const back = importCdx1(xml);
+    const f = flatten(back.tree.components).find((c) => c.type === 'trapezoidfinset')!;
+    expect(f.position?.method).toBe('bottom');
+    expect(f.position?.offset).toBeCloseTo(-0.2, 4);
+  });
+
+  it('leaves a fin on the last tube where it was', () => {
+    const d = booster([
+      { type: 'bodytube', id: 't1', length: 0.3, outerRadius: 0.0381, thickness: 0.001 },
+      { type: 'bodytube', id: 't2', length: 0.2, outerRadius: 0.0381, thickness: 0.001, children: [fin()] },
+    ]);
+    expect(Number(boosterFin(exportCdx1(d)))).toBeCloseTo(0.12 * 39.37, 3);
+  });
+
+  it('refuses fins on a boat tail or a shoulder, never exports them misplaced', () => {
+    const ff = (): ComponentNode => ({ type: 'freeformfinset', id: 'ff', finCount: 3, thickness: 0.003,
+      points: [[0, 0], [0.02, 0.05], [0.06, 0.05], [0.08, 0]], position: { method: 'bottom', offset: 0 } });
+    const tail = booster([
+      { type: 'bodytube', id: 't1', length: 0.5, outerRadius: 0.0381, thickness: 0.001 },
+      { type: 'transition', id: 'bt', length: 0.1, foreRadius: 0.0381, aftRadius: 0.03, thickness: 0.002,
+        shape: 'conical', children: [ff()] },
+    ]);
+    expect(() => exportCdx1(tail)).toThrow(/boat tail/);
+    const shoulder = booster([
+      { type: 'transition', id: 'sh', length: 0.05, foreRadius: 0.03, aftRadius: 0.0381, thickness: 0.002,
+        shape: 'conical', children: [ff()] },
+      { type: 'bodytube', id: 't1', length: 0.5, outerRadius: 0.0381, thickness: 0.001 },
+    ]);
+    expect(() => exportCdx1(shoulder)).toThrow(/shoulder/);
+  });
+});
