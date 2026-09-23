@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
+import { finOutlineProblem } from './finOutline.js';
 import { convertShrouds, findShroudCandidates, shroudToFairing } from './shroudConvert.js';
 import { findNode } from './treeModel.js';
 
@@ -106,13 +107,57 @@ describe('shroud → fairing conversion', () => {
     expect(f['height']).toBeCloseTo(0.02, 9);
   });
 
-  it('measures height and length as the outline extent, so an outline below its root line cannot go negative', () => {
+  it('gives an outline drawn wholly below its root line its span as a height, never a negative one', () => {
     // Math.max over y gave -0.01 here: a negative-height fairing.
     const below: [number, number][] = [[0, -0.01], [0, -0.03], [0.08, -0.03], [0.08, -0.01]];
     const f = shroudToFairing(freeform({ id: 'c1', name: 'shroud', density: 1000, points: below }));
     expect(f['height']).toBeCloseTo(0.02, 9);
     expect(f['length']).toBeCloseTo(0.08, 9);
     expect(f['mass']).toBeCloseTo(0.08 * 0.02 * 0.025 * 1000, 9);
+  });
+
+  /**
+   * THE OUTLINES THE KERNEL BUILDS DO NOT MOVE (review of the audit fix
+   * above). Every one of these passes finOutlineProblem — the app's copy of
+   * the kernel's check — and each is pinned at what it converted to before the
+   * fix: the shoelace area, the outline's maximum x and y. A first version
+   * tested the closing edge for crossings too, with the kernel's
+   * touch-counts segment test, so a corner ON the root line read as a
+   * crossing and the mass jumped to the box (+18 % to +100 %); it also
+   * measured spans, which lengthened a forward-swept outline by its overhang.
+   * thickness 0.025 m × density 1000 kg/m³ = 25 kg/m² of profile area.
+   */
+  it.each<[string, [number, number][], number, number, number]>([
+    // a flat run along the root before the leading edge rises
+    ['a flat leading run', [[0, 0], [0.005, 0], [0.02, 0.02], [0.08, 0.02], [0.08, 0]], 0.03375, 0.08, 0.02],
+    // a flat run along the root behind the trailing edge
+    ['a flat trailing run', [[0, 0], [0.02, 0.02], [0.07, 0.02], [0.075, 0], [0.08, 0]], 0.03125, 0.08, 0.02],
+    // two humps meeting on the root line
+    ['two humps', [[0, 0], [0.02, 0.02], [0.04, 0], [0.06, 0.02], [0.08, 0]], 0.02, 0.08, 0.02],
+    // a leading edge swept forward of point 0
+    ['a forward-swept leading edge', [[0, 0], [-0.01, 0.02], [0.06, 0.02], [0.08, 0]], 0.0375, 0.08, 0.02],
+    // an interior corner dipped below the root line
+    ['an interior dip', [[0, 0], [0.02, -0.005], [0.04, 0.02], [0.08, 0]], 0.0125, 0.08, 0.02],
+    // a corner dipped through the root line between two humps
+    ['a dip through the root line', [[0, 0], [0.02, 0.02], [0.04, -0.01], [0.06, 0.02], [0.08, 0]], 0.015, 0.08, 0.02],
+    // point 0 off the origin (the kernel translates it there)
+    ['an outline off the origin', [[0.01, 0.005], [0.03, 0.025], [0.09, 0.005]], 0.02, 0.09, 0.025],
+  ])('converts %s exactly as it always has', (_, points, mass, length, height) => {
+    expect(finOutlineProblem(points)).toBeNull();
+    const f = shroudToFairing(freeform({ id: 'c1', name: 'shroud', density: 1000, points }));
+    expect(f['mass']).toBeCloseTo(mass, 12);
+    expect(f['length']).toBeCloseTo(length, 12);
+    expect(f['height']).toBeCloseTo(height, 12);
+  });
+
+  it('measures the box for an outline whose own area is exactly zero, even one the kernel accepts', () => {
+    // Two lobes either side of the root line, equal and opposite: the kernel's
+    // check passes (no two listed edges cross), the shoelace reads 0, and
+    // before the audit this converted to 0 kg like the bow-tie.
+    const zigzag: [number, number][] = [[0, 0], [0.04, 0.02], [0.04, -0.02], [0.08, 0]];
+    expect(finOutlineProblem(zigzag)).toBeNull();
+    const f = shroudToFairing(freeform({ id: 'c1', name: 'shroud', density: 1000, points: zigzag }));
+    expect(f['mass']).toBeCloseTo(0.08 * 0.02 * 25, 12);
   });
 
   it('replaces the node in the tree, same id, and reports it', () => {

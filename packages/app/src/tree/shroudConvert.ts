@@ -42,8 +42,8 @@ export function findShroudCandidates(tree: RocketTree): ShroudCandidate[] {
 
 /**
  * The side-profile area the mass estimate uses, m² (points are [x along body,
- * y off surface], m): the outline's own area when it is a simple polygon,
- * else the box it spans.
+ * y off surface], m): the outline's own shoelace area, unless that cannot be
+ * its area — then the box it spans.
  *
  * A crossed outline — a planform dragged until two edges cross — has a
  * shoelace area of ZERO (its lobes cancel), and until audit 2026-09-22 that
@@ -51,27 +51,47 @@ export function findShroudCandidates(tree: RocketTree): ShroudCandidate[] {
  * The kernel refuses a crossed fin outline anyway, so converting is how such
  * a design gets back to building; the box is an upper bound (twice a bow-tie's
  * lobes), which the conversion note already tells the user to check. The same
- * box stands in when there is no outline to measure at all.
+ * box stands in for a shoelace of exactly zero however it arises (lobes either
+ * side of the root line can cancel too), and for fewer than three points.
+ *
+ * "Crossed" is the KERNEL's own test (finOutlineIntersection over the listed
+ * points), deliberately not a stricter one. A first version of this fix also
+ * tested the closing edge back along the root, and because the kernel's
+ * segment test counts a TOUCH as a crossing, every outline with a corner ON
+ * the root line — a flat run at the leading or trailing edge, two humps —
+ * read as crossed and jumped to the box: +18 % to +100 % on outlines the
+ * kernel builds without complaint. So an outline the kernel accepts, with a
+ * non-zero shoelace, converts to the area it always did.
  */
 function profileArea(pts: [number, number][], length: number, height: number): number {
-  // The closing edge (back along the root) is part of the polygon the area is
-  // of, so it is checked too — finOutlineIntersection, like the kernel, tests
-  // only the edges between the listed points.
-  const simple = pts.length >= 3 && finOutlineIntersection([...pts, pts[0]!]) === null;
+  const simple = pts.length >= 3 && finOutlineIntersection(pts) === null;
   const area = simple ? Math.abs(signedArea(pts)) : 0;
   return area > 0 ? area : length * height;
+}
+
+/**
+ * How far the outline reaches along one axis: its MAXIMUM, as it always was —
+ * the kernel puts point 0, and with it the root line, at the origin — unless
+ * that is not positive.
+ *
+ * Math.max over y read an outline drawn wholly at or below its root line as a
+ * NEGATIVE height (audit 2026-09-22), a fairing nobody can see to fix. Only
+ * then does the span the outline covers (max − min) stand in. Not spans
+ * throughout, because they are not what a converted shroud has always
+ * measured: a leading edge swept forward of point 0 would lengthen by its
+ * overhang, and an interior corner dipped below the root (which the kernel
+ * pulls back up to the body) would heighten.
+ */
+function reach(pts: [number, number][], k: 0 | 1): number {
+  const hi = Math.max(...pts.map((p) => p[k]));
+  return hi > 0 ? hi : hi - Math.min(...pts.map((p) => p[k]));
 }
 
 /** Builds the fairing node a candidate freeform set becomes (same id/position). */
 export function shroudToFairing(n: ComponentNode): ComponentNode {
   const pts = (n['points'] as [number, number][] | undefined) ?? [];
-  // EXTENTS, not maxima: Math.max over y read an outline drawn below its root
-  // line as a NEGATIVE height (audit 2026-09-22). For an outline that starts
-  // at the origin with its root on y = 0 — every one the kernel accepts — the
-  // extent IS the maximum, so no valid shroud moves.
-  const extent = (k: 0 | 1) => Math.max(...pts.map((p) => p[k])) - Math.min(...pts.map((p) => p[k]));
-  const length = pts.length ? extent(0) : 0.08;
-  const height = pts.length ? extent(1) : 0.02;
+  const length = pts.length ? reach(pts, 0) : 0.08;
+  const height = pts.length ? reach(pts, 1) : 0.02;
   const width = num(n, 'thickness', 0.025);
   const override = n['overrideMass'];
   const mass = typeof override === 'number' && override > 0

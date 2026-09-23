@@ -8,8 +8,10 @@
  *
  * Meaningful only for a SIMPLE polygon. On one that crosses itself the lobes
  * wind opposite ways and cancel — a bow-tie reads as 0 — so a caller that
- * needs an AREA, rather than a winding, must rule that out first
- * (finOutline.finOutlineIntersection), as shroudToFairing does.
+ * needs an AREA, rather than a winding, must rule that out first.
+ * shroudToFairing does it with the kernel's own test
+ * (finOutline.finOutlineIntersection, which checks the listed edges only),
+ * and treats an area of exactly zero as unmeasurable too.
  */
 export function signedArea(loop: ReadonlyArray<readonly [number, number]>): number {
   let a = 0;
