@@ -1381,7 +1381,10 @@ describe('RockSim ejection-delay sentinels', () => {
     // And a Save of it, still unmatched, gives RockSim its −1 back.
     expect(exportRkt({ name: 'G80', tree: r.tree, motors: { [ref.mountId!]: refToExportMotor(ref) } }))
       .toContain('<EjectionDelay>-1</EjectionDelay>');
-  });
+    // Up to 1.65 s on the deploy runner (v0.138-v0.140), most of it the first
+    // load of the lazy curve bundle (a second call costs nothing, measured). It
+    // states its budget like every other test at 1.5 s or more there (AUDIT row 528).
+  }, 60000);
 
   /**
    * THE BROWSER'S DEFAULT, PINNED (seam review of audit 2026-09-22). A motor the

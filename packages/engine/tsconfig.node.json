@@ -1,0 +1,15 @@
+{
+  // vitest.config.ts, which runs under Node when vitest collects the engine's
+  // tests. tsconfig.json is the src/ build and never sees it, so nothing checked
+  // the config's types (AUDIT row 528): a misspelled option, which vitest simply
+  // ignores, passed the gate. The `build` script checks this project after src/,
+  // as packages/app's `tsc -b` checks vite.config.ts through its own
+  // tsconfig.node.json — so `npm run typecheck`, `npm test` and CI all do.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022"],
+    "noEmit": true,
+    "types": ["node"]
+  },
+  "include": ["vitest.config.ts"]
+}

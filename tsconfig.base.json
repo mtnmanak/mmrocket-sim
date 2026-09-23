@@ -46,15 +46,18 @@
     //
     // verbatimModuleSyntax was declined on 2026-09-08 because it is the one flag
     // with EMIT semantics and --noEmit does not exercise them. Re-decided on that
-    // ground: it IS live at emit here (Vite 5 hands it to esbuild, which then keeps
-    // an import it would otherwise have dropped — probed with transformWithEsbuild),
-    // and with it on, `npm run build` produced a dist/ (every chunk, sw.js and its
+    // ground: it IS live at emit here (Vite hands it to its TypeScript transform,
+    // which then keeps an import it would otherwise have dropped — probed with
+    // Vite 5's transformWithEsbuild; after the Vite 8 upgrade, AUDIT row 528, an
+    // `import { type T }` of a module with a side effect keeps it with the flag
+    // and drops it without, in a vite build and in vitest 5), and with it on,
+    // Vite 5's `npm run build` produced a dist/ (every chunk, sw.js and its
     // precache revisions) and an engine dist/ byte-identical to the build without
     // it. The one import shape it would have changed, `import { type X }` with
     // every name type-only (tree/shroudMesh.ts), now reads `import type` — under
     // this flag the other form keeps a bare side-effect import. What it buys: tsc
     // refuses an import of a type without `type`, so what a file imports is what
-    // esbuild and vitest load, rather than whatever elision decides.
+    // the bundler and vitest load, rather than whatever elision decides.
     //
     // Declined the same day, on its count: exactOptionalPropertyTypes (62 errors
     // in the shipped source's project, packages/app/tsconfig.app.json, and 101 in

@@ -104,7 +104,7 @@ export default defineConfig({
   optimizeDeps: {
     include: ['@online-openrocket/engine'],
   },
-  // Vitest reads this file too (there is no vitest.config.ts). All three
+  // Vitest reads this file too (there is no vitest.config.ts). All four
   // settings keep the suite what it was under vitest 2 (AUDIT row 528,
   // vitest 2 -> 5):
   test: {
@@ -130,5 +130,15 @@ export default defineConfig({
     // services/lemivSweep.test.ts exists to print. Vitest 2's choice, which is
     // also what CI still gets: 'default', plus 'github-actions' there.
     reporters: process.env['GITHUB_ACTIONS'] === 'true' ? ['default', 'github-actions'] : ['default'],
+    // A bare vi.useFakeTimers() faked seven things under vitest 2 (this list,
+    // read from its defaults); vitest 5 fakes every clock it knows but
+    // nextTick and queueMicrotask, so under happy-dom performance,
+    // requestAnimationFrame and Intl go onto the fake clock too (probed). Seven
+    // files call it bare. They pass either way, measured, and this keeps them
+    // on the clocks they were written against. A call that names its own
+    // toFake replaces the list.
+    fakeTimers: {
+      toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'setImmediate', 'clearImmediate', 'Date'],
+    },
   },
 });
