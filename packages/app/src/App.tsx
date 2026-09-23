@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   type ComponentNode,
   type ComponentType,
@@ -111,7 +111,7 @@ import {
   reconcileLegacyPadMass, restoredPadMassNote, type PadMassText,
 } from './services/padMassReconcile.js';
 import { stageMotors } from './services/nozzleFollow.js';
-import { designFingerprint, isDirty, type DesignSnapshot } from './services/dirtyState.js';
+import type { DesignSnapshot } from './services/dirtyState.js';
 import { createSequencer } from './services/latestWins.js';
 import {
   recoveryMass, recoveryMassByStage, recoveryMassTitle, type RecoveryByStage, type RecoveryMass,
@@ -135,6 +135,7 @@ import { ScaleDialog } from './components/ScaleDialog.js';
 import { useTreeHistory } from './hooks/useTreeHistory.js';
 import { useNozzleFollow } from './hooks/useNozzleFollow.js';
 import { useRelaunchLatch } from './hooks/useRelaunchLatch.js';
+import { useDesignDirty } from './hooks/useDesignDirty.js';
 import { savedConfigLabel, type MountMotor, type SavedConfig } from './model/design.js';
 
 import './styles.css';
@@ -876,18 +877,6 @@ export function App() {
   const [padMassNote, setPadMassNote] = useState<HeldNote | null>(() => restoredPadMassNote(
     legacyPadMass.current, rankedPadMass.current, { tree: initialTree, motors: mountMotors, text: padMassText }));
 
-  /**
-   * The design fingerprint as of the last save or import — what is on disk.
-   *
-   * SEEDING RULE, and it is load-bearing. A FIRST visit (session === null,
-   * tree = the starter rocket) is seeded CLEAN below, so a brand-new visitor
-   * is never asked to save a rocket they have not touched. A RESTORED session
-   * takes the mark it stored, and a session written before this field existed
-   * has none — which counts as dirty, because it cannot prove it was saved.
-   */
-  const savedMark = useRef<string | null>(session ? (session.savedMark ?? null) : null);
-  const flownSinceSave = useRef<boolean>(session?.flownSinceSave ?? false);
-  const [dirtyTick, bumpDirty] = useReducer((x: number) => x + 1, 0);
   /** The file the user picked while there was unsaved work — held for the prompt. */
   const [pendingOpen, setPendingOpen] = useState<File | null>(null);
   /**
@@ -948,6 +937,18 @@ export function App() {
     };
   }, [tree, mountMotors, launch, maxMotorLen, savedConfigs, activeConfigId, measured]);
 
+  /**
+   * "Is there work a file on disk does not have?" — hooks/useDesignDirty.ts:
+   * the mark, the seeding rule (a first visit is clean, and stays clean when
+   * the starter motor lands), the flown-since-save flag and `dirty` itself,
+   * tested there by behaviour (audit 2026-09-22, row 501). WHICH actions may
+   * call `markSaved` is App's to decide, and savedMarkSites.test.ts holds it
+   * to three: a .ork save, an import and ✕ New.
+   */
+  const {
+    dirty, markSaved, markFlown, savedMark, flownSinceSave, dirtyTick,
+  } = useDesignDirty(designSnapshot, session, { landing: starterLanding, mountId: defaultMountId });
+
   // Autosave the working state so a closed tab or crash never loses work.
   useEffect(() => {
     saveSessionDebounced({
@@ -963,6 +964,7 @@ export function App() {
       appVersion: parsedByVersion.current,
       savedMark: savedMark.current ?? undefined, flownSinceSave: flownSinceSave.current,
     });
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- savedMark and flownSinceSave are useDesignDirty's refs; dirtyTick is how they announce a change
   }, [designSnapshot, dirtyTick, unmatchedRefs]);
 
   // Close the 400 ms debounce window on the way out. `pagehide` fires on
@@ -977,58 +979,8 @@ export function App() {
     return () => { window.removeEventListener('pagehide', onHide); };
   }, []);
 
-  // A first visit starts on the starter rocket, which is not work anybody
-  // would mind losing — seed the mark so a share link or an Open does not ask
-  // permission to replace a design the visitor has never touched. Runs once;
-  // a restored session already carries its own mark (or deliberately lacks one).
-  useEffect(() => {
-    if (session === null && savedMark.current === null) {
-      savedMark.current = designFingerprint(snapshotNow());
-      bumpDirty();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  // ...and when the starter motor lands (one await after that seed), take the
-  // mark again over the rocket WITH it — but only if the mark still describes
-  // everything else on screen. An edit, a pick or an open that got in first
-  // has already moved the design off the seed, and that work keeps its prompt
-  // (audit 2026-09-22). No motor ever landing (no bundle, no network) leaves
-  // the seed standing, which is the design on screen.
-  useEffect(() => {
-    const m = starterLanding.current;
-    if (m === null) return;
-    if (designSnapshot.mountMotors[defaultMountId ?? ''] !== m) {
-      // Not in state yet — or beaten, in which case it never will be.
-      if (Object.keys(designSnapshot.mountMotors).length > 0) starterLanding.current = null;
-      return;
-    }
-    starterLanding.current = null;
-    if (savedMark.current !== null
-      && designFingerprint({ ...designSnapshot, mountMotors: {} }) === savedMark.current) {
-      savedMark.current = designFingerprint(designSnapshot);
-      bumpDirty();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- defaultMountId is fixed at mount
-  }, [designSnapshot]);
-
-  /**
-   * "Is there work a file on disk does not have?" — the guard behind the Open
-   * prompt (2026-09-01a). The autosave is ONE localStorage slot, so opening a
-   * design really does discard whatever was in it; desktop OR and RockSim both
-   * ask first.
-   *
-   * A ref, not state: marking a save must not re-render the app, and the two
-   * places that read it (the Open handler and the prompt's own gating) either
-   * run in an event or re-render for their own reasons. `bumpDirty` exists so
-   * the autosave effect re-runs when only the mark moved.
-   */
+  /** The design as it would be saved, as of this render — what a save marks. */
   const snapshotNow = (): DesignSnapshot => designSnapshot;
-  const dirty = useMemo(
-    () => isDirty(designFingerprint(designSnapshot), savedMark.current, flownSinceSave.current),
-    // dirtyTick is how the two REFS above announce a change — markSaved and
-    // the flown-since-save flag do not re-render on their own.
-    [designSnapshot, dirtyTick],
-  );
   /**
    * Clear the design and start over. ONE definition, because the New button
    * now reaches it directly when there is nothing to lose and through the
@@ -1079,13 +1031,6 @@ export function App() {
     // The mark is the plan's, taken over exactly the values just set, not from
     // state, which has not re-rendered.
     markSaved(mark);
-  };
-
-  /** Records that what is in the app right now is also what is on disk. */
-  const markSaved = (mark: string) => {
-    savedMark.current = mark;
-    flownSinceSave.current = false;
-    bumpDirty();
   };
 
   // ---- undo / redo (Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y / buttons) ----
@@ -1913,8 +1858,7 @@ export function App() {
         // recorded - NOT inside recordRuns, which is also SimResults' delete-one
         // and clear-all callback, where it would mark a design dirty for
         // REMOVING a flight.
-        flownSinceSave.current = true;
-        bumpDirty();
+        markFlown();
         setSimError(null);
         setFlightSaid((prev) => ({
           seq: prev.seq + 1,

@@ -132,8 +132,10 @@ describe('only a full-fidelity save clears the unsaved-changes mark (App-only ab
   it('names markSaved in exactly three places', () => {
     // onSaveOrk and startNewDesign call it; applyImported hands it to
     // applyImportPlan (tested above). Its own definition and comments do not
-    // count.
-    const code = app().split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
+    // count — and since the 2026-09-22 audit (row 501) its definition is
+    // hooks/useDesignDirty.ts, so App's destructuring of that hook is it.
+    const code = app().split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n')
+      .replace(/const \{[^}]*\} = useDesignDirty\(/, '');
     const refs = code.match(/\bmarkSaved\b(?! = \()/g) ?? [];
     expect(refs.length, 'a new markSaved site appeared — is it full fidelity?').toBe(3);
   });
