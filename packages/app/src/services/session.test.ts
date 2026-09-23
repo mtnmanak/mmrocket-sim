@@ -9,9 +9,12 @@ import {
   sessionSaveFailing,
 } from './session.js';
 import { APP_VERSION } from '../version.js';
-import type { RocketTree } from '@online-openrocket/engine';
+import type { MotorSpec, RocketTree } from '@online-openrocket/engine';
 import type { LaunchConditions } from '../components/LaunchPanel.js';
 import type { MountMotor } from '../App.js';
+import { designFingerprint, isDirty, type DesignSnapshot } from './dirtyState.js';
+import { findDbMotor } from './motorDb.js';
+import { mountMotorFromDb } from './motorMatch.js';
 
 /** Minimal but loadSession-valid state — the save path never inspects more. */
 const state = () => ({
@@ -152,6 +155,36 @@ describe('session flight-config presets (Stage B)', () => {
     expect(s.tree.name).toBe('Test');
     expect(s.savedConfigs).toBeUndefined();
     expect(s.activeConfigId).toBeUndefined();
+  });
+});
+
+describe('a saved design reads saved after the autosave round trip (audit 2026-09-22)', () => {
+  it('a catalogue motor that lists no case (motorCase: undefined) does not read as unsaved', () => {
+    // The audit's measured case: the Estes C6 has no caseInfo, so
+    // mountMotorFromDb writes `motorCase: undefined`; the session's JSON drops
+    // the key, and a fingerprint that hashed it as null came back from every
+    // reload different from the mark taken before it. dirtyState.stableJson
+    // now reads such a key as absent (6f741af); this pins the whole path —
+    // the real record, the real save and the real load.
+    const db = findDbMotor('C6', undefined, undefined, 'Estes')!;
+    const spec = { designation: 'C6', ejectionDelay: 5, masses: [0.0241] } as unknown as MotorSpec;
+    const c6 = mountMotorFromDb(db, spec, 5, { event: 'automatic', delay: 0 });
+    expect('motorCase' in c6.meta! && c6.meta!.motorCase === undefined).toBe(true);
+    const snap: DesignSnapshot = {
+      ...state(), mountMotors: { m1: c6 }, maxMotorLengthByStage: {}, savedConfigs: [],
+      activeConfigId: null, measured: { massKg: null, cgM: null },
+    };
+    const mark = designFingerprint(snap);
+    saveSessionDebounced({ ...snap, savedMark: mark });
+    vi.runAllTimers();
+    const s = loadSession()!;
+    const reloaded: DesignSnapshot = {
+      tree: s.tree, mountMotors: s.mountMotors!, launch: s.launch,
+      maxMotorLengthByStage: s.maxMotorLengthByStage!, savedConfigs: s.savedConfigs!,
+      activeConfigId: s.activeConfigId!, measured: s.measured!,
+    };
+    expect('motorCase' in reloaded.mountMotors['m1']!.meta!).toBe(false);
+    expect(isDirty(designFingerprint(reloaded), s.savedMark, false)).toBe(false);
   });
 });
 
