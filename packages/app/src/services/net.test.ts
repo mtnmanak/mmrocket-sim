@@ -73,6 +73,15 @@ describe('getJsonCapped', () => {
   it('calls an HTML page at status 200 not-json, never "the service is broken"', async () => {
     const fetchImpl: typeof fetch = async () => streamed(['<!doctype html><title>Sign in</title>'], { status: 200 });
     expect(await kindOf(getJsonCapped(URL_, { timeoutMs: 12_000, fetchImpl }))).toBe('not-json');
+    // 511 Network Authentication Required is the portal's own status.
+    const portal511: typeof fetch = async () => streamed(['<!doctype html><title>Sign in</title>'], { status: 511 });
+    expect(await kindOf(getJsonCapped(URL_, { timeoutMs: 12_000, fetchImpl: portal511 }))).toBe('not-json');
+  });
+
+  // A service that is down answers its OWN error page — not a sign-in page.
+  it('returns an error status with a non-JSON body as the status alone, json undefined', async () => {
+    const fetchImpl: typeof fetch = async () => streamed(['<html><h1>502 Bad Gateway</h1></html>'], { status: 502 });
+    expect(await getJsonCapped(URL_, { timeoutMs: 12_000, fetchImpl })).toEqual({ status: 502, json: undefined });
   });
 
   it('stops reading a runaway answer at the cap — streamed, and by its stated length', async () => {

@@ -748,8 +748,13 @@ export interface FetchOpts {
  */
 const REQUEST = { cache: 'no-store', credentials: 'omit', referrerPolicy: 'no-referrer' } as const;
 
-/** The status line of a non-2xx answer, in the user's words. */
+/**
+ * The status line of a non-2xx answer, in the user's words. A body that was
+ * not JSON (`json` undefined — a server's error page, see `getJsonCapped`)
+ * has no reason to quote, so it reads as the bare status whatever it is.
+ */
 function httpError(status: number, json: unknown): WeatherError {
+  if (json === undefined) return new WeatherError('http', `Open-Meteo answered HTTP ${status}.`);
   const reason = refusalReason(json) ?? (isObj(json) && typeof json.reason === 'string' ? json.reason : null);
   if (status === 400) return new WeatherError('refused', `Open-Meteo refused the request: ${reason ?? 'no reason given'}.`);
   return new WeatherError('http', reason !== null ? `${reason}.` : `Open-Meteo answered HTTP ${status}.`);

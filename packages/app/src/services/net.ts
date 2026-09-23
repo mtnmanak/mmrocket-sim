@@ -99,11 +99,22 @@ export class NetError extends Error {
   }
 }
 
-/** An answer that parsed as JSON — returned for a 4xx/5xx too, so its reason can be shown. */
+/**
+ * An answer — returned for a 4xx/5xx too, so its reason can be shown. `json`
+ * is the parsed body, or `undefined` for an ERROR status whose body was not
+ * JSON (a server's HTML error page): the status is then all there is to say.
+ * `JSON.parse` never yields `undefined`, so the two cannot be confused.
+ */
 export interface JsonAnswer {
   status: number;
   json: unknown;
 }
+
+/**
+ * HTTP 511 Network Authentication Required — the status a well-behaved
+ * captive portal answers with (RFC 6585 §6), so its sign-in page reads as one.
+ */
+const CAPTIVE_PORTAL_STATUS = 511;
 
 /**
  * The most a JSON answer may be, by default. One weather request is about
@@ -116,9 +127,14 @@ export const DEFAULT_MAX_JSON_BYTES = 256 * 1024;
  * GET a URL and read its body as JSON — within a deadline, and never more than
  * `maxBytes` of it. The only fetch a new feature should need.
  *
- * - An answer that is not JSON is `not-json`: a captive portal at a launch
- *   site answers 200 with its sign-in page, and "the service is broken" would
- *   be the wrong thing to tell someone standing in front of one.
+ * - A SUCCESS answer that is not JSON is `not-json`: a captive portal at a
+ *   launch site answers 200 (or 511) with its sign-in page, and "the service
+ *   is broken" would be the wrong thing to tell someone standing in front of
+ *   one. An ERROR status with a non-JSON body is not that — it is the
+ *   service's own error page (a 502 or 503 while it is down), and telling
+ *   the user to sign in to Wi-Fi would send them the wrong way — so it comes
+ *   back as `{ status, json: undefined }` for the caller to report the
+ *   status.
  * - The body is read CAPPED, chunk by chunk (the `shareLink.ts` inflate
  *   pattern), so a runaway answer stops being read at the cap instead of being
  *   held whole first; a stated Content-Length over it is refused unread.
@@ -156,6 +172,8 @@ export async function getJsonCapped(url: string, opts: {
     try {
       json = JSON.parse(text);
     } catch (err) {
+      const ok = res.status >= 200 && res.status < 300;
+      if (!ok && res.status !== CAPTIVE_PORTAL_STATUS) return { status: res.status, json: undefined };
       throw new NetError('not-json', `The answer from ${hostOf(url)} was not JSON.`, { cause: err });
     }
     return { status: res.status, json };

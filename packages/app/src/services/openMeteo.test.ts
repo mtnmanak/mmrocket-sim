@@ -374,10 +374,20 @@ describe('fetchWeather', () => {
     const q = { endpoint: 'forecast' as const, latitudeDeg: 1, longitudeDeg: 2, elevationsM: [0], startDate: '2026-09-25', endDate: '2026-09-27' };
     const err400 = await fetchForecast(q, { fetchImpl: f400.fetchImpl }).catch((e: unknown) => e);
     expect(weatherErrorText(err400)).toMatch(/^Open-Meteo refused the request: Invalid value.*Your launch conditions are unchanged\.$/);
-    const f503 = fakeFetch(() => ({ status: 503, body: 'down' }));
+    // A server's own error page while it is down: not JSON, but an ERROR
+    // status, so it reads as the status — never as a Wi-Fi sign-in page.
+    const f503 = fakeFetch(() => ({ status: 503, body: '<html><h1>503 Service Unavailable</h1></html>' }));
     const err503 = await fetchForecast(q, { fetchImpl: f503.fetchImpl }).catch((e: unknown) => e);
-    // The HTML-ish body is not JSON, which is the captive-portal wording.
-    expect(weatherErrorText(err503)).toMatch(/web page instead of weather/);
+    expect(weatherErrorText(err503)).toBe('Open-Meteo answered HTTP 503. Your launch conditions are unchanged.');
+    const f400html = fakeFetch(() => ({ status: 400, body: '<html>Bad Request</html>' }));
+    expect(weatherErrorText(await fetchForecast(q, { fetchImpl: f400html.fetchImpl }).catch((e: unknown) => e)))
+      .toBe('Open-Meteo answered HTTP 400. Your launch conditions are unchanged.');
+    // A sign-in page at 200 — or at 511, the captive-portal status — is the captive-portal wording.
+    for (const status of [200, 511]) {
+      const portal = fakeFetch(() => ({ status, body: '<!doctype html><title>Sign in to Wi-Fi</title>' }));
+      expect(weatherErrorText(await fetchForecast(q, { fetchImpl: portal.fetchImpl }).catch((e: unknown) => e)))
+        .toMatch(/^Open-Meteo sent a web page instead of weather — a Wi-Fi sign-in page\?/);
+    }
     const f502 = fakeFetch(() => ({ status: 502, body: { reason: 'Upstream busy' } }));
     expect(weatherErrorText(await fetchForecast(q, { fetchImpl: f502.fetchImpl }).catch((e: unknown) => e)))
       .toBe('Upstream busy. Your launch conditions are unchanged.');
