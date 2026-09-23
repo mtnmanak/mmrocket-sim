@@ -89,6 +89,32 @@ describe('shroud → fairing conversion', () => {
     expect(shroudToFairing(freeform({ id: 'c1', name: 'shroud', rotation: 'top' }))['angleOffset']).toBe(0);
   });
 
+  /**
+   * An outline the shoelace cannot measure (audit 2026-09-22, from the 8
+   * September record). A bow-tie — a planform dragged until two edges cross —
+   * has a signed area of zero, so the shroud converted to a 0 kg fairing and
+   * the rocket silently lost its camera's mass. The kernel refuses a crossed
+   * fin outline anyway, so converting is how such a design gets back to
+   * building; the mass then falls back to the box the outline spans.
+   */
+  it('never converts a crossed outline to a 0 kg fairing', () => {
+    const bowTie: [number, number][] = [[0, 0], [0.08, 0.02], [0, 0.02], [0.08, 0]];
+    const f = shroudToFairing(freeform({ id: 'c1', name: 'shroud', density: 1000, points: bowTie }));
+    // 0.08 × 0.02 box × 0.025 m × 1000 kg/m³ = 0.04 kg: an upper bound, never 0.
+    expect(f['mass']).toBeCloseTo(0.04, 9);
+    expect(f['length']).toBeCloseTo(0.08, 9);
+    expect(f['height']).toBeCloseTo(0.02, 9);
+  });
+
+  it('measures height and length as the outline extent, so an outline below its root line cannot go negative', () => {
+    // Math.max over y gave -0.01 here: a negative-height fairing.
+    const below: [number, number][] = [[0, -0.01], [0, -0.03], [0.08, -0.03], [0.08, -0.01]];
+    const f = shroudToFairing(freeform({ id: 'c1', name: 'shroud', density: 1000, points: below }));
+    expect(f['height']).toBeCloseTo(0.02, 9);
+    expect(f['length']).toBeCloseTo(0.08, 9);
+    expect(f['mass']).toBeCloseTo(0.08 * 0.02 * 0.025 * 1000, 9);
+  });
+
   it('replaces the node in the tree, same id, and reports it', () => {
     const t = wrap([freeform({ id: 'c1', name: 'Camera Shroud', overrideMass: 0.05 })]);
     const res = convertShrouds(t, ['c1']);

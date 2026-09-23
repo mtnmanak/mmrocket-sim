@@ -11,6 +11,7 @@
  */
 import type { ComponentNode } from '@online-openrocket/engine';
 import { num, numOpt } from './nodeNum.js';
+import { signedArea } from './polygon.js';
 import { outerProfile } from './shapeProfile.js';
 import { tubeFinRadius } from './tubefins.js';
 import { finRootChord, finTabSpan } from './finTab.js';
@@ -75,16 +76,6 @@ export function collapseLoop(pts: Array<[number, number]>): Array<[number, numbe
     else break;
   }
   return out;
-}
-
-function signedArea(loop: Array<[number, number]>): number {
-  let a = 0;
-  for (let i = 0; i < loop.length; i++) {
-    const [x0, y0] = loop[i]!;
-    const [x1, y1] = loop[(i + 1) % loop.length]!;
-    a += x0 * y1 - x1 * y0;
-  }
-  return a / 2;
 }
 
 /** Poles inside an on-axis run emit no triangles — drop unreferenced vertices. */

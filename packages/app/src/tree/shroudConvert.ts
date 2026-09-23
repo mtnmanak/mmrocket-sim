@@ -1,5 +1,7 @@
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
+import { finOutlineIntersection } from './finOutline.js';
 import { num } from './nodeNum.js';
+import { signedArea } from './polygon.js';
 
 /**
  * Hand-rolled camera shrouds (issue 2026-08-05e): RockSim has no shroud
@@ -38,28 +40,43 @@ export function findShroudCandidates(tree: RocketTree): ShroudCandidate[] {
   return out;
 }
 
-/** Shoelace area of the fin outline (points are [x along body, y off surface], m). */
-function outlineArea(pts: [number, number][]): number {
-  if (pts.length < 3) return 0;
-  let a = 0;
-  for (let i = 0; i < pts.length; i++) {
-    const [x1, y1] = pts[i]!;
-    const [x2, y2] = pts[(i + 1) % pts.length]!;
-    a += x1 * y2 - x2 * y1;
-  }
-  return Math.abs(a) / 2;
+/**
+ * The side-profile area the mass estimate uses, m² (points are [x along body,
+ * y off surface], m): the outline's own area when it is a simple polygon,
+ * else the box it spans.
+ *
+ * A crossed outline — a planform dragged until two edges cross — has a
+ * shoelace area of ZERO (its lobes cancel), and until audit 2026-09-22 that
+ * converted to a 0 kg fairing: the rocket silently lost its camera's mass.
+ * The kernel refuses a crossed fin outline anyway, so converting is how such
+ * a design gets back to building; the box is an upper bound (twice a bow-tie's
+ * lobes), which the conversion note already tells the user to check. The same
+ * box stands in when there is no outline to measure at all.
+ */
+function profileArea(pts: [number, number][], length: number, height: number): number {
+  // The closing edge (back along the root) is part of the polygon the area is
+  // of, so it is checked too — finOutlineIntersection, like the kernel, tests
+  // only the edges between the listed points.
+  const simple = pts.length >= 3 && finOutlineIntersection([...pts, pts[0]!]) === null;
+  const area = simple ? Math.abs(signedArea(pts)) : 0;
+  return area > 0 ? area : length * height;
 }
 
 /** Builds the fairing node a candidate freeform set becomes (same id/position). */
 export function shroudToFairing(n: ComponentNode): ComponentNode {
   const pts = (n['points'] as [number, number][] | undefined) ?? [];
-  const length = pts.length ? Math.max(...pts.map((p) => p[0])) : 0.08;
-  const height = pts.length ? Math.max(...pts.map((p) => p[1])) : 0.02;
+  // EXTENTS, not maxima: Math.max over y read an outline drawn below its root
+  // line as a NEGATIVE height (audit 2026-09-22). For an outline that starts
+  // at the origin with its root on y = 0 — every one the kernel accepts — the
+  // extent IS the maximum, so no valid shroud moves.
+  const extent = (k: 0 | 1) => Math.max(...pts.map((p) => p[k])) - Math.min(...pts.map((p) => p[k]));
+  const length = pts.length ? extent(0) : 0.08;
+  const height = pts.length ? extent(1) : 0.02;
   const width = num(n, 'thickness', 0.025);
   const override = n['overrideMass'];
   const mass = typeof override === 'number' && override > 0
     ? override
-    : outlineArea(pts) * width * num(n, 'density', 680);
+    : profileArea(pts, length, height) * width * num(n, 'density', 680);
   const out: ComponentNode = {
     type: 'fairing',
     id: n.id,
