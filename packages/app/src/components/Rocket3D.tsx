@@ -32,6 +32,13 @@ import { ImageExportMenu, type ImageExportOptions } from './ImageExportMenu.js';
  * the old import path working while callers move.
  */
 
+/**
+ * The identity position/rotation for a piece that carries none of its own:
+ * ONE shared tuple rather than two fresh `[0, 0, 0]` arrays per mesh per render
+ * (audit 2026-09-22). R3F copies the values out and never writes to the array.
+ */
+const ZERO3: [number, number, number] = [0, 0, 0];
+
 /** One size rule for the on-axis marker spheres AND the callout gadget. */
 const markerRadius = (totalLen: number, maxR: number): number =>
   Math.max(totalLen * 0.015, maxR * 0.35);
@@ -48,7 +55,9 @@ export interface CalloutGadget {
   /** Gadget sphere radius — smaller than the on-axis markers. */
   r: number;
   cg: { pos: [number, number, number]; text: string; color: string };
-  cp: { pos: [number, number, number]; text: string; color: string };
+  /** Null when the design generates no aerodynamic normal force — see
+   *  hasAerodynamicForce: there is no CP to mark, only the kernel's 0. */
+  cp: { pos: [number, number, number]; text: string; color: string } | null;
   /** Margin readout between the spheres; null when stability is unknown. */
   margin: { pos: [number, number, number]; text: string; color: string } | null;
 }
@@ -86,15 +95,18 @@ export function calloutGadget(
   if (!info || !Number.isFinite(info.cg) || !Number.isFinite(info.cp)) return null;
   const markerR = markerRadius(totalLen, maxR);
   const off = maxR + markerR * 2.2;
-  // No aerodynamic normal force -> no meaningful CP to mark. See
-  // hasAerodynamicForce; the kernel reports cp 0 there, which would draw the
-  // marker on the nose tip as though that were a measurement.
-  const state = hasAerodynamicForce(info) ? stabilityState(shownStability(info)) : null;
+  // No aerodynamic normal force -> no meaningful CP to mark, and no margin.
+  // See hasAerodynamicForce; the kernel reports cp 0 there, which would draw
+  // the marker on the nose tip as though that were a measurement. Until audit
+  // 2026-09-22 this dropped only the margin and still drew that CP sphere —
+  // a violently unstable-looking rocket while the tiles said "no lift yet".
+  const aero = hasAerodynamicForce(info);
+  const state = aero ? stabilityState(shownStability(info)) : null;
   return {
     off,
     r: markerR * 0.55,
     cg: { pos: [info.cg, 0, off], text: 'CG', color: '#e9edf1' },
-    cp: { pos: [shownCp(info), 0, off], text: 'CP', color: '#e34948' },
+    cp: aero ? { pos: [shownCp(info), 0, off], text: 'CP', color: '#e34948' } : null,
     // Glyph and word, not colour alone — the same string the 2D schematic
     // builds (TreeSchematic's marginText). `formatStability` returns a bare
     // number ("1.85 cal", or a percentage), so before v0.105 the whole
@@ -105,6 +117,21 @@ export function calloutGadget(
       text: stabilityReadout(state, formatStability(info, stabilityUnit)),
       color: MARGIN_COLOR[state],
     },
+  };
+}
+
+/**
+ * Axial stations of the two ON-AXIS marker spheres, null for one with nothing
+ * to mark. Pure for the same reason as calloutGadget: the canvas cannot mount
+ * in tests. The CP needs a finite kernel CP AND some aerodynamic normal force —
+ * without the second it is the kernel's cp 0, and the sphere sat on the nose
+ * tip (audit 2026-09-22), the same artefact the gadget above now skips.
+ */
+export function axisMarkers(info: StaticInfo | null): { cg: number | null; cp: number | null } {
+  if (!info) return { cg: null, cp: null };
+  return {
+    cg: Number.isFinite(info.cg) ? info.cg : null,
+    cp: Number.isFinite(info.cp) && hasAerodynamicForce(info) ? shownCp(info) : null,
   };
 }
 
@@ -357,9 +384,6 @@ export function Rocket3D({ tree, info, motors, exportData }: {
   const markers = markerVisibility(prefs.markers3d);
   const { pieces, totalLen, maxR } = useMemo(() => buildPieces(tree, motors), [tree, motors]);
   const r3f = useRef<{ gl: THREE.WebGLRenderer; scene: THREE.Scene; camera: THREE.Camera } | null>(null);
-  /** False once this view is gone, so a multi-second export cannot touch a disposed renderer. */
-  const mounted = useRef(true);
-  useEffect(() => () => { mounted.current = false; }, []);
 
   // Hi-res snapshot (issue 2026-08-11b): re-render the SAME scene/camera at
   // the export width (updateStyle=false keeps the on-screen CSS size), grab
@@ -383,11 +407,12 @@ export function Rocket3D({ tree, info, motors, exportData }: {
     //
     // The fit renders through a THROWAWAY camera instead of moving the live
     // one and restoring it. OrbitControls owns the on-screen camera and
-    // re-derives its state from it every frame, and the hi-res encode below
-    // takes long enough (seconds, at 8K) for plenty of frames to land — a
-    // mutate/restore pair would flash a jumped view at the user and risks
-    // leaving the controls desynced if the capture throws. A throwaway cannot
-    // desync: there is nothing to put back. Building it fresh rather than
+    // re-derives its state from it every frame, so a mutate/restore pair risks
+    // leaving the controls desynced if the capture throws between the two. (It
+    // was also written to avoid flashing a jumped view during the seconds-long
+    // encode; since audit 2026-09-22 the renderer is restored before that
+    // encode is awaited, so no frame lands mid-capture either way.) A throwaway
+    // cannot desync: there is nothing to put back. Building it fresh rather than
     // cloning also guarantees a clean projection (no inherited zoom or view
     // offset). spanM stays 2*maxR: framing moves the camera, never the rocket.
     const src = st.camera as THREE.PerspectiveCamera;
@@ -396,23 +421,33 @@ export function Rocket3D({ tree, info, motors, exportData }: {
       ? exportCamera(box, src, widthPx / outH)
       : st.camera;
 
+    // The renderer goes back to the view's own size BEFORE the encode is
+    // awaited, not after it (audit 2026-09-22). snapshotWithHeader copies the
+    // frame into a canvas of its own (drawImage) before it returns, so the
+    // pixels are safe the moment the call returns; restoring only after the
+    // multi-second encode kept the live view rendering at up to 8K — ~33 Mpx a
+    // frame, the size that costs a mobile GPU its context.
+    //
+    // It also retires the "still mounted?" flag the old after-the-await restore
+    // needed (2026-09-08 audit: switch tabs mid-encode and R3F has disposed the
+    // renderer). Nothing here touches the renderer once an await has passed, so
+    // there is no unmount left to race — and the flag had a bug of its own: its
+    // effect only ever cleared it, so under StrictMode's mount-unmount-mount it
+    // was false from the first commit and every `npm run dev` export skipped the
+    // restore and left the view at export size.
+    let encoding: Promise<Blob>;
     try {
       st.gl.setPixelRatio(1);
       st.gl.setSize(widthPx, outH, false);
       st.gl.render(st.scene, cam);
-      const blob = await snapshotWithHeader(el, { ...exportData, spanM: 2 * maxR }, format);
-      downloadImage(blob, `${exportData.name.replace(/[^\w-]+/g, '_')}-3d.${IMAGE_FORMAT_EXT[format]}`);
+      encoding = snapshotWithHeader(el, { ...exportData, spanM: 2 * maxR }, format);
     } finally {
-      // ONLY if the view is still mounted (2026-09-08 audit). The await above
-      // encodes at up to 8K and takes seconds; switch away from the 3D tab
-      // meanwhile and R3F has disposed this renderer, so restoring its pixel
-      // ratio and re-rendering the scene touches a dead context.
-      if (mounted.current && r3f.current === st) {
-        st.gl.setPixelRatio(pr);
-        st.gl.setSize(cssW, cssH, false);
-        st.gl.render(st.scene, st.camera);
-      }
+      st.gl.setPixelRatio(pr);
+      st.gl.setSize(cssW, cssH, false);
+      st.gl.render(st.scene, st.camera);
     }
+    const blob = await encoding;
+    downloadImage(blob, `${exportData.name.replace(/[^\w-]+/g, '_')}-3d.${IMAGE_FORMAT_EXT[format]}`);
   };
   // Mesh keys are stable across rebuilds, so R3F never unmounts/auto-disposes
   // the swapped-out geometries — release them ourselves or every edit leaks
@@ -424,6 +459,7 @@ export function Rocket3D({ tree, info, motors, exportData }: {
   const camDist = Math.max(totalLen * 1.1, maxR * 6, 0.25);
   const markerR = markerRadius(totalLen, maxR);
   const gadget = markers.callout ? calloutGadget(info, maxR, totalLen, prefs.stabilityUnit) : null;
+  const axis = axisMarkers(info);
 
   // View presets + recovery (batch 08-21d): a pan or deep zoom could lose the
   // rocket with no way back — these jump the camera to known-good stations.
@@ -473,6 +509,11 @@ export function Rocket3D({ tree, info, motors, exportData }: {
         // Snapshot export reads the drawing buffer after the frame — without
         // this flag WebGL may have discarded it and toDataURL returns black.
         gl={{ preserveDrawingBuffer: true }}
+        // A name for the canvas (audit 2026-09-22): a screen reader met an
+        // unlabelled canvas here. R3F spreads HTML props onto its wrapper div,
+        // so the role and name land on the element that holds the <canvas>.
+        role="img"
+        aria-label="3D view of the rocket. Drag to rotate, scroll to zoom; the Reset, Side and Aft buttons above move the camera."
         onCreated={(state) => { r3f.current = { gl: state.gl, scene: state.scene, camera: state.camera }; }}>
         {/* Soft studio setup (S5): warm-neutral key, cool fill, low rim —
             subtle and blueprint-serious, no shadows or environment maps. */}
@@ -483,8 +524,8 @@ export function Rocket3D({ tree, info, motors, exportData }: {
         <group>
           {pieces.map((p) => (
             <mesh key={p.key} geometry={p.geometry}
-              position={p.position ?? [0, 0, 0]}
-              rotation={p.rotation ?? [0, 0, 0]}
+              position={p.position ?? ZERO3}
+              rotation={p.rotation ?? ZERO3}
               renderOrder={p.translucent ? 2 : p.innerGlass ? 1 : 0}>
               {/* See-through layering (batch 08-21d — 0.88 with depth writes
                   on looked opaque in practice): opaque pieces (motor, fins)
@@ -505,14 +546,14 @@ export function Rocket3D({ tree, info, motors, exportData }: {
               would wash over them. */}
           {/* 0.45× the shared size rule (batch 08-21d): full-size axis balls
               overwhelmed small rockets; the gadget keeps the size rule. */}
-          {markers.axis && info && Number.isFinite(info.cg) && (
-            <mesh position={[info.cg, 0, 0]} renderOrder={10}>
+          {markers.axis && axis.cg !== null && (
+            <mesh position={[axis.cg, 0, 0]} renderOrder={10}>
               <sphereGeometry args={[markerR * 0.45, 24, 24]} />
               <meshStandardMaterial color="#e9edf1" emissive="#8891a0" depthTest={false} transparent />
             </mesh>
           )}
-          {markers.axis && info && Number.isFinite(info.cp) && (
-            <mesh position={[shownCp(info), 0, 0]} renderOrder={11}>
+          {markers.axis && axis.cp !== null && (
+            <mesh position={[axis.cp, 0, 0]} renderOrder={11}>
               <sphereGeometry args={[markerR * 0.45, 24, 24]} />
               <meshStandardMaterial color="#e34948" emissive="#5a1010" depthTest={false} transparent />
             </mesh>
@@ -522,7 +563,7 @@ export function Rocket3D({ tree, info, motors, exportData }: {
               so it never swallows OrbitControls' events. */}
           {gadget && (
             <group>
-              {Math.abs(gadget.cg.pos[0] - gadget.cp.pos[0]) > 1e-9 && (
+              {gadget.cp && Math.abs(gadget.cg.pos[0] - gadget.cp.pos[0]) > 1e-9 && (
                 <mesh position={[(gadget.cg.pos[0] + gadget.cp.pos[0]) / 2, 0, gadget.off]}
                   rotation={[0, 0, -Math.PI / 2]} renderOrder={11}>
                   <cylinderGeometry args={[gadget.r * 0.12, gadget.r * 0.12,
@@ -534,14 +575,18 @@ export function Rocket3D({ tree, info, motors, exportData }: {
                 <sphereGeometry args={[gadget.r, 24, 24]} />
                 <meshStandardMaterial color="#e9edf1" emissive="#8891a0" depthTest={false} transparent />
               </mesh>
-              <mesh position={gadget.cp.pos} renderOrder={12}>
-                <sphereGeometry args={[gadget.r, 24, 24]} />
-                <meshStandardMaterial color="#e34948" emissive="#5a1010" depthTest={false} transparent />
-              </mesh>
+              {gadget.cp && (
+                <mesh position={gadget.cp.pos} renderOrder={12}>
+                  <sphereGeometry args={[gadget.r, 24, 24]} />
+                  <meshStandardMaterial color="#e34948" emissive="#5a1010" depthTest={false} transparent />
+                </mesh>
+              )}
               <CalloutLabel text={gadget.cg.text} color={gadget.cg.color} place="above"
                 position={gadget.cg.pos} height={markerR * 1.2} gap={gadget.r * 1.5} />
-              <CalloutLabel text={gadget.cp.text} color={gadget.cp.color} place="below"
-                position={gadget.cp.pos} height={markerR * 1.2} gap={gadget.r * 1.5} />
+              {gadget.cp && (
+                <CalloutLabel text={gadget.cp.text} color={gadget.cp.color} place="below"
+                  position={gadget.cp.pos} height={markerR * 1.2} gap={gadget.r * 1.5} />
+              )}
               {gadget.margin && (
                 <CalloutLabel text={gadget.margin.text} color={gadget.margin.color} place="right"
                   position={gadget.margin.pos} height={markerR * 1.1} gap={markerR * 1.1} />
@@ -560,8 +605,8 @@ export function Rocket3D({ tree, info, motors, exportData }: {
         {/* The legend goes with the markers — a key for dots nobody is drawing
             is worse than no key. */}
         {markers.axis && (
-          <> · <span style={{ color: '#aab2bd' }}>●</span> CG ·{' '}
-            <span style={{ color: '#e34948' }}>●</span> CP</>
+          <> · <span style={{ color: '#aab2bd' }}>●</span> CG
+            {axis.cp !== null && <> · <span style={{ color: '#e34948' }}>●</span> CP</>}</>
         )}
       </p>
     </div>

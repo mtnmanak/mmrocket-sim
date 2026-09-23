@@ -11,7 +11,8 @@ import { UnitChip } from './UnitChip.js';
  * along the root from the leading edge, y outward from the body surface).
  *
  * Interactions:
- *  - drag a point to move it (updates live; commits one undo step on release)
+ *  - drag a point to move it (updates live once past a few px of click
+ *    jitter; commits one undo step on release, and none if nothing moved)
  *  - click/drag on empty canvas: inserts a point into the nearest edge and
  *    immediately drags it (rough placement by click, refine in the table)
  *  - double-click a point to delete it
@@ -29,6 +30,26 @@ const VIEW_W = 300;
 const VIEW_H = 170;
 const PAD = 22;
 const HIT_RADIUS = 12; // screen px, generous grab target
+/** Client px a press may wander before it moves a point: a physical click
+ *  jitters 1-3 px. The same 4 px the 2D side view gives a click (its PAN_SLOP). */
+const PRESS_SLOP = 4;
+
+/** The press this editor is following — see onPointerMove. */
+interface Press {
+  /** The pointer that owns it; every other pointer's events are ignored. */
+  pointerId: number;
+  x: number;
+  y: number;
+  /** Past PRESS_SLOP yet. Until then the point stays exactly where it was. */
+  active: boolean;
+}
+
+/** Primary button of the primary pointer only — a right-press or a second
+ *  finger starts nothing here. */
+const startsGesture = (e: React.PointerEvent): boolean => e.button === 0 && e.isPrimary;
+
+const samePoints = (a: FinPoint[], b: FinPoint[]): boolean =>
+  a.length === b.length && a.every((p, i) => p[0] === b[i]![0] && p[1] === b[i]![1]);
 
 interface Transform {
   scale: number;
@@ -95,6 +116,19 @@ export function FinPointsEditor({ points, onChange }: {
   // Live points during a drag (null = not dragging → render committed).
   const [livePts, setLivePts] = useState<FinPoint[] | null>(null);
   const pts = livePts ?? committed;
+  /**
+   * The same live points, current as of the last POINTER EVENT rather than the
+   * last render (audit 2026-09-22). The release used to commit `livePts` from
+   * its own render's closure, so a move and a release landing in one frame —
+   * nothing renders between them — committed the outline from before the move.
+   * Every write goes through showLive, so the two cannot disagree.
+   */
+  const liveRef = useRef<FinPoint[] | null>(null);
+  const showLive = (next: FinPoint[] | null) => {
+    liveRef.current = next;
+    setLivePts(next);
+  };
+  const press = useRef<Press | null>(null);
 
   // The transform follows committed points but FREEZES during a drag so the
   // canvas doesn't rescale under the pointer.
@@ -155,20 +189,24 @@ export function FinPointsEditor({ points, onChange }: {
     return [x, y];
   };
 
-  const beginDrag = (index: number, e: React.PointerEvent) => {
+  /** Starts following a press of point `index`, showing `start` meanwhile. */
+  const beginDrag = (index: number, start: FinPoint[], e: React.PointerEvent) => {
     frozenTransform.current = layoutTransform;
     dragIndex.current = index;
-    setLivePts(committed.map((p) => [...p] as FinPoint));
+    press.current = { pointerId: e.pointerId, x: e.clientX, y: e.clientY, active: false };
+    showLive(start);
     (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
   };
 
   const onPointerDownPoint = (index: number) => (e: React.PointerEvent) => {
     if (index === 0) return; // locked origin
+    if (!startsGesture(e) || press.current) return;
     e.stopPropagation();
-    beginDrag(index, e);
+    beginDrag(index, committed.map((p) => [...p] as FinPoint), e);
   };
 
   const onPointerDownCanvas = (e: React.PointerEvent) => {
+    if (!startsGesture(e) || press.current) return;
     // Insert a new point into the nearest edge, then drag it.
     const s = clientToSvg(e);
     // Ignore clicks that land on an existing point (their handler runs instead).
@@ -183,32 +221,62 @@ export function FinPointsEditor({ points, onChange }: {
       model,
       ...committed.slice(edge + 1),
     ];
-    frozenTransform.current = layoutTransform;
-    dragIndex.current = edge + 1;
-    setLivePts(inserted);
-    (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+    beginDrag(edge + 1, inserted, e);
   };
 
+  /**
+   * Moves the pressed point — once the press has travelled past PRESS_SLOP
+   * (audit 2026-09-22). It used to move from the first pixel, so the 1-3 px an
+   * ordinary click wanders dragged the point with it, and the release then
+   * committed that as an edit.
+   */
   const onPointerMove = (e: React.PointerEvent) => {
+    const p = press.current;
+    if (!p || e.pointerId !== p.pointerId) return;
     if (dragIndex.current === null || !frozenTransform.current) return;
+    // Primary button up mid-drag: a release this editor never saw (the macOS
+    // context menu swallows it). End it as the release it was.
+    if ((e.buttons & 1) === 0) { endDrag(e); return; }
+    if (!p.active) {
+      if (Math.abs(e.clientX - p.x) <= PRESS_SLOP && Math.abs(e.clientY - p.y) <= PRESS_SLOP) return;
+      p.active = true;
+    }
     const i = dragIndex.current;
     const model = toModel(frozenTransform.current, clientToSvg(e));
-    setLivePts((prev) => {
-      const base = prev ?? committed;
-      return base.map((p, j) => (j === i ? constrain(i, model, base.length) : p));
-    });
+    const base = liveRef.current ?? committed;
+    showLive(base.map((q, j) => (j === i ? constrain(i, model, base.length) : q)));
   };
 
-  const endDrag = () => {
-    // A refused commit leaves `committed` alone and setLivePts(null) below
-    // snaps the canvas back to it — the "restore the previous array" half of
-    // the guard, so a crossing outline never reaches buildTree.
-    if (dragIndex.current !== null && livePts) {
-      commit(livePts); // single undo step
-    }
+  /** Drops the press without committing; the canvas snaps back to `committed`. */
+  const clearPress = () => {
+    press.current = null;
     dragIndex.current = null;
     frozenTransform.current = null;
-    setLivePts(null);
+    showLive(null);
+  };
+
+  const endDrag = (e: React.PointerEvent) => {
+    if (press.current?.pointerId !== e.pointerId) return;
+    // A refused commit leaves `committed` alone and clearPress() below snaps
+    // the canvas back to it — the "restore the previous array" half of the
+    // guard, so a crossing outline never reaches buildTree.
+    //
+    // And ONLY a real change commits: a click that moved nothing used to
+    // commit an identical array, which is still an undo step — two of them
+    // for the double-click that deletes a point. An inserted point is a real
+    // change even when the press never moved, so it still commits.
+    const live = liveRef.current;
+    if (dragIndex.current !== null && live && !samePoints(live, committed)) {
+      commit(live); // single undo step
+    }
+    clearPress();
+  };
+
+  /** The browser took the gesture over (pointercancel, lost capture). A
+   *  cancelled drag is not a drop: nothing commits. */
+  const cancelDrag = (e: React.PointerEvent) => {
+    if (press.current?.pointerId !== e.pointerId) return;
+    clearPress();
   };
 
   const removePoint = (i: number) => {
@@ -261,7 +329,9 @@ export function FinPointsEditor({ points, onChange }: {
           onPointerDown={onPointerDownCanvas}
           onPointerMove={onPointerMove}
           onPointerUp={endDrag}
-          onPointerLeave={endDrag}>
+          onPointerLeave={endDrag}
+          onPointerCancel={cancelDrag}
+          onLostPointerCapture={cancelDrag}>
         {/* body surface line */}
         <line x1={0} y1={bodyY} x2={VIEW_W} y2={bodyY} stroke="#9a978f" strokeWidth="3" />
         <text x={4} y={bodyY + 12} fontSize="9" fill="var(--text-muted)">body tube</text>

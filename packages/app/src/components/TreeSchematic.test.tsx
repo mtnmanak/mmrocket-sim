@@ -169,6 +169,18 @@ describe('TreeSchematic — CG/CP callouts', () => {
     expect(margin.getAttribute('fill')).toBe('var(--status-warn)');
   });
 
+  it('no aerodynamic force: the CG is marked, the kernel\'s cp 0 is NOT (audit 2026-09-22)', () => {
+    // A bare body tube reports cp 0 and cna 0. Drawn, that was a red CP
+    // marker and callout at the very front — a violently unstable-looking
+    // rocket beside tiles that said "no lift yet".
+    mount({ ...infoOf(1.52), cp: 0, cna: 0 });
+    const markerRings = [...host.querySelectorAll('circle[r="9"]')];
+    expect(markerRings).toHaveLength(1); // the CG disc alone
+    expect(markerRings[0]!.getAttribute('stroke')).toBe('var(--text-primary)');
+    expect(host.querySelector('[stroke="var(--status-serious)"]')).toBeNull();
+    expect(texts().map((t) => t.textContent)).toEqual(['CG']);
+  });
+
   it('info null: no markers, no callout group', () => {
     mount(null);
     expect(calloutGroup()).toBeNull();

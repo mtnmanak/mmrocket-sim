@@ -91,13 +91,16 @@ export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
       <div className="fly-main">
         <div className="fly-rocket rocket-stage">
           <div className="fly-view">
+            {/* No onSelect: this drawing is a picture. A no-op one still made
+                every drawn part a focusable "Select …" button, hidden inside
+                the role="img" svg — a dead tab stop per part before the
+                flight numbers (audit 2026-09-22). */}
             <TreeSchematic
               tree={tree}
               info={info}
               motors={{}}
               onPatchNode={() => {}}
               selectedId={null}
-              onSelect={() => {}}
               maxHeight={430}
               vertical
             />

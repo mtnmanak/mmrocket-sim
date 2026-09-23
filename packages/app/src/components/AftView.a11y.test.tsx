@@ -48,3 +48,52 @@ describe('AftView zoom controls', () => {
     expect(buttons.every((b) => (b.getAttribute('title') ?? '') !== '')).toBe(true);
   });
 });
+
+/**
+ * Audit 2026-09-22: once zoomed, the view could be panned only by pointer drag,
+ * so a pod or cluster tube off the centre could not be brought back into view
+ * from the keyboard — and the drawing's own label sent a reader to "pan with
+ * the buttons beside this drawing", which do not exist.
+ */
+describe('AftView keyboard panning', () => {
+  const svg = () => host.querySelector('svg')!;
+  const view = () => svg().querySelector('g')!.getAttribute('transform') ?? '';
+  const translate = () => view().match(/translate\((-?[\d.e-]+) (-?[\d.e-]+)\)/)!.slice(1).map(Number);
+  const key = (k: string): boolean => {
+    const ev = new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true });
+    act(() => { svg().dispatchEvent(ev); });
+    return ev.defaultPrevented;
+  };
+
+  it('is a tab stop whose name promises only what is there', () => {
+    act(() => root.render(<AftView tree={TREE} />));
+    expect(svg().tabIndex).toBe(0);
+    const name = svg().getAttribute('aria-label') ?? '';
+    expect(name).not.toMatch(/pan with the buttons/i);
+    expect(name).toMatch(/arrow keys pan/i);
+  });
+
+  it('leaves the arrows to the page at fit, where there is nothing to pan', () => {
+    act(() => root.render(<AftView tree={TREE} />));
+    const before = view();
+    expect(key('ArrowRight')).toBe(false);
+    expect(view()).toBe(before);
+  });
+
+  it('pans a zoomed view with the arrows, the way a scroll moves a page', () => {
+    act(() => root.render(<AftView tree={TREE} />));
+    act(() => { (host.querySelector('button[aria-label="Zoom in"]') as HTMLButtonElement).click(); });
+    const [x0, y0] = translate();
+    expect(key('ArrowRight')).toBe(true);
+    const [x1, y1] = translate();
+    // The view moves right, so the drawing moves left.
+    expect(x1!).toBeLessThan(x0!);
+    expect(y1).toBe(y0);
+    expect(key('ArrowDown')).toBe(true);
+    expect(translate()[1]!).toBeLessThan(y0!);
+    key('ArrowLeft');
+    key('ArrowUp');
+    expect(translate()[0]).toBeCloseTo(x0!, 12);
+    expect(translate()[1]).toBeCloseTo(y0!, 12);
+  });
+});

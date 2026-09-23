@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { RocketTree } from '@online-openrocket/engine';
-import { AftView } from './AftView.js';
+import { AftView, aftLayout } from './AftView.js';
 
 /**
  * The aft view's cross-section frame, pinned (v0.078). Angle 0 is +y for
@@ -328,5 +328,110 @@ describe('a rail button is drawn its own height tall, not its own diameter', () 
     expect(off).toBeTruthy();
     expect(off.r).toBeCloseTo(0.003, 9);
     expect(-off.y).toBeCloseTo(BODY_R + 0.003, 9);
+  });
+});
+
+/**
+ * Audit 2026-09-22: the aft view had no protuberance branch, so a drag bump the
+ * side view and the 3D view both drew was simply absent here — the two views
+ * of one rocket disagreed about what was on its surface.
+ */
+describe('a protuberance is drawn end-on, as the frontal box it is', () => {
+  const BODY_R = 0.012;
+  const bumpRocket = (over: Record<string, unknown> = {}) => ({
+    name: 'Rocket',
+    components: [{
+      id: 's1', type: 'stage',
+      children: [{
+        id: 'b1', type: 'bodytube', length: 0.3, outerRadius: BODY_R,
+        children: [{
+          id: 'pr', type: 'protuberance', dragClass: 'streamlinedbase',
+          width: 0.02, height: 0.01, length: 0.06, count: 1, angleOffset: 0, ...over,
+        }],
+      }],
+    }],
+  } as unknown as RocketTree);
+  const box = () => {
+    const path = [...host.querySelectorAll('path')]
+      .find((e) => e.querySelector('title')?.textContent?.startsWith('Protuberance'));
+    expect(path, 'the protuberance should be drawn').toBeTruthy();
+    const pts = (path!.getAttribute('d')!.match(/-?[\d.e-]+,-?[\d.e-]+/g) ?? [])
+      .map((q) => q.split(',').map(Number) as [number, number]);
+    return { path: path!, pts };
+  };
+
+  it('stands WIDTH wide and HEIGHT tall on the tube surface, at its own angle', () => {
+    show(<AftView tree={bumpRocket()} />);
+    const { pts } = box();
+    expect(pts).toHaveLength(4);
+    // Angle 0 is straight up and P() negates y: the outer face at -(R + h).
+    expect(-Math.min(...pts.map(([, y]) => y))).toBeCloseTo(BODY_R + 0.01, 9);
+    expect(-Math.max(...pts.map(([, y]) => y))).toBeCloseTo(BODY_R, 9);
+    const xs = pts.map(([x]) => x);
+    expect(Math.max(...xs) - Math.min(...xs)).toBeCloseTo(0.02, 9);
+  });
+
+  it('turns with its mount angle and the view roll, like every surface part', () => {
+    show(<AftView tree={bumpRocket({ angleOffset: Math.PI / 2 })} />);
+    const far = box().pts.reduce((a, b) => (Math.hypot(...b) > Math.hypot(...a) ? b : a));
+    expect(far[0]).toBeGreaterThan(0);
+    show(<AftView tree={bumpRocket()} roll={Math.PI / 2} />);
+    const rolled = box().pts.reduce((a, b) => (Math.hypot(...b) > Math.hypot(...a) ? b : a));
+    expect(rolled[0]).toBeGreaterThan(0);
+  });
+
+  it('names the part, and says so when one shape stands for several', () => {
+    show(<AftView tree={bumpRocket({ count: 3 })} />);
+    expect(box().path.querySelector('title')!.textContent).toBe('Protuberance ×3');
+  });
+});
+
+/**
+ * Audit 2026-09-22 — React keys. The view keyed every shape off ONE render-time
+ * counter shared by the hull, internal and external layers, so adding a single
+ * hull re-keyed everything drawn after it and React patched one part's DOM node
+ * into another's.
+ */
+describe('shapes are keyed by the part they draw, not by position', () => {
+  it('adding a hull leaves the fin set\'s own shapes where they were', () => {
+    show(<AftView tree={finRocket()} />);
+    const before = [...host.querySelectorAll('polygon')];
+    expect(before).toHaveLength(3);
+    const grown = finRocket();
+    (grown.components[0]!.children as unknown[]).unshift(
+      { id: 'n1', type: 'nosecone', length: 0.1, aftRadius: 0.012 });
+    show(<AftView tree={grown} />);
+    const after = [...host.querySelectorAll('polygon')];
+    expect(after).toHaveLength(3);
+    // The SAME DOM nodes: keyed by identity, React had nothing to re-key.
+    after.forEach((p, k) => expect(p).toBe(before[k]));
+  });
+
+  it('keys every shape uniquely, pods and clusters included', () => {
+    const tree = {
+      name: 'Rocket',
+      components: [{
+        id: 's1', type: 'stage',
+        children: [{
+          id: 'b1', type: 'bodytube', length: 0.3, outerRadius: 0.03, motorMount: true,
+          children: [
+            { id: 'f1', type: 'trapezoidfinset', finCount: 4, height: 0.03 },
+            { id: 'mt', type: 'innertube', length: 0.1, outerRadius: 0.009, cluster: '3-ring' },
+            {
+              id: 'p1', type: 'podset', instanceCount: 3, radiusOffset: 0.05,
+              children: [{
+                id: 'pb', type: 'bodytube', length: 0.1, outerRadius: 0.01,
+                children: [{ id: 'pf', type: 'trapezoidfinset', finCount: 3, height: 0.02 }],
+              }],
+            },
+          ],
+        }],
+      }],
+    } as unknown as RocketTree;
+    const { hulls, inner, outer } = aftLayout(tree, 0.3, { mt: { length: 0.07, diameter: 0.018 } });
+    const keys = [...hulls, ...inner, ...outer].map((s) => s.key);
+    // 1 core hull + 3 pod hulls; 3 cluster tubes + 3 motors; 4 + 3x3 fins.
+    expect(keys).toHaveLength(4 + 6 + 13);
+    expect(new Set(keys).size).toBe(keys.length);
   });
 });

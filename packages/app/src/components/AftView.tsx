@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { clusterOffsets } from '../tree/cluster.js';
 import { tubeFinRadius } from '../tree/tubefins.js';
 import { assemblyInstanceCount, finCountOf, lineInstanceCount } from '../tree/counts.js';
-import { wheelNotches } from '../chartPanZoom.js';
+import { arrowPan, wheelNotches } from '../chartPanZoom.js';
 import { isAssembly, resolveAssemblyRadius, ringInstanceOffsets } from '../tree/assembly.js';
 import { isConformal } from '../tree/shroud.js';
 import { RollControl } from './RollControl.js';
@@ -36,7 +36,7 @@ const num = (n: ComponentNode, key: string, fb: number): number =>
 const colorOf = (n: ComponentNode, dflt: string): string =>
   typeof n['color'] === 'string' ? (n['color'] as string) : dflt;
 
-type Shape =
+type Shape = (
   | { kind: 'circle'; y: number; z: number; r: number; fill: string; stroke: string; dash?: string; width?: number; title?: string }
   | { kind: 'fin'; y: number; z: number; angle: number; from: number; to: number; thick: number; fill: string; stroke: string; title?: string }
   /**
@@ -50,54 +50,31 @@ type Shape =
    * because a cylinder's generatrix is straight.
    */
   | { kind: 'shroud'; y: number; z: number; angle: number; baseR: number; height: number;
-      width: number; conformal: boolean; fill: string; stroke: string; title?: string };
+      width: number; conformal: boolean; fill: string; stroke: string; title?: string }
+) & {
+  /** React key, from the part's IDENTITY — see aftLayout's keyFor. */
+  key: string;
+};
 
-export function AftView({ tree, motors, roll: rollProp, onRoll }: {
-  tree: RocketTree;
-  /** Loaded motor dimensions per mount node id (real case sizes). */
-  motors?: Record<string, MotorDims>;
-  /**
-   * Roll about the long axis (rad). Controlled-or-not, the same way
-   * TreeSchematic takes it, so App can share ONE angle between the two views.
-   */
-  roll?: number;
-  onRoll?: (rad: number) => void;
-}) {
-  const [rollLocal, setRollLocal] = useState(0);
-  const roll = rollProp ?? rollLocal;
-  const setRoll = onRoll ?? setRollLocal;
-  // Zoom/pan in viewBox (meter) coordinates — same pattern as TreeSchematic
-  // (issue 2026-08-05b #13: "the user needs to be able to zoom the aft view").
-  const [zoom, setZoom] = useState({ k: 1, x: 0, y: 0 });
-  const svgRef = useRef<SVGSVGElement | null>(null);
-  const eRef = useRef(0.02);
-  const pan = useRef<{ px: number; py: number; x: number; y: number } | null>(null);
-  useEffect(() => {
-    const svg = svgRef.current;
-    if (!svg) return;
-    const onWheel = (e: WheelEvent) => {
-      e.preventDefault();
-      const rect = svg.getBoundingClientRect();
-      const Ev = eRef.current;
-      const vx = -Ev + ((e.clientX - rect.left) / rect.width) * 2 * Ev;
-      const vy = -Ev + ((e.clientY - rect.top) / rect.height) * 2 * Ev;
-      setZoom((z) => {
-        // Per NOTCH, not per event — see the same change on the 2D schematic.
-        const k = Math.min(12, Math.max(1, z.k * 1.15 ** wheelNotches(e)));
-        if (k === z.k) return z;
-        const mx = (vx - z.x) / z.k;
-        const my = (vy - z.y) / z.k;
-        return k === 1 ? { k: 1, x: 0, y: 0 } : { k, x: vx - mx * k, y: vy - my * k };
-      });
-    };
-    svg.addEventListener('wheel', onWheel, { passive: false });
-    return () => svg.removeEventListener('wheel', onWheel);
-  }, []);
-  const zoomBy = (f: number) => setZoom((z) => {
-    // About the viewBox origin — the rocket axis is always at (0,0) here.
-    const k = Math.min(12, Math.max(1, z.k * f));
-    return k === 1 ? { k: 1, x: 0, y: 0 } : { k, x: z.x * (k / z.k), y: z.y * (k / z.k) };
-  });
+/** Every shape of the cross-section, in its painter's layer, and how far out it reaches (m). */
+export interface AftLayout {
+  hulls: Shape[];
+  inner: Shape[];
+  outer: Shape[];
+  extent: number;
+}
+
+/**
+ * The aft view's cross-section: a pure walk of the tree at one roll angle.
+ *
+ * Pure so the view can memoise it on (tree, roll, motors) — the only inputs it
+ * reads. It ran in the render body until audit 2026-09-22, so every pan move
+ * and every wheel notch, which change nothing but the view transform, re-walked
+ * the whole tree to rebuild identical shapes: jank on pods and clusters.
+ */
+export function aftLayout(
+  tree: RocketTree, roll: number, motors?: Record<string, MotorDims>,
+): AftLayout {
   // Painter's layers: hulls (opaque, big→small), then internals, then externals.
   const hulls: Shape[] = [];
   const inner: Shape[] = [];
@@ -106,6 +83,22 @@ export function AftView({ tree, motors, roll: rollProp, onRoll }: {
 
   const reach = (y: number, z: number, r: number) => {
     extent = Math.max(extent, Math.hypot(y, z) + r);
+  };
+
+  /**
+   * A React key from the part's IDENTITY: its id (and which of its shapes
+   * this is), numbered by occurrence when one part draws several — a fin set's
+   * fins, a cluster's tubes, a pod's parts once per ring instance. The view
+   * used one render-time counter shared by all three layers (audit
+   * 2026-09-22), so adding one hull re-keyed every internal and external shape
+   * after it, and React patched a circle's DOM node into a fin's.
+   */
+  const seen = new Map<string, number>();
+  const keyFor = (n: ComponentNode, part = ''): string => {
+    const base = `${n.id ?? n.type}${part}`;
+    const k = seen.get(base) ?? 0;
+    seen.set(base, k + 1);
+    return k === 0 ? base : `${base}#${k}`;
   };
 
   const finSpan = (n: ComponentNode): number => {
@@ -136,7 +129,7 @@ export function AftView({ tree, motors, roll: rollProp, onRoll }: {
           // an unrotated first fin still points straight up.
           const angle = num(child, 'rotation', 0) + roll + (2 * Math.PI * i) / count;
           outer.push({
-            kind: 'fin', y: cy, z: cz, angle, from: pRadius, to: pRadius + span,
+            key: keyFor(child), kind: 'fin', y: cy, z: cz, angle, from: pRadius, to: pRadius + span,
             thick, fill: colorOf(child, '#b9b7b0'), stroke: '#7a786f',
             title: `${child.name ?? 'Fins'} ×${count}`,
           });
@@ -149,7 +142,7 @@ export function AftView({ tree, motors, roll: rollProp, onRoll }: {
           const angle = num(child, 'rotation', 0) + roll + (2 * Math.PI * i) / count;
           const d = pRadius + rt;
           outer.push({
-            kind: 'circle', y: cy + d * Math.cos(angle), z: cz + d * Math.sin(angle), r: rt,
+            key: keyFor(child), kind: 'circle', y: cy + d * Math.cos(angle), z: cz + d * Math.sin(angle), r: rt,
             fill: 'none', stroke: '#7a786f', title: `${child.name ?? 'Tube fins'} ×${count}`,
           });
         }
@@ -161,10 +154,30 @@ export function AftView({ tree, motors, roll: rollProp, onRoll }: {
         const wid = num(child, 'width', 0.025);
         const hgt = num(child, 'height', 0.02);
         outer.push({
-          kind: 'shroud', y: cy, z: cz, angle: num(child, 'angleOffset', 0) + roll,
+          key: keyFor(child), kind: 'shroud', y: cy, z: cz, angle: num(child, 'angleOffset', 0) + roll,
           baseR: pRadius, height: hgt, width: wid, conformal: isConformal(child),
           fill: colorOf(child, '#c8c5be'), stroke: '#7a786f',
           title: child.name ?? 'Camera shroud',
+        });
+        reach(cy, cz, pRadius + hgt);
+      } else if ((t as string) === 'protuberance') {
+        // A drag bump, end-on: the frontal box it IS aerodynamically, `width`
+        // across and `height` off the surface — the same box the 3D view
+        // builds (pieces.ts) and the rectangle the rail button below already
+        // uses. This view had no branch for it until audit 2026-09-22, so a
+        // part the side and 3D views both drew was missing from this one.
+        // `count` identical bumps have no positions of their own (the count
+        // multiplies the drag, treeModel.protuberanceFrontalArea), so one
+        // shape stands for them and the title carries the count, as a lug's
+        // stacked line instances do.
+        const wid = num(child, 'width', 0.02);
+        const hgt = num(child, 'height', 0.01);
+        const count = Math.max(1, Math.round(num(child, 'count', 1)));
+        outer.push({
+          key: keyFor(child), kind: 'shroud', y: cy, z: cz, angle: num(child, 'angleOffset', 0) + roll,
+          baseR: pRadius, height: hgt, width: wid, conformal: false,
+          fill: colorOf(child, '#c8c5be'), stroke: '#7a786f',
+          title: `${child.name ?? 'Protuberance'}${count > 1 ? ` ×${count}` : ''}`,
         });
         reach(cy, cz, pRadius + hgt);
       } else if (t === 'launchlug' || t === 'railbutton') {
@@ -187,7 +200,7 @@ export function AftView({ tree, motors, roll: rollProp, onRoll }: {
           // sides `width` apart. Fallbacks are the kernel constructor's
           // (RailButton.java:58-64), not the old 4 mm one.
           outer.push({
-            kind: 'shroud', y: cy, z: cz, angle: a, baseR: pRadius,
+            key: keyFor(child), kind: 'shroud', y: cy, z: cz, angle: a, baseR: pRadius,
             height: num(child, 'totalHeight', 0.0097),
             width: num(child, 'outerDiameter', 0.0097),
             conformal: false,
@@ -199,7 +212,7 @@ export function AftView({ tree, motors, roll: rollProp, onRoll }: {
           // off by its own diameter.
           const r = num(child, 'outerRadius', 0.002);
           outer.push({
-            kind: 'circle',
+            key: keyFor(child), kind: 'circle',
             y: cy + (pRadius + r) * Math.cos(a), z: cz + (pRadius + r) * Math.sin(a), r,
             fill: colorOf(child, '#c8c5be'), stroke: '#7a786f', title: stackTitle,
           });
@@ -222,13 +235,13 @@ export function AftView({ tree, motors, roll: rollProp, onRoll }: {
         const motor = child.id ? motors?.[child.id] : undefined;
         for (const off of offs) {
           inner.push({
-            kind: 'circle', y: cy + oy + off.y, z: cz + oz + off.z, r,
+            key: keyFor(child), kind: 'circle', y: cy + oy + off.y, z: cz + oz + off.z, r,
             fill: 'none', stroke: colorOf(child, '#9a978f'), dash: '3 2',
             title: child.name ?? 'Inner tube',
           });
           if (motor) {
             inner.push({
-              kind: 'circle', y: cy + oy + off.y, z: cz + oz + off.z, r: motor.diameter / 2,
+              key: keyFor(child, ':motor'), kind: 'circle', y: cy + oy + off.y, z: cz + oz + off.z, r: motor.diameter / 2,
               fill: '#8b5a2b', stroke: '#6b4520', title: 'Motor',
             });
           }
@@ -238,7 +251,7 @@ export function AftView({ tree, motors, roll: rollProp, onRoll }: {
       } else if (t === 'tubecoupler' || t === 'centeringring' || t === 'engineblock' || t === 'bulkhead') {
         const r = Math.min(pRadius * 0.98, num(child, 'outerRadius', pRadius * 0.95));
         inner.push({
-          kind: 'circle', y: cy, z: cz, r,
+          key: keyFor(child), kind: 'circle', y: cy, z: cz, r,
           fill: 'none', stroke: colorOf(child, '#9a978f'), dash: '2 3',
           title: child.name ?? t,
         });
@@ -256,7 +269,7 @@ export function AftView({ tree, motors, roll: rollProp, onRoll }: {
       const r = Math.max(num(n, 'outerRadius', 0), num(n, 'aftRadius', 0), num(n, 'foreRadius', 0));
       if (r <= 0) continue;
       hulls.push({
-        kind: 'circle', y: cy, z: cz, r,
+        key: keyFor(n), kind: 'circle', y: cy, z: cz, r,
         fill: colorOf(n, '#e7e5e0'), stroke: '#7a786f', title: n.name ?? n.type,
       });
       reach(cy, cz, r);
@@ -266,7 +279,7 @@ export function AftView({ tree, motors, roll: rollProp, onRoll }: {
         const motor = n.id ? motors?.[n.id] : undefined;
         if (motor) {
           inner.push({
-            kind: 'circle', y: cy, z: cz, r: motor.diameter / 2,
+            key: keyFor(n, ':motor'), kind: 'circle', y: cy, z: cz, r: motor.diameter / 2,
             fill: '#8b5a2b', stroke: '#6b4520', title: 'Motor',
           });
         }
@@ -280,6 +293,69 @@ export function AftView({ tree, motors, roll: rollProp, onRoll }: {
   // Big circles first so nested ones stay visible.
   hulls.sort((a, b) => (b.kind === 'circle' ? b.r : 0) - (a.kind === 'circle' ? a.r : 0));
 
+  return { hulls, inner, outer, extent };
+}
+
+export function AftView({ tree, motors, roll: rollProp, onRoll }: {
+  tree: RocketTree;
+  /** Loaded motor dimensions per mount node id (real case sizes). */
+  motors?: Record<string, MotorDims>;
+  /**
+   * Roll about the long axis (rad). Controlled-or-not, the same way
+   * TreeSchematic takes it, so App can share ONE angle between the two views.
+   */
+  roll?: number;
+  onRoll?: (rad: number) => void;
+}) {
+  const [rollLocal, setRollLocal] = useState(0);
+  const roll = rollProp ?? rollLocal;
+  const setRoll = onRoll ?? setRollLocal;
+  // Zoom/pan in viewBox (meter) coordinates — same pattern as TreeSchematic
+  // (issue 2026-08-05b #13: "the user needs to be able to zoom the aft view").
+  const [zoom, setZoom] = useState({ k: 1, x: 0, y: 0 });
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  const eRef = useRef(0.02);
+  const pan = useRef<{ px: number; py: number; x: number; y: number } | null>(null);
+  // The zoom as last committed, so the wheel listener can tell BEFORE it
+  // updates whether this notch zooms at all — effect-written, like eRef.
+  const zoomRef = useRef(zoom);
+  useEffect(() => { zoomRef.current = zoom; }, [zoom]);
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const onWheel = (e: WheelEvent) => {
+      // Per NOTCH, not per event — see the same change on the 2D schematic.
+      const stepK = (k0: number) => Math.min(12, Math.max(1, k0 * 1.15 ** wheelNotches(e)));
+      // Swallow the wheel only when it zooms (audit 2026-09-22): at fit or at
+      // 12x the unconditional preventDefault stopped the page scrolling with
+      // the pointer over this drawing — the same fix as the 2D schematic's.
+      if (stepK(zoomRef.current.k) === zoomRef.current.k) return;
+      e.preventDefault();
+      const rect = svg.getBoundingClientRect();
+      const Ev = eRef.current;
+      const vx = -Ev + ((e.clientX - rect.left) / rect.width) * 2 * Ev;
+      const vy = -Ev + ((e.clientY - rect.top) / rect.height) * 2 * Ev;
+      setZoom((z) => {
+        const k = stepK(z.k);
+        if (k === z.k) return z;
+        const mx = (vx - z.x) / z.k;
+        const my = (vy - z.y) / z.k;
+        return k === 1 ? { k: 1, x: 0, y: 0 } : { k, x: vx - mx * k, y: vy - my * k };
+      });
+    };
+    svg.addEventListener('wheel', onWheel, { passive: false });
+    return () => svg.removeEventListener('wheel', onWheel);
+  }, []);
+  const zoomBy = (f: number) => setZoom((z) => {
+    // About the viewBox origin — the rocket axis is always at (0,0) here.
+    const k = Math.min(12, Math.max(1, z.k * f));
+    return k === 1 ? { k: 1, x: 0, y: 0 } : { k, x: z.x * (k / z.k), y: z.y * (k / z.k) };
+  });
+  // Memoised on exactly what the walk reads (audit 2026-09-22): a pan move or a
+  // wheel notch changes only `zoom`, and must not re-walk the tree.
+  const { hulls, inner, outer, extent } = useMemo(
+    () => aftLayout(tree, roll, motors), [tree, roll, motors]);
+
   const E = extent * 1.12;
   // Written in an EFFECT, not in the render body (2026-09-08 audit). A ref
   // assignment during render is undefined under StrictMode's double-render and
@@ -290,10 +366,10 @@ export function AftView({ tree, motors, roll: rollProp, onRoll }: {
   const scale = 1; // viewBox is in meters — the SVG scales itself.
   const toSvg = (v: number) => v * scale;
 
-  const drawShape = (s: Shape, i: number) => {
+  const drawShape = (s: Shape) => {
     if (s.kind === 'circle') {
       return (
-        <circle key={i} cx={toSvg(s.z)} cy={-toSvg(s.y)} r={toSvg(s.r)}
+        <circle key={s.key} cx={toSvg(s.z)} cy={-toSvg(s.y)} r={toSvg(s.r)}
           fill={s.fill} fillOpacity={s.fill === '#8b5a2b' ? 0.45 : undefined}
           stroke={s.stroke} strokeWidth={E / 220} strokeDasharray={s.dash
             ? s.dash.split(' ').map((d) => (Number(d) * E) / 110).join(' ')
@@ -343,7 +419,7 @@ export function AftView({ tree, motors, roll: rollProp, onRoll }: {
         d = 'M ' + corners.map(([y, z]) => P(y, z)).join(' L ') + ' Z';
       }
       return (
-        <path key={i} d={d} fill={s.fill} stroke={s.stroke} strokeWidth={E / 220}>
+        <path key={s.key} d={d} fill={s.fill} stroke={s.stroke} strokeWidth={E / 220}>
           {s.title ? <title>{s.title}</title> : null}
         </path>
       );
@@ -361,7 +437,7 @@ export function AftView({ tree, motors, roll: rollProp, onRoll }: {
       [s.y + s.from * cos - ny * h, s.z + s.from * sin - nz * h],
     ];
     return (
-      <polygon key={i}
+      <polygon key={s.key}
         points={pts.map(([y, z]) => `${toSvg(z!)},${-toSvg(y!)}`).join(' ')}
         fill={s.fill} stroke={s.stroke} strokeWidth={E / 220}>
         {s.title ? <title>{s.title}</title> : null}
@@ -369,13 +445,26 @@ export function AftView({ tree, motors, roll: rollProp, onRoll }: {
     );
   };
 
-  let i = 0;
   const toView = (clientX: number, clientY: number) => {
     const rect = svgRef.current!.getBoundingClientRect();
     return {
       vx: -E + ((clientX - rect.left) / rect.width) * 2 * E,
       vy: -E + ((clientY - rect.top) / rect.height) * 2 * E,
     };
+  };
+  /**
+   * Arrow keys pan a ZOOMED view a tenth of its width a press (audit
+   * 2026-09-22) — the zoom buttons zoom about the axis, so without this a pod
+   * or cluster tube off the centre left the view with no keyboard way back.
+   * At fit there is nothing to pan (the pointer pan is off there too), and the
+   * arrows go on scrolling the page.
+   */
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    const d = arrowPan(e.key);
+    if (!d || zoom.k === 1) return;
+    e.preventDefault();
+    const step = 0.2 * E; // a tenth of the 2E-wide view
+    setZoom((z) => ({ ...z, x: z.x + d[0] * step, y: z.y + d[1] * step }));
   };
   return (
     <div style={{ position: 'relative' }}>
@@ -391,10 +480,14 @@ export function AftView({ tree, motors, roll: rollProp, onRoll }: {
         // the part — "Fins x3", "Motor", "Camera shroud" — and role="img" made
         // the entire subtree presentational, so none of them was exposed. The
         // one label then had to carry the whole view, and it named three
-        // pointer gestures that have no keyboard equivalent. The +/- and fit
-        // buttons beside the drawing are the keyboard path and are labelled.
+        // pointer gestures that have no keyboard equivalent. The keyboard path
+        // is the labelled +/- and fit buttons beside the drawing, and — since
+        // audit 2026-09-22, when this label still promised pan buttons that
+        // never existed — the arrow keys on the focused drawing.
         role="group"
-        aria-label="Aft end view, looking at the rocket from behind. Zoom and pan with the buttons beside this drawing."
+        tabIndex={0}
+        aria-label="Aft end view, looking at the rocket from behind. Zoom with the buttons beside this drawing; once zoomed in, the arrow keys pan it."
+        onKeyDown={onKeyDown}
         onPointerDown={(e) => {
           if (zoom.k === 1) return;
           const { vx, vy } = toView(e.clientX, e.clientY);
@@ -414,9 +507,9 @@ export function AftView({ tree, motors, roll: rollProp, onRoll }: {
         onPointerUp={() => { pan.current = null; }}
         onPointerLeave={() => { pan.current = null; }}>
         <g transform={`translate(${zoom.x} ${zoom.y}) scale(${zoom.k})`}>
-          {hulls.map((s) => drawShape(s, i++))}
-          {inner.map((s) => drawShape(s, i++))}
-          {outer.map((s) => drawShape(s, i++))}
+          {hulls.map(drawShape)}
+          {inner.map(drawShape)}
+          {outer.map(drawShape)}
           {/* Center crosshair */}
           <line x1={-E * 0.05} y1={0} x2={E * 0.05} y2={0} stroke="#9a978f" strokeWidth={E / 300} />
           <line x1={0} y1={-E * 0.05} x2={0} y2={E * 0.05} stroke="#9a978f" strokeWidth={E / 300} />

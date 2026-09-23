@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  clampWindow, isFullExtent, panelHeight, panWindow, plotIsZoomed, resetPlots,
-  WHEEL_ZOOM_BASE, WHEEL_ZOOM_IN, WHEEL_ZOOM_OUT, wheelNotches, wheelZoomFactor,
+  arrowPan, clampWindow, isFullExtent, panelHeight, panWindow, plotIsZoomed, resetPlots,
+  WHEEL_ZOOM_BASE, WHEEL_ZOOM_IN, WHEEL_ZOOM_OUT, wheelNotches, wheelWindow, wheelZoomFactor,
   xDataExtent, zoomPercent, zoomWindow, type XPlot, type XWindow,
 } from './chartPanZoom.js';
 
@@ -182,6 +182,58 @@ describe('panelHeight', () => {
     for (const w of [0, 200, 320, 640, 900, 1200, 1500, 2200, 4000]) {
       expect(panelHeight(w, true)).toBeGreaterThan(panelHeight(w, false));
     }
+  });
+});
+
+/**
+ * The wheel's 50x floor (WHEEL_MAX_DEPTH), audit 2026-09-22: it was applied to
+ * whatever the wheel produced, so a wheel-IN on a box zoom already deeper than
+ * the floor re-zoomed to the floor — outward. Measured on a 100 s flight:
+ * [40, 40.5] s became [39.25, 41.25] s, and every synced panel followed.
+ */
+describe('wheelWindow — the wheel floor', () => {
+  const E0 = 0;
+  const E1 = 100; // floor = 100 / 50 = 2 s
+
+  it('a wheel-in on a box zoom deeper than the floor holds the window exactly', () => {
+    const w = wheelWindow(40, 40.5, 40.2, WHEEL_ZOOM_IN, E0, E1);
+    // Exact, not close: the handler hands an unchanged window back to the page.
+    expect(w).toEqual({ min: 40, max: 40.5 });
+  });
+
+  it('a wheel-out from there widens by one notch, not to the floor', () => {
+    const w = wheelWindow(40, 40.5, 40.2, WHEEL_ZOOM_OUT, E0, E1);
+    expect(w.max - w.min).toBeCloseTo(0.5 * WHEEL_ZOOM_OUT, 12);
+  });
+
+  it('still stops a wheel-in that would cross the floor ON it', () => {
+    const w = wheelWindow(40, 42.1, 41, WHEEL_ZOOM_IN, E0, E1);
+    expect(w.max - w.min).toBeCloseTo(2, 12);
+  });
+
+  it('leaves an ordinary notch above the floor to zoomWindow', () => {
+    expect(wheelWindow(0, 10, 5, WHEEL_ZOOM_IN, E0, E1))
+      .toEqual(zoomWindow(0, 10, 5, WHEEL_ZOOM_IN, E0, E1));
+  });
+
+  it('once the wheel has reached the floor, further wheel-ins are exact no-ops', () => {
+    let w: XWindow = { min: 30, max: 60 };
+    for (let i = 0; i < 60; i++) w = wheelWindow(w.min, w.max, 45, WHEEL_ZOOM_IN, E0, E1);
+    expect(w.max - w.min).toBeCloseTo(2, 9);
+    expect(wheelWindow(w.min, w.max, 45, WHEEL_ZOOM_IN, E0, E1)).toEqual(w);
+  });
+});
+
+describe('arrowPan — the drawings\' keyboard pan (audit 2026-09-22)', () => {
+  it('moves the drawing AGAINST the arrow, as a scrolling page moves', () => {
+    expect(arrowPan('ArrowRight')).toEqual([-1, 0]);
+    expect(arrowPan('ArrowLeft')).toEqual([1, 0]);
+    expect(arrowPan('ArrowDown')).toEqual([0, -1]);
+    expect(arrowPan('ArrowUp')).toEqual([0, 1]);
+  });
+
+  it('ignores every other key, so Enter and Space stay the parts\' own', () => {
+    for (const k of ['Enter', ' ', 'Tab', 'a', 'Home']) expect(arrowPan(k)).toBeNull();
   });
 });
 

@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { cloneElement, isValidElement, useEffect, useId, useRef, useState } from 'react';
 import type { ComponentNode, ComponentPosition, RocketTree, StaticInfo } from '@online-openrocket/engine';
 import {
   anchorStarts, axialLength, axialStart, offsetForStart, snapStart, startFromPosition,
@@ -7,7 +7,7 @@ import { finTabFront } from '../tree/finTab.js';
 import { clusterOffsets } from '../tree/cluster.js';
 import { tubeFinRadius } from '../tree/tubefins.js';
 import { assemblyInstanceCount, finCountOf, lineInstanceCount } from '../tree/counts.js';
-import { wheelNotches } from '../chartPanZoom.js';
+import { arrowPan, wheelNotches } from '../chartPanZoom.js';
 import { DISPLAY_NAME } from '../tree/schema.js';
 import {
   assemblyBoundingRadius, assemblyChainLength, isAssembly,
@@ -71,9 +71,22 @@ const num = (n: ComponentNode, key: string, fb: number): number =>
 const fillOf = (n: ComponentNode, dflt: string): string =>
   typeof n['color'] === 'string' ? (n['color'] as string) : dflt;
 
-/** Client px a press may wander before it counts as a pan rather than a click.
- *  Matches the drag threshold in onMove — a physical click jitters 1-3 px. */
+/** Client px a press may wander before it counts as a pan or a drag rather
+ *  than a click — ONE threshold for both gestures in onMove, because a
+ *  physical click jitters 1-3 px whichever of them it could turn into. */
 const PAN_SLOP = 4;
+
+/**
+ * Whether a press may start a gesture here: the primary button of the primary
+ * pointer only (audit 2026-09-22). A right-press started a drag — and on
+ * macOS the context menu then swallows the release, leaving the part glued to
+ * a bare mouse — and a second finger on a touch screen started a second
+ * gesture that drove the first one's state.
+ */
+const startsGesture = (e: React.PointerEvent): boolean => e.button === 0 && e.isPrimary;
+
+/** A move with the primary button up is a release this view never saw. */
+const releasedDuring = (e: React.PointerEvent): boolean => (e.buttons & 1) === 0;
 
 const MARKER_R = 9;
 
@@ -157,6 +170,15 @@ interface DragState {
   pointerX: number;
   /** viewBox px per client px */
   clientScale: number;
+  /** The pointer that owns this drag; every other pointer's moves are ignored. */
+  pointerId: number;
+  /** The element the drag captured the pointer to — the only one whose
+   *  lostpointercapture ends it (see onLostCapture). */
+  captured: Element;
+  /** Past PAN_SLOP yet. Until then the press is a click and patches NOTHING. */
+  active: boolean;
+  /** The offset the node carries now — the press's own, then each one patched. */
+  offset: number;
 }
 
 /**
@@ -283,10 +305,13 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   const roll = rollProp ?? rollLocal;
   const setRoll = onRoll ?? setRollLocal;
   // `active` only becomes true once the pointer has travelled past PAN_SLOP —
-  // see beginPan for why a press must not pan until then.
-  const pan = useRef<
-    { pointerX: number; pointerY: number; x0: number; y0: number; active: boolean } | null
-  >(null);
+  // see beginPan for why a press must not pan until then. `captured` is the
+  // element the pan took the pointer for, set at that same moment (null while
+  // it is only armed and holds no capture of its own) — see onLostCapture.
+  const pan = useRef<{
+    pointerX: number; pointerY: number; x0: number; y0: number; active: boolean; pointerId: number;
+    captured: Element | null;
+  } | null>(null);
 
   // --- measure the axial chain ---
   // Stages flatten into one nose-to-tail chain (sustainer first, boosters
@@ -413,13 +438,18 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
 
   const beginDrag = (child: ComponentNode, parent: ComponentNode, pLen: number) =>
     (e: React.PointerEvent) => {
-      if (!onPatchNode || !child.id) return;
+      if (!onPatchNode || !child.id || !startsGesture(e)) return;
       const rect = svgRef.current?.getBoundingClientRect();
       if (!rect || rect.width === 0) return;
       e.stopPropagation(); // don't also start a background pan
       dragMoved.current = false;
       const pos = (child.position ?? { method: 'top', offset: 0 }) as ComponentPosition;
+      const captured = e.currentTarget as Element;
       drag.current = {
+        pointerId: e.pointerId,
+        captured,
+        active: false,
+        offset: pos.offset,
         childId: child.id,
         parent,
         child,
@@ -433,7 +463,9 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
         pointerX: e.clientX,
         clientScale: w / rect.width,
       };
-      (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+      // Taken INSIDE pointerdown, so on touch it replaces the browser's
+      // implicit capture before that one ever lands: no lostpointercapture.
+      captured.setPointerCapture?.(e.pointerId);
     };
 
   /**
@@ -465,15 +497,31 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
    * Both now wait for real movement, so a click stays a click.
    */
   const beginPan = (e: React.PointerEvent) => {
+    if (!startsGesture(e)) return;
     const rect = svgRef.current?.getBoundingClientRect();
     if (!rect || rect.width === 0) return;
-    pan.current = { pointerX: e.clientX, pointerY: e.clientY, x0: zoom.x, y0: zoom.y, active: false };
+    pan.current = {
+      pointerX: e.clientX, pointerY: e.clientY, x0: zoom.x, y0: zoom.y, active: false,
+      pointerId: e.pointerId, captured: null,
+    };
   };
 
   const onMove = (e: React.PointerEvent) => {
     const d = drag.current;
     if (d && onPatchNode) {
-      if (Math.abs(e.clientX - d.pointerX) > 4) dragMoved.current = true;
+      if (e.pointerId !== d.pointerId) return;
+      if (releasedDuring(e)) { endDrag(e); return; }
+      // THE THRESHOLD GATES THE PATCH, not just the click (audit 2026-09-22).
+      // It used to set dragMoved and nothing else, so every pointermove of an
+      // ordinary click patched the tree and the snap below ran at zero
+      // distance: 2 px of jitter moved a fin set 1.5 mm, a fin 3 mm from the
+      // tube end snapped onto it without moving at all, and each one was a
+      // real edit — CG/CP moved, an undo step went, the design went unsaved.
+      if (!d.active) {
+        if (Math.abs(e.clientX - d.pointerX) <= PAN_SLOP) return;
+        d.active = true;
+        dragMoved.current = true;
+      }
       const dxModel = ((e.clientX - d.pointerX) * d.clientScale) / (scale * zoom.k);
       // The anchor ladder, the drag start above and the commit below all use
       // axialLength — the kernel's frame — so a snapped part lands ON the
@@ -482,16 +530,19 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
       const epsilon = (6 * 1) / (scale * zoom.k); // ~6 screen px of magnetism
       const snapped = snapStart(d.relStart + dxModel, anchors, epsilon);
       const pos = (d.child.position ?? { method: 'top', offset: 0 }) as ComponentPosition;
-      onPatchNode(d.childId, {
-        position: {
-          method: pos.method,
-          offset: offsetForStart(pos.method, snapped, axialLength(d.child), d.pLen),
-        },
-      });
+      const offset = offsetForStart(pos.method, snapped, axialLength(d.child), d.pLen);
+      // Inside a snap zone every move lands on the same anchor. Writing that
+      // again is a whole-tree update and a kernel rebuild in App's render for
+      // a part that has not moved — 73 ms a move on kitchensink.ork.
+      if (offset === d.offset) return;
+      d.offset = offset;
+      onPatchNode(d.childId, { position: { method: pos.method, offset } });
       return;
     }
     const p = pan.current;
     if (p) {
+      if (e.pointerId !== p.pointerId) return;
+      if (releasedDuring(e)) { endDrag(e); return; }
       const dx = e.clientX - p.pointerX;
       const dy = e.clientY - p.pointerY;
       // Below the slop this press is still a click, not a pan. Once it IS a
@@ -499,7 +550,8 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
       if (!p.active) {
         if (Math.abs(dx) < PAN_SLOP && Math.abs(dy) < PAN_SLOP) return;
         p.active = true;
-        (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+        p.captured = e.currentTarget as Element;
+        p.captured.setPointerCapture?.(e.pointerId);
       }
       const rect = svgRef.current?.getBoundingClientRect();
       if (!rect || rect.width === 0) return;
@@ -508,7 +560,31 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
     }
   };
 
-  const endDrag = () => { drag.current = null; pan.current = null; };
+  /** Ends the gesture its OWN pointer started — a second finger lifting (or
+   *  leaving, or being cancelled) must not end the first finger's drag. */
+  const endDrag = (e: React.PointerEvent) => {
+    if (drag.current?.pointerId === e.pointerId) drag.current = null;
+    if (pan.current?.pointerId === e.pointerId) pan.current = null;
+  };
+
+  /**
+   * A lost capture ends a gesture only when it is the capture THAT gesture
+   * took. On touch the browser captures the pointer implicitly to whatever was
+   * pressed; the pan takes it for the svg only once it passes the slop (see
+   * beginPan for why not on press), which moves it off the pressed shape — and
+   * the browser fires lostpointercapture from that shape, bubbling up to here.
+   * The first cut of this handler was endDrag itself, which ended the pan on
+   * it: a touch pan that started on the nose, a tube or a ruler froze after
+   * its first step, and once zoomed in that is nearly every touch pan
+   * (reproduced in Chrome with CDP touch input, review of audit 2026-09-22).
+   * An armed pan holds no capture of its own, so nothing here can end it.
+   */
+  const onLostCapture = (e: React.PointerEvent) => {
+    const d = drag.current;
+    if (d?.pointerId === e.pointerId && e.target === d.captured) drag.current = null;
+    const p = pan.current;
+    if (p?.pointerId === e.pointerId && p.captured && e.target === p.captured) pan.current = null;
+  };
 
   // Track the container's size so the viewBox can follow it (height feeds
   // the vertical mode's length axis).
@@ -523,23 +599,37 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
     return () => obs.disconnect();
   }, []);
 
+  // The zoom as last committed, for the wheel listener below, which has to
+  // know BEFORE it updates whether this notch zooms at all. Written in an
+  // effect, not in render — a render-time ref write is undefined under
+  // StrictMode's double render (the same rule AftView's eRef follows).
+  const zoomRef = useRef(zoom);
+  useEffect(() => { zoomRef.current = zoom; }, [zoom]);
+
   // Wheel zoom around the pointer. Native listener: React's onWheel is
   // passive, so preventDefault (to stop page scroll) must be attached here.
   useEffect(() => {
     const svg = svgRef.current;
     if (!svg || vertical) return;
     const onWheel = (e: WheelEvent) => {
-      e.preventDefault();
       const rect = svg.getBoundingClientRect();
       if (rect.width === 0) return;
+      // Normalised per wheel NOTCH, not per event: a high-resolution wheel
+      // fires several events per detent and used to zoom several times as
+      // far for the same turn of the hand. Same helper as the charts, so one
+      // detent means the same thing on every view.
+      const stepK = (k0: number) => Math.min(12, Math.max(1, k0 * 1.2 ** wheelNotches(e)));
+      // Swallow the wheel only when it zooms (audit 2026-09-22). This used to
+      // preventDefault unconditionally, so at either stop — wheel-out at fit,
+      // wheel-in at 12x — the page could not scroll with the pointer over the
+      // drawing, which on the Motors tab is most of the page. The charts
+      // already hand a no-op wheel back the same way.
+      if (stepK(zoomRef.current.k) === zoomRef.current.k) return;
+      e.preventDefault();
       const px = ((e.clientX - rect.left) / rect.width) * w;
       const py = ((e.clientY - rect.top) / rect.height) * h;
       setZoom((z) => {
-        // Normalised per wheel NOTCH, not per event: a high-resolution wheel
-        // fires several events per detent and used to zoom several times as
-        // far for the same turn of the hand. Same helper as the charts, so one
-        // detent means the same thing on every view.
-        const k = Math.min(12, Math.max(1, z.k * 1.2 ** wheelNotches(e)));
+        const k = stepK(z.k);
         if (k === z.k) return z;
         // Keep the model point under the cursor fixed while scaling.
         const mx = (px - z.x) / z.k;
@@ -568,6 +658,22 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
     return k === 1 ? { k: 1, x: 0, y: 0 } : { k, x: ax - mx * k, y: ay - my * k };
   });
 
+  /**
+   * Arrow keys pan the drawing a tenth of its size a press, the keyboard twin
+   * of the background drag (audit 2026-09-22). The buttons above zoom about the
+   * centre, so once zoomed a keyboard user could Tab onto a part — the nose, the
+   * fin can — that was out of sight, with no way to bring it back. Handled on
+   * the svg, so the arrows work from the focused drawing AND from a focused
+   * part (whose own keys are Enter and Space). Like the drag, it pans at any
+   * zoom; the Fit button then appears to put it back.
+   */
+  const onKeyPan = (e: React.KeyboardEvent) => {
+    const d = arrowPan(e.key);
+    if (!d) return;
+    e.preventDefault();
+    setZoom((z) => ({ ...z, x: z.x + d[0] * 0.1 * w, y: z.y + d[1] * 0.1 * h }));
+  };
+
   // Selection sync: click any drawn component to select it in the tree; the
   // selected component draws with an accent outline.
   const isSel = (n: ComponentNode) => !!selectedId && n.id === selectedId;
@@ -584,31 +690,69 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
    * so the two names cannot be confused again.
    *
    * `role="button"` + a name: a bare tabbable <rect> announces nothing.
+   *
+   * These props go on every drawn INSTANCE of the part; keepFirstTabStops
+   * below leaves the keyboard half on the first of them only.
    */
-  const selectable = (n: ComponentNode) => ({
-    ...(n.id
-      ? {
-        onPointerEnter: () => setHoverId(n.id!),
-        onPointerLeave: () => setHoverId((cur) => (cur === n.id ? null : cur)),
-      }
-      : {}),
-    ...(onSelect && n.id
-      ? {
-        // Enter/Space from the shared helper; the pointer path keeps its own
-        // onClick because it must stopPropagation (or the svg's background
-        // handler also fires) and must ignore a click that was really a drag.
-        onKeyDown: keyActivation(() => onSelect(n.id!)).onKeyDown,
-        tabIndex: 0,
-        role: 'button',
-        'aria-label': `Select ${n.name ?? DISPLAY_NAME[n.type]}`,
-        onClick: (e: React.MouseEvent) => {
-          e.stopPropagation();
-          if (!dragMoved.current) onSelect(n.id!);
-        },
-        style: { cursor: 'pointer' } as React.CSSProperties,
-      }
-      : {}),
-  });
+  const selectable = (n: ComponentNode) => {
+    // Enter/Space from the shared helper; the pointer path keeps its own
+    // onClick because it must stopPropagation (or the svg's background
+    // handler also fires) and must ignore a click that was really a drag.
+    const onKeyDown = onSelect && n.id ? keyActivation(() => onSelect(n.id!)).onKeyDown : null;
+    if (onKeyDown) tabStopOwner.set(onKeyDown, n.id!);
+    return {
+      ...(n.id
+        ? {
+          onPointerEnter: () => setHoverId(n.id!),
+          onPointerLeave: () => setHoverId((cur) => (cur === n.id ? null : cur)),
+        }
+        : {}),
+      ...(onSelect && onKeyDown
+        ? {
+          onKeyDown,
+          tabIndex: 0,
+          role: 'button',
+          'aria-label': `Select ${n.name ?? DISPLAY_NAME[n.type]}`,
+          onClick: (e: React.MouseEvent) => {
+            e.stopPropagation();
+            if (!dragMoved.current) onSelect(n.id!);
+          },
+          style: { cursor: 'pointer' } as React.CSSProperties,
+        }
+        : {}),
+    };
+  };
+
+  /**
+   * ONE TAB STOP PER PART, not one per drawn instance (audit 2026-09-22). A fin
+   * set draws a shape per fin, a cluster a rect per tube, a rail button one per
+   * line instance, a pod ring its whole chain once per instance — and each of
+   * them carried the part's tab stop, so Tab stepped through "Select
+   * Trapezoidal fins" three times running (8 stops for 5 components,
+   * measured). selectable() records which part each keyboard handler it hands
+   * out belongs to; this one pass over what is actually DRAWN, in document
+   * order (which is tab order), keeps the keys on each part's first instance
+   * and takes them off the rest, which keep their pointer handlers. Run over
+   * the finished layers rather than at each spread, so an instance that is
+   * built but never pushed — a fin hidden inside the airframe — cannot take
+   * the part's only stop with it, and a new multi-instance drawing needs
+   * nothing of its own to get this right.
+   */
+  const tabStopOwner = new Map<unknown, string>();
+  const keepFirstTabStops = (layers: React.ReactNode[][]) => {
+    const seen = new Set<string>();
+    for (const layer of layers) {
+      layer.forEach((el, i) => {
+        if (!isValidElement<Record<string, unknown>>(el)) return;
+        const id = tabStopOwner.get(el.props['onKeyDown']);
+        if (id === undefined) return;
+        if (!seen.has(id)) { seen.add(id); return; }
+        layer[i] = cloneElement(el, {
+          onKeyDown: undefined, tabIndex: undefined, role: undefined, 'aria-label': undefined,
+        });
+      });
+    }
+  };
   const selStroke = (n: ComponentNode, dflt: string) => (isSel(n) ? 'var(--accent)' : dflt);
   const selWidth = (n: ComponentNode, dflt: number | string = 1) => (isSel(n) ? 2 : dflt);
 
@@ -770,9 +914,10 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   ) => {
     wires.push(shape(wireInk(n, grab)));
     // The hit surface is an INVISIBLE duplicate of the outline above, so it
-    // takes the pointer props and drops the keyboard ones — otherwise every
-    // rolled fin instance would contribute two identical tab stops with the
-    // same name, and a three-fin set alone would cost six.
+    // takes the pointer props and drops the keyboard ones: it must never be
+    // the shape that holds the part's tab stop — focus would land on nothing
+    // visible. (keepFirstTabStops collapses the instances to one stop; this
+    // keeps the invisible copies out of the running for it.)
     const { tabIndex: _t, role: _r, onKeyDown: _k, 'aria-label': _a, ...pointerOnly } =
       grab as Record<string, unknown>;
     wires.push(shape({
@@ -1400,11 +1545,17 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   };
 
   renderChain(chain, 0, ctx.cy);
+  // The three layers in the order they are painted below — and tabbed.
+  keepFirstTabStops([shapes, overlay, wires]);
 
+  const aero = !!info && hasAerodynamicForce(info);
   const cgX = info ? ctx.x0 + info.cg * scale : null;
-  const cpX = info ? ctx.x0 + shownCp(info) * scale : null;
-  const stab = info && hasAerodynamicForce(info)
-    ? stabilityState(shownStability(info)) : null;
+  // No aerodynamic normal force = no CP, only the kernel's 0: drawn, that was a
+  // red CP marker and callout at the front of a bare body tube — a violently
+  // unstable-looking rocket beside tiles saying "no lift yet" (audit
+  // 2026-09-22). The margin text already needed the force; now the CP does too.
+  const cpX = info && aero ? ctx.x0 + shownCp(info) * scale : null;
+  const stab = info && aero ? stabilityState(shownStability(info)) : null;
   // One builder for both views — components/stabilityWording.ts. The 3D
   // callout printed the bare number until v0.105, so the whole verdict rode on
   // colour there while this view spelled it out.
@@ -1497,18 +1648,32 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
           // role="img" makes the WHOLE subtree presentational, so the shapes'
           // tab stops and <title>s were hidden from assistive tech — while
           // this very label promised a reader they could select and drag
-          // components here. The read-only `vertical` variant has no handlers
-          // at all and stays an image; the interactive one is a group, whose
-          // children are exposed.
-          role={vertical ? 'img' : 'group'}
+          // components here. So it is an image only when there is nothing
+          // inside to reach: a nose-up drawing with no onSelect (the Fly
+          // screen's). Anything with tab stops is a group, whose children are
+          // exposed. Until audit 2026-09-22 every vertical drawing was an
+          // image, and two of them had tab stops inside it that no screen
+          // reader could see: the Design tab's ⟳90° view, which really does
+          // select, and the Fly screen, which passed a no-op onSelect and so
+          // cost a keyboard user one dead stop per drawn part.
+          role={vertical && !onSelect ? 'img' : 'group'}
           aria-label={vertical
-            ? 'Rocket side view, nose up, with CG and CP markers'
-            : 'Rocket side view with CG and CP markers — drag components, wheel to zoom, drag background to pan'}
+            ? `Rocket side view, nose up, with CG and CP markers${onSelect ? ' — select components' : ''}`
+            : 'Rocket side view with CG and CP markers — drag components, wheel to zoom, drag the background or use the arrow keys to pan'}
+          // A tab stop of its own for the arrow-key pan (see onKeyPan) — the
+          // nose-up drawing neither pans nor zooms, so it takes no keys.
+          tabIndex={vertical ? undefined : 0}
+          onKeyDown={vertical ? undefined : onKeyPan}
           onPointerDownCapture={resetDragLatch}
           onPointerDown={vertical ? undefined : beginPan}
           onPointerMove={vertical ? undefined : onMove}
           onPointerUp={vertical ? undefined : endDrag}
-          onPointerLeave={vertical ? undefined : endDrag}>
+          onPointerLeave={vertical ? undefined : endDrag}
+          // A gesture the browser takes over ends here rather than living on
+          // to be driven by whatever pointer moves next (audit 2026-09-22) —
+          // a lost capture only when it is the gesture's own (onLostCapture).
+          onPointerCancel={vertical ? undefined : endDrag}
+          onLostPointerCapture={vertical ? undefined : onLostCapture}>
         <defs>
           {/* Bulkhead fill: the engineering-drawing diagonal hatch. */}
           <pattern id="bulkhead-hatch" patternUnits="userSpaceOnUse" width="5" height="5">
@@ -1650,7 +1815,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
             ⤢ Fit
           </button>
         )}
-        <button className="file-btn" title="Zoom in — or scroll on the drawing; drag to pan"
+        <button className="file-btn" title="Zoom in — or scroll on the drawing; drag it, or use the arrow keys, to pan"
           aria-label="Zoom in" onClick={() => zoomBy(1.5)} disabled={zoom.k >= 12}>+</button>
         <button className="file-btn" title="Zoom out"
           aria-label="Zoom out" onClick={() => zoomBy(1 / 1.5)} disabled={zoom.k <= 1}>−</button>

@@ -78,6 +78,20 @@ describe('the drawing is reachable by keyboard', () => {
     // It attaches no handlers at all, so there is nothing inside to expose.
     show(<TreeSchematic tree={tree} info={null} vertical />);
     expect(svg().getAttribute('role')).toBe('img');
+    expect(svg().querySelectorAll('[tabindex]')).toHaveLength(0);
+  });
+
+  it('exposes a vertical drawing that offers selection, rather than hiding its tab stops', () => {
+    // The Design tab's ⟳90° drawing passes onSelect, so its parts are tab
+    // stops. Inside a role="img" svg a screen reader could not see them — a
+    // stop that announces nothing (audit 2026-09-22). A drawing with tab stops
+    // is a group, nose-up or not.
+    show(<TreeSchematic tree={tree} info={null} vertical onSelect={() => {}} />);
+    expect(svg().getAttribute('role')).toBe('group');
+    expect(svg().getAttribute('aria-label')).toMatch(/nose up/);
+    const stops = [...svg().querySelectorAll('[tabindex="0"]')];
+    expect(stops.length).toBeGreaterThan(0);
+    expect(stops.every((s) => s.getAttribute('role') === 'button')).toBe(true);
   });
 
   it('gives every selectable shape a tab stop and a name', () => {
@@ -115,6 +129,114 @@ describe('the drawing is reachable by keyboard', () => {
     const hits = [...svg().querySelectorAll('[data-fin-hit]')];
     expect(hits.length).toBeGreaterThan(0);
     expect(hits.every((h) => h.getAttribute('tabindex') === null)).toBe(true);
+  });
+});
+
+/**
+ * Audit 2026-09-22: the tab stop rode on every drawn INSTANCE — each fin of a
+ * set, each tube of a cluster, each rail button of a line, a pod's whole chain
+ * once per ring instance — so Tab stepped through "Select Trapezoidal fins"
+ * three times running (8 stops for 5 components, measured). One per part now,
+ * on its first drawn instance; every instance still takes the pointer.
+ */
+describe('one tab stop per part, not per drawn instance', () => {
+  const busy = withChildren([
+    { id: 'f1', type: 'trapezoidfinset', name: 'Main fins', finCount: 3, rootChord: 0.05,
+      tipChord: 0.03, sweep: 0.02, height: 0.03 },
+    { id: 'rb', type: 'railbutton', name: 'Buttons', outerDiameter: 0.01, totalHeight: 0.0097,
+      instanceCount: 2, instanceSeparation: 0.1, position: { method: 'middle', offset: 0 } },
+    { id: 'mt', type: 'innertube', name: 'Motor tubes', length: 0.08, outerRadius: 0.006,
+      cluster: '3-ring', position: { method: 'bottom', offset: 0 } },
+    { id: 'p1', type: 'podset', name: 'Pods', instanceCount: 2, radiusOffset: 0.02,
+      children: [{ id: 'pb', type: 'bodytube', name: 'Pod tube', length: 0.1, outerRadius: 0.008 }] },
+  ]);
+  const PARTS = ['Select Body tube', 'Select Buttons', 'Select Main fins', 'Select Motor tubes',
+    'Select Nose cone', 'Select Pod tube'];
+  const stopNames = () => [...svg().querySelectorAll('[tabindex="0"]')]
+    .map((s) => s.getAttribute('aria-label')).sort();
+
+  it('at rest', () => {
+    show(<TreeSchematic tree={busy} info={null} onSelect={() => {}} />);
+    // The instances ARE drawn — each named part still draws more than once.
+    expect(host.querySelectorAll('polygon').length).toBeGreaterThanOrEqual(3);
+    expect(stopNames()).toEqual(PARTS);
+  });
+
+  it('rolled, where every fin is an outline', () => {
+    show(<TreeSchematic tree={busy} info={null} roll={0.6} onSelect={() => {}} />);
+    expect(host.querySelectorAll('[data-fin="wire"]').length).toBe(3);
+    expect(stopNames()).toEqual(PARTS);
+  });
+
+  it('keeps the pointer on every instance, and the keys on the one stop', () => {
+    const picked: string[] = [];
+    show(<TreeSchematic tree={busy} info={null} onSelect={(id) => picked.push(id)} />);
+    const tubes = [...host.querySelectorAll('rect[stroke-dasharray="3 2"]')]
+      .filter((r) => r.querySelector('title')?.textContent === 'Motor tubes');
+    expect(tubes).toHaveLength(3);
+    expect(tubes.filter((t) => t.getAttribute('tabindex') === '0')).toHaveLength(1);
+    expect(tubes.filter((t) => t.getAttribute('role') === 'button')).toHaveLength(1);
+    // A click on the LAST copy still selects the part.
+    act(() => { tubes[2]!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    const stop = tubes.find((t) => t.getAttribute('tabindex') === '0')!;
+    act(() => { stop.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+    expect(picked).toEqual(['mt', 'mt']);
+  });
+});
+
+/**
+ * Audit 2026-09-22: the side view panned only by pointer drag, so once zoomed a
+ * keyboard user could Tab onto a part that had been panned out of sight and had
+ * no way to bring it back.
+ */
+describe('side view keyboard panning', () => {
+  const tree = withChildren([{
+    id: 'f1', type: 'trapezoidfinset', finCount: 3, rootChord: 0.05,
+    tipChord: 0.03, sweep: 0.02, height: 0.03,
+  }]);
+  const translate = () => [...svg().querySelectorAll('g')]
+    .map((g) => g.getAttribute('transform') ?? '').find((t) => t.includes('translate'))!
+    .match(/translate\((-?[\d.e-]+) (-?[\d.e-]+)\)/)!.slice(1).map(Number);
+  const key = (el: Element, k: string): boolean => {
+    const ev = new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true });
+    act(() => { el.dispatchEvent(ev); });
+    return ev.defaultPrevented;
+  };
+
+  it('the drawing is a tab stop that says the arrow keys pan it', () => {
+    show(<TreeSchematic tree={tree} info={null} onSelect={() => {}} />);
+    expect(svg().tabIndex).toBe(0);
+    expect(svg().getAttribute('aria-label')).toMatch(/arrow keys to pan/);
+  });
+
+  it('the arrows move the view the way a scroll moves a page', () => {
+    show(<TreeSchematic tree={tree} info={null} onSelect={() => {}} />);
+    const [x0, y0] = translate();
+    expect(key(svg(), 'ArrowRight')).toBe(true);
+    expect(translate()[0]!).toBeLessThan(x0!); // view right = drawing left
+    expect(key(svg(), 'ArrowDown')).toBe(true);
+    expect(translate()[1]!).toBeLessThan(y0!);
+    key(svg(), 'ArrowLeft');
+    key(svg(), 'ArrowUp');
+    expect(translate()).toEqual([x0, y0]);
+  });
+
+  it('pans from a focused part too, and leaves its Enter alone', () => {
+    const picked: string[] = [];
+    show(<TreeSchematic tree={tree} info={null} onSelect={(id) => picked.push(id)} />);
+    const nose = [...svg().querySelectorAll('[tabindex="0"]')]
+      .find((s) => s.getAttribute('aria-label') === 'Select Nose cone')!;
+    const [x0] = translate();
+    expect(key(nose, 'ArrowLeft')).toBe(true);
+    expect(translate()[0]!).toBeGreaterThan(x0!);
+    key(nose, 'Enter');
+    expect(picked).toEqual(['n1']);
+  });
+
+  it('the nose-up drawing, which neither pans nor zooms, takes no arrows', () => {
+    show(<TreeSchematic tree={tree} info={null} vertical />);
+    expect(svg().getAttribute('tabindex')).toBeNull();
+    expect(key(svg(), 'ArrowRight')).toBe(false);
   });
 });
 
