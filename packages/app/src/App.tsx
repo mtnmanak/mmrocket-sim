@@ -106,7 +106,10 @@ import { autoAlignFinSets } from './tree/finAlign.js';
 import { interleaveRotation } from './tree/schema.js';
 import { convertShrouds, type ShroudCandidate } from './tree/shroudConvert.js';
 import { mountBore } from './tree/scaleRocket.js';
-import { designNotices } from './services/notices.js';
+import { designNotices, type HeldNote } from './services/notices.js';
+import {
+  reconcileLegacyPadMass, restoredPadMassNote, type PadMassText,
+} from './services/padMassReconcile.js';
 import { stageMotors } from './services/nozzleFollow.js';
 import { designFingerprint, isDirty, type DesignSnapshot } from './services/dirtyState.js';
 import { createSequencer } from './services/latestWins.js';
@@ -856,6 +859,11 @@ export function App() {
     length: (m: number) => `${fmtSi('length', prefs.units.length, m, 3)} ${prefs.units.length}`,
   };
   /**
+   * The words a pad-mass note is written with (services/padMassReconcile.ts):
+   * the user's mass unit, and a motor named without its delay grain.
+   */
+  const padMassText: PadMassText = { mass: massText, motorName: baseLabel };
+  /**
    * What became of a pad mass carried in from v0.116/v0.117 — its own entry in
    * the notice strip (`pad-mass-moved`), NOT setFileNote, which would overwrite
    * an import note. Seeded here for the one outcome the restore already knows
@@ -863,32 +871,10 @@ export function App() {
    * other two after the first build has checked the value against the motor.
    * Also where a pad mass the core-first ranking moved went (rankedPadMass),
    * so the value is not seen to jump from one card to another unexplained.
+   * The sentences are services/padMassReconcile.ts's, tested there.
    */
-  const [padMassNote, setPadMassNote] = useState<{ text: string; severity: NoticeSeverity } | null>(() => {
-    const m = legacyPadMass.current;
-    if (m?.outcome === 'dropped' && typeof m.kg === 'number') {
-      return {
-        severity: 'warn',
-        text: `The weighed pad mass you entered before this version (${massText(m.kg)}) had no motor loaded`
-          + ' to belong to and was not kept. Weigh the rocket with the motor in and type it under that'
-          + ' motor on Motors & Launch.',
-      };
-    }
-    const r = rankedPadMass.current;
-    if (r?.from && r.to && typeof r.kg === 'number') {
-      const from = mountMotors[r.from];
-      const to = mountMotors[r.to];
-      return {
-        severity: 'info',
-        text: `The weighed pad mass (${massText(r.kg)}) now sits under ${to ? baseLabel(to.label) : 'another motor'}`
-          + ` on ${findNode(initialTree, r.to)?.name ?? 'its mount'}, not under`
-          + ` ${from ? baseLabel(from.label) : 'the motor'} on ${findNode(initialTree, r.from)?.name ?? 'its mount'}:`
-          + ' the weighed hardware now rides with the core\'s motor ahead of a pod\'s or a strap-on\'s, where it used'
-          + ' to ride with whichever was picked first. The value itself is unchanged.',
-      };
-    }
-    return null;
-  });
+  const [padMassNote, setPadMassNote] = useState<HeldNote | null>(() => restoredPadMassNote(
+    legacyPadMass.current, rankedPadMass.current, { tree: initialTree, motors: mountMotors, text: padMassText }));
 
   /**
    * The design fingerprint as of the last save or import — what is on disk.
@@ -1786,67 +1772,34 @@ export function App() {
    * impossible. A value keyed 'legacy' (a v0.116/v0.117 session, or a
    * bare-form .ork attached in applyImported) reaches the build with no set
    * key, so `built.hardware` is the arithmetic's verdict on it against the
-   * motor now loaded, while the field renders BLANK. After that first build:
-   * accepted (ok, or a motor with no mass curve to separate it from) → the
-   * record is re-keyed to the current set and the notice says where it went;
-   * refused → the keys are deleted and the notice names the value and the
-   * motor, so nothing is ever shown refused under a number that looks live.
-   * 'none/no-motor' (the kernel refused the primary's curve) stays pending:
-   * the next build that accepts a motor decides.
+   * motor now loaded, while the field renders BLANK. After that first build it
+   * is re-keyed to the current set or dropped, and the notice says which —
+   * the four-way decision and its sentences are
+   * services/padMassReconcile.ts's reconcileLegacyPadMass, tested there; what
+   * stays here is writing the step into state.
    */
   useEffect(() => {
-    if (!built || !primaryMountId) return;
-    const rec = mountMotors[primaryMountId];
-    if (!rec || rec.padMassWeighedWith !== LEGACY_PAD_MASS_KEY || typeof rec.padMassKg !== 'number') return;
-    const h = built.hardware;
-    const kg = rec.padMassKg;
-    const name = baseLabel(rec.label);
-    // The file's primary is a reference the app could not load (a v0.117
-    // session with the sustainer unmatched and the booster loaded): the field
-    // is withheld on that card and the export gate keeps the reference's
-    // slot, so a value placed here would be flown, invisible, and absent from
-    // the saved file. Dropped with a notice, like a refusal (2026-09-08 review).
-    if (filePrimaryMountId !== primaryMountId) {
-      const fileRef = filePrimaryMountId ? unmatchedRefs[filePrimaryMountId] : undefined;
-      const where = (filePrimaryMountId && findNode(tree, filePrimaryMountId)?.name) ?? 'a removed mount';
-      setPadMass(primaryMountId, null);
-      setPadMassNote({
-        severity: 'warn',
-        text: `The weighed pad mass you entered before this version (${massText(kg)}) could not be placed: the`
-          + ` motor the file names on ${where} (${fileRef?.designation ?? 'unknown'}) is not loaded, so the app`
-          + ' cannot tell which motors it was weighed with. Load that motor, or re-weigh with the motors you'
-          + ' have in and type it under the top motor on Motors & Launch.',
-      });
-      return;
-    }
-    if (h.state === 'implausible') {
-      setPadMass(primaryMountId, null);
-      setPadMassNote({
-        severity: 'warn',
-        text: h.reason === 'negative'
-          ? `The weighed pad mass entered before this version (${massText(kg)}) was not kept: it is lighter`
-            + ` than the dry rocket plus the catalogue ${name}, so it was weighed with a different motor.`
-            + ' Re-weigh with this motor in and type it under it on Motors & Launch.'
-          : `The weighed pad mass entered before this version (${massText(kg)}) was not kept: against the`
-            + ` catalogue ${name} it would carry more hardware than the airframe itself. Re-weigh with this`
-            + ' motor in and type it under it on Motors & Launch.',
-      });
-    } else if (h.state === 'ok' || (h.state === 'none' && h.why === 'no-mass-curve')) {
+    const step = reconcileLegacyPadMass({
+      hardware: built ? built.hardware : null,
+      primaryMountId,
+      filePrimaryMountId,
+      motors: mountMotors,
+      unmatchedRefs,
+      tree,
+      currentSetKey,
+      text: padMassText,
+    });
+    if (!step) return;
+    if (step.kind === 'drop') {
+      setPadMass(step.mountId, null);
+    } else {
       setMountMotors((prev) => ({
         ...prev,
-        [primaryMountId]: { ...prev[primaryMountId]!, padMassWeighedWith: currentSetKey },
+        [step.mountId]: { ...prev[step.mountId]!, padMassWeighedWith: step.key },
       }));
-      setPadMassNote({
-        severity: 'info',
-        text: `The weighed pad mass you entered in the Measured mass & CG box (${massText(kg)}) now belongs`
-          + ` to the motor it was weighed with: it sits under ${name} on Motors & Launch, and the line there`
-          + ' says what it carries. If that is not the motor you weighed with, clear it and re-weigh.'
-          + (h.state === 'none'
-            ? ` ${name} carries no mass curve, so nothing is carried until a motor with one is loaded.`
-            : ''),
-      });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- setPadMass and massText are per-render closures over the same state
+    setPadMassNote(step.note);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- setPadMass and padMassText are per-render closures over the same state
   }, [built, primaryMountId, filePrimaryMountId, unmatchedRefs, mountMotors, currentSetKey]);
 
   /**
