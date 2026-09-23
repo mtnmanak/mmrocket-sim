@@ -2,6 +2,7 @@ import { resolve } from 'node:path';
 import react from '@vitejs/plugin-react';
 import { defineConfig, type Plugin } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
+import { lazyModulesInEntry } from './scripts/lazy-chunks.mjs';
 import { checkDist } from './scripts/precache-coverage.mjs';
 
 /**
@@ -33,6 +34,34 @@ function precacheCoversBuild(): Plugin {
             + 'DELIBERATELY_UNCACHED in scripts/precache-coverage.mjs with the reason.');
         }
       },
+    },
+  };
+}
+
+/**
+ * Fails `vite build` when the entry chunk carries the user guide, the changelog
+ * or either dialog that reads them (audit 2026-09-22, row 510). App.tsx
+ * lazy-loads the two dialogs so their ~730 KB of text is not loaded and parsed
+ * before the app draws, and one import from anything on the startup path —
+ * main.tsx included, which no test runs — would fold it back with nothing else
+ * visibly wrong. The check and its module list live in scripts/lazy-chunks.mjs.
+ */
+function lazyTextsStayLazy(): Plugin {
+  let root = '';
+  return {
+    name: 'lazy-texts-stay-lazy',
+    apply: 'build',
+    configResolved(config) {
+      root = config.root;
+    },
+    generateBundle(_options, bundle) {
+      const folded = lazyModulesInEntry(bundle, root);
+      if (folded.length > 0) {
+        this.error(`the entry chunk carries ${folded.length} module(s) that must load only when `
+          + `their dialog opens: ${folded.join(', ')}. Something the page loads at startup imports `
+          + 'one of them. Remove that import, or make it a dynamic import(); '
+          + 'App.lazyDialogs.test.tsx names the module when the importer is under AppRoot.');
+      }
     },
   };
 }
@@ -84,6 +113,7 @@ export default defineConfig({
         maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
       },
     }),
+    lazyTextsStayLazy(),
     precacheCoversBuild(),
   ],
   base: './',
