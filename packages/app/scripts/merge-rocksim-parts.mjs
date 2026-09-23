@@ -10,9 +10,12 @@
  * OpenRocket version is kept and the conflict is logged. Everything else is
  * appended with `"source": "rocksim"`.
  *
- * Pipeline order: fetch-component-presets.mjs (overwrites) → THIS script
- * (appends) → apply-preset-corrections.mjs (re-patches known-wrong upstream
- * rows — run it last or a regen silently reverts the corrections).
+ * Pipeline order: this is the step straight after fetch-component-presets.mjs
+ * (which overwrites presets.json); every step after it re-applies data a
+ * regeneration wipes. The whole order lives in ONE place, CLAUDE.md
+ * "REGENERATION ORDER" — this header used to carry its own three-step copy,
+ * which had drifted to omit the CW tubes, the Fruity Chutes merge and the
+ * curations.
  *
  * CSV format notes (verified against OpenRocket 24.12
  * info.openrocket.core.preset.loader.* and empirically against known parts):
@@ -33,38 +36,39 @@
  *    2=ELLIPSOID (RockSim "parabolic"), 3=ELLIPSOID, 4=POWER, 5=PARABOLIC,
  *    6=HAACK; blank=CONICAL. Thickness 0/blank means a solid (filled) part.
  *
- * Usage: node packages/app/scripts/merge-rocksim-parts.mjs [--dry-run] [--csv-dir <path>]
- * Also writes a merge report beside the input CSVs.
+ * Usage: node packages/app/scripts/merge-rocksim-parts.mjs [--dry-run] [--csv-dir <path>] [--json <path>]
+ * `--json` writes the merge report there as well as to the console.
  *
  * The CSVs are third-party RockSim component libraries and are NOT kept in this
  * repository. Point the script at your own copy with --csv-dir, or set
  * ROCKSIM_PARTS_DIR. Its output — src/data/presets.json — is committed, so this
- * is a maintenance tool: nothing in the build or the tests needs it to run.
+ * is a maintenance tool: nothing in the build needs it to run.
+ *
+ * TESTABLE since 2026-09-22 (audit): the merge used to run at module top level,
+ * so the unit tables that write shipped masses and lengths could not be pinned.
+ * The work is now `main()`, run only when this file is the entry point, and
+ * merge-rocksim-parts.test.mjs pins the tables and drives the merge on
+ * synthetic CSVs.
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { mfrDisplay, mfrKey } from './manufacturers.mjs';
+import { DISPLAY, mfrDisplay, mfrKey, partKey, spellingConflicts } from './manufacturers.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(__dirname, '..', '..', '..');
-const csvArgIdx = process.argv.indexOf('--csv-dir');
-const CSV_DIR = csvArgIdx >= 0
-  ? process.argv[csvArgIdx + 1]
-  : (process.env.ROCKSIM_PARTS_DIR ?? '');
 const PRESETS_PATH = path.join(REPO, 'packages', 'app', 'src', 'data', 'presets.json');
-const DRY_RUN = process.argv.includes('--dry-run');
 
 // ---------------------------------------------------------------- units
 
-const IN = 0.0254; // m
-const MM = 0.001; // m
-const OZ = 0.028349523125; // kg
-const LB = 0.45359237; // kg
+export const IN = 0.0254; // m
+export const MM = 0.001; // m
+export const OZ = 0.028349523125; // kg
+export const LB = 0.45359237; // kg
 
 /** Length unit factor for a row's "Units" cell (meters per unit). */
-function lengthFactor(u) {
+export function lengthFactor(u) {
   const t = (u ?? '').trim().toLowerCase();
   if (t === '' || t === '?' || t === '0' || t.startsWith('in')) return IN;
   if (t === '1' || t.startsWith('mm')) return MM;
@@ -72,7 +76,7 @@ function lengthFactor(u) {
 }
 
 /** Mass unit factor for a "Mass Units" cell (kg per unit). */
-function massFactor(u) {
+export function massFactor(u) {
   const t = (u ?? '').trim().toLowerCase().replace(/\./g, '');
   if (t === '0' || t === 'oz') return OZ;
   if (t === '1' || t === 'lb') return LB;
@@ -81,11 +85,12 @@ function massFactor(u) {
   return null;
 }
 
-const round6 = (v) => Math.round(v * 1e7) / 1e7;
+/** To 0.1 micrometre / 0.1 milligram. It was called `round6` and rounds to SEVEN decimals. */
+export const round7 = (v) => Math.round(v * 1e7) / 1e7;
 
 // ---------------------------------------------------------------- CSV
 
-function parseCsv(file) {
+export function parseCsv(file) {
   const text = fs.readFileSync(file, 'latin1');
   return text
     .split(/\r?\n/)
@@ -101,7 +106,7 @@ function parseCsv(file) {
     );
 }
 
-const num = (s) => {
+export const num = (s) => {
   const t = (s ?? '').trim();
   if (t === '' || t === '?') return undefined;
   const v = Number(t);
@@ -162,9 +167,9 @@ const LINE_MAP = {
   '30 lb. kevlar': ['Kevlar thread 138  (0.4 mm, 1/64 in)', 0.00014808],
 };
 
-const unmappedMaterials = new Map(); // name -> count
+const unmappedMaterials = new Map(); // name -> count, for one run's report (main() clears it)
 
-function mapMaterial(name, table, type) {
+export function mapMaterial(name, table, type) {
   const key = (name ?? '').trim().toLowerCase();
   if (!key || key === 'material') return undefined;
   let hit = table[key];
@@ -185,11 +190,32 @@ function mapMaterial(name, table, type) {
 // deduped. That is the mechanism behind the owner's "double counted" report.
 const mfgKey = mfrKey;
 
-const normPart = (s) => (s ?? '').toLowerCase().replace(/[\s-]/g, '');
+// The part-number key is the SHARED one too (audit 2026-09-22). This file kept
+// a private `normPart` that stripped only spaces and hyphens, so it disagreed
+// with `presetKey` — the key every other pipeline step dedupes and corrects by —
+// on every other punctuation mark: "BT-20.5" and "BT205" were two parts here and
+// one everywhere else. `partKey` keeps `+`, which is what separates SEMROC's
+// BT-2+ from BT-2.
+const normPart = partKey;
+
+/**
+ * The manufacturer string a merged row is filed under. A ruled DISPLAY spelling
+ * wins; failing that, the catalogue's own spelling for the same maker; failing
+ * that, the CSV's. Until 2026-09-22 the second step was unreachable — it sat
+ * behind `mfrDisplay(...)`, which never returns an empty string — so a maker
+ * with no DISPLAY entry kept the RockSim spelling even where the catalogue
+ * already spelt it another way, and the two spellings met only at deploy, in
+ * a test.
+ */
+export function displayFor(manufacturer, catalogueSpelling) {
+  const key = mfgKey(manufacturer);
+  if (Object.hasOwn(DISPLAY, key)) return mfrDisplay(manufacturer);
+  return catalogueSpelling.get(key) ?? manufacturer;
+}
 
 // ---------------------------------------------------------------- shape
 
-function mapShape(s) {
+export function mapShape(s) {
   const t = (s ?? '').trim().toLowerCase();
   const codes = { 0: 'CONICAL', 1: 'OGIVE', 2: 'ELLIPSOID', 3: 'ELLIPSOID', 4: 'POWER', 5: 'PARABOLIC', 6: 'HAACK' };
   if (t in codes) return codes[t];
@@ -206,7 +232,7 @@ function mapShape(s) {
 
 // Column indices are 0-based; verified against each file's header row and
 // against OpenRocket's loader column names.
-const FILES = [
+export const FILES = [
   {
     file: 'Body_tubeDATA.CSV', kind: 'BodyTube',
     // Mfg, Part, Desc, Units, ID, OD, Length, Material, Engine, MassUnits, Mass
@@ -320,7 +346,7 @@ const FILES = [
 const SKIPPED_FILES = ['FinsDATA.CSV', 'FinsDATA1.CSV', 'Fins3DATA.CSV', 'MotorRetainerDATA.CSV', 'GRAPHS.CSV'];
 
 // Primary dimensions per kind, used for dimension-based dedup and conflicts.
-const PRIMARY_DIMS = {
+export const PRIMARY_DIMS = {
   BodyTube: ['insideDiameter', 'outsideDiameter', 'length'],
   TubeCoupler: ['insideDiameter', 'outsideDiameter', 'length'],
   EngineBlock: ['insideDiameter', 'outsideDiameter', 'length'],
@@ -334,19 +360,19 @@ const PRIMARY_DIMS = {
 };
 
 // Per-row helpers bound to the row's length factor.
-function dim(cell, factor) {
+export function dim(cell, factor) {
   const v = num(cell);
   if (v === undefined) return undefined;
-  const m = round6(v * factor);
+  const m = round7(v * factor);
   return m === 0 ? undefined : m;
 }
 
-function massOf(massCell, unitCell) {
+export function massOf(massCell, unitCell) {
   const v = num(massCell);
   if (v === undefined || v === 0) return undefined;
   const f = massFactor(unitCell);
   if (f === null) return undefined;
-  return round6(v * f);
+  return round7(v * f);
 }
 
 const close = (a, b, tol = 0.02) =>
@@ -354,36 +380,48 @@ const close = (a, b, tol = 0.02) =>
 
 // ---------------------------------------------------------------- main
 
-const db = JSON.parse(fs.readFileSync(PRESETS_PATH, 'utf8'));
+/**
+ * Resolves to the exit code: 0 merged (or reported, on a dry run); 1 no CSVs,
+ * or a merge that would ship two spellings of one maker (nothing written).
+ */
+export function main({
+  argv = process.argv,
+  csvDir = argv.includes('--csv-dir') ? argv[argv.indexOf('--csv-dir') + 1] : (process.env.ROCKSIM_PARTS_DIR ?? ''),
+  presetsPath = PRESETS_PATH,
+  dryRun = argv.includes('--dry-run'),
+  jsonOut = argv.includes('--json') ? argv[argv.indexOf('--json') + 1] : undefined,
+} = {}) {
+  unmappedMaterials.clear();
+  const db = JSON.parse(fs.readFileSync(presetsPath, 'utf8'));
 
-// Index existing presets by kind|mfgKey; remember canonical display names.
-const existingIndex = new Map();
-const displayName = new Map();
-for (const p of db.presets) {
-  const key = `${p.kind}|${mfgKey(p.manufacturer)}`;
-  if (!existingIndex.has(key)) existingIndex.set(key, []);
-  existingIndex.get(key).push(p);
-  const mk = mfgKey(p.manufacturer);
-  if (!displayName.has(mk)) displayName.set(mk, p.manufacturer);
-}
+  // Index existing presets by kind|mfgKey; remember canonical display names.
+  const existingIndex = new Map();
+  const displayName = new Map();
+  for (const p of db.presets) {
+    const key = `${p.kind}|${mfgKey(p.manufacturer)}`;
+    if (!existingIndex.has(key)) existingIndex.set(key, []);
+    existingIndex.get(key).push(p);
+    const mk = mfgKey(p.manufacturer);
+    if (!displayName.has(mk)) displayName.set(mk, p.manufacturer);
+  }
 
-const report = {
-  perFile: {},
-  conflicts: [],
-  duplicatesByDims: [],
-  suspiciousMasses: [],
-  added: [],
-  badRows: [],
-};
+  const report = {
+    perFile: {},
+    conflicts: [],
+    duplicatesByDims: [],
+    suspiciousMasses: [],
+    added: [],
+    badRows: [],
+  };
 
-const newPresets = [];
-const addedIndex = new Map(); // intra-run dedup: kind|mfgKey|normPart|dims
+  const newPresets = [];
+  const addedIndex = new Map(); // intra-run dedup: kind|mfgKey|normPart|dims
 
-if (!CSV_DIR || !fs.existsSync(CSV_DIR)) {
-  const where = CSV_DIR
-    ? `  Configured directory does not exist: ${CSV_DIR}`
-    : '  No directory is configured.';
-  console.error(`RockSim component-library CSVs not found.
+  if (!csvDir || !fs.existsSync(csvDir)) {
+    const where = csvDir
+      ? `  Configured directory does not exist: ${csvDir}`
+      : '  No directory is configured.';
+    console.error(`RockSim component-library CSVs not found.
 ${where}
 
 These are third-party libraries and are not kept in this repository.
@@ -393,175 +431,189 @@ Point the script at your own copy:
 
 The merged result (src/data/presets.json) is already committed — you only
 need this to regenerate it.`);
-  process.exit(1);
-}
+    return 1;
+  }
 
-for (const spec of FILES) {
-  const rows = parseCsv(path.join(CSV_DIR, spec.file));
-  const stats = { parsed: 0, skipped: 0, duplicates: 0, conflicts: 0, added: 0 };
-  report.perFile[spec.file] = stats;
+  for (const spec of FILES) {
+    const rows = parseCsv(path.join(csvDir, spec.file));
+    const stats = { parsed: 0, skipped: 0, duplicates: 0, conflicts: 0, added: 0 };
+    report.perFile[spec.file] = stats;
 
-  for (let i = 1; i < rows.length; i++) {
-    const r = rows[i];
-    const manufacturer = (r[0] ?? '').trim();
-    // Some rows (ProLine CRs, Madcow fiberglass couplers/cones) have no part
-    // number but a perfectly good description — the description IS the
-    // catalog identifier there, so use it.
-    const partNo = (r[1] ?? '').trim() || (r[2] ?? '').trim();
-    const factor = lengthFactor(r[3]);
-    if (partNo.toLowerCase() === 'test') {
-      stats.skipped++;
-      report.badRows.push(`${spec.file} line ${i + 1}: ${manufacturer} "${partNo}" (test row in source data)`);
-      continue;
-    }
-    if (!manufacturer || !partNo || r.length < 7 || factor === null) {
-      stats.skipped++;
-      report.badRows.push(`${spec.file} line ${i + 1}: ${JSON.stringify(r.slice(0, 4))} (missing mfg/partNo or bad units)`);
-      continue;
-    }
-    stats.parsed++;
+    for (let i = 1; i < rows.length; i++) {
+      const r = rows[i];
+      const manufacturer = (r[0] ?? '').trim();
+      // Some rows (ProLine CRs, Madcow fiberglass couplers/cones) have no part
+      // number but a perfectly good description — the description IS the
+      // catalog identifier there, so use it.
+      const partNo = (r[1] ?? '').trim() || (r[2] ?? '').trim();
+      const factor = lengthFactor(r[3]);
+      if (partNo.toLowerCase() === 'test') {
+        stats.skipped++;
+        report.badRows.push(`${spec.file} line ${i + 1}: ${manufacturer} "${partNo}" (test row in source data)`);
+        continue;
+      }
+      if (!manufacturer || !partNo || r.length < 7 || factor === null) {
+        stats.skipped++;
+        report.badRows.push(`${spec.file} line ${i + 1}: ${JSON.stringify(r.slice(0, 4))} (missing mfg/partNo or bad units)`);
+        continue;
+      }
+      stats.parsed++;
 
-    const fields = spec.parse(r, factor);
-    const dims = PRIMARY_DIMS[spec.kind];
-    if (!dims.some((d) => typeof fields[d] === 'number' && fields[d] > 0)) {
-      stats.skipped++;
-      stats.parsed--;
-      report.badRows.push(`${spec.file} line ${i + 1}: ${manufacturer} ${partNo} (no usable dimensions)`);
-      continue;
-    }
+      const fields = spec.parse(r, factor);
+      const dims = PRIMARY_DIMS[spec.kind];
+      if (!dims.some((d) => typeof fields[d] === 'number' && fields[d] > 0)) {
+        stats.skipped++;
+        stats.parsed--;
+        report.badRows.push(`${spec.file} line ${i + 1}: ${manufacturer} ${partNo} (no usable dimensions)`);
+        continue;
+      }
 
-    const key = `${spec.kind}|${mfgKey(manufacturer)}`;
-    const candidates = existingIndex.get(key) ?? [];
-    const npart = normPart(partNo);
+      const key = `${spec.kind}|${mfgKey(manufacturer)}`;
+      const candidates = existingIndex.get(key) ?? [];
+      const npart = normPart(partNo);
 
-    // 1. Same part number?
-    const samePart = candidates.find((p) => normPart(p.partNo) === npart);
-    if (samePart) {
-      const comparable = dims.filter(
-        (d) => typeof fields[d] === 'number' && typeof samePart[d] === 'number',
-      );
-      const mismatched = comparable.filter((d) => !close(fields[d], samePart[d]));
-      if (mismatched.length === 0) {
+      // 1. Same part number?
+      const samePart = candidates.find((p) => normPart(p.partNo) === npart);
+      if (samePart) {
+        const comparable = dims.filter(
+          (d) => typeof fields[d] === 'number' && typeof samePart[d] === 'number',
+        );
+        const mismatched = comparable.filter((d) => !close(fields[d], samePart[d]));
+        if (mismatched.length === 0) {
+          stats.duplicates++;
+        } else {
+          stats.conflicts++;
+          report.conflicts.push({
+            kind: spec.kind, manufacturer, partNo,
+            fields: mismatched.map((d) => ({ dim: d, openrocket: samePart[d], rocksim: fields[d] })),
+          });
+        }
+        continue;
+      }
+
+      // 2. Same dimensions under a different part number? (>=2 comparable dims)
+      const dimDup = candidates.find((p) => {
+        const comparable = dims.filter(
+          (d) => typeof fields[d] === 'number' && typeof p[d] === 'number',
+        );
+        return comparable.length >= 2 && comparable.every((d) => close(fields[d], p[d]));
+      });
+      if (dimDup) {
         stats.duplicates++;
-      } else {
-        stats.conflicts++;
-        report.conflicts.push({
-          kind: spec.kind, manufacturer, partNo,
-          fields: mismatched.map((d) => ({ dim: d, openrocket: samePart[d], rocksim: fields[d] })),
-        });
+        report.duplicatesByDims.push(
+          `${spec.kind} ${manufacturer} ${partNo} == existing ${dimDup.manufacturer} ${dimDup.partNo}`,
+        );
+        continue;
       }
-      continue;
-    }
 
-    // 2. Same dimensions under a different part number? (>=2 comparable dims)
-    const dimDup = candidates.find((p) => {
-      const comparable = dims.filter(
-        (d) => typeof fields[d] === 'number' && typeof p[d] === 'number',
-      );
-      return comparable.length >= 2 && comparable.every((d) => close(fields[d], p[d]));
-    });
-    if (dimDup) {
-      stats.duplicates++;
-      report.duplicatesByDims.push(
-        `${spec.kind} ${manufacturer} ${partNo} == existing ${dimDup.manufacturer} ${dimDup.partNo}`,
-      );
-      continue;
-    }
-
-    // 3. Intra-run dedup: the RockSim files repeat parts — identical rows,
-    // and rows re-listed with the catalog description shuffled into the
-    // part-number column (or vice versa). A row is a duplicate if a
-    // previously added row of this kind+manufacturer has the same primary
-    // dimensions AND shares an identifier (part number or description).
-    const dimSig = dims.map((d) => fields[d] ?? '').join('|');
-    const ids = [...new Set([npart, normPart(r[2])].filter(Boolean))];
-    const sigs = ids.map((id) => `${key}|${id}|${dimSig}`);
-    if (sigs.some((s) => addedIndex.has(s))) {
-      stats.duplicates++;
-      continue;
-    }
-    for (const s of sigs) addedIndex.set(s, true);
-
-    // Build the preset (existing display name wins so UI grouping stays clean).
-    const preset = {
-      kind: spec.kind,
-      // The shared table wins over displayName, which is merely the first
-      // spelling this run happened to meet.
-      manufacturer: mfrDisplay(manufacturer) || displayName.get(mfgKey(manufacturer)) || manufacturer,
-      partNo,
-      description: (r[2] ?? '').trim() || partNo,
-    };
-    if (fields.material) preset.material = fields.material;
-    if (fields.lineMaterial) preset.lineMaterial = fields.lineMaterial;
-    if (fields.mass !== undefined) preset.mass = fields.mass;
-    for (const [k, v] of Object.entries(fields)) {
-      if (k === 'material' || k === 'lineMaterial' || k === 'mass') continue;
-      if (v !== undefined && v !== null) preset[k] = v;
-    }
-    preset.source = 'rocksim';
-
-    // Mass plausibility check for simple tube/disc geometries.
-    if (preset.mass && preset.material?.type === 'BULK') {
-      let vol;
-      const { insideDiameter: id = 0, outsideDiameter: od, length: len } = preset;
-      if (['BodyTube', 'TubeCoupler', 'EngineBlock', 'CenteringRing', 'LaunchLug'].includes(spec.kind) && od && len) {
-        vol = (Math.PI / 4) * (od * od - id * id) * len;
-      } else if (spec.kind === 'BulkHead' && od && len) {
-        vol = (Math.PI / 4) * od * od * len;
+      // 3. Intra-run dedup: the RockSim files repeat parts — identical rows,
+      // and rows re-listed with the catalog description shuffled into the
+      // part-number column (or vice versa). A row is a duplicate if a
+      // previously added row of this kind+manufacturer has the same primary
+      // dimensions AND shares an identifier (part number or description).
+      const dimSig = dims.map((d) => fields[d] ?? '').join('|');
+      const ids = [...new Set([npart, normPart(r[2])].filter(Boolean))];
+      const sigs = ids.map((id) => `${key}|${id}|${dimSig}`);
+      if (sigs.some((s) => addedIndex.has(s))) {
+        stats.duplicates++;
+        continue;
       }
-      if (vol) {
-        const geo = vol * preset.material.density;
-        const ratio = preset.mass / geo;
-        if (ratio > 8 || ratio < 1 / 8) {
-          report.suspiciousMasses.push(
-            `${spec.kind} ${manufacturer} ${partNo}: catalog ${(preset.mass * 1000).toFixed(2)} g vs geometric ~${(geo * 1000).toFixed(2)} g (${preset.material.name})`,
-          );
+      for (const s of sigs) addedIndex.set(s, true);
+
+      // Build the preset (existing display name wins so UI grouping stays clean).
+      const preset = {
+        kind: spec.kind,
+        manufacturer: displayFor(manufacturer, displayName),
+        partNo,
+        description: (r[2] ?? '').trim() || partNo,
+      };
+      if (fields.material) preset.material = fields.material;
+      if (fields.lineMaterial) preset.lineMaterial = fields.lineMaterial;
+      if (fields.mass !== undefined) preset.mass = fields.mass;
+      for (const [k, v] of Object.entries(fields)) {
+        if (k === 'material' || k === 'lineMaterial' || k === 'mass') continue;
+        if (v !== undefined && v !== null) preset[k] = v;
+      }
+      preset.source = 'rocksim';
+
+      // Mass plausibility check for simple tube/disc geometries.
+      if (preset.mass && preset.material?.type === 'BULK') {
+        let vol;
+        const { insideDiameter: id = 0, outsideDiameter: od, length: len } = preset;
+        if (['BodyTube', 'TubeCoupler', 'EngineBlock', 'CenteringRing', 'LaunchLug'].includes(spec.kind) && od && len) {
+          vol = (Math.PI / 4) * (od * od - id * id) * len;
+        } else if (spec.kind === 'BulkHead' && od && len) {
+          vol = (Math.PI / 4) * od * od * len;
+        }
+        if (vol) {
+          const geo = vol * preset.material.density;
+          const ratio = preset.mass / geo;
+          if (ratio > 8 || ratio < 1 / 8) {
+            report.suspiciousMasses.push(
+              `${spec.kind} ${manufacturer} ${partNo}: catalog ${(preset.mass * 1000).toFixed(2)} g vs geometric ~${(geo * 1000).toFixed(2)} g (${preset.material.name})`,
+            );
+          }
         }
       }
+
+      newPresets.push(preset);
+      report.added.push(`${spec.kind} ${preset.manufacturer} ${partNo}`);
+      stats.added++;
     }
-
-    newPresets.push(preset);
-    report.added.push(`${spec.kind} ${preset.manufacturer} ${partNo}`);
-    stats.added++;
   }
+
+  // ---------------------------------------------------------------- write
+
+  // The guard fetch-component-presets.mjs runs on its own rows, run on the merged
+  // set BEFORE the write (audit 2026-09-22): a second spelling of a maker used to
+  // be caught only later, by a test at deploy, after presets.json had it.
+  const conflicts = spellingConflicts([...db.presets, ...newPresets]);
+  if (conflicts.length) {
+    for (const c of conflicts) {
+      console.error(`MANUFACTURER SPELLING CONFLICT "${c.key}": ${c.spellings.join(' / ')}`);
+    }
+    console.error(`Nothing was written. Add the spelling to ALIASES/DISPLAY in scripts/manufacturers.mjs.`);
+    return 1;
+  }
+  if (!dryRun) {
+    db.presets.push(...newPresets);
+    db.count = db.presets.length;
+    fs.writeFileSync(presetsPath, JSON.stringify(db, null, 1) + '\n', 'utf8');
+  }
+
+  // ---------------------------------------------------------------- summary
+
+  let totalParsed = 0, totalSkipped = 0, totalDup = 0, totalConf = 0, totalAdded = 0;
+  console.log('file                      parsed skipped duplicates conflicts added');
+  for (const [f, s] of Object.entries(report.perFile)) {
+    console.log(
+      f.padEnd(26) + String(s.parsed).padStart(6) + String(s.skipped).padStart(8) +
+      String(s.duplicates).padStart(11) + String(s.conflicts).padStart(10) + String(s.added).padStart(6),
+    );
+    totalParsed += s.parsed; totalSkipped += s.skipped; totalDup += s.duplicates;
+    totalConf += s.conflicts; totalAdded += s.added;
+  }
+  console.log('TOTAL'.padEnd(26) + String(totalParsed).padStart(6) + String(totalSkipped).padStart(8) +
+    String(totalDup).padStart(11) + String(totalConf).padStart(10) + String(totalAdded).padStart(6));
+  console.log(`\nSkipped files (no preset kind in our DB): ${SKIPPED_FILES.join(', ')}`);
+  console.log(`Unmapped RockSim materials (presets emitted without material): ${
+    [...unmappedMaterials.entries()].map(([n, c]) => `${n} (${c})`).join(', ') || 'none'}`);
+  if (report.suspiciousMasses.length) {
+    console.log('\nSuspicious masses:');
+    for (const s of report.suspiciousMasses) console.log('  ' + s);
+  }
+  console.log(`\nPreset count: ${db.count}${dryRun ? ' (dry run, not written)' : ''}`);
+
+  // Optional machine-readable dump: --json <path>
+  if (jsonOut) {
+    fs.writeFileSync(
+      jsonOut,
+      JSON.stringify({ ...report, skippedFiles: SKIPPED_FILES, unmapped: [...unmappedMaterials.entries()] }, null, 2),
+    );
+  }
+  return 0;
 }
 
-// ---------------------------------------------------------------- write
-
-if (!DRY_RUN) {
-  db.presets.push(...newPresets);
-  db.count = db.presets.length;
-  fs.writeFileSync(PRESETS_PATH, JSON.stringify(db, null, 1) + '\n', 'utf8');
-}
-
-// ---------------------------------------------------------------- summary
-
-let totalParsed = 0, totalSkipped = 0, totalDup = 0, totalConf = 0, totalAdded = 0;
-console.log('file                      parsed skipped duplicates conflicts added');
-for (const [f, s] of Object.entries(report.perFile)) {
-  console.log(
-    f.padEnd(26) + String(s.parsed).padStart(6) + String(s.skipped).padStart(8) +
-    String(s.duplicates).padStart(11) + String(s.conflicts).padStart(10) + String(s.added).padStart(6),
-  );
-  totalParsed += s.parsed; totalSkipped += s.skipped; totalDup += s.duplicates;
-  totalConf += s.conflicts; totalAdded += s.added;
-}
-console.log('TOTAL'.padEnd(26) + String(totalParsed).padStart(6) + String(totalSkipped).padStart(8) +
-  String(totalDup).padStart(11) + String(totalConf).padStart(10) + String(totalAdded).padStart(6));
-console.log(`\nSkipped files (no preset kind in our DB): ${SKIPPED_FILES.join(', ')}`);
-console.log(`Unmapped RockSim materials (presets emitted without material): ${
-  [...unmappedMaterials.entries()].map(([n, c]) => `${n} (${c})`).join(', ') || 'none'}`);
-if (report.suspiciousMasses.length) {
-  console.log('\nSuspicious masses:');
-  for (const s of report.suspiciousMasses) console.log('  ' + s);
-}
-console.log(`\nPreset count: ${db.count}${DRY_RUN ? ' (dry run, not written)' : ''}`);
-
-// Optional machine-readable dump: --json <path>
-const jsonIdx = process.argv.indexOf('--json');
-if (jsonIdx !== -1 && process.argv[jsonIdx + 1]) {
-  fs.writeFileSync(
-    process.argv[jsonIdx + 1],
-    JSON.stringify({ ...report, skippedFiles: SKIPPED_FILES, unmapped: [...unmappedMaterials.entries()] }, null, 2),
-  );
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  process.exitCode = main();
 }

@@ -9,7 +9,9 @@
  * situation every curation below is about. So the curations needed a home that
  * can address one row *inside* a duplicate group, and this is it.
  *
- * Run it after fetch-component-presets.mjs and apply-preset-corrections.mjs:
+ * It is the LAST step of the regeneration, after every merge and after
+ * apply-preset-corrections.mjs; the whole order is CLAUDE.md's "REGENERATION
+ * ORDER", the one copy of it.
  *
  *   node packages/app/scripts/curate-presets.mjs          # report only
  *   node packages/app/scripts/curate-presets.mjs --write  # apply
