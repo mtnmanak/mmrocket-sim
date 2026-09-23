@@ -27,6 +27,13 @@ import { AppRoot } from './root.js';
  * own wiring, which LazyDialog.test.tsx cannot: that each dialog is wrapped in
  * LazyDialog, under its own name and in its own box — with no boundary there, a
  * failed download reaches AppBoundary and replaces the whole app.
+ *
+ * The gates hold only once the test has ARMED them, after the startup check.
+ * An unarmed hold would turn the regression this file exists for — a static
+ * import of either dialog — into a hang with no output: the factory would run
+ * while this file's own import of root.js was being evaluated, and nothing
+ * would ever open its gate (re-verification of v0.141). Unarmed, the factories
+ * pass the real modules through, and the startup check names them in 5 s.
  */
 const hold = vi.hoisted(() => {
   const gate = () => {
@@ -34,19 +41,20 @@ const hold = vi.hoisted(() => {
     const shut = new Promise<void>((r) => { open = r; });
     return { shut, open };
   };
-  return { loaded: new Set<string>(), guide: gate(), changelog: gate() };
+  return { loaded: new Set<string>(), armed: false, guide: gate(), changelog: gate() };
 });
 vi.mock('./components/GuideDialog.js', async (importOriginal) => {
   hold.loaded.add('GuideDialog');
-  await hold.guide.shut;
+  if (hold.armed) await hold.guide.shut;
   return importOriginal();
 });
 vi.mock('./data/userGuide.js', async (importOriginal) => {
   hold.loaded.add('userGuide');
   return importOriginal();
 });
-vi.mock('./components/ChangelogDialog.js', async () => {
+vi.mock('./components/ChangelogDialog.js', async (importOriginal) => {
   hold.loaded.add('ChangelogDialog');
+  if (!hold.armed) return importOriginal();
   await hold.changelog.shut;
   // Thrown where App's lazy() reads the export, not by the factory: vitest
   // wraps a factory's throw in a message of its own, and App's import must
@@ -118,6 +126,7 @@ describe('App loads the guide and the changelog only when they are opened', () =
     await waitFor(starterStored, 'the starter motor to be autosaved');
     await settle(50);
     expect([...hold.loaded], 'imported during startup').toEqual([]);
+    hold.armed = true;
 
     const dialogs = () => [...host.querySelectorAll<HTMLElement>('[role="dialog"]')];
     const dialog = (label: string) => host.querySelector<HTMLElement>(`[role="dialog"][aria-label="${label}"]`);
