@@ -73,8 +73,9 @@ export default tseslint.config(
     // match the convention already in the source (15 underscore-prefixed params).
     // ignoreRestSiblings is explicit rather than left to the default, which flipped to
     // false somewhere in typescript-eslint 8: `const { id, children, ...rest } = node`
-    // is the omit idiom this codebase strips ids with (services/orkFile.test.ts:106,
-    // scripts/manufacturers.test.mjs:110), and naming a field in order to DROP it is a
+    // is the omit idiom this codebase strips ids with (services/orkFile.test.ts's
+    // stripIds; scripts/manufacturers.test.mjs's "did not silently collapse two
+    // different parts" check), and naming a field in order to DROP it is a
     // use of that name, not dead code.
     rules: {
       'no-unused-vars': 'off',

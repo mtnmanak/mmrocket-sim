@@ -125,10 +125,23 @@ jobs:
       # ONLY for vitest in the validate step. It is cached by setup-node.
       - run: npm ci
 
-      # Catalogue THEN curves — and `motors:refresh` IS that order in one script
-      # (package.json: fetch-motor-db.mjs && fetch-motor-curves.mjs). Never split
-      # them: motorCurves.json is keyed by motorId FROM motors.json, so a curve run
-      # against the old catalogue leaves every newly-certified motor curveless.
+      # Catalogue THEN curves THEN guide — and `motors:refresh` IS that order in
+      # one script (package.json: fetch-motor-db.mjs && fetch-motor-curves.mjs &&
+      # scripts/build-user-guide.mjs). Never split them: motorCurves.json is keyed
+      # by motorId FROM motors.json, so a curve run against the old catalogue
+      # leaves every newly-certified motor curveless; and the user guide quotes
+      # both files — {{MOTOR_COUNT}}, {{MOTOR_DB_DATE}}, the curve counts and
+      # shares — compiled into the COMMITTED packages/app/src/data/userGuide.ts,
+      # which packages/app/scripts/user-guide-current.test.mjs fails when stale.
+      # So the guide is recompiled in the same script, before the gate below, and
+      # the commit carries it beside the JSON: main's guide quotes main's
+      # catalogue (audit 2026-09-22, Tests row 526). It is in the npm script,
+      # not a step of this workflow alone, because every "run `npm run
+      # motors:refresh`" remedy in the repo (check-upstream.mjs,
+      # motor-db-age.test.mjs, motor-diff-summary.mjs) is a hand-run refresh
+      # that must commit as cleanly as this one. The compile can also refuse,
+      # e.g. when a new count collides with a hand-typed figure in
+      # user-guide.md — better here than in the deploy's build after a merge.
       #
       # Both scripts exit non-zero on trouble, and decide BEFORE they write
       # (audit 2026-09-22): fetch-motor-db.mjs on any non-200 or any answer short
@@ -144,19 +157,8 @@ jobs:
       # download.json, an anonymous client is the profile a small volunteer-run
       # service rate-limits. If it ever does, the symptom is this step red with
       # HTTP 403 or HTTP 429.
-      - name: Refresh the catalogue and the curve bundle
+      - name: Refresh the catalogue, the curve bundle and the user guide
         run: npm run motors:refresh
-
-      # The user guide quotes the catalogue — {{MOTOR_COUNT}}, {{MOTOR_DB_DATE}},
-      # the curve counts and shares — compiled into the COMMITTED
-      # packages/app/src/data/userGuide.ts. Recompile it from the refreshed JSON
-      # BEFORE the gate: packages/app/scripts/user-guide-current.test.mjs fails a
-      # stale one, and the commit below carries it beside the JSON, so main's
-      # guide quotes main's catalogue (audit 2026-09-22, Tests row 526). It can
-      # also refuse, e.g. when a new count collides with a hand-typed figure in
-      # user-guide.md — better here than in the deploy's build after a merge.
-      - name: Recompile the user guide against the refreshed catalogue
-        run: node scripts/build-user-guide.mjs
 
       # THE WHOLE DEPLOY GATE, not a hand-picked subset of it — because merging
       # this PR runs exactly this command on main (deploy.yml's `npm test` step)

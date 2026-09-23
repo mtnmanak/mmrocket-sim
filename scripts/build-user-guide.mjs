@@ -11,8 +11,9 @@
  * last committed, and the weekly motors refresh moved the catalogue figures the
  * guide quotes without recompiling it. `compileGuide()` is exported so
  * packages/app/scripts/user-guide-current.test.mjs can compile the guide and
- * require the committed file to match it byte for byte, and the refresh
- * workflow recompiles it beside the JSON it commits.
+ * require the committed file to match it byte for byte, and `npm run
+ * motors:refresh` ends by running this script, so a refresh — the weekly
+ * workflow's or a hand-run one — writes the guide beside the JSON it commits.
  *
  * Usage: node scripts/build-user-guide.mjs
  *

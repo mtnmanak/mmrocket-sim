@@ -42,6 +42,21 @@ describe('the committed userGuide.ts is current', () => {
   it('is a pure function of its inputs: two compiles agree', () => {
     expect(compileGuide().ts).toBe(compileGuide().ts);
   });
+
+  it('is recompiled by `npm run motors:refresh`, after both data files it quotes', () => {
+    // Every "run `npm run motors:refresh`" remedy in the repo (check-upstream,
+    // motor-db-age.test.mjs, motor-diff-summary) is a hand-run refresh. If the
+    // script wrote only the JSON, committing its output as told would fail the
+    // first test in this file on the deploy. The weekly workflow runs the same
+    // script, so this is the one place the order lives.
+    const pkg = JSON.parse(readFileSync(join(DATA, '..', '..', '..', '..', 'package.json'), 'utf8'));
+    const steps = pkg.scripts['motors:refresh'].split('&&').map((s) => s.trim());
+    expect(steps).toEqual([
+      'node packages/app/scripts/fetch-motor-db.mjs',
+      'node packages/app/scripts/fetch-motor-curves.mjs',
+      'node scripts/build-user-guide.mjs',
+    ]);
+  });
 });
 
 describe('the check can see what it exists to see', () => {

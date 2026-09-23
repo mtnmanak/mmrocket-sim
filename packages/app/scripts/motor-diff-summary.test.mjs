@@ -363,7 +363,7 @@ describe('the 18-field catalogue projection has not drifted', () => {
     expect(fields.length, 'could not parse CATALOGUE_FIELDS out of catalogueOverlay.ts').toBe(18);
     expect(
       fields,
-      'All three copies must agree, and fetch-motor-db.mjs (the writer) is the authority. '
+      'The two copies must agree, and fetch-motor-db.mjs (the writer) is the authority. '
       + 'A field only catalogueOverlay.ts knows about is a field this diff would never report.',
     ).toEqual(CATALOGUE_FIELDS);
   });
