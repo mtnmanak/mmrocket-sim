@@ -11,6 +11,7 @@ import {
   type StaticInfo,
 } from '@online-openrocket/engine';
 import { BatchSimulate, batchUnavailableReason } from './components/BatchSimulate.js';
+import { batchMotorIds } from './services/batchSweep.js';
 import { ConfigPanel } from './components/ConfigPanel.js';
 import { Icon } from './components/Icon.js';
 import { ChangelogDialog } from './components/ChangelogDialog.js';
@@ -3914,12 +3915,14 @@ export function App() {
           // itself shifts only the target mount's matching candidate (weighed).
           assignedMotors={Object.fromEntries(
             Object.entries(mountMotors).map(([id, mm]) => [id, flownSpec(id, mm.spec, built.hardware)]))}
-          // The catalogue ids alongside the specs: the nozzle database is keyed
-          // on motorId and a MotorSpec has none, so the sweep needs these to
-          // resolve the published exit of every motor firing beside the
-          // candidate. Same field nozzleFollow reads.
-          assignedMotorIds={Object.fromEntries(
-            Object.entries(mountMotors).map(([id, mm]) => [id, mm.meta.motorId]))}
+          // The nozzle-database ids alongside the specs: the database is keyed
+          // on the motor's id and a MotorSpec has none, so the sweep needs these
+          // to resolve the published exit of every motor firing beside the
+          // candidate. The SAME expression nozzleFollow reads: an EX motor
+          // carries `exMotorId`, never `motorId`, and reading `motorId` alone
+          // (as this did until audit 2026-09-22) left an imported motor out of
+          // the sweep's stage sum and kept its row off the exit typed for it.
+          assignedMotorIds={batchMotorIds(mountMotors)}
           // …and their ignition settings, for the same reason: a MotorSpec
           // carries none, and every setMotorById resets the mount to
           // AUTOMATIC. An imported single-stage design can hold a `never` or

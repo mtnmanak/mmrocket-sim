@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const batch = () => readFileSync(join(here, '../components/BatchSimulate.tsx'), 'utf8');
+// Batch's flying moved out of its dialog into services/batchSweep.ts (audit 2026-09-22).
+const batch = () => readFileSync(join(here, './batchSweep.ts'), 'utf8');
 
 /**
  * EVERY write of a motor onto a built handle must re-apply that mount's
@@ -48,7 +49,7 @@ describe('a motor written onto a built handle keeps its ignition', () => {
     const at = src.indexOf('const applyOthers');
     expect(at, 'applyOthers is gone — where do the non-target mounts get their motors now?')
       .toBeGreaterThan(-1);
-    const body = src.slice(at, src.indexOf('\n    };', at));
+    const body = src.slice(at, src.indexOf('\n  };', at));
     expect(body).toContain('r.setMotorById(id, spec);');
     expect(body).toContain("ig.event !== 'automatic' || ig.delay !== 0");
     expect(body).toContain('r.setMotorIgnitionById(id, ig.event, ig.delay);');
@@ -61,8 +62,11 @@ describe('a motor written onto a built handle keeps its ignition', () => {
     const src = batch();
     const writes = src.match(/\.setMotorById\(/g) ?? [];
     expect(writes.length,
-      'a setMotorById was added to BatchSimulate — if it writes a mount the '
+      'a setMotorById was added to the batch sweep — if it writes a mount the '
       + 'design configured, its ignition has to go back too')
-      .toBe(5);
+      // applyOthers, the candidate write and its delay re-fly: the two flight
+      // passes share ONE flight procedure since audit 2026-09-22 (flyLegs),
+      // where each used to write twice on its own.
+      .toBe(3);
   });
 });

@@ -10,8 +10,9 @@ import { PrefsProvider } from '../prefs/PrefsContext.js';
 import { DEFAULT_CONDITIONS } from './LaunchPanel.js';
 import {
   BatchSimulate, BATCH_CONFIRM_ABOVE_FLIGHTS, batchButtonLabel, batchConfirmWarning,
-  batchProgressAnnouncement, mixedComboCount, type BatchMountOption,
+  batchProgressAnnouncement,
 } from './BatchSimulate.js';
+import { mixedComboCount, type BatchMountOption } from '../services/batchSweep.js';
 
 /**
  * Three ways the batch dialog could throw away a sweep or misdescribe one.

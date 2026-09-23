@@ -1,26 +1,24 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useBackdropClose, useDialog } from './useDialog.js';
-import { OrkRocket, type FlightResult, type IgnitionEvent, type MotorSpec, type RocketTree, type SimulationOptions, type StaticInfo } from '@online-openrocket/engine';
+import type { IgnitionEvent, MotorSpec, RocketTree, StaticInfo } from '@online-openrocket/engine';
 import { includedMotorOf } from '../services/statedLaunchWeight.js';
 import {
-  applyStageNozzles, clearStageNozzles, engineTree, isOnLaunchStage, splitClusterPairsTree,
-  splitClusterTree, stageIdByNode, stagesWithNozzle, type ClusterSplit,
+  splitClusterPairsTree, splitClusterTree, stagesWithNozzle, type ClusterSplit,
 } from '../tree/treeModel.js';
-import { equivalentExitDiameterM } from '../services/nozzleFollow.js';
-import { nozzleForMotorId } from '../services/nozzleDb.js';
 import { sheetsToXlsx, type Sheet } from '../services/xlsx.js';
 import {
-  MOTOR_DB, classLabel, classesFittingMount, displayDesignation, filterMotors,
-  isHighPower, manufacturersForMount, sortMotors, type MotorDbEntry,
+  classLabel, classesFittingMount, filterMotors, manufacturersForMount, sortMotors,
 } from '../services/motorDb.js';
 import { exToDbEntry, loadExMotors } from '../services/exMotors.js';
-import { fetchMotorSpec, delayOptions } from '../services/thrustcurve.js';
-import { motorIdentity, shiftMotorMass } from '../services/hardwareMass.js';
-import { buildSimRun, recommendDelay, type SimRun } from '../services/simReport.js';
+import type { SimRun } from '../services/simReport.js';
 import { addRuns, runsToCsv, runsToTable } from '../services/simStore.js';
 import { XLSX_MIME } from '../services/xlsx.js';
-import { kernelSimOptions, TimeStepCaution, type LaunchConditions } from './LaunchPanel.js';
-import { MACH_AUTO_THRESHOLD, machProbeSeconds } from '../services/machProbe.js';
+import { TimeStepCaution, type LaunchConditions } from './LaunchPanel.js';
+import {
+  isWeighedCandidate, mixedComboCount, runBatchSweep, type BatchModel, type BatchMountOption, type BatchRow,
+  type BatchWeighed,
+} from '../services/batchSweep.js';
+import { useCatalogue } from './useCatalogue.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { Icon } from './Icon.js';
 import { fmtSi, siToUi, uiToSi } from '../prefs/units.js';
@@ -35,11 +33,12 @@ import { downloadBlob } from '../services/saveFile.js';
  * grade each flight against acceptance criteria (min rod-exit velocity,
  * min thrust:weight, apogee window). Results append to the stored-runs
  * table and download as CSV — the owner's motor-selection flow for a flight day.
+ * The flying itself is services/batchSweep.ts; this is the dialog around it.
  */
 
 const CRITERIA_KEY = 'online-openrocket.batch-criteria.v1';
 
-interface Criteria {
+export interface Criteria {
   /** SI m/s; null = don't filter. */
   minRodExit: number | null;
   minThrustToWeight: number | null;
@@ -67,144 +66,83 @@ function loadCriteria(): Criteria {
 }
 
 /**
- * Probe cutoff for one candidate's auto-aero Mach probe. The cutoff has to
- * see the WHOLE stack, not just the motor under test: a candidate in the
- * sustainer waits on the booster below it, and a cutoff computed from the
- * candidate alone ends before it ever lights.
+ * Which acceptance criteria this flight fails (empty = accepted).
  *
- * `probeTree` is the tree the candidate actually FLIES. The combination
- * passes fly a SPLIT tree whose group mounts carry freshly minted ids, and
- * resolving those ids against the original tree put every combo candidate
- * "off the launch stage" — so the short probe silently became the full chain
- * bound (every burn plus every ejection delay, 20-40 s on a real cluster),
- * a near-full extra flight per combination. `replacedMountId` is the cluster
- * mount the split removed: its assigned motor is not aboard the split tree,
- * and leaving it in the set double-counted its burn in that same bound.
+ * Called in RENDER, against the criteria on screen — not once when the flight
+ * lands. The verdict used to be frozen at run time while the criteria fields
+ * above the table stayed live, so tightening the apogee window after a sweep
+ * left rows marked ✓ that the window now excluded: the table contradicted the
+ * criteria it was displayed under (audit 2026-09-22).
  */
-export function batchProbeCutoff(
-  probeTree: RocketTree,
-  assigned: Record<string, MotorSpec>,
-  targets: Record<string, MotorSpec>,
-  replacedMountId?: string,
-): number {
-  const aboard: Record<string, MotorSpec> = { ...assigned, ...targets };
-  if (replacedMountId !== undefined && !(replacedMountId in targets)) delete aboard[replacedMountId];
-  return machProbeSeconds(Object.entries(aboard).map(([id, spec]) => ({
-    spec,
-    onLaunchStage: isOnLaunchStage(probeTree, id),
-  })));
-}
-
-/**
- * How many mixed combinations a split into `groups` mounts adds for `n`
- * candidates — exactly what the comboAssignments() generator in start()
- * yields: multisets of group assignments minus the all-same ones, which are
- * the single-motor rows already flown. Two groups: C(n,2). Three groups
- * (the 4+2 / 2+2+2 pair split): C(n+2,3) − n. ONE definition, keyed on the
- * split's own mountIds.length, because the count used to be spelled out in
- * three places — start()'s progress total, the meta line, and the time-step
- * caution's flight count — and a new split shape would have had to be taught
- * to each of them separately.
- */
-export function mixedComboCount(n: number, groups: number): number {
-  return groups === 2 ? (n * (n - 1)) / 2 : (n * (n + 1) * (n + 2)) / 6 - n;
-}
-
-/**
- * The weighed pad mass the batch carries — on the ONE motor it was weighed
- * with, and only on the mount it was weighed on (v0.118, 2026-09-07).
- *
- * v0.116 flew every candidate at its catalogue weight, so a sweep read a
- * little higher than the design page for the very motor the user had weighed.
- * App builds this from `built.hardware` when the arithmetic accepted the pad
- * mass (state 'ok') and leaves it undefined for a refusal, a stale set or a
- * pending legacy value. Every OTHER candidate is a motor nobody has weighed —
- * there is no honest number for hardware that was never on the scale — so it
- * stays at catalogue weight, and the note under the candidates row says so.
- */
-export interface BatchWeighed {
-  mountId: string;
-  /** motorIdentity(mm.meta, designation) of the weighed motor. */
-  identity: string;
-  /** True when the identity is a pinned EX id (meta.exMotorId). Unpinned EX records — a session from before
-   *  exMotorId existed, or a quick-pick reuse — are spelled 'EX/<designation>', and an EX candidate may then
-   *  match on that spelling too. */
-  pinned: boolean;
-  /** Delay-stripped display name (App's baseLabel). */
-  name: string;
-  perMotorShiftKg: number;
-  deltaKg: number;
-}
-
-/**
- * THE STAGE EXIT ONE BATCH CANDIDATE FLIES, as one equivalent nozzle — pure, so
- * the headline behaviour of this dialog has a test that would fail if it broke.
- *
- * Two rules, in order:
- *
- *  1. If the user has TYPED an exit under the stage and this candidate is the
- *     motor still loaded on the mount being swept, that row flies THEIR number.
- *     The field is already the whole stage's equivalent, so it is used as-is.
- *     This is the case the database cannot serve: a nozzle machined out by hand
- *     is not in anyone's drawings.
- *  2. Otherwise the candidate's own published exit is summed with the exits of
- *     every other motor firing on the stage. `equivalentExitDiameterM` returns
- *     null the moment ANY of them is unknown, which is the honest answer — a
- *     sum short by the motors it could not see is worse than no number at all,
- *     because the blank is visible and the short sum is not.
- *
- * Null means "fly with no nozzle", which is what every candidate did before.
- */
-export function batchStageExit(input: {
-  candidateId: string;
-  /** Motors firing on the swept mount (a cluster count), not the whole stage. */
-  count: number;
-  /** This candidate's published exit, or null when the app holds none. */
-  ownExitM: number | null;
-  /** The other mounts firing alongside it, already resolved. */
-  otherParts: readonly { count: number; exitDiameterM: number | null }[];
-  /** The exit typed under the stage, or null. */
-  typedStageExitM: number | null;
-  /** The motor currently loaded on the mount being swept, if any. */
-  loadedIdOnTarget: string | undefined;
-}): number | null {
-  const { candidateId, count, ownExitM, otherParts, typedStageExitM, loadedIdOnTarget } = input;
-  if (typedStageExitM !== null && loadedIdOnTarget && candidateId === loadedIdOnTarget) {
-    return typedStageExitM;
+export function gradeBatchRun(run: SimRun, criteria: Criteria): string[] {
+  const failed: string[] = [];
+  // An aborted flight can never be "accepted": the kernel stopped it early,
+  // so its apogee is whatever height the rocket had reached when it gave up.
+  // Before this, a tumbling design's 140 m truncated flight could sail past
+  // an apogee criterion and be graded ✓ in green.
+  if (run.simWarnings?.some((w) => w.key === 'SIM_ABORT')) {
+    failed.push('flight stopped early');
   }
-  return equivalentExitDiameterM([{ count, exitDiameterM: ownExitM }, ...otherParts]);
+  if (criteria.minRodExit !== null
+      && (run.rodExitVelocity === null || run.rodExitVelocity < criteria.minRodExit)) {
+    failed.push('rod-exit velocity');
+  }
+  if (criteria.minThrustToWeight !== null
+      && (run.thrustToWeightAtRod === null || run.thrustToWeightAtRod < criteria.minThrustToWeight)) {
+    failed.push('thrust:weight');
+  }
+  if (criteria.minApogee !== null && run.maxAltitude < criteria.minApogee) failed.push('apogee too low');
+  if (criteria.maxApogee !== null && run.maxAltitude > criteria.maxApogee) failed.push('apogee too high');
+  return failed;
 }
 
-/** A candidate's identity spelled the way MountMotor identities are: EX entries by their ex: id. */
-export function candidateIdentity(entry: Pick<MotorDbEntry, 'motorId' | 'manufacturerAbbrev' | 'designation'>): string {
-  return motorIdentity({ exMotorId: entry.motorId.startsWith('ex:') ? entry.motorId : undefined, manufacturer: entry.manufacturerAbbrev }, entry.designation);
+/**
+ * How many rows the table draws. A mixed-cluster sweep can fly tens of
+ * thousands of combinations, and drawing every row after every flight built a
+ * DOM of ~200k nodes on a 25k-row sweep (audit 2026-09-22). The table shows
+ * the best of them in the sweep's own order — accepted first, then by apogee —
+ * and says how many it is not showing; the CSV and XLSX still carry every
+ * flown row. See batchTableRows for the rows that could not be flown.
+ */
+export const BATCH_TABLE_ROWS = 400;
+
+/**
+ * The rows the table draws, from the sorted list (flown rows first, then the
+ * ones that could not be flown): the best BATCH_TABLE_ROWS flown rows, then
+ * the rows that could not be flown, with an allowance of their own.
+ *
+ * Their own, because they sort last: a plain top-400 slice of a sweep with
+ * more than 400 flown rows dropped every one of them, and neither export
+ * carries them either — only a flown row has a run to export — so which
+ * motors failed, and why, was shown nowhere at all while the summary line
+ * still counted them (review of the row-512 cap, 2026-09-22). Capped all the
+ * same: a combination sweep turns each candidate that cannot be flown into a
+ * failed combination with every other candidate.
+ */
+export function batchTableRows<T extends { run?: unknown }>(
+  sorted: readonly T[],
+): { shown: T[]; flown: number; failed: number } {
+  const flown = sorted.filter((r) => r.run);
+  const failed = sorted.filter((r) => !r.run);
+  return {
+    shown: [...flown.slice(0, BATCH_TABLE_ROWS), ...failed.slice(0, BATCH_TABLE_ROWS)],
+    flown: flown.length,
+    failed: failed.length,
+  };
 }
 
-/** Is this candidate the weighed motor? Either spelling when the weighed record is not pinned to an EX id. */
-export function isWeighedCandidate(
-  entry: Pick<MotorDbEntry, 'motorId' | 'manufacturerAbbrev' | 'designation'>, weighed: BatchWeighed,
-): boolean {
-  return candidateIdentity(entry) === weighed.identity
-    || (!weighed.pinned && `${entry.manufacturerAbbrev}/${entry.designation}` === weighed.identity);
-}
-
-/** The spec a candidate flies: shifted by the weighed hardware ONLY when it is the weighed motor on the weighed mount. Delay is not part of the identity. */
-export function batchFlownSpec(
-  entry: Pick<MotorDbEntry, 'motorId' | 'manufacturerAbbrev' | 'designation'>, spec: MotorSpec,
-  targetMountId: string, weighed: BatchWeighed | undefined,
-): MotorSpec {
-  return weighed && targetMountId === weighed.mountId && isWeighedCandidate(entry, weighed)
-    ? shiftMotorMass(spec, weighed.perMotorShiftKg) : spec;
-}
-
-interface BatchRow {
-  entry: MotorDbEntry;
-  /** Display label override — combination rows ("2× A + 2× B"). */
-  label?: string;
-  run?: SimRun;
-  error?: string;
-  /** Which acceptance criteria this flight failed (empty = accepted). */
-  failed: string[];
+/** What the table says about the rows it leaves out, or null when it draws them all. */
+export function batchCapNote({ flown, failed }: { flown: number; failed: number }): string | null {
+  const said: string[] = [];
+  if (flown > BATCH_TABLE_ROWS) {
+    said.push(`Showing the top ${group(BATCH_TABLE_ROWS)} of ${group(flown)} flown rows — the CSV and `
+      + 'XLSX carry every one.');
+  }
+  if (failed > BATCH_TABLE_ROWS) {
+    said.push(`Listing the first ${group(BATCH_TABLE_ROWS)} of ${group(failed)} rows that could not be `
+      + 'flown, which neither export carries.');
+  }
+  return said.length > 0 ? said.join(' ') : null;
 }
 
 /**
@@ -315,16 +253,6 @@ export function batchProgressAnnouncement(done: number, total: number): string |
   return `${Math.round((done / total) * 100)} percent — ${group(done)} of ${group(total)} flights.`;
 }
 
-export interface BatchMountOption {
-  id: string;
-  label: string;
-  diameterMm: number;
-  /** Cluster count — each candidate fires ×N. */
-  motorCount: number;
-  /** Effective max motor length (override ?? mount design value), SI m. */
-  maxMotorLengthM: number | null;
-}
-
 export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMotors, assignedMotorIds, assignedIgnitions, weighed, launch, rocketName, onRunsChange, onClose }: {
   /** The editing tree — the batch builds its OWN engine handles from it, so
    *  the design's shared handle is never touched (no restore, no stale
@@ -342,12 +270,14 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
    *  its hardware here too. */
   assignedMotors: Record<string, MotorSpec>;
   /**
-   * Catalogue ids for those same motors, by mount id. A MotorSpec carries no
-   * id, and the nozzle database is keyed on one — so without this the sweep
-   * can resolve the CANDIDATE's published exit but not the exits of the other
-   * mounts firing alongside it, and a cluster's equivalent nozzle cannot be
-   * summed. Absent for a mount flying an imported EX motor, which has no
-   * catalogue row.
+   * Nozzle-database ids for those same motors, by mount id. A MotorSpec
+   * carries no id, and the nozzle database is keyed on one — so without this
+   * the sweep can resolve the CANDIDATE's published exit but not the exits of
+   * the other mounts firing alongside it, and a cluster's equivalent nozzle
+   * cannot be summed. An imported EX motor is carried by its `ex:` library id
+   * (App passes `motorId ?? exMotorId`, as nozzleFollow reads it), which
+   * resolves to the exit its own file states. Absent for a motor recorded with
+   * neither id — an EX record from before exMotorId existed, say.
    */
   assignedMotorIds: Record<string, string | undefined>;
   /**
@@ -383,7 +313,7 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
   // strip's session override — the batch builds and flies its own engine
   // handle, and a fixed model chosen for one design is the wrong default for
   // a catalog sweep. Do not "fix" this by seeding it from either of them.
-  const [batchModel, setBatchModel] = useState<'eb' | 'kbf' | 'auto' | 'supersonic'>('auto');
+  const [batchModel, setBatchModel] = useState<BatchModel>('auto');
   // Which mount the batch targets (candidates, cluster count, max length and
   // the combination split all follow it).
   const [mountId, setMountId] = useState(initialMountId);
@@ -425,19 +355,32 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
   const [progress, setProgress] = useState<{ done: number; total: number; current: string } | null>(null);
   /** Set when a run ends, cleared when the next one starts — the "it's done" signal. */
   const [finished, setFinished] = useState<{ total: number; stopped: boolean } | null>(null);
-  const cancelled = useRef(false);
-  // Stop used to take effect only BETWEEN flights, so pressing it during a
-  // motor download waited out the whole fetch. The controller is per-run and
-  // is replaced at every start, because an aborted signal stays aborted.
+  /** Why a sweep ended without finishing — something threw outside any one flight. */
+  const [failure, setFailure] = useState<string | null>(null);
+  // Stop, and unmount: the ONE cancel signal. It reaches every download, so
+  // Stop no longer waits out a fetch, and the sweep checks it between flights.
+  // The controller is per-run and is replaced at every start, because an
+  // aborted signal stays aborted.
   const abort = useRef<AbortController | null>(null);
 
   const setCriteria = (next: Criteria) => {
     setCriteriaRaw(next);
     try { localStorage.setItem(CRITERIA_KEY, JSON.stringify(next)); } catch { /* best-effort */ }
   };
+  // The criteria as they stand when a sweep ENDS — what decides which runs go
+  // into the history, read through a ref because the sweep's closure was made
+  // at its start and the fields stay editable while it runs.
+  const criteriaRef = useRef(criteria);
+  criteriaRef.current = criteria;
 
-  // Bundled DB + imported EX motors (they simulate like any other).
-  const allMotors = useMemo(() => [...MOTOR_DB, ...loadExMotors().map(exToDbEntry)], []);
+  // The EFFECTIVE catalogue — shipped rows plus any "Check thrustcurve.org"
+  // overlay — and the imported EX motors, which simulate like any other; the
+  // same pair the motor browser lists. This was the static MOTOR_DB import, so
+  // after a check the same motor could fly a changed catalogue row on the
+  // design page and the stale one here: two apogees for one motor, which is
+  // the trust problem v0.135 was written to remove (audit 2026-09-22).
+  const catalogue = useCatalogue();
+  const allMotors = useMemo(() => [...catalogue, ...loadExMotors().map(exToDbEntry)], [catalogue]);
 
   const fittingClasses = useMemo(
     () => classesFittingMount(mountDiameterMm, allMotors), [mountDiameterMm, allMotors]);
@@ -466,462 +409,91 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
   }, [criteria, mountDiameterMm, maxMotorLengthM, fittingClasses, allMotors]);
 
   /**
-   * Separate from `cancelled`, which the Stop BUTTON also sets. Both stop the
-   * loop; only this one means the dialog is gone, and the sweep's tail writes
-   * accepted runs into the design's persisted history — so on unmount it must
-   * not (2026-09-08 audit). The setStates in that tail are already harmless
-   * no-ops; `onRunsChange` is not.
+   * Separate from the abort signal, which the Stop BUTTON also fires. Both stop
+   * the sweep; only this one means the dialog is gone, and the sweep's tail
+   * writes accepted runs into the design's persisted history — so on unmount it
+   * must not (2026-09-08 audit). The setStates in that tail are already
+   * harmless no-ops; `onRunsChange` is not.
+   *
+   * RE-ARMED in the effect body, not only set in its cleanup. Dev StrictMode
+   * mounts, unmounts and re-mounts every component once, so a flag that the
+   * cleanup set and nothing ever cleared read "unmounted" for the life of the
+   * dialog: every sweep under `npm run dev` ended without its completion line
+   * and without writing a single run to the history (audit 2026-09-22).
    */
   const unmounted = useRef(false);
-  useEffect(() => () => {
-    unmounted.current = true;
-    cancelled.current = true;
-    abort.current?.abort();
+  useEffect(() => {
+    unmounted.current = false;
+    return () => {
+      unmounted.current = true;
+      abort.current?.abort();
+    };
   }, []);
 
   const toggle = <T,>(list: T[], v: T): T[] =>
     list.includes(v) ? list.filter((x) => x !== v) : [...list, v];
 
-  const gradeRun = (run: SimRun): string[] => {
-    const failed: string[] = [];
-    // An aborted flight can never be "accepted": the kernel stopped it early,
-    // so its apogee is whatever height the rocket had reached when it gave up.
-    // Before this, a tumbling design's 140 m truncated flight could sail past
-    // an apogee criterion and be graded ✓ in green.
-    if (run.simWarnings?.some((w) => w.key === 'SIM_ABORT')) {
-      failed.push('flight stopped early');
-    }
-    if (criteria.minRodExit !== null
-        && (run.rodExitVelocity === null || run.rodExitVelocity < criteria.minRodExit)) {
-      failed.push('rod-exit velocity');
-    }
-    if (criteria.minThrustToWeight !== null
-        && (run.thrustToWeightAtRod === null || run.thrustToWeightAtRod < criteria.minThrustToWeight)) {
-      failed.push('thrust:weight');
-    }
-    if (criteria.minApogee !== null && run.maxAltitude < criteria.minApogee) failed.push('apogee too low');
-    if (criteria.maxApogee !== null && run.maxAltitude > criteria.maxApogee) failed.push('apogee too high');
-    return failed;
-  };
-
   const start = async () => {
     setRunning(true);
     setFinished(null);
-    cancelled.current = false;
-    abort.current = new AbortController();
+    setFailure(null);
     setRows([]);
-    const out: BatchRow[] = [];
-    const accepted: SimRun[] = [];
-    const kbf = batchModel !== 'eb';
-    // The batch flies its OWN handle built from the tree — the design's
-    // shared handle is never touched. Mounts other than the target keep
-    // their assigned motors for every flight.
-    const applyOthers = (r: OrkRocket, targetIds: string[]) => {
-      for (const [id, spec] of Object.entries(assignedMotors)) {
-        if (!targetIds.includes(id)) {
-          try {
-            r.setMotorById(id, spec);
-            // …and put the ignition back, exactly as the Launch path does
-            // (App.tsx:1342). The write above installs a fresh
-            // MotorConfiguration, so the mount lands on AUTOMATIC whatever the
-            // design says. One restore here covers the sweep AND both
-            // combination passes, because every per-candidate write below
-            // touches only the TARGET mounts, which this loop skips.
-            const ig = assignedIgnitions[id];
-            if (ig && (ig.event !== 'automatic' || ig.delay !== 0)) {
-              r.setMotorIgnitionById(id, ig.event, ig.delay);
-            }
-          } catch { /* mount absent in variant */ }
-        }
-      }
-    };
-    // THE SWEEP FLIES PUBLISHED CURVES (2026-09-08). Since the pressure-thrust
-    // term went in, a stage's `nozzleExitDiameter` buys thrust as well as
-    // trimming base drag — and this dialog builds ONE rocket from the design
-    // and swaps candidates onto it, so the design's own nozzle would be
-    // credited to every motor in the list. On a 100 N H at a 10 kPa mean
-    // deficit a 1.875 in exit is worth about +18 % of thrust, which is a
-    // comparison between motors decided by a number that belongs to none of
-    // them. Stripped for the whole sweep — both the single-motor pass and the
-    // combination passes below — and the note under the candidates row says
-    // so, because it means a nozzle-bearing design's own motor reads a little
-    // lower here than on the design page.
-    const sweepTree = clearStageNozzles(tree);
-
-    /*
-     * EACH CANDIDATE FLIES ITS OWN PUBLISHED NOZZLE EXIT.
-     *
-     * The design's own nozzle is still stripped first — crediting one motor's
-     * exit to every candidate is the bug the strip was written for — but the
-     * stage's exit is then re-applied per candidate from the nozzle database,
-     * so a motor gives the same answer here as it does on the design page.
-     * Eric, 2026-09-18: "if we default the single motor launch to using the
-     * nozzle data in our database, but do not use it in batch sims, the user
-     * would see two different results for the same motor and lose trust."
-     *
-     * The nozzle is geometry, so it cannot be set per flight the way a motor
-     * can — it needs its own engine handle. Handles are therefore POOLED on the
-     * equivalent exit diameter: a 54 mm sweep has a handful of distinct exits
-     * across ~180 candidates, so this is a few builds (0.8 ms each) against
-     * 600 ms a flight. Never call resetEngine() in here: it frees every handle
-     * including the design's.
-     */
-    const stageIdOfTarget = stageIdByNode(tree).get(mountId) ?? '';
-    const stageNameOfTarget = tree.components
-      .find((st) => st.id === stageIdOfTarget)?.name ?? 'Sustainer';
-    const handlePool = (base: RocketTree, exclude: string[]) => {
-      const pool = new Map<string, OrkRocket>();
-      return (equivM: number | null): OrkRocket => {
-        const usable = equivM !== null && Number.isFinite(equivM) && equivM > 0 && stageIdOfTarget !== '';
-        const key = usable ? (equivM as number).toFixed(6) : 'none';
-        const hit = pool.get(key);
-        if (hit) return hit;
-        const t = usable ? applyStageNozzles(base, { [stageIdOfTarget]: equivM as number }) : base;
-        const r = OrkRocket.buildTree(engineTree(t));
-        r.setRogersModifiedBarrowman(kbf);
-        r.setSupersonicAero(batchModel === 'supersonic');
-        applyOthers(r, exclude);
-        pool.set(key, r);
-        return r;
-      };
-    };
-    const sweepHandle = handlePool(sweepTree, [sel.id]);
-
-    /*
-     * The motors firing BESIDE the candidate, on the same stage. A batch refuses
-     * a staged rocket, so every mount here is on the one stage and every one of
-     * them contributes its exit area to the equivalent nozzle.
-     */
-    const otherParts = await Promise.all(mounts
-      .filter((m) => m.id !== mountId && assignedMotorIds[m.id])
-      .map(async (m) => ({
-        count: m.motorCount ?? 1,
-        exitDiameterM: (await nozzleForMotorId(assignedMotorIds[m.id]))?.exitDiameterM ?? null,
-      })));
-
-    /*
-     * The one case where the database is not the answer: the user has typed
-     * their own exit over the published one, and the candidate IS the motor
-     * they typed it for. Then that row flies what they typed — which is what
-     * makes "the same motor reads the same in both places" true without
-     * exception, including for a machined-out nozzle the app cannot look up.
-     * The field is already the whole stage's equivalent, so it is used as-is.
-     */
-    const typedStageExitM = (() => {
-      const st = stagesWithNozzle(tree).find((s) => s.id === stageIdOfTarget);
-      return st && st.exitDiameterM > 0 ? st.exitDiameterM : null;
-    })();
-    const loadedIdOnTarget = assignedMotorIds[mountId];
-
-    /** The equivalent stage exit this candidate should fly, or null for none. */
-    const exitForCandidate = async (e: MotorDbEntry, count: number): Promise<number | null> =>
-      batchStageExit({
-        candidateId: e.motorId,
-        count,
-        ownExitM: (await nozzleForMotorId(e.motorId))?.exitDiameterM ?? null,
-        otherParts,
-        typedStageExitM,
-        loadedIdOnTarget,
-      });
-    // The shared construction — this used to be a private copy that omitted
-    // `timeStep`, so a design carrying its own step from its .ork gave one set
-    // of numbers here and a different set on the Launch button.
-    const simOpts: SimulationOptions = kernelSimOptions(launch);
-
-    const activeSplits: ClusterSplit[] = [
+    const ctrl = new AbortController();
+    abort.current = ctrl;
+    const splits: ClusterSplit[] = [
       ...(comboMode && clusterSplit ? [clusterSplit] : []),
       ...(pairMode && pairSplit ? [pairSplit] : []),
     ];
-    const comboActive = activeSplits.length > 0;
-    const n = candidates.length;
-    const comboCount = activeSplits.reduce((sum, s) => sum + mixedComboCount(n, s.mountIds.length), 0);
-    const totalSims = n + comboCount;
-    // Multisets of `size` candidate indices (non-decreasing), excluding
-    // all-same (those are the single-motor rows already flown).
-    function* comboAssignments(count: number, size: number): Generator<number[]> {
-      const idx = new Array<number>(size).fill(0);
-      while (true) {
-        if (!idx.every((v) => v === idx[0])) yield [...idx];
-        // increment odometer with non-decreasing constraint
-        let p = size - 1;
-        while (p >= 0) {
-          idx[p]!++;
-          if (idx[p]! < count) {
-            for (let q = p + 1; q < size; q++) idx[q] = idx[p]!;
-            break;
-          }
-          p--;
-        }
-        if (p < 0) break;
-      }
+    // try/finally, so `running` can never stick. Anything that throws outside
+    // one flight — the lazy nozzle table failing to load, say — used to reject
+    // this promise with `running` still true, and a running dialog cannot be
+    // closed: ✕ is disabled, the backdrop is inert and Escape is guarded
+    // (audit 2026-09-22). Now it ends the sweep and says why.
+    try {
+      const { rows: out, stopped } = await runBatchSweep({
+        tree, info, mounts, target: sel, candidates, splits,
+        assignedMotors, assignedMotorIds, assignedIgnitions, weighed,
+        model: batchModel, autoDelay: criteria.autoDelay, launch, rocketName,
+      }, { signal: ctrl.signal, onProgress: setProgress, onRows: setRows });
+      // The run ENDING used to be invisible: the progress bar and its
+      // "simulating 173/226" line simply disappeared, the Stop button turned
+      // back into Simulate, and nothing ever said the batch was done. On a
+      // 226-motor run that is minutes of watching followed by no announcement
+      // at all (owner report, 2026-09-01b). This line stays until the next run
+      // starts.
+      if (unmounted.current) return;
+      // The resolved rows ARE the table: onRows has normally delivered the
+      // same list flight by flight, and this makes the end state not depend
+      // on it having done so.
+      setRows(out);
+      setFinished({ total: out.length, stopped });
+      const accepted = out.flatMap((r) =>
+        (r.run && gradeBatchRun(r.run, criteriaRef.current).length === 0 ? [r.run] : []));
+      if (accepted.length > 0) onRunsChange(addRuns(accepted));
+    } catch (e) {
+      if (!unmounted.current) setFailure(e instanceof Error ? e.message : String(e));
+    } finally {
+      setProgress(null);
+      setRunning(false);
     }
-    // Motor specs fetched in the single pass, reused by the combination pass.
-    const specCache = new Map<string, Awaited<ReturnType<typeof fetchMotorSpec>>>();
-
-    for (let i = 0; i < candidates.length; i++) {
-      if (cancelled.current) break;
-      const entry = candidates[i]!;
-      setProgress({ done: i, total: totalSims, current: `${entry.manufacturerAbbrev} ${displayDesignation(entry.designation, entry.manufacturerAbbrev)}` });
-      // Yield to the browser so the progress bar paints between sims.
-      await new Promise((r) => setTimeout(r, 0));
-      try {
-        // Batch flies each motor's longest PRESCRIBED delay provisionally,
-        // then re-flies at the recommended optimum — never plugged (Infinity),
-        // which would turn the comparison flight ballistic.
-        const opts = delayOptions(entry).filter((d) => Number.isFinite(d));
-        const provisional = opts[opts.length - 1] ?? 0;
-        const spec = await fetchMotorSpec(entry, provisional, abort.current?.signal);
-        specCache.set(entry.motorId, spec);
-        // What this candidate FLIES: the catalogue spec, or — for the one
-        // motor the pad mass was weighed with, on the mount it was weighed
-        // on — that spec with the hardware on it, exactly as the design page
-        // flies it. The cache keeps the catalogue spec on purpose: the
-        // combination passes below stay at catalogue weight, because a mixed
-        // multiset has no honest single adapter.
-        const flown = batchFlownSpec(entry, spec, mountId, weighed);
-        // This candidate's own stage nozzle, and the handle carrying it. Null
-        // for a motor with no published exit — about two thirds of a 54 mm
-        // sweep — which gets the nozzle-free handle and today's numbers.
-        const candidateExitM = await exitForCandidate(entry, motorCount);
-        const rocket = sweepHandle(candidateExitM);
-        // execMs must mean ONE flight at this step: the launch panel's
-        // time-step caution prices a reload from the newest stored run
-        // (storedSimCost), and a span covering the probe plus a re-fly
-        // quoted 2-3x the real wait — the same over-billing the single-flight
-        // path fixed by timing each full flight alone.
-        let execMs = 0;
-        const flyTimed = (): FlightResult => {
-          const t0 = performance.now();
-          const r = rocket.simulate(simOpts);
-          execMs = performance.now() - t0;
-          return r;
-        };
-        // Auto: each candidate picks its model from a SHORT probe run and then
-        // flies once — per MOTOR, exactly like the single-flight Auto loop.
-        // This used to fly the whole classic flight and, on a supersonic
-        // candidate, throw it away and fly the whole thing again, per candidate.
-        if (batchModel === 'auto') rocket.setSupersonicAero(false);
-        rocket.setMotorById(mountId, flown);
-        let usedSupersonic = batchModel === 'supersonic';
-        if (batchModel === 'auto') {
-          const probe = rocket.simulate({
-            ...simOpts,
-            maxTime: batchProbeCutoff(tree, assignedMotors, { [mountId]: flown }),
-          });
-          if (probe.summary.maxMachNumber > MACH_AUTO_THRESHOLD) {
-            rocket.setSupersonicAero(true);
-            usedSupersonic = true;
-          }
-        }
-        let res = flyTimed();
-        // Backstop on the probe's verdict: the cutoff over-estimates on
-        // purpose, but the full flight now holds the real peak Mach — if Auto
-        // flew classic and the flight still crossed the threshold, re-fly
-        // supersonic. Near-free on average: it only triggers where the probe
-        // under-read.
-        if (batchModel === 'auto' && !usedSupersonic && res.summary.maxMachNumber > MACH_AUTO_THRESHOLD) {
-          rocket.setSupersonicAero(true);
-          usedSupersonic = true;
-          res = flyTimed();
-        }
-        let flownDelay = provisional;
-        if (criteria.autoDelay) {
-          const rec = recommendDelay(res.summary.optimumDelay);
-          if (rec !== null && rec !== provisional) {
-            flownDelay = rec;
-            rocket.setMotorById(mountId, { ...flown, ejectionDelay: rec });
-            res = flyTimed();
-          } else if (rec !== null) {
-            flownDelay = rec;
-          }
-        }
-        const run = buildSimRun({
-          result: res,
-          info,
-          motor: { ...flown, ejectionDelay: flownDelay },
-          meta: {
-            label: entry.designation,
-            manufacturer: entry.manufacturerAbbrev,
-            availableDelays: opts,
-            autoDelay: criteria.autoDelay,
-            type: entry.type,
-            propellant: entry.propInfo,
-            motorCase: entry.caseInfo,
-            motorCount,
-            highPower: isHighPower(entry),
-          },
-          launch,
-          rocketName,
-          execMs,
-          aeroModel: batchModel === 'auto' && usedSupersonic ? 'auto-supersonic'
-            : usedSupersonic ? 'supersonic' : 'classic',
-          rogersKbf: kbf && !usedSupersonic,
-          // Stamped only when this row actually flew a nozzle, the same way the
-          // design page stamps it — it is what the launch report keys its
-          // pressure-thrust note off, and what marks the row in the table.
-          ...(candidateExitM !== null ? { nozzleStages: [stageNameOfTarget] } : {}),
-          ...(comboActive ? { motorConfig: 'single' } : {}),
-        });
-        const failed = gradeRun(run);
-        out.push({ entry, run, failed });
-        if (failed.length === 0) accepted.push(run);
-      } catch (e) {
-        out.push({ entry, error: e instanceof Error ? e.message : String(e), failed: ['error'] });
-      }
-      setRows([...out]);
-    }
-
-    // ---- Combination passes (opt-in): symmetric group splits of the
-    // cluster, each on a SEPARATE engine handle (the design handle is
-    // untouched). Group mode = 2 halves (2+2 / 3+3, unordered pairs of
-    // candidates); pair mode (6-ring) = 3 opposite-tube pairs, flying every
-    // MULTISET of candidates except all-same (covers 4+2 and 2+2+2 —
-    // the owner's real-world configs, 2026-08-05d).
-    let done = candidates.length;
-    for (const split of activeSplits) {
-      if (cancelled.current) break;
-      // Same strip and the same per-candidate re-apply as the single-motor
-      // pass: `split.tree` is derived from the DESIGN tree, so it carries the
-      // design's nozzles too, and its own pool is keyed on the equivalent exit
-      // of whatever multiset is flying.
-      const comboHandle = handlePool(clearStageNozzles(split.tree), [...split.mountIds, sel.id]);
-      for (const idxs of comboAssignments(candidates.length, split.mountIds.length)) {
-        if (cancelled.current) break;
-        const entries = idxs.map((i) => candidates[i]!);
-        // Collapse equal groups for the label: [A,A,B] → "4× A + 2× B".
-        const counts = new Map<string, { entry: MotorDbEntry; groups: number }>();
-        for (const e of entries) {
-          const cur = counts.get(e.motorId);
-          if (cur) cur.groups++;
-          else counts.set(e.motorId, { entry: e, groups: 1 });
-        }
-        const label = [...counts.values()]
-          .map(({ entry: e, groups }) => `${groups * split.groupSize}× ${displayDesignation(e.designation, e.manufacturerAbbrev)}`)
-          .join(' + ');
-        const configTag = split.mountIds.length === 2
-          ? `mixed ${split.groupSize}+${split.groupSize}`
-          : counts.size === 2 ? 'mixed 4+2' : 'mixed 2+2+2';
-        setProgress({ done, total: totalSims, current: label });
-        done++;
-        await new Promise((r) => setTimeout(r, 0));
-        try {
-          const specs = await Promise.all(entries.map(async (e) =>
-            specCache.get(e.motorId) ?? await fetchMotorSpec(e, 0, abort.current?.signal)));
-          /*
-           * The multiset's own equivalent nozzle. split.tree has already broken
-           * the cluster into one mount per group, so each entry contributes its
-           * group's worth of exits; equivalentExitDiameterM sums the AREAS and
-           * returns null the moment any leg is unknown — which is the honest
-           * answer for a mixed combination the database only half covers.
-           */
-          const comboParts = entries.map(async (e) => ({
-            count: split.groupSize,
-            exitDiameterM: (await nozzleForMotorId(e.motorId))?.exitDiameterM ?? null,
-          }));
-          const comboExitM = equivalentExitDiameterM(
-            [...await Promise.all(comboParts), ...otherParts],
-          );
-          const comboRocket = comboHandle(comboExitM);
-          // One flight at this step — see the single-motor loop's flyTimed.
-          let execMs = 0;
-          const flyTimed = (): FlightResult => {
-            const t0 = performance.now();
-            const r = comboRocket.simulate(simOpts);
-            execMs = performance.now() - t0;
-            return r;
-          };
-          if (batchModel === 'auto') comboRocket.setSupersonicAero(false);
-          split.mountIds.forEach((id, k) => comboRocket.setMotorById(id, specs[k]!));
-          let usedSupersonic = batchModel === 'supersonic';
-          if (batchModel === 'auto') {
-            // The split tree is what this candidate flies — its group mounts
-            // do not exist in `tree`, and the replaced cluster mount's motor
-            // is not aboard (see batchProbeCutoff).
-            const probe = comboRocket.simulate({
-              ...simOpts,
-              maxTime: batchProbeCutoff(split.tree, assignedMotors, Object.fromEntries(
-                split.mountIds.map((id, k) => [id, specs[k]!])), sel.id),
-            });
-            if (probe.summary.maxMachNumber > MACH_AUTO_THRESHOLD) {
-              comboRocket.setSupersonicAero(true);
-              usedSupersonic = true;
-            }
-          }
-          let res = flyTimed();
-          // Same probe backstop as the single-motor loop: the full flight has
-          // the real peak Mach, so a classic flight that crossed the threshold
-          // re-flies on the supersonic model rather than standing on an
-          // under-read.
-          if (batchModel === 'auto' && !usedSupersonic && res.summary.maxMachNumber > MACH_AUTO_THRESHOLD) {
-            comboRocket.setSupersonicAero(true);
-            usedSupersonic = true;
-            res = flyTimed();
-          }
-          let flownDelay = specs[0]!.ejectionDelay;
-          if (criteria.autoDelay) {
-            const rec = recommendDelay(res.summary.optimumDelay);
-            if (rec !== null) {
-              flownDelay = rec;
-              split.mountIds.forEach((id, k) =>
-                comboRocket.setMotorById(id, { ...specs[k]!, ejectionDelay: rec }));
-              res = flyTimed();
-            }
-          }
-          const manuf = [...new Set(entries.map((e) => e.manufacturerAbbrev))].join('+');
-          const run = buildSimRun({
-            result: res,
-            info,
-            motor: { ...specs[0]!, ejectionDelay: flownDelay },
-            meta: {
-              label,
-              manufacturer: manuf,
-              autoDelay: criteria.autoDelay,
-              motorCount: split.groupSize * split.mountIds.length,
-              highPower: entries.some((e) => isHighPower(e)),
-            },
-            launch,
-            rocketName,
-            execMs,
-            aeroModel: batchModel === 'auto' && usedSupersonic ? 'auto-supersonic'
-              : usedSupersonic ? 'supersonic' : 'classic',
-            rogersKbf: kbf && !usedSupersonic,
-            ...(comboExitM !== null ? { nozzleStages: [stageNameOfTarget] } : {}),
-            motorConfig: configTag,
-          });
-          // The stored designation is the combo label so saved runs read right.
-          run.motor = label;
-          const failed = gradeRun(run);
-          out.push({ entry: entries[0]!, label, run, failed });
-          if (failed.length === 0) accepted.push(run);
-        } catch (e) {
-          out.push({ entry: entries[0]!, label, error: e instanceof Error ? e.message : String(e), failed: ['error'] });
-        }
-        setRows([...out]);
-      }
-    }
-
-    setProgress(null);
-    setRunning(false);
-    // The run ENDING used to be invisible: the progress bar and its
-    // "simulating 173/226" line simply disappeared, the Stop button turned back
-    // into Simulate, and nothing ever said the batch was done. On a 226-motor
-    // run that is minutes of watching followed by no announcement at all
-    // (owner report, 2026-09-01b). This line stays until the next run starts.
-    if (unmounted.current) return;
-    setFinished({ total: out.length, stopped: cancelled.current });
-    if (accepted.length > 0) onRunsChange(addRuns(accepted));
   };
 
   /** Did any row actually fly a published nozzle? Drives the note below. */
   const anyRowFlewNozzle = useMemo(
     () => rows.some((r) => (r.run?.nozzleStages?.length ?? 0) > 0), [rows]);
 
-  const sorted = useMemo(() => [...rows].sort((a, b) => {
-    if (!a.run) return 1;
-    if (!b.run) return -1;
-    if ((a.failed.length === 0) !== (b.failed.length === 0)) return a.failed.length === 0 ? -1 : 1;
-    return b.run.maxAltitude - a.run.maxAltitude;
-  }), [rows]);
+  // Graded here, against the criteria on screen (see gradeBatchRun), then
+  // sorted: accepted first, then by apogee; rows that never flew go last.
+  const sorted = useMemo(() => rows
+    .map((r) => ({ ...r, failed: r.run ? gradeBatchRun(r.run, criteria) : ['error'] }))
+    .sort((a, b) => {
+      if (!a.run || !b.run) return (a.run ? 0 : 1) - (b.run ? 0 : 1);
+      if ((a.failed.length === 0) !== (b.failed.length === 0)) return a.failed.length === 0 ? -1 : 1;
+      return b.run.maxAltitude - a.run.maxAltitude;
+    }), [rows, criteria]);
+  /** The rows the table draws — every FLOWN row still reaches the CSV and XLSX. */
+  const table = useMemo(() => batchTableRows(sorted), [sorted]);
+  const capNote = batchCapNote(table);
 
   const downloadAs = (blob: Blob, ext: string) => {
     downloadBlob(blob, `batch-${safeName(rocketName)}.${ext}`,
@@ -1013,33 +585,56 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
         </div>
 
         <div className="motor-filter-block">
+          {/* The chips are TOGGLES, so they say so: aria-pressed for a screen
+              reader, and a ✓ for anyone who cannot tell the on-state's border
+              and text shade from the off one's — outside Daylight that shade is
+              the only difference, and these filters persist, so a chip left on
+              last week hides motors with nothing else to say why (audit
+              2026-09-22). The ✓ is aria-hidden: aria-pressed already says it. */}
           <div className="motor-chip-row" role="group" aria-label="Manufacturers">
             <span className="motor-chip-caption">Makers</span>
-            {manufacturers.map(({ abbrev, count }) => (
-              <button key={abbrev}
-                className={`series-chip ${criteria.manufacturers.includes(abbrev) ? 'series-chip-on' : ''}`}
-                onClick={() => setCriteria({ ...criteria, manufacturers: toggle(criteria.manufacturers, abbrev) })}>
-                {abbrev} <span className="motor-chip-count">{count}</span>
-              </button>
-            ))}
+            {manufacturers.map(({ abbrev, count }) => {
+              const on = criteria.manufacturers.includes(abbrev);
+              return (
+                <button key={abbrev}
+                  className={`series-chip ${on ? 'series-chip-on' : ''}`}
+                  aria-pressed={on}
+                  onClick={() => setCriteria({ ...criteria, manufacturers: toggle(criteria.manufacturers, abbrev) })}>
+                  {on && <span aria-hidden="true">✓</span>}
+                  {abbrev} <span className="motor-chip-count">{count}</span>
+                </button>
+              );
+            })}
             {criteria.manufacturers.length > 0 && (
               <button className="file-btn" onClick={() => setCriteria({ ...criteria, manufacturers: [] })}>all</button>
             )}
           </div>
           <div className="motor-chip-row" role="group" aria-label="Diameter classes">
             <span className="motor-chip-caption">Diameter</span>
-            {fittingClasses.map((c) => (
-              <button key={c}
-                className={`series-chip ${criteria.classes.includes(c) ? 'series-chip-on' : ''}`}
-                onClick={() => setCriteria({ ...criteria, classes: toggle(criteria.classes, c) })}>
-                {classLabel(c)} mm
-              </button>
-            ))}
+            {fittingClasses.map((c) => {
+              const on = criteria.classes.includes(c);
+              return (
+                <button key={c}
+                  className={`series-chip ${on ? 'series-chip-on' : ''}`}
+                  aria-pressed={on}
+                  onClick={() => setCriteria({ ...criteria, classes: toggle(criteria.classes, c) })}>
+                  {on && <span aria-hidden="true">✓</span>}
+                  {classLabel(c)} mm
+                </button>
+              );
+            })}
           </div>
+          {/* Each criteria box names ITSELF. A <label> with no `for` labels its
+              first labelable descendant, and in the three with a unit that is
+              the UnitChip <select>, not the number box — so min rod-exit, min
+              apogee and max apogee were all announced as "—", their
+              placeholder, and a value typed in the wrong one changes which
+              motors pass (audit 2026-09-22). */}
           <div className="motor-filter-row" style={{ flexWrap: 'wrap' }}>
             <label className="motor-inline-label">
               Min rod-exit <UnitChip quantity="velocity" />
               <NumField value={velUi(criteria.minRodExit)} step={1} nullable placeholder="—"
+                ariaLabel={`Minimum rod-exit velocity (${vel})`}
                 onCommit={(v) => setCriteria({ ...criteria, minRodExit: v === null ? null : uiToSi('velocity', vel, v) })} />
             </label>
             <label className="motor-inline-label">
@@ -1050,11 +645,13 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
             <label className="motor-inline-label">
               Apogee min <UnitChip quantity="distance" />
               <NumField value={distUi(criteria.minApogee)} step={10} nullable placeholder="—"
+                ariaLabel={`Minimum apogee (${dist})`}
                 onCommit={(v) => setCriteria({ ...criteria, minApogee: v === null ? null : uiToSi('distance', dist, v) })} />
             </label>
             <label className="motor-inline-label">
               max <UnitChip quantity="distance" />
               <NumField value={distUi(criteria.maxApogee)} step={10} nullable placeholder="—"
+                ariaLabel={`Maximum apogee (${dist})`}
                 onCommit={(v) => setCriteria({ ...criteria, maxApogee: v === null ? null : uiToSi('distance', dist, v) })} />
             </label>
             <label className="motor-inline-label" title="Which physics model the batch flies. Auto is recommended: candidates often straddle Mach 1, and each motor gets the model its own flight calls for.">
@@ -1136,7 +733,7 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
           )}
           {running ? (
             <button className="file-btn modal-danger"
-              onClick={() => { cancelled.current = true; abort.current?.abort(); }}>
+              onClick={() => { abort.current?.abort(); }}>
               Stop
             </button>
           ) : (
@@ -1239,6 +836,28 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
             })}
           </p>
         )}
+        {failure && !running && (
+          <p className="comp-stats batch-failed stability-bad" role="alert" style={{ margin: '6px 0 0' }}>
+            {`The batch stopped before it finished: ${failure}`}
+            {rows.some((r) => r.run) ? ' The rows it flew are below and still download.' : ''}
+          </p>
+        )}
+
+        {/* A plugged-only motor on a design that deploys on the ejection
+            charge: flown plugged it would never deploy, so its row flies the
+            optimum instead (services/batchSweep.ts, batchDelayRule) — and says
+            so, because that is a delay the motor is not sold with. */}
+        {sorted.some((r) => r.optimumForPlugged) && (
+          <p className="comp-stats batch-plugged" style={{ margin: '4px 0 0' }}>
+            {'Delay marked · opt.: that motor is sold plugged (no ejection charge), and this design '
+              + 'deploys its recovery on the motor’s charge, so the row flies it at its optimum delay '
+              + 'rather than with no deployment at all. To fly it plugged, set the recovery to deploy '
+              + 'at apogee or altitude.'}
+          </p>
+        )}
+        {capNote && (
+          <p className="comp-stats batch-cap" style={{ margin: '4px 0 0' }}>{capNote}</p>
+        )}
 
         {sorted.length > 0 && (
           <div className="motor-table-wrap" style={{ maxHeight: 320 }}>
@@ -1255,12 +874,15 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
                 </tr>
               </thead>
               <tbody>
-                {sorted.map(({ entry, label, run, error, failed }, rowIdx) => (
-                  <tr key={label ?? `${entry.motorId}-${rowIdx}`} className={failed.length ? 'motor-row-long' : ''}>
+                {/* Keyed on the row's own identity (batchRowKey: configuration
+                    plus the motor ids flown), never on its label or its sorted
+                    position — see batchRowKey for what each of those broke. */}
+                {table.shown.map(({ key, entry, label, combo, run, error, failed, optimumForPlugged }) => (
+                  <tr key={key} className={failed.length ? 'motor-row-long' : ''}>
                     <td>
-                      {label ?? `${entry.manufacturerAbbrev} ${displayDesignation(entry.designation, entry.manufacturerAbbrev)}`}
+                      {label}
                       {/* The one single-motor row that flew with the weighed hardware on. */}
-                      {!label && weighed && mountId === weighed.mountId && isWeighedCandidate(entry, weighed)
+                      {!combo && weighed && mountId === weighed.mountId && isWeighedCandidate(entry, weighed)
                         && <span className="motor-db-meta"> · weighed</span>}
                       {/*
                         Which rows flew a published nozzle exit. Only about a
@@ -1278,7 +900,10 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
                       {batchModel !== 'eb' && (run?.nozzleStages?.length ?? 0) > 0
                         && <span className="motor-db-meta"> · nozzle</span>}
                     </td>
-                    <td>{run ? (Number.isFinite(run.delayS) ? `${run.delayS}s` : 'P') : '—'}</td>
+                    <td>
+                      {run ? (Number.isFinite(run.delayS) ? `${run.delayS}s` : 'P') : '—'}
+                      {optimumForPlugged && <span className="motor-db-meta"> · opt.</span>}
+                    </td>
                     <td>{run ? fmtSi('distance', dist, run.maxAltitude) : '—'}</td>
                     <td>{run?.rodExitVelocity != null ? fmtSi('velocity', vel, run.rodExitVelocity) : '—'}</td>
                     <td>{run?.thrustToWeightAtRod != null ? run.thrustToWeightAtRod.toFixed(1) : '—'}</td>

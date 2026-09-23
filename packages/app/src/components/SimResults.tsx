@@ -431,6 +431,21 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
   );
 }
 
+/**
+ * The history's Motor cell: `<manufacturer> <motor>`, unless the motor already
+ * names its makers. A Batch Simulate combination puts the manufacturer in
+ * every leg of its label since audit 2026-09-22 ("3× AeroTech H128W + 3×
+ * Cesaroni H255-14A"), and its `manufacturer` is those makers joined with "+",
+ * so the prefix printed every maker twice. A combination stored before then
+ * ("3× H128W + 3× H255-14A") names none of them and keeps its prefix.
+ */
+export function historyMotorLabel(r: Pick<SimRun, 'manufacturer' | 'motor' | 'motorConfig'>): string {
+  if (!r.manufacturer) return r.motor;
+  const named = (r.motorConfig ?? '').startsWith('mixed')
+    && r.manufacturer.split('+').every((m) => r.motor.includes(`${m} `));
+  return named ? r.motor : `${r.manufacturer} ${r.motor}`;
+}
+
 export function SimHistory({
   runs, onRunsChange, onSelect, selectedId,
   canShowCharts, onShowCharts, reflyingId, hasChartsFor, designName,
@@ -534,7 +549,7 @@ export function SimHistory({
                     {...(onSelect ? clickable(() => onSelect(r)) : {})}
                   >
                     <td>{r.rocket || '—'}</td>
-                    <td>{r.manufacturer ? `${r.manufacturer} ` : ''}{r.motor}</td>
+                    <td>{historyMotorLabel(r)}</td>
                     <td>{Number.isFinite(r.delayS) ? `${r.delayS}s` : 'P'}</td>
                     <td>{fmtSi('distance', dist, r.maxAltitude)}</td>
                     <td>{fmtSi('velocity', vel, r.maxVelocity)}</td>
