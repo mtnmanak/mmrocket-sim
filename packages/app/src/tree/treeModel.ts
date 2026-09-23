@@ -1553,8 +1553,9 @@ export function engineTree(tree: RocketTree): RocketTree {
       // (tree/canopyVent.ts). `vent` is null unless D > 0:
       const vent = ventLimit(n);
       // `D > 0` IS THE DIVIDE GUARD, not a tidiness check. The 0.3 fallback
-      // fires only when `diameter` is ABSENT; a canopy diameter STORED as a
-      // literal 0 is a `typeof 'number'` hit, so D was 0, `hole` was
+      // fires only when `diameter` is ABSENT (NaN and ±Infinity read as
+      // absent); a canopy diameter STORED as a literal 0 is a real number,
+      // not an absent one, so D was 0, `hole` was
       // min(dh, 0) = 0, and (0/0)**2 is NaN — the node reached
       // OrkRocket.buildTree carrying `cd: NaN`, which OrkEngine writes as JSON
       // null and ComponentFactory reads back as NaN, so `setCD` is never called

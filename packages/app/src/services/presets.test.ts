@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
 import { applyPresetLinks, csvToPresets, holdsCatalogueMass, KIND_FOR_TYPE, presetPatch, presetsToCsv, type Preset } from './presets.js';
 import presetsJson from '../data/presets.json';
+import { numOpt } from '../tree/nodeNum.js';
 
 const db = (presetsJson as { presets: Preset[] }).presets;
 
@@ -20,7 +21,7 @@ describe('bundled preset database', () => {
 describe('presetPatch', () => {
   it('maps a real body tube preset to node params', () => {
     const p = db.find((x) => x.kind === 'BodyTube'
-      && typeof x['outsideDiameter'] === 'number' && typeof x['insideDiameter'] === 'number')!;
+      && numOpt(x, 'outsideDiameter') !== undefined && numOpt(x, 'insideDiameter') !== undefined)!;
     const patch = presetPatch('bodytube', p);
     expect(patch['outerRadius']).toBeCloseTo((p['outsideDiameter'] as number) / 2);
     expect(patch['thickness']).toBeCloseTo(
@@ -30,7 +31,7 @@ describe('presetPatch', () => {
 
   it('maps a nose cone with shoulder + shape + catalog mass', () => {
     const p = db.find((x) => x.kind === 'NoseCone'
-      && typeof x['shoulderDiameter'] === 'number' && typeof x.mass === 'number')!;
+      && numOpt(x, 'shoulderDiameter') !== undefined && numOpt(x, 'mass') !== undefined)!;
     const patch = presetPatch('nosecone', p);
     expect(patch['shoulderRadius']).toBeCloseTo((p['shoulderDiameter'] as number) / 2);
     expect(typeof patch['shape']).toBe('string');
@@ -458,7 +459,7 @@ describe("applyPresetLinks — a file's part matched to its catalogue row (ruled
  */
 describe('presetPatch — a catalogue engine block carries its own outer radius', () => {
   const rows = db.filter((x) => x.kind === 'EngineBlock'
-    && typeof x['outsideDiameter'] === 'number' && typeof x['insideDiameter'] === 'number');
+    && numOpt(x, 'outsideDiameter') !== undefined && numOpt(x, 'insideDiameter') !== undefined);
 
   it('is a populated catalogue, so the assertions below mean something', () => {
     expect(rows.length).toBeGreaterThan(20);
@@ -727,7 +728,7 @@ describe('presetPatch describes the whole part — a second pick keeps nothing o
   });
 
   it('a row with no mass clears the previous part’s catalogue mass', () => {
-    const massed = db.find((x) => x.kind === 'NoseCone' && typeof x.mass === 'number')!;
+    const massed = db.find((x) => x.kind === 'NoseCone' && numOpt(x, 'mass') !== undefined)!;
     const unmassed = row('NoseCone', '19490');
     expect(unmassed.mass).toBeUndefined();
     const first = { ...fresh('nosecone', massed), overrideSubcomponentsMass: true } as ComponentNode;
@@ -751,7 +752,7 @@ describe('presetPatch describes the whole part — a second pick keeps nothing o
     expect(after['overrideMass']).toBe(0.25);
     expect(after['overrideSubcomponentsMass']).toBe(true);
     // Linked to a massed row, but not at that row's mass: the user retyped it.
-    const massed = db.find((x) => x.kind === 'NoseCone' && typeof x.mass === 'number')!;
+    const massed = db.find((x) => x.kind === 'NoseCone' && numOpt(x, 'mass') !== undefined)!;
     const retyped = { ...fresh('nosecone', massed), overrideMass: massed.mass! * 1.3 } as ComponentNode;
     expect(pick(retyped, row('NoseCone', '19490'))['overrideMass']).toBeCloseTo(massed.mass! * 1.3, 12);
   });
@@ -768,7 +769,7 @@ describe('presetPatch describes the whole part — a second pick keeps nothing o
     // The flag riding on the PREVIOUS part's catalogue mass (the state the
     // unfixed patch left): the new part's mass lands and the flag goes, or the
     // tube's 5.8 g would be the weight of everything under it.
-    const prevTube = db.find((x) => x.kind === 'BodyTube' && typeof x.mass === 'number' && x.partNo !== '10063')!;
+    const prevTube = db.find((x) => x.kind === 'BodyTube' && numOpt(x, 'mass') !== undefined && x.partNo !== '10063')!;
     const flagged = { ...fresh('bodytube', prevTube), overrideSubcomponentsMass: true } as ComponentNode;
     const next = pick(flagged, tube);
     expect(next['overrideMass']).toBe(tube.mass);
@@ -784,13 +785,13 @@ describe('presetPatch describes the whole part — a second pick keeps nothing o
   });
 
   it('holdsCatalogueMass: the linked row’s own mass, through an alternate part number, to 0.01 %', () => {
-    const massed = db.find((x) => x.kind === 'NoseCone' && typeof x.mass === 'number')!;
+    const massed = db.find((x) => x.kind === 'NoseCone' && numOpt(x, 'mass') !== undefined)!;
     const linked = fresh('nosecone', massed);
     expect(holdsCatalogueMass(linked, db)).toBe(true);
     expect(holdsCatalogueMass({ ...linked, overrideMass: massed.mass! * (1 + 5e-5) } as ComponentNode, db)).toBe(true);
     expect(holdsCatalogueMass({ ...linked, overrideMass: massed.mass! * 1.01 } as ComponentNode, db)).toBe(false);
     expect(holdsCatalogueMass({ type: 'nosecone', id: 'n', overrideMass: massed.mass } as ComponentNode, db)).toBe(false);
-    const alt = db.find((x) => Array.isArray(x['altPartNos']) && typeof x.mass === 'number'
+    const alt = db.find((x) => Array.isArray(x['altPartNos']) && numOpt(x, 'mass') !== undefined
       && KIND_FOR_TYPE.parachute === x.kind)!;
     expect(alt, 'no massed canopy with an alternate part number left to test with').toBeTruthy();
     const viaAlt = {

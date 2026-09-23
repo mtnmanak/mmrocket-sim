@@ -4,17 +4,20 @@ import { num, numOpt, numOrNull } from './nodeNum.js';
 import { buildPieces } from './pieces.js';
 import {
   engineTree, fairingFrontalArea, findNode, inheritDefaults, makeNode, mountRadiusOf, referenceArea,
-  splitClusterTree, suppressingAncestor,
+  splitClusterPairsTree, splitClusterTree, suppressingAncestor,
 } from './treeModel.js';
-import { finCutOutline } from './solidMesh.js';
-import { previewMounts } from './scaleRocket.js';
+import { componentLoop, finCutOutline } from './solidMesh.js';
+import { solidContextFor } from './solidContext.js';
+import { previewMounts, scaleRocket } from './scaleRocket.js';
+import { autoAlignFinSets } from './finAlign.js';
 import { exportOrk } from '../services/orkFile.js';
 import { exportRkt } from '../services/rocksimFile.js';
 import { exportCdx1 } from '../services/rasaeroFile.js';
 import { componentDxf } from '../services/dxfExport.js';
 import { finOutline, finTemplateSvg } from '../services/finTemplate.js';
 import { canopyCdA, recoverySizing } from '../services/recoverySizing.js';
-import { holdsCatalogueMass, type Preset } from '../services/presets.js';
+import { applyPresetLinks, holdsCatalogueMass, presetPatch, type Preset } from '../services/presets.js';
+import { OVERRIDE_INCLUDES_MOTOR } from '../services/statedLaunchWeight.js';
 import { componentTable } from '../services/componentTable.js';
 import { coveringMassOverride, solePinnedStage } from '../services/buildAllowance.js';
 import { DEFAULT_CONDITIONS } from '../components/LaunchPanel.js';
@@ -294,6 +297,35 @@ describe('the inline reads outside the writers fall back on NaN and Infinity too
       expect(solePinnedStage(tree(bad).components), String(bad)).toBeNull();
       expect(coveringMassOverride(tree(bad), 0.4, 0.02), String(bad)).toBeNull();
     }
+    // The host tube itself, which coveringMassOverride tests before its ancestors.
+    const hosted = (overrideMass: number) =>
+      stageOf([nose, tube([], { overrideSubcomponentsMass: true, overrideMass })]);
+    expect(coveringMassOverride(hosted(0.4), 0.4, 0.02)?.id).toBe('b');
+    for (const bad of [NaN, Infinity]) {
+      expect(coveringMassOverride(hosted(bad), 0.4, 0.02), String(bad)).toBeNull();
+    }
+  });
+
+  it('a NaN stage override does not pin an empty canopy slot’s weight', () => {
+    // recoverySizing's slotMassPinned: pinned, a candidate is rated at the
+    // override's weight; unpinned, its own mass is weighed in (1.5 + 0.1 kg).
+    const row = {
+      kind: 'Parachute', manufacturer: 'Test', partNo: 'P-36', description: 'test canopy',
+      diameter: 0.9144, dragCoefficient: 1.5, mass: 0.1,
+    } as Preset;
+    const rates = (stage: Record<string, unknown>) => {
+      const r = recoverySizing({
+        recovery: { state: 'ok', mass: 1.5, multiStage: false }, tree: stageOf([nose, tube()], stage),
+        deviceMass: () => null, presets: [row], launch: DEFAULT_CONDITIONS,
+      });
+      if (r.state !== 'ok') throw new Error(r.state);
+      return r.main.candidates.map((c) => c.rate);
+    };
+    expect(rates({})).toHaveLength(1);
+    expect(rates({ overrideSubcomponentsMass: true, overrideMass: 1.5 })).not.toEqual(rates({}));
+    for (const bad of [NaN, Infinity]) {
+      expect(rates({ overrideSubcomponentsMass: true, overrideMass: bad }), String(bad)).toEqual(rates({}));
+    }
   });
 
   it('the cluster split scales from the default, not from a NaN scale or rotation', () => {
@@ -305,6 +337,13 @@ describe('the inline reads outside the writers fall back on NaN and Infinity too
       .map((g) => [g['clusterScale'], g['clusterRotation']]);
     expect(groups(split({ clusterScale: NaN, clusterRotation: Infinity }))).toEqual(groups(split({})));
     expect(groups(split({}))[0]).toEqual([Math.SQRT2, Math.PI / 4]);
+    // splitClusterPairsTree, a 6-ring's three pairs, reads them the same way.
+    const pairs = (fields: Record<string, unknown>) => splitClusterPairsTree(stageOf([tube([{
+      type: 'innertube', id: 'm', length: 0.1, outerRadius: 0.012, thickness: 0.0005, cluster: '6-ring',
+      motorMount: true, ...fields,
+    } as ComponentNode])]), 'm')!;
+    expect(groups(pairs({ clusterScale: NaN, clusterRotation: Infinity }))).toEqual(groups(pairs({})));
+    expect(groups(pairs({ clusterScale: 2 }))).not.toEqual(groups(pairs({})));
   });
 
   it('Add carries a finite radius and wall only', () => {
@@ -385,5 +424,92 @@ describe('the inline reads outside the writers fall back on NaN and Infinity too
       expect(previewMounts(tree, 2, { assignedMotorDiameters: { m: bad } }), String(bad))
         .toEqual(previewMounts(tree, 2, {}));
     }
+  });
+
+  it('.rkt: a NaN override on a base extension folds it back, as an absent one does', () => {
+    // exportRkt's foldChain tested these with typeof, so a NaN or infinite one
+    // kept the extension out of <BaseExtensionLen> as a second <BodyTube>
+    // (review of audit row 522).
+    const xml = (fields: Record<string, unknown>) => exportRkt({ name: 'R', tree: stageOf([nose, {
+      type: 'bodytube', id: 'x', length: 0.03, outerRadius: 0.05, thickness: 0.002, rktBaseExtension: true,
+      ...fields,
+    } as ComponentNode, tube()]) });
+    expect(xml({})).toContain('<BaseExtensionLen>30</BaseExtensionLen>');
+    for (const bad of [NaN, Infinity]) {
+      for (const key of ['overrideMass', 'overrideCGX', 'overrideCD']) {
+        expect(xml({ [key]: bad }), `${key} ${bad}`).toBe(xml({}));
+      }
+    }
+    // A finite override still keeps the tube whole: the fold would drop it.
+    expect(xml({ overrideCD: 0.5 })).not.toBe(xml({}));
+  });
+
+  it('a NaN weighing is no assembly to keep: the new part’s catalogue mass lands', () => {
+    // presetPatch's `held`: a weighed assembly keeps its weighing across a
+    // change of part; a NaN is not a weighing.
+    const row = {
+      kind: 'BodyTube', manufacturer: 'Test', partNo: 'BT-1', description: '', mass: 0.02,
+      outsideDiameter: 0.1, insideDiameter: 0.098,
+    } as Preset;
+    const patch = (prior: Record<string, unknown>) =>
+      presetPatch('bodytube', row, { node: tube([], prior), presets: [] });
+    expect(patch({ overrideSubcomponentsMass: true, overrideMass: 0.4 })['overrideMass']).toBeUndefined();
+    expect(patch({ overrideSubcomponentsMass: true })['overrideMass']).toBe(0.02);
+    for (const bad of [NaN, Infinity]) {
+      expect(patch({ overrideSubcomponentsMass: true, overrideMass: bad }), String(bad))
+        .toEqual(patch({ overrideSubcomponentsMass: true }));
+    }
+  });
+
+  it('a NaN wall is not a statement that a nose is hollow', () => {
+    // applyPresetLinks' statesHollow: a wall keeps the catalogue's `filled: true`
+    // off the part; a NaN one says nothing, like no wall at all.
+    const row = { kind: 'NoseCone', manufacturer: 'Test', partNo: 'NC-1', description: '', filled: true } as Preset;
+    const filled = (fields: Record<string, unknown>) => {
+      const n = { type: 'nosecone', id: 'n', length: 0.1, aftRadius: 0.02, shape: 'ogive', ...fields } as ComponentNode;
+      applyPresetLinks([{ node: n, manufacturer: 'Test', partNo: 'NC-1' }], [row], []);
+      return n['filled'];
+    };
+    expect(filled({ thickness: 0.002 })).toBeUndefined();
+    expect(filled({})).toBe(true);
+    for (const bad of [NaN, Infinity]) expect(filled({ thickness: bad }), String(bad)).toBe(true);
+  });
+
+  it('the print/cut context takes no mount radius from a NaN one', () => {
+    const ctx = (fields: Record<string, unknown>) => {
+      const tree = stageOf([nose, tube([
+        { type: 'centeringring', id: 'r', length: 0.005 } as ComponentNode,
+        { type: 'innertube', id: 'm', length: 0.1, thickness: 0.0005, ...fields } as ComponentNode,
+      ])]);
+      return solidContextFor(tree, findNode(tree, 'r')!);
+    };
+    expect(ctx({ outerRadius: 0.012 }).mountOuterRadius).toBe(0.012);
+    for (const bad of [NaN, Infinity]) expect(ctx({ outerRadius: bad }), String(bad)).toEqual(ctx({}));
+  });
+
+  it('a nose cone’s NaN shape parameter cuts the default profile', () => {
+    const loop = (fields: Record<string, unknown>) =>
+      componentLoop({ ...nose, shape: 'power', ...fields } as ComponentNode, {});
+    expect(loop({ shapeParameter: 0.3 })).not.toEqual(loop({}));
+    for (const bad of [NaN, Infinity]) expect(loop({ shapeParameter: bad }), String(bad)).toEqual(loop({}));
+  });
+
+  it('scaling a marked stage with a NaN mass override says it lost the CG, not the mass', () => {
+    const notes = (fields: Record<string, unknown>) => scaleRocket(stageOf([nose, tube()], {
+      [OVERRIDE_INCLUDES_MOTOR]: 'M787', overrideCGX: 0.3, overrideSubcomponentsCG: true,
+      overrideSubcomponentsMass: true, ...fields,
+    }), 2).notes;
+    expect(notes({ overrideMass: 2 }).join(' ')).toContain('lost the mass and CG');
+    for (const bad of [NaN, Infinity]) expect(notes({ overrideMass: bad }), String(bad)).toEqual(notes({}));
+  });
+
+  it('fin alignment spans the fins on a NaN-length tube as on one with no length', () => {
+    // autoAlignFinSets' parent length: NaN spans overlap nothing, so two
+    // aft-mounted sets on the same tube were left fin on fin.
+    const fins = (id: string) => ({ ...makeNode('trapezoidfinset'), id }) as ComponentNode;
+    const changes = (length: number | undefined) =>
+      autoAlignFinSets(stageOf([nose, tube([fins('f1'), fins('f2')], { length })])).changes;
+    expect(changes(undefined)).toHaveLength(1);
+    for (const bad of [NaN, Infinity]) expect(changes(bad), String(bad)).toEqual(changes(undefined));
   });
 });

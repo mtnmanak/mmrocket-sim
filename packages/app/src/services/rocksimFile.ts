@@ -2083,8 +2083,13 @@ export function exportRkt({ name, tree, motors, compInfo, notes }: RktExportInpu
       const wantThickness = a['filled'] === true ? or : nnum(a, 'thickness', -2);
       if (Math.abs(nnum(b, 'thickness', -3) - wantThickness) > 1e-9) continue;
       if ((b.children ?? []).length) continue;
-      if (typeof b['overrideMass'] === 'number' && b['overrideMass'] !== 0) continue;
-      if (typeof b['overrideCGX'] === 'number' || typeof b['overrideCD'] === 'number') continue;
+      // Finite overrides only, as common() reads them (audit row 522): a NaN or
+      // infinite one overrides nothing in the kernel, and it kept the fold from
+      // happening — the extension went out as a second <BodyTube> with
+      // <BaseExtensionLen>0</BaseExtensionLen>, unlike the same tube without it.
+      const massOv = numOpt(b, 'overrideMass');
+      if (massOv !== undefined && massOv !== 0) continue;
+      if (numOpt(b, 'overrideCGX') !== undefined || numOpt(b, 'overrideCD') !== undefined) continue;
       baseExtOf.set(a.id, nnum(b, 'length', 0));
       folded.add(b);
     }

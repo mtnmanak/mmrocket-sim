@@ -58,14 +58,34 @@ import reactHooks from 'eslint-plugin-react-hooks';
 import globals from 'globals';
 import { fileURLToPath } from 'node:url';
 
-// `typeof <member> === 'number'` (or `!==`, `==`, `!=`; `x?.[k]` too) standing
-// on its own — the whole test of a conditional or an `if`, a value, a return,
-// an arrow body — rather than one operand of `&&` / `||`. True of NaN and of
-// ±Infinity. The no-restricted-syntax rule in the browser-source block below
-// refuses it; its comment says why and what it leaves alone.
-const LONE_TYPEOF_NUMBER = "BinaryExpression[operator=/^[!=]==?$/][left.operator='typeof']"
-  + "[left.argument.type=/^(MemberExpression|ChainExpression)$/][right.value='number']"
-  + ':not(LogicalExpression > BinaryExpression)';
+// `typeof <member> === 'number'` (or `!==`, `==`, `!=`; `x?.[k]` too): true of
+// NaN and of ±Infinity. The no-restricted-syntax rule in the browser-source
+// block below refuses it in two shapes; its comment says why and what it
+// leaves alone.
+const TYPEOF_NUMBER = "BinaryExpression[operator=/^[!=]==?$/][left.operator='typeof']"
+  + "[left.argument.type=/^(MemberExpression|ChainExpression)$/][right.value='number']";
+// Shape 1: standing on its own — the whole test of a conditional or an `if`,
+// a value, a return, an arrow body — rather than one operand of `&&` / `||`.
+const LONE_TYPEOF_NUMBER = `${TYPEOF_NUMBER}:not(LogicalExpression > BinaryExpression)`;
+// Shape 2: one operand of an `&&` / `||` chain that has nothing else in it to
+// refuse NaN — no bound (`<`, `<=`, `>`, `>=`, which NaN fails) and no
+// Number.isFinite / Number.isInteger, negated or not. esquery's `:has` takes
+// ONE `>` step reliably (`:has(> A > B)` matched the wrong nodes in esquery
+// 1.7, probed 2026-09-23), so each level of the chain is a :has of its own:
+// CHAIN_DEPTH levels are searched, down from each of the test's CHAIN_DEPTH + 1
+// nearest && / || ancestors. A deeper chain can only be over-reported, never
+// let through; 6 and 12 report the same lines on this tree (2026-09-23).
+const NAN_REFUSER = ':matches(BinaryExpression[operator=/^[<>]=?$/], '
+  + "CallExpression[callee.object.name='Number'][callee.property.name=/^is(Finite|Integer)$/])";
+const CHAIN_DEPTH = 6;
+const refuserWithin = (depth) => {
+  const here = `:has(> ${NAN_REFUSER}), :has(> UnaryExpression[operator='!']:has(> ${NAN_REFUSER}))`;
+  return depth === 0 ? `:matches(${here})`
+    : `:matches(${here}, :has(> LogicalExpression${refuserWithin(depth - 1)}))`;
+};
+const REFUSED_IN_CHAIN = Array.from({ length: CHAIN_DEPTH + 1 },
+  (_, up) => `LogicalExpression${refuserWithin(CHAIN_DEPTH)}${' > LogicalExpression'.repeat(up)} > ${TYPEOF_NUMBER}`);
+const UNREFUSED_TYPEOF_NUMBER = `LogicalExpression > ${TYPEOF_NUMBER}:not(${REFUSED_IN_CHAIN.join(', ')})`;
 
 export default tseslint.config(
   {
@@ -247,13 +267,14 @@ export default tseslint.config(
       'no-extend-native': 'error',
       'no-new-wrappers': 'error',
 
-      // A number read off a node, a catalogue row or a file through a lone
-      // `typeof x[k] === 'number'` (LONE_TYPEOF_NUMBER, top of file). `typeof
-      // NaN` is 'number', so the test passes a NaN or an infinite field on as
-      // a number — into a saved .ork/.rkt, a cut file, the kernel document
-      // engineTree builds, a recommendation, a view — where the kernel itself
-      // reads it as ABSENT (JSON.stringify sends null, and ComponentFactory
-      // falls back). tree/nodeNum.ts is the one reader (Number.isFinite).
+      // A number read off a node, a catalogue row or a file through
+      // `typeof x[k] === 'number'` (LONE_TYPEOF_NUMBER and
+      // UNREFUSED_TYPEOF_NUMBER, top of file). `typeof NaN` is 'number', so
+      // the test passes a NaN or an infinite field on as a number — into a
+      // saved .ork/.rkt, a cut file, the kernel document engineTree builds, a
+      // recommendation, a view — where the kernel itself reads it as ABSENT
+      // (JSON.stringify sends null, and ComponentFactory falls back).
+      // tree/nodeNum.ts is the one reader (Number.isFinite).
       //
       // How it got to 0. 2026-09-22: fourteen private reader FUNCTIONS folded
       // into nodeNum, and this went on for the reader shape. 2026-09-23 (C3a):
@@ -274,18 +295,33 @@ export default tseslint.config(
       // kernel, sizes, tabulates, exports and renders its property panels
       // byte-identically, since only a non-finite field reads differently.
       //
+      // The compound shape, from the review of row 522. The lone rule let
+      // every && / || operand through, and 14 of main's compound lines in
+      // shipped source were exactly this defect, converted by hand in row 522
+      // (PropertyPanel 5, buildAllowance 2, treeModel 2, and componentTable,
+      // presets, recoverySizing, ScaleDialog, solidContext and solidMesh) —
+      // a revert of any of them passed lint. UNREFUSED_TYPEOF_NUMBER reports
+      // all 14 on main's source; on row 522's own tree it found 31 more
+      // typeof tests on 24 lines. Converted, as design numbers (12 lines):
+      // rocksimFile's base-extension fold, where a NaN override still split
+      // the extension out of <BaseExtensionLen> on export, orkFile's
+      // keep-the-mark, and nine lines in tests. Kept, each with a disable
+      // comment giving its reason at the site (12 lines): the pad-mass
+      // records (configSync, padMassReconcile — hardwareMass refuses a
+      // non-finite weighing before any arithmetic), the load clamp
+      // (sanitize), the scaler's pass-through (scaleRocket), a test's leaf
+      // enumerator (scaleRocket.test), the null tests in orkFile's launch
+      // reader and the weather chip, the stat chip's position and a set-key
+      // count.
+      //
       // Tests are included (they read nodes too), and so is packages/engine/src
       // (0 hits; there, test Number.isFinite). NOT matched, on purpose:
-      //  - a test that is one operand of && or ||: most refuse NaN in another
-      //    operand (a `>`/`>=` bound, Number.isFinite, a tolerance), 26 of the
-      //    39 such lines in shipped source on 2026-09-23. The other 13 read no
-      //    design number, or use none they read: the pad-mass records
-      //    (configSync, padMassReconcile — hardwareMass refuses a non-finite
-      //    weighing before any arithmetic), the importers' keep-the-mark and
-      //    fold-the-part decisions (orkFile, rocksimFile), the load-boundary
-      //    clamp (sanitize: applyFieldLimit hands a non-finite value back), the
-      //    scaler's pass-through (scaleRocket: NaN × k is NaN either way), the
-      //    weather fetch's null test, the chip position and a set-key count;
+      //  - a compound test with a bound (`<`, `<=`, `>`, `>=`) or a
+      //    Number.isFinite / Number.isInteger ANYWHERE in its && / || chain.
+      //    A selector cannot tell whether that partner tests the same value:
+      //    scaleRocket's point scaler passes on `p.length >= 2`, a bound on
+      //    another number (harmless there — NaN · k is NaN on either branch).
+      //    A bound lets +Infinity through, which no source is known to write;
       //  - `typeof v === 'number'` on a plain variable, which is as often a
       //    union discriminator (`number | undefined`, `RktTrigger | number`)
       //    as a field read. The field reads among them went through nodeNum
@@ -296,6 +332,11 @@ export default tseslint.config(
         selector: LONE_TYPEOF_NUMBER,
         message: 'typeof-number accepts NaN and Infinity (typeof NaN is "number"), which the kernel reads '
           + 'as absent. Read the field with num / numOpt / numOrNull from tree/nodeNum.ts.',
+      }, {
+        selector: UNREFUSED_TYPEOF_NUMBER,
+        message: 'typeof-number accepts NaN and Infinity (typeof NaN is "number"), and nothing else in this '
+          + '&& / || refuses them (no bound, no Number.isFinite). Read the field with num / numOpt / numOrNull '
+          + 'from tree/nodeNum.ts; if it is not a design number, say why in an eslint-disable-next-line comment.',
       }],
     },
   },

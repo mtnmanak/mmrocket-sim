@@ -46,6 +46,8 @@ export function restoredPadMassNote(
   ranked: { from?: string; to?: string; kg?: number } | null,
   { tree, motors, text }: { tree: RocketTree; motors: Record<string, MountMotor>; text: PadMassText },
 ): HeldNote | null {
+  // A 'dropped' kg is finite: migrateLegacyPadMass refuses any other.
+  // eslint-disable-next-line no-restricted-syntax -- a pad-mass record, quoted as it stands (audit row 522)
   if (legacy?.outcome === 'dropped' && typeof legacy.kg === 'number') {
     return {
       severity: 'warn',
@@ -54,6 +56,7 @@ export function restoredPadMassNote(
         + ' motor on Motors & Launch.',
     };
   }
+  // eslint-disable-next-line no-restricted-syntax -- a pad-mass record, quoted as it stands (audit row 522)
   if (ranked?.from && ranked.to && typeof ranked.kg === 'number') {
     const from = motors[ranked.from];
     const to = motors[ranked.to];
@@ -114,6 +117,10 @@ export function reconcileLegacyPadMass(input: LegacyPadMassInput): LegacyPadMass
   const { hardware: h, primaryMountId, filePrimaryMountId, text } = input;
   if (!h || !primaryMountId) return null;
   const rec = input.motors[primaryMountId];
+  // Both writers of the legacy key write a finite kg beside it
+  // (migrateLegacyPadMass, planImport), and hardwareMass refuses a
+  // non-finite weighing before any arithmetic.
+  // eslint-disable-next-line no-restricted-syntax -- a pad-mass record, read as it stands (audit row 522)
   if (!rec || rec.padMassWeighedWith !== LEGACY_PAD_MASS_KEY || typeof rec.padMassKg !== 'number') return null;
   const kg = rec.padMassKg;
   const name = text.motorName(rec.label);

@@ -209,6 +209,7 @@ function loadChipState(): { x: number; y: number; folded: boolean } {
     const raw = localStorage.getItem(CHIP_KEY);
     if (raw) {
       const p = JSON.parse(raw) as Partial<{ x: number; y: number; folded: boolean }>;
+      // eslint-disable-next-line no-restricted-syntax -- the chip's own screen position, from JSON (no NaN); not a design number (audit row 522)
       if (typeof p.x === 'number' && typeof p.y === 'number') {
         return { x: p.x, y: p.y, folded: p.folded === true };
       }

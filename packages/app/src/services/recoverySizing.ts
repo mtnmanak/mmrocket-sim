@@ -6,6 +6,7 @@ import { G0, ISA_SEA_LEVEL } from '@online-openrocket/engine';
 import { mfrKey } from '../../scripts/manufacturers.mjs';
 import type { LaunchConditions } from '../components/LaunchPanel.js';
 import { mountBore } from '../tree/scaleRocket.js';
+import { ventLimit } from '../tree/canopyVent.js';
 import { num as nnum, numOrNull } from '../tree/nodeNum.js';
 import { findParent, isSeparatingParallelStage, mountMotorCount, suppressingAncestor } from '../tree/treeModel.js';
 import { padAir, R_AIR } from './atmosphere.js';
@@ -520,12 +521,21 @@ function num(n: ComponentNode | null, key: string): number | null {
  * Mirrors `treeModel.ts:engineTree` branch for branch, INCLUDING its
  * `min(hole, 0.95 D)` clamp and its `D > 0` divide guard, so the size line, the
  * candidate rates and the flight are one convention rather than three.
+ *
+ * D comes from the SAME `ventLimit` engineTree reads (tree/canopyVent.ts), and
+ * with it the 0.3 m fallback for a diameter that is absent, NaN or infinite —
+ * the canopy the kernel flies for it. This read D itself with no fallback, so
+ * such a chute's size line went unvented while its flight was vented: Cd 1.5
+ * with a 0.1 m hole sized at 1.5 and flew at 1.33 (review of audit row 522,
+ * which made a non-finite diameter read as an absent one in engineTree).
+ * makeNode and all three importers write a finite diameter, so only a
+ * hand-edited design reaches that case.
  */
 function ventFactor(n: ComponentNode | null): number {
-  const D = num(n, 'diameter');
+  const vent = n ? ventLimit(n) : null;
   const dh = num(n, 'spillHoleDiameter');
-  if (D === null || !(D > 0) || dh === null || !(dh > 0)) return 1;
-  return 1 - (Math.min(dh, D * 0.95) / D) ** 2;
+  if (vent === null || dh === null || !(dh > 0)) return 1;
+  return 1 - (Math.min(dh, vent.maxHole) / vent.diameter) ** 2;
 }
 
 /**

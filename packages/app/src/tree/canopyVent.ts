@@ -3,10 +3,12 @@ import { num } from './nodeNum.js';
 
 /**
  * THE SPILL-HOLE CEILING — a vent cannot be bigger than the canopy it is cut
- * in. One rule, read by the two places that must agree on it: `engineTree`
+ * in. One rule, read by the three places that must agree on it: `engineTree`
  * (tree/treeModel.ts), which clamps the hole it FLIES when it scales the
- * canopy's Cd by 1 − (hole/D)², and the property panel, which caps the spill
- * hole a user can type or slide at the same figure.
+ * canopy's Cd by 1 − (hole/D)², the property panel, which caps the spill
+ * hole a user can type or slide at the same figure, and the recovery panel's
+ * size line (`services/recoverySizing.ts` ventFactor), which quotes the Cd a
+ * design chute flies.
  *
  * They were two copies of `0.95 · D` with the same 0.3 m fallback (audit
  * 2026-09-22, carried from 8 September). The panel's copy was added because
@@ -14,9 +16,11 @@ import { num } from './nodeNum.js';
  * chute that the rocket was not flying, on the one control that scales descent
  * Cd — and a ceiling kept in step by a comment is one edit from disagreeing.
  *
- * `services/recoverySizing.ts` mirrors the flown formula for its sizing lines
- * (canopyCdA, ventFactor) from a different reader — a catalogue row, and a
- * design chute with no 0.3 m fallback — and keeps its own.
+ * `services/recoverySizing.ts` canopyCdA mirrors the flown formula for a
+ * catalogue row and keeps its own: a row with no usable diameter is no
+ * candidate, so it has no 0.3 m fallback. Its ventFactor, the design chute's
+ * size line, had no fallback either, and so quoted such a chute unvented while
+ * it flew vented; it reads ventLimit since the review of audit row 522.
  */
 
 /** A canopy with no stated diameter is flown at this (m) — engineTree's fallback. */

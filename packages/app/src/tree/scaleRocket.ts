@@ -533,6 +533,9 @@ function scaleNode(n: ComponentNode, k: number): ComponentNode {
   // station — including the fixed-size ones, which is desktop's rule too
   // (its "Scale component offsets" box, on for a whole-rocket scale).
   const pos = n.position as ComponentPosition | undefined;
+  // A non-finite offset comes out the same on either branch (round(NaN · k)
+  // is NaN, round(±Infinity · k) is ±Infinity), so this test cannot change it.
+  // eslint-disable-next-line no-restricted-syntax -- a pass-through, not a read (audit row 522)
   if (pos && typeof pos.offset === 'number') {
     out.position = { ...pos, offset: round(pos.offset * k) };
   } else if (pos && typeof pos === 'object') {

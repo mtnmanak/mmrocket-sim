@@ -243,6 +243,7 @@ export function parseSetIdentity(key: string): SetEntry[] | null {
   const out: SetEntry[] = [];
   for (const e of parsed) {
     if (!Array.isArray(e) || e.length !== 3
+        // eslint-disable-next-line no-restricted-syntax -- a count in the app's own set key (JSON: no NaN); not a design number (audit row 522)
         || typeof e[0] !== 'string' || typeof e[1] !== 'string' || typeof e[2] !== 'number') return null;
     out.push([e[0], e[1], e[2]]);
   }

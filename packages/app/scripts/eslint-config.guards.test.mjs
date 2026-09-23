@@ -16,7 +16,9 @@
  *     private reader FUNCTION alone, then the inline test in the design-file
  *     writers and cut-file exports; since audit row 522 (2026-09-23) it is
  *     refused anywhere in src — a conditional's or an `if`'s test, a value, a
- *     return, an arrow body — unless it is one operand of && or ||.
+ *     return, an arrow body — and, since that row's review, as one operand of
+ *     && or || too, unless the same chain has a bound or a Number.isFinite /
+ *     Number.isInteger to refuse NaN.
  *
  * It also pins that the type-aware rules (no-floating-promises and friends)
  * still resolve for shipped source, its tests and the engine.
@@ -140,18 +142,44 @@ describe('eslint.config.mjs — the browser-source guards resolve and fire', () 
     }
   });
 
-  it('leaves ordinary type narrowing, and a compound test, alone', async () => {
+  it('leaves ordinary type narrowing, and a compound test that refuses NaN, alone', async () => {
     // A plain variable is as often a union discriminator as a field read, and
-    // an operand of && / || usually has a partner that refuses NaN (a bound,
-    // Number.isFinite): eslint.config.mjs says why neither is matched.
+    // an operand of && / || beside a bound or Number.isFinite has a partner
+    // that refuses NaN: eslint.config.mjs says why neither is matched.
     const rules = await rulesFor('packages/app/src/tree/treeModel.ts', READER);
     expect(lint([
       'export function f(v: unknown, t: number | string, n: { [k: string]: unknown }): number {',
       "  if (typeof v === 'number' && v > 0) return v;",
       "  const u = typeof t === 'number' ? t : t.length;",
       "  const w = typeof n['w'] === 'number' && Number.isFinite(n['w']) ? (n['w'] as number) * 2 : 0;",
+      "  if (typeof n['x'] !== 'number' || !Number.isFinite(n['x'])) return 0;",
+      "  if (n['a'] && n['b'] && n['c'] && n['e'] && typeof n['g'] === 'number' && (n['g'] as number) > 1) return 1;",
       "  return typeof n['d'] === 'number' && (n['d'] as number) > 0 ? u + w : w;",
       '}',
     ].join('\n'), rules)).toEqual([]);
+  });
+
+  it('refuses a compound test with nothing in its chain to refuse NaN (review of audit row 522)', async () => {
+    // 14 of main's compound reads were this defect, converted by hand in row
+    // 522, and a revert of any of them passed lint while the rule exempted
+    // every && / || operand. Lines 2-3 are the review's reproductions; line 5
+    // is suppressingAncestor's own shape. Line 6: a bound in an OUTER chain
+    // does not cover a test inside a callback, and line 7: a bound inside a
+    // callback does not cover the chain around it.
+    const rules = await rulesFor('packages/app/src/services/buildAllowance.ts', READER);
+    expect(lint([
+      'export function f(n: { [k: string]: unknown } | null, xs: { [k: string]: unknown }[]): unknown[] {',
+      "  const a = n && typeof n['k'] === 'number' ? (n['k'] as number) : 0.2;",
+      "  const b = n?.['t'] !== 'x' && typeof n?.['k'] === 'number';",
+      "  const c = typeof n?.['m'] === 'number' || typeof n?.['g'] === 'number';",
+      "  const d = xs.find((x) => x['f'] === true && typeof x['v'] === 'number');",
+      "  const e = xs.length > 0 && xs.some((x) => x['f'] && typeof x['v'] === 'number');",
+      "  const g = typeof n?.['k'] === 'number' && xs.some((x) => (x['v'] as number) > 0);",
+      '  return [a, b, c, d, e, g];',
+      '}',
+    ].join('\n'), rules)).toEqual([
+      'no-restricted-syntax@2', 'no-restricted-syntax@3', 'no-restricted-syntax@4', 'no-restricted-syntax@4',
+      'no-restricted-syntax@5', 'no-restricted-syntax@6', 'no-restricted-syntax@7',
+    ]);
   });
 });

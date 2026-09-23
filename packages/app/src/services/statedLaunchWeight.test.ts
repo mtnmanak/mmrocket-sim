@@ -442,6 +442,28 @@ describe('the refusals — a wrong override is worse than none', () => {
     expect(fix.note).toContain('mass override is now');
     expect(fix.note).not.toContain('CG override is now');
   });
+
+  it('reads a NaN or infinite stated CG as no CG, on all three paths (audit row 522)', () => {
+    // The kernel sets no CG override for one (JSON.stringify sends null), so
+    // each path answers as it does for a stage with no CG at all: backed out
+    // with no CG sentence, or the mark dropped quietly. It was cleared with a
+    // warning instead — "nowhere computable", on the first path.
+    const other = { designation: 'K550', launchMassKg: 1, lengthM: 0.3, cgXFromFrontM: 0.15 };
+    const paths: Array<[string, Partial<ComponentNode>, ReturnType<typeof motor>]> = [
+      ['the named motor, a stated mass', {}, motor(1)],
+      ['the named motor, no stated mass', { overrideMass: undefined }, motor(1)],
+      ['another motor, no stated mass', { overrideMass: undefined }, other],
+    ];
+    for (const bad of [NaN, Infinity]) {
+      for (const [label, over, m] of paths) {
+        const got = reconcileIncludedMotor(marked({ ...over, overrideCGX: bad }), 'bt', m, TEXT)!;
+        const none = reconcileIncludedMotor(marked({ ...over, overrideCGX: undefined }), 'bt', m, TEXT)!;
+        expect([got.severity, got.note], `${label}, ${bad}`).toEqual([none.severity, none.note]);
+        expect(got.tree.components[0]!['overrideMass'], `${label}, ${bad}`)
+          .toEqual(none.tree.components[0]!['overrideMass']);
+      }
+    }
+  });
 });
 
 describe('the mark survives Save .ork — the motor may only turn up next session', () => {

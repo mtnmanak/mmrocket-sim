@@ -283,6 +283,21 @@ describe('planImport — one plan, applied and marked', () => {
     expect(unmatched.unmatchedRefs['mmt']!.padMassKg).toBe(1.5);
     expect(unmatched.note.text).toContain('could not be loaded');
   });
+
+  it('carries no NaN or infinite pad mass, as the .ork reader keeps none (audit row 522)', () => {
+    const plan = (extra: Partial<OrkFlightConfig>) => {
+      const imported: ImportedDesign = {
+        name: 'x', tree: podTree(), notes: [], motors: { mmt: ref('H100') },
+        configs: [config('A', { mmt: ref('H100') }, extra)], chosenConfigId: 'A',
+      };
+      return planImport(imported, resolvedAll(imported), { launch: LAUNCH, text: TEXT });
+    };
+    for (const bad of [NaN, Infinity]) {
+      const got = plan({ padMassKg: bad });
+      expect(got.snapshot.mountMotors['mmt'], String(bad)).toEqual(plan({}).snapshot.mountMotors['mmt']);
+      expect(got.snapshot.mountMotors['mmt']!.padMassKg, String(bad)).toBeUndefined();
+    }
+  });
 });
 
 describe('planConfigSwitch — one switch, applied and noted', () => {

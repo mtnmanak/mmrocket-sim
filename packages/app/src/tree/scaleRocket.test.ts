@@ -164,6 +164,7 @@ function numericLeaves(tree: RocketTree): Map<string, number> {
       for (const [k, v] of Object.entries(n)) {
         if (typeof v === 'number') out.set(`${id}.${k}`, v);
       }
+      // eslint-disable-next-line no-restricted-syntax -- lists every number, NaN included, as the loop above does
       if (n.position && typeof n.position.offset === 'number') {
         out.set(`${id}.position.offset`, n.position.offset);
       }
