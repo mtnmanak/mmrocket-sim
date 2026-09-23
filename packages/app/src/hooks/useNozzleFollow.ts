@@ -54,11 +54,12 @@ export function useNozzleFollow(opts: {
   const { loadout, treeRef, writeTree, lookup = nozzleForMotorId } = opts;
   const seen = useRef(new Map<string, { key: string; label: string }>());
   const [cleared, setCleared] = useState<Record<string, NozzleCleared>>({});
+  const mounted = useRef(true);
   useEffect(() => {
-    let live = true;
-    // The tree the loadout was computed from; the decision reads the stage's
-    // current value off it.
-    const tree = treeRef.current;
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
+  useEffect(() => {
     void (async () => {
       const acted = loadout.filter((s) => {
         const was = seen.current.get(s.stageId);
@@ -80,12 +81,27 @@ export function useNozzleFollow(opts: {
       }
       if (acted.length === 0) return;
 
+      const looked: { s: StageMotors; entries: (Pick<NozzleEntry, 'exitDiameterM'> | null)[] }[] = [];
+      for (const s of acted) {
+        looked.push({ s, entries: await Promise.all(s.motors.map((m) => lookup(m.motorId))) });
+      }
+      if (!mounted.current) return;
+
+      // EACH STAGE'S DECISION IS STILL ITS OWN after the await (audit
+      // 2026-09-22). This used to be one flag for the whole run, cleared
+      // whenever the effect re-ran — and it re-runs on ANY new loadout array,
+      // which a rename or a keystroke anywhere produces, while the record above
+      // had already been written. The decision was dropped with nothing left to
+      // make it again, and the new motor flew the previous motor's exit. Now a
+      // stage is decided here unless a NEWER loadout has been recorded for it
+      // since, in which case that run decides it.
       const updates: Record<string, number> = {};
       const clearedNow: Record<string, NozzleCleared> = {};
       const forgotten: string[] = [];
-      for (const s of acted) {
-        const entries = await Promise.all(s.motors.map((m) => lookup(m.motorId)));
-        const node = findNode(tree, s.stageId);
+      for (const { s, entries } of looked) {
+        if (seen.current.get(s.stageId)?.key !== stageMotorKey(s)) continue;
+        // The stage as it stands NOW, not when the lookup started.
+        const node = findNode(treeRef.current, s.stageId);
         const was = previous.get(s.stageId);
         const act = followNozzle({
           hadMotorsBefore: (was?.key ?? '') !== '',
@@ -102,7 +118,6 @@ export function useNozzleFollow(opts: {
           clearedNow[s.stageId] = { previousLabel: act.previousLabel, previousM: act.previousM };
         } else forgotten.push(s.stageId);
       }
-      if (!live) return;
       // `writeTree`, NOT `setTree`: this is a consequence of a motor change,
       // and motors do not live in the tree, so they are not on the undo stack.
       // Pushing an undo entry here would let one Ctrl+Z put the PREVIOUS
@@ -118,7 +133,6 @@ export function useNozzleFollow(opts: {
         });
       }
     })();
-    return () => { live = false; };
     // `treeRef`, `writeTree` and `lookup` are stable; the loadout is the trigger.
   }, [loadout, treeRef, writeTree, lookup]);
   return { cleared };

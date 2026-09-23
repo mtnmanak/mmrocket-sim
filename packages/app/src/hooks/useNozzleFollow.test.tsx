@@ -90,4 +90,43 @@ describe('useNozzleFollow', () => {
     await h.show(loadout('J1'));
     expect(h.writes).toHaveLength(0);
   });
+
+  /**
+   * THE RACE THE 2026-09-22 HANDOFF LEFT UNVERIFIED — real. The record of what
+   * was seen is written BEFORE the await (so a second render cannot act on the
+   * same change twice), and the old effect dropped its pending decision
+   * whenever it re-ran. It re-runs on ANY new loadout array, and the loadout is
+   * recomputed from `tree` — so a rename, a keystroke in any field or a motor
+   * change on another stage, landing while the first lookup was still loading
+   * (the lazy 354 kB nozzles.json chunk on a first visit), re-ran it with
+   * nothing left to act on: the new motor flew the PREVIOUS motor's exit, which
+   * is the exact outcome the rule exists to prevent.
+   */
+  it('still acts on a motor change when an unrelated edit lands while its lookup is loading', async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => { release = r; });
+    const slow: NozzleLookup = async (id) => { await gate; return lookup(id); };
+    const h = harness(tree(0.012), slow);
+    await h.show(loadout('J1'));
+    await h.show(loadout('K1'));         // the motor change: the lookup is now pending
+    h.treeRef.current = { ...h.treeRef.current, name: 'renamed' };
+    await h.show(loadout('K1'));         // an unrelated edit: same loadout, new array
+    await act(async () => { release(); await gate; });
+    expect(exitOf(h.treeRef.current)).toBe(0.016);
+    expect(h.treeRef.current.name).toBe('renamed');
+  });
+
+  it('leaves a stale decision to the newer loadout when the motors change twice mid-lookup', async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => { release = r; });
+    const slow: NozzleLookup = async (id) => { await gate; return lookup(id); };
+    const h = harness(tree(0.012), slow);
+    await h.show(loadout('J1'));
+    await h.show(loadout('K1'));
+    await h.show(loadout('X9'));         // no published exit: this one decides
+    await act(async () => { release(); await gate; });
+    expect(exitOf(h.treeRef.current)).toBeUndefined();
+    // Written once, by the newest loadout's decision - K1's never lands.
+    expect(h.writes.map(exitOf)).toEqual([undefined]);
+  });
 });
