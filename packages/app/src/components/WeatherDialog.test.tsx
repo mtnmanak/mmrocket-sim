@@ -214,6 +214,41 @@ describe('the weather dialog', () => {
     expect(urls).toHaveLength(3);
   });
 
+  // THE PRIVACY COPY, held to its two sources (review of 2026-09-23). What the
+  // app sends is what these requests carry, so every parameter of every one
+  // is named here: a searched name (and country), coordinates, the dates and
+  // the elevations, plus fixed settings — nothing else, and nothing from the
+  // design. What Open-Meteo does with a request is only ever attributed to
+  // its terms, which scripts/check-upstream.mjs §6 re-reads before a release.
+  it('sends what the intro says and nothing else, and says what Open-Meteo does only as its terms do', async () => {
+    await reviewGerlach({ ...DEFAULT_CONDITIONS, windStdDev: 0.7, launchRodAngleDeg: 5 });
+    const DATA = new Set(['name', 'countryCode', 'latitude', 'longitude', 'elevation', 'start_date', 'end_date']);
+    const FIXED: Record<string, string> = {
+      count: '10', language: 'en', format: 'json', wind_speed_unit: 'ms', temperature_unit: 'celsius',
+      timeformat: 'unixtime', timezone: 'auto',
+      hourly: 'temperature_2m,surface_pressure,wind_speed_10m,wind_gusts_10m,wind_direction_10m',
+    };
+    for (const u of urls) {
+      for (const [k, v] of new URL(u).searchParams) {
+        if (!DATA.has(k)) expect(FIXED[k], `${k}=${v} in ${u}`).toBe(v);
+      }
+    }
+    const { intro } = WEATHER_DIALOG_COPY;
+    expect(intro).toMatch(/one hour’s weather/);
+    expect(intro).not.toMatch(/forecast/); // an older date is a reanalysis
+    expect(intro).toMatch(/a place name you search for, the chosen place’s coordinates, the date and your site altitude — nothing about your rocket/);
+    const guide = readFileSync(join(here, '..', '..', 'user-guide.md'), 'utf8');
+    const leaves = guide.split('\n').find((l) => l.startsWith('**What leaves your browser.**')) ?? '';
+    expect(leaves).toContain('[terms](https://open-meteo.com/en/terms)');
+    // Every sentence about Open-Meteo's own handling names the terms as its source.
+    const ABOUT_OPEN_METEO = /\blogs?\b|third part|90 days|collect|retain|keeps?\b/i;
+    for (const text of [intro, leaves]) {
+      const about = text.split(/(?<=\.) (?=[A-Z])/).filter((s) => ABOUT_OPEN_METEO.test(s));
+      expect(about.length, text).toBeGreaterThan(0);
+      for (const s of about) expect(s, s).toMatch(/terms/);
+    }
+  });
+
   it('credits Open-Meteo under CC BY 4.0, and GeoNames once a search was used', async () => {
     render();
     const links = () => [...host.querySelectorAll('.weather-credit a')].map((a) => a.getAttribute('href'));

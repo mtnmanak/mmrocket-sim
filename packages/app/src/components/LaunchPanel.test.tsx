@@ -708,7 +708,8 @@ describe('applied weather in the Launch panel', () => {
     renderWeather(DEFAULT_CONDITIONS, null);
     const b = host.querySelector<HTMLButtonElement>('.panel-head .weather-btn')!;
     expect(b.textContent).toBe('☁ Get weather…');
-    expect(b.title).toMatch(/^Fetch one hour’s forecast/);
+    // "weather", not "forecast": an older date fetches the ERA5 reanalysis.
+    expect(b.title).toMatch(/^Fetch one hour’s weather/);
     act(() => b.click());
     expect(calls).toEqual(['get']);
     act(() => { window.dispatchEvent(new Event('offline')); });

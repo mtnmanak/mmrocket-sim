@@ -7,9 +7,12 @@ import { useOnline } from '../services/net.js';
  *
  * Offline it greys out and says why, the way ↻ Check thrustcurve.org does.
  * Weather already applied is ordinary launch conditions and flies offline.
+ *
+ * "Weather", not "forecast": for a date more than 92 days back the dialog
+ * fetches the ERA5 reanalysis, the weather as it was (review of 2026-09-23).
  */
 export const WEATHER_BUTTON_TITLE =
-  'Fetch one hour’s forecast for your launch site from Open-Meteo, review it, then apply what you want.';
+  'Fetch one hour’s weather for your launch site from Open-Meteo, review it, then apply what you want.';
 export const WEATHER_OFFLINE_TITLE =
   'Needs a connection — the weather comes from Open-Meteo. Everything else works offline.';
 

@@ -94,10 +94,26 @@ function browserCountry(): string {
 
 export const WEATHER_DIALOG_COPY = {
   title: 'Weather for launch conditions',
-  intro: 'Fetches one hour’s forecast for one place from Open-Meteo, a free weather service. The place '
-    + 'you type — or your coordinates — goes to Open-Meteo; nothing about your rocket does. Open-Meteo '
-    + 'keeps request logs, which include your IP address and the coordinates, for 90 days, and says it '
-    + 'shares them with no one.',
+  /**
+   * Two kinds of sentence, held to different sources (review of 2026-09-23).
+   * What the APP sends is the app's to say, and the requests openMeteo.ts
+   * builds are the evidence: a searched name (geocodeUrl), the chosen place's
+   * coordinates, the dates and the elevations (forecastUrl, elevationUrl).
+   * What OPEN-METEO does with a request is only ever what its own published
+   * terms say — https://open-meteo.com/en/terms, "Free Non-Commercial API
+   * Service", read 2026-09-23 — and this paraphrases nothing else. The first
+   * build said the logs "include your IP address" and that Open-Meteo "shares
+   * them with no one"; the terms say IP addresses MAY be collected, the logs
+   * MAY contain coordinates, and the logs go to no third party.
+   * scripts/check-upstream.mjs §6 re-reads those sentences before a release,
+   * so a change to them is caught rather than repeated. The guide's "What
+   * leaves your browser" says the same, at more length.
+   */
+  intro: 'Fetches one hour’s weather for one place from Open-Meteo, a free weather service. The app sends '
+    + 'Open-Meteo a place name you search for, the chosen place’s coordinates, the date and your site '
+    + 'altitude — nothing about your rocket. Open-Meteo’s terms say it may collect IP addresses for '
+    + 'technical reasons, such as server maintenance or preventing misuse, and that its server logs, which '
+    + 'may contain coordinates, are shared with no third party and deleted after 90 days.',
   placeholder: 'Town, State · US ZIP · or coordinates',
   locate: '📍 Use my location',
   locateNote: 'Your browser asks first. The position is rounded to about 1 km before it is sent or '

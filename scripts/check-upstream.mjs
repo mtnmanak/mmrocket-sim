@@ -46,6 +46,17 @@
  *     rather than failing a test nobody on CI can clear (2026-09-08, from
  *     review; nozzle-db.test.mjs reports the same thing and explains the
  *     split). Local files only — no network in this section.
+ *  6. Open-Meteo's terms (https://open-meteo.com/en/terms). The weather
+ *     dialog's intro and the guide's "What leaves your browser" tell the user
+ *     what Open-Meteo does with a request, and the only source allowed for
+ *     that is Open-Meteo's own published text (review of 2026-09-23: the first
+ *     build's copy claimed more than the terms said). The free tier the app
+ *     uses rests on the same page's definition of non-commercial use — the
+ *     owner's 2026-09-21 ruling that mountainmanrockets.com, a non-profit
+ *     hobby site with no subscriptions or advertising, fits it. The sentences
+ *     those rest on are quoted in OPEN_METEO_TERMS below; if any stops
+ *     appearing, the copy (WeatherDialog.tsx WEATHER_DIALOG_COPY.intro,
+ *     user-guide.md) or the ruling needs a fresh look before the release.
  *
  * EXIT CODES
  *   0  everything as expected (upstream still broken where we say it is)
@@ -458,6 +469,46 @@ function checkNozzles() {
   }
 }
 
+/**
+ * 6. The sentences of Open-Meteo's terms the app's copy and its free-tier use
+ * rest on, VERBATIM from https://open-meteo.com/en/terms as read 2026-09-23.
+ * `for` says what depends on each. Matched on the page's text with its tags
+ * dropped and its whitespace collapsed, so a re-wrap or new markup is not a
+ * change; a reworded sentence is.
+ */
+const OPEN_METEO_TERMS_URL = 'https://open-meteo.com/en/terms';
+const OPEN_METEO_TERMS = [
+  { for: 'the free tier (owner ruling 2026-09-21: a non-profit hobby site)',
+    text: 'Using our service for private or non-profit websites or apps that do not have subscriptions or advertising.' },
+  { for: 'the dialog intro and the guide: "may collect IP addresses for technical reasons"',
+    text: 'We may collect non-personal information, such as IP addresses, for technical reasons such as server maintenance or prevent misuse' },
+  { for: 'the dialog intro and the guide: "server logs, which may contain coordinates"',
+    text: 'For troubleshooting purposes, we keep webserver log files that may contain sensitive information such as geographical coordinates.' },
+  { for: 'the dialog intro and the guide: "shared with no third party"',
+    text: 'We do not share this data with any third party.' },
+  { for: 'the dialog intro and the guide: "deleted after 90 days"',
+    text: 'All log files will be deleted after a period of 90 days.' },
+];
+
+async function checkOpenMeteoTerms() {
+  say('');
+  say('6. Open-Meteo’s terms, as the weather copy and the free tier quote them');
+  const page = (await text(OPEN_METEO_TERMS_URL))
+    .replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;|&#160;/g, ' ').replace(/&#39;|&apos;|&rsquo;/g, '\'').replace(/&amp;/g, '&')
+    .replace(/\s+/g, ' ');
+  const flat = (s) => s.replace(/\s+/g, ' ');
+  for (const t of OPEN_METEO_TERMS) {
+    checked++;
+    if (page.includes(flat(t.text))) say(`  ok   still says: “${t.text}”`);
+    else {
+      flag(`no longer says: “${t.text}” — re-read ${OPEN_METEO_TERMS_URL} and re-check ${t.for}`);
+      notes.push(`Open-Meteo's terms moved under ${t.for}`);
+    }
+  }
+}
+
 try {
   say('Upstream vigilance check — READ ONLY, nothing here is written to the repo.');
   say('');
@@ -467,6 +518,7 @@ try {
   await checkMaterials();
   await checkThrustCurve();
   checkNozzles();
+  await checkOpenMeteoTerms();
   say('');
   if (moved === 0) {
     say(`All ${checked} watched value(s) are where this repo expects them. Nothing to do.`);
