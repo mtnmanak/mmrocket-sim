@@ -1353,15 +1353,19 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
     // TREE's bottom stage above, a simulation that motors only the sustainer
     // of a two-stage file (Loadstar's [B6-6]) left it on 'burnout' of a
     // booster that never burns, and the kernel aborted "no motors ignited".
-    // Its lowest motorized stage lights at launch instead; its IgnitionDelay,
-    // measured from the burnout of a stage that does not fly, goes with it.
+    // Its lowest motorized stage lights at launch instead, and each motor's
+    // IgnitionDelay is KEPT, counted from launch: with no motor below it, that
+    // is what RockSim flies. Its own stored result says so for the one corpus
+    // simulation in this shape with a delay (audit 2026-09-22 review):
+    // Scratch Builds/Blackhawk_2-stage.rkt, an empty booster slot under two
+    // O5500X, one with IgnitionDelay 15 — TimeToBurnout 18.9975 s, i.e. lit
+    // 15 s after launch plus its ~4 s burn. Zeroing it lit both at liftoff.
+    // (importCdx1 zeroes it, rightly for RASAero, which ignores the delay when
+    // the stage below never flies.)
     const lowest = Math.max(...entries.map(([id]) => stageOf(id)));
     if (lowest !== components.length - 1) {
       for (const [id, r] of entries) {
-        if (stageOf(id) === lowest) {
-          r.ignitionEvent = 'launch';
-          r.ignitionDelay = 0;
-        }
+        if (stageOf(id) === lowest) r.ignitionEvent = 'launch';
       }
     }
     const key = entries.map(([id, r]) => [id, r.designation, r.manufacturer, r.delay,
@@ -1399,7 +1403,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
   } else if (chosen && !flyable && components.length > 1) {
     const bottomName = components[bottomIdx]?.name ?? 'the bottom stage';
     notes.push(`No simulation in this file puts a motor on ${bottomName}. ${simLabel(chosen)} was opened `
-      + `with its lowest motor igniting at launch, so ${bottomName} flies along unpowered. Delete that `
+      + `with its lowest stage's motors timed from launch, so ${bottomName} flies along unpowered. Delete that `
       + 'stage in the Design tab to fly without it, or select its mount there and pick a motor.');
   } else if (chosen && configs.length > 1) {
     notes.push(`This file stores ${engineSims} RockSim simulations with motors, in ${configs.length} `
@@ -2237,10 +2241,34 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
   if (stageMotors.some((s) => s.length > 0)) {
     emit('<SimulationResultsList>');
     emit('<SimulationResults>');
-    // RockSim names a simulation by its motors, "[C6-5] [C6-0] " (a trailing
-    // space after each), "-P" for plugged — the name its simulation list shows.
-    const simName = stageMotors.flat().map(([, m]) =>
-      `[${m.designation}-${Number.isFinite(m.delay) ? m.delay : 'P'}] `).join('');
+    // Staging timer, so a .rkt written here round-trips through our own
+    // importer (and through RockSim) with its staging intact. RockSim
+    // measures IgnitionDelay from the stage below's BURNOUT, which is exactly
+    // what the importer maps to `ignitionEvent: 'burnout'`. On the LOWEST
+    // stage carrying a motor nothing below it burns, and RockSim counts the
+    // delay from launch — its stored results show it above an empty booster
+    // slot (Blackhawk_2-stage.rkt) and on single-stage air-start clusters
+    // (8 in Goblin 4 x 75mm.rkt: K828FJ at 3.2 s, TimeToBurnout 5.70 s) — so
+    // a 'launch' motor there writes its delay too (audit 2026-09-22 review).
+    // The importer's re-keying reads it back above an empty stage. Every
+    // other motor writes 0 (RockSim's own default), as before.
+    const lowestSlot = Math.max(...[0, 1, 2].filter((i) => stageMotors[i]!.length > 0));
+    const rktIgnitionDelay = (i: number, m: OrkExportMotor): number =>
+      m.ignitionEvent === 'burnout' || (m.ignitionEvent === 'launch' && i === lowestSlot)
+        ? (m.ignitionDelay ?? 0) : 0;
+    // RockSim names a simulation by its motors, the stage that leaves the pad
+    // first: one bracket per stage, a cluster's motors comma-separated inside
+    // it, "-P" for plugged, a non-zero IgnitionDelay after the ejection delay,
+    // and a trailing space after each bracket — "[B6-0] [A8-5] " is Loadstar's
+    // B6 booster under its A8 sustainer, "[O5500X-0-15, O5500X-0] " Blackhawk's
+    // pair with one lit 15 s late. Of the corpus names this spells exactly for
+    // two or more stages, all 129 put the bottom stage first and none the
+    // sustainer (audit 2026-09-22 review: it was sustainer first, one bracket
+    // per motor).
+    const simName = [2, 1, 0].filter((i) => stageMotors[i]!.length > 0).map((i) => `[${stageMotors[i]!.map(([, m]) => {
+      const ign = rktIgnitionDelay(i, m);
+      return `${m.designation}-${Number.isFinite(m.delay) ? m.delay : 'P'}${ign ? `-${ign}` : ''}`;
+    }).join(', ')}] `).join('');
     emit(`<SimulationName>${esc(simName)}</SimulationName>`);
     // Bottom slot first, as RockSim writes them: Stage1Engines is the stage
     // that leaves the pad, Stage3Engines the sustainer (our stage 0).
@@ -2250,15 +2278,7 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
         emit('<EngineSet>');
         emit('<EngineCount>1</EngineCount>');
         emit(`<EngineCode>${esc(m.designation)}</EngineCode>`);
-        // Staging timer, so a .rkt written here round-trips through our own
-        // importer (and through RockSim) with its staging intact. RockSim
-        // measures IgnitionDelay from the stage below's BURNOUT, which is exactly
-        // what the importer maps to `ignitionEvent: 'burnout'` — so only a
-        // burnout-triggered motor has a delay to write. A launch-stage motor, or
-        // one on a different ignition event we cannot express in this format,
-        // writes 0 (RockSim's own default).
-        const rktIgnitionDelay = m.ignitionEvent === 'burnout' ? (m.ignitionDelay ?? 0) : 0;
-        emit(`<IgnitionDelay>${rktIgnitionDelay}</IgnitionDelay>`);
+        emit(`<IgnitionDelay>${rktIgnitionDelay(3 - slot, m)}</IgnitionDelay>`);
         emit(`<EngineMfg>${esc(m.manufacturer ?? 'unknown')}</EngineMfg>`);
         emit(`<MountSerialNo>${nodeSerial.get(id) ?? -1}</MountSerialNo>`);
         // Never "Infinity" (audit 2026-09-22): a plugged motor is RockSim's own −2,

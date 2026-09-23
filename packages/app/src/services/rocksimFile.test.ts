@@ -2105,8 +2105,26 @@ describe('.rkt export writes its motors where RockSim keeps them', () => {
     expect(i1).toBeLessThan(i2);
     expect(i2).toBeLessThan(i3);
     expect(list).toContain('<Stage1Engines>\n</Stage1Engines>');
-    expect(list).toContain('<SimulationName>[C6-5] [C6-0] </SimulationName>');
     expect(xml.trimEnd().endsWith('</SimulationResultsList>\n</RockSimDocument>')).toBe(true);
+  });
+
+  it('names the simulation as RockSim does: the pad stage first, a cluster in one bracket', () => {
+    // Loadstar's "[B6-0] [A8-5] " is its B6 booster under the A8 sustainer —
+    // all 129 corpus names spelled this way for two or more stages put the
+    // bottom stage first. This wrote the sustainer's first, a bracket per motor.
+    expect(exportRkt(d)).toContain('<SimulationName>[C6-0] [C6-5] </SimulationName>');
+    const cluster = {
+      ...d,
+      tree: { name: 'M', components: [{ ...d.tree.components[0]!, children: [
+        { ...d.tree.components[0]!.children![0]!, children: [
+          { type: 'innertube', id: 'm2', length: 0.07, outerRadius: 0.0065, thickness: 0.0004, motorMount: true },
+        ] },
+      ] }, d.tree.components[1]!] as ComponentNode[] },
+      motors: { ...d.motors,
+        m2: { designation: 'A10T', manufacturer: 'Estes', diameter: 0.013, length: 0.045, delay: 3,
+          ignitionEvent: 'burnout', ignitionDelay: 0.5 } },
+    };
+    expect(exportRkt(cluster)).toContain('<SimulationName>[C6-0] [C6-5, A10T-3-0.5] </SimulationName>');
   });
 
   it('writes each engine set in RockSim’s own field order', () => {
@@ -2217,6 +2235,49 @@ describe('.rkt simulations become flight configurations', () => {
     // A full stack keeps the burnout timer on the upper stage.
     const [sus] = r.tree.components.map((s) => s.children![0]!.id!);
     expect(r.configs[0]!.motors[sus!]!.ignitionEvent).toBe('burnout');
+  });
+
+  /*
+   * Shaped on Scratch Builds/Blackhawk_2-stage.rkt: StageCount 2 with the
+   * booster slot EMPTY, and its one simulation lighting two O5500X on the
+   * sustainer, one with IgnitionDelay 15. RockSim's stored TimeToBurnout for it
+   * is 18.9975 s — 15 s after launch plus the motor's burn — so RockSim flew
+   * that delay from launch. The first re-keying zeroed it and lit both at liftoff.
+   */
+  const BLACKHAWK = `<RockSimDocument><DesignInformation><RocketDesign>
+    <Name>Blackhawk</Name><StageCount>2</StageCount>
+    <Stage3Parts><BodyTube><Name>Body</Name><OD>203</OD><ID>200</ID><Len>2000</Len>
+      <IsMotorMount>1</IsMotorMount><SerialNo>2</SerialNo><AttachedParts>
+      <BodyTube><Name>Outboard mount</Name><OD>100</OD><ID>98</ID><Len>900</Len><RadialLoc>50</RadialLoc>
+        <IsMotorMount>1</IsMotorMount><SerialNo>14</SerialNo></BodyTube>
+      </AttachedParts></BodyTube></Stage3Parts>
+    <Stage2Parts></Stage2Parts><Stage1Parts></Stage1Parts>
+    </RocketDesign></DesignInformation>
+    <SimulationResultsList><SimulationResults><SimulationName>[O5500X-0-15, O5500X-0] </SimulationName>
+      <Stage1Engines></Stage1Engines><Stage2Engines></Stage2Engines><Stage3Engines>
+      <EngineSet><EngineCount>1</EngineCount><EngineCode>O5500X</EngineCode><IgnitionDelay>15.</IgnitionDelay>
+        <EngineMfg>AeroTech</EngineMfg><MountSerialNo>2</MountSerialNo><EjectionDelay>0.</EjectionDelay></EngineSet>
+      <EngineSet><EngineCount>1</EngineCount><EngineCode>O5500X</EngineCode><IgnitionDelay>0.</IgnitionDelay>
+        <EngineMfg>AeroTech</EngineMfg><MountSerialNo>14</MountSerialNo><EjectionDelay>0.</EjectionDelay></EngineSet>
+      </Stage3Engines></SimulationResults></SimulationResultsList></RockSimDocument>`;
+
+  it('keeps a re-keyed stage’s IgnitionDelay, counted from launch', () => {
+    const r = importRkt(BLACKHAWK);
+    expect(r.tree.components).toHaveLength(2);
+    const body = r.tree.components[0]!.children![0]!;
+    const outboard = body.children!.find((c) => c.name === 'Outboard mount')!;
+    expect(r.motors[body.id!]).toMatchObject({ ignitionEvent: 'launch', ignitionDelay: 15 });
+    expect(r.motors[outboard.id!]).toMatchObject({ ignitionEvent: 'launch', ignitionDelay: 0 });
+    expect(r.notes.join(' ')).toMatch(/was opened with its lowest stage's motors timed from launch/);
+  });
+
+  it('writes that delay back, so the .rkt round trip keeps it', () => {
+    const r = importRkt(BLACKHAWK);
+    const xml = exportRkt({ name: 'Blackhawk', tree: r.tree, motors: r.motors });
+    expect(xml).toContain('<SimulationName>[O5500X-0-15, O5500X-0] </SimulationName>');
+    const back = importRkt(xml);
+    expect(Object.values(back.motors).map((m) => [m.ignitionEvent, m.ignitionDelay]).sort())
+      .toEqual([['launch', 0], ['launch', 15]]);
   });
 
   it('opens the first simulation that motors the launch stage, and says why', () => {
