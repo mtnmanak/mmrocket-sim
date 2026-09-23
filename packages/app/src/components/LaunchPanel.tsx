@@ -363,9 +363,13 @@ export function LaunchField({
       <NumField
         ariaLabel={symbol ? `${label} (${symbol})` : label}
         describedBy={help ? helpId : undefined}
-        // `== null`, not `=== null`: an OPTIONAL field (Longitude) is absent
-        // from every session saved before it existed, and `toUi(undefined)`
-        // rendered NaN in the box.
+        // `== null`, not `=== null`: an OPTIONAL field is absent (undefined)
+        // from every session saved before it existed, and absent reads as
+        // blank. Longitude, the one optional field today, has no unit spec, so
+        // toUi hands undefined straight back and its box was blank either way;
+        // a field WITH a spec (step 2's planned Rod aim) would convert
+        // undefined to NaN, which the box shows as "—" instead of blank.
+        // LaunchPanel.test pins it on a spec'd field.
         value={value[field] == null ? undefined : toUi(value[field] as number)}
         step={step}
         min={uiMin}

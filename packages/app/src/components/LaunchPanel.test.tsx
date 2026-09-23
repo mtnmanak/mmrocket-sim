@@ -4,7 +4,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import {
-  DEFAULT_CONDITIONS, DEFAULT_TIME_STEP_S, DENSITY_ALTITUDE_HELP, kernelSimOptions, LaunchPanel,
+  DEFAULT_CONDITIONS, DEFAULT_TIME_STEP_S, DENSITY_ALTITUDE_HELP, kernelSimOptions, LaunchField, LaunchPanel,
   LONGITUDE_HELP, timeStepCostFactor, type LaunchConditions,
 } from './LaunchPanel.js';
 import { isaPressurePa, isaTemperatureK } from '../services/atmosphere.js';
@@ -580,6 +580,25 @@ describe('the longitude field', () => {
     expect(input!.getAttribute('placeholder')).toBe('-80.6');
     renderConditions({ longitudeDeg: -119.355 });
     expect(lonInput()!.value).toBe('-119.355');
+  });
+
+  // The guard behind every OPTIONAL launch field: absent must read as blank.
+  // Longitude itself cannot catch a regression here — it has no unit spec, so
+  // an absent value passes through toUi as undefined and the box is blank
+  // either way — but a field WITH a unit spec (the Rod aim the spec plans for
+  // step 2 is one) converts undefined to NaN, which the box shows as "—".
+  // Pinned on a spec'd field.
+  it('renders an absent value of a field with a unit spec as blank, not "—" or NaN', () => {
+    const { temperatureC: _gone, ...noTemperature } = DEFAULT_CONDITIONS;
+    act(() => {
+      root.render(
+        <PrefsProvider>
+          <LaunchField label="Temperature" field="temperatureC" value={noTemperature as LaunchConditions}
+            onChange={() => {}} stepStored={1} nullable />
+        </PrefsProvider>,
+      );
+    });
+    expect(host.querySelector('input')!.value).toBe('');
   });
 
   it('commits null — never undefined — when the box is cleared', () => {
