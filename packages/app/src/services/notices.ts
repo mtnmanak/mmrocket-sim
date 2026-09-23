@@ -4,6 +4,7 @@ import type { MountMotor } from '../model/design.js';
 import { nozzleOversize, nozzleOversizeText } from './nozzleCheck.js';
 import { fmtStepS } from './orkFile.js';
 import { runCapNote } from './simStore.js';
+import { isImpulseNote } from './thrustcurve.js';
 
 /**
  * EVERYTHING TRANSIENT THE USER SHOULD SEE, in one channel with a severity —
@@ -11,11 +12,13 @@ import { runCapNote } from './simStore.js';
  *
  * Extracted from App.tsx's `notices` memo in the 2026-09-22 audit (row 501,
  * extraction #5 of 8 September). Nine branches of user-facing copy, each with
- * its own reasoned rule for whether it offers a ×, and the only coverage they
- * had was regexes over App's source text (nozzleWiring.test.ts,
- * noticeBarPhoneLift.test.ts), which stay green on the wrong severity or a
- * dropped branch as long as the text still matches. notices.test.ts asserts
- * them by what the list says.
+ * its own reasoned rule for whether it offers a ×. In App, two had their words
+ * read off a full render (App.session.test.tsx: a failed save's file note, the
+ * run-cap note); the rest, and every severity and ×, were held by regexes over
+ * App's source text (nozzleWiring.test.ts, noticeBarPhoneLift.test.ts) or by
+ * nothing — and a regex stays green on the wrong severity or a dropped branch
+ * as long as the text still matches. notices.test.ts asserts them all by what
+ * the list says.
  *
  * Motor trouble is a WARNING, never a build error: a malformed published
  * thrust curve is a fault in someone else's file and must not take the design
@@ -81,16 +84,17 @@ export interface NoticeDismissers {
  * published thrust curve needed repair before it could be flown (…). This is
  * a fault in the motor file": a complete sentence in another's brackets,
  * announcing a repair nothing made. The note already names the motor and says
- * what it means for apogee, so it is shown as written. Told apart by shape,
- * because stored sessions hold both kinds in that one list: repairSamples'
- * entries are lower-case fragments ("dropped 2 duplicate data points"), the
- * note is a sentence of its own. notices.test.ts holds both producers to that.
+ * what it means for apogee, so it is shown as written. Told apart by the
+ * note's own opening (thrustcurve.ts's `isImpulseNote`, which shares the lead
+ * with the producer), because stored sessions hold both kinds in that one
+ * list — not by the repairs' shape, so a repair worded some new way is still
+ * shown as a repair. notices.test.ts holds both producers to that.
  */
 export function curveNotes(assigned: NoticeInput['assigned']): { id: string; text: string }[] {
   const out: { id: string; text: string }[] = [];
   for (const [mountId, mm] of assigned) {
     const entries = (mm.spec as { curveRepairs?: string[] }).curveRepairs ?? [];
-    const repairs = entries.filter((e) => !isOwnSentence(e));
+    const repairs = entries.filter((e) => !isImpulseNote(e));
     if (repairs.length) {
       out.push({
         id: `curve-repair:${mountId}`,
@@ -99,15 +103,12 @@ export function curveNotes(assigned: NoticeInput['assigned']): { id: string; tex
           + 'motor file, not in your design.',
       });
     }
-    for (const note of entries.filter(isOwnSentence)) {
+    for (const note of entries.filter(isImpulseNote)) {
       out.push({ id: `curve-impulse:${mountId}`, text: note });
     }
   }
   return out;
 }
-
-/** A note written as a sentence of its own, not a repair fragment to bracket. */
-const isOwnSentence = (entry: string): boolean => /^[A-Z]/.test(entry);
 
 export function designNotices(input: NoticeInput, dismiss: NoticeDismissers): Notice[] {
   const out: Notice[] = [];

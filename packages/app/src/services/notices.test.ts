@@ -7,10 +7,13 @@ import { impulseNote, repairSamples } from './thrustcurve.js';
 /**
  * THE NOTICE LIST (audit 2026-09-22, row 501 — extraction #5 of 8 September).
  * Each branch of App's notice memo, asserted by what the list says: its id,
- * its severity, its words, and whether it offers a ×. Until this moved out of
- * App.tsx the only checks were regexes over the source, which pass on a wrong
- * severity as long as the text still matches — and a severity here decides
- * whether the bar opens itself over the phone's tab bar.
+ * its severity, its words, and whether it offers a ×. While this lived in
+ * App.tsx, App.session.test.tsx read two of its branches' words off a rendered
+ * App (a failed save's file note, the run-cap note); everything else — every
+ * severity, every ×, the other seven branches — was held by regexes over the
+ * source or by nothing, and a regex passes on a wrong severity as long as the
+ * text still matches. A severity here decides whether the bar opens itself
+ * over the phone's tab bar.
  */
 
 const spec = (designation: string, diameterMm: number, extra: object = {}): MotorSpec => ({
@@ -147,6 +150,19 @@ describe('designNotices', () => {
           + ' (put samples back into time order). This is a fault in the motor file, not in your design.'],
         ['curve-impulse:mount', note],
       ]);
+    });
+
+    /**
+     * Told apart by the note's own opening, not by the repairs' shape: every
+     * repair repairSamples writes today starts lower-case, but a repair worded
+     * some new way — capitalised, say — is still a repair, and must not lose
+     * the sentence that says the curve was mended.
+     */
+    it('keeps a repair worded some new way a repair', () => {
+      const n = one({ assigned: [['mount', mm(spec('F39', 24, { curveRepairs: ['Resampled the tail-off'] }))]] });
+      expect(n).toMatchObject({ id: 'curve-repair:mount', severity: 'warn' });
+      expect(n.text).toBe('F39: its published thrust curve needed repair before it could be flown'
+        + ' (Resampled the tail-off). This is a fault in the motor file, not in your design.');
     });
 
     it('keys each motor\'s notices by its mount, so loading another does not make them new', () => {

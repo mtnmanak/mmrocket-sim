@@ -363,6 +363,25 @@ const IMPULSE_AGREEMENT = 0.03;
 const IMPULSE_FLAG = 0.05;
 
 /**
+ * How every impulse note has opened since v0.116 — and so how one is told
+ * apart from a repair in `curveRepairs`, the list fetchMotorSpec appends it to
+ * (see `isImpulseNote`). Stored sessions hold notes written with it, so a
+ * rewording keeps this lead or teaches `isImpulseNote` the old one as well.
+ */
+const IMPULSE_NOTE_LEAD = 'The thrust curve flown for ';
+
+/**
+ * Is this `curveRepairs` entry the impulse note rather than a repair? The
+ * notice bar shows a repair inside "its published thrust curve needed repair
+ * (…)" and the note as the sentence it is (services/notices.ts). Matched on
+ * the note's own opening rather than on the shape of the repairs, so a repair
+ * worded some new way is still shown as a repair.
+ */
+export function isImpulseNote(entry: string): boolean {
+  return entry.startsWith(IMPULSE_NOTE_LEAD);
+}
+
+/**
  * The sentence, or null when the flown curve agrees with the catalogue to
  * within IMPULSE_FLAG or the catalogue publishes no total to compare with.
  * Exported for the tests; the wording names both numbers because a reader
@@ -374,7 +393,7 @@ export function impulseNote(motor: Pick<TcMotor, 'designation' | 'totImpulseNs'>
   const got = fileImpulseNs({ samples: [...samples] });
   const pct = (got / ref - 1) * 100;
   if (Math.abs(pct) <= IMPULSE_FLAG * 100) return null;
-  return `The thrust curve flown for ${motor.designation} integrates to ${got.toFixed(0)} N·s, `
+  return `${IMPULSE_NOTE_LEAD}${motor.designation} integrates to ${got.toFixed(0)} N·s, `
     + `${pct > 0 ? '+' : ''}${pct.toFixed(1)} % against the ${ref} N·s it is certified for — `
     + `expect apogee to read ${pct > 0 ? 'high' : 'low'} by roughly that much. `
     + 'thrustcurve.org publishes no closer file for it; import the motor\'s own .eng/.rse if you have one.';
@@ -612,8 +631,8 @@ export type RepairedMotorSpec = MotorSpec & {
    * simulated. Present only when the file needed them; the UI shows it so a
    * silent data fix never changes someone's numbers without saying so. Since
    * v0.116 fetchMotorSpec also appends `impulseNote`'s sentence here, which is
-   * not a repair: the repairs are lower-case fragments and the note a sentence
-   * of its own, and services/notices.ts shows each as what it is.
+   * not a repair: `isImpulseNote` tells it apart, and services/notices.ts shows
+   * each as what it is.
    */
   curveRepairs?: string[];
 };
