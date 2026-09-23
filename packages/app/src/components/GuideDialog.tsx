@@ -30,9 +30,12 @@ export function GuideDialog({ onClose }: { onClose: () => void }) {
           <div className="guide-body">
             <nav className="guide-toc" aria-label="Guide contents">
               {GUIDE_SECTIONS.map((s) => (
+                // aria-current says which section is on show (audit
+                // 2026-09-22) — the `active` class said it to the eye only.
                 <button
                   key={s.id}
                   className={s.id === active ? 'guide-toc-item active' : 'guide-toc-item'}
+                  aria-current={s.id === active ? 'page' : undefined}
                   onClick={() => {
                     setActive(s.id);
                     document.querySelector('.guide-content')?.scrollTo(0, 0);
@@ -42,7 +45,13 @@ export function GuideDialog({ onClose }: { onClose: () => void }) {
                 </button>
               ))}
             </nav>
-            <article className="guide-content">
+            {/* A focusable, named region (audit 2026-09-22). Nine of the twelve
+                sections hold no link, so nothing in them could take focus, and
+                the Tab trap wrapped from the last contents button straight back
+                to Close: the keyboard could not scroll past the first screen.
+                Focused, the arrow and Page keys scroll it. */}
+            <article className="guide-content" tabIndex={0} role="region"
+              aria-label={current?.title ?? 'User guide'}>
               {current && (
                 <>
                   <h2 className="guide-section-title">{current.title}</h2>
