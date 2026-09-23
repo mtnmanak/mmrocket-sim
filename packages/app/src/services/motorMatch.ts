@@ -115,18 +115,14 @@ export function refToExportMotor(ref: OrkMotorRef): OrkExportMotor {
 /** The result of resolving one file reference. */
 export interface MotorMatchResult {
   motor?: MountMotor;
-  /** What happened, for the import note. */
-  note: string;
   /**
-   * True when `motor` is a built-in APPROXIMATION standing in for a database
-   * motor whose published curve could not be fetched. The caller surfaces this
-   * one even though a motor was loaded: substituting a hand-written curve for
-   * the manufacturer's is a numbers change, and silence about it is the defect
-   * this whole module exists to close. Always absent since 2026-09-05 — there
-   * is no approximation left to load — and kept on the type only so a stored
-   * result from an older session still typechecks.
+   * What happened, for the import note. The importer surfaces it only when
+   * `motor` is absent: since 2026-09-05 a curve that cannot be had loads
+   * nothing, so a loaded motor is always the database's own. (An
+   * `approximated` flag for a built-in curve standing in was never set after
+   * that ruling and went, audit 2026-09-22, Dead code row 577.)
    */
-  approximated?: boolean;
+  note: string;
 }
 
 /** Injection points, so the network and the catalog can be stubbed in tests. */

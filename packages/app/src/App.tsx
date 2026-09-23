@@ -2838,9 +2838,10 @@ export function App() {
    * camera-shroud offer.
    *
    * The matching itself is `matchImportedMotor` in services/motorMatch.ts —
-   * the shipped database first, the built-in approximations only as a gated
-   * offline fallback. It used to be a closure in this file, where the only
-   * thing that could reach it was a regular expression over App.tsx.
+   * the shipped database and nothing below it: since v0.107 a motor whose
+   * curve cannot be had is reported, never substituted. It used to be a
+   * closure in this file, where the only thing that could reach it was a
+   * regular expression over App.tsx.
    *
    * There used to be an `withoutMotors` option here, driven by the config
    * picker's "Open with no motors loaded" button. The picker is gone

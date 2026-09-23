@@ -64,7 +64,7 @@ describe('matchImportedMotor — the database, and nothing below it', () => {
     expect(fetchSpec).toHaveBeenCalledOnce();
     expect(res.motor?.label).toBe('C6-5');
     expect(res.motor?.meta.manufacturer).toBe('Estes');
-    expect(res.approximated).toBeUndefined();
+    expect('approximated' in res).toBe(false);
     expect(res.note).toContain('loaded from the motor database');
   });
 
@@ -89,7 +89,7 @@ describe('matchImportedMotor — the database, and nothing below it', () => {
       fetchSpec: async () => { throw new Error('offline'); },
     });
     expect(res.motor).toBeUndefined();
-    expect(res.approximated).toBeUndefined();
+    expect('approximated' in res).toBe(false);
     expect(res.note).toContain('has no thrust curve');
   });
 
