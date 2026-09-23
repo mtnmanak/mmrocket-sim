@@ -216,7 +216,11 @@ export type ComponentType =
  *
  * For a CLUSTER the value is the single equivalent nozzle with the exit AREAS
  * summed (d_eq = d x sqrt(N) for N identical nozzles) — the kernel charges one
- * area per stage, never one per motor. A `parallelstage` node takes the field
+ * area per stage, never one per motor. The drag half takes that area off the
+ * stage's AFT-MOST base only: a pod's own base, or a step part way along the
+ * airframe, keeps its whole base drag (2026-09-22 — until then each of those
+ * took an area of its own, so two pods tripled the reduction; see
+ * `nozzleBaseDrag.test.ts`). A `parallelstage` node takes the field
  * too, and there it is ONE strap-on's equivalent exit: both halves charge one
  * area per stage INSTANCE, so N strap-ons get N areas (code review E2, fixed
  * 2026-09-22 — pressure thrust used to charge one area for the whole ring). A

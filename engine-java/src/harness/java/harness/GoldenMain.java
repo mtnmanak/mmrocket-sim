@@ -51,6 +51,129 @@ public final class GoldenMain {
         offAxisInertiaScenarios();
         parallelPressureThrustScenarios();
         freeformRefusalScenarios();
+        podNozzleBaseDragScenarios();
+    }
+
+    /**
+     * POWER-ON BASE DRAG ON A POD-SET OR STEPPED STAGE (kernel pass 2, audit
+     * 2026-09-22) - the stage's nozzle-exit area is credited once per stage
+     * INSTANCE, on the stage's aft-most base, the way the pressure-thrust half
+     * charges it. Before the fix calculateBaseCD took the area off EVERY base whose
+     * getStage() was the thrusting stage: a pod's body tube (a pod's stage is the
+     * enclosing one) and a step-down in the stage's own line each recovered a full
+     * area of their own.
+     *
+     * APPENDED AT THE END OF THE ROSTER ON PURPOSE - difftest.mjs compares the two
+     * runtimes' output BY LINE INDEX, so every existing line must keep its index.
+     *
+     * A 29 mm airframe with a 20 mm exit: `bare`, `pods` (two 24 mm pods on the aft
+     * end) and `step` (a 40 mm forward tube stepping straight down to the 29 mm one).
+     * Static rows are (mach, offBase, onBase, offTotal, onTotal) from getDragSweep
+     * under Rogers Kbf, plus `pods.ss` under the supersonic model because the gate is
+     * a disjunction. One area on the 29 mm reference is base(M) * (10/14.5)^2 -
+     * 0.0626397146... at M0.3 - and offBase - onBase must be exactly that on `bare`
+     * and on `pods`; before the fix `pods` read three of them and `step` two (on
+     * `step` one area is base(M) * (10/20)^2, the 40 mm tube being the reference).
+     * Flights, each (maxAltitude, maxVelocity, timeToApogee):
+     *   pods.kbf      - a 24 mm plateau motor in the core, Kbf: moves with the fix.
+     *   pods.classic  - the same flight flags-off: the leak detector, must not move.
+     *   podmotors.kbf - a motor in the core AND one in each pod, the stage exit
+     *                   typed as the three nozzles' equivalent (areas summed).
+     * The behavioural guards are packages/engine/src/nozzleBaseDrag.test.ts: difftest
+     * compares JVM against TeaVM with no stored baseline (LEDGER 2026-08-25b).
+     */
+    private static void podNozzleBaseDragScenarios() {
+        String[][] statics = {
+                //  tag        pods     step     supersonic
+                { "bare", "false", "false", "false" },
+                { "pods", "true", "false", "false" },
+                { "step", "false", "true", "false" },
+                { "pods.ss", "true", "false", "true" },
+        };
+        for (String[] c : statics) {
+            int r = api.OrkEngine.buildRocket(podNozzleJson("true".equals(c[1]), "true".equals(c[2]),
+                    0.020, false));
+            if ("true".equals(c[3])) {
+                api.OrkEngine.setSupersonicAero(r, true);
+            } else {
+                api.OrkEngine.setRogersModifiedBarrowman(r, true);
+            }
+            java.util.Map<String, Object> parsed = api.JsonLite.parseObject(
+                    api.OrkEngine.getDragSweep(r, "{\"machMin\":0.3,\"machMax\":1.5,\"machStep\":0.6}"));
+            java.util.List<?> machs = (java.util.List<?>) parsed.get("machs");
+            java.util.Map<String, Object> off = asMap(parsed.get("powerOff"));
+            java.util.Map<String, Object> on = asMap(parsed.get("powerOn"));
+            for (int i = 0; i < machs.size(); i++) {
+                line("podnozzle." + c[0] + "." + i,
+                        (Double) machs.get(i),
+                        (Double) ((java.util.List<?>) off.get("base")).get(i),
+                        (Double) ((java.util.List<?>) on.get("base")).get(i),
+                        (Double) ((java.util.List<?>) off.get("total")).get(i),
+                        (Double) ((java.util.List<?>) on.get("total")).get(i));
+            }
+        }
+
+        String[][] flights = {
+                //  tag              kbf      pod motors  nozzle
+                { "pods.kbf", "true", "false", "0.020" },
+                { "pods.classic", "false", "false", "0.020" },
+                { "podmotors.kbf", "true", "true", "0.015" },
+        };
+        for (String[] c : flights) {
+            boolean podMotors = "true".equals(c[2]);
+            int r = api.OrkEngine.buildRocket(podNozzleJson(true, false, Double.parseDouble(c[3]), podMotors));
+            api.OrkEngine.setMotorById(r, "cmount", "CONST16", 0.024, 0.1,
+                    new double[] { 0, 0.001, 1.999, 2.0 },
+                    new double[] { 0, 16.0, 16.0, 0 },
+                    new double[] { 0.1, 0.0999, 0.0501, 0.05 },
+                    0.05, 6.0);
+            if (podMotors) {
+                api.OrkEngine.setMotorById(r, "pmount", "CONST8", 0.018, 0.07,
+                        new double[] { 0, 0.001, 1.999, 2.0 },
+                        new double[] { 0, 8.0, 8.0, 0 },
+                        new double[] { 0.04, 0.0399, 0.0201, 0.02 },
+                        0.035, 6.0);
+            }
+            if ("true".equals(c[1])) {
+                api.OrkEngine.setRogersModifiedBarrowman(r, true);
+            }
+            java.util.Map<String, Object> summary = asMap(api.JsonLite.parseObject(
+                    api.OrkEngine.simulateJson(r, "{\"rodLength\":1.0}")).get("summary"));
+            line("flight.podnozzle." + c[0],
+                    api.JsonLite.dbl(summary, "maxAltitude", Double.NaN),
+                    api.JsonLite.dbl(summary, "maxVelocity", Double.NaN),
+                    api.JsonLite.dbl(summary, "timeToApogee", Double.NaN));
+        }
+    }
+
+    /**
+     * The podNozzleBaseDragScenarios airframe: a 29 mm core carrying a 24 mm mount
+     * ("cmount"), optionally two 24 mm pods (each with an 18 mm mount, "pmount", when
+     * `podMotors`), optionally stepped down from a 40 mm forward tube.
+     */
+    private static String podNozzleJson(boolean pods, boolean step, double nozzle, boolean podMotors) {
+        String podSet = ",{\"type\":\"podset\",\"id\":\"pods\",\"instanceCount\":2,\"radiusMethod\":\"relative\","
+                + "\"radiusOffset\":0,\"angleOffset\":0,\"position\":{\"method\":\"bottom\",\"offset\":0},\"children\":["
+                + "  {\"type\":\"nosecone\",\"length\":0.06,\"aftRadius\":0.012,\"thickness\":0.002},"
+                + "  {\"type\":\"bodytube\",\"length\":0.25,\"outerRadius\":0.012,\"thickness\":0.0005,\"density\":950"
+                + (podMotors
+                        ? ",\"children\":[{\"type\":\"innertube\",\"id\":\"pmount\",\"length\":0.07,\"outerRadius\":0.0095,"
+                                + "\"thickness\":0.0005,\"motorMount\":true,\"position\":{\"method\":\"bottom\",\"offset\":0}}]"
+                        : "")
+                + "}]}";
+        String forward = step
+                ? "{\"type\":\"nosecone\",\"length\":0.15,\"aftRadius\":0.02,\"thickness\":0.002},"
+                        + "{\"type\":\"bodytube\",\"length\":0.3,\"outerRadius\":0.02,\"thickness\":0.0005,\"density\":950},"
+                : "{\"type\":\"nosecone\",\"length\":0.12,\"aftRadius\":0.0145,\"thickness\":0.002},";
+        return "{\"name\":\"PodNozzle\",\"components\":[{\"type\":\"stage\",\"name\":\"S\",\"nozzleExitDiameter\":" + nozzle
+                + ",\"children\":[" + forward
+                + "{\"type\":\"bodytube\",\"length\":0.6,\"outerRadius\":0.0145,\"thickness\":0.0005,\"density\":950,\"children\":["
+                + "  {\"type\":\"trapezoidfinset\",\"finCount\":3,\"rootChord\":0.07,\"tipChord\":0.035,\"sweep\":0.04,\"height\":0.05,\"thickness\":0.003},"
+                + "  {\"type\":\"innertube\",\"id\":\"cmount\",\"length\":0.1,\"outerRadius\":0.0125,\"thickness\":0.0005,"
+                + "   \"motorMount\":true,\"position\":{\"method\":\"bottom\",\"offset\":0}},"
+                + "  {\"type\":\"parachute\",\"diameter\":0.45}"
+                + (pods ? podSet : "")
+                + "]}]}]}";
     }
 
     /**

@@ -166,6 +166,9 @@ neutralizing base drag) is deferred to feature #1. Four files:
 - **aerodynamics/BarrowmanCalculator.java** — in the instance `calculateBaseCD` aft-base
   block, subtract the owning stage's nozzle-exit area from the base area when that stage
   `isStageThrusting`. (This file already carried a TeaVM reflection patch — see below.)
+  **Since 2026-09-22 only from the stage's AFT-MOST base** (`isStageAftBase`): until then
+  every base in the stage took an area of its own, pods and step-downs included — see
+  "Correctness fixes", *the power-on nozzle credit lands on the stage's aft-most base*.
 - Bridge (not a patch): `api/OrkEngine.applySeparationConfig` reads `nozzleExitDiameter`
   off the stage node and calls the setter. App side: `<nozzleexitdiameter>` in `.ork`
   (metres) + a per-stage schema field.
@@ -742,7 +745,9 @@ no bridge export, no TypeScript method. The nozzle already reaches the stage
   `pressureThrust.test.ts` together), RASAero Manual p.50, so multiplying by
   `MotorClusterState.motorCount` would count a cluster twice against a field that already
   holds the sum. It also keeps the two halves consistent — the drag half subtracts one
-  nozzle area per stage INSTANCE. Two mounts on one stage are de-duplicated by stage number,
+  nozzle area per stage INSTANCE (true of a stage with pods or a step-down only since
+  2026-09-22, when the drag half stopped crediting every base in the stage — see "Correctness
+  fixes"). Two mounts on one stage are de-duplicated by stage number,
   the way `applyThrustState` builds its thrusting-stage set. (This overrules the kernel
   reader's per-motor recommendation; the physics and inputs readers were right.)
 - **RESOLVED 2026-09-22 (code review E2) — the halves now agree per stage INSTANCE.** This
@@ -1450,21 +1455,16 @@ aerodynamic model.
   the only way to reach the old or the new arithmetic is the raw engine API, where the old one
   now cannot be reached at all. When the queued parallel-stage nozzle field lands, it gets the
   per-instance reading both halves share.
-- **Known residual, FOUND while doing this and NOT fixed here (outside E2):** the drag half
-  subtracts the nozzle area from EVERY base in the stage — each `SymmetricComponent` whose aft
-  radius exceeds the next one's fore radius, pods included, since a pod's `getStage()` is the
-  enclosing stage — so a stage with more than one base per instance recovers more than one
-  nozzle area, while this half charges exactly one. **Reachable in the app today:** a serial
-  stage carrying a pod set, with the stage's nozzle exit set, under Kbf/Supersonic. Measured
-  through the shipped wrapper at Mach 0.3 (29 mm airframe, 20 mm exit, two 24 mm pods):
-  power-off base CD 0.13170 → power-on 0.11604 without pods (reduction 0.015660, one area);
-  with the pods 0.17680 → 0.12982 (reduction 0.046980, exactly THREE areas — core plus two
-  pods). Same species as E2, on the drag side, and pre-existing; it moves reachable numbers,
-  so it belongs on the board (Tier 1: a wrong number reaching users) and in `open-items.md`,
-  not in this entry. **It was NOT on either when this entry was written** — the package that
-  found it could not write the local-only `docs/` folder, so its return (audit 2026-09-22,
-  package A8) hands the row over for filing. Until a board row exists, this bullet is the
-  only record; whoever files it should replace this sentence with the row's pointer.
+- **Residual found while doing this — FIXED the same day (kernel pass 2, audit 2026-09-22):**
+  the drag half subtracted the nozzle area from EVERY base in the stage, pods included (a
+  pod's `getStage()` is the enclosing stage), so a stage with more than one base per instance
+  recovered more than one area while this half charged exactly one — measured at M0.3 (29 mm
+  airframe in RADIUS, 20 mm exit, two 24 mm pods) as 0.046980 against one area's 0.015660,
+  exactly three. The credit now lands on the stage's aft-most base only; entry, goldens and
+  measurements under "Correctness fixes", *the power-on nozzle credit lands on the stage's
+  aft-most base*, the next entry. (This bullet was the only record of the defect until then —
+  it had reached neither the board nor `open-items.md`, which the fixing package could not
+  write either; its return hands the closure over for filing.)
 - **Behavioural guard:** `packages/engine/src/pressureThrust.test.ts`, *"credits a parallel
   stage one nozzle area per strap-on"* — for N = 1, 2, 3, every plateau row bit-exact against
   `N × 32 + N × term` and, for N > 1, NOT equal to the pre-fix `N × 32 + term`. It fails
@@ -1476,6 +1476,96 @@ aerodynamic model.
   `dafd535038530da83eacef3083d33f19`. `getComponentLocations` 13 → 14 occurrences — the new
   call site in `calculatePressureThrust`, which is the proof the change is in the build.
 - **Upstreamable:** n/a — upstream has no pressure-thrust term.
+
+### aerodynamics/BarrowmanCalculator.java — the power-on nozzle credit lands on the stage's aft-most base, once per stage INSTANCE (kernel pass 2, audit 2026-09-22)
+
+- **Why:** feature #2's `calculateBaseCD` subtracted the stage's equivalent nozzle-exit area
+  from EVERY `SymmetricComponent` base whose `getStage()` was the thrusting stage. Two kinds
+  of base were over-credited: a POD's tube (a pod's components are children of their
+  `PodSet`, but their stage is the enclosing one) and a STEP-DOWN part way along the stage's
+  own line (a wide tube straight onto a narrower one, no transition). So a stage with k bases
+  per instance recovered k nozzle areas — clamped at each base's own area — while the
+  pressure-thrust half charged exactly one per stage instance (E2, the entry above). Found
+  while doing E2, recorded there as a residual, verified twice on 2026-09-22 and confirmed at
+  `3918947` by a failing test before this change: through the shipped wrapper at M0.3, Rogers
+  Kbf, a 29 mm airframe (radius 14.5 mm) with a 20 mm exit, the reduction was
+  **0.18791914387633768 with two 24 mm pods against 0.06263971462544587 without — 3.000
+  areas** — and a 40 mm tube stepping onto a 29 mm one recovered **0.06585, two areas**. The
+  field is defined app-side as the stage's single equivalent exit (areas summed), so one area
+  per stage instance is the accounting both halves are meant to share.
+- **Change:** one more conjunct on the credit — `&& isStageAftBase(s, stage)`, evaluated LAST,
+  after the model gate, the nozzle and the thrusting flag — and a private static
+  `isStageAftBase` appended after `calculateBaseCD`: true only for the LAST `SymmetricComponent`
+  child of the stage itself. A pod's parts are children of their `PodSet`, so they never
+  qualify; an earlier part of the stage's line never qualifies, so a step keeps its whole
+  base. The stage's children are its body line in axial order (`AxialStage` and
+  `ParallelStage` accept `BodyComponent`s only, and in this kernel every `BodyComponent` is a
+  `SymmetricComponent`) — the same child order `getNextSymmetricComponent` reads to decide that
+  a base exists at all. `total += instanceCount * cd` is untouched, so the one credited base
+  still scales by the stage's instance count and an N-strap-on `ParallelStage` recovers N
+  areas, exactly as E2 made the pressure-thrust half charge them. If the stage's last
+  component is not a base (a sustainer onto an equally wide interstage), the stage gets no
+  credit anywhere — correct, the exhaust has no base of that stage to pressurize.
+- **Scope, structurally:** the new conjunct runs only when the old credit would have been
+  taken, so Classic Extended Barrowman (the gate), every design without a nozzle and every
+  coasting step execute nothing new, and a single-base stage — the whole corpus bar pods and
+  steps — takes the identical branch with identical arithmetic.
+- **Divergence from upstream:** none new — feature #2 is ours, gated to Rogers Kbf /
+  Supersonic / Auto as before. The comment in `RK4SimulationStepper.calculatePressureThrust`'s
+  javadoc that said the drag half subtracts "from each aft base" is corrected in the same
+  commit (comment only: the stepper's bytecode, and its part of the artifact, are unchanged).
+- **Oracle:** the before/after `goldenJvm` diff. Goldens `podNozzleBaseDragScenarios()`,
+  appended at the END (difftest compares by line index): `podnozzle.{bare,pods,step,pods.ss}.*`
+  (mach, offBase, onBase, offTotal, onTotal at M0.3/0.9/1.5 through `getDragSweep`) and
+  `flight.podnozzle.{pods.kbf,pods.classic,podmotors.kbf}`. The scenario was added FIRST and
+  run on the unfixed kernel, then the fix: **all 380 pre-existing lines bit-identical, and 384
+  of 395 overall** — `podnozzle.bare.*` (one base: must not move) and
+  `flight.podnozzle.pods.classic` (the model-gate leak detector) are among the unmoved.
+  Movement is confined to the 11 `pods`/`step`/`pods.ss`/`pods.kbf`/`podmotors.kbf` lines.
+- **Checked as arithmetic, not as "the number changed":** `pods` at M0.3 now reduces base CD by
+  0.31210237812128416 − 0.24946266349583826 = 0.0626397146254459, against `bare`'s
+  0.06263971462544587 and `0.1317 × (10/14.5)²` = 0.06263971462544589 (last-place rounding);
+  before, the same row read 0.12418323424494648 on, a reduction of 0.18791914387633768 =
+  3.000000000000001 × `bare`'s. The pods' power-OFF base drag is untouched: `pods` − `bare`
+  power-off = 0.18040237812128418 = `2 × 0.1317 × (12/14.5)²`. `step` at M0.3: 0.1317 −
+  0.098775 = 0.032925 = `0.1317 × (10/20)²` on its 40 mm reference (before: 0.06585, two
+  areas); at M1.5, 0.16666666666666669 − 0.125 = one area of `0.25/1.5`. Differential **380 →
+  395 lines**, JVM↔TeaVM clean (265 bit-identical, 130 within tolerance).
+- **User-visible, measured** through the app's own importer, motor matcher, nozzle database
+  and tree translator on both artifacts (`vite-node`, scratch driver): **LEM-IV** (Eric's own
+  design, `docs/User files/LEM-IV.ork` — two 25.4 mm pods on the fin can, whose 5.07 cm² bases
+  are each smaller than the exit and so were zeroed outright), with the M1500G its flown
+  configuration names and that motor's published 1.875 in exit applied to its stage as the
+  nozzle-follow rule applies it: **Rogers Kbf apogee 3924.038 → 3894.020 m (−30.0 m,
+  −0.76 %)**, max velocity 453.730 → 450.231 m/s; **Supersonic 3783.646 → 3760.178 m
+  (−23.5 m, −0.62 %)**. The file's default configuration (HP-K535W, 1.25 in exit): −0.38 %
+  under both. The same flights with no nozzle are bit-identical on both artifacts (3823.480 /
+  3704.954 m) — the way back is unchanged. The whole nozzle model's effect on LEM-IV's M1500G
+  flight falls from +2.63 % to +1.84 % of apogee (Kbf). Golden fixture: `pods.kbf` 359.368 →
+  354.145 m (−1.45 %), `podmotors.kbf` 541.833 → 537.388 m (−0.82 %). Every mover LOSES
+  apogee: the old kernel shed base drag the pods never lost.
+- **Known residual, recorded rather than modelled:** the clamp `max(0, area − nozzleArea)` now
+  applies to one base, so a stage whose motors sit ONLY in pods, on a core whose own aft base
+  is smaller than the summed equivalent exit (a core tapering to a point, say), is credited
+  less than one area in the drag half while the pressure-thrust half still charges the full
+  one. Crediting the remainder onto the pods' bases would mean knowing which mounts burn
+  through which base — the kernel's thrusting flag is per stage, not per mount. Before this
+  fix the same design was over-credited by up to one area per pod, so the error shrank and
+  changed sign; no tester file has the shape (LEM-IV's motor is in the core).
+- **Behavioural guards:** `packages/engine/src/nozzleBaseDrag.test.ts`, 4 tests — the pod
+  design's reduction equals the podless design's and one area, under Kbf and Supersonic, at
+  M0.3 and M0.9, with the pods' power-off base drag pinned; the stepped airframe credited once;
+  a parallel stage still credited N areas for N strap-ons; and Classic inert (`on === off`) on
+  all three designs, plus the pod design with no nozzle under Kbf. The first two fail against
+  the pre-fix artifact (0.18791914387633768 and 0.06585 read where one area is due); the last
+  two pass on both, which is their job.
+- **Artifact:** `packages/engine/vendor/orkengine.mjs` 2,759,604 → 2,766,975 bytes (the golden
+  scenario is most of it), md5 `5f8d53e985b754d457b1710343f8a300` →
+  `e04d4a5aa19e3ee46bf4c8545cc4baae`. `isStageAftBase` 0 → 2 occurrences (the definition and
+  the call inside the nozzle branch) — the grep, not Gradle's `UP-TO-DATE`, is the evidence.
+  The HEAD artifact was first rebuilt from HEAD source and reproduced byte-for-byte, so the
+  before side of every measurement above is the kernel users have.
+- **Upstreamable:** n/a — upstream has no nozzle-exit model.
 
 ## Rules
 

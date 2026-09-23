@@ -1109,10 +1109,23 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 				// non-parity models like every other extension. No validation row
 				// moves (all 175 gates are power-OFF and no fixture sets a nozzle),
 				// and no Kbf/Supersonic user's numbers move either.
+				//
+				// ONE BASE PER STAGE INSTANCE (kernel pass 2, audit 2026-09-22): the
+				// area comes off the stage's AFT-MOST base only - see isStageAftBase.
+				// Until then it came off every base whose getStage() was the thrusting
+				// stage, so a pod's tube (a pod's stage is the enclosing one) and a
+				// step-down in the stage's own line each recovered an area of their
+				// own: measured at M0.3, Kbf, 29 mm airframe, 20 mm exit, two 24 mm
+				// pods took 0.187919 off the base CD where one area is 0.062640.
+				// `total += instanceCount * cd` below still scales the one credited
+				// base by the stage's instance count, so an N-strap-on ParallelStage
+				// recovers N areas - the per-instance accounting
+				// RK4SimulationStepper.calculatePressureThrust charges its term with.
 				AxialStage stage = s.getStage();
 				double nozzleDia = (rogersKbf || supersonicAero) && stage != null
 						? stage.getNozzleExitDiameter() : 0.0;
-				if (nozzleDia > 0.0 && stage != null && conditions.isStageThrusting(stage.getStageNumber())) {
+				if (nozzleDia > 0.0 && stage != null && conditions.isStageThrusting(stage.getStageNumber())
+						&& isStageAftBase(s, stage)) {
 					double nozzleArea = Math.PI * pow2(nozzleDia / 2.0);
 					area = Math.max(0.0, area - nozzleArea);
 				}
@@ -1134,6 +1147,39 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 		lastBodyBaseCD = total;
 
 		return total;
+	}
+
+	/**
+	 * PATCH (kernel pass 2, audit 2026-09-22 - see engine-java/patches/LEDGER.md,
+	 * "Correctness fixes"): whether {@code s} is the base a thrusting stage's
+	 * motors exhaust through, i.e. the one base that may take the power-on
+	 * nozzle-exit credit in {@link #calculateBaseCD}.
+	 * <p>
+	 * That is the LAST body component of the stage's own line - a direct child of
+	 * the stage. A pod's components are children of their PodSet, so they never
+	 * qualify, although their getStage() is the enclosing stage; an earlier
+	 * component of the stage's line never qualifies either, so a step-down part way
+	 * along the airframe keeps its whole base. The stage's children are its body
+	 * line in axial order (AxialStage and ParallelStage accept BodyComponents only)
+	 * - the same child order getNextSymmetricComponent reads to decide that a base
+	 * exists at all. If that last component is not a base (a sustainer whose next
+	 * component is an equally wide interstage), the stage gets no credit anywhere.
+	 * <p>
+	 * Called only once the model gate, the nozzle and the thrusting flag have all
+	 * passed, so the flags-off path and every design without a nozzle execute
+	 * nothing new.
+	 */
+	private static boolean isStageAftBase(SymmetricComponent s, AxialStage stage) {
+		if (s.getParent() != stage) {
+			return false;
+		}
+		for (int i = stage.getChildCount() - 1; i >= 0; i--) {
+			RocketComponent child = stage.getChild(i);
+			if (child instanceof SymmetricComponent) {
+				return child == s;
+			}
+		}
+		return false;
 	}
 	
 	/**
