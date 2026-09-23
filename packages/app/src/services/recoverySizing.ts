@@ -528,8 +528,12 @@ function num(n: ComponentNode | null, key: string): number | null {
  * such a chute's size line went unvented while its flight was vented: Cd 1.5
  * with a 0.1 m hole sized at 1.5 and flew at 1.33 (review of audit row 522,
  * which made a non-finite diameter read as an absent one in engineTree).
- * makeNode and all three importers write a finite diameter, so only a
- * hand-edited design reaches that case.
+ * makeNode and all three importers write a finite diameter, but an ABSENT one
+ * still reaches here from a session saved before v0.138: until then the
+ * property panel let Canopy diameter be cleared, which committed `undefined`,
+ * and the autosave's JSON drops the key (re-verification of row 522). Such a
+ * chute's size line now quotes the vented rate its flight already used — for
+ * Cd 1.5 with a 0.1 m hole, about 6 % more diameter than before.
  */
 function ventFactor(n: ComponentNode | null): number {
   const vent = n ? ventLimit(n) : null;

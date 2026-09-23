@@ -62,14 +62,21 @@ import { fileURLToPath } from 'node:url';
 // NaN and of ±Infinity. The no-restricted-syntax rule in the browser-source
 // block below refuses it in two shapes; its comment says why and what it
 // leaves alone.
-const TYPEOF_NUMBER = "BinaryExpression[operator=/^[!=]==?$/][left.operator='typeof']"
+const typeofNumber = (operator) => `BinaryExpression[operator=${operator}][left.operator='typeof']`
   + "[left.argument.type=/^(MemberExpression|ChainExpression)$/][right.value='number']";
+const TYPEOF_NUMBER = typeofNumber('/^[!=]==?$/');
 // Shape 1: standing on its own — the whole test of a conditional or an `if`,
 // a value, a return, an arrow body — rather than one operand of `&&` / `||`.
 const LONE_TYPEOF_NUMBER = `${TYPEOF_NUMBER}:not(LogicalExpression > BinaryExpression)`;
 // Shape 2: one operand of an `&&` / `||` chain that has nothing else in it to
-// refuse NaN — no bound (`<`, `<=`, `>`, `>=`, which NaN fails) and no
-// Number.isFinite / Number.isInteger, negated or not. esquery's `:has` takes
+// refuse NaN. What refuses it depends on which way the test points. An ACCEPT
+// test (`=== 'number'`) goes on to use the value, so its partner must be FALSE
+// for NaN: a bare bound (`<`, `<=`, `>`, `>=`, all false for NaN) or a bare
+// Number.isFinite / Number.isInteger. A REJECT test (`!== 'number'`) picks the
+// fallback, so its partner must be TRUE for NaN: the same two, negated. A bound
+// in a reject chain (`!== 'number' || x <= 0`) or a negated one in an accept
+// chain (`=== 'number' && !(x <= 0)`) lets NaN through, and both were exempt
+// until re-verification of row 522 found it. esquery's `:has` takes
 // ONE `>` step reliably (`:has(> A > B)` matched the wrong nodes in esquery
 // 1.7, probed 2026-09-23), so each level of the chain is a :has of its own:
 // CHAIN_DEPTH levels are searched, down from each of the test's CHAIN_DEPTH + 1
@@ -78,14 +85,15 @@ const LONE_TYPEOF_NUMBER = `${TYPEOF_NUMBER}:not(LogicalExpression > BinaryExpre
 const NAN_REFUSER = ':matches(BinaryExpression[operator=/^[<>]=?$/], '
   + "CallExpression[callee.object.name='Number'][callee.property.name=/^is(Finite|Integer)$/])";
 const CHAIN_DEPTH = 6;
-const refuserWithin = (depth) => {
-  const here = `:has(> ${NAN_REFUSER}), :has(> UnaryExpression[operator='!']:has(> ${NAN_REFUSER}))`;
-  return depth === 0 ? `:matches(${here})`
-    : `:matches(${here}, :has(> LogicalExpression${refuserWithin(depth - 1)}))`;
-};
-const REFUSED_IN_CHAIN = Array.from({ length: CHAIN_DEPTH + 1 },
-  (_, up) => `LogicalExpression${refuserWithin(CHAIN_DEPTH)}${' > LogicalExpression'.repeat(up)} > ${TYPEOF_NUMBER}`);
-const UNREFUSED_TYPEOF_NUMBER = `LogicalExpression > ${TYPEOF_NUMBER}:not(${REFUSED_IN_CHAIN.join(', ')})`;
+const refuserWithin = (here, depth) => (depth === 0 ? `:matches(${here})`
+  : `:matches(${here}, :has(> LogicalExpression${refuserWithin(here, depth - 1)}))`);
+const unrefused = (test, here) => `LogicalExpression > ${test}:not(${Array.from({ length: CHAIN_DEPTH + 1 },
+  (_, up) => `LogicalExpression${refuserWithin(here, CHAIN_DEPTH)}${' > LogicalExpression'.repeat(up)} > ${test}`)
+  .join(', ')})`;
+const UNREFUSED_TYPEOF_NUMBER = [
+  unrefused(typeofNumber('/^===?$/'), `:has(> ${NAN_REFUSER})`),
+  unrefused(typeofNumber('/^!==?$/'), `:has(> UnaryExpression[operator='!']:has(> ${NAN_REFUSER}))`),
+].join(', ');
 
 export default tseslint.config(
   {
@@ -296,12 +304,12 @@ export default tseslint.config(
       // byte-identically, since only a non-finite field reads differently.
       //
       // The compound shape, from the review of row 522. The lone rule let
-      // every && / || operand through, and 14 of main's compound lines in
+      // every && / || operand through, and 15 of main's compound lines in
       // shipped source were exactly this defect, converted by hand in row 522
       // (PropertyPanel 5, buildAllowance 2, treeModel 2, and componentTable,
       // presets, recoverySizing, ScaleDialog, solidContext and solidMesh) —
       // a revert of any of them passed lint. UNREFUSED_TYPEOF_NUMBER reports
-      // all 14 on main's source; on row 522's own tree it found 31 more
+      // all 15 on main's source; on row 522's own tree it found 31 more
       // typeof tests on 24 lines. Converted, as design numbers (12 lines):
       // rocksimFile's base-extension fold, where a NaN override still split
       // the extension out of <BaseExtensionLen> on export, orkFile's
@@ -317,7 +325,9 @@ export default tseslint.config(
       // Tests are included (they read nodes too), and so is packages/engine/src
       // (0 hits; there, test Number.isFinite). NOT matched, on purpose:
       //  - a compound test with a bound (`<`, `<=`, `>`, `>=`) or a
-      //    Number.isFinite / Number.isInteger ANYWHERE in its && / || chain.
+      //    Number.isFinite / Number.isInteger ANYWHERE in its && / || chain,
+      //    bare beside an accept test, negated beside a reject test (top of
+      //    file). The selector does not check whether the chain is && or ||.
       //    A selector cannot tell whether that partner tests the same value:
       //    scaleRocket's point scaler passes on `p.length >= 2`, a bound on
       //    another number (harmless there — NaN · k is NaN on either branch).
@@ -335,7 +345,8 @@ export default tseslint.config(
       }, {
         selector: UNREFUSED_TYPEOF_NUMBER,
         message: 'typeof-number accepts NaN and Infinity (typeof NaN is "number"), and nothing else in this '
-          + '&& / || refuses them (no bound, no Number.isFinite). Read the field with num / numOpt / numOrNull '
+          + '&& / || refuses them (a bound or Number.isFinite beside an === test, or one negated beside a !== '
+          + 'test). Read the field with num / numOpt / numOrNull '
           + 'from tree/nodeNum.ts; if it is not a design number, say why in an eslint-disable-next-line comment.',
       }],
     },

@@ -154,13 +154,14 @@ describe('eslint.config.mjs — the browser-source guards resolve and fire', () 
       "  const w = typeof n['w'] === 'number' && Number.isFinite(n['w']) ? (n['w'] as number) * 2 : 0;",
       "  if (typeof n['x'] !== 'number' || !Number.isFinite(n['x'])) return 0;",
       "  if (n['a'] && n['b'] && n['c'] && n['e'] && typeof n['g'] === 'number' && (n['g'] as number) > 1) return 1;",
+      "  if (typeof n['y'] !== 'number' || !((n['y'] as number) > 0)) return 0;",
       "  return typeof n['d'] === 'number' && (n['d'] as number) > 0 ? u + w : w;",
       '}',
     ].join('\n'), rules)).toEqual([]);
   });
 
   it('refuses a compound test with nothing in its chain to refuse NaN (review of audit row 522)', async () => {
-    // 14 of main's compound reads were this defect, converted by hand in row
+    // 15 of main's compound reads were this defect, converted by hand in row
     // 522, and a revert of any of them passed lint while the rule exempted
     // every && / || operand. Lines 2-3 are the review's reproductions; line 5
     // is suppressingAncestor's own shape. Line 6: a bound in an OUTER chain
@@ -180,6 +181,29 @@ describe('eslint.config.mjs — the browser-source guards resolve and fire', () 
     ].join('\n'), rules)).toEqual([
       'no-restricted-syntax@2', 'no-restricted-syntax@3', 'no-restricted-syntax@4', 'no-restricted-syntax@4',
       'no-restricted-syntax@5', 'no-restricted-syntax@6', 'no-restricted-syntax@7',
+    ]);
+  });
+
+  it('refuses a partner that points the wrong way (re-verification of audit row 522)', async () => {
+    // A reject test needs a partner that is TRUE for NaN, an accept test one
+    // that is FALSE for it. Each line here hands a NaN through: a bare bound
+    // beside a reject test (2, 4), a negated one beside an accept test (3), a
+    // negated Number.isFinite beside an accept test (5) and a bare one beside
+    // a reject test (6). Line 2 is the shape re-verification put into App.tsx,
+    // where it passed the whole gate.
+    const rules = await rulesFor('packages/app/src/services/buildAllowance.ts', READER);
+    expect(lint([
+      'export function f(n: { [k: string]: unknown }): unknown[] {',
+      "  const a = typeof n['a'] !== 'number' || (n['a'] as number) <= 0 ? 0.02 : n['a'];",
+      "  const b = typeof n['b'] === 'number' && !((n['b'] as number) <= 0);",
+      "  const c = typeof n['c'] !== 'number' || (n['c'] as number) < 0 ? 2 : n['c'];",
+      "  const d = typeof n['d'] === 'number' && !Number.isFinite(n['d']);",
+      "  const e = typeof n['e'] !== 'number' || Number.isFinite(n['e']) ? 1 : n['e'];",
+      '  return [a, b, c, d, e];',
+      '}',
+    ].join('\n'), rules)).toEqual([
+      'no-restricted-syntax@2', 'no-restricted-syntax@3', 'no-restricted-syntax@4',
+      'no-restricted-syntax@5', 'no-restricted-syntax@6',
     ]);
   });
 });
