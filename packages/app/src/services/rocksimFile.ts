@@ -1241,10 +1241,16 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
       manufacturer,
       diameter: 0, // unknown in the file — match by designation alone
       length: 0,
-      delay: read === 'plugged' ? Infinity : read === 'every' ? (every?.delay ?? 0) : read,
+      // A motor the catalogue does not know has no list to take a delay from,
+      // so it is kept PLUGGED: a .ork Save writes "none", which reopens with the
+      // plugged warning, where the 0 s it held until the review of the seam
+      // fixes (2026-09-22) reopened as an ordinary delay and would fire at
+      // burnout the day the motor became loadable. The flag gives a .rkt its −1.
+      delay: read === 'plugged' ? Infinity : read === 'every' ? (every?.delay ?? Infinity) : read,
       mountId: mount.id,
       ...(isBottomStage ? {} : { ignitionEvent: 'burnout' as const, ignitionDelay }),
       ...(every?.autoDelay ? { autoDelay: true as const } : {}),
+      ...(read === 'every' ? { rktEveryDelay: true as const } : {}),
     };
     if (read === 'plugged') sentinelRefs.set(ref, 'plugged');
     else if (read === 'every') {
@@ -1275,22 +1281,33 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
       notes.push(`${motor}: plugged (no ejection charge — RockSim's EjectionDelay −2) — `
         + 'make sure recovery deploys on apogee/altitude, not the ejection charge.');
     } else if (kind === 'every') {
+      // What the REFERENCE takes, never "loaded": 80 catalogue motors have no
+      // thrust curve anywhere, and for those the matcher loads nothing and says
+      // so right after this note. The reader cannot tell them apart — the
+      // curves are a lazy bundle (review of the seam fixes, 2026-09-22).
       notes.push(`${asks}which flies each listed delay in turn; `
         + (Number.isFinite(ref.delay)
-          ? `loaded at the longest, ${ref.delay} s — the one RockSim's own run reports.`
-          : 'the only option the motor database lists is plugged, so it is loaded plugged.')
-        + ' Change it on the Motors & Launch tab.');
+          ? `this takes the longest, ${ref.delay} s — the one RockSim's own run reports.`
+          : 'the only option the motor database lists is plugged, so it is taken plugged.'));
     } else if (kind === 'every-auto') {
       notes.push(`${asks}which flies each listed delay in turn; the motor database lists no numeric delay `
-        + 'for it, so it is loaded on Auto (optimal), the motor browser’s own default for it.'
-        + ' Change it on the Motors & Launch tab.');
+        + 'for it, so it is set to Auto (optimal), the motor browser’s own default for it.'
+        // Auto re-flies the PRIMARY mount only (flightRunner.flyLaunch), as for
+        // a browser pick, so the rest of a cluster built as separate mounts
+        // flies the provisional 0 s: the Cheetah probe with its G135R mount
+        // cloned twice deployed at burnout, 1.05 s (review of the seam fixes).
+        // Worded for any of them, since the primary may sit in another stage.
+        + (mounts > 1
+          ? ` Auto re-flies the rocket's primary mount only: any of these ${mounts} that is not it flies the`
+            + ' provisional 0 s, so its charge fires at burnout — give those a delay of their own.'
+          : ''));
     } else if (kind === 'every-unmatched') {
       // Not "the database lists no delay": the motor is not in it, so nothing
       // loads on the mount and there is no delay box to send the user to. The
-      // reference is kept for Save, which writes it back at 0 s.
+      // reference is kept for Save, plugged, with the flag for a .rkt's −1.
       notes.push(`${asks}which takes its delays from the motor's own list — and this motor isn't in `
-        + 'the motor database, so there is no list to take one from. The reference is kept, and a '
-        + 'Save writes it back at 0 s.');
+        + 'the motor database, so there is no list to take one from. The reference is kept: a .rkt '
+        + 'Save hands RockSim its −1 back, and a .ork, which has no “every delay”, gets it plugged.');
     }
   }
 
@@ -1315,6 +1332,8 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
  * and what the exporter below writes for a plugged motor.
  */
 const RKT_PLUGGED_DELAY = -2;
+/** RockSim's "every delay" sentinel — see rktEjectionDelay. */
+const RKT_EVERY_DELAY = -1;
 
 /**
  * An engine set's <EjectionDelay>: a delay in seconds, or one of RockSim's two
@@ -1360,7 +1379,8 @@ function rktEjectionDelay(engineSet: Element): number | 'plugged' | 'every' {
  *
  * Matched the way motorMatch will match the same reference (designation and
  * maker, no diameter: a .rkt carries none). null when the catalogue has no
- * such motor. Exported for the test that pins it to the browser.
+ * such motor, which the reader keeps plugged. Exported for the test that pins
+ * it to the browser.
  */
 export function rktEveryDelay(
   designation: string, manufacturer: string,
@@ -2049,7 +2069,10 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
       emit(`<EngineMfg>${esc(m.manufacturer ?? 'unknown')}</EngineMfg>`);
       // Never "Infinity" (audit 2026-09-22): a plugged motor is RockSim's own −2,
       // which RockSim reads as plugged and so does our importer (rktEjectionDelay).
-      emit(`<EjectionDelay>${Number.isFinite(m.delay) ? m.delay : RKT_PLUGGED_DELAY}</EjectionDelay>`);
+      // A reference nothing loaded that the file gave RockSim's "every delay"
+      // goes back as the −1 it came in as (OrkMotorRef.rktEveryDelay).
+      emit(`<EjectionDelay>${m.rktEveryDelay ? RKT_EVERY_DELAY
+        : Number.isFinite(m.delay) ? m.delay : RKT_PLUGGED_DELAY}</EjectionDelay>`);
       // Staging timer, so a .rkt written here round-trips through our own
       // importer (and through RockSim) with its staging intact. RockSim
       // measures IgnitionDelay from the stage below's BURNOUT, which is exactly

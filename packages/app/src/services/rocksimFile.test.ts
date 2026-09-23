@@ -5,9 +5,11 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
 import { exportRkt, importRkt, rktEveryDelay } from './rocksimFile.js';
+import { exportOrk, importOrk } from './orkFile.js';
+import { refToExportMotor } from './motorMatch.js';
 import { loadPresets } from './presets.js';
 import { findDbMotor, MOTOR_DB } from './motorDb.js';
-import { defaultDelay, delayOptions } from './thrustcurve.js';
+import { bundledSimFiles, defaultDelay, delayOptions } from './thrustcurve.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -1047,6 +1049,20 @@ describe('RockSim ejection-delay sentinels', () => {
     const r = importRkt(rkt([s]));
     return { delay: Object.values(r.motors)[0]!.delay, notes: r.notes.join(' ') };
   };
+  /** A cluster built as three separate mounts, one engine set each (PELTZER_Swarm_JR.rkt's shape). */
+  const cluster = (code: string, mfr: string, ejectionDelay: string) => {
+    const mounts = [7, 8, 9];
+    return `<RockSimDocument><DesignInformation><RocketDesign>
+      <Name>Swarm</Name><StageCount>1</StageCount>
+      <Stage3Parts>${mounts.map((s) => `<BodyTube><Name>Mount ${s}</Name><OD>24.8</OD><ID>24.1</ID>
+        <Len>100</Len><IsMotorMount>1</IsMotorMount><SerialNo>${s}</SerialNo></BodyTube>`).join('')}
+      </Stage3Parts>
+      <SimulationResultsList><SimulationResults><Stage3Engines>${mounts.map((s) => `<EngineSet>
+        <EngineCode>${code}</EngineCode><EngineMfg>${mfr}</EngineMfg><IgnitionDelay>0.</IgnitionDelay>
+        <MountSerialNo>${s}</MountSerialNo><EjectionDelay>${ejectionDelay}</EjectionDelay></EngineSet>`).join('')}
+      </Stage3Engines></SimulationResults></SimulationResultsList>
+    </RocketDesign></DesignInformation></RockSimDocument>`;
+  };
 
   it('−2 is plugged, and the note says so', () => {
     const { delay, notes } = one('<EjectionDelay>-2.</EjectionDelay>');
@@ -1062,17 +1078,63 @@ describe('RockSim ejection-delay sentinels', () => {
     expect(notes).toMatch(/7 s/);
   });
 
-  it('−1 on a motor the catalogue does not know records 0 s and says so, never −1', () => {
+  /**
+   * WHAT A SAVE WRITES FOR A REFERENCE NOTHING LOADED (review of the seam fixes,
+   * 2026-09-22). v0.137 passed −1 through, so a .rkt Save handed RockSim its
+   * "every delay" back. The sentinel fix resolved it to 0 s instead and every
+   * Save wrote that — which reopens as an ordinary 0 s with no note, and fires
+   * at burnout the day the motor becomes loadable. 8 of the owner's files reach
+   * it (darkstar4.rkt's K1440-WT, Wildman.rkt's K570-Classic, Blackhawk29.rkt's
+   * I204-IM …).
+   */
+  it('−1 on a motor the catalogue does not know is kept: −1 back to a .rkt, plugged to a .ork, never 0 s', () => {
     const r = importRkt(rkt(['<EjectionDelay>-1.</EjectionDelay>']).replace(/C6/g, 'ZQ9999X'));
-    expect(Object.values(r.motors)[0]!.delay).toBe(0);
-    expect(Object.values(r.motors)[0]!.autoDelay).toBeUndefined();
+    const ref = Object.values(r.motors)[0]!;
+    expect(ref.delay).toBe(Infinity);
+    expect(ref.rktEveryDelay).toBe(true);
+    expect(ref.autoDelay).toBeUndefined();
     // The reason is the motor's ABSENCE, not an empty delay list (seam review of
     // audit 2026-09-22: all 8 corpus files that reach this note are unmatched
     // motors, and the old text sent the user to a delay box that does not exist).
     const note = r.notes.find((n) => /EjectionDelay −1/.test(n))!;
     expect(note).toMatch(/isn't in the motor database/);
-    expect(note).toMatch(/Save writes it back at 0 s/);
-    expect(note).not.toMatch(/lists no delay|Motors & Launch/);
+    expect(note).not.toMatch(/lists no delay|Motors & Launch|0 s/);
+    // Saved the way App saves a reference nothing matched.
+    const motors = { [ref.mountId!]: refToExportMotor(ref) };
+    const asRkt = exportRkt({ name: 'Delays', tree: r.tree, motors });
+    expect(asRkt).toContain('<EjectionDelay>-1</EjectionDelay>');
+    const again = importRkt(asRkt);
+    expect(Object.values(again.motors)[0]!.delay).toBe(Infinity);
+    expect(again.notes.find((n) => /EjectionDelay −1/.test(n))).toBe(note);
+    // A .ork has no "every delay": plugged, which reopens with its own warning.
+    const asOrk = exportOrk({ name: 'Delays', tree: r.tree, motors });
+    expect(asOrk).toContain('<delay>none</delay>');
+    const reopened = importOrk(asOrk);
+    expect(Object.values(reopened.motors)[0]!.delay).toBe(Infinity);
+    expect(reopened.notes).toContainEqual(expect.stringMatching(/^Motor ZQ9999X: plugged/));
+  });
+
+  /**
+   * 80 catalogue motors have no simulator file on thrustcurve.org at all, so
+   * the matcher loads nothing and says so. This note said "loaded at the
+   * longest, 10 s … Change it on the Motors & Launch tab" right beside it
+   * (review of the seam fixes, 2026-09-22). The reader cannot know — the curves
+   * are a lazy bundle — so the note says what the REFERENCE carries.
+   */
+  it('−1 on a catalogue motor with no thrust curve names the delay it carries, never a load', async () => {
+    const g80 = findDbMotor('G80', undefined, undefined, 'Estes')!;
+    expect(delayOptions(g80)).toEqual([7, 10]);
+    expect(await bundledSimFiles(g80.motorId)).toEqual([]);
+    const r = importRkt(rkt(['<EjectionDelay>-1.</EjectionDelay>'])
+      .replace('<EngineCode>C6</EngineCode>', '<EngineCode>G80</EngineCode>'));
+    const ref = Object.values(r.motors)[0]!;
+    expect(ref.delay).toBe(10);
+    const note = r.notes.find((n) => /EjectionDelay −1/.test(n))!;
+    expect(note).toMatch(/the longest, 10 s/);
+    expect(note).not.toMatch(/loaded|Motors & Launch/);
+    // And a Save of it, still unmatched, gives RockSim its −1 back.
+    expect(exportRkt({ name: 'G80', tree: r.tree, motors: { [ref.mountId!]: refToExportMotor(ref) } }))
+      .toContain('<EjectionDelay>-1</EjectionDelay>');
   });
 
   /**
@@ -1094,6 +1156,31 @@ describe('RockSim ejection-delay sentinels', () => {
     const note = r.notes.find((n) => /EjectionDelay −1/.test(n))!;
     expect(note).toMatch(/Auto \(optimal\)/);
     expect(note).not.toMatch(/0 s/);
+  });
+
+  /**
+   * Auto delay re-flies the PRIMARY mount only (flightRunner.flyLaunch), as it
+   * does for a motor browser pick, so a cluster built as separate mounts flies
+   * every other mount at the provisional 0 s and its charge fires at burnout —
+   * the Cheetah probe with its G135R mount cloned twice deployed at 1.05 s
+   * (review of the seam fixes, 2026-09-22). The note said nothing of it.
+   */
+  it('−1 on a no-delay motor across several mounts says only the primary is re-flown', () => {
+    const r = importRkt(cluster('G135R', 'KBA', '-1.'));
+    expect(Object.values(r.motors).map((m) => m.autoDelay)).toEqual([true, true, true]);
+    const said = r.notes.filter((n) => /EjectionDelay −1/.test(n));
+    expect(said).toEqual([expect.stringMatching(/^Motor G135R \(3 mounts\): /)]);
+    expect(said[0]).toMatch(/any of these 3 that is not it flies the provisional 0 s, so its charge fires at burnout/);
+  });
+
+  it('a plugged cluster saved as .ork reopens with one note, not one per mount', () => {
+    // PELTZER_Swarm_JR.rkt, opened and saved as .ork: twelve identical lines on reopen.
+    const r = importRkt(cluster('C6', 'Estes', '-2.'));
+    const motors = Object.fromEntries(Object.entries(r.motors).map(([id, ref]) => [id, refToExportMotor(ref)]));
+    const back = importOrk(exportOrk({ name: 'Swarm', tree: r.tree, motors }));
+    expect(Object.values(back.motors)).toHaveLength(3);
+    expect(back.notes.filter((n) => /plugged/.test(n)))
+      .toEqual([expect.stringMatching(/^Motor C6 \(3 mounts\): plugged/)]);
   });
 
   it("pins the −1 rule to the motor browser's default pick, for every motor in the shipped catalogue", () => {
@@ -1122,18 +1209,7 @@ describe('RockSim ejection-delay sentinels', () => {
 
   it('notes each motor once, however many mounts carry it', () => {
     // PELTZER_Swarm_JR.rkt: twelve E30 mounts, all −2, gave twelve identical lines.
-    const mounts = [7, 8, 9];
-    const xml = `<RockSimDocument><DesignInformation><RocketDesign>
-      <Name>Swarm</Name><StageCount>1</StageCount>
-      <Stage3Parts>${mounts.map((s) => `<BodyTube><Name>Mount ${s}</Name><OD>24.8</OD><ID>24.1</ID>
-        <Len>100</Len><IsMotorMount>1</IsMotorMount><SerialNo>${s}</SerialNo></BodyTube>`).join('')}
-      </Stage3Parts>
-      <SimulationResultsList><SimulationResults><Stage3Engines>${mounts.map((s) => `<EngineSet>
-        <EngineCode>C6</EngineCode><EngineMfg>Estes</EngineMfg><IgnitionDelay>0.</IgnitionDelay>
-        <MountSerialNo>${s}</MountSerialNo><EjectionDelay>-2.</EjectionDelay></EngineSet>`).join('')}
-      </Stage3Engines></SimulationResults></SimulationResultsList>
-    </RocketDesign></DesignInformation></RockSimDocument>`;
-    const r = importRkt(xml);
+    const r = importRkt(cluster('C6', 'Estes', '-2.'));
     expect(Object.values(r.motors)).toHaveLength(3);
     expect(r.notes.filter((n) => /plugged/.test(n)))
       .toEqual([expect.stringMatching(/^Motor C6 \(3 mounts\): plugged/)]);

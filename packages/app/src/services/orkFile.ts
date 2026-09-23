@@ -65,6 +65,14 @@ export interface OrkMotorRef {
    * `matchImportedMotor` turns the flag into `meta.autoDelay`.
    */
   autoDelay?: true;
+  /**
+   * Read from RockSim's "every delay" sentinel (<EjectionDelay> −1), which no
+   * `delay` can hold. Set only by the RockSim reader; `refToExportMotor` carries
+   * it so a .rkt Save of a reference NOTHING loaded gives RockSim its −1 back,
+   * where the delay it was resolved to reopened as an ordinary one (review of
+   * the seam fixes, 2026-09-22). A loaded motor has a real delay and drops it.
+   */
+  rktEveryDelay?: true;
 }
 
 export interface OrkTreeImportResult {
@@ -462,6 +470,8 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
 
   /** `designation|value` pairs already named in a note (resolveRef below). */
   const unknownIgnitions = new Set<string>();
+  /** Each plugged motor's note: where it sits in `notes`, and how many mounts carry it. */
+  const pluggedNotes = new Map<string, { at: number; mounts: number }>();
   const readMotor = (el: Element, node: ComponentNode) => {
     const mountEl = el.querySelector(':scope > motormount');
     if (!mountEl) return;
@@ -533,8 +543,22 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
     // (desktop writes defaults bare, overrides in <ignitionconfiguration>).
     const ref = resolveRef(motorEl, configScoped(mountEl, 'ignitionconfiguration') ?? mountEl);
     if (!Number.isFinite(ref.delay)) {
-      notes.push(
-        `Motor ${ref.designation}: plugged (no ejection charge) — make sure recovery deploys on apogee/altitude, not the ejection charge.`);
+      // One note per motor, however many mounts carry it — the RockSim
+      // reader's rule. A cluster built as separate mounts (PELTZER_Swarm_JR.rkt's
+      // twelve E30s) opened once as .rkt gave one line, and saved as .ork and
+      // reopened gave twelve identical ones (review of the seam fixes,
+      // 2026-09-22). Rewritten in place, so the note keeps its position.
+      const seen = pluggedNotes.get(ref.designation);
+      const mounts = (seen?.mounts ?? 0) + 1;
+      const line = `Motor ${ref.designation}${mounts > 1 ? ` (${mounts} mounts)` : ''}: plugged (no ejection`
+        + ' charge) — make sure recovery deploys on apogee/altitude, not the ejection charge.';
+      if (seen) {
+        seen.mounts = mounts;
+        notes[seen.at] = line;
+      } else {
+        pluggedNotes.set(ref.designation, { at: notes.length, mounts });
+        notes.push(line);
+      }
     }
     if (node.id) {
       motors[node.id] = ref;
@@ -1517,6 +1541,8 @@ export interface OrkExportMotor {
    * same warn-and-skip it gives <measuredmass>, not an unknown motor child.
    */
   padMassKg?: number;
+  /** An unmatched reference's RockSim "every delay" (OrkMotorRef.rktEveryDelay): .rkt writes −1. */
+  rktEveryDelay?: true;
 }
 
 /** One flight configuration to write (Stage B) — the stable id from import. */
