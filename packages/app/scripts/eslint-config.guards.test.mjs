@@ -28,8 +28,9 @@
  *
  * Each rule is read from the config ESLint actually resolves for a real file,
  * then run on a probe with the typescript-eslint parser alone, so no type
- * program is built. (Named eslint-config.*, not eslint.config.*: vitest's
- * default exclude drops every `*.config.*` file, so that name never runs.)
+ * program is built. (Named eslint-config.*, not eslint.config.*: the test
+ * exclude in vite.config.ts, vitest 2's default list, drops `eslint.config.*`
+ * with the other tools' config names, so that name never runs.)
  */
 import { describe, expect, it } from 'vitest';
 import { ESLint, Linter } from 'eslint';

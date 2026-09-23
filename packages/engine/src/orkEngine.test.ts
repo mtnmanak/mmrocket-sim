@@ -769,7 +769,9 @@ describe('OrkRocket (real OpenRocket kernel via TeaVM)', () => {
     const three = ring3.simulate({ launchRodLength: 1.0 });
     expect(three.summary.maxAcceleration).toBeGreaterThan(2 * one.summary.maxAcceleration);
     expect(three.summary.maxAltitude).toBeGreaterThan(2 * one.summary.maxAltitude);
-  });
+    // Up to 1.9 s on the deploy runner (v0.138-v0.140). Vitest 2 never timed out
+    // a synchronous test; vitest 3.1 and later fail one past 5 s (AUDIT row 528).
+  }, 60000);
 
   it('flies a serial two-stage rocket with separate booster branch (P3 staging)', () => {
     const rocket = OrkRocket.buildTree({
@@ -835,7 +837,9 @@ describe('OrkRocket (real OpenRocket kernel via TeaVM)', () => {
     const boosterApogee = Math.max(...booster.series.altitude.filter((v) => v !== null) as number[]);
     expect(boosterApogee).toBeGreaterThan(20);
     expect(boosterApogee).toBeLessThan(result.summary.maxAltitude / 2);
-  });
+    // Up to 2.3 s on the deploy runner (v0.138-v0.140). Vitest 2 never timed out
+    // a synchronous test; vitest 3.1 and later fail one past 5 s (AUDIT row 528).
+  }, 60000);
 
   it('keeps single-stage flights branch-free (back-compat)', () => {
     const rocket = OrkRocket.build(REFERENCE_ROCKET);

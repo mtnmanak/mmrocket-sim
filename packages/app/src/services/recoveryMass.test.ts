@@ -288,7 +288,9 @@ describe('recovery weight — a motor that never lights', () => {
     expect(answer.mass).toBeCloseTo(await landingMass(rocket), 9);
     // What it used to show: the spent casing, 12 g light.
     expect(answer.mass - (sectionMass('s1')! + BURNOUT)).toBeCloseTo(PROPELLANT, 12);
-  });
+    // Up to 1.5 s on the deploy runner (v0.138-v0.140): a kernel flight states
+    // its budget, as the suite's other slow flights do (AUDIT row 528).
+  }, 60000);
 
   it('the same sustainer lighting still loses its propellant, and lands as shown', async () => {
     const { rocket, sectionMass, answer } = await onKernel(flyable(), { m1: C6(), m2: C6() });

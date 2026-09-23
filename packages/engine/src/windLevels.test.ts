@@ -128,7 +128,9 @@ describe('winds aloft (SimulationOptions.windLevels)', () => {
     // An EMPTY list is no list: the single-level wind, windAverage and all.
     const empty = fly({ ...PAD, windAverage: 3.0, windStdDeviation: 0.6, windLevels: [] });
     expect(empty.series).toEqual(single.series);
-  });
+    // Up to 3.3 s on the deploy runner (v0.138-v0.140). Vitest 2 never timed out
+    // a synchronous test; vitest 3.1 and later fail one past 5 s (AUDIT row 528).
+  }, 60000);
 
   it('interpolates the wind VECTOR linearly in altitude and holds it outside the levels', () => {
     // Sea-level pad, so MSL is the rocket's own altitude, and flown to the ground so

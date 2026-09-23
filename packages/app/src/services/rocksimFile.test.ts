@@ -1381,7 +1381,10 @@ describe('RockSim ejection-delay sentinels', () => {
     // And a Save of it, still unmatched, gives RockSim its −1 back.
     expect(exportRkt({ name: 'G80', tree: r.tree, motors: { [ref.mountId!]: refToExportMotor(ref) } }))
       .toContain('<EjectionDelay>-1</EjectionDelay>');
-  });
+    // Up to 1.65 s on the deploy runner (v0.138-v0.140), most of it the first
+    // load of the lazy curve bundle (a second call costs nothing, measured). It
+    // states its budget like every other test at 1.5 s or more there (AUDIT row 528).
+  }, 60000);
 
   /**
    * THE BROWSER'S DEFAULT, PINNED (seam review of audit 2026-09-22). A motor the
@@ -1451,7 +1454,9 @@ describe('RockSim ejection-delay sentinels', () => {
     // KBA G135R, G82W, H130W, H225R ("M") and K400S ("S,M,L") at the 2026-09-22 catalogue.
     expect(auto).toBeGreaterThan(0);
     expect(rktEveryDelay('ZQ9999X', 'Estes')).toBeNull();
-  });
+    // Up to 8.9 s on the deploy runner (v0.138-v0.140). Vitest 2 never timed out
+    // a synchronous test; vitest 3.1 and later fail one past 5 s (AUDIT row 528).
+  }, 60000);
 
   /**
    * AUTO DELAY THROUGH A SAVE (seam review of audit 2026-09-22). The G135R the

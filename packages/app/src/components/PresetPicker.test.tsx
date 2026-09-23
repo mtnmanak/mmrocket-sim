@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
 import { PresetPicker } from './PresetPicker.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
@@ -30,6 +30,16 @@ vi.mock('../services/presets.js', async (importOriginal) => {
   const real = await importOriginal<typeof import('../services/presets.js')>();
   return { ...real, loadPresets: vi.fn(real.loadPresets) };
 });
+
+/**
+ * The first loadPresets() in a file pays for the dynamic import of the mocked
+ * catalogue: under 1 ms under vitest 2 and 270-340 ms under vitest 5,
+ * measured. So a render that `flush` below waits for still said "Loading
+ * preset database…", and every test that reads the table failed (AUDIT row
+ * 528, vitest 2 -> 5). Paid once here, every render below finds the module's
+ * cached catalogue, as it did.
+ */
+beforeAll(async () => { await loadPresets(); });
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -78,6 +88,25 @@ const importCsv = async (text: string) => {
 
 const text = () => host.textContent ?? '';
 
+/**
+ * `vi.spyOn(localStorage, 'setItem')`, taken off again when the test ends.
+ * Since vitest 3.2 a spy on an INHERITED method is restored by deleting the
+ * instance's property, and happy-dom's Storage proxy refuses that delete (its
+ * deleteProperty trap removes stored items only), so `vi.restoreAllMocks()`
+ * left the throwing setItem on localStorage and it failed every later test in
+ * this file (AUDIT row 528, vitest 2 -> 5). happy-dom's own bound copy goes
+ * back through the proxy's defineProperty trap, the way the spy went on.
+ */
+function spyOnSetItem() {
+  const own = localStorage.setItem;
+  onTestFinished(() => {
+    Object.defineProperty(localStorage, 'setItem', {
+      ...Object.getOwnPropertyDescriptor(Object.getPrototypeOf(localStorage), 'setItem'), value: own,
+    });
+  });
+  return vi.spyOn(window.localStorage, 'setItem');
+}
+
 beforeEach(() => {
   localStorage.clear();
   host = document.createElement('div');
@@ -120,7 +149,7 @@ describe('PresetPicker — CSV import', () => {
     await render();
     // Exactly what a private window or a full quota does: setItem throws, and
     // saveCustomPresets swallows it.
-    vi.spyOn(window.localStorage, 'setItem').mockImplementation(() => {
+    spyOnSetItem().mockImplementation(() => {
       throw new DOMException('QuotaExceededError');
     });
     await importCsv(CSV);

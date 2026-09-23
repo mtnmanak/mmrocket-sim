@@ -178,5 +178,7 @@ describe('off-axis mounts carry their parallel-axis roll inertia (review E1)', (
     expect(split.maxRoll).toBeGreaterThan(5);           // it really rolls
     near(split.maxRoll, double.maxRoll, 1e-9);
     near(split.apogee, double.apogee, 1e-9);
-  });
+    // Up to 8.2 s on the deploy runner (v0.138-v0.140). Vitest 2 never timed out
+    // a synchronous test; vitest 3.1 and later fail one past 5 s (AUDIT row 528).
+  }, 60000);
 });
