@@ -27,6 +27,7 @@ import { resolveAbsolutePositions } from './position.js';
 import { defaultParams, DISPLAY_NAME, FIELDS, type EditorComponentType } from './schema.js';
 import { shroudEnds, surfaceBumpFrontalArea } from './shroud.js';
 import { clusterCount } from './cluster.js';
+import { num } from './nodeNum.js';
 import { sanitizeTree } from './sanitize.js';
 
 /**
@@ -245,13 +246,25 @@ export function ancestorsOf(tree: RocketTree, id: string): ComponentNode[] {
  * 0.2 kg, not 0.1 kg — and a weighed pad mass that counted only the cluster
  * invented the difference as airframe hardware and then flew it on every
  * repeated motor.
+ *
+ * Each instance count is read EXACTLY as the kernel reads it (audit
+ * 2026-09-22, row 352): `ComponentFactory.applyAssembly` hands the kernel
+ * `(int) dbl(node, "instanceCount", 2)` — absent (the Instances field is
+ * nullable, so clearing it stores nothing), null or non-finite is TWO, and a
+ * fraction truncates — and `PodSet`/`ParallelStage.setInstanceCount` ignore
+ * anything below one, which leaves their constructors' two standing. This used
+ * to read an absent count as ONE, so a cleared field subtracted one motor from
+ * a weighed pad mass where the kernel flies two, and the missing motor flew
+ * again as phantom hardware on every flight; `AftView`, `TreeSchematic` and
+ * `mountAngle` already drew two. Pinned against the kernel, case by case, in
+ * `mountMotorCount.kernel.test.ts`.
  */
 export function mountMotorCount(tree: RocketTree, mountId: string): number {
   let k = clusterCount(findNode(tree, mountId)?.['cluster'] as string | undefined);
   for (const a of ancestorsOf(tree, mountId)) {
     if (a.type === 'podset' || a.type === 'parallelstage') {
-      const c = a['instanceCount'];
-      k *= typeof c === 'number' && c >= 1 ? Math.round(c) : 1;
+      const c = Math.trunc(num(a, 'instanceCount', 2));
+      k *= c >= 1 ? c : 2;
     }
   }
   return k;
