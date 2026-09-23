@@ -5,7 +5,10 @@ import { createRoot, type Root } from 'react-dom/client';
 import { App } from './App.js';
 import { PrefsProvider } from './prefs/PrefsContext.js';
 import { DEFAULT_CONDITIONS, type LaunchConditions } from './components/LaunchPanel.js';
+import { exportOrk } from './services/orkFile.js';
 import { saveFile } from './services/saveFile.js';
+import type { SessionState } from './services/session.js';
+import { encodeShareFragment } from './services/shareLink.js';
 import { APP_VERSION } from './version.js';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -89,6 +92,7 @@ afterEach(async () => {
   }
   mounted = [];
   vi.unstubAllGlobals();
+  window.history.replaceState(null, '', window.location.pathname);
 });
 
 describe('a .CDX1 save and the Rod aim', () => {
@@ -105,4 +109,43 @@ describe('a .CDX1 save and the Rod aim', () => {
     const host = await saveCdx1With({ ...DEFAULT_CONDITIONS, launchRodAngleDeg: 5, launchRodAimDeg: 0 });
     expect(host.textContent).not.toContain('RASAero has no rod direction');
   }, 30000);
+});
+
+/**
+ * A share link IS the .ork round trip (encodeShareFragment wraps exportOrk's
+ * XML), opened through App's own import path — the launch merge included.
+ */
+describe('a share link and the Rod aim', () => {
+  const stored = (): SessionState => JSON.parse(localStorage.getItem(SESSION_KEY)!) as SessionState;
+  async function openLink(launch: LaunchConditions, previous: LaunchConditions): Promise<LaunchConditions> {
+    localStorage.setItem(SESSION_KEY, JSON.stringify({
+      tree: TREE, launch: previous, appVersion: APP_VERSION, savedAt: Date.now(),
+    }));
+    const xml = exportOrk({ name: 'Linked', tree: { ...TREE, name: 'Linked' } as never, launch });
+    window.location.hash = (await encodeShareFragment(xml)).replace(/^#/, '');
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    mounted.push({ root, host });
+    await act(async () => { root.render(<PrefsProvider><App /></PrefsProvider>); });
+    const offer = () => [...host.querySelectorAll('button')].find((b) => /^Open “Linked”/.test(b.textContent ?? ''));
+    await waitFor(() => offer() !== undefined, 'the open-from-link offer');
+    await act(async () => { offer()!.click(); });
+    await waitFor(() => { window.dispatchEvent(new Event('pagehide')); return stored().tree.name === 'Linked'; },
+      'the linked design to be autosaved');
+    return stored().launch;
+  }
+
+  it('carries an aim, and a link without one clears the aim of the design open before it', async () => {
+    const aimed = await openLink({ ...DEFAULT_CONDITIONS, launchRodAngleDeg: 5, launchRodAimDeg: 135 }, DEFAULT_CONDITIONS);
+    expect(aimed.launchRodAimDeg).toBe(135);
+    for (const { root, host } of mounted) {
+      await act(async () => { root.unmount(); });
+      host.remove();
+    }
+    mounted = [];
+    const plain = await openLink({ ...DEFAULT_CONDITIONS, launchRodAngleDeg: 5 },
+      { ...DEFAULT_CONDITIONS, launchRodAngleDeg: 5, launchRodAimDeg: 90 });
+    expect(plain.launchRodAimDeg).toBe(0);
+  }, 60000);
 });
