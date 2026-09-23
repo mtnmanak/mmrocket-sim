@@ -347,3 +347,167 @@ describe('estimateMotorRoom', () => {
     expect(estimateMotorRoomForMounts(tree, ['nope'])).toBeNull();
   });
 });
+
+/**
+ * PODS AND STRAP-ONS (audit 2026-09-22, rows 359 and 360). A pod set or a
+ * strap-on ring is its own airframe beside the core: its nose cone and its
+ * bulkheads cannot stop a core motor, and the core's cannot stop a pod's. The
+ * search used to span every frame in the stage, so a pod's nose cone "limited"
+ * the core motor — measured 1.00 m without the pod, 0.30 m with it — and since
+ * the minimum over a stage's mounts feeds Room for and Estimate, the motor
+ * browser was filtered by a pod. And inside a pod the chain did not stack, so a
+ * pod mount measured from the wrong place.
+ */
+describe('a pod set or strap-on is its own airframe', () => {
+  /** The dual-deploy core of the tests above, with a ring on the booster tube. */
+  const withRing = (type: 'podset' | 'parallelstage', ebayBulkhead = true, podNose = true) => ({
+    name: 'Pods',
+    components: [{
+      id: 's1', type: 'stage',
+      children: [
+        { id: 'nc', type: 'nosecone', name: 'Nose cone', length: 0.30, aftRadius: 0.05 },
+        {
+          id: 'eb', type: 'bodytube', name: 'Ebay', length: 0.20, outerRadius: 0.05,
+          children: ebayBulkhead ? [{
+            id: 'bh', type: 'bulkhead', name: 'Ebay floor', length: 0.006, position: { method: 'bottom', offset: 0 },
+          }] : [],
+        },
+        {
+          id: 'bt', type: 'bodytube', name: 'Booster', length: 1.00, outerRadius: 0.05,
+          children: [
+            {
+              id: 'mt', type: 'innertube', name: 'MMT', length: 0.30, outerRadius: 0.0387,
+              position: { method: 'bottom', offset: 0 },
+            },
+            {
+              id: 'pods', type, name: type === 'podset' ? 'Pods' : 'Strap-ons', instanceCount: 2,
+              position: { method: 'bottom', offset: 0 },
+              children: [
+                ...(podNose ? [{ id: 'pn', type: 'nosecone', name: 'Pod nose', length: 0.08, aftRadius: 0.02 }] : []),
+                { id: 'pt1', type: 'bodytube', name: 'Pod tube 1', length: 0.20, outerRadius: 0.02, children: [
+                  { id: 'pbh', type: 'bulkhead', name: 'Pod bulkhead', length: 0.005, position: { method: 'top', offset: 0 } },
+                ] },
+                { id: 'pt2', type: 'bodytube', name: 'Pod tube 2', length: 0.25, outerRadius: 0.02, children: [
+                  { id: 'pm', type: 'innertube', name: 'Pod MMT', length: 0.10, outerRadius: 0.012,
+                    position: { method: 'bottom', offset: 0 } },
+                ] },
+              ],
+            },
+          ],
+        },
+      ],
+    }],
+  } as unknown as RocketTree);
+
+  for (const type of ['podset', 'parallelstage'] as const) {
+    it(`a ${type}'s nose cone and bulkhead do not block the core motor`, () => {
+      // Without the ring this core has 1.00 m to the ebay floor (above); the
+      // pod's nose sits 0.47 m forward of the tail and its bulkhead 0.39 m.
+      const r = estimateMotorRoom(withRing(type), 'mt')!;
+      expect(r.lengthM).toBeCloseTo(1.00, 9);
+      expect(r.limitedBy).toBe('Ebay floor');
+    });
+
+    it(`a ${type} mount stops at its own bulkhead, not the core's`, () => {
+      // The pod is 0.08 + 0.20 + 0.25 = 0.53 m long, aft-flush with the core's
+      // 1.50 m tail: it starts at 0.97. Its first tube starts at 1.05, so the
+      // bulkhead at its top has its aft face at 1.055; the mount's aft end is
+      // the pod's, 1.50. The core's ebay floor at 0.50 is not in this airframe.
+      const r = estimateMotorRoom(withRing(type), 'pm')!;
+      expect(r.lengthM).toBeCloseTo(0.445, 9);
+      expect(r.limitedBy).toBe('Pod bulkhead');
+    });
+  }
+
+  it('a pod mount runs to its own nose cone when nothing else is in the way', () => {
+    // The chain STACKS inside the pod: the pod nose's aft end is at 0.97 + 0.08
+    // = 1.05, not at the pod's start — 0.45 m of room, not 0.53 or less.
+    const t = withRing('podset', true);
+    const podTube1 = findIn(t, 'pt1');
+    podTube1.children = [];
+    const r = estimateMotorRoom(t, 'pm')!;
+    expect(r.lengthM).toBeCloseTo(0.45, 9);
+    expect(r.limitedBy).toBe('Pod nose');
+  });
+
+  it('a pod with no nose cone runs to its own front, never the core’s', () => {
+    const t = withRing('podset', false, false);
+    findIn(t, 'pt1').children = [];
+    // The pod is 0.45 m long and aft-flush: it starts at 1.05.
+    const r = estimateMotorRoom(t, 'pm')!;
+    expect(r.lengthM).toBeCloseTo(0.45, 9);
+    expect(r.limitedBy).toBe('the front of the pod');
+  });
+
+  it('takes the core’s room for the stage, not a pod’s, when both are asked', () => {
+    // estimateMotorRoomForMounts is the stage figure; with only the core mount
+    // asked it must not be cut down by anything inside the pod.
+    expect(estimateMotorRoomForMounts(withRing('podset'), ['mt'])!.lengthM).toBeCloseTo(1.00, 9);
+  });
+});
+
+/**
+ * AN AUTOMATIC TRANSITION RADIUS (audit 2026-09-22, row 371). A transition's
+ * absent radius is AUTOMATIC in the kernel: the fore end takes the previous
+ * chain member's aft radius and the aft end the next member's fore radius
+ * (`Transition.getAutoForeRadius` / `getAutoAftRadius`). `narrowsForward` read
+ * an absent radius as 0, so a reducer whose aft radius follows the wider tube
+ * behind it was read as opening forward — measured 1.05 m where 0.60 m is true.
+ */
+describe('a transition with an automatic radius', () => {
+  const reducer = (tr: Record<string, unknown>) => ({
+    name: 'Auto',
+    components: [{
+      id: 's1', type: 'stage',
+      children: [
+        { id: 'up', type: 'bodytube', name: 'Upper', length: 0.40, outerRadius: 0.02 },
+        { id: 'tr', type: 'transition', name: 'Reducer', length: 0.05, ...tr },
+        {
+          id: 'lo', type: 'bodytube', name: 'Lower', length: 0.60, outerRadius: 0.03,
+          children: [{
+            id: 'mt', type: 'innertube', name: 'MMT', length: 0.20, outerRadius: 0.02,
+            position: { method: 'bottom', offset: 0 },
+          }],
+        },
+      ],
+    }],
+  } as unknown as RocketTree);
+
+  it('reads an automatic aft radius from the tube behind it — a reducer still stops the motor', () => {
+    const r = estimateMotorRoom(reducer({ foreRadius: 0.02 }), 'mt')!;
+    expect(r.lengthM).toBeCloseTo(0.60, 9);
+    expect(r.limitedBy).toBe('Reducer');
+  });
+
+  it('reads an automatic fore radius from the tube in front of it', () => {
+    // Fore automatic = the 20 mm upper tube, aft 30 mm: narrows going forward.
+    expect(estimateMotorRoom(reducer({ aftRadius: 0.03 }), 'mt')!.limitedBy).toBe('Reducer');
+    // Both automatic: 20 mm in front, 30 mm behind — still a reducer.
+    expect(estimateMotorRoom(reducer({}), 'mt')!.lengthM).toBeCloseTo(0.60, 9);
+  });
+
+  it('does not stop at a transition that really opens forward, radii automatic', () => {
+    // Swap the tubes: 30 mm in front, 20 mm behind. The fore radius is
+    // automatic (30 mm); read as 0 it looked like a reducer and cut the room.
+    const t = reducer({ aftRadius: 0.02 });
+    const [up, , lo] = t.components[0]!.children!;
+    up!['outerRadius'] = 0.03;
+    lo!['outerRadius'] = 0.02;
+    const r = estimateMotorRoom(t, 'mt')!;
+    expect(r.lengthM).toBeCloseTo(1.05, 9);
+    expect(r.limitedBy).toBe('the front of the airframe');
+  });
+});
+
+/** The node with this id, for editing a fixture in place. */
+function findIn(t: RocketTree, id: string): { children?: unknown[] } & Record<string, unknown> {
+  const walk = (ns: readonly Record<string, unknown>[]): Record<string, unknown> | null => {
+    for (const n of ns) {
+      if (n['id'] === id) return n;
+      const hit = walk((n['children'] as Record<string, unknown>[] | undefined) ?? []);
+      if (hit) return hit;
+    }
+    return null;
+  };
+  return walk(t.components as unknown as Record<string, unknown>[])!;
+}
