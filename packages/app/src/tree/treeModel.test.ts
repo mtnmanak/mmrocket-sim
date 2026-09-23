@@ -144,6 +144,80 @@ describe('splitClusterTree — symmetric group split for combination batching', 
     expect(findNode(split.tree, 'm1')).toBeNull(); // replaced in the copy
     expect(split.groupSize).toBe(2);
   });
+
+  /**
+   * THE SPLIT IS THE SAME ROCKET, read back from the kernel (audit 2026-09-22,
+   * row 357). A mount's `overrideMass` is the WHOLE cluster's mass —
+   * `MassCalculation.calculateStructure` sets the component's own CG weight to
+   * it once, where a cluster's geometric mass is per tube times the count
+   * (`RingComponent.getComponentMass`) — so spreading `...mount` onto every
+   * group flew it once PER GROUP: a 100 g override flew 200 g on a 4-ring's
+   * two pairs and 300 g on a 6-ring's three, in every combination row. Each
+   * group now carries its share. Mass, CG and both empty figures must equal the
+   * unsplit mount's, with and without the subcomponents flag and with a CG
+   * override riding along, and with no override at all.
+   */
+  describe('flies the same mass and CG as the mount it replaces', () => {
+    /** A 98 mm airframe (clusterTree's 0.05 m tubes are the wrong fit for a kernel build). */
+    const flyable = (cluster: string, mount: Record<string, unknown>): RocketTree => ({
+      name: 'c',
+      components: [{
+        type: 'stage', id: 's1',
+        children: [
+          { type: 'nosecone', id: 'n1', length: 0.3, aftRadius: 0.049, thickness: 0.002 } as ComponentNode,
+          {
+            type: 'bodytube', id: 'b1', length: 0.9, outerRadius: 0.049, thickness: 0.001, density: 1200,
+            children: [{
+              type: 'innertube', id: 'm1', length: 0.2, outerRadius: 0.0155, thickness: 0.0005, density: 1200,
+              motorMount: true, cluster, position: { method: 'bottom', offset: 0 },
+              children: [{
+                type: 'engineblock', id: 'eb', length: 0.005, outerRadius: 0.015, thickness: 0.003,
+                density: 1200, position: { method: 'top', offset: 0 },
+              } as ComponentNode],
+              ...mount,
+            } as ComponentNode],
+          } as ComponentNode,
+        ],
+      } as ComponentNode],
+    });
+    const massAndCg = (t: RocketTree) => {
+      const info = OrkRocket.buildTree(engineTree(t)).staticInfo();
+      return { mass: info.massEmpty, cg: info.cgEmpty };
+    };
+    const splits: [string, string, (t: RocketTree) => ReturnType<typeof splitClusterTree>][] = [
+      ['4-ring into pairs', '4-ring', (t) => splitClusterTree(t, 'm1')],
+      ['6-ring into trios', '6-ring', (t) => splitClusterTree(t, 'm1')],
+      ['6-ring into pairs', '6-ring', (t) => splitClusterPairsTree(t, 'm1')],
+    ];
+    const overrides: [string, Record<string, unknown>][] = [
+      ['a 100 g mass override', { overrideMass: 0.1 }],
+      ['an override for the whole subtree', { overrideMass: 0.1, overrideSubcomponentsMass: true }],
+      ['a mass and a CG override', { overrideMass: 0.1, overrideCGX: 0.05 }],
+      ['no override at all', {}],
+    ];
+    for (const [splitLabel, cluster, split] of splits) {
+      for (const [overLabel, mount] of overrides) {
+        it(`${splitLabel}, ${overLabel}`, () => {
+          const whole = flyable(cluster, mount);
+          const s = split(whole)!;
+          const before = massAndCg(whole);
+          const after = massAndCg(s.tree);
+          expect(after.mass).toBeCloseTo(before.mass, 12);
+          expect(after.cg).toBeCloseTo(before.cg, 12);
+        });
+      }
+    }
+
+    it('gives each group its share of the override and leaves the source alone', () => {
+      const whole = flyable('6-ring', { overrideMass: 0.3 });
+      const s = splitClusterPairsTree(whole, 'm1')!;
+      for (const id of s.mountIds) expect(findNode(s.tree, id)!['overrideMass']).toBeCloseTo(0.1, 15);
+      expect(findNode(whole, 'm1')!['overrideMass']).toBe(0.3);
+      // No override: none is invented.
+      const plain = splitClusterTree(flyable('4-ring', {}), 'm1')!;
+      for (const id of plain.mountIds) expect('overrideMass' in findNode(plain.tree, id)!).toBe(false);
+    });
+  });
 });
 
 describe('engineTree — camera shroud (fairing) lowering', () => {

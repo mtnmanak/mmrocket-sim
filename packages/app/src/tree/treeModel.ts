@@ -27,7 +27,7 @@ import { resolveAbsolutePositions } from './position.js';
 import { defaultParams, DISPLAY_NAME, FIELDS, type EditorComponentType } from './schema.js';
 import { shroudEnds, surfaceBumpFrontalArea } from './shroud.js';
 import { clusterCount } from './cluster.js';
-import { num } from './nodeNum.js';
+import { num, numOrNull } from './nodeNum.js';
 import { sanitizeTree } from './sanitize.js';
 
 /**
@@ -1542,6 +1542,28 @@ export function flownRecoveryDevices(
   return out;
 }
 
+/**
+ * A cluster mount's `overrideMass`, shared out across the `groups` mounts a
+ * split replaces it with — or nothing when it has none (audit 2026-09-22,
+ * row 357).
+ *
+ * The override is the WHOLE cluster's mass, not one tube's: the kernel's
+ * `MassCalculation.calculateStructure` sets the component's own CG weight to
+ * `getOverrideMass()` once, where the geometric mass it replaces is one tube's
+ * times the cluster count (`RingComponent.getComponentMass`). Both splits
+ * spread `...mount` onto every group, so the full override was copied onto
+ * each: a mount with a 100 g override flew 200 g on a 4-ring's two pairs and
+ * 300 g on a 6-ring's three, in every combination row, with the CG dragged aft
+ * by the extra mass. A CG override is a position and is right on every group
+ * as it stands; the subcomponents flag rides along unchanged, and each group's
+ * share then stands for its own cloned subtree, which sums back to the whole.
+ * `treeModel.test.ts` flies split against unsplit through the kernel.
+ */
+function overrideMassShare(mount: ComponentNode, groups: number): Partial<ComponentNode> {
+  const m = numOrNull(mount, 'overrideMass');
+  return m == null ? {} : { overrideMass: m / groups };
+}
+
 export interface ClusterSplit {
   tree: RocketTree;
   /** The symmetric group mounts replacing the original cluster mount. */
@@ -1569,6 +1591,7 @@ export function splitClusterTree(tree: RocketTree, mountId: string): ClusterSpli
   const phi = typeof mount['clusterRotation'] === 'number' ? (mount['clusterRotation'] as number) : 0;
   const mk = (sub: string, scaleMul: number, rotAdd: number, suffix: string): ComponentNode => ({
     ...mount,
+    ...overrideMassShare(mount, 2),
     id: freshId(),
     name: `${mount.name ?? 'Motor mount'} ${suffix}`,
     cluster: sub,
@@ -1606,6 +1629,7 @@ export function splitClusterPairsTree(tree: RocketTree, mountId: string): Cluste
   const phi = typeof mount['clusterRotation'] === 'number' ? (mount['clusterRotation'] as number) : 0;
   const mk = (rotAdd: number, suffix: string): ComponentNode => ({
     ...mount,
+    ...overrideMassShare(mount, 3),
     id: freshId(),
     name: `${mount.name ?? 'Motor mount'} ${suffix}`,
     cluster: 'double',
