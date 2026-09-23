@@ -1,11 +1,11 @@
 import type { EngineWarning, FlightEvent, FlightResult, FlightSeries, MotorSpec, StaticInfo } from '@online-openrocket/engine';
 import { boosterBranches, DEFAULT_TIME_STEP_S, G0 } from '@online-openrocket/engine';
-import type { LaunchConditions } from '../components/LaunchPanel.js';
+import { flownRodAimDeg, type LaunchConditions } from '../components/LaunchPanel.js';
 import type { MountMotor } from '../model/design.js';
 import { motorIdentity } from './hardwareMass.js';
 import { displayDesignation } from './motorDb.js';
 import { formatWarningText } from './simWarnings.js';
-import { padFieldsAsFlown } from './atmosphere.js';
+import { densityAltitudeM, padFieldsAsFlown } from './atmosphere.js';
 import { knownIgnitionEvent } from './ignitionEvent.js';
 
 /**
@@ -538,6 +538,18 @@ export interface SimRun {
   /** The launch conditions in force, serialized. */
   conditionsKey?: string;
   /**
+   * Dry-air DENSITY ALTITUDE of the pad air this run flew (m) — the Launch
+   * panel's readout, frozen at launch (services/atmosphere.ts
+   * `densityAltitudeM`). STORED rather than derived when shown, because the
+   * launch conditions move on after the run and the run's own air is what the
+   * report and the saved-runs table describe. Display only: it is derived from
+   * the conditions already hashed into `conditionsKey`, so it adds nothing to
+   * any provenance check. Absent on runs flown before the field existed (the
+   * report then shows no row and the table an empty cell); stored runs are
+   * untrusted JSON, so readers test `typeof === 'number'` as well.
+   */
+  densityAltitudeM?: number;
+  /**
    * The stages that flew a nozzle exit diameter AND a motor — and, because
    * only v0.119 and later write it, THE PHYSICS-REVISION STAMP for the
    * pressure-thrust term.
@@ -1051,6 +1063,36 @@ export function conditionsKeyOf(launch: LaunchConditions): string {
   for (const k of ['launchAltitudeM', 'temperatureC', 'pressureHPa']) {
     if (l[k] != null && l[k] !== flown[k]) l[k] = flown[k];
   }
+  // LONGITUDE IS NEVER HASHED (weather build, step 3; review of 2026-09-23).
+  // It moves no flight number — gravity and the Coriolis term read latitude
+  // only, and simReport.kernel.test flies −80.6, 10 and −119.355 to one apogee,
+  // top speed and flight time — so it is not "a launch condition that changes a
+  // flight", and a key that carried it would accuse a run of a difference that
+  // is not there. Folding only a blank or −80.6 (the first build) was not
+  // enough: the reader before this field ignored <launchlongitude>, so every
+  // run flown from a desktop .ork was keyed WITHOUT the file's longitude, and
+  // reopening that file now reads it (16 of the 29 local .ork files with
+  // launch conditions state a real one, −119.11 to +80.13). Each of those runs
+  // then read "flown with different launch conditions", lost Show charts, and
+  // dropped out of an exported .ork — on the reopen the app's own post-release
+  // notice asks for. Dropped outright, every stored key is byte-identical to
+  // before the field whatever the file said. What a re-fly draws differently
+  // is the flight data's λ column alone, which then follows the Longitude the
+  // design holds now: where the design says the pad is.
+  delete l['longitudeDeg'];
+  // A ROD AIM THAT FLIES AS AIM 0 IS NO AIM (weather build, step 2; decision
+  // D9). Absent, 0, a whole turn, NaN, and ANY aim on a vertical rod hand the
+  // kernel no rodDirection at all (`flownRodAimDeg`, the predicate
+  // `kernelSimOptions` spreads it by), so they are one flight and must be one
+  // key — the absent spelling every run stored before the field has. Without
+  // this, the .ork reader writing 0 into each design it opens would re-key
+  // every run in the history, and so would typing an aim onto a vertical rod.
+  // An aim that DOES fly is hashed as flown (normalised, and rounded to 1e-9°
+  // by `canonicalRodAimDeg`): 540 and 180 are one flight, and so are a typed
+  // 15° and the same aim back from the .ork's compass arithmetic.
+  const aim = flownRodAimDeg(launch);
+  if (aim === null) delete l['launchRodAimDeg'];
+  else l['launchRodAimDeg'] = aim;
   // ABSENT AND CLEARED ARE THE SAME FLIGHT, so they must hash the same.
   //
   // This used to be `Object.keys(launch)` alone, which emitted no segment at
@@ -1365,6 +1407,9 @@ function lastFinite(arr: (number | null)[] | undefined): number | null {
  * velocity to get airspeed (AbstractSimulationStepper), so the air mass
  * itself moves toward −x = west and the rocket drifts downwind to compass
  * 270°. Verified against a real windy sim in simReport.kernel.test.ts.
+ * Rod aim (weather build, step 2) turns the ROD about that wind, never the
+ * wind itself, so this stays true at every aim; the same file pins it to the
+ * engine's KERNEL_WIND_FROM_RAD + 180°.
  */
 export const WIND_BLOWS_TOWARD_DEG = 270;
 
@@ -1524,6 +1569,7 @@ export function buildSimRun(input: {
   nozzleStages?: string[];
 }): FreshSimRun {
   const { result, info, motor, meta, launch, rocketName, execMs, stageMotorInfo, boosterMotors, aeroModel, rogersKbf, motorConfig, flightConfig, flightConfigId, designKey, motorSetKey, flownRecovery, nozzleStages } = input;
+  const da = densityAltitudeM(launch);
   const { summary, series } = result;
 
   const tRod = eventTime(result, 'LAUNCHROD');
@@ -1937,6 +1983,9 @@ export function buildSimRun(input: {
     // does not, so a matching run of a nozzle design always carries it.
     ...(nozzleStages && nozzleStages.length > 0 ? { nozzleStages } : {}),
     conditionsKey: conditionsKeyOf(launch),
+    // Only when finite — a NaN would reach localStorage as null and read back
+    // as "no figure" anyway; absent says that honestly from the start.
+    ...(Number.isFinite(da) ? { densityAltitudeM: da } : {}),
     comments: comments.join(COMMENT_SEP),
     commentLevels: levels,
   };

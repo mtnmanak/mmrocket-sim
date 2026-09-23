@@ -4,7 +4,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
-import { DEFAULT_CONDITIONS, PANEL_TIME_STEP_FLOOR_S } from '../components/LaunchPanel.js';
+import { DEFAULT_CONDITIONS, kernelSimOptions, PANEL_TIME_STEP_FLOOR_S } from '../components/LaunchPanel.js';
+import { conditionsKeyOf } from './simReport.js';
 import { exportOrk, flightDataAttrs, importOrk, MIN_IMPORTED_TIME_STEP_S, ORK_CREATOR, type OrkExportConfig, type OrkMotorRef } from './orkFile.js';
 import { loadPresets } from './presets.js';
 
@@ -745,6 +746,216 @@ describe('.ork launch conditions (simulations block)', () => {
 
   it('stays silent on plain average-wind files', () => {
     expect(importOrk(DESKTOP_SIM).notes.some((n) => n.includes('multilevel'))).toBe(false);
+  });
+
+  // LONGITUDE (weather build, step 3). It moves no flight number, but it is
+  // the flight-data file's Longitude column and the weather lookup's place.
+  const launchWith = (longitudeDeg: number | null | undefined) => ({ ...DEFAULT_CONDITIONS, longitudeDeg });
+
+  it('imports a desktop file’s longitude', () => {
+    expect(importOrk(DESKTOP_SIM).launch!.longitudeDeg).toBe(-108.55);
+  });
+
+  it('reads a desktop file to the conditions key its runs were stamped with before the reader read longitude', () => {
+    // The reader before the field ignored <launchlongitude>, so every run
+    // flown from this file was keyed without it (review of 2026-09-23).
+    const launch = { ...DEFAULT_CONDITIONS, ...importOrk(DESKTOP_SIM).launch! };
+    const { longitudeDeg: _read, ...asBefore } = launch;
+    expect(launch.longitudeDeg).toBe(-108.55);
+    expect(conditionsKeyOf(launch)).toBe(conditionsKeyOf(asBefore));
+  });
+
+  it('writes the longitude, and a blank one as exactly the line every export carried before', () => {
+    const at = (l: number | null | undefined) => exportOrk({ name: 'Cond', tree: SIMPLE_TREE, launch: launchWith(l) });
+    expect(at(-119.355)).toContain('<launchlongitude>-119.355</launchlongitude>');
+    for (const blank of [null, undefined, NaN]) {
+      expect(at(blank), String(blank)).toContain('<launchlongitude>-80.6</launchlongitude>');
+    }
+  });
+
+  it('round-trips a longitude, and the default as the default', () => {
+    for (const lon of [-119.355, 151.2, -180, 180, 0]) {
+      const xml = exportOrk({ name: 'Cond', tree: SIMPLE_TREE, launch: launchWith(lon) });
+      expect(importOrk(xml).launch!.longitudeDeg).toBe(lon);
+    }
+    const blank = exportOrk({ name: 'Cond', tree: SIMPLE_TREE, launch: launchWith(null) });
+    expect(importOrk(blank).launch!.longitudeDeg).toBe(-80.6);
+  });
+
+  it('ALWAYS states it, so a file without one cannot keep the previous design’s', () => {
+    // App merges an open's launch over the panel's; a key left out survives.
+    const without = DESKTOP_SIM.replace('<launchlongitude>-108.55</launchlongitude>', '');
+    const launch = importOrk(without).launch!;
+    expect(Object.hasOwn(launch, 'longitudeDeg')).toBe(true);
+    expect(launch.longitudeDeg).toBeNull();
+    expect({ ...launchWith(-119), ...launch }.longitudeDeg).toBeNull();
+  });
+
+  it('brings a longitude outside ±180 inside, and says so in the file’s own number', () => {
+    const r = importOrk(DESKTOP_SIM.replace('-108.55</launchlongitude>', '-200</launchlongitude>'));
+    expect(r.launch!.longitudeDeg).toBe(-180);
+    expect(r.notes.some((n) => /launch longitude is -200°/.test(n) && /Longitude field/.test(n))).toBe(true);
+  });
+
+  // ROD AIM (weather build, step 2). Desktop stores the rod's COMPASS
+  // direction (<launchroddirection>, DEGREES) and uses it only when
+  // <launchintowind> is false — otherwise it points the rod at the wind's own
+  // direction (SimulationOptions.getLaunchRodDirection). The wind direction
+  // is RADIANS on disk, the <wind model="average"> block's winning over the
+  // legacy <winddirection>. The app's wind always blows from the east, so what
+  // travels is the rod's angle TO the wind: aim = rod − wind.
+  const conditionsWith = (iw: string | null, rdir: string, extra: { block?: string; legacy?: string } = {}) => {
+    let x = DESKTOP_SIM.replace('<launchroddirection>90.0</launchroddirection>', `<launchroddirection>${rdir}</launchroddirection>`);
+    x = iw === null
+      ? x.replace('<launchintowind>true</launchintowind>', '')
+      : x.replace('<launchintowind>true</launchintowind>', `<launchintowind>${iw}</launchintowind>`);
+    if (extra.block !== undefined) {
+      x = x.replace('<direction>1.5707963267948966</direction>', `<direction>${extra.block}</direction>`);
+    }
+    if (extra.legacy !== undefined) {
+      x = x.replace('<winddirection>1.5707963267948966</winddirection>', `<winddirection>${extra.legacy}</winddirection>`);
+    }
+    return importOrk(x).launch!.launchRodAimDeg;
+  };
+
+  it('opens a desktop file that launches into the wind at aim 0', () => {
+    expect(importOrk(DESKTOP_SIM).launch!.launchRodAimDeg).toBe(0);
+  });
+
+  it('opens a manual rod direction as its angle to the wind', () => {
+    // Wind from π/2 (east) in both places, as desktop writes it.
+    expect(conditionsWith('false', '180.0')).toBe(90);
+    expect(conditionsWith('false', '0.0')).toBe(-90);
+    expect(conditionsWith('false', '270.0')).toBe(180);
+    expect(conditionsWith('false', '90.0')).toBe(0);
+    expect(conditionsWith('FALSE', '180.0')).toBe(90);
+  });
+
+  it('ignores the stored direction while the file launches into the wind — and so does a file too old to say (D7)', () => {
+    expect(conditionsWith('true', '0.0')).toBe(0);
+    // OpenRocket 15.03/23.09 files carry no <launchintowind>; 24.12 reads its
+    // own preference default, true.
+    expect(conditionsWith(null, '0.0')).toBe(0);
+  });
+
+  it('measures the aim from the wind block’s direction, which beats the legacy <winddirection>', () => {
+    // Rod leaning east (90°), wind from the south (π): rod − wind = 90° − 180°
+    // = −90°. Facing into a south wind faces south, and east is on your left.
+    expect(conditionsWith('false', '90.0', { block: String(Math.PI) })).toBe(-90);
+    expect(conditionsWith('false', '90.0', { block: String(Math.PI), legacy: '0' })).toBe(-90);
+    // No block: the legacy element is read.
+    const noBlock = DESKTOP_SIM
+      .replace(/<wind model="average">[\s\S]*?<\/wind>/, '')
+      .replace('<launchintowind>true</launchintowind>', '<launchintowind>false</launchintowind>')
+      .replace('<winddirection>1.5707963267948966</winddirection>', `<winddirection>${Math.PI}</winddirection>`);
+    expect(importOrk(noBlock).launch!.launchRodAimDeg).toBe(-90);
+  });
+
+  // A MultiLevel file flies desktop's wind PROFILE, not its average block, so
+  // the rail's lean is measured from the profile's wind at the pad — what
+  // desktop launched into (SimulationOptions.getLaunchRodDirection reads the
+  // same) — and not from an average-wind direction that flew nothing (review
+  // of 2026-09-23). LEM-IV.ork's multilevel simulation: AGL levels, 277° at
+  // the ground, rod at 90° — leaning 173° from into the wind, nearly downwind.
+  const multilevel = (block: string, over: { intoWind?: string; model?: string; alt?: string } = {}) => DESKTOP_SIM
+    .replace('<launchintowind>true</launchintowind>', `<launchintowind>${over.intoWind ?? 'false'}</launchintowind>`)
+    .replace('<windmodeltype>Average</windmodeltype>', `${block}<windmodeltype>${over.model ?? 'MultiLevel'}</windmodeltype>`)
+    .replace('<launchaltitude>1350.0</launchaltitude>', `<launchaltitude>${over.alt ?? '1350.0'}</launchaltitude>`);
+  const LEM_LEVELS = '<wind model="multilevel" altituderef="agl">'
+    + '<windlevel altitude="0.0" speed="6.45" direction="4.834562028024293" standarddeviation="0.2"/>'
+    + '<windlevel altitude="16.0" speed="6.45" direction="4.834562028024293" standarddeviation="0.2"/>'
+    + '<windlevel altitude="86.0" speed="7.4" direction="4.869468613064179" standarddeviation="0.2"/>'
+    + '</wind>';
+
+  it('measures a MultiLevel file’s rod direction from the profile’s wind at the pad', () => {
+    expect(importOrk(multilevel(LEM_LEVELS)).launch!.launchRodAimDeg).toBe(173);
+    // Launching into the wind is aim 0 whatever the profile says.
+    expect(importOrk(multilevel(LEM_LEVELS, { intoWind: 'true' })).launch!.launchRodAimDeg).toBe(0);
+    // An AVERAGE-wind file flies its average block, whatever levels it also carries.
+    expect(importOrk(multilevel(LEM_LEVELS, { model: 'Average' })).launch!.launchRodAimDeg).toBe(0);
+  });
+
+  it('reads the profile at the pad as desktop does: by its altitude reference, between levels as vectors', () => {
+    // From the east at 0 m, from the south at 100 m, both 4 m/s. Halfway the
+    // vectors average to a wind from the south-east, 135°: a rod leaning east
+    // (90°) is 45° to the left of into it.
+    const levels = (ref: string) => `<wind model="multilevel" altituderef="${ref}">`
+      + `<windlevel altitude="100.0" speed="4" direction="${Math.PI}" standarddeviation="0"/>`
+      + `<windlevel altitude="0.0" speed="4" direction="${Math.PI / 2}" standarddeviation="0"/></wind>`;
+    expect(importOrk(multilevel(levels('msl'), { alt: '50.0' })).launch!.launchRodAimDeg).toBe(-45);
+    // Above sea level, the pad is at 0 m of an AGL profile.
+    expect(importOrk(multilevel(levels('agl'), { alt: '50.0' })).launch!.launchRodAimDeg).toBe(0);
+    // Past the top level, the top level's wind.
+    expect(importOrk(multilevel(levels('msl'), { alt: '500.0' })).launch!.launchRodAimDeg).toBe(-90);
+  });
+
+  it('ALWAYS states the aim, so an opened file cannot keep the previous design’s', () => {
+    const launch = importOrk(DESKTOP_SIM).launch!;
+    expect(Object.hasOwn(launch, 'launchRodAimDeg')).toBe(true);
+    expect({ ...DEFAULT_CONDITIONS, launchRodAngleDeg: 5, launchRodAimDeg: 90, ...launch }.launchRodAimDeg).toBe(0);
+  });
+
+  it('writes aim 0 as exactly the two lines every export carried before', () => {
+    // The conditions block after its <configid> — the file's ids are fresh on
+    // every export, so the whole file is never the same twice.
+    const conditions = (xml: string) => xml.slice(xml.indexOf('<launchrodlength>'), xml.indexOf('</conditions>'));
+    const at = (launchRodAimDeg: number | undefined) => conditions(
+      exportOrk({ name: 'Cond', tree: SIMPLE_TREE, launch: { ...DEFAULT_CONDITIONS, launchRodAngleDeg: 5, launchRodAimDeg } }));
+    const before = conditions(
+      exportOrk({ name: 'Cond', tree: SIMPLE_TREE, launch: { ...DEFAULT_CONDITIONS, launchRodAngleDeg: 5 } }));
+    expect(before).toContain('<launchintowind>true</launchintowind>');
+    expect(before).toContain('<launchroddirection>90.0</launchroddirection>');
+    for (const aim of [0, -0, 360, NaN, undefined]) expect(at(aim), String(aim)).toBe(before);
+  });
+
+  it('writes a non-zero aim as desktop’s manual rod direction, in desktop’s element order', () => {
+    const xml = exportOrk({
+      name: 'Cond', tree: SIMPLE_TREE, launch: { ...DEFAULT_CONDITIONS, launchRodAngleDeg: 5, launchRodAimDeg: 90 },
+    });
+    expect(xml).toMatch(/<launchintowind>false<\/launchintowind>\s*<launchrodangle>5<\/launchrodangle>\s*<launchroddirection>180<\/launchroddirection>/);
+    // The wind stays where the app's wind is: from the east, in both places.
+    expect(xml).toContain(`<winddirection>${Math.PI / 2}</winddirection>`);
+    expect(xml).toContain(`<direction>${Math.PI / 2}</direction>`);
+    const rdir = (aim: number) => exportOrk({
+      name: 'Cond', tree: SIMPLE_TREE, launch: { ...DEFAULT_CONDITIONS, launchRodAngleDeg: 5, launchRodAimDeg: aim },
+    }).match(/<launchroddirection>([^<]*)</)![1];
+    expect(rdir(-90)).toBe('0');
+    expect(rdir(180)).toBe('270');
+    expect(rdir(-180)).toBe('270');
+    expect(rdir(-135)).toBe('315');
+  });
+
+  it('round-trips an aim — on a vertical rod too, so the setting survives until the rod tilts', () => {
+    for (const angle of [5, 0]) {
+      for (const aim of [0, 45, 90, -90, 135, 180, -135, 0.1, 33.3]) {
+        const xml = exportOrk({
+          name: 'Cond', tree: SIMPLE_TREE, launch: { ...DEFAULT_CONDITIONS, launchRodAngleDeg: angle, launchRodAimDeg: aim },
+        });
+        expect(importOrk(xml).launch!.launchRodAimDeg, `angle ${angle} aim ${aim}`).toBe(aim);
+      }
+    }
+    const xml = exportOrk({
+      name: 'Cond', tree: SIMPLE_TREE, launch: { ...DEFAULT_CONDITIONS, launchRodAngleDeg: 5, launchRodAimDeg: -180 },
+    });
+    expect(importOrk(xml).launch!.launchRodAimDeg).toBe(180);
+  });
+
+  // The .ork stores the rod's compass direction, 90° + aim, and that
+  // arithmetic loses low bits: unrounded (canonicalRodAimDeg), 0.1° reopened
+  // as 0.10000000000002274 — the round trip above fails that way. Whatever it
+  // reopens as must also fly, and key, as the flight that was saved, or every
+  // run flown before the save would read as flown under other conditions. A
+  // typed 15° is stored as 14.999999999999998 (degrees → radians → degrees).
+  it('reopens a typed aim as the same flight and the same conditions', () => {
+    const typed15 = (15 * Math.PI / 180) / (Math.PI / 180);
+    expect(typed15).not.toBe(15);
+    for (const aim of [typed15, 0.1, 33.3, -0.1, 179.9, 14.123456789]) {
+      // (The step as the file states it, so only the aim can differ.)
+      const launch = { ...DEFAULT_CONDITIONS, launchRodAngleDeg: 5, launchRodAimDeg: aim, timeStepS: 0.05 };
+      const back = { ...launch, ...importOrk(exportOrk({ name: 'Cond', tree: SIMPLE_TREE, launch })).launch! };
+      expect(JSON.stringify(kernelSimOptions(back)), String(aim)).toBe(JSON.stringify(kernelSimOptions(launch)));
+      expect(conditionsKeyOf(back), String(aim)).toBe(conditionsKeyOf(launch));
+    }
   });
 });
 

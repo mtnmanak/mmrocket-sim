@@ -5,8 +5,13 @@ import { recoveryMassTitle, type RecoveryMass } from '../services/recoveryMass.j
 import {
   formatRunWhenProse, formatStability, hasAerodynamicForce, listAnd, shownStability, type SimRun,
 } from '../services/simReport.js';
+import { WEATHER_CREDIT, type WeatherSnapshot } from '../services/weatherSnapshot.js';
 import { Icon } from './Icon.js';
-import { LaunchField, type LaunchConditions } from './LaunchPanel.js';
+import {
+  LaunchField, ROD_AIM_DEG_RANGE, ROD_AIM_HELP, ROD_ANGLE_DEG_RANGE, ROD_LENGTH_M_RANGE, WIND_MS_RANGE,
+  type LaunchConditions,
+} from './LaunchPanel.js';
+import { WeatherButton } from './WeatherButton.js';
 import { stabilityGlyphClass } from './StatTiles.js';
 import { TreeSchematic } from './TreeSchematic.js';
 
@@ -19,7 +24,7 @@ import { TreeSchematic } from './TreeSchematic.js';
  */
 export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
   onLaunch, simulating, recovery, canLaunch, onChangeMotor, onCompare, canCompare,
-  staleModel, changedSince }: {
+  staleModel, changedSince, onGetWeather, weather }: {
   tree: RocketTree;
   info: StaticInfo | null;
   /** The newest flight (current result's summary, else the last stored run). */
@@ -61,6 +66,15 @@ export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
    * tiles disagreed with each other (audit 2026-09-22).
    */
   changedSince?: readonly string[] | null;
+  /**
+   * Opens App's ☁ Get weather dialog (weather build, step 3) — the pad is
+   * where a phone user wants the day's weather. The same dialog and the same
+   * Apply as the Launch panel's; σ is never among what it writes, here or
+   * there, and this screen offers no gust estimate.
+   */
+  onGetWeather?: () => void;
+  /** Applied weather, for its credit line — Open-Meteo's licence asks for one wherever its numbers are shown. */
+  weather?: WeatherSnapshot | null;
 }) {
   const { prefs } = usePrefs();
   const stab = info && hasAerodynamicForce(info)
@@ -162,14 +176,45 @@ export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
             <span className="fly-go">Change ▸</span>
           </button>
 
+          {/* The pad-side conditions, in the panel's own bounds (the *_RANGE
+              arrays, not literals). Rod aim (weather build, step 2; decision
+              D2) pairs with the Rod angle it only matters with — someone at the
+              rail knows which way it leans — so the two-column grid reads
+              (Rod angle, Rod aim), (Rod length, Wind avg). No σ here, and no
+              gust estimate: the Fly screen never writes σ. */}
           <div className="fly-conditions field-grid">
-            <LaunchField label="Rod length" field="launchRodLengthM" value={launch}
-              onChange={onLaunchChange} stepStored={0.1} min={0} />
             <LaunchField label="Rod angle" field="launchRodAngleDeg" value={launch}
-              onChange={onLaunchChange} stepStored={1} min={-30} max={30} />
+              onChange={onLaunchChange} stepStored={1} min={ROD_ANGLE_DEG_RANGE[0]} max={ROD_ANGLE_DEG_RANGE[1]} />
+            <LaunchField label="Rod aim" field="launchRodAimDeg" value={launch}
+              onChange={onLaunchChange} stepStored={15} min={ROD_AIM_DEG_RANGE[0]} max={ROD_AIM_DEG_RANGE[1]}
+              absentStored={0} help={ROD_AIM_HELP} />
+            <LaunchField label="Rod length" field="launchRodLengthM" value={launch}
+              onChange={onLaunchChange} stepStored={0.1} min={ROD_LENGTH_M_RANGE[0]} />
             <LaunchField label="Wind avg" field="windAverage" value={launch}
-              onChange={onLaunchChange} stepStored={0.5} min={0} />
+              onChange={onLaunchChange} stepStored={0.5} min={WIND_MS_RANGE[0]} />
           </div>
+          {(onGetWeather || weather) && (
+            <div className="fly-weather">
+              {onGetWeather && <WeatherButton onClick={onGetWeather} />}
+              {weather && (
+                <span>
+                  Weather for {weather.place.label} —{' '}
+                  <a href={WEATHER_CREDIT.source.href} target="_blank" rel="noopener noreferrer">{WEATHER_CREDIT.source.text}</a>
+                  {' · '}
+                  <a href={WEATHER_CREDIT.licence.href} target="_blank" rel="noopener noreferrer">{WEATHER_CREDIT.licence.text}</a>
+                  {/* A searched place's name is GeoNames data, shown right here,
+                      so it carries their credit too — as the Launch panel's
+                      strip does. */}
+                  {weather.place.method === 'search' && (
+                    <>
+                      {' · Place search: '}
+                      <a href={WEATHER_CREDIT.places.href} target="_blank" rel="noopener noreferrer">{WEATHER_CREDIT.places.text}</a>
+                    </>
+                  )}
+                </span>
+              )}
+            </div>
+          )}
 
           {canCompare && (
             <button className="fly-compare" onClick={onCompare}

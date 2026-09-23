@@ -405,3 +405,38 @@ describe('SimHistory — nothing is destroyed by one stray click (audit 2026-09-
     expect(loadRuns().map((r) => r.id)).toEqual(['only']);
   });
 });
+
+/**
+ * DENSITY ALTITUDE (weather build, step 1): the launch report says what air
+ * the run flew in, from the figure stored on the run at launch.
+ */
+describe('SimRunDetails — the density-altitude row', () => {
+  const daRow = () => {
+    // The Checks & motor table sits behind "Show all details".
+    act(() => {
+      Array.from(host.querySelectorAll('button'))
+        .find((b) => (b.textContent ?? '') === 'Show all details')?.click();
+    });
+    return Array.from(host.querySelectorAll('tr'))
+      .find((tr) => tr.querySelector('td')?.textContent === 'Density altitude');
+  };
+
+  it('shows the stored figure in the user’s distance unit, with a unit chip', () => {
+    render(<SimRunDetails run={{ ...run(), densityAltitudeM: 2170.81 }} />);
+    const row = daRow();
+    expect(row, 'the Density altitude row').toBeTruthy();
+    expect(row!.textContent).toMatch(/^Density altitude2171/);
+    expect(row!.querySelector('select.unit-chip')).toBeTruthy();
+  });
+
+  it('is absent for a run flown before the field, and for a stored value that is not a number', () => {
+    const old = run();
+    delete (old as Partial<SimRun>).densityAltitudeM;
+    render(<SimRunDetails run={old} />);
+    expect(daRow()).toBeUndefined();
+    // The details really are open: the neighbouring row is there.
+    expect(Array.from(host.querySelectorAll('td')).some((td) => td.textContent === 'Wind average')).toBe(true);
+    render(<SimRunDetails run={{ ...run(), densityAltitudeM: 'x' as unknown as number }} />);
+    expect(daRow()).toBeUndefined();
+  });
+});

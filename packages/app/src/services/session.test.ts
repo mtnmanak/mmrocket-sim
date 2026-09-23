@@ -10,7 +10,8 @@ import {
 } from './session.js';
 import { APP_VERSION } from '../version.js';
 import type { MotorSpec, RocketTree } from '@online-openrocket/engine';
-import type { LaunchConditions } from '../components/LaunchPanel.js';
+import { kernelSimOptions, type LaunchConditions } from '../components/LaunchPanel.js';
+import { conditionsKeyOf } from './simReport.js';
 import type { MountMotor } from '../model/design.js';
 import { designFingerprint, isDirty, type DesignSnapshot } from './dirtyState.js';
 import { findDbMotor } from './motorDb.js';
@@ -184,6 +185,37 @@ describe('a saved design reads saved after the autosave round trip (audit 2026-0
       activeConfigId: s.activeConfigId!, measured: s.measured!,
     };
     expect('motorCase' in reloaded.mountMotors['m1']!.meta!).toBe(false);
+    expect(isDirty(designFingerprint(reloaded), s.savedMark, false)).toBe(false);
+  });
+});
+
+/**
+ * ROD AIM (weather build, step 2) is OPTIONAL, and absent means 0. A session
+ * saved before the field restores with no key — nothing fills one in — so the
+ * design is the same design (fingerprint, conditions key) and flies the same
+ * flight (no rodDirection reaches the kernel). A default-fill here would mark
+ * every restored design unsaved, which is the trap the field's doc names.
+ */
+describe('a session saved before Rod aim', () => {
+  it('restores with no aim, the same fingerprint and conditions key, and flies no rod direction', () => {
+    // A tilted rod, so "no rod direction" is the aim's doing, not the rod's.
+    const launch = { ...state().launch, launchRodAngleDeg: 5 };
+    const snap: DesignSnapshot = {
+      ...state(), launch, mountMotors: {}, maxMotorLengthByStage: {}, savedConfigs: [],
+      activeConfigId: null, measured: { massKg: null, cgM: null },
+    };
+    const mark = designFingerprint(snap);
+    saveSessionDebounced({ ...snap, savedMark: mark });
+    vi.runAllTimers();
+    const s = loadSession()!;
+    expect(s.launch).not.toHaveProperty('launchRodAimDeg');
+    expect(kernelSimOptions(s.launch)).not.toHaveProperty('launchRodDirection');
+    expect(conditionsKeyOf(s.launch)).toBe(conditionsKeyOf(launch));
+    const reloaded: DesignSnapshot = {
+      tree: s.tree, mountMotors: s.mountMotors!, launch: s.launch,
+      maxMotorLengthByStage: s.maxMotorLengthByStage!, savedConfigs: s.savedConfigs!,
+      activeConfigId: s.activeConfigId!, measured: s.measured!,
+    };
     expect(isDirty(designFingerprint(reloaded), s.savedMark, false)).toBe(false);
   });
 });
@@ -416,5 +448,53 @@ describe('the design outranks a re-downloadable cache at quota (critic-3)', () =
     saveNow();
     expect(map.has(`${CACHE}m0`)).toBe(true);
     expect(sessionSaveFailing()).toBe(false);
+  });
+});
+
+/**
+ * WHERE APPLIED WEATHER CAME FROM (weather build, step 3) survives a reload,
+ * is dropped when it does not check out, and never touches the design.
+ */
+describe('the weather provenance record in the session', () => {
+  const snapshot = () => ({
+    v: 1, provider: 'open-meteo', endpoint: 'forecast', model: 'best_match',
+    place: { label: 'Gerlach, Nevada, US', latitudeDeg: 40.65157, longitudeDeg: -119.35519, method: 'search' },
+    grid: { latitudeDeg: 40.66386, longitudeDeg: -119.35593 },
+    demElevationM: 1202, forAltitudeM: 1202, timezone: 'America/Los_Angeles',
+    validUnix: Date.UTC(2026, 8, 26, 21) / 1000, retrievedAt: '2026-09-22T18:00:00.000Z',
+    fetched: { temperatureC: 23.3, pressureHPa: 877.2, windSpeedMs: 1.75, windGustMs: 4.6, windFromDeg: 294 },
+    applied: { temperatureC: 23.3, pressureHPa: 877.2 },
+    before: { temperatureC: null, pressureHPa: null },
+  } as const);
+
+  it('round-trips a well-formed record', () => {
+    saveSessionDebounced({ ...state(), weather: snapshot() as never });
+    vi.runAllTimers();
+    expect(loadSession()!.weather).toEqual(snapshot());
+  });
+
+  it('drops a malformed one — and nothing else', () => {
+    saveSessionDebounced({ ...state(), weather: { ...snapshot(), applied: { windStdDev: 2 } } as never });
+    vi.runAllTimers();
+    const s = loadSession()!;
+    expect(s).not.toHaveProperty('weather');
+    expect(s.launch.windAverage).toBe(2);
+  });
+
+  // What this file can hold: the loader hands back the SAME design fields
+  // (tree and launch conditions, byte for byte) whether or not a weather record
+  // rides along — it neither fills a launch key in nor takes one away. That a
+  // restored record leaves a saved-clean design clean in App itself is
+  // App.weather.test.tsx's "does not make a saved-clean design dirty".
+  it('a session from before the feature loads with none, and a record changes none of the design it restores', () => {
+    saveNow();
+    const s = loadSession()!;
+    expect(s.weather).toBeUndefined();
+    saveSessionDebounced({ ...state(), weather: snapshot() as never });
+    vi.runAllTimers();
+    const w = loadSession()!;
+    expect(w.weather).toBeDefined();
+    expect(JSON.stringify(w.launch)).toBe(JSON.stringify(s.launch));
+    expect(JSON.stringify(w.tree)).toBe(JSON.stringify(s.tree));
   });
 });

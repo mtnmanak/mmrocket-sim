@@ -974,7 +974,7 @@ describe('runsToCsv', () => {
     expect(cells(r2!)[cells(h2!).indexOf('Sim warnings')]).toBe('');
   });
 
-  it('ends with the "Flight config" column (Stage B) — blank on runs without one', () => {
+  it('keeps the "Flight config" column trailing (Stage B) — blank on runs without one', () => {
     const cells = (s: string) => s.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/);
     const run = buildSimRun({
       result: fakeResult(), info, motor, meta: { label: 'C6-5' },
@@ -984,7 +984,11 @@ describe('runsToCsv', () => {
     const [header, row] = runsToCsv([run]).split('\n');
     const hc = cells(header!);
     // Trailing on purpose: existing spreadsheet imports keep their columns.
-    expect(hc[hc.length - 1]).toBe('Flight config');
+    // The one column after it is the density altitude (weather build,
+    // 2026-09-22), appended behind it by the same rule, so every column up to
+    // and including this one keeps its position.
+    expect(hc[hc.length - 2]).toBe('Flight config');
+    expect(hc[hc.length - 1]).toMatch(/^Density altitude/);
     expect(cells(row!)[hc.indexOf('Flight config')]).toBe('Club field C6');
     // A run stored before the field existed exports an empty trailing cell.
     const old = buildSimRun({
@@ -1514,9 +1518,70 @@ describe('conditionsKeyOf — absent and cleared are the same flight (services-r
       { windAverage: 5 }, { windStdDev: 1 }, { launchRodAngleDeg: 10 },
       { launchRodLengthM: 2 }, { launchAltitudeM: 300 }, { temperatureC: 30 },
       { pressureHPa: 900 }, { latitudeDeg: 40 },
+      { launchRodAngleDeg: 5, launchRodAimDeg: 90 },
     ];
     for (const p of patches) {
       expect(conditionsKeyOf({ ...DEFAULT_CONDITIONS, ...p }), JSON.stringify(p)).not.toBe(base);
+    }
+  });
+
+  // Weather build, step 3, and its review (2026-09-23): longitude moves no
+  // flight number (simReport.kernel.test flies three to one apogee), so no
+  // longitude may move the key. Folding only a blank and −80.6 was the first
+  // build's rule, and it re-keyed every run flown from a desktop .ork stating a
+  // real longitude — which the reader before the field never read.
+  it('never hashes a longitude — blank, the default or a real one — so no stored run is re-keyed by it', () => {
+    const base = conditionsKeyOf(DEFAULT_CONDITIONS);
+    for (const longitudeDeg of [null, -80.6, NaN, undefined, -119.11217, 80.126879, -180, 180, 0]) {
+      expect(conditionsKeyOf({ ...DEFAULT_CONDITIONS, longitudeDeg }), String(longitudeDeg)).toBe(base);
+    }
+    expect(base).not.toContain('longitude');
+  });
+
+  it('THE VISIBLE SYMPTOM: a run flown before the field still matches its reopened file’s real longitude', () => {
+    // SS Wild Bash 20260623v0.ork's site, as the reader before the field left
+    // it (no longitude at all) and as it reads now (−119.11217).
+    const site: LaunchConditions = {
+      ...DEFAULT_CONDITIONS, launchAltitudeM: 1190, latitudeDeg: 40.844967, timeStepS: 0.05,
+    };
+    const run = {
+      designKey: 'd1', motorSetKey: 'm1', aeroModel: 'classic', rogersKbf: false,
+      conditionsKey: conditionsKeyOf(site),
+    } as SimRun;
+    const cur: DesignMatchKey = {
+      designKey: 'd1', motorSetKey: 'm1',
+      conditionsKey: conditionsKeyOf({ ...site, longitudeDeg: -119.11217 }),
+      aeroMode: 'classic', effectiveKbf: false, autoSupersonic: false,
+    };
+    // Before: ['the launch conditions'], and no Show charts or .ork export.
+    expect(changedSinceRun(run, cur)).toEqual([]);
+    expect(runMatchesDesign(run, cur)).toBe(true);
+  });
+
+  // Weather build, step 2 (decision D9): an aim that does not move the flight
+  // — 0, absent, null or NaN, or any aim with a vertical rod — hashes as the
+  // key every run stored before the field has. The .ork reader writes 0 into
+  // every design it opens, and a vertical rod ignores its aim by construction
+  // (kernelSimOptions sends no rodDirection), so neither may re-key a run.
+  it('folds a Rod aim that does not move the flight onto the key every stored run already has', () => {
+    const base = conditionsKeyOf(DEFAULT_CONDITIONS);
+    for (const launchRodAimDeg of [0, -0, 360, NaN, undefined, null as unknown as number, 90, 180]) {
+      expect(conditionsKeyOf({ ...DEFAULT_CONDITIONS, launchRodAimDeg }), String(launchRodAimDeg)).toBe(base);
+    }
+    expect(base).not.toContain('launchRodAimDeg');
+    const tilted = { ...DEFAULT_CONDITIONS, launchRodAngleDeg: 5 };
+    const tiltedKey = conditionsKeyOf(tilted);
+    for (const launchRodAimDeg of [0, 360, NaN, undefined]) {
+      expect(conditionsKeyOf({ ...tilted, launchRodAimDeg }), String(launchRodAimDeg)).toBe(tiltedKey);
+    }
+    expect(conditionsKeyOf({ ...tilted, launchRodAimDeg: 90 })).not.toBe(tiltedKey);
+    expect(conditionsKeyOf({ ...tilted, launchRodAimDeg: 90 })).toContain('launchRodAimDeg=90');
+    expect(conditionsKeyOf({ ...tilted, launchRodAimDeg: 90 }))
+      .not.toBe(conditionsKeyOf({ ...tilted, launchRodAimDeg: -90 }));
+    // Hashed as flown: 540, −180 and 180 are one rod direction, one flight.
+    for (const same of [540, -180]) {
+      expect(conditionsKeyOf({ ...tilted, launchRodAimDeg: same }), String(same))
+        .toBe(conditionsKeyOf({ ...tilted, launchRodAimDeg: 180 }));
     }
   });
 
@@ -1625,5 +1690,32 @@ describe('the launch report says when thrust was corrected for ambient pressure'
     const i = run.comments.split(' | ').findIndex((c) => c.startsWith('Thrust was corrected'));
     // A statement about the model, not a judgement on the rocket.
     expect(run.commentLevels?.[i]).toBe('info');
+  });
+});
+
+/**
+ * DENSITY ALTITUDE on the run (weather build, step 1). Derived from the launch
+ * conditions, so it must NOT become a launch condition: a field in
+ * LaunchConditions would enter conditionsKeyOf and move every stored key.
+ */
+describe('a run stores the density altitude it flew in', () => {
+  it('records the worked example: 4,000 ft, 95 °F, pressure blank → 2,170.81 m', () => {
+    const run = buildSimRun({
+      result: fakeResult(), info, motor, meta: { label: 'C6-5' },
+      launch: { ...DEFAULT_CONDITIONS, launchAltitudeM: 1219.2, temperatureC: 35, pressureHPa: null },
+      rocketName: 'x', execMs: 1,
+    });
+    expect(run.densityAltitudeM).toBeCloseTo(2170.81, 2);
+  });
+
+  it('is display-only: no launch condition carries it, so no conditions key moves', () => {
+    expect(Object.keys(DEFAULT_CONDITIONS).some((k) => /density/i.test(k))).toBe(false);
+    const run = buildSimRun({
+      result: fakeResult(), info, motor, meta: { label: 'C6-5' },
+      launch: DEFAULT_CONDITIONS, rocketName: 'x', execMs: 1,
+    });
+    expect(run.conditionsKey).toBe(conditionsKeyOf(DEFAULT_CONDITIONS));
+    expect(run.conditionsKey).not.toMatch(/density/i);
+    expect(run.densityAltitudeM).toBe(0);
   });
 });

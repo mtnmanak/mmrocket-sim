@@ -4,10 +4,12 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import {
-  DEFAULT_CONDITIONS, DEFAULT_TIME_STEP_S, kernelSimOptions, LaunchPanel, timeStepCostFactor,
+  canonicalRodAimDeg, DEFAULT_CONDITIONS, DEFAULT_TIME_STEP_S, DENSITY_ALTITUDE_HELP, flownRodAimDeg, kernelSimOptions,
+  LaunchField, LaunchPanel, LONGITUDE_HELP, normalizeRodAimDeg, ROD_AIM_DEG_RANGE, ROD_AIM_HELP, timeStepCostFactor,
   type LaunchConditions,
 } from './LaunchPanel.js';
-import { isaPressurePa, isaTemperatureK } from '../services/atmosphere.js';
+import { densityAltitudeM, isaPressurePa, isaTemperatureK } from '../services/atmosphere.js';
+import type { WeatherSnapshot } from '../services/weatherSnapshot.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -473,5 +475,474 @@ describe('Launch is disabled until a motor is assigned', () => {
     const b = launchBtn();
     expect(b!.disabled).toBe(false);
     expect(b!.title).toBe('Simulate the flight');
+  });
+});
+
+/**
+ * THE ONE CONSTRUCTION MUST NOT MOVE (weather build, 2026-09-22). Every new
+ * launch field is spread into kernelSimOptions only when it changes the flight,
+ * so what the kernel is handed for an existing design stays byte-identical
+ * through the whole build. Captured from the code BEFORE step 1 changed
+ * anything; any drift here re-flies every design in every user's history.
+ */
+describe('kernelSimOptions is byte-identical for every existing design', () => {
+  it('matches the golden captured before the weather build', () => {
+    expect(JSON.stringify(kernelSimOptions(DEFAULT_CONDITIONS))).toBe(
+      '{"launchRodLength":1,"launchRodAngle":0,"windAverage":0,"windStdDeviation":0,'
+      + '"launchAltitude":0,"launchLatitude":28.61}');
+    expect(JSON.stringify(kernelSimOptions({
+      ...DEFAULT_CONDITIONS, launchAltitudeM: 1219.2, temperatureC: 35, windAverage: 4, windStdDev: 1,
+      launchRodAngleDeg: 5, latitudeDeg: 40.65, timeStepS: 0.02,
+    }))).toBe(
+      '{"launchRodLength":1,"launchRodAngle":0.08726646259971647,"windAverage":4,"windStdDeviation":1,'
+      + '"launchAltitude":1219.2,"temperature":308.15,"pressure":87510.54501623093,"launchLatitude":40.65,'
+      + '"timeStep":0.02}');
+  });
+
+  // Weather build, step 2: a Rod aim that leaves the flight as it was — 0,
+  // the absent key of every design saved before the field, NaN, or any aim
+  // with a vertical rod — hands the kernel the same bytes as the golden.
+  it('is unchanged by a Rod aim that does not move the flight', () => {
+    const golden = JSON.stringify(kernelSimOptions(DEFAULT_CONDITIONS));
+    for (const launchRodAimDeg of [0, -0, 360, NaN, Infinity, 90, 180]) {
+      // Rod angle 0 (the default): a vertical rod has no direction.
+      expect(JSON.stringify(kernelSimOptions({ ...DEFAULT_CONDITIONS, launchRodAimDeg })), String(launchRodAimDeg))
+        .toBe(golden);
+    }
+    const tilted = { ...DEFAULT_CONDITIONS, launchRodAngleDeg: 5, windAverage: 4 };
+    for (const launchRodAimDeg of [0, -0, 360, -720, NaN, 1e-12]) {
+      expect(JSON.stringify(kernelSimOptions({ ...tilted, launchRodAimDeg })), String(launchRodAimDeg))
+        .toBe(JSON.stringify(kernelSimOptions(tilted)));
+    }
+  });
+});
+
+/**
+ * DENSITY ALTITUDE (weather build, step 1): a readout of the air the flight
+ * flies, under the two air fields it is worked out from (the grid-order test
+ * below pins where). Worked numbers in services/atmosphere.test.ts.
+ */
+describe('the density-altitude readout', () => {
+  const readout = () => host.querySelector('[data-readout="density-altitude"]');
+  const shown = () => readout()?.querySelector('output');
+
+  afterEach(() => { localStorage.clear(); });
+
+  it('reads the site altitude, muted, when both air fields are blank', () => {
+    renderConditions({});
+    expect(readout(), 'the readout').toBeTruthy();
+    // "0", never fmtSi's ladder "0.000".
+    expect(shown()!.textContent).toBe('0');
+    expect(shown()!.className).toContain('readout-muted');
+
+    renderConditions({ launchAltitudeM: 1219.2 });
+    expect(shown()!.textContent).toBe('1219');
+    expect(shown()!.className).toContain('readout-muted');
+    expect(shown()!.textContent).not.toMatch(/vs site/);
+  });
+
+  it('reads a hot day at a 4,000 ft field, with the difference from the site', () => {
+    renderConditions({ launchAltitudeM: 1219.2, temperatureC: 35 });
+    expect(shown()!.textContent).toBe('2171 (+952 vs site)');
+    expect(shown()!.className).not.toContain('readout-muted');
+    // The same air in feet: 7,122 ft, 3,122 above the 4,000 ft site.
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { distance: 'ft' } }));
+    act(() => root.unmount());
+    root = createRoot(host);
+    renderConditions({ launchAltitudeM: 1219.2, temperatureC: 35 });
+    expect(shown()!.textContent).toBe('7122 (+3122 vs site)');
+  });
+
+  it('goes negative, unclamped, on an altimeter setting — beside the caution that names it', () => {
+    const caution = renderConditions({ launchAltitudeM: 1190, pressureHPa: 1013.25 });
+    expect(caution).not.toBeNull();
+    expect(shown()!.textContent).toMatch(/^-284 /);
+  });
+
+  it('is a readout, not an input, and its help reaches a screen reader', () => {
+    renderConditions({});
+    const out = shown()!;
+    expect(readout()!.querySelector('input')).toBeNull();
+    const help = host.querySelector(`#${CSS.escape(out.getAttribute('aria-describedby')!)}`);
+    expect(help?.textContent).toBe(DENSITY_ALTITUDE_HELP);
+    expect(help?.textContent).toMatch(/Dry air/);
+    expect(host.querySelector(`#${CSS.escape(out.getAttribute('aria-labelledby')!)}`)?.textContent)
+      .toMatch(/^Density altitude/);
+    // Not shaped like the two field helps, which other tests find by pattern.
+    expect(DENSITY_ALTITUDE_HELP).not.toMatch(/falling 6\.5|STATION pressure|^Filled in from your Site altitude/);
+  });
+
+  // The help's "roughly 110 ft, 33 m, for each °C at a 4,000 ft field", held
+  // to the readout's own slope: 105.5 ft/°C on a 95 °F day, 118.6 on a
+  // standard one, so 110 sits between them.
+  it('moves about 110 ft per °C at a 4,000 ft field, as its help says', () => {
+    expect(DENSITY_ALTITUDE_HELP).toContain('roughly 110 ft, 33 m, for each °C at a 4,000 ft field');
+    const slopeFtPerC = (tC: number) => (densityAltitudeM({ launchAltitudeM: 1219.2, temperatureC: tC + 0.01, pressureHPa: null })
+      - densityAltitudeM({ launchAltitudeM: 1219.2, temperatureC: tC - 0.01, pressureHPa: null })) / 0.02 / 0.3048;
+    const standardC = isaTemperatureK(1219.2) - 273.15;
+    expect(slopeFtPerC(35)).toBeCloseTo(105.5, 1);
+    expect(slopeFtPerC(standardC)).toBeCloseTo(118.6, 1);
+    expect(110).toBeGreaterThan(slopeFtPerC(35));
+    expect(110).toBeLessThan(slopeFtPerC(standardC));
+    expect(33 / 0.3048).toBeCloseTo(108.3, 1);
+  });
+});
+
+/**
+ * LONGITUDE (weather build, step 3): a new OPTIONAL field that moves no flight
+ * number. Absent, cleared, non-finite and the kernel's own −80.6 all hand the
+ * kernel byte-identical options (the golden above), and the box shows what a
+ * blank flies rather than NaN or "0.000".
+ */
+describe('the longitude field', () => {
+  const lonInput = () => [...host.querySelectorAll('input')]
+    .find((i) => (i.getAttribute('aria-label') ?? '').startsWith('Longitude'));
+
+  it('hands the kernel a longitude only when it would move something', () => {
+    for (const longitudeDeg of [undefined, null, NaN, -80.6]) {
+      expect(kernelSimOptions({ ...DEFAULT_CONDITIONS, longitudeDeg }), String(longitudeDeg))
+        .not.toHaveProperty('launchLongitude');
+    }
+    expect(kernelSimOptions({ ...DEFAULT_CONDITIONS, longitudeDeg: -119.355 }).launchLongitude).toBe(-119.355);
+  });
+
+  it('shows the −80.6 a blank flies, for a session that predates the field — not NaN, and no crash', () => {
+    renderConditions({});
+    const input = lonInput();
+    expect(input, 'the Longitude input').toBeTruthy();
+    expect(input!.value).toBe('');
+    expect(input!.getAttribute('placeholder')).toBe('-80.6');
+    renderConditions({ longitudeDeg: -119.355 });
+    expect(lonInput()!.value).toBe('-119.355');
+  });
+
+  // The guard behind every OPTIONAL launch field: absent must read as blank.
+  // Longitude itself cannot catch a regression here — it has no unit spec, so
+  // an absent value passes through toUi as undefined and the box is blank
+  // either way — but a field WITH a unit spec (the Rod aim the spec plans for
+  // step 2 is one) converts undefined to NaN, which the box shows as "—".
+  // Pinned on a spec'd field.
+  it('renders an absent value of a field with a unit spec as blank, not "—" or NaN', () => {
+    const { temperatureC: _gone, ...noTemperature } = DEFAULT_CONDITIONS;
+    act(() => {
+      root.render(
+        <PrefsProvider>
+          <LaunchField label="Temperature" field="temperatureC" value={noTemperature as LaunchConditions}
+            onChange={() => {}} stepStored={1} nullable />
+        </PrefsProvider>,
+      );
+    });
+    expect(host.querySelector('input')!.value).toBe('');
+  });
+
+  it('commits null — never undefined — when the box is cleared', () => {
+    renderConditions({ longitudeDeg: -119.355 });
+    const input = lonInput()!;
+    act(() => input.focus());
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(lastLaunch).not.toBeNull();
+    expect(Object.hasOwn(lastLaunch!, 'longitudeDeg')).toBe(true);
+    expect(lastLaunch!.longitudeDeg).toBeNull();
+  });
+
+  it('says which way is negative, and that it moves no flight number', () => {
+    renderConditions({});
+    const described = lonInput()!.getAttribute('aria-describedby');
+    expect(host.querySelector(`#${CSS.escape(described!)}`)?.textContent).toBe(LONGITUDE_HELP);
+    expect(LONGITUDE_HELP).toMatch(/every US site is negative/);
+    expect(LONGITUDE_HELP).toMatch(/moves no flight number/);
+  });
+
+  it('sits beside Latitude in the two-column grid', () => {
+    renderConditions({});
+    const cells = [...host.querySelectorAll('.field-grid > *')];
+    const at = (label: string) => cells.findIndex((c) => (c.querySelector('label')?.textContent ?? '').startsWith(label));
+    const lat = at('Latitude');
+    expect(lat % 2, 'Latitude opens a row').toBe(0);
+    expect(at('Longitude')).toBe(lat + 1);
+  });
+});
+
+/**
+ * ☁ GET WEATHER in the panel (weather build, step 3): the button, the strip
+ * that says where applied weather came from, the per-field provenance line
+ * and the stale-altitude note. The dialog itself is WeatherDialog.test.tsx.
+ */
+describe('applied weather in the Launch panel', () => {
+  const SNAP: WeatherSnapshot = {
+    v: 1, provider: 'open-meteo', endpoint: 'forecast', model: 'best_match',
+    place: { label: 'Gerlach, Nevada, US', latitudeDeg: 40.65157, longitudeDeg: -119.35519, method: 'search', townCentre: true },
+    grid: { latitudeDeg: 40.66386, longitudeDeg: -119.35593 },
+    demElevationM: 1202, forAltitudeM: 1202, timezone: 'America/Los_Angeles',
+    validUnix: Date.UTC(2026, 8, 26, 21) / 1000, retrievedAt: '2026-09-22T18:00:00.000Z',
+    fetched: { temperatureC: 23.3, pressureHPa: 877.2, windSpeedMs: 1.75, windGustMs: 4.6, windFromDeg: 294 },
+    applied: { temperatureC: 23.3, pressureHPa: 877.2, windAverage: 1.75, launchAltitudeM: 1202 },
+    before: { temperatureC: null, pressureHPa: null, windAverage: 0, launchAltitudeM: 0 },
+  };
+  const APPLIED: LaunchConditions = {
+    ...DEFAULT_CONDITIONS, temperatureC: 23.3, pressureHPa: 877.2, windAverage: 1.75, launchAltitudeM: 1202,
+  };
+  let calls: string[];
+  function renderWeather(value: LaunchConditions, weather: WeatherSnapshot | null, withButton = true) {
+    calls = [];
+    lastLaunch = null;
+    act(() => {
+      root.render(
+        <PrefsProvider>
+          <LaunchPanel value={value} onChange={(v) => { lastLaunch = v; }} onLaunch={() => {}} simulating={false}
+            canLaunch weather={weather}
+            onGetWeather={withButton ? () => { calls.push('get'); } : undefined}
+            onWeatherUndo={() => { calls.push('undo'); }} onWeatherDismiss={() => { calls.push('dismiss'); }} />
+        </PrefsProvider>,
+      );
+    });
+  }
+  const strip = () => host.querySelector('[data-weather="strip"]');
+  const provenance = (field: string) => host.querySelector(`[data-provenance="${field}"]`)?.textContent ?? null;
+  const btn = (text: string) => [...host.querySelectorAll('button')].find((b) => b.textContent?.trim() === text);
+
+  it('offers ☁ Get weather… in the heading, greyed out offline with the reason', () => {
+    renderWeather(DEFAULT_CONDITIONS, null);
+    const b = host.querySelector<HTMLButtonElement>('.panel-head .weather-btn')!;
+    expect(b.textContent).toBe('☁ Get weather…');
+    expect(b.title).toMatch(/^Fetch one hour’s forecast/);
+    act(() => b.click());
+    expect(calls).toEqual(['get']);
+    act(() => { window.dispatchEvent(new Event('offline')); });
+    expect(b.disabled).toBe(true);
+    expect(b.title).toBe('Needs a connection — the weather comes from Open-Meteo. Everything else works offline.');
+    act(() => { window.dispatchEvent(new Event('online')); });
+    renderWeather(DEFAULT_CONDITIONS, null, false);
+    expect(host.querySelector('.weather-btn')).toBeNull();
+  });
+
+  it('says where the numbers came from, credits Open-Meteo and GeoNames, and is not a caution', () => {
+    renderWeather(APPLIED, SNAP);
+    expect(strip()!.getAttribute('role')).toBe('status');
+    expect(strip()!.textContent).toMatch(/^Forecast for Gerlach, Nevada, US · 2:00 PM PDT, Sat 26 Sep · fetched 22 Sep/);
+    const links = [...strip()!.querySelectorAll('a')].map((a) => a.getAttribute('href'));
+    expect(links).toEqual(['https://open-meteo.com/', 'https://creativecommons.org/licenses/by/4.0/', 'https://www.geonames.org/']);
+    expect(strip()!.classList.contains('field-caution')).toBe(false);
+    expect(host.querySelector('.field-caution')).toBeNull();
+    expect(host.querySelector('[data-weather="stale"]')).toBeNull();
+  });
+
+  it('marks each field the weather set, and what the forecast said once it is edited', () => {
+    renderWeather(APPLIED, SNAP);
+    expect(provenance('temperatureC')).toBe('forecast');
+    expect(provenance('launchAltitudeM')).toBe('terrain model');
+    expect(provenance('windStdDev')).toBeNull();
+    expect(provenance('latitudeDeg')).toBeNull();
+    renderWeather({ ...APPLIED, temperatureC: 30 }, SNAP);
+    expect(provenance('temperatureC')).toBe('edited — forecast said 23.3 °C');
+    renderWeather(APPLIED, null);
+    expect(provenance('temperatureC')).toBeNull();
+  });
+
+  it('says so when the Site altitude moves under the applied air, and offers both fixes', () => {
+    renderWeather({ ...APPLIED, launchAltitudeM: 1524 }, SNAP);
+    const stale = host.querySelector('[data-weather="stale"]')!;
+    expect(stale.textContent).toMatch(/^These came from the forecast for 1,202 m; Site altitude is now 1,524 m\./);
+    act(() => btn('Fetch again')!.click());
+    expect(calls).toEqual(['get']);
+    act(() => btn('Clear both — standard air for 1,524 m')!.click());
+    expect(lastLaunch).toMatchObject({ temperatureC: null, pressureHPa: null, launchAltitudeM: 1524, windAverage: 1.75 });
+  });
+
+  it('routes Undo and Dismiss to App', () => {
+    renderWeather(APPLIED, SNAP);
+    act(() => btn('Undo')!.click());
+    act(() => btn('Dismiss')!.click());
+    expect(calls).toEqual(['undo', 'dismiss']);
+  });
+
+  // The ERA5 archive is the weather as it was, not a forecast (spec §3.1;
+  // review of 2026-09-23): nothing that names the source may say "forecast".
+  it('calls an ERA5 answer a reanalysis — in the strip, the stale line, each field and the σ chip', () => {
+    const ERA5: WeatherSnapshot = { ...SNAP, endpoint: 'archive', validUnix: Date.UTC(2025, 5, 14, 21) / 1000 };
+    renderWeather(APPLIED, ERA5);
+    expect(strip()!.textContent).toMatch(/^ERA5 reanalysis for Gerlach, Nevada, US · 2:00 PM PDT, Sat 14 Jun/);
+    expect(provenance('temperatureC')).toBe('reanalysis');
+    expect(provenance('windAverage')).toBe('reanalysis');
+    expect(provenance('launchAltitudeM')).toBe('terrain model');
+    expect(host.querySelector('.gust-estimate button')!.textContent).toBe('Estimate from reanalysis gust');
+    renderWeather({ ...APPLIED, temperatureC: 30, launchAltitudeM: 1524 }, ERA5);
+    expect(provenance('temperatureC')).toBe('edited — reanalysis said 23.3 °C');
+    expect(host.querySelector('[data-weather="stale"]')!.textContent)
+      .toMatch(/^These came from the reanalysis for 1,202 m;/);
+    expect(host.querySelector('[data-weather="strip"]')!.textContent).not.toMatch(/forecast/i);
+  });
+
+  // Offline, the strip's Fetch again greys out with the same reason ☁ Get
+  // weather gives: it opens the same dialog, whose every request would fail.
+  it('greys out the stale line’s Fetch again offline, with the reason', () => {
+    renderWeather({ ...APPLIED, launchAltitudeM: 1524 }, SNAP);
+    const again = () => btn('Fetch again')! as HTMLButtonElement;
+    expect(again().disabled).toBe(false);
+    act(() => { window.dispatchEvent(new Event('offline')); });
+    try {
+      expect(again().disabled).toBe(true);
+      expect(again().title).toBe('Needs a connection — the weather comes from Open-Meteo. Everything else works offline.');
+      act(() => again().click());
+      expect(calls).toEqual([]);
+    } finally {
+      act(() => { window.dispatchEvent(new Event('online')); });
+    }
+    expect(again().disabled).toBe(false);
+  });
+
+  // Step 4: the chip is a full-width row of the grid, right under the wind
+  // pair. The grid is a fixed two columns, so σ must be a RIGHT cell (an odd
+  // index) for the chip to start a clean row — a mechanism, not a warning.
+  it('offers σ from the forecast gust in a full-width row right after σ, and writes it only on a click', () => {
+    renderWeather(APPLIED, SNAP);
+    const cells = [...host.querySelectorAll('.field-grid > *')];
+    const sigma = cells.findIndex((c) => (c.querySelector('label')?.textContent ?? '').startsWith('Wind gusts σ'));
+    expect(sigma % 2, 'σ is the right-hand cell').toBe(1);
+    const chip = cells[sigma + 1]!;
+    expect(chip.classList.contains('gust-estimate')).toBe(true);
+    // 1.75 m/s gusting 4.6: (4.6 − 1.75) / 3 = 0.95.
+    expect(lastLaunch).toBeNull();
+    act(() => chip.querySelector<HTMLButtonElement>('button')!.click());
+    expect(lastLaunch!.windStdDev).toBe(0.95);
+    expect({ ...lastLaunch!, windStdDev: APPLIED.windStdDev }).toEqual(APPLIED);
+  });
+
+  it('keeps σ a right-hand cell with no forecast too, and shows no chip then', () => {
+    renderWeather(DEFAULT_CONDITIONS, null);
+    const cells = [...host.querySelectorAll('.field-grid > *')];
+    const sigma = cells.findIndex((c) => (c.querySelector('label')?.textContent ?? '').startsWith('Wind gusts σ'));
+    expect(sigma % 2).toBe(1);
+    expect(host.querySelector('.gust-estimate')).toBeNull();
+  });
+});
+
+/**
+ * ROD AIM (weather build, step 2): the rod's lean measured from straight into
+ * the wind. It moves the flight only through `rodDirection`, and only when the
+ * rod is tilted and aimed away from the wind — every other case hands the
+ * kernel the golden above, byte for byte.
+ */
+describe('the rod-aim field', () => {
+  const aimInput = () => [...host.querySelectorAll('input')]
+    .find((i) => (i.getAttribute('aria-label') ?? '').startsWith('Rod aim'));
+
+  it('normalises any angle into (−180°, 180°]', () => {
+    expect(ROD_AIM_DEG_RANGE).toEqual([-180, 180]);
+    expect(normalizeRodAimDeg(0)).toBe(0);
+    expect(normalizeRodAimDeg(90)).toBe(90);
+    expect(normalizeRodAimDeg(-90)).toBe(-90);
+    expect(normalizeRodAimDeg(180)).toBe(180);
+    expect(normalizeRodAimDeg(-180)).toBe(180);
+    expect(normalizeRodAimDeg(540)).toBe(180);
+    expect(normalizeRodAimDeg(270)).toBe(-90);
+    expect(normalizeRodAimDeg(-450)).toBe(-90);
+  });
+
+  // Normalising passes through 360.1, which alone turns 0.1 into
+  // 0.10000000000002274; the flight, the key and the .ork use the aim rounded
+  // to 1e-9°, so it flies — and reopens as — the number typed.
+  it('flies the aim as typed, not normalisation’s last-bit noise', () => {
+    expect(normalizeRodAimDeg(0.1)).not.toBe(0.1);
+    expect(canonicalRodAimDeg(0.1)).toBe(0.1);
+    expect(canonicalRodAimDeg(33.3)).toBe(33.3);
+    expect(canonicalRodAimDeg(-0.1)).toBe(-0.1);
+    expect(canonicalRodAimDeg(-179.99999999999997)).toBe(180);
+    expect(Object.is(canonicalRodAimDeg(-0), 0)).toBe(true);
+    expect(Object.is(canonicalRodAimDeg(-1e-12), 0)).toBe(true);
+    expect(canonicalRodAimDeg(NaN)).toBeNaN();
+    expect(flownRodAimDeg({ launchRodAngleDeg: 5, launchRodAimDeg: 0.1 })).toBe(0.1);
+    expect(kernelSimOptions({ ...DEFAULT_CONDITIONS, launchRodAngleDeg: 5, launchRodAimDeg: 0.1 }).launchRodDirection)
+      .toBe(Math.PI / 2 + (0.1 * Math.PI) / 180);
+  });
+
+  it('flies an aim only when the rod is tilted and the aim is off the wind', () => {
+    for (const l of [
+      DEFAULT_CONDITIONS,
+      { ...DEFAULT_CONDITIONS, launchRodAimDeg: 0 },
+      { ...DEFAULT_CONDITIONS, launchRodAngleDeg: 0, launchRodAimDeg: 90 },
+      { ...DEFAULT_CONDITIONS, launchRodAngleDeg: 5, launchRodAimDeg: NaN },
+      { ...DEFAULT_CONDITIONS, launchRodAngleDeg: 5, launchRodAimDeg: 360 },
+      { ...DEFAULT_CONDITIONS, launchRodAngleDeg: NaN, launchRodAimDeg: 90 },
+    ]) {
+      expect(flownRodAimDeg(l), JSON.stringify(l)).toBeNull();
+      expect(kernelSimOptions(l), JSON.stringify(l)).not.toHaveProperty('launchRodDirection');
+    }
+  });
+
+  it('hands the kernel the wind’s own direction plus the aim, in radians', () => {
+    const at = (launchRodAimDeg: number) =>
+      kernelSimOptions({ ...DEFAULT_CONDITIONS, launchRodAngleDeg: 5, launchRodAimDeg }).launchRodDirection;
+    expect(at(180)).toBe(Math.PI / 2 + Math.PI);
+    expect(at(540)).toBe(Math.PI / 2 + Math.PI);
+    expect(at(-180)).toBe(Math.PI / 2 + Math.PI);
+    expect(at(90)).toBe(Math.PI / 2 + Math.PI / 2);
+    expect(at(-90)).toBe(Math.PI / 2 - Math.PI / 2);
+    // A negative rod angle is a real, different setting, still aimed.
+    expect(kernelSimOptions({ ...DEFAULT_CONDITIONS, launchRodAngleDeg: -5, launchRodAimDeg: 90 }).launchRodDirection)
+      .toBe(Math.PI);
+  });
+
+  it('shows 0 for a design saved before the field — not blank, "0.000" or NaN — and writes nothing', () => {
+    renderConditions({});
+    const input = aimInput();
+    expect(input, 'the Rod aim input').toBeTruthy();
+    expect(input!.value).toBe('0');
+    expect(input!.getAttribute('aria-label')).toBe('Rod aim (°)');
+    expect(lastLaunch).toBeNull();
+    renderConditions({ launchRodAngleDeg: 5, launchRodAimDeg: 135 });
+    expect(aimInput()!.value).toBe('135');
+  });
+
+  it('commits a typed aim in degrees, and refuses one outside ±180°', () => {
+    renderConditions({ launchRodAngleDeg: 5 });
+    const input = aimInput()!;
+    const type = (text: string) => {
+      act(() => input.focus());
+      act(() => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, text);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+    };
+    type('-90');
+    expect(lastLaunch!.launchRodAimDeg).toBe(-90);
+    lastLaunch = null;
+    type('200');
+    expect(lastLaunch).toBeNull();
+  });
+
+  it('says what 0 means, which way is positive, and that a vertical rod ignores it', () => {
+    renderConditions({});
+    const described = aimInput()!.getAttribute('aria-describedby');
+    expect(host.querySelector(`#${CSS.escape(described!)}`)?.textContent).toBe(ROD_AIM_HELP);
+    expect(ROD_AIM_HELP).toMatch(/0° \(the default\) leans it into the wind/);
+    expect(ROD_AIM_HELP).toMatch(/positive to your right as you face into the wind/);
+    expect(ROD_AIM_HELP).toMatch(/only matters when Rod angle is not 0/);
+    // Not shaped like the atmosphere helps, which other tests find by pattern.
+    expect(ROD_AIM_HELP).not.toMatch(/falling 6\.5|STATION pressure|^Filled in from your Site altitude/);
+  });
+
+  /**
+   * THE GRID ORDER (spec §0.4, decision D8). `.field-grid` is a fixed two
+   * columns, so the order of its children IS the layout: Rod angle beside the
+   * Rod aim it is read with, the wind pair, then Rod length beside Site
+   * altitude, the air, Density altitude beside Time step, and the site's
+   * coordinates last. σ must stay a RIGHT-hand cell so the gust chip's
+   * full-width row under it starts clean (the weather tests pin the chip).
+   */
+  it('lays the panel out in the two-column order, with σ in the right-hand cell', () => {
+    renderConditions({});
+    const cells = [...host.querySelectorAll('.field-grid > *')];
+    const order = ['Rod angle', 'Rod aim', 'Wind avg', 'Wind gusts σ', 'Rod length', 'Site altitude',
+      'Temperature', 'Station pressure', 'Density altitude', 'Time step', 'Latitude', 'Longitude'];
+    expect(cells.map((c) => {
+      const text = c.querySelector('label')?.textContent ?? '';
+      return order.find((o) => text.startsWith(o)) ?? text;
+    })).toEqual(order);
+    const sigma = cells.findIndex((c) => (c.querySelector('label')?.textContent ?? '').startsWith('Wind gusts σ'));
+    expect(sigma % 2, 'σ is the right-hand cell').toBe(1);
   });
 });

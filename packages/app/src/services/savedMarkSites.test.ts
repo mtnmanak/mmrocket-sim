@@ -201,8 +201,10 @@ describe('App hands the tested units what their fixes depend on', () => {
     expect(call).toMatch(/\n\s+unmatchedRefs,\r?\n/);
     // In the effect's dependencies, or the refs reach storage only when
     // something else changes. (The two refs useDesignDirty hands back sit
-    // beside it; they are stable, so they cost no runs.)
-    expect(src).toMatch(/\}, \[designSnapshot, dirtyTick, unmatchedRefs\b[^\]]*\]\);/);
+    // beside it; they are stable, so they cost no runs.) `weather` (weather
+    // build, step 3): where applied weather came from rides in the same
+    // payload, outside the design snapshot, so it is a dependency too.
+    expect(src).toMatch(/\}, \[designSnapshot, dirtyTick, unmatchedRefs\b[^\]]*\bweather\]\);/);
     expect(src).toMatch(/restoreUnmatchedRefs\(session\?\.savedConfigs, session\?\.activeConfigId, session\?\.mountMotors \?\? \{\},\s+session\?\.unmatchedRefs\)/);
   });
 

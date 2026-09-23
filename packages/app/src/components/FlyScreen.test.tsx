@@ -78,6 +78,19 @@ describe('FlyScreen', () => {
     expect(host.querySelector('.fly-name')?.textContent).toBe('Field Bird');
   });
 
+  // Weather build, step 2 (decision D2): the pad-side conditions are the four
+  // someone standing at the rail changes — Rod aim among them, beside the Rod
+  // angle it only matters with — in the panel's own bounds.
+  it('offers the four pad-side launch conditions, Rod aim beside Rod angle', () => {
+    mount();
+    const inputs = Array.from(host.querySelectorAll<HTMLInputElement>('.fly-conditions input'));
+    expect(inputs.map((i) => (i.getAttribute('aria-label') ?? '').replace(/ \(.*\)$/, '')))
+      .toEqual(['Rod angle', 'Rod aim', 'Rod length', 'Wind avg']);
+    // A design from before the field: the aim reads 0, not blank or NaN.
+    expect(inputs[1]!.value).toBe('0');
+    expect(inputs[1]!.getAttribute('aria-describedby')).toBeTruthy();
+  });
+
   it('never lies before the first flight — dashes, not zeros', () => {
     mount({ run: null });
     const values = Array.from(host.querySelectorAll('.fly-stat .stat-value')).map((el) => el.textContent);
@@ -201,6 +214,54 @@ describe('FlyScreen', () => {
       const labels = Array.from(host.querySelectorAll('.fly-stat .stat-label'))
         .map((el) => el.textContent);
       expect(labels).not.toContain('Recovery weight');
+    });
+  });
+
+  /**
+   * ☁ GET WEATHER on the phone (weather build, step 3, owner decision D3
+   * default): the same App dialog as the Launch panel's. The Fly screen gets
+   * no gust estimate and no σ field — a bulk write of σ is never offered.
+   */
+  describe('the weather button', () => {
+    it('opens App’s weather dialog, and is absent without it', () => {
+      mount();
+      expect(host.querySelector('.weather-btn')).toBeNull();
+      let asked = 0;
+      mount({ onGetWeather: () => { asked++; } });
+      const btn = host.querySelector<HTMLButtonElement>('.weather-btn')!;
+      expect(btn.textContent).toBe('☁ Get weather…');
+      act(() => btn.click());
+      expect(asked).toBe(1);
+    });
+
+    it('greys out offline and says why', () => {
+      mount({ onGetWeather: () => {} });
+      act(() => { window.dispatchEvent(new Event('offline')); });
+      const btn = host.querySelector<HTMLButtonElement>('.weather-btn')!;
+      expect(btn.disabled).toBe(true);
+      expect(btn.title).toMatch(/^Needs a connection/);
+      act(() => { window.dispatchEvent(new Event('online')); });
+      expect(host.querySelector<HTMLButtonElement>('.weather-btn')!.disabled).toBe(false);
+    });
+
+    it('credits Open-Meteo once weather is applied (GeoNames too for a searched place), and offers no σ or gust estimate', () => {
+      mount({
+        onGetWeather: () => {},
+        weather: { place: { label: '40.870, −119.060', method: 'coordinates' } } as never,
+      });
+      const links = () => Array.from(host.querySelectorAll('.fly-weather a')).map((a) => a.getAttribute('href'));
+      expect(links()).toEqual(['https://open-meteo.com/', 'https://creativecommons.org/licenses/by/4.0/']);
+      // A place a search found is GeoNames data on screen: their credit joins.
+      mount({
+        onGetWeather: () => {},
+        weather: { place: { label: 'Gerlach, Nevada, US', method: 'search' } } as never,
+      });
+      expect(links()).toEqual([
+        'https://open-meteo.com/', 'https://creativecommons.org/licenses/by/4.0/', 'https://www.geonames.org/',
+      ]);
+      expect(host.querySelector('.gust-estimate')).toBeNull();
+      const labels = Array.from(host.querySelectorAll('input')).map((i) => i.getAttribute('aria-label') ?? '');
+      expect(labels.some((l) => l.startsWith('Wind gusts'))).toBe(false);
     });
   });
 });

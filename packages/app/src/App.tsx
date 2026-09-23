@@ -73,7 +73,7 @@ import { componentCsv, componentTable } from './services/componentTable.js';
 import { CSV_BOM, safeName } from './services/fileName.js';
 import { saveFile, saveOutcomeNote, type SaveOutcome } from './services/saveFile.js';
 import { tableToXlsx, XLSX_MIME } from './services/xlsx.js';
-import { exportCdx1, importCdx1 } from './services/rasaeroFile.js';
+import { cdx1RodAimNote, exportCdx1, importCdx1 } from './services/rasaeroFile.js';
 import {
   flushSession, loadSession, onSessionConflictChange, onSessionSaveStateChange, saveSessionDebounced,
   sessionConflicted, sessionPredatesThisBuild, sessionSaveFailing, takeOverSession,
@@ -132,6 +132,8 @@ import {
   planNewDesign, planOrkSave, resolveImportMotors, starterMotorMayLand, type ImportedDesign,
 } from './services/importApply.js';
 import { ScaleDialog } from './components/ScaleDialog.js';
+import { WeatherDialog } from './components/WeatherDialog.js';
+import { applyProposal, undoApply, type WeatherSnapshot } from './services/weatherSnapshot.js';
 import { useTreeHistory } from './hooks/useTreeHistory.js';
 import { useNozzleFollow } from './hooks/useNozzleFollow.js';
 import { useRelaunchLatch } from './hooks/useRelaunchLatch.js';
@@ -506,6 +508,27 @@ export function App() {
   const launchRef = useRef(launch);
   launchRef.current = launch;
   /**
+   * Where the applied weather came from (weather build, step 3) — SESSION
+   * state beside `launch`, never part of the design: the fields it set are
+   * ordinary launch conditions. Kept across ✕ New, which keeps the launch
+   * conditions it describes; dropped when an opened design brings its own
+   * (applyImported), since it would then describe numbers no longer there.
+   */
+  const [weather, setWeather] = useState<WeatherSnapshot | null>(session?.weather ?? null);
+  const [showWeather, setShowWeather] = useState(false);
+  /** ☁ Apply: ONE functional write — never from a render-captured `launch` (AUDIT row 304). */
+  const applyWeather = (patch: Parameters<typeof applyProposal>[1], snapshot: WeatherSnapshot) => {
+    setLaunch((prev) => applyProposal(prev, patch));
+    setWeather(snapshot);
+  };
+  /** The strip's Undo: each applied field back, unless it has been edited since. */
+  const undoWeather = () => {
+    const snap = weather;
+    if (!snap) return;
+    setLaunch((prev) => undoApply(prev, snap));
+    setWeather(null);
+  };
+  /**
    * The in-memory flight, BOUND TO THE RUN IT BELONGS TO. It used to be a
    * bare FlightResult with no link to `lastRun`, so selecting a row in the
    * saved-run table had to null it defensively — which destroyed the charts
@@ -811,6 +834,10 @@ export function App() {
       // Not part of the design fingerprint, but the only copy of a
       // configuration-less import's unresolved motors (audit 2026-09-22).
       unmatchedRefs,
+      // Not part of the design either: where applied weather came from.
+      // Written only while there is some, so an older session's payload is
+      // unchanged until weather is applied.
+      ...(weather ? { weather } : {}),
       // The build that PARSED this design, not the one writing the file — see
       // parsedByVersion. writeNow spreads `pending` AFTER its own
       // `appVersion: APP_VERSION`, so this value is the one that reaches
@@ -820,8 +847,10 @@ export function App() {
       savedMark: savedMark.current ?? undefined, flownSinceSave: flownSinceSave.current,
     });
   // savedMark and flownSinceSave are useDesignDirty's refs — stable, so naming
-  // them costs no runs — and dirtyTick is how they announce a change.
-  }, [designSnapshot, dirtyTick, unmatchedRefs, savedMark, flownSinceSave]);
+  // them costs no runs — and dirtyTick is how they announce a change. `weather`
+  // (weather build, step 3): where applied weather came from rides in the same
+  // payload, outside the design snapshot, so it is a dependency too.
+  }, [designSnapshot, dirtyTick, unmatchedRefs, savedMark, flownSinceSave, weather]);
 
   // Close the 400 ms debounce window on the way out. `pagehide` fires on
   // close, reload and navigation away - and on a mobile browser discarding the
@@ -2249,7 +2278,9 @@ export function App() {
         // motor names its own database lacks; flipping it back is one line
         // there.
         motors: exportMotorsMap(),
-      }), 'CDX1');
+        // A Rod aim cannot travel — <LaunchSite> has no rod direction — so the
+        // saved line says so, as a loss, when the tilted rod was aimed off the wind.
+      }), 'CDX1', '', [cdx1RodAimNote(launch)].filter((n): n is string => n !== null));
     } catch (e) {
       setFileNote(`RASAero export failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
     }
@@ -2341,6 +2372,9 @@ export function App() {
       setMountMotors, setUnmatchedRefs, setSavedConfigs, setActiveConfigId, setMaxMotorLen, setLaunch, setMeasured,
       setMachAlt: setFileMachAlt, setNote: setFileNote, setShroudPrompt, markSaved,
     });
+    // An opened design (a share link included) that brings launch conditions
+    // of its own has replaced the ones the weather record describes.
+    if (imported.launch) setWeather(null);
     // This design has now been through THIS build's importer, so the session
     // the next autosave writes really was parsed by the running build.
     parsedByVersion.current = APP_VERSION;
@@ -3054,6 +3088,10 @@ export function App() {
       {showGuide && <GuideDialog onClose={() => setShowGuide(false)} />}
       {tour.open && <FirstRunTour onSetTab={setTab} onClose={tour.close} />}
       {showChangelog && <ChangelogDialog onClose={() => setShowChangelog(false)} />}
+      {showWeather && (
+        <WeatherDialog launch={launch} initialPlace={weather?.place ?? null}
+          onApply={applyWeather} onClose={() => setShowWeather(false)} />
+      )}
       {showScale && (
         <ScaleDialog
           tree={tree}
@@ -3476,6 +3514,8 @@ export function App() {
             // The same provenance the vitals strip's ⚠ and the Results note
             // read — this screen replaces the strip on a phone.
             changedSince={changedSinceNonModel}
+            onGetWeather={() => setShowWeather(true)}
+            weather={weather}
           />
         )}
 
@@ -4178,7 +4218,9 @@ export function App() {
 
           <LaunchPanel value={launch} onChange={setLaunch} onLaunch={onLaunch} simulating={simulating}
             canLaunch={!!built && !!primaryMountId}
-            lastRun={simCostRef} />
+            lastRun={simCostRef}
+            weather={weather} onGetWeather={() => setShowWeather(true)}
+            onWeatherUndo={undoWeather} onWeatherDismiss={() => setWeather(null)} />
 
           {/* Last row of the grid, full width (`.config-panel` spans
               `1 / -1` wherever auto-placement drops it). It sat second, above

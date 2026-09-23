@@ -610,4 +610,32 @@ describe('an imported launch site is held to the panel’s own bounds', () => {
     expect(r.launch?.windStdDev).toBeCloseTo(0.4, 12);
     expect(r.notes.some((n) => /average wind is -4 m\/s.*imported as 4 m\/s/.test(n))).toBe(true);
   });
+
+  // Review of 2026-09-23: desktop reads the file IN ORDER, and its saver
+  // writes each direction AFTER its speed — so the flip setAverage makes is
+  // undone by the direction that follows, and a desktop-saved negative wind
+  // flies |speed| from the stated direction. The note said the drift pointed
+  // the opposite way to the file's; it no longer claims a direction at all.
+  it('says only what a negative wind flies as, not which way its drift points', () => {
+    const r = importOrk(withConditions('<windaverage>-4</windaverage><winddirection>1.5707963267948966</winddirection>'
+      + '<wind model="average"><speed>-4</speed><direction>1.5707963267948966</direction></wind>'));
+    const note = r.notes.find((n) => /average wind is -4 m\/s/.test(n));
+    expect(note).toBe('The file\'s average wind is -4 m/s, which desktop OpenRocket flies as 4 m/s; it was imported as 4 m/s.');
+  });
+
+  // The Rod aim is measured from the wind DESKTOP flies, replaying its reads
+  // in file order: a negative speed with no direction after it has turned the
+  // wind round (from π/2 to 3π/2, a west wind), and a rod leaning east (90°)
+  // then leans DOWNWIND — aim 180, not 0.
+  it('measures a manual rod direction from the wind desktop flies after a negative speed', () => {
+    const aim = (inner: string) => importOrk(withConditions('<launchintowind>false</launchintowind>'
+      + `<launchrodangle>5</launchrodangle><launchroddirection>90.0</launchroddirection>${inner}`)).launch?.launchRodAimDeg;
+    expect(aim('<windaverage>-4</windaverage>')).toBe(180);
+    // Two flips (the legacy element and the block) are no flip at all.
+    expect(aim('<windaverage>-4</windaverage><wind model="average"><speed>-4</speed></wind>')).toBe(0);
+    // A direction after the speed sets it, as desktop's saver always writes it.
+    expect(aim('<windaverage>-4</windaverage><winddirection>1.5707963267948966</winddirection>')).toBe(0);
+    // Last in file order wins, whichever element it is.
+    expect(aim(`<wind model="average"><direction>${Math.PI}</direction></wind><winddirection>0</winddirection>`)).toBe(90);
+  });
 });

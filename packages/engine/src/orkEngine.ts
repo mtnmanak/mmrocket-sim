@@ -97,6 +97,22 @@ export interface SimulationOptions {
   launchRodLength?: number;
   /** Radians from vertical. */
   launchRodAngle?: number;
+  /**
+   * RADIANS: the compass bearing the rod's TOP leans toward — 0 = north,
+   * π/2 = east (the kernel's `SimulationConditions.launchRodDirection`).
+   * Default π/2 (OrkEngine.simulateJson's own), which is straight INTO the
+   * kernel's single-level wind: that always blows from the east
+   * (`KERNEL_WIND_FROM_RAD`), and nothing here sets it ({@link windLevels}
+   * carries directions of its own, and nothing in the app sets those yet).
+   * Meaningless with a vertical rod — but not bit-for-bit inert (the launch
+   * quaternion's product rounds), so the app sends it only when the rod is
+   * tilted AND aimed away from the wind (LaunchPanel's
+   * `flownRodAimDeg`). Left undefined, it is absent from the JSON the kernel
+   * reads, so every flight that never set it is byte-identical to before it
+   * existed. Never NaN: JSON writes that as null, which the kernel's
+   * `JsonLite.dbl` silently reads as the default.
+   */
+  launchRodDirection?: number;
   /** Single-level wind (m/s). Ignored when {@link windLevels} is non-empty. */
   windAverage?: number;
   /** Single-level turbulence σ (m/s). Ignored when {@link windLevels} is non-empty. */
@@ -829,6 +845,9 @@ export class OrkRocket {
     const raw = ork.simulateJson(this.handle, JSON.stringify({
       rodLength: options.launchRodLength ?? 1.0,
       rodAngle: options.launchRodAngle ?? 0,
+      // No `??` default: undefined drops out of the JSON, and the kernel's own
+      // π/2 applies — see SimulationOptions.launchRodDirection.
+      rodDirection: options.launchRodDirection,
       windAverage: options.windAverage ?? 0,
       windStdDeviation: options.windStdDeviation ?? 0,
       // Absent unless given: JSON.stringify drops undefined, so a flight with no

@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, MotorSpec, RocketTree } from '@online-openrocket/engine';
 import type { FlightSeries } from '@online-openrocket/engine';
-import { buildSimRun, rodExitFromSeries } from './simReport.js';
+import { buildSimRun, extractLandingDrift, rodExitFromSeries, WIND_BLOWS_TOWARD_DEG } from './simReport.js';
 import { runsToCsv } from './simStore.js';
 import { formatWarning } from './simWarnings.js';
-import { DEFAULT_CONDITIONS } from '../components/LaunchPanel.js';
+import { DEFAULT_CONDITIONS, kernelSimOptions } from '../components/LaunchPanel.js';
+import { densityAltitudeM, isaAltitudeForDensity } from './atmosphere.js';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 /**
  * Simulation warnings and landing drift, end-to-end through the REAL kernel
@@ -237,4 +241,150 @@ describe('launch-rod exit is read at the crossing, not at the end of the step', 
     const eventT = result.events!.find((e) => e.type === 'LAUNCHROD')!.time;
     expect(run.timeToRodDeparture!).toBeLessThan(eventT);
   }, 30000);
+});
+
+/**
+ * DENSITY ALTITUDE against the kernel (weather build, step 1). The readout is
+ * computed analytically from `padAir`; the kernel interpolates the same
+ * profile on a 500 m grid. So the density the kernel actually flies at the pad
+ * must read, through the same inverse, within a few metres of the readout —
+ * which is the claim the guide makes ("up to about 16 ft").
+ */
+describe('the density-altitude readout describes the air the kernel flies', () => {
+  it('agrees with the kernel’s own pad density to within 6 m (4,000 ft, 95 °F)', async () => {
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    resetEngine();
+    const launch = { ...DEFAULT_CONDITIONS, launchAltitudeM: 1219.2, temperatureC: 35 };
+    const rocket = OrkRocket.buildTree(tree(true));
+    rocket.setMotorById('mount', C6);
+    const result = rocket.simulate({ ...kernelSimOptions(launch), series: 'full' });
+    const rho0 = (result.series as unknown as Record<string, (number | null)[] | undefined>)['ρ']?.[0];
+    expect(typeof rho0, 'the full series carries air density').toBe('number');
+    expect(Math.abs(isaAltitudeForDensity(rho0!) - densityAltitudeM(launch))).toBeLessThan(6);
+  }, 30000);
+});
+
+/**
+ * LONGITUDE MOVES NO FLIGHT NUMBER (weather build, step 3) — the claim the
+ * Longitude field's help and the guide make, held in a script. The kernel
+ * places the pad at it (the flight data's λ), and nothing it computes depends
+ * on it: gravity and the Coriolis term read latitude only.
+ */
+describe('longitude moves no flight number', () => {
+  it('flies the default, 10° E and Black Rock to one apogee, top speed and flight time; only λ moves', async () => {
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    resetEngine();
+    const fly = (longitudeDeg: number | null) => {
+      const rocket = OrkRocket.buildTree(tree(true));
+      rocket.setMotorById('mount', C6);
+      return rocket.simulate({
+        ...kernelSimOptions({
+          ...DEFAULT_CONDITIONS, windAverage: 4, windStdDev: 1, launchRodAngleDeg: 5, latitudeDeg: 40.65, longitudeDeg,
+        }),
+        randomSeed: 42, series: 'full',
+      });
+    };
+    const blank = fly(null);
+    const lambda0 = (r: typeof blank) => (r.series as unknown as Record<string, (number | null)[] | undefined>)['λ']?.[0];
+    for (const lon of [10, -119.355]) {
+      const moved = fly(lon);
+      expect(moved.summary.maxAltitude, `${lon}`).toBe(blank.summary.maxAltitude);
+      expect(moved.summary.maxVelocity, `${lon}`).toBe(blank.summary.maxVelocity);
+      expect(moved.summary.flightTime, `${lon}`).toBe(blank.summary.flightTime);
+      expect(lambda0(moved), `${lon}`).toBeCloseTo(lon, 6);
+    }
+    expect(lambda0(blank)).toBeCloseTo(-80.6, 6);
+  }, 60000);
+});
+
+/**
+ * ROD AIM (weather build, step 2), end to end through `kernelSimOptions` and
+ * the real kernel. In calm air a tilted rod is the only thing that moves the
+ * rocket sideways, so the landing bearing IS the rod's lean: the aim is
+ * measured from straight into the wind, which blows from the east
+ * (KERNEL_WIND_FROM_RAD), so 0 leans east (90°), +90 — to your right as you
+ * face into the wind — leans south (180°), 180 west, −90 north. That is the
+ * sign convention the field's help states, held against the physics.
+ */
+describe('Rod aim turns a tilted rod’s lean about the wind', () => {
+  it('lands a calm-air flight toward the side the rod leans: 0 → E, +90 → S, 180 → W, −90 → N', async () => {
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    resetEngine();
+    const fly = (launchRodAimDeg: number) => {
+      const rocket = OrkRocket.buildTree(tree(true));
+      rocket.setMotorById('mount', C6);
+      return extractLandingDrift(rocket.simulate({
+        ...kernelSimOptions({ ...DEFAULT_CONDITIONS, launchRodAngleDeg: 10, launchRodAimDeg }),
+        randomSeed: 42,
+      }).series);
+    };
+    const off = (a: number, b: number) => Math.abs(((a - b + 540) % 360) - 180);
+    const drifts: number[] = [];
+    for (const [aim, bearing] of [[0, 90], [90, 180], [180, 270], [-90, 0]] as const) {
+      const d = fly(aim);
+      expect(d.bearingDeg, `aim ${aim}`).not.toBeNull();
+      expect(off(d.bearingDeg!, bearing), `aim ${aim}: bearing ${d.bearingDeg}`).toBeLessThan(15);
+      drifts.push(d.distanceM!);
+    }
+    // One rod, turned: the same distance whichever way it points.
+    expect(Math.max(...drifts) - Math.min(...drifts)).toBeLessThan(0.02 * Math.max(...drifts));
+  }, 60000);
+
+  // EVERY EXISTING FLIGHT IS UNCHANGED: an aim that does not move the flight
+  // (0, a whole turn, or any aim on a vertical rod) flies byte-for-byte the
+  // flight of a design saved before the field, full series and all.
+  it('flies aim 0, a whole turn, and any aim on a vertical rod as the flight with no aim at all', async () => {
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    resetEngine();
+    const fly = (launch: typeof DEFAULT_CONDITIONS) => {
+      const rocket = OrkRocket.buildTree(tree(true));
+      rocket.setMotorById('mount', C6);
+      return JSON.stringify(rocket.simulate({ ...kernelSimOptions(launch), randomSeed: 42, series: 'full' }));
+    };
+    const tilted = { ...DEFAULT_CONDITIONS, launchRodAngleDeg: 5, windAverage: 4, windStdDev: 1 };
+    const before = fly(tilted);
+    expect(fly({ ...tilted, launchRodAimDeg: 0 })).toBe(before);
+    expect(fly({ ...tilted, launchRodAimDeg: 360 })).toBe(before);
+    const vertical = { ...tilted, launchRodAngleDeg: 0 };
+    expect(fly({ ...vertical, launchRodAimDeg: 90 })).toBe(fly(vertical));
+    // …while an aim that does move it, does.
+    expect(fly({ ...tilted, launchRodAimDeg: 180 })).not.toBe(before);
+  }, 60000);
+
+  // THE GUIDE'S FIGURES, held in a script (review of 2026-09-23): they were
+  // measured at Wind gusts σ 1 and printed with no σ, so a reader flying the
+  // panel's default σ 0 read 321/305 where the guide said 320/303. Flown here
+  // at the default, rounded as printed, and found in the guide's own words.
+  it('re-measures the Rod aim paragraph’s apogee and drift, at the σ it states', async () => {
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    resetEngine();
+    const fly = (launchRodAimDeg: number) => {
+      const rocket = OrkRocket.buildTree(tree(true));
+      rocket.setMotorById('mount', C6);
+      const r = rocket.simulate({
+        ...kernelSimOptions({ ...DEFAULT_CONDITIONS, launchRodAngleDeg: 5, windAverage: 4, launchRodAimDeg }),
+        randomSeed: 42,
+      });
+      return [Math.round(r.summary.maxAltitude), Math.round(extractLandingDrift(r.series).distanceM!)] as const;
+    };
+    expect(DEFAULT_CONDITIONS.windStdDev).toBe(0);
+    const [into, across, acrossLeft, down] = [fly(0), fly(90), fly(-90), fly(180)];
+    expect(across).toEqual(acrossLeft);
+    const guide = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'user-guide.md'), 'utf8');
+    const para = guide.split(/\r?\n/).find((l) => l.startsWith('**Rod aim**'))!;
+    expect(para).toContain('in a steady 4 m/s wind (Wind gusts σ 0, the default)');
+    expect(para).toContain(`${into[0]} m of apogee and ${into[1]} m of drift aimed into the wind, `
+      + `${across[0]} m and ${across[1]} m across it, ${down[0]} m and ${down[1]} m downwind`);
+    // And one frame throughout: the wind the aim is measured from always
+    // blows from the east. The weather section once said it had no direction.
+    expect(guide).not.toMatch(/wind has no (compass )?direction/);
+  }, 60000);
+
+  // The aim turns the ROD, never the wind, so the landing label's "downwind"
+  // stays the kernel's own: from KERNEL_WIND_FROM_RAD, toward that plus 180°.
+  it('keeps the landing label’s "downwind" true: the wind still blows toward 270°', async () => {
+    const { KERNEL_WIND_FROM_RAD } = await import('@online-openrocket/engine');
+    expect(WIND_BLOWS_TOWARD_DEG).toBe((KERNEL_WIND_FROM_RAD * 180 / Math.PI + 180) % 360);
+    expect(WIND_BLOWS_TOWARD_DEG).toBe(270);
+  });
 });

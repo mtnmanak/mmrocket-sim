@@ -1,6 +1,6 @@
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import {
-  importLaunchValue, ROD_ANGLE_DEG_RANGE, ROD_LENGTH_M_RANGE, WIND_MS_RANGE, type LaunchConditions,
+  flownRodAimDeg, importLaunchValue, ROD_ANGLE_DEG_RANGE, ROD_LENGTH_M_RANGE, WIND_MS_RANGE, type LaunchConditions,
 } from '../components/LaunchPanel.js';
 import { asStageNodes, freshId, mountsIn } from '../tree/treeModel.js';
 import { sanitizeTree } from '../tree/sanitize.js';
@@ -852,6 +852,11 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
       launch.launchRodAngleDeg = importLaunchValue(rodAngle, ROD_ANGLE_DEG_RANGE,
         { what: 'launch rod angle', field: 'Rod angle', show: (d) => `${Number(d.toPrecision(6))}°` }, notes);
     }
+    // The format has no rod direction, so the rail leans into the wind — and
+    // that is STATED, as aim 0, for the same reason the pressure above is: App
+    // merges an open's launch over the panel's, and an absent aim would let the
+    // previous design's Rod aim survive into this one (weather build, step 2).
+    launch.launchRodAimDeg = 0;
     const rodLen = num(site, 'RodLength', NaN); // FEET, unlike the part geometry
     if (!Number.isNaN(rodLen)) {
       launch.launchRodLengthM = importLaunchValue(rodLen / FT, ROD_LENGTH_M_RANGE,
@@ -1609,6 +1614,20 @@ export interface Cdx1ExportInput {
 
 const FIN_MIN = 3;
 const FIN_MAX = 8;
+
+/**
+ * The line a .CDX1 save adds when the design leans its rod at an angle to the
+ * wind (weather build, step 2): `<LaunchSite>` has a rod angle and no
+ * direction, so the Rod aim cannot travel and the file reopens — here, as
+ * aim 0 — with the rail straight into the wind. Null when nothing is lost:
+ * aim 0, or a vertical rod, whose aim flies nothing (`flownRodAimDeg`).
+ */
+export function cdx1RodAimNote(launch: Pick<LaunchConditions, 'launchRodAimDeg' | 'launchRodAngleDeg'>): string | null {
+  const aim = flownRodAimDeg(launch);
+  return aim === null ? null
+    : `RASAero has no rod direction, so this file's launch rail points straight into the wind; `
+      + `Rod aim (${Number(aim.toPrecision(6))}°) was not saved.`;
+}
 
 export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors, engineExport, machAlt }: Cdx1ExportInput): string {
   const stagesIn = asStageNodes(tree);

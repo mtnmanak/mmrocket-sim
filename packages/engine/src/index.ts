@@ -61,6 +61,17 @@ export const ENGINE_VERSION = '0.0.1';
 /** Standard gravitational acceleration (m/s^2). */
 export const G0 = 9.80665;
 
+/**
+ * The direction the kernel's wind blows FROM (radians, compass: 0 = north,
+ * π/2 = east) — PinkNoiseWindModel's `direction = Math.PI / 2`, "an East
+ * wind", which nothing in the app or this wrapper ever sets. So it is also the
+ * rod direction that leans a tilted rod straight into the wind (the kernel's
+ * own `rodDirection` default, OrkEngine.simulateJson): the app's Rod aim is
+ * measured from it, and `SimulationOptions.launchRodDirection` is this plus
+ * the aim. Downwind — the app's WIND_BLOWS_TOWARD_DEG, 270° — is this plus π.
+ */
+export const KERNEL_WIND_FROM_RAD = Math.PI / 2;
+
 /** ISA sea-level conditions. */
 export const ISA_SEA_LEVEL = {
   temperatureK: 288.15, // +15 °C
