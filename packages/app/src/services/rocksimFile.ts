@@ -62,10 +62,11 @@ const MASS = 1000; // g → kg
 const PENDING_BASE_EXT = '__rktBaseExt';
 
 /**
- * `xmlNum`'s shape. Every read in one import goes through the SAME recording
- * reader importRkt builds (see its `num`), so the module-level helpers below
- * take it as a parameter rather than calling xmlNum themselves — a field read
- * there is a field the unreadable-number note has to be able to name.
+ * `xmlNum`'s shape. Every one-number field in an import is read through the
+ * SAME recording reader importRkt builds (see its `num`; a <PointList> counts
+ * its own unreadable pairs), so the module-level helpers below take it as a
+ * parameter rather than calling xmlNum themselves — a field read there is a
+ * field the unreadable-number note has to be able to name.
  */
 type NumReader = (el: Element, tag: string, fb: number) => number;
 
