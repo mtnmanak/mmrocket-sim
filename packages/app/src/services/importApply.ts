@@ -224,7 +224,7 @@ function flyablePick(imported: ImportedDesign, resolved: ResolvedImportMotors): 
   const why = own.map((id) => {
     const d = chosen.motors[id]!.designation;
     const missing = resolved.working[id]?.missing;
-    return missing === 'database' ? `${d} isn't in the motor database`
+    return missing === 'database' ? `${d} matched no motor in the motor database`
       : missing === 'curve' ? `${d} is in the motor database but has no thrust curve`
         : `${d} could not be loaded`;
   });
@@ -351,19 +351,25 @@ export function planImport(
   // the beta by Big Dog, and true of every motor change, not just his. The
   // vitals strip and the Motors tab both show the loaded motor live, so the
   // note has no business restating it. What it IS still the only source of is
-  // a motor that could not be matched or downloaded.
+  // a motor that could not be matched or downloaded — and, since the review of
+  // audit 2026-09-23, one that loaded without the file confirming it.
   const nextMotors: Record<string, MountMotor> = {};
   // The refs nothing resolved, kept whole so Save writes them back verbatim
   // instead of dropping the mount — see SavedConfig.unmatchedRefs.
   const nextUnmatchedRefs: Record<string, OrkMotorRef> = {};
   for (const [nodeId, ref] of Object.entries(openRefs)) {
-    const { motor: mm, note, approximated } = openMatches[nodeId] ?? { note: '' };
+    const { motor: mm, note, approximated, openNote } = openMatches[nodeId] ?? { note: '' };
     if (mm) nextMotors[nodeId] = mm;
     else nextUnmatchedRefs[nodeId] = ref;
     // A built-in standing in for a database motor whose curve would not
     // download is a motor the user is FLYING on an approximate curve, so it
     // is reported even though a motor loaded.
     if (!mm || approximated) notes.push(note);
+    // So is a motor the file did not confirm — another maker's than it names,
+    // one of several equal matches, an out-of-production guess — in a sentence
+    // about the open, not the mount (MotorMatchResult.openNote), so it cannot
+    // go stale the way the retired "Motor: … loaded" line did.
+    else if (openNote) notes.push(openNote);
   }
   // Stage B: every configuration in the file becomes a ready-to-apply
   // preset, matched in the same pass. Only the APPLIED config's notes

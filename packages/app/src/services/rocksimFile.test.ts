@@ -1343,7 +1343,7 @@ describe('RockSim ejection-delay sentinels', () => {
     // audit 2026-09-22: all 8 corpus files that reach this note are unmatched
     // motors, and the old text sent the user to a delay box that does not exist).
     const note = r.notes.find((n) => /EjectionDelay −1/.test(n))!;
-    expect(note).toMatch(/isn't in the motor database/);
+    expect(note).toMatch(/this motor matched nothing in the motor database/);
     expect(note).not.toMatch(/lists no delay|Motors & Launch|0 s/);
     // Saved the way App saves a reference nothing matched.
     const motors = { [ref.mountId!]: refToExportMotor(ref) };

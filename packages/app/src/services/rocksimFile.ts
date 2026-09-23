@@ -1717,10 +1717,13 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
               + ' provisional 0 s, so its charge fires at burnout — give those a delay of their own.'
             : ''));
       } else if (kind === 'every-unmatched') {
-        // Not "the database lists no delay": the motor is not in it, so nothing
-        // loads on the mount and there is no delay box to send the user to. The
-        // reference is kept for Save, plugged, with the flag for a .rkt's −1.
-        out.push(`${asks}which takes its delays from the motor's own list — and this motor isn't in `
+        // Not "the database lists no delay": the motor matched nothing in it, so
+        // nothing loads on the mount and there is no delay box to send the user
+        // to. The reference is kept for Save, plugged, with the flag for a
+        // .rkt's −1. "Matched nothing", not "isn't in" (review of audit
+        // 2026-09-23): the matcher cannot tell a motor the catalogue lacks from
+        // one it has under a name the file does not use.
+        out.push(`${asks}which takes its delays from the motor's own list — and this motor matched nothing in `
           + 'the motor database, so there is no list to take one from. The reference is kept: a .rkt '
           + 'Save hands RockSim its −1 back, and a .ork, which has no “every delay”, gets it plugged.');
       }

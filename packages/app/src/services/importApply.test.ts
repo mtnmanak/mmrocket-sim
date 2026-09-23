@@ -141,6 +141,25 @@ describe('planImport — one plan, applied and marked', () => {
     expect(plan.note.text).toContain('Z9999');
   });
 
+  /**
+   * A motor that loaded without the file confirming it (review of audit
+   * 2026-09-23): the open says so, as a warning, in a sentence about the open
+   * — while a confirmed one still adds nothing, the Big Dog rule.
+   */
+  it('says what an unconfirmed motor opened on, and reads as a warning', () => {
+    const imported: ImportedDesign = { name: 'x', tree: podTree(), notes: [], motors: { mmt: ref('K1075-SK') } };
+    const said = 'Motor “K1075-SK”: the file names Cesaroni Technology Inc., but it opened on AMW 2245K1075-P.';
+    const plan = planImport(imported, {
+      working: { mmt: { motor: motor('2245K1075-P'), note: 'Motor: AMW 2245K1075-P-P (loaded from the motor database).', openNote: said } },
+      configs: {},
+    }, { launch: LAUNCH, text: TEXT });
+    expect(plan.snapshot.mountMotors['mmt']!.spec.designation).toBe('2245K1075-P');
+    expect(plan.note.text.split('\n')).toEqual(['Loaded “x”.', said]);
+    expect(plan.note.severity).toBe('warn');
+    // The success line itself still never goes in.
+    expect(plan.note.text).not.toContain('loaded from the motor database');
+  });
+
   it('clears the previous rocket’s measured figures when the file carries none', () => {
     const imported: ImportedDesign = { name: 'x', tree: podTree(), notes: [], motors: {} };
     const plan = planImport(imported, resolvedAll(imported), { launch: LAUNCH, text: TEXT });

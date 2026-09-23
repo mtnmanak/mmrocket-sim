@@ -369,6 +369,10 @@ describe('the refusals — a wrong override is worse than none', () => {
     expect(namesSameMotor('I224', 'I224-15A')).toBe(true);
     expect(namesSameMotor('I224W', 'I224')).toBe(true);
     expect(namesSameMotor('J540R', 'J540R-14A')).toBe(true);
+    // A delay glued to the propellant letter: the cut is between a letter and
+    // a digit, not inside a number — findDbMotor's rule, the same one (review
+    // of audit 2026-09-23).
+    expect(namesSameMotor('H128W14A', 'H128W')).toBe(true);
   });
 
   it('drops a stale mark quietly when BOTH overrides have already been cleared', () => {

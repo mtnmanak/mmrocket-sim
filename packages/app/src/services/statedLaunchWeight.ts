@@ -197,7 +197,11 @@ export const stageLength = (st: ComponentNode | undefined): number =>
  * 1,155-row catalogue was affected either way; this closes the shape, not a
  * reported bug. findDbMotor itself did not carry the guard until audit
  * 2026-09-23, so for two weeks this "mirror" had it while the matcher sent
- * RockSim's “G115-WT” to AeroTech's G11. Both carry it now.
+ * RockSim's “G115-WT” to AeroTech's G11. Both carry it now, in the form the
+ * review of that audit settled on: the cut may not fall BETWEEN TWO DIGITS,
+ * but may fall between a letter and a digit — “H128W” begins “H128W14A”, a
+ * delay glued to AeroTech's propellant letter, which “no digit after the cut”
+ * refused — and a short side with no digit in it begins nothing.
  *
  * Kept as string comparison rather than a `findDbMotor` call so this module
  * stays free of the 1,155-row catalogue — `orkFile.ts` imports it, and the
@@ -211,7 +215,8 @@ export function namesSameMotor(a: string, b: string): boolean {
   if (x === '' || y === '') return false;
   if (x === y) return true;
   const [short, long] = x.length < y.length ? [x, y] : [y, x];
-  return long.startsWith(short) && !/\d/.test(long.charAt(short.length));
+  if (!/\d/.test(short) || !long.startsWith(short)) return false;
+  return !(/\d/.test(short.charAt(short.length - 1)) && /\d/.test(long.charAt(short.length)));
 }
 
 /**

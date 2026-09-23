@@ -1193,8 +1193,10 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
     // than the 2 mm-wall fabrication it replaces. Ten corpus designations
     // landed here; four of them are Cesaroni's, named by propellant code, and
     // since audit 2026-09-23 the matcher finds those (J150-MY, N5800-CS,
-    // L265-MY, N2501-WH). Six still do (M787, O4374, ARA1200by9, ARA1100by8,
-    // J326-LR, K1127LB).
+    // L265-MY, N2501-WH), and two are Loki's, written without the dash Loki's
+    // catalogue puts in, found since the review of that audit (J326-LR, the
+    // catalogue's “J-326-LR”; K1127LB, its “K1127-LB”). Four still do (M787,
+    // O4374, ARA1200by9, ARA1100by8).
     if (!db) return 'absent';
     // An entry that exists but publishes no loaded weight (146 of 1129) is the
     // dangerous one and still skips: thrustcurve.ts takes `masses[0]` from the
