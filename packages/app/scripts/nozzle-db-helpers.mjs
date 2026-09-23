@@ -2,13 +2,15 @@
  * The pure parts of build-nozzle-db.mjs, where a test can reach them.
  *
  * WHY A SEPARATE FILE (audit 2026-09-22). build-nozzle-db.mjs is a 2,000-line
- * script whose work runs at module top level: it reads `docs/RCS Schematics`
- * through Python the moment it is imported, and exits when that folder is
+ * script whose work ran at module top level: it read `docs/RCS Schematics`
+ * through Python the moment it was imported, and exited when that folder was
  * missing — which it is on CI and on the laptop. So none of the code that
  * turns a drawing's inches into the metres the thrust term flies could be
  * tested, and a slipped factor would have shipped on the next regeneration
  * with nothing to see it: the nozzle screen checks bounds and ratios, and a
- * wrong factor applied to every row keeps every ratio intact.
+ * wrong factor applied to every row keeps every ratio intact. (Since
+ * 2026-09-23 the builder runs only as the entry point and exports the
+ * composition too, which build-nozzle-db.test.mjs drives; AUDIT row 480.)
  *
  * What lives here is what can be stated without the document set: the unit
  * conversion, the store-page reader, the readers that turn an assembly
