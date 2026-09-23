@@ -1281,6 +1281,14 @@ html {
   gap: 12px;
 }
 
+/* Launch focuses this <main> by script (tabIndex -1) so focus is not left on
+   <body> when the pressed button unmounts (audit 2026-09-22). It is a landing
+   place, not a control: a ring round the whole column would say "press me".
+   The next Tab goes to the first control inside it. */
+.results-column:focus {
+  outline: none;
+}
+
 .placeholder {
   color: var(--text-muted);
   font-size: 14px;
