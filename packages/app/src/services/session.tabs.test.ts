@@ -35,11 +35,32 @@ function save(tab: SessionModule, name: string): void {
 
 const stored = () => (JSON.parse(localStorage.getItem(KEY)!) as { tree: { name: string } }).tree.name;
 
+/** Every tab's `storage` listener, removed after each test (they share the one window). */
+let unwatch: (() => void)[] = [];
+
+/** A tab with its other-tab watcher installed, as the app root installs it. */
+async function openWatchedTab(): Promise<SessionModule> {
+  const tab = await openTab();
+  unwatch.push(tab.watchOtherTabs());
+  return tab;
+}
+
+/**
+ * What a browser does after a write: tell the OTHER tabs. happy-dom does not
+ * fire `storage` at all, so the test fires it — at every tab, the writer
+ * included, which a browser never does; the writer must shrug it off.
+ */
+function tellOtherTabs(): void {
+  window.dispatchEvent(new StorageEvent('storage', { key: KEY, newValue: localStorage.getItem(KEY) }));
+}
+
 beforeEach(() => {
   localStorage.clear();
   vi.useFakeTimers();
 });
 afterEach(() => {
+  for (const off of unwatch) off();
+  unwatch = [];
   vi.useRealTimers();
   localStorage.clear();
 });
@@ -140,5 +161,109 @@ describe('two tabs', () => {
     save(reloaded, 'A, now on B\'s design');
     expect(stored()).toBe('A, now on B\'s design');
     expect(reloaded.sessionConflicted()).toBe(false);
+  });
+});
+
+describe('an idle tab hears that "Keep this tab\'s design" replaced its work (from review)', () => {
+  it('raises the conflict there, holding its own design, so its close is guarded too', async () => {
+    const a = await openWatchedTab();
+    const b = await openWatchedTab();
+    save(b, 'B: an hour of work');
+    tellOtherTabs();
+    save(a, 'A behind');
+    expect(a.sessionConflicted()).toBe(true);
+    // B is idle from here on: nothing pending, and it will never write again.
+    a.takeOverSession();
+    tellOtherTabs();
+    expect(stored()).toBe('A behind');
+    expect(a.sessionConflicted()).toBe(false);
+    expect(b.sessionConflicted()).toBe(true);
+    expect(b.heldSession()?.tree.name).toBe('B: an hour of work');
+    // Its pagehide flush holds back too — and the conflict stands, which is
+    // what arms App's leave-page prompt.
+    b.flushSession();
+    expect(stored()).toBe('A behind');
+    expect(b.sessionConflicted()).toBe(true);
+    // And its own "Keep" puts its hour of work back, telling A in turn.
+    b.takeOverSession();
+    tellOtherTabs();
+    expect(stored()).toBe('B: an hour of work');
+    expect(a.sessionConflicted()).toBe(true);
+    expect(a.heldSession()?.tree.name).toBe('A behind');
+  });
+
+  it('an ordinary write does not — the tab it replaces is only stale, and its close is not stopped', async () => {
+    const b = await openWatchedTab();
+    save(b, 'B');
+    const c = await openWatchedTab(); // opens B's design…
+    save(c, 'B, then edited in C'); // …and carries on from it
+    tellOtherTabs();
+    expect(b.sessionConflicted()).toBe(false);
+    expect(c.sessionConflicted()).toBe(false);
+  });
+
+  it('a single tab never hears itself: a takeover leaves the writer clear', async () => {
+    const a = await openWatchedTab();
+    save(a, 'A');
+    localStorage.setItem(KEY, JSON.stringify({ ...state('another build\'s tab'), savedAt: 3 }));
+    save(a, 'A, held');
+    a.takeOverSession();
+    tellOtherTabs(); // reaches A too here, which no browser does
+    expect(a.sessionConflicted()).toBe(false);
+    expect(stored()).toBe('A, held');
+  });
+
+  it('`over` rides outside the stamp — the same design is the same stamp however it was written', async () => {
+    const a = await openWatchedTab();
+    const b = await openWatchedTab();
+    save(b, 'B');
+    save(a, 'shared design');
+    a.takeOverSession();
+    const taken = JSON.parse(localStorage.getItem(KEY)!) as { stamp: string; over?: string };
+    expect(taken.over).toBeTruthy();
+    const c = await openWatchedTab();
+    save(c, 'shared design'); // the same design, an ordinary write
+    const plain = JSON.parse(localStorage.getItem(KEY)!) as { stamp: string; over?: string };
+    expect(plain.over).toBeUndefined();
+    expect(plain.stamp).toBe(taken.stamp);
+  });
+});
+
+describe('"Start fresh" leaves another tab\'s autosave alone (from review)', () => {
+  it('during a conflict it drops this tab\'s held write and keeps the slot', async () => {
+    const d = await openTab();
+    const c = await openTab();
+    save(d, 'D: work');
+    save(c, 'C behind');
+    expect(c.sessionConflicted()).toBe(true);
+    expect(c.autosaveIsAnotherTabs()).toBe(true);
+    c.discardSession();
+    expect(stored()).toBe('D: work');
+    expect(c.sessionConflicted()).toBe(false);
+    expect(c.heldSession()).toBeNull();
+  });
+
+  it('and when another tab wrote since, even with no conflict raised yet', async () => {
+    const c = await openTab();
+    save(c, 'C');
+    const d = await openTab();
+    save(d, 'D, carried on from C');
+    expect(c.sessionConflicted()).toBe(false);
+    expect(c.autosaveIsAnotherTabs()).toBe(true);
+    // The crash panel's download reads the slot — without making it C's own.
+    expect(c.peekSession()?.tree.name).toBe('D, carried on from C');
+    expect(c.autosaveIsAnotherTabs()).toBe(true);
+    c.discardSession();
+    expect(stored()).toBe('D, carried on from C');
+  });
+
+  it('its own autosave it still deletes, with the write still in the debounce', async () => {
+    const c = await openTab();
+    save(c, 'C');
+    expect(c.autosaveIsAnotherTabs()).toBe(false);
+    c.saveSessionDebounced(state('C, last keystroke'));
+    c.discardSession();
+    vi.runAllTimers();
+    expect(localStorage.getItem(KEY)).toBeNull();
   });
 });

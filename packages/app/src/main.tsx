@@ -6,9 +6,7 @@ import { registerSW } from 'virtual:pwa-register';
 // emitted into assets/ and precached (vite.config workbox globPatterns).
 import '@fontsource/rajdhani/latin-600.css';
 import '@fontsource/rajdhani/latin-700.css';
-import { App } from './App.js';
-import { AppBoundary } from './components/AppBoundary.js';
-import { PrefsProvider } from './prefs/PrefsContext.js';
+import { AppRoot } from './root.js';
 import { dismantlePwa, isRetiredHost } from './services/hostMigration.js';
 import { setSwRegistration } from './services/versionCheck.js';
 
@@ -26,10 +24,10 @@ if (isRetiredHost(location.hostname)) {
 }
 
 // Never a silently-blank page: uncaught errors paint into the root. A throw
-// while RENDERING is caught by AppBoundary below, which keeps the root filled
-// and offers the autosaved design and a fresh start (audit 2026-09-22); this
-// paints only into an EMPTY root, so it is the last resort for what no
-// boundary sees (the root failing to mount at all).
+// while RENDERING is caught by AppBoundary (root.tsx), which keeps the root
+// filled and offers the autosaved design and a fresh start (audit
+// 2026-09-22); this paints only into an EMPTY root, so it is the last resort
+// for what no boundary sees (the root failing to mount at all).
 function showFatal(message: string) {
   const root = document.getElementById('root');
   if (root && !root.childElementCount) {
@@ -47,11 +45,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(String(e.reason))
 try {
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
-      <AppBoundary>
-        <PrefsProvider>
-          <App />
-        </PrefsProvider>
-      </AppBoundary>
+      <AppRoot />
     </StrictMode>,
   );
 } catch (e) {

@@ -1,7 +1,7 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { autosavedDesignFile } from '../services/autosaveBackup.js';
 import { saveFile } from '../services/saveFile.js';
-import { discardSession } from '../services/session.js';
+import { autosaveIsAnotherTabs, discardSession } from '../services/session.js';
 
 /** The persisted workspace tab (App's own key): a crash tied to one tab re-opens on it. */
 const WORKSPACE_KEY = 'online-openrocket.workspace.v1';
@@ -24,7 +24,9 @@ const WORKSPACE_KEY = 'online-openrocket.workspace.v1';
  * autosaveBackup.ts), then start fresh, which clears ONLY the autosaved design
  * and the remembered tab and reloads. Runs, imported motors, custom presets
  * and preferences are left alone. It asks before discarding, because the
- * autosave is the only copy of unsaved work.
+ * autosave is the only copy of unsaved work — and when the autosave holds
+ * ANOTHER open tab's design it leaves that alone and says so, discarding only
+ * this tab's own (services/session.ts `discardSession`).
  *
  * It sits outside PrefsProvider and needs nothing from it, so a throw in the
  * preferences layer is caught too. Section boundaries inside App
@@ -72,6 +74,10 @@ export class AppBoundary extends Component<
 
   override render() {
     if (this.state.error === null) return this.props.children;
+    // Read when asking, not when the panel first drew: whether the autosave is
+    // this tab's is what the button is about to act on, and another tab can
+    // write in between.
+    const othersInSlot = this.state.confirming && autosaveIsAnotherTabs();
     return (
       <div className="panel hero-fallback" role="alert" style={{ margin: '24px auto' }}>
         <h2>Something went wrong</h2>
@@ -86,12 +92,21 @@ export class AppBoundary extends Component<
         {this.state.note && <p role="status">{this.state.note}</p>}
         {this.state.confirming ? (
           <>
-            <p>
-              Starting fresh deletes the autosaved design from this browser and opens a new one.
-              Saved runs, imported motors, custom presets and preferences are kept.
-            </p>
+            {othersInSlot ? (
+              <p>
+                The autosave in this browser now holds a design from another tab, so starting
+                fresh leaves it alone: it discards this tab&rsquo;s changes and reopens with that
+                other design. Download first to keep this tab&rsquo;s changes. Saved runs,
+                imported motors, custom presets and preferences are kept.
+              </p>
+            ) : (
+              <p>
+                Starting fresh deletes the autosaved design from this browser and opens a new one.
+                Saved runs, imported motors, custom presets and preferences are kept.
+              </p>
+            )}
             <button className="file-btn modal-danger" onClick={this.startFresh}>
-              Delete the autosave and start fresh
+              {othersInSlot ? 'Discard this tab’s changes and reload' : 'Delete the autosave and start fresh'}
             </button>
             <button className="file-btn" onClick={() => this.setState({ confirming: false })}>Cancel</button>
           </>

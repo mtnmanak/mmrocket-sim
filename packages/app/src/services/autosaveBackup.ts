@@ -4,7 +4,7 @@ import { loadExMotors } from './exMotors.js';
 import { safeName } from './fileName.js';
 import { refToExportMotor } from './motorMatch.js';
 import { exportOrk, type OrkExportMotor, type OrkMotorRef } from './orkFile.js';
-import { flushSession, heldSession, loadSession, sessionPayload, type SessionState } from './session.js';
+import { flushSession, heldSession, peekSession, sessionPayload, type SessionState } from './session.js';
 
 /**
  * THE WAY OUT OF A CRASH (audit 2026-09-22).
@@ -128,7 +128,9 @@ export function autosavedDesignFile(): AutosaveFile | null {
   const raw = held ? JSON.stringify(held) : sessionPayload();
   if (raw === null) return null;
   try {
-    const s: SessionState | null = held ? { ...held, savedAt: Date.now() } : loadSession();
+    // peek, not load: reading the slot for the user must not make another
+    // tab's write this tab's own, which "Start fresh" would then delete.
+    const s: SessionState | null = held ? { ...held, savedAt: Date.now() } : peekSession();
     if (s) {
       return {
         name: `${safeName(s.tree.name ?? 'rocket')}-autosave.ork`,

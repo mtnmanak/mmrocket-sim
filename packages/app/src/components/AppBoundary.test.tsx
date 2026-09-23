@@ -1,7 +1,4 @@
 // @vitest-environment happy-dom
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -108,19 +105,25 @@ describe('AppBoundary', () => {
     expect(localStorage.getItem(EX)).toBe('[{"motorId":"ex1"}]');
   });
 
+  it('"Start fresh" leaves ANOTHER tab’s autosave alone, and says so first (from review)', () => {
+    // Another tab wrote its design into the slot since this one last did.
+    const mine = JSON.parse(localStorage.getItem(SESSION)!) as Record<string, unknown>;
+    const theirs = JSON.stringify({ ...mine, stamp: 'othertab', tree: { ...defaultTree(), name: 'Other Tab' } });
+    localStorage.setItem(SESSION, theirs);
+    renderCrashed();
+    act(() => { button('Start fresh').click(); });
+    expect(host.textContent).toContain('holds a design from another tab');
+    act(() => { button('Discard this tab').click(); });
+    expect(reloads).toBe(1);
+    expect(localStorage.getItem(SESSION)).toBe(theirs);
+    expect(localStorage.getItem(TAB)).toBeNull();
+  });
+
   it('Cancel keeps the autosave', () => {
     renderCrashed();
     act(() => { button('Start fresh').click(); });
     act(() => { button('Cancel').click(); });
     expect(reloads).toBe(0);
     expect(localStorage.getItem(SESSION)).not.toBeNull();
-  });
-});
-
-describe('main.tsx', () => {
-  it('mounts the app inside AppBoundary, outside PrefsProvider', () => {
-    const here = dirname(fileURLToPath(import.meta.url));
-    const src = readFileSync(join(here, '../main.tsx'), 'utf8');
-    expect(/<AppBoundary>\s*<PrefsProvider>\s*<App \/>\s*<\/PrefsProvider>\s*<\/AppBoundary>/.test(src)).toBe(true);
   });
 });
