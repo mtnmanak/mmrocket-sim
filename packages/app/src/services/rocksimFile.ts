@@ -1599,13 +1599,22 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
    * the one. For the reader's own pick it is exactly the three cases this
    * wrote before planImport could re-pick; the fourth (`c` motors no bottom
    * stage while another simulation does) is reachable only through that re-pick.
+   *
+   * AND ONLY WHEN NOTHING THAT MOTORS THE BOTTOM STAGE FLIES (review of the
+   * seam fixes). importApply's flyablePick prefers a configuration that motors
+   * the bottom stage whenever one can leave the pad, so it lands on one that
+   * does not only when every one that does has no loadable motor there. This
+   * sentence used to end "switch under Flight configurations to fly one that
+   * motors it" — to the configurations just passed over because they cannot
+   * fly. It gives the same way out the no-booster case below does instead.
    */
   const openedNoteFor = (c: OrkFlightConfig): string | null => {
     if (components.length > 1 && !motorsBottom(c)) {
       return flyable
-        ? `${simLabel(c)} puts no motor on ${bottomName}. It was opened with its lowest stage's motors timed `
-          + `from launch, so ${bottomName} flies along unpowered — switch under Flight configurations to fly `
-          + 'one that motors it.'
+        ? `${simLabel(c)} puts no motor on ${bottomName}, and no simulation in this file that motors `
+          + `${bottomName} has a motor there the app can load. It was opened with its lowest stage's motors `
+          + `timed from launch, so ${bottomName} flies along unpowered. Delete that stage in the Design tab to `
+          + 'fly without it, or select its mount there and pick a motor.'
         : `No simulation in this file puts a motor on ${bottomName}. ${simLabel(c)} was opened `
           + `with its lowest stage's motors timed from launch, so ${bottomName} flies along unpowered. Delete that `
           + 'stage in the Design tab to fly without it, or select its mount there and pick a motor.';

@@ -160,6 +160,39 @@ describe('planImport — opens a configuration that can leave the pad', () => {
     // `first` has its sustainer motor loaded, but its BOOSTER — what lifts off — is not.
     expect((await open(imported, stub)).snapshot.activeConfigId).toBe('both');
   });
+
+  /**
+   * A SUSTAINER-ONLY SIMULATION IS OPENED ONLY WHEN NOTHING THAT MOTORS THE
+   * BOOSTER FLIES (review of the seam fixes). The reader's sentence for it
+   * ended "switch under Flight configurations to fly one that motors it" —
+   * sending the user to the configurations that had just been passed over
+   * because they cannot leave the pad.
+   */
+  it('does not send the user to a configuration that cannot fly', async () => {
+    const set = (code: string, mfg: string, serial: number) => `<EngineSet><EngineCount>1</EngineCount>
+      <EngineCode>${code}</EngineCode><EngineMfg>${mfg}</EngineMfg><IgnitionDelay>0.</IgnitionDelay>
+      <MountSerialNo>${serial}</MountSerialNo><EjectionDelay>7.</EjectionDelay></EngineSet>`;
+    const r = importRkt(`<RockSimDocument><DesignInformation><RocketDesign><Name>Two</Name><StageCount>2</StageCount>
+      <Stage3Parts><BodyTube><Name>Upper</Name><OD>24.8</OD><ID>24.1</ID><Len>250</Len><IsMotorMount>1</IsMotorMount>
+        <SerialNo>3</SerialNo></BodyTube></Stage3Parts>
+      <Stage2Parts><BodyTube><Name>Lower</Name><OD>24.8</OD><ID>24.1</ID><Len>200</Len><IsMotorMount>1</IsMotorMount>
+        <SerialNo>2</SerialNo></BodyTube></Stage2Parts>
+      </RocketDesign></DesignInformation><SimulationResultsList>
+      <SimulationResults><Stage2Engines>${set('ZQ9999X', 'Estes', 2)}</Stage2Engines>
+        <Stage3Engines>${set('C6', 'Estes', 3)}</Stage3Engines></SimulationResults>
+      <SimulationResults><Stage3Engines>${set('C6', 'Estes', 3)}</Stage3Engines></SimulationResults>
+      </SimulationResultsList></RockSimDocument>`);
+    expect(r.chosenConfigId).toBe('rocksim-sim-1');
+    const plan = await open(r);
+    expect(plan.snapshot.activeConfigId).toBe('rocksim-sim-2');
+    expect(plan.note.text).toContain('Simulation 1 was not opened: ZQ9999X isn\'t in the motor '
+      + 'database, so it could not leave the pad.');
+    expect(plan.note.text).not.toMatch(/switch under Flight configurations/);
+    expect(plan.note.text).toContain('Simulation 2 puts no motor on Booster, and no simulation in this file '
+      + 'that motors Booster has a motor there the app can load. It was opened with its lowest stage\'s motors timed '
+      + 'from launch, so Booster flies along unpowered. Delete that stage in the Design tab to fly without it, or '
+      + 'select its mount there and pick a motor.');
+  });
 });
 
 /**

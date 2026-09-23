@@ -178,6 +178,11 @@ interface FlyablePick {
  * chose (`configSources`): a .ork names its default configuration itself, and
  * that is its author's choice, kept even when it cannot fly. A reader's pick
  * with no motors, or with nothing better to go to, is kept as it was.
+ *
+ * The .rkt reader's sentence for a configuration that motors only an upper
+ * stage (its openedNoteFor) says no simulation that motors the bottom stage has
+ * a motor there that loads — true only because of the preference above. Keep
+ * the two together.
  */
 function flyablePick(imported: ImportedDesign, resolved: ResolvedImportMotors): FlyablePick | null {
   const sources = imported.configSources;
