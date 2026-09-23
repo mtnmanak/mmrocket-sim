@@ -13,7 +13,7 @@ import { ConfigPanel } from './components/ConfigPanel.js';
 import { Icon } from './components/Icon.js';
 import { ChangelogDialog } from './components/ChangelogDialog.js';
 import { GuideDialog } from './components/GuideDialog.js';
-import { FirstRunTour, shouldAutoStartTour } from './components/FirstRunTour.js';
+import { FirstRunTour } from './components/FirstRunTour.js';
 import { FlyScreen } from './components/FlyScreen.js';
 import { ComponentTree } from './components/ComponentTree.js';
 import { FlightCharts } from './components/FlightCharts.js';
@@ -31,7 +31,6 @@ import {
 import { MotorPicker } from './components/MotorPicker.js';
 import { Modal } from './components/Modal.js';
 import { useMenuPopup } from './components/useDialog.js';
-import { useFocusHandoff } from './components/useFocusHandoff.js';
 import { NumField } from './components/NumField.js';
 import { PropertyPanel } from './components/PropertyPanel.js';
 import { SimHistory, SimRunDetails } from './components/SimResults.js';
@@ -98,7 +97,6 @@ import {
   isPristineDefault, motorisedStagesWithNozzle, mountCountNote, mountMotorCount, normalizeTree, padMassOntoRankedPrimary, primaryMountOf, removeNode, stageIndexOf, stages, stagesWithNozzle,
   suppressingAncestor, updateAllNodes, updateNode,
 } from './tree/treeModel.js';
-import { DRAWER_CLOSE_BELOW_PX, drawerAutoState } from './components/heroDrawer.js';
 import { flightDataForExport as flightDataForExportPure } from './services/orkFlightData.js';
 import { estimateMotorRoomForMounts } from './tree/motorRoom.js';
 import { NozzleField } from './components/NozzleField.js';
@@ -136,6 +134,9 @@ import { useTreeHistory } from './hooks/useTreeHistory.js';
 import { useNozzleFollow } from './hooks/useNozzleFollow.js';
 import { useRelaunchLatch } from './hooks/useRelaunchLatch.js';
 import { useDesignDirty } from './hooks/useDesignDirty.js';
+import { useFirstRunTour } from './hooks/useFirstRunTour.js';
+import { HERO_CHIP_RESERVE, useHeroDrawer } from './hooks/useHeroDrawer.js';
+import { useWorkspaceTab } from './hooks/useWorkspaceTab.js';
 import { savedConfigLabel, type MountMotor, type SavedConfig } from './model/design.js';
 
 import './styles.css';
@@ -615,127 +616,10 @@ export function App() {
     return () => { clearTimeout(fade); clearTimeout(clear); };
   }, [sessionNote]);
   const [view, setView] = useState<'2d' | '3d' | 'aft'>('2d');
-  /**
-   * S1 stats drawer over the hero canvas.
-   * "All stats" starts OPEN on a desktop and closed on anything narrower
-   * (the owner, 2026-08-23: "there is enough screen real estate"). 981px is the
-   * breakpoint where the hero-canvas layout kicks in — below it the drawer
-   * overlays most of the drawing, which is why it defaulted closed for
-   * everyone. Session state, not a stored preference: collapsing it still
-   * sticks for as long as you are working, and nobody's saved choice is
-   * stomped because there was never one to stomp.
-   */
-  const [statsDrawer, setStatsDrawer] = useState(
-    () => typeof matchMedia !== 'undefined' && matchMedia('(min-width: 981px)').matches,
-  );
-  /**
-   * Has the user opened or closed the drawer themselves? A ref, not storage:
-   * the block above rules this session state and not a stored preference, and
-   * auto-collapse must not quietly promote it. It only stops the automatic
-   * rules fighting a deliberate choice — it is manners, not mechanism.
-   */
-  const userSetDrawer = useRef(false);
-  /**
-   * The chip and Collapse replace each other, so a press hands focus to the
-   * one that appears (review of the audit 2026-09-22 branch, row 462): it fell
-   * to <body>, and neither button's aria-expanded was ever heard changing.
-   * Only a press — the automatic rules below never move focus.
-   */
-  const drawerFocus = useFocusHandoff<'chip' | 'collapse'>();
-  const setDrawerByUser = (v: boolean) => {
-    userSetDrawer.current = true;
-    drawerFocus.handTo(v ? 'collapse' : 'chip');
-    setStatsDrawer(v);
-  };
-  /**
-   * The breakpoint is LIVE now (2026-09-21). The initializer above ran once at
-   * startup, so a window dragged from wide to narrow kept a drawer that
-   * covers most of the drawing at that width, and one dragged the other way
-   * never gained it. Same shape as the theme listener in PrefsContext.
-   */
-  const [heroWide, setHeroWide] = useState(
-    () => typeof matchMedia !== 'undefined' && matchMedia('(min-width: 981px)').matches,
-  );
-  useEffect(() => {
-    if (typeof matchMedia === 'undefined') return;
-    const mq = matchMedia('(min-width: 981px)');
-    const onChange = (e: MediaQueryListEvent) => {
-      setHeroWide(e.matches);
-      if (!userSetDrawer.current) setStatsDrawer(e.matches);
-    };
-    mq.addEventListener('change', onChange);
-    return () => mq.removeEventListener('change', onChange);
-  }, []);
-  // Measured drawer height + gap: the hero view's bottom edge lifts above the
-  // open drawer so the drawing shrinks to the visible sky instead of being
-  // covered (batch 08-21d — vertical mode has no zoom/pan to escape with).
-  // A CALLBACK ref, not a plain one, and the effect keys on the NODE: the
-  // drawer lives inside the design tab's subtree (and behind `built &&`), so
-  // switching tabs unmounts it while statsDrawer stays true. Keyed on
-  // statsDrawer alone the effect never re-ran, the ResizeObserver kept
-  // watching the detached node — Chrome reports it as a 0x0 box, so the
-  // clearance collapsed to 20px — and the fresh drawer that mounted on the way
-  // back was never measured at all. The drawing then ran under the drawer
-  // again, which is the exact failure this measurement exists to prevent
-  // (batch 08-21d: vertical mode has no zoom/pan to escape with).
-  const [drawerEl, setDrawerEl] = useState<HTMLDivElement | null>(null);
-  const [drawerClearance, setDrawerClearance] = useState(0);
-  /**
-   * Fit-to-content hero canvas (v0.076, owner report 2026-08-29): the 2D
-   * schematic reports its natural drawn height and the stage sizes to
-   * rocket + chip headroom + drawer clearance, capped by the old
-   * viewport-availability clamp (see styles.css) — so a long thin rocket
-   * stops paying for a window-tall band of empty sky, and the footer gets
-   * its screen back. 3D and Aft keep the pure CSS clamp: a 3D scene has no
-   * "natural" height.
-   */
-  const [heroNatural, setHeroNatural] = useState<number | null>(null);
-  /** Headroom over the drawn rocket for the floating stats chip's default
-   *  spot (~110px unfolded + margin), so fit-to-content never lands the chip
-   *  on the airframe. */
-  const HERO_CHIP_RESERVE = 140;
-  useEffect(() => {
-    // Only while the drawer OVERLAYS the drawing. Below 981px it is a block
-    // under the canvas (heroWide false), so there is nothing to lift clear of.
-    if (!statsDrawer || !drawerEl || !heroWide) { setDrawerClearance(0); return; }
-    const measure = () => setDrawerClearance(drawerEl.offsetHeight + 20);
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(drawerEl);
-    return () => ro.disconnect();
-  }, [statsDrawer, drawerEl, heroWide]);
-  /**
-   * AUTO-COLLAPSE ON A SHORT CANVAS (2026-09-21, Eric's quarter-screen
-   * window). The measurement is the STAGE's own padding box, never the drawer
-   * and never the band left over above it — and that choice is the whole fix,
-   * because of the SIGN of the dependency. The leftover band grows when the
-   * drawer closes, so a rule reading it would immediately reverse its own
-   * verdict and oscillate. The stage's height can only FALL when the drawer
-   * closes (the drawer's height feeds the stage's ceiling, never its floor),
-   * so "too short" stays true once it is true. Hysteresis is still needed for
-   * the other direction: reopening raises the ceiling again, so the reopen
-   * threshold sits 60px above the close one.
-   */
-  const [stageEl, setStageEl] = useState<HTMLDivElement | null>(null);
-  useEffect(() => {
-    if (!stageEl) return;
-    const check = () => {
-      const next = drawerAutoState({
-        // Below 981px the drawer is a block under the canvas and costs the
-        // drawing nothing, so there is nothing for the rule to rescue.
-        stageH: heroWide ? stageEl.clientHeight : Infinity,
-        open: statsDrawer,
-        userSet: userSetDrawer.current,
-      });
-      if (next !== null) setStatsDrawer(next);
-    };
-    check();
-    const ro = new ResizeObserver(check);
-    ro.observe(stageEl);
-    return () => ro.disconnect();
-  }, [stageEl, statsDrawer, heroWide]);
-  /** The canvas is too short to carry an unfolded stats chip as well. */
-  const heroTight = heroWide && (stageEl?.clientHeight ?? Infinity) < DRAWER_CLOSE_BELOW_PX;
+  // The All-stats drawer over the hero canvas, its breakpoint, its
+  // auto-collapse and the canvas's fit-to-content sizing — hooks/useHeroDrawer.ts
+  // (audit 2026-09-22, row 501), tested there.
+  const hero = useHeroDrawer();
   /** S1's 90° toggle: draw the 2D view nose-up (viewing mode — drag/zoom off). */
   const [vert2d, setVert2d] = useState(false);
   /**
@@ -752,60 +636,11 @@ export function App() {
   const [showScale, setShowScale] = useState(false);
   const [showChangelog, setShowChangelog] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
-  const [tourOpen, setTourOpen] = useState(false);
-  // First-run tour: decided once at startup (ref = StrictMode double-invoke
-  // guard, same pattern as shareHandled below). A share link suppresses it —
-  // that visitor came for a design, don't stand in front of it.
-  const tourChecked = useRef(false);
-  useEffect(() => {
-    if (tourChecked.current) return;
-    tourChecked.current = true;
-    if (shouldAutoStartTour({
-      tourOff: prefs.tourOff ?? false,
-      hasShare: hasSharePayload(window.location.hash),
-      hasSession: session != null,
-    })) setTourOpen(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot startup decision
-  }, []);
-  // Turning the tour off WHILE IT IS ON SCREEN must dismiss it. The tour's
-  // spotlight and scrim are both pointer-events:none, so the app stays fully
-  // usable behind the card and opening Preferences mid-tour is the natural
-  // thing to do — and until now the card just sat there, which is the literal
-  // reading of "setting Tour Off doesn't work".
-  //
-  // Guarded on the false→true TRANSITION, not on the current value: a plain
-  // `if (off) setTourOpen(false)` would make the header's ⟲ Tour replay
-  // button dead for exactly the people who turned the auto-tour off.
-  const prevTourOff = useRef(prefs.tourOff ?? false);
-  useEffect(() => {
-    const off = prefs.tourOff ?? false;
-    if (off && !prevTourOff.current) setTourOpen(false);
-    prevTourOff.current = off;
-  }, [prefs.tourOff]);
-  const closeTour = useCallback(() => {
-    setTourOpen(false);
-    // The tour walks through tabs — land back on the device's home screen
-    // (phones open on Fly, everything else on Design).
-    setTab(typeof matchMedia !== 'undefined' && matchMedia('(max-width: 767px)').matches
-      ? 'fly' : 'design');
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- setTab is stable
-  }, []);
-  // Workspace tab (Fly / Design / Motors & Launch / Results) — persisted so a
-  // reload lands the user back where they were working. Fly (S4, batch
-  // 08-21c) is the phone home: launch-centered, first and default below the
-  // phone breakpoint; its tab button is CSS-hidden on desktop.
-  const [tab, setTabRaw] = useState<'fly' | 'design' | 'motors' | 'results'>(() => {
-    try {
-      const t = localStorage.getItem('online-openrocket.workspace.v1');
-      if (t === 'fly' || t === 'motors' || t === 'results' || t === 'design') return t;
-    } catch { /* fall through */ }
-    return typeof matchMedia !== 'undefined' && matchMedia('(max-width: 767px)').matches
-      ? 'fly' : 'design';
-  });
-  const setTab = useCallback((t: 'fly' | 'design' | 'motors' | 'results') => {
-    setTabRaw(t);
-    try { localStorage.setItem('online-openrocket.workspace.v1', t); } catch { /* ignore */ }
-  }, []);
+  // The workspace tab, persisted, and the first-run tour that walks it —
+  // hooks/useWorkspaceTab.ts and hooks/useFirstRunTour.ts (audit 2026-09-22,
+  // row 501), each tested there.
+  const [tab, setTab] = useWorkspaceTab();
+  const tour = useFirstRunTour({ tourOff: prefs.tourOff ?? false, hasSession: session != null, setTab });
   const [showFileMenu, setShowFileMenu] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
   // Escape closes whichever header popup is open and puts focus back on the
@@ -2859,11 +2694,11 @@ export function App() {
    * Collapse button cannot drift between the two placements.
    */
   const statsDrawerNode = built ? (
-    <div className={heroWide ? 'stats-drawer' : 'stats-drawer stats-drawer-flow'} ref={setDrawerEl}>
+    <div className={hero.wide ? 'stats-drawer' : 'stats-drawer stats-drawer-flow'} ref={hero.drawerRef}>
       <div className="stats-drawer-head">
         <span>All stats</span>
-        <button className="file-btn" aria-expanded={true} ref={drawerFocus.refFor('collapse')}
-          onClick={() => setDrawerByUser(false)}>▾ Collapse</button>
+        <button className="file-btn" aria-expanded={true} ref={hero.focusRef('collapse')}
+          onClick={() => hero.setByUser(false)}>▾ Collapse</button>
       </div>
       <DesignStats
         info={built.info}
@@ -3024,7 +2859,7 @@ export function App() {
             <Icon name="book" /> Guide
           </button>
           {/* Replay lives in the header, not inside the Guide (batch 08-21c). */}
-          <button className="file-btn" onClick={() => setTourOpen(true)}
+          <button className="file-btn" onClick={tour.start}
             title="Replay the six-step interface tour">
             ⟲ Tour
           </button>
@@ -3151,7 +2986,7 @@ export function App() {
       </header>
       {showPrefs && <PreferencesDialog onClose={() => setShowPrefs(false)} />}
       {showGuide && <GuideDialog onClose={() => setShowGuide(false)} />}
-      {tourOpen && <FirstRunTour onSetTab={setTab} onClose={closeTour} />}
+      {tour.open && <FirstRunTour onSetTab={setTab} onClose={tour.close} />}
       {showChangelog && <ChangelogDialog onClose={() => setShowChangelog(false)} />}
       {showScale && (
         <ScaleDialog
@@ -3728,23 +3563,16 @@ export function App() {
                 the user is on 3D/Aft — where the taller cap would just be
                 letterbox. */}
             <div className="rocket-stage hero-stage" data-tour="canvas"
-              ref={setStageEl}
+              ref={hero.stageRef}
               data-vert={view === '2d' && vert2d ? 'on' : undefined}
-              style={view === '2d' && !vert2d && heroNatural
-                ? ({
-                  '--hero-natural': `${heroNatural + HERO_CHIP_RESERVE + drawerClearance}px`,
-                  // The drawer's own height, published so the stage's CEILING can
-                  // grow by it. Without this the line above was discarded by the
-                  // min() in styles.css for every rocket of any size, and the
-                  // drawer came straight out of the drawing.
-                  '--drawer-clearance': `${drawerClearance}px`,
-                } as React.CSSProperties)
-                : undefined}>
+              // Fit-to-content sizing for a horizontal 2D drawing only — 3D and
+              // Aft have no natural height (hooks/useHeroDrawer.ts heroStageStyle).
+              style={view === '2d' && !vert2d ? hero.stageStyle : undefined}>
               {/* .hero-view owns fill-and-center: the drawing must never size
                   its own container (see the styles.css note on the feedback
                   loop), and the schematic wrap carries inline positioning of
                   its own, so the absolute box has to be ours. */}
-              <div className="hero-view" style={drawerClearance ? { bottom: drawerClearance } : undefined}>
+              <div className="hero-view" style={hero.clearance ? { bottom: hero.clearance } : undefined}>
                 {view === '2d'
                   ? (
                     <TreeSchematic
@@ -3758,7 +3586,7 @@ export function App() {
                       onError={setFileNote}
                       vertical={vert2d}
                       fillHeight
-                      onNaturalHeight={setHeroNatural}
+                      onNaturalHeight={hero.setNatural}
                       // Spend the chip's headroom above the rocket instead of
                       // letting centring split it in half. Only in horizontal
                       // 2D: ⟳90° draws the rocket along the height axis, where
@@ -3781,7 +3609,7 @@ export function App() {
                   )
                   : <AftView tree={tree} motors={motorDims} roll={viewRoll} onRoll={setViewRoll} />}
               </div>
-              {built && <StatsChip info={built.info} drawerOpen={statsDrawer} tight={heroTight} />}
+              {built && <StatsChip info={built.info} drawerOpen={hero.open} tight={hero.tight} />}
               {/* THE DRAWER IS AN OVERLAY ONLY WHERE IT CAN AFFORD TO BE
                   (2026-09-21). At >= 981px the stage has a height and the
                   drawing is lifted clear of the drawer; below that the stage
@@ -3791,14 +3619,14 @@ export function App() {
                   it is outside the stage's border and drafting-grid sky
                   rather than a white card floating on it. Same element, same
                   state, same buttons; only where it sits changes. */}
-              {built && (statsDrawer
-                ? (heroWide ? statsDrawerNode : null)
+              {built && (hero.open
+                ? (hero.wide ? statsDrawerNode : null)
                 : (
                   // aria-expanded on both halves of the drawer's disclosure
                   // (audit 2026-09-22): this one only shows while it is shut,
-                  // and a press hands focus across — see drawerFocus.
-                  <button className="file-btn stats-drawer-chip" aria-expanded={false} ref={drawerFocus.refFor('chip')}
-                    onClick={() => setDrawerByUser(true)}
+                  // and a press hands focus across — see useHeroDrawer.
+                  <button className="file-btn stats-drawer-chip" aria-expanded={false} ref={hero.focusRef('chip')}
+                    onClick={() => hero.setByUser(true)}
                     title="Every design stat, with unit switches">▤ All stats</button>
                 ))}
               {mountSizes.length > 0 && (
@@ -3814,7 +3642,7 @@ export function App() {
                 </div>
               )}
             </div>
-            {built && statsDrawer && !heroWide && statsDrawerNode}
+            {built && hero.open && !hero.wide && statsDrawerNode}
             {built && built.info.warningTexts.length > 0 && (
               <div className="file-note file-note-warn" role="alert">
                 {built.info.warningTexts.map(formatWarningText).join('\n')}

@@ -45,6 +45,23 @@ vi.mock('./services/motorDb.js', async (importOriginal) => {
   const real = await importOriginal<typeof import('./services/motorDb.js')>();
   return { ...real, classLabel: vi.fn(real.classLabel) };
 });
+/**
+ * The hero canvas's schematic, passed through with its props kept, so a test
+ * can see what App hands it (the chip headroom) and call back what it reports
+ * (its natural height). Only the Design tab's hero draws with `fillHeight`.
+ */
+type SchematicProps = Parameters<typeof import('./components/TreeSchematic.js').TreeSchematic>[0];
+let heroSchematic: SchematicProps | null = null;
+vi.mock('./components/TreeSchematic.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./components/TreeSchematic.js')>();
+  return {
+    ...real,
+    TreeSchematic: (p: SchematicProps) => {
+      if (p.fillHeight) heroSchematic = p;
+      return <real.TreeSchematic {...p} />;
+    },
+  };
+});
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -58,6 +75,23 @@ class NoPath { moveTo() {} lineTo() {} closePath() {} rect() {} arc() {} addPath
 (globalThis as unknown as { Path2D: unknown }).Path2D ??= NoPath;
 
 const SESSION_KEY = 'online-openrocket.session.v1';
+
+/**
+ * A window `w` px wide, as matchMedia answers for it — min/max-width queries
+ * evaluated, everything else (the colour scheme) false, listeners accepted.
+ * Undone by afterEach's unstubAllGlobals.
+ */
+function viewport(w: number): void {
+  vi.stubGlobal('matchMedia', (q: string) => {
+    const min = /\(min-width:\s*(\d+)px\)/.exec(q);
+    const max = /\(max-width:\s*(\d+)px\)/.exec(q);
+    return {
+      matches: min ? w >= Number(min[1]) : max ? w <= Number(max[1]) : false,
+      media: q,
+      addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {},
+    } as unknown as MediaQueryList;
+  });
+}
 
 let mounted: { root: Root; host: HTMLElement }[] = [];
 
@@ -112,6 +146,7 @@ const starterStored = (): boolean => {
 };
 
 beforeEach(() => {
+  heroSchematic = null;
   localStorage.clear();
   localStorage.setItem('online-openrocket.workspace.v1', 'design');
   localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ tourOff: true }));
@@ -301,5 +336,69 @@ describe('a v0.117 session\'s weighed pad mass', () => {
     // A warning opens the bar, so the whole sentence is on screen.
     expect(bar?.className).toContain('expanded');
     expect(bar?.textContent).toContain('was not kept: it is lighter than the dry rocket plus the catalogue C6,');
+  }, 30000);
+});
+
+/**
+ * THE HERO CANVAS SIZES TO THE DRAWING (v0.076, v0.092). The schematic reports
+ * its natural height and App's stage asks for that plus the stats chip's
+ * headroom plus the open drawer, and publishes the drawer's height on its own
+ * so the CSS ceiling can grow by it. statsDrawerDefault.test.ts held App's
+ * half of this as three regexes over App.tsx (the callback's name, the
+ * variable's template, the headroom prop); the arithmetic is
+ * hooks/useHeroDrawer.test.tsx's, and this is App doing the wiring.
+ */
+describe('the Design tab\'s hero canvas', () => {
+  const stage = (host: HTMLElement) => host.querySelector<HTMLElement>('.hero-stage')!;
+
+  it('sizes the stage from what the schematic reports, with the chip\'s headroom and the drawer\'s', async () => {
+    viewport(1200);
+    const host = await mountApp();
+    await waitFor(() => heroSchematic !== null && host.querySelector('.stats-drawer') !== null,
+      'the hero schematic and the open drawer');
+    // Spend the chip's headroom above the rocket (HERO_CHIP_RESERVE).
+    expect(heroSchematic!.topReserve).toBe(140);
+    // The schematic has already reported once, on its own.
+    expect(stage(host).style.getPropertyValue('--hero-natural')).toMatch(/^\d+px$/);
+    await act(async () => { heroSchematic!.onNaturalHeight!(400); });
+    // happy-dom lays nothing out, so the open drawer measures 0 + the 20px gap.
+    expect(stage(host).style.getPropertyValue('--drawer-clearance')).toBe('20px');
+    expect(stage(host).style.getPropertyValue('--hero-natural')).toBe(`${400 + 140 + 20}px`);
+  }, 30000);
+
+  it('in ⟳90° draws along the height axis: no headroom to reserve, and the pure CSS clamp', async () => {
+    viewport(1200);
+    const host = await mountApp();
+    await waitFor(() => heroSchematic !== null, 'the hero schematic');
+    await act(async () => { button(host, '⟳ 90°').click(); });
+    expect(heroSchematic!.vertical).toBe(true);
+    expect(heroSchematic!.topReserve).toBe(0);
+    expect(stage(host).getAttribute('data-vert')).toBe('on');
+    expect(stage(host).style.getPropertyValue('--hero-natural')).toBe('');
+  }, 30000);
+});
+
+/**
+ * A PHONE OPENS ON FLY (S4, batch 08-21c), and the rule for it is 767px — not
+ * the hero canvas's 981px, or a phone inherits the desktop drawer.
+ * statsDrawerDefault.test.ts held the literal as a regex over App.tsx; the
+ * breakpoint itself is hooks/useWorkspaceTab.test.tsx's.
+ */
+describe('the workspace a first load lands on', () => {
+  const current = (host: HTMLElement) =>
+    host.querySelector('.workspace-tabs [aria-current="page"]')?.textContent?.trim();
+
+  it('is Fly on a phone', async () => {
+    localStorage.removeItem('online-openrocket.workspace.v1');
+    viewport(400);
+    const host = await mountApp();
+    expect(current(host)).toMatch(/Fly/);
+  }, 30000);
+
+  it('is Design on anything wider', async () => {
+    localStorage.removeItem('online-openrocket.workspace.v1');
+    viewport(800);
+    const host = await mountApp();
+    expect(current(host)).toMatch(/Design/);
   }, 30000);
 });
