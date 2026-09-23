@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef, useState, type MutableRefObject } from 'react';
 import type { RocketTree } from '@online-openrocket/engine';
+import { openDialogCount } from '../components/useDialog.js';
 
 /**
  * THE DESIGN TREE AND ITS UNDO / REDO HISTORY (Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y
@@ -183,6 +184,13 @@ export function useTreeHistory(initial: RocketTree, options: TreeHistoryOptions 
           || (t instanceof HTMLElement && t.isContentEditable)) {
         return;
       }
+      // Not while a dialog is open (audit 2026-09-22). useDialog lets every key
+      // but Escape and Tab through, so this used to undo the design BEHIND the
+      // dialog: during a Batch sweep it rebuilt the rocket the sweep was flying,
+      // and behind the Save/Discard modal it undid the design unseen — and Save
+      // then wrote the undone design. The header buttons need no gate: a modal's
+      // backdrop covers them.
+      if (openDialogCount() > 0) return;
       e.preventDefault();
       // Shift decides BEFORE the z test: Ctrl+Shift+Z used to fall through
       // to undo, which was a misbinding, not a feature.

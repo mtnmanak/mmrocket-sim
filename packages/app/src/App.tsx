@@ -392,14 +392,15 @@ export function App() {
   const [initialTree] = useState<RocketTree>(
     () => normalizeTree(session?.tree ?? defaultTree()));
   // The design tree and its undo/redo history (hooks/useTreeHistory.ts, audit
-  // 2026-09-22 extraction #4). `onRestore` is read at call time, so it may name
-  // `spendSpentMarks`, declared further down (a tree off the stack under the
-  // motors mounted now).
+  // 2026-09-22 extraction #4). `onRestore` and `blocked` are read at call time,
+  // so they may name refs declared further down: `spendSpentMarks` (a tree off
+  // the stack under the motors mounted now) and the flight-holds-a-handle gate.
   const {
     tree, treeRef, writeTree, setTree, commitStep: commitTreeStep, undo, redo,
     canUndo, canRedo,
   } = useTreeHistory(initialTree, {
     onRestore: (t) => spendSpentMarks.current(t),
+    blocked: () => flightHoldsHandle.current || fullSeriesHolds.current > 0,
   });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // Component clipboard (copy/cut → paste into another parent). Holds the
@@ -1083,7 +1084,8 @@ export function App() {
   //
   // The stacks, the 800 ms coalescing, the cap of 50 and the key binding live in
   // hooks/useTreeHistory.ts (called with the tree state, above), tested there.
-  // What stays here is what only App knows: what a restored tree needs.
+  // What stays here is what only App knows: what a restored tree needs, and when
+  // stepping through history would pull the engine out from under a flight.
   /**
    * A tree coming BACK off the undo/redo stack, with any stated-launch-weight
    * mark a currently-mounted motor has already spent taken off it again.
@@ -1119,6 +1121,20 @@ export function App() {
     if (spent.notes.length) setFileNote(spent.notes.join('\n'), spent.severity);
     return spent.tree;
   };
+  /**
+   * Is a flight holding THIS build's engine handle across an await? Launch and
+   * "Show charts" await a paint before their synchronous flight, and the flight
+   * data export does too; an undo in that frame rebuilds the engine, and since
+   * the 2026-09-22 audit a handle held across a rebuild throws `stale engine
+   * handle` (it used to fly whatever rocket was built next under its number).
+   * So the history refuses to step while one is pending. Launch and re-fly show
+   * it in state already — mirrored here, because `undo` is stable and must not
+   * close over a render — and the export, which has no state of its own in App,
+   * counts itself in and out.
+   */
+  const flightHoldsHandle = useRef(false);
+  flightHoldsHandle.current = simulating || reflying !== null;
+  const fullSeriesHolds = useRef(0);
 
   // ---- engine build + static analysis on every tree change ----
   // KEYED ON `tree.components`, NOT `tree`. The Rocket name input does
@@ -2349,25 +2365,32 @@ export function App() {
     if (!built || !primaryMountId || !lastRun) {
       throw new Error('no flight in memory — press Launch first');
     }
-    // Let the caller's busy state paint before the synchronous re-simulation.
-    await afterPaint();
-    // Restore the model the SHOWN flight was flown on, not whatever is
-    // selected now. Since a model switch no longer discards the flight, the
-    // two can differ — and a CSV that re-flew on today's model would be a
-    // different flight from the plots it sits under, under the same name.
-    const wasSupersonic = lastRun.aeroModel === 'supersonic'
-      || lastRun.aeroModel === 'auto-supersonic';
-    const wasKbf = lastRun.rogersKbf ?? effectiveKbf;
-    return reflyRun(built.rocket, {
-      assigned, hardware: built.hardware, primaryMountId,
-      // Auto delay flew the rounded optimum, recorded on the run.
-      delayS: lastRun.delayS,
-      simOptions: { ...kernelSimOptions(launch), series: 'full' },
-      fly: { supersonic: wasSupersonic, kbf: wasKbf },
-      // Hand the shared handle back on the CURRENT model: the drag panel and
-      // the component table read it too.
-      restore: { supersonic: effectiveSupersonic, kbf: effectiveKbf },
-    });
+    // Holds `built.rocket` across the paint below — no undo until it is done
+    // (see `fullSeriesHolds`).
+    fullSeriesHolds.current += 1;
+    try {
+      // Let the caller's busy state paint before the synchronous re-simulation.
+      await afterPaint();
+      // Restore the model the SHOWN flight was flown on, not whatever is
+      // selected now. Since a model switch no longer discards the flight, the
+      // two can differ — and a CSV that re-flew on today's model would be a
+      // different flight from the plots it sits under, under the same name.
+      const wasSupersonic = lastRun.aeroModel === 'supersonic'
+        || lastRun.aeroModel === 'auto-supersonic';
+      const wasKbf = lastRun.rogersKbf ?? effectiveKbf;
+      return reflyRun(built.rocket, {
+        assigned, hardware: built.hardware, primaryMountId,
+        // Auto delay flew the rounded optimum, recorded on the run.
+        delayS: lastRun.delayS,
+        simOptions: { ...kernelSimOptions(launch), series: 'full' },
+        fly: { supersonic: wasSupersonic, kbf: wasKbf },
+        // Hand the shared handle back on the CURRENT model: the drag panel and
+        // the component table read it too.
+        restore: { supersonic: effectiveSupersonic, kbf: effectiveKbf },
+      });
+    } finally {
+      fullSeriesHolds.current -= 1;
+    }
   }, [built, primaryMountId, lastRun, assigned, launch, effectiveSupersonic, effectiveKbf]);
 
   // ---- design file I/O (.ork native, .rkt RockSim) ----

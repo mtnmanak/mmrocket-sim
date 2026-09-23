@@ -42,6 +42,19 @@ const FOCUSABLE = [
 /** Open dialogs, innermost last. Only the last one answers Escape. */
 const stack: symbol[] = [];
 
+/**
+ * How many dialogs are open right now — this stack's depth.
+ *
+ * For App's Ctrl+Z / Ctrl+Y binding (audit 2026-09-22). The handler above owns
+ * Escape and Tab and lets every other key through, so undo reached the design
+ * BEHIND a dialog: Ctrl+Z during a Batch sweep rebuilt the rocket the sweep was
+ * flying, and behind the Save/Discard modal it undid the design unseen, which
+ * Save then wrote. The undo binding refuses while this is above zero.
+ */
+export function openDialogCount(): number {
+  return stack.length;
+}
+
 function focusableWithin(node: HTMLElement): HTMLElement[] {
   return Array.from(node.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
     (el) => el.offsetParent !== null || getComputedStyle(el).position === 'fixed',

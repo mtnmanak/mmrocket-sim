@@ -3,6 +3,7 @@ import { act } from 'react-dom/test-utils';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RocketTree } from '@online-openrocket/engine';
+import { Modal } from '../components/Modal.js';
 import {
   HISTORY_CAP, HISTORY_COALESCE_MS, useTreeHistory, type TreeHistory, type TreeHistoryOptions,
 } from './useTreeHistory.js';
@@ -246,6 +247,26 @@ describe('useTreeHistory — the key binding', () => {
     expect(ev.defaultPrevented).toBe(false);
     expect(h.current.tree.name).toBe('a');
     input.remove();
+  });
+
+  /**
+   * Audit 2026-09-22. useDialog lets every key but Escape and Tab through, so
+   * Ctrl+Z during a Batch sweep rebuilt the rocket the sweep was flying, and
+   * behind the Save/Discard modal it undid the design unseen — which Save then
+   * wrote. Uses the real Modal (and so the real useDialog stack).
+   */
+  it('does nothing while a dialog is open, and works again once it closes', () => {
+    const h = renderHistory(t('0'));
+    editApart(h, t('a'));
+    const dialog = mount(<Modal label="Unsaved changes" onClose={() => {}}><button>Cancel</button></Modal>);
+    const ev = key('z');
+    expect(h.current.tree.name).toBe('a');
+    expect(ev.defaultPrevented).toBe(false);
+    key('y');
+    expect(h.current.tree.name).toBe('a');
+    act(() => dialog.unmount());
+    key('z');
+    expect(h.current.tree.name).toBe('0');
   });
 
   it('refuses undo and redo, keys and buttons alike, while blocked()', () => {
