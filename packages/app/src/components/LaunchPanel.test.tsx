@@ -519,7 +519,8 @@ describe('kernelSimOptions is byte-identical for every existing design', () => {
 
 /**
  * DENSITY ALTITUDE (weather build, step 1): a readout of the air the flight
- * flies, beside Site altitude. Worked numbers in services/atmosphere.test.ts.
+ * flies, under the two air fields it is worked out from (the grid-order test
+ * below pins where). Worked numbers in services/atmosphere.test.ts.
  */
 describe('the density-altitude readout', () => {
   const readout = () => host.querySelector('[data-readout="density-altitude"]');
