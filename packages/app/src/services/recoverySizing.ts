@@ -6,8 +6,8 @@ import { G0, ISA_SEA_LEVEL } from '@online-openrocket/engine';
 import { mfrKey } from '../../scripts/manufacturers.mjs';
 import type { LaunchConditions } from '../components/LaunchPanel.js';
 import { mountBore } from '../tree/scaleRocket.js';
-import { findParent } from '../tree/treeModel.js';
-import { isaPressurePa, LAPSE, R_AIR } from './atmosphere.js';
+import { findParent, isSeparatingParallelStage, mountMotorCount, suppressingAncestor } from '../tree/treeModel.js';
+import { padAir, R_AIR } from './atmosphere.js';
 import type { Preset } from './presets.js';
 import type { RecoveryMass } from './recoveryMass.js';
 import { sustainerScope } from './recoveryMass.js';
@@ -44,16 +44,16 @@ import { SAFETY } from './simReport.js';
 /** Feet per second in m/s. The bands are stated in ft/s; the code is SI. */
 const FT_S = 0.3048;
 
-// R_AIR (the kernel's `AtmosphericConditions.R`, 287.053) and LAPSE (the ISA
-// troposphere lapse rate as a POSITIVE K/m) used to be declared here as well as
-// in atmosphere.ts. They are imported from there now (2026-09-08, from review):
-// two constants for one physical quantity is how a number starts disagreeing
-// with itself across screens, and this module already takes its barometric
-// formula from the same place.
+// R_AIR (the kernel's `AtmosphericConditions.R`, 287.053) used to be declared
+// here as well as in atmosphere.ts, and so did the ISA lapse rate. R_AIR is
+// imported from there now (2026-09-08, from review): two constants for one
+// physical quantity is how a number starts disagreeing with itself across
+// screens. The lapse rate is not needed here at all any more — the pad's
+// temperature comes whole from `padAir` (audit 2026-09-22).
 
 /**
- * A recovery band: the accepted descent-rate window, plus the single rate the
- * SIZE line is computed at.
+ * A recovery band: the descent-rate window this panel searches the catalogue
+ * over, plus the single rate the SIZE line is computed at.
  *
  * The targets are not the arithmetic midpoints, and both have a reason:
  *
@@ -63,25 +63,34 @@ const FT_S = 0.3048;
  *    and drifting proportionally further downwind. It is still clear of
  *    `SAFETY.maxLandingRate`, which is the rate the flight report checks.
  *  - DROGUE 60 ft/s is the middle of 50-70, NOT of 50-75. 70 ft/s is
- *    `SAFETY.maxDrogueDescentRate`, the rate above which this app's own launch
- *    report writes "faster than the accepted 70 ft/s drogue band"
- *    (simReport.ts:1237). Sizing at the raw 62.5 ft/s midpoint would put the
- *    app's recommendation within 8 ft/s of the app's own complaint; sizing at
- *    60 cannot.
+ *    `SAFETY.maxDrogueDescentRate`, the top of the PREFERRED drogue rate: above
+ *    it this app's own launch report writes a CAUTION ("above the preferred
+ *    70 ft/s, in the caution band up to 90 ft/s"), and above 90 a warning —
+ *    the three tiers of `SAFETY`, one vocabulary on both surfaces (audit
+ *    2026-09-22). Sizing at the raw 62.5 ft/s midpoint would put the app's
+ *    recommendation within 8 ft/s of the app's own caution; sizing at 60
+ *    cannot.
  */
 export interface Band {
-  /** Slow edge of the accepted window (m/s). */
+  /** Slow edge of the searched window (m/s). */
   min: number;
-  /** Fast edge of the accepted window (m/s). */
+  /** Fast edge of the searched window (m/s). */
   max: number;
   /** The rate the SIZE line is computed at (m/s). */
   target: number;
   /**
-   * Rate above which the app's own flight report complains (m/s), or null when
-   * the band's own `max` is already that rate. Candidates above it are ordered
-   * last and MARKED — never silently dropped and never silently recommended.
+   * The top of the PREFERRED tier (m/s): above it the app's own flight report
+   * writes a caution. Null when the band's own `max` is already the report's
+   * limit. Candidates above it are ordered last and MARKED — never silently
+   * dropped and never silently recommended.
    */
   warnAbove: number | null;
+  /**
+   * The top of the CAUTION tier (m/s): above it the report's caution becomes
+   * a warning. Null alongside a null `warnAbove`. The panel quotes it so a
+   * marked candidate says which tier it is in, in the report's own words.
+   */
+  cautionTo: number | null;
 }
 
 /**
@@ -91,26 +100,38 @@ export interface Band {
  * that rounding: what this panel offers and what the launch report complains
  * about are then the same threshold, on the same rocket.
  *
- * It is not free, and the row it costs is named so nobody has to rediscover
- * it. On the owner's 8.786 kg at sea level the sliver admits exactly ONE
- * canopy: Fruity Chutes CFC-072-N, 6.09833 m/s — 20.008 ft/s. That is the
- * difference between the 33 mains he counted at a literal 20 ft/s and the 34
- * this code finds. Admitting it is the point rather than the price: the app's
- * own report would not complain about a rocket landing at 6.098 m/s either.
+ * The sliver is real but, on the owner's 8.786 kg at sea level, EMPTY: every
+ * candidate is weighed with its own mass (`bandAdvice`), and weighed that way
+ * no catalogue canopy lands between 20.000 and 20.013 ft/s, so this code finds
+ * exactly the 33 mains he counted at a literal 20 ft/s. Admitting a canopy in
+ * it would be the point rather than the price: the app's own report would not
+ * complain about a rocket landing at 6.098 m/s either.
+ *
+ * This note used to say the sliver held one canopy — Fruity Chutes CFC-072-N,
+ * 20.008 ft/s — and that it made the count 34. That was a rate taken WITHOUT
+ * the canopy's own 482 g, which lands it at 20.55 ft/s; the 34 was the
+ * empty-slot defect in `recoverySizing` rating every candidate without its own
+ * mass, blamed on the sliver (audit 2026-09-22).
  */
 export const MAIN_BAND: Band = {
   min: 15 * FT_S,
   max: SAFETY.maxLandingRate,
   target: 18 * FT_S,
   warnAbove: null,
+  cautionTo: null,
 };
 
-/** Drogue: 50-75 ft/s, with the app's own 70 ft/s complaint threshold marked. */
+/**
+ * Drogue: 50-75 ft/s, with the top of the app's own preferred 70 ft/s marked.
+ * The window's 75 ft/s edge sits inside the report's 70-90 caution tier, so a
+ * marked drogue is always a caution, never a warning.
+ */
 export const DROGUE_BAND: Band = {
   min: 50 * FT_S,
   max: 75 * FT_S,
   target: 60 * FT_S,
   warnAbove: SAFETY.maxDrogueDescentRate,
+  cautionTo: SAFETY.warnDrogueDescentRate,
 };
 
 /** The Cd the kernel gives a canopy that states none — `treeModel.ts:968`. */
@@ -132,43 +153,37 @@ const PER_MANUFACTURER_LIMIT = 2;
  * the band, but a 20 ft/s sea-level choice is outside it, and the app would
  * have said it was fine.
  *
- * This mirrors what the flight actually flies, branch for branch, from
- * `engine-java/src/api/java/api/OrkEngine.java:919-926`: a launch-site
- * temperature OR pressure switches the kernel to
- * `ExtendedISAModel(launchAltitude, T, p)`, whose values AT that altitude are
- * exactly the given ones — and whose fallback for the field left blank is the
- * STANDARD SEA-LEVEL value applied at the site (that is the kernel's quirk,
- * not ours; matching it is the point). With both blank it is plain ISA at the
- * site altitude.
+ * It is `p / (R.T)` of the pad temperature and pressure `padAir` returns —
+ * the SAME two numbers `kernelSimOptions` hands the kernel, whose
+ * `ExtendedISAModel(launchAltitude, T, p)` reads exactly them at the pad. So a
+ * blank field is the ISA value for the SITE here as it is in the flight, and a
+ * canopy is sized in the air it will come down through.
  *
- * The kernel then interpolates its atmosphere on a 500 m grid
- * (`InterpolatingAtmosphericModel.DELTA`); we evaluate ISA analytically. The
- * two differ by at most 0.059 % in density anywhere in the site-altitude
- * field's 0-10,000 m range (measured, worst case at 9,754 m, mid-cell), which
- * is 0.029 % on a descent rate — far below the spread between two
- * manufacturers' published Cd for the same canopy shape.
+ * It did not use to be. This function mirrored the kernel's own branch at
+ * `OrkEngine.java:919-926` — a blank field beside a typed one filled with the
+ * STANDARD SEA-LEVEL value — and kept doing so after v0.122 stopped the
+ * flight doing it (audit 2026-09-22). That is the unsafe direction: at
+ * 2,682 m and 30 °C with the pressure blank it sized on 1.1644 kg/m^3 while
+ * the flight flew 0.8388, so the Wildman's size line at Cd 2.2 read 66.4 in
+ * where 78.2 in hits the 18 ft/s target, and every canopy listed landed
+ * 17.8 % faster than its listed rate (sqrt of the density ratio).
+ *
+ * With both fields blank the kernel interpolates its own ISA on a 500 m grid
+ * (`InterpolatingAtmosphericModel.DELTA`); `padAir` evaluates the same profile
+ * analytically. The two differ by at most 0.059 % in density anywhere in the
+ * site-altitude field's 0-10,000 m range (measured, worst case at 9,754 m,
+ * mid-cell), which is 0.029 % on a descent rate — far below the spread between
+ * two manufacturers' published Cd for the same canopy shape.
  */
 export function siteAirDensity(
   launch: Pick<LaunchConditions, 'launchAltitudeM' | 'temperatureC' | 'pressureHPa'>,
 ): number {
-  const h = Number.isFinite(launch.launchAltitudeM) ? Math.max(0, launch.launchAltitudeM) : 0;
-  const hasT = launch.temperatureC != null && Number.isFinite(launch.temperatureC);
-  const hasP = launch.pressureHPa != null && Number.isFinite(launch.pressureHPa);
-
-  let tempK: number;
-  let pressPa: number;
-  if (hasT || hasP) {
-    tempK = hasT ? launch.temperatureC! + 273.15 : ISA_SEA_LEVEL.temperatureK;
-    pressPa = hasP ? launch.pressureHPa! * 100 : ISA_SEA_LEVEL.pressurePa;
-  } else {
-    tempK = ISA_SEA_LEVEL.temperatureK - LAPSE * h;
-    // The barometric formula moved to atmosphere.ts on 2026-09-08, when the
-    // Launch panel's pad-pressure caution and the RASAero import note started
-    // needing the same number. One copy, or the three screens drift.
-    pressPa = isaPressurePa(h);
-  }
-  if (!(tempK > 0) || !(pressPa > 0)) return ISA_SEA_LEVEL.pressurePa / (R_AIR * ISA_SEA_LEVEL.temperatureK);
-  return pressPa / (R_AIR * tempK);
+  // `padAir` never returns a non-positive temperature or pressure: a typed one
+  // is inside the panel's envelope (-60 °C, 300 hPa at the bottom) and a blank
+  // one is ISA at an altitude clamped to 0-10,000 m, so there is no fallback
+  // branch left to take.
+  const { temperatureK, pressurePa } = padAir(launch);
+  return pressurePa / (R_AIR * temperatureK);
 }
 
 /** ISA sea-level density (kg/m^3), 1.225 — the figure the elevation clause compares against. */
@@ -252,6 +267,12 @@ export type DeviceRole = 'main' | 'drogue';
  * — because the walk was over the whole tree and the largest remaining chute
  * anywhere won. It defaults to the whole tree, so every single-stage design
  * (which is almost all of them) is unaffected.
+ *
+ * The walk also STOPS at a strap-on that separates (`isSeparatingParallelStage`,
+ * audit 2026-09-22): it lives inside the core stage's subtree, so a scope of
+ * stage nodes reaches it, but it leaves and comes down under its own canopy —
+ * its chute is not the core's. Latent while the recovery weight refuses such a
+ * design; one on Never stays bolted on, so its chute is walked like a pod's.
  */
 export function classifyRecoveryDevices(
   tree: RocketTree,
@@ -260,6 +281,7 @@ export function classifyRecoveryDevices(
   const chutes: ComponentNode[] = [];
   const walk = (ns: readonly ComponentNode[] | undefined): void => {
     for (const n of ns ?? []) {
+      if (isSeparatingParallelStage(n)) continue;
       if (n.type === 'parachute') chutes.push(n);
       walk(n.children);
     }
@@ -296,8 +318,10 @@ export function classifyRecoveryDevices(
  *
  * `scope` limits that fallback the same way `classifyRecoveryDevices` is
  * limited: a booster's fatter airframe is not a bay the sustainer's canopy can
- * pack into once the booster is gone. The parent lookup stays whole-tree,
- * because a device's own parent is wherever it is.
+ * pack into once the booster is gone — and, for the same reason, neither is a
+ * strap-on that separates, so the walk stops there too (audit 2026-09-22). The
+ * parent lookup stays whole-tree, because a device's own parent is wherever it
+ * is.
  */
 export function recoveryBayBore(
   tree: RocketTree,
@@ -315,6 +339,7 @@ export function recoveryBayBore(
   let widest = 0;
   const walk = (ns: readonly ComponentNode[] | undefined): void => {
     for (const n of ns ?? []) {
+      if (isSeparatingParallelStage(n)) continue;
       if (n.type === 'bodytube') widest = Math.max(widest, mountBore(n));
       walk(n.children);
     }
@@ -340,7 +365,10 @@ export interface Candidate {
   mass: number | null;
   packedDiameter: number | null;
   packedLength: number | null;
-  /** Descent rate this rocket would have under it (m/s) — see the substitution note. */
+  /**
+   * Descent rate this rocket would have under it (m/s) — under all of the
+   * slot's `instances` of it — see the substitution note.
+   */
   rate: number;
   /**
    * 'fits' — its published packed diameter clears the bay;
@@ -348,7 +376,7 @@ export interface Candidate {
    * to measure against. Never a reason to drop a canopy silently.
    */
   fit: 'fits' | 'unverified';
-  /** Above the app's own flight-report threshold for this band (drogues only). */
+  /** Above the band's preferred rate — the report's caution tier (drogues only). */
   flagged: boolean;
   /**
    * How many catalogue rows this line stands for — the same canopy in a
@@ -380,6 +408,13 @@ export interface BandAdvice {
   cdSource: 'this device' | 'the design’s other chute' | 'default';
   /** Mass the size line was computed against (kg). */
   massKg: number;
+  /**
+   * How many of this slot's canopy the design deploys at once — one per
+   * instance of every pod set or strap-on it rides in (`deviceInstances`); 1
+   * for an empty slot. The size line is PER CANOPY, and every candidate's rate
+   * is for this many of it.
+   */
+  instances: number;
   candidates: Candidate[];
   /** Catalogue canopies whose rate falls inside the band, before any filtering. */
   inBand: number;
@@ -416,7 +451,8 @@ export interface RecoverySizingInput {
   /**
    * Per-role mass of the chute already in the design (kg), from the kernel's
    * `componentInfo(id).mass`. Null when unknown, which turns the substitution
-   * off for that role rather than guessing.
+   * off for that role rather than guessing. Not called for an EMPTY slot, which
+   * holds nothing and is weighed as 0 — see `bandAdvice`.
    */
   deviceMass: (node: ComponentNode) => number | null;
   /** The catalogue. Rows of other kinds are ignored. */
@@ -492,6 +528,57 @@ function ventFactor(n: ComponentNode | null): number {
 }
 
 /**
+ * How many of this device the kernel deploys at once: one per instance of
+ * every pod set and strap-on it rides in. The landing stepper sums
+ * `imap.count(c) * c.getCD() * c.getArea()` over the deployed devices
+ * (BasicLandingStepper), so a chute inside a two-instance pod set is two
+ * canopies in the air. Sizing it as one listed every rate sqrt(N) too fast —
+ * measured on an H128 design with a Fruity Chutes CFC-018-S in each of two
+ * pods, the flight descends at 13.58 ft/s where the panel rated that canopy at
+ * 19.22 (audit 2026-09-22).
+ *
+ * The count is `mountMotorCount`'s — the same walk the kernel's instance
+ * multiplicities take for a motor, and a canopy has no cluster of its own —
+ * so the two cannot drift. An empty slot is 1: a canopy not yet placed rides
+ * in no pod.
+ */
+function deviceInstances(tree: RocketTree, device: ComponentNode | null): number {
+  return device?.id ? mountMotorCount(tree, device.id) : 1;
+}
+
+/**
+ * Is the weight that comes down PINNED against a change of canopy in this slot?
+ *
+ * A mass override that "includes everything inside" replaces the whole
+ * subtree's mass with one number, so under it a heavier or lighter canopy
+ * changes nothing the kernel flies — measured, a stage pinned at 2.5 kg weighs
+ * 2.5000 kg with a 0.1 kg chute in it and 2.5000 kg with a 0.9 kg one — while
+ * `componentInfo(chute).mass` still answers the chute's own 0.1. Substituting
+ * then rated every candidate against a weight the flight will never have
+ * (audit 2026-09-22). Every RASAero `.CDX1` stating a launch weight pins its
+ * stages this way, and "Use instead of everything inside" does it by hand.
+ *
+ * With a chute in the slot, it is pinned when an ancestor suppresses its mass
+ * — `suppressingAncestor`, the kernel's own two-condition rule. An EMPTY slot
+ * has no node to ask, so it is pinned only when EVERY stage it could be added
+ * to — each stage of `scope` — pins its subtree: wherever the canopy goes, the
+ * weight is the override. Anything short of that weighs the candidate, which
+ * errs heavy, the safe direction for a canopy.
+ */
+function slotMassPinned(
+  tree: RocketTree,
+  device: ComponentNode | null,
+  scope: readonly ComponentNode[],
+): boolean {
+  if (device?.id) {
+    return suppressingAncestor(tree, device.id, 'overrideSubcomponentsMass', 'overrideMass') !== null;
+  }
+  const stageNodes = scope.filter((n) => n.type === 'stage');
+  return stageNodes.length > 0 && stageNodes.every(
+    (st) => st['overrideSubcomponentsMass'] === true && typeof st['overrideMass'] === 'number');
+}
+
+/**
  * Build one band's advice.
  *
  * THE SUBSTITUTION (requirement B, and the subtle half of this feature). The
@@ -515,6 +602,19 @@ function ventFactor(n: ComponentNode | null): number {
  * rather than half-applied: subtracting the old canopy without adding the new
  * one understates the rocket, and understating buys a canopy that is too small
  * — the direction that breaks airframes.
+ *
+ * AN EMPTY SLOT IS NOT AN UNKNOWN ONE (audit 2026-09-22). It holds nothing, so
+ * its `currentMass` is 0 and every candidate is weighed with its whole own
+ * mass added. It used to pass null — "unknown" — which skipped the
+ * substitution and rated every candidate WITHOUT its own mass: on the owner's
+ * 8.786 kg at sea level with no main in the design, b2's CRT-080 L (964 g)
+ * was listed at 19.25 ft/s and lands at 20.28, past the landing limit, and
+ * the main band counted 34 canopies where 33 make it.
+ *
+ * UNDER A PINNED MASS THERE IS NOTHING TO SUBSTITUTE (audit 2026-09-22): when
+ * a mass override above the slot covers everything inside it, swapping the
+ * canopy changes nothing the kernel flies, so every candidate is rated at the
+ * recovery weight as it stands — see `slotMassPinned`.
  */
 function bandAdvice(
   role: DeviceRole,
@@ -526,10 +626,14 @@ function bandAdvice(
     device: ComponentNode | null;
     otherDevice: ComponentNode | null;
     currentMass: number | null;
+    /** A mass override above this slot covers it — see `slotMassPinned`. */
+    massPinned: boolean;
+    /** Canopies this slot deploys at once — see `deviceInstances`. */
+    instances: number;
     canopies: readonly Preset[];
   },
 ): BandAdvice {
-  const { massKg, rho, boreM, device, otherDevice, currentMass, canopies } = opts;
+  const { massKg, rho, boreM, device, otherDevice, currentMass, massPinned, instances, canopies } = opts;
 
   // --- the size line -------------------------------------------------------
   // Quoted at the Cd of the chute in THIS slot when there is one (it is the
@@ -555,7 +659,9 @@ function bandAdvice(
   // The size line uses the recovery weight AS THE DESIGN STANDS. A canopy that
   // has not been chosen has no mass to substitute, so there is nothing honest
   // to swap; the candidate list below is where the substitution belongs.
-  const diameter = diameterForRate(massKg, cd, rho, band.target);
+  // It is PER CANOPY: with `instances` of them open at once each carries its
+  // share of the weight (see `deviceInstances`).
+  const diameter = diameterForRate(massKg / instances, cd, rho, band.target);
 
   // --- the candidates ------------------------------------------------------
   interface Scored { p: Preset; rate: number; fits: boolean; known: boolean }
@@ -564,9 +670,12 @@ function bandAdvice(
     const cdA = canopyCdA(p);
     if (cdA === null) continue;
     const cm = presetMass(p);
-    const m = cm !== null && currentMass !== null ? massKg - currentMass + cm : massKg;
+    // Every instance of the slot's canopy is swapped, so the substitution and
+    // the drag area both scale with `instances`.
+    const m = massPinned ? massKg
+      : cm !== null && currentMass !== null ? massKg + instances * (cm - currentMass) : massKg;
     if (!(m > 0)) continue;
-    const rate = descentRate(m, cdA, rho);
+    const rate = descentRate(m, instances * cdA, rho);
     if (!Number.isFinite(rate) || rate < band.min || rate > band.max) continue;
     const packed = typeof p['packedDiameter'] === 'number' ? (p['packedDiameter'] as number) : null;
     const known = packed !== null && packed > 0 && boreM !== null;
@@ -597,7 +706,7 @@ function bandAdvice(
 
   // --- order, then spread across manufacturers -----------------------------
   // A drogue above SAFETY.maxDrogueDescentRate goes LAST, not away: the owner's
-  // band reaches 75 ft/s and the app's launch report complains above 70, and
+  // band reaches 75 ft/s and the app's launch report cautions above 70, and
   // the resolution he can act on is to see both facts on the same line.
   const ranked = [...families.values()].sort((a, b) => {
     const fa = band.warnAbove !== null && a.best.rate > band.warnAbove ? 1 : 0;
@@ -648,7 +757,7 @@ function bandAdvice(
   }));
 
   return {
-    role, band, diameter, cd, cdNominal, ventFactor: vent, cdSource, massKg,
+    role, band, diameter, cd, cdNominal, ventFactor: vent, cdSource, massKg, instances,
     candidates, inBand, excludedForFit, mergedVariants,
   };
 }
@@ -686,16 +795,20 @@ export function recoverySizing(input: RecoverySizingInput): RecoverySizing {
     state: 'ok',
     massKg: recovery.mass,
     rho,
-    elevationM: Number.isFinite(launch.launchAltitudeM) ? Math.max(0, launch.launchAltitudeM) : 0,
+    // The altitude the density above was evaluated at — `padAir`'s clamp, so
+    // the clause the panel prints and the air it sized in are one site.
+    elevationM: padAir(launch).altitudeM,
     siteRateFactor: Math.sqrt(SEA_LEVEL_DENSITY / rho),
     boreM,
     main: bandAdvice('main', MAIN_BAND, {
       massKg: recovery.mass, rho, boreM, device: main, otherDevice: drogue,
-      currentMass: main ? deviceMass(main) : null, canopies,
+      currentMass: main ? deviceMass(main) : 0,
+      massPinned: slotMassPinned(tree, main, scope), instances: deviceInstances(tree, main), canopies,
     }),
     drogue: bandAdvice('drogue', DROGUE_BAND, {
       massKg: recovery.mass, rho, boreM, device: drogue, otherDevice: main,
-      currentMass: drogue ? deviceMass(drogue) : null, canopies,
+      currentMass: drogue ? deviceMass(drogue) : 0,
+      massPinned: slotMassPinned(tree, drogue, scope), instances: deviceInstances(tree, drogue), canopies,
     }),
   };
 }

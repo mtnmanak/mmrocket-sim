@@ -3,9 +3,13 @@ import {
   isaPressurePa,
   isaTemperatureK,
   ISA_TOP_M,
+  padAir,
   padPressureIssue,
+  PAD_PRESSURE_HPA_RANGE,
   PAD_PRESSURE_SEA_LEVEL_MARGIN,
   PAD_PRESSURE_SITE_M,
+  PAD_TEMP_C_RANGE,
+  SITE_ALTITUDE_M_RANGE,
 } from './atmosphere.js';
 
 const FT = 3.28084;
@@ -296,5 +300,64 @@ describe('what the blank temperature costs', () => {
     const h = 1190;
     expect(isaTemperatureK(h)).toBeCloseTo(280.415, 3);
     expect((isaTemperatureK(h) / 288.15 - 1) * 100).toBeCloseTo(-2.68, 2);
+  });
+});
+
+/**
+ * THE PAD'S AIR, ONCE (audit 2026-09-22). `padAir` is what the flight is
+ * handed (kernelSimOptions) and what a canopy is sized in (siteAirDensity), so
+ * its rules are asserted here once rather than in each caller.
+ */
+describe('padAir — one reading of the pad for the flight and the sizing', () => {
+  it('fills each blank field from the SITE altitude, independently', () => {
+    const h = 2682;
+    expect(padAir({ launchAltitudeM: h, temperatureC: 30, pressureHPa: null }))
+      .toEqual({ altitudeM: h, temperatureK: 303.15, pressurePa: isaPressurePa(h), standard: false });
+    expect(padAir({ launchAltitudeM: h, temperatureC: null, pressureHPa: 730 }))
+      .toEqual({ altitudeM: h, temperatureK: isaTemperatureK(h), pressurePa: 73000, standard: false });
+    expect(padAir({ launchAltitudeM: h, temperatureC: null, pressureHPa: null }))
+      .toEqual({ altitudeM: h, temperatureK: isaTemperatureK(h), pressurePa: isaPressurePa(h), standard: true });
+  });
+
+  it('reads NaN and absent as blank, never as a number', () => {
+    const h = 1190;
+    const blank = padAir({ launchAltitudeM: h, temperatureC: null, pressureHPa: null });
+    expect(padAir({ launchAltitudeM: h, temperatureC: NaN, pressureHPa: NaN })).toEqual(blank);
+    expect(padAir({ launchAltitudeM: h })).toEqual(blank);
+  });
+
+  /**
+   * The .CDX1 unit mistakes the audit measured flying raw: hPa typed into
+   * RASAero's in-Hg field (1013.25 in-Hg = 34,313 hPa, 34x sea-level density)
+   * and a °F figure no launch site reads (-300 °F = -184.4 °C, 88.7 K).
+   */
+  it('reads a value outside the panel’s own envelope as blank — the site’s standard day', () => {
+    const h = 1500;
+    const blank = padAir({ launchAltitudeM: h, temperatureC: null, pressureHPa: null });
+    expect(padAir({ launchAltitudeM: h, temperatureC: null, pressureHPa: 1013.25 * 33.8639 })).toEqual(blank);
+    expect(padAir({ launchAltitudeM: h, temperatureC: (-300 - 32) * 5 / 9, pressureHPa: null })).toEqual(blank);
+    // The bounds themselves are inside: the envelope is closed, as the fields are.
+    expect(padAir({ launchAltitudeM: h, temperatureC: PAD_TEMP_C_RANGE[0] }).temperatureK)
+      .toBeCloseTo(PAD_TEMP_C_RANGE[0] + 273.15, 9);
+    expect(padAir({ launchAltitudeM: h, pressureHPa: PAD_PRESSURE_HPA_RANGE[1] }).pressurePa)
+      .toBe(PAD_PRESSURE_HPA_RANGE[1] * 100);
+    expect(padAir({ launchAltitudeM: h, pressureHPa: PAD_PRESSURE_HPA_RANGE[1] + 0.01 }).standard).toBe(true);
+  });
+
+  it('clamps the altitude into the Site altitude field’s range and evaluates the air there', () => {
+    const top = SITE_ALTITUDE_M_RANGE[1];
+    const high = padAir({ launchAltitudeM: 150000 / FT, temperatureC: null, pressureHPa: null });
+    expect(high.altitudeM).toBe(top);
+    expect(high.pressurePa).toBe(isaPressurePa(top));
+    expect(padAir({ launchAltitudeM: -50 }).altitudeM).toBe(SITE_ALTITUDE_M_RANGE[0]);
+    expect(padAir({ launchAltitudeM: NaN }).altitudeM).toBe(0);
+  });
+
+  it('does not caution over a stored pressure it would not fly', () => {
+    // padPressureIssue reads the same envelope: 34,313 hPa is flown as blank,
+    // so calling it "about sea-level pressure" would describe a flight that is
+    // not happening.
+    expect(padPressureIssue({ launchAltitudeM: 1500, pressureHPa: 1013.25 * 33.8639 })).toBeNull();
+    expect(padPressureIssue({ launchAltitudeM: 1500, pressureHPa: 1013 })).toBe('sea-level');
   });
 });

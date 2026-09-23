@@ -205,3 +205,83 @@ describe('one corrupt timestamp must not kill BOTH exports (net-storage-4)', () 
     expect(csv).toContain(new Date(1755000000000).toISOString());
   });
 });
+
+/**
+ * THE LEAD COLUMNS SAY "MISSING" THE WAY THE DETAIL COLUMNS DO (audit
+ * 2026-09-22). `null * k` is 0, so a refused-motor flight — maxAcceleration
+ * null — exported "Accel 0" beside a blank m/s² column. Apogee and velocity
+ * used the same unguarded product.
+ */
+describe('the flight-day lead columns', () => {
+  const cell = (r: SimRun, header: string): string | number => {
+    const { headers, rows } = runsToTable([r]);
+    return rows[0]![headers.indexOf(header)]!;
+  };
+
+  it('are blank, not 0, when the run has no figure', () => {
+    const r = { ...mkRun('refused'), maxAltitude: null, maxVelocity: null, maxAcceleration: null } as unknown as SimRun;
+    expect(cell(r, 'Accel (Gs)')).toBe('');
+    expect(cell(r, 'Apogee (ft)')).toBe('');
+    expect(cell(r, 'Velocity (mph)')).toBe('');
+    // ...exactly as the detail column already was.
+    expect(cell(r, 'Max acceleration (m/s2)')).toBe('');
+  });
+
+  it('still convert a real figure, and a real zero', () => {
+    const r = mkRun('ok', { maxAltitude: 300, maxVelocity: 100, maxAcceleration: 9.80665 * 12 });
+    expect(cell(r, 'Apogee (ft)')).toBe(984);
+    expect(cell(r, 'Velocity (mph)')).toBe(223.7);
+    expect(cell(r, 'Accel (Gs)')).toBe(12);
+    expect(cell(mkRun('flat', { maxAcceleration: 0 }), 'Accel (Gs)')).toBe(0);
+  });
+});
+
+/**
+ * A STORED RECOVERY WEIGHT FROM THE WRONG INSTANT (audit 2026-09-22 review).
+ * Runs saved before `burnoutMassSettled` hold the mass at the FIRST burnout —
+ * on a flight with more than one motor mount, possibly the whole stack
+ * (154.3 g stored for a sustainer landing at 81.3 g). The series is not
+ * stored, so it cannot be re-read: it is blanked, and only where it can
+ * differ.
+ */
+describe('a stored run’s recovery weight', () => {
+  const stored = (runs: object[]): SimRun[] => {
+    localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify(runs));
+    return loadRuns();
+  };
+  const weight = (r: SimRun, header = 'Recovery Weight (g)') => {
+    const { headers, rows } = runsToTable([r]);
+    return rows[0]![headers.indexOf(header)];
+  };
+
+  it('is blanked on an unstamped run that flew a second mount or a booster branch', () => {
+    const [staged, multiMount] = stored([
+      mkRun('staged', { burnoutMass: 0.1543, boosterMotors: ['C6'], branches: [{} as never] }),
+      mkRun('outboard', { burnoutMass: 0.1543, boosterMotors: ['C6'] }),
+    ]);
+    expect(staged!.burnoutMass).toBeNull();
+    expect(multiMount!.burnoutMass).toBeNull();
+    expect(weight(staged!)).toBe('');
+    expect(weight(staged!, 'Recovery weight (kg)')).toBe('');
+  });
+
+  it('is kept on an unstamped single-mount run — the first burnout is the last', () => {
+    const [single] = stored([mkRun('single', { burnoutMass: 0.04 })]);
+    expect(single!.burnoutMass).toBe(0.04);
+    expect(weight(single!)).toBe(40);
+  });
+
+  it('is kept on a stamped run, staged or not', () => {
+    const [staged] = stored([
+      mkRun('new', { burnoutMass: 0.0813, burnoutMassSettled: true, boosterMotors: ['C6'] }),
+    ]);
+    expect(staged!.burnoutMass).toBe(0.0813);
+    expect(weight(staged!, 'Recovery weight (kg)')).toBe(0.0813);
+  });
+
+  it('heads its detail column "Recovery weight", not "Burnout mass" beside "Time to burnout"', () => {
+    const { headers } = runsToTable([mkRun('a')]);
+    expect(headers).toContain('Recovery weight (kg)');
+    expect(headers.some((h) => /burnout mass/i.test(h))).toBe(false);
+  });
+});

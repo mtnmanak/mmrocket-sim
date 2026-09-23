@@ -273,6 +273,35 @@ describe('kernelSimOptions fills a blank atmosphere field from the site altitude
     const o = opts({ launchAltitudeM: 0, temperatureC: 30 });
     expect(o.pressure).toBeCloseTo(101325, 0);
   });
+
+  /**
+   * THE CHOKEPOINT (audit 2026-09-22). A stored atmosphere used to reach the
+   * kernel raw: the .CDX1 reader had none of the .ork reader's envelope, so a
+   * pressure typed in hPa into RASAero's in-Hg field flew 3,431,260 Pa — 34x
+   * sea-level density — and -300 °F flew 88.7 K, with no note. Whatever put
+   * such a value in the store, it now flies as blank: the site's standard day.
+   */
+  it('flies an atmosphere outside the panel’s own envelope as blank, never raw', () => {
+    const hPaAsInHg = opts({ launchAltitudeM: 1500, temperatureC: 20, pressureHPa: 1013.25 * 33.8639 });
+    expect(hPaAsInHg.pressure).toBe(isaPressurePa(1500));
+    expect(hPaAsInHg.temperature).toBeCloseTo(293.15, 9);
+
+    const coldF = opts({ launchAltitudeM: 1500, temperatureC: (-300 - 32) * 5 / 9, pressureHPa: 850 });
+    expect(coldF.temperature).toBe(isaTemperatureK(1500));
+    expect(coldF.pressure).toBe(85000);
+
+    // Both unusable is both blank, so the kernel flies its own standard day.
+    const both = opts({ launchAltitudeM: 1500, temperatureC: -184, pressureHPa: 34313 });
+    expect(both.temperature).toBeUndefined();
+    expect(both.pressure).toBeUndefined();
+  });
+
+  it('flies the site altitude clamped to the field’s own range, the same one it reads the air at', () => {
+    const o = opts({ launchAltitudeM: 150000 / 3.28084, temperatureC: 20 });
+    expect(o.launchAltitude).toBe(10000);
+    expect(o.pressure).toBe(isaPressurePa(10000));
+    expect(opts({ launchAltitudeM: -30 }).launchAltitude).toBe(0);
+  });
 });
 
 describe('the site-temperature field', () => {

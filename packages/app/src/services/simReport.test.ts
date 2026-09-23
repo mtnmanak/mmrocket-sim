@@ -215,6 +215,79 @@ describe('buildSimRun', () => {
 });
 
 /**
+ * THE RECOVERY WEIGHT IS WHAT COMES DOWN (audit 2026-09-22). `burnoutMass` —
+ * the Results tile's "Recovery weight" and the CSV's column — was read at the
+ * FIRST burnout, which on a staged flight is the booster's: measured on a
+ * two-stage C6/C6 design it read 154.3 g, the whole stack less the booster's
+ * propellant, where the Design tab and the flight's own landing mass say
+ * 81.3 g. The branch-0 series below has the real kernel's shape: the sample AT
+ * the separation instant already carries the lighter mass.
+ */
+describe('buildSimRun — the recovery weight on a staged flight', () => {
+  const staged = (events: FlightResult['events']): FlightResult => {
+    const base = fakeResult();
+    const time = [0, 0.2, 2, 5, 7.5, 7.6, 10, 12, 15, 90];
+    const mass = [0.1663, 0.1660, 0.1543, 0.1543, 0.0933, 0.0922, 0.0813, 0.0813, 0.0813, 0.0813];
+    const fill = (v: number) => time.map(() => v);
+    return {
+      ...base,
+      events,
+      series: {
+        time, mass,
+        altitude: [0, 1, 50, 150, 200, 205, 260, 280, 270, 0],
+        velocity: [0, 15, 60, 40, 30, 60, 90, 0, 5, 4],
+        acceleration: fill(0), thrust: fill(0), drag: fill(0), mach: fill(0),
+        stability: fill(1.5), cpLocation: fill(0.29), cgLocation: fill(0.25), aoa: fill(0),
+      },
+    };
+  };
+  const recoveryWeight = (events: FlightResult['events']) => buildSimRun({
+    result: staged(events), info, motor, launch: DEFAULT_CONDITIONS, rocketName: 'Two', execMs: 1,
+  }).burnoutMass;
+
+  it('is the sustainer after its own burnout, not the stack at the booster’s', () => {
+    expect(recoveryWeight([
+      { type: 'LAUNCH', time: 0 }, { type: 'LAUNCHROD', time: 0.2 },
+      { type: 'BURNOUT', time: 2 }, { type: 'STAGE_SEPARATION', time: 7.5 },
+      { type: 'BURNOUT', time: 10 }, { type: 'APOGEE', time: 12 },
+      { type: 'RECOVERY_DEVICE_DEPLOYMENT', time: 15 }, { type: 'GROUND_HIT', time: 90 },
+    ])).toBeCloseTo(0.0813, 9);
+  });
+
+  it('waits for the last burnout when the chute opens while a motor still burns', () => {
+    expect(recoveryWeight([
+      { type: 'LAUNCH', time: 0 }, { type: 'BURNOUT', time: 2 },
+      { type: 'STAGE_SEPARATION', time: 7.5 }, { type: 'RECOVERY_DEVICE_DEPLOYMENT', time: 7.6 },
+      { type: 'BURNOUT', time: 10 }, { type: 'GROUND_HIT', time: 90 },
+    ])).toBeCloseTo(0.0813, 9);
+  });
+
+  it('waits for the separation when nothing deploys and the upper motor never lights', () => {
+    // A sustainer on Ignition: Never has no burnout of its own — the only one
+    // is the booster's, with the booster still attached. What lands is what is
+    // left when the booster lets go.
+    expect(recoveryWeight([
+      { type: 'LAUNCH', time: 0 }, { type: 'BURNOUT', time: 2 },
+      { type: 'STAGE_SEPARATION', time: 7.5 }, { type: 'GROUND_HIT', time: 90 },
+    ])).toBeCloseTo(0.0933, 9);
+  });
+
+  it('is unchanged on a single-stage flight — constant from burnout to landing', () => {
+    expect(buildSimRun({
+      result: fakeResult(), info, motor, launch: DEFAULT_CONDITIONS, rocketName: 'x', execMs: 1,
+    }).burnoutMass).toBeCloseTo(0.040, 9);
+  });
+
+  it('stamps every run it builds as read at the settled instant, so a stored one can tell', () => {
+    // simStore.loadRuns blanks a multi-mount run WITHOUT this stamp: it was
+    // read at the first burnout, before this fix.
+    expect(buildSimRun({
+      result: fakeResult(), info, motor, launch: DEFAULT_CONDITIONS, rocketName: 'x', execMs: 1,
+    }).burnoutMassSettled).toBe(true);
+  });
+});
+
+/**
  * Dual deployment: drogue at apogee (7 s), main at 250 m (30 s). Velocity
  * profile: drogue settles at `drogueRate`, main opens at that speed, lands
  * at `landRate`.
@@ -456,11 +529,14 @@ describe('the drogue band and opening shock have a caution tier (v0.114)', () =>
     expect(drogueLine(buildAt(60 * FT_S))).toBeNull();
   });
 
-  it('70-90 ft/s is a CAUTION and says the band still accepts it', () => {
+  it('70-90 ft/s is a CAUTION and says it is in the caution band', () => {
     const line = drogueLine(buildAt(80 * FT_S))!;
     expect(line.level).toBe('caution');
-    expect(line.text).toContain('above the preferred 70 ft/s');
-    expect(line.text).toContain('still inside the accepted band');
+    expect(line.text).toContain('above the preferred 70 ft/s, in the caution band up to 90 ft/s.');
+    // One vocabulary with the Recovery sizing panel (audit 2026-09-22): 70-90
+    // used to be "still inside the accepted band" here while the panel called
+    // 70 "the accepted" band — the app contradicting itself on one threshold.
+    expect(line.text).not.toContain('accepted');
     // Eric's own rocket sat here at ~90 ft/s and got the same sentence a
     // genuinely dangerous descent got.
   });
@@ -704,7 +780,7 @@ describe('dual deployment attribution', () => {
   });
 
   it('a main opening under a healthy drogue does NOT trip the hard-opening flag', () => {
-    const run = build(20.5, 5.5); // 67 ft/s — inside the accepted band
+    const run = build(20.5, 5.5); // 67 ft/s — inside the preferred band
     expect(run.deployments[1]!.openingOk).toBe(true);
     expect(run.safeDeployment).toBe(true);
     expect(run.comments).not.toMatch(/hard opening/);
@@ -1258,7 +1334,7 @@ describe('WIND IS NOT AN OPENING SHOCK (services-rest-1)', () => {
   });
 
   it('a main opening under a healthy drogue passes in the reference 5 m/s wind', () => {
-    // 20.8 m/s is INSIDE the app's own accepted drogue band (21.34). The old
+    // 20.8 m/s is INSIDE the app's own preferred drogue rate (21.34). The old
     // reading, sqrt(20.8^2 + 5^2) = 21.39, is not — so this rocket got a red
     // "hard opening" cell and a failed "Safe deployment" row on a main that met
     // the air at 68 ft/s.
@@ -1274,7 +1350,7 @@ describe('WIND IS NOT AN OPENING SHOCK (services-rest-1)', () => {
 
   it('the allowed drogue rate no longer shrinks as the wind rises', () => {
     // Before: the effective ceiling was sqrt(21.34^2 - w^2) — 20.74 m/s at 5 m/s
-    // of wind, 18.9 at 10, 15.2 (the very bottom of the accepted band) at 15.
+    // of wind, 18.9 at 10, 15.2 (the very bottom of the sizing panel's drogue band) at 15.
     for (const wind of [0, 5, 10, 15]) {
       const run = inWind(21, wind);
       expect(run.deployments[1]!.openingOk, `wind ${wind} m/s`).toBe(true);

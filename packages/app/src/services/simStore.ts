@@ -57,6 +57,19 @@ export function loadRuns(): SimRun[] {
       // when the label says so.
       const d = r.delayS as unknown;
       if (d === 'Infinity' || (d === null && /-P\b/.test(r.motor ?? ''))) r.delayS = Infinity;
+      // A RECOVERY WEIGHT READ AT THE WRONG INSTANT IS NOT SHOWN (audit
+      // 2026-09-22). A run saved before `burnoutMassSettled` holds the mass at
+      // the FIRST burnout. With one motor mount that is what comes down, but
+      // with more — a booster stage, an air-start, an outboard mount — it can
+      // be the whole stack: measured, a two-stage C6/C6 stored 154.3 g for a
+      // sustainer that lands at 81.3 g, shown under the Results tile, the
+      // report row and the CSV's recovery-weight columns. The series it could
+      // be re-read from is not stored, so the figure goes blank; the next
+      // flight of that design fills it honestly.
+      if (r.burnoutMassSettled !== true
+        && ((r.boosterMotors?.length ?? 0) > 0 || (r.branches?.length ?? 0) > 0)) {
+        r.burnoutMass = null;
+      }
     }
     return list;
   } catch {
@@ -148,8 +161,8 @@ function buildColumns(u?: UnitSelection): [string, (r: SimRun) => string | numbe
   const sym = (quantity: Quantity, siLabel: string) => (u ? u[quantity] : siLabel);
   return [
   ['Designation', (r) => r.motor],
-  ['Apogee (ft)', (r) => round(r.maxAltitude * FT, 0)],
-  ['Velocity (mph)', (r) => round(r.maxVelocity * MPH, 1)],
+  ['Apogee (ft)', (r) => round(scaled(r.maxAltitude, FT), 0)],
+  ['Velocity (mph)', (r) => round(scaled(r.maxVelocity, MPH), 1)],
   ['Manufacturer', (r) => r.manufacturer],
   ['Diameter (mm)', (r) => r.motorDiameterMm],
   ['Type', (r) => r.motorType ?? ''],
@@ -157,7 +170,7 @@ function buildColumns(u?: UnitSelection): [string, (r: SimRun) => string | numbe
   ['Case', (r) => r.motorCase ?? ''],
   ['T:W', (r) => round(r.thrustToWeightAtRod, 1)],
   ['Guide (mph)', (r) => round(r.rodExitVelocity === null ? null : r.rodExitVelocity * MPH, 1)],
-  ['Accel (Gs)', (r) => round(r.maxAcceleration / G_MS2, 1)],
+  ['Accel (Gs)', (r) => round(scaled(r.maxAcceleration, 1 / G_MS2), 1)],
   ['Delay (s)', (r) => (Number.isFinite(r.delayS) ? r.delayS : 'P')],
   ['Pad Weight (g)', (r) => round(r.launchMass === null ? null : r.launchMass * 1000, 1)],
   ['Recovery Weight (g)', (r) => round(r.burnoutMass == null ? null : r.burnoutMass * 1000, 1)],
@@ -186,7 +199,11 @@ function buildColumns(u?: UnitSelection): [string, (r: SimRun) => string | numbe
   ['Time to launch guide exit (s)', (r) => round(r.timeToRodDeparture, 3)],
   [`Velocity at launch guide exit (${sym('velocity', 'm/s')})`, (r) => cv('velocity', r.rodExitVelocity)],
   [`Launch mass (${sym('mass', 'kg')})`, (r) => cv('mass', r.launchMass, 4)],
-  [`Burnout mass (${sym('mass', 'kg')})`, (r) => cv('mass', r.burnoutMass ?? null, 4)],
+  // "Recovery weight", not "Burnout mass": beside "Time to burnout" the old
+  // name read as the mass at THAT instant, the first burnout, and the value has
+  // not been read there since audit 2026-09-22 (simReport `burnoutMass`). Same
+  // position, so a spreadsheet keyed on column order is unaffected.
+  [`Recovery weight (${sym('mass', 'kg')})`, (r) => cv('mass', r.burnoutMass ?? null, 4)],
   // Named for the instant they belong to: the kernel records no CP until the
   // guide is cleared, so these are exit values, not t=0 values. "Launch CG/CP"
   // invited a like-for-like comparison against the Design tab's static CP,
@@ -242,6 +259,18 @@ function buildColumns(u?: UnitSelection): [string, (r: SimRun) => string | numbe
 
 function round(v: number | null, digits = 2): string | number {
   return v === null || !Number.isFinite(v) ? '' : Number(v.toFixed(digits));
+}
+
+/**
+ * `v * k` for a lead column, or null when the run has no `v`. `round` blanks a
+ * null, but it never saw one here: `null * k` is 0 in JavaScript, so a flight
+ * the kernel refused a motor for (maxAcceleration null) exported "Accel 0" in
+ * the lead columns beside the blank the m/s² detail column gives the same
+ * missing value (audit 2026-09-22). The typed field says `number`; the stored
+ * run is JSON and says otherwise, which is why `cv` above guards it too.
+ */
+function scaled(v: number | null | undefined, k: number): number | null {
+  return v == null ? null : v * k;
 }
 
 function flag(v: boolean | null): string {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { formatWarning, formatWarningText, warningKeysCell, WARNING_LABEL } from './simWarnings.js';
+import { SAFETY } from './simReport.js';
 
 describe('formatWarning', () => {
   it('maps a known key to its plain-language label (no detail when the message is bare)', () => {
@@ -21,9 +22,43 @@ describe('formatWarning', () => {
       message: '[Warning.RECOVERY_HIGH_SPEED] (71.1 m/s):  "BoosterChute"',
       priority: 'HIGH',
     });
-    expect(f.label).toBe('Recovery device opened at high speed — risk of a zippered tube or torn chute');
+    expect(f.label).toMatch(/^Recovery device opened faster than the simulator’s fixed 20 m\/s \(65\.6 ft\/s\)/);
     expect(f.detail).toBe('(71.1 m/s): "BoosterChute"');
     expect(f.high).toBe(true);
+  });
+
+  /**
+   * THE KERNEL'S 20 m/s IS NOT THE APP'S VERDICT (audit 2026-09-22). The kernel
+   * flags any opening above a fixed 20 m/s (65.6 ft/s); the report's own
+   * opening check allows 70 ft/s and cautions to 90. The old label called every
+   * such opening a "risk of a zippered tube", so a 20-21.3 m/s opening read
+   * "Safe deployment: yes" and that warning in one report. The label now states
+   * the kernel's threshold and makes no verdict.
+   *
+   * THE THRESHOLD IS THE WHOLE DIFFERENCE (audit 2026-09-22 review). A first
+   * rewording said the report judged "airspeed" and this flag "the speed over
+   * the ground" — but for the first device the report reads the kernel's own
+   * TYPE_VELOCITY_TOTAL, the very |getRocketVelocity()| the flag tests, so the
+   * two quoted the same 21.3 m/s beside each other. The label may not explain
+   * the gap by what was measured.
+   */
+  it('states the kernel’s own 20 m/s threshold beside the report’s tiers, and nothing else', () => {
+    const fps = (ms: number) => Math.round(ms / 0.3048);
+    for (const key of ['HighSpeedDeployment', 'RECOVERY_HIGH_SPEED']) {
+      const label = WARNING_LABEL[key]!;
+      expect(label).toContain('20 m/s (65.6 ft/s)');
+      // The report's own tiers, quoted from SAFETY rather than typed twice.
+      expect(label).toContain(`prefers ${fps(SAFETY.maxDeploymentVelocity)} ft/s or less`);
+      expect(label).toContain(`up to ${fps(SAFETY.warnDeploymentVelocity)} ft/s`);
+      expect(label).not.toMatch(/airspeed|over the ground|wind/i);
+      // The kernel's speed is appended as the detail, so the label ENDS on the
+      // words that speed belongs to.
+      expect(label).toMatch(/the speed at opening$/);
+      expect(label).not.toMatch(/zipper|torn/);
+    }
+    expect(20 / 0.3048).toBeCloseTo(65.6, 1);
+    // The gap the old wording fell into: the report's preferred limit sits above it.
+    expect(SAFETY.maxDeploymentVelocity).toBeGreaterThan(20);
   });
 
   it('non-HIGH priorities (and absent priority) are not styled as failures', () => {

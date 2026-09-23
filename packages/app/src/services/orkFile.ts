@@ -1,5 +1,8 @@
 import type { ComponentNode, ComponentPosition, ComponentType, RocketTree } from '@online-openrocket/engine';
-import { DEFAULT_TIME_STEP_S, PANEL_TIME_STEP_FLOOR_S, type LaunchConditions } from '../components/LaunchPanel.js';
+import {
+  DEFAULT_TIME_STEP_S, importLaunchValue, LATITUDE_DEG_RANGE, PANEL_TIME_STEP_FLOOR_S, ROD_ANGLE_DEG_RANGE,
+  ROD_LENGTH_M_RANGE, WIND_MS_RANGE, type LaunchConditions,
+} from '../components/LaunchPanel.js';
 import { asStageNodes, freshId } from '../tree/treeModel.js';
 import { shapeIsClippable, shapeParamDefault } from '../tree/shapeProfile.js';
 import { finOutlineProblem } from '../tree/finOutline.js';
@@ -12,6 +15,7 @@ import { MAX_FIN_POINTS, MAX_NESTING, TOO_DEEP_NESTING, TOO_MANY_FIN_POINTS, dec
 import { unzipMember } from './zipMember.js';
 import { applyPresetLinks, type PendingPresetLink, type Preset } from './presets.js';
 import { OVERRIDE_INCLUDES_MOTOR } from './statedLaunchWeight.js';
+import { PAD_PRESSURE_HPA_RANGE, PAD_TEMP_C_RANGE, SITE_ALTITUDE_M_RANGE } from './atmosphere.js';
 
 // Re-export: rocksimFile.ts (and historical callers) import it from here.
 export { shapeParamDefault };
@@ -1240,15 +1244,16 @@ export const fmtStepS = (s: number): string => String(Number(s.toPrecision(6)));
 
 /**
  * The envelope an imported `<atmosphere>` is believed inside: EXACTLY the
- * bounds the Temperature and Station pressure fields enforce on a human
- * (LaunchPanel.tsx `numField('Temperature', …, -60, 60)` /
- * `numField('Station pressure', …, 300, 1100)` — the pressure control was
- * renamed in v0.120). Sharing the bound is the point — a
- * value this reader accepted but the panel refuses could not be seen, checked
- * or re-entered, which is the trap the `<timestep>` floor below documents.
+ * bounds the Temperature and Station pressure fields enforce on a human —
+ * since the audit of 2026-09-22 literally the same arrays
+ * (`atmosphere.ts` PAD_TEMP_C_RANGE / PAD_PRESSURE_HPA_RANGE), which the
+ * panel's fields, the RASAero reader and `kernelSimOptions` also read. Sharing
+ * the bound is the point — a value this reader accepted but the panel refuses
+ * could not be seen, checked or re-entered, which is the trap the
+ * `<timestep>` floor below documents.
  */
-export const IMPORTED_TEMP_C_RANGE: readonly [number, number] = [-60, 60];
-export const IMPORTED_PRESSURE_HPA_RANGE: readonly [number, number] = [300, 1100];
+export const IMPORTED_TEMP_C_RANGE: readonly [number, number] = PAD_TEMP_C_RANGE;
+export const IMPORTED_PRESSURE_HPA_RANGE: readonly [number, number] = PAD_PRESSURE_HPA_RANGE;
 
 /** Shed float noise no one typed, the way fmtStepS does for a time step. */
 const fmt6 = (v: number): string => String(Number(v.toPrecision(6)));
@@ -1271,10 +1276,25 @@ function readLaunchConditions(
   if (!condEl) return undefined;
   const launch: Partial<LaunchConditions> = {};
 
+  // Every launch value is believed only inside the bounds the panel enforces on
+  // a typed one (audit 2026-09-22) — the rule `<atmosphere>` below has followed
+  // since v0.105, for the same reason: nothing downstream re-checks what this
+  // returns, so a file could fly an 80° rail or a negative rod length that the
+  // panel would refuse to have typed. Clamped into the panel's range, with a
+  // note quoting the file's own number.
+  const m = (x: number): string => `${fmt6(x)} m`;
+  const deg = (x: number): string => `${fmt6(x)}°`;
+  const ms = (x: number): string => `${fmt6(x)} m/s`;
   const rodLen = num(condEl, 'launchrodlength', NaN);
-  if (!Number.isNaN(rodLen)) launch.launchRodLengthM = rodLen;
+  if (!Number.isNaN(rodLen)) {
+    launch.launchRodLengthM = importLaunchValue(rodLen, ROD_LENGTH_M_RANGE,
+      { what: 'launch rod length', field: 'Rod length', show: m }, notes);
+  }
   const rodAngle = num(condEl, 'launchrodangle', NaN);
-  if (!Number.isNaN(rodAngle)) launch.launchRodAngleDeg = rodAngle;
+  if (!Number.isNaN(rodAngle)) {
+    launch.launchRodAngleDeg = importLaunchValue(rodAngle, ROD_ANGLE_DEG_RANGE,
+      { what: 'launch rod angle', field: 'Rod angle', show: deg }, notes);
+  }
 
   const windEls = Array.from(condEl.querySelectorAll(':scope > wind'));
   // Honesty: a MultiLevel wind profile (24.x altitude-layered winds) is not
@@ -1297,18 +1317,39 @@ function readLaunchConditions(
   const windEl = windEls.find((w) => w.getAttribute('model') === 'average');
   let avg = windEl ? num(windEl, 'speed', NaN) : NaN;
   if (Number.isNaN(avg)) avg = num(condEl, 'windaverage', NaN);
+  if (avg < 0) {
+    // NOT clamped to zero: desktop's `PinkNoiseWindModel.setAverage` reads a
+    // negative average as that speed blowing the other way, and so does the
+    // kernel. The speed is what moves a flight; the app's wind has one
+    // direction, so the magnitude is the faithful import. Taken before the
+    // legacy turbulence product below, which desktop also forms from the
+    // magnitude.
+    notes.push(`The file's average wind is ${ms(avg)}. A negative wind is that speed blowing the `
+      + `other way, and the app's wind has no direction to reverse, so it was imported as `
+      + `${ms(-avg)}; the landing drift points the opposite way to the file's.`);
+    avg = -avg;
+  }
   if (!Number.isNaN(avg)) launch.windAverage = avg;
   let sd = windEl ? num(windEl, 'standarddeviation', NaN) : NaN;
   if (Number.isNaN(sd)) {
     const turb = num(condEl, 'windturbulence', NaN);
     if (!Number.isNaN(turb) && !Number.isNaN(avg)) sd = turb * avg;
   }
-  if (!Number.isNaN(sd)) launch.windStdDev = sd;
+  if (!Number.isNaN(sd)) {
+    launch.windStdDev = importLaunchValue(sd, WIND_MS_RANGE,
+      { what: 'wind gust standard deviation', field: 'Wind gusts σ', show: ms }, notes);
+  }
 
   const alt = num(condEl, 'launchaltitude', NaN);
-  if (!Number.isNaN(alt)) launch.launchAltitudeM = alt;
+  if (!Number.isNaN(alt)) {
+    launch.launchAltitudeM = importLaunchValue(alt, SITE_ALTITUDE_M_RANGE,
+      { what: 'site altitude', field: 'Site altitude', show: m }, notes);
+  }
   const lat = num(condEl, 'launchlatitude', NaN);
-  if (!Number.isNaN(lat)) launch.latitudeDeg = lat;
+  if (!Number.isNaN(lat)) {
+    launch.latitudeDeg = importLaunchValue(lat, LATITUDE_DEG_RANGE,
+      { what: 'launch latitude', field: 'Latitude', show: deg }, notes);
+  }
 
   const atmEl = condEl.querySelector(':scope > atmosphere');
   if (atmEl) {

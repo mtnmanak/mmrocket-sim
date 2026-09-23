@@ -232,6 +232,35 @@ describe('RecoverySizingPanel', () => {
     expect(text()).toMatch(/\d+ of \d+ canopies that hit this band pack wider/);
   });
 
+  it('says the size is per canopy when the chute rides in a pod set', async () => {
+    // One canopy per pod (audit 2026-09-22): the size line is each canopy's,
+    // and the rates are for all of them — said, or the size reads as the whole.
+    const podded: RocketTree = {
+      name: 'pods',
+      components: [{
+        type: 'stage', id: 's0', name: 'Sustainer',
+        children: [{
+          type: 'bodytube', id: 'bt', name: 'Body', length: 1.2, outerRadius: 0.077, thickness: 0.001,
+          children: [{
+            type: 'podset', id: 'pods', name: 'Pods', instanceCount: 2,
+            children: [{
+              type: 'bodytube', id: 'pb', name: 'Pod body', length: 0.5, outerRadius: 0.077, thickness: 0.001,
+              children: [{ type: 'parachute', id: 'pc', diameter: 0.9, cd: 2.2, deployEvent: 'altitude' } as ComponentNode],
+            } as ComponentNode],
+          } as ComponentNode],
+        } as ComponentNode],
+      } as ComponentNode],
+    };
+    await mount({ tree: podded });
+    const [main, drogue] = bands();
+    expect(main!.textContent).toContain('Per canopy: the design opens 2 of this main, one in each pod it rides in');
+    expect(main!.textContent).toContain('every rate below is for all 2');
+    // The drogue slot is empty and rides in no pod: nothing to say.
+    expect(drogue!.textContent).not.toContain('Per canopy');
+    // 8.786 kg on two Cd 2.2 canopies at sea level: 65 in / sqrt 2.
+    expect(sizeLine(0)).toMatch(/^about 46 in at Cd 2\.2/);
+  });
+
   it('marks a drogue over the app’s own 70 ft/s threshold in the report’s words', async () => {
     // 0.9 kg: only three catalogue drogues make the 50-75 band, one of them
     // past 70 ft/s. With fewer than five unflagged candidates the marked one
@@ -240,8 +269,15 @@ describe('RecoverySizingPanel', () => {
     await mount({ recovery: { state: 'ok', mass: 0.9, multiStage: false } });
     const drogue = bands()[1]!;
     expect(drogue.querySelector('.recovery-part-warn')).not.toBeNull();
-    expect(drogue.textContent).toContain('faster than the accepted');
-    expect(drogue.textContent).toContain('drogue band — the launch report will say so');
+    // The report's three tiers, in the report's words (audit 2026-09-22): the
+    // panel used to call 70 ft/s "the accepted" drogue band while the report
+    // called 70-90 "still inside the accepted band".
+    expect(drogue.textContent).toContain('is above the preferred 70 ft/s for a drogue');
+    expect(drogue.textContent).toContain('in the caution band up to 90 ft/s');
+    expect(drogue.textContent).toContain('the launch report will flag it as a caution');
+    expect(drogue.textContent).not.toContain('accepted');
+    expect(drogue.querySelector('.recovery-part-warn .recovery-mark-warn')?.getAttribute('aria-label'))
+      .toBe('above the preferred drogue rate — a caution');
     // Marked, and LAST — never ahead of a canopy that clears the threshold.
     const flagged = rows(1).map((r) => r.classList.contains('recovery-part-warn'));
     expect(flagged[flagged.length - 1]).toBe(true);

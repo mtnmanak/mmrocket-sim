@@ -333,7 +333,10 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
                 bad={run.safeThrustToWeight === false} />
               <Row label="Launch mass"
                 value={run.launchMass === null ? '—' : fmtSi('mass', mass, run.launchMass)} quantity="mass" />
-              <Row label="Recovery weight (at burnout)"
+              {/* "After", not "at": on a staged flight it is read once the last
+                  burnout, separation and first deployment are past — the FIRST
+                  burnout is the booster's (audit 2026-09-22, simReport). */}
+              <Row label="Recovery weight (after burnout)"
                 value={run.burnoutMass == null ? '—' : fmtSi('mass', mass, run.burnoutMass)} quantity="mass" />
               {/* The cause, printed beside the effect: this is why the CP below
                   sits forward of the Design tab's. At zero wind they agree. */}

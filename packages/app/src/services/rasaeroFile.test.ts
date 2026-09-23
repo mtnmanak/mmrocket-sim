@@ -6,6 +6,8 @@ import { describe, expect, it } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
 import { applyStageNozzles } from '../tree/treeModel.js';
 import { CDX1_ENGINE_EXPORT, exportCdx1, importCdx1, rasaeroManufacturerAbbrev } from './rasaeroFile.js';
+import { DEFAULT_CONDITIONS, kernelSimOptions } from '../components/LaunchPanel.js';
+import { isaPressurePa } from './atmosphere.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixture = (name: string) => readFileSync(join(here, '__fixtures__', name), 'utf8');
@@ -2217,5 +2219,86 @@ describe('RASAero import — the pad pressure note', () => {
     // <Pressure>0</Pressure> and is now silent, so the number is asserted
     // through the branch that still speaks.
     expect(padNote(withSite(8800, 29.92, 55))).toMatch(/about 730 mbar \(21\.55 in-Hg\)/);
+  });
+
+  /**
+   * THE ENVELOPE (audit 2026-09-22). This reader had none of the .ork reader's
+   * temperature/pressure envelope, so a unit mistake flew raw: hPa typed into
+   * the in-Hg field flew 3,431,260 Pa — 34x sea-level density — and -300 °F
+   * flew 88.7 K, with no note. Out of range is now blank, and said.
+   */
+  it('refuses a pressure no barometer reads — hPa typed into the in-Hg field — and says so', () => {
+    const r = importCdx1(withSite(3900, 1013.25, 80));
+    expect(r.launch!.pressureHPa).toBeNull();
+    expect(r.launch!.temperatureC).toBeCloseTo((80 - 32) * 5 / 9, 9); // the good half survives
+    const note = padNote(withSite(3900, 1013.25, 80))!;
+    expect(note).toMatch(/this file's pressure, 1013\.25 in-Hg \(34313 mbar\), is outside the 8\.86 to 32\.48 in-Hg/);
+    expect(note).toMatch(/sea level is 29\.92 in it, not 1013\.25/);
+    // One line: the altimeter-setting note has nothing left to fire on.
+    expect(r.notes.filter((n) => n.startsWith('Launch site:'))).toHaveLength(1);
+    // And what flies is the site's standard day, not 34 atmospheres.
+    const o = kernelSimOptions({ ...DEFAULT_CONDITIONS, ...r.launch });
+    expect(o.pressure).toBe(isaPressurePa(3900 / 3.28084));
+  });
+
+  it('refuses a temperature no launch site reads, and says so in °F', () => {
+    const r = importCdx1(withSite(3900, 0, -300));
+    expect(r.launch!.temperatureC).toBeNull();
+    const note = padNote(withSite(3900, 0, -300))!;
+    expect(note).toMatch(/this file's temperature, -300 °F \(-184\.4 °C\), is outside the -76 to 140 °F/);
+    // Both blank now, so the kernel flies its own standard day for the site.
+    const o = kernelSimOptions({ ...DEFAULT_CONDITIONS, ...r.launch });
+    expect(o.temperature).toBeUndefined();
+  });
+
+  it('keeps a value on the envelope’s edge — the envelope is the field’s, closed', () => {
+    const r = importCdx1(withSite(3900, 1100 / 33.8639, 140));
+    expect(r.launch!.pressureHPa).toBeCloseTo(1100, 9);
+    expect(r.launch!.temperatureC).toBeCloseTo(60, 9);
+    expect(r.notes.some((n) => /is outside the/.test(n))).toBe(false);
+  });
+});
+
+/**
+ * THE REST OF THE LAUNCH SITE (audit 2026-09-22). <RodAngle>, <RodLength>,
+ * <WindSpeed> and <Altitude> were taken raw, and nothing downstream re-checks
+ * them, so a file could fly an 80° rail or a negative rail. Each is now clamped
+ * into the Launch panel's own range, with a note in the file's units.
+ */
+describe('RASAero import — the launch site is held to the panel’s own bounds', () => {
+  const site = (inner: string): string =>
+    `<?xml version="1.0"?><RASAeroDocument><FileVersion>2</FileVersion><RocketDesign>
+      <NoseCone><PartType>NoseCone</PartType><Length>4.5</Length><Diameter>0.736</Diameter>
+        <Shape>Tangent Ogive</Shape></NoseCone>
+      <BodyTube><PartType>BodyTube</PartType><Length>18.25</Length><Diameter>0.736</Diameter></BodyTube>
+    </RocketDesign><LaunchSite>${inner}</LaunchSite></RASAeroDocument>`;
+  const boundNotes = (notes: string[]) => notes.filter((n) => /field under Launch conditions accepts/.test(n));
+
+  it('takes an ordinary site verbatim, with nothing to say', () => {
+    const r = importCdx1(site('<Altitude>3900</Altitude><RodAngle>5</RodAngle><RodLength>12</RodLength>'
+      + '<WindSpeed>10</WindSpeed>'));
+    expect(r.launch!.launchRodAngleDeg).toBe(5);
+    expect(r.launch!.launchRodLengthM).toBeCloseTo(12 / 3.28084, 9);
+    expect(r.launch!.windAverage).toBeCloseTo(10 / 2.23694, 9);
+    expect(boundNotes(r.notes)).toHaveLength(0);
+  });
+
+  it('clamps a rail past the panel’s 30° and a negative rail length, quoting the file', () => {
+    const r = importCdx1(site('<Altitude>0</Altitude><RodAngle>80</RodAngle><RodLength>-10</RodLength>'
+      + '<WindSpeed>-5</WindSpeed>'));
+    expect(r.launch!.launchRodAngleDeg).toBe(30);
+    expect(r.launch!.launchRodLengthM).toBe(0);
+    expect(r.launch!.windAverage).toBe(0);
+    const said = boundNotes(r.notes).join('\n');
+    expect(said).toMatch(/launch rod angle is 80°, .*accepts -30° to 30° — imported as 30°/);
+    expect(said).toMatch(/launch rod length is -10 ft, .*accepts nothing below 0 ft — imported as 0 ft/);
+    expect(said).toMatch(/wind speed is -5 mph, .*accepts nothing below 0 mph/);
+  });
+
+  it('holds the site altitude to the field’s 0-10,000 m', () => {
+    // 150,000 ft once reached the atmosphere unclamped (atmosphere.ts's NaN note).
+    const r = importCdx1(site('<Altitude>150000</Altitude>'));
+    expect(r.launch!.launchAltitudeM).toBe(10000);
+    expect(boundNotes(r.notes).join('\n')).toMatch(/launch site altitude is 150000 ft, .*imported as 32808\.4 ft/);
   });
 });

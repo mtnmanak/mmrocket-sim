@@ -1,6 +1,6 @@
-import type { ComponentNode, MotorSpec, RocketTree, StaticInfo } from '@online-openrocket/engine';
-import { clusterCount } from '../tree/cluster.js';
-import { findNode, hasParallelStage, stageIndexOf, stages } from '../tree/treeModel.js';
+import type { ComponentNode, IgnitionEvent, MotorSpec, RocketTree, StaticInfo } from '@online-openrocket/engine';
+import { num } from '../tree/nodeNum.js';
+import { hasSeparatingParallelStage, mountMotorCount, stageIndexOf, stages } from '../tree/treeModel.js';
 
 /**
  * RECOVERY WEIGHT — the mass that actually comes down under the recovery
@@ -23,9 +23,10 @@ import { findNode, hasParallelStage, stageIndexOf, stages } from '../tree/treeMo
  * every one of them through the real kernel):
  *
  *  - `StaticInfo.mass` is the LOADED mass and is cluster-aware: a 4-ring mount
- *    with one motor spec adds four motors' worth of mass. So the propellant we
- *    subtract has to be multiplied by the same cluster count, or the two halves
- *    of the subtraction disagree.
+ *    with one motor spec adds four motors' worth of mass — and so is every
+ *    enclosing pod set and strap-on, whose instances multiply it again. So the
+ *    propellant we subtract has to be multiplied by the same count
+ *    (`mountMotorCount`), or the two halves of the subtraction disagree.
  *  - `componentInfo(stageId).mass` is exactly 0 — a stage carries no mass of
  *    its own — but `componentInfo(stageId).sectionMass` is the stage's whole
  *    DRY subtree, motors excluded, and the per-stage sectionMasses sum to
@@ -35,8 +36,10 @@ import { findNode, hasParallelStage, stageIndexOf, stages } from '../tree/treeMo
  *    instanceCount > 1 is counted ONCE while `massEmpty` counts every instance.
  *    Deriving the sustainer as `massEmpty − Σ(booster sectionMass)` rather than
  *    as `sectionMass(sustainer)` puts that discrepancy where it can only bite a
- *    design with an instanced POD on a BOOSTER stage — the sustainer's own pods
- *    come out right, which is the case that exists.
+ *    design with an instanced assembly on a BOOSTER stage — the sustainer's own
+ *    pods come out right. That case is refused, not weighed (`holdsInstanced`):
+ *    it used to be weighed, and a ring of two pods on a booster read the
+ *    booster 11 % LIGHT and the sustainer 15 % heavy (audit 2026-09-22 review).
  *
  * ONE WEIGHT PER OBJECT THAT COMES DOWN, not one per rocket (2026-09-07). The
  * original note here said "the boosters are on the ground by apogee, so the
@@ -85,12 +88,54 @@ export function motorBurnoutMass(spec: Pick<MotorSpec, 'masses'>): number | null
   return Number.isFinite(last) ? Math.max(0, last) : null;
 }
 
+/**
+ * Motor mass as loaded (kg) — the first mass sample: what a motor that never
+ * lights still weighs when it comes down. Null under the same rule as
+ * `motorBurnoutMass`, for the same reason.
+ */
+export function motorLoadedMass(spec: Pick<MotorSpec, 'masses'>): number | null {
+  const m = spec.masses;
+  if (!Array.isArray(m) || m.length === 0) return null;
+  const first = m[0]!;
+  return Number.isFinite(first) ? Math.max(0, first) : null;
+}
+
+/**
+ * A motor set to ignite NEVER burns nothing: it comes down loaded. That is
+ * the "what if the sustainer fails to light" check, exactly the flight where
+ * the canopy carries the most, and this file used to subtract its propellant
+ * anyway because the motors tuple carried no ignition (audit 2026-09-22):
+ * measured on a two-stage C6/C6 design with the sustainer on Never, the
+ * recovery weight read 81.3 g while the kernel's flight came down at 93.3 g.
+ * An absent ignition is the kernel's AUTOMATIC, which lights.
+ */
+function neverLights(mm: { ignition?: { event?: IgnitionEvent } }): boolean {
+  return mm.ignition?.event === 'never';
+}
+
+/**
+ * Does anything under these nodes fly more than once — a pod set, or a strap-on
+ * ring (on Never: a separating one is refused before this is asked)? Those are
+ * what `sectionMass` counts ONCE and `massEmpty` counts per instance (header
+ * note). An absent count is the kernel's own default of 2
+ * (ComponentFactory.applyAssembly), truncated as it truncates — so a node the
+ * app cannot read a count off errs toward refusing, never toward a light weight.
+ */
+function holdsInstanced(nodes: readonly ComponentNode[]): boolean {
+  return nodes.some((n) => ((n.type === 'podset' || n.type === 'parallelstage')
+    && Math.trunc(num(n, 'instanceCount', 2)) > 1) || holdsInstanced(n.children ?? []));
+}
+
 export interface RecoveryMassInput {
   tree: RocketTree;
   /** Whole-rocket static analysis for the CURRENT motor set. */
   info: Pick<StaticInfo, 'mass' | 'massEmpty'>;
-  /** [mount node id, motor] for every mount that currently holds a motor. */
-  motors: ReadonlyArray<readonly [string, { spec: MotorSpec }]>;
+  /**
+   * [mount node id, motor] for every mount that currently holds a motor, with
+   * its ignition where the caller has one (App passes its `MountMotor`, which
+   * does). A motor on NEVER is counted loaded — see `neverLights`.
+   */
+  motors: ReadonlyArray<readonly [string, { spec: MotorSpec; ignition?: { event?: IgnitionEvent } }]>;
   /**
    * `OrkRocket.componentInfo(id).sectionMass`, or null when the kernel cannot
    * answer for that id. A callback so this stays a pure function and the
@@ -149,6 +194,11 @@ export function recoveryGroups(tree: RocketTree): ComponentNode[][] {
  * The stage nodes that come down with the sustainer — the scope anything
  * describing "the rocket that lands" has to be read over.
  *
+ * It is STAGE nodes, and a strap-on lives inside one: a walk over this scope
+ * reaches every parallel stage in it, including one that separates and comes
+ * down on its own. Such a walk has to stop there (`isSeparatingParallelStage`);
+ * recoverySizing.ts's two walks do (audit 2026-09-22).
+ *
  * A legacy flat tree (no stage nodes) is its own scope.
  */
 export function sustainerScope(tree: RocketTree): readonly ComponentNode[] {
@@ -199,7 +249,18 @@ export type RecoveryByStage =
  * Separating strap-on boosters (`parallelstage`) are refused rather than
  * guessed: they live INSIDE the sustainer stage's subtree, so no stage-level
  * mass can separate them out, and their instanceCount is counted once by
- * `sectionMass` and N times by `massEmpty`.
+ * `sectionMass` and N times by `massEmpty`. A strap-on set to separate NEVER is
+ * not refused: it comes down bolted on, so it is structure like a pod set and
+ * the arithmetic below already weighs it — measured through the kernel, a ring
+ * of two such strap-ons with a C6 in each (and one in the core) lands at
+ * 149.5 g, which is what this returns. It used to be refused with "strap-on
+ * boosters separate", which was false for it (audit 2026-09-22).
+ *
+ * "Like a pod set" includes a pod set's one limit: on a BOOSTER stage of a
+ * design that separates, either kind is counted once by `sectionMass`, so that
+ * booster's group is unavailable rather than weighed light, and the sustainer
+ * is summed from its own stages instead of subtracted from `massEmpty` —
+ * unavailable too if it holds one of its own (`holdsInstanced`).
  */
 export function recoveryMassByStage(input: RecoveryMassInput): RecoveryByStage {
   const { tree, info, motors, sectionMass } = input;
@@ -208,18 +269,26 @@ export function recoveryMassByStage(input: RecoveryMassInput): RecoveryByStage {
     return { state: 'unavailable', reason: 'the design has no mass yet' };
   }
 
-  if (hasParallelStage(tree)) {
+  if (hasSeparatingParallelStage(tree)) {
     // A strap-on drops away like a booster stage but is modelled as a child of
     // the sustainer's airframe, so it is inside every stage-level mass here.
+    // One on Never does not drop away, so it does not stop the answer.
     return {
       state: 'unavailable',
       reason: 'strap-on boosters separate — the app cannot yet say what stays with the sustainer',
     };
   }
 
-  /** Motors on this mount: the cluster count the rest of the app reads. */
-  const countAt = (mountId: string): number =>
-    clusterCount(findNode(tree, mountId)?.['cluster'] as string | undefined);
+  /**
+   * Motors the kernel flies on this mount: its cluster count times every
+   * enclosing pod set's and strap-on's instance count (`mountMotorCount`) —
+   * the multiplicity `info.mass` carries. The cluster alone under-subtracted a
+   * motor inside a ring of never-separating strap-ons, the case the refusal
+   * above now lets through: measured, a two-instance ring read 161.5 g where
+   * the flight lands at 149.5 g (audit 2026-09-22; the same count row 351
+   * names for pod sets).
+   */
+  const countAt = (mountId: string): number => mountMotorCount(tree, mountId);
 
   const groups = recoveryGroups(tree);
   const label = (g: ComponentNode[]): Pick<StageRecovery, 'stageIds' | 'stageNames'> => ({
@@ -228,9 +297,11 @@ export function recoveryMassByStage(input: RecoveryMassInput): RecoveryByStage {
   });
 
   if (groups.length <= 1) {
-    // Nothing separates: everything on the pad, less what burned.
+    // Nothing separates: everything on the pad, less what burned — and a
+    // motor on Never burns nothing (`neverLights`).
     let mass = info.mass;
     for (const [mountId, mm] of motors) {
+      if (neverLights(mm)) continue;
       mass -= motorPropellantMass(mm.spec) * countAt(mountId);
     }
     // Cannot come down lighter than the bare structure. This is the guard for
@@ -249,8 +320,9 @@ export function recoveryMassByStage(input: RecoveryMassInput): RecoveryByStage {
   }
 
   /**
-   * Burnout mass of every motor mounted inside this group of stages. `null`
-   * when one of them publishes no mass column — "cannot answer" rather than a
+   * Burnout mass of every motor mounted inside this group of stages — its
+   * LOADED mass for a motor on Never, which comes down unburned. `null` when
+   * one of them publishes no mass column — "cannot answer" rather than a
    * guessed zero, because zero understates and understating is the unsafe
    * direction.
    */
@@ -258,7 +330,7 @@ export function recoveryMassByStage(input: RecoveryMassInput): RecoveryByStage {
     let sum = 0;
     for (const [mountId, mm] of motors) {
       if (!stageIdx.has(stageIndexOf(tree, mountId))) continue;
-      const burnout = motorBurnoutMass(mm.spec);
+      const burnout = neverLights(mm) ? motorLoadedMass(mm.spec) : motorBurnoutMass(mm.spec);
       if (burnout === null) return null;
       sum += burnout * countAt(mountId);
     }
@@ -269,24 +341,53 @@ export function recoveryMassByStage(input: RecoveryMassInput): RecoveryByStage {
   const indexOfStage = new Map<ComponentNode, number>();
   stages(tree).forEach((s, i) => indexOfStage.set(s, i));
 
+  /**
+   * A booster group holding a pod set or a never-separating strap-on ring has
+   * a `sectionMass` that counts the ring once where the kernel flies every
+   * instance — measured, two pods on a booster read it 11 % light (the unsafe
+   * direction for ITS canopy) and the sustainer 15 % heavy (audit 2026-09-22
+   * review). Such a group is not weighed.
+   */
+  const instancedGroup = groups.map((g, gi) => gi > 0 && holdsInstanced(g));
+  const boosterInstanced = instancedGroup.some(Boolean);
+
   const out: StageRecovery[] = [];
   for (let gi = 0; gi < groups.length; gi++) {
     const group = groups[gi]!;
     const isSustainer = gi === 0;
     const idx = new Set(group.map((s) => indexOfStage.get(s) ?? -1));
 
+    if (instancedGroup[gi] || (isSustainer && boosterInstanced && holdsInstanced(group))) {
+      out.push({
+        ...label(group),
+        isSustainer,
+        mass: {
+          state: 'unavailable',
+          reason: isSustainer
+            ? 'pod sets or strap-ons ride on both this stage and a booster — the app cannot yet weigh them per pod'
+            : 'a pod set or strap-on on this stage is counted once, not per pod — the app cannot yet weigh it',
+        },
+      });
+      continue;
+    }
+
     // The sustainer is derived by SUBTRACTING what leaves rather than by
-    // summing its own sections — see the header note on instanced pods. Every
-    // other group is summed, which is the only thing available for it.
-    let dry = isSustainer ? info.massEmpty : 0;
+    // summing its own sections — see the header note on instanced pods: that
+    // keeps its own pods right. Every other group is summed, which is the only
+    // thing available for it — and so is the sustainer when a booster holds a
+    // ring, since subtracting that booster's once-counted ring would leave the
+    // extra instances on the sustainer (it holds none of its own, or the branch
+    // above has already refused it).
+    const subtract = isSustainer && !boosterInstanced;
+    let dry = subtract ? info.massEmpty : 0;
     let dryKnown = true;
-    const contributing = isSustainer
+    const contributing = subtract
       ? groups.slice(1).flat()
       : group;
     for (const stage of contributing) {
       const sm = stage.id ? sectionMass(stage.id) : null;
       if (sm === null || !Number.isFinite(sm)) { dryKnown = false; break; }
-      dry += isSustainer ? -sm : sm;
+      dry += subtract ? -sm : sm;
     }
     if (!dryKnown) {
       out.push({
@@ -294,7 +395,7 @@ export function recoveryMassByStage(input: RecoveryMassInput): RecoveryByStage {
         isSustainer,
         mass: {
           state: 'unavailable',
-          reason: isSustainer
+          reason: subtract
             ? 'the booster stages’ masses are unavailable'
             : 'this stage’s mass is unavailable',
         },

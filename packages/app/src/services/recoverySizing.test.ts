@@ -5,6 +5,8 @@ import type { Preset } from './presets.js';
 import { presetPatch } from './presets.js';
 import { engineTree } from '../tree/treeModel.js';
 import { SAFETY } from './simReport.js';
+import { DEFAULT_CONDITIONS, kernelSimOptions } from '../components/LaunchPanel.js';
+import { isaPressurePa, isaTemperatureK } from './atmosphere.js';
 import {
   canopyCdA, classifyRecoveryDevices, DEFAULT_CANOPY_CD, descentRate, diameterForRate,
   DROGUE_BAND, MAIN_BAND, recoveryBayBore, recoverySizing, SEA_LEVEL_DENSITY, siteAirDensity,
@@ -137,12 +139,51 @@ describe('siteAirDensity — the field, not sea level', () => {
     expect(rho).toBeCloseTo(87500 / (287.053 * 305.15), 9);
   });
 
-  it('matches the kernel’s quirk when only one of the two is given', () => {
-    // OrkEngine.java:919-926 fills the MISSING field with the ISA SEA-LEVEL
-    // value and applies it at the site altitude. Reproducing that is the point:
-    // the panel must predict the flight the app would actually fly.
-    const rho = siteAirDensity({ launchAltitudeM: 2000, temperatureC: 35, pressureHPa: null });
-    expect(rho).toBeCloseTo(101325 / (287.053 * 308.15), 9);
+  /**
+   * THE FLIGHT'S OWN AIR, in every combination (audit 2026-09-22).
+   *
+   * This test used to pin the kernel's quirk — a blank field beside a typed one
+   * filled with the SEA-LEVEL value — as "the flight the app would actually
+   * fly". It stopped being that in v0.122, when `kernelSimOptions` began filling
+   * each blank from the SITE altitude, and the test kept the sizing panel on the
+   * old air through v0.137. So the assertion is now the relation that
+   * was always the point: the density sized in is `p / (R.T)` of exactly the
+   * temperature and pressure the kernel is handed. With both blank the kernel
+   * is handed nothing and flies its own ISA, which is the site's standard day.
+   */
+  it('sizes in exactly the air kernelSimOptions hands the kernel, blank or typed', () => {
+    for (const h of [0, 1190, 2682]) {
+      for (const [temperatureC, pressureHPa] of [
+        [null, null], [30, null], [null, 730], [30, 730],
+      ] as const) {
+        const l = { ...DEFAULT_CONDITIONS, launchAltitudeM: h, temperatureC, pressureHPa };
+        const o = kernelSimOptions(l);
+        const bothBlank = temperatureC === null && pressureHPa === null;
+        expect(o.temperature === undefined, `T passed at ${h} m`).toBe(bothBlank);
+        const T = o.temperature ?? isaTemperatureK(h);
+        const p = o.pressure ?? isaPressurePa(h);
+        expect(siteAirDensity(l), `${h} m, T ${temperatureC}, p ${pressureHPa}`)
+          .toBe(p / (287.053 * T));
+      }
+    }
+  });
+
+  it('fills a blank pressure from the site, not sea level — the unsafe direction', () => {
+    // The audit's measurement: 2,682 m, 30 °C typed, pressure blank. Sizing
+    // read 101,325 Pa and 1.1644 kg/m³ where the flight flew 72,990 Pa and
+    // 0.8388, so the size line quoted 66.4 in on the Wildman at Cd 2.2 where
+    // 78.2 in hits the 18 ft/s target — and the canopy it named landed at
+    // 21.21 ft/s, past the app's own 20 ft/s landing limit.
+    const site = { launchAltitudeM: 2682, temperatureC: 30, pressureHPa: null };
+    const rho = siteAirDensity(site);
+    expect(rho).toBeCloseTo(0.8388, 4);
+    expect(101325 / (287.053 * 303.15)).toBeCloseTo(1.1644, 4); // what it used to read
+    const inches = (d: number) => d * IN;
+    expect(inches(diameterForRate(WILDMAN_KG, 2.2, rho, MAIN_BAND.target))).toBeCloseTo(78.2, 1);
+    expect(inches(diameterForRate(WILDMAN_KG, 2.2, 1.1644, MAIN_BAND.target))).toBeCloseTo(66.4, 1);
+    const r = ok(sizing({ launch: site }));
+    expect(r.rho).toBe(rho);
+    expect(r.main.diameter).toBe(diameterForRate(WILDMAN_KG, DEFAULT_CANOPY_CD, rho, MAIN_BAND.target));
   });
 });
 
@@ -165,6 +206,18 @@ describe('the bands', () => {
     // And the drogue size line lands below it, so the app's own recommendation
     // can never be one its own launch report complains about.
     expect(DROGUE_BAND.target).toBeLessThan(DROGUE_BAND.warnAbove!);
+  });
+
+  it('carries the report’s caution tier, and a marked drogue can only be a caution', () => {
+    // Three tiers, one vocabulary (audit 2026-09-22): preferred to 70, caution
+    // to 90, warning above — the panel quotes both edges from here.
+    expect(DROGUE_BAND.cautionTo).toBe(SAFETY.warnDrogueDescentRate);
+    expect(fps(DROGUE_BAND.cautionTo!)).toBeCloseTo(90, 6);
+    // The searched window stops inside the caution tier, never in the warning.
+    expect(DROGUE_BAND.max).toBeLessThan(DROGUE_BAND.cautionTo!);
+    // The main's own edge IS the report's landing limit: no tiers to quote.
+    expect(MAIN_BAND.warnAbove).toBeNull();
+    expect(MAIN_BAND.cautionTo).toBeNull();
   });
 });
 
@@ -207,26 +260,42 @@ describe('the catalogue, sized for the same 8.786 kg rocket', () => {
     expect(count(50, 75)).toBe(28);
   });
 
-  it('finds ONE more main through SAFETY.maxLandingRate, and it is nameable', () => {
-    // MAIN_BAND.max is SAFETY.maxLandingRate, 6.1 m/s = 20.013 ft/s, 4 mm/s
-    // above a literal 20 ft/s. Exactly one catalogue canopy lands in that
-    // sliver on this rocket, so the count is 34 rather than the owner's 33 —
-    // and it is admitted deliberately: at 6.098 m/s the app's own launch
-    // report would not complain either. A silent off-by-one is what this test
-    // exists to prevent.
+  /**
+   * AN EMPTY SLOT WEIGHS EACH CANDIDATE WITH ITS OWN MASS (audit 2026-09-22).
+   *
+   * This test used to pin 34 mains here and blame the 34th on the 4 mm/s
+   * sliver between a literal 20 ft/s and SAFETY.maxLandingRate (20.013 ft/s),
+   * naming CFC-072-N at 20.008 ft/s. Both figures were rates taken WITHOUT the
+   * canopy's own mass: `tube(10)` has no chute in it, and an empty slot passed
+   * "unknown" rather than 0, so no candidate carried its own weight. Weighed
+   * honestly the panel finds the owner's own 33, and the sliver is empty.
+   */
+  it('finds exactly the owner’s 33 mains — an empty slot weighs each candidate with its own mass', () => {
     const r = ok(sizing({ tree: tube(10) }));
-    expect(r.main.inBand).toBe(34);
+    expect(r.main.inBand).toBe(33);
     expect(r.drogue.inBand).toBe(28);
+    for (const c of [...r.main.candidates, ...r.drogue.candidates]) {
+      const row = canopies.find((p) => p.partNo === c.partNo && p.manufacturer === c.manufacturer)!;
+      expect(c.rate, c.partNo).toBeCloseTo(
+        descentRate(WILDMAN_KG + (row.mass as number), canopyCdA(row)!, SEA_LEVEL_DENSITY), 12);
+    }
 
+    // The canopy the defect listed: 19.25 ft/s without its 964 g, 20.28 with it
+    // — past the landing limit, so it is not offered at all.
+    const crt = canopies.find((p) => p.partNo === 'CRT-080 L')!;
+    expect(fps(descentRate(WILDMAN_KG, canopyCdA(crt)!, SEA_LEVEL_DENSITY))).toBeCloseTo(19.25, 2);
+    expect(fps(descentRate(WILDMAN_KG + (crt.mass as number), canopyCdA(crt)!, SEA_LEVEL_DENSITY)))
+      .toBeCloseTo(20.28, 2);
+    expect(r.main.candidates.some((c) => c.partNo === 'CRT-080 L')).toBe(false);
+
+    // And the sliver the old note blamed: empty once each canopy carries its mass.
     const sliver = canopies.filter((p) => {
       const cdA = canopyCdA(p);
       if (cdA === null) return false;
-      const v = descentRate(WILDMAN_KG, cdA, SEA_LEVEL_DENSITY);
+      const v = descentRate(WILDMAN_KG + (p.mass ?? 0), cdA, SEA_LEVEL_DENSITY);
       return v > 20 / FPS && v <= MAIN_BAND.max;
     });
-    expect(sliver.map((p) => p.partNo)).toEqual(['CFC-072-N']);
-    expect(descentRate(WILDMAN_KG, canopyCdA(sliver[0]!)!, SEA_LEVEL_DENSITY))
-      .toBeCloseTo(6.09833, 5);
+    expect(sliver).toEqual([]);
   });
 });
 
@@ -279,6 +348,119 @@ describe('the candidate’s own mass — one exact substitution', () => {
     const naive = descentRate(3, cdA, SEA_LEVEL_DENSITY);
     const honest = descentRate(3 + (big.mass as number), cdA, SEA_LEVEL_DENSITY);
     expect(honest / naive).toBeGreaterThan(1.1);
+  });
+});
+
+/**
+ * UNDER A PINNED MASS THERE IS NOTHING TO SUBSTITUTE (audit 2026-09-22). A mass
+ * override that includes everything inside replaces the subtree's mass, so the
+ * kernel weighs a stage pinned at 2.5 kg at 2.5 kg whatever chute is in it
+ * (measured: 2.5000 with a 0.1 kg chute and with a 0.9 kg one), while the
+ * chute's own componentInfo mass still reads 0.1. Every RASAero .CDX1 stating a
+ * launch weight pins its stages. Candidates are rated at the weight as it
+ * stands.
+ */
+describe('a pinned stage mass — swapping the canopy changes nothing', () => {
+  const pin = (t: RocketTree, over: Partial<ComponentNode> = { overrideMass: WILDMAN_KG, overrideSubcomponentsMass: true }): RocketTree => ({
+    ...t, components: [{ ...t.components[0]!, ...over } as ComponentNode],
+  });
+  const rateOf = (r: ReturnType<typeof ok>, role: 'main' | 'drogue', m: (row: Preset) => number) => {
+    for (const c of r[role].candidates) {
+      const row = canopies.find((p) => p.partNo === c.partNo && p.manufacturer === c.manufacturer)!;
+      expect(c.rate, c.partNo).toBeCloseTo(descentRate(m(row), canopyCdA(row)!, SEA_LEVEL_DENSITY), 12);
+    }
+  };
+
+  it('rates every candidate at the recovery weight when an ancestor pins the chute’s mass', () => {
+    const withChute = tube(0.3, [{ diameter: 0.6, cd: 1.5, deployEvent: 'altitude' }]);
+    const r = ok(sizing({ tree: pin(withChute), deviceMass: () => 0.3 }));
+    expect(r.main.candidates.length).toBeGreaterThan(0);
+    rateOf(r, 'main', () => WILDMAN_KG);
+    // The same design unpinned still substitutes — the override is the switch.
+    rateOf(ok(sizing({ tree: withChute, deviceMass: () => 0.3 })), 'main',
+      (row) => WILDMAN_KG - 0.3 + (row.mass as number));
+  });
+
+  it('rates an empty slot at the recovery weight when every stage it could go in is pinned', () => {
+    const r = ok(sizing({ tree: pin(tube(10)) }));
+    rateOf(r, 'main', () => WILDMAN_KG);
+    rateOf(r, 'drogue', () => WILDMAN_KG);
+  });
+
+  it('needs BOTH halves of the override, as the kernel does', () => {
+    // The flag with no value suppresses nothing (suppressingAncestor): the
+    // candidate is still weighed with its own mass.
+    const r = ok(sizing({ tree: pin(tube(10), { overrideSubcomponentsMass: true }) }));
+    rateOf(r, 'main', (row) => WILDMAN_KG + (row.mass as number));
+    // A value that covers only the stage's own mass pins nothing inside it.
+    const own = ok(sizing({ tree: pin(tube(10), { overrideMass: WILDMAN_KG }) }));
+    rateOf(own, 'main', (row) => WILDMAN_KG + (row.mass as number));
+  });
+});
+
+/**
+ * ONE CANOPY PER POD (audit 2026-09-22). The kernel's landing stepper sums
+ * `imap.count(c) * Cd * A` over the deployed devices, so a chute inside a pod
+ * set opens once per pod. Sized as one, every rate was sqrt(N) too fast:
+ * measured on an H128 design with a CFC-018-S in each of two pods, the flight
+ * descends at 13.58 ft/s where the panel rated that canopy at 19.22 — and with
+ * the fix the panel's first listed main, flown in both pods, lands at 17.78
+ * against 17.79 listed.
+ */
+describe('a chute inside a pod set is one canopy per pod', () => {
+  const inPods = (n: number, chute: Partial<ComponentNode>, wrap = 'podset'): RocketTree => ({
+    name: 'pods',
+    components: [{
+      type: 'stage', id: 's0', name: 'Sustainer',
+      children: [{
+        type: 'bodytube', id: 'bt', name: 'Body', length: 1, outerRadius: 5.001, thickness: 0.001,
+        children: [{
+          type: wrap, id: 'pods', name: 'Pods', instanceCount: n,
+          ...(wrap === 'parallelstage' ? { separationEvent: 'never' } : {}),
+          children: [{
+            type: 'bodytube', id: 'pb', name: 'Pod body', length: 0.5, outerRadius: 0.1, thickness: 0.001,
+            children: [{ type: 'parachute', id: 'pc', deployEvent: 'altitude', ...chute } as ComponentNode],
+          } as ComponentNode],
+        } as ComponentNode],
+      } as ComponentNode],
+    } as ComponentNode],
+  });
+
+  it('sizes each canopy for its share and rates every candidate as N of it', () => {
+    const r = ok(sizing({ tree: inPods(2, { diameter: 0.6, cd: 2.2 }), deviceMass: () => 0.3 }));
+    expect(r.main.instances).toBe(2);
+    // Per canopy: each of the two carries half the weight.
+    expect(r.main.diameter).toBeCloseTo(diameterForRate(WILDMAN_KG / 2, 2.2, SEA_LEVEL_DENSITY, MAIN_BAND.target), 12);
+    expect(r.main.diameter).toBeCloseTo(
+      diameterForRate(WILDMAN_KG, 2.2, SEA_LEVEL_DENSITY, MAIN_BAND.target) / Math.SQRT2, 12);
+    expect(r.main.candidates.length).toBeGreaterThan(0);
+    for (const c of r.main.candidates) {
+      const row = canopies.find((p) => p.partNo === c.partNo && p.manufacturer === c.manufacturer)!;
+      // Both pods' chutes are swapped: the weight moves by 2 x (candidate - current).
+      const m = WILDMAN_KG + 2 * ((row.mass as number) - 0.3);
+      expect(c.rate, c.partNo).toBeCloseTo(descentRate(m, 2 * canopyCdA(row)!, SEA_LEVEL_DENSITY), 12);
+    }
+    // The empty drogue slot rides in no pod.
+    expect(r.drogue.instances).toBe(1);
+  });
+
+  it('multiplies nested pods, and counts a strap-on that stays on', () => {
+    // A two-pod set inside each of three pods: the pod body's chute is
+    // replaced by it, so the nested chute is the only canopy — six of it.
+    const nested: RocketTree = inPods(3, {});
+    const podBody = nested.components[0]!.children![0]!.children![0]!.children![0]!;
+    podBody.children = [{
+      type: 'podset', id: 'inner', instanceCount: 2,
+      children: [{ type: 'parachute', id: 'pc2', diameter: 0.6, cd: 2.2, deployEvent: 'altitude' } as ComponentNode],
+    } as ComponentNode];
+    expect(ok(sizing({ tree: nested })).main.instances).toBe(6);
+    expect(ok(sizing({ tree: inPods(3, { diameter: 0.6, cd: 2.2 }, 'parallelstage') })).main.instances).toBe(3);
+  });
+
+  it('leaves a chute in the airframe itself as one canopy', () => {
+    const r = ok(sizing({ tree: tube(0.3, [{ diameter: 0.6, cd: 2.2, deployEvent: 'altitude' }]) }));
+    expect(r.main.instances).toBe(1);
+    expect(r.main.diameter).toBe(diameterForRate(WILDMAN_KG, 2.2, SEA_LEVEL_DENSITY, MAIN_BAND.target));
   });
 });
 
@@ -562,6 +744,50 @@ describe('classifyRecoveryDevices', () => {
   });
 
   /**
+   * A strap-on lives INSIDE the core stage, so a scope of stage nodes reaches
+   * it — and one that separates comes down under its own canopy (audit
+   * 2026-09-22). The walks stop at it; one set to Never stays bolted on and is
+   * walked like a pod.
+   */
+  it('stops at a strap-on that separates, and walks one on Never', () => {
+    const withStrapOn = (separationEvent?: string): RocketTree => ({
+      name: 'strap',
+      components: [{
+        type: 'stage', id: 's0', name: 'Sustainer', children: [{
+          type: 'bodytube', id: 'bt0', length: 1, outerRadius: 0.051, thickness: 0.001,
+          children: [
+            { type: 'parachute', id: 'coreChute', diameter: 0.6 } as ComponentNode,
+            {
+              type: 'parallelstage', id: 'ps', name: 'Strap-on', instanceCount: 2,
+              ...(separationEvent ? { separationEvent } : {}),
+              children: [{
+                type: 'bodytube', id: 'psTube', length: 0.6, outerRadius: 0.081, thickness: 0.001,
+                children: [{ type: 'parachute', id: 'strapChute', diameter: 0.9 } as ComponentNode],
+              } as ComponentNode],
+            } as ComponentNode,
+          ],
+        } as ComponentNode],
+      } as ComponentNode],
+    });
+
+    // Separating (absent is ejection): the strap-on's bigger chute and fatter
+    // tube are not the core's.
+    const leaves = withStrapOn();
+    const scope = sustainerScope(leaves);
+    const got = classifyRecoveryDevices(leaves, scope);
+    expect(got.main?.id).toBe('coreChute');
+    expect(got.drogue).toBeNull();
+    expect(recoveryBayBore(leaves, null, scope)).toBeCloseTo(0.1, 9);
+
+    // On Never it comes down with the core: its chute and its tube are in scope.
+    const bolted = withStrapOn('never');
+    const kept = classifyRecoveryDevices(bolted, sustainerScope(bolted));
+    expect(kept.main?.id).toBe('strapChute');
+    expect(kept.drogue?.id).toBe('coreChute');
+    expect(recoveryBayBore(bolted, null, sustainerScope(bolted))).toBeCloseTo(0.16, 9);
+  });
+
+  /**
    * The per-stage panel (v0.115) sizes each separating object in turn by
    * passing its own stage nodes as `scope` — so a BOOSTER's answer is built
    * from the booster's chute and the booster's bore, never the sustainer's.
@@ -644,13 +870,27 @@ describe('site elevation reaches the answer', () => {
     expect(sea.siteRateFactor).toBeCloseTo(1, 6);
   });
 
-  it('thins the field of catalogue mains that still make the band', () => {
+  /**
+   * This asserted the field THINS — fewer mains in the band at 5,000 ft. That
+   * held only while an empty slot rated every candidate without its own mass
+   * (audit 2026-09-22). Weighed honestly the count stays at 33: the thinner
+   * air speeds every canopy by the same factor, ten leave at the fast edge and
+   * ten larger ones come in at the slow edge. So what reaches the answer is
+   * the RATE of each canopy, and with it which canopies are offered.
+   */
+  it('speeds every catalogue main by the site factor, and changes which are offered', () => {
     const sea = ok(sizing({ tree: tube(10) }));
     const denver = ok(sizing({
       tree: tube(10),
       launch: { launchAltitudeM: 1524, temperatureC: null, pressureHPa: null },
     }));
-    expect(denver.main.inBand).toBeLessThan(sea.main.inBand);
+    for (const c of denver.main.candidates) {
+      const row = canopies.find((p) => p.partNo === c.partNo && p.manufacturer === c.manufacturer)!;
+      const atSea = descentRate(WILDMAN_KG + (row.mass as number), canopyCdA(row)!, SEA_LEVEL_DENSITY);
+      expect(c.rate, c.partNo).toBeCloseTo(atSea * denver.siteRateFactor, 9);
+    }
+    expect(denver.main.candidates.map((c) => c.partNo))
+      .not.toEqual(sea.main.candidates.map((c) => c.partNo));
   });
 });
 
