@@ -57,6 +57,14 @@ export interface OrkMotorRef {
    * (`refToExportMotor` copies it) instead of losing a number the user weighed.
    */
   padMassKg?: number;
+  /**
+   * Load this motor on "Auto (optimal)" delay — the motor browser's default for
+   * a catalogue motor that lists no numeric delay. Set only by the RockSim
+   * reader for its "every delay" sentinel on such a motor (`rktEveryDelay`);
+   * `delay` then holds the browser's provisional first flight, and
+   * `matchImportedMotor` turns the flag into `meta.autoDelay`.
+   */
+  autoDelay?: true;
 }
 
 export interface OrkTreeImportResult {

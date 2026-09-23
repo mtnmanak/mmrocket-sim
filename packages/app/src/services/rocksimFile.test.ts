@@ -4,8 +4,10 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
-import { exportRkt, importRkt } from './rocksimFile.js';
+import { exportRkt, importRkt, rktEveryDelay } from './rocksimFile.js';
 import { loadPresets } from './presets.js';
+import { findDbMotor, MOTOR_DB } from './motorDb.js';
+import { defaultDelay, delayOptions } from './thrustcurve.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -328,6 +330,33 @@ describe('RockSim export → import round trip', () => {
     expect(tubeFins['rotation']).toBeUndefined(); // first set keeps its angle
     expect(straight['rotation']).toBeCloseTo(Math.PI / 6, 9); // +30° interleave
     expect(r.notes.join(' ')).toMatch(/rotated 30/);
+  });
+
+  it('interleaves by the fin count that is drawn and flown, not the raw one sanitize clamps', () => {
+    // The de-collision runs BEFORE sanitizeTree, and it divided by the file's raw
+    // count: a TubeCount of 12 turned the second set 15° and said so, while
+    // sanitize then made it 8 tubes, which need 22.5° (seam review of audit
+    // 2026-09-22 — finAlign.ts's copy of this pass already used finCountOf).
+    const xml = `<RockSimDocument><DesignInformation><RocketDesign>
+      <Name>UN</Name><StageCount>1</StageCount>
+      <Stage3Parts>
+        <BodyTube><Name>Booster</Name><OD>102</OD><ID>98</ID><Len>800</Len>
+          <AttachedParts>
+            <TubeFinSet><Name>Tube fins</Name><TubeCount>12</TubeCount><OD>20</OD><ID>19</ID><Len>150</Len>
+              <Xb>0.</Xb><LocationMode>2</LocationMode><RadialAngle>0.</RadialAngle></TubeFinSet>
+            <FinSet><Name>Straight Fin set</Name><ShapeCode>0</ShapeCode><FinCount>3</FinCount>
+              <RootChord>150</RootChord><TipChord>75</TipChord><SweepDistance>50</SweepDistance>
+              <SemiSpan>80</SemiSpan><Thickness>4</Thickness>
+              <Xb>0.</Xb><LocationMode>2</LocationMode><RadialAngle>0.</RadialAngle></FinSet>
+          </AttachedParts>
+        </BodyTube>
+      </Stage3Parts><Stage2Parts/><Stage1Parts/>
+    </RocketDesign></DesignInformation></RockSimDocument>`;
+    const r = importRkt(xml);
+    const all = flatten(r.tree.components);
+    expect(all.find((c) => c.type === 'tubefinset')!['finCount']).toBe(8);
+    expect(all.find((c) => c.type === 'trapezoidfinset')!['rotation']).toBeCloseTo(Math.PI / 8, 9);
+    expect(r.notes.join(' ')).toMatch(/rotated 23° to interleave/);
   });
 
   it('reconstructs a rotated, spaced cluster with its scale and rotation', () => {
@@ -1036,7 +1065,78 @@ describe('RockSim ejection-delay sentinels', () => {
   it('−1 on a motor the catalogue does not know records 0 s and says so, never −1', () => {
     const r = importRkt(rkt(['<EjectionDelay>-1.</EjectionDelay>']).replace(/C6/g, 'ZQ9999X'));
     expect(Object.values(r.motors)[0]!.delay).toBe(0);
-    expect(r.notes.join(' ')).toMatch(/lists no delay/);
+    expect(Object.values(r.motors)[0]!.autoDelay).toBeUndefined();
+    // The reason is the motor's ABSENCE, not an empty delay list (seam review of
+    // audit 2026-09-22: all 8 corpus files that reach this note are unmatched
+    // motors, and the old text sent the user to a delay box that does not exist).
+    const note = r.notes.find((n) => /EjectionDelay −1/.test(n))!;
+    expect(note).toMatch(/isn't in the motor database/);
+    expect(note).toMatch(/Save writes it back at 0 s/);
+    expect(note).not.toMatch(/lists no delay|Motors & Launch/);
+  });
+
+  /**
+   * THE BROWSER'S DEFAULT, PINNED (seam review of audit 2026-09-22). A motor the
+   * catalogue KNOWS but whose delays are only letters (KBA's "M", "S,M,L") has
+   * no numeric delay since the row-363 fix, and the motor browser answers that
+   * with "Auto (optimal)". The importer recorded 0 s instead, so the charge fired
+   * at burnout: the reference Cheetah with a G135R deployed at 250.9 m/s, against
+   * 0.87 m/s on Auto. batchSweep.test.ts pins Batch to the browser the same way.
+   */
+  it('−1 on a catalogue motor that lists no numeric delay loads on Auto, as the browser starts it', () => {
+    const r = importRkt(rkt(['<EjectionDelay>-1.</EjectionDelay>'])
+      .replace('<EngineCode>C6</EngineCode><EngineMfg>Estes</EngineMfg>',
+        '<EngineCode>G135R</EngineCode><EngineMfg>KBA</EngineMfg>'));
+    const ref = Object.values(r.motors)[0]!;
+    expect(ref.designation).toBe('G135R');
+    expect(ref.autoDelay).toBe(true);
+    expect(ref.delay).toBe(0); // the browser's provisional first flight, re-flown at the optimum
+    const note = r.notes.find((n) => /EjectionDelay −1/.test(n))!;
+    expect(note).toMatch(/Auto \(optimal\)/);
+    expect(note).not.toMatch(/0 s/);
+  });
+
+  it("pins the −1 rule to the motor browser's default pick, for every motor in the shipped catalogue", () => {
+    const browser = readFileSync(join(here, '../components/MotorBrowser.tsx'), 'utf8');
+    // Its default pick, and what its Auto load flies before App re-flies at the optimum.
+    expect(browser).toContain("if (picked) setDelay(defaultDelay(picked) ?? 'auto');");
+    expect(browser).toContain("const chosen = delay === 'auto' ? finite[finite.length - 1] ?? 0");
+    let auto = 0;
+    for (const m of MOTOR_DB) {
+      // The motor the matcher will load for this reference — a .rkt carries no diameter.
+      const found = findDbMotor(m.designation, undefined, undefined, m.manufacturerAbbrev)!;
+      const pick = defaultDelay(found) ?? 'auto';
+      const read = rktEveryDelay(m.designation, m.manufacturerAbbrev);
+      if (pick === 'auto') {
+        auto++;
+        const finite = delayOptions(found).filter((d) => Number.isFinite(d));
+        expect(read, m.motorId).toEqual({ delay: finite[finite.length - 1] ?? 0, autoDelay: true });
+      } else {
+        expect(read, m.motorId).toEqual({ delay: pick });
+      }
+    }
+    // KBA G135R, G82W, H130W, H225R ("M") and K400S ("S,M,L") at the 2026-09-22 catalogue.
+    expect(auto).toBeGreaterThan(0);
+    expect(rktEveryDelay('ZQ9999X', 'Estes')).toBeNull();
+  });
+
+  it('notes each motor once, however many mounts carry it', () => {
+    // PELTZER_Swarm_JR.rkt: twelve E30 mounts, all −2, gave twelve identical lines.
+    const mounts = [7, 8, 9];
+    const xml = `<RockSimDocument><DesignInformation><RocketDesign>
+      <Name>Swarm</Name><StageCount>1</StageCount>
+      <Stage3Parts>${mounts.map((s) => `<BodyTube><Name>Mount ${s}</Name><OD>24.8</OD><ID>24.1</ID>
+        <Len>100</Len><IsMotorMount>1</IsMotorMount><SerialNo>${s}</SerialNo></BodyTube>`).join('')}
+      </Stage3Parts>
+      <SimulationResultsList><SimulationResults><Stage3Engines>${mounts.map((s) => `<EngineSet>
+        <EngineCode>C6</EngineCode><EngineMfg>Estes</EngineMfg><IgnitionDelay>0.</IgnitionDelay>
+        <MountSerialNo>${s}</MountSerialNo><EjectionDelay>-2.</EjectionDelay></EngineSet>`).join('')}
+      </Stage3Engines></SimulationResults></SimulationResultsList>
+    </RocketDesign></DesignInformation></RockSimDocument>`;
+    const r = importRkt(xml);
+    expect(Object.values(r.motors)).toHaveLength(3);
+    expect(r.notes.filter((n) => /plugged/.test(n)))
+      .toEqual([expect.stringMatching(/^Motor C6 \(3 mounts\): plugged/)]);
   });
 
   it('an ordinary delay is untouched and adds no note', () => {

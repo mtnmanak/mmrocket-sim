@@ -130,9 +130,13 @@ export function mountMotorFromDb(
   ignition: MountMotor['ignition'],
   extraMeta: Partial<MotorMeta> = {},
 ): MountMotor {
-  // Plugged motors (Infinity delay) display the standard "-P" suffix.
+  // Plugged motors (Infinity delay) display the standard "-P" suffix, and an
+  // auto-delay motor the browser's own "(auto delay)" — `delay` is then only
+  // its provisional first flight (MotorBrowser.load).
   const delayTag = Number.isFinite(delay) ? String(delay) : 'P';
-  const label = `${db.commonName}-${delayTag}`;
+  const label = extraMeta.autoDelay
+    ? `${db.commonName} (auto delay)`
+    : `${db.commonName}-${delayTag}`;
   return {
     label,
     spec,
@@ -204,11 +208,17 @@ export async function matchImportedMotor(
   if (dbMatch) {
     try {
       const spec = await fetchSpec(dbMatch, ref.delay);
-      const motor = mountMotorFromDb(dbMatch, spec, ref.delay, ignition, fileIdentity);
-      const delayTag = Number.isFinite(ref.delay) ? String(ref.delay) : 'P';
+      // A reference flagged for auto delay (the RockSim reader's "every delay"
+      // on a motor that lists no numeric delay) starts on "Auto (optimal)",
+      // exactly as the motor browser starts a fresh pick of it: flown first at
+      // `ref.delay`, then re-flown at the optimum (flightRunner.flyLaunch).
+      const motor = mountMotorFromDb(dbMatch, spec, ref.delay, ignition,
+        ref.autoDelay ? { ...fileIdentity, autoDelay: true } : fileIdentity);
+      const delayTag = ref.autoDelay ? ' (auto delay)'
+        : `-${Number.isFinite(ref.delay) ? String(ref.delay) : 'P'}`;
       return {
         motor,
-        note: `Motor: ${dbMatch.manufacturerAbbrev} ${displayDesignation(dbMatch.designation, dbMatch.manufacturerAbbrev)}-${delayTag} (loaded from the motor database).`,
+        note: `Motor: ${dbMatch.manufacturerAbbrev} ${displayDesignation(dbMatch.designation, dbMatch.manufacturerAbbrev)}${delayTag} (loaded from the motor database).`,
       };
     } catch {
       // No curve to be had — reported below, never substituted.
