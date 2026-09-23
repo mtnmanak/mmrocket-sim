@@ -290,3 +290,58 @@ describe('DragPanel — sweep conditions', () => {
     expect(rule![1]).toMatch(/(?:^|[;\s])box-sizing:\s*border-box/);
   });
 });
+
+/**
+ * Audit 2026-09-22, row 463: the three drag charts' ↺ and ⤢ buttons shared one
+ * name ("Reset chart view", "Expand chart") across all three, and the charts
+ * were unnamed canvases that never said the Drag table (.csv) holds the same
+ * numbers.
+ */
+describe('DragPanel — charts a screen reader can tell apart', () => {
+  let host: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    localStorage.clear();
+    host = document.createElement('div');
+    document.body.appendChild(host);
+    root = createRoot(host);
+    vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+      if (typeof args[0] === 'string' && args[0].includes('not wrapped in act')) return;
+      realError(...args);
+    });
+    act(() => root.render(
+      <PrefsProvider>
+        <DragPanel rocket={stubRocket([])} designName="Test rocket" />
+      </PrefsProvider>,
+    ));
+    act(() => { (host.querySelector('button[aria-expanded]') as HTMLButtonElement).click(); });
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    host.remove();
+    localStorage.clear();
+    vi.restoreAllMocks();
+  });
+
+  it('names each chart button for its own chart', () => {
+    const names = [...host.querySelectorAll('.chart-head-btns button')].map((b) => b.getAttribute('aria-label'));
+    expect(names).toEqual([
+      'Reset the drag coefficient chart view', 'Expand the drag coefficient chart',
+      'Reset the center of pressure chart view', 'Expand the center of pressure chart',
+      'Reset the drag breakdown chart view', 'Expand the drag breakdown chart',
+    ]);
+  });
+
+  it('names each chart canvas with its curves and the CSV that holds them', () => {
+    const named = [...host.querySelectorAll('canvas[role="img"]')].map((c) => c.getAttribute('aria-label') ?? '');
+    expect(named).toHaveLength(3);
+    expect(named[0]).toMatch(/^Drag coefficient vs Mach, Mach 0\.5 to Mach 3\. /);
+    expect(named[0]).toContain('0.4 at Mach 0.5');
+    expect(named[1]).toMatch(/^Center of pressure vs Mach/);
+    expect(named[2]).toMatch(/^Drag breakdown \(power-off\) vs Mach/);
+    expect(named[2]).toContain('Nose cone');
+    for (const n of named) expect(n).toContain('The Drag table (.csv) download above holds the same numbers.');
+  });
+});
