@@ -197,7 +197,10 @@ describe('App hands the tested units what their fixes depend on', () => {
     expect(start).toBeGreaterThan(-1);
     const call = src.slice(start, src.indexOf('});', start));
     expect(call).toMatch(/\n\s+unmatchedRefs,\r?\n/);
-    expect(src).toContain('}, [designSnapshot, dirtyTick, unmatchedRefs]);');
+    // In the effect's dependencies, or the refs reach storage only when
+    // something else changes. (The two refs useDesignDirty hands back sit
+    // beside it; they are stable, so they cost no runs.)
+    expect(src).toMatch(/\}, \[designSnapshot, dirtyTick, unmatchedRefs\b[^\]]*\]\);/);
     expect(src).toMatch(/restoreUnmatchedRefs\(session\?\.savedConfigs, session\?\.activeConfigId, session\?\.mountMotors \?\? \{\},\s+session\?\.unmatchedRefs\)/);
   });
 

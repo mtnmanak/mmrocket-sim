@@ -9,10 +9,11 @@ import { designFingerprint, isDirty, type DesignSnapshot } from '../services/dir
  * OR and RockSim both ask first.
  *
  * Extracted from App.tsx in the 2026-09-22 audit (row 501, extraction #6 of
- * 8 September), where its only coverage was a regex over App's text counting
- * `markSaved(` sites (savedMarkSites.test.ts). useDesignDirty.test.tsx drives
- * it by behaviour — the seeding rule, the starter motor's re-mark, a save, a
- * flight — and App.session.test.tsx mounts App around it.
+ * 8 September). In App it was reachable only through a full render —
+ * App.session.test.tsx's ✕ New cases — and a regex over App's text counting
+ * `markSaved` sites (savedMarkSites.test.ts). useDesignDirty.test.tsx now
+ * drives the rule itself — the seeding rule, the starter motor's re-mark, a
+ * save, a flight — and App.session.test.tsx still mounts App around it.
  *
  * What stays in App is what App alone decides: WHICH actions may call
  * `markSaved` (a full-fidelity save, an import, ✕ New — never a lossy export

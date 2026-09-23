@@ -10,10 +10,14 @@ import { useDesignDirty, type DesignDirty, type DirtySeed } from './useDesignDir
 
 /**
  * THE UNSAVED-WORK GUARD (audit 2026-09-22, row 501 — extraction #6 of
- * 8 September). Until it moved out of App.tsx the only test that reached it was
- * a regex counting `markSaved(` in App's text; these drive it the way App does
- * — a snapshot that changes, a starter motor that lands a render later, a save,
- * a flight — and read what the Open prompt and ✕ New would read.
+ * 8 September). While it lived in App.tsx it was reached only through App:
+ * App.session.test.tsx mounted App and read ✕ New's question (a first visit
+ * clean, still clean after a reload, an edit still asking), and a regex counted
+ * `markSaved` in App's text. These drive the rule itself the way App does — a
+ * snapshot that changes, a starter motor that lands a render later, a save, a
+ * flight — including cases App.session.test.tsx does not exercise: a session
+ * with no mark, a motor that beat the starter to the mount, a flight since the
+ * save.
  */
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -175,11 +179,16 @@ describe('useDesignDirty — a save and a flight', () => {
     expect(h.current.flownSinceSave.current).toBe(false);
   });
 
-  it('hands out ONE markSaved and ONE markFlown for the life of the design', () => {
+  it('hands out ONE markSaved, ONE markFlown and the same two refs for the life of the design', () => {
+    // The refs too: App's autosave names them as dependencies, which costs no
+    // runs only while they are the same objects every render.
     const h = mount(snap(tree('A')), null);
-    const { markSaved, markFlown } = h.current;
+    const { markSaved, markFlown, savedMark, flownSinceSave } = h.current;
     act(() => h.set(snap(tree('B'))));
+    act(() => h.current.markFlown());
     expect(h.current.markSaved).toBe(markSaved);
     expect(h.current.markFlown).toBe(markFlown);
+    expect(h.current.savedMark).toBe(savedMark);
+    expect(h.current.flownSinceSave).toBe(flownSinceSave);
   });
 });

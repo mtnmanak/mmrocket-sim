@@ -799,8 +799,9 @@ export function App() {
       appVersion: parsedByVersion.current,
       savedMark: savedMark.current ?? undefined, flownSinceSave: flownSinceSave.current,
     });
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- savedMark and flownSinceSave are useDesignDirty's refs; dirtyTick is how they announce a change
-  }, [designSnapshot, dirtyTick, unmatchedRefs]);
+  // savedMark and flownSinceSave are useDesignDirty's refs — stable, so naming
+  // them costs no runs — and dirtyTick is how they announce a change.
+  }, [designSnapshot, dirtyTick, unmatchedRefs, savedMark, flownSinceSave]);
 
   // Close the 400 ms debounce window on the way out. `pagehide` fires on
   // close, reload and navigation away - and on a mobile browser discarding the
