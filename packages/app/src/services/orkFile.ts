@@ -1897,7 +1897,13 @@ export function exportOrk({
   name, tree, motors, launch, configs, activeConfigId, measured, flightData,
   flightDataDefault,
 }: OrkTreeExportInput): string {
-  const motorMap: Record<string, OrkExportMotor> = { ...(motors ?? {}) };
+  // Read in place, not copied. The copy that stood here kept the legacy
+  // `motor` + `mountId` merge out of the caller's map, and went with that pair
+  // (audit 2026-09-22, Dead code row 575). Nothing below writes a motor map:
+  // every other configuration's `c.motors` was always read in place too, and
+  // the Readonly here and on writeConfigs makes tsc refuse an index write or a
+  // delete through either.
+  const motorMap: Readonly<Record<string, OrkExportMotor>> = motors ?? {};
   // The configurations to write. Classic path (no configs): ONE minted
   // config carrying the working set — exactly the pre-Stage-B output.
   //
@@ -1922,7 +1928,8 @@ export function exportOrk({
   const writeConfigs: Array<{
     id: string;
     name: string | null;
-    motors: Record<string, OrkExportMotor>;
+    /** The caller's own maps, uncopied: read only. */
+    motors: Readonly<Record<string, OrkExportMotor>>;
     /** null for the ACTIVE config: its deployment comes from the live tree. */
     deployments: Record<string, OrkDeployOverride> | null;
     /** null for the ACTIVE config: its separation comes from the live tree. */

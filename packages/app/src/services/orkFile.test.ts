@@ -7,7 +7,7 @@ import type { ComponentNode } from '@online-openrocket/engine';
 import { DEFAULT_CONDITIONS, kernelSimOptions, PANEL_TIME_STEP_FLOOR_S } from '../components/LaunchPanel.js';
 import { conditionsKeyOf } from './simReport.js';
 import { designFingerprint, type DesignSnapshot } from './dirtyState.js';
-import { exportOrk, flightDataAttrs, importOrk, MIN_IMPORTED_TIME_STEP_S, ORK_CREATOR, type OrkExportConfig, type OrkMotorRef } from './orkFile.js';
+import { exportOrk, flightDataAttrs, importOrk, MIN_IMPORTED_TIME_STEP_S, ORK_CREATOR, type OrkExportConfig, type OrkExportMotor, type OrkMotorRef } from './orkFile.js';
 import { loadPresets } from './presets.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -1490,6 +1490,25 @@ describe('.ork multi-configuration export (Stage B)', () => {
     // The named presets are intact alongside the minted custom set.
     expect(Object.values(back.configs[0]!.motors)[0]!.delay).toBe(5);
     expect(Object.values(back.configs[1]!.motors)[0]!.delay).toBe(7);
+  });
+
+  it("reads the caller's motor maps in place and writes none of them", () => {
+    // exportOrk stopped copying the live `motors` map when the legacy
+    // motor/mountId merge went (audit 2026-09-22, Dead code row 575), so the
+    // map it writes from IS the caller's, as each config's `motors` always was.
+    // Frozen here, any write to either throws, including an Object.assign or a
+    // helper's write that the Readonly types on exportOrk cannot see.
+    const freeze = (m: Record<string, OrkExportMotor>) => Object.freeze(
+      Object.fromEntries(Object.entries(m).map(([id, motor]) => [id, Object.freeze({ ...motor })])));
+    const live = freeze({ b: { ...D12, delay: 9 } });
+    const configs = CONFIGS.map((c) => Object.freeze({ ...c, motors: freeze(c.motors) }));
+    // cfg-b: the live map is the active config's; null: it is the minted one's.
+    for (const activeConfigId of ['cfg-b', null]) {
+      expect(exportOrk({ name: 'MC', tree: TREE, motors: live, configs, activeConfigId }))
+        .toContain('<delay>9</delay>');
+    }
+    // No configs: the one minted config carries the live map.
+    expect(exportOrk({ name: 'MC', tree: TREE, motors: live })).toContain('<delay>9</delay>');
   });
 
   it('writes one notsimulated <simulation> per configuration, tied by configid', () => {
