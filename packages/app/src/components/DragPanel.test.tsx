@@ -371,6 +371,78 @@ describe('DragPanel — sweep conditions', () => {
       expect(lastAlt()).toBeGreaterThan(0);
     });
 
+    /**
+     * Review of the fix: the box held every commit made while it had focus,
+     * and NumField keeps focus through a spinner click (its mousedown is
+     * prevented) and steps on ArrowUp/ArrowDown. So a box the user had
+     * clicked into stepped to 600 ft while the chart and its caption stayed
+     * at sea level until blur. A step is one deliberate altitude, not a
+     * keystroke on the way to one: it sweeps at once, focused or not.
+     */
+    describe('a step is not typing', () => {
+      /** The altitude the caption says the chart is at, in the box's unit. */
+      const captionFt = () => Number(/ISA at ([\d.]+) ft/.exec(caption())?.[1]);
+      const arrowUp = (input: HTMLInputElement) => act(() => {
+        input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+      });
+
+      it('a spinner click or an arrow key on the FOCUSED box sweeps at once', () => {
+        mount();
+        openPanel();
+        setSelect(condSelect(), 'altitude');
+        const input = typeFocused([]);
+        const up = input.closest('.numfield')!.querySelector('button[aria-label="Increment"]') as HTMLButtonElement;
+        let before = calls.length;
+        act(() => up.click());
+        expect(document.activeElement).toBe(input);
+        expect(calls.length).toBe(before + 1);
+        const oneStep = lastAlt()!;
+        expect(oneStep).toBeGreaterThan(0);
+        // The box, the swept altitude and the caption agree while focus stays.
+        expect(captionFt()).toBeCloseTo(Number(input.value), 6);
+        before = calls.length;
+        arrowUp(input);
+        expect(calls.length).toBe(before + 1);
+        expect(lastAlt()).toBeCloseTo(2 * oneStep, 6);
+        expect(captionFt()).toBeCloseTo(Number(input.value), 6);
+        // Nothing was held back for the blur to sweep a second time.
+        before = calls.length;
+        act(() => input.blur());
+        expect(calls.length).toBe(before);
+      });
+
+      it('a step after typing sweeps once, from the typed number, and nothing is left for the blur', () => {
+        mount();
+        openPanel();
+        setSelect(condSelect(), 'altitude');
+        const before = calls.length;
+        const input = typeFocused(['1', '10', '100', '1000']);
+        expect(calls.length).toBe(before);
+        arrowUp(input);
+        // ONE sweep, at 1000 ft plus a step — not 1000 ft first.
+        expect(calls.length).toBe(before + 1);
+        expect(lastAlt()).toBeGreaterThan(304.8 + 1e-6);
+        expect(Number(input.value)).toBeGreaterThan(1000);
+        expect(captionFt()).toBeCloseTo(Number(input.value), 6);
+        act(() => input.blur());
+        expect(calls.length).toBe(before + 1);
+      });
+
+      it('typing after a step is held again until the box lets go', () => {
+        mount();
+        openPanel();
+        setSelect(condSelect(), 'altitude');
+        const input = typeFocused([]);
+        arrowUp(input);
+        const before = calls.length;
+        type(input, '5000');
+        expect(calls.length).toBe(before);
+        act(() => input.blur());
+        expect(calls.length).toBe(before + 1);
+        expect(lastAlt()).toBeCloseTo(1524, 6);
+      });
+    });
+
     it('leaving the box without typing sweeps nothing', () => {
       mount();
       openPanel();

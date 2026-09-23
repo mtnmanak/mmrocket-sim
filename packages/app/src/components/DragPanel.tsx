@@ -253,10 +253,21 @@ const CLASSIC_MACH_MAX = 5;
  * for altitudes nobody asked about (1, 10, 100, 1000 ft). Now the keystrokes
  * cost ~1 ms each and the one sweep runs when the box is left.
  *
- * A spinner click is not typing: ▴/▾ never focus the box, so there is no blur
- * to wait for, and a click that finds the box unfocused sweeps at once. Held
- * state lives HERE, not in the panel, so a box that goes away while focused
- * takes its unfinished edit with it rather than leaving it to surface later.
+ * A STEP is not typing, and sweeps at once whether or not the box has focus:
+ * ▴/▾ and ArrowUp/ArrowDown are each one deliberate altitude, not a keystroke
+ * on the way to one. Telling them apart by focus alone was not enough (review
+ * of this fix): NumField keeps focus through a spinner click and steps on the
+ * arrow keys, so a box the user had clicked into stepped to 600 ft while the
+ * chart and its caption stayed at sea level until blur. What marks typing is
+ * the input's change event — NumField's only path from a keystroke to
+ * onCommit; a step reaches onCommit with none — so the wrapper flags it on the
+ * way down (capture) and clears it on the way back up. A step also drops any
+ * typed altitude still held: NumField stepped FROM that draft, so the step's
+ * commit already carries it.
+ *
+ * Held state lives HERE, not in the panel, so a box that goes away while
+ * focused takes its unfinished edit with it rather than leaving it to surface
+ * later.
  */
 function SweepAltitudeBox({ altM, distUnit, onCommit }: {
   /** The altitude being swept (m); 0 is sea level. */
@@ -266,13 +277,17 @@ function SweepAltitudeBox({ altM, distUnit, onCommit }: {
 }) {
   const [held, setHeld] = useState<number | null>(null);
   const wrapRef = useRef<HTMLSpanElement>(null);
+  /** True only while the input's change event is being handled (see above). */
+  const typing = useRef(false);
   // Blank IS sea level: blank, 0 and anything below it sweep the default.
   const toSi = (v: number | null) => (v !== null && v > 0 ? uiToSi('distance', distUnit, v) : 0);
   return (
     // `inline-numfield` makes the input fill this 96 px wrapper (styles.css);
     // outside a `.field` nothing else sizes it. React's onBlur is focusout,
-    // so it hears the input inside.
+    // so it hears the input inside; its onChange likewise hears the input's.
     <span ref={wrapRef} className="inline-numfield" style={{ width: 96 }}
+      onChangeCapture={() => { typing.current = true; }}
+      onChange={() => { typing.current = false; }}
       onBlur={() => {
         if (held === null) return;
         setHeld(null);
@@ -287,8 +302,14 @@ function SweepAltitudeBox({ altM, distUnit, onCommit }: {
         // from 0 (NumField reads the base out of the placeholder).
         placeholder="0"
         onCommit={(v) => {
-          if (wrapRef.current?.contains(document.activeElement)) setHeld(toSi(v));
-          else onCommit(toSi(v));
+          // Typed into the box it has focus in: wait for the blur. Anything
+          // else — a step, or a value set with the box unfocused — sweeps now.
+          if (typing.current && wrapRef.current?.contains(document.activeElement)) {
+            setHeld(toSi(v));
+            return;
+          }
+          setHeld(null);
+          onCommit(toSi(v));
         }}
       />
     </span>
