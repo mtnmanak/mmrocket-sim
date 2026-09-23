@@ -1,6 +1,7 @@
 import type { ComponentNode, ComponentType } from '@online-openrocket/engine';
 import { csvCell } from './csvUtil.js';
 import { parseDecimal } from './xmlUtil.js';
+import { numOpt } from '../tree/nodeNum.js';
 // The ONE manufacturer alias table + part-number key, shared with the preset
 // pipeline so the app matches a file's part the same way the database dedupes.
 import { mfrKey, partKey } from '../../scripts/manufacturers.mjs';
@@ -73,8 +74,7 @@ export function saveCustomPresets(presets: Preset[]): void {
   }
 }
 
-const n = (p: Preset, key: string): number | undefined =>
-  typeof p[key] === 'number' ? (p[key] as number) : undefined;
+const n = (p: Preset, key: string): number | undefined => numOpt(p, key);
 
 /**
  * Preset → node patch (editor params, SI). Desktop's semantics for dimensions

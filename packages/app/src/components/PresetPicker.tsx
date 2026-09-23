@@ -9,6 +9,7 @@ import {
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { fmtSig, siToUi } from '../prefs/units.js';
 import { downloadBlob } from '../services/saveFile.js';
+import { numOpt } from '../tree/nodeNum.js';
 
 const ROW_CAP = 300;
 
@@ -69,7 +70,7 @@ export function PresetPicker({ type, node, onApply, onClose }: {
   }, [ofKind, mfr, text]);
 
   const dim = (p: Preset): string => {
-    const v = (k: string) => (typeof p[k] === 'number' ? (p[k] as number) : undefined);
+    const v = (k: string) => numOpt(p, k);
     const d = v('outsideDiameter') ?? v('aftOutsideDiameter') ?? v('diameter');
     const len = v('length');
     // One decimal in mm, as before; three significant figures where one decimal

@@ -1,5 +1,6 @@
 import type { ComponentNode } from '@online-openrocket/engine';
 import { finRootChord, finTabSpan } from '../tree/finTab.js';
+import { num } from '../tree/nodeNum.js';
 import { escapeXml as esc } from './xmlUtil.js';
 
 /**
@@ -22,7 +23,7 @@ interface Pt { x: number; y: number }
 
 /** Fin outline in meters, root chord on y=0, nose-side at x=0. */
 export function finOutline(node: ComponentNode): Pt[] {
-  const n = (k: string, fb: number) => (typeof node[k] === 'number' ? (node[k] as number) : fb);
+  const n = (k: string, fb: number) => num(node, k, fb);
   switch (node.type) {
     case 'trapezoidfinset': {
       const root = n('rootChord', 0.05);

@@ -1,4 +1,11 @@
-import type { ComponentNode } from '@online-openrocket/engine';
+/**
+ * What the readers take: a component node, or anything else keyed by field
+ * name the same way. The one other caller is a catalogue `Preset` row
+ * (services/presets.ts, components/PresetPicker.tsx), whose dimensions are the
+ * same question with the same answer. `ComponentNode` satisfies it through its
+ * own index signature, so no node caller changes.
+ */
+type Fields = { readonly [key: string]: unknown };
 
 /**
  * Read a numeric geometry field off a component node — the ONE reader.
@@ -28,23 +35,24 @@ import type { ComponentNode } from '@online-openrocket/engine';
  * Not exported from a barrel and not re-implemented locally: import it. The
  * whole point is that there is one.
  */
-export function num(n: ComponentNode, key: string, fb: number): number {
+export function num(n: Fields, key: string, fb: number): number {
   const v = n[key];
   return typeof v === 'number' && Number.isFinite(v) ? v : fb;
 }
 
 /** `num` for a field whose absence is meaningful — same finiteness rule. */
-export function numOpt(n: ComponentNode, key: string): number | undefined {
+export function numOpt(n: Fields, key: string): number | undefined {
   const v = n[key];
   return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
 }
 
 /**
  * `num` returning null rather than a fallback, for callers that branch on
- * "is there a usable number here at all" — `scaleRocket`'s field walk and
- * `treeModel`'s radial reader, which both had this shape already.
+ * "is there a usable number here at all" — `scaleRocket`'s field walk,
+ * `treeModel`'s radial and recovery-device readers, and recoverySizing's,
+ * which each carried a private copy of this shape until 2026-09-22.
  */
-export function numOrNull(n: ComponentNode, key: string): number | null {
+export function numOrNull(n: Fields, key: string): number | null {
   const v = n[key];
   return typeof v === 'number' && Number.isFinite(v) ? v : null;
 }

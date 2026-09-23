@@ -6,6 +6,7 @@ import { CLUSTER_POINTS, clusterOffsets } from '../tree/cluster.js';
 import { resolveAssemblyRadius } from '../tree/assembly.js';
 import { axialLength, drawnExtent, startFromPosition } from '../tree/position.js';
 import { sanitizeTree } from '../tree/sanitize.js';
+import { num as nnum } from '../tree/nodeNum.js';
 import { finCountOf } from '../tree/counts.js';
 import { MAX_FIN_POINTS, MAX_NESTING, TOO_DEEP_NESTING, TOO_MANY_FIN_POINTS, decodeXml, escapeXml as esc, lookupTable, parseDecimal, unreadableFinPoints, xmlNum, xmlText as text } from './xmlUtil.js';
 import { unzipMember } from './zipMember.js';
@@ -1057,8 +1058,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
       const groups: ComponentNode[][] = [];
       const near = (a: number, b: number, rel: number, abs: number) =>
         Math.abs(a - b) <= Math.max(abs, rel * Math.max(Math.abs(a), Math.abs(b)));
-      const nnum2 = (n: ComponentNode, key: string): number =>
-        typeof n[key] === 'number' ? (n[key] as number) : 0;
+      const nnum2 = (n: ComponentNode, key: string): number => nnum(n, key, 0);
       for (const kid of kids) {
         if (kid.type !== 'innertube') continue;
         const g = groups.find((grp) => {
@@ -1119,7 +1119,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
           return [start, start + drawnExtent(k)];
         };
         const overlaps = (a: [number, number], b: [number, number]) => a[0] < b[1] && b[0] < a[1];
-        const rotOf = (k: ComponentNode) => (typeof k['rotation'] === 'number' ? (k['rotation'] as number) : 0);
+        const rotOf = (k: ComponentNode) => nnum(k, 'rotation', 0);
         for (let i = 1; i < finSets.length; i++) {
           const me = finSets[i]!;
           const clash = finSets.slice(0, i).find((other) =>
@@ -1830,9 +1830,6 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
     // stage element, so there is nowhere for a fourth to go.
     throw new Error('A .rkt file holds at most 3 stages.');
   }
-
-  const nnum = (node: ComponentNode, key: string, fb: number): number =>
-    typeof node[key] === 'number' ? (node[key] as number) : fb;
 
   // Fold a synthesised base extension back into its cone's <BaseExtensionLen>.
   // Without this it goes out as a plain <BodyTube> and its `overrideMass: 0` is lost

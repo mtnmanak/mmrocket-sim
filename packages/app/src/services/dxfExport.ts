@@ -3,6 +3,7 @@ import {
   centeringRingBore, collapseLoop, finCutOutline, ringOuterRadius, type SolidContext,
 } from '../tree/solidMesh.js';
 import { asciiOnly } from './textFold.js';
+import { num } from '../tree/nodeNum.js';
 
 /**
  * DXF export — the 2D CNC/laser boundary. Everything offered here is a FLAT
@@ -105,9 +106,6 @@ interface Part {
   label: string;
   ents: Ent[];
 }
-
-const num = (n: ComponentNode, key: string, fb: number): number =>
-  typeof n[key] === 'number' ? (n[key] as number) : fb;
 
 /** The one and only meters -> millimetres conversion in this module. */
 const toMm = (meters: number): number => meters * M_TO_MM;

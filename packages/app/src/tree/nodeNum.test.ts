@@ -2,6 +2,12 @@ import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { num, numOpt, numOrNull } from './nodeNum.js';
 import { buildPieces } from './pieces.js';
+import { fairingFrontalArea, mountRadiusOf, referenceArea } from './treeModel.js';
+import { exportOrk } from '../services/orkFile.js';
+import { exportRkt } from '../services/rocksimFile.js';
+import { exportCdx1 } from '../services/rasaeroFile.js';
+import { componentDxf } from '../services/dxfExport.js';
+import { finOutline } from '../services/finTemplate.js';
 
 const node = (fields: Record<string, unknown>): ComponentNode =>
   ({ type: 'bodytube', id: 'b', ...fields }) as ComponentNode;
@@ -95,5 +101,83 @@ describe('buildPieces emits only finite vertices from degenerate input', () => {
       } as ComponentNode],
     };
     expect(allFinite(tree)).toBe(true);
+  });
+});
+
+/**
+ * The local copies that outlived the 2026-09-08 consolidation: fourteen
+ * `typeof n[key] === 'number' ? n[key] : fb` readers in the three design-file
+ * writers, the DXF and fin-template exports, the reference-area and
+ * camera-shroud lowering, and two views (audit 2026-09-22). Each now imports
+ * this module, and eslint.config.mjs refuses a new one. One NaN field per
+ * consumer, read through its former local reader, so each case failed
+ * against the old copy and pins the fallback.
+ */
+describe('the consumers that carried their own reader fall back on NaN too', () => {
+  const finTree = (fin: Record<string, unknown>, tube: Record<string, unknown> = {}): RocketTree => ({
+    name: 'N',
+    components: [{
+      type: 'stage', id: 's', name: 'S',
+      children: [
+        { type: 'nosecone', id: 'n', length: 0.1, aftRadius: 0.0125, thickness: 0.001, shape: 'ogive' },
+        {
+          type: 'bodytube', id: 'b', length: 0.3, outerRadius: 0.0125, thickness: 0.0005,
+          children: [
+            {
+              type: 'trapezoidfinset', id: 'f', finCount: 3, rootChord: 0.05, tipChord: 0.03,
+              sweep: 0.02, height: 0.03, thickness: 0.003, ...fin,
+            } as ComponentNode,
+            {
+              type: 'innertube', id: 'i', length: 0.07, outerRadius: 0.009, thickness: 0.0005, ...tube,
+            } as ComponentNode,
+          ],
+        } as ComponentNode,
+      ],
+    } as ComponentNode],
+  });
+  const finOf = (tree: RocketTree): ComponentNode => tree.components[0]!.children![1]!.children![0]!;
+
+  it('.ork: a NaN root chord is written as the default, not <rootchord>NaN', () => {
+    const xml = exportOrk({ name: 'N', tree: finTree({ rootChord: NaN }) });
+    expect(xml).toContain('<rootchord>0.05</rootchord>');
+    expect(xml).not.toContain('NaN');
+  });
+
+  it('.ork: a NaN angle goes through the degrees writer as its default', () => {
+    // `deg` carried its own inline copy beside `n`.
+    const xml = exportOrk({ name: 'N', tree: finTree({}, { radialDirection: NaN }) });
+    expect(xml).toContain('<radialdirection>0.0000</radialdirection>');
+    expect(xml).not.toContain('NaN');
+  });
+
+  it('.rkt: a NaN root chord is written as the default', () => {
+    const xml = exportRkt({ name: 'N', tree: finTree({ rootChord: NaN }) });
+    expect(xml).toContain('<RootChord>50</RootChord>');
+    expect(xml).not.toContain('NaN');
+  });
+
+  it('.CDX1: a NaN root chord is written as the default', () => {
+    expect(exportCdx1({ name: 'N', tree: finTree({ rootChord: NaN }) })).not.toContain('NaN');
+  });
+
+  it('the DXF label and the fin template read the default, not NaN', () => {
+    // The DXF cuts its outline through solidMesh (already on this module);
+    // its own copy read the label's figures: "stock thickness NaN mm".
+    expect(componentDxf(finOf(finTree({ thickness: NaN })), {}, 'N')!.text).not.toContain('NaN');
+    const outline = finOutline(finOf(finTree({ rootChord: NaN })));
+    expect(outline.every((p) => Number.isFinite(p.x) && Number.isFinite(p.y))).toBe(true);
+  });
+
+  it('the reference area and a shroud frontal area stay finite', () => {
+    const tree = finTree({});
+    const body = tree.components[0]!.children![1]!;
+    body['outerRadius'] = NaN;
+    // Math.max(maxR, NaN) is NaN, and every CD override is referenced to this area.
+    expect(Number.isFinite(referenceArea(tree))).toBe(true);
+    expect(mountRadiusOf(body)).toBe(0.012);
+    body['outerRadius'] = 0.0125;
+    const shroud = { type: 'fairing', id: 'c', width: NaN, height: 0.02 } as ComponentNode;
+    body.children!.push(shroud);
+    expect(Number.isFinite(fairingFrontalArea(tree, shroud))).toBe(true);
   });
 });

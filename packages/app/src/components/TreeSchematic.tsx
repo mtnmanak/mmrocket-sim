@@ -4,6 +4,7 @@ import {
   anchorStarts, axialLength, axialStart, offsetForStart, snapStart, startFromPosition,
 } from '../tree/position.js';
 import { finTabFront } from '../tree/finTab.js';
+import { num } from '../tree/nodeNum.js';
 import { clusterOffsets } from '../tree/cluster.js';
 import { tubeFinRadius } from '../tree/tubefins.js';
 import { assemblyInstanceCount, finCountOf, lineInstanceCount } from '../tree/counts.js';
@@ -64,9 +65,6 @@ interface FinInstance {
   p: number;
   near: boolean;
 }
-
-const num = (n: ComponentNode, key: string, fb: number): number =>
-  typeof n[key] === 'number' ? (n[key] as number) : fb;
 
 const fillOf = (n: ComponentNode, dflt: string): string =>
   typeof n['color'] === 'string' ? (n['color'] as string) : dflt;

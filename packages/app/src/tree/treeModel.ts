@@ -1148,8 +1148,6 @@ const AUTO_NO_NEIGHBOUR_RADIUS = 0.025;
  */
 export function referenceArea(tree: RocketTree): number {
   let maxR = 0;
-  const nnum = (n: ComponentNode, key: string, fb: number): number =>
-    typeof n[key] === 'number' ? (n[key] as number) : fb;
   // The symmetric components in stack order, because a transition's absent
   // radius is AUTOMATIC and what the kernel substitutes depends on whether it
   // HAS a neighbour on that side.
@@ -1177,13 +1175,13 @@ export function referenceArea(tree: RocketTree): number {
     // there under-asked by 1.73×.
     const t = n.type as string;
     if (t === 'bodytube') {
-      maxR = Math.max(maxR, nnum(n, 'outerRadius', 0.012));
+      maxR = Math.max(maxR, num(n, 'outerRadius', 0.012));
     } else if (t === 'nosecone') {
-      maxR = Math.max(maxR, nnum(n, 'aftRadius', 0.012));
+      maxR = Math.max(maxR, num(n, 'aftRadius', 0.012));
     } else {
       maxR = Math.max(maxR,
-        nnum(n, 'foreRadius', i === 0 ? AUTO_NO_NEIGHBOUR_RADIUS : 0),
-        nnum(n, 'aftRadius', i === sym.length - 1 ? AUTO_NO_NEIGHBOUR_RADIUS : 0));
+        num(n, 'foreRadius', i === 0 ? AUTO_NO_NEIGHBOUR_RADIUS : 0),
+        num(n, 'aftRadius', i === sym.length - 1 ? AUTO_NO_NEIGHBOUR_RADIUS : 0));
     }
   });
   // ReferenceType works in DIAMETER, and shoulder radii are not part of it.
@@ -1213,8 +1211,7 @@ export function referenceArea(tree: RocketTree): number {
  */
 export function mountRadiusOf(parent: ComponentNode | null | undefined): number {
   if (!parent) return 0;
-  const nn = (key: string, fb: number): number =>
-    typeof parent[key] === 'number' ? (parent[key] as number) : fb;
+  const nn = (key: string, fb: number): number => num(parent, key, fb);
   const t = parent.type as string;
   if (t === 'bodytube') return nn('outerRadius', 0.012);
   if (t === 'nosecone') return nn('aftRadius', 0.012);
@@ -1234,8 +1231,7 @@ export function mountRadiusOf(parent: ComponentNode | null | undefined): number 
  * printed the third-of-the-drag figure as fact".
  */
 export function fairingFrontalArea(tree: RocketTree, node: ComponentNode): number {
-  const nn = (key: string, fb: number): number =>
-    typeof node[key] === 'number' ? (node[key] as number) : fb;
+  const nn = (key: string, fb: number): number => num(node, key, fb);
   const parent = node.id ? findParent(tree, node.id) : null;
   return surfaceBumpFrontalArea(
     mountRadiusOf(parent === 'stage' ? null : parent),
@@ -1357,9 +1353,6 @@ export function protuberanceDeliveredCd(tree: RocketTree, node: ComponentNode): 
 export const KERNEL_DEFAULT_CD = 0.8;
 
 export function engineTree(tree: RocketTree): RocketTree {
-  const nnum = (n: ComponentNode, key: string, fb: number): number =>
-    typeof n[key] === 'number' ? (n[key] as number) : fb;
-
   // Rocket reference diameter = the airframe's max diameter (kernel rule).
   const aRef = referenceArea(tree);
 
@@ -1412,7 +1405,7 @@ export function engineTree(tree: RocketTree): RocketTree {
         // radius — and therefore the 6DOF response to wind. Emitted
         // unconditionally with a 0 fallback so the carrier agrees with the
         // drawings, which all read num(child, 'angleOffset', 0).
-        angleOffset: nnum(n, 'angleOffset', 0),
+        angleOffset: num(n, 'angleOffset', 0),
         overrideCD: (cd * area) / Math.max(aRef, 1e-9),
         // KEPT, and still the number the property panel quotes: it is the
         // Mach-0.3 value, and it is what the kernel charges if the ratio below
@@ -1426,13 +1419,13 @@ export function engineTree(tree: RocketTree): RocketTree {
           overrideCDBodyRatio: area / Math.max(aRef, 1e-9),
           overrideCDBodyIncludesBase: cls === 'streamlinedbase',
         } : {}),
-        overrideMass: Math.max(0, nnum(n, 'mass', 0)),
+        overrideMass: Math.max(0, num(n, 'mass', 0)),
       } as ComponentNode;
     }
     if (n.type === 'fairing') {
-      const L = nnum(n, 'length', 0.08);
-      const W = nnum(n, 'width', 0.025);
-      const H = nnum(n, 'height', 0.02);
+      const L = num(n, 'length', 0.08);
+      const W = num(n, 'width', 0.025);
+      const H = num(n, 'height', 0.02);
       const { fore, aft } = shroudEnds(n);
       const cdFrontal = fairingCdFrontal(fore, aft);
       // The lifting-surface outline follows the two ends independently, the
@@ -1456,9 +1449,9 @@ export function engineTree(tree: RocketTree): RocketTree {
         // FinSet.getInstanceOffsets agree), so no sign flip. Emitted
         // unconditionally: rotation 0 is measured bit-identical to the key
         // being absent, and an unconditional emit is testable.
-        rotation: nnum(n, 'angleOffset', 0),
+        rotation: num(n, 'angleOffset', 0),
         position: n.position,
-        overrideMass: nnum(n, 'mass', 0.03),
+        overrideMass: num(n, 'mass', 0.03),
         // THE AREA IS MEASURED FROM THE TUBE SURFACE, not from the shroud's
         // own flat underside (v0.090, Eric: "if it is waiting on my call, fix
         // it"). W*H is the frontal area of a bump on a FLAT wall, which is
@@ -1603,8 +1596,6 @@ export function flownRecoveryDevices(
   // deleted, and lost its Cd and diameter from the report (audit 2026-09-22).
   const out = Object.create(null) as Record<string, ReturnType<typeof flownRecoveryDevices>[string]>;
   const dupes = new Set<string>();
-  const num = (n: ComponentNode, k: string): number | null =>
-    (typeof n[k] === 'number' && Number.isFinite(n[k] as number) ? (n[k] as number) : null);
   const walk = (ns: ComponentNode[]): void => {
     for (const n of ns) {
       if ((n.type === 'parachute' || n.type === 'streamer') && n.name) {
@@ -1618,13 +1609,13 @@ export function flownRecoveryDevices(
         // A STREAMER stays null: its automatic coefficient comes from strip
         // length and material density and is not resolvable from here.
         const isChute = n.type === 'parachute';
-        const typed = num(n, 'cd');
+        const typed = numOrNull(n, 'cd');
         out[n.name] = {
           cd: typed ?? (isChute ? KERNEL_DEFAULT_CD : null),
-          cdNominal: num(n, 'cdNominal') ?? typed ?? (isChute ? KERNEL_DEFAULT_CD : null),
+          cdNominal: numOrNull(n, 'cdNominal') ?? typed ?? (isChute ? KERNEL_DEFAULT_CD : null),
           cdAutomatic: isChute && (typed === null || n['cdAuto'] === true),
-          diameter: num(n, 'diameter'),
-          spillHoleDiameter: num(n, 'spillHoleDiameter'),
+          diameter: numOrNull(n, 'diameter'),
+          spillHoleDiameter: numOrNull(n, 'spillHoleDiameter'),
         };
       }
       walk(n.children ?? []);

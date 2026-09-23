@@ -209,6 +209,27 @@ export default tseslint.config(
       'no-caller': 'error',
       'no-extend-native': 'error',
       'no-new-wrappers': 'error',
+
+      // A private node-number reader: a function whose whole answer is
+      // `typeof n[k] === 'number' ? n[k] : fb`. `typeof NaN` is 'number', so
+      // that shape passes a NaN field straight into a written .ork/.rkt/.CDX1, a
+      // DXF label or a reference area. tree/nodeNum.ts is the one reader
+      // (Number.isFinite); fourteen copies outlived its 2026-09-08 consolidation
+      // and were folded into it on 2026-09-22, which is when this went on, at 0.
+      // It matches the READER shape (an arrow body, or a function's top-level
+      // return), not every inline test: 57 inline `typeof x[k] === 'number' ?`
+      // reads remain in src after the fold (the same test on any
+      // ConditionalExpression, counted 2026-09-22), and converting those is a
+      // separate sitting — they sit in the files every other change touches.
+      'no-restricted-syntax': ['error', ...[
+        ':function > ConditionalExpression.body',
+        ':function > BlockStatement > ReturnStatement > ConditionalExpression.argument',
+      ].map((reader) => ({
+        selector: `${reader}[test.operator='==='][test.left.operator='typeof']`
+          + "[test.left.argument.type='MemberExpression'][test.right.value='number']",
+        message: 'A local typeof-number reader accepts NaN (typeof NaN is "number"). '
+          + 'Import num / numOpt / numOrNull from tree/nodeNum.ts instead.',
+      }))],
     },
   },
 

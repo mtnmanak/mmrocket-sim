@@ -4,6 +4,9 @@ import {
 } from '../services/motorDb.js';
 import { OVERRIDE_INCLUDES_MOTOR } from '../services/statedLaunchWeight.js';
 import { findParent, motorMounts } from './treeModel.js';
+// Under its old local name: this module's field walk carried a private copy
+// of numOrNull until 2026-09-22, and ten call sites read it as `num`.
+import { numOrNull as num } from './nodeNum.js';
 
 /**
  * Scale a whole rocket by one factor — the "upscale/downscale a plan" workflow
@@ -65,9 +68,6 @@ import { findParent, motorMounts } from './treeModel.js';
  * on that same rocket). `scaleRocket.test.ts` pins both halves: exact
  * similarity for a structure-only design, and the recovery exception.
  */
-
-const num = (n: ComponentNode, key: string): number | null =>
-  typeof n[key] === 'number' && Number.isFinite(n[key] as number) ? (n[key] as number) : null;
 
 /**
  * Length-valued keys per component type. Present-only, multiplied by k.

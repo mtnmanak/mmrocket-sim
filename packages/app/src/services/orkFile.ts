@@ -11,6 +11,7 @@ import {
 } from '../tree/sanitize.js';
 import { CLUSTER_POINTS } from '../tree/cluster.js';
 import { isConformal, shroudEnds } from '../tree/shroud.js';
+import { num as nodeNum } from '../tree/nodeNum.js';
 import { MAX_FIN_POINTS, MAX_NESTING, TOO_DEEP_NESTING, TOO_MANY_FIN_POINTS, decodeXml, escapeXml, escapeXmlAttr, parseDecimal, unreadableFinPoints, xmlText as text } from './xmlUtil.js';
 import { unzipMember } from './zipMember.js';
 import { applyPresetLinks, type PendingPresetLink, type Preset } from './presets.js';
@@ -2008,9 +2009,11 @@ export function exportOrk({
 
   /** Mounting angle out, rad -> DEGREES. Was hard-coded 180.0 until v0.087. */
   const deg = (node: ComponentNode, key: string, fb = 0): string =>
-    (((typeof node[key] === 'number' ? (node[key] as number) : fb) * 180) / Math.PI).toFixed(4);
-  const n = (node: ComponentNode, key: string, fb: number): number =>
-    typeof node[key] === 'number' ? (node[key] as number) : fb;
+    ((nodeNum(node, key, fb) * 180) / Math.PI).toFixed(4);
+  // The one node-number reader (tree/nodeNum.ts), under the short name this
+  // writer's hundred-odd fields use. Its private copy wrote a NaN field out
+  // as <rootchord>NaN</rootchord>; this writes the default, as for a gap.
+  const n = nodeNum;
 
   // Engine defaults from Transition.Shape.defaultParameter() — writing any
   // other fallback silently reshapes the nose (haack's default is 0, not 1).

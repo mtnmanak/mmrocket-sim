@@ -4,6 +4,7 @@ import {
 } from '../components/LaunchPanel.js';
 import { asStageNodes, freshId, mountsIn } from '../tree/treeModel.js';
 import { sanitizeTree } from '../tree/sanitize.js';
+import { num as nnum } from '../tree/nodeNum.js';
 import {
   isaPressurePa, PAD_PRESSURE_HPA_RANGE, PAD_TEMP_C_RANGE, padAir, padPressureIssue, SITE_ALTITUDE_M_RANGE,
 } from './atmosphere.js';
@@ -1661,8 +1662,6 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
   };
   const stageIgnitionDelays = stageSlots.map((s) => s.ignitionDelay);
 
-  const nnum = (node: ComponentNode, key: string, fb: number): number =>
-    typeof node[key] === 'number' ? (node[key] as number) : fb;
   const fmt = (v: number): string => {
     const s = v.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
     return s === '-0' ? '0' : s;
