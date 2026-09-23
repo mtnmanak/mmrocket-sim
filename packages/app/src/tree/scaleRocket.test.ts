@@ -1011,6 +1011,32 @@ describe('scaleRocket — guardrails and reporting', () => {
     expect(JSON.stringify(t)).toBe(snapshot);
   });
 
+  it('shares no nested value with the tree it was given, so editing one cannot edit the other', () => {
+    // The JSON snapshot above cannot see this: it proves the INPUT unchanged,
+    // not that the output is separate from it. `{ ...n }` left a position
+    // whose offset is not a number, and a malformed `points` row, shared by
+    // reference between the two trees (audit 2026-09-22, from the 8 September
+    // record) — one in-place edit away from "scaling changed my original".
+    const row = [0.03, 'x'];
+    const pos = { method: 'top', offset: 'auto' };
+    const t: RocketTree = {
+      name: 'alias', components: [{
+        type: 'stage', id: 's', children: [{
+          type: 'bodytube', id: 'b', length: 0.3, outerRadius: 0.02, children: [
+            { type: 'freeformfinset', id: 'ff', finCount: 3, points: [[0, 0], row, [0.05, 0]] } as unknown as ComponentNode,
+            { type: 'launchlug', id: 'lug', length: 0.03, outerRadius: 0.003, position: pos } as unknown as ComponentNode,
+          ],
+        } as ComponentNode],
+      } as ComponentNode],
+    };
+    const out = scaleRocket(t, K).tree;
+    const outRow = (findNode(out, 'ff')!['points'] as unknown[])[1];
+    expect(outRow).toEqual(row);
+    expect(outRow).not.toBe(row);
+    expect(findNode(out, 'lug')!.position).toEqual(pos);
+    expect(findNode(out, 'lug')!.position).not.toBe(pos);
+  });
+
   it('counts a mass component in the re-weigh note, not just an overrideMass', () => {
     // A mass component's `mass` IS its pinned weight - there is no geometry to
     // compute one from - so a design whose ballast is all mass components used
