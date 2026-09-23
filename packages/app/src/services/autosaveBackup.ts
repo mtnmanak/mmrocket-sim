@@ -101,7 +101,13 @@ export function autosaveToOrk(s: SessionState): string {
   return exportOrk({
     name: s.tree.name ?? 'My Rocket',
     tree: s.tree,
-    motors: motorSet(s, s.mountMotors, active?.unmatchedRefs),
+    // The working set's references are the SESSION's own, as a reload reads
+    // them (configSync.restoreUnmatchedRefs), and the active configuration's
+    // only for a session written before it kept them (seam review of audit
+    // 2026-09-22): a design with no configurations keeps them nowhere else,
+    // and its recovery file lost the motor. A matched record still wins its
+    // mount (motorSet).
+    motors: motorSet(s, s.mountMotors, s.unmatchedRefs ?? active?.unmatchedRefs),
     launch: s.launch,
     configs: s.savedConfigs?.map((c) => ({
       id: c.id, name: c.name, isDefault: c.isDefault,

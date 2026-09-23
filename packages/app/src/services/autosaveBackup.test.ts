@@ -93,4 +93,25 @@ describe('autosavedDesignFile', () => {
   it('is null when there is no autosave', () => {
     expect(autosavedDesignFile()).toBeNull();
   });
+
+  /**
+   * The references a file could not match are the SESSION's own working set
+   * (SessionState.unmatchedRefs), which a design with no configurations —
+   * a hand-rolled .ork keying <motor configid> with none declared — keeps
+   * nowhere else. This read them off the active configuration alone, so such a
+   * design's recovery file lost its motor (seam review of audit 2026-09-22).
+   */
+  it('carries the session’s own unmatched references on a design with no configurations', () => {
+    const tree = { ...defaultTree(), name: 'Configless' };
+    const mount = motorMounts(tree)[0]!.id!;
+    saveSessionDebounced({
+      tree, mountMotors: {}, launch: DEFAULT_CONDITIONS,
+      unmatchedRefs: { [mount]: { designation: 'K1100T', manufacturer: 'AeroTech', diameter: 0.054, length: 0.4, delay: Infinity, mountId: mount } },
+    });
+    vi.runAllTimers();
+    const back = importOrk(autosavedDesignFile()!.data);
+    const backMount = motorMounts(back.tree)[0]!.id!;
+    expect(back.motors[backMount]?.designation).toBe('K1100T');
+    expect(back.motors[backMount]?.delay).toBe(Infinity);
+  });
 });
