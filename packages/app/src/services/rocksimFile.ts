@@ -1317,12 +1317,13 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
    * simulations) opened as a B6 booster under a B4 sustainer — a pairing none
    * of its simulations flies — and nothing said which simulation was used.
    *
-   * Two departures from importCdx1, both for RockSim's shape. Simulations with
-   * the SAME motor set fold into one configuration (RockSim files repeat a
-   * simulation freely — Loadstar's [B6-6] six times, and one corpus file has
+   * Three departures from importCdx1, all for RockSim's shape. Simulations
+   * with the SAME motor set fold into one configuration (RockSim files repeat
+   * a simulation freely — Loadstar's [B6-6] six times, and one corpus file has
    * 186 engine-bearing simulations), keeping the first one's number and name.
-   * And engine sets outside any <SimulationResults> — where this app's own
-   * .rkt export wrote them until the same audit — read as one more set, first.
+   * Engine sets outside any <SimulationResults> — where this app's own .rkt
+   * export wrote them until the same audit — read as one more set, first. And
+   * a stage lit at launch over an unpowered one keeps its IgnitionDelay (below).
    */
   const simEls = Array.from(doc.querySelectorAll('SimulationResults'));
   const simGroups: { number: number | null; name: string | null; sets: Element[] }[] = [];
@@ -1569,7 +1570,10 @@ function catalogueDefaultDelay(designation: string, manufacturer: string): numbe
  * whole event list in each, and they can disagree (2,4-D's serial 26 is type 2 /
  * 2 s in the first and type 5 / 152.4 m in the second). Taking the first match
  * per serial mirrors how the `.ork` reader takes launch conditions from the
- * file's FIRST `<simulation>`.
+ * file's FIRST `<simulation>`. In practice the first list is usually the
+ * design's own, under <RocketDesign> ahead of every simulation's — 662 of the
+ * 685 corpus files that carry one (audit 2026-09-22 review) — and it applies
+ * in every flight configuration; importRkt says when the one opened differs.
  *
  * NOT READ, deliberately: `TestType` / `TestCondition` / `TestValue*`, RockSim
  * Pro's multi-condition elaboration. `Type` + `DeployAltitude` + `DeplyTime` is
