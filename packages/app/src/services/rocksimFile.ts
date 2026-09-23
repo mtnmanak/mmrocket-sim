@@ -6,7 +6,7 @@ import { CLUSTER_POINTS, clusterOffsets } from '../tree/cluster.js';
 import { resolveAssemblyRadius } from '../tree/assembly.js';
 import { axialLength, drawnExtent, startFromPosition } from '../tree/position.js';
 import { sanitizeTree } from '../tree/sanitize.js';
-import { MAX_FIN_POINTS, MAX_NESTING, TOO_DEEP_NESTING, TOO_MANY_FIN_POINTS, decodeXml, escapeXml as esc, lookupTable, parseDecimal, unreadableFinPoints, xmlNum as num, xmlText as text } from './xmlUtil.js';
+import { MAX_FIN_POINTS, MAX_NESTING, TOO_DEEP_NESTING, TOO_MANY_FIN_POINTS, decodeXml, escapeXml as esc, lookupTable, parseDecimal, unreadableFinPoints, xmlText as text } from './xmlUtil.js';
 import { unzipMember } from './zipMember.js';
 import { shapeParamDefault } from './orkFile.js';
 import type { OrkExportMotor, OrkMotorRef, OrkTreeImportResult } from './orkFile.js';
@@ -61,6 +61,14 @@ const MASS = 1000; // g → kg
 /** Transient marker: BaseExtensionLen (m) parked on a cone until the chain pass runs. */
 const PENDING_BASE_EXT = '__rktBaseExt';
 
+/**
+ * `xmlNum`'s shape. Every read in one import goes through the SAME recording
+ * reader importRkt builds (see its `num`), so the module-level helpers below
+ * take it as a parameter rather than calling xmlNum themselves — a field read
+ * there is a field the unreadable-number note has to be able to name.
+ */
+type NumReader = (el: Element, tag: string, fb: number) => number;
+
 const NOSE_SHAPES: Record<string, string> = lookupTable({
   '0': 'conical', '1': 'ogive', '2': 'ellipsoid', '3': 'ellipsoid',
   '4': 'power', '5': 'parabolic', '6': 'haack',
@@ -93,7 +101,7 @@ const RKT_PARAM_SHAPES = ['power', 'haack', 'parabolic'];
  *
  * Must be called AFTER node['shape'] is set — the gate reads it.
  */
-const readShapeParameter = (el: Element, node: ComponentNode): void => {
+const readShapeParameter = (num: NumReader, el: Element, node: ComponentNode): void => {
   const sp = num(el, 'ShapeParameter', NaN);
   if (!Number.isNaN(sp) && RKT_PARAM_SHAPES.includes(node['shape'] as string)) {
     node['shapeParameter'] = sp;
@@ -214,6 +222,33 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
 
   const notes: string[] = encodingNote ? [encodingNote] : [];
   const ignored = new Set<string>();
+  /**
+   * Tag → the first raw text under it that is not a number. One entry per tag,
+   * not per part, for the reason the RASAero reader gives: a file whose every
+   * number is unreadable should get one sentence, not sixty.
+   */
+  const unreadable = new Map<string, string>();
+  /**
+   * `xmlNum` with the substitution made VISIBLE (audit 2026-09-22) — the
+   * mechanism importCdx1 has had since the 2026-09-08 audit. xmlNum cannot
+   * tell "absent" from "present but unreadable": both take the caller's
+   * fallback, and this reader's fallbacks are real-looking parts, not
+   * sentinels (a 24 mm tube, a 70 mm nose, a 300 mm chute), so `<OD>2,5</OD>`
+   * imported a 24 mm tube and every downstream number was wrong with nothing
+   * on screen to say so. ABSENT stays silent — RockSim omits fields routinely
+   * — and unreadable is named once per tag in the notes at the end.
+   */
+  const num: NumReader = (el, tag, fb) => {
+    // xmlNum's own three steps (xmlText, parseDecimal, the finite test), with
+    // the failure recorded — inlined rather than wrapped, so a field costs one
+    // selector query, not two: the import is query-bound on a deep tree.
+    const raw = text(el, `:scope > ${tag}`);
+    if (raw === null) return fb;
+    const v = parseDecimal(raw);
+    if (Number.isFinite(v)) return v;
+    if (!unreadable.has(tag)) unreadable.set(tag, raw.slice(0, 40));
+    return fb;
+  };
   /** Parts whose <PartMfg>/<PartNo> may name a catalogue row - resolved after the tree is built. */
   const pendingLinks: PendingPresetLink[] = [];
   /** Nodes that kept a measured mass or CG desktop OpenRocket would discard. */
@@ -488,7 +523,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
         n['aftRadius'] = num(el, 'BaseDia', 24) / RAD;
         n['thickness'] = num(el, 'WallThickness', 2) / LEN;
         n['shape'] = NOSE_SHAPES[String(Math.round(num(el, 'ShapeCode', 1)))] ?? 'ellipsoid';
-        readShapeParameter(el, n);
+        readShapeParameter(num, el, n);
         // Written EITHER WAY, not only when solid (audit 2026-09-22): <ConstructionType>
         // is the file saying solid (0) or hollow (1), and a catalogue link
         // (applyPresetLinks) fills only what a file left unset — so a hollow part left
@@ -527,7 +562,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
         n['shape'] = NOSE_SHAPES[String(Math.round(num(el, 'ShapeCode', 0)))] ?? 'conical';
         // Desktop reads it for transitions too (TransitionHandler.java:102-107,
         // the exact mirror of NoseConeHandler.java:96-107); this branch never did.
-        readShapeParameter(el, n);
+        readShapeParameter(num, el, n);
         // Either way, for the reason on the NoseCone branch above.
         n['filled'] = Math.round(num(el, 'ConstructionType', 1)) === 0;
         const fsl = num(el, 'FrontShoulderLen', 0);
@@ -1075,7 +1110,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
     }
   };
   deCollideFins(components);
-  readDeploymentEvents(doc, serialToNode, notes);
+  readDeploymentEvents(doc, serialToNode, notes, num);
   applyPresetLinks(pendingLinks, opts?.presets, notes);
 
   // A nose cone's <BaseExtensionLen> becomes a real body tube directly behind it.
@@ -1233,7 +1268,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
     const manufacturer = text(engineSet, ':scope > EngineMfg') ?? 'unknown';
     // RockSim's two negative <EjectionDelay> codes are sentinels, not delays —
     // see rktEjectionDelay. Resolved here, so no negative delay leaves the reader.
-    const read = rktEjectionDelay(engineSet);
+    const read = rktEjectionDelay(engineSet, num);
     const fromCatalogue = read === 'every' ? catalogueDefaultDelay(code, manufacturer) : null;
     const ref: OrkMotorRef = {
       designation: code,
@@ -1268,6 +1303,16 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
         + 'and the motor database lists no delay for it to take — recorded as 0 s. Set the real delay '
         + 'on the Motors & Launch tab.');
     }
+  }
+
+  // Last, because the engine-set and deployment readers above record into the
+  // same map. No cause is claimed: none of the 843 readable corpus files carries
+  // a non-decimal number, so there is no evidence of what writes one.
+  if (unreadable.size > 0) {
+    notes.push(`Could not read ${unreadable.size} number${unreadable.size === 1 ? '' : 's'} in this file, `
+      + 'so the import used its own default instead — check these before trusting any result: '
+      + `${[...unreadable].map(([tag, raw]) => `<${tag}> “${raw}”`).join(', ')}. `
+      + 'A number here must be a plain decimal with a period (2.5, not 2,5).');
   }
 
   return {
@@ -1313,7 +1358,7 @@ const RKT_PLUGGED_DELAY = -2;
  * it for a plugged motor through v0.137, and Number() of it is not finite, so
  * xmlNum read it back as 0 s — every chute on ejection then deployed at burnout.
  */
-function rktEjectionDelay(engineSet: Element): number | 'plugged' | 'every' {
+function rktEjectionDelay(engineSet: Element, num: NumReader): number | 'plugged' | 'every' {
   const raw = text(engineSet, ':scope > EjectionDelay');
   if (raw !== null && /^\+?inf/i.test(raw)) return 'plugged';
   const v = num(engineSet, 'EjectionDelay', 0);
@@ -1373,6 +1418,7 @@ const readDeploymentEvents = (
   doc: Document,
   serialToNode: Map<string, ComponentNode>,
   notes: string[],
+  num: NumReader,
 ): void => {
   const seen = new Set<string>();
   const unknown = new Set<number>();

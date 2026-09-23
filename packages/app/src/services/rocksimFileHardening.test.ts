@@ -183,3 +183,35 @@ describe('a CDATA section whose text holds "<![CDATA[" (audit 2026-09-22)', () =
     expect(() => importRkt(rktXml('<Comments><![CDATA[ never closed</Comments>'))).toThrow(/RockSim/);
   });
 });
+
+describe('an unreadable .rkt number is named, not silently defaulted (audit 2026-09-22)', () => {
+  it('records the tag and its raw text once, and says the default stood in', () => {
+    // `<OD>2,5</OD>` is not a number; the reader's fallback (a 24 mm tube) is a
+    // real-looking size, so without a note every downstream figure is quietly wrong.
+    const r = importRkt(rktXml(
+      '<BodyTube><Name>Mount</Name><OD>2,5</OD><ID>23</ID><Len>70</Len></BodyTube>'
+      + '<BodyTube><Name>Mount 2</Name><OD>2,5</OD><ID>23</ID><Len>70</Len></BodyTube>'));
+    const note = r.notes.find((n) => /Could not read/.test(n));
+    expect(note).toBeDefined();
+    expect(note).toMatch(/<OD> “2,5”/);
+    // One entry per tag, not per part.
+    expect(note!.match(/<OD>/g)).toHaveLength(1);
+    expect(note).toMatch(/^Could not read 1 number /);
+  });
+
+  it('stays silent for an ABSENT field and for ordinary numbers', () => {
+    const r = importRkt(rktXml('<BodyTube><Name>Mount</Name><Len>70</Len></BodyTube>'));
+    expect(r.notes.some((n) => /Could not read/.test(n))).toBe(false);
+  });
+
+  it('covers the engine-set and deployment readers too', () => {
+    const xml = rktXml('<BodyTube><Name>Mount</Name><OD>24</OD><ID>23</ID><Len>70</Len>'
+      + '<IsMotorMount>1</IsMotorMount><SerialNo>9</SerialNo></BodyTube>')
+      .replace('</RocketDesign>', '<SimulationResultsList><SimulationResults><Stage3Engines>'
+        + '<EngineSet><EngineCode>C6</EngineCode><EngineMfg>Estes</EngineMfg>'
+        + '<EjectionDelay>five</EjectionDelay><MountSerialNo>9</MountSerialNo></EngineSet>'
+        + '</Stage3Engines></SimulationResults></SimulationResultsList></RocketDesign>');
+    const note = importRkt(xml).notes.find((n) => /Could not read/.test(n));
+    expect(note).toMatch(/<EjectionDelay> “five”/);
+  });
+});
