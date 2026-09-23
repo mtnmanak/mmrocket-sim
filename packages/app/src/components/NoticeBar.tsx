@@ -54,20 +54,26 @@ const firstLine = (text: string): string => {
 
 export function NoticeBar({ notices }: { notices: Notice[] }) {
   const [expanded, setExpanded] = useState(false);
-  // Track what the user has already been shown, so a warning opens the bar the
-  // first time it appears and does NOT re-open it every render, nor fight the
-  // user if they collapse it again.
-  const announced = useRef('');
+  // Track what the user has already been shown — every `id:severity` on the
+  // bar — so a warning opens it the first time it appears and does NOT re-open
+  // it every render, nor fight the user if they collapse it again.
+  const announced = useRef<ReadonlySet<string>>(new Set());
 
   const worst = notices.reduce<NoticeSeverity>(
     (acc, n) => (RANK[n.severity] > RANK[acc] ? n.severity : acc), 'info');
   const key = notices.map((n) => `${n.id}:${n.severity}`).join('|');
 
   useEffect(() => {
-    if (key === announced.current) return;
-    announced.current = key;
-    // Problems open themselves; routine information does not.
-    if (notices.some((n) => n.severity !== 'info')) setExpanded(true);
+    const seen = announced.current;
+    announced.current = new Set(notices.map((n) => `${n.id}:${n.severity}`));
+    // Problems open themselves; routine information does not. Only a problem
+    // NOT already on the bar counts (audit 2026-09-22): testing "is any
+    // problem present" re-opened a bar the user had collapsed over a warning
+    // every time a routine notice ("Share link copied") came or went beside it.
+    // A notice that escalates under the same id is new information, and opens it.
+    if (notices.some((n) => n.severity !== 'info' && !seen.has(`${n.id}:${n.severity}`))) {
+      setExpanded(true);
+    }
   }, [key, notices]);
 
   useEffect(() => {

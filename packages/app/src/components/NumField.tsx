@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import { fmtSig, readDecimal } from '../prefs/units.js';
 
 /**
  * Numeric input that lets the user TYPE anything mid-edit (including "-",
@@ -8,16 +9,24 @@ import { useState } from 'react';
  * Behavior:
  * - While focused, keystrokes edit a local draft string. Every draft that
  *   parses to a valid number is committed live; invalid drafts ("e", "abc",
- *   a negative where negatives aren't allowed, out-of-range) show an error
- *   border and commit nothing — except a draft over `max` with `clampToMax`,
- *   which keeps the error border and commits `max`.
+ *   a negative where negatives aren't allowed, out-of-range, a grouped
+ *   "10,000") show an error border and commit nothing — except a draft over
+ *   `max` with `clampToMax`, which keeps the error border and commits `max`.
+ *   A single comma is a decimal separator ("1,5" is 1.5) — see `readDecimal`
+ *   in prefs/units.
  * - Blur/Enter reformats from the last committed value; an invalid draft is
  *   simply discarded (the previous value survives).
- * - Unfocused display is capped at 3 decimals (display only — the stored
- *   value keeps full precision, which is what you edit on focus).
+ * - Unfocused, the box always shows `value`. The draft exists only while the
+ *   input has focus, so a spinner click — which never focuses it — cannot
+ *   leave one behind for the next component, an undo or a unit switch.
+ * - Unfocused display is capped at 3 decimals, or 3 significant figures for
+ *   a value too small for that (display only — the stored value keeps full
+ *   precision, which is what you edit on focus).
  * - Clearing the field commits null when `nullable` (blank = auto/calculated
  *   fields); otherwise it's treated as an incomplete draft.
- * - ArrowUp/ArrowDown and the spinner buttons step by `step`.
+ * - ArrowUp/ArrowDown and the spinner buttons step by `step`, from the draft,
+ *   the value or the auto value; a blank field with none of those commits
+ *   nothing and just takes focus.
  */
 export function NumField({
   value, onCommit, nullable = false, min, max, allowNegative = false,
@@ -36,8 +45,8 @@ export function NumField({
   placeholder?: string;
   /**
    * The computed/auto value a BLANK field is standing in for, in the same unit
-   * as `value`. Only the spinner and the arrow keys use it: they step from it
-   * instead of from zero.
+   * as `value`. Only the spinner and the arrow keys use it: they step from it,
+   * and with no such figure at all they commit nothing (see `stepBy`).
    *
    * Why that matters. A blank field here does not mean "zero", it means "use
    * the computed value the placeholder is showing" — a measured mass of 245.3 g,
@@ -81,32 +90,58 @@ export function NumField({
   clampToMax?: boolean;
 }) {
   const [draft, setDraft] = useState<string | null>(null);
+  /**
+   * Whether the input itself has focus. The draft is an EDITING state and means
+   * nothing once focus is gone, so it is shown, stepped from and validated
+   * only while this is true (audit 2026-09-22, HIGH).
+   *
+   * It used to be `draft !== null` alone, and the spinner broke that: ▴/▾
+   * `preventDefault` their mousedown so a click never focuses the input, yet
+   * `stepBy` wrote its result into the draft — which only onBlur clears, and
+   * onBlur never came. The draft then outlived everything: PropertyPanel is
+   * the same element for every selected component, so tube B's blank Mass
+   * override showed tube A's 45.1 g, and one ▴ on B committed 45.2 g onto a
+   * tube whose computed mass was 120 g. Undo and unit switches kept it too.
+   */
+  const [focused, setFocused] = useState(false);
+  const live = focused ? draft : null;
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const lowBound = min !== undefined ? min : (allowNegative ? undefined : 0);
+  /**
+   * iOS's decimal pad has no minus key, so a field that takes a negative gets
+   * the full keyboard instead (audit 2026-09-22): with `inputMode="decimal"`
+   * everywhere, no iPhone user could type a negative cant, offset or CG.
+   * Fields that cannot go negative keep the compact pad.
+   */
+  const inputMode = lowBound === undefined || lowBound < 0 ? 'text' : 'decimal';
 
   /** `capped` false: every check but the `max` one (see clampToMax). */
   const parse = (s: string, capped = true): number | null => {
-    const t = s.trim();
-    if (t === '') return null;
-    const v = Number(t);
-    if (!Number.isFinite(v)) return null;
+    // "1,5" is 1.5; "10,000" is refused rather than read as 10 (readDecimal).
+    const v = readDecimal(s);
+    if (v === null) return null;
     if (lowBound !== undefined && v < lowBound) return null;
     if (capped && max !== undefined && v > max) return null;
     if (integer && !Number.isInteger(v)) return null;
     return v;
   };
 
-  // "-", ".", "-." are incomplete (no error styling), not invalid.
-  const isIncomplete = (t: string) => /^-?\.?$/.test(t);
+  // "-", ".", "-." (and their decimal-comma spellings) are incomplete — no
+  // error styling — not invalid.
+  const isIncomplete = (t: string) => /^-?[.,]?$/.test(t);
 
+  // Three decimals, or three significant figures where three decimals would
+  // round a real value away: in metres a 0.4 mm wall is 0.0004, and it used to
+  // show as "0" (audit 2026-09-22). Values of 0.1 and up read exactly as before.
   const fmtDisplay = (v: number | undefined) =>
-    v === undefined ? '' : String(Number(v.toFixed(3)));
+    v === undefined ? '' : fmtSig(v, 3, 3);
   const fmtEdit = (v: number | undefined) =>
     v === undefined ? '' : String(Number(v.toFixed(9)));
 
-  const shown = draft !== null ? draft : fmtDisplay(value);
-  const draftInvalid = draft !== null && draft.trim() !== ''
-    && !isIncomplete(draft.trim()) && parse(draft) === null;
+  const shown = live !== null ? live : fmtDisplay(value);
+  const draftInvalid = live !== null && live.trim() !== ''
+    && !isIncomplete(live.trim()) && parse(live) === null;
 
   const change = (s: string) => {
     setDraft(s);
@@ -126,9 +161,8 @@ export function NumField({
    * value rendered in the field's own unit — "245.3" (MeasuredMassBox),
    * "auto: 12.345" and "default: 0.333" (PropertyPanel), "design: 76.2"
    * (App.tsx's max motor length). Placeholders that name a state rather than a
-   * number — "—", "standard", "plugged", "no limit" — contain no digits, so
-   * those fields keep the old seed-from-zero behaviour, which is what a blank
-   * "none" field should do.
+   * number — "—", "auto", "standard", "plugged", "no limit" — contain no
+   * digits, so there is no base and the spinner commits nothing (`stepBy`).
    *
    * If you add a placeholder that contains a number which is NOT the auto value
    * (an "e.g. 25" hint, say), pass `autoValue` explicitly or the spinner will
@@ -143,7 +177,22 @@ export function NumField({
   };
 
   const stepBy = (dir: 1 | -1) => {
-    const base = (draft !== null ? parse(draft) : null) ?? value ?? autoBase() ?? 0;
+    // Unfocused (a spinner click), the committed value is the only truth: a
+    // draft is never read here, and none is written below.
+    const base = (live !== null ? parse(live) : null) ?? value ?? autoBase();
+    // A blank field with no figure behind it: nothing to step FROM, so commit
+    // nothing and put the caret in the box for typing instead. This used to
+    // seed from 0, and a blank there is rarely "zero" (audit 2026-09-22): ▴ on
+    // a blank Cd override ("auto") committed 0.05 and ▾ committed 0, either
+    // one replacing the component's whole computed drag; the launch time step
+    // ("standard", i.e. 0.05 s) committed its 0.01 s floor, making every
+    // simulation 3.7-6.0x slower to run; ▴ on a plugged motor's delay
+    // committed a 1 s ejection; and a mass override with no computed mass to
+    // show committed 0.1 g.
+    if (base === undefined) {
+      if (!focused) inputRef.current?.focus();
+      return;
+    }
     let next = base + dir * step;
     // Snap float noise (0.30000000000000004) to the step's precision.
     const decimals = Math.max(0, -Math.floor(Math.log10(step)) + 1);
@@ -151,25 +200,29 @@ export function NumField({
     if (lowBound !== undefined && next < lowBound) next = lowBound;
     if (max !== undefined && next > max) next = max;
     if (integer) next = Math.round(next);
-    setDraft(String(next));
+    // Focused, the draft follows the step so the box shows it and a second
+    // step works off it. Unfocused, the parent's re-render with the committed
+    // value is what the box shows — see `focused` above.
+    if (focused) setDraft(String(next));
     onCommit(next);
   };
 
   return (
     <div className="numfield">
       <input
+        ref={inputRef}
         id={id}
         type="text"
-        inputMode="decimal"
+        inputMode={inputMode}
         className={draftInvalid ? 'num-invalid' : undefined}
         value={shown}
         placeholder={placeholder}
         aria-label={ariaLabel}
         aria-invalid={draftInvalid || invalid || undefined}
         aria-describedby={describedBy}
-        onFocus={() => setDraft(fmtEdit(value))}
+        onFocus={() => { setFocused(true); setDraft(fmtEdit(value)); }}
         onChange={(e) => change(e.target.value)}
-        onBlur={() => setDraft(null)}
+        onBlur={() => { setFocused(false); setDraft(null); }}
         onKeyDown={(e) => {
           if (e.key === 'ArrowUp') { e.preventDefault(); stepBy(1); }
           else if (e.key === 'ArrowDown') { e.preventDefault(); stepBy(-1); }

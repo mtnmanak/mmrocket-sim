@@ -171,6 +171,36 @@ describe('NozzleField — rule 2: a value that disagrees is NOT overwritten', ()
   });
 });
 
+describe('NozzleField — its label', () => {
+  it('names the typed box, not the unit chip inside it', async () => {
+    // Audit 2026-09-22: with no htmlFor the label's control was its first
+    // labelable descendant, the unit chip's <select>.
+    await render({ exitDiameterM: D13_EXIT_M });
+    const label = host.querySelector('label')!;
+    expect(label.control).toBe(host.querySelector('input'));
+  });
+});
+
+describe('NozzleField — its spinner', () => {
+  /**
+   * Audit 2026-09-22: the step was a fixed 0.5 in the DISPLAY unit, so in
+   * inches every ▴/▾ moved the exit by 12.7 mm — 2.7× this D13's whole exit.
+   * It steps half a millimetre's worth in every unit now (0.02 in).
+   */
+  it('steps about half a millimetre in inches, not half an inch', async () => {
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { motorDimensions: 'in' } }));
+    try {
+      await render({ exitDiameterM: D13_EXIT_M });
+      const up = host.querySelector<HTMLButtonElement>('.numfield button')!;
+      act(() => { up.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+      const shown = Number((D13_EXIT_M / 0.0254 + 0.02).toFixed(4));
+      expect(committed[committed.length - 1]).toBeCloseTo(shown * 0.0254, 9);
+    } finally {
+      localStorage.removeItem('online-openrocket.prefs.v1');
+    }
+  });
+});
+
 describe('NozzleField — rule 3: the nine motors with two published nozzles', () => {
   it('names the alternative rather than choosing silently', async () => {
     await render({ exitDiameterM: null, motorIds: [I115], motorLabel: 'I115W' });
@@ -369,6 +399,19 @@ describe('NozzleField — a figure that came from an imported motor file', () =>
     await render({ exitDiameterM: 0.009, motorIds: [EX_ID], motorLabel: 'B2' });
     expect(text()).toContain('the motor file you imported says');
     expect(text()).not.toMatch(/Klima publish/);
+  });
+
+  it('labels the accept button with the file too, and it still commits the file’s figure', async () => {
+    // Audit 2026-09-22: the sentence beside it said "the motor file you
+    // imported says …" while the button read "Use Klima’s 5 mm" — crediting a
+    // manufacturer for a number that came from the user's own .rse.
+    await render({ exitDiameterM: 0.009, motorIds: [EX_ID], motorLabel: 'B2' });
+    const btn = [...host.querySelectorAll('button')].find((b) => /^Use /.test(b.textContent ?? ''));
+    expect(btn, 'the accept button').toBeTruthy();
+    expect(btn!.textContent).not.toMatch(/Klima/);
+    expect(btn!.textContent).toMatch(/^Use the file’s /);
+    act(() => { btn!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    expect(committed[committed.length - 1]).toBeCloseTo(EX_EXIT_M, 9);
   });
 
   it('says nothing for an EX motor whose file carried no exit', async () => {

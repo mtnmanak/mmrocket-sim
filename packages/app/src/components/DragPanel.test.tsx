@@ -1,9 +1,13 @@
 // @vitest-environment happy-dom
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { DragSweep, OrkRocket } from '@online-openrocket/engine';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
+import { LOCALE_DECIMAL_COMMA } from '../prefs/units.js';
 import { DragPanel } from './DragPanel.js';
 import { foldTypography } from '../services/textFold.js';
 
@@ -229,5 +233,60 @@ describe('DragPanel — sweep conditions', () => {
 
     type(input, '');
     expect(Object.keys(calls[calls.length - 1] as object)).toEqual(['machMax']);
+  });
+
+  /**
+   * Audit 2026-09-22: the bare box read "10,000" as NaN and swept at SEA LEVEL
+   * while still showing 10,000; only the caption under the chart said so. It
+   * is a NumField now, so a draft it cannot read is marked at the input.
+   */
+  it('marks "10,000" invalid at the box instead of silently sweeping at sea level', () => {
+    mount();
+    openPanel();
+    setSelect(condSelect(), 'altitude');
+    const input = altInput()!;
+    act(() => input.focus());
+    type(input, '10,000');
+    if (!LOCALE_DECIMAL_COMMA) {
+      expect(input.getAttribute('aria-invalid')).toBe('true');
+      // Nothing was committed, so the sweep is honestly still the default one,
+      // and leaving the box shows the blank it is flying rather than 10,000.
+      expect(Object.keys(calls[calls.length - 1] as object)).toEqual(['machMax']);
+      act(() => input.blur());
+      expect(input.value).toBe('');
+    }
+  });
+
+  it('converts a typed altitude from the display unit', () => {
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { distance: 'ft' } }));
+    mount();
+    openPanel();
+    setSelect(condSelect(), 'altitude');
+    type(altInput()!, '10000');
+    const opts = calls[calls.length - 1] as { machAlt: [number, number][] };
+    expect(opts.machAlt[0]![1]).toBeCloseTo(3048, 6);
+  });
+
+  /**
+   * Review of the audit fix: the bare input had its own `width: 76`, and the
+   * NumField that replaced it sat in a 96 px wrapper that nothing made it
+   * fill — outside a `.field` no rule sizes a NumField's input, so it drew at
+   * the browser's default ~159 px with the spinner on its digits. There is no
+   * layout in this suite, so this pins the two halves that decide it: the box
+   * is inside the sizing wrapper, and the sheet sizes an input there.
+   */
+  it('the altitude box fills its wrapper instead of the default input width', () => {
+    mount();
+    openPanel();
+    setSelect(condSelect(), 'altitude');
+    const wrap = altInput()!.closest('.inline-numfield') as HTMLElement | null;
+    expect(wrap).not.toBeNull();
+    expect(wrap!.style.width).toBe('96px');
+    const css = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../styles.css'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '');
+    const rule = /\.inline-numfield\s+\.numfield\s+input\s*\{([^}]*)\}/.exec(css);
+    expect(rule, 'no .inline-numfield .numfield input rule').not.toBeNull();
+    expect(rule![1]).toMatch(/(?:^|[;\s])width:\s*100%/);
+    expect(rule![1]).toMatch(/(?:^|[;\s])box-sizing:\s*border-box/);
   });
 });

@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useRef, useState } from 'react';
+import { Fragment, useId, useMemo, useState } from 'react';
 import type { ComponentInfo, ComponentNode, ComponentPosition, RocketTree, StaticInfo } from '@online-openrocket/engine';
 import { FinPointsEditor, type FinPoint } from './FinPointsEditor.js';
 import { NumField } from './NumField.js';
@@ -31,7 +31,7 @@ import { componentDxf, DXF_CUTTABLE, DXF_MIME } from '../services/dxfExport.js';
 import { buildPrintPack, printOffer, SINGLE_BUTTON, ZIP_MIME } from '../services/printPack.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { printerName, toPrinterVolume } from '../prefs/printers.js';
-import { fmtSi, niceStep, siToUi, uiToSi, type Quantity } from '../prefs/units.js';
+import { fmtSi, fmtSig, niceStep, siToUi, uiToSi, type Quantity } from '../prefs/units.js';
 import { BULK_MATERIALS, LINE_MATERIALS, SURFACE_MATERIALS, type MaterialDef } from '../data/materials.js';
 import { PresetPicker } from './PresetPicker.js';
 import { KIND_FOR_TYPE } from '../services/presets.js';
@@ -103,28 +103,40 @@ function CdBlockedNotice({ blocker, replaces }: { blocker: ComponentNode; replac
  * Slider synced with a numeric value (display units). The range grows to
  * include an out-of-range typed value, and is frozen for the duration of a
  * drag so the handle doesn't chase its own updates.
+ *
+ * The freeze ends on pointerup, AND on pointercancel and lostpointercapture,
+ * and it is void once `min`/`max` change under it (audit 2026-09-22). Released
+ * on pointerup alone, a touch the browser cancelled — a scroll gesture taking
+ * over — left the slider on a stale range until the next complete drag, and a
+ * unit switch meanwhile left a millimetre range on an inch slider (1000 in).
  */
 function ValueSlider({ value, min, max, step, onChange, ariaLabel }: {
   value: number;
   min: number;
   max: number;
   step: number;
-  onChange: (ui: number) => void;
+  /**
+   * `pointer` is true while a pointer holds the handle, false for the
+   * keyboard (arrows, Page Up/Down, Home/End) — so a caller that snaps can
+   * snap a DRAG without trapping the arrow keys at every snap point.
+   */
+  onChange: (ui: number, pointer: boolean) => void;
   /**
    * REQUIRED, even though the type says otherwise for the one caller that has
-   * no field label. The `.field` blocks render `<label>` as a SIBLING with no
-   * htmlFor, so nothing associates it: on a body tube a screen-reader user met
-   * five or six controls all announced as "slider" with a bare number and no
-   * clue which dimension they were about to change — and these write straight
-   * into the flight model.
+   * no field label. A `<label>` names ONE control, and each `.field` label is
+   * wired to its typed box (htmlFor), so the slider beside it is named by
+   * nothing else: before this, on a body tube a screen-reader user met five or
+   * six controls all announced as "slider" with a bare number and no clue
+   * which dimension they were about to change — and these write straight into
+   * the flight model.
    */
   ariaLabel?: string;
 }) {
-  const drag = useRef<{ min: number; max: number } | null>(null);
-  const range = drag.current ?? {
-    min: Math.min(min, value),
-    max: Math.max(max, value),
-  };
+  /** Set while a pointer holds the handle: the range it froze, and the props it froze from. */
+  const [held, setHeld] = useState<{ min: number; max: number; ofMin: number; ofMax: number } | null>(null);
+  const live = { min: Math.min(min, value), max: Math.max(max, value) };
+  const range = held !== null && held.ofMin === min && held.ofMax === max ? held : live;
+  const release = () => setHeld(null);
   return (
     <input
       type="range"
@@ -134,9 +146,11 @@ function ValueSlider({ value, min, max, step, onChange, ariaLabel }: {
       max={range.max}
       step={step}
       value={value}
-      onPointerDown={() => { drag.current = range; }}
-      onPointerUp={() => { drag.current = null; }}
-      onChange={(e) => onChange(Number(e.target.value))}
+      onPointerDown={() => setHeld({ ...range, ofMin: min, ofMax: max })}
+      onPointerUp={release}
+      onPointerCancel={release}
+      onLostPointerCapture={release}
+      onChange={(e) => onChange(Number(e.target.value), held !== null)}
     />
   );
 }
@@ -179,10 +193,12 @@ function MaterialSelect({ label, list, nameKey, densityKey, densityUnit, node, o
   const foreign = named !== null && !known ? named : null;
   const foreignDensity = typeof node[densityKey] === 'number'
     ? (node[densityKey] as number) : undefined;
+  const id = useId();
   return (
     <div className="field">
-      <label>{label}</label>
+      <label htmlFor={id}>{label}</label>
       <select
+        id={id}
         aria-label={label}
         value={named ?? ''}
         onChange={(e) => {
@@ -320,10 +336,26 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
   onAutoAlignFins?: () => void;
 }) {
   const { prefs } = usePrefs();
+  /**
+   * Every field's `<label htmlFor>` points at its own control through these
+   * ids (audit 2026-09-22). Without one, a label names its first labelable
+   * DESCENDANT — the unit chip's <select> on every field that shows a unit,
+   * and on Surface finish the "→ all" button, so clicking the words "Surface
+   * finish" rewrote the finish, and so the skin-friction drag, of every
+   * component in the rocket.
+   */
+  const uid = useId();
+  const idFor = (key: string) => `${uid}-${key}`;
   const [showPresets, setShowPresets] = useState(false);
-  // Why an export button did nothing. Cleared on the next attempt, so it
-  // never outlives the outline it is complaining about.
-  const [exportNote, setExportNote] = useState<string | null>(null);
+  // Why an export button did nothing, and for WHICH component. Cleared on the
+  // next attempt, and shown only while that component is the one selected, so
+  // it never outlives the outline it is complaining about: a self-crossing-fin
+  // warning used to sit under the next nose cone selected, because this is one
+  // panel across selections unless its parent keys it (audit 2026-09-22).
+  const [exportNoteFor, setExportNoteFor] = useState<{ id: string | undefined; text: string } | null>(null);
+  const exportNote = exportNoteFor !== null && exportNoteFor.id === node.id ? exportNoteFor.text : null;
+  const setExportNote = (text: string | null) =>
+    setExportNoteFor(text === null ? null : { id: node.id, text });
   const fields = FIELDS[node.type] ?? [];
   const parent = findParent(tree, node.id!);
   const positionable = POSITIONABLE.has(node.type) && parent !== 'stage';
@@ -482,12 +514,19 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
     let maxSi: number | undefined;
     let maxCount: number | undefined;
     let autoPlaceholder: string | undefined;
+    // The exact figure behind a numeric placeholder, in the display unit. The
+    // placeholder is rounded for reading (fmtSig, NumField's own display rule);
+    // the spinner steps from THIS. Both used to be one `toFixed(3)` string in
+    // the display unit, which NumField parsed back as the spinner's base (audit
+    // 2026-09-22): in metres the kernel's 9.7 mm rail button read
+    // "default: 0.01", and one ▴ committed 10.5 mm instead of 10.2.
+    let autoValue: number | undefined;
     if (tubeFinBodyR !== null && f.key === 'outerRadius') {
       const n = Math.round(typeof node['finCount'] === 'number' ? (node['finCount'] as number) : 6);
       maxSi = tubeFinMaxRadius(n, tubeFinBodyR) ?? undefined;
       if (typeof raw !== 'number') {
-        const autoUi = toDisplay(tubeFinRadius(node, tubeFinBodyR));
-        autoPlaceholder = `auto: ${Number(autoUi.toFixed(3))}`;
+        autoValue = toDisplay(tubeFinRadius(node, tubeFinBodyR));
+        autoPlaceholder = `auto: ${fmtSig(autoValue, 3, 3)}`;
       }
     }
     if (tubeFinBodyR !== null && f.key === 'finCount') {
@@ -538,11 +577,15 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
     // Same idiom as the shape-parameter default above.
     if (node.type === 'railbutton' && typeof raw !== 'number') {
       const dflt = RAILBUTTON_DEFAULTS[f.key];
-      if (dflt !== undefined) autoPlaceholder = `default: ${Number(toDisplay(dflt).toFixed(3))}`;
+      if (dflt !== undefined) {
+        autoValue = toDisplay(dflt);
+        autoPlaceholder = `default: ${fmtSig(autoValue, 3, 3)}`;
+      }
     }
     // NumField rejects typed values above max — round the display cap up a
-    // hair so typing the shown 3-decimal limit still lands; the commit clamp
-    // below keeps the stored SI value exactly at the ceiling.
+    // hair so typing the limit as NumField shows it (three decimals, or three
+    // figures below 0.1) still lands; the commit clamp below keeps the stored
+    // SI value exactly at the ceiling.
     const maxUi = f.unit === 'count'
       ? maxCount
       : maxSi !== undefined ? Math.ceil(toDisplay(maxSi) * 1e4) / 1e4 : undefined;
@@ -551,8 +594,10 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
       ? f.label.replace(/radius/gi, (m) => (m[0] === 'R' ? 'Diameter' : 'diameter'))
       : f.label;
     /** The accessible name for BOTH controls in this field. The visible
-     *  `<label>` below is a sibling with no htmlFor, so it names neither. */
+     *  `<label>` is wired to the typed box only — a label names one control —
+     *  so the slider needs this, and it begins with the label's own words. */
     const fieldName = quantity ? `${label} (${symbol ?? ''})`.trim() : label;
+    const inputId = idFor(f.key);
     const plainSuffix = PLAIN_SUFFIX[f.unit];
 
     // Step/range are authored in legacy units — convert, then snap the step
@@ -589,27 +634,35 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
     // (sweep, cant angle) — dimensions and counts reject a typed minus sign.
     const allowNegative = f.smin !== undefined && f.smin < 0;
 
+    const fieldLabel = (
+      <label htmlFor={inputId}>
+        {label}
+        {quantity ? <> <UnitChip quantity={quantity} /></> : plainSuffix && ` (${plainSuffix})`}
+      </label>
+    );
+
     return (
       <div className="field" key={f.key}>
-        <label>
-          {label}
-          {quantity ? <> <UnitChip quantity={quantity} /></> : plainSuffix && ` (${plainSuffix})`}
-          {f.key === 'angleOffset' && snapTargets && (
-            <>
-              {' '}
-              <button className="finish-all-btn" title={snapTargets.inlineTitle}
-                onClick={() => onPatch({ angleOffset: snapTargets.inline })}>
-                ▲ on a fin
-              </button>
-              {' '}
-              <button className="finish-all-btn" title={snapTargets.betweenTitle}
-                onClick={() => onPatch({ angleOffset: snapTargets.between })}>
-                ⟂ between fins
-              </button>
-            </>
-          )}
-        </label>
+        {/* The snap buttons sit BESIDE the label, never inside it: a button
+            inside a label is that label's control, so a click on the words
+            would press it (see `uid`). */}
+        {f.key === 'angleOffset' && snapTargets ? (
+          <div>
+            {fieldLabel}
+            {' '}
+            <button className="finish-all-btn" title={snapTargets.inlineTitle}
+              onClick={() => onPatch({ angleOffset: snapTargets.inline })}>
+              ▲ on a fin
+            </button>
+            {' '}
+            <button className="finish-all-btn" title={snapTargets.betweenTitle}
+              onClick={() => onPatch({ angleOffset: snapTargets.between })}>
+              ⟂ between fins
+            </button>
+          </div>
+        ) : fieldLabel}
         <NumField
+          id={inputId}
           ariaLabel={fieldName}
           value={typeof value === 'number' ? value : undefined}
           step={step}
@@ -619,7 +672,11 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
           max={maxUi}
           clampToMax={f.unit === 'count'}
           placeholder={autoPlaceholder}
-          nullable
+          autoValue={autoValue}
+          // Only a field whose blank MEANS something can be cleared; on any
+          // other, an emptied box commits nothing and reverts on blur
+          // (FieldDef.optional).
+          nullable={f.optional === true}
           onCommit={(v) => {
             if (v === null) onPatch({ [f.key]: undefined });
             else commit(v);
@@ -658,12 +715,11 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
         </p>
       )}
       <div className="field">
-        {/* The label is a SIBLING, not a wrapper, and carries no htmlFor — so
-            it names nothing. Every other control in this panel passes an
-            explicit aria-label; these two were the exceptions, announced as a
-            bare "edit text" and "color picker". */}
-        <label>Name</label>
-        <input aria-label="Component name"
+        {/* The label is wired by htmlFor, and the explicit aria-label stays:
+            these two were once announced as a bare "edit text" and "color
+            picker", and every other control in the panel carries one. */}
+        <label htmlFor={idFor('name')}>Name</label>
+        <input id={idFor('name')} aria-label="Component name"
           value={node.name ?? ''} onChange={(e) => onPatch({ name: e.target.value })} />
       </div>
       {KIND_FOR_TYPE[node.type] && (
@@ -827,9 +883,9 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
         <PresetPicker type={node.type} node={node} onApply={onPatch} onClose={() => setShowPresets(false)} />
       )}
       <div className="field" style={{ marginTop: 6 }}>
-        <label>Color (2D/3D display)</label>
+        <label htmlFor={idFor('color')}>Color (2D/3D display)</label>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-          <input type="color" aria-label="Component color" style={{ width: 44, padding: 2, height: 26 }}
+          <input type="color" id={idFor('color')} aria-label="Component color" style={{ width: 44, padding: 2, height: 26 }}
             value={typeof node['color'] === 'string' ? (node['color'] as string) : '#d5d2cb'}
             onChange={(e) => onPatch({ color: e.target.value })} />
           {COLOR_PRESETS.map((c) => (
@@ -877,22 +933,25 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
             );
           }
           if (f.options) {
+            const selectLabel = <label htmlFor={idFor(f.key)}>{f.label}</label>;
             return (
               <div className="field" key={f.key}>
-                <label>
-                  {f.label}
-                  {f.key === 'finish' && onPatchAll && (
-                    <>
-                      {' '}
-                      <button className="finish-all-btn"
-                        title="Apply this finish to every component"
-                        onClick={() => onPatchAll({ finish: node['finish'] ?? 'normal' })}>
-                        → all
-                      </button>
-                    </>
-                  )}
-                </label>
+                {/* "→ all" sits BESIDE the label. Inside it, the button was the
+                    label's control, and a click on the words "Surface finish"
+                    rewrote the finish of every component (audit 2026-09-22). */}
+                {f.key === 'finish' && onPatchAll ? (
+                  <div>
+                    {selectLabel}
+                    {' '}
+                    <button className="finish-all-btn"
+                      title="Apply this finish to every component"
+                      onClick={() => onPatchAll({ finish: node['finish'] ?? 'normal' })}>
+                      → all
+                    </button>
+                  </div>
+                ) : selectLabel}
                 <select
+                  id={idFor(f.key)}
                   aria-label={f.label}
                   // An unset select shows what the READERS fall back to, never
                   // options[0]. Those two disagreed until v0.088: unset finish
@@ -945,11 +1004,12 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
               <Fragment key={f.key}>
                 {renderNumeric(f)}
                 <div className="field">
-                  <label>
+                  <label htmlFor={idFor('innerDiameter')}>
                     {node.type === 'nosecone' ? 'Base inner diameter' : 'Inner diameter'}
                     {' '}<UnitChip quantity="length" />
                   </label>
                   <NumField
+                    id={idFor('innerDiameter')}
                     ariaLabel={node.type === 'nosecone' ? 'Base inner diameter' : 'Inner diameter'}
                     value={siToUi(idQuantity, idSym, innerSi)}
                     step={niceStep(siToUi(idQuantity, idSym, 0.001))}
@@ -1240,14 +1300,19 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
         )}
         <div className="field-grid">
           <div className="field">
-            <label>Mass{node.type.endsWith('finset') ? ' (all fins combined)' : ''} <UnitChip quantity="mass" /></label>
+            <label htmlFor={idFor('overrideMass')}>Mass{node.type.endsWith('finset') ? ' (all fins combined)' : ''} <UnitChip quantity="mass" /></label>
             <NumField
+              id={idFor('overrideMass')}
               ariaLabel="Mass override"
               value={typeof node['overrideMass'] === 'number'
                 ? siToUi('mass', massSym, node['overrideMass'] as number) : undefined}
               step={niceStep(siToUi('mass', massSym, 0.0001))}
               nullable
               placeholder={info ? fmtSi('mass', massSym, info.mass) : undefined}
+              // The spinner steps from the computed figure itself, not from the
+              // placeholder's rounding of it: in kg a 4.5 g part reads "0.004",
+              // and ▴ committed 4.1 g (audit 2026-09-22, as `autoValue` above).
+              autoValue={info ? siToUi('mass', massSym, info.mass) : undefined}
               onCommit={(v) => onPatch(v === null
                 ? { overrideMass: undefined, overrideSubcomponentsMass: undefined, ...statedLaunchMark }
                 : { overrideMass: uiToSi('mass', massSym, v), ...statedLaunchMark })}
@@ -1262,8 +1327,9 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
             />
           </div>
           <div className="field">
-            <label>CG from component top <UnitChip quantity="length" /></label>
+            <label htmlFor={idFor('overrideCGX')}>CG from component top <UnitChip quantity="length" /></label>
             <NumField
+              id={idFor('overrideCGX')}
               ariaLabel="CG override, from component top"
               value={typeof node['overrideCGX'] === 'number'
                 ? lenToUi(node['overrideCGX'] as number) : undefined}
@@ -1271,6 +1337,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
               allowNegative
               nullable
               placeholder={info ? fmtSi('length', lengthSym, info.cgX, 3) : undefined}
+              autoValue={info ? lenToUi(info.cgX) : undefined}
               onCommit={(v) => onPatch(v === null
                 ? { overrideCGX: undefined, overrideSubcomponentsCG: undefined, ...statedLaunchMark }
                 : { overrideCGX: lenFromUi(v), ...statedLaunchMark })}
@@ -1311,10 +1378,11 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
                 whole set — measured, not assumed: Cd 0.5 contributes 1.5 / 2.0
                 / 3.0 on 3 / 4 / 6 fins. That asymmetry has to be on the label
                 or it silently triples someone's drag. */}
-            <label>
+            <label htmlFor={idFor('overrideCD')}>
               Drag coefficient (Cd){node.type.endsWith('finset') ? ' — per fin' : ''}
             </label>
             <NumField
+              id={idFor('overrideCD')}
               ariaLabel="Drag coefficient (Cd) override"
               value={typeof node['overrideCD'] === 'number' ? (node['overrideCD'] as number) : undefined}
               step={0.05}
@@ -1364,8 +1432,9 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
           <h3 style={{ marginTop: 0 }}>Position (in parent)</h3>
           <div className="field-grid">
             <div className="field">
-              <label>Relative to</label>
+              <label htmlFor={idFor('positionMethod')}>Relative to</label>
               <select
+                id={idFor('positionMethod')}
                 aria-label="Position relative to"
                 value={pos.method}
                 onChange={(e) =>
@@ -1377,8 +1446,9 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
               </select>
             </div>
             <div className="field">
-              <label>Offset <UnitChip quantity="length" /></label>
+              <label htmlFor={idFor('positionOffset')}>Offset <UnitChip quantity="length" /></label>
               <NumField
+                id={idFor('positionOffset')}
                 ariaLabel="Position offset"
                 value={lenToUi(pos.offset)}
                 step={niceStep(siToUi('length', lengthSym, 0.001))}
@@ -1393,7 +1463,15 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
                 min={lenToUi(-parentLenSi)}
                 max={lenToUi(parentLenSi)}
                 step={niceStep(siToUi('length', lengthSym, 0.001))}
-                onChange={(v) => {
+                onChange={(v, pointer) => {
+                  // The keyboard steps exactly: snapping an arrow press put it
+                  // straight back on the anchor it had just left (1 mm against
+                  // a 1.5 % window), so the slider stuck at every tube end
+                  // (audit 2026-09-22). Only a pointer drag is magnetic.
+                  if (!pointer) {
+                    onPatch({ position: { ...pos, offset: lenFromUi(v) } });
+                    return;
+                  }
                   // Magnetic slider: snap to structural anchors (tube/sibling ends).
                   // `parent` is a ComponentNode here — positionable excludes 'stage'.
                   // Same frame as the 2D drag (TreeSchematic's onMove) and the

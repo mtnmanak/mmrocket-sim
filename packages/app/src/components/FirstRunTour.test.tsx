@@ -159,4 +159,60 @@ describe('FirstRunTour', () => {
     expect(host.querySelector('.tour-card')).toBeTruthy();
     expect(host.querySelector('.tour-ring')).toBeFalsy();
   });
+
+  /**
+   * Audit 2026-09-22: the card's LEFT was clamped to the viewport and its
+   * vertical position was not. An anchor taller than the room above it (the
+   * tree panel on a short window), or one scrolled out of view, put the card
+   * — Next button and all — past the top or bottom edge.
+   */
+  describe('keeps the card on screen vertically', () => {
+    const VH = 600;
+    const CARD_H = 170; // the height the component places the card by
+    // An own property over the prototype's getter; deleting it restores that.
+    beforeEach(() => {
+      Object.defineProperty(document.documentElement, 'clientHeight', { configurable: true, value: VH });
+    });
+    afterEach(() => {
+      delete (document.documentElement as unknown as Record<string, unknown>)['clientHeight'];
+    });
+
+    const anchorAt = (top: number, bottom: number) => {
+      const tree = anchors.querySelector('[data-tour="tree"]') as HTMLElement;
+      tree.getBoundingClientRect = () =>
+        ({ top, bottom, left: 10, right: 210, width: 200, height: bottom - top, x: 10, y: top }) as DOMRect;
+    };
+    const card = () => host.querySelector('.tour-card') as HTMLElement;
+    const px = (v: string) => Number.parseFloat(v);
+
+    it('an anchor too tall to fit the card above it', async () => {
+      anchorAt(20, 590); // placed above: bottom = 600 − 20 + 10 = 590, top edge at −160
+      mount(() => {}, () => {});
+      await settle();
+      expect(px(card().style.bottom)).toBeLessThanOrEqual(VH - CARD_H - 8);
+      expect(px(card().style.bottom)).toBeGreaterThanOrEqual(8);
+    });
+
+    it('an anchor scrolled below the window', async () => {
+      anchorAt(900, 950); // placed above: bottom = 600 − 900 + 10 = −290
+      mount(() => {}, () => {});
+      await settle();
+      expect(px(card().style.bottom)).toBeGreaterThanOrEqual(8);
+    });
+
+    it('an anchor scrolled above the window', async () => {
+      anchorAt(-300, -200); // placed below: top = −200 + 10 = −190
+      mount(() => {}, () => {});
+      await settle();
+      expect(px(card().style.top)).toBeGreaterThanOrEqual(8);
+      expect(px(card().style.top)).toBeLessThanOrEqual(VH - CARD_H - 8);
+    });
+
+    it('an anchor with room below still gets the card right under it', async () => {
+      anchorAt(40, 80);
+      mount(() => {}, () => {});
+      await settle();
+      expect(px(card().style.top)).toBe(90);
+    });
+  });
 });

@@ -1,6 +1,7 @@
 import type { ComponentNode, ComponentType } from '@online-openrocket/engine';
 import { CLUSTER_OPTIONS } from './cluster.js';
 import { lookupTable } from '../services/xmlUtil.js';
+import { num } from './nodeNum.js';
 
 /**
  * Editor schema: display names, containment rules, default nodes, and the
@@ -128,6 +129,20 @@ export interface FieldDef {
    * shows/accepts the doubled value and swaps "radius" → "diameter" in the label.
    */
   radius?: boolean;
+  /**
+   * BLANK IS A REAL STATE for this field, so clearing the box commits
+   * `undefined`: "auto", a kernel default the panel prints as a placeholder,
+   * "no limit", "off". Every other numeric field DISCARDS an empty draft — the
+   * box reverts to its value on blur (audit 2026-09-22).
+   *
+   * Before this flag every schema field was clearable, and a cleared REQUIRED
+   * dimension had no single meaning: every layer substituted its own hidden
+   * default. A body tube with its length cleared flew 0.3 m in the kernel,
+   * drew 0 long in 3D, measured 0.025 m in the 2D drawing and positioning,
+   * and framed its children's position sliders at 0.2 m. Mark a field
+   * optional only when every reader agrees what its absence means.
+   */
+  optional?: boolean;
 }
 
 const SHAPES: [string, string][] = [
@@ -515,6 +530,13 @@ const FIN_TABS: FieldDef[] = [
   {
     key: 'tabOffsetMethod', label: 'Tab offset from', unit: 'none',
     options: [['top', 'Front of fin'], ['middle', 'Middle of fin'], ['bottom', 'End of fin']],
+    // What an absent method MEANS to every reader — the kernel, the drawing
+    // (TreeSchematic.finTabFront), the cut template, the .ork writer and the
+    // snap anchors all fall back to middle. Without it the panel showed
+    // options[0], "Front of fin", for a tab they all placed mid-fin, and
+    // picking "Front of fin" then fired no change, so the state on screen was
+    // unreachable (audit 2026-09-22).
+    dflt: 'middle',
   },
 ];
 const CD: FieldDef = {
@@ -537,6 +559,7 @@ const CD: FieldDef = {
   // through to, so the fix here is to put the stop out of the slider's reach.
   // A TYPED 0 still means what the user typed: `commit` never applies smin.
   key: 'cd', label: 'Drag coefficient (blank = auto)', unit: 'none', step: 0.05, smin: 0.05, smax: 3,
+  optional: true,
 };
 
 /** Feature #4: supersonic airfoil section + its geometry inputs (see AIRFOIL_SECTIONS). */
@@ -636,19 +659,15 @@ const ASSEMBLY_FIELDS: FieldDef[] = [
  * It replaces the domed aft end this comment used to justify. Tapered into the
  * wind, flat where the lens looks out.
  *
- * ⚠ THE FIELD'S `dflt` BELOW IS STILL 'halfround' AND MUST STAY THAT WAY. The
- * two look like the same number and are not: `dflt` is what an ABSENT key
- * MEANS, so it has to equal the reader fallback in shroudEnds (shroud.ts) or a
- * shroud saved without an end shape would display one shape and fly another.
- * The creation default is what a NEW part is born with. Only the second moved.
- *
- * A file written before the ends were split carries one `fairingShape` for the
- * whole part; it migrates to BOTH ends on read, so an existing shroud is drawn
- * exactly as it was, and no saved design moves with this change.
- *
- * A file written before v0.088 carries one `fairingShape` for the whole part;
- * it migrates to BOTH ends on read, so an existing shroud is drawn exactly as
- * it was.
+ * That is NOT what an ABSENT key means, and the two must not be confused. An
+ * absent end is decided by `shroudEnds` (shroud.ts) alone — half-round on
+ * both ends, and a file written before v0.088 has its single `fairingShape`
+ * migrated to both ends — and the panel shows exactly that, because it
+ * resolves these two selects through the same function (RESOLVE_SELECT in
+ * PropertyPanel). So the two end fields carry NO `dflt`: one used to sit here,
+ * was never read, and the fore end's said 'streamlined' against shroudEnds'
+ * 'halfround' (audit 2026-09-22). The creation default is what a NEW part is
+ * born with (`defaultParams('fairing')`), so no saved design moves with it.
  */
 const END_SHAPES: [string, string][] = [
   ['streamlined', 'Streamlined (tapered)'],
@@ -701,7 +720,10 @@ export const FIELDS: Record<EditorComponentType, FieldDef[]> = {
     // characters ('Cd on frontal area (blank or 0 = from class)'), and there is
     // no tooltip field on FieldDef, so a label is the only copy the box gets.
     // The full explanation lives in the guide and in the RASAero import note.
-    lenMM('nozzleExitDiameter', 'Nozzle exit diameter (drives thrust and drag; 0 = off)', 1, 200),
+    // Optional: blank is "off", the same state the Motors & Launch field's
+    // clear commits (NozzleField), and what its fill-from-the-database rule
+    // looks for.
+    { ...lenMM('nozzleExitDiameter', 'Nozzle exit diameter (drives thrust and drag; 0 = off)', 1, 200), optional: true },
   ],
   nosecone: [
     lenMM('length', 'Length'),
@@ -710,7 +732,8 @@ export const FIELDS: Record<EditorComponentType, FieldDef[]> = {
     { key: 'shape', label: 'Shape', unit: 'none', options: SHAPES },
     // Shown only for shapes that use it (ogive/power/parabolic/haack) —
     // PropertyPanel hides it otherwise and caps it per shape (haack ≤ 1/3).
-    { key: 'shapeParameter', label: 'Shape parameter', unit: 'none', step: 0.05, smin: 0, smax: 1 },
+    // Optional: blank is the shape's kernel default, printed as the placeholder.
+    { key: 'shapeParameter', label: 'Shape parameter', unit: 'none', step: 0.05, smin: 0, smax: 1, optional: true },
     { key: 'filled', label: 'Solid (filled)', unit: 'none', bool: true },
     radMM('shoulderRadius', 'Shoulder radius', 0.5, 80),
     lenMM('shoulderLength', 'Shoulder length', 1, 150),
@@ -724,8 +747,11 @@ export const FIELDS: Record<EditorComponentType, FieldDef[]> = {
     radMM('foreRadius', 'Fore radius', 0.5, 80),
     radMM('aftRadius', 'Aft radius', 0.5, 80),
     lenMM('thickness', 'Wall thickness', 0.1, 10),
-    { key: 'shape', label: 'Shape', unit: 'none', options: SHAPES },
-    { key: 'shapeParameter', label: 'Shape parameter', unit: 'none', step: 0.05, smin: 0, smax: 1 },
+    // A transition with no shape is CONICAL to every reader (the drawing, the
+    // .ork writer, the panel's own shape-parameter rule) — not options[0],
+    // the nose cone's ogive, which the panel used to show for it.
+    { key: 'shape', label: 'Shape', unit: 'none', options: SHAPES, dflt: 'conical' },
+    { key: 'shapeParameter', label: 'Shape parameter', unit: 'none', step: 0.05, smin: 0, smax: 1, optional: true },
     { key: 'filled', label: 'Solid (filled)', unit: 'none', bool: true },
     radMM('foreShoulderRadius', 'Fore shoulder radius', 0.5, 80),
     lenMM('foreShoulderLength', 'Fore shoulder length', 1, 150),
@@ -802,7 +828,9 @@ export const FIELDS: Record<EditorComponentType, FieldDef[]> = {
     // to 12 until audit 2026-09-22, and 9–12 drew tubes the kernel never flew.
     FIN_COUNT,
     lenMM('length', 'Length', 1, 200),
-    radMM('outerRadius', 'Outer radius', 0.5, 50),
+    // Optional: blank is the kernel's auto radius, the one at which the tubes
+    // touch, printed as the placeholder.
+    { ...radMM('outerRadius', 'Outer radius', 0.5, 50), optional: true },
     lenMM('thickness', 'Wall thickness', 0.1, 5),
     FIN_ROTATION,
     FINISH,
@@ -822,7 +850,7 @@ export const FIELDS: Record<EditorComponentType, FieldDef[]> = {
     // A physical property of the airframe (how much room the mount really
     // has), so it lives ON the mount and persists through sessions and .ork
     // files. The Motors & Launch tab offers a per-stage override on top.
-    { key: 'maxMotorLength', label: 'Max motor length (blank = no limit)', unit: 'mm', step: 5 },
+    { key: 'maxMotorLength', label: 'Max motor length (blank = no limit)', unit: 'mm', step: 5, optional: true },
     ...RADIAL_PLACEMENT,
     DENSITY,
   ],
@@ -851,7 +879,11 @@ export const FIELDS: Record<EditorComponentType, FieldDef[]> = {
     MOUNT_ANGLE,
   ],
   railbutton: [
-    lenMM('outerDiameter', 'Outer diameter', 0.5, 20),
+    // All six geometry fields are optional: a button saved before v0.103 has
+    // none of them, and blank is the kernel constructor's part, printed as the
+    // placeholder and used by every reader alike (see RAILBUTTON_DEFAULTS in
+    // PropertyPanel).
+    { ...lenMM('outerDiameter', 'Outer diameter', 0.5, 20), optional: true },
     // THE BUTTON'S FIVE DIMENSIONS ARE ONE FACT, and they were all missing
     // until v0.103 — a button flew, weighed and drew as the kernel
     // constructor's generic 9.7 mm part whatever the user typed or the file
@@ -876,11 +908,11 @@ export const FIELDS: Record<EditorComponentType, FieldDef[]> = {
     // The key is `totalHeight`, NOT `height`: componentTable.ts:74-84 dedupes
     // FIELDS keys ACROSS types and `height` is already the fairing's and the
     // protuberance's, so a `height` column here would be silently swallowed.
-    lenMM('totalHeight', 'Total height', 0.5, 25),
-    lenMM('innerDiameter', 'Inner (waist) diameter', 0.5, 20),
-    lenMM('baseHeight', 'Base / standoff height', 0.5, 12),
-    lenMM('flangeHeight', 'Flange height', 0.5, 12),
-    lenMM('screwHeight', 'Screw-head height', 0.5, 12),
+    { ...lenMM('totalHeight', 'Total height', 0.5, 25), optional: true },
+    { ...lenMM('innerDiameter', 'Inner (waist) diameter', 0.5, 20), optional: true },
+    { ...lenMM('baseHeight', 'Base / standoff height', 0.5, 12), optional: true },
+    { ...lenMM('flangeHeight', 'Flange height', 0.5, 12), optional: true },
+    { ...lenMM('screwHeight', 'Screw-head height', 0.5, 12), optional: true },
     // Rail buttons come in PAIRS (or more): the kernel's RailButton is
     // LineInstanceable — one node draws, weighs and drags as N collinear
     // copies marching AFT from the node's own position at this spacing. That
@@ -930,10 +962,9 @@ export const FIELDS: Record<EditorComponentType, FieldDef[]> = {
     lenMM('length', 'Length (along body)', 5, 500),
     lenMM('width', 'Width (across body)', 2, 200),
     lenMM('height', 'Height (off the surface)', 2, 200),
-    { key: 'fairingForeShape', label: 'Fore end (toward the nose)', unit: 'none',
-      options: END_SHAPES, dflt: 'streamlined' },
-    { key: 'fairingAftShape', label: 'Aft end (toward the tail)', unit: 'none',
-      options: END_SHAPES, dflt: 'halfround' },
+    // No `dflt`: an absent end is whatever shroudEnds says (see END_SHAPES).
+    { key: 'fairingForeShape', label: 'Fore end (toward the nose)', unit: 'none', options: END_SHAPES },
+    { key: 'fairingAftShape', label: 'Aft end (toward the tail)', unit: 'none', options: END_SHAPES },
     CONFORMAL,
     { key: 'mass', label: 'Mass (as built)', unit: 'g', step: 1, smin: 0, smax: 500 },
     MOUNT_ANGLE,
@@ -946,7 +977,10 @@ export const FIELDS: Record<EditorComponentType, FieldDef[]> = {
   // RailButtonCalc contributes no normal force and no friction, so the override
   // IS the whole contribution. Length is drawing/placement only.
   protuberance: [
-    { key: 'dragClass', label: 'Drag class', unit: 'none', options: PROTUBERANCE_CLASSES },
+    // treeModel.protuberanceClass reads an absent class as streamlinedbase;
+    // options[0] is the no-base class, which the panel showed instead.
+    { key: 'dragClass', label: 'Drag class', unit: 'none', options: PROTUBERANCE_CLASSES,
+      dflt: 'streamlinedbase' },
     lenMM('width', 'Width (across body)', 1, 300),
     lenMM('height', 'Height (off the surface)', 1, 300),
     { key: 'count', label: 'How many (identical)', unit: 'count', smin: 1, smax: 24 },
@@ -958,7 +992,7 @@ export const FIELDS: Record<EditorComponentType, FieldDef[]> = {
     // blank both fall through to the class (treeModel.protuberanceExplicitCd),
     // which is why the label names both. A slider has no blank position, so
     // without that the left stop would silently zero the component's physics.
-    { key: 'cdFrontal', label: 'Cd on frontal area (blank or 0 = from class)', unit: 'none', step: 0.05, smin: 0, smax: 2 },
+    { key: 'cdFrontal', label: 'Cd on frontal area (blank or 0 = from class)', unit: 'none', step: 0.05, smin: 0, smax: 2, optional: true },
     { key: 'mass', label: 'Mass, all of them (0 = not counted)', unit: 'g', step: 1, smin: 0, smax: 2000 },
     lenMM('length', 'Length along body (shape only, no drag)', 1, 1000),
     MOUNT_ANGLE,
@@ -1057,4 +1091,31 @@ export function defaultParams(type: EditorComponentType): Partial<ComponentNode>
       position: { method: 'bottom', offset: 0 }, children: [],
     };
   }
+}
+
+/**
+ * How many fins an ABSENT `finCount` means: the kernel constructors' own,
+ * FinSet 3 and TubeFinSet 6 — the same counts `defaultParams` gives a new set.
+ * No importer writes a set without one (the .ork and .rkt readers fall back to
+ * these same 3 / 6). An absent count comes from a design saved while the panel
+ * could still clear the Fin count box — which deleted the key until
+ * FieldDef.optional (audit 2026-09-22) — or from a hand-edited file.
+ */
+export function finCountDefault(type: EditorComponentType): number {
+  return type === 'tubefinset' ? 6 : 3;
+}
+
+/**
+ * The rotation a fin set is born with when it is added to a tube that already
+ * carries one: half the existing set's pitch past its first fin, so the new
+ * fins sit BETWEEN the old ones (2026-08-05d — tube fins + straight fins
+ * interleave).
+ *
+ * The existing set's count falls back per TYPE (audit 2026-09-22). App used a
+ * flat 3, so beside a tube-fin set with no `finCount` — six tubes to the
+ * kernel — the new set turned 60° instead of 30° and landed ON a tube.
+ */
+export function interleaveRotation(existing: ComponentNode): number {
+  const count = Math.max(1, Math.round(num(existing, 'finCount', finCountDefault(existing.type))));
+  return num(existing, 'rotation', 0) + Math.PI / count;
 }

@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { clickable } from './clickable.js';
-import { useDialog } from './useDialog.js';
+import { useBackdropClose, useDialog } from './useDialog.js';
 import type { ComponentNode, ComponentType } from '@online-openrocket/engine';
 import {
   KIND_FOR_TYPE, csvToPresets, loadCustomPresets, loadPresets, presetPatch,
   presetsToCsv, saveCustomPresets, type Preset,
 } from '../services/presets.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
-import { siToUi } from '../prefs/units.js';
+import { fmtSig, siToUi } from '../prefs/units.js';
 import { downloadBlob } from '../services/saveFile.js';
 
 const ROW_CAP = 300;
@@ -72,7 +72,10 @@ export function PresetPicker({ type, node, onApply, onClose }: {
     const v = (k: string) => (typeof p[k] === 'number' ? (p[k] as number) : undefined);
     const d = v('outsideDiameter') ?? v('aftOutsideDiameter') ?? v('diameter');
     const len = v('length');
-    const f = (x: number) => `${siToUi('length', lenSym, x).toFixed(1)}`;
+    // One decimal in mm, as before; three significant figures where one decimal
+    // would flatten it — a fixed `toFixed(1)` printed a 24 mm tube as "⌀0.0 m"
+    // (audit 2026-09-22).
+    const f = (x: number) => fmtSig(siToUi('length', lenSym, x), 3, 1);
     return [d !== undefined ? `⌀${f(d)}` : null, len !== undefined ? `L${f(len)}` : null]
       .filter(Boolean).join(' ') + ` ${lenSym}`;
   };
@@ -143,9 +146,13 @@ export function PresetPicker({ type, node, onApply, onClose }: {
   };
 
   const dialogRef = useDialog(onClose);
+  // Closes only on a press and a release on the backdrop itself, so text
+  // selected in the search box or the table and dragged past the card's edge
+  // keeps it open (audit 2026-09-22).
+  const backdrop = useBackdropClose(onClose);
 
   return (
-    <div className="prefs-overlay" role="presentation" onClick={onClose}>
+    <div className="prefs-overlay" role="presentation" {...backdrop}>
       <div className="prefs-dialog panel motor-browser" role="dialog" aria-modal="true" aria-label="Component presets"
         ref={dialogRef} tabIndex={-1}
         onClick={(e) => e.stopPropagation()}>

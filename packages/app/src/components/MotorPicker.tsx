@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import type { MotorSpec } from '@online-openrocket/engine';
 import { MotorBrowser } from './MotorBrowser.js';
 import { useCatalogue } from './useCatalogue.js';
@@ -76,18 +76,39 @@ export function MotorPicker({ mountDiameterMm, maxMotorLengthM, selectedLabel, o
 
   const current = picks.find((p) => pickLabel(p) === selectedLabel || `${p.des}-${p.delay}` === selectedLabel);
 
+  /**
+   * Which choice is the latest (audit 2026-09-22). A quick pick waits on its
+   * curve; the browser's pick lands at once. A slow quick-pick load used to
+   * resolve AFTER a motor chosen in the browser and overwrite it, moving the
+   * mass, CG and stability with nothing on screen to say why. Every choice
+   * takes a new number, and a load that comes back under an old one is
+   * dropped. (Leaving the card does not: a pick made just before switching
+   * tabs is still the user's latest choice.)
+   */
+  const latest = useRef(0);
+
   const pick = async (p: { mfr: string; des: string; delay: number }): Promise<void> => {
+    const mine = ++latest.current;
     setProblem(null);
     setLoading(pickLabel(p));
     try {
       const m = await loadCatalogueMotor(p.mfr, p.des, p.delay);
+      if (mine !== latest.current) return;
       if (!m) throw new Error(`${pickLabel(p)} is not in the motor database.`);
       onSelect(m.label, m.spec, m.meta);
     } catch (e) {
-      setProblem(e instanceof Error ? e.message : String(e));
+      if (mine === latest.current) setProblem(e instanceof Error ? e.message : String(e));
     } finally {
-      setLoading(null);
+      if (mine === latest.current) setLoading(null);
     }
+  };
+
+  /** The browser's pick: the latest choice, so it retires any quick pick still loading. */
+  const selectFromBrowser = (label: string, spec: MotorSpec, meta: MotorMeta) => {
+    latest.current++;
+    setLoading(null);
+    setProblem(null);
+    onSelect(label, spec, meta);
   };
 
   return (
@@ -135,7 +156,7 @@ export function MotorPicker({ mountDiameterMm, maxMotorLengthM, selectedLabel, o
         <MotorBrowser
           mountDiameterMm={mountDiameterMm}
           maxMotorLengthM={maxMotorLengthM}
-          onSelect={onSelect}
+          onSelect={selectFromBrowser}
           onClose={() => setBrowsing(false)}
           loadedMotors={loadedMotors}
         />

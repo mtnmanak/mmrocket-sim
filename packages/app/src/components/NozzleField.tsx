@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { usePrefs } from '../prefs/PrefsContext.js';
-import { fmtSi, siToUi, uiToSi } from '../prefs/units.js';
+import { fmtSi, niceStep, siToUi, uiToSi } from '../prefs/units.js';
 import { nozzleForMotorId, type NozzleEntry } from '../services/nozzleDb.js';
 import { equivalentExitDiameterM } from '../services/nozzleFollow.js';
 import { NumField } from './NumField.js';
@@ -73,6 +73,7 @@ export function NozzleField({
 }) {
   const { prefs } = usePrefs();
   const sym = prefs.units.motorDimensions;
+  const inputId = useId();
   const [entries, setEntries] = useState<(NozzleEntry | null)[] | null>(null);
 
   const key = motors.map((m) => `${m.motorId}x${m.count}`).join(',');
@@ -126,13 +127,19 @@ export function NozzleField({
   return (
     <div style={{ marginTop: 8 }}>
       <div className="field">
-        <label>
+        {/* htmlFor, or the label's control is the unit chip's <select> — its
+            first labelable descendant — and clicking the words focused that
+            instead of the box (audit 2026-09-22). */}
+        <label htmlFor={inputId}>
           Nozzle exit diameter <UnitChip quantity="motorDimensions" />
         </label>
         <NumField
+          id={inputId}
           ariaLabel={`Nozzle exit diameter for ${stageName} (${sym})`}
           value={exitDiameterM === null ? undefined : siToUi('motorDimensions', sym, exitDiameterM)}
-          step={0.5}
+          // Half a millimetre's worth in the display unit. A fixed 0.5 was half
+          // an INCH in inches — 12.7 mm a click on a 4.8 mm exit (audit 2026-09-22).
+          step={niceStep(siToUi('motorDimensions', sym, 0.0005))}
           min={0}
           nullable
           placeholder={published !== null ? fmtSi('motorDimensions', sym, published) : 'none (0 = off)'}
@@ -161,9 +168,12 @@ export function NozzleField({
           the difference moves apogee. Yours is kept — a value that came in with your own file is not
           overwritten. Change the motor and it will follow the new one.
           {' '}
+          {/* Credited the way the sentence above credits it: the button used to
+              say "Use Klima's" for a figure from the user's own .rse while the
+              sentence said the file (audit 2026-09-22). */}
           <button className="file-btn" style={{ marginLeft: 4 }}
             onClick={() => onCommit(published)}>
-            Use {maker}&rsquo;s {ui(published)}
+            Use {fromFile ? 'the file' : maker}&rsquo;s {ui(published)}
           </button>
         </p>
       )}

@@ -56,6 +56,7 @@ const tree = (): RocketTree => ({
 });
 
 let applied: ScaleResult | null = null;
+let closes = 0;
 
 /**
  * Flush the microtask the mocked `loadPresets` resolves on, INSIDE act(), so the
@@ -64,17 +65,18 @@ let applied: ScaleResult | null = null;
  */
 const flush = async () => { await act(async () => { await Promise.resolve(); }); };
 
-const render = async (assigned: Record<string, number> = {}) => {
+const render = async (assigned: Record<string, number> = {}, design: RocketTree = tree()) => {
   applied = null;
+  closes = 0;
   act(() => {
     root.render(
       <PrefsProvider>
         <ScaleDialog
-          tree={tree()}
+          tree={design}
           assignedMotorDiameters={assigned}
           onApply={(r) => { applied = r; }}
           onSaveBackup={() => {}}
-          onClose={() => {}}
+          onClose={() => { closes++; }}
         />
       </PrefsProvider>,
     );
@@ -98,6 +100,8 @@ const type = (el: HTMLInputElement, value: string) => {
 };
 
 const text = () => host.textContent ?? '';
+const applyButton = (): HTMLButtonElement => [...host.querySelectorAll('button')]
+  .find((b) => b.textContent?.includes('Scale to'))!;
 
 beforeEach(() => {
   localStorage.clear();
@@ -114,9 +118,28 @@ afterEach(() => {
 describe('ScaleDialog', () => {
   it('shows the design it is about to scale, in the preference units', async () => {
     await render();
-    // Metric default: 1050 mm long, 52.0 mm across, doubling by default.
-    expect(text()).toContain('52.0');
+    // Metric default: 1050 mm long, 52 mm across, doubling by default.
+    expect(text()).toContain('1050 × 52 mm becomes 2100 × 104 mm');
     expect(text()).toContain('200.0 %');
+  });
+
+  it('keeps the design readable in metres and feet, not "1 × 0.1 m"', async () => {
+    // Audit 2026-09-22: one fixed decimal in the DISPLAY unit made a 1050 mm ×
+    // 52 mm rocket "1 × 0.1 m becomes 2 × 0.1 m", and two fixed decimals put
+    // both catalogue sizes under one "0.03"/"0.10"-style label.
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { length: 'm' } }));
+    await render();
+    expect(text()).toContain('1.05 × 0.052 m becomes 2.1 × 0.104 m');
+    expect(text()).toContain('The widest body diameter is 0.052 m today');
+    const labels = [...(host.querySelector('#scale-tube') as HTMLSelectElement)
+      .querySelectorAll('optgroup')].map((g) => g.label);
+    expect(labels).toEqual(['0.0334 m', '0.102 m']);
+
+    act(() => root.unmount());
+    root = createRoot(host);
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { length: 'ft' } }));
+    await render();
+    expect(text()).toContain('3.44 × 0.171 ft becomes 6.89 × 0.341 ft');
   });
 
   it('typing a target diameter sets the reciprocal-correct factor', async () => {
@@ -127,7 +150,7 @@ describe('ScaleDialog', () => {
     // rocket, which is exactly why this is pinned.
     type(target!, '102');
     expect(text()).toContain('196.2 %');
-    expect(text()).toContain('102.0');
+    expect(text()).toContain('× 102 mm');
   });
 
   it('typing a factor moves the target diameter with it', async () => {
@@ -135,7 +158,7 @@ describe('ScaleDialog', () => {
     const [factor] = numberInputs();
     type(factor!, '0.5');
     expect(text()).toContain('50.0 %');
-    expect(text()).toContain('26.0'); // half of 52 mm
+    expect(text()).toContain('× 26 mm'); // half of 52 mm
   });
 
   it('names the motor mount it is about to make un-buyable', async () => {
@@ -358,6 +381,131 @@ describe('ScaleDialog', () => {
       .find((b) => b.textContent?.includes('Scale to'))!.textContent;
     expect(after, 'clearing the tube choice must not re-scale off tubeRows[0]')
       .toBe(chosen);
+  });
+
+  /**
+   * Audit 2026-09-22: the target-diameter spinner stepped 1 in the DISPLAY
+   * unit, so in metres one ▴ added a metre to the airframe (×11.2 on a 98 mm
+   * rocket). It steps a millimetre's worth in every unit now.
+   */
+  it('the target-diameter spinner steps a millimetre in metres, not a metre', async () => {
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { length: 'm' } }));
+    await render();
+    const [, target] = numberInputs();
+    const up = target!.closest('.numfield')!.querySelector('button')!;
+    act(() => { up.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    // (0.104 + 0.001) / 0.052, not (0.104 + 1) / 0.052 = 2123.1 %.
+    expect(applyButton().textContent).toBe('Scale to 201.9 %');
+  });
+
+  /**
+   * Audit 2026-09-22: nothing bounded the mount sizes or the factor. A 380 mm
+   * custom bore previewed as "resized" in a 98 mm rocket and applied a motor
+   * tube four times wider than the airframe around it; the Standard sizes list
+   * took an oversized class the same way; and the target diameter and the
+   * catalogue could set a factor the factor box itself refuses.
+   *
+   * This design at ×2: the body tube is 2 × 49 = 98 mm inside and the mount's
+   * scaled walls are 1.6 mm, so the widest bore that fits is 98 − 3.2 = 94.8 mm.
+   */
+  describe('bounds', () => {
+    const mountSelect = () => host.querySelector<HTMLSelectElement>('#mount-size-m')!;
+    const customBore = () =>
+      host.querySelector<HTMLInputElement>('input[aria-label^="Custom mount bore"]')!;
+    const pick = (el: HTMLSelectElement, v: string) => act(() => {
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(el, v);
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    const mountOf = (r: ScaleResult) => r.tree.components[0]!.children![1]!.children![0]!;
+
+    it('refuses a custom bore wider than the body tube it sits in', async () => {
+      await render();
+      pick(mountSelect(), 'custom');
+      type(customBore(), '380');
+      expect(customBore().getAttribute('aria-invalid')).toBe('true');
+      expect(text()).not.toContain('380.0 mm mount you chose');
+      expect(text()).toContain('at most 94.8 mm');
+      type(customBore(), '94');
+      expect(customBore().getAttribute('aria-invalid')).toBeNull();
+      expect(text()).toContain('the 94.0 mm mount you chose');
+      type(customBore(), '95');
+      expect(customBore().getAttribute('aria-invalid')).toBe('true');
+      act(() => { applyButton().dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+      // The last size that fitted is the one applied, inside the 98 mm bore.
+      const mt = mountOf(applied!);
+      expect((mt['outerRadius'] as number) * 2).toBeCloseTo(0.094 + 0.0032, 9);
+    });
+
+    it('greys out a standard size that would not fit, and keeps the ones that do', async () => {
+      await render();
+      const opt = (v: string) => [...mountSelect().options].find((o) => o.value === v)!;
+      for (const big of ['c98', 'c132', 'c152']) expect(opt(big).disabled, big).toBe(true);
+      for (const ok of ['c54', 'c75']) expect(opt(ok).disabled, ok).toBe(false);
+    });
+
+    it('will not apply a snap that makes a mount wider than its body tube', async () => {
+      // A mount that nearly fills its tube: 46.4 mm bore, 48 mm outside, in a
+      // 49 mm bore. At ×1.13 the scaled bore is 52.43 mm and the room
+      // (49 − 1.6) × 1.13 = 53.56 mm, but the nearest standard size is 54.
+      const tight = tree();
+      const mt = tight.components[0]!.children![1]!.children![0]!;
+      mt['outerRadius'] = 0.024;
+      await render({}, tight);
+      type(numberInputs()[0]!, '1.13');
+      const snap = host.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+      act(() => { snap.click(); });
+      expect(text()).toContain('snapped up from 52.4 mm');
+      expect(text()).toContain('at most 53.6 mm');
+      expect(applyButton().disabled).toBe(true);
+      // Nearest is not offered as a choice either, and the scaled size still is.
+      expect([...mountSelect().options].find((o) => o.value === 'nearest')!.disabled).toBe(true);
+      pick(mountSelect(), 'scaled');
+      expect(applyButton().disabled).toBe(false);
+    });
+
+    it('refuses a typed target diameter past the factor box’s own 100×', async () => {
+      await render();
+      const [, target] = numberInputs();
+      act(() => target!.focus());
+      type(target!, '6000'); // 6000 / 52 = 115×
+      expect(target!.getAttribute('aria-invalid')).toBe('true');
+      expect(applyButton().textContent).toBe('Scale to 200.0 %');
+    });
+
+    it('will not apply a catalogue factor outside 0.01–100', async () => {
+      // A 1 mm model: the 102 mm catalogue tube is ×102.
+      const tiny: RocketTree = {
+        name: 'tiny',
+        components: [{
+          type: 'stage', id: 's', children: [
+            { type: 'bodytube', id: 'b', length: 0.02, outerRadius: 0.0005, thickness: 0.0001 } as ComponentNode,
+          ],
+        } as ComponentNode],
+      };
+      await render({}, tiny);
+      const sel = host.querySelector('#scale-tube') as HTMLSelectElement;
+      pick(sel, [...sel.options].find((o) => o.textContent?.includes('LOC 4.0in'))!.value);
+      expect(applyButton().textContent).toBe('Scale to 10200.0 %');
+      expect(applyButton().disabled).toBe(true);
+      expect(text()).toContain('between 0.01× and 100×');
+    });
+  });
+
+  it('closes on a backdrop click, not on a text selection dragged off the card', async () => {
+    // Audit 2026-09-22 (useBackdropClose): the click after a drag lands on the
+    // backdrop, the nearest element holding both the press and the release.
+    await render();
+    const backdrop = host.querySelector('.prefs-overlay')!;
+    const heading = host.querySelector('[role="dialog"] h2')!;
+    const gesture = (down: Element, up: Element) => act(() => {
+      down.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+      up.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
+      backdrop.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    gesture(heading, backdrop);
+    expect(closes).toBe(0);
+    gesture(backdrop, backdrop);
+    expect(closes).toBe(1);
   });
 
   it('says there is nothing to scale when the design has no airframe', async () => {

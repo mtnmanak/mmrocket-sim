@@ -99,6 +99,7 @@ import { flightDataForExport as flightDataForExportPure } from './services/orkFl
 import { estimateMotorRoomForMounts } from './tree/motorRoom.js';
 import { NozzleField } from './components/NozzleField.js';
 import { autoAlignFinSets } from './tree/finAlign.js';
+import { interleaveRotation } from './tree/schema.js';
 import { railInterferenceWarnings, wakeShadowWarnings } from './tree/mountAngle.js';
 import { convertShrouds, findShroudCandidates, type ShroudCandidate } from './tree/shroudConvert.js';
 import { mountBore } from './tree/scaleRocket.js';
@@ -4339,12 +4340,7 @@ export function App() {
                 // (2026-08-05d — tube fins + straight fins interleave).
                 if (type.endsWith('finset') && parent !== 'stage') {
                   const existing = (parent?.children ?? []).find((c) => c.type.endsWith('finset'));
-                  if (existing) {
-                    const exRot = typeof existing['rotation'] === 'number' ? (existing['rotation'] as number) : 0;
-                    const exCount = Math.max(1, Math.round(
-                      typeof existing['finCount'] === 'number' ? (existing['finCount'] as number) : 3));
-                    node['rotation'] = exRot + Math.PI / exCount;
-                  }
+                  if (existing) node['rotation'] = interleaveRotation(existing);
                 }
                 setTree(addChild(tree, parentId, node));
                 setSelectedId(node.id!);
@@ -4495,6 +4491,12 @@ export function App() {
         <aside className="design-props">
           {selectedNode ? (
             <PropertyPanel
+              // Keyed by the component, so nothing the panel holds for one part
+              // — an in-progress field, the export note, a slider's frozen drag
+              // range — is inherited by the next one selected (audit
+              // 2026-09-22: tube A's mass-override draft once committed onto
+              // tube B through this very element).
+              key={selectedNode.id}
               tree={tree}
               node={selectedNode}
               info={selectedInfo}

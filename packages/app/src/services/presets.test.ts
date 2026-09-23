@@ -588,6 +588,16 @@ describe('csvToPresets — a blank cell is blank, whatever whitespace is in it',
     expect(csvToPresets(csv)[0]!.mass).toBe(0.012);
   });
 
+  it('gives a material from a file with no name COLUMN an empty name, never undefined', () => {
+    // Audit 2026-09-22: `name: undefined` made PresetPicker's soundness check
+    // throw on `.trim()`, failing the whole import without naming a row.
+    const csv = 'kind,manufacturer,partNo,description,materialDensity,lineMaterialDensity\n'
+      + 'Parachute,Custom,CH-1,test,50,0.002\n';
+    const [p] = csvToPresets(csv);
+    expect(p!.material?.name).toBe('');
+    expect(p!.lineMaterial?.name).toBe('');
+  });
+
   it('a literal zero mass never becomes an overrideMass of zero', () => {
     // A component that contributes no mass at all, silently, while every other
     // field looks right is a CG and stability-margin error nobody can see.

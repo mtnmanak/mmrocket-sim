@@ -4,6 +4,7 @@ import { act } from 'react-dom/test-utils';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { useDialog } from './useDialog.js';
+import { NumField } from './NumField.js';
 
 /**
  * Pins the modal contract shared by every role="dialog" in the app. Before this
@@ -91,6 +92,35 @@ describe('useDialog', () => {
     // Backward off the start wraps to the last.
     press('Tab', true);
     expect(document.activeElement).toBe(last);
+  });
+
+  /**
+   * Audit 2026-09-22: a NumField's ▴/▾ are tabIndex -1 — the browser never
+   * tabs to them — but the trap counted them, so a trailing NumField's ▾ was
+   * `last`. Tab from the real last control escaped the dialog, and Shift+Tab
+   * from the first landed on ▾ (Enter there decremented the Preferences
+   * dialog's joint clearance).
+   */
+  it('skips tabindex="-1" controls, so a trailing NumField spinner is never an end', () => {
+    function Trailing({ onClose }: { onClose: () => void }) {
+      const ref = useDialog<HTMLDivElement>(onClose);
+      return (
+        <div ref={ref} role="dialog" aria-label="Trailing" tabIndex={-1}>
+          <button>first</button>
+          <NumField value={1} onCommit={() => {}} ariaLabel="clearance" />
+        </div>
+      );
+    }
+    act(() => root.render(<Trailing onClose={() => {}} />));
+    const first = container.querySelector<HTMLButtonElement>('button')!;
+    const field = container.querySelector<HTMLInputElement>('input[aria-label="clearance"]')!;
+
+    act(() => field.focus());
+    press('Tab');
+    expect(document.activeElement, 'Tab from the last real control wraps').toBe(first);
+
+    press('Tab', true);
+    expect(document.activeElement, 'Shift+Tab from the first lands on the field, not ▾').toBe(field);
   });
 
   it('only the innermost dialog answers Escape', () => {

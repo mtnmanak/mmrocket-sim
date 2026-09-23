@@ -2,7 +2,7 @@ import {
   useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode,
 } from 'react';
 import { clickable } from './clickable.js';
-import { useDialog } from './useDialog.js';
+import { useBackdropClose, useDialog } from './useDialog.js';
 import { useCatalogue, useCatalogueOverlay } from './useCatalogue.js';
 import {
   changedMotorsInDesign, checkForCatalogueUpdates, describeOverlay, discardCatalogueOverlay,
@@ -509,9 +509,13 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
   };
 
   const dialogRef = useDialog(onClose);
+  // Closes only on a press and a release on the backdrop itself, so text
+  // selected in the search box or the table and dragged past the card's edge
+  // keeps it open (audit 2026-09-22).
+  const backdrop = useBackdropClose(onClose);
 
   return (
-    <div className="prefs-overlay" role="presentation" onClick={onClose}>
+    <div className="prefs-overlay" role="presentation" {...backdrop}>
       <div
         className="prefs-dialog panel motor-browser"
         role="dialog"

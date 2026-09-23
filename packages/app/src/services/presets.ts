@@ -403,16 +403,20 @@ export function csvToPresets(csv: string): Preset[] {
     // name with no density skipped the material block entirely and imported as
     // a clean success, so the part kept its old weight under a new label —
     // exactly the silent case the paragraph above refuses.
+    // A missing NAME COLUMN is the same half pair (audit 2026-09-22): the cell
+    // is undefined, not '', and a `name` of undefined made rowIsSound's
+    // `.trim()` throw, so the whole import failed naming no row. `?? ''` keeps
+    // the declared string type, and the empty name is refused and named.
     if (row['materialName'] || row['materialDensity']) {
       p.material = {
-        name: row['materialName']!,
+        name: row['materialName'] ?? '',
         type: row['materialType'] || (SURFACE_KINDS.has(p.kind) ? 'SURFACE' : 'BULK'),
         density: Number(row['materialDensity']),
       };
     }
     if (row['lineMaterialName'] || row['lineMaterialDensity']) {
       p.lineMaterial = {
-        name: row['lineMaterialName']!,
+        name: row['lineMaterialName'] ?? '',
         type: 'LINE',
         density: Number(row['lineMaterialDensity']),
       };

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useDialog } from './useDialog.js';
+import { useBackdropClose, useDialog } from './useDialog.js';
 import { GUIDE_SECTIONS } from '../data/userGuide.js';
 import { APP_VERSION } from '../version.js';
 
@@ -13,9 +13,10 @@ export function GuideDialog({ onClose }: { onClose: () => void }) {
   const [active, setActive] = useState(GUIDE_SECTIONS[0]?.id ?? '');
   const current = GUIDE_SECTIONS.find((s) => s.id === active) ?? GUIDE_SECTIONS[0];
   const dialogRef = useDialog(onClose);
+  const backdrop = useBackdropClose(onClose);
 
   return (
-    <div className="prefs-overlay" role="presentation" onClick={onClose}>
+    <div className="prefs-overlay" role="presentation" {...backdrop}>
       <div className="guide-dialog panel" role="dialog" aria-modal="true" aria-label="User guide"
         ref={dialogRef} tabIndex={-1}
         onClick={(e) => e.stopPropagation()}>

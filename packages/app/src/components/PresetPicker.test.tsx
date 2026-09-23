@@ -124,6 +124,50 @@ describe('PresetPicker — CSV import', () => {
     expect(text()).not.toContain('Imported 1 preset(s)');
     expect(text()).toContain('1 row(s) skipped'); // the bad row is still reported
   });
+
+  /**
+   * Audit 2026-09-22: a CSV with a density column but NO materialName column
+   * parsed each material with an undefined name, and the soundness check's
+   * `m.name.trim()` threw — "CSV import failed: Cannot read properties of
+   * undefined", nothing imported and no row named. A missing name is a half
+   * pair like any other: that row is skipped and named, and the rest import.
+   */
+  it('skips and names a row whose material has a density but no name column', async () => {
+    await render();
+    await importCsv([
+      'kind,manufacturer,partNo,description,materialDensity,outsideDiameter',
+      'BodyTube,ACME,NONAME-1,Density only,680,0.024',
+      'BodyTube,ACME,PLAIN-1,No material at all,,0.024',
+    ].join('\n'));
+
+    expect(text()).not.toContain('CSV import failed');
+    expect(text()).toContain('Imported 1 preset(s)');
+    expect(text()).toContain('1 row(s) skipped');
+    expect(text()).toContain('NONAME-1');
+    expect(loadCustomPresets().map((p) => p.partNo)).toEqual(['PLAIN-1']);
+  });
+});
+
+describe('PresetPicker — dimensions', () => {
+  const T24 = JSON.stringify([{
+    kind: 'BodyTube', manufacturer: 'ACME', partNo: 'T-24', description: '',
+    outsideDiameter: 0.02413, length: 0.4572,
+  }]);
+
+  it('keeps a part’s size readable in metres rather than "⌀0.0 L0.5 m"', async () => {
+    // Audit 2026-09-22: one fixed decimal in the DISPLAY unit printed a 24 mm
+    // tube as ⌀0.0 in metres, and every sub-50 mm part the same way.
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { length: 'm' } }));
+    localStorage.setItem('online-openrocket.custom-presets.v1', T24);
+    await render();
+    expect(text()).toContain('⌀0.0241 L0.457 m');
+  });
+
+  it('shows millimetres to one decimal, as before', async () => {
+    localStorage.setItem('online-openrocket.custom-presets.v1', T24);
+    await render();
+    expect(text()).toContain('⌀24.1 L457.2 mm');
+  });
 });
 
 describe('PresetPicker — labelling', () => {

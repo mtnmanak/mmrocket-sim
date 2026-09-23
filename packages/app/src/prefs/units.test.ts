@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   IMPERIAL_UNITS, INITIAL_UNITS, METRIC_UNITS, UNITS,
-  fmtSi, niceStep, siToUi, uiToSi, type Quantity,
+  fmtSi, fmtSig, niceStep, readDecimal, siToUi, uiToSi, type Quantity,
 } from './units.js';
 
 describe('unit conversions (factors from desktop UnitGroup 24.12)', () => {
@@ -120,3 +120,106 @@ describe('fmtSi — the app’s single SI display formatter', () => {
   });
 });
 
+describe('fmtSig — a display-unit value that does not collapse in a big unit', () => {
+  /**
+   * Audit 2026-09-22: decimal counts chosen for millimetres were inherited by
+   * metres and feet — a 98 mm airframe read "0.1 m", 215 catalogue tube sizes
+   * printed as 22 labels in metres, and a 0.4 mm wall showed "0".
+   */
+  it('keeps `places` decimals where they carry the figure, as the mm sites did', () => {
+    expect(fmtSig(98, 3, 1)).toBe('98');        // trailing zero stripped
+    expect(fmtSig(52.37, 3, 1)).toBe('52.4');
+    expect(fmtSig(1219.2, 3, 0)).toBe('1219');  // the integer part is never rounded
+    expect(fmtSig(304.8, 3, 1)).toBe('304.8');
+    expect(fmtSig(100, 3, 0)).toBe('100');      // no point, so no zero is lost
+    expect(fmtSig(12.3456789, 3, 3)).toBe('12.346');
+  });
+
+  it('switches to significant figures where `places` would flatten a small value', () => {
+    expect(fmtSig(0.098, 3, 1)).toBe('0.098');
+    expect(fmtSig(0.0004, 3, 3)).toBe('0.0004');
+    expect(fmtSig(0.0254, 4, 2)).toBe('0.0254');
+    expect(fmtSig(0.02413, 4, 2)).toBe('0.02413');
+    expect(fmtSig(-0.0123456, 3, 1)).toBe('-0.0123');
+  });
+
+  it('prints zero as "0" and a non-finite value as a dash', () => {
+    expect(fmtSig(0, 3, 3)).toBe('0');
+    expect(fmtSig(Number.NaN, 3)).toBe('—');
+    expect(fmtSig(Number.POSITIVE_INFINITY, 3)).toBe('—');
+  });
+
+  it('keeps two close tube sizes apart in metres and feet, where two decimals did not', () => {
+    // Four figures, as the Scale dialog's size list uses. 23.00 and 24.13 mm
+    // were one "0.02 m" label at two decimals.
+    const m = (mm: number) => fmtSig(siToUi('length', 'm', mm / 1000), 4, 2);
+    expect([m(23), m(24.13)]).toEqual(['0.023', '0.02413']);
+    const ft = (mm: number) => fmtSig(siToUi('length', 'ft', mm / 1000), 4, 2);
+    expect(ft(98)).toBe('0.3215');
+  });
+});
+
+
+describe('readDecimal — the one parser behind every typed number', () => {
+  it('reads what Number() reads, and refuses what is not one finite number', () => {
+    expect(readDecimal('2.5')).toBe(2.5);
+    expect(readDecimal(' -3 ')).toBe(-3);
+    expect(readDecimal('.5')).toBe(0.5);
+    for (const t of ['', '  ', '-', '.', 'abc', '1e400', 'Infinity', 'NaN']) {
+      expect(readDecimal(t), t).toBeNull();
+    }
+  });
+
+  /**
+   * Audit 2026-09-22: in a comma-decimal locale an iPhone's decimal pad has no
+   * "." key, and Number('1,5') is NaN, so no fraction could be typed at all.
+   */
+  it('accepts a single comma as the decimal separator', () => {
+    for (const comma of [false, true]) {
+      expect(readDecimal('1,5', comma)).toBe(1.5);
+      expect(readDecimal('0,25', comma)).toBe(0.25);
+      expect(readDecimal('-12,3456', comma)).toBe(-12.3456);
+      expect(readDecimal('1,50', comma)).toBe(1.5);
+      expect(readDecimal(',5', comma)).toBe(0.5);
+    }
+  });
+
+  it('refuses "10,000" in a decimal-point locale rather than reading it as 10', () => {
+    // A thousands group. Read as a decimal comma it would silently turn ten
+    // thousand feet into ten; refused, the input shows its error border.
+    expect(readDecimal('10,000', false)).toBeNull();
+    expect(readDecimal('1,500', false)).toBeNull();
+    // Where the locale itself writes a decimal comma, that is what it means.
+    expect(readDecimal('1,500', true)).toBe(1.5);
+  });
+
+  it('refuses "10.000" in a decimal-comma locale, where that is how ten thousand is written', () => {
+    // The mirror case (review of the audit fix): it fell through to Number()
+    // and read 10, so a German user's 10.000 ft swept at ten feet, unmarked.
+    expect(readDecimal('10.000', true)).toBeNull();
+    expect(readDecimal('1.500', true)).toBeNull();
+    expect(readDecimal('-2.500', true)).toBeNull();
+    // A point that cannot be a group still reads as a decimal point there.
+    expect(readDecimal('1.5', true)).toBe(1.5);
+    expect(readDecimal('1.2345', true)).toBe(1.2345);
+    expect(readDecimal('1000.000', true)).toBe(1000);
+    // And at home a decimal point is only ever a decimal point.
+    expect(readDecimal('10.000', false)).toBe(10);
+  });
+
+  it('never refuses a leading-zero figure, which no thousands group can be', () => {
+    for (const comma of [false, true]) {
+      expect(readDecimal('0,125', comma)).toBe(0.125);
+      expect(readDecimal('0.125', comma)).toBe(0.125);
+      expect(readDecimal('-0,375', comma)).toBe(-0.375);
+    }
+  });
+
+  it('refuses grouping it cannot read with certainty in any locale', () => {
+    for (const comma of [false, true]) {
+      expect(readDecimal('1,000,000', comma)).toBeNull();
+      expect(readDecimal('1,000.5', comma)).toBeNull();
+      expect(readDecimal('1.000,5', comma)).toBeNull();
+    }
+  });
+});

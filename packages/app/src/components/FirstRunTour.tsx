@@ -163,10 +163,16 @@ export function FirstRunTour({ onSetTab, onClose }: {
   let cardStyle: React.CSSProperties;
   if (anchor.rect) {
     const r = anchor.rect;
-    const below = r.bottom + GAP + 170 < vh;
+    const cardH = 170; // the card's height, near enough to place it by
+    const below = r.bottom + GAP + cardH < vh;
+    // Vertically clamped too (audit 2026-09-22): only `left` was, so an anchor
+    // taller than the room above it (the tree on a short window) or one
+    // scrolled out of view put the card, Next button and all, off the top or
+    // bottom edge. Better over the anchor than off the screen.
+    const onScreen = (v: number) => Math.min(Math.max(8, v), Math.max(8, vh - cardH - 8));
     cardStyle = {
       left: Math.min(Math.max(8, r.left), Math.max(8, vw - CARD_W - 8)),
-      ...(below ? { top: r.bottom + GAP } : { bottom: vh - r.top + GAP }),
+      ...(below ? { top: onScreen(r.bottom + GAP) } : { bottom: onScreen(vh - r.top + GAP) }),
     };
   } else {
     cardStyle = { left: Math.max(8, (vw - CARD_W) / 2), top: vh * 0.3 };

@@ -132,10 +132,11 @@ describe('RecoverySizingPanel', () => {
       // booster, in the order they land.
       expect(text()).toMatch(/SustainerSized for 6[.,]00\s*kg/);
       expect(text()).toMatch(/BoosterSized for 2[.,]80\s*kg/);
-      // And the booster's bay is its own: the sustainer's 3.9 in bore excludes
-      // wide canopies, the booster's 7.9 in bore excludes none.
+      // And the booster's bay is its own: the sustainer's 3.94 in bore excludes
+      // wide canopies, the booster's 7.87 in bore excludes none. (Three
+      // significant figures since the 2026-09-22 audit: it read "3.9 in".)
       const foot = (i: number) => bands()[i]?.querySelector('.recovery-band-foot')?.textContent ?? '';
-      expect(foot(0)).toContain('3.9 in bore');
+      expect(foot(0)).toContain('3.94 in bore');
       expect(foot(2)).not.toContain('pack wider');
     });
 
@@ -259,6 +260,33 @@ describe('RecoverySizingPanel', () => {
     expect(drogue!.textContent).not.toContain('Per canopy');
     // 8.786 kg on two Cd 2.2 canopies at sea level: 65 in / sqrt 2.
     expect(sizeLine(0)).toMatch(/^about 46 in at Cd 2\.2/);
+  });
+
+  it('keeps its sizes readable in metres', async () => {
+    // Audit 2026-09-22: one fixed decimal in the display unit printed this
+    // 54 mm airframe's bore as "0.1 m", and every packed size as 0.0 or 0.1 m.
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({
+      units: { length: 'm', velocity: 'm/s', mass: 'kg', distance: 'm' },
+    }));
+    const narrow: RocketTree = {
+      name: 'narrow',
+      components: [{
+        type: 'stage', id: 's', children: [{
+          type: 'bodytube', id: 'bt', length: 1, outerRadius: 0.028, thickness: 0.001,
+        }],
+      } as unknown as ComponentNode],
+    };
+    await mount({ tree: narrow });
+    expect(text()).toContain('0.054 m bore');
+    const packed = rows(0).map((r) => /packs ([\d.]+) × ([\d.]+) m/
+      .exec(r.querySelector('.recovery-part-meta')?.textContent ?? ''));
+    expect(packed.some((m) => m !== null)).toBe(true);
+    for (const m of packed) {
+      if (!m) continue;
+      // Two significant figures at least — never a lone "0.0" or "0.1".
+      expect(m[1], m[0]).not.toMatch(/^0\.\d$/);
+      expect(Number(m[1])).toBeLessThanOrEqual(0.054);
+    }
   });
 
   it('marks a drogue over the app’s own 70 ft/s threshold in the report’s words', async () => {

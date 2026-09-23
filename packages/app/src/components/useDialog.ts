@@ -1,4 +1,6 @@
-import { useEffect, useRef } from 'react';
+import {
+  useEffect, useRef, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent,
+} from 'react';
 
 /**
  * Shared modal behaviour for every `role="dialog"` overlay in the app.
@@ -19,14 +21,23 @@ import { useEffect, useRef } from 'react';
  * so it can hold focus when it contains nothing focusable yet.
  */
 
+/**
+ * What Tab can land on. Every entry excludes `tabindex="-1"`, which takes an
+ * element OUT of the tab order however focusable it is (audit 2026-09-22):
+ * without that, a trailing NumField's ▾ button — tabIndex -1, so the browser
+ * never tabs to it — was taken for the dialog's `last`. Tab from the real
+ * last control then was not wrapped and escaped into the page behind the
+ * scrim, and Shift+Tab from the first landed on ▾, where Enter decremented
+ * the Preferences dialog's joint clearance.
+ */
 const FOCUSABLE = [
   'a[href]',
   'button:not([disabled])',
   'input:not([disabled]):not([type="hidden"])',
   'select:not([disabled])',
   'textarea:not([disabled])',
-  '[tabindex]:not([tabindex="-1"])',
-].join(',');
+  '[tabindex]',
+].map((sel) => `${sel}:not([tabindex="-1"])`).join(',');
 
 /** Open dialogs, innermost last. Only the last one answers Escape. */
 const stack: symbol[] = [];
@@ -102,6 +113,32 @@ export function useDialog<T extends HTMLElement = HTMLDivElement>(onClose: () =>
   }, []);
 
   return ref;
+}
+
+/**
+ * Props for a dialog's backdrop that close it on a click which STARTS and ENDS
+ * on the backdrop itself: `<div className="prefs-overlay" {...backdrop}>`.
+ *
+ * `onClick={onClose}` on the backdrop closed the dialog for ANY click whose
+ * target was the backdrop, and a click's target is the nearest element holding
+ * both the press and the release (audit 2026-09-22). Select text in the guide,
+ * let the drag run off the card's edge, and that element is the backdrop: the
+ * dialog closed under the selection. The card's `stopPropagation` cannot help,
+ * because such a click never reaches the card.
+ */
+export function useBackdropClose(onClose: () => void) {
+  const pressed = useRef(false);
+  const released = useRef(false);
+  return {
+    onPointerDown: (e: ReactPointerEvent<HTMLElement>) => { pressed.current = e.target === e.currentTarget; },
+    onPointerUp: (e: ReactPointerEvent<HTMLElement>) => { released.current = e.target === e.currentTarget; },
+    onClick: (e: ReactMouseEvent<HTMLElement>) => {
+      const onBackdrop = pressed.current && released.current && e.target === e.currentTarget;
+      pressed.current = false;
+      released.current = false;
+      if (onBackdrop) onClose();
+    },
+  };
 }
 
 /**

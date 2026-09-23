@@ -3,6 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { NumField } from './NumField.js';
+import { LOCALE_DECIMAL_COMMA } from '../prefs/units.js';
 
 /**
  * NumField is the single numeric input every dimension in the app passes
@@ -23,32 +24,59 @@ let commits: (number | null)[];
 type Props = Parameters<typeof NumField>[0];
 
 /**
- * A fresh `key` each time: NumField keeps the in-progress draft in its own
- * state, so re-rendering the same element position inside one test would carry
- * the previous case's draft into the next one.
+ * A fresh `key` per `render()`: every case starts from a newly mounted field,
+ * so one case's focus cannot leak into the next. `rerender()` keeps the SAME
+ * element, which is what the parent panel does when the selection, an undo or
+ * a unit switch hands the field a new value — the case the draft used to
+ * survive (audit 2026-09-22), pinned in "a spinner click leaves no draft".
  */
 let seq = 0;
+let current: Partial<Props> = {};
+/** Re-render with each committed value, the way every real call site does. */
+let controlled = false;
 
-const render = (props: Partial<Props> = {}) => {
+const element = () => (
+  <NumField
+    key={seq}
+    value={undefined}
+    onCommit={(v) => {
+      commits.push(v);
+      // Already inside the act() that dispatched the event.
+      if (controlled && v !== null) { current = { ...current, value: v }; root.render(element()); }
+    }}
+    {...current}
+  />
+);
+
+const mount = () => act(() => { root.render(element()); });
+
+const render = (props: Partial<Props> = {}, opts: { controlled?: boolean } = {}) => {
   commits = [];
   seq += 1;
-  act(() => {
-    root.render(
-      <NumField
-        key={seq}
-        value={undefined}
-        onCommit={(v) => commits.push(v)}
-        {...props}
-      />,
-    );
-  });
+  controlled = opts.controlled ?? false;
+  current = props;
+  mount();
+};
+
+/** Same element, new props — as a parent re-render. */
+const rerender = (props: Partial<Props>) => {
+  current = { ...current, ...props };
+  mount();
 };
 
 const input = (): HTMLInputElement => host.querySelector('input')!;
 const spinners = (): HTMLButtonElement[] => [...host.querySelectorAll('button')];
 
-/** Native setter + input event — how React sees a real keystroke. */
+const focus = () => act(() => input().focus());
+const blur = () => act(() => input().blur());
+const focused = () => document.activeElement === input();
+
+/**
+ * Native setter + input event — how React sees a real keystroke. A keystroke
+ * only reaches a focused input, so it focuses first when nothing has.
+ */
 const type = (value: string) => {
+  if (!focused()) focus();
   act(() => {
     const setter = Object.getOwnPropertyDescriptor(
       HTMLInputElement.prototype, 'value')!.set!;
@@ -57,11 +85,14 @@ const type = (value: string) => {
   });
 };
 
-const focus = () => act(() => { input().dispatchEvent(new FocusEvent('focusin', { bubbles: true })); });
-const blur = () => act(() => { input().dispatchEvent(new FocusEvent('focusout', { bubbles: true })); });
-const key = (k: string) => act(() => {
-  input().dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true }));
-});
+/** A key press, which likewise only reaches a focused input. */
+const key = (k: string) => {
+  if (!focused()) focus();
+  act(() => {
+    input().dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true }));
+  });
+};
+/** A spinner click. ▴/▾ preventDefault their mousedown, so this never focuses. */
 const click = (btn: HTMLButtonElement) => act(() => {
   btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 });
@@ -83,6 +114,22 @@ describe('NumField — typing', () => {
     expect(input().value).toBe('12.346');
     focus();
     expect(input().value).toBe('12.3456789');
+  });
+
+  it('keeps three significant figures where three decimals would round a value away', () => {
+    // Audit 2026-09-22: in metres a 0.4 mm wall is 0.0004, and at a flat three
+    // decimals the unfocused box showed "0" for a wall that is there.
+    render({ value: 0.0004 });
+    expect(input().value).toBe('0.0004');
+    render({ value: 0.0123456 });
+    expect(input().value).toBe('0.0123');
+    // 0.1 and up read exactly as the three-decimal cap always did.
+    render({ value: 0.1234567 });
+    expect(input().value).toBe('0.123');
+    render({ value: 1219.25 });
+    expect(input().value).toBe('1219.25');
+    render({ value: 0 });
+    expect(input().value).toBe('0');
   });
 
   it('commits every draft that parses', () => {
@@ -154,6 +201,25 @@ describe('NumField — typing', () => {
     expect(commits).toEqual([4]);
   });
 
+  it('reads a decimal comma, and refuses a thousands group instead of misreading it', () => {
+    // Audit 2026-09-22: "1,5" was NaN, so a comma-decimal iPhone user could
+    // type no fraction at all. "10,000" must not become 10 in the process.
+    render({ value: 1 });
+    type('1,5');
+    expect(commits).toEqual([1.5]);
+    type('10,000');
+    if (LOCALE_DECIMAL_COMMA) {
+      expect(commits).toEqual([1.5, 10]); // "10,000" IS ten, where 1,5 is 1.5
+    } else {
+      expect(commits).toEqual([1.5]);
+      expect(input().className).toBe('num-invalid');
+    }
+    // Mid-typing "-," is as incomplete as "-.", not an error.
+    render({ value: 1, allowNegative: true });
+    type('-,');
+    expect(input().className).not.toBe('num-invalid');
+  });
+
   it('clearing commits null when nullable, nothing otherwise', () => {
     render({ value: 4, nullable: true });
     type('');
@@ -207,13 +273,48 @@ describe('NumField — stepping', () => {
    * a rocket nobody had weighed.
    */
   it('steps a blank field from the auto value its placeholder shows', () => {
-    render({ value: undefined, nullable: true, step: 5, placeholder: '245.3' });
+    render({ value: undefined, nullable: true, step: 5, placeholder: '245.3' }, { controlled: true });
     click(spinners()[1]!); // ▾
     expect(commits).toEqual([240.3]);
     // The field is no longer blank after that first commit, so the second click
     // steps from what it now holds — the auto value is only the SEED.
     click(spinners()[0]!); // ▴
     expect(commits).toEqual([240.3, 245.3]);
+  });
+
+  /**
+   * Audit 2026-09-22 (HIGH), measured through the real panel: the spinner never
+   * focuses the input, but it wrote its result into the draft, which only a
+   * blur clears. PropertyPanel is one element for every selected component, so
+   * tube B's blank Mass override showed tube A's figure and one ▴ committed A's
+   * mass plus a step onto B. The same element here, handed a new value the way
+   * a selection change, an undo or a unit switch hands it one.
+   */
+  it('a spinner click leaves no draft: the display and the next step follow a new value', () => {
+    render({ value: 45.1, step: 0.1, nullable: true });
+    click(spinners()[0]!); // ▴ on "tube A", unfocused
+    expect(commits).toEqual([45.2]);
+
+    // "Tube B": a different committed value.
+    rerender({ value: 7 });
+    expect(input().value, 'the display follows the new value').toBe('7');
+    click(spinners()[0]!);
+    expect(commits, 'the next step works off 7, not off 45.2').toEqual([45.2, 7.1]);
+
+    // "Tube C": blank, with its own computed mass in the placeholder.
+    rerender({ value: undefined, placeholder: '120' });
+    expect(input().value, 'a blank field stays blank').toBe('');
+    click(spinners()[0]!);
+    expect(commits, 'seeded from 120, not from any earlier figure').toEqual([45.2, 7.1, 120.1]);
+  });
+
+  it('a focused field keeps its draft across a parent re-render', () => {
+    // The other half of the contract: while the user is typing, the draft is
+    // theirs, and a re-render with the (just committed) value must not snap it.
+    render({ value: 1, allowNegative: true });
+    type('-');
+    rerender({ value: 1 });
+    expect(input().value).toBe('-');
   });
 
   it('reads the auto value out of a labelled placeholder', () => {
@@ -235,12 +336,28 @@ describe('NumField — stepping', () => {
     expect(commits).toEqual([250.34]);
   });
 
-  it('still seeds from zero when the placeholder names a state, not a number', () => {
-    // "—", "standard", "plugged", "no limit": blank means "none" there, so
-    // stepping up to one `step` is the right seed and stays as it was.
-    render({ value: undefined, nullable: true, step: 10, placeholder: '—' });
-    click(spinners()[0]!);
-    expect(commits).toEqual([10]);
+  /**
+   * Audit 2026-09-22: a blank field whose placeholder names a state — "auto",
+   * "standard", "plugged", "no limit", "—" — or shows nothing has no number to
+   * step from. It used to seed from 0: ▴ on a blank Cd override committed 0.05
+   * and ▾ committed 0, replacing the component's whole drag, and the time step
+   * ("standard") committed its 0.01 s floor. Now it commits nothing and puts
+   * the caret in the box.
+   */
+  it('a blank field with no number behind it commits nothing, and takes focus instead', () => {
+    for (const placeholder of ['auto', 'standard', 'plugged', '—', undefined]) {
+      render({ value: undefined, nullable: true, step: 0.05, placeholder });
+      click(spinners()[0]!);
+      click(spinners()[1]!);
+      expect(commits, String(placeholder)).toEqual([]);
+      expect(document.activeElement, String(placeholder)).toBe(input());
+    }
+    // And from the keyboard, where the field already has focus.
+    render({ value: undefined, nullable: true, step: 0.05, placeholder: 'auto' });
+    key('ArrowUp');
+    key('ArrowDown');
+    expect(commits).toEqual([]);
+    expect(input().value).toBe('');
   });
 
   it('a typed draft still wins over value and autoValue', () => {
@@ -249,6 +366,21 @@ describe('NumField — stepping', () => {
     type('40');
     key('ArrowUp');
     expect(commits).toEqual([40, 41]);
+  });
+});
+
+describe('NumField — the on-screen keyboard', () => {
+  it('a field that takes a negative asks for the full keyboard; the rest keep the decimal pad', () => {
+    // iOS's decimal pad has no minus key (audit 2026-09-22): no negative cant,
+    // offset or CG could be typed on an iPhone.
+    render({ value: 1, allowNegative: true });
+    expect(input().inputMode).toBe('text');
+    render({ value: 1, min: -90, max: 90 });
+    expect(input().inputMode).toBe('text');
+    render({ value: 1 });
+    expect(input().inputMode).toBe('decimal');
+    render({ value: 1, min: 0.01 });
+    expect(input().inputMode).toBe('decimal');
   });
 });
 
