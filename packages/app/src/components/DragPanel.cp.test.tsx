@@ -5,6 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import type { DragSweep, OrkRocket, StaticInfo } from '@online-openrocket/engine';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import { DragPanel } from './DragPanel.js';
+import { APP_VERSION } from '../version.js';
 
 /**
  * THE CP-vs-MACH CHART AND THE CSV cp COLUMN (audit 2026-09-22).
@@ -193,5 +194,67 @@ describe('CP vs Mach — a roll-dependent design says which plane it is', () => 
     // Still comma-free and ASCII, like the rest of the block.
     expect(comments[4]).toMatch(/^[\x20-\x7e]*$/);
     expect(comments[4]).not.toContain(',');
+  });
+});
+
+/**
+ * THE WHOLE FILE, BYTE FOR BYTE — pinned before the table's builder left the
+ * panel for services/ (audit 2026-09-22, extractions carried from 8 September:
+ * "every other exporter in the app lives in src/services/"). Every column,
+ * every header line, the gaps, the name folding, the file name.
+ */
+describe('the Drag table (.csv), byte for byte', () => {
+  it('writes the file it wrote before the move', async () => {
+    const sweep = {
+      machs: [0.5, 1, 2.5],
+      hasNozzle: true,
+      cp: [0, 0.3016, 0.29],
+      cna: [0, 16.27, 15.5],
+      powerOff: { total: [0.45, 0.61, 0.52], friction: [0.2, 0.18, 0.12], pressure: [0.15, 0.33, 0.3], base: [0.1, 0.1, 0.1] },
+      powerOn: { total: [0.4, 0.55, 0.47], friction: [0.2, 0.18, 0.12], pressure: [0.15, 0.33, 0.3], base: [0.05, 0.04, 0.05] },
+      components: [
+        { name: 'Nose cone', cd: [0.1, 0.2, 0.15] },
+        { name: 'Fin set, “3 fins”\nrev B', cd: [0.12, 0.2, 0.19] },
+      ],
+    } as DragSweep;
+    const info = { length: 0.37, cp: 0.301611, cpWorst: 0.032356, cna: 16.27 } as StaticInfo;
+    act(() => root.render(
+      <PrefsProvider>
+        <DragPanel rocket={rocketOf(sweep, info)} designName={'Big “Bertha”\nMk 2, rev B'}
+          fileMachAlt={[[0, 0], [0.9, 7620], [5, 19202.4]]} />
+      </PrefsProvider>,
+    ));
+    act(() => { (host.querySelector('button[aria-expanded]') as HTMLButtonElement).click(); });
+    const cond = host.querySelector('select[aria-label="Sweep conditions"]') as HTMLSelectElement;
+    act(() => { cond.value = 'file'; cond.dispatchEvent(new Event('change', { bubbles: true })); });
+    let saved = '';
+    const blobs: Blob[] = [];
+    vi.spyOn(URL, 'createObjectURL').mockImplementation((b: Blob | MediaSource) => { blobs.push(b as Blob); return 'blob:x'; });
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    const origClick = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function click(this: HTMLAnchorElement) { saved = this.download; };
+    try {
+      const btn = [...host.querySelectorAll('button')].find((b) => (b.textContent ?? '').includes('Drag table (.csv)'))!;
+      act(() => { btn.click(); });
+    } finally {
+      HTMLAnchorElement.prototype.click = origClick;
+    }
+    expect(blobs).toHaveLength(1);
+    expect(blobs[0]!.type).toBe('text/csv');
+    const csv = await blobs[0]!.text();
+    expect(saved).toBe('Big_Bertha_Mk_2_rev_B-drag-table.csv');
+    expect(csv).toBe([
+      `# MMRocket Sim ${APP_VERSION}`,
+      '# design: Big "Bertha" Mk 2; rev B',
+      '# aero model: Rogers Modified Barrowman (Kbf)',
+      '# conditions: file Mach-Alt table - 3 points from Mach 0 to 5 (0-19202 m ISA)',
+      '# cp: one roll plane (theta = 0 with the fins as drawn) - this design\'s CP depends on roll angle;'
+        + ' the app\'s stability margin uses the forward-most CP over all roll angles: 32.356 mm from nose',
+      'mach,cd_power_off,cd_power_on,cp_mm_from_nose,cna_per_rad,friction,pressure,base_power_off,base_power_on,'
+        + 'cd_Nose_cone,cd_Fin_set_"3_fins"_rev_B',
+      '0.5,0.45,0.4,,0,0.2,0.15,0.1,0.05,0.1,0.12',
+      '1,0.61,0.55,301.59999999999997,16.27,0.18,0.33,0.1,0.04,0.2,0.2',
+      '2.5,0.52,0.47,290,15.5,0.12,0.3,0.1,0.05,0.15,0.19',
+    ].join('\n'));
   });
 });

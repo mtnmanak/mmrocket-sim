@@ -330,9 +330,10 @@ export function absoluteStations(tree: RocketTree): Map<string, AbsoluteStation>
  * couplers butted against tubes, etc.).
  *
  * Every length here is `axialLength` — the KERNEL's frame — because the drag
- * (TreeSchematic onMove) and the slider (PropertyPanel) resolve the snapped
- * start back into an offset with the same length, and a ladder built in any
- * other frame lands the part somewhere other than the anchor it snapped to.
+ * (hooks/useAxialDrag.ts, `move`) and the slider (PropertyPanel) resolve the
+ * snapped start back into an offset with the same length, and a ladder built
+ * in any other frame lands the part somewhere other than the anchor it
+ * snapped to.
  * For a fin that also stations its tab against the root chord, which is what
  * the kernel's tab offset is measured from.
  */

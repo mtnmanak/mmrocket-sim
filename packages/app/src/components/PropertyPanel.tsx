@@ -15,6 +15,9 @@ import { anchorStarts, axialLength, offsetForStart, snapStart, startFromPosition
 import { tubeFinMaxCount, tubeFinMaxRadius, tubeFinRadius } from '../tree/tubefins.js';
 import { betweenFinAnglesAmong, finAnglesAmong, frameContaining, nearestAngle } from '../tree/mountAngle.js';
 import { shroudEnds } from '../tree/shroud.js';
+import { finTabFit, shoulderFit } from '../tree/fitHelpers.js';
+import { ventLimit } from '../tree/canopyVent.js';
+import { RAIL_BUTTON_AFT_GAP, railButtonPlacement } from '../services/railButtonPlacement.js';
 
 /**
  * Selects whose displayed value is not simply "the stored key or a default",
@@ -578,16 +581,14 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
         autoPlaceholder = `default: ${shapeParamDefault(sh)}`;
       }
     }
-    // A vent cannot be bigger than the canopy it is cut in. treeModel.ts:1149
-    // already clamps the FLOWN hole to 0.95·D — silently, so the panel could
-    // show a 1 m vent on a 0.3 m chute that the rocket was not flying, on the
-    // one control that scales descent Cd. Same ceiling here, so the two agree
-    // on the number. The 0.3 m fallback for a canopy with no stated diameter
-    // is treeModel's own, and the guard is `> 0` because a canopy diameter
-    // stored as a literal zero is exactly what that function's note is about.
+    // A vent cannot be bigger than the canopy it is cut in. engineTree clamps
+    // the FLOWN hole to 0.95·D — silently, so the panel could show a 1 m vent
+    // on a 0.3 m chute that the rocket was not flying, on the one control that
+    // scales descent Cd. This is the same ceiling by construction: one rule,
+    // tree/canopyVent.ts, with the 0.3 m fallback and the `> 0` guard.
     if (node.type === 'parachute' && f.key === 'spillHoleDiameter') {
-      const canopy = typeof node['diameter'] === 'number' ? (node['diameter'] as number) : 0.3;
-      if (canopy > 0) maxSi = canopy * 0.95;
+      const vent = ventLimit(node);
+      if (vent) maxSi = vent.maxHole;
     }
     // A rail button's five geometry dimensions did not exist as fields before
     // v0.103, so a button in a design saved earlier carries none of them and
@@ -869,56 +870,22 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
         </button>
       )}
       {node.type === 'railbutton' && (() => {
-        /**
-         * One-shot AUTO-PLACE (Eric, 2026-08-31b): two buttons, the aft one
-         * about an inch from the rocket's aft end, the forward one at the CG.
-         * A button, not a mode — he can press it again after the CG moves, and
-         * typed values always win afterwards. Kernel semantics: instance 0 is
-         * the FORWARD button and instanceSeparation marches AFT, so the node
-         * itself is placed at the CG and the separation reaches back.
-         */
+        // One-shot AUTO-PLACE: the pair across the CG and an inch off the
+        // tail — the rule is services/railButtonPlacement.ts; the words are here.
         if (!rocketInfo || !info || !parent || parent === 'stage') return null;
-        const AFT_GAP = 0.0254; // "about an inch"
-        const aftX = rocketInfo.length - AFT_GAP;
-        const fwdX = rocketInfo.cg;
-        // axialLength is ZERO for a rail button, the kernel's own
-        // (`RocketComponent.java:86`). `info.positionX` is the station the
-        // KERNEL reports, so backing the parent's start out of it with the
-        // 25 mm `length` fallback this used to hit overstated it by half that
-        // on the default 'middle' method — and the offset written below then
-        // put the forward button 12.5 mm aft of the CG this feature exists to
-        // hit (25 mm on a 'bottom'-anchored button, which is what the app's
-        // own .ork writer emits for surface parts).
-        const childLen = axialLength(node);
-        const parentAbsStart = (info.positionX ?? 0)
-          - startFromPosition(pos, childLen, parentLenSi ?? 0);
-        // Both buttons must land ON this tube. The CG and the aft end are
-        // WHOLE-ROCKET stations, so on a multi-tube airframe the pair can
-        // easily want to sit outside the tube the component belongs to — the
-        // forward button at a CG two tubes up, say. Rather than emit a
-        // position the tube cannot hold, the button says so and stays off.
-        const parentEnd = parentAbsStart + (parentLenSi ?? 0);
-        const fits = fwdX >= parentAbsStart - 1e-9 && aftX <= parentEnd + 1e-9;
-        const feasible = aftX - fwdX > 0.02 && fits; // buttons must not collide
-        const place = () => {
-          onPatch({
-            instanceCount: 2,
-            instanceSeparation: aftX - fwdX,
-            position: {
-              method: pos.method,
-              offset: offsetForStart(pos.method, fwdX - parentAbsStart, childLen, parentLenSi ?? 0),
-            },
-          } as Partial<ComponentNode>);
-        };
+        const at = railButtonPlacement(node, {
+          rocketLength: rocketInfo.length, cg: rocketInfo.cg, positionX: info.positionX, parentLength: parentLenSi,
+        });
+        const mm = (m: number) => (m * 1000).toFixed(0);
         return (
           <button className="file-btn" style={{ marginTop: 6, width: '100%' }}
-            disabled={!feasible}
-            title={feasible
-              ? `Places two buttons: forward one at the CG (${(fwdX * 1000).toFixed(0)} mm — the loaded CG when a motor is loaded), aft one ${(AFT_GAP * 1000).toFixed(0)} mm from the aft end. Press again after the CG moves; typed values always win afterwards.`
-              : !fits
-                ? `Both buttons would have to sit outside this tube (they want ${(fwdX * 1000).toFixed(0)}–${(aftX * 1000).toFixed(0)} mm from the nose; this tube spans ${(parentAbsStart * 1000).toFixed(0)}–${(parentEnd * 1000).toFixed(0)} mm). Move the rail button to the tube that spans the CG and the aft end, or place them by hand.`
+            disabled={!at.feasible}
+            title={at.feasible
+              ? `Places two buttons: forward one at the CG (${mm(at.fwdX)} mm — the loaded CG when a motor is loaded), aft one ${mm(RAIL_BUTTON_AFT_GAP)} mm from the aft end. Press again after the CG moves; typed values always win afterwards.`
+              : !at.fits
+                ? `Both buttons would have to sit outside this tube (they want ${mm(at.fwdX)}–${mm(at.aftX)} mm from the nose; this tube spans ${mm(at.parentStart)}–${mm(at.parentEnd)} mm). Move the rail button to the tube that spans the CG and the aft end, or place them by hand.`
                 : 'The CG sits within an inch of the aft end — two buttons cannot straddle it. Place them by hand.'}
-            onClick={place}>
+            onClick={() => onPatch(at.patch as Partial<ComponentNode>)}>
             📍 Auto-place rail buttons
           </button>
         );
@@ -1212,39 +1179,18 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
 
       {(node.type === 'trapezoidfinset' || node.type === 'freeformfinset'
         || node.type === 'ellipticalfinset') && (() => {
-        // Tab depth so the tab just touches the motor-mount tube (the owner's
-        // real-build default); falls back to the tube wall if no mount.
-        if (!parent || parent === 'stage') return null;
-        const p = parent as ComponentNode;
-        if (p.type !== 'bodytube' || typeof p['outerRadius'] !== 'number') return null;
-        const outerR = p['outerRadius'] as number;
-        const mount = (p.children ?? []).find(
-          (c) => c.type === 'innertube' && typeof c['outerRadius'] === 'number');
-        const depth = mount
-          ? outerR - (mount['outerRadius'] as number)
-          : ((p['thickness'] as number) ?? 0.001);
-        if (depth <= 0) return null;
-        // The ROOT chord — `axialLength`, the kernel's length: rootChord for a
-        // trapezoid/ellipse, the last point's x for a freeform fin. This used
-        // to take the outline's furthest-aft x, so on a fin whose tip
-        // overhangs its root the "60 %" tab came out as 60 % of the overhang
-        // span: 288 mm on the 361 mm root of `ninja_4in_54mm-MMT.ork`'s fin
-        // shape, 80 % of the root it promised. Only a fin with no tab yet is
-        // sized here (`hasLength` below).
-        const rootLen = axialLength(node);
-        const hasLength = typeof node['tabLength'] === 'number' && (node['tabLength'] as number) > 0;
+        // Tab depth to the motor tube, or the wall; a new tab 60 % of the root
+        // chord (tree/fitHelpers.ts).
+        const tab = finTabFit(node, parent);
+        if (!tab) return null;
         return (
           <button
             className="file-btn"
             style={{ marginTop: 6 }}
-            title={mount
-              ? `Set tab depth to reach the motor tube (${lenToUi(depth)} ${lengthSym})`
-              : `No motor tube found — set tab depth to the tube wall (${lenToUi(depth)} ${lengthSym})`}
-            onClick={() => onPatch({
-              tabHeight: depth,
-              ...(hasLength ? {} : { tabLength: rootLen * 0.6 }),
-              ...(typeof node['tabOffsetMethod'] === 'string' ? {} : { tabOffsetMethod: 'middle', tabOffset: 0 }),
-            })}
+            title={tab.toMount
+              ? `Set tab depth to reach the motor tube (${lenToUi(tab.depth)} ${lengthSym})`
+              : `No motor tube found — set tab depth to the tube wall (${lenToUi(tab.depth)} ${lengthSym})`}
+            onClick={() => onPatch(tab.patch)}
           >
             Fit tab to motor tube
           </button>
@@ -1252,23 +1198,16 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
       })()}
 
       {node.type === 'nosecone' && (() => {
-        // Snap the shoulder into the tube behind the nose: the next body tube
-        // among the SIBLINGS (the enclosing stage's children — tree.components
-        // holds only stage nodes since v0.009).
-        const siblings = parent && parent !== 'stage'
-          ? ((parent as ComponentNode).children ?? [])
-          : tree.components;
-        const idx = siblings.findIndex((n) => n.id === node.id);
-        const tube = siblings.slice(idx + 1).find((n) => n.type === 'bodytube');
-        if (!tube || typeof tube['outerRadius'] !== 'number') return null;
-        const innerR = (tube['outerRadius'] as number) - ((tube['thickness'] as number) ?? 0);
-        const shown = prefs.radiusMode === 'diameter' ? innerR * 2 : innerR;
+        // The shoulder into the tube behind the nose (tree/fitHelpers.ts).
+        const shoulder = shoulderFit(tree, node, parent);
+        if (!shoulder) return null;
+        const shown = prefs.radiusMode === 'diameter' ? shoulder.innerR * 2 : shoulder.innerR;
         return (
           <button
             className="file-btn"
             style={{ marginTop: 6 }}
             title={`Set the shoulder to the adjacent tube's inner ${prefs.radiusMode} (${lenToUi(shown)} ${lengthSym})`}
-            onClick={() => onPatch({ shoulderRadius: innerR })}
+            onClick={() => onPatch(shoulder.patch)}
           >
             Fit shoulder to tube ⌀
           </button>
@@ -1518,7 +1457,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
                   }
                   // Magnetic slider: snap to structural anchors (tube/sibling ends).
                   // `parent` is a ComponentNode here — positionable excludes 'stage'.
-                  // Same frame as the 2D drag (TreeSchematic's onMove) and the
+                  // Same frame as the 2D drag (hooks/useAxialDrag's move) and the
                   // drawings — axialLength, the kernel's length: zero for a
                   // rail button, the root chord for a freeform fin — and the
                   // anchor ladder is built in that frame too.

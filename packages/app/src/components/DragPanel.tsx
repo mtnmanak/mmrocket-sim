@@ -11,10 +11,9 @@ import { panelHeight, panZoomPlugin, plotIsZoomed, resetPlots } from '../chartPa
 import { formatReadout, tooltipPlugin } from '../chartTooltip.js';
 import { chartSummary, nameChartCanvas } from '../chartSummary.js';
 import { downloadBlob, stampedName } from '../services/fileName.js';
-import { foldTypography, oneLine } from '../services/textFold.js';
 import { hasAerodynamicForce, shownCp } from '../services/simReport.js';
+import { dragTableCsv, sweepCp, type DragTableMeta } from '../services/dragTable.js';
 import { GestureHints } from './FlightCharts.js';
-import { APP_VERSION } from '../version.js';
 
 /**
  * Drag analysis (RASAero-style Aero Plots): CD vs Mach with power-off/power-on
@@ -191,7 +190,7 @@ type MachAlt = [number, number][];
  * curve on The Rocketry Forum was exactly a chart and a file disagreeing about
  * what produced them. Commas are avoided for the same reason the design-name
  * line avoids them (naive CSV parsers read them as cells). The CSV's copy has
- * its typography folded to ASCII (exportCsv) — the same words, "20 degC" for
+ * its typography folded to ASCII (services/dragTable.ts) — the same words, "20 degC" for
  * "20 °C" — so the file opens clean in Excel.
  */
 function conditionsText(mode: Conditions, altM: number, table: MachAlt | undefined, distUnit: string): string {
@@ -208,21 +207,6 @@ function conditionsText(mode: Conditions, altM: number, table: MachAlt | undefin
     return `ISA at ${fmtAlt(altM)} ${distUnit}`;
   }
   return 'sea level (101325 Pa; 20 °C — the kernel default)';
-}
-
-/**
- * CP per Mach as the chart and the CSV report it: `null` wherever the sweep's
- * plane makes no normal force.
- *
- * The sweep is ONE roll plane, and where its CNa is zero the kernel reports
- * cp = 0 — the nose tip — which is not a position but "nothing to measure"
- * (simReport.hasAerodynamicForce, the test the stat tiles use). Measured on
- * the real kernel: a 300 mm tube with two fins and no nose makes no lift in
- * that plane at any of the 60 sweep points, and the chart drew a flat 0 % —
- * a CP at the nose tip — until the 2026-09-22 audit.
- */
-function sweepCp(sweep: DragSweep): (number | null)[] {
-  return sweep.cp.map((v, i) => (hasAerodynamicForce({ cna: sweep.cna[i] ?? 0 }) ? v : null));
 }
 
 /**
@@ -244,69 +228,93 @@ function rollDependentCp(info: StaticInfo): number | null {
   return worst !== undefined && Math.abs(worst - info.cp) > 1e-9 ? shownCp(info) : null;
 }
 
-function exportCsv(sweep: DragSweep, meta: {
-  design: string; aeroModel: string; lengthUnit: string; conditions: string;
-  /** rollDependentCp for the design, when its CP depends on roll angle */
-  rollCp?: number | null;
-}) {
-  // RASAero feature #6: the full aerodynamic-coefficient table (CD both power
-  // states + CP + CNa vs Mach) — usable as input to external trajectory codes.
-  // The leading #-comment lines say which app, design and aero model produced
-  // the table: a bare drag-analysis.csv travels (one was posted to a forum as
-  // the Supersonic model's curve when it was the classic model's).
-  const cols: [string, (number | null)[]][] = [
-    ['mach', sweep.machs],
-    ['cd_power_off', sweep.powerOff.total],
-    ['cd_power_on', sweep.powerOn.total],
-    // An empty cell where the sweep's plane makes no lift (sweepCp), never the
-    // kernel's 0 — a trajectory code reads 0 as a CP at the nose tip.
-    [`cp_${meta.lengthUnit}_from_nose`,
-      sweepCp(sweep).map((v) => (v == null ? v : siToUi('length', meta.lengthUnit, v)))],
-    ['cna_per_rad', sweep.cna],
-    ['friction', sweep.powerOff.friction],
-    ['pressure', sweep.powerOff.pressure],
-    ['base_power_off', sweep.powerOff.base],
-    ['base_power_on', sweep.powerOn.base],
-    ...sweep.components.map((c): [string, number[]] =>
-      [`cd_${oneLine(foldTypography(c.name)).replace(/[,\s]+/g, '_')}`, c.cd]),
-  ];
-  // Every header line is one line (oneLine: a newline in the design name would
-  // break the comment block, and a comma would read as extra CSV
-  // cells in naive parsers — the same reason the conditions line avoids its
-  // own comma) and carries the app's typography folded to ASCII. The file
-  // ships with no BOM, because its leading `#` block has to be the first bytes
-  // for the tools that read it (services/fileName.ts, CSV_BOM) — so Excel
-  // decodes it as ANSI, and the "20 °C — the kernel default" of the sea-level
-  // line opened as "20 Â°C â€” the kernel default" (audit 2026-09-22). A name
-  // the user wrote in another script still passes through as UTF-8: folding
-  // it would throw the name away.
-  const header = (s: string) => oneLine(foldTypography(s)).replace(/,/g, ';');
-  const rows = [
-    `# MMRocket Sim ${APP_VERSION}`,
-    `# design: ${header(meta.design)}`,
-    `# aero model: ${header(meta.aeroModel)}`,
-    `# conditions: ${header(meta.conditions)}`,
-    // One more comment line ONLY for a design whose CP depends on its roll
-    // angle (rollDependentCp): the cp column is one roll plane, and a file that
-    // travels without the chart's caption must still say so. Every other
-    // design's file keeps the four-line block it always had.
-    ...(meta.rollCp != null
-      ? ['# cp: one roll plane (theta = 0 with the fins as drawn) - this design\'s CP depends on'
-        + ' roll angle; the app\'s stability margin uses the forward-most CP over all roll angles: '
-        + `${fmtSi('length', meta.lengthUnit, meta.rollCp, 3)} ${meta.lengthUnit} from nose`]
-      : []),
-    cols.map(([h]) => h).join(','),
-  ];
-  for (let i = 0; i < sweep.machs.length; i++) {
-    rows.push(cols.map(([, v]) => (v[i] == null ? '' : v[i])).join(','));
-  }
-  downloadBlob(new Blob([rows.join('\n')], { type: 'text/csv' }),
+/** Downloads the Drag table (.csv): the text is services/dragTable.ts's. */
+function exportCsv(sweep: DragSweep, meta: DragTableMeta) {
+  downloadBlob(new Blob([dragTableCsv(sweep, meta)], { type: 'text/csv' }),
     stampedName(meta.design, 'drag-table', 'csv'));
 }
 
 type BreakdownMode = 'component' | 'type';
 type CpView = 'pct' | 'unit';
 type DragChartId = 'cd' | 'cp' | 'breakdown';
+
+/** The highest Max Mach the Barrowman models are offered (the menu stops here). */
+const CLASSIC_MACH_MAX = 5;
+
+/**
+ * The sweep-altitude box. What is TYPED is held until the box lets go of focus
+ * (blur, or Enter — NumField blurs itself on Enter), and only then handed on
+ * to become the sweep's altitude (audit 2026-09-22, Performance).
+ *
+ * NumField commits every draft that parses, and each altitude is a new
+ * atmosphere, so each keystroke re-ran the whole sweep synchronously in
+ * render: typing "10000" at Mach 25 swept five times — 1.3-1.6 s of a frozen
+ * page on LEM-IV with the real kernel, 210-390 ms a keystroke, four of them
+ * for altitudes nobody asked about (1, 10, 100, 1000 ft). Now the keystrokes
+ * cost ~1 ms each and the one sweep runs when the box is left.
+ *
+ * A STEP is not typing, and sweeps at once whether or not the box has focus:
+ * ▴/▾ and ArrowUp/ArrowDown are each one deliberate altitude, not a keystroke
+ * on the way to one. Telling them apart by focus alone was not enough (review
+ * of this fix): NumField keeps focus through a spinner click and steps on the
+ * arrow keys, so a box the user had clicked into stepped to 600 ft while the
+ * chart and its caption stayed at sea level until blur. What marks typing is
+ * the input's change event — NumField's only path from a keystroke to
+ * onCommit; a step reaches onCommit with none — so the wrapper flags it on the
+ * way down (capture) and clears it on the way back up. A step also drops any
+ * typed altitude still held: NumField stepped FROM that draft, so the step's
+ * commit already carries it.
+ *
+ * Held state lives HERE, not in the panel, so a box that goes away while
+ * focused takes its unfinished edit with it rather than leaving it to surface
+ * later.
+ */
+function SweepAltitudeBox({ altM, distUnit, onCommit }: {
+  /** The altitude being swept (m); 0 is sea level. */
+  altM: number;
+  distUnit: string;
+  onCommit: (altM: number) => void;
+}) {
+  const [held, setHeld] = useState<number | null>(null);
+  const wrapRef = useRef<HTMLSpanElement>(null);
+  /** True only while the input's change event is being handled (see above). */
+  const typing = useRef(false);
+  // Blank IS sea level: blank, 0 and anything below it sweep the default.
+  const toSi = (v: number | null) => (v !== null && v > 0 ? uiToSi('distance', distUnit, v) : 0);
+  return (
+    // `inline-numfield` makes the input fill this 96 px wrapper (styles.css);
+    // outside a `.field` nothing else sizes it. React's onBlur is focusout,
+    // so it hears the input inside; its onChange likewise hears the input's.
+    <span ref={wrapRef} className="inline-numfield" style={{ width: 96 }}
+      onChangeCapture={() => { typing.current = true; }}
+      onChange={() => { typing.current = false; }}
+      onBlur={() => {
+        if (held === null) return;
+        setHeld(null);
+        onCommit(held);
+      }}>
+      <NumField
+        ariaLabel={`Sweep altitude (${distUnit})`}
+        value={altM > 0 ? siToUi('distance', distUnit, altM) : undefined}
+        step={niceStep(siToUi('distance', distUnit, 100))}
+        nullable
+        // Blank IS sea level, so a spinner on the blank box steps
+        // from 0 (NumField reads the base out of the placeholder).
+        placeholder="0"
+        onCommit={(v) => {
+          // Typed into the box it has focus in: wait for the blur. Anything
+          // else — a step, or a value set with the box unfocused — sweeps now.
+          if (typing.current && wrapRef.current?.contains(document.activeElement)) {
+            setHeld(toSi(v));
+            return;
+          }
+          setHeld(null);
+          onCommit(toSi(v));
+        }}
+      />
+    </span>
+  );
+}
 
 export function DragPanel({ rocket, supersonicModel, aeroLabel, designName, fileMachAlt }: {
   rocket: OrkRocket;
@@ -368,9 +376,18 @@ export function DragPanel({ rocket, supersonicModel, aeroLabel, designName, file
   const lenUnit = prefs.units.length;
   const distUnit = prefs.units.distance;
 
-  // High-Mach ranges only make sense with the supersonic model on.
+  // High-Mach ranges only make sense with the supersonic model on. The range
+  // the sweep runs to is DERIVED, here in render (audit 2026-09-22). Clamped by
+  // the effect alone it arrived one render late, and App rebuilds the rocket
+  // when the model changes — so switching the supersonic model off at Mach 25
+  // swept the new Barrowman handle all the way to Mach 25 first, then again to
+  // 5 (LEM-IV, real kernel: 350-540 ms, against 160 for the one sweep to 5).
+  // The effect stays, to bring the CHOICE down too, so switching the model
+  // back on starts from 5 as it always has; by then the sweep is already the
+  // right one and its memo does not re-run.
+  const machTop = supersonicModel ? machMax : Math.min(machMax, CLASSIC_MACH_MAX);
   useEffect(() => {
-    if (!supersonicModel && machMax > 5) setMachMax(5);
+    if (!supersonicModel && machMax > CLASSIC_MACH_MAX) setMachMax(CLASSIC_MACH_MAX);
   }, [supersonicModel, machMax]);
 
   // Loading a design without a table must not leave the panel claiming to be
@@ -405,11 +422,11 @@ export function DragPanel({ rocket, supersonicModel, aeroLabel, designName, file
     try {
       // Default conditions pass the options object they always did — no
       // machAlt key at all, so the kernel path is byte-for-byte the old one.
-      return rocket.dragSweep(machAlt ? { machMax, machAlt } : { machMax });
+      return rocket.dragSweep(machAlt ? { machMax: machTop, machAlt } : { machMax: machTop });
     } catch (e) {
       return { error: e instanceof Error ? e.message : String(e) };
     }
-  }, [open, rocket, machMax, machAlt]);
+  }, [open, rocket, machTop, machAlt]);
 
   const condText = conditionsText(conditions, altM, fileMachAlt, distUnit);
 
@@ -493,7 +510,7 @@ export function DragPanel({ rocket, supersonicModel, aeroLabel, designName, file
           <div className="series-picker" role="group" aria-label="Drag analysis controls">
             <label className="motor-inline-label" style={{ whiteSpace: 'nowrap' }}>
               Max Mach
-              <select value={machMax} onChange={(e) => setMachMax(Number(e.target.value))} style={{ marginLeft: 4 }}>
+              <select value={machTop} onChange={(e) => setMachMax(Number(e.target.value))} style={{ marginLeft: 4 }}>
                 <option value={1}>1</option>
                 <option value={2}>2</option>
                 <option value={3}>3</option>
@@ -525,20 +542,9 @@ export function DragPanel({ rocket, supersonicModel, aeroLabel, designName, file
                     while still showing 10,000 — only the caption under the
                     chart said so. A draft it cannot read is now marked
                     invalid and commits nothing, as in every other field.
-                    `inline-numfield` makes the input fill this 96 px wrapper
-                    (styles.css); outside a `.field` nothing else sizes it. */}
-                <span className="inline-numfield" style={{ width: 96 }}>
-                  <NumField
-                    ariaLabel={`Sweep altitude (${distUnit})`}
-                    value={altM > 0 ? siToUi('distance', distUnit, altM) : undefined}
-                    step={niceStep(siToUi('distance', distUnit, 100))}
-                    nullable
-                    // Blank IS sea level, so a spinner on the blank box steps
-                    // from 0 (NumField reads the base out of the placeholder).
-                    placeholder="0"
-                    onCommit={(v) => setAltM(v !== null && v > 0 ? uiToSi('distance', distUnit, v) : 0)}
-                  />
-                </span>
+                    What it does commit waits for the box to let go
+                    (SweepAltitudeBox). */}
+                <SweepAltitudeBox altM={altM} distUnit={distUnit} onCommit={setAltM} />
               </span>
             )}
             <span style={{ flex: 1 }} />
@@ -678,7 +684,7 @@ export function DragPanel({ rocket, supersonicModel, aeroLabel, designName, file
               expanded={bigCharts.has('breakdown')} plotRef={bdPlot} onZoomChange={noteZoom('breakdown')} />
           </div>
 
-          {machMax > 1.5 && (supersonicModel ? (
+          {machTop > 1.5 && (supersonicModel ? (
             <p className="motor-db-meta" style={{ marginTop: 2 }}>
               Supersonic aero model active — CP and drag validated against NASA wind-tunnel
               data (ARCAS, Basic Finner) to ~Mach&nbsp;4.6 and physical to Mach&nbsp;25
