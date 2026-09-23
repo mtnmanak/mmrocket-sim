@@ -153,10 +153,16 @@ describe('off-axis mounts carry their parallel-axis roll inertia (review E1)', (
     // The values the unpatched kernel produced for this airframe (goldens
     // inertia.offaxis.centre before and after the fix): on the axis every added
     // term is m * 0^2, and the ring patch returns its old value without adding it.
+    // Bit-identity is proven where it is exact, in the JVM goldenJvm diff. HERE
+    // the compiled kernel runs on whatever Node the machine has, and Node 22 (the
+    // deploy runner) and Node 24 (the desktop) differ in the last bits of this
+    // sum: 0.0015575839731625768 against ...798, 2e-15 relative — which failed
+    // the v0.138 deploy gate. So this asserts the golden to 1e-12 relative,
+    // far below any physical change (the smallest E1 move is 5e-3 relative).
     const s = measure(CENTRE).s;
-    expect(s.rotationalInertia).toBe(0.0015575839731625798);
-    expect(s.rotationalInertiaEmpty).toBe(0.0014839964731625797);
-    expect(s.longitudinalInertia).toBe(0.1127979342598729);
+    near(s.rotationalInertia, 0.0015575839731625798);
+    near(s.rotationalInertiaEmpty, 0.0014839964731625797);
+    near(s.longitudinalInertia, 0.1127979342598729);
   });
 
   it('flies a split cluster exactly as it flies the double cluster', () => {
