@@ -52208,7 +52208,7 @@ a_OrkEngine_simulateJson = ($rocketHandle, $optionsJson) => {
     return jl_StringBuilder_toString(var$11);
 },
 a_OrkEngine_windModelFor = ($o, $randomSeed) => {
-    let $raw, var$4, $rows, $levels, $i, $reference, $ref, var$10, $wind, $k, var$13, $row, $level, var$16, var$17, $v;
+    let $raw, var$4, $rows, $levels, $i, $reference, $ref, var$10, $wind, $k, var$13, $row, $level, var$16, var$17, var$18, $v;
     a_OrkEngine_$callClinit();
     $raw = $o.$get($rt_s(1870));
     if ($rt_isInstance($raw, ju_List)) {
@@ -52256,16 +52256,17 @@ a_OrkEngine_windModelFor = ($o, $randomSeed) => {
                 var$13[0] = a_JsonLite_dbl($row, $rt_s(642), NaN);
                 var$13[1] = a_JsonLite_dbl($row, $rt_s(1874), NaN);
                 var$13[2] = a_JsonLite_dbl($row, $rt_s(1875), NaN);
-                var$13[3] = a_JsonLite_dbl($row, $rt_s(1876), 0.0);
-                var$16 = var$13.length;
-                var$17 = 0;
-                while (var$17 < var$16) {
-                    $v = var$13[var$17];
+                var$16 = !$row.$containsKey($rt_s(1876)) ? 0.0 : a_JsonLite_dbl($row, $rt_s(1876), NaN);
+                var$13[3] = var$16;
+                var$17 = var$13.length;
+                var$18 = 0;
+                while (var$18 < var$17) {
+                    $v = var$13[var$18];
                     if (isNaN($v) ? 1 : 0)
                         break a;
                     if (jl_Double_isInfinite($v))
                         break a;
-                    var$17 = var$17 + 1 | 0;
+                    var$18 = var$18 + 1 | 0;
                 }
                 $levels.data[$i] = $level;
                 $i = $i + 1 | 0;

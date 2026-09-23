@@ -252,6 +252,14 @@ describe('winds aloft (SimulationOptions.windLevels)', () => {
       C6.times, C6.thrusts, C6.masses, C6.cgX, C6.ejectionDelay);
     const sim = (extra: Record<string, unknown>) => () => ork.simulateJson(h, JSON.stringify(extra));
     expect(sim({ windLevels: [{ altitude: 0, speed: 3 }] })).toThrow(/windLevels\[0\]: .*finite/);
+    // Sigma is the one optional number — absent, the level is steady — but a PRESENT
+    // sigma must be one: a NaN (or an Infinity) arrives as null, a string is not a
+    // number, and neither may fly as a steady level. Until kernel pass 2's fix-up
+    // both flew as sigma = 0 (241.968 m on this rocket, 3 s cut, seed 7, no error).
+    expect(sim({ windLevels: [{ altitude: 0, speed: 3, direction: 0, standardDeviation: Number.NaN }] }))
+      .toThrow(/windLevels\[0\]: .*finite/);
+    expect(sim({ windLevels: [{ altitude: 0, speed: 3, direction: 0, standardDeviation: '0.6' }] }))
+      .toThrow(/windLevels\[0\]: .*finite/);
     expect(sim({ windLevels: [{ altitude: 0, speed: 3, direction: 0 }, 7] }))
       .toThrow(/every level must be an object/);
     expect(sim({ windLevels: [{ altitude: 0, speed: 3, direction: 0 }], windAltitudeReference: 'agl' }))

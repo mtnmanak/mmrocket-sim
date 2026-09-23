@@ -970,7 +970,8 @@ public final class OrkEngine {
      * <p>
      * MULTI_LEVEL (a non-empty "windLevels"): desktop OpenRocket 24.12's own
      * MultiLevelPinkNoiseWindModel - winds aloft. Each level is {altitude (m),
-     * speed (m/s), direction (rad), standardDeviation (m/s, default 0)}, in
+     * speed (m/s), direction (rad), standardDeviation (m/s; absent = 0, steady;
+     * present, it must be a finite number like the other three)}, in
      * PinkNoiseWindModel's units and convention: d is the direction the wind
      * blows FROM, clockwise from north (desktop's table: 0 = from the north,
      * PI/2 = from the east), and the model's vector is speed * (sin d, cos d, 0),
@@ -1012,7 +1013,12 @@ public final class OrkEngine {
                     JsonLite.dbl(row, "altitude", Double.NaN),
                     JsonLite.dbl(row, "speed", Double.NaN),
                     JsonLite.dbl(row, "direction", Double.NaN),
-                    JsonLite.dbl(row, "standardDeviation", 0),
+                    // Optional: an ABSENT sigma is a steady level (0). A PRESENT one
+                    // must be a number - JsonLite.dbl hands back the fallback for a
+                    // null or a string, so a fallback of 0 would fly either as a
+                    // steady level with no error.
+                    row.containsKey("standardDeviation")
+                            ? JsonLite.dbl(row, "standardDeviation", Double.NaN) : 0,
             };
             for (double v : level) {
                 // A NaN/Infinity crosses JSON as null, so a missing number and a

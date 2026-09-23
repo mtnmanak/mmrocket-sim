@@ -955,9 +955,15 @@ features above — absent its new input, every flight is bit-identical.
   built by exactly the calls in exactly the order it always was. A non-empty `windLevels` →
   `MultiLevelPinkNoiseWindModel`: the constructor's default level (built from the preferences
   shim's unseeded average model) cleared; each level's altitude, speed and direction required
-  finite, σ too when given (a NaN crosses JSON as null, so a missing number and a non-finite one
-  both refuse, naming `windLevels[i]`, and neither can fly as a default); a non-object entry
-  refused; the levels sorted by altitude; level k seeded `randomSeed ^ (k * 0x9E3779B9)`; and
+  finite (a NaN crosses JSON as null, so a missing number and a non-finite one both refuse,
+  naming `windLevels[i]`, and neither can fly as a default); σ optional — ABSENT is a steady
+  level, 0 — but a PRESENT σ must be a finite number too, so a null (a NaN or an Infinity on the
+  wire) or a string refuses the same way. (As first committed σ was read with a fallback of 0,
+  and `JsonLite.dbl` returns the fallback for anything not a number, so σ = null and σ = "0.6"
+  both flew as a steady level with no error — 241.968 m on the C6 rocket, 3 s cut, seed 7 — while
+  this entry said they refused. Found by the package's adversarial review; the σ read now takes
+  a NaN fallback when the key is present.) A non-object entry refused; the levels sorted by
+  altitude; level k seeded `randomSeed ^ (k * 0x9E3779B9)`; and
   `windAltitudeReference` `"MSL"` (the default, desktop's) or `"AGL"`, anything else refused.
   The lowest level takes `randomSeed` itself, so ONE level carrying the single-level speed, σ
   and direction π/2 IS the single-level flight, bit for bit; the golden-ratio multiplier keeps
@@ -1017,13 +1023,20 @@ features above — absent its new input, every flight is bit-identical.
   bracketing the flight do NOT reproduce the single-level stream), reproducible per seed and
   moved by another; and the refusals, in the wrapper and in the raw kernel. Against the pre-change
   wrapper and artifact (`b4916b0`) **6 of the 7 fail**; the sort-order pin passes on both, by
-  construction (the old kernel flew both lists calm).
+  construction (the old kernel flew both lists calm). The raw-kernel refusal test carries
+  σ = NaN (null on the wire) and σ = "0.6" since the review fix-up; against the first-committed
+  artifact (`b60202a9…`) it fails — both flew — and it passes after.
 - **Artifact:** `packages/engine/vendor/orkengine.mjs` 2,766,975 → 2,800,664 bytes, md5
   `e04d4a5aa19e3ee46bf4c8545cc4baae` → `b60202a9c44e4feeb8b2b0dc6f26d178`.
   `MultiLevelPinkNoiseWindModel` **0 → 139** occurrences, `LevelWindModel` 0 → 18,
   `OrkEngine_windModelFor` 0 → 2, both `addWindLevel` overloads linked
   (`…_addWindLevel` / `…_addWindLevel0`, 0 → 2 each) — the grep, not Gradle's `UP-TO-DATE`, is
   the evidence. Upstream's CSV import (`importLevelsFromCSV`, `FileReader`) stays unlinked: 0.
+  **Review fix-up (the σ read):** → 2,800,745 bytes, md5 `11f2ebcdbfdffac4b0e58af928e43d4d`;
+  the new `$row.$containsKey(…)` guard on σ is in `windModelFor`, 0 → 1 (a line diff of the two
+  artifacts shows nothing else but the renumbered locals around it). `goldenJvm` 400 lines,
+  byte-identical to the run before it — no golden sends a malformed σ — and the differential
+  400 lines clean (265 bit-identical, 135 within tolerance).
 - **Upstreamable:** arguably — desktop's multi-level runs are not reproducible run to run for
   exactly this reason, and passing the simulation's `randomSeed` through a seeded overload is
   the fix there too.
