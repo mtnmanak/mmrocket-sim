@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
-import { applyPresetLinks, csvToPresets, KIND_FOR_TYPE, presetPatch, presetsToCsv, type Preset } from './presets.js';
+import { applyPresetLinks, csvToPresets, holdsCatalogueMass, KIND_FOR_TYPE, presetPatch, presetsToCsv, type Preset } from './presets.js';
 import presetsJson from '../data/presets.json';
 
 const db = (presetsJson as { presets: Preset[] }).presets;
@@ -660,5 +660,223 @@ describe('preset CSV round trip', () => {
     const [back] = csvToPresets(csv);
     expect(back!['packedDiameter']).toBeCloseTo(0.05, 12);
     expect(back!['packedLength']).toBeCloseTo(0.12, 12);
+  });
+});
+
+/**
+ * Two catalogue picks in a row (audit 2026-09-22, HIGH). `presetPatch` is
+ * MERGED over the node, so until this fix a field the second row lacked kept
+ * whatever the first row had put there. Measured through the kernel before the
+ * fix: Fruity Chutes IFC-030-S then Apogee 29093 flew a Cd of 2.09 (the Fruity
+ * Chutes rating over its own vent, on the Apogee canopy) and landed at 1.14 m/s
+ * where the same canopy picked fresh lands at 1.84; an Apogee 19490 thin-wall
+ * nose picked after a solid cone weighed 975.8 g instead of 86.5 g.
+ */
+describe('presetPatch describes the whole part — a second pick keeps nothing of the first', () => {
+  const row = (kind: string, pn: string) => {
+    const p = db.find((x) => x.kind === kind && x.partNo === pn);
+    expect(p, `${kind} ${pn} has gone from the database`).toBeTruthy();
+    return p!;
+  };
+  /** A pick the way PresetPicker makes one: the node it replaces and the catalogue it shows. */
+  const pick = (node: ComponentNode, p: Preset): ComponentNode =>
+    ({ ...node, ...presetPatch(node.type, p, { node, presets: db }) }) as ComponentNode;
+  const fresh = (type: ComponentNode['type'], p: Preset) => pick({ type, id: 'x' } as ComponentNode, p);
+
+  it('IFC-030-S then Apogee 29093: the Apogee canopy flies the default Cd with no vent', () => {
+    const ifc = row('Parachute', 'IFC-030-S');
+    const apogee = row('Parachute', '29093');
+    expect(apogee['dragCoefficient']).toBeUndefined(); // the premise: a row with no rated Cd
+    const first = fresh('parachute', ifc);
+    expect(first['cd']).toBe(2.2);
+    expect(first['spillHoleDiameter']).toBeGreaterThan(0);
+    const second = pick(first, apogee);
+    // Exactly what picking 29093 on a fresh canopy gives — nothing of IFC-030-S.
+    const direct = fresh('parachute', apogee);
+    for (const k of ['cd', 'spillHoleDiameter', 'lineCount', 'lineLength', 'overrideMass',
+      'surfaceDensity', 'lineDensity', 'diameter']) {
+      expect(second[k], k).toEqual(direct[k]);
+    }
+    expect(second['cd']).toBeUndefined();
+    expect(second['spillHoleDiameter']).toBeUndefined();
+  });
+
+  it('the Cd and its vent still move together — a vented row after an unvented one takes both', () => {
+    const ifc = row('Parachute', 'IFC-030-S');
+    const second = pick(fresh('parachute', row('Parachute', '29093')), ifc);
+    expect(second['cd']).toBe(2.2);
+    expect(second['spillHoleDiameter']).toBeCloseTo(ifc['spillHoleDiameter'] as number, 12);
+  });
+
+  it('line data and materials the second row lacks go back to the defaults', () => {
+    const noLine = db.find((x) => x.kind === 'Parachute' && !x.lineMaterial);
+    expect(noLine, 'no canopy row without a line material left to test with').toBeTruthy();
+    const second = pick(fresh('parachute', row('Parachute', 'IFC-030-S')), noLine!);
+    expect(second['lineMaterialName']).toBeUndefined();
+    expect(second['lineDensity']).toBeUndefined();
+  });
+
+  it('a row with no mass clears the previous part’s catalogue mass', () => {
+    const massed = db.find((x) => x.kind === 'NoseCone' && typeof x.mass === 'number')!;
+    const unmassed = row('NoseCone', '19490');
+    expect(unmassed.mass).toBeUndefined();
+    const first = { ...fresh('nosecone', massed), overrideSubcomponentsMass: true } as ComponentNode;
+    expect(first['overrideMass']).toBe(massed.mass);
+    const second = pick(first, unmassed);
+    expect(second['overrideMass']).toBeUndefined();
+    expect(second['overrideSubcomponentsMass']).toBeUndefined();
+  });
+
+  /**
+   * Review of the audit 2026-09-22 fix: it cleared EVERY override on a row with
+   * no mass, so a weight the user typed went with the old part's catalogue
+   * mass — on 1,197 of the 1,308 body-tube rows. Desktop never touches the mass
+   * of anything but a parachute on a preset load; the app clears only the
+   * catalogue mass it wrote itself.
+   */
+  it('a mass the user typed survives a pick of a part with none — desktop keeps it too', () => {
+    const noMassTube = db.find((x) => x.kind === 'BodyTube' && x.mass === undefined)!;
+    const weighed = { type: 'bodytube', id: 'b', overrideMass: 0.25, overrideSubcomponentsMass: true } as ComponentNode;
+    const after = pick(weighed, noMassTube);
+    expect(after['overrideMass']).toBe(0.25);
+    expect(after['overrideSubcomponentsMass']).toBe(true);
+    // Linked to a massed row, but not at that row's mass: the user retyped it.
+    const massed = db.find((x) => x.kind === 'NoseCone' && typeof x.mass === 'number')!;
+    const retyped = { ...fresh('nosecone', massed), overrideMass: massed.mass! * 1.3 } as ComponentNode;
+    expect(pick(retyped, row('NoseCone', '19490'))['overrideMass']).toBeCloseTo(massed.mass! * 1.3, 12);
+  });
+
+  it('a parachute goes back to its computed mass on a row with none, as desktop’s does', () => {
+    const noMass = db.find((x) => x.kind === 'Parachute' && x.mass === undefined)!;
+    const typed = { type: 'parachute', id: 'p', overrideMass: 0.045 } as ComponentNode;
+    expect(pick(typed, noMass)['overrideMass']).toBeUndefined();
+  });
+
+  it('a catalogue mass is never a subtree’s mass, and never replaces an assembly the user weighed', () => {
+    const tube = row('BodyTube', '10063');
+    expect(tube.mass).toBeGreaterThan(0);
+    // The flag riding on the PREVIOUS part's catalogue mass (the state the
+    // unfixed patch left): the new part's mass lands and the flag goes, or the
+    // tube's 5.8 g would be the weight of everything under it.
+    const prevTube = db.find((x) => x.kind === 'BodyTube' && typeof x.mass === 'number' && x.partNo !== '10063')!;
+    const flagged = { ...fresh('bodytube', prevTube), overrideSubcomponentsMass: true } as ComponentNode;
+    const next = pick(flagged, tube);
+    expect(next['overrideMass']).toBe(tube.mass);
+    expect(next['overrideSubcomponentsMass']).toBeUndefined();
+    // A section the user weighed as a whole keeps their figure.
+    const section = { type: 'bodytube', id: 'b', overrideMass: 0.25, overrideSubcomponentsMass: true } as ComponentNode;
+    const kept = pick(section, tube);
+    expect(kept['overrideMass']).toBe(0.25);
+    expect(kept['overrideSubcomponentsMass']).toBe(true);
+    // With nothing to go on, the patch still never leaves the flag under a catalogue mass.
+    const bare = presetPatch('bodytube', tube);
+    expect('overrideSubcomponentsMass' in bare && bare['overrideSubcomponentsMass'] === undefined).toBe(true);
+  });
+
+  it('holdsCatalogueMass: the linked row’s own mass, through an alternate part number, to 0.01 %', () => {
+    const massed = db.find((x) => x.kind === 'NoseCone' && typeof x.mass === 'number')!;
+    const linked = fresh('nosecone', massed);
+    expect(holdsCatalogueMass(linked, db)).toBe(true);
+    expect(holdsCatalogueMass({ ...linked, overrideMass: massed.mass! * (1 + 5e-5) } as ComponentNode, db)).toBe(true);
+    expect(holdsCatalogueMass({ ...linked, overrideMass: massed.mass! * 1.01 } as ComponentNode, db)).toBe(false);
+    expect(holdsCatalogueMass({ type: 'nosecone', id: 'n', overrideMass: massed.mass } as ComponentNode, db)).toBe(false);
+    const alt = db.find((x) => Array.isArray(x['altPartNos']) && typeof x.mass === 'number'
+      && KIND_FOR_TYPE.parachute === x.kind)!;
+    expect(alt, 'no massed canopy with an alternate part number left to test with').toBeTruthy();
+    const viaAlt = {
+      type: 'parachute', id: 'p', overrideMass: alt.mass,
+      presetManufacturer: alt.manufacturer, presetPartNo: (alt['altPartNos'] as string[])[0],
+    } as ComponentNode;
+    expect(holdsCatalogueMass(viaAlt, db)).toBe(true);
+  });
+
+  it('a hollow row after a solid one is hollow: `filled` is written either way', () => {
+    const solid = db.find((x) => x.kind === 'NoseCone' && x['filled'] === true && x.mass === undefined)!;
+    expect(pick(fresh('nosecone', solid), row('NoseCone', '19490'))['filled']).toBe(false);
+    const solidTr = db.find((x) => x.kind === 'Transition' && x['filled'] === true)!;
+    const hollowTr = db.find((x) => x.kind === 'Transition' && x['filled'] !== true)!;
+    expect(pick(fresh('transition', solidTr), hollowTr)['filled']).toBe(false);
+  });
+
+  it('a named shape brings its own default parameter, as desktop’s loadFromPreset does', () => {
+    const cone = { type: 'nosecone', id: 'n', shape: 'power', shapeParameter: 0.5 } as ComponentNode;
+    const second = pick(cone, row('NoseCone', '19490'));
+    expect(second['shape']).toBe('ogive');
+    expect(second['shapeParameter']).toBeUndefined();
+    const tr = { type: 'transition', id: 't', shape: 'haack', shapeParameter: 0.33, clipped: false } as ComponentNode;
+    const tr2 = pick(tr, db.find((x) => x.kind === 'Transition')!);
+    expect(tr2['shapeParameter']).toBeUndefined();
+    expect(tr2['clipped']).toBeUndefined();
+  });
+
+  it('the 19490 weighs as a thin wall after a solid cone, through the kernel', async () => {
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    const { engineTree } = await import('../tree/treeModel.js');
+    resetEngine();
+    const solid = db.find((x) => x.kind === 'NoseCone' && x['filled'] === true && x.mass === undefined
+      && Math.abs((x['outsideDiameter'] as number) - 0.0762) < 0.002)!;
+    const massOf = (n: ComponentNode) => OrkRocket.buildTree(engineTree({
+      name: 't', components: [{ type: 'stage', id: 's', children: [n] } as ComponentNode],
+    })).staticInfo().mass;
+    const twice = massOf(pick(fresh('nosecone', solid), row('NoseCone', '19490')));
+    const once = massOf(fresh('nosecone', row('NoseCone', '19490')));
+    // Measured 2026-09-22: 86.5 g either way (975.8 g after the solid cone before the fix).
+    expect(twice).toBeCloseTo(once, 9);
+    expect(twice).toBeLessThan(0.1);
+  }, 60000);
+
+  it('a catalogue LINK on import still only fills — the clears never erase a file value', () => {
+    // applyPresetLinks feeds on the same patch; an undefined entry must be a
+    // no-op there, or linking a no-Cd row would wipe the Cd a file stated.
+    const node = { type: 'parachute', id: 'p', name: 'Main', cd: 1.3, lineCount: 8 } as ComponentNode;
+    applyPresetLinks([{ node, manufacturer: 'Apogee', partNo: '29093' }], db, []);
+    expect(node['cd']).toBe(1.3);
+    expect(node['lineCount']).toBe(8);
+    expect('spillHoleDiameter' in node).toBe(false);
+  });
+});
+
+/**
+ * A stated wall thickness is a statement that the part is HOLLOW (audit
+ * 2026-09-22). The .ork reader marks a hollow nose only by its numeric
+ * <thickness> (desktop's setThickness clears `filled`), so "filled is unset" on
+ * such a node is not "the file left it unset" — and the catalogue's
+ * `filled: true` used to land on it: 96.1 g → 377.2 g, measured on the desktop
+ * fixture rocksimTestRocket1.rkt's nose re-badged as Madcow's 2.6" fiberglass
+ * cone with its known mass switched off.
+ */
+describe('applyPresetLinks never makes a hollow part solid', () => {
+  const madcow = () => {
+    const p = db.find((x) => x.kind === 'NoseCone' && x.manufacturer === 'Madcow'
+      && x['filled'] === true && /2\.6" Fiberglass/.test(x.partNo));
+    expect(p, 'the filled Madcow 2.6" cone has gone from the database').toBeTruthy();
+    return p!;
+  };
+
+  it('an .ork-shaped hollow nose (thickness stated, filled unset) stays hollow, and the note says so', () => {
+    const row = madcow();
+    const node = { type: 'nosecone', id: 'n', name: 'Nose', thickness: 0.002 } as ComponentNode;
+    const notes: string[] = [];
+    expect(applyPresetLinks([{ node, manufacturer: row.manufacturer, partNo: row.partNo }], db, notes)).toBe(1);
+    expect(node['filled']).toBeUndefined();
+    expect(notes[0]).not.toMatch(/took[^;]*solid/);
+    // A disagreement about the same fact, so the conflict marker names it.
+    expect(notes.some((n) => /disagrees/.test(n) && /Nose: [^;]*solid/.test(n))).toBe(true);
+  });
+
+  it('a node with neither a wall nor a flag still takes the catalogue’s solid', () => {
+    const row = madcow();
+    const node = { type: 'nosecone', id: 'n', name: 'Nose' } as ComponentNode;
+    applyPresetLinks([{ node, manufacturer: row.manufacturer, partNo: row.partNo }], db, []);
+    expect(node['filled']).toBe(true);
+  });
+
+  it('a hollow row never writes `filled: false` onto an unset node, and never notes it', () => {
+    const hollow = db.find((x) => x.kind === 'NoseCone' && x.partNo === '19490')!;
+    const node = { type: 'nosecone', id: 'n', name: 'Nose' } as ComponentNode;
+    const notes: string[] = [];
+    applyPresetLinks([{ node, manufacturer: hollow.manufacturer, partNo: hollow.partNo }], db, notes);
+    expect('filled' in node).toBe(false);
+    expect(notes[0]).not.toMatch(/solid/);
   });
 });

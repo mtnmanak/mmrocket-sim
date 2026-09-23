@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode,
+} from 'react';
 import { clickable } from './clickable.js';
 import { useDialog } from './useDialog.js';
 import { useCatalogue, useCatalogueOverlay } from './useCatalogue.js';
@@ -13,9 +15,11 @@ import {
   sortMotors, type MotorDbEntry, type MotorSortKey,
 } from '../services/motorDb.js';
 import {
-  addExMotors, deleteExMotor, exToDbEntry, loadExMotors, parseMotorFile,
+  addExMotors, deleteExMotor, exToDbEntry, loadExMotors, parseMotorFile, type ExMotor,
 } from '../services/exMotors.js';
-import { delayOptions, delayTag, fetchMotorSpec } from '../services/thrustcurve.js';
+import {
+  bundledSimFiles, defaultDelay, delayOptions, delayTag, fetchMotorSpec, headerMasses, pickSampleFile,
+} from '../services/thrustcurve.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { siToUi } from '../prefs/units.js';
 import { NumField } from './NumField.js';
@@ -71,6 +75,11 @@ const DEFAULT_FILTERS: StoredFilters = {
   sortDir: -1,
 };
 
+/** The narrowing filters that live under "All filters", reset. */
+const FOLDED_CLEAR: Partial<StoredFilters> = {
+  propellants: [], burnMin: null, burnMax: null, impulseMin: null, impulseMax: null,
+};
+
 function loadFilters(): StoredFilters {
   try {
     const raw = localStorage.getItem(FILTERS_KEY);
@@ -102,6 +111,28 @@ function windowBound(raw: string): number | null {
   if (raw.trim() === '') return null;
   const v = Number(raw);
   return Number.isFinite(v) && v >= 0 ? v : null;
+}
+
+/**
+ * One filter chip. It is a TOGGLE, so it says so (audit 2026-09-22): the
+ * on-state was a CSS class alone — outside the Daylight theme a border and text
+ * shade, no fill — so a screen reader heard no state and a low-vision user saw
+ * only a slightly darker edge, while persisted chips hid motors with no audible
+ * reason. `aria-pressed` carries the state (FlightCharts' series chips already
+ * set it) and a ✓ carries it without colour; the ✓ is hidden from the reader,
+ * which already hears "pressed".
+ */
+function FilterChip({ on, onToggle, children }: {
+  on: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button className={`series-chip ${on ? 'series-chip-on' : ''}`} aria-pressed={on} onClick={onToggle}>
+      {on && <span aria-hidden="true">✓ </span>}
+      {children}
+    </button>
+  );
 }
 
 export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClose, loadedMotors }: {
@@ -148,12 +179,16 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
     setCheckNote(null);
     setCheckWasRecent(false);
     try {
-      const { overlay: o, skipped } = await checkForCatalogueUpdates({
+      const { overlay: o, skipped, silent } = await checkForCatalogueUpdates({
         force,
         signal: ctrl.signal,
         onProgress: (done, total, mfr) => setCheckProgress(total ? `${done}/${total}${mfr ? ` ${mfr}` : ''}` : ''),
       });
       const lines = describeOverlay(o);
+      if (silent.length) {
+        lines.push(`thrustcurve.org returned no motors at all for ${silent.join(', ')} — `
+          + 'read as a failed answer, so none of them were marked out of production.');
+      }
       const mine = changedMotorsInDesign(o, loadedMotors ?? []);
       if (mine.length) {
         // The one line that matters most: a changed certified figure on a motor
@@ -194,6 +229,29 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
     [catalogue, exMotors],
   );
 
+  /**
+   * Catalogue motors with no usable CATALOGUE weight whose bundled data file
+   * states a good pair — the pair that flies (samplesToMotorSpec checks the
+   * file's masses first). They are pickable (audit 2026-09-22): 116 of the 157
+   * rows the table used to lock out, 14 of them in production (Estes 1/2A6,
+   * Cesaroni 320H565-14A, Klima B2, ...), and desktop flies every one. Found
+   * the way fetchMotorSpec will find the curve: the same bundle and the same
+   * pickSampleFile. Empty until the bundle chunk loads, so a row unlocks a
+   * moment after the dialog opens rather than ever the other way round.
+   */
+  const [fileMassed, setFileMassed] = useState<ReadonlySet<string>>(() => new Set());
+  useEffect(() => {
+    let live = true;
+    const need = catalogue.filter((m) => !hasMassData(m));
+    void Promise.all(need.map(async (m) => {
+      const file = pickSampleFile(await bundledSimFiles(m.motorId), m);
+      return file && headerMasses(file) ? m.motorId : null;
+    })).then((ids) => {
+      if (live) setFileMassed(new Set(ids.filter((id): id is string => id !== null)));
+    });
+    return () => { live = false; };
+  }, [catalogue]);
+
   const fittingClasses = useMemo(
     () => classesFittingMount(mountDiameterMm, allMotors),
     [mountDiameterMm, allMotors]);
@@ -215,12 +273,40 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
     [mountDiameterMm, filters.includeOOP, allMotors],
   );
 
+  /**
+   * The chips that APPLY: the persisted selection, intersected with what this
+   * mount offers as chips (audit 2026-09-22) — the rule the diameter classes
+   * always followed. The filters persist across sessions and mounts, so a maker,
+   * letter or propellant chosen on another mount (or under "All filters", which
+   * may now be folded) went on filtering with no chip on screen to show it: "No
+   * motors match", or a just-imported EX motor missing while the EX chip counted
+   * it, because a propellant chip excludes a motor with no propellant at all.
+   * The persisted lists are left as they are, so the choice comes back on a
+   * mount that offers it. Propellants are the fourteen chips actually drawn.
+   */
+  const shown = useMemo(() => {
+    const makers = new Set(manufacturers.map((m) => m.abbrev));
+    const letters = new Set(impulseClasses.map((c) => c.letter));
+    const props = new Set(propellants.slice(0, 14).map((p) => p.name));
+    return {
+      manufacturers: filters.manufacturers.filter((m) => makers.has(m)),
+      classes: filters.classes.filter((c) => fittingClasses.includes(c)),
+      impulse: filters.impulse.filter((l) => letters.has(l)),
+      propellants: filters.propellants.filter((p) => props.has(p)),
+    };
+  }, [filters, manufacturers, impulseClasses, propellants, fittingClasses]);
+
+  /** Narrowing filters folded away under "All filters" while it is closed — counted on its button. */
+  const hiddenCount = filters.showAll ? 0
+    : shown.propellants.length
+      + [filters.burnMin, filters.burnMax, filters.impulseMin, filters.impulseMax].filter((b) => b !== null).length;
+
   const rows = useMemo(() => {
     const filtered = filterMotors({
-      manufacturers: new Set(filters.manufacturers),
-      classes: new Set(filters.classes.filter((c) => fittingClasses.includes(c))),
-      impulse: new Set(filters.impulse),
-      propellants: new Set(filters.propellants),
+      manufacturers: new Set(shown.manufacturers),
+      classes: new Set(shown.classes),
+      impulse: new Set(shown.impulse),
+      propellants: new Set(shown.propellants),
       // Only enforceable when the rocket actually states its room; the
       // checkbox is disabled and explained when it does not.
       maxLengthM: filters.fitsOnly ? maxMotorLengthM : null,
@@ -231,7 +317,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
       text,
     }, allMotors);
     return sortMotors(filtered, filters.sortKey, filters.sortDir);
-  }, [filters, text, mountDiameterMm, fittingClasses, allMotors, maxMotorLengthM]);
+  }, [filters, shown, text, mountDiameterMm, allMotors, maxMotorLengthM]);
 
   // Single files or a whole EX-motor folder (2026-08-05e): every .eng/.rse
   // found is parsed and added to the persistent library; unreadable files are
@@ -244,42 +330,78 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
       setError('No .eng or .rse files found in that selection.');
       return;
     }
-    const imported: string[] = [];
+    const parsed: ExMotor[] = [];
     const failed: string[] = [];
-    let next = exMotors;
+    /** What the parsers had to say about motors they DID import (a refused nozzle exit, …). */
+    const said: string[] = [];
     for (const f of motorFiles) {
       try {
-        const motors = parseMotorFile(f.name, await f.text());
-        next = addExMotors(motors);
-        imported.push(...motors.map((m) => m.designation));
+        const notes: string[] = [];
+        parsed.push(...parseMotorFile(f.name, await f.text(), notes));
+        said.push(...notes.map((n) => `${f.name}: ${n}`));
       } catch (e) {
         failed.push(`${f.name}: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
-    if (imported.length) {
-      setExMotors(next);
+    // ONE library write for the whole selection, not one per file: a folder of
+    // fifty files rewrote an ever-growing list fifty times, and one write means
+    // one honest answer to "did it save?".
+    const imported = parsed.map((m) => m.designation);
+    const write = parsed.length ? addExMotors(parsed) : null;
+    const unsaved = write !== null && !write.stored;
+    const some = (names: string[]) => `${names.slice(0, 6).join(', ')}${names.length > 6 ? ', …' : ''}`;
+    if (write?.duplicates.length) {
+      said.push(`${some(write.duplicates)}: listed more than once with different data — each copy is kept `
+        + 'as its own entry under the same name.');
+    }
+    if (write?.replaced.length) {
+      said.push(`${write.replaced.length} replaced the library's earlier motor of the same maker and name `
+        + `(${some(write.replaced)}).`);
+    }
+    const problems: string[] = [];
+    if (write) {
+      setExMotors(write.motors);
       setText('');
-      // Clear the maker AND diameter chips: a persisted class selection would
-      // silently hide the motor that was just imported ("where did it go?").
-      setFilters({ ...filters, manufacturers: [], classes: [] });
-      setNotice(`Imported ${imported.length} EX motor${imported.length === 1 ? '' : 's'} `
-        + `(${imported.slice(0, 6).join(', ')}${imported.length > 6 ? ', …' : ''}) — `
-        + 'they live in this browser under manufacturer EX and survive reloads.');
+      // Clear every filter that could hide the motor just imported ("where did
+      // it go?"): the maker and diameter chips, and — audit 2026-09-22 — the
+      // impulse letters, the propellant chips and the burn/impulse windows too,
+      // folded or not. An EX motor has no propellant name, so any propellant
+      // chip hid it while the EX chip counted it. "Only motors that fit" goes
+      // off only when one of them is too long for it.
+      const tooLongNow = maxMotorLengthM !== null
+        && parsed.some((m) => m.length / 1000 > maxMotorLengthM);
+      setFilters({
+        ...filters, ...FOLDED_CLEAR, manufacturers: [], classes: [], impulse: [],
+        fitsOnly: filters.fitsOnly && !tooLongNow,
+      });
+      const list = `${imported.length} EX motor${imported.length === 1 ? '' : 's'} `
+        + `(${imported.slice(0, 6).join(', ')}${imported.length > 6 ? ', …' : ''})`;
+      // Say "survive reloads" only when they do (audit 2026-09-22). A full
+      // browser storage used to be swallowed here, and the motors then could
+      // not even fly: every reader went back to storage and found nothing.
+      if (unsaved) {
+        problems.push(`Imported ${list}, but this browser's storage is full or blocked, so they are NOT saved — `
+          + 'they fly in this session and are gone after a reload. Free some room (the saved-runs '
+          + 'table, or imported motors you no longer need) and import them again to keep them.');
+        if (said.length) setNotice(said.join(' · '));
+      } else {
+        setNotice(`Imported ${list} — they live in this browser under manufacturer EX and survive reloads.`
+          + (said.length ? ` ${said.join(' · ')}` : ''));
+      }
     }
     if (failed.length) {
-      setError(`Skipped ${failed.length} file${failed.length === 1 ? '' : 's'} — ${failed.join(' · ')}`);
+      problems.push(`Skipped ${failed.length} file${failed.length === 1 ? '' : 's'} — ${failed.join(' · ')}`);
     }
+    if (problems.length) setError(problems.join(' '));
   };
 
   useEffect(() => {
     // Default to the longest PRESCRIBED delay; plugged (Infinity) only when
     // it's the motor's sole option — nobody should get a chute-less flight
-    // by default.
-    if (picked) {
-      const opts = delayOptions(picked);
-      const finite = opts.filter((d) => Number.isFinite(d));
-      setDelay(finite[finite.length - 1] ?? opts[opts.length - 1] ?? 0);
-    }
+    // by default. A motor that lists no delay at all (KBA's "S,M,L", an EX
+    // file with an empty field) starts on Auto rather than on a 0 s the
+    // catalogue never said (audit 2026-09-22).
+    if (picked) setDelay(defaultDelay(picked) ?? 'auto');
   }, [picked]);
 
   const tooLong = (m: MotorDbEntry) =>
@@ -348,6 +470,44 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
 
   const dimUi = (mm: number) => siToUi('motorDimensions', motorSym, mm / 1000);
 
+  /**
+   * Roving tabindex over the table rows (audit 2026-09-22) — the pattern
+   * ComponentTree uses. clickable() made EVERY row a tab stop, and the rows sit
+   * before the Delay select and the Load button in the DOM, so choosing a motor
+   * by keyboard cost a Tab per row: 232 on a 29 mm mount, the full 400 on 38 mm
+   * and up. Now ONE row is tabbable — the one last focused, else the picked one,
+   * else the first — the arrows (and Home/End) move focus between rows, and
+   * Enter/Space picks, as before. From there one Tab reaches Delay, another
+   * Load. The arrows move focus without picking: a pick resets the Delay, and
+   * passing over a row should not.
+   */
+  const shownRows = rows.slice(0, ROW_CAP);
+  const tbodyRef = useRef<HTMLTableSectionElement | null>(null);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const tabStop = [cursor, picked?.motorId].find((id) => id != null && shownRows.some((m) => m.motorId === id))
+    ?? shownRows[0]?.motorId;
+  const rove = (m: MotorDbEntry, i: number, activate: () => void) => {
+    // clickable()'s Enter/Space is COMPOSED here, not spread beside another
+    // onKeyDown — the second of two spreads silently wins (ComponentTree's note).
+    const base = clickable(activate);
+    return {
+      ...base,
+      tabIndex: m.motorId === tabStop ? 0 : -1,
+      onFocus: () => setCursor(m.motorId),
+      onKeyDown: (e: ReactKeyboardEvent) => {
+        if (e.target !== e.currentTarget) return;
+        let next: number | null = null;
+        if (e.key === 'ArrowDown') next = Math.min(i + 1, shownRows.length - 1);
+        else if (e.key === 'ArrowUp') next = Math.max(i - 1, 0);
+        else if (e.key === 'Home') next = 0;
+        else if (e.key === 'End') next = shownRows.length - 1;
+        if (next === null) { base.onKeyDown(e); return; }
+        e.preventDefault();
+        tbodyRef.current?.querySelectorAll<HTMLElement>(':scope > tr')[next]?.focus();
+      },
+    };
+  };
+
   const dialogRef = useDialog(onClose);
 
   return (
@@ -413,15 +573,12 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
           <div className="motor-chip-row" role="group" aria-label="Manufacturers">
             <span className="motor-chip-caption">Makers</span>
             {manufacturers.map(({ abbrev, count }) => (
-              <button
-                key={abbrev}
-                className={`series-chip ${filters.manufacturers.includes(abbrev) ? 'series-chip-on' : ''}`}
-                onClick={() => setFilters({ ...filters, manufacturers: toggle(filters.manufacturers, abbrev) })}
-              >
+              <FilterChip key={abbrev} on={filters.manufacturers.includes(abbrev)}
+                onToggle={() => setFilters({ ...filters, manufacturers: toggle(filters.manufacturers, abbrev) })}>
                 {abbrev} <span className="motor-chip-count">{count}</span>
-              </button>
+              </FilterChip>
             ))}
-            {filters.manufacturers.length > 0 && (
+            {shown.manufacturers.length > 0 && (
               <button className="file-btn" onClick={() => setFilters({ ...filters, manufacturers: [] })}>all</button>
             )}
           </div>
@@ -429,15 +586,12 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
           <div className="motor-chip-row" role="group" aria-label="Diameter classes">
             <span className="motor-chip-caption">Diameter</span>
             {fittingClasses.map((c) => (
-              <button
-                key={c}
-                className={`series-chip ${filters.classes.includes(c) ? 'series-chip-on' : ''}`}
-                onClick={() => setFilters({ ...filters, classes: toggle(filters.classes, c) })}
-              >
+              <FilterChip key={c} on={filters.classes.includes(c)}
+                onToggle={() => setFilters({ ...filters, classes: toggle(filters.classes, c) })}>
                 {classLabel(c)} mm
-              </button>
+              </FilterChip>
             ))}
-            {filters.classes.length > 0 && (
+            {shown.classes.length > 0 && (
               <button className="file-btn" onClick={() => setFilters({ ...filters, classes: [] })}>all</button>
             )}
           </div>
@@ -446,15 +600,12 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
           <div className="motor-chip-row" role="group" aria-label="Impulse classes">
             <span className="motor-chip-caption">Class</span>
             {impulseClasses.map(({ letter, count }) => (
-              <button
-                key={letter}
-                className={`series-chip ${filters.impulse.includes(letter) ? 'series-chip-on' : ''}`}
-                onClick={() => setFilters({ ...filters, impulse: toggle(filters.impulse, letter) })}
-              >
+              <FilterChip key={letter} on={filters.impulse.includes(letter)}
+                onToggle={() => setFilters({ ...filters, impulse: toggle(filters.impulse, letter) })}>
                 {letter} <span className="motor-chip-count">{count}</span>
-              </button>
+              </FilterChip>
             ))}
-            {filters.impulse.length > 0 && (
+            {shown.impulse.length > 0 && (
               <button className="file-btn" onClick={() => setFilters({ ...filters, impulse: [] })}>all</button>
             )}
           </div>
@@ -488,10 +639,27 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
               title={filters.showAll ? 'Hide the extra filters' : 'Propellant, out-of-production'}
               onClick={() => setFilters({ ...filters, showAll: !filters.showAll })}>
               {filters.showAll ? '▾' : '▸'} All filters
+              {/* Folded is not off (audit 2026-09-22): a propellant chip or a
+                  burn/impulse window chosen last session keeps filtering with
+                  the row closed, and nothing on screen said so. */}
+              {hiddenCount > 0 && ` · ${hiddenCount} hidden`}
             </button>
+            {hiddenCount > 0 && (
+              <button className="file-btn"
+                aria-label={`Clear the ${hiddenCount} hidden filter${hiddenCount === 1 ? '' : 's'}`}
+                onClick={() => setFilters({ ...filters, ...FOLDED_CLEAR })}>
+                clear
+              </button>
+            )}
+            {/* Visually hidden, NOT display:none (audit 2026-09-22) — the App
+                header's Open… rule (styles.css .file-btn-input): display:none
+                takes the input out of the Tab order, and importing a file is the
+                ONLY way to fly an EX motor, so keyboard and switch users could
+                not reach it. The label paints the focus ring via :focus-within. */}
             <label className="file-btn" title="Import experimental/EX motors from RASP (.eng) or RockSim (.rse) files — they appear under manufacturer EX and persist across sessions">
               ⬆ Import .eng/.rse
-              <input type="file" accept=".eng,.rse,.txt" multiple style={{ display: 'none' }}
+              <input type="file" accept=".eng,.rse,.txt" multiple className="file-btn-input"
+                aria-label="Import EX motor files (.eng or .rse)"
                 onChange={(e) => {
                   const fs = Array.from(e.target.files ?? []);
                   if (fs.length) importMotorFiles(fs);
@@ -500,7 +668,8 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
             </label>
             <label className="file-btn" title="Pick the folder where you keep your EX motor files — every .eng/.rse inside is added to the library in one go">
               📁 Import EX folder
-              <input type="file" style={{ display: 'none' }}
+              <input type="file" className="file-btn-input"
+                aria-label="Import every EX motor file in a folder"
                 {...({ webkitdirectory: '' } as Record<string, string>)}
                 onChange={(e) => {
                   const fs = Array.from(e.target.files ?? []);
@@ -519,15 +688,12 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
               <div className="motor-chip-row" role="group" aria-label="Propellants">
                 <span className="motor-chip-caption">Propellant</span>
                 {propellants.slice(0, 14).map(({ name, count }) => (
-                  <button
-                    key={name}
-                    className={`series-chip ${filters.propellants.includes(name) ? 'series-chip-on' : ''}`}
-                    onClick={() => setFilters({ ...filters, propellants: toggle(filters.propellants, name) })}
-                  >
+                  <FilterChip key={name} on={filters.propellants.includes(name)}
+                    onToggle={() => setFilters({ ...filters, propellants: toggle(filters.propellants, name) })}>
                     {name} <span className="motor-chip-count">{count}</span>
-                  </button>
+                  </FilterChip>
                 ))}
-                {filters.propellants.length > 0 && (
+                {shown.propellants.length > 0 && (
                   <button className="file-btn" onClick={() => setFilters({ ...filters, propellants: [] })}>all</button>
                 )}
               </div>
@@ -618,19 +784,20 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
                 ))}
               </tr>
             </thead>
-            <tbody>
-              {rows.slice(0, ROW_CAP).map((m) => {
+            <tbody ref={tbodyRef}>
+              {shownRows.map((m, i) => {
                 const flagged = tooLong(m);
-                // thrustcurve.org has no usable weights for ~13% of the catalog;
-                // those cannot be simulated at all, so they stay listed (they are
-                // real motors) but are not pickable. See motorDb.hasMassData.
-                const noMass = !hasMassData(m);
+                // thrustcurve.org has no usable catalogue weights for ~13% of the
+                // catalog; the ones whose data file has none either cannot be
+                // simulated at all, so they stay listed (they are real motors)
+                // but are not pickable. See motorDb.hasMassData and fileMassed.
+                const noMass = !hasMassData(m) && !fileMassed.has(m.motorId);
                 return (
                   <tr
                     key={m.motorId}
                     className={`motor-row ${picked?.motorId === m.motorId ? 'motor-row-picked' : ''} ${flagged ? 'motor-row-long' : ''} ${noMass ? 'motor-row-nomass' : ''}`}
                     aria-disabled={noMass || undefined}
-                    {...clickable(() => { if (!noMass) setPicked(m); })}
+                    {...rove(m, i, () => { if (!noMass) setPicked(m); })}
                     title={noMass
                       ? 'thrustcurve.org publishes no usable weight for this motor, so it cannot be simulated. Import its .rse/.eng file to fly it.'
                       : flagged
@@ -721,8 +888,18 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
             </span>
           )}
         </div>
-        {notice && <p className="motor-db-meta" style={{ marginBottom: 0 }}>{notice}</p>}
-        {error && <p className="file-note file-note-error" style={{ marginBottom: 0 }}>{error}</p>}
+        {/* Live regions, ALWAYS mounted (audit 2026-09-22). These were plain
+            <p>s, so a Load that failed offline and an import's result or its
+            "NOT saved" warning reached nobody who could not see them; and a
+            region inserted with its text already in place is announced
+            unreliably, so the containers exist before their first message.
+            The import result and its notes are polite; a failure is an alert. */}
+        <div role="status">
+          {notice && <p className="motor-db-meta" style={{ marginBottom: 0 }}>{notice}</p>}
+        </div>
+        <div role="alert">
+          {error && <p className="file-note file-note-error" style={{ marginBottom: 0 }}>{error}</p>}
+        </div>
       </div>
     </div>
   );

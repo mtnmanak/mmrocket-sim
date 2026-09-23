@@ -558,15 +558,21 @@ export function manufacturersForMount(
 }
 
 /**
- * Can this catalog entry actually be simulated?
+ * Does this catalog ROW carry a usable loaded/propellant pair?
  *
  * thrustcurve.org's catalog is not uniformly populated. As of the bundled
  * snapshot, 146 of 1129 entries publish no loaded weight, 14 no propellant
  * weight, and Cesaroni 25E75-17A lists more propellant (104 g) than loaded
  * mass (52 g). Those produce NaN or negative motor masses, which used to reach
- * the kernel and blank the user's design with a raw BigInt error. The UI uses
- * this to disable such rows rather than hide them — they are legitimate catalog
- * entries, and hiding them would make the database look wrong.
+ * the kernel and blank the user's design with a raw BigInt error.
+ *
+ * It judges the catalogue row alone, and a row without a pair can still fly:
+ * samplesToMotorSpec checks the masses that FLY, the data file's own when it
+ * states a good pair (audit 2026-09-22 — 116 of the 157 such rows do). The
+ * motor browser disables a row only when this is false AND its bundled file
+ * has no pair either (MotorBrowser's fileMassed) — disabled rather than hidden,
+ * because they are legitimate catalog entries and hiding them would make the
+ * database look wrong.
  */
 export function hasMassData(m: Pick<TcMotor, 'totalWeightG' | 'propWeightG'>): boolean {
   return (

@@ -1,7 +1,7 @@
 {
  "generated": "2026-07-03",
  "source": "github.com/openrocket/openrocket-database + OpenRocket 24.12 datafiles/components/internal",
- "count": 4730,
+ "count": 4729,
  "presets": [
   {
    "kind": "BodyTube",
@@ -41673,25 +41673,6 @@
    "length": 0.2032,
    "thickness": 0.003175,
    "source": "desktop-24.12"
-  },
-  {
-   "kind": "NoseCone",
-   "manufacturer": "Quest",
-   "partNo": "PNC35N",
-   "description": "PNC35N",
-   "material": {
-    "name": "Polystyrene",
-    "type": "BULK",
-    "density": 1050
-   },
-   "mass": 0.0133243,
-   "length": 0.211074,
-   "outsideDiameter": 0.035052,
-   "shoulderLength": 0.01905,
-   "shoulderDiameter": 0.03175,
-   "shape": "CONICAL",
-   "thickness": 0.003175,
-   "source": "rocksim"
   },
   {
    "kind": "NoseCone",

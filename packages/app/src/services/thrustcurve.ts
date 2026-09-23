@@ -529,24 +529,69 @@ export async function bundledSimFiles(motorId: string): Promise<TcSimFile[]> {
   }));
 }
 
+/** Desktop's RockSimMotorLoader.DELAY_LIMIT: a listed delay this long means "no charge". */
+const PLUGGED_DELAY_CODE = 90;
+
 /**
  * Delay options parsed from the motor's delays string ("0,3,5" → [0,3,5]).
  * "P" (plugged — no ejection charge) becomes Infinity, always listed last;
  * 623 motors in the bundled DB carry it and it used to be silently dropped
  * (a "P"-only motor even showed a bogus 0 s delay).
+ *
+ * A number of 90 or more is ALSO plugged (audit 2026-09-22). RASP and RockSim
+ * files write "no ejection charge" as 100 or 1000 — 125 of the 891 motors in a
+ * tester's rasp.eng say 1000 and 26 say 100 — and read as seconds those were
+ * the "longest" option: the browser picked them and the report printed
+ * "Flown delay 1000s vs optimal 7.3s". 90 is desktop's own line for RockSim
+ * files (RockSimMotorLoader.DELAY_LIMIT, "any delay longer than this will be
+ * interpreted as a plugged motor"); no real motor is drilled that long.
+ *
+ * And a field with nothing usable in it — absent, or KBA's "S,M,L" — gives
+ * `[]`, never `[0]`: 0 s is a real delay (a booster's charge at burnout), so
+ * inventing it put a chute out at burnout on a motor whose delay is simply
+ * unknown. Callers read "no options" as "no prescribed delay"; see defaultDelay.
+ *
+ * The prescribed delays come back SORTED, shortest first, once each —
+ * desktop's RASPMotorLoader sorts them too (Collections.sort). Every caller that
+ * wants "the longest" takes the last finite entry (defaultDelay, the un-plug
+ * restore in App, the batch run's provisional flight), and a RASP file lists
+ * them in whatever order its author typed: 70 of the 889 motors in a tester's
+ * rasp.eng do not end on their longest, and five end on 0 — E6T "2-4-8-0",
+ * I115W "6-10-14-0" — so those defaulted to a charge AT BURNOUT (review of the
+ * audit 2026-09-22 fixes). The shipped catalogue is always ascending, which is
+ * why nothing caught it.
  */
 export function delayOptions(motor: TcMotor): number[] {
-  if (!motor.delays) return [0];
+  if (!motor.delays) return [];
   const opts: number[] = [];
   let plugged = false;
   for (const raw of motor.delays.split(',')) {
     const s = raw.trim().toUpperCase();
     if (s === 'P' || s === 'PLUGGED') { plugged = true; continue; }
+    if (s === '') continue; // Number('') is 0 — an empty item is not a 0 s delay
     const n = Number(s);
-    if (Number.isFinite(n)) opts.push(n);
+    if (!Number.isFinite(n) || n < 0) continue;
+    if (n >= PLUGGED_DELAY_CODE) { plugged = true; continue; }
+    opts.push(n);
   }
-  if (plugged) opts.push(Infinity);
-  return opts.length ? opts : [0];
+  const sorted = [...new Set(opts)].sort((a, b) => a - b);
+  if (plugged) sorted.push(Infinity);
+  return sorted;
+}
+
+/**
+ * The delay a fresh pick of this motor starts at: the longest PRESCRIBED
+ * delay, and plugged only when that is the motor's sole option — nobody should
+ * get a chute-less flight by default. null when the motor lists no delay at
+ * all, which the motor browser answers with "Auto (optimal)" rather than with
+ * a number it would have to make up. One rule for every place a delay is
+ * chosen on the user's behalf: the browser's default, and RockSim's "every
+ * delay" sentinel on import (rocksimFile.ts).
+ */
+export function defaultDelay(motor: TcMotor): number | null {
+  const opts = delayOptions(motor); // sorted, so the last finite entry IS the longest
+  const finite = opts.filter((d) => Number.isFinite(d));
+  return finite[finite.length - 1] ?? opts[opts.length - 1] ?? null;
 }
 
 /** Display tag for a delay value: "5" / "P" (plugged). */
@@ -595,13 +640,21 @@ export function samplesToMotorSpec(
   // whole design blanked. Refuse with something a rocketeer can act on — never
   // substitute a made-up mass, which would trade a visible error for silently
   // wrong altitudes.
-  if (!Number.isFinite(motor.totalWeightG) || !Number.isFinite(motor.propWeightG)) {
+  //
+  // What is checked is the pair that will FLY (audit 2026-09-22): the data
+  // file's own masses when it states a usable pair — they win below — and the
+  // catalogue's only when it does not. Checking the catalogue regardless
+  // refused motors whose file carries good masses: 116 of the 157 catalogue
+  // rows with no usable weight, 14 of them in production (Estes 1/2A6,
+  // Cesaroni 320H565-14A, Klima B2, ...), all of which desktop flies.
+  const file = isHeaderMasses(fromFile) ? fromFile : null;
+  if (!file && (!Number.isFinite(motor.totalWeightG) || !Number.isFinite(motor.propWeightG))) {
     throw new Error(
       `thrustcurve.org publishes no loaded/propellant weight for ${motor.designation}, ` +
         'so it cannot be simulated. Pick another motor, or import its .rse/.eng file.',
     );
   }
-  if (motor.propWeightG > motor.totalWeightG) {
+  if (!file && motor.propWeightG > motor.totalWeightG) {
     throw new Error(
       `${motor.designation} is catalogued with more propellant (${motor.propWeightG} g) than ` +
         `loaded mass (${motor.totalWeightG} g), so its burn would end at a negative mass. ` +
@@ -609,8 +662,8 @@ export function samplesToMotorSpec(
     );
   }
 
-  const totalMass = (fromFile?.totalWeightG ?? motor.totalWeightG) / 1000;
-  const propMass = (fromFile?.propWeightG ?? motor.propWeightG) / 1000;
+  const totalMass = (file?.totalWeightG ?? motor.totalWeightG) / 1000;
+  const propMass = (file?.propWeightG ?? motor.propWeightG) / 1000;
 
   // Cumulative impulse via trapezoid rule.
   const cumImpulse: number[] = [0];
@@ -807,10 +860,29 @@ function deadline(caller: AbortSignal | undefined, ms: number): Deadline {
 }
 
 /**
+ * Drops every downloaded-curve entry, of every generation, and says how many.
+ *
+ * For a write that matters more than this cache and has just hit the quota —
+ * the imported EX-motor library (exMotors.ts persist, audit 2026-09-22). The
+ * cache is a pure convenience: every catalogue curve is in the shipped bundle
+ * and anything else downloads again on its next use, so emptying it loses
+ * nothing a user made, where losing their imported motors does.
+ */
+export function clearCurveCache(): number {
+  try {
+    const keys = cachedKeys();
+    for (const k of keys) localStorage.removeItem(k);
+    return keys.length;
+  } catch {
+    return 0; // no storage at all
+  }
+}
+
+/**
  * Fetches thrust samples (localStorage-cached) and builds the MotorSpec.
- * Imported EX motors ("ex:" ids) build entirely from local data — .rse files
- * carry measured per-sample masses, which beat the impulse-proportional
- * approximation.
+ * Imported EX motors ("ex:" ids) build entirely from local data — an .rse that
+ * turns RockSim's own mass model off carries per-sample masses, which fly
+ * instead of the impulse-proportional approximation (exMotors.rseSampleMassesKg).
  */
 export async function fetchMotorSpec(
   motor: TcMotor,

@@ -17,8 +17,13 @@ const ROW_CAP = 300;
  * (plus user CSV imports). Applying a preset patches the node's dimensions,
  * material, and — when the catalog lists a real-world mass — a mass override.
  */
-export function PresetPicker({ type, onApply, onClose }: {
+export function PresetPicker({ type, node, onApply, onClose }: {
   type: ComponentType;
+  /**
+   * The part a pick replaces. presetPatch needs it to tell the previous part's
+   * catalogue mass (cleared) from a weight the user typed (kept) — see there.
+   */
+  node?: ComponentNode;
   onApply: (patch: Partial<ComponentNode>) => void;
   onClose: () => void;
 }) {
@@ -151,9 +156,12 @@ export function PresetPicker({ type, onApply, onClose }: {
           </h2>
           <button className="file-btn" onClick={exportCsv}
             title={`Export all ${rows.length} row(s) matching the search — not just the ${ROW_CAP} the table shows`}>⬇ CSV</button>
+          {/* Visually hidden, NOT display:none (audit 2026-09-22): the App
+              header's Open… rule (styles.css .file-btn-input) — display:none
+              took the input out of the Tab order, so the keyboard could not reach it. */}
           <label className="file-btn" title="Import an edited CSV (adds/updates your own presets)">
             ⬆ CSV
-            <input type="file" accept=".csv" style={{ display: 'none' }}
+            <input type="file" accept=".csv" className="file-btn-input" aria-label="Import presets from a CSV file"
               onChange={(e) => {
                 const f = e.target.files?.[0];
                 if (f) importCsv(f);
@@ -198,7 +206,10 @@ export function PresetPicker({ type, onApply, onClose }: {
             <tbody>
               {rows.slice(0, ROW_CAP).map((p, i) => (
                 <tr key={`${p.manufacturer}|${p.partNo}|${i}`} className="motor-row"
-                  {...clickable(() => { onApply(presetPatch(type, p)); onClose(); })}>
+                  {...clickable(() => {
+                    onApply(presetPatch(type, p, node && { node, presets: all ?? [] }));
+                    onClose();
+                  })}>
                   <td>{p.manufacturer}</td>
                   <td><strong>{p.partNo}</strong></td>
                   <td>{p.description}</td>
@@ -221,9 +232,14 @@ export function PresetPicker({ type, onApply, onClose }: {
             outcome, including "Could not store N of M preset(s)" — the result of
             an async operation the user is waiting on, previously announced to
             nobody. MotorBrowser puts the same class of message in role="alert"
-            and role="status"; this is the polite one, because it also carries
-            ordinary success text. */}
-        {note && <p className="motor-db-meta" role="status" style={{ marginBottom: 0 }}>{note}</p>}
+            and role="status" (since the 2026-09-22 audit; before that they were
+            plain <p>s); this is the polite one, because it also carries
+            ordinary success text. The region is ALWAYS mounted (2026-09-22): it
+            was rendered only with its text already in it, and a live region
+            inserted that way is announced unreliably. */}
+        <div role="status">
+          {note && <p className="motor-db-meta" style={{ marginBottom: 0 }}>{note}</p>}
+        </div>
       </div>
     </div>
   );

@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
 import { PresetPicker } from './PresetPicker.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
-import { loadCustomPresets } from '../services/presets.js';
+import { loadCustomPresets, saveCustomPresets, type Preset } from '../services/presets.js';
 
 /**
  * The CSV round trip this dialog advertises (⬇ CSV, "Import an edited CSV") is
@@ -134,5 +134,70 @@ describe('PresetPicker — labelling', () => {
     // announced as a bare "search edit".
     expect(search.getAttribute('aria-label'))
       .toBe('Search part number, description or manufacturer');
+  });
+
+  it('keeps the ⬆ CSV file input in the Tab order, named (audit 2026-09-22)', async () => {
+    // display:none took it out of the Tab order; the App header's Open… was
+    // fixed the same way (styles.css .file-btn-input).
+    await render();
+    const input = host.querySelector<HTMLInputElement>('input[type="file"]')!;
+    expect(input.style.display).not.toBe('none');
+    expect(input.classList.contains('file-btn-input')).toBe(true);
+    expect(input.tabIndex).not.toBe(-1);
+    expect(input.getAttribute('aria-label')).toBe('Import presets from a CSV file');
+  });
+
+  it('keeps its status region mounted before the first message (audit 2026-09-22)', async () => {
+    // Rendered only with its text in place, it was announced unreliably.
+    await render();
+    const region = host.querySelector('.motor-browser > [role="status"]')!;
+    expect(region.textContent).toBe('');
+    await importCsv(CSV);
+    expect(host.querySelector('.motor-browser > [role="status"]')).toBe(region);
+    expect(region.textContent).toMatch(/Imported 1 preset\(s\)/);
+  });
+});
+
+/**
+ * Review of the audit 2026-09-22 presetPatch fix: a pick of a part with no
+ * catalogue mass cleared EVERY mass override, including one the user typed.
+ * The picker now hands presetPatch the node it replaces and the catalogue it
+ * shows, so only the previous part's catalogue mass is cleared.
+ */
+describe('PresetPicker — a pick and the mass override', () => {
+  const rows: Preset[] = [
+    { kind: 'BodyTube', manufacturer: 'ACME', partNo: 'HEAVY-1', description: 'massed', mass: 0.04,
+      outsideDiameter: 0.041, insideDiameter: 0.04, length: 0.3 },
+    { kind: 'BodyTube', manufacturer: 'ACME', partNo: 'PLAIN-1', description: 'no mass',
+      outsideDiameter: 0.041, insideDiameter: 0.04, length: 0.45 },
+  ];
+  const pickPlain = async (node: ComponentNode) => {
+    saveCustomPresets(rows);
+    const onApply = vi.fn();
+    act(() => {
+      root.render(
+        <PrefsProvider>
+          <PresetPicker type={node.type} node={node} onApply={onApply} onClose={() => {}} />
+        </PrefsProvider>,
+      );
+    });
+    await flush();
+    const tr = [...host.querySelectorAll<HTMLTableRowElement>('tr.motor-row')]
+      .find((r) => r.textContent?.includes('PLAIN-1'))!;
+    act(() => { tr.click(); });
+    expect(onApply).toHaveBeenCalledTimes(1);
+    return onApply.mock.calls[0]![0] as Record<string, unknown>;
+  };
+
+  it('keeps a mass the user typed', async () => {
+    const patch = await pickPlain({ type: 'bodytube', id: 'b', overrideMass: 0.25 } as ComponentNode);
+    expect('overrideMass' in patch).toBe(false);
+  });
+
+  it('clears the previous part’s catalogue mass', async () => {
+    const patch = await pickPlain({
+      type: 'bodytube', id: 'b', overrideMass: 0.04, presetManufacturer: 'ACME', presetPartNo: 'HEAVY-1',
+    } as ComponentNode);
+    expect('overrideMass' in patch && patch['overrideMass'] === undefined).toBe(true);
   });
 });

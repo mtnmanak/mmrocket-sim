@@ -66,6 +66,10 @@ export function screenEntry(m: Partial<MotorDbEntry>): string | null {
   if (typeof m.motorId !== 'string' || !m.motorId) return 'no motorId';
   if (typeof m.designation !== 'string' || !m.designation.trim()) return 'no designation';
   if (typeof m.manufacturerAbbrev !== 'string' || !m.manufacturerAbbrev.trim()) return 'no manufacturer';
+  // Required, not just checked when present (audit 2026-09-22): the motor
+  // browser dereferences it on every row — its search and its load label call
+  // string methods on it — so one live row without it threw inside the render.
+  if (typeof m.commonName !== 'string' || !m.commonName.trim()) return 'no common name';
   if (!(Number.isFinite(m.diameter) && m.diameter! > 0 && m.diameter! <= 300)) return `diameter ${m.diameter} mm is not a motor`;
   if (!(Number.isFinite(m.length) && m.length! > 0 && m.length! <= 3000)) return `length ${m.length} mm is not a motor`;
   const tw = m.totalWeightG; const pw = m.propWeightG;
@@ -77,9 +81,10 @@ export function screenEntry(m: Partial<MotorDbEntry>): string | null {
   if (m.totImpulseNs !== undefined && m.totImpulseNs !== null && !(Number.isFinite(m.totImpulseNs) && m.totImpulseNs > 0)) {
     return `total impulse ${m.totImpulseNs} Ns`;
   }
-  if (m.burnTimeS !== undefined && m.burnTimeS !== null && !(Number.isFinite(m.burnTimeS) && m.burnTimeS > 0)) {
-    return `burn time ${m.burnTimeS} s`;
-  }
+  // Required too, for the same reason: the table draws `burnTimeS.toFixed(1)`.
+  // Every one of the 1,156 shipped rows carries it; the weights, which 156 of
+  // them lack one or both of, stay optional above.
+  if (!(Number.isFinite(m.burnTimeS) && m.burnTimeS! > 0)) return `burn time ${m.burnTimeS} s`;
   if (m.availability !== undefined && !['regular', 'occasional', 'OOP'].includes(String(m.availability))) {
     return `unknown availability "${m.availability}"`;
   }
@@ -126,9 +131,34 @@ const isOverlay = (v: unknown): v is CatalogueOverlay => {
 };
 
 /**
+ * A stored overlay's rows through TODAY's screen. The screen runs when a check
+ * writes the overlay, so an overlay written before a rule existed carries rows
+ * that rule refuses — and one written before the screen required burnTimeS and
+ * commonName (audit 2026-09-22) can hold a row the motor browser throws on
+ * while drawing its table. The Check-again and Discard buttons that would
+ * replace it live inside that browser, so the bad row stuck until a release
+ * changed the shipped catalogue's date. Refused rows move to `rejected` the way
+ * a check refuses them, and a refused change keeps the shipped row.
+ */
+function rescreen(o: CatalogueOverlay): CatalogueOverlay {
+  const rejected = [...o.rejected];
+  const passes = (entry: unknown): boolean => {
+    const reason = entry && typeof entry === 'object'
+      ? screenEntry(entry as Partial<MotorDbEntry>) : 'not a motor row';
+    if (reason) rejected.push({ entry: (entry ?? {}) as Partial<MotorDbEntry>, reason });
+    return !reason;
+  };
+  const added = o.added.filter(passes);
+  const changed = o.changed.filter((c) => passes((c as CatalogueChange | null)?.after));
+  if (added.length === o.added.length && changed.length === o.changed.length) return o;
+  return { ...o, added, changed, rejected };
+}
+
+/**
  * The persisted overlay, or null — and null when the shipped catalogue has
  * moved on from the base it was diffed against, in which case it is also
  * deleted: a release supersedes the overlay, and the next check starts clean.
+ * What it returns has been through today's screen (rescreen, above).
  */
 export function loadStoredOverlay(): CatalogueOverlay | null {
   try {
@@ -137,7 +167,7 @@ export function loadStoredOverlay(): CatalogueOverlay | null {
     const parsed: unknown = JSON.parse(raw);
     if (!isOverlay(parsed)) { localStorage.removeItem(OVERLAY_KEY); return null; }
     if (parsed.baseGenerated !== MOTOR_DB_DATE) { localStorage.removeItem(OVERLAY_KEY); return null; }
-    return parsed;
+    return rescreen(parsed);
   } catch {
     return null;
   }
@@ -233,12 +263,16 @@ export async function fetchLiveCatalogue(opts: CheckOptions = {}): Promise<Motor
  */
 export async function checkForCatalogueUpdates(
   opts: CheckOptions = {},
-): Promise<{ overlay: CatalogueOverlay; skipped: 'recent' | null; stored: boolean }> {
+): Promise<{
+  overlay: CatalogueOverlay; skipped: 'recent' | null; stored: boolean;
+  /** Manufacturers thrustcurve.org returned NO rows for, whose motors were therefore not marked removed. */
+  silent: string[];
+}> {
   const now = opts.now ?? Date.now;
   const previous = loadStoredOverlay();
   if (previous && !opts.force && now() - Date.parse(previous.fetchedAt) < RECHECK_MIN_MS) {
     setCatalogueOverlay(previous);
-    return { overlay: previous, skipped: 'recent', stored: true };
+    return { overlay: previous, skipped: 'recent', stored: true, silent: [] };
   }
   const live = await fetchLiveCatalogue(opts);
   const d = diffCatalogue(MOTOR_DB, live);
@@ -257,7 +291,21 @@ export async function checkForCatalogueUpdates(
     if (reason) rejected.push({ entry: c.after, reason });
     return !reason; // a refused change keeps the shipped row as it was
   });
-  const removed = d.removed;
+  // "No longer listed" is believed motor by motor, never for a whole maker at
+  // once (audit 2026-09-22). A manufacturer whose pull came back with no rows
+  // at all — a failed page, an API hiccup, a maker missing from metadata.json —
+  // marked its entire shipped line out of production, and that stuck until the
+  // next check. A maker that answered with even one row is trusted about the
+  // rest; one that answered with none keeps its shipped rows, and is named.
+  const answered = new Set(live.map((m) => m.manufacturerAbbrev));
+  const shippedMaker = new Map(MOTOR_DB.map((m) => [m.motorId, m.manufacturerAbbrev]));
+  const silent = new Set<string>();
+  const removed = d.removed.filter((id) => {
+    const maker = shippedMaker.get(id) ?? '';
+    if (answered.has(maker)) return true;
+    silent.add(maker);
+    return false;
+  });
   const overlay: CatalogueOverlay = {
     baseGenerated: MOTOR_DB_DATE,
     fetchedAt: new Date(now()).toISOString(),
@@ -269,7 +317,7 @@ export async function checkForCatalogueUpdates(
   };
   const stored = storeOverlay(overlay);
   setCatalogueOverlay(overlay);
-  return { overlay, skipped: null, stored };
+  return { overlay, skipped: null, stored, silent: [...silent] };
 }
 
 // ------------------------------------------------------------------- copy

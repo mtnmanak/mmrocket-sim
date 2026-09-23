@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  delayOptions, fileImpulseNs, headerMasses, impulseNote, samplesToMotorSpec, repairSamples, pickSampleFile,
+  defaultDelay, delayOptions, fileImpulseNs, headerMasses, impulseNote, samplesToMotorSpec, repairSamples, pickSampleFile,
   type TcMotor, type TcSample,
 } from './thrustcurve.js';
 
@@ -36,7 +36,50 @@ const SAMPLES = [
 describe('thrustcurve transforms', () => {
   it('parses delay options', () => {
     expect(delayOptions(QUEST_C6)).toEqual([0, 3, 5]);
-    expect(delayOptions({ ...QUEST_C6, delays: undefined })).toEqual([0]);
+  });
+
+  /**
+   * Audit 2026-09-22: a field with nothing usable in it is NO options, not a
+   * made-up 0 s (which fires the charge at burnout), and RASP/RockSim's "no
+   * ejection charge" codes — 1000 and 100, 151 of the 891 motors in a tester's
+   * rasp.eng — are plugged, not the "longest delay" the browser used to pick.
+   */
+  it('reads an unusable field as no options, never as a 0 s delay', () => {
+    expect(delayOptions({ ...QUEST_C6, delays: undefined })).toEqual([]);
+    expect(delayOptions({ ...QUEST_C6, delays: '' })).toEqual([]);
+    expect(delayOptions({ ...QUEST_C6, delays: 'S,M,L' })).toEqual([]); // KBA K400S
+    expect(delayOptions({ ...QUEST_C6, delays: '6,' })).toEqual([6]); // not [6, 0]
+  });
+
+  it('reads 90 s and over as plugged, the way desktop reads RockSim files', () => {
+    expect(delayOptions({ ...QUEST_C6, delays: '1000' })).toEqual([Infinity]);
+    expect(delayOptions({ ...QUEST_C6, delays: '100' })).toEqual([Infinity]);
+    expect(delayOptions({ ...QUEST_C6, delays: '6,10,14,1000' })).toEqual([6, 10, 14, Infinity]);
+    // One plugged option however many ways the field says it.
+    expect(delayOptions({ ...QUEST_C6, delays: '5,P,1000' })).toEqual([5, Infinity]);
+    expect(delayOptions({ ...QUEST_C6, delays: '89' })).toEqual([89]);
+  });
+
+  it('defaultDelay: longest prescribed, plugged only when alone, null when nothing is listed', () => {
+    expect(defaultDelay(QUEST_C6)).toBe(5);
+    expect(defaultDelay({ ...QUEST_C6, delays: '6,10,14,1000' })).toBe(14);
+    expect(defaultDelay({ ...QUEST_C6, delays: '1000' })).toBe(Infinity);
+    expect(defaultDelay({ ...QUEST_C6, delays: 'S,M,L' })).toBeNull();
+    expect(defaultDelay({ ...QUEST_C6, delays: undefined })).toBeNull();
+  });
+
+  /**
+   * Review of the audit 2026-09-22 fixes: "longest" was "last in file order".
+   * A RASP file lists delays in whatever order its author typed — the tester's
+   * rasp.eng has I115W, I215R and I117FJ as "6-10-14-0" and E6T as "2-4-8-0" —
+   * and those defaulted to 0 s, a charge at burnout.
+   */
+  it('sorts the delays, so the longest is the longest whatever order the file lists them in', () => {
+    expect(delayOptions({ ...QUEST_C6, delays: '6,10,14,0' })).toEqual([0, 6, 10, 14]);
+    expect(delayOptions({ ...QUEST_C6, delays: '13,10,8,6,4' })).toEqual([4, 6, 8, 10, 13]);
+    expect(delayOptions({ ...QUEST_C6, delays: 'P,7,4,1000,7' })).toEqual([4, 7, Infinity]);
+    expect(defaultDelay({ ...QUEST_C6, delays: '6,10,14,0' })).toBe(14);
+    expect(defaultDelay({ ...QUEST_C6, delays: '2,4,8,0' })).toBe(8);
   });
 
   it('builds an SI MotorSpec with an impulse-proportional mass curve', () => {
@@ -393,5 +436,37 @@ J1026 38 625.5 P 0.616 1.172 Loki
   it('falls back to the catalog when the file carries no masses', () => {
     const catalog: TcMotor = { ...QUEST_C6, totalWeightG: 2078, propWeightG: 1292 };
     expect(samplesToMotorSpec(catalog, SAMPLES, 5).masses[0]).toBeCloseTo(2.078, 12);
+  });
+
+  /**
+   * Audit 2026-09-22: the refusal checked the CATALOGUE pair even when the file
+   * pair — the one that flies — was good. 116 of the 157 catalogue rows with no
+   * usable weight carry good file masses, 14 of them in production.
+   */
+  it('flies a motor the catalogue gives no weight when its file states a good pair', () => {
+    const noCatalogMass = { ...QUEST_C6, totalWeightG: undefined as unknown as number };
+    const spec = samplesToMotorSpec(noCatalogMass, SAMPLES, 5, { totalWeightG: 20.5, propWeightG: 9.6 });
+    expect(spec.masses[0]).toBeCloseTo(0.0205, 12);
+    expect(spec.masses[spec.masses.length - 1]).toBeCloseTo(0.0205 - 0.0096, 12);
+    const inverted = { ...QUEST_C6, totalWeightG: 52, propWeightG: 104 };
+    expect(samplesToMotorSpec(inverted, SAMPLES, 5, { totalWeightG: 20.5, propWeightG: 9.6 })
+      .masses[0]).toBeCloseTo(0.0205, 12);
+  });
+
+  it('still refuses when neither the file nor the catalogue has a usable pair', () => {
+    const noCatalogMass = { ...QUEST_C6, totalWeightG: undefined as unknown as number };
+    expect(() => samplesToMotorSpec(noCatalogMass, SAMPLES, 5, null)).toThrow(/publishes no loaded/);
+    // An impossible file pair is no pair: it neither flies nor rescues the catalogue.
+    expect(() => samplesToMotorSpec(noCatalogMass, SAMPLES, 5, { totalWeightG: 5, propWeightG: 9 }))
+      .toThrow(/publishes no loaded/);
+  });
+
+  it('Estes 1/2A6 — no catalogue weight, good bundled file — now loads from the shipped data', async () => {
+    const { MOTOR_DB, hasMassData } = await import('./motorDb.js');
+    const { fetchMotorSpec } = await import('./thrustcurve.js');
+    const m = MOTOR_DB.find((x) => x.manufacturerAbbrev === 'Estes' && x.designation === '1/2A6')!;
+    expect(hasMassData(m)).toBe(false); // the premise
+    const spec = await fetchMotorSpec(m, 2);
+    expect(spec.masses.every((x) => Number.isFinite(x) && x > 0)).toBe(true);
   });
 });

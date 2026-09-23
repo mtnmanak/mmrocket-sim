@@ -50,6 +50,13 @@ export interface DesignSnapshot {
  * stored configuration already the working set?" with the SAME equality the
  * fingerprint uses — an unchanged configuration is then returned by identity
  * and fingerprints exactly as before.
+ *
+ * A key holding `undefined` is ABSENT, as it is to the JSON the session stores
+ * (audit 2026-09-22). `updateNode` cannot delete a key, so every clear — a
+ * panel field emptied, and since then every field a catalogue pick's row does
+ * not carry — leaves one behind; hashed as null, a design saved after one read
+ * as unsaved on every reload, where the key had quietly gone. `null` itself is
+ * still a value.
  */
 export function stableJson(value: unknown): string {
   if (value === null || typeof value !== 'object') {
@@ -61,7 +68,7 @@ export function stableJson(value: unknown): string {
   }
   if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
   const obj = value as Record<string, unknown>;
-  const keys = Object.keys(obj).sort();
+  const keys = Object.keys(obj).filter((k) => obj[k] !== undefined).sort();
   return `{${keys.map((k) => `${JSON.stringify(k)}:${stableJson(obj[k])}`).join(',')}}`;
 }
 
