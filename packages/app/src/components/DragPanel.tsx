@@ -308,6 +308,63 @@ type BreakdownMode = 'component' | 'type';
 type CpView = 'pct' | 'unit';
 type DragChartId = 'cd' | 'cp' | 'breakdown';
 
+/** The highest Max Mach the Barrowman models are offered (the menu stops here). */
+const CLASSIC_MACH_MAX = 5;
+
+/**
+ * The sweep-altitude box. What is TYPED is held until the box lets go of focus
+ * (blur, or Enter — NumField blurs itself on Enter), and only then handed on
+ * to become the sweep's altitude (audit 2026-09-22, Performance).
+ *
+ * NumField commits every draft that parses, and each altitude is a new
+ * atmosphere, so each keystroke re-ran the whole sweep synchronously in
+ * render: typing "10000" at Mach 25 swept five times — 1.3-1.6 s of a frozen
+ * page on LEM-IV with the real kernel, 210-390 ms a keystroke, four of them
+ * for altitudes nobody asked about (1, 10, 100, 1000 ft). Now the keystrokes
+ * cost ~1 ms each and the one sweep runs when the box is left.
+ *
+ * A spinner click is not typing: ▴/▾ never focus the box, so there is no blur
+ * to wait for, and a click that finds the box unfocused sweeps at once. Held
+ * state lives HERE, not in the panel, so a box that goes away while focused
+ * takes its unfinished edit with it rather than leaving it to surface later.
+ */
+function SweepAltitudeBox({ altM, distUnit, onCommit }: {
+  /** The altitude being swept (m); 0 is sea level. */
+  altM: number;
+  distUnit: string;
+  onCommit: (altM: number) => void;
+}) {
+  const [held, setHeld] = useState<number | null>(null);
+  const wrapRef = useRef<HTMLSpanElement>(null);
+  // Blank IS sea level: blank, 0 and anything below it sweep the default.
+  const toSi = (v: number | null) => (v !== null && v > 0 ? uiToSi('distance', distUnit, v) : 0);
+  return (
+    // `inline-numfield` makes the input fill this 96 px wrapper (styles.css);
+    // outside a `.field` nothing else sizes it. React's onBlur is focusout,
+    // so it hears the input inside.
+    <span ref={wrapRef} className="inline-numfield" style={{ width: 96 }}
+      onBlur={() => {
+        if (held === null) return;
+        setHeld(null);
+        onCommit(held);
+      }}>
+      <NumField
+        ariaLabel={`Sweep altitude (${distUnit})`}
+        value={altM > 0 ? siToUi('distance', distUnit, altM) : undefined}
+        step={niceStep(siToUi('distance', distUnit, 100))}
+        nullable
+        // Blank IS sea level, so a spinner on the blank box steps
+        // from 0 (NumField reads the base out of the placeholder).
+        placeholder="0"
+        onCommit={(v) => {
+          if (wrapRef.current?.contains(document.activeElement)) setHeld(toSi(v));
+          else onCommit(toSi(v));
+        }}
+      />
+    </span>
+  );
+}
+
 export function DragPanel({ rocket, supersonicModel, aeroLabel, designName, fileMachAlt }: {
   rocket: OrkRocket;
   /** Whether the opt-in supersonic aero model is active. */
@@ -368,9 +425,18 @@ export function DragPanel({ rocket, supersonicModel, aeroLabel, designName, file
   const lenUnit = prefs.units.length;
   const distUnit = prefs.units.distance;
 
-  // High-Mach ranges only make sense with the supersonic model on.
+  // High-Mach ranges only make sense with the supersonic model on. The range
+  // the sweep runs to is DERIVED, here in render (audit 2026-09-22). Clamped by
+  // the effect alone it arrived one render late, and App rebuilds the rocket
+  // when the model changes — so switching the supersonic model off at Mach 25
+  // swept the new Barrowman handle all the way to Mach 25 first, then again to
+  // 5 (LEM-IV, real kernel: 350-540 ms, against 160 for the one sweep to 5).
+  // The effect stays, to bring the CHOICE down too, so switching the model
+  // back on starts from 5 as it always has; by then the sweep is already the
+  // right one and its memo does not re-run.
+  const machTop = supersonicModel ? machMax : Math.min(machMax, CLASSIC_MACH_MAX);
   useEffect(() => {
-    if (!supersonicModel && machMax > 5) setMachMax(5);
+    if (!supersonicModel && machMax > CLASSIC_MACH_MAX) setMachMax(CLASSIC_MACH_MAX);
   }, [supersonicModel, machMax]);
 
   // Loading a design without a table must not leave the panel claiming to be
@@ -405,11 +471,11 @@ export function DragPanel({ rocket, supersonicModel, aeroLabel, designName, file
     try {
       // Default conditions pass the options object they always did — no
       // machAlt key at all, so the kernel path is byte-for-byte the old one.
-      return rocket.dragSweep(machAlt ? { machMax, machAlt } : { machMax });
+      return rocket.dragSweep(machAlt ? { machMax: machTop, machAlt } : { machMax: machTop });
     } catch (e) {
       return { error: e instanceof Error ? e.message : String(e) };
     }
-  }, [open, rocket, machMax, machAlt]);
+  }, [open, rocket, machTop, machAlt]);
 
   const condText = conditionsText(conditions, altM, fileMachAlt, distUnit);
 
@@ -493,7 +559,7 @@ export function DragPanel({ rocket, supersonicModel, aeroLabel, designName, file
           <div className="series-picker" role="group" aria-label="Drag analysis controls">
             <label className="motor-inline-label" style={{ whiteSpace: 'nowrap' }}>
               Max Mach
-              <select value={machMax} onChange={(e) => setMachMax(Number(e.target.value))} style={{ marginLeft: 4 }}>
+              <select value={machTop} onChange={(e) => setMachMax(Number(e.target.value))} style={{ marginLeft: 4 }}>
                 <option value={1}>1</option>
                 <option value={2}>2</option>
                 <option value={3}>3</option>
@@ -525,20 +591,9 @@ export function DragPanel({ rocket, supersonicModel, aeroLabel, designName, file
                     while still showing 10,000 — only the caption under the
                     chart said so. A draft it cannot read is now marked
                     invalid and commits nothing, as in every other field.
-                    `inline-numfield` makes the input fill this 96 px wrapper
-                    (styles.css); outside a `.field` nothing else sizes it. */}
-                <span className="inline-numfield" style={{ width: 96 }}>
-                  <NumField
-                    ariaLabel={`Sweep altitude (${distUnit})`}
-                    value={altM > 0 ? siToUi('distance', distUnit, altM) : undefined}
-                    step={niceStep(siToUi('distance', distUnit, 100))}
-                    nullable
-                    // Blank IS sea level, so a spinner on the blank box steps
-                    // from 0 (NumField reads the base out of the placeholder).
-                    placeholder="0"
-                    onCommit={(v) => setAltM(v !== null && v > 0 ? uiToSi('distance', distUnit, v) : 0)}
-                  />
-                </span>
+                    What it does commit waits for the box to let go
+                    (SweepAltitudeBox). */}
+                <SweepAltitudeBox altM={altM} distUnit={distUnit} onCommit={setAltM} />
               </span>
             )}
             <span style={{ flex: 1 }} />
@@ -678,7 +733,7 @@ export function DragPanel({ rocket, supersonicModel, aeroLabel, designName, file
               expanded={bigCharts.has('breakdown')} plotRef={bdPlot} onZoomChange={noteZoom('breakdown')} />
           </div>
 
-          {machMax > 1.5 && (supersonicModel ? (
+          {machTop > 1.5 && (supersonicModel ? (
             <p className="motor-db-meta" style={{ marginTop: 2 }}>
               Supersonic aero model active — CP and drag validated against NASA wind-tunnel
               data (ARCAS, Basic Finner) to ~Mach&nbsp;4.6 and physical to Mach&nbsp;25

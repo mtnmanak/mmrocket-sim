@@ -268,6 +268,121 @@ describe('DragPanel — sweep conditions', () => {
   });
 
   /**
+   * Audit 2026-09-22, Performance: the Max Mach range was clamped by an effect,
+   * one render late. App rebuilds the rocket when the aero model changes, so
+   * switching the supersonic model off at Mach 25 swept the new Barrowman
+   * handle to Mach 25 first — the costliest sweep there is, on a model the
+   * menu does not even offer it for — and then again to 5.
+   */
+  it('switching the supersonic model off at Mach 25 sweeps once, to Mach 5', () => {
+    // A new handle per render, as App's buildResult hands one over per model.
+    const render = (supersonicModel: boolean) => act(() => root.render(
+      <PrefsProvider>
+        <DragPanel rocket={stubRocket(calls)} supersonicModel={supersonicModel} />
+      </PrefsProvider>,
+    ));
+    const machsSince = (n: number) => calls.slice(n).map((o) => (o as { machMax: number }).machMax);
+    render(true);
+    openPanel();
+    const machSel = host.querySelector('select') as HTMLSelectElement; // Max Mach, the first control
+    setSelect(machSel, '25');
+    expect(machsSince(calls.length - 1)).toEqual([25]);
+    let before = calls.length;
+    render(false);
+    expect(machsSince(before)).toEqual([5]);
+    expect(machSel.value).toBe('5');
+    // Back on, the range starts from 5, as it always has.
+    before = calls.length;
+    render(true);
+    expect(machsSince(before)).toEqual([5]);
+    expect(machSel.value).toBe('5');
+  });
+
+  /**
+   * Audit 2026-09-22, Performance: every keystroke NumField could read was a
+   * new atmosphere and a whole synchronous sweep in render — typing "10000" at
+   * Mach 25 swept at 1, 10, 100, 1000 and 10000 ft, ~1.5 s of a frozen page
+   * on LEM-IV. What is typed now waits for the box to let go.
+   */
+  describe('a typed altitude sweeps once, when the box lets go', () => {
+    const typeFocused = (drafts: string[]) => {
+      const input = altInput()!;
+      act(() => input.focus());
+      for (const d of drafts) type(input, d);
+      return input;
+    };
+    const lastAlt = () => (calls[calls.length - 1] as { machAlt?: [number, number][] }).machAlt?.[0]?.[1];
+
+    beforeEach(() => {
+      localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { distance: 'ft' } }));
+    });
+
+    it('five keystrokes are no sweep; the blur is one, at the whole number', () => {
+      mount();
+      openPanel();
+      setSelect(condSelect(), 'altitude');
+      const before = calls.length;
+      const input = typeFocused(['1', '10', '100', '1000', '10000']);
+      expect(calls.length).toBe(before);
+      // The chart has not moved, and neither has the caption that names its air.
+      expect(caption()).toMatch(/sea level/);
+      act(() => input.blur());
+      expect(calls.length).toBe(before + 1);
+      expect(lastAlt()).toBeCloseTo(3048, 6);
+      expect(caption()).toMatch(/ISA at 10000 ft/);
+    });
+
+    it('Enter lets go of the box, and sweeps', () => {
+      mount();
+      openPanel();
+      setSelect(condSelect(), 'altitude');
+      const before = calls.length;
+      const input = typeFocused(['5', '50', '500']);
+      act(() => {
+        input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      });
+      expect(calls.length).toBe(before + 1);
+      expect(lastAlt()).toBeCloseTo(152.4, 6);
+    });
+
+    it('clearing a typed altitude back to blank sweeps sea level once, on blur', () => {
+      mount();
+      openPanel();
+      setSelect(condSelect(), 'altitude');
+      type(altInput()!, '10000'); // unfocused: a direct commit
+      expect(lastAlt()).toBeCloseTo(3048, 6);
+      const before = calls.length;
+      const input = typeFocused(['1000', '100', '10', '1', '']);
+      expect(calls.length).toBe(before);
+      act(() => input.blur());
+      expect(calls.length).toBe(before + 1);
+      expect(Object.keys(calls[calls.length - 1] as object)).toEqual(['machMax']);
+    });
+
+    it('a spinner click never focuses the box, so it sweeps at once', () => {
+      mount();
+      openPanel();
+      setSelect(condSelect(), 'altitude');
+      const before = calls.length;
+      const up = altInput()!.closest('.numfield')!.querySelector('button[aria-label="Increment"]') as HTMLButtonElement;
+      act(() => up.click());
+      expect(calls.length).toBe(before + 1);
+      // One step of the box's own ladder from blank = 0 ft.
+      expect(lastAlt()).toBeGreaterThan(0);
+    });
+
+    it('leaving the box without typing sweeps nothing', () => {
+      mount();
+      openPanel();
+      setSelect(condSelect(), 'altitude');
+      const before = calls.length;
+      const input = typeFocused([]);
+      act(() => input.blur());
+      expect(calls.length).toBe(before);
+    });
+  });
+
+  /**
    * Review of the audit fix: the bare input had its own `width: 76`, and the
    * NumField that replaced it sat in a 96 px wrapper that nothing made it
    * fill — outside a `.field` no rule sizes a NumField's input, so it drew at
