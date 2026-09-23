@@ -5,8 +5,8 @@ import type { OrkMotorRef } from './orkFile.js';
 import { designFingerprint, type DesignSnapshot } from './dirtyState.js';
 import { LEGACY_PAD_MASS_KEY } from './hardwareMass.js';
 import {
-  adoptsRefPadMass, assignMotorRecord, migrateLegacyPadMass, restoreUnmatchedRefs, stripPadMass, stripRefPadMass,
-  syncActiveConfig, withActiveConfigSynced, withActiveConfigTreeSynced, withoutStoredRef,
+  adoptsRefPadMass, assignMotorRecord, migrateLegacyPadMass, padMassSetKey, restoreUnmatchedRefs, stripPadMass,
+  stripRefPadMass, syncActiveConfig, withActiveConfigSynced, withActiveConfigTreeSynced, withoutStoredRef,
 } from './configSync.js';
 
 /**
@@ -482,5 +482,41 @@ describe('withActiveConfigTreeSynced', () => {
     // Before the fix the stored copy was still the file's 200, so coming back
     // to A flew 200, and a Save while B was active wrote 200 for A.
     expect(leavingA[1]).toBe(B);
+  });
+});
+
+/**
+ * ONE PAD-MASS KEY RULE (audit 2026-09-22, extraction #3). The key a weighing
+ * is stored under must be the key the set on screen is compared with — App's
+ * `currentSetKey`, configSync.padMassSetKey — or hardwareMass reads the value
+ * as weighed with another set ('stale-set') and carries none of it. The file's
+ * pad mass adopted by its own motor was keyed with the mount's CLUSTER count
+ * while the set on screen counts the KERNEL's motors, so on a mount inside a
+ * pod set of two the adopted weighing never applied.
+ */
+describe('assignMotorRecord keys an adopted pad mass by the on-screen rule', () => {
+  const podTree = (): RocketTree => ({
+    name: 'pods',
+    components: [{
+      type: 'stage', id: 's1', name: 'Sustainer', children: [{
+        type: 'bodytube', id: 'b1', length: 0.5, outerRadius: 0.03, thickness: 0.001, children: [{
+          type: 'podset', id: 'pods', instanceCount: 2, radiusOffset: 0.05, children: [{
+            type: 'bodytube', id: 'pt', length: 0.3, outerRadius: 0.016, thickness: 0.001, children: [{
+              type: 'innertube', id: 'p-mmt', length: 0.2, outerRadius: 0.015, thickness: 0.0005, motorMount: true,
+            } as ComponentNode],
+          } as ComponentNode],
+        } as ComponentNode],
+      } as ComponentNode],
+    } as ComponentNode],
+  });
+
+  it('on a mount inside a pod set of two, the adopted key is the key the set on screen has', () => {
+    const tree = podTree();
+    const fresh = motor('J540R');
+    const next = assignMotorRecord({}, 'p-mmt', fresh, {
+      tree, primaryMountId: null, droppedRef: { ...ref('J540R'), padMassKg: 2.4 }, remainingRefs: {},
+    });
+    expect(next['p-mmt']!.padMassKg).toBe(2.4);
+    expect(next['p-mmt']!.padMassWeighedWith).toBe(padMassSetKey(tree, next));
   });
 });

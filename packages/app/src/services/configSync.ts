@@ -5,7 +5,6 @@ import { stableJson } from './dirtyState.js';
 import {
   LEGACY_PAD_MASS_KEY, motorIdentity, motorSetIdentity, parseSetIdentity, rekeyUnmatched,
 } from './hardwareMass.js';
-import { clusterCount } from '../tree/cluster.js';
 import { findNode, motorMounts, mountMotorCount, primaryMountOf } from '../tree/treeModel.js';
 
 /**
@@ -32,12 +31,14 @@ import { findNode, motorMounts, mountMotorCount, primaryMountOf } from '../tree/
  * file named that nothing could load, so a set only half loaded is never
  * applied against a partial catalogue sum (hardwareMass 'stale-set').
  *
- * ONE rule (audit 2026-09-22). App built it twice — once at import from the
- * configuration's own set, once for the set on screen — and the two had to be
- * kept in step by hand; when they drift, a freshly opened pad mass reads as
- * weighed with some other motor set. `refs` is empty for the set on screen:
- * the working references are not loaded motors, and the sentinel is what keeps
- * the weighing pending until they are.
+ * ONE rule (audit 2026-09-22). It was built three times — at import from the
+ * configuration's own set, for the set on screen, and when the file's own motor
+ * adopts the file's weighing (assignMotorRecord) — kept in step by hand, and the
+ * third had drifted: it counted the mount's cluster where the others count the
+ * kernel's motors. When they drift, a weighing reads as another set's and
+ * carries nothing. `refs` is empty for the set on screen: the working references
+ * are not loaded motors, and the sentinel is what keeps the weighing pending
+ * until they are.
  */
 export function padMassSetKey(
   tree: RocketTree, motors: Record<string, MountMotor>, refs: Record<string, OrkMotorRef> = {},
@@ -324,14 +325,16 @@ export function assignMotorRecord(
   // 2. The file's value adopted by the file's own motor.
   const adoptedKg = adoptsRefPadMass(droppedRef, fresh.spec.designation);
   if (adoptedKg !== undefined) {
+    // THE key rule (padMassSetKey), over the in-tree records and references.
+    // It counted each mount's CLUSTER here while the set on screen counts the
+    // kernel's motors, so on a mount inside a pod set the adopted weighing read
+    // as another set's and carried nothing (audit 2026-09-22).
     const inTree = new Set(motorMounts(tree).map((n) => n.id));
-    const count = (id: string) => clusterCount(findNode(tree, id)?.['cluster'] as string | undefined);
-    const key = motorSetIdentity([
-      ...Object.entries(next).filter(([id]) => inTree.has(id))
-        .map(([id, mm]) => [id, motorIdentity(mm.meta, mm.spec.designation), count(id)] as const),
-      ...Object.entries(remainingRefs).filter(([id]) => id !== mountId && inTree.has(id))
-        .map(([id, ref]) => [id, `unmatched:${ref.designation}`, count(id)] as const),
-    ]);
+    const key = padMassSetKey(
+      tree,
+      Object.fromEntries(Object.entries(next).filter(([id]) => inTree.has(id))),
+      Object.fromEntries(Object.entries(remainingRefs).filter(([id]) => id !== mountId && inTree.has(id))),
+    );
     next[mountId] = { ...record, padMassKg: adoptedKg, padMassWeighedWith: key };
   }
   // 3. The primary's sentinel for this mount satisfied.
