@@ -284,8 +284,11 @@ describe('a long chain of automatic radii resolves in linear time', () => {
   const behind = (n: number) => '<nosecone><name>n</name><length>0.1</length><aftradius>auto</aftradius>'
     + `</nosecone>${tube('auto').repeat(n)}${tube('0.03')}`;
   const timeRatio = (xml: (n: number) => string): number => {
-    const time = (n: number) => { const t = performance.now(); radii(orkXml(xml(n))); return performance.now() - t; };
-    time(250); // warm the parser and the JIT so the small run is not charged for it
+    const once = (n: number) => { const t = performance.now(); radii(orkXml(xml(n))); return performance.now() - t; };
+    // The FASTEST of three runs at each size: a loaded machine only ever adds
+    // time, and one stalled run read 13.4x once (verification of v0.139).
+    const time = (n: number) => Math.min(once(n), once(n), once(n));
+    once(250); // warm the parser and the JIT so the small run is not charged for it
     return time(2000) / Math.max(time(500), 0.5);
   };
 

@@ -78,7 +78,10 @@ describe('share-link codec', () => {
     const bomb = await encodeShareFragment('A'.repeat(32 * 1024 * 1024));
     expect(bomb.length).toBeLessThan(64 * 1024); // it IS a plausible-size link
     await expect(decodeShareFragment(bomb)).rejects.toThrow(/expands past 4 MB/);
-  });
+    // Not a time budget: the refusal is what is tested. Building a 32 MB input
+    // and deflating it took 5.3 s on a loaded desktop (232 ms idle), past
+    // vitest's 5 s default — room for a slow runner, not a stopwatch.
+  }, 30_000);
 
   it('still round-trips a normal design under the bomb cap', async () => {
     // A realistic large design (~340 KB of XML) stays well inside the cap.
