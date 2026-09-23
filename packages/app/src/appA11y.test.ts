@@ -100,17 +100,11 @@ describe('App — accessibility wiring', () => {
     expect(openingTag(app(), 'className="motors-layout"')).toMatch(/^<main /);
   });
 
-  it('row 462: the stats drawer toggles state whether it is open, and a press hands focus across', () => {
-    const src = app();
-    const collapse = openingTag(src, 'onClick={() => setDrawerByUser(false)}');
-    const chip = openingTag(src, 'onClick={() => setDrawerByUser(true)}');
-    expect(collapse).toContain('aria-expanded={true}');
-    expect(chip).toContain('aria-expanded={false}');
-    // The two replace each other, so the one pressed unmounts: without the
-    // handoff focus fell to <body> and neither state was ever heard (review
-    // of the audit branch). The behaviour is tested in useFocusHandoff.test.tsx.
-    expect(collapse).toContain("ref={drawerFocus.refFor('collapse')}");
-    expect(chip).toContain("ref={drawerFocus.refFor('chip')}");
-    expect(handler(src, 'setDrawerByUser')).toContain("drawerFocus.handTo(v ? 'collapse' : 'chip');");
-  });
+  // Row 462 — the stats drawer's two halves say whether it is open, and a
+  // press hands focus across — is behaviour now (audit 2026-09-22, row 477):
+  // the drawer moved into hooks/useHeroDrawer.ts (row 501), and
+  // App.render.test.tsx ("says whether it is open, on both halves, and a
+  // press hands focus across") mounts App, presses each half and reads
+  // aria-expanded and document.activeElement. The mechanism is
+  // useFocusHandoff.test.tsx's.
 });

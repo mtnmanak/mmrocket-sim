@@ -13,7 +13,7 @@ import { classLabel } from './services/motorDb.js';
 import { loadCatalogueMotor } from './services/motorMatch.js';
 import { nozzleOversize } from './services/nozzleCheck.js';
 import { designMatchKeyOf } from './services/simReport.js';
-import { addStage, defaultTree, motorMounts } from './tree/treeModel.js';
+import { addChild, addStage, defaultTree, motorMounts } from './tree/treeModel.js';
 import type { MountMotor } from './model/design.js';
 import { APP_VERSION } from './version.js';
 
@@ -340,6 +340,51 @@ describe('a v0.117 session\'s weighed pad mass', () => {
 });
 
 /**
+ * A WEIGHING SAVED ON A POD'S RECORD MOVES TO THE CORE'S, AND SAYS SO (audit
+ * 2026-09-22, row 356). A session saved with a pod motor picked before the
+ * core's has its pad mass on the record that has just stopped being primary;
+ * the restore moves it (treeModel.padMassOntoRankedPrimary) and the notice bar
+ * says where, so the value is not seen to jump cards unexplained.
+ * primaryMount.test.ts checked App's half as a regex for the ref it read.
+ */
+describe('a session\'s pad mass saved under a pod picked first', () => {
+  it('is moved onto the core motor\'s record, and the bar names both mounts', async () => {
+    const podTree = (t: RocketTree): RocketTree => {
+      const body = t.components[0]!.children!.find((n) => n.type === 'bodytube')!;
+      return addChild(t, body.id!, {
+        type: 'podset', id: 'pods', name: 'Side pods', instanceCount: 2, children: [{
+          type: 'bodytube', id: 'pod-bt', name: 'Pod tube', length: 0.1, outerRadius: 0.01, thickness: 0.0005,
+          children: [{
+            type: 'innertube', id: 'pod-mmt', name: 'Pod MMT', motorMount: true,
+            length: 0.07, outerRadius: 0.0095, thickness: 0.0003,
+          } as ComponentNode],
+        } as ComponentNode],
+      } as ComponentNode);
+    };
+    const probe = podTree(defaultTree());
+    const core = motorMounts(probe).find((m) => m.id !== 'pod-mmt')!;
+    const c6 = (await loadCatalogueMotor('Estes', 'C6', 5))!;
+    await seedStarterSession({
+      edit: () => probe,
+      over: {
+        // The pod's record FIRST: the tie-break that named it primary before row 356.
+        mountMotors: { 'pod-mmt': { ...c6, padMassKg: 0.25, padMassWeighedWith: 'weighed-set' }, [core.id!]: c6 },
+      },
+    });
+    await mountApp();
+    await settle(50);
+    expect(noticeBar()?.textContent).toContain(
+      `now sits under C6 on ${core.name}, not under C6 on Pod MMT:`);
+    window.dispatchEvent(new Event('pagehide'));
+    const stored = (JSON.parse(localStorage.getItem(SESSION_KEY)!) as {
+      mountMotors: Record<string, { padMassKg?: number }>;
+    }).mountMotors;
+    expect(stored[core.id!]?.padMassKg).toBe(0.25);
+    expect('padMassKg' in stored['pod-mmt']!).toBe(false);
+  }, 30000);
+});
+
+/**
  * THE HERO CANVAS SIZES TO THE DRAWING (v0.076, v0.092). The schematic reports
  * its natural height and App's stage asks for that plus the stats chip's
  * headroom plus the open drawer, and publishes the drawer's height on its own
@@ -391,6 +436,27 @@ describe('the All-stats drawer on a first look at the Design tab', () => {
     const host = await mountApp();
     await waitFor(() => host.querySelector('.stats-drawer') !== null, 'the drawer');
     expect(host.querySelector('.stats-drawer-chip')).toBeNull();
+  }, 30000);
+
+  /**
+   * AUDIT ROW 462: each half of the disclosure says its state, and a press
+   * hands focus to the half that replaces it — they are different buttons,
+   * so the one pressed unmounts and focus fell to <body>, with neither
+   * aria-expanded ever heard changing. appA11y.test.ts held the wiring as
+   * regexes over App.tsx; useFocusHandoff.test.tsx has the mechanism.
+   */
+  it('says whether it is open, on both halves, and a press hands focus across', async () => {
+    viewport(1200);
+    const host = await mountApp();
+    await waitFor(() => host.querySelector('.stats-drawer') !== null, 'the drawer');
+    const collapse = button(host, '▾ Collapse');
+    expect(collapse.getAttribute('aria-expanded')).toBe('true');
+    await act(async () => { collapse.click(); });
+    const chip = button(host, '▤ All stats');
+    expect(chip.getAttribute('aria-expanded')).toBe('false');
+    expect(document.activeElement).toBe(chip);
+    await act(async () => { chip.click(); });
+    expect(document.activeElement).toBe(button(host, '▾ Collapse'));
   }, 30000);
 
   it('is shut below 981px, with the chip to open it', async () => {
