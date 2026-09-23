@@ -11,8 +11,7 @@ import { BatchSimulate, batchUnavailableReason } from './components/BatchSimulat
 import { batchMotorIds } from './services/batchSweep.js';
 import { ConfigPanel } from './components/ConfigPanel.js';
 import { Icon } from './components/Icon.js';
-import { ChangelogDialog } from './components/ChangelogDialog.js';
-import { GuideDialog } from './components/GuideDialog.js';
+import { LazyDialog } from './components/LazyDialog.js';
 import { FirstRunTour } from './components/FirstRunTour.js';
 import { FlyScreen } from './components/FlyScreen.js';
 import { ComponentTree } from './components/ComponentTree.js';
@@ -44,6 +43,18 @@ import {
  * the design screen (and the launch field's cell signal) does not pay for it.
  */
 const Rocket3D = lazy(() => import('./components/Rocket3D.js').then((m) => ({ default: m.Rocket3D })));
+/**
+ * The user guide (data/userGuide.ts) and the changelog (changelog.ts) are the
+ * two biggest texts in the app — 270 KB and 461 KB of source at v0.140, and
+ * both grow every release — and nothing on the design or flight screens reads
+ * either (audit 2026-09-22, row 510). Lazy, so each arrives in a chunk of its
+ * own the first time it opens; LazyDialog stands in while it downloads.
+ * Nothing that loads at startup may import either dialog or its text, or the
+ * chunk folds back into the entry: App.lazyDialogs.test.tsx checks that the
+ * first render does not load them.
+ */
+const GuideDialog = lazy(() => import('./components/GuideDialog.js').then((m) => ({ default: m.GuideDialog })));
+const ChangelogDialog = lazy(() => import('./components/ChangelogDialog.js').then((m) => ({ default: m.ChangelogDialog })));
 import { TreeSchematic } from './components/TreeSchematic.js';
 import { AftView } from './components/AftView.js';
 import { View3DBoundary } from './components/View3DBoundary.js';
@@ -3105,9 +3116,17 @@ export function App() {
         )}
       </header>
       {showPrefs && <PreferencesDialog onClose={() => setShowPrefs(false)} />}
-      {showGuide && <GuideDialog onClose={() => setShowGuide(false)} />}
+      {showGuide && (
+        <LazyDialog label="User guide" onClose={() => setShowGuide(false)}>
+          <GuideDialog onClose={() => setShowGuide(false)} />
+        </LazyDialog>
+      )}
       {tour.open && <FirstRunTour onSetTab={setTab} onClose={tour.close} />}
-      {showChangelog && <ChangelogDialog onClose={() => setShowChangelog(false)} />}
+      {showChangelog && (
+        <LazyDialog label="Changelog" onClose={() => setShowChangelog(false)}>
+          <ChangelogDialog onClose={() => setShowChangelog(false)} />
+        </LazyDialog>
+      )}
       {showWeather && (
         <WeatherDialog launch={launch}
           initialPlace={weather ? { ...weather.place, timezone: weather.timezone } : null}

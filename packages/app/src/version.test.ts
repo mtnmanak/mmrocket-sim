@@ -1,6 +1,40 @@
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { APP_VERSION, CHANGELOG } from './version.js';
+import { CHANGELOG } from './changelog.js';
+import { APP_VERSION } from './version.js';
 import versionJson from '../../../version.json';
+
+const here = dirname(fileURLToPath(import.meta.url));
+
+/**
+ * The release tooling reads these two files as TEXT, not by importing them,
+ * so their shape is a contract (audit 2026-09-22, row 510, which moved the
+ * changelog out of version.ts). The deploy workflow's version-pairing step and
+ * scripts/package-dist.mjs match APP_VERSION with the first pattern; the
+ * release script prepends an entry by matching the second and finding the
+ * array's opening line. A reformat that still type-checks would break them.
+ */
+describe('version.ts and changelog.ts keep the shape the release tooling reads', () => {
+  const versionTs = readFileSync(join(here, 'version.ts'), 'utf8');
+  const changelogTs = readFileSync(join(here, 'changelog.ts'), 'utf8');
+
+  it('version.ts states APP_VERSION in the exact form both patterns match', () => {
+    expect(versionTs.match(/APP_VERSION\s*=\s*'([^']+)'/)?.[1]).toBe(APP_VERSION);
+    expect(versionTs.match(/export const APP_VERSION = '([0-9.]+)';/)?.[1]).toBe(APP_VERSION);
+  });
+
+  it('version.ts holds APP_VERSION and nothing else, so importing it stays cheap', () => {
+    expect(versionTs.match(/^export /gm)).toHaveLength(1);
+    expect(versionTs).not.toMatch(/^import /m);
+  });
+
+  it("changelog.ts opens the array on the release script's anchor line, once", () => {
+    const anchor = '\nexport const CHANGELOG: ChangelogEntry[] = [\n';
+    expect(changelogTs.split(anchor)).toHaveLength(2);
+  });
+});
 
 /**
  * The changelog is the user-facing record of what a refresh gives them, and it

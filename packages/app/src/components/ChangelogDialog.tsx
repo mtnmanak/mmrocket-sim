@@ -1,7 +1,12 @@
-import { APP_VERSION, CHANGELOG, PRE_VERSIONING_NOTE } from '../version.js';
+import { CHANGELOG, PRE_VERSIONING_NOTE } from '../changelog.js';
+import { APP_VERSION } from '../version.js';
 import { useBackdropClose, useDialog } from './useDialog.js';
 
-/** What's-new dialog, opened from the version badge in the header. */
+/**
+ * What's-new dialog, opened from the version badge in the header. App.tsx
+ * lazy-loads it, and with it changelog.ts, which nothing else in the app
+ * imports (audit 2026-09-22, row 510).
+ */
 export function ChangelogDialog({ onClose }: { onClose: () => void }) {
   const dialogRef = useDialog(onClose);
   const backdrop = useBackdropClose(onClose);

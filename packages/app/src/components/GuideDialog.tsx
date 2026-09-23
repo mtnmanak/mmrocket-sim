@@ -7,7 +7,8 @@ import { APP_VERSION } from '../version.js';
  * In-app user guide — quick start, feature reference, and the physics/math
  * documentation. Opened from the "❓ Guide" header button. A table of
  * contents on the left jumps between sections; content is our own trusted
- * static HTML.
+ * static HTML. App.tsx lazy-loads it, and with it data/userGuide.ts, which
+ * nothing else in the app imports (audit 2026-09-22, row 510).
  */
 export function GuideDialog({ onClose }: { onClose: () => void }) {
   const [active, setActive] = useState(GUIDE_SECTIONS[0]?.id ?? '');
