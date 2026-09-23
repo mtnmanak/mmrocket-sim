@@ -1517,7 +1517,7 @@ describe('conditionsKeyOf — absent and cleared are the same flight (services-r
     const patches: Partial<LaunchConditions>[] = [
       { windAverage: 5 }, { windStdDev: 1 }, { launchRodAngleDeg: 10 },
       { launchRodLengthM: 2 }, { launchAltitudeM: 300 }, { temperatureC: 30 },
-      { pressureHPa: 900 }, { latitudeDeg: 40 }, { longitudeDeg: -119.355 },
+      { pressureHPa: 900 }, { latitudeDeg: 40 },
       { launchRodAngleDeg: 5, launchRodAimDeg: 90 },
     ];
     for (const p of patches) {
@@ -1525,16 +1525,37 @@ describe('conditionsKeyOf — absent and cleared are the same flight (services-r
     }
   });
 
-  // Weather build, step 3: blank, cleared, non-finite and the kernel's own
-  // −80.6 are one flight (kernelSimOptions omits the key for all four), and
-  // the .ork writer states a blank as −80.6, which its reader keeps.
-  it('folds a longitude that flies the default onto the key every stored run already has', () => {
+  // Weather build, step 3, and its review (2026-09-23): longitude moves no
+  // flight number (simReport.kernel.test flies three to one apogee), so no
+  // longitude may move the key. Folding only a blank and −80.6 was the first
+  // build's rule, and it re-keyed every run flown from a desktop .ork stating a
+  // real longitude — which the reader before the field never read.
+  it('never hashes a longitude — blank, the default or a real one — so no stored run is re-keyed by it', () => {
     const base = conditionsKeyOf(DEFAULT_CONDITIONS);
-    for (const longitudeDeg of [null, -80.6, NaN, undefined]) {
+    for (const longitudeDeg of [null, -80.6, NaN, undefined, -119.11217, 80.126879, -180, 180, 0]) {
       expect(conditionsKeyOf({ ...DEFAULT_CONDITIONS, longitudeDeg }), String(longitudeDeg)).toBe(base);
     }
     expect(base).not.toContain('longitude');
-    expect(conditionsKeyOf({ ...DEFAULT_CONDITIONS, longitudeDeg: -119.355 })).toContain('longitudeDeg=-119.355');
+  });
+
+  it('THE VISIBLE SYMPTOM: a run flown before the field still matches its reopened file’s real longitude', () => {
+    // SS Wild Bash 20260623v0.ork's site, as the reader before the field left
+    // it (no longitude at all) and as it reads now (−119.11217).
+    const site: LaunchConditions = {
+      ...DEFAULT_CONDITIONS, launchAltitudeM: 1190, latitudeDeg: 40.844967, timeStepS: 0.05,
+    };
+    const run = {
+      designKey: 'd1', motorSetKey: 'm1', aeroModel: 'classic', rogersKbf: false,
+      conditionsKey: conditionsKeyOf(site),
+    } as SimRun;
+    const cur: DesignMatchKey = {
+      designKey: 'd1', motorSetKey: 'm1',
+      conditionsKey: conditionsKeyOf({ ...site, longitudeDeg: -119.11217 }),
+      aeroMode: 'classic', effectiveKbf: false, autoSupersonic: false,
+    };
+    // Before: ['the launch conditions'], and no Show charts or .ork export.
+    expect(changedSinceRun(run, cur)).toEqual([]);
+    expect(runMatchesDesign(run, cur)).toBe(true);
   });
 
   // Weather build, step 2 (decision D9): an aim that does not move the flight

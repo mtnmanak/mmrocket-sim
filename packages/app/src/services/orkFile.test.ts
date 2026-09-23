@@ -756,6 +756,15 @@ describe('.ork launch conditions (simulations block)', () => {
     expect(importOrk(DESKTOP_SIM).launch!.longitudeDeg).toBe(-108.55);
   });
 
+  it('reads a desktop file to the conditions key its runs were stamped with before the reader read longitude', () => {
+    // The reader before the field ignored <launchlongitude>, so every run
+    // flown from this file was keyed without it (review of 2026-09-23).
+    const launch = { ...DEFAULT_CONDITIONS, ...importOrk(DESKTOP_SIM).launch! };
+    const { longitudeDeg: _read, ...asBefore } = launch;
+    expect(launch.longitudeDeg).toBe(-108.55);
+    expect(conditionsKeyOf(launch)).toBe(conditionsKeyOf(asBefore));
+  });
+
   it('writes the longitude, and a blank one as exactly the line every export carried before', () => {
     const at = (l: number | null | undefined) => exportOrk({ name: 'Cond', tree: SIMPLE_TREE, launch: launchWith(l) });
     expect(at(-119.355)).toContain('<launchlongitude>-119.355</launchlongitude>');

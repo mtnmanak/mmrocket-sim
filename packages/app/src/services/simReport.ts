@@ -1,6 +1,6 @@
 import type { EngineWarning, FlightEvent, FlightResult, FlightSeries, MotorSpec, StaticInfo } from '@online-openrocket/engine';
 import { boosterBranches, DEFAULT_TIME_STEP_S, G0 } from '@online-openrocket/engine';
-import { flownLongitudeDeg, flownRodAimDeg, type LaunchConditions } from '../components/LaunchPanel.js';
+import { flownRodAimDeg, type LaunchConditions } from '../components/LaunchPanel.js';
 import type { MountMotor } from '../App.js';
 import { motorIdentity } from './hardwareMass.js';
 import { displayDesignation } from './motorDb.js';
@@ -1063,14 +1063,23 @@ export function conditionsKeyOf(launch: LaunchConditions): string {
   for (const k of ['launchAltitudeM', 'temperatureC', 'pressureHPa']) {
     if (l[k] != null && l[k] !== flown[k]) l[k] = flown[k];
   }
-  // A LONGITUDE THAT FLIES THE DEFAULT IS NO LONGITUDE (weather build, step
-  // 3). Blank, cleared, non-finite and the kernel's own −80.6 are one flight
-  // (`flownLongitudeDeg`, the predicate `kernelSimOptions` omits the key by),
-  // so they must be one key — and the absent spelling, which is what every run
-  // stored before the field used. The .ork writer states a blank as −80.6 and
-  // the reader keeps that number, so without this a design's own save and
-  // reopen would re-key every run it had flown.
-  if (flownLongitudeDeg(launch) === null) delete l.longitudeDeg;
+  // LONGITUDE IS NEVER HASHED (weather build, step 3; review of 2026-09-23).
+  // It moves no flight number — gravity and the Coriolis term read latitude
+  // only, and simReport.kernel.test flies −80.6, 10 and −119.355 to one apogee,
+  // top speed and flight time — so it is not "a launch condition that changes a
+  // flight", and a key that carried it would accuse a run of a difference that
+  // is not there. Folding only a blank or −80.6 (the first build) was not
+  // enough: the reader before this field ignored <launchlongitude>, so every
+  // run flown from a desktop .ork was keyed WITHOUT the file's longitude, and
+  // reopening that file now reads it (16 of the 29 local .ork files with
+  // launch conditions state a real one, −119.11 to +80.13). Each of those runs
+  // then read "flown with different launch conditions", lost Show charts, and
+  // dropped out of an exported .ork — on the reopen the app's own post-release
+  // notice asks for. Dropped outright, every stored key is byte-identical to
+  // before the field whatever the file said. What a re-fly draws differently
+  // is the flight data's λ column alone, which then follows the Longitude the
+  // design holds now: where the design says the pad is.
+  delete l.longitudeDeg;
   // A ROD AIM THAT FLIES AS AIM 0 IS NO AIM (weather build, step 2; decision
   // D9). Absent, 0, a whole turn, NaN, and ANY aim on a vertical rod hand the
   // kernel no rodDirection at all (`flownRodAimDeg`, the predicate

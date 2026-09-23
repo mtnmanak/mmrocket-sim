@@ -65,9 +65,11 @@ export interface LaunchConditions {
    * field restores without it and flies exactly as before, and `stableJson`
    * would read a filled-in key as an edit. Never `undefined` in state either —
    * null is the blank the panel writes. Out of `REQUIRED_CONDITION_KEYS`
-   * (simReport.ts), and folded out of `conditionsKeyOf` when it flies the
-   * default (`flownLongitudeDeg`). A .CDX1 has no site coordinates, so a
-   * RASAero import keeps both latitude and longitude from the design before it.
+   * (simReport.ts), and never hashed by `conditionsKeyOf` at all: it moves no
+   * flight number, and every run flown from a desktop .ork before the field
+   * was keyed without the file's longitude. A .CDX1 has no site coordinates,
+   * so a RASAero import keeps both latitude and longitude from the design
+   * before it.
    */
   longitudeDeg?: number | null;
   /**
@@ -305,11 +307,10 @@ export const KERNEL_DEFAULT_LONGITUDE_DEG = -80.6;
 /**
  * The longitude the kernel is handed, or null when the flight is identical to
  * leaving it blank — absent, cleared, not a finite number, or the default
- * itself. ONE predicate for `kernelSimOptions` (which omits the key on null)
- * and `conditionsKeyOf` (which folds it), so "does not move the flight" and
- * "does not change the conditions" cannot disagree. The .ork writer states a
- * blank as −80.6 and the reader keeps it as that typed number, so without the
- * fold a design's own round trip would re-key every run it had flown.
+ * itself. `kernelSimOptions` omits the key on null, so every design saved
+ * before the field hands the kernel byte-identical options; the review
+ * dialog reads it to tell a design with a site of its own. (`conditionsKeyOf`
+ * does not use it: no longitude moves a flight number, so none is hashed.)
  */
 export function flownLongitudeDeg(l: Pick<LaunchConditions, 'longitudeDeg'>): number | null {
   const x = l.longitudeDeg;
