@@ -5,7 +5,7 @@ import { tubeFinRadius } from '../tree/tubefins.js';
 import { assemblyInstanceCount, finCountOf, lineInstanceCount } from '../tree/counts.js';
 import { arrowPan, releasedDuring, startsGesture, wheelNotches } from '../chartPanZoom.js';
 import { isAssembly, resolveAssemblyRadius, ringInstanceOffsets } from '../tree/assembly.js';
-import { isConformal } from '../tree/shroud.js';
+import { isConformal, shroudHalfWidth } from '../tree/shroud.js';
 import { RollControl } from './RollControl.js';
 
 /**
@@ -384,10 +384,11 @@ export function AftView({ tree, motors, roll: rollProp, onRoll }: {
       );
     }
     if (s.kind === 'shroud') {
-      // A shroud spans a real ARC of the airframe, not a point on it. Half of
-      // that arc is θ = asin(halfWidth / R), clamped — the app's own defaults
-      // put halfWidth/R above 1, where an unclamped asin is NaN and the whole
-      // element silently disappears (shroud.shroudHalfAngle).
+      // A shroud spans a real ARC of the airframe, not a point on it, and the
+      // app's own defaults make it wider than its tube: its half-width is
+      // clamped (shroud.shroudHalfWidth, the one the 3D mesh uses) or the
+      // conformal floor's √(R²−hw²) is NaN and the whole element silently
+      // disappears.
       const outR = s.baseR + s.height;
       const P = (y: number, z: number) => `${toSvg(z)},${-toSvg(y)}`;
       const ca = Math.cos(s.angle);
@@ -412,14 +413,14 @@ export function AftView({ tree, motors, roll: rollProp, onRoll }: {
         // model angle; the floor runs from the +hw foot back to the −hw foot
         // (decreasing angle) = sweep 0. Same derivation as v0.088's arcs,
         // checked numerically then, reused now.
-        const hw = Math.min(s.width / 2, s.baseR * 0.98);
+        const hw = shroudHalfWidth(s.baseR, s.width, true);
         const footY = Math.sqrt(Math.max(0, s.baseR * s.baseR - hw * hw));
         const corners = [pt(outR, -hw), pt(outR, hw), pt(footY, hw)];
         const [fy0, fz0] = pt(footY, -hw);
         d = 'M ' + corners.map(([y, z]) => P(y, z)).join(' L ')
           + ` A ${toSvg(s.baseR)} ${toSvg(s.baseR)} 0 0 0 ${P(fy0, fz0)} Z`;
       } else {
-        const hw = Math.min(s.width / 2, s.baseR * 2);
+        const hw = shroudHalfWidth(s.baseR, s.width, false);
         const corners = [pt(s.baseR, -hw), pt(outR, -hw), pt(outR, hw), pt(s.baseR, hw)];
         d = 'M ' + corners.map(([y, z]) => P(y, z)).join(' L ') + ' Z';
       }

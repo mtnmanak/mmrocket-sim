@@ -61,25 +61,26 @@ export function isConformal(n: ComponentNode): boolean {
 }
 
 /**
- * Half the angle the shroud subtends at the body axis, radians.
+ * The lateral half-width a shroud is drawn and meshed at, m: its own half
+ * width, CLAMPED — and the clamp is not theoretical: the app's own defaults
+ * are a 25 mm-wide shroud on a 24 mm-diameter tube. A shroud wider than its
+ * tube is a real thing people build (a GoPro on a 38 mm minimum-diameter
+ * bird).
  *
- * CLAMPED, and the clamp is not theoretical: the app's own defaults are a
- * 25 mm-wide shroud on a 24 mm-diameter tube, so `halfWidth / radius` is 1.04
- * and an unclamped `asin` returns NaN — which in SVG is an invisible element
- * and in three.js is a geometry with a broken bounding sphere. A shroud wider
- * than its tube is a real thing people build (a GoPro on a 38 mm minimum
- * diameter bird); it wraps at most half way round, and that is what π/2 means
- * here.
+ *  - CONFORMAL: inside the tube, 0.98·R. The floor is the tube's own arc
+ *    √(R²−z²), and at |z| ≥ R there is no tube below to conform to — the
+ *    root goes imaginary, which in SVG is an invisible element and in three.js
+ *    a geometry with a broken bounding sphere.
+ *  - FLAT: at 2·R. The box rests on the tangent plane, so nothing goes
+ *    imaginary; the clamp only keeps an absurd width from drawing a slab.
  *
- * NO PRODUCTION CALLER (2026-09-08 audit). It is exercised by four assertions
- * in shroudMesh.test.ts, and AftView.tsx:301 CREDITS it in a comment for a
- * clamp AftView does not actually call — so the two can drift apart freely.
- * Either give AftView this function or drop the comment there; recorded here so
- * the next reader is not misled by that reference.
+ * The ONE copy, shared by the end-on view (AftView) and the 3D shell
+ * (shroudMesh, which is also the STL). Both wrote these clamps out by hand
+ * while a `shroudHalfAngle` here, credited in AftView's comment and called by
+ * nothing, clamped at R instead (audit 2026-09-22, Dead code row 576).
  */
-export function shroudHalfAngle(bodyRadius: number, width: number): number {
-  if (!(bodyRadius > 0) || !(width > 0)) return 0;
-  return Math.asin(Math.min(1, width / 2 / bodyRadius));
+export function shroudHalfWidth(bodyRadius: number, width: number, conformal: boolean): number {
+  return conformal ? Math.min(width / 2, bodyRadius * 0.98) : Math.min(width / 2, bodyRadius * 2);
 }
 
 /**

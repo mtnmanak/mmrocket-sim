@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { shroudGeometry, type ShroudMeshSpec } from './shroudMesh.js';
-import { surfaceBumpFrontalArea, shroudHalfAngle, shroudEnds, isConformal } from './shroud.js';
+import { surfaceBumpFrontalArea, shroudHalfWidth, shroudEnds, isConformal } from './shroud.js';
 import type { ComponentNode } from '@online-openrocket/engine';
 
 /**
@@ -193,13 +193,38 @@ describe('the camera-shroud shell is a solid, not a picture of one', () => {
   });
 });
 
+describe('the shroud mesh is clamped laterally, and the aft view agrees', () => {
+  // The lateral clamps (conformal inside 0.98 R, flat at 2 R) were written out
+  // by hand here and in AftView.tsx; this pins the mesh's half before the two
+  // share one function (audit 2026-09-22, Dead code row 576).
+  const maxZ = (over: Partial<ShroudMeshSpec>) => {
+    const p = shroudGeometry(SPEC(over)).getAttribute('position');
+    let m = 0;
+    for (let i = 0; i < p.count; i++) m = Math.max(m, Math.abs(p.getZ(i)));
+    return m;
+  };
+
+  // Eight places: the position attribute is Float32, good to ~6e-8 relative.
+  it('keeps its own half-width when that fits', () => {
+    expect(maxZ({ width: 0.025 })).toBeCloseTo(0.0125, 8);
+    expect(maxZ({ width: 0.025, conformal: false })).toBeCloseTo(0.0125, 8);
+  });
+
+  it('clamps a conformal floor inside the tube (0.98 R) and a flat box at 2 R', () => {
+    expect(maxZ({ width: 0.09 })).toBeCloseTo(0.027 * 0.98, 8);
+    expect(maxZ({ width: 0.2, conformal: false })).toBeCloseTo(0.027 * 2, 8);
+  });
+});
+
 describe('shroud geometry helpers', () => {
-  it('clamps the half-angle instead of returning NaN', () => {
+  it('clamps the half-width inside the tube for a conformal floor, so its root is never NaN', () => {
     // The app's own defaults: a 25 mm shroud on a 24 mm tube.
-    expect(shroudHalfAngle(0.012, 0.025)).toBeCloseTo(Math.PI / 2, 12);
-    expect(Number.isFinite(shroudHalfAngle(0.012, 10))).toBe(true);
-    expect(shroudHalfAngle(0, 0.02)).toBe(0);
-    expect(shroudHalfAngle(0.027, 0.025)).toBeCloseTo(Math.asin(0.0125 / 0.027), 12);
+    expect(shroudHalfWidth(0.012, 0.025, true)).toBeCloseTo(0.012 * 0.98, 15);
+    expect(Number.isFinite(Math.sqrt(0.012 ** 2 - shroudHalfWidth(0.012, 10, true) ** 2))).toBe(true);
+    expect(shroudHalfWidth(0.027, 0.025, true)).toBe(0.0125);
+    // Flat rests on the tangent plane: it may be wider than the tube, to 2 R.
+    expect(shroudHalfWidth(0.012, 0.025, false)).toBe(0.0125);
+    expect(shroudHalfWidth(0.012, 10, false)).toBeCloseTo(0.024, 15);
   });
 
   it('migrates a pre-v0.088 single shape onto BOTH ends', () => {

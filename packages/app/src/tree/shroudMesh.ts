@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { type EndShape } from './shroud.js';
+import { shroudHalfWidth, type EndShape } from './shroud.js';
 
 /**
  * The camera shroud's 3D shell (v0.088), replacing the `BoxGeometry` that had
@@ -114,9 +114,8 @@ export function shroudGeometry(
   // |z| ≥ R there is no tube below to conform to, and √(R²−z²) goes imaginary.
   // A shroud wider than its tube is a real part (the app's own defaults are
   // one); it gets side walls at the clamp and a floor that wraps to there.
-  const halfW = conformal
-    ? Math.min(width / 2, bodyRadius * 0.98)
-    : Math.min(width / 2, bodyRadius * 2);
+  // shroudHalfWidth holds both clamps, shared with the end-on view.
+  const halfW = shroudHalfWidth(bodyRadius, width, conformal);
   const under = (j: number): [number, number] => {
     const f = j / (NC - 1);
     const z = -halfW + 2 * halfW * f;

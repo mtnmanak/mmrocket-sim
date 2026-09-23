@@ -251,6 +251,22 @@ describe('the camera shroud sits ON the tube, not in it', () => {
     const d = shroudPath();
     expect(d.includes('NaN')).toBe(false);
   });
+
+  it('clamps the width as the 3D mesh does: conformal inside 0.98 R, flat at 2 R', () => {
+    // The same numbers shroudMesh.test.ts pins for the mesh, so the end-on
+    // drawing and the 3D shell (and the STL) cannot part (audit 2026-09-22,
+    // Dead code row 576).
+    const xs = (d: string) => (d.match(/-?[\d.e-]+,-?[\d.e-]+/g) ?? []).map((q) => Number(q.split(',')[0]));
+    show(<AftView tree={shroudRocket(true, 0.09, 0.01)} />);
+    const c = xs(shroudPath());
+    expect(Math.max(...c) - Math.min(...c)).toBeCloseTo(2 * 0.98 * BODY_R, 6);
+    show(<AftView tree={shroudRocket(false, 0.2, 0.01)} />);
+    const flat = [...host.querySelectorAll('path')]
+      .map((e) => e.getAttribute('d') ?? '')
+      .find((q) => q.startsWith('M ') && !q.includes('A '))!;
+    const f = xs(flat);
+    expect(Math.max(...f) - Math.min(...f)).toBeCloseTo(2 * 2 * BODY_R, 6);
+  });
 });
 
 /**
