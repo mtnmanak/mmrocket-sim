@@ -241,9 +241,10 @@ describe('.ork — enum strings', () => {
 
   it('an unknown ignition event falls back to automatic with a note (the kernel threw on it)', () => {
     const r = importOrk(ork(MOUNT('whenever')));
-    expect(r.motor!.ignitionEvent).toBeUndefined();
-    expect(r.notes).toContain('“Mount”: motor ignition event “whenever” is not one the simulation knows'
-      + ' — it now uses automatic ignition, desktop OpenRocket’s default.');
+    // The .ork reader names AUTOMATIC explicitly (services/ignitionEvent.ts is the one
+    // reader of the five, shared with the flight runner), once per motor and value.
+    expect(r.motor!.ignitionEvent).toBe('automatic');
+    expect(r.notes.filter((n) => n.includes('“whenever”') && /lights on Automatic/.test(n))).toHaveLength(1);
   });
 
   it('an ignition event in another spelling is read in the kernel\'s', () => {
