@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
 import { exportRkt, importRkt, rktEveryDelay } from './rocksimFile.js';
-import { exportOrk, importOrk } from './orkFile.js';
+import { exportOrk, importOrk, type OrkExportMotor } from './orkFile.js';
+import { importCdx1 } from './rasaeroFile.js';
 import { refToExportMotor } from './motorMatch.js';
 import { loadPresets } from './presets.js';
 import { findDbMotor, MOTOR_DB } from './motorDb.js';
@@ -1115,6 +1116,128 @@ describe('.rkt staging timers round-trip', () => {
     expect(byDes['K250W']!.ignitionDelay).toBe(12);
     // The launch stage stays on the kernel's own default.
     expect(byDes['L2200G']!.ignitionEvent).toBeUndefined();
+  });
+});
+
+/**
+ * THE PAD STAGE'S DELAY, AND EVERY EVENT A .rkt CAN SAY (seam review of audit
+ * 2026-09-22). Nothing burns below the stage that leaves the pad, so RockSim
+ * counts ITS IgnitionDelay from launch — an air start. The reader dropped it
+ * (42 simulations in 13 corpus files lit at t = 0, most of them the owner's),
+ * although the writer had just been taught to write it; and the writer dropped
+ * the delay of the kernel's default event, 'automatic', everywhere.
+ */
+describe('.rkt ignition delays — read and written for every event RockSim can say', () => {
+  const twoStage = (): { name: string; components: ComponentNode[] } => ({
+    name: 'RT',
+    components: [
+      { type: 'stage', name: 'Sustainer', id: 's0', children: [
+        { type: 'bodytube', id: 'm0', length: 0.2, outerRadius: 0.027, thickness: 0.001, motorMount: true },
+      ] },
+      { type: 'stage', name: 'Booster', id: 's1', children: [
+        { type: 'bodytube', id: 'm1', length: 0.3, outerRadius: 0.027, thickness: 0.001, motorMount: true },
+      ] },
+    ] as ComponentNode[],
+  });
+  const motor = (designation: string, extra: Partial<OrkExportMotor> = {}): OrkExportMotor => ({
+    designation, manufacturer: 'AeroTech', diameter: 0.054, length: 0.3, delay: 0, ...extra,
+  });
+  const reread = (xml: string) => Object.fromEntries(
+    Object.values(importRkt(xml).motors).map((m) => [m.designation, m]));
+
+  it('reads a delay on the pad stage as launch plus that delay', () => {
+    const one = `<RockSimDocument><DesignInformation><RocketDesign>
+      <Name>Air start</Name><StageCount>1</StageCount>
+      <Stage3Parts><BodyTube><Name>Body</Name><OD>98</OD><ID>96</ID><Len>900</Len><SerialNo>1</SerialNo>
+        <AttachedParts>
+          <BodyTube><Name>Core</Name><OD>40</OD><ID>38.4</ID><Len>300</Len><IsMotorMount>1</IsMotorMount><SerialNo>7</SerialNo></BodyTube>
+          <BodyTube><Name>Outboard</Name><OD>31</OD><ID>29.5</ID><Len>200</Len><IsMotorMount>1</IsMotorMount>
+            <RadialLoc>35</RadialLoc><SerialNo>8</SerialNo></BodyTube>
+        </AttachedParts></BodyTube></Stage3Parts>
+      <SimulationResultsList><SimulationResults><Stage3Engines>
+        <EngineSet><EngineCode>I599N</EngineCode><EngineMfg>Cesaroni</EngineMfg><IgnitionDelay>0.</IgnitionDelay>
+          <MountSerialNo>7</MountSerialNo><EjectionDelay>-2.</EjectionDelay></EngineSet>
+        <EngineSet><EngineCode>H115DM</EngineCode><EngineMfg>Cesaroni</EngineMfg><IgnitionDelay>2.</IgnitionDelay>
+          <MountSerialNo>8</MountSerialNo><EjectionDelay>-2.</EjectionDelay></EngineSet>
+      </Stage3Engines></SimulationResults></SimulationResultsList>
+    </RocketDesign></DesignInformation></RockSimDocument>`;
+    const m = reread(one);
+    expect(m['H115DM']!.ignitionEvent).toBe('launch');
+    expect(m['H115DM']!.ignitionDelay).toBe(2);
+    // A 0 stays the kernel's own default, as every single-stage file always has.
+    expect(m['I599N']!.ignitionEvent).toBeUndefined();
+    expect(m['I599N']!.ignitionDelay).toBeUndefined();
+  });
+
+  it('writes and reads back automatic on the pad stage, and automatic above one whose motors share a delay', () => {
+    const notes: string[] = [];
+    const xml = exportRkt({
+      name: 'RT', tree: twoStage(), notes,
+      motors: {
+        // The kernel's automatic: LAUNCH on the bottom stage …
+        m1: motor('M1350W', { delay: 3, ignitionEvent: 'automatic', ignitionDelay: 12 }),
+        // … and the charge of the stage below above it: 3 s after that burnout.
+        m0: motor('K250W', { delay: 6, ignitionEvent: 'automatic', ignitionDelay: 1.5 }),
+      },
+    });
+    expect(notes).toEqual([]);
+    expect(xml).toContain('<SimulationName>[M1350W-3-12] [K250W-6-4.5] </SimulationName>');
+    const m = reread(xml);
+    expect([m['M1350W']!.ignitionEvent, m['M1350W']!.ignitionDelay]).toEqual(['launch', 12]);
+    // The same instant, in RockSim's words: the booster's burnout + 3 s + 1.5 s.
+    expect([m['K250W']!.ignitionEvent, m['K250W']!.ignitionDelay]).toEqual(['burnout', 4.5]);
+  });
+
+  it('round-trips launch on the pad stage and burnout above it unchanged', () => {
+    const notes: string[] = [];
+    const m = reread(exportRkt({
+      name: 'RT', tree: twoStage(), notes,
+      motors: {
+        m1: motor('M1350W', { ignitionEvent: 'launch', ignitionDelay: 0.5 }),
+        m0: motor('K250W', { ignitionEvent: 'burnout', ignitionDelay: 7 }),
+      },
+    }));
+    expect(notes).toEqual([]);
+    expect([m['M1350W']!.ignitionEvent, m['M1350W']!.ignitionDelay]).toEqual(['launch', 0.5]);
+    expect([m['K250W']!.ignitionEvent, m['K250W']!.ignitionDelay]).toEqual(['burnout', 7]);
+  });
+
+  it('says what RockSim cannot: launch above the pad stage, a charge below that is plugged, never', () => {
+    const cases: [Partial<OrkExportMotor>, Partial<OrkExportMotor>, RegExp][] = [
+      [{ ignitionEvent: 'launch', ignitionDelay: 2 }, {}, /“K250W” lights at launch, above the stage that leaves the pad\. .* lights it 2 s after the burnout of the stage below\./],
+      [{ ignitionEvent: 'automatic' }, { delay: Infinity }, /“K250W” lights on the ejection charge of the stage below, whose motors do not share one ejection delay\./],
+      [{ ignitionEvent: 'never' }, {}, /“K250W” is set never to light\./],
+    ];
+    for (const [upper, booster, said] of cases) {
+      const notes: string[] = [];
+      exportRkt({ name: 'RT', tree: twoStage(), notes, motors: { m1: motor('M1350W', booster), m0: motor('K250W', upper) } });
+      expect(notes).toEqual([expect.stringMatching(said)]);
+    }
+    // Burnout on the pad stage: nothing burns below it, so it never lights here.
+    const notes: string[] = [];
+    exportRkt({ name: 'RT', tree: twoStage(), notes, motors: { m1: motor('M1350W', { ignitionEvent: 'burnout', ignitionDelay: 1 }) } });
+    expect(notes).toEqual([expect.stringMatching(/which never comes on the stage that leaves the pad, so it does not light here either\. .* lights it 1 s after launch\./)]);
+  });
+
+  it('38-54 2-stage.CDX1: the M1350W on automatic/12 s reopens from a .rkt still lit at 12 s', () => {
+    const r = importCdx1(fixture('38-54 2-stage.CDX1'));
+    const motors = Object.fromEntries(Object.entries(r.motors).map(([id, ref]) => [id, refToExportMotor(ref)]));
+    const m1350 = Object.values(r.motors).find((m) => m.designation === 'M1350W')!;
+    expect([m1350.ignitionEvent, m1350.ignitionDelay]).toEqual(['automatic', 12]);
+    const back = reread(exportRkt({ name: '38-54', tree: r.tree, motors }));
+    expect([back['M1350W']!.ignitionEvent, back['M1350W']!.ignitionDelay]).toEqual(['launch', 12]);
+    expect([back['K627LR']!.ignitionEvent, back['K627LR']!.ignitionDelay]).toEqual(['burnout', 22]);
+  });
+
+  // The owner's own file, local-only: simulation 3 lights six H115DM 2 s after the I599N.
+  const BRUISER = ['G:/Documents/Dropbox/Rocksim Designs', 'C:/Users/peltz/Dropbox/Rocksim Designs']
+    .map((c) => `${c}/LOC Precision Rocketry/PELTZER - LOC Bruiser EXP v2_1x54mm_6x29mm.rkt`).find((p) => existsSync(p));
+  it.skipIf(!BRUISER)('PELTZER - LOC Bruiser EXP v2_1x54mm_6x29mm.rkt: simulation 3 is an air start', () => {
+    const r = importRkt(readFileSync(BRUISER!, 'latin1'));
+    const sim3 = r.configs.find((c) => c.id === 'rocksim-sim-3')!;
+    const byDes = new Map(Object.values(sim3.motors).map((m) => [m.designation, m]));
+    expect([byDes.get('H115DM-14A')!.ignitionEvent, byDes.get('H115DM-14A')!.ignitionDelay]).toEqual(['launch', 2]);
+    expect(byDes.get('I599N')!.ignitionEvent).toBeUndefined();
   });
 });
 

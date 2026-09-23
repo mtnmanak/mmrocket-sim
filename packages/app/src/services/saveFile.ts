@@ -173,3 +173,30 @@ export function downloadBlob(blob: Blob, filename: string, description = 'File')
     description,
   });
 }
+
+/**
+ * What the file note says after a save — where the file went, and under it
+ * whatever the written file could not carry (`losses`, from a writer such as
+ * exportRkt's `notes`), which makes it a warning. null for a cancelled dialog:
+ * the user pressed Cancel, an app that reports on that is an app that nags,
+ * and no file exists to have lost anything.
+ */
+export function saveOutcomeNote(
+  out: SaveOutcome, losses: readonly string[] = [],
+): { text: string; severity: 'info' | 'warn' } | null {
+  if (out.kind === 'cancelled') return null;
+  const lossLines = losses.length ? `\n${losses.join('\n')}` : '';
+  if (out.kind === 'saved') {
+    return { text: `Saved “${out.name}”.${lossLines}`, severity: losses.length ? 'warn' : 'info' };
+  }
+  return {
+    text: (out.fellBack
+      // The dialog opened and then the write failed — a full disk, a locked
+      // file, a revoked permission. Reporting a plain success there would
+      // send the user looking in the folder they picked.
+      ? `Couldn't write to the folder you chose (${out.fellBack}) — `
+        + `“${out.name}” went to your browser's download folder instead.`
+      : `Saved “${out.name}” to your browser's download folder.`) + lossLines,
+    severity: out.fellBack || losses.length ? 'warn' : 'info',
+  };
+}

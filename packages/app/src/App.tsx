@@ -74,7 +74,7 @@ import { exportRkt, importRkt } from './services/rocksimFile.js';
 import { loadPresets } from './services/presets.js';
 import { componentCsv, componentTable } from './services/componentTable.js';
 import { CSV_BOM, safeName } from './services/fileName.js';
-import { saveFile, type SaveOutcome } from './services/saveFile.js';
+import { saveFile, saveOutcomeNote, type SaveOutcome } from './services/saveFile.js';
 import { tableToXlsx, XLSX_MIME } from './services/xlsx.js';
 import { exportCdx1, importCdx1 } from './services/rasaeroFile.js';
 import {
@@ -2649,7 +2649,13 @@ export function App() {
    * where — "I did a save as a CDX1 and I don't know where it went" is a
    * tester's own sentence, and silence is what made it possible.
    */
-  const download = async (content: string | Uint8Array, ext: string, suffix = '') => {
+  const download = async (
+    content: string | Uint8Array, ext: string, suffix = '',
+    // What the written file could not carry (exportRkt's `notes`), said under
+    // the save line as a warning — never when the user cancelled, because
+    // then no file exists to have lost anything.
+    losses: readonly string[] = [],
+  ) => {
     // CSV gets a UTF-8 BOM: headers can carry non-ASCII (units, symbols), and
     // Excel's double-click open decodes BOM-less CSV as the ANSI codepage.
     // Same convention as the flight-data and run-history CSVs (SimResults).
@@ -2662,20 +2668,10 @@ export function App() {
       extensions: [`.${ext}`],
       description: info.description,
     });
-    if (out.kind === 'downloaded') {
-      setFileNote(out.fellBack
-        // The dialog opened and then the write failed — a full disk, a locked
-        // file, a revoked permission. Reporting a plain success there would
-        // send the user looking in the folder they picked.
-        ? `Couldn't write to the folder you chose (${out.fellBack}) — `
-          + `“${out.name}” went to your browser's download folder instead.`
-        : `Saved “${out.name}” to your browser's download folder.`,
-      out.fellBack ? 'warn' : 'info');
-    } else if (out.kind === 'saved') {
-      setFileNote(`Saved “${out.name}”.`);
-    }
-    // 'cancelled' says nothing — the user pressed Cancel, and an app that
-    // reports on that is an app that nags.
+    // Where it went, and what it could not carry (saveOutcomeNote); a
+    // cancelled dialog says nothing.
+    const said = saveOutcomeNote(out, losses);
+    if (said) setFileNote(said.text, said.severity);
     return out;
   };
 
@@ -2759,7 +2755,9 @@ export function App() {
         };
         collect(tree.components);
       }
-      await download(exportRkt({ name: tree.name ?? 'My Rocket', tree, motors: exportMotorsMap(), compInfo }), 'rkt');
+      const losses: string[] = [];
+      const xml = exportRkt({ name: tree.name ?? 'My Rocket', tree, motors: exportMotorsMap(), compInfo, notes: losses });
+      await download(xml, 'rkt', '', losses);
     } catch (e) {
       setFileNote(`RockSim export failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
     }
